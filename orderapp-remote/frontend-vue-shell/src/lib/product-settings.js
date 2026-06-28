@@ -1319,9 +1319,9 @@ export function buildProductUnitDefinitionPayload(form = {}) {
 
 export function buildProductUnitTemplatePayload(form = {}) {
   if (Array.isArray(form.sales_spec_rows) || Array.isArray(form.sales_specs)) {
-    const salesSpecs = normalizeSalesSpecRows(form.sales_spec_rows ?? form.sales_specs)
-    const defaultSpec = salesSpecs.find((row) => row.default) || salesSpecs.find((row) => row.active !== false) || salesSpecs[0] || null
     const inventoryUnit = normalizeUnitText(form.inventory_unit, 'kg')
+    const salesSpecs = normalizeSalesSpecRows(form.sales_spec_rows ?? form.sales_specs, inventoryUnit, { forceActive: true })
+    const defaultSpec = salesSpecs.find((row) => row.default) || salesSpecs.find((row) => row.active !== false) || salesSpecs[0] || null
     const defaultSalesUnit = normalizeOptionalUnitText(
       form.default_sales_unit ?? form.defaultSalesUnit ?? form.sales_unit ?? form.order_unit ?? form.quote_unit ?? defaultSpec?.sales_unit,
     ) || defaultSpec?.sales_unit || ''
@@ -1360,11 +1360,11 @@ export function buildProductUnitTemplatePayload(form = {}) {
   }
 }
 
-export function salesSpecRowsFromTemplate(template = {}) {
+export function salesSpecRowsFromTemplate(template = {}, inventoryUnit = '') {
   const rawRows = Array.isArray(template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
     ? (template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
     : parseJSONArray(template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
-  const rows = normalizeSalesSpecRows(rawRows)
+  const rows = normalizeSalesSpecRows(rawRows, inventoryUnit || template.inventory_unit || template.inventoryUnit || '')
   return rows.map((row) => ({
     ...row,
     ...salesSpecDerivedMeta(rawRows.find((source) => String(source?.spec_key ?? source?.specKey ?? '').trim() === row.spec_key) || rawRows[rows.indexOf(row)] || {}),
@@ -1390,42 +1390,68 @@ const salesSpecWeightUnitGrams = {
 }
 
 export function salesSpecConversionLabel(row = {}, inventoryUnit = '') {
-  const salesUnit = normalizeOptionalUnitText(row?.sales_unit ?? row?.salesUnit ?? row?.unit)
+  const salesUnit = String(row?.spec_name ?? row?.specName ?? row?.derived_spec_name ?? row?.derivedSpecName ?? '').trim()
+    || normalizeOptionalUnitText(row?.sales_unit ?? row?.salesUnit ?? row?.derived_sales_unit ?? row?.derivedSalesUnit ?? row?.unit)
   const netContentQty = normalizePositiveNumber(row?.net_content_qty ?? row?.netContentQty ?? row?.content_qty)
   const netContentUnit = normalizeOptionalUnitText(row?.net_content_unit ?? row?.netContentUnit ?? row?.content_unit)
   const targetUnit = normalizeOptionalUnitText(inventoryUnit) || netContentUnit
-  if (!salesUnit || !netContentQty || !netContentUnit) return '换算待补：请填写净含量'
+  if (!salesUnit || !netContentQty || !netContentUnit) return '换算待补：请填写库存数量'
   if (!targetUnit || targetUnit === netContentUnit) return `1 ${salesUnit} = ${trimDecimal(netContentQty)} ${netContentUnit}`
-  const sourceGram = salesSpecWeightUnitGrams[netContentUnit]
-  const targetGram = salesSpecWeightUnitGrams[targetUnit]
+  const sourceGram = salesSpecWeightFactor(netContentUnit)
+  const targetGram = salesSpecWeightFactor(targetUnit)
   if (sourceGram > 0 && targetGram > 0) {
     return `1 ${salesUnit} = ${trimDecimal((netContentQty * sourceGram) / targetGram)} ${targetUnit}`
   }
   return `1 ${salesUnit} = ${trimDecimal(netContentQty)} ${netContentUnit}（库存单位 ${targetUnit}，无法自动换算）`
 }
 
-function normalizeSalesSpecRows(rows = []) {
+function salesSpecWeightFactor(unit = '') {
+  const text = String(unit || '').trim()
+  return salesSpecWeightUnitGrams[text] || salesSpecWeightUnitGrams[text.toLowerCase()] || 0
+}
+
+function convertSalesSpecQuantity(value, fromUnit = '', toUnit = '') {
+  const qty = Number(value)
+  if (!Number.isFinite(qty) || qty <= 0) return 0
+  const sourceGram = salesSpecWeightFactor(fromUnit)
+  const targetGram = salesSpecWeightFactor(toUnit)
+  if (!(sourceGram > 0 && targetGram > 0)) return 0
+  return trimDecimal((qty * sourceGram) / targetGram)
+}
+
+function normalizeSalesSpecRows(rows = [], inventoryUnit = '', options = {}) {
   const sourceRows = Array.isArray(rows) ? rows : parseJSONArray(rows)
+  const targetInventoryUnit = normalizeOptionalUnitText(inventoryUnit)
   const normalized = []
   for (const source of sourceRows) {
     const specName = String(source?.spec_name ?? source?.specName ?? source?.name ?? '').trim()
-    const salesUnit = normalizeOptionalUnitText(source?.sales_unit ?? source?.salesUnit ?? source?.unit)
-    if (!specName || !salesUnit) continue
+    if (!specName) continue
+    const salesUnit = specName
     const specKey = String(source?.spec_key ?? source?.specKey ?? '').trim() || generatedSalesSpecKey(specName, salesUnit, normalized.length)
     const netContentQty = Number(source?.net_content_qty ?? source?.netContentQty ?? source?.content_qty ?? 0)
+    const sourceNetContentUnit = normalizeOptionalUnitText(source?.net_content_unit ?? source?.netContentUnit ?? source?.content_unit) || targetInventoryUnit
+    let normalizedQty = Number.isFinite(netContentQty) ? trimDecimal(netContentQty) : 0
+    let normalizedUnit = targetInventoryUnit || sourceNetContentUnit
+    if (normalizedQty > 0 && sourceNetContentUnit && targetInventoryUnit && sourceNetContentUnit !== targetInventoryUnit) {
+      const convertedQty = convertSalesSpecQuantity(normalizedQty, sourceNetContentUnit, targetInventoryUnit)
+      if (convertedQty > 0) {
+        normalizedQty = convertedQty
+        normalizedUnit = targetInventoryUnit
+      } else {
+        normalizedUnit = sourceNetContentUnit
+      }
+    }
     normalized.push({
       spec_key: specKey,
       spec_name: specName,
       sales_unit: salesUnit,
-      net_content_qty: Number.isFinite(netContentQty) ? trimDecimal(netContentQty) : 0,
-      net_content_unit: normalizeOptionalUnitText(source?.net_content_unit ?? source?.netContentUnit ?? source?.content_unit),
-      default: Boolean(source?.default ?? source?.is_default ?? source?.isDefault),
-      active: source?.active === false ? false : true,
+      net_content_qty: normalizedQty,
+      net_content_unit: normalizedUnit,
+      default: Boolean(source?.default ?? source?.is_default ?? source?.isDefault) || normalized.length === 0,
+      active: options.forceActive ? true : (source?.active === false ? false : true),
     })
   }
-  if (normalized.length && !normalized.some((row) => row.default)) {
-    normalized[0].default = true
-  }
+  normalized.forEach((row, index) => { row.default = index === 0 })
   return normalized
 }
 

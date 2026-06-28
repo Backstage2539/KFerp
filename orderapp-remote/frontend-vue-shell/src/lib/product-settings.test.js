@@ -1449,22 +1449,22 @@ test('sales spec template payload carries template inventory unit target', () =>
     inventory_unit: ' kg ',
     sales_spec_rows: [
       { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '袋', net_content_qty: 227, net_content_unit: 'g', default: true, active: true },
-      { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', active: true },
+      { spec_key: 'bag-100g', spec_name: '100g袋装', net_content_qty: 0.1 },
     ],
   })
   assert.deepEqual(payload, {
     id: 31,
     name: '咖啡袋装销售规格',
     inventory_unit: 'kg',
-    default_sales_unit: '袋',
-    sales_unit: '袋',
-    sales_units: ['袋'],
-    quote_unit: '袋',
-    order_unit: '袋',
+    default_sales_unit: '227g袋装',
+    sales_unit: '227g袋装',
+    sales_units: ['227g袋装', '100g袋装'],
+    quote_unit: '227g袋装',
+    order_unit: '227g袋装',
     unit_conversion_json: '{}',
     sales_specs: [
-      { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '袋', net_content_qty: 227, net_content_unit: 'g', default: true, active: true },
-      { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', default: false, active: true },
+      { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '227g袋装', net_content_qty: 0.227, net_content_unit: 'kg', default: true, active: true },
+      { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '100g袋装', net_content_qty: 0.1, net_content_unit: 'kg', default: false, active: true },
     ],
     active: true,
   })
@@ -1477,37 +1477,40 @@ test('sales spec rows decorate template specs and preserve derived child SKU sta
       { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', active: false, derived_spec_status: 'template_disabled' },
     ],
   }), [
-    { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '袋', net_content_qty: 227, net_content_unit: 'g', default: true, active: true, derived_sku_code: 'SKU-000912', derived_spec_status: 'active' },
-    { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', default: false, active: false, derived_sku_code: '', derived_spec_status: 'template_disabled' },
+    { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '227g袋装', net_content_qty: 227, net_content_unit: 'g', default: true, active: true, derived_sku_code: 'SKU-000912', derived_spec_status: 'active' },
+    { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '100g袋装', net_content_qty: 100, net_content_unit: 'g', default: false, active: false, derived_sku_code: '', derived_spec_status: 'template_disabled' },
   ])
 })
 
 test('sales spec conversion label explains sales unit to parent inventory unit', () => {
   assert.equal(salesSpecConversionLabel({
     spec_name: '227g袋装',
-    sales_unit: '袋',
     net_content_qty: 227,
     net_content_unit: 'g',
-  }, 'g'), '1 袋 = 227 g')
+  }, 'g'), '1 227g袋装 = 227 g')
 
   assert.equal(salesSpecConversionLabel({
     spec_name: '227g袋装',
-    sales_unit: '袋',
     net_content_qty: 227,
     net_content_unit: 'g',
-  }, 'kg'), '1 袋 = 0.227 kg')
+  }, 'kg'), '1 227g袋装 = 0.227 kg')
 
   assert.equal(salesSpecConversionLabel({
     spec_name: '箱装',
-    sales_unit: '箱',
     net_content_qty: 12,
     net_content_unit: '袋',
-  }, 'kg'), '1 箱 = 12 袋（库存单位 kg，无法自动换算）')
+  }, 'kg'), '1 箱装 = 12 袋（库存单位 kg，无法自动换算）')
 
   assert.equal(salesSpecConversionLabel({
     spec_name: '默认规格',
-    sales_unit: '袋',
-  }, 'g'), '换算待补：请填写净含量')
+  }, 'g'), '换算待补：请填写库存数量')
+
+  assert.equal(salesSpecConversionLabel({
+    derived_spec_name: '100g袋装',
+    derived_sales_unit: '旧销售单位',
+    net_content_qty: 0.1,
+    net_content_unit: 'kg',
+  }, 'kg'), '1 100g袋装 = 0.1 kg')
 })
 
 test('structured unit conversion rows round-trip to the existing unit conversion JSON contract', () => {
@@ -3343,7 +3346,7 @@ test('global unit dictionary is managed from global settings instead of SKU sett
   assert.doesNotMatch(globalSettings, />新建单位</)
   assert.doesNotMatch(productTemplate, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(productTemplate, /@submit\.prevent="saveProductUnitDefinition"/)
-  assert.match(productTemplate, /这里维护库存单位、销售规格和销售单位/)
+  assert.match(productTemplate, /这里维护库存单位和销售规格换算/)
 })
 
 test('SKU settings splits product config templates and gradient templates into nested tabs', () => {
@@ -3385,7 +3388,7 @@ test('SKU settings separates global unit templates into a peer configuration tab
     'productUnitTemplates',
     'saveProductUnitTemplate',
     'productConfigTemplateForm.unit_template_id',
-    '这里维护库存单位、销售规格和销售单位',
+    '这里维护库存单位和销售规格换算',
     '/api/product-settings/unit-templates',
   ]) {
     assert.ok(source.includes(expected), `missing global unit template marker: ${expected}`)
@@ -3500,9 +3503,15 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   assert.match(unitTemplatePane, />销售规格模板名称</)
   assert.match(unitTemplatePane, />库存单位</)
   assert.match(unitTemplatePane, /productUnitTemplateForm\.inventory_unit/)
-  assert.match(unitTemplatePane, />默认规格</)
   assert.match(unitTemplatePane, />销售规格明细</)
   assert.match(unitTemplatePane, /sales_spec_rows/)
+  assert.match(unitTemplatePane, /class="sales-spec-row"/)
+  assert.match(unitTemplatePane, />1<\/span>[\s\S]*row\.spec_name[\s\S]*>=[\s\S]*productUnitTemplateForm\.inventory_unit/)
+  assert.doesNotMatch(unitTemplatePane, />默认规格</)
+  assert.doesNotMatch(unitTemplatePane, />启用</)
+  assert.doesNotMatch(unitTemplatePane, /v-model="row\.sales_unit"/)
+  assert.doesNotMatch(unitTemplatePane, /v-model="row\.net_content_unit"/)
+  assert.doesNotMatch(unitTemplatePane, /setSalesSpecDefault/)
   assert.doesNotMatch(unitTemplatePane, />销售单位换算</)
   assert.doesNotMatch(unitTemplatePane, /productUnitTemplateSalesUnitOptions/)
   assert.doesNotMatch(unitTemplatePane, />报价单位</)
@@ -3543,7 +3552,11 @@ test('SKU unit template workspace uses left list right editor and opens global u
   assert.match(unitTemplatePane, /@click="openGlobalUnitDictionaryDrawer"/)
   assert.match(source, /<aside class="settings-drawer global-unit-dictionary-drawer"/)
   assert.match(source, /@submit\.prevent="saveGlobalUnitDefinitionFromDrawer"/)
-  assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*280px\)\s+minmax\(0,\s*1fr\);/s)
+  assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(280px,\s*340px\)\s+minmax\(520px,\s*1fr\);/s)
+  assert.match(style, /\.unit-template-layout\s*\{[^}]*align-items:\s*stretch;/s)
+  assert.match(style, /\.compact-template-list\s*\{[^}]*max-height:\s*none;/s)
+  assert.match(style, /\.sales-spec-row\s*\{[^}]*grid-template-columns:\s*auto minmax\(180px,\s*1fr\) auto minmax\(110px,\s*140px\) auto auto;/s)
+  assert.doesNotMatch(style, /\.sales-spec-row\s*\{[^}]*grid-template-columns:[^}]*minmax\(82px,\s*\.7fr\)/s)
 })
 
 test('SKU unit templates and global unit dictionary expose delete actions', () => {
