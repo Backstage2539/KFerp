@@ -1379,6 +1379,29 @@ function salesSpecDerivedMeta(source = {}) {
   return out
 }
 
+const salesSpecWeightUnitGrams = {
+  g: 1,
+  kg: 1000,
+  lb: 453.59237,
+  lbs: 453.59237,
+  '磅': 453.59237,
+}
+
+export function salesSpecConversionLabel(row = {}, inventoryUnit = '') {
+  const salesUnit = normalizeOptionalUnitText(row?.sales_unit ?? row?.salesUnit ?? row?.unit)
+  const netContentQty = normalizePositiveNumber(row?.net_content_qty ?? row?.netContentQty ?? row?.content_qty)
+  const netContentUnit = normalizeOptionalUnitText(row?.net_content_unit ?? row?.netContentUnit ?? row?.content_unit)
+  const targetUnit = normalizeOptionalUnitText(inventoryUnit) || netContentUnit
+  if (!salesUnit || !netContentQty || !netContentUnit) return '换算待补：请填写净含量'
+  if (!targetUnit || targetUnit === netContentUnit) return `1 ${salesUnit} = ${trimDecimal(netContentQty)} ${netContentUnit}`
+  const sourceGram = salesSpecWeightUnitGrams[netContentUnit]
+  const targetGram = salesSpecWeightUnitGrams[targetUnit]
+  if (sourceGram > 0 && targetGram > 0) {
+    return `1 ${salesUnit} = ${trimDecimal((netContentQty * sourceGram) / targetGram)} ${targetUnit}`
+  }
+  return `1 ${salesUnit} = ${trimDecimal(netContentQty)} ${netContentUnit}（库存单位 ${targetUnit}，无法自动换算）`
+}
+
 function normalizeSalesSpecRows(rows = []) {
   const sourceRows = Array.isArray(rows) ? rows : parseJSONArray(rows)
   const normalized = []

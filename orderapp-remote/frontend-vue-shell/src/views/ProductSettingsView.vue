@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案维护父 SKU 信息、库存单位、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
+          <p>商品档案维护商品族信息、库存单位、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -529,7 +529,7 @@
           <span>销售规格模板</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
         </div>
-        <p class="muted unit-template-note">这里维护销售规格和销售单位；父 SKU 自己维护库存单位。</p>
+        <p class="muted unit-template-note">这里维护销售规格和销售单位；商品档案维护库存单位。</p>
         <div class="unit-template-layout">
           <section class="unit-template-card unit-template-list-panel">
             <div class="field-group-head">
@@ -595,7 +595,7 @@
                   </label>
                   <button class="text-button danger-text" type="button" @click="removeSalesSpecRow(productUnitTemplateForm, rowIndex)">删除</button>
                 </div>
-                <small v-if="!productUnitTemplateForm.sales_spec_rows.length">例如 227g袋装 / 袋。保存父 SKU 后会按模板规格派生子 SKU。</small>
+                <small v-if="!productUnitTemplateForm.sales_spec_rows.length">例如 227g袋装 / 袋。保存商品档案后会按模板规格派生子 SKU。</small>
               </div>
               <div class="form-actions">
                 <button class="primary" type="submit" :disabled="productUnitSaving">
@@ -1189,7 +1189,7 @@
                   {{ productUnitTemplateSummary(unitTemplate) }}
                 </option>
               </select>
-              <small>父 SKU 库存单位：{{ productUnitName(skuForm.inventory_unit) }}；默认销售规格：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, '') }}</small>
+              <small>商品档案库存单位：{{ productUnitName(skuForm.inventory_unit) }}；默认销售规格：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, '') }}</small>
             </label>
             <div class="sales-spec-template-detail wide-field" v-if="skuFormSalesSpecRows.length">
               <strong>销售规格模板明细</strong>
@@ -1197,6 +1197,8 @@
                 <div>
                   <strong>{{ row.spec_name }}</strong>
                   <small>{{ productUnitName(row.sales_unit) }} · {{ salesSpecNetContentLabel(row) }}</small>
+                  <small>{{ salesSpecConversionLabel(row, skuForm.inventory_unit) }}</small>
+                  <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
                 </div>
                 <span :class="['template-meta-chip', { inactive: row.active === false }]">{{ row.default ? '默认规格' : (row.active === false ? '停用' : '启用') }}</span>
               </article>
@@ -1373,7 +1375,7 @@
                     {{ productUnitTemplateSummary(unitTemplate) }}
                   </option>
                 </select>
-                <small>父 SKU 库存单位：{{ productUnitName(productProductionConfigForm.inventory_unit) }}；默认销售规格：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
+                <small>商品档案库存单位：{{ productUnitName(productProductionConfigForm.inventory_unit) }}；默认销售规格：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
               </label>
             </div>
             <div class="sales-spec-template-detail" v-if="productProductionSalesSpecRows.length">
@@ -1382,6 +1384,8 @@
                 <div>
                   <strong>{{ row.spec_name }}</strong>
                   <small>{{ productUnitName(row.sales_unit) }} · {{ salesSpecNetContentLabel(row) }}</small>
+                  <small>{{ salesSpecConversionLabel(row, productProductionConfigForm.inventory_unit) }}</small>
+                  <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
                 </div>
                 <span :class="['template-meta-chip', { inactive: row.active === false }]">{{ row.default ? '默认规格' : (row.active === false ? '停用' : '启用') }}</span>
               </article>
@@ -1392,21 +1396,21 @@
             <div class="field-group-head">
               <div class="field-group-copy">
                 <strong>销售规格 / SKU</strong>
-                <small>父商品维护商品族；价格、BOM、库存和订单使用具体子 SKU。</small>
+                <small>商品档案维护商品族；价格、BOM、库存和订单使用具体子 SKU。</small>
               </div>
             </div>
             <div class="child-sku-list">
-              <article v-for="row in productProductionConfigSkuRows" :key="`child-sku-${row.sku_id || row.id}`" class="child-sku-row">
+              <article v-for="row in productProductionDerivedSkuRows" :key="`child-sku-${row.sku_id || row.id}`" class="child-sku-row">
                 <div>
-                  <strong>{{ row.sku_name || row.name || '默认规格' }}</strong>
-                  <small>{{ row.spec_label || '未填写净含量' }} · 销售单位 {{ productUnitName(row.derived_sales_unit || row.default_sales_unit || row.defaultSalesUnit || row.inventory_unit) }} · 有效库存单位：继承父 SKU：{{ productUnitName(row.inventory_unit || productProductionConfigForm.inventory_unit) }}</small>
-                  <small>已派生子 SKU 编号：{{ derivedSkuCodeLabel(row) }} · 状态：{{ derivedSpecStatusLabel(row.derived_spec_status) }}</small>
+                  <strong>{{ row.derived_spec_name || row.sku_name || row.name || '销售规格' }}</strong>
+                  <small>销售单位：{{ productUnitName(row.derived_sales_unit || row.default_sales_unit || row.defaultSalesUnit || row.inventory_unit) }} · {{ salesSpecConversionLabel(row, productProductionConfigForm.inventory_unit) }}</small>
+                  <small>SKU 编号：{{ derivedSkuCodeLabel(row) }} · 状态：{{ derivedSpecStatusLabel(row.derived_spec_status) }}</small>
                 </div>
                 <span :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">
-                  {{ row.is_default_sku ? '父 SKU' : derivedSpecStatusLabel(row.derived_spec_status) }}
+                  {{ row.is_default_sku ? '默认规格' : derivedSpecStatusLabel(row.derived_spec_status) }}
                 </span>
               </article>
-              <p v-if="!productProductionConfigSkuRows.length" class="muted">保存父 SKU 后会按销售规格模板自动派生子 SKU。</p>
+              <p v-if="!productProductionDerivedSkuRows.length" class="muted">保存商品档案后会按销售规格模板自动派生子 SKU。</p>
             </div>
           </section>
 
@@ -1538,7 +1542,7 @@
         <div class="drawer-head">
           <div>
             <h3>全局单位字典</h3>
-            <p>维护 kg、盒、箱等基础单位；父 SKU 库存单位和销售规格模板会引用这些单位。</p>
+            <p>维护 kg、盒、箱等基础单位；商品档案库存单位和销售规格模板会引用这些单位。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeGlobalUnitDictionaryDrawer">关闭</button>
         </div>
@@ -1702,6 +1706,7 @@ import {
   productSkuRowsForParent,
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
+  salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
@@ -1920,10 +1925,17 @@ const productProductionConfigParentProduct = computed(() => {
   return products.value.find((product) => Number(product.id || 0) === parentID) || productProductionConfigProduct.value || {}
 })
 const productProductionConfigSkuRows = computed(() => productSkuRowsForParent(products.value, productProductionConfigParentProductID.value))
+const productProductionDerivedSkuRows = computed(() => productProductionConfigSkuRows.value.filter((row) => {
+  if (!row) return false
+  if (row.auto_derived_sku === true || row.autoDerivedSKU === true) return true
+  if (String(row.derived_spec_key || row.derivedSpecKey || '').trim()) return true
+  if (Number(row.derived_unit_template_id || row.derivedUnitTemplateID || 0) > 0) return true
+  return false
+}))
 const skuFormSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(skuForm.value.unit_template_id))
 const productProductionSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
   .map((row) => {
-    const derived = productProductionConfigSkuRows.value.find((sku) => String(sku.derived_spec_key || '') === String(row.spec_key || ''))
+    const derived = productProductionDerivedSkuRows.value.find((sku) => String(sku.derived_spec_key || '') === String(row.spec_key || ''))
     return derived ? { ...row, derived_sku_id: Number(derived.sku_id || derived.id || 0), derived_sku_code: derivedSkuCodeLabel(derived), derived_spec_status: derived.derived_spec_status || row.derived_spec_status } : row
   }))
 const productProductionConfigVersionOptions = computed(() => (selectedProductProductionConfigBomDetail.value?.versions || [])
@@ -4095,7 +4107,7 @@ async function saveGlobalUnitDefinitionFromDrawer() {
     const url = editingCode ? `/api/product-settings/units/${encodeURIComponent(editingCode)}` : '/api/product-settings/units'
     const method = editingCode ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
-    ok.value = '全局单位已保存，可在销售规格模板和父 SKU 库存单位中引用'
+    ok.value = '全局单位已保存，可在销售规格模板和商品档案库存单位中引用'
     await loadAll()
     resetGlobalUnitDefinitionForm()
   } catch (err) {

@@ -94,6 +94,7 @@ import {
   unitRuleFormFromJSON,
   unitRuleJSONFromForm,
   visibleNonDeletedRows,
+  salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
 } from './product-settings.js'
 
@@ -1479,6 +1480,34 @@ test('sales spec rows decorate template specs and preserve derived child SKU sta
   ])
 })
 
+test('sales spec conversion label explains sales unit to parent inventory unit', () => {
+  assert.equal(salesSpecConversionLabel({
+    spec_name: '227g袋装',
+    sales_unit: '袋',
+    net_content_qty: 227,
+    net_content_unit: 'g',
+  }, 'g'), '1 袋 = 227 g')
+
+  assert.equal(salesSpecConversionLabel({
+    spec_name: '227g袋装',
+    sales_unit: '袋',
+    net_content_qty: 227,
+    net_content_unit: 'g',
+  }, 'kg'), '1 袋 = 0.227 kg')
+
+  assert.equal(salesSpecConversionLabel({
+    spec_name: '箱装',
+    sales_unit: '箱',
+    net_content_qty: 12,
+    net_content_unit: '袋',
+  }, 'kg'), '1 箱 = 12 袋（库存单位 kg，无法自动换算）')
+
+  assert.equal(salesSpecConversionLabel({
+    spec_name: '默认规格',
+    sales_unit: '袋',
+  }, 'g'), '换算待补：请填写净含量')
+})
+
 test('structured unit conversion rows round-trip to the existing unit conversion JSON contract', () => {
   const rows = unitConversionRowsFromJSON('{"盒":{"kg":0.2},"箱":{"盒":24}}')
 
@@ -1716,7 +1745,7 @@ test('product drawers require sales spec templates and parent inventory units', 
     '销售规格模板',
     'skuForm.unit_template_id',
     'skuForm.inventory_unit',
-    '父 SKU 库存单位',
+    '商品档案库存单位',
     '销售规格模板明细',
   ]) {
     assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
@@ -1726,7 +1755,7 @@ test('product drawers require sales spec templates and parent inventory units', 
     '销售规格模板',
     'productProductionConfigForm.unit_template_id',
     'productProductionConfigForm.inventory_unit',
-    '父 SKU 库存单位',
+    '商品档案库存单位',
     '销售规格模板明细',
   ]) {
     assert.match(baseSection, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
@@ -1758,8 +1787,11 @@ test('product archive config drawer shows derived child SKUs from sales spec tem
 
   assert.match(configDrawer, /销售规格 \/ SKU/)
   assert.match(configDrawer, /销售规格模板明细/)
-  assert.match(configDrawer, /已派生子 SKU 编号/)
-  assert.match(configDrawer, /继承父 SKU/)
+  assert.match(configDrawer, /salesSpecConversionLabel\(row, productProductionConfigForm\.inventory_unit\)/)
+  assert.match(configDrawer, /SKU 编号/)
+  assert.match(configDrawer, /derivedSkuCodeLabel\(row\)/)
+  assert.doesNotMatch(configDrawer, /继承父 SKU/)
+  assert.doesNotMatch(configDrawer, />父 SKU</)
   assert.match(configDrawer, /derived_spec_status/)
   assert.doesNotMatch(configDrawer, /childSkuForm\.sku_name/)
   assert.doesNotMatch(configDrawer, /createChildSkuForProduct/)
@@ -1777,7 +1809,7 @@ test('sales spec template controls are required in product drawers', () => {
     '库存单位',
     'skuForm.unit_template_id',
     'skuForm.inventory_unit',
-    '父 SKU 库存单位',
+    '商品档案库存单位',
   ]) {
     assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
@@ -1787,7 +1819,7 @@ test('sales spec template controls are required in product drawers', () => {
     '库存单位',
     'productProductionConfigForm.unit_template_id',
     'productProductionConfigForm.inventory_unit',
-    '父 SKU 库存单位',
+    '商品档案库存单位',
   ]) {
     assert.match(configDrawer, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
