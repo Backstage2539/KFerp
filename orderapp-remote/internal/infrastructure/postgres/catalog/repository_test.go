@@ -139,7 +139,7 @@ func TestProductsReferenceUnitTemplatesAsPrimaryUOMMasterData(t *testing.T) {
 	}
 	for _, want := range []string{
 		"product_direct_unit_template",
-		"COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''",
+		"COALESCE(NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(p.unit_rule_override_json->>'inventory_unit',''",
 		"COALESCE(p.unit_template_id,0)",
 		"AS unit_rule_source",
 	} {
@@ -204,6 +204,7 @@ func TestSalesSpecTemplatesDriveDerivedSKUsAndParentInventoryUnit(t *testing.T) 
 	for _, want := range []string{
 		"parent_product_direct_unit_template",
 		"CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit",
+		"COALESCE(NULLIF(parent_product_direct_unit_template.inventory_unit,''), NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''",
 		"COALESCE(NULLIF(p.derived_sales_unit,''),",
 		"COALESCE(p.auto_derived_sku,false) AS auto_derived_sku",
 		"COALESCE(p.derived_spec_key,'') AS derived_spec_key",

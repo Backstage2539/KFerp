@@ -380,7 +380,7 @@
           <label>
             <span>产出单位</span>
             <input :value="outputUnitDisplay" disabled />
-            <small data-source-text="来源：商品档案库存单位">{{ outputUnitSourceHint }}</small>
+            <small data-source-text="来源：销售规格模板库存单位">{{ outputUnitSourceHint }}</small>
             <small v-if="outputUnitMismatchWarning" class="warn">{{ outputUnitMismatchWarning }}</small>
           </label>
           <label v-if="bomForm.mode === 'edit'">
@@ -517,14 +517,14 @@ const currentOutputBasisLabel = computed(() => `${qty(selectedProductionBomVersi
 const currentOutputProduct = computed(() => productByID(bomDrawerOpen.value && Number(bomForm.output_product_id || 0) > 0 ? bomForm.output_product_id : currentOutputProductID.value))
 const outputUnitSourceHint = computed(() => {
   const product = selectedBomOutputProduct.value || currentOutputProduct.value
-  const suffix = product && !productHasExplicitInventoryUnit(product) ? '；请先到商品档案设置库存单位' : ''
-  return `来源：商品档案库存单位${suffix}`
+  const suffix = product && !productHasExplicitInventoryUnit(product) ? '；请先到销售规格模板设置库存单位' : ''
+  return `来源：销售规格模板库存单位${suffix}`
 })
 const outputUnitMismatchWarning = computed(() => {
   const versionUnit = String(selectedProductionBomVersion.value?.output_unit || '').trim()
   const productUnit = String(currentOutputProduct.value?.inventory_unit || selectedBomOutputProduct.value?.inventory_unit || '').trim()
   if (!versionUnit || !productUnit || versionUnit === productUnit) return ''
-  return `当前版本产出单位为 ${unitLabel(versionUnit)}，商品档案库存单位为 ${unitLabel(productUnit)}；历史版本不会自动回改`
+  return `当前版本产出单位为 ${unitLabel(versionUnit)}，销售规格模板库存单位为 ${unitLabel(productUnit)}；历史版本不会自动回改`
 })
 const bomFormTitle = computed(() => ({
   create: '新建生产 BOM',

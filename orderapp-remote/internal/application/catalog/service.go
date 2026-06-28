@@ -3965,6 +3965,11 @@ func productSalesUnitRuleFields(p Product, inventoryUnit string) (string, string
 		_ = json.Unmarshal([]byte(raw), &rule)
 	}
 	defaultSalesUnit := strings.TrimSpace(p.DefaultSalesUnit)
+	if p.AutoDerivedSKU {
+		if derivedSalesUnit := strings.TrimSpace(p.DerivedSalesUnit); derivedSalesUnit != "" {
+			defaultSalesUnit = derivedSalesUnit
+		}
+	}
 	for _, key := range []string{"default_sales_unit", "quote_unit", "order_unit"} {
 		if defaultSalesUnit != "" {
 			break
@@ -3990,6 +3995,9 @@ func productSalesUnitRuleFields(p Product, inventoryUnit string) (string, string
 	} else if value, ok := rule["conversion_json"]; ok {
 		conversion = jsonObjectFromAny(value)
 	}
+	if len(conversion) == 0 && p.AutoDerivedSKU {
+		conversion = salesSpecUnitConversionJSON(p, inventoryUnit)
+	}
 	if len(conversion) == 0 && defaultSalesUnit == inventoryUnit {
 		conversion = map[string]any{defaultSalesUnit: map[string]any{inventoryUnit: float64(1)}}
 	}
@@ -4000,6 +4008,55 @@ func productSalesUnitRuleFields(p Product, inventoryUnit string) (string, string
 		salesRules = jsonObjectFromAny(value)
 	}
 	return defaultSalesUnit, productJSONFromMap(conversion), productJSONFromMap(salesRules)
+}
+
+func salesSpecUnitConversionJSON(p Product, inventoryUnit string) map[string]any {
+	salesUnit := strings.TrimSpace(p.DerivedSalesUnit)
+	if salesUnit == "" {
+		salesUnit = strings.TrimSpace(p.DefaultSalesUnit)
+	}
+	netContentUnit := strings.TrimSpace(p.NetContentUnit)
+	targetUnit := strings.TrimSpace(inventoryUnit)
+	if targetUnit == "" {
+		targetUnit = strings.TrimSpace(p.InventoryUnit)
+	}
+	if targetUnit == "" {
+		targetUnit = netContentUnit
+	}
+	if salesUnit == "" || netContentUnit == "" || targetUnit == "" || p.NetContentQty <= 0 || math.IsNaN(p.NetContentQty) || math.IsInf(p.NetContentQty, 0) {
+		return map[string]any{}
+	}
+	quantity := p.NetContentQty
+	if netContentUnit != targetUnit {
+		sourceGram, sourceOK := salesSpecWeightUnitGrams(netContentUnit)
+		targetGram, targetOK := salesSpecWeightUnitGrams(targetUnit)
+		if !sourceOK || !targetOK || targetGram <= 0 {
+			return map[string]any{}
+		}
+		quantity = (p.NetContentQty * sourceGram) / targetGram
+	}
+	return map[string]any{salesUnit: map[string]any{targetUnit: normalizeSalesSpecConversionQuantity(quantity)}}
+}
+
+func salesSpecWeightUnitGrams(unit string) (float64, bool) {
+	switch strings.TrimSpace(unit) {
+	case "g":
+		return 1, true
+	case "kg":
+		return 1000, true
+	case "lb", "lbs", "磅":
+		return 453.59237, true
+	default:
+		return 0, false
+	}
+}
+
+func normalizeSalesSpecConversionQuantity(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0
+	}
+	const scale = 1_000_000_000
+	return math.Round(value*scale) / scale
 }
 
 func productUnitRuleSource(p Product) string {

@@ -30,7 +30,7 @@ flowchart TD
 1. 在生产工单开始生产后，进入库存作业 / `Stock Entry单据`。
 2. PR-482-MANUFACTURING-PHASE3-MRP-SUGGESTIONS：排程工作台的 MRP 建议只展示采购建议和调拨建议，不会自动改变库存。看到调拨建议后，仍需回到库存作业创建 `领料到WIP` Stock Entry；看到采购建议后，按采购流程补货。
 3. 选择 `领料到WIP`，填写工单 ID、工序卡 ID、物料 ID、物料名称、出库仓 `原料仓`、入库仓 `WIP在制仓`、数量和备注，提交后系统生成 Stock Entry 单据并写操作日志。
-   - PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM / PR-505-SALES-SPEC-TEMPLATE-DERIVED-SKU：库存作业、WIP、完工入库和库存流水都按物料或商品的库存单位录入和展示。商品销售单位只在订单/价格表快照中冻结，不进入库存单据；子 SKU 的有效库存单位继承父 SKU，例如父 SKU 库存单位为 `kg` 时，该父 SKU 下自动派生的销售规格子 SKU 在库存和 BOM 侧都按 `kg` 展示。
+   - PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM / PR-505-SALES-SPEC-TEMPLATE-DERIVED-SKU：库存作业、WIP、完工入库和库存流水都按物料或商品的库存单位录入和展示。商品销售单位只在订单/价格表快照中冻结，不进入库存单据；子 SKU 的有效库存单位继承销售规格模板，例如模板库存单位为 `kg` 时，该模板派生的销售规格子 SKU 在库存和 BOM 侧都按 `kg` 展示。
 4. 工序执行过程中，实际使用的 WIP 可通过 `工单消耗` 单据记录；剩余物料通过 `WIP退料` 单据退回原料仓。
 5. 发生报废或生产损耗时，选择 `报废/损耗`，填写关联工单、工序卡、物料或商品、数量、原因和备注，便于后续成本拆解。
 6. 工单完工时由生产工单页生成 `完工入库` / `finished_receipt` Stock Entry；通常不在库存作业手工重复创建完工入库单据。

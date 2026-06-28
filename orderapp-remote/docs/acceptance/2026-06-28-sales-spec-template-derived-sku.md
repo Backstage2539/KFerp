@@ -1,10 +1,10 @@
-# PR-505 父 SKU 库存单位 + 销售规格模板派生子 SKU 验收记录
+# PR-505 销售规格模板库存单位 + 派生子 SKU 验收记录
 
 ## Scope
-- 原 `单位模板` UI 改为 `销售规格模板`，只维护销售规格、销售单位、净含量、默认规格和启用状态。
-- 父 SKU/商品档案维护唯一库存单位，并引用销售规格模板。
+- 原 `单位模板` UI 改为 `销售规格模板`，维护库存单位、销售规格、销售单位、净含量、默认规格和启用状态。
+- 父 SKU/商品档案只引用销售规格模板，不再单独维护库存单位。
 - 子 SKU 由父 SKU 引用的模板规格自动派生，不手工新增，不配置库存单位。
-- BOM、价格表、录单、生产和库存仍使用具体子 SKU；子 SKU 有效库存单位继承父 SKU。
+- BOM、价格表、录单、生产和库存仍使用具体子 SKU；子 SKU 有效库存单位来自销售规格模板。
 
 ## RED Evidence
 - Catalog Go tests 初始失败：`ProductSalesSpec`、`SalesSpecs`、`sales_specs_json` 和派生 SKU 同步字段缺失。
@@ -27,8 +27,8 @@
 - Development deploy: deployed from clean temp checkout `/tmp/kferp-pr505-deploy` with `deploy_orderapp.sh`; successful backup path `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260628113551`.
 - Development deploy gate: Docker build ran `go test ./...` successfully, Vue build passed with the existing Vite large-chunk warning, miniapp typecheck/build passed, and `erp_orderapp` restarted.
 - API route smoke after deploy: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` were running; `/app/` returned `303`; authenticated `/app/vue-shell?view=productMaster`, `/app/api/product-settings`, `/app/api/bom/products`, and `/app/api/production-boms?status=all` returned `200`.
-- API write smoke after deploy: created sales spec template `PR505验收销售规格20260628114412` and parent SKU `PR505验收父SKU20260628114412`; `/api/product-settings` returned two derived child SKUs (`227g袋装`, `100g袋装`) with sales unit `袋`, inherited inventory unit `kg`, unit rule source `derived_sales_spec`, and status `active`.
-- BOM product smoke after deploy: `/api/bom/products` returned the two derived child SKUs with `inventory_unit=kg`, proving BOM candidates read the parent SKU inventory unit through the child SKU.
+- API write smoke after deploy: created sales spec template `PR505验收销售规格20260628114412` and parent SKU `PR505验收父SKU20260628114412`; `/api/product-settings` returned two derived child SKUs (`227g袋装`, `100g袋装`) with sales unit `袋`, effective inventory unit `kg`, unit rule source `derived_sales_spec`, and status `active`.
+- BOM product smoke after deploy: `/api/bom/products` returned the two derived child SKUs with `inventory_unit=kg`, proving BOM candidates read the sales spec template inventory unit through the child SKU.
 - Browser smoke after deploy: `/vue-shell?view=productMaster` showed `销售规格模板`、`库存单位`、`派生子 SKU`、`销售规格`; old `不引用单位模板`、`高级单位覆盖`、`销售单位换算` text was absent and console errors were 0.
 
 ## Acceptance Notes
@@ -36,8 +36,9 @@
 - 父 SKU 保存后会按模板规格行自动派生子 SKU；模板新增规格会补派生，模板停用/移除规格只标记历史派生 SKU，不删除。
 - 删除销售规格模板时，已派生子 SKU 不删除，统一标记为 `template_removed`。
 - 默认销售规格必须是启用规格；全停用的模板保存会被后端拒绝。
-- 商品档案新增和配置抽屉显示 `库存单位` + `销售规格模板`，并展示模板明细和已派生子 SKU 编号。
-- 子 SKU 的销售单位来自销售规格模板，库存单位来自父 SKU；价格表/BOM/录单/生产查询均读取该有效单位边界。
+- 商品档案新增和配置抽屉显示 `销售规格模板`，并只读展示 `库存单位：来自销售规格模板`、模板明细和已派生子 SKU 编号。
+- 子 SKU 的销售单位、规格净含量和库存单位来自销售规格模板；价格表/BOM/录单/生产查询均读取该有效单位边界。
+- Follow-up：销售规格模板补充 `inventory_unit` 后，自动派生 SKU 的 `unit_conversion_json` 按规格净含量生成，例如 `1 袋 = 0.227 kg`，供价格表/订单快照固化。
 
 ## Result
 - PR-505 has been merged into `develop`, deployed to development, and verified with targeted tests, full deploy-gate tests, API write smoke, API route smoke, BOM candidate smoke, and browser UI smoke.

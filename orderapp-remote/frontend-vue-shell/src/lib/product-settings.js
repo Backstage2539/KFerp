@@ -1321,12 +1321,14 @@ export function buildProductUnitTemplatePayload(form = {}) {
   if (Array.isArray(form.sales_spec_rows) || Array.isArray(form.sales_specs)) {
     const salesSpecs = normalizeSalesSpecRows(form.sales_spec_rows ?? form.sales_specs)
     const defaultSpec = salesSpecs.find((row) => row.default) || salesSpecs.find((row) => row.active !== false) || salesSpecs[0] || null
+    const inventoryUnit = normalizeUnitText(form.inventory_unit, 'kg')
     const defaultSalesUnit = normalizeOptionalUnitText(
       form.default_sales_unit ?? form.defaultSalesUnit ?? form.sales_unit ?? form.order_unit ?? form.quote_unit ?? defaultSpec?.sales_unit,
     ) || defaultSpec?.sales_unit || ''
     return {
       id: Number(form.id || 0),
       name: String(form.name || '').trim(),
+      inventory_unit: inventoryUnit,
       default_sales_unit: defaultSalesUnit,
       sales_unit: defaultSalesUnit,
       sales_units: uniqueInOrder(salesSpecs.map((row) => row.sales_unit)),
@@ -1895,10 +1897,10 @@ export function buildProductCreatePayload(form = {}) {
 	if (Object.prototype.hasOwnProperty.call(form, 'unit_template_id')) {
 		payload.unit_template_id = unitTemplateID
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
 		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
@@ -1952,10 +1954,10 @@ export function buildSkuCreatePayload(customerID, form = {}) {
 	if (Object.prototype.hasOwnProperty.call(form, 'unit_template_id')) {
 		payload.unit_template_id = unitTemplateID
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
 		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
@@ -2121,10 +2123,10 @@ export function buildProductBasicsPayload(row = {}) {
 	if (Object.prototype.hasOwnProperty.call(row, 'unit_template_id')) {
 		payload.unit_template_id = unitTemplateID
 	}
-	if (Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
+	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
 		payload.inventory_unit = String(row.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
+	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(row.integer_inventory_unit)
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, row)

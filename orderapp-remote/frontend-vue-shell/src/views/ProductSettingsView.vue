@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案维护商品族信息、库存单位、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
+          <p>商品档案维护商品族信息、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；库存单位来自销售规格模板，商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -529,7 +529,7 @@
           <span>销售规格模板</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
         </div>
-        <p class="muted unit-template-note">这里维护销售规格和销售单位；商品档案维护库存单位。</p>
+        <p class="muted unit-template-note">这里维护库存单位、销售规格和销售单位；商品档案引用模板后自动派生子 SKU。</p>
         <div class="unit-template-layout">
           <section class="unit-template-card unit-template-list-panel">
             <div class="field-group-head">
@@ -564,6 +564,12 @@
                 <input v-model.trim="productUnitTemplateForm.name" placeholder="咖啡豆袋装规格" />
               </label>
               <div class="template-editor-grid">
+                <label class="wide-field">
+                  <span>库存单位</span>
+                  <select v-model="productUnitTemplateForm.inventory_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                </label>
                 <label class="wide-field">
                   <span>默认规格</span>
                   <select v-model="productUnitTemplateForm.default_spec_key" @change="syncSalesSpecTemplateDefaults(productUnitTemplateForm)">
@@ -1176,12 +1182,6 @@
               <textarea v-model.trim="skuForm.remark" rows="2" placeholder="如 原料规格、包装说明或客户要求"></textarea>
             </label>
             <label class="wide-field">
-              <span>库存单位</span>
-              <select v-model="skuForm.inventory_unit">
-                <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-              </select>
-            </label>
-            <label class="wide-field">
               <span>销售规格模板</span>
               <select v-model.number="skuForm.unit_template_id" @change="applySkuUnitTemplateDefaults(skuForm)">
                 <option :value="0" disabled>请选择销售规格模板</option>
@@ -1189,7 +1189,7 @@
                   {{ productUnitTemplateSummary(unitTemplate) }}
                 </option>
               </select>
-              <small>商品档案库存单位：{{ productUnitName(skuForm.inventory_unit) }}；默认销售规格：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, '') }}</small>
+              <small>库存单位：来自销售规格模板 {{ productUnitTemplateInventoryLabel(skuForm.unit_template_id, 'kg') }}；默认销售规格：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, '') }}</small>
             </label>
             <div class="sales-spec-template-detail wide-field" v-if="skuFormSalesSpecRows.length">
               <strong>销售规格模板明细</strong>
@@ -1197,7 +1197,7 @@
                 <div>
                   <strong>{{ row.spec_name }}</strong>
                   <small>{{ productUnitName(row.sales_unit) }} · {{ salesSpecNetContentLabel(row) }}</small>
-                  <small>{{ salesSpecConversionLabel(row, skuForm.inventory_unit) }}</small>
+                  <small>{{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(skuForm.unit_template_id)) }}</small>
                   <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
                 </div>
                 <span :class="['template-meta-chip', { inactive: row.active === false }]">{{ row.default ? '默认规格' : (row.active === false ? '停用' : '启用') }}</span>
@@ -1362,12 +1362,6 @@
                 <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
               </label>
               <label class="wide-field">
-                <span>库存单位</span>
-                <select v-model="productProductionConfigForm.inventory_unit">
-                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                </select>
-              </label>
-              <label class="wide-field">
                 <span>销售规格模板</span>
                 <select v-model.number="productProductionConfigForm.unit_template_id" @change="applyProductConfigUnitTemplateDefaults(productProductionConfigForm)">
                   <option :value="0" disabled>请选择销售规格模板</option>
@@ -1375,7 +1369,7 @@
                     {{ productUnitTemplateSummary(unitTemplate) }}
                   </option>
                 </select>
-                <small>商品档案库存单位：{{ productUnitName(productProductionConfigForm.inventory_unit) }}；默认销售规格：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
+                <small>库存单位：来自销售规格模板 {{ productUnitTemplateInventoryLabel(productProductionConfigForm.unit_template_id, 'kg') }}；默认销售规格：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
               </label>
             </div>
             <div class="sales-spec-template-detail" v-if="productProductionSalesSpecRows.length">
@@ -1384,7 +1378,7 @@
                 <div>
                   <strong>{{ row.spec_name }}</strong>
                   <small>{{ productUnitName(row.sales_unit) }} · {{ salesSpecNetContentLabel(row) }}</small>
-                  <small>{{ salesSpecConversionLabel(row, productProductionConfigForm.inventory_unit) }}</small>
+                  <small>{{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(productProductionConfigForm.unit_template_id)) }}</small>
                   <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
                 </div>
                 <span :class="['template-meta-chip', { inactive: row.active === false }]">{{ row.default ? '默认规格' : (row.active === false ? '停用' : '启用') }}</span>
@@ -1403,7 +1397,7 @@
               <article v-for="row in productProductionDerivedSkuRows" :key="`child-sku-${row.sku_id || row.id}`" class="child-sku-row">
                 <div>
                   <strong>{{ row.derived_spec_name || row.sku_name || row.name || '销售规格' }}</strong>
-                  <small>销售单位：{{ productUnitName(row.derived_sales_unit || row.default_sales_unit || row.defaultSalesUnit || row.inventory_unit) }} · {{ salesSpecConversionLabel(row, productProductionConfigForm.inventory_unit) }}</small>
+                  <small>销售单位：{{ productUnitName(row.derived_sales_unit || row.default_sales_unit || row.defaultSalesUnit || row.inventory_unit) }} · {{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(productProductionConfigForm.unit_template_id)) }}</small>
                   <small>SKU 编号：{{ derivedSkuCodeLabel(row) }} · 状态：{{ derivedSpecStatusLabel(row.derived_spec_status) }}</small>
                 </div>
                 <span :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">
@@ -1542,7 +1536,7 @@
         <div class="drawer-head">
           <div>
             <h3>全局单位字典</h3>
-            <p>维护 kg、盒、箱等基础单位；商品档案库存单位和销售规格模板会引用这些单位。</p>
+            <p>维护 kg、盒、箱等基础单位；销售规格模板会引用这些单位作为库存单位、销售单位和净含量单位。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeGlobalUnitDictionaryDrawer">关闭</button>
         </div>
@@ -4125,7 +4119,7 @@ async function saveGlobalUnitDefinitionFromDrawer() {
     const url = editingCode ? `/api/product-settings/units/${encodeURIComponent(editingCode)}` : '/api/product-settings/units'
     const method = editingCode ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
-    ok.value = '全局单位已保存，可在销售规格模板和商品档案库存单位中引用'
+    ok.value = '全局单位已保存，可在销售规格模板中引用'
     await loadAll()
     resetGlobalUnitDefinitionForm()
   } catch (err) {
@@ -4165,6 +4159,7 @@ function resetProductUnitTemplateForm() {
 function validateProductUnitTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写销售规格模板名称'
   if (Array.isArray(payload.sales_specs)) {
+    if (!String(payload.inventory_unit || '').trim()) return '请选择库存单位'
     if (!payload.sales_specs.length) return '请至少添加一条销售规格'
     if (!payload.sales_specs.some((row) => row.active !== false)) return '请至少启用一条销售规格'
     const defaultSpec = payload.sales_specs.find((row) => row.default)
@@ -4922,6 +4917,11 @@ function productUnitTemplateSummary(idOrTemplate) {
 function productUnitTemplateInventoryLabel(idOrTemplate, fallback = 'kg') {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
   return productUnitName(template?.inventory_unit || fallback || 'kg')
+}
+
+function productUnitTemplateInventoryUnit(idOrTemplate, fallback = 'kg') {
+  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
+  return String(template?.inventory_unit || fallback || 'kg').trim() || 'kg'
 }
 
 function productUnitTemplateSalesLabel(idOrTemplate, fallback = 'kg') {

@@ -174,7 +174,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 			COALESCE(p.gradient_template_id_override,0),
 			COALESCE(p.operation_template_id_override,0),
 			COALESCE(p.unit_rule_override_json::text,'{}'),
-			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') END AS inventory_unit,
+			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit ELSE COALESCE(NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') END AS inventory_unit,
 			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_integer_inventory_unit ELSE COALESCE(
 				CASE WHEN lower(p.unit_rule_override_json->>'integer_inventory_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_inventory_unit') IN ('false','0','no') THEN false ELSE NULL END,
 				CASE WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
@@ -199,8 +199,8 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 				NULLIF(category_config.quote_unit,''),
 				NULLIF(category_unit_template.order_unit,''),
 				NULLIF(category_unit_template.quote_unit,''),
-				NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
 				NULLIF(product_direct_unit_template.inventory_unit,''),
+				NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
 				NULLIF(product_config.inventory_unit,''),
 				NULLIF(product_unit_template.inventory_unit,''),
 				NULLIF(category_config.inventory_unit,''),
@@ -226,8 +226,8 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 			COALESCE(product_direct_unit_template.name,'') AS unit_template_name,
 			CASE
 				WHEN COALESCE(p.auto_derived_sku,false) THEN 'derived_sales_spec'
-				WHEN p.unit_rule_override_json ?| array['inventory_unit','integer_inventory_unit','integer_unit','default_sales_unit','quote_unit','order_unit','unit_conversion_json','conversion_json','sales_unit_rules'] THEN 'product_override'
 				WHEN COALESCE(p.unit_template_id,0)>0 AND product_direct_unit_template.id IS NOT NULL THEN 'product_unit_template'
+				WHEN p.unit_rule_override_json ?| array['inventory_unit','integer_inventory_unit','integer_unit','default_sales_unit','quote_unit','order_unit','unit_conversion_json','conversion_json','sales_unit_rules'] THEN 'product_override'
 				WHEN product_config.id IS NOT NULL OR product_unit_template.id IS NOT NULL THEN 'legacy_template'
 				WHEN category_config.id IS NOT NULL OR category_unit_template.id IS NOT NULL THEN 'category'
 				ELSE 'default'
@@ -282,7 +282,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 			LEFT JOIN %[1]s.product_unit_templates parent_category_unit_template ON parent_category_unit_template.id=COALESCE(parent_category_config.unit_template_id,0) AND parent_category_unit_template.deleted_at IS NULL
 			LEFT JOIN LATERAL (
 				SELECT
-					COALESCE(NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''), NULLIF(parent_product_direct_unit_template.inventory_unit,''), NULLIF(parent_product_config.inventory_unit,''), NULLIF(parent_product_unit_template.inventory_unit,''), NULLIF(parent_category_config.inventory_unit,''), NULLIF(parent_category_unit_template.inventory_unit,''), 'kg') AS parent_product_inventory_unit,
+					COALESCE(NULLIF(parent_product_direct_unit_template.inventory_unit,''), NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''), NULLIF(parent_product_config.inventory_unit,''), NULLIF(parent_product_unit_template.inventory_unit,''), NULLIF(parent_category_config.inventory_unit,''), NULLIF(parent_category_unit_template.inventory_unit,''), 'kg') AS parent_product_inventory_unit,
 					COALESCE(
 						CASE WHEN lower(parent_product.unit_rule_override_json->>'integer_inventory_unit') IN ('true','1','yes') THEN true WHEN lower(parent_product.unit_rule_override_json->>'integer_inventory_unit') IN ('false','0','no') THEN false ELSE NULL END,
 						CASE WHEN lower(parent_product.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(parent_product.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,

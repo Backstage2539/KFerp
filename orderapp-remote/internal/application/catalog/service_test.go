@@ -1354,3 +1354,35 @@ func TestCreateProductAcceptsInstantCoffeeWithDefaultBomParams(t *testing.T) {
 		t.Fatalf("instant coffee product command = %+v", repo.create)
 	}
 }
+
+func TestAutoDerivedSKUUsesSalesSpecNetContentForUnitConversion(t *testing.T) {
+	defaultSalesUnit, conversionJSON, rulesJSON := productSalesUnitRuleFields(Product{
+		AutoDerivedSKU:   true,
+		DerivedSalesUnit: "袋",
+		NetContentQty:    227,
+		NetContentUnit:   "g",
+	}, "kg")
+
+	if defaultSalesUnit != "袋" {
+		t.Fatalf("default sales unit = %q, want 袋", defaultSalesUnit)
+	}
+	if conversionJSON != `{"袋":{"kg":0.227}}` {
+		t.Fatalf("conversionJSON = %s, want sales spec net content conversion", conversionJSON)
+	}
+	if rulesJSON != `{}` {
+		t.Fatalf("rulesJSON = %s, want empty rules", rulesJSON)
+	}
+}
+
+func TestAutoDerivedSKUUsesDirectSalesSpecUnitConversionWhenUnitsMatch(t *testing.T) {
+	_, conversionJSON, _ := productSalesUnitRuleFields(Product{
+		AutoDerivedSKU:   true,
+		DerivedSalesUnit: "箱",
+		NetContentQty:    12,
+		NetContentUnit:   "袋",
+	}, "袋")
+
+	if conversionJSON != `{"箱":{"袋":12}}` {
+		t.Fatalf("conversionJSON = %s, want direct sales spec conversion", conversionJSON)
+	}
+}
