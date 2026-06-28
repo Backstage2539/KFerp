@@ -160,6 +160,60 @@ func TestProductsReferenceUnitTemplatesAsPrimaryUOMMasterData(t *testing.T) {
 	}
 }
 
+func TestSalesSpecTemplatesDriveDerivedSKUsAndParentInventoryUnit(t *testing.T) {
+	schemaBytes, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryBytes, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(schemaBytes)
+	repository := string(repositoryBytes)
+	queries := string(queryBytes)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS sales_specs_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS auto_derived_sku BOOLEAN NOT NULL DEFAULT false",
+		"ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_unit_template_id BIGINT NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_key TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_sales_unit TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_status TEXT NOT NULL DEFAULT ''",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("sales spec derived SKU schema missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, cmd.ProductID)",
+		"syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID)",
+		"syncDerivedSKUsForTemplateTx(ctx, tx, r.schema, cmd.Actor, id)",
+		"WHERE auto_derived_sku=true AND derived_unit_template_id=$1 AND derived_spec_status<>'template_removed'",
+		"derived_spec_status",
+		"template_removed",
+		"template_disabled",
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("sales spec derived SKU repository behavior missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"parent_product_direct_unit_template",
+		"CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit",
+		"COALESCE(NULLIF(p.derived_sales_unit,''),",
+		"COALESCE(p.auto_derived_sku,false) AS auto_derived_sku",
+		"COALESCE(p.derived_spec_key,'') AS derived_spec_key",
+	} {
+		if !strings.Contains(queries, want) {
+			t.Fatalf("catalog product query must expose derived SKU metadata and parent inventory unit; missing %q", want)
+		}
+	}
+}
+
 func TestProductCategoriesSchemaBackfillsActiveForLegacyTables(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

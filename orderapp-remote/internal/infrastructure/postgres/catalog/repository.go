@@ -39,6 +39,29 @@ func jsonMapOrEmpty(raw []byte) map[string]any {
 	return out
 }
 
+func productSalesSpecsFromJSON(raw string) []catalogapp.ProductSalesSpec {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []catalogapp.ProductSalesSpec
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func productSalesSpecsJSON(specs []catalogapp.ProductSalesSpec) string {
+	if len(specs) == 0 {
+		return "[]"
+	}
+	encoded, err := json.Marshal(specs)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
+}
+
 type productUnitAuditSnapshot struct {
 	InventoryUnit        string
 	IntegerInventoryUnit bool
@@ -313,6 +336,9 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 			return err
 		}
 	}
+	if err := syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, cmd.ProductID); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
@@ -473,6 +499,9 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"sales_unit_rules":        unitAudit.SalesUnitRulesJSON,
 		"unit_template_id":        cmd.UnitTemplateID,
 	}); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if err := syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -713,6 +742,220 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 		return catalogapp.Product{}, fmt.Errorf("created sku not found")
 	}
 	return *product, nil
+}
+
+type derivedSKUParent struct {
+	ID             int64
+	Name           string
+	Remark         string
+	ProductKind    string
+	CustomerID     int64
+	CategoryID     int64
+	UnitTemplateID int64
+	Visibility     string
+}
+
+func syncDerivedSKUsForTemplateTx(ctx context.Context, tx pgx.Tx, schema string, actor string, templateID int64) error {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.products
+		WHERE COALESCE(unit_template_id,0)=$1 AND COALESCE(parent_product_id,0)=0
+		ORDER BY id
+	`, schema), templateID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var parentID int64
+		if err := rows.Scan(&parentID); err != nil {
+			return err
+		}
+		if err := syncDerivedSKUsForParentTx(ctx, tx, schema, actor, parentID); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parentID int64) error {
+	if parentID <= 0 {
+		return nil
+	}
+	var parent derivedSKUParent
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(name,''), COALESCE(remark,''), COALESCE(NULLIF(product_kind,''),'roasted_bean'),
+		       COALESCE(customer_id,0), COALESCE(product_category_id,0), COALESCE(unit_template_id,0),
+		       COALESCE(NULLIF(visibility,''),'public')
+		FROM %s.products
+		WHERE id=$1 AND COALESCE(parent_product_id,0)=0
+	`, schema), parentID).Scan(&parent.ID, &parent.Name, &parent.Remark, &parent.ProductKind, &parent.CustomerID, &parent.CategoryID, &parent.UnitTemplateID, &parent.Visibility); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if parent.UnitTemplateID <= 0 {
+		_, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.products
+			SET derived_spec_status='template_removed'
+			WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_spec_status<>'template_removed'
+		`, schema), parent.ID)
+		return err
+	}
+	var salesSpecsJSON string
+	var templateActive bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(sales_specs_json::text,'[]'), COALESCE(active,true)
+		FROM %s.product_unit_templates
+		WHERE id=$1 AND deleted_at IS NULL
+	`, schema), parent.UnitTemplateID).Scan(&salesSpecsJSON, &templateActive); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			_, updateErr := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.products
+				SET derived_spec_status='template_removed'
+				WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id=$2
+			`, schema), parent.ID, parent.UnitTemplateID)
+			return updateErr
+		}
+		return err
+	}
+	specs := productSalesSpecsFromJSON(salesSpecsJSON)
+	allKeys := map[string]bool{}
+	activeKeys := map[string]bool{}
+	for _, spec := range specs {
+		specKey := strings.TrimSpace(spec.SpecKey)
+		if specKey == "" {
+			continue
+		}
+		allKeys[specKey] = true
+		if !templateActive || !spec.Active {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.products
+				SET derived_spec_status='template_disabled',
+				    derived_spec_name=$4,
+				    derived_sales_unit=$5,
+				    spec_label=$4,
+				    net_content_qty=$6,
+				    net_content_unit=$7
+				WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id=$2 AND derived_spec_key=$3
+			`, schema), parent.ID, parent.UnitTemplateID, specKey, strings.TrimSpace(spec.SpecName), strings.TrimSpace(spec.SalesUnit), spec.NetContentQty, strings.TrimSpace(spec.NetContentUnit)); err != nil {
+				return err
+			}
+			continue
+		}
+		activeKeys[specKey] = true
+		if err := upsertDerivedSKUForSpecTx(ctx, tx, schema, actor, parent, spec); err != nil {
+			return err
+		}
+	}
+	if len(allKeys) == 0 {
+		_, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.products
+			SET derived_spec_status='template_removed'
+			WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id=$2
+		`, schema), parent.ID, parent.UnitTemplateID)
+		return err
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(derived_spec_key,'')
+		FROM %s.products
+		WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id=$2
+	`, schema), parent.ID, parent.UnitTemplateID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var childID int64
+		var specKey string
+		if err := rows.Scan(&childID, &specKey); err != nil {
+			return err
+		}
+		if activeKeys[specKey] {
+			continue
+		}
+		status := "template_removed"
+		if allKeys[specKey] {
+			status = "template_disabled"
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET derived_spec_status=$2 WHERE id=$1`, schema), childID, status); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.products
+		SET derived_spec_status='template_removed'
+		WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id<>$2 AND derived_spec_status<>'template_removed'
+	`, schema), parent.ID, parent.UnitTemplateID)
+	return err
+}
+
+func upsertDerivedSKUForSpecTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parent derivedSKUParent, spec catalogapp.ProductSalesSpec) error {
+	specKey := strings.TrimSpace(spec.SpecKey)
+	if specKey == "" {
+		return nil
+	}
+	specName := strings.TrimSpace(spec.SpecName)
+	salesUnit := strings.TrimSpace(spec.SalesUnit)
+	netContentUnit := strings.TrimSpace(spec.NetContentUnit)
+	childName := strings.TrimSpace(parent.Name + " " + specName)
+	if childName == "" {
+		childName = specName
+	}
+	var childID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.products
+		WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id=$2 AND derived_spec_key=$3
+		ORDER BY id
+		LIMIT 1
+		FOR UPDATE
+	`, schema), parent.ID, parent.UnitTemplateID, specKey).Scan(&childID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if childID > 0 {
+		_, err = tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.products
+			SET name=$2, sku_name=$3, spec_label=$3, net_content_qty=$4, net_content_unit=$5,
+			    unit_template_id=$6, derived_spec_name=$3, derived_sales_unit=$7, derived_spec_status='active',
+			    active=true
+			WHERE id=$1
+		`, schema), childID, childName, specName, spec.NetContentQty, netContentUnit, parent.UnitTemplateID, salesUnit)
+		return err
+	}
+	visibility := parent.Visibility
+	if parent.CustomerID > 0 {
+		visibility = "customer_only"
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(
+			name, remark, product_kind, roast_level, default_price, active,
+			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
+			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
+			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
+			special_attrs_json, unit_rule_override_json, unit_template_id,
+			parent_product_id, sku_name, sku_code, barcode, spec_label, net_content_qty, net_content_unit, is_default_sku,
+			product_category_id, auto_derived_sku, derived_unit_template_id, derived_spec_key, derived_spec_name, derived_sales_unit, derived_spec_status, created_at
+		)
+		VALUES($1,$2,$3,'',0,true,0,0,0,0,10,10,true,false,$4,0,$5,'','',0,'{}'::jsonb,'{}'::jsonb,$6,$7,$8,'','',$8,$9,$10,$11,$12,true,$6,$13,$8,$14,'active',now())
+		RETURNING id
+	`, schema), childName, parent.Remark, parent.ProductKind, parent.CustomerID, visibility, parent.UnitTemplateID, parent.ID, specName, spec.NetContentQty, netContentUnit, spec.Default, parent.CategoryID, specKey, salesUnit).Scan(&childID); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "product", &childID, "derive_sku_from_sales_spec", postgresinfra.StrPtr("sales_spec"), nil, postgresinfra.StrPtr(childName), postgresinfra.AuditMeta{
+		"parent_product_id": parent.ID,
+		"unit_template_id":  parent.UnitTemplateID,
+		"spec_key":          specKey,
+		"spec_name":         specName,
+		"sales_unit":        salesUnit,
+		"net_content_qty":   spec.NetContentQty,
+		"net_content_unit":  netContentUnit,
+	})
 }
 
 func replaceProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, tiers []catalogapp.PriceTier) error {
@@ -1518,7 +1761,7 @@ func (r Repository) ListProductUnitDefinitions(ctx context.Context) ([]catalogap
 func (r Repository) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.ProductUnitTemplate, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, name, inventory_unit, quote_unit, order_unit,
-		       COALESCE(unit_conversion_json::text,'{}'), integer_unit, active
+		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(sales_specs_json::text,'[]'), integer_unit, active
 		FROM %s.product_unit_templates
 		WHERE deleted_at IS NULL
 		ORDER BY active DESC, name, id
@@ -1530,9 +1773,11 @@ func (r Repository) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.
 	out := make([]catalogapp.ProductUnitTemplate, 0)
 	for rows.Next() {
 		var row catalogapp.ProductUnitTemplate
-		if err := rows.Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
+		var salesSpecsJSON string
+		if err := rows.Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &salesSpecsJSON, &row.IntegerUnit, &row.Active); err != nil {
 			return nil, err
 		}
+		row.SalesSpecs = productSalesSpecsFromJSON(salesSpecsJSON)
 		row.SalesUnit = firstNonEmptyString(row.OrderUnit, row.QuoteUnit, row.InventoryUnit)
 		row.DefaultSalesUnit = row.SalesUnit
 		out = append(out, row)
@@ -2915,32 +3160,51 @@ func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.
 	if cmd.Active != nil {
 		active = *cmd.Active
 	}
-	var id int64
-	if cmd.ID > 0 {
-		if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-			UPDATE %s.product_unit_templates
-			SET name=$2, inventory_unit=$3, quote_unit=$4, order_unit=$5,
-			    unit_conversion_json=$6::jsonb, integer_unit=$7, active=$8, updated_at=now()
-			WHERE id=$1
-			RETURNING id
-		`, r.schema), cmd.ID, cmd.Name, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, active).Scan(&id); err != nil {
-			return catalogapp.ProductUnitTemplate{}, err
-		}
-	} else if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
-		VALUES($1,$2,$3,$4,$5::jsonb,$6,$7)
-		RETURNING id
-	`, r.schema), cmd.Name, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, active).Scan(&id); err != nil {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
 		return catalogapp.ProductUnitTemplate{}, err
 	}
-	row, err := fetchProductUnitTemplateTx(ctx, r.pool, r.schema, id)
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var id int64
+	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.product_unit_templates
+			SET name=$2, inventory_unit=$3, quote_unit=$4, order_unit=$5,
+			    unit_conversion_json=$6::jsonb, sales_specs_json=$7::jsonb, integer_unit=$8, active=$9, updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, productSalesSpecsJSON(cmd.SalesSpecs), cmd.IntegerUnit, active).Scan(&id); err != nil {
+			return catalogapp.ProductUnitTemplate{}, err
+		}
+	} else if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, sales_specs_json, integer_unit, active)
+		VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8)
+		RETURNING id
+	`, r.schema), cmd.Name, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, productSalesSpecsJSON(cmd.SalesSpecs), cmd.IntegerUnit, active).Scan(&id); err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
+	if err := syncDerivedSKUsForTemplateTx(ctx, tx, r.schema, cmd.Actor, id); err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
+	row, err := fetchProductUnitTemplateTx(ctx, tx, r.schema, id)
 	if err != nil {
 		return catalogapp.ProductUnitTemplate{}, err
 	}
 	row.SalesUnit = firstNonEmptyString(row.OrderUnit, row.QuoteUnit, row.InventoryUnit)
 	row.DefaultSalesUnit = row.SalesUnit
 	row.SalesUnits = cmd.SalesUnits
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_unit_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"inventory_unit": row.InventoryUnit, "default_sales_unit": row.DefaultSalesUnit, "sales_units": row.SalesUnits, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit})
+	row.SalesSpecs = cmd.SalesSpecs
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_unit_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"inventory_unit": row.InventoryUnit, "default_sales_unit": row.DefaultSalesUnit, "sales_units": row.SalesUnits, "sales_specs": row.SalesSpecs, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit}); err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
 	return row, nil
 }
 
@@ -2982,6 +3246,13 @@ func (r Repository) DeleteProductUnitTemplate(ctx context.Context, cmd catalogap
 		return err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_unit_template", &cmd.ID, "delete_product_unit_template", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"template_id": row.ID, "name": row.Name, "inventory_unit": row.InventoryUnit, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit}); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.products
+		SET derived_spec_status='template_removed'
+		WHERE auto_derived_sku=true AND derived_unit_template_id=$1 AND derived_spec_status<>'template_removed'
+	`, r.schema), cmd.ID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -3773,14 +4044,16 @@ type queryRower interface {
 
 func fetchProductUnitTemplateTx(ctx context.Context, q queryRower, schema string, id int64) (catalogapp.ProductUnitTemplate, error) {
 	var row catalogapp.ProductUnitTemplate
+	var salesSpecsJSON string
 	if err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, name, inventory_unit, quote_unit, order_unit,
-		       COALESCE(unit_conversion_json::text,'{}'), integer_unit, active
+		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(sales_specs_json::text,'[]'), integer_unit, active
 		FROM %s.product_unit_templates
 		WHERE id=$1
-	`, schema), id).Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
+	`, schema), id).Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &salesSpecsJSON, &row.IntegerUnit, &row.Active); err != nil {
 		return catalogapp.ProductUnitTemplate{}, err
 	}
+	row.SalesSpecs = productSalesSpecsFromJSON(salesSpecsJSON)
 	row.SalesUnit = row.QuoteUnit
 	return row, nil
 }
@@ -6444,7 +6717,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, SKUID: p.SKUID, ParentProductID: p.ParentProductID, EffectiveParentProductID: p.EffectiveParentProductID, SKUName: p.SKUName, SKUCode: p.SKUCode, Barcode: p.Barcode, SpecLabel: p.SpecLabel, NetContentQty: p.NetContentQty, NetContentUnit: p.NetContentUnit, IsDefaultSKU: p.IsDefaultSKU, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
+	out := catalogapp.Product{ID: p.ID, SKUID: p.SKUID, ParentProductID: p.ParentProductID, EffectiveParentProductID: p.EffectiveParentProductID, SKUName: p.SKUName, SKUCode: p.SKUCode, Barcode: p.Barcode, SpecLabel: p.SpecLabel, NetContentQty: p.NetContentQty, NetContentUnit: p.NetContentUnit, IsDefaultSKU: p.IsDefaultSKU, AutoDerivedSKU: p.AutoDerivedSKU, DerivedUnitTemplateID: p.DerivedUnitTemplateID, DerivedSpecKey: p.DerivedSpecKey, DerivedSpecName: p.DerivedSpecName, DerivedSalesUnit: p.DerivedSalesUnit, DerivedSpecStatus: p.DerivedSpecStatus, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

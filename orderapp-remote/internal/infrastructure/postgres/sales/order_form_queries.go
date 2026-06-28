@@ -331,15 +331,30 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		COALESCE(subtype_cat.id, 0) AS product_subtype_category_id,
 		COALESCE(type_cat.name, '') AS product_type_name,
 		COALESCE(subtype_cat.name, '') AS product_subtype_name,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') AS unit_conversion_json,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') END AS inventory_unit,
+		CASE WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(NULLIF(p.derived_sales_unit,''), NULLIF(p.sku_name,''), NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') END AS quote_unit,
+		CASE WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(NULLIF(p.derived_sales_unit,''), NULLIF(p.sku_name,''), NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') END AS order_unit,
+		CASE WHEN COALESCE(p.auto_derived_sku,false) AND NULLIF(p.derived_sales_unit,'') IS NOT NULL THEN jsonb_build_object(p.derived_sales_unit, jsonb_build_object(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'), 1))::text ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') END AS unit_conversion_json,
 		COALESCE(product_direct_unit_template.integer_unit, subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit
 		FROM %[1]s.products p
 		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
 		LEFT JOIN %[1]s.product_categories type_cat ON type_cat.id=subtype_cat.parent_id AND type_cat.active=true
+		LEFT JOIN %[1]s.products parent_product ON parent_product.id=p.parent_product_id AND parent_product.active=true
+		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=parent_product.unit_template_id AND parent_product_unit_template.active=true AND parent_product_unit_template.deleted_at IS NULL
+		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=parent_product.product_config_template_id AND parent_product_config.active=true
+		LEFT JOIN %[1]s.product_categories parent_product_category ON parent_product_category.id=parent_product.product_category_id AND parent_product_category.active=true
+		LEFT JOIN %[1]s.product_categories parent_product_parent_category ON parent_product_parent_category.id=parent_product_category.parent_id AND parent_product_parent_category.active=true
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(
+			           NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''),
+			           NULLIF(parent_product_unit_template.inventory_unit,''),
+			           NULLIF(parent_product_config.inventory_unit,''),
+			           NULLIF(parent_product_category.inventory_unit,''),
+			           NULLIF(parent_product_parent_category.inventory_unit,''),
+			           'kg'
+			       ) AS parent_inventory_unit
+		) parent_units ON true
 		WHERE p.active=true ORDER BY p.name`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)
 	if err != nil {
@@ -412,10 +427,10 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 		COALESCE(subtype_cat.id, 0) AS product_subtype_category_id,
 		COALESCE(type_cat.name, '') AS product_type_name,
 		COALESCE(subtype_cat.name, '') AS product_subtype_name,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') AS unit_conversion_json,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') END AS inventory_unit,
+		CASE WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(NULLIF(p.derived_sales_unit,''), NULLIF(p.sku_name,''), NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') END AS quote_unit,
+		CASE WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(NULLIF(p.derived_sales_unit,''), NULLIF(p.sku_name,''), NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') END AS order_unit,
+		CASE WHEN COALESCE(p.auto_derived_sku,false) AND NULLIF(p.derived_sales_unit,'') IS NOT NULL THEN jsonb_build_object(p.derived_sales_unit, jsonb_build_object(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'), 1))::text ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') END AS unit_conversion_json,
 		COALESCE(product_direct_unit_template.integer_unit, subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit,
 		a.id,
 		COALESCE(NULLIF(a.display_name,''), p.name, ''),
@@ -428,6 +443,21 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
 		LEFT JOIN %[1]s.product_categories type_cat ON type_cat.id=subtype_cat.parent_id AND type_cat.active=true
+		LEFT JOIN %[1]s.products parent_product ON parent_product.id=p.parent_product_id AND parent_product.active=true
+		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=parent_product.unit_template_id AND parent_product_unit_template.active=true AND parent_product_unit_template.deleted_at IS NULL
+		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=parent_product.product_config_template_id AND parent_product_config.active=true
+		LEFT JOIN %[1]s.product_categories parent_product_category ON parent_product_category.id=parent_product.product_category_id AND parent_product_category.active=true
+		LEFT JOIN %[1]s.product_categories parent_product_parent_category ON parent_product_parent_category.id=parent_product_category.parent_id AND parent_product_parent_category.active=true
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(
+			           NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''),
+			           NULLIF(parent_product_unit_template.inventory_unit,''),
+			           NULLIF(parent_product_config.inventory_unit,''),
+			           NULLIF(parent_product_category.inventory_unit,''),
+			           NULLIF(parent_product_parent_category.inventory_unit,''),
+			           'kg'
+			       ) AS parent_inventory_unit
+		) parent_units ON true
 		WHERE a.active=true
 		ORDER BY a.customer_id, a.sort_order, a.id`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)

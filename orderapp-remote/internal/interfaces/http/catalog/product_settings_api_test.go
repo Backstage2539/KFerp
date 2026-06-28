@@ -699,6 +699,7 @@ func (r *productSettingsRepo) SaveProductUnitTemplate(ctx context.Context, cmd c
 		SalesUnit:          cmd.SalesUnit,
 		DefaultSalesUnit:   cmd.DefaultSalesUnit,
 		SalesUnits:         cmd.SalesUnits,
+		SalesSpecs:         cmd.SalesSpecs,
 		QuoteUnit:          cmd.QuoteUnit,
 		OrderUnit:          cmd.OrderUnit,
 		UnitConversionJSON: cmd.UnitConversionJSON,
@@ -2533,6 +2534,56 @@ func TestProductSettingsAPICreatesChildSKUUnderParentProduct(t *testing.T) {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("child sku response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestProductSettingsAPISavesSalesSpecTemplateContract(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/unit-templates", bytes.NewBufferString(`{
+		"name":"咖啡袋装销售规格",
+		"sales_specs":[
+			{"spec_key":"bag-227g","spec_name":"227g袋装","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g","default":true,"active":true},
+			{"spec_key":"bag-100g","spec_name":"100g袋装","sales_unit":"袋","net_content_qty":100,"net_content_unit":"g","active":true}
+		],
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST sales spec template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.unitTemplateSaved || len(repo.savedUnitTemplate.SalesSpecs) != 2 {
+		t.Fatalf("saved sales specs command=%+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
+	}
+	if repo.savedUnitTemplate.InventoryUnit != "kg" || repo.savedUnitTemplate.UnitConversionJSON != "{}" {
+		t.Fatalf("sales spec template should only use kg as legacy storage fallback and no conversion, got inventory=%q conversion=%q", repo.savedUnitTemplate.InventoryUnit, repo.savedUnitTemplate.UnitConversionJSON)
+	}
+	for _, want := range []string{`"sales_specs"`, `"spec_key":"bag-227g"`, `"spec_name":"100g袋装"`, `"sales_unit":"袋"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("sales spec template response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductOptionFromCatalogIncludesDerivedSKUMetadata(t *testing.T) {
+	got := productOptionFromCatalog(catalogapp.Product{
+		ID:                    91,
+		ParentProductID:       88,
+		SKUName:               "227g袋装",
+		AutoDerivedSKU:        true,
+		DerivedUnitTemplateID: 12,
+		DerivedSpecKey:        "bag-227g",
+		DerivedSpecName:       "227g袋装",
+		DerivedSalesUnit:      "袋",
+		DerivedSpecStatus:     "active",
+	})
+	if !got.AutoDerivedSKU || got.DerivedUnitTemplateID != 12 || got.DerivedSpecKey != "bag-227g" || got.DerivedSalesUnit != "袋" || got.DerivedSpecStatus != "active" {
+		t.Fatalf("derived SKU metadata lost in API mapping: %+v", got)
 	}
 }
 

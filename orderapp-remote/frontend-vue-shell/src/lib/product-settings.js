@@ -1318,6 +1318,25 @@ export function buildProductUnitDefinitionPayload(form = {}) {
 }
 
 export function buildProductUnitTemplatePayload(form = {}) {
+  if (Array.isArray(form.sales_spec_rows) || Array.isArray(form.sales_specs)) {
+    const salesSpecs = normalizeSalesSpecRows(form.sales_spec_rows ?? form.sales_specs)
+    const defaultSpec = salesSpecs.find((row) => row.default) || salesSpecs.find((row) => row.active !== false) || salesSpecs[0] || null
+    const defaultSalesUnit = normalizeOptionalUnitText(
+      form.default_sales_unit ?? form.defaultSalesUnit ?? form.sales_unit ?? form.order_unit ?? form.quote_unit ?? defaultSpec?.sales_unit,
+    ) || defaultSpec?.sales_unit || ''
+    return {
+      id: Number(form.id || 0),
+      name: String(form.name || '').trim(),
+      default_sales_unit: defaultSalesUnit,
+      sales_unit: defaultSalesUnit,
+      sales_units: uniqueInOrder(salesSpecs.map((row) => row.sales_unit)),
+      quote_unit: defaultSalesUnit,
+      order_unit: defaultSalesUnit,
+      unit_conversion_json: '{}',
+      sales_specs: salesSpecs,
+      active: form.active === false ? false : true,
+    }
+  }
   const inventoryUnit = normalizeUnitText(form.inventory_unit, 'kg')
   const defaultSalesUnit = normalizeUnitText(
     form.default_sales_unit ?? form.defaultSalesUnit ?? form.sales_unit ?? form.order_unit ?? form.quote_unit,
@@ -1337,6 +1356,58 @@ export function buildProductUnitTemplatePayload(form = {}) {
     integer_unit: Boolean(form.integer_unit),
     active: form.active === false ? false : true,
   }
+}
+
+export function salesSpecRowsFromTemplate(template = {}) {
+  const rawRows = Array.isArray(template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
+    ? (template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
+    : parseJSONArray(template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
+  const rows = normalizeSalesSpecRows(rawRows)
+  return rows.map((row) => ({
+    ...row,
+    ...salesSpecDerivedMeta(rawRows.find((source) => String(source?.spec_key ?? source?.specKey ?? '').trim() === row.spec_key) || rawRows[rows.indexOf(row)] || {}),
+    derived_spec_status: String((rawRows.find((source) => String(source?.spec_key ?? source?.specKey ?? '').trim() === row.spec_key) || rawRows[rows.indexOf(row)] || {})?.derived_spec_status ?? (rawRows.find((source) => String(source?.spec_key ?? source?.specKey ?? '').trim() === row.spec_key) || rawRows[rows.indexOf(row)] || {})?.derivedSpecStatus ?? '').trim() || (row.active === false ? 'template_disabled' : 'active'),
+  }))
+}
+
+function salesSpecDerivedMeta(source = {}) {
+  const derivedSkuID = Number(source?.derived_sku_id ?? source?.derivedSKUID ?? 0)
+  const derivedSkuCode = String(source?.derived_sku_code ?? source?.derivedSKUCode ?? '').trim()
+  const out = {}
+  if (derivedSkuID > 0) out.derived_sku_id = derivedSkuID
+  out.derived_sku_code = derivedSkuCode
+  return out
+}
+
+function normalizeSalesSpecRows(rows = []) {
+  const sourceRows = Array.isArray(rows) ? rows : parseJSONArray(rows)
+  const normalized = []
+  for (const source of sourceRows) {
+    const specName = String(source?.spec_name ?? source?.specName ?? source?.name ?? '').trim()
+    const salesUnit = normalizeOptionalUnitText(source?.sales_unit ?? source?.salesUnit ?? source?.unit)
+    if (!specName || !salesUnit) continue
+    const specKey = String(source?.spec_key ?? source?.specKey ?? '').trim() || generatedSalesSpecKey(specName, salesUnit, normalized.length)
+    const netContentQty = Number(source?.net_content_qty ?? source?.netContentQty ?? source?.content_qty ?? 0)
+    normalized.push({
+      spec_key: specKey,
+      spec_name: specName,
+      sales_unit: salesUnit,
+      net_content_qty: Number.isFinite(netContentQty) ? trimDecimal(netContentQty) : 0,
+      net_content_unit: normalizeOptionalUnitText(source?.net_content_unit ?? source?.netContentUnit ?? source?.content_unit),
+      default: Boolean(source?.default ?? source?.is_default ?? source?.isDefault),
+      active: source?.active === false ? false : true,
+    })
+  }
+  if (normalized.length && !normalized.some((row) => row.default)) {
+    normalized[0].default = true
+  }
+  return normalized
+}
+
+function generatedSalesSpecKey(specName = '', salesUnit = '', index = 0) {
+  const raw = `${specName}-${salesUnit}-${index + 1}`.toLowerCase()
+  const ascii = raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return ascii || `spec-${index + 1}`
 }
 
 function unitTemplateConversionPayload(form = {}, inventoryUnit = 'kg', defaultSalesUnit = '') {
@@ -1801,10 +1872,10 @@ export function buildProductCreatePayload(form = {}) {
 	if (Object.prototype.hasOwnProperty.call(form, 'unit_template_id')) {
 		payload.unit_template_id = unitTemplateID
 	}
-	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
 		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
@@ -1858,10 +1929,10 @@ export function buildSkuCreatePayload(customerID, form = {}) {
 	if (Object.prototype.hasOwnProperty.call(form, 'unit_template_id')) {
 		payload.unit_template_id = unitTemplateID
 	}
-	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
 		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
@@ -2027,10 +2098,10 @@ export function buildProductBasicsPayload(row = {}) {
 	if (Object.prototype.hasOwnProperty.call(row, 'unit_template_id')) {
 		payload.unit_template_id = unitTemplateID
 	}
-	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
+	if (Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
 		payload.inventory_unit = String(row.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
+	if (Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(row.integer_inventory_unit)
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, row)

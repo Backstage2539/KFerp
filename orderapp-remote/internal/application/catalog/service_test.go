@@ -441,7 +441,7 @@ func (r *fakeRepo) SaveProductUnitDefinition(ctx context.Context, cmd SaveProduc
 
 func (r *fakeRepo) SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUnitTemplateCommand) (ProductUnitTemplate, error) {
 	r.unitTemplate = cmd
-	return ProductUnitTemplate{ID: 12, Name: cmd.Name, InventoryUnit: cmd.InventoryUnit, SalesUnit: cmd.SalesUnit, QuoteUnit: cmd.QuoteUnit, OrderUnit: cmd.OrderUnit, UnitConversionJSON: cmd.UnitConversionJSON, IntegerUnit: cmd.IntegerUnit, Active: true}, nil
+	return ProductUnitTemplate{ID: 12, Name: cmd.Name, InventoryUnit: cmd.InventoryUnit, SalesUnit: cmd.SalesUnit, DefaultSalesUnit: cmd.DefaultSalesUnit, SalesUnits: cmd.SalesUnits, SalesSpecs: cmd.SalesSpecs, QuoteUnit: cmd.QuoteUnit, OrderUnit: cmd.OrderUnit, UnitConversionJSON: cmd.UnitConversionJSON, IntegerUnit: cmd.IntegerUnit, Active: true}, nil
 }
 
 func (r *fakeRepo) DeleteProductUnitDefinition(ctx context.Context, cmd DeleteProductUnitDefinitionCommand) error {
@@ -513,6 +513,51 @@ func TestServiceRejectsDefaultSalesUnitWithoutInventoryConversion(t *testing.T) 
 	})
 	if err == nil || !strings.Contains(err.Error(), "default sales unit conversion required") {
 		t.Fatalf("expected default sales unit conversion error, got %v", err)
+	}
+}
+
+func TestServiceSavesSalesSpecTemplateWithoutInventoryConversion(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.SaveProductUnitTemplate(context.Background(), SaveProductUnitTemplateCommand{
+		Actor: "tester",
+		Name:  "咖啡袋装销售规格",
+		SalesSpecs: []ProductSalesSpec{
+			{SpecKey: "bag-227g", SpecName: "227g袋装", SalesUnit: "袋", NetContentQty: 227, NetContentUnit: "g", Default: true, Active: true},
+			{SpecKey: "bag-100g", SpecName: "100g袋装", SalesUnit: "袋", NetContentQty: 100, NetContentUnit: "g", Active: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveProductUnitTemplate() error = %v", err)
+	}
+	if repo.unitTemplate.InventoryUnit != "kg" {
+		t.Fatalf("legacy inventory storage should only default for compatibility, got %q", repo.unitTemplate.InventoryUnit)
+	}
+	if repo.unitTemplate.UnitConversionJSON != "{}" {
+		t.Fatalf("sales spec template should not require sales-unit inventory conversion, got %q", repo.unitTemplate.UnitConversionJSON)
+	}
+	if repo.unitTemplate.DefaultSalesUnit != "袋" || repo.unitTemplate.SalesUnit != "袋" || repo.unitTemplate.OrderUnit != "袋" || repo.unitTemplate.QuoteUnit != "袋" {
+		t.Fatalf("default sales unit should come from default spec and still dual-write legacy fields: %+v", repo.unitTemplate)
+	}
+	if len(got.SalesSpecs) != 2 || got.SalesSpecs[0].SpecName != "227g袋装" || got.SalesSpecs[1].NetContentQty != 100 {
+		t.Fatalf("returned sales specs = %+v", got.SalesSpecs)
+	}
+}
+
+func TestServiceRejectsInactiveDefaultSalesSpecTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.SaveProductUnitTemplate(context.Background(), SaveProductUnitTemplateCommand{
+		Name: "错误销售规格",
+		SalesSpecs: []ProductSalesSpec{
+			{SpecKey: "bag-227g", SpecName: "227g袋装", SalesUnit: "袋", NetContentQty: 227, NetContentUnit: "g", Default: true, Active: false},
+			{SpecKey: "bag-100g", SpecName: "100g袋装", SalesUnit: "袋", NetContentQty: 100, NetContentUnit: "g", Active: true},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "default sales spec must be active") {
+		t.Fatalf("expected inactive default sales spec error, got %v", err)
 	}
 }
 

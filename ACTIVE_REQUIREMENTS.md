@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-505-SALES-SPEC-TEMPLATE-DERIVED-SKU
+- Branch: codex/sales-spec-template-derived-sku-20260628
+- Owner/session: Codex / 2026-06-28
+- Status: locally verified; RED captured for catalog sales spec template contract and frontend sales spec rows; targeted catalog/BOM/costing/sales/production Go packages, frontend helper tests, frontend build, changed verifier, and diff check are green locally; merge/deploy pending.
+- Scope: 原 `单位模板` 改名并改义为 `销售规格模板`。父 SKU/商品档案维护唯一库存单位和销售规格模板；销售规格模板只维护规格名称、销售单位、净含量、默认规格和启用状态，不维护库存单位或销售单位换算；父 SKU 保存或模板变更后自动派生子 SKU，子 SKU 不手工新增、不配置库存单位，库存单位实时继承父 SKU。
+- DEV:
+  - DEV-505-SALES-SPEC-TEMPLATE：`product_unit_templates.sales_specs_json` 保存销售规格行；API 对外返回 `sales_specs/default_sales_unit/sales_units`，旧 `quote_unit/order_unit/unit_conversion_json` 继续兼容。
+  - DEV-505-DERIVED-SKU-SYNC：`products` 增加自动派生 SKU 元数据；父 SKU 创建/更新和销售规格模板保存时按稳定 `spec_key` 创建或更新子 SKU，规格停用/移除只标记状态不删除历史 SKU。
+  - DEV-505-PARENT-INVENTORY-UOM：商品档案新增/配置保留父 SKU `库存单位`，子 SKU、BOM、价格表、录单和生产查询读取子 SKU 销售单位 + 父 SKU 有效库存单位。
+  - DEV-505-PRODUCT-MASTER-UI：商品档案页面显示 `销售规格模板` 维护入口、模板规格明细和只读派生子 SKU 列表；普通 UI 不显示高级单位覆盖、直接库存单位换算或手动新增子 SKU 表单。
+- Verifier:
+  - RED: catalog service/API/schema/static tests failed before implementation because `ProductSalesSpec/SalesSpecs` and derived SKU sync markers were missing; `node --test src/lib/product-settings.test.js` failed because sales spec row normalization was missing.
+  - GREEN so far: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog -count=1`; `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1`; `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing -count=1`; `go test ./internal/application/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production -count=1`; post-review full target `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1`; `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js src/lib/bom.test.js`; `npm run build` passed with existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment: pending merge to develop, development deploy, and smoke.
+- Last update: 2026-06-28 Asia/Shanghai.
+
 ### PR-504-PARENT-PRODUCT-CHILD-SKU-UOM
 - Branch: codex/parent-product-sku-uom-20260628
 - Owner/session: Codex / 2026-06-28

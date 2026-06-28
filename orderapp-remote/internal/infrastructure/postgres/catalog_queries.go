@@ -35,6 +35,12 @@ type ProductOption struct {
 	NetContentQty               float64
 	NetContentUnit              string
 	IsDefaultSKU                bool
+	AutoDerivedSKU              bool
+	DerivedUnitTemplateID       int64
+	DerivedSpecKey              string
+	DerivedSpecName             string
+	DerivedSalesUnit            string
+	DerivedSpecStatus           string
 	Name                        string
 	Remark                      string
 	ProductKind                 string
@@ -134,6 +140,12 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(p.net_content_qty,0)::float8 AS net_content_qty,
 		COALESCE(p.net_content_unit,'') AS net_content_unit,
 		(COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku,
+		COALESCE(p.auto_derived_sku,false) AS auto_derived_sku,
+		COALESCE(p.derived_unit_template_id,0) AS derived_unit_template_id,
+		COALESCE(p.derived_spec_key,'') AS derived_spec_key,
+		COALESCE(p.derived_spec_name,'') AS derived_spec_name,
+		COALESCE(NULLIF(p.derived_sales_unit,''), '') AS derived_sales_unit,
+		COALESCE(NULLIF(p.derived_spec_status,''), CASE WHEN COALESCE(p.auto_derived_sku,false) THEN 'active' ELSE '' END) AS derived_spec_status,
 		p.name, COALESCE(p.remark,''), COALESCE(p.roast_level,''), COALESCE(p.special_attrs_json::text,'{}'), p.default_price,
 		COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
 		COALESCE(p.green_bean_type, ''),
@@ -162,8 +174,8 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 			COALESCE(p.gradient_template_id_override,0),
 			COALESCE(p.operation_template_id_override,0),
 			COALESCE(p.unit_rule_override_json::text,'{}'),
-			COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') AS inventory_unit,
-			COALESCE(
+			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') END AS inventory_unit,
+			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_integer_inventory_unit ELSE COALESCE(
 				CASE WHEN lower(p.unit_rule_override_json->>'integer_inventory_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_inventory_unit') IN ('false','0','no') THEN false ELSE NULL END,
 				CASE WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
 				product_direct_unit_template.integer_unit,
@@ -172,8 +184,8 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 				category_config.integer_unit,
 				category_unit_template.integer_unit,
 				false
-			) AS integer_inventory_unit,
-			COALESCE(
+			) END AS integer_inventory_unit,
+			CASE WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(NULLIF(p.derived_sales_unit,''), NULLIF(p.sku_name,''), parent_units.parent_product_inventory_unit) ELSE COALESCE(
 				NULLIF(p.unit_rule_override_json->>'default_sales_unit',''),
 				NULLIF(p.unit_rule_override_json->>'order_unit',''),
 				NULLIF(p.unit_rule_override_json->>'quote_unit',''),
@@ -194,8 +206,8 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 				NULLIF(category_config.inventory_unit,''),
 				NULLIF(category_unit_template.inventory_unit,''),
 				'kg'
-			) AS default_sales_unit,
-			COALESCE(
+			) END AS default_sales_unit,
+			CASE WHEN COALESCE(p.auto_derived_sku,false) THEN '{}' ELSE COALESCE(
 				NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
 				NULLIF(p.unit_rule_override_json->>'conversion_json',''),
 				NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'),
@@ -204,15 +216,16 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 				NULLIF(category_config.unit_conversion_json::text,'{}'),
 				NULLIF(category_unit_template.unit_conversion_json::text,'{}'),
 				'{}'
-			) AS unit_conversion_json,
-			COALESCE(
+			) END AS unit_conversion_json,
+			CASE WHEN COALESCE(p.auto_derived_sku,false) THEN '{}' ELSE COALESCE(
 				NULLIF(p.unit_rule_override_json->>'sales_unit_rules',''),
 				CASE WHEN COALESCE(product_direct_unit_template.integer_unit,false) THEN jsonb_build_object(COALESCE(NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), 'kg'), jsonb_build_object('integer', true))::text ELSE NULL END,
 				'{}'
-			) AS sales_unit_rules,
+			) END AS sales_unit_rules,
 			COALESCE(p.unit_template_id,0) AS unit_template_id,
 			COALESCE(product_direct_unit_template.name,'') AS unit_template_name,
 			CASE
+				WHEN COALESCE(p.auto_derived_sku,false) THEN 'derived_sales_spec'
 				WHEN p.unit_rule_override_json ?| array['inventory_unit','integer_inventory_unit','integer_unit','default_sales_unit','quote_unit','order_unit','unit_conversion_json','conversion_json','sales_unit_rules'] THEN 'product_override'
 				WHEN COALESCE(p.unit_template_id,0)>0 AND product_direct_unit_template.id IS NOT NULL THEN 'product_unit_template'
 				WHEN product_config.id IS NOT NULL OR product_unit_template.id IS NOT NULL THEN 'legacy_template'
@@ -261,6 +274,26 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(pbg.id,0) AS production_bom_group_id,
 		COALESCE(pbg.name,'') AS production_bom_group_name
 			FROM %[1]s.products p
+			LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
+			LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=COALESCE(parent_product.product_config_template_id,0) AND parent_product_config.deleted_at IS NULL
+			LEFT JOIN %[1]s.product_unit_templates parent_product_direct_unit_template ON parent_product_direct_unit_template.id=COALESCE(parent_product.unit_template_id,0) AND parent_product_direct_unit_template.active=true AND parent_product_direct_unit_template.deleted_at IS NULL
+			LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=COALESCE(parent_product_config.unit_template_id,0) AND parent_product_unit_template.deleted_at IS NULL
+			LEFT JOIN %[1]s.product_categories parent_category_config ON parent_category_config.id=COALESCE(parent_product.product_category_id,0)
+			LEFT JOIN %[1]s.product_unit_templates parent_category_unit_template ON parent_category_unit_template.id=COALESCE(parent_category_config.unit_template_id,0) AND parent_category_unit_template.deleted_at IS NULL
+			LEFT JOIN LATERAL (
+				SELECT
+					COALESCE(NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''), NULLIF(parent_product_direct_unit_template.inventory_unit,''), NULLIF(parent_product_config.inventory_unit,''), NULLIF(parent_product_unit_template.inventory_unit,''), NULLIF(parent_category_config.inventory_unit,''), NULLIF(parent_category_unit_template.inventory_unit,''), 'kg') AS parent_product_inventory_unit,
+					COALESCE(
+						CASE WHEN lower(parent_product.unit_rule_override_json->>'integer_inventory_unit') IN ('true','1','yes') THEN true WHEN lower(parent_product.unit_rule_override_json->>'integer_inventory_unit') IN ('false','0','no') THEN false ELSE NULL END,
+						CASE WHEN lower(parent_product.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(parent_product.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+						parent_product_direct_unit_template.integer_unit,
+						parent_product_config.integer_unit,
+						parent_product_unit_template.integer_unit,
+						parent_category_config.integer_unit,
+						parent_category_unit_template.integer_unit,
+						false
+					) AS parent_product_integer_inventory_unit
+			) parent_units ON true
 			LEFT JOIN %[1]s.product_config_templates product_config ON product_config.id=COALESCE(p.product_config_template_id,0) AND product_config.deleted_at IS NULL
 			LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 			LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=COALESCE(product_config.unit_template_id,0) AND product_unit_template.deleted_at IS NULL
@@ -293,7 +326,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.SKUID, &p.ParentProductID, &p.EffectiveParentProductID, &p.SKUName, &p.SKUCode, &p.Barcode, &p.SpecLabel, &p.NetContentQty, &p.NetContentUnit, &p.IsDefaultSKU, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.DefaultSalesUnit, &p.UnitConversionJSON, &p.SalesUnitRulesJSON, &p.UnitTemplateID, &p.UnitTemplateName, &p.UnitRuleSource, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
+		if err := rows.Scan(&p.ID, &p.SKUID, &p.ParentProductID, &p.EffectiveParentProductID, &p.SKUName, &p.SKUCode, &p.Barcode, &p.SpecLabel, &p.NetContentQty, &p.NetContentUnit, &p.IsDefaultSKU, &p.AutoDerivedSKU, &p.DerivedUnitTemplateID, &p.DerivedSpecKey, &p.DerivedSpecName, &p.DerivedSalesUnit, &p.DerivedSpecStatus, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.DefaultSalesUnit, &p.UnitConversionJSON, &p.SalesUnitRulesJSON, &p.UnitTemplateID, &p.UnitTemplateName, &p.UnitRuleSource, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
 			return nil, err
 		}
 		p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)

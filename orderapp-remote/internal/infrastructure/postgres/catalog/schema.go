@@ -44,6 +44,12 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_config_template_id B
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS net_content_qty NUMERIC(14,6) NOT NULL DEFAULT 0;
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS net_content_unit TEXT NOT NULL DEFAULT '';
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS is_default_sku BOOLEAN NOT NULL DEFAULT false;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS auto_derived_sku BOOLEAN NOT NULL DEFAULT false;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_unit_template_id BIGINT NOT NULL DEFAULT 0;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_key TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_name TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_sales_unit TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_status TEXT NOT NULL DEFAULT '';
 	UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
 UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL;
@@ -68,6 +74,7 @@ CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_ki
 	CREATE INDEX IF NOT EXISTS products_classification_template_idx ON %[1]s.products(classification_template_id, active);
 	CREATE INDEX IF NOT EXISTS products_unit_template_idx ON %[1]s.products(unit_template_id, active);
 	CREATE INDEX IF NOT EXISTS products_parent_product_idx ON %[1]s.products(parent_product_id, active, id);
+	CREATE INDEX IF NOT EXISTS products_derived_spec_idx ON %[1]s.products(parent_product_id, derived_unit_template_id, derived_spec_key) WHERE auto_derived_sku=true;
 CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	id BIGSERIAL PRIMARY KEY,
 	parent_id BIGINT,
@@ -124,6 +131,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_unit_templates (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS sales_specs_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 CREATE UNIQUE INDEX IF NOT EXISTS product_unit_templates_name_active_uniq
 ON %[1]s.product_unit_templates (lower(name))
 WHERE active=true;

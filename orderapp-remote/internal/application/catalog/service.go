@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,12 @@ type Product struct {
 	NetContentQty               float64
 	NetContentUnit              string
 	IsDefaultSKU                bool
+	AutoDerivedSKU              bool
+	DerivedUnitTemplateID       int64
+	DerivedSpecKey              string
+	DerivedSpecName             string
+	DerivedSalesUnit            string
+	DerivedSpecStatus           string
 	Name                        string
 	Remark                      string
 	ProductKind                 string
@@ -322,6 +329,22 @@ type ProductCategory struct {
 
 type ProductSettingsProduct struct {
 	ID                          int64        `json:"id"`
+	SKUID                       int64        `json:"sku_id"`
+	ParentProductID             int64        `json:"parent_product_id"`
+	EffectiveParentProductID    int64        `json:"effective_parent_product_id"`
+	SKUName                     string       `json:"sku_name"`
+	SKUCode                     string       `json:"sku_code"`
+	Barcode                     string       `json:"barcode"`
+	SpecLabel                   string       `json:"spec_label"`
+	NetContentQty               float64      `json:"net_content_qty"`
+	NetContentUnit              string       `json:"net_content_unit"`
+	IsDefaultSKU                bool         `json:"is_default_sku"`
+	AutoDerivedSKU              bool         `json:"auto_derived_sku"`
+	DerivedUnitTemplateID       int64        `json:"derived_unit_template_id"`
+	DerivedSpecKey              string       `json:"derived_spec_key"`
+	DerivedSpecName             string       `json:"derived_spec_name"`
+	DerivedSalesUnit            string       `json:"derived_sales_unit"`
+	DerivedSpecStatus           string       `json:"derived_spec_status"`
 	Name                        string       `json:"name"`
 	ProductCode                 string       `json:"product_code"`
 	Remark                      string       `json:"remark"`
@@ -542,17 +565,31 @@ type ProductUnitDefinition struct {
 }
 
 type ProductUnitTemplate struct {
-	ID                 int64    `json:"id"`
-	Name               string   `json:"name"`
-	InventoryUnit      string   `json:"inventory_unit"`
-	SalesUnit          string   `json:"sales_unit"`
-	DefaultSalesUnit   string   `json:"default_sales_unit"`
-	SalesUnits         []string `json:"sales_units"`
-	QuoteUnit          string   `json:"quote_unit"`
-	OrderUnit          string   `json:"order_unit"`
-	UnitConversionJSON string   `json:"unit_conversion_json"`
-	IntegerUnit        bool     `json:"integer_unit"`
-	Active             bool     `json:"active"`
+	ID                 int64              `json:"id"`
+	Name               string             `json:"name"`
+	InventoryUnit      string             `json:"inventory_unit"`
+	SalesUnit          string             `json:"sales_unit"`
+	DefaultSalesUnit   string             `json:"default_sales_unit"`
+	SalesUnits         []string           `json:"sales_units"`
+	SalesSpecs         []ProductSalesSpec `json:"sales_specs"`
+	QuoteUnit          string             `json:"quote_unit"`
+	OrderUnit          string             `json:"order_unit"`
+	UnitConversionJSON string             `json:"unit_conversion_json"`
+	IntegerUnit        bool               `json:"integer_unit"`
+	Active             bool               `json:"active"`
+}
+
+type ProductSalesSpec struct {
+	SpecKey           string  `json:"spec_key"`
+	SpecName          string  `json:"spec_name"`
+	SalesUnit         string  `json:"sales_unit"`
+	NetContentQty     float64 `json:"net_content_qty"`
+	NetContentUnit    string  `json:"net_content_unit"`
+	Default           bool    `json:"default"`
+	Active            bool    `json:"active"`
+	DerivedSKUID      int64   `json:"derived_sku_id,omitempty"`
+	DerivedSKUCode    string  `json:"derived_sku_code,omitempty"`
+	DerivedSpecStatus string  `json:"derived_spec_status,omitempty"`
 }
 
 type ProductPriceGroup struct {
@@ -1108,6 +1145,7 @@ type SaveProductUnitTemplateCommand struct {
 	SalesUnit          string
 	DefaultSalesUnit   string
 	SalesUnits         []string
+	SalesSpecs         []ProductSalesSpec
 	QuoteUnit          string
 	OrderUnit          string
 	UnitConversionJSON string
@@ -3066,6 +3104,29 @@ func normalizeProductUnitTemplateCommand(cmd SaveProductUnitTemplateCommand) (Sa
 	if cmd.Name == "" {
 		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "name required"}
 	}
+	if len(cmd.SalesSpecs) > 0 {
+		specs, err := normalizeProductSalesSpecs(cmd.SalesSpecs)
+		if err != nil {
+			return SaveProductUnitTemplateCommand{}, err
+		}
+		defaultSalesUnit := defaultSalesUnitFromSpecs(specs)
+		unitConversionJSON, err := normalizeJSONObjectText(cmd.UnitConversionJSON)
+		if err != nil {
+			return SaveProductUnitTemplateCommand{}, ValidationError{Message: "invalid unit_conversion_json"}
+		}
+		if strings.TrimSpace(unitConversionJSON) == "" {
+			unitConversionJSON = "{}"
+		}
+		cmd.InventoryUnit = normalizeUnitTemplateUnit(cmd.InventoryUnit, "kg")
+		cmd.DefaultSalesUnit = defaultSalesUnit
+		cmd.SalesUnit = defaultSalesUnit
+		cmd.SalesUnits = salesUnitsFromSpecs(specs)
+		cmd.SalesSpecs = specs
+		cmd.QuoteUnit = defaultSalesUnit
+		cmd.OrderUnit = defaultSalesUnit
+		cmd.UnitConversionJSON = unitConversionJSON
+		return cmd, nil
+	}
 	inventoryUnit := normalizeUnitTemplateUnit(cmd.InventoryUnit, "kg")
 	defaultSalesUnit := normalizeUnitTemplateUnit(firstNonEmptyUnitTemplateUnit(cmd.DefaultSalesUnit, cmd.SalesUnit, cmd.OrderUnit, cmd.QuoteUnit), inventoryUnit)
 	unitConversionJSON, salesUnits, err := normalizeUnitTemplateConversionJSON(cmd.UnitConversionJSON, inventoryUnit, defaultSalesUnit, cmd.SalesUnits, cmd.SalesUnit, cmd.OrderUnit, cmd.QuoteUnit)
@@ -3094,6 +3155,22 @@ func decorateProductUnitTemplates(rows []ProductUnitTemplate) []ProductUnitTempl
 }
 
 func decorateProductUnitTemplate(row ProductUnitTemplate) ProductUnitTemplate {
+	if len(row.SalesSpecs) > 0 {
+		specs, err := normalizeProductSalesSpecs(row.SalesSpecs)
+		if err == nil {
+			row.SalesSpecs = specs
+			row.InventoryUnit = normalizeUnitTemplateUnit(row.InventoryUnit, "kg")
+			row.DefaultSalesUnit = defaultSalesUnitFromSpecs(specs)
+			row.SalesUnit = row.DefaultSalesUnit
+			row.SalesUnits = salesUnitsFromSpecs(specs)
+			row.QuoteUnit = row.DefaultSalesUnit
+			row.OrderUnit = row.DefaultSalesUnit
+			if strings.TrimSpace(row.UnitConversionJSON) == "" {
+				row.UnitConversionJSON = "{}"
+			}
+			return row
+		}
+	}
 	inventoryUnit := normalizeUnitTemplateUnit(row.InventoryUnit, "kg")
 	defaultSalesUnit := normalizeUnitTemplateUnit(firstNonEmptyUnitTemplateUnit(row.DefaultSalesUnit, row.OrderUnit, row.QuoteUnit, row.SalesUnit), inventoryUnit)
 	unitConversionJSON, salesUnits, err := normalizeUnitTemplateConversionJSON(row.UnitConversionJSON, inventoryUnit, defaultSalesUnit, row.SalesUnits, row.SalesUnit, row.OrderUnit, row.QuoteUnit)
@@ -3112,6 +3189,115 @@ func decorateProductUnitTemplate(row ProductUnitTemplate) ProductUnitTemplate {
 	row.QuoteUnit = defaultSalesUnit
 	row.OrderUnit = defaultSalesUnit
 	return row
+}
+
+func normalizeProductSalesSpecs(rows []ProductSalesSpec) ([]ProductSalesSpec, error) {
+	out := make([]ProductSalesSpec, 0, len(rows))
+	seen := map[string]int{}
+	defaultIdx := -1
+	activeCount := 0
+	for _, row := range rows {
+		spec := ProductSalesSpec{
+			SpecKey:           strings.TrimSpace(row.SpecKey),
+			SpecName:          strings.TrimSpace(row.SpecName),
+			SalesUnit:         strings.TrimSpace(row.SalesUnit),
+			NetContentQty:     row.NetContentQty,
+			NetContentUnit:    strings.TrimSpace(row.NetContentUnit),
+			Default:           row.Default,
+			Active:            row.Active,
+			DerivedSKUID:      row.DerivedSKUID,
+			DerivedSKUCode:    strings.TrimSpace(row.DerivedSKUCode),
+			DerivedSpecStatus: strings.TrimSpace(row.DerivedSpecStatus),
+		}
+		if spec.SpecName == "" {
+			return nil, ValidationError{Message: "spec_name required"}
+		}
+		if spec.SalesUnit == "" {
+			return nil, ValidationError{Message: "sales_unit required"}
+		}
+		if spec.NetContentQty < 0 || math.IsNaN(spec.NetContentQty) || math.IsInf(spec.NetContentQty, 0) {
+			return nil, ValidationError{Message: "invalid net_content_qty"}
+		}
+		if spec.SpecKey == "" {
+			spec.SpecKey = generatedSalesSpecKey(spec.SpecName, spec.SalesUnit, spec.NetContentQty, spec.NetContentUnit)
+		}
+		baseKey := spec.SpecKey
+		if baseKey == "" {
+			baseKey = fmt.Sprintf("spec-%d", len(out)+1)
+		}
+		if seen[baseKey] > 0 {
+			seen[baseKey]++
+			spec.SpecKey = fmt.Sprintf("%s-%d", baseKey, seen[baseKey])
+		} else {
+			seen[baseKey] = 1
+			spec.SpecKey = baseKey
+		}
+		if spec.Active && spec.DerivedSpecStatus == "" {
+			spec.DerivedSpecStatus = "active"
+		}
+		if spec.Active {
+			activeCount++
+		}
+		if spec.Default && !spec.Active {
+			return nil, ValidationError{Message: "default sales spec must be active"}
+		}
+		if spec.Default && defaultIdx < 0 {
+			defaultIdx = len(out)
+		} else {
+			spec.Default = false
+		}
+		out = append(out, spec)
+	}
+	if len(out) == 0 {
+		return nil, ValidationError{Message: "sales_specs required"}
+	}
+	if activeCount == 0 {
+		return nil, ValidationError{Message: "active sales_specs required"}
+	}
+	if defaultIdx < 0 {
+		for i := range out {
+			if out[i].Active {
+				out[i].Default = true
+				defaultIdx = i
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func generatedSalesSpecKey(specName, salesUnit string, netContentQty float64, netContentUnit string) string {
+	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%s|%.6f|%s", strings.TrimSpace(specName), strings.TrimSpace(salesUnit), netContentQty, strings.TrimSpace(netContentUnit))))
+	key := fmt.Sprintf("%x", sum)
+	if len(key) > 12 {
+		key = key[:12]
+	}
+	return "spec-" + key
+}
+
+func defaultSalesUnitFromSpecs(specs []ProductSalesSpec) string {
+	for _, spec := range specs {
+		if spec.Default && strings.TrimSpace(spec.SalesUnit) != "" {
+			return strings.TrimSpace(spec.SalesUnit)
+		}
+	}
+	for _, spec := range specs {
+		if spec.Active && strings.TrimSpace(spec.SalesUnit) != "" {
+			return strings.TrimSpace(spec.SalesUnit)
+		}
+	}
+	if len(specs) > 0 && strings.TrimSpace(specs[0].SalesUnit) != "" {
+		return strings.TrimSpace(specs[0].SalesUnit)
+	}
+	return "kg"
+}
+
+func salesUnitsFromSpecs(specs []ProductSalesSpec) []string {
+	units := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		units = append(units, spec.SalesUnit)
+	}
+	return uniqueUnitTemplateUnits(units)
 }
 
 func normalizeUnitTemplateConversionJSON(raw string, inventoryUnit string, defaultSalesUnit string, explicitSalesUnits []string, legacyUnits ...any) (string, []string, error) {
@@ -3680,6 +3866,22 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	}
 	return ProductSettingsProduct{
 		ID:                          p.ID,
+		SKUID:                       p.SKUID,
+		ParentProductID:             p.ParentProductID,
+		EffectiveParentProductID:    p.EffectiveParentProductID,
+		SKUName:                     p.SKUName,
+		SKUCode:                     p.SKUCode,
+		Barcode:                     p.Barcode,
+		SpecLabel:                   p.SpecLabel,
+		NetContentQty:               p.NetContentQty,
+		NetContentUnit:              p.NetContentUnit,
+		IsDefaultSKU:                p.IsDefaultSKU,
+		AutoDerivedSKU:              p.AutoDerivedSKU,
+		DerivedUnitTemplateID:       p.DerivedUnitTemplateID,
+		DerivedSpecKey:              p.DerivedSpecKey,
+		DerivedSpecName:             p.DerivedSpecName,
+		DerivedSalesUnit:            p.DerivedSalesUnit,
+		DerivedSpecStatus:           p.DerivedSpecStatus,
 		Name:                        p.Name,
 		ProductCode:                 productCodeForID(p.ID),
 		Remark:                      p.Remark,

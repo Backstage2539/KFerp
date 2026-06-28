@@ -64,17 +64,20 @@ func TestBomRepositoryExposesOrderUsageForCustomerSkuSorting(t *testing.T) {
 	}
 }
 
-func TestBomRepositoryProductsUseDirectProductUnitTemplateBeforeLegacyFallbacks(t *testing.T) {
+func TestBomRepositoryProductsUseParentInventoryUnitForDerivedSKUs(t *testing.T) {
 	src := readRepositorySource(t)
 	for _, want := range []string{
+		"parent_product_direct_unit_template",
+		"CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit",
+		"CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit_explicit",
 		"product_direct_unit_template",
 		"product_direct_unit_template.id=COALESCE(p.unit_template_id,0)",
 		"NULLIF(product_direct_unit_template.inventory_unit,'')",
-		"COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL AS inventory_unit_explicit",
+		"COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL END AS inventory_unit_explicit",
 		"NULLIF(product_config.inventory_unit,'')",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("BOM products must resolve inventory unit from direct product unit template before legacy fallbacks; missing %q", want)
+			t.Fatalf("BOM products must resolve child SKU inventory from parent and preserve legacy parent fallback; missing %q", want)
 		}
 	}
 	overrideIdx := strings.Index(src, "NULLIF(p.unit_rule_override_json->>'inventory_unit','')")

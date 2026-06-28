@@ -120,8 +120,8 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0),
-		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') AS inventory_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL AS inventory_unit_explicit,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') END AS inventory_unit,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit_explicit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL END AS inventory_unit_explicit,
 		COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10),
 		COALESCE((
 			SELECT COUNT(*)
@@ -130,6 +130,17 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 			WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
 		),0) AS order_usage_count
 		FROM %[1]s.products p
+		LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
+		LEFT JOIN %[1]s.product_unit_templates parent_product_direct_unit_template ON parent_product_direct_unit_template.id=COALESCE(parent_product.unit_template_id,0) AND parent_product_direct_unit_template.active=true AND parent_product_direct_unit_template.deleted_at IS NULL
+		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=COALESCE(parent_product.product_config_template_id,0) AND parent_product_config.deleted_at IS NULL
+		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=COALESCE(parent_product_config.unit_template_id,0) AND parent_product_unit_template.deleted_at IS NULL
+		LEFT JOIN %[1]s.product_categories parent_category_config ON parent_category_config.id=COALESCE(parent_product.product_category_id,0)
+		LEFT JOIN %[1]s.product_unit_templates parent_category_unit_template ON parent_category_unit_template.id=COALESCE(parent_category_config.unit_template_id,0) AND parent_category_unit_template.deleted_at IS NULL
+		LEFT JOIN LATERAL (
+			SELECT
+				COALESCE(NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''), NULLIF(parent_product_direct_unit_template.inventory_unit,''), NULLIF(parent_product_config.inventory_unit,''), NULLIF(parent_category_config.inventory_unit,''), NULLIF(parent_product_unit_template.inventory_unit,''), NULLIF(parent_category_unit_template.inventory_unit,''), 'kg') AS parent_product_inventory_unit,
+				COALESCE(NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''), NULLIF(parent_product_direct_unit_template.inventory_unit,'')) IS NOT NULL AS parent_product_inventory_unit_explicit
+		) parent_units ON true
 		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_config_templates product_config ON product_config.id=COALESCE(p.product_config_template_id,0) AND product_config.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=COALESCE(product_config.unit_template_id,0) AND product_unit_template.deleted_at IS NULL

@@ -94,6 +94,7 @@ import {
   unitRuleFormFromJSON,
   unitRuleJSONFromForm,
   visibleNonDeletedRows,
+  salesSpecRowsFromTemplate,
 } from './product-settings.js'
 
 const rows = [
@@ -1440,6 +1441,44 @@ test('unit template payload normalizes legacy sales-unit-to-sales-unit conversio
   })
 })
 
+test('sales spec template payload does not carry inventory unit conversion', () => {
+  const payload = buildProductUnitTemplatePayload({
+    id: 31,
+    name: '咖啡袋装销售规格',
+    sales_spec_rows: [
+      { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '袋', net_content_qty: 227, net_content_unit: 'g', default: true, active: true },
+      { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', active: true },
+    ],
+  })
+  assert.deepEqual(payload, {
+    id: 31,
+    name: '咖啡袋装销售规格',
+    default_sales_unit: '袋',
+    sales_unit: '袋',
+    sales_units: ['袋'],
+    quote_unit: '袋',
+    order_unit: '袋',
+    unit_conversion_json: '{}',
+    sales_specs: [
+      { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '袋', net_content_qty: 227, net_content_unit: 'g', default: true, active: true },
+      { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', default: false, active: true },
+    ],
+    active: true,
+  })
+})
+
+test('sales spec rows decorate template specs and preserve derived child SKU status', () => {
+  assert.deepEqual(salesSpecRowsFromTemplate({
+    sales_specs: [
+      { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '袋', net_content_qty: 227, net_content_unit: 'g', default: true, active: true, derived_sku_code: 'SKU-000912' },
+      { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', active: false, derived_spec_status: 'template_disabled' },
+    ],
+  }), [
+    { spec_key: 'bag-227g', spec_name: '227g袋装', sales_unit: '袋', net_content_qty: 227, net_content_unit: 'g', default: true, active: true, derived_sku_code: 'SKU-000912', derived_spec_status: 'active' },
+    { spec_key: 'bag-100g', spec_name: '100g袋装', sales_unit: '袋', net_content_qty: 100, net_content_unit: 'g', default: false, active: false, derived_sku_code: '', derived_spec_status: 'template_disabled' },
+  ])
+})
+
 test('structured unit conversion rows round-trip to the existing unit conversion JSON contract', () => {
   const rows = unitConversionRowsFromJSON('{"盒":{"kg":0.2},"箱":{"盒":24}}')
 
@@ -1513,7 +1552,7 @@ test('legacy explicit product unit override payload carries inventory unit maste
   })
 })
 
-test('product create and basics payload use unit template as primary UOM unless advanced override is enabled', () => {
+test('product create and basics payload save parent inventory unit while sales specs come from template', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: ' 模板咖啡豆 ',
     product_kind: 'roasted',
@@ -1530,6 +1569,8 @@ test('product create and basics payload use unit template as primary UOM unless 
     product_kind: 'roasted',
     remark: '引用咖啡豆单位模板',
     unit_template_id: 7,
+    inventory_unit: 'kg',
+    integer_inventory_unit: false,
     yield_rate: 0.8,
   })
 
@@ -1572,7 +1613,8 @@ test('product create and basics payload use unit template as primary UOM unless 
   })
   assert.equal(inheritedPayload.unit_template_id, 7)
   assert.equal(inheritedPayload.unit_rule_override_json, '{"legacy_key":"keep"}')
-  assert.equal(Object.hasOwn(inheritedPayload, 'inventory_unit'), false)
+  assert.equal(inheritedPayload.inventory_unit, 'kg')
+  assert.equal(inheritedPayload.integer_inventory_unit, false)
   assert.equal(Object.hasOwn(inheritedPayload, 'default_sales_unit'), false)
   assert.equal(Object.hasOwn(inheritedPayload, 'unit_conversion_json'), false)
   assert.equal(Object.hasOwn(inheritedPayload, 'sales_unit_rules'), false)
@@ -1599,7 +1641,7 @@ test('product create and basics payload use unit template as primary UOM unless 
   assert.equal(overridePayload.unit_rule_override_json, '{"legacy_key":"keep"}')
 })
 
-test('product production config save does not turn inherited sales units into product overrides', () => {
+test('product production config save carries parent inventory unit without sales-unit overrides', () => {
   const inheritedProduct = {
     id: 88,
     name: '初晓拼配',
@@ -1615,7 +1657,7 @@ test('product production config save does not turn inherited sales units into pr
   assert.equal(Object.hasOwn(inheritedPayload, 'default_sales_unit'), false)
   assert.equal(Object.hasOwn(inheritedPayload, 'unit_conversion_json'), false)
   assert.equal(Object.hasOwn(inheritedPayload, 'sales_unit_rules'), false)
-  assert.equal(Object.hasOwn(inheritedPayload, 'inventory_unit'), false)
+  assert.equal(inheritedPayload.inventory_unit, 'kg')
 
   const editedForm = {
     ...inheritedForm,
@@ -1662,7 +1704,7 @@ test('SKU config override payload carries template and unit rule overrides', () 
   })
 })
 
-test('product drawers require unit templates and hide direct unit override controls', () => {
+test('product drawers require sales spec templates and parent inventory units', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
@@ -1670,18 +1712,22 @@ test('product drawers require unit templates and hide direct unit override contr
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const marker of [
-    '单位模板',
+    '库存单位',
+    '销售规格模板',
     'skuForm.unit_template_id',
-    '有效库存单位',
-    '有效默认销售单位',
+    'skuForm.inventory_unit',
+    '父 SKU 库存单位',
+    '销售规格模板明细',
   ]) {
     assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   for (const marker of [
-    '单位模板',
+    '库存单位',
+    '销售规格模板',
     'productProductionConfigForm.unit_template_id',
-    '有效库存单位',
-    '有效默认销售单位',
+    'productProductionConfigForm.inventory_unit',
+    '父 SKU 库存单位',
+    '销售规格模板明细',
   ]) {
     assert.match(baseSection, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
@@ -1689,16 +1735,13 @@ test('product drawers require unit templates and hide direct unit override contr
     '不引用单位模板',
     '高级单位覆盖',
     '清除覆盖',
-    '<span>库存单位</span>',
     '<span>整数库存</span>',
     '销售单位换算',
     'skuForm.unit_rule_override_enabled',
-    'skuForm.inventory_unit',
     'skuForm.integer_inventory_unit',
     'skuForm.default_sales_unit',
     'skuForm.unit_conversion_rows',
     'productProductionConfigForm.unit_rule_override_enabled',
-    'productProductionConfigForm.inventory_unit',
     'productProductionConfigForm.integer_inventory_unit',
     'productProductionConfigForm.default_sales_unit',
     'productProductionConfigForm.unit_conversion_rows',
@@ -1706,45 +1749,51 @@ test('product drawers require unit templates and hide direct unit override contr
     assert.doesNotMatch(createForm, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `create form should not contain ${removed}`)
     assert.doesNotMatch(baseSection, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `config base section should not contain ${removed}`)
   }
-  assert.match(script, /请选择单位模板/)
+  assert.match(script, /请选择销售规格模板/)
 })
 
-test('product archive config drawer exposes child SKU management instead of treating specs as sales units', () => {
+test('product archive config drawer shows derived child SKUs from sales spec template', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
   assert.match(configDrawer, /销售规格 \/ SKU/)
-  assert.match(configDrawer, /childSkuForm\.sku_name/)
-  assert.match(configDrawer, /createChildSkuForProduct/)
-  assert.doesNotMatch(configDrawer, /袋\/227g/)
+  assert.match(configDrawer, /销售规格模板明细/)
+  assert.match(configDrawer, /已派生子 SKU 编号/)
+  assert.match(configDrawer, /继承父 SKU/)
+  assert.match(configDrawer, /derived_spec_status/)
+  assert.doesNotMatch(configDrawer, /childSkuForm\.sku_name/)
+  assert.doesNotMatch(configDrawer, /createChildSkuForProduct/)
+  assert.doesNotMatch(configDrawer, /class="child-sku-form"/)
 })
 
-test('product unit template controls are required in product drawers', () => {
+test('sales spec template controls are required in product drawers', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
   const productListToolbar = source.match(/<div class="sku-list-actions"[\s\S]*?<\/div>/)?.[0] || source
 
   for (const marker of [
-    '单位模板',
+    '销售规格模板',
+    '库存单位',
     'skuForm.unit_template_id',
-    '有效库存单位',
-    '有效默认销售单位',
+    'skuForm.inventory_unit',
+    '父 SKU 库存单位',
   ]) {
     assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 
   for (const marker of [
-    '单位模板',
+    '销售规格模板',
+    '库存单位',
     'productProductionConfigForm.unit_template_id',
-    '有效库存单位',
-    '有效默认销售单位',
+    'productProductionConfigForm.inventory_unit',
+    '父 SKU 库存单位',
   ]) {
     assert.match(configDrawer, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 
-  assert.match(productListToolbar, /设置单位模板/)
-  assert.match(productListToolbar, /维护单位模板/)
+  assert.match(productListToolbar, /设置销售规格模板/)
+  assert.match(productListToolbar, /维护销售规格模板/)
   assert.match(productListToolbar, /openProductUnitTemplateManagement/)
   assert.match(source, /key: 'productUnitTemplates'/)
   assert.match(source, /label: '返回商品档案'/)
@@ -2528,7 +2577,7 @@ test('product config template page no longer contains product category managemen
   const configPageBlock = template.match(/productConfigTemplates[\s\S]*?<\/section>/)?.[0] || template
 
   assert.match(source, /商品配置模板/)
-  assert.match(configPageBlock, /单位模板/)
+  assert.match(configPageBlock, /销售规格模板/)
   assert.match(configPageBlock, /价格表生成规则/)
   assert.match(configPageBlock, /productConfigTemplateNeedsGradientTemplate\(productConfigTemplateForm\)[\s\S]*阶梯价模板/)
   assert.doesNotMatch(configPageBlock, /<label>\s*<span>阶梯价模板<\/span>\s*<select v-model\.number="productConfigTemplateForm\.gradient_template_id"/)
@@ -2702,7 +2751,7 @@ test('SKU settings exposes product subtype default unit configuration controls',
     'saveProductConfigTemplate',
     'deriveProductConfigTemplateForCustomer',
     '/api/product-settings/product-config-templates',
-    '单位模板',
+    '销售规格模板',
     'productConfigTemplateForm.unit_template_id',
     'productUnitTemplateSummary',
     'buildProductConfigTemplatePayload',
@@ -2745,8 +2794,8 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
 
   for (const expected of [
     '商品配置',
-    '单位模板会影响产品价格表单位',
-    '录单默认单位和库存/生产折算',
+    '销售规格模板会影响商品价格表规格行',
+    '录单默认销售规格和后续派生子 SKU',
     '已发布价格表和历史订单不会被回改',
     'unit-impact-help',
     'repeat(auto-fit, minmax',
@@ -3260,7 +3309,7 @@ test('global unit dictionary is managed from global settings instead of SKU sett
   assert.doesNotMatch(globalSettings, />新建单位</)
   assert.doesNotMatch(productTemplate, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(productTemplate, /@submit\.prevent="saveProductUnitDefinition"/)
-  assert.match(productTemplate, /基础单位在“系统设置”维护/)
+  assert.match(productTemplate, /这里维护销售规格和销售单位/)
 })
 
 test('SKU settings splits product config templates and gradient templates into nested tabs', () => {
@@ -3302,7 +3351,7 @@ test('SKU settings separates global unit templates into a peer configuration tab
     'productUnitTemplates',
     'saveProductUnitTemplate',
     'productConfigTemplateForm.unit_template_id',
-    '基础单位在“系统设置”维护',
+    '这里维护销售规格和销售单位',
     '/api/product-settings/unit-templates',
   ]) {
     assert.ok(source.includes(expected), `missing global unit template marker: ${expected}`)
@@ -3382,7 +3431,7 @@ test('SKU unit template save creates or updates without a separate new-template 
 
   assert.ok(unitTemplatePane, 'unit template pane should exist')
   assert.doesNotMatch(unitTemplatePane, />新建模板</)
-  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增单位模板/)
+  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增销售规格模板/)
   assert.match(source, /function resetProductUnitTemplateForm\(\)/)
   assert.match(source, /await apiSend\(url, \{ method, body: payload \}\)/)
   assert.match(source, /await loadAll\(\)\s+resetProductUnitTemplateForm\(\)/)
@@ -3412,13 +3461,16 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   assert.doesNotMatch(template, /<div v-if="ok" class="ok"/)
   assert.doesNotMatch(template, /产品列表、商品分类和商品配置会按当前归属切换。/)
 
-  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增单位模板/)
+  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增销售规格模板/)
   assert.match(unitTemplatePane, /productUnitTemplateForm\.id\s*\?\s*'保存'\s*:\s*'新增'/)
-  assert.match(unitTemplatePane, />库存单位</)
-  assert.match(unitTemplatePane, />默认销售单位</)
-  assert.match(unitTemplatePane, />销售单位换算</)
-  assert.match(unitTemplatePane, /productUnitTemplateSalesUnitOptions/)
-  assert.match(unitTemplatePane, /productUnitTemplateForm\.inventory_unit/)
+  assert.match(unitTemplatePane, />销售规格模板名称</)
+  assert.match(unitTemplatePane, />默认规格</)
+  assert.match(unitTemplatePane, />销售规格明细</)
+  assert.match(unitTemplatePane, /sales_spec_rows/)
+  assert.doesNotMatch(unitTemplatePane, />库存单位</)
+  assert.doesNotMatch(unitTemplatePane, />销售单位换算</)
+  assert.doesNotMatch(unitTemplatePane, /productUnitTemplateSalesUnitOptions/)
+  assert.doesNotMatch(unitTemplatePane, /productUnitTemplateForm\.inventory_unit/)
   assert.doesNotMatch(unitTemplatePane, />报价单位</)
   assert.doesNotMatch(unitTemplatePane, />录单单位</)
   assert.doesNotMatch(unitTemplatePane, /成品库存单位/)
