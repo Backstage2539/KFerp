@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS
 - Branch: codex/price-list-spec-default-20260629
 - Owner/session: Codex / 2026-06-29
-- Status: post-deploy browser smoke found default sales spec still collapsed to `/袋`; follow-up implementation is local GREEN and pending final verifier, merge, redeploy and smoke.
+- Status: merged to `develop` and deployed to development after follow-up; final smoke passed with default sales spec resolving to `227g袋装 -> kg 0.227`.
 - Scope: 产品价格表平铺价格行显示具体子 SKU / 销售规格，避免只看到 `/袋` 不知道规格；价格表发布校验错误下沉到对应平铺价格行；销售规格模板恢复可选 `默认规格`，保存时默认销售单位和历史兼容字段使用选中规格名称。
 - DEV:
   - DEV-506-FLAT-PRICE-SPEC-ROW-ERRORS：`CostingView.vue` 平铺价格行标题和单位使用 `sku_snapshot/sku_name/spec_label/net_content` 展示规格；发布 readiness 复用 `priceListFlatRowErrors`，错误列表直接显示到问题价格行；旧 `price-list-publish-guard` 顶部通用提示移除。
@@ -23,7 +23,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED follow-up from browser smoke: live `/vue-shell?view=costing` still showed `榛巧拼配` as `/袋` with missing `袋 -> g` conversion because costing inputs did not read unit-template default `sales_specs_json` and PDF grouping dropped SKU/unit fields.
   - GREEN follow-up local: `node --test src/lib/costing-price-list-workflow.test.js src/lib/bean-list-pdf.test.js` after RED; `go test ./internal/infrastructure/postgres/costing -run TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTemplateChain -count=1` after RED; broader `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1`; broader frontend `node --test src/lib/costing-price-list-workflow.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-29-price-list-spec-default.md`.
-- Deployment: first deploy reached development at `f09054ea382c199a585374177803028ec1a3b27b`, but browser smoke found the default-spec costing data gap above; follow-up redeploy is pending.
+- Deployment: first deploy reached development at `f09054ea382c199a585374177803028ec1a3b27b`, but browser smoke found the default-spec costing data gap above. Follow-up commits were merged and deployed from `895746dc7f5183ac84c49fd3791166f3d86a0bcd`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260630000301`. Docker build ran `go test ./...` successfully, Vue and miniapp builds passed with existing npm audit/chunk warnings, `erp_orderapp` restarted, public `/app/` redirected to the Vue shell and `/app/vue-shell?view=costing` returned `200`. Server smoke verified deployed repository markers and DB default-spec resolution for `榛巧拼配`: `sku_name=227g袋装`, `sales_unit=227g袋装`, `unit_conversion_json={"227g袋装":{"kg":0.227}}`.
 - Last update: 2026-06-29 Asia/Shanghai.
 
 ### PR-505-SALES-SPEC-TEMPLATE-DERIVED-SKU
