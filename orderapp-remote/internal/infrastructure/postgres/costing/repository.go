@@ -144,14 +144,14 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true
 		LEFT JOIN LATERAL (
 			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
-			       COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) AS sales_unit,
+			       NULLIF(spec.row->>'spec_name','') AS sales_unit,
 			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
 			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
 			       CASE
 			         WHEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) > 0
-			          AND COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) IS NOT NULL
+			          AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
 			         THEN jsonb_build_object(
-			           COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')),
+			           NULLIF(spec.row->>'spec_name',''),
 			           jsonb_build_object(
 			             COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'),
 			             CASE
@@ -347,14 +347,14 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true
 		LEFT JOIN LATERAL (
 			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
-			       COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) AS sales_unit,
+			       NULLIF(spec.row->>'spec_name','') AS sales_unit,
 			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
 			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
 			       CASE
 			         WHEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) > 0
-			          AND COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) IS NOT NULL
+			          AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
 			         THEN jsonb_build_object(
-			           COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')),
+			           NULLIF(spec.row->>'spec_name',''),
 			           jsonb_build_object(
 			             COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'),
 			             CASE
@@ -1193,14 +1193,14 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=p.unit_template_id AND product_unit_template.active=true
 		LEFT JOIN LATERAL (
 			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
-			       COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) AS sales_unit,
+			       NULLIF(spec.row->>'spec_name','') AS sales_unit,
 			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
 			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
 			       CASE
 			         WHEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) > 0
-			          AND COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) IS NOT NULL
+			          AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
 			         THEN jsonb_build_object(
-			           COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')),
+			           NULLIF(spec.row->>'spec_name',''),
 			           jsonb_build_object(
 			             COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'),
 			             CASE

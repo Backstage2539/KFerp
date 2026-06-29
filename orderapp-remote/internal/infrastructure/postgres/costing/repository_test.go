@@ -149,6 +149,7 @@ func TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTem
 		"LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true",
 		"product_unit_template_default_spec",
 		"jsonb_array_elements(COALESCE(product_unit_template.sales_specs_json, '[]'::jsonb)) WITH ORDINALITY",
+		"NULLIF(spec.row->>'spec_name','') AS sales_unit",
 		"NULLIF(product_unit_template_default_spec.sales_unit,'')",
 		"NULLIF(product_unit_template_default_spec.unit_conversion_json,'{}')",
 		"NULLIF(product_unit_template.inventory_unit,'')",
@@ -158,6 +159,9 @@ func TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTem
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing sales-unit resolver must read product direct unit template; missing %q", want)
 		}
+	}
+	if strings.Contains(src, "COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) AS sales_unit") {
+		t.Fatalf("sales spec default unit must use spec_name, not legacy generic sales_unit")
 	}
 	overrideIdx := strings.Index(src, "NULLIF(p.unit_rule_override_json->>'inventory_unit','')")
 	templateIdx := strings.Index(src, "NULLIF(product_unit_template.inventory_unit,'')")
