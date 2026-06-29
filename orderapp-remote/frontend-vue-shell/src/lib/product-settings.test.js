@@ -1104,6 +1104,68 @@ test('industry field helpers use comma text for select options and build alias f
   })
 })
 
+test('product production config form keeps only current template industry fields', () => {
+  const roastTemplate = {
+    id: 2,
+    fields: [{
+      field_key: '烘焙度',
+      label: '烘焙度',
+      field_type: 'select',
+      options_json: '["浅烘","中烘","深烘"]',
+      sort_order: 1,
+    }],
+  }
+
+  const form = buildProductProductionConfigForm({
+    product_id: 554,
+    industry_field_template_id: 2,
+    fields: [
+      {
+        field_key: '烘焙度',
+        template_field_key: '烘焙度',
+        label: '烘焙度',
+        field_type: 'select',
+        value_text: '深烘',
+        options_json: '["浅烘","中烘","深烘"]',
+        sort_order: 1,
+      },
+      {
+        field_key: 'roast_level',
+        template_field_key: '',
+        label: 'roast_level',
+        field_type: 'text',
+        value_text: '中烘',
+        sort_order: 1,
+      },
+    ],
+  }, { id: 554, name: '榛巧拼配' }, roastTemplate)
+
+  assert.equal(form.fields.length, 1)
+  assert.equal(form.fields[0].field_key, '烘焙度')
+  assert.equal(form.fields[0].template_field_key, '烘焙度')
+  assert.equal(form.fields[0].field_type, 'select')
+  assert.equal(form.fields[0].value_text, '深烘')
+
+  const legacyOnly = buildProductProductionConfigForm({
+    product_id: 555,
+    industry_field_template_id: 2,
+    fields: [{
+      field_key: 'roast_level',
+      template_field_key: '',
+      label: 'roast_level',
+      field_type: 'text',
+      value_text: '中烘',
+      sort_order: 1,
+    }],
+  }, { id: 555, name: '旧烘焙字段商品' }, roastTemplate)
+
+  assert.equal(legacyOnly.fields.length, 1)
+  assert.equal(legacyOnly.fields[0].field_key, '烘焙度')
+  assert.equal(legacyOnly.fields[0].template_field_key, '烘焙度')
+  assert.equal(legacyOnly.fields[0].field_type, 'select')
+  assert.equal(legacyOnly.fields[0].value_text, '中烘')
+})
+
 test('classification template usages are page-level tabs instead of object fields', () => {
   assert.deepEqual(buildClassificationTemplateUsagePayload({
     customer_id: '42',

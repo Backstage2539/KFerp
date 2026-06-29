@@ -1630,6 +1630,7 @@ import {
   buildPricingRuleTrialPayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
+  productProductionConfigFieldsFromTemplate,
   buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -2417,7 +2418,7 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 }
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
-  return buildProductProductionConfigForm(config, product)
+  return buildProductProductionConfigForm(config, product, industryFieldTemplateForConfig(config))
 }
 
 function defaultChildSkuForm(product = {}) {
@@ -5491,12 +5492,6 @@ function fieldOptions(field = {}) {
   }
 }
 
-function templateFieldDefaultText(field = {}) {
-  const fieldType = String(field.field_type || '').trim()
-  if (!['text', 'textarea'].includes(fieldType)) return ''
-  return fieldOptions(field)[0] || ''
-}
-
 function fieldTypeLabel(type) {
   return ({
     text: '文本',
@@ -5561,30 +5556,18 @@ function selectedIndustryFieldTemplate() {
   return activeIndustryFieldTemplates.value.find((template) => Number(template.id || 0) === id) || null
 }
 
+function industryFieldTemplateForConfig(config = {}) {
+  const id = Number(config?.industry_field_template_id || 0)
+  if (!id) return null
+  return activeIndustryFieldTemplates.value.find((template) => Number(template.id || 0) === id)
+    || industryFieldTemplates.value.find((template) => Number(template.id || 0) === id)
+    || null
+}
+
 function applyIndustryFieldTemplateToProductionConfig() {
   const template = selectedIndustryFieldTemplate()
   if (!template) return
-  const existingByKey = new Map((productProductionConfigForm.value.fields || []).map((field) => [String(field.template_field_key || field.field_key || '').trim(), field]))
-  productProductionConfigForm.value.fields = (template.fields || [])
-    .slice()
-    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
-    .map((field, index) => {
-      const key = String(field.field_key || '').trim()
-      const existing = existingByKey.get(key) || {}
-      return defaultProductProductionConfigField({
-        ...existing,
-        field_key: existing.field_key || key,
-        template_field_key: key,
-        label: field.label || existing.label || key,
-        field_type: field.field_type || existing.field_type || 'text',
-        unit: field.unit || existing.unit || '',
-        value_text: existing.value_text || templateFieldDefaultText(field),
-        required: Boolean(field.required),
-        options_json: field.options_json || existing.options_json || '[]',
-        show_in_price_list: existing.show_in_price_list !== false,
-        sort_order: Number(field.sort_order || index + 1),
-      }, index)
-    })
+  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(productProductionConfigForm.value.fields || [], template)
 }
 
 function closeProductProductionConfigDrawer() {
