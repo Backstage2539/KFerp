@@ -9,18 +9,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS
 - Branch: codex/price-list-spec-default-20260629
 - Owner/session: Codex / 2026-06-29
-- Status: release-local verified on latest fetched `origin/develop`; feature branch commit, merge to `develop`, deployment and smoke are pending.
+- Status: post-deploy browser smoke found default sales spec still collapsed to `/袋`; follow-up implementation is local GREEN and pending final verifier, merge, redeploy and smoke.
 - Scope: 产品价格表平铺价格行显示具体子 SKU / 销售规格，避免只看到 `/袋` 不知道规格；价格表发布校验错误下沉到对应平铺价格行；销售规格模板恢复可选 `默认规格`，保存时默认销售单位和历史兼容字段使用选中规格名称。
 - DEV:
   - DEV-506-FLAT-PRICE-SPEC-ROW-ERRORS：`CostingView.vue` 平铺价格行标题和单位使用 `sku_snapshot/sku_name/spec_label/net_content` 展示规格；发布 readiness 复用 `priceListFlatRowErrors`，错误列表直接显示到问题价格行；旧 `price-list-publish-guard` 顶部通用提示移除。
   - DEV-506-SALES-SPEC-DEFAULT：销售规格模板行增加 `默认规格` 按钮；`product-settings.js` 和后端 catalog service 保留选中默认行，并将 `sales_unit/default_sales_unit/quote_unit/order_unit` 归一为规格名称。
+  - DEV-506-COSTING-SPEC-TEMPLATE-FLOW：成本价格表输入和发布校验从商品直接绑定的销售规格模板 `sales_specs_json` 读取当前默认规格，生成 `默认规格 -> 库存单位` 换算，并把 `sku_name/default_sales_unit/unit_conversion_json` 保留到 PDF 分组和平铺价格行。
   - DEV-506-DOCS-ACCEPTANCE：同步 PR/DEV 种子、成本/库存手册、需求/验收清单和 PR-506 验收记录。
 - Verifier:
   - RED: `node --test src/lib/costing-price-list-workflow.test.js src/lib/product-settings.test.js` failed before implementation because flat-row title/error helpers, row-level UI errors and default-spec controls were missing; targeted Go service/API tests failed because saving sales spec templates still preserved `袋` as the default sales unit.
   - GREEN targeted: `node --test src/lib/costing-price-list-workflow.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js`; `go test ./internal/application/catalog -run 'TestServiceSavesSalesSpecTemplateWithoutInventoryConversion|TestServiceSavesSelectedDefaultSalesSpecTemplate' -count=1`; `go test ./internal/interfaces/http/catalog -run TestProductSettingsAPISavesSalesSpecTemplateContract -count=1`; `go test ./internal/interfaces/http/support -count=1`.
   - GREEN release-local after merging `origin/develop`: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1`; `node --test src/lib/costing-price-list-workflow.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - RED follow-up from browser smoke: live `/vue-shell?view=costing` still showed `榛巧拼配` as `/袋` with missing `袋 -> g` conversion because costing inputs did not read unit-template default `sales_specs_json` and PDF grouping dropped SKU/unit fields.
+  - GREEN follow-up local: `node --test src/lib/costing-price-list-workflow.test.js src/lib/bean-list-pdf.test.js` after RED; `go test ./internal/infrastructure/postgres/costing -run TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTemplateChain -count=1` after RED; broader `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1`; broader frontend `node --test src/lib/costing-price-list-workflow.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-29-price-list-spec-default.md`.
-- Deployment: pending.
+- Deployment: first deploy reached development at `f09054ea382c199a585374177803028ec1a3b27b`, but browser smoke found the default-spec costing data gap above; follow-up redeploy is pending.
 - Last update: 2026-06-29 Asia/Shanghai.
 
 ### PR-505-SALES-SPEC-TEMPLATE-DERIVED-SKU

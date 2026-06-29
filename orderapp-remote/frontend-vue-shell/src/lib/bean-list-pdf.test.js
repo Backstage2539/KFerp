@@ -484,6 +484,44 @@ test('PDF bean-list helper can follow explicit picker category rows', () => {
   assert.deepEqual(groups[0].items.map((item) => item.code), ['5.2', '6.1'])
 })
 
+test('PDF bean-list helper preserves product spec and unit fields from picker rows', () => {
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'business-group-7-101',
+    label: '意式拼配豆',
+    items: [{
+      product_id: 554,
+      sku_id: 554,
+      parent_product_id: 0,
+      name: '榛巧拼配',
+      sku_name: '227g袋装',
+      spec_label: '',
+      net_content_qty: 0.227,
+      net_content_unit: 'kg',
+      inventory_unit: 'kg',
+      default_sales_unit: '227g袋装',
+      quote_unit: '227g袋装',
+      order_unit: '227g袋装',
+      unit_conversion_json: { '227g袋装': { kg: 0.227 } },
+      commercial_bean_list: {
+        code: '1.554',
+        category: '意式拼配豆',
+        display_name: '榛巧拼配',
+      },
+      commercial_wholesale_tiers: [],
+    }],
+  }], 'commercial', { selectedProductIDs: ['554'] })
+
+  const item = groups[0].items[0]
+  assert.equal(item.sku_id, 554)
+  assert.equal(item.sku_name, '227g袋装')
+  assert.equal(item.net_content_qty, 0.227)
+  assert.equal(item.net_content_unit, 'kg')
+  assert.equal(item.inventory_unit, 'kg')
+  assert.equal(item.default_sales_unit, '227g袋装')
+  assert.equal(item.quote_unit, '227g袋装')
+  assert.deepEqual(item.unit_conversion_json, { '227g袋装': { kg: 0.227 } })
+})
+
 test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-highlight settings', () => {
   const theme = sanitizeBeanListPdfTheme({
     listType: 'commercial',

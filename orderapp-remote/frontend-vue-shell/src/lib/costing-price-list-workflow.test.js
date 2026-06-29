@@ -164,6 +164,27 @@ describe('costing price-list workflow helpers', () => {
     }), '榛巧拼配（227g）')
   })
 
+  it('shows compact sales spec labels when a default spec uses a named package unit', () => {
+    const row = {
+      product_name: '榛巧拼配',
+      sku_name: '227g袋装',
+      price_unit: '227g袋装',
+      inventory_unit: 'kg',
+      inventory_conversion_json: { '227g袋装': { kg: 0.227 } },
+    }
+
+    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle(row), '榛巧拼配（227g袋装）')
+    assert.equal(priceListWorkflow.priceListFlatRowPriceUnitLabel(row), '227g')
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors({
+      ...row,
+      pricing_mode: 'fixed_price',
+      fixed_unit_price: 59.92,
+      final_unit_price: 59.92,
+      group_snapshot: { group_item_name: '意式拼配豆' },
+      cost_source_snapshot: { pricing_rule_version: 'V1' },
+    }), [])
+  })
+
   it('returns item-specific publish errors for flat price rows', () => {
     assert.equal(typeof priceListWorkflow.priceListFlatRowErrors, 'function')
     assert.equal(typeof priceListWorkflow.priceListFlatRowsReady, 'function')

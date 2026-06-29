@@ -147,6 +147,10 @@ func TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTem
 	src := string(b)
 	for _, want := range []string{
 		"LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true",
+		"product_unit_template_default_spec",
+		"jsonb_array_elements(COALESCE(product_unit_template.sales_specs_json, '[]'::jsonb)) WITH ORDINALITY",
+		"NULLIF(product_unit_template_default_spec.sales_unit,'')",
+		"NULLIF(product_unit_template_default_spec.unit_conversion_json,'{}')",
 		"NULLIF(product_unit_template.inventory_unit,'')",
 		"NULLIF(product_unit_template.quote_unit,'')",
 		"NULLIF(product_unit_template.unit_conversion_json::text,'{}')",
@@ -168,8 +172,10 @@ func TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTem
 	loadProductInputsSrc := src[loadProductInputsIdx:]
 	for _, want := range []string{
 		"NULLIF(p.unit_rule_override_json->>'inventory_unit',''),\n\t\t\t           NULLIF(product_unit_template.inventory_unit,''),\n\t\t\t           NULLIF(p_config.inventory_unit,'')",
-		"NULLIF(p.unit_rule_override_json->>'quote_unit',''),\n\t\t\t           NULLIF(product_unit_template.quote_unit,''),",
-		"NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),\n\t\t\t           NULLIF(p.unit_rule_override_json->>'conversion_json',''),\n\t\t\t           NULLIF(product_unit_template.unit_conversion_json::text,'{}'),\n\t\t           NULLIF(p_config.unit_conversion_json::text,'{}')",
+		"NULLIF(p.unit_rule_override_json->>'quote_unit',''),\n\t\t\t           NULLIF(product_unit_template_default_spec.sales_unit,''),\n\t\t\t           NULLIF(product_unit_template.quote_unit,''),",
+		"NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),\n\t\t\t           NULLIF(p.unit_rule_override_json->>'conversion_json',''),\n\t\t\t           NULLIF(product_unit_template_default_spec.unit_conversion_json,'{}'),\n\t\t\t           NULLIF(product_unit_template.unit_conversion_json::text,'{}'),\n\t\t           NULLIF(p_config.unit_conversion_json::text,'{}')",
+		"COALESCE(NULLIF(NULLIF(p.sku_name,''),'默认规格'), NULLIF(product_unit_template_default_spec.spec_name,''), '默认规格')",
+		"NULLIF(product_unit_template_default_spec.unit_conversion_json,'{}')",
 	} {
 		if !strings.Contains(loadProductInputsSrc, want) {
 			t.Fatalf("loadProductInputs must prefer product override and direct unit template before legacy config; missing %q", want)
@@ -680,7 +686,8 @@ func TestLoadProductInputsReadsChildSKUMetadataForPriceListRows(t *testing.T) {
 		"effective_parent_product_id",
 		"COALESCE(p.sku_code,'') AS sku_code",
 		"COALESCE(p.spec_label,'') AS spec_label",
-		"COALESCE(p.net_content_qty,0)::float8 AS net_content_qty",
+		"COALESCE(NULLIF(p.net_content_qty,0), NULLIF(product_unit_template_default_spec.net_content_qty,0), 0)::float8 AS net_content_qty",
+		"COALESCE(NULLIF(p.net_content_unit,''), NULLIF(product_unit_template_default_spec.net_content_unit,''), '') AS net_content_unit",
 		"&input.SKUID",
 		"&input.ParentProductID",
 		"&input.SKUName",

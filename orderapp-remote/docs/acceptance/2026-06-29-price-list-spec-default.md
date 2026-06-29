@@ -12,10 +12,14 @@
 
 ## 证据
 - RED：新增前端 helper/source tests 时，缺少 `priceListFlatRowDisplayTitle`、`priceListFlatRowErrors`、行级错误列表和默认规格控件；新增 Go service/API tests 时，后端仍把 `袋` 保存为默认销售单位。
+- RED follow-up：首次部署后浏览器烟测发现成本价格表中 `榛巧拼配` 仍展示 `/袋`，并提示缺少 `袋 -> g` 换算；补充回归测试证明成本仓储未读取销售规格模板默认 `sales_specs_json`，且 PDF 分组丢失 SKU/单位字段。
 - GREEN targeted：
   - `node --test src/lib/costing-price-list-workflow.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js`
+  - `node --test src/lib/costing-price-list-workflow.test.js src/lib/bean-list-pdf.test.js`
   - `go test ./internal/application/catalog -run 'TestServiceSavesSalesSpecTemplateWithoutInventoryConversion|TestServiceSavesSelectedDefaultSalesSpecTemplate' -count=1`
   - `go test ./internal/interfaces/http/catalog -run TestProductSettingsAPISavesSalesSpecTemplateContract -count=1`
+  - `go test ./internal/infrastructure/postgres/costing -run TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTemplateChain -count=1`
+  - `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1`
   - `go test ./internal/interfaces/http/support -count=1`
 - 手册：`orderapp-remote/docs/OP_MANUAL_COSTING.md`；`orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`。
 

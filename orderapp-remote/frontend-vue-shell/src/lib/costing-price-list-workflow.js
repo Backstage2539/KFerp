@@ -107,6 +107,8 @@ export function priceListFlatRowPriceUnitLabel(row = {}) {
   if (spec && (priceUnit === '袋' || priceUnit === '包' || priceUnit === '个' || priceUnit === '盒' || priceUnit === 'unit')) {
     return spec
   }
+  const compact = compactSpecLabelFromText(priceUnit)
+  if (compact) return compact
   return priceUnit || '-'
 }
 
@@ -140,20 +142,44 @@ function priceListFlatRowUnitSpecLabel(row = {}) {
     row?.specLabel,
     snapshot?.spec_label,
     snapshot?.specLabel,
-    netContentLabel(row),
-    netContentLabel(snapshot),
+    compactSpecLabelFromText(row?.derived_spec_name),
+    compactSpecLabelFromText(row?.derivedSpecName),
+    compactSpecLabelFromText(row?.sku_name),
+    compactSpecLabelFromText(row?.skuName),
+    compactSpecLabelFromText(snapshot?.sku_name),
+    compactSpecLabelFromText(snapshot?.skuName),
     row?.derived_spec_name,
     row?.derivedSpecName,
     row?.sku_name,
     row?.skuName,
     snapshot?.sku_name,
     snapshot?.skuName,
+    netContentLabel(row),
+    netContentLabel(snapshot),
   ]
   for (const candidate of candidates) {
     const text = String(candidate || '').trim()
     if (text) return text
   }
   return ''
+}
+
+function compactSpecLabelFromText(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const match = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|克|千克|公斤|lb|lbs|磅)/i)
+  if (!match) return ''
+  const qty = formatNetContentQty(Number(match[1]))
+  const unit = normalizeCompactSpecUnit(match[2])
+  return qty && unit ? `${qty}${unit}` : ''
+}
+
+function normalizeCompactSpecUnit(unit = '') {
+  const value = String(unit || '').trim().toLowerCase()
+  if (value === '克') return 'g'
+  if (value === '千克' || value === '公斤') return 'kg'
+  if (value === 'lbs' || value === '磅') return 'lb'
+  return value
 }
 
 function netContentLabel(row = {}) {

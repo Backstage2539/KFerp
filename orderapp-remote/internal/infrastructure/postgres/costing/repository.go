@@ -96,6 +96,7 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		           NULLIF(p.unit_rule_override_json->>'default_sales_unit',''),
 		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
 		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+		           NULLIF(product_unit_template_default_spec.sales_unit,''),
 		           NULLIF(product_unit_template.order_unit,''),
 		           NULLIF(product_unit_template.quote_unit,''),
 		           NULLIF(pct.order_unit,''),
@@ -126,6 +127,7 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		         ELSE COALESCE(
 		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
 		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+		           NULLIF(product_unit_template_default_spec.unit_conversion_json,'{}'),
 		           NULLIF(product_unit_template.unit_conversion_json::text,'{}'),
 		           NULLIF(pct.unit_conversion_json::text,'{}'),
 		           NULLIF(put.unit_conversion_json::text,'{}'),
@@ -140,6 +142,41 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		       COALESCE(p.derived_sales_unit,'') AS derived_sales_unit
 		FROM %[1]s.products p
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true
+		LEFT JOIN LATERAL (
+			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
+			       COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) AS sales_unit,
+			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
+			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
+			       CASE
+			         WHEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) > 0
+			          AND COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) IS NOT NULL
+			         THEN jsonb_build_object(
+			           COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')),
+			           jsonb_build_object(
+			             COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'),
+			             CASE
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''), NULLIF(product_unit_template.inventory_unit,''), 'kg')) = lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'))
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('g','克') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('kg','千克','公斤')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) / 1000.0
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('kg','千克','公斤') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('g','克')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) * 1000.0
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('lb','lbs','磅') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('kg','千克','公斤')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) * 0.45359237
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('kg','千克','公斤') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('lb','lbs','磅')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) / 0.45359237
+			               ELSE COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)
+			             END
+			           )
+			         )::text
+			         ELSE '{}'
+			       END AS unit_conversion_json
+			FROM jsonb_array_elements(COALESCE(product_unit_template.sales_specs_json, '[]'::jsonb)) WITH ORDINALITY AS spec(row, ord)
+			WHERE COALESCE(spec.row->>'active','true') <> 'false'
+			  AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
+			ORDER BY CASE WHEN COALESCE(spec.row->>'default','false') = 'true' THEN 0 ELSE 1 END, spec.ord
+			LIMIT 1
+		) product_unit_template_default_spec ON true
 		LEFT JOIN %[1]s.products parent_product ON parent_product.id = p.parent_product_id AND parent_product.active = true
 		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id = parent_product.unit_template_id AND parent_product_unit_template.active = true
 		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id = parent_product.product_config_template_id AND parent_product_config.active = true
@@ -242,6 +279,7 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 		           NULLIF(p.unit_rule_override_json->>'default_sales_unit',''),
 		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
 		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+		           NULLIF(product_unit_template_default_spec.sales_unit,''),
 		           NULLIF(product_unit_template.order_unit,''),
 		           NULLIF(product_unit_template.quote_unit,''),
 		           NULLIF(put.order_unit,''),
@@ -289,6 +327,7 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 		           NULLIF(cpti.unit_rule_json->>'conversion_json',''),
 		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
 		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+		           NULLIF(product_unit_template_default_spec.unit_conversion_json,'{}'),
 		           NULLIF(product_unit_template.unit_conversion_json::text,'{}'),
 		           NULLIF(put.unit_conversion_json::text,'{}'),
 		           NULLIF(pc.unit_conversion_json::text,'{}'),
@@ -306,6 +345,41 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 		LEFT JOIN %[1]s.product_config_templates pct ON pct.id = p.product_config_template_id AND pct.active = true
 		LEFT JOIN %[1]s.product_unit_templates alias_legacy_unit ON alias_legacy_unit.id=cpa.unit_template_id AND alias_legacy_unit.active=true
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true
+		LEFT JOIN LATERAL (
+			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
+			       COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) AS sales_unit,
+			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
+			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
+			       CASE
+			         WHEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) > 0
+			          AND COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) IS NOT NULL
+			         THEN jsonb_build_object(
+			           COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')),
+			           jsonb_build_object(
+			             COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'),
+			             CASE
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''), NULLIF(product_unit_template.inventory_unit,''), 'kg')) = lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'))
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('g','克') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('kg','千克','公斤')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) / 1000.0
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('kg','千克','公斤') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('g','克')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) * 1000.0
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('lb','lbs','磅') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('kg','千克','公斤')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) * 0.45359237
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('kg','千克','公斤') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('lb','lbs','磅')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) / 0.45359237
+			               ELSE COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)
+			             END
+			           )
+			         )::text
+			         ELSE '{}'
+			       END AS unit_conversion_json
+			FROM jsonb_array_elements(COALESCE(product_unit_template.sales_specs_json, '[]'::jsonb)) WITH ORDINALITY AS spec(row, ord)
+			WHERE COALESCE(spec.row->>'active','true') <> 'false'
+			  AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
+			ORDER BY CASE WHEN COALESCE(spec.row->>'default','false') = 'true' THEN 0 ELSE 1 END, spec.ord
+			LIMIT 1
+		) product_unit_template_default_spec ON true
 		LEFT JOIN %[1]s.products parent_product ON parent_product.id = p.parent_product_id AND parent_product.active = true
 		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id = parent_product.unit_template_id AND parent_product_unit_template.active = true
 		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id = parent_product.product_config_template_id AND parent_product_config.active = true
@@ -891,13 +965,13 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(p.parent_product_id,0) ELSE p.id END AS effective_parent_product_id,
 		       CASE
 		         WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(p.sku_name,''), p.name)
-		         ELSE COALESCE(NULLIF(p.sku_name,''), '默认规格')
+		         ELSE COALESCE(NULLIF(NULLIF(p.sku_name,''),'默认规格'), NULLIF(product_unit_template_default_spec.spec_name,''), '默认规格')
 		       END AS sku_name,
 		       COALESCE(p.sku_code,'') AS sku_code,
 		       COALESCE(p.barcode,'') AS barcode,
 		       COALESCE(p.spec_label,'') AS spec_label,
-		       COALESCE(p.net_content_qty,0)::float8 AS net_content_qty,
-		       COALESCE(p.net_content_unit,'') AS net_content_unit,
+		       COALESCE(NULLIF(p.net_content_qty,0), NULLIF(product_unit_template_default_spec.net_content_qty,0), 0)::float8 AS net_content_qty,
+		       COALESCE(NULLIF(p.net_content_unit,''), NULLIF(product_unit_template_default_spec.net_content_unit,''), '') AS net_content_unit,
 		       (COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku,
 		       CASE WHEN $2 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END,
 		       'SKU-' || p.id::text,
@@ -1001,6 +1075,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			           NULLIF(cpro.unit_rule_json->>'quote_unit',''),
 			           NULLIF(cpti.unit_rule_json->>'quote_unit',''),
 			           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+			           NULLIF(product_unit_template_default_spec.sales_unit,''),
 			           NULLIF(product_unit_template.quote_unit,''),
 			           NULLIF(product_unit_template.order_unit,''),
 			           NULLIF(p_config.quote_unit,''),
@@ -1019,6 +1094,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			           NULLIF(cpro.unit_rule_json->>'order_unit',''),
 			           NULLIF(cpti.unit_rule_json->>'order_unit',''),
 			           NULLIF(p.unit_rule_override_json->>'order_unit',''),
+			           NULLIF(product_unit_template_default_spec.sales_unit,''),
 			           NULLIF(product_unit_template.order_unit,''),
 			           NULLIF(product_unit_template.quote_unit,''),
 			           NULLIF(p_config.order_unit,''),
@@ -1041,6 +1117,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			           NULLIF(cpti.unit_rule_json->>'conversion_json',''),
 			           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
 			           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+			           NULLIF(product_unit_template_default_spec.unit_conversion_json,'{}'),
 			           NULLIF(product_unit_template.unit_conversion_json::text,'{}'),
 		           NULLIF(p_config.unit_conversion_json::text,'{}'),
 		           NULLIF(classification_category_config.unit_conversion_json::text,'{}'),
@@ -1114,6 +1191,41 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %[1]s.product_config_templates parent_pc_config ON parent_pc_config.id = parent_pc.product_config_template_id AND parent_pc_config.active=true
 		LEFT JOIN %[1]s.product_unit_templates alias_legacy_unit ON alias_legacy_unit.id=p.customer_product_alias_unit_template_id AND alias_legacy_unit.active=true
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=p.unit_template_id AND product_unit_template.active=true
+		LEFT JOIN LATERAL (
+			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
+			       COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) AS sales_unit,
+			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
+			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
+			       CASE
+			         WHEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) > 0
+			          AND COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')) IS NOT NULL
+			         THEN jsonb_build_object(
+			           COALESCE(NULLIF(spec.row->>'sales_unit',''), NULLIF(spec.row->>'spec_name','')),
+			           jsonb_build_object(
+			             COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'),
+			             CASE
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''), NULLIF(product_unit_template.inventory_unit,''), 'kg')) = lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''), NULLIF(spec.row->>'net_content_unit',''), 'kg'))
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('g','克') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('kg','千克','公斤')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) / 1000.0
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('kg','千克','公斤') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('g','克')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) * 1000.0
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('lb','lbs','磅') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('kg','千克','公斤')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) * 0.45359237
+			               WHEN lower(COALESCE(NULLIF(spec.row->>'net_content_unit',''),'')) IN ('kg','千克','公斤') AND lower(COALESCE(NULLIF(product_unit_template.inventory_unit,''),'')) IN ('lb','lbs','磅')
+			                 THEN COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0) / 0.45359237
+			               ELSE COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)
+			             END
+			           )
+			         )::text
+			         ELSE '{}'
+			       END AS unit_conversion_json
+			FROM jsonb_array_elements(COALESCE(product_unit_template.sales_specs_json, '[]'::jsonb)) WITH ORDINALITY AS spec(row, ord)
+			WHERE COALESCE(spec.row->>'active','true') <> 'false'
+			  AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
+			ORDER BY CASE WHEN COALESCE(spec.row->>'default','false') = 'true' THEN 0 ELSE 1 END, spec.ord
+			LIMIT 1
+		) product_unit_template_default_spec ON true
 		LEFT JOIN %[1]s.products parent_product ON parent_product.id=p.parent_product_id AND parent_product.active=true
 		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=parent_product.unit_template_id AND parent_product_unit_template.active=true
 		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=parent_product.product_config_template_id AND parent_product_config.active=true
@@ -1288,7 +1400,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			FROM source_rows
 		) pps ON true
 		WHERE p.active = true
-			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, product_unit_template_default_spec.spec_name, product_unit_template_default_spec.sales_unit, product_unit_template_default_spec.net_content_qty, product_unit_template_default_spec.net_content_unit, product_unit_template_default_spec.unit_conversion_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)
