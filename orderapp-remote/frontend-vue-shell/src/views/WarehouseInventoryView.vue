@@ -40,6 +40,7 @@
           :selected-template="selectedWarehouseGroupTemplate"
           :selected-count="selectedWarehouseRowsForMove.length"
           :can-move="canMoveSelectedWarehouses"
+          :can-select-target="canSelectWarehouseMoveTarget"
           :loading="loading"
           @manage="openWarehouseBusinessGroupManagement"
           @move="moveSelectedWarehousesToGroup" />
@@ -299,6 +300,7 @@ import {
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
   groupRowsByBusinessGroupTemplate,
+  preferredBusinessGroupTemplateID,
 } from '../lib/business-grouping'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
@@ -400,6 +402,7 @@ const canMoveSelectedWarehouses = computed(() => {
     return warehouseGroupID(row) !== Number(targetOption.group_id || 0) || warehouseGroupItemID(row) !== Number(targetOption.group_item_id || 0)
   })
 })
+const canSelectWarehouseMoveTarget = computed(() => Boolean(selectedWarehouseGroupTemplate.value && selectedWarehouseRowsForMove.value.length))
 
 function kindLabel(kind) {
   return {
@@ -475,6 +478,15 @@ function warehouseGroupOptionByItemID(groupItemID) {
   return warehouseGroupItemOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
 }
 
+function preferredWarehouseGroupTemplateID() {
+  return preferredBusinessGroupTemplateID(warehouseBusinessGroups.value, {
+    selectedTemplateID: selectedWarehouseGroupTemplateID.value,
+    usageKey: 'warehouse_inventory',
+    preferredNames: ['库存分组', '仓库库存'],
+    preferredNameIncludes: ['库存', '仓库'],
+  })
+}
+
 function isWarehouseGroupCollapsed(key) {
   return collapsedWarehouseGroups.value.includes(String(key || ''))
 }
@@ -537,8 +549,9 @@ async function loadWarehouseBusinessGroups() {
   }
   const data = await apiGet('/api/business-groups')
   warehouseBusinessGroups.value = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : [])
-  if (!selectedWarehouseGroupTemplateID.value && warehouseGroupTemplateOptions.value.length) {
-    selectedWarehouseGroupTemplateID.value = Number(warehouseGroupTemplateOptions.value[0].id || 0)
+  const nextTemplateID = preferredWarehouseGroupTemplateID()
+  if (nextTemplateID && nextTemplateID !== Number(selectedWarehouseGroupTemplateID.value || 0)) {
+    selectedWarehouseGroupTemplateID.value = nextTemplateID
   }
 }
 

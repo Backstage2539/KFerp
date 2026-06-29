@@ -71,6 +71,56 @@ export function businessGroupControlOptions(groups = [], {
   return { templateOptions, selectedTemplate, moveOptions }
 }
 
+export function preferredBusinessGroupTemplateID(groups = [], {
+  selectedTemplateID = 0,
+  usageKey = '',
+  preferredNames = [],
+  preferredNameIncludes = [],
+} = {}) {
+  const { templateOptions } = businessGroupControlOptions(groups, { selectedTemplateID, usageKey })
+  const selectedID = toNumber(selectedTemplateID)
+  if (selectedID > 0 && templateOptions.some((option) => toNumber(option.id) === selectedID)) return selectedID
+
+  const normalizedUsage = normalizedText(usageKey)
+  if (normalizedUsage) {
+    const usageMatch = templateOptions.find((option) => {
+      const usages = Array.isArray(option.group?.usages) ? option.group.usages : []
+      return usages.some((usage) => assignmentUsage(usage) === normalizedUsage && usage.active !== false)
+    })
+    if (usageMatch) return toNumber(usageMatch.id)
+  }
+
+  const exactNames = new Set((Array.isArray(preferredNames) ? preferredNames : []).map(normalizedText).filter(Boolean))
+  if (exactNames.size) {
+    const exactMatch = templateOptions.find((option) => {
+      const labels = [
+        option.label,
+        option.group?.name,
+        businessGroupVisibleName(option.group),
+        option.group?.code,
+      ].map(normalizedText).filter(Boolean)
+      return labels.some((label) => exactNames.has(label))
+    })
+    if (exactMatch) return toNumber(exactMatch.id)
+  }
+
+  const includeTokens = (Array.isArray(preferredNameIncludes) ? preferredNameIncludes : []).map(normalizedText).filter(Boolean)
+  if (includeTokens.length) {
+    const includeMatch = templateOptions.find((option) => {
+      const labels = [
+        option.label,
+        option.group?.name,
+        businessGroupVisibleName(option.group),
+        option.group?.code,
+      ].map(normalizedText).filter(Boolean)
+      return labels.some((label) => includeTokens.some((token) => label.includes(token)))
+    })
+    if (includeMatch) return toNumber(includeMatch.id)
+  }
+
+  return toNumber(templateOptions[0]?.id)
+}
+
 export function findBusinessGroupAssignmentForRow(row = {}, {
   assignments = [],
   usageKey = '',
