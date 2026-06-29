@@ -24,4 +24,4 @@
 - 手册：`orderapp-remote/docs/OP_MANUAL_COSTING.md`；`orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`。
 
 ## 状态
-- 已合并 `develop` 并部署到 development。最终部署 commit `895746dc7f5183ac84c49fd3791166f3d86a0bcd`；服务器 smoke 确认 `榛巧拼配` 默认规格解析为 `227g袋装 -> kg 0.227`。
+- 已合并 `develop` 并部署到 development；服务器 smoke 确认 `榛巧拼配` 默认规格解析为 `227g袋装 -> kg 0.227`。
