@@ -3212,9 +3212,7 @@ func normalizeProductSalesSpecs(rows []ProductSalesSpec) ([]ProductSalesSpec, er
 		if spec.SpecName == "" {
 			return nil, ValidationError{Message: "spec_name required"}
 		}
-		if spec.SalesUnit == "" {
-			return nil, ValidationError{Message: "sales_unit required"}
-		}
+		spec.SalesUnit = spec.SpecName
 		if spec.NetContentQty < 0 || math.IsNaN(spec.NetContentQty) || math.IsInf(spec.NetContentQty, 0) {
 			return nil, ValidationError{Message: "invalid net_content_qty"}
 		}

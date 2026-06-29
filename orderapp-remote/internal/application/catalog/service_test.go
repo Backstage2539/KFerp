@@ -537,11 +537,39 @@ func TestServiceSavesSalesSpecTemplateWithoutInventoryConversion(t *testing.T) {
 	if repo.unitTemplate.UnitConversionJSON != "{}" {
 		t.Fatalf("sales spec template should not require sales-unit inventory conversion, got %q", repo.unitTemplate.UnitConversionJSON)
 	}
-	if repo.unitTemplate.DefaultSalesUnit != "袋" || repo.unitTemplate.SalesUnit != "袋" || repo.unitTemplate.OrderUnit != "袋" || repo.unitTemplate.QuoteUnit != "袋" {
+	if repo.unitTemplate.DefaultSalesUnit != "227g袋装" || repo.unitTemplate.SalesUnit != "227g袋装" || repo.unitTemplate.OrderUnit != "227g袋装" || repo.unitTemplate.QuoteUnit != "227g袋装" {
 		t.Fatalf("default sales unit should come from default spec and still dual-write legacy fields: %+v", repo.unitTemplate)
 	}
 	if len(got.SalesSpecs) != 2 || got.SalesSpecs[0].SpecName != "227g袋装" || got.SalesSpecs[1].NetContentQty != 100 {
 		t.Fatalf("returned sales specs = %+v", got.SalesSpecs)
+	}
+}
+
+func TestServiceSavesSelectedDefaultSalesSpecTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.SaveProductUnitTemplate(context.Background(), SaveProductUnitTemplateCommand{
+		Actor: "tester",
+		Name:  "咖啡袋装销售规格",
+		SalesSpecs: []ProductSalesSpec{
+			{SpecKey: "bag-227g", SpecName: "227g袋装", SalesUnit: "袋", NetContentQty: 227, NetContentUnit: "g", Active: true},
+			{SpecKey: "bag-100g", SpecName: "100g袋装", SalesUnit: "袋", NetContentQty: 100, NetContentUnit: "g", Default: true, Active: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveProductUnitTemplate() error = %v", err)
+	}
+	if got.DefaultSalesUnit != "100g袋装" || repo.unitTemplate.DefaultSalesUnit != "100g袋装" {
+		t.Fatalf("selected default spec should drive default sales unit, got returned=%+v repo=%+v", got, repo.unitTemplate)
+	}
+	if !got.SalesSpecs[1].Default || got.SalesSpecs[0].Default {
+		t.Fatalf("selected default flags not preserved: %+v", got.SalesSpecs)
+	}
+	for _, spec := range got.SalesSpecs {
+		if spec.SalesUnit != spec.SpecName {
+			t.Fatalf("sales spec %q should use spec name as sales unit, got %+v", spec.SpecName, spec)
+		}
 	}
 }
 

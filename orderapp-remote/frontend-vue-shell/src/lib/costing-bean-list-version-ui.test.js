@@ -102,14 +102,15 @@ test('product price-list publish action reports blocked reasons instead of doing
   assert.ok(publishButtonStart > -1, 'publish button not found')
   const publishButtonSource = viewSource.slice(viewSource.lastIndexOf('<button', publishButtonStart), viewSource.indexOf('</button>', publishButtonStart))
   const publishTitleStart = viewSource.lastIndexOf('<div class="pdf-preview-title">', publishButtonStart)
-  const publishTitleEnd = viewSource.indexOf('</div>', viewSource.indexOf('price-list-publish-guard', publishButtonStart))
+  const publishTitleEnd = viewSource.indexOf('<div class="pdf-preview-phone', publishTitleStart)
   assert.ok(publishTitleStart > -1 && publishTitleEnd > publishTitleStart, 'publish action title block not found')
   const publishTitleSource = viewSource.slice(publishTitleStart, publishTitleEnd)
 
   assert.match(viewSource, /const priceListPublishBlockedReason = computed\(\(\) => \{/)
-  assert.match(viewSource, /v-if="priceListPublishBlockedReason" class="error price-list-publish-guard"/)
   assert.match(publishTitleSource, /v-if="error" class="error price-list-publish-feedback"/)
   assert.match(publishTitleSource, /v-if="message" class="ok price-list-publish-feedback"/)
+  assert.match(viewSource, /flat-price-row-error-list/)
+  assert.doesNotMatch(publishTitleSource, /price-list-publish-guard/)
   assert.match(publishButtonSource, /:disabled="beanListPublishing"/)
   assert.doesNotMatch(publishButtonSource, /!pdfGroups\.length/)
   assert.doesNotMatch(publishButtonSource, /!pdfTheme\.version/)
@@ -131,7 +132,7 @@ test('product price-list publish action reports blocked reasons instead of doing
     '暂无可发布的价格表预览',
     '请填写价格表版本号',
     '请选择客户',
-    '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。',
+    '平铺价格行存在未完成项目，请按红色行提示补齐。',
   ]) {
     assert.ok(viewSource.includes(expected), `missing publish blocked reason behavior: ${expected}`)
   }
@@ -746,7 +747,8 @@ test('price list preview builds from current selected products instead of empty 
   assert.equal(viewSource.includes('const pdfVisiblePreviewCategoryCodes = computed(() => pdfCategoryCodesForVisibleSelection'), false, 'preview should not translate picker category codes into legacy PDF category codes')
   assert.equal(viewSource.includes('function pdfCategoryCodesForVisibleSelection'), false, 'legacy preview category code mapper should be removed')
   assert.equal(viewSource.includes('<div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">'), true, 'empty flat price rows should stay hidden')
-  assert.equal(viewSource.includes('priceListFlatRows.value.length > 0 && priceListFlatRows.value.every'), true, 'empty flat price rows should not be publish-ready')
+  assert.equal(viewSource.includes('const priceListFlatRowsReady = computed(() => arePriceListFlatRowsReady(priceListFlatRows.value))'), true, 'flat price publish readiness should use the shared helper')
+  assert.equal(priceListWorkflowSource.includes('return rows.length > 0 && rows.every'), true, 'empty flat price rows should not be publish-ready')
 })
 
 test('product bean-list drawer derives publication owner from current page scope', () => {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import fs from 'node:fs'
+import * as priceListWorkflow from './costing-price-list-workflow.js'
 import {
   dedupePriceListFlatRows,
   priceListPricingRuleTrialRequestsForRows,
@@ -141,6 +142,59 @@ describe('costing price-list workflow helpers', () => {
     ])
   })
 
+  it('shows child SKU spec in flat price row titles', () => {
+    assert.equal(typeof priceListWorkflow.priceListFlatRowDisplayTitle, 'function')
+    assert.equal(typeof priceListWorkflow.priceListFlatRowPriceUnitLabel, 'function')
+
+    const bagRow = {
+      product_name: '榛巧拼配',
+      sku_name: '227g袋装',
+      spec_label: '227g',
+      price_unit: '袋',
+    }
+    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle(bagRow), '榛巧拼配（227g袋装）')
+    assert.equal(priceListWorkflow.priceListFlatRowPriceUnitLabel(bagRow), '227g')
+
+    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle({
+      product_name: '榛巧拼配',
+      spec_label: '227g',
+      net_content_qty: 227,
+      net_content_unit: 'g',
+      price_unit: '袋',
+    }), '榛巧拼配（227g）')
+  })
+
+  it('returns item-specific publish errors for flat price rows', () => {
+    assert.equal(typeof priceListWorkflow.priceListFlatRowErrors, 'function')
+    assert.equal(typeof priceListWorkflow.priceListFlatRowsReady, 'function')
+
+    const badRow = {
+      product_name: '榛巧拼配',
+      sku_name: '227g袋装',
+      pricing_mode: 'tier_template',
+      tier_template_id: 3,
+      template_tier_id: 0,
+      pricing_rule_id: 0,
+      price_unit: '袋',
+      inventory_unit: 'g',
+      inventory_conversion_json: {},
+      group_snapshot: {},
+      cost_source_snapshot: {},
+      final_unit_price: 0,
+    }
+    const errors = priceListWorkflow.priceListFlatRowErrors(badRow)
+
+    assert.deepEqual(errors, [
+      '榛巧拼配（227g袋装）：缺少阶梯档位',
+      '榛巧拼配（227g袋装）：缺少计算模板',
+      '榛巧拼配（227g袋装）：最终价必须大于 0',
+      '榛巧拼配（227g袋装）：缺少 袋 到 g 的换算',
+      '榛巧拼配（227g袋装）：缺少价格表分组快照',
+      '榛巧拼配（227g袋装）：缺少成本来源快照',
+    ])
+    assert.equal(priceListWorkflow.priceListFlatRowsReady([badRow]), false)
+  })
+
   it('product price list flat rows read product master sales unit conversion', () => {
     const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
 
@@ -151,5 +205,18 @@ describe('costing price-list workflow helpers', () => {
     assert.match(source, /parent_product_id/)
     assert.match(source, /priceListFlatRowUnitSummary/)
     assert.match(source, /商品档案单位/)
+  })
+
+  it('product price list flat rows render SKU spec and row-level errors in the editor', () => {
+    const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+    const flatRowEditor = source.match(/<div v-if="priceListFlatRows\.length" class="pdf-picker flat-price-row-editor"[\s\S]*?<div class="pdf-preview-title">/)?.[0] || ''
+    const previewTitle = source.match(/<div class="pdf-preview-title"[\s\S]*?<div class="pdf-preview-phone/)?.[0] || ''
+
+    assert.match(flatRowEditor, /priceListFlatRowDisplayTitle\(row\)/)
+    assert.match(flatRowEditor, /priceListFlatRowErrors\(row\)/)
+    assert.match(flatRowEditor, /flat-price-row-error-list/)
+    assert.match(flatRowEditor, /hasPriceListFlatRowError\(row\)/)
+    assert.doesNotMatch(flatRowEditor, /发布前需要为每行补齐计价模式/)
+    assert.doesNotMatch(previewTitle, /price-list-publish-guard/)
   })
 })

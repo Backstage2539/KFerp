@@ -2545,8 +2545,8 @@ func TestProductSettingsAPISavesSalesSpecTemplateContract(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/unit-templates", bytes.NewBufferString(`{
 		"name":"咖啡袋装销售规格",
 		"sales_specs":[
-			{"spec_key":"bag-227g","spec_name":"227g袋装","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g","default":true,"active":true},
-			{"spec_key":"bag-100g","spec_name":"100g袋装","sales_unit":"袋","net_content_qty":100,"net_content_unit":"g","active":true}
+			{"spec_key":"bag-227g","spec_name":"227g袋装","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g","active":true},
+			{"spec_key":"bag-100g","spec_name":"100g袋装","sales_unit":"袋","net_content_qty":100,"net_content_unit":"g","default":true,"active":true}
 		],
 		"active":true
 	}`))
@@ -2560,10 +2560,13 @@ func TestProductSettingsAPISavesSalesSpecTemplateContract(t *testing.T) {
 	if !repo.unitTemplateSaved || len(repo.savedUnitTemplate.SalesSpecs) != 2 {
 		t.Fatalf("saved sales specs command=%+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
 	}
+	if repo.savedUnitTemplate.DefaultSalesUnit != "100g袋装" || !repo.savedUnitTemplate.SalesSpecs[1].Default || repo.savedUnitTemplate.SalesSpecs[1].SalesUnit != "100g袋装" {
+		t.Fatalf("selected default sales spec not normalized through API: %+v", repo.savedUnitTemplate)
+	}
 	if repo.savedUnitTemplate.InventoryUnit != "kg" || repo.savedUnitTemplate.UnitConversionJSON != "{}" {
 		t.Fatalf("sales spec template should only use kg as legacy storage fallback and no conversion, got inventory=%q conversion=%q", repo.savedUnitTemplate.InventoryUnit, repo.savedUnitTemplate.UnitConversionJSON)
 	}
-	for _, want := range []string{`"sales_specs"`, `"spec_key":"bag-227g"`, `"spec_name":"100g袋装"`, `"sales_unit":"袋"`} {
+	for _, want := range []string{`"default_sales_unit":"100g袋装"`, `"sales_specs"`, `"spec_key":"bag-227g"`, `"spec_name":"100g袋装"`, `"sales_unit":"100g袋装"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("sales spec template response missing %s: %s", want, rec.Body.String())
 		}

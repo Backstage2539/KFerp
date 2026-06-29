@@ -1470,6 +1470,25 @@ test('sales spec template payload carries template inventory unit target', () =>
   })
 })
 
+test('sales spec template payload keeps the selected default spec instead of forcing the first row', () => {
+  const payload = buildProductUnitTemplatePayload({
+    id: 31,
+    name: '咖啡袋装销售规格',
+    inventory_unit: 'kg',
+    default_spec_key: 'bag-100g',
+    sales_spec_rows: [
+      { spec_key: 'bag-227g', spec_name: '227g袋装', net_content_qty: 0.227, default: false, active: true },
+      { spec_key: 'bag-100g', spec_name: '100g袋装', net_content_qty: 0.1, default: true, active: true },
+    ],
+  })
+
+  assert.equal(payload.default_sales_unit, '100g袋装')
+  assert.deepEqual(payload.sales_specs.map((row) => ({ spec_key: row.spec_key, default: row.default })), [
+    { spec_key: 'bag-227g', default: false },
+    { spec_key: 'bag-100g', default: true },
+  ])
+})
+
 test('sales spec rows decorate template specs and preserve derived child SKU status', () => {
   assert.deepEqual(salesSpecRowsFromTemplate({
     sales_specs: [
@@ -3516,11 +3535,12 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   assert.match(unitTemplatePane, /sales_spec_rows/)
   assert.match(unitTemplatePane, /class="sales-spec-row"/)
   assert.match(unitTemplatePane, />1<\/span>[\s\S]*row\.spec_name[\s\S]*>=[\s\S]*productUnitTemplateForm\.inventory_unit/)
-  assert.doesNotMatch(unitTemplatePane, />默认规格</)
+  assert.match(unitTemplatePane, />默认规格</)
+  assert.match(unitTemplatePane, /setSalesSpecDefault\(productUnitTemplateForm, rowIndex\)/)
+  assert.match(unitTemplatePane, /row\.default/)
   assert.doesNotMatch(unitTemplatePane, />启用</)
   assert.doesNotMatch(unitTemplatePane, /v-model="row\.sales_unit"/)
   assert.doesNotMatch(unitTemplatePane, /v-model="row\.net_content_unit"/)
-  assert.doesNotMatch(unitTemplatePane, /setSalesSpecDefault/)
   assert.doesNotMatch(unitTemplatePane, />销售单位换算</)
   assert.doesNotMatch(unitTemplatePane, /productUnitTemplateSalesUnitOptions/)
   assert.doesNotMatch(unitTemplatePane, />报价单位</)
@@ -3564,7 +3584,7 @@ test('SKU unit template workspace uses left list right editor and opens global u
   assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(280px,\s*340px\)\s+minmax\(520px,\s*1fr\);/s)
   assert.match(style, /\.unit-template-layout\s*\{[^}]*align-items:\s*stretch;/s)
   assert.match(style, /\.compact-template-list\s*\{[^}]*max-height:\s*none;/s)
-  assert.match(style, /\.sales-spec-row\s*\{[^}]*grid-template-columns:\s*auto minmax\(180px,\s*1fr\) auto minmax\(110px,\s*140px\) auto auto;/s)
+  assert.match(style, /\.sales-spec-row\s*\{[^}]*grid-template-columns:\s*auto minmax\(180px,\s*1fr\) auto minmax\(110px,\s*140px\) auto auto auto;/s)
   assert.doesNotMatch(style, /\.sales-spec-row\s*\{[^}]*grid-template-columns:[^}]*minmax\(82px,\s*\.7fr\)/s)
 })
 

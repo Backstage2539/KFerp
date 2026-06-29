@@ -1320,10 +1320,13 @@ export function buildProductUnitDefinitionPayload(form = {}) {
 export function buildProductUnitTemplatePayload(form = {}) {
   if (Array.isArray(form.sales_spec_rows) || Array.isArray(form.sales_specs)) {
     const inventoryUnit = normalizeUnitText(form.inventory_unit, 'kg')
-    const salesSpecs = normalizeSalesSpecRows(form.sales_spec_rows ?? form.sales_specs, inventoryUnit, { forceActive: true })
+    const salesSpecs = normalizeSalesSpecRows(form.sales_spec_rows ?? form.sales_specs, inventoryUnit, {
+      forceActive: true,
+      defaultSpecKey: form.default_spec_key ?? form.defaultSpecKey,
+    })
     const defaultSpec = salesSpecs.find((row) => row.default) || salesSpecs.find((row) => row.active !== false) || salesSpecs[0] || null
     const defaultSalesUnit = normalizeOptionalUnitText(
-      form.default_sales_unit ?? form.defaultSalesUnit ?? form.sales_unit ?? form.order_unit ?? form.quote_unit ?? defaultSpec?.sales_unit,
+      defaultSpec?.sales_unit ?? form.default_sales_unit ?? form.defaultSalesUnit ?? form.sales_unit ?? form.order_unit ?? form.quote_unit,
     ) || defaultSpec?.sales_unit || ''
     return {
       id: Number(form.id || 0),
@@ -1364,7 +1367,9 @@ export function salesSpecRowsFromTemplate(template = {}, inventoryUnit = '') {
   const rawRows = Array.isArray(template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
     ? (template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
     : parseJSONArray(template.sales_specs ?? template.salesSpecs ?? template.sales_spec_rows)
-  const rows = normalizeSalesSpecRows(rawRows, inventoryUnit || template.inventory_unit || template.inventoryUnit || '')
+  const rows = normalizeSalesSpecRows(rawRows, inventoryUnit || template.inventory_unit || template.inventoryUnit || '', {
+    defaultSpecKey: template.default_spec_key ?? template.defaultSpecKey,
+  })
   return rows.map((row) => ({
     ...row,
     ...salesSpecDerivedMeta(rawRows.find((source) => String(source?.spec_key ?? source?.specKey ?? '').trim() === row.spec_key) || rawRows[rows.indexOf(row)] || {}),
@@ -1422,7 +1427,9 @@ function convertSalesSpecQuantity(value, fromUnit = '', toUnit = '') {
 function normalizeSalesSpecRows(rows = [], inventoryUnit = '', options = {}) {
   const sourceRows = Array.isArray(rows) ? rows : parseJSONArray(rows)
   const targetInventoryUnit = normalizeOptionalUnitText(inventoryUnit)
+  const defaultSpecKey = String(options.defaultSpecKey || '').trim()
   const normalized = []
+  let defaultIndex = -1
   for (const source of sourceRows) {
     const specName = String(source?.spec_name ?? source?.specName ?? source?.name ?? '').trim()
     if (!specName) continue
@@ -1441,17 +1448,25 @@ function normalizeSalesSpecRows(rows = [], inventoryUnit = '', options = {}) {
         normalizedUnit = sourceNetContentUnit
       }
     }
-    normalized.push({
+    const isSourceDefault = Boolean(source?.default ?? source?.is_default ?? source?.isDefault)
+    const row = {
       spec_key: specKey,
       spec_name: specName,
       sales_unit: salesUnit,
       net_content_qty: normalizedQty,
       net_content_unit: normalizedUnit,
-      default: Boolean(source?.default ?? source?.is_default ?? source?.isDefault) || normalized.length === 0,
+      default: isSourceDefault,
       active: options.forceActive ? true : (source?.active === false ? false : true),
-    })
+    }
+    if (defaultSpecKey && specKey === defaultSpecKey) defaultIndex = normalized.length
+    if (defaultIndex < 0 && isSourceDefault) defaultIndex = normalized.length
+    normalized.push(row)
   }
-  normalized.forEach((row, index) => { row.default = index === 0 })
+  if (normalized.length) {
+    if (defaultIndex < 0) defaultIndex = normalized.findIndex((row) => row.active !== false)
+    if (defaultIndex < 0) defaultIndex = 0
+  }
+  normalized.forEach((row, index) => { row.default = index === defaultIndex })
   return normalized
 }
 

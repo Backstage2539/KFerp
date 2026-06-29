@@ -45,6 +45,152 @@ export function dedupePriceListFlatRows(sourceRows = []) {
   return out
 }
 
+export function priceListFlatRowsReady(sourceRows = []) {
+  const rows = Array.isArray(sourceRows) ? sourceRows : []
+  return rows.length > 0 && rows.every((row) => priceListFlatRowErrors(row).length === 0)
+}
+
+export function priceListFlatRowErrors(row = {}) {
+  const title = priceListFlatRowDisplayTitle(row)
+  const errors = []
+  const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
+  if (!mode) {
+    errors.push(`${title}：缺少计价模式`)
+  } else if (mode === 'tier_template') {
+    const pricingRuleID = Number(row?.pricing_rule_id || row?.pricingRuleID || row?.tier_pricing_rule_id || row?.tierPricingRuleID || 0)
+    const pricingRuleVersion = String(row?.pricing_rule_version || row?.pricingRuleVersion || row?.tier_pricing_rule_version || row?.tierPricingRuleVersion || '').trim()
+    if (Number(row?.tier_template_id || row?.tierTemplateID || 0) <= 0) errors.push(`${title}：缺少阶梯模板`)
+    if (Number(row?.template_tier_id || row?.templateTierID || 0) <= 0) errors.push(`${title}：缺少阶梯档位`)
+    if (pricingRuleID <= 0) errors.push(`${title}：缺少计算模板`)
+    else if (!pricingRuleVersion) errors.push(`${title}：缺少计算模板版本`)
+  } else if (mode === 'pricing_rule') {
+    if (Number(row?.pricing_rule_id || row?.pricingRuleID || 0) <= 0) errors.push(`${title}：缺少计算模板`)
+    if (!String(row?.pricing_rule_version || row?.pricingRuleVersion || '').trim()) errors.push(`${title}：缺少计算模板版本`)
+  } else if (mode === 'fixed_price') {
+    if (Number(row?.fixed_unit_price || row?.fixedUnitPrice || 0) <= 0) errors.push(`${title}：缺少固定价`)
+  } else {
+    errors.push(`${title}：计价模式无效`)
+  }
+
+  if (Number(row?.final_unit_price || row?.finalUnitPrice || 0) <= 0) {
+    errors.push(`${title}：最终价必须大于 0`)
+  }
+
+  const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
+  const inventoryUnit = String(row?.inventory_unit || row?.inventoryUnit || '').trim()
+  if (!priceUnit) errors.push(`${title}：缺少价格单位`)
+  if (!inventoryUnit) errors.push(`${title}：缺少库存单位`)
+  if (priceUnit && inventoryUnit && !flatRowHasInventoryConversion(row, priceUnit, inventoryUnit)) {
+    errors.push(`${title}：缺少 ${priceUnit} 到 ${inventoryUnit} 的换算`)
+  }
+
+  if (Object.keys(parsePlainObject(row?.group_snapshot ?? row?.groupSnapshot)).length === 0) {
+    errors.push(`${title}：缺少价格表分组快照`)
+  }
+  if (Object.keys(parsePlainObject(row?.cost_source_snapshot ?? row?.costSourceSnapshot)).length === 0) {
+    errors.push(`${title}：缺少成本来源快照`)
+  }
+  return errors
+}
+
+export function priceListFlatRowDisplayTitle(row = {}) {
+  const productName = String(row?.product_name || row?.productName || row?.name || '').trim()
+  const spec = priceListFlatRowSpecLabel(row)
+  if (!productName) return spec || '未命名商品'
+  if (!spec || productName.includes(spec)) return productName
+  return `${productName}（${spec}）`
+}
+
+export function priceListFlatRowPriceUnitLabel(row = {}) {
+  const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
+  const spec = priceListFlatRowUnitSpecLabel(row)
+  if (spec && (priceUnit === '袋' || priceUnit === '包' || priceUnit === '个' || priceUnit === '盒' || priceUnit === 'unit')) {
+    return spec
+  }
+  return priceUnit || '-'
+}
+
+function priceListFlatRowSpecLabel(row = {}) {
+  const snapshot = parsePlainObject(row?.sku_snapshot ?? row?.skuSnapshot)
+  const candidates = [
+    row?.sku_name,
+    row?.skuName,
+    snapshot?.sku_name,
+    snapshot?.skuName,
+    row?.derived_spec_name,
+    row?.derivedSpecName,
+    row?.spec_label,
+    row?.specLabel,
+    snapshot?.spec_label,
+    snapshot?.specLabel,
+    netContentLabel(row),
+    netContentLabel(snapshot),
+  ]
+  for (const candidate of candidates) {
+    const text = String(candidate || '').trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function priceListFlatRowUnitSpecLabel(row = {}) {
+  const snapshot = parsePlainObject(row?.sku_snapshot ?? row?.skuSnapshot)
+  const candidates = [
+    row?.spec_label,
+    row?.specLabel,
+    snapshot?.spec_label,
+    snapshot?.specLabel,
+    netContentLabel(row),
+    netContentLabel(snapshot),
+    row?.derived_spec_name,
+    row?.derivedSpecName,
+    row?.sku_name,
+    row?.skuName,
+    snapshot?.sku_name,
+    snapshot?.skuName,
+  ]
+  for (const candidate of candidates) {
+    const text = String(candidate || '').trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function netContentLabel(row = {}) {
+  const qty = Number(row?.net_content_qty ?? row?.netContentQty ?? 0)
+  const unit = String(row?.net_content_unit ?? row?.netContentUnit ?? '').trim()
+  if (!Number.isFinite(qty) || qty <= 0 || !unit) return ''
+  return `${formatNetContentQty(qty)}${unit}`
+}
+
+function formatNetContentQty(qty) {
+  if (Number.isInteger(qty)) return String(qty)
+  return String(Number(qty.toFixed(4))).replace(/\.?0+$/, '')
+}
+
+function flatRowHasInventoryConversion(row = {}, priceUnit = '', inventoryUnit = '') {
+  if (!priceUnit || !inventoryUnit) return false
+  if (priceUnit === inventoryUnit) return true
+  const conversion = parsePlainObject(row?.inventory_conversion_json ?? row?.inventoryConversionJSON)
+  const targets = conversion?.[priceUnit]
+  if (!targets || typeof targets !== 'object' || Array.isArray(targets)) return false
+  const factor = Number(targets[inventoryUnit] || 0)
+  return Number.isFinite(factor) && factor > 0
+}
+
+function parsePlainObject(raw = {}) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
 function duplicateTierTemplateFlatRowKey(row = {}) {
   if (String(row?.pricing_mode || row?.pricingMode || '').trim() !== 'tier_template') return ''
   const productKey = flatRowProductKey(row)

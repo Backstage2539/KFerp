@@ -479,9 +479,9 @@
             <span>最终价</span>
             <span>快照</span>
           </div>
-          <div v-for="row in priceListFlatRows" :key="row.row_key" class="flat-price-row">
+          <div v-for="row in priceListFlatRows" :key="row.row_key" :class="['flat-price-row', { invalid: hasPriceListFlatRowError(row) }]">
             <div>
-              <strong>{{ row.product_name }}</strong>
+              <strong>{{ priceListFlatRowDisplayTitle(row) }}</strong>
               <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }} · {{ row.group_source === 'price_list' ? '价格表覆盖' : '商品档案分组' }}</span>
             </div>
             <div>
@@ -491,16 +491,18 @@
             </div>
             <label>
               <input type="number" min="0" step="0.01" :value="row.final_unit_price" @input="setPriceListFlatRowPrice(row, $event.target.value)" />
-              <small>/{{ row.price_unit || '-' }}</small>
+              <small>/{{ priceListFlatRowPriceUnitLabel(row) }}</small>
             </label>
             <div>
               <span>{{ row.pricing_rule_version || (row.pricing_mode === 'fixed_price' ? '固定价' : '未选择 Pricing Rule') }}</span>
               <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : '自动计算' }}</span>
               <span>{{ priceListFlatRowUnitSummary(row) }}</span>
             </div>
+            <ul v-if="priceListFlatRowErrors(row).length" class="flat-price-row-error-list">
+              <li v-for="msg in priceListFlatRowErrors(row)" :key="msg">{{ msg }}</li>
+            </ul>
           </div>
         </div>
-        <p v-if="priceListFlatRows.length && !priceListFlatRowsReady" class="muted">发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。</p>
       </div>
 
       <div class="pdf-preview-title">
@@ -512,7 +514,6 @@
           <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
           <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
         </div>
-        <p v-if="priceListPublishBlockedReason" class="error price-list-publish-guard">{{ priceListPublishBlockedReason }}</p>
         <p v-if="error" class="error price-list-publish-feedback">{{ error }}</p>
         <p v-if="message" class="ok price-list-publish-feedback">{{ message }}</p>
       </div>
@@ -1120,6 +1121,10 @@ import {
 } from '../lib/product-settings'
 import {
   dedupePriceListFlatRows,
+  priceListFlatRowDisplayTitle,
+  priceListFlatRowErrors,
+  priceListFlatRowPriceUnitLabel,
+  priceListFlatRowsReady as arePriceListFlatRowsReady,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
 import { FORM_DRAFT_SCOPES, readFormDraft } from '../lib/form-draft-cache'
@@ -1306,23 +1311,7 @@ const basePdfGroups = computed(() => {
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
 const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))
 const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
-const priceListFlatRowsReady = computed(() => priceListFlatRows.value.length > 0 && priceListFlatRows.value.every((row) => {
-  const mode = String(row.pricing_mode || '').trim()
-  const modeReady = mode === 'tier_template'
-    ? Number(row.tier_template_id || 0) > 0 && Number(row.template_tier_id || 0) > 0 && Number(row.pricing_rule_id || 0) > 0 && row.pricing_rule_version && Number(row.tier_pricing_rule_id || 0) > 0 && row.tier_pricing_rule_version
-    : mode === 'pricing_rule'
-      ? Number(row.pricing_rule_id || 0) > 0 && row.pricing_rule_version
-      : mode === 'fixed_price'
-        ? Number(row.fixed_unit_price || 0) > 0
-        : false
-  return modeReady &&
-    Number(row.final_unit_price || 0) > 0 &&
-    row.price_unit &&
-    row.inventory_unit &&
-    Object.keys(row.inventory_conversion_json || {}).length > 0 &&
-    Object.keys(row.group_snapshot || {}).length > 0 &&
-    Object.keys(row.cost_source_snapshot || {}).length > 0
-}))
+const priceListFlatRowsReady = computed(() => arePriceListFlatRowsReady(priceListFlatRows.value))
 const priceListPricingRuleTrialRequests = computed(() => currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
 
 function currentPriceListPricingRuleTrialRequests(sourceRows = []) {
@@ -1405,7 +1394,7 @@ const priceListPublishBlockedReason = computed(() => {
   if (!pdfGroups.value.length) return '暂无可发布的价格表预览'
   if (!String(pdfTheme.value.version || '').trim()) return '请填写价格表版本号'
   if (!customerScopeReady.value) return '请选择客户'
-  if (!priceListFlatRowsReady.value) return '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。'
+  if (!priceListFlatRowsReady.value) return '平铺价格行存在未完成项目，请按红色行提示补齐。'
   return ''
 })
 const pdfPageStyle = computed(() => {
@@ -1875,10 +1864,10 @@ function itemParentProductID(item = {}, skuID = 0) {
 function itemSkuSnapshot(item = {}) {
   const snapshot = {}
   ;[
-    ['sku_name', item?.sku_name ?? item?.skuName],
+    ['sku_name', item?.sku_name ?? item?.skuName ?? item?.derived_spec_name ?? item?.derivedSpecName ?? item?.derived_sales_unit ?? item?.derivedSalesUnit],
     ['sku_code', item?.sku_code ?? item?.skuCode],
     ['barcode', item?.barcode],
-    ['spec_label', item?.spec_label ?? item?.specLabel],
+    ['spec_label', item?.spec_label ?? item?.specLabel ?? item?.derived_spec_name ?? item?.derivedSpecName],
     ['net_content_unit', item?.net_content_unit ?? item?.netContentUnit],
   ].forEach(([key, raw]) => {
     const value = String(raw || '').trim()
@@ -1887,6 +1876,10 @@ function itemSkuSnapshot(item = {}) {
   const qty = Number(item?.net_content_qty || item?.netContentQty || 0)
   if (Number.isFinite(qty) && qty > 0) snapshot.net_content_qty = qty
   return snapshot
+}
+
+function hasPriceListFlatRowError(row = {}) {
+  return priceListFlatRowErrors(row).length > 0
 }
 
 async function scrollFirstInactiveBomWarningIntoView() {
@@ -4380,11 +4373,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .flat-price-head, .flat-price-row { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(130px, .8fr) minmax(110px, .55fr) minmax(150px, .9fr); gap: 8px; align-items: center; }
 .flat-price-head { border-bottom: 1px solid #eee; padding-bottom: 5px; font-weight: 700; }
 .flat-price-row { border: 1px solid #eee; border-radius: 7px; background: #fafafa; padding: 8px; }
+.flat-price-row.invalid { border-color: #d93025; background: #fff7f6; }
 .flat-price-row > div { display: grid; gap: 3px; min-width: 0; }
 .flat-price-row strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .flat-price-row label { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px; margin: 0; }
 .flat-price-row small { color: #666; font-size: 12px; }
 .flat-price-row .adjusted { color: #8a4b00; font-weight: 700; }
+.flat-price-row-error-list { grid-column: 1 / -1; margin: 0; padding-left: 18px; color: #b3261e; font-size: 12px; display: grid; gap: 2px; }
+.flat-price-row-error-list li { overflow-wrap: anywhere; }
 .checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
 .product-picker-list { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
 .product-picker-category { display: grid; gap: 8px; margin-left: var(--product-picker-category-indent, 0); border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fff; }
@@ -4435,7 +4431,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .green-tier-price-editor input { min-width: 0; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
-.price-list-publish-guard, .price-list-publish-feedback { flex-basis: 100%; margin: -4px 0 0; }
+.price-list-publish-feedback { flex-basis: 100%; margin: -4px 0 0; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
 .bean-list-pdf-surface { box-sizing: border-box; padding: 16px; background-size: cover; background-position: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .pdf-cover { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid currentColor; padding-bottom: 12px; margin-bottom: 14px; }

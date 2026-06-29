@@ -16,7 +16,8 @@ func TestDev469PriceListPublishNoResponseContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"priceListPublishBlockedReason",
-			"price-list-publish-guard",
+			"flat-price-row-error-list",
+			"price-list-publish-feedback",
 			"product-picker-bom-warning",
 			"去商品档案重新选择 BOM",
 			"失效 BOM 不能重新启用",

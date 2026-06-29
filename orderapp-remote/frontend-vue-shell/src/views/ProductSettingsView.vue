@@ -582,6 +582,12 @@
                   <span class="conversion-equals">=</span>
                   <input v-model.number="row.net_content_qty" class="sales-spec-qty-input" type="number" min="0" step="0.0001" placeholder="0.227" />
                   <span class="inventory-unit-chip">{{ productUnitName(productUnitTemplateForm.inventory_unit) }}</span>
+                  <button
+                    type="button"
+                    :class="['default-spec-toggle', { active: row.default }]"
+                    :aria-pressed="row.default ? 'true' : 'false'"
+                    @click="setSalesSpecDefault(productUnitTemplateForm, rowIndex)"
+                  >默认规格</button>
                   <button class="text-button danger-text" type="button" @click="removeSalesSpecRow(productUnitTemplateForm, rowIndex)">删除</button>
                 </div>
                 <small>例如：1 227g袋装 = 0.227 {{ productUnitName(productUnitTemplateForm.inventory_unit || 'kg') }}。保存商品档案后会按模板规格派生子 SKU。</small>
@@ -4169,13 +4175,21 @@ function productUnitTemplateSalesSpecRows(idOrTemplate) {
 
 function syncSalesSpecTemplateDefaults(target) {
   if (!target || !Array.isArray(target.sales_spec_rows)) return
+  let defaultIndex = -1
+  const defaultSpecKey = String(target.default_spec_key || '').trim()
   target.sales_spec_rows.forEach((row, index) => {
-    row.default = index === 0
+    if (defaultSpecKey && String(row.spec_key || '').trim() === defaultSpecKey) defaultIndex = index
+    if (defaultIndex < 0 && row.default === true) defaultIndex = index
+  })
+  if (defaultIndex < 0) defaultIndex = target.sales_spec_rows.findIndex((row) => row.active !== false)
+  if (defaultIndex < 0) defaultIndex = 0
+  target.sales_spec_rows.forEach((row, index) => {
+    row.default = index === defaultIndex
     row.active = true
     row.sales_unit = String(row.spec_name || '').trim()
     row.net_content_unit = target.inventory_unit || row.net_content_unit || 'kg'
   })
-  const defaultRow = target.sales_spec_rows[0]
+  const defaultRow = target.sales_spec_rows[defaultIndex]
   target.default_spec_key = defaultRow?.spec_key || ''
   target.default_sales_unit = defaultRow?.sales_unit || defaultRow?.spec_name || target.default_sales_unit || ''
   target.sales_unit = target.default_sales_unit
@@ -4212,10 +4226,17 @@ function addSalesSpecRow(target) {
 
 function removeSalesSpecRow(target, index) {
   if (!target || !Array.isArray(target.sales_spec_rows)) return
+  const removedWasDefault = target.sales_spec_rows[index]?.default === true ||
+    String(target.sales_spec_rows[index]?.spec_key || '').trim() === String(target.default_spec_key || '').trim()
   target.sales_spec_rows.splice(index, 1)
   if (!target.sales_spec_rows.length) {
     addSalesSpecRow(target)
     return
+  }
+  if (removedWasDefault || !target.sales_spec_rows.some((row) => String(row.spec_key || '').trim() === String(target.default_spec_key || '').trim())) {
+    const fallback = target.sales_spec_rows.find((row) => row.active !== false) || target.sales_spec_rows[0]
+    target.default_spec_key = fallback?.spec_key || ''
+    target.sales_spec_rows.forEach((row) => { row.default = row === fallback })
   }
   syncSalesSpecTemplateDefaults(target)
 }
@@ -7230,11 +7251,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .template-editor label, .product-config-editor label { display: grid; gap: 5px; font-size: 13px; }
 .unit-template-form .template-editor-grid { grid-template-columns: minmax(0, 1fr); }
 .sales-spec-editor { display: grid; gap: 8px; min-width: 0; }
-.sales-spec-row { display: grid; grid-template-columns: auto minmax(180px, 1fr) auto minmax(110px, 140px) auto auto; gap: 8px; align-items: center; border: 1px solid #e2ddd6; border-radius: 8px; background: #fff; padding: 8px; min-width: 0; }
+.sales-spec-row { display: grid; grid-template-columns: auto minmax(180px, 1fr) auto minmax(110px, 140px) auto auto auto; gap: 8px; align-items: center; border: 1px solid #e2ddd6; border-radius: 8px; background: #fff; padding: 8px; min-width: 0; }
 .sales-spec-row input { min-width: 0; }
 .sales-spec-row .conversion-prefix, .sales-spec-row .conversion-equals { color: #6d665c; font-weight: 700; text-align: center; }
 .sales-spec-name-input { font-weight: 700; }
 .inventory-unit-chip { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #e4ded6; border-radius: 6px; background: #fbfaf8; color: #3f3328; padding: 0 10px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.default-spec-toggle { min-height: 34px; border: 1px solid #d7d0c6; border-radius: 6px; background: #fff; color: #5a5146; padding: 0 10px; font: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.default-spec-toggle.active { border-color: #111; background: #111; color: #fff; }
 .pricing-rule-form-section { display: grid; gap: 8px; padding: 10px; border: 1px solid #ead8c4; background: #fffaf4; border-radius: 6px; }
 .pricing-rule-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .pricing-rule-other-cost-list { display: grid; gap: 8px; }
