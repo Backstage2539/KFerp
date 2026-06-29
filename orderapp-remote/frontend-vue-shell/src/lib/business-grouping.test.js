@@ -6,6 +6,7 @@ import {
   businessGroupControlOptions,
   businessGroupMoveAssignmentPayload,
   groupRowsByBusinessGroupTemplate,
+  preferredBusinessGroupTemplateID,
 } from './business-grouping.js'
 
 const productGroup = {
@@ -87,6 +88,27 @@ test('business group controls expose template and move options for any usage', (
     { label: '咖啡熟豆 / 精品意式', depth: 1, parent: 90 },
     { label: '挂耳咖啡', depth: 0, parent: 0 },
   ])
+})
+
+test('preferred business group template keeps warehouse inventory on stock grouping after refresh', () => {
+  const groups = [
+    { id: 128, name: '商品分组', code: 'product_catalog', active: true, sort_order: 1, usages: [{ usage_key: 'product_catalog', active: true }] },
+    { id: 222, name: '库存分组', active: true, sort_order: 2, usages: [] },
+  ]
+
+  assert.equal(preferredBusinessGroupTemplateID(groups, {
+    selectedTemplateID: 0,
+    usageKey: 'warehouse_inventory',
+    preferredNames: ['库存分组'],
+    preferredNameIncludes: ['库存', '仓库'],
+  }), 222)
+
+  assert.equal(preferredBusinessGroupTemplateID(groups, {
+    selectedTemplateID: 128,
+    usageKey: 'warehouse_inventory',
+    preferredNames: ['库存分组'],
+    preferredNameIncludes: ['库存', '仓库'],
+  }), 128)
 })
 
 test('product catalog business group rows ignore legacy defaults and non-product templates', () => {
