@@ -2100,7 +2100,91 @@ export function buildProductProductionConfigField(row = {}, index = 0) {
   }
 }
 
-export function buildProductProductionConfigForm(config = {}, product = {}) {
+const legacyIndustryFieldAliases = {
+  '烘焙度': ['roast_level'],
+  roast_level: ['烘焙度'],
+}
+
+function templateFieldDefaultText(field = {}) {
+  const fieldType = String(field.field_type || '').trim()
+  if (!['text', 'textarea'].includes(fieldType)) return ''
+  return fieldOptionsFromJSON(field.options_json)[0] || ''
+}
+
+function fieldOptionsFromJSON(raw = '[]') {
+  try {
+    const parsed = JSON.parse(String(raw || '[]'))
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : []
+  } catch (_) {
+    return []
+  }
+}
+
+function indexProductProductionConfigFields(fields = []) {
+  const byKey = new Map()
+  const byLabel = new Map()
+  for (const field of Array.isArray(fields) ? fields : []) {
+    const keys = [
+      field?.template_field_key,
+      field?.field_key,
+    ].map((value) => String(value || '').trim()).filter(Boolean)
+    for (const key of keys) {
+      if (!byKey.has(key)) byKey.set(key, field)
+    }
+    const label = String(field?.label || '').trim()
+    if (label && !byLabel.has(label)) byLabel.set(label, field)
+  }
+  return { byKey, byLabel }
+}
+
+function productProductionConfigTemplateFieldMatch(field = {}, index = {}) {
+  const key = String(field.field_key || '').trim()
+  const label = String(field.label || '').trim()
+  const exact = index.byKey?.get(key) || index.byLabel?.get(label)
+  if (exact) return exact
+  const aliases = [
+    ...(legacyIndustryFieldAliases[key] || []),
+    ...(legacyIndustryFieldAliases[label] || []),
+  ]
+  for (const alias of aliases) {
+    const match = index.byKey?.get(alias) || index.byLabel?.get(alias)
+    if (match) return match
+  }
+  return {}
+}
+
+export function productProductionConfigFieldsFromTemplate(fields = [], template = {}) {
+  const templateFields = Array.isArray(template?.fields) ? template.fields : []
+  if (!templateFields.length) {
+    return (Array.isArray(fields) ? fields : [])
+      .slice()
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+      .map((field, index) => buildProductProductionConfigField(field, index))
+  }
+  const existingIndex = indexProductProductionConfigFields(fields)
+  return templateFields
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+    .map((field, index) => {
+      const key = String(field.field_key || '').trim()
+      const existing = productProductionConfigTemplateFieldMatch(field, existingIndex)
+      return buildProductProductionConfigField({
+        ...existing,
+        field_key: key,
+        template_field_key: key,
+        label: field.label || key,
+        field_type: field.field_type || existing.field_type || 'text',
+        unit: field.unit || '',
+        value_text: existing.value_text || templateFieldDefaultText(field),
+        required: Boolean(field.required),
+        options_json: field.options_json || '[]',
+        show_in_price_list: existing.show_in_price_list !== false,
+        sort_order: Number(field.sort_order || index + 1),
+      }, index)
+    })
+}
+
+export function buildProductProductionConfigForm(config = {}, product = {}, industryFieldTemplate = null) {
   const sourceConfig = config && typeof config === 'object' ? config : {}
   const sourceProduct = product && typeof product === 'object' ? product : {}
   const lossRate = Number(sourceConfig.expected_loss_rate ?? sourceProduct.expected_loss_rate ?? 0)
@@ -2144,10 +2228,7 @@ export function buildProductProductionConfigForm(config = {}, product = {}) {
     industry_field_template_id: Number(sourceConfig.industry_field_template_id || 0),
     expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
     note: String(sourceConfig.note || sourceProduct.production_config_note || '').trim(),
-    fields: fields
-      .slice()
-      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
-      .map((field, index) => buildProductProductionConfigField(field, index)),
+    fields: productProductionConfigFieldsFromTemplate(fields, industryFieldTemplate),
   }
 }
 
