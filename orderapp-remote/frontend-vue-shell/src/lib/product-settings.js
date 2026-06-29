@@ -439,6 +439,51 @@ export function buildPricingRuleCopyPayload(rule = {}, existingRules = []) {
   }
 }
 
+function pricingRuleTrialProductUnitCandidates(product = {}) {
+  const out = []
+  const push = (value) => {
+    const code = String(value || '').trim()
+    if (code && !out.includes(code)) out.push(code)
+  }
+  push(product.derived_sales_unit ?? product.derivedSalesUnit)
+  push(product.default_sales_unit ?? product.defaultSalesUnit)
+  push(product.sales_unit ?? product.salesUnit)
+  push(product.quote_unit ?? product.quoteUnit)
+  push(product.order_unit ?? product.orderUnit)
+  if (Array.isArray(product.sales_units)) product.sales_units.forEach(push)
+  if (Array.isArray(product.salesUnits)) product.salesUnits.forEach(push)
+  push(product.inventory_unit ?? product.inventoryUnit)
+  return out
+}
+
+export function pricingRuleTrialQuoteUnitOptionsForProduct(unitOptions = [], product = {}) {
+  const out = []
+  const seen = new Set()
+  const push = (code, name = '') => {
+    const normalized = String(code || '').trim()
+    if (!normalized || seen.has(normalized)) return
+    seen.add(normalized)
+    out.push({ code: normalized, name: String(name || normalized).trim() || normalized })
+  }
+  for (const option of Array.isArray(unitOptions) ? unitOptions : []) {
+    push(option?.code ?? option?.value ?? option, option?.name ?? option?.label ?? option?.code ?? option)
+  }
+  for (const code of pricingRuleTrialProductUnitCandidates(product)) {
+    push(code, code)
+  }
+  return out
+}
+
+export function pricingRuleTrialDefaultQuoteUnit(product = {}, unitOptions = []) {
+  const options = pricingRuleTrialQuoteUnitOptionsForProduct(unitOptions, product)
+  const available = new Set(options.map((unit) => unit.code))
+  for (const code of pricingRuleTrialProductUnitCandidates(product)) {
+    if (available.has(code)) return code
+  }
+  if (available.has('kg')) return 'kg'
+  return options[0]?.code || ''
+}
+
 export function buildPricingRuleTrialPayload(form = {}) {
   const overrides = {}
   const expectedLossRate = optionalNumberFromForm(form.expected_loss_rate ?? form.expectedLossRate)

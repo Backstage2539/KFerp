@@ -62,14 +62,52 @@ func TestPricingRuleTrialProductionCostUsesProductDefaultBomBeforeOutputFallback
 		"product_production_configs ppc",
 		"product_production_bom_bindings pbb",
 		"COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id",
-		"pb.output_product_id=p.id",
-		"pb.output_product_id=$2",
+		"pb.output_product_id=selected.product_id",
 		"LoadPricingRuleTrialProductionOptions",
 		"pricing_rule_trial_bom_versions",
 		"is_default",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("pricing trial production cost must use product default BOM before output fallback; missing %q", want)
+		}
+	}
+}
+
+func TestPricingRuleTrialProductionCostFallsBackToParentProductForDerivedSku(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"pricing_rule_trial_selected_products",
+		"p.parent_product_id",
+		"source_priority",
+		"ppc.product_id=selected.product_id",
+		"pbb.product_id=selected.product_id",
+		"pb.output_product_id=selected.product_id",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("pricing trial production cost must try derived SKU BOM first and parent product BOM second; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsUsesDerivedSkuNetContentForTrialUnitConversion(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"derived_sku_unit_factor",
+		"p.net_content_qty",
+		"p.net_content_unit",
+		"/ 1000.0",
+		"jsonb_build_object(p.derived_sales_unit",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing trial inputs must convert derived SKU sales unit from net content; missing %q", want)
 		}
 	}
 }
@@ -602,8 +640,9 @@ func TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback(t *testing
 	}
 	fn := src[fnStart : fnStart+fnEnd]
 	for _, want := range []string{
+		"pricing_rule_trial_selected_products",
 		"production_boms",
-		"output_product_id=$2",
+		"output_product_id=selected.product_id",
 		"production_bom_versions",
 		"production_bom_version_items",
 	} {
