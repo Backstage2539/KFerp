@@ -385,9 +385,9 @@ func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
 			"LoadPricingRuleTrialProductionOptions",
+			"pricing_rule_trial_selected_products",
 			"pricing_rule_trial_bom_versions",
-			"pb.output_product_id=$1",
-			"pb.output_product_id=$2",
+			"pb.output_product_id=selected.product_id",
 			"operation_templates",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {

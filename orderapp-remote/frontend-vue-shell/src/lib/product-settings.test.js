@@ -74,6 +74,8 @@ import {
   productCreationActionOptions,
   productDisplayState,
   productPriceRecordLabel,
+  pricingRuleTrialDefaultQuoteUnit,
+  pricingRuleTrialQuoteUnitOptionsForProduct,
   resolvePriceTableTemplateInheritance,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
@@ -656,6 +658,27 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
       },
     },
   })
+})
+
+test('pricing rule trial product defaults inherit derived SKU sales unit before legacy quote unit', () => {
+  const product = {
+    id: 573,
+    name: '棒巧拼配 227g袋装',
+    auto_derived_sku: true,
+    derived_sales_unit: '袋',
+    default_sales_unit: 'kg',
+    quote_unit: 'kg',
+    inventory_unit: 'kg',
+    sales_units: ['袋', 'kg'],
+  }
+  const globalUnits = [
+    { code: 'kg', name: 'kg' },
+    { code: 'g', name: 'g' },
+    { code: '袋', name: '袋' },
+  ]
+
+  assert.deepEqual(pricingRuleTrialQuoteUnitOptionsForProduct(globalUnits, product).map((unit) => unit.code), ['kg', 'g', '袋'])
+  assert.equal(pricingRuleTrialDefaultQuoteUnit(product, globalUnits), '袋')
 })
 
 test('price table resolves pricing mode by product, subgroup, parent group, price list', () => {

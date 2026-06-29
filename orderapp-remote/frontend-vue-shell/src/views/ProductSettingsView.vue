@@ -1671,6 +1671,8 @@ import {
   productPriceRecordLabel,
   productKindSupportsBomParams,
   productCodeLabel,
+  pricingRuleTrialDefaultQuoteUnit,
+  pricingRuleTrialQuoteUnitOptionsForProduct,
   productSkuRowsForParent,
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
@@ -2216,9 +2218,13 @@ const visibleProductConfigTemplates = computed(() => visibleNonDeletedRows(produ
 const visibleProductClassificationTemplates = computed(() => visibleNonDeletedRows(productClassificationTemplates.value))
 const activeProductUnitDefinitions = computed(() => visibleProductUnitDefinitions.value.filter((unit) => unit.active !== false))
 const activeProductUnitTemplates = computed(() => visibleProductUnitTemplates.value.filter((template) => template.active !== false))
-const pricingRuleTrialQuoteUnitOptions = computed(() => activeProductUnitDefinitions.value
+const basePricingRuleTrialQuoteUnitOptions = computed(() => activeProductUnitDefinitions.value
   .map((unit) => ({ code: String(unit.code || '').trim(), name: String(unit.name || unit.code || '').trim() }))
   .filter((unit) => unit.code))
+const pricingRuleTrialQuoteUnitOptions = computed(() => pricingRuleTrialQuoteUnitOptionsForProduct(
+  basePricingRuleTrialQuoteUnitOptions.value,
+  selectedPricingRuleTrialProduct.value || {},
+))
 const gradientDisplayUnitOptions = computed(() => {
   const out = baseGradientDisplayUnitOptions.map((unit) => ({ ...unit }))
   const seen = new Set(out.map((unit) => unit.value))
@@ -3532,20 +3538,7 @@ function removePricingRuleTrialOtherCostRow(index) {
 }
 
 function preferredPricingRuleTrialQuoteUnit(product = {}) {
-  const available = new Set(pricingRuleTrialQuoteUnitOptions.value.map((unit) => unit.code))
-  const candidates = [
-    product.quote_unit,
-    product.quoteUnit,
-    product.inventory_unit,
-    product.inventoryUnit,
-    pricingRuleTrialQuoteUnitOptions.value.find((unit) => unit.code === 'kg')?.code,
-    pricingRuleTrialQuoteUnitOptions.value[0]?.code,
-  ]
-  for (const candidate of candidates) {
-    const code = String(candidate || '').trim()
-    if (code && available.has(code)) return code
-  }
-  return String(candidates.find((candidate) => String(candidate || '').trim()) || '').trim()
+  return pricingRuleTrialDefaultQuoteUnit(product, pricingRuleTrialQuoteUnitOptions.value)
 }
 
 function syncPricingRuleTrialProductionSelections(result = {}) {
