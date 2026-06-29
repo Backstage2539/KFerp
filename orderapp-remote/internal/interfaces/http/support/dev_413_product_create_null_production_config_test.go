@@ -30,7 +30,7 @@ func TestDev413ProductCreateNullProductionConfigSourceMarkers(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"buildProductProductionConfigForm",
-			"return buildProductProductionConfigForm(config, product)",
+			"return buildProductProductionConfigForm(config, product, industryFieldTemplateForConfig(config))",
 			"await openProductProductionConfig(createdProductForConfig)",
 		},
 	}
