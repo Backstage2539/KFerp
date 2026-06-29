@@ -355,7 +355,9 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 			           'kg'
 			       ) AS parent_inventory_unit
 		) parent_units ON true
-		WHERE p.active=true ORDER BY p.name`, r.schema)
+		WHERE p.active=true
+		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
+		ORDER BY p.name`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)
 	if err != nil {
 		return nil, err

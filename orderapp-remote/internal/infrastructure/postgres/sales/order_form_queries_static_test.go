@@ -50,6 +50,24 @@ func TestOrderFormProductsUsePublishedPriceSnapshotsOnly(t *testing.T) {
 	}
 }
 
+func TestOrderFormProductsHideTemplateRemovedDerivedSKUs(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"COALESCE(p.auto_derived_sku,false)",
+		"derived_spec_status",
+		"template_removed",
+		"COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed'",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("order form product candidates must hide template-removed derived SKUs; missing %q", want)
+		}
+	}
+}
+
 func TestOrderSaveRequiresPublishedPriceSnapshotInsteadOfLegacyTierFallback(t *testing.T) {
 	source, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -146,7 +146,9 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=COALESCE(product_config.unit_template_id,0) AND product_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories category_config ON category_config.id=COALESCE(p.product_category_id,0)
 		LEFT JOIN %[1]s.product_unit_templates category_unit_template ON category_unit_template.id=COALESCE(category_config.unit_template_id,0) AND category_unit_template.deleted_at IS NULL
-		WHERE p.active=true ORDER BY p.name`, r.schema))
+		WHERE p.active=true
+		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
+		ORDER BY p.name`, r.schema))
 	if err != nil {
 		return nil, err
 	}

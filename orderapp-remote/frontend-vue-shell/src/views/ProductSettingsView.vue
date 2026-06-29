@@ -1354,38 +1354,24 @@
                 <small>库存单位：来自销售规格模板 {{ productUnitTemplateInventoryLabel(productProductionConfigForm.unit_template_id, 'kg') }}；默认销售规格：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
               </label>
             </div>
-            <div class="sales-spec-template-detail" v-if="productProductionSalesSpecRows.length">
-              <strong>销售规格模板明细</strong>
-              <article v-for="row in productProductionSalesSpecRows" :key="`config-sales-spec-${row.spec_key}`" class="child-sku-row compact-derived-sku-row">
+            <div class="sales-spec-template-detail" v-if="productProductionSalesSpecRows.length || productProductionRemovedSkuRows.length">
+              <div class="sales-spec-template-detail-head">
+                <strong>销售规格模板明细</strong>
+                <label v-if="productProductionRemovedSkuRows.length" class="checkline compact-checkline sales-spec-history-toggle">
+                  <input type="checkbox" v-model="showProductProductionHistoricalSpecs" />
+                  <span>显示历史规格</span>
+                </label>
+              </div>
+              <article v-for="row in productProductionVisibleSalesSpecRows" :key="`config-sales-spec-${row.spec_key || row.derived_spec_key || row.id}`" :class="['child-sku-row', 'compact-derived-sku-row', { inactive: row.derived_spec_status === 'template_removed' }]">
                 <div>
                   <strong>{{ row.spec_name }}</strong>
                   <small>{{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(productProductionConfigForm.unit_template_id)) }}</small>
                   <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
+                  <small v-if="row.derived_spec_status === 'template_removed'" class="muted">历史 SKU 保留用于历史单据，不参与新建业务</small>
                 </div>
-                <span :class="['template-meta-chip', { inactive: row.active === false }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
+                <span v-if="row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' || row.active === false" :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
               </article>
-            </div>
-          </section>
-
-          <section class="drawer-section child-sku-section">
-            <div class="field-group-head">
-              <div class="field-group-copy">
-                <strong>销售规格 / SKU</strong>
-                <small>商品档案维护商品族；价格、BOM、库存和订单使用具体子 SKU。</small>
-              </div>
-            </div>
-            <div class="child-sku-list">
-              <article v-for="row in productProductionDerivedSkuRows" :key="`child-sku-${row.sku_id || row.id}`" class="child-sku-row">
-                <div>
-                  <strong>{{ row.derived_spec_name || row.sku_name || row.name || '销售规格' }}</strong>
-                  <small>销售规格：{{ row.derived_spec_name || row.default_sales_unit || row.defaultSalesUnit || row.derived_sales_unit || '销售规格' }} · {{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(productProductionConfigForm.unit_template_id)) }}</small>
-                  <small>SKU 编号：{{ derivedSkuCodeLabel(row) }} · 状态：{{ derivedSpecStatusLabel(row.derived_spec_status) }}</small>
-                </div>
-                <span :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">
-                  {{ row.is_default_sku ? '默认规格' : derivedSpecStatusLabel(row.derived_spec_status) }}
-                </span>
-              </article>
-              <p v-if="!productProductionDerivedSkuRows.length" class="muted">保存商品档案后会按销售规格模板自动派生子 SKU。</p>
+              <p v-if="!productProductionVisibleSalesSpecRows.length" class="muted">当前模板没有可用规格；打开“显示历史规格”可查看历史保留 SKU。</p>
             </div>
           </section>
 
@@ -1859,6 +1845,7 @@ const classificationCategoryForm = ref(defaultClassificationCategoryForm())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
+const showProductProductionHistoricalSpecs = ref(false)
 const childSkuForm = ref(defaultChildSkuForm())
 const childSkuSaving = ref(false)
 const aliasIndustryFieldDrawerOpen = ref(false)
@@ -1925,12 +1912,29 @@ const productProductionDerivedSkuRows = computed(() => {
       }
     })
 })
+const productProductionRemovedSkuRows = computed(() => productProductionDerivedSkuRows.value
+  .filter((row) => String(row?.derived_spec_status || row?.derivedSpecStatus || '').trim() === 'template_removed')
+  .map((row) => ({
+    ...row,
+    spec_key: String(row.derived_spec_key || row.derivedSpecKey || row.spec_key || row.id || '').trim(),
+    spec_name: String(row.derived_spec_name || row.derivedSpecName || row.spec_name || row.sku_name || row.name || '历史规格').trim(),
+    sales_unit: String(row.derived_sales_unit || row.derivedSalesUnit || row.sales_unit || row.default_sales_unit || row.spec_name || '历史规格').trim(),
+    derived_sku_id: Number(row.sku_id || row.id || row.derived_sku_id || 0),
+    derived_sku_code: derivedSkuCodeLabel(row),
+    derived_spec_status: 'template_removed',
+  })))
 const skuFormSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(skuForm.value.unit_template_id))
 const productProductionSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
   .map((row) => {
     const derived = productProductionDerivedSkuRows.value.find((sku) => String(sku.derived_spec_key || '') === String(row.spec_key || ''))
     return derived ? { ...row, derived_sku_id: Number(derived.sku_id || derived.id || 0), derived_sku_code: derivedSkuCodeLabel(derived), derived_spec_status: derived.derived_spec_status || row.derived_spec_status } : row
   }))
+const productProductionVisibleSalesSpecRows = computed(() => {
+  if (!showProductProductionHistoricalSpecs.value) return productProductionSalesSpecRows.value
+  const currentKeys = new Set(productProductionSalesSpecRows.value.map((row) => String(row.spec_key || '').trim()).filter(Boolean))
+  const historyRows = productProductionRemovedSkuRows.value.filter((row) => !currentKeys.has(String(row.spec_key || '').trim()))
+  return [...productProductionSalesSpecRows.value, ...historyRows]
+})
 const productProductionConfigVersionOptions = computed(() => (selectedProductProductionConfigBomDetail.value?.versions || [])
   .filter((version) => version.status === 'published')
   .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
@@ -5517,6 +5521,7 @@ async function selectProductProductionConfigBom(bom) {
 async function openProductProductionConfig(row) {
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
+  showProductProductionHistoricalSpecs.value = false
   const parentID = Number(row?.parent_product_id || row?.parentProductID || row?.id || 0)
   const parentProduct = products.value.find((product) => Number(product.id || 0) === parentID) || row || {}
   childSkuForm.value = defaultChildSkuForm(parentProduct)
@@ -5586,6 +5591,7 @@ function closeProductProductionConfigDrawer() {
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()
+  showProductProductionHistoricalSpecs.value = false
 }
 
 async function refreshClassificationTemplates() {
@@ -7409,14 +7415,16 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .product-picker-row.inactive { opacity: .5; }
 .global-unit-drawer-body { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); align-items: start; }
 .global-unit-chip-list { display: grid; gap: 8px; }
-	.global-unit-chip { min-height: 50px; justify-content: flex-start; text-align: left; }
-	.drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
-	.child-sku-section { display: grid; gap: 12px; }
-	.child-sku-list { display: grid; gap: 8px; }
-	.child-sku-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; padding: 8px 10px; min-width: 0; }
-	.child-sku-row div { min-width: 0; display: grid; gap: 2px; }
-	.child-sku-row strong, .child-sku-row small { overflow-wrap: anywhere; }
-	.pricing-rule-trial-drawer { width: min(940px, 96vw); }
+.global-unit-chip { min-height: 50px; justify-content: flex-start; text-align: left; }
+.drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
+.child-sku-list { display: grid; gap: 8px; }
+.sales-spec-template-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sales-spec-history-toggle { margin: 0; }
+.child-sku-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; padding: 8px 10px; min-width: 0; }
+.child-sku-row.inactive { background: #fbfaf8; opacity: .78; }
+.child-sku-row div { min-width: 0; display: grid; gap: 2px; }
+.child-sku-row strong, .child-sku-row small { overflow-wrap: anywhere; }
+.pricing-rule-trial-drawer { width: min(940px, 96vw); }
 .pricing-rule-trial-summary { display: grid; gap: 10px; }
 .pricing-rule-trial-summary strong { display: block; margin-bottom: 3px; }
 .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }

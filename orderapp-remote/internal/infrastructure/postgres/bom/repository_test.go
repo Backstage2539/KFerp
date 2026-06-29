@@ -88,6 +88,20 @@ func TestBomRepositoryProductsUseParentInventoryUnitForDerivedSKUs(t *testing.T)
 	}
 }
 
+func TestBomRepositoryProductsHideTemplateRemovedDerivedSKUs(t *testing.T) {
+	src := readRepositorySource(t)
+	for _, want := range []string{
+		"COALESCE(p.auto_derived_sku,false)",
+		"derived_spec_status",
+		"template_removed",
+		"COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed'",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("BOM product candidates must hide template-removed derived SKUs; missing %q", want)
+		}
+	}
+}
+
 func TestBomRepositoryPersistsSourceMetadataAndDeriveAudit(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

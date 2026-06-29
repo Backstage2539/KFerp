@@ -16,6 +16,9 @@ func (r Repository) ListProductionLogs(ctx context.Context, query productionapp.
 	}
 	productOptions := make([]productionapp.ProductionLogProductOption, 0, len(products))
 	for _, product := range products {
+		if skipTemplateRemovedDerivedProductOption(product) {
+			continue
+		}
 		productOptions = append(productOptions, productionapp.ProductionLogProductOption{ID: product.ID, Name: product.Name})
 	}
 	rows, err := r.listProductionLogs(ctx, query)
@@ -23,6 +26,10 @@ func (r Repository) ListProductionLogs(ctx context.Context, query productionapp.
 		return productionapp.ProductionLogsResult{}, err
 	}
 	return productionapp.ProductionLogsResult{Products: productOptions, Rows: rows}, nil
+}
+
+func skipTemplateRemovedDerivedProductOption(product postgresinfra.ProductOption) bool {
+	return product.AutoDerivedSKU && strings.TrimSpace(product.DerivedSpecStatus) == "template_removed"
 }
 
 func (r Repository) listProductionLogs(ctx context.Context, query productionapp.ProductionLogsQuery) ([]productionapp.ProductionLogRow, error) {

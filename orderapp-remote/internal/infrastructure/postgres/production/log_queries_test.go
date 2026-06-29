@@ -4,8 +4,34 @@ import (
 	"context"
 	"fmt"
 	productionapp "orderapp/internal/application/production"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"testing"
 )
+
+func TestProductionLogProductsHideTemplateRemovedDerivedSKUs(t *testing.T) {
+	rows := []postgresinfra.ProductOption{
+		{ID: 1, Name: "当前规格", AutoDerivedSKU: true, DerivedSpecStatus: "active"},
+		{ID: 2, Name: "历史规格", AutoDerivedSKU: true, DerivedSpecStatus: "template_removed"},
+		{ID: 3, Name: "普通商品", AutoDerivedSKU: false, DerivedSpecStatus: "template_removed"},
+	}
+
+	out := make([]productionapp.ProductionLogProductOption, 0, len(rows))
+	for _, product := range rows {
+		if skipTemplateRemovedDerivedProductOption(product) {
+			continue
+		}
+		out = append(out, productionapp.ProductionLogProductOption{ID: product.ID, Name: product.Name})
+	}
+
+	if len(out) != 2 {
+		t.Fatalf("product options = %d, want 2", len(out))
+	}
+	for _, product := range out {
+		if product.ID == 2 {
+			t.Fatalf("template_removed derived SKU should be hidden from production log candidates: %+v", out)
+		}
+	}
+}
 
 func TestListProductionLogsIncludesFinishedBatchCode(t *testing.T) {
 	pool, schema := newProductionTestDB(t)

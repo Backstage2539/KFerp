@@ -1780,15 +1780,21 @@ test('product drawers require sales spec templates and read inventory unit from 
   assert.match(script, /请选择销售规格模板/)
 })
 
-test('product archive config drawer shows derived child SKUs from sales spec template', () => {
+test('product archive config drawer keeps sales spec details compact and hides history by default', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
-  assert.match(configDrawer, /销售规格 \/ SKU/)
   assert.match(configDrawer, /销售规格模板明细/)
+  assert.match(configDrawer, /显示历史规格/)
+  assert.match(configDrawer, /历史 SKU 保留用于历史单据，不参与新建业务/)
+  assert.match(configDrawer, /productProductionVisibleSalesSpecRows/)
   assert.match(configDrawer, /salesSpecConversionLabel\(row, productUnitTemplateInventoryUnit\(productProductionConfigForm\.unit_template_id\)\)/)
   assert.match(configDrawer, /SKU 编号/)
   assert.match(configDrawer, /derivedSkuCodeLabel\(row\)/)
+  assert.doesNotMatch(configDrawer, /销售规格 \/ SKU/)
+  assert.doesNotMatch(configDrawer, /商品档案维护商品族/)
+  assert.doesNotMatch(configDrawer, /class="drawer-section child-sku-section"/)
+  assert.doesNotMatch(configDrawer, /<small>销售规格：\{\{/)
   assert.doesNotMatch(configDrawer, /继承父 SKU/)
   assert.doesNotMatch(configDrawer, />父 SKU</)
   assert.match(configDrawer, /derived_spec_status/)
@@ -1805,6 +1811,9 @@ test('product archive derived SKU rows reuse template net content for conversion
   assert.match(derivedRowsBlock, /net_content_qty:\s*row\.net_content_qty \|\| spec\.net_content_qty/)
   assert.match(derivedRowsBlock, /net_content_unit:\s*row\.net_content_unit \|\| spec\.net_content_unit/)
   assert.match(derivedRowsBlock, /sales_unit:\s*row\.derived_sales_unit \|\| spec\.sales_unit/)
+  assert.match(derivedRowsBlock, /productProductionRemovedSkuRows/)
+  assert.match(derivedRowsBlock, /template_removed/)
+  assert.match(source, /showProductProductionHistoricalSpecs/)
 })
 
 test('sales spec template controls are required in product drawers', () => {

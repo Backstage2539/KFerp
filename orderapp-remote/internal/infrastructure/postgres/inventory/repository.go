@@ -282,7 +282,12 @@ func (r Repository) fetchAllocationLogsByBatch(ctx context.Context, batchID stri
 }
 
 func (r Repository) listProducts(ctx context.Context) ([]inventoryapp.ProductOption, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, name FROM %s.products WHERE active=true ORDER BY name`, r.schema))
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name
+		FROM %s.products
+		WHERE active=true
+		  AND (NOT COALESCE(auto_derived_sku,false) OR COALESCE(NULLIF(derived_spec_status,''),'active')<>'template_removed')
+		ORDER BY name`, r.schema))
 	if err != nil {
 		return nil, err
 	}

@@ -693,6 +693,24 @@ func TestLoadProductInputsReadsChildSKUMetadataForPriceListRows(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsHideTemplateRemovedDerivedSKUsFromPriceListCandidates(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"COALESCE(p.auto_derived_sku,false)",
+		"derived_spec_status",
+		"template_removed",
+		"COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed'",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing price-list candidates must hide template-removed derived SKUs; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsProductMarginOverrideForTemplatePricing(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

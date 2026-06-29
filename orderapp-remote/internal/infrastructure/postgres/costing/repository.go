@@ -738,6 +738,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			 AND alias_cc.template_id = alias_class.template_id
 			 AND alias_cc.active=true
 			WHERE p.active = true
+			  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
 			  AND (($2 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($2 > 0 AND cpa.id IS NOT NULL))
 		),
 		all_effective_bom_items AS (
