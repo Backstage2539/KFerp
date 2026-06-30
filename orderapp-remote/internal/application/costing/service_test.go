@@ -913,6 +913,134 @@ func TestPricingRuleTrialRejectsUnresolvableQuoteUnit(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialScalesBomAndOperationCostsByQuoteUnit(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          573,
+			Name:               "榛巧拼配 227g袋装",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "227g袋装",
+			UnitConversionJSON: `{"227g袋装":{"kg":0.227}}`,
+			GreenBeanCostPerKg: 50,
+			OperationCostPerKg: 10,
+			YieldRate:          1,
+			ExpectedLossRate:   0,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:573", Type: "material", TypeLabel: "物料", Name: "熟豆原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg"},
+			{Key: "operation:573", Type: "operation", TypeLabel: "工序", Name: "包装", ConsumeUnit: "per_kg", UnitCost: 10, Amount: 10, Unit: "kg"},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			13: {
+				ID:             13,
+				Name:           "PR508 规格单位成本折算",
+				MarginRate:     0,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 13,
+		ProductID:     573,
+		QuoteUnit:     "227g袋装",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.QuoteUnit != "227g袋装" {
+		t.Fatalf("quote unit = %q, want 227g袋装", got.QuoteUnit)
+	}
+	if got.BomCostTotal != 11.35 || got.OperationCostTotal != 2.27 || got.BaseCost != 13.62 {
+		t.Fatalf("base costs = bom %.2f operation %.2f total %.2f, want 11.35 + 2.27 = 13.62", got.BomCostTotal, got.OperationCostTotal, got.BaseCost)
+	}
+	if got.FinalUnitPrice != 13.62 {
+		t.Fatalf("final price = %.2f, want 13.62", got.FinalUnitPrice)
+	}
+	if len(got.BaseCostDetails) != 2 {
+		t.Fatalf("base cost details = %+v, want 2 rows", got.BaseCostDetails)
+	}
+	if got.BaseCostDetails[0].Amount != 11.35 || got.BaseCostDetails[0].Unit != "227g袋装" {
+		t.Fatalf("material detail = %+v, want 11.35/227g袋装", got.BaseCostDetails[0])
+	}
+	if got.BaseCostDetails[1].Amount != 2.27 || got.BaseCostDetails[1].Unit != "227g袋装" {
+		t.Fatalf("operation detail = %+v, want 2.27/227g袋装", got.BaseCostDetails[1])
+	}
+	if !sliceContains(got.FormulaExpressionLines, "最终售价 = 13.62/227g袋装") {
+		t.Fatalf("formula lines = %+v, want final price in quote unit", got.FormulaExpressionLines)
+	}
+}
+
+func TestPricingRuleTrialScalesPerUnitBomCostsBetweenQuoteUnits(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          574,
+			Name:               "榛巧拼配 227g袋装",
+			InventoryUnit:      "g",
+			QuoteUnit:          "袋",
+			OrderUnit:          "袋",
+			UnitConversionJSON: `{"袋":{"g":227}}`,
+			NetContentQty:      227,
+			NetContentUnit:     "g",
+			YieldRate:          1,
+			ExpectedLossRate:   0,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:574", Type: "material", TypeLabel: "物料", Name: "熟豆原料", ConsumeUnit: "g", Quantity: 227, UnitCost: 50, AmountPerUnit: 11.35},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			14: {
+				ID:             14,
+				Name:           "PR508 每袋成本折算",
+				MarginRate:     0,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	bag, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 14,
+		ProductID:     574,
+		QuoteUnit:     "袋",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial(袋) error = %v", err)
+	}
+	kg, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 14,
+		ProductID:     574,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial(kg) error = %v", err)
+	}
+	if bag.BaseCost != 11.35 || bag.BomCostTotal != 11.35 || bag.FinalUnitPrice != 11.35 {
+		t.Fatalf("bag trial = base %.2f bom %.2f final %.2f, want 11.35", bag.BaseCost, bag.BomCostTotal, bag.FinalUnitPrice)
+	}
+	if kg.BaseCost != 50 || kg.BomCostTotal != 50 || kg.FinalUnitPrice != 50 {
+		t.Fatalf("kg trial = base %.2f bom %.2f final %.2f, want 50.00", kg.BaseCost, kg.BomCostTotal, kg.FinalUnitPrice)
+	}
+	if len(kg.BaseCostDetails) != 1 || kg.BaseCostDetails[0].Amount != 50 || kg.BaseCostDetails[0].Unit != "kg" {
+		t.Fatalf("kg detail = %+v, want 50/kg", kg.BaseCostDetails)
+	}
+}
+
 func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
