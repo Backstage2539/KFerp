@@ -70,6 +70,9 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "拼配熟豆原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg", Description: "物料成本 50/kg"},
 			{Key: "operation:7:1", Type: "operation", TypeLabel: "工序", Name: "烘焙", ConsumeUnit: "per_kg", UnitCost: 10, Amount: 10, Unit: "kg", Description: "工序成本 10/kg"},
 		},
+		OtherCostDetails: []appcosting.PricingRuleTrialOtherCostDetail{
+			{Name: "包装贴标", Amount: 2.5, Unit: "kg", Source: "pricing_rule", SettingLocation: "价格计算模板编辑区「其他成本」"},
+		},
 		OtherCostTotal:      2.5,
 		CostBaseTotal:       62.5,
 		CostAfterYield:      78.13,
@@ -83,7 +86,17 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 		FinalUnitPrice:      110.4,
 		GrossMarginRate:     0.25,
 		MinimumMarginRate:   0.18,
-		FormulaExpression:   "最终售价 = (BOM+工序成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
+		ProfitExplanation: appcosting.PricingRuleTrialProfitExplanation{
+			Method:         "gross_margin",
+			MethodLabel:    "毛利率",
+			Rate:           0.25,
+			Source:         "pricing_rule",
+			CostAfterYield: 78.13,
+			MarkupAmount:   26.04,
+			PreTaxPrice:    104.17,
+			Formula:        "税前价 = 损耗后成本 / (1 - 毛利率 25%)",
+		},
+		FormulaExpression: "最终售价 = (BOM+工序成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
 		FormulaExpressionLines: []string{
 			"成本基数 = BOM+工序成本 60/kg + 其他成本 2.5/kg = 62.5/kg",
 			"最终售价 = 110.4/kg",
@@ -118,6 +131,9 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		BaseCostDetails: []appcosting.PricingRuleTrialBaseCostDetail{
 			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "测试原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 67.5, Amount: 67.5, Unit: "kg", Description: "物料成本 67.5/kg"},
 		},
+		OtherCostDetails: []appcosting.PricingRuleTrialOtherCostDetail{
+			{Name: "包装贴标", Amount: 1.25, Unit: "kg", Source: "temporary_override", SettingLocation: "本次试算抽屉「其他成本」"},
+		},
 		OtherCostTotal:      6.2625,
 		CostBaseTotal:       73.7625,
 		CostAfterYield:      73.7625,
@@ -130,7 +146,17 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		FinalUnitPrice:      116.7092,
 		GrossMarginRate:     0.3684,
 		MinimumMarginRate:   0,
-		FormulaExpression:   "最终售价 = (BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位利润率/加价率 54.21%) = 116.7092/kg",
+		ProfitExplanation: appcosting.PricingRuleTrialProfitExplanation{
+			Method:         "supplier_tier_markup",
+			MethodLabel:    "档位利润率/加价率",
+			Rate:           0.3,
+			Source:         "temporary_override",
+			CostAfterYield: 73.7625,
+			MarkupAmount:   39.987,
+			PreTaxPrice:    116.7092,
+			Formula:        "加价后价格 = 损耗后成本 * (1 + 档位利润率/加价率 30%)",
+		},
+		FormulaExpression: "最终售价 = (BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位利润率/加价率 54.21%) = 116.7092/kg",
 		FormulaExpressionLines: []string{
 			"成本基数 = BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg = 73.7625/kg",
 			"最终售价 = 116.7092/kg",
@@ -774,10 +800,13 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if got.FormulaExpression == "" || len(got.FormulaExpressionLines) == 0 {
 		t.Fatalf("trial response missing formula expression: %+v", got)
 	}
+	if len(got.OtherCostDetails) == 0 || got.ProfitExplanation.Method == "" {
+		t.Fatalf("trial response missing explanation fields: %+v", got)
+	}
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
-	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `最终售价 = 116.7092/kg`} {
+	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `最终售价 = 116.7092/kg`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}

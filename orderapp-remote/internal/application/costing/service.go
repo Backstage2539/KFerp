@@ -116,11 +116,13 @@ type PricingRuleTrialResult struct {
 	OperationCostTotal       float64                                   `json:"operation_cost_total"`
 	BaseCostDetails          []PricingRuleTrialBaseCostDetail          `json:"base_cost_details,omitempty"`
 	OtherCostTotal           float64                                   `json:"other_cost_total"`
+	OtherCostDetails         []PricingRuleTrialOtherCostDetail         `json:"other_cost_details,omitempty"`
 	CostBaseTotal            float64                                   `json:"cost_base_total"`
 	CostAfterYield           float64                                   `json:"cost_after_yield"`
 	YieldLossAmount          float64                                   `json:"yield_loss_amount"`
 	PriceAfterMarkup         float64                                   `json:"price_after_markup,omitempty"`
 	ProfitMarkupAmount       float64                                   `json:"profit_markup_amount"`
+	ProfitExplanation        PricingRuleTrialProfitExplanation         `json:"profit_explanation"`
 	PostMarkupCostTotal      float64                                   `json:"post_markup_cost_total,omitempty"`
 	PreTaxPrice              float64                                   `json:"pre_tax_price"`
 	TaxAmount                float64                                   `json:"tax_amount"`
@@ -151,6 +153,25 @@ type PricingRuleTrialBaseCostDetail struct {
 	Description      string  `json:"description,omitempty"`
 	AmountPerKg      float64 `json:"-"`
 	AmountPerUnit    float64 `json:"-"`
+}
+
+type PricingRuleTrialOtherCostDetail struct {
+	Name            string  `json:"name"`
+	Amount          float64 `json:"amount"`
+	Unit            string  `json:"unit"`
+	Source          string  `json:"source"`
+	SettingLocation string  `json:"setting_location"`
+}
+
+type PricingRuleTrialProfitExplanation struct {
+	Method         string  `json:"method"`
+	MethodLabel    string  `json:"method_label"`
+	Rate           float64 `json:"rate"`
+	Source         string  `json:"source"`
+	CostAfterYield float64 `json:"cost_after_yield"`
+	MarkupAmount   float64 `json:"markup_amount"`
+	PreTaxPrice    float64 `json:"pre_tax_price"`
+	Formula        string  `json:"formula"`
 }
 
 type DripPriceExplanationCommand struct {
@@ -806,8 +827,9 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	preTaxPrice := 0.0
 	taxAmount := 0.0
 	finalBeforeRounding := 0.0
+	profitParameterRate := 0.0
 	if formulaMode == "supplier_tier_markup" {
-		profitParameterRate := pricingRuleTrialNumber(calc, "profit_parameter_rate", 0)
+		profitParameterRate = pricingRuleTrialNumber(calc, "profit_parameter_rate", 0)
 		markupRate := marginRate + profitParameterRate
 		if markupRate < 0 {
 			return nil, fmt.Errorf("markup_rate must be >= 0")
@@ -876,11 +898,13 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		OperationCostTotal:       pricingRuleTrialResultAmount(formulaMode, operationCostTotal),
 		BaseCostDetails:          baseCostDetails,
 		OtherCostTotal:           pricingRuleTrialResultAmount(formulaMode, otherCostTotal),
+		OtherCostDetails:         pricingRuleTrialOtherCostDetails(otherCosts, formulaMode, quoteUnit, pricingRuleTrialOtherCostSource(cmd.Overrides.OtherCosts)),
 		CostBaseTotal:            pricingRuleTrialResultAmount(formulaMode, costBaseTotal),
 		CostAfterYield:           pricingRuleTrialResultAmount(formulaMode, costAfterYield),
 		YieldLossAmount:          pricingRuleTrialResultAmount(formulaMode, yieldLossAmount),
 		PriceAfterMarkup:         pricingRuleTrialResultAmount(formulaMode, priceAfterMarkup),
 		ProfitMarkupAmount:       pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount),
+		ProfitExplanation:        pricingRuleTrialProfitExplanation(formulaMode, profitMethod, quoteUnit, marginRate, profitParameterRate, pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), pricingRuleTrialResultAmount(formulaMode, costAfterYield), pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount), pricingRuleTrialResultAmount(formulaMode, preTaxPrice), pricingRuleTrialResultAmount(formulaMode, priceAfterMarkup), pricingRuleTrialResultAmount(formulaMode, postMarkupCostTotal)),
 		PostMarkupCostTotal:      pricingRuleTrialResultAmount(formulaMode, postMarkupCostTotal),
 		PreTaxPrice:              pricingRuleTrialResultAmount(formulaMode, preTaxPrice),
 		TaxAmount:                pricingRuleTrialResultAmount(formulaMode, taxAmount),
@@ -893,7 +917,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		Warnings:                 warnings,
 	}
 	if formulaMode == "supplier_tier_markup" {
-		result.Steps = pricingRuleTrialSupplierSteps(result, cmd, quoteUnit, baseSource, otherCosts, postMarkupCosts, expectedLossRate, yieldMode, lossChanged, marginRate, pricingRuleTrialNumber(calc, "profit_parameter_rate", 0), taxMode, taxRate, finalBeforeRounding)
+		result.Steps = pricingRuleTrialSupplierSteps(result, cmd, quoteUnit, baseSource, otherCosts, postMarkupCosts, expectedLossRate, yieldMode, lossChanged, marginRate, profitParameterRate, taxMode, taxRate, finalBeforeRounding)
 	} else {
 		result.Steps = []domain.PriceExplanationStep{
 			{Key: "bom_operation_cost", Label: "BOM+工序成本", Source: baseSource, Value: result.BaseCost, Unit: quoteUnit, Changed: cmd.Overrides.BaseCost != nil},
@@ -1385,6 +1409,81 @@ func pricingRuleTrialPostMarkupCostMap(calc map[string]any) map[string]float64 {
 		}
 	}
 	return out
+}
+
+func pricingRuleTrialOtherCostDetails(costs map[string]float64, formulaMode string, unit string, source string) []PricingRuleTrialOtherCostDetail {
+	if len(costs) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(costs))
+	for name := range costs {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	location := "价格计算模板编辑区「其他成本」"
+	if strings.TrimSpace(source) == "temporary_override" {
+		location = "本次试算抽屉「其他成本」"
+	}
+	out := make([]PricingRuleTrialOtherCostDetail, 0, len(names))
+	for _, name := range names {
+		out = append(out, PricingRuleTrialOtherCostDetail{
+			Name:            name,
+			Amount:          pricingRuleTrialResultAmount(formulaMode, costs[name]),
+			Unit:            unit,
+			Source:          source,
+			SettingLocation: location,
+		})
+	}
+	return out
+}
+
+func pricingRuleTrialProfitExplanation(formulaMode string, method string, unit string, marginRate float64, profitParameterRate float64, source string, costAfterYield float64, markupAmount float64, preTaxPrice float64, priceAfterMarkup float64, postMarkupCostTotal float64) PricingRuleTrialProfitExplanation {
+	mode := strings.TrimSpace(formulaMode)
+	normalizedMethod := strings.TrimSpace(method)
+	if mode == "supplier_tier_markup" {
+		rate := marginRate + profitParameterRate
+		formula := fmt.Sprintf("加价后价格 = 损耗后成本 * (1 + 档位利润率/加价率 %s) = %s", pricingRuleTrialPercentExpression(rate), pricingRuleTrialMoneyExpression(priceAfterMarkup, unit))
+		if postMarkupCostTotal > 0 {
+			formula += fmt.Sprintf("；税前价 = 加价后价格 + 加价附加成本 %s = %s", pricingRuleTrialMoneyExpression(postMarkupCostTotal, unit), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
+		}
+		return PricingRuleTrialProfitExplanation{
+			Method:         "supplier_tier_markup",
+			MethodLabel:    "档位利润率/加价率",
+			Rate:           roundRatio(rate),
+			Source:         source,
+			CostAfterYield: costAfterYield,
+			MarkupAmount:   markupAmount,
+			PreTaxPrice:    preTaxPrice,
+			Formula:        formula,
+		}
+	}
+	if normalizedMethod == "" {
+		normalizedMethod = "gross_margin"
+	}
+	label := pricingRuleTrialProfitLabel(normalizedMethod)
+	formula := ""
+	switch normalizedMethod {
+	case "markup":
+		formula = fmt.Sprintf("税前价 = 损耗后成本 * (1 + 加价率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
+	case "fixed_add":
+		formula = fmt.Sprintf("税前价 = 损耗后成本 + 固定加价 %s = %s", pricingRuleTrialMoneyExpression(marginRate, unit), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
+	default:
+		normalizedMethod = "gross_margin"
+		formula = fmt.Sprintf("税前价 = 损耗后成本 / (1 - 毛利率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
+	}
+	return PricingRuleTrialProfitExplanation{
+		Method:         normalizedMethod,
+		MethodLabel:    label,
+		Rate:           roundRatio(marginRate),
+		Source:         source,
+		CostAfterYield: costAfterYield,
+		MarkupAmount:   markupAmount,
+		PreTaxPrice:    preTaxPrice,
+		Formula:        formula,
+	}
 }
 
 func pricingRuleTrialSupplierSteps(result *PricingRuleTrialResult, cmd PricingRuleTrialCommand, quoteUnit string, baseSource string, preMarkupCosts map[string]float64, postMarkupCosts map[string]float64, expectedLossRate float64, yieldMode string, lossChanged bool, marginRate float64, profitParameterRate float64, taxMode string, taxRate float64, finalBeforeRounding float64) []domain.PriceExplanationStep {

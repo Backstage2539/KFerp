@@ -38,6 +38,8 @@
 - [ ] PR-508-BOM-MATERIAL-LOSS-RATIO：保存 `比例 40% + 原料损耗 20%` 后，BOM 详情返回 `material_loss_rate=0.2`，明细说明显示有效比例 `50%`，`合计比例` 仍只统计净比例且标明不含原料损耗。
 - [ ] PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：从原料建档和原料入库开始，浏览器/API 验收能看到原料批次、库存流水和仓库库存；后续商品 / SKU、销售规格模板和生产 BOM 能形成可下单、可生产对象。
 - [ ] PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：保存订单后库存不足商品进入生产计划，生产计划提交生成生产工单和工序卡，工单执行后能完成 WIP/Stock Entry/完工入库；成品批次、生产日志、库存追溯和操作日志可查。
+- [ ] PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS：商品价格管理价格试算选择 `榛巧拼配227g袋装` / `SKU-000573` 后，点击 `BOM+工序成本` 可看到物料/工序明细；分别用 `kg` 和 `袋` 试算时明细金额和单位随销售单位变化。
+- [ ] PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS：点击 `其他成本` 可看到 `other_cost_details` 的明细、来源和设置位置；点击 `加价增加` 可看到 `profit_explanation` 的利润方式、参数来源和公式，说明面板只读且不回写模板、价格表、订单或发布快照。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品档案配置抽屉必须拆分 `可生产该商品的 BOM` 和 `作为组件被哪些 BOM 使用`；只有产出该商品、active 且有 published 版本的 BOM 行能点击 `设为默认`，刷新后仍显示为该商品默认 BOM，组件反查列表不得出现设默认按钮。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品价格管理试算同一商品时，`试算BOM版本` 默认使用商品显式默认生产 BOM；无显式默认时可 fallback 最新 published 产出 BOM，但不得把 fallback 标记为默认。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：工艺路线页面可维护路线工序；工序、工位/设备主数据在独立页面维护。开始生产后，新工单展示冻结 BOM 版本、冻结工艺路线、工序和工位/设备；之后修改商品默认 BOM 或路线不回改历史工单。
@@ -1327,10 +1329,17 @@
 - [ ] 销售规格子 SKU 可通过 `unit_conversion_json` 或净含量解析，例如 `227g袋装` 可换算到 `kg/g` 时可试算，缺少换算时提示先维护销售规格或单位换算。
 - [ ] `/api/costing/pricing-rule-trial` 收到不可解析销售单位时返回明确错误，不得静默按 `kg` 试算。
 
-### K64. 生产 BOM 原料损耗比（PR-508-BOM-MATERIAL-LOSS-RATIO / PR-510-BOM-MATERIAL-LOSS-BOM-LEVEL）
-- [ ] PR-510-BOM-MATERIAL-LOSS-BOM-LEVEL：生产 BOM 版本设置区可打开 `原料损耗比` 并填写 `损耗比例 %`；关闭时版本 `material_loss_rate` 为 0。
+### K64. 生产 BOM 原料损耗比（PR-508-BOM-MATERIAL-LOSS-RATIO / PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL）
+- [ ] PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL：生产 BOM 版本设置区可打开 `原料损耗比` 并填写 `损耗比例 %`；关闭时版本 `material_loss_rate` 为 0。
 - [ ] 打开原料损耗比后，组件消耗单位下拉只保留 `比例 %`，并显示 `开启后组件消耗单位只能使用比例 %`；已有固定数量物料或商品组件时保存失败，不静默替换组件语义。
 - [ ] 保存 `ratio_pct=40`、版本 `material_loss_rate=0.2` 后，BOM 详情 API 和页面明细能展示该字段；复制和发布 BOM 版本后该字段保留。
 - [ ] 商品组件、固定数量物料或其他消耗单位传入 `material_loss_rate` 时，后端归零，页面不在组件行展示损耗输入。
 - [ ] 生产计划、工单冻结、WIP 占用、生产扣料和完工消耗统一使用损耗后需求量；`1kg × 40% × 20%损耗 = 0.5kg`。
 - [ ] BOM 成本明细和价格试算按有效比例计入材料成本；`合计比例` 只统计净比例，不因损耗变成 120% 或 50%。
+
+### K65. 商品价格管理试算瀑布说明（PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS）
+- [ ] 商品价格管理打开 `价格试算`，选择 `榛巧拼配227g袋装` / `SKU-000573` 后，点击 `BOM+工序成本` 能看到每个物料/工序的 BOM 用量、单位成本和金额。
+- [ ] 分别用 `kg` 和 `袋` 试算时，BOM 明细金额和瀑布卡片单位随销售单位变化，不得只替换单位文本而复用同一金额。
+- [ ] 点击 `其他成本` 能看到 `other_cost_details` 明细、来源和设置位置，文案说明价格计算模板编辑区 `其他成本` 与本次试算抽屉临时值的优先级。
+- [ ] 点击 `加价增加` 能看到 `profit_explanation` 的利润方式、参数来源、损耗后成本、加价金额、税前价和公式，文案说明 `临时利润/加价` 会覆盖模板参数。
+- [ ] 三个说明面板均为只读展示，不保存或回写 Pricing Rule、商品价格表、订单或发布快照。

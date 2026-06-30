@@ -4,7 +4,7 @@ Date: 2026-06-30
 
 ## Scope
 
-- PR-510-BOM-MATERIAL-LOSS-BOM-LEVEL
+- PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL
 - BOM 版本级 `原料损耗比` is the source of truth for new draft saves.
 - Move `原料损耗比` from the component row UI to BOM version settings.
 - Persist the version-level rate in `production_bom_versions.material_loss_rate`.
