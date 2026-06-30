@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM
 - Branch: codex/pricing-rule-trial-uom-candidates-20260630
 - Owner/session: Codex / 2026-06-30
-- Status: locally verified; pending merge to `develop` and development deploy.
+- Status: merged to `develop` and deployed to development.
 - Scope: 商品价格管理的价格计算模板试算中，`销售单位` 候选只能来自当前商品可解析的单位换算；不可解析的 `袋/盒/条` 等单位不能出现在候选中，也不能被 API 试算静默按 kg 兜底。
 - DEV:
   - DEV-507-TRIAL-UOM-CANDIDATES：前端试算抽屉按商品库存单位、销售规格/单位换算和可解析的标准重量单位生成销售单位候选，过滤没有换算的全局单位。
@@ -20,7 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted: `node --test src/lib/product-settings.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/costing-price-list-workflow.test.js`; `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1`.
   - GREEN build/check: `npm ci`; `npm run build` passed with the existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-pricing-rule-trial-resolvable-uom.md`.
-- Deployment: pending
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from clean clone `/private/tmp/kferp-pr507-deploy` via `./deploy_orderapp.sh`. Backup from successful deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260630113654`. Docker build ran `go test ./...` successfully, Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, and `erp_orderapp` restarted. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/` returned `303` to `/app/orders`; authenticated `GET /app/vue-shell?view=productPriceManagement` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM`; deployed source contains `pricingRuleTrialQuoteUnitResolvable`; live `POST /app/api/costing/pricing-rule-trial` with `quote_unit=盒` on a product without `盒` conversion returned `400` and the Chinese sales-unit conversion error.
 - Last update: 2026-06-30 Asia/Shanghai
 
 ### PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS
