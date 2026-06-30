@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS
 - Branch: codex/pricing-rule-trial-waterfall-explanations-20260630
 - Owner/session: Codex / 2026-06-30
-- Status: implementing and locally verifying; merge/development deploy pending.
+- Status: merged to `develop` and deployed to development.
 - Scope: 商品价格管理价格试算结果区中，`BOM+工序成本`、`其他成本`、`加价增加` 三张瀑布卡片可点击打开只读 `试算说明` 面板；后端返回 `other_cost_details` 和 `profit_explanation` 解释字段；前端展示 BOM 行级用量/单位成本/金额、其他成本来源/设置位置和利润方式/公式。该需求不改变成本公式、单位换算、Pricing Rule 保存结构、商品价格表、订单或发布快照。
 - DEV:
   - DEV-510-TRIAL-EXPLANATION-API：`PricingRuleTrialResult` 增加 `other_cost_details` 和 `profit_explanation`，覆盖模板其他成本、临时其他成本覆盖、空其他成本、毛利率、加价率、固定加价和 supplier tier markup。
@@ -17,9 +17,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-510-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV/API/REV 种子和 PR-510 验收记录。
 - Verifier:
   - RED: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1` and `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrial' -count=1` failed before implementation because `other_cost_details` / `profit_explanation` were missing; `node --test src/lib/product-settings.test.js` failed before UI markers and explanation panel existed; `go test ./internal/interfaces/http/support -run TestDev510PricingRuleTrialWaterfallExplanationsContracts -count=1` failed before PR-510 docs/seed markers existed.
-  - GREEN targeted so far: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1`; `node --test src/lib/product-settings.test.js`.
+  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/support -run TestDev510PricingRuleTrialWaterfallExplanationsContracts -count=1`; `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `node --test src/lib/product-settings.test.js`; `scripts/verify_kferp.sh frontend-build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Development deploy GREEN: `./deploy_orderapp.sh` from `/private/tmp/kferp-pr508-develop-merge-20260630` deployed `origin/develop=9cc2b0de5cbe06d52209f43d42b29f0b060aa7cf`; Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, Docker build ran `go test ./...` successfully, and `erp_orderapp` restarted.
+  - Development smoke GREEN: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/` returned `303`; authenticated `GET /app/vue-shell?view=productPriceManagement` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS`; deployed source and Vue bundle contain `other_cost_details` / `profit_explanation` / `试算说明` markers. Live pricing trial API for `SKU-000573` returned `164.51/kg` and `37.35/袋` BOM costs, with row-level material amount changing from `40.82/kg` to `9.27/袋`. Browser smoke clicked `BOM+工序成本`, `其他成本`, and `加价增加`; all opened readable explanation panels with no console errors, and a `599x752` viewport check found no panel text overflow.
 - Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-pricing-rule-trial-waterfall-explanations.md`.
-- Deployment: pending.
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from `/private/tmp/kferp-pr508-develop-merge-20260630` via `./deploy_orderapp.sh` at `origin/develop=9cc2b0de5cbe06d52209f43d42b29f0b060aa7cf`. Backup from successful deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260630173352`.
 - Last update: 2026-06-30 Asia/Shanghai
 
 ### PR-508-BOM-MATERIAL-LOSS-RATIO

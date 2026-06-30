@@ -18,6 +18,7 @@
 - `scripts/verify_kferp.sh frontend-build`
 
 ## Browser
-- Pending: development 部署后，在 `productPriceManagement` 打开价格试算，选择 `榛巧拼配227g袋装` / `SKU-000573`。
-- Pending: 分别用 `kg` 和 `袋` 试算，确认 BOM 明细金额和单位随销售单位变化。
-- Pending: 点击 `BOM+工序成本`、`其他成本`、`加价增加`，确认说明面板可读、无重叠、无控制台错误。
+- Development smoke: authenticated `GET /app/vue-shell?view=productPriceManagement` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS`; deployed source and Vue bundle contain `other_cost_details` / `profit_explanation` / `试算说明` markers.
+- API smoke: `pricing_rule_id=11` with `SKU-000573` returned `BOM+工序成本 164.51/kg` and `37.35/袋`; first material row changed from `40.82/kg` to `9.27/袋`, confirming the amount and unit both follow the selected sales unit.
+- Browser smoke: in `productPriceManagement`, opened `价格试算`, selected `榛巧拼配 227g袋装 / SKU-000573`, and confirmed sales unit inherited as `袋`. Switching to `kg` updated waterfall and BOM detail amounts. Clicking `BOM+工序成本`, `其他成本`, and `加价增加` opened readable `试算说明` panels with expected details and no console errors.
+- Narrow viewport smoke: at `599x752`, the `加价增加` explanation panel had no detected text overflow and no console errors.
