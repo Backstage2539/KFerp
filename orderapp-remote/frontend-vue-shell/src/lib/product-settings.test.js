@@ -967,6 +967,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '工序',
     '销售单位',
     '临时损耗率',
+    '空=不额外计损耗',
     '临时利润/加价',
     '临时税率',
     '其他成本',
@@ -975,7 +976,6 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'BOM+工序成本明细',
     '物料成本明细',
     '工序成本明细',
-    '损耗增加',
     '加价增加',
     '税额',
     '取整调整',
@@ -1000,6 +1000,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'pricingRuleTrialQuoteUnitOptions',
     'pricingRuleTrialBomVersionOptions',
     'pricingRuleTrialOperationTemplateOptions',
+    'pricingRuleTrialHasYieldLoss(pricingRuleTrialResult)',
     'schedulePricingRuleTrial',
   ]) {
     assert.ok(source.includes(want), `missing pricing rule trial marker: ${want}`)
@@ -1032,7 +1033,9 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(style, /\.pricing-rule-trial-explanation-panel/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('base_cost'\)"[\s\S]*BOM\+工序成本/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('other_cost'\)"[\s\S]*其他成本/)
+  assert.match(trialDrawer, /v-if="pricingRuleTrialHasYieldLoss\(pricingRuleTrialResult\)"[\s\S]*损耗增加/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('profit_markup'\)"[\s\S]*加价增加/)
+  assert.doesNotMatch(trialDrawer, /placeholder="按商品\/BOM"/)
   assert.match(trialDrawer, /v-if="pricingRuleTrialActiveExplanation"[\s\S]*试算说明[\s\S]*@click="closePricingRuleTrialExplanation"/)
   assert.match(trialDrawer, /pricingRuleTrialExplanationTitle\(pricingRuleTrialActiveExplanation\)/)
   assert.match(trialDrawer, /pricingRuleTrialOtherCostRows\(pricingRuleTrialResult\)/)

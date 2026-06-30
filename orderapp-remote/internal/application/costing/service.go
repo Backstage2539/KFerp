@@ -815,6 +815,10 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 			baseCost = 0
 		}
 	}
+	if pricingRuleTrialSuppressDefaultLossForActualBomCost(input, cmd, baseCostDetails, bomCostTotal, operationCostTotal) {
+		expectedLossRate = 0
+		lossChanged = false
+	}
 	if baseCost <= 0 {
 		warnings = appendUniqueString(warnings, "该商品暂无可试算的 BOM/工序成本")
 	}
@@ -1568,6 +1572,19 @@ func pricingRuleTrialExpectedLossRate(input domain.ProductInput, override *float
 		return 0, changed, fmt.Errorf("expected_loss_rate must be >= 0 and < 1")
 	}
 	return loss, changed, nil
+}
+
+func pricingRuleTrialSuppressDefaultLossForActualBomCost(input domain.ProductInput, cmd PricingRuleTrialCommand, baseCostDetails []PricingRuleTrialBaseCostDetail, bomCostTotal float64, operationCostTotal float64) bool {
+	if cmd.Overrides.ExpectedLossRate != nil || cmd.Overrides.BaseCost != nil {
+		return false
+	}
+	if len(baseCostDetails) == 0 || bomCostTotal+operationCostTotal <= 0 {
+		return false
+	}
+	if input.BomVersionID <= 0 && strings.TrimSpace(input.BomUsageMode) == "" {
+		return false
+	}
+	return true
 }
 
 func pricingRuleTrialPreTaxPrice(cost float64, marginRate float64, method string) (float64, error) {

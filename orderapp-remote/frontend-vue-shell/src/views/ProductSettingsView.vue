@@ -955,7 +955,7 @@
               </label>
               <label>
                 <span>临时损耗率</span>
-                <input v-model.number="pricingRuleTrialForm.expected_loss_rate" type="number" min="0" max="0.9999" step="0.0001" placeholder="按商品/BOM" />
+                <input v-model.number="pricingRuleTrialForm.expected_loss_rate" type="number" min="0" max="0.9999" step="0.0001" placeholder="空=不额外计损耗" />
               </label>
               <label>
                 <span>临时利润/加价</span>
@@ -1011,12 +1011,14 @@
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.other_cost_total, pricingRuleTrialResult.quote_unit) }}</strong>
                 <em>成本基数 {{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }}</em>
               </button>
-              <span class="pricing-rule-trial-operator">+</span>
-              <div class="pricing-rule-trial-waterfall-card">
-                <small>损耗增加</small>
-                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.yield_loss_amount, pricingRuleTrialResult.quote_unit) }}</strong>
-                <em>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }} → {{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</em>
-              </div>
+              <template v-if="pricingRuleTrialHasYieldLoss(pricingRuleTrialResult)">
+                <span class="pricing-rule-trial-operator">+</span>
+                <div class="pricing-rule-trial-waterfall-card">
+                  <small>损耗增加</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.yield_loss_amount, pricingRuleTrialResult.quote_unit) }}</strong>
+                  <em>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }} → {{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</em>
+                </div>
+              </template>
               <span class="pricing-rule-trial-operator">+</span>
               <button
                 :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'profit_markup' }]"
@@ -3844,6 +3846,11 @@ function pricingRuleTrialOtherCostRows(result = {}) {
 
 function pricingRuleTrialProfitExplanation(result = {}) {
   return result?.profit_explanation && typeof result.profit_explanation === 'object' ? result.profit_explanation : {}
+}
+
+function pricingRuleTrialHasYieldLoss(result = {}) {
+  const amount = Number(result?.yield_loss_amount || 0)
+  return Number.isFinite(amount) && Math.abs(amount) > 0.000001
 }
 
 function pricingRuleTrialExplanationTitle(kind = '') {

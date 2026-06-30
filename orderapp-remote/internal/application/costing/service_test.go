@@ -330,7 +330,7 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if got.PricingRuleID != 10 || got.ProductID != 549 || got.BomVersionID != 3315 {
 		t.Fatalf("trial identity = %+v", got)
 	}
-	if got.BaseCost != 60 || got.OtherCostTotal != 2.5 || got.CostAfterYield != 78.13 {
+	if got.BaseCost != 60 || got.OtherCostTotal != 2.5 || got.CostAfterYield != 62.5 {
 		t.Fatalf("trial costs = base %.2f other %.2f after yield %.2f", got.BaseCost, got.OtherCostTotal, got.CostAfterYield)
 	}
 	if len(got.OtherCostDetails) != 1 {
@@ -342,10 +342,10 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if got.BomCostTotal != 50 || got.OperationCostTotal != 10 || len(got.BaseCostDetails) != 2 {
 		t.Fatalf("base details = bom %.2f operation %.2f rows %+v", got.BomCostTotal, got.OperationCostTotal, got.BaseCostDetails)
 	}
-	if got.CostBaseTotal != 62.5 || got.YieldLossAmount != 15.63 || got.ProfitMarkupAmount != 26.04 || got.TaxInPriceAmount != 6.25 || got.FinalBeforeRounding != 110.42 || got.RoundingAdjustment != -0.02 {
+	if got.CostBaseTotal != 62.5 || got.YieldLossAmount != 0 || got.ProfitMarkupAmount != 20.83 || got.TaxInPriceAmount != 5 || got.FinalBeforeRounding != 88.33 || got.RoundingAdjustment != -0.03 {
 		t.Fatalf("waterfall = base %.2f loss %.2f profit %.2f taxInPrice %.2f finalBefore %.2f rounding %.2f", got.CostBaseTotal, got.YieldLossAmount, got.ProfitMarkupAmount, got.TaxInPriceAmount, got.FinalBeforeRounding, got.RoundingAdjustment)
 	}
-	if got.PreTaxPrice != 104.17 || got.TaxAmount != 6.25 || got.FinalUnitPrice != 110.4 {
+	if got.PreTaxPrice != 83.33 || got.TaxAmount != 5 || got.FinalUnitPrice != 88.3 {
 		t.Fatalf("trial prices = preTax %.2f tax %.2f final %.2f", got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
 	}
 	if got.ProfitExplanation.Method != "gross_margin" || got.ProfitExplanation.MethodLabel != "毛利率" || got.ProfitExplanation.Rate != 0.25 || got.ProfitExplanation.Source != "pricing_rule" {
@@ -361,18 +361,75 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if math.Abs(waterfallTotal-got.FinalUnitPrice) > 0.001 {
 		t.Fatalf("waterfall total %.4f must equal final unit price %.4f", waterfallTotal, got.FinalUnitPrice)
 	}
-	if got.FormulaExpression == "" || !sliceContains(got.FormulaExpressionLines, "最终售价 = 110.4/kg") {
+	if got.FormulaExpression == "" || !sliceContains(got.FormulaExpressionLines, "最终售价 = 88.3/kg") {
 		t.Fatalf("formula expression = %q lines = %+v, want final price line", got.FormulaExpression, got.FormulaExpressionLines)
 	}
-	for _, want := range []string{"(BOM+工序成本 60/kg + 其他成本 2.5/kg)", "/ (1 - 损耗率 20%)", "/ (1 - 毛利率 25%)", "* (1 + 税率 6%)"} {
+	for _, want := range []string{"(BOM+工序成本 60/kg + 其他成本 2.5/kg)", "/ (1 - 毛利率 25%)", "* (1 + 税率 6%)"} {
 		if !strings.Contains(got.FormulaExpression, want) {
 			t.Fatalf("formula expression = %q, want %q", got.FormulaExpression, want)
 		}
+	}
+	if strings.Contains(got.FormulaExpression, "/ (1 - 损耗率 20%)") {
+		t.Fatalf("formula expression = %q, should not add default product/BOM loss on actual BOM detail cost", got.FormulaExpression)
 	}
 	for _, key := range []string{"bom_operation_cost", "other_cost_total", "expected_loss_rate", "profit_method", "tax_rate", "rounding_rule", "final_unit_price"} {
 		if !pricingRuleTrialHasStep(got.Steps, key) {
 			t.Fatalf("steps missing %q: %+v", key, got.Steps)
 		}
+	}
+}
+
+func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:        551,
+			Name:             "PR511 显式临时损耗商品",
+			InventoryUnit:    "kg",
+			QuoteUnit:        "kg",
+			ExpectedLossRate: 0.2,
+			BomVersionID:     5511,
+			BomVersionNo:     "V002",
+			BomUsageMode:     "production_bom_output",
+			BomStatus:        "active",
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:551", Type: "material", TypeLabel: "物料", Name: "已含原料损耗物料", ConsumeUnit: "ratio_pct", RatioPct: 125, MaterialLossRate: 0.2, UnitCost: 80, AmountPerKg: 100, Unit: "kg"},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			12: {
+				ID:             12,
+				Name:           "PR511 毛利",
+				MarginRate:     0.25,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "bom_or_product",
+					"profit_method":   "gross_margin",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 12,
+		ProductID:     551,
+		Overrides: PricingRuleTrialOverrides{
+			ExpectedLossRate: floatPtr(0.2),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.CostBaseTotal != 100 || got.CostAfterYield != 125 || got.YieldLossAmount != 25 {
+		t.Fatalf("explicit temporary loss waterfall = base %.2f after %.2f loss %.2f, want 100 -> 125 with 25 loss", got.CostBaseTotal, got.CostAfterYield, got.YieldLossAmount)
+	}
+	if got.FinalUnitPrice != 166.67 {
+		t.Fatalf("final unit price = %.2f, want explicit loss to affect gross-margin price", got.FinalUnitPrice)
+	}
+	if !strings.Contains(got.FormulaExpression, "/ (1 - 损耗率 20%)") {
+		t.Fatalf("formula expression = %q, want explicit temporary loss formula", got.FormulaExpression)
 	}
 }
 
