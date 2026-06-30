@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW
+- Branch: codex/e2e-raw-material-order-production-flow-20260630
+- Owner/session: Codex goal / 2026-06-30
+- Status: browser E2E completed on development ERP; local docs/support verifier updates pending final rerun/sync. `scripts/reserve_req_id.sh` returned PR-508, but `--claim` hit the known awk multiline bug, so this entry is seeded manually.
+- Scope: 使用浏览器和 API 走通主链路：原料建档/入库 -> 商品 / SKU 和生产 BOM -> 下单 -> 生产计划 -> 生产工单/工序卡 -> 领料/完工入库 -> 库存、订单和操作日志追溯。过程中发现的阻断必须先复现、再修复、再用 RED/GREEN 和浏览器证据确认。
+- DEV:
+  - DEV-508-E2E-FLOW-MAP：整理原料、商品、BOM、录单、生产、库存作业和操作日志的页面/API/手册入口。
+  - DEV-508-BROWSER-AUDIT：在 ERP 浏览器中使用 PR-508 测试数据完成端到端流程，并记录对象 ID、截图/接口证据和阻断点。
+  - DEV-508-BLOCKER-FIXES：对浏览器或 API 主链路阻断按最小 TDD 闭环修复。
+  - DEV-508-DOCS-ACCEPTANCE：同步需求、验收清单、操作手册、PR/DEV 种子和 PR-508 验收记录。
+- Verifier:
+  - Baseline backend GREEN: `go test ./internal/interfaces/http/stock ./internal/interfaces/http/materials ./internal/interfaces/http/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/sales ./internal/interfaces/http/production ./internal/application/production ./internal/application/materials ./internal/application/stock -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev50[0-7]|TestOperation|TestAudit' -count=1`.
+  - Baseline frontend GREEN: `node --test src/lib/material-receipts.test.js src/lib/materials-ui.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js src/lib/work-orders.test.js src/lib/produce-running.test.js src/lib/manufacturing-execution.test.js src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/production-logs.test.js src/lib/production-costs.test.js src/lib/quality-inspections.test.js src/lib/operation-manuals.test.js` passed 337/337 after `npm ci`.
+  - RED docs/seed contract: `go test ./internal/interfaces/http/support -run TestDev508 -count=1 -v` failed because PR-508 markers were not yet present in the deployed docs/seed surface.
+  - Browser/API E2E GREEN: live ERP browser completed `原料 -> 商品 / SKU -> 生产 BOM -> 下单 -> 生产计划 -> 工单/WIP -> 工序卡 -> 完工入库 -> 成品库存 -> 顺丰发货录单 -> 快递回填 -> 出库单 PDF -> 出库日志 -> 操作日志` on 2026-06-30 Asia/Shanghai. Key objects: material `PR508原料-20260630051716` / receipt `MB-0000000011`; product `PR508商品-20260630051716`, SKUs `SKU-000581/000582/000583`, BOM `BOM-006578 V001`; order `SO-20260630-0001` (`order_id=1555`), plan `PP-0000000058`, work order `WO-PP-0000000058-0000000041` (`work_order_id=36`), job cards `#55/#56`, WIP transfer `MT-0000000020`, finished batch `FP-0000000045`, shipment `SHIP-20260630-0001`, tracking `SFPR508202606300001`, delivery note `V1`.
+  - Browser/API noted blocker: newly created PR-508 product could not be ordered through the public price-list path because publishing the shared public price table is blocked by existing unrelated incomplete rows. The order/production/fulfillment portion used already published `榛巧拼配`; see PR-508 acceptance doc for exact row errors.
+- Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_STOCK.md`; `orderapp-remote/docs/acceptance/2026-06-30-e2e-raw-material-order-production-flow.md`.
+- Deployment: not merged or deployed.
+- Last update: 2026-06-30 Asia/Shanghai
+
 ### PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM
 - Branch: codex/pricing-rule-trial-uom-candidates-20260630
 - Owner/session: Codex / 2026-06-30

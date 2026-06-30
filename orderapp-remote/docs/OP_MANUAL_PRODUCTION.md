@@ -5,6 +5,8 @@
 
 PR-473-GENERIC-MANUFACTURING-ABSTRACTION + PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS + PR-488-PRODUCTION-PLAN-SPLIT-QTY-AUTOBATCH + PR-490-JOB-CARD-BATCH-CARDS + PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT + PR-493-PLAN-WORKORDER-SPLIT-EDIT + PR-495-PRODUCTION-WORKSTATION-OVERVIEW + PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION + PR-497-WORKORDER-INVENTORY-CONTROL + PR-499-PRODUCTION-EXECUTION-HUB-PHASE2 + PR-500-UNIT-MODEL-CONSOLIDATION + PR-501-PRODUCT-UOM-SALES-CONVERSION + PR-502-PRODUCT-UNIT-TEMPLATE-REFERENCE + PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM + PR-504-PARENT-PRODUCT-CHILD-SKU-UOM + PR-505-SALES-SPEC-TEMPLATE-DERIVED-SKU：生产主流程统一使用 `父商品 / 子 SKU / BOM / 工艺路线 / 工序 / 工位 / 生产计划 / 工单 / 工序卡 / 库存单据`，并继续满足 PR-473 的通用制造对象链。父 SKU 负责商品族信息并引用销售规格模板，销售规格模板维护库存单位并自动派生具体子 SKU；咖啡、包装盒、童装等行业差异通过子 SKU、BOM、工艺路线、工序、工位、工位产能和商品生产配置表达；库存单位覆盖原料、WIP、半成品和成品库存，销售规格来自子 SKU 并由价格表/订单快照固化，报价单位和录单单位只作为历史兼容字段；设备产能、单批标准、承担产量和自动批次数进入草稿生产计划的工序产能拆分，不写进工艺路线；草稿计划和未开工工单都支持补充编辑拆分，已开始执行的工单不允许覆盖拆分；待生产需求维护 `待计划 / 生产中 / 生产完成` 状态，已进入生产计划的需求不可重复生成计划；工单负责开始生产、领料到 WIP、消耗/退料、取消、完工入库、库存单据和库存流水聚合；工序卡主表记录子 SKU、BOM/配方、时间、成本、损耗和异常，不把咖啡投料/出豆字段作为通用主流程列。生产负责人从 `生产视图` 看今日整体进度、卡点和下一步处理人；现场操作员从 `工位视图` 看当前任务、下一任务和不能做原因；生产计划、工单和库存作业用步骤条、完成面板和 WIP 上下文减少跨页判断；工单执行枢纽把同一工单的 readiness、WIP、质检、库存单据、完工入库、成本和追溯时间线集中展示。
 
+PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：端到端验收时，生产流程必须承接订单库存不足需求，而不是单独手工造工单。主链路为 `原料 -> 商品 / SKU -> 下单 -> 生产计划 -> 生产工单 -> 工序卡 -> WIP / Stock Entry -> 完工入库 -> 库存与订单追溯`；任何一步不能继续时，记录阻断并按 RED/GREEN 修复。
+
 ## 入口
 - 生产管理：生产视图、工位视图、生产手册、生产验收、生产计划/开始生产、生产工单、工序卡、生产质检、生产日志、生产成本。左侧主菜单以工单和工序卡为主；顶部生产切换条仍保留 `生产中`，用于进入兼容状态页和统一完成面板。
 - 生产管理：生产 BOM、工艺路线、工序、工位/设备，用于维护制造主档、产出商品、组件清单、多层展开和制造步骤。

@@ -34,6 +34,8 @@
 - [ ] PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE：BOM已失效时页面顶部不显示汇总 banner，具体商品行下显示 `BOM已失效`、提示到商品档案重新选择可用 BOM，并提供 `商品档案` 跳转；点击 `发布价格表` 会定位到商品行提示。空预览、缺版本号、缺客户或价格行不完整仍在按钮附近和页面错误提示中显示阻断原因；满足发布条件后按钮仍能调用原发布接口生成价格表快照。
 - [ ] PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS：销售规格模板可在规格明细行点击 `默认规格`，保存后 `/api/product-settings/unit-templates` 返回选中规格作为 `default_sales_unit/sales_unit/quote_unit/order_unit`，每条 `sales_specs.sales_unit` 使用规格名称而不是模糊包装单位。
 - [ ] PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS：产品价格表平铺价格行对 `熟豆-白巧坚果拼配` 等商品展示具体子 SKU / 规格，如 `227g袋装` 或 `100g袋装`，价格单位列不再只显示 `/袋`；缺计价模式、模板、最终价、换算或快照时，对应行显示行级错误，不再在预览顶部显示笼统提示。
+- [ ] PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：从原料建档和原料入库开始，浏览器/API 验收能看到原料批次、库存流水和仓库库存；后续商品 / SKU、销售规格模板和生产 BOM 能形成可下单、可生产对象。
+- [ ] PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：保存订单后库存不足商品进入生产计划，生产计划提交生成生产工单和工序卡，工单执行后能完成 WIP/Stock Entry/完工入库；成品批次、生产日志、库存追溯和操作日志可查。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品档案配置抽屉必须拆分 `可生产该商品的 BOM` 和 `作为组件被哪些 BOM 使用`；只有产出该商品、active 且有 published 版本的 BOM 行能点击 `设为默认`，刷新后仍显示为该商品默认 BOM，组件反查列表不得出现设默认按钮。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品价格管理试算同一商品时，`试算BOM版本` 默认使用商品显式默认生产 BOM；无显式默认时可 fallback 最新 published 产出 BOM，但不得把 fallback 标记为默认。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：工艺路线页面可维护路线工序；工序、工位/设备主数据在独立页面维护。开始生产后，新工单展示冻结 BOM 版本、冻结工艺路线、工序和工位/设备；之后修改商品默认 BOM 或路线不回改历史工单。
