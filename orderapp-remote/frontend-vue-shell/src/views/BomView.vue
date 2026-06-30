@@ -253,7 +253,7 @@
                 <p class="muted left">当前编辑版本：{{ selectedProductionBomVersion?.version_no || '-' }} · {{ productionBomVersionStatusLabel(selectedProductionBomVersion?.status || '') }}</p>
               </div>
               <div class="version-ratio-box">
-                <span>合计比例</span>
+                <span>合计比例（不含原料损耗）</span>
                 <strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong>
               </div>
             </div>
@@ -312,6 +312,17 @@
                 <span>比例 %</span>
                 <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail || !canEditCurrentBomItems" />
               </label>
+              <div v-if="canEditMaterialLossRate" class="material-loss-control">
+                <label class="checkbox-row compact-checkbox">
+                  <input v-model="itemForm.material_loss_rate_enabled" type="checkbox" :disabled="!detail || !canEditCurrentBomItems" />
+                  <span>原料损耗比</span>
+                </label>
+                <label v-if="itemForm.material_loss_rate_enabled" class="material-loss-rate-field">
+                  <span>损耗比例 %</span>
+                  <input v-model.number="itemForm.material_loss_rate_pct" type="number" min="0" max="99.9999" step="0.01" :disabled="!detail || !canEditCurrentBomItems" />
+                  <small>实际原料需求 = 计划投料基准 / (1 - 原料损耗比) × 配方比例</small>
+                </label>
+              </div>
               <label v-else>
                 <span>用量</span>
                 <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomItems" />
@@ -458,11 +469,14 @@ const itemForm = reactive({
   consume_unit: 'ratio_pct',
   qty_per_unit: '',
   ratio_pct: '',
+  material_loss_rate_enabled: false,
+  material_loss_rate_pct: '',
 })
 const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_product_id: 0, output_qty: 1, output_unit: 'unit', status: 'active' })
 const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
+const canEditMaterialLossRate = computed(() => itemForm.component_type === 'material' && itemForm.consume_unit === 'ratio_pct')
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const productionBomBusinessGroupControls = computed(() => businessGroupControlOptions(productionBomBusinessGroups.value, {
   selectedTemplateID: selectedProductionBomTemplateID.value,
@@ -855,8 +869,28 @@ function componentItemName(item) {
 }
 
 function itemQuantityDisplay(item) {
-  if ((item?.consume_unit || 'ratio_pct') === 'ratio_pct') return ratio(item.ratio_pct)
+  if ((item?.consume_unit || 'ratio_pct') === 'ratio_pct') {
+    const lossText = materialLossRateDisplay(item)
+    return lossText ? `${ratio(item.ratio_pct)} · ${lossText}` : ratio(item.ratio_pct)
+  }
   return `${qty(item.qty_per_unit)} ${consumeUnitLabel(item.consume_unit)}`
+}
+
+function normalizedMaterialLossRateFromValue(value) {
+  const rate = Number(value || 0)
+  if (!Number.isFinite(rate) || rate <= 0 || rate >= 1) return 0
+  return rate
+}
+
+function normalizedMaterialLossRateFromPercent(value) {
+  return normalizedMaterialLossRateFromValue(Number(value || 0) / 100)
+}
+
+function materialLossRateDisplay(item = {}) {
+  const lossRate = normalizedMaterialLossRateFromValue(item.material_loss_rate)
+  if (!lossRate || (item.component_type !== 'material') || ((item.consume_unit || 'ratio_pct') !== 'ratio_pct')) return ''
+  const effectiveRatio = Number(item.ratio_pct || 0) / (1 - lossRate)
+  return `原料损耗 ${ratio(lossRate * 100)}，折算有效比例 ${ratio(effectiveRatio)}（1 / (1 - 原料损耗比)）`
 }
 
 function productionBomDraftItemFromItem(item = {}) {
@@ -868,10 +902,14 @@ function productionBomDraftItemFromItem(item = {}) {
     consume_unit: item.consume_unit || 'ratio_pct',
     qty_per_unit: Number(item.qty_per_unit || 0),
     ratio_pct: Number(item.ratio_pct || 0),
+    material_loss_rate: normalizedMaterialLossRateFromValue(item.material_loss_rate),
   }
 }
 
 function productionBomDraftItemFromForm() {
+  const normalizedMaterialLossRate = canEditMaterialLossRate.value && itemForm.material_loss_rate_enabled
+    ? normalizedMaterialLossRateFromPercent(itemForm.material_loss_rate_pct)
+    : 0
   return {
     material_id: Number(itemForm.material_id || 0),
     component_type: itemForm.component_type === 'product' ? 'product' : 'material',
@@ -880,6 +918,7 @@ function productionBomDraftItemFromForm() {
     consume_unit: itemForm.consume_unit || 'ratio_pct',
     qty_per_unit: Number(itemForm.qty_per_unit || 0),
     ratio_pct: Number(itemForm.ratio_pct || 0),
+    material_loss_rate: normalizedMaterialLossRate,
   }
 }
 
@@ -1019,12 +1058,16 @@ function syncComponentTypeDefaults() {
     itemForm.material_id = 0
     itemForm.consume_unit = defaultDictionaryConsumeUnit()
     itemForm.ratio_pct = ''
+    itemForm.material_loss_rate_enabled = false
+    itemForm.material_loss_rate_pct = ''
     return
   }
   itemForm.component_product_id = 0
   itemForm.component_spec_g = 0
   itemForm.consume_unit = 'ratio_pct'
   itemForm.qty_per_unit = ''
+  itemForm.material_loss_rate_enabled = false
+  itemForm.material_loss_rate_pct = ''
 }
 
 function resetItemForm() {
@@ -1035,6 +1078,8 @@ function resetItemForm() {
   itemForm.consume_unit = 'ratio_pct'
   itemForm.qty_per_unit = ''
   itemForm.ratio_pct = ''
+  itemForm.material_loss_rate_enabled = false
+  itemForm.material_loss_rate_pct = ''
 }
 
 function clearSelectedProductionBom() {
@@ -1567,6 +1612,11 @@ tbody tr.active { background: #f3f7fb; }
 .version-ratio-box { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 8px 10px; background: #fff; }
 .version-ratio-box span { display: block; color: #666; font-size: 12px; margin-bottom: 4px; }
 .version-ratio-box strong { font-size: 16px; }
+.material-loss-control { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.checkbox-row.compact-checkbox { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; margin: 0; }
+.checkbox-row.compact-checkbox input { min-width: 0; width: 16px; height: 16px; }
+.checkbox-row.compact-checkbox span { margin: 0; color: #333; font-size: 13px; font-weight: 700; }
+.material-loss-rate-field small { display: block; max-width: 360px; color: #666; font-size: 12px; line-height: 1.35; margin-top: 4px; }
 .inline-actions { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; justify-content: flex-end; }
 .inline-actions input { min-width: min(280px, 100%); }
 .compact-form { align-items: end; }

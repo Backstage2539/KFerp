@@ -486,6 +486,7 @@ type bomItemRow struct {
 	ConsumeUnit          string
 	QtyPerUnit           float64
 	RatioPct             float64
+	MaterialLossRate     float64
 	UnitCostSnapshot     float64
 }
 
@@ -878,6 +879,7 @@ func listBomItems(ctx context.Context, db bomQueryer, schema string, productID i
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0)::float8,
 		       bi.ratio_pct,
+		       0::float8 AS material_loss_rate,
 		       COALESCE(bi.unit_cost_snapshot,0)::float8
 		FROM %s.product_bom_items bi
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
@@ -895,7 +897,7 @@ func listBomItems(ctx context.Context, db bomQueryer, schema string, productID i
 	total := 0.0
 	for rows.Next() {
 		var row bomItemRow
-		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.UnitCostSnapshot); err != nil {
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.MaterialLossRate, &row.UnitCostSnapshot); err != nil {
 			return nil, 0, err
 		}
 		if row.ComponentType == "material" && row.ConsumeUnit == "ratio_pct" {
@@ -918,6 +920,7 @@ func listBomVersionItems(ctx context.Context, q bomQueryer, schema string, versi
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0)::float8,
 		       bi.ratio_pct,
+		       0::float8 AS material_loss_rate,
 		       COALESCE(bi.unit_cost_snapshot,0)::float8
 		FROM %s.bom_version_items bi
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
@@ -934,7 +937,7 @@ func listBomVersionItems(ctx context.Context, q bomQueryer, schema string, versi
 	total := 0.0
 	for rows.Next() {
 		var row bomItemRow
-		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.UnitCostSnapshot); err != nil {
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.MaterialLossRate, &row.UnitCostSnapshot); err != nil {
 			return nil, 0, err
 		}
 		if row.ComponentType == "material" && row.ConsumeUnit == "ratio_pct" {
@@ -957,6 +960,7 @@ func listProductionBomVersionItems(ctx context.Context, q bomQueryer, schema str
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0)::float8,
 		       bi.ratio_pct,
+		       COALESCE(bi.material_loss_rate,0)::float8,
 		       COALESCE(bi.unit_cost_snapshot,0)::float8
 		FROM %s.production_bom_version_items bi
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
@@ -973,7 +977,7 @@ func listProductionBomVersionItems(ctx context.Context, q bomQueryer, schema str
 	total := 0.0
 	for rows.Next() {
 		var row bomItemRow
-		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.UnitCostSnapshot); err != nil {
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.MaterialLossRate, &row.UnitCostSnapshot); err != nil {
 			return nil, 0, err
 		}
 		if row.ComponentType == "material" && row.ConsumeUnit == "ratio_pct" {
@@ -1145,6 +1149,7 @@ func bomItemsToApp(rows []bomItemRow) []bomapp.Item {
 			ConsumeUnit:          row.ConsumeUnit,
 			QtyPerUnit:           row.QtyPerUnit,
 			RatioPct:             row.RatioPct,
+			MaterialLossRate:     row.MaterialLossRate,
 		})
 	}
 	return out
@@ -1820,8 +1825,8 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
-		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot
+		INSERT INTO %s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
+		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot
 		FROM %s.production_bom_version_items
 		WHERE version_id=$2
 		ORDER BY id
@@ -1934,8 +1939,8 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 		return bomapp.ProductionBomVersion{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
-		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot
+		INSERT INTO %s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
+		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot
 		FROM %s.production_bom_version_items
 		WHERE version_id=$2
 		ORDER BY id
@@ -1998,14 +2003,18 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 				componentType = "material"
 			}
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
-				INSERT INTO %s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
-				VALUES($1,$2,$3,$4,$5,$6,$7,$8,COALESCE((SELECT purchase_price FROM %s.materials WHERE id=$2),0))
-			`, r.schema, r.schema), cmd.VersionID, item.MaterialID, componentType, item.ComponentProductID, item.ComponentSpecG, item.ConsumeUnit, item.QtyPerUnit, item.RatioPct); err != nil {
+				INSERT INTO %s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE((SELECT purchase_price FROM %s.materials WHERE id=$2),0))
+			`, r.schema, r.schema), cmd.VersionID, item.MaterialID, componentType, item.ComponentProductID, item.ComponentSpecG, item.ConsumeUnit, item.QtyPerUnit, item.RatioPct, item.MaterialLossRate); err != nil {
 				return bomapp.ProductionBomVersion{}, err
 			}
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "update_draft", postgresinfra.StrPtr("version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.VersionID)), postgresinfra.AuditMeta{"version_id": cmd.VersionID, "item_count": len(cmd.Items)}); err != nil {
+	materialLossRates := make([]float64, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		materialLossRates = append(materialLossRates, item.MaterialLossRate)
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "update_draft", postgresinfra.StrPtr("version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.VersionID)), postgresinfra.AuditMeta{"version_id": cmd.VersionID, "item_count": len(cmd.Items), "material_loss_rates": materialLossRates}); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	if cmd.SpecialAttrsSchemaJSON != "" || cmd.SpecialAttrsJSON != "" {
@@ -2723,6 +2732,7 @@ item_source AS (
 	       COALESCE(NULLIF(i.consume_unit,''),'ratio_pct') AS consume_unit,
 	       COALESCE(i.qty_per_unit,0) AS qty_per_unit,
 	       COALESCE(i.ratio_pct,0) AS ratio_pct,
+	       0 AS material_loss_rate,
 	       COALESCE(i.unit_cost_snapshot,0) AS unit_cost_snapshot
 	FROM %[1]s.production_bom_versions v
 	JOIN missing_legacy_bindings mlb ON mlb.product_id=v.legacy_product_id
@@ -2732,8 +2742,8 @@ item_source AS (
 	)
 ),
 inserted_items AS (
-	INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
-	SELECT version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot
+	INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
+	SELECT version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot
 	FROM item_source
 	RETURNING id
 ),

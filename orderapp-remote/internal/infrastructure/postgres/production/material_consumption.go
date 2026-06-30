@@ -22,6 +22,7 @@ type materialConsumptionNeed struct {
 	DeductG            int64
 	DeductUnits        int64
 	RatioPct           float64
+	MaterialLossRate   float64
 	Source             string
 	ComponentType      string
 	ComponentProductID int64
@@ -46,6 +47,7 @@ type materialSnapshotRow struct {
 	MaterialName       string  `json:"material_name"`
 	Unit               string  `json:"unit"`
 	RatioPct           float64 `json:"ratio_pct,omitempty"`
+	MaterialLossRate   float64 `json:"material_loss_rate,omitempty"`
 	Source             string  `json:"source"`
 	ComponentType      string  `json:"component_type,omitempty"`
 	ComponentProductID int64   `json:"component_product_id,omitempty"`
@@ -78,6 +80,27 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 
 func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, packedUnits int64, boxUnits int64) int64 {
 	return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, 0, packedUnits, boxUnits, 0, "")
+}
+
+func componentConsumptionQtyWithMaterialLoss(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, outputG int64, packedUnits int64, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) int64 {
+	if normalizeBomConsumeUnit(consumeUnit) != "ratio_pct" {
+		return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, boxUnits, outputQty, outputUnit)
+	}
+	lossRate := normalizeMaterialLossRate(materialLossRate)
+	if lossRate > 0 {
+		factor := 1.0 / (1.0 - lossRate)
+		rawG = int64(math.Ceil(float64(rawG) * factor))
+		outputG = int64(math.Ceil(float64(outputG) * factor))
+		packedUnits = int64(math.Ceil(float64(packedUnits) * factor))
+	}
+	return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, boxUnits, outputQty, outputUnit)
+}
+
+func normalizeMaterialLossRate(rate float64) float64 {
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 || rate >= 1 {
+		return 0
+	}
+	return rate
 }
 
 func componentConsumptionQtyWithOutputBasis(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, outputG int64, packedUnits int64, boxUnits int64, outputQty float64, outputUnit string) int64 {
@@ -159,6 +182,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
+		       COALESCE(bi.material_loss_rate,0),
 		       COALESCE(p.roast_level,''),
 		       COALESCE(pbv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(NULLIF(bi.component_type,''),'material'),
@@ -194,12 +218,12 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		) output_bom ON true
 		LEFT JOIN %s.production_bom_versions pbv ON pbv.id=output_bom.bom_version_id
 		JOIN LATERAL (
-			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
+			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.material_loss_rate, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
 			FROM %s.production_bom_version_items pbi
 			WHERE COALESCE(output_bom.bom_version_id,0)>0
 			  AND pbi.version_id=output_bom.bom_version_id
 			UNION ALL
-			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
+			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, 0 AS material_loss_rate, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
 			FROM %s.product_bom_items lbi
 			WHERE COALESCE(output_bom.bom_version_id,0)=0 AND lbi.product_id=CASE
 				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
@@ -226,6 +250,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		name                 string
 		unit                 string
 		ratio                float64
+		materialLossRate     float64
 		roastLevel           string
 		yieldRate            float64
 		componentType        string
@@ -242,7 +267,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 	for rows.Next() {
 		var x bomRow
 		if err := rows.Scan(
-			&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate,
+			&x.materialID, &x.name, &x.unit, &x.ratio, &x.materialLossRate, &x.roastLevel, &x.yieldRate,
 			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
 			&x.consumeUnit, &x.qtyPerUnit, &x.outputQty, &x.outputUnit, &x.dripBoxBagCount,
 		); err != nil {
@@ -251,6 +276,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		x.componentType = normalizeBomComponentType(x.componentType)
 		x.consumeUnit = normalizeBomConsumeUnit(x.consumeUnit)
 		x.ratio = bomdomain.NormalizeRatioPct(x.ratio)
+		x.materialLossRate = normalizeMaterialLossRate(x.materialLossRate)
 		if x.componentType == "finished_product" {
 			if x.componentProductID <= 0 || x.qtyPerUnit <= 0 {
 				continue
@@ -297,7 +323,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		if outputG <= 0 {
 			outputG = r.NeedG
 		}
-		qty := componentConsumptionQtyWithOutputBasis(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, outputG, packedUnits, boxUnits, bi.outputQty, bi.outputUnit)
+		qty := componentConsumptionQtyWithMaterialLoss(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, outputG, packedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate)
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
 		source := "bom"
 		componentType := bi.componentType
@@ -314,6 +340,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 			DeductG:            deductG,
 			DeductUnits:        deductUnits,
 			RatioPct:           bi.ratio,
+			MaterialLossRate:   bi.materialLossRate,
 			Source:             source,
 			ComponentType:      componentType,
 			ComponentProductID: bi.componentProductID,
@@ -360,6 +387,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
+		       COALESCE(bi.material_loss_rate,0),
 		       COALESCE(p.roast_level,''),
 		       COALESCE(pbv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(NULLIF(bi.component_type,''),'material'),
@@ -395,12 +423,12 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		) output_bom ON true
 		LEFT JOIN %s.production_bom_versions pbv ON pbv.id=output_bom.bom_version_id
 		JOIN LATERAL (
-			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
+			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.material_loss_rate, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
 			FROM %s.production_bom_version_items pbi
 			WHERE COALESCE(output_bom.bom_version_id,0)>0
 			  AND pbi.version_id=output_bom.bom_version_id
 			UNION ALL
-			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
+			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, 0 AS material_loss_rate, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
 			FROM %s.product_bom_items lbi
 			WHERE COALESCE(output_bom.bom_version_id,0)=0 AND lbi.product_id=CASE
 				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
@@ -427,6 +455,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		name                 string
 		unit                 string
 		ratio                float64
+		materialLossRate     float64
 		roastLevel           string
 		yieldRate            float64
 		componentType        string
@@ -443,7 +472,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 	for rows.Next() {
 		var x bomRow
 		if err := rows.Scan(
-			&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate,
+			&x.materialID, &x.name, &x.unit, &x.ratio, &x.materialLossRate, &x.roastLevel, &x.yieldRate,
 			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
 			&x.consumeUnit, &x.qtyPerUnit, &x.outputQty, &x.outputUnit, &x.dripBoxBagCount,
 		); err != nil {
@@ -452,6 +481,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		x.componentType = normalizeBomComponentType(x.componentType)
 		x.consumeUnit = normalizeBomConsumeUnit(x.consumeUnit)
 		x.ratio = bomdomain.NormalizeRatioPct(x.ratio)
+		x.materialLossRate = normalizeMaterialLossRate(x.materialLossRate)
 		if x.componentType == "finished_product" {
 			if x.componentProductID <= 0 || x.qtyPerUnit <= 0 {
 				continue
@@ -499,7 +529,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		if bi.consumeUnit == "unit_per_box" {
 			boxUnits = ceilDiv64(totalPackedUnits, bi.dripBoxBagCount)
 		}
-		qty := componentConsumptionQtyWithOutputBasis(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalOutputG, totalPackedUnits, boxUnits, bi.outputQty, bi.outputUnit)
+		qty := componentConsumptionQtyWithMaterialLoss(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalOutputG, totalPackedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate)
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
 		source := "bom"
 		componentType := bi.componentType
@@ -516,6 +546,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 			DeductG:            deductG,
 			DeductUnits:        deductUnits,
 			RatioPct:           bi.ratio,
+			MaterialLossRate:   bi.materialLossRate,
 			Source:             source,
 			ComponentType:      componentType,
 			ComponentProductID: bi.componentProductID,
@@ -594,6 +625,7 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 			MaterialName:       need.MaterialName,
 			Unit:               need.Unit,
 			RatioPct:           need.RatioPct,
+			MaterialLossRate:   need.MaterialLossRate,
 			Source:             source,
 			ComponentType:      need.ComponentType,
 			ComponentProductID: need.ComponentProductID,
@@ -652,12 +684,13 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 		if normalizeBomConsumeUnit(row.ConsumeUnit) == "ratio_pct" && !isWeightMaterialUnit(unit) && ratioPct <= 0 {
 			ratioPct = 100
 		}
+		materialLossRate := normalizeMaterialLossRate(row.MaterialLossRate)
 		if source == "packaging" {
 			qty = packedUnits
 		} else if source == "finished_product" {
-			qty = componentConsumptionQtyWithOutputBasis(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit)
+			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, 0)
 		} else {
-			qty = componentConsumptionQtyWithOutputBasis(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit)
+			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate)
 		}
 		if qty <= 0 {
 			continue
@@ -675,6 +708,7 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			DeductG:            deductG,
 			DeductUnits:        deductUnits,
 			RatioPct:           row.RatioPct,
+			MaterialLossRate:   materialLossRate,
 			Source:             source,
 			ComponentType:      row.ComponentType,
 			ComponentProductID: row.ComponentProductID,

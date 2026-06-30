@@ -697,6 +697,34 @@ func TestPricingRuleTrialDetailsConvertGramBomItemsToKgCost(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialDetailsGrossRatioCostsByMaterialLossRate(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"pbi.material_loss_rate",
+		"COALESCE(bi.material_loss_rate,0)::float8",
+		"&row.MaterialLossRate",
+		"row.RatioPct / (1 - row.MaterialLossRate)",
+		"THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing rule trial BOM detail material loss cost missing marker %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

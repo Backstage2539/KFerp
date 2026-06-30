@@ -34,8 +34,10 @@
 - [ ] PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE：BOM已失效时页面顶部不显示汇总 banner，具体商品行下显示 `BOM已失效`、提示到商品档案重新选择可用 BOM，并提供 `商品档案` 跳转；点击 `发布价格表` 会定位到商品行提示。空预览、缺版本号、缺客户或价格行不完整仍在按钮附近和页面错误提示中显示阻断原因；满足发布条件后按钮仍能调用原发布接口生成价格表快照。
 - [ ] PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS：销售规格模板可在规格明细行点击 `默认规格`，保存后 `/api/product-settings/unit-templates` 返回选中规格作为 `default_sales_unit/sales_unit/quote_unit/order_unit`，每条 `sales_specs.sales_unit` 使用规格名称而不是模糊包装单位。
 - [ ] PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS：产品价格表平铺价格行对 `熟豆-白巧坚果拼配` 等商品展示具体子 SKU / 规格，如 `227g袋装` 或 `100g袋装`，价格单位列不再只显示 `/袋`；缺计价模式、模板、最终价、换算或快照时，对应行显示行级错误，不再在预览顶部显示笼统提示。
-- [ ] PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：从原料建档和原料入库开始，浏览器/API 验收能看到原料批次、库存流水和仓库库存；后续商品 / SKU、销售规格模板和生产 BOM 能形成可下单、可生产对象。
-- [ ] PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：保存订单后库存不足商品进入生产计划，生产计划提交生成生产工单和工序卡，工单执行后能完成 WIP/Stock Entry/完工入库；成品批次、生产日志、库存追溯和操作日志可查。
+- [ ] PR-508-BOM-MATERIAL-LOSS-RATIO：生产 BOM 的物料 `比例 %` 行显示 `原料损耗比` 开关和 `损耗比例 %` 输入；商品组件、固定数量物料和其他单位行不显示损耗输入。
+- [ ] PR-508-BOM-MATERIAL-LOSS-RATIO：保存 `比例 40% + 原料损耗 20%` 后，BOM 详情返回 `material_loss_rate=0.2`，明细说明显示有效比例 `50%`，`合计比例` 仍只统计净比例且标明不含原料损耗。
+- [ ] PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：从原料建档和原料入库开始，浏览器/API 验收能看到原料批次、库存流水和仓库库存；后续商品 / SKU、销售规格模板和生产 BOM 能形成可下单、可生产对象。
+- [ ] PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：保存订单后库存不足商品进入生产计划，生产计划提交生成生产工单和工序卡，工单执行后能完成 WIP/Stock Entry/完工入库；成品批次、生产日志、库存追溯和操作日志可查。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品档案配置抽屉必须拆分 `可生产该商品的 BOM` 和 `作为组件被哪些 BOM 使用`；只有产出该商品、active 且有 published 版本的 BOM 行能点击 `设为默认`，刷新后仍显示为该商品默认 BOM，组件反查列表不得出现设默认按钮。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品价格管理试算同一商品时，`试算BOM版本` 默认使用商品显式默认生产 BOM；无显式默认时可 fallback 最新 published 产出 BOM，但不得把 fallback 标记为默认。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：工艺路线页面可维护路线工序；工序、工位/设备主数据在独立页面维护。开始生产后，新工单展示冻结 BOM 版本、冻结工艺路线、工序和工位/设备；之后修改商品默认 BOM 或路线不回改历史工单。
@@ -70,6 +72,8 @@
 - [x] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：从生产视图异常/执行中任务、工位视图任务卡、生产工单行和工序卡工单号打开同一个工单执行枢纽；枢纽能回答该工单能否开始/完成、哪里阻塞、下一步谁处理，并显示 WIP 不足、质检冻结、上道工序未完成、未分配工位、状态不允许和超时/排程风险。
 - [x] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：工单执行枢纽的库存作业、质检、成本和日志动作跳转时保留 `work_order_id`、`job_card_id`、`running_item_id`、`material_id`、`shortage_g`、`batch_id` 等上下文；库存、WIP、质检冻结和完工入库核心业务规则不因枢纽入口改变。
 - [x] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：生产视图/工位视图的工位负载展示队列数、阻塞数、预计分钟和负载状态；执行枢纽 timeline 可按全部、工序、库存、质检、成本、日志过滤，且旧生产计划、生产中、工单、工序卡、质检、日志、成本页面仍通过顶部切换条可达。
+- [ ] PR-508-BOM-MATERIAL-LOSS-RATIO：新建生产计划/工单时，生产基准 `1kg`、A 原料比例 `40%`、原料损耗 `20%` 的物料需求冻结为 `0.5kg`；开始生产、WIP 占用和完工消耗按该数量执行。
+- [ ] PR-508-BOM-MATERIAL-LOSS-RATIO：BOM 成本明细和商品价格管理试算按有效比例 `ratio / (1 - loss)` 计算材料成本；历史 BOM、历史工单、历史库存流水和已发布价格快照不回改。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产计划页选择咖啡豆订单缺口后点击 `创建生产计划`，系统只生成 `draft` 生产计划和计划行，不生成生产中记录、生产日志或 WIP 占用。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：提交生产计划后，系统生成 `released` 生产工单和 `pending` 工序卡；咖啡豆工艺路线应生成烘焙/包装步骤，包装盒示例应生成印刷/模切/糊盒步骤，童装示例应生成裁剪/缝制/质检步骤。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。
@@ -1322,3 +1326,10 @@
 - [ ] `销售单位` 下拉只展示当前商品可解析到库存单位或标准重量单位的候选；没有换算的 `盒`、`袋`、`条` 不得仅因全局单位存在而出现。
 - [ ] 销售规格子 SKU 可通过 `unit_conversion_json` 或净含量解析，例如 `227g袋装` 可换算到 `kg/g` 时可试算，缺少换算时提示先维护销售规格或单位换算。
 - [ ] `/api/costing/pricing-rule-trial` 收到不可解析销售单位时返回明确错误，不得静默按 `kg` 试算。
+
+### K64. 生产 BOM 原料损耗比（PR-508-BOM-MATERIAL-LOSS-RATIO）
+- [ ] 生产 BOM 明细选择 `组件来源=物料`、`消耗单位=比例 %` 时，可打开 `原料损耗比` 并填写 `损耗比例 %`；关闭时 payload 和后端保存值为 0。
+- [ ] 保存 `ratio_pct=40`、`material_loss_rate=0.2` 后，BOM 详情 API 和页面明细能展示该字段；复制和发布 BOM 版本后该字段保留。
+- [ ] 商品组件、固定数量物料或其他消耗单位传入 `material_loss_rate` 时，后端归零，页面不展示损耗输入。
+- [ ] 生产计划、工单冻结、WIP 占用、生产扣料和完工消耗统一使用损耗后需求量；`1kg × 40% × 20%损耗 = 0.5kg`。
+- [ ] BOM 成本明细和价格试算按有效比例计入材料成本；`合计比例` 只统计净比例，不因损耗变成 120% 或 50%。

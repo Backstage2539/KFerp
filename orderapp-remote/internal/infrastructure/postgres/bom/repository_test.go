@@ -157,6 +157,27 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 	}
 }
 
+func TestProductionBomVersionItemsPersistMaterialLossRate(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.production_bom_version_items ADD COLUMN IF NOT EXISTS material_loss_rate",
+		"COALESCE(bi.material_loss_rate,0)::float8",
+		"material_loss_rate, unit_cost_snapshot",
+		"item.MaterialLossRate",
+		`"material_loss_rates"`,
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM material loss implementation missing marker %q", want)
+		}
+	}
+}
+
 func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

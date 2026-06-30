@@ -744,7 +744,7 @@ func productionPlanMaterialSnapshotQty(item productionapp.ProductionPlanItem, ro
 	if normalizeBomConsumeUnit(row.ConsumeUnit) == "ratio_pct" && !isWeightMaterialUnit(unit) && ratioPct <= 0 {
 		ratioPct = 100
 	}
-	return componentConsumptionQtyWithOutputBasis(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit)
+	return componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, row.MaterialLossRate)
 }
 
 func productionPlanOutputUnits(item productionapp.ProductionPlanItem) int64 {

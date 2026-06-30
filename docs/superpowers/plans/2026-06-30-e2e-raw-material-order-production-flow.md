@@ -29,7 +29,7 @@
 ## Task 1: PR/DEV tracking and contract verifier
 
 - [x] Create failing support test requiring PR-508 seed rows and docs/manual/acceptance markers.
-- [x] Run: `go test ./internal/interfaces/http/support -run TestDev508 -count=1`. Expected: FAIL before seeds/docs exist.
+- [x] Run: `go test ./internal/interfaces/http/support -run TestDev509 -count=1`. Expected: FAIL before seeds/docs exist.
 - [x] Add PR-508 rows to `req_store.go` and PR-508 sections to active/durable docs.
 - [x] Re-run the same support test. Expected: PASS.
 
@@ -38,7 +38,7 @@
 - [x] Open the ERP in the in-app browser and verify login/session state.
 - [x] Build a timestamped test-data prefix for PR-508.
 - [x] Walk the UI/API path: 原料 -> 原料入库 -> 商品/子 SKU -> BOM -> 下单 -> 生产计划 -> 工单/工序卡 -> 库存作业/完工入库 -> 订单/库存/操作日志 review.
-- [x] Record each successful object id/name and each blocker in the PR-508 acceptance file.
+- [x] Record each successful object id/name and each blocker in the PR-509 acceptance file.
 
 ## Task 3: Fix blockers with RED/GREEN
 

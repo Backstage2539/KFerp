@@ -137,19 +137,20 @@ type PricingRuleTrialResult struct {
 }
 
 type PricingRuleTrialBaseCostDetail struct {
-	Key           string  `json:"key,omitempty"`
-	Type          string  `json:"type"`
-	TypeLabel     string  `json:"type_label"`
-	Name          string  `json:"name"`
-	ConsumeUnit   string  `json:"consume_unit,omitempty"`
-	Quantity      float64 `json:"quantity,omitempty"`
-	RatioPct      float64 `json:"ratio_pct,omitempty"`
-	UnitCost      float64 `json:"unit_cost,omitempty"`
-	Amount        float64 `json:"amount"`
-	Unit          string  `json:"unit"`
-	Description   string  `json:"description,omitempty"`
-	AmountPerKg   float64 `json:"-"`
-	AmountPerUnit float64 `json:"-"`
+	Key              string  `json:"key,omitempty"`
+	Type             string  `json:"type"`
+	TypeLabel        string  `json:"type_label"`
+	Name             string  `json:"name"`
+	ConsumeUnit      string  `json:"consume_unit,omitempty"`
+	Quantity         float64 `json:"quantity,omitempty"`
+	RatioPct         float64 `json:"ratio_pct,omitempty"`
+	MaterialLossRate float64 `json:"material_loss_rate,omitempty"`
+	UnitCost         float64 `json:"unit_cost,omitempty"`
+	Amount           float64 `json:"amount"`
+	Unit             string  `json:"unit"`
+	Description      string  `json:"description,omitempty"`
+	AmountPerKg      float64 `json:"-"`
+	AmountPerUnit    float64 `json:"-"`
 }
 
 type DripPriceExplanationCommand struct {
@@ -1097,6 +1098,9 @@ func pricingRuleTrialBaseCostDetailDescription(row PricingRuleTrialBaseCostDetai
 	}
 	switch strings.TrimSpace(row.ConsumeUnit) {
 	case "ratio_pct":
+		if row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
+			return fmt.Sprintf("%s：%s，原比例 %s%%，原料损耗 %s%%，有效比例 %s%%，单位成本 %s，金额 %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(row.RatioPct*(1-row.MaterialLossRate)), pricingRuleTrialNumberExpression(row.MaterialLossRate*100), pricingRuleTrialNumberExpression(row.RatioPct), pricingRuleTrialMoneyExpression(row.UnitCost, unit), pricingRuleTrialMoneyExpression(row.Amount, unit))
+		}
 		return fmt.Sprintf("%s：%s，比例 %s%%，单位成本 %s，金额 %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(row.RatioPct), pricingRuleTrialMoneyExpression(row.UnitCost, unit), pricingRuleTrialMoneyExpression(row.Amount, unit))
 	case "g_per_bag", "unit_per_bag", "unit_per_box", "per_kg", "per_unit", "per_quote_unit":
 		return fmt.Sprintf("%s：%s，用量 %s，单位成本 %s，金额 %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(row.Quantity), pricingRuleTrialMoneyExpression(row.UnitCost, unit), pricingRuleTrialMoneyExpression(row.Amount, unit))

@@ -5,7 +5,7 @@
 
 PR-479-MANUFACTURING-PHASE2-EXECUTION-COST-CLOSED-LOOP：二期开始，生产执行相关库存变更必须先形成 Stock Entry 业务单据，再关联库存流水、工单、工序卡、生产日志和操作日志。旧 WIP 领退入口保留兼容，新主入口是库存作业中的 `Stock Entry单据`。
 
-PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：端到端验收的库存作业段必须从生产工单承接 WIP 和 Stock Entry，上游可追溯到原料入库和订单需求，下游可追溯到完工入库后的成品/半成品批次。领料、工单消耗、完工入库和调整等用户触发写入必须能在操作日志或库存单据日志中查到。
+PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：端到端验收的库存作业段必须从生产工单承接 WIP 和 Stock Entry，上游可追溯到原料入库和订单需求，下游可追溯到完工入库后的成品/半成品批次。领料、工单消耗、完工入库和调整等用户触发写入必须能在操作日志或库存单据日志中查到。
 
 ## 入口
 - 库存管理 / 库存作业 / `Stock Entry单据`

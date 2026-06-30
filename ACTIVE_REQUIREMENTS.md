@@ -6,22 +6,40 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-508-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW
+### PR-508-BOM-MATERIAL-LOSS-RATIO
+- Branch: codex/bom-material-loss-ratio-20260630
+- Owner/session: Codex / 2026-06-30
+- Status: merged to `develop` and deployed to development.
+- Scope: 生产 BOM 的 `组件来源=物料` 且 `消耗单位=比例 %` 明细支持 `原料损耗比`。关闭时损耗为 0，现有 BOM 行行为不变；打开后按 `实际原料需求 = 计划投料基准 / (1 - 原料损耗比) × 配方比例` 计算生产计划、工单、WIP 占用、扣料和 BOM 成本。商品组件和非比例物料行后端强制归零。
+- DEV:
+  - DEV-508-BOM-MATERIAL-LOSS-DATA：`production_bom_version_items.material_loss_rate` 持久化，BOM 草稿保存/发布/复制/legacy backfill 和详情 API 读写该字段，非物料比例行强制为 0。
+  - DEV-508-PRODUCTION-COSTING-MATERIAL-LOSS：生产计划物料快照、工单物料需求、开始生产扣料、WIP 占用/完工消耗和 BOM 成本按 `ratio / (1 - material_loss_rate)` 使用有效比例。
+  - DEV-508-BOM-MATERIAL-LOSS-UI-DOCS：`BomView.vue` 在 `比例 %` 行显示 `原料损耗比` 开关、损耗比例输入和折算说明；`合计比例` 文案标明不含原料损耗；同步需求、验收和生产/库存/成本手册。
+- Verifier:
+  - RED: `go test ./internal/application/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/infrastructure/postgres/costing -count=1` failed before implementation because `MaterialLossRate` and loss-adjusted material/cost helpers were missing; `node --test src/lib/bom.test.js` failed because BOM UI/payload did not expose `原料损耗比`.
+  - GREEN targeted: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `node --test src/lib/bom.test.js src/lib/produce-plan.test.js src/lib/product-settings.test.js`.
+  - GREEN build/check: `npm ci`; `npm run build` passed with the existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-bom-material-loss-ratio.md`.
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from clean clone `/private/tmp/kferp-pr508-deploy-20260630133636` via `./deploy_orderapp.sh` at `origin/develop=c4641c60d4a5bcce2ff3271c8dc4798a7c62a071`. Backup from successful deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260630133752`. Docker build ran `go test ./...` successfully, Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, and `erp_orderapp` restarted. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; authenticated `GET /app/vue-shell?view=bom` returned `200`; authenticated `GET /app/api/production-boms?status=all&limit=1` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-508-BOM-MATERIAL-LOSS-RATIO`; deployed source contains `material_loss_rate`; deployed Vue bundle contains `原料损耗比`.
+- Last update: 2026-06-30 Asia/Shanghai
+
+### PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW
 - Branch: codex/e2e-raw-material-order-production-flow-20260630
 - Owner/session: Codex goal / 2026-06-30
-- Status: browser E2E completed on development ERP; local docs/support verifier updates pending final rerun/sync. `scripts/reserve_req_id.sh` returned PR-508, but `--claim` hit the known awk multiline bug, so this entry is seeded manually.
+- Status: browser E2E completed on development ERP; requirement id bumped from the reserved PR-508 draft to PR-509 because `origin/develop` already owns and deployed `PR-508-BOM-MATERIAL-LOSS-RATIO`. Merge-conflict resolution and PR-509 support verifier are GREEN.
 - Scope: 使用浏览器和 API 走通主链路：原料建档/入库 -> 商品 / SKU 和生产 BOM -> 下单 -> 生产计划 -> 生产工单/工序卡 -> 领料/完工入库 -> 库存、订单和操作日志追溯。过程中发现的阻断必须先复现、再修复、再用 RED/GREEN 和浏览器证据确认。
 - DEV:
-  - DEV-508-E2E-FLOW-MAP：整理原料、商品、BOM、录单、生产、库存作业和操作日志的页面/API/手册入口。
-  - DEV-508-BROWSER-AUDIT：在 ERP 浏览器中使用 PR-508 测试数据完成端到端流程，并记录对象 ID、截图/接口证据和阻断点。
-  - DEV-508-BLOCKER-FIXES：对浏览器或 API 主链路阻断按最小 TDD 闭环修复。
-  - DEV-508-DOCS-ACCEPTANCE：同步需求、验收清单、操作手册、PR/DEV 种子和 PR-508 验收记录。
+  - DEV-509-E2E-FLOW-MAP：整理原料、商品、BOM、录单、生产、库存作业和操作日志的页面/API/手册入口。
+  - DEV-509-BROWSER-AUDIT：在 ERP 浏览器中使用 PR508 测试数据完成端到端流程，并记录对象 ID、截图/接口证据和阻断点。
+  - DEV-509-BLOCKER-FIXES：对浏览器或 API 主链路阻断按最小 TDD 闭环修复。
+  - DEV-509-DOCS-ACCEPTANCE：同步需求、验收清单、操作手册、PR/DEV 种子和 PR-509 验收记录。
 - Verifier:
   - Baseline backend GREEN: `go test ./internal/interfaces/http/stock ./internal/interfaces/http/materials ./internal/interfaces/http/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/sales ./internal/interfaces/http/production ./internal/application/production ./internal/application/materials ./internal/application/stock -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev50[0-7]|TestOperation|TestAudit' -count=1`.
   - Baseline frontend GREEN: `node --test src/lib/material-receipts.test.js src/lib/materials-ui.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js src/lib/work-orders.test.js src/lib/produce-running.test.js src/lib/manufacturing-execution.test.js src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/production-logs.test.js src/lib/production-costs.test.js src/lib/quality-inspections.test.js src/lib/operation-manuals.test.js` passed 337/337 after `npm ci`.
-  - RED docs/seed contract: `go test ./internal/interfaces/http/support -run TestDev508 -count=1 -v` failed because PR-508 markers were not yet present in the deployed docs/seed surface.
+  - RED docs/seed contract: `go test ./internal/interfaces/http/support -run TestDev509 -count=1 -v` failed before PR-509 markers were added.
+  - Merge/rename GREEN: `go test ./internal/interfaces/http/support -run TestDev509 -count=1 -v`; `go test ./internal/interfaces/http/support -count=1`; `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing -count=1`; `node --test src/lib/bom.test.js src/lib/produce-plan.test.js src/lib/product-settings.test.js`; `git diff --check`.
   - Browser/API E2E GREEN: live ERP browser completed `原料 -> 商品 / SKU -> 生产 BOM -> 下单 -> 生产计划 -> 工单/WIP -> 工序卡 -> 完工入库 -> 成品库存 -> 顺丰发货录单 -> 快递回填 -> 出库单 PDF -> 出库日志 -> 操作日志` on 2026-06-30 Asia/Shanghai. Key objects: material `PR508原料-20260630051716` / receipt `MB-0000000011`; product `PR508商品-20260630051716`, SKUs `SKU-000581/000582/000583`, BOM `BOM-006578 V001`; order `SO-20260630-0001` (`order_id=1555`), plan `PP-0000000058`, work order `WO-PP-0000000058-0000000041` (`work_order_id=36`), job cards `#55/#56`, WIP transfer `MT-0000000020`, finished batch `FP-0000000045`, shipment `SHIP-20260630-0001`, tracking `SFPR508202606300001`, delivery note `V1`.
-  - Browser/API noted blocker: newly created PR-508 product could not be ordered through the public price-list path because publishing the shared public price table is blocked by existing unrelated incomplete rows. The order/production/fulfillment portion used already published `榛巧拼配`; see PR-508 acceptance doc for exact row errors.
+  - Browser/API noted blocker: newly created E2E product could not be ordered through the public price-list path because publishing the shared public price table is blocked by existing unrelated incomplete rows. The order/production/fulfillment portion used already published `榛巧拼配`; see PR-509 acceptance doc for exact row errors.
 - Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_STOCK.md`; `orderapp-remote/docs/acceptance/2026-06-30-e2e-raw-material-order-production-flow.md`.
 - Deployment: not merged or deployed.
 - Last update: 2026-06-30 Asia/Shanghai

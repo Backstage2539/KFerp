@@ -54,6 +54,7 @@ type Item struct {
 	ConsumeUnit          string  `json:"consume_unit"`
 	QtyPerUnit           float64 `json:"qty_per_unit"`
 	RatioPct             float64 `json:"ratio_pct"`
+	MaterialLossRate     float64 `json:"material_loss_rate"`
 }
 
 type Detail struct {
@@ -326,6 +327,7 @@ type ProductionBomDraftItem struct {
 	ConsumeUnit        string  `json:"consume_unit"`
 	QtyPerUnit         float64 `json:"qty_per_unit"`
 	RatioPct           float64 `json:"ratio_pct"`
+	MaterialLossRate   float64 `json:"material_loss_rate"`
 }
 
 type UpdateProductionBomVersionDraftCommand struct {
@@ -1077,6 +1079,13 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 		item.QtyPerUnit = 0
 	} else if item.QtyPerUnit <= 0 {
 		return item, fmt.Errorf("qty_per_unit required")
+	}
+	if componentType == "material" && consumeUnit == "ratio_pct" {
+		if item.MaterialLossRate < 0 || item.MaterialLossRate >= 1 {
+			return item, fmt.Errorf("material_loss_rate must be >= 0 and < 1")
+		}
+	} else {
+		item.MaterialLossRate = 0
 	}
 	item.ComponentType = componentType
 	item.ConsumeUnit = consumeUnit
