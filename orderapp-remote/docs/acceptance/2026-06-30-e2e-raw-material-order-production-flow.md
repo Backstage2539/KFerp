@@ -13,6 +13,14 @@ Browser/API acceptance for the ERP main manufacturing loop: 原料 -> 商品 / S
 - Contract RED: `go test ./internal/interfaces/http/support -run TestDev509 -count=1 -v` failed before PR-509 docs/seed/manual markers were added.
 - Merge/rename GREEN after `origin/develop` took PR-508 for BOM material loss ratio: `go test ./internal/interfaces/http/support -run TestDev509 -count=1 -v`; `go test ./internal/interfaces/http/support -count=1`; BOM/production/costing targeted Go packages; `node --test src/lib/bom.test.js src/lib/produce-plan.test.js src/lib/product-settings.test.js`; `git diff --check`.
 
+## Development Deploy
+
+- [x] Branch pushed and fast-forwarded into `develop`; deployed `origin/develop=515a73808661aa13127f5470892c1b538420499d` from clean clone `/private/tmp/kferp-pr509-deploy-20260630` with `./deploy_orderapp.sh`.
+- [x] Deploy build: Vue shell `npm ci && npm run build` passed with the existing large-chunk warning; miniapp `npm ci`, `npm run typecheck`, and `npm run build:mp-weixin` passed with existing npm audit warnings; Docker build ran `go test ./...` successfully and restarted `erp_orderapp`.
+- [x] Deploy smoke: containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` are running; unauthenticated `GET /app/` returned `303`; `GET /app/vue-shell?view=orders&q=SO-20260630-0001` returned `200`; `GET /app/api/production-boms?status=all&limit=1` returned `200`.
+- [x] Browser smoke after deploy: live order `SO-20260630-0001` still shows `发货：已发货 / 生产：生产完成`; live `产品需求表` shows `PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW` and keeps `PR-508-BOM-MATERIAL-LOSS-RATIO`.
+- [x] Server source/docs smoke: deployed `/opt/stacks/erp/orderapp` contains PR-509 docs, manual markers, support seed, and acceptance file. Backup from deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260630160234`.
+
 ## Browser/API Checklist
 
 - [x] 原料建档/入库：browser created `PR508原料-20260630051716` (`PR508-RAW-20260630051716`, `kg`, purchase price `42.5`) on `view=materials`; browser submitted material receipt `MB-0000000011` on `view=materialReceipts` for `25 kg`, supplier `PR508供应商`.
