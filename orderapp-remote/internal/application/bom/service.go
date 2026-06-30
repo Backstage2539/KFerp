@@ -209,6 +209,7 @@ type ProductionBomVersion struct {
 	YieldRate              float64 `json:"yield_rate"`
 	ExpectedYieldRate      float64 `json:"expected_yield_rate"`
 	ExpectedLossRate       float64 `json:"expected_loss_rate"`
+	MaterialLossRate       float64 `json:"material_loss_rate"`
 	OutputQty              float64 `json:"output_qty"`
 	OutputUnit             string  `json:"output_unit"`
 	ItemCount              int     `json:"item_count"`
@@ -333,6 +334,7 @@ type ProductionBomDraftItem struct {
 type UpdateProductionBomVersionDraftCommand struct {
 	VersionID              int64                    `json:"version_id"`
 	ExpectedLossRate       *float64                 `json:"expected_loss_rate,omitempty"`
+	MaterialLossRate       *float64                 `json:"material_loss_rate,omitempty"`
 	OutputQty              float64                  `json:"output_qty"`
 	OutputUnit             string                   `json:"output_unit"`
 	ProcessRouteID         int64                    `json:"process_route_id"`
@@ -954,11 +956,30 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 	if cmd.OutputQty > 0 && cmd.OutputUnit == "" {
 		cmd.OutputUnit = "unit"
 	}
+	versionMaterialLossRate := 0.0
+	if cmd.MaterialLossRate != nil {
+		versionMaterialLossRate = *cmd.MaterialLossRate
+		if versionMaterialLossRate < 0 || versionMaterialLossRate >= 1 {
+			return ProductionBomVersion{}, fmt.Errorf("material_loss_rate must be >= 0 and < 1")
+		}
+	}
 	if cmd.Items != nil {
 		for i := range cmd.Items {
 			item, err := normalizeProductionBomDraftItem(cmd.Items[i])
 			if err != nil {
 				return ProductionBomVersion{}, err
+			}
+			if cmd.MaterialLossRate != nil {
+				if versionMaterialLossRate > 0 && item.ConsumeUnit != "ratio_pct" {
+					return ProductionBomVersion{}, fmt.Errorf("原料损耗比开启后，组件消耗单位只能使用比例 %%")
+				}
+				if versionMaterialLossRate > 0 && item.ComponentType == "material" && item.ConsumeUnit == "ratio_pct" {
+					item.MaterialLossRate = versionMaterialLossRate
+				} else {
+					item.MaterialLossRate = 0
+				}
+			} else {
+				item.MaterialLossRate = 0
 			}
 			cmd.Items[i] = item
 		}
@@ -1080,13 +1101,7 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 	} else if item.QtyPerUnit <= 0 {
 		return item, fmt.Errorf("qty_per_unit required")
 	}
-	if componentType == "material" && consumeUnit == "ratio_pct" {
-		if item.MaterialLossRate < 0 || item.MaterialLossRate >= 1 {
-			return item, fmt.Errorf("material_loss_rate must be >= 0 and < 1")
-		}
-	} else {
-		item.MaterialLossRate = 0
-	}
+	item.MaterialLossRate = 0
 	item.ComponentType = componentType
 	item.ConsumeUnit = consumeUnit
 	return item, nil

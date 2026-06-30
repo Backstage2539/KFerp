@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-510-BOM-MATERIAL-LOSS-BOM-LEVEL
+- Branch: codex/bom-material-loss-bom-level-20260630
+- Owner/session: Codex / 2026-06-30
+- Status: local verifier green; pending merge, deploy, and browser smoke.
+- Scope: 生产 BOM 的 `原料损耗比` 从组件行级控件收敛为 BOM 版本级配置。开启后组件消耗单位只能使用 `比例 %`，版本保存 `production_bom_versions.material_loss_rate`；物料比例组件继续把该版本级损耗率写成运行明细快照供生产、库存和成本使用。
+- DEV:
+  - DEV-510-BOM-LEVEL-MATERIAL-LOSS：`production_bom_versions.material_loss_rate` 持久化，草稿保存、版本复制、详情 API 和操作日志按版本级损耗率执行；开启损耗后后端拒绝非 `比例 %` 组件。
+  - DEV-510-BOM-LEVEL-MATERIAL-LOSS-UI：`BomView.vue` 在版本设置区显示 `原料损耗比` 开关、`损耗比例 %` 输入和 `开启后组件消耗单位只能使用比例 %` 说明，组件行不再展示行级损耗控件。
+  - DEV-510-DOCS-ACCEPTANCE：同步需求、验收清单、生产/库存/成本手册、PR/DEV/API/REV 种子和 PR-510 验收记录。
+- Verifier:
+  - RED: `go test ./internal/application/bom ./internal/infrastructure/postgres/bom -count=1` failed before implementation because version-level `MaterialLossRate` command and persistence markers were missing; `node --test src/lib/bom.test.js` failed because `versionMaterialLossRateEnabled` and ratio-only BOM-level UI were missing.
+  - GREEN targeted: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1`; `node --test src/lib/bom.test.js`.
+  - GREEN broader: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `node --test src/lib/bom.test.js src/lib/produce-plan.test.js src/lib/product-settings.test.js`.
+  - GREEN build/check: `npm ci`; `npm run build` passed with the existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-bom-material-loss-bom-level.md`.
+- Last update: 2026-06-30 Asia/Shanghai
+
 ### PR-508-BOM-MATERIAL-LOSS-RATIO
 - Branch: codex/bom-material-loss-ratio-20260630
 - Owner/session: Codex / 2026-06-30

@@ -370,7 +370,75 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 	}
 }
 
-func TestUpdateProductionBomDraftNormalizesMaterialLossRate(t *testing.T) {
+func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossAndRequiresRatioUnits(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+	lossRate := 0.2
+
+	_, err := svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:        103,
+		OutputQty:        1,
+		OutputUnit:       "kg",
+		MaterialLossRate: &lossRate,
+		Items: []ProductionBomDraftItem{{
+			ComponentType:      "material",
+			MaterialID:         7,
+			ConsumeUnit:        "ratio_pct",
+			RatioPct:           40,
+			ComponentSpecG:     0,
+			ComponentProductID: 0,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProductionBomVersionDraft: %v", err)
+	}
+	items := repo.updatedProductionDraftCommand.Items
+	if repo.updatedProductionDraftCommand.MaterialLossRate == nil || *repo.updatedProductionDraftCommand.MaterialLossRate != 0.2 {
+		t.Fatalf("version material loss rate = %v, want 0.2", repo.updatedProductionDraftCommand.MaterialLossRate)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].MaterialLossRate != 0.2 {
+		t.Fatalf("ratio material inherited BOM loss rate = %.4f, want 0.2", items[0].MaterialLossRate)
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:        103,
+		OutputQty:        1,
+		OutputUnit:       "kg",
+		MaterialLossRate: &lossRate,
+		Items: []ProductionBomDraftItem{{
+			ComponentType: "material",
+			MaterialID:    8,
+			ConsumeUnit:   "kg",
+			QtyPerUnit:    1,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "原料损耗比开启后，组件消耗单位只能使用比例 %") {
+		t.Fatalf("expected BOM-level material loss ratio consume-unit error, got %v", err)
+	}
+
+	invalidLossRate := 1.0
+	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:        103,
+		OutputQty:        1,
+		OutputUnit:       "kg",
+		MaterialLossRate: &invalidLossRate,
+		Items: []ProductionBomDraftItem{{
+			ComponentType: "material",
+			MaterialID:    7,
+			ConsumeUnit:   "ratio_pct",
+			RatioPct:      40,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "material_loss_rate must be >= 0 and < 1") {
+		t.Fatalf("expected version material loss validation error, got %v", err)
+	}
+}
+
+func TestUpdateProductionBomDraftIgnoresLineLevelMaterialLossWithoutBomLevelSwitch(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	ctx := context.Background()
@@ -380,58 +448,18 @@ func TestUpdateProductionBomDraftNormalizesMaterialLossRate(t *testing.T) {
 		OutputQty:  1,
 		OutputUnit: "kg",
 		Items: []ProductionBomDraftItem{{
-			ComponentType:      "material",
-			MaterialID:         7,
-			ConsumeUnit:        "ratio_pct",
-			RatioPct:           40,
-			MaterialLossRate:   0.2,
-			ComponentSpecG:     0,
-			ComponentProductID: 0,
-		}, {
 			ComponentType:    "material",
-			MaterialID:       8,
-			ConsumeUnit:      "kg",
-			QtyPerUnit:       1,
+			MaterialID:       7,
+			ConsumeUnit:      "ratio_pct",
+			RatioPct:         40,
 			MaterialLossRate: 0.5,
-		}, {
-			ComponentType:      "product",
-			ComponentProductID: 77,
-			ConsumeUnit:        "unit_per_box",
-			QtyPerUnit:         10,
-			MaterialLossRate:   0.5,
 		}},
 	})
 	if err != nil {
 		t.Fatalf("UpdateProductionBomVersionDraft: %v", err)
 	}
-	items := repo.updatedProductionDraftCommand.Items
-	if len(items) != 3 {
-		t.Fatalf("items = %+v", items)
-	}
-	if items[0].MaterialLossRate != 0.2 {
-		t.Fatalf("ratio material loss rate = %.4f, want 0.2", items[0].MaterialLossRate)
-	}
-	if items[1].MaterialLossRate != 0 {
-		t.Fatalf("fixed-unit material loss rate = %.4f, want forced 0", items[1].MaterialLossRate)
-	}
-	if items[2].MaterialLossRate != 0 {
-		t.Fatalf("product component material loss rate = %.4f, want forced 0", items[2].MaterialLossRate)
-	}
-
-	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
-		VersionID:  103,
-		OutputQty:  1,
-		OutputUnit: "kg",
-		Items: []ProductionBomDraftItem{{
-			ComponentType:    "material",
-			MaterialID:       7,
-			ConsumeUnit:      "ratio_pct",
-			RatioPct:         40,
-			MaterialLossRate: 1,
-		}},
-	})
-	if err == nil || !strings.Contains(err.Error(), "material_loss_rate must be >= 0 and < 1") {
-		t.Fatalf("expected material loss validation error, got %v", err)
+	if got := repo.updatedProductionDraftCommand.Items[0].MaterialLossRate; got != 0 {
+		t.Fatalf("line-level material loss rate = %.4f, want ignored as 0", got)
 	}
 }
 

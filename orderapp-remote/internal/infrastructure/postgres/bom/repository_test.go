@@ -157,7 +157,28 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 	}
 }
 
-func TestProductionBomVersionItemsPersistMaterialLossRate(t *testing.T) {
+func TestProductionBomVersionsPersistBomLevelMaterialLossRate(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS material_loss_rate",
+		"MAX(COALESCE(i.material_loss_rate,0))",
+		"COALESCE(v.material_loss_rate,0)::float8",
+		"MaterialLossRate",
+		`"material_loss_rate"`,
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM version material loss implementation missing marker %q", want)
+		}
+	}
+}
+
+func TestProductionBomVersionItemsKeepMaterialLossSnapshotForRuntimeConsumption(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -169,8 +190,8 @@ func TestProductionBomVersionItemsPersistMaterialLossRate(t *testing.T) {
 		"ALTER TABLE %[1]s.production_bom_version_items ADD COLUMN IF NOT EXISTS material_loss_rate",
 		"COALESCE(bi.material_loss_rate,0)::float8",
 		"material_loss_rate, unit_cost_snapshot",
-		"item.MaterialLossRate",
-		`"material_loss_rates"`,
+		"itemMaterialLossRate",
+		`"material_loss_rate"`,
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM material loss implementation missing marker %q", want)
@@ -245,8 +266,8 @@ func TestProductionBomVersionSpecialAttrsSchemaBackfillAndAuditMarkers(t *testin
 		"source_bom_version_id",
 		"special_attrs_schema_json",
 		"special_attrs_json",
-		"CASE WHEN $6<>'' THEN $6::jsonb ELSE special_attrs_schema_json END",
-		"CASE WHEN $7<>'' THEN $7::jsonb ELSE special_attrs_json END",
+		"CASE WHEN $7<>'' THEN $7::jsonb ELSE special_attrs_schema_json END",
+		"CASE WHEN $8<>'' THEN $8::jsonb ELSE special_attrs_json END",
 		`"update_special_attrs"`,
 	} {
 		if !strings.Contains(combined, want) {

@@ -104,6 +104,7 @@ type createProductionBomVersionRequest struct {
 
 type updateProductionBomVersionDraftRequest struct {
 	ExpectedLossRate       *float64                        `json:"expected_loss_rate"`
+	MaterialLossRate       *float64                        `json:"material_loss_rate"`
 	OutputQty              float64                         `json:"output_qty"`
 	OutputUnit             string                          `json:"output_unit"`
 	ProcessRouteID         int64                           `json:"process_route_id"`
@@ -389,7 +390,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, ExpectedLossRate: req.ExpectedLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
+		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, ExpectedLossRate: req.ExpectedLossRate, MaterialLossRate: req.MaterialLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}

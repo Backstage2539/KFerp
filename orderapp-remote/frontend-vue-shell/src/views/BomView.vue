@@ -269,6 +269,17 @@
                 </select>
                 <small>{{ selectedProductionBomVersion?.process_route_name || '未配置路线' }}<template v-if="selectedProductionBomVersion?.is_latest_usable"> · 最新可用</template></small>
               </label>
+              <div class="material-loss-control bom-version-loss-control">
+                <label class="checkbox-row compact-checkbox">
+                  <input v-model="versionMaterialLossRateEnabled" type="checkbox" :disabled="!canEditCurrentBomItems" @change="syncMaterialLossConsumeUnitConstraint" />
+                  <span>原料损耗比</span>
+                </label>
+                <label v-if="versionMaterialLossRateEnabled" class="material-loss-rate-field">
+                  <span>损耗比例 %</span>
+                  <input v-model.number="versionMaterialLossRatePct" type="number" min="0" max="99.9999" step="0.01" :disabled="!canEditCurrentBomItems" @input="syncMaterialLossConsumeUnitConstraint" />
+                  <small>开启后组件消耗单位只能使用比例 %；如需固定数量或商品组件，请先关闭原料损耗比。</small>
+                </label>
+              </div>
               <button class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems || loading" @click="saveProductionBomVersionMeta">保存版本设置</button>
             </div>
             <form class="inline-form" @submit.prevent="saveItem">
@@ -276,7 +287,7 @@
                 <span>组件来源</span>
                 <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomItems" @change="syncComponentTypeDefaults">
                   <option value="material">物料</option>
-                  <option value="product">商品组件</option>
+                  <option value="product" :disabled="versionMaterialLossRateEnabled">商品组件</option>
                 </select>
               </label>
               <label>
@@ -312,17 +323,6 @@
                 <span>比例 %</span>
                 <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail || !canEditCurrentBomItems" />
               </label>
-              <div v-if="canEditMaterialLossRate" class="material-loss-control">
-                <label class="checkbox-row compact-checkbox">
-                  <input v-model="itemForm.material_loss_rate_enabled" type="checkbox" :disabled="!detail || !canEditCurrentBomItems" />
-                  <span>原料损耗比</span>
-                </label>
-                <label v-if="itemForm.material_loss_rate_enabled" class="material-loss-rate-field">
-                  <span>损耗比例 %</span>
-                  <input v-model.number="itemForm.material_loss_rate_pct" type="number" min="0" max="99.9999" step="0.01" :disabled="!detail || !canEditCurrentBomItems" />
-                  <small>实际原料需求 = 计划投料基准 / (1 - 原料损耗比) × 配方比例</small>
-                </label>
-              </div>
               <label v-else>
                 <span>用量</span>
                 <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomItems" />
@@ -469,14 +469,13 @@ const itemForm = reactive({
   consume_unit: 'ratio_pct',
   qty_per_unit: '',
   ratio_pct: '',
-  material_loss_rate_enabled: false,
-  material_loss_rate_pct: '',
 })
 const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_product_id: 0, output_qty: 1, output_unit: 'unit', status: 'active' })
 const versionNote = ref('')
+const versionMaterialLossRateEnabled = ref(false)
+const versionMaterialLossRatePct = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
-const canEditMaterialLossRate = computed(() => itemForm.component_type === 'material' && itemForm.consume_unit === 'ratio_pct')
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const productionBomBusinessGroupControls = computed(() => businessGroupControlOptions(productionBomBusinessGroups.value, {
   selectedTemplateID: selectedProductionBomTemplateID.value,
@@ -583,6 +582,7 @@ const selectedComponent = computed(() => itemForm.component_type === 'product'
 const componentStockUnitCode = computed(() => String(selectedComponent.value?.inventory_unit || selectedComponent.value?.unit || '').trim())
 const componentStockUnitLabel = computed(() => unitLabel(componentStockUnitCode.value || (itemForm.component_type === 'product' ? 'unit' : 'kg')))
 const ratioConsumeUnitOption = { value: 'ratio_pct', label: '比例 %' }
+const materialLossRatioOnlyConsumeUnitOptions = [ratioConsumeUnitOption]
 const legacyConsumeUnitLabels = {
   g_per_bag: '克/袋',
   unit_per_bag: '个/袋',
@@ -598,8 +598,11 @@ const unitDictionaryConsumeUnitOptions = computed(() => productUnitDefinitions.v
   .filter(Boolean)
   .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''))))
 const currentConsumeUnitOptions = computed(() => itemForm.component_type === 'product'
-  ? consumeUnitOptionsWithCurrent(false, itemForm.consume_unit)
-  : consumeUnitOptionsWithCurrent(true, itemForm.consume_unit))
+  ? (versionMaterialLossRateEnabled.value ? materialLossRatioOnlyConsumeUnitOptions : consumeUnitOptionsWithCurrent(false, itemForm.consume_unit))
+  : (versionMaterialLossRateEnabled.value ? materialLossRatioOnlyConsumeUnitOptions : consumeUnitOptionsWithCurrent(true, itemForm.consume_unit)))
+const selectedVersionMaterialLossRate = computed(() => versionMaterialLossRateEnabled.value
+  ? normalizedMaterialLossRateFromPercent(versionMaterialLossRatePct.value)
+  : 0)
 const visibleMovableBomRows = computed(() => productionBomRows.value.filter(isMovableBomRow))
 const isAllVisibleBomsSelected = computed(() => {
   const keys = visibleMovableBomRows.value.map(bomRowKey)
@@ -886,6 +889,22 @@ function normalizedMaterialLossRateFromPercent(value) {
   return normalizedMaterialLossRateFromValue(Number(value || 0) / 100)
 }
 
+function syncVersionMaterialLossRateFromSelectedVersion() {
+  const rate = normalizedMaterialLossRateFromValue(selectedProductionBomVersion.value?.material_loss_rate)
+  versionMaterialLossRateEnabled.value = rate > 0
+  versionMaterialLossRatePct.value = rate > 0 ? Number((rate * 100).toFixed(4)) : ''
+  syncMaterialLossConsumeUnitConstraint()
+}
+
+function syncMaterialLossConsumeUnitConstraint() {
+  if (!versionMaterialLossRateEnabled.value) return
+  itemForm.component_type = 'material'
+  itemForm.component_product_id = 0
+  itemForm.component_spec_g = 0
+  itemForm.consume_unit = 'ratio_pct'
+  itemForm.qty_per_unit = ''
+}
+
 function materialLossRateDisplay(item = {}) {
   const lossRate = normalizedMaterialLossRateFromValue(item.material_loss_rate)
   if (!lossRate || (item.component_type !== 'material') || ((item.consume_unit || 'ratio_pct') !== 'ratio_pct')) return ''
@@ -894,31 +913,36 @@ function materialLossRateDisplay(item = {}) {
 }
 
 function productionBomDraftItemFromItem(item = {}) {
+  const componentType = (item.component_type === 'product' || item.component_type === 'finished_product') ? 'product' : 'material'
+  const consumeUnit = item.consume_unit || 'ratio_pct'
   return {
     material_id: Number(item.material_id || 0),
-    component_type: (item.component_type === 'product' || item.component_type === 'finished_product') ? 'product' : 'material',
+    component_type: componentType,
     component_product_id: Number(item.component_product_id || 0),
     component_spec_g: Number(item.component_spec_g || 0),
-    consume_unit: item.consume_unit || 'ratio_pct',
+    consume_unit: consumeUnit,
     qty_per_unit: Number(item.qty_per_unit || 0),
     ratio_pct: Number(item.ratio_pct || 0),
-    material_loss_rate: normalizedMaterialLossRateFromValue(item.material_loss_rate),
+    material_loss_rate: versionMaterialLossRateEnabled.value && componentType === 'material' && consumeUnit === 'ratio_pct'
+      ? selectedVersionMaterialLossRate.value
+      : 0,
   }
 }
 
 function productionBomDraftItemFromForm() {
-  const normalizedMaterialLossRate = canEditMaterialLossRate.value && itemForm.material_loss_rate_enabled
-    ? normalizedMaterialLossRateFromPercent(itemForm.material_loss_rate_pct)
-    : 0
+  const componentType = itemForm.component_type === 'product' ? 'product' : 'material'
+  const consumeUnit = versionMaterialLossRateEnabled.value ? 'ratio_pct' : (itemForm.consume_unit || 'ratio_pct')
   return {
     material_id: Number(itemForm.material_id || 0),
-    component_type: itemForm.component_type === 'product' ? 'product' : 'material',
+    component_type: componentType,
     component_product_id: Number(itemForm.component_product_id || 0),
     component_spec_g: Number(itemForm.component_spec_g || 0),
-    consume_unit: itemForm.consume_unit || 'ratio_pct',
+    consume_unit: consumeUnit,
     qty_per_unit: Number(itemForm.qty_per_unit || 0),
     ratio_pct: Number(itemForm.ratio_pct || 0),
-    material_loss_rate: normalizedMaterialLossRate,
+    material_loss_rate: versionMaterialLossRateEnabled.value && componentType === 'material' && consumeUnit === 'ratio_pct'
+      ? selectedVersionMaterialLossRate.value
+      : 0,
   }
 }
 
@@ -931,6 +955,7 @@ async function saveProductionBomDraftItems(items, basis = {}) {
       output_qty: Number(basis.output_qty || selectedProductionBomVersion.value?.output_qty || 1),
       output_unit: String(basis.output_unit || selectedProductionBomVersion.value?.output_unit || 'unit').trim() || 'unit',
       process_route_id: Number(selectedProductionBomVersion.value?.process_route_id || 0),
+      material_loss_rate: selectedVersionMaterialLossRate.value,
       items,
     },
   })
@@ -988,6 +1013,7 @@ function toggleAllVisibleBoms(event) {
 async function selectProductionBomVersion(version, options = {}) {
   const versionID = Number(version?.id || version || 0)
   selectedProductionBomVersionID.value = versionID
+  syncVersionMaterialLossRateFromSelectedVersion()
   if (options.reload && currentProductionBomID.value > 0 && versionID > 0) {
     await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
   }
@@ -996,11 +1022,14 @@ async function selectProductionBomVersion(version, options = {}) {
 function syncSelectedProductionBomVersion() {
   if (!versions.value.length) {
     selectedProductionBomVersionID.value = 0
+    versionMaterialLossRateEnabled.value = false
+    versionMaterialLossRatePct.value = ''
     return
   }
   const existing = versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0))
   const selected = existing || versions.value.find((version) => version.status === 'draft') || versions.value.find((version) => version.is_latest) || versions.value[0]
   selectedProductionBomVersionID.value = Number(selected?.id || 0)
+  syncVersionMaterialLossRateFromSelectedVersion()
 }
 
 function resetBomForm() {
@@ -1054,20 +1083,24 @@ function closeBomDrawer() {
 }
 
 function syncComponentTypeDefaults() {
+  if (versionMaterialLossRateEnabled.value) {
+    itemForm.component_type = 'material'
+    itemForm.component_product_id = 0
+    itemForm.component_spec_g = 0
+    itemForm.consume_unit = 'ratio_pct'
+    itemForm.qty_per_unit = ''
+    return
+  }
   if (itemForm.component_type === 'product') {
     itemForm.material_id = 0
     itemForm.consume_unit = defaultDictionaryConsumeUnit()
     itemForm.ratio_pct = ''
-    itemForm.material_loss_rate_enabled = false
-    itemForm.material_loss_rate_pct = ''
     return
   }
   itemForm.component_product_id = 0
   itemForm.component_spec_g = 0
   itemForm.consume_unit = 'ratio_pct'
   itemForm.qty_per_unit = ''
-  itemForm.material_loss_rate_enabled = false
-  itemForm.material_loss_rate_pct = ''
 }
 
 function resetItemForm() {
@@ -1078,8 +1111,6 @@ function resetItemForm() {
   itemForm.consume_unit = 'ratio_pct'
   itemForm.qty_per_unit = ''
   itemForm.ratio_pct = ''
-  itemForm.material_loss_rate_enabled = false
-  itemForm.material_loss_rate_pct = ''
 }
 
 function clearSelectedProductionBom() {
@@ -1089,6 +1120,8 @@ function clearSelectedProductionBom() {
   selectedProductionBomRecord.value = null
   versions.value = []
   selectedProductionBomVersionID.value = 0
+  versionMaterialLossRateEnabled.value = false
+  versionMaterialLossRatePct.value = ''
   updateUrl()
 }
 
@@ -1186,6 +1219,8 @@ async function loadProductionBomVersions(bomID) {
     productionBomDetail.value = null
     versions.value = []
     selectedProductionBomVersionID.value = 0
+    versionMaterialLossRateEnabled.value = false
+    versionMaterialLossRatePct.value = ''
     return
   }
   productionBomDetail.value = await apiGet(`/api/production-boms/${id}`)
@@ -1199,7 +1234,10 @@ async function loadProductionBomDetailForVersion(bomID, versionID = 0, fallbackR
   const query = Number(versionID || 0) > 0 ? `?version_id=${Number(versionID || 0)}` : ''
   productionBomDetail.value = await apiGet(`/api/production-boms/${id}${query}`)
   versions.value = productionBomDetail.value?.versions || []
-  if (Number(versionID || 0) > 0) selectedProductionBomVersionID.value = Number(versionID || 0)
+  if (Number(versionID || 0) > 0) {
+    selectedProductionBomVersionID.value = Number(versionID || 0)
+    syncVersionMaterialLossRateFromSelectedVersion()
+  }
   else syncSelectedProductionBomVersion()
   const row = fallbackRow || selectedProductionBomRecord.value || {}
   detail.value = productionBomDetailAsRecipeDetail(productionBomDetail.value || {}, row)
@@ -1251,6 +1289,8 @@ async function selectUnboundProductionBom(row) {
     productionBomDetail.value = null
     versions.value = []
     selectedProductionBomVersionID.value = 0
+    versionMaterialLossRateEnabled.value = false
+    versionMaterialLossRatePct.value = ''
     error.value = err.message || '加载生产 BOM 配方失败'
   } finally {
     updateUrl()

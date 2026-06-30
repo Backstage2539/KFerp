@@ -279,6 +279,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions (
 	version_no TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'draft',
 	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
 	output_qty NUMERIC(14,6) NOT NULL DEFAULT 1,
 	output_unit TEXT NOT NULL DEFAULT 'unit',
 	note TEXT NOT NULL DEFAULT '',
@@ -294,8 +295,10 @@ ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS output_unit T
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
 UPDATE %[1]s.production_bom_versions SET output_qty=1 WHERE output_qty IS NULL OR output_qty <= 0;
 UPDATE %[1]s.production_bom_versions SET output_unit='unit' WHERE COALESCE(output_unit,'')='';
+UPDATE %[1]s.production_bom_versions SET material_loss_rate=0 WHERE material_loss_rate IS NULL;
 UPDATE %[1]s.production_bom_versions SET special_attrs_schema_json='[]'::jsonb WHERE special_attrs_schema_json IS NULL;
 UPDATE %[1]s.production_bom_versions SET special_attrs_json='{}'::jsonb WHERE special_attrs_json IS NULL;
 UPDATE %[1]s.production_bom_versions SET process_route_id=0 WHERE process_route_id IS NULL;
@@ -323,6 +326,16 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_items (
 );
 ALTER TABLE %[1]s.production_bom_version_items ADD COLUMN IF NOT EXISTS material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
 UPDATE %[1]s.production_bom_version_items SET material_loss_rate=0 WHERE material_loss_rate IS NULL;
+UPDATE %[1]s.production_bom_versions v
+SET material_loss_rate=loss.max_loss
+FROM (
+	SELECT version_id, MAX(COALESCE(i.material_loss_rate,0)) AS max_loss
+	FROM %[1]s.production_bom_version_items i
+	GROUP BY version_id
+) loss
+WHERE v.id=loss.version_id
+  AND COALESCE(v.material_loss_rate,0)=0
+  AND COALESCE(loss.max_loss,0)>0;
 CREATE INDEX IF NOT EXISTS production_bom_version_items_version_idx
 	ON %[1]s.production_bom_version_items(version_id, id);
 
@@ -663,12 +676,13 @@ func copyProductionBomForSpecialAttrsConflict(ctx context.Context, pool *pgxpool
 	var groupID int64
 	var status string
 	var yieldRate float64
+	var materialLossRate float64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT pb.name, pb.group_id, pb.status, COALESCE(v.yield_rate,0.8)::float8
+		SELECT pb.name, pb.group_id, pb.status, COALESCE(v.yield_rate,0.8)::float8, COALESCE(v.material_loss_rate,0)::float8
 		FROM %[1]s.production_boms pb
 		JOIN %[1]s.production_bom_versions v ON v.id=$2
 		WHERE pb.id=$1
-	`, schema), sourceBomID, sourceVersionID).Scan(&name, &groupID, &status, &yieldRate); err != nil {
+	`, schema), sourceBomID, sourceVersionID).Scan(&name, &groupID, &status, &yieldRate, &materialLossRate); err != nil {
 		return err
 	}
 	var newBomID int64
@@ -686,10 +700,10 @@ func copyProductionBomForSpecialAttrsConflict(ctx context.Context, pool *pgxpool
 	}
 	var newVersionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, special_attrs_schema_json, special_attrs_json, created_at, published_at, created_by, published_by)
-		VALUES($1,'V001','published',$2,1,'kg','旧 SKU 特殊属性冲突自动拆分',$3::jsonb,$4::jsonb,now(),now(),'system-special-attrs-backfill','system-special-attrs-backfill')
+		INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, material_loss_rate, note, special_attrs_schema_json, special_attrs_json, created_at, published_at, created_by, published_by)
+		VALUES($1,'V001','published',$2,1,'kg',$3,'旧 SKU 特殊属性冲突自动拆分',$4::jsonb,$5::jsonb,now(),now(),'system-special-attrs-backfill','system-special-attrs-backfill')
 		RETURNING id
-	`, schema), newBomID, yieldRate, group.SchemaJSON, group.AttrsJSON).Scan(&newVersionID); err != nil {
+	`, schema), newBomID, yieldRate, materialLossRate, group.SchemaJSON, group.AttrsJSON).Scan(&newVersionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
