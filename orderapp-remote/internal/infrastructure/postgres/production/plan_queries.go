@@ -22,6 +22,7 @@ type planBomItem struct {
 	MaterialName         string
 	MaterialUnit         string
 	RatioPct             float64
+	MaterialLossRate     float64
 	ComponentType        string
 	ComponentProductID   int64
 	ComponentProductName string
@@ -965,6 +966,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
+		       COALESCE(bi.material_loss_rate,0),
 		       COALESCE(NULLIF(bi.component_type,''),'material'),
 		       COALESCE(bi.component_product_id,0),
 		       COALESCE(cp.name,''),
@@ -999,11 +1001,11 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		) output_bom ON true
 		LEFT JOIN %s.production_bom_versions pbv ON pbv.id=output_bom.bom_version_id
 		JOIN LATERAL (
-			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
+			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.material_loss_rate, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
 			FROM %s.production_bom_version_items pbi
 			WHERE COALESCE(output_bom.bom_version_id,0)>0 AND pbi.version_id=output_bom.bom_version_id
 			UNION ALL
-			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
+			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, 0 AS material_loss_rate, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
 			FROM %s.product_bom_items lbi
 			WHERE COALESCE(output_bom.bom_version_id,0)=0 AND lbi.product_id=CASE
 				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
@@ -1027,7 +1029,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		var item planBomItem
 		if err := rows.Scan(
 			&item.ProductID, &item.RoastLevel, &item.YieldRate,
-			&item.MaterialID, &item.MaterialName, &item.MaterialUnit, &item.RatioPct,
+			&item.MaterialID, &item.MaterialName, &item.MaterialUnit, &item.RatioPct, &item.MaterialLossRate,
 			&item.ComponentType, &item.ComponentProductID, &item.ComponentProductName, &item.ComponentSpecG,
 			&item.ConsumeUnit, &item.QtyPerUnit, &item.OutputQty, &item.OutputUnit, &item.DripBoxBagCount,
 		); err != nil {
@@ -1035,6 +1037,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		}
 		item.ComponentType = normalizeBomComponentType(item.ComponentType)
 		item.ConsumeUnit = normalizeBomConsumeUnit(item.ConsumeUnit)
+		item.MaterialLossRate = normalizeMaterialLossRate(item.MaterialLossRate)
 		if item.ComponentType == "finished_product" {
 			if item.ComponentProductID <= 0 || item.QtyPerUnit <= 0 {
 				continue
@@ -1071,13 +1074,14 @@ func buildRoastPlanMaterialRatios(rows []productionapp.UnprodNeedRow, bomMap map
 		}
 		for _, item := range items {
 			out = append(out, productionapp.RoastPlanMaterialRatio{
-				Key:          producePlanKey(row.ProductID, row.SpecG),
-				ProductID:    row.ProductID,
-				SpecG:        row.SpecG,
-				ProductName:  row.Product,
-				MaterialName: item.MaterialName,
-				MaterialUnit: item.MaterialUnit,
-				RatioPct:     bomdomain.NormalizeRatioPct(item.RatioPct),
+				Key:              producePlanKey(row.ProductID, row.SpecG),
+				ProductID:        row.ProductID,
+				SpecG:            row.SpecG,
+				ProductName:      row.Product,
+				MaterialName:     item.MaterialName,
+				MaterialUnit:     item.MaterialUnit,
+				RatioPct:         bomdomain.NormalizeRatioPct(item.RatioPct),
+				MaterialLossRate: item.MaterialLossRate,
 			})
 		}
 	}
@@ -1155,7 +1159,7 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 			if unit == "" {
 				unit = "g"
 			}
-			qty := componentConsumptionQtyWithOutputBasis(
+			qty := componentConsumptionQtyWithMaterialLoss(
 				bom.ConsumeUnit,
 				bom.QtyPerUnit,
 				bom.RatioPct,
@@ -1166,6 +1170,7 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 				dripBoxesMissing(row, bom.DripBoxBagCount),
 				bom.OutputQty,
 				bom.OutputUnit,
+				bom.MaterialLossRate,
 			)
 			if bom.ComponentType == "finished_product" {
 				add(productionapp.MaterialNeed{

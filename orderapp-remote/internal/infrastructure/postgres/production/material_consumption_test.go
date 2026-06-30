@@ -44,6 +44,21 @@ func TestIsWeightMaterialUnit(t *testing.T) {
 	}
 }
 
+func TestComponentConsumptionQtyGrossesRatioMaterialLoss(t *testing.T) {
+	got := componentConsumptionQtyWithMaterialLoss("ratio_pct", 0, 40, "g", 1000, 0, 0, 0, 0, "", 0.2)
+	if got != 500 {
+		t.Fatalf("ratio material loss quantity = %d, want 500g", got)
+	}
+	withoutLoss := componentConsumptionQtyWithMaterialLoss("ratio_pct", 0, 40, "g", 1000, 0, 0, 0, 0, "", 0)
+	if withoutLoss != 400 {
+		t.Fatalf("ratio without material loss = %d, want 400g", withoutLoss)
+	}
+	fixed := componentConsumptionQtyWithMaterialLoss("g", 125, 0, "g", 1000, 1000, 0, 0, 1, "kg", 0.2)
+	if fixed != 125 {
+		t.Fatalf("fixed quantity should ignore material loss, got %d", fixed)
+	}
+}
+
 func TestMarshalMaterialConsumptionSummary(t *testing.T) {
 	got, err := marshalMaterialConsumptionSummary([]materialConsumptionSummaryItem{
 		{MaterialID: 1, MaterialName: "卡蒂姆水洗", Unit: "g", DeductG: 1200, BatchCode: "MB-0000000001"},

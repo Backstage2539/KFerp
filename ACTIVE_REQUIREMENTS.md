@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-508-BOM-MATERIAL-LOSS-RATIO
+- Branch: codex/bom-material-loss-ratio-20260630
+- Owner/session: Codex / 2026-06-30
+- Status: locally verified; pending merge/development deploy.
+- Scope: 生产 BOM 的 `组件来源=物料` 且 `消耗单位=比例 %` 明细支持 `原料损耗比`。关闭时损耗为 0，现有 BOM 行行为不变；打开后按 `实际原料需求 = 计划投料基准 / (1 - 原料损耗比) × 配方比例` 计算生产计划、工单、WIP 占用、扣料和 BOM 成本。商品组件和非比例物料行后端强制归零。
+- DEV:
+  - DEV-508-BOM-MATERIAL-LOSS-DATA：`production_bom_version_items.material_loss_rate` 持久化，BOM 草稿保存/发布/复制/legacy backfill 和详情 API 读写该字段，非物料比例行强制为 0。
+  - DEV-508-PRODUCTION-COSTING-MATERIAL-LOSS：生产计划物料快照、工单物料需求、开始生产扣料、WIP 占用/完工消耗和 BOM 成本按 `ratio / (1 - material_loss_rate)` 使用有效比例。
+  - DEV-508-BOM-MATERIAL-LOSS-UI-DOCS：`BomView.vue` 在 `比例 %` 行显示 `原料损耗比` 开关、损耗比例输入和折算说明；`合计比例` 文案标明不含原料损耗；同步需求、验收和生产/库存/成本手册。
+- Verifier:
+  - RED: `go test ./internal/application/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/infrastructure/postgres/costing -count=1` failed before implementation because `MaterialLossRate` and loss-adjusted material/cost helpers were missing; `node --test src/lib/bom.test.js` failed because BOM UI/payload did not expose `原料损耗比`.
+  - GREEN targeted: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `node --test src/lib/bom.test.js src/lib/produce-plan.test.js src/lib/product-settings.test.js`.
+  - GREEN build/check: `npm ci`; `npm run build` passed with the existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-bom-material-loss-ratio.md`.
+- Deployment: not merged or deployed yet.
+- Last update: 2026-06-30 Asia/Shanghai
+
 ### PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM
 - Branch: codex/pricing-rule-trial-uom-candidates-20260630
 - Owner/session: Codex / 2026-06-30

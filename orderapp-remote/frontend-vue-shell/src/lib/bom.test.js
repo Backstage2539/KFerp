@@ -179,6 +179,21 @@ test('BOM view can set the output product default BOM with the current published
   assert.doesNotMatch(source, /production_bom_version_id:\s*selectedProductionBomVersionID/)
 })
 
+test('BOM ratio material rows expose material loss rate controls and payload', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /原料损耗比/)
+  assert.match(source, /损耗比例 %/)
+  assert.match(source, /material_loss_rate/)
+  assert.match(source, /itemForm\.material_loss_rate_enabled/)
+  assert.match(source, /itemForm\.component_type === 'material' && itemForm\.consume_unit === 'ratio_pct'/)
+  assert.match(source, /不含原料损耗/)
+  assert.match(source, /materialLossRateDisplay/)
+  assert.match(source, /1 \/ \(1 - 原料损耗比\)/)
+  assert.match(source, /material_loss_rate:\s*normalizedMaterialLossRate/)
+})
+
 test('BOM version editor exposes process route selector and route labels', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')

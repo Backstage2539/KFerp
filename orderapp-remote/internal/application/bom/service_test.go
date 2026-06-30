@@ -370,6 +370,71 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 	}
 }
 
+func TestUpdateProductionBomDraftNormalizesMaterialLossRate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:  103,
+		OutputQty:  1,
+		OutputUnit: "kg",
+		Items: []ProductionBomDraftItem{{
+			ComponentType:      "material",
+			MaterialID:         7,
+			ConsumeUnit:        "ratio_pct",
+			RatioPct:           40,
+			MaterialLossRate:   0.2,
+			ComponentSpecG:     0,
+			ComponentProductID: 0,
+		}, {
+			ComponentType:    "material",
+			MaterialID:       8,
+			ConsumeUnit:      "kg",
+			QtyPerUnit:       1,
+			MaterialLossRate: 0.5,
+		}, {
+			ComponentType:      "product",
+			ComponentProductID: 77,
+			ConsumeUnit:        "unit_per_box",
+			QtyPerUnit:         10,
+			MaterialLossRate:   0.5,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProductionBomVersionDraft: %v", err)
+	}
+	items := repo.updatedProductionDraftCommand.Items
+	if len(items) != 3 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].MaterialLossRate != 0.2 {
+		t.Fatalf("ratio material loss rate = %.4f, want 0.2", items[0].MaterialLossRate)
+	}
+	if items[1].MaterialLossRate != 0 {
+		t.Fatalf("fixed-unit material loss rate = %.4f, want forced 0", items[1].MaterialLossRate)
+	}
+	if items[2].MaterialLossRate != 0 {
+		t.Fatalf("product component material loss rate = %.4f, want forced 0", items[2].MaterialLossRate)
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:  103,
+		OutputQty:  1,
+		OutputUnit: "kg",
+		Items: []ProductionBomDraftItem{{
+			ComponentType:    "material",
+			MaterialID:       7,
+			ConsumeUnit:      "ratio_pct",
+			RatioPct:         40,
+			MaterialLossRate: 1,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "material_loss_rate must be >= 0 and < 1") {
+		t.Fatalf("expected material loss validation error, got %v", err)
+	}
+}
+
 func TestPublishProductionBomVersionRunsOutputComponentAndCycleValidation(t *testing.T) {
 	repo := &fakeRepo{publishValidationErr: errors.New("cycle detected")}
 	svc := NewService(repo)

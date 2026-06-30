@@ -289,13 +289,14 @@ type RoastPlanRow struct {
 }
 
 type RoastPlanMaterialRatio struct {
-	Key          string  `json:"key"`
-	ProductID    int64   `json:"product_id"`
-	SpecG        int64   `json:"spec_g"`
-	ProductName  string  `json:"product_name"`
-	MaterialName string  `json:"material_name"`
-	MaterialUnit string  `json:"material_unit"`
-	RatioPct     float64 `json:"ratio_pct"`
+	Key              string  `json:"key"`
+	ProductID        int64   `json:"product_id"`
+	SpecG            int64   `json:"spec_g"`
+	ProductName      string  `json:"product_name"`
+	MaterialName     string  `json:"material_name"`
+	MaterialUnit     string  `json:"material_unit"`
+	RatioPct         float64 `json:"ratio_pct"`
+	MaterialLossRate float64 `json:"material_loss_rate,omitempty"`
 }
 
 type RoastSplitRow struct {

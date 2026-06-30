@@ -317,9 +317,12 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_items (
 	consume_unit TEXT NOT NULL DEFAULT 'ratio_pct',
 	qty_per_unit NUMERIC(14,6) NOT NULL DEFAULT 0,
 	ratio_pct NUMERIC(10,4) NOT NULL DEFAULT 0,
+	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
 	unit_cost_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.production_bom_version_items ADD COLUMN IF NOT EXISTS material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
+UPDATE %[1]s.production_bom_version_items SET material_loss_rate=0 WHERE material_loss_rate IS NULL;
 CREATE INDEX IF NOT EXISTS production_bom_version_items_version_idx
 	ON %[1]s.production_bom_version_items(version_id, id);
 
@@ -472,20 +475,20 @@ SELECT bom_id, 'V001', 'published', yield_rate, 1, 'kg', '旧 BOM 回填', produ
 FROM fallback_products
 ON CONFLICT DO NOTHING;
 
-INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
+INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
 SELECT v.id, i.material_id, COALESCE(NULLIF(i.component_type,''),'material'), COALESCE(i.component_product_id,0),
        COALESCE(i.component_spec_g,0), COALESCE(NULLIF(i.consume_unit,''),'ratio_pct'), COALESCE(i.qty_per_unit,0),
-       COALESCE(i.ratio_pct,0), COALESCE(i.unit_cost_snapshot,0)
+       COALESCE(i.ratio_pct,0), 0, COALESCE(i.unit_cost_snapshot,0)
 FROM %[1]s.production_bom_versions v
 JOIN %[1]s.bom_version_items i ON i.version_id=v.legacy_bom_version_id
 WHERE v.legacy_bom_version_id > 0
   AND NOT EXISTS (SELECT 1 FROM %[1]s.production_bom_version_items existing WHERE existing.version_id=v.id)
 ORDER BY v.id, i.id;
 
-INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
+INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
 SELECT v.id, i.material_id, COALESCE(NULLIF(i.component_type,''),'material'), COALESCE(i.component_product_id,0),
        COALESCE(i.component_spec_g,0), COALESCE(NULLIF(i.consume_unit,''),'ratio_pct'), COALESCE(i.qty_per_unit,0),
-       COALESCE(i.ratio_pct,0), COALESCE(i.unit_cost_snapshot,0)
+       COALESCE(i.ratio_pct,0), 0, COALESCE(i.unit_cost_snapshot,0)
 FROM %[1]s.production_bom_versions v
 JOIN %[1]s.product_bom_items i ON i.product_id=v.legacy_product_id
 WHERE NOT EXISTS (SELECT 1 FROM %[1]s.production_bom_version_items existing WHERE existing.version_id=v.id)
@@ -690,8 +693,8 @@ func copyProductionBomForSpecialAttrsConflict(ctx context.Context, pool *pgxpool
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
-		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot
+		INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
+		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot
 		FROM %[1]s.production_bom_version_items
 		WHERE version_id=$2
 		ORDER BY id

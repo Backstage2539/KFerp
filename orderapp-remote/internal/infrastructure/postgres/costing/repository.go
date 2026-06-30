@@ -644,7 +644,7 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		),
 		bom_items AS (
 			SELECT pbi.id, pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
-			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8, pbi.unit_cost_snapshot::float8
+			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8, COALESCE(pbi.material_loss_rate,0)::float8 AS material_loss_rate, pbi.unit_cost_snapshot::float8
 			FROM %[1]s.production_bom_version_items pbi
 			WHERE ($1 > 0 AND pbi.version_id=$1)
 			   OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version))
@@ -655,10 +655,11 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') AS consume_unit,
 		       COALESCE(bi.qty_per_unit,0)::float8,
 		       COALESCE(bi.ratio_pct,0)::float8,
+		       COALESCE(bi.material_loss_rate,0)::float8,
 		       COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)::float8 AS unit_cost,
 		       CASE
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='ratio_pct'
-		         THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0
+		         THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))
 		         ELSE 0
 		       END::float8 AS amount_per_kg,
 		       CASE
@@ -686,8 +687,11 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
 		var componentType string
-		if err := bomRows.Scan(&id, &componentType, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.UnitCost, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
+		if err := bomRows.Scan(&id, &componentType, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
 			return nil, err
+		}
+		if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" && row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
+			row.RatioPct = row.RatioPct / (1 - row.MaterialLossRate)
 		}
 		row.Type = "material"
 		if componentType == "product" || componentType == "finished_product" {
@@ -844,7 +848,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		all_effective_bom_items AS (
 			SELECT p.id AS product_id,
 			       pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
-			       pbi.consume_unit, pbi.qty_per_unit, pbi.ratio_pct, pbi.unit_cost_snapshot
+			       pbi.consume_unit, pbi.qty_per_unit, pbi.ratio_pct, COALESCE(pbi.material_loss_rate,0)::float8 AS material_loss_rate, pbi.unit_cost_snapshot
 			FROM %[1]s.products p
 			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id
 			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=p.id
@@ -871,7 +875,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			UNION ALL
 			SELECT p.id AS product_id,
 			       bi.material_id, bi.component_type, bi.component_product_id, bi.component_spec_g,
-			       bi.consume_unit, bi.qty_per_unit, bi.ratio_pct, bi.unit_cost_snapshot
+			       bi.consume_unit, bi.qty_per_unit, bi.ratio_pct, 0::float8 AS material_loss_rate, bi.unit_cost_snapshot
 			FROM %[1]s.products p
 			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=p.id
 			JOIN %[1]s.product_bom_items bi ON bi.product_id=CASE
@@ -891,19 +895,19 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		effective_bom_items AS (
 			SELECT p.id AS product_id,
 			       pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
-			       pbi.consume_unit, pbi.qty_per_unit, pbi.ratio_pct, pbi.unit_cost_snapshot
+			       pbi.consume_unit, pbi.qty_per_unit, pbi.ratio_pct, COALESCE(pbi.material_loss_rate,0)::float8 AS material_loss_rate, pbi.unit_cost_snapshot
 			FROM product_scope p
 			JOIN %[1]s.production_bom_version_items pbi ON pbi.version_id=p.production_bom_version_id
 			UNION ALL
 			SELECT p.id AS product_id,
 			       bi.material_id, bi.component_type, bi.component_product_id, bi.component_spec_g,
-			       bi.consume_unit, bi.qty_per_unit, bi.ratio_pct, bi.unit_cost_snapshot
+			       bi.consume_unit, bi.qty_per_unit, bi.ratio_pct, 0::float8 AS material_loss_rate, bi.unit_cost_snapshot
 			FROM product_scope p
 			JOIN %[1]s.product_bom_items bi ON p.production_bom_version_id=0 AND bi.product_id=p.bom_product_id
 		),
 		finished_product_cost AS (
 			SELECT p.id AS product_id,
-			       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0) AS green_cost_per_kg
+			       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0) AS green_cost_per_kg
 			FROM %[1]s.products p
 			LEFT JOIN all_effective_bom_items bi ON bi.product_id = p.id
 				AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
@@ -1172,10 +1176,10 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(NULLIF(p.production_config_yield_rate,0), NULLIF(current_bv.yield_rate,0), NULLIF(b.yield_rate,0), $1),
 		       CASE
 		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'green_bean'
-		           THEN COALESCE(SUM(COALESCE(NULLIF(bi.unit_cost_snapshot,0), m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
+		           THEN COALESCE(SUM(COALESCE(NULLIF(bi.unit_cost_snapshot,0), m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0)
 		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'drip_bag' AND COALESCE(fcc.finished_green_cost_per_kg,0) > 0
 		           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
-		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
+		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0)
 		       END,
 		       COALESCE(MAX(buc.bom_cost_per_unit),0)::float8,
 		       COALESCE(MAX(ouc.operation_cost_per_unit),0)::float8,
