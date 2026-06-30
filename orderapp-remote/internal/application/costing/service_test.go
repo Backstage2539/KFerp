@@ -866,6 +866,53 @@ func TestPricingRuleTrialSupportsOverridesAndMinimumMarginWarning(t *testing.T) 
 	}
 }
 
+func TestPricingRuleTrialRejectsUnresolvableQuoteUnit(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          552,
+			Name:               "PR507 无盒换算商品",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "kg",
+			UnitConversionJSON: "{}",
+			GreenBeanCostPerKg: 20,
+			OperationCostPerKg: 5,
+			YieldRate:          1,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:552", Type: "material", TypeLabel: "物料", Name: "原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 20, AmountPerKg: 20, Unit: "kg"},
+			{Key: "operation:552", Type: "operation", TypeLabel: "工序", Name: "包装", ConsumeUnit: "per_kg", UnitCost: 5, AmountPerKg: 5, Unit: "kg"},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			12: {
+				ID:             12,
+				Name:           "PR507 单位校验",
+				MarginRate:     0.2,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	_, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 12,
+		ProductID:     552,
+		QuoteUnit:     "盒",
+	})
+	if err == nil {
+		t.Fatal("expected missing unit conversion error")
+	}
+	if !strings.Contains(err.Error(), "销售单位") || !strings.Contains(err.Error(), "单位换算") {
+		t.Fatalf("error = %v, want sales unit conversion message", err)
+	}
+}
+
 func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{

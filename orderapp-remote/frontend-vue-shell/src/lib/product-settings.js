@@ -439,6 +439,124 @@ export function buildPricingRuleCopyPayload(rule = {}, existingRules = []) {
   }
 }
 
+function pricingRuleTrialUnitKey(value = '') {
+  return String(value || '').trim().toLowerCase()
+}
+
+function pricingRuleTrialUnitsEqual(a = '', b = '') {
+  const left = normalizeOptionalUnitText(a)
+  const right = normalizeOptionalUnitText(b)
+  return Boolean(left && right && pricingRuleTrialUnitKey(left) === pricingRuleTrialUnitKey(right))
+}
+
+function pricingRuleTrialMassConversionFactor(fromUnit = '', toUnit = '') {
+  const sourceGram = salesSpecWeightFactor(fromUnit)
+  const targetGram = salesSpecWeightFactor(toUnit)
+  if (!(sourceGram > 0 && targetGram > 0)) return 0
+  return trimDecimal(sourceGram / targetGram)
+}
+
+function pricingRuleTrialAddConversionEdge(graph, fromUnit = '', toUnit = '', factorValue = 0) {
+  const from = normalizeOptionalUnitText(fromUnit)
+  const to = normalizeOptionalUnitText(toUnit)
+  const factor = normalizePositiveNumber(factorValue)
+  if (!from || !to || factor <= 0) return
+  const fromKey = pricingRuleTrialUnitKey(from)
+  if (!graph[fromKey]) graph[fromKey] = {}
+  graph[fromKey][pricingRuleTrialUnitKey(to)] = trimDecimal(factor)
+}
+
+function pricingRuleTrialAddNetContentConversion(graph, salesUnit = '', netContentQty = 0, netContentUnit = '', inventoryUnit = '') {
+  const unit = normalizeOptionalUnitText(salesUnit)
+  const qty = normalizePositiveNumber(netContentQty)
+  const sourceUnit = normalizeOptionalUnitText(netContentUnit)
+  const targetUnit = normalizeOptionalUnitText(inventoryUnit)
+  if (!unit || qty <= 0 || !sourceUnit) return
+  if (!targetUnit || pricingRuleTrialUnitsEqual(sourceUnit, targetUnit)) {
+    pricingRuleTrialAddConversionEdge(graph, unit, sourceUnit, qty)
+    return
+  }
+  const factor = pricingRuleTrialMassConversionFactor(sourceUnit, targetUnit)
+  if (factor > 0) {
+    pricingRuleTrialAddConversionEdge(graph, unit, targetUnit, qty * factor)
+    return
+  }
+  pricingRuleTrialAddConversionEdge(graph, unit, sourceUnit, qty)
+}
+
+function pricingRuleTrialProductConversionGraph(product = {}, inventoryUnit = '') {
+  const graph = {}
+  const targetInventoryUnit = normalizeOptionalUnitText(inventoryUnit) || normalizeOptionalUnitText(product.inventory_unit ?? product.inventoryUnit) || 'kg'
+  const direct = parseJSONObject(product.unit_conversion_json ?? product.unitConversionJSON)
+  const rule = parseJSONObject(product.unit_rule_override_json ?? product.unitRuleOverrideJSON)
+  const conversion = Object.keys(direct).length
+    ? direct
+    : parseJSONObject(rule.unit_conversion_json ?? rule.conversion_json ?? {})
+  for (const [fromUnit, rawTargets] of Object.entries(conversion)) {
+    const directFactor = normalizePositiveNumber(rawTargets)
+    if (directFactor > 0) {
+      pricingRuleTrialAddConversionEdge(graph, fromUnit, targetInventoryUnit, directFactor)
+      continue
+    }
+    const targets = parseJSONObject(rawTargets)
+    for (const [toUnit, factorValue] of Object.entries(targets)) {
+      pricingRuleTrialAddConversionEdge(graph, fromUnit, toUnit, factorValue)
+    }
+  }
+
+  const salesSpecs = Array.isArray(product.sales_specs ?? product.salesSpecs)
+    ? (product.sales_specs ?? product.salesSpecs)
+    : parseJSONArray(product.sales_specs ?? product.salesSpecs)
+  for (const row of salesSpecs) {
+    const specUnit = row?.spec_name ?? row?.specName ?? row?.sales_unit ?? row?.salesUnit
+    pricingRuleTrialAddNetContentConversion(
+      graph,
+      specUnit,
+      row?.net_content_qty ?? row?.netContentQty,
+      row?.net_content_unit ?? row?.netContentUnit,
+      targetInventoryUnit,
+    )
+  }
+  pricingRuleTrialAddNetContentConversion(
+    graph,
+    product.derived_sales_unit ?? product.derivedSalesUnit ?? product.default_sales_unit ?? product.defaultSalesUnit,
+    product.net_content_qty ?? product.netContentQty,
+    product.net_content_unit ?? product.netContentUnit,
+    targetInventoryUnit,
+  )
+  return graph
+}
+
+function pricingRuleTrialResolveUnitFactor(fromUnit = '', toUnit = '', graph = {}, seen = new Set()) {
+  const from = normalizeOptionalUnitText(fromUnit)
+  const to = normalizeOptionalUnitText(toUnit)
+  if (!from || !to) return 0
+  if (pricingRuleTrialUnitsEqual(from, to)) return 1
+  const massFactor = pricingRuleTrialMassConversionFactor(from, to)
+  if (massFactor > 0) return massFactor
+  const fromKey = pricingRuleTrialUnitKey(from)
+  if (seen.has(fromKey)) return 0
+  seen.add(fromKey)
+  const targets = graph[fromKey] || {}
+  const direct = normalizePositiveNumber(targets[pricingRuleTrialUnitKey(to)])
+  if (direct > 0) return direct
+  for (const [targetUnit, factorValue] of Object.entries(targets)) {
+    const factor = normalizePositiveNumber(factorValue)
+    if (factor <= 0) continue
+    const targetFactor = pricingRuleTrialResolveUnitFactor(targetUnit, to, graph, seen)
+    if (targetFactor > 0) return trimDecimal(factor * targetFactor)
+  }
+  return 0
+}
+
+function pricingRuleTrialUnitConversionFactor(product = {}, unit = '') {
+  const sourceUnit = normalizeOptionalUnitText(unit)
+  if (!sourceUnit) return 0
+  const inventoryUnit = normalizeOptionalUnitText(product.inventory_unit ?? product.inventoryUnit) || 'kg'
+  const graph = pricingRuleTrialProductConversionGraph(product, inventoryUnit)
+  return pricingRuleTrialResolveUnitFactor(sourceUnit, inventoryUnit, graph)
+}
+
 function pricingRuleTrialProductUnitCandidates(product = {}) {
   const out = []
   const push = (value) => {
@@ -452,6 +570,13 @@ function pricingRuleTrialProductUnitCandidates(product = {}) {
   push(product.order_unit ?? product.orderUnit)
   if (Array.isArray(product.sales_units)) product.sales_units.forEach(push)
   if (Array.isArray(product.salesUnits)) product.salesUnits.forEach(push)
+  const salesSpecs = Array.isArray(product.sales_specs ?? product.salesSpecs)
+    ? (product.sales_specs ?? product.salesSpecs)
+    : parseJSONArray(product.sales_specs ?? product.salesSpecs)
+  for (const row of salesSpecs) {
+    push(row?.spec_name ?? row?.specName ?? row?.sales_unit ?? row?.salesUnit)
+  }
+  for (const fromUnit of Object.keys(parseJSONObject(product.unit_conversion_json ?? product.unitConversionJSON))) push(fromUnit)
   push(product.inventory_unit ?? product.inventoryUnit)
   return out
 }
@@ -459,17 +584,27 @@ function pricingRuleTrialProductUnitCandidates(product = {}) {
 export function pricingRuleTrialQuoteUnitOptionsForProduct(unitOptions = [], product = {}) {
   const out = []
   const seen = new Set()
+  const labels = new Map()
+  const globalCodes = []
   const push = (code, name = '') => {
     const normalized = String(code || '').trim()
     if (!normalized || seen.has(normalized)) return
+    if (pricingRuleTrialUnitConversionFactor(product, normalized) <= 0) return
     seen.add(normalized)
     out.push({ code: normalized, name: String(name || normalized).trim() || normalized })
   }
   for (const option of Array.isArray(unitOptions) ? unitOptions : []) {
-    push(option?.code ?? option?.value ?? option, option?.name ?? option?.label ?? option?.code ?? option)
+    const code = String((option?.code ?? option?.value ?? option) || '').trim()
+    if (!code) continue
+    const name = String((option?.name ?? option?.label ?? option?.code ?? option) || code).trim() || code
+    labels.set(code, name)
+    globalCodes.push(code)
   }
   for (const code of pricingRuleTrialProductUnitCandidates(product)) {
-    push(code, code)
+    push(code, labels.get(code) || code)
+  }
+  for (const code of globalCodes) {
+    push(code, labels.get(code) || code)
   }
   return out
 }

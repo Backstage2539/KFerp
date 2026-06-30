@@ -784,6 +784,25 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialAPIRejectsUnresolvableQuoteUnit(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(pricingRuleTrialUnitValidationRepo{})})
+
+	body := bytes.NewBufferString(`{"pricing_rule_id":507,"product_id":552,"quote_unit":"盒"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trial", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "销售单位") || !strings.Contains(rec.Body.String(), "单位换算") {
+		t.Fatalf("response missing unit conversion error: %s", rec.Body.String())
+	}
+}
+
 func TestPricingRuleTrialAPIReturnsBadRequestOnServiceError(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakePricingRuleTrialErrorService{}})
@@ -1297,6 +1316,40 @@ func TestCostingSettingsAPI(t *testing.T) {
 
 type costingSettingsRepo struct {
 	fakeRepo
+}
+
+type pricingRuleTrialUnitValidationRepo struct {
+	fakeRepo
+}
+
+func (pricingRuleTrialUnitValidationRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
+	return []domain.ProductInput{{
+		ProductID:          552,
+		Name:               "PR507 无盒换算商品",
+		InventoryUnit:      "kg",
+		QuoteUnit:          "kg",
+		UnitConversionJSON: "{}",
+		GreenBeanCostPerKg: 20,
+		OperationCostPerKg: 5,
+		YieldRate:          1,
+	}}, nil
+}
+
+func (pricingRuleTrialUnitValidationRepo) LoadProductPricingRule(context.Context, int64) (appcosting.ProductPricingRule, error) {
+	return appcosting.ProductPricingRule{
+		ID:             507,
+		Name:           "PR507 单位校验",
+		MarginRate:     0.2,
+		TaxRate:        0,
+		RoundingMode:   "none",
+		FormulaVersion: "v1",
+		Active:         true,
+		CalculationJSON: map[string]any{
+			"yield_loss_mode": "none",
+			"profit_method":   "markup",
+			"tax_mode":        "none",
+		},
+	}, nil
 }
 
 func (costingSettingsRepo) ListParameterSettings(context.Context) ([]appcosting.ParameterSetting, error) {

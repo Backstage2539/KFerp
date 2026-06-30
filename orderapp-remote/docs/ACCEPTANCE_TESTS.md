@@ -1314,3 +1314,9 @@
 - [ ] 商品价格表、BOM、录单、生产日志和库存调整等新建业务候选默认过滤 `template_removed` 派生 SKU；历史单据仍可按 SKU 编号回显。
 - [ ] 商品价格表按子 SKU 出价格行，价格单位默认使用子 SKU 销售规格；发布快照固化 `sku_id/parent_product_id/sku_snapshot/price_unit/inventory_unit/inventory_conversion_json`。
 - [ ] 生产 BOM 选择产出子 SKU 后，产出单位读取该子 SKU 继承到的销售规格模板库存单位；历史已发布价格表、订单、BOM、工单和库存流水不回改。
+
+### K63. 价格计算模板试算可解析销售单位（PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM）
+- [ ] 商品价格管理打开 `价格试算` 并选择商品后，`销售单位` 默认继承该商品有效默认销售单位或销售规格。
+- [ ] `销售单位` 下拉只展示当前商品可解析到库存单位或标准重量单位的候选；没有换算的 `盒`、`袋`、`条` 不得仅因全局单位存在而出现。
+- [ ] 销售规格子 SKU 可通过 `unit_conversion_json` 或净含量解析，例如 `227g袋装` 可换算到 `kg/g` 时可试算，缺少换算时提示先维护销售规格或单位换算。
+- [ ] `/api/costing/pricing-rule-trial` 收到不可解析销售单位时返回明确错误，不得静默按 `kg` 试算。

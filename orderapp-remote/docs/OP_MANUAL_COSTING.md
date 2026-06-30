@@ -67,6 +67,7 @@ flowchart TD
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL / PR-502-PRODUCT-UNIT-TEMPLATE-REFERENCE / PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM：商品档案不再维护报价单位、录单单位、商品配置模板、计价方式、固定价、成本加成或利润率覆盖；客户差异只在商品档案的客户引用子表维护客户料号和客户显示名，客户引用不参与价格、单位、BOM、库存或分组。商品档案只引用单位模板；单位模板决定库存单位、默认销售单位和多个可销售单位到库存单位的换算。
 - PR-504-PARENT-PRODUCT-CHILD-SKU-UOM：商品档案是父商品入口；具体销售/库存规格由子 SKU 表达。价格表平铺价格行绑定具体 `sku_id`，同一父商品下的 `227g袋装`、`100g袋装` 可作为不同子 SKU 同时发布。`袋/227g` 不作为销售单位；销售单位仍来自该子 SKU 的单位模板，例如 `袋` 或 `箱`。价格表发布时固化 `sku_id/parent_product_id/sku_snapshot`，并按该 SKU 的单位模板冻结价格单位、库存单位和库存换算。
 - PR-505-SALES-SPEC-TEMPLATE-DERIVED-SKU / PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS：最新商品档案引用 `销售规格模板` 自动派生子 SKU；销售规格模板维护库存单位以及 `1 227g袋装 = 0.227 kg` 这类规格换算，并可在明细行设置 `默认规格`。价格表仍按具体子 SKU 发布价格行，平铺价格行名称展示具体子 SKU，例如 `熟豆-白巧坚果拼配（227g袋装）`；价格输入框右侧的泛化单位优先展示规格标签，例如 `/227g`，避免只看到 `/袋` 而不知道规格。
+- PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM：价格试算选择商品后，`销售单位` 会继承该商品有效默认销售单位或销售规格，并且下拉只显示当前商品可解析的单位。需要按 `盒`、`袋`、`条` 等包装单位试算时，先在商品档案的销售规格模板或单位换算中维护 `1 销售单位 = 库存数量 库存单位`；缺少换算时试算接口会提示先维护销售规格或单位换算，不会按 `kg` 静默兜底。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL：BOM、工单和工序卡只影响成本、毛利和生产追溯。工单可以冻结本次实际使用的非默认 BOM；这不会自动改变已发布商品价格表或已成交销售价，销售单只读展示 `报价来源` 和 `生产来源` 两块追溯。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL：以下 PR-439 价格记录、阶梯方案和客户商品说明只作为历史兼容索引保留；新业务不再新建或编辑独立客户商品、`product_price_records` 或 `product_tier_price_schemes`。
 - PR-439-PRODUCT-PRICE-MASTER-REMODEL 历史兼容：`product_price_records`、旧阶梯价格方案和独立客户商品说明只用于历史快照、迁移报告和旧订单追溯；PR-440 后普通新业务不再从这些对象维护最终成交价。

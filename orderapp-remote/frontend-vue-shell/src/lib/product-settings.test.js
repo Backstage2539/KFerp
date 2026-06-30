@@ -660,7 +660,7 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
   })
 })
 
-test('pricing rule trial product defaults inherit derived SKU sales unit before legacy quote unit', () => {
+test('pricing rule trial sales unit options only include units resolvable for the product', () => {
   const product = {
     id: 573,
     name: '棒巧拼配 227g袋装',
@@ -669,15 +669,42 @@ test('pricing rule trial product defaults inherit derived SKU sales unit before 
     default_sales_unit: 'kg',
     quote_unit: 'kg',
     inventory_unit: 'kg',
-    sales_units: ['袋', 'kg'],
+    sales_units: ['袋', '盒', 'kg'],
+    unit_conversion_json: '{"袋":{"kg":0.227}}',
+  }
+  const globalUnits = [
+    { code: 'kg', name: 'kg' },
+    { code: 'g', name: 'g' },
+    { code: '盒', name: '盒' },
+    { code: '袋', name: '袋' },
+    { code: '磅', name: '磅' },
+    { code: '条', name: '条' },
+  ]
+
+  assert.deepEqual(pricingRuleTrialQuoteUnitOptionsForProduct(globalUnits, product).map((unit) => unit.code), ['袋', 'kg', 'g', '磅'])
+  assert.equal(pricingRuleTrialDefaultQuoteUnit(product, globalUnits), '袋')
+})
+
+test('pricing rule trial resolves derived SKU sales unit from net content when conversion JSON is absent', () => {
+  const product = {
+    id: 574,
+    name: '棒巧拼配 227g袋装',
+    auto_derived_sku: true,
+    derived_sales_unit: '袋',
+    net_content_qty: 227,
+    net_content_unit: 'g',
+    inventory_unit: 'kg',
+    quote_unit: 'kg',
+    unit_conversion_json: '{}',
   }
   const globalUnits = [
     { code: 'kg', name: 'kg' },
     { code: 'g', name: 'g' },
     { code: '袋', name: '袋' },
+    { code: '盒', name: '盒' },
   ]
 
-  assert.deepEqual(pricingRuleTrialQuoteUnitOptionsForProduct(globalUnits, product).map((unit) => unit.code), ['kg', 'g', '袋'])
+  assert.deepEqual(pricingRuleTrialQuoteUnitOptionsForProduct(globalUnits, product).map((unit) => unit.code), ['袋', 'kg', 'g'])
   assert.equal(pricingRuleTrialDefaultQuoteUnit(product, globalUnits), '袋')
 })
 

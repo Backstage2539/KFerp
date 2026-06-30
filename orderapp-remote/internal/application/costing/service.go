@@ -514,6 +514,11 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if err != nil {
 		return nil, err
 	}
+	quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit)
+	if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
+		return nil, fmt.Errorf("销售单位%s缺少可解析的单位换算，请先在商品档案维护销售规格或单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
+	}
+	cmd.QuoteUnit = quoteUnit
 	var baseCostDetails []PricingRuleTrialBaseCostDetail
 	if detailRepo, ok := s.repo.(pricingRuleTrialBaseCostDetailRepository); ok {
 		baseCostDetails, err = detailRepo.LoadPricingRuleTrialBaseCostDetails(ctx, input)
@@ -662,12 +667,8 @@ func pricingRuleTrialOperationTemplateName(options []PricingRuleTrialOperationTe
 	return ""
 }
 
-func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInput, cmd PricingRuleTrialCommand, rawBaseCostDetails []PricingRuleTrialBaseCostDetail, productionOptions PricingRuleTrialProductionOptions) (*PricingRuleTrialResult, error) {
-	calc := rule.CalculationJSON
-	if calc == nil {
-		calc = map[string]any{}
-	}
-	quoteUnit := strings.TrimSpace(cmd.QuoteUnit)
+func pricingRuleTrialResolvedQuoteUnit(input domain.ProductInput, requested string) string {
+	quoteUnit := strings.TrimSpace(requested)
 	if quoteUnit == "" {
 		quoteUnit = strings.TrimSpace(input.QuoteUnit)
 	}
@@ -677,6 +678,41 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if quoteUnit == "" {
 		quoteUnit = "kg"
 	}
+	return quoteUnit
+}
+
+func pricingRuleTrialQuotedUnit(unit string) string {
+	unit = strings.TrimSpace(unit)
+	if unit == "" {
+		return ""
+	}
+	return fmt.Sprintf("“%s”", unit)
+}
+
+func pricingRuleTrialQuoteUnitResolvable(input domain.ProductInput, quoteUnit string) bool {
+	unit := strings.TrimSpace(quoteUnit)
+	if unit == "" {
+		return false
+	}
+	inventoryUnit := strings.TrimSpace(input.InventoryUnit)
+	if inventoryUnit == "" {
+		inventoryUnit = "kg"
+	}
+	if pricingRuleTrialUnitTargetFactor(unit, inventoryUnit, input.UnitConversionJSON) > 0 {
+		return true
+	}
+	if pricingRuleTrialUnitKgFactor(unit, input.UnitConversionJSON) > 0 {
+		return true
+	}
+	return false
+}
+
+func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInput, cmd PricingRuleTrialCommand, rawBaseCostDetails []PricingRuleTrialBaseCostDetail, productionOptions PricingRuleTrialProductionOptions) (*PricingRuleTrialResult, error) {
+	calc := rule.CalculationJSON
+	if calc == nil {
+		calc = map[string]any{}
+	}
+	quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit)
 	warnings := append([]string{}, input.Warnings...)
 	bomStatus := strings.TrimSpace(input.BomStatus)
 	switch bomStatus {
@@ -1121,15 +1157,49 @@ func pricingRuleTrialRoundingExpression(mode string) string {
 	}
 }
 
-func pricingRuleTrialUnitKgFactor(unit string, conversionJSON string) float64 {
-	normalized := strings.ToLower(strings.TrimSpace(unit))
-	switch normalized {
-	case "", "kg", "公斤", "千克":
+func pricingRuleTrialUnitKey(unit string) string {
+	return strings.ToLower(strings.TrimSpace(unit))
+}
+
+func pricingRuleTrialMassKgFactor(unit string) float64 {
+	switch pricingRuleTrialUnitKey(unit) {
+	case "kg", "公斤", "千克":
 		return 1
 	case "g", "克":
 		return 0.001
-	case "lb", "磅":
-		return 0.454
+	case "lb", "lbs", "磅":
+		return 0.45359237
+	default:
+		return 0
+	}
+}
+
+func pricingRuleTrialMassConversionFactor(fromUnit string, toUnit string) float64 {
+	source := pricingRuleTrialMassKgFactor(fromUnit)
+	target := pricingRuleTrialMassKgFactor(toUnit)
+	if source <= 0 || target <= 0 {
+		return 0
+	}
+	return source / target
+}
+
+func pricingRuleTrialUnitTargetFactor(unit string, targetUnit string, conversionJSON string) float64 {
+	sourceKey := pricingRuleTrialUnitKey(unit)
+	targetKey := pricingRuleTrialUnitKey(targetUnit)
+	if sourceKey == "" {
+		if targetKey == "" || targetKey == "kg" || targetKey == "公斤" || targetKey == "千克" {
+			return 1
+		}
+		return 0
+	}
+	if targetKey == "" {
+		targetKey = "kg"
+	}
+	if sourceKey == targetKey {
+		return 1
+	}
+	if factor := pricingRuleTrialMassConversionFactor(unit, targetUnit); factor > 0 {
+		return factor
 	}
 	conversionJSON = strings.TrimSpace(conversionJSON)
 	if conversionJSON == "" {
@@ -1139,36 +1209,62 @@ func pricingRuleTrialUnitKgFactor(unit string, conversionJSON string) float64 {
 	if err := json.Unmarshal([]byte(conversionJSON), &raw); err != nil {
 		return 0
 	}
-	row, ok := raw[unit]
-	if !ok {
-		row, ok = raw[normalized]
+	graph := map[string]map[string]float64{}
+	addEdge := func(from string, to string, factor float64) {
+		fromKey := pricingRuleTrialUnitKey(from)
+		toKey := pricingRuleTrialUnitKey(to)
+		if fromKey == "" || toKey == "" || factor <= 0 {
+			return
+		}
+		if graph[fromKey] == nil {
+			graph[fromKey] = map[string]float64{}
+		}
+		graph[fromKey][toKey] = factor
 	}
-	if !ok {
-		return 0
-	}
-	return pricingRuleTrialConversionToKg(row)
-}
-
-func pricingRuleTrialConversionToKg(value any) float64 {
-	switch typed := value.(type) {
-	case float64:
-		return typed
-	case int:
-		return float64(typed)
-	case map[string]any:
-		for key, raw := range typed {
-			n := numberFromAny(raw)
-			switch strings.ToLower(strings.TrimSpace(key)) {
-			case "kg", "公斤", "千克":
-				return n
-			case "g", "克":
-				return n / 1000
-			case "lb", "磅":
-				return n * 0.454
+	for from, value := range raw {
+		switch typed := value.(type) {
+		case float64:
+			addEdge(from, targetKey, typed)
+		case int:
+			addEdge(from, targetKey, float64(typed))
+		case map[string]any:
+			for to, rawFactor := range typed {
+				addEdge(from, to, numberFromAny(rawFactor))
 			}
 		}
 	}
+	return pricingRuleTrialResolveUnitTargetFactor(sourceKey, targetKey, graph, map[string]bool{})
+}
+
+func pricingRuleTrialResolveUnitTargetFactor(sourceKey string, targetKey string, graph map[string]map[string]float64, seen map[string]bool) float64 {
+	sourceKey = pricingRuleTrialUnitKey(sourceKey)
+	targetKey = pricingRuleTrialUnitKey(targetKey)
+	if sourceKey == "" || targetKey == "" {
+		return 0
+	}
+	if sourceKey == targetKey {
+		return 1
+	}
+	if factor := pricingRuleTrialMassConversionFactor(sourceKey, targetKey); factor > 0 {
+		return factor
+	}
+	if seen[sourceKey] {
+		return 0
+	}
+	seen[sourceKey] = true
+	for nextKey, factor := range graph[sourceKey] {
+		if factor <= 0 {
+			continue
+		}
+		if targetFactor := pricingRuleTrialResolveUnitTargetFactor(nextKey, targetKey, graph, seen); targetFactor > 0 {
+			return factor * targetFactor
+		}
+	}
 	return 0
+}
+
+func pricingRuleTrialUnitKgFactor(unit string, conversionJSON string) float64 {
+	return pricingRuleTrialUnitTargetFactor(unit, "kg", conversionJSON)
 }
 
 func pricingRuleTrialOtherCostMap(calc map[string]any) map[string]float64 {
