@@ -961,11 +961,12 @@ func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUn
 
 	factor := pricingRuleTrialUnitKgFactor(unit, input.UnitConversionJSON)
 	usePerKg := input.GreenBeanCostPerKg+input.OperationCostPerKg > 0 && factor > 0
+	perUnitSourceUnit := pricingRuleTrialBaseCostPerUnitSourceUnit(input)
 	out := make([]PricingRuleTrialBaseCostDetail, 0, len(rawDetails))
 	bomTotal := 0.0
 	operationTotal := 0.0
 	for i, row := range rawDetails {
-		rawAmount, amountUnit, unitScale := pricingRuleTrialBaseCostDetailQuoteAmount(row, unit, input.UnitConversionJSON, factor, usePerKg)
+		rawAmount, amountUnit, unitScale := pricingRuleTrialBaseCostDetailQuoteAmount(row, unit, input.UnitConversionJSON, factor, usePerKg, perUnitSourceUnit)
 		amount := pricingRuleTrialResultAmount(formulaMode, rawAmount)
 		if amount == 0 && strings.TrimSpace(row.Name) == "" {
 			continue
@@ -1009,7 +1010,7 @@ func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUn
 	return nil, 0, 0
 }
 
-func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetail, quoteUnit string, conversionJSON string, quoteKgFactor float64, usePerKg bool) (float64, string, float64) {
+func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetail, quoteUnit string, conversionJSON string, quoteKgFactor float64, usePerKg bool, perUnitSourceUnit string) (float64, string, float64) {
 	quoteUnit = strings.TrimSpace(quoteUnit)
 	rowUnit := strings.TrimSpace(row.Unit)
 	if row.Amount != 0 {
@@ -1022,6 +1023,9 @@ func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetai
 		return row.AmountPerKg * quoteKgFactor, quoteUnit, quoteKgFactor
 	}
 	if row.AmountPerUnit > 0 {
+		if amount, unit, scale, ok := pricingRuleTrialConvertCostAmount(row.AmountPerUnit, perUnitSourceUnit, quoteUnit, conversionJSON); ok {
+			return amount, unit, scale
+		}
 		return row.AmountPerUnit, firstNonEmptyString(rowUnit, quoteUnit), 1
 	}
 	if row.AmountPerKg > 0 && quoteKgFactor > 0 {
@@ -1031,6 +1035,19 @@ func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetai
 		return row.AmountPerKg, firstNonEmptyString(rowUnit, "kg"), 1
 	}
 	return 0, firstNonEmptyString(rowUnit, quoteUnit), 1
+}
+
+func pricingRuleTrialBaseCostPerUnitSourceUnit(input domain.ProductInput) string {
+	for _, unit := range []string{input.QuoteUnit, input.OrderUnit, input.InventoryUnit} {
+		unit = strings.TrimSpace(unit)
+		if unit == "" {
+			continue
+		}
+		if pricingRuleTrialUnitKgFactor(unit, input.UnitConversionJSON) > 0 {
+			return unit
+		}
+	}
+	return firstNonEmptyString(input.QuoteUnit, input.OrderUnit, input.InventoryUnit)
 }
 
 func pricingRuleTrialConvertCostAmount(amount float64, sourceUnit string, targetUnit string, conversionJSON string) (float64, string, float64, bool) {

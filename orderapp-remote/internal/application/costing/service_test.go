@@ -979,6 +979,68 @@ func TestPricingRuleTrialScalesBomAndOperationCostsByQuoteUnit(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialScalesPerUnitBomCostsBetweenQuoteUnits(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          574,
+			Name:               "榛巧拼配 227g袋装",
+			InventoryUnit:      "g",
+			QuoteUnit:          "袋",
+			OrderUnit:          "袋",
+			UnitConversionJSON: `{"袋":{"g":227}}`,
+			NetContentQty:      227,
+			NetContentUnit:     "g",
+			YieldRate:          1,
+			ExpectedLossRate:   0,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:574", Type: "material", TypeLabel: "物料", Name: "熟豆原料", ConsumeUnit: "g", Quantity: 227, UnitCost: 50, AmountPerUnit: 11.35},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			14: {
+				ID:             14,
+				Name:           "PR508 每袋成本折算",
+				MarginRate:     0,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	bag, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 14,
+		ProductID:     574,
+		QuoteUnit:     "袋",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial(袋) error = %v", err)
+	}
+	kg, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 14,
+		ProductID:     574,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial(kg) error = %v", err)
+	}
+	if bag.BaseCost != 11.35 || bag.BomCostTotal != 11.35 || bag.FinalUnitPrice != 11.35 {
+		t.Fatalf("bag trial = base %.2f bom %.2f final %.2f, want 11.35", bag.BaseCost, bag.BomCostTotal, bag.FinalUnitPrice)
+	}
+	if kg.BaseCost != 50 || kg.BomCostTotal != 50 || kg.FinalUnitPrice != 50 {
+		t.Fatalf("kg trial = base %.2f bom %.2f final %.2f, want 50.00", kg.BaseCost, kg.BomCostTotal, kg.FinalUnitPrice)
+	}
+	if len(kg.BaseCostDetails) != 1 || kg.BaseCostDetails[0].Amount != 50 || kg.BaseCostDetails[0].Unit != "kg" {
+		t.Fatalf("kg detail = %+v, want 50/kg", kg.BaseCostDetails)
+	}
+}
+
 func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
