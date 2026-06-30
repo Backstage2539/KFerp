@@ -983,6 +983,17 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'tax_in_price_amount',
     'pricing-rule-trial-waterfall',
     'pricing-rule-trial-operator',
+    'pricing-rule-trial-explanation-panel',
+    'pricingRuleTrialActiveExplanation',
+    'openPricingRuleTrialExplanation',
+    'closePricingRuleTrialExplanation',
+    'other_cost_details',
+    'profit_explanation',
+    '试算说明',
+    '点击查看试算说明',
+    '本次试算抽屉',
+    '价格计算模板编辑区',
+    '临时利润/加价',
     '计算公式',
     'formula_expression_lines',
     '公式步骤',
@@ -1017,6 +1028,15 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
   assert.match(script, /watch\(\(\) => pricingRuleTrialAutoRunSignature\.value/)
   assert.match(style, /\.pricing-rule-trial-drawer/)
+  assert.match(style, /\.pricing-rule-trial-waterfall-card\.interactive/)
+  assert.match(style, /\.pricing-rule-trial-explanation-panel/)
+  assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('base_cost'\)"[\s\S]*BOM\+工序成本/)
+  assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('other_cost'\)"[\s\S]*其他成本/)
+  assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('profit_markup'\)"[\s\S]*加价增加/)
+  assert.match(trialDrawer, /v-if="pricingRuleTrialActiveExplanation"[\s\S]*试算说明[\s\S]*@click="closePricingRuleTrialExplanation"/)
+  assert.match(trialDrawer, /pricingRuleTrialExplanationTitle\(pricingRuleTrialActiveExplanation\)/)
+  assert.match(trialDrawer, /pricingRuleTrialOtherCostRows\(pricingRuleTrialResult\)/)
+  assert.match(trialDrawer, /pricingRuleTrialProfitExplanation\(pricingRuleTrialResult\)/)
   assert.match(source, /pricing-rule-trial-operator[\s\S]*\+/)
   assert.match(source, /pricing-rule-trial-operator[\s\S]*=/)
 })

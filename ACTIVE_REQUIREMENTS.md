@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS
+- Branch: codex/pricing-rule-trial-waterfall-explanations-20260630
+- Owner/session: Codex / 2026-06-30
+- Status: implementing and locally verifying; merge/development deploy pending.
+- Scope: 商品价格管理价格试算结果区中，`BOM+工序成本`、`其他成本`、`加价增加` 三张瀑布卡片可点击打开只读 `试算说明` 面板；后端返回 `other_cost_details` 和 `profit_explanation` 解释字段；前端展示 BOM 行级用量/单位成本/金额、其他成本来源/设置位置和利润方式/公式。该需求不改变成本公式、单位换算、Pricing Rule 保存结构、商品价格表、订单或发布快照。
+- DEV:
+  - DEV-510-TRIAL-EXPLANATION-API：`PricingRuleTrialResult` 增加 `other_cost_details` 和 `profit_explanation`，覆盖模板其他成本、临时其他成本覆盖、空其他成本、毛利率、加价率、固定加价和 supplier tier markup。
+  - DEV-510-TRIAL-EXPLANATION-UI：`ProductSettingsView.vue` 将 `BOM+工序成本`、`其他成本`、`加价增加` 瀑布卡片改为可点击入口，在瀑布下方展示只读说明面板。
+  - DEV-510-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV/API/REV 种子和 PR-510 验收记录。
+- Verifier:
+  - RED: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1` and `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrial' -count=1` failed before implementation because `other_cost_details` / `profit_explanation` were missing; `node --test src/lib/product-settings.test.js` failed before UI markers and explanation panel existed; `go test ./internal/interfaces/http/support -run TestDev510PricingRuleTrialWaterfallExplanationsContracts -count=1` failed before PR-510 docs/seed markers existed.
+  - GREEN targeted so far: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1`; `node --test src/lib/product-settings.test.js`.
+- Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-pricing-rule-trial-waterfall-explanations.md`.
+- Deployment: pending.
+- Last update: 2026-06-30 Asia/Shanghai
+
 ### PR-508-BOM-MATERIAL-LOSS-RATIO
 - Branch: codex/bom-material-loss-ratio-20260630
 - Owner/session: Codex / 2026-06-30

@@ -994,17 +994,23 @@
 
           <section v-if="pricingRuleTrialResult" class="drawer-section pricing-rule-trial-result">
             <div class="pricing-rule-trial-waterfall">
-              <div :class="['pricing-rule-trial-waterfall-card', { warning: pricingRuleTrialBaseCostMissing(pricingRuleTrialResult) }]">
+              <button
+                :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'base_cost', warning: pricingRuleTrialBaseCostMissing(pricingRuleTrialResult) }]"
+                type="button" @click="openPricingRuleTrialExplanation('base_cost')"
+                aria-label="点击查看试算说明：BOM+工序成本">
                 <small>BOM+工序成本 <span v-if="pricingRuleTrialBaseCostMissing(pricingRuleTrialResult)" title="该商品暂无可试算的 BOM/工序成本">!</span></small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</strong>
                 <em>物料 {{ trialMoneyDisplay(pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }} / 工序 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}</em>
-              </div>
+              </button>
               <span class="pricing-rule-trial-operator">+</span>
-              <div class="pricing-rule-trial-waterfall-card">
+              <button
+                :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'other_cost' }]"
+                type="button" @click="openPricingRuleTrialExplanation('other_cost')"
+                aria-label="点击查看试算说明：其他成本">
                 <small>其他成本</small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.other_cost_total, pricingRuleTrialResult.quote_unit) }}</strong>
                 <em>成本基数 {{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }}</em>
-              </div>
+              </button>
               <span class="pricing-rule-trial-operator">+</span>
               <div class="pricing-rule-trial-waterfall-card">
                 <small>损耗增加</small>
@@ -1012,11 +1018,14 @@
                 <em>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }} → {{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</em>
               </div>
               <span class="pricing-rule-trial-operator">+</span>
-              <div class="pricing-rule-trial-waterfall-card">
+              <button
+                :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'profit_markup' }]"
+                type="button" @click="openPricingRuleTrialExplanation('profit_markup')"
+                aria-label="点击查看试算说明：加价增加">
                 <small>加价增加</small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.profit_markup_amount, pricingRuleTrialResult.quote_unit) }}</strong>
                 <em>加价后价格 {{ trialMoneyDisplay(pricingRuleTrialResult.pre_tax_price, pricingRuleTrialResult.quote_unit) }}</em>
-              </div>
+              </button>
               <span class="pricing-rule-trial-operator">+</span>
               <div class="pricing-rule-trial-waterfall-card">
                 <small>税额</small>
@@ -1035,6 +1044,99 @@
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.final_unit_price, pricingRuleTrialResult.quote_unit) }}</strong>
                 <em>试算结果只读</em>
               </div>
+            </div>
+            <div v-if="pricingRuleTrialActiveExplanation" class="pricing-rule-trial-explanation-panel">
+              <div class="pricing-rule-trial-explanation-head">
+                <strong>试算说明：{{ pricingRuleTrialExplanationTitle(pricingRuleTrialActiveExplanation) }}</strong>
+                <button class="secondary compact-action" type="button" @click="closePricingRuleTrialExplanation">关闭</button>
+              </div>
+              <template v-if="pricingRuleTrialActiveExplanation === 'base_cost'">
+                <p>点击查看试算说明：BOM+工序成本来自当前试算商品、BOM版本和工序，下面列出每个物料或工序的 BOM 用量、单位成本和本项金额。</p>
+                <div class="table-wrap compact-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>名称</th>
+                        <th>用量</th>
+                        <th>单位成本</th>
+                        <th>金额</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'all')" :key="row.key || `${row.type}-${row.name}`">
+                        <td>{{ row.type_label || pricingRuleTrialBaseCostTypeLabel(row.type) }}</td>
+                        <td>
+                          <span>{{ row.name || '-' }}</span>
+                          <small v-if="row.description">{{ row.description }}</small>
+                        </td>
+                        <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
+                        <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                        <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                      </tr>
+                      <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'all').length">
+                        <td colspan="5" class="muted">暂无可展开的 BOM/工序成本明细。</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+              <template v-else-if="pricingRuleTrialActiveExplanation === 'other_cost'">
+                <p>其他成本设置位置：价格计算模板编辑区「其他成本」。本次试算抽屉「其他成本」有临时值时，会优先使用本次试算抽屉的明细。</p>
+                <div class="table-wrap compact-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>成本名</th>
+                        <th>金额</th>
+                        <th>来源</th>
+                        <th>设置位置</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in pricingRuleTrialOtherCostRows(pricingRuleTrialResult)" :key="row.name">
+                        <td>{{ row.name || '-' }}</td>
+                        <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                        <td>{{ pricingRuleTrialSourceDisplay(row.source) }}</td>
+                        <td>{{ row.setting_location || pricingRuleTrialOtherCostSettingLocation(row.source) }}</td>
+                      </tr>
+                      <tr v-if="!pricingRuleTrialOtherCostRows(pricingRuleTrialResult).length">
+                        <td colspan="4" class="muted">暂无其他成本；可在价格计算模板编辑区「其他成本」维护，或在本次试算抽屉「其他成本」临时录入。</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+              <template v-else-if="pricingRuleTrialActiveExplanation === 'profit_markup'">
+                <p>加价方式设置位置：价格计算模板编辑区「利润方式 / 利润率」。本次试算抽屉「临时利润/加价」有值时，会覆盖本次计算使用的利润参数。</p>
+                <dl class="pricing-rule-trial-explanation-grid">
+                  <div>
+                    <dt>加价方式</dt>
+                    <dd>{{ pricingRuleTrialProfitExplanation(pricingRuleTrialResult).method_label || '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>参数</dt>
+                    <dd>{{ pricingRuleTrialProfitRateDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult), pricingRuleTrialResult.quote_unit) }}</dd>
+                  </div>
+                  <div>
+                    <dt>来源</dt>
+                    <dd>{{ pricingRuleTrialSourceDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).source) }}</dd>
+                  </div>
+                  <div>
+                    <dt>损耗后成本</dt>
+                    <dd>{{ trialMoneyDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).cost_after_yield, pricingRuleTrialResult.quote_unit) }}</dd>
+                  </div>
+                  <div>
+                    <dt>加价增加</dt>
+                    <dd>{{ trialMoneyDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).markup_amount, pricingRuleTrialResult.quote_unit) }}</dd>
+                  </div>
+                  <div>
+                    <dt>加价后价格</dt>
+                    <dd>{{ trialMoneyDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).pre_tax_price, pricingRuleTrialResult.quote_unit) }}</dd>
+                  </div>
+                </dl>
+                <p class="pricing-rule-trial-explanation-formula">{{ pricingRuleTrialProfitExplanation(pricingRuleTrialResult).formula || '暂无加价公式说明。' }}</p>
+              </template>
             </div>
             <div class="pricing-rule-trial-result-meta">
               <span>BOM版本：{{ pricingRuleTrialResult.bom_version_no || pricingRuleTrialResult.bom_version_id || '-' }}</span>
@@ -1726,6 +1828,7 @@ const pricingRuleTrialLoading = ref(false)
 const pricingRuleTrialRule = ref(null)
 const pricingRuleTrialForm = ref(defaultPricingRuleTrialForm())
 const pricingRuleTrialResult = ref(null)
+const pricingRuleTrialActiveExplanation = ref('')
 const pricingRuleTrialError = ref('')
 let pricingRuleTrialAutoRunTimer = null
 let pricingRuleTrialRunID = 0
@@ -3494,6 +3597,7 @@ function openPricingRuleTrial(rule = null) {
   pricingRuleTrialRule.value = normalized
   pricingRuleTrialForm.value = defaultPricingRuleTrialForm(normalized || {})
   pricingRuleTrialResult.value = null
+  pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
   pricingRuleTrialDrawerOpen.value = true
 }
@@ -3510,6 +3614,7 @@ function handlePricingRuleTrialRuleChange() {
   next.operation_template_id = 0
   pricingRuleTrialForm.value = next
   pricingRuleTrialResult.value = null
+  pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
 }
 
@@ -3523,7 +3628,16 @@ function closePricingRuleTrial() {
   pricingRuleTrialLoading.value = false
   pricingRuleTrialRule.value = null
   pricingRuleTrialResult.value = null
+  pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
+}
+
+function openPricingRuleTrialExplanation(kind) {
+  pricingRuleTrialActiveExplanation.value = String(kind || '').trim()
+}
+
+function closePricingRuleTrialExplanation() {
+  pricingRuleTrialActiveExplanation.value = ''
 }
 
 function addPricingRuleTrialOtherCostRow() {
@@ -3581,6 +3695,7 @@ function schedulePricingRuleTrial() {
   const payload = buildPricingRuleTrialPayload(pricingRuleTrialForm.value)
   if (!payload.pricing_rule_id || !payload.product_id || !String(payload.quote_unit || '').trim()) {
     pricingRuleTrialResult.value = null
+    pricingRuleTrialActiveExplanation.value = ''
     return
   }
   pricingRuleTrialAutoRunTimer = setTimeout(() => {
@@ -3610,11 +3725,13 @@ async function runPricingRuleTrial() {
     const result = await apiSend('/api/costing/pricing-rule-trial', { method: 'POST', body: payload })
     if (runID === pricingRuleTrialRunID) {
       pricingRuleTrialResult.value = result
+      pricingRuleTrialActiveExplanation.value = ''
       syncPricingRuleTrialProductionSelections(result)
     }
   } catch (err) {
     if (runID === pricingRuleTrialRunID) {
       pricingRuleTrialResult.value = null
+      pricingRuleTrialActiveExplanation.value = ''
       pricingRuleTrialError.value = err.message || '价格计算模板试算失败'
     }
   } finally {
@@ -3716,8 +3833,43 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
 
 function pricingRuleTrialBaseCostRows(result = {}, kind = 'material') {
   const rows = Array.isArray(result?.base_cost_details) ? result.base_cost_details : []
+  if (kind === 'all') return rows
   if (kind === 'operation') return rows.filter((row) => String(row?.type || '') === 'operation')
   return rows.filter((row) => String(row?.type || '') !== 'operation')
+}
+
+function pricingRuleTrialOtherCostRows(result = {}) {
+  return Array.isArray(result?.other_cost_details) ? result.other_cost_details : []
+}
+
+function pricingRuleTrialProfitExplanation(result = {}) {
+  return result?.profit_explanation && typeof result.profit_explanation === 'object' ? result.profit_explanation : {}
+}
+
+function pricingRuleTrialExplanationTitle(kind = '') {
+  return {
+    base_cost: 'BOM+工序成本',
+    other_cost: '其他成本',
+    profit_markup: '加价增加',
+  }[String(kind || '').trim()] || '试算说明'
+}
+
+function pricingRuleTrialSourceDisplay(source = '') {
+  return pricingRuleTrialStepSourceDisplay({ source })
+}
+
+function pricingRuleTrialOtherCostSettingLocation(source = '') {
+  return String(source || '').trim() === 'temporary_override'
+    ? '本次试算抽屉「其他成本」'
+    : '价格计算模板编辑区「其他成本」'
+}
+
+function pricingRuleTrialProfitRateDisplay(explanation = {}, unit = '') {
+  const method = String(explanation.method || '').trim()
+  const rate = Number(explanation.rate)
+  if (!Number.isFinite(rate)) return '-'
+  if (method === 'fixed_add') return trialMoneyDisplay(rate, unit)
+  return percentDisplay(rate)
 }
 
 function pricingRuleTrialBaseCostTypeLabel(type = '') {
@@ -7071,6 +7223,7 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
   pricingRuleTrialForm.value.bom_version_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
+  pricingRuleTrialActiveExplanation.value = ''
 })
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
@@ -7079,6 +7232,7 @@ watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialResult.value = null
+  pricingRuleTrialActiveExplanation.value = ''
 })
 
 watch(() => pricingRuleTrialAutoRunSignature.value, () => {
@@ -7435,6 +7589,10 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-result { display: grid; gap: 12px; }
 .pricing-rule-trial-waterfall { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
 .pricing-rule-trial-waterfall-card { min-width: 118px; flex: 1 1 132px; border: 1px solid #e2dacd; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 4px; align-content: start; }
+.pricing-rule-trial-waterfall-card.interactive { appearance: none; cursor: pointer; text-align: left; font: inherit; color: inherit; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.pricing-rule-trial-waterfall-card.interactive:hover, .pricing-rule-trial-waterfall-card.interactive:focus-visible { border-color: #8db6e8; box-shadow: 0 0 0 3px rgba(43, 116, 204, .12); outline: 0; }
+.pricing-rule-trial-waterfall-card.interactive:active { transform: translateY(1px); }
+.pricing-rule-trial-waterfall-card.active { border-color: #2f7ed8; background: #f5f9ff; }
 .pricing-rule-trial-waterfall-card small { color: #6d665c; }
 .pricing-rule-trial-waterfall-card small span { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 4px; border-radius: 999px; background: #fff0d9; color: #8a5400; font-weight: 800; }
 .pricing-rule-trial-waterfall-card strong { font-size: 18px; color: #2f2a25; overflow-wrap: anywhere; }
@@ -7443,6 +7601,15 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-waterfall-card.final { border-color: #b8d0f0; background: #f2f7ff; }
 .pricing-rule-trial-operator { flex: 0 0 18px; min-height: 76px; display: inline-flex; align-items: center; justify-content: center; color: #6d665c; font-weight: 800; }
 .pricing-rule-trial-operator.equals { color: #25568d; }
+.pricing-rule-trial-explanation-panel { border: 1px solid #c7d8ef; border-radius: 8px; background: #f7fbff; padding: 12px; display: grid; gap: 10px; color: #2f3d4d; }
+.pricing-rule-trial-explanation-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pricing-rule-trial-explanation-head strong { color: #233a56; }
+.pricing-rule-trial-explanation-panel p { margin: 0; line-height: 1.55; font-size: 13px; }
+.pricing-rule-trial-explanation-grid { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pricing-rule-trial-explanation-grid div { min-width: 0; border: 1px solid #dde8f6; border-radius: 6px; background: #fff; padding: 8px; }
+.pricing-rule-trial-explanation-grid dt { color: #6d7480; font-size: 12px; margin-bottom: 3px; }
+.pricing-rule-trial-explanation-grid dd { margin: 0; color: #253142; font-weight: 700; overflow-wrap: anywhere; }
+.pricing-rule-trial-explanation-formula { border: 1px solid #dde8f6; border-radius: 6px; background: #fff; padding: 8px; overflow-wrap: anywhere; }
 .pricing-rule-trial-result-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; color: #5f5a52; font-size: 13px; }
 .pricing-rule-trial-base-detail { display: grid; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fff; }
 .pricing-rule-trial-detail-group { display: grid; gap: 8px; }
