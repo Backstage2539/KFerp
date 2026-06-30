@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL
 - Branch: codex/bom-material-loss-bom-level-20260630
 - Owner/session: Codex / 2026-06-30
-- Status: local verifier green; pending merge, deploy, and browser smoke.
+- Status: merged to `develop` and deployed to development.
 - Scope: 生产 BOM 的 `原料损耗比` 从组件行级控件收敛为 BOM 版本级配置。开启后组件消耗单位只能使用 `比例 %`，版本保存 `production_bom_versions.material_loss_rate`；物料比例组件继续把该版本级损耗率写成运行明细快照供生产、库存和成本使用。
 - DEV:
   - DEV-511-BOM-LEVEL-MATERIAL-LOSS：`production_bom_versions.material_loss_rate` 持久化，草稿保存、版本复制、详情 API 和操作日志按版本级损耗率执行；开启损耗后后端拒绝非 `比例 %` 组件。
@@ -20,7 +20,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1`; `node --test src/lib/bom.test.js`.
   - GREEN broader: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `node --test src/lib/bom.test.js src/lib/produce-plan.test.js src/lib/product-settings.test.js`.
   - GREEN build/check: `npm ci`; `npm run build` passed with the existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Development deploy GREEN: `./deploy_orderapp.sh` from clean clone `/private/tmp/kferp-pr511-develop-merge-deploy-20260630` deployed `origin/develop=7f8086b410b3acfdcf5e9e6e78d454cc80e0f996`; Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, Docker build ran `go test ./...` successfully, and `erp_orderapp` restarted.
+  - Development smoke GREEN: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; authenticated `GET /app/vue-shell?view=bom&production_bom_id=5008` returned `200`; authenticated `GET /app/api/production-boms?status=all&limit=1` and `GET /app/api/production-boms/5008` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL`; deployed source and Vue bundle contain `versionMaterialLossRateEnabled` and `开启后组件消耗单位只能使用比例 %`; BOM detail API exposes `material_loss_rate`.
 - Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-bom-material-loss-bom-level.md`.
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from `/private/tmp/kferp-pr511-develop-merge-deploy-20260630` via `./deploy_orderapp.sh` at `origin/develop=7f8086b410b3acfdcf5e9e6e78d454cc80e0f996`. Backup from successful deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260630181502`.
+- Last update: 2026-06-30 Asia/Shanghai.
 
 ### PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS
 - Branch: codex/pricing-rule-trial-waterfall-explanations-20260630
