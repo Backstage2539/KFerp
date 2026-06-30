@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-508-BOM-MATERIAL-LOSS-RATIO
 - Branch: codex/bom-material-loss-ratio-20260630
 - Owner/session: Codex / 2026-06-30
-- Status: locally verified; pending merge/development deploy.
+- Status: merged to `develop` and deployed to development.
 - Scope: 生产 BOM 的 `组件来源=物料` 且 `消耗单位=比例 %` 明细支持 `原料损耗比`。关闭时损耗为 0，现有 BOM 行行为不变；打开后按 `实际原料需求 = 计划投料基准 / (1 - 原料损耗比) × 配方比例` 计算生产计划、工单、WIP 占用、扣料和 BOM 成本。商品组件和非比例物料行后端强制归零。
 - DEV:
   - DEV-508-BOM-MATERIAL-LOSS-DATA：`production_bom_version_items.material_loss_rate` 持久化，BOM 草稿保存/发布/复制/legacy backfill 和详情 API 读写该字段，非物料比例行强制为 0。
@@ -20,7 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `node --test src/lib/bom.test.js src/lib/produce-plan.test.js src/lib/product-settings.test.js`.
   - GREEN build/check: `npm ci`; `npm run build` passed with the existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `REQUIREMENTS.md`; `ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-30-bom-material-loss-ratio.md`.
-- Deployment: not merged or deployed yet.
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from clean clone `/private/tmp/kferp-pr508-deploy-20260630133636` via `./deploy_orderapp.sh` at `origin/develop=c4641c60d4a5bcce2ff3271c8dc4798a7c62a071`. Backup from successful deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260630133752`. Docker build ran `go test ./...` successfully, Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, and `erp_orderapp` restarted. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; authenticated `GET /app/vue-shell?view=bom` returned `200`; authenticated `GET /app/api/production-boms?status=all&limit=1` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-508-BOM-MATERIAL-LOSS-RATIO`; deployed source contains `material_loss_rate`; deployed Vue bundle contains `原料损耗比`.
 - Last update: 2026-06-30 Asia/Shanghai
 
 ### PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM
