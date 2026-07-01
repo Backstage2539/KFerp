@@ -57,6 +57,8 @@ func TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting(t *testing.T) {
 		"报价",
 		"overflow-wrap: anywhere",
 		"grid-template-columns: auto minmax(0, 1fr)",
+		"align-items: start",
+		"min-height: 34px",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PDF preview source missing %q", want)
@@ -67,6 +69,8 @@ func TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting(t *testing.T) {
 		"item.flavor",
 		"item.description",
 		"批发价",
+		"height: 100%",
+		"margin-top: auto",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("PDF preview source should not render legacy bean-list copy %q", forbidden)
@@ -118,7 +122,7 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"cardRowStyle(row)",
 		"pdf-card-row",
 		".pdf-card-grid { display: grid; gap: 18px; }",
-		"padding: 10px 10px 18px;",
+		"padding: 10px;",
 		"priceDisplay(priceRow)",
 		"priceValueParts(priceRow, item)",
 		"pdf-price-label",
