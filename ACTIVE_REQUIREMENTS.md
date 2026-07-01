@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-512-PRICING-TRIAL-SOURCE-COST
 - Branch: codex/pricing-trial-source-cost
 - Owner/session: Codex / 2026-07-01
-- Status: verified on feature branch
+- Status: merged to `develop` and deployed to development.
 - Scope: 商品价格管理价格试算修正来源说明和成本配置：BOM 成本已含原料损耗时不默认二次计算损耗；税额默认读取财务设置全局税率；取整来源显示为价格计算模板；工序成本改读当前工艺路线，并在工艺路线页面可配置计划工序成本。
 - DEV:
   - DEV-512-TRIAL-LOSS-TAX-ROUNDING：价格试算按显式临时损耗才计算 `损耗增加`；税率来源按临时覆盖、价格计算模板、财务设置解析；取整来源写入试算结果。
@@ -20,8 +20,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN Unit/API: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production -count=1`; `go test ./internal/interfaces/http/support -count=1`.
   - GREEN Frontend/build: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/process-routes.test.js`; `cd orderapp-remote/frontend-vue-shell && npm ci`; `npm run build` passed with existing large-chunk warning.
   - GREEN Review/acceptance: `scripts/verify_kferp.sh changed`; `git diff --check`; docs updated in `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`, `OP_MANUAL_COSTING.md`, `OP_MANUAL_PRODUCTION.md`, and `docs/acceptance/2026-07-01-pricing-rule-trial-source-cost.md`.
-  - Manual: browser acceptance pending deployment.
-- Deployment: not deployed yet.
+- Merge/deploy GREEN: feature branch pushed to `origin/codex/pricing-trial-source-cost` and fast-forwarded into `develop` at application commit `5cf74a710b2ed4b3f2502ec665a9a34418ec5250`; clean deploy checkout `/private/tmp/kferp-pr512-develop-deploy-20260701` ran `./deploy_orderapp.sh`; Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, Docker build ran `go test ./...` successfully, and `erp_orderapp` restarted.
+- Development smoke GREEN: containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/vue-shell?view=productPriceManagement` and `GET /app/vue-shell?view=processRoutes` returned `200`; authenticated `GET /app/api/product-settings?limit=1`, `GET /app/api/production-boms?status=all&limit=1`, and `GET /app/api/product-pricing-rules` returned `200`; invalid authenticated `POST /app/api/costing/pricing-rule-trial` returned `400`; `/app/api/req/product?limit=1000` exposed `PR-512-PRICING-RULE-TRIAL-SOURCE-COST`; `/app/api/req/dev?limit=1000` exposed all three `DEV-512` rows; deployed docs/source contain `tax_rate_source`, `planned_operation_cost`, and PR-512 markers.
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from clean clone `/private/tmp/kferp-pr512-develop-deploy-20260701` via `./deploy_orderapp.sh`. Backup from successful deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260701125927`.
 - Last update: 2026-07-01 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。
 
