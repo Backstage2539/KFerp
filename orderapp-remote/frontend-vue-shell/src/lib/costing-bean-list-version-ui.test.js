@@ -125,6 +125,14 @@ test('product price-list card preview omits legacy bean-list marketing fields an
   assert.match(viewSource, /\.pdf-item h3 \{[^}]*overflow-wrap: anywhere/)
 })
 
+test('product price-list card preview height follows compact content', () => {
+  assert.match(viewSource, /\.pdf-card-row \{[^}]*align-items: start/)
+  assert.doesNotMatch(viewSource, /\.pdf-card-row > \.pdf-item \{[^}]*height: 100%/)
+  assert.doesNotMatch(viewSource, /\.pdf-price-block \{[^}]*margin-top: auto/)
+  assert.doesNotMatch(viewSource, /\.pdf-card-row\.cards-2 \.pdf-item-head,\s*\.pdf-card-row\.cards-3 \.pdf-item-head \{[^}]*min-height/)
+  assert.match(viewSource, /\.pdf-price \{[^}]*min-height: 34px/)
+})
+
 test('product price-list publish action reports blocked reasons instead of doing nothing', () => {
   const publishButtonStart = viewSource.indexOf('@click="publishBeanList"')
   assert.ok(publishButtonStart > -1, 'publish button not found')
