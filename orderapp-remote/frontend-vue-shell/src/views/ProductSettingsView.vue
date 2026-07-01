@@ -1000,7 +1000,7 @@
                 aria-label="点击查看试算说明：标准制造成本">
                 <small>标准制造成本 <span v-if="pricingRuleTrialBaseCostMissing(pricingRuleTrialResult)" title="该商品暂无可试算的标准制造成本">!</span></small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.standard_manufacturing_unit_cost ?? pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</strong>
-                <em>物料单位成本 {{ trialMoneyDisplay(pricingRuleTrialResult.material_unit_cost ?? pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }} / 标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_unit_cost ?? pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}</em>
+                <em>BOM物料成本 {{ trialMoneyDisplay(pricingRuleTrialResult.material_unit_cost ?? pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }} / 标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_unit_cost ?? pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}</em>
               </button>
               <span class="pricing-rule-trial-operator">+</span>
               <button
@@ -1167,7 +1167,7 @@
             <div class="pricing-rule-trial-base-detail">
               <div class="field-group-head">
                 <strong>标准制造成本折算明细</strong>
-                <small>物料单位成本 {{ trialMoneyDisplay(pricingRuleTrialResult.material_unit_cost ?? pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }}；标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_unit_cost ?? pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}；标准制造成本 {{ trialMoneyDisplay(pricingRuleTrialResult.standard_manufacturing_unit_cost ?? pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</small>
+                <small>BOM物料成本 {{ trialMoneyDisplay(pricingRuleTrialResult.material_unit_cost ?? pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }}；标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_unit_cost ?? pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}；标准制造成本 {{ trialMoneyDisplay(pricingRuleTrialResult.standard_manufacturing_unit_cost ?? pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</small>
               </div>
               <div class="pricing-rule-trial-detail-group">
                 <strong>物料成本明细</strong>

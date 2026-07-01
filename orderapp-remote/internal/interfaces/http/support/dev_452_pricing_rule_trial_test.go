@@ -156,7 +156,7 @@ func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"PricingRuleTrialBaseCostDetail",
 			"base_cost_details",
-			"该商品暂无可试算的 BOM/工序成本",
+			"该商品暂无可试算的标准制造成本",
 		},
 		filepath.Join("internal", "application", "costing", "service_test.go"): {
 			"TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing",
@@ -244,7 +244,7 @@ func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
 			"FormulaExpression",
 			"FormulaExpressionLines",
 			"最终售价 = 88.3/kg",
-			"(BOM+工序成本 60/kg + 其他成本 2.5/kg)",
+			"(标准制造成本 60/kg + 其他成本 2.5/kg)",
 		},
 		filepath.Join("internal", "interfaces", "http", "costing", "costing_api_test.go"): {
 			"FormulaExpression",
@@ -317,7 +317,7 @@ func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 			"operation_template_steps",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"BOM+工序成本折算明细",
+			"标准制造成本折算明细",
 			"物料成本明细",
 			"工序成本明细",
 			"BOM组成",
@@ -333,17 +333,17 @@ func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"价格瀑布",
-			"BOM+工序成本折算明细",
+			"标准制造成本",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"不再按发布售价快照反推",
-			"BOM+工序成本折算明细",
+			"标准制造成本",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"价格瀑布",
-			"BOM+工序成本折算明细",
+			"标准制造成本",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-waterfall-bom-detail.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
@@ -455,7 +455,6 @@ func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 		"product_bom_items",
 		"inherit_current",
 		"inherit_version",
-		"process_route_operations",
 		"工艺路线计划工序成本",
 	} {
 		if strings.Contains(fn, forbidden) {

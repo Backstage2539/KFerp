@@ -26,7 +26,7 @@ func TestDev515StandardManufacturingCostPricingContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"标准制造成本",
-			"物料单位成本",
+			"BOM物料成本",
 			"标准工序成本",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {

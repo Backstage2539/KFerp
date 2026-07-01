@@ -985,7 +985,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '加价后价格',
     '试算单价',
     '标准制造成本',
-    '物料单位成本',
+    'BOM物料成本',
     '标准工序成本',
     '标准制造成本折算明细',
     '物料成本明细',
