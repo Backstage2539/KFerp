@@ -317,9 +317,13 @@ func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 			"operation_template_steps",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"BOM+工序成本明细",
+			"BOM+工序成本折算明细",
 			"物料成本明细",
 			"工序成本明细",
+			"BOM组成",
+			"原料损耗",
+			"损耗后用量",
+			"折算成本",
 			"损耗增加",
 			"加价增加",
 			"tax_in_price_amount",
@@ -329,17 +333,17 @@ func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"价格瀑布",
-			"BOM+工序成本明细",
+			"BOM+工序成本折算明细",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"不再按发布售价快照反推",
-			"BOM+工序成本明细",
+			"BOM+工序成本折算明细",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"价格瀑布",
-			"BOM+工序成本明细",
+			"BOM+工序成本折算明细",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-waterfall-bom-detail.md"): {
 			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",

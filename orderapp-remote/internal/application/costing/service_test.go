@@ -1336,7 +1336,7 @@ func TestPricingRuleTrialScalesPerUnitBomCostsBetweenQuoteUnits(t *testing.T) {
 	}
 }
 
-func TestPricingRuleTrialPreservesMaterialCostUnitWhenQuoteUnitChanges(t *testing.T) {
+func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitChanges(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
 			ProductID:          575,
@@ -1349,7 +1349,7 @@ func TestPricingRuleTrialPreservesMaterialCostUnitWhenQuoteUnitChanges(t *testin
 			ExpectedLossRate:   0,
 		}},
 		costDetails: []PricingRuleTrialBaseCostDetail{
-			{Key: "material:575", Type: "material", TypeLabel: "物料", Name: "卡蒂姆红酒日晒", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 80, AmountPerKg: 80, Unit: "kg"},
+			{Key: "material:575", Type: "material", TypeLabel: "物料", Name: "卡蒂姆红酒日晒", ConsumeUnit: "ratio_pct", RatioPct: 12.5, RecipeRatioPct: 10, EffectiveRatioPct: 12.5, MaterialLossRate: 0.2, UnitCost: 67, AmountPerKg: 8.375, Unit: "kg"},
 		},
 		pricingRules: map[int64]ProductPricingRule{
 			15: {
@@ -1381,22 +1381,31 @@ func TestPricingRuleTrialPreservesMaterialCostUnitWhenQuoteUnitChanges(t *testin
 		t.Fatalf("base cost details = %+v, want one material row", got.BaseCostDetails)
 	}
 	row := got.BaseCostDetails[0]
-	if row.Unit != "lb" || math.Abs(row.Amount-36.29) > 0.0001 {
-		t.Fatalf("quote amount = %.4f/%s, want 36.29/lb", row.Amount, row.Unit)
+	if row.Unit != "lb" || math.Abs(row.Amount-3.8) > 0.005 {
+		t.Fatalf("quote amount = %.4f/%s, want 3.8/lb", row.Amount, row.Unit)
 	}
-	if row.UnitCost == 80 {
+	if row.UnitCost == 67 {
 		t.Fatalf("unit_cost should remain the compatibility quote-unit value, got %.4f", row.UnitCost)
 	}
 	if got.BomCostTotal != row.Amount || got.BaseCost != row.Amount || got.FinalUnitPrice != row.Amount {
 		t.Fatalf("trial totals = base %.4f bom %.4f final %.4f row %.4f, want quote-unit totals", got.BaseCost, got.BomCostTotal, got.FinalUnitPrice, row.Amount)
 	}
+	if row.RatioPct != 12.5 {
+		t.Fatalf("compat ratio pct = %.4f, want effective 12.5", row.RatioPct)
+	}
+	if row.RecipeRatioPct != 10 {
+		t.Fatalf("recipe ratio pct = %.4f, want original BOM composition 10", row.RecipeRatioPct)
+	}
+	if row.EffectiveRatioPct != 12.5 {
+		t.Fatalf("effective ratio pct = %.4f, want loss-adjusted 12.5", row.EffectiveRatioPct)
+	}
 	if row.CostUnit != "kg" {
 		t.Fatalf("cost unit = %q, want kg", row.CostUnit)
 	}
-	if row.CostUnitCost != 80 {
-		t.Fatalf("cost unit cost = %.4f, want 80/kg", row.CostUnitCost)
+	if row.CostUnitCost != 67 {
+		t.Fatalf("cost unit cost = %.4f, want 67/kg", row.CostUnitCost)
 	}
-	if !strings.Contains(row.Description, "单位成本 80/kg") || !strings.Contains(row.Description, "折算金额") || !strings.Contains(row.Description, "/lb") {
+	if !strings.Contains(row.Description, "原比例 10%") || !strings.Contains(row.Description, "有效比例 12.5%") || !strings.Contains(row.Description, "单位成本 67/kg") || !strings.Contains(row.Description, "折算金额") || !strings.Contains(row.Description, "/lb") {
 		t.Fatalf("description = %q, want material cost unit and quote amount", row.Description)
 	}
 }

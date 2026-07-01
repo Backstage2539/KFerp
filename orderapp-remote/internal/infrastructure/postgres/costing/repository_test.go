@@ -716,6 +716,8 @@ func TestPricingRuleTrialDetailsGrossRatioCostsByMaterialLossRate(t *testing.T) 
 		"pbi.material_loss_rate",
 		"COALESCE(bi.material_loss_rate,0)::float8",
 		"&row.MaterialLossRate",
+		"row.RecipeRatioPct = row.RatioPct",
+		"row.EffectiveRatioPct = row.RatioPct / (1 - row.MaterialLossRate)",
 		"row.RatioPct / (1 - row.MaterialLossRate)",
 		"THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
 	} {

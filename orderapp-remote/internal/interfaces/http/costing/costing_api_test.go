@@ -234,18 +234,21 @@ func fakeDripPriceTemplate() domain.DripPriceTemplate {
 
 func pricingRuleTrialAPIFakeBaseCostDetails() []appcosting.PricingRuleTrialBaseCostDetail {
 	return []appcosting.PricingRuleTrialBaseCostDetail{{
-		Key:          "material:1",
-		Type:         "material",
-		TypeLabel:    "物料",
-		Name:         "测试原料",
-		ConsumeUnit:  "ratio_pct",
-		RatioPct:     100,
-		UnitCost:     30.62,
-		CostUnitCost: 67.5,
-		CostUnit:     "kg",
-		Amount:       30.62,
-		Unit:         "lb",
-		Description:  "物料：测试原料，比例 100%，单位成本 67.5/kg，折算金额 30.62/lb",
+		Key:               "material:1",
+		Type:              "material",
+		TypeLabel:         "物料",
+		Name:              "测试原料",
+		ConsumeUnit:       "ratio_pct",
+		RatioPct:          12.5,
+		RecipeRatioPct:    10,
+		EffectiveRatioPct: 12.5,
+		MaterialLossRate:  0.2,
+		UnitCost:          30.62,
+		CostUnitCost:      67.5,
+		CostUnit:          "kg",
+		Amount:            30.62,
+		Unit:              "lb",
+		Description:       "物料：测试原料，原比例 10%，原料损耗 20%，有效比例 12.5%，单位成本 67.5/kg，折算金额 30.62/lb",
 	}}
 }
 
@@ -828,7 +831,7 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
-	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"cost_unit_cost":67.5`, `"cost_unit":"kg"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `"process_route_id":19`, `"process_route_options"`, `最终售价 = 116.7092/kg`} {
+	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"recipe_ratio_pct":10`, `"effective_ratio_pct":12.5`, `"material_loss_rate":0.2`, `"cost_unit_cost":67.5`, `"cost_unit":"kg"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `"process_route_id":19`, `"process_route_options"`, `最终售价 = 116.7092/kg`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}

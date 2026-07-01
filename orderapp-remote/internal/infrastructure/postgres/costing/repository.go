@@ -760,7 +760,12 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			return nil, err
 		}
 		if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" && row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
-			row.RatioPct = row.RatioPct / (1 - row.MaterialLossRate)
+			row.RecipeRatioPct = row.RatioPct
+			row.EffectiveRatioPct = row.RatioPct / (1 - row.MaterialLossRate)
+			row.RatioPct = row.EffectiveRatioPct
+		} else if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" {
+			row.RecipeRatioPct = row.RatioPct
+			row.EffectiveRatioPct = row.RatioPct
 		}
 		row.Type = "material"
 		if componentType == "product" || componentType == "finished_product" {

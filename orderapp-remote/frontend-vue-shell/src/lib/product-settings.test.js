@@ -984,9 +984,14 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '其他成本',
     '加价后价格',
     '试算单价',
-    'BOM+工序成本明细',
+    'BOM+工序成本折算明细',
     '物料成本明细',
     '工序成本明细',
+    'BOM组成',
+    '原料损耗',
+    '损耗后用量',
+    '成本单价',
+    '折算成本',
     '加价增加',
     '税额',
     '取整调整',
@@ -1007,6 +1012,11 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'profit_explanation',
     'cost_unit_cost',
     'cost_unit',
+    'recipe_ratio_pct',
+    'effective_ratio_pct',
+    'pricingRuleTrialBaseCostRecipeUsage(row)',
+    'pricingRuleTrialBaseCostLossRate(row)',
+    'pricingRuleTrialBaseCostEffectiveUsage(row)',
     'pricingRuleTrialBaseCostUnitCostValue(row)',
     'pricingRuleTrialBaseCostUnit(row, pricingRuleTrialResult)',
     '试算说明',
@@ -1041,6 +1051,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(pane, /@click="openPricingRuleTrial\(\)"[^>]*>价格试算<\/button>/)
   assert.doesNotMatch(pane, /@click="openPricingRuleTrial\(rule\)"/)
   assert.match(trialDrawer, /<select v-model\.number="pricingRuleTrialForm\.pricing_rule_id"[\s\S]*activePricingRuleTrialOptions/)
+  assert.match(trialDrawer, /<th>BOM组成<\/th>[\s\S]*<th>原料损耗<\/th>[\s\S]*<th>损耗后用量<\/th>[\s\S]*<th>成本单价<\/th>[\s\S]*<th>折算成本<\/th>/)
+  assert.match(trialDrawer, /pricingRuleTrialBaseCostRecipeUsage\(row\)[\s\S]*pricingRuleTrialBaseCostLossRate\(row\)[\s\S]*pricingRuleTrialBaseCostEffectiveUsage\(row\)/)
   assert.match(trialDrawer, /trialMoneyDisplay\(pricingRuleTrialBaseCostUnitCostValue\(row\), pricingRuleTrialBaseCostUnit\(row, pricingRuleTrialResult\)\)/)
   assert.match(trialDrawer, /trialMoneyDisplay\(row\.amount, row\.unit \|\| pricingRuleTrialResult\.quote_unit\)/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)

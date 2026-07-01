@@ -154,22 +154,24 @@ type PricingRuleTrialResult struct {
 }
 
 type PricingRuleTrialBaseCostDetail struct {
-	Key              string  `json:"key,omitempty"`
-	Type             string  `json:"type"`
-	TypeLabel        string  `json:"type_label"`
-	Name             string  `json:"name"`
-	ConsumeUnit      string  `json:"consume_unit,omitempty"`
-	Quantity         float64 `json:"quantity,omitempty"`
-	RatioPct         float64 `json:"ratio_pct,omitempty"`
-	MaterialLossRate float64 `json:"material_loss_rate,omitempty"`
-	UnitCost         float64 `json:"unit_cost,omitempty"`
-	CostUnitCost     float64 `json:"cost_unit_cost,omitempty"`
-	CostUnit         string  `json:"cost_unit,omitempty"`
-	Amount           float64 `json:"amount"`
-	Unit             string  `json:"unit"`
-	Description      string  `json:"description,omitempty"`
-	AmountPerKg      float64 `json:"-"`
-	AmountPerUnit    float64 `json:"-"`
+	Key               string  `json:"key,omitempty"`
+	Type              string  `json:"type"`
+	TypeLabel         string  `json:"type_label"`
+	Name              string  `json:"name"`
+	ConsumeUnit       string  `json:"consume_unit,omitempty"`
+	Quantity          float64 `json:"quantity,omitempty"`
+	RatioPct          float64 `json:"ratio_pct,omitempty"`
+	RecipeRatioPct    float64 `json:"recipe_ratio_pct,omitempty"`
+	EffectiveRatioPct float64 `json:"effective_ratio_pct,omitempty"`
+	MaterialLossRate  float64 `json:"material_loss_rate,omitempty"`
+	UnitCost          float64 `json:"unit_cost,omitempty"`
+	CostUnitCost      float64 `json:"cost_unit_cost,omitempty"`
+	CostUnit          string  `json:"cost_unit,omitempty"`
+	Amount            float64 `json:"amount"`
+	Unit              string  `json:"unit"`
+	Description       string  `json:"description,omitempty"`
+	AmountPerKg       float64 `json:"-"`
+	AmountPerUnit     float64 `json:"-"`
 }
 
 type PricingRuleTrialOtherCostDetail struct {
@@ -1121,6 +1123,7 @@ func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUn
 		if strings.TrimSpace(row.Name) == "" {
 			row.Name = row.TypeLabel
 		}
+		pricingRuleTrialBaseCostDetailPreserveComposition(&row)
 		if strings.TrimSpace(row.Key) == "" {
 			row.Key = fmt.Sprintf("%s:%d", row.Type, i+1)
 		}
@@ -1219,6 +1222,30 @@ func pricingRuleTrialBaseCostDetailPreserveCostUnit(row *PricingRuleTrialBaseCos
 	}
 }
 
+func pricingRuleTrialBaseCostDetailPreserveComposition(row *PricingRuleTrialBaseCostDetail) {
+	if row == nil || strings.TrimSpace(row.ConsumeUnit) != "ratio_pct" {
+		return
+	}
+	lossRate := row.MaterialLossRate
+	if row.EffectiveRatioPct == 0 {
+		row.EffectiveRatioPct = row.RatioPct
+	}
+	if row.RecipeRatioPct == 0 {
+		if lossRate > 0 && lossRate < 1 && row.EffectiveRatioPct > 0 {
+			row.RecipeRatioPct = row.EffectiveRatioPct * (1 - lossRate)
+		} else {
+			row.RecipeRatioPct = row.EffectiveRatioPct
+		}
+	}
+	if row.EffectiveRatioPct == 0 && row.RecipeRatioPct > 0 {
+		if lossRate > 0 && lossRate < 1 {
+			row.EffectiveRatioPct = row.RecipeRatioPct / (1 - lossRate)
+		} else {
+			row.EffectiveRatioPct = row.RecipeRatioPct
+		}
+	}
+}
+
 func pricingRuleTrialBaseCostDetailDefaultCostUnit(row PricingRuleTrialBaseCostDetail) string {
 	if unit := strings.TrimSpace(row.Unit); unit != "" {
 		return unit
@@ -1274,9 +1301,21 @@ func pricingRuleTrialBaseCostDetailDescription(row PricingRuleTrialBaseCostDetai
 	switch strings.TrimSpace(row.ConsumeUnit) {
 	case "ratio_pct":
 		if row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
-			return fmt.Sprintf("%s：%s，原比例 %s%%，原料损耗 %s%%，有效比例 %s%%，单位成本 %s，%s %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(row.RatioPct*(1-row.MaterialLossRate)), pricingRuleTrialNumberExpression(row.MaterialLossRate*100), pricingRuleTrialNumberExpression(row.RatioPct), unitCostText, amountLabel, amountText)
+			recipeRatio := row.RecipeRatioPct
+			if recipeRatio == 0 {
+				recipeRatio = row.RatioPct * (1 - row.MaterialLossRate)
+			}
+			effectiveRatio := row.EffectiveRatioPct
+			if effectiveRatio == 0 {
+				effectiveRatio = row.RatioPct
+			}
+			return fmt.Sprintf("%s：%s，原比例 %s%%，原料损耗 %s%%，有效比例 %s%%，单位成本 %s，%s %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(recipeRatio), pricingRuleTrialNumberExpression(row.MaterialLossRate*100), pricingRuleTrialNumberExpression(effectiveRatio), unitCostText, amountLabel, amountText)
 		}
-		return fmt.Sprintf("%s：%s，比例 %s%%，单位成本 %s，%s %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(row.RatioPct), unitCostText, amountLabel, amountText)
+		recipeRatio := row.RecipeRatioPct
+		if recipeRatio == 0 {
+			recipeRatio = row.RatioPct
+		}
+		return fmt.Sprintf("%s：%s，比例 %s%%，单位成本 %s，%s %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(recipeRatio), unitCostText, amountLabel, amountText)
 	case "g_per_bag", "unit_per_bag", "unit_per_box", "per_kg", "per_unit", "per_quote_unit":
 		return fmt.Sprintf("%s：%s，用量 %s，单位成本 %s，%s %s", row.TypeLabel, row.Name, pricingRuleTrialNumberExpression(row.Quantity), unitCostText, amountLabel, amountText)
 	default:
