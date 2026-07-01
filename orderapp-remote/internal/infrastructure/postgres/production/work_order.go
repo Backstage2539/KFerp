@@ -369,21 +369,20 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 	snapshot.DefaultEquipment = ""
 	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT pro.seq,pro.operation_id,pro.workstation_id,COALESCE(pro.workstation_capacity_id,0),
-		       COALESCE(NULLIF(mo.name,''), pro.operation),COALESCE(NULLIF(mw.name,''), pro.workstation),COALESCE(pro.workstation_capacity_name,''),
-		       pro.default_equipment,pro.default_minutes,
-		       COALESCE(pro.batch_size_qty,0)::float8,
-		       COALESCE(pro.batch_size_unit,''),
-		       COALESCE(pro.standard_minutes,0),
-		       COALESCE(pro.hourly_rate,0)::float8,
-		       COALESCE(pro.planned_batch_count,0),
-		       COALESCE(pro.planned_minutes,0),
-		       COALESCE(pro.planned_operation_cost,0)::float8,
+		SELECT pro.seq,pro.operation_id,0::bigint,0::bigint,
+		       COALESCE(NULLIF(mo.name,''), pro.operation),''::text,''::text,
+		       ''::text,0,
+		       0::float8,
+		       ''::text,
+		       0,
+		       0::float8,
+		       0,
+		       0,
+		       0::float8,
 		       pro.records_loss,
 		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
-		LEFT JOIN %[1]s.manufacturing_workstations mw ON mw.id=pro.workstation_id
 		WHERE pro.route_id=$1
 		ORDER BY pro.seq, pro.id
 	`, schema), snapshot.ID)
@@ -748,21 +747,20 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 	snapshot.DefaultEquipment = ""
 	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT pro.seq,pro.operation_id,pro.workstation_id,COALESCE(pro.workstation_capacity_id,0),
-		       COALESCE(NULLIF(mo.name,''), pro.operation),COALESCE(NULLIF(mw.name,''), pro.workstation),COALESCE(pro.workstation_capacity_name,''),
-		       pro.default_equipment,pro.default_minutes,
-		       COALESCE(pro.batch_size_qty,0)::float8,
-		       COALESCE(pro.batch_size_unit,''),
-		       COALESCE(pro.standard_minutes,0),
-		       COALESCE(pro.hourly_rate,0)::float8,
-		       COALESCE(pro.planned_batch_count,0),
-		       COALESCE(pro.planned_minutes,0),
-		       COALESCE(pro.planned_operation_cost,0)::float8,
+		SELECT pro.seq,pro.operation_id,0::bigint,0::bigint,
+		       COALESCE(NULLIF(mo.name,''), pro.operation),''::text,''::text,
+		       ''::text,0,
+		       0::float8,
+		       ''::text,
+		       0,
+		       0::float8,
+		       0,
+		       0,
+		       0::float8,
 		       pro.records_loss,
 		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
-		LEFT JOIN %[1]s.manufacturing_workstations mw ON mw.id=pro.workstation_id
 		WHERE pro.route_id=$1
 		ORDER BY pro.seq, pro.id
 	`, schema), snapshot.ID)

@@ -83,14 +83,20 @@ func TestDev471ManufacturingPhase1CompletionContracts(t *testing.T) {
 	processTemplatesView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue")))
 	for _, want := range []string{
 		"/api/manufacturing-operations",
-		"/api/manufacturing-workstation-capacities",
 		"operation_id",
+	} {
+		if !strings.Contains(processTemplatesView, want) {
+			t.Fatalf("process template view missing master-data selector marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"/api/manufacturing-workstation-capacities",
 		"workstation_capacity_id",
 		"workstation_id",
 		"自动折算计划工序成本",
 	} {
-		if !strings.Contains(processTemplatesView, want) {
-			t.Fatalf("process template view missing route capacity cost marker %q", want)
+		if strings.Contains(processTemplatesView, forbidden) {
+			t.Fatalf("process template view should not own workstation capacity marker %q", forbidden)
 		}
 	}
 

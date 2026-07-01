@@ -754,7 +754,7 @@ func TestPricingRuleTrialProductionOptionsExposeProcessRoutes(t *testing.T) {
 	}
 }
 
-func TestPricingRuleTrialDetailsPreferProcessRoutePlannedOperationCost(t *testing.T) {
+func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -769,14 +769,16 @@ func TestPricingRuleTrialDetailsPreferProcessRoutePlannedOperationCost(t *testin
 		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
 	}
 	fn := src[fnStart : fnStart+fnEnd]
-	for _, want := range []string{
-		"input.ProcessRouteID",
+	if !strings.Contains(fn, "input.ProcessRouteID") {
+		t.Fatalf("pricing rule trial details must still respect selected process route boundary")
+	}
+	for _, forbidden := range []string{
 		"process_route_operations",
-		"planned_operation_cost",
-		"process_route",
+		"工艺路线计划工序成本",
+		"process_route:%d",
 	} {
-		if !strings.Contains(fn, want) {
-			t.Fatalf("pricing rule trial details must read process route planned operation cost before legacy templates; missing %q", want)
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("pricing rule trial details must not read route template operation cost; found %q", forbidden)
 		}
 	}
 }

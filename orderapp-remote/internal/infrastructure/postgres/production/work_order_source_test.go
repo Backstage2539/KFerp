@@ -130,7 +130,7 @@ func TestProcessRouteSnapshotUsesLatestOperationMasterNames(t *testing.T) {
 	}
 }
 
-func TestWorkOrderFreezesRouteCapacityTimeAndCostIntoJobCards(t *testing.T) {
+func TestWorkOrderFreezesSplitCapacityTimeAndCostIntoJobCards(t *testing.T) {
 	srcBytes, err := os.ReadFile("work_order.go")
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,28 @@ func TestWorkOrderFreezesRouteCapacityTimeAndCostIntoJobCards(t *testing.T) {
 		"actual_operation_cost",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("work order must freeze route capacity time/cost into job cards; missing %q", want)
+			t.Fatalf("work order must freeze split capacity time/cost into job cards; missing %q", want)
+		}
+	}
+}
+
+func TestProcessRouteSnapshotDoesNotReadRouteCapacityCostFields(t *testing.T) {
+	srcBytes, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, forbidden := range []string{
+		"COALESCE(pro.workstation_capacity_id,0)",
+		"COALESCE(NULLIF(mw.name,''), pro.workstation)",
+		"COALESCE(pro.workstation_capacity_name,'')",
+		"COALESCE(pro.batch_size_qty,0)::float8",
+		"COALESCE(pro.standard_minutes,0)",
+		"COALESCE(pro.hourly_rate,0)::float8",
+		"COALESCE(pro.planned_operation_cost,0)::float8",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("process route snapshot must not read route capacity/cost field %q", forbidden)
 		}
 	}
 }

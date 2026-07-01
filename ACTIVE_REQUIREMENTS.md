@@ -7,20 +7,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-514-WORKSTATION-COST-COMPONENTS
-- Branch: codex/workstation-cost-components-20260701
+- Branch: codex/route-capacity-boundary-20260701
 - Owner/session: Codex / 2026-07-01
-- Status: in progress.
-- Scope: 工位/设备维护机器、人工和其他小时成本；工位产能只维护标准批量、库存单位和标准分钟；工艺路线从工位成本和产能自动折算计划工序单位成本，价格试算、生产计划拆分、工单和工序卡继续消费冻结后的折算成本。
+- Status: verified, pending merge/deploy.
+- Scope: 工位/设备维护机器、人工和其他小时成本；工位产能只维护标准批量、库存单位和标准分钟；工艺路线只维护工序顺序和质检/损耗模板，不选择工位产能。生产计划草稿/未开工工单的工序产能拆分选择工位产能并折算计划工序成本，提交后冻结到工单和工序卡。
 - DEV:
   - DEV-514-WORKSTATION-COST-COMPONENTS：工位/设备 API 和 UI 支持 `machine_hourly_cost/labor_hourly_cost/overhead_hourly_cost`，总小时成本由三项相加，写操作日志。
   - DEV-514-CAPACITY-BATCH-TIME-ONLY：工位产能 API 和 UI 不再维护小时费率，只维护适用工序、标准批量/单位、标准分钟/批和状态；历史 `hourly_rate` 只做兼容兜底。
-  - DEV-514-ROUTE-DERIVED-OPERATION-COST：工艺路线工序选择工位产能后按 `小时成本 × 标准分钟/60 ÷ 标准批量` 折算计划工序成本；生产和价格试算读取折算结果，不使用销售单位。
+  - DEV-514-PLAN-SPLIT-DERIVED-OPERATION-COST：生产计划/未开工工单拆分选择工位产能后按 `小时成本 × 标准分钟/60 × 批次数` 折算计划工序成本；工艺路线保存和新工单路线快照都会清空工位产能和成本字段，价格试算不从路线模板读取工序成本。
   - DEV-514-DOCS-ACCEPTANCE：同步需求、验收、生产/成本手册和开发证据，部署后完成 API/browser smoke。
 - Verifier:
-  - RED: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing -count=1` failed before implementation because workstation cost component fields/schema were missing; `node --test src/lib/process-routes.test.js` failed because route UI did not load workstation capacities and workstation UI still exposed old hourly-rate controls.
-  - GREEN Unit/API: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing -count=1` passed; broader costing/production targeted Go tests passed.
-  - GREEN Frontend/build: `node --test src/lib/product-settings.test.js src/lib/produce-plan.test.js src/lib/process-routes.test.js` passed with 192 tests; `npm run build` passed after `npm ci` installed missing frontend deps.
-  - GREEN Review/acceptance: docs updated in `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OP_MANUAL_COSTING.md`, and `orderapp-remote/docs/acceptance/2026-07-01-workstation-cost-components.md`; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+  - RED: follow-up tests failed before correction because `ProcessTemplatesView.vue` still exposed `/api/manufacturing-workstation-capacities` / `工位产能`, route save still accepted old capacity/cost payloads, pricing trial still read `process_route_operations.planned_operation_cost`, and production work order route snapshot still queried old route capacity/cost fields.
+  - GREEN Unit/API: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/production ./internal/application/production ./internal/interfaces/http/production ./internal/interfaces/http/support ./internal/infrastructure/postgres/costing ./internal/application/costing ./internal/interfaces/http/costing -count=1` passed.
+  - GREEN Frontend/build: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js` passed with 157 tests; `cd orderapp-remote/frontend-vue-shell && npm run build` passed with the existing large-chunk warning.
+  - GREEN Review/acceptance: docs corrected in `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OP_MANUAL_COSTING.md`, and related acceptance records; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
 - Deployment: pending.
 - Last update: 2026-07-01 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。
@@ -45,18 +45,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/pricing-trial-source-cost
 - Owner/session: Codex / 2026-07-01
 - Status: merged to `develop` and deployed to development.
-- Scope: 商品价格管理价格试算修正来源说明和成本配置：BOM 成本已含原料损耗时不默认二次计算损耗；税额默认读取财务设置全局税率；取整来源显示为价格计算模板；工序成本改读当前工艺路线，并在工艺路线页面可配置计划工序成本。
+- Scope: 商品价格管理价格试算修正来源说明和成本配置：BOM 成本已含原料损耗时不默认二次计算损耗；税额默认读取财务设置全局税率；取整来源显示为价格计算模板；工艺路线只作为路线模板选择，不从路线模板读取或维护计划工序成本。
 - DEV:
   - DEV-512-TRIAL-LOSS-TAX-ROUNDING：价格试算按显式临时损耗才计算 `损耗增加`；税率来源按临时覆盖、价格计算模板、财务设置解析；取整来源写入试算结果。
-  - DEV-512-TRIAL-PROCESS-ROUTE-COST：价格试算请求/响应支持 `process_route_id`，默认按 BOM 版本/商品生产配置选择工艺路线，工序成本读取 `process_route_operations.planned_operation_cost`。
-  - DEV-512-TRIAL-UI-DOCS：商品价格管理试算抽屉更新来源提示和条件瀑布卡片；工艺路线页显示计划工序成本；同步成本/生产手册和验收文档。
+  - DEV-512-TRIAL-PROCESS-ROUTE-COST：价格试算请求/响应支持 `process_route_id`，默认按 BOM 版本/商品生产配置选择工艺路线；路线模板不参与计划工序成本计算。
+  - DEV-512-TRIAL-UI-DOCS：商品价格管理试算抽屉更新来源提示和条件瀑布卡片；工艺路线页只维护路线工序模板；同步成本/生产手册和验收文档。
 - Verifier:
-  - RED: targeted Go failed before implementation because `PricingRuleTrialDefaultTaxRate` / tax and route response fields were missing and manufacturing route save cleared `planned_operation_cost`; targeted frontend tests failed because price trial still used old operation-template semantics and route UI had no `计划工序成本`.
+  - RED: targeted Go failed before implementation because `PricingRuleTrialDefaultTaxRate` / tax and route response fields were missing; targeted frontend tests failed because price trial still used old operation-template semantics.
   - GREEN Unit/API: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production -count=1`; `go test ./internal/interfaces/http/support -count=1`.
   - GREEN Frontend/build: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/process-routes.test.js`; `cd orderapp-remote/frontend-vue-shell && npm ci`; `npm run build` passed with existing large-chunk warning.
   - GREEN Review/acceptance: `scripts/verify_kferp.sh changed`; `git diff --check`; docs updated in `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`, `OP_MANUAL_COSTING.md`, `OP_MANUAL_PRODUCTION.md`, and `docs/acceptance/2026-07-01-pricing-rule-trial-source-cost.md`.
 - Merge/deploy GREEN: feature branch pushed to `origin/codex/pricing-trial-source-cost` and fast-forwarded into `develop` at application commit `5cf74a710b2ed4b3f2502ec665a9a34418ec5250`; clean deploy checkout `/private/tmp/kferp-pr512-develop-deploy-20260701` ran `./deploy_orderapp.sh`; Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, Docker build ran `go test ./...` successfully, and `erp_orderapp` restarted.
-- Development smoke GREEN: containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/vue-shell?view=productPriceManagement` and `GET /app/vue-shell?view=processRoutes` returned `200`; authenticated `GET /app/api/product-settings?limit=1`, `GET /app/api/production-boms?status=all&limit=1`, and `GET /app/api/product-pricing-rules` returned `200`; invalid authenticated `POST /app/api/costing/pricing-rule-trial` returned `400`; `/app/api/req/product?limit=1000` exposed `PR-512-PRICING-RULE-TRIAL-SOURCE-COST`; `/app/api/req/dev?limit=1000` exposed all three `DEV-512` rows; deployed docs/source contain `tax_rate_source`, `planned_operation_cost`, and PR-512 markers.
+- Development smoke GREEN: containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/vue-shell?view=productPriceManagement` and `GET /app/vue-shell?view=processRoutes` returned `200`; authenticated `GET /app/api/product-settings?limit=1`, `GET /app/api/production-boms?status=all&limit=1`, and `GET /app/api/product-pricing-rules` returned `200`; invalid authenticated `POST /app/api/costing/pricing-rule-trial` returned `400`; `/app/api/req/product?limit=1000` exposed `PR-512-PRICING-RULE-TRIAL-SOURCE-COST`; `/app/api/req/dev?limit=1000` exposed all three `DEV-512` rows; deployed docs/source contain `tax_rate_source` and PR-512 markers.
 - Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from clean clone `/private/tmp/kferp-pr512-develop-deploy-20260701` via `./deploy_orderapp.sh`. Backup from successful deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260701125927`.
 - Last update: 2026-07-01 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。

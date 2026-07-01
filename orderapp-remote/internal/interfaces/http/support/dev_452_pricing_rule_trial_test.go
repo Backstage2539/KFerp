@@ -395,7 +395,6 @@ func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 			"pricing_rule_trial_bom_versions",
 			"pb.output_product_id=selected.product_id",
 			"process_routes",
-			"process_route_operations",
 			"operation_templates",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
@@ -456,6 +455,8 @@ func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 		"product_bom_items",
 		"inherit_current",
 		"inherit_version",
+		"process_route_operations",
+		"工艺路线计划工序成本",
 	} {
 		if strings.Contains(fn, forbidden) {
 			t.Fatalf("pricing trial details must not keep product-bound BOM fallback %q", forbidden)

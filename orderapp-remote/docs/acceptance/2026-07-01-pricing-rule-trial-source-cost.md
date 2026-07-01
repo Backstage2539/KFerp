@@ -2,12 +2,12 @@
 
 ## Scope
 - 商品价格管理 `价格试算` 不再默认把已含 BOM 原料损耗的 `BOM+工序成本` 再套一次 `损耗增加`。
-- 试算展示取整规则来源、税率来源和当前工艺路线；工序成本读取工艺路线工序的 `计划工序成本`。
-- 工艺路线页面可保存和读取 `计划工序成本`，用于价格试算标准成本。
+- 试算展示取整规则来源、税率来源和当前工艺路线；工艺路线只作为生产路径模板说明。
+- 后续 PR-514 已纠正路线成本边界：工艺路线页面不保存或读取 `计划工序成本`，真实工序成本只在生产计划/未开工工单拆分选择工位产能后冻结。
 
 ## RED
-- `go test ./internal/application/costing ./internal/application/manufacturing ./internal/interfaces/http/costing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/costing -count=1`：实现前失败，缺少 `PricingRuleTrialDefaultTaxRate`、税率/取整/工艺路线响应字段，且工艺路线保存会清空 `planned_operation_cost`。
-- `node --test frontend-vue-shell/src/lib/product-settings.test.js frontend-vue-shell/src/lib/process-routes.test.js`：实现前失败，试算 UI 仍使用旧工序语义，且工艺路线页面没有 `计划工序成本` 输入。
+- `go test ./internal/application/costing ./internal/application/manufacturing ./internal/interfaces/http/costing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/costing -count=1`：实现前失败，缺少 `PricingRuleTrialDefaultTaxRate`、税率/取整/工艺路线响应字段。
+- `node --test frontend-vue-shell/src/lib/product-settings.test.js frontend-vue-shell/src/lib/process-routes.test.js`：实现前失败，试算 UI 仍使用旧工序语义。
 
 ## GREEN
 - `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production -count=1`

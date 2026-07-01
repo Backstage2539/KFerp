@@ -259,7 +259,7 @@ func TestProcessRouteAPIListSaveAndPublish(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save route status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.routeSaved.Name != "通用烘焙" || !repo.routeSaved.Operations[0].RecordsLoss || repo.routeSaved.Operations[0].PlannedOperationCost != 18.5 {
+	if repo.routeSaved.Name != "通用烘焙" || !repo.routeSaved.Operations[0].RecordsLoss || repo.routeSaved.Operations[0].PlannedOperationCost != 0 {
 		t.Fatalf("saved route command = %+v", repo.routeSaved)
 	}
 

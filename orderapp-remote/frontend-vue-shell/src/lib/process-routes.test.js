@@ -42,27 +42,22 @@ test('process route operation editor aligns fields and hides raw quality checkli
   assert.doesNotMatch(source, /工位\/设备/)
 })
 
-test('process route operation row derives planned cost from workstation capacity', () => {
+test('process route operation row stays a route template and does not select workstation capacity', () => {
   const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
 
-  for (const required of [
-    '/api/manufacturing-workstation-capacities',
-    '工位产能',
-    'workstation_capacity_id',
-    'workstation_capacity_name',
-    'batch_size_qty',
-    'batch_size_unit',
-    'standard_minutes',
-    'hourly_rate',
-    'applyWorkstationCapacity',
-    'plannedOperationCostFormula',
-    '自动折算计划工序成本',
-  ]) {
-    assert.match(source, new RegExp(required))
-  }
-  assert.match(source, /小时成本\s*×\s*标准分钟/)
-  assert.match(source, /planned_operation_cost:\s*Number/)
-  assert.doesNotMatch(source, /v-model\.number="op\.planned_operation_cost"/)
+  assert.doesNotMatch(source, /\/api\/manufacturing-workstation-capacities/)
+  assert.doesNotMatch(source, /工位产能/)
+  assert.doesNotMatch(source, /workstation_capacity_id/)
+  assert.doesNotMatch(source, /workstation_capacity_name/)
+  assert.doesNotMatch(source, /batch_size_qty/)
+  assert.doesNotMatch(source, /batch_size_unit/)
+  assert.doesNotMatch(source, /standard_minutes/)
+  assert.doesNotMatch(source, /hourly_rate/)
+  assert.doesNotMatch(source, /applyWorkstationCapacity/)
+  assert.doesNotMatch(source, /plannedOperationCostFormula/)
+  assert.doesNotMatch(source, /自动折算计划工序成本/)
+  assert.doesNotMatch(source, /小时成本\s*×\s*标准分钟/)
+  assert.doesNotMatch(source, /planned_operation_cost:\s*Number/)
   assert.doesNotMatch(source, /planned_batch_count/)
   assert.doesNotMatch(source, /planned_minutes/)
   assert.doesNotMatch(source, /标准分钟\/批/)

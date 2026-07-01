@@ -779,48 +779,6 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	}
 
 	if input.ProcessRouteID > 0 {
-		routeRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-			SELECT pro.id,
-			       COALESCE(NULLIF(pro.operation,''), NULLIF(mo.name,''), '工序') AS name,
-			       COALESCE(pro.planned_operation_cost,0)::float8,
-			       COALESCE(NULLIF(pro.batch_size_unit,''),'kg')
-			FROM %[1]s.process_route_operations pro
-			LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
-			WHERE pro.route_id=$1
-			ORDER BY pro.seq, pro.id
-		`, r.schema), input.ProcessRouteID)
-		if err != nil {
-			return nil, err
-		}
-		defer routeRows.Close()
-		for routeRows.Next() {
-			var row appcosting.PricingRuleTrialBaseCostDetail
-			var id int64
-			var costUnit string
-			if err := routeRows.Scan(&id, &row.Name, &row.UnitCost, &costUnit); err != nil {
-				return nil, err
-			}
-			if row.UnitCost <= 0 {
-				continue
-			}
-			costUnit = strings.TrimSpace(costUnit)
-			if costUnit == "" {
-				costUnit = "kg"
-			}
-			row.Key = fmt.Sprintf("process_route:%d", id)
-			row.Type = "operation"
-			row.TypeLabel = "工艺路线"
-			row.ConsumeUnit = "process_route"
-			row.Quantity = 1
-			row.AmountPerUnit = row.UnitCost
-			row.Unit = costUnit
-			row.CostUnit = costUnit
-			row.Description = fmt.Sprintf("工艺路线计划工序成本 %s，按产能单位 %s 折算", row.Name, costUnit)
-			out = append(out, row)
-		}
-		if err := routeRows.Err(); err != nil {
-			return nil, err
-		}
 		return out, nil
 	}
 	if input.OperationTemplateID <= 0 {

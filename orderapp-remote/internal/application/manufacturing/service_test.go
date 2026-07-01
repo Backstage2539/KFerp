@@ -338,7 +338,7 @@ func TestSaveWorkstationCapacityNormalizesApplicableOperationIDs(t *testing.T) {
 	}
 }
 
-func TestSaveProcessRouteDerivesOperationCostFromWorkstationCapacity(t *testing.T) {
+func TestSaveProcessRouteClearsWorkstationCapacityCostFields(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 5, BatchSizeUnit: "kg", StandardMinutes: 60, HourlyRate: 5,
@@ -350,45 +350,54 @@ func TestSaveProcessRouteDerivesOperationCostFromWorkstationCapacity(t *testing.
 			Operation:               "烘焙",
 			WorkstationCapacityID:   9,
 			WorkstationCapacityName: "布勒 18kg",
+			WorkstationID:           2,
+			Workstation:             "布勒烘焙机",
+			BatchSizeQty:            5,
+			BatchSizeUnit:           "kg",
+			StandardMinutes:         60,
+			HourlyRate:              5,
+			PlannedBatchCount:       1,
+			PlannedMinutes:          60,
+			PlannedOperationCost:    1,
 			RecordsLoss:             true,
 		}},
 	}); err != nil {
 		t.Fatalf("SaveProcessRoute: %v", err)
 	}
 	op := repo.savedRoute.Operations[0]
-	if op.WorkstationID != 2 || op.Workstation != "布勒烘焙机" || op.WorkstationCapacityID != 9 || op.WorkstationCapacityName != "布勒 18kg" {
-		t.Fatalf("route operation should snapshot selected workstation capacity: %+v", op)
+	if op.WorkstationID != 0 || op.Workstation != "" || op.WorkstationCapacityID != 0 || op.WorkstationCapacityName != "" {
+		t.Fatalf("route operation should clear workstation capacity fields: %+v", op)
 	}
-	if op.BatchSizeQty != 5 || op.BatchSizeUnit != "kg" || op.StandardMinutes != 60 || op.HourlyRate != 5 {
-		t.Fatalf("route operation should snapshot batch/time and workstation hourly cost: %+v", op)
-	}
-	if op.PlannedOperationCost != 1 {
-		t.Fatalf("route operation planned cost = %.2f, want 1/kg from 5元/小时 * 60分钟 / 5kg", op.PlannedOperationCost)
+	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.PlannedOperationCost != 0 {
+		t.Fatalf("route operation should clear capacity cost fields: %+v", op)
 	}
 }
 
-func TestSaveProcessRouteRejectsNegativePlannedOperationCost(t *testing.T) {
+func TestSaveProcessRouteIgnoresPlannedOperationCostInput(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
-	_, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
-		Name: "错误路线",
+	route, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "路线模板",
 		Operations: []ProcessRouteOperation{{
 			Operation:            "烘焙",
 			PlannedOperationCost: -1,
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "planned_operation_cost") {
-		t.Fatalf("SaveProcessRoute error = %v, want planned_operation_cost validation", err)
+	if err != nil {
+		t.Fatalf("SaveProcessRoute should ignore route planned cost input, got error: %v", err)
+	}
+	if route.Operations[0].PlannedOperationCost != 0 {
+		t.Fatalf("route operation planned cost = %.2f, want cleared", route.Operations[0].PlannedOperationCost)
 	}
 }
 
-func TestSaveProcessRouteRejectsCapacityWorkstationMismatch(t *testing.T) {
+func TestSaveProcessRouteIgnoresCapacityWorkstationMismatch(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
 	}}}
 	svc := NewService(repo)
-	_, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+	route, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
 		Name: "错误路线",
 		Operations: []ProcessRouteOperation{{
 			Operation:             "烘焙",
@@ -397,7 +406,10 @@ func TestSaveProcessRouteRejectsCapacityWorkstationMismatch(t *testing.T) {
 			WorkstationCapacityID: 9,
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "workstation capacity") {
-		t.Fatalf("SaveProcessRoute error = %v, want workstation capacity mismatch validation", err)
+	if err != nil {
+		t.Fatalf("SaveProcessRoute should ignore route capacity fields, got error: %v", err)
+	}
+	if route.Operations[0].WorkstationID != 0 || route.Operations[0].WorkstationCapacityID != 0 {
+		t.Fatalf("route operation should clear mismatched capacity fields: %+v", route.Operations[0])
 	}
 }
