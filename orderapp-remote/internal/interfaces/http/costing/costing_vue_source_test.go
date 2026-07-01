@@ -22,11 +22,20 @@ func TestCostingViewGroupsBeanListsByExcelCategoryAndShowsMetadata(t *testing.T)
 		"commercial_bean_list",
 		"retail_bean_list",
 		"bean-code",
-		"recommendedUse",
-		"description",
+		"attributeLines",
+		"pdf-price-list",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"item.recommendedUse",
+		"item.flavor",
+		"item.description",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("CostingView.vue should not render legacy bean-list metadata %q", forbidden)
 		}
 	}
 }
