@@ -134,6 +134,17 @@ test('product price-list card preview aligns each row to its tallest card withou
   assert.match(viewSource, /\.pdf-price \{[^}]*min-height: 34px/)
 })
 
+test('product price-list card preview aligns title attributes and quote slots within each row', () => {
+  assert.match(viewSource, /class="pdf-meta-block"/)
+  assert.match(viewSource, /\.pdf-card-row \{[^}]*grid-template-rows: auto auto auto/)
+  assert.match(viewSource, /\.pdf-card-row \{[^}]*column-gap: 9px/)
+  assert.match(viewSource, /\.pdf-card-row \{[^}]*row-gap: 0/)
+  assert.match(viewSource, /\.pdf-card-row > \.pdf-item \{[^}]*display: grid/)
+  assert.match(viewSource, /\.pdf-card-row > \.pdf-item \{[^}]*grid-template-rows: subgrid/)
+  assert.match(viewSource, /\.pdf-card-row > \.pdf-item \{[^}]*grid-row: span 3/)
+  assert.match(viewSource, /\.pdf-price-block \{[^}]*align-self: start/)
+})
+
 test('product price-list publish action reports blocked reasons instead of doing nothing', () => {
   const publishButtonStart = viewSource.indexOf('@click="publishBeanList"')
   assert.ok(publishButtonStart > -1, 'publish button not found')
