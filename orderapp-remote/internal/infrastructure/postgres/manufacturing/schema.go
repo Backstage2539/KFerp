@@ -61,11 +61,17 @@ CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstations (
 	name TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'active',
 	default_minutes INT NOT NULL DEFAULT 0,
+	machine_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
+	labor_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
+	overhead_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
 	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
 	note TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.manufacturing_workstations ADD COLUMN IF NOT EXISTS machine_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.manufacturing_workstations ADD COLUMN IF NOT EXISTS labor_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.manufacturing_workstations ADD COLUMN IF NOT EXISTS overhead_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstations_code_uq
 	ON %[1]s.manufacturing_workstations(code)
 	WHERE code <> '';

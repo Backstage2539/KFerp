@@ -69,6 +69,12 @@ func TestManufacturingSchemaAddsOperationAndWorkstationMasterData(t *testing.T) 
 	for _, want := range []string{
 		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operations",
 		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstations",
+		"machine_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"labor_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"overhead_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.manufacturing_workstations ADD COLUMN IF NOT EXISTS machine_hourly_cost",
+		"ALTER TABLE %[1]s.manufacturing_workstations ADD COLUMN IF NOT EXISTS labor_hourly_cost",
+		"ALTER TABLE %[1]s.manufacturing_workstations ADD COLUMN IF NOT EXISTS overhead_hourly_cost",
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS operation_id",
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_id",
 		"ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS operation_id",

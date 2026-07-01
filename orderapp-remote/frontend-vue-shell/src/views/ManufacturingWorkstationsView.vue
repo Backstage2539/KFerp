@@ -24,7 +24,7 @@
               <td>
                 <strong>{{ row.name }}</strong>
                 <small>#{{ row.id }} · {{ row.code || '无编码' }}</small>
-                <small>默认小时费率 {{ Number(row.hourly_rate || 0).toFixed(2) }} · {{ row.updated_at || '-' }}</small>
+                <small>小时成本合计 {{ Number(row.hourly_rate || 0).toFixed(2) }} · {{ row.updated_at || '-' }}</small>
               </td>
               <td class="master-status">
                 <span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span>
@@ -41,7 +41,10 @@
         <div class="form-grid">
           <label><span>工位/设备名称</span><input v-model.trim="form.name" placeholder="烘焙机 / 包装台 / 质检台" /></label>
           <label><span>编码</span><input v-model.trim="form.code" placeholder="ROASTER-01 / PACK-01" /></label>
-          <label><span>默认小时费率</span><input v-model.number="form.hourly_rate" type="number" min="0" step="0.01" /></label>
+          <label><span>机器成本/小时</span><input v-model.number="form.machine_hourly_cost" type="number" min="0" step="0.01" /></label>
+          <label><span>人工成本/小时</span><input v-model.number="form.labor_hourly_cost" type="number" min="0" step="0.01" /></label>
+          <label><span>其他成本/小时</span><input v-model.number="form.overhead_hourly_cost" type="number" min="0" step="0.01" /></label>
+          <label><span>小时成本合计</span><input :value="workstationHourlyRate.toFixed(2)" type="text" readonly /></label>
           <label>
             <span>状态</span>
             <select v-model="form.status">
@@ -63,7 +66,7 @@
           <div v-if="!form.id" class="muted inline-muted">先选择或保存工位/设备</div>
           <table v-else class="capacity-table">
             <thead>
-              <tr><th>工位产能</th><th>批量</th><th>适用工序</th><th>标准分钟/批</th><th>小时费率</th><th>状态</th></tr>
+              <tr><th>工位产能</th><th>批量</th><th>适用工序</th><th>标准分钟/批</th><th>继承小时成本</th><th>状态</th></tr>
             </thead>
             <tbody>
               <tr v-for="row in capacitiesForSelectedWorkstation" :key="row.id" :class="{ active: row.id === capacityForm.id }" @click="editCapacity(row)">
@@ -93,7 +96,7 @@
             <label><span>标准批量</span><input v-model.number="capacityForm.batch_size_qty" type="number" min="0" step="0.001" /></label>
             <label><span>单位</span><input v-model.trim="capacityForm.batch_size_unit" placeholder="kg / g / 件" /></label>
             <label><span>标准分钟/批</span><input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" /></label>
-            <label><span>小时费率</span><input v-model.number="capacityForm.hourly_rate" type="number" min="0" step="0.01" /></label>
+            <label><span>继承工位小时成本</span><input :value="workstationHourlyRate.toFixed(2)" type="text" readonly /></label>
             <div class="wide operation-checks">
               <span>适用工序</span>
               <div v-if="activeOperations.length" class="operation-check-grid">
@@ -139,9 +142,10 @@ const capacityForm = reactive(blankCapacity())
 
 const capacitiesForSelectedWorkstation = computed(() => workstationCapacities.value.filter((row) => Number(row.workstation_id || 0) === Number(form.id || 0)))
 const activeOperations = computed(() => operations.value.filter((row) => String(row.status || 'active') === 'active'))
+const workstationHourlyRate = computed(() => Number((Number(form.machine_hourly_cost || 0) + Number(form.labor_hourly_cost || 0) + Number(form.overhead_hourly_cost || 0)).toFixed(2)))
 
 function blankWorkstation() {
-  return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, hourly_rate: 0, note: '' }
+  return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, machine_hourly_cost: 0, labor_hourly_cost: 0, overhead_hourly_cost: 0, hourly_rate: 0, note: '' }
 }
 
 function blankCapacity() {
@@ -154,7 +158,6 @@ function blankCapacity() {
     batch_size_qty: 0,
     batch_size_unit: 'kg',
     standard_minutes: 0,
-    hourly_rate: 0,
     production_capacity: 1,
     sort_order: 0,
     applicable_operation_ids: [],
@@ -225,16 +228,19 @@ function editWorkstation(row) {
     code: row.code || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
     default_minutes: Number(row.default_minutes || 0),
+    machine_hourly_cost: Number(row.machine_hourly_cost || 0),
+    labor_hourly_cost: Number(row.labor_hourly_cost || 0),
+    overhead_hourly_cost: Number(row.overhead_hourly_cost || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     note: row.note || '',
   })
-  resetCapacity({ ...blankCapacity(), workstation_id: Number(row.id || 0), hourly_rate: Number(row.hourly_rate || 0) })
+  resetCapacity({ ...blankCapacity(), workstation_id: Number(row.id || 0) })
   error.value = ''
   ok.value = ''
 }
 
 function newCapacity() {
-  resetCapacity({ ...blankCapacity(), workstation_id: Number(form.id || 0), hourly_rate: Number(form.hourly_rate || 0) })
+  resetCapacity({ ...blankCapacity(), workstation_id: Number(form.id || 0) })
 }
 
 function editCapacity(row) {
@@ -245,7 +251,6 @@ function editCapacity(row) {
     workstation_id: Number(row.workstation_id || form.id || 0),
     batch_size_qty: Number(row.batch_size_qty || 0),
     standard_minutes: Number(row.standard_minutes || 0),
-    hourly_rate: Number(row.hourly_rate || 0),
     production_capacity: Number(row.production_capacity || 1),
     sort_order: Number(row.sort_order || 0),
     applicable_operation_ids: Array.isArray(row.applicable_operation_ids) ? row.applicable_operation_ids : [],
@@ -275,7 +280,10 @@ async function saveWorkstation() {
       body: {
         ...form,
         default_minutes: 0,
-        hourly_rate: Number(form.hourly_rate || 0),
+        machine_hourly_cost: Number(form.machine_hourly_cost || 0),
+        labor_hourly_cost: Number(form.labor_hourly_cost || 0),
+        overhead_hourly_cost: Number(form.overhead_hourly_cost || 0),
+        hourly_rate: workstationHourlyRate.value,
       },
     })
     editWorkstation(saved)
@@ -308,7 +316,7 @@ async function saveCapacity() {
         workstation_id: Number(form.id || 0),
         batch_size_qty: Number(capacityForm.batch_size_qty || 0),
         standard_minutes: Number(capacityForm.standard_minutes || 0),
-        hourly_rate: Number(capacityForm.hourly_rate || 0),
+        hourly_rate: 0,
         production_capacity: Number(capacityForm.production_capacity || 1),
         sort_order: Number(capacityForm.sort_order || 0),
         applicable_operation_ids: capacityForm.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0),

@@ -98,9 +98,18 @@
                 <span>工序名称快照</span>
                 <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
               </label>
+              <label class="operation-capacity">
+                <span>工位产能</span>
+                <select v-model.number="op.workstation_capacity_id" @change="applyWorkstationCapacity(index)">
+                  <option :value="0">不选择工位产能</option>
+                  <option v-for="capacity in activeWorkstationCapacities" :key="capacity.id" :value="Number(capacity.id)">
+                    {{ capacityOptionLabel(capacity) }}
+                  </option>
+                </select>
+              </label>
               <label class="operation-cost">
-                <span>计划工序成本</span>
-                <input v-model.number="op.planned_operation_cost" type="number" min="0" step="0.0001" placeholder="0" />
+                <span>自动折算计划工序成本</span>
+                <input :value="Number(op.planned_operation_cost || 0).toFixed(2)" type="text" readonly />
               </label>
               <label class="checkbox operation-loss">
                 <input v-model="op.records_loss" type="checkbox" />
@@ -108,6 +117,7 @@
               </label>
             </div>
             <div class="operation-quality">
+              <p class="operation-cost-note">{{ plannedOperationCostFormula(op) }}</p>
               <label>
                 <span>质检项</span>
                 <textarea v-model.trim="op.quality_checklist_text" rows="2" placeholder="每行一个质检项，例如：外观&#10;重量"></textarea>
@@ -137,10 +147,12 @@ const error = ref('')
 const ok = ref('')
 const routes = ref([])
 const operations = ref([])
+const workstationCapacities = ref([])
 const filters = reactive({ status: '' })
 const form = reactive(blankRoute())
 
 const activeOperations = computed(() => operations.value.filter((row) => row.status === 'active'))
+const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => String(row.status || 'active') === 'active'))
 
 function blankRoute() {
   return {
@@ -158,7 +170,15 @@ function blankOperation(seq) {
   return {
     seq,
     operation_id: 0,
+    workstation_id: 0,
+    workstation: '',
+    workstation_capacity_id: 0,
+    workstation_capacity_name: '',
     operation: '',
+    batch_size_qty: 0,
+    batch_size_unit: '',
+    standard_minutes: 0,
+    hourly_rate: 0,
     planned_operation_cost: 0,
     records_loss: false,
     quality_checklist_json: '[]',
@@ -178,6 +198,14 @@ function operationMeta(option) {
   const parts = []
   if (option?.code) parts.push(option.code)
   return parts.join(' / ')
+}
+
+function capacityOptionLabel(capacity) {
+  const parts = [capacity?.name || `#${capacity?.id || ''}`]
+  if (Number(capacity?.batch_size_qty || 0) > 0) parts.push(`${capacity.batch_size_qty}${capacity.batch_size_unit || ''}`)
+  if (Number(capacity?.standard_minutes || 0) > 0) parts.push(`${capacity.standard_minutes}分钟`)
+  if (Number(capacity?.hourly_rate || 0) > 0) parts.push(`${Number(capacity.hourly_rate || 0).toFixed(2)}/小时`)
+  return parts.join(' · ')
 }
 
 function statusLabel(status) {
@@ -222,7 +250,15 @@ function routePayload() {
       return {
         seq: Number(rest.seq || 0),
         operation_id: Number(rest.operation_id || 0),
+        workstation_id: Number(rest.workstation_id || 0),
+        workstation: rest.workstation || '',
+        workstation_capacity_id: Number(rest.workstation_capacity_id || 0),
+        workstation_capacity_name: rest.workstation_capacity_name || '',
         operation: rest.operation || '',
+        batch_size_qty: Number(rest.batch_size_qty || 0),
+        batch_size_unit: rest.batch_size_unit || '',
+        standard_minutes: Number(rest.standard_minutes || 0),
+        hourly_rate: Number(rest.hourly_rate || 0),
         planned_operation_cost: Number(rest.planned_operation_cost || 0),
         records_loss: !!rest.records_loss,
         quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
@@ -247,7 +283,15 @@ function normalizeRoute(row) {
       ...op,
       seq: Number(op.seq || index + 1),
       operation_id: Number(op.operation_id || 0),
+      workstation_id: Number(op.workstation_id || 0),
+      workstation: op.workstation || '',
+      workstation_capacity_id: Number(op.workstation_capacity_id || 0),
+      workstation_capacity_name: op.workstation_capacity_name || '',
       operation: op.operation || '',
+      batch_size_qty: Number(op.batch_size_qty || 0),
+      batch_size_unit: op.batch_size_unit || '',
+      standard_minutes: Number(op.standard_minutes || 0),
+      hourly_rate: Number(op.hourly_rate || 0),
       planned_operation_cost: Number(op.planned_operation_cost || 0),
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
@@ -269,8 +313,12 @@ async function loadAll() {
 }
 
 async function loadManufacturingMasterData() {
-  const operationData = await apiGet('/api/manufacturing-operations')
+  const [operationData, capacityData] = await Promise.all([
+    apiGet('/api/manufacturing-operations'),
+    apiGet('/api/manufacturing-workstation-capacities'),
+  ])
   operations.value = operationData?.rows || []
+  workstationCapacities.value = capacityData?.rows || []
 }
 
 async function loadRoutes() {
@@ -306,6 +354,48 @@ function applyOperation(index, option) {
   if (!op || !option) return
   op.operation_id = Number(option.id || 0)
   op.operation = option.name || op.operation
+}
+
+function applyWorkstationCapacity(index) {
+  const op = form.operations[index]
+  if (!op) return
+  const capacity = activeWorkstationCapacities.value.find((row) => Number(row.id || 0) === Number(op.workstation_capacity_id || 0))
+  if (!capacity) {
+    op.workstation_id = 0
+    op.workstation = ''
+    op.workstation_capacity_id = 0
+    op.workstation_capacity_name = ''
+    op.batch_size_qty = 0
+    op.batch_size_unit = ''
+    op.standard_minutes = 0
+    op.hourly_rate = 0
+    op.planned_operation_cost = 0
+    return
+  }
+  op.workstation_id = Number(capacity.workstation_id || 0)
+  op.workstation = capacity.workstation || ''
+  op.workstation_capacity_name = capacity.name || ''
+  op.batch_size_qty = Number(capacity.batch_size_qty || 0)
+  op.batch_size_unit = capacity.batch_size_unit || ''
+  op.standard_minutes = Number(capacity.standard_minutes || 0)
+  op.hourly_rate = Number(capacity.hourly_rate || 0)
+  op.planned_operation_cost = derivedPlannedOperationCost(op)
+}
+
+function derivedPlannedOperationCost(op) {
+  const batchSizeQty = Number(op.batch_size_qty || 0)
+  const standardMinutes = Number(op.standard_minutes || 0)
+  const hourlyRate = Number(op.hourly_rate || 0)
+  if (batchSizeQty <= 0 || standardMinutes <= 0 || hourlyRate <= 0) return 0
+  return Number((((standardMinutes / 60) * hourlyRate) / batchSizeQty).toFixed(2))
+}
+
+function plannedOperationCostFormula(op) {
+  if (!Number(op.workstation_capacity_id || 0)) {
+    return '未选择工位产能；不会自动生成计划工序成本。'
+  }
+  const unit = op.batch_size_unit || '库存单位'
+  return `小时成本 × 标准分钟 ÷ 标准批量 = ${Number(op.hourly_rate || 0).toFixed(2)} × ${Number(op.standard_minutes || 0)} / 60 ÷ ${Number(op.batch_size_qty || 0)}${unit} = ${Number(op.planned_operation_cost || 0).toFixed(2)}/${unit}`
 }
 
 async function mutate(action) {
@@ -392,7 +482,8 @@ tbody tr.active { background: #f3f7fb; }
 .operations-head { justify-content: space-between; margin-top: 14px; }
 .operation-list { display: grid; gap: 10px; }
 .operation-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; gap: 10px; }
-.operation-row-fields { display: grid; grid-template-columns: 72px minmax(160px, 1.3fr) minmax(140px, 1fr) minmax(120px, .8fr) 96px; gap: 8px; align-items: end; }
+.operation-row-fields { display: grid; grid-template-columns: 72px minmax(150px, 1.1fr) minmax(130px, .9fr) minmax(180px, 1.2fr) minmax(130px, .8fr) 96px; gap: 8px; align-items: end; }
+.operation-cost-note { grid-column: 1 / -1; margin: 0; color: #666; font-size: 13px; }
 .operation-quality { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
 .operation-delete { justify-self: end; min-height: 38px; }
 .checkbox { display: flex; align-items: center; gap: 6px; min-height: 38px; }

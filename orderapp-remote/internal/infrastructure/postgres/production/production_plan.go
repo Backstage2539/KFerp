@@ -582,7 +582,7 @@ func loadWorkstationCapacitySnapshotForSplitTx(ctx context.Context, tx pgx.Tx, s
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT c.workstation_id,COALESCE(w.name,''),c.name,
 		       COALESCE(c.batch_size_qty,0)::float8,COALESCE(c.batch_size_unit,''),
-		       c.standard_minutes,COALESCE(c.hourly_rate,0)::float8
+		       c.standard_minutes,COALESCE(NULLIF(w.hourly_rate,0), c.hourly_rate, 0)::float8
 		FROM %s.manufacturing_workstation_capacities c
 		LEFT JOIN %s.manufacturing_workstations w ON w.id=c.workstation_id
 		WHERE c.id=$1 AND c.status='active'

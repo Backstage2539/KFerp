@@ -1156,10 +1156,11 @@ func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetai
 		return row.AmountPerKg * quoteKgFactor, quoteUnit, quoteKgFactor
 	}
 	if row.AmountPerUnit > 0 {
-		if amount, unit, scale, ok := pricingRuleTrialConvertCostAmount(row.AmountPerUnit, perUnitSourceUnit, quoteUnit, conversionJSON); ok {
+		sourceUnit := firstNonEmptyString(rowUnit, perUnitSourceUnit)
+		if amount, unit, scale, ok := pricingRuleTrialConvertCostAmount(row.AmountPerUnit, sourceUnit, quoteUnit, conversionJSON); ok {
 			return amount, unit, scale
 		}
-		return row.AmountPerUnit, firstNonEmptyString(rowUnit, quoteUnit), 1
+		return row.AmountPerUnit, firstNonEmptyString(sourceUnit, quoteUnit), 1
 	}
 	if row.AmountPerKg > 0 && quoteKgFactor > 0 {
 		return row.AmountPerKg * quoteKgFactor, quoteUnit, quoteKgFactor

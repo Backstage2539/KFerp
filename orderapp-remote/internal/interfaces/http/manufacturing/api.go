@@ -26,13 +26,16 @@ type manufacturingOperationRequest struct {
 }
 
 type manufacturingWorkstationRequest struct {
-	ID             int64   `json:"id"`
-	Code           string  `json:"code"`
-	Name           string  `json:"name"`
-	Status         string  `json:"status"`
-	DefaultMinutes int     `json:"default_minutes"`
-	HourlyRate     float64 `json:"hourly_rate"`
-	Note           string  `json:"note"`
+	ID                 int64   `json:"id"`
+	Code               string  `json:"code"`
+	Name               string  `json:"name"`
+	Status             string  `json:"status"`
+	DefaultMinutes     int     `json:"default_minutes"`
+	MachineHourlyCost  float64 `json:"machine_hourly_cost"`
+	LaborHourlyCost    float64 `json:"labor_hourly_cost"`
+	OverheadHourlyCost float64 `json:"overhead_hourly_cost"`
+	HourlyRate         float64 `json:"hourly_rate"`
+	Note               string  `json:"note"`
 }
 
 type workstationCapacityRequest struct {
@@ -138,14 +141,17 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := svc.SaveManufacturingWorkstation(c.Request().Context(), manufacturingapp.SaveManufacturingWorkstationCommand{
-			ID:             req.ID,
-			Code:           req.Code,
-			Name:           req.Name,
-			Status:         req.Status,
-			DefaultMinutes: req.DefaultMinutes,
-			HourlyRate:     req.HourlyRate,
-			Note:           req.Note,
-			Actor:          support.ActorOf(c),
+			ID:                 req.ID,
+			Code:               req.Code,
+			Name:               req.Name,
+			Status:             req.Status,
+			DefaultMinutes:     req.DefaultMinutes,
+			MachineHourlyCost:  req.MachineHourlyCost,
+			LaborHourlyCost:    req.LaborHourlyCost,
+			OverheadHourlyCost: req.OverheadHourlyCost,
+			HourlyRate:         req.HourlyRate,
+			Note:               req.Note,
+			Actor:              support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

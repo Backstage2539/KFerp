@@ -10,7 +10,9 @@ type fakeRepo struct {
 	savedProcess             SaveProcessTemplateCommand
 	savedRoute               SaveProcessRouteCommand
 	savedIndustry            SaveIndustryTemplateCommand
+	savedWorkstation         SaveManufacturingWorkstationCommand
 	savedWorkstationCapacity SaveWorkstationCapacityCommand
+	workstations             []ManufacturingWorkstation
 	workstationCapacities    []ManufacturingWorkstationCapacity
 	publishedID              int64
 }
@@ -25,10 +27,11 @@ func (r *fakeRepo) DeactivateManufacturingOperation(ctx context.Context, cmd Tem
 	return nil
 }
 func (r *fakeRepo) ListManufacturingWorkstations(ctx context.Context) ([]ManufacturingWorkstation, error) {
-	return nil, nil
+	return r.workstations, nil
 }
 func (r *fakeRepo) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManufacturingWorkstationCommand) (ManufacturingWorkstation, error) {
-	return ManufacturingWorkstation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, HourlyRate: cmd.HourlyRate}, nil
+	r.savedWorkstation = cmd
+	return ManufacturingWorkstation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, MachineHourlyCost: cmd.MachineHourlyCost, LaborHourlyCost: cmd.LaborHourlyCost, OverheadHourlyCost: cmd.OverheadHourlyCost, HourlyRate: cmd.HourlyRate}, nil
 }
 func (r *fakeRepo) DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error {
 	return nil
@@ -229,6 +232,28 @@ func TestPublishProcessTemplateRequiresID(t *testing.T) {
 	}
 }
 
+func TestSaveManufacturingWorkstationDerivesHourlyRateFromCostComponents(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	got, err := svc.SaveManufacturingWorkstation(context.Background(), SaveManufacturingWorkstationCommand{
+		Name:               "Loring S15",
+		MachineHourlyCost:  42.5,
+		LaborHourlyCost:    60,
+		OverheadHourlyCost: 7.5,
+		HourlyRate:         999,
+		Actor:              "tester",
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingWorkstation: %v", err)
+	}
+	if repo.savedWorkstation.HourlyRate != 110 || got.HourlyRate != 110 {
+		t.Fatalf("hourly rate = saved %.2f returned %.2f, want component sum 110", repo.savedWorkstation.HourlyRate, got.HourlyRate)
+	}
+	if got.MachineHourlyCost != 42.5 || got.LaborHourlyCost != 60 || got.OverheadHourlyCost != 7.5 {
+		t.Fatalf("cost components not preserved: %+v", got)
+	}
+}
+
 func TestSaveProcessRouteKeepsRouteLeanAndNormalizesOperations(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -278,6 +303,9 @@ func TestSaveWorkstationCapacityNormalizesReusablePreset(t *testing.T) {
 	if repo.savedWorkstationCapacity.WorkstationID != 2 || repo.savedWorkstationCapacity.BatchSizeUnit != "kg" || repo.savedWorkstationCapacity.StandardMinutes != 15 {
 		t.Fatalf("saved capacity command = %+v", repo.savedWorkstationCapacity)
 	}
+	if repo.savedWorkstationCapacity.HourlyRate != 0 || got.HourlyRate != 0 {
+		t.Fatalf("capacity should not store hourly rate, saved %.2f returned %.2f", repo.savedWorkstationCapacity.HourlyRate, got.HourlyRate)
+	}
 }
 
 func TestSaveWorkstationCapacityNormalizesApplicableOperationIDs(t *testing.T) {
@@ -310,41 +338,32 @@ func TestSaveWorkstationCapacityNormalizesApplicableOperationIDs(t *testing.T) {
 	}
 }
 
-func TestSaveProcessRouteDropsCapacityOwnershipButKeepsPlannedOperationCost(t *testing.T) {
+func TestSaveProcessRouteDerivesOperationCostFromWorkstationCapacity(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
-		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
-		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
+		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
+		BatchSizeQty: 5, BatchSizeUnit: "kg", StandardMinutes: 60, HourlyRate: 5,
 	}}}
 	svc := NewService(repo)
 	if _, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
 		Name: "烘焙路线",
 		Operations: []ProcessRouteOperation{{
 			Operation:               "烘焙",
-			WorkstationID:           2,
-			Workstation:             "布勒烘焙机",
 			WorkstationCapacityID:   9,
 			WorkstationCapacityName: "布勒 18kg",
-			BatchSizeQty:            18,
-			BatchSizeUnit:           "kg",
-			StandardMinutes:         15,
-			HourlyRate:              300,
-			PlannedBatchCount:       5,
-			PlannedMinutes:          75,
-			PlannedOperationCost:    375,
 			RecordsLoss:             true,
 		}},
 	}); err != nil {
 		t.Fatalf("SaveProcessRoute: %v", err)
 	}
 	op := repo.savedRoute.Operations[0]
-	if op.WorkstationID != 0 || op.Workstation != "" || op.WorkstationCapacityID != 0 || op.WorkstationCapacityName != "" {
-		t.Fatalf("route operation should not own workstation capacity: %+v", op)
+	if op.WorkstationID != 2 || op.Workstation != "布勒烘焙机" || op.WorkstationCapacityID != 9 || op.WorkstationCapacityName != "布勒 18kg" {
+		t.Fatalf("route operation should snapshot selected workstation capacity: %+v", op)
 	}
-	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.PlannedBatchCount != 0 || op.PlannedMinutes != 0 {
-		t.Fatalf("route operation should not own batch/time/rate fields: %+v", op)
+	if op.BatchSizeQty != 5 || op.BatchSizeUnit != "kg" || op.StandardMinutes != 60 || op.HourlyRate != 5 {
+		t.Fatalf("route operation should snapshot batch/time and workstation hourly cost: %+v", op)
 	}
-	if op.PlannedOperationCost != 375 {
-		t.Fatalf("route operation planned cost = %.2f, want 375 for pricing trial", op.PlannedOperationCost)
+	if op.PlannedOperationCost != 1 {
+		t.Fatalf("route operation planned cost = %.2f, want 1/kg from 5元/小时 * 60分钟 / 5kg", op.PlannedOperationCost)
 	}
 }
 
@@ -363,7 +382,7 @@ func TestSaveProcessRouteRejectsNegativePlannedOperationCost(t *testing.T) {
 	}
 }
 
-func TestSaveProcessRouteIgnoresCapacityWorkstationMismatch(t *testing.T) {
+func TestSaveProcessRouteRejectsCapacityWorkstationMismatch(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
@@ -378,11 +397,7 @@ func TestSaveProcessRouteIgnoresCapacityWorkstationMismatch(t *testing.T) {
 			WorkstationCapacityID: 9,
 		}},
 	})
-	if err != nil {
-		t.Fatalf("SaveProcessRoute should ignore mismatched workstation capacity fields: %v", err)
-	}
-	op := repo.savedRoute.Operations[0]
-	if op.WorkstationID != 0 || op.WorkstationCapacityID != 0 || op.Workstation != "" {
-		t.Fatalf("route operation should drop mismatched capacity fields: %+v", op)
+	if err == nil || !strings.Contains(err.Error(), "workstation capacity") {
+		t.Fatalf("SaveProcessRoute error = %v, want workstation capacity mismatch validation", err)
 	}
 }
