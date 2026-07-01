@@ -52,17 +52,24 @@ func TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting(t *testing.T) {
 		"pdf-preview-title",
 		"预览",
 		"v-for=\"item in group.items\"",
-		"item.recommendedUse",
-		"item.flavor",
-		"item.description",
+		"item.attributeLines",
 		"item.prices",
 		"报价",
-		"风味",
-		"特点",
-		"出品建议",
+		"overflow-wrap: anywhere",
+		"grid-template-columns: auto minmax(0, 1fr)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PDF preview source missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"item.recommendedUse",
+		"item.flavor",
+		"item.description",
+		"批发价",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("PDF preview source should not render legacy bean-list copy %q", forbidden)
 		}
 	}
 	if strings.Contains(src, "group.items.length }} 款") {

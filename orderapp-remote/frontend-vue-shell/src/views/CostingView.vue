@@ -541,17 +541,7 @@
                     <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                     <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
                   </div>
-                  <div v-if="item.flavor" class="pdf-table-line">
-                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`pf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </div>
-                  <div v-if="item.description" class="pdf-table-line">
-                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </div>
                   <div v-for="line in item.attributeLines || []" :key="`pa-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
-                  <div v-if="item.recommendedUse" class="pdf-table-line">
-                    <b>出品</b>
-                    <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </div>
                 </td>
                 <td class="pdf-table-prices">
                   <div v-for="priceRow in item.prices" :key="`preview-table-price-${item.code}-${priceRow.label}`">
@@ -577,27 +567,11 @@
                       <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                       <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
                     </h3>
-                    <p v-if="item.recommendedUse" class="pdf-meta-line">
-                      <b>出品建议</b>
-                      <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </p>
                   </div>
                 </div>
-                <p v-if="item.flavor" class="pdf-flavor">
-                  <b>风味</b>
-                  <span>
-                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </span>
-                </p>
-                <p v-if="item.description" class="pdf-desc">
-                  <b>特点</b>
-                  <span>
-                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </span>
-                </p>
                 <p v-for="line in item.attributeLines || []" :key="`card-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b> {{ line }}</p>
                 <div class="pdf-price-block">
-                  <div class="pdf-section-label">批发价</div>
+                  <div class="pdf-section-label">报价</div>
                   <div class="pdf-price-list">
                     <div v-for="priceRow in item.prices" :key="`preview-price-${item.code}-${priceRow.label}`" class="pdf-price">
                       <span :class="{ 'pdf-red': priceRow.red }">
@@ -852,7 +826,7 @@
         <div class="copy-config-box" v-if="(publicationScope === 'mine' || publicationScope === 'customer') && officialPriceSourcePublications.length">
           <div>
             <strong>复制官方价格来源</strong>
-            <p>复制棵凡已发布价格表的报价、风味、特点和出品建议，作为本次客户价格表的锁定内容快照。</p>
+            <p>复制棵凡已发布价格表的报价和商品展示快照，作为本次客户价格表的锁定内容快照。</p>
           </div>
           <div class="copy-config-actions">
             <select v-model="selectedPriceSourcePublicationID">
@@ -962,17 +936,7 @@
                     <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                     <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
                   </div>
-                  <div v-if="item.flavor" class="pdf-table-line">
-                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`pf-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </div>
-                  <div v-if="item.description" class="pdf-table-line">
-                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </div>
                   <div v-for="line in item.attributeLines || []" :key="`pa-print-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
-                  <div v-if="item.recommendedUse" class="pdf-table-line">
-                    <b>出品</b>
-                    <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </div>
                 </td>
                 <td class="pdf-table-prices">
                   <div v-for="priceRow in item.prices" :key="`pdf-table-price-${item.code}-${priceRow.label}`">
@@ -998,24 +962,8 @@
                       <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                       <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
                     </h3>
-                    <p v-if="item.recommendedUse" class="pdf-meta-line">
-                      <b>出品建议</b>
-                      <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </p>
                   </div>
                 </div>
-                <p v-if="item.flavor" class="pdf-flavor">
-                  <b>风味</b>
-                  <span>
-                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </span>
-                </p>
-                <p v-if="item.description" class="pdf-desc">
-                  <b>特点</b>
-                  <span>
-                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                  </span>
-                </p>
                 <p v-for="line in item.attributeLines || []" :key="`pdf-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b><span>{{ line }}</span></p>
                 <div class="pdf-price-block">
                   <div class="pdf-section-label">报价</div>
@@ -4449,9 +4397,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-card-row { display: grid; gap: 9px; align-items: stretch; }
 .pdf-card-row > .pdf-item { min-width: 0; height: 100%; }
 .pdf-item { display: flex; flex-direction: column; break-inside: avoid; page-break-inside: avoid; border: 1px solid rgba(0,0,0,.16); border-radius: 8px; padding: 10px 10px 18px; margin-bottom: 0; background: rgba(255,255,255,.76); }
-.pdf-item-head { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
+.pdf-item-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; }
+.pdf-item-head > div { min-width: 0; }
 .pdf-item-head > span { min-width: 32px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; font-weight: 700; }
-.pdf-item h3 { margin: 0; font-size: 20px; line-height: 1.18; letter-spacing: 0; }
+.pdf-item h3 { margin: 0; font-size: 20px; line-height: 1.18; letter-spacing: 0; overflow-wrap: anywhere; word-break: break-word; }
 .pdf-meta-line { margin: 4px 0 0; font-size: 12px; line-height: 1.45; white-space: pre-line; }
 .pdf-flavor, .pdf-desc { display: grid; grid-template-columns: 44px 1fr; gap: 6px; margin: 7px 0 0; font-size: 12px; line-height: 1.45; }
 .pdf-card-row.cards-2 .pdf-item-head, .pdf-card-row.cards-3 .pdf-item-head { min-height: 58px; }
