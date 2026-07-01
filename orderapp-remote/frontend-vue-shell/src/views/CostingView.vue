@@ -4394,8 +4394,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-group { margin: 14px 0; }
 .pdf-group h2 { margin: 0 0 8px; padding: 7px 9px; background: rgba(255,255,255,.62); border-left: 4px solid currentColor; font-size: 15px; line-height: 1.25; }
 .pdf-card-grid { display: grid; gap: 18px; }
-.pdf-card-row { display: grid; gap: 9px; align-items: start; }
-.pdf-card-row > .pdf-item { min-width: 0; height: auto; align-self: start; }
+.pdf-card-row { display: grid; gap: 9px; align-items: stretch; }
+.pdf-card-row > .pdf-item { min-width: 0; height: auto; }
 .pdf-item { display: flex; flex-direction: column; break-inside: avoid; page-break-inside: avoid; border: 1px solid rgba(0,0,0,.16); border-radius: 8px; padding: 10px; margin-bottom: 0; background: rgba(255,255,255,.76); }
 .pdf-item-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; }
 .pdf-item-head > div { min-width: 0; }
