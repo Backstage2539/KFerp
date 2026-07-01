@@ -141,6 +141,15 @@ test('materials list owns filters, selection and batch deprecate layout', () => 
   assert.match(listPanelSource, /@click="deprecateSelectedMaterials"/)
 })
 
+test('materials list and detail panels shrink without horizontal overlap', () => {
+  assert.match(materialsSource, /\.materials-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.95fr\)\s+minmax\(360px,\s*1\.05fr\)/)
+  assert.match(materialsSource, /\.material-list-panel,\s*\.material-detail-panel\s*\{[^}]*min-width:\s*0/)
+  assert.match(materialsSource, /\.material-section-list,\s*\.material-section\s*\{[^}]*min-width:\s*0/)
+  assert.match(materialsSource, /\.table-wrap\s*\{[^}]*max-width:\s*100%[^}]*overflow-x:\s*auto/)
+  assert.match(materialsSource, /\.form-grid\s*\{[^}]*repeat\(auto-fit,\s*minmax\(180px,\s*1fr\)\)/)
+  assert.doesNotMatch(materialsSource, /grid-template-columns:\s*minmax\(480px/)
+})
+
 test('materials and stock adjustments use single material quantity from material unit', () => {
   assert.match(materialsSource, /stockBackfill\.target_qty/)
   assert.match(materialsSource, /target_qty/)

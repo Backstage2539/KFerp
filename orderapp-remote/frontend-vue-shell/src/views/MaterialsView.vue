@@ -778,7 +778,8 @@ onMounted(() => {
 .panel-head p, .detail-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
 .panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
 .spacer { flex: 1 1 auto; }
-.materials-layout { display: grid; grid-template-columns: minmax(480px, .9fr) minmax(520px, 1.1fr); gap: 14px; align-items: start; }
+.materials-layout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(360px, 1.05fr); gap: 14px; align-items: start; }
+.material-list-panel, .material-detail-panel { min-width: 0; }
 .material-list-toolbar { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee8df; }
 .material-list-toolbar label { min-width: 150px; }
 .material-list-toolbar label:first-child { flex: 1 1 220px; }
@@ -786,10 +787,11 @@ onMounted(() => {
 .section-toggle { background: #1f1f1f; color: #fff; }
 .material-business-group-controls { margin-bottom: 12px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
 .material-section-list { display: grid; gap: 10px; }
+.material-section-list, .material-section { min-width: 0; }
 .left { text-align: left; }
 .section-toggle { width: 100%; justify-content: space-between; border: 0; display: flex; }
 .section-toggle strong { padding-left: var(--classification-group-indent, 0); }
-.table-wrap { width: 100%; overflow-x: auto; overflow-y: visible; }
+.table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: visible; }
 .table-wrap :deep(table) { width: 100%; border-collapse: collapse; min-width: 920px; }
 .table-wrap :deep(col.select-col) { width: 48px; }
 .table-wrap :deep(col.name-col) { width: 390px; }
@@ -812,12 +814,12 @@ onMounted(() => {
 .detail-form { display: grid; gap: 12px; }
 .form-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; }
 .section-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { width: 100%; min-height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 input:disabled, select:disabled { background: #f6f4f1; color: #555; }
 textarea { resize: vertical; line-height: 1.45; }
-.wide { grid-column: span 2; }
+.wide { grid-column: 1 / -1; }
 button { min-height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; background: #fff; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
