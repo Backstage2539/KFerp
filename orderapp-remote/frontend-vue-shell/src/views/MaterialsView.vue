@@ -792,21 +792,22 @@ onMounted(() => {
 .section-toggle { width: 100%; justify-content: space-between; border: 0; display: flex; }
 .section-toggle strong { padding-left: var(--classification-group-indent, 0); }
 .table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: visible; }
-.table-wrap :deep(table) { width: 100%; border-collapse: collapse; min-width: 920px; }
+.table-wrap :deep(table) { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 660px; }
 .table-wrap :deep(col.select-col) { width: 48px; }
-.table-wrap :deep(col.name-col) { width: 390px; }
+.table-wrap :deep(col.name-col) { width: 130px; }
 .table-wrap :deep(col.unit-col) { width: 100px; }
 .table-wrap :deep(col.stock-col) { width: 170px; }
 .table-wrap :deep(col.status-col) { width: 110px; }
 .table-wrap :deep(th), .table-wrap :deep(td) { border-bottom: 1px solid #eee8df; padding: 10px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 .table-wrap :deep(th) { background: #fbfaf8; position: sticky; top: 0; }
 .table-wrap :deep(.materials-table th), .table-wrap :deep(.materials-table td) { white-space: nowrap; }
+.table-wrap :deep(.materials-table th:nth-child(2)), .table-wrap :deep(.materials-table td:nth-child(2)) { width: 130px; max-width: 130px; }
 .table-wrap :deep(.materials-table td:nth-child(2)) { padding-left: var(--classification-item-indent, 8px); }
-.table-wrap :deep(.material-name-cell strong) { white-space: normal; line-height: 1.35; }
+.table-wrap :deep(.material-name-cell strong) { white-space: normal; line-height: 1.35; overflow-wrap: anywhere; }
 .material-list-panel :deep(tbody tr) { cursor: pointer; }
 .table-wrap :deep(tbody tr.active) { background: #f3f7fb; }
 .table-wrap :deep(td strong), .table-wrap :deep(td small) { display: block; }
-.table-wrap :deep(td small) { color: #666; margin-top: 4px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-wrap :deep(td small) { color: #666; margin-top: 4px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-wrap :deep(.pill) { display: inline-flex; min-height: 24px; align-items: center; border: 1px solid #d8d0c7; border-radius: 999px; padding: 2px 8px; background: #fbfaf8; font-size: 12px; }
 .table-wrap :deep(.ok-pill) { border-color: #cce7d2; background: #effaf2; color: #1f6a3f; }
 .table-wrap :deep(.muted-pill) { color: #777; }
