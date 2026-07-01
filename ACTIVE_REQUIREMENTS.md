@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-515-STANDARD-MANUFACTURING-COST-PRICING
 - Branch: codex/standard-manufacturing-cost-pricing-20260701
 - Owner/session: Codex / 2026-07-01
-- Status: verified locally, pending integration.
+- Status: merged to develop and deployed to development.
 - Scope: 价格试算和价格表主流程收敛到标准制造成本：BOM 负责物料成本和原料损耗，工位维护机器/人工/其他小时成本，标准制造成本按 BOM + 工艺路线工序匹配的标准工位产能折算为元/库存单位；价格计算模板只做利润、税率和取整，生产计划/工单的真实产能批次不回写历史价格。
 - DEV:
   - DEV-515-STANDARD-MANUFACTURING-COST-API：价格试算返回 `material_unit_cost`、`operation_unit_cost`、`standard_manufacturing_unit_cost`、成本来源和 BOM/工艺/工位成本快照。
@@ -19,8 +19,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: `go test ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrialUsesBomCostTemplateFormula|TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity|TestDev515StandardManufacturingCostPricingContracts' -count=1` failed before implementation with missing standard-cost API fields/repository markers/docs markers; `node --test src/lib/product-settings.test.js` failed before implementation because `标准制造成本` UI marker was absent.
   - GREEN Unit/API: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/production ./internal/interfaces/http/production -count=1` passed; `go test ./internal/interfaces/http/support -run TestDev515StandardManufacturingCostPricingContracts -count=1` passed.
   - GREEN Frontend/build: `node --test src/lib/product-settings.test.js src/lib/process-routes.test.js` passed; first `npm run build` failed because fresh worktree lacked `vite`, then `npm ci` succeeded and `npm run build` passed.
-  - GREEN Review/acceptance: `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
-- Deployment: not started.
+  - GREEN Review/acceptance: `scripts/verify_kferp.sh changed` passed; `git diff --check` passed; Docker build gate ran `go test ./...` inside the orderapp image and passed.
+- Deployment: development deployed from `origin/develop=7d1c33dbf109081f137b825cc6330a5d08d86696`; server backup `/opt/stacks/erp/orderapp.backup.deploy-20260702013242`; smoke passed: containers running, authenticated `vue-shell?view=productPriceManagement` returned 200, `/app/api/req/product?limit=700` exposed `PR-515-STANDARD-MANUFACTURING-COST-PRICING`, deployed bundle contains `标准制造成本` and `BOM物料成本`.
 - Last update: 2026-07-01 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。
 
