@@ -34,65 +34,30 @@
           <button class="danger" type="button" @click="deprecateSelectedMaterials" :disabled="!selectedMaterialIDs.length || loading">批量失效</button>
         </div>
 
-        <div class="classification-row">
-          <div class="tabs">
-            <button type="button" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">全部分类</button>
-            <button type="button" :class="{ active: activeTab === 'unclassified' }" @click="activeTab = 'unclassified'">未分类</button>
-            <button
-              v-for="group in classificationGroups"
-              :key="group.id"
-              type="button"
-              :class="{ active: activeTab === groupTabKey(group.id) }"
-              @click="activeTab = groupTabKey(group.id)">
-              {{ group.name }}
-            </button>
-          </div>
-          <div class="group-create">
-            <input v-model.trim="newGroupName" placeholder="新大类名称" @keyup.enter="createClassificationGroup" />
-            <button class="secondary" type="button" @click="createClassificationGroup" :disabled="!newGroupName">增加分类</button>
-          </div>
-        </div>
+        <BusinessGroupControls
+          v-model="selectedMaterialGroupTemplateID"
+          v-model:move-model-value="selectedMaterialMoveGroupItemID"
+          class="classification-view-toolbar material-business-group-controls"
+          data-pr513-material-business-groups
+          :template-options="materialGroupTemplateOptions"
+          :move-options="materialGroupItemOptions"
+          :selected-template="selectedMaterialGroupTemplate"
+          :selected-count="selectedMaterialRowsForMove.length"
+          :can-move="canMoveSelectedMaterialsToBusinessGroup"
+          :can-select-target="canSelectMaterialMoveTarget"
+          :loading="loading"
+          @manage="openMaterialBusinessGroupManagement"
+          @move="moveSelectedMaterialsToGroup" />
 
-        <div class="move-row">
-          <template v-if="activeGroup">
-            <input v-model.trim="newCategoryName" placeholder="新小类名称" @keyup.enter="createGroupCategory" />
-            <button class="secondary" type="button" @click="createGroupCategory" :disabled="!newCategoryName">新增小分类</button>
-            <select v-model.number="moveCategoryID" :disabled="!selectedMaterialIDs.length">
-              <option :value="0">未分类</option>
-              <option v-for="category in activeGroup.categories" :key="category.id" :value="category.id">{{ category.name }}</option>
-            </select>
-            <button class="secondary" type="button" @click="moveSelectedToCategory" :disabled="!selectedMaterialIDs.length">移动到小分类</button>
-          </template>
-          <template v-else>
-            <select v-model.number="moveGroupID" :disabled="!selectedMaterialIDs.length">
-              <option :value="0">未分类</option>
-              <option v-for="group in classificationGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
-            </select>
-            <button class="secondary" type="button" @click="moveSelectedToGroup" :disabled="!selectedMaterialIDs.length">移动到分类</button>
-          </template>
-          <span class="muted">已选 {{ selectedMaterialIDs.length }} 个物料</span>
-        </div>
-
-        <div v-if="activeGroup" class="inner-categories">
-          <div class="inner-category-card">
-            <strong>组内分类</strong>
-            <p class="muted left">删除小分类后，物料回到该大类下的未分类。</p>
-          </div>
-          <div v-for="category in activeGroup.categories" :key="category.id" class="inner-category-card">
-            <input v-model.trim="category.name" @change="saveGroupCategory(category)" />
-            <input type="number" v-model.number="category.sort_order" @change="saveGroupCategory(category)" />
-            <button class="danger subtle" type="button" @click="deleteGroupCategory(category)">删除</button>
-          </div>
-        </div>
-
-        <template v-if="activeGroup">
-          <div v-for="section in groupedMaterialSections" :key="section.key" class="material-section">
+        <div class="material-section-list">
+          <div v-for="section in materialDisplayGroups" :key="section.key" class="material-section">
             <button class="section-toggle" type="button" @click="toggleSection(section.key)">
-              <strong>{{ section.name }}</strong><span>{{ section.rows.length }} 个</span>
+              <strong :style="businessGroupHeaderIndentStyle(section)" :title="section.path_label || section.label">{{ section.label }}</strong><span>{{ section.rows.length }} 个</span>
             </button>
             <MaterialRowsTable
               v-if="!collapsedSections[section.key]"
               :rows="section.rows"
+              :row-style="businessGroupItemIndentStyle(section)"
               :selected="selected"
               :selected-ids="selectedMaterialIDs"
               :all-selected="areRowsSelected(section.rows)"
@@ -100,16 +65,7 @@
               @toggle-all="toggleMaterialRows(section.rows)"
               @select="(row) => selectMaterial(row)" />
           </div>
-        </template>
-        <MaterialRowsTable
-          v-else
-          :rows="visibleRows"
-          :selected="selected"
-          :selected-ids="selectedMaterialIDs"
-          :all-selected="areRowsSelected(visibleRows)"
-          @toggle="toggleMaterialSelection"
-          @toggle-all="toggleMaterialRows(visibleRows)"
-          @select="(row) => selectMaterial(row)" />
+        </div>
       </section>
 
       <section class="panel material-detail-panel">
@@ -208,8 +164,20 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, ref } from 'vue'
+import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import BusinessGroupControls from '../components/BusinessGroupControls.vue'
+import {
+  businessGroupControlOptions,
+  businessGroupHeaderIndentStyle,
+  businessGroupItemIndentStyle,
+  businessGroupMoveAssignmentPayload,
+  groupRowsByBusinessGroupTemplate,
+  preferredBusinessGroupTemplateID,
+} from '../lib/business-grouping'
+
+const MATERIAL_CATALOG_USAGE = 'material_catalog'
+const MATERIAL_OBJECT_KEY = 'material'
 
 const MaterialRowsTable = defineComponent({
   props: {
@@ -217,6 +185,7 @@ const MaterialRowsTable = defineComponent({
     selected: { type: Object, default: null },
     selectedIds: { type: Array, default: () => [] },
     allSelected: { type: Boolean, default: false },
+    rowStyle: { type: Object, default: () => ({}) },
   },
   emits: ['toggle', 'toggle-all', 'select'],
   setup(props, { emit }) {
@@ -248,6 +217,7 @@ const MaterialRowsTable = defineComponent({
           ? props.rows.map((row) => h('tr', {
               key: row.id,
               class: { active: props.selected?.id === row.id },
+              style: props.rowStyle,
               onClick: () => emit('select', row),
             }, [
               h('td', [h('input', {
@@ -268,7 +238,8 @@ const MaterialRowsTable = defineComponent({
 })
 
 const rows = ref([])
-const classificationGroups = ref([])
+const materialBusinessGroups = ref([])
+const materialBusinessGroupAssignments = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
 const q = ref('')
@@ -280,40 +251,41 @@ const selected = ref(null)
 const draft = ref(null)
 const draftMode = ref(false)
 const selectedMaterialIDs = ref([])
-const activeTab = ref('all')
-const newGroupName = ref('')
-const newCategoryName = ref('')
-const moveGroupID = ref(0)
-const moveCategoryID = ref(0)
+const selectedMaterialGroupTemplateID = ref(0)
+const selectedMaterialMoveGroupItemID = ref(0)
 const collapsedSections = ref({})
 const stockBackfill = ref({ open: false, target_qty: 0, reason: '' })
 
 const activeIndustryTemplates = computed(() => industryFieldTemplates.value.filter((tpl) => !tpl.deactivated_at && tpl.active !== false))
-const activeGroup = computed(() => {
-  const match = /^group:(\d+)$/.exec(activeTab.value)
-  if (!match) return null
-  const id = Number(match[1])
-  return classificationGroups.value.find((group) => group.id === id) || null
+const materialBusinessGroupControls = computed(() => businessGroupControlOptions(materialBusinessGroups.value, {
+  selectedTemplateID: selectedMaterialGroupTemplateID.value,
+  usageKey: MATERIAL_CATALOG_USAGE,
+}))
+const materialGroupTemplateOptions = computed(() => materialBusinessGroupControls.value.templateOptions)
+const selectedMaterialGroupTemplate = computed(() => materialBusinessGroupControls.value.selectedTemplate)
+const materialGroupItemOptions = computed(() => materialBusinessGroupControls.value.moveOptions)
+const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplate(rows.value, {
+  template: selectedMaterialGroupTemplate.value,
+  assignments: materialBusinessGroupAssignments.value,
+  usageKey: MATERIAL_CATALOG_USAGE,
+  objectKey: MATERIAL_OBJECT_KEY,
+  objectIDForRow: (row) => Number(row.id || 0),
+}))
+const selectedMaterialRowsForMove = computed(() => {
+  const selectedIds = new Set(selectedMaterialIDs.value.map((id) => Number(id || 0)).filter(Boolean))
+  return rows.value.filter((row) => selectedIds.has(Number(row.id || 0)))
 })
-const visibleRows = computed(() => {
-  if (activeTab.value === 'unclassified') return rows.value.filter((row) => !row.classification_group_id)
-  if (activeGroup.value) return rows.value.filter((row) => row.classification_group_id === activeGroup.value.id)
-  return rows.value
+const canMoveSelectedMaterialsToBusinessGroup = computed(() => {
+  if (!selectedMaterialGroupTemplate.value || !selectedMaterialRowsForMove.value.length) return false
+  const targetGroupItemID = Number(selectedMaterialMoveGroupItemID.value || 0)
+  const targetOption = targetGroupItemID > 0 ? materialGroupOptionByItemID(targetGroupItemID) : null
+  if (targetGroupItemID > 0 && !targetOption) return false
+  return selectedMaterialRowsForMove.value.some((row) => {
+    if (!targetOption) return materialBusinessGroupID(row) > 0 || materialBusinessGroupItemID(row) > 0
+    return materialBusinessGroupID(row) !== Number(targetOption.group_id || 0) || materialBusinessGroupItemID(row) !== Number(targetOption.group_item_id || 0)
+  })
 })
-const groupedMaterialSections = computed(() => {
-  if (!activeGroup.value) return []
-  const sections = [
-    { key: `group:${activeGroup.value.id}:unclassified`, name: '未分类', rows: visibleRows.value.filter((row) => !row.classification_category_id) },
-  ]
-  for (const category of activeGroup.value.categories || []) {
-    sections.push({
-      key: `category:${category.id}`,
-      name: category.name,
-      rows: visibleRows.value.filter((row) => row.classification_category_id === category.id),
-    })
-  }
-  return sections
-})
+const canSelectMaterialMoveTarget = computed(() => Boolean(selectedMaterialGroupTemplate.value && selectedMaterialRowsForMove.value.length))
 const unitOptions = computed(() => {
   const rows = productUnitDefinitions.value.filter((row) => row.active !== false)
   if (rows.length) return rows
@@ -327,10 +299,6 @@ const selectedIndustryTemplate = computed(() => activeIndustryTemplates.value.fi
 const selectedIndustryTemplateFields = computed(() => (selectedIndustryTemplate.value?.fields || []).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)))
 const selectedUnitLabel = computed(() => unitDisplay(selected.value?.unit || ''))
 const materialIndustryFields = computed(() => draft.value?.industry_fields || [])
-
-function groupTabKey(id) {
-  return `group:${id}`
-}
 
 function normalizeRow(row) {
   const fields = row.IndustryFields || row.industry_fields || []
@@ -359,20 +327,6 @@ function normalizeRow(row) {
     classification_category_name: row.ClassificationCategoryName ?? row.classification_category_name ?? '',
     updated_at: row.UpdatedAt ?? row.updated_at ?? '',
     deprecated_at: row.DeprecatedAt ?? row.deprecated_at ?? '',
-  }
-}
-
-function normalizeGroup(row) {
-  return {
-    id: Number(row.ID ?? row.id ?? 0),
-    name: row.Name ?? row.name ?? '',
-    sort_order: Number(row.SortOrder ?? row.sort_order ?? 100),
-    categories: (row.Categories || row.categories || []).map((category) => ({
-      id: Number(category.ID ?? category.id ?? 0),
-      group_id: Number(category.GroupID ?? category.group_id ?? 0),
-      name: category.Name ?? category.name ?? '',
-      sort_order: Number(category.SortOrder ?? category.sort_order ?? 100),
-    })),
   }
 }
 
@@ -433,7 +387,7 @@ function nextMaterialCode() {
 }
 
 async function loadAll() {
-  await Promise.all([loadOptions(), loadClassificationGroups(), loadMaterials()])
+  await Promise.all([loadOptions(), loadMaterialBusinessGroups(), loadMaterialBusinessGroupAssignments(), loadMaterials()])
 }
 
 async function loadOptions() {
@@ -445,9 +399,21 @@ async function loadOptions() {
   industryFieldTemplates.value = (industry.rows || []).map(normalizeTemplate)
 }
 
-async function loadClassificationGroups() {
-  const data = await apiGet('/api/material-classification-groups')
-  classificationGroups.value = (data.rows || []).map(normalizeGroup)
+async function loadMaterialBusinessGroups() {
+  const data = await apiGet('/api/business-groups')
+  materialBusinessGroups.value = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : [])
+  const nextTemplateID = preferredMaterialGroupTemplateID()
+  if (nextTemplateID && nextTemplateID !== Number(selectedMaterialGroupTemplateID.value || 0)) {
+    selectedMaterialGroupTemplateID.value = nextTemplateID
+  }
+}
+
+async function loadMaterialBusinessGroupAssignments() {
+  const url = new URL('/api/business-group-assignments', window.location.origin)
+  url.searchParams.set('usage_key', MATERIAL_CATALOG_USAGE)
+  url.searchParams.set('object_key', MATERIAL_OBJECT_KEY)
+  const data = await apiGet(`${url.pathname}${url.search}`)
+  materialBusinessGroupAssignments.value = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.assignments) ? data.assignments : [])
 }
 
 async function loadMaterials() {
@@ -525,71 +491,94 @@ function toggleSection(key) {
   collapsedSections.value = { ...collapsedSections.value, [key]: !collapsedSections.value[key] }
 }
 
-async function createClassificationGroup() {
-  if (!newGroupName.value) return
-  await mutate(async () => {
-    const group = await apiSend('/api/material-classification-groups', { body: { name: newGroupName.value, sort_order: 100 } })
-    newGroupName.value = ''
-    await loadClassificationGroups()
-    activeTab.value = groupTabKey(Number(group.id || group.ID || 0))
-    ok.value = '已增加分类'
+function materialBusinessGroupAssignment(row = {}) {
+  const id = Number(row.id || 0)
+  return materialBusinessGroupAssignments.value.find((assignment) => (
+    String(assignment.usage_key || '').toLowerCase() === MATERIAL_CATALOG_USAGE
+    && String(assignment.object_key || '').toLowerCase() === MATERIAL_OBJECT_KEY
+    && Number(assignment.object_id || 0) === id
+  )) || null
+}
+
+function materialBusinessGroupID(row = {}) {
+  return Number(materialBusinessGroupAssignment(row)?.group_id || 0)
+}
+
+function materialBusinessGroupItemID(row = {}) {
+  return Number(materialBusinessGroupAssignment(row)?.group_item_id || 0)
+}
+
+function materialGroupOptionByItemID(groupItemID) {
+  const id = Number(groupItemID || 0)
+  return materialGroupItemOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
+}
+
+function preferredMaterialGroupTemplateID() {
+  return preferredBusinessGroupTemplateID(materialBusinessGroups.value, {
+    selectedTemplateID: selectedMaterialGroupTemplateID.value,
+    usageKey: MATERIAL_CATALOG_USAGE,
+    preferredNames: ['物料档案分组', '物料分类'],
+    preferredNameIncludes: ['物料', '材料', '原料'],
   })
 }
 
-async function createGroupCategory() {
-  if (!activeGroup.value || !newCategoryName.value) return
-  await mutate(async () => {
-    await apiSend(`/api/material-classification-groups/${activeGroup.value.id}/categories`, { body: { name: newCategoryName.value, sort_order: 100 } })
-    newCategoryName.value = ''
-    await loadClassificationGroups()
-    ok.value = '已新增小分类'
+async function clearMaterialBusinessGroupAssignment(materialID) {
+  const id = Number(materialID || 0)
+  if (!id) return
+  const url = new URL('/api/business-group-assignments', window.location.origin)
+  url.searchParams.set('usage_key', MATERIAL_CATALOG_USAGE)
+  url.searchParams.set('object_key', MATERIAL_OBJECT_KEY)
+  url.searchParams.set('object_id', String(id))
+  const data = await apiGet(`${url.pathname}${url.search}`)
+  const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.assignments) ? data.assignments : [])
+  await Promise.all(rows.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
+}
+
+async function moveSelectedMaterialsToGroup() {
+  const targetGroupItemID = Number(selectedMaterialMoveGroupItemID.value || 0)
+  const targetOption = targetGroupItemID > 0 ? materialGroupOptionByItemID(targetGroupItemID) : null
+  if (targetGroupItemID > 0 && !targetOption) return
+  const materialsToMove = selectedMaterialRowsForMove.value.filter((row) => {
+    if (!targetOption) return materialBusinessGroupID(row) > 0 || materialBusinessGroupItemID(row) > 0
+    return materialBusinessGroupID(row) !== Number(targetOption.group_id || 0) || materialBusinessGroupItemID(row) !== Number(targetOption.group_item_id || 0)
   })
-}
-
-async function saveGroupCategory(category) {
-  await mutate(async () => {
-    await apiSend(`/api/material-classification-group-categories/${category.id}`, {
-      method: 'PUT',
-      body: { group_id: activeGroup.value?.id || category.group_id, name: category.name, sort_order: Number(category.sort_order || 100) },
-    })
-    await loadClassificationGroups()
-    ok.value = '已保存小分类'
-  })
-}
-
-async function deleteGroupCategory(category) {
-  if (!window.confirm(`删除小分类「${category.name}」？该小分类下物料会回到未分类。`)) return
-  await mutate(async () => {
-    await apiSend(`/api/material-classification-group-categories/${category.id}`, { method: 'DELETE' })
-    await Promise.all([loadClassificationGroups(), loadMaterials()])
-    ok.value = '已删除小分类'
-  })
-}
-
-async function moveSelectedToGroup() {
-  await assignSelected(moveGroupID.value, 0)
-}
-
-async function moveSelectedToCategory() {
-  if (!activeGroup.value) return
-  await assignSelected(activeGroup.value.id, moveCategoryID.value)
-}
-
-async function assignSelected(groupID, categoryID) {
-  if (!selectedMaterialIDs.value.length) {
+  if (!materialsToMove.length) {
     error.value = '请先勾选物料'
     return
   }
-  const targetName = categoryID ? (activeGroup.value?.categories || []).find((row) => row.id === categoryID)?.name : (groupID ? '未分类' : '未分类')
-  if (!window.confirm(`移动 ${selectedMaterialIDs.value.length} 个物料到「${targetName || '未分类'}」？`)) return
   await mutate(async () => {
-    await apiSend('/api/material-classification-assignments', {
-      body: { material_ids: selectedMaterialIDs.value, group_id: Number(groupID || 0), category_id: Number(categoryID || 0) },
-    })
+    for (const row of materialsToMove) {
+      if (!targetOption) {
+        await clearMaterialBusinessGroupAssignment(row.id)
+        continue
+      }
+      await apiSend('/api/business-group-assignments', {
+        body: businessGroupMoveAssignmentPayload({
+          usageKey: MATERIAL_CATALOG_USAGE,
+          objectKey: MATERIAL_OBJECT_KEY,
+          objectID: Number(row.id || 0),
+          option: targetOption,
+          sortOrder: 100,
+        }),
+      })
+    }
+    ok.value = `已移动 ${materialsToMove.length} 个物料到分类`
     selectedMaterialIDs.value = []
-    await loadMaterials()
-    ok.value = '已移动分类'
+    selectedMaterialMoveGroupItemID.value = 0
+    await loadMaterialBusinessGroupAssignments()
   })
+}
+
+function openMaterialBusinessGroupManagement() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'groupTemplates',
+      returnNavigation: {
+        key: 'materials',
+        label: '返回物料档案',
+      },
+    },
+  }))
 }
 
 function payloadFromDraft() {
@@ -760,6 +749,18 @@ function defaultFieldValue(field) {
   }
 }
 
+watch(selectedMaterialGroupTemplateID, () => {
+  selectedMaterialMoveGroupItemID.value = 0
+  collapsedSections.value = {}
+})
+
+watch(materialGroupItemOptions, (options) => {
+  const selected = Number(selectedMaterialMoveGroupItemID.value || 0)
+  if (selected > 0 && !options.some((option) => Number(option.group_item_id || 0) === selected)) {
+    selectedMaterialMoveGroupItemID.value = 0
+  }
+})
+
 onMounted(() => {
   q.value = new URL(window.location.href).searchParams.get('q') || ''
   loadAll()
@@ -771,7 +772,7 @@ onMounted(() => {
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .compact-head { padding: 12px 14px; }
-.panel-head, .filters, .material-list-toolbar, .detail-head, .actions, .form-actions, .classification-row, .move-row, .inner-category-card { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head, .filters, .material-list-toolbar, .detail-head, .actions, .form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; margin-bottom: 10px; }
 .panel-head h2 { margin: 0; font-size: 20px; }
 .panel-head p, .detail-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
@@ -782,18 +783,12 @@ onMounted(() => {
 .material-list-toolbar label { min-width: 150px; }
 .material-list-toolbar label:first-child { flex: 1 1 220px; }
 .material-list-toolbar label:nth-child(2) { flex: 0 0 130px; }
-.classification-row { justify-content: space-between; margin-bottom: 10px; }
-.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-.tabs button.active, .section-toggle { background: #1f1f1f; color: #fff; }
-.group-create, .move-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.group-create input, .move-row input { width: 150px; }
-.move-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-.inner-categories { display: grid; gap: 8px; margin-bottom: 12px; }
-.inner-category-card { border: 1px solid #eee8df; border-radius: 8px; padding: 8px; }
-.inner-category-card input[type="number"] { width: 90px; }
+.section-toggle { background: #1f1f1f; color: #fff; }
+.material-business-group-controls { margin-bottom: 12px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.material-section-list { display: grid; gap: 10px; }
 .left { text-align: left; }
-.material-section { margin-bottom: 10px; }
 .section-toggle { width: 100%; justify-content: space-between; border: 0; display: flex; }
+.section-toggle strong { padding-left: var(--classification-group-indent, 0); }
 .table-wrap { width: 100%; overflow-x: auto; overflow-y: visible; }
 .table-wrap :deep(table) { width: 100%; border-collapse: collapse; min-width: 920px; }
 .table-wrap :deep(col.select-col) { width: 48px; }
@@ -804,6 +799,7 @@ onMounted(() => {
 .table-wrap :deep(th), .table-wrap :deep(td) { border-bottom: 1px solid #eee8df; padding: 10px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 .table-wrap :deep(th) { background: #fbfaf8; position: sticky; top: 0; }
 .table-wrap :deep(.materials-table th), .table-wrap :deep(.materials-table td) { white-space: nowrap; }
+.table-wrap :deep(.materials-table td:nth-child(2)) { padding-left: var(--classification-item-indent, 8px); }
 .table-wrap :deep(.material-name-cell strong) { white-space: normal; line-height: 1.35; }
 .material-list-panel :deep(tbody tr) { cursor: pointer; }
 .table-wrap :deep(tbody tr.active) { background: #f3f7fb; }

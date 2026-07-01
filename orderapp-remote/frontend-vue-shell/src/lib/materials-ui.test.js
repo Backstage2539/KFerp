@@ -72,13 +72,9 @@ test('system settings group templates manage categories without business objects
   assert.doesNotMatch(templatePanel, /已选|勾选|移动到分类|\/api\/business-group-assignments/)
 })
 
-test('materials view uses classification tabs and editable material records', () => {
+test('materials view uses group template classification and editable material records', () => {
   for (const expected of [
-    '全部分类',
-    '未分类',
-    '增加分类',
-    '移动到分类',
-    '移动到小分类',
+    'BusinessGroupControls',
     '新建物料',
     '批量失效',
     'saveMaterial',
@@ -100,6 +96,27 @@ test('materials view uses classification tabs and editable material records', ()
   ]) {
     assert.doesNotMatch(materialsSource, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+})
+
+test('materials archive classification uses shared group template controls', () => {
+  const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
+  const listPanelStart = materialsSource.indexOf('<section class="panel material-list-panel">')
+  const listPanelSource = materialsSource.slice(listPanelStart)
+
+  assert.match(materialsSource, /BusinessGroupControls/)
+  assert.match(materialsSource, /businessGroupControlOptions/)
+  assert.match(materialsSource, /preferredBusinessGroupTemplateID/)
+  assert.match(materialsSource, /groupRowsByBusinessGroupTemplate/)
+  assert.match(materialsSource, /businessGroupMoveAssignmentPayload/)
+  assert.match(materialsSource, /material_catalog/)
+  assert.match(materialsSource, /MATERIAL_OBJECT_KEY\s*=\s*'material'/)
+  assert.match(materialsSource, /objectKey:\s*MATERIAL_OBJECT_KEY/)
+  assert.match(materialsSource, /\/api\/business-group-assignments/)
+  assert.match(componentSource, /选择分组模板/)
+  assert.match(componentSource, /移动到分类/)
+  assert.doesNotMatch(listPanelSource, /增加分类|新增小分类|移动到小分类/)
+  assert.doesNotMatch(materialsSource, /\/api\/material-classification-groups/)
+  assert.doesNotMatch(materialsSource, /\/api\/material-classification-assignments/)
 })
 
 test('materials list owns filters, selection and batch deprecate layout', () => {

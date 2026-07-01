@@ -20,11 +20,11 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"selectMaterial(row)",
 		"deprecateSelectedMaterials",
 		"新建物料",
-		"全部分类",
-		"未分类",
-		"增加分类",
-		"移动到分类",
-		"移动到小分类",
+		"BusinessGroupControls",
+		"material_catalog",
+		"MATERIAL_OBJECT_KEY = 'material'",
+		"/api/business-group-assignments",
+		"groupRowsByBusinessGroupTemplate",
 		"industry_field_template_id",
 		"materialIndustryFields",
 	} {
@@ -39,6 +39,11 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"基础档案字段锁定",
 		"profile-modal",
 		"物料类型",
+		"增加分类",
+		"新增小分类",
+		"移动到小分类",
+		"/api/material-classification-groups",
+		"/api/material-classification-assignments",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialsView.vue still contains old material marker %q", forbidden)

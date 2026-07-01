@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-513-MATERIAL-CLASSIFICATION-TEMPLATE
+- Branch: codex/material-classification-template-20260701
+- Owner/session: Codex / 2026-07-01
+- Status: merged to `develop` and deployed to development.
+- Scope: 物料档案分类改用系统分组模板，交互参考商品档案；物料归类写入通用 `business_group_assignments`，不再维护物料页本地分类大类/小类。
+- Verifier:
+  - RED: `node --test src/lib/materials-ui.test.js` failed before implementation because `MaterialsView.vue` still used local `classification-row`/`增加分类`; `go test ./internal/infrastructure/postgres/catalog -run TestMaterialClassificationMigratesToBusinessGroupAssignments -count=1` failed because legacy material classification migration was missing; `go test ./internal/interfaces/http/support -run TestDev513MaterialClassificationTemplateContracts -count=1` failed before PR/DEV/API/REV markers existed.
+  - GREEN Unit/API: `cd orderapp-remote && go test ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/support ./internal/interfaces/http/materials ./internal/application/materials ./internal/infrastructure/postgres/materials -count=1`.
+  - GREEN Frontend/build: `cd orderapp-remote/frontend-vue-shell && node --test src/lib/materials-ui.test.js src/lib/business-grouping.test.js`; `scripts/verify_kferp.sh frontend-build` passed with the existing Vite large-chunk warning.
+  - GREEN Review/acceptance: `scripts/verify_kferp.sh changed`; `git diff --check`; docs updated in `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`, `OP_MANUAL_INVENTORY_MATERIALS.md`, and `docs/acceptance/2026-07-01-material-classification-template.md`.
+- Merge/deploy GREEN: feature branch pushed to `origin/codex/material-classification-template-20260701`; fast-forwarded into `develop` at application commit `579b00dfbae6b9d8f074d38bc0303566d8ed2f1c`; clean deploy clone `/private/tmp/kferp-pr513-develop-deploy-clone-20260701` ran `./deploy_orderapp.sh`; Vue shell build passed with the existing large-chunk warning, miniapp typecheck/build passed with existing npm audit warnings, Docker build ran `go test ./...` successfully, and `erp_orderapp` restarted.
+- Development smoke GREEN: containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; authenticated `GET /app/vue-shell?view=materials`, `GET /app/api/business-groups`, and `GET /app/api/business-group-assignments?usage_key=material_catalog&object_key=material` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-513-MATERIAL-CLASSIFICATION-TEMPLATE`; `/app/api/req/dev?limit=1000` exposed `DEV-513-MATERIAL-GROUP-TEMPLATE-UI`; deployed source contains `data-pr513-material-business-groups` and `material_catalog_migrated`; browser smoke confirmed the material archive group-template toolbar is visible, old local category actions are absent, and console error count is `0`.
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed from clean clone `/private/tmp/kferp-pr513-develop-deploy-clone-20260701` via `./deploy_orderapp.sh`.
+- Last update: 2026-07-01 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。
+
 ### PR-512-PRICING-TRIAL-SOURCE-COST
 - Branch: codex/pricing-trial-source-cost
 - Owner/session: Codex / 2026-07-01
