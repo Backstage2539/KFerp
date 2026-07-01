@@ -404,6 +404,32 @@ func TestBusinessGroupAssignmentsKeepOneCurrentAssignmentAcrossBootstrap(t *test
 	}
 }
 
+func TestMaterialClassificationMigratesToBusinessGroupAssignments(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"migrateMaterialClassificationsToBusinessGroups",
+		"material_catalog_migrated",
+		"material_catalog",
+		"物料档案归组",
+		"material_classification_groups",
+		"material_classification_group_categories",
+		"material_classification_assignments",
+		"'material'",
+		"legacy_material_classification_group_",
+		"legacy_material_classification_category_",
+		"lower(existing.usage_key)='material_catalog'",
+		"lower(existing.object_key)='material'",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("material classifications must migrate to generic business groups; missing %q", want)
+		}
+	}
+}
+
 func TestProductWritesUseBusinessGroupAssignmentsInsteadOfLegacyCategoryColumns(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

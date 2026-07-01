@@ -890,6 +890,9 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
 	if err := migrateWarehousesToBusinessGroups(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := migrateMaterialClassificationsToBusinessGroups(ctx, pool, schema); err != nil {
+		return err
+	}
 	return backfillProductProductionConfigs(ctx, pool, schema)
 }
 
@@ -1080,6 +1083,86 @@ JOIN %[1]s.business_group_items item ON item.group_id=tg.id AND item.code = CASE
 	WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN 'loss_scrap_warehouses'
 	ELSE 'normal_warehouses'
 END
+ON CONFLICT DO NOTHING;
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func migrateMaterialClassificationsToBusinessGroups(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var hasMaterials, hasGroups, hasCategories, hasAssignments bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL, to_regclass($3) IS NOT NULL, to_regclass($4) IS NOT NULL`,
+		schema+".materials",
+		schema+".material_classification_groups",
+		schema+".material_classification_group_categories",
+		schema+".material_classification_assignments",
+	).Scan(&hasMaterials, &hasGroups, &hasCategories, &hasAssignments); err != nil {
+		return err
+	}
+	if !hasMaterials || !hasGroups || !hasCategories || !hasAssignments {
+		return nil
+	}
+	q := fmt.Sprintf(`
+WITH group_row AS (
+	INSERT INTO %[1]s.business_groups(name, code, remark, active, sort_order, created_by, updated_by)
+	VALUES('物料档案默认分组','material_catalog_migrated','PR-513: legacy material classifications migrated to generic business group assignments',true,40,'system-pr513-migration','system-pr513-migration')
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+target_group AS (
+	SELECT id FROM group_row
+	UNION ALL
+	SELECT id FROM %[1]s.business_groups WHERE code='material_catalog_migrated' OR name='物料档案默认分组'
+	ORDER BY id
+	LIMIT 1
+),
+usage_upsert AS (
+	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
+	SELECT id, 'material_catalog', '物料档案归组', true, 'system-pr513-migration', 'system-pr513-migration'
+	FROM target_group
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+group_items AS (
+	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+	SELECT tg.id, 0, g.name, 'legacy_material_classification_group_' || g.id::text, '旧物料档案大类迁移', true, COALESCE(g.sort_order,100)
+	FROM %[1]s.material_classification_groups g
+	CROSS JOIN target_group tg
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+category_items AS (
+	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+	SELECT tg.id, parent_item.id, c.name, 'legacy_material_classification_category_' || c.id::text, '旧物料档案小类迁移', true, COALESCE(c.sort_order,100)
+	FROM %[1]s.material_classification_group_categories c
+	CROSS JOIN target_group tg
+	JOIN %[1]s.business_group_items parent_item ON parent_item.group_id=tg.id AND parent_item.code='legacy_material_classification_group_' || c.group_id::text
+	ON CONFLICT DO NOTHING
+	RETURNING id
+)
+INSERT INTO %[1]s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
+SELECT tg.id,
+       COALESCE(category_item.id, group_item.id, 0),
+       'material_catalog',
+       'material',
+       m.id,
+       '',
+       100,
+       'system-pr513-migration',
+       'system-pr513-migration'
+FROM %[1]s.material_classification_assignments a
+JOIN %[1]s.materials m ON m.id=a.material_id
+CROSS JOIN target_group tg
+LEFT JOIN %[1]s.business_group_items group_item ON group_item.group_id=tg.id AND group_item.code='legacy_material_classification_group_' || COALESCE(a.group_id,0)::text
+LEFT JOIN %[1]s.business_group_items category_item ON category_item.group_id=tg.id AND category_item.code='legacy_material_classification_category_' || COALESCE(a.category_id,0)::text
+WHERE (COALESCE(a.group_id,0)>0 OR COALESCE(a.category_id,0)>0)
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.business_group_assignments existing
+    WHERE lower(existing.usage_key)='material_catalog'
+      AND lower(existing.object_key)='material'
+      AND existing.object_id=m.id
+      AND lower(existing.object_ref)=''
+  )
 ON CONFLICT DO NOTHING;
 `, schema)
 	_, err := pool.Exec(ctx, q)

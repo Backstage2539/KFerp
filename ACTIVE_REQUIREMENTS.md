@@ -6,6 +6,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-513-MATERIAL-CLASSIFICATION-TEMPLATE
+- Branch: codex/material-classification-template-20260701
+- Owner/session: Codex / 2026-07-01
+- Status: implemented locally; verification green; pending merge/development deploy
+- Scope: 物料档案分类改用系统分组模板，交互参考商品档案；物料归类写入通用 `business_group_assignments`，不再维护物料页本地分类大类/小类。
+- Verifier:
+  - RED: `node --test src/lib/materials-ui.test.js` failed before implementation because `MaterialsView.vue` still used local `classification-row`/`增加分类`; `go test ./internal/infrastructure/postgres/catalog -run TestMaterialClassificationMigratesToBusinessGroupAssignments -count=1` failed because legacy material classification migration was missing; `go test ./internal/interfaces/http/support -run TestDev513MaterialClassificationTemplateContracts -count=1` failed before PR/DEV/API/REV markers existed.
+  - GREEN Unit/API: `cd orderapp-remote && go test ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/support ./internal/interfaces/http/materials ./internal/application/materials ./internal/infrastructure/postgres/materials -count=1`.
+  - GREEN Frontend/build: `cd orderapp-remote/frontend-vue-shell && node --test src/lib/materials-ui.test.js src/lib/business-grouping.test.js`; `scripts/verify_kferp.sh frontend-build` passed with the existing Vite large-chunk warning.
+  - GREEN Review/acceptance: `scripts/verify_kferp.sh changed`; `git diff --check`; docs updated in `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`, `OP_MANUAL_INVENTORY_MATERIALS.md`, and `docs/acceptance/2026-07-01-material-classification-template.md`.
+- Deployment: pending
+- Last update: 2026-07-01 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。
+
 ### PR-512-PRICING-TRIAL-SOURCE-COST
 - Branch: codex/pricing-trial-source-cost
 - Owner/session: Codex / 2026-07-01
