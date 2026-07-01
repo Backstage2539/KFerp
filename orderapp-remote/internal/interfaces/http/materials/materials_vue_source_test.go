@@ -63,11 +63,22 @@ func TestMaterialsViewListLayoutSupportsBulkSelection(t *testing.T) {
 		"toggleMaterialRows",
 		"deprecateSelectedMaterials",
 		"批量失效",
-		"min-width: 920px",
+		"table-layout: fixed",
+		"min-width: 660px",
+		"col.name-col) { width: 130px; }",
+		"max-width: 130px",
 		"overflow-x: auto",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("MaterialsView.vue missing list layout marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"min-width: 920px",
+		"col.name-col) { width: 390px; }",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("MaterialsView.vue still contains old list width marker %q", forbidden)
 		}
 	}
 	compactStart := strings.Index(src, `<section class="panel compact-head">`)
