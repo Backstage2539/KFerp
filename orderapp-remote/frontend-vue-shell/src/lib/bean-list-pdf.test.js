@@ -117,6 +117,52 @@ test('PDF bean-list helper carries selected product special KV attributes into s
   assert.deepEqual(groups[0].items[0].attributeLines, ['烘焙度：中深烘', '咖啡因：低因'])
 })
 
+test('product price-list category-row snapshots use local card numbers and omit legacy marketing copy', () => {
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'business-group-1-101',
+    label: '意式拼配豆',
+    items: [
+      {
+        product_id: 550,
+        name: '熟豆-红岩拼配',
+        commercial_bean_list: {
+          code: '1.550',
+          category: '1、意式拼配豆',
+          display_name: '熟豆-红岩拼配',
+          recommended_use: '客户定制',
+          flavor: '焦糖、坚果',
+          description: '旧豆单特点',
+        },
+        product_attributes: [
+          { key: 'roast_degree', label: '烘焙度', value: '深烘' },
+          { key: 'roast_level', label: 'roast_level', value: '中烘' },
+        ],
+        commercial_wholesale_tiers: [{ label: '24kg', display_unit: 'kg', price_per_unit: 74 }],
+      },
+      {
+        product_id: 581,
+        name: 'PR508商品-20260630051716',
+        commercial_bean_list: {
+          code: '1.581',
+          category: '1、意式拼配豆',
+          display_name: 'PR508商品-20260630051716',
+          recommended_use: '客户定制',
+        },
+        product_attributes: [{ key: 'roast_level', value: '深烘' }],
+        commercial_wholesale_tiers: [{ label: '24kg', display_unit: '227g袋装', price_per_unit: 2 }],
+      },
+    ],
+  }], 'commercial')
+
+  assert.equal(groups[0].category, '1、意式拼配豆')
+  assert.deepEqual(groups[0].items.map((item) => item.code), ['1.1', '1.2'])
+  assert.equal(groups[0].items[0].recommendedUse, '')
+  assert.equal(groups[0].items[0].flavor, '')
+  assert.equal(groups[0].items[0].description, '')
+  assert.deepEqual(groups[0].items[0].attributeLines, ['烘焙度：深烘'])
+  assert.deepEqual(groups[0].items[1].attributeLines, ['烘焙度：深烘'])
+})
+
 test('PDF bean-list helper increments customer draft versions by the next 0.01-style suffix', () => {
   assert.equal(nextBeanListVersion('V1'), 'V1.01')
   assert.equal(nextBeanListVersion('V1.01'), 'V1.02')
@@ -481,7 +527,7 @@ test('PDF bean-list helper can follow explicit picker category rows', () => {
   assert.equal(groups[0].category, '1、意式拼配豆')
   assert.equal(groups[0].categoryCode, 'business-group-7-101')
   assert.deepEqual(groups[0].items.map((item) => item.product_id), [10, 30])
-  assert.deepEqual(groups[0].items.map((item) => item.code), ['5.2', '6.1'])
+  assert.deepEqual(groups[0].items.map((item) => item.code), ['1.1', '1.2'])
 })
 
 test('PDF bean-list helper preserves product spec and unit fields from picker rows', () => {

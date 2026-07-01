@@ -97,6 +97,34 @@ test('product bean-list generate PDF saves preview snapshot through backend inst
   assert.doesNotMatch(generateSource, /bean-list-pdf-printing/)
 })
 
+test('product price-list card preview omits legacy bean-list marketing fields and wraps long names', () => {
+  const previewCardStart = viewSource.indexOf('<div v-else class="pdf-card-grid">')
+  const previewCardEnd = viewSource.indexOf('</section>', previewCardStart)
+  assert.ok(previewCardStart > -1 && previewCardEnd > previewCardStart, 'preview card block not found')
+  const previewCardSource = viewSource.slice(previewCardStart, previewCardEnd)
+
+  const printCardStart = viewSource.indexOf('<div v-else class="pdf-card-grid">', previewCardEnd)
+  const printCardEnd = viewSource.indexOf('</section>', printCardStart)
+  assert.ok(printCardStart > -1 && printCardEnd > printCardStart, 'print card block not found')
+  const printCardSource = viewSource.slice(printCardStart, printCardEnd)
+
+  for (const source of [previewCardSource, printCardSource]) {
+    assert.doesNotMatch(source, /item\.recommendedUse/)
+    assert.doesNotMatch(source, /item\.flavor/)
+    assert.doesNotMatch(source, /item\.description/)
+    assert.doesNotMatch(source, /出品建议/)
+    assert.doesNotMatch(source, /风味/)
+    assert.doesNotMatch(source, /特点/)
+    assert.doesNotMatch(source, /批发价/)
+    assert.match(source, /item\.attributeLines/)
+    assert.match(source, /pdf-price-block/)
+  }
+
+  assert.match(viewSource, /\.pdf-item-head \{[^}]*grid-template-columns: auto minmax\(0, 1fr\)/)
+  assert.match(viewSource, /\.pdf-item-head > div \{[^}]*min-width: 0/)
+  assert.match(viewSource, /\.pdf-item h3 \{[^}]*overflow-wrap: anywhere/)
+})
+
 test('product price-list publish action reports blocked reasons instead of doing nothing', () => {
   const publishButtonStart = viewSource.indexOf('@click="publishBeanList"')
   assert.ok(publishButtonStart > -1, 'publish button not found')
