@@ -63,7 +63,7 @@ func TestMaterialsViewListLayoutSupportsBulkSelection(t *testing.T) {
 		"toggleMaterialRows",
 		"deprecateSelectedMaterials",
 		"批量失效",
-		"min-width: 920px",
+		"min-width: 660px",
 		"overflow-x: auto",
 	} {
 		if !strings.Contains(src, want) {
