@@ -42,10 +42,10 @@ test('process route operation editor aligns fields and hides raw quality checkli
   assert.doesNotMatch(source, /工位\/设备/)
 })
 
-test('process route operation row exposes planned operation cost but not workstation capacity batch time rate', () => {
+test('process route operation row derives planned cost from workstation capacity', () => {
   const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
 
-  for (const forbidden of [
+  for (const required of [
     '/api/manufacturing-workstation-capacities',
     '工位产能',
     'workstation_capacity_id',
@@ -54,17 +54,18 @@ test('process route operation row exposes planned operation cost but not worksta
     'batch_size_unit',
     'standard_minutes',
     'hourly_rate',
-    'planned_batch_count',
-    'planned_minutes',
     'applyWorkstationCapacity',
+    'plannedOperationCostFormula',
+    '自动折算计划工序成本',
   ]) {
-    assert.doesNotMatch(source, new RegExp(forbidden))
+    assert.match(source, new RegExp(required))
   }
-  assert.match(source, /计划工序成本/)
-  assert.match(source, /v-model\.number="op\.planned_operation_cost"/)
+  assert.match(source, /小时成本\s*×\s*标准分钟/)
   assert.match(source, /planned_operation_cost:\s*Number/)
+  assert.doesNotMatch(source, /v-model\.number="op\.planned_operation_cost"/)
+  assert.doesNotMatch(source, /planned_batch_count/)
+  assert.doesNotMatch(source, /planned_minutes/)
   assert.doesNotMatch(source, /标准分钟\/批/)
-  assert.doesNotMatch(source, /小时费率/)
   assert.doesNotMatch(source, /工位能力模式/)
   assert.doesNotMatch(source, /默认工时\(分钟\)/)
 })
@@ -95,7 +96,12 @@ test('operation and workstation master data no longer expose default minutes as 
 
   assert.doesNotMatch(operationSource, /默认工时\(分钟\)|默认分钟/)
   assert.doesNotMatch(workstationSource, /默认工时\(分钟\)|默认分钟/)
-  assert.match(workstationSource, /默认小时费率/)
+  assert.match(workstationSource, /机器成本\/小时/)
+  assert.match(workstationSource, /人工成本\/小时/)
+  assert.match(workstationSource, /其他成本\/小时/)
+  assert.match(workstationSource, /小时成本合计/)
+  assert.doesNotMatch(workstationSource, /默认小时费率/)
+  assert.doesNotMatch(workstationSource, /v-model\.number="capacityForm\.hourly_rate"/)
   assert.doesNotMatch(operationSource, /工位能力模式/)
   assert.doesNotMatch(workstationSource, /工位能力模式/)
 })

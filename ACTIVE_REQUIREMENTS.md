@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-514-WORKSTATION-COST-COMPONENTS
+- Branch: codex/workstation-cost-components-20260701
+- Owner/session: Codex / 2026-07-01
+- Status: in progress.
+- Scope: 工位/设备维护机器、人工和其他小时成本；工位产能只维护标准批量、库存单位和标准分钟；工艺路线从工位成本和产能自动折算计划工序单位成本，价格试算、生产计划拆分、工单和工序卡继续消费冻结后的折算成本。
+- DEV:
+  - DEV-514-WORKSTATION-COST-COMPONENTS：工位/设备 API 和 UI 支持 `machine_hourly_cost/labor_hourly_cost/overhead_hourly_cost`，总小时成本由三项相加，写操作日志。
+  - DEV-514-CAPACITY-BATCH-TIME-ONLY：工位产能 API 和 UI 不再维护小时费率，只维护适用工序、标准批量/单位、标准分钟/批和状态；历史 `hourly_rate` 只做兼容兜底。
+  - DEV-514-ROUTE-DERIVED-OPERATION-COST：工艺路线工序选择工位产能后按 `小时成本 × 标准分钟/60 ÷ 标准批量` 折算计划工序成本；生产和价格试算读取折算结果，不使用销售单位。
+  - DEV-514-DOCS-ACCEPTANCE：同步需求、验收、生产/成本手册和开发证据，部署后完成 API/browser smoke。
+- Verifier:
+  - RED: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing -count=1` failed before implementation because workstation cost component fields/schema were missing; `node --test src/lib/process-routes.test.js` failed because route UI did not load workstation capacities and workstation UI still exposed old hourly-rate controls.
+  - GREEN Unit/API: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing -count=1` passed; broader costing/production targeted Go tests passed.
+  - GREEN Frontend/build: `node --test src/lib/product-settings.test.js src/lib/produce-plan.test.js src/lib/process-routes.test.js` passed with 192 tests; `npm run build` passed after `npm ci` installed missing frontend deps.
+  - GREEN Review/acceptance: docs updated in `REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`, `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OP_MANUAL_COSTING.md`, and `orderapp-remote/docs/acceptance/2026-07-01-workstation-cost-components.md`; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Deployment: pending.
+- Last update: 2026-07-01 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。
+
 ### PR-513-MATERIAL-CLASSIFICATION-TEMPLATE
 - Branch: codex/material-classification-template-20260701
 - Owner/session: Codex / 2026-07-01

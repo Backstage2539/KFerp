@@ -43,20 +43,24 @@ type ManufacturingOperation struct {
 }
 
 type ManufacturingWorkstation struct {
-	ID             int64   `json:"id"`
-	Code           string  `json:"code"`
-	Name           string  `json:"name"`
-	Status         string  `json:"status"`
-	DefaultMinutes int     `json:"default_minutes"`
-	HourlyRate     float64 `json:"hourly_rate"`
-	Note           string  `json:"note"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
+	ID                 int64   `json:"id"`
+	Code               string  `json:"code"`
+	Name               string  `json:"name"`
+	Status             string  `json:"status"`
+	DefaultMinutes     int     `json:"default_minutes"`
+	MachineHourlyCost  float64 `json:"machine_hourly_cost"`
+	LaborHourlyCost    float64 `json:"labor_hourly_cost"`
+	OverheadHourlyCost float64 `json:"overhead_hourly_cost"`
+	HourlyRate         float64 `json:"hourly_rate"`
+	Note               string  `json:"note"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
 }
 
 type ManufacturingWorkstationCapacity struct {
 	ID                     int64                    `json:"id"`
 	WorkstationID          int64                    `json:"workstation_id"`
+	Workstation            string                   `json:"workstation"`
 	Code                   string                   `json:"code"`
 	Name                   string                   `json:"name"`
 	Status                 string                   `json:"status"`
@@ -186,14 +190,17 @@ type SaveManufacturingOperationCommand struct {
 }
 
 type SaveManufacturingWorkstationCommand struct {
-	ID             int64
-	Code           string
-	Name           string
-	Status         string
-	DefaultMinutes int
-	HourlyRate     float64
-	Note           string
-	Actor          string
+	ID                 int64
+	Code               string
+	Name               string
+	Status             string
+	DefaultMinutes     int
+	MachineHourlyCost  float64
+	LaborHourlyCost    float64
+	OverheadHourlyCost float64
+	HourlyRate         float64
+	Note               string
+	Actor              string
 }
 
 type SaveWorkstationCapacityCommand struct {
@@ -348,6 +355,15 @@ func (s *Service) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManu
 	if cmd.DefaultMinutes < 0 {
 		return ManufacturingWorkstation{}, fmt.Errorf("default_minutes must be >= 0")
 	}
+	if cmd.MachineHourlyCost < 0 {
+		return ManufacturingWorkstation{}, fmt.Errorf("machine_hourly_cost must be >= 0")
+	}
+	if cmd.LaborHourlyCost < 0 {
+		return ManufacturingWorkstation{}, fmt.Errorf("labor_hourly_cost must be >= 0")
+	}
+	if cmd.OverheadHourlyCost < 0 {
+		return ManufacturingWorkstation{}, fmt.Errorf("overhead_hourly_cost must be >= 0")
+	}
 	if cmd.HourlyRate < 0 {
 		return ManufacturingWorkstation{}, fmt.Errorf("hourly_rate must be >= 0")
 	}
@@ -356,6 +372,10 @@ func (s *Service) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManu
 	}
 	if cmd.Code == "" {
 		cmd.Code = codeFromName(cmd.Name)
+	}
+	componentTotal := cmd.MachineHourlyCost + cmd.LaborHourlyCost + cmd.OverheadHourlyCost
+	if componentTotal > 0 || cmd.HourlyRate == 0 {
+		cmd.HourlyRate = roundMoney(componentTotal)
 	}
 	return s.repo.SaveManufacturingWorkstation(ctx, cmd)
 }
@@ -393,9 +413,7 @@ func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 	if cmd.StandardMinutes < 0 {
 		return ManufacturingWorkstationCapacity{}, fmt.Errorf("standard_minutes must be >= 0")
 	}
-	if cmd.HourlyRate < 0 {
-		return ManufacturingWorkstationCapacity{}, fmt.Errorf("hourly_rate must be >= 0")
-	}
+	cmd.HourlyRate = 0
 	if cmd.ProductionCapacity <= 0 {
 		cmd.ProductionCapacity = 1
 	}
@@ -623,6 +641,10 @@ func (s *Service) SaveProcessRoute(ctx context.Context, cmd SaveProcessRouteComm
 		if err != nil {
 			return ProcessRoute{}, err
 		}
+		op, err = s.applyWorkstationCapacitySnapshot(ctx, op)
+		if err != nil {
+			return ProcessRoute{}, err
+		}
 		cmd.Operations[i] = op
 	}
 	return s.repo.SaveProcessRoute(ctx, cmd)
@@ -747,31 +769,23 @@ func normalizeProcessOperation(op ProcessTemplateOperation, fallbackSeq int) (Pr
 
 func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (ProcessRouteOperation, error) {
 	op.Operation = strings.TrimSpace(op.Operation)
+	op.Workstation = strings.TrimSpace(op.Workstation)
+	op.WorkstationCapacityName = strings.TrimSpace(op.WorkstationCapacityName)
+	op.BatchSizeUnit = strings.TrimSpace(op.BatchSizeUnit)
 	if op.Seq <= 0 {
 		op.Seq = fallbackSeq
 	}
 	if op.Operation == "" {
 		return op, fmt.Errorf("operation required")
 	}
-	if op.PlannedOperationCost < 0 {
-		return op, fmt.Errorf("planned_operation_cost must be >= 0")
+	if err := validateOperationCostSnapshot(op.BatchSizeQty, op.StandardMinutes, op.HourlyRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost); err != nil {
+		return op, err
 	}
 	qualityChecklistJSON, err := normalizeJSONArray(op.QualityChecklistJSON)
 	if err != nil {
 		return op, fmt.Errorf("quality_checklist_json must be a JSON array")
 	}
-	op.WorkstationID = 0
-	op.WorkstationCapacityID = 0
-	op.Workstation = ""
-	op.WorkstationCapacityName = ""
 	op.DefaultEquipment = ""
-	op.DefaultMinutes = 0
-	op.BatchSizeQty = 0
-	op.BatchSizeUnit = ""
-	op.StandardMinutes = 0
-	op.HourlyRate = 0
-	op.PlannedBatchCount = 0
-	op.PlannedMinutes = 0
 	op.QualityChecklistJSON = qualityChecklistJSON
 	return op, nil
 }
@@ -780,10 +794,11 @@ func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op Proce
 	if op.WorkstationCapacityID <= 0 {
 		return op, nil
 	}
-	if op.WorkstationID <= 0 {
-		return op, fmt.Errorf("workstation capacity requires workstation_id")
+	query := WorkstationCapacityQuery{Status: "active"}
+	if op.WorkstationID > 0 {
+		query.WorkstationID = op.WorkstationID
 	}
-	rows, err := s.repo.ListManufacturingWorkstationCapacities(ctx, WorkstationCapacityQuery{WorkstationID: op.WorkstationID, Status: "active"})
+	rows, err := s.repo.ListManufacturingWorkstationCapacities(ctx, query)
 	if err != nil {
 		return op, err
 	}
@@ -791,19 +806,20 @@ func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op Proce
 		if row.ID != op.WorkstationCapacityID {
 			continue
 		}
+		op.WorkstationID = row.WorkstationID
+		op.Workstation = row.Workstation
 		op.WorkstationCapacityName = row.Name
 		op.BatchSizeQty = row.BatchSizeQty
 		op.BatchSizeUnit = row.BatchSizeUnit
 		op.StandardMinutes = row.StandardMinutes
 		op.HourlyRate = row.HourlyRate
-		if op.DefaultMinutes == 0 && row.StandardMinutes > 0 {
-			op.DefaultMinutes = row.StandardMinutes
-		}
-		if op.PlannedMinutes == 0 && op.PlannedBatchCount > 0 && op.StandardMinutes > 0 {
-			op.PlannedMinutes = op.PlannedBatchCount * op.StandardMinutes
-		}
-		if op.PlannedOperationCost == 0 && op.PlannedMinutes > 0 && op.HourlyRate > 0 {
-			op.PlannedOperationCost = roundMoney(float64(op.PlannedMinutes) / 60 * op.HourlyRate)
+		op.DefaultMinutes = row.StandardMinutes
+		op.PlannedBatchCount = 1
+		op.PlannedMinutes = row.StandardMinutes
+		if op.BatchSizeQty > 0 && op.StandardMinutes > 0 && op.HourlyRate > 0 {
+			op.PlannedOperationCost = roundMoney((float64(op.StandardMinutes) / 60 * op.HourlyRate) / op.BatchSizeQty)
+		} else {
+			op.PlannedOperationCost = 0
 		}
 		return op, nil
 	}

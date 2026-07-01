@@ -109,7 +109,11 @@ func (r Repository) manufacturingOperationByID(ctx context.Context, id int64) (m
 
 func (r Repository) ListManufacturingWorkstations(ctx context.Context) ([]manufacturingapp.ManufacturingWorkstation, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,code,name,status,default_minutes,COALESCE(hourly_rate,0)::float8,note,
+		SELECT id,code,name,status,default_minutes,
+		       COALESCE(machine_hourly_cost,0)::float8,
+		       COALESCE(labor_hourly_cost,0)::float8,
+		       COALESCE(overhead_hourly_cost,0)::float8,
+		       COALESCE(hourly_rate,0)::float8,note,
 		       to_char(created_at,'YYYY-MM-DD HH24:MI'),
 		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.manufacturing_workstations
@@ -122,7 +126,7 @@ func (r Repository) ListManufacturingWorkstations(ctx context.Context) ([]manufa
 	out := make([]manufacturingapp.ManufacturingWorkstation, 0)
 	for rows.Next() {
 		var row manufacturingapp.ManufacturingWorkstation
-		if err := rows.Scan(&row.ID, &row.Code, &row.Name, &row.Status, &row.DefaultMinutes, &row.HourlyRate, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Code, &row.Name, &row.Status, &row.DefaultMinutes, &row.MachineHourlyCost, &row.LaborHourlyCost, &row.OverheadHourlyCost, &row.HourlyRate, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -142,21 +146,23 @@ func (r Repository) SaveManufacturingWorkstation(ctx context.Context, cmd manufa
 		action = "update"
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.manufacturing_workstations
-			SET code=$2,name=$3,status=$4,default_minutes=$5,hourly_rate=$6,note=$7,updated_at=now()
+			SET code=$2,name=$3,status=$4,default_minutes=$5,
+			    machine_hourly_cost=$6,labor_hourly_cost=$7,overhead_hourly_cost=$8,hourly_rate=$9,
+			    note=$10,updated_at=now()
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.HourlyRate, cmd.Note).Scan(&id)
+		`, r.schema), cmd.ID, cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.MachineHourlyCost, cmd.LaborHourlyCost, cmd.OverheadHourlyCost, cmd.HourlyRate, cmd.Note).Scan(&id)
 	} else {
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.manufacturing_workstations(code,name,status,default_minutes,hourly_rate,note,created_at,updated_at)
-			VALUES($1,$2,$3,$4,$5,$6,now(),now())
+			INSERT INTO %s.manufacturing_workstations(code,name,status,default_minutes,machine_hourly_cost,labor_hourly_cost,overhead_hourly_cost,hourly_rate,note,created_at,updated_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now())
 			RETURNING id
-		`, r.schema), cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.HourlyRate, cmd.Note).Scan(&id)
+		`, r.schema), cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.MachineHourlyCost, cmd.LaborHourlyCost, cmd.OverheadHourlyCost, cmd.HourlyRate, cmd.Note).Scan(&id)
 	}
 	if err != nil {
 		return manufacturingapp.ManufacturingWorkstation{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation", &id, action, postgresinfra.StrPtr("workstation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation", &id, action, postgresinfra.StrPtr("workstation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status, "machine_hourly_cost": cmd.MachineHourlyCost, "labor_hourly_cost": cmd.LaborHourlyCost, "overhead_hourly_cost": cmd.OverheadHourlyCost, "hourly_rate": cmd.HourlyRate}); err != nil {
 		return manufacturingapp.ManufacturingWorkstation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -198,27 +204,28 @@ func (r Repository) ListManufacturingWorkstationCapacities(ctx context.Context, 
 	where := "1=1"
 	if query.WorkstationID > 0 {
 		args = append(args, query.WorkstationID)
-		where += fmt.Sprintf(" AND workstation_id=$%d", len(args))
+		where += fmt.Sprintf(" AND c.workstation_id=$%d", len(args))
 	}
 	if strings.TrimSpace(query.Status) != "" {
 		args = append(args, strings.TrimSpace(query.Status))
-		where += fmt.Sprintf(" AND status=$%d", len(args))
+		where += fmt.Sprintf(" AND c.status=$%d", len(args))
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,workstation_id,code,name,status,
-		       COALESCE(batch_size_qty,0)::float8,
-		       COALESCE(batch_size_unit,''),
-		       COALESCE(standard_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,
-		       COALESCE(production_capacity,1),
-		       COALESCE(sort_order,0),
-		       COALESCE(note,''),
-		       to_char(created_at,'YYYY-MM-DD HH24:MI'),
-		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.manufacturing_workstation_capacities
+		SELECT c.id,c.workstation_id,COALESCE(w.name,''),c.code,c.name,c.status,
+		       COALESCE(c.batch_size_qty,0)::float8,
+		       COALESCE(c.batch_size_unit,''),
+		       COALESCE(c.standard_minutes,0),
+		       COALESCE(NULLIF(w.hourly_rate,0), c.hourly_rate, 0)::float8,
+		       COALESCE(c.production_capacity,1),
+		       COALESCE(c.sort_order,0),
+		       COALESCE(c.note,''),
+		       to_char(c.created_at,'YYYY-MM-DD HH24:MI'),
+		       to_char(c.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.manufacturing_workstation_capacities c
+		LEFT JOIN %s.manufacturing_workstations w ON w.id=c.workstation_id
 		WHERE %s
-		ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, workstation_id, sort_order, name, id
-	`, r.schema, where), args...)
+		ORDER BY CASE WHEN c.status='active' THEN 0 ELSE 1 END, c.workstation_id, c.sort_order, c.name, c.id
+	`, r.schema, r.schema, where), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +233,7 @@ func (r Repository) ListManufacturingWorkstationCapacities(ctx context.Context, 
 	out := make([]manufacturingapp.ManufacturingWorkstationCapacity, 0)
 	for rows.Next() {
 		var row manufacturingapp.ManufacturingWorkstationCapacity
-		if err := rows.Scan(&row.ID, &row.WorkstationID, &row.Code, &row.Name, &row.Status, &row.BatchSizeQty, &row.BatchSizeUnit, &row.StandardMinutes, &row.HourlyRate, &row.ProductionCapacity, &row.SortOrder, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkstationID, &row.Workstation, &row.Code, &row.Name, &row.Status, &row.BatchSizeQty, &row.BatchSizeUnit, &row.StandardMinutes, &row.HourlyRate, &row.ProductionCapacity, &row.SortOrder, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -321,7 +328,7 @@ func (r Repository) SaveManufacturingWorkstationCapacity(ctx context.Context, cm
 			return manufacturingapp.ManufacturingWorkstationCapacity{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation_capacity", &id, action, postgresinfra.StrPtr("workstation_capacity"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"workstation_id": cmd.WorkstationID, "batch_size_qty": cmd.BatchSizeQty, "batch_size_unit": cmd.BatchSizeUnit, "standard_minutes": cmd.StandardMinutes, "hourly_rate": cmd.HourlyRate, "status": cmd.Status, "applicable_operation_ids": cmd.ApplicableOperationIDs}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation_capacity", &id, action, postgresinfra.StrPtr("workstation_capacity"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"workstation_id": cmd.WorkstationID, "batch_size_qty": cmd.BatchSizeQty, "batch_size_unit": cmd.BatchSizeUnit, "standard_minutes": cmd.StandardMinutes, "status": cmd.Status, "applicable_operation_ids": cmd.ApplicableOperationIDs}); err != nil {
 		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
