@@ -57,7 +57,10 @@ func TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting(t *testing.T) {
 		"报价",
 		"overflow-wrap: anywhere",
 		"grid-template-columns: auto minmax(0, 1fr)",
-		".pdf-card-row { display: grid; gap: 9px; align-items: stretch; }",
+		".pdf-card-row { display: grid; column-gap: 9px; row-gap: 0; align-items: stretch; grid-template-rows: auto auto auto; }",
+		"grid-template-rows: subgrid",
+		"grid-row: span 3",
+		"pdf-meta-block",
 		"min-height: 34px",
 	} {
 		if !strings.Contains(src, want) {
@@ -70,7 +73,7 @@ func TestCostingViewPDFPreviewShowsFullBeanCardsBeforePrinting(t *testing.T) {
 		"item.description",
 		"批发价",
 		"height: 100%",
-		"align-self: start",
+		".pdf-card-row > .pdf-item { min-width: 0; height: auto; align-self: start",
 		"margin-top: auto",
 	} {
 		if strings.Contains(src, forbidden) {
