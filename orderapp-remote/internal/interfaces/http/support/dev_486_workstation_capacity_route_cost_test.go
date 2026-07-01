@@ -9,6 +9,12 @@ import (
 func TestDev487ProductionPlanCapacitySplitContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
+			"PR-514-WORKSTATION-COST-COMPONENTS",
+			"DEV-514-WORKSTATION-COST-COMPONENTS",
+			"DEV-514-CAPACITY-BATCH-TIME-ONLY",
+			"DEV-514-PLAN-SPLIT-DERIVED-OPERATION-COST",
+			"DEV-514-ROUTE-TEMPLATE-ONLY",
+			"API-514-WORKSTATION-COST-COMPONENTS",
 			"PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS",
 			"DEV-487-ROUTE-SEQUENCE-ONLY",
 			"DEV-487-PRODUCTION-PLAN-SPLITS",
