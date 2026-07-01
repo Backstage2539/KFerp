@@ -984,7 +984,10 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '其他成本',
     '加价后价格',
     '试算单价',
-    'BOM+工序成本折算明细',
+    '标准制造成本',
+    '物料单位成本',
+    '标准工序成本',
+    '标准制造成本折算明细',
     '物料成本明细',
     '工序成本明细',
     'BOM组成',
@@ -1064,7 +1067,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(style, /\.pricing-rule-trial-drawer/)
   assert.match(style, /\.pricing-rule-trial-waterfall-card\.interactive/)
   assert.match(style, /\.pricing-rule-trial-explanation-panel/)
-  assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('base_cost'\)"[\s\S]*BOM\+工序成本/)
+  assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('base_cost'\)"[\s\S]*标准制造成本/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('other_cost'\)"[\s\S]*其他成本/)
   assert.match(trialDrawer, /v-if="pricingRuleTrialHasYieldLoss\(pricingRuleTrialResult\)"[\s\S]*损耗增加/)
   assert.match(trialDrawer, /v-if="pricingRuleTrialHasRoundingAdjustment\(pricingRuleTrialResult\)"[\s\S]*取整调整/)
@@ -1076,6 +1079,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(trialDrawer, /pricingRuleTrialProfitExplanation\(pricingRuleTrialResult\)/)
   assert.match(source, /pricing-rule-trial-operator[\s\S]*\+/)
   assert.match(source, /pricing-rule-trial-operator[\s\S]*=/)
+  assert.doesNotMatch(trialDrawer, /点击查看试算说明：BOM\+工序成本/)
 })
 
 test('product price list owns tier template drawer and three pricing modes', () => {

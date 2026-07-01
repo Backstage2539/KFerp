@@ -96,9 +96,9 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 			PreTaxPrice:    104.17,
 			Formula:        "税前价 = 损耗后成本 / (1 - 毛利率 25%)",
 		},
-		FormulaExpression: "最终售价 = (BOM+工序成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
+		FormulaExpression: "最终售价 = (标准制造成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
 		FormulaExpressionLines: []string{
-			"成本基数 = BOM+工序成本 60/kg + 其他成本 2.5/kg = 62.5/kg",
+			"成本基数 = 标准制造成本 60/kg + 其他成本 2.5/kg = 62.5/kg",
 			"最终售价 = 110.4/kg",
 		},
 		Steps: []domain.PriceExplanationStep{
@@ -156,9 +156,9 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 			PreTaxPrice:    116.7092,
 			Formula:        "加价后价格 = 损耗后成本 * (1 + 档位利润率/加价率 30%)",
 		},
-		FormulaExpression: "最终售价 = (BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位利润率/加价率 54.21%) = 116.7092/kg",
+		FormulaExpression: "最终售价 = (标准制造成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位利润率/加价率 54.21%) = 116.7092/kg",
 		FormulaExpressionLines: []string{
-			"成本基数 = BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg = 73.7625/kg",
+			"成本基数 = 标准制造成本 67.5/kg + 生产项目成本 6.2625/kg = 73.7625/kg",
 			"最终售价 = 116.7092/kg",
 		},
 		BomVersionOptions: []appcosting.PricingRuleTrialBomVersionOption{

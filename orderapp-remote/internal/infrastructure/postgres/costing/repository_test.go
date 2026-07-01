@@ -773,13 +773,50 @@ func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *test
 		t.Fatalf("pricing rule trial details must still respect selected process route boundary")
 	}
 	for _, forbidden := range []string{
-		"process_route_operations",
+		"planned_operation_cost",
+		"workstation_capacity_id",
 		"工艺路线计划工序成本",
 		"process_route:%d",
 	} {
 		if strings.Contains(fn, forbidden) {
 			t.Fatalf("pricing rule trial details must not read route template operation cost; found %q", forbidden)
 		}
+	}
+}
+
+func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"process_route_operations",
+		"manufacturing_workstation_capacity_operations",
+		"manufacturing_workstation_capacities",
+		"manufacturing_workstations",
+		"c.standard_minutes",
+		"c.batch_size_qty",
+		"c.batch_size_unit",
+		"COALESCE(NULLIF(w.hourly_rate,0), NULLIF(c.hourly_rate,0), 0)",
+		"hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty",
+		"标准工序成本",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing trial details must derive standard operation cost from route operations and workstation capacities; missing %q", want)
+		}
+	}
+	if strings.Contains(fn, "if input.ProcessRouteID > 0 {\n\t\treturn out, nil\n\t}") {
+		t.Fatalf("selected process route must add standard operation costs instead of returning material rows only")
 	}
 }
 

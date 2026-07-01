@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-515-STANDARD-MANUFACTURING-COST-PRICING
+- Branch: codex/standard-manufacturing-cost-pricing-20260701
+- Owner/session: Codex / 2026-07-01
+- Status: verified locally, pending integration.
+- Scope: 价格试算和价格表主流程收敛到标准制造成本：BOM 负责物料成本和原料损耗，工位维护机器/人工/其他小时成本，标准制造成本按 BOM + 工艺路线工序匹配的标准工位产能折算为元/库存单位；价格计算模板只做利润、税率和取整，生产计划/工单的真实产能批次不回写历史价格。
+- DEV:
+  - DEV-515-STANDARD-MANUFACTURING-COST-API：价格试算返回 `material_unit_cost`、`operation_unit_cost`、`standard_manufacturing_unit_cost`、成本来源和 BOM/工艺/工位成本快照。
+  - DEV-515-STANDARD-OPERATION-COST：仓储层从工艺路线工序匹配启用的工位产能，按 `工位小时费率 × 标准分钟 / 60 / 标准产出数量` 折算标准工序单位成本。
+  - DEV-515-PRICING-UI-DOCS：商品价格管理展示标准制造成本来源；价格表不要求产能/批次数；同步成本/生产手册、需求和验收证据。
+- Verifier:
+  - RED: `go test ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrialUsesBomCostTemplateFormula|TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity|TestDev515StandardManufacturingCostPricingContracts' -count=1` failed before implementation with missing standard-cost API fields/repository markers/docs markers; `node --test src/lib/product-settings.test.js` failed before implementation because `标准制造成本` UI marker was absent.
+  - GREEN Unit/API: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/production ./internal/interfaces/http/production -count=1` passed; `go test ./internal/interfaces/http/support -run TestDev515StandardManufacturingCostPricingContracts -count=1` passed.
+  - GREEN Frontend/build: `node --test src/lib/product-settings.test.js src/lib/process-routes.test.js` passed; first `npm run build` failed because fresh worktree lacked `vite`, then `npm ci` succeeded and `npm run build` passed.
+  - GREEN Review/acceptance: `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+- Deployment: not started.
+- Last update: 2026-07-01 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在 macOS awk 多行字符串处失败，已手工登记同等占位。
+
 ### PR-514-WORKSTATION-COST-COMPONENTS
 - Branch: codex/route-capacity-boundary-20260701
 - Owner/session: Codex / 2026-07-01

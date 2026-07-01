@@ -105,73 +105,119 @@ type PricingRuleTrialOperationTemplateOption struct {
 	IsDefault bool   `json:"is_default"`
 }
 
+const pricingRuleTrialStandardManufacturingCostSource = "standard_manufacturing_cost" // cost_source = standard_manufacturing_cost
+
+type PricingRuleTrialBomSnapshot struct {
+	VersionID int64  `json:"version_id,omitempty"`
+	VersionNo string `json:"version_no,omitempty"`
+	UsageMode string `json:"usage_mode,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+type PricingRuleTrialProcessRouteSnapshot struct {
+	ID   int64  `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+type PricingRuleTrialWorkstationCostSnapshot struct {
+	MaterialUnitCost              float64                                      `json:"material_unit_cost"`
+	OperationUnitCost             float64                                      `json:"operation_unit_cost"`
+	StandardManufacturingUnitCost float64                                      `json:"standard_manufacturing_unit_cost"`
+	OperationRows                 []PricingRuleTrialWorkstationCostSnapshotRow `json:"operation_rows,omitempty"`
+}
+
+type PricingRuleTrialWorkstationCostSnapshotRow struct {
+	OperationName      string  `json:"operation_name,omitempty"`
+	WorkstationName    string  `json:"workstation_name,omitempty"`
+	CapacityName       string  `json:"capacity_name,omitempty"`
+	HourlyRate         float64 `json:"hourly_rate,omitempty"`
+	StandardMinutes    float64 `json:"standard_minutes,omitempty"`
+	StandardOutputQty  float64 `json:"standard_output_qty,omitempty"`
+	StandardOutputUnit string  `json:"standard_output_unit,omitempty"`
+	UnitCost           float64 `json:"unit_cost,omitempty"`
+	Unit               string  `json:"unit,omitempty"`
+}
+
 type PricingRuleTrialResult struct {
-	PricingRuleID            int64                                     `json:"pricing_rule_id"`
-	PricingRuleName          string                                    `json:"pricing_rule_name"`
-	FormulaVersion           string                                    `json:"formula_version"`
-	ProductID                int64                                     `json:"product_id"`
-	ProductName              string                                    `json:"product_name"`
-	QuoteUnit                string                                    `json:"quote_unit"`
-	InventoryUnit            string                                    `json:"inventory_unit"`
-	BomVersionID             int64                                     `json:"bom_version_id,omitempty"`
-	BomVersionNo             string                                    `json:"bom_version_no,omitempty"`
-	BomVersionOptions        []PricingRuleTrialBomVersionOption        `json:"bom_version_options,omitempty"`
-	ProcessRouteID           int64                                     `json:"process_route_id,omitempty"`
-	ProcessRouteName         string                                    `json:"process_route_name,omitempty"`
-	ProcessRouteOptions      []PricingRuleTrialProcessRouteOption      `json:"process_route_options,omitempty"`
-	OperationTemplateID      int64                                     `json:"operation_template_id,omitempty"`
-	OperationTemplateName    string                                    `json:"operation_template_name,omitempty"`
-	OperationTemplateOptions []PricingRuleTrialOperationTemplateOption `json:"operation_template_options,omitempty"`
-	BomUsageMode             string                                    `json:"bom_usage_mode,omitempty"`
-	BomStatus                string                                    `json:"bom_status,omitempty"`
-	BaseCost                 float64                                   `json:"base_cost"`
-	BomCostTotal             float64                                   `json:"bom_cost_total"`
-	OperationCostTotal       float64                                   `json:"operation_cost_total"`
-	BaseCostDetails          []PricingRuleTrialBaseCostDetail          `json:"base_cost_details,omitempty"`
-	OtherCostTotal           float64                                   `json:"other_cost_total"`
-	OtherCostDetails         []PricingRuleTrialOtherCostDetail         `json:"other_cost_details,omitempty"`
-	CostBaseTotal            float64                                   `json:"cost_base_total"`
-	CostAfterYield           float64                                   `json:"cost_after_yield"`
-	YieldLossAmount          float64                                   `json:"yield_loss_amount"`
-	PriceAfterMarkup         float64                                   `json:"price_after_markup,omitempty"`
-	ProfitMarkupAmount       float64                                   `json:"profit_markup_amount"`
-	ProfitExplanation        PricingRuleTrialProfitExplanation         `json:"profit_explanation"`
-	PostMarkupCostTotal      float64                                   `json:"post_markup_cost_total,omitempty"`
-	PreTaxPrice              float64                                   `json:"pre_tax_price"`
-	TaxAmount                float64                                   `json:"tax_amount"`
-	TaxInPriceAmount         float64                                   `json:"tax_in_price_amount"`
-	TaxRateSource            string                                    `json:"tax_rate_source,omitempty"`
-	FinalBeforeRounding      float64                                   `json:"final_before_rounding"`
-	RoundingAdjustment       float64                                   `json:"rounding_adjustment"`
-	RoundingRuleSource       string                                    `json:"rounding_rule_source,omitempty"`
-	FinalUnitPrice           float64                                   `json:"final_unit_price"`
-	GrossMarginRate          float64                                   `json:"gross_margin_rate"`
-	MinimumMarginRate        float64                                   `json:"minimum_margin_rate"`
-	FormulaExpression        string                                    `json:"formula_expression,omitempty"`
-	FormulaExpressionLines   []string                                  `json:"formula_expression_lines,omitempty"`
-	Steps                    []domain.PriceExplanationStep             `json:"steps"`
-	Warnings                 []string                                  `json:"warnings,omitempty"`
+	PricingRuleID                 int64                                     `json:"pricing_rule_id"`
+	PricingRuleName               string                                    `json:"pricing_rule_name"`
+	FormulaVersion                string                                    `json:"formula_version"`
+	ProductID                     int64                                     `json:"product_id"`
+	ProductName                   string                                    `json:"product_name"`
+	QuoteUnit                     string                                    `json:"quote_unit"`
+	InventoryUnit                 string                                    `json:"inventory_unit"`
+	BomVersionID                  int64                                     `json:"bom_version_id,omitempty"`
+	BomVersionNo                  string                                    `json:"bom_version_no,omitempty"`
+	BomVersionOptions             []PricingRuleTrialBomVersionOption        `json:"bom_version_options,omitempty"`
+	ProcessRouteID                int64                                     `json:"process_route_id,omitempty"`
+	ProcessRouteName              string                                    `json:"process_route_name,omitempty"`
+	ProcessRouteOptions           []PricingRuleTrialProcessRouteOption      `json:"process_route_options,omitempty"`
+	OperationTemplateID           int64                                     `json:"operation_template_id,omitempty"`
+	OperationTemplateName         string                                    `json:"operation_template_name,omitempty"`
+	OperationTemplateOptions      []PricingRuleTrialOperationTemplateOption `json:"operation_template_options,omitempty"`
+	BomUsageMode                  string                                    `json:"bom_usage_mode,omitempty"`
+	BomStatus                     string                                    `json:"bom_status,omitempty"`
+	BaseCost                      float64                                   `json:"base_cost"`
+	BomCostTotal                  float64                                   `json:"bom_cost_total"`
+	OperationCostTotal            float64                                   `json:"operation_cost_total"`
+	MaterialUnitCost              float64                                   `json:"material_unit_cost"`
+	OperationUnitCost             float64                                   `json:"operation_unit_cost"`
+	StandardManufacturingUnitCost float64                                   `json:"standard_manufacturing_unit_cost"`
+	CostSource                    string                                    `json:"cost_source,omitempty"`
+	BomSnapshot                   PricingRuleTrialBomSnapshot               `json:"bom_snapshot,omitempty"`
+	ProcessRouteSnapshot          PricingRuleTrialProcessRouteSnapshot      `json:"process_route_snapshot,omitempty"`
+	WorkstationCostSnapshot       PricingRuleTrialWorkstationCostSnapshot   `json:"workstation_cost_snapshot,omitempty"`
+	BaseCostDetails               []PricingRuleTrialBaseCostDetail          `json:"base_cost_details,omitempty"`
+	OtherCostTotal                float64                                   `json:"other_cost_total"`
+	OtherCostDetails              []PricingRuleTrialOtherCostDetail         `json:"other_cost_details,omitempty"`
+	CostBaseTotal                 float64                                   `json:"cost_base_total"`
+	CostAfterYield                float64                                   `json:"cost_after_yield"`
+	YieldLossAmount               float64                                   `json:"yield_loss_amount"`
+	PriceAfterMarkup              float64                                   `json:"price_after_markup,omitempty"`
+	ProfitMarkupAmount            float64                                   `json:"profit_markup_amount"`
+	ProfitExplanation             PricingRuleTrialProfitExplanation         `json:"profit_explanation"`
+	PostMarkupCostTotal           float64                                   `json:"post_markup_cost_total,omitempty"`
+	PreTaxPrice                   float64                                   `json:"pre_tax_price"`
+	TaxAmount                     float64                                   `json:"tax_amount"`
+	TaxInPriceAmount              float64                                   `json:"tax_in_price_amount"`
+	TaxRateSource                 string                                    `json:"tax_rate_source,omitempty"`
+	FinalBeforeRounding           float64                                   `json:"final_before_rounding"`
+	RoundingAdjustment            float64                                   `json:"rounding_adjustment"`
+	RoundingRuleSource            string                                    `json:"rounding_rule_source,omitempty"`
+	FinalUnitPrice                float64                                   `json:"final_unit_price"`
+	GrossMarginRate               float64                                   `json:"gross_margin_rate"`
+	MinimumMarginRate             float64                                   `json:"minimum_margin_rate"`
+	FormulaExpression             string                                    `json:"formula_expression,omitempty"`
+	FormulaExpressionLines        []string                                  `json:"formula_expression_lines,omitempty"`
+	Steps                         []domain.PriceExplanationStep             `json:"steps"`
+	Warnings                      []string                                  `json:"warnings,omitempty"`
 }
 
 type PricingRuleTrialBaseCostDetail struct {
-	Key               string  `json:"key,omitempty"`
-	Type              string  `json:"type"`
-	TypeLabel         string  `json:"type_label"`
-	Name              string  `json:"name"`
-	ConsumeUnit       string  `json:"consume_unit,omitempty"`
-	Quantity          float64 `json:"quantity,omitempty"`
-	RatioPct          float64 `json:"ratio_pct,omitempty"`
-	RecipeRatioPct    float64 `json:"recipe_ratio_pct,omitempty"`
-	EffectiveRatioPct float64 `json:"effective_ratio_pct,omitempty"`
-	MaterialLossRate  float64 `json:"material_loss_rate,omitempty"`
-	UnitCost          float64 `json:"unit_cost,omitempty"`
-	CostUnitCost      float64 `json:"cost_unit_cost,omitempty"`
-	CostUnit          string  `json:"cost_unit,omitempty"`
-	Amount            float64 `json:"amount"`
-	Unit              string  `json:"unit"`
-	Description       string  `json:"description,omitempty"`
-	AmountPerKg       float64 `json:"-"`
-	AmountPerUnit     float64 `json:"-"`
+	Key                string  `json:"key,omitempty"`
+	Type               string  `json:"type"`
+	TypeLabel          string  `json:"type_label"`
+	Name               string  `json:"name"`
+	ConsumeUnit        string  `json:"consume_unit,omitempty"`
+	Quantity           float64 `json:"quantity,omitempty"`
+	RatioPct           float64 `json:"ratio_pct,omitempty"`
+	RecipeRatioPct     float64 `json:"recipe_ratio_pct,omitempty"`
+	EffectiveRatioPct  float64 `json:"effective_ratio_pct,omitempty"`
+	MaterialLossRate   float64 `json:"material_loss_rate,omitempty"`
+	UnitCost           float64 `json:"unit_cost,omitempty"`
+	CostUnitCost       float64 `json:"cost_unit_cost,omitempty"`
+	CostUnit           string  `json:"cost_unit,omitempty"`
+	Amount             float64 `json:"amount"`
+	Unit               string  `json:"unit"`
+	Description        string  `json:"description,omitempty"`
+	WorkstationName    string  `json:"workstation_name,omitempty"`
+	CapacityName       string  `json:"capacity_name,omitempty"`
+	HourlyRate         float64 `json:"hourly_rate,omitempty"`
+	StandardMinutes    float64 `json:"standard_minutes,omitempty"`
+	StandardOutputQty  float64 `json:"standard_output_qty,omitempty"`
+	StandardOutputUnit string  `json:"standard_output_unit,omitempty"`
+	AmountPerKg        float64 `json:"-"`
+	AmountPerUnit      float64 `json:"-"`
 }
 
 type PricingRuleTrialOtherCostDetail struct {
@@ -841,14 +887,14 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	case "inactive", "disabled":
 		warnings = appendUniqueString(warnings, "BOM已失效：试算结果仅供参考")
 	case "missing":
-		warnings = appendUniqueString(warnings, "该商品暂无可试算的 BOM/工序成本")
+		warnings = appendUniqueString(warnings, "该商品暂无可试算的标准制造成本")
 	}
 	if !rule.Active {
 		warnings = appendUniqueString(warnings, "停用模板：试算仅供查看，不能作为新发布价格来源")
 	}
 
 	baseCost := 0.0
-	baseSource := "product_bom_operation_cost"
+	baseSource := pricingRuleTrialStandardManufacturingCostSource
 	if cmd.Overrides.BaseCost != nil {
 		if *cmd.Overrides.BaseCost < 0 {
 			return nil, fmt.Errorf("base_cost must be >= 0")
@@ -907,7 +953,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if cmd.Overrides.BaseCost == nil {
 		if detailBaseCost := bomCostTotal + operationCostTotal; detailBaseCost > 0 {
 			baseCost = detailBaseCost
-			baseSource = "product_bom_operation_cost"
+			baseSource = pricingRuleTrialStandardManufacturingCostSource
 		} else {
 			baseCost = 0
 		}
@@ -917,7 +963,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		lossChanged = false
 	}
 	if baseCost <= 0 {
-		warnings = appendUniqueString(warnings, "该商品暂无可试算的 BOM/工序成本")
+		warnings = appendUniqueString(warnings, "该商品暂无可试算的标准制造成本")
 	}
 	costBeforeYield := baseCost + otherCostTotal
 	costAfterYield := costBeforeYield
@@ -978,55 +1024,66 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if productName == "" {
 		productName = strings.TrimSpace(input.ProductName)
 	}
+	materialUnitCost := pricingRuleTrialResultAmount(formulaMode, bomCostTotal)
+	operationUnitCost := pricingRuleTrialResultAmount(formulaMode, operationCostTotal)
+	standardManufacturingUnitCost := pricingRuleTrialResultAmount(formulaMode, baseCost)
+	processRouteName := pricingRuleTrialProcessRouteName(productionOptions.ProcessRoutes, input.ProcessRouteID, input.ProcessRouteName)
 	result := &PricingRuleTrialResult{
-		PricingRuleID:            rule.ID,
-		PricingRuleName:          firstNonEmptyString(rule.Name, rule.Code),
-		FormulaVersion:           firstNonEmptyString(rule.FormulaVersion, "v1"),
-		ProductID:                input.ProductID,
-		ProductName:              productName,
-		QuoteUnit:                quoteUnit,
-		InventoryUnit:            strings.TrimSpace(input.InventoryUnit),
-		BomVersionID:             input.BomVersionID,
-		BomVersionNo:             input.BomVersionNo,
-		BomVersionOptions:        productionOptions.BomVersions,
-		ProcessRouteID:           input.ProcessRouteID,
-		ProcessRouteName:         pricingRuleTrialProcessRouteName(productionOptions.ProcessRoutes, input.ProcessRouteID, input.ProcessRouteName),
-		ProcessRouteOptions:      productionOptions.ProcessRoutes,
-		OperationTemplateID:      input.OperationTemplateID,
-		OperationTemplateName:    pricingRuleTrialOperationTemplateName(productionOptions.OperationTemplates, input.OperationTemplateID),
-		OperationTemplateOptions: productionOptions.OperationTemplates,
-		BomUsageMode:             input.BomUsageMode,
-		BomStatus:                input.BomStatus,
-		BaseCost:                 pricingRuleTrialResultAmount(formulaMode, baseCost),
-		BomCostTotal:             pricingRuleTrialResultAmount(formulaMode, bomCostTotal),
-		OperationCostTotal:       pricingRuleTrialResultAmount(formulaMode, operationCostTotal),
-		BaseCostDetails:          baseCostDetails,
-		OtherCostTotal:           pricingRuleTrialResultAmount(formulaMode, otherCostTotal),
-		OtherCostDetails:         pricingRuleTrialOtherCostDetails(otherCosts, formulaMode, quoteUnit, pricingRuleTrialOtherCostSource(cmd.Overrides.OtherCosts)),
-		CostBaseTotal:            pricingRuleTrialResultAmount(formulaMode, costBaseTotal),
-		CostAfterYield:           pricingRuleTrialResultAmount(formulaMode, costAfterYield),
-		YieldLossAmount:          pricingRuleTrialResultAmount(formulaMode, yieldLossAmount),
-		PriceAfterMarkup:         pricingRuleTrialResultAmount(formulaMode, priceAfterMarkup),
-		ProfitMarkupAmount:       pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount),
-		ProfitExplanation:        pricingRuleTrialProfitExplanation(formulaMode, profitMethod, quoteUnit, marginRate, profitParameterRate, pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), pricingRuleTrialResultAmount(formulaMode, costAfterYield), pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount), pricingRuleTrialResultAmount(formulaMode, preTaxPrice), pricingRuleTrialResultAmount(formulaMode, priceAfterMarkup), pricingRuleTrialResultAmount(formulaMode, postMarkupCostTotal)),
-		PostMarkupCostTotal:      pricingRuleTrialResultAmount(formulaMode, postMarkupCostTotal),
-		PreTaxPrice:              pricingRuleTrialResultAmount(formulaMode, preTaxPrice),
-		TaxAmount:                pricingRuleTrialResultAmount(formulaMode, taxAmount),
-		TaxInPriceAmount:         pricingRuleTrialResultAmount(formulaMode, taxInPriceAmount),
-		TaxRateSource:            taxRateSource,
-		FinalBeforeRounding:      finalBeforeRoundingRounded,
-		RoundingAdjustment:       pricingRuleTrialResultAmount(formulaMode, roundingAdjustment),
-		RoundingRuleSource:       "pricing_rule",
-		FinalUnitPrice:           finalUnitPrice,
-		GrossMarginRate:          roundRatio(grossMarginRate),
-		MinimumMarginRate:        roundRatio(minimumMarginRate),
-		Warnings:                 warnings,
+		PricingRuleID:                 rule.ID,
+		PricingRuleName:               firstNonEmptyString(rule.Name, rule.Code),
+		FormulaVersion:                firstNonEmptyString(rule.FormulaVersion, "v1"),
+		ProductID:                     input.ProductID,
+		ProductName:                   productName,
+		QuoteUnit:                     quoteUnit,
+		InventoryUnit:                 strings.TrimSpace(input.InventoryUnit),
+		BomVersionID:                  input.BomVersionID,
+		BomVersionNo:                  input.BomVersionNo,
+		BomVersionOptions:             productionOptions.BomVersions,
+		ProcessRouteID:                input.ProcessRouteID,
+		ProcessRouteName:              processRouteName,
+		ProcessRouteOptions:           productionOptions.ProcessRoutes,
+		OperationTemplateID:           input.OperationTemplateID,
+		OperationTemplateName:         pricingRuleTrialOperationTemplateName(productionOptions.OperationTemplates, input.OperationTemplateID),
+		OperationTemplateOptions:      productionOptions.OperationTemplates,
+		BomUsageMode:                  input.BomUsageMode,
+		BomStatus:                     input.BomStatus,
+		BaseCost:                      pricingRuleTrialResultAmount(formulaMode, baseCost),
+		BomCostTotal:                  pricingRuleTrialResultAmount(formulaMode, bomCostTotal),
+		OperationCostTotal:            pricingRuleTrialResultAmount(formulaMode, operationCostTotal),
+		MaterialUnitCost:              materialUnitCost,
+		OperationUnitCost:             operationUnitCost,
+		StandardManufacturingUnitCost: standardManufacturingUnitCost,
+		CostSource:                    baseSource,
+		BomSnapshot:                   PricingRuleTrialBomSnapshot{VersionID: input.BomVersionID, VersionNo: input.BomVersionNo, UsageMode: input.BomUsageMode, Status: input.BomStatus},
+		ProcessRouteSnapshot:          PricingRuleTrialProcessRouteSnapshot{ID: input.ProcessRouteID, Name: processRouteName},
+		WorkstationCostSnapshot:       pricingRuleTrialWorkstationCostSnapshot(baseCostDetails, materialUnitCost, operationUnitCost, standardManufacturingUnitCost, quoteUnit),
+		BaseCostDetails:               baseCostDetails,
+		OtherCostTotal:                pricingRuleTrialResultAmount(formulaMode, otherCostTotal),
+		OtherCostDetails:              pricingRuleTrialOtherCostDetails(otherCosts, formulaMode, quoteUnit, pricingRuleTrialOtherCostSource(cmd.Overrides.OtherCosts)),
+		CostBaseTotal:                 pricingRuleTrialResultAmount(formulaMode, costBaseTotal),
+		CostAfterYield:                pricingRuleTrialResultAmount(formulaMode, costAfterYield),
+		YieldLossAmount:               pricingRuleTrialResultAmount(formulaMode, yieldLossAmount),
+		PriceAfterMarkup:              pricingRuleTrialResultAmount(formulaMode, priceAfterMarkup),
+		ProfitMarkupAmount:            pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount),
+		ProfitExplanation:             pricingRuleTrialProfitExplanation(formulaMode, profitMethod, quoteUnit, marginRate, profitParameterRate, pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), pricingRuleTrialResultAmount(formulaMode, costAfterYield), pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount), pricingRuleTrialResultAmount(formulaMode, preTaxPrice), pricingRuleTrialResultAmount(formulaMode, priceAfterMarkup), pricingRuleTrialResultAmount(formulaMode, postMarkupCostTotal)),
+		PostMarkupCostTotal:           pricingRuleTrialResultAmount(formulaMode, postMarkupCostTotal),
+		PreTaxPrice:                   pricingRuleTrialResultAmount(formulaMode, preTaxPrice),
+		TaxAmount:                     pricingRuleTrialResultAmount(formulaMode, taxAmount),
+		TaxInPriceAmount:              pricingRuleTrialResultAmount(formulaMode, taxInPriceAmount),
+		TaxRateSource:                 taxRateSource,
+		FinalBeforeRounding:           finalBeforeRoundingRounded,
+		RoundingAdjustment:            pricingRuleTrialResultAmount(formulaMode, roundingAdjustment),
+		RoundingRuleSource:            "pricing_rule",
+		FinalUnitPrice:                finalUnitPrice,
+		GrossMarginRate:               roundRatio(grossMarginRate),
+		MinimumMarginRate:             roundRatio(minimumMarginRate),
+		Warnings:                      warnings,
 	}
 	if formulaMode == "supplier_tier_markup" {
 		result.Steps = pricingRuleTrialSupplierSteps(result, cmd, quoteUnit, baseSource, otherCosts, postMarkupCosts, expectedLossRate, yieldMode, lossChanged, marginRate, profitParameterRate, taxMode, taxRate, taxRateSource, taxRateChanged, finalBeforeRounding)
 	} else {
 		result.Steps = []domain.PriceExplanationStep{
-			{Key: "bom_operation_cost", Label: "BOM+工序成本", Source: baseSource, Value: result.BaseCost, Unit: quoteUnit, Changed: cmd.Overrides.BaseCost != nil},
+			{Key: "standard_manufacturing_cost", Label: "标准制造成本", Source: baseSource, Value: result.BaseCost, Unit: quoteUnit, Changed: cmd.Overrides.BaseCost != nil},
 			{Key: "other_cost_total", Label: "其他成本", Source: pricingRuleTrialOtherCostSource(cmd.Overrides.OtherCosts), Value: result.OtherCostTotal, Unit: quoteUnit, Changed: cmd.Overrides.OtherCosts != nil},
 			{Key: "expected_loss_rate", Label: "预期损耗率", Source: pricingRuleTrialLossSource(cmd.Overrides.ExpectedLossRate, yieldMode), Value: roundRatio(expectedLossRate), Unit: "ratio", Changed: lossChanged},
 			{Key: "cost_after_yield", Label: "损耗后成本", Source: "formula", Value: result.CostAfterYield, Unit: quoteUnit, Changed: expectedLossRate > 0 && yieldMode != "none"},
@@ -1058,15 +1115,15 @@ func pricingRuleTrialBaseCost(input domain.ProductInput, quoteUnit string) (floa
 	perUnitCost := input.BomCostPerUnit + input.OperationCostPerUnit
 	factor := pricingRuleTrialUnitKgFactor(quoteUnit, input.UnitConversionJSON)
 	if perKgCost > 0 && factor > 0 {
-		return perKgCost * factor, "product_bom_operation_cost", ""
+		return perKgCost * factor, pricingRuleTrialStandardManufacturingCostSource, ""
 	}
 	if perUnitCost > 0 {
-		return perUnitCost, "product_bom_operation_cost", ""
+		return perUnitCost, pricingRuleTrialStandardManufacturingCostSource, ""
 	}
 	if perKgCost > 0 {
-		return perKgCost, "product_bom_operation_cost", "报价单位无法换算，已按 kg 试算"
+		return perKgCost, pricingRuleTrialStandardManufacturingCostSource, "报价单位无法换算，已按 kg 试算"
 	}
-	return 0, "product_bom_operation_cost", ""
+	return 0, pricingRuleTrialStandardManufacturingCostSource, ""
 }
 
 func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUnit string, formulaMode string, baseCost float64, overridden bool, rawDetails []PricingRuleTrialBaseCostDetail) ([]PricingRuleTrialBaseCostDetail, float64, float64) {
@@ -1083,10 +1140,10 @@ func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUn
 			Key:         "temporary_override:base_cost",
 			Type:        "temporary_override",
 			TypeLabel:   "临时覆盖",
-			Name:        "临时录入 BOM+工序成本",
+			Name:        "临时录入标准制造成本",
 			Amount:      amount,
 			Unit:        unit,
-			Description: fmt.Sprintf("本次试算临时覆盖 BOM+工序成本 %s", pricingRuleTrialMoneyExpression(amount, unit)),
+			Description: fmt.Sprintf("本次试算临时覆盖标准制造成本 %s", pricingRuleTrialMoneyExpression(amount, unit)),
 		}}, amount, 0
 	}
 
@@ -1141,6 +1198,31 @@ func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUn
 		return out, pricingRuleTrialResultAmount(formulaMode, bomTotal), pricingRuleTrialResultAmount(formulaMode, operationTotal)
 	}
 	return nil, 0, 0
+}
+
+func pricingRuleTrialWorkstationCostSnapshot(details []PricingRuleTrialBaseCostDetail, materialUnitCost float64, operationUnitCost float64, standardManufacturingUnitCost float64, quoteUnit string) PricingRuleTrialWorkstationCostSnapshot {
+	snapshot := PricingRuleTrialWorkstationCostSnapshot{
+		MaterialUnitCost:              materialUnitCost,
+		OperationUnitCost:             operationUnitCost,
+		StandardManufacturingUnitCost: standardManufacturingUnitCost,
+	}
+	for _, row := range details {
+		if strings.TrimSpace(row.Type) != "operation" {
+			continue
+		}
+		snapshot.OperationRows = append(snapshot.OperationRows, PricingRuleTrialWorkstationCostSnapshotRow{
+			OperationName:      row.Name,
+			WorkstationName:    row.WorkstationName,
+			CapacityName:       row.CapacityName,
+			HourlyRate:         row.HourlyRate,
+			StandardMinutes:    row.StandardMinutes,
+			StandardOutputQty:  row.StandardOutputQty,
+			StandardOutputUnit: row.StandardOutputUnit,
+			UnitCost:           row.Amount,
+			Unit:               firstNonEmptyString(row.Unit, quoteUnit),
+		})
+	}
+	return snapshot
 }
 
 func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetail, quoteUnit string, conversionJSON string, quoteKgFactor float64, usePerKg bool, perUnitSourceUnit string) (float64, string, float64) {
@@ -1329,7 +1411,7 @@ func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMo
 		return "", nil
 	}
 	unit := firstNonEmptyString(quoteUnit, result.QuoteUnit)
-	baseTerm := fmt.Sprintf("BOM+工序成本 %s", pricingRuleTrialMoneyExpression(result.BaseCost, unit))
+	baseTerm := fmt.Sprintf("标准制造成本 %s", pricingRuleTrialMoneyExpression(result.BaseCost, unit))
 	otherTerm := fmt.Sprintf("其他成本 %s", pricingRuleTrialMoneyExpression(result.OtherCostTotal, unit))
 	if strings.TrimSpace(formulaMode) == "supplier_tier_markup" {
 		otherTerm = fmt.Sprintf("生产项目成本 %s", pricingRuleTrialMoneyExpression(result.OtherCostTotal, unit))

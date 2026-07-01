@@ -997,10 +997,10 @@
               <button
                 :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'base_cost', warning: pricingRuleTrialBaseCostMissing(pricingRuleTrialResult) }]"
                 type="button" @click="openPricingRuleTrialExplanation('base_cost')"
-                aria-label="点击查看试算说明：BOM+工序成本">
-                <small>BOM+工序成本 <span v-if="pricingRuleTrialBaseCostMissing(pricingRuleTrialResult)" title="该商品暂无可试算的 BOM/工序成本">!</span></small>
-                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</strong>
-                <em>物料 {{ trialMoneyDisplay(pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }} / 工序 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}</em>
+                aria-label="点击查看试算说明：标准制造成本">
+                <small>标准制造成本 <span v-if="pricingRuleTrialBaseCostMissing(pricingRuleTrialResult)" title="该商品暂无可试算的标准制造成本">!</span></small>
+                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.standard_manufacturing_unit_cost ?? pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>物料单位成本 {{ trialMoneyDisplay(pricingRuleTrialResult.material_unit_cost ?? pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }} / 标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_unit_cost ?? pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}</em>
               </button>
               <span class="pricing-rule-trial-operator">+</span>
               <button
@@ -1055,7 +1055,7 @@
                 <button class="secondary compact-action" type="button" @click="closePricingRuleTrialExplanation">关闭</button>
               </div>
               <template v-if="pricingRuleTrialActiveExplanation === 'base_cost'">
-                <p>点击查看试算说明：BOM+工序成本来自当前试算商品、BOM版本和工艺路线；BOM组成按配方原始比例展示，折算成本按当前试算单位汇总。</p>
+                <p>标准制造成本来自当前试算商品、BOM版本和工艺路线；BOM物料成本已包含原料损耗，标准工序成本按工位小时成本、标准分钟和标准产出折算到当前试算单位。</p>
                 <div class="table-wrap compact-table-wrap">
                   <table>
                     <thead>
@@ -1083,7 +1083,7 @@
                         <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
                       </tr>
                       <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'all').length">
-                        <td colspan="7" class="muted">暂无可展开的 BOM/工序成本明细。</td>
+                        <td colspan="7" class="muted">暂无可展开的标准制造成本明细。</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1166,8 +1166,8 @@
             </div>
             <div class="pricing-rule-trial-base-detail">
               <div class="field-group-head">
-                <strong>BOM+工序成本折算明细</strong>
-                <small>物料合计 {{ trialMoneyDisplay(pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }}；工序合计 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}；总计 {{ trialMoneyDisplay(pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</small>
+                <strong>标准制造成本折算明细</strong>
+                <small>物料单位成本 {{ trialMoneyDisplay(pricingRuleTrialResult.material_unit_cost ?? pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }}；标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_unit_cost ?? pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}；标准制造成本 {{ trialMoneyDisplay(pricingRuleTrialResult.standard_manufacturing_unit_cost ?? pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</small>
               </div>
               <div class="pricing-rule-trial-detail-group">
                 <strong>物料成本明细</strong>
@@ -3841,6 +3841,7 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
   const source = String(step.source || '').trim()
   if (!source) return '-'
   const sourceMap = {
+    standard_manufacturing_cost: '标准制造成本',
     product_bom_operation_cost: '当前商品 BOM/工序成本',
     pricing_rule: '价格计算模板',
     trial_override: '本次临时录入',
@@ -3890,7 +3891,7 @@ function pricingRuleTrialHasRoundingAdjustment(result = {}) {
 
 function pricingRuleTrialExplanationTitle(kind = '') {
   return {
-    base_cost: 'BOM+工序成本',
+    base_cost: '标准制造成本',
     other_cost: '其他成本',
     profit_markup: '加价增加',
   }[String(kind || '').trim()] || '试算说明'
@@ -3988,6 +3989,7 @@ function pricingRuleTrialConsumeUnitLabel(value = '') {
     per_unit: '每单位',
     per_quote_unit: '每销售单位',
     process_route: '工艺路线计划成本',
+    standard_operation: '标准工序成本',
   }[String(value || '').trim()] || String(value || '').trim()
 }
 

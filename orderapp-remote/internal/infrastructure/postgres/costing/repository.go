@@ -779,6 +779,97 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	}
 
 	if input.ProcessRouteID > 0 {
+		opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			WITH route_operations AS (
+				SELECT pro.id AS route_operation_id,
+				       COALESCE(NULLIF(pro.operation_id,0),0) AS operation_id,
+				       COALESCE(NULLIF(pro.operation,''), NULLIF(o.name,''), '工序') AS operation_name,
+				       COALESCE(pro.seq,0) AS seq
+				FROM %[1]s.process_route_operations pro
+				LEFT JOIN %[1]s.manufacturing_operations o ON o.id=pro.operation_id
+				WHERE pro.route_id=$1
+			),
+			standard_capacity AS (
+				SELECT ro.route_operation_id,
+				       ro.operation_id,
+				       ro.operation_name,
+				       ro.seq,
+				       c.id AS capacity_id,
+				       COALESCE(NULLIF(c.name,''), NULLIF(c.code,''), '标准产能') AS capacity_name,
+				       COALESCE(NULLIF(w.name,''), NULLIF(w.code,''), '工位') AS workstation_name,
+				       COALESCE(c.batch_size_qty,0)::float8 AS batch_size_qty,
+				       COALESCE(NULLIF(c.batch_size_unit,''),'') AS batch_size_unit,
+				       COALESCE(c.standard_minutes,0)::float8 AS standard_minutes,
+				       COALESCE(NULLIF(w.hourly_rate,0), NULLIF(c.hourly_rate,0), 0)::float8 AS hourly_rate,
+				       ROW_NUMBER() OVER (PARTITION BY ro.route_operation_id ORDER BY c.sort_order, c.id) AS rn
+				FROM route_operations ro
+				JOIN %[1]s.manufacturing_workstation_capacity_operations co ON co.operation_id=ro.operation_id
+				JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=co.capacity_id
+				JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id
+				WHERE ro.operation_id > 0
+				  AND COALESCE(c.status,'active')='active'
+				  AND COALESCE(w.status,'active')='active'
+				  AND COALESCE(c.batch_size_qty,0) > 0
+				  AND COALESCE(c.standard_minutes,0) > 0
+			)
+			SELECT route_operation_id,
+			       operation_name,
+			       workstation_name,
+			       capacity_name,
+			       batch_size_qty,
+			       batch_size_unit,
+			       standard_minutes,
+			       hourly_rate,
+			       CASE
+			         WHEN lower(batch_size_unit) IN ('kg','公斤','千克')
+			         THEN hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0)
+			         WHEN lower(batch_size_unit) IN ('g','克')
+			         THEN hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0) * 1000.0
+			         WHEN lower(batch_size_unit) IN ('lb','lbs','磅')
+			         THEN hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0) / 0.45359237
+			         ELSE 0
+			       END::float8 AS amount_per_kg,
+			       CASE
+			         WHEN lower(batch_size_unit) IN ('kg','公斤','千克','g','克','lb','lbs','磅')
+			         THEN 0
+			         ELSE hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0)
+			       END::float8 AS amount_per_unit
+			FROM standard_capacity
+			WHERE rn=1
+			ORDER BY seq, route_operation_id
+		`, r.schema), input.ProcessRouteID)
+		if err != nil {
+			return nil, err
+		}
+		defer opRows.Close()
+		for opRows.Next() {
+			var row appcosting.PricingRuleTrialBaseCostDetail
+			var id int64
+			if err := opRows.Scan(&id, &row.Name, &row.WorkstationName, &row.CapacityName, &row.StandardOutputQty, &row.StandardOutputUnit, &row.StandardMinutes, &row.HourlyRate, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
+				return nil, err
+			}
+			row.Key = fmt.Sprintf("operation:standard:%d", id)
+			row.Type = "operation"
+			row.TypeLabel = "标准工序"
+			row.ConsumeUnit = "standard_operation"
+			row.Quantity = row.StandardMinutes
+			row.Unit = strings.TrimSpace(row.StandardOutputUnit)
+			row.CostUnit = strings.TrimSpace(row.StandardOutputUnit)
+			if row.AmountPerKg > 0 {
+				row.Unit = "kg"
+				row.CostUnit = "kg"
+				row.UnitCost = row.AmountPerKg
+				row.CostUnitCost = row.AmountPerKg
+			} else {
+				row.UnitCost = row.AmountPerUnit
+				row.CostUnitCost = row.AmountPerUnit
+			}
+			row.Description = fmt.Sprintf("标准工序成本：%s / %s，工位小时成本 %.4f/小时，标准 %.2f 分钟，标准产出 %.4f%s", row.WorkstationName, row.CapacityName, row.HourlyRate, row.StandardMinutes, row.StandardOutputQty, row.StandardOutputUnit)
+			out = append(out, row)
+		}
+		if err := opRows.Err(); err != nil {
+			return nil, err
+		}
 		return out, nil
 	}
 	if input.OperationTemplateID <= 0 {
