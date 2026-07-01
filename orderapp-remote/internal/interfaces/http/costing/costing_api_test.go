@@ -128,9 +128,7 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		BaseCost:              67.5,
 		BomCostTotal:          67.5,
 		OperationCostTotal:    0,
-		BaseCostDetails: []appcosting.PricingRuleTrialBaseCostDetail{
-			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "测试原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 67.5, Amount: 67.5, Unit: "kg", Description: "物料成本 67.5/kg"},
-		},
+		BaseCostDetails:       pricingRuleTrialAPIFakeBaseCostDetails(),
 		OtherCostDetails: []appcosting.PricingRuleTrialOtherCostDetail{
 			{Name: "包装贴标", Amount: 1.25, Unit: "kg", Source: "temporary_override", SettingLocation: "本次试算抽屉「其他成本」"},
 		},
@@ -226,6 +224,23 @@ func fakeDripPriceTemplate() domain.DripPriceTemplate {
 			{ID: 52, Label: "1000袋", MinBags: 1000, Multiplier: 1.8, Position: 2, Active: true},
 		},
 	}
+}
+
+func pricingRuleTrialAPIFakeBaseCostDetails() []appcosting.PricingRuleTrialBaseCostDetail {
+	return []appcosting.PricingRuleTrialBaseCostDetail{{
+		Key:          "material:1",
+		Type:         "material",
+		TypeLabel:    "物料",
+		Name:         "测试原料",
+		ConsumeUnit:  "ratio_pct",
+		RatioPct:     100,
+		UnitCost:     30.62,
+		CostUnitCost: 67.5,
+		CostUnit:     "kg",
+		Amount:       30.62,
+		Unit:         "lb",
+		Description:  "物料：测试原料，比例 100%，单位成本 67.5/kg，折算金额 30.62/lb",
+	}}
 }
 
 func (fakeService) ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
@@ -806,7 +821,7 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
-	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `最终售价 = 116.7092/kg`} {
+	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"cost_unit_cost":67.5`, `"cost_unit":"kg"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `最终售价 = 116.7092/kg`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}

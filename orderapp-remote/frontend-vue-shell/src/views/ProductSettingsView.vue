@@ -1073,7 +1073,7 @@
                           <small v-if="row.description">{{ row.description }}</small>
                         </td>
                         <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
-                        <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                        <td>{{ trialMoneyDisplay(pricingRuleTrialBaseCostUnitCostValue(row), pricingRuleTrialBaseCostUnit(row, pricingRuleTrialResult)) }}</td>
                         <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
                       </tr>
                       <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'all').length">
@@ -1184,7 +1184,7 @@
                           <small v-if="row.description">{{ row.description }}</small>
                         </td>
                         <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
-                        <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                        <td>{{ trialMoneyDisplay(pricingRuleTrialBaseCostUnitCostValue(row), pricingRuleTrialBaseCostUnit(row, pricingRuleTrialResult)) }}</td>
                         <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
                       </tr>
                       <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'material').length">
@@ -3894,6 +3894,18 @@ function pricingRuleTrialBaseCostUsage(row = {}) {
   if (consumeUnit === 'ratio_pct') return `比例 ${percentDisplay(ratioPct / 100)}`
   if (quantity > 0) return `${pricingRuleTrialConsumeUnitLabel(consumeUnit)} ${quantity.toFixed(4).replace(/\.?0+$/, '')}`
   return pricingRuleTrialConsumeUnitLabel(consumeUnit) || '-'
+}
+
+function pricingRuleTrialBaseCostUnitCostValue(row = {}) {
+  const costUnitCost = Number(row.cost_unit_cost)
+  if (String(row.cost_unit || '').trim() && Number.isFinite(costUnitCost)) return costUnitCost
+  return Number(row.unit_cost || 0)
+}
+
+function pricingRuleTrialBaseCostUnit(row = {}, result = {}) {
+  const costUnit = String(row.cost_unit || '').trim()
+  if (costUnit) return costUnit
+  return row.unit || result.quote_unit
 }
 
 function pricingRuleTrialConsumeUnitLabel(value = '') {

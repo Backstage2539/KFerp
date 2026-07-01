@@ -989,6 +989,10 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'closePricingRuleTrialExplanation',
     'other_cost_details',
     'profit_explanation',
+    'cost_unit_cost',
+    'cost_unit',
+    'pricingRuleTrialBaseCostUnitCostValue(row)',
+    'pricingRuleTrialBaseCostUnit(row, pricingRuleTrialResult)',
     '试算说明',
     '点击查看试算说明',
     '本次试算抽屉',
@@ -1022,6 +1026,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(pane, /@click="openPricingRuleTrial\(\)"[^>]*>价格试算<\/button>/)
   assert.doesNotMatch(pane, /@click="openPricingRuleTrial\(rule\)"/)
   assert.match(trialDrawer, /<select v-model\.number="pricingRuleTrialForm\.pricing_rule_id"[\s\S]*activePricingRuleTrialOptions/)
+  assert.match(trialDrawer, /trialMoneyDisplay\(pricingRuleTrialBaseCostUnitCostValue\(row\), pricingRuleTrialBaseCostUnit\(row, pricingRuleTrialResult\)\)/)
+  assert.match(trialDrawer, /trialMoneyDisplay\(row\.amount, row\.unit \|\| pricingRuleTrialResult\.quote_unit\)/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.operation_template_id"[\s\S]*pricingRuleTrialOperationTemplateOptions/)
   assert.match(source, /<select v-model="pricingRuleTrialForm\.quote_unit"[\s\S]*pricingRuleTrialQuoteUnitOptions/)

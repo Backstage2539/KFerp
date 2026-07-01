@@ -1116,6 +1116,71 @@ func TestPricingRuleTrialScalesPerUnitBomCostsBetweenQuoteUnits(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialPreservesMaterialCostUnitWhenQuoteUnitChanges(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          575,
+			Name:               "曜石2.0 磅装",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "lb",
+			OrderUnit:          "lb",
+			UnitConversionJSON: `{"lb":{"kg":0.45359237}}`,
+			YieldRate:          1,
+			ExpectedLossRate:   0,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:575", Type: "material", TypeLabel: "物料", Name: "卡蒂姆红酒日晒", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 80, AmountPerKg: 80, Unit: "kg"},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			15: {
+				ID:             15,
+				Name:           "PR512 物料单位展示",
+				MarginRate:     0,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 15,
+		ProductID:     575,
+		QuoteUnit:     "lb",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial(lb) error = %v", err)
+	}
+	if len(got.BaseCostDetails) != 1 {
+		t.Fatalf("base cost details = %+v, want one material row", got.BaseCostDetails)
+	}
+	row := got.BaseCostDetails[0]
+	if row.Unit != "lb" || math.Abs(row.Amount-36.29) > 0.0001 {
+		t.Fatalf("quote amount = %.4f/%s, want 36.29/lb", row.Amount, row.Unit)
+	}
+	if row.UnitCost == 80 {
+		t.Fatalf("unit_cost should remain the compatibility quote-unit value, got %.4f", row.UnitCost)
+	}
+	if got.BomCostTotal != row.Amount || got.BaseCost != row.Amount || got.FinalUnitPrice != row.Amount {
+		t.Fatalf("trial totals = base %.4f bom %.4f final %.4f row %.4f, want quote-unit totals", got.BaseCost, got.BomCostTotal, got.FinalUnitPrice, row.Amount)
+	}
+	if row.CostUnit != "kg" {
+		t.Fatalf("cost unit = %q, want kg", row.CostUnit)
+	}
+	if row.CostUnitCost != 80 {
+		t.Fatalf("cost unit cost = %.4f, want 80/kg", row.CostUnitCost)
+	}
+	if !strings.Contains(row.Description, "单位成本 80/kg") || !strings.Contains(row.Description, "折算金额") || !strings.Contains(row.Description, "/lb") {
+		t.Fatalf("description = %q, want material cost unit and quote amount", row.Description)
+	}
+}
+
 func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
