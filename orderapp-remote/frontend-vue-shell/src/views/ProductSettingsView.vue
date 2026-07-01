@@ -1053,16 +1053,18 @@
                 <button class="secondary compact-action" type="button" @click="closePricingRuleTrialExplanation">关闭</button>
               </div>
               <template v-if="pricingRuleTrialActiveExplanation === 'base_cost'">
-                <p>点击查看试算说明：BOM+工序成本来自当前试算商品、BOM版本和工序，下面列出每个物料或工序的 BOM 用量、单位成本和本项金额。</p>
+                <p>点击查看试算说明：BOM+工序成本来自当前试算商品、BOM版本和工序；BOM组成按配方原始比例展示，折算成本按当前试算单位汇总。</p>
                 <div class="table-wrap compact-table-wrap">
                   <table>
                     <thead>
                       <tr>
                         <th>类型</th>
                         <th>名称</th>
-                        <th>用量</th>
-                        <th>单位成本</th>
-                        <th>金额</th>
+                        <th>BOM组成</th>
+                        <th>原料损耗</th>
+                        <th>损耗后用量</th>
+                        <th>成本单价</th>
+                        <th>折算成本</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1072,12 +1074,14 @@
                           <span>{{ row.name || '-' }}</span>
                           <small v-if="row.description">{{ row.description }}</small>
                         </td>
-                        <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
+                        <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
+                        <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
+                        <td>{{ pricingRuleTrialBaseCostEffectiveUsage(row) }}</td>
                         <td>{{ trialMoneyDisplay(pricingRuleTrialBaseCostUnitCostValue(row), pricingRuleTrialBaseCostUnit(row, pricingRuleTrialResult)) }}</td>
                         <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
                       </tr>
                       <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'all').length">
-                        <td colspan="5" class="muted">暂无可展开的 BOM/工序成本明细。</td>
+                        <td colspan="7" class="muted">暂无可展开的 BOM/工序成本明细。</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1160,7 +1164,7 @@
             </div>
             <div class="pricing-rule-trial-base-detail">
               <div class="field-group-head">
-                <strong>BOM+工序成本明细</strong>
+                <strong>BOM+工序成本折算明细</strong>
                 <small>物料合计 {{ trialMoneyDisplay(pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }}；工序合计 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}；总计 {{ trialMoneyDisplay(pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</small>
               </div>
               <div class="pricing-rule-trial-detail-group">
@@ -1171,9 +1175,11 @@
                       <tr>
                         <th>类型</th>
                         <th>名称</th>
-                        <th>用量</th>
-                        <th>单位成本</th>
-                        <th>金额</th>
+                        <th>BOM组成</th>
+                        <th>原料损耗</th>
+                        <th>损耗后用量</th>
+                        <th>成本单价</th>
+                        <th>折算成本</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1183,12 +1189,14 @@
                           <span>{{ row.name || '-' }}</span>
                           <small v-if="row.description">{{ row.description }}</small>
                         </td>
-                        <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
+                        <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
+                        <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
+                        <td>{{ pricingRuleTrialBaseCostEffectiveUsage(row) }}</td>
                         <td>{{ trialMoneyDisplay(pricingRuleTrialBaseCostUnitCostValue(row), pricingRuleTrialBaseCostUnit(row, pricingRuleTrialResult)) }}</td>
                         <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
                       </tr>
                       <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'material').length">
-                        <td colspan="5" class="muted">暂无物料成本明细。</td>
+                        <td colspan="7" class="muted">暂无物料成本明细。</td>
                       </tr>
                     </tbody>
                   </table>
@@ -3894,6 +3902,32 @@ function pricingRuleTrialBaseCostUsage(row = {}) {
   if (consumeUnit === 'ratio_pct') return `比例 ${percentDisplay(ratioPct / 100)}`
   if (quantity > 0) return `${pricingRuleTrialConsumeUnitLabel(consumeUnit)} ${quantity.toFixed(4).replace(/\.?0+$/, '')}`
   return pricingRuleTrialConsumeUnitLabel(consumeUnit) || '-'
+}
+
+function pricingRuleTrialBaseCostRecipeUsage(row = {}) {
+  const consumeUnit = String(row.consume_unit || '').trim()
+  if (consumeUnit !== 'ratio_pct') return pricingRuleTrialBaseCostUsage(row)
+  const explicitRecipeRatio = Number(row.recipe_ratio_pct)
+  const ratioPct = Number(row.ratio_pct || 0)
+  const lossRate = Number(row.material_loss_rate || 0)
+  const fallbackRecipeRatio = lossRate > 0 && lossRate < 1 ? ratioPct * (1 - lossRate) : ratioPct
+  const recipeRatio = Number.isFinite(explicitRecipeRatio) && explicitRecipeRatio > 0 ? explicitRecipeRatio : fallbackRecipeRatio
+  return recipeRatio > 0 ? `原比例 ${percentDisplay(recipeRatio / 100)}` : '-'
+}
+
+function pricingRuleTrialBaseCostLossRate(row = {}) {
+  if (String(row.consume_unit || '').trim() !== 'ratio_pct') return '-'
+  const lossRate = Number(row.material_loss_rate || 0)
+  return lossRate > 0 ? percentDisplay(lossRate) : '-'
+}
+
+function pricingRuleTrialBaseCostEffectiveUsage(row = {}) {
+  const consumeUnit = String(row.consume_unit || '').trim()
+  if (consumeUnit !== 'ratio_pct') return pricingRuleTrialBaseCostUsage(row)
+  const explicitEffectiveRatio = Number(row.effective_ratio_pct)
+  const ratioPct = Number(row.ratio_pct || 0)
+  const effectiveRatio = Number.isFinite(explicitEffectiveRatio) && explicitEffectiveRatio > 0 ? explicitEffectiveRatio : ratioPct
+  return effectiveRatio > 0 ? `有效比例 ${percentDisplay(effectiveRatio / 100)}` : '-'
 }
 
 function pricingRuleTrialBaseCostUnitCostValue(row = {}) {
