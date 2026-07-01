@@ -88,6 +88,8 @@ type ProductInput struct {
 	CategoryPrimaryPosition    int                       `json:"category_primary_position,omitempty"`
 	CategorySecondaryName      string                    `json:"category_secondary_name,omitempty"`
 	CategorySecondaryPosition  int                       `json:"category_secondary_position,omitempty"`
+	ProcessRouteID             int64                     `json:"process_route_id,omitempty"`
+	ProcessRouteName           string                    `json:"process_route_name,omitempty"`
 	OperationTemplateID        int64                     `json:"operation_template_id,omitempty"`
 	InventoryUnit              string                    `json:"inventory_unit,omitempty"`
 	QuoteUnit                  string                    `json:"quote_unit,omitempty"`

@@ -221,7 +221,7 @@ func TestProcessRouteAPIListSaveAndPublish(t *testing.T) {
 		t.Fatalf("list route status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	body := `{"name":"通用烘焙","operations":[{"operation":"烘焙","records_loss":true,"quality_checklist_json":"[\"颜色\"]"}]}`
+	body := `{"name":"通用烘焙","operations":[{"operation":"烘焙","planned_operation_cost":18.5,"records_loss":true,"quality_checklist_json":"[\"颜色\"]"}]}`
 	req = httptest.NewRequest(http.MethodPost, "/api/process-routes", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestProcessRouteAPIListSaveAndPublish(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save route status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.routeSaved.Name != "通用烘焙" || !repo.routeSaved.Operations[0].RecordsLoss {
+	if repo.routeSaved.Name != "通用烘焙" || !repo.routeSaved.Operations[0].RecordsLoss || repo.routeSaved.Operations[0].PlannedOperationCost != 18.5 {
 		t.Fatalf("saved route command = %+v", repo.routeSaved)
 	}
 

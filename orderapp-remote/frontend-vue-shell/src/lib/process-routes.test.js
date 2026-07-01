@@ -42,7 +42,7 @@ test('process route operation editor aligns fields and hides raw quality checkli
   assert.doesNotMatch(source, /工位\/设备/)
 })
 
-test('process route operation row does not own workstation capacity batch time rate or plan cost', () => {
+test('process route operation row exposes planned operation cost but not workstation capacity batch time rate', () => {
   const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
 
   for (const forbidden of [
@@ -56,14 +56,15 @@ test('process route operation row does not own workstation capacity batch time r
     'hourly_rate',
     'planned_batch_count',
     'planned_minutes',
-    'planned_operation_cost',
     'applyWorkstationCapacity',
   ]) {
     assert.doesNotMatch(source, new RegExp(forbidden))
   }
+  assert.match(source, /计划工序成本/)
+  assert.match(source, /v-model\.number="op\.planned_operation_cost"/)
+  assert.match(source, /planned_operation_cost:\s*Number/)
   assert.doesNotMatch(source, /标准分钟\/批/)
   assert.doesNotMatch(source, /小时费率/)
-  assert.doesNotMatch(source, /计划工序成本/)
   assert.doesNotMatch(source, /工位能力模式/)
   assert.doesNotMatch(source, /默认工时\(分钟\)/)
 })

@@ -637,6 +637,7 @@ export function buildPricingRuleTrialPayload(form = {}) {
     product_id: Number(form.product_id ?? form.productID ?? 0) || 0,
     customer_id: Number(form.customer_id ?? form.customerID ?? 0) || 0,
     bom_version_id: Number(form.bom_version_id ?? form.bomVersionID ?? 0) || 0,
+    process_route_id: Number(form.process_route_id ?? form.processRouteID ?? 0) || 0,
     operation_template_id: Number(form.operation_template_id ?? form.operationTemplateID ?? 0) || 0,
     quote_unit: String(form.quote_unit ?? form.quoteUnit ?? '').trim(),
     overrides,
@@ -675,6 +676,7 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
     product_id: productID,
     customer_id: Number(options.customerID ?? options.customer_id ?? row.customer_id ?? row.customerID ?? 0) || 0,
     bom_version_id: Number(row.bom_version_id ?? row.bomVersionID ?? costSource.bom_version_id ?? costSource.bomVersionID ?? 0) || 0,
+    process_route_id: Number(row.process_route_id ?? row.processRouteID ?? costSource.process_route_id ?? costSource.processRouteID ?? 0) || 0,
     operation_template_id: Number(row.operation_template_id ?? row.operationTemplateID ?? costSource.operation_template_id ?? costSource.operationTemplateID ?? 0) || 0,
     quote_unit: quoteUnit,
   })
@@ -687,6 +689,7 @@ export function priceTablePricingRuleTrialCacheKey(payload = {}) {
     Number(payload.product_id || 0),
     Number(payload.customer_id || 0),
     Number(payload.bom_version_id || 0),
+    Number(payload.process_route_id || 0),
     Number(payload.operation_template_id || 0),
     String(payload.quote_unit || '').trim(),
   ].join(':')
@@ -721,6 +724,8 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
       ...sourceSnapshot,
       bom_version_id: Number(trial.bom_version_id ?? trial.bomVersionID ?? sourceSnapshot.bom_version_id ?? 0) || 0,
       bom_version_no: String(trial.bom_version_no ?? trial.bomVersionNo ?? sourceSnapshot.bom_version_no ?? '').trim(),
+      process_route_id: Number(trial.process_route_id ?? trial.processRouteID ?? sourceSnapshot.process_route_id ?? 0) || 0,
+      process_route_name: String(trial.process_route_name ?? trial.processRouteName ?? sourceSnapshot.process_route_name ?? '').trim(),
       operation_template_id: Number(trial.operation_template_id ?? trial.operationTemplateID ?? sourceSnapshot.operation_template_id ?? 0) || 0,
       operation_template_name: String(trial.operation_template_name ?? trial.operationTemplateName ?? sourceSnapshot.operation_template_name ?? '').trim(),
       pricing_rule_trial_final_unit_price: trialPrice,

@@ -98,6 +98,10 @@
                 <span>工序名称快照</span>
                 <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
               </label>
+              <label class="operation-cost">
+                <span>计划工序成本</span>
+                <input v-model.number="op.planned_operation_cost" type="number" min="0" step="0.0001" placeholder="0" />
+              </label>
               <label class="checkbox operation-loss">
                 <input v-model="op.records_loss" type="checkbox" />
                 <span>记录损耗</span>
@@ -155,6 +159,7 @@ function blankOperation(seq) {
     seq,
     operation_id: 0,
     operation: '',
+    planned_operation_cost: 0,
     records_loss: false,
     quality_checklist_json: '[]',
     quality_checklist_text: '',
@@ -218,6 +223,7 @@ function routePayload() {
         seq: Number(rest.seq || 0),
         operation_id: Number(rest.operation_id || 0),
         operation: rest.operation || '',
+        planned_operation_cost: Number(rest.planned_operation_cost || 0),
         records_loss: !!rest.records_loss,
         quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
       }
@@ -242,6 +248,7 @@ function normalizeRoute(row) {
       seq: Number(op.seq || index + 1),
       operation_id: Number(op.operation_id || 0),
       operation: op.operation || '',
+      planned_operation_cost: Number(op.planned_operation_cost || 0),
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
       quality_checklist_text: qualityChecklistTextFromJSON(op.quality_checklist_json || '[]'),
@@ -385,7 +392,7 @@ tbody tr.active { background: #f3f7fb; }
 .operations-head { justify-content: space-between; margin-top: 14px; }
 .operation-list { display: grid; gap: 10px; }
 .operation-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; gap: 10px; }
-.operation-row-fields { display: grid; grid-template-columns: 76px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; }
+.operation-row-fields { display: grid; grid-template-columns: 72px minmax(160px, 1.3fr) minmax(140px, 1fr) minmax(120px, .8fr) 96px; gap: 8px; align-items: end; }
 .operation-quality { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
 .operation-delete { justify-self: end; min-height: 38px; }
 .checkbox { display: flex; align-items: center; gap: 6px; min-height: 38px; }
@@ -400,7 +407,7 @@ tbody tr.active { background: #f3f7fb; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 @media (max-width: 1100px) {
-  .operation-row-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .operation-row-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .page { padding: 12px; }

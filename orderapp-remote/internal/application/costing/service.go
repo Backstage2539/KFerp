@@ -60,6 +60,7 @@ type PricingRuleTrialCommand struct {
 	ProductID           int64                     `json:"product_id"`
 	CustomerID          int64                     `json:"customer_id,omitempty"`
 	BomVersionID        int64                     `json:"bom_version_id,omitempty"`
+	ProcessRouteID      int64                     `json:"process_route_id,omitempty"`
 	OperationTemplateID int64                     `json:"operation_template_id,omitempty"`
 	QuoteUnit           string                    `json:"quote_unit,omitempty"`
 	Overrides           PricingRuleTrialOverrides `json:"overrides,omitempty"`
@@ -76,16 +77,25 @@ type PricingRuleTrialOverrides struct {
 
 type PricingRuleTrialProductionOptions struct {
 	BomVersions        []PricingRuleTrialBomVersionOption        `json:"bom_versions,omitempty"`
+	ProcessRoutes      []PricingRuleTrialProcessRouteOption      `json:"process_routes,omitempty"`
 	OperationTemplates []PricingRuleTrialOperationTemplateOption `json:"operation_templates,omitempty"`
 }
 
 type PricingRuleTrialBomVersionOption struct {
-	BomID     int64  `json:"bom_id"`
-	BomCode   string `json:"bom_code,omitempty"`
-	BomName   string `json:"bom_name"`
-	VersionID int64  `json:"version_id"`
-	VersionNo string `json:"version_no"`
-	Status    string `json:"status"`
+	BomID            int64  `json:"bom_id"`
+	BomCode          string `json:"bom_code,omitempty"`
+	BomName          string `json:"bom_name"`
+	VersionID        int64  `json:"version_id"`
+	VersionNo        string `json:"version_no"`
+	Status           string `json:"status"`
+	IsDefault        bool   `json:"is_default"`
+	ProcessRouteID   int64  `json:"process_route_id,omitempty"`
+	ProcessRouteName string `json:"process_route_name,omitempty"`
+}
+
+type PricingRuleTrialProcessRouteOption struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
 	IsDefault bool   `json:"is_default"`
 }
 
@@ -106,6 +116,9 @@ type PricingRuleTrialResult struct {
 	BomVersionID             int64                                     `json:"bom_version_id,omitempty"`
 	BomVersionNo             string                                    `json:"bom_version_no,omitempty"`
 	BomVersionOptions        []PricingRuleTrialBomVersionOption        `json:"bom_version_options,omitempty"`
+	ProcessRouteID           int64                                     `json:"process_route_id,omitempty"`
+	ProcessRouteName         string                                    `json:"process_route_name,omitempty"`
+	ProcessRouteOptions      []PricingRuleTrialProcessRouteOption      `json:"process_route_options,omitempty"`
 	OperationTemplateID      int64                                     `json:"operation_template_id,omitempty"`
 	OperationTemplateName    string                                    `json:"operation_template_name,omitempty"`
 	OperationTemplateOptions []PricingRuleTrialOperationTemplateOption `json:"operation_template_options,omitempty"`
@@ -127,8 +140,10 @@ type PricingRuleTrialResult struct {
 	PreTaxPrice              float64                                   `json:"pre_tax_price"`
 	TaxAmount                float64                                   `json:"tax_amount"`
 	TaxInPriceAmount         float64                                   `json:"tax_in_price_amount"`
+	TaxRateSource            string                                    `json:"tax_rate_source,omitempty"`
 	FinalBeforeRounding      float64                                   `json:"final_before_rounding"`
 	RoundingAdjustment       float64                                   `json:"rounding_adjustment"`
+	RoundingRuleSource       string                                    `json:"rounding_rule_source,omitempty"`
 	FinalUnitPrice           float64                                   `json:"final_unit_price"`
 	GrossMarginRate          float64                                   `json:"gross_margin_rate"`
 	MinimumMarginRate        float64                                   `json:"minimum_margin_rate"`
@@ -174,6 +189,11 @@ type PricingRuleTrialProfitExplanation struct {
 	MarkupAmount   float64 `json:"markup_amount"`
 	PreTaxPrice    float64 `json:"pre_tax_price"`
 	Formula        string  `json:"formula"`
+}
+
+type PricingRuleTrialDefaultTaxRate struct {
+	Rate   float64 `json:"rate"`
+	Source string  `json:"source"`
 }
 
 type DripPriceExplanationCommand struct {
@@ -388,6 +408,10 @@ type pricingRuleTrialProductionOptionRepository interface {
 	LoadPricingRuleTrialProductionOptions(ctx context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error)
 }
 
+type pricingRuleTrialDefaultTaxRateRepository interface {
+	LoadPricingRuleTrialDefaultTaxRate(ctx context.Context) (PricingRuleTrialDefaultTaxRate, error)
+}
+
 type Service struct {
 	repo Repository
 }
@@ -550,7 +574,14 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 			return nil, err
 		}
 	}
-	return calculatePricingRuleTrial(rule, input, cmd, baseCostDetails, productionOptions)
+	defaultTaxRate := PricingRuleTrialDefaultTaxRate{}
+	if taxRepo, ok := s.repo.(pricingRuleTrialDefaultTaxRateRepository); ok {
+		defaultTaxRate, err = taxRepo.LoadPricingRuleTrialDefaultTaxRate(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return calculatePricingRuleTrial(rule, input, cmd, baseCostDetails, productionOptions, defaultTaxRate)
 }
 
 func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
@@ -577,6 +608,10 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 		if selected != nil {
 			input.BomVersionID = selected.VersionID
 			input.BomVersionNo = selected.VersionNo
+			if input.ProcessRouteID <= 0 && selected.ProcessRouteID > 0 {
+				input.ProcessRouteID = selected.ProcessRouteID
+				input.ProcessRouteName = strings.TrimSpace(selected.ProcessRouteName)
+			}
 			input.BomUsageMode = "production_bom_output"
 			switch strings.TrimSpace(selected.Status) {
 			case "disabled", "inactive":
@@ -591,8 +626,37 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 		input.BomUsageMode = "production_bom_output"
 	}
 
+	if len(options.ProcessRoutes) > 0 {
+		var selected *PricingRuleTrialProcessRouteOption
+		if cmd.ProcessRouteID > 0 {
+			selected = pricingRuleTrialFindProcessRouteOption(options.ProcessRoutes, cmd.ProcessRouteID)
+			if selected == nil {
+				return input, options, fmt.Errorf("process route not found")
+			}
+		} else if input.ProcessRouteID > 0 {
+			selected = pricingRuleTrialFindProcessRouteOption(options.ProcessRoutes, input.ProcessRouteID)
+		}
+		if selected != nil {
+			input.ProcessRouteID = selected.ID
+			input.ProcessRouteName = selected.Name
+			input.OperationTemplateID = 0
+		} else {
+			input.ProcessRouteID = 0
+			input.ProcessRouteName = ""
+		}
+	} else if cmd.ProcessRouteID > 0 {
+		input.ProcessRouteID = cmd.ProcessRouteID
+		input.OperationTemplateID = 0
+	}
+
+	options = pricingRuleTrialNormalizeProductionOptions(input, options)
+
 	if len(options.OperationTemplates) > 0 {
 		var selected *PricingRuleTrialOperationTemplateOption
+		if input.ProcessRouteID > 0 {
+			input.OperationTemplateID = 0
+			return input, options, nil
+		}
 		if cmd.OperationTemplateID > 0 {
 			selected = pricingRuleTrialFindOperationTemplateOption(options.OperationTemplates, cmd.OperationTemplateID)
 			if selected == nil {
@@ -618,8 +682,15 @@ func pricingRuleTrialNormalizeProductionOptions(input domain.ProductInput, optio
 		options.BomVersions[i].BomName = strings.TrimSpace(options.BomVersions[i].BomName)
 		options.BomVersions[i].VersionNo = strings.TrimSpace(options.BomVersions[i].VersionNo)
 		options.BomVersions[i].Status = strings.TrimSpace(options.BomVersions[i].Status)
+		options.BomVersions[i].ProcessRouteName = strings.TrimSpace(options.BomVersions[i].ProcessRouteName)
 		if options.BomVersions[i].VersionID == input.BomVersionID && !pricingRuleTrialHasDefaultBomVersion(options.BomVersions) {
 			options.BomVersions[i].IsDefault = true
+		}
+	}
+	for i := range options.ProcessRoutes {
+		options.ProcessRoutes[i].Name = strings.TrimSpace(options.ProcessRoutes[i].Name)
+		if options.ProcessRoutes[i].ID == input.ProcessRouteID && !pricingRuleTrialHasDefaultProcessRoute(options.ProcessRoutes) {
+			options.ProcessRoutes[i].IsDefault = true
 		}
 	}
 	for i := range options.OperationTemplates {
@@ -641,6 +712,15 @@ func pricingRuleTrialHasDefaultBomVersion(options []PricingRuleTrialBomVersionOp
 }
 
 func pricingRuleTrialHasDefaultOperationTemplate(options []PricingRuleTrialOperationTemplateOption) bool {
+	for _, option := range options {
+		if option.IsDefault {
+			return true
+		}
+	}
+	return false
+}
+
+func pricingRuleTrialHasDefaultProcessRoute(options []PricingRuleTrialProcessRouteOption) bool {
 	for _, option := range options {
 		if option.IsDefault {
 			return true
@@ -675,6 +755,15 @@ func pricingRuleTrialFindBomVersionOption(options []PricingRuleTrialBomVersionOp
 	return nil
 }
 
+func pricingRuleTrialFindProcessRouteOption(options []PricingRuleTrialProcessRouteOption, id int64) *PricingRuleTrialProcessRouteOption {
+	for i := range options {
+		if options[i].ID == id {
+			return &options[i]
+		}
+	}
+	return nil
+}
+
 func pricingRuleTrialFindOperationTemplateOption(options []PricingRuleTrialOperationTemplateOption, id int64) *PricingRuleTrialOperationTemplateOption {
 	for i := range options {
 		if options[i].ID == id {
@@ -682,6 +771,13 @@ func pricingRuleTrialFindOperationTemplateOption(options []PricingRuleTrialOpera
 		}
 	}
 	return nil
+}
+
+func pricingRuleTrialProcessRouteName(options []PricingRuleTrialProcessRouteOption, id int64, fallback string) string {
+	if option := pricingRuleTrialFindProcessRouteOption(options, id); option != nil {
+		return option.Name
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func pricingRuleTrialOperationTemplateName(options []PricingRuleTrialOperationTemplateOption, id int64) string {
@@ -731,7 +827,7 @@ func pricingRuleTrialQuoteUnitResolvable(input domain.ProductInput, quoteUnit st
 	return false
 }
 
-func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInput, cmd PricingRuleTrialCommand, rawBaseCostDetails []PricingRuleTrialBaseCostDetail, productionOptions PricingRuleTrialProductionOptions) (*PricingRuleTrialResult, error) {
+func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInput, cmd PricingRuleTrialCommand, rawBaseCostDetails []PricingRuleTrialBaseCostDetail, productionOptions PricingRuleTrialProductionOptions, defaultTaxRate PricingRuleTrialDefaultTaxRate) (*PricingRuleTrialResult, error) {
 	calc := rule.CalculationJSON
 	if calc == nil {
 		calc = map[string]any{}
@@ -792,12 +888,9 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	}
 
 	taxMode := pricingRuleTrialString(calc, "tax_mode", "tax_included")
-	taxRate := rule.TaxRate
-	if cmd.Overrides.TaxRate != nil {
-		taxRate = *cmd.Overrides.TaxRate
-	}
-	if taxRate < 0 {
-		return nil, fmt.Errorf("tax_rate must be >= 0")
+	taxRate, taxRateSource, taxRateChanged, err := pricingRuleTrialResolvedTaxRate(rule, cmd, taxMode, defaultTaxRate)
+	if err != nil {
+		return nil, err
 	}
 	postMarkupCostTotal := 0.0
 	if formulaMode == "supplier_tier_markup" {
@@ -894,6 +987,9 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		BomVersionID:             input.BomVersionID,
 		BomVersionNo:             input.BomVersionNo,
 		BomVersionOptions:        productionOptions.BomVersions,
+		ProcessRouteID:           input.ProcessRouteID,
+		ProcessRouteName:         pricingRuleTrialProcessRouteName(productionOptions.ProcessRoutes, input.ProcessRouteID, input.ProcessRouteName),
+		ProcessRouteOptions:      productionOptions.ProcessRoutes,
 		OperationTemplateID:      input.OperationTemplateID,
 		OperationTemplateName:    pricingRuleTrialOperationTemplateName(productionOptions.OperationTemplates, input.OperationTemplateID),
 		OperationTemplateOptions: productionOptions.OperationTemplates,
@@ -915,15 +1011,17 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		PreTaxPrice:              pricingRuleTrialResultAmount(formulaMode, preTaxPrice),
 		TaxAmount:                pricingRuleTrialResultAmount(formulaMode, taxAmount),
 		TaxInPriceAmount:         pricingRuleTrialResultAmount(formulaMode, taxInPriceAmount),
+		TaxRateSource:            taxRateSource,
 		FinalBeforeRounding:      finalBeforeRoundingRounded,
 		RoundingAdjustment:       pricingRuleTrialResultAmount(formulaMode, roundingAdjustment),
+		RoundingRuleSource:       "pricing_rule",
 		FinalUnitPrice:           finalUnitPrice,
 		GrossMarginRate:          roundRatio(grossMarginRate),
 		MinimumMarginRate:        roundRatio(minimumMarginRate),
 		Warnings:                 warnings,
 	}
 	if formulaMode == "supplier_tier_markup" {
-		result.Steps = pricingRuleTrialSupplierSteps(result, cmd, quoteUnit, baseSource, otherCosts, postMarkupCosts, expectedLossRate, yieldMode, lossChanged, marginRate, profitParameterRate, taxMode, taxRate, finalBeforeRounding)
+		result.Steps = pricingRuleTrialSupplierSteps(result, cmd, quoteUnit, baseSource, otherCosts, postMarkupCosts, expectedLossRate, yieldMode, lossChanged, marginRate, profitParameterRate, taxMode, taxRate, taxRateSource, taxRateChanged, finalBeforeRounding)
 	} else {
 		result.Steps = []domain.PriceExplanationStep{
 			{Key: "bom_operation_cost", Label: "BOM+工序成本", Source: baseSource, Value: result.BaseCost, Unit: quoteUnit, Changed: cmd.Overrides.BaseCost != nil},
@@ -931,7 +1029,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 			{Key: "expected_loss_rate", Label: "预期损耗率", Source: pricingRuleTrialLossSource(cmd.Overrides.ExpectedLossRate, yieldMode), Value: roundRatio(expectedLossRate), Unit: "ratio", Changed: lossChanged},
 			{Key: "cost_after_yield", Label: "损耗后成本", Source: "formula", Value: result.CostAfterYield, Unit: quoteUnit, Changed: expectedLossRate > 0 && yieldMode != "none"},
 			{Key: "profit_method", Label: pricingRuleTrialProfitLabel(profitMethod), Source: pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), Value: roundBeanListPrice(preTaxPrice), Unit: quoteUnit, Changed: cmd.Overrides.MarginRate != nil},
-			{Key: "tax_rate", Label: pricingRuleTrialTaxLabel(taxMode), Source: pricingRuleTrialOverrideSource(cmd.Overrides.TaxRate), Value: roundRatio(taxRate), Unit: "ratio", Changed: cmd.Overrides.TaxRate != nil},
+			{Key: "tax_rate", Label: pricingRuleTrialTaxLabel(taxMode), Source: taxRateSource, Value: roundRatio(taxRate), Unit: "ratio", Changed: taxRateChanged},
 			{Key: "rounding_rule", Label: "取整规则", Source: "pricing_rule", Value: finalBeforeRounding, Unit: quoteUnit, Changed: finalUnitPrice != roundBeanListPrice(finalBeforeRounding)},
 			{Key: "final_unit_price", Label: "试算单价", Source: "formula", Value: finalUnitPrice, Unit: quoteUnit, Changed: true},
 		}
@@ -1539,7 +1637,7 @@ func pricingRuleTrialProfitExplanation(formulaMode string, method string, unit s
 	}
 }
 
-func pricingRuleTrialSupplierSteps(result *PricingRuleTrialResult, cmd PricingRuleTrialCommand, quoteUnit string, baseSource string, preMarkupCosts map[string]float64, postMarkupCosts map[string]float64, expectedLossRate float64, yieldMode string, lossChanged bool, marginRate float64, profitParameterRate float64, taxMode string, taxRate float64, finalBeforeRounding float64) []domain.PriceExplanationStep {
+func pricingRuleTrialSupplierSteps(result *PricingRuleTrialResult, cmd PricingRuleTrialCommand, quoteUnit string, baseSource string, preMarkupCosts map[string]float64, postMarkupCosts map[string]float64, expectedLossRate float64, yieldMode string, lossChanged bool, marginRate float64, profitParameterRate float64, taxMode string, taxRate float64, taxRateSource string, taxRateChanged bool, finalBeforeRounding float64) []domain.PriceExplanationStep {
 	steps := []domain.PriceExplanationStep{
 		{Key: "material_cost", Label: "物料/BOM成本", Source: baseSource, Value: result.BaseCost, Unit: quoteUnit, Changed: cmd.Overrides.BaseCost != nil},
 		{Key: "other_cost_total", Label: "生产项目成本", Source: pricingRuleTrialOtherCostSource(cmd.Overrides.OtherCosts), Value: result.OtherCostTotal, Unit: quoteUnit, Changed: cmd.Overrides.OtherCosts != nil},
@@ -1559,7 +1657,7 @@ func pricingRuleTrialSupplierSteps(result *PricingRuleTrialResult, cmd PricingRu
 	)
 	steps = appendPricingRuleTrialCostSteps(steps, "post_markup_cost", "加价附加", pricingRuleTrialPostMarkupCostSource(cmd.Overrides.PostMarkupCosts), postMarkupCosts, quoteUnit, cmd.Overrides.PostMarkupCosts != nil)
 	if strings.TrimSpace(taxMode) != "none" {
-		steps = append(steps, domain.PriceExplanationStep{Key: "tax_rate", Label: pricingRuleTrialTaxLabel(taxMode), Source: pricingRuleTrialOverrideSource(cmd.Overrides.TaxRate), Value: roundRatio(taxRate), Unit: "ratio", Changed: cmd.Overrides.TaxRate != nil})
+		steps = append(steps, domain.PriceExplanationStep{Key: "tax_rate", Label: pricingRuleTrialTaxLabel(taxMode), Source: taxRateSource, Value: roundRatio(taxRate), Unit: "ratio", Changed: taxRateChanged})
 	}
 	return append(steps,
 		domain.PriceExplanationStep{Key: "rounding_rule", Label: "取整规则", Source: "pricing_rule", Value: finalBeforeRounding, Unit: quoteUnit, Changed: result.FinalUnitPrice != roundBeanListPrice(finalBeforeRounding)},
@@ -1621,6 +1719,35 @@ func pricingRuleTrialExpectedLossRate(input domain.ProductInput, override *float
 		return 0, changed, fmt.Errorf("expected_loss_rate must be >= 0 and < 1")
 	}
 	return loss, changed, nil
+}
+
+func pricingRuleTrialResolvedTaxRate(rule ProductPricingRule, cmd PricingRuleTrialCommand, taxMode string, defaultTaxRate PricingRuleTrialDefaultTaxRate) (float64, string, bool, error) {
+	if strings.TrimSpace(taxMode) == "none" {
+		return 0, "tax_disabled", false, nil
+	}
+	if cmd.Overrides.TaxRate != nil {
+		if *cmd.Overrides.TaxRate < 0 {
+			return 0, "", false, fmt.Errorf("tax_rate must be >= 0")
+		}
+		return *cmd.Overrides.TaxRate, "trial_override", true, nil
+	}
+	if rule.TaxRate < 0 {
+		return 0, "", false, fmt.Errorf("tax_rate must be >= 0")
+	}
+	if rule.TaxRate > 0 {
+		return rule.TaxRate, "pricing_rule", false, nil
+	}
+	if defaultTaxRate.Rate < 0 {
+		return 0, "", false, fmt.Errorf("tax_rate must be >= 0")
+	}
+	source := strings.TrimSpace(defaultTaxRate.Source)
+	if source == "" {
+		source = "finance_settings"
+	}
+	if defaultTaxRate.Rate > 0 {
+		return defaultTaxRate.Rate, source, false, nil
+	}
+	return 0, "default", false, nil
 }
 
 func pricingRuleTrialSuppressDefaultLossForActualBomCost(input domain.ProductInput, cmd PricingRuleTrialCommand, baseCostDetails []PricingRuleTrialBaseCostDetail, bomCostTotal float64, operationCostTotal float64) bool {

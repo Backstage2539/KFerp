@@ -893,8 +893,8 @@
             <div class="pricing-rule-trial-rule-grid">
               <span>基础成本：{{ pricingRuleCostSourceLabel(pricingRuleTrialRule?.cost_source_mode) }}</span>
               <span>利润方式：{{ pricingRuleProfitMethodLabel(pricingRuleTrialRule?.profit_method) }}</span>
-              <span>取整规则：{{ pricingRuleRoundingLabel(pricingRuleTrialRule?.rounding_mode) }}</span>
-              <span>税率：{{ percentDisplay(pricingRuleTrialRule?.tax_rate) }}</span>
+              <span>取整规则：{{ pricingRuleRoundingLabel(pricingRuleTrialRule?.rounding_mode) }}（来自价格计算模板）</span>
+              <span>税率：{{ pricingRuleTrialTaxRateSummary(pricingRuleTrialResult, pricingRuleTrialRule) }}</span>
             </div>
           </section>
 
@@ -931,11 +931,11 @@
                 </select>
               </label>
               <label>
-                <span>工序</span>
-                <select v-model.number="pricingRuleTrialForm.operation_template_id" :disabled="!pricingRuleTrialOperationTemplateOptions.length">
-                  <option :value="0">按默认工序</option>
-                  <option v-for="option in pricingRuleTrialOperationTemplateOptions" :key="option.id" :value="Number(option.id || 0)">
-                    {{ pricingRuleTrialOperationTemplateOptionLabel(option) }}
+                <span>工艺路线</span>
+                <select v-model.number="pricingRuleTrialForm.process_route_id" :disabled="!pricingRuleTrialProcessRouteOptions.length">
+                  <option :value="0">按 BOM/商品默认工艺路线</option>
+                  <option v-for="option in pricingRuleTrialProcessRouteOptions" :key="option.id" :value="Number(option.id || 0)">
+                    {{ pricingRuleTrialProcessRouteOptionLabel(option) }}
                   </option>
                 </select>
               </label>
@@ -1032,14 +1032,16 @@
               <div class="pricing-rule-trial-waterfall-card">
                 <small>税额</small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialTaxInPriceAmount(pricingRuleTrialResult), pricingRuleTrialResult.quote_unit) }}</strong>
-                <em>{{ pricingRuleTrialTaxWaterfallNote(pricingRuleTrialResult) }}</em>
+                <em>{{ pricingRuleTrialTaxWaterfallNote(pricingRuleTrialResult) }}；税率来源：{{ pricingRuleTrialTaxSourceLabel(pricingRuleTrialResult) }}</em>
               </div>
-              <span class="pricing-rule-trial-operator">+</span>
-              <div class="pricing-rule-trial-waterfall-card">
-                <small>取整调整</small>
-                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.rounding_adjustment, pricingRuleTrialResult.quote_unit) }}</strong>
-                <em>按模板取整</em>
-              </div>
+              <template v-if="pricingRuleTrialHasRoundingAdjustment(pricingRuleTrialResult)">
+                <span class="pricing-rule-trial-operator">+</span>
+                <div class="pricing-rule-trial-waterfall-card">
+                  <small>取整调整</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.rounding_adjustment, pricingRuleTrialResult.quote_unit) }}</strong>
+                  <em>{{ pricingRuleTrialRoundingSourceLabel(pricingRuleTrialResult) }}</em>
+                </div>
+              </template>
               <span class="pricing-rule-trial-operator equals">=</span>
               <div class="pricing-rule-trial-waterfall-card final">
                 <small>试算单价</small>
@@ -1053,7 +1055,7 @@
                 <button class="secondary compact-action" type="button" @click="closePricingRuleTrialExplanation">关闭</button>
               </div>
               <template v-if="pricingRuleTrialActiveExplanation === 'base_cost'">
-                <p>点击查看试算说明：BOM+工序成本来自当前试算商品、BOM版本和工序，下面列出每个物料或工序的 BOM 用量、单位成本和本项金额。</p>
+                <p>点击查看试算说明：BOM+工序成本来自当前试算商品、BOM版本和工艺路线，下面列出每个物料或工艺路线工序的 BOM 用量、单位成本和本项金额。</p>
                 <div class="table-wrap compact-table-wrap">
                   <table>
                     <thead>
@@ -1142,7 +1144,7 @@
             </div>
             <div class="pricing-rule-trial-result-meta">
               <span>BOM版本：{{ pricingRuleTrialResult.bom_version_no || pricingRuleTrialResult.bom_version_id || '-' }}</span>
-              <span>工序：{{ pricingRuleTrialResult.operation_template_name || pricingRuleTrialResult.operation_template_id || '-' }}</span>
+              <span>工艺路线：{{ pricingRuleTrialResult.process_route_name || pricingRuleTrialResult.process_route_id || '-' }}</span>
               <span>毛利率：{{ percentDisplay(pricingRuleTrialResult.gross_margin_rate) }}</span>
             </div>
             <div v-if="pricingRuleTrialResult.warnings?.length" class="pricing-rule-trial-warnings">
@@ -2112,6 +2114,7 @@ const pricingRuleTrialProductOptions = computed(() => productRows.value
   .sort((a, b) => productOptionLabel(a).localeCompare(productOptionLabel(b))))
 const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialProductOptions.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)) || null)
 const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.bom_version_options) ? pricingRuleTrialResult.value.bom_version_options : [])
+const pricingRuleTrialProcessRouteOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.process_route_options) ? pricingRuleTrialResult.value.process_route_options : [])
 const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
 const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   open: pricingRuleTrialDrawerOpen.value,
@@ -2119,6 +2122,7 @@ const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   product_id: pricingRuleTrialForm.value.product_id,
   customer_id: pricingRuleTrialForm.value.customer_id,
   bom_version_id: pricingRuleTrialForm.value.bom_version_id,
+  process_route_id: pricingRuleTrialForm.value.process_route_id,
   operation_template_id: pricingRuleTrialForm.value.operation_template_id,
   quote_unit: pricingRuleTrialForm.value.quote_unit,
   expected_loss_rate: pricingRuleTrialForm.value.expected_loss_rate,
@@ -2863,11 +2867,12 @@ function defaultPricingRuleTrialForm(rule = {}) {
     product_id: 0,
     customer_id: 0,
     bom_version_id: 0,
+    process_route_id: 0,
     operation_template_id: 0,
     quote_unit: '',
     expected_loss_rate: '',
     margin_rate: form.margin_rate,
-    tax_rate: form.tax_rate,
+    tax_rate: '',
     other_cost_rows: form.other_cost_rows.map((row) => ({ ...row })),
   }
 }
@@ -3613,6 +3618,7 @@ function handlePricingRuleTrialRuleChange() {
   next.customer_id = Number(previous.customer_id || 0)
   next.quote_unit = String(previous.quote_unit || '')
   next.bom_version_id = 0
+  next.process_route_id = 0
   next.operation_template_id = 0
   pricingRuleTrialForm.value = next
   pricingRuleTrialResult.value = null
@@ -3666,6 +3672,13 @@ function syncPricingRuleTrialProductionSelections(result = {}) {
   } else if (Number(pricingRuleTrialForm.value.bom_version_id || 0) > 0 && !bomOptions.some((option) => Number(option.version_id || 0) === Number(pricingRuleTrialForm.value.bom_version_id || 0))) {
     pricingRuleTrialForm.value.bom_version_id = selectedBomID || 0
   }
+  const routeOptions = Array.isArray(result.process_route_options) ? result.process_route_options : []
+  const selectedRouteID = Number(result.process_route_id || 0)
+  if (selectedRouteID > 0 && !Number(pricingRuleTrialForm.value.process_route_id || 0)) {
+    pricingRuleTrialForm.value.process_route_id = selectedRouteID
+  } else if (Number(pricingRuleTrialForm.value.process_route_id || 0) > 0 && !routeOptions.some((option) => Number(option.id || 0) === Number(pricingRuleTrialForm.value.process_route_id || 0))) {
+    pricingRuleTrialForm.value.process_route_id = selectedRouteID || 0
+  }
   const operationOptions = Array.isArray(result.operation_template_options) ? result.operation_template_options : []
   const selectedOperationID = Number(result.operation_template_id || 0)
   if (selectedOperationID > 0 && !Number(pricingRuleTrialForm.value.operation_template_id || 0)) {
@@ -3681,6 +3694,11 @@ function pricingRuleTrialBomVersionOptionLabel(option = {}) {
   const version = String(option.version_no || '').trim()
   const defaultText = option.is_default ? ' 默认' : ''
   return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}`.trim() || `BOM版本 #${option.version_id || ''}`
+}
+
+function pricingRuleTrialProcessRouteOptionLabel(option = {}) {
+  const name = String(option.name || '').trim() || `工艺路线 #${option.id || ''}`
+  return option.is_default ? `${name} 默认` : name
 }
 
 function pricingRuleTrialOperationTemplateOptionLabel(option = {}) {
@@ -3817,6 +3835,9 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
   const sourceMap = {
     product_bom_operation_cost: '当前商品 BOM/工序成本',
     pricing_rule: '价格计算模板',
+    trial_override: '本次临时录入',
+    finance_settings: '财务设置',
+    tax_disabled: '不计税',
     formula: '公式计算',
     temporary_override: '本次临时录入',
     temporary_other_costs: '本次临时录入',
@@ -3827,6 +3848,7 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     product_bom: '当前商品 BOM',
     product_expected_loss: '当前商品损耗率',
     no_loss: '不计损耗',
+    default: '系统默认',
   }
   if (sourceMap[source]) return sourceMap[source]
   if (/^[a-z0-9_:. -]+$/i.test(source)) return '-'
@@ -3850,6 +3872,11 @@ function pricingRuleTrialProfitExplanation(result = {}) {
 
 function pricingRuleTrialHasYieldLoss(result = {}) {
   const amount = Number(result?.yield_loss_amount || 0)
+  return Number.isFinite(amount) && Math.abs(amount) > 0.000001
+}
+
+function pricingRuleTrialHasRoundingAdjustment(result = {}) {
+  const amount = Number(result?.rounding_adjustment || 0)
   return Number.isFinite(amount) && Math.abs(amount) > 0.000001
 }
 
@@ -3926,6 +3953,7 @@ function pricingRuleTrialConsumeUnitLabel(value = '') {
     fixed: '固定',
     per_unit: '每单位',
     per_quote_unit: '每销售单位',
+    process_route: '工艺路线计划成本',
   }[String(value || '').trim()] || String(value || '').trim()
 }
 
@@ -3946,6 +3974,26 @@ function pricingRuleTrialTaxWaterfallNote(result = {}) {
     return `税额另计 ${trialMoneyDisplay(taxAmount, unit)}；取整前 ${trialMoneyDisplay(result?.final_before_rounding, unit)}`
   }
   return `取整前 ${trialMoneyDisplay(result?.final_before_rounding, unit)}`
+}
+
+function pricingRuleTrialTaxSourceLabel(result = {}) {
+  return pricingRuleTrialSourceDisplay(result?.tax_rate_source || '')
+}
+
+function pricingRuleTrialRoundingSourceLabel(result = {}) {
+  const source = pricingRuleTrialSourceDisplay(result?.rounding_rule_source || 'pricing_rule')
+  return `按模板取整（${source}）`
+}
+
+function pricingRuleTrialTaxRateSummary(result = null, rule = null) {
+  if (result?.tax_rate_source) {
+    const step = (Array.isArray(result.steps) ? result.steps : []).find((row) => row?.key === 'tax_rate')
+    const rateText = step ? pricingRuleTrialStepDisplay(step) : '-'
+    return `${rateText}（${pricingRuleTrialTaxSourceLabel(result)}）`
+  }
+  const rate = Number(rule?.tax_rate || 0)
+  if (rate > 0) return `${percentDisplay(rate)}（来自价格计算模板）`
+  return '按财务设置'
 }
 
 async function savePricingRule() {
@@ -7240,6 +7288,7 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
   if (!product) return
   pricingRuleTrialForm.value.quote_unit = preferredPricingRuleTrialQuoteUnit(product)
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
@@ -7248,6 +7297,7 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialResult.value = null

@@ -725,6 +725,79 @@ func TestPricingRuleTrialDetailsGrossRatioCostsByMaterialLossRate(t *testing.T) 
 	}
 }
 
+func TestPricingRuleTrialProductionOptionsExposeProcessRoutes(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialProductionOptions")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialProductionOptions not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnEnd < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found after LoadPricingRuleTrialProductionOptions")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"v.process_route_id",
+		"process_route_name",
+		"process_routes",
+		"out.ProcessRoutes",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing rule trial production options must expose current process routes; missing %q", want)
+		}
+	}
+}
+
+func TestPricingRuleTrialDetailsPreferProcessRoutePlannedOperationCost(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"input.ProcessRouteID",
+		"process_route_operations",
+		"planned_operation_cost",
+		"process_route",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing rule trial details must read process route planned operation cost before legacy templates; missing %q", want)
+		}
+	}
+}
+
+func TestPricingRuleTrialRepositoryReadsFinanceDefaultTaxRate(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"LoadPricingRuleTrialDefaultTaxRate",
+		"finance_settings",
+		"taxpayer_type",
+		"general_output_vat_rate",
+		"small_scale_vat_rate",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("pricing rule trial repository must read finance default tax rate; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -310,7 +310,7 @@ func TestSaveWorkstationCapacityNormalizesApplicableOperationIDs(t *testing.T) {
 	}
 }
 
-func TestSaveProcessRouteDropsWorkstationCapacityBatchTimeRateOwnership(t *testing.T) {
+func TestSaveProcessRouteDropsCapacityOwnershipButKeepsPlannedOperationCost(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
@@ -340,8 +340,26 @@ func TestSaveProcessRouteDropsWorkstationCapacityBatchTimeRateOwnership(t *testi
 	if op.WorkstationID != 0 || op.Workstation != "" || op.WorkstationCapacityID != 0 || op.WorkstationCapacityName != "" {
 		t.Fatalf("route operation should not own workstation capacity: %+v", op)
 	}
-	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.PlannedBatchCount != 0 || op.PlannedMinutes != 0 || op.PlannedOperationCost != 0 {
-		t.Fatalf("route operation should not own batch/time/rate/cost fields: %+v", op)
+	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.PlannedBatchCount != 0 || op.PlannedMinutes != 0 {
+		t.Fatalf("route operation should not own batch/time/rate fields: %+v", op)
+	}
+	if op.PlannedOperationCost != 375 {
+		t.Fatalf("route operation planned cost = %.2f, want 375 for pricing trial", op.PlannedOperationCost)
+	}
+}
+
+func TestSaveProcessRouteRejectsNegativePlannedOperationCost(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "错误路线",
+		Operations: []ProcessRouteOperation{{
+			Operation:            "烘焙",
+			PlannedOperationCost: -1,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "planned_operation_cost") {
+		t.Fatalf("SaveProcessRoute error = %v, want planned_operation_cost validation", err)
 	}
 }
 

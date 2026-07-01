@@ -357,7 +357,7 @@ func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 
 	trialDrawer := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	trialDrawer = trialDrawer[strings.Index(trialDrawer, `pricingRuleTrialDrawerOpen`):strings.Index(trialDrawer, `customerAliasCreateDrawerOpen`)]
-	for _, forbidden := range []string{"来源：", "状态：", "发布售价快照反推"} {
+	for _, forbidden := range []string{"状态：", "发布售价快照反推"} {
 		if strings.Contains(trialDrawer, forbidden) {
 			t.Fatalf("pricing rule trial drawer should not expose %q", forbidden)
 		}
@@ -377,10 +377,12 @@ func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"BomVersionOptions",
+			"ProcessRouteOptions",
 			"OperationTemplateOptions",
 			"pricingRuleTrialApplyProductionSelection",
 			"pricingRuleTrialDefaultBomVersionOption",
 			"production BOM version not found for product",
+			"process route not found",
 			"operation template not found",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
@@ -388,18 +390,22 @@ func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 			"pricing_rule_trial_selected_products",
 			"pricing_rule_trial_bom_versions",
 			"pb.output_product_id=selected.product_id",
+			"process_routes",
+			"process_route_operations",
 			"operation_templates",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"bom_version_id",
+			"process_route_id",
 			"operation_template_id",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"试算BOM版本",
+			"工艺路线",
 			"pricingRuleTrialBomVersionOptions",
-			"pricingRuleTrialOperationTemplateOptions",
+			"pricingRuleTrialProcessRouteOptions",
 			"pricingRuleTrialForm.bom_version_id",
-			"pricingRuleTrialForm.operation_template_id",
+			"pricingRuleTrialForm.process_route_id",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
@@ -415,7 +421,7 @@ func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
 			"试算BOM版本",
-			"production_boms.output_product_id",
+			"工艺路线",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-output-bom-operation-select.md"): {
 			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",

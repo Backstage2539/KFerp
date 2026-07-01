@@ -753,6 +753,9 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	if op.Operation == "" {
 		return op, fmt.Errorf("operation required")
 	}
+	if op.PlannedOperationCost < 0 {
+		return op, fmt.Errorf("planned_operation_cost must be >= 0")
+	}
 	qualityChecklistJSON, err := normalizeJSONArray(op.QualityChecklistJSON)
 	if err != nil {
 		return op, fmt.Errorf("quality_checklist_json must be a JSON array")
@@ -769,7 +772,6 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.HourlyRate = 0
 	op.PlannedBatchCount = 0
 	op.PlannedMinutes = 0
-	op.PlannedOperationCost = 0
 	op.QualityChecklistJSON = qualityChecklistJSON
 	return op, nil
 }

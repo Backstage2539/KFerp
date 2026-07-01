@@ -624,6 +624,7 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
     product_id: '549',
     customer_id: '',
     bom_version_id: '5392',
+    process_route_id: '19',
     operation_template_id: '27',
     quote_unit: ' kg ',
     expected_loss_rate: '0.12',
@@ -646,6 +647,7 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
     product_id: 549,
     customer_id: 0,
     bom_version_id: 5392,
+    process_route_id: 19,
     operation_template_id: 27,
     quote_unit: 'kg',
     overrides: {
@@ -804,6 +806,7 @@ test('price table pricing-rule preview row uses the live trial result', () => {
     cost_source_snapshot: {
       pricing_rule_id: 40,
       bom_version_id: 8842,
+      process_route_id: 19,
       operation_template_id: 9,
     },
   }
@@ -813,6 +816,7 @@ test('price table pricing-rule preview row uses the live trial result', () => {
     product_id: 550,
     customer_id: 0,
     bom_version_id: 8842,
+    process_route_id: 19,
     operation_template_id: 9,
     quote_unit: 'lb',
     overrides: {},
@@ -826,6 +830,8 @@ test('price table pricing-rule preview row uses the live trial result', () => {
     final_unit_price: 68.5,
     bom_version_id: 8842,
     bom_version_no: 'V002',
+    process_route_id: 19,
+    process_route_name: '标准烘焙路线',
     operation_template_id: 9,
     operation_template_name: '标准烘焙',
     base_cost: 42.3,
@@ -837,6 +843,7 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.price_unit, 'lb')
   assert.deepEqual(got.inventory_conversion_json, { lb: { kg: 0.454 } })
   assert.equal(got.cost_source_snapshot.bom_version_no, 'V002')
+  assert.equal(got.cost_source_snapshot.process_route_name, '标准烘焙路线')
   assert.equal(got.cost_source_snapshot.operation_template_name, '标准烘焙')
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_final_unit_price, 68.5)
 })
@@ -853,6 +860,7 @@ test('price table pricing-rule preview payload falls back to numeric product key
     pricing_rule_id: 11,
     cost_source_snapshot: {
       bom_version_id: 723,
+      process_route_id: 0,
     },
   }
 
@@ -861,6 +869,7 @@ test('price table pricing-rule preview payload falls back to numeric product key
     product_id: 550,
     customer_id: 0,
     bom_version_id: 723,
+    process_route_id: 0,
     operation_template_id: 0,
     quote_unit: 'kg',
     overrides: {},
@@ -892,6 +901,7 @@ test('price table tier-template preview rows use their tier pricing rule trial r
     cost_source_snapshot: {
       pricing_rule_id: 40,
       bom_version_id: 8842,
+      process_route_id: 19,
       operation_template_id: 9,
     },
   }
@@ -901,6 +911,7 @@ test('price table tier-template preview rows use their tier pricing rule trial r
     product_id: 550,
     customer_id: 0,
     bom_version_id: 8842,
+    process_route_id: 19,
     operation_template_id: 9,
     quote_unit: 'lb',
     overrides: {},
@@ -964,7 +975,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '试算模板',
     '请选择启用的价格计算模板',
     'BOM版本',
-    '工序',
+    '工艺路线',
     '销售单位',
     '临时损耗率',
     '空=不额外计损耗',
@@ -979,6 +990,11 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '加价增加',
     '税额',
     '取整调整',
+    '税率来源',
+    '取整规则：',
+    '来自价格计算模板',
+    'pricingRuleTrialTaxSourceLabel',
+    'pricingRuleTrialHasRoundingAdjustment(pricingRuleTrialResult)',
     'base_cost_details',
     'tax_in_price_amount',
     'pricing-rule-trial-waterfall',
@@ -1003,7 +1019,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '公式步骤',
     'pricingRuleTrialQuoteUnitOptions',
     'pricingRuleTrialBomVersionOptions',
-    'pricingRuleTrialOperationTemplateOptions',
+    'pricingRuleTrialProcessRouteOptions',
     'pricingRuleTrialHasYieldLoss(pricingRuleTrialResult)',
     'schedulePricingRuleTrial',
   ]) {
@@ -1015,7 +1031,6 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'post_markup_cost_rows',
     'addPricingRuleTrialPostMarkupCostRow',
     'removePricingRuleTrialPostMarkupCostRow',
-    '来源：',
     '状态：',
     'product_production_config',
     'missing',
@@ -1029,7 +1044,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(trialDrawer, /trialMoneyDisplay\(pricingRuleTrialBaseCostUnitCostValue\(row\), pricingRuleTrialBaseCostUnit\(row, pricingRuleTrialResult\)\)/)
   assert.match(trialDrawer, /trialMoneyDisplay\(row\.amount, row\.unit \|\| pricingRuleTrialResult\.quote_unit\)/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)
-  assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.operation_template_id"[\s\S]*pricingRuleTrialOperationTemplateOptions/)
+  assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.process_route_id"[\s\S]*pricingRuleTrialProcessRouteOptions/)
   assert.match(source, /<select v-model="pricingRuleTrialForm\.quote_unit"[\s\S]*pricingRuleTrialQuoteUnitOptions/)
   assert.doesNotMatch(pane, /@click="runPricingRuleTrial"/)
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
@@ -1040,6 +1055,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('base_cost'\)"[\s\S]*BOM\+工序成本/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('other_cost'\)"[\s\S]*其他成本/)
   assert.match(trialDrawer, /v-if="pricingRuleTrialHasYieldLoss\(pricingRuleTrialResult\)"[\s\S]*损耗增加/)
+  assert.match(trialDrawer, /v-if="pricingRuleTrialHasRoundingAdjustment\(pricingRuleTrialResult\)"[\s\S]*取整调整/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('profit_markup'\)"[\s\S]*加价增加/)
   assert.doesNotMatch(trialDrawer, /placeholder="按商品\/BOM"/)
   assert.match(trialDrawer, /v-if="pricingRuleTrialActiveExplanation"[\s\S]*试算说明[\s\S]*@click="closePricingRuleTrialExplanation"/)

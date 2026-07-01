@@ -123,6 +123,8 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		InventoryUnit:         "kg",
 		BomVersionID:          cmd.BomVersionID,
 		BomVersionNo:          "V002",
+		ProcessRouteID:        cmd.ProcessRouteID,
+		ProcessRouteName:      "新版工艺路线",
 		OperationTemplateID:   cmd.OperationTemplateID,
 		OperationTemplateName: "新版工序",
 		BaseCost:              67.5,
@@ -160,8 +162,12 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 			"最终售价 = 116.7092/kg",
 		},
 		BomVersionOptions: []appcosting.PricingRuleTrialBomVersionOption{
-			{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5391, VersionNo: "V001", Status: "published", IsDefault: false},
-			{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5392, VersionNo: "V002", Status: "published", IsDefault: true},
+			{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5391, VersionNo: "V001", Status: "published", IsDefault: false, ProcessRouteID: 7, ProcessRouteName: "旧工艺路线"},
+			{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5392, VersionNo: "V002", Status: "published", IsDefault: true, ProcessRouteID: 19, ProcessRouteName: "新版工艺路线"},
+		},
+		ProcessRouteOptions: []appcosting.PricingRuleTrialProcessRouteOption{
+			{ID: 7, Name: "旧工艺路线", IsDefault: false},
+			{ID: 19, Name: "新版工艺路线", IsDefault: true},
 		},
 		OperationTemplateOptions: []appcosting.PricingRuleTrialOperationTemplateOption{
 			{ID: 7, Name: "旧工序", IsDefault: false},
@@ -764,6 +770,7 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 		PricingRuleID:       10,
 		ProductID:           549,
 		BomVersionID:        5392,
+		ProcessRouteID:      19,
 		OperationTemplateID: 9,
 		QuoteUnit:           "kg",
 		Overrides: appcosting.PricingRuleTrialOverrides{
@@ -797,10 +804,10 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if got.PricingRuleID != 10 || got.ProductID != 549 || got.FinalUnitPrice != 116.7092 {
 		t.Fatalf("trial response = %+v", got)
 	}
-	if svc.last.BomVersionID != 5392 || svc.last.OperationTemplateID != 9 {
+	if svc.last.BomVersionID != 5392 || svc.last.ProcessRouteID != 19 || svc.last.OperationTemplateID != 9 {
 		t.Fatalf("selected production sources not bound: %+v", svc.last)
 	}
-	if got.BomVersionID != 5392 || got.OperationTemplateID != 9 || len(got.BomVersionOptions) != 2 || len(got.OperationTemplateOptions) != 2 {
+	if got.BomVersionID != 5392 || got.ProcessRouteID != 19 || got.ProcessRouteName != "新版工艺路线" || got.OperationTemplateID != 9 || len(got.BomVersionOptions) != 2 || len(got.ProcessRouteOptions) != 2 || len(got.OperationTemplateOptions) != 2 {
 		t.Fatalf("trial response missing selected production source options: %+v", got)
 	}
 	if svc.last.Overrides.PostMarkupCosts["利润税额"] != 1.1996 {
@@ -821,7 +828,7 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
-	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"cost_unit_cost":67.5`, `"cost_unit":"kg"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `最终售价 = 116.7092/kg`} {
+	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"cost_unit_cost":67.5`, `"cost_unit":"kg"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `"process_route_id":19`, `"process_route_options"`, `最终售价 = 116.7092/kg`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}

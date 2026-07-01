@@ -511,6 +511,41 @@ func (r Repository) LoadProductPricingRule(ctx context.Context, id int64) (appco
 	return row, nil
 }
 
+func (r Repository) LoadPricingRuleTrialDefaultTaxRate(ctx context.Context) (appcosting.PricingRuleTrialDefaultTaxRate, error) {
+	return r.loadPricingRuleTrialDefaultTaxRate(ctx)
+}
+
+func (r Repository) loadPricingRuleTrialDefaultTaxRate(ctx context.Context) (appcosting.PricingRuleTrialDefaultTaxRate, error) {
+	out := appcosting.PricingRuleTrialDefaultTaxRate{Source: "finance_settings"}
+	if r.pool == nil {
+		return out, nil
+	}
+	var taxpayerType string
+	var smallRate float64
+	var generalRate float64
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(taxpayer_type,''),'small_scale'),
+		       COALESCE(small_scale_vat_rate,0)::float8,
+		       COALESCE(general_output_vat_rate,0)::float8
+		FROM %s.finance_settings
+		WHERE id=1
+	`, r.schema)).Scan(&taxpayerType, &smallRate, &generalRate)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return out, nil
+		}
+		return out, err
+	}
+	switch strings.TrimSpace(taxpayerType) {
+	case "general":
+		out.Rate = generalRate
+	default:
+		out.Rate = smallRate
+	}
+	out.Source = "finance_settings"
+	return out, nil
+}
+
 func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, input domain.ProductInput) (appcosting.PricingRuleTrialProductionOptions, error) {
 	out := appcosting.PricingRuleTrialProductionOptions{}
 	if r.pool == nil || input.ProductID <= 0 {
@@ -542,16 +577,19 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 			       v.id AS version_id,
 			       COALESCE(v.version_no,'') AS version_no,
 			       COALESCE(v.status,'published') AS status,
+			       COALESCE(NULLIF(v.process_route_id,0),0) AS process_route_id,
+			       COALESCE(NULLIF(pr.name,''),'') AS process_route_name,
 			       COALESCE((SELECT bom_version_id FROM default_bom),0)>0
 			         AND v.id=COALESCE((SELECT bom_version_id FROM default_bom),0) AS is_default,
 			       selected.source_priority
 			FROM pricing_rule_trial_selected_products selected
 			JOIN %[1]s.production_boms pb ON pb.output_product_id=selected.product_id
 			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
+			LEFT JOIN %[1]s.process_routes pr ON pr.id=v.process_route_id
 			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
 			  AND v.status='published'
 		)
-		SELECT bom_id, bom_code, bom_name, version_id, version_no, status, is_default
+		SELECT bom_id, bom_code, bom_name, version_id, version_no, status, process_route_id, process_route_name, is_default
 		FROM pricing_rule_trial_bom_versions
 		ORDER BY source_priority, is_default DESC, version_id DESC, bom_code, bom_name
 	`, r.schema), input.ProductID)
@@ -561,12 +599,43 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 	defer bomRows.Close()
 	for bomRows.Next() {
 		var row appcosting.PricingRuleTrialBomVersionOption
-		if err := bomRows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.VersionID, &row.VersionNo, &row.Status, &row.IsDefault); err != nil {
+		if err := bomRows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.VersionID, &row.VersionNo, &row.Status, &row.ProcessRouteID, &row.ProcessRouteName, &row.IsDefault); err != nil {
 			return out, err
 		}
 		out.BomVersions = append(out.BomVersions, row)
 	}
 	if err := bomRows.Err(); err != nil {
+		return out, err
+	}
+
+	defaultProcessRouteID := input.ProcessRouteID
+	for _, row := range out.BomVersions {
+		if row.IsDefault && row.ProcessRouteID > 0 {
+			defaultProcessRouteID = row.ProcessRouteID
+			break
+		}
+	}
+	routeRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,
+		       COALESCE(NULLIF(name,''), '工艺路线 #' || id::text) AS name,
+		       id=$1 AS is_default
+		FROM %s.process_routes
+		WHERE COALESCE(NULLIF(status,''),'active')='active'
+		   OR id=$1
+		ORDER BY CASE WHEN id=$1 THEN 0 ELSE 1 END, name, id
+	`, r.schema), defaultProcessRouteID)
+	if err != nil {
+		return out, err
+	}
+	defer routeRows.Close()
+	for routeRows.Next() {
+		var row appcosting.PricingRuleTrialProcessRouteOption
+		if err := routeRows.Scan(&row.ID, &row.Name, &row.IsDefault); err != nil {
+			return out, err
+		}
+		out.ProcessRoutes = append(out.ProcessRoutes, row)
+	}
+	if err := routeRows.Err(); err != nil {
 		return out, err
 	}
 
@@ -704,6 +773,44 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		return nil, err
 	}
 
+	if input.ProcessRouteID > 0 {
+		routeRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT pro.id,
+			       COALESCE(NULLIF(pro.operation,''), NULLIF(mo.name,''), '工序') AS name,
+			       COALESCE(pro.planned_operation_cost,0)::float8
+			FROM %[1]s.process_route_operations pro
+			LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
+			WHERE pro.route_id=$1
+			ORDER BY pro.seq, pro.id
+		`, r.schema), input.ProcessRouteID)
+		if err != nil {
+			return nil, err
+		}
+		defer routeRows.Close()
+		for routeRows.Next() {
+			var row appcosting.PricingRuleTrialBaseCostDetail
+			var id int64
+			if err := routeRows.Scan(&id, &row.Name, &row.UnitCost); err != nil {
+				return nil, err
+			}
+			if row.UnitCost <= 0 {
+				continue
+			}
+			row.Key = fmt.Sprintf("process_route:%d", id)
+			row.Type = "operation"
+			row.TypeLabel = "工艺路线"
+			row.ConsumeUnit = "process_route"
+			row.Quantity = 1
+			row.AmountPerKg = row.UnitCost
+			row.CostUnit = "kg"
+			row.Description = fmt.Sprintf("工艺路线计划工序成本 %s", row.Name)
+			out = append(out, row)
+		}
+		if err := routeRows.Err(); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
 	if input.OperationTemplateID <= 0 {
 		return out, nil
 	}
@@ -1057,6 +1164,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		           NULLIF(parent_pc.operation_template_id,0),
 		           0
 		       ) AS effective_operation_template_id,
+		       COALESCE(NULLIF(p.process_route_id,0),0) AS effective_process_route_id,
+		       COALESCE(NULLIF(product_process_route.name,''), '') AS effective_process_route_name,
 		       COALESCE(
 			           NULLIF(alias_config.price_list_rule_json::text,'{}'),
 			           NULLIF(p_config.price_list_rule_json::text,'{}'),
@@ -1317,6 +1426,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       )
 		LEFT JOIN finished_component_cost fcc ON fcc.product_id = p.id
 		LEFT JOIN bom_unit_cost buc ON buc.product_id = p.id
+		LEFT JOIN %[1]s.process_routes product_process_route ON product_process_route.id=p.process_route_id
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(NULLIF(qi.metrics_json->>'factory_flavor_description',''), NULLIF(qi.metrics_json->>'factory_flavor',''), NULLIF(qi.metrics_json->>'工厂风味描述',''), '') AS factory_flavor_description,
 			       COALESCE(NULLIF(qi.metrics_json->>'moisture',''), NULLIF(qi.metrics_json->>'水分',''), '') AS moisture,
@@ -1450,7 +1560,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			FROM source_rows
 		) pps ON true
 		WHERE p.active = true
-			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, derived_sku_units.derived_sku_unit_factor, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, product_unit_template_default_spec.spec_name, product_unit_template_default_spec.sales_unit, product_unit_template_default_spec.net_content_qty, product_unit_template_default_spec.net_content_unit, product_unit_template_default_spec.unit_conversion_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.customer_id, cpro.product_subtype_category_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, p.process_route_id, product_process_route.name, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, derived_sku_units.derived_sku_unit_factor, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, product_unit_template_default_spec.spec_name, product_unit_template_default_spec.sales_unit, product_unit_template_default_spec.net_content_qty, product_unit_template_default_spec.net_content_unit, product_unit_template_default_spec.unit_conversion_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.customer_id, cpro.product_subtype_category_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)
@@ -1513,6 +1623,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			&input.CategorySecondaryPosition,
 			&gradientTemplateID,
 			&input.OperationTemplateID,
+			&input.ProcessRouteID,
+			&input.ProcessRouteName,
 			&input.PriceListRuleJSON,
 			&input.SpecialAttrsSchemaJSON,
 			&input.InventoryUnit,

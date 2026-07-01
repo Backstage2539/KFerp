@@ -32,6 +32,7 @@ type fakeRepo struct {
 	costDetailsByBom    map[int64][]PricingRuleTrialBaseCostDetail
 	productionOptions   PricingRuleTrialProductionOptions
 	lastDetailInput     domain.ProductInput
+	defaultTaxRate      PricingRuleTrialDefaultTaxRate
 	productUnitRules    map[int64]ProductSalesUnitRule
 	customerUnitRules   map[int64]ProductSalesUnitRule
 	lastCustomerAliasID int64
@@ -83,6 +84,10 @@ func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, input 
 
 func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, _ domain.ProductInput) (PricingRuleTrialProductionOptions, error) {
 	return r.productionOptions, nil
+}
+
+func (r *fakeRepo) LoadPricingRuleTrialDefaultTaxRate(context.Context) (PricingRuleTrialDefaultTaxRate, error) {
+	return r.defaultTaxRate, nil
 }
 
 func (r *fakeRepo) CreateRun(_ context.Context, actor string, items []domain.ProductResult) (*Run, error) {
@@ -379,6 +384,151 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialUsesFinanceTaxRateWhenPricingRuleTaxRateUnset(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:        612,
+			Name:             "PR512 财务税率商品",
+			InventoryUnit:    "kg",
+			QuoteUnit:        "kg",
+			BomVersionID:     7612,
+			BomUsageMode:     "production_bom_output",
+			BomStatus:        "active",
+			ExpectedLossRate: 0.2,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:612", Type: "material", TypeLabel: "物料", Name: "PR512 原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 100, AmountPerKg: 100, Unit: "kg"},
+		},
+		defaultTaxRate: PricingRuleTrialDefaultTaxRate{Rate: 0.13, Source: "finance_settings"},
+		pricingRules: map[int64]ProductPricingRule{
+			512: {
+				ID:           512,
+				Name:         "PR512 税率回退",
+				MarginRate:   0,
+				TaxRate:      0,
+				RoundingMode: "none",
+				Active:       true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "bom_or_product",
+					"profit_method":   "markup",
+					"tax_mode":        "tax_included",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 512,
+		ProductID:     612,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.YieldLossAmount != 0 {
+		t.Fatalf("BOM detail cost already includes BOM loss, default product loss must not be applied again: %+v", got)
+	}
+	if got.TaxRateSource != "finance_settings" || got.TaxAmount != 13 || got.FinalUnitPrice != 113 {
+		t.Fatalf("tax fallback = source %q amount %.2f final %.2f, want finance settings 13%%", got.TaxRateSource, got.TaxAmount, got.FinalUnitPrice)
+	}
+	if !pricingRuleTrialHasStepSource(got.Steps, "tax_rate", "finance_settings") {
+		t.Fatalf("steps must record finance tax source: %+v", got.Steps)
+	}
+}
+
+func TestPricingRuleTrialRuleTaxRateOverridesFinanceDefault(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:     613,
+			Name:          "PR512 模板税率商品",
+			InventoryUnit: "kg",
+			QuoteUnit:     "kg",
+			BomVersionID:  7613,
+			BomUsageMode:  "production_bom_output",
+			BomStatus:     "active",
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:613", Type: "material", TypeLabel: "物料", Name: "PR512 原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 100, AmountPerKg: 100, Unit: "kg"},
+		},
+		defaultTaxRate: PricingRuleTrialDefaultTaxRate{Rate: 0.13, Source: "finance_settings"},
+		pricingRules: map[int64]ProductPricingRule{
+			513: {
+				ID:           513,
+				Name:         "PR512 模板税率",
+				MarginRate:   0,
+				TaxRate:      0.06,
+				RoundingMode: "none",
+				Active:       true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "tax_included",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 513,
+		ProductID:     613,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.TaxRateSource != "pricing_rule" || got.TaxAmount != 6 || got.FinalUnitPrice != 106 {
+		t.Fatalf("tax override = source %q amount %.2f final %.2f, want pricing rule 6%%", got.TaxRateSource, got.TaxAmount, got.FinalUnitPrice)
+	}
+}
+
+func TestPricingRuleTrialTaxModeNoneForcesZeroTax(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:     614,
+			Name:          "PR512 不计税商品",
+			InventoryUnit: "kg",
+			QuoteUnit:     "kg",
+			BomVersionID:  7614,
+			BomUsageMode:  "production_bom_output",
+			BomStatus:     "active",
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:614", Type: "material", TypeLabel: "物料", Name: "PR512 原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 100, AmountPerKg: 100, Unit: "kg"},
+		},
+		defaultTaxRate: PricingRuleTrialDefaultTaxRate{Rate: 0.13, Source: "finance_settings"},
+		pricingRules: map[int64]ProductPricingRule{
+			514: {
+				ID:           514,
+				Name:         "PR512 不计税",
+				MarginRate:   0,
+				TaxRate:      0.06,
+				RoundingMode: "none",
+				Active:       true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 514,
+		ProductID:     614,
+		QuoteUnit:     "kg",
+		Overrides: PricingRuleTrialOverrides{
+			TaxRate: floatPtr(0.2),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.TaxRateSource != "tax_disabled" || got.TaxAmount != 0 || got.FinalUnitPrice != 100 {
+		t.Fatalf("tax disabled = source %q amount %.2f final %.2f, want forced zero tax", got.TaxRateSource, got.TaxAmount, got.FinalUnitPrice)
+	}
+}
+
 func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
@@ -672,6 +822,76 @@ func TestPricingRuleTrialUsesSelectedOutputBomVersionAndOperationTemplate(t *tes
 	}
 	if len(got.BomVersionOptions) != 2 || !got.BomVersionOptions[1].IsDefault || len(got.OperationTemplateOptions) != 2 {
 		t.Fatalf("options missing = %+v / %+v", got.BomVersionOptions, got.OperationTemplateOptions)
+	}
+}
+
+func TestPricingRuleTrialUsesSelectedProcessRouteBeforeLegacyOperationTemplate(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:           615,
+			Name:                "PR512 工艺路线商品",
+			InventoryUnit:       "kg",
+			QuoteUnit:           "kg",
+			BomStatus:           "active",
+			BomVersionID:        7151,
+			BomVersionNo:        "V001",
+			BomUsageMode:        "production_bom_output",
+			ProcessRouteID:      21,
+			ProcessRouteName:    "默认烘焙路线",
+			OperationTemplateID: 7,
+		}},
+		productionOptions: PricingRuleTrialProductionOptions{
+			BomVersions: []PricingRuleTrialBomVersionOption{
+				{BomID: 615, BomCode: "BOM-000615", BomName: "PR512 工艺路线商品 生产 BOM", VersionID: 7151, VersionNo: "V001", Status: "published", IsDefault: true, ProcessRouteID: 21, ProcessRouteName: "默认烘焙路线"},
+			},
+			ProcessRoutes: []PricingRuleTrialProcessRouteOption{
+				{ID: 21, Name: "默认烘焙路线", IsDefault: true},
+				{ID: 42, Name: "手选包装路线", IsDefault: false},
+			},
+			OperationTemplates: []PricingRuleTrialOperationTemplateOption{
+				{ID: 7, Name: "旧工序模板", IsDefault: true},
+			},
+		},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:615", Type: "material", TypeLabel: "物料", Name: "路线原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 30, AmountPerKg: 30, Unit: "kg"},
+			{Key: "operation:42", Type: "operation", TypeLabel: "工艺路线", Name: "手选包装路线", ConsumeUnit: "process_route", UnitCost: 5, AmountPerKg: 5, Unit: "kg"},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			515: {
+				ID:           515,
+				Name:         "PR512 工艺路线试算",
+				MarginRate:   0.2,
+				RoundingMode: "none",
+				Active:       true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID:  515,
+		ProductID:      615,
+		ProcessRouteID: 42,
+		QuoteUnit:      "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if repo.lastDetailInput.ProcessRouteID != 42 || repo.lastDetailInput.OperationTemplateID != 0 {
+		t.Fatalf("detail input = %+v, want selected process route 42 and no legacy operation template", repo.lastDetailInput)
+	}
+	if got.ProcessRouteID != 42 || got.ProcessRouteName != "手选包装路线" || len(got.ProcessRouteOptions) != 2 {
+		t.Fatalf("selected process route missing in result: %+v", got)
+	}
+	if got.OperationTemplateID != 0 || len(got.OperationTemplateOptions) != 1 {
+		t.Fatalf("legacy operation template must remain compatibility-only: %+v", got)
+	}
+	if got.BaseCost != 35 || got.OperationCostTotal != 5 || got.FinalUnitPrice != 42 {
+		t.Fatalf("trial must include process route planned cost, got base %.2f op %.2f final %.2f", got.BaseCost, got.OperationCostTotal, got.FinalUnitPrice)
 	}
 }
 
@@ -1337,6 +1557,15 @@ func TestPricingRuleTrialValidatesRuleAndProduct(t *testing.T) {
 func pricingRuleTrialHasStep(steps []domain.PriceExplanationStep, key string) bool {
 	for _, step := range steps {
 		if step.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func pricingRuleTrialHasStepSource(steps []domain.PriceExplanationStep, key string, source string) bool {
+	for _, step := range steps {
+		if step.Key == key && step.Source == source {
 			return true
 		}
 	}
