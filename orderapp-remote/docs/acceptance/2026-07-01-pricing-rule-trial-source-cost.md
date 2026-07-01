@@ -18,7 +18,10 @@
 - `scripts/verify_kferp.sh changed`
 - `git diff --check`
 
-## Browser
-- 待部署后验收：打开 `商品价格管理 -> 价格试算`，未填写 `临时损耗率` 时确认 `损耗增加` 不显示；填写临时损耗率后确认卡片出现。
-- 待部署后验收：确认试算顶部显示 `取整规则`，税额卡片显示税率来源，`工艺路线` 下拉默认来自所选 BOM 版本。
-- 待部署后验收：进入 `生产管理 -> 工艺路线` 保存某道工序的 `计划工序成本`，回到价格试算后 `BOM+工序成本` 明细读取该成本。
+## Deployment Smoke
+- `./deploy_orderapp.sh` 在干净 `develop` checkout 中完成，Vue shell build、小程序 typecheck/build 和 Docker build 内 `go test ./...` 均通过。
+- 服务器容器 `erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` 运行正常，`erp_orderapp` 日志显示监听 `:8080`。
+- `GET /app/vue-shell?view=productPriceManagement` 和 `GET /app/vue-shell?view=processRoutes` 返回 `200`。
+- 认证后 `GET /app/api/product-settings?limit=1`、`GET /app/api/production-boms?status=all&limit=1`、`GET /app/api/product-pricing-rules` 返回 `200`。
+- 认证后空 id `POST /app/api/costing/pricing-rule-trial` 返回 `400`，确认路由和业务校验生效。
+- `req/product` 和 `req/dev` API 可见 `PR-512-PRICING-RULE-TRIAL-SOURCE-COST` 及三条 `DEV-512` 跟踪记录。
