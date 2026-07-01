@@ -33,13 +33,20 @@ func TestDev487ProductionPlanCapacitySplitContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue"): {
 			"路线工序",
 			"工序名称快照",
+			"工位产能",
+			"workstation_capacity_id",
+			"自动折算计划工序成本",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingOperationsView.vue"): {
 			"工序不决定工时",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingWorkstationsView.vue"): {
 			"工位产能",
-			"默认小时费率",
+			"机器成本/小时",
+			"人工成本/小时",
+			"其他成本/小时",
+			"小时成本合计",
+			"继承工位小时成本",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
 			"工序产能拆分",
@@ -70,9 +77,9 @@ func TestDev487ProductionPlanCapacitySplitContracts(t *testing.T) {
 		}
 	}
 	routeSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue")))
-	for _, forbidden := range []string{"工位产能", "standard_minutes", "hourly_rate"} {
+	for _, forbidden := range []string{"手工计划工序成本"} {
 		if strings.Contains(routeSource, forbidden) {
-			t.Fatalf("process route page must not own production plan capacity split field %q", forbidden)
+			t.Fatalf("process route page must not expose manual capacity cost field %q", forbidden)
 		}
 	}
 }
