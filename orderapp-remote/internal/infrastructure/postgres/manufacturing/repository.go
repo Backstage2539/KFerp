@@ -584,7 +584,7 @@ func (r Repository) attachProcessOperations(ctx context.Context, templates []man
 		FROM %s.process_template_operations
 		WHERE template_id = ANY($1)
 		ORDER BY template_id, seq, id
-	`, r.schema), ids)
+		`, r.schema), ids)
 	if err != nil {
 		return err
 	}
@@ -766,36 +766,54 @@ func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []m
 		index[row.ID] = i
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,route_id,seq,operation_id,workstation_id,
-		       COALESCE(workstation_capacity_id,0),
-		       operation,workstation,COALESCE(workstation_capacity_name,''),
-		       default_equipment,default_minutes,
-		       COALESCE(batch_size_qty,0)::float8,
-		       COALESCE(batch_size_unit,''),
-		       COALESCE(standard_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,
-		       COALESCE(planned_batch_count,0),
-		       COALESCE(planned_minutes,0),
-		       COALESCE(planned_operation_cost,0)::float8,
-		       records_loss,
-		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
-		FROM %s.process_route_operations
-		WHERE route_id = ANY($1)
-		ORDER BY route_id, seq, id
-	`, r.schema), ids)
+		SELECT pro.id,pro.route_id,pro.seq,pro.operation_id,pro.workstation_id,
+		       COALESCE(pro.workstation_capacity_id,0),
+		       pro.operation,pro.workstation,COALESCE(pro.workstation_capacity_name,''),
+		       pro.default_equipment,pro.default_minutes,
+		       COALESCE(pro.batch_size_qty,0)::float8,
+		       COALESCE(pro.batch_size_unit,''),
+		       COALESCE(pro.standard_minutes,0),
+		       COALESCE(pro.hourly_rate,0)::float8,
+		       COALESCE(pro.planned_batch_count,0),
+		       COALESCE(pro.planned_minutes,0),
+		       COALESCE(pro.planned_operation_cost,0)::float8,
+		       pro.records_loss,
+		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text,
+		       COALESCE(pro.standard_cost_capacity_id,0),
+		       COALESCE(NULLIF(sc.name,''), NULLIF(sc.code,''), ''),
+		       COALESCE(NULLIF(sw.name,''), NULLIF(sw.code,''), ''),
+		       COALESCE(sc.batch_size_qty,0)::float8,
+		       COALESCE(NULLIF(sc.batch_size_unit,''),''),
+		       COALESCE(sc.standard_minutes,0)::float8,
+		       COALESCE(NULLIF(sw.hourly_rate,0), NULLIF(sc.hourly_rate,0), 0)::float8
+		FROM %s.process_route_operations pro
+		LEFT JOIN %s.manufacturing_workstation_capacities sc ON sc.id=pro.standard_cost_capacity_id
+		LEFT JOIN %s.manufacturing_workstations sw ON sw.id=sc.workstation_id
+		WHERE pro.route_id = ANY($1)
+		ORDER BY pro.route_id, pro.seq, pro.id
+		`, r.schema, r.schema, r.schema), ids)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var op manufacturingapp.ProcessRouteOperation
+		var standardOutputQty float64
+		var standardOutputUnit string
+		var standardMinutes float64
+		var hourlyRate float64
 		if err := rows.Scan(
 			&op.ID, &op.RouteID, &op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
 			&op.RecordsLoss, &op.QualityChecklistJSON,
+			&op.StandardCostCapacityID, &op.StandardCostCapacityName, &op.StandardCostWorkstation,
+			&standardOutputQty, &standardOutputUnit, &standardMinutes, &hourlyRate,
 		); err != nil {
 			return err
+		}
+		if op.StandardCostCapacityID > 0 && standardOutputQty > 0 && standardMinutes > 0 {
+			op.StandardCostSummary = fmt.Sprintf("小时成本 × 标准分钟 / 60 / 标准产出 = %.4f × %.2f / 60 / %.4f%s", hourlyRate, standardMinutes, standardOutputQty, standardOutputUnit)
 		}
 		if i, ok := index[op.RouteID]; ok {
 			routes[i].Operations = append(routes[i].Operations, op)
@@ -834,22 +852,36 @@ func (r Repository) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.S
 			return manufacturingapp.ProcessRoute{}, err
 		}
 	}
+	oldStandardCostCapacityIDs := "{}"
+	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(jsonb_object_agg(seq, standard_cost_capacity_id ORDER BY seq), '{}'::jsonb)::text
+			FROM %s.process_route_operations
+			WHERE route_id=$1
+		`, r.schema), id).Scan(&oldStandardCostCapacityIDs); err != nil {
+			return manufacturingapp.ProcessRoute{}, err
+		}
+	}
+	newStandardCostCapacityIDs := map[string]int64{}
+	for _, op := range cmd.Operations {
+		newStandardCostCapacityIDs[fmt.Sprintf("%d", op.Seq)] = op.StandardCostCapacityID
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.process_route_operations WHERE route_id=$1`, r.schema), id); err != nil {
 		return manufacturingapp.ProcessRoute{}, err
 	}
 	for _, op := range cmd.Operations {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.process_route_operations(
-				route_id,seq,operation_id,workstation_id,workstation_capacity_id,operation,workstation,workstation_capacity_name,
+				route_id,seq,operation_id,workstation_id,workstation_capacity_id,standard_cost_capacity_id,operation,workstation,workstation_capacity_name,
 				default_equipment,default_minutes,batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,
 				planned_batch_count,planned_minutes,planned_operation_cost,records_loss,
 				quality_checklist_json,created_at,updated_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,now(),now())
-		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.WorkstationCapacityID, op.Operation, op.Workstation, op.WorkstationCapacityName, op.DefaultEquipment, op.DefaultMinutes, op.BatchSizeQty, op.BatchSizeUnit, op.StandardMinutes, op.HourlyRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb,now(),now())
+		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.WorkstationCapacityID, op.StandardCostCapacityID, op.Operation, op.Workstation, op.WorkstationCapacityName, op.DefaultEquipment, op.DefaultMinutes, op.BatchSizeQty, op.BatchSizeUnit, op.StandardMinutes, op.HourlyRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
 			return manufacturingapp.ProcessRoute{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "process_route", &id, action, postgresinfra.StrPtr("route"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"status": cmd.Status, "operation_count": len(cmd.Operations)}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "process_route", &id, action, postgresinfra.StrPtr("route"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"status": cmd.Status, "operation_count": len(cmd.Operations), "old_standard_cost_capacity_ids": oldStandardCostCapacityIDs, "new_standard_cost_capacity_ids": newStandardCostCapacityIDs}); err != nil {
 		return manufacturingapp.ProcessRoute{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

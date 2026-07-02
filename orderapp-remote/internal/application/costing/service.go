@@ -194,30 +194,32 @@ type PricingRuleTrialResult struct {
 }
 
 type PricingRuleTrialBaseCostDetail struct {
-	Key                string  `json:"key,omitempty"`
-	Type               string  `json:"type"`
-	TypeLabel          string  `json:"type_label"`
-	Name               string  `json:"name"`
-	ConsumeUnit        string  `json:"consume_unit,omitempty"`
-	Quantity           float64 `json:"quantity,omitempty"`
-	RatioPct           float64 `json:"ratio_pct,omitempty"`
-	RecipeRatioPct     float64 `json:"recipe_ratio_pct,omitempty"`
-	EffectiveRatioPct  float64 `json:"effective_ratio_pct,omitempty"`
-	MaterialLossRate   float64 `json:"material_loss_rate,omitempty"`
-	UnitCost           float64 `json:"unit_cost,omitempty"`
-	CostUnitCost       float64 `json:"cost_unit_cost,omitempty"`
-	CostUnit           string  `json:"cost_unit,omitempty"`
-	Amount             float64 `json:"amount"`
-	Unit               string  `json:"unit"`
-	Description        string  `json:"description,omitempty"`
-	WorkstationName    string  `json:"workstation_name,omitempty"`
-	CapacityName       string  `json:"capacity_name,omitempty"`
-	HourlyRate         float64 `json:"hourly_rate,omitempty"`
-	StandardMinutes    float64 `json:"standard_minutes,omitempty"`
-	StandardOutputQty  float64 `json:"standard_output_qty,omitempty"`
-	StandardOutputUnit string  `json:"standard_output_unit,omitempty"`
-	AmountPerKg        float64 `json:"-"`
-	AmountPerUnit      float64 `json:"-"`
+	Key                     string  `json:"key,omitempty"`
+	Type                    string  `json:"type"`
+	TypeLabel               string  `json:"type_label"`
+	Name                    string  `json:"name"`
+	ConsumeUnit             string  `json:"consume_unit,omitempty"`
+	Quantity                float64 `json:"quantity,omitempty"`
+	RatioPct                float64 `json:"ratio_pct,omitempty"`
+	RecipeRatioPct          float64 `json:"recipe_ratio_pct,omitempty"`
+	EffectiveRatioPct       float64 `json:"effective_ratio_pct,omitempty"`
+	MaterialLossRate        float64 `json:"material_loss_rate,omitempty"`
+	UnitCost                float64 `json:"unit_cost,omitempty"`
+	CostUnitCost            float64 `json:"cost_unit_cost,omitempty"`
+	CostUnit                string  `json:"cost_unit,omitempty"`
+	Amount                  float64 `json:"amount"`
+	Unit                    string  `json:"unit"`
+	Description             string  `json:"description,omitempty"`
+	WorkstationName         string  `json:"workstation_name,omitempty"`
+	CapacityName            string  `json:"capacity_name,omitempty"`
+	CapacitySelectionSource string  `json:"capacity_selection_source,omitempty"`
+	Warning                 string  `json:"warning,omitempty"`
+	HourlyRate              float64 `json:"hourly_rate,omitempty"`
+	StandardMinutes         float64 `json:"standard_minutes,omitempty"`
+	StandardOutputQty       float64 `json:"standard_output_qty,omitempty"`
+	StandardOutputUnit      string  `json:"standard_output_unit,omitempty"`
+	AmountPerKg             float64 `json:"-"`
+	AmountPerUnit           float64 `json:"-"`
 }
 
 type PricingRuleTrialOtherCostDetail struct {
@@ -950,6 +952,11 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		}
 	}
 	baseCostDetails, bomCostTotal, operationCostTotal := pricingRuleTrialNormalizeBaseCostDetails(input, quoteUnit, formulaMode, baseCost, cmd.Overrides.BaseCost != nil, rawBaseCostDetails)
+	for _, detail := range baseCostDetails {
+		if warning := strings.TrimSpace(detail.Warning); warning != "" {
+			warnings = appendUniqueString(warnings, warning)
+		}
+	}
 	if cmd.Overrides.BaseCost == nil {
 		if detailBaseCost := bomCostTotal + operationCostTotal; detailBaseCost > 0 {
 			baseCost = detailBaseCost
@@ -2629,6 +2636,9 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		if !hasNonEmptyObjectSnapshot(row["cost_source_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少成本来源快照：第%d行", position)
 		}
+		if beanListFlatPriceRowHasBlockingStandardCostWarning(row["cost_source_snapshot"]) {
+			return fmt.Errorf("价格表平铺行标准工序成本不完整：第%d行，请为工艺路线工序设置标准成本默认产能", position)
+		}
 		if _, exists := row["customer_reference_snapshot"]; !exists || !hasObjectSnapshot(row["customer_reference_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少客户引用展示快照：第%d行", position)
 		}
@@ -2637,6 +2647,66 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		}
 	}
 	return nil
+}
+
+func beanListFlatPriceRowHasBlockingStandardCostWarning(value any) bool {
+	snapshot, ok := objectSnapshotMap(value)
+	if !ok {
+		return false
+	}
+	if warnings, ok := snapshot["pricing_rule_trial_warnings"].([]any); ok {
+		for _, raw := range warnings {
+			if strings.Contains(stringValue(raw), "标准成本默认产能") {
+				return true
+			}
+		}
+	}
+	if warnings, ok := snapshot["warnings"].([]any); ok {
+		for _, raw := range warnings {
+			if strings.Contains(stringValue(raw), "标准成本默认产能") {
+				return true
+			}
+		}
+	}
+	if rows, ok := snapshot["pricing_rule_trial_base_cost_details"].([]any); ok {
+		for _, raw := range rows {
+			detail, ok := objectSnapshotMap(raw)
+			if !ok {
+				continue
+			}
+			source := strings.TrimSpace(stringValue(detail["capacity_selection_source"]))
+			if source == "missing_default" || source == "invalid_default" {
+				return true
+			}
+			if strings.Contains(stringValue(detail["warning"]), "标准成本默认产能") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func objectSnapshotMap(value any) (map[string]any, bool) {
+	switch v := value.(type) {
+	case map[string]any:
+		return v, true
+	case json.RawMessage:
+		return objectSnapshotMap(string(v))
+	case []byte:
+		return objectSnapshotMap(string(v))
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" || v == "{}" || v == "null" {
+			return nil, false
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(v), &decoded); err != nil {
+			return nil, false
+		}
+		return decoded, decoded != nil
+	default:
+		return nil, false
+	}
 }
 
 func normalizePriceRowPricingMode(row map[string]any) string {

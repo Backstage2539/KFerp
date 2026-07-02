@@ -393,6 +393,62 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialPromotesStandardCapacityWarnings(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:        549,
+			Name:             "PR516 试算商品",
+			InventoryUnit:    "kg",
+			QuoteUnit:        "kg",
+			BomVersionID:     3315,
+			BomVersionNo:     "BOM-v1",
+			BomStatus:        "active",
+			ProcessRouteID:   77,
+			ProcessRouteName: "标准烘焙",
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{{
+			Key:                     "operation:standard:1",
+			Type:                    "operation",
+			TypeLabel:               "标准工序",
+			Name:                    "烘焙",
+			ConsumeUnit:             "standard_operation",
+			CapacitySelectionSource: "missing_default",
+			Warning:                 "请为工艺路线工序设置标准成本默认产能",
+			Description:             "该工序匹配多个启用产能，未设置默认标准产能",
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			10: {
+				ID:             10,
+				Name:           "PR516 毛利",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0.2,
+				FormulaVersion: "v2",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 10,
+		ProductID:     549,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if !pricingRuleTrialWarningsContain(got.Warnings, "请为工艺路线工序设置标准成本默认产能") {
+		t.Fatalf("warnings = %+v, want standard capacity warning", got.Warnings)
+	}
+	if len(got.BaseCostDetails) != 1 || got.BaseCostDetails[0].CapacitySelectionSource != "missing_default" {
+		t.Fatalf("base cost detail warning/source not preserved: %+v", got.BaseCostDetails)
+	}
+}
+
 func TestPricingRuleTrialUsesFinanceTaxRateWhenPricingRuleTaxRateUnset(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
@@ -2361,6 +2417,45 @@ func TestPublishBeanListRequiresPR440PriceListSnapshotMetadata(t *testing.T) {
 
 	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.1.1", Content: content}); err != nil {
 		t.Fatalf("PublishBeanList() with PR-440 snapshot metadata error = %v", err)
+	}
+}
+
+func TestPublishBeanListRejectsMissingStandardCostDefaultCapacityWarning(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	row := map[string]any{
+		"product_id":                float64(414),
+		"product_name":              "曲奇拼配",
+		"tier_label":                "基础价",
+		"min_qty":                   float64(0),
+		"final_unit_price":          float64(88),
+		"price_unit":                "kg",
+		"currency":                  "CNY",
+		"inventory_unit":            "kg",
+		"inventory_conversion_json": map[string]any{"kg": map[string]any{"kg": float64(1)}},
+		"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "商品价格表分组"},
+		"group_source":              PriceListGroupSourceProductCatalog,
+		"pricing_mode":              "pricing_rule",
+		"pricing_mode_source":       "product",
+		"pricing_rule_id":           float64(90),
+		"pricing_rule_source":       "product",
+		"pricing_rule_version":      "PR-COST/v3",
+		"cost_source_snapshot": map[string]any{
+			"pricing_rule_trial_warnings": []any{"请为工艺路线工序设置标准成本默认产能"},
+			"pricing_rule_trial_base_cost_details": []any{
+				map[string]any{"type": "operation", "capacity_selection_source": "missing_default"},
+			},
+		},
+		"customer_reference_snapshot": map[string]any{},
+		"manual_adjusted":             false,
+	}
+	_, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.1.2",
+		Content:  map[string]any{"price_rows": []any{row}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "标准成本默认产能") {
+		t.Fatalf("PublishBeanList() error = %v, want standard cost default capacity block", err)
 	}
 }
 

@@ -98,11 +98,21 @@
                 <span>工序名称快照</span>
                 <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
               </label>
+              <label class="standard-capacity-select">
+                <span>标准成本默认产能</span>
+                <select v-model.number="op.standard_cost_capacity_id">
+                  <option :value="0">未设置</option>
+                  <option v-for="capacity in standardCostCapacityOptions(op)" :key="capacity.id" :value="Number(capacity.id || 0)">
+                    {{ standardCostCapacityOptionLabel(capacity) }}
+                  </option>
+                </select>
+              </label>
               <label class="checkbox operation-loss">
                 <input v-model="op.records_loss" type="checkbox" />
                 <span>记录损耗</span>
               </label>
             </div>
+            <p class="standard-capacity-summary">{{ standardCostCapacitySummary(op) }}</p>
             <div class="operation-quality">
               <label>
                 <span>质检项</span>
@@ -133,6 +143,7 @@ const error = ref('')
 const ok = ref('')
 const routes = ref([])
 const operations = ref([])
+const workstationCapacities = ref([])
 const filters = reactive({ status: '' })
 const form = reactive(blankRoute())
 
@@ -155,6 +166,7 @@ function blankOperation(seq) {
     seq,
     operation_id: 0,
     operation: '',
+    standard_cost_capacity_id: 0,
     records_loss: false,
     quality_checklist_json: '[]',
     quality_checklist_text: '',
@@ -218,6 +230,7 @@ function routePayload() {
         seq: Number(rest.seq || 0),
         operation_id: Number(rest.operation_id || 0),
         operation: rest.operation || '',
+        standard_cost_capacity_id: Number(rest.standard_cost_capacity_id || 0),
         records_loss: !!rest.records_loss,
         quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
       }
@@ -242,6 +255,7 @@ function normalizeRoute(row) {
       seq: Number(op.seq || index + 1),
       operation_id: Number(op.operation_id || 0),
       operation: op.operation || '',
+      standard_cost_capacity_id: Number(op.standard_cost_capacity_id || 0),
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
       quality_checklist_text: qualityChecklistTextFromJSON(op.quality_checklist_json || '[]'),
@@ -262,8 +276,12 @@ async function loadAll() {
 }
 
 async function loadManufacturingMasterData() {
-  const operationData = await apiGet('/api/manufacturing-operations')
+  const [operationData, capacityData] = await Promise.all([
+    apiGet('/api/manufacturing-operations'),
+    apiGet('/api/manufacturing-workstation-capacities'),
+  ])
   operations.value = operationData?.rows || []
+  workstationCapacities.value = capacityData?.rows || []
 }
 
 async function loadRoutes() {
@@ -299,6 +317,49 @@ function applyOperation(index, option) {
   if (!op || !option) return
   op.operation_id = Number(option.id || 0)
   op.operation = option.name || op.operation
+  if (!standardCostCapacityOptions(op).some((capacity) => Number(capacity.id || 0) === Number(op.standard_cost_capacity_id || 0))) {
+    op.standard_cost_capacity_id = 0
+  }
+}
+
+function standardCostCapacityOptions(op = {}) {
+  const operationID = Number(op.operation_id || 0)
+  if (!operationID) return []
+  return workstationCapacities.value.filter((capacity) => {
+    if (String(capacity.status || 'active') !== 'active') return false
+    const ids = Array.isArray(capacity.applicable_operation_ids) ? capacity.applicable_operation_ids.map((id) => Number(id || 0)) : []
+    return ids.includes(operationID)
+  })
+}
+
+function standardCostCapacityOptionLabel(capacity = {}) {
+  const parts = [capacity.name || capacity.code || '标准产能']
+  if (capacity.workstation) parts.push(capacity.workstation)
+  if (Number(capacity.batch_size_qty || 0) > 0) parts.push(`${Number(capacity.batch_size_qty || 0)}${capacity.batch_size_unit || ''}`)
+  if (Number(capacity.standard_minutes || 0) > 0) parts.push(`${Number(capacity.standard_minutes || 0)}分钟`)
+  return parts.join(' · ')
+}
+
+function selectedStandardCostCapacity(op = {}) {
+  const id = Number(op.standard_cost_capacity_id || 0)
+  if (!id) return null
+  return standardCostCapacityOptions(op).find((capacity) => Number(capacity.id || 0) === id) || null
+}
+
+function standardCostCapacitySummary(op = {}) {
+  const options = standardCostCapacityOptions(op)
+  const selected = selectedStandardCostCapacity(op)
+  if (selected) {
+    const hourlyRate = Number(selected.hourly_rate || 0)
+    const minutes = Number(selected.standard_minutes || 0)
+    const outputQty = Number(selected.batch_size_qty || 0)
+    const outputUnit = selected.batch_size_unit || ''
+    return `小时成本 × 标准分钟 / 60 / 标准产出 = ${hourlyRate.toFixed(2)} × ${minutes} / 60 / ${outputQty}${outputUnit}`
+  }
+  if (!Number(op.operation_id || 0)) return '先选择工序后再选择标准成本默认产能。'
+  if (options.length === 1) return `未设置；标准成本试算可按唯一匹配产能「${standardCostCapacityOptionLabel(options[0])}」折算。`
+  if (options.length > 1) return '未设置默认；价格试算会提示「请为工艺路线工序设置标准成本默认产能」。'
+  return '当前工序暂无启用适用产能；请先维护标准产能。'
 }
 
 async function mutate(action) {
@@ -385,7 +446,8 @@ tbody tr.active { background: #f3f7fb; }
 .operations-head { justify-content: space-between; margin-top: 14px; }
 .operation-list { display: grid; gap: 10px; }
 .operation-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; gap: 10px; }
-.operation-row-fields { display: grid; grid-template-columns: 72px minmax(150px, 1.1fr) minmax(160px, 1fr) 96px; gap: 8px; align-items: end; }
+.operation-row-fields { display: grid; grid-template-columns: 72px minmax(150px, 1.1fr) minmax(160px, 1fr) minmax(190px, 1.2fr) 96px; gap: 8px; align-items: end; }
+.standard-capacity-summary { margin: 0; color: #666; font-size: 12px; line-height: 1.5; }
 .operation-quality { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
 .operation-delete { justify-self: end; min-height: 38px; }
 .checkbox { display: flex; align-items: center; gap: 6px; min-height: 38px; }

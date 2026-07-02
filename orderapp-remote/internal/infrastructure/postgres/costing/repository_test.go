@@ -820,6 +820,45 @@ func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity(t *
 	}
 }
 
+func TestPricingRuleTrialDetailsUseExplicitStandardCostDefaultCapacity(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"pro.standard_cost_capacity_id",
+		"standard_cost_capacity_id",
+		"capacity_selection_source",
+		"route_default",
+		"unique_match",
+		"请为工艺路线工序设置标准成本默认产能",
+		"&row.CapacitySelectionSource",
+		"&row.Warning",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing trial details must use explicit standard cost default capacity; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"ROW_NUMBER() OVER (PARTITION BY ro.route_operation_id ORDER BY c.sort_order, c.id) AS rn",
+		"WHERE rn=1",
+	} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("pricing trial details must not silently choose the first capacity; found %q", forbidden)
+		}
+	}
+}
+
 func TestPricingRuleTrialRepositoryReadsFinanceDefaultTaxRate(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

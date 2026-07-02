@@ -121,26 +121,30 @@ type ProcessTemplate struct {
 }
 
 type ProcessRouteOperation struct {
-	ID                      int64   `json:"id"`
-	RouteID                 int64   `json:"route_id"`
-	Seq                     int     `json:"seq"`
-	OperationID             int64   `json:"operation_id"`
-	WorkstationID           int64   `json:"workstation_id"`
-	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
-	Operation               string  `json:"operation"`
-	Workstation             string  `json:"workstation"`
-	WorkstationCapacityName string  `json:"workstation_capacity_name"`
-	DefaultEquipment        string  `json:"default_equipment"`
-	DefaultMinutes          int     `json:"default_minutes"`
-	BatchSizeQty            float64 `json:"batch_size_qty"`
-	BatchSizeUnit           string  `json:"batch_size_unit"`
-	StandardMinutes         int     `json:"standard_minutes"`
-	HourlyRate              float64 `json:"hourly_rate"`
-	PlannedBatchCount       int     `json:"planned_batch_count"`
-	PlannedMinutes          int     `json:"planned_minutes"`
-	PlannedOperationCost    float64 `json:"planned_operation_cost"`
-	RecordsLoss             bool    `json:"records_loss"`
-	QualityChecklistJSON    string  `json:"quality_checklist_json"`
+	ID                       int64   `json:"id"`
+	RouteID                  int64   `json:"route_id"`
+	Seq                      int     `json:"seq"`
+	OperationID              int64   `json:"operation_id"`
+	WorkstationID            int64   `json:"workstation_id"`
+	WorkstationCapacityID    int64   `json:"workstation_capacity_id"`
+	StandardCostCapacityID   int64   `json:"standard_cost_capacity_id"`
+	Operation                string  `json:"operation"`
+	Workstation              string  `json:"workstation"`
+	WorkstationCapacityName  string  `json:"workstation_capacity_name"`
+	StandardCostCapacityName string  `json:"standard_cost_capacity_name,omitempty"`
+	StandardCostWorkstation  string  `json:"standard_cost_workstation,omitempty"`
+	StandardCostSummary      string  `json:"standard_cost_summary,omitempty"`
+	DefaultEquipment         string  `json:"default_equipment"`
+	DefaultMinutes           int     `json:"default_minutes"`
+	BatchSizeQty             float64 `json:"batch_size_qty"`
+	BatchSizeUnit            string  `json:"batch_size_unit"`
+	StandardMinutes          int     `json:"standard_minutes"`
+	HourlyRate               float64 `json:"hourly_rate"`
+	PlannedBatchCount        int     `json:"planned_batch_count"`
+	PlannedMinutes           int     `json:"planned_minutes"`
+	PlannedOperationCost     float64 `json:"planned_operation_cost"`
+	RecordsLoss              bool    `json:"records_loss"`
+	QualityChecklistJSON     string  `json:"quality_checklist_json"`
 }
 
 type ProcessRoute struct {
@@ -641,6 +645,9 @@ func (s *Service) SaveProcessRoute(ctx context.Context, cmd SaveProcessRouteComm
 		if err != nil {
 			return ProcessRoute{}, err
 		}
+		if err := s.validateProcessRouteStandardCostCapacity(ctx, op); err != nil {
+			return ProcessRoute{}, err
+		}
 		cmd.Operations[i] = op
 	}
 	return s.repo.SaveProcessRoute(ctx, cmd)
@@ -771,6 +778,9 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	if op.Operation == "" {
 		return op, fmt.Errorf("operation required")
 	}
+	if op.StandardCostCapacityID < 0 {
+		return op, fmt.Errorf("standard_cost_capacity_id must be >= 0")
+	}
 	qualityChecklistJSON, err := normalizeJSONArray(op.QualityChecklistJSON)
 	if err != nil {
 		return op, fmt.Errorf("quality_checklist_json must be a JSON array")
@@ -781,6 +791,9 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.Workstation = ""
 	op.WorkstationCapacityID = 0
 	op.WorkstationCapacityName = ""
+	op.StandardCostCapacityName = ""
+	op.StandardCostWorkstation = ""
+	op.StandardCostSummary = ""
 	op.BatchSizeQty = 0
 	op.BatchSizeUnit = ""
 	op.StandardMinutes = 0
@@ -790,6 +803,31 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.PlannedOperationCost = 0
 	op.QualityChecklistJSON = qualityChecklistJSON
 	return op, nil
+}
+
+func (s *Service) validateProcessRouteStandardCostCapacity(ctx context.Context, op ProcessRouteOperation) error {
+	if op.StandardCostCapacityID <= 0 {
+		return nil
+	}
+	if op.OperationID <= 0 {
+		return fmt.Errorf("标准成本默认产能需要先选择工序")
+	}
+	rows, err := s.repo.ListManufacturingWorkstationCapacities(ctx, WorkstationCapacityQuery{Status: "active"})
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.ID != op.StandardCostCapacityID {
+			continue
+		}
+		for _, operationID := range row.ApplicableOperationIDs {
+			if operationID == op.OperationID {
+				return nil
+			}
+		}
+		return fmt.Errorf("标准成本默认产能不适用于该工序")
+	}
+	return fmt.Errorf("标准成本默认产能不存在或已停用")
 }
 
 func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op ProcessRouteOperation) (ProcessRouteOperation, error) {

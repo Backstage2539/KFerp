@@ -1212,6 +1212,7 @@
                       <tr>
                         <th>类型</th>
                         <th>名称</th>
+                        <th>产能来源</th>
                         <th>计费口径</th>
                         <th>成本率</th>
                         <th>金额</th>
@@ -1223,13 +1224,15 @@
                         <td>
                           <span>{{ row.name || '-' }}</span>
                           <small v-if="row.description">{{ row.description }}</small>
+                          <small v-if="row.warning" class="warning-text">{{ row.warning }}</small>
                         </td>
+                        <td>{{ pricingRuleTrialCapacitySourceLabel(row) }}</td>
                         <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
                         <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
                         <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
                       </tr>
                       <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'operation').length">
-                        <td colspan="5" class="muted">暂无工序成本明细。</td>
+                        <td colspan="6" class="muted">暂无工序成本明细。</td>
                       </tr>
                     </tbody>
                   </table>
@@ -3853,6 +3856,10 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     temporary_post_markup_costs: '本次临时录入',
     pricing_rule_other_costs: '价格计算模板',
     pricing_rule_post_markup_costs: '价格计算模板',
+    route_default: '标准成本默认产能',
+    unique_match: '唯一匹配产能',
+    missing_default: '请为工艺路线工序设置标准成本默认产能',
+    invalid_default: '标准成本默认产能不可用',
     override: '本次临时录入',
     product_bom: '当前商品 BOM',
     product_expected_loss: '当前商品损耗率',
@@ -3869,6 +3876,12 @@ function pricingRuleTrialBaseCostRows(result = {}, kind = 'material') {
   if (kind === 'all') return rows
   if (kind === 'operation') return rows.filter((row) => String(row?.type || '') === 'operation')
   return rows.filter((row) => String(row?.type || '') !== 'operation')
+}
+
+function pricingRuleTrialCapacitySourceLabel(row = {}) {
+  const source = String(row?.capacity_selection_source || '').trim()
+  if (!source) return '-'
+  return pricingRuleTrialSourceDisplay(source)
 }
 
 function pricingRuleTrialOtherCostRows(result = {}) {
@@ -7727,6 +7740,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-metrics .final { border-color: #b8d0f0; background: #f2f7ff; }
 .pricing-rule-trial-warnings { border: 1px solid #f1c27d; border-radius: 8px; background: #fff8ec; padding: 10px; color: #7a4a08; }
 .pricing-rule-trial-warnings ul { margin: 6px 0 0; padding-left: 18px; }
+.warning-text { color: #9a3412; }
 .pricing-rule-trial-formula { border: 1px solid #d7e3d5; border-radius: 8px; background: #f7fbf6; padding: 10px 12px; color: #2f4631; display: grid; gap: 8px; }
 .pricing-rule-trial-formula strong { color: #213d25; }
 .pricing-rule-trial-formula-main { margin: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }

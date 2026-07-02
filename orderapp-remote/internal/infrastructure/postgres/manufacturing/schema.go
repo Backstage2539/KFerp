@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.process_template_operations (
 	operation TEXT NOT NULL DEFAULT '',
 	workstation TEXT NOT NULL DEFAULT '',
 	workstation_capacity_id BIGINT NOT NULL DEFAULT 0,
+	standard_cost_capacity_id BIGINT NOT NULL DEFAULT 0,
 	workstation_capacity_name TEXT NOT NULL DEFAULT '',
 	default_equipment TEXT NOT NULL DEFAULT '',
 	default_minutes INT NOT NULL DEFAULT 0,
@@ -215,6 +216,7 @@ CREATE INDEX IF NOT EXISTS process_route_operations_route_idx
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS operation_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS standard_cost_capacity_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_unit TEXT NOT NULL DEFAULT '';

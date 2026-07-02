@@ -80,7 +80,7 @@ func TestDev487ProductionPlanCapacitySplitContracts(t *testing.T) {
 		}
 	}
 	routeSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue")))
-	for _, forbidden := range []string{"工位产能", "workstation_capacity_id", "standard_minutes", "hourly_rate", "自动折算计划工序成本"} {
+	for _, forbidden := range []string{"工位产能", "workstation_capacity_id", "planned_operation_cost", "自动折算计划工序成本"} {
 		if strings.Contains(routeSource, forbidden) {
 			t.Fatalf("process route page must not own production plan capacity split field %q", forbidden)
 		}

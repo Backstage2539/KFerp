@@ -90,7 +90,6 @@ func TestDev471ManufacturingPhase1CompletionContracts(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"/api/manufacturing-workstation-capacities",
 		"workstation_capacity_id",
 		"workstation_id",
 		"自动折算计划工序成本",

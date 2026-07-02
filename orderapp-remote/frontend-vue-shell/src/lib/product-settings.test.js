@@ -835,6 +835,18 @@ test('price table pricing-rule preview row uses the live trial result', () => {
     operation_template_id: 9,
     operation_template_name: '标准烘焙',
     base_cost: 42.3,
+    warnings: ['请为工艺路线工序设置标准成本默认产能'],
+    base_cost_details: [{
+      key: 'operation:standard:19',
+      type: 'operation',
+      name: '烘焙',
+      capacity_name: '布勒 18kg',
+      workstation_name: '烘焙机',
+      capacity_selection_source: 'missing_default',
+      warning: '请为工艺路线工序设置标准成本默认产能',
+      amount: 0,
+      unit: 'kg',
+    }],
   })
 
   assert.equal(got.product_name, '熟豆-红岩拼配')
@@ -846,6 +858,8 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.process_route_name, '标准烘焙路线')
   assert.equal(got.cost_source_snapshot.operation_template_name, '标准烘焙')
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_final_unit_price, 68.5)
+  assert.deepEqual(got.cost_source_snapshot.pricing_rule_trial_warnings, ['请为工艺路线工序设置标准成本默认产能'])
+  assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'missing_default')
 })
 
 test('price table pricing-rule preview payload falls back to numeric product key', () => {
@@ -1004,6 +1018,10 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'pricingRuleTrialTaxSourceLabel',
     'pricingRuleTrialHasRoundingAdjustment(pricingRuleTrialResult)',
     'base_cost_details',
+    'capacity_selection_source',
+    '标准成本默认产能',
+    '唯一匹配产能',
+    '请为工艺路线工序设置标准成本默认产能',
     'tax_in_price_amount',
     'pricing-rule-trial-waterfall',
     'pricing-rule-trial-operator',

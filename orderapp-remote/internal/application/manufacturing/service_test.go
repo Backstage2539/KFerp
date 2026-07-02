@@ -373,6 +373,53 @@ func TestSaveProcessRouteClearsWorkstationCapacityCostFields(t *testing.T) {
 	}
 }
 
+func TestSaveProcessRouteKeepsStandardCostDefaultCapacity(t *testing.T) {
+	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
+		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
+		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15,
+		ApplicableOperationIDs: []int64{7},
+	}}}
+	svc := NewService(repo)
+	route, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "标准烘焙路线",
+		Operations: []ProcessRouteOperation{{
+			OperationID:            7,
+			Operation:              "烘焙",
+			StandardCostCapacityID: 9,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveProcessRoute: %v", err)
+	}
+	op := route.Operations[0]
+	if op.StandardCostCapacityID != 9 {
+		t.Fatalf("standard cost capacity id = %d, want 9", op.StandardCostCapacityID)
+	}
+	if repo.savedRoute.Operations[0].WorkstationCapacityID != 0 {
+		t.Fatalf("standard cost default must not restore actual workstation capacity fields: %+v", repo.savedRoute.Operations[0])
+	}
+}
+
+func TestSaveProcessRouteRejectsInvalidStandardCostDefaultCapacity(t *testing.T) {
+	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
+		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
+		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15,
+		ApplicableOperationIDs: []int64{8},
+	}}}
+	svc := NewService(repo)
+	_, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "标准烘焙路线",
+		Operations: []ProcessRouteOperation{{
+			OperationID:            7,
+			Operation:              "烘焙",
+			StandardCostCapacityID: 9,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "标准成本默认产能") {
+		t.Fatalf("expected standard cost capacity validation error, got %v", err)
+	}
+}
+
 func TestSaveProcessRouteIgnoresPlannedOperationCostInput(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

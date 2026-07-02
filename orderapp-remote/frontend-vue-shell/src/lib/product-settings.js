@@ -710,6 +710,21 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
   const inventoryUnit = String(trial.inventory_unit ?? trial.inventoryUnit ?? row.inventory_unit ?? row.inventoryUnit ?? priceUnit).trim() || priceUnit
   const conversion = priceTableInventoryConversion(row.inventory_conversion_json ?? row.inventoryConversionJSON, priceUnit, inventoryUnit)
   const sourceSnapshot = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
+  const trialWarnings = Array.isArray(trial.warnings) ? trial.warnings.map((item) => String(item || '').trim()).filter(Boolean) : []
+  const trialBaseCostDetails = Array.isArray(trial.base_cost_details ?? trial.baseCostDetails)
+    ? (trial.base_cost_details ?? trial.baseCostDetails)
+        .filter((detail) => String(detail?.type || '') === 'operation')
+        .map((detail) => ({
+          key: String(detail?.key || '').trim(),
+          name: String(detail?.name || '').trim(),
+          capacity_name: String(detail?.capacity_name ?? detail?.capacityName ?? '').trim(),
+          workstation_name: String(detail?.workstation_name ?? detail?.workstationName ?? '').trim(),
+          capacity_selection_source: String(detail?.capacity_selection_source ?? detail?.capacitySelectionSource ?? '').trim(),
+          warning: String(detail?.warning || '').trim(),
+          amount: Number(detail?.amount || 0) || 0,
+          unit: String(detail?.unit || '').trim(),
+        }))
+    : []
   const manualFinal = row.manual_adjusted === true && normalizePositiveNumber(row.final_unit_price ?? row.finalUnitPrice) > 0
     ? normalizePositiveNumber(row.final_unit_price ?? row.finalUnitPrice)
     : trialPrice
@@ -731,6 +746,8 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
       pricing_rule_trial_final_unit_price: trialPrice,
       pricing_rule_trial_quote_unit: priceUnit,
       pricing_rule_trial_base_cost: Number(trial.base_cost ?? trial.baseCost ?? 0) || 0,
+      pricing_rule_trial_warnings: trialWarnings,
+      pricing_rule_trial_base_cost_details: trialBaseCostDetails,
     },
   }
 }

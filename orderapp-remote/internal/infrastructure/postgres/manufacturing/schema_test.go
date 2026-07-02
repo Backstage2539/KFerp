@@ -37,6 +37,8 @@ func TestManufacturingSchemaCreatesProcessRoutesWithoutProductParameters(t *test
 		"CREATE TABLE IF NOT EXISTS %[1]s.process_route_operations",
 		"records_loss BOOLEAN NOT NULL DEFAULT false",
 		"quality_checklist_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"standard_cost_capacity_id BIGINT NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS standard_cost_capacity_id",
 		"process_route_operations_route_seq_uq",
 	} {
 		if !strings.Contains(text, want) {
