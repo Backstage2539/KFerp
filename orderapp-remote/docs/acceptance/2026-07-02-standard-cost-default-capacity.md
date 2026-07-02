@@ -19,3 +19,13 @@
 - `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js`
 - `npm run build`
 - `scripts/verify_kferp.sh changed`
+
+## Deployment Smoke
+
+- Development deployed from `origin/develop=0bc7579d53d6b8e4a5f1e378ea118bda6eeaf7fb`.
+- Backup: `/opt/stacks/erp/orderapp.backup.deploy-20260702123634`.
+- Docker build gate ran `go test ./...` inside the orderapp image and passed.
+- Containers running: `erp_orderapp`, `erp_postgres`, `erp_caddy`, `erp_docconvert`.
+- `GET /app/` returned `303`; authenticated `GET /app/vue-shell?view=processRoutes` and `GET /app/vue-shell?view=productPriceManagement` returned `200`.
+- Requirement APIs expose `PR-516-STANDARD-COST-DEFAULT-CAPACITY` and `DEV-516-ROUTE-STANDARD-CAPACITY`.
+- Deployed source contains `standard_cost_capacity_id` and `请为工艺路线工序设置标准成本默认产能`.

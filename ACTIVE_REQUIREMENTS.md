@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-516-STANDARD-COST-DEFAULT-CAPACITY
 - Branch: codex/standard-cost-default-capacity-20260702
 - Owner/session: Codex / 2026-07-02
-- Status: verified, pending merge/deploy.
+- Status: merged to develop and deployed to development.
 - Scope: 工艺路线工序显式选择 `标准成本默认产能`，只用于标准制造成本和价格试算；生产计划/工单仍在执行阶段选择真实工位产能和批次。多条启用适用产能未设置默认时，价格试算返回警告，价格表发布拦截不确定成本。
 - DEV:
   - DEV-516-ROUTE-STANDARD-CAPACITY：`process_route_operations.standard_cost_capacity_id` 持久化、读取和审计；工艺路线保存校验默认产能存在、启用且适用于当前工序。
@@ -20,7 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN Unit/API: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
   - GREEN Frontend/build: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js` passed; first `npm run build` failed because fresh worktree lacked `vite`, then `npm ci` succeeded and `npm run build` passed with the existing large-chunk warning.
   - GREEN Review/acceptance: `scripts/verify_kferp.sh changed` and `git diff --check` passed; docs updated in root and `orderapp-remote/docs`, including production/costing manuals and `docs/acceptance/2026-07-02-standard-cost-default-capacity.md`.
-- Deployment: pending.
+- Deployment: development deployed from `origin/develop=0bc7579d53d6b8e4a5f1e378ea118bda6eeaf7fb`; server backup `/opt/stacks/erp/orderapp.backup.deploy-20260702123634`; smoke passed: containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/` returned `303`; authenticated `GET /app/vue-shell?view=processRoutes` and `GET /app/vue-shell?view=productPriceManagement` returned `200`; `/app/api/req/product?limit=800` exposed `PR-516-STANDARD-COST-DEFAULT-CAPACITY`; `/app/api/req/dev?limit=1000` exposed `DEV-516-ROUTE-STANDARD-CAPACITY`; deployed source contains `standard_cost_capacity_id` and `请为工艺路线工序设置标准成本默认产能`.
 - Last update: 2026-07-02 Asia/Shanghai
 - Notes: 该字段是标准成本模板配置，不代表生产计划实际选择；旧数据不自动回填，只有唯一匹配产能时才允许试算兜底。
 
