@@ -393,7 +393,7 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	}
 }
 
-func TestPricingRuleTrialPromotesStandardCapacityWarnings(t *testing.T) {
+func TestPricingRuleTrialUsesOperationMasterStandardCost(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
 			ProductID:        549,
@@ -411,10 +411,14 @@ func TestPricingRuleTrialPromotesStandardCapacityWarnings(t *testing.T) {
 			Type:                    "operation",
 			TypeLabel:               "标准工序",
 			Name:                    "烘焙",
-			ConsumeUnit:             "standard_operation",
-			CapacitySelectionSource: "missing_default",
-			Warning:                 "请为工艺路线工序设置标准成本默认产能",
-			Description:             "该工序匹配多个启用产能，未设置默认标准产能",
+			ConsumeUnit:             "per_inventory_unit",
+			Unit:                    "kg",
+			CostUnit:                "kg",
+			UnitCost:                8.5,
+			CostUnitCost:            8.5,
+			AmountPerUnit:           8.5,
+			CapacitySelectionSource: "operation_master",
+			Description:             "标准工序成本来自工序列表：8.5000/kg",
 		}},
 		pricingRules: map[int64]ProductPricingRule{
 			10: {
@@ -441,11 +445,14 @@ func TestPricingRuleTrialPromotesStandardCapacityWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PricingRuleTrial() error = %v", err)
 	}
-	if !pricingRuleTrialWarningsContain(got.Warnings, "请为工艺路线工序设置标准成本默认产能") {
-		t.Fatalf("warnings = %+v, want standard capacity warning", got.Warnings)
+	if pricingRuleTrialWarningsContain(got.Warnings, "标准成本默认产能") {
+		t.Fatalf("warnings = %+v, should not mention retired route default capacity", got.Warnings)
 	}
-	if len(got.BaseCostDetails) != 1 || got.BaseCostDetails[0].CapacitySelectionSource != "missing_default" {
-		t.Fatalf("base cost detail warning/source not preserved: %+v", got.BaseCostDetails)
+	if len(got.BaseCostDetails) != 1 || got.BaseCostDetails[0].CapacitySelectionSource != "operation_master" {
+		t.Fatalf("base cost detail source not preserved: %+v", got.BaseCostDetails)
+	}
+	if got.OperationUnitCost != 8.5 {
+		t.Fatalf("operation unit cost = %.2f, want 8.5", got.OperationUnitCost)
 	}
 }
 
@@ -2420,7 +2427,7 @@ func TestPublishBeanListRequiresPR440PriceListSnapshotMetadata(t *testing.T) {
 	}
 }
 
-func TestPublishBeanListRejectsMissingStandardCostDefaultCapacityWarning(t *testing.T) {
+func TestPublishBeanListDoesNotBlockRetiredStandardCostDefaultCapacityWarning(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	row := map[string]any{
@@ -2454,8 +2461,8 @@ func TestPublishBeanListRejectsMissingStandardCostDefaultCapacityWarning(t *test
 		Version:  "V4.1.2",
 		Content:  map[string]any{"price_rows": []any{row}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "标准成本默认产能") {
-		t.Fatalf("PublishBeanList() error = %v, want standard cost default capacity block", err)
+	if err != nil {
+		t.Fatalf("PublishBeanList() error = %v, should not block retired standard cost default capacity warning", err)
 	}
 }
 

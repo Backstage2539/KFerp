@@ -780,127 +780,14 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 
 	if input.ProcessRouteID > 0 {
 		opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-			WITH route_operations AS (
-				SELECT pro.id AS route_operation_id,
-				       COALESCE(NULLIF(pro.operation_id,0),0) AS operation_id,
-				       COALESCE(NULLIF(pro.standard_cost_capacity_id,0),0) AS standard_cost_capacity_id,
-				       COALESCE(NULLIF(pro.operation,''), NULLIF(o.name,''), '工序') AS operation_name,
-				       COALESCE(pro.seq,0) AS seq
-				FROM %[1]s.process_route_operations pro
-				LEFT JOIN %[1]s.manufacturing_operations o ON o.id=pro.operation_id
-				WHERE pro.route_id=$1
-			),
-			capacity_candidates AS (
-				SELECT ro.route_operation_id,
-				       ro.operation_id,
-				       ro.standard_cost_capacity_id,
-				       ro.operation_name,
-				       ro.seq,
-				       c.id AS capacity_id,
-				       COALESCE(NULLIF(c.name,''), NULLIF(c.code,''), '标准产能') AS capacity_name,
-				       COALESCE(NULLIF(w.name,''), NULLIF(w.code,''), '工位') AS workstation_name,
-				       COALESCE(c.batch_size_qty,0)::float8 AS batch_size_qty,
-				       COALESCE(NULLIF(c.batch_size_unit,''),'') AS batch_size_unit,
-				       COALESCE(c.standard_minutes,0)::float8 AS standard_minutes,
-				       COALESCE(NULLIF(w.hourly_rate,0), NULLIF(c.hourly_rate,0), 0)::float8 AS hourly_rate,
-				       COUNT(*) OVER (PARTITION BY ro.route_operation_id) AS active_capacity_count
-				FROM route_operations ro
-				JOIN %[1]s.manufacturing_workstation_capacity_operations co ON co.operation_id=ro.operation_id
-				JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=co.capacity_id
-				JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id
-				WHERE ro.operation_id > 0
-				  AND COALESCE(c.status,'active')='active'
-				  AND COALESCE(w.status,'active')='active'
-				  AND COALESCE(c.batch_size_qty,0) > 0
-				  AND COALESCE(c.standard_minutes,0) > 0
-			),
-			selected_standard_capacity AS (
-				SELECT cc.*,
-				       CASE
-				         WHEN cc.standard_cost_capacity_id > 0 THEN 'route_default'
-				         ELSE 'unique_match'
-				       END AS capacity_selection_source
-				FROM capacity_candidates cc
-				WHERE (cc.standard_cost_capacity_id > 0 AND cc.capacity_id=cc.standard_cost_capacity_id)
-				   OR (cc.standard_cost_capacity_id = 0 AND cc.active_capacity_count = 1)
-			),
-			missing_standard_capacity AS (
-				SELECT ro.route_operation_id,
-				       ro.operation_id,
-				       ro.standard_cost_capacity_id,
-				       ro.operation_name,
-				       ro.seq,
-				       COALESCE(cc.active_capacity_count,0) AS active_capacity_count
-				FROM route_operations ro
-				LEFT JOIN (
-					SELECT route_operation_id, COUNT(*) AS active_capacity_count
-					FROM capacity_candidates
-					GROUP BY route_operation_id
-				) cc ON cc.route_operation_id=ro.route_operation_id
-				LEFT JOIN selected_standard_capacity selected ON selected.route_operation_id=ro.route_operation_id
-				WHERE ro.operation_id > 0
-				  AND selected.route_operation_id IS NULL
-				  AND (COALESCE(cc.active_capacity_count,0) > 1 OR ro.standard_cost_capacity_id > 0)
-			)
-			SELECT route_operation_id,
-			       operation_name,
-			       workstation_name,
-			       capacity_name,
-			       batch_size_qty,
-			       batch_size_unit,
-			       standard_minutes,
-			       hourly_rate,
-			       amount_per_kg,
-			       amount_per_unit,
-			       capacity_selection_source,
-			       warning
-			FROM (
-				SELECT seq,
-				       route_operation_id,
-				       operation_name,
-				       workstation_name,
-				       capacity_name,
-				       batch_size_qty,
-				       batch_size_unit,
-				       standard_minutes,
-				       hourly_rate,
-				       CASE
-				         WHEN lower(batch_size_unit) IN ('kg','公斤','千克')
-				         THEN hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0)
-				         WHEN lower(batch_size_unit) IN ('g','克')
-				         THEN hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0) * 1000.0
-				         WHEN lower(batch_size_unit) IN ('lb','lbs','磅')
-				         THEN hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0) / 0.45359237
-				         ELSE 0
-				       END::float8 AS amount_per_kg,
-				       CASE
-				         WHEN lower(batch_size_unit) IN ('kg','公斤','千克','g','克','lb','lbs','磅')
-				         THEN 0
-				         ELSE hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty,0)
-				       END::float8 AS amount_per_unit,
-				       capacity_selection_source,
-				       '' AS warning
-				FROM selected_standard_capacity
-				UNION ALL
-				SELECT seq,
-				       route_operation_id,
-				       operation_name,
-				       '' AS workstation_name,
-				       '' AS capacity_name,
-				       0::float8 AS batch_size_qty,
-				       '' AS batch_size_unit,
-				       0::float8 AS standard_minutes,
-				       0::float8 AS hourly_rate,
-				       0::float8 AS amount_per_kg,
-				       0::float8 AS amount_per_unit,
-				       CASE WHEN standard_cost_capacity_id > 0 THEN 'invalid_default' ELSE 'missing_default' END AS capacity_selection_source,
-				       CASE
-				         WHEN standard_cost_capacity_id > 0 THEN '标准成本默认产能不存在、停用或不适用于该工序'
-				         ELSE '请为工艺路线工序设置标准成本默认产能'
-				       END AS warning
-				FROM missing_standard_capacity
-			) standard_cost_rows
-			ORDER BY seq, route_operation_id
+			SELECT pro.id,
+			       COALESCE(NULLIF(pro.operation,''), NULLIF(o.name,''), '工序') AS operation_name,
+			       COALESCE(o.standard_operation_cost,0)::float8 AS standard_operation_cost
+			FROM %[1]s.process_route_operations pro
+			LEFT JOIN %[1]s.manufacturing_operations o ON o.id=pro.operation_id
+			WHERE pro.route_id=$1
+			  AND COALESCE(o.standard_operation_cost,0) > 0
+			ORDER BY pro.seq, pro.id
 		`, r.schema), input.ProcessRouteID)
 		if err != nil {
 			return nil, err
@@ -909,34 +796,24 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		for opRows.Next() {
 			var row appcosting.PricingRuleTrialBaseCostDetail
 			var id int64
-			if err := opRows.Scan(&id, &row.Name, &row.WorkstationName, &row.CapacityName, &row.StandardOutputQty, &row.StandardOutputUnit, &row.StandardMinutes, &row.HourlyRate, &row.AmountPerKg, &row.AmountPerUnit, &row.CapacitySelectionSource, &row.Warning); err != nil {
+			if err := opRows.Scan(&id, &row.Name, &row.UnitCost); err != nil {
 				return nil, err
+			}
+			unit := strings.TrimSpace(input.InventoryUnit)
+			if unit == "" {
+				unit = "kg"
 			}
 			row.Key = fmt.Sprintf("operation:standard:%d", id)
 			row.Type = "operation"
 			row.TypeLabel = "标准工序"
-			row.ConsumeUnit = "standard_operation"
-			row.Quantity = row.StandardMinutes
-			row.Unit = strings.TrimSpace(row.StandardOutputUnit)
-			row.CostUnit = strings.TrimSpace(row.StandardOutputUnit)
-			if row.AmountPerKg > 0 {
-				row.Unit = "kg"
-				row.CostUnit = "kg"
-				row.UnitCost = row.AmountPerKg
-				row.CostUnitCost = row.AmountPerKg
-			} else {
-				row.UnitCost = row.AmountPerUnit
-				row.CostUnitCost = row.AmountPerUnit
-			}
-			sourceLabel := "标准成本默认产能"
-			if strings.TrimSpace(row.CapacitySelectionSource) == "unique_match" {
-				sourceLabel = "唯一匹配产能"
-			}
-			if strings.TrimSpace(row.Warning) != "" {
-				row.Description = row.Warning
-			} else {
-				row.Description = fmt.Sprintf("标准工序成本：%s / %s（%s），工位小时成本 %.4f/小时，标准 %.2f 分钟，标准产出 %.4f%s", row.WorkstationName, row.CapacityName, sourceLabel, row.HourlyRate, row.StandardMinutes, row.StandardOutputQty, row.StandardOutputUnit)
-			}
+			row.ConsumeUnit = "per_inventory_unit"
+			row.Quantity = 1
+			row.Unit = unit
+			row.CostUnit = unit
+			row.CostUnitCost = row.UnitCost
+			row.AmountPerUnit = row.UnitCost
+			row.CapacitySelectionSource = "operation_master"
+			row.Description = fmt.Sprintf("标准工序成本来自工序列表：%.4f/%s", row.UnitCost, unit)
 			out = append(out, row)
 		}
 		if err := opRows.Err(); err != nil {

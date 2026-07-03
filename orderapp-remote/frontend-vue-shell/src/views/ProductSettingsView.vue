@@ -1055,7 +1055,7 @@
                 <button class="secondary compact-action" type="button" @click="closePricingRuleTrialExplanation">关闭</button>
               </div>
               <template v-if="pricingRuleTrialActiveExplanation === 'base_cost'">
-                <p>标准制造成本来自当前试算商品、BOM版本和工艺路线；BOM物料成本已包含原料损耗，标准工序成本按工位小时成本、标准分钟和标准产出折算到当前试算单位。</p>
+                <p>标准制造成本来自当前试算商品、BOM版本和工艺路线；BOM物料成本已包含原料损耗，标准工序成本来自工序列表维护的元/库存单位成本，并按当前试算单位换算。</p>
                 <div class="table-wrap compact-table-wrap">
                   <table>
                     <thead>
@@ -1212,7 +1212,7 @@
                       <tr>
                         <th>类型</th>
                         <th>名称</th>
-                        <th>产能来源</th>
+                        <th>成本来源</th>
                         <th>计费口径</th>
                         <th>成本率</th>
                         <th>金额</th>
@@ -3856,10 +3856,7 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     temporary_post_markup_costs: '本次临时录入',
     pricing_rule_other_costs: '价格计算模板',
     pricing_rule_post_markup_costs: '价格计算模板',
-    route_default: '标准成本默认产能',
-    unique_match: '唯一匹配产能',
-    missing_default: '请为工艺路线工序设置标准成本默认产能',
-    invalid_default: '标准成本默认产能不可用',
+    operation_master: '工序列表',
     override: '本次临时录入',
     product_bom: '当前商品 BOM',
     product_expected_loss: '当前商品损耗率',

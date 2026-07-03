@@ -53,6 +53,17 @@
             </select>
           </label>
         </div>
+        <div class="wide operation-checks">
+          <span>适用工序</span>
+          <div v-if="activeOperations.length" class="operation-check-grid">
+            <label v-for="operation in activeOperations" :key="operation.id" class="operation-checkbox">
+              <input v-model="form.applicable_operation_ids" type="checkbox" :value="Number(operation.id)" />
+              <span>{{ operation.name }}</span>
+            </label>
+          </div>
+          <div v-else class="muted inline-muted">暂无启用工序</div>
+          <small>生产计划自动拆分会按这里筛选该工位下的产能；工位产能本身不再维护适用工序。</small>
+        </div>
         <label class="wide"><span>备注</span><textarea v-model.trim="form.note" rows="3"></textarea></label>
         <div class="footer-actions">
           <button class="primary" type="button" @click="saveWorkstation" :disabled="loading">保存工位/设备</button>
@@ -66,7 +77,7 @@
           <div v-if="!form.id" class="muted inline-muted">先选择或保存工位/设备</div>
           <table v-else class="capacity-table">
             <thead>
-              <tr><th>工位产能</th><th>批量</th><th>适用工序</th><th>标准分钟/批</th><th>继承小时成本</th><th>状态</th></tr>
+              <tr><th>工位产能</th><th>批量</th><th>标准分钟/批</th><th>继承小时成本</th><th>状态</th></tr>
             </thead>
             <tbody>
               <tr v-for="row in capacitiesForSelectedWorkstation" :key="row.id" :class="{ active: row.id === capacityForm.id }" @click="editCapacity(row)">
@@ -75,10 +86,6 @@
                   <small>{{ row.code || '无编码' }}</small>
                 </td>
                 <td>{{ Number(row.batch_size_qty || 0) }} {{ row.batch_size_unit || '' }}</td>
-                <td>
-                  <span>{{ applicableOperationsLabel(row) }}</span>
-                  <small v-if="!hasApplicableOperations(row)">未配置适用工序</small>
-                </td>
                 <td>{{ row.standard_minutes || 0 }}</td>
                 <td>{{ Number(row.hourly_rate || 0).toFixed(2) }}</td>
                 <td>
@@ -86,7 +93,7 @@
                   <button class="text danger" type="button" :disabled="row.status === 'inactive'" @click.stop="deactivateCapacity(row)">停用</button>
                 </td>
               </tr>
-              <tr v-if="!capacitiesForSelectedWorkstation.length"><td colspan="6" class="muted">暂无工位产能</td></tr>
+              <tr v-if="!capacitiesForSelectedWorkstation.length"><td colspan="5" class="muted">暂无工位产能</td></tr>
             </tbody>
           </table>
 
@@ -97,17 +104,6 @@
             <label><span>单位</span><input v-model.trim="capacityForm.batch_size_unit" placeholder="kg / g / 件" /></label>
             <label><span>标准分钟/批</span><input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" /></label>
             <label><span>继承工位小时成本</span><input :value="workstationHourlyRate.toFixed(2)" type="text" readonly /></label>
-            <div class="wide operation-checks">
-              <span>适用工序</span>
-              <div v-if="activeOperations.length" class="operation-check-grid">
-                <label v-for="operation in activeOperations" :key="operation.id" class="operation-checkbox">
-                  <input v-model="capacityForm.applicable_operation_ids" type="checkbox" :value="Number(operation.id)" />
-                  <span>{{ operation.name }}</span>
-                </label>
-              </div>
-              <div v-else class="muted inline-muted">暂无启用工序</div>
-              <small>未配置适用工序的产能可手工选择，但不会参与自动拆分。</small>
-            </div>
             <label>
               <span>状态</span>
               <select v-model="capacityForm.status">
@@ -145,7 +141,7 @@ const activeOperations = computed(() => operations.value.filter((row) => String(
 const workstationHourlyRate = computed(() => Number((Number(form.machine_hourly_cost || 0) + Number(form.labor_hourly_cost || 0) + Number(form.overhead_hourly_cost || 0)).toFixed(2)))
 
 function blankWorkstation() {
-  return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, machine_hourly_cost: 0, labor_hourly_cost: 0, overhead_hourly_cost: 0, hourly_rate: 0, note: '' }
+  return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, machine_hourly_cost: 0, labor_hourly_cost: 0, overhead_hourly_cost: 0, hourly_rate: 0, applicable_operation_ids: [], note: '' }
 }
 
 function blankCapacity() {
@@ -160,39 +156,23 @@ function blankCapacity() {
     standard_minutes: 0,
     production_capacity: 1,
     sort_order: 0,
-    applicable_operation_ids: [],
     note: '',
   }
 }
 
 function resetForm(next = blankWorkstation()) {
-  Object.assign(form, next)
-}
-
-function resetCapacity(next = blankCapacity()) {
-  Object.assign(capacityForm, {
+  Object.assign(form, {
     ...next,
     applicable_operation_ids: Array.isArray(next.applicable_operation_ids) ? next.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0) : [],
   })
 }
 
+function resetCapacity(next = blankCapacity()) {
+  Object.assign(capacityForm, next)
+}
+
 function statusLabel(status) {
   return status === 'inactive' ? '停用' : '启用'
-}
-
-function hasApplicableOperations(row) {
-  return Array.isArray(row?.applicable_operation_ids) && row.applicable_operation_ids.length > 0
-}
-
-function applicableOperationsLabel(row) {
-  if (Array.isArray(row?.applicable_operations) && row.applicable_operations.length) {
-    return row.applicable_operations.map((item) => item.name).filter(Boolean).join('、')
-  }
-  const ids = Array.isArray(row?.applicable_operation_ids) ? row.applicable_operation_ids.map((id) => Number(id || 0)) : []
-  const names = ids
-    .map((id) => operations.value.find((item) => Number(item.id || 0) === id)?.name || '')
-    .filter(Boolean)
-  return names.length ? names.join('、') : '未配置适用工序'
 }
 
 async function loadWorkstations() {
@@ -232,6 +212,7 @@ function editWorkstation(row) {
     labor_hourly_cost: Number(row.labor_hourly_cost || 0),
     overhead_hourly_cost: Number(row.overhead_hourly_cost || 0),
     hourly_rate: Number(row.hourly_rate || 0),
+    applicable_operation_ids: Array.isArray(row.applicable_operation_ids) ? row.applicable_operation_ids : [],
     note: row.note || '',
   })
   resetCapacity({ ...blankCapacity(), workstation_id: Number(row.id || 0) })
@@ -253,7 +234,6 @@ function editCapacity(row) {
     standard_minutes: Number(row.standard_minutes || 0),
     production_capacity: Number(row.production_capacity || 1),
     sort_order: Number(row.sort_order || 0),
-    applicable_operation_ids: Array.isArray(row.applicable_operation_ids) ? row.applicable_operation_ids : [],
   })
 }
 
@@ -284,6 +264,7 @@ async function saveWorkstation() {
         labor_hourly_cost: Number(form.labor_hourly_cost || 0),
         overhead_hourly_cost: Number(form.overhead_hourly_cost || 0),
         hourly_rate: workstationHourlyRate.value,
+        applicable_operation_ids: form.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0),
       },
     })
     editWorkstation(saved)
@@ -319,7 +300,6 @@ async function saveCapacity() {
         hourly_rate: 0,
         production_capacity: Number(capacityForm.production_capacity || 1),
         sort_order: Number(capacityForm.sort_order || 0),
-        applicable_operation_ids: capacityForm.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0),
       },
     })
     editCapacity(saved)

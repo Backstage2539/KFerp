@@ -84,7 +84,7 @@ func TestDev494CapacityOperationAutoSplitContracts(t *testing.T) {
 	}
 	for _, marker := range []string{
 		"适用工序",
-		"未配置适用工序",
+		"工位产能本身不再维护适用工序",
 		"/api/manufacturing-operations",
 	} {
 		if !strings.Contains(contents["workstationsView"], marker) {

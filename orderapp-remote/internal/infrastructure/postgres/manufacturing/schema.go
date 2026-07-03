@@ -45,10 +45,12 @@ CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operations (
 	name TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'active',
 	default_minutes INT NOT NULL DEFAULT 0,
+	standard_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
 	note TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.manufacturing_operations ADD COLUMN IF NOT EXISTS standard_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_operations_code_uq
 	ON %[1]s.manufacturing_operations(code)
 	WHERE code <> '';
@@ -77,6 +79,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstations_code_uq
 	WHERE code <> '';
 CREATE INDEX IF NOT EXISTS manufacturing_workstations_status_idx
 	ON %[1]s.manufacturing_workstations(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_operations (
+	workstation_id BIGINT NOT NULL,
+	operation_id BIGINT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(workstation_id, operation_id)
+);
+CREATE INDEX IF NOT EXISTS manufacturing_workstation_operations_workstation_idx
+	ON %[1]s.manufacturing_workstation_operations(workstation_id);
+CREATE INDEX IF NOT EXISTS manufacturing_workstation_operations_operation_idx
+	ON %[1]s.manufacturing_workstation_operations(operation_id);
 
 CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_capacities (
 	id BIGSERIAL PRIMARY KEY,
@@ -110,6 +123,12 @@ CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacity_operations_capacit
 	ON %[1]s.manufacturing_workstation_capacity_operations(capacity_id);
 CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacity_operations_operation_idx
 	ON %[1]s.manufacturing_workstation_capacity_operations(operation_id);
+INSERT INTO %[1]s.manufacturing_workstation_operations(workstation_id, operation_id, created_at)
+SELECT DISTINCT c.workstation_id, co.operation_id, now()
+FROM %[1]s.manufacturing_workstation_capacity_operations co
+JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=co.capacity_id
+WHERE c.workstation_id > 0 AND co.operation_id > 0
+ON CONFLICT (workstation_id, operation_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS %[1]s.process_templates (
 	id BIGSERIAL PRIMARY KEY,
