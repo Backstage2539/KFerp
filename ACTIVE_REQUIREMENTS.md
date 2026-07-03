@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-518-MULTI-CAPACITY-OPERATION-COST
 - Branch: codex/multi-capacity-operation-cost-20260703
 - Owner/session: Codex / 2026-07-03
-- Status: verified locally, pending merge/deploy.
+- Status: merged to develop and deployed to development; smoke verified.
 - Scope: 一个工序可以有多个候选工序单位成本，但价格/BOM 成本不能自动猜；工位产能档作为候选成本能力，工艺路线工序显式选择 `标准成本产能档`，发布 BOM 版本时冻结工序成本快照，商品价格管理和商品价格表读取 BOM 冻结快照。
 - DEV:
   - DEV-518-WORKSTATION-CAPACITY-CANDIDATE-COST：工位产能档展示候选单位成本，仍只作为候选成本能力。
@@ -28,8 +28,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN full touched backend/support: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
   - GREEN frontend/build: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js` passed with 157 tests; first `npm run build` failed because fresh worktree lacked `vite`, then `npm ci` succeeded and `npm run build` passed with existing large-chunk warning.
   - GREEN review: `scripts/verify_kferp.sh changed` and `git diff --check` passed.
-- Deployment: pending.
-- Last update: 2026-07-03 Asia/Shanghai
+- Deployment: merged/pushed to `origin/develop=47b4075dda3ac9971d07cd731d63af9d860bb1db`; deployment script completed on development stack with backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260703223502`; smoke verified `erp_orderapp` running, unauthenticated `/app/` GET 303, authenticated `/app/vue-shell?view=processTemplates` GET 200, `/api/req/product` exposes `PR-518-MULTI-CAPACITY-OPERATION-COST`, `/api/req/dev` exposes `DEV-518-*`, and server source contains `production_bom_version_operation_costs` / `standard_cost_capacity_id`.
+- Last update: 2026-07-03 Asia/Shanghai postdeploy
 
 ### PR-517-OPERATION-STANDARD-COST-MASTER
 - Branch: codex/operation-cost-master-20260702
