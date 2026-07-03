@@ -98,11 +98,24 @@
                 <span>工序名称快照</span>
                 <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
               </label>
+              <label class="operation-capacity">
+                <span>标准成本产能档</span>
+                <SearchableSelect
+                  v-model="op.standard_cost_capacity_id"
+                  :options="standardCostCapacityOptions(op)"
+                  :option-label="standardCostCapacityLabel"
+                  :option-meta="standardCostCapacityMeta"
+                  :option-value="optionNumericValue"
+                  placeholder="选择标准成本产能档"
+                  empty-text="当前工序暂无可用产能档"
+                  @select="applyStandardCostCapacity(index, $event)" />
+              </label>
               <label class="checkbox operation-loss">
                 <input v-model="op.records_loss" type="checkbox" />
                 <span>记录损耗</span>
               </label>
             </div>
+            <p class="standard-capacity-summary">{{ standardCostCapacitySummary(op) }}</p>
             <div class="operation-quality">
               <label>
                 <span>质检项</span>
@@ -133,10 +146,12 @@ const error = ref('')
 const ok = ref('')
 const routes = ref([])
 const operations = ref([])
+const workstationCapacities = ref([])
 const filters = reactive({ status: '' })
 const form = reactive(blankRoute())
 
 const activeOperations = computed(() => operations.value.filter((row) => row.status === 'active'))
+const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => row.status === 'active'))
 
 function blankRoute() {
   return {
@@ -155,6 +170,14 @@ function blankOperation(seq) {
     seq,
     operation_id: 0,
     operation: '',
+    standard_cost_capacity_id: 0,
+    standard_cost_capacity_name: '',
+    standard_cost_workstation: '',
+    standard_cost_summary: '',
+    batch_size_qty: 0,
+    batch_size_unit: '',
+    standard_minutes: 0,
+    hourly_rate: 0,
     records_loss: false,
     quality_checklist_json: '[]',
     quality_checklist_text: '',
@@ -173,6 +196,49 @@ function operationMeta(option) {
   const parts = []
   if (option?.code) parts.push(option.code)
   return parts.join(' / ')
+}
+
+function standardCostCapacityOptions(op) {
+  const operationId = Number(op?.operation_id || 0)
+  if (!operationId) return []
+  return activeWorkstationCapacities.value.filter((row) => {
+    const ids = Array.isArray(row.applicable_operation_ids) ? row.applicable_operation_ids.map((id) => Number(id || 0)) : []
+    return ids.includes(operationId)
+  })
+}
+
+function standardCostCapacityLabel(option) {
+  const workstation = String(option?.workstation || '').trim()
+  const name = String(option?.name || '').trim()
+  return [workstation, name].filter(Boolean).join(' · ') || name || ''
+}
+
+function standardCostCapacityUnitCost(option) {
+  const qty = Number(option?.batch_size_qty || 0)
+  const minutes = Number(option?.standard_minutes || 0)
+  const hourly = Number(option?.hourly_rate || 0)
+  if (qty <= 0 || minutes <= 0 || hourly <= 0) return 0
+  return (hourly * minutes / 60) / qty
+}
+
+function formatCostNumber(value) {
+  const num = Number(value || 0)
+  if (!Number.isFinite(num)) return '0'
+  return Number(num.toFixed(4)).toString()
+}
+
+function standardCostCapacityMeta(option) {
+  const unit = String(option?.batch_size_unit || 'unit').trim() || 'unit'
+  const cost = standardCostCapacityUnitCost(option)
+  return `小时费率 ${formatCostNumber(option?.hourly_rate)} × 标准分钟 ${formatCostNumber(option?.standard_minutes)} / 60 / 标准批量 ${formatCostNumber(option?.batch_size_qty)}${unit} = ${formatCostNumber(cost)}/${unit}`
+}
+
+function standardCostCapacitySummary(op) {
+  if (!Number(op?.operation_id || 0)) return '先选择工序，再选择该工序适用的标准成本产能档。'
+  if (!Number(op?.standard_cost_capacity_id || 0)) return '发布前必须选择标准成本产能档；该设置只用于 BOM/价格标准成本，不代表生产计划实际排产。'
+  if (op.standard_cost_summary) return op.standard_cost_summary
+  const option = activeWorkstationCapacities.value.find((row) => Number(row.id || 0) === Number(op.standard_cost_capacity_id || 0))
+  return option ? standardCostCapacityMeta(option) : '已选择的产能档当前不可用，请重新选择。'
 }
 
 function statusLabel(status) {
@@ -218,6 +284,7 @@ function routePayload() {
         seq: Number(rest.seq || 0),
         operation_id: Number(rest.operation_id || 0),
         operation: rest.operation || '',
+        standard_cost_capacity_id: Number(rest.standard_cost_capacity_id || 0),
         records_loss: !!rest.records_loss,
         quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
       }
@@ -242,6 +309,14 @@ function normalizeRoute(row) {
       seq: Number(op.seq || index + 1),
       operation_id: Number(op.operation_id || 0),
       operation: op.operation || '',
+      standard_cost_capacity_id: Number(op.standard_cost_capacity_id || 0),
+      standard_cost_capacity_name: op.standard_cost_capacity_name || '',
+      standard_cost_workstation: op.standard_cost_workstation || '',
+      standard_cost_summary: op.standard_cost_summary || '',
+      batch_size_qty: Number(op.batch_size_qty || 0),
+      batch_size_unit: op.batch_size_unit || '',
+      standard_minutes: Number(op.standard_minutes || 0),
+      hourly_rate: Number(op.hourly_rate || 0),
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
       quality_checklist_text: qualityChecklistTextFromJSON(op.quality_checklist_json || '[]'),
@@ -262,8 +337,12 @@ async function loadAll() {
 }
 
 async function loadManufacturingMasterData() {
-  const operationData = await apiGet('/api/manufacturing-operations')
+  const [operationData, capacityData] = await Promise.all([
+    apiGet('/api/manufacturing-operations'),
+    apiGet('/api/manufacturing-workstation-capacities?status=active'),
+  ])
   operations.value = operationData?.rows || []
+  workstationCapacities.value = capacityData?.rows || []
 }
 
 async function loadRoutes() {
@@ -299,6 +378,29 @@ function applyOperation(index, option) {
   if (!op || !option) return
   op.operation_id = Number(option.id || 0)
   op.operation = option.name || op.operation
+  op.standard_cost_capacity_id = 0
+  op.standard_cost_capacity_name = ''
+  op.standard_cost_workstation = ''
+  op.standard_cost_summary = ''
+  op.batch_size_qty = 0
+  op.batch_size_unit = ''
+  op.standard_minutes = 0
+  op.hourly_rate = 0
+}
+
+function applyStandardCostCapacity(index, option) {
+  const op = form.operations[index]
+  if (!op || !option) return
+  const unit = String(option.batch_size_unit || 'unit').trim() || 'unit'
+  const cost = standardCostCapacityUnitCost(option)
+  op.standard_cost_capacity_id = Number(option.id || 0)
+  op.standard_cost_capacity_name = option.name || ''
+  op.standard_cost_workstation = option.workstation || ''
+  op.batch_size_qty = Number(option.batch_size_qty || 0)
+  op.batch_size_unit = unit
+  op.standard_minutes = Number(option.standard_minutes || 0)
+  op.hourly_rate = Number(option.hourly_rate || 0)
+  op.standard_cost_summary = `${standardCostCapacityLabel(option)}：${standardCostCapacityMeta(option)}`
 }
 
 async function mutate(action) {

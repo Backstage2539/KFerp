@@ -774,7 +774,6 @@ func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *test
 	}
 	for _, forbidden := range []string{
 		"planned_operation_cost",
-		"workstation_capacity_id",
 		"工艺路线计划工序成本",
 		"process_route:%d",
 	} {
@@ -784,7 +783,7 @@ func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *test
 	}
 }
 
-func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromOperationMaster(t *testing.T) {
+func TestPricingRuleTrialDetailsReadBomOperationCostSnapshots(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -800,23 +799,29 @@ func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromOperationMaster(t
 	}
 	fn := src[fnStart : fnStart+fnEnd]
 	for _, want := range []string{
-		"process_route_operations",
-		"manufacturing_operations",
-		"standard_operation_cost",
-		"operation_master",
+		"production_bom_version_operation_costs",
+		"workstation_capacity_id",
+		"operation_unit_cost",
+		"bom_operation_snapshot",
 		"per_inventory_unit",
 		"标准工序成本",
 	} {
 		if !strings.Contains(fn, want) {
-			t.Fatalf("pricing trial details must derive standard operation cost from operation master; missing %q", want)
+			t.Fatalf("pricing trial details must read frozen BOM operation cost snapshots; missing %q", want)
 		}
 	}
-	if strings.Contains(fn, "if input.ProcessRouteID > 0 {\n\t\treturn out, nil\n\t}") {
-		t.Fatalf("selected process route must add standard operation costs instead of returning material rows only")
+	for _, forbidden := range []string{
+		"standard_operation_cost",
+		"operation_master",
+		"标准工序成本来自工序列表",
+	} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("pricing trial details must not read operation master standard cost; found %q", forbidden)
+		}
 	}
 }
 
-func TestPricingRuleTrialDetailsDoNotUseRouteStandardCostDefaultCapacity(t *testing.T) {
+func TestPricingRuleTrialDetailsWarnWhenBomOperationCostSnapshotMissing(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -831,19 +836,13 @@ func TestPricingRuleTrialDetailsDoNotUseRouteStandardCostDefaultCapacity(t *test
 		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
 	}
 	fn := src[fnStart : fnStart+fnEnd]
-	for _, forbidden := range []string{
-		"pro.standard_cost_capacity_id",
-		"manufacturing_workstation_capacity_operations",
-		"capacity_selection_source",
-		"route_default",
-		"unique_match",
-		"missing_default",
-		"请为工艺路线工序设置标准成本默认产能",
-		"ROW_NUMBER() OVER (PARTITION BY ro.route_operation_id ORDER BY c.sort_order, c.id) AS rn",
-		"WHERE rn=1",
+	for _, want := range []string{
+		"bom_operation_snapshot_missing",
+		"请先发布包含标准成本产能档快照的 BOM",
+		`CapacitySelectionSource: "bom_operation_snapshot_missing"`,
 	} {
-		if strings.Contains(fn, forbidden) {
-			t.Fatalf("pricing trial details must not use route standard cost capacity selection; found %q", forbidden)
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing trial details must warn on missing BOM operation cost snapshots; missing %q", want)
 		}
 	}
 }

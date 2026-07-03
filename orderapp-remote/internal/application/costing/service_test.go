@@ -2466,6 +2466,53 @@ func TestPublishBeanListDoesNotBlockRetiredStandardCostDefaultCapacityWarning(t 
 	}
 }
 
+func TestPublishBeanListBlocksMissingBomOperationCostSnapshot(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	row := map[string]any{
+		"product_id":                float64(414),
+		"product_name":              "曲奇拼配",
+		"tier_label":                "基础价",
+		"min_qty":                   float64(0),
+		"final_unit_price":          float64(88),
+		"price_unit":                "kg",
+		"currency":                  "CNY",
+		"inventory_unit":            "kg",
+		"inventory_conversion_json": map[string]any{"kg": map[string]any{"kg": float64(1)}},
+		"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "商品价格表分组"},
+		"group_source":              PriceListGroupSourceProductCatalog,
+		"pricing_mode":              "pricing_rule",
+		"pricing_mode_source":       "product",
+		"pricing_rule_id":           float64(90),
+		"pricing_rule_source":       "product",
+		"pricing_rule_version":      "PR-COST/v3",
+		"cost_source_snapshot": map[string]any{
+			"pricing_rule_trial_warnings": []any{"请先发布包含标准成本产能档快照的 BOM"},
+			"pricing_rule_trial_base_cost_details": []any{
+				map[string]any{
+					"type":                      "operation",
+					"name":                      "BOM工序成本快照缺失",
+					"capacity_selection_source": "bom_operation_snapshot_missing",
+				},
+			},
+		},
+		"customer_reference_snapshot": map[string]any{},
+		"manual_adjusted":             false,
+	}
+
+	_, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.1.3",
+		Content:  map[string]any{"price_rows": []any{row}},
+	})
+	if err == nil {
+		t.Fatalf("expected publish to reject rows with missing BOM operation cost snapshot")
+	}
+	if !strings.Contains(err.Error(), "请先发布包含标准成本产能档快照的 BOM") {
+		t.Fatalf("publish error = %q, want BOM operation snapshot guidance", err.Error())
+	}
+}
+
 func TestPublishBeanListAcceptsPricingRuleAndFixedPriceModes(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

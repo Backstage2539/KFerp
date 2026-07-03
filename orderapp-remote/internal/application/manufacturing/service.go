@@ -654,6 +654,13 @@ func (s *Service) SaveProcessRoute(ctx context.Context, cmd SaveProcessRouteComm
 		if err != nil {
 			return ProcessRoute{}, err
 		}
+		op, err = s.applyStandardCostCapacitySnapshot(ctx, op)
+		if err != nil {
+			return ProcessRoute{}, err
+		}
+		if cmd.Status == "active" && op.StandardCostCapacityID <= 0 {
+			return ProcessRoute{}, fmt.Errorf("standard_cost_capacity_id required for active route operation %s", op.Operation)
+		}
 		cmd.Operations[i] = op
 	}
 	return s.repo.SaveProcessRoute(ctx, cmd)
@@ -794,7 +801,9 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.Workstation = ""
 	op.WorkstationCapacityID = 0
 	op.WorkstationCapacityName = ""
-	op.StandardCostCapacityID = 0
+	if op.StandardCostCapacityID < 0 {
+		op.StandardCostCapacityID = 0
+	}
 	op.StandardCostCapacityName = ""
 	op.StandardCostWorkstation = ""
 	op.StandardCostSummary = ""
@@ -807,6 +816,41 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.PlannedOperationCost = 0
 	op.QualityChecklistJSON = qualityChecklistJSON
 	return op, nil
+}
+
+func (s *Service) applyStandardCostCapacitySnapshot(ctx context.Context, op ProcessRouteOperation) (ProcessRouteOperation, error) {
+	if op.StandardCostCapacityID <= 0 {
+		return op, nil
+	}
+	if op.OperationID <= 0 {
+		return op, fmt.Errorf("standard_cost_capacity_id requires operation_id")
+	}
+	rows, err := s.repo.ListManufacturingWorkstationCapacities(ctx, WorkstationCapacityQuery{Status: "active"})
+	if err != nil {
+		return op, err
+	}
+	for _, row := range rows {
+		if row.ID != op.StandardCostCapacityID {
+			continue
+		}
+		if !containsInt64(row.ApplicableOperationIDs, op.OperationID) {
+			return op, fmt.Errorf("standard_cost_capacity_id %d is not applicable to operation %d", row.ID, op.OperationID)
+		}
+		op.StandardCostCapacityName = row.Name
+		op.StandardCostWorkstation = row.Workstation
+		op.BatchSizeQty = row.BatchSizeQty
+		op.BatchSizeUnit = row.BatchSizeUnit
+		op.StandardMinutes = row.StandardMinutes
+		op.HourlyRate = row.HourlyRate
+		op.PlannedBatchCount = 1
+		op.PlannedMinutes = row.StandardMinutes
+		if row.BatchSizeQty > 0 && row.StandardMinutes > 0 && row.HourlyRate > 0 {
+			op.PlannedOperationCost = roundMoney((float64(row.StandardMinutes) / 60 * row.HourlyRate) / row.BatchSizeQty)
+			op.StandardCostSummary = fmt.Sprintf("%s：%.4f × %d / 60 / %.4f%s = %.4f/%s", row.Name, row.HourlyRate, row.StandardMinutes, row.BatchSizeQty, row.BatchSizeUnit, op.PlannedOperationCost, row.BatchSizeUnit)
+		}
+		return op, nil
+	}
+	return op, fmt.Errorf("standard_cost_capacity_id %d not found", op.StandardCostCapacityID)
 }
 
 func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op ProcessRouteOperation) (ProcessRouteOperation, error) {
@@ -843,6 +887,15 @@ func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op Proce
 		return op, nil
 	}
 	return op, fmt.Errorf("workstation capacity does not belong to workstation")
+}
+
+func containsInt64(values []int64, want int64) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func validateOperationCostSnapshot(batchSizeQty float64, standardMinutes int, hourlyRate float64, plannedBatchCount int, plannedMinutes int, plannedOperationCost float64) error {

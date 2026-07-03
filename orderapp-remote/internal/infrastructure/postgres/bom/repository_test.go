@@ -307,6 +307,31 @@ func TestProductionBomVersionsOwnRouteAndSinglePublishedVersion(t *testing.T) {
 	}
 }
 
+func TestProductionBomVersionOperationCostSnapshots(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"production_bom_version_operation_costs",
+		"workstation_capacity_id",
+		"hourly_rate_snapshot",
+		"standard_minutes_snapshot",
+		"batch_size_qty_snapshot",
+		"operation_unit_cost",
+		"operation_cost_unit",
+		"refreshProductionBomVersionOperationCostSnapshotsTx",
+		"standard_cost_capacity_id",
+		"工艺路线工序缺少标准成本产能档",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM operation cost snapshot implementation missing marker %q", want)
+		}
+	}
+}
+
 func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

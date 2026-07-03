@@ -339,6 +339,27 @@ WHERE v.id=loss.version_id
 CREATE INDEX IF NOT EXISTS production_bom_version_items_version_idx
 	ON %[1]s.production_bom_version_items(version_id, id);
 
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_operation_costs (
+	id BIGSERIAL PRIMARY KEY,
+	version_id BIGINT NOT NULL,
+	operation_id BIGINT NOT NULL DEFAULT 0,
+	operation_name TEXT NOT NULL DEFAULT '',
+	workstation_id BIGINT NOT NULL DEFAULT 0,
+	workstation_name TEXT NOT NULL DEFAULT '',
+	workstation_capacity_id BIGINT NOT NULL DEFAULT 0,
+	capacity_name TEXT NOT NULL DEFAULT '',
+	hourly_rate_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0,
+	standard_minutes_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0,
+	batch_size_qty_snapshot NUMERIC(14,6) NOT NULL DEFAULT 0,
+	batch_size_unit_snapshot TEXT NOT NULL DEFAULT '',
+	operation_unit_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
+	operation_cost_unit TEXT NOT NULL DEFAULT '',
+	sort_order INT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS production_bom_version_operation_costs_version_idx
+	ON %[1]s.production_bom_version_operation_costs(version_id, sort_order, id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings (
 	product_id BIGINT PRIMARY KEY,
 	bom_id BIGINT NOT NULL,

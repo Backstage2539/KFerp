@@ -837,13 +837,13 @@ test('price table pricing-rule preview row uses the live trial result', () => {
     base_cost: 42.3,
     warnings: [],
     base_cost_details: [{
-      key: 'operation:standard:19',
+      key: 'operation:bom_snapshot:19',
       type: 'operation',
       name: '烘焙',
       type_label: '标准工序',
       consume_unit: 'per_inventory_unit',
-      capacity_selection_source: 'operation_master',
-      description: '标准工序成本来自工序列表：8.5000/kg',
+      capacity_selection_source: 'bom_operation_snapshot',
+      description: '标准工序成本来自 BOM 工序成本快照：布勒 · 20kg档 · 8.5000/kg',
       amount: 8.5,
       unit_cost: 8.5,
       unit: 'kg',
@@ -860,7 +860,7 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.operation_template_name, '标准烘焙')
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_final_unit_price, 68.5)
   assert.deepEqual(got.cost_source_snapshot.pricing_rule_trial_warnings, [])
-  assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'operation_master')
+  assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'bom_operation_snapshot')
 })
 
 test('price table pricing-rule preview payload falls back to numeric product key', () => {
@@ -1021,8 +1021,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'base_cost_details',
     'capacity_selection_source',
     '成本来源',
-    '工序列表',
-    '标准工序成本来自工序列表',
+    'BOM工序成本快照',
+    '标准工序成本来自发布 BOM 冻结的工序成本快照',
     'tax_in_price_amount',
     'pricing-rule-trial-waterfall',
     'pricing-rule-trial-operator',

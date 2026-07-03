@@ -408,10 +408,10 @@ func TestSaveProcessRouteClearsWorkstationCapacityCostFields(t *testing.T) {
 	}
 }
 
-func TestSaveProcessRouteClearsStandardCostDefaultCapacity(t *testing.T) {
+func TestSaveProcessRouteKeepsStandardCostCapacityAndSnapshotsCandidate(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
-		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15,
+		BatchSizeQty: 20, BatchSizeUnit: "kg", StandardMinutes: 60, HourlyRate: 100,
 		ApplicableOperationIDs: []int64{7},
 	}}}
 	svc := NewService(repo)
@@ -427,11 +427,34 @@ func TestSaveProcessRouteClearsStandardCostDefaultCapacity(t *testing.T) {
 		t.Fatalf("SaveProcessRoute: %v", err)
 	}
 	op := route.Operations[0]
-	if op.StandardCostCapacityID != 0 {
-		t.Fatalf("standard cost capacity id = %d, want cleared", op.StandardCostCapacityID)
+	if op.StandardCostCapacityID != 9 || op.StandardCostCapacityName != "布勒 18kg" || op.StandardCostWorkstation != "布勒烘焙机" {
+		t.Fatalf("standard cost capacity not preserved: %+v", op)
 	}
-	if repo.savedRoute.Operations[0].WorkstationCapacityID != 0 {
-		t.Fatalf("standard cost default must not restore actual workstation capacity fields: %+v", repo.savedRoute.Operations[0])
+	if op.BatchSizeQty != 20 || op.BatchSizeUnit != "kg" || op.StandardMinutes != 60 || op.HourlyRate != 100 || op.PlannedOperationCost != 5 {
+		t.Fatalf("standard cost capacity snapshot = %+v, want 20kg/60min/100 hourly => 5/kg", op)
+	}
+	if repo.savedRoute.Operations[0].WorkstationCapacityID != 0 || repo.savedRoute.Operations[0].WorkstationID != 0 {
+		t.Fatalf("standard cost default must not become actual route capacity fields: %+v", repo.savedRoute.Operations[0])
+	}
+}
+
+func TestSaveProcessRouteRejectsStandardCostCapacityOutsideOperation(t *testing.T) {
+	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
+		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
+		BatchSizeQty: 20, BatchSizeUnit: "kg", StandardMinutes: 60, HourlyRate: 100,
+		ApplicableOperationIDs: []int64{8},
+	}}}
+	svc := NewService(repo)
+	_, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "标准烘焙路线",
+		Operations: []ProcessRouteOperation{{
+			OperationID:            7,
+			Operation:              "烘焙",
+			StandardCostCapacityID: 9,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "standard_cost_capacity_id") {
+		t.Fatalf("SaveProcessRoute error = %v, want standard_cost_capacity_id validation", err)
 	}
 }
 

@@ -778,53 +778,117 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		return nil, err
 	}
 
-	if input.ProcessRouteID > 0 {
-		opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-			SELECT pro.id,
-			       COALESCE(NULLIF(pro.operation,''), NULLIF(o.name,''), '工序') AS operation_name,
-			       COALESCE(o.standard_operation_cost,0)::float8 AS standard_operation_cost
-			FROM %[1]s.process_route_operations pro
-			LEFT JOIN %[1]s.manufacturing_operations o ON o.id=pro.operation_id
-			WHERE pro.route_id=$1
-			  AND COALESCE(o.standard_operation_cost,0) > 0
-			ORDER BY pro.seq, pro.id
-		`, r.schema), input.ProcessRouteID)
-		if err != nil {
+	opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH pricing_rule_trial_selected_products AS (
+			SELECT p.id AS product_id, 0 AS source_priority
+			FROM %[1]s.products p
+			WHERE p.id=$2 AND p.active=true
+			UNION ALL
+			SELECT p.parent_product_id AS product_id, 1 AS source_priority
+			FROM %[1]s.products p
+			WHERE p.id=$2 AND p.active=true AND COALESCE(p.parent_product_id,0)>0
+		),
+		default_bom AS (
+			SELECT COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0) AS bom_version_id
+			FROM pricing_rule_trial_selected_products selected
+			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=selected.product_id
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=selected.product_id
+			WHERE COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)>0
+			ORDER BY selected.source_priority
+			LIMIT 1
+		),
+		output_bom_version AS (
+			SELECT v.id
+			FROM pricing_rule_trial_selected_products selected
+			JOIN %[1]s.production_boms pb ON pb.output_product_id=selected.product_id
+			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
+			WHERE $1 <= 0
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND v.status='published'
+			ORDER BY selected.source_priority,
+			         CASE WHEN COALESCE((SELECT bom_version_id FROM default_bom),0)>0 AND v.id=(SELECT bom_version_id FROM default_bom) THEN 0 ELSE 1 END,
+			         v.published_at DESC NULLS LAST, v.id DESC
+			LIMIT 1
+		),
+		selected_bom_version AS (
+			SELECT CASE WHEN $1 > 0 THEN $1 ELSE COALESCE((SELECT id FROM output_bom_version),0) END AS id
+		)
+		SELECT oc.id,
+		       COALESCE(oc.workstation_capacity_id,0) AS workstation_capacity_id,
+		       COALESCE(NULLIF(oc.operation_name,''),'工序') AS operation_name,
+		       COALESCE(oc.workstation_name,'') AS workstation_name,
+		       COALESCE(oc.capacity_name,'') AS capacity_name,
+		       COALESCE(oc.hourly_rate_snapshot,0)::float8,
+		       COALESCE(oc.standard_minutes_snapshot,0)::float8,
+		       COALESCE(oc.batch_size_qty_snapshot,0)::float8,
+		       COALESCE(oc.batch_size_unit_snapshot,'') AS batch_size_unit,
+		       COALESCE(oc.operation_unit_cost,0)::float8,
+		       COALESCE(NULLIF(oc.operation_cost_unit,''),'') AS operation_cost_unit
+		FROM %[1]s.production_bom_version_operation_costs oc
+		WHERE oc.version_id=(SELECT id FROM selected_bom_version)
+		ORDER BY oc.sort_order, oc.id
+	`, r.schema), input.BomVersionID, input.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	defer opRows.Close()
+	operationSnapshotCount := 0
+	for opRows.Next() {
+		var row appcosting.PricingRuleTrialBaseCostDetail
+		var id int64
+		var capacityID int64
+		if err := opRows.Scan(&id, &capacityID, &row.Name, &row.WorkstationName, &row.CapacityName, &row.HourlyRate, &row.StandardMinutes, &row.StandardOutputQty, &row.StandardOutputUnit, &row.UnitCost, &row.Unit); err != nil {
 			return nil, err
 		}
-		defer opRows.Close()
-		for opRows.Next() {
-			var row appcosting.PricingRuleTrialBaseCostDetail
-			var id int64
-			if err := opRows.Scan(&id, &row.Name, &row.UnitCost); err != nil {
-				return nil, err
-			}
-			unit := strings.TrimSpace(input.InventoryUnit)
-			if unit == "" {
-				unit = "kg"
-			}
-			row.Key = fmt.Sprintf("operation:standard:%d", id)
-			row.Type = "operation"
-			row.TypeLabel = "标准工序"
-			row.ConsumeUnit = "per_inventory_unit"
-			row.Quantity = 1
-			row.Unit = unit
-			row.CostUnit = unit
-			row.CostUnitCost = row.UnitCost
-			row.AmountPerUnit = row.UnitCost
-			row.CapacitySelectionSource = "operation_master"
-			row.Description = fmt.Sprintf("标准工序成本来自工序列表：%.4f/%s", row.UnitCost, unit)
-			out = append(out, row)
+		_ = capacityID
+		unit := strings.TrimSpace(row.Unit)
+		if unit == "" {
+			unit = strings.TrimSpace(input.InventoryUnit)
 		}
-		if err := opRows.Err(); err != nil {
-			return nil, err
+		if unit == "" {
+			unit = "kg"
 		}
+		row.Key = fmt.Sprintf("operation:bom_snapshot:%d", id)
+		row.Type = "operation"
+		row.TypeLabel = "标准工序"
+		row.ConsumeUnit = "per_inventory_unit"
+		row.Quantity = 1
+		row.Unit = unit
+		row.CostUnit = unit
+		row.CostUnitCost = row.UnitCost
+		row.AmountPerUnit = row.UnitCost
+		row.CapacitySelectionSource = "bom_operation_snapshot"
+		row.Description = fmt.Sprintf("标准工序成本来自 BOM 工序成本快照：%s · %s · %.4f/%s", row.WorkstationName, row.CapacityName, row.UnitCost, unit)
+		out = append(out, row)
+		operationSnapshotCount++
+	}
+	if err := opRows.Err(); err != nil {
+		return nil, err
+	}
+	if input.ProcessRouteID > 0 && operationSnapshotCount == 0 {
+		unit := strings.TrimSpace(input.InventoryUnit)
+		if unit == "" {
+			unit = "kg"
+		}
+		out = append(out, appcosting.PricingRuleTrialBaseCostDetail{
+			Key:                     fmt.Sprintf("operation:bom_operation_snapshot_missing:%d", input.ProcessRouteID),
+			Type:                    "operation",
+			TypeLabel:               "标准工序",
+			Name:                    "BOM工序成本快照缺失",
+			ConsumeUnit:             "per_inventory_unit",
+			Unit:                    unit,
+			CapacitySelectionSource: "bom_operation_snapshot_missing",
+			Warning:                 "请先发布包含标准成本产能档快照的 BOM",
+			Description:             "BOM 已绑定工艺路线，但未找到冻结的工序成本快照",
+		})
+	}
+	if input.ProcessRouteID > 0 || operationSnapshotCount > 0 {
 		return out, nil
 	}
 	if input.OperationTemplateID <= 0 {
 		return out, nil
 	}
-	opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	legacyOpRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       COALESCE(NULLIF(operation,''), NULLIF(workstation,''), '工序') AS name,
 		       COALESCE(NULLIF(cost_type,''),'fixed') AS cost_type,
@@ -836,11 +900,11 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	if err != nil {
 		return nil, err
 	}
-	defer opRows.Close()
-	for opRows.Next() {
+	defer legacyOpRows.Close()
+	for legacyOpRows.Next() {
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
-		if err := opRows.Scan(&id, &row.Name, &row.ConsumeUnit, &row.UnitCost); err != nil {
+		if err := legacyOpRows.Scan(&id, &row.Name, &row.ConsumeUnit, &row.UnitCost); err != nil {
 			return nil, err
 		}
 		row.Key = fmt.Sprintf("operation:%d", id)
@@ -854,7 +918,7 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		}
 		out = append(out, row)
 	}
-	if err := opRows.Err(); err != nil {
+	if err := legacyOpRows.Err(); err != nil {
 		return nil, err
 	}
 	return out, nil

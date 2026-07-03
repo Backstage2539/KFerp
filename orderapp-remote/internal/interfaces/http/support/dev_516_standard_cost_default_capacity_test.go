@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-func TestDev516StandardCostDefaultCapacitySupersededByPR517(t *testing.T) {
+func TestDev516StandardCostDefaultCapacitySupersededByPR518(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
 			"PR-516-STANDARD-COST-DEFAULT-CAPACITY",
-			"当前已被 PR-517 工序标准成本口径取代",
+			"当前新业务以 PR-518 为准",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-516-STANDARD-COST-DEFAULT-CAPACITY",
-			"当前新业务以 PR-517 为准",
+			"当前新业务以 PR-518 为准",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-02-standard-cost-default-capacity.md"): {
 			"PR-516-STANDARD-COST-DEFAULT-CAPACITY",

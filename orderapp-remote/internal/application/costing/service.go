@@ -25,6 +25,11 @@ const (
 	BeanListPublicationPurposeCustomerResale = "customer_resale"
 )
 
+const (
+	pricingRuleTrialBomOperationSnapshotMissingSource  = "bom_operation_snapshot_missing"
+	pricingRuleTrialBomOperationSnapshotMissingWarning = "请先发布包含标准成本产能档快照的 BOM"
+)
+
 type CalculateRequest struct {
 	Products []domain.ProductInput `json:"products"`
 }
@@ -2636,6 +2641,9 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		if !hasNonEmptyObjectSnapshot(row["cost_source_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少成本来源快照：第%d行", position)
 		}
+		if err := validateBeanListFlatRowCostSourceSnapshot(row["cost_source_snapshot"], position); err != nil {
+			return err
+		}
 		if _, exists := row["customer_reference_snapshot"]; !exists || !hasObjectSnapshot(row["customer_reference_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少客户引用展示快照：第%d行", position)
 		}
@@ -2644,6 +2652,81 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		}
 	}
 	return nil
+}
+
+func validateBeanListFlatRowCostSourceSnapshot(value any, position int) error {
+	snapshot, ok := objectSnapshotMap(value)
+	if !ok {
+		return nil
+	}
+	if beanListCostSourceSnapshotMissingBomOperationCost(snapshot) {
+		return fmt.Errorf("价格表平铺行缺少 BOM 工序成本快照：第%d行。%s", position, pricingRuleTrialBomOperationSnapshotMissingWarning)
+	}
+	return nil
+}
+
+func beanListCostSourceSnapshotMissingBomOperationCost(snapshot map[string]any) bool {
+	if beanListStringSliceContains(snapshot["pricing_rule_trial_warnings"], pricingRuleTrialBomOperationSnapshotMissingWarning) {
+		return true
+	}
+	for _, rawDetail := range beanListAnySlice(snapshot["pricing_rule_trial_base_cost_details"]) {
+		detail, ok := objectSnapshotMap(rawDetail)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(stringValue(detail["capacity_selection_source"])) == pricingRuleTrialBomOperationSnapshotMissingSource {
+			return true
+		}
+		if strings.TrimSpace(stringValue(detail["warning"])) == pricingRuleTrialBomOperationSnapshotMissingWarning {
+			return true
+		}
+	}
+	return false
+}
+
+func beanListStringSliceContains(value any, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, raw := range beanListAnySlice(value) {
+		if strings.TrimSpace(stringValue(raw)) == want {
+			return true
+		}
+	}
+	if strings.TrimSpace(stringValue(value)) == want {
+		return true
+	}
+	return false
+}
+
+func beanListAnySlice(value any) []any {
+	switch v := value.(type) {
+	case []any:
+		return v
+	case []map[string]any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out
+	case json.RawMessage:
+		return beanListAnySlice(string(v))
+	case []byte:
+		return beanListAnySlice(string(v))
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" || v == "null" {
+			return nil
+		}
+		var decoded []any
+		if err := json.Unmarshal([]byte(v), &decoded); err != nil {
+			return nil
+		}
+		return decoded
+	default:
+		return nil
+	}
 }
 
 func objectSnapshotMap(value any) (map[string]any, bool) {

@@ -24,7 +24,6 @@
               <td>
                 <strong>{{ row.name }}</strong>
                 <small>#{{ row.id }} · {{ row.code || '无编码' }}</small>
-                <small>标准工序成本 {{ Number(row.standard_operation_cost || 0).toFixed(2) }} 元/库存单位</small>
                 <small>{{ row.updated_at || '-' }}</small>
               </td>
               <td class="master-status">
@@ -42,11 +41,6 @@
         <div class="form-grid">
           <label><span>工序名称</span><input v-model.trim="form.name" placeholder="烘焙 / 研磨 / 包装" /></label>
           <label><span>编码</span><input v-model.trim="form.code" placeholder="ROAST / PACK" /></label>
-          <label>
-            <span>标准工序成本</span>
-            <input v-model.number="form.standard_operation_cost" type="number" min="0" step="0.01" placeholder="元/库存单位" />
-            <small>用于标准制造成本和价格试算，按商品库存单位计。</small>
-          </label>
           <label>
             <span>状态</span>
             <select v-model="form.status">
@@ -112,7 +106,7 @@ function editOperation(row) {
     code: row.code || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
     default_minutes: Number(row.default_minutes || 0),
-    standard_operation_cost: Number(row.standard_operation_cost || 0),
+    standard_operation_cost: 0,
     note: row.note || '',
   })
   error.value = ''
@@ -138,7 +132,7 @@ async function saveOperation() {
     return
   }
   await mutate(async () => {
-    const saved = await apiSend('/api/manufacturing-operations', { body: { ...form, default_minutes: 0, standard_operation_cost: Number(form.standard_operation_cost || 0) } })
+    const saved = await apiSend('/api/manufacturing-operations', { body: { ...form, default_minutes: 0, standard_operation_cost: 0 } })
     editOperation(saved)
     await loadOperations()
     ok.value = '已保存工序'

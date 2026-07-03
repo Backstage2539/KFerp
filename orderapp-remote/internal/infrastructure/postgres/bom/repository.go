@@ -2126,7 +2126,51 @@ func (r Repository) ValidateProductionBomVersionForPublish(ctx context.Context, 
 	if hasCycle {
 		return fmt.Errorf("cycle detected")
 	}
+	if err := validateProductionBomRouteStandardCostCapacity(ctx, r.pool, r.schema, cmd.VersionID); err != nil {
+		return err
+	}
 	_ = bomID
+	return nil
+}
+
+func validateProductionBomRouteStandardCostCapacity(ctx context.Context, pool *pgxpool.Pool, schema string, versionID int64) error {
+	var processRouteID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(process_route_id,0)
+		FROM %s.production_bom_versions
+		WHERE id=$1
+	`, schema), versionID).Scan(&processRouteID); err != nil {
+		return err
+	}
+	if processRouteID <= 0 {
+		return nil
+	}
+	var missingCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s.process_route_operations
+		WHERE route_id=$1 AND COALESCE(standard_cost_capacity_id,0)<=0
+	`, schema), processRouteID).Scan(&missingCount); err != nil {
+		return err
+	}
+	if missingCount > 0 {
+		return fmt.Errorf("工艺路线工序缺少标准成本产能档")
+	}
+	var invalidCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %[1]s.process_route_operations pro
+		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id AND c.status='active'
+		LEFT JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id AND w.status='active'
+		LEFT JOIN %[1]s.manufacturing_workstation_operations wo ON wo.workstation_id=w.id AND wo.operation_id=pro.operation_id
+		WHERE pro.route_id=$1
+		  AND (c.id IS NULL OR w.id IS NULL OR wo.operation_id IS NULL)
+	`, schema), processRouteID).Scan(&invalidCount); err != nil {
+		return err
+	}
+	if invalidCount > 0 {
+		return fmt.Errorf("标准成本产能档必须来自启用工位且适用当前工序")
+	}
 	return nil
 }
 
@@ -2139,6 +2183,10 @@ func (r Repository) PublishProductionBomVersion(ctx context.Context, cmd bomapp.
 	var bomID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id FROM %s.production_bom_versions WHERE id=$1 AND status='draft' FOR UPDATE`, r.schema), cmd.VersionID).Scan(&bomID); err != nil {
 		return fmt.Errorf("production BOM version not found")
+	}
+	snapshotCount, err := refreshProductionBomVersionOperationCostSnapshotsTx(ctx, tx, r.schema, cmd.VersionID)
+	if err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_bom_versions SET status='archived' WHERE bom_id=$1 AND status='published' AND id<>$2`, r.schema), bomID, cmd.VersionID); err != nil {
 		return err
@@ -2160,10 +2208,141 @@ func (r Repository) PublishProductionBomVersion(ctx context.Context, cmd bomapp.
 	`, r.schema), bomID, strings.TrimSpace(cmd.Actor)); err != nil {
 		return err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "publish_production_bom_version", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{"bom_id": bomID, "version_id": cmd.VersionID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "publish_production_bom_version", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{"bom_id": bomID, "version_id": cmd.VersionID, "operation_cost_snapshot_count": snapshotCount}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) (int, error) {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_version_operation_costs WHERE version_id=$1`, schema), versionID); err != nil {
+		return 0, err
+	}
+	var processRouteID int64
+	var outputUnit string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(process_route_id,0), COALESCE(NULLIF(output_unit,''),'unit')
+		FROM %s.production_bom_versions
+		WHERE id=$1
+	`, schema), versionID).Scan(&processRouteID, &outputUnit); err != nil {
+		return 0, err
+	}
+	if processRouteID <= 0 {
+		return 0, nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT pro.seq,
+		       pro.operation_id,
+		       COALESCE(NULLIF(pro.operation,''), NULLIF(o.name,''), '工序') AS operation_name,
+		       COALESCE(w.id,0) AS workstation_id,
+		       COALESCE(w.name,'') AS workstation_name,
+		       COALESCE(c.id,0) AS workstation_capacity_id,
+		       COALESCE(c.name,'') AS capacity_name,
+		       COALESCE(NULLIF(w.hourly_rate,0), c.hourly_rate, 0)::float8 AS hourly_rate,
+		       COALESCE(c.standard_minutes,0)::float8 AS standard_minutes,
+		       COALESCE(c.batch_size_qty,0)::float8 AS batch_size_qty,
+		       COALESCE(c.batch_size_unit,'') AS batch_size_unit,
+		       COALESCE(wo.operation_id,0) AS applicable_operation_id,
+		       COALESCE(pro.standard_cost_capacity_id,0) AS standard_cost_capacity_id
+		FROM %[1]s.process_route_operations pro
+		LEFT JOIN %[1]s.manufacturing_operations o ON o.id=pro.operation_id
+		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id AND c.status='active'
+		LEFT JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id AND w.status='active'
+		LEFT JOIN %[1]s.manufacturing_workstation_operations wo ON wo.workstation_id=w.id AND wo.operation_id=pro.operation_id
+		WHERE pro.route_id=$1
+		ORDER BY pro.seq, pro.id
+	`, schema), processRouteID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var seq int
+		var operationID int64
+		var operationName string
+		var workstationID int64
+		var workstationName string
+		var capacityID int64
+		var capacityName string
+		var hourlyRate float64
+		var standardMinutes float64
+		var batchSizeQty float64
+		var batchSizeUnit string
+		var applicableOperationID int64
+		var standardCostCapacityID int64
+		if err := rows.Scan(&seq, &operationID, &operationName, &workstationID, &workstationName, &capacityID, &capacityName, &hourlyRate, &standardMinutes, &batchSizeQty, &batchSizeUnit, &applicableOperationID, &standardCostCapacityID); err != nil {
+			return 0, err
+		}
+		if standardCostCapacityID <= 0 {
+			return 0, fmt.Errorf("工艺路线工序缺少标准成本产能档")
+		}
+		if capacityID <= 0 || workstationID <= 0 || applicableOperationID <= 0 {
+			return 0, fmt.Errorf("标准成本产能档必须来自启用工位且适用当前工序")
+		}
+		outputBatchQty, ok := convertBomOperationBatchQty(batchSizeQty, batchSizeUnit, outputUnit)
+		if !ok || outputBatchQty <= 0 {
+			return 0, fmt.Errorf("工序成本批量单位 %s 不能换算为 BOM 产出库存单位 %s", strings.TrimSpace(batchSizeUnit), strings.TrimSpace(outputUnit))
+		}
+		unitCost := 0.0
+		if hourlyRate > 0 && standardMinutes > 0 {
+			unitCost = hourlyRate * standardMinutes / 60 / outputBatchQty
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.production_bom_version_operation_costs(
+				version_id,operation_id,operation_name,workstation_id,workstation_name,
+				workstation_capacity_id,capacity_name,hourly_rate_snapshot,standard_minutes_snapshot,
+				batch_size_qty_snapshot,batch_size_unit_snapshot,operation_unit_cost,operation_cost_unit,sort_order,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+		`, schema), versionID, operationID, operationName, workstationID, workstationName, capacityID, capacityName, hourlyRate, standardMinutes, batchSizeQty, batchSizeUnit, unitCost, outputUnit, seq); err != nil {
+			return 0, err
+		}
+		count++
+	}
+	return count, rows.Err()
+}
+
+func convertBomOperationBatchQty(qty float64, sourceUnit string, targetUnit string) (float64, bool) {
+	sourceUnit = normalizeBomOperationUnit(sourceUnit)
+	targetUnit = normalizeBomOperationUnit(targetUnit)
+	if qty <= 0 || sourceUnit == "" || targetUnit == "" {
+		return 0, false
+	}
+	if sourceUnit == targetUnit {
+		return qty, true
+	}
+	sourceFactor := bomOperationWeightKgFactor(sourceUnit)
+	targetFactor := bomOperationWeightKgFactor(targetUnit)
+	if sourceFactor <= 0 || targetFactor <= 0 {
+		return 0, false
+	}
+	return qty * sourceFactor / targetFactor, true
+}
+
+func normalizeBomOperationUnit(unit string) string {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "公斤", "千克", "kg":
+		return "kg"
+	case "克", "g":
+		return "g"
+	case "磅", "lb", "lbs":
+		return "lb"
+	default:
+		return strings.TrimSpace(unit)
+	}
+}
+
+func bomOperationWeightKgFactor(unit string) float64 {
+	switch normalizeBomOperationUnit(unit) {
+	case "kg":
+		return 1
+	case "g":
+		return 0.001
+	case "lb":
+		return 0.453592
+	default:
+		return 0
+	}
 }
 
 func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.BindProductProductionBomCommand) (bomapp.ProductProductionBomBinding, error) {

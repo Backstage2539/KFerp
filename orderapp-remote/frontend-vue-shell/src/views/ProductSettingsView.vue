@@ -1055,7 +1055,7 @@
                 <button class="secondary compact-action" type="button" @click="closePricingRuleTrialExplanation">关闭</button>
               </div>
               <template v-if="pricingRuleTrialActiveExplanation === 'base_cost'">
-                <p>标准制造成本来自当前试算商品、BOM版本和工艺路线；BOM物料成本已包含原料损耗，标准工序成本来自工序列表维护的元/库存单位成本，并按当前试算单位换算。</p>
+                <p>标准制造成本来自当前试算商品和 BOM 版本；BOM物料成本已包含原料损耗，标准工序成本来自发布 BOM 冻结的工序成本快照，并按当前试算单位换算。</p>
                 <div class="table-wrap compact-table-wrap">
                   <table>
                     <thead>
@@ -3856,7 +3856,9 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     temporary_post_markup_costs: '本次临时录入',
     pricing_rule_other_costs: '价格计算模板',
     pricing_rule_post_markup_costs: '价格计算模板',
-    operation_master: '工序列表',
+    bom_operation_snapshot: 'BOM工序成本快照',
+    bom_operation_snapshot_missing: 'BOM工序成本快照缺失',
+    operation_master: '工序列表（历史）',
     override: '本次临时录入',
     product_bom: '当前商品 BOM',
     product_expected_loss: '当前商品损耗率',

@@ -6,6 +6,31 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-518-MULTI-CAPACITY-OPERATION-COST
+- Branch: codex/multi-capacity-operation-cost-20260703
+- Owner/session: Codex / 2026-07-03
+- Status: verified locally, pending merge/deploy.
+- Scope: 一个工序可以有多个候选工序单位成本，但价格/BOM 成本不能自动猜；工位产能档作为候选成本能力，工艺路线工序显式选择 `标准成本产能档`，发布 BOM 版本时冻结工序成本快照，商品价格管理和商品价格表读取 BOM 冻结快照。
+- DEV:
+  - DEV-518-WORKSTATION-CAPACITY-CANDIDATE-COST：工位产能档展示候选单位成本，仍只作为候选成本能力。
+  - DEV-518-ROUTE-STANDARD-COST-CAPACITY：工艺路线工序保存并校验 `standard_cost_capacity_id`，候选只来自启用工位、工位适用当前工序和启用产能档。
+  - DEV-518-BOM-OPERATION-COST-SNAPSHOT：发布 BOM 版本时冻结工序、工位、产能档、小时费率、标准分钟、标准批量和折算后的 `元/库存单位` 工序成本快照。
+  - DEV-518-PRICING-BOM-SNAPSHOT-COST：商品价格管理试算读取 BOM 工序成本快照；缺少快照时返回警告，商品价格表发布拦截。
+  - DEV-518-DOCS-ACCEPTANCE：同步需求、验收、生产/成本手册、PR/DEV/API/REV 种子和验收证据。
+- Verifier:
+  - RED: `go test ./internal/application/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/costing -count=1` failed before implementation because route save cleared `standard_cost_capacity_id`, BOM lacked operation cost snapshot storage, and costing still did not read BOM operation snapshots.
+  - RED: `go test ./internal/application/costing -run TestPublishBeanListBlocksMissingBomOperationCostSnapshot -count=1` failed before publish guard because price list publish allowed rows with `bom_operation_snapshot_missing`.
+  - GREEN targeted: `go test ./internal/application/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/costing -count=1` passed.
+  - GREEN targeted: `go test ./internal/application/costing -run 'TestPublishBeanListBlocksMissingBomOperationCostSnapshot|TestPublishBeanListDoesNotBlockRetiredStandardCostDefaultCapacityWarning' -count=1` passed.
+  - GREEN targeted: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing -count=1` passed.
+  - GREEN frontend targeted: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js` passed.
+  - GREEN support contracts: `go test ./internal/interfaces/http/support -run 'TestDev515StandardManufacturingCostPricingContracts|TestDev517OperationStandardCostMasterContracts|TestDev518MultiCapacityOperationCostContracts' -count=1` passed.
+  - GREEN full touched backend/support: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
+  - GREEN frontend/build: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js` passed with 157 tests; first `npm run build` failed because fresh worktree lacked `vite`, then `npm ci` succeeded and `npm run build` passed with existing large-chunk warning.
+  - GREEN review: `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Deployment: pending.
+- Last update: 2026-07-03 Asia/Shanghai
+
 ### PR-517-OPERATION-STANDARD-COST-MASTER
 - Branch: codex/operation-cost-master-20260702
 - Owner/session: Codex / 2026-07-02

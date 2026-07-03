@@ -42,15 +42,16 @@ test('process route operation editor aligns fields and hides raw quality checkli
   assert.doesNotMatch(source, /工位\/设备/)
 })
 
-test('process route operation row does not configure standard cost capacity or operation cost', () => {
+test('process route operation row selects standard cost capacity without actual production capacity fields', () => {
   const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
 
-  assert.doesNotMatch(source, /\/api\/manufacturing-workstation-capacities/)
-  assert.doesNotMatch(source, /标准成本默认产能/)
-  assert.doesNotMatch(source, /standard_cost_capacity_id/)
-  assert.doesNotMatch(source, /standardCostCapacityOptions/)
-  assert.doesNotMatch(source, /standardCostCapacitySummary/)
-  assert.doesNotMatch(source, /小时成本\s*×\s*标准分钟\s*\/\s*60\s*\/\s*标准产出/)
+  assert.match(source, /\/api\/manufacturing-workstation-capacities\?status=active/)
+  assert.match(source, /标准成本产能档/)
+  assert.match(source, /standard_cost_capacity_id/)
+  assert.match(source, /standardCostCapacityOptions/)
+  assert.match(source, /standardCostCapacitySummary/)
+  assert.match(source, /小时费率.*标准分钟.*\/ 60 \/ 标准批量/s)
+  assert.match(source, /只用于 BOM\/价格标准成本/)
   assert.doesNotMatch(source, /生产计划实际产能/)
   assert.doesNotMatch(source, /实际工位产能/)
   assert.doesNotMatch(source, /workstation_capacity_id/)
@@ -73,9 +74,9 @@ test('operation and workstation master data are maintained on separate pages', (
 
   assert.match(operationSource, /<h2>工序<\/h2>/)
   assert.match(operationSource, /\/api\/manufacturing-operations/)
-  assert.match(operationSource, /标准工序成本/)
-  assert.match(operationSource, /standard_operation_cost/)
-  assert.match(operationSource, /元\/库存单位/)
+  assert.doesNotMatch(operationSource, /标准工序成本/)
+  assert.doesNotMatch(operationSource, /v-model\.number="form\.standard_operation_cost"/)
+  assert.doesNotMatch(operationSource, /元\/库存单位/)
   assert.doesNotMatch(operationSource, /\/api\/manufacturing-workstations/)
   assert.match(workstationSource, /<h2>工位\/设备<\/h2>/)
   assert.match(workstationSource, /\/api\/manufacturing-workstations/)
