@@ -32,29 +32,32 @@ type IndustryFieldTemplate struct {
 }
 
 type ManufacturingOperation struct {
-	ID             int64  `json:"id"`
-	Code           string `json:"code"`
-	Name           string `json:"name"`
-	Status         string `json:"status"`
-	DefaultMinutes int    `json:"default_minutes"`
-	Note           string `json:"note"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID                    int64   `json:"id"`
+	Code                  string  `json:"code"`
+	Name                  string  `json:"name"`
+	Status                string  `json:"status"`
+	DefaultMinutes        int     `json:"default_minutes"`
+	StandardOperationCost float64 `json:"standard_operation_cost"`
+	Note                  string  `json:"note"`
+	CreatedAt             string  `json:"created_at"`
+	UpdatedAt             string  `json:"updated_at"`
 }
 
 type ManufacturingWorkstation struct {
-	ID                 int64   `json:"id"`
-	Code               string  `json:"code"`
-	Name               string  `json:"name"`
-	Status             string  `json:"status"`
-	DefaultMinutes     int     `json:"default_minutes"`
-	MachineHourlyCost  float64 `json:"machine_hourly_cost"`
-	LaborHourlyCost    float64 `json:"labor_hourly_cost"`
-	OverheadHourlyCost float64 `json:"overhead_hourly_cost"`
-	HourlyRate         float64 `json:"hourly_rate"`
-	Note               string  `json:"note"`
-	CreatedAt          string  `json:"created_at"`
-	UpdatedAt          string  `json:"updated_at"`
+	ID                     int64                    `json:"id"`
+	Code                   string                   `json:"code"`
+	Name                   string                   `json:"name"`
+	Status                 string                   `json:"status"`
+	DefaultMinutes         int                      `json:"default_minutes"`
+	MachineHourlyCost      float64                  `json:"machine_hourly_cost"`
+	LaborHourlyCost        float64                  `json:"labor_hourly_cost"`
+	OverheadHourlyCost     float64                  `json:"overhead_hourly_cost"`
+	HourlyRate             float64                  `json:"hourly_rate"`
+	ApplicableOperationIDs []int64                  `json:"applicable_operation_ids"`
+	ApplicableOperations   []ManufacturingOperation `json:"applicable_operations,omitempty"`
+	Note                   string                   `json:"note"`
+	CreatedAt              string                   `json:"created_at"`
+	UpdatedAt              string                   `json:"updated_at"`
 }
 
 type ManufacturingWorkstationCapacity struct {
@@ -72,7 +75,7 @@ type ManufacturingWorkstationCapacity struct {
 	SortOrder              int                      `json:"sort_order"`
 	Note                   string                   `json:"note"`
 	ApplicableOperationIDs []int64                  `json:"applicable_operation_ids"`
-	ApplicableOperations   []ManufacturingOperation `json:"applicable_operations"`
+	ApplicableOperations   []ManufacturingOperation `json:"applicable_operations,omitempty"`
 	CreatedAt              string                   `json:"created_at"`
 	UpdatedAt              string                   `json:"updated_at"`
 }
@@ -184,27 +187,29 @@ type SaveIndustryTemplateCommand struct {
 }
 
 type SaveManufacturingOperationCommand struct {
-	ID             int64
-	Code           string
-	Name           string
-	Status         string
-	DefaultMinutes int
-	Note           string
-	Actor          string
+	ID                    int64
+	Code                  string
+	Name                  string
+	Status                string
+	DefaultMinutes        int
+	StandardOperationCost float64
+	Note                  string
+	Actor                 string
 }
 
 type SaveManufacturingWorkstationCommand struct {
-	ID                 int64
-	Code               string
-	Name               string
-	Status             string
-	DefaultMinutes     int
-	MachineHourlyCost  float64
-	LaborHourlyCost    float64
-	OverheadHourlyCost float64
-	HourlyRate         float64
-	Note               string
-	Actor              string
+	ID                     int64
+	Code                   string
+	Name                   string
+	Status                 string
+	DefaultMinutes         int
+	MachineHourlyCost      float64
+	LaborHourlyCost        float64
+	OverheadHourlyCost     float64
+	HourlyRate             float64
+	ApplicableOperationIDs []int64
+	Note                   string
+	Actor                  string
 }
 
 type SaveWorkstationCapacityCommand struct {
@@ -328,6 +333,9 @@ func (s *Service) SaveManufacturingOperation(ctx context.Context, cmd SaveManufa
 	if cmd.DefaultMinutes < 0 {
 		return ManufacturingOperation{}, fmt.Errorf("default_minutes must be >= 0")
 	}
+	if cmd.StandardOperationCost < 0 {
+		return ManufacturingOperation{}, fmt.Errorf("standard_operation_cost must be >= 0")
+	}
 	if cmd.Status != "active" && cmd.Status != "inactive" {
 		return ManufacturingOperation{}, fmt.Errorf("invalid status")
 	}
@@ -381,6 +389,7 @@ func (s *Service) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManu
 	if componentTotal > 0 || cmd.HourlyRate == 0 {
 		cmd.HourlyRate = roundMoney(componentTotal)
 	}
+	cmd.ApplicableOperationIDs = normalizePositiveInt64IDs(cmd.ApplicableOperationIDs)
 	return s.repo.SaveManufacturingWorkstation(ctx, cmd)
 }
 
@@ -427,7 +436,7 @@ func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 	if cmd.Code == "" {
 		cmd.Code = codeFromName(cmd.Name)
 	}
-	cmd.ApplicableOperationIDs = normalizePositiveInt64IDs(cmd.ApplicableOperationIDs)
+	cmd.ApplicableOperationIDs = nil
 	return s.repo.SaveManufacturingWorkstationCapacity(ctx, cmd)
 }
 
@@ -645,9 +654,6 @@ func (s *Service) SaveProcessRoute(ctx context.Context, cmd SaveProcessRouteComm
 		if err != nil {
 			return ProcessRoute{}, err
 		}
-		if err := s.validateProcessRouteStandardCostCapacity(ctx, op); err != nil {
-			return ProcessRoute{}, err
-		}
 		cmd.Operations[i] = op
 	}
 	return s.repo.SaveProcessRoute(ctx, cmd)
@@ -778,9 +784,6 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	if op.Operation == "" {
 		return op, fmt.Errorf("operation required")
 	}
-	if op.StandardCostCapacityID < 0 {
-		return op, fmt.Errorf("standard_cost_capacity_id must be >= 0")
-	}
 	qualityChecklistJSON, err := normalizeJSONArray(op.QualityChecklistJSON)
 	if err != nil {
 		return op, fmt.Errorf("quality_checklist_json must be a JSON array")
@@ -791,6 +794,7 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.Workstation = ""
 	op.WorkstationCapacityID = 0
 	op.WorkstationCapacityName = ""
+	op.StandardCostCapacityID = 0
 	op.StandardCostCapacityName = ""
 	op.StandardCostWorkstation = ""
 	op.StandardCostSummary = ""
@@ -803,31 +807,6 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.PlannedOperationCost = 0
 	op.QualityChecklistJSON = qualityChecklistJSON
 	return op, nil
-}
-
-func (s *Service) validateProcessRouteStandardCostCapacity(ctx context.Context, op ProcessRouteOperation) error {
-	if op.StandardCostCapacityID <= 0 {
-		return nil
-	}
-	if op.OperationID <= 0 {
-		return fmt.Errorf("标准成本默认产能需要先选择工序")
-	}
-	rows, err := s.repo.ListManufacturingWorkstationCapacities(ctx, WorkstationCapacityQuery{Status: "active"})
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if row.ID != op.StandardCostCapacityID {
-			continue
-		}
-		for _, operationID := range row.ApplicableOperationIDs {
-			if operationID == op.OperationID {
-				return nil
-			}
-		}
-		return fmt.Errorf("标准成本默认产能不适用于该工序")
-	}
-	return fmt.Errorf("标准成本默认产能不存在或已停用")
 }
 
 func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op ProcessRouteOperation) (ProcessRouteOperation, error) {

@@ -70,7 +70,11 @@ func TestManufacturingSchemaAddsOperationAndWorkstationMasterData(t *testing.T) 
 	text := string(src)
 	for _, want := range []string{
 		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operations",
+		"standard_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"ALTER TABLE %[1]s.manufacturing_operations ADD COLUMN IF NOT EXISTS standard_operation_cost",
 		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstations",
+		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_operations",
+		"manufacturing_workstation_operations_workstation_idx",
 		"machine_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
 		"labor_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
 		"overhead_hourly_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
@@ -107,6 +111,7 @@ func TestManufacturingSchemaAddsWorkstationCapacitiesAndRouteCostSnapshots(t *te
 		"capacity_id BIGINT NOT NULL",
 		"operation_id BIGINT NOT NULL",
 		"manufacturing_workstation_capacity_operations_capacity_idx",
+		"INSERT INTO %[1]s.manufacturing_workstation_operations",
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id",
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_name",
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_qty",

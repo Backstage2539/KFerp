@@ -6,10 +6,32 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-517-OPERATION-STANDARD-COST-MASTER
+- Branch: codex/operation-cost-master-20260702
+- Owner/session: Codex / 2026-07-02
+- Status: verified on feature branch; pending merge/deploy.
+- Scope: 用户调整 PR-516 口径：工序列表的每个工序直接维护 `标准工序成本（元/库存单位）`；工位/设备统一维护 `适用工序`；工位产能只维护标准批量、单位、标准分钟和状态；工艺路线不再设置 `标准成本默认产能`，只维护工序顺序、损耗记录和质检项。
+- DEV:
+  - DEV-517-OPERATION-STANDARD-COST-MASTER：`manufacturing_operations.standard_operation_cost` 支持 API/DB/审计和 Vue 工序列表维护，价格试算按工序主数据读取标准工序成本。
+  - DEV-517-WORKSTATION-APPLICABLE-OPERATIONS：新增 `manufacturing_workstation_operations`，工位/设备维护适用工序；工位产能保存忽略旧 `applicable_operation_ids`，列表可继承工位适用工序供生产计划自动拆分兼容使用。
+  - DEV-517-ROUTE-CAPACITY-REMOVAL：工艺路线页面移除 `标准成本默认产能` 和工位产能查询；后端保存路线时清空旧 `standard_cost_capacity_id`，不再按产能多候选警告或阻断价格表发布。
+  - DEV-517-PRICING-STANDARD-OPERATION-COST：商品价格管理试算明细把工序成本来源显示为 `工序列表`，`per_inventory_unit` 成本按试算单位换算，发布价格表不再检查路线默认产能警告。
+  - DEV-517-DOCS-ACCEPTANCE：同步需求、验收、生产/成本手册、PR/DEV/API/REV 台账和验收证据。
+- Verifier:
+  - RED: targeted tests failed before correction because PR-516 contract still required route `标准成本默认产能`, costing repository still expected capacity-selection warnings, and workstation capacity owned applicable operations.
+  - GREEN targeted: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/application/costing ./internal/infrastructure/postgres/costing -run 'TestSaveManufacturingOperationKeepsStandardOperationCost|TestSaveManufacturingWorkstationNormalizesApplicableOperationIDs|TestSaveWorkstationCapacityIgnoresApplicableOperationIDs|TestSaveProcessRouteClearsStandardCostDefaultCapacity|TestManufacturingOperationAPISavesStandardOperationCost|TestPricingRuleTrialUsesOperationMasterStandardCost|TestPublishBeanListDoesNotBlockRetiredStandardCostDefaultCapacityWarning|TestPricingRuleTrialDetailsDeriveStandardOperationCostFromOperationMaster|TestPricingRuleTrialDetailsDoNotUseRouteStandardCostDefaultCapacity|TestManufacturingRepositoryKeepsOperationCostAndWorkstationApplicability' -count=1` passed.
+  - GREEN targeted frontend: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js` passed.
+  - GREEN full touched backend/support: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
+  - GREEN frontend/build: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js src/lib/produce-plan.test.js` passed with 192 tests; first `npm run build` failed because fresh worktree lacked `vite`, then `npm ci` succeeded and `npm run build` passed with the existing large-chunk warning.
+  - GREEN review: `git diff --check` and `scripts/verify_kferp.sh changed` passed.
+- Deployment: pending.
+- Last update: 2026-07-02 Asia/Shanghai
+- Notes: PR-516 保留为历史部署记录；当前新业务以 PR-517 为准。
+
 ### PR-516-STANDARD-COST-DEFAULT-CAPACITY
 - Branch: codex/standard-cost-default-capacity-20260702
 - Owner/session: Codex / 2026-07-02
-- Status: merged to develop and deployed to development.
+- Status: merged to develop and deployed to development; superseded by PR-517-OPERATION-STANDARD-COST-MASTER.
 - Scope: 工艺路线工序显式选择 `标准成本默认产能`，只用于标准制造成本和价格试算；生产计划/工单仍在执行阶段选择真实工位产能和批次。多条启用适用产能未设置默认时，价格试算返回警告，价格表发布拦截不确定成本。
 - DEV:
   - DEV-516-ROUTE-STANDARD-CAPACITY：`process_route_operations.standard_cost_capacity_id` 持久化、读取和审计；工艺路线保存校验默认产能存在、启用且适用于当前工序。
@@ -22,7 +44,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN Review/acceptance: `scripts/verify_kferp.sh changed` and `git diff --check` passed; docs updated in root and `orderapp-remote/docs`, including production/costing manuals and `docs/acceptance/2026-07-02-standard-cost-default-capacity.md`.
 - Deployment: development deployed from `origin/develop=0bc7579d53d6b8e4a5f1e378ea118bda6eeaf7fb`; server backup `/opt/stacks/erp/orderapp.backup.deploy-20260702123634`; smoke passed: containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/` returned `303`; authenticated `GET /app/vue-shell?view=processRoutes` and `GET /app/vue-shell?view=productPriceManagement` returned `200`; `/app/api/req/product?limit=800` exposed `PR-516-STANDARD-COST-DEFAULT-CAPACITY`; `/app/api/req/dev?limit=1000` exposed `DEV-516-ROUTE-STANDARD-CAPACITY`; deployed source contains `standard_cost_capacity_id` and `请为工艺路线工序设置标准成本默认产能`.
 - Last update: 2026-07-02 Asia/Shanghai
-- Notes: 该字段是标准成本模板配置，不代表生产计划实际选择；旧数据不自动回填，只有唯一匹配产能时才允许试算兜底。
+- Notes: 该字段是标准成本模板配置，不代表生产计划实际选择；旧数据不自动回填，只有唯一匹配产能时才允许试算兜底。2026-07-02 后被 PR-517 取代：工序列表维护标准工序成本，工位维护适用工序，工艺路线不再维护默认产能。
 
 ### PR-515-STANDARD-MANUFACTURING-COST-PRICING
 - Branch: codex/standard-manufacturing-cost-pricing-20260701
@@ -31,7 +53,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 价格试算和价格表主流程收敛到标准制造成本：BOM 负责物料成本和原料损耗，工位维护机器/人工/其他小时成本，标准制造成本按 BOM + 工艺路线工序匹配的标准工位产能折算为元/库存单位；价格计算模板只做利润、税率和取整，生产计划/工单的真实产能批次不回写历史价格。
 - DEV:
   - DEV-515-STANDARD-MANUFACTURING-COST-API：价格试算返回 `material_unit_cost`、`operation_unit_cost`、`standard_manufacturing_unit_cost`、成本来源和 BOM/工艺/工位成本快照。
-  - DEV-515-STANDARD-OPERATION-COST：仓储层从工艺路线工序匹配启用的工位产能，按 `工位小时费率 × 标准分钟 / 60 / 标准产出数量` 折算标准工序单位成本。
+  - DEV-515-STANDARD-OPERATION-COST：历史口径为仓储层从工艺路线工序匹配启用的工位产能折算标准工序单位成本；PR-517 后改为直接读取工序列表的 `标准工序成本（元/库存单位）`。
   - DEV-515-PRICING-UI-DOCS：商品价格管理展示标准制造成本来源；价格表不要求产能/批次数；同步成本/生产手册、需求和验收证据。
 - Verifier:
   - RED: `go test ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrialUsesBomCostTemplateFormula|TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity|TestDev515StandardManufacturingCostPricingContracts' -count=1` failed before implementation with missing standard-cost API fields/repository markers/docs markers; `node --test src/lib/product-settings.test.js` failed before implementation because `标准制造成本` UI marker was absent.
@@ -49,7 +71,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 工位/设备维护机器、人工和其他小时成本；工位产能只维护标准批量、库存单位和标准分钟；工艺路线只维护工序顺序和质检/损耗模板，不选择工位产能。生产计划草稿/未开工工单的工序产能拆分选择工位产能并折算计划工序成本，提交后冻结到工单和工序卡。
 - DEV:
   - DEV-514-WORKSTATION-COST-COMPONENTS：工位/设备 API 和 UI 支持 `machine_hourly_cost/labor_hourly_cost/overhead_hourly_cost`，总小时成本由三项相加，写操作日志。
-  - DEV-514-CAPACITY-BATCH-TIME-ONLY：工位产能 API 和 UI 不再维护小时费率，只维护适用工序、标准批量/单位、标准分钟/批和状态；历史 `hourly_rate` 只做兼容兜底。
+  - DEV-514-CAPACITY-BATCH-TIME-ONLY：工位产能 API 和 UI 不再维护小时费率，只维护标准批量/单位、标准分钟/批和状态；历史 `hourly_rate` 只做兼容兜底。PR-517 后适用工序改由工位/设备统一维护。
   - DEV-514-PLAN-SPLIT-DERIVED-OPERATION-COST：生产计划/未开工工单拆分选择工位产能后按 `小时成本 × 标准分钟/60 × 批次数` 折算计划工序成本；工艺路线保存和新工单路线快照都会清空工位产能和成本字段，价格试算不从路线模板读取工序成本。
   - DEV-514-DOCS-ACCEPTANCE：同步需求、验收、生产/成本手册和开发证据，部署后完成 API/browser smoke。
 - Verifier:

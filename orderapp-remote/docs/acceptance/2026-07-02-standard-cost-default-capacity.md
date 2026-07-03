@@ -1,5 +1,7 @@
 # PR-516-STANDARD-COST-DEFAULT-CAPACITY acceptance evidence
 
+> 历史验收证据。2026-07-02 用户调整口径后，当前新业务已由 PR-517-OPERATION-STANDARD-COST-MASTER 取代：工序列表维护标准工序成本，工位维护适用工序，工艺路线不再维护默认产能。
+
 ## Scope
 
 - 工艺路线工序新增 `标准成本默认产能`，用于标准制造成本和价格试算。

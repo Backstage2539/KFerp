@@ -20,8 +20,8 @@ func TestDev515StandardManufacturingCostPricingContracts(t *testing.T) {
 			"标准制造成本",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
-			"manufacturing_workstation_capacity_operations",
-			"manufacturing_workstation_capacities",
+			"standard_operation_cost",
+			"operation_master",
 			"标准工序成本",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {

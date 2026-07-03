@@ -835,16 +835,17 @@ test('price table pricing-rule preview row uses the live trial result', () => {
     operation_template_id: 9,
     operation_template_name: '标准烘焙',
     base_cost: 42.3,
-    warnings: ['请为工艺路线工序设置标准成本默认产能'],
+    warnings: [],
     base_cost_details: [{
       key: 'operation:standard:19',
       type: 'operation',
       name: '烘焙',
-      capacity_name: '布勒 18kg',
-      workstation_name: '烘焙机',
-      capacity_selection_source: 'missing_default',
-      warning: '请为工艺路线工序设置标准成本默认产能',
-      amount: 0,
+      type_label: '标准工序',
+      consume_unit: 'per_inventory_unit',
+      capacity_selection_source: 'operation_master',
+      description: '标准工序成本来自工序列表：8.5000/kg',
+      amount: 8.5,
+      unit_cost: 8.5,
       unit: 'kg',
     }],
   })
@@ -858,8 +859,8 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.process_route_name, '标准烘焙路线')
   assert.equal(got.cost_source_snapshot.operation_template_name, '标准烘焙')
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_final_unit_price, 68.5)
-  assert.deepEqual(got.cost_source_snapshot.pricing_rule_trial_warnings, ['请为工艺路线工序设置标准成本默认产能'])
-  assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'missing_default')
+  assert.deepEqual(got.cost_source_snapshot.pricing_rule_trial_warnings, [])
+  assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'operation_master')
 })
 
 test('price table pricing-rule preview payload falls back to numeric product key', () => {
@@ -1019,9 +1020,9 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'pricingRuleTrialHasRoundingAdjustment(pricingRuleTrialResult)',
     'base_cost_details',
     'capacity_selection_source',
-    '标准成本默认产能',
-    '唯一匹配产能',
-    '请为工艺路线工序设置标准成本默认产能',
+    '成本来源',
+    '工序列表',
+    '标准工序成本来自工序列表',
     'tax_in_price_amount',
     'pricing-rule-trial-waterfall',
     'pricing-rule-trial-operator',

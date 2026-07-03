@@ -784,7 +784,7 @@ func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *test
 	}
 }
 
-func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity(t *testing.T) {
+func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromOperationMaster(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -801,18 +801,14 @@ func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity(t *
 	fn := src[fnStart : fnStart+fnEnd]
 	for _, want := range []string{
 		"process_route_operations",
-		"manufacturing_workstation_capacity_operations",
-		"manufacturing_workstation_capacities",
-		"manufacturing_workstations",
-		"c.standard_minutes",
-		"c.batch_size_qty",
-		"c.batch_size_unit",
-		"COALESCE(NULLIF(w.hourly_rate,0), NULLIF(c.hourly_rate,0), 0)",
-		"hourly_rate * standard_minutes / 60.0 / NULLIF(batch_size_qty",
+		"manufacturing_operations",
+		"standard_operation_cost",
+		"operation_master",
+		"per_inventory_unit",
 		"标准工序成本",
 	} {
 		if !strings.Contains(fn, want) {
-			t.Fatalf("pricing trial details must derive standard operation cost from route operations and workstation capacities; missing %q", want)
+			t.Fatalf("pricing trial details must derive standard operation cost from operation master; missing %q", want)
 		}
 	}
 	if strings.Contains(fn, "if input.ProcessRouteID > 0 {\n\t\treturn out, nil\n\t}") {
@@ -820,7 +816,7 @@ func TestPricingRuleTrialDetailsDeriveStandardOperationCostFromRouteCapacity(t *
 	}
 }
 
-func TestPricingRuleTrialDetailsUseExplicitStandardCostDefaultCapacity(t *testing.T) {
+func TestPricingRuleTrialDetailsDoNotUseRouteStandardCostDefaultCapacity(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -835,26 +831,19 @@ func TestPricingRuleTrialDetailsUseExplicitStandardCostDefaultCapacity(t *testin
 		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
 	}
 	fn := src[fnStart : fnStart+fnEnd]
-	for _, want := range []string{
+	for _, forbidden := range []string{
 		"pro.standard_cost_capacity_id",
-		"standard_cost_capacity_id",
+		"manufacturing_workstation_capacity_operations",
 		"capacity_selection_source",
 		"route_default",
 		"unique_match",
+		"missing_default",
 		"请为工艺路线工序设置标准成本默认产能",
-		"&row.CapacitySelectionSource",
-		"&row.Warning",
-	} {
-		if !strings.Contains(fn, want) {
-			t.Fatalf("pricing trial details must use explicit standard cost default capacity; missing %q", want)
-		}
-	}
-	for _, forbidden := range []string{
 		"ROW_NUMBER() OVER (PARTITION BY ro.route_operation_id ORDER BY c.sort_order, c.id) AS rn",
 		"WHERE rn=1",
 	} {
 		if strings.Contains(fn, forbidden) {
-			t.Fatalf("pricing trial details must not silently choose the first capacity; found %q", forbidden)
+			t.Fatalf("pricing trial details must not use route standard cost capacity selection; found %q", forbidden)
 		}
 	}
 }

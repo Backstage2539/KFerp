@@ -22,20 +22,24 @@ type apiRepo struct {
 }
 
 func (r *apiRepo) ListManufacturingOperations(ctx context.Context) ([]manufacturingapp.ManufacturingOperation, error) {
-	return []manufacturingapp.ManufacturingOperation{{ID: 1, Name: "烘焙", Code: "roast", Status: "active"}}, nil
+	return []manufacturingapp.ManufacturingOperation{{ID: 1, Name: "烘焙", Code: "roast", Status: "active", StandardOperationCost: 8.5}}, nil
 }
 func (r *apiRepo) SaveManufacturingOperation(ctx context.Context, cmd manufacturingapp.SaveManufacturingOperationCommand) (manufacturingapp.ManufacturingOperation, error) {
-	return manufacturingapp.ManufacturingOperation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes}, nil
+	return manufacturingapp.ManufacturingOperation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, StandardOperationCost: cmd.StandardOperationCost}, nil
 }
 func (r *apiRepo) DeactivateManufacturingOperation(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
 	return nil
 }
 func (r *apiRepo) ListManufacturingWorkstations(ctx context.Context) ([]manufacturingapp.ManufacturingWorkstation, error) {
-	return []manufacturingapp.ManufacturingWorkstation{{ID: 2, Name: "烘焙机", Code: "roaster", Status: "active", MachineHourlyCost: 40, LaborHourlyCost: 55, OverheadHourlyCost: 5, HourlyRate: 100}}, nil
+	return []manufacturingapp.ManufacturingWorkstation{{
+		ID: 2, Name: "烘焙机", Code: "roaster", Status: "active", MachineHourlyCost: 40, LaborHourlyCost: 55, OverheadHourlyCost: 5, HourlyRate: 100,
+		ApplicableOperationIDs: []int64{1},
+		ApplicableOperations:   []manufacturingapp.ManufacturingOperation{{ID: 1, Name: "烘焙", Status: "active"}},
+	}}, nil
 }
 func (r *apiRepo) SaveManufacturingWorkstation(ctx context.Context, cmd manufacturingapp.SaveManufacturingWorkstationCommand) (manufacturingapp.ManufacturingWorkstation, error) {
 	r.workstationSaved = cmd
-	return manufacturingapp.ManufacturingWorkstation{ID: 2, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, MachineHourlyCost: cmd.MachineHourlyCost, LaborHourlyCost: cmd.LaborHourlyCost, OverheadHourlyCost: cmd.OverheadHourlyCost, HourlyRate: cmd.HourlyRate}, nil
+	return manufacturingapp.ManufacturingWorkstation{ID: 2, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, MachineHourlyCost: cmd.MachineHourlyCost, LaborHourlyCost: cmd.LaborHourlyCost, OverheadHourlyCost: cmd.OverheadHourlyCost, HourlyRate: cmd.HourlyRate, ApplicableOperationIDs: cmd.ApplicableOperationIDs}, nil
 }
 func (r *apiRepo) DeactivateManufacturingWorkstation(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
 	return nil
@@ -44,8 +48,6 @@ func (r *apiRepo) ListManufacturingWorkstationCapacities(ctx context.Context, qu
 	return []manufacturingapp.ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: query.WorkstationID, Code: "BUHLER-18KG", Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300, ProductionCapacity: 1,
-		ApplicableOperationIDs: []int64{1},
-		ApplicableOperations:   []manufacturingapp.ManufacturingOperation{{ID: 1, Name: "烘焙", Status: "active"}},
 	}}, nil
 }
 func (r *apiRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.SaveWorkstationCapacityCommand) (manufacturingapp.ManufacturingWorkstationCapacity, error) {
@@ -199,7 +201,7 @@ func TestWorkstationAPISavesCostComponentsAndDerivedHourlyRate(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
 
-	body := `{"name":"Loring S15","machine_hourly_cost":42.5,"labor_hourly_cost":60,"overhead_hourly_cost":7.5,"hourly_rate":999}`
+	body := `{"name":"Loring S15","machine_hourly_cost":42.5,"labor_hourly_cost":60,"overhead_hourly_cost":7.5,"hourly_rate":999,"applicable_operation_ids":[1,2]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstations", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -219,6 +221,27 @@ func TestWorkstationAPISavesCostComponentsAndDerivedHourlyRate(t *testing.T) {
 	}
 	if repo.workstationSaved.HourlyRate != 110 {
 		t.Fatalf("saved hourly rate = %.2f, want derived 110", repo.workstationSaved.HourlyRate)
+	}
+	if len(repo.workstationSaved.ApplicableOperationIDs) != 2 || repo.workstationSaved.ApplicableOperationIDs[0] != 1 || repo.workstationSaved.ApplicableOperationIDs[1] != 2 {
+		t.Fatalf("saved workstation applicable operations = %+v", repo.workstationSaved.ApplicableOperationIDs)
+	}
+}
+
+func TestManufacturingOperationAPISavesStandardOperationCost(t *testing.T) {
+	repo := &apiRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
+
+	body := `{"name":"烘焙","standard_operation_cost":8.5}`
+	req := httptest.NewRequest(http.MethodPost, "/api/manufacturing-operations", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save operation status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"standard_operation_cost":8.5`) {
+		t.Fatalf("operation response missing standard operation cost: %s", rec.Body.String())
 	}
 }
 
@@ -282,8 +305,8 @@ func TestWorkstationCapacityAPIListSaveAndDeactivate(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"布勒 18kg"`) {
 		t.Fatalf("list capacity status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"applicable_operation_ids":[1]`) || !strings.Contains(rec.Body.String(), `"applicable_operations":[`) {
-		t.Fatalf("list capacity response missing applicable operations: %s", rec.Body.String())
+	if strings.Contains(rec.Body.String(), `"applicable_operations"`) {
+		t.Fatalf("capacity response should not own applicable operations: %s", rec.Body.String())
 	}
 
 	body := `{"workstation_id":2,"name":"布勒 15kg","batch_size_qty":15,"batch_size_unit":"kg","standard_minutes":13,"hourly_rate":280,"applicable_operation_ids":[1,2]}`
@@ -297,8 +320,8 @@ func TestWorkstationCapacityAPIListSaveAndDeactivate(t *testing.T) {
 	if repo.workstationCapacitySaved.WorkstationID != 2 || repo.workstationCapacitySaved.BatchSizeQty != 15 || repo.workstationCapacitySaved.StandardMinutes != 13 || repo.workstationCapacitySaved.HourlyRate != 0 {
 		t.Fatalf("saved workstation capacity command = %+v", repo.workstationCapacitySaved)
 	}
-	if len(repo.workstationCapacitySaved.ApplicableOperationIDs) != 2 || repo.workstationCapacitySaved.ApplicableOperationIDs[0] != 1 || repo.workstationCapacitySaved.ApplicableOperationIDs[1] != 2 {
-		t.Fatalf("saved applicable operations = %+v", repo.workstationCapacitySaved.ApplicableOperationIDs)
+	if len(repo.workstationCapacitySaved.ApplicableOperationIDs) != 0 {
+		t.Fatalf("capacity should ignore applicable operations = %+v", repo.workstationCapacitySaved.ApplicableOperationIDs)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities/9/deactivate", strings.NewReader(`{}`))

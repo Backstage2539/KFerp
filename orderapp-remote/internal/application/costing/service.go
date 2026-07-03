@@ -1293,7 +1293,7 @@ func pricingRuleTrialConvertCostAmount(amount float64, sourceUnit string, target
 
 func pricingRuleTrialBaseCostDetailUnitCostFollowsOutput(row PricingRuleTrialBaseCostDetail) bool {
 	switch strings.TrimSpace(row.ConsumeUnit) {
-	case "ratio_pct", "per_kg", "per_kg_output", "per_finished_kg":
+	case "ratio_pct", "per_kg", "per_kg_output", "per_finished_kg", "per_inventory_unit":
 		return true
 	default:
 		return false
@@ -2636,9 +2636,6 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		if !hasNonEmptyObjectSnapshot(row["cost_source_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少成本来源快照：第%d行", position)
 		}
-		if beanListFlatPriceRowHasBlockingStandardCostWarning(row["cost_source_snapshot"]) {
-			return fmt.Errorf("价格表平铺行标准工序成本不完整：第%d行，请为工艺路线工序设置标准成本默认产能", position)
-		}
 		if _, exists := row["customer_reference_snapshot"]; !exists || !hasObjectSnapshot(row["customer_reference_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少客户引用展示快照：第%d行", position)
 		}
@@ -2647,43 +2644,6 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		}
 	}
 	return nil
-}
-
-func beanListFlatPriceRowHasBlockingStandardCostWarning(value any) bool {
-	snapshot, ok := objectSnapshotMap(value)
-	if !ok {
-		return false
-	}
-	if warnings, ok := snapshot["pricing_rule_trial_warnings"].([]any); ok {
-		for _, raw := range warnings {
-			if strings.Contains(stringValue(raw), "标准成本默认产能") {
-				return true
-			}
-		}
-	}
-	if warnings, ok := snapshot["warnings"].([]any); ok {
-		for _, raw := range warnings {
-			if strings.Contains(stringValue(raw), "标准成本默认产能") {
-				return true
-			}
-		}
-	}
-	if rows, ok := snapshot["pricing_rule_trial_base_cost_details"].([]any); ok {
-		for _, raw := range rows {
-			detail, ok := objectSnapshotMap(raw)
-			if !ok {
-				continue
-			}
-			source := strings.TrimSpace(stringValue(detail["capacity_selection_source"]))
-			if source == "missing_default" || source == "invalid_default" {
-				return true
-			}
-			if strings.Contains(stringValue(detail["warning"]), "标准成本默认产能") {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func objectSnapshotMap(value any) (map[string]any, bool) {

@@ -7,6 +7,7 @@ import (
 )
 
 type fakeRepo struct {
+	savedOperation           SaveManufacturingOperationCommand
 	savedProcess             SaveProcessTemplateCommand
 	savedRoute               SaveProcessRouteCommand
 	savedIndustry            SaveIndustryTemplateCommand
@@ -21,7 +22,8 @@ func (r *fakeRepo) ListManufacturingOperations(ctx context.Context) ([]Manufactu
 	return nil, nil
 }
 func (r *fakeRepo) SaveManufacturingOperation(ctx context.Context, cmd SaveManufacturingOperationCommand) (ManufacturingOperation, error) {
-	return ManufacturingOperation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes}, nil
+	r.savedOperation = cmd
+	return ManufacturingOperation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, StandardOperationCost: cmd.StandardOperationCost}, nil
 }
 func (r *fakeRepo) DeactivateManufacturingOperation(ctx context.Context, cmd TemplateStatusCommand) error {
 	return nil
@@ -31,7 +33,7 @@ func (r *fakeRepo) ListManufacturingWorkstations(ctx context.Context) ([]Manufac
 }
 func (r *fakeRepo) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManufacturingWorkstationCommand) (ManufacturingWorkstation, error) {
 	r.savedWorkstation = cmd
-	return ManufacturingWorkstation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, MachineHourlyCost: cmd.MachineHourlyCost, LaborHourlyCost: cmd.LaborHourlyCost, OverheadHourlyCost: cmd.OverheadHourlyCost, HourlyRate: cmd.HourlyRate}, nil
+	return ManufacturingWorkstation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, MachineHourlyCost: cmd.MachineHourlyCost, LaborHourlyCost: cmd.LaborHourlyCost, OverheadHourlyCost: cmd.OverheadHourlyCost, HourlyRate: cmd.HourlyRate, ApplicableOperationIDs: cmd.ApplicableOperationIDs}, nil
 }
 func (r *fakeRepo) DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error {
 	return nil
@@ -52,19 +54,18 @@ func (r *fakeRepo) ListManufacturingWorkstationCapacities(ctx context.Context, q
 func (r *fakeRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd SaveWorkstationCapacityCommand) (ManufacturingWorkstationCapacity, error) {
 	r.savedWorkstationCapacity = cmd
 	return ManufacturingWorkstationCapacity{
-		ID:                     9,
-		WorkstationID:          cmd.WorkstationID,
-		Code:                   cmd.Code,
-		Name:                   cmd.Name,
-		Status:                 cmd.Status,
-		BatchSizeQty:           cmd.BatchSizeQty,
-		BatchSizeUnit:          cmd.BatchSizeUnit,
-		StandardMinutes:        cmd.StandardMinutes,
-		HourlyRate:             cmd.HourlyRate,
-		ProductionCapacity:     cmd.ProductionCapacity,
-		SortOrder:              cmd.SortOrder,
-		Note:                   cmd.Note,
-		ApplicableOperationIDs: cmd.ApplicableOperationIDs,
+		ID:                 9,
+		WorkstationID:      cmd.WorkstationID,
+		Code:               cmd.Code,
+		Name:               cmd.Name,
+		Status:             cmd.Status,
+		BatchSizeQty:       cmd.BatchSizeQty,
+		BatchSizeUnit:      cmd.BatchSizeUnit,
+		StandardMinutes:    cmd.StandardMinutes,
+		HourlyRate:         cmd.HourlyRate,
+		ProductionCapacity: cmd.ProductionCapacity,
+		SortOrder:          cmd.SortOrder,
+		Note:               cmd.Note,
 	}, nil
 }
 func (r *fakeRepo) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd TemplateStatusCommand) error {
@@ -254,6 +255,49 @@ func TestSaveManufacturingWorkstationDerivesHourlyRateFromCostComponents(t *test
 	}
 }
 
+func TestSaveManufacturingOperationKeepsStandardOperationCost(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	got, err := svc.SaveManufacturingOperation(context.Background(), SaveManufacturingOperationCommand{
+		Name:                  "烘焙",
+		StandardOperationCost: 8.5,
+		Actor:                 "tester",
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingOperation: %v", err)
+	}
+	if repo.savedOperation.StandardOperationCost != 8.5 || got.StandardOperationCost != 8.5 {
+		t.Fatalf("standard operation cost saved %.2f returned %.2f, want 8.5", repo.savedOperation.StandardOperationCost, got.StandardOperationCost)
+	}
+	if _, err := svc.SaveManufacturingOperation(context.Background(), SaveManufacturingOperationCommand{Name: "坏工序", StandardOperationCost: -1}); err == nil || !strings.Contains(err.Error(), "standard_operation_cost") {
+		t.Fatalf("expected standard_operation_cost validation error, got %v", err)
+	}
+}
+
+func TestSaveManufacturingWorkstationNormalizesApplicableOperationIDs(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	got, err := svc.SaveManufacturingWorkstation(context.Background(), SaveManufacturingWorkstationCommand{
+		Name:                   "布勒烘焙机",
+		ApplicableOperationIDs: []int64{2, 0, 2, -1, 1},
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingWorkstation: %v", err)
+	}
+	want := []int64{2, 1}
+	if len(repo.savedWorkstation.ApplicableOperationIDs) != len(want) {
+		t.Fatalf("saved applicable operation ids = %+v, want %+v", repo.savedWorkstation.ApplicableOperationIDs, want)
+	}
+	for i := range want {
+		if repo.savedWorkstation.ApplicableOperationIDs[i] != want[i] {
+			t.Fatalf("saved applicable operation ids = %+v, want %+v", repo.savedWorkstation.ApplicableOperationIDs, want)
+		}
+	}
+	if len(got.ApplicableOperationIDs) != len(want) || got.ApplicableOperationIDs[0] != 2 || got.ApplicableOperationIDs[1] != 1 {
+		t.Fatalf("returned applicable operation ids = %+v, want %+v", got.ApplicableOperationIDs, want)
+	}
+}
+
 func TestSaveProcessRouteKeepsRouteLeanAndNormalizesOperations(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -308,7 +352,7 @@ func TestSaveWorkstationCapacityNormalizesReusablePreset(t *testing.T) {
 	}
 }
 
-func TestSaveWorkstationCapacityNormalizesApplicableOperationIDs(t *testing.T) {
+func TestSaveWorkstationCapacityIgnoresApplicableOperationIDs(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	got, err := svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
@@ -324,17 +368,8 @@ func TestSaveWorkstationCapacityNormalizesApplicableOperationIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveManufacturingWorkstationCapacity: %v", err)
 	}
-	want := []int64{2, 1}
-	if len(repo.savedWorkstationCapacity.ApplicableOperationIDs) != len(want) {
-		t.Fatalf("saved applicable operation ids = %+v, want %+v", repo.savedWorkstationCapacity.ApplicableOperationIDs, want)
-	}
-	for i := range want {
-		if repo.savedWorkstationCapacity.ApplicableOperationIDs[i] != want[i] {
-			t.Fatalf("saved applicable operation ids = %+v, want %+v", repo.savedWorkstationCapacity.ApplicableOperationIDs, want)
-		}
-	}
-	if len(got.ApplicableOperationIDs) != len(want) || got.ApplicableOperationIDs[0] != 2 || got.ApplicableOperationIDs[1] != 1 {
-		t.Fatalf("returned applicable operation ids = %+v, want %+v", got.ApplicableOperationIDs, want)
+	if len(repo.savedWorkstationCapacity.ApplicableOperationIDs) != 0 || len(got.ApplicableOperationIDs) != 0 {
+		t.Fatalf("capacity should not own applicable operation ids, saved=%+v returned=%+v", repo.savedWorkstationCapacity.ApplicableOperationIDs, got.ApplicableOperationIDs)
 	}
 }
 
@@ -373,7 +408,7 @@ func TestSaveProcessRouteClearsWorkstationCapacityCostFields(t *testing.T) {
 	}
 }
 
-func TestSaveProcessRouteKeepsStandardCostDefaultCapacity(t *testing.T) {
+func TestSaveProcessRouteClearsStandardCostDefaultCapacity(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15,
@@ -392,31 +427,11 @@ func TestSaveProcessRouteKeepsStandardCostDefaultCapacity(t *testing.T) {
 		t.Fatalf("SaveProcessRoute: %v", err)
 	}
 	op := route.Operations[0]
-	if op.StandardCostCapacityID != 9 {
-		t.Fatalf("standard cost capacity id = %d, want 9", op.StandardCostCapacityID)
+	if op.StandardCostCapacityID != 0 {
+		t.Fatalf("standard cost capacity id = %d, want cleared", op.StandardCostCapacityID)
 	}
 	if repo.savedRoute.Operations[0].WorkstationCapacityID != 0 {
 		t.Fatalf("standard cost default must not restore actual workstation capacity fields: %+v", repo.savedRoute.Operations[0])
-	}
-}
-
-func TestSaveProcessRouteRejectsInvalidStandardCostDefaultCapacity(t *testing.T) {
-	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
-		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
-		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15,
-		ApplicableOperationIDs: []int64{8},
-	}}}
-	svc := NewService(repo)
-	_, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
-		Name: "标准烘焙路线",
-		Operations: []ProcessRouteOperation{{
-			OperationID:            7,
-			Operation:              "烘焙",
-			StandardCostCapacityID: 9,
-		}},
-	})
-	if err == nil || !strings.Contains(err.Error(), "标准成本默认产能") {
-		t.Fatalf("expected standard cost capacity validation error, got %v", err)
 	}
 }
 

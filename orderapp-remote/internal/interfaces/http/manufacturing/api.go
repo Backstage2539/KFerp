@@ -17,25 +17,27 @@ type ErrorResponse struct {
 }
 
 type manufacturingOperationRequest struct {
-	ID             int64  `json:"id"`
-	Code           string `json:"code"`
-	Name           string `json:"name"`
-	Status         string `json:"status"`
-	DefaultMinutes int    `json:"default_minutes"`
-	Note           string `json:"note"`
+	ID                    int64   `json:"id"`
+	Code                  string  `json:"code"`
+	Name                  string  `json:"name"`
+	Status                string  `json:"status"`
+	DefaultMinutes        int     `json:"default_minutes"`
+	StandardOperationCost float64 `json:"standard_operation_cost"`
+	Note                  string  `json:"note"`
 }
 
 type manufacturingWorkstationRequest struct {
-	ID                 int64   `json:"id"`
-	Code               string  `json:"code"`
-	Name               string  `json:"name"`
-	Status             string  `json:"status"`
-	DefaultMinutes     int     `json:"default_minutes"`
-	MachineHourlyCost  float64 `json:"machine_hourly_cost"`
-	LaborHourlyCost    float64 `json:"labor_hourly_cost"`
-	OverheadHourlyCost float64 `json:"overhead_hourly_cost"`
-	HourlyRate         float64 `json:"hourly_rate"`
-	Note               string  `json:"note"`
+	ID                     int64   `json:"id"`
+	Code                   string  `json:"code"`
+	Name                   string  `json:"name"`
+	Status                 string  `json:"status"`
+	DefaultMinutes         int     `json:"default_minutes"`
+	MachineHourlyCost      float64 `json:"machine_hourly_cost"`
+	LaborHourlyCost        float64 `json:"labor_hourly_cost"`
+	OverheadHourlyCost     float64 `json:"overhead_hourly_cost"`
+	HourlyRate             float64 `json:"hourly_rate"`
+	ApplicableOperationIDs []int64 `json:"applicable_operation_ids"`
+	Note                   string  `json:"note"`
 }
 
 type workstationCapacityRequest struct {
@@ -102,13 +104,14 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := svc.SaveManufacturingOperation(c.Request().Context(), manufacturingapp.SaveManufacturingOperationCommand{
-			ID:             req.ID,
-			Code:           req.Code,
-			Name:           req.Name,
-			Status:         req.Status,
-			DefaultMinutes: req.DefaultMinutes,
-			Note:           req.Note,
-			Actor:          support.ActorOf(c),
+			ID:                    req.ID,
+			Code:                  req.Code,
+			Name:                  req.Name,
+			Status:                req.Status,
+			DefaultMinutes:        req.DefaultMinutes,
+			StandardOperationCost: req.StandardOperationCost,
+			Note:                  req.Note,
+			Actor:                 support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -141,17 +144,18 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := svc.SaveManufacturingWorkstation(c.Request().Context(), manufacturingapp.SaveManufacturingWorkstationCommand{
-			ID:                 req.ID,
-			Code:               req.Code,
-			Name:               req.Name,
-			Status:             req.Status,
-			DefaultMinutes:     req.DefaultMinutes,
-			MachineHourlyCost:  req.MachineHourlyCost,
-			LaborHourlyCost:    req.LaborHourlyCost,
-			OverheadHourlyCost: req.OverheadHourlyCost,
-			HourlyRate:         req.HourlyRate,
-			Note:               req.Note,
-			Actor:              support.ActorOf(c),
+			ID:                     req.ID,
+			Code:                   req.Code,
+			Name:                   req.Name,
+			Status:                 req.Status,
+			DefaultMinutes:         req.DefaultMinutes,
+			MachineHourlyCost:      req.MachineHourlyCost,
+			LaborHourlyCost:        req.LaborHourlyCost,
+			OverheadHourlyCost:     req.OverheadHourlyCost,
+			HourlyRate:             req.HourlyRate,
+			ApplicableOperationIDs: req.ApplicableOperationIDs,
+			Note:                   req.Note,
+			Actor:                  support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -195,20 +199,19 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := svc.SaveManufacturingWorkstationCapacity(c.Request().Context(), manufacturingapp.SaveWorkstationCapacityCommand{
-			ID:                     req.ID,
-			WorkstationID:          req.WorkstationID,
-			Code:                   req.Code,
-			Name:                   req.Name,
-			Status:                 req.Status,
-			BatchSizeQty:           req.BatchSizeQty,
-			BatchSizeUnit:          req.BatchSizeUnit,
-			StandardMinutes:        req.StandardMinutes,
-			HourlyRate:             req.HourlyRate,
-			ProductionCapacity:     req.ProductionCapacity,
-			SortOrder:              req.SortOrder,
-			Note:                   req.Note,
-			ApplicableOperationIDs: req.ApplicableOperationIDs,
-			Actor:                  support.ActorOf(c),
+			ID:                 req.ID,
+			WorkstationID:      req.WorkstationID,
+			Code:               req.Code,
+			Name:               req.Name,
+			Status:             req.Status,
+			BatchSizeQty:       req.BatchSizeQty,
+			BatchSizeUnit:      req.BatchSizeUnit,
+			StandardMinutes:    req.StandardMinutes,
+			HourlyRate:         req.HourlyRate,
+			ProductionCapacity: req.ProductionCapacity,
+			SortOrder:          req.SortOrder,
+			Note:               req.Note,
+			Actor:              support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
