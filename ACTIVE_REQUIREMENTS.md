@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-517-OPERATION-STANDARD-COST-MASTER
 - Branch: codex/operation-cost-master-20260702
 - Owner/session: Codex / 2026-07-02
-- Status: verified on feature branch; pending merge/deploy.
+- Status: merged to develop and deployed to development.
 - Scope: 用户调整 PR-516 口径：工序列表的每个工序直接维护 `标准工序成本（元/库存单位）`；工位/设备统一维护 `适用工序`；工位产能只维护标准批量、单位、标准分钟和状态；工艺路线不再设置 `标准成本默认产能`，只维护工序顺序、损耗记录和质检项。
 - DEV:
   - DEV-517-OPERATION-STANDARD-COST-MASTER：`manufacturing_operations.standard_operation_cost` 支持 API/DB/审计和 Vue 工序列表维护，价格试算按工序主数据读取标准工序成本。
@@ -24,8 +24,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN full touched backend/support: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
   - GREEN frontend/build: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js src/lib/produce-plan.test.js` passed with 192 tests; first `npm run build` failed because fresh worktree lacked `vite`, then `npm ci` succeeded and `npm run build` passed with the existing large-chunk warning.
   - GREEN review: `git diff --check` and `scripts/verify_kferp.sh changed` passed.
-- Deployment: pending.
-- Last update: 2026-07-02 Asia/Shanghai
+- Deployment: development deployed from `origin/develop=639eca596b941979a47974b598f777378f915c77`; server backup `/opt/stacks/erp/orderapp.backup.deploy-20260703130010`; Docker build gate ran `go test ./...` inside the orderapp image and passed; containers `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/` returned `303`; authenticated `GET /app/vue-shell?view=manufacturingOperations`, `manufacturingWorkstations`, `processRoutes`, and `productPriceManagement` returned `200`; `/app/api/req/product?limit=1000` exposed `PR-517-OPERATION-STANDARD-COST-MASTER`; `/app/api/req/dev?limit=1200` exposed `DEV-517-OPERATION-STANDARD-COST-MASTER`; deployed source contains `standard_operation_cost` and PR-517 route-removal marker.
+- Last update: 2026-07-03 Asia/Shanghai
 - Notes: PR-516 保留为历史部署记录；当前新业务以 PR-517 为准。
 
 ### PR-516-STANDARD-COST-DEFAULT-CAPACITY

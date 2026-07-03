@@ -32,3 +32,14 @@
 - Full backend/support GREEN: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1`.
 - Frontend/build GREEN: `node --test src/lib/process-routes.test.js src/lib/product-settings.test.js src/lib/produce-plan.test.js` passed with 192 tests; `npm run build` passed after `npm ci`, with the existing large-chunk warning.
 - Review GREEN: `git diff --check` and `scripts/verify_kferp.sh changed` passed.
+
+## Deployment Smoke
+
+- Development deployed from `origin/develop=639eca596b941979a47974b598f777378f915c77`.
+- Backup: `/opt/stacks/erp/orderapp.backup.deploy-20260703130010`.
+- Docker build gate ran `go test ./...` inside the orderapp image and passed.
+- Containers running: `erp_orderapp`, `erp_postgres`, `erp_caddy`, `erp_docconvert`.
+- `GET /app/` returned `303`.
+- Authenticated Vue shell checks returned `200`: `manufacturingOperations`, `manufacturingWorkstations`, `processRoutes`, `productPriceManagement`.
+- Requirement APIs expose `PR-517-OPERATION-STANDARD-COST-MASTER` and `DEV-517-OPERATION-STANDARD-COST-MASTER`.
+- Deployed source contains `standard_operation_cost` and the PR-517 route-removal marker.
