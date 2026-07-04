@@ -2343,7 +2343,7 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		}
 		if err != nil {
 			if errors.Is(err, ErrProductSalesUnitRuleNotFound) {
-				return fmt.Errorf("商品档案缺少价格单位到库存单位换算：第%d行", idx+1)
+				return beanListFlatRowUnitConversionError("商品档案缺少价格单位到库存单位换算", idx+1, row, priceUnit)
 			}
 			return err
 		}
@@ -2352,7 +2352,7 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		}
 		targets, ok := rule.Conversion[priceUnit]
 		if !ok || len(targets) == 0 {
-			return fmt.Errorf("商品档案缺少价格单位到库存单位换算：第%d行", idx+1)
+			return beanListFlatRowUnitConversionError("商品档案缺少价格单位到库存单位换算", idx+1, row, priceUnit)
 		}
 		row["inventory_unit"] = strings.TrimSpace(rule.InventoryUnit)
 		row["inventory_conversion_json"] = productSalesUnitConversionSnapshot(priceUnit, targets)
@@ -2600,7 +2600,7 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 			return fmt.Errorf("价格表平铺行缺少库存单位：第%d行", position)
 		}
 		if !hasBeanListInventoryConversion(row["inventory_conversion_json"]) {
-			return fmt.Errorf("价格表平铺行缺少价格单位到库存单位换算：第%d行", position)
+			return beanListFlatRowUnitConversionError("价格表平铺行缺少价格单位到库存单位换算", position, row, "")
 		}
 		if !hasNonEmptyObjectSnapshot(row["group_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少分组快照：第%d行", position)
@@ -2663,6 +2663,67 @@ func validateBeanListFlatRowCostSourceSnapshot(value any, position int) error {
 		return fmt.Errorf("价格表平铺行缺少 BOM 工序成本快照：第%d行。%s", position, pricingRuleTrialBomOperationSnapshotMissingWarning)
 	}
 	return nil
+}
+
+func beanListFlatRowUnitConversionError(prefix string, position int, row map[string]any, priceUnit string) error {
+	if strings.TrimSpace(prefix) == "" {
+		prefix = "价格表平铺行缺少价格单位到库存单位换算"
+	}
+	details := make([]string, 0, 4)
+	if productName := beanListFlatRowString(row, "product_name", "display_name_snapshot", "product_name_snapshot", "name"); productName != "" {
+		details = append(details, "商品："+productName)
+	}
+	if skuLabel := beanListFlatRowSKULabel(row); skuLabel != "" {
+		details = append(details, "SKU："+skuLabel)
+	}
+	priceUnit = strings.TrimSpace(priceUnit)
+	if priceUnit == "" {
+		priceUnit = beanListFlatRowString(row, "price_unit", "priceUnit")
+	}
+	if priceUnit != "" {
+		details = append(details, "价格单位："+priceUnit)
+	}
+	if inventoryUnit := beanListFlatRowString(row, "inventory_unit", "inventoryUnit"); inventoryUnit != "" {
+		details = append(details, "库存单位："+inventoryUnit)
+	}
+	message := fmt.Sprintf("%s：第%d行", prefix, position)
+	if len(details) > 0 {
+		message = fmt.Sprintf("%s（%s）", message, strings.Join(details, "，"))
+	}
+	return fmt.Errorf("%s。请到 商品档案 → 销售规格模板 检查该规格的“1 规格 = 库存数量 库存单位”，或重新生成价格表预览", message)
+}
+
+func beanListFlatRowSKULabel(row map[string]any) string {
+	name := beanListFlatRowString(row, "sku_name", "skuName", "spec_label", "specLabel", "derived_spec_name", "derivedSpecName")
+	code := beanListFlatRowString(row, "sku_code", "skuCode")
+	if snapshot, ok := objectSnapshotMap(row["sku_snapshot"]); ok {
+		if name == "" {
+			name = beanListFlatRowString(snapshot, "sku_name", "skuName", "spec_label", "specLabel")
+		}
+		if code == "" {
+			code = beanListFlatRowString(snapshot, "sku_code", "skuCode")
+		}
+	}
+	switch {
+	case name != "" && code != "":
+		return fmt.Sprintf("%s（%s）", name, code)
+	case name != "":
+		return name
+	case code != "":
+		return code
+	default:
+		return ""
+	}
+}
+
+func beanListFlatRowString(row map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value := strings.TrimSpace(stringValue(row[key]))
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func beanListCostSourceSnapshotMissingBomOperationCost(snapshot map[string]any) bool {

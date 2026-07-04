@@ -2219,6 +2219,9 @@ func TestPublishBeanListRewritesFlatRowUnitSnapshotFromProductMaster(t *testing.
 	svc := NewService(repo)
 	row := map[string]any{
 		"product_id":                float64(414),
+		"sku_id":                    float64(514),
+		"sku_name":                  "100g袋装",
+		"sku_code":                  "SKU-000514",
 		"product_name":              "盒装速溶",
 		"tier_label":                "基础价",
 		"min_qty":                   float64(0),
@@ -2254,8 +2257,21 @@ func TestPublishBeanListRewritesFlatRowUnitSnapshotFromProductMaster(t *testing.
 	}
 
 	row["price_unit"] = "袋"
-	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.4", Content: map[string]any{"price_rows": []any{row}}}); err == nil || !strings.Contains(err.Error(), "商品档案缺少价格单位到库存单位换算") {
-		t.Fatalf("expected missing product UOM conversion error, got %v", err)
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.4", Content: map[string]any{"price_rows": []any{row}}}); err == nil {
+		t.Fatalf("expected missing product UOM conversion error")
+	} else {
+		for _, want := range []string{
+			"商品档案缺少价格单位到库存单位换算：第1行",
+			"商品：盒装速溶",
+			"SKU：100g袋装（SKU-000514）",
+			"价格单位：袋",
+			"库存单位：kg",
+			"销售规格模板",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("missing error detail %q in %q", want, err.Error())
+			}
+		}
 	}
 }
 
