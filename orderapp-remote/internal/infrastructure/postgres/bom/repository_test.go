@@ -332,6 +332,27 @@ func TestProductionBomVersionOperationCostSnapshots(t *testing.T) {
 	}
 }
 
+func TestProductionBomOperationCostSnapshotDoesNotExecWhileRowsOpen(t *testing.T) {
+	repository := readRepositorySource(t)
+	start := strings.Index(repository, "func refreshProductionBomVersionOperationCostSnapshotsTx")
+	if start == -1 {
+		t.Fatalf("cannot locate refreshProductionBomVersionOperationCostSnapshotsTx")
+	}
+	end := strings.Index(repository[start+len("func refreshProductionBomVersionOperationCostSnapshotsTx"):], "\nfunc ")
+	body := repository[start:]
+	if end >= 0 {
+		body = repository[start : start+len("func refreshProductionBomVersionOperationCostSnapshotsTx")+end]
+	}
+	rowsNextIdx := strings.Index(body, "for rows.Next()")
+	rowsErrIdx := strings.Index(body, "rows.Err()")
+	if rowsNextIdx == -1 || rowsErrIdx == -1 {
+		t.Fatalf("snapshot refresh must still read route operation rows and check rows.Err()")
+	}
+	if strings.Contains(body[rowsNextIdx:rowsErrIdx], "tx.Exec(ctx") {
+		t.Fatalf("snapshot refresh must not call tx.Exec while route operation rows are still open; pgx returns conn busy")
+	}
+}
+
 func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

@@ -2256,7 +2256,21 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		return 0, err
 	}
 	defer rows.Close()
-	count := 0
+	type operationCostSnapshot struct {
+		seq             int
+		operationID     int64
+		operationName   string
+		workstationID   int64
+		workstationName string
+		capacityID      int64
+		capacityName    string
+		hourlyRate      float64
+		standardMinutes float64
+		batchSizeQty    float64
+		batchSizeUnit   string
+		unitCost        float64
+	}
+	var snapshots []operationCostSnapshot
 	for rows.Next() {
 		var seq int
 		var operationID int64
@@ -2288,18 +2302,38 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		if hourlyRate > 0 && standardMinutes > 0 {
 			unitCost = hourlyRate * standardMinutes / 60 / outputBatchQty
 		}
+		snapshots = append(snapshots, operationCostSnapshot{
+			seq:             seq,
+			operationID:     operationID,
+			operationName:   operationName,
+			workstationID:   workstationID,
+			workstationName: workstationName,
+			capacityID:      capacityID,
+			capacityName:    capacityName,
+			hourlyRate:      hourlyRate,
+			standardMinutes: standardMinutes,
+			batchSizeQty:    batchSizeQty,
+			batchSizeUnit:   batchSizeUnit,
+			unitCost:        unitCost,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+	for _, snapshot := range snapshots {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.production_bom_version_operation_costs(
 				version_id,operation_id,operation_name,workstation_id,workstation_name,
 				workstation_capacity_id,capacity_name,hourly_rate_snapshot,standard_minutes_snapshot,
 				batch_size_qty_snapshot,batch_size_unit_snapshot,operation_unit_cost,operation_cost_unit,sort_order,created_at
 			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
-		`, schema), versionID, operationID, operationName, workstationID, workstationName, capacityID, capacityName, hourlyRate, standardMinutes, batchSizeQty, batchSizeUnit, unitCost, outputUnit, seq); err != nil {
+		`, schema), versionID, snapshot.operationID, snapshot.operationName, snapshot.workstationID, snapshot.workstationName, snapshot.capacityID, snapshot.capacityName, snapshot.hourlyRate, snapshot.standardMinutes, snapshot.batchSizeQty, snapshot.batchSizeUnit, snapshot.unitCost, outputUnit, snapshot.seq); err != nil {
 			return 0, err
 		}
-		count++
 	}
-	return count, rows.Err()
+	return len(snapshots), nil
 }
 
 func convertBomOperationBatchQty(qty float64, sourceUnit string, targetUnit string) (float64, bool) {
