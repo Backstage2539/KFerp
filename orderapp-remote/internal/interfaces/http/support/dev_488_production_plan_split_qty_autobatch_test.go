@@ -20,7 +20,7 @@ func TestDev488ProductionPlanSplitQtyAutoBatchContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
 			"承担产量",
 			"自动批次数",
-			"defaultPlannedQtyForSplit",
+			"capacityDefaultPlannedQty",
 			"split.planned_qty",
 		},
 		filepath.Join("internal", "application", "production", "service.go"): {
