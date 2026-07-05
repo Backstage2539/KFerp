@@ -1,6 +1,7 @@
 package costing
 
 import (
+	"math"
 	domain "orderapp/internal/domain/costing"
 	"os"
 	"strings"
@@ -505,6 +506,32 @@ func TestProductSalesUnitConversionMapAcceptsLegacyFlatConversions(t *testing.T)
 	nested := productSalesUnitConversionMap(`{"箱":{"盒":24}}`, "kg")
 	if nested["箱"]["盒"] != 24 {
 		t.Fatalf("nested conversion = %#v, want existing nested conversion preserved", nested["箱"])
+	}
+}
+
+func TestProductSalesUnitConversionMapAddsStandardWeightConversions(t *testing.T) {
+	got := productSalesUnitConversionMap(`{}`, "kg")
+	if math.Abs(got["lb"]["kg"]-0.45359237) > 0.00000001 {
+		t.Fatalf("lb conversion = %#v, want 0.45359237 kg", got["lb"])
+	}
+	if math.Abs(got["磅"]["kg"]-0.45359237) > 0.00000001 {
+		t.Fatalf("磅 conversion = %#v, want 0.45359237 kg", got["磅"])
+	}
+	if got["kg"]["kg"] != 1 {
+		t.Fatalf("kg conversion = %#v, want 1 kg", got["kg"])
+	}
+
+	toGrams := productSalesUnitConversionMap(`{}`, "g")
+	if math.Abs(toGrams["kg"]["g"]-1000) > 0.00000001 {
+		t.Fatalf("kg conversion to g = %#v, want 1000 g", toGrams["kg"])
+	}
+	if math.Abs(toGrams["lb"]["g"]-453.59237) > 0.00000001 {
+		t.Fatalf("lb conversion to g = %#v, want 453.59237 g", toGrams["lb"])
+	}
+
+	custom := productSalesUnitConversionMap(`{"lb":{"kg":0.454}}`, "kg")
+	if custom["lb"]["kg"] != 0.454 {
+		t.Fatalf("explicit lb conversion = %#v, want explicit 0.454 kg", custom["lb"])
 	}
 }
 

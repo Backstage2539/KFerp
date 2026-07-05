@@ -441,48 +441,90 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 func productSalesUnitConversionMap(raw string, inventoryUnit ...string) map[string]map[string]float64 {
 	out := map[string]map[string]float64{}
 	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "{}" || raw == "null" {
-		return out
-	}
 	targetInventoryUnit := "kg"
 	if len(inventoryUnit) > 0 {
 		if unit := strings.TrimSpace(inventoryUnit[0]); unit != "" {
 			targetInventoryUnit = unit
 		}
 	}
-	var generic map[string]any
-	if err := json.Unmarshal([]byte(raw), &generic); err != nil || generic == nil {
+	if raw == "" || raw == "{}" || raw == "null" {
+		productSalesUnitAddStandardWeightConversions(out, targetInventoryUnit)
 		return out
 	}
-	for fromUnit, rawTargets := range generic {
-		fromUnit = strings.TrimSpace(fromUnit)
-		if fromUnit == "" {
-			continue
-		}
-		targets, ok := rawTargets.(map[string]any)
-		if !ok {
-			factor := anyFloat64(rawTargets)
-			if factor > 0 && targetInventoryUnit != "" {
+	var generic map[string]any
+	if err := json.Unmarshal([]byte(raw), &generic); err == nil && generic != nil {
+		for fromUnit, rawTargets := range generic {
+			fromUnit = strings.TrimSpace(fromUnit)
+			if fromUnit == "" {
+				continue
+			}
+			targets, ok := rawTargets.(map[string]any)
+			if !ok {
+				factor := anyFloat64(rawTargets)
+				if factor > 0 && targetInventoryUnit != "" {
+					if out[fromUnit] == nil {
+						out[fromUnit] = map[string]float64{}
+					}
+					out[fromUnit][targetInventoryUnit] = factor
+				}
+				continue
+			}
+			for toUnit, rawFactor := range targets {
+				toUnit = strings.TrimSpace(toUnit)
+				factor := anyFloat64(rawFactor)
+				if toUnit == "" || factor <= 0 {
+					continue
+				}
 				if out[fromUnit] == nil {
 					out[fromUnit] = map[string]float64{}
 				}
-				out[fromUnit][targetInventoryUnit] = factor
+				out[fromUnit][toUnit] = factor
 			}
-			continue
-		}
-		for toUnit, rawFactor := range targets {
-			toUnit = strings.TrimSpace(toUnit)
-			factor := anyFloat64(rawFactor)
-			if toUnit == "" || factor <= 0 {
-				continue
-			}
-			if out[fromUnit] == nil {
-				out[fromUnit] = map[string]float64{}
-			}
-			out[fromUnit][toUnit] = factor
 		}
 	}
+	productSalesUnitAddStandardWeightConversions(out, targetInventoryUnit)
 	return out
+}
+
+func productSalesUnitAddStandardWeightConversions(out map[string]map[string]float64, inventoryUnit string) {
+	inventoryUnit = strings.TrimSpace(inventoryUnit)
+	if inventoryUnit == "" || productSalesUnitWeightKGFactor(inventoryUnit) <= 0 {
+		return
+	}
+	for _, fromUnit := range []string{"g", "kg", "lb", "lbs", "磅", "克", "公斤", "千克"} {
+		factor := productSalesUnitStandardWeightFactor(fromUnit, inventoryUnit)
+		if factor <= 0 {
+			continue
+		}
+		if out[fromUnit] == nil {
+			out[fromUnit] = map[string]float64{}
+		}
+		if _, exists := out[fromUnit][inventoryUnit]; !exists {
+			out[fromUnit][inventoryUnit] = factor
+		}
+	}
+}
+
+func productSalesUnitStandardWeightFactor(fromUnit string, toUnit string) float64 {
+	fromKG := productSalesUnitWeightKGFactor(fromUnit)
+	toKG := productSalesUnitWeightKGFactor(toUnit)
+	if fromKG <= 0 || toKG <= 0 {
+		return 0
+	}
+	return fromKG / toKG
+}
+
+func productSalesUnitWeightKGFactor(unit string) float64 {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "g", "克":
+		return 0.001
+	case "kg", "公斤", "千克":
+		return 1
+	case "lb", "lbs", "磅":
+		return 0.45359237
+	default:
+		return 0
+	}
 }
 
 func (r Repository) LoadProductPricingRule(ctx context.Context, id int64) (appcosting.ProductPricingRule, error) {
