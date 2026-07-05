@@ -521,7 +521,6 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
     'split-batch-cards',
     'split-batch-card',
     '不足标准批量',
-    'autoSplitCurrentPlanOperation',
     'autoSplitProductionPlanDrawerOperation',
     'ensureWorkstationCapacities',
     'applicableOperationCapacities',
@@ -541,6 +540,8 @@ test('ProducePlanView edits draft plan splits in a drawer instead of the current
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   for (const marker of [
+    '@click="handlePlanStepClick(step.key)"',
+    'openCurrentPlanSplitDrawer',
     'openProductionPlanSplitDrawer',
     'closeProductionPlanSplitDrawer',
     'saveProductionPlanSplitDrawer',
@@ -555,6 +556,11 @@ test('ProducePlanView edits draft plan splits in a drawer instead of the current
     assert.ok(source.includes(marker), `missing ${marker}`)
   }
 
+  assert.doesNotMatch(source, /operation-split-placeholder/)
+  assert.doesNotMatch(source, /operation-split-panel/)
+  assert.doesNotMatch(source, /autoSplitCurrentPlanOperation/)
+  assert.doesNotMatch(source, /创建草稿生产计划后可填写工序产能拆分/)
+  assert.doesNotMatch(source, /先点创建生产计划，生成草稿后再选择工位产能和承担产量/)
   assert.doesNotMatch(source, /@click="loadProductionPlanIntoCurrentEditor\(plan\)"/)
   assert.doesNotMatch(source, /currentPlan\.value = detail/)
 })
@@ -608,12 +614,19 @@ test('ProducePlanView maintains production demand statuses and filters planned r
   assert.doesNotMatch(source, /selected\[rowKey\(row\)\]/)
 })
 
-test('ProducePlanView explains operation capacity splits before the draft plan exists', () => {
+test('ProducePlanView keeps operation capacity splitting out of the current plan preview', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /创建草稿生产计划后可填写工序产能拆分/)
-  assert.match(source, /先点创建生产计划，生成草稿后再选择工位产能和承担产量/)
-  assert.match(source, /拆分会在提交生成工单前保存/)
+  const workbenchStart = source.indexOf("<section :class=\"['planning-workbench'")
+  const listStart = source.indexOf('<section class="panel">\n      <div class="section-title">库存充足')
+  assert.ok(workbenchStart > 0, 'missing planning workbench start')
+  assert.ok(listStart > workbenchStart, 'missing inventory-sufficient panel after planning workbench')
+  const currentPlanWorkbench = source.slice(workbenchStart, listStart)
+
+  assert.doesNotMatch(currentPlanWorkbench, /工序产能拆分/)
+  assert.doesNotMatch(currentPlanWorkbench, /保存拆分/)
+  assert.doesNotMatch(currentPlanWorkbench, /添加拆分/)
+  assert.match(source, /草稿计划在这里补充或调整工位产能拆分，不占用当前生产计划工作台。/)
 })
 
 test('ProducePlanView opens an ERPNext-style production plan detail drawer from the compact list', () => {
