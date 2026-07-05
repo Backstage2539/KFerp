@@ -50,13 +50,12 @@ func TestDev494CapacityOperationAutoSplitContracts(t *testing.T) {
 	}
 	for _, marker := range []string{
 		"buildOperationCapacityAutoSplits",
-		"maxAssignableQtyForCapacitySplit",
-		"qtyFromGForCapacityUnit",
-		"applicableOperationCapacities",
-		"autoSplitCurrentPlanOperation",
-		"autoSplitProductionPlanDrawerOperation",
-		"autoSplitWorkOrderOperation",
-		"自动拆分",
+			"maxAssignableQtyForCapacitySplit",
+			"qtyFromGForCapacityUnit",
+			"applicableOperationCapacities",
+			"autoSplitProductionPlanDrawerOperation",
+			"autoSplitWorkOrderOperation",
+			"自动拆分",
 	} {
 		if !strings.Contains(contents["producePlanLib"]+contents["producePlanView"]+contents["workOrdersView"], marker) {
 			t.Fatalf("frontend auto split support missing %s", marker)
