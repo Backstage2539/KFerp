@@ -403,6 +403,46 @@ type SaveProductionPlanOperationSplitsCommand struct {
 	Operator string
 }
 
+type PreviewProductionPlanOperationSplitsCommand struct {
+	ID    int64
+	Items []ProductionPlanOperationSplit
+}
+
+type ProductionPlanOperationSplitPreview struct {
+	CoverageSummary   ProductionPlanOperationSplitCoverageSummary   `json:"coverage_summary"`
+	OperationCoverage []ProductionPlanOperationSplitCoverageRow     `json:"operation_coverage"`
+	MaterialSummary   []ProductionPlanOperationSplitMaterialPreview `json:"material_summary"`
+	Warnings          []string                                      `json:"warnings"`
+}
+
+type ProductionPlanOperationSplitCoverageSummary struct {
+	RequiredG int64  `json:"required_g"`
+	ArrangedG int64  `json:"arranged_g"`
+	DiffG     int64  `json:"diff_g"`
+	Status    string `json:"status"`
+}
+
+type ProductionPlanOperationSplitCoverageRow struct {
+	ProductionPlanItemID int64  `json:"production_plan_item_id"`
+	ProductName          string `json:"product_name"`
+	OperationSeq         int    `json:"operation_seq"`
+	OperationID          int64  `json:"operation_id"`
+	Operation            string `json:"operation"`
+	RequiredG            int64  `json:"required_g"`
+	ArrangedG            int64  `json:"arranged_g"`
+	DiffG                int64  `json:"diff_g"`
+	Status               string `json:"status"`
+}
+
+type ProductionPlanOperationSplitMaterialPreview struct {
+	Name        string `json:"name"`
+	Unit        string `json:"unit"`
+	RequiredQty int64  `json:"required_qty"`
+	ArrangedQty int64  `json:"arranged_qty"`
+	DiffQty     int64  `json:"diff_qty"`
+	Status      string `json:"status"`
+}
+
 type SaveWorkOrderOperationSplitsCommand struct {
 	ID       int64
 	Items    []ProductionPlanOperationSplit
@@ -1388,6 +1428,7 @@ type Repository interface {
 	ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error)
 	GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error)
 	SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error)
+	PreviewProductionPlanOperationSplits(ctx context.Context, cmd PreviewProductionPlanOperationSplitsCommand) (ProductionPlanOperationSplitPreview, error)
 	SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error)
 	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
 	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
@@ -1605,6 +1646,34 @@ func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd Sav
 		}
 	}
 	return s.repo.SaveProductionPlanOperationSplits(ctx, cmd)
+}
+
+func (s *Service) PreviewProductionPlanOperationSplits(ctx context.Context, cmd PreviewProductionPlanOperationSplitsCommand) (ProductionPlanOperationSplitPreview, error) {
+	if cmd.ID <= 0 {
+		return ProductionPlanOperationSplitPreview{}, fmt.Errorf("production_plan_id required")
+	}
+	for i := range cmd.Items {
+		item := &cmd.Items[i]
+		item.ProductionPlanID = cmd.ID
+		item.Operation = strings.TrimSpace(item.Operation)
+		item.Workstation = strings.TrimSpace(item.Workstation)
+		item.WorkstationCapacityName = strings.TrimSpace(item.WorkstationCapacityName)
+		item.BatchSizeUnit = strings.TrimSpace(item.BatchSizeUnit)
+		item.Note = strings.TrimSpace(item.Note)
+		if item.ProductionPlanItemID <= 0 {
+			return ProductionPlanOperationSplitPreview{}, fmt.Errorf("production_plan_item_id required")
+		}
+		if item.WorkstationCapacityID <= 0 {
+			return ProductionPlanOperationSplitPreview{}, fmt.Errorf("workstation_capacity_id required")
+		}
+		if item.PlannedQty <= 0 {
+			return ProductionPlanOperationSplitPreview{}, fmt.Errorf("planned_qty required")
+		}
+		if item.OperationSeq < 0 {
+			return ProductionPlanOperationSplitPreview{}, fmt.Errorf("operation_seq must be >= 0")
+		}
+	}
+	return s.repo.PreviewProductionPlanOperationSplits(ctx, cmd)
 }
 
 func (s *Service) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error) {

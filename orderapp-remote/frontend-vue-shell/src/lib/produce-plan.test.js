@@ -11,6 +11,7 @@ import {
   currentProductionPlanStep,
   productionPlanSubmitEndpoint,
   productionPlanSteps,
+  productionPlanOperationSplitsPreviewEndpoint,
   buildInsufficientSelection,
   insufficientSelectionState,
   productionPlanOperationSplitsEndpoint,
@@ -31,6 +32,8 @@ import {
   productionDemandStatusFilterValue,
   productionDemandStatusLabel,
   productionDemandStatusTone,
+  operationSplitPreviewStatusLabel,
+  operationSplitPreviewStatusTone,
 } from './produce-plan.js'
 
 const rows = [
@@ -451,6 +454,35 @@ test('production plan drawer follows selected workstation capacity batch size', 
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
   assert.match(source, /split\.planned_qty = capacityDefaultPlannedQty\(capacity\)/)
   assert.doesNotMatch(source, /if \(Number\(split\.planned_qty \|\| 0\) <= 0\)[\s\S]{0,160}split\.planned_qty/)
+})
+
+test('production plan operation split preview endpoint and status display are explicit', () => {
+  assert.equal(productionPlanOperationSplitsPreviewEndpoint({ id: 41 }), '/api/production-plans/41/operation-splits/preview')
+  assert.equal(productionPlanOperationSplitsPreviewEndpoint({}), '')
+  assert.equal(operationSplitPreviewStatusLabel('matched'), '已覆盖')
+  assert.equal(operationSplitPreviewStatusLabel('short'), '不足')
+  assert.equal(operationSplitPreviewStatusLabel('over'), '超排')
+  assert.equal(operationSplitPreviewStatusLabel('missing'), '未安排')
+  assert.equal(operationSplitPreviewStatusTone('matched'), 'matched')
+  assert.equal(operationSplitPreviewStatusTone('short'), 'short')
+  assert.equal(operationSplitPreviewStatusTone('over'), 'over')
+  assert.equal(operationSplitPreviewStatusTone('missing'), 'missing')
+})
+
+test('production plan split drawer renders live demand gap preview', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  for (const want of [
+    '产能安排总览',
+    '用料需求差距',
+    '实际需求',
+    '已安排',
+    '差距',
+    'productionPlanSplitPreview',
+    'scheduleProductionPlanSplitPreview',
+    'operationSplitPreviewStatusTone',
+  ]) {
+    assert.match(source, new RegExp(want))
+  }
 })
 
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {

@@ -22,6 +22,7 @@ type workOrderAPIRepo struct {
 
 	createPlan          productionapp.CreateProductionPlanCommand
 	savePlanSplits      productionapp.SaveProductionPlanOperationSplitsCommand
+	previewPlanSplits   productionapp.PreviewProductionPlanOperationSplitsCommand
 	saveWorkOrderSplits productionapp.SaveWorkOrderOperationSplitsCommand
 	planSplits          []productionapp.ProductionPlanOperationSplit
 	workOrderSplitRows  []productionapp.JobCardRow
@@ -117,6 +118,35 @@ func (r *workOrderAPIRepo) SaveProductionPlanOperationSplits(ctx context.Context
 		r.planSplits = cmd.Items
 	}
 	return r.planSplits, nil
+}
+func (r *workOrderAPIRepo) PreviewProductionPlanOperationSplits(ctx context.Context, cmd productionapp.PreviewProductionPlanOperationSplitsCommand) (productionapp.ProductionPlanOperationSplitPreview, error) {
+	r.previewPlanSplits = cmd
+	return productionapp.ProductionPlanOperationSplitPreview{
+		CoverageSummary: productionapp.ProductionPlanOperationSplitCoverageSummary{
+			RequiredG: 20000,
+			ArrangedG: 12000,
+			DiffG:     -8000,
+			Status:    "short",
+		},
+		OperationCoverage: []productionapp.ProductionPlanOperationSplitCoverageRow{{
+			ProductionPlanItemID: 51,
+			ProductName:          "烘焙计划",
+			OperationSeq:         10,
+			Operation:            "烘焙",
+			RequiredG:            20000,
+			ArrangedG:            12000,
+			DiffG:                -8000,
+			Status:               "short",
+		}},
+		MaterialSummary: []productionapp.ProductionPlanOperationSplitMaterialPreview{{
+			Name:        "孟连水洗A",
+			Unit:        "g",
+			RequiredQty: 10000,
+			ArrangedQty: 6000,
+			DiffQty:     -4000,
+			Status:      "short",
+		}},
+	}, nil
 }
 func (r *workOrderAPIRepo) SaveWorkOrderOperationSplits(ctx context.Context, cmd productionapp.SaveWorkOrderOperationSplitsCommand) (productionapp.WorkOrderOperationSplitsResult, error) {
 	r.saveWorkOrderSplits = cmd
@@ -794,6 +824,44 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 	}
 	if repo.savePlanSplits.Items[0].WorkstationCapacityID != 8 || repo.savePlanSplits.Items[1].PlannedQty != 8 {
 		t.Fatalf("saved split items = %+v", repo.savePlanSplits.Items)
+	}
+}
+
+func TestProductionPlanOperationSplitPreviewAPIReturnsDemandGapWithoutSaving(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Production: productionapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-plans/41/operation-splits/preview", strings.NewReader(`{"items":[
+		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":8,"planned_qty":12}
+	]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST operation split preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.previewPlanSplits.ID != 41 || len(repo.previewPlanSplits.Items) != 1 {
+		t.Fatalf("preview split command = %+v", repo.previewPlanSplits)
+	}
+	if len(repo.savePlanSplits.Items) != 0 {
+		t.Fatalf("preview endpoint must not save splits, save command = %+v", repo.savePlanSplits)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"coverage_summary"`,
+		`"required_g":20000`,
+		`"arranged_g":12000`,
+		`"diff_g":-8000`,
+		`"status":"short"`,
+		`"operation_coverage"`,
+		`"material_summary"`,
+		`"required_qty":10000`,
+		`"arranged_qty":6000`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("preview response missing %s: %s", want, body)
+		}
 	}
 }
 

@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-519-PRODUCTION-PLAN-SPLIT-DEMAND-GAP
+- Branch: codex/produce-plan-split-demand-gap-20260705
+- Owner/session: Codex / 2026-07-05
+- Status: implemented on feature branch; verification and development deployment in progress.
+- Scope: 生产计划 `工序产能拆分` 抽屉顶部展示 `产能安排总览` 和 `用料需求差距`，按计划行 planned_g 对比当前拆分已安排产量，用颜色区分 matched/short/over/missing；新增只读 preview API，不改变拆分保存和提交工单覆盖校验。
+- DEV:
+  - DEV-519-SPLIT-PREVIEW-API：新增 `POST /api/production-plans/:id/operation-splits/preview`，复用保存拆分 payload 计算 coverage/material preview，不写库、不写操作日志。
+  - DEV-519-SPLIT-PREVIEW-CALCULATION：预览复用后端产能快照和 BOM 用料聚合；多工序同一计划行按最小工序覆盖量折算物料，避免重复叠加。
+  - DEV-519-SPLIT-PREVIEW-UI：生产计划拆分抽屉显示总览、工序覆盖和用料差距；拆分行变化 250ms debounce 请求 preview，并丢弃过期响应。
+  - DEV-519-DOCS-ACCEPTANCE：同步需求、验收、生产手册和 acceptance evidence。
+- Verifier:
+  - RED: `go test ./internal/application/production -run TestPreviewProductionPlanOperationSplitsIsReadOnlyAndRequiresPositiveQuantity -count=1` failed before service preview types/method existed.
+  - RED: `go test ./internal/interfaces/http/production -run TestProductionPlanOperationSplitPreviewAPIReturnsDemandGapWithoutSaving -count=1` failed before preview API DTO/route existed.
+  - RED: `go test ./internal/infrastructure/postgres/production -run TestPreviewProductionPlanOperationSplits -count=1` failed before repository preview calculation existed.
+  - RED: `node --test src/lib/produce-plan.test.js` failed before preview endpoint/status helpers and UI markers existed.
+  - GREEN targeted: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production -run 'TestPreviewProductionPlanOperationSplits|TestProductionPlanOperationSplitPreviewAPIReturnsDemandGapWithoutSaving' -count=1` passed.
+  - GREEN frontend targeted: `node --test src/lib/produce-plan.test.js` passed.
+  - GREEN full touched backend/support: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1` passed.
+  - GREEN frontend/build: `node --test src/lib/produce-plan.test.js` passed with 38 tests; `npm run build` passed with the existing Vite large-chunk warning.
+  - GREEN review: `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Deployment: pending verification, merge to develop, and development deploy.
+- Last update: 2026-07-05 Asia/Shanghai verified predeploy
+
 ### PR-518-MULTI-CAPACITY-OPERATION-COST
 - Branch: codex/multi-capacity-operation-cost-20260703
 - Owner/session: Codex / 2026-07-03

@@ -558,6 +558,65 @@
         <div v-if="productionPlanSplitDrawerLoading" class="muted drawer-loading">正在加载拆分...</div>
         <template v-else>
           <div v-if="!productionPlanSplitDrawerDraft" class="muted section-hint">只有草稿生产计划允许编辑拆分。</div>
+          <section v-if="productionPlanSplitPreview || productionPlanSplitPreviewLoading || productionPlanSplitPreviewError" class="split-preview-panel">
+            <div class="split-preview-head">
+              <div>
+                <h3>产能安排总览</h3>
+                <p>按计划实际需求和当前产能拆分实时计算。</p>
+              </div>
+              <span v-if="productionPlanSplitPreview?.coverage_summary" :class="['split-preview-status', splitPreviewToneClass(productionPlanSplitPreview.coverage_summary.status)]">
+                {{ operationSplitPreviewStatusLabel(productionPlanSplitPreview.coverage_summary.status) }}
+              </span>
+            </div>
+            <div v-if="productionPlanSplitPreviewLoading" class="muted section-hint">正在计算差距...</div>
+            <div v-if="productionPlanSplitPreviewError" class="error">{{ productionPlanSplitPreviewError }}</div>
+            <div v-if="productionPlanSplitPreview?.coverage_summary" class="split-preview-summary">
+              <div>
+                <span>实际需求</span>
+                <strong>{{ splitPreviewGText(productionPlanSplitPreview.coverage_summary.required_g) }}</strong>
+              </div>
+              <div>
+                <span>已安排</span>
+                <strong>{{ splitPreviewGText(productionPlanSplitPreview.coverage_summary.arranged_g) }}</strong>
+              </div>
+              <div :class="splitPreviewToneClass(productionPlanSplitPreview.coverage_summary.status)">
+                <span>差距</span>
+                <strong>{{ splitPreviewGText(productionPlanSplitPreview.coverage_summary.diff_g) }}</strong>
+              </div>
+            </div>
+            <div v-if="splitPreviewRows(productionPlanSplitPreview?.operation_coverage).length" class="split-preview-section">
+              <h4>工序覆盖</h4>
+              <div class="split-preview-row-list">
+                <div
+                  v-for="row in splitPreviewRows(productionPlanSplitPreview?.operation_coverage)"
+                  :key="`preview-op-${row.production_plan_item_id}-${row.operation_seq}-${row.operation}`"
+                  :class="['split-preview-row', splitPreviewToneClass(row.status)]"
+                >
+                  <strong>{{ row.product_name || '-' }} · {{ row.operation_seq || '-' }}. {{ row.operation || '工序' }}</strong>
+                  <span>实际需求 {{ splitPreviewGText(row.required_g) }}</span>
+                  <span>已安排 {{ splitPreviewGText(row.arranged_g) }}</span>
+                  <span>差距 {{ splitPreviewGText(row.diff_g) }}</span>
+                  <em>{{ operationSplitPreviewStatusLabel(row.status) }}</em>
+                </div>
+              </div>
+            </div>
+            <div v-if="splitPreviewRows(productionPlanSplitPreview?.material_summary).length" class="split-preview-section">
+              <h4>用料需求差距</h4>
+              <div class="split-preview-row-list">
+                <div
+                  v-for="row in splitPreviewRows(productionPlanSplitPreview?.material_summary)"
+                  :key="`preview-material-${row.name}-${row.unit}`"
+                  :class="['split-preview-row', splitPreviewToneClass(row.status)]"
+                >
+                  <strong>{{ row.name || '-' }}</strong>
+                  <span>实际需求 {{ splitPreviewQtyText(row.required_qty, row.unit) }}</span>
+                  <span>已安排 {{ splitPreviewQtyText(row.arranged_qty, row.unit) }}</span>
+                  <span>差距 {{ splitPreviewQtyText(row.diff_qty, row.unit) }}</span>
+                  <em>{{ operationSplitPreviewStatusLabel(row.status) }}</em>
+                </div>
+              </div>
+            </div>
+          </section>
           <div
             v-for="row in productionPlanSplitDrawerOperationRows"
             :key="`plan-split-${row.item.id}-${row.operation.seq || row.operation.sequence_no || row.operation.operation}`"
@@ -668,10 +727,13 @@ import {
   productionPlanBatchSubmitEndpoint,
   productionPlanDetailEndpoint,
   productionPlanOperationSplitsEndpoint,
+  productionPlanOperationSplitsPreviewEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
   productionPlanStatusLabel,
   productionPlanStatusTone,
+  operationSplitPreviewStatusLabel,
+  operationSplitPreviewStatusTone,
   producePlanKey,
 } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -704,6 +766,9 @@ const productionPlanSplitDrawerLoading = ref(false)
 const productionPlanSplitDrawerSaving = ref(false)
 const productionPlanSplitDrawerError = ref('')
 const productionPlanSplitRows = ref([])
+const productionPlanSplitPreview = ref(null)
+const productionPlanSplitPreviewLoading = ref(false)
+const productionPlanSplitPreviewError = ref('')
 const postSubmitActions = ref([])
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
@@ -713,6 +778,8 @@ const selected = reactive({})
 const selectedProductionPlans = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
+let productionPlanSplitPreviewTimer = 0
+let productionPlanSplitPreviewRequestSeq = 0
 const tableScrollDrag = {
   element: null,
   pointerId: 0,
@@ -1151,6 +1218,30 @@ function splitQtyText(qty, unit) {
   return `${value}${String(unit || '').trim()}`
 }
 
+function splitPreviewGText(qtyG) {
+  const value = Number(qtyG || 0)
+  const abs = Math.abs(value)
+  const gText = `${value.toLocaleString('zh-CN')}g`
+  if (abs >= 1000) {
+    const kg = Number((value / 1000).toFixed(3)).toLocaleString('zh-CN', { maximumFractionDigits: 3 })
+    return `${kg}kg（${gText}）`
+  }
+  return gText
+}
+
+function splitPreviewQtyText(qty, unit) {
+  const value = Number(qty || 0)
+  return `${value.toLocaleString('zh-CN', { maximumFractionDigits: 3 })}${String(unit || '').trim()}`
+}
+
+function splitPreviewToneClass(status) {
+  return `split-preview-${operationSplitPreviewStatusTone(status)}`
+}
+
+function splitPreviewRows(rows) {
+  return Array.isArray(rows) ? rows : []
+}
+
 function splitBatchCards(split) {
   return productionPlanSplitBatchCards(split)
 }
@@ -1226,6 +1317,34 @@ function applySplitCapacity(split, rows = operationSplits.value, plan = currentP
 
 function applyProductionPlanDrawerSplitCapacity(split) {
   applySplitCapacity(split, productionPlanSplitRows.value, productionPlanSplitDrawer.value)
+}
+
+async function loadProductionPlanSplitPreview() {
+  const endpoint = productionPlanOperationSplitsPreviewEndpoint(productionPlanSplitDrawer.value)
+  if (!endpoint) return
+  const requestID = ++productionPlanSplitPreviewRequestSeq
+  productionPlanSplitPreviewLoading.value = true
+  productionPlanSplitPreviewError.value = ''
+  try {
+    const data = await apiSend(endpoint, { body: buildProductionPlanOperationSplitPayload(productionPlanSplitRows.value) })
+    if (requestID !== productionPlanSplitPreviewRequestSeq) return
+    productionPlanSplitPreview.value = data
+  } catch (err) {
+    if (requestID !== productionPlanSplitPreviewRequestSeq) return
+    productionPlanSplitPreview.value = null
+    productionPlanSplitPreviewError.value = err.message || '计算拆分差距失败'
+  } finally {
+    if (requestID === productionPlanSplitPreviewRequestSeq) productionPlanSplitPreviewLoading.value = false
+  }
+}
+
+function scheduleProductionPlanSplitPreview() {
+  if (!productionPlanSplitDrawer.value) return
+  if (productionPlanSplitPreviewTimer) clearTimeout(productionPlanSplitPreviewTimer)
+  productionPlanSplitPreviewTimer = setTimeout(() => {
+    productionPlanSplitPreviewTimer = 0
+    loadProductionPlanSplitPreview()
+  }, 250)
 }
 
 function autoRowsForOperation(item, operation) {
@@ -1391,6 +1510,7 @@ async function openProductionPlanSplitDrawer(plan) {
     const detail = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
     productionPlanSplitDrawer.value = detail
     productionPlanSplitRows.value = withAutoOperationSplits((detail.operation_splits || []).map(normalizeOperationSplit), detail)
+    scheduleProductionPlanSplitPreview()
     productionPlanDetail.value = null
     productionPlanDetailError.value = ''
   } catch (err) {
@@ -1403,6 +1523,12 @@ async function openProductionPlanSplitDrawer(plan) {
 function closeProductionPlanSplitDrawer() {
   productionPlanSplitDrawer.value = null
   productionPlanSplitRows.value = []
+  productionPlanSplitPreview.value = null
+  productionPlanSplitPreviewError.value = ''
+  productionPlanSplitPreviewLoading.value = false
+  productionPlanSplitPreviewRequestSeq += 1
+  if (productionPlanSplitPreviewTimer) clearTimeout(productionPlanSplitPreviewTimer)
+  productionPlanSplitPreviewTimer = 0
   productionPlanSplitDrawerError.value = ''
   productionPlanSplitDrawerLoading.value = false
   productionPlanSplitDrawerSaving.value = false
@@ -1434,6 +1560,7 @@ async function saveProductionPlanSplitDrawer() {
     const data = await apiSend(productionPlanOperationSplitsEndpoint(productionPlanSplitDrawer.value), { body: payload })
     const savedRows = (data.rows || []).map(normalizeOperationSplit)
     productionPlanSplitRows.value = savedRows
+    scheduleProductionPlanSplitPreview()
     if (Number(productionPlanSplitDrawer.value?.id || 0) === Number(currentPlan.value?.id || 0)) {
       operationSplits.value = savedRows
     }
@@ -1618,8 +1745,13 @@ watch(() => [filters.from, filters.to, filters.customer_id, filters.demand_statu
   }
 })
 
+watch(productionPlanSplitRows, () => {
+  scheduleProductionPlanSplitPreview()
+}, { deep: true })
+
 onBeforeUnmount(() => {
   if (previewTimer) clearTimeout(previewTimer)
+  if (productionPlanSplitPreviewTimer) clearTimeout(productionPlanSplitPreviewTimer)
   stopTableScrollDrag()
 })
 </script>
@@ -1726,6 +1858,23 @@ td small { display: block; color: #666; line-height: 1.6; }
 .operation-pill { border: 1px solid #e5e7eb; border-radius: 999px; padding: 4px 8px; background: #f9fafb; color: #374151; }
 .result-summary { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .result-summary span { border: 1px solid #e5e7eb; border-radius: 999px; padding: 4px 8px; background: #f9fafb; }
+.split-preview-panel { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; display: grid; gap: 12px; background: #f9fafb; }
+.split-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.split-preview-head h3, .split-preview-section h4 { margin: 0; }
+.split-preview-head p { margin: 4px 0 0; color: #666; }
+.split-preview-status { border-radius: 999px; padding: 4px 10px; font-size: 13px; white-space: nowrap; border: 1px solid #d1d5db; background: #fff; }
+.split-preview-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.split-preview-summary div { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; display: grid; gap: 4px; background: #fff; min-width: 0; }
+.split-preview-summary span, .split-preview-row span { color: #666; font-size: 12px; }
+.split-preview-summary strong, .split-preview-row strong { overflow-wrap: anywhere; }
+.split-preview-section { display: grid; gap: 8px; }
+.split-preview-row-list { display: grid; gap: 8px; }
+.split-preview-row { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; display: grid; grid-template-columns: minmax(160px, 1.4fr) repeat(3, minmax(92px, .9fr)) auto; gap: 8px; align-items: center; background: #fff; min-width: 0; }
+.split-preview-row em { font-style: normal; justify-self: end; border-radius: 999px; padding: 3px 8px; font-size: 12px; }
+.split-preview-matched { border-color: #86efac !important; background: #f0fdf4 !important; color: #166534; }
+.split-preview-short { border-color: #fecaca !important; background: #fef2f2 !important; color: #991b1b; }
+.split-preview-over { border-color: #fcd34d !important; background: #fffbeb !important; color: #92400e; }
+.split-preview-missing { border-color: #e5e7eb !important; background: #f9fafb !important; color: #4b5563; }
 .split-operation-block { border-top: 1px solid #eee; padding-top: 10px; display: grid; gap: 8px; }
 .split-operation-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .split-operation-head span { color: #374151; }
@@ -1758,6 +1907,10 @@ td small { display: block; color: #666; line-height: 1.6; }
   .production-plan-split-drawer { width: 100vw; padding: 14px; }
   .drawer-head { flex-direction: column; }
   .detail-grid { grid-template-columns: 1fr; }
+  .split-preview-head { flex-direction: column; }
+  .split-preview-summary { grid-template-columns: 1fr; }
+  .split-preview-row { grid-template-columns: 1fr; }
+  .split-preview-row em { justify-self: start; }
   .split-row { grid-template-columns: 1fr; }
 }
 </style>

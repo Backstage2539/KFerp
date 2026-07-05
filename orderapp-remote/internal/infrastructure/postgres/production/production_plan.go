@@ -454,6 +454,44 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 	return out, nil
 }
 
+func (r Repository) PreviewProductionPlanOperationSplits(ctx context.Context, cmd productionapp.PreviewProductionPlanOperationSplitsCommand) (productionapp.ProductionPlanOperationSplitPreview, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return productionapp.ProductionPlanOperationSplitPreview{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var exists int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT 1 FROM %s.production_plans WHERE id=$1`, r.schema), cmd.ID).Scan(&exists); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.ProductionPlanOperationSplitPreview{}, fmt.Errorf("production plan not found")
+		}
+		return productionapp.ProductionPlanOperationSplitPreview{}, err
+	}
+	itemRows, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanOperationSplitPreview{}, err
+	}
+	itemIDs := map[int64]bool{}
+	itemSpecs := map[int64]int64{}
+	for _, item := range itemRows {
+		itemIDs[item.ID] = true
+		itemSpecs[item.ID] = item.SpecG
+	}
+	splits := make([]productionapp.ProductionPlanOperationSplit, 0, len(cmd.Items))
+	for _, item := range cmd.Items {
+		if !itemIDs[item.ProductionPlanItemID] {
+			return productionapp.ProductionPlanOperationSplitPreview{}, fmt.Errorf("production_plan_item_id does not belong to production plan")
+		}
+		prepared, err := prepareOperationSplitForSaveTx(ctx, tx, r.schema, item, cmd.ID, item.ProductionPlanItemID, itemSpecs[item.ProductionPlanItemID])
+		if err != nil {
+			return productionapp.ProductionPlanOperationSplitPreview{}, err
+		}
+		splits = append(splits, prepared)
+	}
+	return previewProductionPlanOperationSplits(itemRows, splits), nil
+}
+
 func (r Repository) SaveWorkOrderOperationSplits(ctx context.Context, cmd productionapp.SaveWorkOrderOperationSplitsCommand) (productionapp.WorkOrderOperationSplitsResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -650,6 +688,182 @@ func productionPlanSplitsByItem(splits []productionapp.ProductionPlanOperationSp
 	for _, split := range splits {
 		out[split.ProductionPlanItemID] = append(out[split.ProductionPlanItemID], split)
 	}
+	return out
+}
+
+func previewProductionPlanOperationSplits(items []productionapp.ProductionPlanItem, splits []productionapp.ProductionPlanOperationSplit) productionapp.ProductionPlanOperationSplitPreview {
+	splitsByItem := productionPlanSplitsByItem(splits)
+	coverageRows := make([]productionapp.ProductionPlanOperationSplitCoverageRow, 0)
+	itemFactors := map[int64]float64{}
+	var requiredG int64
+	var arrangedG int64
+	for _, item := range items {
+		itemRequiredG := productionPlanItemTargetG(item)
+		requiredG += itemRequiredG
+		itemSplits := splitsByItem[item.ID]
+		ops := productionPlanPreviewOperations(item, itemSplits)
+		itemArrangedG := int64(0)
+		if len(ops) > 0 {
+			const maxInt64 = int64(^uint64(0) >> 1)
+			itemArrangedG = maxInt64
+			for _, op := range ops {
+				opArrangedG := productionPlanPreviewOperationArrangedG(op, itemSplits)
+				if opArrangedG < itemArrangedG {
+					itemArrangedG = opArrangedG
+				}
+				coverageRows = append(coverageRows, productionapp.ProductionPlanOperationSplitCoverageRow{
+					ProductionPlanItemID: item.ID,
+					ProductName:          item.ProductName,
+					OperationSeq:         op.Seq,
+					OperationID:          op.OperationID,
+					Operation:            strings.TrimSpace(op.Operation),
+					RequiredG:            itemRequiredG,
+					ArrangedG:            opArrangedG,
+					DiffG:                opArrangedG - itemRequiredG,
+					Status:               productionPlanPreviewStatus(itemRequiredG, opArrangedG),
+				})
+			}
+			if itemArrangedG == maxInt64 {
+				itemArrangedG = 0
+			}
+		} else {
+			itemArrangedG = productionPlanPreviewAllSplitArrangedG(itemSplits)
+		}
+		arrangedG += itemArrangedG
+		if itemRequiredG > 0 {
+			itemFactors[item.ID] = float64(itemArrangedG) / float64(itemRequiredG)
+		}
+	}
+	return productionapp.ProductionPlanOperationSplitPreview{
+		CoverageSummary: productionapp.ProductionPlanOperationSplitCoverageSummary{
+			RequiredG: requiredG,
+			ArrangedG: arrangedG,
+			DiffG:     arrangedG - requiredG,
+			Status:    productionPlanPreviewStatus(requiredG, arrangedG),
+		},
+		OperationCoverage: coverageRows,
+		MaterialSummary:   previewProductionPlanMaterialSummary(items, itemFactors),
+		Warnings:          nil,
+	}
+}
+
+func productionPlanItemTargetG(item productionapp.ProductionPlanItem) int64 {
+	switch {
+	case item.PlannedG > 0:
+		return item.PlannedG
+	case item.PlannedOutputG > 0:
+		return item.PlannedOutputG
+	case item.GapG > 0:
+		return item.GapG
+	default:
+		return 0
+	}
+}
+
+func productionPlanPreviewOperations(item productionapp.ProductionPlanItem, splits []productionapp.ProductionPlanOperationSplit) []processSnapshotOperation {
+	ops := operationsFromProcessSnapshot(item.ProcessSnapshotJSON)
+	if len(ops) > 0 {
+		return ops
+	}
+	seen := map[string]bool{}
+	out := make([]processSnapshotOperation, 0)
+	for _, split := range splits {
+		key := fmt.Sprintf("%d:%d:%s", split.OperationSeq, split.OperationID, strings.TrimSpace(split.Operation))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, processSnapshotOperation{Seq: split.OperationSeq, OperationID: split.OperationID, Operation: strings.TrimSpace(split.Operation)})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Seq == out[j].Seq {
+			return out[i].Operation < out[j].Operation
+		}
+		return out[i].Seq < out[j].Seq
+	})
+	return out
+}
+
+func productionPlanPreviewOperationArrangedG(op processSnapshotOperation, splits []productionapp.ProductionPlanOperationSplit) int64 {
+	var total int64
+	for _, split := range operationSplitsForSnapshotOperation(op, splits) {
+		if split.PlannedQtyG > 0 {
+			total += split.PlannedQtyG
+		}
+	}
+	return total
+}
+
+func productionPlanPreviewAllSplitArrangedG(splits []productionapp.ProductionPlanOperationSplit) int64 {
+	var total int64
+	for _, split := range splits {
+		if split.PlannedQtyG > 0 {
+			total += split.PlannedQtyG
+		}
+	}
+	return total
+}
+
+func productionPlanPreviewStatus(required, arranged int64) string {
+	switch {
+	case required <= 0 && arranged <= 0:
+		return "missing"
+	case arranged <= 0:
+		return "missing"
+	case arranged < required:
+		return "short"
+	case arranged > required:
+		return "over"
+	default:
+		return "matched"
+	}
+}
+
+func previewProductionPlanMaterialSummary(items []productionapp.ProductionPlanItem, itemFactors map[int64]float64) []productionapp.ProductionPlanOperationSplitMaterialPreview {
+	required := aggregateProductionPlanMaterialSummary(items)
+	scaledItems := make([]productionapp.ProductionPlanItem, 0, len(items))
+	for _, item := range items {
+		factor := itemFactors[item.ID]
+		scaled := item
+		scaled.PlannedG = int64(math.Round(float64(item.PlannedG) * factor))
+		scaled.PlannedOutputG = int64(math.Round(float64(item.PlannedOutputG) * factor))
+		scaled.GapG = int64(math.Round(float64(item.GapG) * factor))
+		scaledItems = append(scaledItems, scaled)
+	}
+	arranged := aggregateProductionPlanMaterialSummary(scaledItems)
+	type key struct {
+		name string
+		unit string
+	}
+	rows := map[key]productionapp.ProductionPlanOperationSplitMaterialPreview{}
+	for _, item := range required {
+		k := key{name: item.Name, unit: item.Unit}
+		row := rows[k]
+		row.Name = item.Name
+		row.Unit = item.Unit
+		row.RequiredQty = item.Qty
+		rows[k] = row
+	}
+	for _, item := range arranged {
+		k := key{name: item.Name, unit: item.Unit}
+		row := rows[k]
+		row.Name = item.Name
+		row.Unit = item.Unit
+		row.ArrangedQty = item.Qty
+		rows[k] = row
+	}
+	out := make([]productionapp.ProductionPlanOperationSplitMaterialPreview, 0, len(rows))
+	for _, row := range rows {
+		row.DiffQty = row.ArrangedQty - row.RequiredQty
+		row.Status = productionPlanPreviewStatus(row.RequiredQty, row.ArrangedQty)
+		out = append(out, row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].Unit < out[j].Unit
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out
 }
 

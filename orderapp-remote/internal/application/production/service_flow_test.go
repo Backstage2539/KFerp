@@ -134,6 +134,10 @@ func (r *fakeFlowRepo) SaveProductionPlanOperationSplits(ctx context.Context, cm
 	return cmd.Items, nil
 }
 
+func (r *fakeFlowRepo) PreviewProductionPlanOperationSplits(ctx context.Context, cmd PreviewProductionPlanOperationSplitsCommand) (ProductionPlanOperationSplitPreview, error) {
+	return ProductionPlanOperationSplitPreview{}, nil
+}
+
 func (r *fakeFlowRepo) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error) {
 	return WorkOrderOperationSplitsResult{
 		WorkOrder: WorkOrderRow{ID: cmd.ID, Status: "released"},

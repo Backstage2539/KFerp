@@ -754,3 +754,8 @@
 - [ ] 修改工位小时成本、工位产能档或工艺路线后，已发布 BOM 的工序成本快照不回改；重新发布新 BOM 后才影响新试算。
 - [ ] 商品价格管理试算读取 BOM 工序成本快照，明细来源显示 `BOM工序成本快照`。
 - [ ] BOM 绑定工艺路线但没有冻结工序成本快照时，价格试算返回警告，商品价格表发布失败并提示 `请先发布包含标准成本产能档快照的 BOM`。
+
+### K24. 生产计划拆分产能差距预览（PR-519-PRODUCTION-PLAN-SPLIT-DEMAND-GAP）
+- [ ] `POST /api/production-plans/:id/operation-splits/preview` 返回 `coverage_summary`、`operation_coverage` 和 `material_summary`，且不写入拆分表。
+- [ ] 20kg 实际需求安排 12kg 为 `short`，安排 20kg 为 `matched`，安排 24kg 为 `over`。
+- [ ] 拆分抽屉显示 `产能安排总览`、`用料需求差距`、`实际需求`、`已安排`、`差距`，修改承担产量后实时刷新颜色。

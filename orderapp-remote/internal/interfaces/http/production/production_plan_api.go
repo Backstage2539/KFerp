@@ -100,6 +100,24 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": plan.OperationSplits})
 	})
+	e.POST("/api/production-plans/:id/operation-splits/preview", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_id"})
+		}
+		var req productionPlanOperationSplitsRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		preview, err := productionSvc.PreviewProductionPlanOperationSplits(c.Request().Context(), productionapp.PreviewProductionPlanOperationSplitsCommand{
+			ID:    id,
+			Items: req.Items,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, preview)
+	})
 	e.POST("/api/production-plans/:id/operation-splits", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
