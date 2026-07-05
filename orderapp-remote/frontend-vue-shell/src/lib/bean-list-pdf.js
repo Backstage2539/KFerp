@@ -34,6 +34,10 @@ function beanListPublicationVersion(row = null) {
 }
 
 function compareBeanListVersions(left = '', right = '') {
+  const leftStandard = isStandardBeanListVersion(left)
+  const rightStandard = isStandardBeanListVersion(right)
+  if (leftStandard && !rightStandard) return 1
+  if (!leftStandard && rightStandard) return -1
   const leftNumbers = beanListVersionNumbers(left)
   const rightNumbers = beanListVersionNumbers(right)
   if (leftNumbers.length && rightNumbers.length) {
@@ -44,6 +48,10 @@ function compareBeanListVersions(left = '', right = '') {
     }
   }
   return String(left || '').localeCompare(String(right || ''), 'zh-Hans-CN')
+}
+
+function isStandardBeanListVersion(version = '') {
+  return /^v\d+(?:\.\d+)*$/i.test(String(version || '').trim())
 }
 
 function beanListVersionNumbers(version = '') {

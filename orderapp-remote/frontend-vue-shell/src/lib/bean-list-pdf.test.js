@@ -184,6 +184,14 @@ test('PDF bean-list helper increments from the highest existing publication vers
   ]), 'V3.0.7')
 })
 
+test('PDF bean-list helper ignores non-standard smoke versions when business versions exist', () => {
+  assert.equal(defaultBeanListDraftVersion([
+    { version: 'V3.0.6', status: 'published' },
+    { version: 'codex-smoke-brand', status: 'published' },
+    { version: 'codex-smoke-20260705', status: 'published' },
+  ]), 'V3.0.7')
+})
+
 test('PDF bean-list helper builds separate commercial and retail groups from Excel metadata', () => {
   const commercial = buildBeanListPdfGroups(rows, 'commercial')
   const retail = buildBeanListPdfGroups(rows, 'retail')

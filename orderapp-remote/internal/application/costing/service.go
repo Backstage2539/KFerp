@@ -2378,6 +2378,14 @@ func incrementBeanListPublicationVersion(version string) string {
 }
 
 func compareBeanListPublicationVersion(left, right string) int {
+	leftStandard := beanListPublicationStandardVersionPattern.MatchString(strings.TrimSpace(left))
+	rightStandard := beanListPublicationStandardVersionPattern.MatchString(strings.TrimSpace(right))
+	if leftStandard && !rightStandard {
+		return 1
+	}
+	if !leftStandard && rightStandard {
+		return -1
+	}
 	leftNumbers := beanListPublicationVersionNumbers(left)
 	rightNumbers := beanListPublicationVersionNumbers(right)
 	if len(leftNumbers) > 0 && len(rightNumbers) > 0 {
@@ -3548,6 +3556,7 @@ func normalizeBeanListPublicationPDFCommand(cmd BeanListPublicationPDFCommand) (
 var (
 	beanListPublicationPDFFilenameUnsafeChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 	beanListPublicationVersionNumberPattern   = regexp.MustCompile(`\d+`)
+	beanListPublicationStandardVersionPattern = regexp.MustCompile(`(?i)^v\d+(?:\.\d+)*$`)
 )
 
 func beanListPublicationPDFFile(row BeanListPublication, asset BeanListPublicationAsset) BeanListPublicationPDFFile {

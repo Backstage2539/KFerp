@@ -2086,6 +2086,28 @@ func TestPublishBeanListAutoIncrementsDuplicatePublicationVersion(t *testing.T) 
 	}
 }
 
+func TestPublishBeanListKeepsStandardVersionAheadOfSmokeVersions(t *testing.T) {
+	repo := &fakeRepo{beanListPublications: []BeanListPublication{
+		{ID: 78, ListType: "commercial", ProductTypeCategoryID: 12, Version: "V3.0.6", Status: "published", OwnerType: "official"},
+		{ID: 79, ListType: "commercial", ProductTypeCategoryID: 12, Version: "codex-smoke-brand", Status: "published", OwnerType: "official"},
+	}}
+	svc := NewService(repo)
+
+	row, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType:              "commercial",
+		ProductTypeCategoryID: 12,
+		ProductTypeName:       "熟豆",
+		Version:               "V3.0.6",
+	})
+	if err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+
+	if row.Version != "V3.0.7" || repo.publishedBeanList.Version != "V3.0.7" {
+		t.Fatalf("published version = row %q cmd %q, want V3.0.7", row.Version, repo.publishedBeanList.Version)
+	}
+}
+
 func TestArchiveBeanListPublicationsValidatesIDsAndOwner(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
