@@ -252,6 +252,27 @@ export function productionPlanOperationSplitsEndpoint(plan) {
   return `/api/production-plans/${id}/operation-splits`
 }
 
+export function productionPlanOperationSplitsPreviewEndpoint(plan) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0) return ''
+  return `/api/production-plans/${id}/operation-splits/preview`
+}
+
+const OPERATION_SPLIT_PREVIEW_STATUS = {
+  matched: { label: '已覆盖', tone: 'matched' },
+  short: { label: '不足', tone: 'short' },
+  over: { label: '超排', tone: 'over' },
+  missing: { label: '未安排', tone: 'missing' },
+}
+
+export function operationSplitPreviewStatusLabel(status) {
+  return OPERATION_SPLIT_PREVIEW_STATUS[String(status || '').trim()]?.label || '-'
+}
+
+export function operationSplitPreviewStatusTone(status) {
+  return OPERATION_SPLIT_PREVIEW_STATUS[String(status || '').trim()]?.tone || 'missing'
+}
+
 const COUNT_CAPACITY_UNITS = new Set(['件', '个', '袋', '盒', 'unit', 'units', 'pc', 'pcs'])
 const MATERIAL_WEIGHT_UNITS = new Set(['g', 'kg', '克', '千克', '公斤'])
 

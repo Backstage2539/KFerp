@@ -6,8 +6,9 @@ import (
 )
 
 type fakeRepo struct {
-	create         CreateBatchCommand
-	savePlanSplits SaveProductionPlanOperationSplitsCommand
+	create            CreateBatchCommand
+	savePlanSplits    SaveProductionPlanOperationSplitsCommand
+	previewPlanSplits PreviewProductionPlanOperationSplitsCommand
 }
 
 func (r *fakeRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -74,6 +75,12 @@ func (r *fakeRepo) GetProductionPlan(ctx context.Context, id int64) (ProductionP
 func (r *fakeRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
 	r.savePlanSplits = cmd
 	return cmd.Items, nil
+}
+func (r *fakeRepo) PreviewProductionPlanOperationSplits(ctx context.Context, cmd PreviewProductionPlanOperationSplitsCommand) (ProductionPlanOperationSplitPreview, error) {
+	r.previewPlanSplits = cmd
+	return ProductionPlanOperationSplitPreview{
+		CoverageSummary: ProductionPlanOperationSplitCoverageSummary{RequiredG: 20000, ArrangedG: 12000, DiffG: -8000, Status: "short"},
+	}, nil
 }
 func (r *fakeRepo) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error) {
 	return WorkOrderOperationSplitsResult{WorkOrder: WorkOrderRow{ID: cmd.ID, Status: "released"}}, nil
@@ -231,6 +238,38 @@ func TestSaveProductionPlanOperationSplitsAcceptsPlannedQtyInput(t *testing.T) {
 	}
 	if repo.savePlanSplits.Items[0].Operation != "烘焙" {
 		t.Fatalf("operation was not normalized: %+v", repo.savePlanSplits.Items[0])
+	}
+}
+
+func TestPreviewProductionPlanOperationSplitsIsReadOnlyAndRequiresPositiveQuantity(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.PreviewProductionPlanOperationSplits(context.Background(), PreviewProductionPlanOperationSplitsCommand{
+		ID:    41,
+		Items: []ProductionPlanOperationSplit{{ProductionPlanItemID: 51, OperationSeq: 1, WorkstationCapacityID: 8, PlannedQty: 0}},
+	}); err == nil {
+		t.Fatal("PreviewProductionPlanOperationSplits() accepted zero planned qty")
+	}
+	if len(repo.savePlanSplits.Items) != 0 {
+		t.Fatalf("preview must not save operation splits, save command = %+v", repo.savePlanSplits)
+	}
+
+	got, err := svc.PreviewProductionPlanOperationSplits(context.Background(), PreviewProductionPlanOperationSplitsCommand{
+		ID:    41,
+		Items: []ProductionPlanOperationSplit{{ProductionPlanItemID: 51, OperationSeq: 1, Operation: " 烘焙 ", WorkstationCapacityID: 8, PlannedQty: 12}},
+	})
+	if err != nil {
+		t.Fatalf("PreviewProductionPlanOperationSplits() error = %v", err)
+	}
+	if repo.previewPlanSplits.ID != 41 || len(repo.previewPlanSplits.Items) != 1 || repo.previewPlanSplits.Items[0].Operation != "烘焙" {
+		t.Fatalf("preview command = %+v", repo.previewPlanSplits)
+	}
+	if got.CoverageSummary.Status != "short" || got.CoverageSummary.DiffG != -8000 {
+		t.Fatalf("preview summary = %+v, want short diff -8000", got.CoverageSummary)
+	}
+	if len(repo.savePlanSplits.Items) != 0 {
+		t.Fatalf("preview must not call save, save command = %+v", repo.savePlanSplits)
 	}
 }
 
