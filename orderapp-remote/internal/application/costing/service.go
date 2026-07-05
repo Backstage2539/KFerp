@@ -2297,6 +2297,9 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 		return nil, err
 	}
 	if s.repo != nil {
+		if err := s.applyNextBeanListPublicationVersion(ctx, &normalized); err != nil {
+			return nil, err
+		}
 		if err := s.applyProductSalesUnitSnapshots(ctx, &normalized); err != nil {
 			return nil, err
 		}
@@ -2308,6 +2311,122 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 		return nil, fmt.Errorf("repository required")
 	}
 	return s.repo.PublishBeanList(ctx, normalized)
+}
+
+func (s *Service) applyNextBeanListPublicationVersion(ctx context.Context, cmd *PublishBeanListCommand) error {
+	if s.repo == nil || cmd == nil {
+		return nil
+	}
+	rows, err := s.repo.ListBeanListPublications(ctx, BeanListPublicationQuery{
+		ListType:                 cmd.ListType,
+		PublicationPurpose:       cmd.PublicationPurpose,
+		ProductTypeCategoryID:    cmd.ProductTypeCategoryID,
+		ClassificationTemplateID: cmd.ClassificationTemplateID,
+		OwnerType:                cmd.OwnerType,
+		OwnerKey:                 cmd.OwnerKey,
+	})
+	if err != nil {
+		return err
+	}
+	cmd.Version = nextBeanListPublicationVersion(cmd.Version, rows)
+	return nil
+}
+
+func nextBeanListPublicationVersion(requested string, rows []BeanListPublication) string {
+	requested = strings.TrimSpace(requested)
+	maxExisting := ""
+	duplicate := false
+	for _, row := range rows {
+		version := strings.TrimSpace(row.Version)
+		if version == "" {
+			continue
+		}
+		if strings.EqualFold(version, requested) {
+			duplicate = true
+		}
+		if maxExisting == "" || compareBeanListPublicationVersion(version, maxExisting) > 0 {
+			maxExisting = version
+		}
+	}
+	if maxExisting == "" {
+		return requested
+	}
+	if requested == "" || duplicate || compareBeanListPublicationVersion(requested, maxExisting) <= 0 {
+		return incrementBeanListPublicationVersion(maxExisting)
+	}
+	return requested
+}
+
+func incrementBeanListPublicationVersion(version string) string {
+	source := strings.TrimSpace(version)
+	if source == "" {
+		return "V3.0.5"
+	}
+	if idx := strings.LastIndex(source, "."); idx >= 0 && idx < len(source)-1 {
+		segment := source[idx+1:]
+		if beanListPublicationVersionDigitsOnly(segment) {
+			next, err := strconv.Atoi(segment)
+			if err == nil {
+				return source[:idx+1] + fmt.Sprintf("%0*d", len(segment), next+1)
+			}
+		}
+	}
+	if beanListPublicationVersionNumberPattern.MatchString(source) {
+		return source + ".01"
+	}
+	return source + ".01"
+}
+
+func compareBeanListPublicationVersion(left, right string) int {
+	leftNumbers := beanListPublicationVersionNumbers(left)
+	rightNumbers := beanListPublicationVersionNumbers(right)
+	if len(leftNumbers) > 0 && len(rightNumbers) > 0 {
+		length := len(leftNumbers)
+		if len(rightNumbers) > length {
+			length = len(rightNumbers)
+		}
+		for i := 0; i < length; i++ {
+			leftValue, rightValue := 0, 0
+			if i < len(leftNumbers) {
+				leftValue = leftNumbers[i]
+			}
+			if i < len(rightNumbers) {
+				rightValue = rightNumbers[i]
+			}
+			if leftValue > rightValue {
+				return 1
+			}
+			if leftValue < rightValue {
+				return -1
+			}
+		}
+	}
+	return strings.Compare(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
+func beanListPublicationVersionNumbers(version string) []int {
+	matches := beanListPublicationVersionNumberPattern.FindAllString(strings.TrimSpace(version), -1)
+	out := make([]int, 0, len(matches))
+	for _, match := range matches {
+		value, err := strconv.Atoi(match)
+		if err != nil {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func beanListPublicationVersionDigitsOnly(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *PublishBeanListCommand) error {
@@ -3426,7 +3545,10 @@ func normalizeBeanListPublicationPDFCommand(cmd BeanListPublicationPDFCommand) (
 	return cmd, nil
 }
 
-var beanListPublicationPDFFilenameUnsafeChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+var (
+	beanListPublicationPDFFilenameUnsafeChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+	beanListPublicationVersionNumberPattern   = regexp.MustCompile(`\d+`)
+)
 
 func beanListPublicationPDFFile(row BeanListPublication, asset BeanListPublicationAsset) BeanListPublicationPDFFile {
 	contentType := strings.TrimSpace(asset.ContentType)

@@ -15,9 +15,40 @@ export function nextBeanListVersion(version, fallback = DEFAULT_BEAN_LIST_PDF_VE
 }
 
 export function defaultBeanListDraftVersion(publications = [], sourcePublication = null, fallback = DEFAULT_BEAN_LIST_PDF_VERSION) {
-  const current = (Array.isArray(publications) ? publications : []).find((row) => String(row?.status || '').trim() === 'published')
-  const row = current || sourcePublication || null
-  return nextBeanListVersion(row?.version || row?.version_no || row?.versionNo || '', fallback)
+  const current = highestBeanListPublicationVersion(
+    (Array.isArray(publications) ? publications : []).filter((row) => String(row?.status || '').trim() === 'published'),
+  )
+  const source = current || beanListPublicationVersion(sourcePublication)
+  return nextBeanListVersion(source, fallback)
+}
+
+function highestBeanListPublicationVersion(publications = []) {
+  return publications
+    .map((row) => beanListPublicationVersion(row))
+    .filter(Boolean)
+    .reduce((max, version) => (compareBeanListVersions(version, max) > 0 ? version : max), '')
+}
+
+function beanListPublicationVersion(row = null) {
+  return String(row?.version || row?.version_no || row?.versionNo || '').trim()
+}
+
+function compareBeanListVersions(left = '', right = '') {
+  const leftNumbers = beanListVersionNumbers(left)
+  const rightNumbers = beanListVersionNumbers(right)
+  if (leftNumbers.length && rightNumbers.length) {
+    const length = Math.max(leftNumbers.length, rightNumbers.length)
+    for (let index = 0; index < length; index += 1) {
+      const diff = (leftNumbers[index] || 0) - (rightNumbers[index] || 0)
+      if (diff !== 0) return diff
+    }
+  }
+  return String(left || '').localeCompare(String(right || ''), 'zh-Hans-CN')
+}
+
+function beanListVersionNumbers(version = '') {
+  const matches = String(version || '').match(/\d+/g)
+  return matches ? matches.map((value) => Number(value)) : []
 }
 
 export function sanitizeBeanListPdfTheme(input = {}) {

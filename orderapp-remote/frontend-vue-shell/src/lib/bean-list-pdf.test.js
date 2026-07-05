@@ -177,6 +177,13 @@ test('PDF bean-list helper prefers current customer version before copied price 
   assert.equal(defaultBeanListDraftVersion([], { version: 'V1' }), 'V1.01')
 })
 
+test('PDF bean-list helper increments from the highest existing publication version', () => {
+  assert.equal(defaultBeanListDraftVersion([
+    { version: 'V3.0.5', status: 'published' },
+    { version: 'V3.0.6', status: 'published' },
+  ]), 'V3.0.7')
+})
+
 test('PDF bean-list helper builds separate commercial and retail groups from Excel metadata', () => {
   const commercial = buildBeanListPdfGroups(rows, 'commercial')
   const retail = buildBeanListPdfGroups(rows, 'retail')

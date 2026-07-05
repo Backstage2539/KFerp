@@ -11,31 +11,33 @@ import (
 )
 
 type fakeRepo struct {
-	params              domain.Parameters
-	inputs              []domain.ProductInput
-	settings            []ParameterSetting
-	customerInputs      []domain.ProductInput
-	lastCustomerID      int64
-	savedItems          []domain.ProductResult
-	publishedID         int64
-	savedDripTemplate   SaveDripPriceTemplateCommand
-	deactivatedDripID   int64
-	publishedBeanList   PublishBeanListCommand
-	draftBeanList       PublishBeanListCommand
-	archivedBeanLists   ArchiveBeanListPublicationsCommand
-	unarchivedBeanLists ArchiveBeanListPublicationsCommand
-	beanListPublication *BeanListPublication
-	beanListAsset       BeanListPublicationAsset
-	savedBeanListAsset  BeanListPublicationAsset
-	pricingRules        map[int64]ProductPricingRule
-	costDetails         []PricingRuleTrialBaseCostDetail
-	costDetailsByBom    map[int64][]PricingRuleTrialBaseCostDetail
-	productionOptions   PricingRuleTrialProductionOptions
-	lastDetailInput     domain.ProductInput
-	defaultTaxRate      PricingRuleTrialDefaultTaxRate
-	productUnitRules    map[int64]ProductSalesUnitRule
-	customerUnitRules   map[int64]ProductSalesUnitRule
-	lastCustomerAliasID int64
+	params               domain.Parameters
+	inputs               []domain.ProductInput
+	settings             []ParameterSetting
+	customerInputs       []domain.ProductInput
+	lastCustomerID       int64
+	savedItems           []domain.ProductResult
+	publishedID          int64
+	savedDripTemplate    SaveDripPriceTemplateCommand
+	deactivatedDripID    int64
+	publishedBeanList    PublishBeanListCommand
+	draftBeanList        PublishBeanListCommand
+	beanListPublications []BeanListPublication
+	lastBeanListQuery    BeanListPublicationQuery
+	archivedBeanLists    ArchiveBeanListPublicationsCommand
+	unarchivedBeanLists  ArchiveBeanListPublicationsCommand
+	beanListPublication  *BeanListPublication
+	beanListAsset        BeanListPublicationAsset
+	savedBeanListAsset   BeanListPublicationAsset
+	pricingRules         map[int64]ProductPricingRule
+	costDetails          []PricingRuleTrialBaseCostDetail
+	costDetailsByBom     map[int64][]PricingRuleTrialBaseCostDetail
+	productionOptions    PricingRuleTrialProductionOptions
+	lastDetailInput      domain.ProductInput
+	defaultTaxRate       PricingRuleTrialDefaultTaxRate
+	productUnitRules     map[int64]ProductSalesUnitRule
+	customerUnitRules    map[int64]ProductSalesUnitRule
+	lastCustomerAliasID  int64
 }
 
 func sliceContains(values []string, want string) bool {
@@ -133,8 +135,9 @@ func (r *fakeRepo) DeactivateDripPriceTemplate(_ context.Context, cmd Deactivate
 	return nil
 }
 
-func (r *fakeRepo) ListBeanListPublications(context.Context, BeanListPublicationQuery) ([]BeanListPublication, error) {
-	return nil, nil
+func (r *fakeRepo) ListBeanListPublications(_ context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error) {
+	r.lastBeanListQuery = query
+	return r.beanListPublications, nil
 }
 
 func (r *fakeRepo) PublishedBeanList(context.Context, BeanListPublicationQuery) (*BeanListPublication, error) {
@@ -2055,6 +2058,31 @@ func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
 	}
 	if err := svc.WithdrawBeanList(context.Background(), WithdrawBeanListCommand{}); err == nil {
 		t.Fatalf("expected invalid id")
+	}
+}
+
+func TestPublishBeanListAutoIncrementsDuplicatePublicationVersion(t *testing.T) {
+	repo := &fakeRepo{beanListPublications: []BeanListPublication{
+		{ID: 76, ListType: "commercial", ProductTypeCategoryID: 12, Version: "V3.0.5", Status: "published", OwnerType: "official"},
+		{ID: 78, ListType: "commercial", ProductTypeCategoryID: 12, Version: "V3.0.6", Status: "published", OwnerType: "official"},
+	}}
+	svc := NewService(repo)
+
+	row, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType:              "commercial",
+		ProductTypeCategoryID: 12,
+		ProductTypeName:       "熟豆",
+		Version:               "V3.0.6",
+	})
+	if err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+
+	if row.Version != "V3.0.7" || repo.publishedBeanList.Version != "V3.0.7" {
+		t.Fatalf("published version = row %q cmd %q, want V3.0.7", row.Version, repo.publishedBeanList.Version)
+	}
+	if repo.lastBeanListQuery.ProductTypeCategoryID != 12 || repo.lastBeanListQuery.ListType != "commercial" || repo.lastBeanListQuery.OwnerType != "official" {
+		t.Fatalf("version lookup query = %+v", repo.lastBeanListQuery)
 	}
 }
 
