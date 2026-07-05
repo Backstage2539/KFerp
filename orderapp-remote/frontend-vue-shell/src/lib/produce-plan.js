@@ -337,6 +337,10 @@ function roundedSplitQty(qty) {
   return Number(Math.max(0, Number(qty || 0)).toFixed(3))
 }
 
+export function capacityDefaultPlannedQty(capacity = {}) {
+  return roundedSplitQty(capacity.batch_size_qty)
+}
+
 export function productionPlanSplitBatchCards(split = {}) {
   const metrics = plannedCapacitySplitMetrics(split)
   const plannedBatchCount = Math.max(0, Math.round(Number(metrics.planned_batch_count || 0)))
