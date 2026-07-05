@@ -648,8 +648,8 @@ import {
   buildProductionPlanSelection,
   buildProductionDemandSelection,
   buildProductionDemandSummaryQuery,
+  capacityDefaultPlannedQty,
   defaultProductionDemandStatusFilter,
-  maxAssignableQtyForCapacitySplit,
   operationCapacityAutoSplitError,
   plannedCapacitySplitMetrics,
   productionMaterialQuantity,
@@ -1159,17 +1159,6 @@ function qtyFromGForSplitUnit(qtyG, unit, specG = 0) {
   return qtyFromGForCapacityUnit(qtyG, unit, specG)
 }
 
-function productionPlanItemTargetG(item) {
-  return Math.max(0, Number(item?.planned_g || item?.planned_output_g || item?.gap_g || 0))
-}
-
-function operationSplitTarget(item) {
-  return {
-    planned_g: productionPlanItemTargetG(item),
-    spec_g: Number(item?.spec_g || 0),
-  }
-}
-
 function currentPlanItemForSplit(split, plan = currentPlan.value) {
   const itemID = Number(split?.production_plan_item_id || 0)
   return (plan?.items || []).find((item) => Number(item?.id || 0) === itemID) || null
@@ -1184,11 +1173,6 @@ function splitSameOperation(left, right) {
   const rightID = Number(right?.operation_id || 0)
   if (leftID > 0 || rightID > 0) return leftID === rightID
   return String(left?.operation || '').trim() === String(right?.operation || '').trim()
-}
-
-function defaultPlannedQtyForSplit(split, rows = operationSplits.value, plan = currentPlan.value) {
-  const item = currentPlanItemForSplit(split, plan)
-  return maxAssignableQtyForCapacitySplit(split, rows, operationSplitTarget(item))
 }
 
 function capacityOptionLabel(capacity) {
@@ -1237,9 +1221,7 @@ function applySplitCapacity(split, rows = operationSplits.value, plan = currentP
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
   split.spec_g = Number(split.spec_g || currentPlanItemForSplit(split, plan)?.spec_g || 0)
-  if (Number(split.planned_qty || 0) <= 0) {
-    split.planned_qty = defaultPlannedQtyForSplit(split, rows, plan)
-  }
+  split.planned_qty = capacityDefaultPlannedQty(capacity)
 }
 
 function applyProductionPlanDrawerSplitCapacity(split) {

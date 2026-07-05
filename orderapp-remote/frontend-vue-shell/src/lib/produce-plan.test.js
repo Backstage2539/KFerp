@@ -16,6 +16,7 @@ import {
   productionPlanOperationSplitsEndpoint,
   buildProductionPlanOperationSplitPayload,
   buildOperationCapacityAutoSplits,
+  capacityDefaultPlannedQty,
   maxAssignableQtyForCapacitySplit,
   operationCapacityAutoSplitError,
   plannedCapacitySplitMetrics,
@@ -440,6 +441,16 @@ test('single split capacity allocation fills the maximum full batches from remai
   assert.equal(maxAssignableQtyForCapacitySplit(split, existing, target), 10)
   assert.equal(maxAssignableQtyForCapacitySplit({ ...split, batch_size_qty: 3, batch_size_unit: 'kg' }, existing, target), 12)
   assert.equal(maxAssignableQtyForCapacitySplit({ ...split, batch_size_qty: 30, batch_size_unit: '袋' }, [], { planned_g: 10442, spec_g: 454 }), 23)
+})
+
+test('production plan drawer follows selected workstation capacity batch size', () => {
+  assert.equal(capacityDefaultPlannedQty({ batch_size_qty: 12, batch_size_unit: 'kg' }), 12)
+  assert.equal(capacityDefaultPlannedQty({ batch_size_qty: '1.412', batch_size_unit: 'kg' }), 1.412)
+  assert.equal(capacityDefaultPlannedQty({ batch_size_qty: 0, batch_size_unit: 'kg' }), 0)
+
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /split\.planned_qty = capacityDefaultPlannedQty\(capacity\)/)
+  assert.doesNotMatch(source, /if \(Number\(split\.planned_qty \|\| 0\) <= 0\)[\s\S]{0,160}split\.planned_qty/)
 })
 
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
