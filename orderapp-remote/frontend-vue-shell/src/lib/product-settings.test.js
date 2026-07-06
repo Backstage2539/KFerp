@@ -3694,6 +3694,17 @@ test('SKU unit template save creates or updates without a separate new-template 
   assert.match(source, /await loadAll\(\)\s+resetProductUnitTemplateForm\(\)/)
 })
 
+test('existing SKU sales spec template locks inventory unit after create', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
+
+  assert.match(unitTemplatePane, /:disabled="productUnitTemplateInventoryUnitLocked"/)
+  assert.match(unitTemplatePane, /库存单位保存后不可修改/)
+  assert.match(source, /const productUnitTemplateInventoryUnitLocked = computed/)
+  assert.match(source, /original_inventory_unit/)
+  assert.match(source, /payload\.inventory_unit\s*=\s*productUnitTemplateForm\.value\.original_inventory_unit/)
+})
+
 test('SKU settings compacts context area and uses create edit labels for unit dictionaries', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')

@@ -243,6 +243,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if id <= 0 {
 		return materialRow{}, fmt.Errorf("invalid id")
 	}
+	requestedInventoryUnit := strings.TrimSpace(in.Unit)
 	next, err := normalizeMaterialInput(in)
 	if err != nil {
 		return materialRow{}, err
@@ -296,6 +297,10 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, fmt.Errorf("material deprecated")
 	}
 	old.IndustryFields = loadMaterialIndustryFieldsForTx(ctx, tx, schema, id)
+	if err := assertMaterialInventoryUnitReadOnly(old, next, requestedInventoryUnit); err != nil {
+		return materialRow{}, err
+	}
+	next.Unit = old.Unit
 	if err := assertMaterialStockFieldsReadOnly(old, next); err != nil {
 		return materialRow{}, err
 	}
@@ -570,6 +575,24 @@ func quantityToLegacy(unit string, qty float64) (int64, int64) {
 func assertMaterialStockFieldsReadOnly(old materialRow, next materialInput) error {
 	if old.OnhandG != next.OnhandG || old.OnhandUnits != next.OnhandUnits {
 		return fmt.Errorf("stock fields are read-only; use stock adjustment")
+	}
+	return nil
+}
+
+func assertMaterialInventoryUnitReadOnly(old materialRow, next materialInput, requestedInventoryUnit string) error {
+	if strings.TrimSpace(requestedInventoryUnit) == "" {
+		return nil
+	}
+	oldUnit := strings.TrimSpace(old.Unit)
+	if oldUnit == "" {
+		oldUnit = "g"
+	}
+	nextUnit := strings.TrimSpace(next.Unit)
+	if nextUnit == "" {
+		nextUnit = oldUnit
+	}
+	if oldUnit != nextUnit {
+		return fmt.Errorf("库存单位保存后不能修改；如需调整，请新建物料档案")
 	}
 	return nil
 }

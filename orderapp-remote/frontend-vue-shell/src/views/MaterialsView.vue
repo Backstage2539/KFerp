@@ -89,9 +89,10 @@
               <label><span>名称</span><input v-model.trim="draft.name" /></label>
               <label>
                 <span>库存单位（全局单位字典）</span>
-                <select v-model="draft.unit">
+                <select v-model="draft.unit" :disabled="materialInventoryUnitLocked">
                   <option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.label || unit.name || unit.code }}</option>
                 </select>
+                <small v-if="materialInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
               <label><span>采购价</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
@@ -580,6 +581,7 @@ function openMaterialBusinessGroupManagement() {
     },
   }))
 }
+const materialInventoryUnitLocked = computed(() => Boolean(!draftMode.value && selected.value?.id))
 
 function payloadFromDraft() {
   const sourceStock = draftMode.value ? { onhand_g: 0, onhand_units: 0 } : (selected.value || draft.value)
@@ -587,7 +589,7 @@ function payloadFromDraft() {
     code: draft.value.code,
     name: draft.value.name,
     kind: draft.value.kind || 'other',
-    unit: draft.value.unit,
+    unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     batch_no: draft.value.batch_no,
     purchase_price: Number(draft.value.purchase_price || 0),
     onhand_g: Number(sourceStock.onhand_g || 0),

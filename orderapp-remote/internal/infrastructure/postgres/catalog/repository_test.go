@@ -1086,6 +1086,24 @@ func TestProductUnitDeletesSoftDisableAndAudit(t *testing.T) {
 	}
 }
 
+func TestProductUnitTemplateInventoryUnitIsLockedAfterCreate(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"assertProductUnitTemplateInventoryUnitUnchanged",
+		"库存单位保存后不能修改",
+		"SELECT COALESCE(NULLIF(inventory_unit,''),'kg')",
+		"product_unit_template_inventory_unit_locked",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product unit template inventory unit lock missing marker %q", want)
+		}
+	}
+}
+
 func TestTemplateDeletesUseDeletedStateAndHideFromLists(t *testing.T) {
 	schemaBytes, err := os.ReadFile("schema.go")
 	if err != nil {

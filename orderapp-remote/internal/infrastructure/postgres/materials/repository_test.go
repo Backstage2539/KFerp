@@ -1,6 +1,7 @@
 package materials
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,24 @@ func TestNormalizeMaterialInputDefaultsKindAndUnit(t *testing.T) {
 	}
 	if got.Code != "m-1" || got.Name != "物料1" || got.Kind != "other" || got.Unit != "g" {
 		t.Fatalf("normalizeMaterialInput() = %+v", got)
+	}
+}
+
+func TestMaterialInventoryUnitIsLockedAfterCreate(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"assertMaterialInventoryUnitReadOnly",
+		"requestedInventoryUnit",
+		"库存单位保存后不能修改",
+		"old.Unit",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("material inventory unit lock missing marker %q", want)
+		}
 	}
 }
 

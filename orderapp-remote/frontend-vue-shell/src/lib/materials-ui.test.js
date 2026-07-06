@@ -170,3 +170,10 @@ test('materials and stock adjustments use single material quantity from material
   assert.doesNotMatch(stockAdjustmentsSource, /<span>目标\(g\/散装g\)<\/span>[\s\S]*v-model\.number="form\.target_g"/)
   assert.doesNotMatch(stockAdjustmentsSource, /<span>目标件数<\/span>[\s\S]*v-model\.number="form\.target_units"/)
 })
+
+test('existing material inventory unit is locked after create', () => {
+  assert.match(materialsSource, /materialInventoryUnitLocked/)
+  assert.match(materialsSource, /:disabled="materialInventoryUnitLocked"/)
+  assert.match(materialsSource, /库存单位保存后不可修改/)
+  assert.match(materialsSource, /unit:\s*draftMode\.value\s*\?\s*draft\.value\.unit\s*:\s*\(selected\.value\?\.unit\s*\|\|\s*draft\.value\.unit\)/)
+})

@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-520-INVENTORY-UNIT-LOCK
+- Branch: codex/lock-inventory-unit-after-create-20260706
+- Owner/session: Codex / 2026-07-06
+- Status: implemented on feature branch; verification in progress.
+- Scope: 物料档案库存单位和销售规格模板库存单位一经保存不可修改；新建时可从全局单位字典选择，编辑已有记录时 UI 只读展示，后端拒绝绕过前端提交的库存单位变化。单位选错时创建新物料档案或新销售规格模板并通过库存调整、入库或商品引用切换迁移，不回改历史库存、BOM、价格表、订单、工单和库存流水。
+- DEV:
+  - DEV-520-MATERIAL-INVENTORY-UNIT-LOCK：物料档案详情锁定库存单位，更新接口和仓储层拒绝 `materials.unit` 变更，其他基础字段仍可正常保存并写操作日志。
+  - DEV-520-SALES-SPEC-TEMPLATE-INVENTORY-UNIT-LOCK：销售规格模板锁定 `inventory_unit`，已有模板保存时保留原库存单位，仓储层拒绝修改库存单位。
+  - DEV-520-UI-DOCS-ACCEPTANCE：物料档案和销售规格模板页面增加只读提示，同步需求、验收、库存物料手册、成本手册和验收证据。
+- Verifier:
+  - RED: `go test ./internal/infrastructure/postgres/catalog -run TestProductUnitTemplateInventoryUnitIsLockedAfterCreate -count=1` failed before the template inventory-unit lock marker/helper existed.
+  - RED: `go test ./internal/infrastructure/postgres/materials -run TestMaterialInventoryUnitIsLockedAfterCreate -count=1` failed before the material inventory-unit lock helper existed.
+  - RED: `node --test src/lib/materials-ui.test.js src/lib/product-settings.test.js` failed before frontend lock markers and disabled selects existed.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/materials ./internal/infrastructure/postgres/catalog -run 'TestMaterialInventoryUnitIsLockedAfterCreate|TestProductUnitTemplateInventoryUnitIsLockedAfterCreate' -count=1` passed.
+  - GREEN materials API: `go test ./internal/interfaces/http/materials -run 'TestMaterialsAPIUpdateAllowsBaseFieldsAndWritesAudit|TestMaterialsAPIUpdateRejectsInventoryUnitChange|TestMaterialsAPIUpdateAllowsOmittedInventoryUnit|TestMaterialsAPIUpdateRejectsInlineStockChange' -count=1` passed.
+  - GREEN touched backend: `go test ./internal/infrastructure/postgres/materials ./internal/interfaces/http/materials ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/application/catalog -count=1` passed.
+  - GREEN frontend targeted: `node --test src/lib/materials-ui.test.js src/lib/product-settings.test.js` passed.
+  - GREEN frontend/build: first `npm run build` failed because fresh worktree lacked `vite`; `npm ci` succeeded, then `npm run build` passed with the existing Vite large-chunk warning.
+  - GREEN review: `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Deployment: pending merge and development deploy decision.
+- Last update: 2026-07-06 Asia/Shanghai verified
+
 ### PR-519-PRODUCTION-PLAN-SPLIT-DEMAND-GAP
 - Branch: codex/produce-plan-split-demand-gap-20260705
 - Owner/session: Codex / 2026-07-05

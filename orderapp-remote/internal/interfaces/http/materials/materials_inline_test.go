@@ -85,7 +85,7 @@ func TestMaterialsAPIUpdateAllowsBaseFieldsAndWritesAudit(t *testing.T) {
 		Code:          "m-api-1",
 		Name:          "测试物料改名",
 		Kind:          "bean",
-		Unit:          "kg",
+		Unit:          "g",
 		PurchasePrice: 12,
 		SalePrice:     20,
 		OnhandG:       1000,
@@ -107,15 +107,113 @@ func TestMaterialsAPIUpdateAllowsBaseFieldsAndWritesAudit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Name != "测试物料改名" || updated.Unit != "kg" || updated.PurchasePrice != 12 {
+	if updated.Name != "测试物料改名" || updated.Unit != "g" || updated.PurchasePrice != 12 {
 		t.Fatalf("updated material = %+v", updated)
 	}
 	var count int
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='material' AND entity_id=$1 AND action='update' AND field IN ('name','unit','purchase_price')`, schema), id).Scan(&count); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='material' AND entity_id=$1 AND action='update' AND field IN ('name','purchase_price')`, schema), id).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count < 3 {
-		t.Fatalf("audit update count = %d, want at least 3", count)
+	if count < 2 {
+		t.Fatalf("audit update count = %d, want at least 2", count)
+	}
+}
+
+func TestMaterialsAPIUpdateRejectsInventoryUnitChange(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,batch_no,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())`, schema), "m-api-unit-1", "单位物料", "bean", "g", "20260427", 10, 20, 1000, 0, 100, 0); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE code=$1`, schema), "m-api-unit-1").Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "api-test")
+			return next(c)
+		}
+	})
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
+
+	body, err := json.Marshal(materialsapp.MaterialInput{
+		Code:          "m-api-unit-1",
+		Name:          "单位物料改名",
+		Kind:          "bean",
+		Unit:          "kg",
+		BatchNo:       "20260427",
+		PurchasePrice: 10,
+		SalePrice:     20,
+		OnhandG:       1000,
+		OnhandUnits:   0,
+		MinLevelG:     100,
+		MinLevelUnits: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", id), bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "库存单位保存后不能修改") {
+		t.Fatalf("POST /api/materials/:id status = %d body=%s, want inventory unit lock rejection", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMaterialsAPIUpdateAllowsOmittedInventoryUnit(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,batch_no,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())`, schema), "m-api-unit-legacy", "旧客户端物料", "bean", "kg", "20260427", 10, 20, 1000, 0, 100, 0); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE code=$1`, schema), "m-api-unit-legacy").Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "api-test")
+			return next(c)
+		}
+	})
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
+
+	body, err := json.Marshal(map[string]any{
+		"code":            "m-api-unit-legacy",
+		"name":            "旧客户端物料改名",
+		"kind":            "bean",
+		"batch_no":        "20260427",
+		"purchase_price":  11,
+		"sale_price":      20,
+		"onhand_g":        1000,
+		"onhand_units":    0,
+		"min_level_g":     100,
+		"min_level_units": 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", id), bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/materials/:id status = %d body=%s, want success for omitted inventory unit", rec.Code, rec.Body.String())
+	}
+	var updated materialsapp.Material
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Unit != "kg" || updated.Name != "旧客户端物料改名" || updated.PurchasePrice != 11 {
+		t.Fatalf("updated material = %+v, want unit kg preserved with base edits", updated)
 	}
 }
 

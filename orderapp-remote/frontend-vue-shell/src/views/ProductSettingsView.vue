@@ -566,9 +566,10 @@
               <div class="template-editor-grid">
                 <label class="wide-field">
                   <span>库存单位</span>
-                  <select v-model="productUnitTemplateForm.inventory_unit" @change="syncSalesSpecTemplateInventoryUnit(productUnitTemplateForm)">
+                  <select v-model="productUnitTemplateForm.inventory_unit" :disabled="productUnitTemplateInventoryUnitLocked" @change="syncSalesSpecTemplateInventoryUnit(productUnitTemplateForm)">
                     <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                   </select>
+                  <small v-if="productUnitTemplateInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建销售规格模板。</small>
                 </label>
               </div>
               <div class="sales-spec-editor">
@@ -1956,6 +1957,7 @@ const customForm = ref(defaultCustomForm())
 const highlightedSkuId = ref(0)
 const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
+const productUnitTemplateInventoryUnitLocked = computed(() => Number(productUnitTemplateForm.value?.id || 0) > 0)
 const productPriceRecordForm = ref(defaultProductPriceRecordForm())
 const productTierPriceSchemeForm = ref(defaultProductTierPriceSchemeForm())
 const pricingRuleForm = ref(defaultPricingRuleForm())
@@ -2750,6 +2752,7 @@ function unitTypeLabel(value) {
 
 function defaultProductUnitTemplateForm(template = {}) {
   const inventoryUnit = template.inventory_unit || 'kg'
+  const originalInventoryUnit = template.original_inventory_unit || (Number(template.id || 0) > 0 ? inventoryUnit : '')
   const salesSpecRows = salesSpecRowsFromTemplate(template, inventoryUnit)
   if (!salesSpecRows.length) {
     salesSpecRows.push({
@@ -2770,6 +2773,7 @@ function defaultProductUnitTemplateForm(template = {}) {
     id: Number(template.id || 0),
     name: template.name || '',
     inventory_unit: inventoryUnit,
+    original_inventory_unit: originalInventoryUnit,
     sales_unit: defaultSalesUnit,
     default_sales_unit: defaultSalesUnit,
     sales_units: Array.isArray(template.sales_units) ? template.sales_units : [],
@@ -4535,6 +4539,9 @@ function derivedSpecStatusLabel(status = '') {
 
 async function saveProductUnitTemplate() {
   const payload = buildProductUnitTemplatePayload(productUnitTemplateForm.value)
+  if (productUnitTemplateInventoryUnitLocked.value) {
+    payload.inventory_unit = productUnitTemplateForm.value.original_inventory_unit || productUnitTemplateForm.value.inventory_unit || payload.inventory_unit
+  }
   const validation = validateProductUnitTemplatePayload(payload)
   if (validation) {
     error.value = validation

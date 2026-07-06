@@ -3177,6 +3177,11 @@ func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.
 	defer func() { _ = tx.Rollback(ctx) }()
 	var id int64
 	if cmd.ID > 0 {
+		inventoryUnit, err := assertProductUnitTemplateInventoryUnitUnchanged(ctx, tx, r.schema, cmd.ID, cmd.InventoryUnit)
+		if err != nil {
+			return catalogapp.ProductUnitTemplate{}, err
+		}
+		cmd.InventoryUnit = inventoryUnit
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_unit_templates
 			SET name=$2, inventory_unit=$3, quote_unit=$4, order_unit=$5,
@@ -3211,6 +3216,28 @@ func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.
 		return catalogapp.ProductUnitTemplate{}, err
 	}
 	return row, nil
+}
+
+func assertProductUnitTemplateInventoryUnitUnchanged(ctx context.Context, tx pgx.Tx, schema string, id int64, nextInventoryUnit string) (string, error) {
+	if id <= 0 {
+		return "", fmt.Errorf("invalid id")
+	}
+	var currentInventoryUnit string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(inventory_unit,''),'kg')
+		FROM %s.product_unit_templates
+		WHERE id=$1
+		FOR UPDATE
+	`, schema), id).Scan(&currentInventoryUnit); err != nil {
+		return "", err
+	}
+	currentInventoryUnit = firstNonEmptyString(strings.TrimSpace(currentInventoryUnit), "kg")
+	nextInventoryUnit = firstNonEmptyString(strings.TrimSpace(nextInventoryUnit), "kg")
+	if currentInventoryUnit != nextInventoryUnit {
+		return "", fmt.Errorf("库存单位保存后不能修改；如需调整，请新建销售规格模板")
+	}
+	// product_unit_template_inventory_unit_locked: existing templates keep their original stock UOM.
+	return currentInventoryUnit, nil
 }
 
 func (r Repository) DeleteProductUnitDefinition(ctx context.Context, cmd catalogapp.DeleteProductUnitDefinitionCommand) error {
