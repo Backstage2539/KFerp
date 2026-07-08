@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestDeployScriptTargetsDevelopAndVueShellOnly(t *testing.T) {
+func TestDeployScriptTargetsIsolatedReleaseBranchesAndVueShell(t *testing.T) {
 	body, err := os.ReadFile("../deploy_orderapp.sh")
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -17,8 +17,13 @@ func TestDeployScriptTargetsDevelopAndVueShellOnly(t *testing.T) {
 	}
 	src := string(body)
 	for _, want := range []string{
-		`BRANCH" != "develop"`,
-		"origin/develop",
+		`TARGET_ENV="production"`,
+		`TARGET_ENV="development"`,
+		`REQUIRED_BRANCH="main"`,
+		`REQUIRED_BRANCH="develop"`,
+		`STACK_DIR="/opt/stacks/erp-production"`,
+		`STACK_DIR="/opt/stacks/erp"`,
+		"origin/$REQUIRED_BRANCH",
 		"frontend-vue-shell",
 		"docker compose -f docker-compose.yml -f docker-compose.docconvert.yml build orderapp",
 	} {
@@ -27,8 +32,6 @@ func TestDeployScriptTargetsDevelopAndVueShellOnly(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{
-		`BRANCH" != "main"`,
-		"origin/main",
 		"cd orderapp-remote/frontend\n",
 		"Building frontend (React)",
 	} {
