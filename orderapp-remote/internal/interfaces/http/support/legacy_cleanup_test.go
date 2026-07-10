@@ -26,6 +26,8 @@ func TestDeployScriptTargetsIsolatedReleaseBranchesAndVueShell(t *testing.T) {
 		"origin/$REQUIRED_BRANCH",
 		"frontend-vue-shell",
 		"docker compose -f docker-compose.yml -f docker-compose.docconvert.yml build orderapp",
+		`WECHAT_MINI_APP_ID: \${WECHAT_MINI_APP_ID:-}`,
+		`WECHAT_MINI_APP_SECRET: \${WECHAT_MINI_APP_SECRET:-}`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("deploy script missing %q", want)
