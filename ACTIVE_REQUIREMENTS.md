@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-523-ORDERLIST-STAGING-CLEANUP
 - Branch: codex/orderlist-staging-20260710
 - Owner/session: Codex / 2026-07-10
-- Status: verified; production isolated staging database loaded; integration pending
+- Status: merged to develop; production isolated staging database loaded; development deployed and smoke verified
 - Scope: 清洗 `/data/orderlist.xlsx` 中 2025-01 至 2026-06 的月度咖啡销售记录；按 `工作表名 + A列有效序号` 建立稳定来源键，重复序号追加一位后缀；规范客户、父商品、SKU、订单与订单明细，并写入生产 PostgreSQL 实例的独立临时库 `kferp_orderlist_staging`。正式 `nocodb` 业务表保持零写入。
 - DEV:
   - DEV-523-ORDERLIST-ETL：解析多版本月度表头、稳定来源键、客户手机号归并、商品/SKU和订单字段清洗。
@@ -22,8 +22,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Workbook: artifact_tool inspect, formula-error scan, and render pass for every review sheet
   - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-10-orderlist-staging-cleanup.md`
-- Deployment: production isolated staging database loaded without application restart; development app deployment pending integration; no production application deployment
-- Last update: 2026-07-10 Asia/Shanghai staging load/idempotence/formal zero-write verified
+- Deployment: production isolated staging database loaded without application restart; development deployed from origin/develop `0ae2c0d887ec2f65042928ac087fda00a6e7b7f1`, backup `/opt/stacks/erp/orderapp.backup.deploy-20260711001530`; login=200, req_product=200 with PR-523, manual present. No production application deployment.
+- Last update: 2026-07-11 Asia/Shanghai merged/deployed/smoke verified
 - Notes: Source workbook and generated PII-bearing artifacts must remain outside git.
 
 ### PR-522-PRODUCTION-CUSTOMER-ASSETS-SCHEMA
