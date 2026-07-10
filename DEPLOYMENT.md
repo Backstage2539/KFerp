@@ -56,7 +56,7 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58
 - 开发：`/opt/stacks/erp`
 - 各环境目录下：
   - `docker-compose.yml`：compose 定义
-  - `.env`：环境变量（包含数据库密码、ORDERAPP_PASS 等）
+  - `.env`：环境变量（包含数据库密码、ORDERAPP_PASS、WECHAT_MINI_APP_ID、WECHAT_MINI_APP_SECRET 等）
   - `orderapp/`：orderapp 源码（会被脚本覆盖同步）
   - `orderapp_data/`：orderapp 持久化数据（assets 等）
   - `postgres_data/`：Postgres 持久化数据
@@ -80,6 +80,9 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58
 3) 重建并滚动更新容器：
 - `docker compose build orderapp`
 - `docker compose up -d`
+
+部署脚本会把当前环境 `.env` 中的 `WECHAT_MINI_APP_ID` 和 `WECHAT_MINI_APP_SECRET`
+注入 `orderapp` 容器。生产与开发使用各自目录下的 `.env`，不会跨环境读取微信凭证。
 
 ### 2.2 执行开发环境部署
 开发环境只能从 `develop` 分支部署：

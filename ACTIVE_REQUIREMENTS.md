@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-521-MINIAPP-PRODUCTION-LOGIN
+- Branch: codex/miniapp-production-login-20260710
+- Owner/session: Codex / 2026-07-10
+- Status: production login incident diagnosed; deployment env injection fix verified; production customer-data baseline pending.
+- Scope: 小程序生产构建固定请求 `https://erp.qacoohee.com/app`；部署脚本必须把目标环境 `.env` 的 `WECHAT_MINI_APP_ID/WECHAT_MINI_APP_SECRET` 注入 orderapp，避免生产快捷登录返回 `mini login disabled`。生产客户账号和门户绑定必须来自生产库，不跨环境实时读取开发库。
+- Verifier:
+  - Reproduction: production `POST /app/api/mini/login` returned `503 {"error":"mini login disabled"}`; production container lacked both WeChat variables although `/opt/stacks/erp-production/.env` contained the keys.
+  - Data diagnosis: production had 0 channel-customer accounts, 0 ERP customer bindings and 0 portal profiles; development had 13 active channel-customer accounts, 17 ERP bindings and 18 portal profiles.
+  - RED: `go test ./internal/interfaces/http/support -run TestDeployScriptTargetsIsolatedReleaseBranchesAndVueShell -count=1 -v` failed because `deploy_orderapp.sh` did not inject the WeChat variables.
+  - GREEN: the same targeted test passed after adding the runtime Compose environment mapping; `git diff --check` passed.
+- Deployment: pending integration into `develop/main`, production orderapp recreate, API smoke, and an explicit production customer-data baseline decision.
+- Last update: 2026-07-10 Asia/Shanghai diagnosed
+
 ### PR-520-INVENTORY-UNIT-LOCK
 - Branch: codex/lock-inventory-unit-after-create-20260706
 - Owner/session: Codex / 2026-07-06

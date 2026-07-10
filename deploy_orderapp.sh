@@ -138,6 +138,8 @@ services:
         condition: service_started
     environment:
       DOCX_CONVERTER_URL: http://docconvert:3000/forms/libreoffice/convert
+      WECHAT_MINI_APP_ID: \${WECHAT_MINI_APP_ID:-}
+      WECHAT_MINI_APP_SECRET: \${WECHAT_MINI_APP_SECRET:-}
 
   docconvert:
     image: \${DOCX_CONVERTER_IMAGE:-docker.m.daocloud.io/gotenberg/gotenberg:8-libreoffice}
