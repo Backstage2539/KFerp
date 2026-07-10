@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-523-ORDERLIST-STAGING-CLEANUP
+- Branch: codex/orderlist-staging-20260710
+- Owner/session: Codex / 2026-07-10
+- Status: verified; production isolated staging database loaded; integration pending
+- Scope: 清洗 `/data/orderlist.xlsx` 中 2025-01 至 2026-06 的月度咖啡销售记录；按 `工作表名 + A列有效序号` 建立稳定来源键，重复序号追加一位后缀；规范客户、父商品、SKU、订单与订单明细，并写入生产 PostgreSQL 实例的独立临时库 `kferp_orderlist_staging`。正式 `nocodb` 业务表保持零写入。
+- DEV:
+  - DEV-523-ORDERLIST-ETL：解析多版本月度表头、稳定来源键、客户手机号归并、商品/SKU和订单字段清洗。
+  - DEV-523-STAGING-DATABASE：提供独立临时库DDL、幂等装载、修订记录和正式库隔离校验。
+  - DEV-523-REVIEW-WORKBOOK：生成包含汇总、序号映射、客户、商品/SKU、订单、明细和问题清单的审核工作簿。
+  - DEV-523-DOCS-ACCEPTANCE：同步需求、验收记录和临时库操作手册。
+- Verifier:
+  - Unit: `go test ./internal/migration/orderliststaging -count=1`
+  - API/integration: staging PostgreSQL schema/load/reload/count queries; production `nocodb` before/after row-count comparison
+  - Workbook: artifact_tool inspect, formula-error scan, and render pass for every review sheet
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-10-orderlist-staging-cleanup.md`
+- Deployment: production isolated staging database loaded without application restart; development app deployment pending integration; no production application deployment
+- Last update: 2026-07-10 Asia/Shanghai staging load/idempotence/formal zero-write verified
+- Notes: Source workbook and generated PII-bearing artifacts must remain outside git.
+
 ### PR-522-PRODUCTION-CUSTOMER-ASSETS-SCHEMA
 - Branch: codex/customer-assets-schema-20260710
 - Owner/session: Codex / 2026-07-10
