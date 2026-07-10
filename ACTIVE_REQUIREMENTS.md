@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-522-PRODUCTION-CUSTOMER-ASSETS-SCHEMA
 - Branch: codex/customer-assets-schema-20260710
 - Owner/session: Codex / 2026-07-10
-- Status: production schema repaired; startup migration implemented and verification in progress.
+- Status: merged to develop/main and deployed to production; smoke verified.
 - Scope: 新环境启动时由 customer PostgreSQL 模块幂等创建 `customer_assets` 及客户索引；初始化顺序固定为 core customers -> customer assets -> customer portal，避免新增客户写入成功后因详情回读缺表返回 500。
 - Verifier:
   - Reproduction: production customer create/detail returned `relation p2rms15pepb5ciz.customer_assets does not exist` while development already had the historical table.
@@ -17,8 +17,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Production repair: idempotent `CREATE TABLE IF NOT EXISTS ... customer_assets` and index completed; authenticated `GET /app/api/customers/4` returned 200 with `assets: []`.
   - GREEN targeted: `go test ./internal/infrastructure/postgres/customer ./internal/appmain -run 'TestCustomer(SchemaDefinesCustomerAssets|EnsureSchemaCreatesCustomerAssets)|TestSchemaSetupInitializesCoreCustomerAndCompanyDependenciesInOrder' -count=1 -v` passed, with the DB-backed test skipped locally when no test DSN was configured.
   - GREEN touched: `go test ./internal/infrastructure/postgres/customer ./internal/interfaces/http/customer ./internal/appmain -count=1` passed; `git diff --check` passed.
-- Deployment: production hot repair complete; durable code integration/deployment pending.
-- Last update: 2026-07-10 Asia/Shanghai production repair verified
+- Deployment: merged/pushed to `origin/develop=041d0c95e2e148fed3e4fb2c6aee274d3965ef29` and `origin/main=041d0c95e2e148fed3e4fb2c6aee274d3965ef29`; production deployed with backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260710170031`. Smoke verified `erp_prod_orderapp` running, `customer_assets` present, authenticated customer detail IDs 2/3/4 all return 200 with empty assets, WeChat miniapp variables remain injected, and recent logs contain no missing-relation error.
+- Last update: 2026-07-10 Asia/Shanghai postdeploy verified
 
 ### PR-521-MINIAPP-PRODUCTION-LOGIN
 - Branch: codex/miniapp-production-login-20260710
