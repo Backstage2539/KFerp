@@ -6,19 +6,25 @@ import (
 	"testing"
 )
 
-func TestSchemaSetupInitializesCompanyBeforeEmployeeDependentModules(t *testing.T) {
+func TestSchemaSetupInitializesCoreCustomerAndCompanyDependenciesInOrder(t *testing.T) {
 	body, err := os.ReadFile("internal/appmain/schema_setup.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(body)
 	company := strings.Index(src, `Name: "company"`)
+	core := strings.Index(src, `Name: "core"`)
+	customer := strings.Index(src, `Name: "customer"`)
+	customerPortal := strings.Index(src, `Name: "customerportal"`)
 	support := strings.Index(src, `Name: "support"`)
 	authz := strings.Index(src, `Name: "authz"`)
-	if company < 0 || support < 0 || authz < 0 {
-		t.Fatalf("schema steps missing company/support/authz: company=%d support=%d authz=%d", company, support, authz)
+	if company < 0 || core < 0 || customer < 0 || customerPortal < 0 || support < 0 || authz < 0 {
+		t.Fatalf("schema steps missing company/core/customer/customerportal/support/authz: company=%d core=%d customer=%d customerportal=%d support=%d authz=%d", company, core, customer, customerPortal, support, authz)
 	}
 	if !(company < support && company < authz) {
 		t.Fatalf("company schema must run before support/authz because both reference employees")
+	}
+	if !(core < customer && customer < customerPortal) {
+		t.Fatalf("customer schema must run after core customers and before customer portal: core=%d customer=%d customerportal=%d", core, customer, customerPortal)
 	}
 }

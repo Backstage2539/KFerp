@@ -11,6 +11,7 @@ import (
 	postgrescontracts "orderapp/internal/infrastructure/postgres/contracts"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
 	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
+	postgrescustomer "orderapp/internal/infrastructure/postgres/customer"
 	postgrescustomerfulfillment "orderapp/internal/infrastructure/postgres/customerfulfillment"
 	postgrescustomerportal "orderapp/internal/infrastructure/postgres/customerportal"
 	postgresfinance "orderapp/internal/infrastructure/postgres/finance"
@@ -31,6 +32,7 @@ func ensureAppSchema(ctx context.Context, pool *pgxpool.Pool, schema string) err
 	return postgresinfra.EnsureSchema(ctx, []postgresinfra.SchemaStep{
 		{Name: "company", Run: func(ctx context.Context) error { return postgrescompany.EnsureSchema(ctx, pool, schema) }},
 		{Name: "core", Run: func(ctx context.Context) error { return postgrescore.EnsureSchema(ctx, pool, schema) }},
+		{Name: "customer", Run: func(ctx context.Context) error { return postgrescustomer.EnsureSchema(ctx, pool, schema) }},
 		{Name: "customerportal", Run: func(ctx context.Context) error { return postgrescustomerportal.EnsureSchema(ctx, pool, schema) }},
 		{Name: "customerfulfillment", Run: func(ctx context.Context) error { return postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema) }},
 		{Name: "messagecenter", Run: func(ctx context.Context) error { return postgresmessagecenter.EnsureSchema(ctx, pool, schema) }},

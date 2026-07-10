@@ -6,6 +6,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-522-PRODUCTION-CUSTOMER-ASSETS-SCHEMA
+- Branch: codex/customer-assets-schema-20260710
+- Owner/session: Codex / 2026-07-10
+- Status: production schema repaired; startup migration implemented and verification in progress.
+- Scope: 新环境启动时由 customer PostgreSQL 模块幂等创建 `customer_assets` 及客户索引；初始化顺序固定为 core customers -> customer assets -> customer portal，避免新增客户写入成功后因详情回读缺表返回 500。
+- Verifier:
+  - Reproduction: production customer create/detail returned `relation p2rms15pepb5ciz.customer_assets does not exist` while development already had the historical table.
+  - RED: targeted customer/appmain tests failed with `undefined: EnsureSchema` and missing `Name: "customer"` schema step.
+  - Production repair: idempotent `CREATE TABLE IF NOT EXISTS ... customer_assets` and index completed; authenticated `GET /app/api/customers/4` returned 200 with `assets: []`.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/customer ./internal/appmain -run 'TestCustomer(SchemaDefinesCustomerAssets|EnsureSchemaCreatesCustomerAssets)|TestSchemaSetupInitializesCoreCustomerAndCompanyDependenciesInOrder' -count=1 -v` passed, with the DB-backed test skipped locally when no test DSN was configured.
+  - GREEN touched: `go test ./internal/infrastructure/postgres/customer ./internal/interfaces/http/customer ./internal/appmain -count=1` passed; `git diff --check` passed.
+- Deployment: production hot repair complete; durable code integration/deployment pending.
+- Last update: 2026-07-10 Asia/Shanghai production repair verified
+
 ### PR-521-MINIAPP-PRODUCTION-LOGIN
 - Branch: codex/miniapp-production-login-20260710
 - Owner/session: Codex / 2026-07-10
