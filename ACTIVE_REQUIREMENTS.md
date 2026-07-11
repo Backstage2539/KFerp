@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-524-ORDERLIST-CUSTOMER-IMPORT-REVIEW
 - Branch: codex/orderlist-customer-review-20260711
 - Owner/session: Codex / 2026-07-11
-- Status: verified; customer review workbook generated; pending integration/development deploy
+- Status: merged to develop; customer review workbook generated; development deployed and smoke verified
 - Scope: 在 PR-523 历史销售清洗结果上再次提炼客户；可靠识别为同一客户且存在多个手机号时使用最近订单记录中的有效号码，保留全部历史号码和合并证据；生成包含 KFerp 客户新增/更新 API 全字段的 `客户导入审核` Sheet，供人工审核后再正式导入。本需求不写正式客户表。
 - DEV:
   - DEV-524-CUSTOMER-IDENTITY：按生产 ERP 匹配、开发 ERP 匹配和可靠规范名称聚合跨号码客户，短姓名/泛称不自动跨号码合并。
@@ -23,7 +23,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: artifact_tool inspect 确认 12 Sheets、`客户导入审核` 38 列；公式错误 0；字段区和历史证据区渲染通过
   - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-orderlist-customer-import-review.md`
-- Deployment: no formal customer import; development application deployment pending integration
+- Deployment: merged application commit `f579a88c208dd38858ccba17ff454dd540ab2b23`; development deployed with backup `/opt/stacks/erp/orderapp.backup.deploy-20260711124818`. Smoke: dev shell 200, requirement API 200 with PR-524, manual/source markers present, recent app errors none. No formal customer import; production customer count remains 6.
 - Last update: 2026-07-11 Asia/Shanghai
 - Notes: 源数据、生产客户只读快照和生成的含个人信息工作簿仅保存在受保护的 git 外目录。
 
