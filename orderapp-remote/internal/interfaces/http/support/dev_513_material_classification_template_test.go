@@ -42,7 +42,7 @@ func TestDev513MaterialClassificationTemplateContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-513-MATERIAL-CLASSIFICATION-TEMPLATE",
-			"设置 → 系统设置 → 分组模板",
+			"设置 → 分组模板",
 			"material_catalog",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-01-material-classification-template.md"): {

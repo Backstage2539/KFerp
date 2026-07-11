@@ -100,7 +100,7 @@ test('customer alias list has shared filters batch disable and industry field co
 })
 
 test('legacy classification template editor stays retired from product settings', () => {
-  const settingsSource = readFileSync(resolve(here, '../views/UISettingsView.vue'), 'utf8')
+  const settingsSource = readFileSync(resolve(here, '../views/GroupTemplatesView.vue'), 'utf8')
   assert.match(settingsSource, /data-section-mode="groupTemplates"/)
   assert.doesNotMatch(productSettingsSource, /data-section-mode="groupManagement"/)
   assert.match(productSettingsSource, /\/api\/business-group-items/)
