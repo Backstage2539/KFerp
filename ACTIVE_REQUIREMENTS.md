@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-525-ORDERLIST-CUSTOMER-TYPE-REFINEMENT
 - Branch: codex/orderlist-customer-type-review-20260711
 - Owner/session: Codex / 2026-07-11
-- Status: implemented; final workbook generated; verification green; pending integration/development deployment
+- Status: merged to develop; final workbook generated; development deployed and smoke verified
 - Scope: 按历史 Excel 备注列重新提炼客户身份和客户类型：备注为空时按收件人生成零售客户；备注中包含客户名称时以备注客户为主体，同一主体只有一个收件地址判定批发客户，存在多个收件地址判定渠道客户。保留最近手机号、历史号码、收件地址样本和判定依据，重新生成客户导入审核表，不写正式客户表。
 - DEV:
   - DEV-525-REMARK-CUSTOMER-IDENTITY：清理备注业务后缀，提取批发/渠道客户主体；备注为空时从收件信息提取零售客户，并隔离两类身份范围。
@@ -22,8 +22,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: artifact_tool inspect 确认 12 Sheets；公式错误 0；全部工作表及客户审核字段区/类型证据区渲染通过
   - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-orderlist-customer-type-refinement.md`
-- Deployment: no formal customer import; pending merge to develop and development deployment
-- Last update: 2026-07-11 Asia/Shanghai
+- Deployment: merged application commit `40bcd37f4d14d6c8a57e03ecadddf89fb81f1c1e`; development deployed with backup `/opt/stacks/erp/orderapp.backup.deploy-20260711180222`. Smoke: development containers running, unauthenticated dev shell 303, authenticated shell 200, requirement API exposes PR-525, source/workbook markers present, recent app errors none. No formal customer import; production customer count remains 6.
+- Last update: 2026-07-11 Asia/Shanghai postdeploy verified
 - Notes: 客户类型为历史数据推断结果，正式导入前仍需人工审核。
 
 ### PR-524-ORDERLIST-CUSTOMER-IMPORT-REVIEW
