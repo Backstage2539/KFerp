@@ -13,7 +13,7 @@
   - 操作审计日志（全量留痕）
 - 凡用户触发的业务写操作，包括新增、修改、删除、提交、导入、发布、作废、调整、转仓、上传和状态变更，都必须写入操作审计日志，并能在操作日志页面按类型、日期或关键字查到。
 - 所有涉及业务列表的 Vue/Vite 页面都必须支持分页展示，至少包含总条数/总页数、当前页、跳转到指定页、每页显示条数；服务端分页接口必须返回 `total`、`total_pages`、`page`、`limit` 等元数据。
-- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`分组模板` 是系统级基础资料，但 `设置 / 分组模板` 与 `设置 / 系统设置` 必须是两个独立 Vue 页面。分组模板页只维护模板名、大类、小类、排序和备注，不展示系统开关、全局单位字典、对象数量、对象列表、勾选对象或对象移动入口；系统设置页只维护系统开关和全局单位字典，不加载或保存分组模板。模板不提供启用/停用，编辑已有模板时可 `删除模板`。删除模板会删除该模板、分类项、用途和对象归类，并写操作日志；旧 `groupManagement` 路由保留兼容并打开独立分组模板页面。商品模块普通菜单不再显示 `分组管理`。
+- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`分组模板` 是系统级基础资料，但 `设置 / 分组模板` 与 `设置 / 系统设置` 必须是两个独立 Vue 页面。分组模板页只维护模板名、大类、小类、排序和备注，不展示系统开关、全局单位字典、对象数量、对象列表、勾选对象或对象移动入口；系统设置页只维护系统开关和全局单位字典，不加载或保存分组模板。模板不提供启用/停用，编辑已有模板时可 `删除模板`。删除模板会删除该模板、分类项、用途和对象归类，并写操作日志；旧 `groupManagement` 路由保留兼容并打开独立分组模板页面。商品模块普通菜单不再显示 `分组管理`。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-513-MATERIAL-CLASSIFICATION-TEMPLATE：商品档案、物料档案、生产 BOM、仓库库存页面必须先选择 `分组模板`，选择后才显示业务列表分类整理和 `移动到分类`。移动目标支持 `未分类`、大类和小类，移动直接覆盖该使用场景下的旧归类并写入 `business_group_assignments`。`usage_key` 只表示内部使用场景：`product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`、`price_list`。
 - PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存必须共用 `business-grouping` helper 和 `BusinessGroupControls`，不得三处各写一套模板选择、分类树、未分类分组、移动 payload 和缩进逻辑。所选模板下的空大类和空小类也必须显示，其他模板、系统默认迁移模板或已删除分类留下的归类都按 `未分类` 展示。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION / PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：`business_groups / business_group_items` 继续作为分组模板和分类项，`business_group_assignments` 作为对象归类关系；不新增第三套表。用户触发的归类新增、修改、移除都必须写操作日志。
@@ -919,7 +919,7 @@
 - PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY：工单和工序卡必须支持计划开始/结束、班次、负责人、优先级、排程备注和工作中心字段；工作中心产能日历记录日期、班次、可用分钟、停机分钟和备注。排程保存和产能保存都是用户触发写入，必须写操作日志。
 - PR-481-MANUFACTURING-PHASE3-SCHEDULING-WORKBENCH：生产管理新增 `生产排程` 工作台，支持列表、日历、甘特式时间轴和工位负载视图。三期先做人工排程和冲突提示，不做自动优化排程。
 - PR-482-MANUFACTURING-PHASE3-MRP-SUGGESTIONS：排程工作台必须展示 MRP 采购建议和调拨建议。建议基于工单物料需求、WIP 占用、WIP 可用量和原料仓库存聚合，并保留来源工单；三期只生成建议，不自动创建采购单或调拨单。
-- PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS：行业字段模板页增加通用制造计算预览，支持配置成咖啡烘焙、包装盒和童装场景。计算器使用通用公式生成需求产出、计划投入、预计损耗和成本预览，行业差异仍通过字段模板和 JSON 参数表达，不进入生产计划主链路。
+- PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS：历史阶段曾在行业字段模板页提供通用制造计算预览；PR-527 后该独立页面入口已移除，行业差异继续通过字段模板和 JSON 参数表达，不进入生产计划主链路。
 - PR-484-MANUFACTURING-PHASE3-TRACEABILITY-ANALYTICS：生产成本页升级为追溯分析看板，展示批次/工单追溯链路、计划成本 vs 实际成本差异和异常损耗。追溯读取工单、工序卡、Stock Entry 和成本记录，不回改库存或价格表快照。
 
 ## 55. 工位成本组件与产能批量折算工序成本（PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS / PR-512-PRICING-RULE-TRIAL-SOURCE-COST / PR-514-WORKSTATION-COST-COMPONENTS）
@@ -1041,3 +1041,8 @@
 - 父商品行内提供可展开的规格 SKU 明细，逐条展示规格名和 SKU 编号；点击具体子 SKU 仍可进入其配置上下文。
 - 商品数量、分页、全选和批量操作只统计父商品。搜索父商品名、子 SKU 名、规格或 SKU 编号时，都应定位到对应父商品。
 - 子 SKU 数据模型、`parent_product_id`、价格表、BOM、库存和订单引用保持不变；本需求只修正商品档案列表的信息层级。
+
+### PR-527-REMOVE-INDUSTRY-CALCULATION-PREVIEW：行业字段模板移除计算预览
+- `设置 → 行业设置 → 行业字段模板` 编辑页不再显示独立的“计算预览”区域，不显示业务预设、需求产出、损耗率、原料单价、工序分钟、工时费或预览结果。
+- 页面继续维护模板名称、状态、说明和字段定义，并保留新增字段、保存模板和停用模板流程。
+- 本次不修改行业字段模板 API、已有模板数据、商品生产配置或历史兼容计算接口。

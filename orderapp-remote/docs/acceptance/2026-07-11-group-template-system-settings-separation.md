@@ -1,4 +1,4 @@
-# PR-527 分组模板与系统设置页面分离
+# PR-528 分组模板与系统设置页面分离
 
 ## 验收目标
 
@@ -11,7 +11,7 @@
 
 - RED：`node --test src/lib/group-settings-separation.test.js` 因缺少 `GroupTemplatesView.vue` 失败。
 - GREEN：`node --test src/lib/group-settings-separation.test.js src/lib/materials-ui.test.js src/lib/product-bean-list-split.test.js src/lib/menu-ia.test.js src/lib/product-settings.test.js` 通过 196/196。
-- 文档契约 RED：`go test ./internal/interfaces/http/support -run TestDev527GroupSettingsSeparationContracts -count=1` 因缺少 PR-527 需求标记失败。
+- 文档契约 RED：`go test ./internal/interfaces/http/support -run TestDev528GroupSettingsSeparationContracts -count=1` 因缺少 PR-528 需求标记失败。
 - 文档契约 GREEN：`go test ./internal/interfaces/http/support -count=1` 通过；旧 PR-440/453/455/506/513 契约同步改为独立分组模板入口。
 - 构建 GREEN：`npm run build` 通过。
 - 仓库校验 GREEN：`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。

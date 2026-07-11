@@ -38,11 +38,10 @@ func TestDev480To484ManufacturingPhase3Contracts(t *testing.T) {
 			"调拨建议",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "IndustryFieldTemplatesView.vue"): {
-			"/api/industry-calculators/preview",
-			"计算预览",
-			"咖啡烘焙",
-			"包装盒",
-			"童装",
+			"行业字段模板",
+			"字段定义",
+			"新增字段",
+			"保存模板",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductionCostsView.vue"): {
 			"/api/production-trace/analytics",
@@ -70,7 +69,7 @@ func TestDev480To484ManufacturingPhase3Contracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS",
-			"计算预览",
+			"PR-527-REMOVE-INDUSTRY-CALCULATION-PREVIEW",
 		},
 		filepath.Join("docs", "OP_MANUAL_STOCK.md"): {
 			"PR-482-MANUFACTURING-PHASE3-MRP-SUGGESTIONS",

@@ -6,17 +6,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS
+### PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS
 - Branch: codex/separate-group-template-system-settings-20260711
 - Owner/session: Codex / 2026-07-11
 - Status: verifying
 - Scope: 分组模板与系统设置拆成两个独立 Vue 页面；分组模板只维护模板和大类/小类，系统设置只维护全局系统配置与单位字典。
 - DEV:
-  - DEV-527-INDEPENDENT-VIEWS：新增独立分组模板页面并从系统设置移除分组模板界面、状态与 API。
-  - DEV-527-ROUTE-COMPATIBILITY：主路由 `groupTemplates` 和旧兼容路由 `groupManagement` 指向分组模板页，`uiSettings` 只指向系统设置页。
-  - DEV-527-DOCS-DEPLOY：更新需求、验收、设置手册，并依次部署 development 和 production。
+  - DEV-528-INDEPENDENT-VIEWS：新增独立分组模板页面并从系统设置移除分组模板界面、状态与 API。
+  - DEV-528-ROUTE-COMPATIBILITY：主路由 `groupTemplates` 和旧兼容路由 `groupManagement` 指向分组模板页，`uiSettings` 只指向系统设置页。
+  - DEV-528-DOCS-DEPLOY：更新需求、验收、设置手册，并依次部署 development 和 production。
 - Verifier:
-  - RED: `node --test src/lib/group-settings-separation.test.js` 因缺少 `GroupTemplatesView.vue` 失败；support 文档契约因缺少 PR-527 标记失败。
+  - RED: `node --test src/lib/group-settings-separation.test.js` 因缺少 `GroupTemplatesView.vue` 失败；support 文档契约因缺少 PR-528 标记失败。
   - GREEN frontend: 分离契约及关联测试通过 196/196；`npm run build` 通过。
   - GREEN support: `go test ./internal/interfaces/http/support -count=1` 通过，旧 PR-440/453/455/506/513 契约已迁移到独立页面口径。
   - GREEN repository: `scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
@@ -27,6 +27,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: requested for development and production; local verification complete, awaiting integration.
 - Last update: 2026-07-11 Asia/Shanghai
 - Notes: 不改变分组模板数据、商品/BOM/仓库归类关系或历史路由可访问性。
+
+### PR-527-REMOVE-INDUSTRY-CALCULATION-PREVIEW
+- Branch: codex/remove-industry-calculation-preview-20260711
+- Owner/session: Codex / 2026-07-11
+- Status: verified; ready for integration and deployment
+- Scope: 删除 `设置 → 行业设置 → 行业字段模板` 编辑页中的独立“计算预览”区域，包括业务预设、计算输入、预览按钮和结果展示；保留模板名称、状态、说明、字段定义、新增字段、保存与停用流程。
+- DEV:
+  - DEV-527-REMOVE-PREVIEW-UI：删除计算预览面板、业务预设、计算输入、前端预览请求和专用样式。
+  - DEV-527-PRESERVE-TEMPLATE-EDITOR：保留行业字段模板列表、字段定义、新增字段、保存与停用流程。
+- Verifier:
+  - RED: `node --test src/lib/industry-field-templates.test.js` 因页面仍包含 `calculator-panel` 失败。
+  - GREEN targeted: `node --test src/lib/industry-field-templates.test.js` passed 1/1。
+  - GREEN support: `go test ./internal/interfaces/http/support -run 'TestDev527|TestDev480To484' -count=1` passed.
+  - GREEN backend/support: `scripts/verify_kferp.sh backend` passed, including full Go suite and support contracts.
+  - GREEN frontend/build: `npm run build` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-remove-industry-calculation-preview.md`
+- Deployment: requested for development and production; pending integration.
+- Last update: 2026-07-11 Asia/Shanghai
+- Notes: 本次只移除页面入口，不修改行业字段模板 API、已有模板数据或历史兼容计算接口。
 
 ### PR-526-PRODUCT-MASTER-PARENT-SKU-LIST
 - Branch: codex/product-master-group-spec-skus-20260711

@@ -7,16 +7,16 @@
 - [ ] 修改筛选条件或每页显示条数后，列表从第一页重新查询；翻页后仍保留当前筛选、客户范围或订单范围。
 - [ ] 其他一次性加载的 Vue/Vite 表格列表由统一自动分页增强补齐同样的分页控件，不再各页面重复实现自定义 pager。
 
-## 0.0.0 PR-527 分组模板与系统设置页面分离
-- [ ] PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=groupTemplates` 只显示分组模板列表、模板表单和大类/小类维护，不显示系统设置开关或全局单位字典。
-- [ ] PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=uiSettings` 只显示系统设置和全局单位字典；系统设置页面不显示分组模板，也不调用 `/api/business-groups*`。
-- [ ] PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：旧 `view=groupManagement` 继续兼容打开独立分组模板页面，不再打开系统设置融合页。
-- [ ] PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：开发和生产部署后两个入口均可独立刷新、保存，既有模板、分类和业务归类数据保持不变。
+## 0.0.0 PR-528 分组模板与系统设置页面分离
+- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=groupTemplates` 只显示分组模板列表、模板表单和大类/小类维护，不显示系统设置开关或全局单位字典。
+- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=uiSettings` 只显示系统设置和全局单位字典；系统设置页面不显示分组模板，也不调用 `/api/business-groups*`。
+- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：旧 `view=groupManagement` 继续兼容打开独立分组模板页面，不再打开系统设置融合页。
+- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：开发和生产部署后两个入口均可独立刷新、保存，既有模板、分类和业务归类数据保持不变。
 
 ## 0.0.0 PR-453 商品 / BOM / 仓库库存分组模板统一
-- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：独立 `分组模板` 页面只维护模板名、大类、小类、排序和备注，不展示系统设置、对象列表、对象勾选、对象数量或 `移动到分类`；模板表单不出现启用/停用，编辑已有模板时出现 `删除模板`。
+- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：独立 `分组模板` 页面只维护模板名、大类、小类、排序和备注，不展示系统设置、对象列表、对象勾选、对象数量或 `移动到分类`；模板表单不出现启用/停用，编辑已有模板时出现 `删除模板`。
 - [ ] PR-455-GROUP-TEMPLATE-DELETE：点击 `删除模板` 会删除模板、该模板下大类/小类、用途和对象归类并写操作日志；删除后商品档案、生产 BOM、仓库库存和商品价格表不再能选择该模板。
-- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品模块普通菜单不显示 `分组管理`；旧 `groupManagement` 路由仍能兼容打开独立分组模板页面。
+- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品模块普通菜单不显示 `分组管理`；旧 `groupManagement` 路由仍能兼容打开独立分组模板页面。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案不出现分类过滤 Tab，商品表格不出现 `分类` 列；分类归属只通过分组标题表达。
@@ -112,7 +112,7 @@
 - [x] 部署后运行自清理场景脚本：自造分组、商品、BOM、仓库归组和商品价格表，发布后录单验证快照取价，结束时撤回价格表、失效测试商品/BOM/分组并清理或停用归组；最终 run `PR442-SCENARIO-20260607-BNQEZR` 通过，库存残留查询返回 0 行。
 
 ## 0.0.1 PR-440 商品、分组、价格模型二次修正
-- [x] PR-440 / PR-453 / PR-527：商品模块菜单不出现 `客户商品`、`商品分类管理`、旧商品配置模板、旧单位模板或旧阶梯价模板普通入口；分组模板是 `设置 / 分组模板` 独立入口。
+- [x] PR-440 / PR-453 / PR-528：商品模块菜单不出现 `客户商品`、`商品分类管理`、旧商品配置模板、旧单位模板或旧阶梯价模板普通入口；分组模板是 `设置 / 分组模板` 独立入口。
 - [x] 商品档案只维护商品资料、商品分组、单位模板/库存单位、整数库存、行业字段、状态、备注、BOM 使用摘要、价格摘要和 `客户引用` 子表；页面不出现报价单位、录单单位、商品配置模板、计价方式、固定价、成本加成或利润率覆盖字段。
 - [x] `客户引用` 子表可维护客户、客户商品编号 / Ref Code、客户显示名、启停和备注；它只影响展示、搜索、打印和客户侧识别，不影响价格、单位、BOM、库存或分组。
 - [x] `分组模板` 是泛化模板和分类项树；同一个模板可被商品档案归类、商品价格表选品、生产 BOM 分类和库存分类复用；模板本身不写死商品、BOM、仓库对象。
@@ -1248,7 +1248,7 @@
 - [ ] PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY：保存工单或工序卡排程后，`GET /api/production-schedule` 返回计划时间、班次、负责人、优先级、工作中心和冲突提示；保存产能日历后可在同一日期和工作中心看到可用分钟/停机分钟。
 - [ ] PR-481-MANUFACTURING-PHASE3-SCHEDULING-WORKBENCH：生产管理菜单进入 `生产排程`，打开生产排程工作台；列表、日历、甘特和工位负载四种视图都能展示同一批排程数据；移动端不出现页面级横向溢出。
 - [ ] PR-482-MANUFACTURING-PHASE3-MRP-SUGGESTIONS：排程工作台显示 MRP、采购建议、调拨建议和来源工单；建议接口支持 `from/to/status/work_center/material_id/limit`，不自动生成采购单或库存调拨单。
-- [ ] PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS：行业设置页的计算预览可选择咖啡烘焙、包装盒、童装，输入需求产出、损耗率、原料单价和工时后返回计划投入、预计损耗和预计成本。
+- [x] PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS：历史计算预览入口已由 PR-527 移除，不再作为当前页面验收项。
 - [ ] PR-484-MANUFACTURING-PHASE3-TRACEABILITY-ANALYTICS：生产成本页显示成本差异、异常损耗和追溯链路；按工单 ID 或生产批次过滤后，`/api/production-trace/analytics` 返回 `trace_links`、`cost_variance` 和 `abnormal_losses`。
 
 ### K55. 工位成本组件与产能批量折算工序成本（PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS / PR-514-WORKSTATION-COST-COMPONENTS）
@@ -1441,3 +1441,8 @@
 - [ ] 展开父商品行内的 `4 个规格 SKU` 可看到各规格名称和 SKU 编号，点击具体规格仍能打开商品档案配置抽屉。
 - [ ] 商品列表数量、分页、表头全选和批量操作只统计父商品；搜索 `227g袋装` 或对应 SKU 编号仍返回“金色山脉”。
 - [ ] 后端 products 子 SKU、`parent_product_id`、价格表、BOM、库存和订单引用不变，不执行数据迁移。
+
+### K77. 行业字段模板移除计算预览（PR-527-REMOVE-INDUSTRY-CALCULATION-PREVIEW）
+- [ ] 打开 `设置 → 行业设置 → 行业字段模板`，页面不显示“计算预览”、业务预设、需求产出、损耗率、原料单价、工序分钟、工时费和预览按钮。
+- [ ] 模板名称、状态、说明、字段定义和新增字段仍可见，原有保存模板和停用模板流程不变。
+- [ ] 现有行业字段模板和商品生产配置数据不被修改，不产生数据迁移。

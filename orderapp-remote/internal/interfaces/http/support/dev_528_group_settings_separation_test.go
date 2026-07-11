@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestDev527GroupSettingsSeparationContracts(t *testing.T) {
+func TestDev528GroupSettingsSeparationContracts(t *testing.T) {
 	checks := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "App.vue"): {
 			"groupTemplates: GroupTemplatesView",
@@ -18,11 +18,11 @@ func TestDev527GroupSettingsSeparationContracts(t *testing.T) {
 			"/api/business-group-items",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS",
+			"PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS",
 			"两个独立 Vue 页面",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS",
+			"PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS",
 			"系统设置页面不显示分组模板",
 		},
 		filepath.Join("docs", "OP_MANUAL_SETTINGS_AUDIT.md"): {
@@ -30,16 +30,16 @@ func TestDev527GroupSettingsSeparationContracts(t *testing.T) {
 			"设置 / 系统设置",
 		},
 		"internal/interfaces/http/support/req_store.go": {
-			"PR-527-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS",
-			"DEV-527-INDEPENDENT-VIEWS",
-			"DEV-527-ROUTE-COMPATIBILITY",
+			"PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS",
+			"DEV-528-INDEPENDENT-VIEWS",
+			"DEV-528-ROUTE-COMPATIBILITY",
 		},
 	}
 	for path, markers := range checks {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, marker := range markers {
 			if !strings.Contains(body, marker) {
-				t.Fatalf("%s missing PR-527 marker %q", path, marker)
+				t.Fatalf("%s missing PR-528 marker %q", path, marker)
 			}
 		}
 	}

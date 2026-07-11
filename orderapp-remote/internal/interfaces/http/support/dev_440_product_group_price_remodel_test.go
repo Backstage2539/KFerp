@@ -127,7 +127,7 @@ func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 			"商品 > 子类 > 父类 > 价格表",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-440 / PR-453 / PR-527",
+			"PR-440 / PR-453 / PR-528",
 			"分组模板是 `设置 / 分组模板` 独立入口",
 			"菜单不出现 `客户商品`",
 		},
