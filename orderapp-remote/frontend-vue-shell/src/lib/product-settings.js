@@ -93,7 +93,7 @@ export function filterSkuRows(rows = [], filters = {}) {
     if (productKind && productKind !== PRODUCT_KIND_ALL && normalizedProductKind(row) !== productKind) return false
     if (customType && customType !== SKU_CUSTOM_TYPE_ALL && skuTypeValue(row) !== customType) return false
     if (query) {
-      const haystack = `${row.name || ''} ${row.number || ''} ${skuTypeLabel(row.custom_type)} ${row.remark || ''}`.toLowerCase()
+      const haystack = `${row.name || ''} ${row.number || ''} ${skuTypeLabel(row.custom_type)} ${row.remark || ''} ${row.sku_search_text || ''}`.toLowerCase()
       if (!haystack.includes(query)) return false
     }
     if (primaryCategory && String(row.primary_name || '') !== primaryCategory) return false
@@ -2255,6 +2255,43 @@ export function productSkuRowsForParent(products = [], parentProductID = 0) {
       if (a.is_default_sku !== b.is_default_sku) return a.is_default_sku ? -1 : 1
       return Number(a.sku_id || a.id || 0) - Number(b.sku_id || b.id || 0)
     })
+}
+
+export function productArchiveRowsWithSkus(products = []) {
+  const source = Array.isArray(products) ? products : []
+  const parentIDs = new Set(source
+    .filter((row) => Number(row?.parent_product_id || row?.parentProductID || 0) === 0)
+    .map((row) => Number(row?.id || row?.product_id || 0))
+    .filter(Boolean))
+  const childrenByParentID = new Map()
+  const parents = []
+
+  for (const row of source) {
+    const parentID = Number(row?.parent_product_id || row?.parentProductID || 0)
+    if (!parentID || !parentIDs.has(parentID)) {
+      parents.push(row)
+      continue
+    }
+    if (String(row?.derived_spec_status || row?.derivedSpecStatus || '').trim() === 'template_removed') continue
+    if (!childrenByParentID.has(parentID)) childrenByParentID.set(parentID, [])
+    childrenByParentID.get(parentID).push(row)
+  }
+
+  return parents.map((parent) => {
+    const parentID = Number(parent?.id || parent?.product_id || 0)
+    const skuRows = (childrenByParentID.get(parentID) || [])
+      .map((row) => ({
+        ...row,
+        sku_name: String(row?.sku_name || row?.skuName || row?.spec_label || row?.specLabel || row?.name || '').trim(),
+      }))
+    const skuSearchText = skuRows.map((row) => [
+      row.name,
+      row.sku_name,
+      row.spec_label,
+      productCodeLabel(row),
+    ].filter(Boolean).join(' ')).join(' ')
+    return { ...parent, sku_rows: skuRows, sku_search_text: skuSearchText }
+  })
 }
 
 export function resolveCreatedProductForConfig(result = {}, products = []) {
