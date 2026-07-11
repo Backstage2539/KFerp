@@ -238,6 +238,21 @@
                   </td>
                   <td class="sku-name-cell">
                     <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
+                    <details v-if="row.sku_rows?.length" class="product-spec-skus">
+                      <summary>{{ row.sku_rows.length }} 个规格 SKU</summary>
+                      <div class="product-spec-sku-list">
+                        <button
+                          v-for="sku in row.sku_rows"
+                          :key="`product-spec-sku-${sku.id}`"
+                          class="product-spec-sku-item"
+                          type="button"
+                          :disabled="sku.active === false"
+                          @click.stop="openProductProductionConfig(sku)">
+                          <span>{{ sku.sku_name || sku.spec_label || sku.name }}</span>
+                          <small>{{ productCodeLabel(sku) }}</small>
+                        </button>
+                      </div>
+                    </details>
                   </td>
                   <td>{{ productCodeLabel(row) }}</td>
                   <td class="industry-field-cell">
@@ -1792,6 +1807,7 @@ import {
   pricingRuleTrialDefaultQuoteUnit,
   pricingRuleTrialQuoteUnitOptionsForProduct,
   productSkuRowsForParent,
+  productArchiveRowsWithSkus,
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
   salesSpecConversionLabel,
@@ -2213,10 +2229,11 @@ function skuTableRowsFromFlatProducts(sourceProducts = [], sourceCategories = []
 
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
 const customBaseProducts = computed(() => baseProducts.value.filter((product) => normalizedProductKind(product) === customForm.value.product_kind))
-const publicSkuRows = computed(() => sortRowsForCustomerSkuPriority(
+const publicSkuRowsRaw = computed(() => sortRowsForCustomerSkuPriority(
   skuTableRowsFromFlatProducts(products.value, categories.value, (product) => Number(product.customer_id || 0) === 0),
   0,
 ))
+const publicSkuRows = computed(() => productArchiveRowsWithSkus(publicSkuRowsRaw.value))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
 const aliasCustomerLabel = computed(() => {
   const customerID = Number(selectedAliasCustomerID.value || 0)
@@ -2279,13 +2296,14 @@ function productionConfigLossLabel(product) {
   return `${Math.round(loss * 10000) / 100}%`
 }
 
-const customerSkuRows = computed(() => {
+const customerSkuRowsRaw = computed(() => {
   const customerID = skuContextCustomerID.value
   return sortRowsForCustomerSkuPriority(
     skuTableRowsFromFlatProducts(products.value, categories.value, (product) => customerID > 0 && skuContextProductFilter(product)),
     customerID,
   )
 })
+const customerSkuRows = computed(() => productArchiveRowsWithSkus(customerSkuRowsRaw.value))
 const currentSkuSourceRows = computed(() => (
   skuContextCustomerID.value > 0 ? customerSkuRows.value : publicSkuRows.value
 ).slice())
@@ -7640,6 +7658,12 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .margin-input { width: 150px; }
 .sku-name-input { min-width: 240px; }
 .sku-table .sku-name-input { min-width: 300px; }
+.product-spec-skus { margin-top: 5px; color: var(--muted); }
+.product-spec-skus summary { width: fit-content; cursor: pointer; color: #8a5a24; font-size: 12px; }
+.product-spec-sku-list { display: grid; gap: 4px; margin-top: 5px; padding-left: 12px; }
+.product-spec-sku-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 4px 8px; border: 1px solid #eadfce; border-radius: 7px; background: #fffaf2; color: #4d3927; text-align: left; }
+.product-spec-sku-item small { color: var(--muted); }
+.product-spec-sku-item:disabled { opacity: 0.5; cursor: not-allowed; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }

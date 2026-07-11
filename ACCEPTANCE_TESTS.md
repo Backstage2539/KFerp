@@ -761,3 +761,9 @@
 - [ ] `POST /api/production-plans/:id/operation-splits/preview` 返回 `coverage_summary`、`operation_coverage` 和 `material_summary`，且不写入拆分表。
 - [ ] 20kg 实际需求安排 12kg 为 `short`，安排 20kg 为 `matched`，安排 24kg 为 `over`。
 - [ ] 拆分抽屉显示 `产能安排总览`、`用料需求差距`、`实际需求`、`已安排`、`差距`，修改承担产量后实时刷新颜色。
+
+### K25. 商品档案父商品与规格 SKU 分层展示（PR-526-PRODUCT-MASTER-PARENT-SKU-LIST）
+- [ ] 商品“金色山脉”引用含 4 个规格的销售规格模板后，商品档案列表只出现 1 条“金色山脉”父商品，不再出现 4 条同级规格商品。
+- [ ] 展开父商品行内的 `4 个规格 SKU` 可看到各规格名称和 SKU 编号，点击具体规格仍能打开商品档案配置抽屉。
+- [ ] 商品列表数量、分页、表头全选和批量操作只统计父商品；搜索 `227g袋装` 或对应 SKU 编号仍返回“金色山脉”。
+- [ ] 后端 products 子 SKU、`parent_product_id`、价格表、BOM、库存和订单引用不变，不执行数据迁移。

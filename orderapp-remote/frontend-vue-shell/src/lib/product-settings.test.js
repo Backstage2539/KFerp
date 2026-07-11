@@ -87,6 +87,7 @@ import {
   specialAttrValuesJSONFromForm,
   sortRowsForCustomerSkuPriority,
   productSkuRowsForParent,
+  productArchiveRowsWithSkus,
   skuListRowsFromProducts,
   skuTableState,
   skuTypeLabel,
@@ -248,6 +249,40 @@ test('product SKU rows group child SKUs under the selected parent product', () =
     [101, '227g袋装', '227g'],
     [102, '100g袋装', '100g'],
   ])
+})
+
+test('product archive rows keep sales-spec SKUs inside one parent product row', () => {
+  const products = [
+    { id: 1, name: '金色山脉', parent_product_id: 0, product_code: 'SKU-000001', active: true },
+    { id: 5, name: '金色山脉 100g袋装', parent_product_id: 1, sku_name: '100g袋装', spec_label: '100g', active: true },
+    { id: 3, name: '金色山脉 227g袋装', parent_product_id: 1, sku_name: '227g袋装', spec_label: '227g', active: true },
+    { id: 4, name: '金色山脉 Kg', parent_product_id: 1, sku_name: 'Kg', spec_label: 'Kg', active: true },
+    { id: 2, name: '金色山脉 磅', parent_product_id: 1, sku_name: '磅', spec_label: '磅', active: true },
+  ]
+
+  const rows = productArchiveRowsWithSkus(products)
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].name, '金色山脉')
+  assert.deepEqual(rows[0].sku_rows.map((row) => [row.id, row.sku_name]), [
+    [5, '100g袋装'],
+    [3, '227g袋装'],
+    [4, 'Kg'],
+    [2, '磅'],
+  ])
+  assert.match(rows[0].sku_search_text, /100g袋装/)
+  assert.match(rows[0].sku_search_text, /SKU-000005/)
+  assert.deepEqual(filterSkuRows(rows, { query: '227g袋装' }).map((row) => row.id), [1])
+})
+
+test('product archive page renders child SKUs inside the parent name cell instead of peer product rows', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.match(source, /productArchiveRowsWithSkus\(publicSkuRowsRaw\.value\)/)
+  assert.match(template, /class="product-spec-skus"/)
+  assert.match(template, /v-for="sku in row\.sku_rows"/)
+  assert.match(template, /\{\{ row\.sku_rows\.length \}\} 个规格 SKU/)
 })
 
 test('customer product alias payload binds a customer-facing name to one product record', () => {
