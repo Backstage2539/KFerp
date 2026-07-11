@@ -170,6 +170,170 @@ func TestCurateCustomersFlagsAddressLikeCanonicalName(t *testing.T) {
 	}
 }
 
+func TestBuildCustomerImportRowsMergesReliableNameAndUsesLatestPhone(t *testing.T) {
+	rows := []RawOrder{
+		{
+			SourceOrderKey: "2025年5月:1", SheetPeriod: "2025-05", SourceRowNumber: 12,
+			CustomerRaw: "星河咖啡 13800138000", OrderDate: "2025-05-10",
+			OrderSourceRaw: "历史销售", OrderTypeRaw: "产品订单",
+		},
+		{
+			SourceOrderKey: "2026年5月:2", SheetPeriod: "2026-05", SourceRowNumber: 3,
+			CustomerRaw: "星河咖啡 13900139000", OrderDate: "2026-05-20",
+			OrderSourceRaw: "历史销售", OrderTypeRaw: "产品订单",
+		},
+	}
+	options := CustomerImportOptions{
+		Sources:       []ERPReferenceOption{{Value: "9", Label: "历史销售", Active: true}},
+		OrderTypes:    []ERPReferenceOption{{Value: "3", Label: "产品订单", Active: true}},
+		Employees:     []ERPReferenceOption{{Value: "7", Label: "负责人甲", Active: true}},
+		CustomerTypes: []ERPReferenceOption{{Value: "wholesale", Label: "批发客户", Active: true}},
+	}
+
+	got, issues := BuildCustomerImportRows(rows, nil, nil, options)
+	if len(got) != 1 {
+		t.Fatalf("customer import rows=%d want=1, issues=%+v", len(got), issues)
+	}
+	row := got[0]
+	if row.Name != "星河咖啡" || row.Phone != "13900139000" || row.CompanyPhone != row.Phone {
+		t.Fatalf("latest customer identity not selected: %+v", row)
+	}
+	if row.PhoneCount != 2 || !strings.Contains(row.HistoricalPhones, "13800138000") || !strings.Contains(row.HistoricalPhones, "13900139000") {
+		t.Fatalf("historical phones not preserved: %+v", row)
+	}
+	if row.LatestPhoneObservedDate != "2026-05-20" || row.FirstOrderDate != "2025-05-10" || row.LastOrderDate != "2026-05-20" {
+		t.Fatalf("observation dates incorrect: %+v", row)
+	}
+	if row.DefaultSourceID != 9 || row.DefaultOrderTypeID != 3 || row.ResponsibleEmployeeID != 7 {
+		t.Fatalf("ERP option resolution incorrect: %+v", row)
+	}
+	if row.CustomerType != "" || !row.Active || row.PortalEnabled {
+		t.Fatalf("new customer defaults should stay reviewable: %+v", row)
+	}
+}
+
+func TestBuildCustomerImportRowsUsesTopInsertedRowForSameDatePhone(t *testing.T) {
+	rows := []RawOrder{
+		{SourceOrderKey: "2026年5月:1", SheetPeriod: "2026-05", SourceRowNumber: 8, CustomerRaw: "星河咖啡 13800138000", OrderDate: "2026-05-20"},
+		{SourceOrderKey: "2026年5月:2", SheetPeriod: "2026-05", SourceRowNumber: 3, CustomerRaw: "星河咖啡 13900139000", OrderDate: "2026-05-20"},
+	}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 || got[0].Phone != "13900139000" || got[0].LatestSourceOrderKey != "2026年5月:2" {
+		t.Fatalf("same-date latest inserted row not selected: %+v", got)
+	}
+}
+
+func TestBuildCustomerImportRowsUsesNewerSheetWhenLatestDateIsBlank(t *testing.T) {
+	rows := []RawOrder{
+		{SourceOrderKey: "2025年5月:1", SheetPeriod: "2025-05", SourceRowNumber: 3, CustomerRaw: "星河咖啡 13800138000", OrderDate: "2025-05-20"},
+		{SourceOrderKey: "2026年5月:2", SheetPeriod: "2026-05", SourceRowNumber: 3, CustomerRaw: "星河咖啡 13900139000"},
+	}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 || got[0].Phone != "13900139000" || got[0].LatestSourceOrderKey != "2026年5月:2" {
+		t.Fatalf("newer sheet must win when order date is blank: %+v", got)
+	}
+}
+
+func TestBuildCustomerImportRowsDoesNotGuessUniqueSourceWhenLabelDiffers(t *testing.T) {
+	rows := []RawOrder{{
+		SourceOrderKey: "2026年5月:1", SheetPeriod: "2026-05", SourceRowNumber: 3,
+		CustomerRaw: "星河咖啡 13800138000", OrderDate: "2026-05-01", OrderSourceRaw: "销售甲",
+	}}
+	options := CustomerImportOptions{Sources: []ERPReferenceOption{{Value: "1", Label: "小程序", Active: true}}}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, options)
+	if len(got) != 1 || got[0].DefaultSourceID != 0 || got[0].DefaultSourceName != "" {
+		t.Fatalf("unmatched source must remain blank for review: %+v", got)
+	}
+}
+
+func TestBuildCustomerImportRowsDoesNotMergeShortNamesAcrossPhones(t *testing.T) {
+	rows := []RawOrder{
+		{SourceOrderKey: "2026年5月:1", SheetPeriod: "2026-05", SourceRowNumber: 3, CustomerRaw: "张三 13800138000", OrderDate: "2026-05-01"},
+		{SourceOrderKey: "2026年5月:2", SheetPeriod: "2026-05", SourceRowNumber: 4, CustomerRaw: "张三 13900139000", OrderDate: "2026-05-02"},
+	}
+	got, issues := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 2 {
+		t.Fatalf("short same-name rows must remain separate: got=%d rows=%+v", len(got), got)
+	}
+	for _, row := range got {
+		if row.ReviewStatus != ReviewNeedsReview || row.PhoneCount != 1 {
+			t.Fatalf("short-name row must need review: %+v", row)
+		}
+	}
+	if !hasIssueCode(issues, "customer_cross_phone_name_unsafe") {
+		t.Fatalf("missing unsafe-name issue: %+v", issues)
+	}
+}
+
+func TestBuildCustomerImportRowsDoesNotMergeRepeatedNoPhoneInstructions(t *testing.T) {
+	rows := []RawOrder{
+		{SourceOrderKey: "2026年5月:1", SheetPeriod: "2026-05", SourceRowNumber: 3, CustomerRaw: "咖啡店自提", OrderDate: "2026-05-01"},
+		{SourceOrderKey: "2026年5月:2", SheetPeriod: "2026-05", SourceRowNumber: 4, CustomerRaw: "咖啡店自提", OrderDate: "2026-05-02"},
+	}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 2 {
+		t.Fatalf("no-phone instructions must remain source-specific: got=%d rows=%+v", len(got), got)
+	}
+	for _, row := range got {
+		if row.MergeMethod != "source_only" || row.ReviewStatus != ReviewNeedsReview {
+			t.Fatalf("no-phone instruction must need review: %+v", row)
+		}
+	}
+}
+
+func TestBuildCustomerImportRowsCleansRecipientLabelAndPhoneFromName(t *testing.T) {
+	rows := []RawOrder{{
+		SourceOrderKey: "2026年5月:1", SheetPeriod: "2026-05", SourceRowNumber: 3,
+		CustomerRaw: "收货人：张三 13800138000", OrderDate: "2026-05-01",
+	}}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 || got[0].Name != "张三" {
+		t.Fatalf("recipient label/phone not cleaned: %+v", got)
+	}
+}
+
+func TestBuildCustomerImportRowsPreservesProductionERPFields(t *testing.T) {
+	rows := []RawOrder{{
+		SourceOrderKey: "2026年5月:1", SheetPeriod: "2026-05", SourceRowNumber: 3,
+		CustomerRaw: "ERP旧别名 13800138000", OrderDate: "2026-05-01",
+	}}
+	target := []ERPReferenceCustomer{{
+		ID: 88, Name: "ERP规范客户", RawName: "ERP原名", CustomerType: "channel",
+		CompanyName: "ERP企业", CompanyAddress: "企业地址", CompanyPhone: "13800138000",
+		Contact: "联系人", Phone: "13800138000", Address: "收货地址",
+		DefaultSourceID: 1, DefaultOrderTypeID: 2, ResponsibleEmployeeID: 3,
+		PortalEnabled: true, CapabilityTemplateKey: "channel_direct_ship", Active: true,
+	}}
+	got, issues := BuildCustomerImportRows(rows, nil, target, CustomerImportOptions{})
+	if len(got) != 1 || len(issues) != 0 {
+		t.Fatalf("unexpected result: rows=%+v issues=%+v", got, issues)
+	}
+	row := got[0]
+	if row.Action != "update" || row.ERPMatchID != 88 || row.Name != "ERP规范客户" || row.RawName != "ERP原名" || row.CustomerType != "channel" {
+		t.Fatalf("ERP identity fields not preserved: %+v", row)
+	}
+	if row.CompanyName != "ERP企业" || row.CompanyAddress != "企业地址" || row.Contact != "联系人" || row.Address != "收货地址" {
+		t.Fatalf("ERP customer fields not preserved: %+v", row)
+	}
+	if !row.PortalEnabled || row.CapabilityTemplateKey != "channel_direct_ship" || !row.Active {
+		t.Fatalf("ERP portal/status fields not preserved: %+v", row)
+	}
+}
+
+func TestBuildCustomerImportRowsDoesNotReuseDirtyDevelopmentERPName(t *testing.T) {
+	rows := []RawOrder{{
+		SourceOrderKey: "2026年5月:1", SheetPeriod: "2026-05", SourceRowNumber: 3,
+		CustomerRaw: "星河咖啡 13800138000", OrderDate: "2026-05-01",
+	}}
+	dev := []ERPReferenceCustomer{{
+		ID: 7, Name: "某省某市某区某路100号收货地址 13800138000", Phone: "13800138000", Active: true,
+	}}
+	got, _ := BuildCustomerImportRows(rows, dev, nil, CustomerImportOptions{})
+	if len(got) != 1 || got[0].Name != "星河咖啡" {
+		t.Fatalf("dirty development ERP name should not replace safe source name: %+v", got)
+	}
+}
+
 func TestParseProductLineWeightAndPackageExamples(t *testing.T) {
 	tests := []struct {
 		raw         string
@@ -308,7 +472,7 @@ func TestStagingSchemaIsIsolatedAndIdempotent(t *testing.T) {
 func TestReviewDataContractIncludesAllAuditSections(t *testing.T) {
 	dataset := Dataset{Run: ImportRun{RunID: "run-1", SourceSHA256: "abc", CreatedAt: time.Now().UTC()}}
 	contract := BuildReviewContract(dataset)
-	want := []string{"导入汇总", "序号映射", "客户候选", "客户别名", "父商品候选", "SKU规格", "订单候选", "订单明细", "ERP匹配建议", "待审核问题", "排除工作表"}
+	want := []string{"导入汇总", "序号映射", "客户候选", "客户导入审核", "客户别名", "父商品候选", "SKU规格", "订单候选", "订单明细", "ERP匹配建议", "待审核问题", "排除工作表"}
 	if !reflect.DeepEqual(contract.SheetNames, want) {
 		t.Fatalf("sheet names=%v want=%v", contract.SheetNames, want)
 	}
@@ -351,7 +515,7 @@ func TestWriteExportsCreatesProtectedAuditFiles(t *testing.T) {
 	}
 	for _, name := range []string{
 		"dataset.json", "manifest.json", "source-key-mapping.json", "schema.sql", "load.sql",
-		"sheet_inventory.csv", "raw_orders.csv", "customers.csv", "products.csv", "skus.csv", "orders.csv", "order_items.csv", "issues.csv",
+		"sheet_inventory.csv", "raw_orders.csv", "customers.csv", "customer_import_review.csv", "products.csv", "skus.csv", "orders.csv", "order_items.csv", "issues.csv",
 	} {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil {

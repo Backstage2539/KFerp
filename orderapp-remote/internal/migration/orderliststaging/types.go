@@ -77,10 +77,37 @@ type SourceKeyAssignment struct {
 }
 
 type ERPReferenceCustomer struct {
-	ID     int64  `json:"id"`
-	Name   string `json:"name"`
-	Phone  string `json:"phone"`
+	ID                    int64  `json:"id"`
+	Name                  string `json:"name"`
+	RawName               string `json:"raw_name"`
+	CustomerType          string `json:"customer_type"`
+	CompanyName           string `json:"company_name"`
+	CompanyAddress        string `json:"company_address"`
+	CompanyPhone          string `json:"company_phone"`
+	Contact               string `json:"contact"`
+	Phone                 string `json:"phone"`
+	Address               string `json:"address"`
+	DefaultSourceID       int64  `json:"default_source_id"`
+	DefaultOrderTypeID    int64  `json:"default_order_type_id"`
+	ResponsibleEmployeeID int64  `json:"responsible_employee_id"`
+	PortalEnabled         bool   `json:"portal_enabled"`
+	CapabilityTemplateKey string `json:"capability_template_key"`
+	Active                bool   `json:"active"`
+	UpdatedAt             string `json:"updated_at"`
+}
+
+type ERPReferenceOption struct {
+	Value  string `json:"value"`
+	Label  string `json:"label"`
 	Active bool   `json:"active"`
+}
+
+type CustomerImportOptions struct {
+	CustomerTypes       []ERPReferenceOption `json:"customer_types"`
+	Sources             []ERPReferenceOption `json:"sources"`
+	OrderTypes          []ERPReferenceOption `json:"order_types"`
+	Employees           []ERPReferenceOption `json:"employees"`
+	CapabilityTemplates []ERPReferenceOption `json:"capability_templates"`
 }
 
 type ERPReferenceProduct struct {
@@ -116,6 +143,44 @@ type CustomerPhone struct {
 	PhoneNormalized string `json:"phone_normalized"`
 	IsPrimary       bool   `json:"is_primary"`
 	SourceOrderKey  string `json:"source_order_key"`
+}
+
+type CustomerImportRow struct {
+	CandidateKey            string `json:"candidate_key"`
+	Action                  string `json:"action"`
+	ERPMatchID              int64  `json:"erp_match_id"`
+	ERPMatchName            string `json:"erp_match_name"`
+	MergeMethod             string `json:"merge_method"`
+	Name                    string `json:"name"`
+	RawName                 string `json:"raw_name"`
+	CustomerType            string `json:"customer_type"`
+	CompanyName             string `json:"company_name"`
+	CompanyAddress          string `json:"company_address"`
+	CompanyPhone            string `json:"company_phone"`
+	Contact                 string `json:"contact"`
+	Phone                   string `json:"phone"`
+	Address                 string `json:"address"`
+	DefaultSourceID         int64  `json:"default_source_id"`
+	DefaultSourceName       string `json:"default_source_name"`
+	DefaultOrderTypeID      int64  `json:"default_order_type_id"`
+	DefaultOrderTypeName    string `json:"default_order_type_name"`
+	ResponsibleEmployeeID   int64  `json:"responsible_employee_id"`
+	ResponsibleEmployeeName string `json:"responsible_employee_name"`
+	PortalEnabled           bool   `json:"portal_enabled"`
+	CapabilityTemplateKey   string `json:"capability_template_key"`
+	Active                  bool   `json:"active"`
+	LatestPhoneObservedDate string `json:"latest_phone_observed_date"`
+	PhoneCount              int    `json:"phone_count"`
+	HistoricalPhones        string `json:"historical_phones"`
+	HistoricalNames         string `json:"historical_names"`
+	FirstOrderDate          string `json:"first_order_date"`
+	LastOrderDate           string `json:"last_order_date"`
+	OrderCount              int    `json:"order_count"`
+	LatestSourceOrderKey    string `json:"latest_source_order_key"`
+	SourceOrderKeys         string `json:"source_order_keys"`
+	LatestCustomerRaw       string `json:"latest_customer_raw"`
+	ReviewReasons           string `json:"review_reasons"`
+	ReviewStatus            string `json:"review_status"`
 }
 
 type Product struct {
@@ -206,28 +271,33 @@ type Issue struct {
 }
 
 type Dataset struct {
-	Run             ImportRun              `json:"run"`
-	Sheets          []SheetInventory       `json:"sheets"`
-	RawOrders       []RawOrder             `json:"raw_orders"`
-	ERPCustomers    []ERPReferenceCustomer `json:"erp_customers"`
-	ERPProducts     []ERPReferenceProduct  `json:"erp_products"`
-	Customers       []Customer             `json:"customers"`
-	CustomerAliases []CustomerAlias        `json:"customer_aliases"`
-	CustomerPhones  []CustomerPhone        `json:"customer_phones"`
-	Products        []Product              `json:"products"`
-	SKUs            []SKU                  `json:"skus"`
-	ProductAliases  []ProductAlias         `json:"product_aliases"`
-	Orders          []Order                `json:"orders"`
-	OrderItems      []OrderItem            `json:"order_items"`
-	Issues          []Issue                `json:"issues"`
+	Run                   ImportRun              `json:"run"`
+	Sheets                []SheetInventory       `json:"sheets"`
+	RawOrders             []RawOrder             `json:"raw_orders"`
+	ERPCustomers          []ERPReferenceCustomer `json:"erp_customers"`
+	TargetERPCustomers    []ERPReferenceCustomer `json:"target_erp_customers"`
+	CustomerImportOptions CustomerImportOptions  `json:"customer_import_options"`
+	ERPProducts           []ERPReferenceProduct  `json:"erp_products"`
+	Customers             []Customer             `json:"customers"`
+	CustomerAliases       []CustomerAlias        `json:"customer_aliases"`
+	CustomerPhones        []CustomerPhone        `json:"customer_phones"`
+	CustomerImportRows    []CustomerImportRow    `json:"customer_import_rows"`
+	Products              []Product              `json:"products"`
+	SKUs                  []SKU                  `json:"skus"`
+	ProductAliases        []ProductAlias         `json:"product_aliases"`
+	Orders                []Order                `json:"orders"`
+	OrderItems            []OrderItem            `json:"order_items"`
+	Issues                []Issue                `json:"issues"`
 }
 
 type PrepareOptions struct {
-	StartPeriod      string
-	EndPeriod        string
-	PreviousMappings map[string]SourceKeyAssignment
-	ERPCustomers     []ERPReferenceCustomer
-	ERPProducts      []ERPReferenceProduct
+	StartPeriod           string
+	EndPeriod             string
+	PreviousMappings      map[string]SourceKeyAssignment
+	ERPCustomers          []ERPReferenceCustomer
+	TargetERPCustomers    []ERPReferenceCustomer
+	CustomerImportOptions CustomerImportOptions
+	ERPProducts           []ERPReferenceProduct
 }
 
 type AmountResult struct {
