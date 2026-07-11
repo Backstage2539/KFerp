@@ -1,6 +1,7 @@
 package company
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 )
+
+const employeePhoneAlreadyUsedMessage = "该手机号已被其他员工或客户外部账号使用"
 
 type DepartmentItem struct {
 	ID     int64  `json:"id"`
@@ -119,6 +122,9 @@ func registerCompanyStaffAPI(e *echo.Echo, companySvc *companyapp.Service) {
 			DepartmentID: req.DepartmentID,
 			Active:       activeOrDefault(req.Active),
 		})
+		if errors.Is(err, companyapp.ErrEmployeePhoneAlreadyUsed) {
+			return c.JSON(http.StatusConflict, map[string]string{"error": employeePhoneAlreadyUsedMessage})
+		}
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
@@ -140,6 +146,9 @@ func registerCompanyStaffAPI(e *echo.Echo, companySvc *companyapp.Service) {
 			DepartmentID: req.DepartmentID,
 			Active:       activeOrDefault(req.Active),
 		})
+		if errors.Is(err, companyapp.ErrEmployeePhoneAlreadyUsed) {
+			return c.JSON(http.StatusConflict, map[string]string{"error": employeePhoneAlreadyUsedMessage})
+		}
 		if err != nil && strings.Contains(err.Error(), "not found") {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
 		}

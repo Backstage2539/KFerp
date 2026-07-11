@@ -6,6 +6,67 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-525-ORDERLIST-CUSTOMER-TYPE-REFINEMENT
+- Branch: codex/orderlist-customer-type-review-20260711
+- Owner/session: Codex / 2026-07-11
+- Status: merged to develop; final workbook generated; development deployed and smoke verified
+- Scope: 按历史 Excel 备注列重新提炼客户身份和客户类型：备注为空时按收件人生成零售客户；备注中包含客户名称时以备注客户为主体，同一主体只有一个收件地址判定批发客户，存在多个收件地址判定渠道客户。保留最近手机号、历史号码、收件地址样本和判定依据，重新生成客户导入审核表，不写正式客户表。
+- DEV:
+  - DEV-525-REMARK-CUSTOMER-IDENTITY：清理备注业务后缀，提取批发/渠道客户主体；备注为空时从收件信息提取零售客户，并隔离两类身份范围。
+  - DEV-525-CUSTOMER-TYPE-INFERENCE：按备注主体的规范收件地址数量判定 wholesale/channel，并与 retail 明确隔离。
+  - DEV-525-CUSTOMER-REVIEW-WORKBOOK：客户审核 Sheet 增加推断客户类型、类型依据、收件地址数、地址样本和备注证据。
+- Verifier:
+  - RED: 备注客户/零售收件人/地址类型和导出字段测试先失败；真实数据首轮渲染暴露包装、标签、发货等操作备注误识别后新增样例测试并修复
+  - Unit: `go test ./internal/migration/orderliststaging ./cmd/orderlist-staging ./internal/interfaces/http/support -count=1`
+  - API/integration: 真实 18 个月数据重跑得到 1,121 个候选（retail 604 / wholesale 451 / channel 66）；生产客户表只读复核仍为 6
+  - Frontend/build: artifact_tool inspect 确认 12 Sheets；公式错误 0；全部工作表及客户审核字段区/类型证据区渲染通过
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-orderlist-customer-type-refinement.md`
+- Deployment: merged application commit `40bcd37f4d14d6c8a57e03ecadddf89fb81f1c1e`; development deployed with backup `/opt/stacks/erp/orderapp.backup.deploy-20260711180222`. Smoke: development containers running, unauthenticated dev shell 303, authenticated shell 200, requirement API exposes PR-525, source/workbook markers present, recent app errors none. No formal customer import; production customer count remains 6.
+- Last update: 2026-07-11 Asia/Shanghai postdeploy verified
+- Notes: 客户类型为历史数据推断结果，正式导入前仍需人工审核。
+
+### PR-524-ORDERLIST-CUSTOMER-IMPORT-REVIEW
+- Branch: codex/orderlist-customer-review-20260711
+- Owner/session: Codex / 2026-07-11
+- Status: merged to develop; customer review workbook generated; development deployed and smoke verified
+- Scope: 在 PR-523 历史销售清洗结果上再次提炼客户；可靠识别为同一客户且存在多个手机号时使用最近订单记录中的有效号码，保留全部历史号码和合并证据；生成包含 KFerp 客户新增/更新 API 全字段的 `客户导入审核` Sheet，供人工审核后再正式导入。本需求不写正式客户表。
+- DEV:
+  - DEV-524-CUSTOMER-IDENTITY：按生产 ERP 匹配、开发 ERP 匹配和可靠规范名称聚合跨号码客户，短姓名/泛称不自动跨号码合并。
+  - DEV-524-LATEST-PHONE：按订单日期、工作表月份和物理行位置选择最近有效号码，保留历史号码、日期和来源订单证据。
+  - DEV-524-ERP-FIELD-CONTRACT：读取生产 ERP 客户及客户类型、来源、订单类型、负责人和能力模板选项，生成完整客户字段候选。
+  - DEV-524-REVIEW-WORKBOOK：在现有审核工作簿新增 `客户导入审核` Sheet 和 CSV，并完成渲染与公式错误检查。
+- Verifier:
+  - RED: 新增跨号码、最近号码、生产 ERP 全字段和审核 Sheet 测试后因缺少 `BuildCustomerImportRows/CustomerImportRow/客户导入审核` 失败；无手机号误合并、收货人标签残留、空日期较新工作表和唯一来源误猜测试均先失败。
+  - Unit: `go test ./internal/migration/orderliststaging ./cmd/orderlist-staging ./internal/interfaces/http/support -count=1` passed
+  - API/integration: 只读导出生产 ERP 6 个客户及客户类型/来源/订单类型/负责人选项；重跑后正式客户数仍为 6，零写入
+  - Frontend/build: artifact_tool inspect 确认 12 Sheets、`客户导入审核` 38 列；公式错误 0；字段区和历史证据区渲染通过
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-orderlist-customer-import-review.md`
+- Deployment: merged application commit `f579a88c208dd38858ccba17ff454dd540ab2b23`; development deployed with backup `/opt/stacks/erp/orderapp.backup.deploy-20260711124818`. Smoke: dev shell 200, requirement API 200 with PR-524, manual/source markers present, recent app errors none. No formal customer import; production customer count remains 6.
+- Last update: 2026-07-11 Asia/Shanghai
+- Notes: 源数据、生产客户只读快照和生成的含个人信息工作簿仅保存在受保护的 git 外目录。
+
+### PR-523-ORDERLIST-STAGING-CLEANUP
+- Branch: codex/orderlist-staging-20260710
+- Owner/session: Codex / 2026-07-10
+- Status: merged to develop; production isolated staging database loaded; development deployed and smoke verified
+- Scope: 清洗 `/data/orderlist.xlsx` 中 2025-01 至 2026-06 的月度咖啡销售记录；按 `工作表名 + A列有效序号` 建立稳定来源键，重复序号追加一位后缀；规范客户、父商品、SKU、订单与订单明细，并写入生产 PostgreSQL 实例的独立临时库 `kferp_orderlist_staging`。正式 `nocodb` 业务表保持零写入。
+- DEV:
+  - DEV-523-ORDERLIST-ETL：解析多版本月度表头、稳定来源键、客户手机号归并、商品/SKU和订单字段清洗。
+  - DEV-523-STAGING-DATABASE：提供独立临时库DDL、幂等装载、修订记录和正式库隔离校验。
+  - DEV-523-REVIEW-WORKBOOK：生成包含汇总、序号映射、客户、商品/SKU、订单、明细和问题清单的审核工作簿。
+  - DEV-523-DOCS-ACCEPTANCE：同步需求、验收记录和临时库操作手册。
+- Verifier:
+  - Unit: `go test ./internal/migration/orderliststaging -count=1`
+  - API/integration: staging PostgreSQL schema/load/reload/count queries; production `nocodb` before/after row-count comparison
+  - Workbook: artifact_tool inspect, formula-error scan, and render pass for every review sheet
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-10-orderlist-staging-cleanup.md`
+- Deployment: production isolated staging database loaded without application restart; development deployed from origin/develop `0ae2c0d887ec2f65042928ac087fda00a6e7b7f1`, backup `/opt/stacks/erp/orderapp.backup.deploy-20260711001530`; login=200, req_product=200 with PR-523, manual present. No production application deployment.
+- Last update: 2026-07-11 Asia/Shanghai merged/deployed/smoke verified
+- Notes: Source workbook and generated PII-bearing artifacts must remain outside git.
+
 ### PR-522-PRODUCTION-CUSTOMER-ASSETS-SCHEMA
 - Branch: codex/customer-assets-schema-20260710
 - Owner/session: Codex / 2026-07-10

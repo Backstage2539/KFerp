@@ -2,12 +2,15 @@ package company
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 )
 
 var phonePattern = regexp.MustCompile(`^[0-9+\-\s]{6,32}$`)
+
+var ErrEmployeePhoneAlreadyUsed = errors.New("employee phone already used")
 
 type Department struct {
 	ID     int64
