@@ -1,20 +1,42 @@
 package orderliststaging
 
 import (
+	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
 
+var (
+	recipientLabelPattern        = regexp.MustCompile(`(?i)(?:【|\[)?(?:收货人名字|收货人|收件人|联系人|姓名)(?:】|\])?\s*[:：]?\s*([\p{Han}A-Za-z][\p{Han}A-Za-z·]{1,11})`)
+	recipientBeforePhonePattern  = regexp.MustCompile(`([\p{Han}A-Za-z][\p{Han}A-Za-z·]{1,11}(?:先生|女士|小姐)?)\s*(?:\+?86[\s-]?)?1[3-9](?:[\s-]?\d){9}`)
+	remarkPrefixPattern          = regexp.MustCompile(`(?i)^(?:备注|客户|客户名称)\s*[:：]?\s*`)
+	remarkSuffixPattern          = regexp.MustCompile(`(?i)(?:的)?(?:订单|下单|订货|标签|零售|批发|渠道|客户|样品单|样品|送货|补发货|补货|一件代发|代发|寄样|参赛豆|精品豆|咖啡豆|生豆|标|单|(?:做|定制)?库存(?:消耗)?|(?:样品|赠品)?赠送|订)+$`)
+	remarkCustomerPrefixPattern  = regexp.MustCompile(`^(.{2,20}?)(?:客户|订单|样品单|样品|标签|零售|批发|渠道|代加工|常用烘焙度|不用贴|新版贴纸|咖啡豆袋货款)`)
+	remarkLabelCustomerPattern   = regexp.MustCompile(`(?i)^贴\s*([\p{Han}A-Za-z0-9· ]{1,20}?)(?:正面)?标签`)
+	remarkLogoCustomerPattern    = regexp.MustCompile(`(?i)^贴\s*([\p{Han}A-Za-z0-9· ]{2,20}?)(?:logo)`)
+	remarkListPrefixPattern      = regexp.MustCompile(`^(?:\d{1,2}[.、)）]|\d️?⃣|[①②③④⑤⑥⑦⑧⑨⑩❶❷❸❹❺❻❼❽❾❿])\s*`)
+	remarkQuantityPattern        = regexp.MustCompile(`(?i)^\d+(?:\.\d+)?\s*(?:kg|g|克|公斤|千克|磅|斤|个|袋|包|盒|月|号|种|批)`)
+	remarkChineseQuantityPattern = regexp.MustCompile(`^[一二三四五六七八九十百]+(?:个|袋|包|盒|磅|克|件|种)`)
+	remarkDatePattern            = regexp.MustCompile(`^\d{1,2}(?:[./-]\d{1,2}|月\d{1,2}日?)`)
+)
+
 type customerImportObservation struct {
-	row         *RawOrder
-	phones      []string
-	name        string
-	nameKey     string
-	targetMatch *ERPReferenceCustomer
-	devMatch    *ERPReferenceCustomer
-	targetIDs   []int64
-	devIDs      []int64
+	row                    *RawOrder
+	phones                 []string
+	name                   string
+	nameKey                string
+	recipientName          string
+	hasRemark              bool
+	remarkName             string
+	remarkNameKey          string
+	deliveryAddressKey     string
+	deliveryAddressDisplay string
+	targetMatch            *ERPReferenceCustomer
+	devMatch               *ERPReferenceCustomer
+	targetIDs              []int64
+	devIDs                 []int64
 }
 
 type disjointSet struct {
@@ -47,43 +69,80 @@ func (d *disjointSet) union(left, right int) {
 func BuildCustomerImportRows(rows []RawOrder, devRefs, targetRefs []ERPReferenceCustomer, options CustomerImportOptions) ([]CustomerImportRow, []Issue) {
 	targetByPhone := referenceCustomersByPhone(targetRefs, false)
 	devByPhone := referenceCustomersByPhone(devRefs, true)
+	targetByName := referenceCustomersByName(targetRefs, false)
+	devByName := referenceCustomersByName(devRefs, true)
 	observations := make([]customerImportObservation, 0, len(rows))
+	issues := make([]Issue, 0)
 	for i := range rows {
 		phones := NormalizePhones(rows[i].CustomerRaw)
-		name := extractCustomerName(rows[i].CustomerRaw)
-		targetMatch, targetIDs := uniqueReferenceMatch(phones, targetByPhone)
-		devMatch, devIDs := uniqueReferenceMatch(phones, devByPhone)
+		recipientName := extractRecipientName(rows[i].CustomerRaw)
+		remarkRaw := strings.TrimSpace(rows[i].RemarkRaw)
+		hasRemark := remarkRaw != ""
+		remarkName := extractRemarkCustomerName(remarkRaw)
+		identityName := recipientName
+		var targetMatch, devMatch *ERPReferenceCustomer
+		var targetIDs, devIDs []int64
+		if hasRemark {
+			identityName = remarkName
+			if remarkName != "" {
+				targetMatch, targetIDs = uniqueReferenceNameMatch(remarkName, targetByName)
+				devMatch, devIDs = uniqueReferenceNameMatch(remarkName, devByName)
+			} else {
+				issues = append(issues, newIssue(
+					"customer_import", "remark:"+shortHash(nonEmpty(rows[i].SourceOrderKey, rowLocator(rows[i]))),
+					"customer_remark_name_unresolved", "warning", "备注非空但无法安全提取客户名称，需要人工确认", rows[i],
+				))
+			}
+		} else {
+			targetMatch, targetIDs = uniqueReferenceMatch(phones, targetByPhone)
+			devMatch, devIDs = uniqueReferenceMatch(phones, devByPhone)
+		}
+		addressKey, addressDisplay := normalizeDeliveryAddress(rows[i].CustomerRaw, recipientName)
 		observations = append(observations, customerImportObservation{
-			row: &rows[i], phones: phones, name: name, nameKey: normalizeCustomerName(name),
-			targetMatch: targetMatch, devMatch: devMatch, targetIDs: targetIDs, devIDs: devIDs,
+			row: &rows[i], phones: phones, name: identityName, nameKey: normalizeCustomerName(identityName),
+			recipientName: recipientName, hasRemark: hasRemark, remarkName: remarkName,
+			remarkNameKey: normalizeCustomerName(remarkName), deliveryAddressKey: addressKey,
+			deliveryAddressDisplay: addressDisplay, targetMatch: targetMatch, devMatch: devMatch,
+			targetIDs: targetIDs, devIDs: devIDs,
 		})
 	}
 
 	groupsByPhone := map[string][]int{}
-	groupsByTarget := map[int64][]int{}
-	groupsByDev := map[int64][]int{}
-	groupsByName := map[string][]int{}
+	groupsByTarget := map[string][]int{}
+	groupsByDev := map[string][]int{}
+	groupsByRetailName := map[string][]int{}
+	groupsByRemarkName := map[string][]int{}
 	for index, observation := range observations {
-		for _, phone := range observation.phones {
-			groupsByPhone[phone] = append(groupsByPhone[phone], index)
+		scope := "retail"
+		if observation.hasRemark {
+			scope = "remark"
+		}
+		if !observation.hasRemark {
+			for _, phone := range observation.phones {
+				groupsByPhone[phone] = append(groupsByPhone[phone], index)
+			}
+			if observation.nameKey != "" {
+				groupsByRetailName[observation.nameKey] = append(groupsByRetailName[observation.nameKey], index)
+			}
+		} else if observation.remarkNameKey != "" {
+			groupsByRemarkName[observation.remarkNameKey] = append(groupsByRemarkName[observation.remarkNameKey], index)
 		}
 		if observation.targetMatch != nil {
-			groupsByTarget[observation.targetMatch.ID] = append(groupsByTarget[observation.targetMatch.ID], index)
+			key := scope + ":" + strconv.FormatInt(observation.targetMatch.ID, 10)
+			groupsByTarget[key] = append(groupsByTarget[key], index)
 		}
 		if observation.devMatch != nil {
-			groupsByDev[observation.devMatch.ID] = append(groupsByDev[observation.devMatch.ID], index)
-		}
-		if observation.nameKey != "" {
-			groupsByName[observation.nameKey] = append(groupsByName[observation.nameKey], index)
+			key := scope + ":" + strconv.FormatInt(observation.devMatch.ID, 10)
+			groupsByDev[key] = append(groupsByDev[key], index)
 		}
 	}
 
 	set := newDisjointSet(len(observations))
 	unionIndexGroups(set, groupsByPhone)
-	unionInt64IndexGroups(set, groupsByTarget)
-	unionInt64IndexGroups(set, groupsByDev)
-	issues := make([]Issue, 0)
-	for nameKey, indexes := range groupsByName {
+	unionIndexGroups(set, groupsByTarget)
+	unionIndexGroups(set, groupsByDev)
+	unionIndexGroups(set, groupsByRemarkName)
+	for nameKey, indexes := range groupsByRetailName {
 		if len(indexes) < 2 {
 			continue
 		}
@@ -143,7 +202,7 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 	row := CustomerImportRow{
 		Action: "create", Active: true, PortalEnabled: false, ReviewStatus: ReviewAutoReady,
 		OrderCount: len(observations), LatestSourceOrderKey: latest.row.SourceOrderKey,
-		LatestCustomerRaw: strings.TrimSpace(latest.row.CustomerRaw),
+		LatestCustomerRaw: strings.TrimSpace(latest.row.CustomerRaw), LatestRemarkRaw: strings.TrimSpace(latest.row.RemarkRaw),
 	}
 
 	targets := uniqueMatchedCustomers(observations, true)
@@ -161,6 +220,12 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 	phoneOrder := make([]string, 0)
 	nameSeen := map[string]struct{}{}
 	names := make([]string, 0)
+	recipientSeen := map[string]struct{}{}
+	recipientNames := make([]string, 0)
+	remarkSeen := map[string]struct{}{}
+	remarks := make([]string, 0)
+	addressSeen := map[string]struct{}{}
+	addressSamples := make([]string, 0)
 	sourceKeys := make([]string, 0, len(observations))
 	reasons := make([]string, 0)
 	for _, observation := range observations {
@@ -182,6 +247,29 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 				names = append(names, observation.name)
 			}
 		}
+		if observation.recipientName != "" {
+			key := normalizeCustomerName(observation.recipientName)
+			if _, exists := recipientSeen[key]; !exists {
+				recipientSeen[key] = struct{}{}
+				recipientNames = append(recipientNames, observation.recipientName)
+			}
+		}
+		remarkRaw := strings.TrimSpace(observation.row.RemarkRaw)
+		if remarkRaw != "" {
+			key := normalizeCustomerName(remarkRaw)
+			if _, exists := remarkSeen[key]; !exists {
+				remarkSeen[key] = struct{}{}
+				remarks = append(remarks, remarkRaw)
+			}
+		}
+		if observation.deliveryAddressKey != "" {
+			if _, exists := addressSeen[observation.deliveryAddressKey]; !exists {
+				addressSeen[observation.deliveryAddressKey] = struct{}{}
+				if observation.deliveryAddressDisplay != "" {
+					addressSamples = append(addressSamples, observation.deliveryAddressDisplay)
+				}
+			}
+		}
 		for _, phone := range observation.phones {
 			if _, exists := phoneDates[phone]; exists {
 				continue
@@ -193,6 +281,10 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 	row.PhoneCount = len(phoneOrder)
 	row.HistoricalPhones = strings.Join(phoneOrder, " | ")
 	row.HistoricalNames = strings.Join(names, " | ")
+	row.RecipientNames = strings.Join(recipientNames, " | ")
+	row.HistoricalRemarks = strings.Join(remarks, " | ")
+	row.DeliveryAddressCount = len(addressSeen)
+	row.DeliveryAddressSamples = joinEvidenceSamples(addressSamples, 12)
 	row.SourceOrderKeys = strings.Join(sourceKeys, " | ")
 	for _, observation := range observations {
 		if len(observation.phones) == 1 {
@@ -201,6 +293,24 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 			row.LatestPhoneObservedDate = observation.row.OrderDate
 			break
 		}
+	}
+
+	isRemarkCustomer := latest.hasRemark
+	row.InferredCustomerType = "retail"
+	row.CustomerTypeBasis = "备注为空，按收件人识别零售客户"
+	if isRemarkCustomer {
+		row.InferredCustomerType = "wholesale"
+		row.CustomerTypeBasis = fmt.Sprintf("备注客户，%d 个规范收件地址，判定批发客户", row.DeliveryAddressCount)
+		if row.DeliveryAddressCount == 0 {
+			row.CustomerTypeBasis = "备注客户，未解析到规范收件地址，暂按批发客户，需人工确认"
+			row.ReviewStatus = ReviewNeedsReview
+			reasons = append(reasons, "收件地址待确认")
+		} else if row.DeliveryAddressCount > 1 {
+			row.InferredCustomerType = "channel"
+			row.CustomerTypeBasis = fmt.Sprintf("备注客户，%d 个规范收件地址，判定渠道客户", row.DeliveryAddressCount)
+		}
+	} else if row.DeliveryAddressCount != 1 {
+		row.CustomerTypeBasis = fmt.Sprintf("备注为空，按收件人识别零售客户；记录到 %d 个规范收件地址", row.DeliveryAddressCount)
 	}
 
 	latestName := ""
@@ -217,24 +327,37 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 		row.Action = "update"
 		row.ERPMatchID = target.ID
 		row.ERPMatchName = strings.TrimSpace(target.Name)
-		row.MergeMethod = "production_erp_phone"
+		if isRemarkCustomer {
+			row.MergeMethod = "production_erp_remark_name"
+		} else {
+			row.MergeMethod = "production_erp_phone"
+		}
 		applyTargetCustomer(&row, *target, options)
 	case dev != nil:
 		row.CandidateKey = "dev_customer:" + strconv.FormatInt(dev.ID, 10)
-		row.MergeMethod = "development_erp_phone"
+		if isRemarkCustomer {
+			row.MergeMethod = "development_erp_remark_name"
+		} else {
+			row.MergeMethod = "development_erp_phone"
+		}
 		row.Name = strings.TrimSpace(dev.Name)
 		if customerNameNeedsReview(row.Name) && latestName != "" && !customerNameNeedsReview(latestName) {
 			row.Name = latestName
 		}
 		row.RawName = nonEmpty(latestName, row.Name)
-	case len(phoneOrder) > 0 && customerNameCanMergePhones(latestName):
+	case isRemarkCustomer && latestName != "":
+		row.CandidateKey = "remark_customer:" + shortHash(nameKey)
+		row.MergeMethod = "remark_customer_exact"
+		row.Name = latestName
+		row.RawName = nonEmpty(row.LatestRemarkRaw, latestName)
+	case !isRemarkCustomer && len(phoneOrder) > 0 && customerNameCanMergePhones(latestName):
 		row.CandidateKey = "customer_name:" + shortHash(nameKey)
-		row.MergeMethod = "safe_name_exact"
+		row.MergeMethod = "retail_safe_name_exact"
 		row.Name = latestName
 		row.RawName = latestName
-	case len(phoneOrder) == 1:
+	case !isRemarkCustomer && len(phoneOrder) == 1:
 		row.CandidateKey = "phone:" + phoneOrder[0]
-		row.MergeMethod = "single_phone"
+		row.MergeMethod = "retail_single_phone"
 		row.Name = latestName
 		row.RawName = latestName
 	default:
@@ -249,12 +372,31 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 		reasons = append(reasons, "客户名称待确认")
 	}
 	if target == nil {
-		row.CustomerType = ""
-		row.ReviewStatus = ReviewNeedsReview
-		reasons = append(reasons, "客户类型待确认")
+		row.CustomerType = row.InferredCustomerType
+		if isRemarkCustomer {
+			row.CompanyName = row.Name
+			row.Contact = latest.recipientName
+		} else {
+			row.Contact = row.Name
+		}
+		if row.InferredCustomerType != "channel" {
+			row.Address = strings.TrimSpace(latest.row.CustomerRaw)
+		}
 		row.DefaultSourceID, row.DefaultSourceName = resolveReferenceOption(latestNonEmptyRaw(observations, func(raw RawOrder) string { return raw.OrderSourceRaw }), options.Sources, false)
 		row.DefaultOrderTypeID, row.DefaultOrderTypeName = resolveReferenceOption(latestNonEmptyRaw(observations, func(raw RawOrder) string { return raw.OrderTypeRaw }), options.OrderTypes, false)
 		row.ResponsibleEmployeeID, row.ResponsibleEmployeeName = resolveReferenceOption("", options.Employees, true)
+	} else {
+		if row.CustomerType == "" {
+			row.CustomerType = row.InferredCustomerType
+		}
+		if row.CustomerType != row.InferredCustomerType {
+			row.ReviewStatus = ReviewNeedsReview
+			reasons = append(reasons, "ERP客户类型与历史推断不同")
+		}
+	}
+	if isRemarkCustomer && latest.remarkName == "" {
+		row.ReviewStatus = ReviewNeedsReview
+		reasons = append(reasons, "备注客户名称待确认")
 	}
 	if row.Phone == "" {
 		row.ReviewStatus = ReviewNeedsReview
@@ -277,14 +419,155 @@ func buildCustomerImportRow(observations []customerImportObservation, options Cu
 	}
 	row.ReviewReasons = strings.Join(uniqueStrings(reasons), "；")
 
-	issues := make([]Issue, 0)
+	rowIssues := make([]Issue, 0)
 	if len(targets) > 1 {
-		issues = append(issues, newIssue("customer_import", row.CandidateKey, "customer_target_erp_ambiguous", "error", "历史号码匹配到多个生产ERP客户，需要人工确认", *latest.row))
+		rowIssues = append(rowIssues, newIssue("customer_import", row.CandidateKey, "customer_target_erp_ambiguous", "error", "历史客户匹配到多个生产ERP客户，需要人工确认", *latest.row))
 	}
 	if len(observations) > 0 && len(observations[0].phones) > 1 {
-		issues = append(issues, newIssue("customer_import", row.CandidateKey, "customer_latest_phone_ambiguous", "warning", "最近客户记录中包含多个手机号，主手机号需要人工确认", *latest.row))
+		rowIssues = append(rowIssues, newIssue("customer_import", row.CandidateKey, "customer_latest_phone_ambiguous", "warning", "最近客户记录中包含多个手机号，主手机号需要人工确认", *latest.row))
 	}
-	return row, issues
+	return row, rowIssues
+}
+
+func extractRemarkCustomerName(raw string) string {
+	raw = strings.TrimSpace(normalizeDigits(strings.ReplaceAll(strings.ReplaceAll(raw, "\r", "\n"), "\t", " ")))
+	if raw == "" {
+		return ""
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == ',' || r == '，' || r == ';' || r == '；' || r == ':' || r == '：'
+	})
+	if len(parts) == 0 {
+		return ""
+	}
+	candidate := strings.TrimSpace(parts[0])
+	candidate = strings.TrimSpace(strings.TrimLeft(candidate, "⚠️☑✅❗❕※*# "))
+	if remarkDatePattern.MatchString(candidate) {
+		return ""
+	}
+	candidate = strings.TrimSpace(remarkListPrefixPattern.ReplaceAllString(candidate, ""))
+	candidate = remarkPrefixPattern.ReplaceAllString(candidate, "")
+	if index := strings.Index(candidate, "、"); index > 0 {
+		candidate = strings.TrimSpace(candidate[:index])
+	}
+	if index := strings.IndexAny(candidate, "（("); index > 0 {
+		candidate = strings.TrimSpace(candidate[:index])
+	}
+	if match := remarkLabelCustomerPattern.FindStringSubmatch(candidate); len(match) == 2 {
+		candidate = strings.TrimSpace(match[1])
+	} else if match := remarkLogoCustomerPattern.FindStringSubmatch(candidate); len(match) == 2 {
+		candidate = strings.TrimSpace(match[1])
+	} else if match := remarkCustomerPrefixPattern.FindStringSubmatch(candidate); len(match) == 2 {
+		candidate = strings.TrimSpace(match[1])
+	}
+	for {
+		next := strings.TrimSpace(remarkSuffixPattern.ReplaceAllString(candidate, ""))
+		if next == candidate {
+			break
+		}
+		candidate = next
+	}
+	candidate = strings.Trim(candidate, " :-_，,。.")
+	if candidate == "" || len([]rune(candidate)) > 30 || looksLikeAddress(candidate) || len(NormalizePhones(candidate)) > 0 ||
+		remarkQuantityPattern.MatchString(candidate) || remarkChineseQuantityPattern.MatchString(candidate) || remarkDatePattern.MatchString(candidate) ||
+		strings.ContainsAny(candidate, "“”\"【】") || strings.HasSuffix(candidate, "的") {
+		return ""
+	}
+	normalized := normalizeCustomerName(candidate)
+	for _, generic := range []string{
+		"零售", "淘宝", "样品", "咖啡店", "新咖啡店", "咖啡店发货", "咖啡店烘焙工厂", "咖啡培训机构",
+		"随机赠送", "赠送", "门店自提", "工厂送货", "工厂发货", "工厂", "库存", "测试", "包装", "标签", "品名", "正标", "正面", "现货",
+		"微店", "卷膜", "用", "熟豆快递", "红盒子", "蓝色盒子",
+		"到付", "快团团", "旧账", "每类", "测试喷码机", "顺丰到付", "顺丰运费运费贵", "奶茶店", "民宿", "经销商",
+		"咖啡", "咖啡生豆", "定制挂耳", "新豆子到再发", "补发", "补录", "定制logo", "定制标", "展会",
+		"参赛豆", "培训老师的店", "意式", "拉萨经销商", "甜点店", "生豆", "蓝盒", "西双版纳线下店", "货款免费",
+	} {
+		if normalized == normalizeCustomerName(generic) || strings.HasPrefix(normalized, normalizeCustomerName("随机赠送")) {
+			return ""
+		}
+	}
+	for _, prefix := range []string{
+		"随机赠送", "随机装", "随机送", "赠送", "赠品", "送一", "送两", "送2", "送3", "送4", "送5",
+		"贴这个", "要4个", "烘", "送", "包装", "豆袋", "不用", "不要", "不贴", "正面不贴", "优先", "全部", "公版",
+		"标签", "样品", "用库存", "最好", "含包装", "白绿色", "红色包装", "都用", "不需要", "其他工厂",
+		"使用", "发货", "咖啡店", "喜欢", "顾客", "意式机", "寄快递", "挂耳", "放入", "有现货", "正面",
+		"淘宝", "熟豆", "自己买", "红酒日晒", "零售", "需要", "盒子", "贴公版", "贴棵凡", "两个", "两种", "先烘焙",
+		"封口", "走京东", "顺丰", "定制", "新豆子", "快团团", "贴纸",
+	} {
+		if strings.HasPrefix(normalized, normalizeCustomerName(prefix)) {
+			return ""
+		}
+	}
+	for _, marker := range []string{"可以发现货", "根据库存发货", "生产日期喷印", "烘焙日期", "烘焙度参考", "做好区分标签", "展会烘焙"} {
+		if strings.Contains(normalized, normalizeCustomerName(marker)) {
+			return ""
+		}
+	}
+	if digitsOnly(candidate) != "" && len([]rune(candidate)) <= len([]rune(digitsOnly(candidate)))+2 {
+		return ""
+	}
+	return candidate
+}
+
+func extractRecipientName(raw string) string {
+	raw = strings.TrimSpace(normalizeDigits(raw))
+	if raw == "" {
+		return ""
+	}
+	if match := recipientLabelPattern.FindStringSubmatch(raw); len(match) == 2 {
+		if candidate := cleanRecipientName(match[1]); candidate != "" {
+			return candidate
+		}
+	}
+	if match := recipientBeforePhonePattern.FindStringSubmatch(raw); len(match) == 2 {
+		if candidate := cleanRecipientName(match[1]); candidate != "" {
+			return candidate
+		}
+	}
+	return cleanRecipientName(extractCustomerName(raw))
+}
+
+func cleanRecipientName(raw string) string {
+	candidate := cleanNameCandidate(raw)
+	if candidate == "" || len([]rune(candidate)) > 12 || looksLikeAddress(candidate) {
+		return ""
+	}
+	for _, marker := range []string{"办公室", "前台", "客服", "仓库", "地址", "收货", "门店", "公司"} {
+		if strings.Contains(candidate, marker) {
+			return ""
+		}
+	}
+	return candidate
+}
+
+func normalizeDeliveryAddress(raw, recipientName string) (string, string) {
+	display := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(raw, "\r\n", "\n"), "\r", "\n"))
+	if display == "" {
+		return "", ""
+	}
+	if strings.Contains(display, "门店自提") || normalizeCustomerName(display) == normalizeCustomerName("自提") {
+		return "pickup:store", display
+	}
+	normalized := normalizeDigits(display)
+	normalized = mobilePattern.ReplaceAllString(normalized, " ")
+	if recipientName != "" {
+		normalized = strings.ReplaceAll(normalized, recipientName, " ")
+	}
+	for _, marker := range []string{"收货人名字", "收货人", "收件人", "联系人", "姓名", "手机号", "手机号码", "联系电话", "电话", "地址"} {
+		normalized = strings.ReplaceAll(normalized, marker, " ")
+	}
+	key := normalizeCustomerName(normalized)
+	if key == "" {
+		key = "self"
+	}
+	return key, display
+}
+
+func joinEvidenceSamples(values []string, limit int) string {
+	if len(values) <= limit {
+		return strings.Join(values, " | ")
+	}
+	return strings.Join(values[:limit], " | ") + fmt.Sprintf(" | 另有 %d 个地址，详见来源订单", len(values)-limit)
 }
 
 func applyTargetCustomer(row *CustomerImportRow, target ERPReferenceCustomer, options CustomerImportOptions) {
@@ -327,6 +610,28 @@ func referenceCustomersByPhone(refs []ERPReferenceCustomer, activeOnly bool) map
 	return result
 }
 
+func referenceCustomersByName(refs []ERPReferenceCustomer, activeOnly bool) map[string][]ERPReferenceCustomer {
+	result := map[string][]ERPReferenceCustomer{}
+	for _, ref := range refs {
+		if activeOnly && !ref.Active {
+			continue
+		}
+		seen := map[string]struct{}{}
+		for _, name := range []string{ref.Name, ref.RawName, ref.CompanyName} {
+			key := normalizeCustomerName(name)
+			if key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			result[key] = append(result[key], ref)
+		}
+	}
+	return result
+}
+
 func uniqueReferenceMatch(phones []string, byPhone map[string][]ERPReferenceCustomer) (*ERPReferenceCustomer, []int64) {
 	byID := map[int64]ERPReferenceCustomer{}
 	for _, phone := range phones {
@@ -334,6 +639,18 @@ func uniqueReferenceMatch(phones []string, byPhone map[string][]ERPReferenceCust
 			byID[ref.ID] = ref
 		}
 	}
+	return uniqueReferenceFromMap(byID)
+}
+
+func uniqueReferenceNameMatch(name string, byName map[string][]ERPReferenceCustomer) (*ERPReferenceCustomer, []int64) {
+	byID := map[int64]ERPReferenceCustomer{}
+	for _, ref := range byName[normalizeCustomerName(name)] {
+		byID[ref.ID] = ref
+	}
+	return uniqueReferenceFromMap(byID)
+}
+
+func uniqueReferenceFromMap(byID map[int64]ERPReferenceCustomer) (*ERPReferenceCustomer, []int64) {
 	ids := make([]int64, 0, len(byID))
 	for id := range byID {
 		ids = append(ids, id)
@@ -347,12 +664,6 @@ func uniqueReferenceMatch(phones []string, byPhone map[string][]ERPReferenceCust
 }
 
 func unionIndexGroups(set *disjointSet, groups map[string][]int) {
-	for _, indexes := range groups {
-		unionIndexes(set, indexes)
-	}
-}
-
-func unionInt64IndexGroups(set *disjointSet, groups map[int64][]int) {
 	for _, indexes := range groups {
 		unionIndexes(set, indexes)
 	}

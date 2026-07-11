@@ -291,17 +291,22 @@ func customerPhonesCSV(rows []CustomerPhone) [][]string {
 func customerImportRowsCSV(rows []CustomerImportRow) [][]string {
 	out := [][]string{{
 		"候选键", "导入动作", "ERP客户ID", "ERP客户名称", "合并依据",
-		"客户名称", "原始名称", "客户类型", "企业名称", "企业地址", "企业电话", "联系人", "电话", "地址",
+		"客户名称", "原始名称", "客户类型", "推断客户类型", "客户类型判定依据",
+		"企业名称", "企业地址", "企业电话", "联系人", "电话", "地址",
 		"默认来源ID", "默认来源", "默认订单类型ID", "默认订单类型", "负责人ID", "负责人", "门户启用", "能力模板", "启用",
-		"最新号码日期", "历史号码数", "历史号码", "历史名称", "首单日期", "末单日期", "订单数", "最近来源订单键", "全部来源订单键", "最近客户原文", "待审核原因", "审核状态",
+		"最新号码日期", "历史号码数", "历史号码", "历史名称", "收件人名称", "规范收件地址数", "收件地址样本", "最新备注原文", "历史备注",
+		"首单日期", "末单日期", "订单数", "最近来源订单键", "全部来源订单键", "最近客户原文", "待审核原因", "审核状态",
 	}}
 	for _, row := range rows {
 		out = append(out, []string{
 			row.CandidateKey, row.Action, strconv.FormatInt(row.ERPMatchID, 10), row.ERPMatchName, row.MergeMethod,
-			row.Name, row.RawName, row.CustomerType, row.CompanyName, row.CompanyAddress, row.CompanyPhone, row.Contact, row.Phone, row.Address,
+			row.Name, row.RawName, row.CustomerType, row.InferredCustomerType, row.CustomerTypeBasis,
+			row.CompanyName, row.CompanyAddress, row.CompanyPhone, row.Contact, row.Phone, row.Address,
 			strconv.FormatInt(row.DefaultSourceID, 10), row.DefaultSourceName, strconv.FormatInt(row.DefaultOrderTypeID, 10), row.DefaultOrderTypeName,
 			strconv.FormatInt(row.ResponsibleEmployeeID, 10), row.ResponsibleEmployeeName, strconv.FormatBool(row.PortalEnabled), row.CapabilityTemplateKey, strconv.FormatBool(row.Active),
-			row.LatestPhoneObservedDate, strconv.Itoa(row.PhoneCount), row.HistoricalPhones, row.HistoricalNames, row.FirstOrderDate, row.LastOrderDate,
+			row.LatestPhoneObservedDate, strconv.Itoa(row.PhoneCount), row.HistoricalPhones, row.HistoricalNames, row.RecipientNames,
+			strconv.Itoa(row.DeliveryAddressCount), row.DeliveryAddressSamples, row.LatestRemarkRaw, row.HistoricalRemarks,
+			row.FirstOrderDate, row.LastOrderDate,
 			strconv.Itoa(row.OrderCount), row.LatestSourceOrderKey, row.SourceOrderKeys, row.LatestCustomerRaw, row.ReviewReasons, row.ReviewStatus,
 		})
 	}
