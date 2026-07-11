@@ -1242,7 +1242,7 @@
 - [ ] PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY：保存工单或工序卡排程后，`GET /api/production-schedule` 返回计划时间、班次、负责人、优先级、工作中心和冲突提示；保存产能日历后可在同一日期和工作中心看到可用分钟/停机分钟。
 - [ ] PR-481-MANUFACTURING-PHASE3-SCHEDULING-WORKBENCH：生产管理菜单进入 `生产排程`，打开生产排程工作台；列表、日历、甘特和工位负载四种视图都能展示同一批排程数据；移动端不出现页面级横向溢出。
 - [ ] PR-482-MANUFACTURING-PHASE3-MRP-SUGGESTIONS：排程工作台显示 MRP、采购建议、调拨建议和来源工单；建议接口支持 `from/to/status/work_center/material_id/limit`，不自动生成采购单或库存调拨单。
-- [ ] PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS：行业设置页的计算预览可选择咖啡烘焙、包装盒、童装，输入需求产出、损耗率、原料单价和工时后返回计划投入、预计损耗和预计成本。
+- [x] PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS：历史计算预览入口已由 PR-527 移除，不再作为当前页面验收项。
 - [ ] PR-484-MANUFACTURING-PHASE3-TRACEABILITY-ANALYTICS：生产成本页显示成本差异、异常损耗和追溯链路；按工单 ID 或生产批次过滤后，`/api/production-trace/analytics` 返回 `trace_links`、`cost_variance` 和 `abnormal_losses`。
 
 ### K55. 工位成本组件与产能批量折算工序成本（PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS / PR-514-WORKSTATION-COST-COMPONENTS）
@@ -1435,3 +1435,8 @@
 - [ ] 展开父商品行内的 `4 个规格 SKU` 可看到各规格名称和 SKU 编号，点击具体规格仍能打开商品档案配置抽屉。
 - [ ] 商品列表数量、分页、表头全选和批量操作只统计父商品；搜索 `227g袋装` 或对应 SKU 编号仍返回“金色山脉”。
 - [ ] 后端 products 子 SKU、`parent_product_id`、价格表、BOM、库存和订单引用不变，不执行数据迁移。
+
+### K77. 行业字段模板移除计算预览（PR-527-REMOVE-INDUSTRY-CALCULATION-PREVIEW）
+- [ ] 打开 `设置 → 行业设置 → 行业字段模板`，页面不显示“计算预览”、业务预设、需求产出、损耗率、原料单价、工序分钟、工时费和预览按钮。
+- [ ] 模板名称、状态、说明、字段定义和新增字段仍可见，原有保存模板和停用模板流程不变。
+- [ ] 现有行业字段模板和商品生产配置数据不被修改，不产生数据迁移。

@@ -1,19 +1,29 @@
+import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { test } from 'node:test'
+import fs from 'node:fs'
 
-test('IndustryFieldTemplatesView exposes configurable industry calculator preview', () => {
-  const source = readFileSync(new URL('../views/IndustryFieldTemplatesView.vue', import.meta.url), 'utf8')
-  for (const marker of [
-    '/api/industry-calculators/preview',
+const source = fs.readFileSync(new URL('../views/IndustryFieldTemplatesView.vue', import.meta.url), 'utf8')
+const template = source.split('<script setup>')[0] || source
+
+test('industry field template page removes the standalone calculation preview', () => {
+  for (const removed of [
+    'calculator-panel',
     '计算预览',
-    '咖啡烘焙',
-    '包装盒',
-    '童装',
-    '需求产出',
-    '计划投入',
-    '预计损耗',
+    '业务预设',
+    '需求产出(g)',
+    '原料单价(元/kg)',
+    '工序分钟',
+    '工时费(元/小时)',
+    'calculatorDraft',
+    'calculatorPreview',
+    'runCalculatorPreview',
+    '/api/industry-calculators/preview',
   ]) {
-    assert.ok(source.includes(marker), `IndustryFieldTemplatesView.vue should include ${marker}`)
+    assert.doesNotMatch(source, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+
+  assert.match(template, /字段定义/)
+  assert.match(template, /新增字段/)
+  assert.match(template, /保存模板/)
+  assert.match(source, /apiSend\('\/api\/industry-field-templates'/)
 })
