@@ -154,6 +154,8 @@ type CustomerImportRow struct {
 	Name                    string `json:"name"`
 	RawName                 string `json:"raw_name"`
 	CustomerType            string `json:"customer_type"`
+	InferredCustomerType    string `json:"inferred_customer_type"`
+	CustomerTypeBasis       string `json:"customer_type_basis"`
 	CompanyName             string `json:"company_name"`
 	CompanyAddress          string `json:"company_address"`
 	CompanyPhone            string `json:"company_phone"`
@@ -173,6 +175,11 @@ type CustomerImportRow struct {
 	PhoneCount              int    `json:"phone_count"`
 	HistoricalPhones        string `json:"historical_phones"`
 	HistoricalNames         string `json:"historical_names"`
+	RecipientNames          string `json:"recipient_names"`
+	DeliveryAddressCount    int    `json:"delivery_address_count"`
+	DeliveryAddressSamples  string `json:"delivery_address_samples"`
+	LatestRemarkRaw         string `json:"latest_remark_raw"`
+	HistoricalRemarks       string `json:"historical_remarks"`
 	FirstOrderDate          string `json:"first_order_date"`
 	LastOrderDate           string `json:"last_order_date"`
 	OrderCount              int    `json:"order_count"`

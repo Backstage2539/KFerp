@@ -207,8 +207,195 @@ func TestBuildCustomerImportRowsMergesReliableNameAndUsesLatestPhone(t *testing.
 	if row.DefaultSourceID != 9 || row.DefaultOrderTypeID != 3 || row.ResponsibleEmployeeID != 7 {
 		t.Fatalf("ERP option resolution incorrect: %+v", row)
 	}
-	if row.CustomerType != "" || !row.Active || row.PortalEnabled {
+	if row.CustomerType != "retail" || row.InferredCustomerType != "retail" || !row.Active || row.PortalEnabled {
 		t.Fatalf("new customer defaults should stay reviewable: %+v", row)
+	}
+}
+
+func TestBuildCustomerImportRowsUsesRecipientAsRetailCustomerWhenRemarkIsBlank(t *testing.T) {
+	rows := []RawOrder{{
+		SourceOrderKey: "2026年6月:1", SheetPeriod: "2026-06", SourceRowNumber: 3,
+		CustomerRaw: "云南省昆明市西山区某路907罗小姐18788500415", OrderDate: "2026-06-23",
+	}}
+	got, issues := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 || len(issues) != 0 {
+		t.Fatalf("unexpected retail result: rows=%+v issues=%+v", got, issues)
+	}
+	row := got[0]
+	if row.Name != "罗小姐" || row.CustomerType != "retail" || row.InferredCustomerType != "retail" {
+		t.Fatalf("blank remark must create recipient retail customer: %+v", row)
+	}
+	if row.CustomerTypeBasis != "备注为空，按收件人识别零售客户" || row.DeliveryAddressCount != 1 {
+		t.Fatalf("retail type evidence missing: %+v", row)
+	}
+}
+
+func TestBuildCustomerImportRowsStripsBracketedRecipientLabel(t *testing.T) {
+	rows := []RawOrder{{
+		SourceOrderKey: "2025年9月:42", SheetPeriod: "2025-09", SourceRowNumber: 3,
+		CustomerRaw: "【收件人】王小姐\n【联系方式】19129219429\n【收货地址】广东省佛山市禅城区某路1号", OrderDate: "2025-09-11",
+	}}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 || got[0].Name != "王小姐" || got[0].Contact != "王小姐" {
+		t.Fatalf("bracketed recipient label not stripped: %+v", got)
+	}
+}
+
+func TestBuildCustomerImportRowsUsesSingleAddressRemarkCustomerAsWholesale(t *testing.T) {
+	rows := []RawOrder{
+		{SourceOrderKey: "2026年6月:1", SheetPeriod: "2026-06", SourceRowNumber: 3, RemarkRaw: "星河咖啡订单", CustomerRaw: "张三 13800138000 云南省昆明市五华区某路1号", OrderDate: "2026-06-01"},
+		{SourceOrderKey: "2026年6月:2", SheetPeriod: "2026-06", SourceRowNumber: 4, RemarkRaw: "星河咖啡", CustomerRaw: "张三，13800138000，云南省昆明市五华区某路1号", OrderDate: "2026-06-02"},
+	}
+	got, issues := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 || len(issues) != 0 {
+		t.Fatalf("unexpected wholesale result: rows=%+v issues=%+v", got, issues)
+	}
+	row := got[0]
+	if row.Name != "星河咖啡" || row.CustomerType != "wholesale" || row.InferredCustomerType != "wholesale" {
+		t.Fatalf("single-address remark customer must be wholesale: %+v", row)
+	}
+	if row.DeliveryAddressCount != 1 || !strings.Contains(row.CustomerTypeBasis, "1 个规范收件地址") {
+		t.Fatalf("wholesale address evidence missing: %+v", row)
+	}
+}
+
+func TestBuildCustomerImportRowsMarksRemarkCustomerWithoutAddressForReview(t *testing.T) {
+	rows := []RawOrder{{
+		SourceOrderKey: "2026年6月:1", SheetPeriod: "2026-06", SourceRowNumber: 3,
+		RemarkRaw: "星河咖啡订单", OrderDate: "2026-06-01",
+	}}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 {
+		t.Fatalf("unexpected result: %+v", got)
+	}
+	row := got[0]
+	if row.InferredCustomerType != "wholesale" || row.ReviewStatus != ReviewNeedsReview {
+		t.Fatalf("missing-address remark customer must stay reviewable: %+v", row)
+	}
+	if !strings.Contains(row.CustomerTypeBasis, "未解析到规范收件地址") || !strings.Contains(row.ReviewReasons, "收件地址待确认") {
+		t.Fatalf("missing-address evidence not explained: %+v", row)
+	}
+}
+
+func TestBuildCustomerImportRowsMergesRemarkVariantsAndClassifiesMultipleAddressesAsChannel(t *testing.T) {
+	rows := []RawOrder{
+		{SourceOrderKey: "2026年6月:1", SheetPeriod: "2026-06", SourceRowNumber: 3, RemarkRaw: "慕恬标签", CustomerRaw: "刘甲 13800138000 云南省昆明市五华区甲路1号", OrderDate: "2026-06-01"},
+		{SourceOrderKey: "2026年6月:2", SheetPeriod: "2026-06", SourceRowNumber: 4, RemarkRaw: "慕恬订单", CustomerRaw: "李乙 13900139000 云南省昆明市盘龙区乙路2号", OrderDate: "2026-06-02"},
+	}
+	got, issues := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 1 || len(issues) != 0 {
+		t.Fatalf("unexpected channel result: rows=%+v issues=%+v", got, issues)
+	}
+	row := got[0]
+	if row.Name != "慕恬" || row.CustomerType != "channel" || row.InferredCustomerType != "channel" {
+		t.Fatalf("remark variants with multiple addresses must be channel: %+v", row)
+	}
+	if row.DeliveryAddressCount != 2 || !strings.Contains(row.HistoricalRemarks, "慕恬标签") || !strings.Contains(row.HistoricalRemarks, "慕恬订单") {
+		t.Fatalf("channel evidence missing: %+v", row)
+	}
+}
+
+func TestBuildCustomerImportRowsDoesNotMergeRemarkCustomerWithRetailRecipientByPhone(t *testing.T) {
+	rows := []RawOrder{
+		{SourceOrderKey: "2026年6月:1", SheetPeriod: "2026-06", SourceRowNumber: 3, RemarkRaw: "星河咖啡订单", CustomerRaw: "张三 13800138000 云南省昆明市五华区某路1号", OrderDate: "2026-06-01"},
+		{SourceOrderKey: "2026年6月:2", SheetPeriod: "2026-06", SourceRowNumber: 4, CustomerRaw: "张三 13800138000 云南省昆明市五华区某路1号", OrderDate: "2026-06-02"},
+	}
+	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
+	if len(got) != 2 {
+		t.Fatalf("remark customer and retail recipient must remain distinct: %+v", got)
+	}
+	types := map[string]bool{}
+	for _, row := range got {
+		types[row.InferredCustomerType] = true
+	}
+	if !types["wholesale"] || !types["retail"] {
+		t.Fatalf("missing separate wholesale/retail candidates: %+v", got)
+	}
+}
+
+func TestExtractRemarkCustomerNameHandlesBusinessPrefixesAndRejectsInstructions(t *testing.T) {
+	for raw, want := range map[string]string{
+		"8Am coffee订单": "8Am coffee",
+		"王宝宝样品单：（记录数量月结）":        "王宝宝",
+		"银辉客户代加工挂耳订单（生产共1312袋挂耳": "银辉",
+		"誉观山：包装好需要填生产工单":         "誉观山",
+		"橘子送货": "橘子",
+		"1、曼辉咖啡\n2、挂耳需要打印二维码": "曼辉咖啡",
+		"慕恬做库存":             "慕恬",
+		"喜沁咖啡库存":            "喜沁咖啡",
+		"刘豪朋友赠送":            "刘豪朋友",
+		"贴NB标签，走顺丰":         "NB",
+		"NB咖啡常用烘焙度，不贴标签":    "NB咖啡",
+		"爆赤食堂补发货（批次问题召回）":   "爆赤食堂",
+		"郎康达民宿、品类、烘焙度、生产日期": "郎康达民宿",
+		"上海鲜烹一件代发":          "上海鲜烹",
+		"橘子代发":              "橘子",
+		"王宝宝咖啡豆袋货款":         "王宝宝",
+		"斑雀咖啡 新版贴纸":         "斑雀咖啡",
+		"贴翠微酒店LOGO":         "翠微酒店",
+		"Boc参赛豆":            "Boc",
+		"光宗豆号生豆":            "光宗豆号",
+		"萃取液公司寄样":           "萃取液公司",
+		"宋泊白汀标":             "宋泊白汀",
+		"岩总单":               "岩总",
+		"淘宝订单，随机赠送2袋挂耳":     "",
+		"随机赠送4袋挂耳":          "",
+		"样品":                "",
+		"1.包装：白蓝色半磅包装":      "",
+		"1️⃣包装用全白454g装袋子":   "",
+		"⚠️不贴标签，白版发货":       "",
+		"⚠️9.30库存（咖啡店发货）":   "",
+		"4月7日烘焙":            "",
+		"标签加logo":           "",
+		"1kg包装":             "",
+		"1.豆袋不贴标签":          "",
+		"送100g酒心巧克力":        "",
+		"随机送一袋挂耳":           "",
+		"咖啡培训机构（可以发现货库存":    "",
+		"不需要贴正面标签":          "",
+		"发货人填，熊亚良":          "",
+		"咖啡店发货":             "",
+		"工厂发货":              "",
+		"红盒子":               "",
+		"蓝色盒子":              "",
+		"昆明展会烘焙":            "",
+		"有现货的话装水洗浅烘":        "",
+		"需要打印logo":          "",
+		"淘宝磨粉":              "",
+		"一个红色手提袋":           "",
+		"十袋装纸盒":             "",
+		"定制logo":            "",
+		"封口普通贴纸":            "",
+		"补发":                "",
+		"走京东快递":             "",
+		"到付":                "",
+		"快团团":               "",
+		"旧账":                "",
+		"每类":                "",
+		"测试喷码机":             "",
+		"顺丰到付":              "",
+		"奶茶店":               "",
+		"民宿":                "",
+		"经销商":               "",
+		"咖啡":                "",
+		"咖啡生豆":              "",
+		"定制挂耳":              "",
+		"新豆子到再发":            "",
+		"补录":                "",
+		"参赛豆":               "",
+		"培训老师的店":            "",
+		"意式":                "",
+		"拉萨经销商":             "",
+		"甜点店":               "",
+		"生豆":                "",
+		"蓝盒":                "",
+		"西双版纳线下店":           "",
+		"货款免费":              "",
+		"贴纸LOGO李婉琪发给小段":     "",
+	} {
+		if got := extractRemarkCustomerName(raw); got != want {
+			t.Fatalf("extractRemarkCustomerName(%q)=%q want=%q", raw, got, want)
+		}
 	}
 }
 
@@ -220,6 +407,14 @@ func TestBuildCustomerImportRowsUsesTopInsertedRowForSameDatePhone(t *testing.T)
 	got, _ := BuildCustomerImportRows(rows, nil, nil, CustomerImportOptions{})
 	if len(got) != 1 || got[0].Phone != "13900139000" || got[0].LatestSourceOrderKey != "2026年5月:2" {
 		t.Fatalf("same-date latest inserted row not selected: %+v", got)
+	}
+}
+
+func TestCustomerNameNeedsReviewFlagsRelationshipAliases(t *testing.T) {
+	for _, raw := range []string{"刘豪朋友", "陈梁哥同事", "白三儿子"} {
+		if !customerNameNeedsReview(raw) {
+			t.Fatalf("relationship alias %q must need review", raw)
+		}
 	}
 }
 
@@ -317,6 +512,9 @@ func TestBuildCustomerImportRowsPreservesProductionERPFields(t *testing.T) {
 	}
 	if !row.PortalEnabled || row.CapabilityTemplateKey != "channel_direct_ship" || !row.Active {
 		t.Fatalf("ERP portal/status fields not preserved: %+v", row)
+	}
+	if row.InferredCustomerType != "retail" {
+		t.Fatalf("historical inference should still be visible: %+v", row)
 	}
 }
 
@@ -523,6 +721,36 @@ func TestWriteExportsCreatesProtectedAuditFiles(t *testing.T) {
 		}
 		if info.Mode().Perm()&0077 != 0 {
 			t.Fatalf("%s permissions=%o want no group/world access", name, info.Mode().Perm())
+		}
+	}
+}
+
+func TestCustomerImportCSVIncludesTypeInferenceEvidence(t *testing.T) {
+	rows := customerImportRowsCSV([]CustomerImportRow{{
+		CandidateKey:           "remark_customer:test",
+		Name:                   "测试渠道",
+		CustomerType:           "channel",
+		InferredCustomerType:   "channel",
+		CustomerTypeBasis:      "备注客户，2 个规范收件地址，判定渠道客户",
+		RecipientNames:         "收件人甲 | 收件人乙",
+		DeliveryAddressCount:   2,
+		DeliveryAddressSamples: "地址甲 | 地址乙",
+		LatestRemarkRaw:        "测试渠道订单",
+		HistoricalRemarks:      "测试渠道订单 | 测试渠道补单",
+	}})
+	if len(rows) != 2 {
+		t.Fatalf("csv rows=%d want=2", len(rows))
+	}
+	header := strings.Join(rows[0], "|")
+	for _, want := range []string{"推断客户类型", "客户类型判定依据", "收件人名称", "规范收件地址数", "收件地址样本", "最新备注原文", "历史备注"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("customer import csv missing header %q: %s", want, header)
+		}
+	}
+	values := strings.Join(rows[1], "|")
+	for _, want := range []string{"channel", "2 个规范收件地址", "收件人甲", "地址甲", "测试渠道补单"} {
+		if !strings.Contains(values, want) {
+			t.Fatalf("customer import csv missing value %q: %s", want, values)
 		}
 	}
 }

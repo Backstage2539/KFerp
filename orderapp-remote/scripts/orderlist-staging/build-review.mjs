@@ -122,6 +122,20 @@ const summaryInspect = await workbook.inspect({
 });
 console.log(summaryInspect.ndjson);
 
+for (const [range, summary] of [["A1:P12", "customer import API field review"], ["Z1:AS12", "customer import type evidence review"]]) {
+  const customerInspect = await workbook.inspect({
+    kind: "table",
+    sheetId: "客户导入审核",
+    range,
+    include: "values,formulas",
+    tableMaxRows: 12,
+    tableMaxCols: 20,
+    maxChars: 6000,
+    summary,
+  });
+  console.log(customerInspect.ndjson);
+}
+
 const formulaErrors = await workbook.inspect({
   kind: "match",
   searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A",
@@ -138,11 +152,16 @@ if (renderDir) {
     const used = sheet.getUsedRange(true);
     const rowCount = Math.min(used?.rowCount || 25, 25);
     const colCount = Math.min(used?.columnCount || 8, 12);
-    const range = `A1:${columnName(colCount)}${rowCount}`;
-    const image = await workbook.render({ sheetName, range, scale: 1.25, format: "png" });
-    const renderPath = path.join(renderDir, `${String(reviewSheetNames().indexOf(sheetName) + 1).padStart(2, "0")}-${sheetName}.png`);
-    await fs.writeFile(renderPath, new Uint8Array(await image.arrayBuffer()), { mode: 0o600 });
-    await fs.chmod(renderPath, 0o600);
+    const ranges = sheetName === "客户导入审核"
+      ? [["A1:P25", "字段区"], ["Z1:AS25", "类型证据区"]]
+      : [[`A1:${columnName(colCount)}${rowCount}`, ""]];
+    for (const [range, suffix] of ranges) {
+      const image = await workbook.render({ sheetName, range, scale: 1.25, format: "png" });
+      const label = suffix ? `-${suffix}` : "";
+      const renderPath = path.join(renderDir, `${String(reviewSheetNames().indexOf(sheetName) + 1).padStart(2, "0")}-${sheetName}${label}.png`);
+      await fs.writeFile(renderPath, new Uint8Array(await image.arrayBuffer()), { mode: 0o600 });
+      await fs.chmod(renderPath, 0o600);
+    }
   }
 }
 
@@ -182,6 +201,9 @@ function buildSummarySheet() {
     ["有效订单候选", dataset.orders.length],
     ["客户候选", dataset.customers.length],
     ["客户导入审核", (dataset.customer_import_rows || []).length],
+    ["推断零售客户", (dataset.customer_import_rows || []).filter((row) => row.inferred_customer_type === "retail").length],
+    ["推断批发客户", (dataset.customer_import_rows || []).filter((row) => row.inferred_customer_type === "wholesale").length],
+    ["推断渠道客户", (dataset.customer_import_rows || []).filter((row) => row.inferred_customer_type === "channel").length],
     ["父商品候选", dataset.products.length],
     ["SKU规格", dataset.skus.length],
     ["订单明细", dataset.order_items.length],
@@ -216,28 +238,31 @@ function buildCustomerImportReviewSheet() {
   sheet.showGridLines = false;
   const headers = [
     "候选客户键", "导入动作", "生产ERP客户ID", "生产ERP客户名称", "合并依据",
-    "客户名称（name）", "原始名称（raw_name）", "客户类型（customer_type）",
+    "客户名称（name）", "原始名称（raw_name）", "客户类型（customer_type）", "推断客户类型", "客户类型判定依据",
     "企业名称（company_name）", "企业地址（company_address）", "企业电话（company_phone）",
     "联系人（contact）", "电话（phone）", "地址（address）",
     "默认来源ID（default_source_id）", "默认来源名称",
     "默认订单类型ID（default_order_type_id）", "默认订单类型名称",
     "负责人ID（responsible_employee_id）", "负责人名称",
     "门户启用（portal_enabled）", "能力模板（capability_template_key）", "启用（active）",
-    "最新号码日期", "历史号码数", "历史号码", "历史名称", "首单日期", "末单日期", "订单数",
+    "最新号码日期", "历史号码数", "历史号码", "历史名称", "收件人名称", "规范收件地址数", "收件地址样本", "最新备注原文", "历史备注",
+    "首单日期", "末单日期", "订单数",
     "最近来源订单键", "全部来源订单键", "最近客户原文", "待审核原因", "审核状态", "审核结论", "审核人", "审核备注",
   ];
   const rows = sortedRows(dataset.customer_import_rows || [], "name", true).map((row) => [
     row.candidate_key, row.action, row.erp_match_id || "", row.erp_match_name, row.merge_method,
-    row.name, row.raw_name, row.customer_type, row.company_name, row.company_address, row.company_phone,
+    row.name, row.raw_name, row.customer_type, row.inferred_customer_type, row.customer_type_basis,
+    row.company_name, row.company_address, row.company_phone,
     row.contact, row.phone, row.address, row.default_source_id || "", row.default_source_name,
     row.default_order_type_id || "", row.default_order_type_name,
     row.responsible_employee_id || "", row.responsible_employee_name,
     row.portal_enabled ? "是" : "否", row.capability_template_key, row.active ? "是" : "否",
     row.latest_phone_observed_date, row.phone_count, row.historical_phones, row.historical_names,
+    row.recipient_names, row.delivery_address_count, row.delivery_address_samples, row.latest_remark_raw, row.historical_remarks,
     row.first_order_date, row.last_order_date, row.order_count, row.latest_source_order_key,
     row.source_order_keys, row.latest_customer_raw, row.review_reasons, row.review_status, "", "", "",
   ]);
-  const titleLastColumn = "L";
+  const titleLastColumn = "P";
   sheet.mergeCells(`A1:${titleLastColumn}1`);
   sheet.getRange("A1").values = [["客户导入审核（正式导入前临时表）"]];
   sheet.getRange(`A1:${titleLastColumn}1`).format = {
@@ -248,7 +273,7 @@ function buildCustomerImportReviewSheet() {
     rowHeight: 34,
   };
   sheet.mergeCells(`A2:${titleLastColumn}2`);
-  sheet.getRange("A2").values = [["聚合规则：生产 ERP 客户匹配优先；可靠同名客户可跨手机号合并；同一客户有多个手机号时，主电话取最近订单记录中的唯一有效号码，历史号码全部保留。"]];
+  sheet.getRange("A2").values = [["客户类型规则：备注为空时按收件人生成零售客户；备注中有客户名称时按备注客户聚合，1 个规范收件地址判定批发客户，多个规范收件地址判定渠道客户；多个手机号仍取最近有效号码。"]];
   sheet.mergeCells(`A3:${titleLastColumn}3`);
   sheet.getRange("A3").values = [["蓝色区域为 KFerp 客户新增/更新 API 字段；黄色字段和“待审核原因”请在正式导入前确认。当前工作簿不会写入正式客户表。"]];
   sheet.getRange(`A2:${titleLastColumn}3`).format = {
@@ -281,8 +306,26 @@ function buildCustomerImportReviewSheet() {
       rowHeight: 38,
       borders: { insideHorizontal: { style: "thin", color: colors.line } },
     };
-    sheet.getRangeByIndexes(4, 5, rows.length, 18).format.fill = colors.lightBlue;
-    sheet.getRangeByIndexes(4, 23, rows.length, 11).format.fill = colors.gray;
+    for (const headerName of [
+      "客户名称（name）", "原始名称（raw_name）", "客户类型（customer_type）",
+      "企业名称（company_name）", "企业地址（company_address）", "企业电话（company_phone）",
+      "联系人（contact）", "电话（phone）", "地址（address）",
+      "默认来源ID（default_source_id）", "默认来源名称",
+      "默认订单类型ID（default_order_type_id）", "默认订单类型名称",
+      "负责人ID（responsible_employee_id）", "负责人名称",
+      "门户启用（portal_enabled）", "能力模板（capability_template_key）", "启用（active）",
+    ]) {
+      const index = headers.indexOf(headerName);
+      if (index >= 0) sheet.getRangeByIndexes(4, index, rows.length, 1).format.fill = colors.lightBlue;
+    }
+    for (const headerName of [
+      "推断客户类型", "客户类型判定依据", "最新号码日期", "历史号码数", "历史号码", "历史名称",
+      "收件人名称", "规范收件地址数", "收件地址样本", "最新备注原文", "历史备注",
+      "首单日期", "末单日期", "订单数", "最近来源订单键", "全部来源订单键", "最近客户原文", "待审核原因",
+    ]) {
+      const index = headers.indexOf(headerName);
+      if (index >= 0) sheet.getRangeByIndexes(4, index, rows.length, 1).format.fill = colors.gray;
+    }
     for (const headerName of ["客户类型（customer_type）", "默认来源名称", "默认订单类型名称", "负责人名称", "审核状态", "审核结论"]) {
       const index = headers.indexOf(headerName);
       sheet.getRangeByIndexes(4, index, rows.length, 1).format.fill = colors.amber;
@@ -322,8 +365,8 @@ function setListValidation(sheet, rowCount, headers, headerName, values) {
 }
 
 function customerReviewColumnWidth(header) {
-  if (/全部来源订单键|最近客户原文|待审核原因|企业地址|地址（address）/.test(header)) return 38;
-  if (/历史号码|历史名称/.test(header)) return 30;
+  if (/全部来源订单键|最近客户原文|待审核原因|企业地址|地址（address）|收件地址样本|历史备注/.test(header)) return 38;
+  if (/客户类型判定依据|历史号码|历史名称|收件人名称|最新备注原文/.test(header)) return 30;
   if (/候选客户键|来源订单键/.test(header)) return 26;
   if (/客户名称|原始名称|企业名称|生产ERP客户名称/.test(header)) return 20;
   if (/ID|日期|类型|状态|动作|依据|电话|负责人|门户|能力|启用|订单数/.test(header)) return 14;
