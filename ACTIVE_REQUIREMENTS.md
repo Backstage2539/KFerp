@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-527-REMOVE-INDUSTRY-CALCULATION-PREVIEW
+- Branch: codex/remove-industry-calculation-preview-20260711
+- Owner/session: Codex / 2026-07-11
+- Status: verified; ready for integration and deployment
+- Scope: 删除 `设置 → 行业设置 → 行业字段模板` 编辑页中的独立“计算预览”区域，包括业务预设、计算输入、预览按钮和结果展示；保留模板名称、状态、说明、字段定义、新增字段、保存与停用流程。
+- DEV:
+  - DEV-527-REMOVE-PREVIEW-UI：删除计算预览面板、业务预设、计算输入、前端预览请求和专用样式。
+  - DEV-527-PRESERVE-TEMPLATE-EDITOR：保留行业字段模板列表、字段定义、新增字段、保存与停用流程。
+- Verifier:
+  - RED: `node --test src/lib/industry-field-templates.test.js` 因页面仍包含 `calculator-panel` 失败。
+  - GREEN targeted: `node --test src/lib/industry-field-templates.test.js` passed 1/1。
+  - GREEN support: `go test ./internal/interfaces/http/support -run 'TestDev527|TestDev480To484' -count=1` passed.
+  - GREEN backend/support: `scripts/verify_kferp.sh backend` passed, including full Go suite and support contracts.
+  - GREEN frontend/build: `npm run build` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-remove-industry-calculation-preview.md`
+- Deployment: requested for development and production; pending integration.
+- Last update: 2026-07-11 Asia/Shanghai
+- Notes: 本次只移除页面入口，不修改行业字段模板 API、已有模板数据或历史兼容计算接口。
+
 ### PR-526-PRODUCT-MASTER-PARENT-SKU-LIST
 - Branch: codex/product-master-group-spec-skus-20260711
 - Owner/session: Codex / 2026-07-11
