@@ -23,10 +23,10 @@ func TestDev453GroupTemplateSystemSettingsContracts(t *testing.T) {
 			"productCategoryManagement: '分组模板'",
 		},
 		filepath.Join("frontend-vue-shell", "src", "App.vue"): {
-			"groupManagement: UISettingsView",
-			"groupTemplates: UISettingsView",
+			"groupManagement: GroupTemplatesView",
+			"groupTemplates: GroupTemplatesView",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue"): {
+		filepath.Join("frontend-vue-shell", "src", "views", "GroupTemplatesView.vue"): {
 			`data-section-mode="groupTemplates"`,
 			"新增分组模板",
 			"新增大类",
@@ -60,18 +60,18 @@ func TestDev453GroupTemplateSystemSettingsContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS",
-			"系统设置 / 分组模板",
+			"设置 / 分组模板",
 			"生产 BOM 取消 `使用分组`",
 			"usage_key",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS",
-			"模板只维护模板名、大类、小类",
+			"独立 `分组模板` 页面只维护模板名、大类、小类",
 			"商品档案、生产 BOM、仓库库存页面先选择 `分组模板`",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS",
-			"系统设置 / 分组模板",
+			"设置 / 分组模板",
 			"生产 BOM 页面不再维护自己的大组、组内分类或小分类，也不再显示 `使用分组`",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-group-template-system-settings.md"): {
@@ -101,19 +101,16 @@ func TestDev453GroupTemplatePagesDoNotExposeLegacyObjectManagement(t *testing.T)
 		t.Fatalf("product menu must not expose ordinary group management entry")
 	}
 
-	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue")))
-	panelStart := strings.Index(settings, `data-section-mode="groupTemplates"`)
-	if panelStart < 0 {
-		t.Fatalf("group template panel markers missing")
-	}
-	nextPanel := strings.Index(settings[panelStart:], "\n    <section class=\"panel\">")
-	if nextPanel <= 0 {
-		t.Fatalf("group template panel end marker missing")
-	}
-	panel := settings[panelStart : panelStart+nextPanel]
+	panel := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "GroupTemplatesView.vue")))
 	for _, forbidden := range []string{"移动到分类", "/api/business-group-assignments", "已选", "勾选对象"} {
 		if strings.Contains(panel, forbidden) {
-			t.Fatalf("system group template panel must not manage business objects, found %q", forbidden)
+			t.Fatalf("group template page must not manage business objects, found %q", forbidden)
+		}
+	}
+	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue")))
+	for _, forbidden := range []string{"data-section-mode=\"groupTemplates\"", "/api/business-groups", "/api/business-group-items"} {
+		if strings.Contains(settings, forbidden) {
+			t.Fatalf("system settings page must not manage group templates, found %q", forbidden)
 		}
 	}
 

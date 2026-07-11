@@ -53,9 +53,9 @@ test('warehouse inventory groups warehouses by template without ordinary custome
   assert.doesNotMatch(warehouseSource, /warehouseSections/)
 })
 
-test('system settings group templates manage categories without business objects', () => {
-  const settingsSource = readFileSync(resolve(here, '../views/UISettingsView.vue'), 'utf8')
-  const templatePanel = settingsSource.match(/data-section-mode="groupTemplates"[\s\S]*?<section class="panel">/)?.[0] || settingsSource
+test('group template page manages categories without business objects', () => {
+  const settingsSource = readFileSync(resolve(here, '../views/GroupTemplatesView.vue'), 'utf8')
+  const templatePanel = settingsSource.match(/data-section-mode="groupTemplates"[\s\S]*/)?.[0] || settingsSource
 
   assert.match(settingsSource, /分组模板/)
   assert.match(settingsSource, /新增分组模板/)
