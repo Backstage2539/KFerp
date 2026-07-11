@@ -12,7 +12,7 @@ import (
 var (
 	mobilePattern     = regexp.MustCompile(`(?:\+?86[\s-]?)?(1[3-9](?:[\s-]?\d){9})`)
 	labelNamePatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:收件人|姓名|联系人)\s*[:：]\s*([^\n,，;；]{1,30})`),
+		regexp.MustCompile(`(?i)(?:收件人|收货人|姓名|联系人)\s*[:：]\s*([^\n,，;；]{1,30})`),
 	}
 	customerPlaceholders = map[string]struct{}{
 		"送货": {}, "送货上门": {}, "上门送货": {}, "门店自提": {}, "自提": {}, "做库存": {}, "库存": {},
@@ -194,7 +194,10 @@ func extractCustomerName(raw string) string {
 
 func cleanNameCandidate(raw string) string {
 	raw = strings.TrimSpace(raw)
-	raw = regexp.MustCompile(`(?i)^(?:收件人|姓名|联系人)\s*[:：]?\s*`).ReplaceAllString(raw, "")
+	raw = regexp.MustCompile(`(?i)^(?:收件人|收货人|姓名|联系人)\s*[:：]?\s*`).ReplaceAllString(raw, "")
+	raw = mobilePattern.ReplaceAllString(raw, " ")
+	raw = regexp.MustCompile(`(?i)(?:联系电话|手机号码|手机号|电话)\s*[:：]?\s*$`).ReplaceAllString(raw, "")
+	raw = strings.Join(strings.Fields(raw), " ")
 	if len([]rune(raw)) > 30 {
 		return ""
 	}
@@ -220,7 +223,7 @@ func customerNameNeedsReview(raw string) bool {
 	if looksLikeAddress(raw) || digitsOnly(raw) != "" || len([]rune(raw)) > 20 {
 		return true
 	}
-	for _, marker := range []string{"送到", "寄到", "送货", "班车", "前台", "地址"} {
+	for _, marker := range []string{"送到", "寄到", "送货", "自提", "做库存", "班车", "前台", "地址"} {
 		if strings.Contains(raw, marker) {
 			return true
 		}

@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-524-ORDERLIST-CUSTOMER-IMPORT-REVIEW
+- Branch: codex/orderlist-customer-review-20260711
+- Owner/session: Codex / 2026-07-11
+- Status: verified; customer review workbook generated; pending integration/development deploy
+- Scope: 在 PR-523 历史销售清洗结果上再次提炼客户；可靠识别为同一客户且存在多个手机号时使用最近订单记录中的有效号码，保留全部历史号码和合并证据；生成包含 KFerp 客户新增/更新 API 全字段的 `客户导入审核` Sheet，供人工审核后再正式导入。本需求不写正式客户表。
+- DEV:
+  - DEV-524-CUSTOMER-IDENTITY：按生产 ERP 匹配、开发 ERP 匹配和可靠规范名称聚合跨号码客户，短姓名/泛称不自动跨号码合并。
+  - DEV-524-LATEST-PHONE：按订单日期、工作表月份和物理行位置选择最近有效号码，保留历史号码、日期和来源订单证据。
+  - DEV-524-ERP-FIELD-CONTRACT：读取生产 ERP 客户及客户类型、来源、订单类型、负责人和能力模板选项，生成完整客户字段候选。
+  - DEV-524-REVIEW-WORKBOOK：在现有审核工作簿新增 `客户导入审核` Sheet 和 CSV，并完成渲染与公式错误检查。
+- Verifier:
+  - RED: 新增跨号码、最近号码、生产 ERP 全字段和审核 Sheet 测试后因缺少 `BuildCustomerImportRows/CustomerImportRow/客户导入审核` 失败；无手机号误合并、收货人标签残留、空日期较新工作表和唯一来源误猜测试均先失败。
+  - Unit: `go test ./internal/migration/orderliststaging ./cmd/orderlist-staging ./internal/interfaces/http/support -count=1` passed
+  - API/integration: 只读导出生产 ERP 6 个客户及客户类型/来源/订单类型/负责人选项；重跑后正式客户数仍为 6，零写入
+  - Frontend/build: artifact_tool inspect 确认 12 Sheets、`客户导入审核` 38 列；公式错误 0；字段区和历史证据区渲染通过
+  - Manual: `orderapp-remote/docs/OP_MANUAL_ORDERLIST_STAGING.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-orderlist-customer-import-review.md`
+- Deployment: no formal customer import; development application deployment pending integration
+- Last update: 2026-07-11 Asia/Shanghai
+- Notes: 源数据、生产客户只读快照和生成的含个人信息工作簿仅保存在受保护的 git 外目录。
+
 ### PR-523-ORDERLIST-STAGING-CLEANUP
 - Branch: codex/orderlist-staging-20260710
 - Owner/session: Codex / 2026-07-10

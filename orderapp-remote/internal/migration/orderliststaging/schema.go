@@ -233,6 +233,7 @@ func BuildReviewContract(_ Dataset) ReviewContract {
 		"导入汇总",
 		"序号映射",
 		"客户候选",
+		"客户导入审核",
 		"客户别名",
 		"父商品候选",
 		"SKU规格",

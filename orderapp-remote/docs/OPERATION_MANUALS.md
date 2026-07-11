@@ -26,7 +26,7 @@
 - `OP_MANUAL_NOTIFICATIONS.md`：通知规则、ERP 站内通知和外部 IM 扩展框架。
 - `OP_MANUAL_CUSTOMER_PORTAL.md`：客户门户配置、小程序主题、商城、小程序登录、我的豆单、客户自有销售豆单和客户侧入口联调。
 - `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户管理与客户履约全流程，覆盖客户档案、门户客户配置、客户门户能力模板、客户履约手册入口、角色权限、客户开通、客户商品、客户行业字段覆盖、外部用户、客户账户模式、小程序商城、Excel 导入、托管库存、代发/代加工、费用和月结。
-- `OP_MANUAL_ORDERLIST_STAGING.md`：历史咖啡销售 Excel 的只读取数、稳定来源键、清洗审核、独立临时库装载、幂等校验和正式库零写入检查。
+- `OP_MANUAL_ORDERLIST_STAGING.md`：历史咖啡销售 Excel 的只读取数、稳定来源键、客户二次提炼与最近手机号审核、独立临时库装载、幂等校验和正式库零写入检查。
 
 ## 手册维护流程图
 ```mermaid

@@ -1018,3 +1018,12 @@
 - 装载必须可重复执行：`curated.orders.source_order_key` 唯一；相同内容重跑不增加订单，来源键内容改变时先写 `raw.order_revisions` 再更新候选数据。
 - 每次运行必须生成源文件哈希清单、DDL、装载 SQL、CSV/JSON 中间文件、临时库备份和 `orderlist-review.xlsx`。工作簿至少包含汇总、序号映射、客户、别名、父商品、SKU、订单、订单明细、ERP 匹配、待审核问题和排除工作表。
 - 只有审核状态为 `approved` 的数据才允许在后续独立流程中通过 KFerp 服务/API 写入正式系统；本需求不创建正式客户、商品、SKU 或订单。
+
+### PR-524-ORDERLIST-CUSTOMER-IMPORT-REVIEW：历史客户二次提炼与导入审核表
+- 在 PR-523 客户候选之上生成独立的 `客户导入审核` 数据，不改变临时库订单已有的 `customer_key`，也不写正式客户表。
+- 跨手机号客户身份解析优先级固定为：生产 ERP 手机号唯一匹配、开发 ERP 手机号唯一匹配、可靠规范客户名称精确匹配。短姓名、地址、配送说明、自提/库存说明等高风险名称不得仅因同名自动跨号码合并。
+- 没有有效手机号的历史记录不得仅按同名自动合并；同一客户存在多个历史手机号时，使用最近订单记录中的唯一有效号码作为 `phone/company_phone`，历史号码、历史名称、来源订单键和合并依据必须全部保留。
+- 最近记录排序依次使用订单日期、工作表月份和物理行位置；同日同表时，物理行号更小的记录视为更新插入的记录。最近记录同时包含多个手机号时不得静默猜测，必须标记待审核。
+- `客户导入审核` 必须覆盖客户新增/更新 API 全字段：`name/raw_name/customer_type/company_name/company_address/company_phone/contact/phone/address/default_source_id/default_order_type_id/responsible_employee_id/portal_enabled/capability_template_key/active`，并提供生产 ERP 客户 ID、字段显示名和审核结论列。
+- 生产 ERP 客户、客户类型、来源、订单类型、负责人和能力模板只能通过只读快照参与候选生成。生产 ERP 已有客户匹配时保留正式字段；新客户的客户类型不得自动猜测，需人工审核。
+- 审核工作簿必须保留字段说明、下拉校验、待审核原因和历史证据；只有人工标记 `approved` 的行才可进入后续独立的正式客户导入需求。

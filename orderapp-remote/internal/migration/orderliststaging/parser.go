@@ -43,8 +43,10 @@ func PrepareWorkbook(path string, opts PrepareOptions) (Dataset, error) {
 			StartPeriod: opts.StartPeriod, EndPeriod: opts.EndPeriod, CreatedAt: now,
 			WorkbookSheetCount: len(wb.GetSheetList()),
 		},
-		ERPCustomers: opts.ERPCustomers,
-		ERPProducts:  opts.ERPProducts,
+		ERPCustomers:          opts.ERPCustomers,
+		TargetERPCustomers:    opts.TargetERPCustomers,
+		CustomerImportOptions: opts.CustomerImportOptions,
+		ERPProducts:           opts.ERPProducts,
 	}
 
 	for _, sheetName := range wb.GetSheetList() {
@@ -81,6 +83,9 @@ func PrepareWorkbook(path string, opts PrepareOptions) (Dataset, error) {
 	var customerIssues []Issue
 	dataset.Customers, dataset.CustomerAliases, dataset.CustomerPhones, customerIssues = CurateCustomers(dataset.RawOrders, opts.ERPCustomers)
 	dataset.Issues = append(dataset.Issues, customerIssues...)
+	var customerImportIssues []Issue
+	dataset.CustomerImportRows, customerImportIssues = BuildCustomerImportRows(dataset.RawOrders, opts.ERPCustomers, opts.TargetERPCustomers, opts.CustomerImportOptions)
+	dataset.Issues = append(dataset.Issues, customerImportIssues...)
 	var productIssues []Issue
 	dataset.Products, dataset.SKUs, dataset.ProductAliases, dataset.OrderItems, productIssues = CurateProducts(dataset.RawOrders, opts.ERPProducts)
 	dataset.Issues = append(dataset.Issues, productIssues...)

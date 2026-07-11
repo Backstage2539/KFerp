@@ -28,7 +28,8 @@ func WriteExports(dataset Dataset, outputDir string) error {
 		Run: dataset.Run,
 		Counts: map[string]int{
 			"sheets": len(dataset.Sheets), "raw_orders": len(dataset.RawOrders), "customers": len(dataset.Customers),
-			"products": len(dataset.Products), "skus": len(dataset.SKUs), "orders": len(dataset.Orders),
+			"customer_import_rows": len(dataset.CustomerImportRows),
+			"products":             len(dataset.Products), "skus": len(dataset.SKUs), "orders": len(dataset.Orders),
 			"order_items": len(dataset.OrderItems), "issues": len(dataset.Issues),
 		},
 		Statuses: reviewStatusCounts(dataset),
@@ -61,17 +62,18 @@ func WriteExports(dataset Dataset, outputDir string) error {
 	}
 
 	csvFiles := map[string][][]string{
-		"sheet_inventory.csv":  sheetInventoryCSV(dataset.Sheets),
-		"raw_orders.csv":       rawOrdersCSV(dataset.RawOrders),
-		"customers.csv":        customersCSV(dataset.Customers),
-		"customer_aliases.csv": customerAliasesCSV(dataset.CustomerAliases),
-		"customer_phones.csv":  customerPhonesCSV(dataset.CustomerPhones),
-		"products.csv":         productsCSV(dataset.Products),
-		"skus.csv":             skusCSV(dataset.SKUs),
-		"product_aliases.csv":  productAliasesCSV(dataset.ProductAliases),
-		"orders.csv":           ordersCSV(dataset.Orders),
-		"order_items.csv":      orderItemsCSV(dataset.OrderItems),
-		"issues.csv":           issuesCSV(dataset.Issues),
+		"sheet_inventory.csv":        sheetInventoryCSV(dataset.Sheets),
+		"raw_orders.csv":             rawOrdersCSV(dataset.RawOrders),
+		"customers.csv":              customersCSV(dataset.Customers),
+		"customer_import_review.csv": customerImportRowsCSV(dataset.CustomerImportRows),
+		"customer_aliases.csv":       customerAliasesCSV(dataset.CustomerAliases),
+		"customer_phones.csv":        customerPhonesCSV(dataset.CustomerPhones),
+		"products.csv":               productsCSV(dataset.Products),
+		"skus.csv":                   skusCSV(dataset.SKUs),
+		"product_aliases.csv":        productAliasesCSV(dataset.ProductAliases),
+		"orders.csv":                 ordersCSV(dataset.Orders),
+		"order_items.csv":            orderItemsCSV(dataset.OrderItems),
+		"issues.csv":                 issuesCSV(dataset.Issues),
 	}
 	for name, rows := range csvFiles {
 		if err := writeCSV(filepath.Join(outputDir, name), rows); err != nil {
@@ -282,6 +284,26 @@ func customerPhonesCSV(rows []CustomerPhone) [][]string {
 	out := [][]string{{"客户键", "电话原值", "规范电话", "是否主电话", "来源订单键"}}
 	for _, row := range rows {
 		out = append(out, []string{row.CustomerKey, row.PhoneRaw, row.PhoneNormalized, strconv.FormatBool(row.IsPrimary), row.SourceOrderKey})
+	}
+	return out
+}
+
+func customerImportRowsCSV(rows []CustomerImportRow) [][]string {
+	out := [][]string{{
+		"候选键", "导入动作", "ERP客户ID", "ERP客户名称", "合并依据",
+		"客户名称", "原始名称", "客户类型", "企业名称", "企业地址", "企业电话", "联系人", "电话", "地址",
+		"默认来源ID", "默认来源", "默认订单类型ID", "默认订单类型", "负责人ID", "负责人", "门户启用", "能力模板", "启用",
+		"最新号码日期", "历史号码数", "历史号码", "历史名称", "首单日期", "末单日期", "订单数", "最近来源订单键", "全部来源订单键", "最近客户原文", "待审核原因", "审核状态",
+	}}
+	for _, row := range rows {
+		out = append(out, []string{
+			row.CandidateKey, row.Action, strconv.FormatInt(row.ERPMatchID, 10), row.ERPMatchName, row.MergeMethod,
+			row.Name, row.RawName, row.CustomerType, row.CompanyName, row.CompanyAddress, row.CompanyPhone, row.Contact, row.Phone, row.Address,
+			strconv.FormatInt(row.DefaultSourceID, 10), row.DefaultSourceName, strconv.FormatInt(row.DefaultOrderTypeID, 10), row.DefaultOrderTypeName,
+			strconv.FormatInt(row.ResponsibleEmployeeID, 10), row.ResponsibleEmployeeName, strconv.FormatBool(row.PortalEnabled), row.CapabilityTemplateKey, strconv.FormatBool(row.Active),
+			row.LatestPhoneObservedDate, strconv.Itoa(row.PhoneCount), row.HistoricalPhones, row.HistoricalNames, row.FirstOrderDate, row.LastOrderDate,
+			strconv.Itoa(row.OrderCount), row.LatestSourceOrderKey, row.SourceOrderKeys, row.LatestCustomerRaw, row.ReviewReasons, row.ReviewStatus,
+		})
 	}
 	return out
 }
