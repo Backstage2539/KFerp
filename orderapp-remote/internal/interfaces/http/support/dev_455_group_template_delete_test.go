@@ -14,7 +14,7 @@ func TestDev455GroupTemplateDeleteContracts(t *testing.T) {
 			"DEV-455-GROUP-TEMPLATE-DELETE-API",
 			"DEV-455-GROUP-TEMPLATE-DELETE-DOCS",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue"): {
+		filepath.Join("frontend-vue-shell", "src", "views", "GroupTemplatesView.vue"): {
 			"删除模板",
 			"deleteGroupTemplate",
 			"`/api/business-groups/${id}`",
@@ -65,21 +65,16 @@ func TestDev455GroupTemplateDeleteContracts(t *testing.T) {
 }
 
 func TestDev455GroupTemplateUIHasNoTemplateActivation(t *testing.T) {
-	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue")))
-	panelStart := strings.Index(settings, `data-section-mode="groupTemplates"`)
-	if panelStart < 0 {
-		t.Fatalf("group template panel markers missing")
+	page := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "GroupTemplatesView.vue")))
+	templateFormStart := strings.Index(page, `<form class="group-template-form"`)
+	if templateFormStart < 0 {
+		t.Fatalf("group template form start marker missing")
 	}
-	nextPanel := strings.Index(settings[panelStart:], "\n    <section class=\"panel\">")
-	if nextPanel <= 0 {
-		t.Fatalf("group template panel end marker missing")
-	}
-	panel := settings[panelStart : panelStart+nextPanel]
-	templateFormEnd := strings.Index(panel, `<div v-if="selectedGroupTemplate" class="category-editor">`)
+	templateFormEnd := strings.Index(page[templateFormStart:], `</form>`)
 	if templateFormEnd <= 0 {
 		t.Fatalf("group template form end marker missing")
 	}
-	templateForm := panel[:templateFormEnd]
+	templateForm := page[templateFormStart : templateFormStart+templateFormEnd]
 	for _, forbidden := range []string{
 		"groupTemplateForm.active",
 		"template.active === false ? '停用' : '启用'",

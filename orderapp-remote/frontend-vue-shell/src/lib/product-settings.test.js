@@ -3902,7 +3902,7 @@ test('product settings uses product business groups instead of product classific
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.equal(groupManagementWorkspace, '')
-  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const settingsSource = fs.readFileSync(new URL('../views/GroupTemplatesView.vue', import.meta.url), 'utf8')
   assert.match(settingsSource, /data-section-mode="groupTemplates"/)
   assert.match(settingsSource, /新增大类/)
   assert.match(settingsSource, /新增小类/)

@@ -220,6 +220,7 @@ import StockLedgerView from './views/StockLedgerView.vue'
 import StockOperationsView from './views/StockOperationsView.vue'
 import StockOutboundLogsView from './views/StockOutboundLogsView.vue'
 import UISettingsView from './views/UISettingsView.vue'
+import GroupTemplatesView from './views/GroupTemplatesView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkstationView from './views/WorkstationView.vue'
@@ -380,8 +381,8 @@ const internalViews = {
   manufacturingWorkstations: ManufacturingWorkstationsView,
   industryFieldTemplates: IndustryFieldTemplatesView,
   productMaster: ProductSettingsView,
-  groupManagement: UISettingsView,
-  groupTemplates: UISettingsView,
+  groupManagement: GroupTemplatesView,
+  groupTemplates: GroupTemplatesView,
   productCategoryManagement: ProductSettingsView,
   productPriceManagement: ProductSettingsView,
   productConfigTemplates: ProductSettingsView,
