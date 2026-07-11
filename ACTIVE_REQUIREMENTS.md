@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-526-PRODUCT-MASTER-PARENT-SKU-LIST
+- Branch: codex/product-master-group-spec-skus-20260711
+- Owner/session: Codex / 2026-07-11
+- Status: merged to develop; not deployed
+- Scope: 商品档案列表只按父商品展示；销售规格模板派生的子 SKU 收进父商品行内的规格明细，不再作为同级商品占用列表、分页和批量选择。搜索子 SKU 名称、规格或编号仍返回父商品。
+- DEV:
+  - DEV-526-PARENT-ROW-GROUPING：按 `parent_product_id` 聚合商品档案列表，只保留父商品为主行并附带有效子 SKU。
+  - DEV-526-INLINE-SKU-DETAIL：父商品名称下提供可展开规格 SKU 明细，可点击具体子 SKU 进入原配置抽屉。
+  - DEV-526-SEARCH-PAGINATION：分页、统计和批量选择按父商品计算；搜索覆盖子 SKU 名称、规格和编号。
+- Verifier:
+  - RED: `node --test src/lib/product-settings.test.js` 因缺少 `productArchiveRowsWithSkus` 导出失败。
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 153/153。
+  - GREEN support/API contract: `go test ./internal/interfaces/http/support -count=1` passed.
+  - GREEN frontend/build: `node --test src/lib/product-settings.test.js` passed 153/153; `npm run build` passed; `scripts/verify_kferp.sh changed` passed.
+  - Full frontend baseline: `scripts/verify_kferp.sh frontend-tests` returned 675/681 with 6 pre-existing customer-workspace contract failures; the same affected test set fails on clean `origin/develop` commit `69a742df`.
+  - Browser reproduction: production page rendered 5 peer rows: 金色山脉、100g袋装、227g袋装、Kg、磅. Fixed browser result not run because deployment was not requested.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-11-product-master-parent-sku-list.md`
+- Integration: feature commit `b46e18d4`; merge verified with targeted frontend 153/153, support tests, frontend build and `scripts/verify_kferp.sh changed`.
+- Deployment: not requested; production browser remains on the pre-fix build.
+- Last update: 2026-07-11 Asia/Shanghai merged to develop
+- Notes: 不修改产品/SKU 数据模型和 API；后端继续以子 SKU 作为库存、价格、BOM 和订单对象。
+
 ### PR-525-ORDERLIST-CUSTOMER-TYPE-REFINEMENT
 - Branch: codex/orderlist-customer-type-review-20260711
 - Owner/session: Codex / 2026-07-11
