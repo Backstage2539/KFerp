@@ -10,6 +10,7 @@ import (
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -83,18 +84,29 @@ func (r Repository) ListEmployees(ctx context.Context, departmentID int64) ([]co
 func (r Repository) CreateEmployee(ctx context.Context, cmd companyapp.EmployeeCommand) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(ctx, "INSERT INTO "+r.schema+".company_employees(name,phone,department_id,active) VALUES($1,$2,$3,$4) RETURNING id", cmd.Name, cmd.Phone, cmd.DepartmentID, cmd.Active).Scan(&id)
-	return id, err
+	return id, mapEmployeeWriteError(err)
 }
 
 func (r Repository) UpdateEmployee(ctx context.Context, id int64, cmd companyapp.EmployeeCommand) error {
 	tag, err := r.pool.Exec(ctx, "UPDATE "+r.schema+".company_employees SET name=$1,phone=$2,department_id=$3,active=$4,updated_at=now() WHERE id=$5", cmd.Name, cmd.Phone, cmd.DepartmentID, cmd.Active, id)
 	if err != nil {
-		return err
+		return mapEmployeeWriteError(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("employee not found")
 	}
 	return nil
+}
+
+func mapEmployeeWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "company_employees_phone_uq" {
+		return companyapp.ErrEmployeePhoneAlreadyUsed
+	}
+	return err
 }
 
 func (r Repository) LoadCompanyProfile(ctx context.Context) (companyapp.CompanyProfile, error) {
