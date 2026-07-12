@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案维护商品族信息、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；库存单位来自销售规格模板，商品价格管理用并排 Tab 维护价格计算模板和成本参数，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
+          <p>商品档案维护商品族信息、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；库存单位来自销售规格模板，商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -731,40 +731,13 @@
       <div v-show="showProductPriceManagementPane" class="panel product-price-management-pane">
         <div class="panel-title">
           <span>商品价格管理</span>
-          <div v-if="activeProductPriceManagementTab === 'pricing-rules'" class="panel-actions">
+          <div class="panel-actions">
             <button class="secondary compact-action" type="button" @click="openPricingRuleTrial()">价格试算</button>
             <button class="secondary compact-action" type="button" @click="resetPricingRuleForm">新建价格计算模板</button>
           </div>
         </div>
-        <div class="product-price-management-tabs" role="tablist" aria-label="商品价格管理功能">
-          <button
-            id="product-price-management-tab-pricing-rules"
-            type="button"
-            role="tab"
-            :aria-selected="activeProductPriceManagementTab === 'pricing-rules'"
-            aria-controls="product-price-management-panel-pricing-rules"
-            :class="['product-price-management-tab', { active: activeProductPriceManagementTab === 'pricing-rules' }]"
-            @click="activeProductPriceManagementTab = 'pricing-rules'">
-            价格计算模板
-          </button>
-          <button
-            id="product-price-management-tab-cost-parameters"
-            type="button"
-            role="tab"
-            :aria-selected="activeProductPriceManagementTab === 'cost-parameters'"
-            aria-controls="product-price-management-panel-cost-parameters"
-            :class="['product-price-management-tab', { active: activeProductPriceManagementTab === 'cost-parameters' }]"
-            @click="activeProductPriceManagementTab = 'cost-parameters'">
-            成本参数设置
-          </button>
-        </div>
         <div class="product-price-management-layout">
-          <section
-            v-show="activeProductPriceManagementTab === 'pricing-rules'"
-            class="product-price-records-panel pricing-rule-management-panel"
-            id="product-price-management-panel-pricing-rules"
-            role="tabpanel"
-            aria-labelledby="product-price-management-tab-pricing-rules">
+          <section class="product-price-records-panel pricing-rule-management-panel">
             <div class="field-group-head">
               <strong>价格计算模板 / Pricing Rule</strong>
               <small>模板只负责基础成本、其他成本、利润税费和取整公式；不绑定商品，不保存数量档位和最终成交价。商品价格表引用模板后生成平铺价格行。</small>
@@ -910,16 +883,8 @@
               </div>
             </form>
           </section>
-          <section
-            v-show="activeProductPriceManagementTab === 'cost-parameters'"
-            class="costing-settings-tab-panel"
-            id="product-price-management-panel-cost-parameters"
-            role="tabpanel"
-            aria-labelledby="product-price-management-tab-cost-parameters">
-            <CostingSettingsPanel />
-          </section>
         </div>
-        <p class="muted price-list-flat-row-note" v-show="activeProductPriceManagementTab === 'pricing-rules'" aria-label="商品 > 子类 > 父类 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则固定为：商品 &gt; 子类 &gt; 父类 &gt; 价格表。阶梯模板在商品价格表维护。</p>
+        <p class="muted price-list-flat-row-note" aria-label="商品 > 子类 > 父类 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则固定为：商品 &gt; 子类 &gt; 父类 &gt; 价格表。阶梯模板在商品价格表维护。</p>
       </div>
         </div>
       </div>
@@ -1754,7 +1719,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupControls from '../components/BusinessGroupControls.vue'
-import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
@@ -1917,7 +1881,6 @@ const templateSaving = ref(false)
 const productConfigSaving = ref(false)
 const productUnitSaving = ref(false)
 const productPriceSaving = ref(false)
-const activeProductPriceManagementTab = ref('pricing-rules')
 const classificationTemplateSaving = ref(false)
 const globalUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
@@ -7577,10 +7540,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-config-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
 .product-price-management-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 .product-price-management-layout section { display: grid; gap: 10px; min-width: 0; }
-.product-price-management-tabs { display: inline-flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; margin-bottom: 12px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
-.product-price-management-tab { min-height: 34px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 16px; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
-.product-price-management-tab.active { background: #111; color: #fff; }
-.costing-settings-tab-panel { min-width: 0; }
 .product-price-record-form, .product-tier-price-scheme-form { display: grid; gap: 10px; }
 .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .product-tier-price-row { grid-template-columns: minmax(110px, .8fr) minmax(100px, .65fr) minmax(100px, .65fr) minmax(180px, 1.2fr) auto; }

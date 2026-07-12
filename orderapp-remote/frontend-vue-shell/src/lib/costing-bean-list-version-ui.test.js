@@ -400,7 +400,7 @@ test('product price list uses classification templates and categories instead of
 
 test('price list mode rules are opened from a button and not shown as a persistent panel', () => {
   const generatePanelStart = viewSource.indexOf('<div class="bean-list-generate-bar">')
-  const pageDrawerStart = viewSource.indexOf('<div v-if="settingsOpen"', generatePanelStart)
+  const pageDrawerStart = viewSource.indexOf('<div v-if="tierTemplateDrawerOpen"', generatePanelStart)
   assert.ok(generatePanelStart > -1 && pageDrawerStart > generatePanelStart, 'missing generate page block')
   const pageSource = viewSource.slice(generatePanelStart, pageDrawerStart)
 

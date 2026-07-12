@@ -116,7 +116,6 @@ export const hiddenViewTitles = {
   manufacturingOperations: '工序',
   manufacturingWorkstations: '工位/设备',
   productionCosts: '生产成本',
-  costingSettings: '成本参数设置',
   outsourceSettings: '代加工模板设置',
   machines: '设备产能配置',
   salesOrderSettings: '销售单设置',

@@ -6,23 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-535-COST-PARAMETERS-PRICING-TABS
+### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
 - Branch: codex/cost-parameters-pricing-tabs-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; awaiting integration and development deployment
-- Scope: 商品价格管理内部把价格计算模板和成本参数设置拆成并排 Tab；默认打开价格计算模板，成本参数使用既有组件、API、保存与审计逻辑。
+- Status: verified; awaiting follow-up commit, develop integration and replacement deployment
+- Scope: 删除已经过时的成本参数设置：商品价格管理不再显示成本参数 Tab，商品价格表不再显示参数设置/快捷抽屉，旧 `costingSettings` 页面和对应 Vue 组件、前端 helper 一并删除。
 - DEV:
-  - DEV-535-PRICE-MANAGEMENT-TABS：新增并排 Tab 并按当前 Tab 隔离操作按钮和内容。
-  - DEV-535-COMPAT-DOCS-DEPLOY：保留旧成本参数直达路由和 API，更新手册验收，合入 develop 并部署开发环境。
+  - DEV-535-REMOVE-COST-PARAMETER-UI：删除商品价格管理、商品价格表和旧直达页的全部成本参数维护入口及前端实现。
+  - DEV-535-COMPAT-DOCS-DEPLOY：保留底层历史参数数据/API 兼容，更新手册验收，覆盖 develop 并重新部署开发环境。
 - Verifier:
-  - RED frontend: new Tab contract suite 8/10 passed, 2 failed because the page had no sibling Tab list or isolated panels.
-  - GREEN frontend: `node --test src/lib/price-management-tabs.test.js src/lib/settings-entry-consolidation.test.js src/lib/costing-settings.test.js src/lib/product-settings.test.js` passed 163/163.
-  - API: targeted costing settings GET/POST and deprecated-parameter filter tests passed.
-  - Support: PR-535/PR-531 requirement, audit and manual contracts passed.
-  - Build: Vue/Vite production build, `scripts/verify_kferp.sh changed` and `git diff --check` passed.
-  - Pending smoke: development browser Tab isolation and existing cost-parameter read path after deploy.
+  - RED frontend: obsolete-cost-parameters contract 0/3 passed；商品价格、商品价格表、旧路由和组件均仍存在。
+  - GREEN frontend: `node --test src/lib/obsolete-cost-parameters.test.js src/lib/settings-entry-consolidation.test.js src/lib/product-settings.test.js` passed 160/160.
+  - Pricing boundary: compared with pre-PR-535 commit `cab7b5b2`; `ProductSettingsView.vue` net diff only removes `CostingSettingsPanel` markup/import/style. Pricing Rule list, trial, create, edit, copy, deactivate and save logic are unchanged.
+  - Support: PR-535/PR-531/DEV-271 source contracts passed.
+  - Build: Vue/Vite production build passed; 401 modules transformed after obsolete UI removal.
+  - Full frontend: 695/701 passed with the same six workspace-context baseline failures and no new failure.
+  - `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+  - Pending smoke: development product price management and product price list after replacement deploy.
 - Last update: 2026-07-12 Asia/Shanghai
-- Notes: 只改变商品价格管理内部信息架构；不新增字段、不迁移数据、不改变成本参数写入或操作日志。
+- Notes: 不删除数据库中的历史参数值，也不改变旧成本记录或后台兼容 API；删除的是所有用户可操作入口和已无用途的前端实现。
 
 ### PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS
 - Branch: codex/product-group-template-options-prod-20260712
@@ -93,7 +95,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/settings-entry-consolidation-20260712
 - Owner/session: Codex / 2026-07-12
 - Status: merged to develop; development deployed and smoke verified
-- Scope: 公章设置并入公司设置；代加工模板设置从主菜单删除；成本参数设置并入商品价格管理。保留旧直达路由和既有数据/API 作为兼容入口。
+- Scope: 公章设置并入公司设置；代加工模板设置从主菜单删除；成本参数设置曾并入商品价格管理，后续由 PR-535 直接移除。保留历史数据/API。
 - DEV:
   - DEV-531-COMPANY-SEAL-SETTINGS：公司设置组合共享公章资产设置。
   - DEV-531-COSTING-SETTINGS-IN-PRICE-MANAGEMENT：商品价格管理组合成本参数设置。
@@ -108,7 +110,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-settings-entry-consolidation.md`.
 - Deployment: application commit `25563b1dcc9b5e7bad23663b23d8e900b134375a` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712150950`. `erp_orderapp` up、`erp_postgres` healthy；公司设置、商品价格管理和 PR-531 API 返回 200，recent error lines 0。浏览器确认公司设置同页显示公章且无无效关闭按钮，商品价格管理同页显示成本参数和价格计算模板，主菜单无独立成本参数或代加工模板入口。
 - Last update: 2026-07-12 Asia/Shanghai
-- Notes: 本需求整理入口与页面组合，不删除代加工模板数据/API；旧 `outsourceSettings`、`costingSettings` 地址继续兼容。
+- Notes: 本需求整理入口与页面组合，不删除代加工模板数据/API；旧 `outsourceSettings` 地址继续兼容，`costingSettings` 已由 PR-535 移除。
 
 ### PR-530-BUSINESS-SETTINGS-IA
 - Branch: codex/business-settings-ia-20260712

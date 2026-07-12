@@ -5,7 +5,6 @@
         <h2>商品价格表</h2>
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
-          <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -639,19 +638,6 @@
       </section>
     </div>
 
-    <div v-if="settingsOpen" class="drawer-backdrop" @click.self="settingsOpen = false">
-      <aside class="settings-drawer" aria-label="快速成本参数设置">
-        <div class="drawer-head">
-          <div>
-            <h3>快速成本参数设置</h3>
-            <p>保存单个参数后，价格表数据会自动刷新。</p>
-          </div>
-          <button class="secondary" type="button" @click="settingsOpen = false">关闭</button>
-        </div>
-        <CostingSettingsPanel compact :show-header="false" @saved="handleSettingSaved" />
-      </aside>
-    </div>
-
     <div v-if="tierTemplateDrawerOpen" class="drawer-backdrop" @click.self="closeTierTemplateDrawer">
       <aside class="settings-drawer tier-template-drawer" aria-label="阶梯模板">
         <div class="drawer-head">
@@ -787,7 +773,7 @@
             <small>{{ step.source }}</small>
           </div>
         </div>
-        <p class="muted">这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。</p>
+        <p class="muted">这里的参数只做临时试算，不会写入物料档案、商品生产配置或价格计算模板；交易价格仍需发布后生效。</p>
       </aside>
     </div>
 
@@ -1005,7 +991,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
-import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
@@ -1097,7 +1082,6 @@ const beanListWithdrawing = ref(false)
 const beanListArchiving = ref(false)
 const beanListVersionListLoading = ref(false)
 const beanListPdfGenerating = ref(false)
-const settingsOpen = ref(false)
 const priceExplanationOpen = ref(false)
 const priceExplanationLoading = ref(false)
 const pdfDrawerOpen = ref(false)
@@ -3845,11 +3829,6 @@ function beanListPublicationCustomerID(scope = publicationScope.value) {
 
 function beanListPublicationCacheKey(scope = publicationScope.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
   return `${String(scope || 'official')}:${purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE}`
-}
-
-async function handleSettingSaved() {
-  await loadBeanList()
-  message.value = '成本参数已保存，豆单数据已刷新'
 }
 
 async function openPriceExplanation(item, tier) {
