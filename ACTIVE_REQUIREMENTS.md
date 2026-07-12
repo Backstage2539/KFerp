@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-529-GROUP-TEMPLATE-CATEGORY-DELETE
 - Branch: codex/group-template-category-delete-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; ready for integration and development deployment
+- Status: merged to develop; development deployed and smoke verified
 - Scope: 分组模板的大类、小类统一使用删除，不提供分类启用/停用；删除小类时删除该分类，删除大类时递归删除其全部小类，所有引用受影响分类的商品、BOM、仓库、物料等业务对象自动回到当前模板的 `未分类`。
 - DEV:
   - DEV-529-CATEGORY-DELETE-UI：大类和小类提供明确删除入口、影响提示和删除结果，移除分类启用开关及停用文案。
@@ -24,7 +24,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN build/backend: `npm run build`, `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-group-template-category-delete.md`
-- Deployment: requested for development; pending integration and deploy.
+- Deployment: application commit `2ad8c14c3d1435461ed446cf20c367bd2b95f621` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712135112`. Containers healthy; unauthenticated dev app returned 303, authenticated group/requirement APIs returned 200, PR-529 marker present, recent error lines 0. Real API/database smoke passed small-category delete, recursive primary-category delete, three assignment fallbacks to `group_item_id=0`, two audit rows, and complete test-data cleanup. Browser showed delete actions for both levels, no activation checkbox or enable/deactivate text, console errors 0.
 - Last update: 2026-07-12 Asia/Shanghai
 - Notes: 不删除业务对象、不改变库存、BOM、价格表快照或历史单据；只删除当前分类主数据并把实时归类关系回到未分类。
 
