@@ -41,7 +41,7 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 			"assert.match(flatRowSource, /mode === 'pricing_rule' \\|\\| mode === 'tier_template'/)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "business-grouping.test.js"): {
-			"product catalog business group rows ignore legacy defaults and non-product templates",
+			"product catalog business group rows include generic templates without legacy usage bindings",
 			"product_catalog",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
