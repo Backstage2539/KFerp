@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION
 - Branch: codex/production-system-menu-consolidation-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; awaiting integration and development deployment
+- Status: merged to develop; development deployed and smoke verified
 - Scope: 系统设置从设置栏移动到系统栏；生产管理新增生产配置三 Tab，归并工艺路线、工序、工位/设备；移除生产成本的常规菜单和顶部切换入口；生产计划/开始生产改名为生产计划。
 - DEV:
   - DEV-532-SYSTEM-SETTINGS-MENU：系统设置归入系统栏。
@@ -23,6 +23,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Full frontend baseline: 669/675 passed; the same six workspace-context contract failures remain unchanged from clean `origin/develop`.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`.
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-production-system-menu-consolidation.md`.
+- Deployment: application commit `1559f1f8322c8f8f05fa5e3258c3c310d5f5ce47` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712160355`. `erp_orderapp` up、`erp_postgres` healthy；生产配置、系统设置、旧生产成本路由和 PR-532 API 返回 200，recent error lines 0。浏览器确认系统设置只在系统栏，生产配置三个 Tab 均可切换并读取既有数据，生产菜单显示生产计划且无三个独立配置或生产成本入口，生产顶部切换条无成本入口。
 - Last update: 2026-07-12 Asia/Shanghai
 - Notes: 本需求删除的是常规导航入口，不删除生产成本记录、API 或工单追溯中的上下文查看能力；旧制造主档和生产成本直达路由继续兼容。
 
