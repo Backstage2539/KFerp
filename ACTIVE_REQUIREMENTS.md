@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-530-BUSINESS-SETTINGS-IA
 - Branch: codex/business-settings-ia-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; ready for integration and development deployment
+- Status: merged to develop; development deployed and smoke verified
 - Scope: 左侧 `商品与配方` 改名为 `商品`；新增 `业务设置` 页面，以 Tab 集中销售单设置、物流设置、发货人设置、分组模板和全局单位字典；通知设置进入系统设置 Tab；设备产能配置从主菜单删除。
 - DEV:
   - DEV-530-PRODUCT-MENU-RENAME：商品一级菜单改名且保留商品档案、价格管理和价格表入口。
@@ -24,7 +24,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Full frontend baseline: 681/687 passed; the same six workspace-context contract failures reproduce unchanged on clean `origin/develop` (`dde51bc1`).
   - Manual: `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-business-settings-ia.md`
-- Deployment: requested for development; pending integration.
+- Deployment: application commit `f5b4421e06095c82a6d150fe9af94bda68e9c317` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712143617`. `erp_orderapp` up、`erp_postgres` healthy；开发地址未认证返回 303，认证业务设置、系统设置、auth/me 和 PR API 返回 200，PR-530 marker 存在，recent error lines 0。浏览器确认 `商品`、业务设置五个 Tab、系统设置通知 Tab 正常，主菜单无分散子设置和设备产能配置，console errors 0。
 - Last update: 2026-07-12 Asia/Shanghai
 - Notes: 本次只整理入口和页面组合，不删除设备产能数据/API；历史设置路由继续可访问。
 

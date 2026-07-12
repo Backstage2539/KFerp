@@ -22,4 +22,9 @@
 5. 检查旧 `view=salesOrderSettings`、`logisticsSettings`、`senderSettings`、`groupTemplates`、`groupManagement`、`notificationSettings`、`machines` 地址仍能打开兼容页面。
 
 ## 部署证据
-- 待合并 `develop` 并部署 development 后补充提交、备份、容器、HTTP/API 和浏览器证据。
+- Application commit：`f5b4421e06095c82a6d150fe9af94bda68e9c317`，已快进合并 `origin/develop`。
+- Deploy：`./deploy_orderapp.sh development`；备份 `/opt/stacks/erp/orderapp.backup.deploy-20260712143617`。
+- Containers：`erp_orderapp` up，`erp_postgres` healthy，Docker build 内置 `go test ./...` 通过；最近五分钟 error/panic/fatal 行数为 0。
+- HTTP/API：本机开发地址 `/app/` 未认证返回 303；服务端 resolve 后认证业务设置页、系统设置页、`/api/auth/me` 和 `/api/req/product?limit=500` 均返回 200，需求响应含 `PR-530-BUSINESS-SETTINGS-IA`。
+- Browser：开发环境左侧显示 `商品`；业务设置依次显示销售单设置、物流设置、发货人设置、分组模板、全局单位字典五个 Tab；系统设置显示系统基础设置和通知设置，通知 Tab 打开通知配置内容。
+- Browser menu：主菜单不存在销售单设置、物流设置、发货人设置、分组模板、通知配置或设备产能配置的独立入口；console error 0。
