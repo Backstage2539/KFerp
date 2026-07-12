@@ -19,6 +19,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: `node --test src/lib/production-flow-page.test.js` 0/5 passed：生产流程页面/路由缺失，五项仍是独立菜单，生产顶部导航未收敛，嵌入页面会重复显示模块导航。
   - GREEN targeted: production flow/menu/top-nav/plan/work-order/quality tests passed 83/83; authz and support contract tests passed; `npm run build` passed.
+  - Browser regression guard: 首次开发环境验收发现嵌入生产计划会把地址栏回写为旧 `producePlan`；新增 RED 合同后修复为嵌入模式保留 `productionFlow`，相关测试 44/44 和前端构建通过。
   - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, support package and `git diff --check` passed.
   - Full frontend baseline: 695/701 passed; the same six workspace-context contract failures remain unchanged from clean `origin/develop`.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.

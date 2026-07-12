@@ -907,7 +907,7 @@ function replaceSelectedProductionPlans(nextSelected) {
 
 function updateUrl(plan) {
   const url = new URL(window.location.href)
-  url.searchParams.set('view', 'producePlan')
+  if (!props.embedded) url.searchParams.set('view', 'producePlan')
   if (filters.from) url.searchParams.set('from', filters.from)
   else url.searchParams.delete('from')
   if (filters.to) url.searchParams.set('to', filters.to)

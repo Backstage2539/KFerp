@@ -47,6 +47,12 @@ test('embedded production workflow pages hide their nested module navigation', (
   }
 })
 
+test('embedded production plan preserves the production flow route', () => {
+  const source = readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /if \(!props\.embedded\) url\.searchParams\.set\('view', 'producePlan'\)/)
+})
+
 test('vue shell registers production flow and keeps legacy workflow mappings', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
