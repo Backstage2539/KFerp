@@ -27,3 +27,10 @@
 - 支持合同：PR-535、历史 PR-531 和 DEV-271 源码合同测试通过。
 - 构建：Vue/Vite production build 通过；完整前端 695/701，通过数变化来自删除 1 条过时 helper 测试，失败仍是原有六条 workspace-context 基线，无新增失败。
 - 数据边界：没有执行数据库迁移或参数数据删除；历史成本记录和价格计算模板不改写。
+
+## 开发环境部署证据
+
+- 已合并并推送 `origin/develop=1d988ca8a653a0465ed8c81742aaa39e5e9752dd`，随后完成替换部署；备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260713000119`。
+- Docker 构建门禁执行 `go test ./...` 并通过；部署后 `erp_orderapp` 运行、`erp_postgres` healthy。
+- 认证访问商品价格管理页面和需求接口均返回 200；PR-535 标记存在，部署源码中的 Pricing Rule 列表、试算和表单标记存在，成本参数组件、快捷设置和旧路由标记均不存在，最近应用错误行数为 0。
+- 开发域名浏览器访问受 `ERR_CERT_AUTHORITY_INVALID` 阻断，未绕过证书告警；本次以认证页面/API、部署源码和容器日志完成开发环境验收。

@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
 - Branch: codex/cost-parameters-pricing-tabs-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; awaiting follow-up commit, develop integration and replacement deployment
+- Status: merged to develop; replacement development deployment and server smoke verified
 - Scope: 删除已经过时的成本参数设置：商品价格管理不再显示成本参数 Tab，商品价格表不再显示参数设置/快捷抽屉，旧 `costingSettings` 页面和对应 Vue 组件、前端 helper 一并删除。
 - DEV:
   - DEV-535-REMOVE-COST-PARAMETER-UI：删除商品价格管理、商品价格表和旧直达页的全部成本参数维护入口及前端实现。
@@ -22,8 +22,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Build: Vue/Vite production build passed; 401 modules transformed after obsolete UI removal.
   - Full frontend: 695/701 passed with the same six workspace-context baseline failures and no new failure.
   - `scripts/verify_kferp.sh changed` and `git diff --check` passed.
-  - Pending smoke: development product price management and product price list after replacement deploy.
-- Last update: 2026-07-12 Asia/Shanghai
+  - Development deploy: `origin/develop=1d988ca8a653a0465ed8c81742aaa39e5e9752dd`; Docker build gate `go test ./...` passed; backup `/opt/stacks/erp/orderapp.backup.deploy-20260713000119`.
+  - Server smoke: `erp_orderapp` running, `erp_postgres` healthy; authenticated product price management shell and requirement API returned 200; PR-535 marker and Pricing Rule list/trial/form source markers present; cost parameter UI/route markers absent; recent error lines 0.
+  - Browser limitation: development hostname currently stops at `ERR_CERT_AUTHORITY_INVALID`; no certificate warning bypass was used. Server-side authenticated page/API and deployed-source smoke provide the deployment evidence.
+- Last update: 2026-07-13 Asia/Shanghai
 - Notes: 不删除数据库中的历史参数值，也不改变旧成本记录或后台兼容 API；删除的是所有用户可操作入口和已无用途的前端实现。
 
 ### PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS
