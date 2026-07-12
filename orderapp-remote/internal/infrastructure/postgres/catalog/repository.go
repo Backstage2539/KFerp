@@ -2187,17 +2187,19 @@ func (r Repository) DeleteBusinessGroupItem(ctx context.Context, cmd catalogapp.
 	defer func() { _ = tx.Rollback(ctx) }()
 	var ids []int64
 	var groupID int64
+	var rootName string
+	var rootParentID int64
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH RECURSIVE targets AS (
-			SELECT id, group_id
+			SELECT id, group_id, parent_id, name
 			FROM %s.business_group_items
 			WHERE id=$1
 			UNION ALL
-			SELECT child.id, child.group_id
+			SELECT child.id, child.group_id, child.parent_id, child.name
 			FROM %s.business_group_items child
 			JOIN targets parent ON parent.id=child.parent_id AND parent.group_id=child.group_id
 		)
-		SELECT id, group_id FROM targets
+		SELECT id, group_id, parent_id, name FROM targets
 	`, r.schema, r.schema), cmd.ID)
 	if err != nil {
 		return err
@@ -2205,12 +2207,18 @@ func (r Repository) DeleteBusinessGroupItem(ctx context.Context, cmd catalogapp.
 	for rows.Next() {
 		var id int64
 		var rowGroupID int64
-		if err := rows.Scan(&id, &rowGroupID); err != nil {
+		var parentID int64
+		var name string
+		if err := rows.Scan(&id, &rowGroupID, &parentID, &name); err != nil {
 			rows.Close()
 			return err
 		}
 		if groupID == 0 {
 			groupID = rowGroupID
+		}
+		if id == cmd.ID {
+			rootName = name
+			rootParentID = parentID
 		}
 		ids = append(ids, id)
 	}
@@ -2222,17 +2230,29 @@ func (r Repository) DeleteBusinessGroupItem(ctx context.Context, cmd catalogapp.
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.business_group_items SET active=false, updated_at=now() WHERE id=ANY($1)`, r.schema), ids); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+	assignmentsUncategorized, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.business_group_assignments
 		SET group_item_id=0, updated_at=now(), updated_by=$2
 		WHERE group_id=$1 AND group_item_id=ANY($3)
-	`, r.schema), groupID, cmd.Actor, ids); err != nil {
+	`, r.schema), groupID, cmd.Actor, ids)
+	if err != nil {
 		return err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group_item", &cmd.ID, "delete_business_group_item", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"group_id": groupID, "item_ids": ids}); err != nil {
+	itemsDeleted, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_items WHERE id=ANY($1)`, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	categoryType := "subcategory"
+	if rootParentID == 0 {
+		categoryType = "primary_category"
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group_item", &cmd.ID, "delete_business_group_item", postgresinfra.StrPtr("name"), postgresinfra.StrPtr(rootName), nil, postgresinfra.AuditMeta{
+		"group_id":                  groupID,
+		"category_type":             categoryType,
+		"item_ids":                  ids,
+		"items_deleted":             itemsDeleted.RowsAffected(),
+		"assignments_uncategorized": assignmentsUncategorized.RowsAffected(),
+	}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

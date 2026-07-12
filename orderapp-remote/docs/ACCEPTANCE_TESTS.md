@@ -16,6 +16,9 @@
 ## 0.0.0 PR-453 商品 / BOM / 仓库库存分组模板统一
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：独立 `分组模板` 页面只维护模板名、大类、小类、排序和备注，不展示系统设置、对象列表、对象勾选、对象数量或 `移动到分类`；模板表单不出现启用/停用，编辑已有模板时出现 `删除模板`。
 - [ ] PR-455-GROUP-TEMPLATE-DELETE：点击 `删除模板` 会删除模板、该模板下大类/小类、用途和对象归类并写操作日志；删除后商品档案、生产 BOM、仓库库存和商品价格表不再能选择该模板。
+- [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：分组模板分类编辑区不显示分类 `启用` 开关或 `停用` 文案；每个大类和小类都有 `删除` 入口。
+- [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：删除小类后，该小类从模板结构中消失，原来引用该小类的业务对象自动进入当前模板 `未分类`；业务对象本身、库存、BOM 和历史单据不删除。
+- [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：删除大类后，该大类和全部小类从模板结构中消失，引用大类或任一子类的业务对象全部自动进入当前模板 `未分类`；操作日志记录删除分类、删除行数和归入未分类的引用数量。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品模块普通菜单不显示 `分组管理`；旧 `groupManagement` 路由仍能兼容打开独立分组模板页面。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。

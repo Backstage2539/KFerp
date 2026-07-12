@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-529-GROUP-TEMPLATE-CATEGORY-DELETE
+- Branch: codex/group-template-category-delete-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: verified; ready for integration and development deployment
+- Scope: 分组模板的大类、小类统一使用删除，不提供分类启用/停用；删除小类时删除该分类，删除大类时递归删除其全部小类，所有引用受影响分类的商品、BOM、仓库、物料等业务对象自动回到当前模板的 `未分类`。
+- DEV:
+  - DEV-529-CATEGORY-DELETE-UI：大类和小类提供明确删除入口、影响提示和删除结果，移除分类启用开关及停用文案。
+  - DEV-529-CATEGORY-DELETE-REPOSITORY：事务内递归定位分类树，把引用归类改为 `group_item_id=0` 后物理删除分类行，并写操作日志。
+  - DEV-529-DOCS-DEPLOY：同步需求、验收、操作手册，合并 develop 并部署 development。
+- Verifier:
+  - RED frontend: `node --test src/lib/group-template-category-delete.test.js` 因页面仍包含 `确认停用分类`、分类启用开关且小类无删除入口失败。
+  - RED repository: `go test ./internal/infrastructure/postgres/catalog -run TestDeleteBusinessGroupItemPhysicallyDeletesTreeAndUncategorizesAssignments -count=1` 因仓储仍使用 `active=false` 且缺少物理删除失败。
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev529GroupTemplateCategory -count=1` 因 PR/DEV/文档和删除合同标记缺失失败。
+  - GREEN frontend: `node --test src/lib/group-template-category-delete.test.js src/lib/group-settings-separation.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/materials-ui.test.js` passed 189/189.
+  - GREEN repository/API: catalog application, handler, PostgreSQL repository and support packages passed; `TestDeleteBusinessGroupItemPhysicallyDeletesTreeAndUncategorizesAssignments` confirms physical delete plus assignment fallback.
+  - GREEN build/backend: `npm run build`, `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-group-template-category-delete.md`
+- Deployment: requested for development; pending integration and deploy.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 不删除业务对象、不改变库存、BOM、价格表快照或历史单据；只删除当前分类主数据并把实时归类关系回到未分类。
+
 ### PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS
 - Branch: codex/separate-group-template-system-settings-20260711
 - Owner/session: Codex / 2026-07-11
