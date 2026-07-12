@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-535-COST-PARAMETERS-PRICING-TABS
+- Branch: codex/cost-parameters-pricing-tabs-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: verified; awaiting integration and development deployment
+- Scope: 商品价格管理内部把价格计算模板和成本参数设置拆成并排 Tab；默认打开价格计算模板，成本参数使用既有组件、API、保存与审计逻辑。
+- DEV:
+  - DEV-535-PRICE-MANAGEMENT-TABS：新增并排 Tab 并按当前 Tab 隔离操作按钮和内容。
+  - DEV-535-COMPAT-DOCS-DEPLOY：保留旧成本参数直达路由和 API，更新手册验收，合入 develop 并部署开发环境。
+- Verifier:
+  - RED frontend: new Tab contract suite 8/10 passed, 2 failed because the page had no sibling Tab list or isolated panels.
+  - GREEN frontend: `node --test src/lib/price-management-tabs.test.js src/lib/settings-entry-consolidation.test.js src/lib/costing-settings.test.js src/lib/product-settings.test.js` passed 163/163.
+  - API: targeted costing settings GET/POST and deprecated-parameter filter tests passed.
+  - Support: PR-535/PR-531 requirement, audit and manual contracts passed.
+  - Build: Vue/Vite production build, `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+  - Pending smoke: development browser Tab isolation and existing cost-parameter read path after deploy.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 只改变商品价格管理内部信息架构；不新增字段、不迁移数据、不改变成本参数写入或操作日志。
+
 ### PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS
 - Branch: codex/product-group-template-options-prod-20260712
 - Owner/session: Codex / 2026-07-12

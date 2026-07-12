@@ -29,6 +29,7 @@
 - [ ] PR-533-PRODUCTION-FLOW-PAGE：生产管理侧栏只显示一个生产流程入口承载生产计划、生产工单、工序卡、生产质检、生产验收五个 Tab；生产顶部切换条同步收敛，生产手册位于菜单最后。
 - [ ] PR-533-PRODUCTION-FLOW-PAGE：旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址仍可访问，既有流程和数据不变。
 - [ ] PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS：业务设置中新建且没有旧用途绑定的通用分组模板，在商品档案“选择分组模板”中可选；选择后显示大类、小类和未分类，模板及商品归类数据不被改写。
+- [ ] PR-535-COST-PARAMETERS-PRICING-TABS：商品价格管理默认显示价格计算模板 Tab，并排可切换成本参数设置 Tab；两个 Tab 只展示各自操作，成本参数保存和旧直达路由保持兼容。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案不出现分类过滤 Tab，商品表格不出现 `分类` 列；分类归属只通过分组标题表达。
