@@ -56,7 +56,7 @@ export const menuGroups = [
   },
   {
     id: 'product',
-    name: '商品与配方',
+    name: '商品',
     items: [
       { key: 'productMaster', label: '商品档案', title: '商品档案' },
       { key: 'productPriceManagement', label: '商品价格管理', title: '商品价格管理' },
@@ -83,16 +83,11 @@ export const menuGroups = [
     name: '设置',
     items: [
       { key: 'costingSettings', label: '成本参数设置', title: '成本参数设置' },
-      { key: 'machines', label: '设备产能配置', title: '设备产能配置' },
       { key: 'companyProfile', label: '公司设置', title: '公司设置' },
-      { key: 'salesOrderSettings', label: '销售单设置', title: '销售单设置' },
-      { key: 'logisticsSettings', label: '物流设置', title: '物流设置' },
-      { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
+      { key: 'businessSettings', label: '业务设置', title: '业务设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
       { key: 'uiSettings', label: '系统设置', title: '系统设置' },
-      { key: 'groupTemplates', label: '分组模板', title: '分组模板' },
       { key: 'industryFieldTemplates', label: '行业设置', title: '行业字段模板' },
-      { key: 'notificationSettings', label: '通知配置', title: '通知配置' },
       { key: 'notificationManual', label: '通知手册', title: '通知配置手册' },
       { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },
     ],
@@ -121,6 +116,12 @@ export const menuGroups = [
 ]
 
 export const hiddenViewTitles = {
+  machines: '设备产能配置',
+  salesOrderSettings: '销售单设置',
+  logisticsSettings: '物流设置',
+  senderSettings: '发货人设置',
+  groupTemplates: '分组模板',
+  notificationSettings: '通知配置',
   deliveryNote: '出库单',
   orderInvoice: '发票',
   materialReceipts: '原料入库',

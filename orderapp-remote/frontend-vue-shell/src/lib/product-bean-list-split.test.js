@@ -16,12 +16,13 @@ function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
 }
 
-test('product menu keeps product archive and pricing while group templates live in settings', () => {
+test('product menu keeps product archive and pricing while group templates live in business settings', () => {
   assert.equal(menuItem('productMaster')?.label, '商品档案')
   assert.equal(menuItem('productMaster')?.title, '商品档案')
   assert.equal(menuItem('customerProductAliases'), undefined)
   assert.equal(menuItem('groupManagement'), undefined)
-  assert.equal(menuItem('groupTemplates')?.label, '分组模板')
+  assert.equal(menuItem('groupTemplates'), undefined)
+  assert.equal(menuItem('businessSettings')?.label, '业务设置')
   assert.equal(menuItem('productCategoryManagement'), undefined)
   assert.equal(menuItem('productPriceManagement')?.label, '商品价格管理')
   assert.equal(menuItem('productConfigTemplates'), undefined)

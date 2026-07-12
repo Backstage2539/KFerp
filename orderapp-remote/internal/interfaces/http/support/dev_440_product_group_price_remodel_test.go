@@ -80,7 +80,7 @@ func TestDev440ProductGroupPriceRemodelSchemaAndServiceContracts(t *testing.T) {
 func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"): {
-			"key: 'groupTemplates', label: '分组模板'",
+			"key: 'businessSettings', label: '业务设置'",
 			"groupManagement: '分组模板'",
 			"key: 'productPriceManagement', label: '商品价格管理'",
 		},

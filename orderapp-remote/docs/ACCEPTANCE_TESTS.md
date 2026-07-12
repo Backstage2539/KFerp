@@ -9,7 +9,7 @@
 
 ## 0.0.0 PR-528 分组模板与系统设置页面分离
 - [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=groupTemplates` 只显示分组模板列表、模板表单和大类/小类维护，不显示系统设置开关或全局单位字典。
-- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=uiSettings` 只显示系统设置和全局单位字典；系统设置页面不显示分组模板，也不调用 `/api/business-groups*`。
+- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-530-BUSINESS-SETTINGS-IA：`view=uiSettings` 显示系统基础设置和通知设置；系统设置页面不显示分组模板或全局单位字典，也不调用 `/api/business-groups*`。
 - [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：旧 `view=groupManagement` 继续兼容打开独立分组模板页面，不再打开系统设置融合页。
 - [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：开发和生产部署后两个入口均可独立刷新、保存，既有模板、分类和业务归类数据保持不变。
 
@@ -19,7 +19,9 @@
 - [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：分组模板分类编辑区不显示分类 `启用` 开关或 `停用` 文案；每个大类和小类都有 `删除` 入口。
 - [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：删除小类后，该小类从模板结构中消失，原来引用该小类的业务对象自动进入当前模板 `未分类`；业务对象本身、库存、BOM 和历史单据不删除。
 - [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：删除大类后，该大类和全部小类从模板结构中消失，引用大类或任一子类的业务对象全部自动进入当前模板 `未分类`；操作日志记录删除分类、删除行数和归入未分类的引用数量。
-- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品模块普通菜单不显示 `分组管理`；旧 `groupManagement` 路由仍能兼容打开独立分组模板页面。
+- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-530-BUSINESS-SETTINGS-IA：商品模块普通菜单不显示 `分组管理`；`业务设置 / 分组模板` Tab 打开独立分组模板组件，旧 `groupTemplates`、`groupManagement` 路由仍能兼容打开该页面。
+- [ ] PR-530-BUSINESS-SETTINGS-IA：左侧一级菜单显示 `商品`，不显示 `商品与配方`；设置菜单只显示一个 `业务设置` 入口承载销售单设置、物流设置、发货人设置、分组模板和全局单位字典五个 Tab。
+- [ ] PR-530-BUSINESS-SETTINGS-IA：系统设置包含系统基础设置和通知设置两个 Tab；设置菜单不再独立显示通知配置或设备产能配置，旧设置和设备产能直达路由仍兼容且既有数据不变。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案不出现分类过滤 Tab，商品表格不出现 `分类` 列；分类归属只通过分组标题表达。

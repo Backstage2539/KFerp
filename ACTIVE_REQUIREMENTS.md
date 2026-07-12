@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-530-BUSINESS-SETTINGS-IA
+- Branch: codex/business-settings-ia-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: verified; ready for integration and development deployment
+- Scope: 左侧 `商品与配方` 改名为 `商品`；新增 `业务设置` 页面，以 Tab 集中销售单设置、物流设置、发货人设置、分组模板和全局单位字典；通知设置进入系统设置 Tab；设备产能配置从主菜单删除。
+- DEV:
+  - DEV-530-PRODUCT-MENU-RENAME：商品一级菜单改名且保留商品档案、价格管理和价格表入口。
+  - DEV-530-BUSINESS-SETTINGS-TABS：新增业务设置五 Tab 页面并从主菜单移除五个分散入口。
+  - DEV-530-SYSTEM-NOTIFICATION-TAB：系统设置增加通知设置 Tab，并把全局单位字典迁到业务设置。
+  - DEV-530-MENU-CLEANUP-COMPAT：删除设备产能主菜单入口，保留既有设置直达路由以兼容历史链接。
+  - DEV-530-DOCS-DEPLOY：同步需求、验收和操作手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/business-settings-ia.test.js` 4/4 failed：旧商品菜单名、业务设置页面和全局单位组件缺失，App 未注册业务设置路由。
+  - GREEN targeted: business settings/menu/group/product/BOM/material/manual frontend tests passed 230/230; `npm run build` passed.
+  - GREEN backend/support: `go test ./internal/interfaces/http/support -count=1`, `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
+  - Full frontend baseline: 681/687 passed; the same six workspace-context contract failures reproduce unchanged on clean `origin/develop` (`dde51bc1`).
+  - Manual: `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-business-settings-ia.md`
+- Deployment: requested for development; pending integration.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本次只整理入口和页面组合，不删除设备产能数据/API；历史设置路由继续可访问。
+
 ### PR-529-GROUP-TEMPLATE-CATEGORY-DELETE
 - Branch: codex/group-template-category-delete-20260712
 - Owner/session: Codex / 2026-07-12

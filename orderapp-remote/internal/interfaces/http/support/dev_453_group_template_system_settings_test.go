@@ -18,7 +18,7 @@ func TestDev453GroupTemplateSystemSettingsContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"): {
 			"{ key: 'uiSettings', label: '系统设置'",
-			"{ key: 'groupTemplates', label: '分组模板'",
+			"{ key: 'businessSettings', label: '业务设置'",
 			"groupManagement: '分组模板'",
 			"productCategoryManagement: '分组模板'",
 		},

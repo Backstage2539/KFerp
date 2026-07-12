@@ -39,12 +39,13 @@ test('expanded menu groups persist and keep current group open', () => {
   assert.deepEqual(restored, ['sales', 'inventory'])
 })
 
-test('product menu exposes product archive and price pages while group templates move to settings', () => {
+test('product menu exposes product archive and price pages while group templates move into business settings', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('productMaster'))
   assert.equal(keys.includes('customerProductAliases'), false)
   assert.equal(keys.includes('groupManagement'), false)
-  assert.ok(keys.includes('groupTemplates'))
+  assert.ok(keys.includes('businessSettings'))
+  assert.equal(keys.includes('groupTemplates'), false)
   assert.equal(keys.includes('productCategoryManagement'), false)
   assert.ok(keys.includes('productPriceManagement'))
   assert.equal(keys.includes('productConfigTemplates'), false)
@@ -56,7 +57,8 @@ test('product menu exposes product archive and price pages while group templates
   assert.equal(groupForView(menuGroups, 'productMaster')?.id, 'product')
   assert.equal(groupForView(menuGroups, 'customerProductAliases'), null)
   assert.equal(groupForView(menuGroups, 'groupManagement'), null)
-  assert.equal(groupForView(menuGroups, 'groupTemplates')?.id, 'settings')
+  assert.equal(groupForView(menuGroups, 'groupTemplates'), null)
+  assert.equal(groupForView(menuGroups, 'businessSettings')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'productCategoryManagement'), null)
   assert.equal(groupForView(menuGroups, 'productPriceManagement')?.id, 'product')
   assert.equal(groupForView(menuGroups, 'productConfigTemplates'), null)
@@ -65,7 +67,7 @@ test('product menu exposes product archive and price pages while group templates
   assert.equal(groupForView(menuGroups, 'bom')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'costing')?.id, 'product')
   assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 商品价格管理 / 商品价格表 / 成本核价手册 / 生豆销售手册')
-  assert.equal(menuGroups.find((group) => group.id === 'settings')?.items.find((item) => item.key === 'groupTemplates')?.label, '分组模板')
+  assert.equal(menuGroups.find((group) => group.id === 'settings')?.items.find((item) => item.key === 'businessSettings')?.label, '业务设置')
   assert.equal(menuMap.groupManagement?.title, '分组模板')
 })
 
@@ -138,15 +140,21 @@ test('operation manuals live inside their functional menu groups', () => {
   assert.equal(menuGroups.some((group) => /手册|文档/.test(group.name)), false)
 })
 
-test('settings menu exposes sales order settings and keeps sales order detail hidden', () => {
+test('settings menu consolidates business settings and keeps legacy settings routes hidden', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('companyProfile'))
-  assert.ok(keys.includes('salesOrderSettings'))
-  assert.ok(keys.includes('logisticsSettings'))
+  assert.ok(keys.includes('businessSettings'))
+  assert.equal(keys.includes('salesOrderSettings'), false)
+  assert.equal(keys.includes('logisticsSettings'), false)
+  assert.equal(keys.includes('senderSettings'), false)
+  assert.equal(keys.includes('groupTemplates'), false)
+  assert.equal(keys.includes('notificationSettings'), false)
+  assert.equal(keys.includes('machines'), false)
   assert.equal(keys.includes('salesOrder'), false)
   assert.equal(groupForView(menuGroups, 'companyProfile')?.id, 'settings')
-  assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
-  assert.equal(groupForView(menuGroups, 'logisticsSettings')?.id, 'settings')
+  assert.equal(groupForView(menuGroups, 'businessSettings')?.id, 'settings')
+  assert.equal(groupForView(menuGroups, 'salesOrderSettings'), null)
+  assert.equal(groupForView(menuGroups, 'logisticsSettings'), null)
 })
 
 test('sales menu no longer exposes the removed quote export page', () => {

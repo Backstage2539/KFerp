@@ -165,6 +165,7 @@ import { computed, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch 
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
+import BusinessSettingsView from './views/BusinessSettingsView.vue'
 import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import ContractsView from './views/ContractsView.vue'
@@ -422,6 +423,7 @@ const internalViews = {
   inventory: InventoryView,
   machines: MachinesView,
   companyProfile: CompanyProfileView,
+  businessSettings: BusinessSettingsView,
   salesOrderSettings: SalesOrderSettingsView,
   logisticsSettings: LogisticsSettingsView,
   senderSettings: SenderSettingsView,
