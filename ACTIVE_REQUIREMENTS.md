@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS
 - Branch: codex/product-group-template-options-prod-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; awaiting integration and development/production deployment
+- Status: merged to develop/main; development and production deployed and smoke verified
 - Scope: 修复独立分组模板保存后没有旧用途绑定时，商品档案和商品价格表把该通用模板过滤掉的问题；保留带明确其他用途的历史专用模板隔离规则。
 - DEV:
   - DEV-534-GENERIC-TEMPLATE-COMPAT：`businessGroupRowsForUsage` 在用途筛选时同时接纳没有任何启用用途绑定的通用模板。
@@ -19,10 +19,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: `node --test src/lib/business-grouping.test.js` 5/6 passed；缺少旧用途绑定的通用模板未进入商品模板候选。
   - GREEN targeted: `business-grouping.test.js` + `product-settings.test.js` passed 159/159.
   - GREEN broader: support package, `scripts/verify_kferp.sh backend`, frontend build and `scripts/verify_kferp.sh changed` passed. Full frontend 696/702 passed with the same six workspace-context baseline failures and no new failure.
+  - Integration: feature/develop commit `eca87ee6a341b5b800cf2c8dd5e3118ca25b3b90`; production main merge commit `65eaf66694ff64992c2e693eed831272bb233fad`.
+  - Development deployment: `origin/develop=eca87ee6a341b5b800cf2c8dd5e3118ca25b3b90`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712224356`; productMaster、product-settings、PR-534 API and recent-error smoke passed.
+  - Production deployment: `origin/main=65eaf66694ff64992c2e693eed831272bb233fad`; backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260712225746`; containers healthy, productMaster HTTP 200 and recent error lines 0.
+  - Production browser: 商品档案“选择分组模板”包含并选中 `商品-咖啡豆`；`金色山脉` 显示为 1 个商品、4 个规格 SKU；控制台错误 0。
   - Manual impact: 无；恢复现有“分组模板可供商品档案选择”流程，不新增字段或步骤。
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-product-generic-group-template-options.md`.
 - Last update: 2026-07-12 Asia/Shanghai
-- Notes: 不修改生产模板或商品归类数据，不为模板补写用途；前端兼容新版通用模板语义。
+- Notes: 不修改生产模板或商品归类数据，不为模板补写用途；前端兼容新版通用模板语义。部署后的代码与数据验收均完成。
 
 ### PR-533-PRODUCTION-FLOW-PAGE
 - Branch: codex/production-flow-page-20260712
