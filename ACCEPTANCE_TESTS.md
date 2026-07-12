@@ -803,3 +803,8 @@
 - [ ] 生产页面顶部切换条显示 `生产流程`，不再分别显示生产计划、工单、工序卡、质检。
 - [ ] 生产手册位于生产管理菜单最后一项。
 - [ ] 旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址仍可访问，既有业务数据和操作能力不变。
+
+### K32. 商品档案通用分组模板候选兼容（PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS）
+- [ ] 在业务设置创建一个包含大类/小类但没有旧用途绑定的分组模板后，商品档案的“选择分组模板”可选到该模板。
+- [ ] 商品档案选择模板后显示完整大类、小类和未分类；现有商品及归类数据不被改写。
+- [ ] 带明确 `production_bom` 等其他用途且不包含 `product_catalog` 的历史专用模板不混入商品档案候选。

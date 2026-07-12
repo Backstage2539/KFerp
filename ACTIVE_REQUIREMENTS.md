@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS
+- Branch: codex/product-group-template-options-prod-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: verified; awaiting integration and development/production deployment
+- Scope: 修复独立分组模板保存后没有旧用途绑定时，商品档案和商品价格表把该通用模板过滤掉的问题；保留带明确其他用途的历史专用模板隔离规则。
+- DEV:
+  - DEV-534-GENERIC-TEMPLATE-COMPAT：`businessGroupRowsForUsage` 在用途筛选时同时接纳没有任何启用用途绑定的通用模板。
+  - DEV-534-REGRESSION-DEPLOY：补回归测试，合并 develop/main，并部署开发与生产环境。
+- Verifier:
+  - Production reproduction: `商品-咖啡豆` 模板 active、含 2 个分类，但 `business_group_usages` 为空；商品档案严格要求 `product_catalog`，因此模板候选为空。
+  - RED: `node --test src/lib/business-grouping.test.js` 5/6 passed；缺少旧用途绑定的通用模板未进入商品模板候选。
+  - GREEN targeted: `business-grouping.test.js` + `product-settings.test.js` passed 159/159.
+  - GREEN broader: support package, `scripts/verify_kferp.sh backend`, frontend build and `scripts/verify_kferp.sh changed` passed. Full frontend 696/702 passed with the same six workspace-context baseline failures and no new failure.
+  - Manual impact: 无；恢复现有“分组模板可供商品档案选择”流程，不新增字段或步骤。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-product-generic-group-template-options.md`.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 不修改生产模板或商品归类数据，不为模板补写用途；前端兼容新版通用模板语义。
+
 ### PR-533-PRODUCTION-FLOW-PAGE
 - Branch: codex/production-flow-page-20260712
 - Owner/session: Codex / 2026-07-12

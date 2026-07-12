@@ -111,15 +111,16 @@ test('preferred business group template keeps warehouse inventory on stock group
   }), 128)
 })
 
-test('product catalog business group rows ignore legacy defaults and non-product templates', () => {
+test('product catalog business group rows include generic templates without legacy usage bindings', () => {
   const rows = businessGroupRowsForUsage([
     { id: 6, name: '商品默认分组', code: 'default_product_catalog', active: true, sort_order: 10, usages: [{ usage_key: 'product_catalog', active: true }] },
     { id: 221, name: 'BOM分组', active: true, sort_order: 5, usages: [{ usage_key: 'production_bom', active: true }] },
-    { id: 222, name: '库存分组', active: true, sort_order: 6, usages: [] },
+    { id: 222, name: '通用分组模板', active: true, sort_order: 6, usages: [] },
     { id: 128, name: '商品分组', code: 'product_catalog', active: true, sort_order: 10, usages: [{ usage_key: 'product_catalog', active: true }] },
   ], 'product_catalog')
 
   assert.deepEqual(rows.map((row) => ({ id: row.id, name: row.name })), [
+    { id: 222, name: '通用分组模板' },
     { id: 128, name: '商品分组' },
   ])
 })

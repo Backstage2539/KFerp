@@ -38,7 +38,8 @@ export function businessGroupRowsForUsage(groups = [], usageKey = '') {
     .filter((group) => {
       if (!normalizedUsage) return true
       const usages = Array.isArray(group.usages) ? group.usages : []
-      return usages.some((usage) => assignmentUsage(usage) === normalizedUsage && usage.active !== false)
+      const activeUsages = usages.filter((usage) => usage.active !== false)
+      return activeUsages.length === 0 || activeUsages.some((usage) => assignmentUsage(usage) === normalizedUsage)
     })
     .slice()
     .sort((a, b) => toNumber(a.sort_order ?? a.sortOrder) - toNumber(b.sort_order ?? b.sortOrder) || toNumber(a.id) - toNumber(b.id))

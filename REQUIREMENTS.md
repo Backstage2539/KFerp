@@ -646,3 +646,8 @@
 - `生产手册` 必须位于生产管理菜单最后一项。
 - 新页面复用既有 Vue 功能和 API，不修改生产计划、工单、工序卡、质检、验收的业务规则或数据。
 - 旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址继续兼容。
+
+## 32. 商品档案通用分组模板候选兼容（PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS）
+- 独立 `分组模板` 页面创建或编辑的通用模板即使没有旧版用途绑定，也必须出现在商品档案的分组模板候选中。
+- 没有用途绑定表示通用模板；带有明确其他用途且不包含 `product_catalog` 的历史专用模板仍不进入商品档案候选。
+- 修复不得改写模板、分类、商品归类、价格表快照或历史单据数据。
