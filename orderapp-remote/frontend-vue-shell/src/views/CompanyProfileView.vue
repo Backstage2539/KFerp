@@ -42,7 +42,7 @@
         </ul>
       </details>
     </section>
-    <CompanySealSettingsView embedded />
+    <CompanySealSettingsView embedded :closable="false" />
   </div>
 </template>
 

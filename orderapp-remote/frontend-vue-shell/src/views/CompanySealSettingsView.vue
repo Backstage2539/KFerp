@@ -4,7 +4,7 @@
       <div class="panel-head">
         <h2>公章设置</h2>
         <div class="actions">
-          <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
+          <button v-if="props.embedded && props.closable" class="secondary" type="button" @click="emit('close')">关闭</button>
           <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -46,6 +46,7 @@ import { apiGet, apiSend } from '../api/client'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
+  closable: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['close', 'updated'])

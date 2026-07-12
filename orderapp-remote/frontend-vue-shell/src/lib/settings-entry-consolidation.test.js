@@ -19,7 +19,7 @@ test('company settings embeds shared seal asset settings', () => {
   const source = readFileSync(new URL('../views/CompanyProfileView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /import CompanySealSettingsView from '.\/CompanySealSettingsView\.vue'/)
-  assert.match(source, /<CompanySealSettingsView\s+embedded/)
+  assert.match(source, /<CompanySealSettingsView\s+embedded\s+:closable="false"/)
   assert.match(source, /公司资料与公章/)
 })
 
