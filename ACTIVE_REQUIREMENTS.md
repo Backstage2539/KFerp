@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-533-PRODUCTION-FLOW-PAGE
 - Branch: codex/production-flow-page-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; awaiting integration and development deployment
+- Status: merged to develop; development deployed and smoke verified
 - Scope: 生产管理新增生产流程页面，用 Tab 集中生产计划、生产工单、工序卡、生产质检、生产验收；五项从侧栏和生产顶部导航独立入口移除；生产手册移动到生产管理菜单最底部。
 - DEV:
   - DEV-533-PRODUCTION-FLOW-TABS：新增生产流程五 Tab 页面，并复用现有 Vue 功能组件。
@@ -24,6 +24,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Full frontend baseline: 695/701 passed; the same six workspace-context contract failures remain unchanged from clean `origin/develop`.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-production-flow-page.md`.
+- Deployment: application commit `ab04691e15c2e077796628c19cd741845e06ae53` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712165510`. `erp_orderapp` up、`erp_postgres` healthy；生产流程、旧生产计划、旧生产验收和 PR-533 API 返回 200，recent error lines 0。浏览器确认生产管理只显示一个生产流程入口，五个 Tab 可切换并读取既有数据，生产手册位于菜单最后，生产顶部导航已收敛，地址稳定保留 `view=productionFlow`，console errors 0。
 - Last update: 2026-07-12 Asia/Shanghai
 - Notes: 本需求只整合入口和页面容器，不修改计划、工单、工序卡、质检或验收的业务规则；旧路由继续兼容。
 
