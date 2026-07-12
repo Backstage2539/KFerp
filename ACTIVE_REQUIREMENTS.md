@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-531-SETTINGS-ENTRY-CONSOLIDATION
 - Branch: codex/settings-entry-consolidation-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: verified; awaiting integration and development deployment
+- Status: merged to develop; development deployed and smoke verified
 - Scope: 公章设置并入公司设置；代加工模板设置从主菜单删除；成本参数设置并入商品价格管理。保留旧直达路由和既有数据/API 作为兼容入口。
 - DEV:
   - DEV-531-COMPANY-SEAL-SETTINGS：公司设置组合共享公章资产设置。
@@ -22,7 +22,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
   - Full frontend baseline: 664/670 passed; the six workspace-context contract failures are the unchanged baseline already reproduced on clean `origin/develop` for PR-530.
   - Manual: `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
-  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-settings-entry-consolidation.md`.
+- Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-settings-entry-consolidation.md`.
+- Deployment: application commit `25563b1dcc9b5e7bad23663b23d8e900b134375a` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712150950`. `erp_orderapp` up、`erp_postgres` healthy；公司设置、商品价格管理和 PR-531 API 返回 200，recent error lines 0。浏览器确认公司设置同页显示公章且无无效关闭按钮，商品价格管理同页显示成本参数和价格计算模板，主菜单无独立成本参数或代加工模板入口。
 - Last update: 2026-07-12 Asia/Shanghai
 - Notes: 本需求整理入口与页面组合，不删除代加工模板数据/API；旧 `outsourceSettings`、`costingSettings` 地址继续兼容。
 
