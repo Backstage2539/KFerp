@@ -226,7 +226,7 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "设置 / 公司设置", "保存公司设置"
 	case "sales_order_settings":
 		if field == "seal_asset_id" {
-			return "设置 / 销售单设置", "选择/上传共享公章"
+			return "设置 / 公司设置 / 公章设置", "选择/上传共享公章"
 		}
 		return "设置 / 销售单设置", "保存销售单设置"
 	case "sales_order_asset":
@@ -262,7 +262,7 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 	case "stock_adjustment":
 		return "库存管理 / 库存作业", "提交库存调整"
 	case "cost_parameter":
-		return "设置 / 成本参数设置", "保存成本参数"
+		return "商品 / 商品价格管理 / 成本参数设置", "保存成本参数"
 	case "bean_list_publication":
 		switch action {
 		case "publish":
@@ -322,9 +322,9 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	switch {
 	case strings.HasPrefix(target, "/api/costing/settings"):
 		if method == "POST" {
-			return "设置 / 成本参数设置", "保存成本参数"
+			return "商品 / 商品价格管理 / 成本参数设置", "保存成本参数"
 		}
-		return "设置 / 成本参数设置", "查看成本参数"
+		return "商品 / 商品价格管理 / 成本参数设置", "查看成本参数"
 	case strings.HasPrefix(target, "/api/view-context/presets"):
 		if method == "POST" && strings.HasSuffix(target, "/disable") {
 			return "系统 / 当前视图", "停用保存视图"
@@ -436,8 +436,10 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	case strings.HasPrefix(target, "/api/settings/sales-order/payment-layout"):
 		return "设置 / 销售单设置", "保存收款版式"
 	case strings.HasPrefix(target, "/api/settings/sales-order/seal/select"):
-		return "设置 / 销售单设置", "选择共享公章"
-	case strings.HasPrefix(target, "/api/settings/sales-order/seal") || strings.HasPrefix(target, "/api/settings/sales-order/payment-codes"):
+		return "设置 / 公司设置 / 公章设置", "选择共享公章"
+	case strings.HasPrefix(target, "/api/settings/sales-order/seal"):
+		return "设置 / 公司设置 / 公章设置", "维护共享公章"
+	case strings.HasPrefix(target, "/api/settings/sales-order/payment-codes"):
 		return "设置 / 销售单设置", "维护销售单素材"
 	case strings.HasPrefix(target, "/api/settings/sales-order"):
 		if method == "POST" {

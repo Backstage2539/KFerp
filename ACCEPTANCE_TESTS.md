@@ -783,3 +783,9 @@
 - [ ] 设置菜单显示 `业务设置`，进入后依次可切换销售单设置、物流设置、发货人设置、分组模板和全局单位字典五个 Tab。
 - [ ] 设置菜单不再独立显示上述五项、通知配置或设备产能配置；系统设置页可切换系统基础设置和通知设置。
 - [ ] 旧 `salesOrderSettings`、`logisticsSettings`、`senderSettings`、`groupTemplates`、`groupManagement`、`notificationSettings` 和 `machines` 地址仍能打开原功能，既有配置数据不变。
+
+### K29. 设置入口归并（PR-531-SETTINGS-ENTRY-CONSOLIDATION）
+- [ ] `设置 / 公司设置` 同时显示公司资料和公章设置，可上传、选择和去除公章背景。
+- [ ] `商品 / 商品价格管理` 同时显示成本参数设置和价格计算模板管理，保存成本参数后刷新仍保留。
+- [ ] 主菜单不显示独立 `公章设置`、`成本参数设置` 或 `代加工模板设置`；公司设置和商品价格管理入口正常。
+- [ ] 旧 `costingSettings`、`outsourceSettings` 地址仍可访问，既有公章、成本参数和代加工模板数据不变。

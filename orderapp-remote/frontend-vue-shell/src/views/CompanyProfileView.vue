@@ -1,5 +1,9 @@
 <template>
   <div class="page">
+    <header class="page-title">
+      <h2>公司资料与公章</h2>
+      <p>集中维护公司抬头、公账收款资料和销售、出库、合同共用的公章资产。</p>
+    </header>
     <section class="panel">
       <div class="panel-head">
         <h2>公司设置</h2>
@@ -34,16 +38,18 @@
           <li>公司名称作为销售单抬头使用。</li>
           <li>公司地址、纳税人识别号和公账收款信息会进入新生成的销售单。</li>
           <li>“一键复制公账收款信息”用于快速发给客户，不会修改数据。</li>
-          <li>销售单设置只维护销售单专用说明、收款方式、收款码和公章。</li>
+          <li>销售单设置只维护销售单专用说明、收款方式和收款码；公章在本页统一维护。</li>
         </ul>
       </details>
     </section>
+    <CompanySealSettingsView embedded />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import CompanySealSettingsView from './CompanySealSettingsView.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -132,6 +138,10 @@ onMounted(load)
 <style scoped>
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
+.page-title { max-width: 960px; margin-bottom: 14px; }
+.page-title h2 { margin: 0; font-size: 22px; }
+.page-title p { margin: 5px 0 0; color: #666; font-size: 13px; }
+.page :deep(.seal-settings-page.embedded) { max-width: 960px; padding: 0; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; max-width: 960px; }
 .panel-head, .actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 20px; }

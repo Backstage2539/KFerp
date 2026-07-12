@@ -82,10 +82,8 @@ export const menuGroups = [
     id: 'settings',
     name: '设置',
     items: [
-      { key: 'costingSettings', label: '成本参数设置', title: '成本参数设置' },
       { key: 'companyProfile', label: '公司设置', title: '公司设置' },
       { key: 'businessSettings', label: '业务设置', title: '业务设置' },
-      { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
       { key: 'uiSettings', label: '系统设置', title: '系统设置' },
       { key: 'industryFieldTemplates', label: '行业设置', title: '行业字段模板' },
       { key: 'notificationManual', label: '通知手册', title: '通知配置手册' },
@@ -116,6 +114,8 @@ export const menuGroups = [
 ]
 
 export const hiddenViewTitles = {
+  costingSettings: '成本参数设置',
+  outsourceSettings: '代加工模板设置',
   machines: '设备产能配置',
   salesOrderSettings: '销售单设置',
   logisticsSettings: '物流设置',

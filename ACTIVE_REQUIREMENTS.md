@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-531-SETTINGS-ENTRY-CONSOLIDATION
+- Branch: codex/settings-entry-consolidation-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: verified; awaiting integration and development deployment
+- Scope: 公章设置并入公司设置；代加工模板设置从主菜单删除；成本参数设置并入商品价格管理。保留旧直达路由和既有数据/API 作为兼容入口。
+- DEV:
+  - DEV-531-COMPANY-SEAL-SETTINGS：公司设置组合共享公章资产设置。
+  - DEV-531-COSTING-SETTINGS-IN-PRICE-MANAGEMENT：商品价格管理组合成本参数设置。
+  - DEV-531-REMOVE-OUTSOURCE-MENU：主菜单移除代加工模板和独立成本参数入口，保留历史直达路由。
+  - DEV-531-AUDIT-DOCS-DEPLOY：更新审计归属、需求验收和手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/settings-entry-consolidation.test.js` 3/4 failed：旧菜单仍显示成本参数与代加工模板，公司设置未组合公章，商品价格管理未组合成本参数。
+  - GREEN targeted: settings-entry/menu/product tests passed 172/172; support package and audit contract tests passed; `npm run build` passed.
+  - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
+  - Full frontend baseline: 664/670 passed; the six workspace-context contract failures are the unchanged baseline already reproduced on clean `origin/develop` for PR-530.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-settings-entry-consolidation.md`.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本需求整理入口与页面组合，不删除代加工模板数据/API；旧 `outsourceSettings`、`costingSettings` 地址继续兼容。
+
 ### PR-530-BUSINESS-SETTINGS-IA
 - Branch: codex/business-settings-ia-20260712
 - Owner/session: Codex / 2026-07-12

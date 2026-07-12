@@ -22,6 +22,8 @@
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-530-BUSINESS-SETTINGS-IA：商品模块普通菜单不显示 `分组管理`；`业务设置 / 分组模板` Tab 打开独立分组模板组件，旧 `groupTemplates`、`groupManagement` 路由仍能兼容打开该页面。
 - [ ] PR-530-BUSINESS-SETTINGS-IA：左侧一级菜单显示 `商品`，不显示 `商品与配方`；设置菜单只显示一个 `业务设置` 入口承载销售单设置、物流设置、发货人设置、分组模板和全局单位字典五个 Tab。
 - [ ] PR-530-BUSINESS-SETTINGS-IA：系统设置包含系统基础设置和通知设置两个 Tab；设置菜单不再独立显示通知配置或设备产能配置，旧设置和设备产能直达路由仍兼容且既有数据不变。
+- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：公司设置同时展示公司资料和公章设置；商品价格管理同时展示成本参数设置和价格计算模板；主菜单不显示独立公章、成本参数或代加工模板入口。
+- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：旧 `costingSettings`、`outsourceSettings` 地址仍能打开原功能，既有配置和模板数据不变。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案不出现分类过滤 Tab，商品表格不出现 `分类` 列；分类归属只通过分组标题表达。
