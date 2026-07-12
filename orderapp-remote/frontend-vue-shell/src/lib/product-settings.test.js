@@ -347,7 +347,7 @@ test('product settings view exposes group and pricing rule management while reti
   }
   assert.match(appSource, /productPriceManagement/)
   assert.match(appSource, /groupManagement/)
-  assert.match(menuSource, /key: 'groupTemplates', label: '分组模板'/)
+  assert.match(menuSource, /key: 'businessSettings', label: '业务设置'/)
   assert.match(menuSource, /groupManagement:\s*'分组模板'/)
   assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
   assert.doesNotMatch(menuSource, /key: 'customerProductAliases'/)
@@ -3580,14 +3580,13 @@ test('product archive BOM detail navigation uses SPA view events instead of hard
   assert.doesNotMatch(appSource, /isProductSettingsKey\(currentKey\.value\)[\s\S]{0,140}hardNavigateToView/)
 })
 
-test('global unit dictionary is managed from global settings instead of SKU settings', () => {
+test('global unit dictionary is managed from business settings instead of SKU settings', () => {
   const productSettings = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const productTemplate = productSettings.split('<script setup>')[0] || productSettings
-  const globalSettings = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const globalSettings = fs.readFileSync(new URL('../views/GlobalUnitDefinitionsView.vue', import.meta.url), 'utf8')
   const menuSource = fs.readFileSync(new URL('../lib/menu-ia.js', import.meta.url), 'utf8')
 
   for (const expected of [
-    '系统设置',
     '全局单位字典',
     'productUnitDefinitions',
     'saveGlobalUnitDefinition',
@@ -3597,7 +3596,7 @@ test('global unit dictionary is managed from global settings instead of SKU sett
     assert.ok(globalSettings.includes(expected), `missing global unit dictionary marker: ${expected}`)
   }
 
-  assert.match(menuSource, /key:\s*'uiSettings'[\s\S]*label:\s*'系统设置'/)
+  assert.match(menuSource, /key:\s*'businessSettings'[\s\S]*label:\s*'业务设置'/)
   assert.doesNotMatch(globalSettings, />新建单位</)
   assert.doesNotMatch(productTemplate, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(productTemplate, /@submit\.prevent="saveProductUnitDefinition"/)
@@ -3632,7 +3631,7 @@ test('SKU settings splits product config templates and gradient templates into n
 test('SKU settings separates global unit templates into a peer configuration tab', () => {
   const menuSource = fs.readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const settingsSource = fs.readFileSync(new URL('../views/GlobalUnitDefinitionsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
@@ -3654,7 +3653,7 @@ test('SKU settings separates global unit templates into a peer configuration tab
   assert.doesNotMatch(template, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(source, /saveProductUnitDefinition/)
 
-  assert.match(menuSource, /key: 'groupTemplates', label: '分组模板'/)
+  assert.match(menuSource, /key: 'businessSettings', label: '业务设置'/)
   assert.match(menuSource, /groupManagement:\s*'分组模板'/)
   assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
   assert.doesNotMatch(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
@@ -3742,7 +3741,7 @@ test('existing SKU sales spec template locks inventory unit after create', () =>
 
 test('SKU settings compacts context area and uses create edit labels for unit dictionaries', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const settingsSource = fs.readFileSync(new URL('../views/GlobalUnitDefinitionsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
@@ -3828,7 +3827,7 @@ test('SKU unit template workspace uses left list right editor and opens global u
 
 test('SKU unit templates and global unit dictionary expose delete actions', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const settingsSource = fs.readFileSync(new URL('../views/GlobalUnitDefinitionsView.vue', import.meta.url), 'utf8')
   const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
@@ -3989,8 +3988,8 @@ test('product menus expose direct category, price management and renamed product
   const configWorkspace = source.match(/<div v-show="currentSettingsSection === 'templates'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
 
   for (const expected of [
-    "key: 'groupTemplates'",
-    "label: '分组模板'",
+    "key: 'businessSettings'",
+    "label: '业务设置'",
     "key: 'productPriceManagement'",
     "label: '商品价格管理'",
     "label: '商品价格表'",

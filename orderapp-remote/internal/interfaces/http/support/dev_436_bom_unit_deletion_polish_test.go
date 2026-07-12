@@ -35,7 +35,7 @@ func TestDev436BomUnitDeletionPolishSourceMarkers(t *testing.T) {
 			"/api/product-settings/unit-templates/${templateID}",
 			"/api/product-settings/units/${encodeURIComponent(editingCode)}",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue"): {
+		filepath.Join("frontend-vue-shell", "src", "views", "GlobalUnitDefinitionsView.vue"): {
 			"deleteGlobalUnitDefinition",
 			"/api/product-settings/units/${encodeURIComponent(editingCode)}",
 		},

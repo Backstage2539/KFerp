@@ -52,7 +52,7 @@ func TestDev366GlobalUnitTemplatesSchemaAndAPI(t *testing.T) {
 
 func TestDev366GlobalUnitTemplatesUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
-	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue")))
+	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "GlobalUnitDefinitionsView.vue")))
 	for _, want := range []string{
 		"unit-template-pane",
 		"productUnitDefinitions",
@@ -72,7 +72,7 @@ func TestDev366GlobalUnitTemplatesUI(t *testing.T) {
 		"/api/product-settings/units",
 	} {
 		if !strings.Contains(settings, want) {
-			t.Fatalf("UISettingsView.vue missing global unit dictionary marker %q", want)
+			t.Fatalf("GlobalUnitDefinitionsView.vue missing global unit dictionary marker %q", want)
 		}
 	}
 	if strings.Contains(src, `<div class="field-group-title">单位规则</div>`) && strings.Contains(src, "productConfigTemplateForm.unit_conversion_rows") {

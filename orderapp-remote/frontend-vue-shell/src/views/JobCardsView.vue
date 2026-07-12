@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <ProductionTopNav active-key="jobCards" />
+    <ProductionTopNav v-if="!props.embedded" active-key="jobCards" />
 
     <section class="panel">
       <div class="panel-head">
@@ -146,6 +146,7 @@ import { buildJobCardActionPayload, canRunJobCardAction, jobCardActionEndpoint, 
 import { formatPercent } from '../lib/manufacturing-loss'
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   viewParams: { type: Object, default: () => ({}) },
 })
 

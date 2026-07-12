@@ -50,10 +50,9 @@ func TestDev368SkuCategoryCollapseAndFocusUI(t *testing.T) {
 }
 
 func TestDev368GlobalUnitDictionarySettingsUI(t *testing.T) {
-	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue")))
+	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "GlobalUnitDefinitionsView.vue")))
 	menu := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js")))
 	for _, want := range []string{
-		"系统设置",
 		"全局单位字典",
 		"productUnitDefinitions",
 		"saveGlobalUnitDefinition",
@@ -61,11 +60,11 @@ func TestDev368GlobalUnitDictionarySettingsUI(t *testing.T) {
 		"unit-definition-form",
 	} {
 		if !strings.Contains(settings, want) {
-			t.Fatalf("UISettingsView.vue missing global unit dictionary marker %q", want)
+			t.Fatalf("GlobalUnitDefinitionsView.vue missing global unit dictionary marker %q", want)
 		}
 	}
-	if !strings.Contains(menu, "label: '系统设置'") {
-		t.Fatal("settings menu should expose UISettingsView as 系统设置")
+	if !strings.Contains(menu, "label: '业务设置'") {
+		t.Fatal("settings menu should expose BusinessSettingsView as 业务设置")
 	}
 }
 

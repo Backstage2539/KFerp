@@ -165,6 +165,7 @@ import { computed, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch 
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
+import BusinessSettingsView from './views/BusinessSettingsView.vue'
 import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import ContractsView from './views/ContractsView.vue'
@@ -203,9 +204,11 @@ import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
+import ProductionFlowView from './views/ProductionFlowView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 import ProductionOverviewView from './views/ProductionOverviewView.vue'
 import ProductionScheduleView from './views/ProductionScheduleView.vue'
+import ProductionSettingsView from './views/ProductionSettingsView.vue'
 import ProcessTemplatesView from './views/ProcessTemplatesView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
 import PurchaseView from './views/PurchaseView.vue'
@@ -403,9 +406,11 @@ const internalViews = {
   financeSettings: FinanceSettingsView,
   financeManual: OperationManualView,
   producePlan: ProducePlanView,
+  productionFlow: ProductionFlowView,
   productionOverview: ProductionOverviewView,
   workstationView: WorkstationView,
   productionAcceptance: ProductionAcceptanceView,
+  productionConfig: ProductionSettingsView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,
   workOrders: WorkOrdersView,
@@ -422,6 +427,7 @@ const internalViews = {
   inventory: InventoryView,
   machines: MachinesView,
   companyProfile: CompanyProfileView,
+  businessSettings: BusinessSettingsView,
   salesOrderSettings: SalesOrderSettingsView,
   logisticsSettings: LogisticsSettingsView,
   senderSettings: SenderSettingsView,

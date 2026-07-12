@@ -132,7 +132,7 @@ func TestVueShellProducePlanIsNoLongerTemplateDriven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "producePlan") || !strings.Contains(string(body), "生产计划/开始生产") {
+	if !strings.Contains(string(body), "producePlan") || !strings.Contains(string(body), "生产计划") {
 		t.Fatal("menu-ia.js missing producePlan title")
 	}
 	body, err = os.ReadFile("internal/interfaces/http/support/static_frontend_routes.go")

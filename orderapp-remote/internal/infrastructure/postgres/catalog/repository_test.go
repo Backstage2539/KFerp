@@ -46,6 +46,27 @@ func TestBusinessGroupItemTreeKeepsChildrenWhenParentRowsComeFirst(t *testing.T)
 	}
 }
 
+func TestDeleteBusinessGroupItemPhysicallyDeletesTreeAndUncategorizesAssignments(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) DeleteBusinessGroupItem", "func (r Repository) MoveBusinessGroupItem")
+	for _, want := range []string{
+		"WITH RECURSIVE targets AS",
+		"SET group_item_id=0",
+		"DELETE FROM %s.business_group_items WHERE id=ANY($1)",
+		`"delete_business_group_item"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("DeleteBusinessGroupItem must delete the category tree and move references to uncategorized; missing %q", want)
+		}
+	}
+	if strings.Contains(body, "UPDATE %s.business_group_items SET active=false") {
+		t.Fatalf("DeleteBusinessGroupItem must physically delete categories instead of deactivating them")
+	}
+}
+
 func TestProductMarginOverrideRemainsReadableButProductUpdateDoesNotWrite(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

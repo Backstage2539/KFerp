@@ -71,16 +71,16 @@ func TestProductionFlowPageIsPrimaryNewEmployeeEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	menuSrc := string(menu)
-	flowIndex := strings.Index(menuSrc, "{ key: 'productionManual', label: '生产手册'")
-	planIndex := strings.Index(menuSrc, "{ key: 'producePlan'")
+	flowIndex := strings.Index(menuSrc, "{ key: 'productionFlow', label: '生产流程'")
+	manualIndex := strings.Index(menuSrc, "{ key: 'productionManual', label: '生产手册'")
 	if flowIndex < 0 {
+		t.Fatal("production menu must expose productionFlow as label 生产流程")
+	}
+	if manualIndex < 0 {
 		t.Fatal("production menu must expose productionManual as label 生产手册")
 	}
-	if planIndex < 0 {
-		t.Fatal("production menu missing producePlan")
-	}
-	if flowIndex > planIndex {
-		t.Fatal("production flow page should appear before production plan for new operators")
+	if flowIndex > manualIndex {
+		t.Fatal("production flow page should appear before the production manual")
 	}
 
 	manual, err := os.ReadFile(filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"))

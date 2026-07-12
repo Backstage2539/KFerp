@@ -6,6 +6,114 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-533-PRODUCTION-FLOW-PAGE
+- Branch: codex/production-flow-page-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: merged to develop; development deployed and smoke verified
+- Scope: 生产管理新增生产流程页面，用 Tab 集中生产计划、生产工单、工序卡、生产质检、生产验收；五项从侧栏和生产顶部导航独立入口移除；生产手册移动到生产管理菜单最底部。
+- DEV:
+  - DEV-533-PRODUCTION-FLOW-TABS：新增生产流程五 Tab 页面，并复用现有 Vue 功能组件。
+  - DEV-533-NAVIGATION-CONSOLIDATION：侧栏和生产顶部导航收敛为生产流程，生产手册排在生产管理末尾。
+  - DEV-533-LEGACY-ROUTE-COMPAT：保留五项旧直达路由、页面能力和既有数据/API。
+  - DEV-533-DOCS-DEPLOY：同步权限、审计、需求验收和生产手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/production-flow-page.test.js` 0/5 passed：生产流程页面/路由缺失，五项仍是独立菜单，生产顶部导航未收敛，嵌入页面会重复显示模块导航。
+  - GREEN targeted: production flow/menu/top-nav/plan/work-order/quality tests passed 83/83; authz and support contract tests passed; `npm run build` passed.
+  - Browser regression guard: 首次开发环境验收发现嵌入生产计划会把地址栏回写为旧 `producePlan`；新增 RED 合同后修复为嵌入模式保留 `productionFlow`，相关测试 44/44 和前端构建通过。
+  - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, support package and `git diff --check` passed.
+  - Full frontend baseline: 695/701 passed; the same six workspace-context contract failures remain unchanged from clean `origin/develop`.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-production-flow-page.md`.
+- Deployment: application commit `ab04691e15c2e077796628c19cd741845e06ae53` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712165510`. `erp_orderapp` up、`erp_postgres` healthy；生产流程、旧生产计划、旧生产验收和 PR-533 API 返回 200，recent error lines 0。浏览器确认生产管理只显示一个生产流程入口，五个 Tab 可切换并读取既有数据，生产手册位于菜单最后，生产顶部导航已收敛，地址稳定保留 `view=productionFlow`，console errors 0。
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本需求只整合入口和页面容器，不修改计划、工单、工序卡、质检或验收的业务规则；旧路由继续兼容。
+
+### PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION
+- Branch: codex/production-system-menu-consolidation-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: merged to develop; development deployed and smoke verified
+- Scope: 系统设置从设置栏移动到系统栏；生产管理新增生产配置三 Tab，归并工艺路线、工序、工位/设备；移除生产成本的常规菜单和顶部切换入口；生产计划/开始生产改名为生产计划。
+- DEV:
+  - DEV-532-SYSTEM-SETTINGS-MENU：系统设置归入系统栏。
+  - DEV-532-PRODUCTION-CONFIG-TABS：新增生产配置页面并组合三项制造主数据。
+  - DEV-532-PRODUCTION-MENU-CLEANUP：移除生产成本常规入口并精简生产计划名称，保留旧路由和数据/API 兼容。
+  - DEV-532-DOCS-DEPLOY：同步权限、需求、验收和操作手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/production-system-menu-consolidation.test.js` 0/5 passed：系统设置仍在设置栏，生产配置页面/路由缺失，三个制造主档和生产成本仍是独立菜单，生产计划仍使用旧名称。
+  - GREEN targeted: production menu/config/workstation/process tests passed 34/34; authz and support contract tests passed; `npm run build` passed.
+  - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, support package and `git diff --check` passed.
+  - Full frontend baseline: 669/675 passed; the same six workspace-context contract failures remain unchanged from clean `origin/develop`.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-production-system-menu-consolidation.md`.
+- Deployment: application commit `1559f1f8322c8f8f05fa5e3258c3c310d5f5ce47` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712160355`. `erp_orderapp` up、`erp_postgres` healthy；生产配置、系统设置、旧生产成本路由和 PR-532 API 返回 200，recent error lines 0。浏览器确认系统设置只在系统栏，生产配置三个 Tab 均可切换并读取既有数据，生产菜单显示生产计划且无三个独立配置或生产成本入口，生产顶部切换条无成本入口。
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本需求删除的是常规导航入口，不删除生产成本记录、API 或工单追溯中的上下文查看能力；旧制造主档和生产成本直达路由继续兼容。
+
+### PR-531-SETTINGS-ENTRY-CONSOLIDATION
+- Branch: codex/settings-entry-consolidation-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: merged to develop; development deployed and smoke verified
+- Scope: 公章设置并入公司设置；代加工模板设置从主菜单删除；成本参数设置并入商品价格管理。保留旧直达路由和既有数据/API 作为兼容入口。
+- DEV:
+  - DEV-531-COMPANY-SEAL-SETTINGS：公司设置组合共享公章资产设置。
+  - DEV-531-COSTING-SETTINGS-IN-PRICE-MANAGEMENT：商品价格管理组合成本参数设置。
+  - DEV-531-REMOVE-OUTSOURCE-MENU：主菜单移除代加工模板和独立成本参数入口，保留历史直达路由。
+  - DEV-531-AUDIT-DOCS-DEPLOY：更新审计归属、需求验收和手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/settings-entry-consolidation.test.js` 3/4 failed：旧菜单仍显示成本参数与代加工模板，公司设置未组合公章，商品价格管理未组合成本参数。
+  - GREEN targeted: settings-entry/menu/product tests passed 172/172; support package and audit contract tests passed; `npm run build` passed.
+  - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
+  - Full frontend baseline: 664/670 passed; the six workspace-context contract failures are the unchanged baseline already reproduced on clean `origin/develop` for PR-530.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+- Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-settings-entry-consolidation.md`.
+- Deployment: application commit `25563b1dcc9b5e7bad23663b23d8e900b134375a` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712150950`. `erp_orderapp` up、`erp_postgres` healthy；公司设置、商品价格管理和 PR-531 API 返回 200，recent error lines 0。浏览器确认公司设置同页显示公章且无无效关闭按钮，商品价格管理同页显示成本参数和价格计算模板，主菜单无独立成本参数或代加工模板入口。
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本需求整理入口与页面组合，不删除代加工模板数据/API；旧 `outsourceSettings`、`costingSettings` 地址继续兼容。
+
+### PR-530-BUSINESS-SETTINGS-IA
+- Branch: codex/business-settings-ia-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: merged to develop; development deployed and smoke verified
+- Scope: 左侧 `商品与配方` 改名为 `商品`；新增 `业务设置` 页面，以 Tab 集中销售单设置、物流设置、发货人设置、分组模板和全局单位字典；通知设置进入系统设置 Tab；设备产能配置从主菜单删除。
+- DEV:
+  - DEV-530-PRODUCT-MENU-RENAME：商品一级菜单改名且保留商品档案、价格管理和价格表入口。
+  - DEV-530-BUSINESS-SETTINGS-TABS：新增业务设置五 Tab 页面并从主菜单移除五个分散入口。
+  - DEV-530-SYSTEM-NOTIFICATION-TAB：系统设置增加通知设置 Tab，并把全局单位字典迁到业务设置。
+  - DEV-530-MENU-CLEANUP-COMPAT：删除设备产能主菜单入口，保留既有设置直达路由以兼容历史链接。
+  - DEV-530-DOCS-DEPLOY：同步需求、验收和操作手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/business-settings-ia.test.js` 4/4 failed：旧商品菜单名、业务设置页面和全局单位组件缺失，App 未注册业务设置路由。
+  - GREEN targeted: business settings/menu/group/product/BOM/material/manual frontend tests passed 230/230; `npm run build` passed.
+  - GREEN backend/support: `go test ./internal/interfaces/http/support -count=1`, `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
+  - Full frontend baseline: 681/687 passed; the same six workspace-context contract failures reproduce unchanged on clean `origin/develop` (`dde51bc1`).
+  - Manual: `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-business-settings-ia.md`
+- Deployment: application commit `f5b4421e06095c82a6d150fe9af94bda68e9c317` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712143617`. `erp_orderapp` up、`erp_postgres` healthy；开发地址未认证返回 303，认证业务设置、系统设置、auth/me 和 PR API 返回 200，PR-530 marker 存在，recent error lines 0。浏览器确认 `商品`、业务设置五个 Tab、系统设置通知 Tab 正常，主菜单无分散子设置和设备产能配置，console errors 0。
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本次只整理入口和页面组合，不删除设备产能数据/API；历史设置路由继续可访问。
+
+### PR-529-GROUP-TEMPLATE-CATEGORY-DELETE
+- Branch: codex/group-template-category-delete-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: merged to develop; development deployed and smoke verified
+- Scope: 分组模板的大类、小类统一使用删除，不提供分类启用/停用；删除小类时删除该分类，删除大类时递归删除其全部小类，所有引用受影响分类的商品、BOM、仓库、物料等业务对象自动回到当前模板的 `未分类`。
+- DEV:
+  - DEV-529-CATEGORY-DELETE-UI：大类和小类提供明确删除入口、影响提示和删除结果，移除分类启用开关及停用文案。
+  - DEV-529-CATEGORY-DELETE-REPOSITORY：事务内递归定位分类树，把引用归类改为 `group_item_id=0` 后物理删除分类行，并写操作日志。
+  - DEV-529-DOCS-DEPLOY：同步需求、验收、操作手册，合并 develop 并部署 development。
+- Verifier:
+  - RED frontend: `node --test src/lib/group-template-category-delete.test.js` 因页面仍包含 `确认停用分类`、分类启用开关且小类无删除入口失败。
+  - RED repository: `go test ./internal/infrastructure/postgres/catalog -run TestDeleteBusinessGroupItemPhysicallyDeletesTreeAndUncategorizesAssignments -count=1` 因仓储仍使用 `active=false` 且缺少物理删除失败。
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev529GroupTemplateCategory -count=1` 因 PR/DEV/文档和删除合同标记缺失失败。
+  - GREEN frontend: `node --test src/lib/group-template-category-delete.test.js src/lib/group-settings-separation.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/materials-ui.test.js` passed 189/189.
+  - GREEN repository/API: catalog application, handler, PostgreSQL repository and support packages passed; `TestDeleteBusinessGroupItemPhysicallyDeletesTreeAndUncategorizesAssignments` confirms physical delete plus assignment fallback.
+  - GREEN build/backend: `npm run build`, `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend` and `git diff --check` passed.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-group-template-category-delete.md`
+- Deployment: application commit `2ad8c14c3d1435461ed446cf20c367bd2b95f621` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712135112`. Containers healthy; unauthenticated dev app returned 303, authenticated group/requirement APIs returned 200, PR-529 marker present, recent error lines 0. Real API/database smoke passed small-category delete, recursive primary-category delete, three assignment fallbacks to `group_item_id=0`, two audit rows, and complete test-data cleanup. Browser showed delete actions for both levels, no activation checkbox or enable/deactivate text, console errors 0.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 不删除业务对象、不改变库存、BOM、价格表快照或历史单据；只删除当前分类主数据并把实时归类关系回到未分类。
+
 ### PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS
 - Branch: codex/separate-group-template-system-settings-20260711
 - Owner/session: Codex / 2026-07-11

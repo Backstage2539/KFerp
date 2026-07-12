@@ -9,14 +9,25 @@
 
 ## 0.0.0 PR-528 分组模板与系统设置页面分离
 - [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=groupTemplates` 只显示分组模板列表、模板表单和大类/小类维护，不显示系统设置开关或全局单位字典。
-- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：`view=uiSettings` 只显示系统设置和全局单位字典；系统设置页面不显示分组模板，也不调用 `/api/business-groups*`。
+- [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-530-BUSINESS-SETTINGS-IA：`view=uiSettings` 显示系统基础设置和通知设置；系统设置页面不显示分组模板或全局单位字典，也不调用 `/api/business-groups*`。
 - [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：旧 `view=groupManagement` 继续兼容打开独立分组模板页面，不再打开系统设置融合页。
 - [ ] PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：开发和生产部署后两个入口均可独立刷新、保存，既有模板、分类和业务归类数据保持不变。
 
 ## 0.0.0 PR-453 商品 / BOM / 仓库库存分组模板统一
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：独立 `分组模板` 页面只维护模板名、大类、小类、排序和备注，不展示系统设置、对象列表、对象勾选、对象数量或 `移动到分类`；模板表单不出现启用/停用，编辑已有模板时出现 `删除模板`。
 - [ ] PR-455-GROUP-TEMPLATE-DELETE：点击 `删除模板` 会删除模板、该模板下大类/小类、用途和对象归类并写操作日志；删除后商品档案、生产 BOM、仓库库存和商品价格表不再能选择该模板。
-- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品模块普通菜单不显示 `分组管理`；旧 `groupManagement` 路由仍能兼容打开独立分组模板页面。
+- [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：分组模板分类编辑区不显示分类 `启用` 开关或 `停用` 文案；每个大类和小类都有 `删除` 入口。
+- [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：删除小类后，该小类从模板结构中消失，原来引用该小类的业务对象自动进入当前模板 `未分类`；业务对象本身、库存、BOM 和历史单据不删除。
+- [ ] PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：删除大类后，该大类和全部小类从模板结构中消失，引用大类或任一子类的业务对象全部自动进入当前模板 `未分类`；操作日志记录删除分类、删除行数和归入未分类的引用数量。
+- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-530-BUSINESS-SETTINGS-IA：商品模块普通菜单不显示 `分组管理`；`业务设置 / 分组模板` Tab 打开独立分组模板组件，旧 `groupTemplates`、`groupManagement` 路由仍能兼容打开该页面。
+- [ ] PR-530-BUSINESS-SETTINGS-IA：左侧一级菜单显示 `商品`，不显示 `商品与配方`；设置菜单只显示一个 `业务设置` 入口承载销售单设置、物流设置、发货人设置、分组模板和全局单位字典五个 Tab。
+- [ ] PR-530-BUSINESS-SETTINGS-IA：系统设置包含系统基础设置和通知设置两个 Tab；设置菜单不再独立显示通知配置或设备产能配置，旧设置和设备产能直达路由仍兼容且既有数据不变。
+- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：公司设置同时展示公司资料和公章设置；商品价格管理同时展示成本参数设置和价格计算模板；主菜单不显示独立公章、成本参数或代加工模板入口。
+- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：旧 `costingSettings`、`outsourceSettings` 地址仍能打开原功能，既有配置和模板数据不变。
+- [ ] PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION：系统设置只在系统栏显示；生产配置包含工艺路线、工序、工位/设备三个 Tab；生产成本不在主菜单或生产顶部切换条显示；生产计划使用精简名称。
+- [ ] PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION：旧 `processTemplates`、`manufacturingOperations`、`manufacturingWorkstations`、`productionCosts` 地址仍可访问，既有主数据、成本记录和 API 不变。
+- [ ] PR-533-PRODUCTION-FLOW-PAGE：生产管理侧栏只显示一个生产流程入口承载生产计划、生产工单、工序卡、生产质检、生产验收五个 Tab；生产顶部切换条同步收敛，生产手册位于菜单最后。
+- [ ] PR-533-PRODUCTION-FLOW-PAGE：旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址仍可访问，既有流程和数据不变。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案不出现分类过滤 Tab，商品表格不出现 `分类` 列；分类归属只通过分组标题表达。

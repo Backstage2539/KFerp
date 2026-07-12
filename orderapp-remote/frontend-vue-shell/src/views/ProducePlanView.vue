@@ -6,7 +6,7 @@
     @pointerup="stopTableScrollDrag"
     @pointercancel="stopTableScrollDrag"
   >
-    <ProductionTopNav active-key="producePlan" />
+    <ProductionTopNav v-if="!props.embedded" active-key="producePlan" />
 
     <section class="panel">
       <div class="panel-head">
@@ -739,6 +739,7 @@ import {
 import { replaceHistoryURL } from '../lib/url-state'
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   viewParams: { type: Object, default: () => ({}) },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
@@ -906,7 +907,7 @@ function replaceSelectedProductionPlans(nextSelected) {
 
 function updateUrl(plan) {
   const url = new URL(window.location.href)
-  url.searchParams.set('view', 'producePlan')
+  if (!props.embedded) url.searchParams.set('view', 'producePlan')
   if (filters.from) url.searchParams.set('from', filters.from)
   else url.searchParams.delete('from')
   if (filters.to) url.searchParams.set('to', filters.to)

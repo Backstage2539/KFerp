@@ -82,19 +82,23 @@
               </button>
               <div class="category-actions">
                 <button class="secondary compact-action" type="button" @click="startGroupTemplateCategoryCreate(primary.id)">新增小类</button>
-                <button class="text-button danger-text" type="button" @click="deleteGroupTemplateCategory(primary)">停用</button>
+                <button class="text-button danger-text" type="button" @click="deleteGroupTemplateCategory(primary)">删除</button>
               </div>
             </div>
             <div class="category-children">
-              <button
+              <div
                 v-for="child in primary.children"
                 :key="child.id"
-                class="category-child"
-                type="button"
-                @click="startGroupTemplateCategoryEdit(child)">
-                <span>{{ child.name }}</span>
-                <small>小类</small>
-              </button>
+                class="category-child-row">
+                <button
+                  class="category-child"
+                  type="button"
+                  @click="startGroupTemplateCategoryEdit(child)">
+                  <span>{{ child.name }}</span>
+                  <small>小类</small>
+                </button>
+                <button class="text-button danger-text" type="button" @click="deleteGroupTemplateCategory(child)">删除</button>
+              </div>
             </div>
           </article>
           <p v-if="!selectedGroupTemplateTree.length" class="muted">暂无大类，先新增大类。</p>
@@ -125,15 +129,12 @@
             <span>排序</span>
             <input v-model.number="groupTemplateCategoryForm.sort_order" type="number" min="0" step="1" />
           </label>
-          <label class="checkline">
-            <input v-model="groupTemplateCategoryForm.active" type="checkbox" />
-            <span>启用</span>
-          </label>
           <label class="wide-field">
             <span>备注</span>
             <input v-model.trim="groupTemplateCategoryForm.remark" placeholder="分类备注" />
           </label>
           <div class="actions form-actions">
+            <button v-if="groupTemplateCategoryForm.id" class="text-button danger-text" type="button" :disabled="groupTemplateSaving || loading" @click="deleteGroupTemplateCategory(groupTemplateCategoryForm)">删除分类</button>
             <button class="primary" type="submit" :disabled="groupTemplateSaving || loading">
               {{ groupTemplateSaving ? '保存中' : '保存分类' }}
             </button>
@@ -184,7 +185,6 @@ function defaultGroupTemplateCategory(item = {}) {
     name: String(item.name || '').trim(),
     code: String(item.code || '').trim(),
     remark: String(item.remark || '').trim(),
-    active: item.active !== false,
     sort_order: Number(item.sort_order || 100),
   }
 }
@@ -217,7 +217,6 @@ function startGroupTemplateCategoryCreate(parentID) {
     group_id: selectedGroupTemplateID.value,
     parent_id: Number(parentID || 0),
     sort_order: 100,
-    active: true,
   }))
   originalGroupTemplateCategoryParentID.value = Number(parentID || 0)
 }
@@ -325,7 +324,6 @@ async function saveGroupTemplateCategory() {
     name: String(groupTemplateCategoryForm.name || '').trim(),
     code: String(groupTemplateCategoryForm.code || '').trim(),
     remark: String(groupTemplateCategoryForm.remark || '').trim(),
-    active: groupTemplateCategoryForm.active !== false,
     sort_order: Number(groupTemplateCategoryForm.sort_order || 100),
   }
   if (!payload.group_id) {
@@ -358,17 +356,22 @@ async function saveGroupTemplateCategory() {
 async function deleteGroupTemplateCategory(item) {
   const id = Number(item?.id || 0)
   if (!id) return
-  if (typeof window !== 'undefined' && !window.confirm(`确认停用分类「${item.name || id}」？`)) return
+  const name = item?.name || id
+  const isPrimary = Number(item?.parent_id || item?.parentID || 0) === 0
+  const confirmation = isPrimary
+    ? `确认删除大类「${name}」？该大类及其所有小类会被删除，相关业务对象会自动归入未分类。`
+    : `确认删除小类「${name}」？相关业务对象会自动归入未分类。`
+  if (typeof window !== 'undefined' && !window.confirm(confirmation)) return
   groupTemplateSaving.value = true
   error.value = ''
   ok.value = ''
   try {
     await apiSend(`/api/business-group-items/${id}`, { method: 'DELETE' })
-    ok.value = '分类已停用'
+    ok.value = '分类已删除，相关业务对象已自动归入未分类'
     resetGroupTemplateCategoryForm()
     await loadGroupTemplates()
   } catch (err) {
-    error.value = err.message || '停用分类失败'
+    error.value = err.message || '删除分类失败'
   } finally {
     groupTemplateSaving.value = false
   }
@@ -409,8 +412,6 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .group-template-form label, .category-form label { display: grid; gap: 5px; font-size: 13px; color: #333; }
 .group-template-form input, .group-template-form select, .category-form input, .category-form select { min-height: 36px; border: 1px solid #d7dde6; border-radius: 6px; padding: 6px 8px; background: #fff; }
 .wide-field { grid-column: 1 / -1; }
-.checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
-.checkline input { width: auto; min-height: 0; }
 .form-actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: 0; }
 .category-editor { display: grid; gap: 12px; margin-top: 14px; border-top: 1px solid #eef2f7; padding-top: 14px; }
 .category-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -423,6 +424,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .category-name small { color: #667085; }
 .category-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .category-children { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+.category-child-row { display: flex; align-items: center; gap: 6px; }
 .category-child { display: grid; gap: 2px; min-height: 38px; text-align: left; background: #fbfcfe; }
 .category-child small { color: #667085; font-size: 12px; }
 .muted { color: #777; }

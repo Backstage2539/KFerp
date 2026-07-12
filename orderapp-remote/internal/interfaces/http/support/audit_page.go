@@ -226,7 +226,7 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "设置 / 公司设置", "保存公司设置"
 	case "sales_order_settings":
 		if field == "seal_asset_id" {
-			return "设置 / 销售单设置", "选择/上传共享公章"
+			return "设置 / 公司设置 / 公章设置", "选择/上传共享公章"
 		}
 		return "设置 / 销售单设置", "保存销售单设置"
 	case "sales_order_asset":
@@ -262,7 +262,7 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 	case "stock_adjustment":
 		return "库存管理 / 库存作业", "提交库存调整"
 	case "cost_parameter":
-		return "设置 / 成本参数设置", "保存成本参数"
+		return "商品 / 商品价格管理 / 成本参数设置", "保存成本参数"
 	case "bean_list_publication":
 		switch action {
 		case "publish":
@@ -281,9 +281,9 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "生产管理 / 生产成本", "保存成本试算"
 	case "produce_batch":
 		if action == "update" {
-			return "生产管理 / 生产计划/开始生产", "扣减生产批次物料"
+			return "生产管理 / 生产流程 / 生产计划", "扣减生产批次物料"
 		}
-		return "生产管理 / 生产计划/开始生产", "创建生产批次"
+		return "生产管理 / 生产流程 / 生产计划", "创建生产批次"
 	case "produce_running":
 		if action == "cancel" {
 			return "生产管理 / 生产中", "取消生产"
@@ -322,9 +322,9 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	switch {
 	case strings.HasPrefix(target, "/api/costing/settings"):
 		if method == "POST" {
-			return "设置 / 成本参数设置", "保存成本参数"
+			return "商品 / 商品价格管理 / 成本参数设置", "保存成本参数"
 		}
-		return "设置 / 成本参数设置", "查看成本参数"
+		return "商品 / 商品价格管理 / 成本参数设置", "查看成本参数"
 	case strings.HasPrefix(target, "/api/view-context/presets"):
 		if method == "POST" && strings.HasSuffix(target, "/disable") {
 			return "系统 / 当前视图", "停用保存视图"
@@ -436,8 +436,10 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	case strings.HasPrefix(target, "/api/settings/sales-order/payment-layout"):
 		return "设置 / 销售单设置", "保存收款版式"
 	case strings.HasPrefix(target, "/api/settings/sales-order/seal/select"):
-		return "设置 / 销售单设置", "选择共享公章"
-	case strings.HasPrefix(target, "/api/settings/sales-order/seal") || strings.HasPrefix(target, "/api/settings/sales-order/payment-codes"):
+		return "设置 / 公司设置 / 公章设置", "选择共享公章"
+	case strings.HasPrefix(target, "/api/settings/sales-order/seal"):
+		return "设置 / 公司设置 / 公章设置", "维护共享公章"
+	case strings.HasPrefix(target, "/api/settings/sales-order/payment-codes"):
 		return "设置 / 销售单设置", "维护销售单素材"
 	case strings.HasPrefix(target, "/api/settings/sales-order"):
 		if method == "POST" {
@@ -477,13 +479,13 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "系统 / 员工维护", "检查用户权限"
 	case strings.Contains(target, "/produce/quality-inspections"):
 		if method == "POST" {
-			return "生产管理 / 生产质检", "保存质检记录"
+			return "生产管理 / 生产流程 / 生产质检", "保存质检记录"
 		}
-		return "生产管理 / 生产质检", "查看质检记录"
+		return "生产管理 / 生产流程 / 生产质检", "查看质检记录"
 	case strings.Contains(target, "/produce/work-orders"):
-		return "生产管理 / 生产工单", "维护生产工单"
+		return "生产管理 / 生产流程 / 生产工单", "维护生产工单"
 	case strings.Contains(target, "/produce/job-cards"):
-		return "生产管理 / 工序卡", "维护工序卡"
+		return "生产管理 / 生产流程 / 工序卡", "维护工序卡"
 	case strings.Contains(target, "/produce/costs"):
 		return "生产管理 / 生产成本", "查看生产成本"
 	case strings.Contains(target, "/produce/running"):
@@ -497,7 +499,7 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	case strings.Contains(target, "/produce/allocations"):
 		return "生产管理 / 分配批次查看", "查看生产分配"
 	case strings.Contains(target, "/produce"):
-		return "生产管理 / 生产计划/开始生产", "处理生产计划"
+		return "生产管理 / 生产流程 / 生产计划", "处理生产计划"
 	case strings.Contains(target, "/req/"):
 		return operationRequirementMenu(target), "维护需求记录"
 	default:
