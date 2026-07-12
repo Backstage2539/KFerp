@@ -281,9 +281,9 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "生产管理 / 生产成本", "保存成本试算"
 	case "produce_batch":
 		if action == "update" {
-			return "生产管理 / 生产计划/开始生产", "扣减生产批次物料"
+			return "生产管理 / 生产计划", "扣减生产批次物料"
 		}
-		return "生产管理 / 生产计划/开始生产", "创建生产批次"
+		return "生产管理 / 生产计划", "创建生产批次"
 	case "produce_running":
 		if action == "cancel" {
 			return "生产管理 / 生产中", "取消生产"
@@ -499,7 +499,7 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 	case strings.Contains(target, "/produce/allocations"):
 		return "生产管理 / 分配批次查看", "查看生产分配"
 	case strings.Contains(target, "/produce"):
-		return "生产管理 / 生产计划/开始生产", "处理生产计划"
+		return "生产管理 / 生产计划", "处理生产计划"
 	case strings.Contains(target, "/req/"):
 		return operationRequirementMenu(target), "维护需求记录"
 	default:

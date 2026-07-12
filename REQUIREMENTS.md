@@ -632,3 +632,10 @@
 - `成本参数设置` 并入 `商品 / 商品价格管理`，与价格计算模板在同一工作台维护；主菜单不再显示独立成本参数入口。
 - `代加工模板设置` 从主菜单删除；既有代加工模板数据、API 和历史直达路由不删除。
 - 旧 `costingSettings` 和 `outsourceSettings` 地址继续兼容，避免历史收藏和内部链接失效。
+
+## 30. 生产与系统菜单归并（PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION）
+- `系统设置` 从 `设置` 栏移动到 `系统` 栏，系统设置页面内容和 `uiSettings` 路由不变。
+- `生产管理` 新增 `生产配置`，页面用 Tab 集中 `工艺路线`、`工序`、`工位/设备`；三项不再作为生产管理主菜单中的独立入口。
+- `生产成本` 从生产管理主菜单和生产模块顶部切换条删除；既有成本记录、API、工单追溯上下文入口和旧 `productionCosts` 直达路由保留。
+- `生产计划/开始生产` 菜单名称改为 `生产计划`，页面能力、步骤条和 `producePlan` 路由不变。
+- 旧 `processTemplates`、`manufacturingOperations`、`manufacturingWorkstations` 地址继续兼容。

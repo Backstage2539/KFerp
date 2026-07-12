@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION
+- Branch: codex/production-system-menu-consolidation-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: verified; awaiting integration and development deployment
+- Scope: 系统设置从设置栏移动到系统栏；生产管理新增生产配置三 Tab，归并工艺路线、工序、工位/设备；移除生产成本的常规菜单和顶部切换入口；生产计划/开始生产改名为生产计划。
+- DEV:
+  - DEV-532-SYSTEM-SETTINGS-MENU：系统设置归入系统栏。
+  - DEV-532-PRODUCTION-CONFIG-TABS：新增生产配置页面并组合三项制造主数据。
+  - DEV-532-PRODUCTION-MENU-CLEANUP：移除生产成本常规入口并精简生产计划名称，保留旧路由和数据/API 兼容。
+  - DEV-532-DOCS-DEPLOY：同步权限、需求、验收和操作手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/production-system-menu-consolidation.test.js` 0/5 passed：系统设置仍在设置栏，生产配置页面/路由缺失，三个制造主档和生产成本仍是独立菜单，生产计划仍使用旧名称。
+  - GREEN targeted: production menu/config/workstation/process tests passed 34/34; authz and support contract tests passed; `npm run build` passed.
+  - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, support package and `git diff --check` passed.
+  - Full frontend baseline: 669/675 passed; the same six workspace-context contract failures remain unchanged from clean `origin/develop`.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-production-system-menu-consolidation.md`.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本需求删除的是常规导航入口，不删除生产成本记录、API 或工单追溯中的上下文查看能力；旧制造主档和生产成本直达路由继续兼容。
+
 ### PR-531-SETTINGS-ENTRY-CONSOLIDATION
 - Branch: codex/settings-entry-consolidation-20260712
 - Owner/session: Codex / 2026-07-12

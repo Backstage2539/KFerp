@@ -93,21 +93,24 @@ test('production menu exposes high-frequency overview and workstation entries fi
   assert.equal(productionItems.find((item) => item.key === 'workstationView')?.label, '工位视图')
 })
 
-test('manufacturing route operation and workstation pages live in the production menu', () => {
+test('manufacturing master data lives in production configuration while legacy routes stay compatible', () => {
   const keys = primaryMenuKeys(menuGroups)
-  assert.ok(keys.includes('processTemplates'))
-  assert.ok(keys.includes('manufacturingOperations'))
-  assert.ok(keys.includes('manufacturingWorkstations'))
+  assert.ok(keys.includes('productionConfig'))
+  assert.equal(keys.includes('processTemplates'), false)
+  assert.equal(keys.includes('manufacturingOperations'), false)
+  assert.equal(keys.includes('manufacturingWorkstations'), false)
   assert.ok(keys.includes('bom'))
   assert.ok(keys.includes('productionSchedule'))
-  assert.equal(groupForView(menuGroups, 'processTemplates')?.id, 'production')
-  assert.equal(groupForView(menuGroups, 'manufacturingOperations')?.id, 'production')
-  assert.equal(groupForView(menuGroups, 'manufacturingWorkstations')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'productionConfig')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'processTemplates'), null)
+  assert.equal(groupForView(menuGroups, 'manufacturingOperations'), null)
+  assert.equal(groupForView(menuGroups, 'manufacturingWorkstations'), null)
   assert.equal(groupForView(menuGroups, 'bom')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'productionSchedule')?.id, 'production')
-  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'processTemplates')?.label, '工艺路线')
-  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'manufacturingOperations')?.label, '工序')
-  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'manufacturingWorkstations')?.label, '工位/设备')
+  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'productionConfig')?.label, '生产配置')
+  assert.equal(menuMap.processTemplates?.title, '工艺路线')
+  assert.equal(menuMap.manufacturingOperations?.title, '工序')
+  assert.equal(menuMap.manufacturingWorkstations?.title, '工位/设备')
   assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'productionSchedule')?.label, '生产排程')
 })
 
@@ -203,6 +206,7 @@ test('finance menu exposes monthly finance workflows as primary pages', () => {
 test('remaining ERP click-matrix targets reference real Vue shell views', () => {
   const remainingTargets = [
     'productionOverview',
+    'productionConfig',
     'workstationView',
     'workOrders',
     'jobCards',

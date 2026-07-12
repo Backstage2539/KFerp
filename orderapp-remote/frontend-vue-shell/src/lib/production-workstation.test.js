@@ -19,7 +19,6 @@ test('production top nav lists high-frequency views before legacy production pag
     'jobCards',
     'qualityInspections',
     'produceLogs',
-    'productionCosts',
   ])
   assert.equal(productionTopNavItems[0].label, '生产视图')
   assert.equal(productionTopNavItems[1].label, '工位视图')

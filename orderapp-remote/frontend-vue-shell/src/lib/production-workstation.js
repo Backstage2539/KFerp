@@ -7,7 +7,6 @@ export const productionTopNavItems = [
   { key: 'jobCards', label: '工序卡' },
   { key: 'qualityInspections', label: '质检' },
   { key: 'produceLogs', label: '日志' },
-  { key: 'productionCosts', label: '成本' },
 ]
 
 export function navItemsWithProductionBadges(items = productionTopNavItems, badges = {}) {

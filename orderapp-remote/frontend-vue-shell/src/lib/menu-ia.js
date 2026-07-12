@@ -29,17 +29,14 @@ export const menuGroups = [
       { key: 'workstationView', label: '工位视图', title: '工位视图' },
       { key: 'productionManual', label: '生产手册', title: '生产手册' },
       { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
-      { key: 'processTemplates', label: '工艺路线', title: '工艺路线' },
-      { key: 'manufacturingOperations', label: '工序', title: '工序' },
-      { key: 'manufacturingWorkstations', label: '工位/设备', title: '工位/设备' },
+      { key: 'productionConfig', label: '生产配置', title: '生产配置' },
       { key: 'bom', label: '生产 BOM', title: '生产 BOM' },
-      { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
+      { key: 'producePlan', label: '生产计划', title: '生产计划' },
       { key: 'workOrders', label: '生产工单', title: '生产工单' },
       { key: 'jobCards', label: '工序卡', title: '工序卡' },
       { key: 'productionSchedule', label: '生产排程', title: '生产排程' },
       { key: 'qualityInspections', label: '生产质检', title: '生产质检' },
       { key: 'produceLogs', label: '生产日志', title: '生产日志' },
-      { key: 'productionCosts', label: '生产成本', title: '生产成本' },
     ],
   },
   {
@@ -84,7 +81,6 @@ export const menuGroups = [
     items: [
       { key: 'companyProfile', label: '公司设置', title: '公司设置' },
       { key: 'businessSettings', label: '业务设置', title: '业务设置' },
-      { key: 'uiSettings', label: '系统设置', title: '系统设置' },
       { key: 'industryFieldTemplates', label: '行业设置', title: '行业字段模板' },
       { key: 'notificationManual', label: '通知手册', title: '通知配置手册' },
       { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },
@@ -94,6 +90,7 @@ export const menuGroups = [
     id: 'system',
     name: '系统',
     items: [
+      { key: 'uiSettings', label: '系统设置', title: '系统设置' },
       { key: 'departments', label: '部门维护', title: '部门维护' },
       { key: 'employees', label: '员工维护', title: '员工维护' },
       { key: 'audit', label: '操作日志', title: '操作日志' },
@@ -114,6 +111,10 @@ export const menuGroups = [
 ]
 
 export const hiddenViewTitles = {
+  processTemplates: '工艺路线',
+  manufacturingOperations: '工序',
+  manufacturingWorkstations: '工位/设备',
+  productionCosts: '生产成本',
   costingSettings: '成本参数设置',
   outsourceSettings: '代加工模板设置',
   machines: '设备产能配置',
