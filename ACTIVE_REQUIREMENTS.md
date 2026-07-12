@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
 - Branch: codex/cost-parameters-pricing-tabs-20260712
 - Owner/session: Codex / 2026-07-12
-- Status: merged to develop; replacement development deployment and server smoke verified
+- Status: merged to develop/main; development and production deployed and smoke verified
 - Scope: 删除已经过时的成本参数设置：商品价格管理不再显示成本参数 Tab，商品价格表不再显示参数设置/快捷抽屉，旧 `costingSettings` 页面和对应 Vue 组件、前端 helper 一并删除。
 - DEV:
   - DEV-535-REMOVE-COST-PARAMETER-UI：删除商品价格管理、商品价格表和旧直达页的全部成本参数维护入口及前端实现。
@@ -25,6 +25,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Development deploy: `origin/develop=1d988ca8a653a0465ed8c81742aaa39e5e9752dd`; Docker build gate `go test ./...` passed; backup `/opt/stacks/erp/orderapp.backup.deploy-20260713000119`.
   - Server smoke: `erp_orderapp` running, `erp_postgres` healthy; authenticated product price management shell and requirement API returned 200; PR-535 marker and Pricing Rule list/trial/form source markers present; cost parameter UI/route markers absent; recent error lines 0.
   - Browser limitation: development hostname currently stops at `ERR_CERT_AUTHORITY_INVALID`; no certificate warning bypass was used. Server-side authenticated page/API and deployed-source smoke provide the deployment evidence.
+  - Production deploy: `origin/main=57f01fed48e74e3c88df45a8aa6a30c17061c5dd`; Docker build gate `go test ./...` passed; backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260713002103`.
+  - Production smoke: `erp_prod_orderapp` running, `erp_prod_postgres` healthy, production Caddy owns public 443; unauthenticated app returned 401 and authenticated product price management returned 200. Deployed source retains Pricing Rule list/trial/form markers and contains no obsolete cost-parameter UI/route markers; recent error lines 0.
+  - Production browser: 商品价格管理显示价格计算模板、价格试算和新建价格计算模板且不显示成本参数；商品价格表没有参数设置按钮或快速成本参数区域；console errors 0.
 - Last update: 2026-07-13 Asia/Shanghai
 - Notes: 不删除数据库中的历史参数值，也不改变旧成本记录或后台兼容 API；删除的是所有用户可操作入口和已无用途的前端实现。
 
