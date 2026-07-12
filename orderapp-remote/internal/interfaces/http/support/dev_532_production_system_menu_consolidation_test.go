@@ -15,7 +15,7 @@ func TestDev532ProductionSystemMenuConsolidationContracts(t *testing.T) {
 			"生产配置", "ProcessTemplatesView", "ManufacturingOperationsView", "ManufacturingWorkstationsView",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"): {
-			"key: 'productionConfig', label: '生产配置'", "key: 'producePlan', label: '生产计划'", "productionCosts: '生产成本'",
+			"key: 'productionConfig', label: '生产配置'", "producePlan: '生产计划'", "productionCosts: '生产成本'",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"):                                                  {"PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION"},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                              {"PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION"},

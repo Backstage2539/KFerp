@@ -796,3 +796,10 @@
 - [ ] 生产管理主菜单和生产模块顶部切换条不显示生产成本；工单追溯上下文及旧 `productionCosts` 地址仍可读取既有成本数据。
 - [ ] 生产菜单显示 `生产计划`，不显示 `生产计划/开始生产`；打开后原生产计划步骤和功能不变。
 - [ ] 旧 `processTemplates`、`manufacturingOperations`、`manufacturingWorkstations` 地址仍可访问且既有配置不变。
+
+### K31. 生产流程页面归并（PR-533-PRODUCTION-FLOW-PAGE）
+- [ ] 生产管理侧栏显示 `生产流程`，不再独立显示生产计划、生产工单、工序卡、生产质检、生产验收。
+- [ ] 打开生产流程后可依次切换生产计划、生产工单、工序卡、生产质检、生产验收五个 Tab，且不重复显示嵌套的生产模块顶部导航。
+- [ ] 生产页面顶部切换条显示 `生产流程`，不再分别显示生产计划、工单、工序卡、质检。
+- [ ] 生产手册位于生产管理菜单最后一项。
+- [ ] 旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址仍可访问，既有业务数据和操作能力不变。

@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <ProductionTopNav active-key="workOrders" />
+    <ProductionTopNav v-if="!props.embedded" active-key="workOrders" />
 
     <section class="panel no-print">
       <div class="panel-head">
@@ -240,6 +240,7 @@ import {
 } from '../lib/work-orders'
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   viewParams: { type: Object, default: () => ({}) },
 })
 

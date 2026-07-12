@@ -6,7 +6,7 @@
     @pointerup="stopTableScrollDrag"
     @pointercancel="stopTableScrollDrag"
   >
-    <ProductionTopNav active-key="producePlan" />
+    <ProductionTopNav v-if="!props.embedded" active-key="producePlan" />
 
     <section class="panel">
       <div class="panel-head">
@@ -739,6 +739,7 @@ import {
 import { replaceHistoryURL } from '../lib/url-state'
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   viewParams: { type: Object, default: () => ({}) },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },

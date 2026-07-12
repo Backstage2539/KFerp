@@ -27,16 +27,12 @@ export const menuGroups = [
     items: [
       { key: 'productionOverview', label: '生产视图', title: '生产视图' },
       { key: 'workstationView', label: '工位视图', title: '工位视图' },
-      { key: 'productionManual', label: '生产手册', title: '生产手册' },
-      { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
       { key: 'productionConfig', label: '生产配置', title: '生产配置' },
       { key: 'bom', label: '生产 BOM', title: '生产 BOM' },
-      { key: 'producePlan', label: '生产计划', title: '生产计划' },
-      { key: 'workOrders', label: '生产工单', title: '生产工单' },
-      { key: 'jobCards', label: '工序卡', title: '工序卡' },
+      { key: 'productionFlow', label: '生产流程', title: '生产流程' },
       { key: 'productionSchedule', label: '生产排程', title: '生产排程' },
-      { key: 'qualityInspections', label: '生产质检', title: '生产质检' },
       { key: 'produceLogs', label: '生产日志', title: '生产日志' },
+      { key: 'productionManual', label: '生产手册', title: '生产手册' },
     ],
   },
   {
@@ -111,6 +107,11 @@ export const menuGroups = [
 ]
 
 export const hiddenViewTitles = {
+  producePlan: '生产计划',
+  workOrders: '生产工单',
+  jobCards: '工序卡',
+  qualityInspections: '生产质检',
+  productionAcceptance: '生产验收',
   processTemplates: '工艺路线',
   manufacturingOperations: '工序',
   manufacturingWorkstations: '工位/设备',

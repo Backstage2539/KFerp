@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-533-PRODUCTION-FLOW-PAGE
+- Branch: codex/production-flow-page-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: verified; awaiting integration and development deployment
+- Scope: 生产管理新增生产流程页面，用 Tab 集中生产计划、生产工单、工序卡、生产质检、生产验收；五项从侧栏和生产顶部导航独立入口移除；生产手册移动到生产管理菜单最底部。
+- DEV:
+  - DEV-533-PRODUCTION-FLOW-TABS：新增生产流程五 Tab 页面，并复用现有 Vue 功能组件。
+  - DEV-533-NAVIGATION-CONSOLIDATION：侧栏和生产顶部导航收敛为生产流程，生产手册排在生产管理末尾。
+  - DEV-533-LEGACY-ROUTE-COMPAT：保留五项旧直达路由、页面能力和既有数据/API。
+  - DEV-533-DOCS-DEPLOY：同步权限、审计、需求验收和生产手册，合并 develop 并部署 development。
+- Verifier:
+  - RED: `node --test src/lib/production-flow-page.test.js` 0/5 passed：生产流程页面/路由缺失，五项仍是独立菜单，生产顶部导航未收敛，嵌入页面会重复显示模块导航。
+  - GREEN targeted: production flow/menu/top-nav/plan/work-order/quality tests passed 83/83; authz and support contract tests passed; `npm run build` passed.
+  - GREEN broader: `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, support package and `git diff --check` passed.
+  - Full frontend baseline: 695/701 passed; the same six workspace-context contract failures remain unchanged from clean `origin/develop`.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-production-flow-page.md`.
+- Last update: 2026-07-12 Asia/Shanghai
+- Notes: 本需求只整合入口和页面容器，不修改计划、工单、工序卡、质检或验收的业务规则；旧路由继续兼容。
+
 ### PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION
 - Branch: codex/production-system-menu-consolidation-20260712
 - Owner/session: Codex / 2026-07-12

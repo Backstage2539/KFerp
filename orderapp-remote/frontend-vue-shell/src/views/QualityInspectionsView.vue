@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <ProductionTopNav active-key="qualityInspections" />
+    <ProductionTopNav v-if="!props.embedded" active-key="qualityInspections" />
 
     <section class="panel">
       <div class="panel-head">
@@ -228,6 +228,7 @@ import {
 } from '../lib/quality-inspections'
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   viewParams: { type: Object, default: () => ({}) },
 })
 

@@ -17,6 +17,7 @@
 - PR-530-BUSINESS-SETTINGS-IA：左侧 `商品与配方` 改名为 `商品`。设置菜单新增 `业务设置`，用 Tab 集中销售单设置、物流设置、发货人设置、分组模板、全局单位字典；系统设置用 Tab 集中系统基础设置和通知设置。上述子设置、通知配置和设备产能配置不再作为主菜单独立入口；设备产能数据/API 不删除，旧子设置和设备产能直达路由继续兼容。
 - PR-531-SETTINGS-ENTRY-CONSOLIDATION：`公章设置` 并入 `设置 / 公司设置`；`成本参数设置` 并入 `商品 / 商品价格管理`；主菜单删除 `代加工模板设置` 和独立成本参数入口。公章、成本参数和代加工模板既有数据/API 不删除，旧 `costingSettings`、`outsourceSettings` 路由继续兼容。
 - PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION：`系统设置` 移到 `系统` 栏；`生产管理 / 生产配置` 用 Tab 集中工艺路线、工序、工位/设备；生产成本从主菜单和生产顶部切换条移除；`生产计划/开始生产` 改名为 `生产计划`。旧制造主档、生产成本直达路由以及既有数据/API 继续兼容，生产成本仍可从工单追溯上下文进入。
+- PR-533-PRODUCTION-FLOW-PAGE：`生产管理 / 生产流程` 用 Tab 集中生产计划、生产工单、工序卡、生产质检、生产验收；五项从侧栏独立入口移除，生产顶部切换条改用生产流程统一入口，生产手册排在生产管理菜单最后。旧五项直达路由、既有数据/API 和业务规则继续兼容。
 - PR-528 保留的组件边界：分组模板与系统设置仍是两个独立 Vue 页面；PR-530 只在业务设置中组合分组模板组件，不把分组状态或 API 合回系统设置。
 - PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：分组模板的大类和小类不提供启用/停用，统一使用删除。删除小类时物理删除该小类；删除大类时递归物理删除该大类及其全部小类。删除前先把所有引用受影响分类的当前业务归类改为该模板的 `未分类`（`group_item_id=0`），覆盖商品、生产 BOM、仓库、物料及其他使用通用归类关系的功能；不得删除业务对象或回改价格表、订单、BOM、工单等历史快照。删除必须写操作日志。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-513-MATERIAL-CLASSIFICATION-TEMPLATE：商品档案、物料档案、生产 BOM、仓库库存页面必须先选择 `分组模板`，选择后才显示业务列表分类整理和 `移动到分类`。移动目标支持 `未分类`、大类和小类，移动直接覆盖该使用场景下的旧归类并写入 `business_group_assignments`。`usage_key` 只表示内部使用场景：`product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`、`price_list`。

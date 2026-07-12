@@ -28,11 +28,8 @@ test('production menu consolidates manufacturing master data and removes product
 })
 
 test('production plan menu uses the concise label', () => {
-  const production = menuGroups.find((group) => group.id === 'production')
-  const plan = production?.items.find((item) => item.key === 'producePlan')
-
-  assert.equal(plan?.label, '生产计划')
-  assert.equal(plan?.title, '生产计划')
+  assert.equal(menuMap.producePlan?.title, '生产计划')
+  assert.equal(primaryMenuKeys(menuGroups).includes('producePlan'), false)
 })
 
 test('production configuration page groups route operation and workstation tabs', () => {

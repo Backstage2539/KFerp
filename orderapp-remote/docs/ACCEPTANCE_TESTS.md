@@ -26,6 +26,8 @@
 - [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：旧 `costingSettings`、`outsourceSettings` 地址仍能打开原功能，既有配置和模板数据不变。
 - [ ] PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION：系统设置只在系统栏显示；生产配置包含工艺路线、工序、工位/设备三个 Tab；生产成本不在主菜单或生产顶部切换条显示；生产计划使用精简名称。
 - [ ] PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION：旧 `processTemplates`、`manufacturingOperations`、`manufacturingWorkstations`、`productionCosts` 地址仍可访问，既有主数据、成本记录和 API 不变。
+- [ ] PR-533-PRODUCTION-FLOW-PAGE：生产管理侧栏只显示一个生产流程入口承载生产计划、生产工单、工序卡、生产质检、生产验收五个 Tab；生产顶部切换条同步收敛，生产手册位于菜单最后。
+- [ ] PR-533-PRODUCTION-FLOW-PAGE：旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址仍可访问，既有流程和数据不变。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案不出现分类过滤 Tab，商品表格不出现 `分类` 列；分类归属只通过分组标题表达。

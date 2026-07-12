@@ -204,6 +204,7 @@ import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
+import ProductionFlowView from './views/ProductionFlowView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
 import ProductionOverviewView from './views/ProductionOverviewView.vue'
 import ProductionScheduleView from './views/ProductionScheduleView.vue'
@@ -405,6 +406,7 @@ const internalViews = {
   financeSettings: FinanceSettingsView,
   financeManual: OperationManualView,
   producePlan: ProducePlanView,
+  productionFlow: ProductionFlowView,
   productionOverview: ProductionOverviewView,
   workstationView: WorkstationView,
   productionAcceptance: ProductionAcceptanceView,

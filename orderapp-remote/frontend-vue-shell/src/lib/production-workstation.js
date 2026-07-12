@@ -1,11 +1,8 @@
 export const productionTopNavItems = [
   { key: 'productionOverview', label: '生产视图' },
   { key: 'workstationView', label: '工位视图' },
-  { key: 'producePlan', label: '生产计划' },
+  { key: 'productionFlow', label: '生产流程' },
   { key: 'produceRunning', label: '生产中' },
-  { key: 'workOrders', label: '工单' },
-  { key: 'jobCards', label: '工序卡' },
-  { key: 'qualityInspections', label: '质检' },
   { key: 'produceLogs', label: '日志' },
 ]
 

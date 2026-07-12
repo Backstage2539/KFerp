@@ -639,3 +639,10 @@
 - `生产成本` 从生产管理主菜单和生产模块顶部切换条删除；既有成本记录、API、工单追溯上下文入口和旧 `productionCosts` 直达路由保留。
 - `生产计划/开始生产` 菜单名称改为 `生产计划`，页面能力、步骤条和 `producePlan` 路由不变。
 - 旧 `processTemplates`、`manufacturingOperations`、`manufacturingWorkstations` 地址继续兼容。
+
+## 31. 生产流程页面归并（PR-533-PRODUCTION-FLOW-PAGE）
+- `生产管理` 新增 `生产流程` 页面，依次用 Tab 展示 `生产计划`、`生产工单`、`工序卡`、`生产质检`、`生产验收`。
+- 上述五项不再作为生产管理侧栏独立入口；生产模块顶部切换条也使用 `生产流程` 统一入口，不重复显示计划、工单、工序卡和质检。
+- `生产手册` 必须位于生产管理菜单最后一项。
+- 新页面复用既有 Vue 功能和 API，不修改生产计划、工单、工序卡、质检、验收的业务规则或数据。
+- 旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址继续兼容。

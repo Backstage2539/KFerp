@@ -13,11 +13,8 @@ test('production top nav lists high-frequency views before legacy production pag
   assert.deepEqual(productionTopNavItems.map((item) => item.key), [
     'productionOverview',
     'workstationView',
-    'producePlan',
+    'productionFlow',
     'produceRunning',
-    'workOrders',
-    'jobCards',
-    'qualityInspections',
     'produceLogs',
   ])
   assert.equal(productionTopNavItems[0].label, '生产视图')
@@ -96,7 +93,7 @@ test('production top nav renders count badges for high-frequency production view
   })), [
     { key: 'productionOverview', badge: '待2 阻1 中3' },
     { key: 'workstationView', badge: '待2 阻1 中3' },
-    { key: 'producePlan', badge: '' },
+    { key: 'productionFlow', badge: '' },
     { key: 'produceRunning', badge: '待0 阻0 中3' },
   ])
 })
