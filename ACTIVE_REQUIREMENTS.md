@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
+- Branch: codex/cost-parameters-pricing-tabs-20260712
+- Owner/session: Codex / 2026-07-12
+- Status: merged to develop; replacement development deployment and server smoke verified
+- Scope: 删除已经过时的成本参数设置：商品价格管理不再显示成本参数 Tab，商品价格表不再显示参数设置/快捷抽屉，旧 `costingSettings` 页面和对应 Vue 组件、前端 helper 一并删除。
+- DEV:
+  - DEV-535-REMOVE-COST-PARAMETER-UI：删除商品价格管理、商品价格表和旧直达页的全部成本参数维护入口及前端实现。
+  - DEV-535-COMPAT-DOCS-DEPLOY：保留底层历史参数数据/API 兼容，更新手册验收，覆盖 develop 并重新部署开发环境。
+- Verifier:
+  - RED frontend: obsolete-cost-parameters contract 0/3 passed；商品价格、商品价格表、旧路由和组件均仍存在。
+  - GREEN frontend: `node --test src/lib/obsolete-cost-parameters.test.js src/lib/settings-entry-consolidation.test.js src/lib/product-settings.test.js` passed 160/160.
+  - Pricing boundary: compared with pre-PR-535 commit `cab7b5b2`; `ProductSettingsView.vue` net diff only removes `CostingSettingsPanel` markup/import/style. Pricing Rule list, trial, create, edit, copy, deactivate and save logic are unchanged.
+  - Support: PR-535/PR-531/DEV-271 source contracts passed.
+  - Build: Vue/Vite production build passed; 401 modules transformed after obsolete UI removal.
+  - Full frontend: 695/701 passed with the same six workspace-context baseline failures and no new failure.
+  - `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+  - Development deploy: `origin/develop=1d988ca8a653a0465ed8c81742aaa39e5e9752dd`; Docker build gate `go test ./...` passed; backup `/opt/stacks/erp/orderapp.backup.deploy-20260713000119`.
+  - Server smoke: `erp_orderapp` running, `erp_postgres` healthy; authenticated product price management shell and requirement API returned 200; PR-535 marker and Pricing Rule list/trial/form source markers present; cost parameter UI/route markers absent; recent error lines 0.
+  - Browser limitation: development hostname currently stops at `ERR_CERT_AUTHORITY_INVALID`; no certificate warning bypass was used. Server-side authenticated page/API and deployed-source smoke provide the deployment evidence.
+- Last update: 2026-07-13 Asia/Shanghai
+- Notes: 不删除数据库中的历史参数值，也不改变旧成本记录或后台兼容 API；删除的是所有用户可操作入口和已无用途的前端实现。
+
 ### PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS
 - Branch: codex/product-group-template-options-prod-20260712
 - Owner/session: Codex / 2026-07-12
@@ -75,7 +97,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/settings-entry-consolidation-20260712
 - Owner/session: Codex / 2026-07-12
 - Status: merged to develop; development deployed and smoke verified
-- Scope: 公章设置并入公司设置；代加工模板设置从主菜单删除；成本参数设置并入商品价格管理。保留旧直达路由和既有数据/API 作为兼容入口。
+- Scope: 公章设置并入公司设置；代加工模板设置从主菜单删除；成本参数设置曾并入商品价格管理，后续由 PR-535 直接移除。保留历史数据/API。
 - DEV:
   - DEV-531-COMPANY-SEAL-SETTINGS：公司设置组合共享公章资产设置。
   - DEV-531-COSTING-SETTINGS-IN-PRICE-MANAGEMENT：商品价格管理组合成本参数设置。
@@ -90,7 +112,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Review/acceptance: `orderapp-remote/docs/acceptance/2026-07-12-settings-entry-consolidation.md`.
 - Deployment: application commit `25563b1dcc9b5e7bad23663b23d8e900b134375a` merged to `develop` and deployed with `./deploy_orderapp.sh development`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260712150950`. `erp_orderapp` up、`erp_postgres` healthy；公司设置、商品价格管理和 PR-531 API 返回 200，recent error lines 0。浏览器确认公司设置同页显示公章且无无效关闭按钮，商品价格管理同页显示成本参数和价格计算模板，主菜单无独立成本参数或代加工模板入口。
 - Last update: 2026-07-12 Asia/Shanghai
-- Notes: 本需求整理入口与页面组合，不删除代加工模板数据/API；旧 `outsourceSettings`、`costingSettings` 地址继续兼容。
+- Notes: 本需求整理入口与页面组合，不删除代加工模板数据/API；旧 `outsourceSettings` 地址继续兼容，`costingSettings` 已由 PR-535 移除。
 
 ### PR-530-BUSINESS-SETTINGS-IA
 - Branch: codex/business-settings-ia-20260712

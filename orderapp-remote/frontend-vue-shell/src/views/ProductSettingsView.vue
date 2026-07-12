@@ -737,9 +737,6 @@
           </div>
         </div>
         <div class="product-price-management-layout">
-          <section class="costing-settings-embedded">
-            <CostingSettingsPanel />
-          </section>
           <section class="product-price-records-panel pricing-rule-management-panel">
             <div class="field-group-head">
               <strong>价格计算模板 / Pricing Rule</strong>
@@ -886,7 +883,6 @@
               </div>
             </form>
           </section>
-
         </div>
         <p class="muted price-list-flat-row-note" aria-label="商品 > 子类 > 父类 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则固定为：商品 &gt; 子类 &gt; 父类 &gt; 价格表。阶梯模板在商品价格表维护。</p>
       </div>
@@ -1723,7 +1719,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupControls from '../components/BusinessGroupControls.vue'
-import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
@@ -7545,7 +7540,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-config-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
 .product-price-management-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 .product-price-management-layout section { display: grid; gap: 10px; min-width: 0; }
-.costing-settings-embedded { border-bottom: 1px solid #e8e0d5; padding-bottom: 12px; }
 .product-price-record-form, .product-tier-price-scheme-form { display: grid; gap: 10px; }
 .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .product-tier-price-row { grid-template-columns: minmax(110px, .8fr) minmax(100px, .65fr) minmax(100px, .65fr) minmax(180px, 1.2fr) auto; }

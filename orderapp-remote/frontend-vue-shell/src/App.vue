@@ -170,7 +170,6 @@ import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
 import ContractsView from './views/ContractsView.vue'
 import CostingView from './views/CostingView.vue'
-import CostingSettingsView from './views/CostingSettingsView.vue'
 import CustomerCapabilityTemplatesView from './views/CustomerCapabilityTemplatesView.vue'
 import CustomersView from './views/CustomersView.vue'
 import CustomerFulfillmentView from './views/CustomerFulfillmentView.vue'
@@ -397,7 +396,6 @@ const internalViews = {
   costing: CostingView,
   costingManual: OperationManualView,
   greenBeanSalesManual: OperationManualView,
-  costingSettings: CostingSettingsView,
   financeDashboard: FinanceDashboardView,
   financeExpenses: FinanceExpensesView,
   financeClosing: FinanceClosingView,

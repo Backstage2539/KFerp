@@ -15,7 +15,7 @@ func TestDev531SettingsEntryConsolidationContracts(t *testing.T) {
 			"CompanySealSettingsView", "公司资料与公章",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"CostingSettingsPanel", "costing-settings-embedded",
+			"价格计算模板 / Pricing Rule", "openPricingRuleTrial()",
 		},
 		filepath.Join("internal", "interfaces", "http", "support", "audit_page.go"): {
 			"商品 / 商品价格管理 / 成本参数设置", "设置 / 公司设置 / 公章设置",
@@ -23,7 +23,7 @@ func TestDev531SettingsEntryConsolidationContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"):                                          {"PR-531-SETTINGS-ENTRY-CONSOLIDATION"},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                      {"PR-531-SETTINGS-ENTRY-CONSOLIDATION"},
 		filepath.Join("docs", "OP_MANUAL_SETTINGS_AUDIT.md"):                              {"设置 / 公司设置", "代加工模板设置` 不再作为主菜单入口"},
-		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                     {"商品 / 商品价格管理` 顶部的成本参数设置"},
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                     {"旧成本参数设置已移除"},
 		filepath.Join("docs", "acceptance", "2026-07-12-settings-entry-consolidation.md"): {"PR-531 设置入口归并验收"},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -43,7 +43,10 @@ func TestDev531StandaloneMenuEntriesAreRemovedButLegacyRoutesRemain(t *testing.T
 			t.Fatalf("primary menu still contains consolidated setting %q", forbidden)
 		}
 	}
-	for _, legacy := range []string{"costingSettings:", "outsourceSettings:"} {
+	if strings.Contains(menu, "costingSettings:") {
+		t.Fatal("obsolete costingSettings route title still exists")
+	}
+	for _, legacy := range []string{"outsourceSettings:"} {
 		if !strings.Contains(menu, legacy) {
 			t.Fatalf("hidden legacy route title missing %q", legacy)
 		}

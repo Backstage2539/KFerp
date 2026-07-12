@@ -71,10 +71,6 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"已发布价格表",
 			"生成价格表",
 		},
-		filepath.Join("frontend-vue-shell", "src", "components", "CostingSettingsPanel.vue"): {
-			"/api/costing/settings",
-			"保存",
-		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"/api/production-boms?status=all",
 			"/api/production-boms/${id}${query}",

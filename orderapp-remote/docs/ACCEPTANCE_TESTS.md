@@ -22,13 +22,14 @@
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-528-SEPARATE-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-530-BUSINESS-SETTINGS-IA：商品模块普通菜单不显示 `分组管理`；`业务设置 / 分组模板` Tab 打开独立分组模板组件，旧 `groupTemplates`、`groupManagement` 路由仍能兼容打开该页面。
 - [ ] PR-530-BUSINESS-SETTINGS-IA：左侧一级菜单显示 `商品`，不显示 `商品与配方`；设置菜单只显示一个 `业务设置` 入口承载销售单设置、物流设置、发货人设置、分组模板和全局单位字典五个 Tab。
 - [ ] PR-530-BUSINESS-SETTINGS-IA：系统设置包含系统基础设置和通知设置两个 Tab；设置菜单不再独立显示通知配置或设备产能配置，旧设置和设备产能直达路由仍兼容且既有数据不变。
-- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：公司设置同时展示公司资料和公章设置；商品价格管理同时展示成本参数设置和价格计算模板；主菜单不显示独立公章、成本参数或代加工模板入口。
-- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：旧 `costingSettings`、`outsourceSettings` 地址仍能打开原功能，既有配置和模板数据不变。
+- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION / PR-535-REMOVE-OBSOLETE-COST-PARAMETERS：公司设置同时展示公司资料和公章设置；商品价格管理只展示价格计算模板；主菜单不显示独立公章、成本参数或代加工模板入口。
+- [ ] PR-531-SETTINGS-ENTRY-CONSOLIDATION：旧 `costingSettings` 页面已移除，`outsourceSettings` 地址仍兼容；历史参数数据和模板数据不变。
 - [ ] PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION：系统设置只在系统栏显示；生产配置包含工艺路线、工序、工位/设备三个 Tab；生产成本不在主菜单或生产顶部切换条显示；生产计划使用精简名称。
 - [ ] PR-532-PRODUCTION-SYSTEM-MENU-CONSOLIDATION：旧 `processTemplates`、`manufacturingOperations`、`manufacturingWorkstations`、`productionCosts` 地址仍可访问，既有主数据、成本记录和 API 不变。
 - [ ] PR-533-PRODUCTION-FLOW-PAGE：生产管理侧栏只显示一个生产流程入口承载生产计划、生产工单、工序卡、生产质检、生产验收五个 Tab；生产顶部切换条同步收敛，生产手册位于菜单最后。
 - [ ] PR-533-PRODUCTION-FLOW-PAGE：旧 `producePlan`、`workOrders`、`jobCards`、`qualityInspections`、`productionAcceptance` 地址仍可访问，既有流程和数据不变。
 - [ ] PR-534-PRODUCT-GENERIC-GROUP-TEMPLATE-OPTIONS：业务设置中新建且没有旧用途绑定的通用分组模板，在商品档案“选择分组模板”中可选；选择后显示大类、小类和未分类，模板及商品归类数据不被改写。
+- [ ] PR-535-REMOVE-OBSOLETE-COST-PARAMETERS：商品价格管理、商品价格表/成本核算和旧直达页均不显示成本参数设置；价格计算模板、历史参数数据和旧成本记录保持不变。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示按模板大类/小类整理后的业务列表和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：系统设置中 `商品分组` 增加 `挂耳咖啡` 后，商品档案选择该模板即可看到 `咖啡熟豆`、`挂耳咖啡` 等模板大类标题；空大类/小类也展示，未归类商品进入 `未分类`。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案不出现分类过滤 Tab，商品表格不出现 `分类` 列；分类归属只通过分组标题表达。

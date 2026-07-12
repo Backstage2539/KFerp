@@ -4,13 +4,13 @@ import { test } from 'node:test'
 
 import { menuMap, menuGroups, primaryMenuKeys } from './menu-ia.js'
 
-test('settings menu removes outsource and standalone costing entries while preserving legacy routes', () => {
+test('settings menu removes outsource and obsolete costing entries', () => {
   const keys = primaryMenuKeys(menuGroups)
 
   assert.equal(keys.includes('outsourceSettings'), false)
   assert.equal(keys.includes('costingSettings'), false)
   assert.ok(menuMap.outsourceSettings)
-  assert.ok(menuMap.costingSettings)
+  assert.equal(menuMap.costingSettings, undefined)
   assert.ok(keys.includes('companyProfile'))
   assert.ok(keys.includes('productPriceManagement'))
 })
@@ -23,19 +23,17 @@ test('company settings embeds shared seal asset settings', () => {
   assert.match(source, /公司资料与公章/)
 })
 
-test('product price management embeds costing parameters', () => {
+test('product price management does not embed obsolete costing parameters', () => {
   const source = readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const panel = readFileSync(new URL('../components/CostingSettingsPanel.vue', import.meta.url), 'utf8')
   const priceManagement = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
 
-  assert.match(source, /import CostingSettingsPanel from '\.\.\/components\/CostingSettingsPanel\.vue'/)
-  assert.match(priceManagement, /<CostingSettingsPanel/)
-  assert.match(panel, /成本参数设置/)
+  assert.doesNotMatch(source, /CostingSettingsPanel/)
+  assert.doesNotMatch(priceManagement, /成本参数设置|cost-parameters/)
 })
 
-test('legacy settings components remain mapped for direct URL compatibility', () => {
+test('outsource compatibility remains while obsolete costing route is removed', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /costingSettings:\s*CostingSettingsView/)
+  assert.doesNotMatch(source, /CostingSettingsView|costingSettings:/)
   assert.match(source, /outsourceSettings:\s*OutsourceSettingsView/)
 })
