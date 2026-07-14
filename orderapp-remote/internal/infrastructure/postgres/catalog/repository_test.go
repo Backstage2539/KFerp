@@ -710,17 +710,25 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndAttributes(t *testing
 	}
 }
 
-func TestProductProductionConfigLegacyFieldsCanSaveWithoutIndustryTemplate(t *testing.T) {
+func TestProductProductionConfigFieldsRequireIndustryTemplate(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := string(repository)
-	if strings.Contains(src, "industry_field_template_id required for product information fields") {
-		t.Fatalf("changing BOM bindings must not fail existing legacy product information fields without a template")
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func normalizeProductProductionConfigFieldsAgainstTemplateTx", "func (r Repository) ListProductClassificationTemplates")
+	if !strings.Contains(fn, "if templateID <= 0 {\n\t\treturn []catalogapp.ProductProductionConfigField{}, nil\n\t}") {
+		t.Fatalf("product production fields must be empty without an industry template")
 	}
-	if !strings.Contains(src, "if templateID <= 0 {\n\t\treturn fields, nil\n\t}") {
-		t.Fatalf("legacy product production fields should pass through when no industry template is selected")
+}
+
+func TestProductProductionConfigListInitializesEmptyFields(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) ListProductProductionConfigs", "func (r Repository) GetProductProductionConfig")
+	if !strings.Contains(fn, "row.Fields = []catalogapp.ProductProductionConfigField{}") {
+		t.Fatalf("product production config responses must encode empty fields as []")
 	}
 }
 
@@ -939,18 +947,18 @@ func TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates(t *testing
 	fn := catalogRepositoryFunctionForTest(t, src, "func (r Repository) CopyProduct", "func fetchProductForCopyTx")
 	for _, want := range []string{
 		"nextProductArchiveCopyNameTx",
-		"product_production_config_fields",
 		"copy_product_archive",
 		"unit_template_id",
 		"unit_rule_override_json",
 	} {
 		if !strings.Contains(fn, want) {
-			t.Fatalf("CopyProduct must copy master data and industry fields; missing %q", want)
+			t.Fatalf("CopyProduct must copy product master data; missing %q", want)
 		}
 	}
 	for _, forbidden := range []string{
 		"product_config_template_id",
 		"classification_template_id",
+		"product_production_config_fields",
 		"product_price_tiers",
 		"product_production_configs",
 		"product_production_bom_bindings",
