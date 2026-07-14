@@ -13,19 +13,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 商品行业字段只允许来自商品明确引用的行业字段模板；清除无模板和模板外历史字段，停止旧 `roast_level` / `special_attrs_json` 自动生成商品行业字段。
 - DEV:
   - DEV-536-FRONTEND-TEMPLATE-PROJECTION：商品列表抽屉模板切换和保存只投影当前行业字段模板。
-  - DEV-536-BACKEND-TEMPLATE-CONSTRAINT：应用服务和仓储清空无模板字段且复制商品不制造孤立字段。
+  - DEV-536-BACKEND-TEMPLATE-CONSTRAINT：应用服务无模板时先清空字段，仓储为直接调用方重复防御并校验所选模板成员；复制商品不制造孤立字段。
   - DEV-536-LEGACY-FIELD-CLEANUP：停止旧属性字段回填并幂等清理无模板孤儿和模板外字段。
   - DEV-536-DOCS-ACCEPTANCE：同步商品行业字段需求验收操作手册和交付证据。
 - Verifier:
   - RED frontend: `node --test src/lib/product-settings.test.js` 的新增断言先后暴露无模板仍保留字段、仅显示名错误匹配、旧异步请求覆盖当前商品/模板投影。
   - RED backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog -count=1` 的新增断言先后暴露模板 ID 为 0 仍接收字段、复制商品制造孤立字段、旧字段回填和清理缺口。
   - RED support: `go test ./internal/interfaces/http/support -run TestDev536ProductIndustryTemplateOnlyContracts -count=1` 退出码 1，缺少手册标记 `取消行业字段模板会清空商品行业字段`。
+  - RED support follow-up: 强化六条 PR/DEV/REV 状态、当前复制边界和双手册证据合同后，同一命令退出码 1，暴露 `DEV-536-DOCS-ACCEPTANCE` 缺少 `OP_MANUAL_COSTING.md` 证据。
   - GREEN frontend: `node --test src/lib/product-settings.test.js` passed 159/159.
   - GREEN application/API/repository: `go test ./internal/application/catalog -count=1`; `go test ./internal/interfaces/http/catalog -count=1`; `go test ./internal/infrastructure/postgres/catalog -count=1` passed.
   - GREEN cleanup SQL: disposable LOCAL PostgreSQL matrix passed first run, second-run idempotence, orphan/no-template/template-external cleanup and first-boot missing-template-table safety; development and production were not touched.
-  - GREEN support: focused PR-536 contract and `go test ./internal/interfaces/http/support -count=1` passed after the obsolete PR-409 `return fields, nil` source marker was superseded by the PR-536 non-nil empty-slice marker; the first full-package run exposed that legacy marker before the contract update.
+  - GREEN support: focused PR-536 contract and `go test ./internal/interfaces/http/support -count=1` passed；PR-409 支持测试不再绑定仓储内部 Go 返回字面量，`fields` 的非 nil 空切片和 HTTP `[]` 语义由应用、API、仓储行为测试负责。
   - Pending Task 7: Vue/Vite production build and `scripts/verify_kferp.sh changed`; neither is claimed as passed by Task 6.
-  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
   - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-14-product-industry-template-only.md`.
 - Deployment: not requested; do not deploy in this task
 - Last update: 2026-07-15 Asia/Shanghai
@@ -2033,7 +2034,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-439-PRODUCT-ARCHIVE-MASTER-DATA：商品档案普通 UI 删除商品配置模板、利润率覆盖等旧价格字段，展示库存单位、整数库存、BOM 使用摘要和价格摘要。
   - DEV-439-CUSTOMER-PRODUCT-SNAPSHOT-SUMMARY：客户商品保存只维护客户、绑定商品、展示名、排序、启停、备注和是否进入价格表；价格摘要来自商品价格表快照。
   - DEV-439-LEGACY-TEMPLATE-WRITE-CUTOFF：普通商品和客户商品保存不再写入旧模板字段，旧字段只保留历史兼容读取和迁移报告。
-  - DEV-439-COPY-NO-PRICE-BOM：复制为商品档案只复制基础资料，不复制行业字段模板、行业字段值、BOM、价格、价格表快照或客户商品关系。
+  - DEV-439-COPY-NO-PRICE-BOM：复制为商品档案只复制基础资料和行业字段，不复制 BOM、价格、价格表快照或客户商品关系。
   - DEV-439-PRICE-MASTER-DATA：商品价格管理维护最终价格记录、价格单位、币种、价格分组、库存单位和库存换算。
   - DEV-439-TIER-SCHEME-FINAL-PRICE-REFERENCE：阶梯价格方案每档引用最终价格记录，保存档位时固化最终价且不二次计算。
   - DEV-439-PRICE-LIST-SNAPSHOT-ENFORCEMENT：商品价格表发布价格档必须固化最终价、价格单位、来源价格记录、库存单位和库存换算。
@@ -2944,7 +2945,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Status: merged and deployed to development
 - Scope: 商品档案复制改为真正复制商品档案配置；下线历史 SKU 复制入口/API；商品档案和客户商品名分类交互改为“增加分类 / 移动到分类 / 移动到子类”；客户商品编号由系统生成；商品价格表候选按当前分类 assignment 生成。
 - DEV:
-  - DEV-396-PRODUCT-COPY：历史实现新增 `POST /api/product-settings/products/:id/copy` 并复制商品配置；`PR-536` 后复制为商品档案不复制行业字段模板或行业字段值，操作继续写操作日志。
+  - DEV-396-PRODUCT-COPY：新增 `POST /api/product-settings/products/:id/copy`，复制商品基础信息、商品配置模板、生产配置、生产 BOM 绑定、生产配置字段和价格阶梯，并写操作日志。
   - DEV-396-LEGACY-SKU-COPY-REMOVAL：删除历史 SKU 复制前端入口、服务层/仓储旧路径和旧路由，旧 HTTP 路由不可用。
   - DEV-396-CLASSIFICATION-UX：商品档案和客户商品名固定未分类 Tab，`增加分类` 启用模板，移动归类直接覆盖旧归类，当前子类重复移动置灰。
   - DEV-396-CUSTOMER-ALIAS-CODE：客户商品名单个/批量新增不提交客户商品编号，后端自动生成编号。
