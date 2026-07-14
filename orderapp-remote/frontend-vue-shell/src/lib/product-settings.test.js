@@ -97,6 +97,7 @@ import {
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
   unitRuleJSONFromForm,
+  visibleSkuGroupRows,
   visibleNonDeletedRows,
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
@@ -2347,6 +2348,16 @@ test('skuGroupTableState keeps full totals, clamps pages, and counts parent prod
   assert.equal(state.groups[1].needsPagination, false)
 })
 
+test('visibleSkuGroupRows excludes collapsed categories from visible bulk selection', () => {
+  const groups = [
+    { key: 'coffee', rows: [{ id: 1 }, { id: 2 }] },
+    { key: 'drip', rows: [{ id: 3 }] },
+  ]
+
+  assert.deepEqual(visibleSkuGroupRows(groups, ['coffee']).map((row) => row.id), [3])
+  assert.deepEqual(visibleSkuGroupRows(groups, []).map((row) => row.id), [1, 2, 3])
+})
+
 test('category filter options are derived from current SKU rows', () => {
   assert.deepEqual(primaryCategoryOptions(rows), ['咖啡豆', '生豆'])
   assert.deepEqual(secondaryCategoryOptions(rows, '生豆'), ['单品生豆', '拼配生豆'])
@@ -3370,32 +3381,41 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.doesNotMatch(productArchiveWorkspace, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
   assert.doesNotMatch(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
-  assert.match(template, /:total="skuDisplayTotal"/)
   assert.match(template, /<table :key="skuTableKey" class="sku-table"/)
   assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /\{\{ group\.total \}\} 款/)
   assert.match(template, /v-for="row in group\.rows"/)
+  assert.match(template, /group\.needsPagination[\s\S]*<PaginationControls[\s\S]*handleSkuGroupPaginationChange\(group\.key, \$event\)/)
   assert.match(template, /v-if="!displaySkuRows\.length"/)
-  assert.match(template, /:key="skuPaginationKey"/)
+  assert.doesNotMatch(productArchiveWorkspace, /:key="skuPaginationKey"/)
+  assert.doesNotMatch(productArchiveWorkspace, /:total="skuDisplayTotal"/)
   assert.match(script, /const customerID = skuContextCustomerID\.value\s+return sortRowsForCustomerSkuPriority\(/)
   assert.match(script, /product\) => customerID > 0 && skuContextProductFilter\(product\)/)
   assert.match(script, /const currentSkuSourceRows = computed\(\(\) => \(/)
   assert.match(script, /skuContextCustomerID\.value > 0 \? customerSkuRows\.value : publicSkuRows\.value/)
-  assert.match(script, /const skuVisibleTableState = computed\(\(\) => skuTableState\(currentSkuSourceRows\.value, skuFilters\.value, \{/)
-  assert.match(script, /const normalizedSkuFilters = computed\(\(\) => skuVisibleTableState\.value\.filters\)/)
-  assert.match(script, /const skuDisplayTotal = computed\(\(\) => skuVisibleTableState\.value\.total\)/)
+  assert.match(script, /const normalizedSkuFilters = computed\(\(\) => normalizeVisibleSkuFilters\(skuFilters\.value, currentSkuSourceRows\.value\)\)/)
+  assert.match(script, /const filteredSkuRows = computed\(\(\) => filterSkuRows\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\)\)/)
   assert.match(script, /const skuDisplayKey = computed/)
   assert.match(script, /const skuTableKey = computed\(\(\) => `\$\{skuDisplayKey\.value\}:table`\)/)
-  assert.match(script, /const skuPaginationKey = computed\(\(\) => `\$\{skuDisplayKey\.value\}:pagination`\)/)
-  assert.match(script, /const displaySkuRows = computed\(\(\) => skuVisibleTableState\.value\.rows\)/)
-  assert.match(script, /const skuPrimaryCategoryOptions = computed\(\(\) => skuVisibleTableState\.value\.primaryOptions\)/)
-  assert.match(script, /const skuSecondaryCategoryOptions = computed\(\(\) => skuVisibleTableState\.value\.secondaryOptions\)/)
+  assert.match(script, /const fullDisplaySkuGroups = computed\(\(\) => groupRowsByBusinessGroupTemplate\(filteredSkuRows\.value, \{/)
+  assert.match(script, /const groupedSkuTableState = computed\(\(\) => skuGroupTableState\(fullDisplaySkuGroups\.value, skuGroupPagination\.value, \{/)
+  assert.match(script, /const displaySkuGroups = computed\(\(\) => groupedSkuTableState\.value\.groups\)/)
+  assert.match(script, /const displaySkuRows = computed\(\(\) => groupedSkuTableState\.value\.visibleRows\)/)
+  assert.match(script, /const visibleDisplaySkuRows = computed\(\(\) => visibleSkuGroupRows\(displaySkuGroups\.value, collapsedProductClassificationGroups\.value\)\)/)
+  assert.match(script, /const editableDisplaySkuRows = computed\(\(\) => visibleDisplaySkuRows\.value\.filter\(canEditSkuRow\)\)/)
+  assert.match(script, /const skuPrimaryCategoryOptions = computed\(\(\) => primaryCategoryOptions\(currentSkuSourceRows\.value\)\)/)
+  assert.match(script, /const skuSecondaryCategoryOptions = computed\(\(\) => secondaryCategoryOptions\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\.primaryCategory\)\)/)
   assert.doesNotMatch(script, /const skuRenderRows = computed/)
   assert.doesNotMatch(script, /const skuRenderTotal = computed/)
-  assert.match(script, /skuDisplayTotal\.value/)
   assert.match(script, /function syncVisibleSkuTableState\(\)/)
-  assert.match(script, /const tableState = skuVisibleTableState\.value/)
+  assert.match(script, /function handleSkuGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
+  assert.match(script, /function resetSkuGroupPages\(\) \{\s+if \(restoringProductSettingsDraft\) return/)
+  assert.match(script, /watch\(skuFilters, resetSkuGroupPages, \{ deep: true \}\)/)
+  assert.match(script, /watch\(selectedProductGroupTemplateID, \(\) => \{\s+selectedProductBusinessGroupItemID\.value = 0\s+if \(restoringProductSettingsDraft\) return\s+skuGroupPagination\.value = \{\}/)
+  assert.match(script, /skuGroupPagination: skuGroupPagination\.value/)
+  assert.match(script, /watch\(visibleDisplaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
   assert.doesNotMatch(script, /displaySkuRows\.value = pageState\.rows|const pageState = sliceVisibleSkuRows/)
-  assert.match(script, /watch\(\[\s*publicSkuRows,\s*customerSkuRows,\s*skuFilters,\s*skuPage,\s*skuPageSize,\s*selectedCustomerSkuCustomerID,\s*\], syncVisibleSkuTableState, \{ deep: true, immediate: true \}\)/)
+  assert.match(script, /watch\(\[\s*publicSkuRows,\s*customerSkuRows,\s*skuFilters,\s*selectedCustomerSkuCustomerID,\s*\], syncVisibleSkuTableState, \{ deep: true, immediate: true \}\)/)
   assert.match(script, /applyWorkspaceCustomerContext\(\)\s+syncVisibleSkuTableState\(\)\s+pruneSelectedProducts\(displaySkuRows\.value\)/)
   assert.match(script, /await nextTick\(\)\s+syncVisibleSkuTableState\(\)\s+restoringProductSettingsDraft = false/)
   assert.doesNotMatch(script, /const skuTable = computed/)

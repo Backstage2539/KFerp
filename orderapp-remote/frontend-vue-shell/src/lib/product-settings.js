@@ -185,6 +185,15 @@ export function skuGroupTableState(groups = [], paginationByGroup = {}, options 
   }
 }
 
+export function visibleSkuGroupRows(groups = [], collapsedGroupKeys = []) {
+  const collapsed = new Set((Array.isArray(collapsedGroupKeys) ? collapsedGroupKeys : []).map((key) => String(key || '')))
+  return (Array.isArray(groups) ? groups : []).flatMap((group) => (
+    collapsed.has(String(group?.key || '')) || !Array.isArray(group?.rows)
+      ? []
+      : group.rows
+  ))
+}
+
 export function skuListRowsFromProducts(products = [], categoryTree = [], filterFn = () => true) {
   const categoryMetaByProductID = categoryProductMetaByID(categoryTree)
   const categoryMetaByCategoryID = categoryPathMetaByID(categoryTree)

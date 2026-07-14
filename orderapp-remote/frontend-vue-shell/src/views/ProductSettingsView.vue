@@ -225,7 +225,7 @@
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
                     <strong :title="group.path_label || group.label">{{ group.label }}</strong>
-                    <small>{{ group.rows.length }} 款</small>
+                    <small>{{ group.total }} 款</small>
                   </td>
                 </tr>
                 <template v-if="!isProductClassificationGroupCollapsed(group.key)">
@@ -282,6 +282,18 @@
                   </td>
                 </tr>
               </template>
+                  <tr v-if="group.needsPagination" class="classification-pagination-row">
+                    <td :colspan="12">
+                      <PaginationControls
+                        :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
+                        :page="group.page"
+                        :page-size="group.pageSize"
+                        :total="group.total"
+                        :disabled="loading"
+                        @change="handleSkuGroupPaginationChange(group.key, $event)"
+                      />
+                    </td>
+                  </tr>
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
@@ -291,14 +303,6 @@
           </table>
           </div>
         </div>
-        <PaginationControls
-          :key="skuPaginationKey"
-          :page="skuPage"
-          :page-size="skuPageSize"
-          :total="skuDisplayTotal"
-          :disabled="loading"
-          @change="handleSkuPaginationChange"
-        />
       </div>
         </div>
       </div>
@@ -1782,6 +1786,7 @@ import {
   categoryDisplayState,
   customerSkuCustomerOptions,
   customerProductAliasRowsForCustomer,
+  filterSkuRows,
   groupRowsByClassificationCategory,
   industryFieldSummary,
   gradientTemplateBelongsToSkuContext,
@@ -1803,6 +1808,7 @@ import {
   productPriceRecordLabel,
   productKindSupportsBomParams,
   productCodeLabel,
+  primaryCategoryOptions,
   pricingRuleTrialDefaultQuoteUnit,
   pricingRuleTrialQuoteUnitOptionsForProduct,
   productSkuRowsForParent,
@@ -1811,14 +1817,16 @@ import {
   resolveCreatedProductForConfig,
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
+  secondaryCategoryOptions,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
-  skuTableState,
+  skuGroupTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
+  visibleSkuGroupRows,
   visibleNonDeletedRows,
 } from '../lib/product-settings'
 import { normalizePageSize } from '../lib/pagination'
@@ -1834,6 +1842,7 @@ const props = defineProps({
 })
 const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
 const UNCLASSIFIED_CATEGORY_MOVE_ID = -999999
+const DEFAULT_SKU_GROUP_PAGE_SIZE = 10
 let restoringProductSettingsDraft = false
 
 const categories = ref([])
@@ -1963,8 +1972,7 @@ const collapsedProductClassificationGroups = ref([])
 const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
 const aliasFilters = ref({ query: '', active: 'active' })
-const skuPage = ref(1)
-const skuPageSize = ref(10)
+const skuGroupPagination = ref({})
 const publicUsageSaving = ref(false)
 const skuForm = ref(defaultSkuForm())
 const productForm = skuForm
@@ -2306,15 +2314,10 @@ const customerSkuRows = computed(() => productArchiveRowsWithSkus(customerSkuRow
 const currentSkuSourceRows = computed(() => (
   skuContextCustomerID.value > 0 ? customerSkuRows.value : publicSkuRows.value
 ).slice())
-const skuVisibleTableState = computed(() => skuTableState(currentSkuSourceRows.value, skuFilters.value, {
-  page: skuPage.value,
-  pageSize: skuPageSize.value,
-}))
-const normalizedSkuFilters = computed(() => skuVisibleTableState.value.filters)
-const skuDisplayTotal = computed(() => skuVisibleTableState.value.total)
-const displaySkuRows = computed(() => skuVisibleTableState.value.rows)
-const skuPrimaryCategoryOptions = computed(() => skuVisibleTableState.value.primaryOptions)
-const skuSecondaryCategoryOptions = computed(() => skuVisibleTableState.value.secondaryOptions)
+const normalizedSkuFilters = computed(() => normalizeVisibleSkuFilters(skuFilters.value, currentSkuSourceRows.value))
+const filteredSkuRows = computed(() => filterSkuRows(currentSkuSourceRows.value, normalizedSkuFilters.value))
+const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(currentSkuSourceRows.value))
+const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(currentSkuSourceRows.value, normalizedSkuFilters.value.primaryCategory))
 const hasActiveSkuFilters = computed(() => Boolean(
   normalizedSkuFilters.value.query
     || normalizedSkuFilters.value.primaryCategory
@@ -2322,16 +2325,27 @@ const hasActiveSkuFilters = computed(() => Boolean(
 ))
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
-  skuDisplayTotal.value,
-  skuPage.value,
-  skuPageSize.value,
+  filteredSkuRows.value.length,
+  selectedProductGroupTemplateID.value,
   normalizedSkuFilters.value.query || '',
   normalizedSkuFilters.value.primaryCategory || '',
   normalizedSkuFilters.value.secondaryCategory || '',
 ].join(':'))
 const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
-const skuPaginationKey = computed(() => `${skuDisplayKey.value}:pagination`)
-const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
+const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplate(filteredSkuRows.value, {
+  template: selectedProductGroupTemplate.value,
+  assignments: businessGroupAssignments.value,
+  usageKey: 'product_catalog',
+  objectKey: 'product',
+  objectIDForRow: (row) => Number(row.id || 0),
+}))
+const groupedSkuTableState = computed(() => skuGroupTableState(fullDisplaySkuGroups.value, skuGroupPagination.value, {
+  defaultPageSize: DEFAULT_SKU_GROUP_PAGE_SIZE,
+}))
+const displaySkuGroups = computed(() => groupedSkuTableState.value.groups)
+const displaySkuRows = computed(() => groupedSkuTableState.value.visibleRows)
+const visibleDisplaySkuRows = computed(() => visibleSkuGroupRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
+const editableDisplaySkuRows = computed(() => visibleDisplaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const allAliasRowsSelected = computed(() => visibleCustomerProductAliases.value.length > 0 && visibleCustomerProductAliases.value.every((row) => row.active === false || selectedAliasIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
@@ -2427,13 +2441,6 @@ const classificationTemplateEditorCategories = computed(() => (classificationTem
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const productClassificationCategories = computed(() => (currentProductClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasClassificationCategories = computed(() => (currentAliasClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
-const displaySkuGroups = computed(() => groupRowsByBusinessGroupTemplate(displaySkuRows.value, {
-  template: selectedProductGroupTemplate.value,
-  assignments: businessGroupAssignments.value,
-  usageKey: 'product_catalog',
-  objectKey: 'product',
-  objectIDForRow: (row) => Number(row.id || 0),
-}))
 const visibleCustomerAliasGroups = computed(() => {
   const tab = currentAliasClassificationTab.value
   if (!tab || tab.all) return [{ key: 'all-aliases', label: '全部客户商品', rows: visibleCustomerProductAliases.value, all: true }]
@@ -2505,10 +2512,23 @@ function syncVisibleSkuTableState() {
   if (JSON.stringify(normalizedFilters) !== JSON.stringify(skuFilters.value)) {
     skuFilters.value = normalizedFilters
   }
-  const tableState = skuVisibleTableState.value
-  if (Number(skuPage.value || 1) !== tableState.page) {
-    skuPage.value = tableState.page
+}
+
+function syncSkuGroupPaginationState() {
+  const normalizedPagination = groupedSkuTableState.value.pagination
+  if (JSON.stringify(normalizedPagination) !== JSON.stringify(skuGroupPagination.value)) {
+    skuGroupPagination.value = normalizedPagination
   }
+}
+
+function resetSkuGroupPages() {
+  if (restoringProductSettingsDraft) return
+  skuGroupPagination.value = Object.fromEntries(
+    Object.entries(skuGroupPagination.value).map(([key, value]) => [key, {
+      page: 1,
+      pageSize: normalizePageSize(value?.pageSize || DEFAULT_SKU_GROUP_PAGE_SIZE),
+    }]),
+  )
 }
 
 function defaultSkuForm() {
@@ -3016,8 +3036,7 @@ function saveProductSettingsDraft() {
     activeConfigTemplateSection: activeConfigTemplateSection.value,
     categorySearchQuery: categorySearchQuery.value,
     skuFilters: skuFilters.value,
-    skuPage: skuPage.value,
-    skuPageSize: skuPageSize.value,
+    skuGroupPagination: skuGroupPagination.value,
     selectedProductGroupTemplateID: selectedProductGroupTemplateID.value,
   })
 }
@@ -3026,10 +3045,10 @@ watch([
   publicSkuRows,
   customerSkuRows,
   skuFilters,
-  skuPage,
-  skuPageSize,
   selectedCustomerSkuCustomerID,
 ], syncVisibleSkuTableState, { deep: true, immediate: true })
+
+watch(fullDisplaySkuGroups, syncSkuGroupPaginationState, { deep: true, immediate: true })
 
 async function restoreProductSettingsDraft() {
   const draft = readFormDraft(productSettingsDraftKey())
@@ -3060,8 +3079,9 @@ async function restoreProductSettingsDraft() {
   activeConfigTemplateSection.value = ['product-config', 'product-price-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
-  skuPage.value = Number(draft.skuPage || 1)
-  skuPageSize.value = normalizePageSize(draft.skuPageSize)
+  skuGroupPagination.value = draft.skuGroupPagination && typeof draft.skuGroupPagination === 'object'
+    ? draft.skuGroupPagination
+    : {}
   ensureProductTypeCategorySelected(skuForm.value)
   await nextTick()
   syncVisibleSkuTableState()
@@ -5373,9 +5393,16 @@ function toggleAllProductRows(checked) {
   selectedProductIds.value = checked ? editableDisplaySkuRows.value.map((row) => Number(row.id)).filter(Boolean) : []
 }
 
-function handleSkuPaginationChange({ page, pageSize }) {
-  skuPageSize.value = normalizePageSize(pageSize)
-  skuPage.value = page
+function handleSkuGroupPaginationChange(groupKey, { page, pageSize }) {
+  const key = String(groupKey || '')
+  if (!key) return
+  skuGroupPagination.value = {
+    ...skuGroupPagination.value,
+    [key]: {
+      page: Number(page || 1),
+      pageSize: normalizePageSize(pageSize || DEFAULT_SKU_GROUP_PAGE_SIZE),
+    },
+  }
 }
 
 function selectedBaseProduct() {
@@ -7300,7 +7327,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
   resetProductConfigTemplateForm()
   resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
-  skuPage.value = 1
+  skuGroupPagination.value = {}
   collapsedPrimaryCategoryIds.value = []
   collapsedSecondaryCategoryIds.value = []
   if (Number(customerID || 0) > 0) {
@@ -7345,9 +7372,7 @@ watch(() => customForm.value.custom_type, () => {
   }
 })
 
-watch(skuFilters, () => {
-  skuPage.value = 1
-}, { deep: true })
+watch(skuFilters, resetSkuGroupPages, { deep: true })
 
 watch(() => skuFilters.value.primaryCategory, () => {
   if (!skuSecondaryCategoryOptions.value.includes(skuFilters.value.secondaryCategory)) {
@@ -7387,13 +7412,15 @@ watch(currentSkuSourceRows, () => {
   }
 }, { deep: true })
 
-watch(displaySkuRows, (rows) => {
+watch(visibleDisplaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
 watch(selectedProductGroupTemplateID, () => {
   selectedProductBusinessGroupItemID.value = 0
-  if (!restoringProductSettingsDraft) saveProductSettingsDraft()
+  if (restoringProductSettingsDraft) return
+  skuGroupPagination.value = {}
+  saveProductSettingsDraft()
 })
 
 async function applyProductSettingsViewParams(params = {}) {
@@ -7819,6 +7846,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-group-row small { color: #7c7064; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
 .classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }
+.classification-pagination-row td { background: #fbf9f5; padding: 8px 16px 12px; }
+.classification-pagination-row :deep(.list-pagination-controls) { margin-top: 0; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
