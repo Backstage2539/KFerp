@@ -523,13 +523,36 @@ func (r Repository) SaveIndustryTemplate(ctx context.Context, cmd manufacturinga
 			return manufacturingapp.IndustryFieldTemplate{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "industry_field_template", &id, action, postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"industry_key": cmd.IndustryKey, "status": cmd.Status, "field_count": len(cmd.Fields)}); err != nil {
+	removedProductFieldCount, err := cleanupProductProductionConfigFieldsForIndustryTemplateTx(ctx, tx, r.schema, id)
+	if err != nil {
+		return manufacturingapp.IndustryFieldTemplate{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "industry_field_template", &id, action, postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"industry_key": cmd.IndustryKey, "status": cmd.Status, "field_count": len(cmd.Fields), "removed_product_field_count": removedProductFieldCount}); err != nil {
 		return manufacturingapp.IndustryFieldTemplate{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return manufacturingapp.IndustryFieldTemplate{}, err
 	}
 	return r.industryTemplateByID(ctx, id)
+}
+
+func cleanupProductProductionConfigFieldsForIndustryTemplateTx(ctx context.Context, tx pgx.Tx, schema string, templateID int64) (int64, error) {
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %[1]s.product_production_config_fields f
+		USING %[1]s.product_production_configs c
+		WHERE c.product_id=f.product_id
+		  AND c.industry_field_template_id=$1
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM %[1]s.industry_field_definitions d
+			WHERE d.template_id=$1
+			  AND btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))
+		  )
+	`, schema), templateID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (r Repository) industryTemplateByID(ctx context.Context, id int64) (manufacturingapp.IndustryFieldTemplate, error) {
