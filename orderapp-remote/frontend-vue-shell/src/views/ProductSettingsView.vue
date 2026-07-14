@@ -1945,6 +1945,7 @@ const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'te
 const showProductPriceManagementPane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'product-price-management')
 const productDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
+let productProductionConfigOpenGeneration = 0
 const customerAliasCreateDrawerOpen = ref(false)
 const customerAliasCreateMode = ref('single')
 const classificationTemplateCreateDrawerOpen = ref(false)
@@ -5849,8 +5850,20 @@ async function selectProductProductionConfigBom(bom) {
   if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
 }
 
+function isCurrentProductProductionConfigOpen(generation, productID, industryFieldTemplateID) {
+  const currentProductID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  return generation === productProductionConfigOpenGeneration
+    && productProductionConfigDrawerOpen.value
+    && currentProductID === Number(productID || 0)
+    && Number(productProductionConfigForm.value.industry_field_template_id || 0) === Number(industryFieldTemplateID || 0)
+}
+
 async function openProductProductionConfig(row) {
+  const openGeneration = ++productProductionConfigOpenGeneration
   const config = productProductionConfigByProductID(row?.id)
+  const productID = Number(row?.id || config?.product_id || 0)
+  const industryFieldTemplateID = Number(config?.industry_field_template_id || 0)
+  const industryFieldTemplateAvailableAtOpen = Boolean(industryFieldTemplateForConfig(config))
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(config, row)
   showProductProductionHistoricalSpecs.value = false
@@ -5862,25 +5875,35 @@ async function openProductProductionConfig(row) {
   }
   productProductionConfigDrawerOpen.value = true
   error.value = ''
-	try {
-		await Promise.all([
-			loadProductionBomCatalog(),
-			loadProcessRoutes(),
-			loadIndustryFieldTemplates(),
-		])
-		productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
-			config?.fields || [],
-			industryFieldTemplateForConfig(config),
-		)
-		await ensureProductBomUsage(row?.id)
-		if (productProductionConfigForm.value.production_bom_id) {
-			await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
-			if (!productProductionConfigForm.value.production_bom_version_id) {
+  try {
+    let industryFieldTemplatesPromise = loadIndustryFieldTemplates()
+    if (!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0) {
+      industryFieldTemplatesPromise = industryFieldTemplatesPromise.then(() => {
+        if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+        productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+          config?.fields || [],
+          industryFieldTemplateForConfig(config),
+        )
+      })
+    }
+    await Promise.all([
+      loadProductionBomCatalog(),
+      loadProcessRoutes(),
+      industryFieldTemplatesPromise,
+    ])
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+    await ensureProductBomUsage(productID)
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+    if (productProductionConfigForm.value.production_bom_id) {
+      await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+      if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+      if (!productProductionConfigForm.value.production_bom_version_id) {
         const latest = productProductionConfigVersionOptions.value[0]
         if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
       }
     }
   } catch (err) {
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
     error.value = err.message || '加载商品生产配置失败'
   }
 }
@@ -5908,6 +5931,7 @@ function applyIndustryFieldTemplateToProductionConfig() {
 }
 
 function closeProductProductionConfigDrawer() {
+  productProductionConfigOpenGeneration += 1
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()

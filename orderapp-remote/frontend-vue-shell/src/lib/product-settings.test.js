@@ -4002,11 +4002,49 @@ test('product archive industry fields are generated from templates without ad-ho
 test('product archive displays and saves industry fields only through the selected template', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const sourceBetween = (start, end) => {
+    const startIndex = script.indexOf(start)
+    const endIndex = script.indexOf(end, startIndex + start.length)
+    assert.ok(startIndex >= 0, `missing source block start: ${start}`)
+    assert.ok(endIndex > startIndex, `missing source block end: ${end}`)
+    return script.slice(startIndex, endIndex)
+  }
+  const listBlock = sourceBetween('function productionConfigPriceListFields(', 'function productionConfigLossLabel(')
+  const openBlock = sourceBetween('async function openProductProductionConfig(', 'async function loadIndustryFieldTemplates(')
+  const applyBlock = sourceBetween('function applyIndustryFieldTemplateToProductionConfig(', 'function closeProductProductionConfigDrawer(')
+  const closeBlock = sourceBetween('function closeProductProductionConfigDrawer(', 'async function refreshClassificationTemplates(')
+  const saveBlock = sourceBetween('async function saveProductProductionConfig(', 'async function createSku(')
 
-  assert.match(script, /function productionConfigPriceListFields[\s\S]*industryFieldTemplateForConfig\(config\)[\s\S]*productProductionConfigFieldsFromTemplate/)
-  assert.match(script, /function applyIndustryFieldTemplateToProductionConfig[\s\S]*productProductionConfigForm\.value\.fields\s*=\s*productProductionConfigFieldsFromTemplate/)
-  assert.match(script, /async function saveProductProductionConfig[\s\S]*industryFieldTemplateForConfig\(productProductionConfigForm\.value\)[\s\S]*productProductionConfigFieldsFromTemplate/)
-  assert.doesNotMatch(script, /function applyIndustryFieldTemplateToProductionConfig\(\) \{\s*const template = selectedIndustryFieldTemplate\(\)\s*if \(!template\) return/)
+  assert.match(listBlock, /const template = industryFieldTemplateForConfig\(config\)/)
+  assert.match(listBlock, /return productProductionConfigFieldsFromTemplate\(config\.fields \|\| \[\], template\)/)
+  assert.match(applyBlock, /const template = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
+  assert.match(applyBlock, /productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
+  assert.doesNotMatch(applyBlock, /if \(!template\) return/)
+  assert.match(saveBlock, /const industryFieldTemplate = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
+  assert.match(saveBlock, /const fields = productProductionConfigFieldsFromTemplate/)
+
+  assert.match(script, /^let productProductionConfigOpenGeneration = 0$/m)
+  assert.match(openBlock, /const openGeneration = \+\+productProductionConfigOpenGeneration/)
+  assert.match(openBlock, /const productID = Number\(row\?\.id \|\| config\?\.product_id \|\| 0\)/)
+  assert.match(openBlock, /const industryFieldTemplateID = Number\(config\?\.industry_field_template_id \|\| 0\)/)
+  assert.match(openBlock, /const industryFieldTemplateAvailableAtOpen = Boolean\(industryFieldTemplateForConfig\(config\)\)/)
+  assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)/)
+  assert.match(openBlock, /if \(!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0\) \{\s*industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then/)
+  assert.match(openBlock, /industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then\(\(\) => \{[\s\S]*?isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)[\s\S]*?productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
+  assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)[\s\S]*?industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then[\s\S]*?await Promise\.all\(/)
+  assert.match(openBlock, /Promise\.all\(\[[\s\S]*?industryFieldTemplatesPromise,[\s\S]*?\]\)/)
+  assert.doesNotMatch(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*productProductionConfigForm\.value\.fields\s*=/)
+  assert.match(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)\) return\s*await ensureProductBomUsage\(productID\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)\) return/)
+  assert.match(openBlock, /await ensureProductionBomDetail\(productProductionConfigForm\.value\.production_bom_id\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)\) return/)
+  assert.match(openBlock, /catch \(err\) \{\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)\) return\s*error\.value =/)
+  assert.doesNotMatch(openBlock, /\t/)
+
+  const guardBlock = sourceBetween('function isCurrentProductProductionConfigOpen(', 'async function openProductProductionConfig(')
+  assert.match(guardBlock, /generation === productProductionConfigOpenGeneration/)
+  assert.match(guardBlock, /productProductionConfigDrawerOpen\.value/)
+  assert.match(guardBlock, /currentProductID === Number\(productID \|\| 0\)/)
+  assert.match(guardBlock, /industry_field_template_id \|\| 0\) === Number\(industryFieldTemplateID \|\| 0\)/)
+  assert.match(closeBlock, /productProductionConfigOpenGeneration \+= 1\s*productProductionConfigDrawerOpen\.value = false/)
 })
 
 test('product settings uses product business groups instead of product classification page controls', () => {
