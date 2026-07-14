@@ -33,6 +33,7 @@ type fakeRepo struct {
 	ruleOverride           SaveCustomerProductRuleOverrideCommand
 	ruleBinding            CustomerProductRuleTemplateBindingCommand
 	configTemplate         SaveProductConfigTemplateCommand
+	productionConfig       SaveProductProductionConfigCommand
 	deleteConfig           DeleteProductConfigTemplateCommand
 	priceGroup             SaveProductPriceGroupCommand
 	deleteGroup            DeleteBusinessGroupCommand
@@ -128,6 +129,7 @@ func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int
 }
 
 func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
+	r.productionConfig = cmd
 	return ProductProductionConfig{
 		ProductID:               cmd.ProductID,
 		ProductionBomID:         cmd.ProductionBomID,
@@ -138,6 +140,30 @@ func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProd
 		Note:                    cmd.Note,
 		Fields:                  cmd.Fields,
 	}, nil
+}
+
+func TestSaveProductProductionConfigClearsFieldsWithoutIndustryTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	result, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:               91,
+		IndustryFieldTemplateID: 0,
+		Fields: []ProductProductionConfigField{{
+			FieldKey:  "roast_level",
+			Label:     "roast_level",
+			ValueText: "深烘",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.productionConfig.Fields) != 0 {
+		t.Fatalf("saved fields=%+v, want none without industry template", repo.productionConfig.Fields)
+	}
+	if len(result.Fields) != 0 {
+		t.Fatalf("result fields=%+v, want none without industry template", result.Fields)
+	}
 }
 
 func (r *fakeRepo) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {
