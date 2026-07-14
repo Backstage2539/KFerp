@@ -35,6 +35,8 @@ func TestDev536ProductIndustryTemplateOnlyContracts(t *testing.T) {
 			"应用服务在 `industry_field_template_id=0` 时先清空",
 			"PostgreSQL 仓储对直接调用方重复执行无模板防御",
 			"`CopyProduct` 当前只复制商品主档基础资料、单位模板引用、单位覆盖和库存相关主数据",
+			"删除或改名字段后，保存模板必须立即清除引用商品当前 `product_production_config_fields` 中已不属于模板的字段",
+			"不改历史订单、工单或价格表快照",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY",
@@ -43,12 +45,17 @@ func TestDev536ProductIndustryTemplateOnlyContracts(t *testing.T) {
 			"响应必须包含 `fields`，其值为 `[]`，不得为 `null` 或省略",
 			"应用服务先清空无模板字段",
 			"PostgreSQL 仓储负责模板成员校验",
+			"PR-536 后，K20 的历史特殊属性回填口径已由 K78 覆盖",
+			"不得再从 `roast_level` 或 `special_attrs_json` 回填 `product_production_config_fields`",
+			"保存行业字段模板后，引用商品当前配置中已不属于模板的字段必须立即清除",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"取消行业字段模板会清空商品行业字段",
 			"只复制商品主档基础资料、单位模板引用、单位覆盖和库存相关主数据",
 			"不复制商品生产配置、工艺路线、预期损耗率",
 			"重新配置工艺路线和预期损耗率",
+			"删除或改名字段并保存模板后",
+			"不改历史订单、工单或价格表快照",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"复制为商品档案不复制行业字段模板或行业字段值",
@@ -60,6 +67,8 @@ func TestDev536ProductIndustryTemplateOnlyContracts(t *testing.T) {
 			"非 nil 空切片",
 			"PostgreSQL 仓储负责模板成员校验",
 			"OP_MANUAL_COSTING.md",
+			"删除或改名字段后，保存模板立即清除引用商品当前配置中的模板外字段",
+			"不改历史订单、工单或价格表快照",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -67,6 +76,19 @@ func TestDev536ProductIndustryTemplateOnlyContracts(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-536 marker %q", rel, want)
 			}
+		}
+	}
+
+	acceptanceTests := string(readOrderAppFileForTest(t, filepath.Join("docs", "ACCEPTANCE_TESTS.md")))
+	k20Start := strings.Index(acceptanceTests, "## K20.")
+	k21Start := strings.Index(acceptanceTests, "## K21.")
+	if k20Start < 0 || k21Start <= k20Start {
+		t.Fatal("docs/ACCEPTANCE_TESTS.md must keep a bounded K20 section before K21")
+	}
+	k20 := acceptanceTests[k20Start:k21Start]
+	for _, forbidden := range []string{"旧字段不清空", "和历史特殊属性回填；"} {
+		if strings.Contains(k20, forbidden) {
+			t.Fatalf("docs/ACCEPTANCE_TESTS.md K20 must not retain superseded PR-536 wording %q", forbidden)
 		}
 	}
 }

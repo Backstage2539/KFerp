@@ -21,16 +21,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog -count=1` 的新增断言先后暴露模板 ID 为 0 仍接收字段、复制商品制造孤立字段、旧字段回填和清理缺口。
   - RED support: `go test ./internal/interfaces/http/support -run TestDev536ProductIndustryTemplateOnlyContracts -count=1` 退出码 1，缺少手册标记 `取消行业字段模板会清空商品行业字段`。
   - RED support follow-up: 强化六条 PR/DEV/REV 状态、当前复制边界和双手册证据合同后，同一命令退出码 1，暴露 `DEV-536-DOCS-ACCEPTANCE` 缺少 `OP_MANUAL_COSTING.md` 证据。
+  - RED support K20 follow-up: 增加 K20 历史口径覆盖及模板字段删除/改名后即时清理合同后，同一命令退出码 1，暴露 `docs/REQUIREMENTS.md` 缺少该当前口径。
   - GREEN frontend: `node --test src/lib/product-settings.test.js` passed 159/159.
   - GREEN application/API/repository: `go test ./internal/application/catalog -count=1`; `go test ./internal/interfaces/http/catalog -count=1`; `go test ./internal/infrastructure/postgres/catalog -count=1` passed.
   - GREEN cleanup SQL: disposable LOCAL PostgreSQL matrix passed first run, second-run idempotence, orphan/no-template/template-external cleanup and first-boot missing-template-table safety; development and production were not touched.
-  - GREEN support: focused PR-536 contract and `go test ./internal/interfaces/http/support -count=1` passed；PR-409 支持测试不再绑定仓储内部 Go 返回字面量，`fields` 的非 nil 空切片和 HTTP `[]` 语义由应用、API、仓储行为测试负责。
+  - GREEN support: focused PR-536 contract and `go test ./internal/interfaces/http/support -count=1` passed；PR-409 支持测试不再绑定仓储内部 Go 返回字面量，`fields` 的非 nil 空切片和 HTTP `[]` 语义由应用、API、仓储行为测试负责；合同固定 K20 已被 K78 / PR-536 覆盖，模板字段删除/改名后只即时清理当前商品配置，不改历史业务快照。
   - GREEN Task 7: `npm run build` passed with only the existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; `git diff --check` passed.
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
   - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-14-product-industry-template-only.md`.
 - Deployment: not requested; do not deploy in this task
 - Last update: 2026-07-15 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` 命中已知 macOS awk 多行字符串错误；按脚本给出的下一个编号手工登记 PR-536。清理只删除 `product_production_config_fields`，保留行业字段模板、`products.roast_level`、`products.special_attrs_json` 和历史业务快照。
+- Notes: `scripts/reserve_req_id.sh --claim` 命中已知 macOS awk 多行字符串错误；按脚本给出的下一个编号手工登记 PR-536。清理只删除 `product_production_config_fields`，保留行业字段模板、`products.roast_level`、`products.special_attrs_json` 和历史业务快照。编辑模板并删除或改名字段后，保存模板立即清理引用商品当前配置中的模板外字段；不改历史订单、工单或价格表快照。
 
 ### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
 - Branch: codex/cost-parameters-pricing-tabs-20260712

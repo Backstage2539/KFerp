@@ -938,7 +938,7 @@
 - [ ] 按 Van 当前要求，本轮不做浏览器/人工验收；保留 RED/GREEN 单测、API 测试、Vue build 和 `scripts/verify_kferp.sh changed` 证据。
 
 ## K20. 商品生产配置与 BOM 模型一把改完（PR-390-PRODUCT-PRODUCTION-CONFIG-OVERHAUL）
-- [ ] `product_production_configs` 和 `product_production_config_fields` 存在并能从旧商品 BOM 绑定、`yield_rate` 和历史特殊属性回填；`expected_loss_rate = 1 - yield_rate`，旧字段不清空、不回改历史订单、价格表、工单和生产日志。
+- [ ] PR-536 后，K20 的历史特殊属性回填口径已由 K78 覆盖，本条只保留为历史需求记录：`product_production_configs` 和 `product_production_config_fields` 继续存在，旧商品 BOM 绑定和 `yield_rate` 仍可用于生产配置兼容迁移，`expected_loss_rate = 1 - yield_rate`；保留 `products.roast_level`、`products.special_attrs_json` 原列以及历史订单、工单和价格表快照，但不得再从 `roast_level` 或 `special_attrs_json` 回填 `product_production_config_fields`，无模板和模板外的当前商品配置字段必须清理。
 - [ ] 商品与配方菜单拆为“商品档案、客户商品、商品配置模板、生产 BOM、产品价格表、行业字段模板”；页面不再用一个“商品管理”三 tab 入口。
 - [ ] 商品档案页面显示商品生产配置、生产 BOM 版本、工艺路线、预期损耗率、价格/单位摘要和状态备注；商品分类主入口为页面级“增加分类”Tab，商品配置模板页面提供“分类模板”Tab 维护模板本身。
 - [ ] 客户商品页面只维护客户侧展示名称、客户商品编号、重命名、排序和是否进入价格表，不直接编辑 BOM、工艺路线或商品生产配置；具体分类归属通过客户商品页启用的分类模板 Tab 维护。
@@ -1463,6 +1463,7 @@
 ### K78. 商品行业字段仅来源于模板（PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY）
 - [ ] 无模板商品在商品列表、商品档案配置抽屉和保存响应中都没有行业字段；保存和 API 响应必须包含 `fields`，其值为 `[]`，不得为 `null` 或省略，数据库不保留传入字段。
 - [ ] 引用行业字段模板后，列表、抽屉和保存 payload 只投影当前模板精确 `field_key` 定义；模板外历史字段、旧别名和仅显示名相同的字段都不匹配、不显示、不保存。
+- [ ] 编辑行业字段模板并删除或改名字段时，保存行业字段模板后，引用商品当前配置中已不属于模板的字段必须立即清除；只修改当前 `product_production_config_fields`，不改历史订单、工单或价格表快照。
 - [ ] 清空模板会立即清空字段；切换模板只保留新模板定义的字段。快速切换模板或连续打开不同商品时，较早异步请求不得把旧商品或旧模板字段写回当前抽屉。
 - [ ] 应用服务先清空无模板字段，再执行字段校验并调用仓储；HTTP 层只暴露应用服务返回结果。PostgreSQL 仓储负责模板成员校验和元数据规范化，并为直接调用方重复执行无模板清空防御。
 - [ ] 启动逻辑不再从 `roast_level` 或 `special_attrs_json` 回填行业字段，并幂等清理孤儿行、无模板字段和模板外字段；首次启动缺少行业模板表时仍可安全执行。
