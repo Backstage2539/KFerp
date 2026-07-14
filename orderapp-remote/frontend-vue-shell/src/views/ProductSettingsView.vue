@@ -5850,11 +5850,15 @@ async function selectProductProductionConfigBom(bom) {
   if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
 }
 
-function isCurrentProductProductionConfigOpen(generation, productID, industryFieldTemplateID) {
+function isCurrentProductProductionConfigOpen(generation, productID) {
   const currentProductID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
   return generation === productProductionConfigOpenGeneration
     && productProductionConfigDrawerOpen.value
     && currentProductID === Number(productID || 0)
+}
+
+function isCurrentProductProductionConfigIndustryProjection(generation, productID, industryFieldTemplateID) {
+  return isCurrentProductProductionConfigOpen(generation, productID)
     && Number(productProductionConfigForm.value.industry_field_template_id || 0) === Number(industryFieldTemplateID || 0)
 }
 
@@ -5879,7 +5883,7 @@ async function openProductProductionConfig(row) {
     let industryFieldTemplatesPromise = loadIndustryFieldTemplates()
     if (!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0) {
       industryFieldTemplatesPromise = industryFieldTemplatesPromise.then(() => {
-        if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+        if (!isCurrentProductProductionConfigIndustryProjection(openGeneration, productID, industryFieldTemplateID)) return
         productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
           config?.fields || [],
           industryFieldTemplateForConfig(config),
@@ -5891,19 +5895,19 @@ async function openProductProductionConfig(row) {
       loadProcessRoutes(),
       industryFieldTemplatesPromise,
     ])
-    if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     await ensureProductBomUsage(productID)
-    if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     if (productProductionConfigForm.value.production_bom_id) {
       await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
-      if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+      if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
       if (!productProductionConfigForm.value.production_bom_version_id) {
         const latest = productProductionConfigVersionOptions.value[0]
         if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
       }
     }
   } catch (err) {
-    if (!isCurrentProductProductionConfigOpen(openGeneration, productID, industryFieldTemplateID)) return
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     error.value = err.message || '加载商品生产配置失败'
   }
 }
