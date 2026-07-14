@@ -33,7 +33,7 @@
 - HTTP API：`go test ./internal/interfaces/http/catalog -count=1` 通过。
 - PostgreSQL 仓储：`go test ./internal/infrastructure/postgres/catalog -count=1` 通过；schema 回填不再包含 `jsonb_each_text`。真实清理 SQL 矩阵在一次性本地 PostgreSQL 中验证了首次执行、重复执行幂等、无模板、孤儿、模板外字段和首次启动缺少行业模板表的边界。该验证未连接开发或生产数据库。
 - 支持合同：`go test ./internal/interfaces/http/support -run TestDev536ProductIndustryTemplateOnlyContracts -count=1` 和完整 support 包通过。PR-409 支持测试已删除对仓储内部 Go 返回字面量的绑定；无模板时的非 nil 空切片和 HTTP `"fields":[]` 语义由应用、HTTP API 与仓储行为测试负责。PR-536 支持合同另外固定六条 PR/DEV/REV 状态、历史 PR-439 口径、当前复制边界和双手册证据。
-- Vue/Vite production build 与 `scripts/verify_kferp.sh changed` 本任务未运行，留给 Task 7 合并前总验证；本文件不把它们记录为已通过。
+- Task 7 合并前总验证：Vue/Vite `npm run build` 通过，仅有既有 chunk-size warning；`scripts/verify_kferp.sh changed` 退出码为 0；`git diff --check` 通过。
 
 ## 数据边界
 
@@ -52,4 +52,4 @@
 ## 部署
 
 - 未部署；本任务明确不部署。
-- 后续部署前必须先备份目标环境数据库，并在合并前完成 Task 7 的 Vue/Vite build、`scripts/verify_kferp.sh changed` 和完整变更校验。
+- 后续若部署，必须先备份目标环境数据库；本任务仍未部署。

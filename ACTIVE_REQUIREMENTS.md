@@ -25,7 +25,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN application/API/repository: `go test ./internal/application/catalog -count=1`; `go test ./internal/interfaces/http/catalog -count=1`; `go test ./internal/infrastructure/postgres/catalog -count=1` passed.
   - GREEN cleanup SQL: disposable LOCAL PostgreSQL matrix passed first run, second-run idempotence, orphan/no-template/template-external cleanup and first-boot missing-template-table safety; development and production were not touched.
   - GREEN support: focused PR-536 contract and `go test ./internal/interfaces/http/support -count=1` passed；PR-409 支持测试不再绑定仓储内部 Go 返回字面量，`fields` 的非 nil 空切片和 HTTP `[]` 语义由应用、API、仓储行为测试负责。
-  - Pending Task 7: Vue/Vite production build and `scripts/verify_kferp.sh changed`; neither is claimed as passed by Task 6.
+  - GREEN Task 7: `npm run build` passed with only the existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; `git diff --check` passed.
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
   - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-14-product-industry-template-only.md`.
 - Deployment: not requested; do not deploy in this task
