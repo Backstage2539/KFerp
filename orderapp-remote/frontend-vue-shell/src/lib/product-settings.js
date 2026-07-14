@@ -148,6 +148,43 @@ export function skuTableState(rows = [], filters = {}, pagination = {}) {
   }
 }
 
+export function skuGroupTableState(groups = [], paginationByGroup = {}, options = {}) {
+  const sourceGroups = Array.isArray(groups) ? groups : []
+  const sourcePagination = paginationByGroup && typeof paginationByGroup === 'object'
+    ? paginationByGroup
+    : {}
+  const defaultPageSize = normalizePageSize(options.defaultPageSize)
+  const pagination = {}
+  const visibleRows = []
+
+  const paginatedGroups = sourceGroups.map((group, index) => {
+    const key = String(group?.key || `sku-group-${index}`)
+    const sourceRows = Array.isArray(group?.rows) ? group.rows : []
+    const requested = sourcePagination[key] || {}
+    const pageSize = normalizePageSize(requested.pageSize || defaultPageSize)
+    const page = clampPage(requested.page, sourceRows.length, pageSize)
+    const rows = slicePageRows(sourceRows, { page, pageSize })
+    pagination[key] = { page, pageSize }
+    visibleRows.push(...rows)
+    return {
+      ...group,
+      key,
+      total: sourceRows.length,
+      page,
+      pageSize,
+      needsPagination: sourceRows.length > pageSize,
+      rows,
+    }
+  })
+
+  return {
+    groups: paginatedGroups,
+    pagination,
+    visibleRows,
+    total: sourceGroups.reduce((sum, group) => sum + (Array.isArray(group?.rows) ? group.rows.length : 0), 0),
+  }
+}
+
 export function skuListRowsFromProducts(products = [], categoryTree = [], filterFn = () => true) {
   const categoryMetaByProductID = categoryProductMetaByID(categoryTree)
   const categoryMetaByCategoryID = categoryPathMetaByID(categoryTree)

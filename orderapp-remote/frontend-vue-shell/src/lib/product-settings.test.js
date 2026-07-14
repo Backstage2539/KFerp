@@ -89,6 +89,7 @@ import {
   productSkuRowsForParent,
   productArchiveRowsWithSkus,
   skuListRowsFromProducts,
+  skuGroupTableState,
   skuTableState,
   skuTypeLabel,
   skuTypeOptions,
@@ -2290,6 +2291,60 @@ test('skuTableState keeps visible rows, total, and category filters in one consi
     pageSize: 10,
     rows: rows.slice(0, 10),
   })
+})
+
+test('skuGroupTableState paginates every product category independently', () => {
+  const coffeeRows = Array.from({ length: 12 }, (_, index) => ({
+    id: `coffee-${index + 1}`,
+    name: `咖啡豆 ${index + 1}`,
+  }))
+  const dripRows = Array.from({ length: 13 }, (_, index) => ({
+    id: `drip-${index + 1}`,
+    name: `挂耳咖啡 ${index + 1}`,
+  }))
+
+  const state = skuGroupTableState([
+    { key: 'coffee', label: '咖啡豆', rows: coffeeRows },
+    { key: 'drip', label: '挂耳咖啡', rows: dripRows },
+  ], {
+    coffee: { page: 2, pageSize: 10 },
+    drip: { page: 1, pageSize: 10 },
+  })
+
+  assert.equal(state.groups[0].total, 12)
+  assert.equal(state.groups[0].page, 2)
+  assert.deepEqual(state.groups[0].rows.map((row) => row.id), ['coffee-11', 'coffee-12'])
+  assert.equal(state.groups[1].total, 13)
+  assert.equal(state.groups[1].page, 1)
+  assert.deepEqual(state.groups[1].rows.map((row) => row.id), dripRows.slice(0, 10).map((row) => row.id))
+  assert.deepEqual(state.pagination, {
+    coffee: { page: 2, pageSize: 10 },
+    drip: { page: 1, pageSize: 10 },
+  })
+  assert.equal(state.visibleRows.length, 12)
+})
+
+test('skuGroupTableState keeps full totals, clamps pages, and counts parent products only', () => {
+  const parentRows = [{
+    id: 1,
+    name: '金色山脉',
+    sku_rows: Array.from({ length: 6 }, (_, index) => ({ id: 100 + index })),
+  }]
+  const state = skuGroupTableState([
+    { key: 'coffee', label: '咖啡豆', rows: parentRows },
+    { key: 'empty', label: '空分类', rows: [] },
+  ], {
+    coffee: { page: 9, pageSize: 10 },
+    empty: { page: 3, pageSize: 10 },
+  })
+
+  assert.equal(state.groups[0].total, 1)
+  assert.equal(state.groups[0].page, 1)
+  assert.equal(state.groups[0].rows.length, 1)
+  assert.equal(state.groups[0].needsPagination, false)
+  assert.equal(state.groups[1].total, 0)
+  assert.equal(state.groups[1].page, 1)
+  assert.equal(state.groups[1].needsPagination, false)
 })
 
 test('category filter options are derived from current SKU rows', () => {
