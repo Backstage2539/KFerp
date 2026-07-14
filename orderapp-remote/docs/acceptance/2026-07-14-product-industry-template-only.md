@@ -27,6 +27,7 @@
 - 文档合同：`go test ./internal/interfaces/http/support -run TestDev536ProductIndustryTemplateOnlyContracts -count=1` 在本任务首次运行时退出码为 1，失败信息为 `docs/OP_MANUAL_INVENTORY_MATERIALS.md missing PR-536 marker "取消行业字段模板会清空商品行业字段"`。
 - 文档合同 follow-up：强化六条 PR/DEV/REV 状态、当前复制边界、不歧义 `fields` 语义和双手册证据后，同一命令退出码为 1，失败信息为 `req_store.go must record both current PR-536 workflow manuals as DEV-536-DOCS-ACCEPTANCE evidence`。
 - K20 冲突合同 follow-up：要求 K20 只保留为被 K78 / PR-536 覆盖的历史口径，并固定模板字段删除或改名后的即时清理边界；同一命令退出码为 1，失败信息为 ``docs/REQUIREMENTS.md missing PR-536 marker "删除或改名字段后，保存模板必须立即清除引用商品当前 `product_production_config_fields` 中已不属于模板的字段"``。
+- 并发回归：模板保存和商品生产配置保存并发时，商品保存曾可能按旧模板定义通过校验，并在模板事务清理完成后成功回写已经删除的 `old-key`。
 
 ## GREEN 证据
 
@@ -34,8 +35,9 @@
 - 应用：`go test ./internal/application/catalog -count=1` 通过。
 - HTTP API：`go test ./internal/interfaces/http/catalog -count=1` 通过。
 - PostgreSQL 仓储：`go test ./internal/infrastructure/postgres/catalog -count=1` 通过；schema 回填不再包含 `jsonb_each_text`。真实清理 SQL 矩阵在一次性本地 PostgreSQL 中验证了首次执行、重复执行幂等、无模板、孤儿、模板外字段和首次启动缺少行业模板表的边界。该验证未连接开发或生产数据库。
+- 并发与模板保存：`SaveIndustryTemplate` 在同一事务内按新模板定义立即清理引用商品当前配置中的模板外字段，并在模板保存操作日志元数据记录 `removed_product_field_count`；`SaveProductProductionConfig` 在读取模板字段定义前使用 `FOR SHARE`，与模板更新写锁串行化。一次性 LOCAL PostgreSQL 中 catalog 与 manufacturing 完整测试通过，真实验证商品保存等待模板锁，且模板提交后拒绝 `old-key`；development 和 production 均未触碰。
 - 支持合同：`go test ./internal/interfaces/http/support -run TestDev536ProductIndustryTemplateOnlyContracts -count=1` 和完整 support 包通过。PR-409 支持测试已删除对仓储内部 Go 返回字面量的绑定；无模板时的非 nil 空切片和 HTTP `"fields":[]` 语义由应用、HTTP API 与仓储行为测试负责。PR-536 支持合同另外固定六条 PR/DEV/REV 状态、历史 PR-439 口径、当前复制边界、双手册证据、K20 历史口径覆盖和模板字段删除/改名后的即时清理边界。
-- Task 7 合并前总验证：Vue/Vite `npm run build` 通过，仅有既有 chunk-size warning；`scripts/verify_kferp.sh changed` 退出码为 0；`git diff --check` 通过。
+- Task 7 在 `ccfb36cf` 后重跑：`go test ./...` 通过；前端 `node --test src/lib/product-settings.test.js` 通过 159/159；Vue/Vite `npm run build` 通过，仅有既有 chunk-size warning；`scripts/verify_kferp.sh changed` 退出码为 0；`git diff --check` 通过。
 
 ## 数据边界
 
