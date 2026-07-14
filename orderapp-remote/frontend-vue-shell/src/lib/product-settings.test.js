@@ -44,6 +44,7 @@ import {
   applyPricingRuleTrialToPriceTableRow,
   priceTablePricingRuleTrialPayload,
   buildProductProductionConfigForm,
+  productProductionConfigFieldsFromTemplate,
   buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -1271,6 +1272,27 @@ test('industry field helpers use comma text for select options and build alias f
   })
 })
 
+test('product production config has no industry fields without a selected template', () => {
+  const legacyFields = [{
+    field_key: 'roast_level',
+    template_field_key: '',
+    label: 'roast_level',
+    field_type: 'text',
+    value_text: '深烘',
+    sort_order: 1,
+  }]
+
+  assert.deepEqual(productProductionConfigFieldsFromTemplate(legacyFields, null), [])
+
+  const form = buildProductProductionConfigForm({
+    product_id: 556,
+    industry_field_template_id: 0,
+    fields: legacyFields,
+  }, { id: 556, name: '无模板旧商品' })
+
+  assert.deepEqual(form.fields, [])
+})
+
 test('product production config form keeps only current template industry fields', () => {
   const roastTemplate = {
     id: 2,
@@ -1330,7 +1352,7 @@ test('product production config form keeps only current template industry fields
   assert.equal(legacyOnly.fields[0].field_key, '烘焙度')
   assert.equal(legacyOnly.fields[0].template_field_key, '烘焙度')
   assert.equal(legacyOnly.fields[0].field_type, 'select')
-  assert.equal(legacyOnly.fields[0].value_text, '中烘')
+  assert.equal(legacyOnly.fields[0].value_text, '')
 })
 
 test('classification template usages are page-level tabs instead of object fields', () => {
