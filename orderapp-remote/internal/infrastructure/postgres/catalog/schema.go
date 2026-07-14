@@ -1194,33 +1194,52 @@ LEFT JOIN %[1]s.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
 LEFT JOIN %[1]s.product_bom pb ON pb.product_id=p.id
 WHERE COALESCE(p.active,true)=true
 ON CONFLICT (product_id) DO NOTHING;
-
-WITH source_attrs AS (
-	SELECT p.id AS product_id,
-	       CASE
-	         WHEN COALESCE(NULLIF(p.roast_level,''),'') <> ''
-	         THEN jsonb_set(COALESCE(p.special_attrs_json, '{}'::jsonb), '{roast_level}', to_jsonb(p.roast_level), true)
-	         ELSE COALESCE(p.special_attrs_json, '{}'::jsonb)
-	       END AS attrs_json
-	FROM %[1]s.products p
-	JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id
-),
-attr_rows AS (
-	SELECT source_attrs.product_id,
-	       kv.key AS field_key,
-	       kv.value AS value_text,
-	       row_number() OVER (PARTITION BY source_attrs.product_id ORDER BY kv.key)::int AS sort_order
-	FROM source_attrs
-	CROSS JOIN LATERAL jsonb_each_text(source_attrs.attrs_json) AS kv(key,value)
-	WHERE COALESCE(kv.key,'') <> '' AND COALESCE(kv.value,'') <> ''
-)
-INSERT INTO %[1]s.product_production_config_fields(
-	product_id, field_key, label, field_type, unit, value_text, show_in_price_list, sort_order
-)
-SELECT product_id, field_key, field_key, 'text', '', value_text, true, sort_order
-FROM attr_rows
-ON CONFLICT (product_id, lower(field_key)) DO NOTHING;
 `, schema)
-	_, err := pool.Exec(ctx, q)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	return cleanupProductProductionConfigIndustryFields(ctx, pool, schema)
+}
+
+func cleanupProductProductionConfigIndustryFields(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+DELETE FROM %[1]s.product_production_config_fields f
+WHERE NOT EXISTS (
+	SELECT 1 FROM %[1]s.product_production_configs c WHERE c.product_id=f.product_id
+)
+OR EXISTS (
+	SELECT 1
+	FROM %[1]s.product_production_configs c
+	WHERE c.product_id=f.product_id
+	  AND COALESCE(c.industry_field_template_id,0) <= 0
+);
+`, schema)); err != nil {
+		return err
+	}
+
+	var hasIndustryTemplates, hasIndustryDefinitions bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`, schema+".industry_field_templates", schema+".industry_field_definitions").Scan(&hasIndustryTemplates, &hasIndustryDefinitions); err != nil {
+		return err
+	}
+	if !hasIndustryTemplates || !hasIndustryDefinitions {
+		return nil
+	}
+
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+DELETE FROM %[1]s.product_production_config_fields f
+WHERE EXISTS (
+	SELECT 1
+	FROM %[1]s.product_production_configs c
+	WHERE c.product_id=f.product_id
+	  AND COALESCE(c.industry_field_template_id,0) > 0
+	  AND NOT EXISTS (
+		SELECT 1
+		FROM %[1]s.industry_field_templates t
+		JOIN %[1]s.industry_field_definitions d ON d.template_id=t.id
+		WHERE t.id=c.industry_field_template_id
+		  AND lower(btrim(d.field_key))=lower(btrim(COALESCE(NULLIF(f.template_field_key,''),f.field_key)))
+	  )
+);
+`, schema))
 	return err
 }

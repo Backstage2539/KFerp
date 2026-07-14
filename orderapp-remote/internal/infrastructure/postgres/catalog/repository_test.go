@@ -674,7 +674,7 @@ func TestProductConfigSpecialAttrsPersistAndCopyIdempotently(t *testing.T) {
 	}
 }
 
-func TestProductProductionConfigSchemaBackfillsLegacyBOMAndAttributes(t *testing.T) {
+func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -696,7 +696,6 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndAttributes(t *testing
 		"show_in_price_list BOOLEAN NOT NULL DEFAULT true",
 		"backfillProductProductionConfigs",
 		"1 - COALESCE(NULLIF(pbv.yield_rate,0)",
-		"jsonb_each_text",
 		"ListProductProductionConfigs",
 		"SaveProductProductionConfig",
 		`"product_production_config"`,
@@ -706,6 +705,28 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndAttributes(t *testing
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("product production config implementation missing marker %q", want)
+		}
+	}
+
+	schemaSource := string(schema)
+	start := strings.Index(schemaSource, "func backfillProductProductionConfigs")
+	if start < 0 {
+		t.Fatal("backfillProductProductionConfigs missing")
+	}
+	backfill := schemaSource[start:]
+	if strings.Contains(backfill, "jsonb_each_text") {
+		t.Fatalf("legacy special_attrs_json must not create product industry fields")
+	}
+	for _, want := range []string{
+		"cleanupProductProductionConfigIndustryFields",
+		"DELETE FROM %[1]s.product_production_config_fields",
+		"industry_field_template_id",
+		"industry_field_templates",
+		"industry_field_definitions",
+		"to_regclass",
+	} {
+		if !strings.Contains(backfill, want) {
+			t.Fatalf("product industry field cleanup missing %q", want)
 		}
 	}
 }
