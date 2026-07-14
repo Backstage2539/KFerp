@@ -1148,6 +1148,14 @@ func normalizeProductProductionConfigFieldsAgainstTemplateTx(ctx context.Context
 	if templateID <= 0 {
 		return []catalogapp.ProductProductionConfigField{}, nil
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.industry_field_templates
+		WHERE id=$1
+		FOR SHARE
+	`, schema), templateID); err != nil {
+		return nil, err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT field_key, label, field_type, unit, required, COALESCE(options_json,'[]'::jsonb)::text, sort_order
 		FROM %s.industry_field_definitions

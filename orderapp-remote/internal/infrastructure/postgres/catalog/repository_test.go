@@ -882,6 +882,189 @@ func TestProductProductionConfigFieldsRequireIndustryTemplate(t *testing.T) {
 	}
 }
 
+func TestProductProductionConfigLocksIndustryTemplateBeforeReadingDefinitions(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	save := catalogRepositoryFunctionForTest(t, src, "func (r Repository) SaveProductProductionConfig", "func normalizeProductProductionConfigFieldsAgainstTemplateTx")
+	normalizeCall := strings.Index(save, "normalizeProductProductionConfigFieldsAgainstTemplateTx")
+	configWrite := strings.Index(save, "INSERT INTO %s.product_production_configs")
+	if normalizeCall < 0 || configWrite < 0 || normalizeCall >= configWrite {
+		t.Fatal("SaveProductProductionConfig must normalize and lock the template before writing product config")
+	}
+
+	fn := catalogRepositoryFunctionForTest(t, src, "func normalizeProductProductionConfigFieldsAgainstTemplateTx", "func (r Repository) ListProductClassificationTemplates")
+	noTemplateReturn := strings.Index(fn, "if templateID <= 0")
+	templateLock := strings.Index(fn, "FROM %s.industry_field_templates")
+	definitionRead := strings.Index(fn, "FROM %s.industry_field_definitions")
+	if definitionRead < 0 {
+		t.Fatal("product production config normalization must read industry field definitions")
+	}
+	if templateLock < 0 {
+		t.Fatal("product production config normalization must take a shared template-row lock")
+	}
+	if !strings.Contains(fn[templateLock:definitionRead], "FOR SHARE") {
+		t.Fatal("product production config normalization must take a shared template-row lock")
+	}
+	if noTemplateReturn < 0 || noTemplateReturn >= templateLock {
+		t.Fatal("no-template product fields must return [] before attempting a template-row lock")
+	}
+	if templateLock >= definitionRead {
+		t.Fatal("product production config normalization must lock the template row before reading definitions")
+	}
+	lockSQL := fn[templateLock:definitionRead]
+	if !strings.Contains(lockSQL, "WHERE id=$1") {
+		t.Fatal("product production config normalization must lock only the referenced template")
+	}
+	if strings.Contains(lockSQL, "status") {
+		t.Fatal("product production config normalization must also support referenced inactive templates")
+	}
+}
+
+func TestNormalizeProductProductionConfigFieldsWaitsForTemplateUpdate(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog template-lock tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_catalog_template_lock_%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	})
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE SCHEMA %[1]s;
+		CREATE TABLE %[1]s.industry_field_templates (
+			id BIGINT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active'
+		);
+		CREATE TABLE %[1]s.industry_field_definitions (
+			id BIGINT PRIMARY KEY,
+			template_id BIGINT NOT NULL,
+			field_key TEXT NOT NULL DEFAULT '',
+			label TEXT NOT NULL DEFAULT '',
+			field_type TEXT NOT NULL DEFAULT 'text',
+			unit TEXT NOT NULL DEFAULT '',
+			required BOOLEAN NOT NULL DEFAULT false,
+			options_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+			sort_order INT NOT NULL DEFAULT 0
+		);
+		INSERT INTO %[1]s.industry_field_templates(id,name,status) VALUES (10,'before','active');
+		INSERT INTO %[1]s.industry_field_definitions(id,template_id,field_key,label)
+		VALUES (1,10,'old-key','Old field');
+	`, schema)); err != nil {
+		t.Fatalf("create catalog template-lock schema: %v", err)
+	}
+
+	templateTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin template transaction: %v", err)
+	}
+	defer func() { _ = templateTx.Rollback(context.Background()) }()
+	if _, err := templateTx.Exec(ctx, fmt.Sprintf(`UPDATE %s.industry_field_templates SET name='after',status='inactive' WHERE id=10`, schema)); err != nil {
+		t.Fatalf("lock template row for update: %v", err)
+	}
+	if _, err := templateTx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.industry_field_definitions WHERE template_id=10`, schema)); err != nil {
+		t.Fatalf("delete old template definition: %v", err)
+	}
+	if _, err := templateTx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.industry_field_definitions(id,template_id,field_key,label)
+		VALUES (2,10,'new-key','New field')
+	`, schema)); err != nil {
+		t.Fatalf("insert new template definition: %v", err)
+	}
+
+	productTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin product transaction: %v", err)
+	}
+	defer func() { _ = productTx.Rollback(context.Background()) }()
+	var productBackendPID int
+	if err := productTx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&productBackendPID); err != nil {
+		t.Fatalf("load product transaction backend pid: %v", err)
+	}
+	type normalizationResult struct {
+		fields []catalogapp.ProductProductionConfigField
+		err    error
+	}
+	resultCh := make(chan normalizationResult, 1)
+	started := make(chan struct{})
+	productCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	go func() {
+		close(started)
+		fields, err := normalizeProductProductionConfigFieldsAgainstTemplateTx(productCtx, productTx, schema, 10, []catalogapp.ProductProductionConfigField{{
+			FieldKey:         "old-key",
+			TemplateFieldKey: "old-key",
+			ValueText:        "legacy value",
+		}})
+		resultCh <- normalizationResult{fields: fields, err: err}
+	}()
+	<-started
+	waitDeadline := time.Now().Add(time.Second)
+	for {
+		select {
+		case result := <-resultCh:
+			t.Fatalf("product normalization returned before template commit: fields=%+v err=%v", result.fields, result.err)
+		default:
+		}
+		var waitEventType string
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(wait_event_type,'') FROM pg_stat_activity WHERE pid=$1`, productBackendPID).Scan(&waitEventType); err != nil {
+			t.Fatalf("read product transaction wait state: %v", err)
+		}
+		if waitEventType == "Lock" {
+			break
+		}
+		if time.Now().After(waitDeadline) {
+			t.Fatal("product normalization did not wait on the template row lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := templateTx.Commit(ctx); err != nil {
+		t.Fatalf("commit template update: %v", err)
+	}
+	select {
+	case result := <-resultCh:
+		if result.err == nil || !strings.Contains(result.err.Error(), "field old-key is not defined by industry field template") {
+			t.Fatalf("product normalization after template commit err = %v, want old-key rejection", result.err)
+		}
+	case <-productCtx.Done():
+		t.Fatalf("product normalization did not resume after template commit: %v", productCtx.Err())
+	}
+	if err := productTx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback rejected product config: %v", err)
+	}
+
+	inactiveTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin inactive template product transaction: %v", err)
+	}
+	defer func() { _ = inactiveTx.Rollback(context.Background()) }()
+	fields, err := normalizeProductProductionConfigFieldsAgainstTemplateTx(ctx, inactiveTx, schema, 10, []catalogapp.ProductProductionConfigField{{
+		FieldKey:         "new-key",
+		TemplateFieldKey: "new-key",
+		ValueText:        "current value",
+	}})
+	if err != nil {
+		t.Fatalf("normalize referenced inactive template field: %v", err)
+	}
+	if len(fields) != 1 || fields[0].FieldKey != "new-key" {
+		t.Fatalf("inactive template fields = %+v, want new-key", fields)
+	}
+}
+
 func TestProductProductionConfigListInitializesEmptyFields(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
