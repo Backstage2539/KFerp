@@ -1355,6 +1355,34 @@ test('product production config form keeps only current template industry fields
   assert.equal(legacyOnly.fields[0].value_text, '')
 })
 
+test('product production config rejects label-only legacy industry field matches', () => {
+  const roastTemplate = {
+    id: 2,
+    fields: [{
+      field_key: '烘焙度',
+      label: '烘焙度',
+      field_type: 'select',
+      options_json: '["浅烘","中烘","深烘"]',
+      sort_order: 1,
+    }],
+  }
+  const legacyFields = [{
+    field_key: 'legacy_roast',
+    template_field_key: '',
+    label: '烘焙度',
+    field_type: 'text',
+    value_text: '中烘',
+    sort_order: 1,
+  }]
+
+  const projected = productProductionConfigFieldsFromTemplate(legacyFields, roastTemplate)
+
+  assert.equal(projected.length, 1)
+  assert.equal(projected[0].field_key, '烘焙度')
+  assert.equal(projected[0].template_field_key, '烘焙度')
+  assert.equal(projected[0].value_text, '')
+})
+
 test('classification template usages are page-level tabs instead of object fields', () => {
   assert.deepEqual(buildClassificationTemplateUsagePayload({
     customer_id: '42',
