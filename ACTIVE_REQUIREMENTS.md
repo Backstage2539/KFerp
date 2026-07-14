@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY
+- Branch: codex/product-industry-template-only-20260714
+- Owner/session: Codex / 2026-07-14
+- Status: planned
+- Scope: 商品行业字段只允许来自商品明确引用的行业字段模板；清除无模板和模板外历史字段，停止旧 `roast_level` / `special_attrs_json` 自动生成商品行业字段。
+- DEV:
+  - DEV-536-FRONTEND-TEMPLATE-PROJECTION：商品列表、配置抽屉、模板切换和保存 payload 均只投影当前行业字段模板。
+  - DEV-536-BACKEND-TEMPLATE-CONSTRAINT：应用服务和 PostgreSQL 仓储在模板 ID 为 0 时强制清空字段；复制商品不再制造无模板字段。
+  - DEV-536-LEGACY-FIELD-CLEANUP：移除旧属性字段回填并幂等删除无模板、孤儿和模板外字段。
+  - DEV-536-DOCS-ACCEPTANCE：更新需求、验收、操作手册、支持表和交付证据。
+- Verifier:
+  - Unit: `node --test src/lib/product-settings.test.js`; `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog -count=1`
+  - API: `go test ./internal/interfaces/http/catalog -run 'TestProductSettingsAPI.*IndustryFields' -count=1`
+  - Frontend/build: `npm run build`; `scripts/verify_kferp.sh changed`
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md
+  - Review/acceptance: orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-07-14-product-industry-template-only.md
+- Deployment: not requested; do not deploy in this task
+- Last update: 2026-07-14 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 命中已知 macOS awk 多行字符串错误；按脚本给出的下一个编号手工登记 PR-536。清理只删除 `product_production_config_fields`，保留行业字段模板、`products.roast_level`、`products.special_attrs_json` 和历史业务快照。
+
 ### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
 - Branch: codex/cost-parameters-pricing-tabs-20260712
 - Owner/session: Codex / 2026-07-12
