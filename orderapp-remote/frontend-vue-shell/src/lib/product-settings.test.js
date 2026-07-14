@@ -3999,6 +3999,16 @@ test('product archive industry fields are generated from templates without ad-ho
   assert.doesNotMatch(drawer, />类型</)
 })
 
+test('product archive displays and saves industry fields only through the selected template', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.match(script, /function productionConfigPriceListFields[\s\S]*industryFieldTemplateForConfig\(config\)[\s\S]*productProductionConfigFieldsFromTemplate/)
+  assert.match(script, /function applyIndustryFieldTemplateToProductionConfig[\s\S]*productProductionConfigForm\.value\.fields\s*=\s*productProductionConfigFieldsFromTemplate/)
+  assert.match(script, /async function saveProductProductionConfig[\s\S]*industryFieldTemplateForConfig\(productProductionConfigForm\.value\)[\s\S]*productProductionConfigFieldsFromTemplate/)
+  assert.doesNotMatch(script, /function applyIndustryFieldTemplateToProductionConfig\(\) \{\s*const template = selectedIndustryFieldTemplate\(\)\s*if \(!template\) return/)
+})
+
 test('product settings uses product business groups instead of product classification page controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
