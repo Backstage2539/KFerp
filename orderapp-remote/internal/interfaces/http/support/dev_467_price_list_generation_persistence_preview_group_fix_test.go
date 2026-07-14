@@ -29,7 +29,8 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"businessGroupRowsForUsage(businessGroups.value, 'product_catalog')",
-			"if (!restoringProductSettingsDraft) saveProductSettingsDraft()",
+			"skuGroupPagination: skuGroupPagination.value",
+			"if (restoringProductSettingsDraft) return",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-price-list-draft.test.js"): {
 			"price list generation draft persists pricing selections by scope and product type key",
