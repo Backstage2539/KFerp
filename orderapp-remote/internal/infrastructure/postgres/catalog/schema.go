@@ -1237,7 +1237,7 @@ WHERE EXISTS (
 		FROM %[1]s.industry_field_templates t
 		JOIN %[1]s.industry_field_definitions d ON d.template_id=t.id
 		WHERE t.id=c.industry_field_template_id
-		  AND lower(btrim(d.field_key))=lower(btrim(COALESCE(NULLIF(f.template_field_key,''),f.field_key)))
+		  AND btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))
 	  )
 );
 `, schema))

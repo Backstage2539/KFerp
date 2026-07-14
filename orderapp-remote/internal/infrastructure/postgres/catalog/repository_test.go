@@ -1,10 +1,15 @@
 package catalog
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	catalogapp "orderapp/internal/application/catalog"
 )
@@ -709,25 +714,160 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 	}
 
 	schemaSource := string(schema)
-	start := strings.Index(schemaSource, "func backfillProductProductionConfigs")
-	if start < 0 {
-		t.Fatal("backfillProductProductionConfigs missing")
+	backfill := catalogRepositoryFunctionForTest(t, schemaSource, "func backfillProductProductionConfigs", "func cleanupProductProductionConfigIndustryFields")
+	if !strings.Contains(backfill, "return cleanupProductProductionConfigIndustryFields(ctx, pool, schema)") {
+		t.Fatalf("product production config backfill must call industry field cleanup")
 	}
-	backfill := schemaSource[start:]
 	if strings.Contains(backfill, "jsonb_each_text") {
 		t.Fatalf("legacy special_attrs_json must not create product industry fields")
 	}
+
+	cleanup := catalogSourceFunctionForTest(t, schemaSource, "func cleanupProductProductionConfigIndustryFields")
 	for _, want := range []string{
-		"cleanupProductProductionConfigIndustryFields",
 		"DELETE FROM %[1]s.product_production_config_fields",
 		"industry_field_template_id",
 		"industry_field_templates",
 		"industry_field_definitions",
 		"to_regclass",
 	} {
-		if !strings.Contains(backfill, want) {
+		if !strings.Contains(cleanup, want) {
 			t.Fatalf("product industry field cleanup missing %q", want)
 		}
+	}
+	const exactFieldKeyMatch = "btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))"
+	if !strings.Contains(cleanup, exactFieldKeyMatch) {
+		t.Fatalf("product industry field cleanup must use exact trimmed key match %q", exactFieldKeyMatch)
+	}
+	if strings.Contains(cleanup, "lower(btrim") {
+		t.Fatalf("product industry field cleanup must not match template keys case-insensitively")
+	}
+}
+
+func TestCleanupProductProductionConfigIndustryFields(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog postgres tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	schema := fmt.Sprintf("test_catalog_industry_cleanup_%d", time.Now().UnixNano())
+	firstBootSchema := schema + "_first_boot"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+firstBootSchema+" CASCADE")
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	})
+	mustExec := func(query string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, query); err != nil {
+			t.Fatalf("exec catalog cleanup test SQL: %v", err)
+		}
+	}
+
+	mustExec(fmt.Sprintf(`
+CREATE SCHEMA %[1]s;
+CREATE TABLE %[1]s.product_production_configs (
+	product_id BIGINT PRIMARY KEY,
+	industry_field_template_id BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %[1]s.product_production_config_fields (
+	id BIGINT PRIMARY KEY,
+	product_id BIGINT NOT NULL,
+	field_key TEXT NOT NULL DEFAULT '',
+	template_field_key TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %[1]s.industry_field_templates (
+	id BIGINT PRIMARY KEY
+);
+CREATE TABLE %[1]s.industry_field_definitions (
+	id BIGINT PRIMARY KEY,
+	template_id BIGINT NOT NULL,
+	field_key TEXT NOT NULL DEFAULT ''
+);
+
+INSERT INTO %[1]s.product_production_configs(product_id, industry_field_template_id) VALUES
+	(2,0),
+	(3,30),
+	(4,40),
+	(5,50),
+	(6,60),
+	(7,70);
+INSERT INTO %[1]s.industry_field_templates(id) VALUES (40),(50),(60),(70);
+INSERT INTO %[1]s.industry_field_definitions(id, template_id, field_key) VALUES
+	(501,50,'exact-key'),
+	(601,60,'fallback-key'),
+	(701,70,'CaseKey');
+INSERT INTO %[1]s.product_production_config_fields(id, product_id, field_key, template_field_key) VALUES
+	(1,1,'orphan-key','orphan-key'),
+	(2,2,'template-zero-key','template-zero-key'),
+	(3,3,'missing-template-key','missing-template-key'),
+	(4,4,'zero-definition-key','zero-definition-key'),
+	(5,5,'ignored-exact-key','exact-key'),
+	(6,5,'exact-key','external-key'),
+	(7,6,' fallback-key ','   '),
+	(8,7,'ignored-case-key','casekey');
+`, schema))
+
+	if err := cleanupProductProductionConfigIndustryFields(ctx, pool, schema); err != nil {
+		t.Fatalf("cleanupProductProductionConfigIndustryFields: %v", err)
+	}
+	assertProductProductionConfigFieldIDs(t, ctx, pool, schema, []int64{5, 7})
+	if err := cleanupProductProductionConfigIndustryFields(ctx, pool, schema); err != nil {
+		t.Fatalf("cleanupProductProductionConfigIndustryFields second run: %v", err)
+	}
+	assertProductProductionConfigFieldIDs(t, ctx, pool, schema, []int64{5, 7})
+
+	mustExec(fmt.Sprintf(`
+CREATE SCHEMA %[1]s;
+CREATE TABLE %[1]s.product_production_configs (
+	product_id BIGINT PRIMARY KEY,
+	industry_field_template_id BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %[1]s.product_production_config_fields (
+	id BIGINT PRIMARY KEY,
+	product_id BIGINT NOT NULL,
+	field_key TEXT NOT NULL DEFAULT '',
+	template_field_key TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO %[1]s.product_production_configs(product_id, industry_field_template_id) VALUES (101,99),(102,0);
+INSERT INTO %[1]s.product_production_config_fields(id, product_id, field_key, template_field_key) VALUES
+	(101,101,'first-boot-key','first-boot-key'),
+	(102,102,'template-zero-key','template-zero-key');
+`, firstBootSchema))
+	if err := cleanupProductProductionConfigIndustryFields(ctx, pool, firstBootSchema); err != nil {
+		t.Fatalf("cleanup without industry template tables: %v", err)
+	}
+	assertProductProductionConfigFieldIDs(t, ctx, pool, firstBootSchema, []int64{101})
+}
+
+func assertProductProductionConfigFieldIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, want []int64) {
+	t.Helper()
+	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.product_production_config_fields ORDER BY id`, schema))
+	if err != nil {
+		t.Fatalf("query product production config field ids: %v", err)
+	}
+	defer rows.Close()
+	got := make([]int64, 0, len(want))
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan product production config field id: %v", err)
+		}
+		got = append(got, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate product production config field ids: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("product production config field ids = %v, want %v", got, want)
 	}
 }
 
@@ -1092,6 +1232,19 @@ func catalogRepositoryFunctionForTest(t *testing.T, src string, startMarker stri
 		t.Fatalf("repository.go missing next function marker %q", endMarker)
 	}
 	return src[start : start+len(startMarker)+end]
+}
+
+func catalogSourceFunctionForTest(t *testing.T, src string, startMarker string) string {
+	t.Helper()
+	start := strings.Index(src, startMarker)
+	if start < 0 {
+		t.Fatalf("source missing function marker %q", startMarker)
+	}
+	remainder := src[start+len(startMarker):]
+	if end := strings.Index(remainder, "\nfunc "); end >= 0 {
+		return src[start : start+len(startMarker)+end]
+	}
+	return src[start:]
 }
 
 func TestCustomerPublicUsagePersistsReferenceSwitchesAndAudits(t *testing.T) {
