@@ -44,6 +44,7 @@ import {
   applyPricingRuleTrialToPriceTableRow,
   priceTablePricingRuleTrialPayload,
   buildProductProductionConfigForm,
+  productProductionConfigFieldsFromTemplate,
   buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -1271,6 +1272,27 @@ test('industry field helpers use comma text for select options and build alias f
   })
 })
 
+test('product production config has no industry fields without a selected template', () => {
+  const legacyFields = [{
+    field_key: 'roast_level',
+    template_field_key: '',
+    label: 'roast_level',
+    field_type: 'text',
+    value_text: '深烘',
+    sort_order: 1,
+  }]
+
+  assert.deepEqual(productProductionConfigFieldsFromTemplate(legacyFields, null), [])
+
+  const form = buildProductProductionConfigForm({
+    product_id: 556,
+    industry_field_template_id: 0,
+    fields: legacyFields,
+  }, { id: 556, name: '无模板旧商品' })
+
+  assert.deepEqual(form.fields, [])
+})
+
 test('product production config form keeps only current template industry fields', () => {
   const roastTemplate = {
     id: 2,
@@ -1330,7 +1352,35 @@ test('product production config form keeps only current template industry fields
   assert.equal(legacyOnly.fields[0].field_key, '烘焙度')
   assert.equal(legacyOnly.fields[0].template_field_key, '烘焙度')
   assert.equal(legacyOnly.fields[0].field_type, 'select')
-  assert.equal(legacyOnly.fields[0].value_text, '中烘')
+  assert.equal(legacyOnly.fields[0].value_text, '')
+})
+
+test('product production config rejects label-only legacy industry field matches', () => {
+  const roastTemplate = {
+    id: 2,
+    fields: [{
+      field_key: '烘焙度',
+      label: '烘焙度',
+      field_type: 'select',
+      options_json: '["浅烘","中烘","深烘"]',
+      sort_order: 1,
+    }],
+  }
+  const legacyFields = [{
+    field_key: 'legacy_roast',
+    template_field_key: '',
+    label: '烘焙度',
+    field_type: 'text',
+    value_text: '中烘',
+    sort_order: 1,
+  }]
+
+  const projected = productProductionConfigFieldsFromTemplate(legacyFields, roastTemplate)
+
+  assert.equal(projected.length, 1)
+  assert.equal(projected[0].field_key, '烘焙度')
+  assert.equal(projected[0].template_field_key, '烘焙度')
+  assert.equal(projected[0].value_text, '')
 })
 
 test('classification template usages are page-level tabs instead of object fields', () => {
@@ -3947,6 +3997,60 @@ test('product archive industry fields are generated from templates without ad-ho
   assert.doesNotMatch(drawer, /删除<\/button>/)
   assert.doesNotMatch(drawer, />字段名</)
   assert.doesNotMatch(drawer, />类型</)
+})
+
+test('product archive displays and saves industry fields only through the selected template', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const sourceBetween = (start, end) => {
+    const startIndex = script.indexOf(start)
+    const endIndex = script.indexOf(end, startIndex + start.length)
+    assert.ok(startIndex >= 0, `missing source block start: ${start}`)
+    assert.ok(endIndex > startIndex, `missing source block end: ${end}`)
+    return script.slice(startIndex, endIndex)
+  }
+  const listBlock = sourceBetween('function productionConfigPriceListFields(', 'function productionConfigLossLabel(')
+  const openBlock = sourceBetween('async function openProductProductionConfig(', 'async function loadIndustryFieldTemplates(')
+  const applyBlock = sourceBetween('function applyIndustryFieldTemplateToProductionConfig(', 'function closeProductProductionConfigDrawer(')
+  const closeBlock = sourceBetween('function closeProductProductionConfigDrawer(', 'async function refreshClassificationTemplates(')
+  const saveBlock = sourceBetween('async function saveProductProductionConfig(', 'async function createSku(')
+
+  assert.match(listBlock, /const template = industryFieldTemplateForConfig\(config\)/)
+  assert.match(listBlock, /return productProductionConfigFieldsFromTemplate\(config\.fields \|\| \[\], template\)/)
+  assert.match(applyBlock, /const template = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
+  assert.match(applyBlock, /productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
+  assert.doesNotMatch(applyBlock, /if \(!template\) return/)
+  assert.match(saveBlock, /const industryFieldTemplate = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
+  assert.match(saveBlock, /const fields = productProductionConfigFieldsFromTemplate/)
+
+  assert.match(script, /^let productProductionConfigOpenGeneration = 0$/m)
+  assert.match(openBlock, /const openGeneration = \+\+productProductionConfigOpenGeneration/)
+  assert.match(openBlock, /const productID = Number\(row\?\.id \|\| config\?\.product_id \|\| 0\)/)
+  assert.match(openBlock, /const industryFieldTemplateID = Number\(config\?\.industry_field_template_id \|\| 0\)/)
+  assert.match(openBlock, /const industryFieldTemplateAvailableAtOpen = Boolean\(industryFieldTemplateForConfig\(config\)\)/)
+  assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)/)
+  assert.match(openBlock, /if \(!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0\) \{\s*industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then/)
+  assert.match(openBlock, /industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then\(\(\) => \{[\s\S]*?isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateID\)[\s\S]*?productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
+  assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)[\s\S]*?industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then[\s\S]*?await Promise\.all\(/)
+  assert.match(openBlock, /Promise\.all\(\[[\s\S]*?industryFieldTemplatesPromise,[\s\S]*?\]\)/)
+  assert.doesNotMatch(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*productProductionConfigForm\.value\.fields\s*=/)
+  assert.match(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return\s*await ensureProductBomUsage\(productID\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return/)
+  assert.match(openBlock, /await ensureProductionBomDetail\(productProductionConfigForm\.value\.production_bom_id\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return/)
+  assert.match(openBlock, /catch \(err\) \{\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return\s*error\.value =/)
+  assert.equal((openBlock.match(/isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateID\)/g) || []).length, 1)
+  assert.equal((openBlock.match(/isCurrentProductProductionConfigOpen\(openGeneration, productID\)/g) || []).length, 4)
+  assert.doesNotMatch(openBlock, /isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)/)
+  assert.doesNotMatch(openBlock, /\t/)
+
+  const drawerGuardBlock = sourceBetween('function isCurrentProductProductionConfigOpen(', 'function isCurrentProductProductionConfigIndustryProjection(')
+  const projectionGuardBlock = sourceBetween('function isCurrentProductProductionConfigIndustryProjection(', 'async function openProductProductionConfig(')
+  assert.match(drawerGuardBlock, /generation === productProductionConfigOpenGeneration/)
+  assert.match(drawerGuardBlock, /productProductionConfigDrawerOpen\.value/)
+  assert.match(drawerGuardBlock, /currentProductID === Number\(productID \|\| 0\)/)
+  assert.doesNotMatch(drawerGuardBlock, /industryFieldTemplateID|industry_field_template_id/)
+  assert.match(projectionGuardBlock, /isCurrentProductProductionConfigOpen\(generation, productID\)/)
+  assert.match(projectionGuardBlock, /industry_field_template_id \|\| 0\) === Number\(industryFieldTemplateID \|\| 0\)/)
+  assert.match(closeBlock, /productProductionConfigOpenGeneration \+= 1\s*productProductionConfigDrawerOpen\.value = false/)
 })
 
 test('product settings uses product business groups instead of product classification page controls', () => {

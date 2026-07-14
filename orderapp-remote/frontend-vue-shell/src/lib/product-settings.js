@@ -2385,11 +2385,6 @@ export function buildProductProductionConfigField(row = {}, index = 0) {
   }
 }
 
-const legacyIndustryFieldAliases = {
-  '烘焙度': ['roast_level'],
-  roast_level: ['烘焙度'],
-}
-
 function templateFieldDefaultText(field = {}) {
   const fieldType = String(field.field_type || '').trim()
   if (!['text', 'textarea'].includes(fieldType)) return ''
@@ -2407,45 +2402,25 @@ function fieldOptionsFromJSON(raw = '[]') {
 
 function indexProductProductionConfigFields(fields = []) {
   const byKey = new Map()
-  const byLabel = new Map()
   for (const field of Array.isArray(fields) ? fields : []) {
-    const keys = [
-      field?.template_field_key,
-      field?.field_key,
-    ].map((value) => String(value || '').trim()).filter(Boolean)
+    const keys = [field?.template_field_key, field?.field_key]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
     for (const key of keys) {
       if (!byKey.has(key)) byKey.set(key, field)
     }
-    const label = String(field?.label || '').trim()
-    if (label && !byLabel.has(label)) byLabel.set(label, field)
   }
-  return { byKey, byLabel }
+  return { byKey }
 }
 
 function productProductionConfigTemplateFieldMatch(field = {}, index = {}) {
   const key = String(field.field_key || '').trim()
-  const label = String(field.label || '').trim()
-  const exact = index.byKey?.get(key) || index.byLabel?.get(label)
-  if (exact) return exact
-  const aliases = [
-    ...(legacyIndustryFieldAliases[key] || []),
-    ...(legacyIndustryFieldAliases[label] || []),
-  ]
-  for (const alias of aliases) {
-    const match = index.byKey?.get(alias) || index.byLabel?.get(alias)
-    if (match) return match
-  }
-  return {}
+  return index.byKey?.get(key) || {}
 }
 
 export function productProductionConfigFieldsFromTemplate(fields = [], template = {}) {
   const templateFields = Array.isArray(template?.fields) ? template.fields : []
-  if (!templateFields.length) {
-    return (Array.isArray(fields) ? fields : [])
-      .slice()
-      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
-      .map((field, index) => buildProductProductionConfigField(field, index))
-  }
+  if (!templateFields.length) return []
   const existingIndex = indexProductProductionConfigFields(fields)
   return templateFields
     .slice()

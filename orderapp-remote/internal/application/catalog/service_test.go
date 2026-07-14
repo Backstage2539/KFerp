@@ -33,6 +33,7 @@ type fakeRepo struct {
 	ruleOverride           SaveCustomerProductRuleOverrideCommand
 	ruleBinding            CustomerProductRuleTemplateBindingCommand
 	configTemplate         SaveProductConfigTemplateCommand
+	productionConfig       SaveProductProductionConfigCommand
 	deleteConfig           DeleteProductConfigTemplateCommand
 	priceGroup             SaveProductPriceGroupCommand
 	deleteGroup            DeleteBusinessGroupCommand
@@ -128,6 +129,7 @@ func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int
 }
 
 func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
+	r.productionConfig = cmd
 	return ProductProductionConfig{
 		ProductID:               cmd.ProductID,
 		ProductionBomID:         cmd.ProductionBomID,
@@ -138,6 +140,59 @@ func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProd
 		Note:                    cmd.Note,
 		Fields:                  cmd.Fields,
 	}, nil
+}
+
+func TestSaveProductProductionConfigClearsFieldsWithoutIndustryTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	result, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:               91,
+		IndustryFieldTemplateID: 0,
+		Fields: []ProductProductionConfigField{{
+			FieldKey:  "roast_level",
+			Label:     "roast_level",
+			ValueText: "深烘",
+		}, {
+			FieldKey:  "   ",
+			Label:     "stale_field",
+			ValueText: "legacy",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.productionConfig.ProductID != 91 {
+		t.Fatalf("saved product_id=%d, want repository dispatch for product 91", repo.productionConfig.ProductID)
+	}
+	if repo.productionConfig.Fields == nil {
+		t.Fatal("saved fields=nil, want non-nil empty fields without industry template")
+	}
+	if len(repo.productionConfig.Fields) != 0 {
+		t.Fatalf("saved fields=%+v, want none without industry template", repo.productionConfig.Fields)
+	}
+	if len(result.Fields) != 0 {
+		t.Fatalf("result fields=%+v, want none without industry template", result.Fields)
+	}
+}
+
+func TestSaveProductProductionConfigRejectsBlankFieldKeyWithIndustryTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:               91,
+		IndustryFieldTemplateID: 3001,
+		Fields: []ProductProductionConfigField{{
+			FieldKey: "   ",
+		}},
+	})
+	if err == nil || !IsValidationError(err) || err.Error() != "field_key required" {
+		t.Fatalf("err=%v, want field_key required", err)
+	}
+	if repo.productionConfig.ProductID != 0 {
+		t.Fatalf("saved product_id=%d, want no repository dispatch after validation failure", repo.productionConfig.ProductID)
+	}
 }
 
 func (r *fakeRepo) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {

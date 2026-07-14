@@ -1341,6 +1341,9 @@ func (s *Service) SaveProductProductionConfig(ctx context.Context, cmd SaveProdu
 	if cmd.IndustryFieldTemplateID < 0 {
 		return ProductProductionConfig{}, ValidationError{Message: "invalid industry_field_template_id"}
 	}
+	if cmd.IndustryFieldTemplateID == 0 {
+		cmd.Fields = []ProductProductionConfigField{}
+	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	for i := range cmd.Fields {

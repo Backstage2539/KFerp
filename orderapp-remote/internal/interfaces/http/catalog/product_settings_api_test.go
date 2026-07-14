@@ -2442,6 +2442,43 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 	}
 }
 
+func TestProductSettingsAPIClearsIndustryFieldsWithoutTemplate(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/product-production-configs/91", bytes.NewBufferString(`{
+		"industry_field_template_id":0,
+		"expected_loss_rate":0.2,
+		"fields":[
+			{"field_key":"roast_level","label":"roast_level","value_text":"深烘"},
+			{"field_key":"   ","label":"stale_field","value_text":"legacy"}
+		]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product production config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productionConfigSaved {
+		t.Fatal("product production config repository was not called")
+	}
+	if repo.savedProductionConfig.ProductID != 91 {
+		t.Fatalf("saved product_id=%d, want 91", repo.savedProductionConfig.ProductID)
+	}
+	if repo.savedProductionConfig.Fields == nil {
+		t.Fatal("saved fields=nil, want non-nil empty fields without industry template")
+	}
+	if len(repo.savedProductionConfig.Fields) != 0 {
+		t.Fatalf("saved fields=%+v, want none without industry template", repo.savedProductionConfig.Fields)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"fields":[]`)) {
+		t.Fatalf("response should expose empty fields: %s", rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	repo := &productSettingsRepo{products: []catalogapp.Product{{ID: 7, Name: "橘皮乌龙", ProductKind: "roasted"}}}
 	e := echo.New()

@@ -561,18 +561,6 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 	`, r.schema, r.schema), cmd.SourceProductID, copyName).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_production_config_fields(
-			product_id, field_key, label, field_type, unit, value_text, value_number, value_bool,
-			template_field_key, required, options_json, show_in_price_list, sort_order, created_at, updated_at
-		)
-		SELECT $2, field_key, label, field_type, unit, value_text, value_number, value_bool,
-			template_field_key, required, options_json, show_in_price_list, sort_order, now(), now()
-		FROM %s.product_production_config_fields
-		WHERE product_id=$1
-	`, r.schema, r.schema), cmd.SourceProductID, productID); err != nil {
-		return catalogapp.Product{}, err
-	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "copy_product_archive", postgresinfra.StrPtr("source_product_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.SourceProductID)), postgresinfra.StrPtr(fmt.Sprintf("%d", productID)), postgresinfra.AuditMeta{
 		"source_product_id":   cmd.SourceProductID,
 		"source_product_name": source.Name,
@@ -1034,6 +1022,7 @@ func (r Repository) ListProductProductionConfigs(ctx context.Context) ([]catalog
 		if err := rows.Scan(&row.ProductID, &row.ProductionBomID, &row.ProductionBomVersionID, &row.ProcessRouteID, &row.IndustryFieldTemplateID, &row.ExpectedLossRate, &row.Note); err != nil {
 			return nil, err
 		}
+		row.Fields = []catalogapp.ProductProductionConfigField{}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -1157,7 +1146,15 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 
 func normalizeProductProductionConfigFieldsAgainstTemplateTx(ctx context.Context, tx pgx.Tx, schema string, templateID int64, fields []catalogapp.ProductProductionConfigField) ([]catalogapp.ProductProductionConfigField, error) {
 	if templateID <= 0 {
-		return fields, nil
+		return []catalogapp.ProductProductionConfigField{}, nil
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.industry_field_templates
+		WHERE id=$1
+		FOR SHARE
+	`, schema), templateID); err != nil {
+		return nil, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT field_key, label, field_type, unit, required, COALESCE(options_json,'[]'::jsonb)::text, sort_order

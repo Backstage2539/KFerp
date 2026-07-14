@@ -1945,6 +1945,7 @@ const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'te
 const showProductPriceManagementPane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'product-price-management')
 const productDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
+let productProductionConfigOpenGeneration = 0
 const customerAliasCreateDrawerOpen = ref(false)
 const customerAliasCreateMode = ref('single')
 const classificationTemplateCreateDrawerOpen = ref(false)
@@ -2293,7 +2294,9 @@ function productionConfigForProduct(product) {
 
 function productionConfigPriceListFields(product) {
   const config = productionConfigForProduct(product)
-  return (config.fields || []).filter((field) => field.show_in_price_list)
+  const template = industryFieldTemplateForConfig(config)
+  return productProductionConfigFieldsFromTemplate(config.fields || [], template)
+    .filter((field) => field.show_in_price_list)
 }
 
 function productionConfigLossLabel(product) {
@@ -5847,9 +5850,26 @@ async function selectProductProductionConfigBom(bom) {
   if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
 }
 
+function isCurrentProductProductionConfigOpen(generation, productID) {
+  const currentProductID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  return generation === productProductionConfigOpenGeneration
+    && productProductionConfigDrawerOpen.value
+    && currentProductID === Number(productID || 0)
+}
+
+function isCurrentProductProductionConfigIndustryProjection(generation, productID, industryFieldTemplateID) {
+  return isCurrentProductProductionConfigOpen(generation, productID)
+    && Number(productProductionConfigForm.value.industry_field_template_id || 0) === Number(industryFieldTemplateID || 0)
+}
+
 async function openProductProductionConfig(row) {
+  const openGeneration = ++productProductionConfigOpenGeneration
+  const config = productProductionConfigByProductID(row?.id)
+  const productID = Number(row?.id || config?.product_id || 0)
+  const industryFieldTemplateID = Number(config?.industry_field_template_id || 0)
+  const industryFieldTemplateAvailableAtOpen = Boolean(industryFieldTemplateForConfig(config))
   productProductionConfigProduct.value = row || null
-  productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
+  productProductionConfigForm.value = defaultProductProductionConfigForm(config, row)
   showProductProductionHistoricalSpecs.value = false
   const parentID = Number(row?.parent_product_id || row?.parentProductID || row?.id || 0)
   const parentProduct = products.value.find((product) => Number(product.id || 0) === parentID) || row || {}
@@ -5859,21 +5879,35 @@ async function openProductProductionConfig(row) {
   }
   productProductionConfigDrawerOpen.value = true
   error.value = ''
-	try {
-		await Promise.all([
-			loadProductionBomCatalog(),
-			loadProcessRoutes(),
-			loadIndustryFieldTemplates(),
-		])
-		await ensureProductBomUsage(row?.id)
-		if (productProductionConfigForm.value.production_bom_id) {
-			await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
-			if (!productProductionConfigForm.value.production_bom_version_id) {
+  try {
+    let industryFieldTemplatesPromise = loadIndustryFieldTemplates()
+    if (!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0) {
+      industryFieldTemplatesPromise = industryFieldTemplatesPromise.then(() => {
+        if (!isCurrentProductProductionConfigIndustryProjection(openGeneration, productID, industryFieldTemplateID)) return
+        productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+          config?.fields || [],
+          industryFieldTemplateForConfig(config),
+        )
+      })
+    }
+    await Promise.all([
+      loadProductionBomCatalog(),
+      loadProcessRoutes(),
+      industryFieldTemplatesPromise,
+    ])
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
+    await ensureProductBomUsage(productID)
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
+    if (productProductionConfigForm.value.production_bom_id) {
+      await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+      if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
+      if (!productProductionConfigForm.value.production_bom_version_id) {
         const latest = productProductionConfigVersionOptions.value[0]
         if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
       }
     }
   } catch (err) {
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     error.value = err.message || '加载商品生产配置失败'
   }
 }
@@ -5882,12 +5916,6 @@ async function loadIndustryFieldTemplates() {
   if (industryFieldTemplates.value.length) return
   const data = await apiGet('/api/industry-field-templates')
   industryFieldTemplates.value = data?.rows || []
-}
-
-function selectedIndustryFieldTemplate() {
-  const id = Number(productProductionConfigForm.value.industry_field_template_id || 0)
-  if (!id) return null
-  return activeIndustryFieldTemplates.value.find((template) => Number(template.id || 0) === id) || null
 }
 
 function industryFieldTemplateForConfig(config = {}) {
@@ -5899,12 +5927,15 @@ function industryFieldTemplateForConfig(config = {}) {
 }
 
 function applyIndustryFieldTemplateToProductionConfig() {
-  const template = selectedIndustryFieldTemplate()
-  if (!template) return
-  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(productProductionConfigForm.value.fields || [], template)
+  const template = industryFieldTemplateForConfig(productProductionConfigForm.value)
+  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+    productProductionConfigForm.value.fields || [],
+    template,
+  )
 }
 
 function closeProductProductionConfigDrawer() {
+  productProductionConfigOpenGeneration += 1
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()
@@ -6241,7 +6272,11 @@ async function saveProductProductionConfig() {
     error.value = '预期损耗率必须在 0% 到 99.999% 之间'
     return
   }
-  const fields = productProductionConfigForm.value.fields
+  const industryFieldTemplate = industryFieldTemplateForConfig(productProductionConfigForm.value)
+  const fields = productProductionConfigFieldsFromTemplate(
+    productProductionConfigForm.value.fields || [],
+    industryFieldTemplate,
+  )
     .map((field, index) => normalizeProductProductionConfigFieldForSave(field, index))
     .filter((field) => field.label || field.value_text || field.value_number !== null || field.value_bool !== null)
   productProductionConfigSaving.value = true

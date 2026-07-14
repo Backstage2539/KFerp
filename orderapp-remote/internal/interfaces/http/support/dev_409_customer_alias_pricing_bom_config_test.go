@@ -37,7 +37,6 @@ func TestDev409CustomerAliasPricingBomConfigSourceMarkers(t *testing.T) {
 			"product_config_template_id=$8",
 			"gradient_template_id=$9",
 			"unit_template_id=$10",
-			"return fields, nil",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
 			"NULLIF(alias_config.gradient_template_id,0)",
