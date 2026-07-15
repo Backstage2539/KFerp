@@ -123,7 +123,8 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		         )
 		       END AS default_sales_unit,
 		       CASE
-		         WHEN COALESCE(p.auto_derived_sku,false) AND NULLIF(p.derived_sales_unit,'') IS NOT NULL THEN '{}'
+		         WHEN COALESCE(p.auto_derived_sku,false) AND NULLIF(p.derived_sales_unit,'') IS NOT NULL
+		           THEN jsonb_build_object(p.derived_sales_unit, jsonb_build_object(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'), derived_sku_units.derived_sku_unit_factor))::text
 		         ELSE COALESCE(
 		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
 		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
@@ -182,6 +183,36 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id = parent_product.product_config_template_id AND parent_product_config.active = true
 		LEFT JOIN %[1]s.product_categories parent_product_category ON parent_product_category.id = parent_product.product_category_id AND parent_product_category.active = true
 		LEFT JOIN %[1]s.product_categories parent_product_parent_category ON parent_product_parent_category.id = parent_product_category.parent_id AND parent_product_parent_category.active = true
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(
+			           NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''),
+			           NULLIF(parent_product_unit_template.inventory_unit,''),
+			           NULLIF(parent_product_config.inventory_unit,''),
+			           NULLIF(parent_product_category.inventory_unit,''),
+			           NULLIF(parent_product_parent_category.inventory_unit,''),
+			           'kg'
+			       ) AS parent_inventory_unit
+		) parent_units ON true
+		LEFT JOIN LATERAL (
+			SELECT CASE
+			         WHEN COALESCE(p.net_content_qty,0) <= 0 THEN 1::float8
+			         WHEN lower(COALESCE(NULLIF(p.net_content_unit,''), COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'))) = lower(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'))
+			         THEN COALESCE(p.net_content_qty,0)::float8
+			         WHEN lower(COALESCE(p.net_content_unit,''))='g' AND lower(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'))='kg'
+			         THEN COALESCE(p.net_content_qty,0)::float8 / 1000.0
+			         WHEN lower(COALESCE(p.net_content_unit,''))='kg' AND lower(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'))='g'
+			         THEN COALESCE(p.net_content_qty,0)::float8 * 1000.0
+			         WHEN COALESCE(p.net_content_unit,'')='g' AND COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg')='磅'
+			         THEN COALESCE(p.net_content_qty,0)::float8 / 454.0
+			         WHEN COALESCE(p.net_content_unit,'')='磅' AND COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg')='g'
+			         THEN COALESCE(p.net_content_qty,0)::float8 * 454.0
+			         WHEN lower(COALESCE(p.net_content_unit,''))='kg' AND COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg')='磅'
+			         THEN COALESCE(p.net_content_qty,0)::float8 / 0.454
+			         WHEN COALESCE(p.net_content_unit,'')='磅' AND lower(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'))='kg'
+			         THEN COALESCE(p.net_content_qty,0)::float8 * 0.454
+			         ELSE 1::float8
+			       END AS derived_sku_unit_factor
+		) derived_sku_units ON true
 		LEFT JOIN %[1]s.product_config_templates pct ON pct.id = p.product_config_template_id AND pct.active = true
 		LEFT JOIN %[1]s.product_unit_templates put ON put.id = pct.unit_template_id AND put.active = true
 		LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active = true
@@ -212,11 +243,6 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		priceUnit = inventoryUnit
 	}
 	conversion := productSalesUnitConversionMap(conversionJSON, inventoryUnit)
-	if autoDerived && derivedSalesUnit != "" {
-		if _, ok := conversion[derivedSalesUnit]; !ok {
-			conversion[derivedSalesUnit] = map[string]float64{inventoryUnit: 1}
-		}
-	}
 	if _, ok := conversion[priceUnit]; !ok && priceUnit == inventoryUnit {
 		conversion[priceUnit] = map[string]float64{inventoryUnit: 1}
 	}
