@@ -1287,6 +1287,9 @@ func pricingRuleTrialConvertCostAmount(amount float64, sourceUnit string, target
 	if pricingRuleTrialUnitKey(sourceUnit) == pricingRuleTrialUnitKey(targetUnit) {
 		return amount, targetUnit, 1, true
 	}
+	if scale := pricingRuleTrialUnitTargetFactor(targetUnit, sourceUnit, conversionJSON); scale > 0 {
+		return amount * scale, targetUnit, scale, true
+	}
 	sourceKgFactor := pricingRuleTrialUnitKgFactor(sourceUnit, conversionJSON)
 	targetKgFactor := pricingRuleTrialUnitKgFactor(targetUnit, conversionJSON)
 	if sourceKgFactor <= 0 || targetKgFactor <= 0 {

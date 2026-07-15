@@ -1411,6 +1411,67 @@ func TestPricingRuleTrialScalesPerUnitBomCostsBetweenQuoteUnits(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialScalesPerUnitCostsForDerivedBoxQuoteUnit(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          576,
+			Name:               "初晓挂耳 盒（10袋）",
+			InventoryUnit:      "袋",
+			QuoteUnit:          "盒（10袋）",
+			OrderUnit:          "盒（10袋）",
+			UnitConversionJSON: `{"盒（10袋）":{"袋":10}}`,
+			YieldRate:          1,
+			ExpectedLossRate:   0,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:576", Type: "material", TypeLabel: "物料", Name: "挂耳物料", ConsumeUnit: "per_unit", UnitCost: 1.10, AmountPerUnit: 1.10, Unit: "袋"},
+			{Key: "operation:576", Type: "operation", TypeLabel: "工序", Name: "挂耳包装", ConsumeUnit: "per_inventory_unit", UnitCost: 0.24, AmountPerUnit: 0.24, Unit: "袋"},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			15: {
+				ID:             15,
+				Name:           "派生盒装成本折算",
+				MarginRate:     0,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	bag, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 15,
+		ProductID:     576,
+		QuoteUnit:     "袋",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial(袋) error = %v", err)
+	}
+	box, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 15,
+		ProductID:     576,
+		QuoteUnit:     "盒（10袋）",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial(盒（10袋）) error = %v", err)
+	}
+	if bag.BaseCost != 1.34 || bag.BomCostTotal != 1.10 || bag.OperationCostTotal != 0.24 {
+		t.Fatalf("bag trial = base %.2f bom %.2f operation %.2f, want 1.34 = 1.10 + 0.24", bag.BaseCost, bag.BomCostTotal, bag.OperationCostTotal)
+	}
+	if box.BaseCost != 13.40 || box.BomCostTotal != 11.00 || box.OperationCostTotal != 2.40 {
+		t.Fatalf("box trial = base %.2f bom %.2f operation %.2f, want 13.40 = 11.00 + 2.40", box.BaseCost, box.BomCostTotal, box.OperationCostTotal)
+	}
+	if len(box.BaseCostDetails) != 2 || box.BaseCostDetails[0].Unit != "盒（10袋）" || box.BaseCostDetails[1].Unit != "盒（10袋）" {
+		t.Fatalf("box details = %+v, want both rows converted to 盒（10袋）", box.BaseCostDetails)
+	}
+}
+
 func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitChanges(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
