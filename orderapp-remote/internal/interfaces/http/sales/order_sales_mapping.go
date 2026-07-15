@@ -68,6 +68,9 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
 	}
+	if err := validateCreateOrderManualPrices(req); err != nil {
+		return salesapp.SaveOrderCommand{}, err
+	}
 	return salesapp.SaveOrderCommand{
 		Actor:                           actor,
 		EditID:                          editID,
@@ -112,6 +115,19 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		OrdersScope:                     strings.TrimSpace(req.OrdersScope),
 		Items:                           orderItemCommandsFromCreateRequest(req),
 	}, nil
+}
+
+func validateCreateOrderManualPrices(req CreateOrderRequest) error {
+	for i := 0; i < maxLen(req.TierID, req.UnitPrice); i++ {
+		if strings.TrimSpace(getStr(req.TierID, i)) != "manual" {
+			continue
+		}
+		price, err := strconv.ParseFloat(strings.TrimSpace(getStr(req.UnitPrice, i)), 64)
+		if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+			return fmt.Errorf("手动单价必须大于0")
+		}
+	}
+	return nil
 }
 
 func parseCreateOrderAmount(raw, field string) (float64, error) {

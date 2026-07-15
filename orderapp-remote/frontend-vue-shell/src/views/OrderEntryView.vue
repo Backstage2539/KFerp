@@ -334,7 +334,7 @@
             <span>小计</span>
             <strong>{{ money(rowTotal(row)) }}</strong>
             <small>{{ row.manual_price ? '手动价' : autoPriceLabel(row) }}</small>
-            <small v-if="row.tier_below_min" class="tier-warning">低于最低梯度，已按最低档 {{ row.tier_price_label || '价格' }} 计价</small>
+            <small v-if="rowHasBlockingPrice(row)" class="price-missing-warning">{{ rowPriceBlockingMessage(row) }}</small>
             <small
               v-if="row.product_id && row.bean_list_version_no"
               class="bean-list-version-meta"
@@ -412,7 +412,7 @@
             class="secondary"
             type="button"
             @click="save({ continueBackfill: false })"
-            :disabled="saving"
+            :disabled="saving || hasUnpricedPublishedRow"
           >
             保存并查看订单
           </button>
@@ -421,7 +421,7 @@
             class="primary"
             type="button"
             @click="save({ continueBackfill: true })"
-            :disabled="saving"
+            :disabled="saving || hasUnpricedPublishedRow"
           >
             保存并继续补录
           </button>
@@ -430,7 +430,7 @@
             class="primary"
             type="button"
             @click="save({ continueBackfill: false })"
-            :disabled="saving"
+            :disabled="saving || hasUnpricedPublishedRow"
           >
             保存订单
           </button>
@@ -448,6 +448,7 @@
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
+          <li>数量低于起订量、高于有限最高量或落在档位空隙时不猜测最低价；页面提示“当前数量无已发布价格，不能保存”，请调整数量、补齐已发布价格表档位或按授权流程输入手动价。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
           <li>每条商品明细可选择减免数额、单价优惠、折扣或免费，保存后会计入订单优惠。</li>
           <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
@@ -654,6 +655,7 @@ const customerPublicUsages = ref([])
 const customerProductUsages = ref([])
 const selectedBeanListPublicationIDs = reactive({})
 const rows = ref([newRow()])
+const hasUnpricedPublishedRow = computed(() => rows.value.some(rowHasBlockingPrice))
 const paymentVoucher = ref(null)
 const paymentVoucherFile = ref(null)
 const uploadingVoucher = ref(false)
@@ -737,6 +739,7 @@ function newRow() {
     price_unit_g: 0,
     tier_price_label: '',
     tier_below_min: false,
+    price_missing: false,
     manual_price: false,
     spec_mode: '',
     custom_spec_g: '',
@@ -984,7 +987,7 @@ function fieldIsValid(fieldKey) {
   if (fieldKey === 'payment_goods_amount') return !paymentReceiptRequired.value || toNumber(form.payment_goods_amount) > 0
   if (fieldKey === 'payment_shipping_amount') return !paymentReceiptRequired.value || String(form.payment_shipping_amount || '').trim() !== ''
   if (fieldKey === 'payment_voucher_asset_id') return !paymentReceiptRequired.value || Number(form.payment_voucher_asset_id || 0) > 0
-  if (fieldKey === 'product_items') return hasValidProductLine()
+  if (fieldKey === 'product_items') return hasValidProductLine() && !hasUnpricedPublishedRow.value
   return false
 }
 
@@ -1466,6 +1469,7 @@ function syncPrice(row, options = {}) {
     const price = syncDripTierPrice(product, row)
     row.tier_id = price.tierID
     row.unit_price = price.unitPrice
+    row.price_missing = price.unitPrice === ''
     row.manual_price = false
     return
   }
@@ -1490,6 +1494,7 @@ function clearWholesalePriceMetadata(row) {
   row.price_unit_g = 0
   row.tier_price_label = ''
   row.tier_below_min = false
+  row.price_missing = false
 }
 
 function applyResolvedWholesalePrice(row, price) {
@@ -1500,6 +1505,7 @@ function applyResolvedWholesalePrice(row, price) {
   row.price_unit_g = Number(price.priceUnit?.unitG || 0)
   row.tier_price_label = price.tierPriceLabel || ''
   row.tier_below_min = Boolean(price.belowMinTier)
+  row.price_missing = Boolean(price.priceMissing)
   ensureRowBeanListVersion(row, price)
 }
 
@@ -1549,6 +1555,23 @@ function markManualPrice(row) {
   row.tier_id = 'manual'
 }
 
+function hasPositiveManualPrice(row) {
+  return Boolean(row?.manual_price) && toNumber(row?.unit_price) > 0
+}
+
+function rowHasBlockingPrice(row) {
+  if (Number(row?.product_id || 0) <= 0) return false
+  if (row?.manual_price) return !hasPositiveManualPrice(row)
+  return Boolean(row?.price_missing)
+}
+
+function rowPriceBlockingMessage(row) {
+  if (row?.manual_price && !hasPositiveManualPrice(row)) {
+    return '手动价必须大于0，不能保存；请输入有效手动价或恢复自动价。'
+  }
+  return '当前数量无已发布价格，不能保存；请调整数量、补齐价格表档位或输入手动价。'
+}
+
 function resetAutoPrice(row) {
   row.manual_price = false
   syncPrice(row, { force: true })
@@ -1563,8 +1586,7 @@ function tierRows(row) {
 function selectTier(row, tier) {
   if (isDripRow(row)) {
     row.manual_price = false
-    row.tier_id = tier.id || 'auto'
-    row.unit_price = String(tier.unitPrice || '')
+    syncPrice(row, { force: true })
     return
   }
   row.spec_mode = String(tier.specG || '')
@@ -1769,17 +1791,21 @@ function applyEditData(data) {
     if (!Number(form[field] || 0)) form[field] = publicationID
   }
   form.bean_list_publication_id = Number(form.commercial_bean_list_publication_id || form.bean_list_publication_id || 0)
+  repriceHydratedRows()
+}
+
+function repriceHydratedRows() {
   for (const row of rows.value) {
     if (!row.product_id || row.manual_price) {
       ensureRowBeanListVersion(row)
       continue
     }
     const product = productByID(row.product_id)
-    if (!product || isDripProduct(product) || retailOrder.value) {
+    if (!product || retailOrder.value) {
       ensureRowBeanListVersion(row)
       continue
     }
-    applyResolvedWholesalePrice(row, resolveWholesaleTierPrice(product, row))
+    syncPrice(row, { force: true })
   }
 }
 
@@ -1917,6 +1943,11 @@ async function save(options = {}) {
       raiseSaveError('请至少录入一条有效明细', 'product_items')
       return
     }
+    const missingPublishedPriceRowIndex = rows.value.findIndex(rowHasBlockingPrice)
+    if (missingPublishedPriceRowIndex >= 0) {
+      raiseSaveError(`第 ${missingPublishedPriceRowIndex + 1} 行：${rowPriceBlockingMessage(rows.value[missingPublishedPriceRowIndex])}`, 'product_items')
+      return
+    }
     const stockDecision = await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
     const data = await apiSend('/api/order', { body: payload })
@@ -1970,6 +2001,7 @@ function stockBatchConfirmText(preview) {
 onMounted(async () => {
   await load()
   restoreOrderEntryDraft()
+  repriceHydratedRows()
 })
 
 onBeforeUnmount(saveOrderEntryDraft)
@@ -2158,7 +2190,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .line-total { display: grid; gap: 3px; padding-bottom: 2px; }
 .line-total strong { font-size: 18px; }
 .line-total small { color: #667085; font-size: 12px; }
-.line-total small.tier-warning { color: #b42318; font-weight: 700; }
+.line-total small.price-missing-warning { color: #b42318; font-weight: 700; }
 .bean-list-version-meta { position: relative; display: inline-flex; align-items: center; gap: 5px; width: fit-content; }
 .bean-list-version-meta.stale { color: #b42318; font-weight: 700; }
 .bean-list-version-warning { width: 18px; height: 18px; padding: 0; display: inline-grid; place-items: center; border: 1px solid #fda29b; border-radius: 50%; background: #fff1f0; color: #b42318; font-size: 12px; font-weight: 800; line-height: 1; }

@@ -583,7 +583,7 @@ test('syncWholesaleTierPrice preserves kg display-unit prices for kg rows', () =
 })
 
 test('syncWholesaleTierPrice converts kg display-unit prices for lb rows', () => {
-  const row = { spec_mode: '80', qty: 10, tier_id: 'auto', unit_price: '' }
+  const row = { spec_mode: '80', qty: 13, tier_id: 'auto', unit_price: '' }
   const got = syncWholesaleTierPrice({
     tiers: [
       { id: 50, spec_g: 1000, min: 1, max: 59, unit_price: 23.49, display_unit: 'kg' },
@@ -593,8 +593,8 @@ test('syncWholesaleTierPrice converts kg display-unit prices for lb rows', () =>
   assert.deepEqual(got, { tierID: '50', unitPrice: '23.49' })
 })
 
-test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-min warning for small package orders', () => {
-  const row = { spec_mode: '80', qty: 1, tier_id: 'auto', unit_price: '' }
+test('resolveWholesaleTierPrice keeps kg tier unit and source version for small packages inside the published range', () => {
+  const row = { spec_mode: '80', qty: 313, tier_id: 'auto', unit_price: '' }
   const got = resolveWholesaleTierPrice({
     tiers: [
       {
@@ -615,7 +615,8 @@ test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-mi
   assert.equal(got.tierPriceLabel, '82/kg')
   assert.equal(got.beanListPublicationID, 9909)
   assert.equal(got.beanListVersionNo, 'V3.0.9')
-  assert.equal(got.belowMinTier, true)
+  assert.equal(got.belowMinTier, false)
+  assert.equal(got.priceMissing, false)
 
   const pricedRow = {
     ...row,
@@ -626,15 +627,55 @@ test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-mi
     price_unit_g: got.priceUnit.unitG,
   }
   assert.deepEqual(orderRowPriceUnit(pricedRow), { label: '元/kg', suffix: '/kg', unitG: 1000 })
-  assert.equal(Number(lineTotal({ tiers: [] }, pricedRow, false).toFixed(2)), 6.56)
+  assert.equal(Number(lineTotal({ tiers: [] }, pricedRow, false).toFixed(2)), 2053.28)
 })
 
-test('OrderEntryView shows tier unit price, price-list source without unrecorded fallback, and below-min warning', () => {
+test('resolveWholesaleTierPrice leaves price blank below minimum, above finite maximum, and in tier gaps', () => {
+  const product = {
+    tiers: [
+      {
+        id: 64,
+        spec_g: 1000,
+        min: 25,
+        max: 49,
+        unit_price: 82,
+        display_unit: 'kg',
+        price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":9909,"version_no":"V3.0.9","price_unit":"kg"}',
+      },
+      {
+        id: 65,
+        spec_g: 1000,
+        min: 51,
+        max: 60,
+        unit_price: 78,
+        display_unit: 'kg',
+        price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":9909,"version_no":"V3.0.9","price_unit":"kg"}',
+      },
+    ],
+  }
+
+  for (const qty of [1, 50, 61]) {
+    const got = resolveWholesaleTierPrice(product, { spec_mode: '1000', qty, tier_id: 'auto', unit_price: '' })
+    assert.equal(got.tierID, 'auto')
+    assert.equal(got.unitPrice, '')
+    assert.equal(got.priceMissing, true)
+    assert.equal(got.belowMinTier, false)
+  }
+})
+
+test('OrderEntryView shows explicit missing published price and blocks save without a manual override', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /tier_price_label/)
-  assert.match(source, /低于最低梯度/)
-  assert.match(source, /\.tier-warning/)
+  assert.match(source, /当前数量无已发布价格，不能保存/)
+  assert.match(source, /row\.price_missing/)
+  assert.match(source, /hasUnpricedPublishedRow/)
+  assert.match(source, /rowHasBlockingPrice/)
+  assert.match(source, /手动价必须大于0，不能保存/)
+  assert.match(source, /missingPublishedPriceRowIndex/)
+  assert.match(source, /repriceHydratedRows/)
+  assert.match(source, /restoreOrderEntryDraft\(\)\s*\n\s*repriceHydratedRows\(\)/)
+  assert.match(source, /function selectTier[\s\S]*?isDripRow[\s\S]*?syncPrice\(row, \{ force: true \}\)/)
   assert.match(source, /报价来源：价格表/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
 })
@@ -1468,7 +1509,7 @@ test('syncDripTierPrice matches bag tiers by bag quantity', () => {
   assert.equal(lineTotal(dripProduct, { product_kind: 'drip_bag', sales_unit: 'bag', qty: 120, unit_price: '2.15' }, false), 258)
 })
 
-test('syncDripTierPrice converts box orders to bag tiers before pricing', () => {
+test('syncDripTierPrice uses an explicit box tier before bag conversion', () => {
   const dripProduct = {
     id: 22,
     name: '哥伦比亚挂耳',
@@ -1485,8 +1526,40 @@ test('syncDripTierPrice converts box orders to bag tiers before pricing', () => 
   const row = { product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10, unit_bean_g: 10, qty: 12 }
   const got = syncDripTierPrice(dripProduct, row)
 
+  assert.deepEqual(got, { tierID: '93', unitPrice: '30' })
+  assert.equal(lineTotal(dripProduct, { ...row, unit_price: got.unitPrice }, false), 360)
+})
+
+test('syncDripTierPrice converts boxes to bag tiers only when no box tiers are published', () => {
+  const dripProduct = {
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 91, product_kind: 'drip_bag', sales_unit: 'bag', min: 1, max: 99, unit_price: 2.4, unit_bag_count: 1 },
+      { id: 92, product_kind: 'drip_bag', sales_unit: 'bag', min: 100, max: null, unit_price: 2.15, unit_bag_count: 1 },
+    ],
+  }
+
+  const got = syncDripTierPrice(dripProduct, { sales_unit: 'box', unit_bag_count: 10, qty: 12 })
   assert.deepEqual(got, { tierID: '92', unitPrice: '21.5' })
-  assert.equal(lineTotal(dripProduct, { ...row, unit_price: got.unitPrice }, false), 258)
+})
+
+test('syncDripTierPrice leaves price blank outside legal bag and explicit box tiers', () => {
+  const dripProduct = {
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 91, product_kind: 'drip_bag', sales_unit: 'bag', min: 1, max: 99, unit_price: 2.4, unit_bag_count: 1 },
+      { id: 92, product_kind: 'drip_bag', sales_unit: 'bag', min: 100, max: 199, unit_price: 2.15, unit_bag_count: 1 },
+      { id: 94, product_kind: 'drip_bag', sales_unit: 'bag', min: 300, max: null, unit_price: 2, unit_bag_count: 1 },
+      { id: 93, product_kind: 'drip_bag', sales_unit: 'box', min: 20, max: 29, unit_price: 30, unit_bag_count: 10 },
+    ],
+  }
+
+  assert.deepEqual(syncDripTierPrice(dripProduct, { sales_unit: 'bag', qty: 250 }), { tierID: 'auto', unitPrice: '' })
+  assert.deepEqual(syncDripTierPrice(dripProduct, { sales_unit: 'box', unit_bag_count: 10, qty: 10 }), { tierID: 'auto', unitPrice: '' })
 })
 
 test('dripTierPriceRows exposes unit labels for bag and box quotation', () => {

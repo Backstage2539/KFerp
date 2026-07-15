@@ -293,10 +293,7 @@ function matchTierByQuantityResult(tiers, quantity, minValue, maxValue) {
   const sorted = [...tiers].sort((a, b) => minValue(b) - minValue(a))
   const exact = sorted.find((item) => minValue(item) <= quantity && (maxValue(item) == null || maxValue(item) >= quantity))
   if (exact) return { tier: exact, belowMin: false }
-  const lower = sorted.find((item) => minValue(item) <= quantity)
-  if (lower) return { tier: lower, belowMin: false }
-  const lowest = [...tiers].sort((a, b) => minValue(a) - minValue(b))[0] || null
-  return { tier: lowest, belowMin: Boolean(lowest && quantity < minValue(lowest)) }
+  return { tier: null, belowMin: false }
 }
 
 function matchTierByQuantity(tiers, quantity, minValue, maxValue) {
@@ -368,6 +365,7 @@ export function resolveWholesaleTierPrice(product, row) {
       beanListPublicationID: 0,
       beanListVersionNo: '',
       belowMinTier: false,
+      priceMissing: true,
     }
   }
   const priceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g) || orderRowPriceUnit(row)
@@ -381,6 +379,7 @@ export function resolveWholesaleTierPrice(product, row) {
     beanListPublicationID: toInt(source.publication_id || source.bean_list_publication_id),
     beanListVersionNo: String(source.version_no || source.bean_list_version_no || source.version || '').trim(),
     belowMinTier: matched.belowMin,
+    priceMissing: false,
   }
 }
 
@@ -481,6 +480,16 @@ export function findDripTier(product, row) {
   const qty = Math.max(1, toInt(row?.qty))
   const tiers = dripTiersForUnit(product, spec.salesUnit)
   if (spec.salesUnit === 'box') {
+    const boxTiers = tiers.filter((tier) => dripTierSalesUnit(tier) === 'box')
+    if (boxTiers.length) {
+      const boxTier = matchDripTier(boxTiers, 'box', qty)
+      if (!boxTier) return null
+      return {
+        tier: boxTier,
+        matchedQty: qty,
+        unitPrice: dripTierPrice(boxTier),
+      }
+    }
     const bagQty = qty * spec.unitBagCount
     const bagTier = matchDripTier(tiers, 'bag', bagQty)
     if (bagTier) {

@@ -458,6 +458,61 @@ func TestCommercialOrderPublicationTiersPreserveProductKindAndCustomUnit(t *test
 	}
 }
 
+func TestCommercialOrderPublicationTiersParseFlatRowsByDerivedSKUID(t *testing.T) {
+	content := []byte(`{
+		"groups":[{"items":[{
+			"productId":500,
+			"sku_id":711,
+			"product_kind":"drip_bag",
+			"commercial_wholesale_tiers":[{"spec_g":100,"min_qty":10,"max_qty":99,"price_per_unit":31,"sales_unit":"box","unit_bag_count":10}]
+		}]}],
+		"price_rows":[{
+			"product_id":500,
+			"sku_id":711,
+			"parent_product_id":500,
+			"product_kind":"drip_bag",
+			"tier_label":"10盒+",
+			"spec_g":100,
+			"min_qty":10,
+			"max_qty":99,
+			"final_unit_price":32.8,
+			"price_unit":"box",
+			"sales_unit":"box",
+			"unit_bag_count":10
+		}]
+	}`)
+
+	tiersByProduct := commercialOrderTierMapFromPublicationContent(48, "KMM-FLAT-V1", content)
+	if _, covered := tiersByProduct[500]; covered {
+		t.Fatalf("parent product_id 500 must not own derived SKU price rows: %+v", tiersByProduct[500])
+	}
+	tiers := tiersByProduct[711]
+	if len(tiers) != 1 || tiers[0].UnitPrice != 32.8 || tiers[0].SalesUnit != "box" || tiers[0].UnitBagCount != 10 {
+		t.Fatalf("derived SKU flat tiers = %+v, want sku_id 711 box price", tiers)
+	}
+}
+
+func TestCommercialOrderPublicationFlatRowsConvertWeightBoundsToSKUQuantities(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{
+			"product_id":712,
+			"sku_id":712,
+			"spec_g":227,
+			"min_qty":1,
+			"max_qty":6,
+			"min_weight_g":1000,
+			"max_weight_g":6999.999,
+			"final_unit_price":20,
+			"price_unit":"g227"
+		}]
+	}`)
+
+	tiers := commercialOrderTierMapFromPublicationContent(49, "KMM-WEIGHT-V1", content)[712]
+	if len(tiers) != 1 || tiers[0].MinQty <= 4 || tiers[0].MinQty > 5 || tiers[0].MaxQty == nil || *tiers[0].MaxQty < 30 {
+		t.Fatalf("flat weight bounds were not converted to 227g SKU quantities: %+v", tiers)
+	}
+}
+
 func TestApplyCommercialOrderPublicationTiersReplacesCustomerRoastedTiers(t *testing.T) {
 	products := []salesapp.ProductOption{
 		{
@@ -574,5 +629,126 @@ func TestMergeOrderPublicationTierMapsKeepsMultiplePublishedVersions(t *testing.
 	}
 	if merged[7][0].UnitPrice != 61 || merged[7][1].UnitPrice != 64 {
 		t.Fatalf("merged tier order/prices = %+v, want 61 then 64", merged[7])
+	}
+}
+
+func TestMergeLatestCommercialOrderPublicationTierMapsUsesNewestSnapshotPerDerivedSKUProductID(t *testing.T) {
+	newer := commercialOrderTierMapFromPublicationContent(9903, "V2", []byte(`{
+		"groups":[{"items":[
+			{"productId":7,"product_kind":"drip_bag","commercial_wholesale_tiers":[{"spec_g":100,"min_qty":1,"price_per_unit":64,"sales_unit":"box"}]},
+			{"productId":9,"product_kind":"drip_bag","commercial_wholesale_tiers":[]}
+		]}]
+	}`))
+	older := commercialOrderTierMapFromPublicationContent(9902, "V1", []byte(`{
+		"groups":[{"items":[
+			{"productId":7,"product_kind":"drip_bag","commercial_wholesale_tiers":[{"spec_g":100,"min_qty":1,"price_per_unit":61,"sales_unit":"box"}]},
+			{"productId":8,"product_kind":"drip_bag","commercial_wholesale_tiers":[{"spec_g":10,"min_qty":1,"price_per_unit":80,"sales_unit":"bag"}]},
+			{"productId":9,"product_kind":"drip_bag","commercial_wholesale_tiers":[{"spec_g":10,"min_qty":1,"price_per_unit":90,"sales_unit":"bag"}]}
+		]}]
+	}`))
+
+	merged := mergeLatestCommercialOrderPublicationTierMaps(nil, newer)
+	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, older)
+
+	if len(merged[7]) != 1 || merged[7][0].UnitPrice != 64 {
+		t.Fatalf("same derived SKU product_id tiers = %+v, want newest publication price 64 only", merged[7])
+	}
+	var source struct {
+		PublicationID int64 `json:"publication_id"`
+	}
+	if err := json.Unmarshal([]byte(merged[7][0].PriceSourceJSON), &source); err != nil {
+		t.Fatalf("newest product price source invalid: %v", err)
+	}
+	if source.PublicationID != 9903 {
+		t.Fatalf("same product publication_id=%d, want newest 9903", source.PublicationID)
+	}
+	if len(merged[8]) != 1 || merged[8][0].UnitPrice != 80 {
+		t.Fatalf("historical derived SKU product_id coverage = %+v, want latest publication containing product 8", merged[8])
+	}
+	if tiers, covered := merged[9]; !covered || len(tiers) != 0 {
+		t.Fatalf("newest blank product coverage = %+v/%v, want covered without falling back to old price", tiers, covered)
+	}
+}
+
+func TestCommercialOrderPublicationQueryOrdersSnapshotsNewestFirstPerOwner(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	start := strings.Index(text, "func (r Repository) fetchCommercialOrderPublicationTiers")
+	end := strings.Index(text, "func applyCommercialOrderPublicationTiers")
+	if start < 0 || end <= start {
+		t.Fatal("commercial order publication query function not found")
+	}
+	functionSource := text[start:end]
+	if !strings.Contains(functionSource, "ORDER BY owner_type, owner_key, published_at DESC, id DESC") {
+		t.Fatal("commercial publications must be processed newest-first within each owner")
+	}
+	if strings.Contains(functionSource, "row_number() OVER") {
+		t.Fatal("owner-level row numbers cannot represent latest publication coverage per product/SKU")
+	}
+	if count := strings.Count(functionSource, "publication_purpose='factory_supply'"); count != 2 {
+		t.Fatalf("commercial order publications must only use factory_supply for customer and official owners; filter count=%d", count)
+	}
+}
+
+func TestOrderFormBeanListVersionsOnlyExposeFactorySupplyPublications(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	start := strings.Index(text, "func (r Repository) fetchOrderBeanListVersionOptions")
+	end := strings.Index(text, "func (r Repository) fetchOrderCustomerPublicUsages")
+	if start < 0 || end <= start {
+		t.Fatal("order form bean-list version query function not found")
+	}
+	if count := strings.Count(text[start:end], "publication_purpose='factory_supply'"); count != 2 {
+		t.Fatalf("order form version options must filter customer and official publications to factory_supply; filter count=%d", count)
+	}
+}
+
+func TestGreenBeanOrderPublicationTiersOnlyUseFactorySupply(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	start := strings.Index(text, "func (r Repository) fetchGreenBeanOrderPublicationTiers")
+	end := strings.Index(text, "func mergeOrderPublicationTierMaps")
+	if start < 0 || end <= start {
+		t.Fatal("green bean order publication query function not found")
+	}
+	if count := strings.Count(text[start:end], "publication_purpose='factory_supply'"); count != 2 {
+		t.Fatalf("green bean order publications must only use factory_supply for customer and official owners; filter count=%d", count)
+	}
+}
+
+func TestOrderRepositoryRejectsNonPositiveManualPrices(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatalf("read repository.go: %v", err)
+	}
+	for _, want := range []string{"*items[idx].manualPrice <= 0", "手动单价必须大于0"} {
+		if !strings.Contains(string(source), want) {
+			t.Fatalf("order repository must reject zero and negative manual prices; missing %q", want)
+		}
+	}
+}
+
+func TestOrderBeanListPublicationResolverRejectsCustomerResalePurpose(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatalf("read repository.go: %v", err)
+	}
+	text := string(source)
+	start := strings.Index(text, "func (r Repository) resolveOrderBeanListPublicationTx")
+	end := strings.Index(text, "type requiredOrderCustomerProfile")
+	if start < 0 || end <= start {
+		t.Fatal("order bean-list publication resolver not found")
+	}
+	if count := strings.Count(text[start:end], "publication_purpose='factory_supply'"); count < 4 {
+		t.Fatalf("order bean-list resolver must require factory_supply for explicit, fixed, customer and official publication selection; filter count=%d", count)
 	}
 }
