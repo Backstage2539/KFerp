@@ -494,6 +494,37 @@ func TestResolveProductSalesUnitRuleUsesProductMasterAndLegacyFallbacks(t *testi
 	}
 }
 
+func TestResolveProductSalesUnitRuleUsesDerivedSkuNetContentConversion(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductSalesUnitRule")
+	if start < 0 {
+		t.Fatalf("missing ResolveProductSalesUnitRule")
+	}
+	end := strings.Index(src[start:], "func (r Repository) ResolveCustomerProductSalesUnitRule")
+	if end < 0 {
+		t.Fatalf("missing ResolveProductSalesUnitRule end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{
+		"derived_sku_unit_factor",
+		"p.net_content_qty",
+		"p.net_content_unit",
+		"/ 1000.0",
+		"jsonb_build_object(p.derived_sales_unit",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("derived SKU publication snapshots must convert net content to the parent inventory unit; missing %q", want)
+		}
+	}
+	if strings.Contains(fn, "conversion[derivedSalesUnit] = map[string]float64{inventoryUnit: 1}") {
+		t.Fatalf("derived SKU publication snapshots must not hard-code one parent inventory unit per sales unit")
+	}
+}
+
 func TestProductSalesUnitConversionMapAcceptsLegacyFlatConversions(t *testing.T) {
 	got := productSalesUnitConversionMap(`{"盒":0.2,"袋":"0.25"}`, "kg")
 	if got["盒"]["kg"] != 0.2 {

@@ -2457,6 +2457,12 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 			continue
 		}
 		applyFlatRowSKUSnapshot(row, productID)
+		unitProductID := productID
+		if parentProductID := int64(numberValue(row["parent_product_id"])); parentProductID > 0 {
+			if skuID := int64(numberValue(row["sku_id"])); skuID > 0 {
+				unitProductID = skuID
+			}
+		}
 		customerAliasID := beanListFlatPriceRowCustomerAliasID(row)
 		rule, err := ProductSalesUnitRule{}, error(nil)
 		if customerAliasID > 0 {
@@ -2466,7 +2472,7 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 				rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
 			}
 		} else {
-			rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
+			rule, err = resolver.ResolveProductSalesUnitRule(ctx, unitProductID, priceUnit)
 		}
 		if err != nil {
 			if errors.Is(err, ErrProductSalesUnitRuleNotFound) {

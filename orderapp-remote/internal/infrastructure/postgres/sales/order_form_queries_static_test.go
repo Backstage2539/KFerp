@@ -119,6 +119,27 @@ func TestOrderFormProductsHideTemplateRemovedDerivedSKUs(t *testing.T) {
 	}
 }
 
+func TestOrderFormDerivedSKUsUseNetContentUnitConversion(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"derived_sku_unit_factor",
+		"p.net_content_qty",
+		"p.net_content_unit",
+		"/ 1000.0",
+	} {
+		if count := strings.Count(text, want); count < 2 {
+			t.Fatalf("product and customer-alias order form queries must convert derived SKU net content; %q count = %d, want at least 2", want, count)
+		}
+	}
+	if strings.Contains(text, "jsonb_build_object(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'), 1)") {
+		t.Fatalf("order form derived SKU conversion must not hard-code one parent inventory unit per sales unit")
+	}
+}
+
 func TestOrderSaveRequiresPublishedPriceSnapshotInsteadOfLegacyTierFallback(t *testing.T) {
 	source, err := os.ReadFile("repository.go")
 	if err != nil {

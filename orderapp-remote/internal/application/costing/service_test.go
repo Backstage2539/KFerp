@@ -2377,6 +2377,91 @@ func TestPublishBeanListSnapshotsSkuIdentityForFlatRows(t *testing.T) {
 	}
 }
 
+func TestPublishBeanListResolvesDerivedSKUUnitSnapshotsBySKUIdentity(t *testing.T) {
+	repo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			1001: {
+				ProductID:     1001,
+				InventoryUnit: "kg",
+				Conversion: map[string]map[string]float64{
+					"227g": {"kg": 0.227},
+				},
+			},
+			1002: {
+				ProductID:     1002,
+				InventoryUnit: "袋",
+				Conversion: map[string]map[string]float64{
+					"盒": {"袋": 10},
+				},
+			},
+			1003: {
+				ProductID:     1003,
+				InventoryUnit: "袋",
+				Conversion: map[string]map[string]float64{
+					"袋": {"袋": 1},
+				},
+			},
+		},
+	}
+	svc := NewService(repo)
+	row := func(parentID, skuID int64, productName, priceUnit string) map[string]any {
+		return map[string]any{
+			"product_id":        float64(parentID),
+			"sku_id":            float64(skuID),
+			"parent_product_id": float64(parentID),
+			"product_name":      productName,
+			"sku_name":          priceUnit,
+			"tier_label":        "基础价",
+			"final_unit_price":  float64(36),
+			"price_unit":        priceUnit,
+			"currency":          "CNY",
+			"group_snapshot": map[string]any{
+				"group_id": float64(3), "group_name": "商品价格表分组",
+				"group_item_id": float64(101), "group_item_name": "派生规格",
+			},
+			"group_source":         "product_catalog",
+			"pricing_mode":         "pricing_rule",
+			"pricing_mode_source":  "product",
+			"pricing_rule_id":      float64(90),
+			"pricing_rule_source":  "product",
+			"pricing_rule_version": "PR-COST/v3",
+			"cost_source_snapshot": map[string]any{"bom_version_no": "BOM-DERIVED/V001"},
+			"customer_reference_snapshot": map[string]any{
+				"customer_id": float64(5),
+			},
+			"manual_adjusted": false,
+		}
+	}
+	rows := []any{
+		row(539, 1001, "熟豆 227g", "227g"),
+		row(640, 1002, "挂耳 盒", "盒"),
+		row(640, 1003, "挂耳 袋", "袋"),
+	}
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.0.7",
+		Content:  map[string]any{"price_rows": rows},
+	}); err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+
+	gotRows := repo.publishedBeanList.Content["price_rows"].([]any)
+	assertConversion := func(index int, priceUnit, inventoryUnit string, want float64) {
+		t.Helper()
+		got := gotRows[index].(map[string]any)
+		if got["inventory_unit"] != inventoryUnit {
+			t.Fatalf("row %d inventory_unit = %#v, want %q", index+1, got["inventory_unit"], inventoryUnit)
+		}
+		conversion := got["inventory_conversion_json"].(map[string]any)
+		if value := conversion[priceUnit].(map[string]any)[inventoryUnit]; value != want {
+			t.Fatalf("row %d conversion = %#v, want %s -> %s = %v", index+1, conversion, priceUnit, inventoryUnit, want)
+		}
+	}
+	assertConversion(0, "227g", "kg", 0.227)
+	assertConversion(1, "盒", "袋", 10)
+	assertConversion(2, "袋", "袋", 1)
+}
+
 func TestPublishBeanListUsesCustomerAliasUnitRuleWhenPresent(t *testing.T) {
 	repo := &fakeRepo{
 		productUnitRules: map[int64]ProductSalesUnitRule{
