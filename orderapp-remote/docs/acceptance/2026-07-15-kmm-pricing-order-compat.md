@@ -9,7 +9,10 @@
 
 - PR-415 已让新挂耳价格表进入通用商品价格表，但录单链路仍曾把 `product_kind=drip_bag` 强制映射到旧 `list_type=drip`，导致按新架构发布的挂耳派生袋/盒 SKU 无法自动取价。
 - 新挂耳价格统一使用 `commercial price_rows`。袋、盒分别是派生子 SKU，必须分别固化销售规格、价格单位、库存单位和换算，不能再由父商品或旧挂耳模板代替。
+- ERP 录单只允许 `publication_purpose=factory_supply` 作为价格来源；`customer_resale` 只用于客户转售分享，即使显式传入发布 ID 也不能进入订单价格快照。
+- `commercial` 允许部分发布，因此同一所有者的历史发布按新到旧、以每个派生 SKU 身份为覆盖粒度合并：平铺行有效 `sku_id` 优先于父 `product_id`，同一 SKU 只取最近一次包含它的快照，未出现在新版的其他 SKU 可继续取最近历史快照；新版已包含某 SKU 但价格为空时阻断旧价回退。
 - 录单优先使用行上已冻结或当前适用的 `commercial` 发布快照；只有该 SKU 不存在适用的 commercial 发布时才只读回退历史 `drip` 快照。commercial 发布存在但价格行缺失或阶梯无效时直接报错，不用旧价掩盖新表缺陷。系统不恢复挂耳专用模板、专用接口或新 `drip` 发布入口。
+- 熟豆与挂耳袋/盒只在数量命中已发布档位上下界时自动取价。低于起订量、高于有限最高量或落在档位空隙时自动价为空并阻断保存，不再猜测最低档或末档；显式盒装档存在时，盒数越界也不得折算袋数回退。
 - 订单行冻结实际命中的价格表发布 ID、版本、SKU、阶梯、单价、价格单位和库存换算，历史订单不受后续商品单位或价格配置变化影响。
 
 ## KMM 数据边界
@@ -23,13 +26,16 @@
 
 - ERP 录单的 Vue 辅助函数和 sales 仓储专用解析把新挂耳派生 SKU 归入 `commercial`；共享 `ListTypeForProductKind` 继续保留历史 `drip` 映射，避免改变客户门户等尚未迁移的旧链路。生豆仍使用 `green`，普通商品仍使用 `commercial`。
 - 订单表单把挂耳纳入通用 `commercial` 发布价格候选，并保留袋、盒等非 kg 销售规格。
+- 订单表单版本选项、默认解析和显式发布 ID 解析都固定过滤 `factory_supply`；`customer_resale` 不进入 ERP 录单链路。
+- `commercial` 订单表单查询读取同一所有者的全部已发布供货快照并按新到旧处理；前端候选以有效 `sku_id`（缺失时 `product_id`）第一次覆盖为准，使派生袋/盒 SKU 分别取最近价格，同时让新版空价格覆盖阻断旧价。顶层 `price_rows` 对同一 SKU 有有效价格时优先于镜像嵌套阶梯，并将显式重量上下界折算为该 SKU 件数范围，避免重复档位或小规格误命中。
 - 订单保存优先解析行上精确发布快照；新建行没有精确快照时按 `commercial`、历史 `drip` 的顺序解析挂耳价格。只有前者不存在适用发布时才进入后者；前者存在但缺价则报错。实际命中的 list type 和发布版本写入订单快照。
+- 后端发布价格 matcher 与 Vue 录单辅助函数都只返回合法区间命中；前端无匹配时清空自动单价并显示“当前数量无已发布价格，不能保存”。调整到合法数量、补齐价格档或按授权输入大于 0 的手动价后才解除阻断。挂耳盒存在显式盒装档时只匹配盒档，只有完全没有盒档才折算袋数。
 - 旧 `drip` 快照只读兼容；新商品价格表仍遵循 PR-415 的通用 Pricing Rule、阶梯模板和 `price_rows` 发布架构。
 
 ## TDD 与静态验证
 
-- RED：新增后端和前端合同先暴露挂耳仍映射到 `drip`、订单表单排除挂耳以及袋/盒价格单位被归一错误的问题；由本任务执行记录保留具体失败输出。
-- GREEN：待主流程将后端目标测试、`node --test src/lib/order-entry.test.js`、Vue/Vite 构建和 changed verifier 的最终结果回填到本节。
+- RED：首轮合同暴露挂耳仍映射到 `drip`、订单表单排除挂耳以及袋/盒价格单位被归一错误；本次补充合同继续暴露同一 SKU 混入历史发布价、`customer_resale` 可被 ERP 解析、数量低于/超出/落在档位空隙时后端与前端仍猜测末档，以及显式盒装档越界后回退袋装档。
+- GREEN：`go test ./internal/infrastructure/postgres/orderbeans -count=1`、`go test ./internal/infrastructure/postgres/sales -count=1`、相关 PostgreSQL/HTTP/support 包组合测试和 `go test ./...` 通过；`node --test src/lib/order-entry.test.js` 通过 86/86；`npm run build` 通过（401 modules，只有既有大 chunk 警告）。`node --test src/lib/*.test.js` 为 686/692，仍只有工作区上下文相关的 6 个既有失败，PR-537 目标测试没有新增失败。严格范围合同覆盖熟豆、挂耳袋/盒，发布选择合同覆盖 `factory_supply` 与按派生 SKU `product_id` 的 latest 覆盖。
 - 文档合同：`go test ./internal/interfaces/http/support -run TestDev537KMMCommercialOrderContracts -count=1` 固定 PR/DEV/REV 状态、通用价格表优先、历史只读回退、开发环境数据边界、未匹配不猜测和收入/COGS 边界。
 
 ## 开发环境数据执行
@@ -52,5 +58,7 @@
 
 - 商品价格表中挂耳袋、盒是同一父商品下的两个派生 SKU 价格行，新发布版本类型为 `commercial`。
 - ERP 录单不填手工价即可命中对应袋/盒阶梯，价格单位不被改成 kg 或 lb，价格来源显示实际发布版本。
+- 同一所有者部分发布时，分别核对袋/盒派生 SKU 的有效 `sku_id`（缺失时 `product_id`）：每个 SKU 使用最近包含自身的 `factory_supply` 快照，新版空价 SKU 不回退旧价，`customer_resale` 版本不出现在录单且不能显式保存。
+- 熟豆、挂耳袋和挂耳盒分别测试低于起订量、高于有限最高量和档位空隙，确认自动价为空、页面显示“当前数量无已发布价格，不能保存”并阻断保存；有显式盒装档时盒数越界不回退袋装档，只有没有盒装档时才折算袋数。
 - 待人工确认数据没有进入 BOM 或已发布价格表；开发环境以外没有本批写入。
 - 订单收入正确；未发生生产耗用时界面或验收记录没有虚构 COGS。

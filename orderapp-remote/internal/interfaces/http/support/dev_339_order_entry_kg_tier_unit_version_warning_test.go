@@ -40,8 +40,9 @@ func TestDev339OrderEntryKGTierUnitVersionWarningWiring(t *testing.T) {
 			rel: filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"),
 			markers: []string{
 				"tier_price_label",
-				"tier_below_min",
-				"低于最低梯度",
+				"price_missing",
+				"当前数量无已发布价格，不能保存",
+				"hasUnpricedPublishedRow",
 				"ensureRowBeanListVersion",
 				"priceUnitLabel(row)",
 			},
@@ -85,7 +86,7 @@ func TestDev339OrderEntryKGTierUnitVersionWarningDocs(t *testing.T) {
 		for _, want := range []string{
 			"PR-339-ORDER-ENTRY-KG-TIER-UNIT-VERSION-WARNING",
 			"元/kg",
-			"低于最低梯度",
+			"当前数量无已发布价格，不能保存",
 			"豆单版本",
 		} {
 			if !strings.Contains(src, want) {

@@ -119,6 +119,7 @@ func ResolveUsageForPublication(ctx context.Context, q rowQuerier, schema string
 			WHERE blp.id=$1
 			  AND blp.status='published'
 			  AND blp.list_type=$2
+			  AND blp.publication_purpose='factory_supply'
 			  AND ((blp.owner_type='customer' AND blp.owner_key=$3) OR blp.owner_type='official')
 		`, schema)
 		if err := q.QueryRow(ctx, sql, requestedPublicationID, listType, customerKey).Scan(&usage.PublicationID, &usage.VersionNo); err != nil {
@@ -135,18 +136,34 @@ func ResolveUsageForPublication(ctx context.Context, q rowQuerier, schema string
 		FROM %s.bean_list_publications blp
 		WHERE blp.status='published'
 		  AND blp.list_type=$1
+		  AND blp.publication_purpose='factory_supply'
 		  AND (
 		    ($2 <> '' AND blp.owner_type='customer' AND blp.owner_key=$2)
 		    OR blp.owner_type='official'
 		  )
-		  AND EXISTS (
-		    SELECT 1
-		    FROM jsonb_array_elements(COALESCE(blp.content_json->'groups', '[]'::jsonb)) AS groups(group_json)
-		    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(groups.group_json->'items', '[]'::jsonb)) AS items(item_json)
-		    WHERE (
-		      (items.item_json->>'productId' ~ '^[0-9]+$' AND (items.item_json->>'productId')::bigint=$3)
-		      OR (items.item_json->>'product_id' ~ '^[0-9]+$' AND (items.item_json->>'product_id')::bigint=$3)
-		      OR (items.item_json->>'productID' ~ '^[0-9]+$' AND (items.item_json->>'productID')::bigint=$3)
+		  AND (
+		    EXISTS (
+		      SELECT 1
+		      FROM jsonb_array_elements(COALESCE(blp.content_json->'groups', '[]'::jsonb)) AS groups(group_json)
+		      CROSS JOIN LATERAL jsonb_array_elements(COALESCE(groups.group_json->'items', '[]'::jsonb)) AS items(item_json)
+		      WHERE CASE
+		        WHEN items.item_json->>'sku_id' ~ '^[0-9]+$' THEN (items.item_json->>'sku_id')::bigint
+		        WHEN items.item_json->>'productId' ~ '^[0-9]+$' THEN (items.item_json->>'productId')::bigint
+		        WHEN items.item_json->>'product_id' ~ '^[0-9]+$' THEN (items.item_json->>'product_id')::bigint
+		        WHEN items.item_json->>'productID' ~ '^[0-9]+$' THEN (items.item_json->>'productID')::bigint
+		        ELSE 0
+		      END = $3
+		    )
+		    OR EXISTS (
+		      SELECT 1
+		      FROM jsonb_array_elements(COALESCE(blp.content_json->'price_rows', '[]'::jsonb)) AS price_rows(row_json)
+		      WHERE CASE
+		        WHEN row_json->>'sku_id' ~ '^[0-9]+$' THEN (row_json->>'sku_id')::bigint
+		        WHEN row_json->>'product_id' ~ '^[0-9]+$' THEN (row_json->>'product_id')::bigint
+		        WHEN row_json->>'productId' ~ '^[0-9]+$' THEN (row_json->>'productId')::bigint
+		        WHEN row_json->>'productID' ~ '^[0-9]+$' THEN (row_json->>'productID')::bigint
+		        ELSE 0
+		      END = $3
 		    )
 		  )
 		ORDER BY CASE WHEN $2 <> '' AND blp.owner_type='customer' AND blp.owner_key=$2 THEN 0 ELSE 1 END,
@@ -251,7 +268,14 @@ func publishedItemMatchesProduct(raw json.RawMessage, productID int64) bool {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return false
 	}
-	return publishedJSONInt64Field(fields, "productId", "product_id", "productID") == productID
+	return publishedBeanListItemProductID(fields) == productID
+}
+
+func publishedBeanListItemProductID(fields map[string]json.RawMessage) int64 {
+	if skuID := publishedJSONInt64Field(fields, "sku_id", "skuId", "skuID"); skuID > 0 {
+		return skuID
+	}
+	return publishedJSONInt64Field(fields, "productId", "product_id", "productID")
 }
 
 func publishedItemTiers(raw json.RawMessage, listType string) []publishedPriceTier {
@@ -290,7 +314,7 @@ func publishedFlatPriceRows(raw []byte, productID int64) []publishedPriceTier {
 		if err := json.Unmarshal(rowRaw, &rowFields); err != nil {
 			continue
 		}
-		if publishedJSONInt64Field(rowFields, "product_id", "productId", "productID") != productID {
+		if publishedFlatPriceRowProductID(rowFields) != productID {
 			continue
 		}
 		var tier publishedPriceTier
@@ -303,6 +327,13 @@ func publishedFlatPriceRows(raw []byte, productID int64) []publishedPriceTier {
 		out = append(out, tier)
 	}
 	return out
+}
+
+func publishedFlatPriceRowProductID(fields map[string]json.RawMessage) int64 {
+	if skuID := publishedJSONInt64Field(fields, "sku_id", "skuId", "skuID"); skuID > 0 {
+		return skuID
+	}
+	return publishedJSONInt64Field(fields, "product_id", "productId", "productID")
 }
 
 func publishedJSONInt64Field(fields map[string]json.RawMessage, keys ...string) int64 {
@@ -334,29 +365,46 @@ func matchPublishedPriceTier(tiers []publishedPriceTier, specG int64, qty int64)
 	sorted := append([]publishedPriceTier(nil), tiers...)
 	sortPublishedTiers(sorted)
 	for _, tier := range sorted {
-		if tier.MinWeightG > 0 && totalG >= tier.MinWeightG && (tier.MaxWeightG == nil || totalG <= *tier.MaxWeightG) {
+		if tier.MinWeightG > 0 || tier.MaxWeightG != nil {
+			if totalG >= tier.MinWeightG && (tier.MaxWeightG == nil || totalG <= *tier.MaxWeightG) {
+				return tier, true
+			}
+		}
+	}
+	exactSpecTiers := make([]publishedPriceTier, 0, len(sorted))
+	for _, tier := range sorted {
+		if tier.MinWeightG > 0 || tier.MaxWeightG != nil || tier.MinLb > 0 || tier.MaxLb != nil || tier.SpecG != specG {
+			continue
+		}
+		exactSpecTiers = append(exactSpecTiers, tier)
+		if float64(qty) >= tier.MinQty && (tier.MaxQty == nil || float64(qty) <= *tier.MaxQty) {
 			return tier, true
 		}
 	}
 	for _, tier := range sorted {
-		tierSpec := tier.SpecG
-		if tierSpec <= 0 {
-			tierSpec = 1000
+		if tier.MinLb > 0 || tier.MaxLb != nil {
+			if totalLb >= tier.MinLb && (tier.MaxLb == nil || totalLb <= *tier.MaxLb) {
+				return tier, true
+			}
 		}
-		if tierSpec != specG {
+	}
+	if len(exactSpecTiers) > 0 {
+		return publishedPriceTier{}, false
+	}
+	for _, tier := range sorted {
+		if tier.MinWeightG > 0 || tier.MaxWeightG != nil || tier.MinLb > 0 || tier.MaxLb != nil {
 			continue
 		}
-		tierQty := totalG / float64(tierSpec)
+		tierSpecG := tier.SpecG
+		if tierSpecG <= 0 {
+			tierSpecG = 1000
+		}
+		tierQty := totalG / float64(tierSpecG)
 		if tierQty >= tier.MinQty && (tier.MaxQty == nil || tierQty <= *tier.MaxQty) {
 			return tier, true
 		}
 	}
-	for _, tier := range sorted {
-		if tier.MinLb > 0 && totalLb >= tier.MinLb && (tier.MaxLb == nil || totalLb <= *tier.MaxLb) {
-			return tier, true
-		}
-	}
-	return sorted[len(sorted)-1], true
+	return publishedPriceTier{}, false
 }
 
 func matchPublishedDripPriceTier(tiers []publishedPriceTier, salesUnit string, qty int64, unitBagCount int64) (publishedPriceTier, bool) {
@@ -369,8 +417,8 @@ func matchPublishedDripPriceTier(tiers []publishedPriceTier, salesUnit string, q
 	}
 	if salesUnit == "box" {
 		boxTiers := filterPublishedDripTiers(tiers, "box")
-		if tier, ok := matchPublishedDripTierByQty(boxTiers, float64(qty)); ok {
-			return tier, true
+		if len(boxTiers) > 0 {
+			return matchPublishedDripTierByQty(boxTiers, float64(qty))
 		}
 		bagTiers := filterPublishedDripTiers(tiers, "bag")
 		return matchPublishedDripTierByQty(bagTiers, float64(qty*unitBagCount))
@@ -400,7 +448,7 @@ func matchPublishedDripTierByQty(tiers []publishedPriceTier, qty float64) (publi
 			return tier, true
 		}
 	}
-	return sorted[len(sorted)-1], true
+	return publishedPriceTier{}, false
 }
 
 func publishedDripUnitPrice(tier publishedPriceTier, salesUnit string, unitBagCount int64) float64 {

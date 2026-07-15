@@ -87,6 +87,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			FROM active_customers c
 			JOIN %[1]s.bean_list_publications b
 			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status='published'
+			 AND b.publication_purpose='factory_supply'
 			WHERE b.list_type IN ('commercial','green','drip') OR COALESCE(b.product_type_category_id,0)>0
 		),
 		official_versions AS (
@@ -100,6 +101,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			       row_number() OVER (PARTITION BY b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
 			FROM %[1]s.bean_list_publications b
 			WHERE b.owner_type='official' AND b.status='published'
+			  AND b.publication_purpose='factory_supply'
 			  AND (b.list_type IN ('commercial','green','drip') OR COALESCE(b.product_type_category_id,0)>0)
 		),
 		global_public_versions AS (
@@ -565,32 +567,42 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 	}
 	q := fmt.Sprintf(`
 		WITH customer_publications AS (
-			SELECT owner_key,
+			SELECT 'customer'::text AS owner_type,
+			       owner_key,
 			       id,
 			       COALESCE(version_no, '') AS version_no,
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
-			       row_number() OVER (PARTITION BY owner_key ORDER BY published_at DESC, id DESC) AS rn
+			       published_at
 			FROM %[1]s.bean_list_publications
 			WHERE status='published'
 			  AND list_type='commercial'
+			  AND publication_purpose='factory_supply'
 			  AND owner_type='customer'
 			  AND owner_key = ANY($1)
 		),
 		official_publications AS (
-			SELECT id,
+			SELECT 'official'::text AS owner_type,
+			       ''::text AS owner_key,
+			       id,
 			       COALESCE(version_no, '') AS version_no,
 			       COALESCE(content_json, '{}'::jsonb) AS content_json,
-			       row_number() OVER (ORDER BY published_at DESC, id DESC) AS rn
+			       published_at
 			FROM %[1]s.bean_list_publications
 			WHERE status='published'
 			  AND list_type='commercial'
+			  AND publication_purpose='factory_supply'
 			  AND owner_type='official'
+		),
+		applicable_publications AS (
+			SELECT owner_type, owner_key, id, version_no, content_json, published_at
+			FROM customer_publications
+			UNION ALL
+			SELECT owner_type, owner_key, id, version_no, content_json, published_at
+			FROM official_publications
 		)
-		SELECT 'customer' AS owner_type, owner_key, id, version_no, content_json
-		FROM customer_publications
-		UNION ALL
-		SELECT 'official' AS owner_type, '' AS owner_key, id, version_no, content_json
-		FROM official_publications
+		SELECT owner_type, owner_key, id, version_no, content_json
+		FROM applicable_publications
+		ORDER BY owner_type, owner_key, published_at DESC, id DESC
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, ownerKeys)
 	if err != nil {
@@ -609,10 +621,10 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 		}
 		tiers := commercialOrderTierMapFromPublicationContent(publicationID, versionNo, contentRaw)
 		if ownerType == "customer" {
-			customerTiers[ownerKey] = mergeOrderPublicationTierMaps(customerTiers[ownerKey], tiers)
+			customerTiers[ownerKey] = mergeLatestCommercialOrderPublicationTierMaps(customerTiers[ownerKey], tiers)
 			continue
 		}
-		officialTiers = mergeOrderPublicationTierMaps(officialTiers, tiers)
+		officialTiers = mergeLatestCommercialOrderPublicationTierMaps(officialTiers, tiers)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -694,6 +706,7 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 			FROM %[1]s.bean_list_publications
 			WHERE status='published'
 			  AND list_type='green'
+			  AND publication_purpose='factory_supply'
 			  AND owner_type='customer'
 			  AND owner_key = ANY($1)
 		),
@@ -706,6 +719,7 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 			FROM %[1]s.bean_list_publications
 			WHERE status='published'
 			  AND list_type='green'
+			  AND publication_purpose='factory_supply'
 			  AND owner_type='official'
 		)
 		SELECT 'customer' AS owner_type, owner_key, id, version_no, config_json, content_json
@@ -774,6 +788,22 @@ func mergeOrderPublicationTierMaps(dst, src map[int64][]salesapp.ProductTierOpti
 	return dst
 }
 
+func mergeLatestCommercialOrderPublicationTierMaps(dst, src map[int64][]salesapp.ProductTierOption) map[int64][]salesapp.ProductTierOption {
+	if dst == nil {
+		dst = map[int64][]salesapp.ProductTierOption{}
+	}
+	for productID, tiers := range src {
+		if _, covered := dst[productID]; covered {
+			continue
+		}
+		dst[productID] = append([]salesapp.ProductTierOption(nil), tiers...)
+		if dst[productID] == nil {
+			dst[productID] = []salesapp.ProductTierOption{}
+		}
+	}
+	return dst
+}
+
 func applyGreenBeanOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
 	for i := range products {
 		if strings.TrimSpace(products[i].ProductKind) != "green_bean" {
@@ -790,6 +820,7 @@ type orderBeanListPublicationContent struct {
 	Groups []struct {
 		Items []json.RawMessage `json:"items"`
 	} `json:"groups"`
+	PriceRows []json.RawMessage `json:"price_rows"`
 }
 
 type orderGreenBeanPublicationTier struct {
@@ -799,6 +830,10 @@ type orderGreenBeanPublicationTier struct {
 	SpecG                   int64           `json:"spec_g"`
 	MinQty                  float64         `json:"min_qty"`
 	MaxQty                  *float64        `json:"max_qty"`
+	MinWeightG              float64         `json:"min_weight_g"`
+	MaxWeightG              *float64        `json:"max_weight_g"`
+	MinLb                   float64         `json:"min_lb"`
+	MaxLb                   *float64        `json:"max_lb"`
 	PricePerUnit            float64         `json:"price_per_unit"`
 	PricePerKg              float64         `json:"price_per_kg"`
 	PricePerLb              float64         `json:"price_per_lb"`
@@ -810,6 +845,7 @@ type orderGreenBeanPublicationTier struct {
 	UnitBagCount            int64           `json:"unit_bag_count"`
 	InventoryUnit           string          `json:"inventory_unit"`
 	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
+	ProductKind             string          `json:"product_kind"`
 }
 
 type orderCommercialPublicationTier = orderGreenBeanPublicationTier
@@ -823,11 +859,53 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 	if err := json.Unmarshal(raw, &content); err != nil {
 		return out
 	}
+	flatParentIDs := map[int64]bool{}
+	flatTiers := map[int64][]salesapp.ProductTierOption{}
+	for idx, rowRaw := range content.PriceRows {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(rowRaw, &fields); err != nil {
+			continue
+		}
+		productID := orderBeanListFlatRowProductID(fields)
+		if productID <= 0 {
+			continue
+		}
+		if parentID := rawJSONInt64(fields["parent_product_id"]); parentID > 0 && parentID != productID {
+			flatParentIDs[parentID] = true
+		} else if parentID := rawJSONInt64(fields["product_id"]); parentID > 0 && parentID != productID {
+			flatParentIDs[parentID] = true
+		}
+		if _, covered := flatTiers[productID]; !covered {
+			flatTiers[productID] = []salesapp.ProductTierOption{}
+		}
+		var tier orderCommercialPublicationTier
+		if err := json.Unmarshal(rowRaw, &tier); err != nil {
+			continue
+		}
+		if strings.TrimSpace(tier.ProductKind) == "" {
+			switch strings.TrimSpace(tier.SalesUnit) {
+			case "bag", "box":
+				tier.ProductKind = "drip_bag"
+			}
+		}
+		normalizeCommercialOrderFlatTierBounds(&tier)
+		option := commercialOrderTierOption(publicationID, versionNo, idx, tier, tier.ProductKind)
+		if option.UnitPrice <= 0 {
+			continue
+		}
+		flatTiers[productID] = append(flatTiers[productID], option)
+	}
 	for _, group := range content.Groups {
 		for _, itemRaw := range group.Items {
 			productID := orderBeanListProductID(itemRaw)
 			if productID <= 0 {
 				continue
+			}
+			if flatParentIDs[productID] {
+				continue
+			}
+			if _, covered := out[productID]; !covered {
+				out[productID] = []salesapp.ProductTierOption{}
 			}
 			var fields map[string]json.RawMessage
 			if err := json.Unmarshal(itemRaw, &fields); err != nil {
@@ -847,7 +925,61 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 			}
 		}
 	}
+	for productID, tiers := range flatTiers {
+		if len(tiers) > 0 {
+			out[productID] = tiers
+			continue
+		}
+		if _, covered := out[productID]; !covered {
+			out[productID] = []salesapp.ProductTierOption{}
+		}
+	}
 	return out
+}
+
+func orderBeanListFlatRowProductID(fields map[string]json.RawMessage) int64 {
+	for _, key := range []string{"sku_id", "skuId", "skuID"} {
+		if id := rawJSONInt64(fields[key]); id > 0 {
+			return id
+		}
+	}
+	for _, key := range []string{"product_id", "productId", "productID"} {
+		if id := rawJSONInt64(fields[key]); id > 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+func normalizeCommercialOrderFlatTierBounds(tier *orderCommercialPublicationTier) {
+	if tier == nil {
+		return
+	}
+	if tier.SpecG <= 0 {
+		tier.SpecG = int64(greenBeanOrderPriceUnitG(tier.PriceUnit, 0))
+	}
+	if tier.SpecG <= 0 {
+		return
+	}
+	if tier.MinWeightG > 0 || tier.MaxWeightG != nil {
+		tier.MinQty = tier.MinWeightG / float64(tier.SpecG)
+		if tier.MaxWeightG != nil {
+			maxQty := *tier.MaxWeightG / float64(tier.SpecG)
+			tier.MaxQty = &maxQty
+		} else {
+			tier.MaxQty = nil
+		}
+		return
+	}
+	if tier.MinLb > 0 || tier.MaxLb != nil {
+		tier.MinQty = tier.MinLb * 454.0 / float64(tier.SpecG)
+		if tier.MaxLb != nil {
+			maxQty := *tier.MaxLb * 454.0 / float64(tier.SpecG)
+			tier.MaxQty = &maxQty
+		} else {
+			tier.MaxQty = nil
+		}
+	}
 }
 
 func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo string, raw []byte, configRaw ...[]byte) map[int64][]salesapp.ProductTierOption {
@@ -967,7 +1099,7 @@ func orderBeanListProductID(raw json.RawMessage) int64 {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return 0
 	}
-	for _, key := range []string{"productId", "product_id", "productID"} {
+	for _, key := range []string{"sku_id", "skuId", "skuID", "productId", "product_id", "productID"} {
 		if id := rawJSONInt64(fields[key]); id > 0 {
 			return id
 		}

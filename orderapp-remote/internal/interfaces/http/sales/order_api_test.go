@@ -337,6 +337,61 @@ func TestOrderAPISaveUsesCustomerProfileDefaultsForHiddenHeaderFields(t *testing
 	}
 }
 
+func TestOrderAPISaveRejectsNonPositiveManualPrice(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	e := newOrderAPITestEcho(pool, schema)
+
+	for _, price := range []string{"", "abc", "0", "-1"} {
+		t.Run(price, func(t *testing.T) {
+			payload := fmt.Sprintf(`{
+				"order_date":"2026-07-16",
+				"customer_id":3,
+				"pay_status_id":1,
+				"ship_status_id":1,
+				"product_id":["7"],
+				"item_name":["橘皮乌龙"],
+				"tier_id":["manual"],
+				"unit_price":[%q],
+				"qty":["1"],
+				"unit":["件"],
+				"spec":["454"]
+			}`, price)
+			req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "手动单价必须大于0") {
+				t.Fatalf("POST /api/order manual price %s status/body = %d/%s, want 400 positive-price error", price, rec.Code, rec.Body.String())
+			}
+		})
+	}
+	var count int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.orders`, schema)).Scan(&count); err != nil {
+		t.Fatalf("count orders: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("non-positive manual prices created %d orders, want 0", count)
+	}
+}
+
+func TestSaveOrderCommandRejectsMissingInvalidAndNonPositiveManualPrice(t *testing.T) {
+	for _, price := range []string{"", "abc", "0", "-1"} {
+		t.Run(price, func(t *testing.T) {
+			_, err := saveOrderCommandFromCreateRequest(CreateOrderRequest{
+				OrderDate: "2026-07-16",
+				TierID:    []string{"manual"},
+				UnitPrice: []string{price},
+			}, 0, "codex")
+			if err == nil || !strings.Contains(err.Error(), "手动单价必须大于0") {
+				t.Fatalf("manual price %q error = %v, want positive-price rejection", price, err)
+			}
+		})
+	}
+}
+
 func TestOrderAPISaveRejectsCustomerMissingRequiredProfileDefaults(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -1344,7 +1399,7 @@ func TestOrderAPIWholesaleExactSpecTierUsesKilogramQuantityForKgProducts(t *test
 	}
 }
 
-func TestOrderAPISavesBeanListKgDisplayUnitForSmallPackageOrder(t *testing.T) {
+func TestOrderAPISavesBeanListKgDisplayUnitForSmallPackageInsidePublishedRange(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -1372,7 +1427,7 @@ func TestOrderAPISavesBeanListKgDisplayUnitForSmallPackageOrder(t *testing.T) {
 		"tier_id":                             []string{"64"},
 		"unit_price":                          []string{"82"},
 		"item_name":                           []string{"兰卡拼配"},
-		"qty":                                 []string{"1"},
+		"qty":                                 []string{"313"},
 		"unit":                                []string{"件"},
 		"spec":                                []string{"80"},
 		"product_kind":                        []string{"roasted_bean"},
@@ -1400,8 +1455,8 @@ func TestOrderAPISavesBeanListKgDisplayUnitForSmallPackageOrder(t *testing.T) {
 	`, schema)).Scan(&unitPrice, &lineTotal, &version, &priceSource); err != nil {
 		t.Fatalf("query order item: %v", err)
 	}
-	if unitPrice != 82 || lineTotal != 6.56 || version != "V3.0.9" {
-		t.Fatalf("unit_price/line_total/version=%.2f/%.2f/%q, want 82.00/6.56/V3.0.9", unitPrice, lineTotal, version)
+	if unitPrice != 82 || lineTotal != 2053.28 || version != "V3.0.9" {
+		t.Fatalf("unit_price/line_total/version=%.2f/%.2f/%q, want 82.00/2053.28/V3.0.9", unitPrice, lineTotal, version)
 	}
 	if !strings.Contains(priceSource, `"price_unit":"kg"`) && !strings.Contains(priceSource, `"price_unit": "kg"`) {
 		t.Fatalf("price_source_json should retain kg price unit: %s", priceSource)

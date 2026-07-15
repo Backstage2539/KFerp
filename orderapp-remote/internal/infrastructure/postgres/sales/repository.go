@@ -921,6 +921,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		itemWeightG := orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
 		orderWeightG += itemWeightG
 
+		if items[idx].manualPrice != nil && (*items[idx].manualPrice <= 0 || math.IsNaN(*items[idx].manualPrice) || math.IsInf(*items[idx].manualPrice, 0)) {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("手动单价必须大于0")
+		}
 		if items[idx].manualPrice != nil {
 			lineTotal := wholesaleLineTotalFromDisplayUnit(*items[idx].manualPrice, items[idx].specG, items[idx].units)
 			if items[idx].productKind == "drip_bag" {
@@ -1511,6 +1514,7 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 			SELECT version_no
 			FROM %s.bean_list_publications
 			WHERE id=$1 AND status='published'
+			  AND publication_purpose='factory_supply'
 			  AND list_type=$2
 			  AND ((owner_type='customer' AND owner_key=$3) OR owner_type='official')
 		`, r.schema), requestedID, listType, customerKey).Scan(&version)
@@ -1528,6 +1532,7 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 				JOIN %s.bean_list_publications b ON b.id=p.bean_list_publication_id
 				WHERE p.customer_id=$1 AND p.bean_list_mode='fixed'
 				  AND b.owner_type='customer' AND b.owner_key=$2 AND b.status='published'
+				  AND b.publication_purpose='factory_supply'
 				  AND b.list_type=$3
 			`, r.schema, r.schema), customerID, customerKey, listType).Scan(&fixedID)
 		if err == nil && fixedID > 0 {
@@ -1538,7 +1543,8 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT id
 				FROM %s.bean_list_publications
-				WHERE owner_type='customer' AND owner_key=$1 AND status='published' AND list_type=$2
+				WHERE owner_type='customer' AND owner_key=$1 AND status='published'
+				  AND publication_purpose='factory_supply' AND list_type=$2
 				ORDER BY published_at DESC, id DESC
 				LIMIT 1
 			`, r.schema), customerKey, listType).Scan(&requestedID)
@@ -1546,7 +1552,8 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 			_ = tx.QueryRow(ctx, fmt.Sprintf(`
 					SELECT id
 					FROM %s.bean_list_publications
-					WHERE owner_type='official' AND status='published' AND list_type=$1
+					WHERE owner_type='official' AND status='published'
+					  AND publication_purpose='factory_supply' AND list_type=$1
 					ORDER BY published_at DESC, id DESC
 					LIMIT 1
 				`, r.schema), listType).Scan(&requestedID)
