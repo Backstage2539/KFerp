@@ -1472,16 +1472,16 @@
 - [ ] 商品档案配置保存继续通过既有 `save_product_production_config` 写操作日志；本需求不新增绕过操作日志的用户触发写入口。
 
 ### K79. KMM 阶梯售价与挂耳通用价格表录单兼容（PR-537-KMM-PRICING-ORDER-COMPAT）
-- [ ] 挂耳的袋、盒派生子 SKU 在新发布价格表中都使用 `list_type=commercial` 和平铺 `price_rows`；每行保存具体 `sku_id`、销售规格、价格单位、库存单位和库存换算，不创建新的 `drip` 价格表或挂耳专用价格模板。
-- [ ] ERP 录单版本选项、自动价和订单保存只接受 `publication_purpose=factory_supply`。创建一个 `customer_resale` 已发布版本并显式提交其 ID 时，版本不出现在录单选择器且订单保存拒绝使用它。
-- [ ] 同一所有者连续发布部分 `commercial` 快照：新版只更新派生 SKU A、旧版另含派生 SKU B 时，A 只取新版、B 取最近包含自身的旧版；新版包含 SKU C 但价格为空时，C 不得回退旧版价格。平铺价格行有效 `sku_id` 优先于父 `product_id`，不能按父商品合并袋/盒 SKU。
-- [ ] ERP 录单选择挂耳派生袋/盒 SKU 时优先读取 `commercial price_rows`，并保留袋/盒的实际价格单位，不把非 kg 单位强制改为 lb；只有该 SKU 不存在适用的 `commercial` 发布时才只读回退历史 `list_type=drip` 快照。commercial 发布存在但缺价格行或阶梯无效时必须报错，不得用旧价掩盖新表缺陷。
-- [ ] 熟豆、挂耳袋和挂耳盒分别验证低于起订量、高于有限最高量及档位空隙：自动单价为空并显示“当前数量无已发布价格，不能保存”，不得猜测最低档或末档。存在显式盒装档时，盒数越界不得折算袋数回退；只有没有任何盒装档时才按每盒袋数匹配袋装档。
-- [ ] 使用历史 `drip` 发布版本的既有订单和价格表仍可读取；新录单通过回退命中旧快照时保存实际旧发布 ID、版本号和 `list_type=drip` 价格来源，但系统没有恢复旧挂耳模板 API 或新增 `drip` 发布入口。
-- [ ] KMM 数据执行前已生成可校验的开发数据库备份；物料、BOM、Pricing Rule、阶梯模板和价格表只写开发环境，生产环境未写入、未部署、未切换入口。
-- [ ] `/data/kmm.xlsx` 中能够唯一匹配的物料价格、BOM 关系和阶梯售价逐条幂等导入；执行报告分别列出成功、跳过、失败和待人工确认记录，单条失败不会中止后续安全记录。
-- [ ] 未匹配、名称歧义、空白或零价格、配方不完整的记录保持未发布并进入待人工确认清单；系统没有猜测物料、BOM 或售价，也没有用 0 元价格静默兜底。
-- [ ] 熟豆与挂耳袋/盒的开发环境验收订单在不填写手工价时命中 `commercial price_rows`；订单行冻结发布 ID、版本、SKU、档位、最终单价、价格单位、库存单位和换算快照，订单合计与财务收入一致。
-- [ ] 订单创建后财务侧只确认已冻结成交价形成的收入；没有生产工单实际耗用时不得伪造 COGS。若继续执行生产，则 COGS 必须在物料耗用、完工和成本归集后形成并能追溯到对应 BOM/工单。
-- [ ] 物料、BOM、价格模板、价格表发布、订单保存与验收订单作废均通过正式 API 写入操作日志；验收订单已通过正式作废流程关闭并保留审计记录。
-- [ ] `go test ./internal/infrastructure/postgres/orderbeans ./internal/infrastructure/postgres/sales ./internal/interfaces/http/support -count=1`、`node --test src/lib/order-entry.test.js` 和 Vue/Vite 构建通过；开发环境 API/录单/财务烟测结果写入 `docs/acceptance/2026-07-15-kmm-pricing-order-compat.md`。
+- [x] 挂耳的袋、盒派生子 SKU 在新发布价格表中都使用 `list_type=commercial` 和平铺 `price_rows`；每行保存具体 `sku_id`、销售规格、价格单位、库存单位和库存换算，不创建新的 `drip` 价格表或挂耳专用价格模板。
+- [x] ERP 录单版本选项、自动价和订单保存只接受 `publication_purpose=factory_supply`。创建一个 `customer_resale` 已发布版本并显式提交其 ID 时，版本不出现在录单选择器且订单保存拒绝使用它。
+- [x] 同一所有者连续发布部分 `commercial` 快照：新版只更新派生 SKU A、旧版另含派生 SKU B 时，A 只取新版、B 取最近包含自身的旧版；新版包含 SKU C 但价格为空时，C 不得回退旧版价格。平铺价格行有效 `sku_id` 优先于父 `product_id`，不能按父商品合并袋/盒 SKU。
+- [x] ERP 录单选择挂耳派生袋/盒 SKU 时优先读取 `commercial price_rows`，并保留袋/盒的实际价格单位，不把非 kg 单位强制改为 lb；只有该 SKU 不存在适用的 `commercial` 发布时才只读回退历史 `list_type=drip` 快照。commercial 发布存在但缺价格行或阶梯无效时必须报错，不得用旧价掩盖新表缺陷。
+- [x] 熟豆、挂耳袋和挂耳盒分别验证低于起订量、高于有限最高量及档位空隙：自动单价为空并显示“当前数量无已发布价格，不能保存”，不得猜测最低档或末档。存在显式盒装档时，盒数越界不得折算袋数回退；只有没有任何盒装档时才按每盒袋数匹配袋装档。
+- [ ] 使用历史 `drip` 发布版本的既有订单和价格表仍可读取；新录单通过回退命中旧快照时保存实际旧发布 ID、版本号和 `list_type=drip` 价格来源，但系统没有恢复旧挂耳模板 API 或新增 `drip` 发布入口。当前自动化已覆盖旧快照解析、候选顺序和价格匹配；开发库没有可用于完整保存验收的历史 `drip` 发布，故该复合场景保留待验收。
+- [x] KMM 数据执行前已生成可校验的开发数据库备份；物料、BOM、Pricing Rule、阶梯模板和价格表只写开发环境，生产环境未写入、未部署、未切换入口。
+- [x] `/data/kmm.xlsx` 中能够唯一匹配的物料价格、BOM 关系和阶梯售价逐条幂等导入；执行报告分别列出成功、跳过、失败和待人工确认记录，单条失败不会中止后续安全记录。
+- [x] 未匹配、名称歧义、空白或零价格、配方不完整的记录保持未发布并进入待人工确认清单；系统没有猜测物料、BOM 或售价，也没有用 0 元价格静默兜底。
+- [x] 熟豆与挂耳袋/盒的开发环境验收订单在不填写手工价时命中 `commercial price_rows`；订单行冻结发布 ID、版本、SKU、档位、最终单价、价格单位、库存单位和换算快照，订单合计与财务收入一致。
+- [x] 订单创建后财务侧只确认已冻结成交价形成的收入；没有生产工单实际耗用时不得伪造 COGS。若继续执行生产，则 COGS 必须在物料耗用、完工和成本归集后形成并能追溯到对应 BOM/工单。
+- [x] 物料、BOM、价格模板、价格表发布、订单保存与验收订单作废均通过正式 API 写入操作日志；验收订单已通过正式作废流程关闭并保留审计记录。
+- [x] `go test ./internal/infrastructure/postgres/orderbeans ./internal/infrastructure/postgres/sales ./internal/interfaces/http/support -count=1`、`node --test src/lib/order-entry.test.js` 和 Vue/Vite 构建通过；开发环境 API/录单/财务烟测结果写入 `docs/acceptance/2026-07-15-kmm-pricing-order-compat.md`。

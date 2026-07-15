@@ -17,7 +17,7 @@ func TestDev537KMMCommercialOrderContracts(t *testing.T) {
 		{table: "req_product", code: "PR-537-KMM-PRICING-ORDER-COMPAT", status: "review"},
 		{table: "req_dev", code: "DEV-537-DRIP-COMMERCIAL-ORDER", status: "done"},
 		{table: "req_dev", code: "DEV-537-LEGACY-DRIP-FALLBACK", status: "done"},
-		{table: "req_dev", code: "DEV-537-KMM-DATA-ACCEPTANCE", status: "doing"},
+		{table: "req_dev", code: "DEV-537-KMM-DATA-ACCEPTANCE", status: "done"},
 		{table: "req_review", code: "REV-537-KMM-PRICING-ORDER-COMPAT", status: "todo"},
 	} {
 		requireDev537SeedRow(t, reqStore, row.table, row.code, row.status)
