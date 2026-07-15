@@ -737,6 +737,10 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		return nil, nil
 	}
 	out := make([]appcosting.PricingRuleTrialBaseCostDetail, 0)
+	resolvedBomCosts, err := r.loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
@@ -781,19 +785,29 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		),
 		bom_items AS (
 			SELECT pbi.id, pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
-			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8, COALESCE(pbi.material_loss_rate,0)::float8 AS material_loss_rate, pbi.unit_cost_snapshot::float8
+			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8, COALESCE(pbi.material_loss_rate,0)::float8 AS material_loss_rate, pbi.unit_cost_snapshot::float8,
+			       COALESCE(v.yield_rate,0)::float8 AS bom_yield_rate,
+			       COALESCE(NULLIF(v.output_qty,0),1)::float8 AS bom_output_qty,
+			       COALESCE(NULLIF(v.output_unit,''),'unit') AS bom_output_unit
 			FROM %[1]s.production_bom_version_items pbi
+			JOIN %[1]s.production_bom_versions v ON v.id=pbi.version_id
 			WHERE ($1 > 0 AND pbi.version_id=$1)
 			   OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version))
 		)
 		SELECT bi.id,
 		       COALESCE(NULLIF(bi.component_type,''),'material') AS component_type,
+		       COALESCE(bi.component_product_id,0) AS component_product_id,
+		       COALESCE(bi.component_spec_g,0) AS component_spec_g,
 		       COALESCE(NULLIF(m.name,''), NULLIF(cp.name,''), 'BOM项目') AS name,
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') AS consume_unit,
 		       COALESCE(bi.qty_per_unit,0)::float8,
 		       COALESCE(bi.ratio_pct,0)::float8,
 		       COALESCE(bi.material_loss_rate,0)::float8,
 		       COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)::float8 AS unit_cost,
+		       COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit,
+		       COALESCE(bi.bom_yield_rate,0)::float8 AS bom_yield_rate,
+		       COALESCE(NULLIF(bi.bom_output_qty,0),1)::float8 AS bom_output_qty,
+		       COALESCE(NULLIF(bi.bom_output_unit,''),'unit') AS bom_output_unit,
 		       CASE
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='ratio_pct'
 		         THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))
@@ -824,8 +838,40 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
 		var componentType string
-		if err := bomRows.Scan(&id, &componentType, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
+		var componentProductID int64
+		var componentSpecG int64
+		var unitCostUnit string
+		var bomYieldRate float64
+		var bomOutputQty float64
+		var bomOutputUnit string
+		if err := bomRows.Scan(&id, &componentType, &componentProductID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
 			return nil, err
+		}
+		resolvedItemCost, ok, warning := resolveProductionBomTrialItemCost(productionBomCostItem{
+			ID:                 id,
+			ComponentType:      componentType,
+			ComponentProductID: componentProductID,
+			ComponentSpecG:     componentSpecG,
+			ConsumeUnit:        row.ConsumeUnit,
+			QtyPerUnit:         row.Quantity,
+			RatioPct:           row.RatioPct,
+			MaterialLossRate:   row.MaterialLossRate,
+		}, row.UnitCost, unitCostUnit, bomYieldRate, bomOutputQty, bomOutputUnit, resolvedBomCosts)
+		if ok {
+			if massFactor := productionBomCostMassKgFactor(bomOutputUnit); massFactor > 0 {
+				row.AmountPerKg = resolvedItemCost.ContributionPerOutputUnit / massFactor
+				row.AmountPerUnit = 0
+				row.Unit = "kg"
+			} else {
+				row.AmountPerKg = 0
+				row.AmountPerUnit = resolvedItemCost.ContributionPerOutputUnit
+				row.Unit = bomOutputUnit
+			}
+			row.UnitCost = resolvedItemCost.UnitCost
+			row.CostUnitCost = resolvedItemCost.UnitCost
+			row.CostUnit = resolvedItemCost.CostUnit
+		} else {
+			return nil, fmt.Errorf("BOM项目 %s 成本无法解析：%s", strings.TrimSpace(row.Name), warning)
 		}
 		if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" && row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
 			row.RecipeRatioPct = row.RatioPct
@@ -1819,6 +1865,27 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	rows.Close()
+	resolvedBomCosts, err := r.loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		resolvedCost, ok := productionBomCostForProduct(resolvedBomCosts, out[i].ProductID, out[i].ParentProductID)
+		if !ok || !resolvedCost.HasProductComponent || productionBomCostMassKgFactor(resolvedCost.OutputUnit) > 0 {
+			continue
+		}
+		if !resolvedCost.Resolved {
+			out[i].BomCostPerUnit = 0
+			out[i].OperationCostPerUnit = 0
+			out[i].OperationCostPerKg = 0
+			out[i].Warnings = append(out[i].Warnings, "商品组件成本无法完整解析：请检查组件商品的已发布生产 BOM、物料价格、产出率和循环引用")
+			continue
+		}
+		out[i].BomCostPerUnit = resolvedCost.InputCostPerOutputUnit
+		out[i].OperationCostPerUnit = resolvedCost.OperationCostPerOutputUnit
+		out[i].OperationCostPerKg = 0
 	}
 	templates, err := r.loadGradientTemplatesByID(ctx, templateIDs)
 	if err != nil {
