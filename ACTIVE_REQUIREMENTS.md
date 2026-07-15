@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY
 - Branch: codex/product-industry-template-only-20260714
 - Owner/session: Codex / 2026-07-14
-- Status: verifying
+- Status: deployed to development; awaiting Van acceptance
 - Scope: 商品行业字段只允许来自商品明确引用的行业字段模板；清除无模板和模板外历史字段，停止旧 `roast_level` / `special_attrs_json` 自动生成商品行业字段。
 - DEV:
   - DEV-536-FRONTEND-TEMPLATE-PROJECTION：商品列表抽屉模板切换和保存只投影当前行业字段模板。
@@ -29,11 +29,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN support: focused PR-536 contract and `go test ./internal/interfaces/http/support -count=1` passed；PR-409 支持测试不再绑定仓储内部 Go 返回字面量，`fields` 的非 nil 空切片和 HTTP `[]` 语义由应用、API、仓储行为测试负责；合同固定 K20 已被 K78 / PR-536 覆盖，模板字段删除/改名后只即时清理当前商品配置，不改历史业务快照。
   - GREEN concurrency: `SaveIndustryTemplate` 在同一事务内按新定义立即清理引用商品的模板外字段，并在审计元数据记录 `removed_product_field_count`；`SaveProductProductionConfig` 在读取字段定义前使用 `FOR SHARE`，与模板写锁串行化。一次性 LOCAL PostgreSQL 的 catalog 与 manufacturing 完整测试通过，真实验证商品保存等待模板锁，并在模板提交后拒绝 `old-key`；development 和 production 未触碰。
   - GREEN Task 7 after `ccfb36cf`: `go test ./...` passed；frontend `node --test src/lib/product-settings.test.js` passed 159/159；`npm run build` passed with only the existing Vite chunk-size warning；`scripts/verify_kferp.sh changed` exited 0；`git diff --check` passed。
+  - GREEN development deploy: `./deploy_orderapp.sh development` deployed `origin/develop=207436b9d1dc1066f8afb9bb35e07d2b0ebe0c4a`; Docker build `go test ./...`, Vue build, miniapp typecheck/build passed. `erp_orderapp`/`erp_postgres` running, internal authenticated product settings/requirements/Vue shell returned 200, and PR-536 is exposed by the requirement API. Development cleanup changed orphan/no-template/template-external/total field counts from `0/799/6/811` to `0/0/0/6`; 498 production configs returned no `fields:null` (`492` empty arrays, `6` non-empty). `dev.erp.qacoohee.com` remained HTTP `000` because only `erp_prod_caddy` owns the public entrypoint; production Caddy/stack was not switched or deployed.
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
   - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-14-product-industry-template-only.md`.
-- Deployment: not requested; do not deploy in this task
+- Deployment: development deployed at `207436b9d1dc1066f8afb9bb35e07d2b0ebe0c4a`; database backup `/opt/stacks/erp/backups/kferp-dev-pr536-industry-fields-predeploy-20260715121952.dump`; previous app backup `/opt/stacks/erp/orderapp.backup.deploy-20260715122139`; production not deployed
 - Last update: 2026-07-15 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` 命中已知 macOS awk 多行字符串错误；按脚本给出的下一个编号手工登记 PR-536。清理只删除 `product_production_config_fields`，保留行业字段模板、`products.roast_level`、`products.special_attrs_json` 和历史业务快照。编辑模板并删除或改名字段后，保存模板立即清理引用商品当前配置中的模板外字段；不改历史订单、工单或价格表快照。当前仍为 PR review、REV todo、K78 未验收且未部署；后续部署前必须先备份目标环境数据库。
+- Notes: `scripts/reserve_req_id.sh --claim` 命中已知 macOS awk 多行字符串错误；按脚本给出的下一个编号手工登记 PR-536。清理只删除 `product_production_config_fields`，保留行业字段模板、`products.roast_level`、`products.special_attrs_json` 和历史业务快照。编辑模板并删除或改名字段后，保存模板立即清理引用商品当前配置中的模板外字段；不改历史订单、工单或价格表快照。当前仍为 PR review、REV todo、K78 未验收；开发环境已部署并完成服务器/API/数据库烟测，生产环境未部署。
 
 ### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
 - Branch: codex/cost-parameters-pricing-tabs-20260712

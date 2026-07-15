@@ -1,7 +1,7 @@
 # PR-536 商品行业字段仅来源于模板验收
 
 - 日期：2026-07-14
-- 状态：本地实现和目标测试已通过，等待 Van 验收；本任务不部署。
+- 状态：本地实现、目标测试和开发环境部署烟测已通过，等待 Van 验收；生产环境未部署。
 - 需求：`PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY`
 
 ## 根因
@@ -38,6 +38,8 @@
 - 并发与模板保存：`SaveIndustryTemplate` 在同一事务内按新模板定义立即清理引用商品当前配置中的模板外字段，并在模板保存操作日志元数据记录 `removed_product_field_count`；`SaveProductProductionConfig` 在读取模板字段定义前使用 `FOR SHARE`，与模板更新写锁串行化。一次性 LOCAL PostgreSQL 中 catalog 与 manufacturing 完整测试通过，真实验证商品保存等待模板锁，且模板提交后拒绝 `old-key`；development 和 production 均未触碰。
 - 支持合同：`go test ./internal/interfaces/http/support -run TestDev536ProductIndustryTemplateOnlyContracts -count=1` 和完整 support 包通过。PR-409 支持测试已删除对仓储内部 Go 返回字面量的绑定；无模板时的非 nil 空切片和 HTTP `"fields":[]` 语义由应用、HTTP API 与仓储行为测试负责。PR-536 支持合同另外固定六条 PR/DEV/REV 状态、历史 PR-439 口径、当前复制边界、双手册证据、K20 历史口径覆盖和模板字段删除/改名后的即时清理边界。
 - Task 7 在 `ccfb36cf` 后重跑：`go test ./...` 通过；前端 `node --test src/lib/product-settings.test.js` 通过 159/159；Vue/Vite `npm run build` 通过，仅有既有 chunk-size warning；`scripts/verify_kferp.sh changed` 退出码为 0；`git diff --check` 通过。
+- 开发部署：`./deploy_orderapp.sh development` 已部署 `origin/develop=207436b9d1dc1066f8afb9bb35e07d2b0ebe0c4a`；Docker 镜像内 `go test ./...`、Vue 构建、小程序 typecheck/微信构建通过。`erp_orderapp` 与 `erp_postgres` 正常运行，内部认证后的商品设置、需求和 Vue 商品档案入口均返回 200，需求 API 包含 PR-536。
+- 开发数据烟测：部署前孤儿/无模板/模板外/总字段数为 `0/799/6/811`，部署后为 `0/0/0/6`，合法 6 条保留。商品设置 API 返回 498 个生产配置，`fields:null` 为 0，其中 492 个 `fields:[]`、6 个有合法字段。
 
 ## 数据边界
 
@@ -56,5 +58,6 @@
 
 ## 部署
 
-- 未部署；本任务明确不部署。
-- 后续若部署，必须先备份目标环境数据库；本任务仍未部署。
+- 开发环境已部署，合并提交为 `207436b9d1dc1066f8afb9bb35e07d2b0ebe0c4a`。
+- 开发数据库部署前备份：`/opt/stacks/erp/backups/kferp-dev-pr536-industry-fields-predeploy-20260715121952.dump`；旧应用目录备份：`/opt/stacks/erp/orderapp.backup.deploy-20260715122139`。
+- `dev.erp.qacoohee.com` 仍为 HTTP `000`，服务器当前只有 `erp_prod_caddy` 持有公网入口；本次没有切换 Caddy，也没有部署或修改 production stack。开发环境通过容器内部认证 API、源码标记、数据库清理结果和容器状态完成烟测。
