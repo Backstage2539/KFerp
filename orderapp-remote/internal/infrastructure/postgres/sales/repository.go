@@ -493,6 +493,45 @@ func selectedOrderBeanListPublicationID(cmd salesapp.SaveOrderCommand, listType 
 	}
 }
 
+type orderBeanListCandidate struct {
+	ListType               string
+	RequestedPublicationID int64
+}
+
+func dripOrderBeanListCandidates(cmd salesapp.SaveOrderCommand, itemPublicationID int64, sourceListType string) []orderBeanListCandidate {
+	sourceListType = strings.TrimSpace(sourceListType)
+	if itemPublicationID > 0 {
+		switch sourceListType {
+		case orderbeans.ListTypeCommercial, orderbeans.ListTypeDrip:
+			return []orderBeanListCandidate{{ListType: sourceListType, RequestedPublicationID: itemPublicationID}}
+		default:
+			return []orderBeanListCandidate{
+				{ListType: orderbeans.ListTypeCommercial, RequestedPublicationID: itemPublicationID},
+				{ListType: orderbeans.ListTypeDrip, RequestedPublicationID: itemPublicationID},
+			}
+		}
+	}
+	return []orderBeanListCandidate{
+		{ListType: orderbeans.ListTypeCommercial, RequestedPublicationID: selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial)},
+		{ListType: orderbeans.ListTypeDrip, RequestedPublicationID: selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeDrip)},
+	}
+}
+
+func orderBeanListTypeFromPriceSource(raw string) string {
+	var source struct {
+		ListType string `json:"list_type"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &source) != nil {
+		return ""
+	}
+	switch strings.TrimSpace(source.ListType) {
+	case orderbeans.ListTypeCommercial, orderbeans.ListTypeRetail, orderbeans.ListTypeGreen, orderbeans.ListTypeDrip:
+		return strings.TrimSpace(source.ListType)
+	default:
+		return ""
+	}
+}
+
 func beanListPriceSourceJSON(listType string, usage orderbeans.Usage, productID int64) string {
 	source := map[string]any{
 		"source":                   "bean_list_publication",
@@ -516,6 +555,8 @@ func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage,
 		"list_type":                strings.TrimSpace(listType),
 		"bean_list_publication_id": usage.PublicationID,
 		"bean_list_version_no":     usage.VersionNo,
+		"publication_id":           usage.PublicationID,
+		"version":                  usage.VersionNo,
 		"product_id":               productID,
 	}
 	if strings.TrimSpace(pricing.PriceUnit) != "" {
@@ -685,6 +726,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		unitBeanG                          float64
 		matchedPriceQty                    float64
 		priceSourceJSON                    string
+		priceListType                      string
 	}
 	items := make([]item, 0, len(cmd.Items))
 	for _, src := range cmd.Items {
@@ -715,6 +757,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			unitBagCount:                       src.UnitBagCount,
 			unitBeanG:                          src.UnitBeanG,
 			priceSourceJSON:                    strings.TrimSpace(src.PriceSourceJSON),
+			priceListType:                      orderBeanListTypeFromPriceSource(src.PriceSourceJSON),
 		}
 		if it.productKind == "drip_bag" {
 			if it.unitBeanG <= 0 && it.specG > 0 {
@@ -896,19 +939,30 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].productKind == "drip_bag" && items[idx].productID != nil {
-			requestedPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeDrip)
-			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeDrip, requestedPublicationID)
-			if err != nil {
-				return salesapp.SaveOrderResult{}, err
+			var usage orderbeans.Usage
+			var pricing orderbeans.PublishedPricing
+			var priceListType string
+			for _, candidate := range dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType) {
+				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, candidate.RequestedPublicationID)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				if resolvedUsage.PublicationID <= 0 {
+					continue
+				}
+				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, resolvedUsage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				if resolvedPricing.UnitPrice <= 0 {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
+				}
+				usage = resolvedUsage
+				pricing = resolvedPricing
+				priceListType = candidate.ListType
+				break
 			}
-			if usage.PublicationID <= 0 {
-				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
-			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeDrip, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
-			if err != nil {
-				return salesapp.SaveOrderResult{}, err
-			}
-			if pricing.UnitPrice <= 0 {
+			if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
 			}
 			items[idx].tierID = nil
@@ -916,7 +970,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].baseLineTotal = pricing.UnitPrice * float64(items[idx].units)
 			applyItemDiscount(idx)
 			items[idx].matchedPriceQty = float64(items[idx].units)
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeDrip, usage, *items[idx].productID, pricing)
+			items[idx].priceListType = priceListType
+			items[idx].itemBeanListPublicationID = usage.PublicationID
+			items[idx].itemBeanListVersionNo = usage.VersionNo
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(priceListType, usage, *items[idx].productID, pricing)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1286,7 +1343,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if strings.TrimSpace(it.customerProductDisplayNameSnapshot) == "" && aliasSnapshot.AliasID > 0 {
 			it.customerProductDisplayNameSnapshot = aliasSnapshot.DisplayName
 		}
-		itemListType := orderbeans.ListTypeForProductKind(it.productKind, retailOrder)
+		itemListType := strings.TrimSpace(it.priceListType)
+		if itemListType == "" {
+			itemListType = orderbeans.ListTypeForProductKind(it.productKind, retailOrder)
+		}
 		itemPublicationID := it.itemBeanListPublicationID
 		if itemPublicationID <= 0 {
 			itemPublicationID = selectedOrderBeanListPublicationID(cmd, itemListType)

@@ -50,6 +50,57 @@ func TestOrderFormProductsUsePublishedPriceSnapshotsOnly(t *testing.T) {
 	}
 }
 
+func TestOrderCommercialProductKindIncludesDerivedDripSKUs(t *testing.T) {
+	if !orderCommercialProductKind("drip_bag") {
+		t.Fatal("derived drip SKUs must load commercial publication tiers")
+	}
+	if orderCommercialProductKind("green_bean") {
+		t.Fatal("green beans must keep the green publication path")
+	}
+}
+
+func TestCommercialOrderTierOptionKeepsDerivedDripSalesUnit(t *testing.T) {
+	tier := orderCommercialPublicationTier{
+		Label: "100袋+", SpecG: 10, MinQty: 100, FinalUnitPrice: 3.08,
+		DisplayUnit: "袋（10g）", PriceUnit: "袋（10g）", SalesUnit: "bag", UnitBagCount: 1, InventoryUnit: "袋",
+		InventoryConversionJSON: json.RawMessage(`{"袋（10g）":{"袋":1}}`),
+	}
+	got := commercialOrderTierOption(99, "KMM-V1", 0, tier, "drip_bag")
+	if got.UnitPrice != 3.08 || got.DisplayUnit != "袋（10g）" || got.ProductKind != "drip_bag" || got.SalesUnit != "bag" || got.UnitBagCount != 1 {
+		t.Fatalf("derived drip order tier = %+v", got)
+	}
+}
+
+func TestDripOrderBeanListCandidatesPreferCommercialAndKeepLegacyFallback(t *testing.T) {
+	got := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{
+		CommercialBeanListPublicationID: 101,
+		DripBeanListPublicationID:       202,
+	}, 0, "")
+	if len(got) != 2 || got[0].ListType != "commercial" || got[0].RequestedPublicationID != 101 || got[1].ListType != "drip" || got[1].RequestedPublicationID != 202 {
+		t.Fatalf("drip publication candidates = %+v", got)
+	}
+}
+
+func TestDripOrderBeanListCandidatesKeepExactItemSnapshotOnEdit(t *testing.T) {
+	got := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{
+		CommercialBeanListPublicationID: 101,
+		DripBeanListPublicationID:       202,
+	}, 303, "drip")
+	if len(got) != 1 || got[0].ListType != "drip" || got[0].RequestedPublicationID != 303 {
+		t.Fatalf("exact legacy item publication candidate = %+v", got)
+	}
+	unknown := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{}, 404, "")
+	if len(unknown) != 2 || unknown[0].ListType != "commercial" || unknown[0].RequestedPublicationID != 404 || unknown[1].ListType != "drip" || unknown[1].RequestedPublicationID != 404 {
+		t.Fatalf("unknown item publication candidates = %+v", unknown)
+	}
+}
+
+func TestOrderBeanListTypeFromPriceSourceKeepsLegacyDripOnEdit(t *testing.T) {
+	if got := orderBeanListTypeFromPriceSource(`{"list_type":"drip"}`); got != "drip" {
+		t.Fatalf("legacy drip source type = %q", got)
+	}
+}
+
 func TestOrderFormProductsHideTemplateRemovedDerivedSKUs(t *testing.T) {
 	source, err := os.ReadFile("order_form_queries.go")
 	if err != nil {

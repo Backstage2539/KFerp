@@ -585,6 +585,7 @@ import {
   beanListVersionOptionGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
+  defaultDripSalesUnitSpec,
   defaultWholesaleSpec,
   defaultStatusID,
   dripSalesUnitSpec,
@@ -599,6 +600,7 @@ import {
   orderRowPriceUnit,
   orderReceiptMethodOptions,
   orderTotalPreview,
+  productBeanListType,
   productKindBadgeClass,
   productKindLabel,
   requiresOrderPaymentMethod,
@@ -1090,9 +1092,7 @@ function beanListVersionField(listType) {
 }
 
 function orderBeanListTypeForProductKind(productKind) {
-  if (productKind === 'green_bean') return 'green'
-  if (productKind === 'drip_bag') return 'drip'
-  return 'commercial'
+  return productBeanListType({ product_kind: productKind })
 }
 
 function customerBeanListVersionOptionsByType(listType) {
@@ -1401,10 +1401,11 @@ function chooseProduct(row, product) {
   row.product_type_category_id = Number(product?.product_type_category_id || 0)
   row.product_type_name = product?.product_type_name || ''
   if (isDripProduct(product)) {
-    row.sales_unit = 'bag'
-    row.unit_bean_g = Number(product?.drip_bag_grams || 10)
-    row.unit_bag_count = 1
-    row.unit = '袋'
+    const defaultSpec = defaultDripSalesUnitSpec(product)
+    row.sales_unit = defaultSpec.salesUnit
+    row.unit_bean_g = defaultSpec.unitBeanG
+    row.unit_bag_count = defaultSpec.unitBagCount
+    row.unit = defaultSpec.unitLabel
     row.spec_mode = ''
     row.custom_spec_g = ''
     syncPrice(row, { force: true })

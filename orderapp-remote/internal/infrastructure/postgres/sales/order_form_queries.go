@@ -613,7 +613,7 @@ func applyCommercialOrderPublicationTiers(products []salesapp.ProductOption, pub
 
 func orderCommercialProductKind(productKind string) bool {
 	switch strings.TrimSpace(productKind) {
-	case "green_bean", "drip_bag":
+	case "green_bean":
 		return false
 	default:
 		return true
@@ -766,6 +766,8 @@ type orderGreenBeanPublicationTier struct {
 	TemplateTierID          int64           `json:"template_tier_id"`
 	DisplayUnit             string          `json:"display_unit"`
 	PriceUnit               string          `json:"price_unit"`
+	SalesUnit               string          `json:"sales_unit"`
+	UnitBagCount            int64           `json:"unit_bag_count"`
 	InventoryUnit           string          `json:"inventory_unit"`
 	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
 }
@@ -1003,6 +1005,8 @@ func commercialOrderTierOption(publicationID int64, versionNo string, idx int, t
 		UnitPrice:       unitPrice,
 		DisplayUnit:     priceUnit,
 		ProductKind:     orderCommercialPublicationProductKind(productKind),
+		SalesUnit:       strings.TrimSpace(tier.SalesUnit),
+		UnitBagCount:    tier.UnitBagCount,
 		PriceSourceJSON: string(sourceJSON),
 	}
 }

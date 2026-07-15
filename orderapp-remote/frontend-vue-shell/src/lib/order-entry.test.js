@@ -7,6 +7,8 @@ import {
   beanListVersionOptionGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
+  defaultDripSalesUnit,
+  defaultDripSalesUnitSpec,
   defaultWholesaleSpec,
   defaultStatusID,
   filterOptions,
@@ -26,6 +28,7 @@ import {
   orderReceiptMethodOptions,
   productKindBadgeClass,
   productKindLabel,
+  productBeanListType,
   requiresOrderPaymentMethod,
   requiresOrderPaymentReceipt,
   responsibleOptions,
@@ -37,6 +40,56 @@ import {
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from './order-entry.js'
+
+test('挂耳新录单统一选择 commercial 商品价格表', () => {
+  assert.equal(productBeanListType({ product_kind: 'drip_bag' }), 'commercial')
+  assert.equal(productBeanListType({ product_kind: 'roasted' }), 'commercial')
+  assert.equal(productBeanListType({ product_kind: 'green_bean' }), 'green')
+})
+
+test('挂耳 commercial 阶梯使用 API 的 min_qty/max_qty 且盒价不重复乘袋数', () => {
+  const product = {
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 1, product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10, min_qty: 10, max_qty: 99, unit_price: 32.8 },
+      { id: 2, product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10, min_qty: 100, unit_price: 30.8 },
+    ],
+  }
+  assert.deepEqual(syncDripTierPrice(product, { sales_unit: 'box', unit_bag_count: 10, qty: 20 }), { tierID: '1', unitPrice: '32.8' })
+  assert.equal(dripTierPriceRows(product, { sales_unit: 'box', unit_bag_count: 10 })[0].rangeLabel, '10-99盒')
+})
+
+test('挂耳派生盒 SKU 从录单单位或唯一阶梯推导盒装默认值', () => {
+  const boxProduct = {
+    product_kind: 'drip_bag',
+    order_unit: '盒（10袋）',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [{ product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10 }],
+  }
+  assert.equal(defaultDripSalesUnit(boxProduct), 'box')
+  const boxSpec = defaultDripSalesUnitSpec(boxProduct)
+  assert.deepEqual(boxSpec, {
+    salesUnit: 'box', unitBeanG: 10, unitBagCount: 10, unitLabel: '盒', specG: 100, specLabel: '10袋/盒',
+  })
+  const payload = buildOrderPayload({
+    form: {},
+    rows: [{
+      product_id: 701, product_name: '金色山脉 挂耳 盒（10袋）', product_kind: 'drip_bag', qty: 2,
+      sales_unit: boxSpec.salesUnit, unit_bag_count: boxSpec.unitBagCount, unit_bean_g: boxSpec.unitBeanG,
+    }],
+  })
+  assert.deepEqual(payload.sales_unit, ['box'])
+  assert.deepEqual(payload.unit_bag_count, ['10'])
+  assert.deepEqual(payload.spec, ['100'])
+  assert.deepEqual(payload.unit, ['盒'])
+  assert.equal(defaultDripSalesUnit({ product_kind: 'drip_bag', tiers: [{ product_kind: 'drip_bag', sales_unit: 'box' }] }), 'box')
+  assert.match(orderEntryViewSource(), /const defaultSpec = defaultDripSalesUnitSpec\(product\)/)
+  assert.match(orderEntryViewSource(), /row\.unit_bag_count = defaultSpec\.unitBagCount/)
+  assert.match(orderEntryViewSource(), /row\.unit = defaultSpec\.unitLabel/)
+})
 
 function orderEntryViewSource() {
   return readFileSync(new URL('../views/OrderEntryView.vue', import.meta.url), 'utf8')

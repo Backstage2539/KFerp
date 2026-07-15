@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-537-KMM-PRICING-ORDER-COMPAT
+- Branch: codex/kmm-pricing-order-fix-20260715
+- Owner/session: Codex / 2026-07-15
+- Status: code GREEN; documentation complete; development deployment and KMM data import owned by this workflow
+- Scope: 修复 PR-415 后挂耳已进入通用 commercial 商品价格表、但录单仍强制读取旧 drip 发布类型的回归；保留旧 drip 快照只读兼容，并为 KMM BOM/阶梯售价开发环境配置提供可验证录单链路。
+- DEV:
+  - DEV-537-DRIP-COMMERCIAL-ORDER：挂耳派生袋/盒 SKU 按通用 commercial 平铺价格行录单，新价格表优先。
+  - DEV-537-LEGACY-DRIP-FALLBACK：找不到新 commercial 价格时，只读回退旧 drip 发布快照，不新增旧挂耳模板。
+  - DEV-537-KMM-DATA-ACCEPTANCE：开发环境备份后逐条导入 KMM 物料、BOM、价格计算模板、阶梯模板和发布价格表，并验证熟豆/挂耳录单与财务收入快照。
+- Verifier:
+  - RED backend: focused tests failed because derived drip SKUs were excluded from commercial order tiers, order save forced `list_type=drip`, and custom bag/box price units became `lb`.
+  - RED frontend: `node --test src/lib/order-entry.test.js` failed because `productBeanListType({product_kind:'drip_bag'})` returned `drip` instead of `commercial`.
+  - GREEN backend: `go test ./internal/infrastructure/postgres/orderbeans ./internal/infrastructure/postgres/sales ./internal/infrastructure/postgres/customerportal ./internal/infrastructure/postgres/customerfulfillment -count=1` passed. Sales uses item-level commercial snapshots first and legacy drip only when no applicable commercial publication exists; the shared portal helper keeps the historical drip mapping.
+  - GREEN frontend: `node --test src/lib/order-entry.test.js` passed 83/83, including derived bag/box min/max quantities, price units, default box selection and 100g/10-bag payload metadata.
+  - GREEN full Go: `go test ./...` passed.
+  - Frontend baseline: `node --test src/lib/*.test.js` passed 683/689; the same six pre-existing workspace-context failures remain (`vue shell remounts...`, customer portal account refresh, current view context, BOM customer context, customer workspace menu, routed workspace mode). PR-537 focused tests are all green and introduce no new failure.
+  - GREEN build: `npm run build` passed (401 modules; existing large-chunk warning only).
+  - GREEN support/manual: `go test ./internal/interfaces/http/support -run TestDev537KMMCommercialOrderContracts -count=1` passed; manual and acceptance evidence are under `orderapp-remote/docs`.
+- Deployment: development only; production prohibited
+- Last update: 2026-07-15 Asia/Shanghai
+
 ### PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY
 - Branch: codex/product-industry-template-only-20260714
 - Owner/session: Codex / 2026-07-14

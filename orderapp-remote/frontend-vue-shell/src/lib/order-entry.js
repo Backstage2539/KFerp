@@ -400,8 +400,26 @@ function normalizeDripSalesUnit(unit) {
   return String(unit || '').trim() === 'box' ? 'box' : 'bag'
 }
 
+export function defaultDripSalesUnit(product) {
+  const configuredUnits = [product?.order_unit, product?.quote_unit]
+    .map((unit) => String(unit || '').trim().toLowerCase())
+    .filter(Boolean)
+  if (configuredUnits.some((unit) => unit === 'box' || unit.includes('盒'))) return 'box'
+  if (configuredUnits.some((unit) => unit === 'bag' || unit.includes('袋'))) return 'bag'
+  const tierUnits = [...new Set((product?.tiers || [])
+    .filter((tier) => String(tier?.product_kind || product?.product_kind || '').trim() === 'drip_bag')
+    .map((tier) => String(tier?.sales_unit || '').trim())
+    .filter((unit) => unit === 'bag' || unit === 'box'))]
+  if (tierUnits.length === 1) return tierUnits[0]
+  return 'bag'
+}
+
+export function defaultDripSalesUnitSpec(product) {
+  return dripSalesUnitSpec(product, { sales_unit: defaultDripSalesUnit(product) })
+}
+
 export function dripSalesUnitSpec(product, row = {}) {
-  const salesUnit = normalizeDripSalesUnit(row?.sales_unit)
+  const salesUnit = normalizeDripSalesUnit(row?.sales_unit || defaultDripSalesUnit(product))
   const unitBeanG = toNumber(row?.unit_bean_g) || toNumber(product?.drip_bag_grams) || 10
   const productBoxBagCount = toInt(product?.drip_box_bag_count) || 10
   const unitBagCount = salesUnit === 'box' ? (toInt(row?.unit_bag_count) || productBoxBagCount) : 1
@@ -420,11 +438,11 @@ function dripTierSalesUnit(tier) {
 }
 
 function dripTierMin(tier) {
-  return toNumber(tier?.min ?? tier?.min_qty_units)
+  return toNumber(tier?.min ?? tier?.min_qty ?? tier?.min_qty_units)
 }
 
 function dripTierMax(tier) {
-  const max = tier?.max ?? tier?.max_qty_units
+  const max = tier?.max ?? tier?.max_qty ?? tier?.max_qty_units
   if (max == null || max === '') return null
   return toNumber(max)
 }
@@ -560,7 +578,6 @@ function normalizeBeanListType(value) {
 }
 
 export function productBeanListType(product) {
-  if (isDripProduct(product)) return 'drip'
   if (String(product?.product_kind || '').trim() === 'green_bean') return 'green'
   return 'commercial'
 }
