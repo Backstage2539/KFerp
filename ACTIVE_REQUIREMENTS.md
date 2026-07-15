@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-537-KMM-PRICING-ORDER-COMPAT
 - Branch: codex/kmm-pricing-order-fix-20260715
 - Owner/session: Codex / 2026-07-15
-- Status: code GREEN; documentation complete; development deployment and KMM data import owned by this workflow
+- Status: development deployed; KMM data import and API/order/finance acceptance complete; awaiting Van review
 - Scope: 修复 PR-415 后挂耳已进入通用 commercial 商品价格表、但录单仍强制读取旧 drip 发布类型的回归；保留旧 drip 快照只读兼容，并为 KMM BOM/阶梯售价开发环境配置提供可验证录单链路。
 - DEV:
   - DEV-537-DRIP-COMMERCIAL-ORDER：挂耳派生袋/盒 SKU 按通用 commercial 平铺价格行录单，新价格表优先。
@@ -28,8 +28,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Follow-up GREEN 2026-07-16: `go test ./internal/infrastructure/postgres/orderbeans -count=1`, `go test ./internal/infrastructure/postgres/sales -count=1`, the related PostgreSQL/HTTP/support package set, `go test ./...`, and both PR-339/PR-537 support contracts passed. Commercial history now resolves newest-first per derived SKU `product_id`, newest blank coverage blocks older prices, and every ERP resolver is restricted to `factory_supply`.
   - Follow-up GREEN frontend 2026-07-16: `node --test src/lib/order-entry.test.js` passed 86/86; `node --test src/lib/*.test.js` passed 686/692 with the same six pre-existing workspace-context failures and no PR-537 regression; `npm run build` passed (401 modules, existing large-chunk warning only).
   - Follow-up review GREEN 2026-07-16: additional RED contracts reproduced green order-form `customer_resale` leakage, top-level `price_rows`/derived `sku_id` omission, flat weight-bound projection, stale drip/draft price state, and blank/invalid/zero/negative manual-price bypass. The minimal fix makes valid `sku_id` authoritative over parent `product_id`, prefers valid flat rows without duplicating mirrored nested tiers, reprices hydrated non-manual rows, and rejects every non-positive or invalid manual price in both HTTP mapping and repository. Target Go/HTTP/support tests, frontend 86/86, full `go test ./...`, `npm run build`, and `git diff --check` passed.
-- Deployment: development only; production prohibited
-- Last update: 2026-07-15 Asia/Shanghai
+  - Derived quote-unit RED/GREEN 2026-07-16: real development trial exposed `盒（10袋）` retaining the per-bag BOM cost. `TestPricingRuleTrialScalesPerUnitCostsForDerivedBoxQuoteUnit` failed at `1.34/1.10/0.24` versus `13.40/11.00/2.40`, then passed after non-mass unit conversion was applied; existing 227g and bag conversions stayed green and `go test ./... -count=1` passed.
+  - Behavior-code deploy GREEN: pricing/order behavior commit `ef72910221c38bf73189346285eb0bc8a9ba96ca` was deployed by `./deploy_orderapp.sh development`; Docker `go test ./...`, Vue build, miniapp typecheck/build and container startup passed. Previous app backup: `/opt/stacks/erp/orderapp.backup.deploy-20260716012948`. The final evidence/status commit is deployed separately and its exact develop commit/backup is recorded in the delivery report and deployment log, avoiding describing this behavior commit as the final deployment tip.
+  - KMM data GREEN: pre-apply database backup `/opt/stacks/erp/backups/kferp-dev-kmm-preapply-20260716010537.dump`, SHA256 `67416924cd041380131ee6992607bcc6b2f59fa457199487894e2229ba3119a8`, validated by `pg_restore -l`. Import created/reused 56 published BOM versions and bindings, one Pricing Rule, four tier templates and official `factory_supply` publication `90 / V3.0.18` with 996 price rows for 240 SKU items. Post-deploy dry-run completed with 2 preflight successes, 107 skips, 0 failures and 0 planned writes.
+  - Live API GREEN: SKU-887 quantity 50 was rejected with `缺少商品价格表价格` and no order row. `SO-20260715-0001` used SKU-884 ×5 at 189.77, SKU-670 ×100 at 3.43 and SKU-671 ×10 at 36.30, total 1654.85; every line froze publication 90 / `V3.0.18`, tier/unit conversion and BOM source. Finance showed order revenue 1654.85 and COGS 0 before production consumption; official void returned finance to 0 while preserving create/void audit records.
+- Deployment: behavior code deployed at `ef72910221c38bf73189346285eb0bc8a9ba96ca`; final evidence/status commit is deployed after integration and verified through the requirement API; production not deployed or written
+- Last update: 2026-07-16 Asia/Shanghai
 
 ### PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY
 - Branch: codex/product-industry-template-only-20260714
