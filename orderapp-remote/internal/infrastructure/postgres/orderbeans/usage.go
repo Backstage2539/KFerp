@@ -530,10 +530,16 @@ func publishedPricingWithSnapshot(pricing PublishedPricing, tier publishedPriceT
 }
 
 func publishedTierPriceUnit(tier publishedPriceTier, specG int64) string {
-	if unit := normalizePublishedPriceUnit(tier.PriceUnit); unit != "" {
+	if unit := strings.TrimSpace(tier.PriceUnit); unit != "" {
+		if normalized := normalizePublishedPriceUnit(unit); normalized != "" {
+			return normalized
+		}
 		return unit
 	}
-	if unit := normalizePublishedPriceUnit(tier.DisplayUnit); unit != "" {
+	if unit := strings.TrimSpace(tier.DisplayUnit); unit != "" {
+		if normalized := normalizePublishedPriceUnit(unit); normalized != "" {
+			return normalized
+		}
 		return unit
 	}
 	if specG >= 1000 {

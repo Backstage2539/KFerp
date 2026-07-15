@@ -63,6 +63,28 @@ func TestPublishedUnitPriceFromContentMatchesCommercialAndDripTiers(t *testing.T
 	}
 }
 
+func TestCommercialFlatRowsPriceDerivedDripSKUsAndKeepSalesUnits(t *testing.T) {
+	content := []byte(`{
+		"groups":[{"items":[
+			{"productId":700,"name":"金色山脉 挂耳 袋（10g）"},
+			{"productId":701,"name":"金色山脉 挂耳 盒（10袋）"}
+		]}],
+		"price_rows":[
+			{"product_id":700,"tier_label":"100袋+","spec_g":10,"min_qty":100,"max_qty":999,"final_unit_price":3.08,"price_unit":"袋（10g）","inventory_unit":"袋","inventory_conversion_json":{"袋（10g）":{"袋":1}}},
+			{"product_id":701,"tier_label":"10盒+","spec_g":100,"min_qty":10,"max_qty":99,"final_unit_price":32.8,"price_unit":"盒（10袋）","inventory_unit":"袋","inventory_conversion_json":{"盒（10袋）":{"袋":10}}}
+		]
+	}`)
+
+	bag, ok := publishedPricingFromContentForListType(content, 700, ListTypeCommercial, 10, 120, "bag", 1)
+	if !ok || bag.UnitPrice != 3.08 || bag.PriceUnit != "袋（10g）" || bag.InventoryUnit != "袋" {
+		t.Fatalf("commercial derived drip bag pricing = %+v/%v", bag, ok)
+	}
+	box, ok := publishedPricingFromContentForListType(content, 701, ListTypeCommercial, 100, 20, "box", 10)
+	if !ok || box.UnitPrice != 32.8 || box.PriceUnit != "盒（10袋）" || box.InventoryUnit != "袋" {
+		t.Fatalf("commercial derived drip box pricing = %+v/%v", box, ok)
+	}
+}
+
 func TestPublishedPricingKeepsKgDisplayUnitForSmallCommercialPack(t *testing.T) {
 	content := []byte(`{
 		"groups":[{
@@ -154,7 +176,7 @@ func TestListTypeForProductKindUsesGreenBeanList(t *testing.T) {
 		t.Fatalf("green bean list type = %q, want %q", got, ListTypeGreen)
 	}
 	if got := ListTypeForProductKind("drip_bag", false); got != ListTypeDrip {
-		t.Fatalf("drip list type = %q, want %q", got, ListTypeDrip)
+		t.Fatalf("shared portal-compatible drip list type = %q, want %q", got, ListTypeDrip)
 	}
 	if got := ListTypeForProductKind("roasted", true); got != ListTypeRetail {
 		t.Fatalf("retail roasted list type = %q, want %q", got, ListTypeRetail)
