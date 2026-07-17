@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-538-MATERIAL-COST-UNIT-LOSS
 - Branch: codex/material-cost-unit-loss-20260716
 - Owner/session: Codex / 2026-07-17
-- Status: implementation and local verification green; preparing develop integration/deployment
+- Status: development deployed; 榛巧拼配 V004 data repair and authenticated live API acceptance complete; visual browser smoke blocked by the development certificate; awaiting Van review
 - Scope: 物料库存单位与成本计价单位分离；重量物料成本统一按元/kg，价格试算展示真实成本单位；新建生产 BOM 不再隐式默认 20% 整体损耗，原料损耗与整体预期损耗同时存在时明确警告；修复开发环境榛巧拼配为仅保留 20% 原料损耗。
 - DEV:
   - DEV-538-MATERIAL-COST-UNIT：物料档案/API/数据库新增锁定的成本计价单位，历史重量物料回填 kg，计件物料回填库存单位，采购价和相关录入界面显示元/成本单位。
@@ -21,10 +21,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN backend: `go test ./...` passed, including materials schema/normalization/lock/API, BOM default `yield_rate=1`, costing `cost_unit`, combined-loss warning and exact 榛巧 calculation `80.50 + 2.04 = 82.54`.
   - GREEN frontend/build: `node --test src/lib/materials-ui.test.js` passed 12/12; Vue/Vite build passed (401 modules, existing large-chunk warning only). Independent review follow-up limits legacy purchase orders and batch-cost adjustment to weight materials so discrete units cannot form `qty_g + 元/个` records.
   - GREEN workflow: `go test ./internal/interfaces/http/support -run TestDev538MaterialCostUnitLossContracts -count=1`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
-  - API/live: pre-fix development trial captured V003 `cost_unit=g`, material `100.64`, operation `2.04`, base `102.68`; post-deploy V004/data repair smoke pending.
+  - API/live: the original screenshot captured V003 as `cost_unit=g`, material `100.64`, operation `2.04`, base `102.68`. After code deployment and before data repair, authenticated V003 trial still returned `102.68` for compatibility, but displayed `cost_unit=kg` and returned the combined-loss warning. Audited repair published V004/1400 with overall loss 0, material loss 20% and route 4, then bound product 658 to it; the default trial now returns material `80.50`, operation `2.04`, standard manufacturing `82.54`, with three `cost_unit=kg` rows.
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
-  - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; planned `orderapp-remote/docs/acceptance/2026-07-16-material-cost-unit-loss.md`.
-- Deployment: development integration/deploy and audited V004 repair pending; production prohibited
+  - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-16-material-cost-unit-loss.md`.
+- Deployment: feature `9e5a8c48`, merged/deployed development `05badaa3`; development DB backup `/opt/stacks/erp/backups/kferp-dev-before-pr538-20260717-112234.dump` and app backup `/opt/stacks/erp/orderapp.backup.deploy-20260717112508`; Docker full Go suite, Vue, miniapp and containers green. Chrome and in-app Browser both reject `https://dev.erp.qacoohee.com/vue-shell?view=productPriceManagement` with `ERR_CERT_AUTHORITY_INVALID`, so no unsafe bypass or screenshot was taken. Production was not deployed, written or switched.
 - Last update: 2026-07-17 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim MATERIAL-COST-UNIT-LOSS` hit the known macOS awk multiline-string error; PR-538 was reserved manually after the script reported it as next id.
 
