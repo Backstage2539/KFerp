@@ -658,6 +658,39 @@ func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T
 	}
 }
 
+func TestPricingRuleTrialWarnsWhenOverallAndMaterialLossBothApply(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:        658,
+			Name:             "榛巧拼配",
+			InventoryUnit:    "kg",
+			QuoteUnit:        "kg",
+			YieldRate:        0.8,
+			ExpectedLossRate: 0.2,
+			BomVersionID:     1396,
+			BomVersionNo:     "V003",
+			BomStatus:        "active",
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "卡蒂姆水洗", ConsumeUnit: "ratio_pct", RatioPct: 75, RecipeRatioPct: 60, EffectiveRatioPct: 75, MaterialLossRate: 0.2, UnitCost: 54, CostUnitCost: 54, CostUnit: "kg", AmountPerKg: 50.625, Unit: "kg"},
+		},
+		pricingRules: map[int64]ProductPricingRule{12: {
+			ID: 12, Name: "双损耗说明", MarginRate: 0, TaxRate: 0, RoundingMode: "none", FormulaVersion: "v1", Active: true,
+			CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "markup", "tax_mode": "none"},
+		}},
+	}
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 12, ProductID: 658})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := strings.Join(got.Warnings, "\n")
+	for _, want := range []string{"整体预期损耗 20%", "原料损耗 20%", "连续放大", "商品档案生产配置", "预期损耗率设为 0", "已发布 BOM 版本"} {
+		if !strings.Contains(warnings, want) {
+			t.Fatalf("warnings = %q, want %q", warnings, want)
+		}
+	}
+}
+
 func TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{

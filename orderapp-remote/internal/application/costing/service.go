@@ -962,6 +962,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 			warnings = appendUniqueString(warnings, warning)
 		}
 	}
+	warnings = pricingRuleTrialCombinedLossWarnings(warnings, input, baseCostDetails)
 	if cmd.Overrides.BaseCost == nil {
 		if detailBaseCost := bomCostTotal + operationCostTotal; detailBaseCost > 0 {
 			baseCost = detailBaseCost
@@ -1856,6 +1857,33 @@ func pricingRuleTrialExpectedLossRate(input domain.ProductInput, override *float
 		return 0, changed, fmt.Errorf("expected_loss_rate must be >= 0 and < 1")
 	}
 	return loss, changed, nil
+}
+
+func pricingRuleTrialCombinedLossWarnings(warnings []string, input domain.ProductInput, details []PricingRuleTrialBaseCostDetail) []string {
+	overallLossRate := input.ExpectedLossRate
+	if overallLossRate <= 0 && input.YieldRate > 0 && input.YieldRate < 1 {
+		overallLossRate = 1 - input.YieldRate
+	}
+	if overallLossRate <= 0 || overallLossRate >= 1 {
+		return warnings
+	}
+
+	materialLossRate := 0.0
+	for _, detail := range details {
+		if detail.MaterialLossRate > materialLossRate && detail.MaterialLossRate < 1 {
+			materialLossRate = detail.MaterialLossRate
+		}
+	}
+	if materialLossRate <= 0 {
+		return warnings
+	}
+
+	warning := fmt.Sprintf(
+		"生产 BOM 同时设置了整体预期损耗 %s 和原料损耗 %s，两项会连续放大标准制造成本；如只需计算原料损耗，请在商品档案生产配置将整体预期损耗率设为 0，并使用整体损耗为 0 的已发布 BOM 版本。",
+		pricingRuleTrialPercentExpression(overallLossRate),
+		pricingRuleTrialPercentExpression(materialLossRate),
+	)
+	return appendUniqueString(warnings, warning)
 }
 
 func pricingRuleTrialResolvedTaxRate(rule ProductPricingRule, cmd PricingRuleTrialCommand, taxMode string, defaultTaxRate PricingRuleTrialDefaultTaxRate) (float64, string, bool, error) {

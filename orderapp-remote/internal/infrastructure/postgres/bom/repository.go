@@ -1690,7 +1690,7 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_boms SET code=$1 WHERE id=$2`, r.schema), code, bomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	yieldRate := 0.8
+	yieldRate := 1.0
 	if cmd.ExpectedLossRate != nil {
 		yieldRate = productiondomain.NormalizeYieldRate(1 - *cmd.ExpectedLossRate)
 	}

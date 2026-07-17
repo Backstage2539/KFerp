@@ -28,6 +28,7 @@ type Material struct {
 	Name                       string                       `json:"name"`
 	Kind                       string                       `json:"kind"`
 	Unit                       string                       `json:"unit"`
+	CostUnit                   string                       `json:"cost_unit"`
 	BatchNo                    string                       `json:"batch_no"`
 	PurchasePrice              float64                      `json:"purchase_price"`
 	SalePrice                  float64                      `json:"sale_price"`
@@ -54,6 +55,7 @@ type MaterialInput struct {
 	Name                    string                       `json:"name"`
 	Kind                    string                       `json:"kind"`
 	Unit                    string                       `json:"unit"`
+	CostUnit                string                       `json:"cost_unit"`
 	BatchNo                 string                       `json:"batch_no"`
 	PurchasePrice           float64                      `json:"purchase_price"`
 	SalePrice               float64                      `json:"sale_price"`

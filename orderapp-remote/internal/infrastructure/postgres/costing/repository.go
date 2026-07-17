@@ -804,7 +804,7 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(bi.ratio_pct,0)::float8,
 		       COALESCE(bi.material_loss_rate,0)::float8,
 		       COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)::float8 AS unit_cost,
-		       COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit,
+		       COALESCE(NULLIF(m.cost_unit,''),'kg') AS unit_cost_unit,
 		       COALESCE(bi.bom_yield_rate,0)::float8 AS bom_yield_rate,
 		       COALESCE(NULLIF(bi.bom_output_qty,0),1)::float8 AS bom_output_qty,
 		       COALESCE(NULLIF(bi.bom_output_unit,''),'unit') AS bom_output_unit,
