@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-538-MATERIAL-COST-UNIT-LOSS
+- Branch: codex/material-cost-unit-loss-20260716
+- Owner/session: Codex / 2026-07-17
+- Status: implementation and local verification green; preparing develop integration/deployment
+- Scope: 物料库存单位与成本计价单位分离；重量物料成本统一按元/kg，价格试算展示真实成本单位；新建生产 BOM 不再隐式默认 20% 整体损耗，原料损耗与整体预期损耗同时存在时明确警告；修复开发环境榛巧拼配为仅保留 20% 原料损耗。
+- DEV:
+  - DEV-538-MATERIAL-COST-UNIT：物料档案/API/数据库新增锁定的成本计价单位，历史重量物料回填 kg，计件物料回填库存单位，采购价和相关录入界面显示元/成本单位。
+  - DEV-538-BOM-DEFAULT-LOSS：新生产 BOM 默认整体预期损耗为 0（yield_rate=1），不再生成隐藏的 80% 产出率；历史显式双损耗仍按既有连续放大口径兼容。
+  - DEV-538-TRIAL-COST-LOSS-CLARITY：标准制造成本试算使用物料成本计价单位；双损耗时返回明确警告，开发环境榛巧拼配修复后验证物料成本80.50、工序2.04、标准制造成本82.54。
+  - DEV-538-DOCS-DEPLOY：同步物料/成本手册、需求与验收证据，合并 develop 并部署开发环境。
+- Verifier:
+  - RED: materials repository/API did not compile because `CostUnit` was absent; schema/source contracts lacked `cost_unit`; costing SQL still read `m.unit`; BOM default test found `yieldRate := 0.8`; combined-loss warning and materials UI contracts failed.
+  - GREEN backend: `go test ./...` passed, including materials schema/normalization/lock/API, BOM default `yield_rate=1`, costing `cost_unit`, combined-loss warning and exact 榛巧 calculation `80.50 + 2.04 = 82.54`.
+  - GREEN frontend/build: `node --test src/lib/materials-ui.test.js` passed 12/12; Vue/Vite build passed (401 modules, existing large-chunk warning only). Independent review follow-up limits legacy purchase orders and batch-cost adjustment to weight materials so discrete units cannot form `qty_g + 元/个` records.
+  - GREEN workflow: `go test ./internal/interfaces/http/support -run TestDev538MaterialCostUnitLossContracts -count=1`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
+  - API/live: pre-fix development trial captured V003 `cost_unit=g`, material `100.64`, operation `2.04`, base `102.68`; post-deploy V004/data repair smoke pending.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+  - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; planned `orderapp-remote/docs/acceptance/2026-07-16-material-cost-unit-loss.md`.
+- Deployment: development integration/deploy and audited V004 repair pending; production prohibited
+- Last update: 2026-07-17 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim MATERIAL-COST-UNIT-LOSS` hit the known macOS awk multiline-string error; PR-538 was reserved manually after the script reported it as next id.
+
 ### PR-537-KMM-PRICING-ORDER-COMPAT
 - Branch: codex/kmm-pricing-order-fix-20260715
 - Owner/session: Codex / 2026-07-15

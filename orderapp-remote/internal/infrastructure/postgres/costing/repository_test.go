@@ -755,6 +755,26 @@ func TestPricingRuleTrialDetailsConvertGramBomItemsToKgCost(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialUsesMaterialCostUnitInsteadOfInventoryUnit(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnStart < 0 || fnEnd < 0 {
+		t.Fatal("cannot locate pricing rule trial base cost loader")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	if !strings.Contains(fn, "COALESCE(NULLIF(m.cost_unit,''),'kg') AS unit_cost_unit") {
+		t.Fatal("pricing rule trial must expose material cost_unit as unit_cost_unit")
+	}
+	if strings.Contains(fn, "COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit") {
+		t.Fatal("pricing rule trial must not use inventory unit as cost unit")
+	}
+}
+
 func TestPricingRuleTrialDetailsGrossRatioCostsByMaterialLossRate(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

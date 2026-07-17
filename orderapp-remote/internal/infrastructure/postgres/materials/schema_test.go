@@ -22,6 +22,9 @@ func TestMaterialsSchemaSeparatesBeanProfileTable(t *testing.T) {
 		t.Fatalf("materials schema must support deprecating old materials")
 	}
 	for _, want := range []string{
+		"cost_unit TEXT NOT NULL DEFAULT 'kg'",
+		"ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS cost_unit",
+		"ALTER TABLE %[1]s.materials ALTER COLUMN cost_unit SET DEFAULT 'kg'",
 		"industry_field_template_id BIGINT NOT NULL DEFAULT 0",
 		"material_industry_field_values",
 		"material_classification_groups",
@@ -31,6 +34,9 @@ func TestMaterialsSchemaSeparatesBeanProfileTable(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Fatalf("materials schema missing %q", want)
 		}
+	}
+	if !strings.Contains(src, "THEN 'kg'") || !strings.Contains(src, "ELSE COALESCE(NULLIF(unit,''),'unit')") {
+		t.Fatal("materials schema must backfill weight costs to kg and discrete costs to inventory unit")
 	}
 	materialsDDL := between(t, src, "CREATE TABLE IF NOT EXISTS %s.materials", ")`, schema)")
 	for _, forbidden := range []string{

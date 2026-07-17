@@ -75,6 +75,35 @@ func TestResolveProductionBomCostsIncludesProductComponentYieldAndOperations(t *
 	}
 }
 
+func TestResolveProductionBomCostsAppliesHazelnutBlendMaterialLossOnce(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		658: {
+			ProductID:            658,
+			VersionID:            1400,
+			YieldRate:            1,
+			OutputQty:            1,
+			OutputUnit:           "kg",
+			OperationCostPerUnit: 2.04,
+			Items: []productionBomCostItem{
+				{ID: 1, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 60, MaterialLossRate: 0.2, UnitCost: 54, UnitCostUnit: "kg"},
+				{ID: 2, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 20, MaterialLossRate: 0.2, UnitCost: 78, UnitCostUnit: "kg"},
+				{ID: 3, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 20, MaterialLossRate: 0.2, UnitCost: 82, UnitCostUnit: "kg"},
+			},
+		},
+	}
+
+	got := resolveProductionBomCosts(nodes)[658]
+	if !got.Resolved {
+		t.Fatalf("hazelnut blend BOM was not resolved: %+v", got)
+	}
+	if diff := math.Abs(got.InputCostPerOutputUnit - 80.5); diff > 1e-9 {
+		t.Fatalf("material cost = %.6f, want 80.50 with only 20%% material loss", got.InputCostPerOutputUnit)
+	}
+	if diff := math.Abs(got.TotalCostPerOutputUnit - 82.54); diff > 1e-9 {
+		t.Fatalf("standard manufacturing cost = %.6f, want 82.54 including 2.04 operation", got.TotalCostPerOutputUnit)
+	}
+}
+
 func TestResolveProductionBomCostsKeepsLegacyFinishedProductCompatibility(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		2: {

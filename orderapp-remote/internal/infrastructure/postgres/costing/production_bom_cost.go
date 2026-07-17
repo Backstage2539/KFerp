@@ -223,7 +223,7 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 		       COALESCE(i.ratio_pct,0)::float8,
 		       COALESCE(i.material_loss_rate,0)::float8,
 		       COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(i.unit_cost_snapshot,0), 0)::float8 AS unit_cost,
-		       COALESCE(NULLIF(m.unit,''), 'kg') AS unit_cost_unit
+		       COALESCE(NULLIF(m.cost_unit,''), 'kg') AS unit_cost_unit
 		FROM %[1]s.production_bom_version_items i
 		LEFT JOIN %[1]s.materials m ON m.id=i.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id=i.material_id

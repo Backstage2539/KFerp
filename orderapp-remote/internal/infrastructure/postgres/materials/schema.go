@@ -15,6 +15,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		name TEXT NOT NULL,
 		kind TEXT NOT NULL DEFAULT 'other',
 		unit TEXT NOT NULL DEFAULT 'g',
+		cost_unit TEXT NOT NULL DEFAULT 'kg',
 		batch_no TEXT NOT NULL DEFAULT '',
 		purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 		sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -34,6 +35,15 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS batch_no TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ NULL`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS industry_field_template_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS cost_unit TEXT`,
+		`UPDATE %[1]s.materials
+		 SET cost_unit=CASE
+			WHEN lower(btrim(unit)) IN ('g','kg','lb','oz','克','千克') THEN 'kg'
+			ELSE COALESCE(NULLIF(unit,''),'unit')
+		 END
+		 WHERE COALESCE(NULLIF(btrim(cost_unit),''),'')=''`,
+		`ALTER TABLE %[1]s.materials ALTER COLUMN cost_unit SET DEFAULT 'kg'`,
+		`ALTER TABLE %[1]s.materials ALTER COLUMN cost_unit SET NOT NULL`,
 		`UPDATE %[1]s.materials SET batch_no=to_char(now(),'YYYYMMDD') WHERE batch_no=''`,
 	} {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {

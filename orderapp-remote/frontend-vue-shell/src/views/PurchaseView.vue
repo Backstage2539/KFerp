@@ -20,11 +20,12 @@
         <form class="box" @submit.prevent="createOrder">
           <h3>采购单</h3>
           <label><span>供应商</span><select v-model.number="orderForm.supplier_id" required><option :value="0">请选择</option><option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
-          <label><span>物料</span><select v-model.number="orderForm.material_id" required><option :value="0">请选择</option><option v-for="m in materials" :key="m.id" :value="m.id">{{ m.name }} · {{ m.purchase_price || 0 }}元</option></select></label>
+          <label><span>物料</span><select v-model.number="orderForm.material_id" required><option :value="0">请选择</option><option v-for="m in purchasableMaterials" :key="m.id" :value="m.id">{{ m.name }} · {{ m.purchase_price || 0 }}元/{{ materialCostUnit(m.id) }}</option></select></label>
           <label><span>数量(g)</span><input v-model.number="orderForm.qty_g" type="number" min="1" required /></label>
-          <label><span>单价</span><input v-model.number="orderForm.unit_cost" type="number" min="0" step="0.0001" /></label>
+          <label><span>单价（元/{{ selectedPurchaseMaterialCostUnit }}）</span><input v-model.number="orderForm.unit_cost" type="number" min="0" step="0.0001" /></label>
           <label><span>备注</span><input v-model.trim="orderForm.note" /></label>
-          <button class="primary" type="submit" :disabled="saving">创建采购单</button>
+          <small class="form-help">当前采购单按克记录数量，仅支持重量物料；件、袋、盒等物料请使用原料入库按库存单位录入。</small>
+          <button class="primary" type="submit" :disabled="saving || !isSelectedPurchaseMaterialWeight">创建采购单</button>
         </form>
       </div>
     </section>
@@ -40,9 +41,9 @@
               <td>{{ row.supplier_name || supplierName(row.supplier_id) }}</td>
               <td>{{ row.material_name || materialName(row.material_id) }}</td>
               <td>{{ row.qty_g }}</td>
-              <td>{{ row.unit_cost }}</td>
+              <td>{{ row.unit_cost }} 元/{{ materialCostUnit(row.material_id) }}</td>
               <td>{{ row.status }}</td>
-              <td><button class="secondary" type="button" @click="receiveOrder(row)" :disabled="saving || row.status === 'received'">收货入库</button></td>
+              <td><button class="secondary" type="button" @click="receiveOrder(row)" :disabled="saving || row.status === 'received' || !isMaterialWeightByID(row.material_id)" :title="isMaterialWeightByID(row.material_id) ? '' : '旧采购单接口只支持重量物料，请改用原料入库'">收货入库</button></td>
             </tr>
             <tr v-if="!orders.length"><td colspan="7" class="muted">暂无采购单</td></tr>
           </tbody>
@@ -62,7 +63,7 @@
               <td>{{ row.supplier_name }}</td>
               <td>{{ row.material_name || materialName(row.material_id) }}</td>
               <td>{{ row.qty_g }}</td>
-              <td>{{ row.unit_cost }}</td>
+              <td>{{ row.unit_cost }} 元/{{ materialCostUnit(row.material_id) }}</td>
               <td>{{ row.stock_batch_code }}</td>
               <td>{{ row.created_at }}</td>
             </tr>
@@ -75,7 +76,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 
 const loading = ref(false)
@@ -89,6 +90,9 @@ const receipts = ref([])
 
 const supplierForm = reactive({ name: '', contact: '', phone: '', address: '' })
 const orderForm = reactive({ supplier_id: 0, material_id: 0, qty_g: 0, unit_cost: 0, note: '' })
+const purchasableMaterials = computed(() => materials.value.filter((material) => isMaterialWeight(material)))
+const selectedPurchaseMaterialCostUnit = computed(() => materialCostUnit(orderForm.material_id))
+const isSelectedPurchaseMaterialWeight = computed(() => isMaterialWeightByID(orderForm.material_id))
 
 function supplierName(id) {
   return suppliers.value.find((row) => Number(row.id) === Number(id))?.name || ''
@@ -96,6 +100,24 @@ function supplierName(id) {
 
 function materialName(id) {
   return materials.value.find((row) => Number(row.id) === Number(id))?.name || ''
+}
+
+function materialCostUnit(id) {
+  const material = materials.value.find((row) => Number(row.id) === Number(id))
+  const costUnit = String(material?.cost_unit || material?.CostUnit || '').trim()
+  if (costUnit) return costUnit
+  const inventoryUnit = String(material?.unit || material?.Unit || '').trim()
+  if (!inventoryUnit) return '成本计价单位'
+  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit.toLowerCase()) ? 'kg' : inventoryUnit
+}
+
+function isMaterialWeight(material) {
+  const inventoryUnit = String(material?.unit || material?.Unit || '').trim().toLowerCase()
+  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit)
+}
+
+function isMaterialWeightByID(id) {
+  return isMaterialWeight(materials.value.find((row) => Number(row.id) === Number(id)))
 }
 
 async function loadAll() {
@@ -139,6 +161,10 @@ async function saveSupplier() {
 }
 
 async function createOrder() {
+  if (!isSelectedPurchaseMaterialWeight.value) {
+    error.value = '采购单当前按克记录数量，只能选择重量物料；其他物料请使用原料入库。'
+    return
+  }
   saving.value = true
   message.value = ''
   error.value = ''
@@ -158,6 +184,10 @@ async function createOrder() {
 }
 
 async function receiveOrder(row) {
+  if (!isMaterialWeightByID(row.material_id)) {
+    error.value = '旧采购单收货接口只支持重量物料；请使用原料入库按库存单位录入。'
+    return
+  }
   saving.value = true
   message.value = ''
   error.value = ''
@@ -195,6 +225,7 @@ h2, h3 { margin: 0 0 12px; }
 .box { border: 1px solid #ece7df; border-radius: 8px; padding: 12px; }
 label { display: block; margin-bottom: 9px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.form-help { display: block; color: #666; font-size: 12px; line-height: 1.5; margin: -1px 0 9px; }
 input, select { width: 100%; height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 button { height: 36px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { opacity: .55; cursor: not-allowed; }

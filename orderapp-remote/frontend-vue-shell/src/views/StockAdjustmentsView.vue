@@ -45,7 +45,7 @@
             empty-text="当前物料没有可用批次"
           />
         </label>
-        <label v-if="isMaterialCostAdjustment"><span>目标成本/千克</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /></label>
+        <label v-if="isMaterialCostAdjustment"><span>目标成本（元/{{ selectedMaterialCostUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /><small>批次成本调整当前只支持重量物料。</small></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" /></label>
         <label v-if="!isMaterialCostAdjustment">
           <span>仓库</span>
@@ -56,9 +56,9 @@
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>目标数量（{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.001" v-model.number="form.target_qty" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>目标散装g</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>成品目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
-        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本/千克</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本（元/{{ selectedMaterialCostUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
         <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="盘点调整/损耗/更正" /></label>
-        <button class="primary" type="button" @click="submit" :disabled="saving">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
+        <button class="primary" type="button" @click="submit" :disabled="saving || (isMaterialCostAdjustment && !isSelectedMaterialWeight)">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
       </div>
     </section>
   </div>
@@ -83,9 +83,13 @@ const error = ref('')
 const ok = ref('')
 const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item_id: 0, spec_g: 0, warehouse: 'raw_materials', target_qty: 0, target_g: 0, target_units: 0, material_batch_id: 0, target_unit_cost: 0, reason: '' })
 const isMaterialCostAdjustment = computed(() => form.adjustment_type === 'material_cost')
-const currentOptions = computed(() => form.item_type === 'material' ? materials.value : products.value)
+const currentOptions = computed(() => form.item_type === 'material'
+  ? (isMaterialCostAdjustment.value ? materials.value.filter((material) => isMaterialWeight(material)) : materials.value)
+  : products.value)
 const selectedMaterial = computed(() => materials.value.find((row) => Number(row.id || row.ID || 0) === Number(form.item_id || 0)) || null)
 const selectedMaterialUnitLabel = computed(() => selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '库存单位')
+const selectedMaterialCostUnitLabel = computed(() => materialCostUnit(selectedMaterial.value))
+const isSelectedMaterialWeight = computed(() => isMaterialWeight(selectedMaterial.value))
 const warehouseOptions = computed(() => {
   const kind = form.item_type === 'finished_product' ? 'finished' : ''
   const rows = warehouses.value.filter((row) => !kind || row.kind === kind)
@@ -101,7 +105,20 @@ function itemLabel(row) {
 function batchLabel(row) {
   if (!row) return ''
   const kg = Number(row.remaining_g || 0) / 1000
-  return `${row.batch_code} · 剩余${kg.toFixed(3)}kg · ${Number(row.unit_cost || 0).toFixed(2)}元/kg`
+  return `${row.batch_code} · 剩余${kg.toFixed(3)}kg · ${Number(row.unit_cost || 0).toFixed(2)}元/${selectedMaterialCostUnitLabel.value}`
+}
+
+function materialCostUnit(material) {
+  const costUnit = String(material?.cost_unit || material?.CostUnit || '').trim()
+  if (costUnit) return costUnit
+  const inventoryUnit = String(material?.unit || material?.Unit || '').trim()
+  if (!inventoryUnit) return '成本计价单位'
+  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit.toLowerCase()) ? 'kg' : inventoryUnit
+}
+
+function isMaterialWeight(material) {
+  const inventoryUnit = String(material?.unit || material?.Unit || '').trim().toLowerCase()
+  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit)
 }
 
 async function loadOptions() {
@@ -118,7 +135,7 @@ async function loadOptions() {
 async function loadMaterialBatches() {
   materialBatches.value = []
   form.material_batch_id = 0
-  if (!isMaterialCostAdjustment.value || !form.item_id) return
+  if (!isMaterialCostAdjustment.value || !form.item_id || !isSelectedMaterialWeight.value) return
   try {
     const url = new URL('/api/stock/material-batches', window.location.origin)
     url.searchParams.set('material_id', String(form.item_id))
@@ -132,6 +149,10 @@ async function loadMaterialBatches() {
 }
 
 async function submit() {
+  if (isMaterialCostAdjustment.value && !isSelectedMaterialWeight.value) {
+    error.value = '批次成本调整当前只支持重量物料；件、袋、盒等离散物料请通过数量补录或原料入库处理。'
+    return
+  }
   saving.value = true
   error.value = ''
   ok.value = ''
@@ -180,7 +201,7 @@ watch(() => form.adjustment_type, () => {
   materialBatches.value = []
   form.material_batch_id = 0
   if (isMaterialCostAdjustment.value) {
-    const keepMaterialID = form.item_type === 'material' ? form.item_id : 0
+    const keepMaterialID = form.item_type === 'material' && isSelectedMaterialWeight.value ? form.item_id : 0
     form.item_type = 'material'
     form.item_id = keepMaterialID
     form.spec_g = 0
@@ -208,6 +229,7 @@ onMounted(loadOptions)
 .span-3 { grid-column:span 3; }
 label { min-width:0; position:relative; }
 label span { display:block; color:#666; font-size:12px; margin-bottom:5px; }
+label small { display:block; color:#6b7280; font-size:12px; line-height:1.4; margin-top:4px; }
 input, select, button { font:inherit; min-height:38px; border-radius:6px; }
 input, select { width:100%; border:1px solid #d1d5db; padding:7px 9px; }
 input:disabled { background:#f9fafb; color:#6b7280; }

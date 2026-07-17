@@ -278,7 +278,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions (
 	bom_id BIGINT NOT NULL,
 	version_no TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'draft',
-	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000,
 	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
 	output_qty NUMERIC(14,6) NOT NULL DEFAULT 1,
 	output_unit TEXT NOT NULL DEFAULT 'unit',
@@ -296,6 +296,7 @@ ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions ALTER COLUMN yield_rate SET DEFAULT 1.0000;
 UPDATE %[1]s.production_bom_versions SET output_qty=1 WHERE output_qty IS NULL OR output_qty <= 0;
 UPDATE %[1]s.production_bom_versions SET output_unit='unit' WHERE COALESCE(output_unit,'')='';
 UPDATE %[1]s.production_bom_versions SET material_loss_rate=0 WHERE material_loss_rate IS NULL;

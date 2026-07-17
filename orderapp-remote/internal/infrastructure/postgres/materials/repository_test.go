@@ -25,8 +25,28 @@ func TestNormalizeMaterialInputDefaultsKindAndUnit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Code != "m-1" || got.Name != "物料1" || got.Kind != "other" || got.Unit != "g" {
+	if got.Code != "m-1" || got.Name != "物料1" || got.Kind != "other" || got.Unit != "g" || got.CostUnit != "kg" {
 		t.Fatalf("normalizeMaterialInput() = %+v", got)
+	}
+}
+
+func TestNormalizeMaterialInputUsesKgCostUnitForWeightAndInventoryUnitForDiscrete(t *testing.T) {
+	weight, err := normalizeMaterialInput(materialInput{Code: "bean-cost", Name: "重量物料", Unit: "g", CostUnit: "kg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if weight.CostUnit != "kg" {
+		t.Fatalf("weight cost unit = %q, want kg", weight.CostUnit)
+	}
+	discrete, err := normalizeMaterialInput(materialInput{Code: "pack-cost", Name: "计件物料", Unit: "个"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discrete.CostUnit != "个" {
+		t.Fatalf("discrete cost unit = %q, want 个", discrete.CostUnit)
+	}
+	if _, err := normalizeMaterialInput(materialInput{Code: "bad-cost", Name: "错误计价", Unit: "g", CostUnit: "g"}); err == nil || !strings.Contains(err.Error(), "重量物料成本计价单位必须为 kg") {
+		t.Fatalf("invalid weight cost unit error = %v", err)
 	}
 }
 
@@ -44,6 +64,24 @@ func TestMaterialInventoryUnitIsLockedAfterCreate(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("material inventory unit lock missing marker %q", want)
+		}
+	}
+}
+
+func TestMaterialCostUnitIsLockedAfterCreate(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"assertMaterialCostUnitReadOnly",
+		"requestedCostUnit",
+		"成本计价单位保存后不能修改",
+		"old.CostUnit",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("material cost unit lock missing marker %q", want)
 		}
 	}
 }

@@ -524,6 +524,38 @@ func TestProductionBomLegacyGroupWritesAreReadonlyCompatibility(t *testing.T) {
 	}
 }
 
+func TestCreateProductionBomDefaultsToNoHiddenOverallLoss(t *testing.T) {
+	repository := readRepositorySource(t)
+	start := strings.Index(repository, "func (r Repository) CreateProductionBom(ctx")
+	end := strings.Index(repository[start:], "func (r Repository) UpdateProductionBom(ctx")
+	if start < 0 || end < 0 {
+		t.Fatal("cannot locate CreateProductionBom")
+	}
+	body := repository[start : start+end]
+	if !strings.Contains(body, "yieldRate := 1.0") {
+		t.Fatal("new production BOM must default yield_rate to 1.0")
+	}
+	if strings.Contains(body, "yieldRate := 0.8") {
+		t.Fatal("new production BOM must not hide a default 20% overall loss")
+	}
+}
+
+func TestProductionBomVersionSchemaDefaultsNewRowsToFullYield(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000",
+		"ALTER TABLE %[1]s.production_bom_versions ALTER COLUMN yield_rate SET DEFAULT 1.0000",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("new production BOM version schema must default to no hidden overall loss; missing %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")
