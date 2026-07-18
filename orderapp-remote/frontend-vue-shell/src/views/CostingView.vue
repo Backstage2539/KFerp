@@ -4436,8 +4436,9 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .generate-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .tier-template-drawer { width: min(1040px, 96vw); }
 .tier-template-drawer-body { display: grid; grid-template-columns: minmax(220px, .75fr) minmax(0, 1.6fr); gap: 14px; align-items: start; }
-.tier-template-list { display: grid; gap: 8px; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
-.tier-template-list-row { width: 100%; text-align: left; border: 1px solid #eee; border-radius: 8px; padding: 9px 10px; background: #fff; }
+.tier-template-list { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
+.tier-template-list-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; width: 100%; min-width: 0; box-sizing: border-box; text-align: left; white-space: normal; border: 1px solid #eee; border-radius: 8px; padding: 9px 10px; background: #fff; }
+.tier-template-list-row strong, .tier-template-list-row small { display: block; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .tier-template-list-row.active { border-color: #111; }
 .tier-template-form { display: grid; gap: 10px; }
 .price-list-tier-template-row { grid-template-columns: minmax(100px, .8fr) minmax(90px, .65fr) minmax(90px, .65fr) minmax(90px, .65fr) minmax(180px, 1.2fr) auto; }
