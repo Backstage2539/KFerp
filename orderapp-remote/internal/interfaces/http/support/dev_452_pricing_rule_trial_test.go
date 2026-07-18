@@ -243,7 +243,7 @@ func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
 		filepath.Join("internal", "application", "costing", "service_test.go"): {
 			"FormulaExpression",
 			"FormulaExpressionLines",
-			"最终售价 = 88.3/kg",
+			"最终售价 = 82.8/kg",
 			"(标准制造成本 60/kg + 其他成本 2.5/kg)",
 		},
 		filepath.Join("internal", "interfaces", "http", "costing", "costing_api_test.go"): {

@@ -33,7 +33,7 @@ func TestDev510PricingRuleTrialWaterfallExplanationsContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS",
 			"试算说明",
-			"价格计算模板编辑区",
+			"价格计算模板编辑抽屉",
 			"本次试算抽屉",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {

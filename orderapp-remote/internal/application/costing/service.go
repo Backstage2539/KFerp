@@ -933,10 +933,21 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if formulaMode == "standard" && len(postMarkupCosts) > 0 {
 		formulaMode = "supplier_tier_markup"
 	}
-	profitMethod := pricingRuleTrialString(calc, "profit_method", "gross_margin")
+	if pricingRuleTrialString(calc, "legacy_profit_method", "") != "" || pricingRuleTrialString(calc, "migration_warning", "") != "" {
+		return nil, fmt.Errorf("quarantined legacy pricing rule must be replaced with a new markup template")
+	}
+	legacyProfitMethod := strings.ToLower(strings.TrimSpace(pricingRuleTrialString(calc, "profit_method", "")))
+	switch legacyProfitMethod {
+	case "", "gross_margin", "markup":
+	default:
+		return nil, fmt.Errorf("only markup rate is supported; update this pricing rule before trial")
+	}
+	profitMethod := "markup"
 	marginRate := rule.MarginRate
 	if cmd.Overrides.MarginRate != nil {
 		marginRate = *cmd.Overrides.MarginRate
+	} else if (legacyProfitMethod == "" || legacyProfitMethod == "gross_margin") && marginRate > 1 {
+		marginRate /= 100
 	}
 	if marginRate < 0 {
 		return nil, fmt.Errorf("margin_rate must be >= 0")
@@ -1023,7 +1034,11 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if formulaMode == "supplier_tier_markup" {
 		finalBeforeRoundingRounded = roundPricingRuleTrialDetail(finalBeforeRounding)
 	}
-	roundingAdjustment := finalUnitPrice - finalBeforeRoundingRounded
+	displayedWaterfallBeforeRounding := pricingRuleTrialResultAmount(formulaMode, costBaseTotal) +
+		pricingRuleTrialResultAmount(formulaMode, yieldLossAmount) +
+		pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount) +
+		pricingRuleTrialResultAmount(formulaMode, taxInPriceAmount)
+	roundingAdjustment := finalUnitPrice - displayedWaterfallBeforeRounding
 	grossMarginRate := 0.0
 	if preTaxPrice > 0 {
 		grossMarginRate = (preTaxPrice - costAfterYield) / preTaxPrice
@@ -1422,7 +1437,7 @@ func pricingRuleTrialBaseCostDetailDescription(row PricingRuleTrialBaseCostDetai
 	}
 }
 
-func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMode string, quoteUnit string, profitMethod string, taxMode string, taxRate float64, roundingMode string, expectedLossRate float64, yieldMode string, marginRate float64, profitParameterRate float64, finalBeforeRounding float64) (string, []string) {
+func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMode string, quoteUnit string, _ string, taxMode string, taxRate float64, roundingMode string, expectedLossRate float64, yieldMode string, marginRate float64, profitParameterRate float64, finalBeforeRounding float64) (string, []string) {
 	if result == nil {
 		return "", nil
 	}
@@ -1445,9 +1460,9 @@ func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMo
 	}
 
 	if strings.TrimSpace(formulaMode) == "supplier_tier_markup" {
-		currentExpr = fmt.Sprintf("%s * (1 + 档位利润率/加价率 %s", currentExpr, pricingRuleTrialPercentExpression(marginRate))
+		currentExpr = fmt.Sprintf("%s * (1 + 档位加价率 %s", currentExpr, pricingRuleTrialPercentExpression(marginRate))
 		if profitParameterRate != 0 {
-			currentExpr = fmt.Sprintf("%s + 利润参数 %s", currentExpr, pricingRuleTrialPercentExpression(profitParameterRate))
+			currentExpr = fmt.Sprintf("%s + 加价参数 %s", currentExpr, pricingRuleTrialPercentExpression(profitParameterRate))
 		}
 		currentExpr += ")"
 		lines = append(lines, fmt.Sprintf("加价后价格 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PriceAfterMarkup, unit)))
@@ -1458,19 +1473,8 @@ func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMo
 			lines = append(lines, fmt.Sprintf("税前价 = %s", pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
 		}
 	} else {
-		switch strings.TrimSpace(profitMethod) {
-		case "", "gross_margin":
-			currentExpr = fmt.Sprintf("%s / (1 - 毛利率 %s)", currentExpr, pricingRuleTrialPercentExpression(marginRate))
-			lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		case "markup":
-			currentExpr = fmt.Sprintf("%s * (1 + 加价率 %s)", currentExpr, pricingRuleTrialPercentExpression(marginRate))
-			lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		case "fixed_add":
-			currentExpr = fmt.Sprintf("%s + 固定加价 %s", currentExpr, pricingRuleTrialMoneyExpression(marginRate, unit))
-			lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		default:
-			lines = append(lines, fmt.Sprintf("税前价 = %s", pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		}
+		currentExpr = fmt.Sprintf("%s * (1 + 加价率 %s)", currentExpr, pricingRuleTrialPercentExpression(marginRate))
+		lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
 	}
 
 	switch strings.TrimSpace(taxMode) {
@@ -1729,18 +1733,17 @@ func pricingRuleTrialOtherCostDetails(costs map[string]float64, formulaMode stri
 	return out
 }
 
-func pricingRuleTrialProfitExplanation(formulaMode string, method string, unit string, marginRate float64, profitParameterRate float64, source string, costAfterYield float64, markupAmount float64, preTaxPrice float64, priceAfterMarkup float64, postMarkupCostTotal float64) PricingRuleTrialProfitExplanation {
+func pricingRuleTrialProfitExplanation(formulaMode string, _ string, unit string, marginRate float64, profitParameterRate float64, source string, costAfterYield float64, markupAmount float64, preTaxPrice float64, priceAfterMarkup float64, postMarkupCostTotal float64) PricingRuleTrialProfitExplanation {
 	mode := strings.TrimSpace(formulaMode)
-	normalizedMethod := strings.TrimSpace(method)
 	if mode == "supplier_tier_markup" {
 		rate := marginRate + profitParameterRate
-		formula := fmt.Sprintf("加价后价格 = 损耗后成本 * (1 + 档位利润率/加价率 %s) = %s", pricingRuleTrialPercentExpression(rate), pricingRuleTrialMoneyExpression(priceAfterMarkup, unit))
+		formula := fmt.Sprintf("加价后价格 = 损耗后成本 * (1 + 档位加价率 %s) = %s", pricingRuleTrialPercentExpression(rate), pricingRuleTrialMoneyExpression(priceAfterMarkup, unit))
 		if postMarkupCostTotal > 0 {
 			formula += fmt.Sprintf("；税前价 = 加价后价格 + 加价附加成本 %s = %s", pricingRuleTrialMoneyExpression(postMarkupCostTotal, unit), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
 		}
 		return PricingRuleTrialProfitExplanation{
 			Method:         "supplier_tier_markup",
-			MethodLabel:    "档位利润率/加价率",
+			MethodLabel:    "档位加价率",
 			Rate:           roundRatio(rate),
 			Source:         source,
 			CostAfterYield: costAfterYield,
@@ -1749,23 +1752,10 @@ func pricingRuleTrialProfitExplanation(formulaMode string, method string, unit s
 			Formula:        formula,
 		}
 	}
-	if normalizedMethod == "" {
-		normalizedMethod = "gross_margin"
-	}
-	label := pricingRuleTrialProfitLabel(normalizedMethod)
-	formula := ""
-	switch normalizedMethod {
-	case "markup":
-		formula = fmt.Sprintf("税前价 = 损耗后成本 * (1 + 加价率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
-	case "fixed_add":
-		formula = fmt.Sprintf("税前价 = 损耗后成本 + 固定加价 %s = %s", pricingRuleTrialMoneyExpression(marginRate, unit), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
-	default:
-		normalizedMethod = "gross_margin"
-		formula = fmt.Sprintf("税前价 = 损耗后成本 / (1 - 毛利率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
-	}
+	formula := fmt.Sprintf("税前价 = 损耗后成本 * (1 + 加价率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
 	return PricingRuleTrialProfitExplanation{
-		Method:         normalizedMethod,
-		MethodLabel:    label,
+		Method:         "markup",
+		MethodLabel:    "加价率",
 		Rate:           roundRatio(marginRate),
 		Source:         source,
 		CostAfterYield: costAfterYield,
@@ -1784,10 +1774,10 @@ func pricingRuleTrialSupplierSteps(result *PricingRuleTrialResult, cmd PricingRu
 	steps = append(steps,
 		domain.PriceExplanationStep{Key: "expected_loss_rate", Label: "预期损耗率", Source: pricingRuleTrialLossSource(cmd.Overrides.ExpectedLossRate, yieldMode), Value: roundRatio(expectedLossRate), Unit: "ratio", Changed: lossChanged},
 		domain.PriceExplanationStep{Key: "cost_after_yield", Label: "成本基数", Source: "formula", Value: result.CostAfterYield, Unit: quoteUnit, Changed: expectedLossRate > 0 && yieldMode != "none"},
-		domain.PriceExplanationStep{Key: "tier_markup_rate", Label: "档位利润率/加价率", Source: pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), Value: roundRatio(marginRate), Unit: "ratio", Changed: cmd.Overrides.MarginRate != nil},
+		domain.PriceExplanationStep{Key: "tier_markup_rate", Label: "档位加价率", Source: pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), Value: roundRatio(marginRate), Unit: "ratio", Changed: cmd.Overrides.MarginRate != nil},
 	)
 	if profitParameterRate != 0 {
-		steps = append(steps, domain.PriceExplanationStep{Key: "profit_parameter_rate", Label: "利润参数", Source: "pricing_rule", Value: roundRatio(profitParameterRate), Unit: "ratio"})
+		steps = append(steps, domain.PriceExplanationStep{Key: "profit_parameter_rate", Label: "加价参数", Source: "pricing_rule", Value: roundRatio(profitParameterRate), Unit: "ratio"})
 	}
 	steps = append(steps,
 		domain.PriceExplanationStep{Key: "price_after_markup", Label: "加价后价格", Source: "formula", Value: result.PriceAfterMarkup, Unit: quoteUnit, Changed: true},
@@ -1930,17 +1920,10 @@ func pricingRuleTrialSuppressDefaultLossForActualBomCost(input domain.ProductInp
 
 func pricingRuleTrialPreTaxPrice(cost float64, marginRate float64, method string) (float64, error) {
 	switch strings.TrimSpace(method) {
-	case "", "gross_margin":
-		if marginRate >= 1 {
-			return 0, fmt.Errorf("margin_rate must be < 1 for gross_margin")
-		}
-		return cost / (1 - marginRate), nil
 	case "markup":
 		return cost * (1 + marginRate), nil
-	case "fixed_add":
-		return cost + marginRate, nil
 	default:
-		return 0, fmt.Errorf("invalid profit_method")
+		return 0, fmt.Errorf("only markup rate is supported")
 	}
 }
 
@@ -2040,15 +2023,8 @@ func pricingRuleTrialOverrideSource(value *float64) string {
 	return "pricing_rule"
 }
 
-func pricingRuleTrialProfitLabel(method string) string {
-	switch strings.TrimSpace(method) {
-	case "markup":
-		return "加价率"
-	case "fixed_add":
-		return "固定加价"
-	default:
-		return "毛利率"
-	}
+func pricingRuleTrialProfitLabel(_ string) string {
+	return "加价率"
 }
 
 func pricingRuleTrialTaxLabel(mode string) string {

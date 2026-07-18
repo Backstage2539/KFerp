@@ -1736,6 +1736,38 @@ func TestProductPriceMasterSchemaPersistsFinalRecordsAndReferenceSchemes(t *test
 	}
 }
 
+func TestPricingRuleMarkupOnlyMigrationIsSafeAndIdempotent(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	start := strings.Index(src, "-- PR-539 pricing rules use markup only.")
+	end := strings.Index(src, "-- PR-539 pricing rules use markup only end.")
+	if start < 0 || end <= start {
+		t.Fatalf("PR-539 pricing-rule migration block missing")
+	}
+	block := src[start:end]
+	for _, want := range []string{
+		"margin_rate / 100",
+		"jsonb_typeof(calculation_json)",
+		"'profit_method', 'markup'",
+		"'legacy_profit_method'",
+		"'legacy_margin_rate'",
+		"'system-pr539-migration'",
+		"active=false",
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("PR-539 migration missing %q: %s", want, block)
+		}
+	}
+	for _, forbidden := range []string{"bean_list_publications", "order_items", "orders", "final_unit_price"} {
+		if strings.Contains(block, forbidden) {
+			t.Fatalf("PR-539 migration must not rewrite frozen prices; found %q in %s", forbidden, block)
+		}
+	}
+}
+
 func TestProductSettingsRepositoryAttachesPublishedPriceSummaries(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -857,10 +857,12 @@ function pricingRuleTrialCostMapFromForm(form = {}, rowKeys = [], mapKeys = []) 
 function pricingRuleCalculationJSONFromForm(form = {}) {
   const raw = form.calculation_json ?? form.calculationJSON ?? {}
   const base = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  const rawProfitMethod = String(base.profit_method ?? form.profit_method ?? form.profitMethod ?? '').trim().toLowerCase()
+  const profitMethod = !rawProfitMethod || ['gross_margin', 'markup'].includes(rawProfitMethod) ? 'markup' : rawProfitMethod
   const normalized = {
     ...stripPricingRuleQuantityFields(base),
     yield_loss_mode: String(form.yield_loss_mode ?? form.yieldLossMode ?? base.yield_loss_mode ?? 'bom_or_product').trim() || 'bom_or_product',
-    profit_method: String(form.profit_method ?? form.profitMethod ?? base.profit_method ?? 'gross_margin').trim() || 'gross_margin',
+    profit_method: profitMethod,
     tax_mode: String(form.tax_mode ?? form.taxMode ?? base.tax_mode ?? 'tax_included').trim() || 'tax_included',
     minimum_margin_rate: Number(form.minimum_margin_rate ?? form.minimumMarginRate ?? base.minimum_margin_rate ?? 0) || 0,
     trial_note: String(form.trial_note ?? form.trialNote ?? base.trial_note ?? '').trim(),

@@ -306,8 +306,8 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 		pricingRules: map[int64]ProductPricingRule{
 			10: {
 				ID:             10,
-				Name:           "PR452 毛利含税",
-				Code:           "PR452-GM",
+				Name:           "PR452 加价含税",
+				Code:           "PR452-MARKUP",
 				CostSourceMode: "bom_current_cost",
 				MarginRate:     0.25,
 				TaxRate:        0.06,
@@ -316,7 +316,7 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 				Active:         true,
 				CalculationJSON: map[string]any{
 					"yield_loss_mode":     "bom_or_product",
-					"profit_method":       "gross_margin",
+					"profit_method":       "markup",
 					"tax_mode":            "tax_included",
 					"minimum_margin_rate": 0.18,
 					"other_costs": map[string]any{
@@ -359,29 +359,29 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if got.WorkstationCostSnapshot.MaterialUnitCost != 50 || got.WorkstationCostSnapshot.OperationUnitCost != 10 || got.WorkstationCostSnapshot.StandardManufacturingUnitCost != 60 {
 		t.Fatalf("workstation cost snapshot = %+v, want material/operation/standard costs", got.WorkstationCostSnapshot)
 	}
-	if got.CostBaseTotal != 62.5 || got.YieldLossAmount != 0 || got.ProfitMarkupAmount != 20.83 || got.TaxInPriceAmount != 5 || got.FinalBeforeRounding != 88.33 || got.RoundingAdjustment != -0.03 {
+	if got.CostBaseTotal != 62.5 || got.YieldLossAmount != 0 || got.ProfitMarkupAmount != 15.63 || got.TaxInPriceAmount != 4.69 || got.FinalBeforeRounding != 82.81 || got.RoundingAdjustment != -0.02 {
 		t.Fatalf("waterfall = base %.2f loss %.2f profit %.2f taxInPrice %.2f finalBefore %.2f rounding %.2f", got.CostBaseTotal, got.YieldLossAmount, got.ProfitMarkupAmount, got.TaxInPriceAmount, got.FinalBeforeRounding, got.RoundingAdjustment)
 	}
-	if got.PreTaxPrice != 83.33 || got.TaxAmount != 5 || got.FinalUnitPrice != 88.3 {
+	if got.PreTaxPrice != 78.13 || got.TaxAmount != 4.69 || got.FinalUnitPrice != 82.8 || got.GrossMarginRate != 0.2 {
 		t.Fatalf("trial prices = preTax %.2f tax %.2f final %.2f", got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
 	}
-	if got.ProfitExplanation.Method != "gross_margin" || got.ProfitExplanation.MethodLabel != "毛利率" || got.ProfitExplanation.Rate != 0.25 || got.ProfitExplanation.Source != "pricing_rule" {
-		t.Fatalf("profit explanation = %+v, want gross margin from pricing rule", got.ProfitExplanation)
+	if got.ProfitExplanation.Method != "markup" || got.ProfitExplanation.MethodLabel != "加价率" || got.ProfitExplanation.Rate != 0.25 || got.ProfitExplanation.Source != "pricing_rule" {
+		t.Fatalf("profit explanation = %+v, want markup from pricing rule", got.ProfitExplanation)
 	}
 	if got.ProfitExplanation.CostAfterYield != got.CostAfterYield || got.ProfitExplanation.MarkupAmount != got.ProfitMarkupAmount || got.ProfitExplanation.PreTaxPrice != got.PreTaxPrice {
 		t.Fatalf("profit explanation amounts = %+v, want current waterfall amounts", got.ProfitExplanation)
 	}
-	if !strings.Contains(got.ProfitExplanation.Formula, "损耗后成本 / (1 - 毛利率 25%)") {
-		t.Fatalf("profit explanation formula = %q, want gross margin formula", got.ProfitExplanation.Formula)
+	if !strings.Contains(got.ProfitExplanation.Formula, "损耗后成本 * (1 + 加价率 25%)") {
+		t.Fatalf("profit explanation formula = %q, want markup formula", got.ProfitExplanation.Formula)
 	}
 	waterfallTotal := got.CostBaseTotal + got.YieldLossAmount + got.ProfitMarkupAmount + got.TaxInPriceAmount + got.RoundingAdjustment
 	if math.Abs(waterfallTotal-got.FinalUnitPrice) > 0.001 {
 		t.Fatalf("waterfall total %.4f must equal final unit price %.4f", waterfallTotal, got.FinalUnitPrice)
 	}
-	if got.FormulaExpression == "" || !sliceContains(got.FormulaExpressionLines, "最终售价 = 88.3/kg") {
+	if got.FormulaExpression == "" || !sliceContains(got.FormulaExpressionLines, "最终售价 = 82.8/kg") {
 		t.Fatalf("formula expression = %q lines = %+v, want final price line", got.FormulaExpression, got.FormulaExpressionLines)
 	}
-	for _, want := range []string{"(标准制造成本 60/kg + 其他成本 2.5/kg)", "/ (1 - 毛利率 25%)", "* (1 + 税率 6%)"} {
+	for _, want := range []string{"(标准制造成本 60/kg + 其他成本 2.5/kg)", "* (1 + 加价率 25%)", "* (1 + 税率 6%)"} {
 		if !strings.Contains(got.FormulaExpression, want) {
 			t.Fatalf("formula expression = %q, want %q", got.FormulaExpression, want)
 		}
@@ -393,6 +393,73 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 		if !pricingRuleTrialHasStep(got.Steps, key) {
 			t.Fatalf("steps missing %q: %+v", key, got.Steps)
 		}
+	}
+}
+
+func TestPricingRuleTrialUsesMarkupForLegacyAndCurrentTemplates(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:     539,
+			Name:          "加价率试算商品",
+			InventoryUnit: "kg",
+			QuoteUnit:     "kg",
+			BomVersionID:  5391,
+			BomStatus:     "active",
+			YieldRate:     1,
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{{
+			Key: "material:539", Type: "material", TypeLabel: "物料", Name: "试算原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 100, AmountPerKg: 100, Unit: "kg",
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			1: {ID: 1, Name: "旧毛利率小数", MarginRate: 0.8, RoundingMode: "none", Active: true, CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "gross_margin", "tax_mode": "none"}},
+			2: {ID: 2, Name: "旧缺失方式", MarginRate: 0.8, RoundingMode: "none", Active: true, CalculationJSON: map[string]any{"yield_loss_mode": "none", "tax_mode": "none"}},
+			3: {ID: 3, Name: "旧整百分数", MarginRate: 80, RoundingMode: "none", Active: true, CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "gross_margin", "tax_mode": "none"}},
+			4: {ID: 4, Name: "当前加价率", MarginRate: 0.8, RoundingMode: "none", Active: true, CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "markup", "tax_mode": "none"}},
+		},
+	}
+	for _, id := range []int64{1, 2, 3, 4} {
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: id, ProductID: 539})
+		if err != nil {
+			t.Fatalf("rule %d PricingRuleTrial() err=%v", id, err)
+		}
+		if got.PreTaxPrice != 180 || got.FinalUnitPrice != 180 || got.GrossMarginRate != 0.4444 {
+			t.Fatalf("rule %d trial pre-tax=%.2f final=%.2f gross-margin=%.4f, want 180/180/0.4444", id, got.PreTaxPrice, got.FinalUnitPrice, got.GrossMarginRate)
+		}
+		if got.ProfitExplanation.Method != "markup" || got.ProfitExplanation.MethodLabel != "加价率" || got.ProfitExplanation.Rate != 0.8 {
+			t.Fatalf("rule %d explanation=%+v, want markup 80%%", id, got.ProfitExplanation)
+		}
+		if !strings.Contains(got.FormulaExpression, "* (1 + 加价率 80%)") || strings.Contains(got.FormulaExpression, "毛利率") {
+			t.Fatalf("rule %d formula=%q, want markup-only expression", id, got.FormulaExpression)
+		}
+	}
+}
+
+func TestPricingRuleTrialRejectsUnsupportedLegacyFixedAddTemplate(t *testing.T) {
+	repo := &fakeRepo{
+		inputs:      []domain.ProductInput{{ProductID: 539, Name: "旧固定加价商品", InventoryUnit: "kg", QuoteUnit: "kg", BomVersionID: 5391, BomStatus: "active", YieldRate: 1}},
+		costDetails: []PricingRuleTrialBaseCostDetail{{Key: "material:539", Type: "material", TypeLabel: "物料", Name: "试算原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 100, AmountPerKg: 100, Unit: "kg"}},
+		pricingRules: map[int64]ProductPricingRule{
+			5: {ID: 5, Name: "旧固定加价", MarginRate: 3, RoundingMode: "none", Active: true, CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "fixed_add", "tax_mode": "none"}},
+		},
+	}
+	_, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 5, ProductID: 539})
+	if err == nil || !strings.Contains(err.Error(), "only markup rate is supported") {
+		t.Fatalf("fixed_add err=%v, want explicit migration validation", err)
+	}
+	repo.pricingRules[6] = ProductPricingRule{
+		ID: 6, Name: "已隔离旧固定加价", MarginRate: 0, RoundingMode: "none", Active: false,
+		CalculationJSON: map[string]any{
+			"yield_loss_mode":      "none",
+			"profit_method":        "markup",
+			"legacy_profit_method": "fixed_add",
+			"legacy_margin_rate":   3,
+			"migration_warning":    "only markup rate is supported",
+			"tax_mode":             "none",
+		},
+	}
+	_, err = NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 6, ProductID: 539})
+	if err == nil || !strings.Contains(err.Error(), "quarantined legacy pricing rule") {
+		t.Fatalf("quarantined fixed_add err=%v, want replacement validation", err)
 	}
 }
 
@@ -623,7 +690,7 @@ func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T
 		pricingRules: map[int64]ProductPricingRule{
 			12: {
 				ID:             12,
-				Name:           "PR511 毛利",
+				Name:           "PR511 加价率",
 				MarginRate:     0.25,
 				TaxRate:        0,
 				RoundingMode:   "none",
@@ -631,7 +698,7 @@ func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T
 				Active:         true,
 				CalculationJSON: map[string]any{
 					"yield_loss_mode": "bom_or_product",
-					"profit_method":   "gross_margin",
+					"profit_method":   "markup",
 					"tax_mode":        "none",
 				},
 			},
@@ -650,11 +717,11 @@ func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T
 	if got.CostBaseTotal != 100 || got.CostAfterYield != 125 || got.YieldLossAmount != 25 {
 		t.Fatalf("explicit temporary loss waterfall = base %.2f after %.2f loss %.2f, want 100 -> 125 with 25 loss", got.CostBaseTotal, got.CostAfterYield, got.YieldLossAmount)
 	}
-	if got.FinalUnitPrice != 166.67 {
-		t.Fatalf("final unit price = %.2f, want explicit loss to affect gross-margin price", got.FinalUnitPrice)
+	if got.FinalUnitPrice != 156.25 {
+		t.Fatalf("final unit price = %.2f, want explicit loss to affect markup price", got.FinalUnitPrice)
 	}
-	if !strings.Contains(got.FormulaExpression, "/ (1 - 损耗率 20%)") {
-		t.Fatalf("formula expression = %q, want explicit temporary loss formula", got.FormulaExpression)
+	if !strings.Contains(got.FormulaExpression, "/ (1 - 损耗率 20%)") || !strings.Contains(got.FormulaExpression, "* (1 + 加价率 25%)") {
+		t.Fatalf("formula expression = %q, want explicit temporary loss and markup formula", got.FormulaExpression)
 	}
 }
 
@@ -724,7 +791,7 @@ func TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMi
 				Active:         true,
 				CalculationJSON: map[string]any{
 					"yield_loss_mode": "bom_or_product",
-					"profit_method":   "gross_margin",
+					"profit_method":   "markup",
 					"tax_mode":        "tax_included",
 				},
 			},
@@ -1211,11 +1278,11 @@ func TestPricingRuleTrialMatchesExcelSupplierPriceSamples(t *testing.T) {
 	})
 }
 
-func TestPricingRuleTrialSupportsOverridesAndMinimumMarginWarning(t *testing.T) {
+func TestPricingRuleTrialSupportsMarkupOverridesAndMinimumMarginWarning(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
 			ProductID:          550,
-			Name:               "PR452 固定加价商品",
+			Name:               "PR452 加价率商品",
 			InventoryUnit:      "kg",
 			QuoteUnit:          "kg",
 			BomVersionID:       5501,
@@ -1224,21 +1291,21 @@ func TestPricingRuleTrialSupportsOverridesAndMinimumMarginWarning(t *testing.T) 
 			YieldRate:          1,
 		}},
 		costDetails: []PricingRuleTrialBaseCostDetail{
-			{Key: "material:550", Type: "material", TypeLabel: "物料", Name: "固定加价原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 90, AmountPerKg: 90, Unit: "kg"},
-			{Key: "operation:550", Type: "operation", TypeLabel: "工序", Name: "固定加价工序", ConsumeUnit: "per_kg", UnitCost: 10, AmountPerKg: 10, Unit: "kg"},
+			{Key: "material:550", Type: "material", TypeLabel: "物料", Name: "加价率原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 90, AmountPerKg: 90, Unit: "kg"},
+			{Key: "operation:550", Type: "operation", TypeLabel: "工序", Name: "加价率工序", ConsumeUnit: "per_kg", UnitCost: 10, AmountPerKg: 10, Unit: "kg"},
 		},
 		pricingRules: map[int64]ProductPricingRule{
 			11: {
 				ID:             11,
-				Name:           "PR452 固定加价",
-				MarginRate:     10,
+				Name:           "PR452 加价率",
+				MarginRate:     0.1,
 				TaxRate:        0,
 				RoundingMode:   "none",
 				FormulaVersion: "v1",
 				Active:         false,
 				CalculationJSON: map[string]any{
 					"yield_loss_mode":     "none",
-					"profit_method":       "fixed_add",
+					"profit_method":       "markup",
 					"tax_mode":            "none",
 					"minimum_margin_rate": 0.3,
 				},
@@ -1249,14 +1316,14 @@ func TestPricingRuleTrialSupportsOverridesAndMinimumMarginWarning(t *testing.T) 
 		PricingRuleID: 11,
 		ProductID:     550,
 		Overrides: PricingRuleTrialOverrides{
-			MarginRate: floatPtr(10),
+			MarginRate: floatPtr(0.1),
 		},
 	})
 	if err != nil {
 		t.Fatalf("PricingRuleTrial() error = %v", err)
 	}
 	if got.FinalUnitPrice != 110 || got.GrossMarginRate >= 0.3 {
-		t.Fatalf("trial = %+v, want fixed add final price and low margin", got)
+		t.Fatalf("trial = %+v, want markup final price and low margin", got)
 	}
 	if !sliceContains(got.Warnings, "停用模板：试算仅供查看，不能作为新发布价格来源") {
 		t.Fatalf("warnings = %+v, want inactive template warning", got.Warnings)
@@ -1645,30 +1712,30 @@ func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) 
 	}
 }
 
-func TestPricingRuleTrialExplanationFieldsUseTemporaryOtherCostsAndFixedAdd(t *testing.T) {
+func TestPricingRuleTrialExplanationFieldsUseTemporaryOtherCostsAndMarkup(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
 			ProductID:     552,
-			Name:          "PR510 固定加价商品",
+			Name:          "PR510 加价率商品",
 			InventoryUnit: "kg",
 			QuoteUnit:     "kg",
 			BomVersionID:  5521,
 			YieldRate:     1,
 		}},
 		costDetails: []PricingRuleTrialBaseCostDetail{
-			{Key: "material:552", Type: "material", TypeLabel: "物料", Name: "固定加价原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 20, AmountPerKg: 20, Unit: "kg"},
+			{Key: "material:552", Type: "material", TypeLabel: "物料", Name: "加价率原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 20, AmountPerKg: 20, Unit: "kg"},
 		},
 		pricingRules: map[int64]ProductPricingRule{
 			13: {
 				ID:           13,
-				Name:         "PR510 固定加价",
-				MarginRate:   3,
+				Name:         "PR510 加价率",
+				MarginRate:   0.3,
 				TaxRate:      0,
 				RoundingMode: "none",
 				Active:       true,
 				CalculationJSON: map[string]any{
 					"yield_loss_mode": "none",
-					"profit_method":   "fixed_add",
+					"profit_method":   "markup",
 					"tax_mode":        "none",
 					"other_costs": map[string]any{
 						"模板包装": 1,
@@ -1685,7 +1752,7 @@ func TestPricingRuleTrialExplanationFieldsUseTemporaryOtherCostsAndFixedAdd(t *t
 				"临时包装": 2,
 				"临时贴标": 0.5,
 			},
-			MarginRate: floatPtr(4),
+			MarginRate: floatPtr(0.4),
 		},
 	})
 	if err != nil {
@@ -1702,14 +1769,14 @@ func TestPricingRuleTrialExplanationFieldsUseTemporaryOtherCostsAndFixedAdd(t *t
 			t.Fatalf("other cost detail = %+v, want temporary source and trial drawer location", row)
 		}
 	}
-	if got.ProfitExplanation.Method != "fixed_add" || got.ProfitExplanation.MethodLabel != "固定加价" || got.ProfitExplanation.Rate != 4 || got.ProfitExplanation.Source != "temporary_override" {
-		t.Fatalf("profit explanation = %+v, want fixed add temporary override", got.ProfitExplanation)
+	if got.ProfitExplanation.Method != "markup" || got.ProfitExplanation.MethodLabel != "加价率" || got.ProfitExplanation.Rate != 0.4 || got.ProfitExplanation.Source != "temporary_override" {
+		t.Fatalf("profit explanation = %+v, want markup temporary override", got.ProfitExplanation)
 	}
-	if got.ProfitExplanation.CostAfterYield != 22.5 || got.ProfitExplanation.MarkupAmount != 4 || got.ProfitExplanation.PreTaxPrice != 26.5 {
-		t.Fatalf("profit explanation amounts = %+v, want fixed add waterfall amounts", got.ProfitExplanation)
+	if got.ProfitExplanation.CostAfterYield != 22.5 || got.ProfitExplanation.MarkupAmount != 9 || got.ProfitExplanation.PreTaxPrice != 31.5 {
+		t.Fatalf("profit explanation amounts = %+v, want markup waterfall amounts", got.ProfitExplanation)
 	}
-	if !strings.Contains(got.ProfitExplanation.Formula, "损耗后成本 + 固定加价 4/kg") {
-		t.Fatalf("profit explanation formula = %q, want fixed add formula", got.ProfitExplanation.Formula)
+	if !strings.Contains(got.ProfitExplanation.Formula, "损耗后成本 * (1 + 加价率 40%)") {
+		t.Fatalf("profit explanation formula = %q, want markup formula", got.ProfitExplanation.Formula)
 	}
 }
 

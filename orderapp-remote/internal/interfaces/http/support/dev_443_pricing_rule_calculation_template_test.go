@@ -21,7 +21,7 @@ func TestDev443PricingRuleCalculationTemplateContracts(t *testing.T) {
 			"基础成本",
 			"生产 BOM 成本（物料+工序）",
 			"其他成本",
-			"利润方式",
+			"加价率",
 			"税费方式",
 			"最低毛利",
 			"公式版本",

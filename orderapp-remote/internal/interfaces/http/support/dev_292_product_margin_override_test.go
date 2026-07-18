@@ -66,21 +66,21 @@ func TestDev292ProductSettingsVueRetiresMarginOverrideColumn(t *testing.T) {
 }
 
 func TestDev292ProductMarginOverrideManualsAndAcceptanceUpdated(t *testing.T) {
-	files := []string{
-		filepath.Join("docs", "REQUIREMENTS.md"),
-		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
-		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"),
-		filepath.Join("docs", "OP_MANUAL_COSTING.md"),
-		filepath.Join("docs", "acceptance", "2026-05-18-product-margin-override.md"),
-		filepath.Join("docs", "acceptance", "2026-05-22-customer-sku-margin-override.md"),
+	files := map[string]string{
+		filepath.Join("docs", "REQUIREMENTS.md"):                                          "产品级加价率覆盖",
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                      "产品级加价率覆盖",
+		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"):                         "产品级利润率覆盖",
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                     "产品级利润率覆盖",
+		filepath.Join("docs", "acceptance", "2026-05-18-product-margin-override.md"):      "产品级利润率覆盖",
+		filepath.Join("docs", "acceptance", "2026-05-22-customer-sku-margin-override.md"): "产品级利润率覆盖",
 	}
-	for _, file := range files {
+	for file, currentOrHistoricalMarker := range files {
 		b, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)
 		}
 		text := string(b)
-		for _, want := range []string{"产品级利润率覆盖", "产品子类型", "梯度模板"} {
+		for _, want := range []string{currentOrHistoricalMarker, "产品子类型", "梯度模板"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing manual/acceptance marker %q", file, want)
 			}

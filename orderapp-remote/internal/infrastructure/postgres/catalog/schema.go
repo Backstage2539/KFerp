@@ -255,6 +255,34 @@ CREATE INDEX IF NOT EXISTS product_pricing_rules_active_idx
 ON %[1]s.product_pricing_rules(active, id);
 ALTER TABLE %[1]s.product_pricing_rules ADD COLUMN IF NOT EXISTS calculation_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.product_pricing_rules ADD COLUMN IF NOT EXISTS formula_version TEXT NOT NULL DEFAULT 'v1';
+-- PR-539 pricing rules use markup only.
+UPDATE %[1]s.product_pricing_rules
+SET margin_rate=CASE WHEN margin_rate>1 THEN margin_rate / 100 ELSE margin_rate END,
+	calculation_json=jsonb_set(calculation_json, '{profit_method}', '"markup"'::jsonb, true),
+	updated_at=now(),
+	updated_by='system-pr539-migration'
+WHERE jsonb_typeof(calculation_json)='object'
+	AND lower(trim(COALESCE(calculation_json->>'profit_method', ''))) IN ('', 'gross_margin');
+UPDATE %[1]s.product_pricing_rules
+SET active=false,
+	margin_rate=0,
+	calculation_json=(CASE
+		WHEN jsonb_typeof(calculation_json)='object' THEN calculation_json
+		ELSE jsonb_build_object('legacy_calculation_json', calculation_json)
+	END) || jsonb_build_object(
+		'legacy_profit_method', CASE
+			WHEN jsonb_typeof(calculation_json)='object' THEN COALESCE(NULLIF(trim(calculation_json->>'profit_method'), ''), 'unknown')
+			ELSE 'invalid_calculation_json'
+		END,
+		'legacy_margin_rate', margin_rate,
+		'profit_method', 'markup',
+		'migration_warning', 'only markup rate is supported; review this template before enabling it'
+	),
+	updated_at=now(),
+	updated_by='system-pr539-migration'
+WHERE jsonb_typeof(calculation_json)<>'object'
+	OR lower(trim(COALESCE(calculation_json->>'profit_method', ''))) <> 'markup';
+-- PR-539 pricing rules use markup only end.
 CREATE TABLE IF NOT EXISTS %[1]s.price_tier_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,

@@ -42,7 +42,8 @@ func TestDev468PricingRuleListActionsUXContracts(t *testing.T) {
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-468-PRICING-RULE-LIST-ACTIONS-UX",
 			"价格试算",
-			"复制按钮不置灰",
+			"普通停用模板置灰",
+			"历史 `fixed_add` 等隔离模板除外",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-468-PRICING-RULE-LIST-ACTIONS-UX",
