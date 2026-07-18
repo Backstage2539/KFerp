@@ -19,6 +19,7 @@ import {
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from './bean-list-pdf.js'
+import { dedupePriceListFlatRows } from './costing-price-list-workflow.js'
 
 const rows = [
   {
@@ -742,6 +743,50 @@ test('PDF bean-list helper renders pricing-rule flat rows into the preview price
   assert.equal(previewGroups[0].items[0].price_unit_snapshot, 'lb')
   assert.equal(previewGroups[0].items[0].commercial_wholesale_tiers[0].final_unit_price, 68.5)
   assert.equal(groups[0].items[0].prices.length, 0)
+})
+
+test('tier-template rows keep every quantity tier through preview and publication snapshot', () => {
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'business-group-9-92',
+    label: '咖啡熟豆',
+    items: [{
+      product_id: 556,
+      name: '熟豆-白巧坚果拼配',
+      inventory_unit: 'kg',
+      commercial_bean_list: {
+        code: '1.1',
+        category: '咖啡熟豆',
+        display_name: '熟豆-白巧坚果拼配',
+      },
+      commercial_wholesale_tiers: [],
+    }],
+  }], 'commercial', { selectedProductIDs: ['556'] })
+  const baseRow = {
+    product_id: 556,
+    product_name: '熟豆-白巧坚果拼配',
+    pricing_mode: 'tier_template',
+    tier_template_id: 11,
+    pricing_rule_id: 11,
+    tier_pricing_rule_id: 11,
+    pricing_rule_version: '咖啡熟豆磅装模板-v1',
+    tier_pricing_rule_version: '咖啡熟豆磅装模板-v1',
+    price_unit: 'kg',
+    final_unit_price: 88,
+    original_final_unit_price: 88,
+    inventory_unit: 'kg',
+    inventory_conversion_json: { kg: { kg: 1 } },
+  }
+  const rows = dedupePriceListFlatRows([
+    { ...baseRow, row_key: '556:tier-template:11:25', template_tier_id: 25, tier_label: '24kg', min_qty: 24, max_qty: 47 },
+    { ...baseRow, row_key: '556:tier-template:11:26', template_tier_id: 26, tier_label: '1kg', min_qty: 1, max_qty: 13 },
+  ])
+
+  const previewGroups = applyPriceListFlatRowsToBeanListPdfGroups(groups, rows, 'commercial')
+  const snapshot = buildPriceListGenerationSnapshot({ rows })
+
+  assert.deepEqual(previewGroups[0].items[0].prices.map((row) => row.label), ['24kg', '1kg'])
+  assert.deepEqual(previewGroups[0].items[0].tiers_snapshot.map((row) => row.template_tier_id), [25, 26])
+  assert.deepEqual(snapshot.content.price_rows.map((row) => row.template_tier_id), [25, 26])
 })
 
 test('PDF bean-list helper builds download options from published green bean snapshots', () => {

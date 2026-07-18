@@ -38,7 +38,7 @@ export function dedupePriceListFlatRows(sourceRows = []) {
       out.push(row)
       return
     }
-    if (row?.manual_adjusted === true && out[existingIndex]?.manual_adjusted !== true) {
+    if (priceListFlatRowIsManualAdjusted(row) && !priceListFlatRowIsManualAdjusted(out[existingIndex])) {
       out[existingIndex] = row
     }
   })
@@ -221,10 +221,30 @@ function duplicateTierTemplateFlatRowKey(row = {}) {
   if (String(row?.pricing_mode || row?.pricingMode || '').trim() !== 'tier_template') return ''
   const productKey = flatRowProductKey(row)
   const templateID = Number(row?.tier_template_id || row?.tierTemplateID || 0)
+  const templateTierID = Number(row?.template_tier_id || row?.templateTierID || 0)
   const pricingRuleID = Number(row?.tier_pricing_rule_id || row?.tierPricingRuleID || row?.pricing_rule_id || row?.pricingRuleID || 0)
   const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
   if (!productKey || templateID <= 0 || pricingRuleID <= 0 || !priceUnit) return ''
-  return `${productKey}:tier-template:${templateID}:pricing-rule:${pricingRuleID}:unit:${priceUnit}`
+  const tierKey = templateTierID > 0
+    ? `id:${templateTierID}`
+    : `range:${String(row?.tier_label || row?.tierLabel || '').trim()}:${Number(row?.min_qty ?? row?.minQty ?? 0)}:${nullableTierLimit(row?.max_qty ?? row?.maxQty)}`
+  return `${productKey}:tier-template:${templateID}:tier:${tierKey}:pricing-rule:${pricingRuleID}:unit:${priceUnit}`
+}
+
+function nullableTierLimit(value) {
+  if (value === undefined || value === null || value === '') return 'open'
+  const number = Number(value)
+  return Number.isFinite(number) ? String(number) : String(value).trim()
+}
+
+function priceListFlatRowIsManualAdjusted(row = {}) {
+  if (row?.manual_adjusted === true || row?.manualAdjusted === true) return true
+  const finalRaw = row?.final_unit_price ?? row?.finalUnitPrice
+  const originalRaw = row?.original_final_unit_price ?? row?.originalFinalUnitPrice
+  if (finalRaw === undefined || finalRaw === null || finalRaw === '' || originalRaw === undefined || originalRaw === null || originalRaw === '') return false
+  const finalPrice = Number(finalRaw)
+  const originalPrice = Number(originalRaw)
+  return Number.isFinite(finalPrice) && Number.isFinite(originalPrice) && Math.abs(finalPrice - originalPrice) > 0.005
 }
 
 function flatRowProductKey(row = {}) {

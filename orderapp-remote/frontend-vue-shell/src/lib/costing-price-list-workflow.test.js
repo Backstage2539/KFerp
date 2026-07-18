@@ -32,7 +32,7 @@ describe('costing price-list workflow helpers', () => {
     }])
   })
 
-  it('collapses duplicate tier-template flat rows for the same product and pricing rule', () => {
+  it('keeps distinct template tiers when the product, pricing rule and unit are the same', () => {
     const rows = [
       {
         row_key: '556:tier-template:11:25',
@@ -76,8 +76,126 @@ describe('costing price-list workflow helpers', () => {
 
     assert.deepEqual(got.map((row) => row.row_key), [
       '556:tier-template:11:25',
+      '556:tier-template:11:26',
       '557:tier-template:11:26',
     ])
+  })
+
+  it('collapses only the same generated template-tier row and keeps the manual adjustment', () => {
+    const rows = [
+      {
+        row_key: '556:tier-template:11:25',
+        product_id: 556,
+        pricing_mode: 'tier_template',
+        tier_template_id: 11,
+        template_tier_id: 25,
+        pricing_rule_id: 11,
+        tier_pricing_rule_id: 11,
+        tier_label: '24kg',
+        min_qty: 24,
+        max_qty: 47,
+        price_unit: 'kg',
+        final_unit_price: 88,
+      },
+      {
+        row_key: '556:tier-template:11:25',
+        product_id: 556,
+        pricing_mode: 'tier_template',
+        tier_template_id: 11,
+        template_tier_id: 25,
+        pricing_rule_id: 11,
+        tier_pricing_rule_id: 11,
+        tier_label: '24kg',
+        min_qty: 24,
+        max_qty: 47,
+        price_unit: 'kg',
+        final_unit_price: 86,
+        manual_adjusted: true,
+      },
+    ]
+
+    const got = dedupePriceListFlatRows(rows)
+
+    assert.equal(got.length, 1)
+    assert.equal(got[0].final_unit_price, 86)
+    assert.equal(got[0].manual_adjusted, true)
+  })
+
+  it('uses the template-tier identity when legacy rows have no generated row key', () => {
+    const base = {
+      product_id: 556,
+      pricing_mode: 'tier_template',
+      tier_template_id: 11,
+      pricing_rule_id: 11,
+      tier_pricing_rule_id: 11,
+      price_unit: 'kg',
+    }
+    const rows = [
+      { ...base, template_tier_id: 25, tier_label: '24kg', min_qty: 24, max_qty: 47 },
+      { ...base, template_tier_id: 26, tier_label: '1kg', min_qty: 1, max_qty: 13 },
+      { ...base, template_tier_id: 25, tier_label: '24kg', min_qty: 24, max_qty: 47 },
+    ]
+
+    assert.deepEqual(dedupePriceListFlatRows(rows).map((row) => row.template_tier_id), [25, 26])
+  })
+
+  it('does not let a repeated legacy row key merge different template tiers', () => {
+    const base = {
+      row_key: 'legacy-reused-row-key',
+      product_id: 556,
+      pricing_mode: 'tier_template',
+      tier_template_id: 11,
+      pricing_rule_id: 11,
+      tier_pricing_rule_id: 11,
+      price_unit: 'kg',
+    }
+    const rows = [
+      { ...base, template_tier_id: 25, tier_label: '24kg', min_qty: 24, max_qty: 47 },
+      { ...base, template_tier_id: 26, tier_label: '1kg', min_qty: 1, max_qty: 13 },
+    ]
+
+    assert.deepEqual(dedupePriceListFlatRows(rows).map((row) => row.template_tier_id), [25, 26])
+  })
+
+  it('keeps a camel-case manual adjustment when duplicate legacy rows collapse', () => {
+    const base = {
+      product_id: 556,
+      pricing_mode: 'tier_template',
+      tier_template_id: 11,
+      template_tier_id: 25,
+      pricing_rule_id: 11,
+      tier_pricing_rule_id: 11,
+      price_unit: 'kg',
+      original_final_unit_price: 88,
+    }
+    const rows = [
+      { ...base, final_unit_price: 88 },
+      { ...base, final_unit_price: 86, manualAdjusted: true },
+    ]
+
+    const got = dedupePriceListFlatRows(rows)
+
+    assert.equal(got.length, 1)
+    assert.equal(got[0].final_unit_price, 86)
+  })
+
+  it('falls back to the tier label and quantity range when legacy rows have no tier id', () => {
+    const base = {
+      product_id: 556,
+      pricing_mode: 'tier_template',
+      tier_template_id: 11,
+      template_tier_id: 0,
+      pricing_rule_id: 11,
+      tier_pricing_rule_id: 11,
+      price_unit: 'kg',
+    }
+    const rows = [
+      { ...base, tier_label: '24kg', min_qty: 24, max_qty: 47 },
+      { ...base, tier_label: '1kg', min_qty: 1, max_qty: 13 },
+      { ...base, tier_label: '24kg', min_qty: 24, max_qty: 47 },
+    ]
+
+    assert.deepEqual(dedupePriceListFlatRows(rows).map((row) => row.tier_label), ['24kg', '1kg'])
   })
 
   it('keeps tier-template flat rows when tiers use different pricing rules', () => {

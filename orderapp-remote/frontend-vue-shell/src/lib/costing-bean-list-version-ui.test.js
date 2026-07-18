@@ -657,14 +657,14 @@ test('price list pricing-rule preview retries current rows after user pricing ch
   )
 })
 
-test('price list flat rows collapse duplicate tier-template rows before preview and publish', () => {
+test('price list flat rows collapse only identical tier-template rows before preview and publish', () => {
   assert.ok(
     viewSource.includes('dedupePriceListFlatRows'),
     'price-list flat rows should import the duplicate tier-template row guard',
   )
   assert.ok(
     viewSource.includes('dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value))'),
-    'price-list flat rows should collapse same-product same-rule tier-template rows before preview and publish',
+    'price-list flat rows should collapse only identical generated template-tier rows before preview and publish',
   )
 })
 
@@ -786,7 +786,7 @@ test('price list preview builds from current selected products instead of empty 
   assert.ok(groupsSource.includes('downloadSourcePublication.value?.content?.groups'), 'download action should still render stored publication content')
   assert.ok(groupsSource.includes('buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value'), 'generate drawer should render from the same category rows as product picker')
   assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
-  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))'), true, 'flat rows should be generated from base preview groups and duplicate tier rows should collapse')
+  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))'), true, 'flat rows should be generated from base preview groups and only identical tier rows should collapse')
   assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into PDF groups')
   assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trial'"), true, 'pricing-rule rows should load live trial prices')
   assert.equal(viewSource.includes('priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })'), true, 'pricing-rule trial payload should be scoped to the current customer')

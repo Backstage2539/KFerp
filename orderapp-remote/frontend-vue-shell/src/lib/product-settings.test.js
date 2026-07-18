@@ -1222,6 +1222,22 @@ test('product price list owns tier template drawer and three pricing modes', () 
   assert.doesNotMatch(source, /子组/)
 })
 
+test('tier template drawer keeps long template names inside the list column', () => {
+  const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+  const style = source.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] || ''
+  const listStyle = style.match(/\.tier-template-list\s*\{([^}]*)\}/)?.[1] || ''
+  const rowStyle = style.match(/\.tier-template-list-row\s*\{([^}]*)\}/)?.[1] || ''
+  const textStyle = style.match(/\.tier-template-list-row strong,\s*\.tier-template-list-row small\s*\{([^}]*)\}/)?.[1] || ''
+
+  assert.match(listStyle, /grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+  assert.match(listStyle, /min-width:\s*0/)
+  assert.match(rowStyle, /box-sizing:\s*border-box/)
+  assert.match(rowStyle, /min-width:\s*0/)
+  assert.match(rowStyle, /white-space:\s*normal/)
+  assert.match(textStyle, /overflow-wrap:\s*anywhere/)
+  assert.match(textStyle, /white-space:\s*normal/)
+})
+
 test('customer alias rename overrides list display while preserving customer product name field', () => {
   const alias = {
     display_name: 'Karen 原客户商品名',
