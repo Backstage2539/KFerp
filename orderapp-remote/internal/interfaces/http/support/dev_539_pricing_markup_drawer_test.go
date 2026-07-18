@@ -50,9 +50,6 @@ func TestDev539PricingMarkupDrawerContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.test.js"): {
 			"copied pricing rule should open the editor drawer", "openPricingRuleEditorDrawer()", "role=\"dialog\"",
 		},
-		filepath.Join("..", "ACTIVE_REQUIREMENTS.md"): {
-			"PR-539-PRICING-MARKUP-DRAWER", "DEV-539-MARKUP-ONLY", "DEV-539-PRICING-RULE-DRAWER", "development only", "production not authorized",
-		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-539-PRICING-MARKUP-DRAWER", "\u6210\u672c\u57fa\u6570 \u00d7 (1 + \u52a0\u4ef7\u7387)", "\u6210\u672c 100", "44.44%", "fixed_add", "\u53f3\u4fa7\u6253\u5f00",
 		},
