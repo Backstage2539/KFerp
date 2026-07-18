@@ -576,7 +576,7 @@ test('pricing rules and tier templates are independent templates used by price l
     formula_version: 'v2',
     calculation_json: {
       yield_loss_mode: 'bom_or_product',
-      profit_method: 'gross_margin',
+      profit_method: 'markup',
       tax_mode: 'tax_included',
       minimum_margin_rate: 0.18,
       trial_note: '选择商品、报价单位后试算',
@@ -609,6 +609,31 @@ test('pricing rules and tier templates are independent templates used by price l
       { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg', pricing_rule_id: 20, position: 2, active: true, remark: '' },
     ],
   })
+})
+
+test('pricing rule payload normalizes compatible legacy or missing profit methods to markup', () => {
+  for (const profitMethod of [undefined, '', 'gross_margin', 'markup']) {
+    const payload = buildPricingRulePayload({
+      name: '统一加价模板',
+      margin_rate: 0.8,
+      calculation_json: profitMethod === undefined ? {} : { profit_method: profitMethod },
+      profit_method: profitMethod,
+    })
+    assert.equal(payload.margin_rate, 0.8)
+    assert.equal(payload.calculation_json.profit_method, 'markup')
+  }
+})
+
+test('pricing rule payload preserves unsupported legacy methods so the API can reject unsafe reinterpretation', () => {
+  for (const profitMethod of ['fixed_add', 'unexpected_method']) {
+    const payload = buildPricingRulePayload({
+      name: '旧方式待确认',
+      margin_rate: 3,
+      calculation_json: { profit_method: profitMethod },
+      profit_method: 'markup',
+    })
+    assert.equal(payload.calculation_json.profit_method, profitMethod)
+  }
 })
 
 test('pricing rule copy payload creates an active unique template from inactive source', () => {
@@ -986,25 +1011,64 @@ test('price table tier-template preview rows use their tier pricing rule trial r
   assert.deepEqual(got.inventory_conversion_json, { lb: { kg: 0.454 } })
 })
 
-test('product settings exposes pricing rule pane instead of final price records', () => {
+test('product price management edits markup-only pricing rules in a right drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
+  const editorDrawer = source.match(/<div v-if="pricingRuleEditorDrawerOpen"[\s\S]*?<div v-if="pricingRuleTrialDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
 
-  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '价格试算', '新建价格计算模板', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则', '复制', '失效']) {
+  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '价格试算', '新建价格计算模板', '基础成本', '加价率', '税率', '取整规则', '复制', '失效']) {
     assert.equal(pane.includes(want), true, `product price management pane should expose ${want}`)
   }
-  for (const want of ['pricingRules', 'buildPricingRulePayload', 'buildPricingRuleCopyPayload', 'startPricingRuleEdit', 'copyPricingRule', 'deactivatePricingRule', 'addPricingRuleOtherCostRow']) {
+  for (const want of ['pricingRules', 'pricingRuleEditorDrawerOpen', 'buildPricingRulePayload', 'buildPricingRuleCopyPayload', 'startPricingRuleEdit', 'closePricingRuleEditor', 'pricingRuleNeedsMarkupConfirmation', 'copyPricingRule', 'deactivatePricingRule', 'addPricingRuleOtherCostRow']) {
     assert.match(script, new RegExp(want))
   }
   assert.match(pane, /@click="openPricingRuleTrial\(\)"[^>]*>价格试算<\/button>[\s\S]*@click="resetPricingRuleForm"[^>]*>新建价格计算模板<\/button>/)
   assert.match(pane, /class="text-button pricing-rule-name-button"[\s\S]*@click="startPricingRuleEdit\(rule\)"/)
   assert.match(pane, /class="secondary compact-action pricing-rule-copy-action"[\s\S]*@click="copyPricingRule\(rule\)"[\s\S]*>复制<\/button>/)
+  assert.match(pane, /:disabled="productPriceSaving \|\| pricingRuleNeedsMarkupConfirmation\(rule\)"/)
   assert.match(pane, /:class="\['pricing-rule-row', \{ inactive: rule\.active === false \}\]"/)
+  assert.doesNotMatch(pane, /<form class="template-editor pricing-rule-form"/)
   assert.doesNotMatch(pane, />编辑模板<\/button>/)
   assert.doesNotMatch(pane, /@click="openPricingRuleTrial\(rule\)"/)
+
+  for (const want of ['价格计算模板编辑', '编辑价格计算模板', '新建价格计算模板', 'pricing-rule-form', '模板名称', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '加价率（80%=0.8）', '税前价 = 成本基数 × (1 + 加价率)', '最终售价再计算税额和取整', '税费方式', '最低毛利率（仅预警）', '只比较试算结果，不参与售价计算', '公式版本', '试算说明', '税率', '取整规则', '保存价格计算模板']) {
+    assert.equal(editorDrawer.includes(want), true, `pricing rule editor drawer should expose ${want}`)
+  }
+  assert.match(editorDrawer, /class="settings-drawer-mask"[^>]*@click\.self="closePricingRuleEditor"/)
+  assert.match(editorDrawer, /class="settings-drawer pricing-rule-editor-drawer"[^>]*aria-label="价格计算模板编辑"/)
+  assert.match(editorDrawer, /role="dialog"/)
+  assert.match(editorDrawer, /aria-modal="true"/)
+  assert.match(editorDrawer, /@keydown\.esc\.stop\.prevent="closePricingRuleEditor"/)
+  assert.match(editorDrawer, /@keydown\.tab="trapPricingRuleEditorFocus"/)
+  assert.match(editorDrawer, /@click="closePricingRuleEditor"[^>]*>关闭<\/button>/)
+  assert.match(editorDrawer, /<form class="template-editor pricing-rule-form"[^>]*@submit\.prevent="savePricingRule"/)
+  assert.match(editorDrawer, /v-if="pricingRuleNeedsMarkupConfirmation\(pricingRuleForm\)"[\s\S]*旧价格方式无法安全换算；请新建加价率模板/)
+  assert.doesNotMatch(editorDrawer, /v-model="pricingRuleForm\.profit_method"/)
+  assert.doesNotMatch(editorDrawer, /value="gross_margin"|value="fixed_add"|>毛利率<|>固定加价</)
+  assert.doesNotMatch(editorDrawer, /<div v-if="(?:error|ok)"/)
+  assert.match(script, /const pricingRuleEditorDrawerOpen = ref\(false\)/)
+  assert.match(script, /function resetPricingRuleForm\(\) \{[\s\S]*?openPricingRuleEditorDrawer\(\)[\s\S]*?\}/)
+  assert.match(script, /function startPricingRuleEdit\(rule\) \{[\s\S]*?openPricingRuleEditorDrawer\(\)[\s\S]*?\}/)
+  assert.match(script, /function openPricingRuleEditorDrawer\(\) \{[\s\S]*?pricingRuleEditorDrawerOpen\.value = true[\s\S]*?firstField[\s\S]*?focus/)
+  assert.match(script, /function closePricingRuleEditor\(\) \{[\s\S]*?pricingRuleEditorDrawerOpen\.value = false[\s\S]*?\}/)
+  assert.match(script, /function trapPricingRuleEditorFocus\(event\)/)
+  const copyStart = script.indexOf('async function copyPricingRule')
+  const copyEnd = script.indexOf('async function deactivatePricingRule', copyStart)
+  assert.ok(copyStart > -1 && copyEnd > copyStart, 'copyPricingRule block not found')
+  assert.equal(script.slice(copyStart, copyEnd).includes('openPricingRuleEditorDrawer()'), true, 'copied pricing rule should open the editor drawer')
+  assert.equal(script.slice(copyStart, copyEnd).includes('pricingRuleNeedsMarkupConfirmation(rule)'), true, 'unsupported legacy pricing rules must not be copied into active markup templates')
+  const saveStart = script.indexOf('async function savePricingRule')
+  assert.ok(saveStart > -1 && copyStart > saveStart, 'savePricingRule block not found')
+  assert.equal(script.slice(saveStart, copyStart).includes("ok.value = '价格计算模板已保存'"), true, 'saving should keep the global success notification feedback')
+  assert.match(style, /\.pricing-rule-editor-drawer/)
+  assert.match(source, /计价方式：加价率/)
+  assert.match(source, /临时加价率/)
+  assert.doesNotMatch(source, /利润方式：/)
+  assert.doesNotMatch(source, /临时利润\/加价/)
   for (const forbidden of ['商品成本上下文', '成本项配置', '库存成本', '手工成本', '最近采购成本', '成本取数口径', '商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
-    assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
+    assert.equal(`${pane}${editorDrawer}`.includes(forbidden), false, `product price management should not expose ${forbidden}`)
   }
 })
 
@@ -1032,7 +1096,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '销售单位',
     '临时损耗率',
     '空=不额外计损耗',
-    '临时利润/加价',
+    '临时加价率',
     '临时税率',
     '其他成本',
     '加价后价格',
@@ -1082,8 +1146,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '试算说明',
     '点击查看试算说明',
     '本次试算抽屉',
-    '价格计算模板编辑区',
-    '临时利润/加价',
+    '价格计算模板编辑抽屉',
+    '临时加价率',
     '计算公式',
     'formula_expression_lines',
     '公式步骤',

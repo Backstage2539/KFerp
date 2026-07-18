@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-539-PRICING-MARKUP-DRAWER
+- Branch: codex/pricing-markup-drawer-20260717
+- Owner/session: Codex / 2026-07-17
+- Status: implementation and review verified; awaiting develop integration and development deployment
+- Scope: 价格计算模板只使用加价率口径，成本 100、加价率 80% 的税前价为 180；实际毛利率继续作为试算结果和最低毛利预警。点击模板名称、新建或复制模板时，使用右侧抽屉编辑，不再在列表下方展开表单；历史发布价格和订单快照不回算。
+- DEV:
+  - DEV-539-MARKUP-ONLY：模板保存、读取兼容、试算和价格表新生成统一按 `成本基数 × (1 + 加价率)` 得到税前价，最终售价再计算税额和取整；旧百分数数据先规范到小数比例，已发布快照不回改。历史 `fixed_add` 等隔离模板不可复制或直接保存，必须新建加价率模板。
+  - DEV-539-PRICING-RULE-DRAWER：模板名称、新建和复制入口打开右侧编辑抽屉，列表只保留模板行和动作。
+  - DEV-539-DOCS-DEPLOY：同步需求、验收和成本手册，完成定向/全量验证、合并 develop、部署开发环境及 API/UI 烟测。
+- Verifier:
+  - RED: catalog tests showed legacy gross/missing/whole-percent methods stayed unchanged and fixed-add still saved; costing tests showed cost 100 with gross_margin=0.8 still produced 500 and fixed-add still trialed; HTTP returned gross_margin/80 unchanged; schema lacked the bounded PR-539 migration. Frontend RED was 157/160 before markup-only payload normalization and the editor drawer.
+  - GREEN backend/API: pricing-rule Catalog/Costing/API/schema targeted tests pass; `./scripts/verify_kferp.sh backend` passes in full. Local PostgreSQL 16 migration ran twice with gross/missing/whole-percent/fixed-add and malformed JSON samples: second run changed 0 rows and frozen price 88.500000 stayed unchanged.
+  - GREEN frontend/build: `node --test src/lib/product-settings.test.js` passed 161/161; `npm run build` passed (401 modules, existing large-chunk warning only). Full frontend verifier remains at the same six unrelated failures reproduced on a clean `origin/develop` baseline; PR-539 adds no frontend failure.
+  - Manual/review/acceptance: root/docs requirements and acceptance are mirrored; `OP_MANUAL_COSTING.md`, PR-539 acceptance evidence and requirement seeds are updated; full Go support contracts and final review pass. Development API/UI smoke remains pending.
+- Deployment: planned for development only; production not authorized
+- Last update: 2026-07-18 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` returned PR-539; placeholder recorded with apply_patch to preserve workspace editing rules.
+
 ### PR-538-MATERIAL-COST-UNIT-LOSS
 - Branch: codex/material-cost-unit-loss-20260716
 - Owner/session: Codex / 2026-07-17

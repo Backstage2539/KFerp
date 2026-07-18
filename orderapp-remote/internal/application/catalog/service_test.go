@@ -52,6 +52,7 @@ type fakeRepo struct {
 	priceRecords           []ProductPriceRecord
 	priceRecordByID        map[int64]ProductPriceRecord
 	tierPriceSchemes       []ProductTierPriceScheme
+	pricingRules           []ProductPricingRule
 	products               map[int64]Product
 	publicUsages           []CustomerPublicUsage
 	deactivated            bool
@@ -297,7 +298,7 @@ func (r *fakeRepo) SaveProductCustomerReference(ctx context.Context, cmd Product
 }
 
 func (r *fakeRepo) ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error) {
-	return []ProductPricingRule{}, nil
+	return r.pricingRules, nil
 }
 
 func (r *fakeRepo) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
@@ -948,6 +949,119 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 		},
 	}); err == nil {
 		t.Fatalf("SavePriceTierTemplate() must reject enabled tiers without pricing_rule_id")
+	}
+}
+
+func TestProductPricingRuleUsesMarkupAsTheOnlyPricingMethod(t *testing.T) {
+	tests := []struct {
+		name       string
+		marginRate float64
+		method     string
+		wantRate   float64
+	}{
+		{name: "legacy gross margin keeps the entered percentage meaning", marginRate: 0.8, method: "gross_margin", wantRate: 0.8},
+		{name: "legacy whole percent is normalized", marginRate: 80, method: "gross_margin", wantRate: 0.8},
+		{name: "missing legacy method becomes markup", marginRate: 0.35, method: "", wantRate: 0.35},
+		{name: "markup over one remains a valid rate", marginRate: 1.2, method: "markup", wantRate: 1.2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calculation := map[string]any{}
+			if tt.method != "" {
+				calculation["profit_method"] = tt.method
+			}
+			rule, err := NewService(&fakeRepo{}).SaveProductPricingRule(context.Background(), ProductPricingRule{
+				Name:            "加价率模板",
+				MarginRate:      tt.marginRate,
+				CalculationJSON: calculation,
+			})
+			if err != nil {
+				t.Fatalf("SaveProductPricingRule() err=%v", err)
+			}
+			if rule.MarginRate != tt.wantRate {
+				t.Fatalf("margin_rate=%v, want %v", rule.MarginRate, tt.wantRate)
+			}
+			got, ok := rule.CalculationJSON["profit_method"].(string)
+			if !ok || strings.TrimSpace(got) != "markup" {
+				t.Fatalf("profit_method=%v, want markup", rule.CalculationJSON["profit_method"])
+			}
+		})
+	}
+
+	_, err := NewService(&fakeRepo{}).SaveProductPricingRule(context.Background(), ProductPricingRule{
+		Name:            "旧固定加价模板",
+		MarginRate:      3,
+		CalculationJSON: map[string]any{"profit_method": "fixed_add"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "only markup rate is supported") {
+		t.Fatalf("fixed_add err=%v, want explicit markup-only validation", err)
+	}
+
+	_, err = NewService(&fakeRepo{}).SaveProductPricingRule(context.Background(), ProductPricingRule{
+		Name:       "已隔离旧固定加价模板",
+		MarginRate: 0,
+		CalculationJSON: map[string]any{
+			"profit_method":        "markup",
+			"legacy_profit_method": "fixed_add",
+			"legacy_margin_rate":   3,
+			"migration_warning":    "only markup rate is supported",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "quarantined legacy pricing rule") {
+		t.Fatalf("quarantined legacy rule err=%v, want replacement validation", err)
+	}
+}
+
+func TestProductPricingRuleRejectsCleanUpdateOverQuarantinedExistingTemplate(t *testing.T) {
+	repo := &fakeRepo{pricingRules: []ProductPricingRule{{
+		ID:         77,
+		Name:       "已隔离旧固定加价模板",
+		MarginRate: 0,
+		Active:     false,
+		CalculationJSON: map[string]any{
+			"profit_method":        "markup",
+			"legacy_profit_method": "fixed_add",
+			"legacy_margin_rate":   3,
+			"migration_warning":    "only markup rate is supported",
+		},
+	}}}
+
+	_, err := NewService(repo).SaveProductPricingRule(context.Background(), ProductPricingRule{
+		ID:              77,
+		Name:            "试图覆盖隔离模板",
+		MarginRate:      0.8,
+		Active:          true,
+		CalculationJSON: map[string]any{"profit_method": "markup"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "quarantined legacy pricing rule") {
+		t.Fatalf("clean update over quarantined row err=%v, want replacement validation", err)
+	}
+}
+
+func TestListProductPricingRulesNormalizesLegacyMethodsWithoutChangingPublishedPrices(t *testing.T) {
+	repo := &fakeRepo{pricingRules: []ProductPricingRule{
+		{ID: 1, Name: "旧毛利率", MarginRate: 20, Active: true, CalculationJSON: map[string]any{"profit_method": "gross_margin"}},
+		{ID: 2, Name: "旧固定加价", MarginRate: 3, Active: true, CalculationJSON: map[string]any{"profit_method": "fixed_add"}},
+	}}
+	rows, err := NewService(repo).ListProductPricingRules(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].MarginRate != 0.2 || rows[0].CalculationJSON["profit_method"] != "markup" || !rows[0].Active {
+		t.Fatalf("legacy gross-margin row=%+v, want active markup 0.2", rows[0])
+	}
+	if rows[1].MarginRate != 0 || rows[1].CalculationJSON["profit_method"] != "markup" || rows[1].Active {
+		t.Fatalf("legacy fixed-add row=%+v, want quarantined inactive markup row", rows[1])
+	}
+	if rows[1].CalculationJSON["legacy_profit_method"] != "fixed_add" || rows[1].CalculationJSON["legacy_margin_rate"] != float64(3) {
+		t.Fatalf("legacy fixed-add evidence missing: %+v", rows[1].CalculationJSON)
+	}
+	settings, err := NewService(repo).ProductSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.ProductPricingRules) != 2 || settings.ProductPricingRules[0].MarginRate != 0.2 || settings.ProductPricingRules[0].CalculationJSON["profit_method"] != "markup" || settings.ProductPricingRules[1].Active {
+		t.Fatalf("ProductSettings pricing rules bypassed markup-only normalization: %+v", settings.ProductPricingRules)
 	}
 }
 

@@ -53,7 +53,7 @@ func (fakeService) ExplainPrice(ctx context.Context, req appcosting.PriceExplana
 func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
 	return &appcosting.PricingRuleTrialResult{
 		PricingRuleID:      10,
-		PricingRuleName:    "PR452 毛利含税",
+		PricingRuleName:    "PR452 加价含税",
 		FormulaVersion:     "v2",
 		ProductID:          549,
 		ProductName:        "PR452 试算商品",
@@ -77,32 +77,33 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 		CostBaseTotal:       62.5,
 		CostAfterYield:      78.13,
 		YieldLossAmount:     15.63,
-		ProfitMarkupAmount:  26.04,
-		PreTaxPrice:         104.17,
-		TaxAmount:           6.25,
-		TaxInPriceAmount:    6.25,
-		FinalBeforeRounding: 110.42,
+		PriceAfterMarkup:    97.66,
+		ProfitMarkupAmount:  19.53,
+		PreTaxPrice:         97.66,
+		TaxAmount:           5.86,
+		TaxInPriceAmount:    5.86,
+		FinalBeforeRounding: 103.52,
 		RoundingAdjustment:  -0.02,
-		FinalUnitPrice:      110.4,
-		GrossMarginRate:     0.25,
+		FinalUnitPrice:      103.5,
+		GrossMarginRate:     0.2,
 		MinimumMarginRate:   0.18,
 		ProfitExplanation: appcosting.PricingRuleTrialProfitExplanation{
-			Method:         "gross_margin",
-			MethodLabel:    "毛利率",
+			Method:         "markup",
+			MethodLabel:    "加价率",
 			Rate:           0.25,
 			Source:         "pricing_rule",
 			CostAfterYield: 78.13,
-			MarkupAmount:   26.04,
-			PreTaxPrice:    104.17,
-			Formula:        "税前价 = 损耗后成本 / (1 - 毛利率 25%)",
+			MarkupAmount:   19.53,
+			PreTaxPrice:    97.66,
+			Formula:        "税前价 = 损耗后成本 * (1 + 加价率 25%)",
 		},
-		FormulaExpression: "最终售价 = (标准制造成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
+		FormulaExpression: "最终售价 = (标准制造成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) * (1 + 加价率 25%) * (1 + 税率 6%) = 103.5/kg",
 		FormulaExpressionLines: []string{
 			"成本基数 = 标准制造成本 60/kg + 其他成本 2.5/kg = 62.5/kg",
-			"最终售价 = 110.4/kg",
+			"最终售价 = 103.5/kg",
 		},
 		Steps: []domain.PriceExplanationStep{
-			{Key: "final_unit_price", Label: "试算单价", Value: 110.4, Unit: "kg"},
+			{Key: "final_unit_price", Label: "试算单价", Value: 103.5, Unit: "kg"},
 		},
 	}, nil
 }
@@ -148,15 +149,15 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		MinimumMarginRate:   0,
 		ProfitExplanation: appcosting.PricingRuleTrialProfitExplanation{
 			Method:         "supplier_tier_markup",
-			MethodLabel:    "档位利润率/加价率",
+			MethodLabel:    "档位加价率",
 			Rate:           0.3,
 			Source:         "temporary_override",
 			CostAfterYield: 73.7625,
 			MarkupAmount:   39.987,
 			PreTaxPrice:    116.7092,
-			Formula:        "加价后价格 = 损耗后成本 * (1 + 档位利润率/加价率 30%)",
+			Formula:        "加价后价格 = 损耗后成本 * (1 + 档位加价率 30%)",
 		},
-		FormulaExpression: "最终售价 = (标准制造成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位利润率/加价率 54.21%) = 116.7092/kg",
+		FormulaExpression: "最终售价 = (标准制造成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位加价率 54.21%) = 116.7092/kg",
 		FormulaExpressionLines: []string{
 			"成本基数 = 标准制造成本 67.5/kg + 生产项目成本 6.2625/kg = 73.7625/kg",
 			"最终售价 = 116.7092/kg",
@@ -827,6 +828,9 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	}
 	if len(got.OtherCostDetails) == 0 || got.ProfitExplanation.Method == "" {
 		t.Fatalf("trial response missing explanation fields: %+v", got)
+	}
+	if got.ProfitExplanation.MethodLabel != "档位加价率" || strings.Contains(rec.Body.String(), "档位利润率/加价率") {
+		t.Fatalf("trial response must expose markup-only labels: %+v", got.ProfitExplanation)
 	}
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())

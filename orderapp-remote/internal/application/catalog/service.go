@@ -1701,7 +1701,7 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
-	productPricingRules, err := s.repo.ListProductPricingRules(ctx)
+	productPricingRules, err := s.ListProductPricingRules(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
@@ -1885,7 +1885,35 @@ func (s *Service) SaveProductCustomerReference(ctx context.Context, cmd ProductC
 }
 
 func (s *Service) ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error) {
-	return s.repo.ListProductPricingRules(ctx)
+	rules, err := s.repo.ListProductPricingRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rules {
+		legacyMethod := pricingRuleProfitMethod(rules[i].CalculationJSON)
+		legacyRate := rules[i].MarginRate
+		switch legacyMethod {
+		case "", "gross_margin", "markup":
+			rules[i].MarginRate = normalizeLegacyPricingRuleMarkupRate(legacyRate, legacyMethod)
+			rules[i].CalculationJSON, err = normalizePricingRuleCalculationJSON(rules[i].CalculationJSON)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			calculationJSON, cloneErr := clonePricingRuleCalculationJSON(rules[i].CalculationJSON)
+			if cloneErr != nil {
+				return nil, cloneErr
+			}
+			calculationJSON["legacy_profit_method"] = legacyMethod
+			calculationJSON["legacy_margin_rate"] = legacyRate
+			calculationJSON["profit_method"] = "markup"
+			calculationJSON["migration_warning"] = "only markup rate is supported; review this template before enabling it"
+			rules[i].CalculationJSON = calculationJSON
+			rules[i].MarginRate = 0
+			rules[i].Active = false
+		}
+	}
+	return rules, nil
 }
 
 func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
@@ -1908,14 +1936,30 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	if cmd.FormulaVersion == "" {
 		cmd.FormulaVersion = "v1"
 	}
-	if cmd.MarginRate < 0 || cmd.TaxRate < 0 {
+	legacyProfitMethod := pricingRuleProfitMethod(cmd.CalculationJSON)
+	if math.IsNaN(cmd.MarginRate) || math.IsInf(cmd.MarginRate, 0) || math.IsNaN(cmd.TaxRate) || math.IsInf(cmd.TaxRate, 0) || cmd.MarginRate < 0 || cmd.TaxRate < 0 {
 		return ProductPricingRule{}, ValidationError{Message: "rate must not be negative"}
+	}
+	if pricingRuleCalculationHasLegacyQuarantine(cmd.CalculationJSON) {
+		return ProductPricingRule{}, ValidationError{Message: "quarantined legacy pricing rule must be replaced with a new markup template"}
+	}
+	if cmd.ID > 0 {
+		existingRules, err := s.repo.ListProductPricingRules(ctx)
+		if err != nil {
+			return ProductPricingRule{}, err
+		}
+		for _, existing := range existingRules {
+			if existing.ID == cmd.ID && pricingRuleCalculationNeedsQuarantine(existing.CalculationJSON) {
+				return ProductPricingRule{}, ValidationError{Message: "quarantined legacy pricing rule must be replaced with a new markup template"}
+			}
+		}
 	}
 	calculationJSON, err := normalizePricingRuleCalculationJSON(cmd.CalculationJSON)
 	if err != nil {
 		return ProductPricingRule{}, ValidationError{Message: err.Error()}
 	}
 	cmd.CalculationJSON = calculationJSON
+	cmd.MarginRate = normalizeLegacyPricingRuleMarkupRate(cmd.MarginRate, legacyProfitMethod)
 	if cmd.ID == 0 {
 		cmd.Active = true
 	}
@@ -3571,23 +3615,20 @@ func normalizeJSONArrayText(raw string) (string, error) {
 }
 
 func normalizePricingRuleCalculationJSON(raw map[string]any) (map[string]any, error) {
-	if raw == nil {
-		return map[string]any{}, nil
-	}
 	if pricingRuleCalculationContainsQuantityTierField(raw) {
 		return nil, fmt.Errorf("pricing rule must not contain quantity tiers")
 	}
-	encoded, err := json.Marshal(raw)
+	profitMethod := pricingRuleProfitMethod(raw)
+	switch profitMethod {
+	case "", "gross_margin", "markup":
+	default:
+		return nil, fmt.Errorf("only markup rate is supported")
+	}
+	normalized, err := clonePricingRuleCalculationJSON(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid calculation_json")
+		return nil, err
 	}
-	var normalized map[string]any
-	if err := json.Unmarshal(encoded, &normalized); err != nil {
-		return nil, fmt.Errorf("invalid calculation_json")
-	}
-	if normalized == nil {
-		normalized = map[string]any{}
-	}
+	normalized["profit_method"] = "markup"
 	stripPricingRuleRemovedCostFields(normalized)
 	otherCosts, err := normalizePricingRuleOtherCosts(normalized["other_costs"])
 	if err != nil {
@@ -3604,6 +3645,64 @@ func normalizePricingRuleCalculationJSON(raw map[string]any) (map[string]any, er
 		normalized["other_costs"] = otherCosts
 	}
 	return normalized, nil
+}
+
+func clonePricingRuleCalculationJSON(raw map[string]any) (map[string]any, error) {
+	if raw == nil {
+		return map[string]any{}, nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid calculation_json")
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(encoded, &normalized); err != nil {
+		return nil, fmt.Errorf("invalid calculation_json")
+	}
+	if normalized == nil {
+		normalized = map[string]any{}
+	}
+	return normalized, nil
+}
+
+func pricingRuleProfitMethod(calculationJSON map[string]any) string {
+	if calculationJSON == nil {
+		return ""
+	}
+	value, ok := calculationJSON["profit_method"]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(fmt.Sprint(value)))
+}
+
+func pricingRuleCalculationHasLegacyQuarantine(calculationJSON map[string]any) bool {
+	for _, key := range []string{"legacy_profit_method", "migration_warning"} {
+		value := strings.TrimSpace(fmt.Sprint(calculationJSON[key]))
+		if value != "" && value != "<nil>" {
+			return true
+		}
+	}
+	return false
+}
+
+func pricingRuleCalculationNeedsQuarantine(calculationJSON map[string]any) bool {
+	if pricingRuleCalculationHasLegacyQuarantine(calculationJSON) {
+		return true
+	}
+	switch pricingRuleProfitMethod(calculationJSON) {
+	case "", "gross_margin", "markup":
+		return false
+	default:
+		return true
+	}
+}
+
+func normalizeLegacyPricingRuleMarkupRate(rate float64, profitMethod string) float64 {
+	if (profitMethod == "" || profitMethod == "gross_margin") && rate > 1 {
+		return rate / 100
+	}
+	return rate
 }
 
 func normalizePricingRuleCostSourceMode(mode string) string {
