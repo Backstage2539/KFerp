@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-539-PRICING-MARKUP-DRAWER
 - Branch: codex/pricing-markup-drawer-20260717
 - Owner/session: Codex / 2026-07-17
-- Status: implementation and review verified; awaiting develop integration and development deployment
+- Status: development deployed; authenticated API, live browser and audit smoke complete; awaiting Van review
 - Scope: 价格计算模板只使用加价率口径，成本 100、加价率 80% 的税前价为 180；实际毛利率继续作为试算结果和最低毛利预警。点击模板名称、新建或复制模板时，使用右侧抽屉编辑，不再在列表下方展开表单；历史发布价格和订单快照不回算。
 - DEV:
   - DEV-539-MARKUP-ONLY：模板保存、读取兼容、试算和价格表新生成统一按 `成本基数 × (1 + 加价率)` 得到税前价，最终售价再计算税额和取整；旧百分数数据先规范到小数比例，已发布快照不回改。历史 `fixed_add` 等隔离模板不可复制或直接保存，必须新建加价率模板。
@@ -19,8 +19,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: catalog tests showed legacy gross/missing/whole-percent methods stayed unchanged and fixed-add still saved; costing tests showed cost 100 with gross_margin=0.8 still produced 500 and fixed-add still trialed; HTTP returned gross_margin/80 unchanged; schema lacked the bounded PR-539 migration. Frontend RED was 157/160 before markup-only payload normalization and the editor drawer.
   - GREEN backend/API: pricing-rule Catalog/Costing/API/schema targeted tests pass; `./scripts/verify_kferp.sh backend` passes in full. Local PostgreSQL 16 migration ran twice with gross/missing/whole-percent/fixed-add and malformed JSON samples: second run changed 0 rows and frozen price 88.500000 stayed unchanged.
   - GREEN frontend/build: `node --test src/lib/product-settings.test.js` passed 161/161; `npm run build` passed (401 modules, existing large-chunk warning only). Full frontend verifier remains at the same six unrelated failures reproduced on a clean `origin/develop` baseline; PR-539 adds no frontend failure.
-  - Manual/review/acceptance: root/docs requirements and acceptance are mirrored; `OP_MANUAL_COSTING.md`, PR-539 acceptance evidence and requirement seeds are updated; full Go support contracts and final review pass. Development API/UI smoke remains pending.
-- Deployment: planned for development only; production not authorized
+  - Manual/review/acceptance: root/docs requirements and acceptance are mirrored; `OP_MANUAL_COSTING.md`, PR-539 acceptance evidence and requirement seeds are updated; full Go support contracts and final review pass. Development API/UI/browser/audit smoke is green.
+- Deployment: feature `15d63614`, behavior merge `8e241ff9`, deploy-gate fix `db27ab6c`, and final deployed `origin/develop=c1e767231364a86d885723ff25c23087ec3ec720`; development app backup `/opt/stacks/erp/orderapp.backup.deploy-20260718144532`. The first build attempt stopped before container replacement because the PR-539 support test read short-lived `ACTIVE_REQUIREMENTS.md` outside the Docker context; the minimal fix removed only that transient-file assertion, then container-internal `go test ./...`, Vue build, miniapp build and restart passed. `erp_orderapp` is up, PostgreSQL is healthy, unauthenticated `/app/` returns 303, authenticated Vue/requirement/pricing APIs return 200, raw database pricing rules are markup-only, and the read-only trial returns cost 100 + markup 80 = pre-tax/final 180 with actual gross margin 44.44%. Live Chrome rendered the markup-only list and right editor drawer; template-name and new-template entry points open the drawer, Esc closes it and restores focus, console errors are zero. Development smoke template id 13 was created then immediately deactivated; `/api/audit` contains two `product_pricing_rule/save_product_pricing_rule` rows and raw operation logs contain the matching POST/PUT rows. Production was not deployed, written or switched.
 - Last update: 2026-07-18 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh` returned PR-539; placeholder recorded with apply_patch to preserve workspace editing rules.
 

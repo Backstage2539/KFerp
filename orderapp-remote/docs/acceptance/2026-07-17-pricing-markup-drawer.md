@@ -24,12 +24,12 @@
 
 ## 历史快照与审计
 - [x] 迁移只修改价格计算模板配置，不更新已发布价格表、订单行最终价、财务凭证或历史单据。
-- [ ] 使用正式 API 保存和失效模板后，操作日志能看到对应动作。
+- [x] 开发环境使用正式 API 创建并立即失效 `PR539-SMOKE` 模板 id 13；`/api/audit` 返回 2 条 `product_pricing_rule / save_product_pricing_rule` 记录，原始操作日志也有对应 POST/PUT 两条成功记录。该模板最终为停用状态，不会成为可用计价来源。
 
 ## 开发环境烟测
-- [ ] 功能分支已推送并合并到当前 `origin/develop`，使用仓库部署脚本部署开发环境。
-- [ ] 鉴权 API 读取价格计算模板和执行加价率试算成功；开发环境页面完成模板名称、新建、复制和右侧抽屉交互验收。
-- [ ] 已发布价格表快照和历史订单价格未被重算；生产环境未部署、未写入、未切换入口。
+- [x] 功能分支和部署门禁修复分支均已推送并合并，仓库部署脚本已把 `origin/develop=c1e767231364a86d885723ff25c23087ec3ec720` 部署到开发环境；应用备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260718144532`。
+- [x] 鉴权 API 读取价格计算模板与只读试算均为 200；成本基数 100、加价率 0.8、损耗/税率/其他成本为 0 时返回加价金额 80、税前价 180、最终价 180、实际毛利率 0.4444，公式只含加价率。开发环境 Chrome 验证模板名称和“新建价格计算模板”均打开右侧抽屉，Esc 关闭并恢复焦点，控制台错误为 0。
+- [x] PR-539 迁移只更新 `product_pricing_rules`，没有更新发布价格、订单或财务表；开发库原始记录均为 `profit_method=markup`，无启用隔离模板。生产环境未部署、未写入、未切换入口。
 
 ## 实现验证证据
 - `node --test src/lib/product-settings.test.js`：通过，161/161。
@@ -40,5 +40,9 @@
 - `./scripts/verify_kferp.sh frontend-tests`：711/717；6 个失败与当前干净 `origin/develop` 基线一致，均不在 PR-539 变更文件：Vue shell remount、customer portal refresh、current view selector、BOM customer context、customer workspace menu、workspace mode wiring。
 - 本地 PostgreSQL 16 原样执行 PR-539 迁移两遍：首次 `UPDATE 3` + `UPDATE 4`，第二次 `UPDATE 0` + `UPDATE 0`；`gross_margin=80` 规范为 `markup=0.8`，`fixed_add` 以及 JSON null/字符串/数组均安全隔离并保留原 JSON，冻结价格 `88.500000` 未变化。
 
-## 待补证据
-- 合并提交、开发部署提交、备份路径、操作日志和 API/UI 烟测：部署完成后补充。
+## 开发部署与烟测证据
+- 功能提交 `15d63614`；行为合并 `8e241ff9`；Docker 上下文门禁修复 `db27ab6c`；部署提交 `c1e76723`。
+- 第一次部署在容器替换前被支持契约测试阻止，因为短期协调文件 `ACTIVE_REQUIREMENTS.md` 不属于 `orderapp-remote` Docker 构建上下文。修复只移除该临时文件断言，保留 req_store、代码、迁移、需求、验收、手册和本证据文件的 PR-539 持久合同；完整 backend verifier 和第二次容器内 `go test ./...` 均通过。
+- 容器状态：`erp_orderapp` 运行、`erp_postgres` healthy、最近日志 fatal/panic/migration failure 为 0；未鉴权 `/app/` 为 303，鉴权 Vue、需求 API、价格模板 API 均为 200，需求 API 可见 PR-539。
+- 开发数据库/价格模板 API 在审计 smoke 前为 12 条、2 条启用，非 markup 0、隔离 0、启用隔离 0；审计 smoke 后仅新增 1 条立即停用的 markup 测试模板。
+- 生产环境未执行部署脚本、未写业务数据、未切换任何入口。
