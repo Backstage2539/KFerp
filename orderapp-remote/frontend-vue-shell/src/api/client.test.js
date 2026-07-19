@@ -76,18 +76,22 @@ test('apiSend preserves custom headers while sending Bearer token', async () => 
   const previousWindow = globalThis.window
   const previousFetch = globalThis.fetch
   let requestHeaders
+  let requestSignal
   globalThis.window = {
     location: { origin: 'https://erp.qacoohee.com' },
     localStorage: { getItem: (key) => (key === 'auth_token' ? 'token-logout' : null) },
   }
   globalThis.fetch = async (_url, init = {}) => {
     requestHeaders = init.headers
+    requestSignal = init.signal
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
   try {
-    await apiSend('/api/auth/logout', { headers: { 'X-Test': '1' } })
+    const controller = new AbortController()
+    await apiSend('/api/auth/logout', { headers: { 'X-Test': '1' }, signal: controller.signal })
     assert.equal(requestHeaders.Authorization, 'Bearer token-logout')
     assert.equal(requestHeaders['X-Test'], '1')
+    assert.equal(requestSignal, controller.signal)
   } finally {
     globalThis.window = previousWindow
     globalThis.fetch = previousFetch

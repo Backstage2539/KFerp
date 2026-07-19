@@ -2,6 +2,7 @@ package costing
 
 import (
 	"context"
+	"errors"
 	"math"
 	"reflect"
 	"strings"
@@ -11,33 +12,39 @@ import (
 )
 
 type fakeRepo struct {
-	params               domain.Parameters
-	inputs               []domain.ProductInput
-	settings             []ParameterSetting
-	customerInputs       []domain.ProductInput
-	lastCustomerID       int64
-	savedItems           []domain.ProductResult
-	publishedID          int64
-	savedDripTemplate    SaveDripPriceTemplateCommand
-	deactivatedDripID    int64
-	publishedBeanList    PublishBeanListCommand
-	draftBeanList        PublishBeanListCommand
-	beanListPublications []BeanListPublication
-	lastBeanListQuery    BeanListPublicationQuery
-	archivedBeanLists    ArchiveBeanListPublicationsCommand
-	unarchivedBeanLists  ArchiveBeanListPublicationsCommand
-	beanListPublication  *BeanListPublication
-	beanListAsset        BeanListPublicationAsset
-	savedBeanListAsset   BeanListPublicationAsset
-	pricingRules         map[int64]ProductPricingRule
-	costDetails          []PricingRuleTrialBaseCostDetail
-	costDetailsByBom     map[int64][]PricingRuleTrialBaseCostDetail
-	productionOptions    PricingRuleTrialProductionOptions
-	lastDetailInput      domain.ProductInput
-	defaultTaxRate       PricingRuleTrialDefaultTaxRate
-	productUnitRules     map[int64]ProductSalesUnitRule
-	customerUnitRules    map[int64]ProductSalesUnitRule
-	lastCustomerAliasID  int64
+	params                domain.Parameters
+	inputs                []domain.ProductInput
+	settings              []ParameterSetting
+	customerInputs        []domain.ProductInput
+	lastCustomerID        int64
+	savedItems            []domain.ProductResult
+	publishedID           int64
+	savedDripTemplate     SaveDripPriceTemplateCommand
+	deactivatedDripID     int64
+	publishedBeanList     PublishBeanListCommand
+	draftBeanList         PublishBeanListCommand
+	beanListPublications  []BeanListPublication
+	lastBeanListQuery     BeanListPublicationQuery
+	archivedBeanLists     ArchiveBeanListPublicationsCommand
+	unarchivedBeanLists   ArchiveBeanListPublicationsCommand
+	beanListPublication   *BeanListPublication
+	beanListAsset         BeanListPublicationAsset
+	savedBeanListAsset    BeanListPublicationAsset
+	pricingRules          map[int64]ProductPricingRule
+	costDetails           []PricingRuleTrialBaseCostDetail
+	costDetailsByBom      map[int64][]PricingRuleTrialBaseCostDetail
+	productionOptions     PricingRuleTrialProductionOptions
+	lastDetailInput       domain.ProductInput
+	defaultTaxRate        PricingRuleTrialDefaultTaxRate
+	productUnitRules      map[int64]ProductSalesUnitRule
+	customerUnitRules     map[int64]ProductSalesUnitRule
+	lastCustomerAliasID   int64
+	loadParametersCount   int
+	loadInputsCount       int
+	loadRuleCount         int
+	loadDefaultTaxCount   int
+	loadBatchDetailsCount int
+	batchDetailErrors     map[int64]error
 }
 
 func sliceContains(values []string, want string) bool {
@@ -50,6 +57,7 @@ func sliceContains(values []string, want string) bool {
 }
 
 func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
+	r.loadParametersCount++
 	if r.params.RoastYieldRate == 0 {
 		return domain.DefaultParameters(), nil
 	}
@@ -57,6 +65,7 @@ func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
 }
 
 func (r *fakeRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
+	r.loadInputsCount++
 	return r.inputs, nil
 }
 
@@ -66,6 +75,7 @@ func (r *fakeRepo) LoadProductInputsForCustomer(_ context.Context, _ domain.Para
 }
 
 func (r *fakeRepo) LoadProductPricingRule(_ context.Context, id int64) (ProductPricingRule, error) {
+	r.loadRuleCount++
 	if r.pricingRules != nil {
 		if row, ok := r.pricingRules[id]; ok {
 			return row, nil
@@ -89,7 +99,28 @@ func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, _ do
 }
 
 func (r *fakeRepo) LoadPricingRuleTrialDefaultTaxRate(context.Context) (PricingRuleTrialDefaultTaxRate, error) {
+	r.loadDefaultTaxCount++
 	return r.defaultTaxRate, nil
+}
+
+func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetailsBatch(_ context.Context, inputs []domain.ProductInput) ([][]PricingRuleTrialBaseCostDetail, []error, error) {
+	r.loadBatchDetailsCount++
+	rows := make([][]PricingRuleTrialBaseCostDetail, len(inputs))
+	errs := make([]error, len(inputs))
+	for i, input := range inputs {
+		if err := r.batchDetailErrors[input.ProductID]; err != nil {
+			errs[i] = err
+			continue
+		}
+		if r.costDetailsByBom != nil {
+			if details, ok := r.costDetailsByBom[input.BomVersionID]; ok {
+				rows[i] = details
+				continue
+			}
+		}
+		rows[i] = r.costDetails
+	}
+	return rows, errs, nil
 }
 
 func (r *fakeRepo) CreateRun(_ context.Context, actor string, items []domain.ProductResult) (*Run, error) {
@@ -1796,6 +1827,84 @@ func TestPricingRuleTrialValidatesRuleAndProduct(t *testing.T) {
 	})
 	if _, err := svc.PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 10, ProductID: 999}); err == nil {
 		t.Fatal("expected missing product error")
+	}
+}
+
+func TestPricingRuleTrialBatchReusesSharedLoadsAndPreservesOrder(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{
+			{ProductID: 101, Name: "批量商品一", InventoryUnit: "kg", QuoteUnit: "kg", YieldRate: 1},
+			{ProductID: 102, Name: "批量商品二", InventoryUnit: "kg", QuoteUnit: "kg", YieldRate: 1},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			7: {
+				ID:              7,
+				Name:            "批量加价模板",
+				CostSourceMode:  "bom_current_cost",
+				MarginRate:      0.2,
+				RoundingMode:    "fen",
+				FormulaVersion:  "v1",
+				Active:          true,
+				CalculationJSON: map[string]any{"profit_method": "markup", "tax_mode": "none"},
+			},
+		},
+		costDetails: []PricingRuleTrialBaseCostDetail{{
+			Key: "material:1", Type: "material", TypeLabel: "物料", Name: "批量原料",
+			ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg",
+		}},
+	}
+
+	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{
+		{PricingRuleID: 7, ProductID: 101, QuoteUnit: "kg"},
+		{PricingRuleID: 7, ProductID: 999, QuoteUnit: "kg"},
+		{PricingRuleID: 7, ProductID: 102, QuoteUnit: "kg"},
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("batch rows = %d, want 3", len(rows))
+	}
+	if rows[0].Index != 0 || rows[0].Result == nil || rows[0].Result.ProductID != 101 {
+		t.Fatalf("row 0 = %+v", rows[0])
+	}
+	if rows[1].Index != 1 || !strings.Contains(rows[1].Error, "product not found") {
+		t.Fatalf("row 1 = %+v, want isolated product error", rows[1])
+	}
+	if rows[2].Index != 2 || rows[2].Result == nil || rows[2].Result.ProductID != 102 {
+		t.Fatalf("row 2 = %+v", rows[2])
+	}
+	if repo.loadParametersCount != 1 || repo.loadInputsCount != 1 || repo.loadRuleCount != 1 || repo.loadDefaultTaxCount != 1 || repo.loadBatchDetailsCount != 1 {
+		t.Fatalf("shared load counts = parameters:%d inputs:%d rules:%d tax:%d batch-details:%d, want all 1",
+			repo.loadParametersCount, repo.loadInputsCount, repo.loadRuleCount, repo.loadDefaultTaxCount, repo.loadBatchDetailsCount)
+	}
+}
+
+func TestPricingRuleTrialBatchIsolatesBaseCostDetailErrors(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{
+			{ProductID: 101, Name: "批量商品一", InventoryUnit: "kg", QuoteUnit: "kg", YieldRate: 1},
+			{ProductID: 102, Name: "批量商品二", InventoryUnit: "kg", QuoteUnit: "kg", YieldRate: 1},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			7: {ID: 7, Name: "批量模板", CostSourceMode: "bom_current_cost", FormulaVersion: "v1", Active: true, CalculationJSON: map[string]any{"profit_method": "markup", "tax_mode": "none"}},
+		},
+		costDetails:       []PricingRuleTrialBaseCostDetail{{Key: "material:1", Type: "material", Name: "批量原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg"}},
+		batchDetailErrors: map[int64]error{102: errors.New("BOM detail unavailable")},
+	}
+
+	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{
+		{PricingRuleID: 7, ProductID: 101, QuoteUnit: "kg"},
+		{PricingRuleID: 7, ProductID: 102, QuoteUnit: "kg"},
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
+	}
+	if rows[0].Result == nil || rows[0].Error != "" {
+		t.Fatalf("successful row = %+v", rows[0])
+	}
+	if rows[1].Result != nil || rows[1].Error != "BOM detail unavailable" {
+		t.Fatalf("failed detail row = %+v", rows[1])
 	}
 }
 

@@ -32,6 +32,102 @@ describe('costing price-list workflow helpers', () => {
     }])
   })
 
+  it('executes pricing-rule trials in 100-row batches and maps response indexes back to cache keys', async () => {
+    const requests = Array.from({ length: 201 }, (_, index) => ({
+      key: `key-${index}`,
+      payload: { sequence: index + 1 },
+    }))
+    const batchSizes = []
+    const completed = await priceListWorkflow.executePriceListPricingRuleTrialBatches(requests, {
+      sendBatch: async (payloads) => {
+        batchSizes.push(payloads.length)
+        return {
+          rows: payloads.map((payload, index) => ({
+            index,
+            result: { final_unit_price: payload.sequence },
+          })).reverse(),
+        }
+      },
+    })
+
+    assert.deepEqual(batchSizes, [100, 100, 1])
+    assert.deepEqual(completed['key-0'], { status: 'success', result: { final_unit_price: 1 } })
+    assert.deepEqual(completed['key-100'], { status: 'success', result: { final_unit_price: 101 } })
+    assert.deepEqual(completed['key-200'], { status: 'success', result: { final_unit_price: 201 } })
+  })
+
+  it('isolates partial batch errors and rejects a zero-price trial instead of publishing a stale automatic price', async () => {
+    const requests = [
+      { key: 'valid', payload: { product_id: 1 } },
+      { key: 'failed', payload: { product_id: 2 } },
+      { key: 'zero', payload: { product_id: 3 } },
+    ]
+    const completed = await priceListWorkflow.executePriceListPricingRuleTrialBatches(requests, {
+      sendBatch: async () => ({
+        rows: [
+          { index: 2, result: { final_unit_price: 0, warnings: ['该商品暂无可试算的标准制造成本'] } },
+          { index: 0, result: { final_unit_price: 88 } },
+          { index: 1, error: 'BOM detail unavailable' },
+        ],
+      }),
+    })
+
+    assert.equal(completed.valid.status, 'success')
+    assert.deepEqual(completed.failed, { status: 'error', error: 'BOM detail unavailable' })
+    assert.deepEqual(completed.zero, { status: 'error', error: '该商品暂无可试算的标准制造成本' })
+
+    const staleRow = {
+      pricing_mode: 'pricing_rule',
+      pricing_rule_id: 7,
+      pricing_rule_version: 'V1',
+      final_unit_price: 88,
+      price_unit: 'kg',
+      inventory_unit: 'kg',
+      group_snapshot: { group_item_name: '意式拼配豆' },
+      cost_source_snapshot: { pricing_rule_version: 'V1' },
+    }
+    assert.equal(priceListWorkflow.priceListFlatRowsReady([staleRow], { trialStatusForRow: () => completed.zero.status }), false)
+  })
+
+  it('marks an aborted batch as timed out and makes only failed cache entries retryable', async () => {
+    const requests = [{ key: 'failed', payload: { product_id: 1 } }]
+    let clearedTimerID = 0
+    const timedOut = await priceListWorkflow.executePriceListPricingRuleTrialBatches(requests, {
+      scheduleTimeout: (callback) => {
+        callback()
+        return 9
+      },
+      cancelTimeout: (timerID) => {
+        clearedTimerID = timerID
+      },
+      sendBatch: async (_payloads, { signal }) => {
+        assert.equal(signal.aborted, true)
+        const err = new Error('aborted')
+        err.name = 'AbortError'
+        throw err
+      },
+    })
+    assert.equal(clearedTimerID, 9)
+    assert.deepEqual(timedOut.failed, { status: 'error', error: '价格计算超时，请重新试算' })
+
+    const retryCache = priceListWorkflow.priceListPricingRuleTrialCacheForRetry({
+      failed: timedOut.failed,
+      success: { status: 'success', result: { final_unit_price: 88 } },
+      loading: { status: 'loading' },
+    }, ['failed', 'success', 'loading'])
+    assert.equal(retryCache.failed, undefined)
+    assert.equal(retryCache.success.status, 'success')
+    assert.equal(retryCache.loading.status, 'loading')
+
+    const retried = await priceListWorkflow.executePriceListPricingRuleTrialBatches(requests, {
+      sendBatch: async (_payloads, { signal }) => {
+        assert.equal(signal.aborted, false)
+        return { rows: [{ index: 0, result: { final_unit_price: 91 } }] }
+      },
+    })
+    assert.deepEqual(retried.failed, { status: 'success', result: { final_unit_price: 91 } })
+  })
+
   it('keeps distinct template tiers when the product, pricing rule and unit are the same', () => {
     const rows = [
       {
@@ -334,6 +430,52 @@ describe('costing price-list workflow helpers', () => {
     assert.equal(priceListWorkflow.priceListFlatRowsReady([badRow]), false)
   })
 
+  it('does not show a final-price error while the live pricing trial is loading', () => {
+    const loadingRow = {
+      product_name: '榛巧拼配',
+      pricing_mode: 'tier_template',
+      tier_template_id: 3,
+      template_tier_id: 31,
+      pricing_rule_id: 7,
+      pricing_rule_version: 'V1',
+      price_unit: 'kg',
+      inventory_unit: 'kg',
+      group_snapshot: { group_item_name: '意式拼配豆' },
+      cost_source_snapshot: { pricing_rule_version: 'V1' },
+      final_unit_price: 0,
+    }
+
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(loadingRow, { trialStatus: 'loading' }), [])
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(loadingRow), ['榛巧拼配：最终价必须大于 0'])
+    assert.equal(priceListWorkflow.priceListFlatRowsReady([loadingRow]), false, 'loading rows still cannot be published')
+  })
+
+  it('blocks stale automatic prices until the live trial succeeds and exposes trial failures', () => {
+    const staleRow = {
+      product_name: '榛巧拼配',
+      pricing_mode: 'tier_template',
+      tier_template_id: 3,
+      template_tier_id: 31,
+      pricing_rule_id: 7,
+      pricing_rule_version: 'V1',
+      price_unit: 'kg',
+      inventory_unit: 'kg',
+      group_snapshot: { group_item_name: '意式拼配豆' },
+      cost_source_snapshot: { pricing_rule_version: 'V1' },
+      final_unit_price: 88,
+    }
+    const readyWithStatus = (status) => priceListWorkflow.priceListFlatRowsReady([staleRow], { trialStatusForRow: () => status })
+
+    assert.equal(readyWithStatus(''), false)
+    assert.equal(readyWithStatus('loading'), false)
+    assert.equal(readyWithStatus('error'), false)
+    assert.equal(readyWithStatus('success'), true)
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(staleRow, { trialStatus: 'error', trialError: 'BOM detail unavailable' }), [
+      '榛巧拼配：价格计算失败：BOM detail unavailable',
+    ])
+    assert.equal(priceListWorkflow.priceListFlatRowsReady([{ ...staleRow, manual_adjusted: true }], { trialStatusForRow: () => 'error' }), true)
+  })
+
   it('product price list flat rows read product master sales unit conversion', () => {
     const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
 
@@ -352,7 +494,8 @@ describe('costing price-list workflow helpers', () => {
     const previewTitle = source.match(/<div class="pdf-preview-title"[\s\S]*?<div class="pdf-preview-phone/)?.[0] || ''
 
     assert.match(flatRowEditor, /priceListFlatRowDisplayTitle\(row\)/)
-    assert.match(flatRowEditor, /priceListFlatRowErrors\(row\)/)
+    assert.match(flatRowEditor, /priceListFlatRowVisibleErrors\(row\)/)
+    assert.match(flatRowEditor, /priceListFlatRowPricingTrialStatus\(row\)/)
     assert.match(flatRowEditor, /flat-price-row-error-list/)
     assert.match(flatRowEditor, /hasPriceListFlatRowError\(row\)/)
     assert.doesNotMatch(flatRowEditor, /发布前需要为每行补齐计价模式/)

@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	appcosting "orderapp/internal/application/costing"
 	domain "orderapp/internal/domain/costing"
@@ -736,11 +737,53 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	if r.pool == nil || input.ProductID <= 0 {
 		return nil, nil
 	}
-	out := make([]appcosting.PricingRuleTrialBaseCostDetail, 0)
 	resolvedBomCosts, err := r.loadResolvedProductionBomCosts(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return r.loadPricingRuleTrialBaseCostDetails(ctx, input, resolvedBomCosts)
+}
+
+func (r Repository) LoadPricingRuleTrialBaseCostDetailsBatch(ctx context.Context, inputs []domain.ProductInput) ([][]appcosting.PricingRuleTrialBaseCostDetail, []error, error) {
+	out := make([][]appcosting.PricingRuleTrialBaseCostDetail, len(inputs))
+	errs := make([]error, len(inputs))
+	if r.pool == nil || len(inputs) == 0 {
+		return out, errs, nil
+	}
+	resolvedBomCosts, err := r.loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	workerCount := len(inputs)
+	if workerCount > 6 {
+		workerCount = 6
+	}
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for worker := 0; worker < workerCount; worker++ {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				input := inputs[index]
+				if input.ProductID <= 0 {
+					continue
+				}
+				out[index], errs[index] = r.loadPricingRuleTrialBaseCostDetails(ctx, input, resolvedBomCosts)
+			}
+		}()
+	}
+	for index := range inputs {
+		jobs <- index
+	}
+	close(jobs)
+	workers.Wait()
+	return out, errs, nil
+}
+
+func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput, resolvedBomCosts map[int64]productionBomResolvedCost) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
+	out := make([]appcosting.PricingRuleTrialBaseCostDetail, 0)
+	var err error
 	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,

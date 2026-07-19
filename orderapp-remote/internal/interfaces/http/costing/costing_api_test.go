@@ -28,6 +28,12 @@ type capturingPricingRuleTrialService struct {
 	last appcosting.PricingRuleTrialCommand
 }
 
+type capturingPricingRuleTrialBatchService struct {
+	fakeService
+	calls int
+	last  []appcosting.PricingRuleTrialCommand
+}
+
 func containsWarning(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -108,6 +114,20 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 	}, nil
 }
 
+func (fakeService) PricingRuleTrialBatch(ctx context.Context, requests []appcosting.PricingRuleTrialCommand) ([]appcosting.PricingRuleTrialBatchRow, error) {
+	rows := make([]appcosting.PricingRuleTrialBatchRow, len(requests))
+	for i, request := range requests {
+		rows[i].Index = i
+		result, err := (fakeService{}).PricingRuleTrial(ctx, request)
+		if err != nil {
+			rows[i].Error = err.Error()
+			continue
+		}
+		rows[i].Result = result
+	}
+	return rows, nil
+}
+
 func (fakePricingRuleTrialErrorService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
 	return nil, errors.New("product not found")
 }
@@ -179,6 +199,15 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 			{Key: "post_markup_cost_total", Label: "加价附加成本", Value: 2.9596, Unit: "kg"},
 			{Key: "final_unit_price", Label: "试算单价", Value: 116.7092, Unit: "kg"},
 		},
+	}, nil
+}
+
+func (s *capturingPricingRuleTrialBatchService) PricingRuleTrialBatch(_ context.Context, requests []appcosting.PricingRuleTrialCommand) ([]appcosting.PricingRuleTrialBatchRow, error) {
+	s.calls++
+	s.last = append([]appcosting.PricingRuleTrialCommand(nil), requests...)
+	return []appcosting.PricingRuleTrialBatchRow{
+		{Index: 0, Result: &appcosting.PricingRuleTrialResult{ProductID: requests[0].ProductID, FinalUnitPrice: 88}},
+		{Index: 1, Error: "product not found"},
 	}, nil
 }
 
@@ -839,6 +868,58 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestPricingRuleTrialBatchAPIUsesBatchServiceAndReturnsPartialErrorsInOrder(t *testing.T) {
+	e := echo.New()
+	svc := &capturingPricingRuleTrialBatchService{}
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	body := bytes.NewBufferString(`{"requests":[{"pricing_rule_id":7,"product_id":101,"quote_unit":"kg"},{"pricing_rule_id":7,"product_id":999,"quote_unit":"kg"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trials", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.calls != 1 || len(svc.last) != 2 || svc.last[0].ProductID != 101 || svc.last[1].ProductID != 999 {
+		t.Fatalf("batch service calls=%d requests=%+v", svc.calls, svc.last)
+	}
+	var got struct {
+		Rows []appcosting.PricingRuleTrialBatchRow `json:"rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Rows) != 2 || got.Rows[0].Index != 0 || got.Rows[0].Result == nil || got.Rows[0].Result.FinalUnitPrice != 88 || got.Rows[1].Index != 1 || got.Rows[1].Error != "product not found" {
+		t.Fatalf("batch response = %+v", got.Rows)
+	}
+}
+
+func TestPricingRuleTrialBatchAPIRejectsMoreThanOneHundredRequests(t *testing.T) {
+	e := echo.New()
+	svc := &capturingPricingRuleTrialBatchService{}
+	RegisterRoutes(e, Dependencies{Costing: svc})
+	requests := make([]appcosting.PricingRuleTrialCommand, 101)
+	for i := range requests {
+		requests[i] = appcosting.PricingRuleTrialCommand{PricingRuleID: 7, ProductID: int64(i + 1)}
+	}
+	body, err := json.Marshal(map[string]any{"requests": requests})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trials", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status=%d calls=%d body=%s", rec.Code, svc.calls, rec.Body.String())
 	}
 }
 

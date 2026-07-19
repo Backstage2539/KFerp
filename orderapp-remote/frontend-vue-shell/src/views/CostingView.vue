@@ -470,6 +470,9 @@
         <div class="picker-head">
           <strong>平铺价格行</strong>
           <span class="muted">{{ priceListFlatRows.length }} 行，发布快照固化分组、模板来源、Pricing Rule 版本、成本来源和客户引用</span>
+          <div v-if="priceListPricingRuleTrialFailedCount" class="picker-actions">
+            <button class="secondary compact" type="button" @click="retryPriceListPricingRuleTrials">重新试算失败项（{{ priceListPricingRuleTrialFailedCount }}）</button>
+          </div>
         </div>
         <div class="flat-price-table" v-if="priceListFlatRows.length">
           <div class="flat-price-head">
@@ -478,7 +481,7 @@
             <span>最终价</span>
             <span>快照</span>
           </div>
-          <div v-for="row in priceListFlatRows" :key="row.row_key" :class="['flat-price-row', { invalid: hasPriceListFlatRowError(row) }]">
+          <div v-for="row in priceListFlatRows" :key="row.row_key" :class="['flat-price-row', { invalid: hasPriceListFlatRowError(row), loading: priceListFlatRowPricingTrialStatus(row) === 'loading' }]">
             <div>
               <strong>{{ priceListFlatRowDisplayTitle(row) }}</strong>
               <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }} · {{ row.group_source === 'price_list' ? '价格表覆盖' : '商品档案分组' }}</span>
@@ -494,29 +497,30 @@
             </label>
             <div>
               <span>{{ row.pricing_rule_version || (row.pricing_mode === 'fixed_price' ? '固定价' : '未选择 Pricing Rule') }}</span>
-              <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : '自动计算' }}</span>
+              <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : (priceListFlatRowPricingTrialStatus(row) === 'loading' ? '价格计算中…' : (priceListFlatRowPricingTrialStatus(row) === 'error' ? '计算失败' : '自动计算')) }}</span>
               <span>{{ priceListFlatRowUnitSummary(row) }}</span>
             </div>
-            <ul v-if="priceListFlatRowErrors(row).length" class="flat-price-row-error-list">
-              <li v-for="msg in priceListFlatRowErrors(row)" :key="msg">{{ msg }}</li>
+            <ul v-if="priceListFlatRowVisibleErrors(row).length" class="flat-price-row-error-list">
+              <li v-for="msg in priceListFlatRowVisibleErrors(row)" :key="msg">{{ msg }}</li>
             </ul>
           </div>
         </div>
       </div>
 
-      <div class="pdf-preview-title">
-        <strong>预览</strong>
-        <span>{{ pdfTotalItems }} 款</span>
-        <div class="pdf-actions">
-          <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
-          <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing" @click="publishBeanList">发布价格表</button>
-          <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
-          <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
+      <section class="price-list-preview">
+        <div class="pdf-preview-title">
+          <strong>预览</strong>
+          <span>{{ pdfTotalItems }} 款</span>
+          <div class="pdf-actions">
+            <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
+            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing" @click="publishBeanList">发布价格表</button>
+            <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
+            <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
+          </div>
+          <p v-if="error" class="error price-list-publish-feedback">{{ error }}</p>
+          <p v-if="message" class="ok price-list-publish-feedback">{{ message }}</p>
         </div>
-        <p v-if="error" class="error price-list-publish-feedback">{{ error }}</p>
-        <p v-if="message" class="ok price-list-publish-feedback">{{ message }}</p>
-      </div>
-      <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
+        <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
         <header class="pdf-cover">
           <div>
             <img v-if="pdfTheme.logoImage" class="pdf-logo" :src="pdfTheme.logoImage" alt="logo" />
@@ -597,7 +601,8 @@
           <span>{{ pdfTheme.brandName || '棵凡咖啡' }}</span>
           <span>{{ pdfTheme.version }}</span>
         </footer>
-      </div>
+        </div>
+      </section>
     </section>
 
     <div v-if="priceListRulesDialogOpen" class="price-list-config-dialog-backdrop" @click.self="priceListRulesDialogOpen = false">
@@ -1058,10 +1063,12 @@ import {
 } from '../lib/product-settings'
 import {
   dedupePriceListFlatRows,
+  executePriceListPricingRuleTrialBatches,
   priceListFlatRowDisplayTitle,
   priceListFlatRowErrors,
   priceListFlatRowPriceUnitLabel,
   priceListFlatRowsReady as arePriceListFlatRowsReady,
+  priceListPricingRuleTrialCacheForRetry,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
 import { FORM_DRAFT_SCOPES, readFormDraft } from '../lib/form-draft-cache'
@@ -1247,8 +1254,14 @@ const basePdfGroups = computed(() => {
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
 const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))
 const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
-const priceListFlatRowsReady = computed(() => arePriceListFlatRowsReady(priceListFlatRows.value))
+const priceListFlatRowsReady = computed(() => arePriceListFlatRowsReady(priceListFlatRows.value, {
+  trialStatusForRow: priceListFlatRowPricingTrialStatus,
+}))
 const priceListPricingRuleTrialRequests = computed(() => currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
+const priceListPricingRuleTrialFailedCount = computed(() => priceListFlatRows.value.filter((row) => (
+  priceListFlatRowPricingTrialStatus(row) === 'error'
+  && priceListFlatRowVisibleErrors(row).some((message) => message.includes('价格计算失败'))
+)).length)
 
 function currentPriceListPricingRuleTrialRequests(sourceRows = []) {
   return buildPriceListPricingRuleTrialRequests(sourceRows, {
@@ -1270,6 +1283,11 @@ function schedulePriceListPricingRuleTrialRefresh() {
       loadPriceListPricingRuleTrials(requests)
     }
   })
+}
+
+function retryPriceListPricingRuleTrials() {
+  clearPriceListPricingRuleTrialErrorCache(priceListFlatRows.value)
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
@@ -1428,13 +1446,7 @@ watch(() => props.customerContextId, syncPublicationScopeFromPageContext, { imme
 watch(priceListPricingRuleTrialRequests, (requests) => {
   if (!requests.length) return
   loadPriceListPricingRuleTrials(requests)
-}, { deep: true })
-
-watch(priceListFlatRows, (rows) => {
-  const requests = currentPriceListPricingRuleTrialRequests(rows)
-  if (!requests.length) return
-  loadPriceListPricingRuleTrials(requests)
-}, { deep: true, immediate: true, flush: 'post' })
+}, { deep: true, immediate: true })
 
 function syncPublicationScopeFromPageContext() {
   const pageCustomerID = Number(props.customerContextId || 0) || versionListScopeCustomerID(versionListScope.value)
@@ -1815,7 +1827,7 @@ function itemSkuSnapshot(item = {}) {
 }
 
 function hasPriceListFlatRowError(row = {}) {
-  return priceListFlatRowErrors(row).length > 0
+  return priceListFlatRowVisibleErrors(row).length > 0
 }
 
 async function scrollFirstInactiveBomWarningIntoView() {
@@ -2549,18 +2561,37 @@ function priceListFlatRowFromSource({
 }
 
 function priceListPricingRuleTrialResultForRow(row = {}) {
-  const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
-  const key = priceTablePricingRuleTrialCacheKey(payload)
-  if (!key) return null
-  const cached = priceListPricingRuleTrialCache.value[key]
+  const cached = priceListPricingRuleTrialCacheEntryForRow(row)
   return cached?.status === 'success' ? cached.result : null
 }
 
-function setPriceListPricingRuleTrialCacheEntry(key, entry) {
-  if (!key) return
+function priceListPricingRuleTrialCacheEntryForRow(row = {}) {
+  const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
+  const key = priceTablePricingRuleTrialCacheKey(payload)
+  if (!key) return null
+  return priceListPricingRuleTrialCache.value[key] || null
+}
+
+function priceListFlatRowPricingTrialStatus(row = {}) {
+  return String(priceListPricingRuleTrialCacheEntryForRow(row)?.status || '').trim()
+}
+
+function priceListFlatRowPricingTrialError(row = {}) {
+  return String(priceListPricingRuleTrialCacheEntryForRow(row)?.error || '').trim()
+}
+
+function priceListFlatRowVisibleErrors(row = {}) {
+  return priceListFlatRowErrors(row, {
+    trialStatus: priceListFlatRowPricingTrialStatus(row),
+    trialError: priceListFlatRowPricingTrialError(row),
+  })
+}
+
+function mergePriceListPricingRuleTrialCache(entries = {}) {
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries) || !Object.keys(entries).length) return
   priceListPricingRuleTrialCache.value = {
     ...priceListPricingRuleTrialCache.value,
-    [key]: entry,
+    ...entries,
   }
 }
 
@@ -2571,14 +2602,10 @@ function clearPriceListPricingRuleTrialErrorCache(rows = []) {
     const key = priceTablePricingRuleTrialCacheKey(payload)
     if (key) keys.add(key)
   })
-  const next = { ...priceListPricingRuleTrialCache.value }
-  let changed = false
-  keys.forEach((key) => {
-    if (next[key]?.status !== 'error') return
-    delete next[key]
-    changed = true
-  })
-  if (changed) priceListPricingRuleTrialCache.value = next
+  priceListPricingRuleTrialCache.value = priceListPricingRuleTrialCacheForRetry(
+    priceListPricingRuleTrialCache.value,
+    [...keys],
+  )
 }
 
 async function loadPriceListPricingRuleTrials(requests = []) {
@@ -2587,15 +2614,19 @@ async function loadPriceListPricingRuleTrials(requests = []) {
     return key && cached?.status !== 'loading' && cached?.status !== 'success' && cached?.status !== 'error'
   })
   if (!pending.length) return
-  pending.forEach(({ key }) => setPriceListPricingRuleTrialCacheEntry(key, { status: 'loading' }))
-  await Promise.all(pending.map(async ({ key, payload }) => {
-    try {
-      const result = await apiSend('/api/costing/pricing-rule-trial', { method: 'POST', body: payload })
-      setPriceListPricingRuleTrialCacheEntry(key, { status: 'success', result })
-    } catch (err) {
-      setPriceListPricingRuleTrialCacheEntry(key, { status: 'error', error: err.message || 'pricing rule trial failed' })
-    }
-  }))
+  mergePriceListPricingRuleTrialCache(Object.fromEntries(pending.map(({ key }) => [key, { status: 'loading' }])))
+  const completed = await executePriceListPricingRuleTrialBatches(pending, {
+    chunkSize: 100,
+    timeoutMs: 30000,
+    sendBatch: (payloads, { signal }) => (
+      apiSend('/api/costing/pricing-rule-trials', {
+        method: 'POST',
+        body: { requests: payloads },
+        signal,
+      })
+    ),
+  })
+  mergePriceListPricingRuleTrialCache(completed)
 }
 
 function priceListGroupSnapshot(group = {}) {
@@ -4174,7 +4205,7 @@ onBeforeUnmount(() => {
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .section-bar, .bean-list-generate-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .bean-list-generate-bar p { margin: 4px 0 0; }
-.price-list-page-config { display: grid; gap: 12px; }
+.price-list-page-config { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; }
 .price-list-page-config .pdf-picker:first-child { margin-top: 0; }
 .bean-list-version-panel { display: grid; gap: 12px; }
 .bean-list-version-head { align-items: flex-start; }
@@ -4360,10 +4391,12 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .green-tier-price-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 7px; }
 .green-tier-price-editor label { display: grid; grid-template-columns: minmax(0, 1fr) 82px; align-items: center; gap: 6px; font-size: 12px; color: #555; }
 .green-tier-price-editor input { min-width: 0; }
-.pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
+.price-list-preview { grid-column: 1 / -1; display: grid; gap: 8px; width: 100%; min-width: 0; }
+.pdf-preview-title { width: 100%; max-width: none; margin: 16px 0 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; box-sizing: border-box; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
 .price-list-publish-feedback { flex-basis: 100%; margin: -4px 0 0; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
+.price-list-preview .pdf-preview-phone { width: 100%; max-width: none; margin: 0; box-sizing: border-box; }
 .bean-list-pdf-surface { box-sizing: border-box; padding: 16px; background-size: cover; background-position: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .pdf-cover { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid currentColor; padding-bottom: 12px; margin-bottom: 14px; }
 .pdf-cover h1 { margin: 2px 0 6px; font-size: 26px; line-height: 1.12; letter-spacing: 0; }
