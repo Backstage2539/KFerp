@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	domain "orderapp/internal/domain/costing"
 )
@@ -69,6 +70,12 @@ type PricingRuleTrialCommand struct {
 	OperationTemplateID int64                     `json:"operation_template_id,omitempty"`
 	QuoteUnit           string                    `json:"quote_unit,omitempty"`
 	Overrides           PricingRuleTrialOverrides `json:"overrides,omitempty"`
+}
+
+type PricingRuleTrialBatchRow struct {
+	Index  int                     `json:"index"`
+	Result *PricingRuleTrialResult `json:"result,omitempty"`
+	Error  string                  `json:"error,omitempty"`
 }
 
 type PricingRuleTrialOverrides struct {
@@ -459,6 +466,10 @@ type pricingRuleTrialBaseCostDetailRepository interface {
 	LoadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput) ([]PricingRuleTrialBaseCostDetail, error)
 }
 
+type pricingRuleTrialBatchBaseCostDetailRepository interface {
+	LoadPricingRuleTrialBaseCostDetailsBatch(ctx context.Context, inputs []domain.ProductInput) ([][]PricingRuleTrialBaseCostDetail, []error, error)
+}
+
 type pricingRuleTrialProductionOptionRepository interface {
 	LoadPricingRuleTrialProductionOptions(ctx context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error)
 }
@@ -637,6 +648,186 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 		}
 	}
 	return calculatePricingRuleTrial(rule, input, cmd, baseCostDetails, productionOptions, defaultTaxRate)
+}
+
+type preparedPricingRuleTrial struct {
+	index             int
+	command           PricingRuleTrialCommand
+	rule              ProductPricingRule
+	input             domain.ProductInput
+	productionOptions PricingRuleTrialProductionOptions
+}
+
+func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingRuleTrialCommand) ([]PricingRuleTrialBatchRow, error) {
+	rows := make([]PricingRuleTrialBatchRow, len(commands))
+	for i := range rows {
+		rows[i].Index = i
+	}
+	if len(commands) == 0 {
+		return rows, nil
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	params, err := s.Parameters(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rules := make(map[int64]ProductPricingRule)
+	ruleErrors := make(map[int64]error)
+	inputsByCustomer := make(map[int64]map[int64]domain.ProductInput)
+	prepared := make([]preparedPricingRuleTrial, 0, len(commands))
+	for index, original := range commands {
+		cmd := original
+		if cmd.PricingRuleID <= 0 {
+			rows[index].Error = "pricing_rule_id required"
+			continue
+		}
+		if cmd.ProductID <= 0 {
+			rows[index].Error = "product_id required"
+			continue
+		}
+
+		if ruleErr, failed := ruleErrors[cmd.PricingRuleID]; failed {
+			rows[index].Error = ruleErr.Error()
+			continue
+		}
+		rule, ok := rules[cmd.PricingRuleID]
+		if !ok {
+			rule, err = s.repo.LoadProductPricingRule(ctx, cmd.PricingRuleID)
+			if err != nil {
+				ruleErrors[cmd.PricingRuleID] = err
+				rows[index].Error = err.Error()
+				continue
+			}
+			rules[cmd.PricingRuleID] = rule
+		}
+
+		customerInputs, ok := inputsByCustomer[cmd.CustomerID]
+		if !ok {
+			inputs, loadErr := s.pricingRuleTrialProductInputs(ctx, params, cmd.CustomerID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			customerInputs = make(map[int64]domain.ProductInput, len(inputs))
+			for _, input := range inputs {
+				customerInputs[input.ProductID] = input
+			}
+			inputsByCustomer[cmd.CustomerID] = customerInputs
+		}
+		input, ok := customerInputs[cmd.ProductID]
+		if !ok {
+			rows[index].Error = "product not found"
+			continue
+		}
+
+		prepared = append(prepared, preparedPricingRuleTrial{
+			index:   index,
+			command: cmd,
+			rule:    rule,
+			input:   input,
+		})
+	}
+	if len(prepared) == 0 {
+		return rows, nil
+	}
+	productionOptions := make([]PricingRuleTrialProductionOptions, len(prepared))
+	productionOptionErrors := make([]error, len(prepared))
+	if optionRepo, ok := s.repo.(pricingRuleTrialProductionOptionRepository); ok {
+		productionOptions, productionOptionErrors = loadPricingRuleTrialProductionOptionsBatch(ctx, optionRepo, prepared)
+	}
+	ready := make([]preparedPricingRuleTrial, 0, len(prepared))
+	for i, item := range prepared {
+		if productionOptionErrors[i] != nil {
+			rows[item.index].Error = productionOptionErrors[i].Error()
+			continue
+		}
+		input, options, applyErr := pricingRuleTrialApplyProductionSelection(item.input, item.command, productionOptions[i])
+		if applyErr != nil {
+			rows[item.index].Error = applyErr.Error()
+			continue
+		}
+		quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, item.command.QuoteUnit)
+		if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
+			rows[item.index].Error = fmt.Sprintf("销售单位%s缺少可解析的单位换算，请先在商品档案维护销售规格或单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
+			continue
+		}
+		item.command.QuoteUnit = quoteUnit
+		item.input = input
+		item.productionOptions = options
+		ready = append(ready, item)
+	}
+	prepared = ready
+	if len(prepared) == 0 {
+		return rows, nil
+	}
+
+	defaultTaxRate := PricingRuleTrialDefaultTaxRate{}
+	if taxRepo, ok := s.repo.(pricingRuleTrialDefaultTaxRateRepository); ok {
+		defaultTaxRate, err = taxRepo.LoadPricingRuleTrialDefaultTaxRate(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	inputs := make([]domain.ProductInput, len(prepared))
+	for i := range prepared {
+		inputs[i] = prepared[i].input
+	}
+	details := make([][]PricingRuleTrialBaseCostDetail, len(prepared))
+	detailErrors := make([]error, len(prepared))
+	if batchRepo, ok := s.repo.(pricingRuleTrialBatchBaseCostDetailRepository); ok {
+		details, detailErrors, err = batchRepo.LoadPricingRuleTrialBaseCostDetailsBatch(ctx, inputs)
+		if err != nil {
+			return nil, err
+		}
+		if len(details) != len(prepared) || len(detailErrors) != len(prepared) {
+			return nil, fmt.Errorf("pricing rule trial batch details count mismatch")
+		}
+	} else if _, ok := s.repo.(pricingRuleTrialBaseCostDetailRepository); ok {
+		return nil, fmt.Errorf("repository batch pricing rule trial details required")
+	}
+
+	for i, item := range prepared {
+		if detailErrors[i] != nil {
+			rows[item.index].Error = detailErrors[i].Error()
+			continue
+		}
+		result, calculateErr := calculatePricingRuleTrial(item.rule, item.input, item.command, details[i], item.productionOptions, defaultTaxRate)
+		if calculateErr != nil {
+			rows[item.index].Error = calculateErr.Error()
+			continue
+		}
+		rows[item.index].Result = result
+	}
+	return rows, nil
+}
+
+func loadPricingRuleTrialProductionOptionsBatch(ctx context.Context, repo pricingRuleTrialProductionOptionRepository, items []preparedPricingRuleTrial) ([]PricingRuleTrialProductionOptions, []error) {
+	options := make([]PricingRuleTrialProductionOptions, len(items))
+	errs := make([]error, len(items))
+	workerCount := len(items)
+	if workerCount > 6 {
+		workerCount = 6
+	}
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for worker := 0; worker < workerCount; worker++ {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				options[index], errs[index] = repo.LoadPricingRuleTrialProductionOptions(ctx, items[index].input)
+			}
+		}()
+	}
+	for index := range items {
+		jobs <- index
+	}
+	close(jobs)
+	workers.Wait()
+	return options, errs
 }
 
 func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {

@@ -22,6 +22,76 @@ export function priceListPricingRuleTrialRequestsForRows(sourceRows = [], option
   return requests
 }
 
+export async function executePriceListPricingRuleTrialBatches(sourceRequests = [], options = {}) {
+  const requests = Array.isArray(sourceRequests) ? sourceRequests : []
+  const sendBatch = options?.sendBatch
+  if (!requests.length) return {}
+  if (typeof sendBatch !== 'function') throw new Error('sendBatch required')
+
+  const requestedChunkSize = Math.floor(Number(options?.chunkSize || 100))
+  const chunkSize = requestedChunkSize > 0 ? requestedChunkSize : 100
+  const timeoutMs = Math.max(1, Number(options?.timeoutMs || 30000))
+  const createAbortController = typeof options?.createAbortController === 'function'
+    ? options.createAbortController
+    : () => new AbortController()
+  const scheduleTimeout = typeof options?.scheduleTimeout === 'function'
+    ? options.scheduleTimeout
+    : (callback, delay) => globalThis.setTimeout(callback, delay)
+  const cancelTimeout = typeof options?.cancelTimeout === 'function'
+    ? options.cancelTimeout
+    : (timerID) => globalThis.clearTimeout(timerID)
+  const timeoutError = String(options?.timeoutError || '价格计算超时，请重新试算').trim()
+  const fallbackError = String(options?.fallbackError || 'pricing rule trial failed').trim()
+  const completed = {}
+
+  for (let start = 0; start < requests.length; start += chunkSize) {
+    const chunk = requests.slice(start, start + chunkSize)
+    const controller = createAbortController()
+    const timeoutID = scheduleTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await sendBatch(chunk.map(({ payload }) => payload), { signal: controller.signal })
+      const responseRows = Array.isArray(response?.rows) ? response.rows : []
+      const responseByIndex = new Map(responseRows.map((row, index) => [row?.index === undefined ? index : Number(row.index), row]))
+      chunk.forEach(({ key }, index) => {
+        const row = responseByIndex.get(index)
+        const result = row?.result
+        const finalUnitPrice = Number(result?.final_unit_price ?? result?.finalUnitPrice)
+        if (result && Number.isFinite(finalUnitPrice) && finalUnitPrice > 0) {
+          completed[key] = { status: 'success', result }
+          return
+        }
+        const warnings = Array.isArray(result?.warnings)
+          ? result.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
+          : []
+        completed[key] = {
+          status: 'error',
+          error: row?.error || warnings.join('；') || (result ? '试算未生成有效价格' : fallbackError),
+        }
+      })
+    } catch (err) {
+      chunk.forEach(({ key }) => {
+        completed[key] = {
+          status: 'error',
+          error: err?.name === 'AbortError' ? timeoutError : (err?.message || fallbackError),
+        }
+      })
+    } finally {
+      cancelTimeout(timeoutID)
+    }
+  }
+  return completed
+}
+
+export function priceListPricingRuleTrialCacheForRetry(sourceCache = {}, sourceKeys = []) {
+  const cache = sourceCache && typeof sourceCache === 'object' && !Array.isArray(sourceCache) ? sourceCache : {}
+  const next = { ...cache }
+  ;(Array.isArray(sourceKeys) ? sourceKeys : []).forEach((rawKey) => {
+    const key = String(rawKey || '').trim()
+    if (key && next[key]?.status === 'error') delete next[key]
+  })
+  return next
+}
+
 export function dedupePriceListFlatRows(sourceRows = []) {
   const rows = Array.isArray(sourceRows) ? sourceRows : []
   const seen = new Map()
@@ -45,12 +115,17 @@ export function dedupePriceListFlatRows(sourceRows = []) {
   return out
 }
 
-export function priceListFlatRowsReady(sourceRows = []) {
+export function priceListFlatRowsReady(sourceRows = [], options = {}) {
   const rows = Array.isArray(sourceRows) ? sourceRows : []
-  return rows.length > 0 && rows.every((row) => priceListFlatRowErrors(row).length === 0)
+  const trialStatusForRow = typeof options?.trialStatusForRow === 'function' ? options.trialStatusForRow : null
+  return rows.length > 0 && rows.every((row) => {
+    if (priceListFlatRowErrors(row).length > 0) return false
+    if (!trialStatusForRow || !priceListFlatRowUsesLiveTrial(row) || priceListFlatRowIsManualAdjusted(row)) return true
+    return String(trialStatusForRow(row) || '').trim() === 'success'
+  })
 }
 
-export function priceListFlatRowErrors(row = {}) {
+export function priceListFlatRowErrors(row = {}, options = {}) {
   const title = priceListFlatRowDisplayTitle(row)
   const errors = []
   const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
@@ -72,8 +147,12 @@ export function priceListFlatRowErrors(row = {}) {
     errors.push(`${title}：计价模式无效`)
   }
 
-  if (Number(row?.final_unit_price || row?.finalUnitPrice || 0) <= 0) {
+  if (Number(row?.final_unit_price || row?.finalUnitPrice || 0) <= 0 && String(options?.trialStatus || '').trim() !== 'loading') {
     errors.push(`${title}：最终价必须大于 0`)
+  }
+  if (priceListFlatRowUsesLiveTrial(row) && !priceListFlatRowIsManualAdjusted(row) && String(options?.trialStatus || '').trim() === 'error') {
+    const detail = String(options?.trialError || '').trim()
+    errors.push(`${title}：价格计算失败${detail ? `：${detail}` : ''}`)
   }
 
   const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
@@ -91,6 +170,11 @@ export function priceListFlatRowErrors(row = {}) {
     errors.push(`${title}：缺少成本来源快照`)
   }
   return errors
+}
+
+function priceListFlatRowUsesLiveTrial(row = {}) {
+  const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
+  return mode === 'pricing_rule' || mode === 'tier_template'
 }
 
 export function priceListFlatRowDisplayTitle(row = {}) {

@@ -926,6 +926,30 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'bom_operation_snapshot')
 })
 
+test('price table pricing-rule preview keeps a manually adjusted final price while refreshing its automatic baseline', () => {
+  const got = applyPricingRuleTrialToPriceTableRow({
+    product_id: 550,
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 40,
+    price_unit: 'kg',
+    inventory_unit: 'kg',
+    final_unit_price: 88,
+    original_final_unit_price: 80,
+    manual_adjusted: true,
+    cost_source_snapshot: {},
+  }, {
+    pricing_rule_id: 40,
+    product_id: 550,
+    quote_unit: 'kg',
+    inventory_unit: 'kg',
+    final_unit_price: 84,
+  })
+
+  assert.equal(got.final_unit_price, 88)
+  assert.equal(got.original_final_unit_price, 84)
+  assert.equal(got.manual_adjusted, true)
+})
+
 test('price table pricing-rule preview payload falls back to numeric product key', () => {
   const row = {
     row_key: '550:pricing_rule',

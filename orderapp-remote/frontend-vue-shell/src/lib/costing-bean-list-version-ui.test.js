@@ -584,11 +584,15 @@ test('price list generation persists pricing drafts and applies tier-template tr
     'restorePriceListGenerationDraftForActiveType',
     'productCatalogBusinessGroupRowsForPriceList',
     'priceListPricingRuleTrialRequestsForRows',
-    'watch(priceListFlatRows',
-    'flush: \'post\'',
+    'watch(priceListPricingRuleTrialRequests',
+    "apiSend('/api/costing/pricing-rule-trials'",
+    'mergePriceListPricingRuleTrialCache',
+    'executePriceListPricingRuleTrialBatches',
   ]) {
     assert.ok(viewSource.includes(expected), `missing price-list draft/group persistence behavior: ${expected}`)
   }
+  assert.match(priceListWorkflowSource, /start \+= chunkSize/, 'batch executor should advance by its tested chunk size')
+  assert.equal(viewSource.includes('watch(priceListFlatRows'), false, 'flat price rows must not trigger a duplicate deep trial watcher')
 
   const flatRowStart = viewSource.indexOf('function priceListFlatRowFromSource')
   const flatRowEnd = viewSource.indexOf('function priceListPricingRuleTrialResultForRow', flatRowStart)
@@ -788,15 +792,25 @@ test('price list preview builds from current selected products instead of empty 
   assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
   assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))'), true, 'flat rows should be generated from base preview groups and only identical tier rows should collapse')
   assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into PDF groups')
-  assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trial'"), true, 'pricing-rule rows should load live trial prices')
+  assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trials'"), true, 'pricing-rule rows should load live trial prices in one batch')
+  assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trial'"), false, 'price-list rows should not send one HTTP request per product')
   assert.equal(viewSource.includes('priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })'), true, 'pricing-rule trial payload should be scoped to the current customer')
   assert.equal(priceListWorkflowSource.includes("cached?.status === 'error'"), true, 'failed pricing-rule trial requests should not spin in a retry loop')
   assert.equal(viewSource.includes('visibleCategoryCodes: pdfVisibleCategoryCodes.value'), true, 'preview should keep the product picker category codes')
   assert.equal(viewSource.includes('const pdfVisiblePreviewCategoryCodes = computed(() => pdfCategoryCodesForVisibleSelection'), false, 'preview should not translate picker category codes into legacy PDF category codes')
   assert.equal(viewSource.includes('function pdfCategoryCodesForVisibleSelection'), false, 'legacy preview category code mapper should be removed')
   assert.equal(viewSource.includes('<div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">'), true, 'empty flat price rows should stay hidden')
-  assert.equal(viewSource.includes('const priceListFlatRowsReady = computed(() => arePriceListFlatRowsReady(priceListFlatRows.value))'), true, 'flat price publish readiness should use the shared helper')
+  assert.equal(viewSource.includes('trialStatusForRow: priceListFlatRowPricingTrialStatus'), true, 'flat price publish readiness should require successful live trials')
   assert.equal(priceListWorkflowSource.includes('return rows.length > 0 && rows.every'), true, 'empty flat price rows should not be publish-ready')
+  assert.equal(viewSource.includes('重新试算失败项'), true, 'failed live trials should expose an explicit retry action')
+})
+
+test('price list preview spans the page below flat price rows', () => {
+  assert.match(viewSource, /<section class="price-list-preview">[\s\S]*?<div class="pdf-preview-title">[\s\S]*?<div class="pdf-preview-phone bean-list-pdf-surface"/)
+  assert.match(viewSource, /<div v-if="priceListFlatRows\.length" class="pdf-picker flat-price-row-editor">[\s\S]*?<\/div>\s*<section class="price-list-preview">/)
+  assert.match(viewSource, /\.price-list-page-config\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)[^}]*min-width:\s*0/)
+  assert.match(viewSource, /\.price-list-preview\s*\{[^}]*grid-column:\s*1\s*\/\s*-1[^}]*width:\s*100%[^}]*min-width:\s*0/)
+  assert.match(viewSource, /\.price-list-preview\s+\.pdf-preview-phone\s*\{[^}]*width:\s*100%[^}]*max-width:\s*none/)
 })
 
 test('product bean-list drawer derives publication owner from current page scope', () => {

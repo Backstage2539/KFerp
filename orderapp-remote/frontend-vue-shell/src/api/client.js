@@ -65,7 +65,7 @@ export async function apiGet(url) {
   return readJson(res)
 }
 
-export async function apiSend(url, { method = 'POST', body, headers = {} } = {}) {
+export async function apiSend(url, { method = 'POST', body, headers = {}, signal } = {}) {
   const payload = body instanceof FormData || body instanceof URLSearchParams ? body : JSON.stringify(body ?? {})
   const baseHeaders = { Accept: 'application/json' }
   if (!(body instanceof FormData)) {
@@ -75,6 +75,7 @@ export async function apiSend(url, { method = 'POST', body, headers = {} } = {})
     method,
     headers: { ...baseHeaders, ...headers },
     body: payload,
+    signal,
   })
   return readJson(res)
 }
