@@ -81,6 +81,8 @@ export function buildPriceListProductFamilies(items = []) {
       || selectableEntries.find(({ item }) => parentDefaultUnit && normalizedSpecText(priceListProductSpecLabel(item)) === parentDefaultUnit)
       || selectableEntries[0]
     const defaultSkuID = Number(matchingDefaultEntry?.skuID || 0)
+    const parentProductName = priceListParentCatalogName(parentItem)
+    const parentDisplayName = priceListParentDisplayName(parentItem, parentProductName)
     const skuOptions = selectableEntries
       .slice()
       .sort((a, b) => {
@@ -96,23 +98,17 @@ export function buildPriceListProductFamilies(items = []) {
         parent_product_id: parentProductID,
         effective_parent_product_id: parentProductID,
         __price_list_parent_product_id: parentProductID,
-        __price_list_parent_product_name: String(parentItem?.name || parentItem?.product_name || item?.name || '').trim(),
+        __price_list_parent_product_name: parentDisplayName,
+        __price_list_product_name: parentProductName,
       }))
-    const name = String(
-      parentItem?.customer_product_display_name ??
-      parentItem?.customerProductDisplayName ??
-      parentItem?.name ??
-      parentItem?.product_name ??
-      '',
-    ).trim()
     return {
       ...parentItem,
       product_id: parentProductID,
       sku_id: parentProductID,
       parent_product_id: parentProductID,
       effective_parent_product_id: parentProductID,
-      name,
-      parent_product_name: name,
+      name: parentDisplayName,
+      parent_product_name: parentDisplayName,
       product_key: `product:${parentProductID}`,
       default_sku_id: defaultSkuID,
       parent_item: parentItem,
@@ -329,16 +325,95 @@ export function priceListSelectedSkuCategoryRows(categoryRows = [], selections =
       const parentProductID = priceListParentProductID(family)
       return (Array.isArray(family?.sku_options) ? family.sku_options : [])
         .filter((spec) => selected.has(`${parentProductID}:${priceListSkuID(spec)}`))
-        .map((spec) => ({
-          ...spec,
-          __price_list_parent_product_id: parentProductID,
-          __price_list_parent_product_name: String(family?.name || family?.parent_product_name || '').trim(),
-          __price_list_category_code: categoryCodeValue,
-          __price_list_group_item_id: groupItemID,
+        .map((spec) => priceListSelectedSkuProjection(family, spec, {
+          parentProductID,
+          categoryCode: categoryCodeValue,
+          groupItemID,
         }))
     })
     return { ...category, items }
   })
+}
+
+function priceListSelectedSkuProjection(family = {}, spec = {}, context = {}) {
+  const parentItem = family?.parent_item || family || {}
+  const productName = priceListParentCatalogName(parentItem)
+    || String(family?.__price_list_product_name || '').trim()
+    || String(family?.parent_product_name || family?.name || '').trim()
+  const displayName = firstNonEmptyText(
+    spec?.customer_product_display_name,
+    spec?.customerProductDisplayName,
+    family?.customer_product_display_name,
+    family?.customerProductDisplayName,
+    parentItem?.customer_product_display_name,
+    parentItem?.customerProductDisplayName,
+    family?.name,
+    productName,
+  ) || productName
+  const parentProductID = numberField(context.parentProductID) || priceListParentProductID(family)
+  const productAttributes = priceListSelectedSkuProductAttributes(parentItem, spec)
+  return {
+    ...spec,
+    name: displayName,
+    product_name: productName,
+    ...(productAttributes.length ? { product_attributes: productAttributes } : {}),
+    __price_list_parent_product_id: parentProductID,
+    __price_list_parent_product_name: displayName,
+    __price_list_display_name: displayName,
+    __price_list_product_name: productName,
+    __price_list_sales_spec_label: priceListSalesSpecAttributeValue(spec),
+    __price_list_category_code: String(context.categoryCode || '').trim(),
+    __price_list_group_item_id: numberField(context.groupItemID),
+  }
+}
+
+function priceListSelectedSkuProductAttributes(parentItem = {}, spec = {}) {
+  const specAttributes = Array.isArray(spec?.product_attributes)
+    ? spec.product_attributes
+    : (Array.isArray(spec?.productAttributes) ? spec.productAttributes : [])
+  const parentAttributes = Array.isArray(parentItem?.product_attributes)
+    ? parentItem.product_attributes
+    : (Array.isArray(parentItem?.productAttributes) ? parentItem.productAttributes : [])
+  return [...specAttributes, ...parentAttributes].map((row) => ({ ...row }))
+}
+
+function priceListSalesSpecAttributeValue(item = {}) {
+  const effectiveSalesSpec = item?.effective_sales_spec && typeof item.effective_sales_spec === 'object'
+    ? item.effective_sales_spec
+    : (item?.effectiveSalesSpec && typeof item.effectiveSalesSpec === 'object' ? item.effectiveSalesSpec : {})
+  return firstNonEmptyText(
+    effectiveSalesSpec?.spec_label,
+    effectiveSalesSpec?.specLabel,
+    item?.spec_label,
+    item?.specLabel,
+    effectiveSalesSpec?.spec_name,
+    effectiveSalesSpec?.specName,
+    item?.derived_sales_unit,
+    item?.derivedSalesUnit,
+    item?.sku_name,
+    item?.skuName,
+  ) || priceListProductSpecLabel(item)
+}
+
+function priceListParentCatalogName(parentItem = {}) {
+  return firstNonEmptyText(parentItem?.product_name, parentItem?.productName, parentItem?.name)
+}
+
+function priceListParentDisplayName(parentItem = {}, fallback = '') {
+  return firstNonEmptyText(
+    parentItem?.customer_product_display_name,
+    parentItem?.customerProductDisplayName,
+    parentItem?.name,
+    fallback,
+  ) || String(fallback || '').trim()
+}
+
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    const text = String(value ?? '').trim()
+    if (text) return text
+  }
+  return ''
 }
 
 export function priceListCategoryHiddenByCollapsedAncestor(categoryRows = [], category = null, collapsedByKey = {}) {

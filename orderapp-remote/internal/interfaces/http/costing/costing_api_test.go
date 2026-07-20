@@ -1408,6 +1408,47 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 	}
 }
 
+func TestPublicBeanListPageKeepsProductNameSeparateFromSelectedSalesSpec(t *testing.T) {
+	page, err := renderPublicBeanListPage(appcosting.BeanListPublication{
+		ListType: "commercial",
+		Version:  "V4.4.0",
+		Config:   map[string]any{"layoutStyle": "card", "cardsPerRow": 2},
+		Content: map[string]any{
+			"groups": []any{map[string]any{
+				"category": "1、咖啡熟豆",
+				"items": []any{
+					map[string]any{
+						"name":           "白月光瑰夏",
+						"attributeLines": []any{"规格：227g", "烘焙度：浅烘"},
+						"prices":         []any{map[string]any{"label": "1个227g", "price": 82.0, "unit": "227g"}},
+					},
+					map[string]any{
+						"name":           "白月光瑰夏",
+						"attributeLines": []any{"规格：454g", "烘焙度：浅烘"},
+						"prices":         []any{map[string]any{"label": "1个454g", "price": 148.0, "unit": "454g"}},
+					},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(page, "白月光瑰夏"); got != 2 {
+		t.Fatalf("public page product name count=%d, want 2; body=%s", got, page)
+	}
+	for _, want := range []string{"规格：227g", "规格：454g", "1个227g", "1个454g"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("public page missing %q; body=%s", want, page)
+		}
+	}
+	for _, forbidden := range []string{"白月光瑰夏227g", "白月光瑰夏454g", "白月光瑰夏 · 227g", "白月光瑰夏 · 454g"} {
+		if strings.Contains(page, forbidden) {
+			t.Fatalf("public page concatenated product name and spec as %q; body=%s", forbidden, page)
+		}
+	}
+}
+
 func TestPublicBeanListPagePassesProductTypeCategory(t *testing.T) {
 	svc := &recordingBeanListService{}
 	e := echo.New()
@@ -1706,6 +1747,85 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBeanListPublicationAPIPreservesSeparatedProductNameAndSalesSpecSnapshot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "publish", path: "/api/costing/bean-list/publications"},
+		{name: "draft", path: "/api/costing/bean-list/drafts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &recordingBeanListService{}
+			e := echo.New()
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("basic_auth_admin", true)
+					c.Set("employee_id", int64(7))
+					return next(c)
+				}
+			})
+			RegisterRoutes(e, Dependencies{Costing: svc})
+
+			body := bytes.NewBufferString(`{
+				"list_type":"commercial",
+				"version":"V4.4.0",
+				"scope":"mine",
+				"config":{"product_spec_selections":[{"parent_product_id":600,"sku_id":991,"selection_source":"manual","default_sku_id_at_selection":990}]},
+				"content":{
+					"groups":[{"category":"1、咖啡豆","items":[{
+						"name":"白月光瑰夏",
+						"display_name_snapshot":"白月光瑰夏",
+						"product_name_snapshot":"白月光瑰夏",
+						"sku_id":991,
+						"parent_product_id":600,
+						"sku_name":"227g袋装",
+						"spec_label":"227g",
+						"effective_sales_spec":{"sku_id":991,"spec_name":"227g","sales_unit":"袋"},
+						"productAttributes":[{"key":"sales_spec","label":"规格","value":"227g"}],
+						"attributeLines":["规格：227g"]
+					}]}],
+					"price_rows":[{"product_id":991,"sku_id":991,"parent_product_id":600,"product_name":"白月光瑰夏","sku_name":"227g袋装","spec_label":"227g","quantity_basis":"sales_spec_count"}]
+				}
+			}`)
+			req := httptest.NewRequest(http.MethodPost, tc.path, body)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+
+			cmd := svc.lastPublish
+			if tc.name == "draft" {
+				cmd = svc.lastDraft
+			}
+			groups := publicMapsFromAny(cmd.Content["groups"])
+			if len(groups) != 1 {
+				t.Fatalf("groups=%v", cmd.Content["groups"])
+			}
+			items := publicMapsFromAny(groups[0]["items"])
+			if len(items) != 1 {
+				t.Fatalf("items=%v", groups[0]["items"])
+			}
+			item := items[0]
+			if got := mapString(item, "name", ""); got != "白月光瑰夏" {
+				t.Fatalf("item name=%q", got)
+			}
+			if got := mapString(item, "product_name_snapshot", ""); got != "白月光瑰夏" {
+				t.Fatalf("product snapshot name=%q", got)
+			}
+			if got := publicStringList(item["attributeLines"]); len(got) != 1 || got[0] != "规格：227g" {
+				t.Fatalf("attribute lines=%v", got)
+			}
+			priceRows := publicMapsFromAny(cmd.Content["price_rows"])
+			if len(priceRows) != 1 || mapString(priceRows[0], "product_name", "") != "白月光瑰夏" || int64(mapNumber(priceRows[0], "sku_id", 0)) != 991 {
+				t.Fatalf("price rows=%v", cmd.Content["price_rows"])
+			}
+		})
 	}
 }
 

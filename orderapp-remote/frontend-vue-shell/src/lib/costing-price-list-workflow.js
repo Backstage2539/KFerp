@@ -126,12 +126,12 @@ export function priceListFlatRowsReady(sourceRows = [], options = {}) {
 }
 
 export function priceListFlatRowErrors(row = {}, options = {}) {
-  const title = priceListFlatRowDisplayTitle(row)
+  const title = priceListFlatRowContextLabel(row)
   if (!priceListFlatRowUsesSalesSpecCount(row) && (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false)) {
     const detail = String(row?.tier_unit_compatibility_error || row?.tierUnitCompatibilityError || '').trim()
     const productUnit = String(row?.product_sales_spec_unit || row?.productSalesSpecUnit || row?.price_unit || row?.priceUnit || '-').trim() || '-'
     const tierUnit = String(row?.tier_quantity_unit || row?.tierQuantityUnit || '-').trim() || '-'
-    return [detail || `阶梯模板不可用：商品规格“${productUnit}”与阶梯规格“${tierUnit}”不匹配`]
+    return [`${title}：${detail || `阶梯模板不可用：商品规格“${productUnit}”与阶梯规格“${tierUnit}”不匹配`}`]
   }
   const errors = []
   const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
@@ -190,10 +190,12 @@ function priceListFlatRowUsesSalesSpecCount(row = {}) {
 
 export function priceListFlatRowDisplayTitle(row = {}) {
   const productName = String(row?.product_name || row?.productName || row?.name || '').trim()
-  const spec = priceListFlatRowSpecLabel(row)
-  if (!productName) return spec || '未命名商品'
-  if (!spec || productName.includes(spec)) return productName
-  return `${productName}（${spec}）`
+  return productName || '未命名商品'
+}
+
+export function priceListFlatRowSpecDescription(row = {}) {
+  const spec = priceListFlatRowPriceUnitLabel(row)
+  return `规格：${spec || '-'}`
 }
 
 export function priceListFlatRowPriceUnitLabel(row = {}) {
@@ -208,27 +210,11 @@ export function priceListFlatRowPriceUnitLabel(row = {}) {
   return priceUnit || '-'
 }
 
-function priceListFlatRowSpecLabel(row = {}) {
-  const snapshot = parsePlainObject(row?.sku_snapshot ?? row?.skuSnapshot)
-  const candidates = [
-    row?.sku_name,
-    row?.skuName,
-    snapshot?.sku_name,
-    snapshot?.skuName,
-    row?.derived_spec_name,
-    row?.derivedSpecName,
-    row?.spec_label,
-    row?.specLabel,
-    snapshot?.spec_label,
-    snapshot?.specLabel,
-    netContentLabel(row),
-    netContentLabel(snapshot),
-  ]
-  for (const candidate of candidates) {
-    const text = String(candidate || '').trim()
-    if (text) return text
-  }
-  return ''
+export function priceListFlatRowContextLabel(row = {}) {
+  const productName = priceListFlatRowDisplayTitle(row)
+  const spec = priceListFlatRowPriceUnitLabel(row)
+  if (!spec || spec === '-') return productName
+  return `${productName} / 规格：${spec}`
 }
 
 function priceListFlatRowUnitSpecLabel(row = {}) {
@@ -239,12 +225,12 @@ function priceListFlatRowUnitSpecLabel(row = {}) {
     effectiveSpec?.specLabel,
     effectiveSpec?.spec_name,
     effectiveSpec?.specName,
-    row?.tier_quantity_unit,
-    row?.tierQuantityUnit,
     row?.spec_label,
     row?.specLabel,
     snapshot?.spec_label,
     snapshot?.specLabel,
+    row?.tier_quantity_unit,
+    row?.tierQuantityUnit,
     compactSpecLabelFromText(row?.derived_spec_name),
     compactSpecLabelFromText(row?.derivedSpecName),
     compactSpecLabelFromText(row?.sku_name),

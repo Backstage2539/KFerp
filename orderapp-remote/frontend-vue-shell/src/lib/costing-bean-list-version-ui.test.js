@@ -502,7 +502,8 @@ test('price list product picker renders one parent row with independently select
     'isPdfProductSpecSelected',
     'priceListProductSpecLabel(spec)',
     "openPriceListPricingPopover('product', priceListProductRowForSpec(row, spec))",
-    "{{ priceListPricingPopover.productRow?.parent_product_name }} · {{ priceListPricingPopover.productRow?.sku_name }}",
+    '商品：{{ priceListPricingPopover.productRow?.parent_product_name }}',
+    '规格：{{ priceListProductSpecLabel(priceListPricingPopover.productRow) }}',
     ':indeterminate.prop="isPdfCategoryPartiallySelected(category.code)"',
   ]) {
     assert.ok(selectionSource.includes(expected), `missing parent/spec picker behavior: ${expected}`)
@@ -510,6 +511,30 @@ test('price list product picker renders one parent row with independently select
 
   assert.equal(selectionSource.includes('v-for="row in category.items"'), true)
   assert.equal(selectionSource.includes('priceListProductRowForItem(row)'), false, 'parent row must not be priced as if it were one SKU')
+  assert.equal(
+    selectionSource.includes('{{ priceListPricingPopover.productRow?.parent_product_name }} · {{ priceListPricingPopover.productRow?.sku_name }}'),
+    false,
+    'pricing panel must not concatenate the SKU into the product name',
+  )
+})
+
+test('price list product specs use compact wrapping rows and a full-width active pricing panel', () => {
+  assert.match(viewSource, /\.product-spec-options\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s)
+  assert.match(viewSource, /\.product-spec-option\s*\{[^}]*display:\s*flex;/s)
+  assert.match(viewSource, /\.product-spec-pricing-panel\s*\{[^}]*flex:\s*1\s+0\s+100%;[^}]*width:\s*100%;/s)
+  assert.match(viewSource, /class="product-spec-pricing-panel"/)
+  assert.match(viewSource, /productRow\?\.scope \|\| ''\)\.trim\(\) !== 'sku'/)
+})
+
+test('flat price rows render the unchanged product name with a separate spec description', () => {
+  const flatRowStart = viewSource.indexOf('<div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">')
+  const previewStart = viewSource.indexOf('<div class="price-list-preview"', flatRowStart)
+  assert.ok(flatRowStart > -1, 'missing flat price row editor')
+  const flatRowSource = viewSource.slice(flatRowStart, previewStart > flatRowStart ? previewStart : undefined)
+
+  assert.match(flatRowSource, /<strong>\{\{ priceListFlatRowDisplayTitle\(row\) \}\}<\/strong>/)
+  assert.match(flatRowSource, /\{\{ priceListFlatRowSpecDescription\(row\) \}\}/)
+  assert.match(viewSource, /product_name:\s*item\.product_name_snapshot \|\| item\.product_name \|\| item\.__price_list_product_name/)
 })
 
 test('price list exposes parent-product pricing between SKU and category inheritance', () => {

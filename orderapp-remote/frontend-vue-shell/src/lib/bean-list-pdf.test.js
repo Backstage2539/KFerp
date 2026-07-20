@@ -614,6 +614,85 @@ test('PDF bean-list helper preserves product spec and unit fields from picker ro
 	assert.equal(item.effective_sales_spec.sku_id, 554)
 })
 
+test('selected SKU preview keeps product name unchanged and renders one authoritative sales-spec attribute', () => {
+  const sourceItem = {
+    product_id: 101,
+    sku_id: 101,
+    parent_product_id: 100,
+    effective_parent_product_id: 100,
+    name: '白月光瑰夏227g袋装',
+    product_name: '白月光瑰夏227g袋装',
+    __price_list_display_name: 'Karen 白月光',
+    __price_list_product_name: '白月光瑰夏',
+    __price_list_sales_spec_label: '227g',
+    sku_name: '227g袋装',
+    spec_label: '227g',
+    effective_sales_spec: {
+      sku_id: 101,
+      spec_key: 'bag-227g',
+      spec_label: '227g',
+      sales_unit: '袋',
+    },
+    product_attributes: [
+      { key: 'roast_level', label: '烘焙度', value: '浅烘' },
+      { key: 'sales_spec', label: '销售规格', value: '旧规格' },
+      { key: 'legacy_spec', label: '规格', value: '旧重复规格' },
+    ],
+    commercial_bean_list: {
+      code: '1.101',
+      category: '咖啡熟豆',
+      display_name: '白月光瑰夏227g袋装',
+    },
+    commercial_wholesale_tiers: [],
+  }
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'coffee',
+    label: '咖啡熟豆',
+    items: [sourceItem],
+  }], 'commercial', { selectedProductIDs: ['101'] })
+  const previewGroups = applyPriceListFlatRowsToBeanListPdfGroups(groups, [{
+    product_id: 101,
+    sku_id: 101,
+    parent_product_id: 100,
+    product_name: '白月光瑰夏',
+    pricing_mode: 'fixed_price',
+    tier_label: '固定价',
+    price_unit: '袋',
+    final_unit_price: 82,
+    quantity_basis: 'sales_spec_count',
+    effective_sales_spec: sourceItem.effective_sales_spec,
+  }], 'commercial')
+  const item = previewGroups[0].items[0]
+
+  assert.equal(item.name, 'Karen 白月光')
+  assert.equal(item.display_name_snapshot, 'Karen 白月光')
+  assert.equal(item.product_name_snapshot, '白月光瑰夏')
+  assert.equal(item.sku_id, 101)
+  assert.equal(item.parent_product_id, 100)
+  assert.equal(item.effective_sales_spec.sku_id, 101)
+  assert.deepEqual(item.productAttributes, [
+    { key: 'roast_level', label: '烘焙度', value: '浅烘' },
+    { key: 'sales_spec', label: '规格', value: '227g' },
+  ])
+  assert.deepEqual(item.attributeLines, ['烘焙度：浅烘', '规格：227g'])
+  assert.deepEqual(sourceItem.product_attributes, [
+    { key: 'roast_level', label: '烘焙度', value: '浅烘' },
+    { key: 'sales_spec', label: '销售规格', value: '旧规格' },
+    { key: 'legacy_spec', label: '规格', value: '旧重复规格' },
+  ])
+
+  const noIndustryAttributes = { ...sourceItem }
+  delete noIndustryAttributes.product_attributes
+  const noIndustryGroups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'coffee',
+    label: '咖啡熟豆',
+    items: [noIndustryAttributes],
+  }], 'commercial', { selectedProductIDs: ['101'] })
+  assert.deepEqual(noIndustryGroups[0].items[0].productAttributes, [
+    { key: 'sales_spec', label: '规格', value: '227g' },
+  ])
+})
+
 test('PDF bean-list helper keeps the current sales spec authoritative while legacy tier units remain readable', () => {
   const groups = buildBeanListPdfGroupsFromCategoryRows([{
     code: 'business-group-7-101',

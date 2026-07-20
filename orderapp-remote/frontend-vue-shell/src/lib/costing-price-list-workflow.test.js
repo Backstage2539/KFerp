@@ -356,8 +356,9 @@ describe('costing price-list workflow helpers', () => {
     ])
   })
 
-  it('shows child SKU spec in flat price row titles', () => {
+  it('keeps the parent product name unchanged and exposes the SKU spec separately', () => {
     assert.equal(typeof priceListWorkflow.priceListFlatRowDisplayTitle, 'function')
+    assert.equal(typeof priceListWorkflow.priceListFlatRowSpecDescription, 'function')
     assert.equal(typeof priceListWorkflow.priceListFlatRowPriceUnitLabel, 'function')
 
     const bagRow = {
@@ -366,7 +367,8 @@ describe('costing price-list workflow helpers', () => {
       spec_label: '227g',
       price_unit: '袋',
     }
-    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle(bagRow), '榛巧拼配（227g袋装）')
+    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle(bagRow), '榛巧拼配')
+    assert.equal(priceListWorkflow.priceListFlatRowSpecDescription(bagRow), '规格：227g')
     assert.equal(priceListWorkflow.priceListFlatRowPriceUnitLabel(bagRow), '227g')
 
     assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle({
@@ -375,7 +377,14 @@ describe('costing price-list workflow helpers', () => {
       net_content_qty: 227,
       net_content_unit: 'g',
       price_unit: '袋',
-    }), '榛巧拼配（227g）')
+    }), '榛巧拼配')
+    assert.equal(priceListWorkflow.priceListFlatRowSpecDescription({
+      product_name: '榛巧拼配',
+      spec_label: '227g',
+      net_content_qty: 227,
+      net_content_unit: 'g',
+      price_unit: '袋',
+    }), '规格：227g')
   })
 
   it('shows compact sales spec labels when a default spec uses a named package unit', () => {
@@ -387,7 +396,8 @@ describe('costing price-list workflow helpers', () => {
       inventory_conversion_json: { '227g袋装': { kg: 0.227 } },
     }
 
-    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle(row), '榛巧拼配（227g袋装）')
+    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle(row), '榛巧拼配')
+    assert.equal(priceListWorkflow.priceListFlatRowSpecDescription(row), '规格：227g')
     assert.equal(priceListWorkflow.priceListFlatRowPriceUnitLabel(row), '227g')
     assert.deepEqual(priceListWorkflow.priceListFlatRowErrors({
       ...row,
@@ -397,6 +407,29 @@ describe('costing price-list workflow helpers', () => {
       group_snapshot: { group_item_name: '意式拼配豆' },
       cost_source_snapshot: { pricing_rule_version: 'V1' },
     }), [])
+  })
+
+  it('keeps flat-row validation specific to the SKU without treating the spec as the product name', () => {
+    const row = {
+      product_name: '白月光瑰夏',
+      sku_name: '227g袋装',
+      spec_label: '227g',
+      pricing_mode: 'fixed_price',
+      fixed_unit_price: 0,
+      final_unit_price: 0,
+      price_unit: '袋',
+      inventory_unit: '袋',
+      group_snapshot: { group_item_name: '咖啡熟豆' },
+      cost_source_snapshot: { source: 'fixed_price' },
+    }
+
+    assert.equal(priceListWorkflow.priceListFlatRowDisplayTitle(row), '白月光瑰夏')
+    assert.equal(priceListWorkflow.priceListFlatRowSpecDescription(row), '规格：227g')
+    assert.equal(priceListWorkflow.priceListFlatRowContextLabel(row), '白月光瑰夏 / 规格：227g')
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(row).slice(0, 2), [
+      '白月光瑰夏 / 规格：227g：缺少固定价',
+      '白月光瑰夏 / 规格：227g：最终价必须大于 0',
+    ])
   })
 
   it('uses the frozen concrete sales spec as the display unit for sales-spec-count rows', () => {
@@ -435,12 +468,12 @@ describe('costing price-list workflow helpers', () => {
     const errors = priceListWorkflow.priceListFlatRowErrors(badRow)
 
     assert.deepEqual(errors, [
-      '榛巧拼配（227g袋装）：缺少阶梯档位',
-      '榛巧拼配（227g袋装）：缺少计算模板',
-      '榛巧拼配（227g袋装）：最终价必须大于 0',
-      '榛巧拼配（227g袋装）：缺少 袋 到 g 的换算',
-      '榛巧拼配（227g袋装）：缺少价格表分组快照',
-      '榛巧拼配（227g袋装）：缺少成本来源快照',
+      '榛巧拼配 / 规格：227g：缺少阶梯档位',
+      '榛巧拼配 / 规格：227g：缺少计算模板',
+      '榛巧拼配 / 规格：227g：最终价必须大于 0',
+      '榛巧拼配 / 规格：227g：缺少 袋 到 g 的换算',
+      '榛巧拼配 / 规格：227g：缺少价格表分组快照',
+      '榛巧拼配 / 规格：227g：缺少成本来源快照',
     ])
     assert.equal(priceListWorkflow.priceListFlatRowsReady([badRow]), false)
   })
@@ -461,7 +494,7 @@ describe('costing price-list workflow helpers', () => {
     }
 
     assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(loadingRow, { trialStatus: 'loading' }), [])
-    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(loadingRow), ['榛巧拼配：最终价必须大于 0'])
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(loadingRow), ['榛巧拼配 / 规格：kg：最终价必须大于 0'])
     assert.equal(priceListWorkflow.priceListFlatRowsReady([loadingRow]), false, 'loading rows still cannot be published')
   })
 
@@ -486,7 +519,7 @@ describe('costing price-list workflow helpers', () => {
     assert.equal(readyWithStatus('error'), false)
     assert.equal(readyWithStatus('success'), true)
     assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(staleRow, { trialStatus: 'error', trialError: 'BOM detail unavailable' }), [
-      '榛巧拼配：价格计算失败：BOM detail unavailable',
+      '榛巧拼配 / 规格：kg：价格计算失败：BOM detail unavailable',
     ])
     assert.equal(priceListWorkflow.priceListFlatRowsReady([{ ...staleRow, manual_adjusted: true }], { trialStatusForRow: () => 'error' }), true)
   })
@@ -498,6 +531,7 @@ describe('costing price-list workflow helpers', () => {
       tier_template_id: 3,
       tier_template_name: '咖啡熟豆',
       template_tier_id: 31,
+      spec_label: '磅',
       tier_quantity_unit: 'kg',
       tier_unit_compatible: false,
       tier_unit_compatibility_error: '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
@@ -512,7 +546,7 @@ describe('costing price-list workflow helpers', () => {
     }
 
     assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(incompatibleRow), [
-      '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
+      '初晓 / 规格：lb：阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
     ])
     assert.equal(priceListWorkflow.priceListFlatRowsReady([incompatibleRow]), false)
     assert.equal(priceListWorkflow.priceListFlatRowsReady([{ ...incompatibleRow, manual_adjusted: true }]), false)

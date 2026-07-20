@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-542-PRICE-LIST-INLINE-SPEC-DISPLAY
+- Branch: codex/pr542-price-list-inline-spec-display
+- Owner/session: Codex / 2026-07-20
+- Status: verified on feature branch; ready for develop integration and development deployment
+- Scope: 商品价格表“选择分类和产品”将同一父商品的规格改为横向紧凑排列；平铺价格行、计价面板、预览、新草稿、新发布、公开页和 PDF 保持父商品名或客户显示名不变，销售规格作为独立属性展示，具体 SKU 与计价快照继续隔离。
+- DEV:
+  - DEV-542-INLINE-SPEC-PICKER：规格选择横向排列并自动换行，规格项内保留勾选、默认标识和计价入口，活动计价面板在规格行下方全宽展开。
+  - DEV-542-NAME-SPEC-SNAPSHOT：商品名与规格在平铺行、预览、发布快照、公开页和 PDF 中分离；名称不追加规格，规格以 `sales_spec / 规格` 属性展示，具体 SKU 字段保持不变。
+  - DEV-542-DOCS-DEPLOY：同步需求、验收和成本手册，完成测试、构建、开发环境部署以及浏览器/PDF 冒烟。
+- Verifier:
+  - RED: support contract first failed on the missing `PR-542-PRICE-LIST-INLINE-SPEC-DISPLAY` seed; UI/workflow target suite failed 6/62 on the old vertical/concatenated-name behavior; selection/PDF target suite failed 2/48 because the child SKU name was still projected as the product name.
+  - GREEN: related frontend suites 110/110; `go test ./... -count=1`; Vite build (401 modules); server PDF overlay render and PNG inspection. Full frontend suite is 739/745 with the same six workspace failures reproduced on clean `origin/develop` b4553da0 (734/740).
+- Deployment: not started; development only. Production is out of scope and existing price tables must not be republished.
+- Last update: 2026-07-20 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` reported PR-542; `--claim price-list-inline-spec-display` hit the known macOS awk multiline-string error, so this placeholder was recorded with apply_patch.
+
 ### PR-541-PRICE-LIST-PRODUCT-SPEC-SELECTION
 - Branch: codex/price-list-product-spec-selection-20260720
 - Owner/session: Codex / 2026-07-20

@@ -435,62 +435,69 @@
                     <span>{{ priceListProductSpecLabel(spec) }}</span>
                     <small v-if="priceListSkuID(spec) === Number(row.default_sku_id || 0)">默认规格</small>
                   </label>
-                  <div v-if="isPdfProductSpecSelected(row, spec)" class="product-spec-pricing">
+                  <div class="product-spec-pricing">
                     <button
                       type="button"
                       :class="['price-list-summary-button', { active: isPriceListPricingPopoverOpen('product', priceListProductRowForSpec(row, spec)), overridden: priceListProductPricingHasOverride(priceListProductRowForSpec(row, spec)) }]"
+                      :disabled="!isPdfProductSpecSelected(row, spec)"
+                      :title="isPdfProductSpecSelected(row, spec) ? '设置当前规格计价' : '请先选择当前规格'"
                       @click.stop="openPriceListPricingPopover('product', priceListProductRowForSpec(row, spec))"
                     >
                       <span>计价</span>
                       <strong>{{ priceListProductPricingSummary(priceListProductRowForSpec(row, spec)) }}</strong>
                       <small v-if="priceListProductPricingHasOverride(priceListProductRowForSpec(row, spec))">已覆盖</small>
                     </button>
-                    <div v-if="isPriceListPricingPopoverOpen('product', priceListProductRowForSpec(row, spec))" class="price-list-pricing-popover" @click.stop>
-                      <div class="price-list-pricing-popover-title">
-                        <strong>{{ priceListPricingPopover.productRow?.parent_product_name }} · {{ priceListPricingPopover.productRow?.sku_name }}</strong>
-                        <button type="button" class="secondary compact" @click="closePriceListPricingPopover">关闭</button>
-                      </div>
-                      <div class="price-list-pricing-options">
-                        <button
-                          v-for="option in priceListPricingPopoverOptions"
-                          :key="`product-pricing-option-${priceListSkuID(spec)}-${option.value || 'inherit'}`"
-                          type="button"
-                          :class="{ active: priceListActivePricingSelection().pricing_mode === option.value }"
-                          @click="setPriceListPricingPopoverMode(option.value)"
-                        >
-                          {{ option.label }}
-                        </button>
-                      </div>
-                      <label v-if="priceListActivePricingSelection().pricing_mode === 'tier_template'" class="inline-price-config">
-                        <span>阶梯模板</span>
-                        <select :value="priceListActivePricingSelection().tier_template_id" @change="setPriceListPricingPopoverField('tier_template_id', $event.target.value)">
-                          <option :value="0">请选择阶梯模板</option>
-                          <option
-                            v-for="template in priceTierTemplates"
-                            :key="`product-pop-tier-${priceListSkuID(spec)}-${template.id}`"
-                            :value="template.id"
-                            :disabled="priceListTierTemplateOptionDisabled(template)"
-                          >{{ priceListTierTemplateOptionLabel(template) }}</option>
-                        </select>
-                        <small>档位按销售规格件数：1 个 = 1 {{ priceListActiveSalesSpecUnitLabel() }}</small>
-                      </label>
-                      <p v-if="priceListActiveTierTemplateWarning()" class="error inline-tier-template-warning">{{ priceListActiveTierTemplateWarning() }}</p>
-                      <label v-else-if="priceListActivePricingSelection().pricing_mode === 'pricing_rule'" class="inline-price-config">
-                        <span>价格计算模板</span>
-                        <select :value="priceListActivePricingSelection().pricing_rule_id" @change="setPriceListPricingPopoverField('pricing_rule_id', $event.target.value)">
-                          <option :value="0">请选择价格计算模板</option>
-                          <option v-for="rule in pricingRules" :key="`product-pop-rule-${priceListSkuID(spec)}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                        </select>
-                        <small>试算单位：元/{{ priceListActiveSalesSpecUnitLabel() }}</small>
-                      </label>
-                      <label v-else-if="priceListActivePricingSelection().pricing_mode === 'fixed_price'" class="inline-price-config">
-                        <span>固定价（元/{{ priceListActiveSalesSpecUnitLabel() }}）</span>
-                        <input type="number" min="0" step="0.01" :value="priceListActivePricingSelection().fixed_unit_price" @input="setPriceListPricingPopoverField('fixed_unit_price', $event.target.value)" />
-                      </label>
-                    </div>
                   </div>
                   <div v-if="priceListProductTierTemplateWarning(spec)" class="product-picker-tier-warning">
                     <strong>{{ priceListProductTierTemplateWarning(spec) }}</strong>
+                  </div>
+                </div>
+                <div v-if="isPriceListProductPricingPopoverOpenForFamily(row)" class="product-spec-pricing-panel">
+                  <div class="price-list-pricing-popover" @click.stop>
+                    <div class="price-list-pricing-popover-title">
+                      <div class="price-list-pricing-popover-context">
+                        <strong>商品：{{ priceListPricingPopover.productRow?.parent_product_name }}</strong>
+                        <span>规格：{{ priceListProductSpecLabel(priceListPricingPopover.productRow) }}</span>
+                      </div>
+                      <button type="button" class="secondary compact" @click="closePriceListPricingPopover">关闭</button>
+                    </div>
+                    <div class="price-list-pricing-options">
+                      <button
+                        v-for="option in priceListPricingPopoverOptions"
+                        :key="`product-pricing-option-${priceListSkuID(priceListPricingPopover.productRow)}-${option.value || 'inherit'}`"
+                        type="button"
+                        :class="{ active: priceListActivePricingSelection().pricing_mode === option.value }"
+                        @click="setPriceListPricingPopoverMode(option.value)"
+                      >
+                        {{ option.label }}
+                      </button>
+                    </div>
+                    <label v-if="priceListActivePricingSelection().pricing_mode === 'tier_template'" class="inline-price-config">
+                      <span>阶梯模板</span>
+                      <select :value="priceListActivePricingSelection().tier_template_id" @change="setPriceListPricingPopoverField('tier_template_id', $event.target.value)">
+                        <option :value="0">请选择阶梯模板</option>
+                        <option
+                          v-for="template in priceTierTemplates"
+                          :key="`product-pop-tier-${priceListSkuID(priceListPricingPopover.productRow)}-${template.id}`"
+                          :value="template.id"
+                          :disabled="priceListTierTemplateOptionDisabled(template)"
+                        >{{ priceListTierTemplateOptionLabel(template) }}</option>
+                      </select>
+                      <small>档位按销售规格件数：1 个 = 1 {{ priceListActiveSalesSpecUnitLabel() }}</small>
+                    </label>
+                    <p v-if="priceListActiveTierTemplateWarning()" class="error inline-tier-template-warning">{{ priceListActiveTierTemplateWarning() }}</p>
+                    <label v-else-if="priceListActivePricingSelection().pricing_mode === 'pricing_rule'" class="inline-price-config">
+                      <span>价格计算模板</span>
+                      <select :value="priceListActivePricingSelection().pricing_rule_id" @change="setPriceListPricingPopoverField('pricing_rule_id', $event.target.value)">
+                        <option :value="0">请选择价格计算模板</option>
+                        <option v-for="rule in pricingRules" :key="`product-pop-rule-${priceListSkuID(priceListPricingPopover.productRow)}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                      </select>
+                      <small>试算单位：元/{{ priceListActiveSalesSpecUnitLabel() }}</small>
+                    </label>
+                    <label v-else-if="priceListActivePricingSelection().pricing_mode === 'fixed_price'" class="inline-price-config">
+                      <span>固定价（元/{{ priceListActiveSalesSpecUnitLabel() }}）</span>
+                      <input type="number" min="0" step="0.01" :value="priceListActivePricingSelection().fixed_unit_price" @input="setPriceListPricingPopoverField('fixed_unit_price', $event.target.value)" />
+                    </label>
                   </div>
                 </div>
               </div>
@@ -565,6 +572,7 @@
           <div v-for="row in priceListFlatRows" :key="row.row_key" :class="['flat-price-row', { invalid: hasPriceListFlatRowError(row), loading: priceListFlatRowPricingTrialStatus(row) === 'loading' }]">
             <div>
               <strong>{{ priceListFlatRowDisplayTitle(row) }}</strong>
+              <span>{{ priceListFlatRowSpecDescription(row) }}</span>
               <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }} · {{ row.group_source === 'price_list' ? '价格表覆盖' : '商品档案分组' }}</span>
             </div>
             <div>
@@ -1152,6 +1160,7 @@ import {
   priceListFlatRowDisplayTitle,
   priceListFlatRowErrors,
   priceListFlatRowPriceUnitLabel,
+  priceListFlatRowSpecDescription,
   priceListFlatRowsReady as arePriceListFlatRowsReady,
   priceListPricingRuleTrialCacheForRetry,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
@@ -2340,6 +2349,13 @@ function isPriceListPricingPopoverOpen(type, payload = {}) {
     priceListPricingPopover.value.key === priceListPricingPopoverKey(type, payload)
 }
 
+function isPriceListProductPricingPopoverOpenForFamily(family = {}) {
+  if (!priceListPricingPopover.value.open || priceListPricingPopover.value.type !== 'product') return false
+  if (String(priceListPricingPopover.value.productRow?.scope || '').trim() !== 'sku') return false
+  const activeParentProductID = Number(priceListPricingPopover.value.productRow?.parent_product_id || 0)
+  return activeParentProductID > 0 && activeParentProductID === priceListParentProductID(family)
+}
+
 function isPriceListProductDisplayDialogOpen(productId) {
   return priceListConfigDialog.value.open &&
     priceListConfigDialog.value.type === 'product-display' &&
@@ -2862,7 +2878,7 @@ function priceListFlatRowFromSource({
     net_content_qty: Number(skuSnapshot.net_content_qty || 0) || 0,
     net_content_unit: skuSnapshot.net_content_unit || '',
     product_key: itemProductID(item),
-    product_name: item.name || item.display_name_snapshot || item.product_name_snapshot || '',
+    product_name: item.product_name_snapshot || item.product_name || item.__price_list_product_name || item.name || item.display_name_snapshot || '',
     group_snapshot: priceListGroupSnapshot(groupRow),
     group_source: 'product_catalog',
     pricing_mode: mode,
@@ -4837,6 +4853,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .price-list-pricing-popover { flex: 1 1 340px; min-width: min(100%, 280px); max-width: min(100%, 520px); border: 1px solid #d9d9d9; border-radius: 8px; background: #fff; box-shadow: 0 12px 32px rgba(0,0,0,.14); padding: 10px; display: grid; gap: 9px; }
 .price-list-pricing-popover-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .price-list-pricing-popover-title strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.price-list-pricing-popover-context { display: grid; gap: 2px; min-width: 0; }
+.price-list-pricing-popover-context span { color: #666; font-size: 12px; overflow-wrap: anywhere; }
 .price-list-pricing-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .price-list-pricing-options button { min-height: 34px; border: 1px solid #ddd; border-radius: 7px; background: #fff; padding: 6px 8px; font: inherit; text-align: left; cursor: pointer; }
 .price-list-pricing-options button.active { border-color: #111; background: #111; color: #fff; }
@@ -4859,16 +4877,19 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .inline-price-config-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; min-width: 0; }
 .product-picker-row { display: grid; gap: 7px; margin-left: var(--product-picker-row-indent, 0); border: 1px solid #eee; border-radius: 8px; padding: 9px; background: #fafafa; }
 .product-picker-row-head { display: grid; gap: 7px; min-width: 0; }
-.product-spec-options { display: grid; gap: 7px; padding-left: 18px; }
-.product-spec-option { display: grid; gap: 7px; border: 1px solid #e5e5e5; border-radius: 8px; padding: 8px 9px; background: #fff; }
+.product-spec-options { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 7px; padding-left: 18px; }
+.product-spec-option { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; border: 1px solid #e5e5e5; border-radius: 8px; padding: 6px 8px; background: #fff; }
 .product-spec-option.selected { border-color: #9fc2f6; background: #f7faff; }
 .product-spec-selection-warning { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #d89a2b; border-radius: 8px; background: #fff8e8; color: #7b4e00; padding: 9px 10px; }
 .product-spec-selection-warning-actions { display: flex; gap: 6px; flex-wrap: wrap; flex: none; }
 .product-spec-check { min-width: 0; }
 .product-spec-check span { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .product-spec-check small { border-radius: 999px; padding: 2px 7px; background: #e8f1ff; color: #205da8; white-space: nowrap; }
-.product-spec-pricing { display: flex; flex-wrap: wrap; gap: 7px; min-width: 0; padding-left: 23px; }
-.product-spec-pricing .price-list-pricing-popover { flex-basis: 100%; }
+.product-spec-pricing { display: flex; min-width: 0; }
+.product-spec-pricing .price-list-summary-button { min-width: 0; width: auto; max-width: 220px; min-height: 30px; padding: 4px 7px; }
+.product-spec-pricing-panel { flex: 1 0 100%; width: 100%; min-width: 0; }
+.product-spec-pricing-panel .price-list-pricing-popover { width: 100%; max-width: none; box-sizing: border-box; }
+.product-spec-option .product-picker-tier-warning { flex: 1 0 100%; margin-top: 0; }
 .product-picker-bom-warning { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; border: 1px solid #f0b7b7; border-radius: 8px; background: #fff1f1; color: #7d1616; padding: 8px 10px; font-size: 12px; line-height: 1.45; }
 .product-picker-bom-warning div { display: grid; gap: 2px; min-width: 0; }
 .product-picker-bom-warning strong { font-size: 13px; color: #5f0f0f; }
