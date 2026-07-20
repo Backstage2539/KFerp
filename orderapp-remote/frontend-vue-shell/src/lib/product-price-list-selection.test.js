@@ -10,12 +10,25 @@ import {
   priceListCategoryProductIDs,
   priceListProductSpecSelectionIssue,
   priceListProductSpecSelectionCounts,
+  priceListProductSpecLabel,
   priceListSelectedSkuCategoryRows,
   resolvePriceListProductSpecSelectionIssue,
   setPriceListCategorySpecSelection,
   togglePriceListProductSpecSelection,
   priceListVisibleCategoryRows,
 } from './product-price-list-selection.js'
+
+test('price-list spec label skips blank higher-priority fields before using the SKU label', () => {
+  assert.equal(
+    priceListProductSpecLabel({
+      sku_id: 884,
+      derived_sales_unit: '',
+      sku_name: '227g',
+      spec_label: '',
+    }),
+    '227g',
+  )
+})
 
 const categoryRows = [
   {
