@@ -691,6 +691,7 @@ export function buildPricingRuleTrialPayload(form = {}) {
 }
 
 export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
+  if (row.tier_unit_compatible === false || row.tierUnitCompatible === false) return null
   const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
   const pricingRuleID = [
     row.tier_pricing_rule_id,
@@ -1043,6 +1044,7 @@ export function buildPriceTableRowsFromTemplateResolution({
       fixed_unit_price: fixedPrice,
     }]
   }
+  if (!priceTierTemplateUnitCompatibility(product, tierTemplate).compatible) return []
   return (Array.isArray(tierTemplate.tiers) ? tierTemplate.tiers : []).map((tier) => {
     const label = String(tier.label || '').trim()
     const tierPricingRuleID = Number(tier.pricing_rule_id ?? tier.pricingRuleID ?? resolution.pricing_rule_id ?? pricingRule.id ?? 0) || 0
@@ -1057,8 +1059,10 @@ export function buildPriceTableRowsFromTemplateResolution({
         : Number(tier.max_qty ?? tier.maxQty ?? 0),
       final_unit_price: Number(unitPriceByTier[label] ?? tier.final_unit_price ?? tier.finalUnitPrice ?? 0) || 0,
       tier_template_id: tierTemplateID,
+      tier_template_name: String(tierTemplate.name || '').trim(),
       tier_template_source: tierSource,
       template_tier_id: Number(tier.id ?? tier.template_tier_id ?? tier.templateTierID ?? 0) || 0,
+      tier_quantity_unit: String(tier.quantity_unit ?? tier.quantityUnit ?? '').trim(),
       pricing_rule_id: tierPricingRuleID,
       pricing_rule_source: tierSource || pricingSource,
       pricing_rule_version: version,
@@ -1068,17 +1072,79 @@ export function buildPriceTableRowsFromTemplateResolution({
   })
 }
 
+export function priceTierTemplateUnitCompatibility(product = {}, tierTemplate = {}) {
+  const productUnit = productCurrentSalesSpecUnit(product)
+  const normalizedProductUnit = normalizePriceTierUnitIdentity(productUnit)
+  const tiers = (Array.isArray(tierTemplate.tiers) ? tierTemplate.tiers : []).filter((tier) => tier?.active !== false)
+  const templateUnits = uniqueInOrder(tiers
+    .map((tier) => normalizePriceTierUnitIdentity(tier?.quantity_unit ?? tier?.quantityUnit))
+    .filter(Boolean))
+  const compatible = Boolean(normalizedProductUnit) && templateUnits.length > 0 && templateUnits.every((unit) => unit === normalizedProductUnit)
+  let message = ''
+  if (!normalizedProductUnit) {
+    message = '阶梯模板不可用：商品缺少有效默认销售规格'
+  } else if (!templateUnits.length) {
+    message = '阶梯模板不可用：阶梯模板缺少有效档位规格'
+  } else if (!compatible) {
+    message = `阶梯模板不可用：商品规格“${productUnit}”与阶梯规格“${templateUnits.join('、')}”不匹配`
+  }
+  return {
+    compatible,
+    product_unit: productUnit,
+    template_units: templateUnits,
+    message,
+  }
+}
+
+export function priceTierTemplateRowKey({ productID = '', templateID = 0, tierID = 0, product = {}, tier = {}, suffix = '' } = {}) {
+  const productUnit = normalizePriceTierUnitIdentity(productCurrentSalesSpecUnit(product)) || '-'
+  const tierUnit = normalizePriceTierUnitIdentity(tier?.quantity_unit ?? tier?.quantityUnit) || '-'
+  const base = `${String(productID || '')}:tier-template:${Number(templateID || 0)}:${String(tierID || '')}:${productUnit}:${tierUnit}`
+  return suffix ? `${base}:${String(suffix)}` : base
+}
+
+export function productCurrentSalesSpecUnit(product = {}) {
+  const candidates = [
+    product.default_sales_unit,
+    product.defaultSalesUnit,
+    product.derived_sales_unit,
+    product.derivedSalesUnit,
+    product.sales_unit,
+    product.salesUnit,
+    product.quote_unit,
+    product.quoteUnit,
+    product.order_unit,
+    product.orderUnit,
+    product.spec_label,
+    product.specLabel,
+    product.price_unit,
+    product.priceUnit,
+    product.price_unit_snapshot,
+    product.priceUnitSnapshot,
+  ]
+  return candidates.map((value) => String(value ?? '').trim()).find(Boolean) || ''
+}
+
+function normalizePriceTierUnitIdentity(value = '') {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const compact = raw.toLowerCase().replace(/\s+/g, '')
+  const packageMatch = compact.match(/^(盒|袋|条)(?:[（(]|$)/)
+  if (packageMatch) return packageMatch[1]
+  const massMatch = compact.match(/^(?:\d+(?:\.\d+)?)?(kg|kgs|公斤|千克|g|克|lb|lbs|磅)(?:袋装)?$/i)
+  if (massMatch) {
+    const unit = String(massMatch[1] || '').toLowerCase()
+    if (unit === 'kg' || unit === 'kgs' || unit === '公斤' || unit === '千克') return 'kg'
+    if (unit === 'lb' || unit === 'lbs' || unit === '磅') return 'lb'
+    if (unit === 'g' || unit === '克') return 'g'
+  }
+  return compact
+}
+
 function productSalesUnitSnapshot(product = {}) {
   const inventoryUnit = normalizeUnitText(product.inventory_unit ?? product.inventoryUnit, 'kg')
   const priceUnit = normalizeUnitText(
-    product.price_unit
-      ?? product.priceUnit
-      ?? product.default_sales_unit
-      ?? product.defaultSalesUnit
-      ?? product.quote_unit
-      ?? product.quoteUnit
-      ?? product.order_unit
-      ?? product.orderUnit,
+    productCurrentSalesSpecUnit(product),
     inventoryUnit,
   )
   const conversion = productSalesUnitConversion(product, priceUnit, inventoryUnit)

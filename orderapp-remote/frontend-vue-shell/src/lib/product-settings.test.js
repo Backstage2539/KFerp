@@ -77,6 +77,9 @@ import {
   productPriceRecordLabel,
   pricingRuleTrialDefaultQuoteUnit,
   pricingRuleTrialQuoteUnitOptionsForProduct,
+  productCurrentSalesSpecUnit,
+  priceTierTemplateRowKey,
+  priceTierTemplateUnitCompatibility,
   resolvePriceTableTemplateInheritance,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
@@ -798,7 +801,7 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
   })
 
   assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
-    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg', default_sales_unit: '盒', unit_conversion_json: '{"盒":{"kg":0.2}}' },
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg', default_sales_unit: 'kg', unit_conversion_json: '{"kg":{"kg":1}}' },
     resolution: resolved,
     tierTemplate: {
       id: 3,
@@ -815,9 +818,92 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
     },
     unitPriceByTier: { '1kg+': 88, '10kg+': 78 },
   }), [
-    { product_id: 88, product_name: '初晓拼配', price_unit: '盒', inventory_unit: 'kg', inventory_conversion_json: { 盒: { kg: 0.2 } }, tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 31, pricing_rule_id: 41, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-1KG', tier_pricing_rule_id: 41, tier_pricing_rule_version: 'PR-1KG' },
-    { product_id: 88, product_name: '初晓拼配', price_unit: '盒', inventory_unit: 'kg', inventory_conversion_json: { 盒: { kg: 0.2 } }, tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 32, pricing_rule_id: 42, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-10KG', tier_pricing_rule_id: 42, tier_pricing_rule_version: 'PR-10KG' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', inventory_unit: 'kg', inventory_conversion_json: { kg: { kg: 1 } }, tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 31, pricing_rule_id: 41, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-1KG', tier_pricing_rule_id: 41, tier_pricing_rule_version: 'PR-1KG', tier_quantity_unit: 'kg', tier_template_name: '批发阶梯' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', inventory_unit: 'kg', inventory_conversion_json: { kg: { kg: 1 } }, tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 32, pricing_rule_id: 42, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-10KG', tier_pricing_rule_id: 42, tier_pricing_rule_version: 'PR-10KG', tier_quantity_unit: 'kg', tier_template_name: '批发阶梯' },
   ])
+})
+
+test('price tier template requires the product sales spec unit to match every active tier unit', () => {
+  const kgTemplate = {
+    id: 3,
+    name: '咖啡熟豆',
+    tiers: [
+      { id: 31, label: '1kg+', quantity_unit: 'kg', active: true },
+      { id: 32, label: '24kg+', quantity_unit: '公斤', active: true },
+    ],
+  }
+
+  assert.deepEqual(priceTierTemplateUnitCompatibility({ name: '初晓', default_sales_unit: '磅' }, kgTemplate), {
+    compatible: false,
+    product_unit: '磅',
+    template_units: ['kg'],
+    message: '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
+  })
+  assert.deepEqual(priceTierTemplateUnitCompatibility({
+    name: '初晓',
+    default_sales_unit: '磅',
+    price_unit_snapshot: 'kg',
+    price_unit: 'kg',
+  }, kgTemplate), {
+    compatible: false,
+    product_unit: '磅',
+    template_units: ['kg'],
+    message: '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
+  })
+  assert.equal(priceTierTemplateUnitCompatibility({
+    price_unit: '',
+    default_sales_unit: '',
+    quote_unit: '磅',
+    price_unit_snapshot: 'kg',
+  }, kgTemplate).compatible, false)
+  assert.equal(priceTablePricingRuleTrialPayload({
+    product_id: 550,
+    pricing_mode: 'tier_template',
+    tier_unit_compatible: false,
+    pricing_rule_id: 41,
+    price_unit: 'lb',
+  }), null, 'an incompatible tier row must never create a Pricing Rule trial request')
+  assert.equal(productCurrentSalesSpecUnit({ price_unit: '', quote_unit: '磅', price_unit_snapshot: 'kg' }), '磅')
+  const kgOverrideKey = priceTierTemplateRowKey({
+    productID: 550, templateID: 3, tierID: 31,
+    product: { default_sales_unit: 'kg' }, tier: { quantity_unit: 'kg' },
+  })
+  const poundOverrideKey = priceTierTemplateRowKey({
+    productID: 550, templateID: 3, tierID: 31,
+    product: { default_sales_unit: '磅' }, tier: { quantity_unit: 'lb' },
+  })
+  assert.notEqual(kgOverrideKey, poundOverrideKey, 'a unit transition must invalidate the old manual price override key')
+  const poundRows = buildPriceTableRowsFromTemplateResolution({
+    product: { id: 550, name: '初晓', default_sales_unit: '磅', price_unit: 'kg', inventory_unit: 'kg', unit_conversion_json: { 磅: { kg: 0.45359237 } } },
+    resolution: { pricing_mode: 'tier_template', tier_template_id: 4, tier_template_source: 'product' },
+    tierTemplate: { id: 4, name: '磅装阶梯', tiers: [{ id: 41, label: '1磅+', quantity_unit: 'lb', pricing_rule_id: 41 }] },
+    pricingRulesByID: { 41: { id: 41, code: 'PR-LB' } },
+    unitPriceByTier: { '1磅+': 68 },
+  })
+  assert.equal(poundRows[0].price_unit, '磅', 'generated rows must use the current sales spec instead of a stale price unit')
+  assert.equal(priceTierTemplateUnitCompatibility({ default_sales_unit: 'lbs' }, { tiers: [{ quantity_unit: '磅' }] }).compatible, true)
+  assert.equal(priceTierTemplateUnitCompatibility({ default_sales_unit: '1Kg' }, { tiers: [{ quantity_unit: '千克' }] }).compatible, true)
+  assert.equal(priceTierTemplateUnitCompatibility({ default_sales_unit: '盒（10袋）' }, { tiers: [{ quantity_unit: '盒' }] }).compatible, true)
+  assert.deepEqual(priceTierTemplateUnitCompatibility({}, kgTemplate), {
+    compatible: false, product_unit: '', template_units: ['kg'], message: '阶梯模板不可用：商品缺少有效默认销售规格',
+  })
+  assert.deepEqual(priceTierTemplateUnitCompatibility({ default_sales_unit: 'kg' }, { tiers: [] }), {
+    compatible: false, product_unit: 'kg', template_units: [], message: '阶梯模板不可用：阶梯模板缺少有效档位规格',
+  })
+})
+
+test('price table does not generate tier rows when the product spec is incompatible with the tier template', () => {
+  assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
+    product: { id: 88, name: '初晓', inventory_unit: 'kg', default_sales_unit: '磅', unit_conversion_json: '{"磅":{"kg":0.454}}' },
+    resolution: { pricing_mode: 'tier_template', tier_template_id: 3, tier_template_source: 'product' },
+    tierTemplate: {
+      id: 3,
+      name: '咖啡熟豆',
+      tiers: [{ id: 31, label: '1kg+', min_qty: 1, quantity_unit: 'kg', pricing_rule_id: 41 }],
+    },
+    pricingRulesByID: { 41: { id: 41, code: 'PR-1KG' } },
+    unitPriceByTier: { '1kg+': 88 },
+  }), [])
 })
 
 test('price table can generate a single row from pricing rule mode or fixed price mode', () => {

@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-540-PRICE-TIER-UNIT-COMPATIBILITY
+- Branch: codex/price-list-template-unit-compat-20260719
+- Owner/session: Codex / 2026-07-19
+- Status: implementation, focused/full verification and build complete; develop merge and development deployment in progress
+- Scope: 商品价格表使用阶梯模板时，商品当前默认销售规格必须与阶梯档位数量单位严格同类；`磅/lb/lbs` 与 `kg/公斤/千克` 分属不同单位，不因可换算而兼容。直接选择不可用模板时禁用并提示；继承来的不兼容配置在具体商品和平铺价格行阻断，预览/PDF 不显示旧价；保存草稿和发布由后端按当前商品、客户别名和模板主数据重复校验。
+- DEV:
+  - DEV-540-TIER-UNIT-COMPATIBILITY：统一单位同义词规范化，商品级不兼容模板禁用，继承配置在具体商品行显示精确错误，并停止价格试算和旧价格回填。
+  - DEV-540-PUBLISH-UNIT-GUARD：保存草稿和发布前从数据库解析当前商品默认销售规格及阶梯模板有效档位单位，拒绝客户端伪造或手工改价绕过。
+  - DEV-540-DOCS-DEPLOY：同步需求、验收和成本手册，完成全量验证、合并 develop、开发部署及“初晓”浏览器烟测。
+- Verifier:
+  - RED: 前端缺少 `priceTierTemplateUnitCompatibility`，不兼容行没有错误且仍可试算/预览；应用层和 HTTP 发布/草稿接口对“初晓=磅、咖啡熟豆=kg”仍返回成功；PR-540 支持合同缺少需求种子。
+  - GREEN focused/full: frontend unit/workflow/PDF/UI tests 253/253；Costing application/PostgreSQL/HTTP/support 定向 Go 包和完整 `go test ./...` 全部通过；Vue/Vite 构建通过（401 modules）；当前全量前端 731/737，干净 `origin/develop=fe849630` 为 725/731，失败的是同 6 个既有工作区上下文合同，本需求新增 6 个测试全部通过。
+- Deployment: pending; production is out of scope.
+- Last update: 2026-07-19 Asia/Shanghai
+
 ### PR-539-PRICING-MARKUP-DRAWER
 - Branch: codex/pricing-markup-drawer-20260717
 - Owner/session: Codex / 2026-07-17

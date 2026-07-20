@@ -37,6 +37,7 @@ type fakeRepo struct {
 	lastDetailInput       domain.ProductInput
 	defaultTaxRate        PricingRuleTrialDefaultTaxRate
 	productUnitRules      map[int64]ProductSalesUnitRule
+	productDefaultUnits   map[int64]string
 	customerUnitRules     map[int64]ProductSalesUnitRule
 	lastCustomerAliasID   int64
 	loadParametersCount   int
@@ -45,6 +46,24 @@ type fakeRepo struct {
 	loadDefaultTaxCount   int
 	loadBatchDetailsCount int
 	batchDetailErrors     map[int64]error
+}
+
+type priceTierTemplateUnitRuleRepo struct {
+	*fakeRepo
+	templateUnitRules map[int64]PriceTierTemplateUnitRule
+	templateLoads     map[int64]int
+}
+
+func (r *priceTierTemplateUnitRuleRepo) ResolvePriceTierTemplateUnitRule(_ context.Context, templateID int64) (PriceTierTemplateUnitRule, error) {
+	if r.templateLoads == nil {
+		r.templateLoads = map[int64]int{}
+	}
+	r.templateLoads[templateID]++
+	rule, ok := r.templateUnitRules[templateID]
+	if !ok {
+		return PriceTierTemplateUnitRule{}, ErrPriceTierTemplateUnitRuleNotFound
+	}
+	return rule, nil
 }
 
 func sliceContains(values []string, want string) bool {
@@ -203,10 +222,31 @@ func (r *fakeRepo) ResolveProductSalesUnitRule(_ context.Context, productID int6
 	if !ok {
 		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
 	}
+	if priceUnit == "" {
+		priceUnit = rule.DefaultSalesUnit
+		if priceUnit == "" {
+			priceUnit = rule.InventoryUnit
+		}
+	}
 	if _, ok := rule.Conversion[priceUnit]; !ok {
 		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
 	}
 	return rule, nil
+}
+
+func (r *fakeRepo) ResolveProductDefaultSalesUnit(_ context.Context, productID int64) (string, error) {
+	if r.productDefaultUnits != nil {
+		unit, ok := r.productDefaultUnits[productID]
+		if !ok || strings.TrimSpace(unit) == "" {
+			return "", ErrProductSalesUnitRuleNotFound
+		}
+		return unit, nil
+	}
+	rule, ok := r.productUnitRules[productID]
+	if !ok || strings.TrimSpace(rule.DefaultSalesUnit) == "" {
+		return "", ErrProductSalesUnitRuleNotFound
+	}
+	return rule.DefaultSalesUnit, nil
 }
 
 func (r *fakeRepo) ResolveCustomerProductSalesUnitRule(_ context.Context, productID int64, customerProductAliasID int64, priceUnit string) (ProductSalesUnitRule, error) {
@@ -217,6 +257,12 @@ func (r *fakeRepo) ResolveCustomerProductSalesUnitRule(_ context.Context, produc
 	rule, ok := r.customerUnitRules[customerProductAliasID]
 	if !ok {
 		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
+	}
+	if priceUnit == "" {
+		priceUnit = rule.DefaultSalesUnit
+		if priceUnit == "" {
+			priceUnit = rule.InventoryUnit
+		}
 	}
 	if _, ok := rule.Conversion[priceUnit]; !ok {
 		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
@@ -2591,6 +2637,317 @@ func TestPublishBeanListRewritesFlatRowUnitSnapshotFromProductMaster(t *testing.
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("missing error detail %q in %q", want, err.Error())
 			}
+		}
+	}
+}
+
+func TestBeanListPublishAndDraftRejectTierTemplateUnitMismatch(t *testing.T) {
+	newRow := func() map[string]any {
+		return map[string]any{
+			"product_id":                float64(550),
+			"product_name":              "初晓",
+			"tier_label":                "1kg+",
+			"min_qty":                   float64(1),
+			"final_unit_price":          float64(68),
+			"original_final_unit_price": float64(68),
+			"price_unit":                "磅",
+			"inventory_unit":            "kg",
+			"inventory_conversion_json": map[string]any{"磅": map[string]any{"kg": float64(0.45359237)}},
+			"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "商品价格表分组", "group_item_id": float64(101), "group_item_name": "咖啡豆"},
+			"group_source":              "product_catalog",
+			"pricing_mode":              "tier_template",
+			"pricing_mode_source":       "product",
+			"tier_template_id":          float64(8),
+			"tier_template_name":        "伪造可用模板",
+			"tier_template_source":      "product",
+			"template_tier_id":          float64(81),
+			"tier_quantity_unit":        "磅",
+			"pricing_rule_id":           float64(40),
+			"pricing_rule_source":       "tier_template",
+			"pricing_rule_version":      "咖啡熟豆模板-v1",
+			"tier_pricing_rule_id":      float64(40),
+			"tier_pricing_rule_version": "咖啡熟豆模板-v1",
+			"cost_source_snapshot":      map[string]any{"bom_version_no": "BOM-CHUXIAO/V001"},
+			"customer_reference_snapshot": map[string]any{
+				"customer_id": float64(0),
+			},
+			"manual_adjusted": true,
+		}
+	}
+
+	for _, tc := range []struct {
+		name string
+		run  func(*Service, PublishBeanListCommand) error
+	}{
+		{
+			name: "publish",
+			run: func(svc *Service, cmd PublishBeanListCommand) error {
+				_, err := svc.PublishBeanList(context.Background(), cmd)
+				return err
+			},
+		},
+		{
+			name: "draft",
+			run: func(svc *Service, cmd PublishBeanListCommand) error {
+				_, err := svc.SaveBeanListDraft(context.Background(), cmd)
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseRepo := &fakeRepo{
+				productUnitRules: map[int64]ProductSalesUnitRule{
+					550: {
+						ProductID:        550,
+						DefaultSalesUnit: "磅",
+						InventoryUnit:    "kg",
+						Conversion: map[string]map[string]float64{
+							"磅": {"kg": 0.45359237},
+						},
+					},
+				},
+			}
+			repo := &priceTierTemplateUnitRuleRepo{
+				fakeRepo: baseRepo,
+				templateUnitRules: map[int64]PriceTierTemplateUnitRule{
+					8: {
+						TemplateID:   8,
+						TemplateName: "咖啡熟豆",
+						TierUnits:    map[int64]string{81: "kg"},
+					},
+				},
+			}
+			err := tc.run(NewService(repo), PublishBeanListCommand{
+				ListType: "commercial",
+				Version:  "V4.3.0",
+				Content:  map[string]any{"price_rows": []any{newRow()}},
+			})
+			if err == nil {
+				t.Fatalf("expected %s to reject mismatched product and tier-template units", tc.name)
+			}
+			for _, want := range []string{"阶梯模板不可用", "初晓", "咖啡熟豆", "磅", "kg", "不匹配"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("%s error missing %q: %v", tc.name, want, err)
+				}
+			}
+		})
+	}
+}
+
+func TestBeanListTierTemplateUnitCompatibilityRejectsMixedTemplateAndMissingProductIdentity(t *testing.T) {
+	baseRepo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			550: {
+				ProductID:        550,
+				DefaultSalesUnit: "磅",
+				InventoryUnit:    "kg",
+				Conversion:       map[string]map[string]float64{"磅": {"kg": 0.45359237}},
+			},
+		},
+	}
+	repo := &priceTierTemplateUnitRuleRepo{
+		fakeRepo: baseRepo,
+		templateUnitRules: map[int64]PriceTierTemplateUnitRule{
+			8: {
+				TemplateID:   8,
+				TemplateName: "混合单位模板",
+				TierUnits:    map[int64]string{81: "lb", 82: "kg"},
+			},
+		},
+	}
+	row := func() map[string]any {
+		return map[string]any{
+			"product_id":       float64(550),
+			"sku_id":           float64(550),
+			"product_name":     "初晓",
+			"pricing_mode":     "tier_template",
+			"tier_template_id": float64(8),
+			"template_tier_id": float64(81),
+			"final_unit_price": float64(68),
+			"manual_adjusted":  true,
+		}
+	}
+
+	_, err := NewService(repo).PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial", Version: "V4.3.2", Content: map[string]any{"price_rows": []any{row()}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "阶梯模板不可用") || !strings.Contains(err.Error(), "kg") {
+		t.Fatalf("mixed-unit template must be rejected even when only its compatible tier is submitted: %v", err)
+	}
+
+	skuOnlyRow := row()
+	skuOnlyRow["product_id"] = float64(0)
+	_, err = NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType: "commercial", Version: "V4.3.3", Content: map[string]any{"price_rows": []any{skuOnlyRow}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "kg") || strings.Contains(err.Error(), "缺少有效商品") {
+		t.Fatalf("sku_id must remain authoritative when product_id is absent: %v", err)
+	}
+
+	missingProductRow := row()
+	missingProductRow["product_id"] = float64(0)
+	missingProductRow["sku_id"] = float64(0)
+	_, err = NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType: "commercial", Version: "V4.3.4", Content: map[string]any{"price_rows": []any{missingProductRow}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "阶梯模板不可用") || !strings.Contains(err.Error(), "缺少有效商品") {
+		t.Fatalf("tier row without a product identity must fail closed: %v", err)
+	}
+}
+
+func TestBeanListTierTemplateUnitCompatibilityUsesActualSkuSpecInsteadOfCustomerAliasUnit(t *testing.T) {
+	baseRepo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			550: {ProductID: 550, DefaultSalesUnit: "kg", InventoryUnit: "kg", Conversion: map[string]map[string]float64{"kg": {"kg": 1}}},
+			551: {ProductID: 551, DefaultSalesUnit: "磅", InventoryUnit: "kg", Conversion: map[string]map[string]float64{"磅": {"kg": 0.45359237}}},
+		},
+		customerUnitRules: map[int64]ProductSalesUnitRule{
+			701: {ProductID: 550, DefaultSalesUnit: "kg", InventoryUnit: "kg", Conversion: map[string]map[string]float64{"kg": {"kg": 1}}},
+		},
+	}
+	repo := &priceTierTemplateUnitRuleRepo{
+		fakeRepo: baseRepo,
+		templateUnitRules: map[int64]PriceTierTemplateUnitRule{
+			8: {TemplateID: 8, TemplateName: "咖啡熟豆磅装", TierUnits: map[int64]string{81: "lb"}},
+		},
+	}
+	row := map[string]any{
+		"product_id":                float64(550),
+		"sku_id":                    float64(551),
+		"parent_product_id":         float64(550),
+		"customer_product_alias_id": float64(701),
+		"product_name":              "初晓客户显示名",
+		"pricing_mode":              "tier_template",
+		"tier_template_id":          float64(8),
+		"template_tier_id":          float64(81),
+	}
+	cmd := PublishBeanListCommand{Content: map[string]any{"price_rows": []any{row}}}
+	if err := NewService(repo).validatePriceTierTemplateUnitCompatibility(context.Background(), &cmd); err != nil {
+		t.Fatalf("actual child SKU pound spec must remain compatible with lb template: %v", err)
+	}
+	if baseRepo.lastCustomerAliasID != 0 {
+		t.Fatalf("customer alias unit resolver must not participate in tier compatibility; alias=%d", baseRepo.lastCustomerAliasID)
+	}
+	if got := row["product_sales_unit"]; got != "磅" {
+		t.Fatalf("product_sales_unit=%#v, want actual child SKU unit 磅", got)
+	}
+}
+
+func TestBeanListTierTemplateUnitCompatibilityRejectsInventoryFallbackAsDefaultSpec(t *testing.T) {
+	baseRepo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			550: {ProductID: 550, DefaultSalesUnit: "kg", InventoryUnit: "kg", Conversion: map[string]map[string]float64{"kg": {"kg": 1}}},
+		},
+		productDefaultUnits: map[int64]string{550: ""},
+	}
+	repo := &priceTierTemplateUnitRuleRepo{
+		fakeRepo: baseRepo,
+		templateUnitRules: map[int64]PriceTierTemplateUnitRule{
+			8: {TemplateID: 8, TemplateName: "咖啡熟豆", TierUnits: map[int64]string{81: "kg"}},
+		},
+	}
+	row := map[string]any{
+		"product_id": float64(550), "product_name": "缺少销售规格商品",
+		"pricing_mode": "tier_template", "tier_template_id": float64(8), "template_tier_id": float64(81),
+	}
+	cmd := PublishBeanListCommand{Content: map[string]any{"price_rows": []any{row}}}
+	err := NewService(repo).validatePriceTierTemplateUnitCompatibility(context.Background(), &cmd)
+	if err == nil || !strings.Contains(err.Error(), "缺少有效默认销售规格") {
+		t.Fatalf("inventory-unit fallback must not masquerade as an explicit current sales spec: %v", err)
+	}
+}
+
+func TestBeanListTierTemplateUnitCompatibilityNormalizesAliasesAndCachesTemplate(t *testing.T) {
+	baseRepo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			550: {
+				ProductID:        550,
+				DefaultSalesUnit: "磅",
+				InventoryUnit:    "kg",
+				Conversion: map[string]map[string]float64{
+					"磅": {"kg": 0.45359237},
+				},
+			},
+		},
+	}
+	repo := &priceTierTemplateUnitRuleRepo{
+		fakeRepo: baseRepo,
+		templateUnitRules: map[int64]PriceTierTemplateUnitRule{
+			8: {
+				TemplateID:   8,
+				TemplateName: "咖啡熟豆磅装",
+				TierUnits:    map[int64]string{81: "lb", 82: "lbs"},
+			},
+		},
+	}
+	newRow := func(tierID int64, label string) map[string]any {
+		return map[string]any{
+			"product_id":                float64(550),
+			"product_name":              "初晓",
+			"tier_label":                label,
+			"min_qty":                   float64(1),
+			"final_unit_price":          float64(68),
+			"original_final_unit_price": float64(68),
+			"price_unit":                "磅",
+			"inventory_unit":            "kg",
+			"inventory_conversion_json": map[string]any{"磅": map[string]any{"kg": float64(0.45359237)}},
+			"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "商品价格表分组", "group_item_id": float64(101), "group_item_name": "咖啡豆"},
+			"group_source":              "product_catalog",
+			"pricing_mode":              "tier_template",
+			"pricing_mode_source":       "product",
+			"tier_template_id":          float64(8),
+			"tier_template_source":      "product",
+			"template_tier_id":          float64(tierID),
+			"tier_quantity_unit":        "kg",
+			"pricing_rule_id":           float64(40),
+			"pricing_rule_source":       "tier_template",
+			"pricing_rule_version":      "咖啡熟豆模板-v1",
+			"tier_pricing_rule_id":      float64(40),
+			"tier_pricing_rule_version": "咖啡熟豆模板-v1",
+			"cost_source_snapshot":      map[string]any{"bom_version_no": "BOM-CHUXIAO/V001"},
+			"customer_reference_snapshot": map[string]any{
+				"customer_id": float64(0),
+			},
+			"manual_adjusted": false,
+		}
+	}
+	rows := []any{newRow(81, "1磅+"), newRow(82, "10磅+")}
+
+	if _, err := NewService(repo).PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.3.1",
+		Content:  map[string]any{"price_rows": rows},
+	}); err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	if repo.templateLoads[8] != 1 {
+		t.Fatalf("template resolver calls = %d, want one request-cached lookup", repo.templateLoads[8])
+	}
+	gotRows := repo.publishedBeanList.Content["price_rows"].([]any)
+	if gotRows[0].(map[string]any)["tier_quantity_unit"] != "lb" || gotRows[1].(map[string]any)["tier_quantity_unit"] != "lbs" {
+		t.Fatalf("authoritative tier unit snapshots = %#v / %#v", gotRows[0], gotRows[1])
+	}
+}
+
+func TestNormalizePriceTierCompatibilityUnit(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{input: "kg", want: "kg"},
+		{input: "KG", want: "kg"},
+		{input: "公斤", want: "kg"},
+		{input: "千克", want: "kg"},
+		{input: "lb", want: "lb"},
+		{input: "LBS", want: "lb"},
+		{input: "磅", want: "lb"},
+		{input: "1Kg", want: "kg"},
+		{input: "227g袋装", want: "g"},
+		{input: "盒（10袋）", want: "盒"},
+		{input: "盒", want: "盒"},
+	} {
+		if got := normalizePriceTierCompatibilityUnit(tc.input); got != tc.want {
+			t.Fatalf("normalizePriceTierCompatibilityUnit(%q)=%q, want %q", tc.input, got, tc.want)
 		}
 	}
 }

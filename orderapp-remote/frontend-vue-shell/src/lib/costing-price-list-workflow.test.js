@@ -476,6 +476,33 @@ describe('costing price-list workflow helpers', () => {
     assert.equal(priceListWorkflow.priceListFlatRowsReady([{ ...staleRow, manual_adjusted: true }], { trialStatusForRow: () => 'error' }), true)
   })
 
+  it('blocks a tier template whose quantity unit differs from the product sales spec even when units are convertible', () => {
+    const incompatibleRow = {
+      product_name: '初晓',
+      pricing_mode: 'tier_template',
+      tier_template_id: 3,
+      tier_template_name: '咖啡熟豆',
+      template_tier_id: 31,
+      tier_quantity_unit: 'kg',
+      tier_unit_compatible: false,
+      tier_unit_compatibility_error: '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
+      pricing_rule_id: 7,
+      pricing_rule_version: 'V1',
+      price_unit: 'lb',
+      inventory_unit: 'kg',
+      inventory_conversion_json: { lb: { kg: 0.454 } },
+      group_snapshot: { group_item_name: '咖啡豆' },
+      cost_source_snapshot: { pricing_rule_version: 'V1' },
+      final_unit_price: 88,
+    }
+
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(incompatibleRow), [
+      '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
+    ])
+    assert.equal(priceListWorkflow.priceListFlatRowsReady([incompatibleRow]), false)
+    assert.equal(priceListWorkflow.priceListFlatRowsReady([{ ...incompatibleRow, manual_adjusted: true }]), false)
+  })
+
   it('product price list flat rows read product master sales unit conversion', () => {
     const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
 

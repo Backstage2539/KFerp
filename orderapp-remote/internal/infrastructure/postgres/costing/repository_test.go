@@ -525,6 +525,62 @@ func TestResolveProductSalesUnitRuleUsesDerivedSkuNetContentConversion(t *testin
 	}
 }
 
+func TestResolvePriceTierTemplateUnitRuleReadsActiveTemplateAndTiers(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolvePriceTierTemplateUnitRule")
+	if start < 0 {
+		t.Fatalf("missing ResolvePriceTierTemplateUnitRule")
+	}
+	end := strings.Index(src[start:], "func productSalesUnitConversionMap")
+	if end < 0 {
+		t.Fatalf("missing ResolvePriceTierTemplateUnitRule end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{
+		"price_tier_templates",
+		"price_tier_template_tiers",
+		"tier.template_id=template.id",
+		"tier.active=true",
+		"template.active=true",
+		"tier.quantity_unit",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("tier-template compatibility must read authoritative active template tiers; missing %q", want)
+		}
+	}
+}
+
+func TestResolveProductDefaultSalesUnitReadsExplicitCurrentSpecWithoutInventoryFallback(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductDefaultSalesUnit")
+	if start < 0 {
+		t.Fatal("missing ResolveProductDefaultSalesUnit")
+	}
+	end := strings.Index(src[start:], "func (r Repository) ResolveCustomerProductSalesUnitRule")
+	if end < 0 {
+		t.Fatal("missing ResolveProductDefaultSalesUnit end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{"derived_sales_unit", "sku_name", "sales_specs_json", "default_sales_unit", "order_unit", "quote_unit"} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("strict current-sales-spec resolver missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"inventory_unit", "'kg'"} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("strict current-sales-spec resolver must not fall back to %q", forbidden)
+		}
+	}
+}
+
 func TestProductSalesUnitConversionMapAcceptsLegacyFlatConversions(t *testing.T) {
 	got := productSalesUnitConversionMap(`{"盒":0.2,"袋":"0.25"}`, "kg")
 	if got["盒"]["kg"] != 0.2 {
