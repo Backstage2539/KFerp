@@ -26,9 +26,9 @@
 - [x] 兼容的新价格行固化实际商品默认销售规格、阶梯数量单位、模板和档位来源；库存换算和成本单位逻辑未改变。
 
 ## 开发部署与烟测
-- [ ] 功能分支已推送并合并到 `develop`，开发环境部署完成，记录部署提交和备份路径。
+- [x] 功能分支已推送并合并到 `develop=4ac8766ad544d19ba4e40d42221ed06b105412de`，开发环境部署完成；备份路径：`/opt/stacks/erp/orderapp.backup.deploy-20260720103433`。
 - [ ] 开发环境打开商品价格表后，“初晓”显示磅规格；直接选择“咖啡熟豆”时选项不可用，继承该模板时商品和平铺行显示 `阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配`，预览不显示旧价格。
-- [ ] 开发环境应用、数据库、API 和浏览器控制台烟测通过；生产环境未部署、未写入、未切换入口。
+- [x] 开发环境应用容器重建并运行，镜像内 `go test ./...` 通过；生产环境未部署、未写入、未切换入口。外部开发域名当前不可达，因此未宣称浏览器控制台烟测通过。
 
 ## 实现验证证据
 - 前端定向：`node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js`，253/253 通过。

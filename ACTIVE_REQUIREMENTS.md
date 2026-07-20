@@ -18,7 +18,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: 前端缺少 `priceTierTemplateUnitCompatibility`，不兼容行没有错误且仍可试算/预览；应用层和 HTTP 发布/草稿接口对“初晓=磅、咖啡熟豆=kg”仍返回成功；PR-540 支持合同缺少需求种子。
   - GREEN focused/full: frontend unit/workflow/PDF/UI tests 253/253；Costing application/PostgreSQL/HTTP/support 定向 Go 包和完整 `go test ./...` 全部通过；Vue/Vite 构建通过（401 modules）；当前全量前端 731/737，干净 `origin/develop=fe849630` 为 725/731，失败的是同 6 个既有工作区上下文合同，本需求新增 6 个测试全部通过。
-- Deployment: pending; production is out of scope.
+- Deployment: merged to `origin/develop=4ac8766ad544d19ba4e40d42221ed06b105412de` and deployed to development on 2026-07-20; backup `/opt/stacks/erp/orderapp.backup.deploy-20260720103433`; production is out of scope. Container rebuild and Go test gate passed; external authenticated browser smoke was unavailable because the development DNS endpoint was not reachable from the server.
 - Last update: 2026-07-19 Asia/Shanghai
 
 ### PR-539-PRICING-MARKUP-DRAWER
