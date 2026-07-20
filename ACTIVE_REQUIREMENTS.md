@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-542-PRICE-LIST-INLINE-SPEC-DISPLAY
 - Branch: codex/pr542-price-list-inline-spec-display
 - Owner/session: Codex / 2026-07-20
-- Status: verified on feature branch; ready for develop integration and development deployment
+- Status: implementation, verification, develop merge and development deployment complete; awaiting Van review
 - Scope: 商品价格表“选择分类和产品”将同一父商品的规格改为横向紧凑排列；平铺价格行、计价面板、预览、新草稿、新发布、公开页和 PDF 保持父商品名或客户显示名不变，销售规格作为独立属性展示，具体 SKU 与计价快照继续隔离。
 - DEV:
   - DEV-542-INLINE-SPEC-PICKER：规格选择横向排列并自动换行，规格项内保留勾选、默认标识和计价入口，活动计价面板在规格行下方全宽展开。
@@ -17,8 +17,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-542-DOCS-DEPLOY：同步需求、验收和成本手册，完成测试、构建、开发环境部署以及浏览器/PDF 冒烟。
 - Verifier:
   - RED: support contract first failed on the missing `PR-542-PRICE-LIST-INLINE-SPEC-DISPLAY` seed; UI/workflow target suite failed 6/62 on the old vertical/concatenated-name behavior; selection/PDF target suite failed 2/48 because the child SKU name was still projected as the product name.
-  - GREEN: related frontend suites 110/110; `go test ./... -count=1`; Vite build (401 modules); server PDF overlay render and PNG inspection. Full frontend suite is 739/745 with the same six workspace failures reproduced on clean `origin/develop` b4553da0 (734/740).
-- Deployment: not started; development only. Production is out of scope and existing price tables must not be republished.
+  - Browser RED/GREEN: the first development smoke exposed a blank-priority label falling back to `SKU-000884`, and the second exposed a generated child display name overriding the parent preview title; each received a focused RED regression before the final related frontend suites passed 112/112.
+  - GREEN: `go test ./... -count=1`; Vite build (401 modules); server PDF overlay render and PNG inspection. Full frontend suite is 739/745 with the same six workspace failures reproduced on clean `origin/develop` b4553da0 (734/740).
+- Deployment: behavior merged through `775694ebba637a01ff5ad4396bd9111e3e4f5db5` and deployed to development; browser smoke verified the 227g/454g picker, pricing panels, flat rows and preview. Production was not deployed or written, and existing price tables were not republished.
 - Last update: 2026-07-20 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh` reported PR-542; `--claim price-list-inline-spec-display` hit the known macOS awk multiline-string error, so this placeholder was recorded with apply_patch.
 
