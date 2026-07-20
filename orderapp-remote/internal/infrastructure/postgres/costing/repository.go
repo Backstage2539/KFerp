@@ -1767,7 +1767,6 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(qc.inspection_created_at, ''),
 		       COALESCE(qc.inspection_reference_no, '')
 		FROM product_scope p
-		LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
 		LEFT JOIN %[1]s.product_bom b ON b.product_id = bom_product_id
 		LEFT JOIN %[1]s.bom_versions active_bv ON active_bv.product_id=p.bom_product_id AND active_bv.status='active'
 		LEFT JOIN %[1]s.production_boms current_bom ON current_bom.id=p.production_bom_id
@@ -1823,7 +1822,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			ORDER BY CASE WHEN COALESCE(spec.row->>'default','false') = 'true' THEN 0 ELSE 1 END, spec.ord
 			LIMIT 1
 		) product_unit_template_default_spec ON true
-		LEFT JOIN %[1]s.products parent_product ON parent_product.id=p.parent_product_id AND parent_product.active=true
+		LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AND parent_product.active=true
 		LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=parent_product.unit_template_id AND parent_product_unit_template.active=true
 		LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=parent_product.product_config_template_id AND parent_product_config.active=true
 		LEFT JOIN %[1]s.product_categories parent_product_category ON parent_product_category.id=parent_product.product_category_id AND parent_product_category.active=true

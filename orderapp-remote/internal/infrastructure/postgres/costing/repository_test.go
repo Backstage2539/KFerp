@@ -1125,6 +1125,30 @@ func TestLoadProductInputsProjectsParentAuthoritativeDefaultSKU(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsJoinsParentProductOnceForParentAndChildRows(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) loadProductInputs")
+	if start < 0 {
+		t.Fatal("loadProductInputs function not found")
+	}
+	endOffset := strings.Index(src[start+1:], "\nfunc ")
+	if endOffset < 0 {
+		t.Fatal("loadProductInputs function end not found")
+	}
+	loadProductInputs := src[start : start+1+endOffset]
+	join := "LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AND parent_product.active=true"
+	if !strings.Contains(loadProductInputs, join) {
+		t.Fatalf("loadProductInputs must resolve the authoritative parent for both parent and child rows; missing %q", join)
+	}
+	if count := strings.Count(loadProductInputs, "LEFT JOIN %[1]s.products parent_product ON"); count != 1 {
+		t.Fatalf("loadProductInputs parent_product joins = %d, want exactly 1 to avoid SQLSTATE 42712", count)
+	}
+}
+
 func TestBeanListProductScopeIncludesConcreteSKUPriceRows(t *testing.T) {
 	content := map[string]any{
 		"groups": []any{map[string]any{"items": []any{map[string]any{
