@@ -26,7 +26,7 @@ func TestDev449PriceListSelectionFeedbackContracts(t *testing.T) {
 			"openPriceListProductDisplayDialog",
 			"return '继承分类'",
 			"downloadSourcePublication.value?.content?.groups",
-			"buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value",
+			"buildBeanListPdfGroupsFromCategoryRows(selectedSkuCategoryProductGroups.value",
 			"visibleCategoryCodes: pdfVisibleCategoryCodes.value",
 			"v-if=\"priceListFlatRows.length\" class=\"pdf-picker flat-price-row-editor\"",
 		},

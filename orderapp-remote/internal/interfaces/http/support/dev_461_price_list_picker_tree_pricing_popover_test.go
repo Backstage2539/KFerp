@@ -29,7 +29,7 @@ func TestDev461PriceListPickerTreePricingPopoverContracts(t *testing.T) {
 			"priceListCategoryTemplateTarget",
 			"priceListCategoryTemplateSelection",
 			"setPriceListCategoryTemplate",
-			"buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value",
+			"buildBeanListPdfGroupsFromCategoryRows(selectedSkuCategoryProductGroups.value",
 			"visibleCategoryCodes: pdfVisibleCategoryCodes.value",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.js"): {
@@ -40,7 +40,7 @@ func TestDev461PriceListPickerTreePricingPopoverContracts(t *testing.T) {
 			"product picker as an indented collapsible tree",
 			"edits pricing in an anchored popover",
 			"separates parent, subgroup and product overrides",
-			"generate drawer should render from the same category rows as product picker",
+			"generate drawer should render materialized selected SKU rows from the picker",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.test.js"): {
 			"explicit picker category rows",

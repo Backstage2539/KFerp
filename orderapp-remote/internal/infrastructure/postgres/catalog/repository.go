@@ -392,6 +392,30 @@ func (r Repository) DeactivateProducts(ctx context.Context, cmd catalogapp.Deact
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT parent_product_id
+		FROM %s.products
+		WHERE id = ANY($1) AND COALESCE(parent_product_id,0)>0
+		ORDER BY parent_product_id
+	`, r.schema), cmd.ProductIDs)
+	if err != nil {
+		return err
+	}
+	affectedParentIDs := make([]int64, 0)
+	for rows.Next() {
+		var parentID int64
+		if err := rows.Scan(&parentID); err != nil {
+			rows.Close()
+			return err
+		}
+		affectedParentIDs = append(affectedParentIDs, parentID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET active=false
 		WHERE id = ANY($1) AND active=true`, r.schema), cmd.ProductIDs); err != nil {
@@ -407,6 +431,11 @@ func (r Repository) DeactivateProducts(ctx context.Context, cmd catalogapp.Deact
 	}
 	for _, productID := range cmd.ProductIDs {
 		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "deactivate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"product_id": productID, "bom_status": "inactive"}); err != nil {
+			return err
+		}
+	}
+	for _, parentID := range affectedParentIDs {
+		if err := reconcileProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, parentID); err != nil {
 			return err
 		}
 	}
@@ -692,9 +721,9 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 			parent_product_id, sku_name, sku_code, barcode, spec_label, net_content_qty, net_content_unit, is_default_sku,
 			product_category_id, created_at
 		)
-		VALUES($1,$2,$3,'',0,$4,0,0,0,0,10,10,true,false,$5,0,$6,'','',0,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,now())
+		VALUES($1,$2,$3,'',0,$4,0,0,0,0,10,10,true,false,$5,0,$6,'','',0,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,false,$17,now())
 		RETURNING id
-	`, r.schema), strings.TrimSpace(cmd.Name), strings.TrimSpace(cmd.Remark), productKind, cmd.Active, cmd.CustomerID, visibility, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID, cmd.ParentProductID, strings.TrimSpace(cmd.SKUName), strings.TrimSpace(cmd.SKUCode), strings.TrimSpace(cmd.Barcode), strings.TrimSpace(cmd.SpecLabel), cmd.NetContentQty, strings.TrimSpace(cmd.NetContentUnit), cmd.IsDefaultSKU, categoryID).Scan(&productID); err != nil {
+	`, r.schema), strings.TrimSpace(cmd.Name), strings.TrimSpace(cmd.Remark), productKind, cmd.Active, cmd.CustomerID, visibility, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID, cmd.ParentProductID, strings.TrimSpace(cmd.SKUName), strings.TrimSpace(cmd.SKUCode), strings.TrimSpace(cmd.Barcode), strings.TrimSpace(cmd.SpecLabel), cmd.NetContentQty, strings.TrimSpace(cmd.NetContentUnit), categoryID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 	unitAudit := productUnitAuditValues(cmd.UnitRuleOverrideJSON)
@@ -723,6 +752,12 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 		if err := syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID); err != nil {
 			return catalogapp.Product{}, err
 		}
+	} else if cmd.IsDefaultSKU {
+		if err := setProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, cmd.ParentProductID, productID); err != nil {
+			return catalogapp.Product{}, err
+		}
+	} else if err := reconcileProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, cmd.ParentProductID); err != nil {
+		return catalogapp.Product{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.Product{}, err
@@ -735,6 +770,173 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 		return catalogapp.Product{}, fmt.Errorf("created sku not found")
 	}
 	return *product, nil
+}
+
+func (r Repository) SetProductDefaultSKU(ctx context.Context, cmd catalogapp.SetProductDefaultSKUCommand) (catalogapp.Product, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, cmd.ParentProductID, cmd.SKUID); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.Product{}, err
+	}
+	product, err := r.GetProduct(ctx, cmd.ParentProductID)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	if product == nil {
+		return catalogapp.Product{}, fmt.Errorf("parent product not found")
+	}
+	return *product, nil
+}
+
+func setProductDefaultSKUTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parentID int64, skuID int64) error {
+	var oldDefaultSKUID, parentProductID, unitTemplateID int64
+	var parentActive bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(default_sku_id,0), COALESCE(parent_product_id,0), COALESCE(active,true), COALESCE(unit_template_id,0)
+		FROM %s.products WHERE id=$1 FOR UPDATE
+	`, schema), parentID).Scan(&oldDefaultSKUID, &parentProductID, &parentActive, &unitTemplateID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return catalogapp.ValidationError{Message: "parent product not found"}
+		}
+		return err
+	}
+	if parentProductID != 0 {
+		return catalogapp.ValidationError{Message: "default SKU can only be set on a parent product"}
+	}
+	if !parentActive {
+		return catalogapp.ValidationError{Message: "parent product is inactive"}
+	}
+
+	var skuParentID, derivedUnitTemplateID int64
+	var skuActive, autoDerived bool
+	var derivedStatus, specLabel, derivedSpecKey string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(parent_product_id,0), COALESCE(active,true), COALESCE(auto_derived_sku,false),
+		       COALESCE(derived_unit_template_id,0), COALESCE(derived_spec_status,''),
+		       COALESCE(NULLIF(spec_label,''), NULLIF(derived_spec_name,''), NULLIF(sku_name,''), '默认规格'),
+		       COALESCE(derived_spec_key,'')
+		FROM %s.products WHERE id=$1 FOR UPDATE
+	`, schema), skuID).Scan(&skuParentID, &skuActive, &autoDerived, &derivedUnitTemplateID, &derivedStatus, &specLabel, &derivedSpecKey); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return catalogapp.ValidationError{Message: "sku not found"}
+		}
+		return err
+	}
+	if skuID == parentID {
+		var eligibleChildren int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COUNT(*) FROM %s.products
+			WHERE parent_product_id=$1 AND COALESCE(active,true)=true
+			  AND COALESCE(derived_spec_status,'') IN ('', 'active')
+			  AND (COALESCE(auto_derived_sku,false)=false OR derived_unit_template_id=$2)
+		`, schema), parentID, unitTemplateID).Scan(&eligibleChildren); err != nil {
+			return err
+		}
+		if eligibleChildren > 0 {
+			return catalogapp.ValidationError{Message: "select an active SKU of the parent product"}
+		}
+	} else if skuParentID != parentID {
+		return catalogapp.ValidationError{Message: "sku does not belong to parent product"}
+	}
+	if !skuActive {
+		return catalogapp.ValidationError{Message: "sku is inactive"}
+	}
+	if derivedStatus == "template_removed" || derivedStatus == "template_disabled" {
+		return catalogapp.ValidationError{Message: "derived SKU is unavailable: " + derivedStatus}
+	}
+	if autoDerived && derivedStatus != "active" {
+		return catalogapp.ValidationError{Message: "derived SKU is unavailable: " + derivedStatus}
+	}
+	if autoDerived && derivedUnitTemplateID != unitTemplateID {
+		return catalogapp.ValidationError{Message: "derived SKU does not belong to the current sales specification template"}
+	}
+	return updateProductDefaultSKUPointerTx(ctx, tx, schema, actor, parentID, oldDefaultSKUID, skuID, "set_default_sku", specLabel, derivedSpecKey)
+}
+
+func updateProductDefaultSKUPointerTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parentID int64, oldSKU int64, newSKU int64, action string, specLabel string, specKey string) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET default_sku_id=$2 WHERE id=$1`, schema), parentID, newSKU); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.products
+		SET is_default_sku=(id=$2)
+		WHERE id=$1 OR parent_product_id=$1
+	`, schema), parentID, newSKU); err != nil {
+		return err
+	}
+	if oldSKU == newSKU {
+		return nil
+	}
+	oldValue := fmt.Sprintf("%d", oldSKU)
+	newValue := fmt.Sprintf("%d", newSKU)
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, strings.TrimSpace(actor), "product", &parentID, action, postgresinfra.StrPtr("default_sku_id"), &oldValue, &newValue, postgresinfra.AuditMeta{
+		"parent_product_id": parentID,
+		"sku_id":            newSKU,
+		"spec_label":        strings.TrimSpace(specLabel),
+		"spec_key":          strings.TrimSpace(specKey),
+	})
+}
+
+func reconcileProductDefaultSKUTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parentID int64) error {
+	var oldSKU, unitTemplateID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(default_sku_id,0), COALESCE(unit_template_id,0)
+		FROM %s.products
+		WHERE id=$1 AND COALESCE(parent_product_id,0)=0
+		FOR UPDATE
+	`, schema), parentID).Scan(&oldSKU, &unitTemplateID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	selectedSKU := int64(0)
+	if oldSKU > 0 && oldSKU != parentID {
+		_ = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id FROM %s.products
+			WHERE id=$1 AND parent_product_id=$2 AND COALESCE(active,true)=true
+			  AND COALESCE(derived_spec_status,'') IN ('', 'active')
+			  AND (COALESCE(auto_derived_sku,false)=false OR derived_unit_template_id=$3)
+		`, schema), oldSKU, parentID, unitTemplateID).Scan(&selectedSKU)
+	}
+	var specLabel, specKey string
+	if selectedSKU == 0 {
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT child.id,
+			       COALESCE(NULLIF(child.spec_label,''), NULLIF(child.derived_spec_name,''), NULLIF(child.sku_name,''), '默认规格'),
+			       COALESCE(child.derived_spec_key,'')
+			FROM %s.products child
+			WHERE child.parent_product_id=$1 AND COALESCE(child.active,true)=true
+			  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
+			  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=$2)
+			ORDER BY EXISTS (
+				SELECT 1 FROM %s.product_unit_templates template,
+				LATERAL jsonb_array_elements(COALESCE(template.sales_specs_json,'[]'::jsonb)) spec
+				WHERE template.id=$2 AND COALESCE((spec->>'default')::boolean,false)=true
+				  AND COALESCE(spec->>'spec_key','')=child.derived_spec_key
+			) DESC, child.id
+			LIMIT 1
+		`, schema, schema), parentID, unitTemplateID).Scan(&selectedSKU, &specLabel, &specKey)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+	if selectedSKU == 0 {
+		selectedSKU = parentID
+		specLabel = "默认规格"
+	}
+	return updateProductDefaultSKUPointerTx(ctx, tx, schema, actor, parentID, oldSKU, selectedSKU, "reconcile_default_sku", specLabel, specKey)
 }
 
 type derivedSKUParent struct {
@@ -789,12 +991,14 @@ func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, a
 		return err
 	}
 	if parent.UnitTemplateID <= 0 {
-		_, err := tx.Exec(ctx, fmt.Sprintf(`
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.products
 			SET derived_spec_status='template_removed'
 			WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_spec_status<>'template_removed'
-		`, schema), parent.ID)
-		return err
+		`, schema), parent.ID); err != nil {
+			return err
+		}
+		return reconcileProductDefaultSKUTx(ctx, tx, schema, actor, parent.ID)
 	}
 	var salesSpecsJSON string
 	var templateActive bool
@@ -804,12 +1008,14 @@ func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, a
 		WHERE id=$1 AND deleted_at IS NULL
 	`, schema), parent.UnitTemplateID).Scan(&salesSpecsJSON, &templateActive); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			_, updateErr := tx.Exec(ctx, fmt.Sprintf(`
+			if _, updateErr := tx.Exec(ctx, fmt.Sprintf(`
 				UPDATE %s.products
 				SET derived_spec_status='template_removed'
 				WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id=$2
-			`, schema), parent.ID, parent.UnitTemplateID)
-			return updateErr
+			`, schema), parent.ID, parent.UnitTemplateID); updateErr != nil {
+				return updateErr
+			}
+			return reconcileProductDefaultSKUTx(ctx, tx, schema, actor, parent.ID)
 		}
 		return err
 	}
@@ -843,12 +1049,14 @@ func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, a
 		}
 	}
 	if len(allKeys) == 0 {
-		_, err := tx.Exec(ctx, fmt.Sprintf(`
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.products
 			SET derived_spec_status='template_removed'
 			WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id=$2
-		`, schema), parent.ID, parent.UnitTemplateID)
-		return err
+		`, schema), parent.ID, parent.UnitTemplateID); err != nil {
+			return err
+		}
+		return reconcileProductDefaultSKUTx(ctx, tx, schema, actor, parent.ID)
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(derived_spec_key,'')
@@ -879,12 +1087,14 @@ func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, a
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.products
 		SET derived_spec_status='template_removed'
 		WHERE parent_product_id=$1 AND auto_derived_sku=true AND derived_unit_template_id<>$2 AND derived_spec_status<>'template_removed'
-	`, schema), parent.ID, parent.UnitTemplateID)
-	return err
+	`, schema), parent.ID, parent.UnitTemplateID); err != nil {
+		return err
+	}
+	return reconcileProductDefaultSKUTx(ctx, tx, schema, actor, parent.ID)
 }
 
 func upsertDerivedSKUForSpecTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parent derivedSKUParent, spec catalogapp.ProductSalesSpec) error {
@@ -935,9 +1145,9 @@ func upsertDerivedSKUForSpecTx(ctx context.Context, tx pgx.Tx, schema string, ac
 			parent_product_id, sku_name, sku_code, barcode, spec_label, net_content_qty, net_content_unit, is_default_sku,
 			product_category_id, auto_derived_sku, derived_unit_template_id, derived_spec_key, derived_spec_name, derived_sales_unit, derived_spec_status, created_at
 		)
-		VALUES($1,$2,$3,'',0,true,0,0,0,0,10,10,true,false,$4,0,$5,'','',0,'{}'::jsonb,'{}'::jsonb,$6,$7,$8,'','',$8,$9,$10,$11,$12,true,$6,$13,$8,$14,'active',now())
+		VALUES($1,$2,$3,'',0,true,0,0,0,0,10,10,true,false,$4,0,$5,'','',0,'{}'::jsonb,'{}'::jsonb,$6,$7,$8,'','',$8,$9,$10,false,$11,true,$6,$12,$8,$13,'active',now())
 		RETURNING id
-	`, schema), childName, parent.Remark, parent.ProductKind, parent.CustomerID, visibility, parent.UnitTemplateID, parent.ID, specName, spec.NetContentQty, netContentUnit, spec.Default, parent.CategoryID, specKey, salesUnit).Scan(&childID); err != nil {
+	`, schema), childName, parent.Remark, parent.ProductKind, parent.CustomerID, visibility, parent.UnitTemplateID, parent.ID, specName, spec.NetContentQty, netContentUnit, parent.CategoryID, specKey, salesUnit).Scan(&childID); err != nil {
 		return err
 	}
 	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "product", &childID, "derive_sku_from_sales_spec", postgresinfra.StrPtr("sales_spec"), nil, postgresinfra.StrPtr(childName), postgresinfra.AuditMeta{
@@ -6766,7 +6976,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, SKUID: p.SKUID, ParentProductID: p.ParentProductID, EffectiveParentProductID: p.EffectiveParentProductID, SKUName: p.SKUName, SKUCode: p.SKUCode, Barcode: p.Barcode, SpecLabel: p.SpecLabel, NetContentQty: p.NetContentQty, NetContentUnit: p.NetContentUnit, IsDefaultSKU: p.IsDefaultSKU, AutoDerivedSKU: p.AutoDerivedSKU, DerivedUnitTemplateID: p.DerivedUnitTemplateID, DerivedSpecKey: p.DerivedSpecKey, DerivedSpecName: p.DerivedSpecName, DerivedSalesUnit: p.DerivedSalesUnit, DerivedSpecStatus: p.DerivedSpecStatus, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
+	out := catalogapp.Product{ID: p.ID, SKUID: p.SKUID, ParentProductID: p.ParentProductID, EffectiveParentProductID: p.EffectiveParentProductID, SKUName: p.SKUName, SKUCode: p.SKUCode, Barcode: p.Barcode, SpecLabel: p.SpecLabel, NetContentQty: p.NetContentQty, NetContentUnit: p.NetContentUnit, IsDefaultSKU: p.IsDefaultSKU, DefaultSKUID: p.DefaultSKUID, EffectiveDefaultSKUID: p.EffectiveDefaultSKUID, DefaultSpecLabel: p.DefaultSpecLabel, AutoDerivedSKU: p.AutoDerivedSKU, DerivedUnitTemplateID: p.DerivedUnitTemplateID, DerivedSpecKey: p.DerivedSpecKey, DerivedSpecName: p.DerivedSpecName, DerivedSalesUnit: p.DerivedSalesUnit, DerivedSpecStatus: p.DerivedSpecStatus, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

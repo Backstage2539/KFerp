@@ -19,6 +19,7 @@ var (
 	ErrBeanListPublicationNotFound       = errors.New("bean list publication not found")
 	ErrProductPricingRuleNotFound        = errors.New("product pricing rule not found")
 	ErrProductSalesUnitRuleNotFound      = errors.New("product sales unit rule not found")
+	ErrProductSpecIdentityNotFound       = errors.New("product spec identity not found")
 	ErrPriceTierTemplateUnitRuleNotFound = errors.New("price tier template unit rule not found")
 	priceTierMassUnitPattern             = regexp.MustCompile(`^(?:\d+(?:\.\d+)?)?(kg|kgs|公斤|千克|g|克|lb|lbs|磅)(?:袋装)?$`)
 )
@@ -58,10 +59,24 @@ type ProductPricingRule struct {
 }
 
 type ProductSalesUnitRule struct {
-	ProductID        int64                         `json:"product_id"`
-	DefaultSalesUnit string                        `json:"default_sales_unit"`
-	InventoryUnit    string                        `json:"inventory_unit"`
-	Conversion       map[string]map[string]float64 `json:"unit_conversion_json"`
+	ProductID          int64                         `json:"product_id"`
+	SKUName            string                        `json:"sku_name,omitempty"`
+	SKUCode            string                        `json:"sku_code,omitempty"`
+	Barcode            string                        `json:"barcode,omitempty"`
+	DefaultSalesUnit   string                        `json:"default_sales_unit"`
+	InventoryUnit      string                        `json:"inventory_unit"`
+	Conversion         map[string]map[string]float64 `json:"unit_conversion_json"`
+	EffectiveSalesSpec *domain.EffectiveSalesSpec    `json:"effective_sales_spec,omitempty"`
+}
+
+// ProductSpecIdentity is the current product-master identity used to validate
+// a price-list selection. EffectiveParentProductID equals ProductID for a
+// historical parent-only product and otherwise points at the owning parent.
+type ProductSpecIdentity struct {
+	ProductID                int64
+	EffectiveParentProductID int64
+	Active                   bool
+	SpecValid                bool
 }
 
 type PriceTierTemplateUnitRule struct {
@@ -461,6 +476,10 @@ type Repository interface {
 
 type productSalesUnitRuleRepository interface {
 	ResolveProductSalesUnitRule(ctx context.Context, productID int64, priceUnit string) (ProductSalesUnitRule, error)
+}
+
+type productSpecIdentityRepository interface {
+	ResolveProductSpecIdentity(ctx context.Context, productID int64) (ProductSpecIdentity, error)
 }
 
 type productDefaultSalesUnitRepository interface {
@@ -2511,11 +2530,16 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 	if err != nil {
 		return nil, err
 	}
-	if s.repo != nil {
-		if err := s.applyNextBeanListPublicationVersion(ctx, &normalized); err != nil {
+	if err := s.validateProductSpecSelections(ctx, &normalized); err != nil {
+		return nil, err
+	}
+	if !beanListUsesConcreteProductSpecSelections(&normalized) {
+		if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
 			return nil, err
 		}
-		if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+	}
+	if s.repo != nil {
+		if err := s.applyNextBeanListPublicationVersion(ctx, &normalized); err != nil {
 			return nil, err
 		}
 		if err := s.applyProductSalesUnitSnapshots(ctx, &normalized); err != nil {
@@ -2811,10 +2835,11 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 	if !ok || cmd == nil || cmd.Content == nil {
 		return nil
 	}
-	rows, ok := cmd.Content["price_rows"].([]any)
-	if !ok {
+	rows := priceTierTemplateCompatibilityRows(cmd.Content["price_rows"])
+	if len(rows) == 0 {
 		return nil
 	}
+	strictSnapshots := beanListUsesConcreteProductSpecSelections(cmd)
 	for idx, rawRow := range rows {
 		row, ok := rawRow.(map[string]any)
 		if !ok || !beanListFlatPriceRowHasPrice(row) {
@@ -2822,31 +2847,44 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		}
 		productID := int64(numberValue(row["product_id"]))
 		skuID := int64(numberValue(row["sku_id"]))
-		effectiveProductID := productID
-		if effectiveProductID <= 0 && skuID > 0 {
-			effectiveProductID = skuID
+		concreteProductID := skuID
+		if concreteProductID <= 0 {
+			concreteProductID = productID
 		}
 		priceUnit := strings.TrimSpace(stringValue(row["price_unit"]))
-		if effectiveProductID <= 0 || priceUnit == "" {
+		if concreteProductID <= 0 || priceUnit == "" {
 			continue
-		}
-		applyFlatRowSKUSnapshot(row, effectiveProductID)
-		unitProductID := effectiveProductID
-		if parentProductID := int64(numberValue(row["parent_product_id"])); parentProductID > 0 {
-			if skuID > 0 {
-				unitProductID = skuID
-			}
 		}
 		customerAliasID := beanListFlatPriceRowCustomerAliasID(row)
 		rule, err := ProductSalesUnitRule{}, error(nil)
+		specRule, specErr := resolver.ResolveProductSalesUnitRule(ctx, concreteProductID, "")
+		if specErr != nil || specRule.ProductID <= 0 {
+			if strictSnapshots {
+				if specErr != nil && !errors.Is(specErr, ErrProductSalesUnitRuleNotFound) {
+					return specErr
+				}
+				return beanListFlatRowUnitConversionError("商品档案缺少权威销售规格", idx+1, row, priceUnit)
+			}
+			specRule = ProductSalesUnitRule{}
+		}
 		if customerAliasID > 0 {
 			if customerResolver, ok := s.repo.(customerProductSalesUnitRuleRepository); ok {
-				rule, err = customerResolver.ResolveCustomerProductSalesUnitRule(ctx, effectiveProductID, customerAliasID, priceUnit)
+				aliasProductID := productID
+				if aliasProductID <= 0 {
+					aliasProductID = concreteProductID
+				}
+				rule, err = customerResolver.ResolveCustomerProductSalesUnitRule(ctx, aliasProductID, customerAliasID, priceUnit)
 			} else {
-				rule, err = resolver.ResolveProductSalesUnitRule(ctx, unitProductID, priceUnit)
+				rule, err = resolver.ResolveProductSalesUnitRule(ctx, concreteProductID, priceUnit)
 			}
 		} else {
-			rule, err = resolver.ResolveProductSalesUnitRule(ctx, unitProductID, priceUnit)
+			rule, err = resolver.ResolveProductSalesUnitRule(ctx, concreteProductID, priceUnit)
+		}
+		if errors.Is(err, ErrProductSalesUnitRuleNotFound) && productID > 0 && productID != concreteProductID {
+			// Historical flat rows could carry a display-only sku_id without a
+			// parent_product_id. Keep their conversion fallback, while the new
+			// sales-spec snapshot remains anchored to the concrete SKU identity.
+			rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
 		}
 		if err != nil {
 			if errors.Is(err, ErrProductSalesUnitRuleNotFound) {
@@ -2863,11 +2901,19 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		}
 		row["inventory_unit"] = strings.TrimSpace(rule.InventoryUnit)
 		row["inventory_conversion_json"] = productSalesUnitConversionSnapshot(priceUnit, targets)
+		if specRule.ProductID <= 0 {
+			specRule = rule
+		}
+		spec, err := applyFlatRowEffectiveSalesSpec(row, concreteProductID, priceUnit, specRule, strictSnapshots)
+		if err != nil {
+			return beanListFlatRowUnitConversionError(err.Error(), idx+1, row, priceUnit)
+		}
+		applyFlatRowSKUSnapshot(row, concreteProductID, specRule, spec, strictSnapshots)
 	}
 	return nil
 }
 
-func applyFlatRowSKUSnapshot(row map[string]any, productID int64) {
+func applyFlatRowSKUSnapshot(row map[string]any, productID int64, rule ProductSalesUnitRule, spec domain.EffectiveSalesSpec, strict bool) {
 	if row == nil {
 		return
 	}
@@ -2882,22 +2928,142 @@ func applyFlatRowSKUSnapshot(row map[string]any, productID int64) {
 		row["parent_product_id"] = float64(parentID)
 	}
 	snapshot := map[string]any{}
-	if existing, ok := row["sku_snapshot"].(map[string]any); ok {
-		for key, value := range existing {
-			snapshot[key] = value
+	if !strict {
+		if existing, ok := row["sku_snapshot"].(map[string]any); ok {
+			for key, value := range existing {
+				snapshot[key] = value
+			}
 		}
 	}
-	for _, field := range []string{"sku_name", "sku_code", "barcode", "spec_label", "net_content_unit"} {
-		if value := strings.TrimSpace(stringValue(row[field])); value != "" {
-			snapshot[field] = value
+	if skuID > 0 {
+		snapshot["sku_id"] = float64(skuID)
+	}
+	stringFields := map[string]string{
+		"sku_name":         strings.TrimSpace(rule.SKUName),
+		"sku_code":         strings.TrimSpace(rule.SKUCode),
+		"barcode":          strings.TrimSpace(rule.Barcode),
+		"spec_key":         strings.TrimSpace(spec.SpecKey),
+		"spec_label":       strings.TrimSpace(spec.SpecLabel),
+		"net_content_unit": strings.TrimSpace(spec.NetContentUnit),
+		"sales_unit":       strings.TrimSpace(spec.SalesUnit),
+	}
+	if stringFields["sku_name"] == "" {
+		if !strict {
+			stringFields["sku_name"] = firstNonEmptyBeanListString(beanListFlatRowString(row, "sku_name"), beanListFlatRowString(snapshot, "sku_name"))
+		}
+		if stringFields["sku_name"] == "" {
+			stringFields["sku_name"] = strings.TrimSpace(spec.SpecName)
 		}
 	}
-	if qty := numberValue(row["net_content_qty"]); qty > 0 {
-		snapshot["net_content_qty"] = qty
+	for field, value := range stringFields {
+		if !strict && value == "" {
+			value = strings.TrimSpace(stringValue(row[field]))
+			if value == "" {
+				value = strings.TrimSpace(stringValue(snapshot[field]))
+			}
+		}
+		if value == "" {
+			if strict {
+				delete(row, field)
+			}
+			continue
+		}
+		row[field] = value
+		snapshot[field] = value
 	}
-	if len(snapshot) > 0 {
-		row["sku_snapshot"] = snapshot
+	if spec.NetContentQty > 0 {
+		row["net_content_qty"] = spec.NetContentQty
+		snapshot["net_content_qty"] = spec.NetContentQty
+	} else {
+		delete(row, "net_content_qty")
 	}
+	row["sku_snapshot"] = snapshot
+}
+
+func applyFlatRowEffectiveSalesSpec(row map[string]any, skuID int64, priceUnit string, rule ProductSalesUnitRule, strict bool) (domain.EffectiveSalesSpec, error) {
+	if row == nil || skuID <= 0 {
+		return domain.EffectiveSalesSpec{}, fmt.Errorf("商品档案缺少权威销售规格")
+	}
+	spec := domain.EffectiveSalesSpec{}
+	if rule.EffectiveSalesSpec != nil {
+		spec = *rule.EffectiveSalesSpec
+	}
+	if !strict {
+		existing, _ := objectSnapshotMap(row["effective_sales_spec"])
+		if spec.SpecKey == "" {
+			spec.SpecKey = beanListFlatRowString(existing, "spec_key")
+		}
+		if spec.SpecName == "" {
+			spec.SpecName = beanListFlatRowString(existing, "spec_name")
+		}
+		if spec.SpecLabel == "" {
+			spec.SpecLabel = firstNonEmptyBeanListString(beanListFlatRowString(row, "spec_label"), beanListFlatRowString(existing, "spec_label"))
+		}
+		if spec.SalesUnit == "" {
+			spec.SalesUnit = firstNonEmptyBeanListString(beanListFlatRowString(existing, "sales_unit"), beanListFlatRowString(row, "sales_unit"))
+		}
+		if spec.NetContentQty <= 0 {
+			spec.NetContentQty = numberValue(row["net_content_qty"])
+			if spec.NetContentQty <= 0 {
+				spec.NetContentQty = numberValue(existing["net_content_qty"])
+			}
+		}
+		if spec.NetContentUnit == "" {
+			spec.NetContentUnit = firstNonEmptyBeanListString(beanListFlatRowString(row, "net_content_unit"), beanListFlatRowString(existing, "net_content_unit"))
+		}
+	}
+	if spec.SKUID > 0 && spec.SKUID != skuID {
+		return domain.EffectiveSalesSpec{}, fmt.Errorf("商品档案销售规格身份与价格行 SKU 不一致")
+	}
+	spec.SKUID = skuID
+	spec.SpecKey = strings.TrimSpace(spec.SpecKey)
+	spec.SpecName = strings.TrimSpace(spec.SpecName)
+	spec.SpecLabel = strings.TrimSpace(spec.SpecLabel)
+	spec.SalesUnit = strings.TrimSpace(spec.SalesUnit)
+	spec.NetContentUnit = strings.TrimSpace(spec.NetContentUnit)
+	if spec.SpecName == "" {
+		spec.SpecName = strings.TrimSpace(rule.DefaultSalesUnit)
+	}
+	if !strict && spec.SpecName == "" {
+		spec.SpecName = firstNonEmptyBeanListString(spec.SpecLabel, beanListFlatRowString(row, "sku_name"), strings.TrimSpace(priceUnit))
+	}
+	if spec.SpecLabel == "" {
+		spec.SpecLabel = spec.SpecName
+	}
+	if spec.SalesUnit == "" {
+		spec.SalesUnit = strings.TrimSpace(rule.DefaultSalesUnit)
+	}
+	if spec.SalesUnit == "" {
+		spec.SalesUnit = spec.SpecName
+	}
+	if spec.SpecName == "" {
+		spec.SpecName = spec.SalesUnit
+	}
+	if spec.SpecName == "" || spec.SalesUnit == "" {
+		return domain.EffectiveSalesSpec{}, fmt.Errorf("商品档案缺少权威销售规格名称或销售单位")
+	}
+	if strings.TrimSpace(rule.InventoryUnit) != "" {
+		spec.InventoryUnit = strings.TrimSpace(rule.InventoryUnit)
+	}
+	if len(rule.Conversion) > 0 {
+		spec.InventoryConversionJSON = rule.Conversion
+	}
+	payload, _ := json.Marshal(spec)
+	snapshot := map[string]any{}
+	_ = json.Unmarshal(payload, &snapshot)
+	row["quantity_basis"] = "sales_spec_count"
+	row["effective_sales_spec"] = snapshot
+	row["tier_quantity_unit"] = spec.SpecName
+	return spec, nil
+}
+
+func firstNonEmptyBeanListString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func beanListFlatPriceRowCustomerAliasID(row map[string]any) int64 {
@@ -2939,10 +3105,198 @@ func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListComm
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
 	}
-	if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+	if err := s.validateProductSpecSelections(ctx, &normalized); err != nil {
+		return nil, err
+	}
+	if !beanListUsesConcreteProductSpecSelections(&normalized) {
+		if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.applyProductSalesUnitSnapshots(ctx, &normalized); err != nil {
 		return nil, err
 	}
 	return s.repo.SaveBeanListDraft(ctx, normalized)
+}
+
+type beanListProductSpecSelection struct {
+	ParentProductID         int64
+	SKUID                   int64
+	SelectionSource         string
+	DefaultSKUIDAtSelection int64
+}
+
+func beanListUsesConcreteProductSpecSelections(cmd *PublishBeanListCommand) bool {
+	if cmd == nil || cmd.Config == nil {
+		return false
+	}
+	_, present := cmd.Config["product_spec_selections"]
+	return present
+}
+
+func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *PublishBeanListCommand) error {
+	if cmd == nil || cmd.Config == nil {
+		return nil
+	}
+	rawSelections, present := cmd.Config["product_spec_selections"]
+	if !present {
+		// Historical drafts and publications predate SKU-bound selections and
+		// must keep their original compatibility path.
+		return nil
+	}
+	selectionRows := beanListAnySlice(rawSelections)
+	if rawSelections == nil || selectionRows == nil {
+		return fmt.Errorf("商品规格选择无效：product_spec_selections 必须是数组")
+	}
+	resolver, ok := s.repo.(productSpecIdentityRepository)
+	if !ok {
+		return fmt.Errorf("商品规格选择校验不可用：服务缺少当前商品规格身份校验能力")
+	}
+
+	identityCache := map[int64]ProductSpecIdentity{}
+	resolveIdentity := func(productID int64) (ProductSpecIdentity, error) {
+		if identity, exists := identityCache[productID]; exists {
+			return identity, nil
+		}
+		identity, err := resolver.ResolveProductSpecIdentity(ctx, productID)
+		if err != nil {
+			if errors.Is(err, ErrProductSpecIdentityNotFound) {
+				return ProductSpecIdentity{}, fmt.Errorf("商品规格不存在：%d", productID)
+			}
+			return ProductSpecIdentity{}, err
+		}
+		identityCache[productID] = identity
+		return identity, nil
+	}
+
+	selections := make(map[string]beanListProductSpecSelection, len(selectionRows))
+	selectionBySKU := make(map[int64]beanListProductSpecSelection, len(selectionRows))
+	for idx, rawSelection := range selectionRows {
+		selectionMap, ok := objectSnapshotMap(rawSelection)
+		if !ok {
+			return fmt.Errorf("商品规格选择无效：第%d项必须是对象", idx+1)
+		}
+		selection := beanListProductSpecSelection{
+			ParentProductID:         int64(numberValue(selectionMap["parent_product_id"])),
+			SKUID:                   int64(numberValue(selectionMap["sku_id"])),
+			SelectionSource:         strings.TrimSpace(stringValue(selectionMap["selection_source"])),
+			DefaultSKUIDAtSelection: int64(numberValue(selectionMap["default_sku_id_at_selection"])),
+		}
+		if selection.ParentProductID <= 0 || selection.SKUID <= 0 || selection.DefaultSKUIDAtSelection <= 0 {
+			return fmt.Errorf("商品规格选择无效：第%d项缺少父商品、具体 SKU 或选择时默认规格", idx+1)
+		}
+		if selection.SelectionSource != "product_default" && selection.SelectionSource != "explicit" {
+			return fmt.Errorf("商品规格选择无效：第%d项选择来源必须是 product_default 或 explicit", idx+1)
+		}
+		parent, err := resolveIdentity(selection.ParentProductID)
+		if err != nil {
+			return fmt.Errorf("商品规格选择无效：第%d项父商品校验失败：%w", idx+1, err)
+		}
+		if parent.ProductID != selection.ParentProductID || parent.EffectiveParentProductID != selection.ParentProductID {
+			return fmt.Errorf("商品规格选择无效：第%d项 parent_product_id 不是父商品", idx+1)
+		}
+		if !parent.Active {
+			return fmt.Errorf("商品规格选择无效：第%d项父商品已停用", idx+1)
+		}
+		sku, err := resolveIdentity(selection.SKUID)
+		if err != nil {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU 校验失败：%w", idx+1, err)
+		}
+		if sku.EffectiveParentProductID != selection.ParentProductID {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU %d 不属于父商品 %d", idx+1, selection.SKUID, selection.ParentProductID)
+		}
+		if !sku.Active {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU %d 已停用", idx+1, selection.SKUID)
+		}
+		if !sku.SpecValid {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU %d 规格已失效", idx+1, selection.SKUID)
+		}
+		defaultSKU, err := resolveIdentity(selection.DefaultSKUIDAtSelection)
+		if err != nil {
+			return fmt.Errorf("商品规格选择无效：第%d项选择时默认规格校验失败：%w", idx+1, err)
+		}
+		if defaultSKU.EffectiveParentProductID != selection.ParentProductID {
+			return fmt.Errorf("商品规格选择无效：第%d项选择时默认规格不属于父商品 %d", idx+1, selection.ParentProductID)
+		}
+		key := beanListProductSpecSelectionKey(selection.ParentProductID, selection.SKUID)
+		if _, duplicate := selections[key]; duplicate {
+			return fmt.Errorf("商品规格选择无效：第%d项重复选择 SKU %d", idx+1, selection.SKUID)
+		}
+		selections[key] = selection
+		selectionBySKU[selection.SKUID] = selection
+	}
+	for groupIdx, rawGroup := range beanListAnySlice(cmd.Content["groups"]) {
+		group, ok := objectSnapshotMap(rawGroup)
+		if !ok {
+			return fmt.Errorf("商品规格分组无效：第%d组必须是对象", groupIdx+1)
+		}
+		for itemIdx, rawItem := range beanListAnySlice(group["items"]) {
+			item, ok := objectSnapshotMap(rawItem)
+			if !ok {
+				return fmt.Errorf("商品规格分组无效：第%d组第%d个商品项必须是对象", groupIdx+1, itemIdx+1)
+			}
+			skuID := int64(numberValue(item["sku_id"]))
+			if skuID <= 0 {
+				skuID = int64(numberValue(item["product_id"]))
+			}
+			selection, selected := selectionBySKU[skuID]
+			if !selected {
+				return fmt.Errorf("分组商品项无效：第%d组第%d项 SKU %d 未在规格选择中", groupIdx+1, itemIdx+1, skuID)
+			}
+			parentProductID := int64(numberValue(item["parent_product_id"]))
+			if parentProductID <= 0 {
+				parentProductID = int64(numberValue(item["effective_parent_product_id"]))
+			}
+			if parentProductID > 0 && parentProductID != selection.ParentProductID {
+				return fmt.Errorf("分组商品项无效：第%d组第%d项父商品与规格选择不一致", groupIdx+1, itemIdx+1)
+			}
+		}
+	}
+
+	covered := make(map[string]bool, len(selections))
+	priceRows := beanListAnySlice(cmd.Content["price_rows"])
+	for idx, rawRow := range priceRows {
+		row, ok := objectSnapshotMap(rawRow)
+		if !ok {
+			return fmt.Errorf("商品规格价格行无效：第%d行必须是对象", idx+1)
+		}
+		parentProductID := int64(numberValue(row["parent_product_id"]))
+		skuID := int64(numberValue(row["sku_id"]))
+		if parentProductID <= 0 || skuID <= 0 {
+			return fmt.Errorf("商品规格价格行无效：第%d行缺少 parent_product_id 或 sku_id", idx+1)
+		}
+		selection, skuSelected := selectionBySKU[skuID]
+		if skuSelected && selection.ParentProductID != parentProductID {
+			return fmt.Errorf("商品规格价格行无效：第%d行父商品与规格选择不一致", idx+1)
+		}
+		key := beanListProductSpecSelectionKey(parentProductID, skuID)
+		if _, selected := selections[key]; !selected {
+			return fmt.Errorf("商品规格价格行无效：第%d行 SKU %d 未在规格选择中", idx+1, skuID)
+		}
+		if snapshot, exists := objectSnapshotMap(row["sku_snapshot"]); exists {
+			if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != skuID {
+				return fmt.Errorf("商品规格价格行无效：第%d行 SKU 快照身份不一致", idx+1)
+			}
+		}
+		if snapshot, exists := objectSnapshotMap(row["effective_sales_spec"]); exists {
+			if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != skuID {
+				return fmt.Errorf("商品规格价格行无效：第%d行有效销售规格快照身份不一致", idx+1)
+			}
+		}
+		if beanListFlatPriceRowHasPrice(row) {
+			covered[key] = true
+		}
+	}
+	for key, selection := range selections {
+		if !covered[key] {
+			return fmt.Errorf("商品规格选择无效：父商品 %d 的 SKU %d 缺少对应有效价格行", selection.ParentProductID, selection.SKUID)
+		}
+	}
+	return nil
+}
+
+func beanListProductSpecSelectionKey(parentProductID, skuID int64) string {
+	return fmt.Sprintf("%d:%d", parentProductID, skuID)
 }
 
 func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListCommand, error) {

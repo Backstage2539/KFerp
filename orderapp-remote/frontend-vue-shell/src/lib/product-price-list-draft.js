@@ -32,13 +32,17 @@ export function priceListGenerationDraftKey({
 }
 
 export function normalizePriceListGenerationDraft(draft = {}) {
-  return {
+  const normalized = {
     defaults: cloneDraft(draft.defaults || {}),
     parentSelections: cloneDraft(draft.parentSelections || {}),
     groupSelections: cloneDraft(draft.groupSelections || {}),
     productOverrides: cloneDraft(draft.productOverrides || {}),
     flatRowOverrides: cloneDraft(draft.flatRowOverrides || {}),
   }
+  if (Object.prototype.hasOwnProperty.call(draft, 'product_spec_selections') || Object.prototype.hasOwnProperty.call(draft, 'productSpecSelections')) {
+    normalized.product_spec_selections = cloneDraft(draft.product_spec_selections ?? draft.productSpecSelections ?? []) || []
+  }
+  return normalized
 }
 
 export function savePriceListGenerationDraft(key, draft = {}, storage = null) {

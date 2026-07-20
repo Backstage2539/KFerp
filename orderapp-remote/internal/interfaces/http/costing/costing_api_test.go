@@ -532,6 +532,31 @@ func (fakeRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.
 	return nil, nil
 }
 
+type skuBeanListRepo struct{ fakeRepo }
+
+func (skuBeanListRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
+	params := domain.DefaultParameters()
+	return []domain.ProductInput{{
+		ProductID:          551,
+		SKUID:              551,
+		ParentProductID:    550,
+		DefaultSKUID:       552,
+		SKUName:            "初晓 磅",
+		SKUCode:            "SKU-000551",
+		SpecLabel:          "磅",
+		NetContentQty:      1,
+		NetContentUnit:     "lb",
+		Name:               "初晓 磅",
+		ProductName:        "初晓",
+		InventoryUnit:      "kg",
+		OrderUnit:          "磅",
+		QuoteUnit:          "磅",
+		UnitConversionJSON: `{"磅":{"kg":0.45359237}}`,
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+	}}, nil
+}
+
 func (fakeRepo) LoadProductPricingRule(context.Context, int64) (appcosting.ProductPricingRule, error) {
 	return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
 }
@@ -655,6 +680,37 @@ func TestBeanListAPIReturnsEmptyItemsWhenCatalogHasNoProducts(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "products required") {
 		t.Fatalf("response must not expose products required: %s", rec.Body.String())
+	}
+}
+
+func TestBeanListAPIReturnsConcreteSKUSalesSpecMetadata(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(skuBeanListRepo{})})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", body["items"])
+	}
+	row, _ := items[0].(map[string]any)
+	if row["sku_id"] != float64(551) || row["parent_product_id"] != float64(550) {
+		t.Fatalf("concrete SKU identity missing: %s", rec.Body.String())
+	}
+	if row["default_sku_id"] != float64(552) {
+		t.Fatalf("parent-authoritative default SKU missing: %s", rec.Body.String())
+	}
+	spec, _ := row["effective_sales_spec"].(map[string]any)
+	if spec["sku_id"] != float64(551) || spec["spec_name"] != "磅" || spec["sales_unit"] != "磅" {
+		t.Fatalf("effective_sales_spec = %#v; body=%s", spec, rec.Body.String())
 	}
 }
 
@@ -1486,6 +1542,13 @@ func (priceTierTemplateUnitMismatchRepo) ResolveProductDefaultSalesUnit(_ contex
 	return "磅", nil
 }
 
+func (priceTierTemplateUnitMismatchRepo) ResolveProductSpecIdentity(_ context.Context, productID int64) (appcosting.ProductSpecIdentity, error) {
+	if productID != 550 {
+		return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
+	}
+	return appcosting.ProductSpecIdentity{ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true}, nil
+}
+
 func (priceTierTemplateUnitMismatchRepo) ResolvePriceTierTemplateUnitRule(_ context.Context, templateID int64) (appcosting.PriceTierTemplateUnitRule, error) {
 	if templateID != 8 {
 		return appcosting.PriceTierTemplateUnitRule{}, appcosting.ErrPriceTierTemplateUnitRuleNotFound
@@ -1646,7 +1709,7 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	}
 }
 
-func TestBeanListPublicationAndDraftAPIsRejectTierTemplateUnitMismatch(t *testing.T) {
+func TestBeanListPublicationAndDraftAPIsUseConcreteSalesSpecCountInsteadOfTemplateUnitLabels(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		path string
@@ -1669,8 +1732,11 @@ func TestBeanListPublicationAndDraftAPIsRejectTierTemplateUnitMismatch(t *testin
 				"list_type":"commercial",
 				"version":"V4.3.0",
 				"scope":"mine",
+				"config":{"product_spec_selections":[{"parent_product_id":550,"sku_id":550,"selection_source":"product_default","default_sku_id_at_selection":550}]},
 				"content":{"price_rows":[{
 					"product_id":550,
+					"sku_id":550,
+					"parent_product_id":550,
 					"product_name":"初晓",
 					"tier_label":"1kg+",
 					"min_qty":1,
@@ -1695,7 +1761,8 @@ func TestBeanListPublicationAndDraftAPIsRejectTierTemplateUnitMismatch(t *testin
 					"tier_pricing_rule_version":"咖啡熟豆模板-v1",
 					"cost_source_snapshot":{"bom_version_no":"BOM-CHUXIAO/V001"},
 					"customer_reference_snapshot":{"customer_id":0},
-					"manual_adjusted":true
+					"manual_adjusted":true,
+					"quantity_basis":"sales_spec_count"
 				}]}
 			}`)
 			req := httptest.NewRequest(http.MethodPost, tc.path, body)
@@ -1703,13 +1770,11 @@ func TestBeanListPublicationAndDraftAPIsRejectTierTemplateUnitMismatch(t *testin
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
 			}
-			for _, want := range []string{"阶梯模板不可用", "初晓", "咖啡熟豆", "磅", "kg", "不匹配"} {
-				if !strings.Contains(rec.Body.String(), want) {
-					t.Fatalf("response missing %q: %s", want, rec.Body.String())
-				}
+			if strings.Contains(rec.Body.String(), "阶梯模板不可用") || strings.Contains(rec.Body.String(), "不匹配") {
+				t.Fatalf("historical template quantity-unit wording must not block a concrete sales-spec-count request: %s", rec.Body.String())
 			}
 		})
 	}

@@ -88,7 +88,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			JOIN %[1]s.bean_list_publications b
 			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status='published'
 			 AND b.publication_purpose='factory_supply'
-			WHERE b.list_type IN ('commercial','green','drip') OR COALESCE(b.product_type_category_id,0)>0
+			WHERE b.list_type IN ('commercial','retail','green','drip') OR COALESCE(b.product_type_category_id,0)>0
 		),
 		official_versions AS (
 			SELECT b.list_type,
@@ -102,7 +102,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			FROM %[1]s.bean_list_publications b
 			WHERE b.owner_type='official' AND b.status='published'
 			  AND b.publication_purpose='factory_supply'
-			  AND (b.list_type IN ('commercial','green','drip') OR COALESCE(b.product_type_category_id,0)>0)
+			  AND (b.list_type IN ('commercial','retail','green','drip') OR COALESCE(b.product_type_category_id,0)>0)
 		),
 		global_public_versions AS (
 			SELECT 0::bigint AS customer_id,
@@ -419,6 +419,11 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		return nil, err
 	}
 	applyCommercialOrderPublicationTiers(out, commercialPublicationTiers)
+	retailPublicationTiers, err := r.fetchRetailOrderPublicationTiers(ctx, out)
+	if err != nil {
+		return nil, err
+	}
+	applyRetailOrderPublicationTiers(out, retailPublicationTiers)
 	greenPublicationTiers, err := r.fetchGreenBeanOrderPublicationTiers(ctx, out)
 	if err != nil {
 		return nil, err
@@ -543,6 +548,15 @@ func orderPublicationProductKeyForProduct(product salesapp.ProductOption) orderP
 }
 
 func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+	return r.fetchStandardOrderPublicationTiers(ctx, products, "commercial")
+}
+
+func (r Repository) fetchRetailOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+	return r.fetchStandardOrderPublicationTiers(ctx, products, "retail")
+}
+
+func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, listType string) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+	listType = standardOrderPublicationListType(listType)
 	customerOwners := map[string]bool{}
 	hasCommercialProduct := false
 	for _, product := range products {
@@ -575,7 +589,7 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 			       published_at
 			FROM %[1]s.bean_list_publications
 			WHERE status='published'
-			  AND list_type='commercial'
+			  AND list_type=$2
 			  AND publication_purpose='factory_supply'
 			  AND owner_type='customer'
 			  AND owner_key = ANY($1)
@@ -589,7 +603,7 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 			       published_at
 			FROM %[1]s.bean_list_publications
 			WHERE status='published'
-			  AND list_type='commercial'
+			  AND list_type=$2
 			  AND publication_purpose='factory_supply'
 			  AND owner_type='official'
 		),
@@ -604,7 +618,7 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 		FROM applicable_publications
 		ORDER BY owner_type, owner_key, published_at DESC, id DESC
 	`, r.schema)
-	rows, err := r.pool.Query(ctx, q, ownerKeys)
+	rows, err := r.pool.Query(ctx, q, ownerKeys, listType)
 	if err != nil {
 		return nil, err
 	}
@@ -619,7 +633,7 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 		if err := rows.Scan(&ownerType, &ownerKey, &publicationID, &versionNo, &contentRaw); err != nil {
 			return nil, err
 		}
-		tiers := commercialOrderTierMapFromPublicationContent(publicationID, versionNo, contentRaw)
+		tiers := commercialOrderTierMapFromPublicationContent(publicationID, versionNo, contentRaw, listType)
 		if ownerType == "customer" {
 			customerTiers[ownerKey] = mergeLatestCommercialOrderPublicationTierMaps(customerTiers[ownerKey], tiers)
 			continue
@@ -650,6 +664,13 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 	return out, nil
 }
 
+func standardOrderPublicationListType(listType string) string {
+	if strings.TrimSpace(listType) == "retail" {
+		return "retail"
+	}
+	return "commercial"
+}
+
 func applyCommercialOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
 	for i := range products {
 		if !orderCommercialProductKind(products[i].ProductKind) {
@@ -660,6 +681,19 @@ func applyCommercialOrderPublicationTiers(products []salesapp.ProductOption, pub
 			continue
 		}
 		products[i].Tiers = append([]salesapp.ProductTierOption(nil), tiers...)
+	}
+}
+
+func applyRetailOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
+	for i := range products {
+		if !orderCommercialProductKind(products[i].ProductKind) {
+			continue
+		}
+		tiers := publicationTiers[orderPublicationProductKeyForProduct(products[i])]
+		if len(tiers) == 0 {
+			continue
+		}
+		products[i].Tiers = append(products[i].Tiers, tiers...)
 	}
 }
 
@@ -846,11 +880,23 @@ type orderGreenBeanPublicationTier struct {
 	InventoryUnit           string          `json:"inventory_unit"`
 	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
 	ProductKind             string          `json:"product_kind"`
+	QuantityBasis           string          `json:"quantity_basis"`
+	TierQuantityUnit        string          `json:"tier_quantity_unit"`
+	EffectiveSalesSpec      json.RawMessage `json:"effective_sales_spec"`
 }
 
 type orderCommercialPublicationTier = orderGreenBeanPublicationTier
 
-func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo string, raw []byte) map[int64][]salesapp.ProductTierOption {
+type orderEffectiveSalesSpecSnapshot struct {
+	SKUID          int64   `json:"sku_id"`
+	SpecName       string  `json:"spec_name"`
+	SpecLabel      string  `json:"spec_label"`
+	SalesUnit      string  `json:"sales_unit"`
+	NetContentQty  float64 `json:"net_content_qty"`
+	NetContentUnit string  `json:"net_content_unit"`
+}
+
+func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo string, raw []byte, listTypes ...string) map[int64][]salesapp.ProductTierOption {
 	out := map[int64][]salesapp.ProductTierOption{}
 	if publicationID <= 0 || len(raw) == 0 {
 		return out
@@ -858,6 +904,14 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 	var content orderBeanListPublicationContent
 	if err := json.Unmarshal(raw, &content); err != nil {
 		return out
+	}
+	listType := "commercial"
+	if len(listTypes) > 0 {
+		listType = standardOrderPublicationListType(listTypes[0])
+	}
+	legacyTierKey := "commercial_wholesale_tiers"
+	if listType == "retail" {
+		legacyTierKey = "retail_bean_tiers"
 	}
 	flatParentIDs := map[int64]bool{}
 	flatTiers := map[int64][]salesapp.ProductTierOption{}
@@ -889,7 +943,7 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 			}
 		}
 		normalizeCommercialOrderFlatTierBounds(&tier)
-		option := commercialOrderTierOption(publicationID, versionNo, idx, tier, tier.ProductKind)
+		option := commercialOrderTierOption(publicationID, versionNo, idx, tier, tier.ProductKind, listType)
 		if option.UnitPrice <= 0 {
 			continue
 		}
@@ -912,12 +966,12 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 				continue
 			}
 			var tiers []orderCommercialPublicationTier
-			if data, ok := fields["commercial_wholesale_tiers"]; !ok || json.Unmarshal(data, &tiers) != nil {
+			if data, ok := fields[legacyTierKey]; !ok || json.Unmarshal(data, &tiers) != nil {
 				continue
 			}
 			productKind := rawJSONString(fields["product_kind"])
 			for idx, tier := range tiers {
-				option := commercialOrderTierOption(publicationID, versionNo, idx, tier, productKind)
+				option := commercialOrderTierOption(publicationID, versionNo, idx, tier, productKind, listType)
 				if option.UnitPrice <= 0 {
 					continue
 				}
@@ -953,6 +1007,9 @@ func orderBeanListFlatRowProductID(fields map[string]json.RawMessage) int64 {
 
 func normalizeCommercialOrderFlatTierBounds(tier *orderCommercialPublicationTier) {
 	if tier == nil {
+		return
+	}
+	if strings.TrimSpace(tier.QuantityBasis) == "sales_spec_count" {
 		return
 	}
 	if tier.SpecG <= 0 {
@@ -1134,20 +1191,45 @@ func rawJSONString(raw json.RawMessage) string {
 	return strings.TrimSpace(s)
 }
 
-func commercialOrderTierOption(publicationID int64, versionNo string, idx int, tier orderCommercialPublicationTier, productKind string) salesapp.ProductTierOption {
+func commercialOrderTierOption(publicationID int64, versionNo string, idx int, tier orderCommercialPublicationTier, productKind string, listTypes ...string) salesapp.ProductTierOption {
+	listType := "commercial"
+	if len(listTypes) > 0 {
+		listType = standardOrderPublicationListType(listTypes[0])
+	}
+	effectiveSalesSpec := map[string]any{}
+	effectiveSpec := orderEffectiveSalesSpecSnapshot{}
+	if len(tier.EffectiveSalesSpec) > 0 && string(tier.EffectiveSalesSpec) != "null" {
+		_ = json.Unmarshal(tier.EffectiveSalesSpec, &effectiveSalesSpec)
+		_ = json.Unmarshal(tier.EffectiveSalesSpec, &effectiveSpec)
+	}
+	countBySalesSpec := strings.TrimSpace(tier.QuantityBasis) == "sales_spec_count"
 	specG := tier.SpecG
-	if specG <= 0 {
+	if countBySalesSpec {
+		if frozenSpecG := effectiveSalesSpecWeightG(effectiveSpec); frozenSpecG > 0 {
+			specG = frozenSpecG
+		}
+	} else if specG <= 0 {
 		specG = 454
 	}
-	displayUnit := normalizeGreenBeanOrderPriceUnit(tier.DisplayUnit)
-	if displayUnit == "" {
-		displayUnit = "lb"
+	displayUnit := ""
+	if countBySalesSpec {
+		displayUnit = firstOrderSalesSpecText(effectiveSpec.SalesUnit, effectiveSpec.SpecName, effectiveSpec.SpecLabel, tier.TierQuantityUnit, tier.SalesUnit)
+	} else {
+		displayUnit = normalizeGreenBeanOrderPriceUnit(tier.DisplayUnit)
+		if displayUnit == "" {
+			displayUnit = "lb"
+		}
 	}
-	priceUnit := normalizeGreenBeanOrderPriceUnit(tier.PriceUnit)
-	if priceUnit == "" {
+	priceUnit := ""
+	if countBySalesSpec {
 		priceUnit = displayUnit
+	} else {
+		priceUnit = normalizeGreenBeanOrderPriceUnit(tier.PriceUnit)
+		if priceUnit == "" {
+			priceUnit = displayUnit
+		}
+		priceUnit = greenBeanOrderPriceUnit(displayUnit, priceUnit, false)
 	}
-	priceUnit = greenBeanOrderPriceUnit(displayUnit, priceUnit, false)
 	unitPrice := greenBeanOrderTierPrice(orderGreenBeanPublicationTier(tier), specG, displayUnit, priceUnit)
 	if tier.FinalUnitPrice > 0 {
 		unitPrice = roundOrderPrice(tier.FinalUnitPrice)
@@ -1159,7 +1241,7 @@ func commercialOrderTierOption(publicationID int64, versionNo string, idx int, t
 	source := map[string]any{
 		"source":                   "published_bean_list",
 		"published_price_snapshot": true,
-		"list_type":                "commercial",
+		"list_type":                listType,
 		"publication_id":           publicationID,
 		"version_no":               versionNo,
 		"template_id":              tier.TemplateID,
@@ -1167,20 +1249,60 @@ func commercialOrderTierOption(publicationID int64, versionNo string, idx int, t
 		"display_unit":             displayUnit,
 		"price_unit":               priceUnit,
 	}
+	if quantityBasis := strings.TrimSpace(tier.QuantityBasis); quantityBasis != "" {
+		source["quantity_basis"] = quantityBasis
+	}
+	if quantityUnit := strings.TrimSpace(tier.TierQuantityUnit); quantityUnit != "" {
+		source["tier_quantity_unit"] = quantityUnit
+	}
+	if len(effectiveSalesSpec) > 0 {
+		source["effective_sales_spec"] = effectiveSalesSpec
+	}
 	addOrderPublicationSnapshotSource(source, tier.SourcePriceRecordID, tier.InventoryUnit, tier.InventoryConversionJSON)
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
-		ID:              id,
-		SpecG:           specG,
-		MinQty:          tier.MinQty,
-		MaxQty:          tier.MaxQty,
-		UnitPrice:       unitPrice,
-		DisplayUnit:     priceUnit,
-		ProductKind:     orderCommercialPublicationProductKind(productKind),
-		SalesUnit:       strings.TrimSpace(tier.SalesUnit),
-		UnitBagCount:    tier.UnitBagCount,
-		PriceSourceJSON: string(sourceJSON),
+		ID:                 id,
+		SpecG:              specG,
+		MinQty:             tier.MinQty,
+		MaxQty:             tier.MaxQty,
+		UnitPrice:          unitPrice,
+		DisplayUnit:        priceUnit,
+		ProductKind:        orderCommercialPublicationProductKind(productKind),
+		SalesUnit:          firstOrderSalesSpecText(tier.SalesUnit, effectiveSpec.SalesUnit),
+		UnitBagCount:       tier.UnitBagCount,
+		PriceSourceJSON:    string(sourceJSON),
+		QuantityBasis:      strings.TrimSpace(tier.QuantityBasis),
+		TierQuantityUnit:   strings.TrimSpace(tier.TierQuantityUnit),
+		EffectiveSalesSpec: effectiveSalesSpec,
 	}
+}
+
+func firstOrderSalesSpecText(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func effectiveSalesSpecWeightG(spec orderEffectiveSalesSpecSnapshot) int64 {
+	if spec.NetContentQty <= 0 {
+		return 0
+	}
+	factor := float64(0)
+	switch strings.ToLower(strings.TrimSpace(spec.NetContentUnit)) {
+	case "g", "克":
+		factor = 1
+	case "kg", "千克", "公斤":
+		factor = 1000
+	case "lb", "lbs", "磅":
+		factor = 453.59237
+	}
+	if factor <= 0 {
+		return 0
+	}
+	return int64(math.Round(spec.NetContentQty * factor))
 }
 
 func orderCommercialPublicationProductKind(productKind string) string {
@@ -1537,6 +1659,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 				COALESCE(oi.unit_price,0),
 				COALESCE(oi.line_total,0),
 				COALESCE(oi.price_tier_id,0),
+				COALESCE(oi.price_override,false),
 				COALESCE(oi.bean_list_publication_id,0),
 				COALESCE(oi.bean_list_version_no,''),
 				COALESCE(oi.discount_type,''),
@@ -1563,7 +1686,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount, unitBeanG, matchedPriceQty float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.PriceOverride, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

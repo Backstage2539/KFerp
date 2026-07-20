@@ -33,6 +33,9 @@ type Product struct {
 	NetContentQty               float64
 	NetContentUnit              string
 	IsDefaultSKU                bool
+	DefaultSKUID                int64
+	EffectiveDefaultSKUID       int64
+	DefaultSpecLabel            string
 	AutoDerivedSKU              bool
 	DerivedUnitTemplateID       int64
 	DerivedSpecKey              string
@@ -339,6 +342,9 @@ type ProductSettingsProduct struct {
 	NetContentQty               float64      `json:"net_content_qty"`
 	NetContentUnit              string       `json:"net_content_unit"`
 	IsDefaultSKU                bool         `json:"is_default_sku"`
+	DefaultSKUID                int64        `json:"default_sku_id"`
+	EffectiveDefaultSKUID       int64        `json:"effective_default_sku_id"`
+	DefaultSpecLabel            string       `json:"default_spec_label"`
 	AutoDerivedSKU              bool         `json:"auto_derived_sku"`
 	DerivedUnitTemplateID       int64        `json:"derived_unit_template_id"`
 	DerivedSpecKey              string       `json:"derived_spec_key"`
@@ -723,6 +729,12 @@ type UpdateProductBasicsCommand struct {
 	UnitRuleOverrideJSON        string
 	ProductConfigTemplateID     int64
 	ClassificationTemplateID    int64
+}
+
+type SetProductDefaultSKUCommand struct {
+	Actor           string
+	ParentProductID int64
+	SKUID           int64
 }
 
 type CreateProductCommand struct {
@@ -1425,6 +1437,17 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	}
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.UpdateProductBasics(ctx, cmd)
+}
+
+func (s *Service) SetProductDefaultSKU(ctx context.Context, cmd SetProductDefaultSKUCommand) (Product, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ParentProductID <= 0 {
+		return Product{}, ValidationError{Message: "invalid parent_product_id"}
+	}
+	if cmd.SKUID <= 0 {
+		return Product{}, ValidationError{Message: "invalid sku_id"}
+	}
+	return s.repo.SetProductDefaultSKU(ctx, cmd)
 }
 
 func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error {
@@ -3976,6 +3999,9 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		NetContentQty:               p.NetContentQty,
 		NetContentUnit:              p.NetContentUnit,
 		IsDefaultSKU:                p.IsDefaultSKU,
+		DefaultSKUID:                p.DefaultSKUID,
+		EffectiveDefaultSKUID:       p.EffectiveDefaultSKUID,
+		DefaultSpecLabel:            p.DefaultSpecLabel,
 		AutoDerivedSKU:              p.AutoDerivedSKU,
 		DerivedUnitTemplateID:       p.DerivedUnitTemplateID,
 		DerivedSpecKey:              p.DerivedSpecKey,

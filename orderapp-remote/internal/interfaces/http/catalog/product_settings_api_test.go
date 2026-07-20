@@ -72,6 +72,8 @@ type productSettingsRepo struct {
 	deactivated                         catalogapp.DeactivateProductsCommand
 	createdPublic                       catalogapp.CreateProductCommand
 	createdSKU                          catalogapp.CreateSKUCommand
+	defaultSKU                          catalogapp.SetProductDefaultSKUCommand
+	defaultSKUErr                       error
 	copiedProduct                       catalogapp.CopyProductCommand
 	publicUsage                         catalogapp.CustomerPublicUsageCommand
 	publicUsages                        []catalogapp.CustomerPublicUsage
@@ -282,6 +284,21 @@ func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.Crea
 		UnitRuleOverrideJSON:     cmd.UnitRuleOverrideJSON,
 		Visibility:               visibility,
 	}, nil
+}
+
+func (r *productSettingsRepo) SetProductDefaultSKU(ctx context.Context, cmd catalogapp.SetProductDefaultSKUCommand) (catalogapp.Product, error) {
+	r.defaultSKU = cmd
+	if r.defaultSKUErr != nil {
+		return catalogapp.Product{}, r.defaultSKUErr
+	}
+	for i := range r.products {
+		if r.products[i].ID == cmd.ParentProductID {
+			r.products[i].DefaultSKUID = cmd.SKUID
+			r.products[i].EffectiveDefaultSKUID = cmd.SKUID
+			return r.products[i], nil
+		}
+	}
+	return catalogapp.Product{ID: cmd.ParentProductID, DefaultSKUID: cmd.SKUID, EffectiveDefaultSKUID: cmd.SKUID}, nil
 }
 
 func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
@@ -2625,6 +2642,82 @@ func TestProductOptionFromCatalogIncludesDerivedSKUMetadata(t *testing.T) {
 	})
 	if !got.AutoDerivedSKU || got.DerivedUnitTemplateID != 12 || got.DerivedSpecKey != "bag-227g" || got.DerivedSalesUnit != "袋" || got.DerivedSpecStatus != "active" {
 		t.Fatalf("derived SKU metadata lost in API mapping: %+v", got)
+	}
+}
+
+func TestProductOptionFromCatalogIncludesPerProductDefaultSKUProjection(t *testing.T) {
+	parent := productOptionFromCatalog(catalogapp.Product{
+		ID: 88, DefaultSKUID: 91, EffectiveDefaultSKUID: 91, DefaultSpecLabel: "1磅", IsDefaultSKU: false,
+	})
+	if parent.DefaultSKUID != 91 || parent.EffectiveDefaultSKUID != 91 || parent.DefaultSpecLabel != "1磅" || parent.IsDefaultSKU {
+		t.Fatalf("parent projection = %+v", parent)
+	}
+	child := productOptionFromCatalog(catalogapp.Product{
+		ID: 91, ParentProductID: 88, DefaultSKUID: 0, EffectiveDefaultSKUID: 91, DefaultSpecLabel: "1磅", IsDefaultSKU: true,
+	})
+	if child.DefaultSKUID != 0 || child.EffectiveDefaultSKUID != 91 || child.DefaultSpecLabel != "1磅" || !child.IsDefaultSKU {
+		t.Fatalf("child projection = %+v", child)
+	}
+}
+
+func TestProductSettingsAPIUpdatesPerProductDefaultSKU(t *testing.T) {
+	repo := &productSettingsRepo{products: []catalogapp.Product{{ID: 88, Name: "初晓", DefaultSpecLabel: "1磅"}}}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("operator_employee", "刘祎泊")
+			return next(c)
+		}
+	})
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/product-settings/products/88/default-sku", strings.NewReader(`{"sku_id":91}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.defaultSKU.Actor != "刘祎泊" || repo.defaultSKU.ParentProductID != 88 || repo.defaultSKU.SKUID != 91 {
+		t.Fatalf("command=%+v", repo.defaultSKU)
+	}
+	for _, want := range []string{`"default_sku_id":91`, `"effective_default_sku_id":91`, `"default_spec_label":"1磅"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPIRejectsInvalidPerProductDefaultSKU(t *testing.T) {
+	tests := []struct {
+		path string
+		body string
+	}{
+		{path: "/api/product-settings/products/0/default-sku", body: `{"sku_id":91}`},
+		{path: "/api/product-settings/products/88/default-sku", body: `{"sku_id":0}`},
+		{path: "/api/product-settings/products/88/default-sku", body: `{`},
+	}
+	for _, tt := range tests {
+		e := echo.New()
+		registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+		req := httptest.NewRequest(http.MethodPut, tt.path, strings.NewReader(tt.body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s body=%s status=%d, want 400", tt.path, tt.body, rec.Code)
+		}
+	}
+
+	repo := &productSettingsRepo{defaultSKUErr: catalogapp.ValidationError{Message: "sku does not belong to parent product"}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+	req := httptest.NewRequest(http.MethodPut, "/api/product-settings/products/88/default-sku", strings.NewReader(`{"sku_id":99}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "sku does not belong") {
+		t.Fatalf("validation status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

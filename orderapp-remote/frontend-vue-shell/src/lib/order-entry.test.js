@@ -61,6 +61,128 @@ test('挂耳 commercial 阶梯使用 API 的 min_qty/max_qty 且盒价不重复�
   assert.equal(dripTierPriceRows(product, { sales_unit: 'box', unit_bag_count: 10 })[0].rangeLabel, '10-99盒')
 })
 
+test('新价格表按 concrete SKU 销售规格件数命中阶梯，旧发布继续按重量回退', () => {
+	const countProduct = {
+	  tiers: [{
+	    id: 501,
+	    spec_g: 1000,
+	    min: 2,
+	    max: 4,
+	    unit_price: 68,
+	    display_unit: '磅',
+	    quantity_basis: 'sales_spec_count',
+	    tier_quantity_unit: '磅',
+	    price_source_json: '{"source":"published_bean_list","quantity_basis":"sales_spec_count"}',
+	  }],
+	}
+	const countRow = { spec_mode: '227', qty: 2, tier_id: 'auto', unit_price: '' }
+	const countResult = resolveWholesaleTierPrice(countProduct, countRow)
+	assert.equal(countResult.tierID, '501')
+	assert.equal(countResult.unitPrice, '68')
+	assert.equal(lineTotal(countProduct, {
+	  ...countRow,
+	  tier_id: countResult.tierID,
+	  unit_price: countResult.unitPrice,
+	  price_unit: countResult.priceUnit.label,
+	  price_unit_suffix: countResult.priceUnit.suffix,
+	  price_unit_g: countResult.priceUnit.unitG,
+	}, false), 136)
+
+	const legacyProduct = {
+	  tiers: [{ id: 502, spec_g: 1000, min_qty: 1, unit_price: 82, display_unit: 'kg' }],
+	}
+	const legacyResult = resolveWholesaleTierPrice(legacyProduct, { spec_mode: '454', qty: 3, tier_id: 'auto', unit_price: '' })
+	assert.equal(legacyResult.tierID, '502')
+	assert.equal(legacyResult.unitPrice, '82')
+	assert.equal(Number(lineTotal(legacyProduct, {
+	  spec_mode: '454',
+	  qty: 3,
+	  tier_id: legacyResult.tierID,
+	  unit_price: legacyResult.unitPrice,
+	  price_unit: legacyResult.priceUnit.label,
+	  price_unit_suffix: legacyResult.priceUnit.suffix,
+	  price_unit_g: legacyResult.priceUnit.unitG,
+	}, false).toFixed(3)), 111.684)
+})
+
+test('零售订单优先使用 concrete SKU 发布价并按件计价和折扣', () => {
+	const countProduct = {
+		retail_price_227g: 50,
+		tiers: [{
+			id: 503,
+			spec_g: 227,
+			min: 1,
+			max: null,
+			unit_price: 68,
+			display_unit: '227g',
+			quantity_basis: 'sales_spec_count',
+			price_source_json: '{"source":"published_bean_list","list_type":"retail","quantity_basis":"sales_spec_count"}',
+		}],
+	}
+	const resolved = resolveWholesaleTierPrice(countProduct, { spec_mode: '227', qty: 2, tier_id: 'auto' })
+	assert.equal(resolved.tierID, '503')
+	assert.equal(resolved.quantityBasis, 'sales_spec_count')
+	assert.equal(lineTotal(countProduct, {
+		spec_mode: '227',
+		qty: 2,
+		tier_id: resolved.tierID,
+		unit_price: resolved.unitPrice,
+		quantity_basis: resolved.quantityBasis,
+		discount_type: 'unit_amount',
+		discount_value: 10,
+	}, true), 116)
+})
+
+test('零售订单有新发布件数阶梯但数量无档位时不回退到主数据价', () => {
+	const resolved = resolveWholesaleTierPrice({
+		tiers: [{
+			id: 504,
+			spec_g: 227,
+			min: 10,
+			max: 20,
+			unit_price: 68,
+			quantity_basis: 'sales_spec_count',
+		}],
+	}, { spec_mode: '227', qty: 2, tier_id: 'auto' })
+	assert.equal(resolved.tierID, 'auto')
+	assert.equal(resolved.quantityBasis, 'sales_spec_count')
+	assert.equal(resolved.priceMissing, true)
+})
+
+test('选中零售发布版本时不回退到另一商用发布版本', () => {
+	const resolved = resolveWholesaleTierPrice({
+		tiers: [{
+			id: 505,
+			min: 1,
+			max: null,
+			unit_price: 68,
+			quantity_basis: 'sales_spec_count',
+			price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":11,"quantity_basis":"sales_spec_count"}',
+		}],
+	}, { spec_mode: '227', qty: 2, tier_id: 'auto', bean_list_publication_id: 22 })
+	assert.equal(resolved.tierID, 'auto')
+	assert.equal(resolved.unitPrice, '')
+	assert.equal(resolved.priceMissing, true)
+})
+
+test('手动价保留发布价的销售规格件数口径', () => {
+	const priceSourceJSON = '{"source":"published_bean_list","publication_id":22,"quantity_basis":"sales_spec_count"}'
+	const payload = buildOrderPayload({
+		form: {},
+		rows: [{
+			product_id: 558,
+			product_name: '初晓',
+			product_kind: 'roasted_bean',
+			spec_mode: '227',
+			qty: 2,
+			tier_id: 'manual',
+			unit_price: '68',
+			price_source_json: priceSourceJSON,
+		}],
+	})
+	assert.deepEqual(payload.price_source_json, [priceSourceJSON])
+})
+
 test('挂耳派生盒 SKU 从录单单位或唯一阶梯推导盒装默认值', () => {
   const boxProduct = {
     product_kind: 'drip_bag',
@@ -676,6 +798,12 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /repriceHydratedRows/)
   assert.match(source, /restoreOrderEntryDraft\(\)\s*\n\s*repriceHydratedRows\(\)/)
   assert.match(source, /function selectTier[\s\S]*?isDripRow[\s\S]*?syncPrice\(row, \{ force: true \}\)/)
+  assert.match(source, /const publishedPrice = resolveWholesaleTierPrice\(product, row\)/)
+  assert.match(source, /publishedPrice\.quantityBasis === 'sales_spec_count'[\s\S]*?applyResolvedWholesalePrice\(row, publishedPrice\)/)
+  assert.match(source, /price_source_json: item\.price_source_json \|\| ''/)
+  assert.match(source, /manual_price: item\.price_override === true \|\| item\.tier_id === 'manual'/)
+  assert.match(source, /if \(retailOrder\.value\) return listType === 'retail' \|\| listType === 'drip'/)
+  assert.match(source, /currentOrderBeanListTypeForProductKind/)
   assert.match(source, /报价来源：价格表/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
 })
@@ -753,8 +881,19 @@ test('beanListVersionOptionGroups groups price lists by custom product category 
   ])
 
   assert.deepEqual(groups.map((group) => [group.key, group.label, group.listType, group.options.map((item) => item.id)]), [
-    ['category:9', '冷萃类', 'commercial', [1, 2]],
+    ['category:9:commercial', '冷萃类', 'commercial', [1, 2]],
     ['legacy:green', '生豆豆单', 'green', [3]],
+  ])
+})
+
+test('订单价格表分组不合并同分类的商用和零售发布', () => {
+  const groups = beanListVersionOptionGroups([
+    { id: 11, list_type: 'commercial', product_type_category_id: 9, product_type_name: '咖啡熟豆' },
+    { id: 22, list_type: 'retail', product_type_category_id: 9, product_type_name: '咖啡熟豆' },
+  ])
+  assert.deepEqual(groups.map((group) => [group.key, group.listType, group.options.map((item) => item.id)]), [
+    ['category:9:commercial', 'commercial', [11]],
+    ['category:9:retail', 'retail', [22]],
   ])
 })
 

@@ -1534,7 +1534,18 @@
                   <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
                   <small v-if="row.derived_spec_status === 'template_removed'" class="muted">历史 SKU 保留用于历史单据，不参与新建业务</small>
                 </div>
-                <span v-if="row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' || row.active === false" :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
+                <div class="sales-spec-default-actions">
+                  <span v-if="productSalesSpecIsDefault(row)" class="template-meta-chip default-spec-chip">默认规格</span>
+                  <button
+                    v-else-if="productSalesSpecCanSetDefault(row)"
+                    class="secondary compact-action"
+                    type="button"
+                    :disabled="defaultSkuSavingID === productSalesSpecSkuID(row)"
+                    @click="setDefaultProductSalesSpec(row)">
+                    {{ defaultSkuSavingID === productSalesSpecSkuID(row) ? '设置中' : '设为默认规格' }}
+                  </button>
+                  <span v-if="row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' || row.active === false" :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
+                </div>
               </article>
               <p v-if="!productProductionVisibleSalesSpecRows.length" class="muted">当前模板没有可用规格；打开“显示历史规格”可查看历史保留 SKU。</p>
             </div>
@@ -2027,6 +2038,7 @@ const productProductionConfigSaving = ref(false)
 const showProductProductionHistoricalSpecs = ref(false)
 const childSkuForm = ref(defaultChildSkuForm())
 const childSkuSaving = ref(false)
+const defaultSkuSavingID = ref(0)
 const aliasIndustryFieldDrawerOpen = ref(false)
 const aliasIndustryFieldSaving = ref(false)
 const aliasIndustryFieldAlias = ref(null)
@@ -4662,6 +4674,50 @@ function derivedSkuCodeLabel(row = {}) {
   if (code) return code
   const id = Number(row.sku_id || row.id || row.derived_sku_id || 0)
   return id > 0 ? `SKU-${String(id).padStart(6, '0')}` : '保存后生成'
+}
+
+function productSalesSpecSkuID(row = {}) {
+  return Number(row.derived_sku_id || row.sku_id || row.id || 0)
+}
+
+function productSalesSpecIsDefault(row = {}) {
+  const defaultSKUID = Number(
+    productProductionConfigParentProduct.value?.default_sku_id
+      || productProductionConfigParentProduct.value?.effective_default_sku_id
+      || 0,
+  )
+  const skuID = productSalesSpecSkuID(row)
+  if (defaultSKUID > 0) return skuID === defaultSKUID
+  return row.is_default_sku === true || row.isDefaultSKU === true
+}
+
+function productSalesSpecCanSetDefault(row = {}) {
+  const status = String(row.derived_spec_status || row.derivedSpecStatus || '').trim()
+  return productSalesSpecSkuID(row) > 0
+    && row.active !== false
+    && status !== 'template_removed'
+    && status !== 'template_disabled'
+}
+
+async function setDefaultProductSalesSpec(row = {}) {
+  const parentProductID = productProductionConfigParentProductID.value
+  const skuID = productSalesSpecSkuID(row)
+  if (!parentProductID || !skuID || !productSalesSpecCanSetDefault(row)) return
+  defaultSkuSavingID.value = skuID
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/products/${parentProductID}/default-sku`, {
+      method: 'PUT',
+      body: { sku_id: skuID },
+    })
+    await loadAll()
+    ok.value = `默认规格已设置为 ${String(row.spec_name || row.sku_name || row.name || skuID).trim()}`
+  } catch (err) {
+    error.value = err.message || '设置默认规格失败'
+  } finally {
+    defaultSkuSavingID.value = 0
+  }
 }
 
 function derivedSpecStatusLabel(status = '') {
@@ -7883,6 +7939,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
 .child-sku-list { display: grid; gap: 8px; }
 .sales-spec-template-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sales-spec-default-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.default-spec-chip { border-color: #9fc5ff; background: #edf5ff; color: #1658a5; font-weight: 700; }
 .sales-spec-history-toggle { margin: 0; }
 .child-sku-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; padding: 8px 10px; min-width: 0; }
 .child-sku-row.inactive { background: #fbfaf8; opacity: .78; }

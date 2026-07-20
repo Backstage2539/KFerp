@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-541-PRICE-LIST-PRODUCT-SPEC-SELECTION
+- Branch: codex/price-list-product-spec-selection-20260720
+- Owner/session: Codex / 2026-07-20
+- Status: implementation and full local verification complete; develop integration and development deployment pending
+- Scope: 商品档案为每个父商品维护一个具体默认规格；商品价格表按父商品展示并允许勾选一个或多个具体销售规格，分类/商品首次选中只带入默认规格。阶梯模板只定义销售规格件数，价格模板、固定价、发布快照、PDF 和订单取价全部绑定具体 SKU 及其销售规格。
+- DEV:
+  - DEV-541-PRODUCT-DEFAULT-SKU：父商品保存权威 `default_sku_id`，商品档案可切换默认规格；迁移、模板同步和正式 API 保证归属、启用状态、唯一性及操作日志。
+  - DEV-541-PRICE-LIST-SPEC-SELECTION：价格表选品按父商品聚合，支持默认规格和额外规格勾选，草稿保存父商品到具体 SKU 的选择及来源，固定价按规格隔离。
+  - DEV-541-SALES-SPEC-TIER-SNAPSHOT：新阶梯档位按销售规格件数解释，发布行冻结具体 SKU、有效销售规格和数量口径；订单/PDF 精确匹配具体 SKU，历史快照继续兼容。
+  - DEV-541-DOCS-DEPLOY：同步需求、验收、商品/成本/订单手册，完成测试、构建、合并 develop、开发部署和浏览器/API 冒烟。
+- Verifier:
+  - RED support contract: `go test ./internal/interfaces/http/support -run TestDev541PriceListProductSpecSelectionContracts -count=1` failed because PR-541/DEV/REV seeds and the new default-SKU/spec-selection/sales-spec-count contracts were absent.
+  - RED product UI: `node --test src/lib/product-settings.test.js` failed 2 new tests because the parent row was still forced to `is_default_sku=true`, the concrete child was not projected from `default_sku_id`, and 商品档案 lacked `设为默认规格` plus the default-SKU API action.
+  - RED feature tests: catalog default-SKU projection/API, parent/spec selection, open-ended quantity tiers, exact-SKU snapshots, count-basis order totals and fixed-price isolation all failed before their production paths existed; the focused tests now preserve those regressions.
+  - Unit/API GREEN: `go test ./... -count=1` passed, including catalog API, real PostgreSQL backfill priority/idempotence, Costing selection/snapshot hardening, explicit-empty selection rejection, exact-SKU order matching and count-basis discounts.
+  - Frontend/build GREEN: focused PR-541 suites passed 384/384 across product settings, selection/draft/workflow/PDF/order entry and UI contracts; full frontend is 734/740 with only the same six pre-existing clean-`origin/develop` workspace/customer-context failures; `npm run build` passed (401 modules).
+  - Manual/review: requirements, acceptance and the inventory/costing/order manuals are updated; independent money-integrity review findings were fixed before integration.
+- Deployment: development pending; production out of scope; existing publications will not be republished automatically.
+- Last update: 2026-07-20 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` reported PR-541; `--claim` hit the known macOS awk multiline-string error, so the placeholder was recorded with apply_patch.
+
 ### PR-540-PRICE-TIER-UNIT-COMPATIBILITY
 - Branch: codex/price-list-template-unit-compat-20260719
 - Owner/session: Codex / 2026-07-19

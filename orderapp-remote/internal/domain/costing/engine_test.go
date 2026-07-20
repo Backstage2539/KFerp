@@ -55,6 +55,47 @@ func TestEngineMatchesExcelCachedGoldens(t *testing.T) {
 	assertClose(t, "retail drip 10 bags", got.RetailDrip10BagPrice, 43)
 }
 
+func TestCalculateProductPreservesConcreteSKUSalesSpecForBeanListAPI(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          551,
+		SKUID:              551,
+		ParentProductID:    550,
+		DefaultSKUID:       552,
+		SKUName:            "初晓 磅",
+		SKUCode:            "SKU-000551",
+		SpecLabel:          "磅",
+		NetContentQty:      1,
+		NetContentUnit:     "lb",
+		Name:               "初晓 磅",
+		ProductName:        "初晓",
+		InventoryUnit:      "kg",
+		OrderUnit:          "磅",
+		QuoteUnit:          "磅",
+		UnitConversionJSON: `{"磅":{"kg":0.45359237}}`,
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+	})
+	payload, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(payload, &row); err != nil {
+		t.Fatal(err)
+	}
+	if row["sku_id"] != float64(551) || row["parent_product_id"] != float64(550) {
+		t.Fatalf("concrete SKU identity missing from product result: %s", payload)
+	}
+	if row["default_sku_id"] != float64(552) {
+		t.Fatalf("parent-authoritative default SKU missing from product result: %s", payload)
+	}
+	spec, ok := row["effective_sales_spec"].(map[string]any)
+	if !ok || spec["sku_id"] != float64(551) || spec["spec_name"] != "磅" || spec["sales_unit"] != "磅" {
+		t.Fatalf("effective_sales_spec = %#v; payload=%s", row["effective_sales_spec"], payload)
+	}
+}
+
 func TestCommercialWholesaleTiersUse454gPackageRanges(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{

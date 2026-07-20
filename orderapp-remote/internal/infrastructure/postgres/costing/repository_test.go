@@ -35,6 +35,62 @@ func TestLoadProductInputsDoesNotUsePublishedDefaultPriceAsBeanCost(t *testing.T
 	}
 }
 
+func TestResolveProductSpecIdentityChecksCurrentParentAndSalesSpecTemplate(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductSpecIdentity")
+	end := strings.Index(src, "func (r Repository) ResolveProductDefaultSalesUnit")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("ResolveProductSpecIdentity function not found")
+	}
+	body := src[start:end]
+	for _, want := range []string{
+		"effective_parent_product_id",
+		"COALESCE(p.active,true)",
+		"COALESCE(parent.active,false)",
+		"derived_spec_status",
+		"derived_unit_template_id",
+		"parent.unit_template_id",
+		"product_unit_templates",
+		"sales_specs_json",
+		"derived_spec_key",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("product spec identity query missing %q", want)
+		}
+	}
+	for _, want := range []string{"NOT EXISTS", "child.parent_product_id=p.id", "child.active=true"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("parent self-SKU validity must require no valid active child SKU; missing %q", want)
+		}
+	}
+}
+
+func TestResolveProductSalesUnitRuleBuildsAuthoritativeSKUSnapshotFields(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductSalesUnitRule")
+	end := strings.Index(src, "func (r Repository) ResolveProductSpecIdentity")
+	if start < 0 || end <= start {
+		t.Fatal("ResolveProductSalesUnitRule function not found")
+	}
+	body := src[start:end]
+	for _, want := range []string{
+		"p.sku_name", "p.sku_code", "p.barcode", "p.derived_spec_key", "p.derived_spec_name",
+		"p.spec_label", "p.net_content_qty", "p.net_content_unit", "product_unit_template_default_spec.spec_key",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("authoritative product sales specification query missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsUsesBomCostSnapshotForGreenBeanCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -1031,18 +1087,57 @@ func TestLoadProductInputsReadsChildSKUMetadataForPriceListRows(t *testing.T) {
 		"COALESCE(p.parent_product_id,0) AS parent_product_id",
 		"effective_parent_product_id",
 		"COALESCE(p.sku_code,'') AS sku_code",
+		"derived_spec_key",
 		"COALESCE(p.spec_label,'') AS spec_label",
 		"COALESCE(NULLIF(p.net_content_qty,0), NULLIF(product_unit_template_default_spec.net_content_qty,0), 0)::float8 AS net_content_qty",
 		"COALESCE(NULLIF(p.net_content_unit,''), NULLIF(product_unit_template_default_spec.net_content_unit,''), '') AS net_content_unit",
 		"&input.SKUID",
 		"&input.ParentProductID",
 		"&input.SKUName",
+		"&input.SpecKey",
 		"&input.SpecLabel",
 		"&input.NetContentQty",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must load child SKU metadata for price list rows; missing %q", want)
 		}
+	}
+}
+
+func TestLoadProductInputsProjectsParentAuthoritativeDefaultSKU(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.products parent_product",
+		"COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS default_sku_id",
+		"p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS is_default_sku",
+		"&input.DefaultSKUID",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing product input default-SKU projection missing %q", want)
+		}
+	}
+	if strings.Contains(src, "(COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku") {
+		t.Fatalf("costing rows must not force every parent product to be the default SKU")
+	}
+}
+
+func TestBeanListProductScopeIncludesConcreteSKUPriceRows(t *testing.T) {
+	content := map[string]any{
+		"groups": []any{map[string]any{"items": []any{map[string]any{
+			"product_id": float64(550), "name": "初晓",
+		}}}},
+		"price_rows": []any{map[string]any{
+			"product_id": float64(550), "sku_id": float64(551), "parent_product_id": float64(550),
+			"quantity_basis": "sales_spec_count", "final_unit_price": float64(68),
+		}},
+	}
+	got := beanListContentProductIDs(content)
+	if len(got) != 2 || got[0] != 550 || got[1] != 551 {
+		t.Fatalf("publish scope product IDs = %v, want parent 550 and concrete SKU 551", got)
 	}
 }
 

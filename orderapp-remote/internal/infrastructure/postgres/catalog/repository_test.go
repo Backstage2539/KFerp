@@ -1788,3 +1788,82 @@ func TestProductSettingsRepositoryAttachesPublishedPriceSummaries(t *testing.T) 
 		}
 	}
 }
+
+func TestPerProductDefaultSKUSchemaAndRepositoryContract(t *testing.T) {
+	schemaBytes, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryBytes, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(schemaBytes)
+	repository := string(repositoryBytes)
+	queries := string(queryBytes)
+	for _, want := range []string{
+		"default_sku_id BIGINT NOT NULL DEFAULT 0",
+		"backfillProductDefaultSKUs(ctx, pool, schema)",
+		"func backfillProductDefaultSKUs",
+		"IN ('', 'active')",
+		"COALESCE(legacy_flags.legacy_default_count,0) = 1",
+		"COALESCE(current_child.id, unique_legacy_child.id, template_default_child.id, first_valid_child.id, parent.id)",
+		"COUNT(*) FILTER (WHERE child.is_default_sku=true) AS legacy_default_count",
+		"derived_spec_key",
+		"UPDATE %[1]s.products child",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("default SKU migration missing marker %q", want)
+		}
+	}
+	if strings.Contains(schema, "ORDER BY child.is_default_sku DESC") {
+		t.Fatalf("multiple legacy default flags must not select an arbitrary child ahead of the template default")
+	}
+	for _, want := range []string{
+		"func (r Repository) SetProductDefaultSKU",
+		"setProductDefaultSKUTx",
+		"reconcileProductDefaultSKUTx",
+		"derived_spec_status",
+		"template_removed",
+		"sku does not belong to parent product",
+		`"set_default_sku"`,
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("default SKU repository missing marker %q", want)
+		}
+	}
+	if strings.Contains(repository, "netContentUnit, spec.Default, parent.CategoryID") {
+		t.Fatalf("derived SKU upsert must not copy template-global default into per-product compatibility flag")
+	}
+	for _, want := range []string{"default_sku_id", "effective_default_sku_id", "default_spec_label"} {
+		if !strings.Contains(queries, want) {
+			t.Fatalf("catalog projection missing %q", want)
+		}
+	}
+}
+
+func TestDeactivateProductsReconcilesAffectedDefaultSKUParents(t *testing.T) {
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := string(repositoryBytes)
+	start := strings.Index(repository, "func (r Repository) DeactivateProducts")
+	end := strings.Index(repository[start:], "func (r Repository) CreateProduct")
+	if start < 0 || end < 0 {
+		t.Fatal("DeactivateProducts implementation not found")
+	}
+	deactivate := repository[start : start+end]
+	for _, want := range []string{
+		"parent_product_id",
+		"reconcileProductDefaultSKUTx(ctx, tx, r.schema, cmd.Actor, parentID)",
+	} {
+		if !strings.Contains(deactivate, want) {
+			t.Fatalf("deactivating a SKU must reconcile its parent default; missing %q", want)
+		}
+	}
+}

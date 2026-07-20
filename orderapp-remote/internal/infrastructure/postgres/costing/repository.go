@@ -69,6 +69,14 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 	var conversionJSON string
 	var autoDerived bool
 	var derivedSalesUnit string
+	var skuName string
+	var skuCode string
+	var barcode string
+	var specKey string
+	var specName string
+	var specLabel string
+	var netContentQty float64
+	var netContentUnit string
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT CASE
 		         WHEN COALESCE(p.parent_product_id,0) > 0 THEN COALESCE(
@@ -141,11 +149,36 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		         )
 		       END AS unit_conversion_json,
 		       COALESCE(p.auto_derived_sku,false) AS auto_derived_sku,
-		       COALESCE(p.derived_sales_unit,'') AS derived_sales_unit
+		       COALESCE(p.derived_sales_unit,'') AS derived_sales_unit,
+		       COALESCE(NULLIF(p.sku_name,''), NULLIF(p.name,''), '') AS sku_name,
+		       COALESCE(p.sku_code,'') AS sku_code,
+		       COALESCE(p.barcode,'') AS barcode,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0
+		         THEN COALESCE(NULLIF(p.derived_spec_key,''), '')
+		         ELSE COALESCE(NULLIF(product_unit_template_default_spec.spec_key,''), NULLIF(p.derived_spec_key,''), '')
+		       END AS spec_key,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0
+		         THEN COALESCE(NULLIF(p.derived_spec_name,''), NULLIF(p.spec_label,''), NULLIF(p.sku_name,''), NULLIF(p.derived_sales_unit,''), '')
+		         ELSE COALESCE(NULLIF(product_unit_template_default_spec.spec_name,''), NULLIF(p.spec_label,''), NULLIF(p.sku_name,''), '')
+		       END AS spec_name,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0
+		         THEN COALESCE(NULLIF(p.spec_label,''), NULLIF(p.derived_spec_name,''), NULLIF(p.sku_name,''), '')
+		         ELSE COALESCE(NULLIF(product_unit_template_default_spec.spec_label,''), NULLIF(product_unit_template_default_spec.spec_name,''), NULLIF(p.spec_label,''), '')
+		       END AS spec_label,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0
+		         THEN COALESCE(p.net_content_qty,0)::float8
+		         ELSE COALESCE(NULLIF(p.net_content_qty,0), product_unit_template_default_spec.net_content_qty, 0)::float8
+		       END AS net_content_qty,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0
+		         THEN COALESCE(p.net_content_unit,'')
+		         ELSE COALESCE(NULLIF(p.net_content_unit,''), product_unit_template_default_spec.net_content_unit, '')
+		       END AS net_content_unit
 		FROM %[1]s.products p
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true
 		LEFT JOIN LATERAL (
-			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
+			SELECT NULLIF(spec.row->>'spec_key','') AS spec_key,
+			       NULLIF(spec.row->>'spec_name','') AS spec_name,
+			       COALESCE(NULLIF(spec.row->>'spec_label',''), NULLIF(spec.row->>'spec_name','')) AS spec_label,
 			       NULLIF(spec.row->>'spec_name','') AS sales_unit,
 			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
 			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
@@ -221,7 +254,21 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 		LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active = true
 		LEFT JOIN %[1]s.product_unit_templates parent_pc_unit ON parent_pc_unit.id = parent_pc.unit_template_id AND parent_pc_unit.active = true
 		WHERE p.id=$1 AND p.active = true
-	`, r.schema), productID).Scan(&inventoryUnit, &defaultSalesUnit, &conversionJSON, &autoDerived, &derivedSalesUnit)
+	`, r.schema), productID).Scan(
+		&inventoryUnit,
+		&defaultSalesUnit,
+		&conversionJSON,
+		&autoDerived,
+		&derivedSalesUnit,
+		&skuName,
+		&skuCode,
+		&barcode,
+		&specKey,
+		&specName,
+		&specLabel,
+		&netContentQty,
+		&netContentUnit,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
@@ -254,7 +301,91 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 	if len(targets) == 0 {
 		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
 	}
-	return appcosting.ProductSalesUnitRule{ProductID: productID, DefaultSalesUnit: defaultSalesUnit, InventoryUnit: inventoryUnit, Conversion: conversion}, nil
+	return appcosting.ProductSalesUnitRule{
+		ProductID:        productID,
+		SKUName:          strings.TrimSpace(skuName),
+		SKUCode:          strings.TrimSpace(skuCode),
+		Barcode:          strings.TrimSpace(barcode),
+		DefaultSalesUnit: defaultSalesUnit,
+		InventoryUnit:    inventoryUnit,
+		Conversion:       conversion,
+		EffectiveSalesSpec: &domain.EffectiveSalesSpec{
+			SKUID:                   productID,
+			SpecKey:                 strings.TrimSpace(specKey),
+			SpecName:                firstNonEmptyString(strings.TrimSpace(specName), strings.TrimSpace(specLabel), defaultSalesUnit),
+			SpecLabel:               firstNonEmptyString(strings.TrimSpace(specLabel), strings.TrimSpace(specName)),
+			SalesUnit:               defaultSalesUnit,
+			NetContentQty:           netContentQty,
+			NetContentUnit:          strings.TrimSpace(netContentUnit),
+			InventoryUnit:           inventoryUnit,
+			InventoryConversionJSON: conversion,
+		},
+	}, nil
+}
+
+func (r Repository) ResolveProductSpecIdentity(ctx context.Context, productID int64) (appcosting.ProductSpecIdentity, error) {
+	if r.pool == nil || productID <= 0 {
+		return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
+	}
+	identity := appcosting.ProductSpecIdentity{}
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT p.id,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AS effective_parent_product_id,
+		       COALESCE(p.active,true)
+		         AND CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(parent.active,false) ELSE true END AS active,
+		       CASE
+		         WHEN COALESCE(p.parent_product_id,0)=0 THEN NOT EXISTS (
+		           SELECT 1
+		           FROM %[1]s.products child
+		           WHERE child.parent_product_id=p.id
+		             AND child.active=true
+		             AND COALESCE(child.derived_spec_status,'active') IN ('', 'active')
+		             AND (
+		               COALESCE(child.auto_derived_sku,false)=false
+		               OR (
+		                 COALESCE(child.derived_unit_template_id,0)=COALESCE(p.unit_template_id,0)
+		                 AND EXISTS (
+		                   SELECT 1
+		                   FROM %[1]s.product_unit_templates child_template,
+		                        LATERAL jsonb_array_elements(COALESCE(child_template.sales_specs_json,'[]'::jsonb)) child_spec
+		                   WHERE child_template.id=p.unit_template_id
+		                     AND COALESCE(child_template.active,true)=true
+		                     AND COALESCE(child_spec->>'active','true')<>'false'
+		                     AND COALESCE(child_spec->>'spec_key','')=COALESCE(child.derived_spec_key,'')
+		                 )
+		               )
+		             )
+		         )
+		         WHEN COALESCE(p.derived_spec_status,'') NOT IN ('', 'active') THEN false
+		         WHEN COALESCE(p.auto_derived_sku,false)=false THEN true
+		         ELSE COALESCE(p.derived_spec_status,'')='active'
+		          AND COALESCE(p.derived_unit_template_id,0)=COALESCE(parent.unit_template_id,0)
+		          AND EXISTS (
+		            SELECT 1
+		            FROM %[1]s.product_unit_templates template,
+		                 LATERAL jsonb_array_elements(COALESCE(template.sales_specs_json,'[]'::jsonb)) spec
+		            WHERE template.id=parent.unit_template_id
+		              AND COALESCE(template.active,true)=true
+		              AND COALESCE(spec->>'active','true')<>'false'
+		              AND COALESCE(spec->>'spec_key','')=COALESCE(p.derived_spec_key,'')
+		          )
+		       END AS spec_valid
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.products parent ON parent.id=p.parent_product_id
+		WHERE p.id=$1
+	`, r.schema), productID).Scan(
+		&identity.ProductID,
+		&identity.EffectiveParentProductID,
+		&identity.Active,
+		&identity.SpecValid,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
+		}
+		return appcosting.ProductSpecIdentity{}, err
+	}
+	return identity, nil
 }
 
 func (r Repository) ResolveProductDefaultSalesUnit(ctx context.Context, productID int64) (string, error) {
@@ -1426,10 +1557,15 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       END AS sku_name,
 		       COALESCE(p.sku_code,'') AS sku_code,
 		       COALESCE(p.barcode,'') AS barcode,
+		       CASE
+		         WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(p.derived_spec_key,'')
+		         ELSE COALESCE(product_unit_template_default_spec.spec_key,'')
+		       END AS derived_spec_key,
 		       COALESCE(p.spec_label,'') AS spec_label,
 		       COALESCE(NULLIF(p.net_content_qty,0), NULLIF(product_unit_template_default_spec.net_content_qty,0), 0)::float8 AS net_content_qty,
 		       COALESCE(NULLIF(p.net_content_unit,''), NULLIF(product_unit_template_default_spec.net_content_unit,''), '') AS net_content_unit,
-		       (COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku,
+		       p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS is_default_sku,
+		       COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS default_sku_id,
 		       CASE WHEN $2 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END,
 		       'SKU-' || p.id::text,
 		       p.name,
@@ -1631,6 +1767,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(qc.inspection_created_at, ''),
 		       COALESCE(qc.inspection_reference_no, '')
 		FROM product_scope p
+		LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
 		LEFT JOIN %[1]s.product_bom b ON b.product_id = bom_product_id
 		LEFT JOIN %[1]s.bom_versions active_bv ON active_bv.product_id=p.bom_product_id AND active_bv.status='active'
 		LEFT JOIN %[1]s.production_boms current_bom ON current_bom.id=p.production_bom_id
@@ -1651,7 +1788,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %[1]s.product_unit_templates alias_legacy_unit ON alias_legacy_unit.id=p.customer_product_alias_unit_template_id AND alias_legacy_unit.active=true
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=p.unit_template_id AND product_unit_template.active=true
 		LEFT JOIN LATERAL (
-			SELECT NULLIF(spec.row->>'spec_name','') AS spec_name,
+			SELECT NULLIF(spec.row->>'spec_key','') AS spec_key,
+			       NULLIF(spec.row->>'spec_name','') AS spec_name,
 			       NULLIF(spec.row->>'spec_name','') AS sales_unit,
 			       COALESCE(NULLIF(spec.row->>'net_content_qty','')::numeric,0)::float8 AS net_content_qty,
 			       NULLIF(spec.row->>'net_content_unit','') AS net_content_unit,
@@ -1880,7 +2018,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			FROM source_rows
 		) pps ON true
 		WHERE p.active = true
-			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, p.process_route_id, product_process_route.name, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, derived_sku_units.derived_sku_unit_factor, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, product_unit_template_default_spec.spec_name, product_unit_template_default_spec.sales_unit, product_unit_template_default_spec.net_content_qty, product_unit_template_default_spec.net_content_unit, product_unit_template_default_spec.unit_conversion_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.customer_id, cpro.product_subtype_category_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+			GROUP BY p.id, p.parent_product_id, p.sku_name, p.sku_code, p.barcode, p.derived_spec_key, p.spec_label, p.net_content_qty, p.net_content_unit, p.is_default_sku, parent_product.id, parent_product.default_sku_id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, p.process_route_id, product_process_route.name, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p.auto_derived_sku, p.derived_sales_unit, parent_units.parent_inventory_unit, derived_sku_units.derived_sku_unit_factor, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, product_unit_template.inventory_unit, product_unit_template.quote_unit, product_unit_template.order_unit, product_unit_template.unit_conversion_json, product_unit_template.integer_unit, product_unit_template_default_spec.spec_key, product_unit_template_default_spec.spec_name, product_unit_template_default_spec.sales_unit, product_unit_template_default_spec.net_content_qty, product_unit_template_default_spec.net_content_unit, product_unit_template_default_spec.unit_conversion_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.customer_id, cpro.product_subtype_category_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, current_bom.id, current_bom.status, current_bv.id, current_bv.version_no, current_bv.yield_rate, current_bv.special_attrs_json, current_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)
@@ -1906,10 +2044,12 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			&input.SKUName,
 			&input.SKUCode,
 			&input.Barcode,
+			&input.SpecKey,
 			&input.SpecLabel,
 			&input.NetContentQty,
 			&input.NetContentUnit,
 			&input.IsDefaultSKU,
+			&input.DefaultSKUID,
 			&input.Name,
 			&input.ProductCode,
 			&input.ProductName,
@@ -3344,37 +3484,52 @@ func validateBeanListProductScope(ctx context.Context, tx pgx.Tx, schema string,
 }
 
 func beanListContentProductIDs(content map[string]any) []int64 {
-	groups, ok := anySlice(content["groups"])
-	if !ok {
-		return nil
-	}
 	seen := map[int64]bool{}
 	out := make([]int64, 0)
-	for _, group := range groups {
-		groupMap, ok := anyMap(group)
-		if !ok {
-			continue
+	appendID := func(id int64) {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
 		}
-		items, ok := anySlice(groupMap["items"])
-		if !ok {
-			continue
-		}
-		for _, item := range items {
-			itemMap, ok := anyMap(item)
+	}
+	if groups, ok := anySlice(content["groups"]); ok {
+		for _, group := range groups {
+			groupMap, ok := anyMap(group)
 			if !ok {
 				continue
 			}
-			id := anyInt64(itemMap["productId"])
-			if id <= 0 {
-				id = anyInt64(itemMap["product_id"])
+			items, ok := anySlice(groupMap["items"])
+			if !ok {
+				continue
 			}
-			if id <= 0 {
-				id = anyInt64(itemMap["productID"])
+			for _, item := range items {
+				itemMap, ok := anyMap(item)
+				if !ok {
+					continue
+				}
+				id := anyInt64(itemMap["productId"])
+				if id <= 0 {
+					id = anyInt64(itemMap["product_id"])
+				}
+				if id <= 0 {
+					id = anyInt64(itemMap["productID"])
+				}
+				appendID(id)
 			}
-			if id > 0 && !seen[id] {
-				seen[id] = true
-				out = append(out, id)
+		}
+	}
+	if rows, ok := anySlice(content["price_rows"]); ok {
+		for _, raw := range rows {
+			row, ok := anyMap(raw)
+			if !ok {
+				continue
 			}
+			productID := anyInt64(row["product_id"])
+			if productID <= 0 {
+				productID = anyInt64(row["productId"])
+			}
+			appendID(productID)
+			appendID(anyInt64(row["sku_id"]))
 		}
 	}
 	return out
@@ -3411,6 +3566,10 @@ func beanListContentHasPR440FlatRowsForProducts(content map[string]any, productI
 		}
 		if _, exists := needed[id]; exists {
 			needed[id] = true
+		}
+		skuID := anyInt64(row["sku_id"])
+		if _, exists := needed[skuID]; exists {
+			needed[skuID] = true
 		}
 	}
 	for _, found := range needed {

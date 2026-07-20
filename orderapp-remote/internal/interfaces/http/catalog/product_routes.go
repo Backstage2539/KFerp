@@ -56,6 +56,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.PUT("/api/product-settings/unit-templates/:id", h.saveProductUnitTemplateAPI)
 	e.DELETE("/api/product-settings/unit-templates/:id", h.deleteProductUnitTemplateAPI)
 	e.POST("/api/product-settings/skus", h.createSKUAPI)
+	e.PUT("/api/product-settings/products/:id/default-sku", h.setProductDefaultSKUAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/:id/copy", h.copyProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
@@ -95,6 +96,11 @@ func (o *optionalNullableFloat64) UnmarshalJSON(data []byte) error {
 
 type productHandler struct {
 	catalog *catalogapp.Service
+}
+
+type productDefaultSKUAPIRequest struct {
+	SKUID        int64 `json:"sku_id"`
+	DefaultSKUID int64 `json:"default_sku_id"`
 }
 
 const (
@@ -898,6 +904,32 @@ func (h productHandler) createSKUAPI(c echo.Context) error {
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) setProductDefaultSKUAPI(c echo.Context) error {
+	parentID, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || parentID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product id"})
+	}
+	var req productDefaultSKUAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if req.SKUID <= 0 {
+		req.SKUID = req.DefaultSKUID
+	}
+	product, err := h.catalog.SetProductDefaultSKU(c.Request().Context(), catalogapp.SetProductDefaultSKUCommand{
+		Actor:           support.ActorOf(c),
+		ParentProductID: parentID,
+		SKUID:           req.SKUID,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
 }

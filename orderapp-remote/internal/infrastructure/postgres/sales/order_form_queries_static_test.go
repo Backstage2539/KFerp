@@ -71,6 +71,54 @@ func TestCommercialOrderTierOptionKeepsDerivedDripSalesUnit(t *testing.T) {
 	}
 }
 
+func TestCommercialOrderTierMapKeepsConcreteSKUCountSemantics(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{
+			"product_id":550,
+			"sku_id":551,
+			"parent_product_id":550,
+			"quantity_basis":"sales_spec_count",
+			"effective_sales_spec":{"sku_id":551,"spec_name":"磅","sales_unit":"磅","net_content_qty":1,"net_content_unit":"lb"},
+			"tier_quantity_unit":"磅",
+			"tier_label":"2-4磅",
+			"min_qty":2,
+			"max_qty":4,
+			"min_weight_g":1000,
+			"final_unit_price":68,
+			"price_unit":"磅"
+		}]
+	}`)
+
+	tiers := commercialOrderTierMapFromPublicationContent(99, "V5.0.0", content)[551]
+	if len(tiers) != 1 || tiers[0].MinQty != 2 || tiers[0].MaxQty == nil || *tiers[0].MaxQty != 4 {
+		t.Fatalf("concrete SKU tiers = %+v, want unconverted 2-4 sales-spec counts", tiers)
+	}
+	if tiers[0].SpecG != 454 || tiers[0].DisplayUnit != "磅" {
+		t.Fatalf("concrete SKU tier must derive 454g/磅 from frozen effective_sales_spec, got %+v", tiers[0])
+	}
+	if !strings.Contains(tiers[0].PriceSourceJSON, `"quantity_basis":"sales_spec_count"`) ||
+		!strings.Contains(tiers[0].PriceSourceJSON, `"effective_sales_spec"`) {
+		t.Fatalf("price source must freeze quantity/spec semantics: %s", tiers[0].PriceSourceJSON)
+	}
+	if len(commercialOrderTierMapFromPublicationContent(99, "V5.0.0", content)[550]) != 0 {
+		t.Fatal("parent product must not receive concrete child SKU tiers")
+	}
+}
+
+func TestCommercialOrderTierOptionDoesNotInvent454gForCountSnapshot(t *testing.T) {
+	tier := orderCommercialPublicationTier{
+		QuantityBasis: "sales_spec_count", FinalUnitPrice: 31,
+		EffectiveSalesSpec: json.RawMessage(`{"sku_id":711,"spec_name":"盒","sales_unit":"盒"}`),
+	}
+	got := commercialOrderTierOption(99, "V5.0.1", 0, tier, "instant_coffee")
+	if got.SpecG != 0 {
+		t.Fatalf("count snapshot without authoritative net content must not default spec_g to 454, got %+v", got)
+	}
+	if got.DisplayUnit != "盒" || got.UnitPrice != 31 {
+		t.Fatalf("count snapshot must use frozen effective sales unit and price, got %+v", got)
+	}
+}
+
 func TestDripOrderBeanListCandidatesPreferCommercialAndKeepLegacyFallback(t *testing.T) {
 	got := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{
 		CommercialBeanListPublicationID: 101,
@@ -492,6 +540,80 @@ func TestCommercialOrderPublicationTiersParseFlatRowsByDerivedSKUID(t *testing.T
 	}
 }
 
+func TestRetailOrderPublicationTiersReuseConcreteSKUCountSnapshots(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{
+			"product_id":550,
+			"sku_id":551,
+			"parent_product_id":550,
+			"quantity_basis":"sales_spec_count",
+			"effective_sales_spec":{"sku_id":551,"spec_key":"bag-227g","spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"},
+			"tier_quantity_unit":"227g袋装",
+			"tier_label":"2袋+",
+			"min_qty":2,
+			"final_unit_price":68,
+			"price_unit":"袋"
+		}]
+	}`)
+
+	tiers := commercialOrderTierMapFromPublicationContent(88, "RETAIL-V1", content, "retail")[551]
+	if len(tiers) != 1 {
+		t.Fatalf("retail concrete SKU tiers = %+v, want one tier", tiers)
+	}
+	got := tiers[0]
+	if got.SpecG != 227 || got.UnitPrice != 68 || got.QuantityBasis != "sales_spec_count" || got.DisplayUnit != "袋" {
+		t.Fatalf("retail concrete SKU count tier = %+v", got)
+	}
+	if got.EffectiveSalesSpec["spec_key"] != "bag-227g" || got.EffectiveSalesSpec["sales_unit"] != "袋" {
+		t.Fatalf("retail effective sales spec = %#v", got.EffectiveSalesSpec)
+	}
+	var source map[string]any
+	if err := json.Unmarshal([]byte(got.PriceSourceJSON), &source); err != nil {
+		t.Fatalf("decode retail price source: %v", err)
+	}
+	if source["list_type"] != "retail" || int64(source["publication_id"].(float64)) != 88 {
+		t.Fatalf("retail price source = %#v", source)
+	}
+}
+
+func TestRetailOrderPublicationTiersKeepLegacyRetailBeanTiers(t *testing.T) {
+	content := []byte(`{
+		"groups":[{"items":[{
+			"productId":551,
+			"product_kind":"roasted_bean",
+			"retail_bean_tiers":[{"label":"227g","spec_g":227,"min_qty":1,"price_per_unit":82,"display_unit":"g227"}]
+		}]}]
+	}`)
+
+	tiers := commercialOrderTierMapFromPublicationContent(89, "RETAIL-LEGACY", content, "retail")[551]
+	if len(tiers) != 1 || tiers[0].SpecG != 227 || tiers[0].UnitPrice != 82 {
+		t.Fatalf("legacy retail tiers = %+v", tiers)
+	}
+	if !strings.Contains(tiers[0].PriceSourceJSON, `"list_type":"retail"`) {
+		t.Fatalf("legacy retail source = %s", tiers[0].PriceSourceJSON)
+	}
+}
+
+func TestApplyRetailOrderPublicationTiersAppendsWithoutReplacingCommercial(t *testing.T) {
+	products := []salesapp.ProductOption{{
+		ID: 551, ProductKind: "roasted_bean",
+		Tiers: []salesapp.ProductTierOption{{
+			ID: 1, UnitPrice: 75, PriceSourceJSON: `{"list_type":"commercial","publication_id":77}`,
+		}},
+	}}
+	retail := map[orderPublicationProductKey][]salesapp.ProductTierOption{
+		{ProductID: 551}: {{
+			ID: 2, UnitPrice: 68, PriceSourceJSON: `{"list_type":"retail","publication_id":88}`,
+		}},
+	}
+
+	applyRetailOrderPublicationTiers(products, retail)
+
+	if len(products[0].Tiers) != 2 || products[0].Tiers[0].UnitPrice != 75 || products[0].Tiers[1].UnitPrice != 68 {
+		t.Fatalf("commercial + retail tier merge = %+v", products[0].Tiers)
+	}
+}
+
 func TestCommercialOrderPublicationFlatRowsConvertWeightBoundsToSKUQuantities(t *testing.T) {
 	content := []byte(`{
 		"price_rows":[{
@@ -706,6 +828,27 @@ func TestOrderFormBeanListVersionsOnlyExposeFactorySupplyPublications(t *testing
 	}
 	if count := strings.Count(text[start:end], "publication_purpose='factory_supply'"); count != 2 {
 		t.Fatalf("order form version options must filter customer and official publications to factory_supply; filter count=%d", count)
+	}
+	if count := strings.Count(text[start:end], "'retail'"); count < 2 {
+		t.Fatalf("order form version options must explicitly include retail publications; retail filter count=%d", count)
+	}
+}
+
+func TestOrderFormProductQueryLoadsCommercialAndRetailPublications(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"fetchCommercialOrderPublicationTiers(ctx, out)",
+		"fetchRetailOrderPublicationTiers(ctx, out)",
+		"applyCommercialOrderPublicationTiers(out, commercialPublicationTiers)",
+		"applyRetailOrderPublicationTiers(out, retailPublicationTiers)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("order form product query missing %q", want)
+		}
 	}
 }
 
