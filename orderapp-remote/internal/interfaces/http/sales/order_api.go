@@ -690,6 +690,15 @@ func apiProducts(ps []ProductOption) []map[string]any {
 				"unit_bag_count":    t.UnitBagCount,
 				"price_source_json": t.PriceSourceJSON,
 			}
+			if t.QuantityBasis != "" {
+				tier["quantity_basis"] = t.QuantityBasis
+			}
+			if t.TierQuantityUnit != "" {
+				tier["tier_quantity_unit"] = t.TierQuantityUnit
+			}
+			if len(t.EffectiveSalesSpec) > 0 {
+				tier["effective_sales_spec"] = t.EffectiveSalesSpec
+			}
 			if t.DisplayUnit != "" {
 				tier["display_unit"] = t.DisplayUnit
 			}
@@ -1002,6 +1011,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		ProductNameSnapshot                string `json:"product_name_snapshot"`
 		Note                               string `json:"note"`
 		TierID                             string `json:"tier_id"`
+		PriceOverride                      bool   `json:"price_override"`
 		UnitPrice                          string `json:"unit_price"`
 		Qty                                string `json:"qty"`
 		Unit                               string `json:"unit"`
@@ -1023,7 +1033,9 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 	for _, it := range ed.Items {
 		spec := strings.TrimSuffix(strings.TrimSpace(strings.ToLower(it.Spec)), "g")
 		tierID := "auto"
-		if it.PriceTierID > 0 {
+		if it.PriceOverride {
+			tierID = "manual"
+		} else if it.PriceTierID > 0 {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
@@ -1037,6 +1049,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			ProductNameSnapshot:                it.ProductNameSnapshot,
 			Note:                               it.Note,
 			TierID:                             tierID,
+			PriceOverride:                      it.PriceOverride,
 			UnitPrice:                          it.UnitPrice,
 			Qty:                                it.Qty,
 			Unit:                               it.Unit,

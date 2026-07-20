@@ -127,7 +127,7 @@ export function priceListFlatRowsReady(sourceRows = [], options = {}) {
 
 export function priceListFlatRowErrors(row = {}, options = {}) {
   const title = priceListFlatRowDisplayTitle(row)
-  if (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false) {
+  if (!priceListFlatRowUsesSalesSpecCount(row) && (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false)) {
     const detail = String(row?.tier_unit_compatibility_error || row?.tierUnitCompatibilityError || '').trim()
     const productUnit = String(row?.product_sales_spec_unit || row?.productSalesSpecUnit || row?.price_unit || row?.priceUnit || '-').trim() || '-'
     const tierUnit = String(row?.tier_quantity_unit || row?.tierQuantityUnit || '-').trim() || '-'
@@ -179,9 +179,13 @@ export function priceListFlatRowErrors(row = {}, options = {}) {
 }
 
 function priceListFlatRowUsesLiveTrial(row = {}) {
-  if (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false) return false
+  if (!priceListFlatRowUsesSalesSpecCount(row) && (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false)) return false
   const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
   return mode === 'pricing_rule' || mode === 'tier_template'
+}
+
+function priceListFlatRowUsesSalesSpecCount(row = {}) {
+  return String(row?.quantity_basis || row?.quantityBasis || '').trim() === 'sales_spec_count'
 }
 
 export function priceListFlatRowDisplayTitle(row = {}) {
@@ -195,6 +199,7 @@ export function priceListFlatRowDisplayTitle(row = {}) {
 export function priceListFlatRowPriceUnitLabel(row = {}) {
   const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
   const spec = priceListFlatRowUnitSpecLabel(row)
+  if (spec && priceListFlatRowUsesSalesSpecCount(row)) return compactSpecLabelFromText(spec) || spec
   if (spec && (priceUnit === '袋' || priceUnit === '包' || priceUnit === '个' || priceUnit === '盒' || priceUnit === 'unit')) {
     return spec
   }
@@ -228,7 +233,14 @@ function priceListFlatRowSpecLabel(row = {}) {
 
 function priceListFlatRowUnitSpecLabel(row = {}) {
   const snapshot = parsePlainObject(row?.sku_snapshot ?? row?.skuSnapshot)
+  const effectiveSpec = parsePlainObject(row?.effective_sales_spec ?? row?.effectiveSalesSpec)
   const candidates = [
+    effectiveSpec?.spec_label,
+    effectiveSpec?.specLabel,
+    effectiveSpec?.spec_name,
+    effectiveSpec?.specName,
+    row?.tier_quantity_unit,
+    row?.tierQuantityUnit,
     row?.spec_label,
     row?.specLabel,
     snapshot?.spec_label,

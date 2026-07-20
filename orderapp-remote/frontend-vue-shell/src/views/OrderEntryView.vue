@@ -595,7 +595,7 @@ import {
   filterOptions,
   isOrderTierActive,
   lineTotal,
-  latestProductPriceListVersionOption,
+  latestBeanListVersionOption,
   needsTrailingBlankOrderLine,
   normalizeSpecG,
   orderRowPriceUnit,
@@ -730,6 +730,8 @@ function newRow() {
     product_type_category_id: 0,
     product_type_name: '',
     tier_id: 'auto',
+    quantity_basis: '',
+    price_source_json: '',
     bean_list_publication_id: 0,
     bean_list_version_no: '',
     bean_list_version_tip_open: false,
@@ -886,7 +888,12 @@ const orderBeanListTypes = [
   { type: 'drip', label: '挂耳豆单' },
 ]
 const customerBeanListVersionOptions = computed(() => {
-  return beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
+  const rows = beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
+  return rows.filter((item) => {
+    const listType = String(item?.list_type || 'commercial').trim()
+    if (retailOrder.value) return listType === 'retail' || listType === 'drip'
+    return listType !== 'retail'
+  })
 })
 const beanListVersionGroups = computed(() => beanListVersionOptionGroups(customerBeanListVersionOptions.value))
 const canOpenBeanListDrawer = computed(() => {
@@ -1089,6 +1096,7 @@ function beanListVersionLabel(item) {
 }
 
 function beanListVersionField(listType) {
+  if (listType === 'retail') return 'bean_list_publication_id'
   if (listType === 'green') return 'green_bean_list_publication_id'
   if (listType === 'drip') return 'drip_bean_list_publication_id'
   return 'commercial_bean_list_publication_id'
@@ -1098,6 +1106,12 @@ function orderBeanListTypeForProductKind(productKind) {
   return productBeanListType({ product_kind: productKind })
 }
 
+function currentOrderBeanListTypeForProductKind(productKind) {
+  if (String(productKind || '').trim() === 'drip_bag') return 'drip'
+  if (retailOrder.value) return 'retail'
+  return orderBeanListTypeForProductKind(productKind)
+}
+
 function customerBeanListVersionOptionsByType(listType) {
   return customerBeanListVersionOptions.value.filter((item) => String(item.list_type || 'commercial') === listType)
 }
@@ -1105,9 +1119,10 @@ function customerBeanListVersionOptionsByType(listType) {
 function beanListGroupKeyForProduct(productOrRow) {
   const categoryID = Number(productOrRow?.product_type_category_id || 0)
   const categoryName = String(productOrRow?.product_type_name || '').trim()
-  if (categoryID > 0) return `category:${categoryID}`
-  if (categoryName) return `category-name:${categoryName}`
-  return `legacy:${orderBeanListTypeForProductKind(productOrRow?.product_kind)}`
+  const listType = currentOrderBeanListTypeForProductKind(productOrRow?.product_kind)
+  if (categoryID > 0) return `category:${categoryID}:${listType}`
+  if (categoryName) return `category-name:${categoryName}:${listType}`
+  return `legacy:${listType}`
 }
 
 function selectedBeanListPublicationIDsByType() {
@@ -1159,7 +1174,10 @@ function selectedBeanListVersionOptionForProduct(productOrRow) {
     const selected = selectedBeanListVersionOptionByGroup(group)
     if (selected) return selected
   }
-  return latestProductPriceListVersionOption(customerBeanListVersionOptions.value, product)
+  return latestBeanListVersionOption(
+    customerBeanListVersionOptions.value,
+    currentOrderBeanListTypeForProductKind(product?.product_kind),
+  )
 }
 
 function setBeanListVersion(groupKey, value) {
@@ -1173,7 +1191,7 @@ function setBeanListVersion(groupKey, value) {
     const field = beanListVersionField(listType)
     form[field] = selectedID
   }
-  if (listType === 'commercial') {
+  if (listType === 'commercial' || listType === 'retail') {
     const field = beanListVersionField(listType)
     if (legacyKey) form[field] = selectedID
     form.bean_list_publication_id = selectedID
@@ -1201,19 +1219,22 @@ function beanListDrawerHint(group) {
 }
 
 function syncBeanListVersionForCustomer(options = {}) {
-  for (const item of orderBeanListTypes) {
+  const activeTypes = retailOrder.value
+    ? [{ type: 'retail', label: '零售价格表' }, { type: 'drip', label: '挂耳豆单' }]
+    : orderBeanListTypes
+  for (const item of activeTypes) {
     const rows = customerBeanListVersionOptionsByType(item.type)
     const field = beanListVersionField(item.type)
     if (!rows.length) {
       form[field] = 0
-      if (item.type === 'commercial') form.bean_list_publication_id = 0
+      if (item.type === 'commercial' || item.type === 'retail') form.bean_list_publication_id = 0
       continue
     }
     const currentID = Number(form[field] || 0)
     if (!options.force && rows.some((row) => Number(row.id) === currentID)) continue
     const selected = rows.find((row) => row.is_default) || rows[0]
     form[field] = Number(selected?.id || 0)
-    if (item.type === 'commercial') form.bean_list_publication_id = form[field]
+    if (item.type === 'commercial' || item.type === 'retail') form.bean_list_publication_id = form[field]
   }
   for (const group of beanListVersionGroups.value) {
     const currentID = Number(selectedBeanListPublicationIDs[group.key] || 0)
@@ -1476,6 +1497,12 @@ function syncPrice(row, options = {}) {
   if (row.manual_price && !options.force) return
   if (retailOrder.value) {
     syncRowBeanListVersionFromSelection(row)
+    const publishedPrice = resolveWholesaleTierPrice(product, row)
+    if (publishedPrice.quantityBasis === 'sales_spec_count') {
+      applyResolvedWholesalePrice(row, publishedPrice)
+      row.manual_price = false
+      return
+    }
     row.tier_id = 'auto'
     row.unit_price = String(retailPackagePrice(product, normalizeSpecG(row)) || '')
     clearWholesalePriceMetadata(row)
@@ -1489,6 +1516,8 @@ function syncPrice(row, options = {}) {
 }
 
 function clearWholesalePriceMetadata(row) {
+  row.quantity_basis = ''
+  row.price_source_json = ''
   row.price_unit = ''
   row.price_unit_suffix = ''
   row.price_unit_g = 0
@@ -1500,6 +1529,8 @@ function clearWholesalePriceMetadata(row) {
 function applyResolvedWholesalePrice(row, price) {
   row.tier_id = price.tierID
   row.unit_price = price.unitPrice
+  row.quantity_basis = String(price.quantityBasis || '')
+  row.price_source_json = String(price.priceSourceJSON || '')
   row.price_unit = price.priceUnit?.label || ''
   row.price_unit_suffix = price.priceUnit?.suffix || ''
   row.price_unit_g = Number(price.priceUnit?.unitG || 0)
@@ -1525,7 +1556,11 @@ function syncRowBeanListVersionFromSelection(row) {
 }
 
 function isRowBeanListVersionStale(row) {
-  return rowUsesStaleBeanListPublication(row, customerBeanListVersionOptions.value)
+  return rowUsesStaleBeanListPublication(
+    row,
+    customerBeanListVersionOptions.value,
+    currentOrderBeanListTypeForProductKind(row?.product_kind),
+  )
 }
 
 function toggleBeanListVersionTip(row) {
@@ -1761,6 +1796,8 @@ function applyEditData(data) {
       product_type_category_id: Number(product?.product_type_category_id || 0),
       product_type_name: product?.product_type_name || '',
       tier_id: item.tier_id || 'auto',
+      quantity_basis: '',
+      price_source_json: item.price_source_json || '',
       bean_list_publication_id: Number(item.bean_list_publication_id || 0),
       bean_list_version_no: item.bean_list_version_no || '',
       unit_price: item.unit_price || '',
@@ -1769,7 +1806,7 @@ function applyEditData(data) {
       price_unit_g: 0,
       tier_price_label: '',
       tier_below_min: false,
-      manual_price: item.tier_id === 'manual',
+      manual_price: item.price_override === true || item.tier_id === 'manual',
       spec_mode: productKind === 'drip_bag' ? '' : (shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec),
       custom_spec_g: shouldUseCustomSpec ? spec : '',
       sales_unit: productKind === 'drip_bag' ? salesUnit : '',

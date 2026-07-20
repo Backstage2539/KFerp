@@ -23,21 +23,18 @@ func TestDev540PriceTierUnitCompatibilityContracts(t *testing.T) {
 		requireDev540SeedRow(t, reqStore, row.table, row.code, row.status)
 	}
 
+	// PR-540 remains historical delivery evidence. PR-541 supersedes its
+	// runtime kg/lb blocking contract: new rows freeze the concrete SKU sales
+	// specification and interpret tier bounds as counts of that specification.
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "application", "costing", "service.go"): {
-			"validatePriceTierTemplateUnitCompatibility", "ResolvePriceTierTemplateUnitRule", "DefaultSalesUnit", "阶梯模板不可用",
+			"sales_spec_count", "effective_sales_spec", "tier_quantity_unit", "applyFlatRowEffectiveSalesSpec",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
-			"ResolvePriceTierTemplateUnitRule", "quantity_unit", "default_sales_unit",
-		},
-		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
-			"priceTierTemplateUnitCompatibility", "tier_unit_compatible", "阶梯模板不可用",
-		},
-		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"priceListTierTemplateOptionDisabled", "product-picker-tier-warning", "priceListTierTemplateCompatibilityForItem", "priceListProductTierTemplateWarning", "productCurrentSalesSpecUnit",
+			"derived_spec_key", "&input.SpecKey", "beanListContentProductIDs", "sku_id",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.js"): {
-			"blockedRows", "tier_unit_compatibility_error", "tier_unit_compatible",
+			"quantity_basis", "effective_sales_spec", "tier_quantity_unit",
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-540-PRICE-TIER-UNIT-COMPATIBILITY", "初晓", "可换算", "阶梯模板不可用", "历史已发布价格表快照",
@@ -63,6 +60,17 @@ func TestDev540PriceTierUnitCompatibilityContracts(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-540 marker %q", rel, want)
 			}
+		}
+	}
+
+	currentPDFHelper := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.js")))
+	for _, want := range []string{
+		"row.quantity_basis !== 'sales_spec_count'",
+		"row.tier_unit_compatible === false",
+		"flatRowsForPdfItem(item, blockedRows)",
+	} {
+		if !strings.Contains(currentPDFHelper, want) {
+			t.Fatalf("PR-541 must ignore PR-540 compatibility metadata only for new count rows while retaining the legacy preview guard; missing %q", want)
 		}
 	}
 

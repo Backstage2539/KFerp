@@ -691,7 +691,8 @@ export function buildPricingRuleTrialPayload(form = {}) {
 }
 
 export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
-  if (row.tier_unit_compatible === false || row.tierUnitCompatible === false) return null
+  const quantityBasis = String(row.quantity_basis ?? row.quantityBasis ?? '').trim()
+  if (quantityBasis !== 'sales_spec_count' && (row.tier_unit_compatible === false || row.tierUnitCompatible === false)) return null
   const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
   const pricingRuleID = [
     row.tier_pricing_rule_id,
@@ -915,7 +916,9 @@ export function buildPriceTierTemplatePayload(form = {}) {
         max_qty: tier.max_qty === '' || tier.max_qty === null || tier.max_qty === undefined
           ? null
           : Number(tier.max_qty ?? tier.maxQty ?? 0),
-        quantity_unit: String(tier.quantity_unit ?? tier.quantityUnit ?? 'kg').trim() || 'kg',
+        // The persisted column is kept for backward reads, but new templates are
+        // always interpreted as counts of the concrete sales spec selected later.
+        quantity_unit: 'sales_spec_count',
         pricing_rule_id: Number(tier.pricing_rule_id ?? tier.pricingRuleID ?? 0) || 0,
         position: Number(tier.position || index + 1),
         active: Boolean(tier.active ?? true),
@@ -925,46 +928,86 @@ export function buildPriceTierTemplatePayload(form = {}) {
   }
 }
 
+function normalizePriceTableProductOverrideScope(row = {}) {
+  const raw = String(row.scope ?? row.override_scope ?? row.overrideScope ?? '').trim().toLowerCase()
+  if (raw === 'sku' || raw === 'product_sku') return 'sku'
+  if (raw === 'parent_product' || raw === 'parent-product') return 'parent_product'
+  return ''
+}
+
+function priceTableSKUOverride(productOverrides = [], skuID = 0) {
+  const rows = Array.isArray(productOverrides) ? productOverrides : []
+  const explicit = rows.find((row) => {
+    if (normalizePriceTableProductOverrideScope(row) !== 'sku') return false
+    return Number(row.sku_id || row.skuID || row.product_id || row.productID || 0) === skuID
+  })
+  if (explicit) return { row: explicit, source: 'sku' }
+
+  // Historical snapshots only had product_id. Keep treating an unscoped row
+  // as an override of the concrete SKU so old price lists retain semantics.
+  const legacy = rows.find((row) => {
+    if (normalizePriceTableProductOverrideScope(row)) return false
+    return Number(row.product_id || row.productID || 0) === skuID
+  })
+  return { row: legacy, source: 'product' }
+}
+
+function priceTableParentProductOverride(productOverrides = [], parentProductID = 0) {
+  if (!(parentProductID > 0)) return undefined
+  const rows = Array.isArray(productOverrides) ? productOverrides : []
+  return rows.find((row) => {
+    if (normalizePriceTableProductOverrideScope(row) !== 'parent_product') return false
+    return Number(row.parent_product_id || row.parentProductID || row.product_id || row.productID || 0) === parentProductID
+  })
+}
+
 export function resolvePriceTableTemplateInheritance({
   defaults = {},
   groupAssignments = [],
   productOverrides = [],
   product = {},
 } = {}) {
-  const productID = Number(product.id || product.product_id || 0)
+  const skuID = Number(product.sku_id || product.skuID || product.id || product.product_id || 0)
+  const parentProductID = Number(product.parent_product_id || product.parentProductID || 0)
   const groupItemID = Number(product.group_item_id || product.groupItemID || 0)
-  const override = (productOverrides || []).find((row) => Number(row.product_id || row.productID || 0) === productID)
+  const skuOverrideMatch = priceTableSKUOverride(productOverrides, skuID)
+  const skuOverride = skuOverrideMatch.row
+  const skuSource = skuOverrideMatch.source
+  const parentProductOverride = priceTableParentProductOverride(productOverrides, parentProductID)
   const subgroup = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === groupItemID)
   const parentID = Number(subgroup?.parent_group_item_id || subgroup?.parentGroupItemID || product.parent_group_item_id || 0)
   const parent = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === parentID)
 
   const modeCandidates = [
-    { source: 'product', value: normalizePriceTablePricingMode(override?.pricing_mode ?? override?.pricingMode) },
+    { source: skuSource, value: normalizePriceTablePricingMode(skuOverride?.pricing_mode ?? skuOverride?.pricingMode) },
+    { source: 'parent_product', value: normalizePriceTablePricingMode(parentProductOverride?.pricing_mode ?? parentProductOverride?.pricingMode) },
     { source: 'subgroup', value: normalizePriceTablePricingMode(subgroup?.pricing_mode ?? subgroup?.pricingMode) },
     { source: 'parent_group', value: normalizePriceTablePricingMode(parent?.pricing_mode ?? parent?.pricingMode) },
     { source: 'default', value: normalizePriceTablePricingMode(defaults.pricing_mode ?? defaults.pricingMode) },
   ]
   const tierCandidates = [
-    { source: 'product', value: Number(override?.tier_template_id || override?.tierTemplateID || 0) },
+    { source: skuSource, value: Number(skuOverride?.tier_template_id || skuOverride?.tierTemplateID || 0) },
+    { source: 'parent_product', value: Number(parentProductOverride?.tier_template_id || parentProductOverride?.tierTemplateID || 0) },
     { source: 'subgroup', value: Number(subgroup?.tier_template_id || subgroup?.tierTemplateID || 0) },
     { source: 'parent_group', value: Number(parent?.tier_template_id || parent?.tierTemplateID || 0) },
     { source: 'default', value: Number(defaults.tier_template_id || defaults.tierTemplateID || 0) },
   ]
   const pricingCandidates = [
-    { source: 'product', value: Number(override?.pricing_rule_id || override?.pricingRuleID || 0) },
+    { source: skuSource, value: Number(skuOverride?.pricing_rule_id || skuOverride?.pricingRuleID || 0) },
+    { source: 'parent_product', value: Number(parentProductOverride?.pricing_rule_id || parentProductOverride?.pricingRuleID || 0) },
     { source: 'subgroup', value: Number(subgroup?.pricing_rule_id || subgroup?.pricingRuleID || 0) },
     { source: 'parent_group', value: Number(parent?.pricing_rule_id || parent?.pricingRuleID || 0) },
     { source: 'default', value: Number(defaults.pricing_rule_id || defaults.pricingRuleID || 0) },
   ]
-  const fixedCandidates = [
-    { source: 'product', value: Number(override?.fixed_unit_price ?? override?.fixedUnitPrice ?? 0) || 0 },
-    { source: 'subgroup', value: Number(subgroup?.fixed_unit_price ?? subgroup?.fixedUnitPrice ?? 0) || 0 },
-    { source: 'parent_group', value: Number(parent?.fixed_unit_price ?? parent?.fixedUnitPrice ?? 0) || 0 },
-    { source: 'default', value: Number(defaults.fixed_unit_price ?? defaults.fixedUnitPrice ?? 0) || 0 },
-  ]
+  // The fixed-price mode may inherit, but the amount is authoritative only at
+  // the concrete SKU level. Reusing a category/default amount across package
+  // sizes would silently make unlike sales specifications share one price.
+  const fixed = {
+    source: skuOverride ? skuSource : 'sku',
+    value: Number(skuOverride?.fixed_unit_price ?? skuOverride?.fixedUnitPrice ?? 0) || 0,
+  }
   const tier = tierCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
   const pricing = pricingCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
-  const fixed = fixedCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
   let mode = modeCandidates.find((item) => item.value)
   if (!mode) {
     if (tier.value > 0) mode = { source: tier.source, value: 'tier_template' }
@@ -1062,7 +1105,8 @@ export function buildPriceTableRowsFromTemplateResolution({
       tier_template_name: String(tierTemplate.name || '').trim(),
       tier_template_source: tierSource,
       template_tier_id: Number(tier.id ?? tier.template_tier_id ?? tier.templateTierID ?? 0) || 0,
-      tier_quantity_unit: String(tier.quantity_unit ?? tier.quantityUnit ?? '').trim(),
+      quantity_basis: 'sales_spec_count',
+      tier_quantity_unit: priceUnit,
       pricing_rule_id: tierPricingRuleID,
       pricing_rule_source: tierSource || pricingSource,
       pricing_rule_version: version,
@@ -1079,14 +1123,12 @@ export function priceTierTemplateUnitCompatibility(product = {}, tierTemplate = 
   const templateUnits = uniqueInOrder(tiers
     .map((tier) => normalizePriceTierUnitIdentity(tier?.quantity_unit ?? tier?.quantityUnit))
     .filter(Boolean))
-  const compatible = Boolean(normalizedProductUnit) && templateUnits.length > 0 && templateUnits.every((unit) => unit === normalizedProductUnit)
+  const compatible = Boolean(normalizedProductUnit) && tiers.length > 0
   let message = ''
   if (!normalizedProductUnit) {
     message = '阶梯模板不可用：商品缺少有效默认销售规格'
-  } else if (!templateUnits.length) {
-    message = '阶梯模板不可用：阶梯模板缺少有效档位规格'
-  } else if (!compatible) {
-    message = `阶梯模板不可用：商品规格“${productUnit}”与阶梯规格“${templateUnits.join('、')}”不匹配`
+  } else if (!tiers.length) {
+    message = '阶梯模板不可用：阶梯模板缺少有效数量档位'
   }
   return {
     compatible,
@@ -1098,8 +1140,7 @@ export function priceTierTemplateUnitCompatibility(product = {}, tierTemplate = 
 
 export function priceTierTemplateRowKey({ productID = '', templateID = 0, tierID = 0, product = {}, tier = {}, suffix = '' } = {}) {
   const productUnit = normalizePriceTierUnitIdentity(productCurrentSalesSpecUnit(product)) || '-'
-  const tierUnit = normalizePriceTierUnitIdentity(tier?.quantity_unit ?? tier?.quantityUnit) || '-'
-  const base = `${String(productID || '')}:tier-template:${Number(templateID || 0)}:${String(tierID || '')}:${productUnit}:${tierUnit}`
+  const base = `${String(productID || '')}:tier-template:${Number(templateID || 0)}:${String(tierID || '')}:${productUnit}`
   return suffix ? `${base}:${String(suffix)}` : base
 }
 
@@ -2342,7 +2383,7 @@ export function buildChildSkuCreatePayload(parentProductID, form = {}) {
 export function productSkuRowsForParent(products = [], parentProductID = 0) {
   const parentID = Number(parentProductID || 0)
   if (!parentID) return []
-  return (Array.isArray(products) ? products : [])
+  const rows = (Array.isArray(products) ? products : [])
     .filter((row) => {
       const id = Number(row?.id || row?.product_id || 0)
       const skuID = Number(row?.sku_id || id || 0)
@@ -2350,14 +2391,30 @@ export function productSkuRowsForParent(products = [], parentProductID = 0) {
       const effectiveParentID = Number(row?.effective_parent_product_id || row?.effectiveParentProductID || directParentID || id || 0)
       return id === parentID || skuID === parentID || directParentID === parentID || effectiveParentID === parentID
     })
+
+  const parentRow = rows.find((row) => Number(row?.id || row?.product_id || 0) === parentID) || {}
+  const authoritativeDefaultSkuID = Number(
+    parentRow?.default_sku_id
+      || parentRow?.defaultSkuID
+      || parentRow?.effective_default_sku_id
+      || parentRow?.effectiveDefaultSkuID
+      || rows.find((row) => Number(row?.effective_default_sku_id || row?.effectiveDefaultSkuID || 0) > 0)?.effective_default_sku_id
+      || rows.find((row) => row?.is_default_sku === true && Number(row?.parent_product_id || 0) === parentID)?.sku_id
+      || 0,
+  )
+
+  return rows
     .map((row) => {
       const id = Number(row?.id || row?.product_id || 0)
+      const skuID = Number(row?.sku_id || id || 0)
       const directParentID = Number(row?.parent_product_id || row?.parentProductID || 0)
-      const isDefault = row?.is_default_sku === true || row?.isDefaultSKU === true || id === parentID || directParentID === 0
+      const isDefault = authoritativeDefaultSkuID > 0
+        ? skuID === authoritativeDefaultSkuID
+        : (row?.is_default_sku === true || row?.isDefaultSKU === true || id === parentID || directParentID === 0)
       const skuName = String(row?.sku_name || row?.skuName || (isDefault ? '默认规格' : row?.name || '')).trim() || '默认规格'
       return {
         ...row,
-        sku_id: Number(row?.sku_id || id || 0),
+        sku_id: skuID,
         parent_product_id: directParentID,
         effective_parent_product_id: Number(row?.effective_parent_product_id || row?.effectiveParentProductID || directParentID || id || 0),
         sku_name: skuName,

@@ -2,9 +2,18 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildPriceListProductFamilies,
+  defaultPriceListProductSpecSelections,
+  normalizePriceListProductSpecSelections,
   priceListCategoryCodesForSelectedProducts,
   priceListCategoryHiddenByCollapsedAncestor,
   priceListCategoryProductIDs,
+  priceListProductSpecSelectionIssue,
+  priceListProductSpecSelectionCounts,
+  priceListSelectedSkuCategoryRows,
+  resolvePriceListProductSpecSelectionIssue,
+  setPriceListCategorySpecSelection,
+  togglePriceListProductSpecSelection,
   priceListVisibleCategoryRows,
 } from './product-price-list-selection.js'
 
@@ -74,4 +83,204 @@ test('price-list collapsed parent category hides descendant category rows', () =
     }),
     false,
   )
+})
+
+const multiSpecProducts = [
+  {
+    product_id: 1,
+    sku_id: 1,
+    effective_parent_product_id: 1,
+    parent_product_id: 0,
+    name: '金色山脉',
+    default_sku_id: 3,
+    default_sales_unit: '227g袋装',
+    is_default_sku: true,
+    active: true,
+  },
+  {
+    product_id: 2,
+    sku_id: 2,
+    effective_parent_product_id: 1,
+    parent_product_id: 1,
+    name: '金色山脉 磅',
+    sku_name: '磅',
+    derived_sales_unit: '磅',
+    active: true,
+  },
+  {
+    product_id: 3,
+    sku_id: 3,
+    effective_parent_product_id: 1,
+    parent_product_id: 1,
+    name: '金色山脉 227g袋装',
+    sku_name: '227g袋装',
+    derived_sales_unit: '227g袋装',
+    is_default_sku: true,
+    active: true,
+  },
+  {
+    product_id: 4,
+    sku_id: 4,
+    effective_parent_product_id: 1,
+    parent_product_id: 1,
+    name: '金色山脉 旧规格',
+    sku_name: '旧规格',
+    derived_spec_status: 'template_removed',
+    active: true,
+  },
+  {
+    product_id: 5,
+    sku_id: 5,
+    effective_parent_product_id: 1,
+    parent_product_id: 1,
+    name: '金色山脉 停用规格',
+    sku_name: '停用规格',
+    derived_spec_status: 'template_disabled',
+    active: true,
+  },
+  {
+    product_id: 10,
+    sku_id: 10,
+    effective_parent_product_id: 10,
+    parent_product_id: 0,
+    name: '初晓',
+    default_sku_id: 11,
+    default_sales_unit: '磅',
+    active: true,
+  },
+  {
+    product_id: 11,
+    sku_id: 11,
+    effective_parent_product_id: 10,
+    parent_product_id: 10,
+    name: '初晓 磅',
+    sku_name: '磅',
+    derived_sales_unit: '磅',
+    active: true,
+  },
+]
+
+test('price-list picker groups child SKUs under one parent and excludes the aggregate root when specs exist', () => {
+  const families = buildPriceListProductFamilies(multiSpecProducts)
+
+  assert.equal(families.length, 2)
+  assert.equal(families[0].parent_product_id, 1)
+  assert.equal(families[0].name, '金色山脉')
+  assert.deepEqual(families[0].sku_options.map((row) => row.sku_id), [3, 2])
+  assert.equal(families[0].default_sku_id, 3)
+  assert.equal(families[1].default_sku_id, 11)
+})
+
+test('price-list picker falls back to a legacy root SKU only when no active child spec exists', () => {
+  const families = buildPriceListProductFamilies([{
+    product_id: 20,
+    sku_id: 20,
+    effective_parent_product_id: 20,
+    parent_product_id: 0,
+    name: '历史单规格商品',
+    default_sales_unit: '盒',
+    active: true,
+  }])
+
+  assert.deepEqual(families[0].sku_options.map((row) => row.sku_id), [20])
+  assert.equal(families[0].default_sku_id, 20)
+  assert.deepEqual({
+    parent_product_id: families[0].sku_options[0].parent_product_id,
+    effective_parent_product_id: families[0].sku_options[0].effective_parent_product_id,
+    sku_id: families[0].sku_options[0].sku_id,
+  }, {
+    parent_product_id: 20,
+    effective_parent_product_id: 20,
+    sku_id: 20,
+  })
+})
+
+test('price-list default selection chooses one default SKU per parent and records its source', () => {
+  const families = buildPriceListProductFamilies(multiSpecProducts)
+
+  assert.deepEqual(defaultPriceListProductSpecSelections(families), [
+    { parent_product_id: 1, sku_id: 3, selection_source: 'product_default', default_sku_id_at_selection: 3 },
+    { parent_product_id: 10, sku_id: 11, selection_source: 'product_default', default_sku_id_at_selection: 11 },
+  ])
+})
+
+test('price-list product specs support multiple explicit selections without mixing parent products', () => {
+  const families = buildPriceListProductFamilies(multiSpecProducts)
+  let selections = defaultPriceListProductSpecSelections(families)
+
+  selections = togglePriceListProductSpecSelection(selections, families[0], 2, true)
+  assert.deepEqual(selections.filter((row) => row.parent_product_id === 1), [
+    { parent_product_id: 1, sku_id: 3, selection_source: 'product_default', default_sku_id_at_selection: 3 },
+    { parent_product_id: 1, sku_id: 2, selection_source: 'explicit', default_sku_id_at_selection: 3 },
+  ])
+
+  selections = togglePriceListProductSpecSelection(selections, families[0], 3, false)
+  assert.deepEqual(selections.filter((row) => row.parent_product_id === 1).map((row) => row.sku_id), [2])
+})
+
+test('price-list category select preserves existing specs and adds only each missing product default', () => {
+  const families = buildPriceListProductFamilies(multiSpecProducts)
+  const categoryRows = [{ code: 'coffee', items: families }]
+  const explicit = [{ parent_product_id: 1, sku_id: 2, selection_source: 'explicit', default_sku_id_at_selection: 3 }]
+
+  const selected = setPriceListCategorySpecSelection(categoryRows, 'coffee', explicit, true)
+  assert.deepEqual(selected, [
+    { parent_product_id: 1, sku_id: 2, selection_source: 'explicit', default_sku_id_at_selection: 3 },
+    { parent_product_id: 10, sku_id: 11, selection_source: 'product_default', default_sku_id_at_selection: 11 },
+  ])
+  assert.deepEqual(setPriceListCategorySpecSelection(categoryRows, 'coffee', selected, false), [])
+})
+
+test('price-list spec selection normalization preserves an invalid draft row for explicit correction', () => {
+  const families = buildPriceListProductFamilies(multiSpecProducts)
+  const normalized = normalizePriceListProductSpecSelections([
+    { parent_product_id: 1, sku_id: 999, selection_source: 'explicit', default_sku_id_at_selection: 999 },
+    { parent_product_id: 10, sku_id: 11, selection_source: 'explicit', default_sku_id_at_selection: 11 },
+  ], families, { fallbackInvalid: true })
+
+  assert.equal(normalized[0].sku_id, 999)
+  assert.equal(normalized[0].selection_issue, 'invalid_spec')
+  assert.equal(normalized[0].current_default_sku_id, 3)
+  assert.deepEqual(resolvePriceListProductSpecSelectionIssue(normalized, families[0], 'switch'), [
+    { parent_product_id: 1, sku_id: 3, selection_source: 'product_default', default_sku_id_at_selection: 3 },
+    { parent_product_id: 10, sku_id: 11, selection_source: 'explicit', default_sku_id_at_selection: 11 },
+  ])
+})
+
+test('price-list default changes require an explicit keep-or-switch decision while explicit selections remain frozen', () => {
+  const families = buildPriceListProductFamilies(multiSpecProducts).map((family) => (
+    family.parent_product_id === 1 ? { ...family, default_sku_id: 2 } : family
+  ))
+
+  const staleDefault = normalizePriceListProductSpecSelections([
+    { parent_product_id: 1, sku_id: 3, selection_source: 'product_default', default_sku_id_at_selection: 3 },
+  ], families)
+  assert.equal(staleDefault[0].sku_id, 3)
+  assert.equal(staleDefault[0].selection_issue, 'default_changed')
+  assert.equal(staleDefault[0].current_default_sku_id, 2)
+  assert.equal(priceListProductSpecSelectionIssue(families[0], staleDefault)?.type, 'default_changed')
+  assert.deepEqual(resolvePriceListProductSpecSelectionIssue(staleDefault, families[0], 'keep'), [
+    { parent_product_id: 1, sku_id: 3, selection_source: 'explicit', default_sku_id_at_selection: 2 },
+  ])
+  assert.deepEqual(resolvePriceListProductSpecSelectionIssue(staleDefault, families[0], 'switch'), [
+    { parent_product_id: 1, sku_id: 2, selection_source: 'product_default', default_sku_id_at_selection: 2 },
+  ])
+  assert.deepEqual(normalizePriceListProductSpecSelections([
+    { parent_product_id: 1, sku_id: 3, selection_source: 'explicit', default_sku_id_at_selection: 3 },
+  ], families), [
+    { parent_product_id: 1, sku_id: 3, selection_source: 'explicit', default_sku_id_at_selection: 3 },
+  ])
+})
+
+test('price-list selected SKU rows and counters keep product and spec totals distinct', () => {
+  const families = buildPriceListProductFamilies(multiSpecProducts)
+  const selections = [
+    { parent_product_id: 1, sku_id: 2, selection_source: 'explicit', default_sku_id_at_selection: 3 },
+    { parent_product_id: 1, sku_id: 3, selection_source: 'explicit', default_sku_id_at_selection: 3 },
+  ]
+  const rows = priceListSelectedSkuCategoryRows([{ code: 'coffee', items: families }], selections)
+
+  assert.deepEqual(priceListProductSpecSelectionCounts(selections), { productCount: 1, specCount: 2 })
+  assert.deepEqual(rows[0].items.map((row) => row.sku_id), [3, 2])
+  assert.ok(rows[0].items.every((row) => row.__price_list_category_code === 'coffee'))
 })

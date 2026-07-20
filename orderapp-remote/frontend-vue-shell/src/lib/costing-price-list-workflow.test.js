@@ -399,6 +399,21 @@ describe('costing price-list workflow helpers', () => {
     }), [])
   })
 
+  it('uses the frozen concrete sales spec as the display unit for sales-spec-count rows', () => {
+    assert.equal(priceListWorkflow.priceListFlatRowPriceUnitLabel({
+      price_unit: 'lb',
+      quantity_basis: 'sales_spec_count',
+      tier_quantity_unit: '磅',
+      effective_sales_spec: { spec_name: '磅', sales_unit: '磅' },
+    }), '磅')
+    assert.equal(priceListWorkflow.priceListFlatRowPriceUnitLabel({
+      price_unit: '袋',
+      quantity_basis: 'sales_spec_count',
+      tier_quantity_unit: '227g',
+      effective_sales_spec: { spec_name: '227g', sales_unit: '袋' },
+    }), '227g')
+  })
+
   it('returns item-specific publish errors for flat price rows', () => {
     assert.equal(typeof priceListWorkflow.priceListFlatRowErrors, 'function')
     assert.equal(typeof priceListWorkflow.priceListFlatRowsReady, 'function')
@@ -476,7 +491,7 @@ describe('costing price-list workflow helpers', () => {
     assert.equal(priceListWorkflow.priceListFlatRowsReady([{ ...staleRow, manual_adjusted: true }], { trialStatusForRow: () => 'error' }), true)
   })
 
-  it('blocks a tier template whose quantity unit differs from the product sales spec even when units are convertible', () => {
+  it('keeps legacy unit mismatch guards but ignores them for sales-spec-count rows', () => {
     const incompatibleRow = {
       product_name: '初晓',
       pricing_mode: 'tier_template',
@@ -501,6 +516,15 @@ describe('costing price-list workflow helpers', () => {
     ])
     assert.equal(priceListWorkflow.priceListFlatRowsReady([incompatibleRow]), false)
     assert.equal(priceListWorkflow.priceListFlatRowsReady([{ ...incompatibleRow, manual_adjusted: true }]), false)
+
+    const salesSpecCountRow = {
+      ...incompatibleRow,
+      quantity_basis: 'sales_spec_count',
+      tier_quantity_unit: '磅',
+      effective_sales_spec: { spec_name: '磅', sales_unit: '磅' },
+    }
+    assert.deepEqual(priceListWorkflow.priceListFlatRowErrors(salesSpecCountRow), [])
+    assert.equal(priceListWorkflow.priceListFlatRowsReady([salesSpecCountRow], { trialStatusForRow: () => 'success' }), true)
   })
 
   it('product price list flat rows read product master sales unit conversion', () => {

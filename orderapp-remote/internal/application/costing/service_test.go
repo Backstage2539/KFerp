@@ -37,6 +37,7 @@ type fakeRepo struct {
 	lastDetailInput       domain.ProductInput
 	defaultTaxRate        PricingRuleTrialDefaultTaxRate
 	productUnitRules      map[int64]ProductSalesUnitRule
+	productSpecIdentities map[int64]ProductSpecIdentity
 	productDefaultUnits   map[int64]string
 	customerUnitRules     map[int64]ProductSalesUnitRule
 	lastCustomerAliasID   int64
@@ -232,6 +233,14 @@ func (r *fakeRepo) ResolveProductSalesUnitRule(_ context.Context, productID int6
 		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
 	}
 	return rule, nil
+}
+
+func (r *fakeRepo) ResolveProductSpecIdentity(_ context.Context, productID int64) (ProductSpecIdentity, error) {
+	identity, ok := r.productSpecIdentities[productID]
+	if !ok {
+		return ProductSpecIdentity{}, ErrProductSpecIdentityNotFound
+	}
+	return identity, nil
 }
 
 func (r *fakeRepo) ResolveProductDefaultSalesUnit(_ context.Context, productID int64) (string, error) {
@@ -2641,10 +2650,12 @@ func TestPublishBeanListRewritesFlatRowUnitSnapshotFromProductMaster(t *testing.
 	}
 }
 
-func TestBeanListPublishAndDraftRejectTierTemplateUnitMismatch(t *testing.T) {
+func TestBeanListPublishAndDraftUseConcreteSalesSpecInsteadOfTemplateUnitLabel(t *testing.T) {
 	newRow := func() map[string]any {
 		return map[string]any{
 			"product_id":                float64(550),
+			"sku_id":                    float64(550),
+			"parent_product_id":         float64(550),
 			"product_name":              "初晓",
 			"tier_label":                "1kg+",
 			"min_qty":                   float64(1),
@@ -2696,6 +2707,9 @@ func TestBeanListPublishAndDraftRejectTierTemplateUnitMismatch(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			baseRepo := &fakeRepo{
+				productSpecIdentities: map[int64]ProductSpecIdentity{
+					550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+				},
 				productUnitRules: map[int64]ProductSalesUnitRule{
 					550: {
 						ProductID:        550,
@@ -2720,17 +2734,414 @@ func TestBeanListPublishAndDraftRejectTierTemplateUnitMismatch(t *testing.T) {
 			err := tc.run(NewService(repo), PublishBeanListCommand{
 				ListType: "commercial",
 				Version:  "V4.3.0",
-				Content:  map[string]any{"price_rows": []any{newRow()}},
+				Config: map[string]any{"product_spec_selections": []any{map[string]any{
+					"parent_product_id":           float64(550),
+					"sku_id":                      float64(550),
+					"selection_source":            "product_default",
+					"default_sku_id_at_selection": float64(550),
+				}}},
+				Content: map[string]any{"price_rows": []any{newRow()}},
 			})
-			if err == nil {
-				t.Fatalf("expected %s to reject mismatched product and tier-template units", tc.name)
+			if err != nil {
+				t.Fatalf("%s must accept a legacy kg-labelled tier template for the concrete pound sales spec: %v", tc.name, err)
 			}
-			for _, want := range []string{"阶梯模板不可用", "初晓", "咖啡熟豆", "磅", "kg", "不匹配"} {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("%s error missing %q: %v", tc.name, want, err)
-				}
+			stored := repo.publishedBeanList
+			if tc.name == "draft" {
+				stored = repo.draftBeanList
+			}
+			got := stored.Content["price_rows"].([]any)[0].(map[string]any)
+			if got["quantity_basis"] != "sales_spec_count" || got["tier_quantity_unit"] != "磅" {
+				t.Fatalf("%s sales-spec-count snapshot = %#v", tc.name, got)
+			}
+			if repo.templateLoads[8] != 0 {
+				t.Fatalf("%s must not resolve tier unit compatibility; loads=%d", tc.name, repo.templateLoads[8])
 			}
 		})
+	}
+}
+
+func TestPublishBeanListTreatsTierQuantitiesAsConcreteSalesSpecCounts(t *testing.T) {
+	baseRepo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			551: {
+				ProductID:        551,
+				DefaultSalesUnit: "磅",
+				InventoryUnit:    "kg",
+				Conversion: map[string]map[string]float64{
+					"磅": {"kg": 0.45359237},
+				},
+			},
+		},
+		productSpecIdentities: map[int64]ProductSpecIdentity{
+			550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+			551: {ProductID: 551, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		},
+	}
+	repo := &priceTierTemplateUnitRuleRepo{
+		fakeRepo: baseRepo,
+		templateUnitRules: map[int64]PriceTierTemplateUnitRule{
+			8: {TemplateID: 8, TemplateName: "咖啡熟豆", TierUnits: map[int64]string{81: "kg"}},
+		},
+	}
+	row := map[string]any{
+		"product_id":                  float64(550),
+		"sku_id":                      float64(551),
+		"parent_product_id":           float64(550),
+		"product_name":                "初晓 磅",
+		"sku_name":                    "磅",
+		"spec_label":                  "磅",
+		"net_content_qty":             float64(1),
+		"net_content_unit":            "lb",
+		"pricing_mode":                "tier_template",
+		"tier_template_id":            float64(8),
+		"template_tier_id":            float64(81),
+		"tier_quantity_unit":          "kg",
+		"tier_label":                  "2件+",
+		"min_qty":                     float64(2),
+		"final_unit_price":            float64(68),
+		"original_final_unit_price":   float64(68),
+		"price_unit":                  "磅",
+		"inventory_unit":              "kg",
+		"inventory_conversion_json":   map[string]any{"磅": map[string]any{"kg": float64(0.45359237)}},
+		"group_snapshot":              map[string]any{"group_id": float64(3), "group_name": "商品价格表分组", "group_item_id": float64(101), "group_item_name": "咖啡豆"},
+		"group_source":                "product_catalog",
+		"pricing_mode_source":         "product",
+		"tier_template_source":        "price_list",
+		"pricing_rule_id":             float64(90),
+		"pricing_rule_source":         "product",
+		"pricing_rule_version":        "PR-COST/v3",
+		"tier_pricing_rule_id":        float64(91),
+		"tier_pricing_rule_version":   "PR-TIER/v1",
+		"cost_source_snapshot":        map[string]any{"bom_version_no": "BOM-CHUXIAO/V001"},
+		"customer_reference_snapshot": map[string]any{},
+		"manual_adjusted":             false,
+	}
+
+	if _, err := NewService(repo).PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V5.0.0",
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id":           float64(550),
+			"sku_id":                      float64(551),
+			"selection_source":            "product_default",
+			"default_sku_id_at_selection": float64(551),
+		}}},
+		Content: map[string]any{"price_rows": []any{row}},
+	}); err != nil {
+		t.Fatalf("kg-named tier template must remain usable for a concrete pound SKU: %v", err)
+	}
+	got := repo.publishedBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if got["quantity_basis"] != "sales_spec_count" {
+		t.Fatalf("quantity_basis = %#v, want sales_spec_count", got["quantity_basis"])
+	}
+	if got["tier_quantity_unit"] != "磅" {
+		t.Fatalf("tier_quantity_unit = %#v, want concrete sales spec name", got["tier_quantity_unit"])
+	}
+	spec, ok := got["effective_sales_spec"].(map[string]any)
+	if !ok || spec["sku_id"] != float64(551) || spec["spec_name"] != "磅" || spec["sales_unit"] != "磅" {
+		t.Fatalf("effective_sales_spec = %#v", got["effective_sales_spec"])
+	}
+}
+
+func TestBeanListProductSpecSelectionsRejectInvalidSKUIdentityAndMissingPriceRows(t *testing.T) {
+	identities := map[int64]ProductSpecIdentity{
+		550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		551: {ProductID: 551, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		552: {ProductID: 552, EffectiveParentProductID: 550, Active: false, SpecValid: true},
+		553: {ProductID: 553, EffectiveParentProductID: 550, Active: true, SpecValid: false},
+		560: {ProductID: 560, EffectiveParentProductID: 560, Active: true, SpecValid: true},
+		561: {ProductID: 561, EffectiveParentProductID: 560, Active: true, SpecValid: true},
+	}
+	selection := func(skuID, defaultSkuID int64) []any {
+		return []any{map[string]any{
+			"parent_product_id":           float64(550),
+			"sku_id":                      float64(skuID),
+			"selection_source":            "product_default",
+			"default_sku_id_at_selection": float64(defaultSkuID),
+		}}
+	}
+	priceRow := func(parentID, skuID int64) []any {
+		return []any{map[string]any{
+			"parent_product_id": float64(parentID),
+			"sku_id":            float64(skuID),
+		}}
+	}
+
+	tests := []struct {
+		name       string
+		selections []any
+		rows       []any
+		want       string
+	}{
+		{name: "cross product sku", selections: selection(561, 551), rows: priceRow(550, 561), want: "不属于父商品"},
+		{name: "inactive sku", selections: selection(552, 551), rows: priceRow(550, 552), want: "已停用"},
+		{name: "removed template spec", selections: selection(553, 551), rows: priceRow(550, 553), want: "规格已失效"},
+		{name: "default snapshot from another product", selections: selection(551, 561), rows: priceRow(550, 551), want: "选择时默认规格不属于父商品"},
+		{name: "missing selected sku price row", selections: selection(551, 551), rows: nil, want: "缺少对应有效价格行"},
+		{name: "price row parent mismatch", selections: selection(551, 551), rows: priceRow(560, 551), want: "父商品与规格选择不一致"},
+		{name: "unselected sku price row", selections: selection(551, 551), rows: append(priceRow(550, 551), priceRow(550, 553)...), want: "未在规格选择中"},
+		{name: "sku snapshot mismatch", selections: selection(551, 551), rows: []any{map[string]any{"parent_product_id": float64(550), "sku_id": float64(551), "sku_snapshot": map[string]any{"sku_id": float64(552)}}}, want: "SKU 快照身份不一致"},
+		{name: "effective spec snapshot mismatch", selections: selection(551, 551), rows: []any{map[string]any{"parent_product_id": float64(550), "sku_id": float64(551), "effective_sales_spec": map[string]any{"sku_id": float64(552)}}}, want: "有效销售规格快照身份不一致"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{productSpecIdentities: identities}
+			_, err := NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+				ListType: "commercial",
+				Version:  "V5.1.0",
+				Config:   map[string]any{"product_spec_selections": tc.selections},
+				Content:  map[string]any{"price_rows": tc.rows},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("SaveBeanListDraft() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	// The publish path must apply the same authoritative validation before it
+	// accepts frontend snapshots or evaluates the rest of the price row.
+	repo := &fakeRepo{productSpecIdentities: identities}
+	_, err := NewService(repo).PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V5.1.1",
+		Config:   map[string]any{"product_spec_selections": selection(561, 551)},
+		Content:  map[string]any{"price_rows": priceRow(550, 561)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "不属于父商品") {
+		t.Fatalf("PublishBeanList() error = %v, want cross-product SKU rejection", err)
+	}
+}
+
+func TestBeanListProductSpecSelectionsAcceptValidMultipleTiersAndKeepLegacyPayloadCompatible(t *testing.T) {
+	repo := &fakeRepo{
+		productSpecIdentities: map[int64]ProductSpecIdentity{
+			550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+			551: {ProductID: 551, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		},
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			551: {
+				ProductID: 551, DefaultSalesUnit: "磅", InventoryUnit: "kg",
+				Conversion: map[string]map[string]float64{"磅": {"kg": 0.45359237}},
+			},
+		},
+	}
+	selections := []any{map[string]any{
+		"parent_product_id":           float64(550),
+		"sku_id":                      float64(551),
+		"selection_source":            "explicit",
+		"default_sku_id_at_selection": float64(551),
+	}}
+	rows := []any{
+		map[string]any{"parent_product_id": float64(550), "sku_id": float64(551), "template_tier_id": float64(1), "final_unit_price": float64(68), "price_unit": "磅"},
+		map[string]any{"parent_product_id": float64(550), "sku_id": float64(551), "template_tier_id": float64(2), "final_unit_price": float64(64), "price_unit": "磅"},
+	}
+	if _, err := NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V5.1.2",
+		Config:   map[string]any{"product_spec_selections": selections},
+		Content:  map[string]any{"price_rows": rows},
+	}); err != nil {
+		t.Fatalf("SaveBeanListDraft() valid concrete SKU selections error = %v", err)
+	}
+
+	legacyRepo := &fakeRepo{}
+	if _, err := NewService(legacyRepo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.9.9",
+		Config:   map[string]any{"layout_style": "card"},
+		Content:  map[string]any{"price_rows": []any{map[string]any{"product_id": float64(550)}}},
+	}); err != nil {
+		t.Fatalf("legacy draft without product_spec_selections must remain compatible: %v", err)
+	}
+}
+
+func TestBeanListConcreteSelectionsRequirePublishableRowsAndStrictGroupSKUs(t *testing.T) {
+	identities := map[int64]ProductSpecIdentity{
+		550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		551: {ProductID: 551, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		552: {ProductID: 552, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+	}
+	selection := []any{map[string]any{
+		"parent_product_id": float64(550), "sku_id": float64(551),
+		"selection_source": "explicit", "default_sku_id_at_selection": float64(551),
+	}}
+
+	t.Run("explicit empty selection rejects price rows", func(t *testing.T) {
+		_, err := NewService(&fakeRepo{}).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+			ListType: "commercial", Version: "V5.2.0",
+			Config: map[string]any{"product_spec_selections": []any{}},
+			Content: map[string]any{"price_rows": []any{map[string]any{
+				"product_id": float64(551), "parent_product_id": float64(550), "sku_id": float64(551),
+			}}},
+		})
+		if err == nil || !strings.Contains(err.Error(), "未在规格选择中") {
+			t.Fatalf("explicit empty product_spec_selections must reject carried price rows, got %v", err)
+		}
+	})
+
+	t.Run("explicit empty selection rejects grouped skus", func(t *testing.T) {
+		_, err := NewService(&fakeRepo{}).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+			ListType: "commercial", Version: "V5.2.0-GROUP",
+			Config: map[string]any{"product_spec_selections": []any{}},
+			Content: map[string]any{"groups": []any{map[string]any{"items": []any{map[string]any{
+				"product_id": float64(551), "parent_product_id": float64(550), "sku_id": float64(551),
+			}}}}},
+		})
+		if err == nil || !strings.Contains(err.Error(), "分组商品项") || !strings.Contains(err.Error(), "未在规格选择中") {
+			t.Fatalf("explicit empty product_spec_selections must reject grouped SKU, got %v", err)
+		}
+	})
+
+	t.Run("explicit empty selection accepts empty content", func(t *testing.T) {
+		_, err := NewService(&fakeRepo{}).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+			ListType: "commercial", Version: "V5.2.0-EMPTY",
+			Config:  map[string]any{"product_spec_selections": []any{}},
+			Content: map[string]any{"price_rows": []any{}, "groups": []any{}},
+		})
+		if err != nil {
+			t.Fatalf("explicit empty selection with empty content must remain valid: %v", err)
+		}
+	})
+
+	t.Run("selected sku needs actual price", func(t *testing.T) {
+		_, err := NewService(&fakeRepo{productSpecIdentities: identities}).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+			ListType: "commercial", Version: "V5.2.1",
+			Config: map[string]any{"product_spec_selections": selection},
+			Content: map[string]any{"price_rows": []any{map[string]any{
+				"parent_product_id": float64(550), "sku_id": float64(551), "final_unit_price": float64(0),
+			}}},
+		})
+		if err == nil || !strings.Contains(err.Error(), "缺少对应有效价格行") {
+			t.Fatalf("zero-price selected SKU error = %v, want missing publishable price row", err)
+		}
+	})
+
+	t.Run("groups cannot carry unselected sku", func(t *testing.T) {
+		_, err := NewService(&fakeRepo{productSpecIdentities: identities}).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+			ListType: "commercial", Version: "V5.2.2",
+			Config: map[string]any{"product_spec_selections": selection},
+			Content: map[string]any{
+				"price_rows": []any{map[string]any{
+					"parent_product_id": float64(550), "sku_id": float64(551), "final_unit_price": float64(68), "price_unit": "磅",
+				}},
+				"groups": []any{map[string]any{"items": []any{map[string]any{
+					"product_id": float64(552), "sku_id": float64(552), "parent_product_id": float64(550),
+				}}}},
+			},
+		})
+		if err == nil || !strings.Contains(err.Error(), "分组商品项") || !strings.Contains(err.Error(), "未在规格选择中") {
+			t.Fatalf("extra grouped SKU error = %v, want strict group selection rejection", err)
+		}
+	})
+}
+
+func TestBeanListProductSnapshotsUseAuthoritativeProductMasterFields(t *testing.T) {
+	repo := &fakeRepo{
+		productSpecIdentities: map[int64]ProductSpecIdentity{
+			550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+			551: {ProductID: 551, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		},
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			551: {
+				ProductID: 551, SKUName: "初晓 1磅", SKUCode: "CHUXIAO-LB", Barcode: "AUTH-BARCODE",
+				DefaultSalesUnit: "磅", InventoryUnit: "kg",
+				Conversion: map[string]map[string]float64{"磅": {"kg": 0.45359237}},
+				EffectiveSalesSpec: &domain.EffectiveSalesSpec{
+					SKUID: 551, SpecKey: "lb-1", SpecName: "1磅", SpecLabel: "磅", SalesUnit: "磅",
+					NetContentQty: 1, NetContentUnit: "lb", InventoryUnit: "kg",
+					InventoryConversionJSON: map[string]map[string]float64{"磅": {"kg": 0.45359237}},
+				},
+			},
+		},
+	}
+	row := map[string]any{
+		"product_id": float64(550), "parent_product_id": float64(550), "sku_id": float64(551),
+		"final_unit_price": float64(68), "price_unit": "磅",
+		"sku_name": "伪造名称", "sku_code": "FAKE", "barcode": "FAKE-BARCODE",
+		"spec_key": "fake-spec", "spec_label": "伪造规格", "net_content_qty": float64(99), "net_content_unit": "kg",
+		"sku_snapshot": map[string]any{"sku_id": float64(551), "sku_name": "伪造快照"},
+		"effective_sales_spec": map[string]any{
+			"sku_id": float64(551), "spec_name": "伪造规格", "sales_unit": "kg",
+			"net_content_qty": float64(99), "net_content_unit": "kg",
+		},
+	}
+	_, err := NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType: "commercial", Version: "V5.2.3",
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id": float64(550), "sku_id": float64(551),
+			"selection_source": "explicit", "default_sku_id_at_selection": float64(551),
+		}}},
+		Content: map[string]any{"price_rows": []any{row}, "groups": []any{map[string]any{"items": []any{map[string]any{
+			"product_id": float64(551), "sku_id": float64(551), "parent_product_id": float64(550),
+		}}}}},
+	})
+	if err != nil {
+		t.Fatalf("SaveBeanListDraft() error = %v", err)
+	}
+	got := repo.draftBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	snapshot := got["sku_snapshot"].(map[string]any)
+	if snapshot["sku_name"] != "初晓 1磅" || snapshot["sku_code"] != "CHUXIAO-LB" || snapshot["barcode"] != "AUTH-BARCODE" {
+		t.Fatalf("sku_snapshot trusted client fields: %#v", snapshot)
+	}
+	spec := got["effective_sales_spec"].(map[string]any)
+	if spec["spec_key"] != "lb-1" || spec["spec_name"] != "1磅" || spec["sales_unit"] != "磅" || spec["net_content_qty"] != float64(1) || spec["net_content_unit"] != "lb" {
+		t.Fatalf("effective_sales_spec trusted client fields: %#v", spec)
+	}
+	if got["spec_key"] != "lb-1" || got["spec_label"] != "磅" || got["net_content_qty"] != float64(1) || got["net_content_unit"] != "lb" {
+		t.Fatalf("flat row labels/net content were not rebuilt from product master: %#v", got)
+	}
+}
+
+func TestBeanListParentSelfSelectionRequiresNoValidChildSKU(t *testing.T) {
+	repo := &fakeRepo{productSpecIdentities: map[int64]ProductSpecIdentity{
+		550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: false},
+	}}
+	_, err := NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType: "commercial", Version: "V5.2.4",
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id": float64(550), "sku_id": float64(550),
+			"selection_source": "explicit", "default_sku_id_at_selection": float64(550),
+		}}},
+		Content: map[string]any{"price_rows": []any{map[string]any{
+			"parent_product_id": float64(550), "sku_id": float64(550), "final_unit_price": float64(68), "price_unit": "磅",
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "规格已失效") {
+		t.Fatalf("parent self-SKU with a valid child must be rejected, got %v", err)
+	}
+}
+
+func TestSaveBeanListDraftKeepsLegacyTierUnitCompatibilityValidation(t *testing.T) {
+	repo := &priceTierTemplateUnitRuleRepo{
+		fakeRepo: &fakeRepo{productUnitRules: map[int64]ProductSalesUnitRule{
+			550: {
+				ProductID:        550,
+				DefaultSalesUnit: "磅",
+				InventoryUnit:    "kg",
+				Conversion:       map[string]map[string]float64{"磅": {"kg": 0.45359237}},
+			},
+		}},
+		templateUnitRules: map[int64]PriceTierTemplateUnitRule{
+			8: {TemplateID: 8, TemplateName: "历史 kg 阶梯", TierUnits: map[int64]string{81: "kg"}},
+		},
+	}
+	_, err := NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.9.8",
+		Config:   map[string]any{"layout_style": "card"},
+		Content: map[string]any{"price_rows": []any{map[string]any{
+			"product_id":       float64(550),
+			"sku_id":           float64(550),
+			"product_name":     "初晓",
+			"pricing_mode":     "tier_template",
+			"tier_template_id": float64(8),
+			"template_tier_id": float64(81),
+			"price_unit":       "磅",
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "阶梯模板不可用") || !strings.Contains(err.Error(), "不匹配") {
+		t.Fatalf("legacy draft must retain tier-unit compatibility validation, got %v", err)
 	}
 }
 
@@ -2768,18 +3179,16 @@ func TestBeanListTierTemplateUnitCompatibilityRejectsMixedTemplateAndMissingProd
 		}
 	}
 
-	_, err := NewService(repo).PublishBeanList(context.Background(), PublishBeanListCommand{
-		ListType: "commercial", Version: "V4.3.2", Content: map[string]any{"price_rows": []any{row()}},
-	})
+	cmd := PublishBeanListCommand{Content: map[string]any{"price_rows": []any{row()}}}
+	err := NewService(repo).validatePriceTierTemplateUnitCompatibility(context.Background(), &cmd)
 	if err == nil || !strings.Contains(err.Error(), "阶梯模板不可用") || !strings.Contains(err.Error(), "kg") {
 		t.Fatalf("mixed-unit template must be rejected even when only its compatible tier is submitted: %v", err)
 	}
 
 	skuOnlyRow := row()
 	skuOnlyRow["product_id"] = float64(0)
-	_, err = NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
-		ListType: "commercial", Version: "V4.3.3", Content: map[string]any{"price_rows": []any{skuOnlyRow}},
-	})
+	cmd = PublishBeanListCommand{Content: map[string]any{"price_rows": []any{skuOnlyRow}}}
+	err = NewService(repo).validatePriceTierTemplateUnitCompatibility(context.Background(), &cmd)
 	if err == nil || !strings.Contains(err.Error(), "kg") || strings.Contains(err.Error(), "缺少有效商品") {
 		t.Fatalf("sku_id must remain authoritative when product_id is absent: %v", err)
 	}
@@ -2787,9 +3196,8 @@ func TestBeanListTierTemplateUnitCompatibilityRejectsMixedTemplateAndMissingProd
 	missingProductRow := row()
 	missingProductRow["product_id"] = float64(0)
 	missingProductRow["sku_id"] = float64(0)
-	_, err = NewService(repo).SaveBeanListDraft(context.Background(), PublishBeanListCommand{
-		ListType: "commercial", Version: "V4.3.4", Content: map[string]any{"price_rows": []any{missingProductRow}},
-	})
+	cmd = PublishBeanListCommand{Content: map[string]any{"price_rows": []any{missingProductRow}}}
+	err = NewService(repo).validatePriceTierTemplateUnitCompatibility(context.Background(), &cmd)
 	if err == nil || !strings.Contains(err.Error(), "阶梯模板不可用") || !strings.Contains(err.Error(), "缺少有效商品") {
 		t.Fatalf("tier row without a product identity must fail closed: %v", err)
 	}
@@ -2859,6 +3267,9 @@ func TestBeanListTierTemplateUnitCompatibilityRejectsInventoryFallbackAsDefaultS
 
 func TestBeanListTierTemplateUnitCompatibilityNormalizesAliasesAndCachesTemplate(t *testing.T) {
 	baseRepo := &fakeRepo{
+		productSpecIdentities: map[int64]ProductSpecIdentity{
+			550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		},
 		productUnitRules: map[int64]ProductSalesUnitRule{
 			550: {
 				ProductID:        550,
@@ -2883,6 +3294,8 @@ func TestBeanListTierTemplateUnitCompatibilityNormalizesAliasesAndCachesTemplate
 	newRow := func(tierID int64, label string) map[string]any {
 		return map[string]any{
 			"product_id":                float64(550),
+			"sku_id":                    float64(550),
+			"parent_product_id":         float64(550),
 			"product_name":              "初晓",
 			"tier_label":                label,
 			"min_qty":                   float64(1),
@@ -2916,16 +3329,22 @@ func TestBeanListTierTemplateUnitCompatibilityNormalizesAliasesAndCachesTemplate
 	if _, err := NewService(repo).PublishBeanList(context.Background(), PublishBeanListCommand{
 		ListType: "commercial",
 		Version:  "V4.3.1",
-		Content:  map[string]any{"price_rows": rows},
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id":           float64(550),
+			"sku_id":                      float64(550),
+			"selection_source":            "explicit",
+			"default_sku_id_at_selection": float64(550),
+		}}},
+		Content: map[string]any{"price_rows": rows},
 	}); err != nil {
 		t.Fatalf("PublishBeanList() error = %v", err)
 	}
-	if repo.templateLoads[8] != 1 {
-		t.Fatalf("template resolver calls = %d, want one request-cached lookup", repo.templateLoads[8])
+	if repo.templateLoads[8] != 0 {
+		t.Fatalf("template unit resolver calls = %d, want none for sales-spec-count publishing", repo.templateLoads[8])
 	}
 	gotRows := repo.publishedBeanList.Content["price_rows"].([]any)
-	if gotRows[0].(map[string]any)["tier_quantity_unit"] != "lb" || gotRows[1].(map[string]any)["tier_quantity_unit"] != "lbs" {
-		t.Fatalf("authoritative tier unit snapshots = %#v / %#v", gotRows[0], gotRows[1])
+	if gotRows[0].(map[string]any)["tier_quantity_unit"] != "磅" || gotRows[1].(map[string]any)["tier_quantity_unit"] != "磅" {
+		t.Fatalf("concrete sales-spec quantity snapshots = %#v / %#v", gotRows[0], gotRows[1])
 	}
 }
 

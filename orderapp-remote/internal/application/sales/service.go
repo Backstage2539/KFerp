@@ -241,16 +241,19 @@ type EmployeeOption struct {
 }
 
 type ProductTierOption struct {
-	ID              int64    `json:"id"`
-	SpecG           int64    `json:"spec_g"`
-	MinQty          float64  `json:"min_qty"`
-	MaxQty          *float64 `json:"max_qty"`
-	UnitPrice       float64  `json:"unit_price"`
-	DisplayUnit     string   `json:"display_unit,omitempty"`
-	ProductKind     string   `json:"product_kind"`
-	SalesUnit       string   `json:"sales_unit"`
-	UnitBagCount    int64    `json:"unit_bag_count"`
-	PriceSourceJSON string   `json:"price_source_json"`
+	ID                 int64          `json:"id"`
+	SpecG              int64          `json:"spec_g"`
+	MinQty             float64        `json:"min_qty"`
+	MaxQty             *float64       `json:"max_qty"`
+	UnitPrice          float64        `json:"unit_price"`
+	DisplayUnit        string         `json:"display_unit,omitempty"`
+	ProductKind        string         `json:"product_kind"`
+	SalesUnit          string         `json:"sales_unit"`
+	UnitBagCount       int64          `json:"unit_bag_count"`
+	PriceSourceJSON    string         `json:"price_source_json"`
+	QuantityBasis      string         `json:"quantity_basis,omitempty"`
+	TierQuantityUnit   string         `json:"tier_quantity_unit,omitempty"`
+	EffectiveSalesSpec map[string]any `json:"effective_sales_spec,omitempty"`
 }
 
 type ProductOption struct {
@@ -357,6 +360,7 @@ type OrderEditItem struct {
 	UnitPrice                          string
 	LineTotal                          string
 	PriceTierID                        int64
+	PriceOverride                      bool
 	BeanListPublicationID              int64
 	BeanListVersionNo                  string
 	DiscountType                       string

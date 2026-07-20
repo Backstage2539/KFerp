@@ -25,6 +25,9 @@ type ProductOption struct {
 	NetContentQty               float64             `json:"net_content_qty"`
 	NetContentUnit              string              `json:"net_content_unit"`
 	IsDefaultSKU                bool                `json:"is_default_sku"`
+	DefaultSKUID                int64               `json:"default_sku_id"`
+	EffectiveDefaultSKUID       int64               `json:"effective_default_sku_id"`
+	DefaultSpecLabel            string              `json:"default_spec_label"`
 	AutoDerivedSKU              bool                `json:"auto_derived_sku"`
 	DerivedUnitTemplateID       int64               `json:"derived_unit_template_id"`
 	DerivedSpecKey              string              `json:"derived_spec_key"`

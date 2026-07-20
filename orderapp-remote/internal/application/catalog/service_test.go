@@ -13,6 +13,9 @@ type fakeRepo struct {
 	create                 CreateProductCommand
 	copyProduct            CopyProductCommand
 	skuCreate              CreateSKUCommand
+	defaultSKU             SetProductDefaultSKUCommand
+	defaultSKUResult       Product
+	defaultSKUErr          error
 	custom                 CreateCustomProductCommand
 	derivedProduct         DeriveCustomerProductCommand
 	derivedCategory        DeriveProductCategoryCommand
@@ -115,6 +118,14 @@ func (r *fakeRepo) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product
 		visibility = "customer_only"
 	}
 	return Product{ID: 12, SKUID: 12, ParentProductID: cmd.ParentProductID, EffectiveParentProductID: cmd.ParentProductID, SKUName: cmd.SKUName, SKUCode: cmd.SKUCode, Barcode: cmd.Barcode, SpecLabel: cmd.SpecLabel, NetContentQty: cmd.NetContentQty, NetContentUnit: cmd.NetContentUnit, IsDefaultSKU: cmd.IsDefaultSKU, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON, ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
+}
+
+func (r *fakeRepo) SetProductDefaultSKU(ctx context.Context, cmd SetProductDefaultSKUCommand) (Product, error) {
+	r.defaultSKU = cmd
+	if r.defaultSKUErr != nil {
+		return Product{}, r.defaultSKUErr
+	}
+	return r.defaultSKUResult, nil
 }
 
 func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
@@ -1080,6 +1091,31 @@ func TestProductSettingsKeepsBomParamsOnNonGreenSKU(t *testing.T) {
 	got := settings.Products[0]
 	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 0.96 {
 		t.Fatalf("instant coffee product settings = %+v, want roast/yield from SKU", got)
+	}
+}
+
+func TestSetProductDefaultSKUValidatesAndDelegates(t *testing.T) {
+	repo := &fakeRepo{defaultSKUResult: Product{ID: 41, DefaultSKUID: 43, EffectiveDefaultSKUID: 43, DefaultSpecLabel: "1磅"}}
+	svc := NewService(repo)
+
+	for _, cmd := range []SetProductDefaultSKUCommand{
+		{ParentProductID: 0, SKUID: 43},
+		{ParentProductID: 41, SKUID: 0},
+	} {
+		if _, err := svc.SetProductDefaultSKU(context.Background(), cmd); err == nil || !IsValidationError(err) {
+			t.Fatalf("command %+v should fail validation, got %v", cmd, err)
+		}
+	}
+
+	got, err := svc.SetProductDefaultSKU(context.Background(), SetProductDefaultSKUCommand{Actor: "  刘祎泊  ", ParentProductID: 41, SKUID: 43})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.defaultSKU.Actor != "刘祎泊" || repo.defaultSKU.ParentProductID != 41 || repo.defaultSKU.SKUID != 43 {
+		t.Fatalf("delegated command = %+v", repo.defaultSKU)
+	}
+	if got.DefaultSKUID != 43 || got.EffectiveDefaultSKUID != 43 || got.DefaultSpecLabel != "1磅" {
+		t.Fatalf("result = %+v", got)
 	}
 }
 

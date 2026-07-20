@@ -258,6 +258,18 @@ test('price-list generation snapshot persists template inheritance, editable fla
       net_content_qty: 227,
       net_content_unit: 'g',
       sku_snapshot: { sku_name: '227g袋装', spec_label: '227g', net_content_qty: 227, net_content_unit: 'g' },
+	  quantity_basis: 'sales_spec_count',
+	  effective_sales_spec: {
+	    sku_id: 414,
+	    spec_key: 'bag-227g',
+	    spec_name: '227g袋装',
+	    spec_label: '227g',
+	    sales_unit: '袋',
+	    net_content_qty: 227,
+	    net_content_unit: 'g',
+	    inventory_unit: 'kg',
+	    inventory_conversion_json: { 袋: { kg: 0.227 } },
+	  },
       product_name: '快照测试商品',
       group_snapshot: { group_id: 3, group_name: '价格表分组', group_item_id: 101, group_item_name: '大客户', parent_group_item_id: 100, parent_group_item_name: '商用豆' },
       pricing_mode: 'tier_template',
@@ -295,6 +307,10 @@ test('price-list generation snapshot persists template inheritance, editable fla
   assert.equal(row.sku_name, '227g袋装')
   assert.equal(row.sku_snapshot.spec_label, '227g')
   assert.equal(row.net_content_qty, 227)
+	assert.equal(row.quantity_basis, 'sales_spec_count')
+	assert.equal(row.effective_sales_spec.sku_id, 414)
+	assert.equal(row.effective_sales_spec.spec_key, 'bag-227g')
+	assert.deepEqual(row.effective_sales_spec.inventory_conversion_json, { 袋: { kg: 0.227 } })
   assert.equal(row.group_snapshot.group_item_name, '大客户')
   assert.equal(row.pricing_mode, 'tier_template')
   assert.equal(row.pricing_mode_source, 'subgroup')
@@ -565,6 +581,17 @@ test('PDF bean-list helper preserves product spec and unit fields from picker ro
       quote_unit: '227g袋装',
       order_unit: '227g袋装',
       unit_conversion_json: { '227g袋装': { kg: 0.227 } },
+	  effective_sales_spec: {
+	    sku_id: 554,
+	    spec_key: 'bag-227g',
+	    spec_name: '227g袋装',
+	    spec_label: '227g',
+	    sales_unit: '227g袋装',
+	    net_content_qty: 0.227,
+	    net_content_unit: 'kg',
+	    inventory_unit: 'kg',
+	    inventory_conversion_json: { '227g袋装': { kg: 0.227 } },
+	  },
       commercial_bean_list: {
         code: '1.554',
         category: '意式拼配豆',
@@ -583,9 +610,11 @@ test('PDF bean-list helper preserves product spec and unit fields from picker ro
   assert.equal(item.default_sales_unit, '227g袋装')
   assert.equal(item.quote_unit, '227g袋装')
   assert.deepEqual(item.unit_conversion_json, { '227g袋装': { kg: 0.227 } })
+	assert.equal(item.effective_sales_spec.spec_key, 'bag-227g')
+	assert.equal(item.effective_sales_spec.sku_id, 554)
 })
 
-test('PDF bean-list helper keeps the current sales spec authoritative over an old price snapshot', () => {
+test('PDF bean-list helper keeps the current sales spec authoritative while legacy tier units remain readable', () => {
   const groups = buildBeanListPdfGroupsFromCategoryRows([{
     code: 'business-group-7-101',
     label: '咖啡豆',
@@ -604,10 +633,10 @@ test('PDF bean-list helper keeps the current sales spec authoritative over an ol
   assert.equal(item.price_unit_snapshot, 'kg')
   assert.equal(productCurrentSalesSpecUnit(item), '磅')
   assert.deepEqual(priceTierTemplateUnitCompatibility(item, { tiers: [{ quantity_unit: 'kg' }] }), {
-    compatible: false,
+    compatible: true,
     product_unit: '磅',
     template_units: ['kg'],
-    message: '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
+    message: '',
   })
   assert.equal(priceTierTemplateUnitCompatibility(item, { tiers: [{ quantity_unit: 'lb' }] }).compatible, true)
 })
@@ -806,18 +835,20 @@ test('tier-template rows keep every quantity tier through preview and publicatio
   }
   const rows = dedupePriceListFlatRows([
     { ...baseRow, row_key: '556:tier-template:11:25', template_tier_id: 25, tier_label: '24kg', min_qty: 24, max_qty: 47 },
-    { ...baseRow, row_key: '556:tier-template:11:26', template_tier_id: 26, tier_label: '1kg', min_qty: 1, max_qty: 13 },
+    { ...baseRow, row_key: '556:tier-template:11:26', template_tier_id: 26, tier_label: '48kg+', min_qty: 48, max_qty: null },
   ])
 
   const previewGroups = applyPriceListFlatRowsToBeanListPdfGroups(groups, rows, 'commercial')
   const snapshot = buildPriceListGenerationSnapshot({ rows })
 
-  assert.deepEqual(previewGroups[0].items[0].prices.map((row) => row.label), ['24kg', '1kg'])
+  assert.deepEqual(previewGroups[0].items[0].prices.map((row) => row.label), ['24kg', '48kg+'])
   assert.deepEqual(previewGroups[0].items[0].tiers_snapshot.map((row) => row.template_tier_id), [25, 26])
   assert.deepEqual(snapshot.content.price_rows.map((row) => row.template_tier_id), [25, 26])
+  assert.equal(previewGroups[0].items[0].tiers_snapshot[1].max_qty, null)
+  assert.equal(snapshot.content.price_rows[1].max_qty, null)
 })
 
-test('an incompatible tier-template guard row clears the product preview price and remains in the publication snapshot', () => {
+test('legacy tier-unit compatibility metadata does not block a positive sales-spec-count preview row', () => {
   const groups = buildBeanListPdfGroupsFromCategoryRows([{
     code: 'business-group-9-92',
     label: '咖啡熟豆',
@@ -844,17 +875,43 @@ test('an incompatible tier-template guard row clears the product preview price a
     tier_unit_compatibility_error: '阶梯模板不可用：商品规格“磅”与阶梯规格“kg”不匹配',
     product_sales_spec_unit: '磅',
     price_unit: 'lb',
-    final_unit_price: 0,
+	quantity_basis: 'sales_spec_count',
+	effective_sales_spec: { sku_id: 558, spec_name: '磅', sales_unit: '磅' },
+	final_unit_price: 88,
     inventory_unit: 'kg',
   }
   const previewGroups = applyPriceListFlatRowsToBeanListPdfGroups(groups, [incompatibleRow], 'commercial')
   const snapshot = buildPriceListGenerationSnapshot({ rows: [incompatibleRow] })
 
-  assert.deepEqual(previewGroups[0].items[0].prices, [])
-  assert.deepEqual(previewGroups[0].items[0].commercial_wholesale_tiers, [])
+	assert.equal(previewGroups[0].items[0].prices[0].price, 88)
+	assert.equal(previewGroups[0].items[0].commercial_wholesale_tiers[0].quantity_basis, 'sales_spec_count')
   assert.equal(snapshot.content.price_rows[0].tier_quantity_unit, 'kg')
   assert.equal(snapshot.content.price_rows[0].tier_unit_compatible, false)
   assert.equal(snapshot.content.price_rows[0].tier_unit_compatibility_error, incompatibleRow.tier_unit_compatibility_error)
+})
+
+test('legacy incompatible flat rows without sales-spec-count marker remain excluded from PDF preview', () => {
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'business-group-9-92',
+    label: '咖啡熟豆',
+    items: [{
+      product_id: 559,
+      name: '历史规格商品',
+      inventory_unit: 'kg',
+      commercial_bean_list: { code: '1.1', category: '咖啡熟豆', display_name: '历史规格商品' },
+      commercial_wholesale_tiers: [{ label: '历史阶梯', price_per_unit: 99 }],
+    }],
+  }], 'commercial', { selectedProductIDs: ['559'] })
+
+  const previewGroups = applyPriceListFlatRowsToBeanListPdfGroups(groups, [{
+    product_id: 559,
+    product_name: '历史规格商品',
+    tier_unit_compatible: false,
+    final_unit_price: 88,
+  }], 'commercial')
+
+  assert.deepEqual(previewGroups[0].items[0].prices, [])
+  assert.deepEqual(previewGroups[0].items[0].commercial_wholesale_tiers || [], [])
 })
 
 test('PDF bean-list helper builds download options from published green bean snapshots', () => {

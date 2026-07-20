@@ -38,6 +38,9 @@ type PublishedPricing struct {
 	ManualAdjusted          bool
 	CostSourceSnapshotJSON  string
 	CustomerSnapshotJSON    string
+	QuantityBasis           string
+	TierQuantityUnit        string
+	EffectiveSalesSpecJSON  string
 }
 
 type rowQuerier interface {
@@ -213,6 +216,9 @@ type publishedPriceTier struct {
 	ManualAdjusted          bool            `json:"manual_adjusted"`
 	CostSourceSnapshot      json.RawMessage `json:"cost_source_snapshot"`
 	CustomerSnapshot        json.RawMessage `json:"customer_reference_snapshot"`
+	QuantityBasis           string          `json:"quantity_basis"`
+	TierQuantityUnit        string          `json:"tier_quantity_unit"`
+	EffectiveSalesSpec      json.RawMessage `json:"effective_sales_spec"`
 }
 
 func publishedUnitPriceFromContent(raw []byte, productID int64, specG int64, qty int64) (float64, bool) {
@@ -225,7 +231,7 @@ func publishedUnitPriceFromContentForListType(raw []byte, productID int64, listT
 }
 
 func publishedPricingFromContentForListType(raw []byte, productID int64, listType string, specG int64, qty int64, salesUnit string, unitBagCount int64) (PublishedPricing, bool) {
-	if productID <= 0 || specG <= 0 || qty <= 0 || len(raw) == 0 {
+	if productID <= 0 || qty <= 0 || len(raw) == 0 {
 		return PublishedPricing{}, false
 	}
 	if tiers := publishedFlatPriceRows(raw, productID); len(tiers) > 0 {
@@ -358,6 +364,21 @@ func publishedJSONInt64Field(fields map[string]json.RawMessage, keys ...string) 
 
 func matchPublishedPriceTier(tiers []publishedPriceTier, specG int64, qty int64) (publishedPriceTier, bool) {
 	if len(tiers) == 0 {
+		return publishedPriceTier{}, false
+	}
+	countTiers := make([]publishedPriceTier, 0, len(tiers))
+	for _, tier := range tiers {
+		if strings.TrimSpace(tier.QuantityBasis) == "sales_spec_count" {
+			countTiers = append(countTiers, tier)
+		}
+	}
+	if len(countTiers) > 0 {
+		sortPublishedTiers(countTiers)
+		for _, tier := range countTiers {
+			if float64(qty) >= tier.MinQty && (tier.MaxQty == nil || float64(qty) <= *tier.MaxQty) {
+				return tier, true
+			}
+		}
 		return publishedPriceTier{}, false
 	}
 	totalG := float64(specG * qty)
@@ -573,6 +594,11 @@ func publishedPricingWithSnapshot(pricing PublishedPricing, tier publishedPriceT
 	}
 	if len(tier.CustomerSnapshot) > 0 && string(tier.CustomerSnapshot) != "null" {
 		pricing.CustomerSnapshotJSON = strings.TrimSpace(string(tier.CustomerSnapshot))
+	}
+	pricing.QuantityBasis = strings.TrimSpace(tier.QuantityBasis)
+	pricing.TierQuantityUnit = strings.TrimSpace(tier.TierQuantityUnit)
+	if len(tier.EffectiveSalesSpec) > 0 && string(tier.EffectiveSalesSpec) != "null" {
+		pricing.EffectiveSalesSpecJSON = strings.TrimSpace(string(tier.EffectiveSalesSpec))
 	}
 	return pricing
 }

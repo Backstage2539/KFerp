@@ -284,6 +284,49 @@ func TestPublishedCommercialFlatPriceRowsPreferDerivedSKUIDentity(t *testing.T) 
 	}
 }
 
+func TestPublishedCommercialFlatRowsUseConcreteSalesSpecCountAndKeepLegacyWeightFallback(t *testing.T) {
+	newContent := []byte(`{
+		"price_rows":[{
+			"product_id":550,
+			"sku_id":551,
+			"parent_product_id":550,
+			"quantity_basis":"sales_spec_count",
+			"effective_sales_spec":{"sku_id":551,"spec_name":"磅","sales_unit":"磅","net_content_qty":1,"net_content_unit":"lb"},
+			"tier_label":"2-4磅",
+			"min_qty":2,
+			"max_qty":4,
+			"final_unit_price":68,
+			"price_unit":"kg"
+		}]
+	}`)
+
+	got, ok := publishedPricingFromContentForListType(newContent, 551, ListTypeCommercial, 454, 2, "磅", 0)
+	if !ok || got.UnitPrice != 68 {
+		t.Fatalf("sales-spec-count pricing = %+v/%v, want two concrete pound SKUs to match", got, ok)
+	}
+	if got.QuantityBasis != "sales_spec_count" || got.TierQuantityUnit != "" || !strings.Contains(got.EffectiveSalesSpecJSON, `"net_content_unit":"lb"`) {
+		t.Fatalf("sales-spec-count pricing must preserve frozen order semantics: %+v", got)
+	}
+	if _, ok := publishedPricingFromContentForListType(newContent, 550, ListTypeCommercial, 454, 2, "磅", 0); ok {
+		t.Fatal("parent product must not consume its child SKU count tier")
+	}
+
+	legacyContent := []byte(`{
+		"price_rows":[{
+			"product_id":552,
+			"tier_label":"1kg+",
+			"spec_g":1000,
+			"min_qty":1,
+			"final_unit_price":82,
+			"price_unit":"kg"
+		}]
+	}`)
+	legacy, ok := publishedPricingFromContentForListType(legacyContent, 552, ListTypeCommercial, 454, 3, "磅", 0)
+	if !ok || legacy.UnitPrice != 82 {
+		t.Fatalf("legacy weight fallback = %+v/%v, want 3lb to keep matching the old 1kg tier", legacy, ok)
+	}
+}
+
 func TestExplicitPublicationSelectionRequiresPublishedSnapshots(t *testing.T) {
 	source, err := os.ReadFile("usage.go")
 	if err != nil {
