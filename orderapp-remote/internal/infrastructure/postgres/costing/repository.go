@@ -237,6 +237,9 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 	if autoDerived && derivedSalesUnit != "" {
 		defaultSalesUnit = derivedSalesUnit
 	}
+	if defaultSalesUnit == "" {
+		defaultSalesUnit = inventoryUnit
+	}
 	if priceUnit == "" {
 		priceUnit = defaultSalesUnit
 	}
@@ -251,7 +254,53 @@ func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID i
 	if len(targets) == 0 {
 		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
 	}
-	return appcosting.ProductSalesUnitRule{ProductID: productID, InventoryUnit: inventoryUnit, Conversion: conversion}, nil
+	return appcosting.ProductSalesUnitRule{ProductID: productID, DefaultSalesUnit: defaultSalesUnit, InventoryUnit: inventoryUnit, Conversion: conversion}, nil
+}
+
+func (r Repository) ResolveProductDefaultSalesUnit(ctx context.Context, productID int64) (string, error) {
+	if r.pool == nil || productID <= 0 {
+		return "", appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	var unit string
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(CASE
+		         WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(
+		           NULLIF(p.derived_sales_unit,''),
+		           NULLIF(p.sku_name,'')
+		         )
+		         ELSE COALESCE(
+		           NULLIF(p.unit_rule_override_json->>'default_sales_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+		           NULLIF(default_spec.spec_name,''),
+		           NULLIF(unit_template.order_unit,''),
+		           NULLIF(unit_template.quote_unit,'')
+		         )
+		       END, '') AS default_sales_unit
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.product_unit_templates unit_template
+		  ON unit_template.id=p.unit_template_id AND unit_template.active=true
+		LEFT JOIN LATERAL (
+		  SELECT NULLIF(spec.row->>'spec_name','') AS spec_name
+		  FROM jsonb_array_elements(COALESCE(unit_template.sales_specs_json,'[]'::jsonb)) WITH ORDINALITY AS spec(row, ord)
+		  WHERE COALESCE(spec.row->>'active','true') <> 'false'
+		    AND NULLIF(spec.row->>'spec_name','') IS NOT NULL
+		  ORDER BY CASE WHEN COALESCE(spec.row->>'default','false')='true' THEN 0 ELSE 1 END, spec.ord
+		  LIMIT 1
+		) default_spec ON true
+		WHERE p.id=$1 AND p.active=true
+	`, r.schema), productID).Scan(&unit)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", appcosting.ErrProductSalesUnitRuleNotFound
+		}
+		return "", err
+	}
+	unit = strings.TrimSpace(unit)
+	if unit == "" {
+		return "", appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return unit, nil
 }
 
 func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, productID int64, customerProductAliasID int64, priceUnit string) (appcosting.ProductSalesUnitRule, error) {
@@ -443,6 +492,9 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 	if autoDerived && derivedSalesUnit != "" {
 		defaultSalesUnit = derivedSalesUnit
 	}
+	if defaultSalesUnit == "" {
+		defaultSalesUnit = inventoryUnit
+	}
 	if priceUnit == "" {
 		priceUnit = defaultSalesUnit
 	}
@@ -462,7 +514,44 @@ func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, pro
 	if len(targets) == 0 {
 		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
 	}
-	return appcosting.ProductSalesUnitRule{ProductID: productID, InventoryUnit: inventoryUnit, Conversion: conversion}, nil
+	return appcosting.ProductSalesUnitRule{ProductID: productID, DefaultSalesUnit: defaultSalesUnit, InventoryUnit: inventoryUnit, Conversion: conversion}, nil
+}
+
+func (r Repository) ResolvePriceTierTemplateUnitRule(ctx context.Context, templateID int64) (appcosting.PriceTierTemplateUnitRule, error) {
+	if r.pool == nil || templateID <= 0 {
+		return appcosting.PriceTierTemplateUnitRule{}, appcosting.ErrPriceTierTemplateUnitRuleNotFound
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT template.id, template.name, tier.id, tier.quantity_unit
+		FROM %[1]s.price_tier_templates template
+		JOIN %[1]s.price_tier_template_tiers tier
+		  ON tier.template_id=template.id
+		 AND tier.active=true
+		WHERE template.id=$1
+		  AND template.active=true
+		ORDER BY tier.position, tier.min_qty, tier.id
+	`, r.schema), templateID)
+	if err != nil {
+		return appcosting.PriceTierTemplateUnitRule{}, err
+	}
+	defer rows.Close()
+
+	rule := appcosting.PriceTierTemplateUnitRule{TierUnits: map[int64]string{}}
+	for rows.Next() {
+		var tierID int64
+		var tierUnit string
+		if err := rows.Scan(&rule.TemplateID, &rule.TemplateName, &tierID, &tierUnit); err != nil {
+			return appcosting.PriceTierTemplateUnitRule{}, err
+		}
+		rule.TierUnits[tierID] = strings.TrimSpace(tierUnit)
+	}
+	if err := rows.Err(); err != nil {
+		return appcosting.PriceTierTemplateUnitRule{}, err
+	}
+	if rule.TemplateID <= 0 || len(rule.TierUnits) == 0 {
+		return appcosting.PriceTierTemplateUnitRule{}, appcosting.ErrPriceTierTemplateUnitRuleNotFound
+	}
+	return rule, nil
 }
 
 func productSalesUnitConversionMap(raw string, inventoryUnit ...string) map[string]map[string]float64 {

@@ -678,16 +678,9 @@ test('price list pricing-rule preview uses product quote unit before package fal
   assert.ok(unitStart > -1 && unitEnd > unitStart, 'flatRowPriceUnit block not found')
   const unitSource = viewSource.slice(unitStart, unitEnd)
 
-  for (const expected of [
-    'item.price_unit',
-    'item.priceUnit',
-    'item.quote_unit',
-    'item.quoteUnit',
-    'item.inventory_unit',
-    'item.inventoryUnit',
-  ]) {
-    assert.ok(unitSource.includes(expected), `flat row price unit should include product-level unit source: ${expected}`)
-  }
+  assert.match(unitSource, /productCurrentSalesSpecUnit\(item\)/, 'flat row price unit should use the shared current-sales-spec resolver')
+  assert.match(unitSource, /item\.inventory_unit/)
+  assert.match(unitSource, /item\.inventoryUnit/)
   assert.match(unitSource, /return Number\(tier\.spec_g \|\| tier\.specG \|\| 0\) === 1000 \? 'kg' : 'lb'/)
 })
 
@@ -734,6 +727,22 @@ test('price list product selection summaries avoid parent child wording and inhe
   ]) {
     assert.ok(selectionSource.includes(expected), `missing compact summary behavior: ${expected}`)
   }
+})
+
+test('price list marks incompatible tier templates unavailable for the current product spec', () => {
+  for (const expected of [
+    'priceListTierTemplateOptionDisabled(template)',
+    'priceListTierTemplateOptionLabel(template)',
+    'priceListProductTierTemplateWarning(row)',
+    'product-picker-tier-warning',
+    'tier_quantity_unit',
+    'tier_unit_compatible',
+    'tier_unit_compatibility_error',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing tier-template unit compatibility UI: ${expected}`)
+  }
+  assert.match(viewSource, /:disabled="priceListTierTemplateOptionDisabled\(template\)"/)
+  assert.match(viewSource, /priceTierTemplateUnitCompatibility/)
 })
 
 test('price list category pricing target helper separates parent, subgroup and product overrides', () => {

@@ -127,6 +127,12 @@ export function priceListFlatRowsReady(sourceRows = [], options = {}) {
 
 export function priceListFlatRowErrors(row = {}, options = {}) {
   const title = priceListFlatRowDisplayTitle(row)
+  if (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false) {
+    const detail = String(row?.tier_unit_compatibility_error || row?.tierUnitCompatibilityError || '').trim()
+    const productUnit = String(row?.product_sales_spec_unit || row?.productSalesSpecUnit || row?.price_unit || row?.priceUnit || '-').trim() || '-'
+    const tierUnit = String(row?.tier_quantity_unit || row?.tierQuantityUnit || '-').trim() || '-'
+    return [detail || `阶梯模板不可用：商品规格“${productUnit}”与阶梯规格“${tierUnit}”不匹配`]
+  }
   const errors = []
   const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
   if (!mode) {
@@ -173,6 +179,7 @@ export function priceListFlatRowErrors(row = {}, options = {}) {
 }
 
 function priceListFlatRowUsesLiveTrial(row = {}) {
+  if (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false) return false
   const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
   return mode === 'pricing_rule' || mode === 'tier_template'
 }

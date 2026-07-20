@@ -16,9 +16,11 @@ import (
 )
 
 var (
-	ErrBeanListPublicationNotFound  = errors.New("bean list publication not found")
-	ErrProductPricingRuleNotFound   = errors.New("product pricing rule not found")
-	ErrProductSalesUnitRuleNotFound = errors.New("product sales unit rule not found")
+	ErrBeanListPublicationNotFound       = errors.New("bean list publication not found")
+	ErrProductPricingRuleNotFound        = errors.New("product pricing rule not found")
+	ErrProductSalesUnitRuleNotFound      = errors.New("product sales unit rule not found")
+	ErrPriceTierTemplateUnitRuleNotFound = errors.New("price tier template unit rule not found")
+	priceTierMassUnitPattern             = regexp.MustCompile(`^(?:\d+(?:\.\d+)?)?(kg|kgs|公斤|千克|g|克|lb|lbs|磅)(?:袋装)?$`)
 )
 
 const (
@@ -56,9 +58,16 @@ type ProductPricingRule struct {
 }
 
 type ProductSalesUnitRule struct {
-	ProductID     int64                         `json:"product_id"`
-	InventoryUnit string                        `json:"inventory_unit"`
-	Conversion    map[string]map[string]float64 `json:"unit_conversion_json"`
+	ProductID        int64                         `json:"product_id"`
+	DefaultSalesUnit string                        `json:"default_sales_unit"`
+	InventoryUnit    string                        `json:"inventory_unit"`
+	Conversion       map[string]map[string]float64 `json:"unit_conversion_json"`
+}
+
+type PriceTierTemplateUnitRule struct {
+	TemplateID   int64
+	TemplateName string
+	TierUnits    map[int64]string
 }
 
 type PricingRuleTrialCommand struct {
@@ -454,8 +463,16 @@ type productSalesUnitRuleRepository interface {
 	ResolveProductSalesUnitRule(ctx context.Context, productID int64, priceUnit string) (ProductSalesUnitRule, error)
 }
 
+type productDefaultSalesUnitRepository interface {
+	ResolveProductDefaultSalesUnit(ctx context.Context, productID int64) (string, error)
+}
+
 type customerProductSalesUnitRuleRepository interface {
 	ResolveCustomerProductSalesUnitRule(ctx context.Context, productID int64, customerProductAliasID int64, priceUnit string) (ProductSalesUnitRule, error)
+}
+
+type priceTierTemplateUnitRuleRepository interface {
+	ResolvePriceTierTemplateUnitRule(ctx context.Context, templateID int64) (PriceTierTemplateUnitRule, error)
 }
 
 type customerScopedProductInputRepository interface {
@@ -2498,6 +2515,9 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 		if err := s.applyNextBeanListPublicationVersion(ctx, &normalized); err != nil {
 			return nil, err
 		}
+		if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+			return nil, err
+		}
 		if err := s.applyProductSalesUnitSnapshots(ctx, &normalized); err != nil {
 			return nil, err
 		}
@@ -2635,6 +2655,157 @@ func beanListPublicationVersionDigitsOnly(value string) bool {
 	return true
 }
 
+func (s *Service) validatePriceTierTemplateUnitCompatibility(ctx context.Context, cmd *PublishBeanListCommand) error {
+	templateResolver, hasTemplateResolver := s.repo.(priceTierTemplateUnitRuleRepository)
+	productResolver, hasProductResolver := s.repo.(productDefaultSalesUnitRepository)
+	if !hasTemplateResolver || cmd == nil || cmd.Content == nil {
+		return nil
+	}
+	rows := priceTierTemplateCompatibilityRows(cmd.Content["price_rows"])
+	if len(rows) == 0 {
+		return nil
+	}
+	if !hasProductResolver {
+		return fmt.Errorf("阶梯模板不可用：服务缺少当前商品销售规格校验能力")
+	}
+
+	templateCache := map[int64]PriceTierTemplateUnitRule{}
+	productCache := map[int64]string{}
+	for idx, rawRow := range rows {
+		row, ok := rawRow.(map[string]any)
+		if !ok || normalizePriceRowPricingMode(row) != "tier_template" {
+			continue
+		}
+		templateID := int64(numberValue(row["tier_template_id"]))
+		templateTierID := int64(numberValue(row["template_tier_id"]))
+		productID := int64(numberValue(row["product_id"]))
+		skuID := int64(numberValue(row["sku_id"]))
+		if templateID <= 0 || templateTierID <= 0 {
+			return fmt.Errorf("阶梯模板不可用：第%d行缺少有效模板或档位", idx+1)
+		}
+		unitProductID := skuID
+		if unitProductID <= 0 {
+			unitProductID = productID
+		}
+		if unitProductID <= 0 {
+			return fmt.Errorf("阶梯模板不可用：第%d行缺少有效商品或子 SKU", idx+1)
+		}
+
+		templateRule, cached := templateCache[templateID]
+		if !cached {
+			resolved, err := templateResolver.ResolvePriceTierTemplateUnitRule(ctx, templateID)
+			if err != nil {
+				if errors.Is(err, ErrPriceTierTemplateUnitRuleNotFound) {
+					return fmt.Errorf("阶梯模板不可用：第%d行引用的阶梯模板不存在、已停用或没有有效档位", idx+1)
+				}
+				return err
+			}
+			templateRule = resolved
+			templateCache[templateID] = resolved
+		}
+		tierUnit := strings.TrimSpace(templateRule.TierUnits[templateTierID])
+		if tierUnit == "" {
+			return fmt.Errorf("阶梯模板不可用：第%d行引用的阶梯模板“%s”不包含当前有效档位", idx+1, priceTierTemplateUnitRuleName(templateRule, templateID))
+		}
+
+		productUnit, cached := productCache[unitProductID]
+		if !cached {
+			resolved, err := productResolver.ResolveProductDefaultSalesUnit(ctx, unitProductID)
+			if err != nil {
+				if errors.Is(err, ErrProductSalesUnitRuleNotFound) {
+					return fmt.Errorf("阶梯模板不可用：商品“%s”缺少有效默认销售规格，无法校验阶梯模板“%s”", beanListFlatRowProductName(row, idx+1), priceTierTemplateUnitRuleName(templateRule, templateID))
+				}
+				return err
+			}
+			productUnit = strings.TrimSpace(resolved)
+			productCache[unitProductID] = productUnit
+		}
+
+		if productUnit == "" {
+			return fmt.Errorf("阶梯模板不可用：商品“%s”缺少有效默认销售规格，无法校验阶梯模板“%s”", beanListFlatRowProductName(row, idx+1), priceTierTemplateUnitRuleName(templateRule, templateID))
+		}
+		productUnitIdentity := normalizePriceTierCompatibilityUnit(productUnit)
+		tierIDs := make([]int64, 0, len(templateRule.TierUnits))
+		for tierID := range templateRule.TierUnits {
+			tierIDs = append(tierIDs, tierID)
+		}
+		sort.Slice(tierIDs, func(i, j int) bool { return tierIDs[i] < tierIDs[j] })
+		if len(tierIDs) == 0 {
+			return fmt.Errorf("阶梯模板不可用：阶梯模板“%s”没有有效档位", priceTierTemplateUnitRuleName(templateRule, templateID))
+		}
+		for _, tierID := range tierIDs {
+			activeTierUnit := strings.TrimSpace(templateRule.TierUnits[tierID])
+			if activeTierUnit == "" {
+				return fmt.Errorf("阶梯模板不可用：阶梯模板“%s”存在缺少数量单位的有效档位", priceTierTemplateUnitRuleName(templateRule, templateID))
+			}
+			if productUnitIdentity != normalizePriceTierCompatibilityUnit(activeTierUnit) {
+				return fmt.Errorf("阶梯模板不可用：商品“%s”的默认销售规格“%s”与阶梯模板“%s”的档位数量单位“%s”不匹配", beanListFlatRowProductName(row, idx+1), productUnit, priceTierTemplateUnitRuleName(templateRule, templateID), activeTierUnit)
+			}
+		}
+		row["tier_template_name"] = priceTierTemplateUnitRuleName(templateRule, templateID)
+		row["tier_quantity_unit"] = tierUnit
+		row["product_sales_unit"] = productUnit
+	}
+	return nil
+}
+
+func priceTierTemplateCompatibilityRows(value any) []any {
+	switch rows := value.(type) {
+	case []any:
+		return rows
+	case []map[string]any:
+		out := make([]any, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, row)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func normalizePriceTierCompatibilityUnit(unit string) string {
+	compact := strings.ToLower(strings.Join(strings.Fields(unit), ""))
+	if strings.HasPrefix(compact, "盒(") || strings.HasPrefix(compact, "盒（") {
+		return "盒"
+	}
+	if strings.HasPrefix(compact, "袋(") || strings.HasPrefix(compact, "袋（") {
+		return "袋"
+	}
+	if strings.HasPrefix(compact, "条(") || strings.HasPrefix(compact, "条（") {
+		return "条"
+	}
+	if matches := priceTierMassUnitPattern.FindStringSubmatch(compact); len(matches) == 2 {
+		compact = matches[1]
+	}
+	switch compact {
+	case "kg", "公斤", "千克":
+		return "kg"
+	case "kgs":
+		return "kg"
+	case "lb", "lbs", "磅":
+		return "lb"
+	case "g", "克":
+		return "g"
+	default:
+		return compact
+	}
+}
+
+func priceTierTemplateUnitRuleName(rule PriceTierTemplateUnitRule, templateID int64) string {
+	if name := strings.TrimSpace(rule.TemplateName); name != "" {
+		return name
+	}
+	return fmt.Sprintf("#%d", templateID)
+}
+
+func beanListFlatRowProductName(row map[string]any, position int) string {
+	if name := beanListFlatRowString(row, "product_name", "display_name_snapshot", "product_name_snapshot", "name"); name != "" {
+		return name
+	}
+	return fmt.Sprintf("第%d行商品", position)
+}
+
 func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *PublishBeanListCommand) error {
 	resolver, ok := s.repo.(productSalesUnitRuleRepository)
 	if !ok || cmd == nil || cmd.Content == nil {
@@ -2650,14 +2821,19 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 			continue
 		}
 		productID := int64(numberValue(row["product_id"]))
+		skuID := int64(numberValue(row["sku_id"]))
+		effectiveProductID := productID
+		if effectiveProductID <= 0 && skuID > 0 {
+			effectiveProductID = skuID
+		}
 		priceUnit := strings.TrimSpace(stringValue(row["price_unit"]))
-		if productID <= 0 || priceUnit == "" {
+		if effectiveProductID <= 0 || priceUnit == "" {
 			continue
 		}
-		applyFlatRowSKUSnapshot(row, productID)
-		unitProductID := productID
+		applyFlatRowSKUSnapshot(row, effectiveProductID)
+		unitProductID := effectiveProductID
 		if parentProductID := int64(numberValue(row["parent_product_id"])); parentProductID > 0 {
-			if skuID := int64(numberValue(row["sku_id"])); skuID > 0 {
+			if skuID > 0 {
 				unitProductID = skuID
 			}
 		}
@@ -2665,9 +2841,9 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		rule, err := ProductSalesUnitRule{}, error(nil)
 		if customerAliasID > 0 {
 			if customerResolver, ok := s.repo.(customerProductSalesUnitRuleRepository); ok {
-				rule, err = customerResolver.ResolveCustomerProductSalesUnitRule(ctx, productID, customerAliasID, priceUnit)
+				rule, err = customerResolver.ResolveCustomerProductSalesUnitRule(ctx, effectiveProductID, customerAliasID, priceUnit)
 			} else {
-				rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
+				rule, err = resolver.ResolveProductSalesUnitRule(ctx, unitProductID, priceUnit)
 			}
 		} else {
 			rule, err = resolver.ResolveProductSalesUnitRule(ctx, unitProductID, priceUnit)
@@ -2762,6 +2938,9 @@ func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListComm
 	}
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
+	}
+	if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+		return nil, err
 	}
 	return s.repo.SaveBeanListDraft(ctx, normalized)
 }

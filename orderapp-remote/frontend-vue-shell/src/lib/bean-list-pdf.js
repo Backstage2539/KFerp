@@ -244,14 +244,22 @@ export function buildBeanListPdfGroupsFromCategoryRows(categoryRows = [], listTy
 }
 
 export function applyPriceListFlatRowsToBeanListPdfGroups(groups = [], rows = [], listType = 'commercial') {
-  const normalizedRows = (Array.isArray(rows) ? rows : [])
-    .map(normalizePriceListFlatRow)
-    .filter((row) => row.final_unit_price > 0)
-  if (!normalizedRows.length) return JSON.parse(JSON.stringify(Array.isArray(groups) ? groups : []))
+  const allRows = (Array.isArray(rows) ? rows : []).map(normalizePriceListFlatRow)
+  const blockedRows = allRows.filter((row) => row.tier_unit_compatible === false)
+  const normalizedRows = allRows.filter((row) => row.tier_unit_compatible !== false && row.final_unit_price > 0)
+  if (!normalizedRows.length && !blockedRows.length) return JSON.parse(JSON.stringify(Array.isArray(groups) ? groups : []))
   const tierKey = priceListTierKeyForType(listType)
   return (Array.isArray(groups) ? groups : []).map((group) => ({
     ...group,
     items: (Array.isArray(group?.items) ? group.items : []).map((item) => {
+      if (flatRowsForPdfItem(item, blockedRows).length) {
+        return {
+          ...item,
+          prices: [],
+          tiers_snapshot: [],
+          [tierKey]: [],
+        }
+      }
       const itemRows = flatRowsForPdfItem(item, normalizedRows)
       if (!itemRows.length) return { ...item }
       const prices = itemRows.map((row) => ({
@@ -568,8 +576,15 @@ function normalizePriceListFlatRow(row = {}) {
     inventory_conversion_json: inventoryConversionSnapshot(row, row.price_unit ?? row.priceUnit, row.inventory_unit ?? row.inventoryUnit),
     source_price_record_id: firstNumber(row.source_price_record_id, row.sourcePriceRecordID),
     tier_template_id: firstNumber(row.tier_template_id, row.tierTemplateID),
+    ...(stringField(row.tier_template_name ?? row.tierTemplateName) ? { tier_template_name: stringField(row.tier_template_name ?? row.tierTemplateName) } : {}),
     tier_template_source: stringField(row.tier_template_source ?? row.tierTemplateSource),
     template_tier_id: firstNumber(row.template_tier_id, row.templateTierID),
+    ...(stringField(row.tier_quantity_unit ?? row.tierQuantityUnit) ? { tier_quantity_unit: stringField(row.tier_quantity_unit ?? row.tierQuantityUnit) } : {}),
+    ...(stringField(row.product_sales_spec_unit ?? row.productSalesSpecUnit) ? { product_sales_spec_unit: stringField(row.product_sales_spec_unit ?? row.productSalesSpecUnit) } : {}),
+    ...((Object.prototype.hasOwnProperty.call(row, 'tier_unit_compatible') || Object.prototype.hasOwnProperty.call(row, 'tierUnitCompatible'))
+      ? { tier_unit_compatible: row.tier_unit_compatible !== false && row.tierUnitCompatible !== false }
+      : {}),
+    ...(stringField(row.tier_unit_compatibility_error ?? row.tierUnitCompatibilityError) ? { tier_unit_compatibility_error: stringField(row.tier_unit_compatibility_error ?? row.tierUnitCompatibilityError) } : {}),
     pricing_rule_id: firstNumber(row.pricing_rule_id, row.pricingRuleID),
     pricing_rule_source: stringField(row.pricing_rule_source ?? row.pricingRuleSource),
     pricing_rule_version: stringField(row.pricing_rule_version ?? row.pricingRuleVersion),

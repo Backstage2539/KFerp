@@ -1461,6 +1461,42 @@ type pricingRuleTrialUnitValidationRepo struct {
 	fakeRepo
 }
 
+type priceTierTemplateUnitMismatchRepo struct {
+	fakeRepo
+}
+
+func (priceTierTemplateUnitMismatchRepo) ResolveProductSalesUnitRule(_ context.Context, productID int64, priceUnit string) (appcosting.ProductSalesUnitRule, error) {
+	if productID != 550 || (priceUnit != "" && priceUnit != "磅") {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return appcosting.ProductSalesUnitRule{
+		ProductID:        550,
+		DefaultSalesUnit: "磅",
+		InventoryUnit:    "kg",
+		Conversion: map[string]map[string]float64{
+			"磅": {"kg": 0.45359237},
+		},
+	}, nil
+}
+
+func (priceTierTemplateUnitMismatchRepo) ResolveProductDefaultSalesUnit(_ context.Context, productID int64) (string, error) {
+	if productID != 550 {
+		return "", appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return "磅", nil
+}
+
+func (priceTierTemplateUnitMismatchRepo) ResolvePriceTierTemplateUnitRule(_ context.Context, templateID int64) (appcosting.PriceTierTemplateUnitRule, error) {
+	if templateID != 8 {
+		return appcosting.PriceTierTemplateUnitRule{}, appcosting.ErrPriceTierTemplateUnitRuleNotFound
+	}
+	return appcosting.PriceTierTemplateUnitRule{
+		TemplateID:   8,
+		TemplateName: "咖啡熟豆",
+		TierUnits:    map[int64]string{81: "lb", 82: "kg"},
+	}, nil
+}
+
 func (pricingRuleTrialUnitValidationRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
 	return []domain.ProductInput{{
 		ProductID:          552,
@@ -1607,6 +1643,75 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBeanListPublicationAndDraftAPIsRejectTierTemplateUnitMismatch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "publish", path: "/api/costing/bean-list/publications"},
+		{name: "draft", path: "/api/costing/bean-list/drafts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("basic_auth_admin", true)
+					c.Set("employee_id", int64(7))
+					return next(c)
+				}
+			})
+			RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(priceTierTemplateUnitMismatchRepo{})})
+
+			body := bytes.NewBufferString(`{
+				"list_type":"commercial",
+				"version":"V4.3.0",
+				"scope":"mine",
+				"content":{"price_rows":[{
+					"product_id":550,
+					"product_name":"初晓",
+					"tier_label":"1kg+",
+					"min_qty":1,
+					"final_unit_price":68,
+					"original_final_unit_price":68,
+					"price_unit":"磅",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"磅":{"kg":0.45359237}},
+					"group_snapshot":{"group_id":3,"group_name":"商品价格表分组","group_item_id":101,"group_item_name":"咖啡豆"},
+					"group_source":"product_catalog",
+					"pricing_mode":"tier_template",
+					"pricing_mode_source":"product",
+					"tier_template_id":8,
+					"tier_template_name":"伪造可用模板",
+					"tier_template_source":"product",
+					"template_tier_id":81,
+					"tier_quantity_unit":"磅",
+					"pricing_rule_id":40,
+					"pricing_rule_source":"tier_template",
+					"pricing_rule_version":"咖啡熟豆模板-v1",
+					"tier_pricing_rule_id":40,
+					"tier_pricing_rule_version":"咖啡熟豆模板-v1",
+					"cost_source_snapshot":{"bom_version_no":"BOM-CHUXIAO/V001"},
+					"customer_reference_snapshot":{"customer_id":0},
+					"manual_adjusted":true
+				}]}
+			}`)
+			req := httptest.NewRequest(http.MethodPost, tc.path, body)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+			}
+			for _, want := range []string{"阶梯模板不可用", "初晓", "咖啡熟豆", "磅", "kg", "不匹配"} {
+				if !strings.Contains(rec.Body.String(), want) {
+					t.Fatalf("response missing %q: %s", want, rec.Body.String())
+				}
+			}
+		})
 	}
 }
 
