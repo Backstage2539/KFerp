@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-543-PRICE-LIST-PIECE-TIER-LABEL
+- Branch: codex/pr543-price-list-piece-label
+- Owner/session: Codex / 2026-07-21
+- Status: verifying; RED/GREEN, full Go, Vite build and server PDF visual check complete; pending integration and development deployment
+- Scope: 新 `quantity_basis=sales_spec_count` 价格行的阶梯数量只显示件数范围，例如 `2-13件`，销售规格继续作为独立属性；预览、新草稿、新发布、公开页和 PDF 不把规格拼入商品名，无客户别名时服务端规范化为父商品名，有真实客户别名时保留别名但仍不追加规格。
+- DEV:
+  - DEV-543-PIECE-TIER-LABEL：平铺价格行、预览、新发布快照、公开页和 PDF 对销售规格件数档位统一显示 `1件`、`2-13件`、`14件+`，不显示 `个227g` 等规格拼接文案。
+  - DEV-543-SERVER-NAME-NORMALIZATION：新草稿和新发布由服务端统一规范商品名；无客户别名时使用父商品名，真实客户别名继续有效，规格仅写入独立 `sales_spec / 规格` 属性。
+  - DEV-543-DOCS-DEPLOY：同步需求、验收和成本手册，完成 RED/GREEN、开发环境部署及页面/PDF 冒烟；不部署生产环境，不自动重新发布现有价格表。
+- Verifier: frontend RED failed 2/63 on the missing generic-piece helper and old spec-concatenating UI call; backend RED first failed on the missing publication-name normalizer, then the hardened real HTTP→Service test exposed stale `2-13个227g` persistence; support RED failed on missing PR-543 seeds. GREEN: targeted frontend 208/208 before server hardening and 125/125 after it; targeted Costing application/PostgreSQL repository/real HTTP API/support; full `go test ./... -count=1`; Vite build (401 modules); changed verifier; server PDF overlay render and PNG inspection.
+- Deployment: development only after verification; production and automatic price-table republish are out of scope.
+- Last update: 2026-07-21 Asia/Shanghai
+
 ### PR-542-PRICE-LIST-INLINE-SPEC-DISPLAY
 - Branch: codex/pr542-price-list-inline-spec-display
 - Owner/session: Codex / 2026-07-20

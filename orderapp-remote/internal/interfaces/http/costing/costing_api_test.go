@@ -1420,12 +1420,12 @@ func TestPublicBeanListPageKeepsProductNameSeparateFromSelectedSalesSpec(t *test
 					map[string]any{
 						"name":           "白月光瑰夏",
 						"attributeLines": []any{"规格：227g", "烘焙度：浅烘"},
-						"prices":         []any{map[string]any{"label": "1个227g", "price": 82.0, "unit": "227g"}},
+						"prices":         []any{map[string]any{"label": "2-13件", "price": 82.0, "unit": "227g"}},
 					},
 					map[string]any{
 						"name":           "白月光瑰夏",
 						"attributeLines": []any{"规格：454g", "烘焙度：浅烘"},
-						"prices":         []any{map[string]any{"label": "1个454g", "price": 148.0, "unit": "454g"}},
+						"prices":         []any{map[string]any{"label": "2-13件", "price": 148.0, "unit": "454g"}},
 					},
 				},
 			}},
@@ -1437,12 +1437,12 @@ func TestPublicBeanListPageKeepsProductNameSeparateFromSelectedSalesSpec(t *test
 	if got := strings.Count(page, "白月光瑰夏"); got != 2 {
 		t.Fatalf("public page product name count=%d, want 2; body=%s", got, page)
 	}
-	for _, want := range []string{"规格：227g", "规格：454g", "1个227g", "1个454g"} {
+	for _, want := range []string{"规格：227g", "规格：454g", "2-13件"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("public page missing %q; body=%s", want, page)
 		}
 	}
-	for _, forbidden := range []string{"白月光瑰夏227g", "白月光瑰夏454g", "白月光瑰夏 · 227g", "白月光瑰夏 · 454g"} {
+	for _, forbidden := range []string{"白月光瑰夏227g", "白月光瑰夏454g", "白月光瑰夏 · 227g", "白月光瑰夏 · 454g", "2-13个227g", "2-13个454g"} {
 		if strings.Contains(page, forbidden) {
 			t.Fatalf("public page concatenated product name and spec as %q; body=%s", forbidden, page)
 		}
@@ -1774,7 +1774,7 @@ func TestBeanListPublicationAPIPreservesSeparatedProductNameAndSalesSpecSnapshot
 				"list_type":"commercial",
 				"version":"V4.4.0",
 				"scope":"mine",
-				"config":{"product_spec_selections":[{"parent_product_id":600,"sku_id":991,"selection_source":"manual","default_sku_id_at_selection":990}]},
+				"config":{"product_spec_selections":[{"parent_product_id":600,"sku_id":991,"selection_source":"explicit","default_sku_id_at_selection":990}]},
 				"content":{
 					"groups":[{"category":"1、咖啡豆","items":[{
 						"name":"白月光瑰夏",
@@ -1826,6 +1826,163 @@ func TestBeanListPublicationAPIPreservesSeparatedProductNameAndSalesSpecSnapshot
 				t.Fatalf("price rows=%v", cmd.Content["price_rows"])
 			}
 		})
+	}
+}
+
+type pr543BeanListPublicationRepo struct {
+	fakeRepo
+	published appcosting.PublishBeanListCommand
+}
+
+func (r *pr543BeanListPublicationRepo) ResolveProductSpecIdentity(_ context.Context, productID int64) (appcosting.ProductSpecIdentity, error) {
+	switch productID {
+	case 600:
+		return appcosting.ProductSpecIdentity{ProductID: 600, EffectiveParentProductID: 600, ParentProductName: "白月光瑰夏", Active: true, SpecValid: true}, nil
+	case 991:
+		return appcosting.ProductSpecIdentity{ProductID: 991, EffectiveParentProductID: 600, ParentProductName: "白月光瑰夏", Active: true, SpecValid: true}, nil
+	default:
+		return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
+	}
+}
+
+func (r *pr543BeanListPublicationRepo) ResolveProductSalesUnitRule(_ context.Context, productID int64, _ string) (appcosting.ProductSalesUnitRule, error) {
+	if productID != 991 {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return appcosting.ProductSalesUnitRule{
+		ProductID:        991,
+		SKUName:          "227g袋装",
+		DefaultSalesUnit: "227g",
+		InventoryUnit:    "g",
+		Conversion:       map[string]map[string]float64{"227g": {"g": 227}},
+		EffectiveSalesSpec: &domain.EffectiveSalesSpec{
+			SKUID:                   991,
+			SpecName:                "227g",
+			SpecLabel:               "227g",
+			SalesUnit:               "227g",
+			InventoryUnit:           "g",
+			InventoryConversionJSON: map[string]map[string]float64{"227g": {"g": 227}},
+		},
+	}, nil
+}
+
+func (r *pr543BeanListPublicationRepo) PublishBeanList(_ context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	r.published = cmd
+	return &appcosting.BeanListPublication{
+		ListType:           cmd.ListType,
+		Version:            cmd.Version,
+		Status:             "published",
+		PublicationPurpose: cmd.PublicationPurpose,
+		OwnerType:          cmd.OwnerType,
+		OwnerKey:           cmd.OwnerKey,
+		Config:             cmd.Config,
+		Content:            cmd.Content,
+	}, nil
+}
+
+func TestBeanListPublicationHTTPPersistsPieceTierAndSeparatedParentProductName(t *testing.T) {
+	repo := &pr543BeanListPublicationRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(repo)})
+
+	body := bytes.NewBufferString(`{
+		"list_type":"commercial",
+		"version":"V5.3.1",
+		"scope":"mine",
+		"config":{"product_spec_selections":[{
+			"parent_product_id":600,
+			"sku_id":991,
+			"selection_source":"explicit",
+			"default_sku_id_at_selection":991
+		}]},
+		"content":{
+			"groups":[{"category":"1、咖啡豆","items":[{
+				"product_id":991,
+				"sku_id":991,
+				"parent_product_id":600,
+				"name":"白月光瑰夏227g",
+				"display_name_snapshot":"白月光瑰夏227g",
+				"product_name_snapshot":"白月光瑰夏227g",
+				"sku_name":"227g袋装",
+				"spec_label":"227g",
+				"effective_sales_spec":{"sku_id":991,"spec_name":"227g","sales_unit":"227g"},
+				"productAttributes":[{"key":"sales_spec","label":"规格","value":"227g"}],
+				"attributeLines":["规格：227g"],
+				"prices":[{"label":"2-13个227g","price":82,"unit":"227g"}]
+			}]}],
+			"price_rows":[{
+				"product_id":991,
+				"sku_id":991,
+				"parent_product_id":600,
+				"product_name":"白月光瑰夏227g",
+				"sku_name":"227g袋装",
+				"spec_label":"227g",
+				"tier_label":"2-13个227g",
+				"min_qty":2,
+				"max_qty":13,
+				"pricing_mode":"tier_template",
+				"pricing_mode_source":"sku",
+				"tier_template_id":8,
+				"tier_template_source":"sku",
+				"template_tier_id":81,
+				"pricing_rule_id":40,
+				"pricing_rule_source":"tier_template",
+				"pricing_rule_version":"熟豆-v1",
+				"tier_pricing_rule_id":40,
+				"tier_pricing_rule_version":"熟豆-v1",
+				"final_unit_price":82,
+				"original_final_unit_price":82,
+				"price_unit":"227g",
+				"inventory_unit":"g",
+				"inventory_conversion_json":{"227g":{"g":227}},
+				"group_snapshot":{"group_id":3,"group_name":"商品价格表分组","group_item_id":101,"group_item_name":"咖啡熟豆"},
+				"group_source":"product_catalog",
+				"cost_source_snapshot":{"source":"fixed_price"},
+				"customer_reference_snapshot":{},
+				"manual_adjusted":false,
+				"quantity_basis":"sales_spec_count"
+			}]
+		}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	groups := publicMapsFromAny(repo.published.Content["groups"])
+	if len(groups) != 1 {
+		t.Fatalf("persisted groups=%v", repo.published.Content["groups"])
+	}
+	items := publicMapsFromAny(groups[0]["items"])
+	if len(items) != 1 {
+		t.Fatalf("persisted items=%v", groups[0]["items"])
+	}
+	if got := mapString(items[0], "name", ""); got != "白月光瑰夏" {
+		t.Fatalf("persisted product name=%q, want parent product name", got)
+	}
+	if got := mapString(items[0], "display_name_snapshot", ""); got != "白月光瑰夏" {
+		t.Fatalf("persisted display name=%q, want parent product name", got)
+	}
+	rows := publicMapsFromAny(repo.published.Content["price_rows"])
+	if len(rows) != 1 {
+		t.Fatalf("persisted price rows=%v", repo.published.Content["price_rows"])
+	}
+	if got := mapString(rows[0], "tier_label", ""); got != "2-13件" {
+		t.Fatalf("persisted tier label=%q, want 2-13件", got)
+	}
+	persistedPrices := publicMapsFromAny(items[0]["prices"])
+	if len(persistedPrices) != 1 || mapString(persistedPrices[0], "label", "") != "2-13件" {
+		t.Fatalf("persisted preview prices=%v, want generic piece label", items[0]["prices"])
 	}
 }
 

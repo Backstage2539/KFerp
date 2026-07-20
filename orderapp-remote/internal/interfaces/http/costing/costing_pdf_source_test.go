@@ -20,7 +20,7 @@ func TestBeanListPublicationPDFKeepsProductNameAndRendersSalesSpecAsAttribute(t 
 				"items": []any{map[string]any{
 					"name":           "白月光瑰夏",
 					"attributeLines": []any{"规格：227g", "烘焙度：浅烘"},
-					"prices":         []any{map[string]any{"label": "1个227g", "price": 31.0, "unit": "227g"}},
+					"prices":         []any{map[string]any{"label": "2-13件", "price": 31.0, "unit": "227g"}},
 				}},
 			}},
 		},
@@ -34,6 +34,9 @@ func TestBeanListPublicationPDFKeepsProductNameAndRendersSalesSpecAsAttribute(t 
 	}
 	if got := strings.Join(item.AttributeLines, " / "); got != "规格：227g / 烘焙度：浅烘" {
 		t.Fatalf("attributes=%q", got)
+	}
+	if len(item.Prices) != 1 || item.Prices[0].Label != "2-13件" || item.Prices[0].Value != "31/227g" {
+		t.Fatalf("prices=%+v", item.Prices)
 	}
 }
 

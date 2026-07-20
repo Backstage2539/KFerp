@@ -331,6 +331,7 @@ func (r Repository) ResolveProductSpecIdentity(ctx context.Context, productID in
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT p.id,
 		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AS effective_parent_product_id,
+		       COALESCE(NULLIF(CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent.name ELSE p.name END,''), p.name, '') AS parent_product_name,
 		       COALESCE(p.active,true)
 		         AND CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(parent.active,false) ELSE true END AS active,
 		       CASE
@@ -376,6 +377,7 @@ func (r Repository) ResolveProductSpecIdentity(ctx context.Context, productID in
 	`, r.schema), productID).Scan(
 		&identity.ProductID,
 		&identity.EffectiveParentProductID,
+		&identity.ParentProductName,
 		&identity.Active,
 		&identity.SpecValid,
 	)

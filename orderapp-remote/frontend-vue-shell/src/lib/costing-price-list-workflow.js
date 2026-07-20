@@ -125,6 +125,17 @@ export function priceListFlatRowsReady(sourceRows = [], options = {}) {
   })
 }
 
+export function priceListSalesSpecCountTierLabel(tier = {}) {
+  const minQty = Number(tier?.min_qty ?? tier?.minQty ?? 0)
+  const maxRaw = tier?.max_qty ?? tier?.maxQty
+  const maxQty = maxRaw === null || maxRaw === undefined || maxRaw === '' ? null : Number(maxRaw)
+  if (!Number.isFinite(minQty) || minQty < 0) return ''
+  const formatQty = (value) => Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)))
+  if (Number.isFinite(maxQty) && maxQty > minQty) return `${formatQty(minQty)}-${formatQty(maxQty)}件`
+  if (Number.isFinite(maxQty)) return `${formatQty(minQty)}件`
+  return `${formatQty(minQty)}件+`
+}
+
 export function priceListFlatRowErrors(row = {}, options = {}) {
   const title = priceListFlatRowContextLabel(row)
   if (!priceListFlatRowUsesSalesSpecCount(row) && (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false)) {
