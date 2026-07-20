@@ -340,12 +340,7 @@ function priceListSelectedSkuProjection(family = {}, spec = {}, context = {}) {
     || String(family?.__price_list_product_name || '').trim()
     || String(family?.parent_product_name || family?.name || '').trim()
   const displayName = firstNonEmptyText(
-    spec?.customer_product_display_name,
-    spec?.customerProductDisplayName,
-    family?.customer_product_display_name,
-    family?.customerProductDisplayName,
-    parentItem?.customer_product_display_name,
-    parentItem?.customerProductDisplayName,
+    priceListExplicitCustomerAliasName(spec),
     family?.name,
     productName,
   ) || productName
@@ -364,6 +359,18 @@ function priceListSelectedSkuProjection(family = {}, spec = {}, context = {}) {
     __price_list_category_code: String(context.categoryCode || '').trim(),
     __price_list_group_item_id: numberField(context.groupItemID),
   }
+}
+
+function priceListExplicitCustomerAliasName(item = {}) {
+  const aliasID = numberField(item?.customer_product_alias_id ?? item?.customerProductAliasID)
+  if (!(aliasID > 0)) return ''
+  return firstNonEmptyText(
+    item?.customer_product_display_name,
+    item?.customerProductDisplayName,
+    item?.brand_name,
+    item?.brandName,
+    item?.name,
+  )
 }
 
 function priceListSelectedSkuProductAttributes(parentItem = {}, spec = {}) {

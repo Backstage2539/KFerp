@@ -383,3 +383,39 @@ test('selected SKU projection keeps customer alias and parent product name separ
     { name: 'Karen 白月光', product_name: '白月光瑰夏', sales_spec: '454g', sku_id: 102 },
   ])
 })
+
+test('selected SKU projection ignores a generated child display name when no customer alias exists', () => {
+  const families = buildPriceListProductFamilies([
+    {
+      product_id: 100,
+      sku_id: 100,
+      effective_parent_product_id: 100,
+      parent_product_id: 0,
+      name: '白月光瑰夏',
+      product_name: '白月光瑰夏',
+      default_sku_id: 101,
+      active: true,
+    },
+    {
+      product_id: 101,
+      sku_id: 101,
+      effective_parent_product_id: 100,
+      parent_product_id: 100,
+      name: '白月光瑰夏 227g',
+      customer_product_display_name: '白月光瑰夏 227g',
+      spec_label: '227g',
+      active: true,
+    },
+  ])
+
+  const rows = priceListSelectedSkuCategoryRows([{ code: 'coffee', items: families }], [{
+    parent_product_id: 100,
+    sku_id: 101,
+    selection_source: 'product_default',
+    default_sku_id_at_selection: 101,
+  }])
+
+  assert.equal(rows[0].items[0].name, '白月光瑰夏')
+  assert.equal(rows[0].items[0].__price_list_display_name, '白月光瑰夏')
+  assert.equal(rows[0].items[0].__price_list_sales_spec_label, '227g')
+})
