@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-541-PRICE-LIST-PRODUCT-SPEC-SELECTION
 - Branch: codex/price-list-product-spec-selection-20260720
 - Owner/session: Codex / 2026-07-20
-- Status: implementation and full local verification complete; develop integration and development deployment pending
+- Status: implementation, verification, develop merge and development deployment complete; server/API/browser smoke complete; awaiting Van review
 - Scope: 商品档案为每个父商品维护一个具体默认规格；商品价格表按父商品展示并允许勾选一个或多个具体销售规格，分类/商品首次选中只带入默认规格。阶梯模板只定义销售规格件数，价格模板、固定价、发布快照、PDF 和订单取价全部绑定具体 SKU 及其销售规格。
 - DEV:
   - DEV-541-PRODUCT-DEFAULT-SKU：父商品保存权威 `default_sku_id`，商品档案可切换默认规格；迁移、模板同步和正式 API 保证归属、启用状态、唯一性及操作日志。
@@ -20,10 +20,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED support contract: `go test ./internal/interfaces/http/support -run TestDev541PriceListProductSpecSelectionContracts -count=1` failed because PR-541/DEV/REV seeds and the new default-SKU/spec-selection/sales-spec-count contracts were absent.
   - RED product UI: `node --test src/lib/product-settings.test.js` failed 2 new tests because the parent row was still forced to `is_default_sku=true`, the concrete child was not projected from `default_sku_id`, and 商品档案 lacked `设为默认规格` plus the default-SKU API action.
   - RED feature tests: catalog default-SKU projection/API, parent/spec selection, open-ended quantity tiers, exact-SKU snapshots, count-basis order totals and fixed-price isolation all failed before their production paths existed; the focused tests now preserve those regressions.
-  - Unit/API GREEN: `go test ./... -count=1` passed, including catalog API, real PostgreSQL backfill priority/idempotence, Costing selection/snapshot hardening, explicit-empty selection rejection, exact-SKU order matching and count-basis discounts.
+  - Unit/API GREEN: `go test ./... -count=1` passed, including catalog API, Costing selection/snapshot hardening, explicit-empty selection rejection, exact-SKU order matching and count-basis discounts. Development startup ran the default-SKU backfill twice; all 533 parent products retained exactly one valid default SKU and all invalid-pointer/projection-mismatch counts remained zero.
   - Frontend/build GREEN: focused PR-541 suites passed 384/384 across product settings, selection/draft/workflow/PDF/order entry and UI contracts; full frontend is 734/740 with only the same six pre-existing clean-`origin/develop` workspace/customer-context failures; `npm run build` passed (401 modules).
-  - Manual/review: requirements, acceptance and the inventory/costing/order manuals are updated; independent money-integrity review findings were fixed before integration.
-- Deployment: development pending; production out of scope; existing publications will not be republished automatically.
+  - Manual/review: requirements, acceptance and the inventory/costing/order manuals are updated; independent money-integrity review findings were fixed before integration. Development browser smoke confirmed parent aggregation, default-only initial selection, multi-spec selection/counts and independent SKU units/price rows with no console errors.
+  - Deployment regression: the first live load exposed duplicate PostgreSQL alias `parent_product` (`SQLSTATE 42712`); a RED repository regression test reproduced it, the single effective-parent JOIN fix passed targeted/full Go tests, and browser reload confirmed 386 SKU candidates load normally.
+- Deployment: behavior merged through `96478bd19c57dae40776969d6b4159a2563a8ea0` and deployed to development on 2026-07-20; latest behavior backup `/opt/stacks/erp/orderapp.backup.deploy-20260720193327`; production was not deployed or written, and existing price tables were not republished.
 - Last update: 2026-07-20 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh` reported PR-541; `--claim` hit the known macOS awk multiline-string error, so the placeholder was recorded with apply_patch.
 
