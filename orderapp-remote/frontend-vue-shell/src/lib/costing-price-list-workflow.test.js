@@ -8,6 +8,14 @@ import {
 } from './costing-price-list-workflow.js'
 
 describe('costing price-list workflow helpers', () => {
+  it('formats sales-spec-count tiers as generic pieces without appending the selected spec', () => {
+    assert.equal(typeof priceListWorkflow.priceListSalesSpecCountTierLabel, 'function')
+    assert.equal(priceListWorkflow.priceListSalesSpecCountTierLabel({ min_qty: 2, max_qty: 13 }), '2-13件')
+    assert.equal(priceListWorkflow.priceListSalesSpecCountTierLabel({ minQty: 14, maxQty: 23 }), '14-23件')
+    assert.equal(priceListWorkflow.priceListSalesSpecCountTierLabel({ min_qty: 24, max_qty: null }), '24件+')
+    assert.doesNotMatch(priceListWorkflow.priceListSalesSpecCountTierLabel({ min_qty: 2, max_qty: 13 }, { spec_label: '227g' }), /227g|个/)
+  })
+
   it('selects uncached pricing-rule trial requests and skips terminal cache rows', () => {
     const rows = [
       { row_key: 'a', product_id: 7, pricing_rule_id: 11 },

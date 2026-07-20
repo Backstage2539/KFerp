@@ -2,6 +2,7 @@ package costing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"reflect"
@@ -2840,6 +2841,156 @@ func TestPublishBeanListTreatsTierQuantitiesAsConcreteSalesSpecCounts(t *testing
 	spec, ok := got["effective_sales_spec"].(map[string]any)
 	if !ok || spec["sku_id"] != float64(551) || spec["spec_name"] != "磅" || spec["sales_unit"] != "磅" {
 		t.Fatalf("effective_sales_spec = %#v", got["effective_sales_spec"])
+	}
+}
+
+func TestNewConcreteSpecDraftAndPublicationCanonicalizeProductNameWithoutAppendingSpec(t *testing.T) {
+	newRepo := func() *fakeRepo {
+		return &fakeRepo{
+			productSpecIdentities: map[int64]ProductSpecIdentity{
+				600: {ProductID: 600, EffectiveParentProductID: 600, ParentProductName: "白月光瑰夏", Active: true, SpecValid: true},
+				991: {ProductID: 991, EffectiveParentProductID: 600, ParentProductName: "白月光瑰夏", Active: true, SpecValid: true},
+			},
+			productUnitRules: map[int64]ProductSalesUnitRule{
+				991: {
+					ProductID:        991,
+					SKUName:          "227g袋装",
+					DefaultSalesUnit: "227g",
+					InventoryUnit:    "g",
+					Conversion:       map[string]map[string]float64{"227g": {"g": 227}},
+					EffectiveSalesSpec: &domain.EffectiveSalesSpec{
+						SKUID: 991, SpecName: "227g", SpecLabel: "227g", SalesUnit: "227g", InventoryUnit: "g",
+						InventoryConversionJSON: map[string]map[string]float64{"227g": {"g": 227}},
+					},
+				},
+			},
+		}
+	}
+	newCommand := func() PublishBeanListCommand {
+		return PublishBeanListCommand{
+			ListType: "commercial",
+			Version:  "V5.3.0",
+			Config: map[string]any{"product_spec_selections": []any{map[string]any{
+				"parent_product_id": float64(600), "sku_id": float64(991),
+				"selection_source": "product_default", "default_sku_id_at_selection": float64(991),
+			}}},
+			Content: map[string]any{
+				"groups": []any{map[string]any{"items": []any{map[string]any{
+					"product_id": float64(991), "sku_id": float64(991), "parent_product_id": float64(600),
+					"name": "白月光瑰夏227g", "display_name_snapshot": "白月光瑰夏227g",
+					"product_name": "白月光瑰夏227g", "product_name_snapshot": "白月光瑰夏227g", "spec_label": "227g",
+					"attributeLines": []any{"规格：227g"},
+					"commercial_wholesale_tiers": []any{map[string]any{
+						"label": "2-13个227g", "tier_label": "2-13个227g", "min_qty": float64(2), "max_qty": float64(13),
+						"quantity_basis": "sales_spec_count", "pricing_mode": "tier_template", "tier_template_id": float64(8),
+						"template_tier_id": float64(81), "final_unit_price": float64(82), "price_unit": "227g",
+						"inventory_unit": "g", "inventory_conversion_json": map[string]any{"227g": map[string]any{"g": float64(227)}},
+					}},
+					"prices": []any{map[string]any{"label": "2-13个227g", "price": float64(82), "unit": "227g"}},
+				}}}},
+				"price_rows": []any{map[string]any{
+					"product_id": float64(991), "sku_id": float64(991), "parent_product_id": float64(600),
+					"product_name": "白月光瑰夏227g", "product_name_snapshot": "白月光瑰夏227g",
+					"pricing_mode": "tier_template", "pricing_mode_source": "sku",
+					"tier_label": "2-13个227g", "min_qty": float64(2), "max_qty": float64(13), "quantity_basis": "sales_spec_count",
+					"tier_template_id": float64(8), "tier_template_source": "sku", "template_tier_id": float64(81),
+					"pricing_rule_id": float64(40), "pricing_rule_source": "tier_template", "pricing_rule_version": "熟豆-v1",
+					"tier_pricing_rule_id": float64(40), "tier_pricing_rule_version": "熟豆-v1",
+					"final_unit_price": float64(82), "original_final_unit_price": float64(82), "price_unit": "227g",
+					"inventory_unit": "g", "inventory_conversion_json": map[string]any{"227g": map[string]any{"g": float64(227)}},
+					"group_snapshot": map[string]any{"group_id": float64(3), "group_item_id": float64(101), "group_item_name": "咖啡熟豆"},
+					"group_source":   "product_catalog", "cost_source_snapshot": map[string]any{"source": "pricing_rule", "tier_label": "2-13个227g"},
+					"customer_reference_snapshot": map[string]any{}, "manual_adjusted": false,
+				}},
+			},
+		}
+	}
+	assertCanonical := func(t *testing.T, cmd PublishBeanListCommand) {
+		t.Helper()
+		item := cmd.Content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+		if item["name"] != "白月光瑰夏" || item["display_name_snapshot"] != "白月光瑰夏" || item["product_name_snapshot"] != "白月光瑰夏" {
+			t.Fatalf("new publication item name snapshots = %#v", item)
+		}
+		if strings.Contains(stringValue(item["name"]), "227g") {
+			t.Fatalf("new publication concatenated product name and spec: %#v", item["name"])
+		}
+		row := cmd.Content["price_rows"].([]any)[0].(map[string]any)
+		if row["product_name"] != "白月光瑰夏" || row["product_name_snapshot"] != "白月光瑰夏" || row["tier_label"] != "2-13件" {
+			t.Fatalf("new publication price-row snapshots = %#v", row)
+		}
+		tier := item["commercial_wholesale_tiers"].([]any)[0].(map[string]any)
+		price := item["prices"].([]any)[0].(map[string]any)
+		if tier["label"] != "2-13件" || tier["tier_label"] != "2-13件" || price["label"] != "2-13件" {
+			t.Fatalf("new publication tier labels = tier %#v, price %#v", tier, price)
+		}
+	}
+
+	t.Run("draft", func(t *testing.T) {
+		repo := newRepo()
+		if _, err := NewService(repo).SaveBeanListDraft(context.Background(), newCommand()); err != nil {
+			t.Fatalf("SaveBeanListDraft() error = %v", err)
+		}
+		assertCanonical(t, repo.draftBeanList)
+	})
+	t.Run("published", func(t *testing.T) {
+		repo := newRepo()
+		if _, err := NewService(repo).PublishBeanList(context.Background(), newCommand()); err != nil {
+			t.Fatalf("PublishBeanList() error = %v", err)
+		}
+		assertCanonical(t, repo.publishedBeanList)
+	})
+
+	aliasCommand := newCommand()
+	aliasItem := aliasCommand.Content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	aliasItem["customer_product_alias_id"] = float64(77)
+	aliasItem["name"] = "Karen 白月光227g"
+	aliasItem["display_name_snapshot"] = "Karen 白月光227g"
+	aliasItem["customer_product_display_name_snapshot"] = "Karen 白月光"
+	normalizeConcreteProductSpecPublicationSnapshots(&aliasCommand, map[int64]string{991: "白月光瑰夏"})
+	if aliasItem["name"] != "Karen 白月光" || aliasItem["display_name_snapshot"] != "Karen 白月光" || aliasItem["product_name_snapshot"] != "白月光瑰夏" {
+		t.Fatalf("customer alias must remain separate from canonical product name: %#v", aliasItem)
+	}
+
+	t.Run("nested JSON strings are persisted as normalized snapshots", func(t *testing.T) {
+		cmd := newCommand()
+		for _, key := range []string{"groups", "price_rows"} {
+			encoded, err := json.Marshal(cmd.Content[key])
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd.Content[key] = string(encoded)
+		}
+		repo := newRepo()
+		if _, err := NewService(repo).SaveBeanListDraft(context.Background(), cmd); err != nil {
+			t.Fatalf("SaveBeanListDraft() error = %v", err)
+		}
+		assertCanonical(t, repo.draftBeanList)
+	})
+
+	legacy := newCommand()
+	delete(legacy.Config, "product_spec_selections")
+	legacyItem := legacy.Content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	normalizeConcreteProductSpecPublicationSnapshots(&legacy, map[int64]string{991: "白月光瑰夏"})
+	if legacyItem["name"] != "白月光瑰夏227g" {
+		t.Fatalf("historical publication name was rewritten: %#v", legacyItem["name"])
+	}
+}
+
+func TestNormalizeBeanListSalesSpecCountTierLabelUsesGenericPieces(t *testing.T) {
+	for _, tc := range []struct {
+		row  map[string]any
+		want string
+		ok   bool
+	}{
+		{row: map[string]any{"quantity_basis": "sales_spec_count", "pricing_mode": "tier_template", "min_qty": float64(2), "max_qty": float64(13)}, want: "2-13件", ok: true},
+		{row: map[string]any{"quantity_basis": "sales_spec_count", "pricing_mode": "tier_template", "min_qty": float64(14), "max_qty": float64(14)}, want: "14件", ok: true},
+		{row: map[string]any{"quantity_basis": "sales_spec_count", "pricing_mode": "tier_template", "min_qty": float64(24)}, want: "24件+", ok: true},
+		{row: map[string]any{"quantity_basis": "sales_spec_count", "pricing_mode": "fixed_price", "fixed_unit_price": float64(82), "min_qty": float64(2), "max_qty": float64(13)}, ok: false},
+	} {
+		got, ok := normalizeBeanListSalesSpecCountTierLabel(tc.row)
+		if got != tc.want || ok != tc.ok {
+			t.Fatalf("normalizeBeanListSalesSpecCountTierLabel(%#v) = %q, %t; want %q, %t", tc.row, got, ok, tc.want, tc.ok)
+		}
 	}
 }
 

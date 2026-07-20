@@ -399,7 +399,7 @@
                         <option :value="0">请选择阶梯模板</option>
                         <option v-for="template in priceTierTemplates" :key="`parent-product-pop-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
                       </select>
-                      <small>模板按件数继承；每个规格分别显示为 1个规格、10个规格。</small>
+                      <small>模板按件数继承；档位统一显示为 1件、10件，规格单独展示。</small>
                     </label>
                     <label v-else-if="priceListActivePricingSelection().pricing_mode === 'pricing_rule'" class="inline-price-config">
                       <span>价格计算模板</span>
@@ -483,7 +483,7 @@
                           :disabled="priceListTierTemplateOptionDisabled(template)"
                         >{{ priceListTierTemplateOptionLabel(template) }}</option>
                       </select>
-                      <small>档位按销售规格件数：1 个 = 1 {{ priceListActiveSalesSpecUnitLabel() }}</small>
+                      <small>档位按销售规格件数；当前每件规格：{{ priceListActiveSalesSpecUnitLabel() }}</small>
                     </label>
                     <p v-if="priceListActiveTierTemplateWarning()" class="error inline-tier-template-warning">{{ priceListActiveTierTemplateWarning() }}</p>
                     <label v-else-if="priceListActivePricingSelection().pricing_mode === 'pricing_rule'" class="inline-price-config">
@@ -737,7 +737,7 @@
         <div class="drawer-head">
           <div>
             <h3>阶梯模板</h3>
-            <p>阶梯模板只定义销售规格件数。每个档位选择一个价格计算模板，选中商品规格后再展示为 1 个227g、10 个227g 等具体阶梯。</p>
+            <p>阶梯模板只定义销售规格件数。每个档位选择一个价格计算模板，档位显示为 1件、10件；227g、454g 等规格单独展示。</p>
           </div>
           <button class="secondary" type="button" @click="closeTierTemplateDrawer">关闭</button>
         </div>
@@ -1162,6 +1162,7 @@ import {
   priceListFlatRowPriceUnitLabel,
   priceListFlatRowSpecDescription,
   priceListFlatRowsReady as arePriceListFlatRowsReady,
+  priceListSalesSpecCountTierLabel,
   priceListPricingRuleTrialCacheForRetry,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
@@ -2787,7 +2788,7 @@ function priceListFlatRowsFromGroups(groups = []) {
               product: item,
               tier: templateTier,
             }),
-            tierLabel: priceListSalesSpecTierLabel(templateTier, item) || templateTier.label || sourceTier?.label || '',
+            tierLabel: priceListSalesSpecCountTierLabel(templateTier) || templateTier.label || sourceTier?.label || '',
             minQty: templateTier.min_qty ?? templateTier.minQty ?? sourceTier?.min_qty ?? sourceTier?.minQty ?? 0,
             maxQty: templateTier.max_qty ?? templateTier.maxQty ?? sourceTier?.max_qty ?? sourceTier?.maxQty ?? null,
             resolved,
@@ -3021,17 +3022,6 @@ function tierForTemplateTier(templateTier = {}, sourceTiers = [], index = 0) {
   const label = String(templateTier.label || '').trim()
   const rows = Array.isArray(sourceTiers) ? sourceTiers : []
   return rows.find((tier) => String(tier?.label || '').trim() === label) || rows[index] || firstPriceSourceTier(rows)
-}
-
-function priceListSalesSpecTierLabel(tier = {}, item = {}) {
-  const minQty = Number(tier.min_qty ?? tier.minQty ?? 0)
-  const maxRaw = tier.max_qty ?? tier.maxQty
-  const maxQty = maxRaw === null || maxRaw === undefined || maxRaw === '' ? null : Number(maxRaw)
-  const spec = productCurrentSalesSpecUnit(item) || priceListProductSpecLabel(item)
-  if (!spec || !Number.isFinite(minQty) || minQty < 0) return ''
-  const formatQty = (value) => Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)))
-  if (Number.isFinite(maxQty) && maxQty > minQty) return `${formatQty(minQty)}-${formatQty(maxQty)}个${spec}`
-  return `${formatQty(minQty)}个${spec}`
 }
 
 function flatRowPriceUnit(tier = {}, item = {}) {

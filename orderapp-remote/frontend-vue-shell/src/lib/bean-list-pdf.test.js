@@ -693,6 +693,50 @@ test('selected SKU preview keeps product name unchanged and renders one authorit
   ])
 })
 
+test('sales-spec-count preview freezes generic piece tiers while keeping product name and spec separate', () => {
+  const sourceItem = {
+    product_id: 101,
+    sku_id: 101,
+    parent_product_id: 100,
+    name: '白月光瑰夏',
+    product_name: '白月光瑰夏',
+    __price_list_display_name: '白月光瑰夏',
+    __price_list_product_name: '白月光瑰夏',
+    __price_list_sales_spec_label: '227g',
+    sku_name: '227g袋装',
+    spec_label: '227g',
+    commercial_bean_list: { code: '1.101', category: '咖啡熟豆', display_name: '白月光瑰夏' },
+    commercial_wholesale_tiers: [],
+  }
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'coffee',
+    label: '咖啡熟豆',
+    items: [sourceItem],
+  }], 'commercial', { selectedProductIDs: ['101'] })
+  const preview = applyPriceListFlatRowsToBeanListPdfGroups(groups, [{
+    product_id: 101,
+    sku_id: 101,
+    parent_product_id: 100,
+    product_name: '白月光瑰夏',
+    pricing_mode: 'tier_template',
+    tier_label: '2-13件',
+    min_qty: 2,
+    max_qty: 13,
+    price_unit: '227g',
+    final_unit_price: 82,
+    quantity_basis: 'sales_spec_count',
+    effective_sales_spec: { sku_id: 101, spec_label: '227g', sales_unit: '袋' },
+  }], 'commercial')
+  const item = preview[0].items[0]
+
+  assert.equal(item.name, '白月光瑰夏')
+  assert.deepEqual(item.attributeLines, ['规格：227g'])
+  assert.deepEqual(item.prices, [{ label: '2-13件', price: 82, unit: '227g', red: false }])
+  assert.equal(item.commercial_wholesale_tiers[0].label, '2-13件')
+  assert.equal(item.commercial_wholesale_tiers[0].quantity_basis, 'sales_spec_count')
+  assert.doesNotMatch(JSON.stringify(item), /白月光瑰夏227g|2-13个227g/)
+})
+
 test('PDF bean-list helper keeps the current sales spec authoritative while legacy tier units remain readable', () => {
   const groups = buildBeanListPdfGroupsFromCategoryRows([{
     code: 'business-group-7-101',

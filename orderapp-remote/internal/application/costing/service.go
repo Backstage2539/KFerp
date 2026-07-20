@@ -75,6 +75,7 @@ type ProductSalesUnitRule struct {
 type ProductSpecIdentity struct {
 	ProductID                int64
 	EffectiveParentProductID int64
+	ParentProductName        string
 	Active                   bool
 	SpecValid                bool
 }
@@ -3134,6 +3135,274 @@ func beanListUsesConcreteProductSpecSelections(cmd *PublishBeanListCommand) bool
 	return present
 }
 
+type beanListConcreteSpecSnapshot struct {
+	productName string
+	aliasID     int64
+	tierLabels  []beanListTierLabelSnapshot
+}
+
+type beanListTierLabelSnapshot struct {
+	oldLabel       string
+	newLabel       string
+	templateTierID int64
+	minQty         float64
+	maxQty         *float64
+}
+
+func normalizeConcreteProductSpecPublicationSnapshots(cmd *PublishBeanListCommand, parentProductNamesBySKU map[int64]string) {
+	if !beanListUsesConcreteProductSpecSelections(cmd) || cmd.Content == nil {
+		return
+	}
+
+	groups := beanListAnySlice(cmd.Content["groups"])
+	bySKU := map[int64]beanListConcreteSpecSnapshot{}
+	for groupIdx, rawGroup := range groups {
+		group, ok := objectSnapshotMap(rawGroup)
+		if !ok {
+			continue
+		}
+		groups[groupIdx] = group
+		items := beanListAnySlice(group["items"])
+		for itemIdx, rawItem := range items {
+			item, ok := objectSnapshotMap(rawItem)
+			if !ok {
+				continue
+			}
+			items[itemIdx] = item
+			skuID := beanListConcreteSpecSKUID(item)
+			if skuID <= 0 {
+				continue
+			}
+			snapshot := bySKU[skuID]
+			snapshot.productName = firstNonEmptyBeanListString(
+				snapshot.productName,
+				beanListFlatRowString(item, "product_name_snapshot", "product_name"),
+			)
+			if snapshot.aliasID <= 0 {
+				snapshot.aliasID = int64(numberValue(item["customer_product_alias_id"]))
+			}
+			bySKU[skuID] = snapshot
+		}
+		group["items"] = items
+	}
+	cmd.Content["groups"] = groups
+
+	rows := beanListAnySlice(cmd.Content["price_rows"])
+	for rowIdx, rawRow := range rows {
+		row, ok := objectSnapshotMap(rawRow)
+		if !ok {
+			continue
+		}
+		rows[rowIdx] = row
+		skuID := beanListConcreteSpecSKUID(row)
+		if skuID <= 0 {
+			continue
+		}
+		snapshot := bySKU[skuID]
+		productName := firstNonEmptyBeanListString(
+			parentProductNamesBySKU[skuID],
+			snapshot.productName,
+			beanListFlatRowString(row, "product_name_snapshot", "product_name"),
+		)
+		if productName != "" {
+			row["product_name"] = productName
+			row["product_name_snapshot"] = productName
+			snapshot.productName = productName
+		}
+		if snapshot.aliasID <= 0 {
+			snapshot.aliasID = beanListFlatPriceRowCustomerAliasID(row)
+		}
+		if tierLabel, ok := normalizeBeanListSalesSpecCountTierLabel(row); ok {
+			oldLabel := beanListFlatRowString(row, "tier_label", "label")
+			row["tier_label"] = tierLabel
+			if costSnapshot, exists := objectSnapshotMap(row["cost_source_snapshot"]); exists {
+				costSnapshot["tier_label"] = tierLabel
+				row["cost_source_snapshot"] = costSnapshot
+			}
+			snapshot.tierLabels = append(snapshot.tierLabels, beanListTierLabelSnapshot{
+				oldLabel:       oldLabel,
+				newLabel:       tierLabel,
+				templateTierID: int64(numberValue(row["template_tier_id"])),
+				minQty:         numberValue(row["min_qty"]),
+				maxQty:         beanListOptionalNumber(row["max_qty"]),
+			})
+		}
+		bySKU[skuID] = snapshot
+	}
+	cmd.Content["price_rows"] = rows
+
+	for _, rawGroup := range groups {
+		group, ok := objectSnapshotMap(rawGroup)
+		if !ok {
+			continue
+		}
+		items := beanListAnySlice(group["items"])
+		for itemIdx, rawItem := range items {
+			item, ok := objectSnapshotMap(rawItem)
+			if !ok {
+				continue
+			}
+			items[itemIdx] = item
+			skuID := beanListConcreteSpecSKUID(item)
+			snapshot := bySKU[skuID]
+			normalizeBeanListItemSalesSpecCountTierLabels(item, snapshot.tierLabels)
+			productName := firstNonEmptyBeanListString(
+				parentProductNamesBySKU[skuID],
+				snapshot.productName,
+				beanListFlatRowString(item, "product_name_snapshot", "product_name"),
+			)
+			if productName == "" {
+				continue
+			}
+			item["product_name"] = productName
+			item["product_name_snapshot"] = productName
+			aliasID := int64(numberValue(item["customer_product_alias_id"]))
+			if aliasID <= 0 {
+				aliasID = snapshot.aliasID
+			}
+			if aliasID > 0 {
+				displayName := beanListFlatRowString(item,
+					"customer_product_display_name_snapshot",
+					"customer_product_display_name",
+					"display_name_snapshot",
+					"name",
+				)
+				if displayName != "" {
+					item["name"] = displayName
+					item["display_name_snapshot"] = displayName
+				}
+				continue
+			}
+			item["name"] = productName
+			item["display_name_snapshot"] = productName
+		}
+		group["items"] = items
+	}
+	cmd.Content["groups"] = groups
+}
+
+func beanListConcreteSpecSKUID(row map[string]any) int64 {
+	skuID := int64(numberValue(row["sku_id"]))
+	if skuID <= 0 {
+		skuID = int64(numberValue(row["product_id"]))
+	}
+	return skuID
+}
+
+func normalizeBeanListSalesSpecCountTierLabel(row map[string]any) (string, bool) {
+	if strings.TrimSpace(stringValue(row["quantity_basis"])) != "sales_spec_count" || normalizePriceRowPricingMode(row) != "tier_template" {
+		return "", false
+	}
+	minQty := numberValue(row["min_qty"])
+	maxQty := beanListOptionalNumber(row["max_qty"])
+	if minQty < 0 {
+		return "", false
+	}
+	formatQty := func(value float64) string {
+		return strconv.FormatFloat(math.Round((value+1e-12)*10000)/10000, 'f', -1, 64)
+	}
+	if maxQty == nil {
+		return formatQty(minQty) + "件+", true
+	}
+	if *maxQty > minQty {
+		return formatQty(minQty) + "-" + formatQty(*maxQty) + "件", true
+	}
+	return formatQty(minQty) + "件", true
+}
+
+func beanListOptionalNumber(value any) *float64 {
+	if value == nil || strings.TrimSpace(stringValue(value)) == "" {
+		return nil
+	}
+	number := numberValue(value)
+	return &number
+}
+
+func normalizeBeanListItemSalesSpecCountTierLabels(item map[string]any, labels []beanListTierLabelSnapshot) {
+	if len(labels) == 0 {
+		return
+	}
+	oldToNew := make(map[string]string, len(labels))
+	for _, label := range labels {
+		if label.oldLabel != "" && label.newLabel != "" {
+			oldToNew[label.oldLabel] = label.newLabel
+		}
+	}
+	tierKeys := []string{"commercial_wholesale_tiers", "green_bean_sale_tiers", "retail_bean_tiers", "drip_wholesale_tiers", "tiers_snapshot"}
+	for _, key := range tierKeys {
+		tiers := beanListAnySlice(item[key])
+		if len(tiers) == 0 {
+			continue
+		}
+		for idx, rawTier := range tiers {
+			tier, ok := objectSnapshotMap(rawTier)
+			if !ok {
+				continue
+			}
+			tiers[idx] = tier
+			if label, ok := normalizeBeanListSalesSpecCountTierLabel(tier); ok {
+				tier["label"] = label
+				tier["tier_label"] = label
+				continue
+			}
+			if replacement := beanListTierLabelReplacement(tier, labels); replacement != "" {
+				tier["label"] = replacement
+				tier["tier_label"] = replacement
+			}
+		}
+		item[key] = tiers
+	}
+
+	prices := beanListAnySlice(item["prices"])
+	for idx, rawPrice := range prices {
+		price, ok := objectSnapshotMap(rawPrice)
+		if !ok {
+			continue
+		}
+		prices[idx] = price
+		oldLabel := beanListFlatRowString(price, "label", "tier_label")
+		newLabel := oldToNew[oldLabel]
+		if newLabel == "" && len(prices) == len(labels) {
+			newLabel = labels[idx].newLabel
+		}
+		if newLabel != "" {
+			price["label"] = newLabel
+			if _, exists := price["tier_label"]; exists {
+				price["tier_label"] = newLabel
+			}
+		}
+	}
+	if len(prices) > 0 {
+		item["prices"] = prices
+	}
+}
+
+func beanListTierLabelReplacement(tier map[string]any, labels []beanListTierLabelSnapshot) string {
+	templateTierID := int64(numberValue(tier["template_tier_id"]))
+	oldLabel := beanListFlatRowString(tier, "label", "tier_label")
+	minQty := numberValue(tier["min_qty"])
+	maxQty := beanListOptionalNumber(tier["max_qty"])
+	for _, candidate := range labels {
+		if templateTierID > 0 && candidate.templateTierID == templateTierID {
+			return candidate.newLabel
+		}
+		if oldLabel != "" && candidate.oldLabel == oldLabel {
+			return candidate.newLabel
+		}
+		if minQty == candidate.minQty && beanListOptionalNumbersEqual(maxQty, candidate.maxQty) {
+			return candidate.newLabel
+		}
+	}
+	return ""
+}
+
+func beanListOptionalNumbersEqual(left, right *float64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return math.Abs(*left-*right) < 1e-9
+}
+
 func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *PublishBeanListCommand) error {
 	if cmd == nil || cmd.Config == nil {
 		return nil
@@ -3171,6 +3440,7 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 
 	selections := make(map[string]beanListProductSpecSelection, len(selectionRows))
 	selectionBySKU := make(map[int64]beanListProductSpecSelection, len(selectionRows))
+	parentProductNamesBySKU := make(map[int64]string, len(selectionRows))
 	for idx, rawSelection := range selectionRows {
 		selectionMap, ok := objectSnapshotMap(rawSelection)
 		if !ok {
@@ -3224,6 +3494,7 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 		}
 		selections[key] = selection
 		selectionBySKU[selection.SKUID] = selection
+		parentProductNamesBySKU[selection.SKUID] = strings.TrimSpace(parent.ParentProductName)
 	}
 	for groupIdx, rawGroup := range beanListAnySlice(cmd.Content["groups"]) {
 		group, ok := objectSnapshotMap(rawGroup)
@@ -3292,6 +3563,7 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			return fmt.Errorf("商品规格选择无效：父商品 %d 的 SKU %d 缺少对应有效价格行", selection.ParentProductID, selection.SKUID)
 		}
 	}
+	normalizeConcreteProductSpecPublicationSnapshots(cmd, parentProductNamesBySKU)
 	return nil
 }
 

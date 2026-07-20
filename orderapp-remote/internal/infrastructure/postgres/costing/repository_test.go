@@ -49,6 +49,9 @@ func TestResolveProductSpecIdentityChecksCurrentParentAndSalesSpecTemplate(t *te
 	body := src[start:end]
 	for _, want := range []string{
 		"effective_parent_product_id",
+		"parent_product_name",
+		"parent.name",
+		"p.name",
 		"COALESCE(p.active,true)",
 		"COALESCE(parent.active,false)",
 		"derived_spec_status",

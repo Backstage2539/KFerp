@@ -535,6 +535,8 @@ test('flat price rows render the unchanged product name with a separate spec des
   assert.match(flatRowSource, /<strong>\{\{ priceListFlatRowDisplayTitle\(row\) \}\}<\/strong>/)
   assert.match(flatRowSource, /\{\{ priceListFlatRowSpecDescription\(row\) \}\}/)
   assert.match(viewSource, /product_name:\s*item\.product_name_snapshot \|\| item\.product_name \|\| item\.__price_list_product_name/)
+  assert.match(viewSource, /priceListSalesSpecCountTierLabel\(templateTier\)/)
+  assert.doesNotMatch(viewSource, /\$\{formatQty\(minQty\)\}-\$\{formatQty\(maxQty\)\}个\$\{spec\}/)
 })
 
 test('price list exposes parent-product pricing between SKU and category inheritance', () => {
@@ -814,7 +816,7 @@ test('price list treats tier templates as sales-spec counts and displays the sel
     'priceListTierTemplateOptionDisabled(template)',
     'priceListTierTemplateOptionLabel(template)',
     'priceListActiveSalesSpecUnitLabel()',
-    'priceListSalesSpecTierLabel',
+    'priceListSalesSpecCountTierLabel',
     'quantity_basis',
     'tier_quantity_unit',
   ]) {
