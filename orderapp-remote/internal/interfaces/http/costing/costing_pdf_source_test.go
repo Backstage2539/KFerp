@@ -5,7 +5,37 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	appcosting "orderapp/internal/application/costing"
 )
+
+func TestBeanListPublicationPDFKeepsProductNameAndRendersSalesSpecAsAttribute(t *testing.T) {
+	doc := beanListPublicationPDFDocument(appcosting.BeanListPublication{
+		ListType: "commercial",
+		Version:  "V4.4.0",
+		Config:   map[string]any{"layoutStyle": "card"},
+		Content: map[string]any{
+			"groups": []any{map[string]any{
+				"category": "1、咖啡豆",
+				"items": []any{map[string]any{
+					"name":           "白月光瑰夏",
+					"attributeLines": []any{"规格：227g", "烘焙度：浅烘"},
+					"prices":         []any{map[string]any{"label": "1个227g", "price": 31.0, "unit": "227g"}},
+				}},
+			}},
+		},
+	})
+	if len(doc.Groups) != 1 || len(doc.Groups[0].Items) != 1 {
+		t.Fatalf("document groups=%+v", doc.Groups)
+	}
+	item := doc.Groups[0].Items[0]
+	if item.Name != "白月光瑰夏" {
+		t.Fatalf("name=%q", item.Name)
+	}
+	if got := strings.Join(item.AttributeLines, " / "); got != "规格：227g / 烘焙度：浅烘" {
+		t.Fatalf("attributes=%q", got)
+	}
+}
 
 func TestCostingViewHasBeanListPDFDrawerAndStoredPreviewPDFWorkflow(t *testing.T) {
 	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))

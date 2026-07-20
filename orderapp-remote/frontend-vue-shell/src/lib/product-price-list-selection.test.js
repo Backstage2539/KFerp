@@ -284,3 +284,89 @@ test('price-list selected SKU rows and counters keep product and spec totals dis
   assert.deepEqual(rows[0].items.map((row) => row.sku_id), [3, 2])
   assert.ok(rows[0].items.every((row) => row.__price_list_category_code === 'coffee'))
 })
+
+test('selected SKU projection keeps customer alias and parent product name separate from the sales spec', () => {
+  const families = buildPriceListProductFamilies([
+    {
+      product_id: 100,
+      sku_id: 100,
+      effective_parent_product_id: 100,
+      parent_product_id: 0,
+      name: 'Karen 白月光',
+      product_name: '白月光瑰夏',
+      customer_product_display_name: 'Karen 白月光',
+      default_sku_id: 101,
+      active: true,
+      product_attributes: [{ key: 'roast_level', label: '烘焙度', value: '浅烘' }],
+    },
+    {
+      product_id: 101,
+      sku_id: 101,
+      effective_parent_product_id: 100,
+      parent_product_id: 100,
+      name: '白月光瑰夏227g袋装',
+      sku_name: '227g袋装',
+      spec_label: '227g',
+      derived_sales_unit: '227g袋装',
+      active: true,
+      effective_sales_spec: {
+        sku_id: 101,
+        spec_key: 'bag-227g',
+        spec_label: '227g',
+        sales_unit: '袋',
+      },
+    },
+    {
+      product_id: 102,
+      sku_id: 102,
+      effective_parent_product_id: 100,
+      parent_product_id: 100,
+      name: '白月光瑰夏454g袋装',
+      sku_name: '454g袋装',
+      spec_label: '454g',
+      derived_sales_unit: '454g袋装',
+      active: true,
+      effective_sales_spec: {
+        sku_id: 102,
+        spec_key: 'bag-454g',
+        spec_label: '454g',
+        sales_unit: '袋',
+      },
+    },
+  ])
+
+  const rows = priceListSelectedSkuCategoryRows([{ code: 'coffee', items: families }], [
+    {
+      parent_product_id: 100,
+      sku_id: 101,
+      selection_source: 'product_default',
+      default_sku_id_at_selection: 101,
+    },
+    {
+      parent_product_id: 100,
+      sku_id: 102,
+      selection_source: 'explicit',
+      default_sku_id_at_selection: 101,
+    },
+  ])
+  const selected = rows[0].items[0]
+
+  assert.equal(selected.name, 'Karen 白月光')
+  assert.equal(selected.product_name, '白月光瑰夏')
+  assert.equal(selected.__price_list_display_name, 'Karen 白月光')
+  assert.equal(selected.__price_list_product_name, '白月光瑰夏')
+  assert.equal(selected.__price_list_sales_spec_label, '227g')
+  assert.equal(selected.sku_id, 101)
+  assert.equal(selected.parent_product_id, 100)
+  assert.equal(selected.effective_sales_spec.sku_id, 101)
+  assert.deepEqual(selected.product_attributes, [{ key: 'roast_level', label: '烘焙度', value: '浅烘' }])
+  assert.deepEqual(rows[0].items.map((item) => ({
+    name: item.name,
+    product_name: item.product_name,
+    sales_spec: item.__price_list_sales_spec_label,
+    sku_id: item.sku_id,
+  })), [
+    { name: 'Karen 白月光', product_name: '白月光瑰夏', sales_spec: '227g', sku_id: 101 },
+    { name: 'Karen 白月光', product_name: '白月光瑰夏', sales_spec: '454g', sku_id: 102 },
+  ])
+})

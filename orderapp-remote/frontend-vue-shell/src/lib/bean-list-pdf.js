@@ -299,10 +299,14 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
   const badge = normalizeBadge(customizer.badge)
   const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
-  const productAttributes = normalizeProductAttributes(item.product_attributes || item.productAttributes)
+  const productAttributes = normalizeProductAttributes(
+    item.product_attributes || item.productAttributes,
+    item.__price_list_sales_spec_label,
+  )
   const tierSnapshots = attachProductPriceSnapshotsToTiers(item, pdfTierSnapshots(item, tierKey, listType, customizer), listType)
   const prices = pdfPriceRows(item, tierKey, listType, customizer, tierSnapshots)
-  const displayName = stringField(item.customer_product_display_name ?? item.customerProductDisplayName ?? meta.display_name ?? item.name)
+  const displayName = stringField(item.__price_list_display_name ?? item.customer_product_display_name ?? item.customerProductDisplayName ?? meta.display_name ?? item.name)
+  const productName = stringField(item.__price_list_product_name ?? item.product_name ?? item.productName ?? item.name)
   const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
   const includeMarketingFields = options.includeMarketingFields !== false
   return {
@@ -335,7 +339,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
     brand_name_snapshot: stringField(item.brand_name ?? item.brandName),
     display_category_snapshot: stringField(item.display_category_name ?? item.displayCategoryName ?? meta.category),
     product_code_snapshot: stringField(item.product_code ?? item.productCode),
-    product_name_snapshot: stringField(item.product_name ?? item.productName ?? item.name),
+    product_name_snapshot: productName,
     bom_version_id_snapshot: firstNumber(item.bom_version_id, item.bomVersionID),
     bom_version_no_snapshot: stringField(item.bom_version_no ?? item.bomVersionNo),
     bom_usage_mode_snapshot: stringField(item.bom_usage_mode ?? item.bomUsageMode),
@@ -356,11 +360,11 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
   }
 }
 
-function normalizeProductAttributes(value = []) {
-  if (!Array.isArray(value)) return []
+function normalizeProductAttributes(value = [], selectedSalesSpec = '') {
+  const source = Array.isArray(value) ? value : []
   const seen = new Set()
   const rows = []
-  value.forEach((row) => {
+  source.forEach((row) => {
     const key = String(row?.key || '').trim()
     const label = productAttributeDisplayLabel(key, row?.label)
     const attr = {
@@ -374,6 +378,12 @@ function normalizeProductAttributes(value = []) {
     seen.add(dedupeKey)
     rows.push(attr)
   })
+  const salesSpec = String(selectedSalesSpec || '').trim()
+  if (salesSpec) {
+    const withoutOldSalesSpec = rows.filter((attr) => !isSalesSpecProductAttribute(attr))
+    withoutOldSalesSpec.push({ key: 'sales_spec', label: '规格', value: salesSpec })
+    return withoutOldSalesSpec
+  }
   return rows
 }
 
@@ -390,6 +400,12 @@ function productAttributeDedupeKey(attr = {}) {
   const normalizedLabel = normalizeProductAttributeToken(attr.label)
   if (normalizedKey === 'roast_level' || normalizedLabel === 'roast_level') return 'roast_level'
   return normalizedKey || normalizedLabel
+}
+
+function isSalesSpecProductAttribute(attr = {}) {
+  const aliases = new Set(['sales_spec', 'salesspec', 'sales_specification', 'spec', '规格', '销售规格'])
+  return aliases.has(String(attr.key || '').trim().toLowerCase())
+    || aliases.has(String(attr.label || '').trim().toLowerCase())
 }
 
 function normalizeProductAttributeToken(value) {
