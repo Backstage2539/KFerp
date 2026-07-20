@@ -133,17 +133,16 @@ export function priceListParentProductID(item = {}) {
 }
 
 export function priceListProductSpecLabel(item = {}) {
-  const label = String(
-    item?.derived_sales_unit ??
-    item?.derivedSalesUnit ??
-    item?.sku_name ??
-    item?.skuName ??
-    item?.spec_label ??
-    item?.specLabel ??
-    item?.default_sales_unit ??
-    item?.defaultSalesUnit ??
-    '',
-  ).trim()
+  const label = [
+    item?.derived_sales_unit,
+    item?.derivedSalesUnit,
+    item?.sku_name,
+    item?.skuName,
+    item?.spec_label,
+    item?.specLabel,
+    item?.default_sales_unit,
+    item?.defaultSalesUnit,
+  ].map((value) => String(value ?? '').trim()).find(Boolean) || ''
   return label || `SKU-${String(priceListSkuID(item)).padStart(6, '0')}`
 }
 
