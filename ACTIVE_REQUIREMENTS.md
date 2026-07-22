@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-546-ORDER-PRODUCT-CATEGORY-FILTER
+- Branch: codex/pr546-order-product-category-filter
+- Owner/session: Codex / 2026-07-22
+- Status: implementation, documentation and verification complete; develop integration pending
+- Scope: 录单商品选择下拉只基于当前客户和当前启用价格表的可选父商品生成分类过滤项；分类沿用商品候选现有“熟豆 / 挂耳 / 生豆 / 速溶咖啡”标签，名称/拼音搜索与分类条件叠加。点击商品下拉外任意区域自动收起，多行切换时只保留当前行菜单。
+- DEV:
+  - DEV-546-PRODUCT-CATEGORY-FILTER：在商品下拉顶部显示当前作用域实际存在的分类，支持“全部”和按分类过滤，不改变 publication、SKU、规格或定价逻辑。
+  - DEV-546-DROPDOWN-OUTSIDE-DISMISS：通过 document pointerdown 判断当前商品组合框，点击外部关闭全部、点击另一行关闭旧行且不打断菜单内分类/候选点击。
+  - DEV-546-DOCS-DELIVERY：同步需求、订单手册、验收与页面内帮助，完成 RED/GREEN、前端构建、功能分支推送和 develop 合并；本轮不部署。
+- Verifier:
+  - RED: `node --test src/lib/order-entry.test.js` 因缺少分类过滤和菜单关闭 helper 失败；`go test ./internal/interfaces/http/support -run TestDev546OrderProductCategoryFilterContracts -count=1` 因缺少 PR-546 种子失败。
+  - GREEN: `order-entry.test.js` 119/119；`form-draft-cache.test.js` 3/3；支持合同、订单表单 API 与 PostgreSQL 查询合同通过；Vue/Vite production build 通过；完整前端 796/802，和最新 `origin/develop` 基线 793/799 的同 6 个 workspace-context 既有失败完全一致，新增 3 个测试全部通过。
+- Deployment: not requested; development and production unchanged
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-546；`--claim order-product-category-filter` 命中已知 macOS awk 多行字符串错误，故手工记录本条。
+
 ### PR-545-ORDER-PRICE-LIST-CATALOG-SCOPE
 - Branch: codex/pr545-order-price-list-catalog-scope
 - Owner/session: Codex / 2026-07-22

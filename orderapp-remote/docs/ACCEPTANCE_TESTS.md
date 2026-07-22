@@ -1562,3 +1562,10 @@
 - [x] 客户关闭公共 SKU 时，可用 publication 与客户自有 publication 分开计算；公共兜底商品被移除，客户自有发布明确包含的商品保留。commercial、retail、drip、green 均按具体 publication 精确过滤。
 - [x] 唯一商业订单行的 publication/版本纠正陈旧订单头；多分类商业 publication 清零通用/商业订单头但保留每行 publication。价格来源快照 `list_type` 优先于 `product_kind`，挂耳归入 commercial 分类时不会漏判。
 - [x] 定向前端、后端查询、订单 HTTP/API、支持合同、完整 Go 测试和 Vue/Vite 构建通过；开发环境容器、HTTPS 与 Chrome 登录态录单冒烟通过，手工选择 V3.0.19 后熟豆候选严格为四个父商品，V3.0.18 默认不参与新订单。证据记录在 `orderapp-remote/docs/acceptance/2026-07-22-order-price-list-catalog-scope.md`；现有价格表未撤回或重新发布，生产环境未部署。
+
+### K88. 录单商品分类过滤与下拉自动收起（PR-546-ORDER-PRODUCT-CATEGORY-FILTER）
+- [x] 商品下拉只根据当前客户和当前启用价格表作用域内可选父商品生成“全部 / 熟豆 / 挂耳 / 生豆 / 速溶咖啡”分类项；当前没有商品的分类不显示，旧 publication 或其他客户商品不会因分类过滤重新进入候选。
+- [x] 选择分类后只显示该分类商品；继续输入名称、拼音或首字母时与分类条件取交集，切回“全部”恢复当前作用域全部商品。选择结果仍使用原具体 SKU、规格、价格档和 publication。
+- [x] 商品下拉打开后，点击规格、数量或页面空白区域会自动收起；点击下拉内分类和候选不误关。多行切换商品输入框时旧行关闭，当前行保持唯一展开。
+- [x] 录单组件卸载时移除 document pointerdown 监听，保留原订单草稿卸载保存合同；本需求无新增业务写操作，不新增操作日志。
+- [ ] 定向前端、订单表单 API 回归、支持合同和 Vue/Vite 构建通过；功能分支合并到 `develop`，本轮未部署 development 或 production。证据记录在 `orderapp-remote/docs/acceptance/2026-07-22-order-product-category-filter.md`。
