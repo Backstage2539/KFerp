@@ -933,9 +933,11 @@ func orderFamilyMapFloat(values map[string]any, key string) float64 {
 }
 
 func filterOrderProductsForCustomer(products []ProductOption, customerID int64, versionOptions []salesapp.BeanListVersionOption, publicUsages ...[]salesapp.CustomerPublicUsageOption) []ProductOption {
-	publicationIDsByType := map[string]map[int64]bool{}
+	availablePublicationIDsByType := map[string]map[int64]bool{}
+	ownedPublicationIDsByType := map[string]map[int64]bool{}
 	if len(versionOptions) > 0 {
-		publicationIDsByType = customerOwnedPublicationIDsByListType(customerID, versionOptions)
+		availablePublicationIDsByType = availablePublicationIDsByListType(customerID, versionOptions)
+		ownedPublicationIDsByType = customerOwnedPublicationIDsByListType(customerID, versionOptions)
 	}
 	allowsPublicProducts := true
 	if len(publicUsages) > 0 {
@@ -954,7 +956,7 @@ func filterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 		visibility := productVisibilityForAPI(product.Visibility, product.CustomerID)
 		if product.CustomerProductAliasID > 0 || visibility == "customer_alias" {
 			if customerID > 0 && product.CustomerID == customerID {
-				if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+				if !productMatchesCustomerOwnedBeanListScope(product, availablePublicationIDsByType) {
 					continue
 				}
 				product.Visibility = "customer_alias"
@@ -966,10 +968,10 @@ func filterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 			if customerID > 0 && aliasProductIDs[product.ID] {
 				continue
 			}
-			if customerID > 0 && !allowsPublicProducts && !productMatchesExplicitCustomerOwnedBeanListScope(product, publicationIDsByType) {
+			if customerID > 0 && !allowsPublicProducts && !productMatchesExplicitCustomerOwnedBeanListScope(product, ownedPublicationIDsByType) {
 				continue
 			}
-			if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+			if !productMatchesCustomerOwnedBeanListScope(product, availablePublicationIDsByType) {
 				continue
 			}
 			product.Visibility = "public"
@@ -977,12 +979,30 @@ func filterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 			continue
 		}
 		if customerID > 0 && product.CustomerID == customerID {
-			if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+			if !productMatchesCustomerOwnedBeanListScope(product, availablePublicationIDsByType) {
 				continue
 			}
 			product.Visibility = "customer_only"
 			out = append(out, product)
 		}
+	}
+	return out
+}
+
+func availablePublicationIDsByListType(customerID int64, options []salesapp.BeanListVersionOption) map[string]map[int64]bool {
+	out := map[string]map[int64]bool{}
+	if customerID <= 0 {
+		return out
+	}
+	for _, option := range options {
+		if option.CustomerID != customerID || option.ID <= 0 {
+			continue
+		}
+		listType := normalizeOrderBeanListType(option.ListType)
+		if out[listType] == nil {
+			out[listType] = map[int64]bool{}
+		}
+		out[listType][option.ID] = true
 	}
 	return out
 }
@@ -1290,25 +1310,43 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			PriceSourceJSON:                    it.PriceSourceJSON,
 		})
 	}
-	itemPublicationIDByType := func(listType string) int64 {
+	itemPublicationByType := func(listType string) (int64, string, bool) {
+		publicationID := int64(0)
+		versionNo := ""
 		for _, it := range ed.Items {
-			kind := strings.TrimSpace(it.ProductKind)
-			itemType := "commercial"
-			if kind == "green_bean" {
-				itemType = "green"
-			} else if kind == "drip_bag" {
-				itemType = "drip"
+			itemType := orderEditItemBeanListType(it)
+			if itemType != listType || it.BeanListPublicationID <= 0 {
+				continue
 			}
-			if itemType == listType && it.BeanListPublicationID > 0 {
-				return it.BeanListPublicationID
+			if publicationID > 0 && publicationID != it.BeanListPublicationID {
+				return 0, "", true
+			}
+			publicationID = it.BeanListPublicationID
+			if versionNo == "" {
+				versionNo = strings.TrimSpace(it.BeanListVersionNo)
 			}
 		}
-		return 0
+		return publicationID, versionNo, false
 	}
+	commercialItemPublicationID, commercialItemVersionNo, commercialPublicationAmbiguous := itemPublicationByType("commercial")
 	commercialPublicationID := ed.BeanListPublicationID
-	if commercialPublicationID <= 0 {
-		commercialPublicationID = itemPublicationIDByType("commercial")
+	beanListPublicationID := ed.BeanListPublicationID
+	beanListVersionNo := ed.BeanListVersionNo
+	if commercialPublicationAmbiguous {
+		commercialPublicationID = 0
+		beanListPublicationID = 0
+		beanListVersionNo = ""
+	} else if commercialItemPublicationID > 0 {
+		commercialPublicationID = commercialItemPublicationID
+		beanListPublicationID = commercialItemPublicationID
+		if commercialItemVersionNo != "" {
+			beanListVersionNo = commercialItemVersionNo
+		} else if ed.BeanListPublicationID != commercialItemPublicationID {
+			beanListVersionNo = ""
+		}
 	}
+	greenPublicationID, _, _ := itemPublicationByType("green")
+	dripPublicationID, _, _ := itemPublicationByType("drip")
 	return map[string]any{
 		"document_date":                       ed.DocumentDate,
 		"order_date":                          ed.OrderDate,
@@ -1335,11 +1373,11 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"receiver_company":                    ed.ReceiverCompany,
 		"portal_service_code":                 ed.PortalServiceCode,
 		"source_warehouse":                    ed.SourceWarehouse,
-		"bean_list_publication_id":            ed.BeanListPublicationID,
+		"bean_list_publication_id":            beanListPublicationID,
 		"commercial_bean_list_publication_id": commercialPublicationID,
-		"green_bean_list_publication_id":      itemPublicationIDByType("green"),
-		"drip_bean_list_publication_id":       itemPublicationIDByType("drip"),
-		"bean_list_version_no":                ed.BeanListVersionNo,
+		"green_bean_list_publication_id":      greenPublicationID,
+		"drip_bean_list_publication_id":       dripPublicationID,
+		"bean_list_version_no":                beanListVersionNo,
 		"notes":                               ed.Notes,
 		"shipping_amount":                     ed.ShippingAmount,
 		"discount_amount":                     ed.DiscountAmount,
@@ -1356,4 +1394,14 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"quote_source_trace":                  orderQuoteSourceTrace(ed),
 		"production_source_trace":             orderProductionSourceTrace(ed),
 	}
+}
+
+func orderEditItemBeanListType(item OrderEditItem) string {
+	var source struct {
+		ListType string `json:"list_type"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(item.PriceSourceJSON)), &source); err == nil && strings.TrimSpace(source.ListType) != "" {
+		return normalizeOrderBeanListType(source.ListType)
+	}
+	return orderProductBeanListType(item.ProductKind)
 }

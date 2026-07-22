@@ -525,6 +525,31 @@ func orderItemBeanListPublicationID(cmd salesapp.SaveOrderCommand, itemPublicati
 	return selectedOrderBeanListPublicationID(cmd, listType)
 }
 
+type orderHeaderPublicationRef struct {
+	publicationID int64
+	listType      string
+}
+
+func resolvedOrderHeaderPublicationID(requestedID int64, refs []orderHeaderPublicationRef, listType string) (int64, bool) {
+	publicationIDs := map[int64]bool{}
+	for _, ref := range refs {
+		if ref.publicationID <= 0 || strings.TrimSpace(ref.listType) != strings.TrimSpace(listType) {
+			continue
+		}
+		publicationIDs[ref.publicationID] = true
+	}
+	if len(publicationIDs) == 0 {
+		return requestedID, false
+	}
+	if len(publicationIDs) > 1 {
+		return 0, true
+	}
+	for publicationID := range publicationIDs {
+		return publicationID, false
+	}
+	return requestedID, false
+}
+
 type orderBeanListCandidate struct {
 	ListType               string
 	RequestedPublicationID int64
@@ -1520,10 +1545,25 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.PortalServiceCode != "" {
 		portalServiceCode = cmd.PortalServiceCode
 	}
-	headerPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial)
-	beanListPublicationID, beanListVersionNo, err := r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, headerPublicationID, orderbeans.ListTypeCommercial)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
+	publicationRefs := make([]orderHeaderPublicationRef, 0, len(items))
+	for _, it := range items {
+		publicationRefs = append(publicationRefs, orderHeaderPublicationRef{
+			publicationID: it.itemBeanListPublicationID,
+			listType:      it.priceListType,
+		})
+	}
+	headerPublicationID, ambiguousHeaderPublication := resolvedOrderHeaderPublicationID(
+		selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial),
+		publicationRefs,
+		orderbeans.ListTypeCommercial,
+	)
+	beanListPublicationID := int64(0)
+	beanListVersionNo := ""
+	if !ambiguousHeaderPublication {
+		beanListPublicationID, beanListVersionNo, err = r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, headerPublicationID, orderbeans.ListTypeCommercial)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
 	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)

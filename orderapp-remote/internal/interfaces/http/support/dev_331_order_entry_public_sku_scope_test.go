@@ -56,7 +56,8 @@ func TestDev331OrderEntryPublicSKUScopeWiring(t *testing.T) {
 			markers: []string{
 				"customerAllowsPublicSKU",
 				"productMatchesExplicitPublicationScope",
-				"filterProductsForCustomer(products, customerID, publicationIDsByType = {}, publicUsages = [])",
+				"export function filterProductsForCustomer(",
+				"customerOwnedPublicationIDsByType = {}",
 			},
 		},
 		{

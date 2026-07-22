@@ -459,6 +459,7 @@
           <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
           <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
           <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
+          <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
           <li>商品按父商品展示，商品名不再拼接规格；规格列只能选择当前价格表已发布的具体规格。</li>
           <li>首次选择商品使用其默认规格；切换价格表版本后，当前规格仍有发布价时保留，否则清空规格和价格并要求重新选择。</li>
           <li>新版挂耳商品同样从当前价格表选择袋或盒规格；历史挂耳数据仍保留旧单位选择兼容。</li>
@@ -567,6 +568,7 @@
               :value="selectedBeanListPublicationIDs[group.key] || selectedBeanListVersionOptionByGroup(group)?.id || 0"
               @change="setBeanListVersion(group.key, $event.target.value)"
             >
+              <option v-if="!group.autoSelect" :value="0">不使用该历史价格表</option>
               <option v-for="option in group.options" :key="option.id" :value="option.id">
                 {{ beanListVersionLabel(option) }}
               </option>
@@ -597,8 +599,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { apiGet, apiSend } from '../api/client'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
+  activeBeanListPublicationIDsByType,
+  activeCustomerOwnedBeanListPublicationIDsByType,
   CUSTOM_SPEC_VALUE,
+  beanListVersionGroupIdentity,
+  beanListVersionGroupForPublicationID,
   beanListVersionOptionGroups,
+  beanListVersionOptionForGroup,
+  beanListVersionOptionForProductGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
   defaultDripSalesUnitSpec,
@@ -618,6 +626,7 @@ import {
   orderFamilyForSKU,
   orderFamilySpecOptions,
   orderFamilySpecProduct,
+  orderFamilyHydratedSpecRowPatch,
   orderFamilySpecRowPatch,
   orderFamilySpecsForPublication,
   orderLegacyProductForPublication,
@@ -636,6 +645,7 @@ import {
   retailPackagePrice,
   retailSpecOptions,
   rowUsesStaleBeanListPublication,
+  shouldKeepFrozenOrderPublication,
   sortProductsByCustomerUsage,
   syncDripTierPrice,
   toInt,
@@ -844,7 +854,7 @@ function saveOrderEntryDraft() {
 
 function restoreOrderEntryDraft() {
   const draft = readFormDraft(orderEntryDraftKey())
-  if (!draft) return
+  if (!draft) return false
   Object.assign(form, draft.form || {})
   rows.value = Array.isArray(draft.rows) && draft.rows.length
     ? draft.rows.map((row) => ({ ...newRow(), ...row, product_open: false }))
@@ -854,6 +864,7 @@ function restoreOrderEntryDraft() {
   customerPaste.value = draft.customerPaste || ''
   Object.assign(customerForm, emptyCustomerForm(), draft.customerForm || {})
   backfillMode.value = Boolean(draft.backfillMode)
+  return true
 }
 
 function selectedOrderType() {
@@ -941,7 +952,8 @@ const selectedBeanListSummaryItems = computed(() => beanListVersionGroups.value
       label: group.label,
       versionLabel: selected ? beanListVersionLabel(selected) : '暂无',
     }
-  }))
+  })
+  .filter((item) => item.versionLabel !== '暂无'))
 
 function selectedCustomerMissingProfileLabels() {
   if (!selectedCustomer.value) return []
@@ -1200,30 +1212,23 @@ function customerBeanListVersionOptionsByType(listType) {
 }
 
 function beanListGroupKeyForProduct(productOrRow) {
-  const categoryID = Number(productOrRow?.product_type_category_id || 0)
-  const categoryName = String(productOrRow?.product_type_name || '').trim()
-  const listType = currentPriceListTypeForProduct(productOrRow)
-  if (categoryID > 0) return `category:${categoryID}:${listType}`
-  if (categoryName) return `category-name:${categoryName}:${listType}`
-  return `legacy:${listType}`
+  return beanListVersionGroupForProduct(productOrRow)?.key
+    || beanListVersionGroupIdentity({
+      ...productOrRow,
+      list_type: currentPriceListTypeForProduct(productOrRow),
+    }).key
 }
 
 function selectedBeanListPublicationIDsByType() {
-  const out = {}
-  for (const group of beanListVersionGroups.value) {
-    const item = selectedBeanListVersionOptionByGroup(group)
-    if (!item) continue
-    const id = Number(item.id || 0)
-    if (id <= 0) continue
-    const listType = String(item.list_type || group.listType || 'commercial')
-    if (!out[listType]) out[listType] = []
-    out[listType].push(id)
-  }
-  return out
+  return activeBeanListPublicationIDsByType(beanListVersionGroups.value, selectedBeanListPublicationIDs)
 }
 
 function customerOwnedBeanListPublicationIDsByType() {
-  return selectedBeanListPublicationIDsByType()
+  return activeCustomerOwnedBeanListPublicationIDsByType(
+    beanListVersionGroups.value,
+    selectedBeanListPublicationIDs,
+    form.customer_id,
+  )
 }
 
 function showBeanListVersionPickerByType(listType) {
@@ -1241,12 +1246,43 @@ function selectedBeanListVersionOptionByType(listType) {
 }
 
 function selectedBeanListVersionOptionByGroup(group) {
-  const rows = group?.options || []
-  if (!rows.length) return null
-  const selected = Number(selectedBeanListPublicationIDs[group.key] || 0)
-  return rows.find((item) => Number(item.id) === selected)
-    || rows.find((item) => item.is_default)
-    || rows[0]
+  return beanListVersionOptionForGroup(group, selectedBeanListPublicationIDs[group?.key])
+}
+
+function productPublicationIDs(product = {}) {
+  const ids = new Set()
+  const currentID = Number(product?.bean_list_publication_id || 0)
+  if (currentID > 0) ids.add(currentID)
+  for (const tier of product?.tiers || []) {
+    const id = Number(tier?.publication_id || 0)
+    if (id > 0) ids.add(id)
+  }
+  return ids
+}
+
+function beanListVersionGroupForProduct(product = {}) {
+  const publicationIDs = productPublicationIDs(product)
+  const currentID = Number(product?.bean_list_publication_id || 0)
+  if (currentID > 0) {
+    const exact = beanListVersionGroups.value.find((group) => (
+      (group?.options || []).some((item) => Number(item?.id || 0) === currentID)
+    ))
+    if (exact) return exact
+  }
+  const selectedMatch = beanListVersionGroups.value.find((group) => {
+    const selected = selectedBeanListVersionOptionByGroup(group)
+    return Number(selected?.id || 0) > 0 && publicationIDs.has(Number(selected.id))
+  })
+  if (selectedMatch) return selectedMatch
+  const identity = beanListVersionGroupIdentity({
+    ...product,
+    list_type: currentPriceListTypeForProduct(product),
+  })
+  return beanListVersionGroups.value.find((group) => group.key === identity.key)
+    || beanListVersionGroups.value.find((group) => (
+      (group?.options || []).some((item) => publicationIDs.has(Number(item?.id || 0)))
+    ))
+    || null
 }
 
 function selectedBeanListVersionOptionForProduct(productOrRow) {
@@ -1256,12 +1292,14 @@ function selectedBeanListVersionOptionForProduct(productOrRow) {
   const product = productFamilyForRow(productOrRow)
     || legacyProduct
     || (productOrRow?.product_id ? (productByID(productOrRow.product_id) || productOrRow) : productOrRow)
-  const groupKey = beanListGroupKeyForProduct(product)
-  const group = beanListVersionGroups.value.find((item) => item.key === groupKey)
-  if (group) {
-    const selected = selectedBeanListVersionOptionByGroup(group)
-    if (selected) return selected
-  }
+  const selected = beanListVersionOptionForProductGroups(
+    beanListVersionGroups.value,
+    selectedBeanListPublicationIDs,
+    product,
+    productOrRow?.bean_list_publication_id,
+  )
+  if (selected) return selected
+  if (beanListVersionGroupForPublicationID(beanListVersionGroups.value, productOrRow?.bean_list_publication_id)) return null
   return latestBeanListVersionOption(
     customerBeanListVersionOptions.value,
     currentPriceListTypeForProduct(product),
@@ -1302,6 +1340,7 @@ function closeBeanListDrawer() {
 function beanListDrawerHint(group) {
   const rows = group?.options || []
   if (!rows.length) return '没有可用的已发布豆单'
+  if (!group?.autoSelect && !selectedBeanListVersionOptionByGroup(group)) return '历史兼容价格表，默认不参与新订单；需要时可手工启用'
   if (rows.some((item) => item.is_customer_owned)) return '可选择客户自定义豆单版本'
   return '当前使用公共豆单'
 }
@@ -1327,7 +1366,7 @@ function syncBeanListVersionForCustomer(options = {}) {
   for (const group of beanListVersionGroups.value) {
     const currentID = Number(selectedBeanListPublicationIDs[group.key] || 0)
     if (!options.force && group.options.some((row) => Number(row.id) === currentID)) continue
-    const selected = group.options.find((row) => row.is_default) || group.options[0]
+    const selected = beanListVersionOptionForGroup(group, 0)
     selectedBeanListPublicationIDs[group.key] = Number(selected?.id || 0)
   }
 }
@@ -1460,8 +1499,9 @@ function productOptions(row) {
   const scopedFamilies = filterProductsForCustomer(
     productFamilies.value,
     form.customer_id,
-    customerOwnedBeanListPublicationIDsByType(),
+    selectedBeanListPublicationIDsByType(),
     customerPublicUsages.value,
+    customerOwnedBeanListPublicationIDsByType(),
   ).filter((family) => {
     if (!family?.__order_concrete_price_family) return true
     const selected = selectedBeanListVersionOptionForProduct(family)
@@ -1471,8 +1511,9 @@ function productOptions(row) {
   const scopedLegacyProducts = filterProductsForCustomer(
     products.value,
     form.customer_id,
-    customerOwnedBeanListPublicationIDsByType(),
+    selectedBeanListPublicationIDsByType(),
     customerPublicUsages.value,
+    customerOwnedBeanListPublicationIDsByType(),
   ).flatMap((product) => {
     const parentProductID = Number(product.parent_product_id || product.id || 0)
     if (!concreteParentIDs.has(parentProductID)) return []
@@ -2109,6 +2150,17 @@ function applyEditData(data) {
       discount_type: item.discount_type || '',
       discount_value: item.discount_value || '',
     }
+    const publicationMode = orderProductPublicationMode(
+      family || product || flatProduct || hydrated,
+      item.bean_list_publication_id,
+    )
+    const keepFrozenPublication = shouldKeepFrozenOrderPublication(
+      beanListVersionGroups.value,
+      item.bean_list_publication_id,
+      copyMode.value,
+    )
+    if (publicationMode === 'legacy') hydrated.spec_source = 'legacy_price_list'
+    if (keepFrozenPublication) hydrated.historical_spec_readonly = true
     const hasConcreteSpecIdentity = Boolean(family?.__order_concrete_price_family)
       || Number(item.parent_product_id || flatProduct?.parent_product_id || 0) > 0
     if (!hasConcreteSpecIdentity) return hydrated
@@ -2127,26 +2179,32 @@ function applyEditData(data) {
     }
     hydrated.product_id = Number(item.product_id || 0)
     hydrated.product_code = item.product_code_snapshot || pricedSpec?.product_code || pricedSpec?.sku_name || `SKU-${item.product_id}`
-    hydrated.spec_source = 'price_list_sku'
+    hydrated.spec_source = publicationMode === 'legacy' ? 'legacy_price_list' : 'price_list_sku'
     hydrated.spec_mode = String(item.product_id || '')
     hydrated.spec_label = pricedSpec?.spec_label || item.spec_label || item.effective_sales_spec || (specNumber > 0 ? `${specNumber}g` : '历史规格')
     hydrated.spec_g = specNumber
     hydrated.custom_spec_g = ''
-    hydrated.historical_spec_readonly = !pricedSpec
+    hydrated.historical_spec_readonly = !pricedSpec || keepFrozenPublication
     hydrated.spec_invalid_message = ''
     if (pricedSpec && family) {
-      Object.assign(hydrated, orderFamilySpecRowPatch(family, pricedSpec, publicationID), {
-        tier_id: item.tier_id || 'auto',
-        unit_price: item.unit_price || '',
-        price_source_json: item.price_source_json || '',
-        bean_list_publication_id: publicationID,
-        bean_list_version_no: item.bean_list_version_no || hydrated.bean_list_version_no,
-        manual_price: item.price_override === true || item.tier_id === 'manual',
-        qty: Number(item.qty || 1),
-        item_note: item.note || '',
-        discount_type: item.discount_type || '',
-        discount_value: item.discount_value || '',
-      })
+      Object.assign(hydrated, orderFamilyHydratedSpecRowPatch(
+        family,
+        pricedSpec,
+        publicationID,
+        {
+          tier_id: item.tier_id || 'auto',
+          unit_price: item.unit_price || '',
+          price_source_json: item.price_source_json || '',
+          bean_list_publication_id: publicationID,
+          bean_list_version_no: item.bean_list_version_no || hydrated.bean_list_version_no,
+          manual_price: item.price_override === true || item.tier_id === 'manual',
+          qty: Number(item.qty || 1),
+          item_note: item.note || '',
+          discount_type: item.discount_type || '',
+          discount_value: item.discount_value || '',
+        },
+        keepFrozenPublication,
+      ))
     }
     return hydrated
   })
@@ -2157,10 +2215,9 @@ function applyEditData(data) {
     const listType = orderBeanListTypeForProductKind(row.product_kind)
     const field = beanListVersionField(listType)
     if (!Number(form[field] || 0)) form[field] = publicationID
-    const groupKey = beanListGroupKeyForProduct(productFamilyForRow(row) || row)
-    const group = beanListVersionGroups.value.find((entry) => entry.key === groupKey)
+    const group = beanListVersionGroupForPublicationID(beanListVersionGroups.value, publicationID)
     if (group?.options?.some((entry) => Number(entry.id || 0) === publicationID)) {
-      selectedBeanListPublicationIDs[groupKey] = publicationID
+      selectedBeanListPublicationIDs[group.key] = publicationID
     }
   }
   form.bean_list_publication_id = Number(form.commercial_bean_list_publication_id || form.bean_list_publication_id || 0)
@@ -2257,6 +2314,7 @@ async function load() {
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
       syncBeanListVersionForCustomer({ force: !!copyID })
+      if (copyID) syncRowsForType({ priceListChanged: true })
     } else {
       applyCustomerContextToNewOrder()
       syncBeanListVersionForCustomer({ force: true })
@@ -2400,8 +2458,13 @@ function stockBatchConfirmText(preview) {
 
 onMounted(async () => {
   await load()
-  restoreOrderEntryDraft()
-  repriceHydratedRows()
+  const draftRestored = restoreOrderEntryDraft()
+  if (draftRestored) {
+    syncBeanListVersionForCustomer({ force: true })
+    syncRowsForType({ priceListChanged: true })
+  } else {
+    repriceHydratedRows()
+  }
 })
 
 onBeforeUnmount(saveOrderEntryDraft)

@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-545-ORDER-PRICE-LIST-CATALOG-SCOPE
+- Branch: codex/pr545-order-price-list-catalog-scope
+- Owner/session: Codex / 2026-07-22
+- Status: implementation, independent review and verification complete; integration and development deployment pending
+- Scope: 录单按已发布产品价格表的权威分类模板选择版本；新订单和复制订单只展示当前自动启用或用户明确启用价格表中的商品/规格，旧价格表继续供历史订单冻结快照与显式历史选择使用，不再自动把旧多规格 SKU 混入新订单。
+- DEV:
+  - DEV-545-CLASSIFICATION-VERSION-IDENTITY：录单价格表版本接口返回分类模板 ID/名称，并按有效分类身份计算每组最新版本及客户/公共兜底。
+  - DEV-545-ACTIVE-PUBLICATION-FILTER：前端按分类模板分组；存在权威分类组时不自动启用旧分类名组，商品候选只匹配当前启用的具体 publication。
+  - DEV-545-HISTORY-COMPAT：历史订单编辑保留冻结 SKU、publication 和价格；旧版本仅在历史恢复或用户明确选择时启用，复制订单按当前价格表重新选品。
+  - DEV-545-DOCS-DEPLOY：同步订单手册、需求与验收证据，完成 RED/GREEN、全量验证、develop 合并、开发部署和录单冒烟。
+- Verifier:
+  - Unit/API GREEN: complete `go test ./...`; targeted sales/application/repository/API/support packages; four classification, customer fallback, line-publication and multi-classification header cases passed against a temporary schema on the real development PostgreSQL.
+  - Frontend/build GREEN: `order-entry.test.js` 116/116; Vue/Vite build passed with 401 modules. Full frontend is 793/799 with the same six unrelated workspace-context failures reproduced on clean `origin/develop` (783/789).
+  - Manual: requirements, acceptance checklist, order-sales single-source manual and Vue in-page help updated; historical-only environments remain compatible.
+  - Review/acceptance: independent backend/frontend final reviews addressed customer/public scope separation, retail/drip/green exact publication filtering, restored-draft revalidation, frozen historical hydration, classification-scoped stale warnings, source-list-type headers and single/multi-publication order headers; no remaining P0/P1.
+- Deployment: pending development deployment; production out of scope
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: no price table was withdrawn, saved or republished during verification; no production write or deployment was performed.
+
 ### PR-544-PARENT-PRICING-ORDER-PRICE-LIST-SPECS
 - Branch: codex/pr544-parent-pricing-order-specs
 - Owner/session: Codex / 2026-07-21

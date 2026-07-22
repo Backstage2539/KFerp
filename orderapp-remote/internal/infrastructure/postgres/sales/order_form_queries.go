@@ -73,48 +73,111 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		WITH active_customers AS (
 			SELECT id FROM %[1]s.customers WHERE active=true
 		),
-		customer_versions AS (
+		customer_publications AS (
 			SELECT c.id AS customer_id,
 			       b.list_type,
 			       COALESCE(b.product_type_category_id,0) AS product_type_category_id,
 			       COALESCE(b.product_type_name,'') AS product_type_name,
+			       COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0) AS classification_template_id,
+			       COALESCE(NULLIF(BTRIM(b.classification_template_name),''), NULLIF(BTRIM(b.product_type_name),''), '') AS classification_template_name,
 			       b.id,
 			       b.version_no,
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
 			       COALESCE(b.changelog, '') AS changelog,
-			       true AS is_customer_owned,
-			       row_number() OVER (PARTITION BY c.id, b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
+			       b.published_at AS published_at_sort,
+			       CASE
+			         WHEN COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0) > 0
+			           THEN 'classification:' || COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0)::text
+			         ELSE 'legacy:' || b.list_type
+			       END AS price_list_group_key
 			FROM active_customers c
 			JOIN %[1]s.bean_list_publications b
 			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status='published'
 			 AND b.publication_purpose='factory_supply'
-			WHERE b.list_type IN ('commercial','retail','green','drip') OR COALESCE(b.product_type_category_id,0)>0
+			WHERE b.list_type IN ('commercial','retail','green','drip')
+			   OR COALESCE(b.classification_template_id,0)>0
+			   OR COALESCE(b.product_type_category_id,0)>0
 		),
-		official_versions AS (
+		customer_ranked AS (
+			SELECT b.*,
+			       row_number() OVER (PARTITION BY b.customer_id, b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC, b.id DESC) AS group_rank,
+			       bool_or(b.classification_template_id > 0) OVER (PARTITION BY b.customer_id, b.list_type) AS has_classified_publication
+			FROM customer_publications b
+		),
+		customer_versions AS (
+			SELECT b.customer_id,
+			       b.list_type,
+			       b.product_type_category_id,
+			       b.product_type_name,
+			       b.classification_template_id,
+			       b.classification_template_name,
+			       b.id,
+			       b.version_no,
+			       b.published_at,
+			       b.changelog,
+			       true AS is_customer_owned,
+			       (b.group_rank=1 AND (b.classification_template_id > 0 OR NOT b.has_classified_publication)) AS is_default,
+			       b.price_list_group_key,
+			       b.has_classified_publication
+			FROM customer_ranked b
+		),
+		official_publications AS (
 			SELECT b.list_type,
 			       COALESCE(b.product_type_category_id,0) AS product_type_category_id,
 			       COALESCE(b.product_type_name,'') AS product_type_name,
+			       COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0) AS classification_template_id,
+			       COALESCE(NULLIF(BTRIM(b.classification_template_name),''), NULLIF(BTRIM(b.product_type_name),''), '') AS classification_template_name,
 			       b.id,
 			       b.version_no,
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
 			       COALESCE(b.changelog, '') AS changelog,
-			       row_number() OVER (PARTITION BY b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
+			       b.published_at AS published_at_sort,
+			       CASE
+			         WHEN COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0) > 0
+			           THEN 'classification:' || COALESCE(NULLIF(b.classification_template_id,0), NULLIF(b.product_type_category_id,0), 0)::text
+			         ELSE 'legacy:' || b.list_type
+			       END AS price_list_group_key
 			FROM %[1]s.bean_list_publications b
 			WHERE b.owner_type='official' AND b.status='published'
 			  AND b.publication_purpose='factory_supply'
-			  AND (b.list_type IN ('commercial','retail','green','drip') OR COALESCE(b.product_type_category_id,0)>0)
+			  AND (b.list_type IN ('commercial','retail','green','drip')
+			       OR COALESCE(b.classification_template_id,0)>0
+			       OR COALESCE(b.product_type_category_id,0)>0)
+		),
+		official_ranked AS (
+			SELECT b.*,
+			       row_number() OVER (PARTITION BY b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC, b.id DESC) AS group_rank,
+			       bool_or(b.classification_template_id > 0) OVER (PARTITION BY b.list_type) AS has_classified_publication
+			FROM official_publications b
+		),
+		official_versions AS (
+			SELECT b.list_type,
+			       b.product_type_category_id,
+			       b.product_type_name,
+			       b.classification_template_id,
+			       b.classification_template_name,
+			       b.id,
+			       b.version_no,
+			       b.published_at,
+			       b.changelog,
+			       (b.group_rank=1 AND (b.classification_template_id > 0 OR NOT b.has_classified_publication)) AS is_default,
+			       b.price_list_group_key
+			FROM official_ranked b
 		),
 		global_public_versions AS (
 			SELECT 0::bigint AS customer_id,
 			       o.list_type,
 			       o.product_type_category_id,
 			       o.product_type_name,
+			       o.classification_template_id,
+			       o.classification_template_name,
 			       o.id,
 			       o.version_no,
 			       o.published_at,
 			       o.changelog,
 			       false AS is_customer_owned,
-			       o.is_default
+			       o.is_default,
+			       o.price_list_group_key
 			FROM official_versions o
 		),
 		public_fallback AS (
@@ -122,30 +185,34 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			       o.list_type,
 			       o.product_type_category_id,
 			       o.product_type_name,
+			       o.classification_template_id,
+			       o.classification_template_name,
 			       o.id,
 			       o.version_no,
 			       o.published_at,
 			       o.changelog,
 			       false AS is_customer_owned,
-			       o.is_default
+			       o.is_default,
+			       o.price_list_group_key
 			FROM active_customers c
 			CROSS JOIN official_versions o
 			WHERE NOT EXISTS (
 				SELECT 1 FROM customer_versions cv
 				WHERE cv.customer_id=c.id
 				  AND cv.list_type=o.list_type
-				  AND COALESCE(cv.product_type_category_id,0)=COALESCE(o.product_type_category_id,0)
+				  AND (cv.price_list_group_key=o.price_list_group_key
+				       OR (cv.classification_template_id=0 AND NOT cv.has_classified_publication))
 			)
 		)
-		SELECT customer_id, list_type, product_type_category_id, product_type_name, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, product_type_category_id, product_type_name, classification_template_id, classification_template_name, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM customer_versions
 		UNION ALL
-		SELECT customer_id, list_type, product_type_category_id, product_type_name, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, product_type_category_id, product_type_name, classification_template_id, classification_template_name, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM global_public_versions
 		UNION ALL
-		SELECT customer_id, list_type, product_type_category_id, product_type_name, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, product_type_category_id, product_type_name, classification_template_id, classification_template_name, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM public_fallback
-		ORDER BY customer_id, list_type, is_customer_owned DESC, is_default DESC, published_at DESC, id DESC
+		ORDER BY customer_id, list_type, classification_template_id, is_customer_owned DESC, is_default DESC, published_at DESC, id DESC
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
@@ -155,7 +222,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 	out := make([]salesapp.BeanListVersionOption, 0)
 	for rows.Next() {
 		var row salesapp.BeanListVersionOption
-		if err := rows.Scan(&row.CustomerID, &row.ListType, &row.ProductTypeCategoryID, &row.ProductTypeName, &row.ID, &row.VersionNo, &row.PublishedAt, &row.Changelog, &row.IsCustomerOwned, &row.IsDefault); err != nil {
+		if err := rows.Scan(&row.CustomerID, &row.ListType, &row.ProductTypeCategoryID, &row.ProductTypeName, &row.ClassificationTemplateID, &row.ClassificationTemplateName, &row.ID, &row.VersionNo, &row.PublishedAt, &row.Changelog, &row.IsCustomerOwned, &row.IsDefault); err != nil {
 			return nil, err
 		}
 		ownerLabel := "公共豆单"

@@ -51,3 +51,47 @@ func TestOrderItemBeanListPublicationIDPrefersEachLineSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestResolvedOrderHeaderPublicationIDUsesResolvedCommercialLines(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested int64
+		refs      []orderHeaderPublicationRef
+		wantID    int64
+		ambiguous bool
+	}{
+		{
+			name:      "one resolved commercial line overrides a stale submitted header",
+			requested: 9950,
+			refs: []orderHeaderPublicationRef{
+				{publicationID: 9951, listType: orderbeans.ListTypeCommercial},
+				{publicationID: 9961, listType: orderbeans.ListTypeGreen},
+			},
+			wantID: 9951,
+		},
+		{
+			name:      "multiple commercial classifications leave the legacy header empty",
+			requested: 9950,
+			refs: []orderHeaderPublicationRef{
+				{publicationID: 9951, listType: orderbeans.ListTypeCommercial},
+				{publicationID: 9952, listType: orderbeans.ListTypeCommercial},
+			},
+			wantID:    0,
+			ambiguous: true,
+		},
+		{
+			name:      "no resolved commercial line preserves the legacy fallback request",
+			requested: 9950,
+			refs:      []orderHeaderPublicationRef{{publicationID: 9961, listType: orderbeans.ListTypeGreen}},
+			wantID:    9950,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotID, gotAmbiguous := resolvedOrderHeaderPublicationID(tc.requested, tc.refs, orderbeans.ListTypeCommercial)
+			if gotID != tc.wantID || gotAmbiguous != tc.ambiguous {
+				t.Fatalf("resolvedOrderHeaderPublicationID() = %d/%t, want %d/%t", gotID, gotAmbiguous, tc.wantID, tc.ambiguous)
+			}
+		})
+	}
+}

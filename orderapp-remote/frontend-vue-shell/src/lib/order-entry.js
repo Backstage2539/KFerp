@@ -537,6 +537,20 @@ export function orderFamilySpecRowPatch(family = {}, spec = {}, publicationID = 
   }
 }
 
+export function orderFamilyHydratedSpecRowPatch(
+  family = {},
+  spec = {},
+  publicationID = 0,
+  frozen = {},
+  keepFrozenPublication = false,
+) {
+  return {
+    ...orderFamilySpecRowPatch(family, spec, publicationID),
+    ...frozen,
+    historical_spec_readonly: Boolean(keepFrozenPublication),
+  }
+}
+
 export function wholesaleSpecOptions(product) {
   const specs = new Set(COMMON_SPEC_GRAMS)
   for (const tier of product?.tiers || []) {
@@ -1124,41 +1138,176 @@ export function latestBeanListVersionOption(options, listType) {
   ), rows[0])
 }
 
-export function latestProductPriceListVersionOption(options, productOrType) {
-  const productTypeCategoryID = toInt(productOrType?.product_type_category_id || productOrType?.productTypeCategoryID)
+export function latestProductPriceListVersionOption(options, productOrType, listType = '') {
+  const productTypeCategoryID = toInt(
+    productOrType?.classification_template_id
+      || productOrType?.classificationTemplateID
+      || productOrType?.product_type_category_id
+      || productOrType?.productTypeCategoryID,
+  )
   const productTypeName = String(productOrType?.product_type_name || productOrType?.productTypeName || '').trim()
+  const requestedListType = String(
+    listType
+      || productOrType?.list_type
+      || productOrType?.listType
+      || '',
+  ).trim()
   let rows = []
   if (productTypeCategoryID > 0) {
-    rows = (options || []).filter((item) => toInt(item?.product_type_category_id) === productTypeCategoryID)
+    rows = (options || []).filter((item) => toInt(
+      item?.classification_template_id
+        || item?.classificationTemplateID
+        || item?.product_type_category_id
+        || item?.productTypeCategoryID,
+    ) === productTypeCategoryID)
   } else if (productTypeName) {
     rows = (options || []).filter((item) => String(item?.product_type_name || '').trim() === productTypeName)
   }
+  if (rows.length && requestedListType) {
+    const normalizedListType = normalizeBeanListType(requestedListType)
+    rows = rows.filter((item) => normalizeBeanListType(item?.list_type) === normalizedListType)
+  }
   if (!rows.length) {
-    return latestBeanListVersionOption(options, productBeanListType(productOrType))
+    return latestBeanListVersionOption(options, requestedListType || productBeanListType(productOrType))
   }
   return rows.reduce((latest, item) => (
     compareBeanListVersionOption(item, latest) > 0 ? item : latest
   ), rows[0])
 }
 
+export function beanListVersionGroupIdentity(item = {}) {
+  const listType = normalizeBeanListType(item?.list_type)
+  const classificationTemplateID = toInt(
+    item?.classification_template_id
+      || item?.classificationTemplateID
+      || item?.product_type_category_id
+      || item?.productTypeCategoryID,
+  )
+  const classificationTemplateName = String(
+    item?.classification_template_name
+      || item?.classificationTemplateName
+      || item?.product_type_name
+      || item?.productTypeName
+      || '',
+  ).trim()
+  return {
+    key: classificationTemplateID > 0
+      ? `classification:${classificationTemplateID}:${listType}`
+      : `legacy:${listType}`,
+    label: classificationTemplateName || beanListTypeLabel(listType),
+    listType,
+    classificationTemplateID,
+    classified: classificationTemplateID > 0,
+  }
+}
+
 export function beanListVersionOptionGroups(options) {
   const groups = new Map()
   for (const item of options || []) {
-    const categoryID = toInt(item?.product_type_category_id)
-    const categoryName = String(item?.product_type_name || '').trim()
-    const listType = normalizeBeanListType(item?.list_type)
-    const key = categoryID > 0 ? `category:${categoryID}:${listType}` : categoryName ? `category-name:${categoryName}:${listType}` : `legacy:${listType}`
-    if (!groups.has(key)) {
-      groups.set(key, {
-        key,
-        label: categoryName || beanListTypeLabel(listType),
-        listType,
+    const identity = beanListVersionGroupIdentity(item)
+    if (!groups.has(identity.key)) {
+      groups.set(identity.key, {
+        ...identity,
         options: [],
       })
     }
-    groups.get(key).options.push(item)
+    groups.get(identity.key).options.push(item)
   }
-  return [...groups.values()]
+  const rows = [...groups.values()]
+  const classifiedTypes = new Set(rows.filter((group) => group.classified).map((group) => group.listType))
+  return rows.map((group) => ({
+    ...group,
+    autoSelect: group.classified || !classifiedTypes.has(group.listType),
+    options: group.options,
+  }))
+}
+
+export function beanListVersionOptionForGroup(group = {}, selectedID = 0) {
+  const rows = group?.options || []
+  if (!rows.length) return null
+  const selected = toInt(selectedID)
+  if (selected > 0) {
+    const explicit = rows.find((item) => toInt(item?.id) === selected)
+    if (explicit) return explicit
+  }
+  if (!group?.autoSelect) return null
+  return rows.find((item) => item?.is_default)
+    || rows.reduce((latest, item) => (
+      compareBeanListVersionOption(item, latest) > 0 ? item : latest
+    ), rows[0])
+}
+
+export function activeBeanListPublicationIDsByType(groups = [], selections = {}) {
+  const out = {}
+  for (const group of groups || []) {
+    const selected = beanListVersionOptionForGroup(group, selections?.[group.key])
+    const id = toInt(selected?.id)
+    if (id <= 0) continue
+    const listType = normalizeBeanListType(selected?.list_type || group?.listType)
+    if (!out[listType]) out[listType] = []
+    if (!out[listType].includes(id)) out[listType].push(id)
+  }
+  return out
+}
+
+export function activeCustomerOwnedBeanListPublicationIDsByType(groups = [], selections = {}, customerID = 0) {
+  const selectedCustomerID = toInt(customerID)
+  const out = {}
+  for (const group of groups || []) {
+    const selected = beanListVersionOptionForGroup(group, selections?.[group.key])
+    const id = toInt(selected?.id)
+    if (id <= 0 || !selected?.is_customer_owned) continue
+    const ownerID = toInt(selected?.customer_id)
+    if (selectedCustomerID > 0 && ownerID > 0 && ownerID !== selectedCustomerID) continue
+    const listType = normalizeBeanListType(selected?.list_type || group?.listType)
+    if (!out[listType]) out[listType] = []
+    if (!out[listType].includes(id)) out[listType].push(id)
+  }
+  return out
+}
+
+export function beanListVersionGroupForPublicationID(groups = [], publicationID = 0) {
+  const id = toInt(publicationID)
+  if (id <= 0) return null
+  return (groups || []).find((group) => (
+    (group?.options || []).some((item) => toInt(item?.id) === id)
+  )) || null
+}
+
+export function shouldKeepFrozenOrderPublication(groups = [], publicationID = 0, copyMode = false) {
+  const id = toInt(publicationID)
+  return !copyMode && id > 0 && !beanListVersionGroupForPublicationID(groups, id)
+}
+
+export function beanListVersionOptionForProductGroups(
+  groups = [],
+  selections = {},
+  product = {},
+  preferredPublicationID = 0,
+) {
+  const preferredGroup = beanListVersionGroupForPublicationID(groups, preferredPublicationID)
+  if (preferredGroup) {
+    const selected = beanListVersionOptionForGroup(preferredGroup, selections?.[preferredGroup.key])
+    if (selected) return selected
+  }
+
+  const publicationIDs = new Set()
+  const productPublicationID = toInt(product?.bean_list_publication_id)
+  if (productPublicationID > 0) publicationIDs.add(productPublicationID)
+  for (const tier of product?.tiers || []) {
+    const publicationID = toInt(tier?.publication_id)
+    if (publicationID > 0) publicationIDs.add(publicationID)
+  }
+  for (const group of groups || []) {
+    const selected = beanListVersionOptionForGroup(group, selections?.[group.key])
+    if (selected && publicationIDs.has(toInt(selected?.id))) return selected
+  }
+
+  const identity = beanListVersionGroupIdentity(product)
+  const identityGroup = (groups || []).find((group) => group?.key === identity.key)
+  return identityGroup
+    ? beanListVersionOptionForGroup(identityGroup, selections?.[identityGroup.key])
+    : null
 }
 
 function beanListTypeLabel(listType) {
@@ -1178,7 +1327,13 @@ export function rowUsesStaleBeanListPublication(row, options, listType = product
   if (toInt(row?.product_id) <= 0) return false
   const publicationID = toInt(row?.bean_list_publication_id)
   if (publicationID <= 0) return false
-  const latest = latestProductPriceListVersionOption(options, row) || latestBeanListVersionOption(options, listType)
+  const groups = beanListVersionOptionGroups(options)
+  const publicationGroup = beanListVersionGroupForPublicationID(groups, publicationID)
+  const latest = publicationGroup?.options?.length
+    ? publicationGroup.options.reduce((current, item) => (
+      compareBeanListVersionOption(item, current) > 0 ? item : current
+    ), publicationGroup.options[0])
+    : (latestProductPriceListVersionOption(options, row, listType) || latestBeanListVersionOption(options, listType))
   const latestID = toInt(latest?.id)
   return latestID > 0 && latestID !== publicationID
 }
@@ -1233,23 +1388,19 @@ function tierPriceSource(tier) {
 }
 
 function productMatchesPublicationScope(product, publicationIDsByType) {
-  const listType = productBeanListType(product)
-  const publicationIDs = publicationIDsByType[listType]
-  if (!publicationIDs?.size) return true
+  const hasPublicationScope = Object.values(publicationIDsByType || {}).some((ids) => ids?.size)
+  if (!hasPublicationScope) return true
   return productMatchesExplicitPublicationScope(product, publicationIDsByType)
 }
 
 function productMatchesExplicitPublicationScope(product, publicationIDsByType) {
-  const listType = productBeanListType(product)
-  const publicationIDs = publicationIDsByType[listType]
-  if (!publicationIDs?.size) return false
+  const activePublicationIDs = new Set(
+    Object.values(publicationIDsByType || {}).flatMap((ids) => [...(ids || [])]),
+  )
+  if (!activePublicationIDs.size) return false
   return (product?.tiers || []).some((tier) => {
-    const source = tierPriceSource(tier) || {}
     const publicationID = tierPublicationID(tier)
-    const tierListType = normalizeBeanListType(tier?.list_type || tier?.listType || source.list_type || listType)
-    return publicationID > 0
-      && publicationIDs.has(publicationID)
-      && tierListType === listType
+    return publicationID > 0 && activePublicationIDs.has(publicationID)
   })
 }
 
@@ -1260,9 +1411,16 @@ function customerAllowsPublicSKU(customerID, publicUsages = []) {
   return usage ? Boolean(usage.use_public_sku) : true
 }
 
-export function filterProductsForCustomer(products, customerID, publicationIDsByType = {}, publicUsages = []) {
+export function filterProductsForCustomer(
+  products,
+  customerID,
+  publicationIDsByType = {},
+  publicUsages = [],
+  customerOwnedPublicationIDsByType = {},
+) {
   const selectedCustomerID = toInt(customerID)
   const scopedPublicationIDs = normalizePublicationIDsByType(publicationIDsByType)
+  const customerOwnedPublicationIDs = normalizePublicationIDsByType(customerOwnedPublicationIDsByType)
   const allowsPublicSKU = customerAllowsPublicSKU(selectedCustomerID, publicUsages)
   const aliasProductIDs = new Set(
     (products || [])
@@ -1287,7 +1445,7 @@ export function filterProductsForCustomer(products, customerID, publicationIDsBy
       if (
         selectedCustomerID > 0
         && !allowsPublicSKU
-        && !productMatchesExplicitPublicationScope(product, scopedPublicationIDs)
+        && !productMatchesExplicitPublicationScope(product, customerOwnedPublicationIDs)
       ) {
         return false
       }
