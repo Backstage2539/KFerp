@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-546-ORDER-PRODUCT-CATEGORY-FILTER
 - Branch: codex/pr546-order-product-category-filter
 - Owner/session: Codex / 2026-07-22
-- Status: implementation, documentation and verification complete; develop integration pending
+- Status: implementation, documentation and verification complete; integration merge `26789d35ed02` prepared for `develop`, no deployment requested
 - Scope: 录单商品选择下拉只基于当前客户和当前启用价格表的可选父商品生成分类过滤项；分类沿用商品候选现有“熟豆 / 挂耳 / 生豆 / 速溶咖啡”标签，名称/拼音搜索与分类条件叠加。点击商品下拉外任意区域自动收起，多行切换时只保留当前行菜单。
 - DEV:
   - DEV-546-PRODUCT-CATEGORY-FILTER：在商品下拉顶部显示当前作用域实际存在的分类，支持“全部”和按分类过滤，不改变 publication、SKU、规格或定价逻辑。

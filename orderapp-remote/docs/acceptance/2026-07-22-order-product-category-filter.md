@@ -28,4 +28,4 @@
 - 分类沿用候选原有商品标签；只根据当前客户和当前启用价格表过滤后的候选生成，先过滤 publication scope，再做分类和搜索，最后按客户常购排序并截取。
 - 分类属于每条空白商品行的临时界面状态，不进入订单 payload，不修改已选 SKU、规格、价格或 publication。
 - 点击当前商品框内部保留本行菜单；点击另一行只保留目标行，点击所有商品框外关闭全部。Tab 或方向键切换商品输入框时也只展开当前行；分类按钮可由 Enter/Space 激活。组件卸载时移除 document 监听，并继续执行原草稿保存 hook。
-- 本轮合并到 `develop` 后停止，未部署 development 或 production，也未保存订单或修改价格表数据。
+- 功能分支 `codex/pr546-order-product-category-filter` 通过 integration merge `26789d35ed02` 合并到 `develop` 后停止；未部署 development 或 production，也未保存订单或修改价格表数据。

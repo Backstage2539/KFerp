@@ -1568,4 +1568,4 @@
 - [x] 选择分类后只显示该分类商品；继续输入名称、拼音或首字母时与分类条件取交集，切回“全部”恢复当前作用域全部商品。选择结果仍使用原具体 SKU、规格、价格档和 publication。
 - [x] 商品下拉打开后，点击规格、数量或页面空白区域会自动收起；点击下拉内分类和候选不误关。多行切换商品输入框时旧行关闭，当前行保持唯一展开。
 - [x] 录单组件卸载时移除 document pointerdown 监听，保留原订单草稿卸载保存合同；本需求无新增业务写操作，不新增操作日志。
-- [ ] 定向前端、订单表单 API 回归、支持合同和 Vue/Vite 构建通过；功能分支合并到 `develop`，本轮未部署 development 或 production。证据记录在 `orderapp-remote/docs/acceptance/2026-07-22-order-product-category-filter.md`。
+- [x] 定向前端、订单表单 API 回归、支持合同和 Vue/Vite 构建通过；功能分支通过 integration merge `26789d35ed02` 合并到 `develop`，本轮未部署 development 或 production。证据记录在 `orderapp-remote/docs/acceptance/2026-07-22-order-product-category-filter.md`。
