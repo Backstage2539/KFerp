@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-544-PARENT-PRICING-ORDER-PRICE-LIST-SPECS
 - Branch: codex/pr544-parent-pricing-order-specs
 - Owner/session: Codex / 2026-07-21
-- Status: implementation and local verification complete; pending develop merge and development deployment
+- Status: implementation, independent review, develop merge, development deployment and read-only smoke complete; awaiting Van review
 - Scope: 商品价格表每个父商品只选择一次计价类型及阶梯/价格计算模板，选中规格统一继承，固定价金额仍按具体 SKU 分别录入；录单商品按父商品展示，规格只允许选择当前已选已发布价格表中存在的具体 SKU，不再叠加全局克数或把规格拼入商品名。
 - DEV:
   - DEV-544-PARENT-PRICING：移除规格级计价类型/模板入口，父商品统一配置并向所有选中规格继承；固定价在同一商品计价面板按规格分别填写，草稿兼容旧规格覆盖。
@@ -21,8 +21,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend GREEN: seven targeted price-list/order files 395/395; pricing-only subset 252/252; order-entry 106/106 after RED reproduced legacy SKU aggregation and missing publication-mode handling.
   - Full verification: `changed`, complete Go suite and Vite build (401 modules) pass. Full frontend is 783/789; the same six workspace-context assertions fail on clean `origin/develop` (whose baseline also has an extra contract-stamp failure), so there is no PR-544 regression.
   - Manual: costing/order single-source manuals and Vue in-page help updated.
-  - Review/acceptance: independent post-fix review found and verified the concrete/legacy publication, pure-legacy identity, version-switch reset, public-parent filtering and explicit-publication bypass fixes; final result has no remaining P0/P1. Development API/browser smoke pending.
-- Deployment: development only after verification; production and existing published price tables remain untouched.
+  - Review/acceptance: independent post-fix review found and verified the concrete/legacy publication, pure-legacy identity, version-switch reset, public-parent filtering and explicit-publication bypass fixes; final result has no remaining P0/P1. Development container/API smoke passed; browser navigation stopped at the development local-CA certificate error without bypassing it.
+- Deployment: behavior merged as `b4e78be463c4e20adec4e8abbb63fc16644e2902` and deployed to development; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722113846`. `erp_orderapp` is running, `erp_postgres` is healthy, authenticated requirement/order-form APIs return 200, PR-544 and deployed source/manual markers are present, and recent error markers are 0. Existing development publications remained historical compatibility rows and were not republished; production was untouched.
 - Last update: 2026-07-22 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh` reported PR-544; `--claim parent-pricing-order-specs` hit the known macOS awk multiline-string error, so this entry was recorded with apply_patch.
 

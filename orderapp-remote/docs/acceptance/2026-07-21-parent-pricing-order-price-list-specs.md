@@ -19,7 +19,9 @@
 - 跨模块 GREEN：`go test ./internal/application/costing ./internal/application/sales ./internal/infrastructure/postgres/orderbeans ./internal/infrastructure/postgres/sales ./internal/interfaces/http/sales ./internal/interfaces/http/support -count=1` 全部通过；七个价格表/录单前端测试文件共 395 项全部通过。
 - 全量 GREEN：`./scripts/verify_kferp.sh changed` 通过；`./scripts/verify_kferp.sh backend` 全部通过；`./scripts/verify_kferp.sh frontend-build` 完成 401 modules 的 Vite 生产构建。全量前端为 783/789，通过项覆盖本需求；失败的 6 个 workspace-context 旧断言与干净 `origin/develop` 同名，基线另多 1 个 `contract-stamp` 失败，本需求未触碰这些文件。
 - 独立最终复核 GREEN：复核发现并验证修复 concrete/legacy 发布合并覆盖、纯 legacy 同父 SKU 身份与 Vue key、legacy 切 concrete 清空旧规格、公共 concrete 父商品过滤以及显式无效/无权/不含商品发布版本的手工价绕过；复核确认父商品共享计价后端拒绝 SKU 级模式/模板分叉。最新代码无剩余 P0/P1，复核命令为前端 395/395、Go 定向包全部通过及 `git diff --check` 通过。
-- develop 合并、开发部署和只读烟测结果在部署完成后补录。
+- 合并/部署 GREEN：功能提交 `93a0d9e9916d9168cd929f417ede7f9119db8991` 推送后，以无冲突 merge commit `b4e78be463c4e20adec4e8abbb63fc16644e2902` 合并到 `origin/develop`；`./deploy_orderapp.sh development` 完成本地 Vue/小程序构建、容器内完整 Go 测试、镜像重建及开发容器替换。部署前应用备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260722113846`。
+- 开发烟测 GREEN：`erp_orderapp` 正常运行、`erp_postgres` healthy；开发容器内认证后的需求 API 与 `/api/order/form` 均返回 200，需求响应含 `PR-544-PARENT-PRICING-ORDER-PRICE-LIST-SPECS`，`product_families` 为数组，已部署源码/手册标记存在，最近日志错误标记为 0。现有开发价格表未自动重新发布，因此样本客户继续返回 56 条 legacy 兼容商品、0 条新 concrete family，符合历史快照边界。
+- 浏览器烟测按安全规则停止：`https://dev.erp.qacoohee.com/vue-shell?view=orderEntry` 返回本地 CA `ERR_CERT_AUTHORITY_INVALID`，未绕过证书警告；服务器自身也不能解析该开发域名。生产栈、生产数据和现有已发布价格表均未写入。
 
 ## 验收场景
 
