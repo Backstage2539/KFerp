@@ -1569,3 +1569,11 @@
 - [x] 商品下拉打开后，点击规格、数量或页面空白区域会自动收起；点击下拉内分类和候选不误关。多行切换商品输入框时旧行关闭，当前行保持唯一展开。
 - [x] 录单组件卸载时移除 document pointerdown 监听，保留原订单草稿卸载保存合同；本需求无新增业务写操作，不新增操作日志。
 - [x] 定向前端、订单表单 API 回归、支持合同、完整 Go 测试和 Vue/Vite 构建通过；功能分支通过 integration merge `26789d35ed02` 合并，部署门禁兼容修正通过 `0f95ad06` 合入 `develop` 并部署 development。容器、数据库、登录入口、需求 API 和源码/文档标记冒烟通过；Van 于 2026-07-22 在开发环境手工验证通过，REV-546 与 PR-546 已关闭；production 未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-22-order-product-category-filter.md`。
+
+### K89. 商品价格表标题与已发布版本工具栏精简（PR-547-PRICE-LIST-PAGE-TOOLBAR-UX）
+- [x] 商品价格表顶部不再显示“模型 / Price List / Item Price”，商品数和价格表归属仍正常展示。
+- [x] 原“Price List / Item Price 生成规则”标题显示为“计价规则”，计价继承与价格生成行为不变。
+- [x] “已发布价格表”不显示旧说明和“刷新版本”按钮；归档列表入口继续可用。
+- [x] 收起/展开按钮位于“已发布价格表”标题左侧，展开时显示向上双箭头并可收起，收起时显示向下双箭头并可展开，辅助技术可读出明确动作。
+- [x] “商品类型”过滤框位于搜索栏左侧，两个输入控件高度均为 38px；移动端保持单列布局。
+- [x] 定向前端与支持合同测试、Vue/Vite 构建通过；等待 Van 在开发环境确认最终页面布局。证据记录在 `orderapp-remote/docs/acceptance/2026-07-22-price-list-page-toolbar-ux.md`。

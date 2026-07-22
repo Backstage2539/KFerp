@@ -273,7 +273,7 @@ func TestCostingViewHasInlineBeanListConfiguration(t *testing.T) {
 	src := string(view)
 	for _, want := range []string{
 		"price-list-page-config",
-		"Price List / Item Price 生成规则",
+		"计价规则",
 		"productSelection",
 		"categoryProductGroups",
 		"price-list-rules-dialog",
