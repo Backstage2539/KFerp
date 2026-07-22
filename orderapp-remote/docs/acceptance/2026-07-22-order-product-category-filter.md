@@ -27,10 +27,10 @@
 ## 开发环境部署
 
 - `./deploy_orderapp.sh development`：Vue shell、微信小程序类型检查/构建、Docker 镜像内 `go test ./...` 和 Go binary build 全通过，`erp_orderapp` 重建启动成功。
-- 部署代码基线：`origin/develop` code merge `0f95ad06`；回滚备份：`/opt/stacks/erp/orderapp.backup.deploy-20260722224131`。
+- 部署代码基线：`origin/develop` `f574d991aaa5e403bb6867040dc1dc4f2d58ae68`；回滚备份：`/opt/stacks/erp/orderapp.backup.deploy-20260722225117`。
 - `erp_orderapp`、`erp_docconvert` 正常运行，`erp_postgres` healthy；应用日志显示监听 `:8080`，没有启动错误。
 - 开发入口认证后 `/app/` 跟随跳转为 200；`/app/api/req/product?limit=500` 返回 200 并包含 `PR-546-ORDER-PRODUCT-CATEGORY-FILTER`；服务器源码包含 `product-kind-filter`，部署手册包含 PR-546。
-- in-app browser 因开发域现有 `ERR_CERT_AUTHORITY_INVALID` 无法进入页面，Chrome 扩展当前不可用；未绕过 TLS，浏览器交互冒烟未完成。API、容器和部署源码验证已完成。
+- 自动化 in-app browser 因开发域现有 `ERR_CERT_AUTHORITY_INVALID` 无法进入页面，Chrome 扩展当时不可用；未绕过 TLS。Van 于 2026-07-22 在开发环境手工验证分类过滤和点击外部自动收起均通过，REV-546 与 PR-546 据此标记为 `done` 并关闭。
 
 ## 交互与兼容边界
 
