@@ -4,7 +4,11 @@ import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
 import {
+  activeBeanListPublicationIDsByType,
+  beanListVersionGroupForPublicationID,
   beanListVersionOptionGroups,
+  beanListVersionOptionForGroup,
+  beanListVersionOptionForProductGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
   CUSTOM_SPEC_VALUE,
@@ -46,6 +50,7 @@ import {
   retailPackagePrice,
   retailSpecOptions,
   rowUsesStaleBeanListPublication,
+  shouldKeepFrozenOrderPublication,
   sortProductsByCustomerUsage,
   wholesalePriceUnit,
   wholesaleTierPriceRows,
@@ -400,7 +405,13 @@ test('OrderEntryView uses parent product families and concrete published SKU spe
   assert.match(source, /function invalidatePriceListSpecRow\(row/)
   assert.match(source, /所选价格表不包含该商品当前规格，请重新选择规格/)
   assert.match(source, /row\.spec_source === 'legacy_price_list' && options\.priceListChanged/)
+  assert.match(source, /syncBeanListVersionForCustomer\(\{ force: !!copyID \}\)/)
+  assert.match(source, /if \(copyID\) syncRowsForType\(\{ priceListChanged: true \}\)/)
   assert.match(source, /orderProductPublicationMode\(legacyProduct \|\| row, selectedPublicationID\)/)
+  assert.match(source, /const publicationMode = orderProductPublicationMode\([\s\S]*?family \|\| product \|\| flatProduct \|\| hydrated,[\s\S]*?item\.bean_list_publication_id/)
+  assert.match(source, /hydrated\.spec_source = publicationMode === 'legacy' \? 'legacy_price_list' : 'price_list_sku'/)
+  assert.match(source, /const keepFrozenPublication = shouldKeepFrozenOrderPublication\([\s\S]*?copyMode\.value/)
+  assert.match(source, /hydrated\.historical_spec_readonly = !pricedSpec \|\| keepFrozenPublication/)
   assert.match(source, /已切换到具体规格价格表，请重新选择价格表中的规格/)
   assert.match(source, /isConcretePriceListRow\(row\)[\s\S]*?onSpecChange\(row\)/)
   assert.match(source, /historical_spec_readonly/)
@@ -1177,7 +1188,8 @@ test('OrderEntryView shows explicit missing published price and blocks save with
   assert.match(source, /手动价必须大于0，不能保存/)
   assert.match(source, /missingPublishedPriceRowIndex/)
   assert.match(source, /repriceHydratedRows/)
-  assert.match(source, /restoreOrderEntryDraft\(\)\s*\n\s*repriceHydratedRows\(\)/)
+  assert.match(source, /const draftRestored = restoreOrderEntryDraft\(\)/)
+  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\{ force: true \}\)\s*syncRowsForType\(\{ priceListChanged: true \}\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
   assert.match(source, /function selectTier[\s\S]*?isDripRow[\s\S]*?syncPrice\(row, \{ force: true \}\)/)
   assert.match(source, /const publishedPrice = resolveWholesaleTierPrice\(product, row\)/)
   assert.match(source, /publishedPrice\.quantityBasis === 'sales_spec_count'[\s\S]*?applyResolvedWholesalePrice\(row, publishedPrice\)/)
@@ -1231,6 +1243,44 @@ test('rowUsesStaleBeanListPublication flags product rows whose publication is no
   assert.equal(rowUsesStaleBeanListPublication({ product_id: 0, bean_list_publication_id: 31 }, options), false)
 })
 
+test('rowUsesStaleBeanListPublication compares versions inside the same classification group', () => {
+  const options = [
+    {
+      id: 91,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      version_no: 'V3.0.19',
+      published_at: '2026-07-22 10:00',
+    },
+    {
+      id: 92,
+      list_type: 'commercial',
+      classification_template_id: 2,
+      classification_template_name: '挂耳',
+      version_no: 'V3.0.20',
+      published_at: '2026-07-22 11:00',
+    },
+  ]
+
+  const row = {
+    product_id: 7,
+    product_kind: 'roasted_bean',
+    bean_list_publication_id: 91,
+  }
+  assert.equal(rowUsesStaleBeanListPublication(row, options), false)
+
+  options.push({
+    id: 94,
+    list_type: 'commercial',
+    classification_template_id: 221,
+    classification_template_name: '熟豆',
+    version_no: 'V3.0.21',
+    published_at: '2026-07-22 12:00',
+  })
+  assert.equal(rowUsesStaleBeanListPublication(row, options), true)
+})
+
 test('latestBeanListVersionOption uses the newest published version instead of default flag alone', () => {
   const options = [
     { id: 31, list_type: 'commercial', version_no: 'V3.0.5', published_at: '2026-05-18 18:51', is_default: true },
@@ -1262,9 +1312,213 @@ test('beanListVersionOptionGroups groups price lists by custom product category 
   ])
 
   assert.deepEqual(groups.map((group) => [group.key, group.label, group.listType, group.options.map((item) => item.id)]), [
-    ['category:9:commercial', '冷萃类', 'commercial', [1, 2]],
+    ['classification:9:commercial', '冷萃类', 'commercial', [1, 2]],
     ['legacy:green', '生豆豆单', 'green', [3]],
   ])
+})
+
+test('价格表分组使用分类模板 ID，不因价格表名称变化拆组', () => {
+  const groups = beanListVersionOptionGroups([
+    {
+      id: 91,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      product_type_name: '咖啡豆',
+      version_no: 'V3.0.19',
+    },
+    {
+      id: 94,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      product_type_name: '咖啡熟豆新名称',
+      version_no: 'V3.0.21',
+    },
+  ])
+
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].key, 'classification:221:commercial')
+  assert.deepEqual(groups[0].options.map((item) => item.id), [91, 94])
+})
+
+test('录单仅自动启用权威分类价格表，旧分类名价格表保持显式可选', () => {
+  const groups = beanListVersionOptionGroups([
+    {
+      id: 90,
+      list_type: 'commercial',
+      product_type_category_id: 0,
+      product_type_name: 'KMM商品供应售价',
+      version_no: 'V3.0.18',
+      published_at: '2026-07-20 09:00',
+      is_default: true,
+    },
+    {
+      id: 91,
+      list_type: 'commercial',
+      product_type_category_id: 0,
+      product_type_name: '咖啡豆',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      version_no: 'V3.0.19',
+      published_at: '2026-07-22 14:43',
+      is_default: true,
+    },
+    {
+      id: 92,
+      list_type: 'commercial',
+      product_type_category_id: 0,
+      product_type_name: '挂耳咖啡',
+      classification_template_id: 2,
+      classification_template_name: '挂耳',
+      version_no: 'V3.0.20',
+      published_at: '2026-07-22 15:10',
+      is_default: true,
+    },
+  ])
+
+  assert.deepEqual(groups.map((group) => [group.key, group.label, group.autoSelect]), [
+    ['legacy:commercial', 'KMM商品供应售价', false],
+    ['classification:221:commercial', '熟豆', true],
+    ['classification:2:commercial', '挂耳', true],
+  ])
+  assert.equal(beanListVersionOptionForGroup(groups[0], 0), null)
+  assert.deepEqual(activeBeanListPublicationIDsByType(groups, {}), {
+    commercial: [91, 92],
+  })
+  assert.deepEqual(activeBeanListPublicationIDsByType(groups, {
+    [groups[0].key]: 90,
+  }), {
+    commercial: [90, 91, 92],
+  })
+
+  const products = [
+    { id: 884, tiers: [{ publication_id: 91, list_type: 'commercial' }] },
+    { id: 986, tiers: [{ publication_id: 91, list_type: 'commercial' }] },
+    { id: 551, tiers: [{ publication_id: 90, list_type: 'commercial' }] },
+  ]
+  const activeIDs = activeBeanListPublicationIDsByType(groups, {})
+  assert.deepEqual(filterProductsForCustomer(products, 0, activeIDs).map((item) => item.id), [884, 986])
+})
+
+test('V3.0.19 熟豆目录按父商品聚合后只保留四款，不混入 V3.0.18 多规格商品', () => {
+  const currentNames = ['白月光瑰夏', '风味孟连', '果皮茶', '黑巧炸弹']
+  const currentFamilies = currentNames.map((name, index) => ({
+    parent_product_id: 800 + index,
+    parent_product_name: name,
+    name,
+    product_kind: 'roasted_bean',
+    specs: [{
+      sku_id: 900 + index,
+      sku_name: `${name} SKU`,
+      spec_label: '227g',
+      tiers: [{
+        id: 1000 + index,
+        publication_id: 91,
+        list_type: 'commercial',
+        quantity_basis: 'sales_spec_count',
+        sku_id: 900 + index,
+        unit_price: 60 + index,
+      }],
+    }],
+  }))
+  const legacyProducts = [
+    { id: 701, parent_product_id: 70, parent_product_name: '旧拼配', name: '旧拼配 227g', product_kind: 'roasted_bean', tiers: [{ publication_id: 90, list_type: 'commercial', unit_price: 55 }] },
+    { id: 702, parent_product_id: 70, parent_product_name: '旧拼配', name: '旧拼配 454g', product_kind: 'roasted_bean', tiers: [{ publication_id: 90, list_type: 'commercial', unit_price: 105 }] },
+  ]
+  const families = normalizeOrderProductFamilies(currentFamilies, legacyProducts)
+  const scoped = filterProductsForCustomer(families, 0, { commercial: [91] })
+
+  assert.deepEqual(scoped.map((item) => item.name), currentNames)
+  assert.equal(scoped.length, 4)
+  assert.equal(scoped.some((item) => item.parent_product_name === '旧拼配'), false)
+})
+
+test('纯历史价格表环境继续自动启用原有分组', () => {
+  const groups = beanListVersionOptionGroups([
+    { id: 80, list_type: 'commercial', product_type_name: '历史熟豆', version_no: 'V2.0.0' },
+    { id: 81, list_type: 'commercial', product_type_name: '历史挂耳', version_no: 'V2.0.1' },
+  ])
+
+  assert.deepEqual(groups.map((group) => group.autoSelect), [true])
+  assert.deepEqual(activeBeanListPublicationIDsByType(groups, {}), { commercial: [81] })
+})
+
+test('历史编辑精确恢复冻结发布，复制订单改按当前分类发布校验', () => {
+  const groups = beanListVersionOptionGroups([
+    { id: 90, list_type: 'commercial', version_no: 'V3.0.18', is_default: false },
+    {
+      id: 91,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      version_no: 'V3.0.19',
+      is_default: true,
+    },
+  ])
+  const legacyGroup = beanListVersionGroupForPublicationID(groups, 90)
+  const currentGroup = beanListVersionGroupForPublicationID(groups, 91)
+  const overlappingFamily = {
+    list_type: 'commercial',
+    tiers: [
+      { publication_id: 90, sku_id: 7001 },
+      { publication_id: 91, sku_id: 7001 },
+    ],
+  }
+
+  assert.equal(legacyGroup?.key, 'legacy:commercial')
+  assert.equal(currentGroup?.key, 'classification:221:commercial')
+  assert.equal(beanListVersionOptionForProductGroups(groups, {
+    [legacyGroup.key]: 90,
+    [currentGroup.key]: 91,
+  }, overlappingFamily, 90)?.id, 90)
+  assert.equal(beanListVersionOptionForProductGroups(groups, {
+    [legacyGroup.key]: 0,
+    [currentGroup.key]: 91,
+  }, overlappingFamily, 90)?.id, 91)
+})
+
+test('客户当前分类替换旧公共版本时，历史编辑保留冻结发布而复制订单使用当前版本', () => {
+  const groups = beanListVersionOptionGroups([{
+    id: 9951,
+    customer_id: 3,
+    list_type: 'commercial',
+    classification_template_id: 221,
+    classification_template_name: '熟豆',
+    version_no: 'CUSTOMER-CURRENT',
+    is_customer_owned: true,
+    is_default: true,
+  }])
+
+  assert.equal(shouldKeepFrozenOrderPublication(groups, 9952, false), true)
+  assert.equal(shouldKeepFrozenOrderPublication(groups, 9952, true), false)
+  assert.equal(shouldKeepFrozenOrderPublication(groups, 9951, false), false)
+
+  const family = {
+    parent_product_id: 700,
+    parent_product_name: '重叠规格商品',
+    name: '重叠规格商品',
+  }
+  const oldSpec = {
+    sku_id: 7001,
+    sku_name: 'SKU-7001',
+    spec_label: '227g',
+    tiers: [{ publication_id: 9952, unit_price: 68 }],
+  }
+  const hydrated = orderEntry.orderFamilyHydratedSpecRowPatch(
+    family,
+    oldSpec,
+    9952,
+    {
+      unit_price: '68',
+      price_source_json: '{"publication_id":9952}',
+      bean_list_publication_id: 9952,
+    },
+    true,
+  )
+  assert.equal(hydrated.bean_list_publication_id, 9952)
+  assert.equal(hydrated.unit_price, '68')
+  assert.equal(hydrated.historical_spec_readonly, true)
 })
 
 test('订单价格表分组不合并同分类的商用和零售发布', () => {
@@ -1273,8 +1527,8 @@ test('订单价格表分组不合并同分类的商用和零售发布', () => {
     { id: 22, list_type: 'retail', product_type_category_id: 9, product_type_name: '咖啡熟豆' },
   ])
   assert.deepEqual(groups.map((group) => [group.key, group.listType, group.options.map((item) => item.id)]), [
-    ['category:9:commercial', 'commercial', [11]],
-    ['category:9:retail', 'retail', [22]],
+    ['classification:9:commercial', 'commercial', [11]],
+    ['classification:9:retail', 'retail', [22]],
   ])
 })
 
@@ -1397,6 +1651,7 @@ test('OrderEntryView shows selected bean lists as readable rows and refreshes ro
   assert.match(lineSection, /:disabled="!canOpenBeanListDrawer"/)
   assert.doesNotMatch(lineSection, /:disabled="!form\.customer_id"/)
   assert.match(source, /const canOpenBeanListDrawer = computed/)
+  assert.match(source, /不使用该历史价格表/)
 
   const summaryListStyles = cssBlock(source, '.bean-list-summary-list')
   const summaryStyles = cssBlock(source, '.bean-list-summary')
@@ -1972,6 +2227,81 @@ test('filterProductsForCustomer hides public products when customer disables pub
     filterProductsForCustomer(rows, 74, {}, [{ customer_id: 74, use_public_sku: false }]).map((item) => item.name),
     ['芬纳定制-红酒日晒-中深烘'],
   )
+})
+
+test('customer-owned publication scope stays separate from public fallback when public SKU usage is disabled', () => {
+  const groups = beanListVersionOptionGroups([
+    {
+      id: 9951,
+      customer_id: 74,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      is_customer_owned: true,
+      is_default: true,
+    },
+    {
+      id: 9953,
+      customer_id: 74,
+      list_type: 'commercial',
+      classification_template_id: 222,
+      is_customer_owned: false,
+      is_default: true,
+    },
+  ])
+  const available = activeBeanListPublicationIDsByType(groups, {})
+  const owned = orderEntry.activeCustomerOwnedBeanListPublicationIDsByType(groups, {}, 74)
+  const rows = [
+    { id: 1, name: '客户发布中的公共档案', visibility: 'public', tiers: [{ publication_id: 9951, list_type: 'commercial' }] },
+    { id: 2, name: '公共回退商品', visibility: 'public', tiers: [{ publication_id: 9953, list_type: 'commercial' }] },
+    { id: 3, name: '客户专属商品', customer_id: 74, visibility: 'customer_only', tiers: [{ publication_id: 9951, list_type: 'commercial' }] },
+  ]
+
+  assert.deepEqual(available, { commercial: [9951, 9953] })
+  assert.deepEqual(owned, { commercial: [9951] })
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 74, available, [{ customer_id: 74, use_public_sku: false }], owned).map((item) => item.name),
+    ['客户发布中的公共档案', '客户专属商品'],
+  )
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 74, available, [{ customer_id: 74, use_public_sku: true }], owned).map((item) => item.name),
+    ['客户发布中的公共档案', '公共回退商品', '客户专属商品'],
+  )
+})
+
+test('publication filtering uses frozen tier list type and exact active publication IDs', () => {
+  const rows = [
+    { id: 1, name: '旧零售', product_kind: 'roasted', tiers: [{ publication_id: 99, list_type: 'retail' }] },
+    { id: 2, name: '新零售', product_kind: 'roasted', tiers: [{ publication_id: 101, list_type: 'retail' }] },
+    { id: 3, name: '旧挂耳', product_kind: 'drip_bag', tiers: [{ publication_id: 90, list_type: 'drip' }] },
+    { id: 4, name: '新挂耳', product_kind: 'drip_bag', tiers: [{ publication_id: 92, list_type: 'drip' }] },
+    { id: 5, name: '分类挂耳', product_kind: 'drip_bag', tiers: [{ publication_id: 93, list_type: 'commercial' }] },
+    { id: 6, name: '当前生豆', product_kind: 'green_bean', tiers: [{ publication_id: 94, list_type: 'green' }] },
+  ]
+
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { retail: [101] }).map((item) => item.name), ['新零售'])
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { drip: [92] }).map((item) => item.name), ['新挂耳'])
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { commercial: [93] }).map((item) => item.name), ['分类挂耳'])
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { green: [94] }).map((item) => item.name), ['当前生豆'])
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 0, { commercial: [93], drip: [92] }).map((item) => item.name),
+    ['新挂耳', '分类挂耳'],
+  )
+})
+
+test('latest classified publication comparison stays inside the requested list type', () => {
+  const options = [
+    { id: 11, list_type: 'commercial', classification_template_id: 9, version_no: 'V3.0.9', published_at: '2026-07-21 09:00' },
+    { id: 22, list_type: 'retail', classification_template_id: 9, version_no: 'V9.0.0', published_at: '2026-07-22 09:00' },
+  ]
+  const row = {
+    product_id: 7,
+    product_kind: 'roasted_bean',
+    product_type_category_id: 9,
+    bean_list_publication_id: 11,
+  }
+
+  assert.equal(latestProductPriceListVersionOption(options, row, 'commercial')?.id, 11)
+  assert.equal(rowUsesStaleBeanListPublication(row, options, 'commercial'), false)
 })
 
 test('sortProductsByCustomerUsage moves customer common products first without losing original fallback order', () => {

@@ -50,6 +50,25 @@ func TestOrderFormProductsUsePublishedPriceSnapshotsOnly(t *testing.T) {
 	}
 }
 
+func TestOrderFormCustomerLegacyPublicationDoesNotMaskUnrelatedPublicClassification(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"b.price_list_group_key,\n\t\t\t       b.has_classified_publication",
+		"cv.price_list_group_key=o.price_list_group_key\n\t\t\t\t       OR (cv.classification_template_id=0 AND NOT cv.has_classified_publication)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer/public fallback query must scope legacy replacement correctly; missing %q", want)
+		}
+	}
+	if strings.Contains(text, "OR o.classification_template_id=0") {
+		t.Fatal("an official legacy publication must not act as a wildcard that hides unrelated public classifications")
+	}
+}
+
 func TestOrderCommercialProductKindIncludesDerivedDripSKUs(t *testing.T) {
 	if !orderCommercialProductKind("drip_bag") {
 		t.Fatal("derived drip SKUs must load commercial publication tiers")
@@ -333,7 +352,7 @@ func TestOrderSaveRejectsMissingGreenBeanListPriceWithoutBoundRoastedFallback(t 
 	}
 }
 
-func TestOrderFormBeanListVersionOptionsArePartitionedByListType(t *testing.T) {
+func TestOrderFormBeanListVersionOptionsArePartitionedByCustomerListTypeAndPriceListGroup(t *testing.T) {
 	source, err := os.ReadFile("order_form_queries.go")
 	if err != nil {
 		t.Fatalf("read order_form_queries.go: %v", err)
@@ -341,7 +360,7 @@ func TestOrderFormBeanListVersionOptionsArePartitionedByListType(t *testing.T) {
 	text := string(source)
 	for _, want := range []string{
 		"b.list_type",
-		"PARTITION BY c.id, b.list_type",
+		"PARTITION BY b.customer_id, b.list_type, b.price_list_group_key",
 		"&row.ListType",
 	} {
 		if !strings.Contains(text, want) {
@@ -943,6 +962,32 @@ func TestOrderFormBeanListVersionsOnlyExposeFactorySupplyPublications(t *testing
 	}
 	if count := strings.Count(text[start:end], "'retail'"); count < 2 {
 		t.Fatalf("order form version options must explicitly include retail publications; retail filter count=%d", count)
+	}
+}
+
+func TestOrderFormBeanListVersionsUseClassificationIdentityForDefaultsAndFallback(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	start := strings.Index(text, "func (r Repository) fetchOrderBeanListVersionOptions")
+	end := strings.Index(text, "func (r Repository) fetchOrderCustomerPublicUsages")
+	if start < 0 || end <= start {
+		t.Fatal("order form bean-list version query function not found")
+	}
+	functionSource := text[start:end]
+	for _, want := range []string{
+		"classification_template_id",
+		"classification_template_name",
+		"price_list_group_key",
+		"PARTITION BY b.customer_id, b.list_type, b.price_list_group_key",
+		"PARTITION BY b.list_type, b.price_list_group_key",
+		"cv.price_list_group_key=o.price_list_group_key",
+	} {
+		if !strings.Contains(functionSource, want) {
+			t.Fatalf("order form version options must use classification identity; missing %q", want)
+		}
 	}
 }
 
