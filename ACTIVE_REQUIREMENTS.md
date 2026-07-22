@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-547-PRICE-LIST-PAGE-TOOLBAR-UX
+- Branch: codex/pr547-price-list-page-toolbar-ux
+- Owner/session: Codex / 2026-07-22
+- Status: implementation and automated verification complete; awaiting development deployment and Van acceptance
+- Scope: 商品价格表顶部删除“模型”；生成规则标题改为“计价规则”；已发布价格表删除说明与“刷新版本”，把上下双箭头收起/展开按钮放到标题左侧，并把商品类型过滤放到搜索左侧且统一控件高度。
+- DEV:
+  - DEV-547-PRICE-LIST-LABEL-CLEANUP：删除顶部模型指标，将 Price List / Item Price 生成规则改为计价规则。
+  - DEV-547-PUBLISHED-LIST-TOOLBAR：重排已发布价格表标题、收起按钮、商品类型和搜索控件，删除冗余说明及刷新版本入口。
+  - DEV-547-DOCS-ACCEPTANCE：同步成本手册、需求、验收和 Vue 源码合同测试。
+- Verifier:
+  - RED: `node --test src/lib/costing-bean-list-version-ui.test.js` 因顶部仍存在“模型”失败；`go test ./internal/interfaces/http/support -run '^TestDev547PriceListPageToolbarUXContracts$' -count=1` 因缺少 PR-547 需求种子失败。
+  - GREEN: `costing-bean-list-version-ui.test.js` + `product-bean-list-split.test.js` 59/59；支持合同包与完整 `scripts/verify_kferp.sh backend` 通过；Vue/Vite production build 通过（401 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+- Deployment: development pending; production unchanged
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-547；`--claim price-list-page-toolbar-ux` 命中已知 macOS awk 多行字符串错误，故手工登记。
+
 ### PR-546-ORDER-PRODUCT-CATEGORY-FILTER
 - Branch: codex/pr546-order-product-category-filter
 - Owner/session: Codex / 2026-07-22

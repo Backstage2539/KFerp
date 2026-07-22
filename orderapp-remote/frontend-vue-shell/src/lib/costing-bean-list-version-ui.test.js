@@ -43,6 +43,36 @@ test('product bean-list view exposes publication versions without pricing trial 
   }
 })
 
+test('product price list header and published versions use the compact pricing toolbar', () => {
+  const pageHeaderStart = viewSource.indexOf('<section class="panel">')
+  const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  assert.ok(pageHeaderStart > -1 && versionPanelStart > pageHeaderStart, 'missing price-list page header and version panel')
+
+  const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
+  assert.doesNotMatch(pageHeaderSource, /<span>模型<\/span>/)
+  assert.doesNotMatch(pageHeaderSource, /<strong>Price List \/ Item Price<\/strong>/)
+
+  const versionPanelEnd = viewSource.indexOf('<section class="panel">', versionPanelStart + 1)
+  const versionPanelSource = viewSource.slice(versionPanelStart, versionPanelEnd)
+  assert.doesNotMatch(versionPanelSource, /查看当前范围下的已发布价格表、生成新版、撤回和归档。/)
+  assert.doesNotMatch(versionPanelSource, /刷新版本/)
+  assert.doesNotMatch(versionPanelSource, /refreshBeanListVersionList/)
+  assert.match(versionPanelSource, /:aria-label="publicationListCollapsed \? '展开已发布价格表' : '收起已发布价格表'"/)
+  assert.match(versionPanelSource, /'⇊'\s*:\s*'⇈'/)
+
+  const collapseButtonIndex = versionPanelSource.indexOf('class="publication-list-collapse-toggle')
+  const versionTitleIndex = versionPanelSource.indexOf('<div class="section-title">已发布价格表</div>')
+  assert.ok(collapseButtonIndex > -1 && collapseButtonIndex < versionTitleIndex, 'collapse toggle must sit to the left of the title')
+
+  const productTypeIndex = versionPanelSource.indexOf('<span>商品类型</span>')
+  const searchIndex = versionPanelSource.indexOf('<span>搜索</span>')
+  assert.ok(productTypeIndex > -1 && productTypeIndex < searchIndex, 'product type filter must sit to the left of search')
+  assert.match(viewSource, /\.version-controls input,\s*\.version-controls select\s*\{[^}]*min-height:\s*38px/s)
+
+  assert.match(viewSource, /<strong>计价规则<\/strong>/)
+  assert.doesNotMatch(viewSource, /<strong>Price List \/ Item Price 生成规则<\/strong>/)
+})
+
 test('product bean-list version list downloads the selected publication snapshot', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
@@ -359,7 +389,7 @@ test('product bean-list generate area uses inline price-list configuration inste
     'priceListRenderTypeForItem',
     'productPriceListTypeKey',
     'price-list-page-config',
-    '<strong>Price List / Item Price 生成规则</strong>',
+    '<strong>计价规则</strong>',
     '<button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>',
     'aria-label="价格表配置"',
     "greenTierPriceRows",

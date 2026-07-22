@@ -14,10 +14,6 @@
           <span>商品数</span>
           <strong>{{ customerScopedSkuCount }}</strong>
         </div>
-        <div>
-          <span>模型</span>
-          <strong>Price List / Item Price</strong>
-        </div>
       </div>
       <div class="bean-list-global-scope">
         <div>
@@ -38,22 +34,24 @@
 
     <section class="panel bean-list-version-panel">
       <div class="section-bar bean-list-version-head">
-        <div>
+        <div class="bean-list-version-title-row">
+          <button
+            class="publication-list-collapse-toggle"
+            type="button"
+            :aria-label="publicationListCollapsed ? '展开已发布价格表' : '收起已发布价格表'"
+            :title="publicationListCollapsed ? '展开已发布价格表' : '收起已发布价格表'"
+            @click="publicationListCollapsed = !publicationListCollapsed"
+          >
+            <span aria-hidden="true">{{ publicationListCollapsed ? '⇊' : '⇈' }}</span>
+          </button>
           <div class="section-title">已发布价格表</div>
-          <p class="muted">查看当前范围下的已发布价格表、生成新版、撤回和归档。</p>
         </div>
         <div class="actions">
           <button class="secondary compact" type="button" @click="publicationArchiveListCollapsed = !publicationArchiveListCollapsed">归档列表 {{ publicationArchiveListCollapsed ? `(${currentScopeArchivedPublicationRows.length})` : '收起' }}</button>
-          <button class="secondary compact" type="button" @click="publicationListCollapsed = !publicationListCollapsed">{{ publicationListCollapsed ? '展开' : '收起' }}</button>
-          <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
         </div>
       </div>
 
       <div v-show="!publicationListCollapsed" class="version-controls">
-        <label>
-          <span>搜索</span>
-          <input v-model.trim="publicationListSearch" type="search" placeholder="搜索版本/客户/说明" />
-        </label>
         <label>
           <span>商品类型</span>
           <select v-model.number="selectedProductTypeCategoryID" :disabled="!productPriceListTypeOptions.length">
@@ -61,6 +59,10 @@
               {{ type.label }}（{{ type.itemCount }}款）
             </option>
           </select>
+        </label>
+        <label>
+          <span>搜索</span>
+          <input v-model.trim="publicationListSearch" type="search" placeholder="搜索版本/客户/说明" />
         </label>
         <div class="version-summary">
           <span>当前发布</span>
@@ -153,7 +155,6 @@
           v-model:pageSize="publicationListPageSize"
           :total="publicationListState.total"
           :page-size-options="[5, 10, 20, 50, 100]"
-          :disabled="beanListVersionListLoading"
         />
       </div>
       <div v-else-if="currentScopePublicationRows.length" class="muted empty">
@@ -212,7 +213,7 @@
             v-model:pageSize="publicationArchiveListPageSize"
             :total="archivedPublicationListState.total"
             :page-size-options="[5, 10, 20, 50, 100]"
-            :disabled="beanListVersionListLoading || beanListArchiving"
+            :disabled="beanListArchiving"
           />
         </div>
         <div v-else class="muted empty">
@@ -238,7 +239,7 @@
     <section class="panel price-list-page-config">
       <div class="pdf-picker price-list-template-builder" data-pr440-price-list-model>
         <div class="picker-head">
-          <strong>Price List / Item Price 生成规则</strong>
+          <strong>计价规则</strong>
           <span class="muted">商品 &gt; 子类 &gt; 父类 &gt; 价格表</span>
         </div>
         <div class="template-default-grid">
@@ -1136,7 +1137,6 @@ const loading = ref(false)
 const beanListPublishing = ref(false)
 const beanListWithdrawing = ref(false)
 const beanListArchiving = ref(false)
-const beanListVersionListLoading = ref(false)
 const beanListPdfGenerating = ref(false)
 const priceExplanationOpen = ref(false)
 const priceExplanationLoading = ref(false)
@@ -4242,16 +4242,6 @@ async function loadBeanListPublications(listType = pdfTheme.value.listType, scop
   }
 }
 
-async function refreshBeanListVersionList() {
-  beanListVersionListLoading.value = true
-  error.value = ''
-  try {
-    await loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value)
-  } finally {
-    beanListVersionListLoading.value = false
-  }
-}
-
 function beanListPublicationURL(listType, scope, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
   const requestScope = beanListPublicationRequestScope(scope)
   const params = new URLSearchParams({ list_type: listType, scope: requestScope })
@@ -4678,11 +4668,14 @@ onBeforeUnmount(() => {
 .price-list-page-config { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; }
 .price-list-page-config .pdf-picker:first-child { margin-top: 0; }
 .bean-list-version-panel { display: grid; gap: 12px; }
-.bean-list-version-head { align-items: flex-start; }
-.bean-list-version-head p { margin: 4px 0 0; line-height: 1.45; }
-.version-controls { display: grid; grid-template-columns: minmax(170px, .9fr) minmax(110px, .55fr) repeat(3, minmax(90px, .45fr)); gap: 10px; align-items: end; }
+.bean-list-version-head { align-items: center; }
+.bean-list-version-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.publication-list-collapse-toggle { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border: 1px solid #cfc8bf; border-radius: 8px; background: #fff; color: #222; font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+.publication-list-collapse-toggle:hover { border-color: #888; background: #f7f7f7; }
+.publication-list-collapse-toggle:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
+.version-controls { display: grid; grid-template-columns: minmax(110px, .55fr) minmax(170px, .9fr) repeat(3, minmax(90px, .45fr)); gap: 10px; align-items: end; }
 .version-controls label span, .version-summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-.version-controls select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.version-controls input, .version-controls select { width: 100%; height: 38px; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
 .version-control-customer { grid-column: span 2; }
 .version-summary { min-height: 38px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 8px 10px; box-sizing: border-box; }
 .version-summary strong { display: block; overflow-wrap: anywhere; font-size: 14px; line-height: 1.2; }
@@ -4704,7 +4697,7 @@ onBeforeUnmount(() => {
 .status-withdrawn { border-color: #e0b4b4; background: #fff1f1; color: #8b1e1e; }
 .status-archived { border-color: #c8c8c8; background: #f4f4f4; color: #666; }
 .status-unknown { background: #f5f5f5; color: #555; }
-.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.metrics { display: grid; grid-template-columns: minmax(180px, 320px); gap: 10px; }
 .metrics > div { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
 .metrics span, .muted { color: #666; font-size: 12px; }
 .metrics span { display: block; margin-bottom: 6px; }
