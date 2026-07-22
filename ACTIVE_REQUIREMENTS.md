@@ -18,7 +18,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: `node --test src/lib/order-entry.test.js` 因缺少分类过滤和菜单关闭 helper 失败；`go test ./internal/interfaces/http/support -run TestDev546OrderProductCategoryFilterContracts -count=1` 因缺少 PR-546 种子失败。
   - GREEN: `order-entry.test.js` 119/119；`form-draft-cache.test.js` 3/3；支持合同、订单表单 API 与 PostgreSQL 查询合同通过；Vue/Vite production build 通过；完整前端 796/802，和最新 `origin/develop` 基线 793/799 的同 6 个 workspace-context 既有失败完全一致，新增 3 个测试全部通过。
-- Deployment: development deployed from `origin/develop` `f574d991aaa5e403bb6867040dc1dc4f2d58ae68`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722225117`; `erp_orderapp` and PostgreSQL healthy; authenticated `/app/` follows to 200; requirement API 200 with PR-546; source/docs markers present; production unchanged
+- Deployment: feature baseline deployed from `origin/develop` `f574d991aaa5e403bb6867040dc1dc4f2d58ae68`; manual-acceptance closure deployed from `origin/develop` `8967d7053d65f4240854d2321879a7a20a9d4cd1`; latest backup `/opt/stacks/erp/orderapp.backup.deploy-20260722225950`; `erp_orderapp` and PostgreSQL healthy; unauthenticated `/app/` returns 303 and BasicAuth follows to 200; database confirms PR-546 and REV-546 are `done`; production unchanged
 - Last update: 2026-07-22 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh` 返回 PR-546；`--claim order-product-category-filter` 命中已知 macOS awk 多行字符串错误，故手工记录本条。首次 Docker build 暴露 PR-340 单行源码断言，`75f0a48f` 改为独立标记后本机及镜像内 `go test ./...` 全通过。自动浏览器因开发域 `ERR_CERT_AUTHORITY_INVALID` 未执行；Van 已在开发环境手工验证分类过滤与点击外部收起均通过，REV-546 和 PR-546 关闭。
 
