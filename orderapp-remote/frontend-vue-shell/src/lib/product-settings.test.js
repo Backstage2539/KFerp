@@ -796,7 +796,7 @@ test('pricing rule trial resolves derived SKU sales unit from net content when c
   assert.equal(pricingRuleTrialDefaultQuoteUnit(product, globalUnits), '袋')
 })
 
-test('price table resolves pricing mode by product, subgroup, parent group, price list', () => {
+test('price table resolves pricing mode by parent product, subgroup, parent group, price list', () => {
   const resolved = resolvePriceTableTemplateInheritance({
     defaults: { pricing_mode: 'fixed_price', tier_template_id: 1, pricing_rule_id: 10, fixed_unit_price: 99 },
     groupAssignments: [
@@ -804,9 +804,10 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
       { group_item_id: 101, pricing_mode: 'tier_template', tier_template_id: 3, pricing_rule_id: 0, fixed_unit_price: 0, parent_group_item_id: 100 },
     ],
     productOverrides: [
-      { product_id: 88, group_item_id: 101, tier_template_id: 0, pricing_rule_id: 40 },
+      { scope: 'parent_product', product_id: 88, parent_product_id: 88, group_item_id: 101, tier_template_id: 0, pricing_rule_id: 40 },
+      { scope: 'sku', product_id: 88, sku_id: 88, parent_product_id: 88 },
     ],
-    product: { id: 88, group_item_id: 101 },
+    product: { id: 88, sku_id: 88, parent_product_id: 88, group_item_id: 101 },
   })
 
   assert.deepEqual(resolved, {
@@ -815,16 +816,16 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
     tier_template_id: 3,
     tier_template_source: 'subgroup',
     pricing_rule_id: 40,
-    pricing_rule_source: 'product',
+    pricing_rule_source: 'parent_product',
     fixed_unit_price: 0,
-    fixed_unit_price_source: 'product',
+    fixed_unit_price_source: 'sku',
   })
 
   assert.equal(resolvePriceTableTemplateInheritance({
     defaults: { pricing_mode: 'fixed_price', fixed_unit_price: 99 },
     groupAssignments: [{ group_item_id: 101, fixed_unit_price: 88 }],
-    productOverrides: [{ product_id: 88, fixed_unit_price: 59.92 }],
-    product: { id: 88, group_item_id: 101 },
+    productOverrides: [{ scope: 'sku', product_id: 88, sku_id: 88, parent_product_id: 88, fixed_unit_price: 59.92 }],
+    product: { id: 88, sku_id: 88, parent_product_id: 88, group_item_id: 101 },
   }).fixed_unit_price, 59.92)
 
   assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
@@ -850,7 +851,7 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
   ])
 })
 
-test('price table inheritance resolves explicit SKU before parent product and isolates fixed prices per SKU', () => {
+test('price table inheritance resolves shared parent pricing for every SKU and isolates fixed prices per SKU', () => {
   const common = {
     defaults: { pricing_mode: 'fixed_price', tier_template_id: 1, pricing_rule_id: 10, fixed_unit_price: 99 },
     groupAssignments: [
@@ -915,15 +916,50 @@ test('price table inheritance resolves explicit SKU before parent product and is
     ...common,
     product: { id: 503, sku_id: 503, parent_product_id: 500, group_item_id: 101 },
   }), {
-    pricing_mode: 'tier_template',
-    pricing_mode_source: 'sku',
-    tier_template_id: 5,
-    tier_template_source: 'sku',
-    pricing_rule_id: 50,
-    pricing_rule_source: 'sku',
+    pricing_mode: 'pricing_rule',
+    pricing_mode_source: 'parent_product',
+    tier_template_id: 4,
+    tier_template_source: 'parent_product',
+    pricing_rule_id: 40,
+    pricing_rule_source: 'parent_product',
     fixed_unit_price: 0,
     fixed_unit_price_source: 'sku',
   })
+})
+
+test('shared parent pricing exposes inherited fixed mode while keeping two SKU amounts isolated', () => {
+  const productOverrides = [
+    { scope: 'sku', product_id: 501, sku_id: 501, parent_product_id: 500, fixed_unit_price: 59.92 },
+    { scope: 'sku', product_id: 502, sku_id: 502, parent_product_id: 500, fixed_unit_price: 109.9 },
+  ]
+  const defaults = { pricing_mode: 'fixed_price' }
+
+  const first = resolvePriceTableTemplateInheritance({
+    defaults,
+    productOverrides,
+    product: { id: 501, sku_id: 501, parent_product_id: 500, group_item_id: 101 },
+  })
+  const second = resolvePriceTableTemplateInheritance({
+    defaults,
+    productOverrides,
+    product: { id: 502, sku_id: 502, parent_product_id: 500, group_item_id: 101 },
+  })
+
+  assert.equal(first.pricing_mode, 'fixed_price')
+  assert.equal(first.pricing_mode_source, 'default')
+  assert.equal(first.fixed_unit_price, 59.92)
+  assert.equal(second.pricing_mode, 'fixed_price')
+  assert.equal(second.fixed_unit_price, 109.9)
+
+  const categoryFixed = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'tier_template', tier_template_id: 8 },
+    groupAssignments: [{ group_item_id: 101, pricing_mode: 'fixed_price' }],
+    productOverrides,
+    product: { id: 501, sku_id: 501, parent_product_id: 500, group_item_id: 101 },
+  })
+  assert.equal(categoryFixed.pricing_mode, 'fixed_price')
+  assert.equal(categoryFixed.pricing_mode_source, 'subgroup')
+  assert.equal(categoryFixed.fixed_unit_price, 59.92)
 })
 
 test('price tier template quantities are sales-spec counts and ignore legacy kg/lb tier units', () => {

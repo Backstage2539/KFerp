@@ -2,8 +2,10 @@ package sales
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -57,6 +59,7 @@ type orderFormAPIResponse struct {
 	PayStatuses            []apiOption                           `json:"pay_statuses"`
 	OrderTypes             []apiOption                           `json:"order_types"`
 	Products               []map[string]any                      `json:"products"`
+	ProductFamilies        []map[string]any                      `json:"product_families"`
 	Logistics              []salesapp.LogisticsCompany           `json:"logistics_companies"`
 	BeanListVersionOptions []salesapp.BeanListVersionOption      `json:"bean_list_version_options"`
 	CustomerPublicUsages   []salesapp.CustomerPublicUsageOption  `json:"customer_public_usages"`
@@ -109,6 +112,8 @@ type orderSaveAPIRequest struct {
 	OrdersScope                     string `json:"orders_scope"`
 
 	ProductID                          []string `json:"product_id"`
+	ParentProductID                    []string `json:"parent_product_id"`
+	ItemParentProductID                []string `json:"item_parent_product_id"`
 	CustomerProductAliasID             []string `json:"customer_product_alias_id"`
 	CustomerProductDisplayNameSnapshot []string `json:"customer_product_display_name_snapshot"`
 	CustomerItemCodeSnapshot           []string `json:"customer_item_code_snapshot"`
@@ -256,6 +261,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		PayStatuses:            apiOptions(data.PayStatuses),
 		OrderTypes:             apiOptions(data.OrderTypes),
 		Products:               apiProducts(data.Products),
+		ProductFamilies:        apiProductFamilies(data.Products),
 		Logistics:              data.LogisticsCompanies,
 		BeanListVersionOptions: data.BeanListVersionOptions,
 		CustomerPublicUsages:   data.CustomerPublicUsages,
@@ -569,6 +575,8 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		PortalServiceCode:                  r.PortalServiceCode,
 		OrdersScope:                        r.OrdersScope,
 		ProductID:                          r.ProductID,
+		ParentProductID:                    r.ParentProductID,
+		ItemParentProductID:                r.ItemParentProductID,
 		CustomerProductAliasID:             r.CustomerProductAliasID,
 		CustomerProductDisplayNameSnapshot: r.CustomerProductDisplayNameSnapshot,
 		CustomerItemCodeSnapshot:           r.CustomerItemCodeSnapshot,
@@ -643,6 +651,16 @@ func apiProducts(ps []ProductOption) []map[string]any {
 	for _, p := range ps {
 		jp := map[string]any{
 			"id":                                   p.ID,
+			"sku_id":                               effectiveOrderSKUID(p),
+			"parent_product_id":                    effectiveOrderParentProductID(p),
+			"parent_product_name":                  effectiveOrderParentProductName(p),
+			"sku_name":                             effectiveOrderSKUName(p),
+			"sku_code":                             firstNonEmpty(p.SKUCode, p.ProductCode),
+			"spec_label":                           p.SpecLabel,
+			"net_content_qty":                      p.NetContentQty,
+			"net_content_unit":                     p.NetContentUnit,
+			"is_default_sku":                       p.IsDefaultSKU,
+			"default_sku_id":                       p.DefaultSKUID,
 			"name":                                 p.Name,
 			"product_code":                         p.ProductCode,
 			"product_name_snapshot":                firstNonEmpty(p.ProductRecordName, p.Name),
@@ -679,35 +697,239 @@ func apiProducts(ps []ProductOption) []map[string]any {
 		}
 		tiers := make([]map[string]any, 0, len(p.Tiers))
 		for _, t := range p.Tiers {
-			tier := map[string]any{
-				"id":                t.ID,
-				"spec_g":            t.SpecG,
-				"min":               t.MinQty,
-				"max":               t.MaxQty,
-				"unit_price":        t.UnitPrice,
-				"product_kind":      t.ProductKind,
-				"sales_unit":        t.SalesUnit,
-				"unit_bag_count":    t.UnitBagCount,
-				"price_source_json": t.PriceSourceJSON,
-			}
-			if t.QuantityBasis != "" {
-				tier["quantity_basis"] = t.QuantityBasis
-			}
-			if t.TierQuantityUnit != "" {
-				tier["tier_quantity_unit"] = t.TierQuantityUnit
-			}
-			if len(t.EffectiveSalesSpec) > 0 {
-				tier["effective_sales_spec"] = t.EffectiveSalesSpec
-			}
-			if t.DisplayUnit != "" {
-				tier["display_unit"] = t.DisplayUnit
-			}
-			tiers = append(tiers, tier)
+			tiers = append(tiers, apiProductTier(t))
 		}
 		jp["tiers"] = tiers
 		out = append(out, jp)
 	}
 	return out
+}
+
+func apiProductTier(t ProductTierOption) map[string]any {
+	tier := map[string]any{
+		"id":                     t.ID,
+		"spec_g":                 t.SpecG,
+		"min":                    t.MinQty,
+		"max":                    t.MaxQty,
+		"min_qty":                t.MinQty,
+		"max_qty":                t.MaxQty,
+		"unit_price":             t.UnitPrice,
+		"price":                  t.UnitPrice,
+		"product_kind":           t.ProductKind,
+		"sales_unit":             t.SalesUnit,
+		"unit_bag_count":         t.UnitBagCount,
+		"price_source_json":      t.PriceSourceJSON,
+		"publication_id":         t.PublicationID,
+		"publication_version_no": t.PublicationVersionNo,
+		"version_no":             t.PublicationVersionNo,
+		"list_type":              t.ListType,
+	}
+	if t.QuantityBasis != "" {
+		tier["quantity_basis"] = t.QuantityBasis
+	}
+	if t.TierQuantityUnit != "" {
+		tier["tier_quantity_unit"] = t.TierQuantityUnit
+	}
+	if len(t.EffectiveSalesSpec) > 0 {
+		tier["effective_sales_spec"] = t.EffectiveSalesSpec
+	}
+	if t.DisplayUnit != "" {
+		tier["display_unit"] = t.DisplayUnit
+	}
+	return tier
+}
+
+func apiProductFamilies(products []ProductOption) []map[string]any {
+	type familyState struct {
+		row   map[string]any
+		specs []map[string]any
+	}
+	states := make([]*familyState, 0)
+	byKey := map[string]*familyState{}
+	for _, product := range products {
+		concreteTiers := make([]ProductTierOption, 0, len(product.Tiers))
+		for _, tier := range product.Tiers {
+			if isConcreteOrderProductTier(tier) {
+				concreteTiers = append(concreteTiers, tier)
+			}
+		}
+		if len(concreteTiers) == 0 {
+			continue
+		}
+		product.Tiers = concreteTiers
+		parentID := effectiveOrderParentProductID(product)
+		if parentID <= 0 || effectiveOrderSKUID(product) <= 0 {
+			continue
+		}
+		key := strings.Join([]string{
+			strconv.FormatInt(product.CustomerID, 10),
+			strconv.FormatInt(parentID, 10),
+			strconv.FormatInt(product.CustomerProductAliasID, 10),
+		}, ":")
+		state := byKey[key]
+		if state == nil {
+			parentName := effectiveOrderParentProductName(product)
+			displayName := firstNonEmpty(product.CustomerProductDisplayName, parentName)
+			state = &familyState{row: map[string]any{
+				"parent_product_id":                    parentID,
+				"parent_product_name":                  parentName,
+				"name":                                 displayName,
+				"product_name_snapshot":                parentName,
+				"customer_id":                          product.CustomerID,
+				"customer_product_alias_id":            product.CustomerProductAliasID,
+				"customer_product_display_name":        product.CustomerProductDisplayName,
+				"customer_item_code":                   product.CustomerItemCode,
+				"brand_name":                           product.BrandName,
+				"customer_alias_display_category_id":   product.CustomerAliasDisplayCategoryID,
+				"customer_alias_display_category_name": product.CustomerAliasDisplayCategoryName,
+				"product_kind":                         product.ProductKind,
+				"visibility":                           productVisibilityForAPI(product.Visibility, product.CustomerID),
+				"product_type_category_id":             product.ProductTypeCategoryID,
+				"product_type_name":                    product.ProductTypeName,
+				"default_sku_id":                       product.DefaultSKUID,
+			}}
+			states = append(states, state)
+			byKey[key] = state
+		}
+		state.specs = append(state.specs, apiProductFamilySpec(product))
+	}
+	out := make([]map[string]any, 0, len(states))
+	for _, state := range states {
+		sort.SliceStable(state.specs, func(i, j int) bool {
+			leftDefault, _ := state.specs[i]["is_default_sku"].(bool)
+			rightDefault, _ := state.specs[j]["is_default_sku"].(bool)
+			if leftDefault != rightDefault {
+				return leftDefault
+			}
+			return strings.TrimSpace(fmt.Sprint(state.specs[i]["spec_label"])) < strings.TrimSpace(fmt.Sprint(state.specs[j]["spec_label"]))
+		})
+		state.row["specs"] = state.specs
+		out = append(out, state.row)
+	}
+	return out
+}
+
+func isConcreteOrderProductTier(tier ProductTierOption) bool {
+	return strings.TrimSpace(tier.QuantityBasis) == "sales_spec_count" &&
+		tier.PublicationID > 0 &&
+		orderFamilyMapFloat(tier.EffectiveSalesSpec, "sku_id") > 0
+}
+
+func apiProductFamilySpec(product ProductOption) map[string]any {
+	skuID := effectiveOrderSKUID(product)
+	skuName := effectiveOrderSKUName(product)
+	specLabel := strings.TrimSpace(product.SpecLabel)
+	salesUnit := strings.TrimSpace(product.OrderUnit)
+	netQty := product.NetContentQty
+	netUnit := strings.TrimSpace(product.NetContentUnit)
+	unitBeanG := product.DripBagGrams
+	unitBagCount := product.DripBoxBagCount
+	if len(product.Tiers) > 0 {
+		snapshot := product.Tiers[0].EffectiveSalesSpec
+		skuName = firstNonEmpty(orderFamilyMapString(snapshot, "spec_name"), skuName)
+		specLabel = firstNonEmpty(orderFamilyMapString(snapshot, "spec_label"), specLabel, skuName)
+		salesUnit = firstNonEmpty(orderFamilyMapString(snapshot, "sales_unit"), salesUnit)
+		if value := orderFamilyMapFloat(snapshot, "net_content_qty"); value > 0 {
+			netQty = value
+		}
+		netUnit = firstNonEmpty(orderFamilyMapString(snapshot, "net_content_unit"), netUnit)
+		if value := orderFamilyMapFloat(snapshot, "unit_bean_g"); value > 0 {
+			unitBeanG = value
+		}
+		if value := int64(orderFamilyMapFloat(snapshot, "unit_bag_count")); value > 0 {
+			unitBagCount = value
+		} else if product.Tiers[0].UnitBagCount > 0 {
+			unitBagCount = product.Tiers[0].UnitBagCount
+		}
+	}
+	tiers := make([]map[string]any, 0, len(product.Tiers))
+	publicationIDs := make([]int64, 0)
+	seenPublications := map[int64]bool{}
+	for _, tier := range product.Tiers {
+		tiers = append(tiers, apiProductTier(tier))
+		if tier.PublicationID > 0 && !seenPublications[tier.PublicationID] {
+			seenPublications[tier.PublicationID] = true
+			publicationIDs = append(publicationIDs, tier.PublicationID)
+		}
+	}
+	defaultPublicationID := int64(0)
+	if len(publicationIDs) > 0 {
+		defaultPublicationID = publicationIDs[0]
+	}
+	return map[string]any{
+		"product_id":             skuID,
+		"sku_id":                 skuID,
+		"parent_product_id":      effectiveOrderParentProductID(product),
+		"sku_name":               skuName,
+		"sku_code":               firstNonEmpty(product.SKUCode, product.ProductCode),
+		"product_code":           firstNonEmpty(product.ProductCode, product.SKUCode),
+		"spec_label":             specLabel,
+		"sales_unit":             salesUnit,
+		"net_content_qty":        netQty,
+		"net_content_unit":       netUnit,
+		"is_default_sku":         product.IsDefaultSKU,
+		"default_sku_id":         product.DefaultSKUID,
+		"product_kind":           product.ProductKind,
+		"unit_bean_g":            unitBeanG,
+		"unit_bag_count":         unitBagCount,
+		"inventory_unit":         product.InventoryUnit,
+		"quote_unit":             product.QuoteUnit,
+		"order_unit":             product.OrderUnit,
+		"unit_conversion_json":   product.UnitConversionJSON,
+		"integer_unit":           product.IntegerUnit,
+		"publication_ids":        publicationIDs,
+		"default_publication_id": defaultPublicationID,
+		"tiers":                  tiers,
+	}
+}
+
+func effectiveOrderSKUID(product ProductOption) int64 {
+	if product.SKUID > 0 {
+		return product.SKUID
+	}
+	return product.ID
+}
+
+func effectiveOrderParentProductID(product ProductOption) int64 {
+	if product.ParentProductID > 0 {
+		return product.ParentProductID
+	}
+	return product.ID
+}
+
+func effectiveOrderParentProductName(product ProductOption) string {
+	return firstNonEmpty(product.ParentProductName, product.ProductRecordName, product.Name)
+}
+
+func effectiveOrderSKUName(product ProductOption) string {
+	return firstNonEmpty(product.SKUName, product.SpecLabel, "默认规格")
+}
+
+func orderFamilyMapString(values map[string]any, key string) string {
+	value, ok := values[key]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func orderFamilyMapFloat(values map[string]any, key string) float64 {
+	switch value := values[key].(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case json.Number:
+		parsed, _ := value.Float64()
+		return parsed
+	default:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(value)), 64)
+		return parsed
+	}
 }
 
 func filterOrderProductsForCustomer(products []ProductOption, customerID int64, versionOptions []salesapp.BeanListVersionOption, publicUsages ...[]salesapp.CustomerPublicUsageOption) []ProductOption {

@@ -3107,6 +3107,142 @@ func TestBeanListProductSpecSelectionsAcceptValidMultipleTiersAndKeepLegacyPaylo
 	}
 }
 
+func TestBeanListSharedParentPricingRejectsPerSpecModesAndTemplates(t *testing.T) {
+	identities := map[int64]ProductSpecIdentity{
+		550: {ProductID: 550, EffectiveParentProductID: 550, ParentProductName: "乌拉嘎", Active: true, SpecValid: true},
+		551: {ProductID: 551, EffectiveParentProductID: 550, ParentProductName: "乌拉嘎", Active: true, SpecValid: true},
+		552: {ProductID: 552, EffectiveParentProductID: 550, ParentProductName: "乌拉嘎", Active: true, SpecValid: true},
+	}
+	selections := []any{
+		map[string]any{"parent_product_id": float64(550), "sku_id": float64(551), "selection_source": "product_default", "default_sku_id_at_selection": float64(551)},
+		map[string]any{"parent_product_id": float64(550), "sku_id": float64(552), "selection_source": "explicit", "default_sku_id_at_selection": float64(551)},
+	}
+	row := func(skuID int64, mode string, tierTemplateID, pricingRuleID, fixedPrice float64) map[string]any {
+		return map[string]any{
+			"parent_product_id": float64(550),
+			"sku_id":            float64(skuID),
+			"pricing_mode":      mode,
+			"tier_template_id":  tierTemplateID,
+			"pricing_rule_id":   pricingRuleID,
+			"fixed_unit_price":  fixedPrice,
+			"final_unit_price":  map[bool]float64{true: fixedPrice, false: 68}[mode == "fixed_price"],
+		}
+	}
+	command := func(rows []any, overrides []any) PublishBeanListCommand {
+		return PublishBeanListCommand{
+			ListType: "commercial",
+			Version:  "V5.4.0",
+			Config: map[string]any{
+				"product_spec_selections": selections,
+				"price_list_template_selection": map[string]any{
+					"product_pricing_scope": "parent_product_shared",
+					"product_overrides":     overrides,
+				},
+			},
+			Content: map[string]any{"price_rows": rows},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		rows      []any
+		overrides []any
+		want      string
+	}{
+		{
+			name: "mixed pricing modes",
+			rows: []any{
+				row(551, "tier_template", 8, 0, 0),
+				row(552, "pricing_rule", 0, 40, 0),
+			},
+			want: "同一父商品只能选择一种计价类型",
+		},
+		{
+			name: "mixed tier templates",
+			rows: []any{
+				row(551, "tier_template", 8, 0, 0),
+				row(552, "tier_template", 9, 0, 0),
+			},
+			want: "同一父商品只能选择一个阶梯模板",
+		},
+		{
+			name: "mixed pricing rules",
+			rows: []any{
+				row(551, "pricing_rule", 0, 40, 0),
+				row(552, "pricing_rule", 0, 41, 0),
+			},
+			want: "同一父商品只能选择一个价格计算模板",
+		},
+		{
+			name: "sku override attempts pricing mode",
+			rows: []any{
+				row(551, "tier_template", 8, 0, 0),
+				row(552, "tier_template", 8, 0, 0),
+			},
+			overrides: []any{
+				map[string]any{"scope": "parent_product", "parent_product_id": float64(550), "product_id": float64(550), "pricing_mode": "tier_template", "tier_template_id": float64(8)},
+				map[string]any{"scope": "sku", "parent_product_id": float64(550), "sku_id": float64(552), "product_id": float64(552), "pricing_mode": "pricing_rule", "pricing_rule_id": float64(41)},
+			},
+			want: "规格不能单独设置计价类型或模板",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{productSpecIdentities: identities}
+			cmd := command(tc.rows, tc.overrides)
+			if _, err := NewService(repo).SaveBeanListDraft(context.Background(), cmd); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("SaveBeanListDraft() error = %v, want %q", err, tc.want)
+			}
+			if _, err := NewService(repo).PublishBeanList(context.Background(), cmd); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("PublishBeanList() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	t.Run("shared pricing marker requires concrete spec selections", func(t *testing.T) {
+		repo := &fakeRepo{productSpecIdentities: identities}
+		cmd := command([]any{
+			row(551, "tier_template", 8, 0, 0),
+			row(552, "tier_template", 8, 0, 0),
+		}, []any{
+			map[string]any{"scope": "parent_product", "parent_product_id": float64(550), "product_id": float64(550), "pricing_mode": "tier_template", "tier_template_id": float64(8)},
+		})
+		delete(cmd.Config, "product_spec_selections")
+
+		if _, err := NewService(repo).SaveBeanListDraft(context.Background(), cmd); err == nil || !strings.Contains(err.Error(), "product_spec_selections") {
+			t.Fatalf("SaveBeanListDraft() error = %v, want missing product_spec_selections rejection", err)
+		}
+		if _, err := NewService(repo).PublishBeanList(context.Background(), cmd); err == nil || !strings.Contains(err.Error(), "product_spec_selections") {
+			t.Fatalf("PublishBeanList() error = %v, want missing product_spec_selections rejection", err)
+		}
+	})
+
+	t.Run("fixed price amounts remain isolated per sku", func(t *testing.T) {
+		repo := &fakeRepo{productSpecIdentities: identities}
+		cmd := command([]any{
+			row(551, "fixed_price", 0, 0, 68),
+			row(552, "fixed_price", 0, 0, 118),
+		}, []any{
+			map[string]any{"scope": "parent_product", "parent_product_id": float64(550), "product_id": float64(550), "pricing_mode": "fixed_price"},
+			map[string]any{"scope": "sku", "parent_product_id": float64(550), "sku_id": float64(551), "product_id": float64(551), "fixed_unit_price": float64(68)},
+			map[string]any{"scope": "sku", "parent_product_id": float64(550), "sku_id": float64(552), "product_id": float64(552), "fixed_unit_price": float64(118)},
+		})
+		if _, err := NewService(repo).SaveBeanListDraft(context.Background(), cmd); err != nil {
+			t.Fatalf("SaveBeanListDraft() fixed per-SKU prices error = %v", err)
+		}
+	})
+
+	legacy := command([]any{
+		row(551, "tier_template", 8, 0, 0),
+		row(552, "pricing_rule", 0, 40, 0),
+	}, nil)
+	delete(legacy.Config["price_list_template_selection"].(map[string]any), "product_pricing_scope")
+	if _, err := NewService(&fakeRepo{productSpecIdentities: identities}).SaveBeanListDraft(context.Background(), legacy); err != nil {
+		t.Fatalf("legacy concrete-SKU draft without shared-pricing marker must stay compatible: %v", err)
+	}
+}
+
 func TestBeanListConcreteSelectionsRequirePublishableRowsAndStrictGroupSKUs(t *testing.T) {
 	identities := map[int64]ProductSpecIdentity{
 		550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},

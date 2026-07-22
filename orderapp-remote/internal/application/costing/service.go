@@ -3135,6 +3135,83 @@ func beanListUsesConcreteProductSpecSelections(cmd *PublishBeanListCommand) bool
 	return present
 }
 
+func beanListUsesSharedParentProductPricing(cmd *PublishBeanListCommand) bool {
+	if cmd == nil || cmd.Config == nil {
+		return false
+	}
+	selection, ok := objectSnapshotMap(cmd.Config["price_list_template_selection"])
+	if !ok {
+		return false
+	}
+	return strings.TrimSpace(stringValue(selection["product_pricing_scope"])) == "parent_product_shared"
+}
+
+type beanListParentPricingSelection struct {
+	pricingMode    string
+	tierTemplateID int64
+	pricingRuleID  int64
+}
+
+func validateSharedParentProductPricing(cmd *PublishBeanListCommand) error {
+	if !beanListUsesSharedParentProductPricing(cmd) {
+		// Drafts and publications created before the shared-parent pricing
+		// contract retain their historical per-SKU interpretation.
+		return nil
+	}
+
+	selection, _ := objectSnapshotMap(cmd.Config["price_list_template_selection"])
+	for idx, rawOverride := range beanListAnySlice(selection["product_overrides"]) {
+		override, ok := objectSnapshotMap(rawOverride)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(stringValue(override["scope"])) != "sku" {
+			continue
+		}
+		if strings.TrimSpace(stringValue(override["pricing_mode"])) != "" ||
+			numberValue(override["tier_template_id"]) > 0 ||
+			numberValue(override["pricing_rule_id"]) > 0 {
+			return fmt.Errorf("商品计价设置无效：第%d个规格不能单独设置计价类型或模板", idx+1)
+		}
+	}
+
+	byParent := map[int64]beanListParentPricingSelection{}
+	for idx, rawRow := range beanListAnySlice(cmd.Content["price_rows"]) {
+		row, ok := objectSnapshotMap(rawRow)
+		if !ok {
+			continue
+		}
+		parentProductID := int64(numberValue(row["parent_product_id"]))
+		if parentProductID <= 0 {
+			continue
+		}
+		current := beanListParentPricingSelection{
+			pricingMode:    normalizePriceRowPricingMode(row),
+			tierTemplateID: int64(numberValue(row["tier_template_id"])),
+			pricingRuleID:  int64(numberValue(row["pricing_rule_id"])),
+		}
+		previous, exists := byParent[parentProductID]
+		if !exists {
+			byParent[parentProductID] = current
+			continue
+		}
+		if previous.pricingMode != current.pricingMode {
+			return fmt.Errorf("商品规格价格行无效：第%d行同一父商品只能选择一种计价类型", idx+1)
+		}
+		switch current.pricingMode {
+		case "tier_template":
+			if previous.tierTemplateID != current.tierTemplateID {
+				return fmt.Errorf("商品规格价格行无效：第%d行同一父商品只能选择一个阶梯模板", idx+1)
+			}
+		case "pricing_rule":
+			if previous.pricingRuleID != current.pricingRuleID {
+				return fmt.Errorf("商品规格价格行无效：第%d行同一父商品只能选择一个价格计算模板", idx+1)
+			}
+		}
+	}
+	return nil
+}
+
 type beanListConcreteSpecSnapshot struct {
 	productName string
 	aliasID     int64
@@ -3409,6 +3486,9 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 	}
 	rawSelections, present := cmd.Config["product_spec_selections"]
 	if !present {
+		if beanListUsesSharedParentProductPricing(cmd) {
+			return fmt.Errorf("商品规格选择无效：父商品共享计价必须提供 product_spec_selections 数组")
+		}
 		// Historical drafts and publications predate SKU-bound selections and
 		// must keep their original compatibility path.
 		return nil
@@ -3416,6 +3496,9 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 	selectionRows := beanListAnySlice(rawSelections)
 	if rawSelections == nil || selectionRows == nil {
 		return fmt.Errorf("商品规格选择无效：product_spec_selections 必须是数组")
+	}
+	if err := validateSharedParentProductPricing(cmd); err != nil {
+		return err
 	}
 	resolver, ok := s.repo.(productSpecIdentityRepository)
 	if !ok {

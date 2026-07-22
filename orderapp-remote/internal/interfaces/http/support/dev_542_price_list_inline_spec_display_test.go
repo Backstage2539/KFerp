@@ -22,7 +22,7 @@ func TestDev542PriceListInlineSpecDisplayContracts(t *testing.T) {
 
 	for rel, wants := range map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"product-spec-options", "product-spec-pricing-panel", "priceListFlatRowSpecDescription",
+			"product-spec-options", "parent-product-fixed-prices", "priceListFlatRowSpecDescription",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-price-list-selection.js"): {
 			"__price_list_display_name", "__price_list_product_name", "__price_list_sales_spec_label",

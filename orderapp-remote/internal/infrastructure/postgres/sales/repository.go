@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
@@ -735,6 +736,248 @@ func loadOrderProductUnitDefaultsTx(ctx context.Context, tx pgx.Tx, schema strin
 	return normalizeOrderItemProductKind(productKind), unitBeanG, unitBagCount
 }
 
+type concreteOrderProductIdentity struct {
+	SKUID             int64
+	ParentProductID   int64
+	ParentProductName string
+	SKUName           string
+	SKUCode           string
+	ProductKind       string
+}
+
+type concreteOrderPublicationSelection struct {
+	Strict   bool
+	ListType string
+	Usage    orderbeans.Usage
+	Spec     orderbeans.PublishedProductSpec
+	Product  concreteOrderProductIdentity
+}
+
+func loadConcreteOrderProductIdentityTx(ctx context.Context, tx pgx.Tx, schema string, skuID int64) (concreteOrderProductIdentity, error) {
+	var result concreteOrderProductIdentity
+	q := fmt.Sprintf(`
+		SELECT p.id,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END,
+		       COALESCE(NULLIF(parent.name,''),p.name,''),
+		       COALESCE(NULLIF(p.sku_name,''),NULLIF(p.spec_label,''),p.name,''),
+		       COALESCE(NULLIF(p.sku_code,''),'SKU-' || p.id::text),
+		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.products parent ON parent.id=p.parent_product_id
+		WHERE p.id=$1
+		  AND COALESCE(p.active,true)=true
+		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
+		  AND (COALESCE(p.parent_product_id,0)=0 OR (parent.id IS NOT NULL AND COALESCE(parent.active,true)=true))
+	`, schema)
+	if err := tx.QueryRow(ctx, q, skuID).Scan(&result.SKUID, &result.ParentProductID, &result.ParentProductName, &result.SKUName, &result.SKUCode, &result.ProductKind); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return concreteOrderProductIdentity{}, fmt.Errorf("商品规格已停用或不存在，请重新选择")
+		}
+		return concreteOrderProductIdentity{}, err
+	}
+	return result, nil
+}
+
+func resolveConcreteOrderPublicationSelectionTx(ctx context.Context, tx pgx.Tx, schema string, cmd salesapp.SaveOrderCommand, productID, submittedParentProductID int64, productKind string, retailOrder bool, itemPublicationID int64, sourceListType, sourceJSON string) (concreteOrderPublicationSelection, error) {
+	if productID <= 0 {
+		return concreteOrderPublicationSelection{}, nil
+	}
+	candidates := make([]orderBeanListCandidate, 0, 2)
+	if strings.TrimSpace(productKind) == "drip_bag" {
+		candidates = dripOrderBeanListCandidates(cmd, itemPublicationID, sourceListType)
+	} else {
+		listType := orderbeans.ListTypeForProductKind(productKind, retailOrder)
+		candidates = append(candidates, orderBeanListCandidate{
+			ListType:               listType,
+			RequestedPublicationID: orderItemBeanListPublicationID(cmd, itemPublicationID, listType),
+		})
+	}
+	requestedPublication := false
+	for _, candidate := range candidates {
+		if candidate.RequestedPublicationID > 0 {
+			requestedPublication = true
+		}
+		usage, spec, err := orderbeans.ResolvePublishedProductSpecForPublication(ctx, tx, schema, cmd.CustomerID, productID, candidate.ListType, candidate.RequestedPublicationID)
+		if err != nil {
+			return concreteOrderPublicationSelection{}, err
+		}
+		if usage.PublicationID <= 0 {
+			continue
+		}
+		if !spec.ConcretePublication {
+			// A commercial legacy publication still wins over historical drip;
+			// the existing pricing path decides whether it contains a usable tier.
+			if candidate.RequestedPublicationID > 0 && !spec.ProductFound {
+				return concreteOrderPublicationSelection{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
+			}
+			return concreteOrderPublicationSelection{
+				ListType: candidate.ListType,
+				Usage:    usage,
+				Spec:     spec,
+			}, nil
+		}
+		if !spec.ProductFound {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
+		}
+		product, err := loadConcreteOrderProductIdentityTx(ctx, tx, schema, productID)
+		if err != nil {
+			return concreteOrderPublicationSelection{}, err
+		}
+		if spec.SKUID != product.SKUID {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("价格表 SKU 与订单商品规格不一致")
+		}
+		if spec.ParentProductID != product.ParentProductID {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("价格表 SKU 不属于订单商品，请重新选择规格")
+		}
+		if submittedParentProductID > 0 && submittedParentProductID != product.ParentProductID {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("提交的商品与 SKU 归属不一致，请重新选择商品规格")
+		}
+		if err := validateConcreteOrderPriceSourceIdentity(sourceJSON, usage, spec); err != nil {
+			return concreteOrderPublicationSelection{}, err
+		}
+		return concreteOrderPublicationSelection{
+			Strict:   true,
+			ListType: candidate.ListType,
+			Usage:    usage,
+			Spec:     spec,
+			Product:  product,
+		}, nil
+	}
+	if requestedPublication {
+		return concreteOrderPublicationSelection{}, fmt.Errorf("所选价格表版本无效、无权访问或不包含该商品规格，请重新选择价格表和规格")
+	}
+	return concreteOrderPublicationSelection{}, nil
+}
+
+func validateConcreteOrderPriceSourceIdentity(raw string, usage orderbeans.Usage, spec orderbeans.PublishedProductSpec) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var source map[string]any
+	if json.Unmarshal([]byte(raw), &source) != nil {
+		return nil
+	}
+	publicationID := anyInt64(source["publication_id"])
+	if publicationID <= 0 {
+		publicationID = anyInt64(source["bean_list_publication_id"])
+	}
+	if publicationID > 0 && publicationID != usage.PublicationID {
+		return fmt.Errorf("订单行价格表版本与所选发布版本不一致")
+	}
+	if sourceSKUID := anyInt64(source["sku_id"]); sourceSKUID > 0 && sourceSKUID != spec.SKUID {
+		return fmt.Errorf("订单行 SKU 与价格表规格快照不一致")
+	}
+	if sourceParentID := anyInt64(source["parent_product_id"]); sourceParentID > 0 && sourceParentID != spec.ParentProductID {
+		return fmt.Errorf("订单行商品与价格表规格快照不一致")
+	}
+	if frozen, ok := source["effective_sales_spec"].(map[string]any); ok {
+		if sourceSKUID := anyInt64(frozen["sku_id"]); sourceSKUID > 0 && sourceSKUID != spec.SKUID {
+			return fmt.Errorf("订单行有效销售规格 SKU 与价格表不一致")
+		}
+		for _, field := range []struct {
+			key  string
+			want string
+		}{
+			{key: "spec_key", want: spec.SpecKey},
+			{key: "spec_name", want: spec.SpecName},
+			{key: "spec_label", want: spec.SpecLabel},
+			{key: "sales_unit", want: spec.SalesUnit},
+			{key: "net_content_unit", want: spec.NetContentUnit},
+		} {
+			if got := strings.TrimSpace(fmt.Sprint(frozen[field.key])); frozen[field.key] != nil && got != "" && got != strings.TrimSpace(field.want) {
+				return fmt.Errorf("订单行有效销售规格 %s 与价格表不一致", field.key)
+			}
+		}
+		if got := anyFloat64(frozen["net_content_qty"]); got > 0 && math.Abs(got-spec.NetContentQty) > 0.000001 {
+			return fmt.Errorf("订单行有效销售规格净含量与价格表不一致")
+		}
+	}
+	return nil
+}
+
+func anyFloat64(value any) float64 {
+	switch value := value.(type) {
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case float64:
+		return value
+	case json.Number:
+		parsed, _ := value.Float64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func anyInt64(value any) int64 {
+	switch value := value.(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func concreteOrderSpecWeightG(spec orderbeans.PublishedProductSpec) int64 {
+	if spec.NetContentQty <= 0 {
+		return 0
+	}
+	factor := float64(0)
+	switch strings.ToLower(strings.TrimSpace(spec.NetContentUnit)) {
+	case "g", "克":
+		factor = 1
+	case "kg", "千克", "公斤":
+		factor = 1000
+	case "lb", "lbs", "磅":
+		factor = 453.59237
+	}
+	if factor <= 0 {
+		return 0
+	}
+	return int64(math.Round(spec.NetContentQty * factor))
+}
+
+func manualConcreteOrderPriceSourceJSON(selection concreteOrderPublicationSelection, productID int64) string {
+	source := map[string]any{
+		"source":                   "manual",
+		"list_type":                selection.ListType,
+		"publication_id":           selection.Usage.PublicationID,
+		"bean_list_publication_id": selection.Usage.PublicationID,
+		"version_no":               selection.Usage.VersionNo,
+		"bean_list_version_no":     selection.Usage.VersionNo,
+		"product_id":               productID,
+		"sku_id":                   selection.Spec.SKUID,
+		"parent_product_id":        selection.Spec.ParentProductID,
+		"quantity_basis":           "sales_spec_count",
+	}
+	if raw := strings.TrimSpace(selection.Spec.EffectiveSalesSpecJSON); raw != "" {
+		var snapshot map[string]any
+		if json.Unmarshal([]byte(raw), &snapshot) == nil && len(snapshot) > 0 {
+			source["effective_sales_spec"] = snapshot
+		}
+	}
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return `{"source":"manual"}`
+	}
+	return string(buf)
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -750,6 +993,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	type item struct {
 		productID                          *int64
+		submittedParentProductID           int64
 		customerProductAliasID             int64
 		customerProductDisplayNameSnapshot string
 		customerItemCodeSnapshot           string
@@ -790,6 +1034,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		it := item{
 			productID:                          src.ProductID,
+			submittedParentProductID:           src.ParentProductID,
 			customerProductAliasID:             src.CustomerProductAliasID,
 			customerProductDisplayNameSnapshot: strings.TrimSpace(src.CustomerProductDisplayNameSnapshot),
 			customerItemCodeSnapshot:           strings.TrimSpace(src.CustomerItemCodeSnapshot),
@@ -850,10 +1095,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		items = append(items, it)
 	}
-	// Validate: need at least one item with spec+units
+	// Concrete publications restore the authoritative spec after the transaction
+	// starts, so only concrete product identity and quantity are required here.
 	valid := false
 	for _, it := range items {
-		if it.productID != nil && it.specG > 0 && it.units > 0 {
+		if it.productID != nil && *it.productID > 0 && it.units > 0 {
 			valid = true
 			break
 		}
@@ -974,6 +1220,77 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if items[idx].productKind == "" {
 			items[idx].productKind = "roasted_bean"
 		}
+		selection := concreteOrderPublicationSelection{}
+		if items[idx].productID != nil && *items[idx].productID > 0 {
+			if items[idx].submittedParentProductID > 0 {
+				identity, identityErr := loadConcreteOrderProductIdentityTx(ctx, tx, r.schema, *items[idx].productID)
+				if identityErr != nil {
+					return salesapp.SaveOrderResult{}, identityErr
+				}
+				if identity.ParentProductID != items[idx].submittedParentProductID {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("提交的商品与 SKU 归属不一致，请重新选择商品规格")
+				}
+			}
+			selection, err = resolveConcreteOrderPublicationSelectionTx(
+				ctx,
+				tx,
+				r.schema,
+				cmd,
+				*items[idx].productID,
+				items[idx].submittedParentProductID,
+				items[idx].productKind,
+				retailOrder,
+				items[idx].itemBeanListPublicationID,
+				items[idx].priceListType,
+				items[idx].priceSourceJSON,
+			)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if items[idx].submittedParentProductID > 0 && selection.Usage.PublicationID <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
+			}
+		}
+		if selection.Strict {
+			items[idx].productKind = strings.TrimSpace(selection.Product.ProductKind)
+			items[idx].priceListType = selection.ListType
+			items[idx].itemBeanListPublicationID = selection.Usage.PublicationID
+			items[idx].itemBeanListVersionNo = selection.Usage.VersionNo
+			items[idx].quantityBasis = "sales_spec_count"
+			if frozenSpecG := concreteOrderSpecWeightG(selection.Spec); frozenSpecG > 0 {
+				items[idx].specG = frozenSpecG
+			}
+			items[idx].salesUnit = normalizeOrderItemSalesUnit(selection.Spec.SalesUnit)
+			if items[idx].salesUnit == "" {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("价格表商品规格缺少销售单位，请重新发布价格表")
+			}
+			unit := strings.TrimSpace(selection.Spec.SalesUnit)
+			items[idx].unit = &unit
+			specLabel := firstNonEmpty(selection.Spec.SpecLabel, selection.Spec.SpecName, selection.Product.SKUName)
+			items[idx].spec = &specLabel
+			if selection.Spec.UnitBagCount > 0 {
+				items[idx].unitBagCount = selection.Spec.UnitBagCount
+			}
+			if selection.Spec.UnitBeanG > 0 {
+				items[idx].unitBeanG = selection.Spec.UnitBeanG
+			}
+			aliasSnapshot, aliasErr := resolveOrderItemCustomerAliasSnapshotTx(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, items[idx].customerProductAliasID)
+			if aliasErr != nil {
+				return salesapp.SaveOrderResult{}, aliasErr
+			}
+			items[idx].name = firstNonEmpty(aliasSnapshot.DisplayName, selection.Product.ParentProductName)
+			items[idx].productNameSnapshot = selection.Product.ParentProductName
+			items[idx].productCodeSnapshot = selection.Product.SKUCode
+			if aliasSnapshot.AliasID > 0 {
+				items[idx].customerProductAliasID = aliasSnapshot.AliasID
+				items[idx].customerProductDisplayNameSnapshot = aliasSnapshot.DisplayName
+				items[idx].customerItemCodeSnapshot = aliasSnapshot.CustomerItemCode
+				items[idx].brandNameSnapshot = aliasSnapshot.BrandName
+			}
+			items[idx].matchedPriceQty = float64(items[idx].units)
+		} else if items[idx].productID != nil && items[idx].specG <= 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("at least one item required")
+		}
 		itemWeightG := orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
 		orderWeightG += itemWeightG
 
@@ -989,7 +1306,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				units:         items[idx].units,
 			}
 			lineTotal := orderManualPriceLineTotal(*items[idx].manualPrice, discountItem, retailOrder)
-			if items[idx].productKind == "drip_bag" {
+			if selection.Strict {
+				items[idx].matchedPriceQty = float64(items[idx].units)
+				items[idx].priceSourceJSON = manualConcreteOrderPriceSourceJSON(selection, *items[idx].productID)
+			} else if items[idx].productKind == "drip_bag" {
 				items[idx].matchedPriceQty = float64(items[idx].units)
 				items[idx].priceSourceJSON = `{"source":"manual"}`
 			}
@@ -1702,32 +2022,42 @@ type orderItemCustomerAliasSnapshot struct {
 }
 
 func resolveOrderItemCustomerAliasSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID, productID, requestedAliasID int64) (orderItemCustomerAliasSnapshot, error) {
-	snap := orderItemCustomerAliasSnapshot{
-		ProductCode: fmt.Sprintf("SKU-%d", productID),
-	}
+	snap := orderItemCustomerAliasSnapshot{ProductCode: fmt.Sprintf("SKU-%d", productID)}
 	if productID <= 0 {
 		return orderItemCustomerAliasSnapshot{}, nil
 	}
-	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, schema), productID).Scan(&snap.ProductName)
+	effectiveParentID := productID
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(p.sku_code,''),'SKU-' || p.id::text),
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END,
+		       COALESCE(NULLIF(parent.name,''),p.name,'')
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.products parent ON parent.id=p.parent_product_id
+		WHERE p.id=$1
+	`, schema), productID).Scan(&snap.ProductCode, &effectiveParentID, &snap.ProductName)
 	if !relationExistsTx(ctx, tx, fmt.Sprintf("%s.customer_product_aliases", schema)) {
+		if requestedAliasID > 0 {
+			return orderItemCustomerAliasSnapshot{}, fmt.Errorf("客户商品别名与当前客户或父商品不匹配，或已停用")
+		}
 		return snap, nil
 	}
 
 	q := fmt.Sprintf(`
 		SELECT a.id,
-		       COALESCE(NULLIF(a.display_name,''), p.name, ''),
+		       COALESCE(NULLIF(a.display_name,''), effective_parent.name, alias_product.name, ''),
 		       COALESCE(a.customer_item_code,''),
 		       COALESCE(a.brand_name,''),
-		       COALESCE(p.name,''),
+		       COALESCE(effective_parent.name, alias_product.name, ''),
 		       COALESCE(a.display_category_id,0),
 		       ''
 		FROM %[1]s.customer_product_aliases a
-		JOIN %[1]s.products p ON p.id=a.product_id
+		JOIN %[1]s.products alias_product ON alias_product.id=a.product_id
+		LEFT JOIN %[1]s.products effective_parent ON effective_parent.id=CASE WHEN COALESCE(alias_product.parent_product_id,0)>0 THEN alias_product.parent_product_id ELSE alias_product.id END
 		WHERE a.customer_id=$1
-		  AND a.product_id=$2
+		  AND CASE WHEN COALESCE(alias_product.parent_product_id,0)>0 THEN alias_product.parent_product_id ELSE alias_product.id END=$2
 		  AND a.active=true
 	`, schema)
-	args := []any{customerID, productID}
+	args := []any{customerID, effectiveParentID}
 	if requestedAliasID > 0 {
 		q += " AND a.id=$3"
 		args = append(args, requestedAliasID)
@@ -1744,7 +2074,7 @@ func resolveOrderItemCustomerAliasSnapshotTx(ctx context.Context, tx pgx.Tx, sch
 	)
 	if err == pgx.ErrNoRows {
 		if requestedAliasID > 0 {
-			return orderItemCustomerAliasSnapshot{}, fmt.Errorf("customer_product_alias invalid")
+			return orderItemCustomerAliasSnapshot{}, fmt.Errorf("客户商品别名与当前客户或父商品不匹配，或已停用")
 		}
 		return snap, nil
 	}

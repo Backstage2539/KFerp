@@ -121,6 +121,422 @@ export function productKindBadgeClass(productOrKind) {
   return 'kind-roasted'
 }
 
+function orderFamilyText(value) {
+  return String(value ?? '').trim()
+}
+
+function orderFamilyObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(String(value))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function orderFamilyID(...values) {
+  for (const value of values) {
+    const id = toInt(value)
+    if (id > 0) return id
+  }
+  return 0
+}
+
+function orderSpecLabel(spec = {}) {
+  const effective = orderFamilyObject(spec.effective_sales_spec ?? spec.effectiveSalesSpec)
+  const explicit = orderFamilyText(
+    spec.spec_label
+      ?? spec.specLabel
+      ?? effective.spec_label
+      ?? effective.specLabel
+      ?? effective.spec_name
+      ?? effective.specName
+      ?? spec.sales_spec
+      ?? spec.salesSpec,
+  )
+  if (explicit) return explicit
+  const qty = toNumber(spec.net_content_qty ?? spec.netContentQty)
+  const unit = orderFamilyText(spec.net_content_unit ?? spec.netContentUnit)
+  if (qty > 0 && unit) return `${trimNumber(qty)}${unit}`
+  const tierSpec = (Array.isArray(spec.tiers) ? spec.tiers : []).find((tier) => toInt(tier?.spec_g) > 0)
+  if (tierSpec) return formatSpecLabel(tierSpec.spec_g)
+  return orderFamilyText(spec.sku_name ?? spec.skuName ?? spec.name)
+}
+
+export function orderSpecWeightG(spec = {}) {
+  const explicit = toNumber(spec.spec_g ?? spec.specG)
+  if (explicit > 0) return explicit
+  const qty = toNumber(spec.net_content_qty ?? spec.netContentQty)
+  const unit = orderFamilyText(spec.net_content_unit ?? spec.netContentUnit).toLowerCase()
+  if (qty > 0) {
+    if (unit === 'g' || unit === '克') return qty
+    if (unit === 'kg' || unit === '千克' || unit === '公斤') return qty * 1000
+    if (unit === 'lb' || unit === 'lbs' || unit === '磅') return qty * 454
+    if (unit === 'mg' || unit === '毫克') return qty / 1000
+  }
+  const label = orderSpecLabel(spec)
+  const kg = label.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:kg|千克|公斤)/i)
+  if (kg) return toNumber(kg[1]) * 1000
+  const gram = label.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:g|克)/i)
+  if (gram) return toNumber(gram[1])
+  if (/^(?:lb|lbs|磅)$/i.test(label)) return 454
+  const unitBeanG = toNumber(spec.unit_bean_g ?? spec.unitBeanG)
+  const bagCount = Math.max(1, toInt(spec.unit_bag_count ?? spec.unitBagCount))
+  if (unitBeanG > 0) return unitBeanG * bagCount
+  return 0
+}
+
+function normalizeOrderFamilySpec(raw = {}, sourceProduct = null) {
+  const source = sourceProduct || raw.source_product || raw.sourceProduct || {}
+  const tiers = Array.isArray(raw.tiers)
+    ? raw.tiers
+    : (Array.isArray(source?.tiers) ? source.tiers : [])
+  const skuID = orderFamilyID(raw.sku_id, raw.skuID, raw.product_id, raw.id, source?.id)
+  return {
+    ...source,
+    ...raw,
+    sku_id: skuID,
+    sku_name: orderFamilyText(raw.sku_name ?? raw.skuName ?? raw.name ?? source?.name),
+    product_code: orderFamilyText(raw.product_code ?? raw.productCode ?? raw.code ?? source?.product_code ?? source?.code),
+    spec_label: orderSpecLabel({ ...source, ...raw, tiers }),
+    is_default_sku: Boolean(raw.is_default_sku ?? raw.isDefaultSku ?? source?.is_default_sku),
+    net_content_qty: toNumber(raw.net_content_qty ?? raw.netContentQty ?? source?.net_content_qty),
+    net_content_unit: orderFamilyText(raw.net_content_unit ?? raw.netContentUnit ?? source?.net_content_unit),
+    order_unit: orderFamilyText(raw.order_unit ?? raw.orderUnit ?? source?.order_unit),
+    quote_unit: orderFamilyText(raw.quote_unit ?? raw.quoteUnit ?? source?.quote_unit),
+    product_kind: orderFamilyText(raw.product_kind ?? raw.productKind ?? source?.product_kind),
+    tiers,
+    source_product: sourceProduct || raw.source_product || raw.sourceProduct || null,
+  }
+}
+
+function normalizeExplicitOrderFamily(raw = {}) {
+  const parentProductID = orderFamilyID(raw.parent_product_id, raw.parentProductID, raw.product_id, raw.id)
+  const parentProductName = orderFamilyText(
+    raw.parent_product_name
+      ?? raw.parentProductName
+      ?? raw.product_name_snapshot
+      ?? raw.productNameSnapshot
+      ?? raw.product_record_name
+      ?? raw.name,
+  )
+  const displayName = orderFamilyText(
+    raw.customer_product_display_name
+      ?? raw.customerProductDisplayName
+      ?? raw.display_name
+      ?? raw.name
+      ?? parentProductName,
+  ) || parentProductName
+  const specs = (Array.isArray(raw.specs) ? raw.specs : [])
+    .map((spec) => normalizeOrderFamilySpec(spec))
+    .filter((spec) => spec.sku_id > 0)
+  const searchCode = [
+    raw.code,
+    raw.product_code,
+    parentProductName,
+    ...specs.flatMap((spec) => [spec.sku_name, spec.product_code, spec.spec_label]),
+  ].map(orderFamilyText).filter(Boolean).join(' ')
+  return {
+    ...raw,
+    id: parentProductID,
+    parent_product_id: parentProductID,
+    parent_product_name: parentProductName,
+    product_name_snapshot: parentProductName,
+    name: displayName,
+    customer_product_display_name: orderFamilyText(raw.customer_product_display_name ?? raw.customerProductDisplayName ?? displayName),
+    default_sku_id: orderFamilyID(raw.default_sku_id, raw.defaultSkuID),
+    specs,
+    tiers: specs.flatMap((spec) => spec.tiers || []),
+    code: searchCode,
+    __order_product_family: true,
+    __order_concrete_price_family: raw.__order_concrete_price_family === undefined
+      ? true
+      : Boolean(raw.__order_concrete_price_family),
+  }
+}
+
+function fallbackOrderFamilies(products = []) {
+  const groups = new Map()
+  const legacyProducts = []
+  for (const product of products || []) {
+    const productID = orderFamilyID(product?.id, product?.product_id)
+    if (productID <= 0) continue
+    const tiers = Array.isArray(product?.tiers) ? product.tiers : []
+    const concreteTiers = tiers.filter(isConcreteOrderPublicationTier)
+    if (!concreteTiers.length) {
+      legacyProducts.push({
+        ...product,
+        id: productID,
+        parent_product_id: orderFamilyID(product?.parent_product_id, product?.parentProductID) || productID,
+        tiers: tiers.filter((tier) => !isConcreteOrderPublicationTier(tier)),
+        __order_product_family: false,
+        __order_concrete_price_family: false,
+        __order_legacy_price_product: true,
+      })
+      continue
+    }
+    const annotatedParentID = orderFamilyID(product?.parent_product_id, product?.parentProductID)
+    const parentProductID = annotatedParentID || productID
+    const key = String(parentProductID)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push({ ...product, tiers: concreteTiers })
+  }
+  const concreteFamilies = [...groups.values()].map((group) => {
+    const first = group[0] || {}
+    const parentProductID = orderFamilyID(first.parent_product_id, first.parentProductID, first.id)
+    const parentProductName = orderFamilyText(
+      first.parent_product_name
+        ?? first.parentProductName
+        ?? first.product_name_snapshot
+        ?? first.productNameSnapshot
+        ?? first.product_record_name
+        ?? first.name,
+    )
+    const displayName = orderFamilyText(
+      first.customer_product_display_name
+        ?? first.customerProductDisplayName
+        ?? first.parent_product_display_name
+        ?? parentProductName,
+    ) || parentProductName
+    const specs = group.map((product) => normalizeOrderFamilySpec({
+      ...product,
+      sku_id: product.id,
+      sku_name: product.sku_name || product.name,
+      spec_label: product.spec_label || product.effective_sales_spec || product.sales_spec,
+    }, product))
+    const concrete = group.some((product) => (product?.tiers || []).some(isConcreteOrderPublicationTier))
+    return normalizeExplicitOrderFamily({
+      ...first,
+      parent_product_id: parentProductID,
+      parent_product_name: parentProductName,
+      name: displayName,
+      default_sku_id: orderFamilyID(first.default_sku_id, specs.find((spec) => spec.is_default_sku)?.sku_id),
+      specs,
+      __order_concrete_price_family: concrete,
+    })
+  }).map((family, index) => ({
+    ...family,
+    __order_concrete_price_family: Boolean(family.__order_concrete_price_family),
+    __order_fallback_index: index,
+  }))
+  return [...concreteFamilies, ...legacyProducts]
+}
+
+export function normalizeOrderProductFamilies(productFamilies = [], products = []) {
+  if (Array.isArray(productFamilies) && productFamilies.length) {
+    const productByID = new Map((products || []).map((product) => [toInt(product?.id), product]))
+    const concreteFamilies = productFamilies.map((raw) => {
+      const enrichedSpecs = (raw?.specs || []).map((spec) => ({
+        ...(productByID.get(orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id)) || {}),
+        ...spec,
+      }))
+      const family = normalizeExplicitOrderFamily({ ...raw, specs: enrichedSpecs })
+      family.py = orderFamilyText(raw?.py) || family.specs.map((spec) => orderFamilyText(spec?.py)).filter(Boolean).join(' ')
+      family.pyi = orderFamilyText(raw?.pyi) || family.specs.map((spec) => orderFamilyText(spec?.pyi)).filter(Boolean).join(' ')
+      return family
+    }).filter((family) => family.parent_product_id > 0 && family.specs.length)
+    const concreteParentIDs = new Set(concreteFamilies.map((family) => family.parent_product_id))
+    const unrelatedLegacyProducts = (products || []).filter((product) => {
+      const parentProductID = orderFamilyID(product?.parent_product_id, product?.parentProductID, product?.id)
+      if (concreteParentIDs.has(parentProductID)) return false
+      return (product?.tiers || []).some((tier) => tierPublicationID(tier) > 0 && !isConcreteOrderPublicationTier(tier))
+    })
+    return [...concreteFamilies, ...fallbackOrderFamilies(unrelatedLegacyProducts)]
+  }
+  return fallbackOrderFamilies(products)
+}
+
+export function orderProductFamilyOptions(families = [], query = '') {
+  const q = orderFamilyText(query).toLowerCase()
+  if (!q) return families || []
+  return (families || []).filter((family) => {
+    const haystack = [
+      family?.name,
+      family?.parent_product_name,
+      family?.py,
+      family?.pyi,
+      family?.code,
+      ...(family?.specs || []).flatMap((spec) => [spec?.spec_label, spec?.sku_name, spec?.product_code]),
+    ].map(orderFamilyText).join(' ').toLowerCase()
+    return haystack.includes(q)
+  })
+}
+
+export function orderFamilyForSKU(families = [], skuID = 0) {
+  const id = toInt(skuID)
+  if (id <= 0) return null
+  return (families || []).find((family) => (family?.specs || []).some((spec) => toInt(spec?.sku_id) === id)) || null
+}
+
+export function orderFamilySpecsForPublication(family = {}, publicationID = 0) {
+  const selectedPublicationID = toInt(publicationID)
+  return (family?.specs || []).flatMap((spec) => {
+    const tiers = (spec?.tiers || []).filter((tier) => {
+      if (selectedPublicationID <= 0) return true
+      return tierPublicationID(tier) === selectedPublicationID
+    })
+    if (!tiers.length) return []
+    const tier = tiers[0] || {}
+    const source = tierPriceSource(tier) || {}
+    const sourceSnapshot = orderFamilyObject(source.effective_sales_spec ?? source.effectiveSalesSpec)
+    const directSnapshot = orderFamilyObject(tier.effective_sales_spec ?? tier.effectiveSalesSpec)
+    const effectiveSalesSpec = { ...sourceSnapshot, ...directSnapshot }
+    const snapshotName = orderFamilyText(effectiveSalesSpec.spec_name ?? effectiveSalesSpec.specName)
+    const snapshotLabel = orderFamilyText(
+      effectiveSalesSpec.spec_label
+        ?? effectiveSalesSpec.specLabel
+        ?? effectiveSalesSpec.spec_name
+        ?? effectiveSalesSpec.specName,
+    )
+    const snapshotSalesUnit = orderFamilyText(effectiveSalesSpec.sales_unit ?? effectiveSalesSpec.salesUnit)
+    const snapshotNetContentQty = toNumber(effectiveSalesSpec.net_content_qty ?? effectiveSalesSpec.netContentQty)
+    const snapshotNetContentUnit = orderFamilyText(effectiveSalesSpec.net_content_unit ?? effectiveSalesSpec.netContentUnit)
+    const snapshotProductKind = orderFamilyText(
+      effectiveSalesSpec.product_kind
+        ?? effectiveSalesSpec.productKind
+        ?? tier.product_kind
+        ?? tier.productKind,
+    )
+    const snapshotInventoryUnit = orderFamilyText(effectiveSalesSpec.inventory_unit ?? effectiveSalesSpec.inventoryUnit)
+    const snapshotConversion = orderFamilyObject(
+      effectiveSalesSpec.inventory_conversion_json
+        ?? effectiveSalesSpec.inventoryConversionJSON
+        ?? effectiveSalesSpec.unit_conversion_json
+        ?? effectiveSalesSpec.unitConversionJSON,
+    )
+    return [{
+      ...spec,
+      sku_name: snapshotName || spec.sku_name,
+      spec_name: snapshotName || orderFamilyText(spec.spec_name ?? spec.specName),
+      spec_label: snapshotLabel || spec.spec_label,
+      spec_key: orderFamilyText(effectiveSalesSpec.spec_key ?? effectiveSalesSpec.specKey) || orderFamilyText(spec.spec_key ?? spec.specKey),
+      sales_unit: snapshotSalesUnit || orderFamilyText(spec.sales_unit ?? spec.salesUnit),
+      net_content_qty: snapshotNetContentQty > 0 ? snapshotNetContentQty : toNumber(spec.net_content_qty ?? spec.netContentQty),
+      net_content_unit: snapshotNetContentUnit || orderFamilyText(spec.net_content_unit ?? spec.netContentUnit),
+      inventory_unit: snapshotInventoryUnit || orderFamilyText(spec.inventory_unit ?? spec.inventoryUnit),
+      inventory_conversion_json: Object.keys(snapshotConversion).length
+        ? snapshotConversion
+        : orderFamilyObject(spec.inventory_conversion_json ?? spec.inventoryConversionJSON),
+      unit_conversion_json: Object.keys(snapshotConversion).length
+        ? snapshotConversion
+        : (spec.unit_conversion_json ?? spec.unitConversionJSON),
+      product_kind: snapshotProductKind || orderFamilyText(spec.product_kind ?? spec.productKind),
+      effective_sales_spec: Object.keys(effectiveSalesSpec).length
+        ? effectiveSalesSpec
+        : orderFamilyObject(spec.effective_sales_spec ?? spec.effectiveSalesSpec),
+      tiers,
+    }]
+  })
+}
+
+export function orderFamilySpecOptions(family = {}, publicationID = 0) {
+  return orderFamilySpecsForPublication(family, publicationID).map((spec) => ({
+    label: orderSpecLabel(spec),
+    value: String(toInt(spec.sku_id)),
+    skuID: toInt(spec.sku_id),
+  }))
+}
+
+export function orderFamilyDefaultSpec(family = {}, publicationID = 0) {
+  const specs = orderFamilySpecsForPublication(family, publicationID)
+  const defaultSkuID = orderFamilyID(family?.default_sku_id, family?.defaultSkuID)
+  return specs.find((spec) => toInt(spec.sku_id) === defaultSkuID)
+    || specs.find((spec) => spec.is_default_sku)
+    || specs[0]
+    || null
+}
+
+export function orderSpecSelectionAfterPublicationChange(family = {}, currentSkuID = 0, publicationID = 0) {
+  const skuID = toInt(currentSkuID)
+  if (skuID <= 0) return null
+  return orderFamilySpecsForPublication(family, publicationID)
+    .find((spec) => toInt(spec.sku_id) === skuID) || null
+}
+
+function orderFamilyTierVersion(tier = {}) {
+  const source = tierPriceSource(tier) || {}
+  return orderFamilyText(tier.version_no ?? tier.versionNo ?? source.version_no ?? source.bean_list_version_no ?? source.version)
+}
+
+function orderSpecSalesUnit(spec = {}, tier = {}) {
+  const raw = orderFamilyText(spec.sales_unit ?? spec.salesUnit ?? tier.sales_unit ?? tier.salesUnit).toLowerCase()
+  if (raw === 'box' || raw.includes('盒')) return 'box'
+  if (raw === 'bag' || raw.includes('袋')) return 'bag'
+  return ''
+}
+
+function orderSpecQuantityUnit(spec = {}, tier = {}) {
+  const salesUnit = orderSpecSalesUnit(spec, tier)
+  if (salesUnit === 'box') return '盒'
+  if (salesUnit === 'bag') return '袋'
+  const orderUnit = orderFamilyText(spec.order_unit ?? spec.orderUnit)
+  if (['盒', '袋', '条', '瓶', '罐'].some((unit) => orderUnit.includes(unit))) return orderUnit
+  return '件'
+}
+
+export function orderFamilySpecProduct(family = {}, spec = {}, publicationID = 0) {
+  const selected = orderFamilySpecsForPublication({ specs: [spec] }, publicationID)[0] || { ...spec, tiers: [] }
+  const sourceProduct = selected.source_product || selected.sourceProduct || {}
+  const skuID = toInt(selected.sku_id)
+  return {
+    ...family,
+    ...sourceProduct,
+    ...selected,
+    id: skuID,
+    product_id: skuID,
+    parent_product_id: toInt(family.parent_product_id || family.id),
+    parent_product_name: orderFamilyText(family.parent_product_name || family.product_name_snapshot || family.name),
+    name: orderFamilyText(family.name || family.parent_product_name),
+    product_name_snapshot: orderFamilyText(family.parent_product_name || family.product_name_snapshot || family.name),
+    effective_sales_spec: orderFamilyObject(selected.effective_sales_spec ?? selected.effectiveSalesSpec),
+    tiers: selected.tiers || [],
+    __order_product_family: true,
+    __order_concrete_price_family: true,
+  }
+}
+
+export function orderFamilySpecRowPatch(family = {}, spec = {}, publicationID = 0) {
+  const product = orderFamilySpecProduct(family, spec, publicationID)
+  const tier = product.tiers[0] || {}
+  const source = tierPriceSource(tier) || {}
+  const salesUnit = orderSpecSalesUnit(spec, tier)
+  const unitBeanG = toNumber(spec.unit_bean_g ?? spec.unitBeanG ?? tier.unit_bean_g ?? tier.unitBeanG)
+  const unitBagCount = Math.max(0, toInt(spec.unit_bag_count ?? spec.unitBagCount ?? tier.unit_bag_count ?? tier.unitBagCount))
+  const parentName = orderFamilyText(family.parent_product_name || family.product_name_snapshot || family.name)
+  const displayName = orderFamilyText(family.name || family.customer_product_display_name || parentName)
+  return {
+    parent_product_id: toInt(family.parent_product_id || family.id),
+    parent_product_name: parentName,
+    product_id: toInt(spec.sku_id),
+    product_name: displayName,
+    product_query: displayName,
+    product_code: orderFamilyText(spec.product_code || spec.sku_name || `SKU-${toInt(spec.sku_id)}`),
+    product_record_name: parentName,
+    customer_product_alias_id: toInt(family.customer_product_alias_id),
+    customer_product_display_name: orderFamilyText(family.customer_product_display_name || displayName),
+    customer_item_code: orderFamilyText(family.customer_item_code),
+    brand_name: orderFamilyText(family.brand_name),
+    product_kind: orderFamilyText(spec.product_kind || family.product_kind || 'roasted_bean'),
+    product_type_category_id: toInt(family.product_type_category_id),
+    product_type_name: orderFamilyText(family.product_type_name),
+    spec_source: 'price_list_sku',
+    spec_mode: String(toInt(spec.sku_id)),
+    spec_label: orderSpecLabel(spec),
+    spec_g: orderSpecWeightG(spec),
+    custom_spec_g: '',
+    sales_unit: salesUnit,
+    unit_bag_count: unitBagCount,
+    unit_bean_g: unitBeanG || '',
+    unit: orderSpecQuantityUnit(spec, tier),
+    bean_list_publication_id: toInt(publicationID || tier.publication_id || source.publication_id || source.bean_list_publication_id),
+    bean_list_version_no: orderFamilyTierVersion(tier),
+    historical_spec_readonly: false,
+    spec_invalid_message: '',
+  }
+}
+
 export function wholesaleSpecOptions(product) {
   const specs = new Set(COMMON_SPEC_GRAMS)
   for (const tier of product?.tiers || []) {
@@ -341,7 +757,47 @@ export function wholesaleTierPriceRows(product, row = null) {
 
 function tierPublicationID(tier) {
   const source = tierPriceSource(tier)
-  return toInt(source?.publication_id || source?.bean_list_publication_id)
+  return toInt(
+    tier?.publication_id
+      || tier?.publicationID
+      || tier?.bean_list_publication_id
+      || tier?.beanListPublicationID
+      || source?.publication_id
+      || source?.bean_list_publication_id,
+  )
+}
+
+export function isConcreteOrderPublicationTier(tier = {}) {
+  const source = tierPriceSource(tier) || {}
+  const effectiveSalesSpec = {
+    ...orderFamilyObject(source.effective_sales_spec ?? source.effectiveSalesSpec),
+    ...orderFamilyObject(tier.effective_sales_spec ?? tier.effectiveSalesSpec),
+  }
+  return tierQuantityBasis(tier) === 'sales_spec_count'
+    && tierPublicationID(tier) > 0
+    && orderFamilyID(effectiveSalesSpec.sku_id, effectiveSalesSpec.skuID, effectiveSalesSpec.skuId) > 0
+}
+
+export function orderProductPublicationMode(product = {}, publicationID = 0) {
+  const selectedPublicationID = toInt(publicationID)
+  if (selectedPublicationID <= 0) return ''
+  const tiers = (Array.isArray(product?.tiers) ? product.tiers : [])
+    .filter((tier) => tierPublicationID(tier) === selectedPublicationID)
+  if (!tiers.length) return ''
+  return tiers.some(isConcreteOrderPublicationTier) ? 'concrete' : 'legacy'
+}
+
+export function orderLegacyProductForPublication(product = {}, publicationID = 0) {
+  const selectedPublicationID = toInt(publicationID)
+  if (selectedPublicationID <= 0) return null
+  const tiers = (Array.isArray(product?.tiers) ? product.tiers : [])
+    .filter((tier) => tierPublicationID(tier) === selectedPublicationID)
+  if (orderProductPublicationMode(product, selectedPublicationID) !== 'legacy') return null
+  return {
+    ...product,
+    tiers,
+    __order_legacy_price_product: true,
+  }
 }
 
 function tiersForSelectedPublication(product, row = null) {
@@ -405,8 +861,8 @@ export function resolveWholesaleTierPrice(product, row) {
     unitPrice: String(unitPrice),
     priceUnit,
     tierPriceLabel: `${formatTierUnitPrice(unitPrice)}${priceUnit.suffix}`,
-    beanListPublicationID: toInt(source.publication_id || source.bean_list_publication_id),
-    beanListVersionNo: String(source.version_no || source.bean_list_version_no || source.version || '').trim(),
+    beanListPublicationID: tierPublicationID(tier),
+    beanListVersionNo: String(tier?.version_no || tier?.versionNo || source.version_no || source.bean_list_version_no || source.version || '').trim(),
     quantityBasis: tierQuantityBasis(tier),
     priceSourceJSON: String(tier?.price_source_json || ''),
     belowMinTier: matched.belowMin,
@@ -594,7 +1050,22 @@ export function sortProductsByCustomerUsage(products, customerID, usages = []) {
   }
   if (!usageByProduct.size) return products || []
   return (products || [])
-    .map((product, index) => ({ product, index, usage: usageByProduct.get(toInt(product?.id)) || null }))
+    .map((product, index) => {
+      const productIDs = new Set([
+        toInt(product?.id),
+        toInt(product?.parent_product_id),
+        ...(product?.specs || []).map((spec) => toInt(spec?.sku_id)),
+      ].filter((id) => id > 0))
+      const matching = [...productIDs].map((id) => usageByProduct.get(id)).filter(Boolean)
+      const usage = matching.length
+        ? matching.reduce((acc, item) => ({
+          orderCount: acc.orderCount + item.orderCount,
+          itemCount: acc.itemCount + item.itemCount,
+          lastOrderDate: acc.lastOrderDate > item.lastOrderDate ? acc.lastOrderDate : item.lastOrderDate,
+        }), { orderCount: 0, itemCount: 0, lastOrderDate: '' })
+        : null
+      return { product, index, usage }
+    })
     .sort((a, b) => {
       if (a.usage && !b.usage) return -1
       if (!a.usage && b.usage) return 1
@@ -773,12 +1244,12 @@ function productMatchesExplicitPublicationScope(product, publicationIDsByType) {
   const publicationIDs = publicationIDsByType[listType]
   if (!publicationIDs?.size) return false
   return (product?.tiers || []).some((tier) => {
-    const source = tierPriceSource(tier)
-    if (!source) return false
+    const source = tierPriceSource(tier) || {}
     const publicationID = tierPublicationID(tier)
+    const tierListType = normalizeBeanListType(tier?.list_type || tier?.listType || source.list_type || listType)
     return publicationID > 0
       && publicationIDs.has(publicationID)
-      && normalizeBeanListType(source.list_type) === listType
+      && tierListType === listType
   })
 }
 
@@ -974,6 +1445,7 @@ export function buildOrderPayload({ form, rows }) {
     outsource_tax_fee: String(form.outsource_tax_fee || ''),
     outsource_other_fee: String(form.outsource_other_fee || ''),
     product_id: [],
+    parent_product_id: [],
     customer_product_alias_id: [],
     customer_product_display_name_snapshot: [],
     customer_item_code_snapshot: [],
@@ -1007,6 +1479,7 @@ export function buildOrderPayload({ form, rows }) {
     const qty = toInt(row.qty)
     if (productID <= 0 || specG <= 0 || qty <= 0) continue
     payload.product_id.push(String(productID))
+    payload.parent_product_id.push(String(toInt(row.parent_product_id)))
     payload.customer_product_alias_id.push(String(toInt(row.customer_product_alias_id)))
     payload.customer_product_display_name_snapshot.push(String(row.customer_product_display_name || row.product_name || row.item_name || '').trim())
     payload.customer_item_code_snapshot.push(String(row.customer_item_code || '').trim())

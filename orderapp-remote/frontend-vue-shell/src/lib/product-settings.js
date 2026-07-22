@@ -979,21 +979,18 @@ export function resolvePriceTableTemplateInheritance({
   const parent = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === parentID)
 
   const modeCandidates = [
-    { source: skuSource, value: normalizePriceTablePricingMode(skuOverride?.pricing_mode ?? skuOverride?.pricingMode) },
     { source: 'parent_product', value: normalizePriceTablePricingMode(parentProductOverride?.pricing_mode ?? parentProductOverride?.pricingMode) },
     { source: 'subgroup', value: normalizePriceTablePricingMode(subgroup?.pricing_mode ?? subgroup?.pricingMode) },
     { source: 'parent_group', value: normalizePriceTablePricingMode(parent?.pricing_mode ?? parent?.pricingMode) },
     { source: 'default', value: normalizePriceTablePricingMode(defaults.pricing_mode ?? defaults.pricingMode) },
   ]
   const tierCandidates = [
-    { source: skuSource, value: Number(skuOverride?.tier_template_id || skuOverride?.tierTemplateID || 0) },
     { source: 'parent_product', value: Number(parentProductOverride?.tier_template_id || parentProductOverride?.tierTemplateID || 0) },
     { source: 'subgroup', value: Number(subgroup?.tier_template_id || subgroup?.tierTemplateID || 0) },
     { source: 'parent_group', value: Number(parent?.tier_template_id || parent?.tierTemplateID || 0) },
     { source: 'default', value: Number(defaults.tier_template_id || defaults.tierTemplateID || 0) },
   ]
   const pricingCandidates = [
-    { source: skuSource, value: Number(skuOverride?.pricing_rule_id || skuOverride?.pricingRuleID || 0) },
     { source: 'parent_product', value: Number(parentProductOverride?.pricing_rule_id || parentProductOverride?.pricingRuleID || 0) },
     { source: 'subgroup', value: Number(subgroup?.pricing_rule_id || subgroup?.pricingRuleID || 0) },
     { source: 'parent_group', value: Number(parent?.pricing_rule_id || parent?.pricingRuleID || 0) },
