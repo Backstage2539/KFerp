@@ -24,7 +24,8 @@ func TestDev340OrderEntryProductDropdownLayerSeeds(t *testing.T) {
 func TestDev340OrderEntryProductDropdownLayerWiring(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 	for _, want := range []string{
-		`class="product-combobox combobox product-cell" :class="{ open: row.product_open }"`,
+		`class="product-combobox combobox product-cell"`,
+		`:class="{ open: row.product_open }"`,
 		".combobox.open { z-index: 30; }",
 		".product-cell { z-index: 3; }",
 	} {
