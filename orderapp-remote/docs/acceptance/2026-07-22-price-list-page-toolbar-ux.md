@@ -31,4 +31,7 @@
 ## 交付边界
 
 - 本需求没有新增业务写操作，不新增操作日志。
-- development 待本轮合并后部署；production 不部署，也不发布、撤回或归档价格表。
+- 功能分支提交 `44716a88`，合并后的 `develop` 为 `ac61d4d4af5667a5316a6da00187529bf628115c`，已通过 `./deploy_orderapp.sh development` 部署；备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260722233552`。
+- 开发栈 `erp_orderapp` 正常运行、`erp_postgres` healthy；公开入口未认证返回 401，BasicAuth shell 返回 200；开发数据库存在 PR-547，服务器源码与 dist 均包含 `publication-list-collapse-toggle` / “展开已发布价格表”标记。
+- 浏览器检查到达系统登录页；没有使用或索取业务账号绕过登录，最终页面布局与收起/展开交互等待 Van 在开发环境手工确认。
+- production 未部署，也没有发布、撤回或归档价格表。

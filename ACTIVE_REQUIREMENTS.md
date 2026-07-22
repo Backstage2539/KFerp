@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-547-PRICE-LIST-PAGE-TOOLBAR-UX
 - Branch: codex/pr547-price-list-page-toolbar-ux
 - Owner/session: Codex / 2026-07-22
-- Status: implementation and automated verification complete; awaiting development deployment and Van acceptance
+- Status: merged to `develop`, deployed to development, automated smoke complete; awaiting Van acceptance
 - Scope: 商品价格表顶部删除“模型”；生成规则标题改为“计价规则”；已发布价格表删除说明与“刷新版本”，把上下双箭头收起/展开按钮放到标题左侧，并把商品类型过滤放到搜索左侧且统一控件高度。
 - DEV:
   - DEV-547-PRICE-LIST-LABEL-CLEANUP：删除顶部模型指标，将 Price List / Item Price 生成规则改为计价规则。
@@ -18,9 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: `node --test src/lib/costing-bean-list-version-ui.test.js` 因顶部仍存在“模型”失败；`go test ./internal/interfaces/http/support -run '^TestDev547PriceListPageToolbarUXContracts$' -count=1` 因缺少 PR-547 需求种子失败。
   - GREEN: `costing-bean-list-version-ui.test.js` + `product-bean-list-split.test.js` 59/59；支持合同包与完整 `scripts/verify_kferp.sh backend` 通过；Vue/Vite production build 通过（401 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
-- Deployment: development pending; production unchanged
+- Deployment: development `ac61d4d4af5667a5316a6da00187529bf628115c`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722233552`; production unchanged
 - Last update: 2026-07-22 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh` 返回 PR-547；`--claim price-list-page-toolbar-ux` 命中已知 macOS awk 多行字符串错误，故手工登记。
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-547；`--claim price-list-page-toolbar-ux` 命中已知 macOS awk 多行字符串错误，故手工登记。开发部署 Docker build 内完整 Go 测试通过，`erp_orderapp` 正常、`erp_postgres` healthy；公开入口未认证 401、BasicAuth shell 200；开发数据库存在 PR-547，服务器源码与 dist 均包含收起按钮标记。浏览器到达系统登录页，未使用或索取业务账号绕过登录，最终布局待 Van 手工确认。
 
 ### PR-546-ORDER-PRODUCT-CATEGORY-FILTER
 - Branch: codex/pr546-order-product-category-filter
