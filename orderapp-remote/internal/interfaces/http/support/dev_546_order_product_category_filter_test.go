@@ -19,6 +19,15 @@ func TestDev546OrderProductCategoryFilterContracts(t *testing.T) {
 			t.Fatalf("req_store.go missing PR-546 seed %q", want)
 		}
 	}
+	for _, want := range []string{
+		`code: "PR-546-ORDER-PRODUCT-CATEGORY-FILTER", title: "录单商品下拉支持当前价格表分类过滤并在点击外部时自动收起", status: "done"`,
+		`code: "REV-546-ORDER-PRODUCT-CATEGORY-FILTER", prCode: "PR-546-ORDER-PRODUCT-CATEGORY-FILTER", title: "验收：录单商品按分类搜索且点击下拉外任意位置自动收起", status: "done"`,
+		"Van manual acceptance 2026-07-22",
+	} {
+		if !strings.Contains(reqStore, want) {
+			t.Fatalf("req_store.go missing PR-546 closure marker %q", want)
+		}
+	}
 
 	for rel, wants := range map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {

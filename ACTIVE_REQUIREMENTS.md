@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-546-ORDER-PRODUCT-CATEGORY-FILTER
 - Branch: codex/pr546-order-product-category-filter
 - Owner/session: Codex / 2026-07-22
-- Status: merged to `develop` and deployed to development; automated smoke passed, browser smoke blocked by the existing development TLS certificate
+- Status: done / closed; merged to `develop`, deployed to development, automated smoke passed, and Van manually accepted on 2026-07-22
 - Scope: 录单商品选择下拉只基于当前客户和当前启用价格表的可选父商品生成分类过滤项；分类沿用商品候选现有“熟豆 / 挂耳 / 生豆 / 速溶咖啡”标签，名称/拼音搜索与分类条件叠加。点击商品下拉外任意区域自动收起，多行切换时只保留当前行菜单。
 - DEV:
   - DEV-546-PRODUCT-CATEGORY-FILTER：在商品下拉顶部显示当前作用域实际存在的分类，支持“全部”和按分类过滤，不改变 publication、SKU、规格或定价逻辑。
@@ -18,9 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: `node --test src/lib/order-entry.test.js` 因缺少分类过滤和菜单关闭 helper 失败；`go test ./internal/interfaces/http/support -run TestDev546OrderProductCategoryFilterContracts -count=1` 因缺少 PR-546 种子失败。
   - GREEN: `order-entry.test.js` 119/119；`form-draft-cache.test.js` 3/3；支持合同、订单表单 API 与 PostgreSQL 查询合同通过；Vue/Vite production build 通过；完整前端 796/802，和最新 `origin/develop` 基线 793/799 的同 6 个 workspace-context 既有失败完全一致，新增 3 个测试全部通过。
-- Deployment: development deployed from `origin/develop` code merge `0f95ad06`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722224131`; `erp_orderapp` and PostgreSQL healthy; authenticated `/app/` follows to 200; requirement API 200 with PR-546; source/docs markers present; production unchanged
+- Deployment: development deployed from `origin/develop` `f574d991aaa5e403bb6867040dc1dc4f2d58ae68`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722225117`; `erp_orderapp` and PostgreSQL healthy; authenticated `/app/` follows to 200; requirement API 200 with PR-546; source/docs markers present; production unchanged
 - Last update: 2026-07-22 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh` 返回 PR-546；`--claim order-product-category-filter` 命中已知 macOS awk 多行字符串错误，故手工记录本条。首次 Docker build 暴露 PR-340 单行源码断言，`75f0a48f` 改为独立标记后本机及镜像内 `go test ./...` 全通过。开发域 in-app browser 仍报 `ERR_CERT_AUTHORITY_INVALID`，未绕过证书。
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-546；`--claim order-product-category-filter` 命中已知 macOS awk 多行字符串错误，故手工记录本条。首次 Docker build 暴露 PR-340 单行源码断言，`75f0a48f` 改为独立标记后本机及镜像内 `go test ./...` 全通过。自动浏览器因开发域 `ERR_CERT_AUTHORITY_INVALID` 未执行；Van 已在开发环境手工验证分类过滤与点击外部收起均通过，REV-546 和 PR-546 关闭。
 
 ### PR-545-ORDER-PRICE-LIST-CATALOG-SCOPE
 - Branch: codex/pr545-order-price-list-catalog-scope
