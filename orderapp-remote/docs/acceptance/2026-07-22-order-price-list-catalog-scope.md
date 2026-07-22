@@ -24,7 +24,14 @@
 - 订单头定向：`go test ./internal/interfaces/http/sales -run '^TestEditDataForAPI' -count=1` 通过；唯一商业行会覆盖陈旧订单头和版本，多商业 publication 清零订单头，行 publication 不变，价格来源快照 `list_type` 优先且旧快照仍按商品类型回退。
 - 完整验证：`scripts/verify_kferp.sh backend` 全部通过；`scripts/verify_kferp.sh changed` 通过；Vue/Vite 构建通过（401 modules）。完整前端为 793/799，六个失败均为工作区上下文既有断言；干净 `origin/develop` 同样是六个失败（783/789），失败名称一致，本需求没有新增全量前端回归。
 - 独立终审：前端和后端分别完成修复后二次只读审查，历史/草稿/权限/多类型过滤及订单头边界均关闭，未发现剩余 P0/P1。
-- 开发部署与现场 API/浏览器证据在集成后补充。
+
+## 开发环境部署与现场验收
+
+- 行为提交通过合并提交 `7f8775468a31cd040996aa0b5ae845261390e9bb` 进入 `origin/develop`，从与该提交一致的干净集成树部署到 development；部署前备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260722192649`。
+- development 的 `erp_orderapp` 重建后保持运行，`erp_postgres` 在部署时为 healthy；HTTPS 入口可达，未登录订单接口按预期返回 401，部署源码包含分类模板查询标记，最近 30 分钟容器日志无 `panic`、`fatal`、`SQLSTATE` 或应用 `error`。
+- Chrome 登录态只读验收中，“选择价格表”按权威分类分别展示版本；无分类 ID 的 `KMM商品供应售价 V3.0.18` 明确标记为“历史兼容价格表，默认不参与新订单”，默认值为“不使用该历史价格表”。
+- 现场已有更新的熟豆 V3.0.21，因此在独立空白录单页手工选择同分类 V3.0.19 后打开商品候选；熟豆按钮严格为 4 个：果皮茶、白月光瑰夏、风味孟连、黑巧炸弹，均显示 1 个可售规格，未出现 V3.0.18 旧多规格商品。其他挂耳、生豆分类候选仍来自各自当前 publication，没有被 V3.0.19 错误覆盖。
+- 验收只操作临时页面状态，未保存订单，未撤回、保存或重新发布任何价格表；生产环境未部署、未写入。前端控制台没有应用错误，仅出现 1Password 扩展自身的 credentials 覆盖警告。
 
 ## 兼容边界
 

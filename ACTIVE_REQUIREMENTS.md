@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-545-ORDER-PRICE-LIST-CATALOG-SCOPE
 - Branch: codex/pr545-order-price-list-catalog-scope
 - Owner/session: Codex / 2026-07-22
-- Status: implementation, independent review and verification complete; integration and development deployment pending
+- Status: implementation, independent review, develop integration, development deployment and read-only browser smoke complete; awaiting Van review
 - Scope: 录单按已发布产品价格表的权威分类模板选择版本；新订单和复制订单只展示当前自动启用或用户明确启用价格表中的商品/规格，旧价格表继续供历史订单冻结快照与显式历史选择使用，不再自动把旧多规格 SKU 混入新订单。
 - DEV:
   - DEV-545-CLASSIFICATION-VERSION-IDENTITY：录单价格表版本接口返回分类模板 ID/名称，并按有效分类身份计算每组最新版本及客户/公共兜底。
@@ -20,10 +20,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Unit/API GREEN: complete `go test ./...`; targeted sales/application/repository/API/support packages; four classification, customer fallback, line-publication and multi-classification header cases passed against a temporary schema on the real development PostgreSQL.
   - Frontend/build GREEN: `order-entry.test.js` 116/116; Vue/Vite build passed with 401 modules. Full frontend is 793/799 with the same six unrelated workspace-context failures reproduced on clean `origin/develop` (783/789).
   - Manual: requirements, acceptance checklist, order-sales single-source manual and Vue in-page help updated; historical-only environments remain compatible.
-  - Review/acceptance: independent backend/frontend final reviews addressed customer/public scope separation, retail/drip/green exact publication filtering, restored-draft revalidation, frozen historical hydration, classification-scoped stale warnings, source-list-type headers and single/multi-publication order headers; no remaining P0/P1.
-- Deployment: pending development deployment; production out of scope
+  - Review/acceptance: independent backend/frontend final reviews addressed customer/public scope separation, retail/drip/green exact publication filtering, restored-draft revalidation, frozen historical hydration, classification-scoped stale warnings, source-list-type headers and single/multi-publication order headers; no remaining P0/P1. Development browser smoke explicitly selected V3.0.19 and returned exactly 果皮茶、白月光瑰夏、风味孟连、黑巧炸弹 four 熟豆 candidates; V3.0.18 remains a default-disabled historical compatibility choice.
+- Deployment: behavior merged to `develop` as `7f8775468a31cd040996aa0b5ae845261390e9bb` and deployed to development from a clean integration tree matching `origin/develop`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722192649`. `erp_orderapp` is running, `erp_postgres` was healthy during deployment, HTTPS and authenticated Vue smoke passed, deployed classification source markers are present, and recent application error markers are 0. Production was not deployed.
 - Last update: 2026-07-22 Asia/Shanghai
-- Notes: no price table was withdrawn, saved or republished during verification; no production write or deployment was performed.
+- Notes: no order was saved and no price table was withdrawn, saved or republished during verification/deployment; no production write or deployment was performed. V3.0.21 became the current 熟豆 version before live smoke, so V3.0.19 was selected explicitly in a separate blank order form for the four-product regression check without changing server data.
 
 ### PR-544-PARENT-PRICING-ORDER-PRICE-LIST-SPECS
 - Branch: codex/pr544-parent-pricing-order-specs
