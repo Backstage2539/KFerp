@@ -11,6 +11,7 @@ import {
   beanListVersionOptionForProductGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
+  closeOrderProductDropdowns,
   CUSTOM_SPEC_VALUE,
   defaultDripSalesUnit,
   defaultDripSalesUnitSpec,
@@ -34,6 +35,7 @@ import {
   orderFamilySpecOptions,
   orderLegacyProductForPublication,
   orderProductFamilyOptions,
+  orderProductKindFilterOptions,
   orderSpecSelectionAfterPublicationChange,
   orderRowPriceUnit,
   resolveWholesaleTierPrice,
@@ -74,6 +76,39 @@ test('order price-list families keep one parent result while matching concrete s
   assert.equal(families[0].name, '乌拉嘎')
   assert.deepEqual(orderProductFamilyOptions(families, '227g').map((item) => item.parent_product_id), [70])
   assert.deepEqual(orderProductFamilyOptions(families, 'SKU-ULG-100').map((item) => item.parent_product_id), [70])
+})
+
+test('order product options combine visible category and text filters', () => {
+  const families = [
+    { id: 1, name: '森林瑰夏水洗', product_kind: 'roasted_bean' },
+    { id: 2, name: '初晓 挂耳', product_kind: 'drip_bag' },
+    { id: 3, name: '红酒日晒 生豆', product_kind: 'green_bean' },
+    { id: 4, name: '冷萃速溶', product_kind: 'instant_coffee' },
+  ]
+
+  assert.deepEqual(orderProductKindFilterOptions(families), [
+    { value: '', label: '全部' },
+    { value: 'roasted', label: '熟豆' },
+    { value: 'drip_bag', label: '挂耳' },
+    { value: 'green_bean', label: '生豆' },
+    { value: 'instant_coffee', label: '速溶咖啡' },
+  ])
+  assert.deepEqual(orderProductFamilyOptions(families, '', 'drip_bag').map((item) => item.id), [2])
+  assert.deepEqual(orderProductFamilyOptions(families, '初晓', 'drip_bag').map((item) => item.id), [2])
+  assert.deepEqual(orderProductFamilyOptions(families, '森林', 'drip_bag'), [])
+})
+
+test('order product dropdown closer keeps only the clicked combobox open', () => {
+  const rows = [
+    { key: 'a', product_open: true },
+    { key: 'b', product_open: true },
+  ]
+
+  closeOrderProductDropdowns(rows, 'b')
+  assert.deepEqual(rows.map((row) => row.product_open), [false, true])
+
+  closeOrderProductDropdowns(rows)
+  assert.deepEqual(rows.map((row) => row.product_open), [false, false])
 })
 
 test('order price-list family fallback groups enriched flat products without appending specs to parent name', () => {
@@ -1812,7 +1847,7 @@ test('order entry raises the active combobox above following fields', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /<label[^>]*class="customer-combobox combobox"[^>]*:class="\{\s*open:\s*customerOpen\s*\}"[^>]*>/)
-  assert.match(source, /<label class="product-combobox combobox product-cell"\s+:class="\{\s*open:\s*row\.product_open\s*\}">/)
+  assert.match(source, /<label\s+class="product-combobox combobox product-cell"\s+:class="\{\s*open:\s*row\.product_open\s*\}"\s+:data-product-combobox-key="row\.key"\s*>/)
   assert.match(source, /<span>客户负责人<\/span>/)
   assert.doesNotMatch(source, /responsible-combobox/)
   assert.doesNotMatch(source, /responsibleOpen/)
@@ -1823,6 +1858,23 @@ test('order entry raises the active combobox above following fields', () => {
   const productZIndex = zIndexForSelector(source, '.product-cell')
   assert.ok(openZIndex > baseZIndex, `expected active combobox z-index ${openZIndex} to exceed base z-index ${baseZIndex}`)
   assert.ok(openZIndex > productZIndex, `expected active combobox z-index ${openZIndex} to exceed product cell z-index ${productZIndex}`)
+})
+
+test('order entry product dropdown exposes category filters and closes on outside pointerdown', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /:data-product-combobox-key="row\.key"/)
+  assert.match(source, /class="product-kind-filter"[^>]*aria-label="商品分类"/)
+  assert.match(source, /v-if="productKindFilterOptions\(row\)\.length > 1"/)
+  assert.match(source, /v-for="option in productKindFilterOptions\(row\)"/)
+  assert.match(source, /@mousedown\.prevent/)
+  assert.match(source, /@click\.stop="row\.product_kind_filter = option\.value"/)
+  assert.match(source, /@focus="openProductDropdown\(row\)"/)
+  assert.match(source, /@keydown\.down\.prevent="openProductDropdown\(row\)"/)
+  assert.match(source, /function openProductDropdown\(row\)[\s\S]*?closeOrderProductDropdowns\(rows\.value, row\?\.key\)[\s\S]*?row\.product_open = true/)
+  assert.match(source, /document\.addEventListener\('pointerdown', handleOrderProductPointerDown\)/)
+  assert.match(source, /document\.removeEventListener\('pointerdown', handleOrderProductPointerDown\)/)
+  assert.match(source, /onBeforeUnmount\(saveOrderEntryDraft\)/)
 })
 
 test('order entry shows save errors in a fixed global alert', () => {
@@ -2344,7 +2396,8 @@ test('order entry product dropdown applies customer product usage after filterin
   assert.match(source, /const customerProductUsages = ref\(\[\]\)/)
   assert.match(source, /customerProductUsages\.value = data\.customer_product_usages \|\| \[\]/)
   assert.match(source, /const scopedFamilies = filterProductsForCustomer\(/)
-  assert.match(source, /sortProductsByCustomerUsage\(\s*orderProductFamilyOptions\(\[\.\.\.scopedFamilies, \.\.\.scopedLegacyProducts\]/s)
+  assert.match(source, /return \[\.\.\.scopedFamilies, \.\.\.scopedLegacyProducts\]/)
+  assert.match(source, /sortProductsByCustomerUsage\(\s*orderProductFamilyOptions\(scopedOrderProductOptions\(\), row\.product_query, activeProductKindFilter\(row\)\)/s)
   assert.match(source, /form\.customer_id,\s*customerProductUsages\.value/s)
 })
 

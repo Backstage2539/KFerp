@@ -238,18 +238,41 @@
       </div>
       <div class="line-list">
         <article v-for="(row, idx) in rows" :key="row.key" class="line-item">
-          <label class="product-combobox combobox product-cell" :class="{ open: row.product_open }">
+          <label
+            class="product-combobox combobox product-cell"
+            :class="{ open: row.product_open }"
+            :data-product-combobox-key="row.key"
+          >
             <span>商品</span>
             <input
               v-model.trim="row.product_query"
               type="search"
               placeholder="选择商品"
               autocomplete="off"
-              @focus="row.product_open = true"
+              @focus="openProductDropdown(row)"
               @input="clearProduct(row)"
-              @keydown.down.prevent="row.product_open = true"
+              @keydown.down.prevent="openProductDropdown(row)"
             />
             <div v-if="row.product_open" class="combo-menu">
+              <div
+                v-if="productKindFilterOptions(row).length > 1"
+                class="product-kind-filter"
+                role="group"
+                aria-label="商品分类"
+              >
+                <button
+                  v-for="option in productKindFilterOptions(row)"
+                  :key="option.value || 'all'"
+                  type="button"
+                  class="product-kind-filter-option"
+                  :class="{ active: activeProductKindFilter(row) === option.value }"
+                  :aria-pressed="activeProductKindFilter(row) === option.value"
+                  @mousedown.prevent
+                  @click.stop="row.product_kind_filter = option.value"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
               <button
                 v-for="product in productOptions(row)"
                 :key="productOptionKey(product)"
@@ -457,6 +480,7 @@
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
+          <li>商品下拉可按当前可选的熟豆、挂耳、生豆、速溶咖啡分类过滤，并可继续输入名称或拼音；点击下拉外部会自动收起。</li>
           <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
           <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
           <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
@@ -609,6 +633,7 @@ import {
   beanListVersionOptionForProductGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
+  closeOrderProductDropdowns,
   defaultDripSalesUnitSpec,
   defaultWholesaleSpec,
   defaultStatusID,
@@ -632,6 +657,7 @@ import {
   orderLegacyProductForPublication,
   orderProductPublicationMode,
   orderProductFamilyOptions,
+  orderProductKindFilterOptions,
   orderSpecSelectionAfterPublicationChange,
   orderRowPriceUnit,
   orderReceiptMethodOptions,
@@ -755,6 +781,7 @@ function newRow() {
     key: `${Date.now()}-${Math.random()}`,
     product_query: '',
     product_open: false,
+    product_kind_filter: '',
     parent_product_id: 0,
     parent_product_name: '',
     product_id: 0,
@@ -1492,7 +1519,7 @@ async function saveCustomerFromDrawer() {
   }
 }
 
-function productOptions(row) {
+function scopedOrderProductOptions() {
   const concreteParentIDs = new Set(productFamilies.value
     .filter((family) => family?.__order_concrete_price_family)
     .map((family) => Number(family.parent_product_id || family.id || 0)))
@@ -1521,11 +1548,34 @@ function productOptions(row) {
     const legacy = orderLegacyProductForPublication(product, selected?.id || 0)
     return legacy ? [legacy] : []
   })
+  return [...scopedFamilies, ...scopedLegacyProducts]
+}
+
+function productKindFilterOptions() {
+  return orderProductKindFilterOptions(scopedOrderProductOptions())
+}
+
+function activeProductKindFilter(row) {
+  const selected = String(row?.product_kind_filter || '').trim()
+  return productKindFilterOptions(row).some((option) => option.value === selected) ? selected : ''
+}
+
+function productOptions(row) {
   return sortProductsByCustomerUsage(
-    orderProductFamilyOptions([...scopedFamilies, ...scopedLegacyProducts], row.product_query),
+    orderProductFamilyOptions(scopedOrderProductOptions(), row.product_query, activeProductKindFilter(row)),
     form.customer_id,
     customerProductUsages.value,
   ).slice(0, 30)
+}
+
+function handleOrderProductPointerDown(event) {
+  const combobox = event?.target?.closest?.('[data-product-combobox-key]')
+  closeOrderProductDropdowns(rows.value, combobox?.dataset?.productComboboxKey || '')
+}
+
+function openProductDropdown(row) {
+  closeOrderProductDropdowns(rows.value, row?.key)
+  if (row) row.product_open = true
 }
 
 function productOptionKey(product) {
@@ -2457,6 +2507,7 @@ function stockBatchConfirmText(preview) {
 }
 
 onMounted(async () => {
+  document.addEventListener('pointerdown', handleOrderProductPointerDown)
   await load()
   const draftRestored = restoreOrderEntryDraft()
   if (draftRestored) {
@@ -2468,6 +2519,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(saveOrderEntryDraft)
+onBeforeUnmount(() => document.removeEventListener('pointerdown', handleOrderProductPointerDown))
 
 watch(
   () => props.editId,
@@ -2636,6 +2688,10 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .combo-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; max-height: 280px; overflow: auto; border: 1px solid #d7dbe3; border-radius: 8px; background: #fff; box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16); padding: 6px; }
 .combo-option { width: 100%; display: grid; gap: 2px; text-align: left; border: 0; background: transparent; padding: 8px; border-radius: 6px; }
 .combo-option:hover { background: #f3f6fb; }
+.product-kind-filter { position: sticky; top: -6px; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; margin: -6px -6px 4px; padding: 8px 6px 6px; border-bottom: 1px solid #edf0f5; background: #fff; }
+.product-kind-filter-option { min-height: 28px; padding: 4px 10px; border: 1px solid #d7dbe3; border-radius: 999px; background: #fff; color: #475467; font: inherit; font-size: 12px; line-height: 1.2; cursor: pointer; }
+.product-kind-filter-option:hover { background: #f3f6fb; }
+.product-kind-filter-option.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-left: 4px; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }

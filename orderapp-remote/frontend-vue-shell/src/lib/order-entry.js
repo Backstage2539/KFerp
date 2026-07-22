@@ -348,10 +348,27 @@ export function normalizeOrderProductFamilies(productFamilies = [], products = [
   return fallbackOrderFamilies(products)
 }
 
-export function orderProductFamilyOptions(families = [], query = '') {
+const ORDER_PRODUCT_KIND_FILTERS = [
+  { value: 'roasted', label: '熟豆' },
+  { value: 'drip_bag', label: '挂耳' },
+  { value: 'green_bean', label: '生豆' },
+  { value: 'instant_coffee', label: '速溶咖啡' },
+]
+
+export function orderProductKindFilterOptions(families = []) {
+  const availableKinds = new Set((families || []).map(normalizedProductKind))
+  return [
+    { value: '', label: '全部' },
+    ...ORDER_PRODUCT_KIND_FILTERS.filter((option) => availableKinds.has(option.value)),
+  ]
+}
+
+export function orderProductFamilyOptions(families = [], query = '', productKindFilter = '') {
   const q = orderFamilyText(query).toLowerCase()
-  if (!q) return families || []
+  const kind = String(productKindFilter || '').trim()
   return (families || []).filter((family) => {
+    if (kind && normalizedProductKind(family) !== kind) return false
+    if (!q) return true
     const haystack = [
       family?.name,
       family?.parent_product_name,
@@ -362,6 +379,14 @@ export function orderProductFamilyOptions(families = [], query = '') {
     ].map(orderFamilyText).join(' ').toLowerCase()
     return haystack.includes(q)
   })
+}
+
+export function closeOrderProductDropdowns(rows = [], keepKey = '') {
+  const preservedKey = String(keepKey || '')
+  for (const row of rows || []) {
+    if (!preservedKey || String(row?.key || '') !== preservedKey) row.product_open = false
+  }
+  return rows
 }
 
 export function orderFamilyForSKU(families = [], skuID = 0) {
