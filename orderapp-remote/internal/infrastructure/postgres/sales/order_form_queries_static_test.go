@@ -96,12 +96,37 @@ func TestCommercialOrderTierMapKeepsConcreteSKUCountSemantics(t *testing.T) {
 	if tiers[0].SpecG != 454 || tiers[0].DisplayUnit != "磅" {
 		t.Fatalf("concrete SKU tier must derive 454g/磅 from frozen effective_sales_spec, got %+v", tiers[0])
 	}
+	if tiers[0].PublicationID != 99 || tiers[0].PublicationVersionNo != "V5.0.0" || tiers[0].ListType != "commercial" {
+		t.Fatalf("concrete SKU tier publication identity = %+v", tiers[0])
+	}
 	if !strings.Contains(tiers[0].PriceSourceJSON, `"quantity_basis":"sales_spec_count"`) ||
 		!strings.Contains(tiers[0].PriceSourceJSON, `"effective_sales_spec"`) {
 		t.Fatalf("price source must freeze quantity/spec semantics: %s", tiers[0].PriceSourceJSON)
 	}
 	if len(commercialOrderTierMapFromPublicationContent(99, "V5.0.0", content)[550]) != 0 {
 		t.Fatal("parent product must not receive concrete child SKU tiers")
+	}
+}
+
+func TestGreenBeanOrderTierMapKeepsConcreteSKUCountSnapshot(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{
+			"product_id":700,"sku_id":701,"parent_product_id":700,
+			"product_kind":"green_bean","quantity_basis":"sales_spec_count",
+			"effective_sales_spec":{"sku_id":701,"spec_name":"1Kg","spec_label":"1Kg","sales_unit":"袋","net_content_qty":1,"net_content_unit":"kg"},
+			"min_qty":1,"final_unit_price":81,"price_unit":"袋"
+		}]
+	}`)
+	tiers := greenBeanOrderTierMapFromPublicationContent(77, "GREEN-V2", content)[701]
+	if len(tiers) != 1 {
+		t.Fatalf("green concrete SKU tiers = %+v", tiers)
+	}
+	got := tiers[0]
+	if got.SpecG != 1000 || got.UnitPrice != 81 || got.QuantityBasis != "sales_spec_count" || got.PublicationID != 77 || got.PublicationVersionNo != "GREEN-V2" || got.ListType != "green" {
+		t.Fatalf("green concrete SKU tier = %+v", got)
+	}
+	if got.EffectiveSalesSpec["sku_id"] != float64(701) || got.EffectiveSalesSpec["sales_unit"] != "袋" {
+		t.Fatalf("green concrete effective spec = %#v", got.EffectiveSalesSpec)
 	}
 }
 
@@ -126,6 +151,29 @@ func TestDripOrderBeanListCandidatesPreferCommercialAndKeepLegacyFallback(t *tes
 	}, 0, "")
 	if len(got) != 2 || got[0].ListType != "commercial" || got[0].RequestedPublicationID != 101 || got[1].ListType != "drip" || got[1].RequestedPublicationID != 202 {
 		t.Fatalf("drip publication candidates = %+v", got)
+	}
+}
+
+func TestHistoricalDripOrderPublicationTiersOnlyFillWhenCommercialMissing(t *testing.T) {
+	historical := commercialOrderTierMapFromPublicationContent(202, "DRIP-V1", []byte(`{
+		"groups":[{"items":[{"productId":711,"product_kind":"drip_bag","drip_wholesale_tiers":[{"min_qty":10,"price_per_unit":3.2,"sales_unit":"bag","unit_bag_count":1}]}]}]
+	}`), "drip")[711]
+	if len(historical) != 1 || historical[0].ListType != "drip" || historical[0].PublicationID != 202 {
+		t.Fatalf("historical drip tiers = %+v", historical)
+	}
+	products := []salesapp.ProductOption{
+		{ID: 711, ProductKind: "drip_bag"},
+		{ID: 712, ProductKind: "drip_bag", Tiers: []salesapp.ProductTierOption{{ID: 1, ListType: "commercial", PublicationID: 101, UnitPrice: 3}}},
+	}
+	applyHistoricalDripOrderPublicationTiers(products, map[orderPublicationProductKey][]salesapp.ProductTierOption{
+		{ProductID: 711}: historical,
+		{ProductID: 712}: historical,
+	})
+	if len(products[0].Tiers) != 1 || products[0].Tiers[0].ListType != "drip" {
+		t.Fatalf("missing-commercial drip fallback = %+v", products[0].Tiers)
+	}
+	if len(products[1].Tiers) != 1 || products[1].Tiers[0].ListType != "commercial" {
+		t.Fatalf("commercial-derived drip must win = %+v", products[1].Tiers)
 	}
 }
 
@@ -789,6 +837,70 @@ func TestMergeLatestCommercialOrderPublicationTierMapsUsesNewestSnapshotPerDeriv
 	}
 	if tiers, covered := merged[9]; !covered || len(tiers) != 0 {
 		t.Fatalf("newest blank product coverage = %+v/%v, want covered without falling back to old price", tiers, covered)
+	}
+}
+
+func TestMergeLatestCommercialOrderPublicationTierMapsKeepsAllConcretePublishedVersions(t *testing.T) {
+	newer := commercialOrderTierMapFromPublicationContent(9903, "V2", []byte(`{
+		"price_rows":[{"product_id":7,"sku_id":7,"parent_product_id":7,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":64,
+		"effective_sales_spec":{"sku_id":7,"spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}}]
+	}`))
+	older := commercialOrderTierMapFromPublicationContent(9902, "V1", []byte(`{
+		"price_rows":[{"product_id":7,"sku_id":7,"parent_product_id":7,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":61,
+		"effective_sales_spec":{"sku_id":7,"spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}}]
+	}`))
+
+	merged := mergeLatestCommercialOrderPublicationTierMaps(nil, newer)
+	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, older)
+	if len(merged[7]) != 2 || merged[7][0].PublicationID != 9903 || merged[7][1].PublicationID != 9902 {
+		t.Fatalf("concrete SKU versions = %+v, want V2 then V1", merged[7])
+	}
+}
+
+func TestMergeLatestCommercialOrderPublicationTierMapsKeepsNewestLegacyAlongsideConcrete(t *testing.T) {
+	concrete := commercialOrderTierMapFromPublicationContent(9903, "V2", []byte(`{
+		"price_rows":[{"product_id":7,"sku_id":7,"parent_product_id":7,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":64,
+		"effective_sales_spec":{"sku_id":7,"spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}}]
+	}`))
+	legacy := commercialOrderTierMapFromPublicationContent(9902, "V1", []byte(`{
+		"groups":[{"items":[
+			{"productId":7,"product_kind":"coffee_bean","commercial_wholesale_tiers":[{"spec_g":227,"min_qty":1,"price_per_unit":61,"sales_unit":"bag"}]}
+		]}]
+	}`))
+
+	merged := mergeLatestCommercialOrderPublicationTierMaps(nil, concrete)
+	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, legacy)
+	if len(merged[7]) != 2 {
+		t.Fatalf("concrete + newest legacy tiers = %+v, want both snapshots", merged[7])
+	}
+	if merged[7][0].PublicationID != 9903 || merged[7][1].PublicationID != 9902 {
+		t.Fatalf("concrete + newest legacy publication order = %+v, want 9903 then 9902", merged[7])
+	}
+	if !orderPublicationTierHasConcreteSKU(merged[7][0]) || orderPublicationTierHasConcreteSKU(merged[7][1]) {
+		t.Fatalf("concrete + legacy classification = %+v, want concrete then legacy", merged[7])
+	}
+}
+
+func TestMergeLatestCommercialOrderPublicationTierMapsKeepsBlankLegacyCoverageBesideConcrete(t *testing.T) {
+	concrete := commercialOrderTierMapFromPublicationContent(9904, "V3", []byte(`{
+		"price_rows":[{"product_id":7,"sku_id":7,"parent_product_id":7,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":66,
+		"effective_sales_spec":{"sku_id":7,"spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}}]
+	}`))
+	blankLegacy := commercialOrderTierMapFromPublicationContent(9903, "V2", []byte(`{
+		"groups":[{"items":[{"productId":7,"product_kind":"coffee_bean","commercial_wholesale_tiers":[]}]}]
+	}`))
+	olderLegacy := commercialOrderTierMapFromPublicationContent(9902, "V1", []byte(`{
+		"groups":[{"items":[
+			{"productId":7,"product_kind":"coffee_bean","commercial_wholesale_tiers":[{"spec_g":227,"min_qty":1,"price_per_unit":61,"sales_unit":"bag"}]}
+		]}]
+	}`))
+
+	legacyCoverage := map[int64]bool{}
+	merged := mergeLatestCommercialOrderPublicationTierMaps(nil, concrete, legacyCoverage)
+	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, blankLegacy, legacyCoverage)
+	merged = mergeLatestCommercialOrderPublicationTierMaps(merged, olderLegacy, legacyCoverage)
+	if len(merged[7]) != 1 || !orderPublicationTierHasConcreteSKU(merged[7][0]) || merged[7][0].PublicationID != 9904 {
+		t.Fatalf("concrete + blank legacy coverage = %+v, want concrete only without older legacy fallback", merged[7])
 	}
 }
 

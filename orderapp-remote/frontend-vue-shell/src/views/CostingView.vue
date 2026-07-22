@@ -225,7 +225,7 @@
       <div class="bean-list-generate-bar">
         <div>
           <div class="section-title">生成价格表</div>
-          <p class="muted">商品价格表是 Price List / Item Price 平铺价格行。生成时选择分组并勾选分组项选品；价格表、父类、子类和商品行都可以设置计价模式。</p>
+          <p class="muted">商品价格表是 Price List / Item Price 平铺价格行。生成时选择分组并勾选分组项选品；父商品只设置一次计价模式，所选规格共同继承。</p>
         </div>
         <div class="generate-actions">
           <button class="secondary" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
@@ -239,7 +239,7 @@
       <div class="pdf-picker price-list-template-builder" data-pr440-price-list-model>
         <div class="picker-head">
           <strong>Price List / Item Price 生成规则</strong>
-          <span class="muted">规格 &gt; 商品 &gt; 子类 &gt; 父类 &gt; 价格表</span>
+          <span class="muted">商品 &gt; 子类 &gt; 父类 &gt; 价格表</span>
         </div>
         <div class="template-default-grid">
           <label>
@@ -267,7 +267,11 @@
             <span>固定价金额按具体规格分别录入；此处只继承计价方式。</span>
           </div>
         </div>
-        <p class="muted inline-pricing-config-note">分类和单品计价直接在下方选品位置处理，发布时仍按 商品 &gt; 子类 &gt; 父类 &gt; 价格表 解析。</p>
+        <p class="muted inline-pricing-config-note">分类和父商品计价直接在下方选品位置处理；商品的全部已选规格继承同一种计价方式，固定价金额仍按规格分别录入。</p>
+        <div v-if="priceListLegacyPricingConflicts.length" class="product-spec-selection-warning price-list-legacy-pricing-warning">
+          <strong>旧草稿存在规格级计价冲突，发布已阻止。</strong>
+          <span v-for="conflict in priceListLegacyPricingConflicts" :key="`legacy-pricing-${conflict.parent_product_id}`">{{ conflict.message }}</span>
+        </div>
       </div>
 
       <div class="pdf-picker productSelection">
@@ -409,9 +413,19 @@
                       </select>
                       <small>所选规格分别按自身销售规格试算。</small>
                     </label>
-                    <p v-else-if="priceListActivePricingSelection().pricing_mode === 'fixed_price'" class="muted inline-pricing-config-note">
-                      商品层只继承固定价模式；金额必须在每个具体规格中分别录入。
-                    </p>
+                    <div v-else-if="priceListActivePricingSelection().pricing_mode === 'fixed_price'" class="parent-product-fixed-prices">
+                      <label v-for="spec in selectedSpecsForProduct(priceListPricingPopover.productRow)" :key="`parent-fixed-${priceListSkuID(spec)}`" class="inline-price-config">
+                        <span>固定价（元/{{ priceListProductSpecLabel(spec) }}）</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          :value="priceListProductFixedPrice(priceListPricingPopover.productRow, spec)"
+                          @input="setPriceListProductFixedPrice(priceListPricingPopover.productRow, spec, $event.target.value)"
+                        />
+                      </label>
+                      <p v-if="!selectedSpecsForProduct(priceListPricingPopover.productRow).length" class="muted inline-pricing-config-note">请先选择至少一个规格，再分别录入固定价。</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -435,69 +449,8 @@
                     <span>{{ priceListProductSpecLabel(spec) }}</span>
                     <small v-if="priceListSkuID(spec) === Number(row.default_sku_id || 0)">默认规格</small>
                   </label>
-                  <div class="product-spec-pricing">
-                    <button
-                      type="button"
-                      :class="['price-list-summary-button', { active: isPriceListPricingPopoverOpen('product', priceListProductRowForSpec(row, spec)), overridden: priceListProductPricingHasOverride(priceListProductRowForSpec(row, spec)) }]"
-                      :disabled="!isPdfProductSpecSelected(row, spec)"
-                      :title="isPdfProductSpecSelected(row, spec) ? '设置当前规格计价' : '请先选择当前规格'"
-                      @click.stop="openPriceListPricingPopover('product', priceListProductRowForSpec(row, spec))"
-                    >
-                      <span>计价</span>
-                      <strong>{{ priceListProductPricingSummary(priceListProductRowForSpec(row, spec)) }}</strong>
-                      <small v-if="priceListProductPricingHasOverride(priceListProductRowForSpec(row, spec))">已覆盖</small>
-                    </button>
-                  </div>
                   <div v-if="priceListProductTierTemplateWarning(spec)" class="product-picker-tier-warning">
                     <strong>{{ priceListProductTierTemplateWarning(spec) }}</strong>
-                  </div>
-                </div>
-                <div v-if="isPriceListProductPricingPopoverOpenForFamily(row)" class="product-spec-pricing-panel">
-                  <div class="price-list-pricing-popover" @click.stop>
-                    <div class="price-list-pricing-popover-title">
-                      <div class="price-list-pricing-popover-context">
-                        <strong>商品：{{ priceListPricingPopover.productRow?.parent_product_name }}</strong>
-                        <span>规格：{{ priceListProductSpecLabel(priceListPricingPopover.productRow) }}</span>
-                      </div>
-                      <button type="button" class="secondary compact" @click="closePriceListPricingPopover">关闭</button>
-                    </div>
-                    <div class="price-list-pricing-options">
-                      <button
-                        v-for="option in priceListPricingPopoverOptions"
-                        :key="`product-pricing-option-${priceListSkuID(priceListPricingPopover.productRow)}-${option.value || 'inherit'}`"
-                        type="button"
-                        :class="{ active: priceListActivePricingSelection().pricing_mode === option.value }"
-                        @click="setPriceListPricingPopoverMode(option.value)"
-                      >
-                        {{ option.label }}
-                      </button>
-                    </div>
-                    <label v-if="priceListActivePricingSelection().pricing_mode === 'tier_template'" class="inline-price-config">
-                      <span>阶梯模板</span>
-                      <select :value="priceListActivePricingSelection().tier_template_id" @change="setPriceListPricingPopoverField('tier_template_id', $event.target.value)">
-                        <option :value="0">请选择阶梯模板</option>
-                        <option
-                          v-for="template in priceTierTemplates"
-                          :key="`product-pop-tier-${priceListSkuID(priceListPricingPopover.productRow)}-${template.id}`"
-                          :value="template.id"
-                          :disabled="priceListTierTemplateOptionDisabled(template)"
-                        >{{ priceListTierTemplateOptionLabel(template) }}</option>
-                      </select>
-                      <small>档位按销售规格件数；当前每件规格：{{ priceListActiveSalesSpecUnitLabel() }}</small>
-                    </label>
-                    <p v-if="priceListActiveTierTemplateWarning()" class="error inline-tier-template-warning">{{ priceListActiveTierTemplateWarning() }}</p>
-                    <label v-else-if="priceListActivePricingSelection().pricing_mode === 'pricing_rule'" class="inline-price-config">
-                      <span>价格计算模板</span>
-                      <select :value="priceListActivePricingSelection().pricing_rule_id" @change="setPriceListPricingPopoverField('pricing_rule_id', $event.target.value)">
-                        <option :value="0">请选择价格计算模板</option>
-                        <option v-for="rule in pricingRules" :key="`product-pop-rule-${priceListSkuID(priceListPricingPopover.productRow)}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                      </select>
-                      <small>试算单位：元/{{ priceListActiveSalesSpecUnitLabel() }}</small>
-                    </label>
-                    <label v-else-if="priceListActivePricingSelection().pricing_mode === 'fixed_price'" class="inline-price-config">
-                      <span>固定价（元/{{ priceListActiveSalesSpecUnitLabel() }}）</span>
-                      <input type="number" min="0" step="0.01" :value="priceListActivePricingSelection().fixed_unit_price" @input="setPriceListPricingPopoverField('fixed_unit_price', $event.target.value)" />
-                    </label>
                   </div>
                 </div>
               </div>
@@ -700,7 +653,7 @@
           <strong>计价模式规则</strong>
           <button type="button" class="secondary compact" @click="priceListRulesDialogOpen = false">关闭</button>
         </div>
-        <p class="muted">计价模式按 <b>商品 &gt; 子类 &gt; 父类 &gt; 价格表</b> 解析。生成价格表默认使用商品档案分组；本次价格表覆盖只写入快照 group_source=price_list，不回写商品档案分组。</p>
+        <p class="muted">计价模式按 <b>父商品 &gt; 子类 &gt; 父类 &gt; 价格表</b> 解析。父商品只选择一次计价模式、阶梯模板或价格计算模板，全部已选规格共同继承；固定价金额按规格分别录入。生成价格表默认使用商品档案分组，本次覆盖只写入价格表快照 group_source=price_list，不回写商品档案分组。</p>
         <table class="price-list-rule-table">
           <thead>
             <tr>
@@ -721,7 +674,7 @@
             </tr>
             <tr>
               <td>商品行</td>
-              <td>单品覆盖计价模式、阶梯模板、价格计算模板或固定价</td>
+              <td>父商品统一覆盖计价模式、阶梯模板或价格计算模板；固定价金额按所选规格分别录入，不支持规格级模板覆盖</td>
             </tr>
             <tr>
               <td>录单</td>
@@ -1139,6 +1092,7 @@ import {
   groupRowsByBusinessGroupTemplate,
 } from '../lib/business-grouping'
 import {
+  normalizeParentSharedPriceListProductOverrides,
   priceListGenerationDraftKey,
   readPriceListGenerationDraft,
   savePriceListGenerationDraft,
@@ -1253,6 +1207,7 @@ const priceListTemplateDefaults = ref(defaultPriceListTemplateSelection({ pricin
 const priceListParentTemplateSelections = ref({})
 const priceListGroupTemplateSelections = ref({})
 const priceListProductTemplateOverrides = ref({})
+const priceListLegacyPricingConflicts = ref([])
 const priceListFlatRowOverrides = ref({})
 const priceListPricingRuleTrialCache = ref({})
 const priceListProductBusinessGroups = ref([])
@@ -1375,6 +1330,10 @@ const priceListTierUnitBlockedReason = computed(() => String(
 const priceListFlatRowsReady = computed(() => arePriceListFlatRowsReady(priceListFlatRows.value, {
   trialStatusForRow: priceListFlatRowPricingTrialStatus,
 }))
+const priceListLegacyPricingBlockedReason = computed(() => {
+  if (!priceListLegacyPricingConflicts.value.length) return ''
+  return '旧草稿中同一商品存在不同的规格级计价配置，请在“商品计价”重新选择一次后继续。'
+})
 const priceListPricingRuleTrialRequests = computed(() => currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
 const priceListPricingRuleTrialFailedCount = computed(() => priceListFlatRows.value.filter((row) => (
   priceListFlatRowPricingTrialStatus(row) === 'error'
@@ -1464,6 +1423,7 @@ const publicBeanListURL = computed(() => {
 })
 const priceListPublishBlockedReason = computed(() => {
   if (priceListProductSpecSelectionBlockedReason.value) return priceListProductSpecSelectionBlockedReason.value
+  if (priceListLegacyPricingBlockedReason.value) return priceListLegacyPricingBlockedReason.value
   if (!pdfGroups.value.length) return '暂无可发布的价格表预览'
   if (!String(pdfTheme.value.version || '').trim()) return '请填写价格表版本号'
   if (!customerScopeReady.value) return '请选择客户'
@@ -1727,6 +1687,7 @@ function savePriceListGenerationDraftForActiveType() {
 }
 
 function restorePriceListGenerationDraftForActiveType() {
+  priceListLegacyPricingConflicts.value = []
   const draft = readPriceListGenerationDraft(priceListGenerationDraftStorageKey())
   if (!draft) return false
   priceListTemplateDefaults.value = {
@@ -1735,7 +1696,11 @@ function restorePriceListGenerationDraftForActiveType() {
   }
   priceListParentTemplateSelections.value = normalizePriceListSelectionDraftMap(draft.parentSelections)
   priceListGroupTemplateSelections.value = normalizePriceListSelectionDraftMap(draft.groupSelections)
-  priceListProductTemplateOverrides.value = normalizePriceListSelectionDraftMap(draft.productOverrides, { includeProductMeta: true })
+  const migratedProductOverrides = normalizeParentSharedPriceListProductOverrides(draft.productOverrides, {
+    productSpecSelections: draft.product_spec_selections,
+  })
+  priceListProductTemplateOverrides.value = normalizePriceListSelectionDraftMap(migratedProductOverrides.overrides, { includeProductMeta: true })
+  priceListLegacyPricingConflicts.value = migratedProductOverrides.conflicts
   priceListFlatRowOverrides.value = normalizePriceListFlatRowOverrides(draft.flatRowOverrides)
   if (Object.prototype.hasOwnProperty.call(draft, 'product_spec_selections')) {
     const key = activePriceListTypeKey.value
@@ -1842,11 +1807,17 @@ function visibleItemWarnings(item) {
 }
 
 function priceListResolvedTemplateForItem(item = {}) {
-  const groupRow = priceListGroupForItem(item)
-  const productID = Number(item?.product_id || item?.productID || item?.productId || item?.id || itemProductID(item) || 0)
+  const representative = selectedSpecsForProduct(item)[0]
+  const source = representative || item
+  const groupRow = priceListGroupForItem(source)
+  const sourceProductID = Number(source?.product_id || source?.productID || source?.productId || source?.id || itemProductID(source) || 0)
+  const skuID = itemSkuID(source, sourceProductID)
+  const productID = skuID || sourceProductID
   const product = {
     id: productID,
     product_id: productID,
+    sku_id: skuID,
+    parent_product_id: itemParentProductID(source, skuID) || priceListParentProductID(item),
     group_item_id: groupRow.group_item_id,
     parent_group_item_id: groupRow.parent_group_item_id,
   }
@@ -2151,6 +2122,7 @@ function priceListParentProductPricingRow(family = {}) {
     product_name: name,
     parent_product_name: name,
     sku_name: '各销售规格',
+    sku_options: Array.isArray(family?.sku_options) ? family.sku_options : [],
   }
 }
 
@@ -2172,6 +2144,11 @@ function priceListTemplateResolutionForItem(item = {}) {
       parent_group_item_id: groupRow.parent_group_item_id,
     },
   })
+}
+
+function priceListEffectiveProductPricingSelection(row = {}) {
+  const representative = selectedSpecsForProduct(row)[0]
+  return priceListTemplateResolutionForItem(representative || row)
 }
 
 function priceListTierTemplateCompatibilityForItem(item = {}, template = null) {
@@ -2268,6 +2245,35 @@ function priceListProductTemplateOverride(row = {}) {
   return defaultPriceListTemplateSelection()
 }
 
+function priceListProductFixedPrice(family = {}, spec = {}) {
+  return Number(priceListProductTemplateOverride(priceListProductRowForSpec(family, spec)).fixed_unit_price || 0) || 0
+}
+
+function setPriceListProductFixedPrice(family = {}, spec = {}, value) {
+  const row = priceListProductRowForSpec(family, spec)
+  const key = priceListProductTemplateOverrideKey(row)
+  if (!key) return
+  const fixedUnitPrice = Number(value || 0) || 0
+  const next = { ...priceListProductTemplateOverrides.value }
+  if (fixedUnitPrice > 0) {
+    next[key] = {
+      ...defaultPriceListTemplateSelection({ fixed_unit_price: fixedUnitPrice }),
+      scope: 'sku',
+      product_id: Number(row.sku_id || row.product_id || 0),
+      sku_id: Number(row.sku_id || row.product_id || 0),
+      parent_product_id: Number(row.parent_product_id || 0),
+      product_key: String(row.product_key || ''),
+      product_name: row.product_name || '',
+      parent_product_name: row.parent_product_name || row.product_name || '',
+      sku_name: row.sku_name || '',
+    }
+  } else {
+    delete next[key]
+  }
+  priceListProductTemplateOverrides.value = next
+  savePriceListGenerationDraftForActiveType()
+}
+
 function defaultPriceListConfigDialog() {
   return {
     open: false,
@@ -2350,13 +2356,6 @@ function isPriceListPricingPopoverOpen(type, payload = {}) {
     priceListPricingPopover.value.key === priceListPricingPopoverKey(type, payload)
 }
 
-function isPriceListProductPricingPopoverOpenForFamily(family = {}) {
-  if (!priceListPricingPopover.value.open || priceListPricingPopover.value.type !== 'product') return false
-  if (String(priceListPricingPopover.value.productRow?.scope || '').trim() !== 'sku') return false
-  const activeParentProductID = Number(priceListPricingPopover.value.productRow?.parent_product_id || 0)
-  return activeParentProductID > 0 && activeParentProductID === priceListParentProductID(family)
-}
-
 function isPriceListProductDisplayDialogOpen(productId) {
   return priceListConfigDialog.value.open &&
     priceListConfigDialog.value.type === 'product-display' &&
@@ -2398,43 +2397,7 @@ function priceListCategoryPricingSummary(group = {}) {
 }
 
 function priceListProductPricingSummary(row = {}) {
-  const fallback = priceListProductTemplateOverrideScope(row) === 'parent_product' ? '继承分类' : '继承商品/分类'
-  return priceListTemplateSummary(priceListProductTemplateOverride(row), fallback)
-}
-
-function priceListTierTemplateOptionCompatibility(template = {}) {
-  if (priceListPricingPopover.value.type !== 'product') return { compatible: true, message: '' }
-  return priceListTierTemplateCompatibilityForItem(priceListPricingPopover.value.productRow || {}, template)
-}
-
-function priceListTierTemplateOptionDisabled(template = {}) {
-  return !priceListTierTemplateOptionCompatibility(template).compatible
-}
-
-function priceListTierTemplateOptionLabel(template = {}) {
-  const label = priceTierTemplateLabel(template)
-  const compatibility = priceListTierTemplateOptionCompatibility(template)
-  if (compatibility.compatible && priceListPricingPopover.value.type === 'product') {
-    return `${label}（按${priceListActiveSalesSpecUnitLabel()}件数）`
-  }
-  if (compatibility.compatible) return label
-  return `${label}（不可用：${compatibility.message.replace(/^阶梯模板不可用：/, '')}）`
-}
-
-function priceListActiveSalesSpecUnitLabel() {
-  const row = priceListPricingPopover.value.productRow || {}
-  if (priceListProductTemplateOverrideScope(row) === 'parent_product') return '各销售规格'
-  return priceListProductSpecLabel(row) || productCurrentSalesSpecUnit(row) || '当前规格'
-}
-
-function priceListActiveTierTemplateWarning() {
-  if (priceListPricingPopover.value.type !== 'product') return ''
-  const selection = priceListActivePricingSelection()
-  if (String(selection.pricing_mode || '').trim() !== 'tier_template') return ''
-  const template = priceTierTemplateByID(selection.tier_template_id)
-  if (!template) return ''
-  const compatibility = priceListTierTemplateOptionCompatibility(template)
-  return compatibility.compatible ? '' : compatibility.message
+  return priceListTemplateSummary(priceListProductTemplateOverride(row), '继承分类')
 }
 
 function priceListBadgeLabel(value) {
@@ -2560,6 +2523,7 @@ function setPriceListCategoryTemplate(group = {}, field, value) {
 }
 
 function setPriceListProductTemplate(row = {}, field, value) {
+  if (priceListProductTemplateOverrideScope(row) !== 'parent_product') return
   const key = priceListProductTemplateOverrideKey(row)
   if (!key) return
   if (field === 'pricing_mode' && !String(value || '').trim()) {
@@ -2576,18 +2540,27 @@ function setPriceListProductTemplate(row = {}, field, value) {
     ...priceListProductTemplateOverrides.value,
     [key]: {
       ...selection,
-      scope: priceListProductTemplateOverrideScope(row),
-      product_id: Number(row.product_id || 0),
-      sku_id: priceListProductTemplateOverrideScope(row) === 'sku' ? Number(row.sku_id || row.product_id || 0) : 0,
-      parent_product_id: Number(row.parent_product_id || 0),
+      scope: 'parent_product',
+      product_id: Number(row.parent_product_id || row.product_id || 0),
+      sku_id: 0,
+      parent_product_id: Number(row.parent_product_id || row.product_id || 0),
       product_key: String(row.product_key || ''),
       product_name: row.product_name || '',
       parent_product_name: row.parent_product_name || row.product_name || '',
       sku_name: row.sku_name || '',
     },
   }
+  clearPriceListLegacyPricingConflict(row.parent_product_id || row.product_id)
   savePriceListGenerationDraftForActiveType()
   schedulePriceListPricingRuleTrialRefresh()
+}
+
+function clearPriceListLegacyPricingConflict(parentProductID) {
+  const target = Number(parentProductID || 0)
+  if (!(target > 0)) return
+  priceListLegacyPricingConflicts.value = priceListLegacyPricingConflicts.value.filter((conflict) => (
+    Number(conflict.parent_product_id || 0) !== target
+  ))
 }
 
 function clearPriceListProductTemplate(row = {}) {
@@ -2599,6 +2572,9 @@ function clearPriceListProductTemplate(row = {}) {
     delete next[String(row.product_id || row.sku_id || '')]
   }
   priceListProductTemplateOverrides.value = next
+  if (priceListProductTemplateOverrideScope(row) === 'parent_product') {
+    clearPriceListLegacyPricingConflict(row.parent_product_id || row.product_id)
+  }
   savePriceListGenerationDraftForActiveType()
   schedulePriceListPricingRuleTrialRefresh()
 }
@@ -2608,7 +2584,7 @@ function priceListActivePricingSelection() {
     return priceListCategoryTemplateSelection(priceListPricingPopover.value.group || {})
   }
   if (priceListPricingPopover.value.type === 'product') {
-    return priceListProductTemplateOverride(priceListPricingPopover.value.productRow || {})
+    return priceListEffectiveProductPricingSelection(priceListPricingPopover.value.productRow || {})
   }
   return defaultPriceListTemplateSelection()
 }
@@ -2624,15 +2600,6 @@ function setPriceListPricingPopoverMode(value) {
 }
 
 function setPriceListPricingPopoverField(field, value) {
-  if (priceListPricingPopover.value.type === 'product' && field === 'tier_template_id') {
-    const template = priceTierTemplateByID(value)
-    const compatibility = template ? priceListTierTemplateOptionCompatibility(template) : { compatible: true, message: '' }
-    if (!compatibility.compatible) {
-      message.value = ''
-      error.value = compatibility.message
-      return
-    }
-  }
   if (priceListPricingPopover.value.type === 'category') {
     setPriceListCategoryTemplate(priceListPricingPopover.value.group || {}, field, value)
     return
@@ -2703,7 +2670,12 @@ function priceListTemplateAssignments() {
 }
 
 function priceListProductOverridesForSnapshot() {
+  const selectedSkuIDs = new Set(pdfProductSpecSelections.value.map((row) => Number(row.sku_id || 0)).filter((id) => id > 0))
+  const selectedParentIDs = new Set(pdfProductSpecSelections.value.map((row) => Number(row.parent_product_id || 0)).filter((id) => id > 0))
   return Object.values(priceListProductTemplateOverrides.value || {})
+    .filter((row) => priceListProductTemplateOverrideScope(row) === 'parent_product'
+      ? selectedParentIDs.has(Number(row.parent_product_id || row.product_id || 0))
+      : selectedSkuIDs.has(Number(row.sku_id || row.product_id || 0)))
     .filter((row) => (Number(row?.product_id || 0) > 0 || String(row?.product_key || '').trim()) && priceListTemplateHasOverride(row))
 }
 
@@ -4393,6 +4365,11 @@ function clearPdfPrintMode() {
 
 async function generateBeanListPdf() {
   if (!pdfGroups.value.length) return
+  if (priceListLegacyPricingBlockedReason.value) {
+    message.value = ''
+    error.value = priceListLegacyPricingBlockedReason.value
+    return
+  }
   if (priceListProductSpecSelectionBlockedReason.value) {
     message.value = ''
     error.value = priceListProductSpecSelectionBlockedReason.value
@@ -4454,6 +4431,11 @@ async function publishBeanList() {
 
 async function saveBeanListDraft() {
   if (!pdfGroups.value.length) return
+  if (priceListLegacyPricingBlockedReason.value) {
+    message.value = ''
+    error.value = priceListLegacyPricingBlockedReason.value
+    return
+  }
   if (priceListProductSpecSelectionBlockedReason.value) {
     message.value = ''
     error.value = priceListProductSpecSelectionBlockedReason.value
@@ -4489,6 +4471,11 @@ async function saveGreenBeanPriceDraft() {
   pdfOptions.value = { ...pdfOptions.value, listType: 'green', version: defaultBeanListVersionForScope('green', activeProductTypeCategoryID.value) }
   initializePdfDefaultsForType('green', activeProductTypeCategoryID.value)
   if (!pdfGroups.value.length) return
+  if (priceListLegacyPricingBlockedReason.value) {
+    message.value = ''
+    error.value = priceListLegacyPricingBlockedReason.value
+    return
+  }
   if (priceListProductSpecSelectionBlockedReason.value) {
     message.value = ''
     error.value = priceListProductSpecSelectionBlockedReason.value
@@ -4875,10 +4862,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .product-spec-check { min-width: 0; }
 .product-spec-check span { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .product-spec-check small { border-radius: 999px; padding: 2px 7px; background: #e8f1ff; color: #205da8; white-space: nowrap; }
-.product-spec-pricing { display: flex; min-width: 0; }
-.product-spec-pricing .price-list-summary-button { min-width: 0; width: auto; max-width: 220px; min-height: 30px; padding: 4px 7px; }
-.product-spec-pricing-panel { flex: 1 0 100%; width: 100%; min-width: 0; }
-.product-spec-pricing-panel .price-list-pricing-popover { width: 100%; max-width: none; box-sizing: border-box; }
+.parent-product-fixed-prices { display: grid; gap: 8px; margin-top: 10px; }
+.parent-product-fixed-prices .inline-price-config { grid-template-columns: minmax(130px, 1fr) minmax(120px, 180px); align-items: center; }
+.price-list-legacy-pricing-warning { display: grid; gap: 4px; margin-top: 10px; }
 .product-spec-option .product-picker-tier-warning { flex: 1 0 100%; margin-top: 0; }
 .product-picker-bom-warning { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; border: 1px solid #f0b7b7; border-radius: 8px; background: #fff1f1; color: #7d1616; padding: 8px 10px; font-size: 12px; line-height: 1.45; }
 .product-picker-bom-warning div { display: grid; gap: 2px; min-width: 0; }
@@ -5009,7 +4995,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .flat-price-row { grid-template-columns: 1fr; }
   .product-picker-bom-warning { flex-direction: column; }
   .product-spec-options { padding-left: 0; }
-  .product-spec-pricing { padding-left: 0; }
+  .parent-product-fixed-prices .inline-price-config { grid-template-columns: 1fr; }
   .generate-actions { justify-content: flex-start; }
   .checkbox-grid, .customizer-row { grid-template-columns: 1fr; }
   .category-pricing-summary { margin-left: 0; }

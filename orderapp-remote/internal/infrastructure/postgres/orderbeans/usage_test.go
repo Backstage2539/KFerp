@@ -30,6 +30,108 @@ func TestPublishedUnitPriceFromContentMatchesGreenBeanTiers(t *testing.T) {
 	}
 }
 
+func TestInspectPublishedProductSpecRequiresConcreteSKUAndFreezesSalesSpec(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[
+			{"product_id":550,"sku_id":551,"parent_product_id":550,"quantity_basis":"sales_spec_count","final_unit_price":68,
+			 "effective_sales_spec":{"sku_id":551,"spec_key":"bag-227g","spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}},
+			{"product_id":550,"sku_id":552,"parent_product_id":550,"quantity_basis":"sales_spec_count","final_unit_price":118,
+			 "effective_sales_spec":{"sku_id":552,"spec_key":"bag-454g","spec_name":"454g袋装","spec_label":"454g","sales_unit":"袋","net_content_qty":454,"net_content_unit":"g"}}
+		]
+	}`)
+
+	got, err := inspectPublishedProductSpecContent(content, 551)
+	if err != nil {
+		t.Fatalf("inspect concrete publication: %v", err)
+	}
+	if !got.ConcretePublication || !got.ProductFound || got.SKUID != 551 || got.ParentProductID != 550 || got.SpecName != "227g袋装" || got.SpecLabel != "227g" || got.SalesUnit != "袋" || got.NetContentQty != 227 || got.NetContentUnit != "g" {
+		t.Fatalf("concrete product spec = %+v", got)
+	}
+	missing, err := inspectPublishedProductSpecContent(content, 553)
+	if err != nil {
+		t.Fatalf("inspect missing SKU: %v", err)
+	}
+	if !missing.ConcretePublication || missing.ProductFound {
+		t.Fatalf("missing concrete SKU = %+v, want concrete publication with product_found=false", missing)
+	}
+}
+
+func TestInspectPublishedProductSpecRejectsFrozenSKUIdentityMismatch(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{"product_id":550,"sku_id":551,"parent_product_id":550,"quantity_basis":"sales_spec_count","final_unit_price":68,
+		 "effective_sales_spec":{"sku_id":552,"spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}}]
+	}`)
+
+	if _, err := inspectPublishedProductSpecContent(content, 551); err == nil || !strings.Contains(err.Error(), "SKU") {
+		t.Fatalf("frozen SKU mismatch err = %v, want SKU identity error", err)
+	}
+}
+
+func TestInspectPublishedProductSpecKeepsLegacyPublicationCompatible(t *testing.T) {
+	content := []byte(`{"groups":[{"items":[{"productId":7,"commercial_wholesale_tiers":[{"spec_g":454,"min_qty":2,"price_per_unit":68}]}]}]}`)
+
+	got, err := inspectPublishedProductSpecContent(content, 7)
+	if err != nil {
+		t.Fatalf("inspect legacy publication: %v", err)
+	}
+	if got.ConcretePublication || !got.ProductFound {
+		t.Fatalf("legacy publication identity = %+v", got)
+	}
+}
+
+func TestInspectPublishedProductSpecMixedRowsRequireTargetConcreteSnapshot(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[
+			{"product_id":550,"sku_id":551,"quantity_basis":"sales_spec_count","final_unit_price":68},
+			{"product_id":550,"sku_id":552,"parent_product_id":550,"quantity_basis":"sales_spec_count","final_unit_price":118,
+			 "effective_sales_spec":{"sku_id":552,"spec_name":"454g袋装","spec_label":"454g","sales_unit":"袋","net_content_qty":454,"net_content_unit":"g"}}
+		]
+	}`)
+
+	got, err := inspectPublishedProductSpecContent(content, 551)
+	if err != nil {
+		t.Fatalf("inspect mixed publication: %v", err)
+	}
+	if !got.ConcretePublication || got.ProductFound {
+		t.Fatalf("mixed publication target = %+v, want concrete publication with incomplete target rejected", got)
+	}
+}
+
+func TestInspectPublishedProductSpecMixedPublicationKeepsLegacyProductCompatible(t *testing.T) {
+	content := []byte(`{
+		"groups":[{"items":[{"productId":700,"name":"历史豆"}]}],
+		"price_rows":[
+			{"product_id":550,"sku_id":551,"parent_product_id":550,"quantity_basis":"sales_spec_count","final_unit_price":68,
+			 "effective_sales_spec":{"sku_id":551,"spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}},
+			{"product_id":700,"spec_g":454,"min_qty":1,"final_unit_price":66}
+		]
+	}`)
+
+	legacy, err := inspectPublishedProductSpecContent(content, 700)
+	if err != nil {
+		t.Fatalf("inspect mixed publication legacy product: %v", err)
+	}
+	if legacy.ConcretePublication || !legacy.ProductFound {
+		t.Fatalf("mixed publication legacy product = %+v, want legacy-compatible product", legacy)
+	}
+
+	concrete, err := inspectPublishedProductSpecContent(content, 551)
+	if err != nil {
+		t.Fatalf("inspect mixed publication concrete product: %v", err)
+	}
+	if !concrete.ConcretePublication || !concrete.ProductFound || concrete.SKUID != 551 {
+		t.Fatalf("mixed publication concrete product = %+v", concrete)
+	}
+
+	missing, err := inspectPublishedProductSpecContent(content, 999)
+	if err != nil {
+		t.Fatalf("inspect mixed publication missing product: %v", err)
+	}
+	if !missing.ConcretePublication || missing.ProductFound {
+		t.Fatalf("mixed publication missing product = %+v, want strict not-found", missing)
+	}
+}
+
 func TestPublishedUnitPriceFromContentMatchesCommercialAndDripTiers(t *testing.T) {
 	content := []byte(`{
 		"groups":[{

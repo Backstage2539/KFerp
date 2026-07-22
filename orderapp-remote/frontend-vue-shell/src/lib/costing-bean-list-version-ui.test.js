@@ -413,6 +413,8 @@ test('price list mode rules are opened from a button and not shown as a persiste
     'price-list-rules-dialog',
     '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
     'group_source=price_list',
+    '父商品只选择一次计价模式',
+    '固定价金额按规格分别录入',
   ]) {
     assert.ok(pageSource.includes(expected), `missing modal price-list mode rule behavior: ${expected}`)
   }
@@ -489,7 +491,7 @@ test('price list product picker selection uses product-catalog state and cascade
   }
 })
 
-test('price list product picker renders one parent row with independently selectable and priced specs', () => {
+test('price list product picker renders one parent row with independently selectable specs and shared parent pricing', () => {
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
   const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', productSelectionStart)
   assert.ok(productSelectionStart > -1 && dialogStart > productSelectionStart, 'missing product selection block')
@@ -501,9 +503,7 @@ test('price list product picker renders one parent row with independently select
     'togglePdfProductSpec',
     'isPdfProductSpecSelected',
     'priceListProductSpecLabel(spec)',
-    "openPriceListPricingPopover('product', priceListProductRowForSpec(row, spec))",
-    '商品：{{ priceListPricingPopover.productRow?.parent_product_name }}',
-    '规格：{{ priceListProductSpecLabel(priceListPricingPopover.productRow) }}',
+    "openPriceListPricingPopover('product', priceListParentProductPricingRow(row))",
     ':indeterminate.prop="isPdfCategoryPartiallySelected(category.code)"',
   ]) {
     assert.ok(selectionSource.includes(expected), `missing parent/spec picker behavior: ${expected}`)
@@ -518,12 +518,12 @@ test('price list product picker renders one parent row with independently select
   )
 })
 
-test('price list product specs use compact wrapping rows and a full-width active pricing panel', () => {
+test('price list product specs use compact wrapping rows without per-spec pricing controls', () => {
   assert.match(viewSource, /\.product-spec-options\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s)
   assert.match(viewSource, /\.product-spec-option\s*\{[^}]*display:\s*flex;/s)
-  assert.match(viewSource, /\.product-spec-pricing-panel\s*\{[^}]*flex:\s*1\s+0\s+100%;[^}]*width:\s*100%;/s)
-  assert.match(viewSource, /class="product-spec-pricing-panel"/)
-  assert.match(viewSource, /productRow\?\.scope \|\| ''\)\.trim\(\) !== 'sku'/)
+  assert.doesNotMatch(viewSource, /class="product-spec-pricing"/)
+  assert.doesNotMatch(viewSource, /class="product-spec-pricing-panel"/)
+  assert.doesNotMatch(viewSource, /设置当前规格计价/)
 })
 
 test('flat price rows render the unchanged product name with a separate spec description', () => {
@@ -539,19 +539,32 @@ test('flat price rows render the unchanged product name with a separate spec des
   assert.doesNotMatch(viewSource, /\$\{formatQty\(minQty\)\}-\$\{formatQty\(maxQty\)\}个\$\{spec\}/)
 })
 
-test('price list exposes parent-product pricing between SKU and category inheritance', () => {
-  assert.match(viewSource, /规格 &gt; 商品 &gt; 子类 &gt; 父类 &gt; 价格表/)
+test('price list exposes one shared parent-product pricing choice above category inheritance', () => {
+  assert.match(viewSource, /商品 &gt; 子类 &gt; 父类 &gt; 价格表/)
   assert.match(viewSource, /商品计价/)
   assert.match(viewSource, /priceListParentProductPricingRow\(row\)/)
   assert.match(viewSource, /scope: 'parent_product'/)
-  assert.match(viewSource, /scope: 'sku'/)
   assert.match(viewSource, /priceListProductTemplateOverrideKey/)
+  assert.doesNotMatch(viewSource, /规格 &gt; 商品 &gt;/)
 })
 
 test('price list inherits fixed-price mode but requires each selected spec to enter its own amount', () => {
   assert.match(viewSource, /固定价金额按具体规格分别录入/)
   assert.doesNotMatch(viewSource, /:value="priceListTemplateDefaults\.fixed_unit_price"/)
-  assert.match(viewSource, /固定价（元\/\{\{ priceListActiveSalesSpecUnitLabel\(\) \}\}）/)
+  assert.match(viewSource, /v-for="spec in selectedSpecsForProduct\(priceListPricingPopover\.productRow\)"/)
+  assert.match(viewSource, /固定价（元\/\{\{ priceListProductSpecLabel\(spec\) \}\}）/)
+  assert.match(viewSource, /setPriceListProductFixedPrice\(priceListPricingPopover\.productRow, spec/)
+  assert.match(viewSource, /function priceListEffectiveProductPricingSelection/)
+  assert.match(viewSource, /selectedSpecsForProduct\(row\)\[0\]/)
+  const activeSelectionStart = viewSource.indexOf('function priceListActivePricingSelection()')
+  const activeSelectionEnd = viewSource.indexOf('function setPriceListPricingPopoverMode', activeSelectionStart)
+  assert.ok(activeSelectionStart > -1 && activeSelectionEnd > activeSelectionStart, 'missing active pricing selection helper')
+  assert.match(
+    viewSource.slice(activeSelectionStart, activeSelectionEnd),
+    /priceListEffectiveProductPricingSelection\(priceListPricingPopover\.value\.productRow \|\| \{\}\)/,
+    'product popover must display inherited effective fixed mode, not only the explicit parent override',
+  )
+  assert.match(viewSource, /const representative = selectedSpecsForProduct\(item\)\[0\]/)
 })
 
 test('price list generation persists concrete product spec selections and materializes only selected SKUs', () => {
@@ -605,11 +618,10 @@ test('price list generation keeps A/B positions as summaries and edits pricing i
 
   for (const expected of [
     'product-compact-status',
-    'product-spec-pricing',
-    'priceListProductPricingSummary(priceListProductRowForSpec(row, spec))',
+    'priceListProductPricingSummary(priceListParentProductPricingRow(row))',
     'priceListProductDisplaySummary(priceListParentProductID(row))',
-    "openPriceListPricingPopover('product', priceListProductRowForSpec(row, spec))",
-    "isPriceListPricingPopoverOpen('product', priceListProductRowForSpec(row, spec))",
+    "openPriceListPricingPopover('product', priceListParentProductPricingRow(row))",
+    "isPriceListPricingPopoverOpen('product', priceListParentProductPricingRow(row))",
     'openPriceListProductDisplayDialog(priceListParentProductID(row))',
   ]) {
     assert.ok(productRowSource.includes(expected), `missing B-position product summary: ${expected}`)
@@ -636,7 +648,7 @@ test('price list generation keeps A/B positions as summaries and edits pricing i
     'setPriceListPricingPopoverMode(option.value)',
     "setPriceListPricingPopoverField('tier_template_id'",
     "setPriceListPricingPopoverField('pricing_rule_id'",
-    "setPriceListPricingPopoverField('fixed_unit_price'",
+    'setPriceListProductFixedPrice(',
   ]) {
     assert.ok(selectionSource.includes(expected) || viewSource.includes(expected), `missing anchored pricing popover behavior: ${expected}`)
   }
@@ -765,7 +777,7 @@ test('price list pricing-rule preview uses product quote unit before package fal
   assert.match(unitSource, /return Number\(tier\.spec_g \|\| tier\.specG \|\| 0\) === 1000 \? 'kg' : 'lb'/)
 })
 
-test('price list product selection summaries expose the product and specification inheritance levels', () => {
+test('price list product selection summaries expose category and shared parent-product inheritance', () => {
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
   const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', productSelectionStart)
   assert.ok(productSelectionStart > -1 && dialogStart > productSelectionStart, 'missing product selection block')
@@ -784,8 +796,7 @@ test('price list product selection summaries expose the product and specificatio
   for (const expected of [
     "return '继承分类'",
     "priceListTemplateSummary(priceListCategoryTemplateSelection(group), '')",
-    "priceListProductTemplateOverrideScope(row) === 'parent_product' ? '继承分类' : '继承商品/分类'",
-    "priceListTemplateSummary(priceListProductTemplateOverride(row), fallback)",
+    "priceListTemplateSummary(priceListProductTemplateOverride(row), '继承分类')",
   ]) {
     assert.ok(viewSource.includes(expected), `missing category inheritance summary behavior: ${expected}`)
   }
@@ -804,27 +815,39 @@ test('price list product selection summaries expose the product and specificatio
     'category-pricing-summary',
     'product-compact-status',
     'priceListCategoryPricingSummary(category)',
-    'priceListProductPricingSummary(priceListProductRowForSpec(row, spec))',
+    'priceListProductPricingSummary(priceListParentProductPricingRow(row))',
     'priceListProductDisplaySummary(priceListParentProductID(row))',
   ]) {
     assert.ok(selectionSource.includes(expected), `missing compact summary behavior: ${expected}`)
   }
 })
 
-test('price list treats tier templates as sales-spec counts and displays the selected SKU unit', () => {
+test('price list draft restoration promotes legacy SKU pricing and blocks conflicting configs until parent repricing', () => {
+  const restoreStart = viewSource.indexOf('function restorePriceListGenerationDraftForActiveType()')
+  const restoreEnd = viewSource.indexOf('function beanListPublicationTypeKey', restoreStart)
+  assert.ok(restoreStart > -1 && restoreEnd > restoreStart, 'missing price-list draft restore block')
+  const restoreSource = viewSource.slice(restoreStart, restoreEnd)
+
+  assert.match(restoreSource, /normalizeParentSharedPriceListProductOverrides\(draft\.productOverrides/)
+  assert.match(restoreSource, /productSpecSelections: draft\.product_spec_selections/)
+  assert.match(restoreSource, /priceListLegacyPricingConflicts\.value = migratedProductOverrides\.conflicts/)
+  assert.match(viewSource, /旧草稿存在规格级计价冲突，发布已阻止/)
+  assert.match(viewSource, /priceListLegacyPricingBlockedReason/)
+  assert.match(viewSource, /clearPriceListLegacyPricingConflict\(row\.parent_product_id \|\| row\.product_id\)/)
+})
+
+test('price list treats tier templates as shared sales-spec counts and keeps fixed prices labeled per selected spec', () => {
   for (const expected of [
-    'priceListTierTemplateOptionDisabled(template)',
-    'priceListTierTemplateOptionLabel(template)',
-    'priceListActiveSalesSpecUnitLabel()',
     'priceListSalesSpecCountTierLabel',
     'quantity_basis',
     'tier_quantity_unit',
+    'selectedSpecsForProduct(priceListPricingPopover.productRow)',
+    'priceListProductSpecLabel(spec)',
   ]) {
     assert.ok(viewSource.includes(expected), `missing sales-spec-count tier UI: ${expected}`)
   }
-  assert.match(viewSource, /:disabled="priceListTierTemplateOptionDisabled\(template\)"/)
-  assert.match(viewSource, /priceTierTemplateUnitCompatibility/)
-  assert.match(viewSource, /固定价（元\/\{\{ priceListActiveSalesSpecUnitLabel\(\) \}\}）/)
+  assert.doesNotMatch(viewSource, /:disabled="priceListTierTemplateOptionDisabled\(template\)"/)
+  assert.match(viewSource, /固定价（元\/\{\{ priceListProductSpecLabel\(spec\) \}\}）/)
   assert.doesNotMatch(viewSource, /<select v-model="tier\.quantity_unit">/)
   assert.match(viewSource, />最小件数</)
   assert.match(viewSource, />最大件数</)

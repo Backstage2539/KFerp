@@ -337,7 +337,17 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		CASE WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(NULLIF(p.derived_sales_unit,''), NULLIF(p.sku_name,''), NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') END AS quote_unit,
 		CASE WHEN COALESCE(p.auto_derived_sku,false) THEN COALESCE(NULLIF(p.derived_sales_unit,''), NULLIF(p.sku_name,''), NULLIF(parent_units.parent_inventory_unit,''), 'kg') ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') END AS order_unit,
 		CASE WHEN COALESCE(p.auto_derived_sku,false) AND NULLIF(p.derived_sales_unit,'') IS NOT NULL THEN jsonb_build_object(p.derived_sales_unit, jsonb_build_object(COALESCE(NULLIF(parent_units.parent_inventory_unit,''), 'kg'), derived_sku_units.derived_sku_unit_factor))::text ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') END AS unit_conversion_json,
-		COALESCE(product_direct_unit_template.integer_unit, subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit
+		COALESCE(product_direct_unit_template.integer_unit, subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit,
+		p.id AS sku_id,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AS effective_parent_product_id,
+		COALESCE(NULLIF(parent_product.name,''), p.name, '') AS parent_product_name,
+		COALESCE(NULLIF(p.sku_name,''), NULLIF(p.spec_label,''), CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.name ELSE '默认规格' END) AS sku_name,
+		COALESCE(NULLIF(p.sku_code,''), 'SKU-' || p.id::text) AS sku_code,
+		COALESCE(p.spec_label,'') AS spec_label,
+		COALESCE(p.net_content_qty,0)::float8 AS net_content_qty,
+		COALESCE(p.net_content_unit,'') AS net_content_unit,
+		(p.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(parent_product.default_sku_id,0),p.id) ELSE COALESCE(NULLIF(p.default_sku_id,0),p.id) END) AS is_default_sku,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(parent_product.default_sku_id,0),p.id) ELSE COALESCE(NULLIF(p.default_sku_id,0),p.id) END AS default_sku_id
 		FROM %[1]s.products p
 		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
@@ -378,6 +388,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 			       END AS derived_sku_unit_factor
 		) derived_sku_units ON true
 		WHERE p.active=true
+		  AND (COALESCE(p.parent_product_id,0)=0 OR parent_product.id IS NOT NULL)
 		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
 		ORDER BY p.name`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)
@@ -389,11 +400,11 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	out := make([]salesapp.ProductOption, 0)
 	for rows.Next() {
 		var p salesapp.ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.ProductTypeCategoryID, &p.ProductSubtypeCategoryID, &p.ProductTypeName, &p.ProductSubtypeName, &p.InventoryUnit, &p.QuoteUnit, &p.OrderUnit, &p.UnitConversionJSON, &p.IntegerUnit); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.ProductTypeCategoryID, &p.ProductSubtypeCategoryID, &p.ProductTypeName, &p.ProductSubtypeName, &p.InventoryUnit, &p.QuoteUnit, &p.OrderUnit, &p.UnitConversionJSON, &p.IntegerUnit, &p.SKUID, &p.ParentProductID, &p.ParentProductName, &p.SKUName, &p.SKUCode, &p.SpecLabel, &p.NetContentQty, &p.NetContentUnit, &p.IsDefaultSKU, &p.DefaultSKUID); err != nil {
 			return nil, err
 		}
-		p.ProductCode = fmt.Sprintf("SKU-%d", p.ID)
-		p.ProductRecordName = p.Name
+		p.ProductCode = firstOrderSalesSpecText(p.SKUCode, fmt.Sprintf("SKU-%d", p.ID))
+		p.ProductRecordName = firstOrderSalesSpecText(p.ParentProductName, p.Name)
 		if p.ProductKind == "drip_bag" {
 			p.SalesUnits = []string{"bag", "box"}
 		}
@@ -419,6 +430,11 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		return nil, err
 	}
 	applyCommercialOrderPublicationTiers(out, commercialPublicationTiers)
+	dripPublicationTiers, err := r.fetchDripOrderPublicationTiers(ctx, out)
+	if err != nil {
+		return nil, err
+	}
+	applyHistoricalDripOrderPublicationTiers(out, dripPublicationTiers)
 	retailPublicationTiers, err := r.fetchRetailOrderPublicationTiers(ctx, out)
 	if err != nil {
 		return nil, err
@@ -465,10 +481,25 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 		COALESCE(NULLIF(a.display_name,''), p.name, ''),
 		COALESCE(a.customer_item_code,''),
 		COALESCE(a.brand_name,''),
-		COALESCE(p.name,''),
-		COALESCE(a.display_category_id,0)
+		COALESCE(NULLIF(parent_product.name,''),p.name,''),
+		COALESCE(a.display_category_id,0),
+		p.id AS sku_id,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AS effective_parent_product_id,
+		COALESCE(NULLIF(parent_product.name,''), p.name, '') AS parent_product_name,
+		COALESCE(NULLIF(p.sku_name,''), NULLIF(p.spec_label,''), CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.name ELSE '默认规格' END) AS sku_name,
+		COALESCE(NULLIF(p.sku_code,''), 'SKU-' || p.id::text) AS sku_code,
+		COALESCE(p.spec_label,'') AS spec_label,
+		COALESCE(p.net_content_qty,0)::float8 AS net_content_qty,
+		COALESCE(p.net_content_unit,'') AS net_content_unit,
+		(p.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(parent_product.default_sku_id,0),p.id) ELSE COALESCE(NULLIF(p.default_sku_id,0),p.id) END) AS is_default_sku,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(parent_product.default_sku_id,0),p.id) ELSE COALESCE(NULLIF(p.default_sku_id,0),p.id) END AS default_sku_id
 		FROM %[1]s.customer_product_aliases a
-		JOIN %[1]s.products p ON p.id=a.product_id AND p.active=true
+		JOIN %[1]s.products alias_product ON alias_product.id=a.product_id AND alias_product.active=true
+		JOIN %[1]s.products p ON p.active=true AND (
+			(COALESCE(alias_product.parent_product_id,0)>0 AND (p.id=alias_product.parent_product_id OR p.parent_product_id=alias_product.parent_product_id))
+			OR
+			(COALESCE(alias_product.parent_product_id,0)=0 AND (p.id=alias_product.id OR p.parent_product_id=alias_product.id))
+		)
 		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
 		LEFT JOIN %[1]s.product_categories type_cat ON type_cat.id=subtype_cat.parent_id AND type_cat.active=true
@@ -508,6 +539,8 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 			       END AS derived_sku_unit_factor
 		) derived_sku_units ON true
 		WHERE a.active=true
+		  AND (COALESCE(p.parent_product_id,0)=0 OR parent_product.id IS NOT NULL)
+		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
 		ORDER BY a.customer_id, a.sort_order, a.id`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)
 	if err != nil {
@@ -517,10 +550,10 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 	out := make([]salesapp.ProductOption, 0)
 	for rows.Next() {
 		var p salesapp.ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.ProductTypeCategoryID, &p.ProductSubtypeCategoryID, &p.ProductTypeName, &p.ProductSubtypeName, &p.InventoryUnit, &p.QuoteUnit, &p.OrderUnit, &p.UnitConversionJSON, &p.IntegerUnit, &p.CustomerProductAliasID, &p.CustomerProductDisplayName, &p.CustomerItemCode, &p.BrandName, &p.ProductRecordName, &p.CustomerAliasDisplayCategoryID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.ProductTypeCategoryID, &p.ProductSubtypeCategoryID, &p.ProductTypeName, &p.ProductSubtypeName, &p.InventoryUnit, &p.QuoteUnit, &p.OrderUnit, &p.UnitConversionJSON, &p.IntegerUnit, &p.CustomerProductAliasID, &p.CustomerProductDisplayName, &p.CustomerItemCode, &p.BrandName, &p.ProductRecordName, &p.CustomerAliasDisplayCategoryID, &p.SKUID, &p.ParentProductID, &p.ParentProductName, &p.SKUName, &p.SKUCode, &p.SpecLabel, &p.NetContentQty, &p.NetContentUnit, &p.IsDefaultSKU, &p.DefaultSKUID); err != nil {
 			return nil, err
 		}
-		p.ProductCode = fmt.Sprintf("SKU-%d", p.ID)
+		p.ProductCode = firstOrderSalesSpecText(p.SKUCode, fmt.Sprintf("SKU-%d", p.ID))
 		if p.ProductKind == "drip_bag" {
 			p.SalesUnits = []string{"bag", "box"}
 		}
@@ -553,6 +586,10 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 
 func (r Repository) fetchRetailOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
 	return r.fetchStandardOrderPublicationTiers(ctx, products, "retail")
+}
+
+func (r Repository) fetchDripOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
+	return r.fetchStandardOrderPublicationTiers(ctx, products, "drip")
 }
 
 func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption, listType string) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
@@ -626,6 +663,8 @@ func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, prod
 
 	customerTiers := map[string]map[int64][]salesapp.ProductTierOption{}
 	officialTiers := map[int64][]salesapp.ProductTierOption{}
+	customerLegacyTierCoverage := map[string]map[int64]bool{}
+	officialLegacyTierCoverage := map[int64]bool{}
 	for rows.Next() {
 		var ownerType, ownerKey, versionNo string
 		var publicationID int64
@@ -635,10 +674,13 @@ func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, prod
 		}
 		tiers := commercialOrderTierMapFromPublicationContent(publicationID, versionNo, contentRaw, listType)
 		if ownerType == "customer" {
-			customerTiers[ownerKey] = mergeLatestCommercialOrderPublicationTierMaps(customerTiers[ownerKey], tiers)
+			if customerLegacyTierCoverage[ownerKey] == nil {
+				customerLegacyTierCoverage[ownerKey] = map[int64]bool{}
+			}
+			customerTiers[ownerKey] = mergeLatestCommercialOrderPublicationTierMaps(customerTiers[ownerKey], tiers, customerLegacyTierCoverage[ownerKey])
 			continue
 		}
-		officialTiers = mergeLatestCommercialOrderPublicationTierMaps(officialTiers, tiers)
+		officialTiers = mergeLatestCommercialOrderPublicationTierMaps(officialTiers, tiers, officialLegacyTierCoverage)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -665,10 +707,16 @@ func (r Repository) fetchStandardOrderPublicationTiers(ctx context.Context, prod
 }
 
 func standardOrderPublicationListType(listType string) string {
-	if strings.TrimSpace(listType) == "retail" {
+	switch strings.TrimSpace(listType) {
+	case "retail":
 		return "retail"
+	case "green":
+		return "green"
+	case "drip":
+		return "drip"
+	default:
+		return "commercial"
 	}
-	return "commercial"
 }
 
 func applyCommercialOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
@@ -694,6 +742,19 @@ func applyRetailOrderPublicationTiers(products []salesapp.ProductOption, publica
 			continue
 		}
 		products[i].Tiers = append(products[i].Tiers, tiers...)
+	}
+}
+
+func applyHistoricalDripOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
+	for i := range products {
+		if strings.TrimSpace(products[i].ProductKind) != "drip_bag" || len(products[i].Tiers) > 0 {
+			continue
+		}
+		tiers := publicationTiers[orderPublicationProductKeyForProduct(products[i])]
+		if len(tiers) == 0 {
+			continue
+		}
+		products[i].Tiers = append([]salesapp.ProductTierOption(nil), tiers...)
 	}
 }
 
@@ -822,20 +883,109 @@ func mergeOrderPublicationTierMaps(dst, src map[int64][]salesapp.ProductTierOpti
 	return dst
 }
 
-func mergeLatestCommercialOrderPublicationTierMaps(dst, src map[int64][]salesapp.ProductTierOption) map[int64][]salesapp.ProductTierOption {
+func mergeLatestCommercialOrderPublicationTierMaps(dst, src map[int64][]salesapp.ProductTierOption, legacyCoverageStates ...map[int64]bool) map[int64][]salesapp.ProductTierOption {
 	if dst == nil {
 		dst = map[int64][]salesapp.ProductTierOption{}
 	}
+	legacyCovered := map[int64]bool{}
+	if len(legacyCoverageStates) > 0 && legacyCoverageStates[0] != nil {
+		legacyCovered = legacyCoverageStates[0]
+	} else {
+		// Direct callers historically passed only the merged tier map. Rebuild the
+		// visible legacy coverage so that the helper keeps that call shape working.
+		// A persistent coverage map is still required by the publication reader to
+		// remember an empty legacy snapshot alongside concrete SKU tiers.
+		for productID, tiers := range dst {
+			if len(tiers) == 0 {
+				legacyCovered[productID] = true
+				continue
+			}
+			for _, tier := range tiers {
+				if !orderPublicationTierHasConcreteSKU(tier) {
+					legacyCovered[productID] = true
+					break
+				}
+			}
+		}
+	}
 	for productID, tiers := range src {
-		if _, covered := dst[productID]; covered {
+		concrete := make([]salesapp.ProductTierOption, 0, len(tiers))
+		legacy := make([]salesapp.ProductTierOption, 0, len(tiers))
+		for _, tier := range tiers {
+			if orderPublicationTierHasConcreteSKU(tier) {
+				concrete = append(concrete, tier)
+			} else {
+				legacy = append(legacy, tier)
+			}
+		}
+		if len(concrete) > 0 {
+			dst[productID] = appendUniqueOrderPublicationTiers(dst[productID], concrete)
+		}
+		if legacyCovered[productID] {
 			continue
 		}
-		dst[productID] = append([]salesapp.ProductTierOption(nil), tiers...)
-		if dst[productID] == nil {
-			dst[productID] = []salesapp.ProductTierOption{}
+		if len(legacy) > 0 {
+			dst[productID] = append(dst[productID], legacy...)
+			legacyCovered[productID] = true
+			continue
+		}
+		if len(tiers) == 0 {
+			if _, covered := dst[productID]; !covered {
+				dst[productID] = []salesapp.ProductTierOption{}
+			}
+			legacyCovered[productID] = true
 		}
 	}
 	return dst
+}
+
+func orderPublicationTierHasConcreteSKU(tier salesapp.ProductTierOption) bool {
+	if strings.TrimSpace(tier.QuantityBasis) != "sales_spec_count" || tier.PublicationID <= 0 || len(tier.EffectiveSalesSpec) == 0 {
+		return false
+	}
+	return orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "sku_id") > 0
+}
+
+func appendUniqueOrderPublicationTiers(dst, src []salesapp.ProductTierOption) []salesapp.ProductTierOption {
+	seen := make(map[string]bool, len(dst)+len(src))
+	key := func(tier salesapp.ProductTierOption) string {
+		return fmt.Sprintf("%d:%d", tier.PublicationID, tier.ID)
+	}
+	for _, tier := range dst {
+		seen[key(tier)] = true
+	}
+	for _, tier := range src {
+		tierKey := key(tier)
+		if seen[tierKey] {
+			continue
+		}
+		seen[tierKey] = true
+		dst = append(dst, tier)
+	}
+	return dst
+}
+
+func orderFamilyTierMapInt64(values map[string]any, key string) int64 {
+	value, ok := values[key]
+	if !ok {
+		return 0
+	}
+	switch value := value.(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func applyGreenBeanOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
@@ -910,8 +1060,11 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 		listType = standardOrderPublicationListType(listTypes[0])
 	}
 	legacyTierKey := "commercial_wholesale_tiers"
-	if listType == "retail" {
+	switch listType {
+	case "retail":
 		legacyTierKey = "retail_bean_tiers"
+	case "drip":
+		legacyTierKey = "drip_wholesale_tiers"
 	}
 	flatParentIDs := map[int64]bool{}
 	flatTiers := map[int64][]salesapp.ProductTierOption{}
@@ -1052,10 +1205,40 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 	if err := json.Unmarshal(raw, &content); err != nil {
 		return out
 	}
+	flatParentIDs := map[int64]bool{}
+	flatTiers := map[int64][]salesapp.ProductTierOption{}
+	for idx, rowRaw := range content.PriceRows {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(rowRaw, &fields); err != nil {
+			continue
+		}
+		productID := orderBeanListFlatRowProductID(fields)
+		if productID <= 0 {
+			continue
+		}
+		if parentID := rawJSONInt64(fields["parent_product_id"]); parentID > 0 && parentID != productID {
+			flatParentIDs[parentID] = true
+		}
+		if _, covered := flatTiers[productID]; !covered {
+			flatTiers[productID] = []salesapp.ProductTierOption{}
+		}
+		var tier orderCommercialPublicationTier
+		if err := json.Unmarshal(rowRaw, &tier); err != nil {
+			continue
+		}
+		normalizeCommercialOrderFlatTierBounds(&tier)
+		option := commercialOrderTierOption(publicationID, versionNo, idx, tier, "green_bean", "green")
+		if option.UnitPrice > 0 {
+			flatTiers[productID] = append(flatTiers[productID], option)
+		}
+	}
 	for _, group := range content.Groups {
 		for _, itemRaw := range group.Items {
 			productID := orderBeanListProductID(itemRaw)
 			if productID <= 0 {
+				continue
+			}
+			if flatParentIDs[productID] {
 				continue
 			}
 			var fields map[string]json.RawMessage
@@ -1081,6 +1264,11 @@ func greenBeanOrderTierMapFromPublicationContent(publicationID int64, versionNo 
 				}
 				out[productID] = append(out[productID], option)
 			}
+		}
+	}
+	for productID, tiers := range flatTiers {
+		if len(tiers) > 0 {
+			out[productID] = tiers
 		}
 	}
 	return out
@@ -1261,19 +1449,22 @@ func commercialOrderTierOption(publicationID int64, versionNo string, idx int, t
 	addOrderPublicationSnapshotSource(source, tier.SourcePriceRecordID, tier.InventoryUnit, tier.InventoryConversionJSON)
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
-		ID:                 id,
-		SpecG:              specG,
-		MinQty:             tier.MinQty,
-		MaxQty:             tier.MaxQty,
-		UnitPrice:          unitPrice,
-		DisplayUnit:        priceUnit,
-		ProductKind:        orderCommercialPublicationProductKind(productKind),
-		SalesUnit:          firstOrderSalesSpecText(tier.SalesUnit, effectiveSpec.SalesUnit),
-		UnitBagCount:       tier.UnitBagCount,
-		PriceSourceJSON:    string(sourceJSON),
-		QuantityBasis:      strings.TrimSpace(tier.QuantityBasis),
-		TierQuantityUnit:   strings.TrimSpace(tier.TierQuantityUnit),
-		EffectiveSalesSpec: effectiveSalesSpec,
+		ID:                   id,
+		SpecG:                specG,
+		MinQty:               tier.MinQty,
+		MaxQty:               tier.MaxQty,
+		UnitPrice:            unitPrice,
+		DisplayUnit:          priceUnit,
+		ProductKind:          orderCommercialPublicationProductKind(productKind),
+		SalesUnit:            firstOrderSalesSpecText(tier.SalesUnit, effectiveSpec.SalesUnit),
+		UnitBagCount:         tier.UnitBagCount,
+		PriceSourceJSON:      string(sourceJSON),
+		QuantityBasis:        strings.TrimSpace(tier.QuantityBasis),
+		TierQuantityUnit:     strings.TrimSpace(tier.TierQuantityUnit),
+		EffectiveSalesSpec:   effectiveSalesSpec,
+		PublicationID:        publicationID,
+		PublicationVersionNo: versionNo,
+		ListType:             listType,
 	}
 }
 
@@ -1349,14 +1540,19 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 	addOrderPublicationSnapshotSource(source, tier.SourcePriceRecordID, tier.InventoryUnit, tier.InventoryConversionJSON)
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
-		ID:              id,
-		SpecG:           specG,
-		MinQty:          tier.MinQty,
-		MaxQty:          tier.MaxQty,
-		UnitPrice:       unitPrice,
-		DisplayUnit:     priceUnit,
-		ProductKind:     "green_bean",
-		PriceSourceJSON: string(sourceJSON),
+		ID:                   id,
+		SpecG:                specG,
+		MinQty:               tier.MinQty,
+		MaxQty:               tier.MaxQty,
+		UnitPrice:            unitPrice,
+		DisplayUnit:          priceUnit,
+		ProductKind:          "green_bean",
+		PriceSourceJSON:      string(sourceJSON),
+		QuantityBasis:        strings.TrimSpace(tier.QuantityBasis),
+		TierQuantityUnit:     strings.TrimSpace(tier.TierQuantityUnit),
+		PublicationID:        publicationID,
+		PublicationVersionNo: versionNo,
+		ListType:             "green",
 	}
 }
 

@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-544-PARENT-PRICING-ORDER-PRICE-LIST-SPECS
+- Branch: codex/pr544-parent-pricing-order-specs
+- Owner/session: Codex / 2026-07-21
+- Status: implementation and local verification complete; pending develop merge and development deployment
+- Scope: 商品价格表每个父商品只选择一次计价类型及阶梯/价格计算模板，选中规格统一继承，固定价金额仍按具体 SKU 分别录入；录单商品按父商品展示，规格只允许选择当前已选已发布价格表中存在的具体 SKU，不再叠加全局克数或把规格拼入商品名。
+- DEV:
+  - DEV-544-PARENT-PRICING：移除规格级计价类型/模板入口，父商品统一配置并向所有选中规格继承；固定价在同一商品计价面板按规格分别填写，草稿兼容旧规格覆盖。
+  - DEV-544-PUBLISH-GUARD：新草稿/发布快照标记父商品统一计价范围，后端拒绝同父商品混用计价类型或模板，并保留历史发布兼容。
+  - DEV-544-ORDER-PRICE-LIST-SPECS：录单商品按父商品聚合；规格候选和值来自当前适用价格表具体 SKU，切换规格同步 SKU/价格快照，后端拒绝 SKU、规格与发布版本错配。
+  - DEV-544-DOCS-DEPLOY：同步需求、验收、成本及订单手册，完成 RED/GREEN、完整验证、develop 合并、开发部署和 API/浏览器冒烟。
+- Verifier:
+  - Unit/API GREEN: Costing shared-parent marker and mixed-config rejection; order application/repository/API concrete SKU, parent/spec/publication validation; concrete + legacy publication merge and empty-snapshot coverage; support contract.
+  - Frontend GREEN: seven targeted price-list/order files 395/395; pricing-only subset 252/252; order-entry 106/106 after RED reproduced legacy SKU aggregation and missing publication-mode handling.
+  - Full verification: `changed`, complete Go suite and Vite build (401 modules) pass. Full frontend is 783/789; the same six workspace-context assertions fail on clean `origin/develop` (whose baseline also has an extra contract-stamp failure), so there is no PR-544 regression.
+  - Manual: costing/order single-source manuals and Vue in-page help updated.
+  - Review/acceptance: independent post-fix review found and verified the concrete/legacy publication, pure-legacy identity, version-switch reset, public-parent filtering and explicit-publication bypass fixes; final result has no remaining P0/P1. Development API/browser smoke pending.
+- Deployment: development only after verification; production and existing published price tables remain untouched.
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` reported PR-544; `--claim parent-pricing-order-specs` hit the known macOS awk multiline-string error, so this entry was recorded with apply_patch.
+
 ### PR-543-PRICE-LIST-PIECE-TIER-LABEL
 - Branch: codex/pr543-price-list-piece-label
 - Owner/session: Codex / 2026-07-21

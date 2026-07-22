@@ -525,6 +525,7 @@ export function buildPriceListGenerationSnapshot(input = {}) {
   return {
     config: {
       price_list_template_selection: {
+        product_pricing_scope: 'parent_product_shared',
         defaults,
         group_selections: groupSelections,
         product_overrides: productOverrides,
@@ -560,7 +561,10 @@ function normalizeGroupTemplateSelection(row = {}) {
 
 function normalizeProductTemplateOverride(row = {}) {
   return {
+    scope: stringField(row.scope ?? row.override_scope ?? row.overrideScope),
     product_id: firstNumber(row.product_id, row.productID, row.productId),
+    sku_id: firstNumber(row.sku_id, row.skuID, row.skuId),
+    parent_product_id: firstNumber(row.parent_product_id, row.parentProductID, row.parentProductId),
     product_key: stringField(row.product_key ?? row.productKey),
     product_name: stringField(row.product_name ?? row.productName),
     ...normalizeTemplateSelection(row),

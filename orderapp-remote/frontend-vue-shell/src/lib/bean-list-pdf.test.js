@@ -245,7 +245,8 @@ test('price-list generation snapshot persists template inheritance, editable fla
       { group_item_id: 101, parent_group_item_id: 100, group_item_name: '大客户', level: 2, pricing_mode: 'tier_template', tier_template_id: 9, pricing_rule_id: 0, fixed_unit_price: 0 },
     ],
     productOverrides: [
-      { product_id: 44, pricing_mode: '', tier_template_id: 0, pricing_rule_id: 90, fixed_unit_price: 0 },
+      { scope: 'parent_product', product_id: 44, parent_product_id: 44, pricing_mode: '', tier_template_id: 0, pricing_rule_id: 90, fixed_unit_price: 0 },
+      { scope: 'sku', product_id: 414, sku_id: 414, parent_product_id: 44, pricing_mode: '', tier_template_id: 0, pricing_rule_id: 0, fixed_unit_price: 81.5 },
     ],
     rows: [{
       product_id: 44,
@@ -296,8 +297,15 @@ test('price-list generation snapshot persists template inheritance, editable fla
   })
 
   assert.deepEqual(snapshot.config.price_list_template_selection.defaults, { pricing_mode: 'tier_template', tier_template_id: 7, pricing_rule_id: 70, fixed_unit_price: 0 })
+  assert.equal(snapshot.config.price_list_template_selection.product_pricing_scope, 'parent_product_shared')
   assert.equal(snapshot.config.price_list_template_selection.group_selections[1].parent_group_item_id, 100)
   assert.equal(snapshot.config.price_list_template_selection.product_overrides[0].pricing_rule_id, 90)
+  assert.equal(snapshot.config.price_list_template_selection.product_overrides[0].scope, 'parent_product')
+  assert.equal(snapshot.config.price_list_template_selection.product_overrides[0].parent_product_id, 44)
+  assert.equal(snapshot.config.price_list_template_selection.product_overrides[0].sku_id, 0)
+  assert.equal(snapshot.config.price_list_template_selection.product_overrides[1].scope, 'sku')
+  assert.equal(snapshot.config.price_list_template_selection.product_overrides[1].sku_id, 414)
+  assert.equal(snapshot.config.price_list_template_selection.product_overrides[1].parent_product_id, 44)
   assert.equal(snapshot.content.price_rows.length, 1)
   const row = snapshot.content.price_rows[0]
   assert.equal(row.manual_adjusted, true)
