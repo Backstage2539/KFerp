@@ -1590,4 +1590,4 @@
 - [x] 商品数和价格表归属两个块等高；宽屏与按钮组同行，中等宽度按钮组在顶部区域换到下一行，窄屏自动单列，不产生横向溢出或按钮裁切。
 - [x] 商品价格表标题右侧不再显示 `刷新`；页面仍通过现有进入、归属、商品类型和业务动作自动加载数据。
 - [x] 三个按钮继续打开原阶梯模板抽屉、计价模式规则弹窗和价格表配置抽屉，不改变业务数据、API、发布快照或权限。
-- [ ] 定向前端、支持合同、Vue/Vite 构建、development 部署和浏览器冒烟通过。证据记录在 `orderapp-remote/docs/acceptance/2026-07-23-price-list-top-actions.md`。
+- [x] 定向前端、支持合同、Vue/Vite 构建、development 部署和浏览器冒烟通过。证据记录在 `orderapp-remote/docs/acceptance/2026-07-23-price-list-top-actions.md`。
