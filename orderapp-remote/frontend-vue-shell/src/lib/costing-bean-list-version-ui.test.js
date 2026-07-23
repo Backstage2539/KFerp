@@ -87,6 +87,42 @@ test('product price list keeps product count scope and tier template action on o
   assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s)
 })
 
+test('product price list groups all three management actions in the top toolbar with equal summary heights', () => {
+  const pageHeaderStart = viewSource.indexOf('<section class="panel">')
+  const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
+  const generatePanelStart = viewSource.indexOf('<div class="bean-list-generate-bar">')
+  const generatePanelEnd = viewSource.indexOf('</section>', generatePanelStart)
+  const generatePanelSource = viewSource.slice(generatePanelStart, generatePanelEnd)
+
+  assert.doesNotMatch(pageHeaderSource, />刷新<\/button>/)
+  assert.match(pageHeaderSource, /class="price-list-toolbar-actions"/)
+  const tierTemplateIndex = pageHeaderSource.indexOf('>管理阶梯模板</button>')
+  const pricingRulesIndex = pageHeaderSource.indexOf('>计价模式规则</button>')
+  const priceListConfigIndex = pageHeaderSource.indexOf('>价格表配置</button>')
+  assert.ok(
+    tierTemplateIndex > -1 && pricingRulesIndex > tierTemplateIndex && priceListConfigIndex > pricingRulesIndex,
+    'top toolbar must contain tier templates, pricing rules and price-list config in order',
+  )
+  assert.doesNotMatch(generatePanelSource, />计价模式规则<\/button>/)
+  assert.doesNotMatch(generatePanelSource, />价格表配置<\/button>/)
+  assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
+  assert.equal((viewSource.match(/>计价模式规则<\/button>/g) || []).length, 1)
+  assert.equal((viewSource.match(/>价格表配置<\/button>/g) || []).length, 1)
+  assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*align-items:\s*stretch/s)
+  assert.match(
+    viewSource,
+    /\.price-list-toolbar-stat,\s*\.price-list-toolbar-scope\s*\{[^}]*min-height:\s*76px/s,
+  )
+  assert.match(viewSource, /\.price-list-toolbar-actions\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/s)
+  assert.match(
+    viewSource,
+    /@media \(max-width:\s*1200px\)[\s\S]*\.price-list-top-toolbar\s*\{[^}]*grid-template-columns:\s*minmax\(120px,\s*\.35fr\)\s*minmax\(260px,\s*1fr\)[^}]*\}[\s\S]*\.price-list-toolbar-actions\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s,
+  )
+  assert.match(viewSource, /@media \(max-width:\s*900px\)[\s\S]*\.price-list-toolbar-actions button\s*\{[^}]*flex:\s*1 1 180px/s)
+  assert.match(viewSource, /onMounted\(\(\) => \{[\s\S]*loadBeanList\(\)/s)
+})
+
 test('product price list restores and persists browser scope and product type preferences', () => {
   for (const expected of [
     'readPriceListPagePreferences()',
@@ -472,7 +508,7 @@ test('price list mode rules are opened from a button and not shown as a persiste
     '父商品只选择一次计价模式',
     '固定价金额按规格分别录入',
   ]) {
-    assert.ok(pageSource.includes(expected), `missing modal price-list mode rule behavior: ${expected}`)
+    assert.ok(viewSource.includes(expected), `missing modal price-list mode rule behavior: ${expected}`)
   }
 
   const oldPanelStart = pageSource.indexOf('data-pr442-price-list-group-source')
