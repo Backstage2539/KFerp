@@ -30,5 +30,8 @@
 
 ## 交付边界
 
-- development 待验证后部署；production 不部署。
+- 功能提交 `d63ada84`，合并后的 `develop` 为 `ee22949f3d3e80f8a91dc90695026a52f7b2ba82`，已通过 `npm_config_audit=false ./deploy_orderapp.sh development` 部署；备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260723115210`。
+- 开发栈 `erp_orderapp` 正常运行、`erp_postgres` healthy；公开入口未认证返回 401，BasicAuth shell 返回 200；开发数据库存在 PR-548，服务器源码、偏好 helper 与 dist 均包含新功能标记。
+- 第一次部署仅在本地小程序 `npm ci` 在线审计阶段卡住，服务器同步尚未开始；关闭重复在线审计后重跑，Vue、小程序类型检查/构建和 Docker 内完整 Go 测试全部通过。
+- production 不部署。
 - 不发布、撤回、归档或重新生成任何价格表。
