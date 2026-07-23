@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-549-PRICE-LIST-TOP-ACTIONS
 - Branch: codex/pr549-price-list-top-actions
 - Owner/session: Codex / 2026-07-23
-- Status: implementation and automated verification complete; awaiting integration and development deployment
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van acceptance
 - Scope: 商品价格表顶部统一放置管理阶梯模板、计价模式规则和价格表配置三个入口；商品数与价格表归属卡片等高；删除顶部刷新按钮。
 - DEV:
   - DEV-549-TOP-ACTION-GROUP：三个价格表管理入口在顶部右侧成组排列，生成价格表说明区不再重复放置入口。
@@ -19,9 +19,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: `costing-bean-list-version-ui.test.js` 因顶部仍有刷新且两个管理入口仍在生成区失败；PR-549 支持合同因缺少需求种子和交付文档失败。
   - GREEN: 价格表相关前端测试 65/65；PR-547/548/549 支持合同、完整后端测试、Vue/Vite production build、`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过；独立复核发现并关闭中等宽度按钮裁切问题，最终无 P0-P3。
-- Deployment: development pending; production unchanged
-- Last update: 2026-07-23 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh` 返回 PR-549；`--claim price-list-top-actions` 命中已知 macOS awk 多行字符串错误，故手工登记。本需求不新增业务写操作或操作日志。首次 Vue 构建因新工作树尚未安装依赖返回 `vite: command not found`，按锁文件 `npm ci --no-audit --no-fund` 后构建通过。
+- Deployment: feature `74e744ad` merged to `develop` as `31b7d19092aeda01d715f56b7eb297bc6763effd` and deployed to development; backup `/opt/stacks/erp/orderapp.backup.deploy-20260723145039`; production unchanged
+- Last update: 2026-07-23 15:12 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-549；`--claim price-list-top-actions` 命中已知 macOS awk 多行字符串错误，故手工登记。本需求不新增业务写操作或操作日志。首次 Vue 构建因新工作树尚未安装依赖返回 `vite: command not found`，按锁文件 `npm ci --no-audit --no-fund` 后构建通过。开发部署的 Docker build 内完整 `go test ./...` 通过；`erp_orderapp` 正常、重启数 0，`erp_postgres` healthy，JS/CSS 和需求 API 返回 200，PR-549 marker 可读。浏览器在 1470px 宽度确认商品数与价格表归属均为 82px 高、三个顶部按钮顺序正确、无顶部刷新和横向溢出，三个原有界面均可打开并关闭；没有保存或修改业务数据。
 
 ### PR-548-PRICE-LIST-SCOPE-MEMORY
 - Branch: codex/pr548-price-list-scope-memory
