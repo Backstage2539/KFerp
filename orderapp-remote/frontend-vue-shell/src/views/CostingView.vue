@@ -9,18 +9,13 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
-      <div class="metrics">
-        <div>
+      <div class="price-list-top-toolbar">
+        <div class="price-list-toolbar-stat">
           <span>商品数</span>
           <strong>{{ customerScopedSkuCount }}</strong>
         </div>
-      </div>
-      <div class="bean-list-global-scope">
-        <div>
+        <label v-if="!isWorkspaceCustomerLocked" class="price-list-toolbar-scope">
           <span>价格表归属</span>
-          <strong>{{ publicationScopeLabel(versionListScope) }}</strong>
-        </div>
-        <label v-if="!isWorkspaceCustomerLocked" class="scope-select">
           <select v-model="versionListScope" aria-label="价格表归属">
             <option value="official">公共价格表</option>
             <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
@@ -28,7 +23,11 @@
             </option>
           </select>
         </label>
-        <div v-else class="scope-select locked-scope">{{ publicationScopeLabel(versionListScope) }}</div>
+        <div v-else class="price-list-toolbar-scope locked-scope">
+          <span>价格表归属</span>
+          <strong>{{ publicationScopeLabel(versionListScope) }}</strong>
+        </div>
+        <button class="secondary price-list-tier-template-button" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
       </div>
     </section>
 
@@ -229,7 +228,6 @@
           <p class="muted">商品价格表是 Price List / Item Price 平铺价格行。生成时选择分组并勾选分组项选品；父商品只设置一次计价模式，所选规格共同继承。</p>
         </div>
         <div class="generate-actions">
-          <button class="secondary" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
           <button class="secondary" type="button" @click="priceListRulesDialogOpen = true">计价模式规则</button>
           <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>
         </div>
@@ -1123,6 +1121,13 @@ import {
 } from '../lib/costing-price-list-workflow.js'
 import { FORM_DRAFT_SCOPES, readFormDraft } from '../lib/form-draft-cache'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+import {
+  PRICE_LIST_PAGE_PREFERENCES_KEY,
+  readPriceListPagePreferences,
+  resolvePriceListScopePreference,
+  resolveProductTypePreference,
+  writePriceListPagePreferences,
+} from '../lib/price-list-page-preferences'
 
 const props = defineProps({
   workspaceMode: { type: String, default: '' },
@@ -1132,6 +1137,7 @@ const props = defineProps({
 
 const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
 const FACTORY_SUPPLY_PUBLICATION_PURPOSE = 'factory_supply'
+const initialPriceListPagePreferences = readPriceListPagePreferences()
 
 const loading = ref(false)
 const beanListPublishing = ref(false)
@@ -1142,7 +1148,7 @@ const priceExplanationOpen = ref(false)
 const priceExplanationLoading = ref(false)
 const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
-const versionListScope = ref('official')
+const versionListScope = ref(initialPriceListPagePreferences.scope)
 const publicationListSearch = ref('')
 const publicationListPage = ref(1)
 const publicationListPageSize = ref(10)
@@ -1156,7 +1162,7 @@ const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
 const currentActor = ref(null)
 const selectedPriceSourcePublicationID = ref('')
-const selectedProductTypeCategoryID = ref(0)
+const selectedProductTypeCategoryID = ref(initialPriceListPagePreferences.productTypeCategoryID)
 const downloadSourcePublication = ref(null)
 const error = ref('')
 const message = ref('')
@@ -1441,18 +1447,17 @@ const pdfPageStyle = computed(() => {
 })
 
 watch(productPriceListTypeOptions, (options) => {
-  if (!options.length) {
-    selectedProductTypeCategoryID.value = 0
+  const resolvedID = resolveProductTypePreference(selectedProductTypeCategoryID.value, options)
+  if (resolvedID !== Number(selectedProductTypeCategoryID.value || 0)) {
+    selectedProductTypeCategoryID.value = resolvedID
     return
   }
-  if (!options.some((type) => Number(type.id || 0) === Number(selectedProductTypeCategoryID.value || 0))) {
-    selectedProductTypeCategoryID.value = Number(options[0].id || 0)
-    return
-  }
+  if (!options.length) return
   syncPdfListTypeFromSelectedProductType()
 }, { immediate: true })
 
 watch(selectedProductTypeCategoryID, () => {
+  writePriceListPagePreferences({ productTypeCategoryID: selectedProductTypeCategoryID.value })
   selectedPriceSourcePublicationID.value = ''
   syncPdfListTypeFromSelectedProductType()
   resetPdfSelectionDefaults()
@@ -1479,6 +1484,7 @@ watch(() => pdfOptions.value.listType, (listType) => {
 })
 
 watch(versionListScope, (scope) => {
+  if (!isWorkspaceCustomerLocked.value) writePriceListPagePreferences({ scope })
   syncPublicationScopeFromPageContext()
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
@@ -4157,6 +4163,9 @@ async function loadCustomers() {
     const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
     const rows = Array.isArray(data.customers) ? data.customers : (data.rows || [])
     customers.value = rows.filter((row) => row.active !== false)
+    if (!isWorkspaceCustomerLocked.value) {
+      versionListScope.value = resolvePriceListScopePreference(versionListScope.value, customers.value)
+    }
   } catch (err) {
     customers.value = []
   }
@@ -4697,16 +4706,13 @@ onBeforeUnmount(() => {
 .status-withdrawn { border-color: #e0b4b4; background: #fff1f1; color: #8b1e1e; }
 .status-archived { border-color: #c8c8c8; background: #f4f4f4; color: #666; }
 .status-unknown { background: #f5f5f5; color: #555; }
-.metrics { display: grid; grid-template-columns: minmax(180px, 320px); gap: 10px; }
-.metrics > div { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }
-.metrics span, .muted { color: #666; font-size: 12px; }
-.metrics span { display: block; margin-bottom: 6px; }
-.metrics strong { font-size: 18px; }
-.bean-list-global-scope { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
-.bean-list-global-scope span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-.bean-list-global-scope strong { display: block; font-size: 18px; line-height: 1.2; }
-.scope-select { min-width: min(280px, 100%); margin: 0; }
-.scope-select select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.price-list-top-toolbar { display: grid; grid-template-columns: minmax(120px, .35fr) minmax(260px, 1fr) auto; align-items: end; gap: 12px; }
+.price-list-toolbar-stat, .price-list-toolbar-scope { min-height: 62px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 10px 12px; box-sizing: border-box; }
+.price-list-toolbar-stat span, .price-list-toolbar-scope span { display: block; margin-bottom: 5px; color: #666; font-size: 12px; }
+.price-list-toolbar-stat strong, .price-list-toolbar-scope strong { display: block; font-size: 18px; line-height: 1.2; }
+.price-list-toolbar-scope { margin: 0; }
+.price-list-toolbar-scope select { width: 100%; height: 38px; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.price-list-tier-template-button { min-height: 38px; align-self: center; }
 .table-wrap { overflow: auto; margin-top: 10px; }
 table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 9px 10px; text-align: right; white-space: nowrap; }
@@ -4960,9 +4966,8 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .page { padding: 12px; }
   .panel-head { align-items: flex-start; flex-direction: column; }
   .actions { justify-content: flex-start; }
-  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bean-list-global-scope { align-items: stretch; flex-direction: column; }
-  .scope-select { width: 100%; }
+  .price-list-top-toolbar { grid-template-columns: 1fr; align-items: stretch; }
+  .price-list-tier-template-button { justify-self: start; }
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
   .explanation-summary, .formula-step { grid-template-columns: 1fr; }

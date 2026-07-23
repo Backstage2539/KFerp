@@ -73,6 +73,32 @@ test('product price list header and published versions use the compact pricing t
   assert.doesNotMatch(viewSource, /<strong>Price List \/ Item Price 生成规则<\/strong>/)
 })
 
+test('product price list keeps product count scope and tier template action on one compact row', () => {
+  const pageHeaderStart = viewSource.indexOf('<section class="panel">')
+  const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
+
+  assert.match(pageHeaderSource, /class="price-list-top-toolbar"/)
+  const productCountIndex = pageHeaderSource.indexOf('<span>商品数</span>')
+  const scopeIndex = pageHeaderSource.indexOf('aria-label="价格表归属"')
+  const tierTemplateIndex = pageHeaderSource.indexOf('>管理阶梯模板</button>')
+  assert.ok(productCountIndex > -1 && scopeIndex > productCountIndex && tierTemplateIndex > scopeIndex)
+  assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
+  assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s)
+})
+
+test('product price list restores and persists browser scope and product type preferences', () => {
+  for (const expected of [
+    'readPriceListPagePreferences()',
+    'writePriceListPagePreferences(',
+    'resolvePriceListScopePreference(',
+    'resolveProductTypePreference(',
+    'PRICE_LIST_PAGE_PREFERENCES_KEY',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing price-list browser preference behavior: ${expected}`)
+  }
+})
+
 test('product bean-list version list downloads the selected publication snapshot', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
@@ -322,7 +348,7 @@ test('product price-list version scope selector lists public and each fulfillmen
   assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
   const versionListSource = viewSource.slice(versionListStart, versionListEnd)
 
-  const pageScopeStart = viewSource.indexOf('<div class="bean-list-global-scope">')
+  const pageScopeStart = viewSource.indexOf('<div class="price-list-top-toolbar">')
   const pageScopeEnd = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   assert.ok(pageScopeStart > -1 && pageScopeEnd > pageScopeStart, 'missing top-level bean-list scope selector')
   const pageScopeSource = viewSource.slice(pageScopeStart, pageScopeEnd)
