@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-548-PRICE-LIST-SCOPE-MEMORY
 - Branch: codex/pr548-price-list-scope-memory
 - Owner/session: Codex / 2026-07-23
-- Status: implementation complete; verification in progress; awaiting Van acceptance
+- Status: merged to `develop`, deployed to development, automated smoke complete; awaiting Van acceptance
 - Scope: 商品价格表顶部把商品数、价格表归属选择和管理阶梯模板压缩到同一行；浏览器记住普通价格表页面最后选择的价格表归属和商品类型，下次进入自动恢复。
 - DEV:
   - DEV-548-COMPACT-TOP-TOOLBAR：合并顶部商品数、价格表归属和阶梯模板入口，并保持窄屏单列回退。
@@ -18,9 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: 前端测试因缺少 `price-list-top-toolbar`、浏览器偏好 helper 和页面接入失败；支持合同因缺少 PR-548 种子失败。
   - GREEN: 页面/偏好/价格表回归前端测试 64/64；支持合同包与完整 `scripts/verify_kferp.sh backend` 通过；Vue/Vite production build 通过（402 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
-- Deployment: pending development; production unchanged
+- Deployment: development `ee22949f3d3e80f8a91dc90695026a52f7b2ba82`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260723115210`; production unchanged
 - Last update: 2026-07-23 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh` 返回 PR-548；`--claim price-list-toolbar-scope-memory` 命中已知 macOS awk 多行字符串错误，故手工登记。本需求只写浏览器本地偏好，不新增业务写操作或操作日志。
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-548；`--claim price-list-toolbar-scope-memory` 命中已知 macOS awk 多行字符串错误，故手工登记。本需求只写浏览器本地偏好，不新增业务写操作或操作日志。第一次部署在小程序 `npm ci` 完成 postinstall 后卡在在线审计，服务器同步尚未开始，安全中止后用 `npm_config_audit=false ./deploy_orderapp.sh development` 重跑成功；类型检查、小程序构建、Docker 内完整 Go 测试均未跳过。开发栈正常、数据库 healthy；公开入口未认证 401、BasicAuth shell 200；数据库存在 PR-548，服务器源码、helper 和 dist 标记均存在。
 
 ### PR-547-PRICE-LIST-PAGE-TOOLBAR-UX
 - Branch: codex/pr547-price-list-page-toolbar-ux
