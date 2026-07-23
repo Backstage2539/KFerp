@@ -3,9 +3,6 @@
     <section class="panel">
       <div class="panel-head">
         <h2>商品价格表</h2>
-        <div class="actions">
-          <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
-        </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
@@ -27,7 +24,11 @@
           <span>价格表归属</span>
           <strong>{{ publicationScopeLabel(versionListScope) }}</strong>
         </div>
-        <button class="secondary price-list-tier-template-button" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
+        <div class="price-list-toolbar-actions">
+          <button class="secondary" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
+          <button class="secondary" type="button" @click="priceListRulesDialogOpen = true">计价模式规则</button>
+          <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>
+        </div>
       </div>
     </section>
 
@@ -226,10 +227,6 @@
         <div>
           <div class="section-title">生成价格表</div>
           <p class="muted">商品价格表是 Price List / Item Price 平铺价格行。生成时选择分组并勾选分组项选品；父商品只设置一次计价模式，所选规格共同继承。</p>
-        </div>
-        <div class="generate-actions">
-          <button class="secondary" type="button" @click="priceListRulesDialogOpen = true">计价模式规则</button>
-          <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>
         </div>
       </div>
     </section>
@@ -4706,13 +4703,14 @@ onBeforeUnmount(() => {
 .status-withdrawn { border-color: #e0b4b4; background: #fff1f1; color: #8b1e1e; }
 .status-archived { border-color: #c8c8c8; background: #f4f4f4; color: #666; }
 .status-unknown { background: #f5f5f5; color: #555; }
-.price-list-top-toolbar { display: grid; grid-template-columns: minmax(120px, .35fr) minmax(260px, 1fr) auto; align-items: end; gap: 12px; }
-.price-list-toolbar-stat, .price-list-toolbar-scope { min-height: 62px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 10px 12px; box-sizing: border-box; }
+.price-list-top-toolbar { display: grid; grid-template-columns: minmax(120px, .3fr) minmax(260px, 1fr) minmax(420px, auto); align-items: stretch; gap: 12px; }
+.price-list-toolbar-stat, .price-list-toolbar-scope { min-height: 76px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 10px 12px; box-sizing: border-box; }
 .price-list-toolbar-stat span, .price-list-toolbar-scope span { display: block; margin-bottom: 5px; color: #666; font-size: 12px; }
 .price-list-toolbar-stat strong, .price-list-toolbar-scope strong { display: block; font-size: 18px; line-height: 1.2; }
 .price-list-toolbar-scope { margin: 0; }
 .price-list-toolbar-scope select { width: 100%; height: 38px; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
-.price-list-tier-template-button { min-height: 38px; align-self: center; }
+.price-list-toolbar-actions { display: flex; min-height: 76px; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.price-list-toolbar-actions button { min-height: 38px; }
 .table-wrap { overflow: auto; margin-top: 10px; }
 table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 9px 10px; text-align: right; white-space: nowrap; }
@@ -4962,12 +4960,18 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .price-list-tier-template-row { grid-template-columns: minmax(100px, .8fr) minmax(90px, .65fr) minmax(90px, .65fr) minmax(180px, 1.2fr) auto; }
 .template-select-pair input { width: 100%; }
 
+@media (max-width: 1200px) {
+  .price-list-top-toolbar { grid-template-columns: minmax(120px, .35fr) minmax(260px, 1fr); }
+  .price-list-toolbar-actions { grid-column: 1 / -1; min-height: auto; }
+}
+
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .panel-head { align-items: flex-start; flex-direction: column; }
   .actions { justify-content: flex-start; }
   .price-list-top-toolbar { grid-template-columns: 1fr; align-items: stretch; }
-  .price-list-tier-template-button { justify-self: start; }
+  .price-list-toolbar-actions { justify-content: flex-start; min-height: auto; }
+  .price-list-toolbar-actions button { flex: 1 1 180px; }
   .bean-grid { grid-template-columns: 1fr; }
   .settings-drawer { width: 100vw; }
   .explanation-summary, .formula-step { grid-template-columns: 1fr; }

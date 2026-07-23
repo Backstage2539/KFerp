@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-549-PRICE-LIST-TOP-ACTIONS
+- Branch: codex/pr549-price-list-top-actions
+- Owner/session: Codex / 2026-07-23
+- Status: implementation and automated verification complete; awaiting integration and development deployment
+- Scope: 商品价格表顶部统一放置管理阶梯模板、计价模式规则和价格表配置三个入口；商品数与价格表归属卡片等高；删除顶部刷新按钮。
+- DEV:
+  - DEV-549-TOP-ACTION-GROUP：三个价格表管理入口在顶部右侧成组排列，生成价格表说明区不再重复放置入口。
+  - DEV-549-EQUAL-HEIGHT-SUMMARY：商品数和价格表归属卡片使用一致固定高度，桌面端同行且窄屏安全换行。
+  - DEV-549-REMOVE-REFRESH：删除商品价格表顶部刷新按钮，继续沿用页面进入和选择变化的自动加载。
+  - DEV-549-DOCS-DELIVERY：同步需求、成本手册、验收资料和支持合同。
+- Verifier:
+  - RED: `costing-bean-list-version-ui.test.js` 因顶部仍有刷新且两个管理入口仍在生成区失败；PR-549 支持合同因缺少需求种子和交付文档失败。
+  - GREEN: 价格表相关前端测试 65/65；PR-547/548/549 支持合同、完整后端测试、Vue/Vite production build、`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过；独立复核发现并关闭中等宽度按钮裁切问题，最终无 P0-P3。
+- Deployment: development pending; production unchanged
+- Last update: 2026-07-23 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-549；`--claim price-list-top-actions` 命中已知 macOS awk 多行字符串错误，故手工登记。本需求不新增业务写操作或操作日志。首次 Vue 构建因新工作树尚未安装依赖返回 `vite: command not found`，按锁文件 `npm ci --no-audit --no-fund` 后构建通过。
+
 ### PR-548-PRICE-LIST-SCOPE-MEMORY
 - Branch: codex/pr548-price-list-scope-memory
 - Owner/session: Codex / 2026-07-23
