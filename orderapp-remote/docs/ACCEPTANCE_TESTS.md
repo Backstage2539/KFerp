@@ -1598,4 +1598,4 @@
 - [x] 历史缺少 `sales_spec_count` 标记的订单继续使用旧规格/销售单位兼容显示，历史订单和已生成销售单文件不迁移、不重写。
 - [x] 商品行备注只在商品表“备注”列显示并可换行；`2.5Kg袋装，共12袋` 等中文混合文本完整保留最后一个字符，结算区不再把商品行备注重复显示为订单备注。
 - [x] 真正的快递费备注和销售单备注仍按原有独立行显示，空值不占行。
-- [ ] 定向测试、真实 PostgreSQL/API、完整后端、Vue/Vite 构建、PDF/PNG 视觉验收、development 部署和浏览器/API 冒烟全部完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-24-sales-spec-order-output-fix.md`。
+- [x] 定向测试、真实 PostgreSQL/API、完整后端、Vue/Vite 构建、PDF/PNG 视觉验收、development 部署和浏览器/API 冒烟全部完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-24-sales-spec-order-output-fix.md`。
