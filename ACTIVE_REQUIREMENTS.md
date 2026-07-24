@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-551-REMOVE-SALES-ORDER-TRACE
+- Branch: codex/pr551-remove-sales-order-trace
+- Owner/session: Codex / 2026-07-24
+- Status: feature verification complete; integration and development deployment pending
+- Scope: 从销售单页面和抽屉删除“销售单追溯”区块及刷新追溯请求；订单详情继续保留报价来源和生产来源追溯。
+- DEV:
+  - DEV-551-REMOVE-TRACE-UI：删除销售单追溯面板、报价来源/生产来源展示、刷新按钮和专用样式。
+  - DEV-551-REMOVE-TRACE-REQUEST：销售单初始化不再请求订单详情追溯接口；订单详情页原追溯能力和接口保持不变。
+  - DEV-551-DOCS-DELIVERY：同步订单手册、需求、验收资料和 Vue 支持合同。
+- Verifier:
+  - RED: `order-entry.test.js` 在旧 `SalesOrderView.vue` 中仍发现“销售单追溯”、追溯状态/格式化函数和 `/api/orders/{id}/detail` 请求。
+  - GREEN: `order-entry.test.js` 119/119 通过，确认销售单组件不含追溯区块/追溯请求且订单详情继续保留两类追溯；订单详情 API 追溯回归、PR-551 支持合同和完整后端测试通过；Vue/Vite production build 通过（402 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+- Deployment: development pending; production unchanged
+- Last update: 2026-07-24 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-551；`--claim` 命中既有 awk multiline bug，因此手工登记。无数据库、API 或业务写操作变更。
+
 ### PR-550-SALES-SPEC-ORDER-OUTPUT-FIX
 - Branch: codex/pr550-sales-spec-order-output-fix
 - Owner/session: Codex / 2026-07-24
