@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-550-SALES-SPEC-ORDER-OUTPUT-FIX
+- Branch: codex/pr550-sales-spec-order-output-fix
+- Owner/session: Codex / 2026-07-24
+- Status: verified on feature branch; integration and development deployment pending
+- Scope: 修复销售规格明细新增规格时报 `conn busy`；修复销售单预览/PDF中规格重复、数量粘连库存单位、商品行备注缺字和不可换行。
+- DEV:
+  - DEV-550-SALES-SPEC-CONNECTION：新增销售规格必须串行完成同一连接上的数据库读写，避免连接忙错误，同时保持默认规格、SKU归属和操作日志语义。
+  - DEV-550-ORDER-SPEC-QUANTITY：销售单规格只显示具体销售规格（如 `1Kg`），数量只显示销售规格件数（如 `30`），不得拼成 `1Kg/1Kg` 或 `301Kg`。
+  - DEV-550-LINE-NOTE：订单级备注只读取订单备注；商品行备注完整保留原文并支持换行，不把商品行备注重复汇总成订单备注。
+  - DEV-550-PDF-CACHE-DOCS：同步销售单 PDF/PNG 缓存版本、测试、手册和验收证据。
+- Verifier:
+  - RED: pgxmock 证明销售规格同步在父商品/子 SKU 查询结果集仍打开时进入嵌套读写并失败；销售单单元格测试得到 `1Kg/1Kg`、`301Kg`，中文备注换行后丢失末尾 `袋`，结算区仍重复生成 `订单明细备注`。
+  - GREEN: 两层同步结果集先缓冲关闭再继续读写；一次性 PostgreSQL 16 内完整保存链路、仓储快照和 HTTP API 3/3 通过；销售单 `sales_spec_count` 快照输出 `1Kg`、`30`，历史缺少标记的快照继续旧兼容；rune-safe 换行和真实订单备注测试通过；合成 PDF/PNG 视觉检查无丢字、遮挡或重复备注；完整后端、132 条定向前端测试、Vue/Vite build、changed 与 diff-check 通过。全量前端 802/809 的 7 条既有 customer workspace 静态合同失败与本分支无 frontend 差异。
+- Deployment: development pending; production unchanged
+- Last update: 2026-07-24 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-550；本需求不保存截图中的预览订单，也不改生产数据。
+
 ### PR-549-PRICE-LIST-TOP-ACTIONS
 - Branch: codex/pr549-price-list-top-actions
 - Owner/session: Codex / 2026-07-23
