@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-550-SALES-SPEC-ORDER-OUTPUT-FIX
 - Branch: codex/pr550-sales-spec-order-output-fix
 - Owner/session: Codex / 2026-07-24
-- Status: verified on feature branch; integration and development deployment pending
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van acceptance
 - Scope: 修复销售规格明细新增规格时报 `conn busy`；修复销售单预览/PDF中规格重复、数量粘连库存单位、商品行备注缺字和不可换行。
 - DEV:
   - DEV-550-SALES-SPEC-CONNECTION：新增销售规格必须串行完成同一连接上的数据库读写，避免连接忙错误，同时保持默认规格、SKU归属和操作日志语义。
@@ -19,9 +19,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: pgxmock 证明销售规格同步在父商品/子 SKU 查询结果集仍打开时进入嵌套读写并失败；销售单单元格测试得到 `1Kg/1Kg`、`301Kg`，中文备注换行后丢失末尾 `袋`，结算区仍重复生成 `订单明细备注`。
   - GREEN: 两层同步结果集先缓冲关闭再继续读写；一次性 PostgreSQL 16 内完整保存链路、仓储快照和 HTTP API 3/3 通过；销售单 `sales_spec_count` 快照输出 `1Kg`、`30`，历史缺少标记的快照继续旧兼容；rune-safe 换行和真实订单备注测试通过；合成 PDF/PNG 视觉检查无丢字、遮挡或重复备注；完整后端、132 条定向前端测试、Vue/Vite build、changed 与 diff-check 通过。全量前端 802/809 的 7 条既有 customer workspace 静态合同失败与本分支无 frontend 差异。
-- Deployment: development pending; production unchanged
-- Last update: 2026-07-24 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh` 返回 PR-550；本需求不保存截图中的预览订单，也不改生产数据。
+- Deployment: feature commit `2c535e3f` pushed to `origin/codex/pr550-sales-spec-order-output-fix`; merged to `develop` as `e16ae404b3a3ba48c6d85d0dc475f79f3d6eab60` and deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260724184521`. Production unchanged.
+- Last update: 2026-07-24 19:14 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-550；本需求未保存截图对应开发订单、未生成正式销售单，也未改生产数据。部署镜像构建中的完整 Go 测试通过；`erp_orderapp` 与 `erp_postgres` 正常运行且应用重启计数为 0，部署后日志未出现 `conn busy`、panic、fatal 或 ERROR。开发环境需求 API 可见 PR-550；截图对应开发订单的只读预览快照核验为规格 `1Kg`、数量 `30`、`quantity_basis=sales_spec_count`、完整商品备注及空订单备注，PDF 返回 A4 单页；浏览器打开销售单抽屉并完成 PDF 加载，全程未保存或生成业务数据。
 
 ### PR-549-PRICE-LIST-TOP-ACTIONS
 - Branch: codex/pr549-price-list-top-actions

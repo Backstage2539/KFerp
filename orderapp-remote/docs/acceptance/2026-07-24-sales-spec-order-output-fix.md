@@ -1,7 +1,7 @@
 # PR-550 销售规格保存与销售单规格、数量、备注修复
 
 日期：2026-07-24
-环境：功能分支验证完成；development 待部署
+环境：功能分支验证完成；development 已部署并完成 API、浏览器和 PDF 冒烟
 production：不部署，不改业务数据，不重建历史销售单
 
 ## 用户问题
@@ -43,6 +43,9 @@ production：不部署，不改业务数据，不重建历史销售单
 - 合成预览 PNG：`/private/tmp/kferp-pr550-artifacts/pr550-sales-order-spec-preview.png`
 - Poppler 渲染页：`/private/tmp/kferp-pr550-artifacts/pr550-sales-order-spec-preview-rendered.png`
 - 已人工检查：规格为 `1Kg`、数量为 `30`；`2.5Kg袋装，共12袋` 完整换行；没有重复订单明细备注，也没有遮挡、越界或丢字。
+- development 实际预览 PDF：`/private/tmp/kferp-pr550-live-preview.pdf`
+- development 实际预览渲染页：`/private/tmp/kferp-pr550-live-preview.png`
+- 已人工检查 development 实际预览：规格为 `1Kg`、数量为 `30`，商品备注完整换行并以 `袋` 结尾，结算区没有重复商品备注。
 
 ## 兼容和数据边界
 
@@ -52,5 +55,11 @@ production：不部署，不改业务数据，不重建历史销售单
 
 ## 部署与冒烟
 
-- 功能分支、`develop` 合并提交、development 备份：待记录。
-- development API、浏览器、容器健康和日志：待记录。
+- 功能提交 `2c535e3f` 已推送到 `origin/codex/pr550-sales-spec-order-output-fix`，合并提交 `e16ae404b3a3ba48c6d85d0dc475f79f3d6eab60` 已推送到 `origin/develop`。
+- 使用 `./deploy_orderapp.sh development` 部署 development；部署备份为 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260724184521`。Docker 镜像构建中的完整 `go test ./...` 通过。
+- `erp_orderapp` 与 `erp_postgres` 均正常运行，数据库健康，应用重启计数为 0；部署后日志没有 `conn busy`、panic、fatal 或 ERROR。
+- development 的需求 API 可见 `PR-550-SALES-SPEC-ORDER-OUTPUT-FIX`；认证访问 Vue 订单页返回 200，`/app/` 返回预期的 303 跳转。
+- 对截图对应开发订单执行只读预览 API 冒烟：快照为规格 `1Kg`、数量 `30`、销售单位 `1Kg`、`quantity_basis=sales_spec_count`；商品备注完整并以 `袋` 结尾，订单备注为空。
+- development 实际预览 PDF 返回 200、`application/pdf`、A4 单页；视觉检查确认规格、数量、商品备注和结算区均符合本需求。
+- 浏览器以既有登录态打开目标订单的销售单抽屉，PDF 加载完成且预览可见；检查后关闭抽屉，没有保存订单或生成正式销售单。
+- production 未部署、未写入；历史订单和历史销售单文件未重建。
