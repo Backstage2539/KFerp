@@ -1599,3 +1599,9 @@
 - [x] 商品行备注只在商品表“备注”列显示并可换行；`2.5Kg袋装，共12袋` 等中文混合文本完整保留最后一个字符，结算区不再把商品行备注重复显示为订单备注。
 - [x] 真正的快递费备注和销售单备注仍按原有独立行显示，空值不占行。
 - [x] 定向测试、真实 PostgreSQL/API、完整后端、Vue/Vite 构建、PDF/PNG 视觉验收、development 部署和浏览器/API 冒烟全部完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-24-sales-spec-order-output-fix.md`。
+
+### K93. 删除销售单追溯区块（PR-551-REMOVE-SALES-ORDER-TRACE）
+- [x] 单张销售单页面和订单列表销售单抽屉均不再显示“销售单追溯”“刷新追溯”“报价来源”“生产来源”区块。
+- [x] 销售单初始化不再请求订单详情追溯接口，销售单版本、预览、备注、客户信息、设置、PDF、图片和分享功能保持原样。
+- [x] 订单详情仍显示报价来源和生产来源，详情 API 和历史追溯数据未删除。
+- [ ] 定向前端、支持合同、Vue/Vite 构建、development 部署和浏览器冒烟完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-24-remove-sales-order-trace.md`。

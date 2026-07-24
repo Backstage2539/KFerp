@@ -1250,18 +1250,20 @@ test('OrdersView detail shows read-only quote source and production source trace
   }
 })
 
-test('SalesOrderView shows read-only quote source and production source trace blocks', () => {
+test('SalesOrderView omits the sales order trace panel and its detail request', () => {
   const source = salesOrderViewSource()
-  for (const expected of [
-    '报价来源',
-    '生产来源',
+  for (const forbidden of [
+    '销售单追溯',
+    '刷新追溯',
+    'sales-trace-panel',
     'quote_source_trace',
     'production_source_trace',
     'salesOrderTraceLineLabel',
     'salesOrderTraceLines',
     'loadSalesOrderTrace',
+    `/api/orders/\${orderID.value}/detail`,
   ]) {
-    assert.match(source, new RegExp(expected))
+    assert.doesNotMatch(source, new RegExp(forbidden))
   }
 })
 
