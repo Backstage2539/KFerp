@@ -1604,4 +1604,4 @@
 - [x] 单张销售单页面和订单列表销售单抽屉均不再显示“销售单追溯”“刷新追溯”“报价来源”“生产来源”区块。
 - [x] 销售单初始化不再请求订单详情追溯接口，销售单版本、预览、备注、客户信息、设置、PDF、图片和分享功能保持原样。
 - [x] 订单详情仍显示报价来源和生产来源，详情 API 和历史追溯数据未删除。
-- [ ] 定向前端、支持合同、Vue/Vite 构建、development 部署和浏览器冒烟完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-24-remove-sales-order-trace.md`。
+- [x] 定向前端、支持合同、Vue/Vite 构建、development 部署和浏览器冒烟完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-24-remove-sales-order-trace.md`。
