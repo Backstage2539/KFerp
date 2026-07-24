@@ -50,6 +50,7 @@ type SalesOrderSnapshotItem struct {
 	Spec           string `json:"spec"`
 	Qty            string `json:"qty"`
 	Unit           string `json:"unit"`
+	QuantityBasis  string `json:"quantity_basis,omitempty"`
 	UnitPrice      string `json:"unit_price"`
 	DiscountAmount string `json:"discount_amount"`
 	LineTotal      string `json:"line_total"`

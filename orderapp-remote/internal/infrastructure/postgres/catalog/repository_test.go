@@ -1355,6 +1355,248 @@ func TestLegacySKUCopyRepositoryCodeIsRemoved(t *testing.T) {
 	}
 }
 
+func TestSyncDerivedSKUsForTemplateBuffersParentIDsBeforeNestedQueries(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func syncDerivedSKUsForTemplateTx", "func syncDerivedSKUsForParentTx")
+	if strings.Contains(fn, "defer rows.Close()") {
+		t.Fatalf("syncDerivedSKUsForTemplateTx must close parent rows before nested queries on the same transaction")
+	}
+	rowsErr := strings.Index(fn, "if err := rows.Err(); err != nil")
+	nestedQuery := strings.Index(fn, "syncDerivedSKUsForParentTx")
+	if rowsErr < 0 || nestedQuery < 0 {
+		t.Fatalf("syncDerivedSKUsForTemplateTx missing rows.Err or nested sync markers")
+	}
+	if nestedQuery < rowsErr {
+		t.Fatalf("syncDerivedSKUsForTemplateTx runs nested queries before parent rows are fully consumed; this can trigger pgx conn busy")
+	}
+	if !strings.Contains(fn, "parentIDs := make([]int64, 0)") {
+		t.Fatalf("syncDerivedSKUsForTemplateTx should buffer parent ids before syncing derived SKUs")
+	}
+}
+
+func TestSyncDerivedSKUsForParentBuffersChildrenBeforeStatusUpdates(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func syncDerivedSKUsForParentTx", "func upsertDerivedSKUForSpecTx")
+	childQuery := strings.Index(fn, "SELECT id, COALESCE(derived_spec_key,'')")
+	if childQuery < 0 {
+		t.Fatal("syncDerivedSKUsForParentTx missing child SKU query")
+	}
+	childSync := fn[childQuery:]
+	if strings.Contains(childSync, "defer rows.Close()") {
+		t.Fatalf("syncDerivedSKUsForParentTx must close child rows before status updates on the same transaction")
+	}
+	rowsErr := strings.Index(childSync, "if err := rows.Err(); err != nil")
+	statusUpdate := strings.Index(childSync, "SET derived_spec_status=$2")
+	if rowsErr < 0 || statusUpdate < 0 {
+		t.Fatalf("syncDerivedSKUsForParentTx missing rows.Err or status update markers")
+	}
+	if statusUpdate < rowsErr {
+		t.Fatalf("syncDerivedSKUsForParentTx updates child status before child rows are fully consumed; this can trigger pgx conn busy")
+	}
+	if !strings.Contains(childSync, "childStatuses := make([]derivedSKUChildStatus, 0)") {
+		t.Fatalf("syncDerivedSKUsForParentTx should buffer child status updates before executing them")
+	}
+}
+
+func TestSaveProductUnitTemplateSyncsDerivedSKUsWithoutBusyConnection(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog postgres tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	schema := fmt.Sprintf("test_catalog_sales_spec_sync_%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	})
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("create catalog sales-spec schema: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE %s.product_unit_templates (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	inventory_unit TEXT NOT NULL DEFAULT 'kg',
+	quote_unit TEXT NOT NULL DEFAULT 'kg',
+	order_unit TEXT NOT NULL DEFAULT 'kg',
+	unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	sales_specs_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	integer_unit BOOLEAN NOT NULL DEFAULT false,
+	active BOOLEAN NOT NULL DEFAULT true,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.products (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	remark TEXT NOT NULL DEFAULT '',
+	product_kind TEXT NOT NULL DEFAULT 'roasted_bean',
+	roast_level TEXT NOT NULL DEFAULT '',
+	default_price NUMERIC NOT NULL DEFAULT 0,
+	active BOOLEAN NOT NULL DEFAULT true,
+	retail_price_100g NUMERIC NOT NULL DEFAULT 0,
+	retail_price_200g NUMERIC NOT NULL DEFAULT 0,
+	retail_price_227g NUMERIC NOT NULL DEFAULT 0,
+	retail_price_250g NUMERIC NOT NULL DEFAULT 0,
+	drip_bag_grams NUMERIC NOT NULL DEFAULT 10,
+	drip_box_bag_count INT NOT NULL DEFAULT 10,
+	allow_fulfillment_order BOOLEAN NOT NULL DEFAULT true,
+	allow_mall_order BOOLEAN NOT NULL DEFAULT false,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	base_product_id BIGINT NOT NULL DEFAULT 0,
+	visibility TEXT NOT NULL DEFAULT 'public',
+	custom_type TEXT NOT NULL DEFAULT '',
+	green_bean_type TEXT NOT NULL DEFAULT '',
+	green_bean_bom_product_id BIGINT NOT NULL DEFAULT 0,
+	special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	unit_template_id BIGINT NOT NULL DEFAULT 0,
+	parent_product_id BIGINT NOT NULL DEFAULT 0,
+	sku_name TEXT NOT NULL DEFAULT '',
+	sku_code TEXT NOT NULL DEFAULT '',
+	barcode TEXT NOT NULL DEFAULT '',
+	spec_label TEXT NOT NULL DEFAULT '',
+	net_content_qty NUMERIC NOT NULL DEFAULT 0,
+	net_content_unit TEXT NOT NULL DEFAULT '',
+	is_default_sku BOOLEAN NOT NULL DEFAULT false,
+	default_sku_id BIGINT NOT NULL DEFAULT 0,
+	product_category_id BIGINT NOT NULL DEFAULT 0,
+	auto_derived_sku BOOLEAN NOT NULL DEFAULT false,
+	derived_unit_template_id BIGINT NOT NULL DEFAULT 0,
+	derived_spec_key TEXT NOT NULL DEFAULT '',
+	derived_spec_name TEXT NOT NULL DEFAULT '',
+	derived_sales_unit TEXT NOT NULL DEFAULT '',
+	derived_spec_status TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB
+)`, schema, schema, schema)); err != nil {
+		t.Fatalf("create audit fixture: %v", err)
+	}
+
+	active := true
+	repository := NewRepository(pool, schema)
+	template, err := repository.SaveProductUnitTemplate(ctx, catalogapp.SaveProductUnitTemplateCommand{
+		Actor:              "pr550-test",
+		Name:               "PR550 销售规格模板",
+		InventoryUnit:      "kg",
+		QuoteUnit:          "kg",
+		OrderUnit:          "kg",
+		UnitConversionJSON: "{}",
+		Active:             &active,
+	})
+	if err != nil {
+		t.Fatalf("create product unit template: %v", err)
+	}
+
+	var parentID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+INSERT INTO %s.products(name, product_kind, unit_template_id, active)
+VALUES ('PR550 父商品','roasted_bean',$1,true)
+RETURNING id
+`, schema), template.ID).Scan(&parentID); err != nil {
+		t.Fatalf("create parent product: %v", err)
+	}
+
+	specs := []catalogapp.ProductSalesSpec{{
+		SpecKey:        "1kg",
+		SpecName:       "1Kg",
+		SalesUnit:      "1Kg",
+		NetContentQty:  1,
+		NetContentUnit: "kg",
+		Default:        true,
+		Active:         true,
+	}}
+	if _, err := repository.SaveProductUnitTemplate(ctx, catalogapp.SaveProductUnitTemplateCommand{
+		Actor:              "pr550-test",
+		ID:                 template.ID,
+		Name:               template.Name,
+		InventoryUnit:      template.InventoryUnit,
+		QuoteUnit:          template.QuoteUnit,
+		OrderUnit:          template.OrderUnit,
+		UnitConversionJSON: "{}",
+		SalesSpecs:         specs,
+		Active:             &active,
+	}); err != nil {
+		t.Fatalf("add sales spec must not leave parent rows busy: %v", err)
+	}
+
+	var derivedID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+SELECT id
+FROM %s.products
+WHERE parent_product_id=$1 AND auto_derived_sku=true
+  AND derived_unit_template_id=$2 AND derived_spec_key='1kg'
+`, schema), parentID, template.ID).Scan(&derivedID); err != nil {
+		t.Fatalf("load derived SKU: %v", err)
+	}
+	var defaultSKUID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT default_sku_id FROM %s.products WHERE id=$1`, schema), parentID).Scan(&defaultSKUID); err != nil {
+		t.Fatalf("load parent default SKU: %v", err)
+	}
+	if defaultSKUID != derivedID {
+		t.Fatalf("parent default SKU = %d, want derived SKU %d", defaultSKUID, derivedID)
+	}
+
+	var staleID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+INSERT INTO %s.products(
+	name, product_kind, parent_product_id, unit_template_id, auto_derived_sku,
+	derived_unit_template_id, derived_spec_key, derived_spec_status, active
+)
+VALUES ('PR550 历史规格','roasted_bean',$1,$2,true,$2,'removed-spec','active',true)
+RETURNING id
+`, schema), parentID, template.ID).Scan(&staleID); err != nil {
+		t.Fatalf("create stale derived SKU: %v", err)
+	}
+	if _, err := repository.SaveProductUnitTemplate(ctx, catalogapp.SaveProductUnitTemplateCommand{
+		Actor:              "pr550-test",
+		ID:                 template.ID,
+		Name:               template.Name,
+		InventoryUnit:      template.InventoryUnit,
+		QuoteUnit:          template.QuoteUnit,
+		OrderUnit:          template.OrderUnit,
+		UnitConversionJSON: "{}",
+		SalesSpecs:         specs,
+		Active:             &active,
+	}); err != nil {
+		t.Fatalf("resave sales spec must not update child status while rows are busy: %v", err)
+	}
+	var staleStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT derived_spec_status FROM %s.products WHERE id=$1`, schema), staleID).Scan(&staleStatus); err != nil {
+		t.Fatalf("load stale derived SKU status: %v", err)
+	}
+	if staleStatus != "template_removed" {
+		t.Fatalf("stale derived SKU status = %q, want template_removed", staleStatus)
+	}
+}
+
 func TestCreateCustomProductInsertDoesNotDuplicateProductKindColumn(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -950,6 +950,11 @@ type derivedSKUParent struct {
 	Visibility     string
 }
 
+type derivedSKUChildStatus struct {
+	ID     int64
+	Status string
+}
+
 func syncDerivedSKUsForTemplateTx(ctx context.Context, tx pgx.Tx, schema string, actor string, templateID int64) error {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id
@@ -960,17 +965,25 @@ func syncDerivedSKUsForTemplateTx(ctx context.Context, tx pgx.Tx, schema string,
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	parentIDs := make([]int64, 0)
 	for rows.Next() {
 		var parentID int64
 		if err := rows.Scan(&parentID); err != nil {
+			rows.Close()
 			return err
 		}
+		parentIDs = append(parentIDs, parentID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, parentID := range parentIDs {
 		if err := syncDerivedSKUsForParentTx(ctx, tx, schema, actor, parentID); err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parentID int64) error {
@@ -1066,11 +1079,12 @@ func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, a
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	childStatuses := make([]derivedSKUChildStatus, 0)
 	for rows.Next() {
 		var childID int64
 		var specKey string
 		if err := rows.Scan(&childID, &specKey); err != nil {
+			rows.Close()
 			return err
 		}
 		if activeKeys[specKey] {
@@ -1080,12 +1094,16 @@ func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, a
 		if allKeys[specKey] {
 			status = "template_disabled"
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET derived_spec_status=$2 WHERE id=$1`, schema), childID, status); err != nil {
-			return err
-		}
+		childStatuses = append(childStatuses, derivedSKUChildStatus{ID: childID, Status: status})
 	}
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
+	}
+	for _, child := range childStatuses {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET derived_spec_status=$2 WHERE id=$1`, schema), child.ID, child.Status); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.products

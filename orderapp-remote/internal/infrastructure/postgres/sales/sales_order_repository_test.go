@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	salesapp "orderapp/internal/application/sales"
 	salesdomain "orderapp/internal/domain/sales"
@@ -359,6 +360,53 @@ func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
 	}
 	if auditCount != 1 {
 		t.Fatalf("sales_order_note audit count = %d, want 1", auditCount)
+	}
+}
+
+func TestSalesOrderPreviewPreservesPublishedSalesSpecCountSnapshot(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(t.TempDir()), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.order_items
+		SET spec='1Kg',
+		    qty=30,
+		    unit='1Kg',
+		    item_note='2.5Kg袋装，共12袋',
+		    price_source_json='{"quantity_basis":"sales_spec_count"}'::jsonb
+		WHERE order_id=1 AND line_no=1
+	`, schema)); err != nil {
+		t.Fatalf("update sales spec count order item: %v", err)
+	}
+	preview, err := repo.PreviewSalesOrderDocument(ctx, 1)
+	if err != nil {
+		t.Fatalf("PreviewSalesOrderDocument: %v", err)
+	}
+	if len(preview.Snapshot.Items) != 1 {
+		t.Fatalf("snapshot items=%+v", preview.Snapshot.Items)
+	}
+	item := preview.Snapshot.Items[0]
+	if item.Spec != "1Kg" || item.Qty != "30" || item.Unit != "1Kg" || item.Note != "2.5Kg袋装，共12袋" {
+		t.Fatalf("sales spec count snapshot item=%+v", item)
+	}
+	payload, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"quantity_basis":"sales_spec_count"`) {
+		t.Fatalf("sales spec count snapshot missing quantity basis: %s", payload)
+	}
+	if preview.Snapshot.SalesOrderNote != "" {
+		t.Fatalf("sales order note=%q, want empty; line note must stay on item", preview.Snapshot.SalesOrderNote)
 	}
 }
 

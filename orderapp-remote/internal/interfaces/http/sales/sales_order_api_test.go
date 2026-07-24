@@ -1007,6 +1007,45 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPreviewAPIExposesPublishedSalesSpecCountSnapshot(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.order_items
+		SET spec='1Kg',
+		    qty=30,
+		    unit='1Kg',
+		    item_note='2.5Kg袋装，共12袋',
+		    price_source_json='{"quantity_basis":"sales_spec_count"}'::jsonb
+		WHERE order_id=1 AND line_no=1
+	`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"spec":"1Kg"`,
+		`"qty":"30"`,
+		`"unit":"1Kg"`,
+		`"note":"2.5Kg袋装，共12袋"`,
+		`"quantity_basis":"sales_spec_count"`,
+		`"sales_order_note":""`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("preview response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestSalesOrderPreviewPDFAPIWrapsUTF8PaymentText(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

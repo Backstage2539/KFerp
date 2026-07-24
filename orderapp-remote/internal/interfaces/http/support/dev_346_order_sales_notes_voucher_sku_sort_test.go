@@ -30,9 +30,9 @@ func TestDev346OrderSalesNotesVoucherSkuSortWiring(t *testing.T) {
 			rel: filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go"),
 			markers: []string{
 				"快递费备注",
-				"订单明细备注",
 				"销售单备注",
-				"salesOrderItemNoteSummary",
+				"salesOrderFinancialRows",
+				"salesOrderWrapCellText",
 			},
 		},
 		{
@@ -72,6 +72,12 @@ func TestDev346OrderSalesNotesVoucherSkuSortWiring(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-341 wiring marker %q", check.rel, want)
 			}
+		}
+	}
+	pdfSource := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "pdf", "sales_order_pdf.go")))
+	for _, forbidden := range []string{"salesOrderItemNoteSummary", `"订单明细备注"`} {
+		if strings.Contains(pdfSource, forbidden) {
+			t.Fatalf("sales order item notes must stay in item rows after PR-550; found obsolete marker %q", forbidden)
 		}
 	}
 }

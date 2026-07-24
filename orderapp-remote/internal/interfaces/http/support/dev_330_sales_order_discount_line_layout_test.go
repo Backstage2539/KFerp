@@ -45,7 +45,8 @@ func TestDev330SalesOrderDiscountLineLayoutWiring(t *testing.T) {
 			markers: []string{
 				`"优惠折扣"`,
 				`"总价"`,
-				"salesOrderSpecPerUnit",
+				"salesOrderItemSpec",
+				"salesOrderItemQuantity",
 				"salesOrderDiscountCell",
 				"salesOrderMoneyPositive(snapshot.Discount)",
 			},
