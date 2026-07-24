@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-551-REMOVE-SALES-ORDER-TRACE
 - Branch: codex/pr551-remove-sales-order-trace
 - Owner/session: Codex / 2026-07-24
-- Status: feature verification complete; integration and development deployment pending
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van acceptance
 - Scope: 从销售单页面和抽屉删除“销售单追溯”区块及刷新追溯请求；订单详情继续保留报价来源和生产来源追溯。
 - DEV:
   - DEV-551-REMOVE-TRACE-UI：删除销售单追溯面板、报价来源/生产来源展示、刷新按钮和专用样式。
@@ -18,9 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: `order-entry.test.js` 在旧 `SalesOrderView.vue` 中仍发现“销售单追溯”、追溯状态/格式化函数和 `/api/orders/{id}/detail` 请求。
   - GREEN: `order-entry.test.js` 119/119 通过，确认销售单组件不含追溯区块/追溯请求且订单详情继续保留两类追溯；订单详情 API 追溯回归、PR-551 支持合同和完整后端测试通过；Vue/Vite production build 通过（402 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
-- Deployment: development pending; production unchanged
-- Last update: 2026-07-24 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh` 返回 PR-551；`--claim` 命中既有 awk multiline bug，因此手工登记。无数据库、API 或业务写操作变更。
+- Deployment: feature commit `23151d30` pushed to `origin/codex/pr551-remove-sales-order-trace`; merged to `develop` as `9d3fc26ba390b565ee4660cac4da85e18e15e181` and deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260724215239`. Production unchanged.
+- Last update: 2026-07-24 21:57 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-551；`--claim` 命中既有 awk multiline bug，因此手工登记。无数据库、API 或业务写操作变更。Docker 构建内完整 Go 测试通过；`erp_orderapp` 与 `erp_postgres` 正常运行、数据库 healthy、应用重启计数为 0，部署后日志无 panic/fatal/conn busy/error。认证入口和订单页返回 200，需求 API 可见 PR-551。浏览器打开单张销售单抽屉：销售单追溯、刷新追溯、报价来源和生产来源计数均为 0，销售单预览正常可见，控制台无错误。
 
 ### PR-550-SALES-SPEC-ORDER-OUTPUT-FIX
 - Branch: codex/pr550-sales-spec-order-output-fix
