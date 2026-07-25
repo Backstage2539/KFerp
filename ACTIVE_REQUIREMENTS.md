@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-553-PRODUCTION-PLAN-PARENT-BOM-UNIT-CONVERSION
+- Branch: codex/pr553-production-plan-parent-bom-unit-conversion
+- Owner/session: Codex / 2026-07-25
+- Status: verified; integration pending
+- Scope: 生产计划按订单冻结的销售规格到库存单位换算计算计划数量；具体 SKU BOM 优先、完全未配置时继承父商品当前有效 BOM；计划与工单冻结规格换算及 BOM 来源，历史数据保持兼容。
+- DEV:
+  - DEV-553-ORDER-CONVERSION-SNAPSHOT：订单统一冻结具体 SKU、父商品、销售规格、库存单位和每件库存数量；生产计划禁止从规格名称提取数字。
+  - DEV-553-PARENT-BOM-RESOLUTION：统一解析具体 SKU BOM 与父商品 BOM，物料和工艺路线使用同一版本；错误子 BOM 不静默回退。
+  - DEV-553-PRODUCTION-FREEZE：计划与工单冻结规格件数、每件库存数量、计划库存数量、父商品及 BOM 来源，同时保留历史克数投影。
+  - DEV-553-DOCS-DATA-DELIVERY：同步生产手册、需求、验收和操作日志契约；开发环境受控纠正如目达摩损耗配置与新 BOM 版本。
+- Verifier:
+  - RED: `node --test src/lib/produce-plan.test.js` 因规格数量/BOM 来源展示辅助函数缺失失败；`go test ./internal/interfaces/http/support -run '^TestDev553' -count=1` 因需求合同缺失且正式生产需求仍读取旧规格路径失败。
+  - GREEN: 订单四个写入模块定向 Go 测试通过；production domain/application/repository 通过；真实 PostgreSQL `internal/interfaces/http/production` 全包通过；同 SKU 多冻结快照闭环通过；并发创建测试 10 轮稳定只生成一个计划；迁移定向测试重复执行两次通过；前端定向 40/40、Vite build、完整 Go 测试通过。完整前端 804/811，7 个失败与干净 `origin/develop` 基线完全一致。
+- Deployment: development only；production 明确不部署；不自动为 SO-20260725-0001 创建生产计划。
+- Last update: 2026-07-25 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-553；`--claim production-plan-parent-bom-unit-conversion` 命中既有 awk multiline bug，因此手工登记。开发数据预检发现如目达摩当前 V002 未绑定工艺路线；未获得路线选择前只交付代码，不猜测创建纠错版本。
+
 ### PR-552-STOCK-ENTRY-CONVERGENCE
 - Branch: codex/pr552-stock-entry-convergence
 - Owner/session: Codex / 2026-07-25

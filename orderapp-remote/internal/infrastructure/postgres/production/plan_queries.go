@@ -6,6 +6,7 @@ import (
 	"math"
 	bomdomain "orderapp/internal/domain/bom"
 	catalogdomain "orderapp/internal/domain/catalog"
+	productiondomain "orderapp/internal/domain/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"sort"
 	"strconv"
@@ -130,8 +131,11 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 	for _, row := range rows {
 		out = append(out, productionapp.UnprodNeedRow{
 			ProductID:                row.ProductID,
+			ParentProductID:          row.ParentProductID,
 			Product:                  row.Product,
 			OrderNos:                 row.OrderNos,
+			SpecLabel:                row.SpecLabel,
+			SalesUnit:                row.SalesUnit,
 			SpecG:                    row.SpecG,
 			NeedUnits:                row.NeedUnits,
 			NeedG:                    row.NeedG,
@@ -139,6 +143,14 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 			InvLooseG:                row.InvLooseG,
 			InvG:                     row.InvG,
 			GapG:                     row.GapG,
+			SalesSpecCount:           row.SalesSpecCount,
+			InventoryQtyPerSalesUnit: row.InventoryQtyPerSalesUnit,
+			InventoryUnit:            row.InventoryUnit,
+			NeedInventoryQty:         row.NeedInventoryQty,
+			AvailableInventoryQty:    row.AvailableInventoryQty,
+			GapInventoryQty:          row.GapInventoryQty,
+			GapSalesSpecCount:        row.GapSalesSpecCount,
+			SalesSpecSnapshotJSON:    row.SalesSpecSnapshotJSON,
 			ProductionKind:           catalogdomain.NormalizeProductKind(row.ProductionKind),
 			ProductTypeCategoryID:    row.ProductTypeCategoryID,
 			ProductSubtypeCategoryID: row.ProductSubtypeCategoryID,
@@ -175,10 +187,14 @@ type productionDemandPart struct {
 }
 
 func (r Repository) splitUnproducedNeedsByProductionPlan(ctx context.Context, rows []UnprodNeedRow) ([]UnprodNeedRow, error) {
+	return r.splitUnproducedNeedsByProductionPlanQuery(ctx, r.pool, rows)
+}
+
+func (r Repository) splitUnproducedNeedsByProductionPlanQuery(ctx context.Context, queryer productionDemandQueryer, rows []UnprodNeedRow) ([]UnprodNeedRow, error) {
 	if len(rows) == 0 {
 		return rows, nil
 	}
-	parts, err := r.fetchProductionDemandParts(ctx, rows)
+	parts, err := r.fetchProductionDemandPartsQuery(ctx, queryer, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -268,12 +284,26 @@ func splitProductionDemandRowByParts(row UnprodNeedRow, parts []productionDemand
 	for _, groupKey := range order {
 		group := groups[groupKey]
 		group.row.OrderNos = joinProductionDemandOrderNos(group.orderNos)
-		group.row.NeedG = group.row.NeedUnits * group.row.SpecG
+		if group.row.InventoryQtyPerSalesUnit > 0 {
+			group.row.SalesSpecCount = float64(group.row.NeedUnits)
+			group.row.NeedInventoryQty = productiondomain.SalesSpecCountToInventoryQuantity(group.row.SalesSpecCount, group.row.InventoryQtyPerSalesUnit)
+			group.row.NeedG = productiondomain.InventoryQuantityToLegacyGrams(group.row.NeedInventoryQty, group.row.InventoryUnit)
+		} else {
+			group.row.NeedG = group.row.NeedUnits * group.row.SpecG
+		}
 		if group.row.DemandStatus == "unplanned" {
 			group.row.GapG = calcProductionDemandGap(group.row.SpecG, group.row.NeedUnits, group.forceProduceUnits, row.AvailableG)
+			if group.row.InventoryQtyPerSalesUnit > 0 && group.row.SpecG > 0 {
+				group.row.GapSalesSpecCount = float64(group.row.GapG) / float64(group.row.SpecG)
+				group.row.GapInventoryQty = productiondomain.SalesSpecCountToInventoryQuantity(group.row.GapSalesSpecCount, group.row.InventoryQtyPerSalesUnit)
+			}
 			group.row.DemandSelectable = group.row.GapG > 0
 		} else {
 			group.row.GapG = group.row.NeedG
+			if group.row.InventoryQtyPerSalesUnit > 0 {
+				group.row.GapSalesSpecCount = group.row.SalesSpecCount
+				group.row.GapInventoryQty = group.row.NeedInventoryQty
+			}
 			group.row.DemandSelectable = false
 		}
 		out = append(out, group.row)
@@ -325,63 +355,44 @@ func joinProductionDemandOrderNos(values map[string]bool) string {
 	return strings.Join(out, ",")
 }
 
-func (r Repository) fetchProductionDemandParts(ctx context.Context, rows []UnprodNeedRow) ([]productionDemandPart, error) {
-	productSeen := map[int64]bool{}
-	specSeen := map[int64]bool{}
-	orderSeen := map[string]bool{}
-	productIDs := make([]int64, 0)
-	specGs := make([]int64, 0)
-	orderNos := make([]string, 0)
-	for _, row := range rows {
-		if row.ProductID <= 0 || row.SpecG <= 0 {
-			continue
-		}
-		if !productSeen[row.ProductID] {
-			productSeen[row.ProductID] = true
-			productIDs = append(productIDs, row.ProductID)
-		}
-		if !specSeen[row.SpecG] {
-			specSeen[row.SpecG] = true
-			specGs = append(specGs, row.SpecG)
-		}
-		for orderNo := range splitProductionDemandOrderNos(row.OrderNos) {
-			if !orderSeen[orderNo] {
-				orderSeen[orderNo] = true
-				orderNos = append(orderNos, orderNo)
-			}
-		}
-	}
-	if len(productIDs) == 0 || len(specGs) == 0 || len(orderNos) == 0 {
+func (r Repository) fetchProductionDemandPartsQuery(ctx context.Context, queryer productionDemandQueryer, rows []UnprodNeedRow) ([]productionDemandPart, error) {
+	productIDs, specGs, orderNos := productionDemandPartRequestTuples(rows)
+	if len(productIDs) == 0 {
 		return nil, nil
 	}
 	q := fmt.Sprintf(`
-		WITH source_need AS (
+		WITH requested AS (
+			SELECT *
+			FROM unnest($1::bigint[],$2::bigint[],$3::text[]) AS requested(product_id,spec_g,order_no)
+		),
+		source_need AS (
 			SELECT
 				oi.product_id,
-				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
+				requested.spec_g,
 				COALESCE(o.order_no,'') AS order_no,
 				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
 				SUM(CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN COALESCE(oi.qty,0) ELSE 0 END)::bigint AS force_produce_units
 			FROM %s.order_items oi
 			JOIN %s.orders o ON o.id=oi.order_id
+			JOIN requested
+			  ON requested.product_id=oi.product_id
+			 AND requested.order_no=COALESCE(o.order_no,'')
 			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id=o.id
-			WHERE oi.product_id = ANY($1::bigint[])
-			  AND COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint = ANY($2::bigint[])
-			  AND COALESCE(o.order_no,'') = ANY($3::text[])
-			GROUP BY oi.product_id, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint, COALESCE(o.order_no,'')
+			GROUP BY oi.product_id, requested.spec_g, COALESCE(o.order_no,'')
 			UNION ALL
 			SELECT
 				d.product_id,
-				d.spec_g,
+				requested.spec_g,
 				COALESCE(d.request_no,'') AS order_no,
 				SUM(COALESCE(d.target_qty,0))::bigint AS need_units,
 				SUM(COALESCE(d.target_qty,0))::bigint AS force_produce_units
 			FROM %s.customer_processing_production_demands d
-			WHERE d.product_id = ANY($1::bigint[])
-			  AND d.spec_g = ANY($2::bigint[])
-			  AND COALESCE(d.request_no,'') = ANY($3::text[])
-			  AND d.status='planned'
-			GROUP BY d.product_id,d.spec_g,COALESCE(d.request_no,'')
+			JOIN requested
+			  ON requested.product_id=d.product_id
+			 AND requested.spec_g=d.spec_g
+			 AND requested.order_no=COALESCE(d.request_no,'')
+			WHERE d.status='planned'
+			GROUP BY d.product_id,requested.spec_g,COALESCE(d.request_no,'')
 		)
 		SELECT
 			sn.product_id,sn.spec_g,sn.order_no,sn.need_units,sn.force_produce_units,
@@ -413,7 +424,7 @@ func (r Repository) fetchProductionDemandParts(ctx context.Context, rows []Unpro
 		) pm ON true
 		ORDER BY sn.product_id,sn.spec_g,sn.order_no
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
-	sqlRows, err := r.pool.Query(ctx, q, productIDs, specGs, orderNos)
+	sqlRows, err := queryer.Query(ctx, q, productIDs, specGs, orderNos)
 	if err != nil {
 		return nil, err
 	}
@@ -441,6 +452,34 @@ func (r Repository) fetchProductionDemandParts(ctx context.Context, rows []Unpro
 		parts = append(parts, part)
 	}
 	return parts, sqlRows.Err()
+}
+
+func productionDemandPartRequestTuples(rows []UnprodNeedRow) ([]int64, []int64, []string) {
+	seen := map[string]bool{}
+	productIDs := make([]int64, 0)
+	specGs := make([]int64, 0)
+	orderNos := make([]string, 0)
+	for _, row := range rows {
+		if row.ProductID <= 0 || row.SpecG <= 0 {
+			continue
+		}
+		refs := make([]string, 0)
+		for orderNo := range splitProductionDemandOrderNos(row.OrderNos) {
+			refs = append(refs, orderNo)
+		}
+		sort.Strings(refs)
+		for _, orderNo := range refs {
+			key := fmt.Sprintf("%d\x1f%d\x1f%s", row.ProductID, row.SpecG, orderNo)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			productIDs = append(productIDs, row.ProductID)
+			specGs = append(specGs, row.SpecG)
+			orderNos = append(orderNos, orderNo)
+		}
+	}
+	return productIDs, specGs, orderNos
 }
 
 func filterProductionDemandRows(rows []productionapp.UnprodNeedRow, status string) []productionapp.UnprodNeedRow {
@@ -479,6 +518,10 @@ func productionDemandStatusLabel(status string) string {
 }
 
 func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []productionapp.UnprodNeedRow) error {
+	return r.attachProductionDemandStatusesQuery(ctx, r.pool, rows)
+}
+
+func (r Repository) attachProductionDemandStatusesQuery(ctx context.Context, queryer productionDemandQueryer, rows []productionapp.UnprodNeedRow) error {
 	missing := make([]productionapp.UnprodNeedRow, 0)
 	for _, row := range rows {
 		if strings.TrimSpace(row.DemandStatus) == "" {
@@ -488,7 +531,7 @@ func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []p
 	states := map[string]productionDemandPlanState{}
 	if len(missing) > 0 {
 		var err error
-		states, err = r.productionDemandStatusByKey(ctx, missing)
+		states, err = r.productionDemandStatusByKeyQuery(ctx, queryer, missing)
 		if err != nil {
 			return err
 		}
@@ -516,7 +559,7 @@ func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []p
 	return nil
 }
 
-func (r Repository) productionDemandStatusByKey(ctx context.Context, rows []productionapp.UnprodNeedRow) (map[string]productionDemandPlanState, error) {
+func (r Repository) productionDemandStatusByKeyQuery(ctx context.Context, queryer productionDemandQueryer, rows []productionapp.UnprodNeedRow) (map[string]productionDemandPlanState, error) {
 	out := map[string]productionDemandPlanState{}
 	productSeen := map[int64]bool{}
 	specSeen := map[int64]bool{}
@@ -554,7 +597,7 @@ func (r Repository) productionDemandStatusByKey(ctx context.Context, rows []prod
 		  AND COALESCE(pp.status,'') <> 'cancelled'
 		ORDER BY pp.created_at DESC,pp.id DESC,wo.id DESC
 	`, r.schema, r.schema, r.schema)
-	sqlRows, err := r.pool.Query(ctx, q, productIDs, specGs)
+	sqlRows, err := queryer.Query(ctx, q, productIDs, specGs)
 	if err != nil {
 		return nil, err
 	}
@@ -1092,7 +1135,11 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 	m := map[string]productionapp.MaterialNeed{}
 	add := func(item productionapp.MaterialNeed) {
 		name := strings.TrimSpace(item.Name)
-		if item.Qty <= 0 {
+		exactQty := item.ExactQty
+		if exactQty <= 0 {
+			exactQty = float64(item.Qty)
+		}
+		if exactQty <= 0 {
 			return
 		}
 		key := materialAvailabilityKey(name, item.Unit)
@@ -1101,8 +1148,10 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 			existing = item
 			existing.Name = name
 			existing.Qty = 0
+			existing.ExactQty = 0
 		}
-		existing.Qty += item.Qty
+		existing.ExactQty += exactQty
+		existing.Qty = int64(math.Ceil(existing.ExactQty))
 		if existing.ComponentType == "" {
 			existing.ComponentType = item.ComponentType
 		}
@@ -1160,28 +1209,36 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 				unit = "g"
 			}
 			qty := componentConsumptionQtyWithMaterialLoss(
-				bom.ConsumeUnit,
-				bom.QtyPerUnit,
-				bom.RatioPct,
-				unit,
-				finalInputG,
-				row.GapG,
-				unitsMissing,
-				dripBoxesMissing(row, bom.DripBoxBagCount),
-				bom.OutputQty,
-				bom.OutputUnit,
-				bom.MaterialLossRate,
+				bom.ConsumeUnit, bom.QtyPerUnit, bom.RatioPct, unit, finalInputG, row.GapG,
+				unitsMissing, dripBoxesMissing(row, bom.DripBoxBagCount), bom.OutputQty,
+				bom.OutputUnit, bom.MaterialLossRate,
 			)
+			exactQty := float64(qty)
+			weightGrams := int64(0)
+			if isWeightMaterialUnit(unit) {
+				weightGrams = componentConsumptionWeightGramsWithMaterialLoss(
+					bom.ConsumeUnit, bom.QtyPerUnit, bom.RatioPct, unit, finalInputG, row.GapG,
+					unitsMissing, dripBoxesMissing(row, bom.DripBoxBagCount), bom.OutputQty,
+					bom.OutputUnit, bom.MaterialLossRate,
+				)
+				exactQty = float64(weightGrams) / productionWeightUnitGrams(unit)
+				qty = int64(math.Ceil(exactQty))
+			}
 			if bom.ComponentType == "finished_product" {
+				if weightGrams > 0 {
+					exactQty = float64(weightGrams)
+					qty = weightGrams
+				}
 				add(productionapp.MaterialNeed{
 					Name:              bom.MaterialName,
 					Qty:               qty,
+					ExactQty:          exactQty,
 					Unit:              "g",
 					ComponentType:     "finished_product",
 					UpstreamProductID: bom.ComponentProductID,
 				})
 			} else {
-				add(productionapp.MaterialNeed{Name: bom.MaterialName, Qty: qty, Unit: unit})
+				add(productionapp.MaterialNeed{Name: bom.MaterialName, Qty: qty, ExactQty: exactQty, Unit: unit})
 			}
 		}
 

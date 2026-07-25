@@ -42,7 +42,9 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -114,12 +116,14 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	}
 }
 
-func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) {
+func TestProduceStartAPIMergesSameConcreteSKUOrdersAndKeepsAllOrderNos(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'Uraga乌拉嘎',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'Uraga乌拉嘎',50,true,'454g',454,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -127,10 +131,10 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-MERGE-454','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1)),
 			(2,'SO-MERGE-227','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
-		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
-		VALUES
-			(1,1,'Uraga乌拉嘎',24,'袋','454g',1,50,1200),
-			(2,1,'Uraga乌拉嘎',2,'袋','227g',1,50,100);
+			INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+			VALUES
+				(1,1,'Uraga乌拉嘎',24,'袋','454g',1,50,1200),
+				(2,1,'Uraga乌拉嘎',2,'袋','454g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
 		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES (10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0);
@@ -142,7 +146,7 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 
 	app := newProductionFlowTestEcho(pool, schema)
-	body := bytes.NewReader([]byte(`{"selected":["1-454","1-227"],"input_by_key":{"1-454":16000,"1-227":600}}`))
+	body := bytes.NewReader([]byte(`{"selected":["1-454"],"input_by_key":{"1-454":16600}}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -169,8 +173,8 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 	`, schema)).Scan(&runningItemID, &needG, &inputG, &orderNos); err != nil {
 		t.Fatalf("query running item: %v", err)
 	}
-	if needG != 11350 || inputG != 16600 {
-		t.Fatalf("running item need/input = %d/%d, want 11350/16600", needG, inputG)
+	if needG != 11804 || inputG != 16600 {
+		t.Fatalf("running item need/input = %d/%d, want 11804/16600", needG, inputG)
 	}
 	for _, want := range []string{"SO-MERGE-454", "SO-MERGE-227"} {
 		if !strings.Contains(orderNos, want) {
@@ -182,8 +186,8 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.produce_running_outputs WHERE running_item_id=$1`, schema), runningItemID).Scan(&outputCount); err != nil {
 		t.Fatalf("query running outputs: %v", err)
 	}
-	if outputCount != 2 {
-		t.Fatalf("running output count = %d, want 2", outputCount)
+	if outputCount != 0 {
+		t.Fatalf("running output count = %d, want 0 because a single concrete SKU stays on the running item", outputCount)
 	}
 }
 
@@ -192,9 +196,11 @@ func TestProduceStartAPIReturnsAggregatedWIPShortagesAcrossSelectedProducts(t *t
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES
-			(1,'拼配A',50,true),
-			(2,'拼配B',60,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES
+				(1,'拼配A',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb),
+				(2,'拼配B',60,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -420,9 +426,11 @@ func TestProduceFinishAPIKeepsOrderInProductionWhenOtherItemsRemainUnproduced(t 
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES
-			(1,'半产状态A',50,true),
-			(2,'半产状态B',60,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES
+				(1,'半产状态A',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb),
+				(2,'半产状态B',60,true,'454g',454,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true),
@@ -493,7 +501,9 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('生产中',20,true)
 		ON CONFLICT (name) DO NOTHING;
@@ -627,7 +637,9 @@ func TestProduceFinishAPIUsesEditedInputForFullCompletion(t *testing.T) {
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('生产中',20,true)
 		ON CONFLICT (name) DO NOTHING;
@@ -966,7 +978,9 @@ func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) 
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -1077,7 +1091,9 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曲奇拼配',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'曲奇拼配',50,true,'1000g',1000,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -1278,16 +1294,24 @@ func TestProduceStartAPIDefaultsMissingInputFromPlanWithoutBlockingWork(t *testi
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曲奇拼配',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'曲奇拼配',50,true,'1000g',1000,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
 		ON CONFLICT (name) DO NOTHING;
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-API-START-NOINPUT','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
-		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
-		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
-	`, schema, schema, schema, schema, schema))
+			INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+			VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
+			INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
+			INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-NOINPUT','缺省投料生豆','bean','g',3000,0,54,0);
+			INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct)
+			VALUES (1,10,100.0000);
+		`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-NOINPUT", "缺省投料生豆", 3000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", bytes.NewBufferString(`{"selected":["1-1000"],"input_by_key":{}}`))
@@ -1796,7 +1820,9 @@ func assertProductionFlowCount(t *testing.T, pool *pgxpool.Pool, schema, table, 
 func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'计划拼配',50,true);
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (1,'计划拼配',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -1810,8 +1836,8 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 		VALUES (10,'RAW-PLAN','计划生豆','bean','g',1000,0,54,0);
 		INSERT INTO %s.production_boms(id,code,name,output_product_id,status)
 		VALUES (100,'PBOM-PLAN','计划拼配 BOM',1,'active');
-		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,published_at)
-		VALUES (100,100,'V001','published',0.8200,now());
+		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,published_at)
+		VALUES (100,100,'V001','published',0.8200,1,'kg',now());
 		INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,ratio_pct)
 		VALUES (100,10,'material',100.0000);
 		INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
@@ -1823,6 +1849,7 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 		VALUES
 			(30,1,'烘焙','烘焙中心','滚筒机',25,true),
 			(30,2,'包装','包装台','封口机',10,false);
+		UPDATE %s.production_bom_versions SET process_route_id=30 WHERE id=100;
 		INSERT INTO %s.product_production_configs(product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,created_by,updated_by)
 		VALUES (1,100,100,30,0.1800,'test','test')
 		ON CONFLICT (product_id) DO UPDATE SET
@@ -1830,7 +1857,7 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 			production_bom_version_id=excluded.production_bom_version_id,
 			process_route_id=excluded.process_route_id,
 			expected_loss_rate=excluded.expected_loss_rate;
-		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 }
 
 func mustExecProductionFlowTestSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
@@ -1876,6 +1903,7 @@ func productionFlowTestBaseDDL(schema string) string {
 			name TEXT NOT NULL UNIQUE,
 			roast_level TEXT NOT NULL DEFAULT '',
 			default_price NUMERIC NOT NULL DEFAULT 0,
+			base_product_id BIGINT NOT NULL DEFAULT 0,
 			active BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
@@ -1890,13 +1918,19 @@ func productionFlowTestBaseDDL(schema string) string {
 		CREATE TABLE %s.customers (
 			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL DEFAULT '',
+			raw_name TEXT NOT NULL DEFAULT '',
+			customer_type TEXT NOT NULL DEFAULT 'retail',
 			company_name TEXT NOT NULL DEFAULT '',
 			company_address TEXT NOT NULL DEFAULT '',
 			company_phone TEXT NOT NULL DEFAULT '',
 			contact TEXT NOT NULL DEFAULT '',
 			phone TEXT NOT NULL DEFAULT '',
 			address TEXT NOT NULL DEFAULT '',
-			active BOOLEAN NOT NULL DEFAULT true
+			customer_product_rule_template_id BIGINT NOT NULL DEFAULT 0,
+			responsible_employee_id BIGINT NOT NULL DEFAULT 0,
+			active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		CREATE TABLE %s.order_process_statuses (
 			id SERIAL PRIMARY KEY,
@@ -1912,6 +1946,7 @@ func productionFlowTestBaseDDL(schema string) string {
 			id BIGSERIAL PRIMARY KEY,
 			order_no TEXT,
 			order_date DATE,
+			customer_id BIGINT NOT NULL DEFAULT 0,
 			is_void BOOLEAN NOT NULL DEFAULT false,
 			process_status_id INTEGER REFERENCES %s.order_process_statuses(id),
 			ship_status_id BIGINT REFERENCES %s.ship_statuses(id),

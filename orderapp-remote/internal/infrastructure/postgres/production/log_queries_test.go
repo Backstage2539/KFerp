@@ -91,14 +91,14 @@ INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,sourc
 VALUES ('FP-77','finished_product',9,'红岩拼配',454,'production_run',77,'PB-77',908,2,908,2,now());
 `, schema, schema, schema, schema, schema, schema))
 
-	res, err := NewRepository(pool, schema).ListProductionLogs(ctx, productionapp.ProductionLogsQuery{RunningItemID: 77, Limit: 20})
+	rows, err := NewRepository(pool, schema).listProductionLogs(ctx, productionapp.ProductionLogsQuery{RunningItemID: 77, Limit: 20})
 	if err != nil {
-		t.Fatalf("ListProductionLogs: %v", err)
+		t.Fatalf("listProductionLogs: %v", err)
 	}
-	if len(res.Rows) != 1 {
-		t.Fatalf("rows = %d, want 1", len(res.Rows))
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
 	}
-	if res.Rows[0].FinishedBatchCode != "FP-77" {
-		t.Fatalf("finished batch code = %q, want FP-77", res.Rows[0].FinishedBatchCode)
+	if rows[0].FinishedBatchCode != "FP-77" {
+		t.Fatalf("finished batch code = %q, want FP-77", rows[0].FinishedBatchCode)
 	}
 }

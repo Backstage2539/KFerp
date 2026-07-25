@@ -258,6 +258,45 @@ export function productionPlanOperationSplitsPreviewEndpoint(plan) {
   return `/api/production-plans/${id}/operation-splits/preview`
 }
 
+function compactProductionQuantity(value) {
+  const number = Number(value || 0)
+  if (!Number.isFinite(number)) return '0'
+  return String(Number(number.toFixed(9)))
+}
+
+function productionInventoryUnitLabel(unit) {
+  const value = String(unit || '').trim()
+  if (value.toLowerCase() === 'kg') return 'Kg'
+  return value
+}
+
+export function productionPlanItemQuantitySummary(item = {}) {
+  const count = Number(item.sales_spec_count || 0)
+  const quantityPerUnit = Number(item.inventory_qty_per_sales_unit || 0)
+  const plannedQuantity = Number(item.planned_inventory_qty || 0)
+  const unit = productionInventoryUnitLabel(item.inventory_unit)
+  if (count > 0 && quantityPerUnit > 0 && plannedQuantity > 0 && unit) {
+    return `${compactProductionQuantity(count)}件、${compactProductionQuantity(quantityPerUnit)}${unit}/件、合计${compactProductionQuantity(plannedQuantity)}${unit}`
+  }
+  const legacySpecG = Number(item.spec_g || 0)
+  if (legacySpecG > 0) return `${compactProductionQuantity(legacySpecG)}g`
+  return '按商品单位'
+}
+
+export function productionPlanLegacyGramLabel(value) {
+  const grams = Number(value || 0)
+  if (!Number.isFinite(grams)) return '0g'
+  return `${compactProductionQuantity(grams)}g`
+}
+
+export function productionPlanItemBomSourceLabel(item = {}) {
+  const versionID = Number(item.bom_version_id || 0)
+  const versionLabel = versionID > 0 ? `BOM版本 #${versionID}` : '默认 BOM'
+  if (item.bom_inherited === true) return `${versionLabel} · 继承父商品BOM`
+  if (Number(item.bom_source_product_id || 0) > 0) return `${versionLabel} · 具体SKU BOM`
+  return versionLabel
+}
+
 const OPERATION_SPLIT_PREVIEW_STATUS = {
   matched: { label: '已覆盖', tone: 'matched' },
   short: { label: '不足', tone: 'short' },

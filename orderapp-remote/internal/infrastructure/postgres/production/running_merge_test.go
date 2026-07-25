@@ -48,3 +48,47 @@ func TestGroupStartNeedsForRunsMergesSpecsByProductAndKeepsOutputs(t *testing.T)
 		t.Fatalf("second group = %+v, want one normal spec run", second)
 	}
 }
+
+func TestGroupStartNeedsForRunsKeepsDifferentFrozenSnapshotsIsolated(t *testing.T) {
+	needs := []productionapp.StartNeed{
+		{
+			ProductID: 789, ParentProductID: 644, ProductName: "如目达摩",
+			SpecLabel: "454g", SalesUnit: "454g", SpecG: 454, GapG: 454,
+			SalesSpecCount: 1, InventoryQtyPerSalesUnit: 0.454, InventoryUnit: "kg",
+			PlannedInventoryQty:   0.454,
+			SalesSpecSnapshotJSON: `{"sku_id":789,"parent_product_id":644,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published"}`,
+			OrderNos:              "SO-PARENT-644",
+		},
+		{
+			ProductID: 789, ParentProductID: 645, ProductName: "如目达摩",
+			SpecLabel: "454g", SalesUnit: "454g", SpecG: 454, GapG: 454,
+			SalesSpecCount: 1, InventoryQtyPerSalesUnit: 0.454, InventoryUnit: "kg",
+			PlannedInventoryQty:   0.454,
+			SalesSpecSnapshotJSON: `{"sku_id":789,"parent_product_id":645,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published"}`,
+			OrderNos:              "SO-PARENT-645",
+		},
+		{
+			ProductID: 789, ParentProductID: 644, ProductName: "如目达摩",
+			SpecLabel: "1lb", SalesUnit: "lb", SpecG: 454, GapG: 454,
+			SalesSpecCount: 1, InventoryQtyPerSalesUnit: 1, InventoryUnit: "lb",
+			PlannedInventoryQty:   1,
+			SalesSpecSnapshotJSON: `{"sku_id":789,"parent_product_id":644,"spec_label":"1lb","sales_unit":"lb","inventory_unit":"lb","inventory_qty_per_sales_unit":1,"conversion_source":"published"}`,
+			OrderNos:              "SO-LB",
+		},
+	}
+
+	groups := groupStartNeedsForRuns(needs, nil, nil)
+	if len(groups) != 3 {
+		t.Fatalf("groups = %d, want 3 isolated frozen snapshots: %+v", len(groups), groups)
+	}
+	got := map[string]startRunGroup{}
+	for _, group := range groups {
+		got[group.OrderNos] = group
+	}
+	if got["SO-PARENT-644"].ParentProductID != 644 || got["SO-PARENT-645"].ParentProductID != 645 {
+		t.Fatalf("parent snapshots were merged or overwritten: %+v", groups)
+	}
+	if got["SO-LB"].InventoryUnit != "lb" || got["SO-LB"].InventoryQtyPerSalesUnit != 1 {
+		t.Fatalf("inventory conversion snapshot was merged or overwritten: %+v", got["SO-LB"])
+	}
+}

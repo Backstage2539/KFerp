@@ -34,6 +34,9 @@ import {
   productionDemandStatusTone,
   operationSplitPreviewStatusLabel,
   operationSplitPreviewStatusTone,
+  productionPlanItemQuantitySummary,
+  productionPlanLegacyGramLabel,
+  productionPlanItemBomSourceLabel,
 } from './produce-plan.js'
 
 const rows = [
@@ -41,6 +44,36 @@ const rows = [
   { product_id: 2, spec_g: 227 },
   { product_id: 3, spec_g: 100 },
 ]
+
+test('production plan item summary uses frozen sales-spec conversion and parent BOM source', () => {
+  const item = {
+    sales_spec_count: 4,
+    inventory_qty_per_sales_unit: 0.454,
+    inventory_unit: 'kg',
+    planned_inventory_qty: 1.816,
+    bom_inherited: true,
+    bom_source_product_id: 644,
+    bom_version_id: 1337,
+  }
+
+  assert.equal(productionPlanItemQuantitySummary(item), '4件、0.454Kg/件、合计1.816Kg')
+  assert.equal(productionPlanItemBomSourceLabel(item), 'BOM版本 #1337 · 继承父商品BOM')
+  assert.equal(
+    productionPlanItemQuantitySummary({ spec_g: 454 }),
+    '454g',
+    '历史计划行保持旧规格投影',
+  )
+  assert.equal(productionPlanLegacyGramLabel(1816), '1816g')
+  assert.equal(productionPlanLegacyGramLabel(0), '0g')
+})
+
+test('production plan detail labels legacy gram projections instead of showing ambiguous bare numbers', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /productionPlanLegacyGramLabel\(item\.gap_g\)/)
+  assert.match(source, /productionPlanLegacyGramLabel\(item\.planned_g\)/)
+  assert.match(source, /productionPlanLegacyGramLabel\(item\.planned_output_g\)/)
+  assert.doesNotMatch(source, /<td>\{\{\s*item\.(?:gap_g|planned_g|planned_output_g)\s*\|\|\s*0\s*\}\}<\/td>/)
+})
 
 test('insufficient selection state shows unchecked, checked, and indeterminate header states', () => {
   assert.deepEqual(insufficientSelectionState(rows, {}), {

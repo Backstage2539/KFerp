@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	productionapp "orderapp/internal/application/production"
 	"sort"
@@ -26,14 +27,23 @@ type ProduceRunOutputRow struct {
 }
 
 type startRunGroup struct {
-	ProductID           int64
-	ProductName         string
-	SpecG               int64
-	NeedG               int64
-	InputG              int64
-	OrderNos            string
-	OperationTemplateID int64
-	Outputs             []ProduceRunOutputRow
+	ProductID                int64
+	ParentProductID          int64
+	ProductName              string
+	SpecLabel                string
+	SalesUnit                string
+	SpecG                    int64
+	NeedG                    int64
+	InputG                   int64
+	SalesSpecCount           float64
+	InventoryQtyPerSalesUnit float64
+	InventoryUnit            string
+	PlannedInventoryQty      float64
+	SalesSpecSnapshotJSON    string
+	ManualInput              bool
+	OrderNos                 string
+	OperationTemplateID      int64
+	Outputs                  []ProduceRunOutputRow
 }
 
 func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64) []startRunGroup {
@@ -41,28 +51,46 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 		startRunGroup
 		orderNosSeen map[string]bool
 	}
-	groupsByProduct := map[int64]*productGroup{}
-	order := make([]int64, 0)
+	groupsBySnapshot := map[string]*productGroup{}
+	order := make([]string, 0)
 	for _, need := range needs {
-		if need.ProductID <= 0 || need.GapG <= 0 {
+		if need.ProductID <= 0 || (need.GapG <= 0 && need.PlannedInventoryQty <= 0) {
 			continue
 		}
-		group := groupsByProduct[need.ProductID]
+		groupKey := startNeedProductionSnapshotGroupKey(need)
+		group := groupsBySnapshot[groupKey]
 		if group == nil {
 			group = &productGroup{orderNosSeen: map[string]bool{}}
 			group.ProductID = need.ProductID
+			group.ParentProductID = need.ParentProductID
 			group.ProductName = strings.TrimSpace(need.ProductName)
-			groupsByProduct[need.ProductID] = group
-			order = append(order, need.ProductID)
+			group.SpecLabel = strings.TrimSpace(need.SpecLabel)
+			group.SalesUnit = strings.TrimSpace(need.SalesUnit)
+			group.InventoryQtyPerSalesUnit = need.InventoryQtyPerSalesUnit
+			group.InventoryUnit = strings.TrimSpace(need.InventoryUnit)
+			group.SalesSpecSnapshotJSON = strings.TrimSpace(need.SalesSpecSnapshotJSON)
+			groupsBySnapshot[groupKey] = group
+			order = append(order, groupKey)
 		}
 		if group.ProductName == "" {
 			group.ProductName = strings.TrimSpace(need.ProductName)
+		}
+		if group.SpecLabel == "" {
+			group.SpecLabel = strings.TrimSpace(need.SpecLabel)
+		}
+		if group.SalesUnit == "" {
+			group.SalesUnit = strings.TrimSpace(need.SalesUnit)
 		}
 		if group.OperationTemplateID <= 0 && need.OperationTemplateID > 0 {
 			group.OperationTemplateID = need.OperationTemplateID
 		}
 		group.NeedG += need.GapG
-		group.InputG += inputByKey[producePlanKey(need.ProductID, need.SpecG)]
+		group.SalesSpecCount += need.SalesSpecCount
+		group.PlannedInventoryQty += need.PlannedInventoryQty
+		if input := inputByKey[producePlanKey(need.ProductID, need.SpecG)]; input > 0 {
+			group.InputG += input
+			group.ManualInput = true
+		}
 		for _, no := range splitOrderNos(need.OrderNos) {
 			if group.orderNosSeen[no] {
 				continue
@@ -86,8 +114,9 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 		})
 	}
 	out := make([]startRunGroup, 0, len(order))
-	for _, productID := range order {
-		group := groupsByProduct[productID]
+	for _, groupKey := range order {
+		group := groupsBySnapshot[groupKey]
+		productID := group.ProductID
 		sort.SliceStable(group.Outputs, func(i, j int) bool {
 			return group.Outputs[i].SpecG > group.Outputs[j].SpecG
 		})
@@ -95,10 +124,16 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 			group.SpecG = group.Outputs[0].SpecG
 			group.Outputs[0].Product = firstNonEmpty(group.Outputs[0].Product, group.ProductName)
 			group.Outputs[0].OrderNos = firstNonEmpty(group.Outputs[0].OrderNos, group.OrderNos)
-			group.InputG = firstPositive(group.InputG, inputByKey[fmt.Sprintf("product:%d", productID)])
+			if input := inputByKey[fmt.Sprintf("product:%d", productID)]; input > 0 {
+				group.InputG = firstPositive(group.InputG, input)
+				group.ManualInput = true
+			}
 		} else {
 			group.SpecG = 0
-			group.InputG = firstPositive(inputByKey[fmt.Sprintf("product:%d", productID)], group.InputG)
+			if input := inputByKey[fmt.Sprintf("product:%d", productID)]; input > 0 {
+				group.InputG = firstPositive(input, group.InputG)
+				group.ManualInput = true
+			}
 		}
 		if group.InputG <= 0 {
 			group.InputG = defaultProductionInputG(group.NeedG, yieldByProductID[productID])
@@ -106,6 +141,24 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 		out = append(out, group.startRunGroup)
 	}
 	return out
+}
+
+func startNeedProductionSnapshotGroupKey(need productionapp.StartNeed) string {
+	snapshot := productionQuantitySnapshot{
+		SKUID:                    need.ProductID,
+		ParentProductID:          need.ParentProductID,
+		SpecLabel:                strings.TrimSpace(need.SpecLabel),
+		SalesUnit:                strings.TrimSpace(need.SalesUnit),
+		InventoryUnit:            strings.TrimSpace(need.InventoryUnit),
+		InventoryQtyPerSalesUnit: need.InventoryQtyPerSalesUnit,
+	}
+	if raw := strings.TrimSpace(need.SalesSpecSnapshotJSON); raw != "" {
+		var frozen productionQuantitySnapshot
+		if json.Unmarshal([]byte(raw), &frozen) == nil {
+			snapshot.ConversionSource = frozen.ConversionSource
+		}
+	}
+	return productionQuantitySnapshotGroupKey(snapshot)
 }
 
 func firstPositive(values ...int64) int64 {

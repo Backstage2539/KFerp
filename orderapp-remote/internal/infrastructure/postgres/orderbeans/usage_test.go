@@ -1,9 +1,14 @@
 package orderbeans
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func TestPublishedUnitPriceFromContentMatchesGreenBeanTiers(t *testing.T) {
@@ -34,6 +39,7 @@ func TestInspectPublishedProductSpecRequiresConcreteSKUAndFreezesSalesSpec(t *te
 	content := []byte(`{
 		"price_rows":[
 			{"product_id":550,"sku_id":551,"parent_product_id":550,"quantity_basis":"sales_spec_count","final_unit_price":68,
+			 "inventory_unit":"kg","inventory_conversion_json":{"袋":{"kg":0.227}},
 			 "effective_sales_spec":{"sku_id":551,"spec_key":"bag-227g","spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}},
 			{"product_id":550,"sku_id":552,"parent_product_id":550,"quantity_basis":"sales_spec_count","final_unit_price":118,
 			 "effective_sales_spec":{"sku_id":552,"spec_key":"bag-454g","spec_name":"454g袋装","spec_label":"454g","sales_unit":"袋","net_content_qty":454,"net_content_unit":"g"}}
@@ -47,12 +53,306 @@ func TestInspectPublishedProductSpecRequiresConcreteSKUAndFreezesSalesSpec(t *te
 	if !got.ConcretePublication || !got.ProductFound || got.SKUID != 551 || got.ParentProductID != 550 || got.SpecName != "227g袋装" || got.SpecLabel != "227g" || got.SalesUnit != "袋" || got.NetContentQty != 227 || got.NetContentUnit != "g" {
 		t.Fatalf("concrete product spec = %+v", got)
 	}
+	if got.InventoryUnit != "kg" || !strings.Contains(got.InventoryConversionJSON, `"袋":{"kg":0.227}`) {
+		t.Fatalf("typed concrete product inventory conversion = %+v", got)
+	}
+	for _, want := range []string{`"parent_product_id":550`, `"inventory_unit":"kg"`, `"inventory_conversion_json":{"袋":{"kg":0.227}}`} {
+		if !strings.Contains(got.EffectiveSalesSpecJSON, want) {
+			t.Fatalf("effective sales spec must freeze %s: %s", want, got.EffectiveSalesSpecJSON)
+		}
+	}
 	missing, err := inspectPublishedProductSpecContent(content, 553)
 	if err != nil {
 		t.Fatalf("inspect missing SKU: %v", err)
 	}
 	if !missing.ConcretePublication || missing.ProductFound {
 		t.Fatalf("missing concrete SKU = %+v, want concrete publication with product_found=false", missing)
+	}
+}
+
+func TestPublishedPricingEnrichesTypedEffectiveSalesSpecWithInventoryConversion(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{
+			"product_id":550,
+			"sku_id":551,
+			"parent_product_id":550,
+			"quantity_basis":"sales_spec_count",
+			"min_qty":1,
+			"final_unit_price":68,
+			"inventory_unit":"kg",
+			"inventory_conversion_json":{"袋":{"kg":0.227}},
+			"effective_sales_spec":{"sku_id":551,"spec_name":"227g袋装","spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}
+		}]
+	}`)
+
+	got, ok := publishedPricingFromContentForListType(content, 551, ListTypeCommercial, 227, 2, "袋", 0)
+	if !ok {
+		t.Fatal("published concrete SKU pricing not found")
+	}
+	for _, want := range []string{`"parent_product_id":550`, `"inventory_unit":"kg"`, `"inventory_conversion_json":{"袋":{"kg":0.227}}`} {
+		if !strings.Contains(got.EffectiveSalesSpecJSON, want) {
+			t.Fatalf("published pricing effective sales spec must freeze %s: %s", want, got.EffectiveSalesSpecJSON)
+		}
+	}
+}
+
+func TestInspectPublishedProductSpecRejectsConflictingInventoryConversionSnapshots(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name: "inventory unit conflicts",
+			content: `{
+				"price_rows":[{
+					"product_id":550,
+					"sku_id":551,
+					"parent_product_id":550,
+					"quantity_basis":"sales_spec_count",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"袋":{"kg":0.454}},
+					"effective_sales_spec":{
+						"sku_id":551,
+						"spec_label":"454g",
+						"sales_unit":"袋",
+						"net_content_qty":454,
+						"net_content_unit":"g",
+						"inventory_unit":"g",
+						"inventory_conversion_json":{"袋":{"g":454}}
+					}
+				}]
+			}`,
+			wantErr: "库存单位",
+		},
+		{
+			name: "conversion graph conflicts",
+			content: `{
+				"price_rows":[{
+					"product_id":550,
+					"sku_id":551,
+					"parent_product_id":550,
+					"quantity_basis":"sales_spec_count",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"袋":{"kg":0.454}},
+					"effective_sales_spec":{
+						"sku_id":551,
+						"spec_label":"454g",
+						"sales_unit":"袋",
+						"net_content_qty":454,
+						"net_content_unit":"g",
+						"inventory_unit":"kg",
+						"inventory_conversion_json":{"袋":{"kg":0.227}}
+					}
+				}]
+			}`,
+			wantErr: "库存换算",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := inspectPublishedProductSpecContent([]byte(tt.content), 551); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("inspect conflict err = %v, want %s conflict", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAttachProductionQuantitySnapshotUsesPublishedConversionAndBlocksMissingConversion(t *testing.T) {
+	source, err := AttachProductionQuantitySnapshot(`{"source":"published_price_snapshot"}`, PublishedProductSpec{
+		ConcretePublication:     true,
+		ProductFound:            true,
+		SKUID:                   551,
+		ParentProductID:         550,
+		SpecLabel:               "454g",
+		SalesUnit:               "袋",
+		InventoryUnit:           "kg",
+		InventoryConversionJSON: `{"袋":{"kg":0.454}}`,
+	})
+	if err != nil {
+		t.Fatalf("attach production quantity snapshot: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(source), &decoded); err != nil {
+		t.Fatalf("decode attached source: %v", err)
+	}
+	snapshot, ok := decoded["production_quantity_snapshot"].(map[string]any)
+	if !ok {
+		t.Fatalf("production quantity snapshot missing: %s", source)
+	}
+	if snapshot["sku_id"] != float64(551) || snapshot["parent_product_id"] != float64(550) ||
+		snapshot["inventory_qty_per_sales_unit"] != 0.454 ||
+		snapshot["conversion_source"] != "published_inventory_conversion" {
+		t.Fatalf("production quantity snapshot = %#v", snapshot)
+	}
+
+	if _, err := AttachProductionQuantitySnapshot(`{}`, PublishedProductSpec{
+		ConcretePublication: true,
+		ProductFound:        true,
+		SKUID:               552,
+		ParentProductID:     550,
+		SpecLabel:           "454g",
+		SalesUnit:           "袋",
+		InventoryUnit:       "kg",
+	}); err == nil || !strings.Contains(err.Error(), "缺少") {
+		t.Fatalf("missing concrete conversion err = %v, want blocking error", err)
+	}
+
+	legacy, err := AttachProductionQuantitySnapshot(`{"source":"legacy"}`, PublishedProductSpec{ProductFound: true})
+	if err != nil || !strings.Contains(legacy, `"source":"legacy"`) {
+		t.Fatalf("legacy source = %s / %v, want compatibility", legacy, err)
+	}
+}
+
+func TestAttachProductionQuantitySnapshotFreezesResolvedCurrentCatalogSpecForLegacyPublication(t *testing.T) {
+	source, err := AttachProductionQuantitySnapshot(`{"source":"legacy"}`, PublishedProductSpec{
+		CurrentCatalogAuthority: true,
+		ProductFound:            true,
+		SKUID:                   789,
+		ParentProductID:         644,
+		SpecLabel:               "454g",
+		SalesUnit:               "454g",
+		NetContentQty:           454,
+		NetContentUnit:          "g",
+		InventoryUnit:           "kg",
+		InventoryConversionJSON: `{"454g":{"kg":0.454}}`,
+	})
+	if err != nil {
+		t.Fatalf("attach current catalog production quantity snapshot: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(source), &decoded); err != nil {
+		t.Fatalf("decode current catalog snapshot: %v", err)
+	}
+	snapshot, ok := decoded["production_quantity_snapshot"].(map[string]any)
+	if !ok {
+		t.Fatalf("current catalog production quantity snapshot missing: %s", source)
+	}
+	if snapshot["sku_id"] != float64(789) ||
+		snapshot["parent_product_id"] != float64(644) ||
+		snapshot["inventory_qty_per_sales_unit"] != 0.454 ||
+		snapshot["conversion_source"] != "current_catalog_inventory_conversion" {
+		t.Fatalf("current catalog production quantity snapshot = %#v", snapshot)
+	}
+
+	if _, err := AttachProductionQuantitySnapshot(`{"source":"legacy"}`, PublishedProductSpec{
+		CurrentCatalogAuthority: true,
+		ProductFound:            true,
+		SKUID:                   790,
+		ParentProductID:         644,
+		SpecLabel:               "自定义规格",
+		SalesUnit:               "盒",
+		InventoryUnit:           "袋",
+	}); err == nil || !strings.Contains(err.Error(), "缺少") {
+		t.Fatalf("current catalog missing conversion err = %v, want blocking error", err)
+	}
+}
+
+type currentProductionSpecTestQuerier struct {
+	row     currentProductionSpecTestRow
+	queries []string
+}
+
+func (q *currentProductionSpecTestQuerier) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	q.queries = append(q.queries, sql)
+	return q.row
+}
+
+type currentProductionSpecTestRow struct {
+	values []any
+	err    error
+}
+
+func (r currentProductionSpecTestRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if len(dest) != len(r.values) {
+		return errors.New("unexpected production spec scan width")
+	}
+	for idx, value := range r.values {
+		switch target := dest[idx].(type) {
+		case *int64:
+			*target = value.(int64)
+		case *float64:
+			*target = value.(float64)
+		case *string:
+			*target = value.(string)
+		case *bool:
+			*target = value.(bool)
+		default:
+			return errors.New("unexpected production spec scan destination")
+		}
+	}
+	return nil
+}
+
+func TestResolveOrderProductionProductSpecUsesCurrentActiveSKUForLegacyPublication(t *testing.T) {
+	q := &currentProductionSpecTestQuerier{row: currentProductionSpecTestRow{values: []any{
+		int64(789), int64(644), "454g", "454g", "454g", "454g",
+		float64(454), "g", "roasted_bean", int64(0), float64(0),
+		"kg", `{}`, true,
+	}}}
+	spec, err := ResolveOrderProductionProductSpec(
+		context.Background(),
+		q,
+		"test_schema",
+		789,
+		PublishedProductSpec{ProductFound: true},
+	)
+	if err != nil {
+		t.Fatalf("resolve legacy order production spec: %v", err)
+	}
+	if !spec.CurrentCatalogAuthority || spec.SKUID != 789 || spec.ParentProductID != 644 ||
+		spec.InventoryConversionJSON != `{"454g":{"kg":0.454}}` {
+		t.Fatalf("resolved current catalog spec = %+v", spec)
+	}
+
+	if _, err := ResolveOrderProductionProductSpec(
+		context.Background(),
+		q,
+		"test_schema",
+		789,
+		PublishedProductSpec{
+			ConcretePublication: true,
+			ProductFound:        true,
+			SKUID:               789,
+			ParentProductID:     999,
+			SpecLabel:           "454g",
+			SalesUnit:           "454g",
+			InventoryUnit:       "kg",
+			NetContentQty:       454,
+			NetContentUnit:      "g",
+		},
+	); err == nil || !strings.Contains(err.Error(), "不属于") {
+		t.Fatalf("concrete publication parent mismatch err = %v", err)
+	}
+}
+
+func TestResolveCurrentOrderProductionProductSpecNeverSearchesPublishedPriceLists(t *testing.T) {
+	q := &currentProductionSpecTestQuerier{row: currentProductionSpecTestRow{values: []any{
+		int64(789), int64(644), "454g", "454g", "454g", "454g",
+		float64(454), "g", "roasted_bean", int64(0), float64(0),
+		"kg", `{}`, true,
+	}}}
+
+	spec, err := ResolveCurrentOrderProductionProductSpec(
+		context.Background(),
+		q,
+		"test_schema",
+		789,
+	)
+	if err != nil {
+		t.Fatalf("resolve current order production spec: %v", err)
+	}
+	if !spec.CurrentCatalogAuthority || spec.SKUID != 789 || spec.ParentProductID != 644 {
+		t.Fatalf("current catalog spec = %+v", spec)
+	}
+	if len(q.queries) != 1 {
+		t.Fatalf("current catalog resolver queries = %d, want exactly one product master query", len(q.queries))
+	}
+	if strings.Contains(q.queries[0], "bean_list_publications") {
+		t.Fatalf("current catalog resolver must not search published price lists: %s", q.queries[0])
 	}
 }
 

@@ -45,6 +45,23 @@ func TestUnproducedNeedsSelectsEffectiveOperationTemplateAlias(t *testing.T) {
 	}
 }
 
+func TestProductionDemandPartRequestTuplesKeepSnapshotSpecBoundToItsOrder(t *testing.T) {
+	productIDs, specGs, orderNos := productionDemandPartRequestTuples([]UnprodNeedRow{
+		{ProductID: 789, SpecG: 454, OrderNos: "SO-OLD"},
+		{ProductID: 789, SpecG: 500, OrderNos: "SO-NEW"},
+		{ProductID: 789, SpecG: 454, OrderNos: "SO-OLD"},
+	})
+	if len(productIDs) != 2 || len(specGs) != 2 || len(orderNos) != 2 {
+		t.Fatalf("request tuples=%v/%v/%v, want two unique product/spec/order tuples", productIDs, specGs, orderNos)
+	}
+	if productIDs[0] != 789 || specGs[0] != 454 || orderNos[0] != "SO-OLD" {
+		t.Fatalf("first request tuple=%d/%d/%s, want 789/454/SO-OLD", productIDs[0], specGs[0], orderNos[0])
+	}
+	if productIDs[1] != 789 || specGs[1] != 500 || orderNos[1] != "SO-NEW" {
+		t.Fatalf("second request tuple=%d/%d/%s, want 789/500/SO-NEW", productIDs[1], specGs[1], orderNos[1])
+	}
+}
+
 func TestInstantCoffeeNoBomMaterialsUseInstantCoffeeRawMaterial(t *testing.T) {
 	row := productionapp.UnprodNeedRow{
 		ProductID:      88,

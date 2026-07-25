@@ -98,6 +98,7 @@ type processTemplateSnapshot struct {
 	ProductName          string                     `json:"product_name"`
 	BomVersionID         int64                      `json:"bom_version_id"`
 	BomVersionNo         string                     `json:"bom_version_no"`
+	YieldRate            float64                    `json:"yield_rate"`
 	IndustryTemplateID   int64                      `json:"industry_template_id"`
 	IndustryTemplateName string                     `json:"industry_template_name"`
 	DefaultEquipment     string                     `json:"default_equipment"`
@@ -148,16 +149,244 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 }
 
 type latestUsableBomRoute struct {
-	ProductID        int64
-	ProductName      string
-	BomID            int64
-	BomCode          string
-	BomName          string
-	BomVersionID     int64
-	BomVersionNo     string
-	ProcessRouteID   int64
-	ProcessRouteName string
-	YieldRate        float64
+	ProductID           int64
+	ParentProductID     int64
+	BomSourceProductID  int64
+	BomInherited        bool
+	ProductName         string
+	BomID               int64
+	BomCode             string
+	BomName             string
+	BomVersionID        int64
+	BomVersionNo        string
+	ProcessRouteID      int64
+	ProcessRouteName    string
+	YieldRate           float64
+	BomMaterialLossRate float64
+	BomOutputQty        float64
+	BomOutputUnit       string
+}
+
+func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, frozenParentProductID int64, productName string) (latestUsableBomRoute, error) {
+	var currentParentProductID int64
+	var catalogName string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT CASE WHEN COALESCE(parent_product_id,0)>0 THEN parent_product_id ELSE id END,
+		       COALESCE(name,'')
+		FROM %s.products
+		WHERE id=$1 AND COALESCE(active,true)=true
+	`, schema), productID).Scan(&currentParentProductID, &catalogName)
+	if err == pgx.ErrNoRows {
+		return latestUsableBomRoute{}, fmt.Errorf("production demand product not found or inactive: %d", productID)
+	}
+	if err != nil {
+		return latestUsableBomRoute{}, err
+	}
+	parentProductID := frozenParentProductID
+	if parentProductID <= 0 {
+		parentProductID = currentParentProductID
+	}
+	if parentProductID != productID {
+		var frozenParentActive bool
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(active,true)
+			FROM %s.products
+			WHERE id=$1
+		`, schema), parentProductID).Scan(&frozenParentActive)
+		if err == pgx.ErrNoRows || (err == nil && !frozenParentActive) {
+			return latestUsableBomRoute{}, fmt.Errorf(
+				"frozen parent product not found or inactive: product %s / parent #%d",
+				firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID)),
+				parentProductID,
+			)
+		}
+		if err != nil {
+			return latestUsableBomRoute{}, err
+		}
+	}
+	productName = firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID))
+	resolved, configured, err := resolveProductionBomForSourceProductTx(ctx, tx, schema, productID, productName)
+	if err != nil {
+		return latestUsableBomRoute{}, err
+	}
+	if !configured && parentProductID != productID {
+		resolved, configured, err = resolveProductionBomForSourceProductTx(ctx, tx, schema, parentProductID, productName)
+		if err != nil {
+			return latestUsableBomRoute{}, err
+		}
+		if configured {
+			resolved.BomInherited = true
+		}
+	}
+	if !configured {
+		return latestUsableBomRoute{}, fmt.Errorf("product BOM not configured: %s", productName)
+	}
+	resolved.ProductID = productID
+	resolved.ParentProductID = parentProductID
+	resolved.ProductName = productName
+	return resolved, nil
+}
+
+func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, demandProductName string) (latestUsableBomRoute, bool, error) {
+	out := latestUsableBomRoute{BomSourceProductID: sourceProductID, ProductName: demandProductName}
+	var (
+		configBomID, configVersionID, bindingBomID, bindingVersionID int64
+	)
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			COALESCE(ppc.production_bom_id,0),
+			COALESCE(ppc.production_bom_version_id,0),
+			COALESCE(pbb.bom_id,0),
+			COALESCE(pbb.bom_version_id,0)
+		FROM %s.products p
+		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
+		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		WHERE p.id=$1 AND COALESCE(p.active,true)=true
+	`, schema, schema, schema), sourceProductID).Scan(
+		&configBomID, &configVersionID, &bindingBomID, &bindingVersionID,
+	)
+	if err == pgx.ErrNoRows {
+		return out, false, nil
+	}
+	if err != nil {
+		return out, false, err
+	}
+	if configBomID > 0 && bindingBomID > 0 && configBomID != bindingBomID {
+		return out, true, fmt.Errorf("conflicting default production BOM configuration: %s", demandProductName)
+	}
+	if configVersionID > 0 && bindingVersionID > 0 && configVersionID != bindingVersionID {
+		return out, true, fmt.Errorf("conflicting default production BOM version configuration: %s", demandProductName)
+	}
+	explicitBomID := configBomID
+	if explicitBomID <= 0 {
+		explicitBomID = bindingBomID
+	}
+	explicitVersionID := configVersionID
+	if explicitVersionID <= 0 {
+		explicitVersionID = bindingVersionID
+	}
+	if explicitBomID <= 0 && explicitVersionID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id FROM %s.production_bom_versions WHERE id=$1`, schema), explicitVersionID).Scan(&explicitBomID); err != nil {
+			if err == pgx.ErrNoRows {
+				return out, true, fmt.Errorf("configured production BOM version no longer exists: %s", demandProductName)
+			}
+			return out, true, err
+		}
+	}
+	if explicitVersionID > 0 {
+		var configuredVersionBomID int64
+		var configuredVersionStatus string
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT bom_id,COALESCE(status,'')
+			FROM %s.production_bom_versions
+			WHERE id=$1
+		`, schema), explicitVersionID).Scan(&configuredVersionBomID, &configuredVersionStatus)
+		if err == pgx.ErrNoRows {
+			return out, true, fmt.Errorf("configured production BOM version no longer exists: %s", demandProductName)
+		}
+		if err != nil {
+			return out, true, err
+		}
+		if explicitBomID > 0 && configuredVersionBomID != explicitBomID {
+			return out, true, fmt.Errorf("configured production BOM version belongs to another BOM: %s", demandProductName)
+		}
+		if configuredVersionStatus != "published" {
+			return out, true, fmt.Errorf("configured production BOM version is not published: %s", demandProductName)
+		}
+	}
+
+	if explicitBomID > 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT pb.id,COALESCE(pb.code,''),COALESCE(pb.name,'')
+			FROM %s.production_boms pb
+			WHERE pb.id=$1
+			  AND pb.output_product_id=$2
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+		`, schema), explicitBomID, sourceProductID).Scan(&out.BomID, &out.BomCode, &out.BomName)
+		if err == pgx.ErrNoRows {
+			return out, true, fmt.Errorf("default production BOM is no longer an active output BOM: %s", demandProductName)
+		}
+		if err != nil {
+			return out, true, err
+		}
+	} else {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`
+			SELECT id,COALESCE(code,''),COALESCE(name,''),COALESCE(NULLIF(status,''),'active')
+			FROM %s.production_boms
+			WHERE output_product_id=$1
+			ORDER BY updated_at DESC,id DESC
+		`, schema), sourceProductID)
+		if err != nil {
+			return out, false, err
+		}
+		defer rows.Close()
+		foundAny := false
+		activeCount := 0
+		for rows.Next() {
+			var id int64
+			var code, name, status string
+			if err := rows.Scan(&id, &code, &name, &status); err != nil {
+				return out, false, err
+			}
+			foundAny = true
+			if status == "active" {
+				activeCount++
+				out.BomID, out.BomCode, out.BomName = id, code, name
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return out, false, err
+		}
+		if !foundAny {
+			return out, false, nil
+		}
+		if activeCount == 0 {
+			return out, true, fmt.Errorf("production BOM is inactive: %s", demandProductName)
+		}
+		if activeCount > 1 {
+			return out, true, fmt.Errorf("multiple active production BOMs found: %s, please set default production BOM", demandProductName)
+		}
+	}
+
+	var itemCount int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.id,
+		       COALESCE(v.version_no,''),
+		       COALESCE(v.process_route_id,0),
+		       COALESCE(pr.name,''),
+		       COALESCE(NULLIF(v.yield_rate,0),1)::float8,
+		       COALESCE(v.material_loss_rate,0)::float8,
+		       COALESCE(NULLIF(v.output_qty,0),1)::float8,
+		       COALESCE(NULLIF(v.output_unit,''),'unit'),
+		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items item WHERE item.version_id=v.id),0)
+		FROM %s.production_bom_versions v
+		LEFT JOIN %s.process_routes pr ON pr.id=v.process_route_id AND pr.status='active'
+		WHERE v.bom_id=$1
+		  AND v.status='published'
+		  AND ($2::bigint=0 OR v.id=$2)
+		ORDER BY v.published_at DESC NULLS LAST,v.created_at DESC,v.id DESC
+		LIMIT 1
+	`, schema, schema, schema), out.BomID, explicitVersionID).Scan(
+		&out.BomVersionID, &out.BomVersionNo, &out.ProcessRouteID, &out.ProcessRouteName,
+		&out.YieldRate, &out.BomMaterialLossRate, &out.BomOutputQty, &out.BomOutputUnit,
+		&itemCount,
+	)
+	if err == pgx.ErrNoRows {
+		if explicitVersionID > 0 {
+			return out, true, fmt.Errorf("configured production BOM version is not a usable published version: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
+		}
+		return out, true, fmt.Errorf("latest usable production BOM version not found: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
+	}
+	if err != nil {
+		return out, true, err
+	}
+	if itemCount <= 0 {
+		return out, true, fmt.Errorf("production BOM version has no material lines: %s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo)
+	}
+	if out.ProcessRouteID <= 0 || strings.TrimSpace(out.ProcessRouteName) == "" {
+		return out, true, fmt.Errorf("最新可用 BOM 版本未配置工艺路线: %s/%s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo, demandProductName)
+	}
+	return out, true, nil
 }
 
 func resolveLatestUsableBomRouteForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, productName string) (latestUsableBomRoute, error) {
@@ -1023,10 +1252,23 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.production_plan_id,wo.production_plan_item_id,
-		       wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
+		       wo.batch_id,wo.product_id,wo.parent_product_id,wo.bom_source_product_id,wo.product_name,wo.spec_g,
+		       wo.sales_spec_count::float8,wo.inventory_qty_per_sales_unit::float8,wo.inventory_unit,
+		       wo.planned_inventory_qty::float8,COALESCE(wo.sales_spec_snapshot_json,'{}'::jsonb)::text,wo.bom_inherited,
+		       wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
 		       COALESCE(wo.actual_cost,0),to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(NULLIF(wo.production_config_snapshot_json->'fields'->0->>'value_text',''), NULLIF(bound_bv.special_attrs_json->>'roast_level',''), COALESCE(p.roast_level,'')),
-		       COALESCE(NULLIF(ri.bom_yield_rate,0), CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END, bound_bv.yield_rate, pb.yield_rate, 0),
+		       COALESCE(
+		         NULLIF(ri.bom_yield_rate,0),
+		         NULLIF(CASE
+		           WHEN COALESCE(wo.process_snapshot_json->>'yield_rate','') ~ '^[0-9]+([.][0-9]+)?$'
+		           THEN (wo.process_snapshot_json->>'yield_rate')::numeric
+		           ELSE 0
+		         END,0),
+		         NULLIF(bound_bv.yield_rate,0),
+		         pb.yield_rate,
+		         0
+		       ),
 		       COALESCE(NULLIF(ri.input_g,0), wo.planned_g, 0),
 		       COALESCE(ri.planned_units,0),
 		       COALESCE(ri.planned_loose_g,0),
@@ -1123,11 +1365,20 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		var row productionapp.WorkOrderRow
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
-			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
+			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID,
+			&row.BatchID, &row.ProductID, &row.ParentProductID, &row.BomSourceProductID, &row.ProductName, &row.SpecG,
+			&row.SalesSpecCount, &row.InventoryQtyPerSalesUnit, &row.InventoryUnit, &row.PlannedInventoryQty,
+			&row.SalesSpecSnapshotJSON, &row.BomInherited,
+			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
 			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON,
 			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter, &fallbackMaterialSummary,
 		); err != nil {
 			return nil, err
+		}
+		if row.BomInherited {
+			row.BomSource = "parent"
+		} else {
+			row.BomSource = "sku"
 		}
 		row.MaterialSummary = formatMaterialSnapshotSummary(snapshotText)
 		if row.MaterialSummary == "" {

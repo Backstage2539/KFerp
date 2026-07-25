@@ -33,7 +33,9 @@ func TestProductionPlanCreateSplitsOrderLevelDemandBeforeFilteringSelectedRows(t
 	}
 	text := string(src)
 	for _, want := range []string{
-		"splitUnproducedNeedsByProductionPlan(ctx, rows)",
+		"fetchUnproducedNeeds(ctx, tx",
+		"splitUnproducedNeedsByProductionPlanQuery(ctx, tx, rows)",
+		"attachProductionDemandStatusesQuery(ctx, tx, appRows)",
 		"selectedProductionPlanStartNeeds(appRows, cmd.Selected)",
 	} {
 		if !strings.Contains(text, want) {
@@ -99,6 +101,60 @@ func TestProductionPlanItemsResolveLatestUsableBomVersionRouteWithoutFallback(t 
 	}
 }
 
+func TestProductionPlanDemandUsesFrozenQuantitySnapshotWithoutParsingSpecLabel(t *testing.T) {
+	unproducedSrc, err := os.ReadFile("unprod_summary.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planSrc, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(unproducedSrc) + "\n" + string(planSrc)
+	for _, want := range []string{
+		"production_quantity_snapshot",
+		"inventory_qty_per_sales_unit",
+		"inventory_unit",
+		"sales_spec_snapshot_json",
+		"planned_inventory_qty",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production planning must use and freeze authoritative sales-spec quantity conversion; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"regexp_replace(COALESCE(oi.spec",
+		"regexp_replace(COALESCE(oi.spec,''",
+	} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("formal production planning must not parse order item spec labels; found %q", forbidden)
+		}
+	}
+}
+
+func TestProductionPlanResolvesOneBomVersionForMaterialsAndRoute(t *testing.T) {
+	planSrc, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	materialSrc, err := os.ReadFile("material_consumption.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(planSrc) + "\n" + string(materialSrc)
+	for _, want := range []string{
+		"resolveProductionBomForDemandProductTx",
+		"buildMaterialSnapshotForBomVersionTx",
+		"bomRoute.BomVersionID",
+		"BomInherited",
+		"BomSourceProductID",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production plan must freeze one resolved BOM version for materials and route; missing %q", want)
+		}
+	}
+}
+
 func TestProductionPlanOperationSplitsOwnCapacityBatchPlanning(t *testing.T) {
 	src, err := os.ReadFile("production_plan.go")
 	if err != nil {
@@ -159,5 +215,44 @@ func TestPlannedCapacitySplitMetricsDerivesCountUnitQuantityFromSpec(t *testing.
 	}
 	if got.PlannedMinutes != 15 || got.PlannedOperationCost != 30 {
 		t.Fatalf("planned cost metrics = %d / %.2f, want 15 / 30", got.PlannedMinutes, got.PlannedOperationCost)
+	}
+}
+
+func TestProductionDemandInventoryUnitCompatibility(t *testing.T) {
+	weightDemand := startRunGroup{
+		ProductID:     789,
+		ProductName:   "如目达摩",
+		SpecLabel:     "454g",
+		InventoryUnit: "kg",
+		OrderNos:      "SO-20260725-0001",
+	}
+	if err := validateProductionDemandInventoryUnitAgainstBomOutput(
+		weightDemand,
+		latestUsableBomRoute{BomOutputUnit: "g"},
+	); err != nil {
+		t.Fatalf("kg demand should be compatible with g BOM output: %v", err)
+	}
+	err := validateProductionDemandInventoryUnitAgainstBomOutput(
+		weightDemand,
+		latestUsableBomRoute{BomOutputUnit: "件"},
+	)
+	if err == nil {
+		t.Fatal("kg demand should reject count BOM output")
+	}
+	for _, want := range []string{"SO-20260725-0001", "如目达摩", "454g", "kg", "件"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("unit mismatch error %q missing %q", err, want)
+		}
+	}
+
+	countDemand := weightDemand
+	countDemand.SpecLabel = "1件"
+	countDemand.InventoryUnit = "件"
+	err = validateProductionDemandInventoryUnitAgainstBomOutput(
+		countDemand,
+		latestUsableBomRoute{BomOutputUnit: "件"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "requires a weight inventory unit") {
+		t.Fatalf("formal count demand must be rejected until count-based material expansion is supported, err=%v", err)
 	}
 }

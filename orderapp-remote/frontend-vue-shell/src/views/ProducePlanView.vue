@@ -434,9 +434,9 @@
                     <td>{{ item.product_name || '-' }}</td>
                     <td class="muted">{{ item.order_nos || '-' }}</td>
                     <td>{{ planItemSpecLabel(item) }}</td>
-                    <td>{{ item.gap_g || 0 }}</td>
-                    <td>{{ item.planned_g || 0 }}</td>
-                    <td>{{ item.planned_output_g || 0 }}</td>
+                    <td>{{ productionPlanLegacyGramLabel(item.gap_g) }}</td>
+                    <td>{{ productionPlanLegacyGramLabel(item.planned_g) }}</td>
+                    <td>{{ productionPlanLegacyGramLabel(item.planned_output_g) }}</td>
                     <td>{{ planItemBomLabel(item) }}</td>
                     <td>{{ planItemRouteSummary(item) }}</td>
                   </tr>
@@ -730,6 +730,9 @@ import {
   productionPlanOperationSplitsPreviewEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
+  productionPlanItemBomSourceLabel,
+  productionPlanItemQuantitySummary,
+  productionPlanLegacyGramLabel,
   productionPlanStatusLabel,
   productionPlanStatusTone,
   operationSplitPreviewStatusLabel,
@@ -1129,14 +1132,11 @@ function parseJSONSnapshot(raw, fallback) {
 }
 
 function planItemSpecLabel(item) {
-  const spec = Number(item?.spec_g || 0)
-  if (spec > 0) return `${spec}g`
-  return '按商品单位'
+  return productionPlanItemQuantitySummary(item)
 }
 
 function planItemBomLabel(item) {
-  const id = Number(item?.bom_version_id || 0)
-  return id > 0 ? `BOM版本 #${id}` : '默认 BOM'
+  return productionPlanItemBomSourceLabel(item)
 }
 
 function planItemRouteSummary(item) {

@@ -47,21 +47,28 @@ type PublishedPricing struct {
 // frozen into a published price list. ConcretePublication is false for legacy
 // publications that predate per-SKU sales-spec snapshots.
 type PublishedProductSpec struct {
-	ConcretePublication    bool
-	ProductFound           bool
-	SKUID                  int64
-	ParentProductID        int64
-	SpecKey                string
-	SpecName               string
-	SpecLabel              string
-	SalesUnit              string
-	NetContentQty          float64
-	NetContentUnit         string
-	ProductKind            string
-	UnitBagCount           int64
-	UnitBeanG              float64
-	QuantityBasis          string
-	EffectiveSalesSpecJSON string
+	ConcretePublication bool
+	ProductFound        bool
+	// CurrentCatalogAuthority marks a spec resolved from the active concrete
+	// SKU at order-write time. It is used when no concrete published sales-spec
+	// snapshot is authoritative, including legacy publications and non-price-list
+	// order sources.
+	CurrentCatalogAuthority bool
+	SKUID                   int64
+	ParentProductID         int64
+	SpecKey                 string
+	SpecName                string
+	SpecLabel               string
+	SalesUnit               string
+	NetContentQty           float64
+	NetContentUnit          string
+	ProductKind             string
+	UnitBagCount            int64
+	UnitBeanG               float64
+	QuantityBasis           string
+	InventoryUnit           string
+	InventoryConversionJSON string
+	EffectiveSalesSpecJSON  string
 }
 
 type rowQuerier interface {
@@ -231,16 +238,19 @@ type publishedBeanListContent struct {
 }
 
 type publishedEffectiveSalesSpec struct {
-	SKUID          int64   `json:"sku_id"`
-	SpecKey        string  `json:"spec_key"`
-	SpecName       string  `json:"spec_name"`
-	SpecLabel      string  `json:"spec_label"`
-	SalesUnit      string  `json:"sales_unit"`
-	NetContentQty  float64 `json:"net_content_qty"`
-	NetContentUnit string  `json:"net_content_unit"`
-	ProductKind    string  `json:"product_kind"`
-	UnitBagCount   int64   `json:"unit_bag_count"`
-	UnitBeanG      float64 `json:"unit_bean_g"`
+	SKUID                   int64           `json:"sku_id"`
+	ParentProductID         int64           `json:"parent_product_id"`
+	SpecKey                 string          `json:"spec_key"`
+	SpecName                string          `json:"spec_name"`
+	SpecLabel               string          `json:"spec_label"`
+	SalesUnit               string          `json:"sales_unit"`
+	NetContentQty           float64         `json:"net_content_qty"`
+	NetContentUnit          string          `json:"net_content_unit"`
+	ProductKind             string          `json:"product_kind"`
+	UnitBagCount            int64           `json:"unit_bag_count"`
+	UnitBeanG               float64         `json:"unit_bean_g"`
+	InventoryUnit           string          `json:"inventory_unit"`
+	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
 }
 
 func inspectPublishedProductSpecContent(raw []byte, productID int64) (PublishedProductSpec, error) {
@@ -278,6 +288,19 @@ func inspectPublishedProductSpecContent(raw []byte, productID int64) (PublishedP
 		}
 		if len(row.frozenRaw) > 0 && string(row.frozenRaw) != "null" {
 			_ = json.Unmarshal(row.frozenRaw, &row.frozen)
+			if err := validatePublishedEffectiveSalesSpecInventoryAuthority(
+				row.frozen,
+				publishedJSONStringField(fields, "inventory_unit"),
+				fields["inventory_conversion_json"],
+			); err != nil {
+				return PublishedProductSpec{}, err
+			}
+			row.frozen, row.frozenRaw = enrichPublishedEffectiveSalesSpec(
+				row.frozenRaw,
+				row.parentID,
+				publishedJSONStringField(fields, "inventory_unit"),
+				fields["inventory_conversion_json"],
+			)
 		}
 		// A concrete publication is identified by the full PR-541 marker. Rows
 		// that only carried quantity_basis before the frozen SKU snapshot existed
@@ -296,22 +319,27 @@ func inspectPublishedProductSpecContent(raw []byte, productID int64) (PublishedP
 		if row.frozen.SKUID != row.skuID {
 			return PublishedProductSpec{}, fmt.Errorf("价格表 SKU 快照身份不一致: 价格行 SKU=%d，有效销售规格 SKU=%d", row.skuID, row.frozen.SKUID)
 		}
+		if row.frozen.ParentProductID > 0 && row.frozen.ParentProductID != row.parentID {
+			return PublishedProductSpec{}, fmt.Errorf("价格表父商品快照身份不一致: 价格行父商品=%d，有效销售规格父商品=%d", row.parentID, row.frozen.ParentProductID)
+		}
 		candidate := PublishedProductSpec{
-			ConcretePublication:    true,
-			ProductFound:           true,
-			SKUID:                  row.skuID,
-			ParentProductID:        row.parentID,
-			SpecKey:                strings.TrimSpace(row.frozen.SpecKey),
-			SpecName:               strings.TrimSpace(row.frozen.SpecName),
-			SpecLabel:              strings.TrimSpace(row.frozen.SpecLabel),
-			SalesUnit:              strings.TrimSpace(row.frozen.SalesUnit),
-			NetContentQty:          row.frozen.NetContentQty,
-			NetContentUnit:         strings.TrimSpace(row.frozen.NetContentUnit),
-			ProductKind:            firstPublishedString(strings.TrimSpace(row.frozen.ProductKind), publishedJSONStringField(row.fields, "product_kind")),
-			UnitBagCount:           row.frozen.UnitBagCount,
-			UnitBeanG:              row.frozen.UnitBeanG,
-			QuantityBasis:          "sales_spec_count",
-			EffectiveSalesSpecJSON: strings.TrimSpace(string(row.frozenRaw)),
+			ConcretePublication:     true,
+			ProductFound:            true,
+			SKUID:                   row.skuID,
+			ParentProductID:         row.parentID,
+			SpecKey:                 strings.TrimSpace(row.frozen.SpecKey),
+			SpecName:                strings.TrimSpace(row.frozen.SpecName),
+			SpecLabel:               strings.TrimSpace(row.frozen.SpecLabel),
+			SalesUnit:               strings.TrimSpace(row.frozen.SalesUnit),
+			NetContentQty:           row.frozen.NetContentQty,
+			NetContentUnit:          strings.TrimSpace(row.frozen.NetContentUnit),
+			ProductKind:             firstPublishedString(strings.TrimSpace(row.frozen.ProductKind), publishedJSONStringField(row.fields, "product_kind")),
+			UnitBagCount:            row.frozen.UnitBagCount,
+			UnitBeanG:               row.frozen.UnitBeanG,
+			QuantityBasis:           "sales_spec_count",
+			InventoryUnit:           strings.TrimSpace(row.frozen.InventoryUnit),
+			InventoryConversionJSON: compactPublishedJSON(row.frozen.InventoryConversionJSON),
+			EffectiveSalesSpecJSON:  strings.TrimSpace(string(row.frozenRaw)),
 		}
 		if candidate.UnitBagCount <= 0 {
 			candidate.UnitBagCount = publishedJSONInt64Field(row.fields, "unit_bag_count")
@@ -368,6 +396,24 @@ func inspectPublishedProductSpecContent(raw []byte, productID int64) (PublishedP
 	return result, nil
 }
 
+// The nested effective_sales_spec is the immutable per-SKU authority. A
+// top-level value may backfill an older snapshot only when the nested value is
+// absent; conflicting duplicate values are rejected instead of silently
+// choosing one.
+func validatePublishedEffectiveSalesSpecInventoryAuthority(frozen publishedEffectiveSalesSpec, inventoryUnit string, inventoryConversionJSON json.RawMessage) error {
+	nestedUnit := strings.TrimSpace(frozen.InventoryUnit)
+	topLevelUnit := strings.TrimSpace(inventoryUnit)
+	if nestedUnit != "" && topLevelUnit != "" && !publishedUnitsEquivalent(nestedUnit, topLevelUnit) {
+		return fmt.Errorf("价格表有效销售规格库存单位与价格行库存单位冲突: %s / %s", nestedUnit, topLevelUnit)
+	}
+	if publishedJSONHasContent(frozen.InventoryConversionJSON) &&
+		publishedJSONHasContent(inventoryConversionJSON) &&
+		compactPublishedJSON(frozen.InventoryConversionJSON) != compactPublishedJSON(inventoryConversionJSON) {
+		return fmt.Errorf("价格表有效销售规格库存换算与价格行库存换算冲突")
+	}
+	return nil
+}
+
 func samePublishedProductSpec(left, right PublishedProductSpec) bool {
 	return left.SKUID == right.SKUID &&
 		left.ParentProductID == right.ParentProductID &&
@@ -379,7 +425,70 @@ func samePublishedProductSpec(left, right PublishedProductSpec) bool {
 		left.NetContentUnit == right.NetContentUnit &&
 		left.ProductKind == right.ProductKind &&
 		left.UnitBagCount == right.UnitBagCount &&
-		left.UnitBeanG == right.UnitBeanG
+		left.UnitBeanG == right.UnitBeanG &&
+		left.InventoryUnit == right.InventoryUnit &&
+		left.InventoryConversionJSON == right.InventoryConversionJSON
+}
+
+func enrichPublishedEffectiveSalesSpec(raw json.RawMessage, parentProductID int64, inventoryUnit string, inventoryConversionJSON json.RawMessage) (publishedEffectiveSalesSpec, json.RawMessage) {
+	var frozen publishedEffectiveSalesSpec
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return frozen, raw
+	}
+	if err := json.Unmarshal(raw, &frozen); err != nil {
+		return frozen, raw
+	}
+	if frozen.ParentProductID <= 0 {
+		frozen.ParentProductID = parentProductID
+	}
+	if strings.TrimSpace(frozen.InventoryUnit) == "" {
+		frozen.InventoryUnit = strings.TrimSpace(inventoryUnit)
+	}
+	if !publishedJSONHasContent(frozen.InventoryConversionJSON) && publishedJSONHasContent(inventoryConversionJSON) {
+		frozen.InventoryConversionJSON = append(json.RawMessage(nil), inventoryConversionJSON...)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return frozen, raw
+	}
+	if frozen.ParentProductID > 0 {
+		fields["parent_product_id"] = frozen.ParentProductID
+	}
+	if strings.TrimSpace(frozen.InventoryUnit) != "" {
+		fields["inventory_unit"] = strings.TrimSpace(frozen.InventoryUnit)
+	}
+	if publishedJSONHasContent(frozen.InventoryConversionJSON) {
+		var conversion any
+		if json.Unmarshal(frozen.InventoryConversionJSON, &conversion) == nil {
+			fields["inventory_conversion_json"] = conversion
+		}
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return frozen, raw
+	}
+	return frozen, encoded
+}
+
+func publishedJSONHasContent(raw json.RawMessage) bool {
+	text := strings.TrimSpace(string(raw))
+	return text != "" && text != "null" && text != "{}"
+}
+
+func compactPublishedJSON(raw json.RawMessage) string {
+	if !publishedJSONHasContent(raw) {
+		return ""
+	}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return string(encoded)
 }
 
 func firstPublishedString(values ...string) string {
@@ -416,6 +525,8 @@ func publishedJSONFloat64Field(fields map[string]json.RawMessage, key string) fl
 }
 
 type publishedPriceTier struct {
+	SKUID                   int64           `json:"sku_id"`
+	ParentProductID         int64           `json:"parent_product_id"`
 	Label                   string          `json:"label"`
 	TierLabel               string          `json:"tier_label"`
 	SourcePriceRecordID     int64           `json:"source_price_record_id"`
@@ -824,7 +935,13 @@ func publishedPricingWithSnapshot(pricing PublishedPricing, tier publishedPriceT
 	pricing.QuantityBasis = strings.TrimSpace(tier.QuantityBasis)
 	pricing.TierQuantityUnit = strings.TrimSpace(tier.TierQuantityUnit)
 	if len(tier.EffectiveSalesSpec) > 0 && string(tier.EffectiveSalesSpec) != "null" {
-		pricing.EffectiveSalesSpecJSON = strings.TrimSpace(string(tier.EffectiveSalesSpec))
+		_, enriched := enrichPublishedEffectiveSalesSpec(
+			tier.EffectiveSalesSpec,
+			tier.ParentProductID,
+			tier.InventoryUnit,
+			tier.InventoryConversionJSON,
+		)
+		pricing.EffectiveSalesSpecJSON = strings.TrimSpace(string(enriched))
 	}
 	return pricing
 }
