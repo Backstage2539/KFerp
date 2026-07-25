@@ -16,6 +16,54 @@ func TestDefaultInputGramsFallsBackToPointEight(t *testing.T) {
 	}
 }
 
+func TestInventoryQuantityProjectionKeepsFractionalKgAndDoesNotInflateLosslessOutput(t *testing.T) {
+	inventoryQty := SalesSpecCountToInventoryQuantity(4, 0.454)
+	if inventoryQty != 1.816 {
+		t.Fatalf("inventory quantity = %.9f, want 1.816", inventoryQty)
+	}
+	if got := InventoryQuantityToLegacyGrams(inventoryQty, "kg"); got != 1816 {
+		t.Fatalf("legacy grams = %d, want 1816", got)
+	}
+	if got := DefaultInputGrams(1816, 1); got != 1816 {
+		t.Fatalf("lossless input = %d, want 1816", got)
+	}
+}
+
+func TestSalesSpecCountToInventoryQuantityRejectsMissingAndNegativeInputs(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		salesSpecCount           float64
+		inventoryQtyPerSalesUnit float64
+	}{
+		{name: "missing count", salesSpecCount: 0, inventoryQtyPerSalesUnit: 0.454},
+		{name: "negative count", salesSpecCount: -4, inventoryQtyPerSalesUnit: 0.454},
+		{name: "missing conversion", salesSpecCount: 4, inventoryQtyPerSalesUnit: 0},
+		{name: "negative conversion", salesSpecCount: 4, inventoryQtyPerSalesUnit: -0.454},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := SalesSpecCountToInventoryQuantity(tc.salesSpecCount, tc.inventoryQtyPerSalesUnit); got != 0 {
+				t.Fatalf("inventory quantity = %.9f, want 0", got)
+			}
+		})
+	}
+}
+
+func TestInventoryQuantityToLegacyGramsRejectsMissingAndNonWeightUnits(t *testing.T) {
+	for _, unit := range []string{"", "件"} {
+		t.Run(unit, func(t *testing.T) {
+			if got := InventoryQuantityToLegacyGrams(1.816, unit); got != 0 {
+				t.Fatalf("legacy grams = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestInventoryQuantityToLegacyGramsUsesExactPoundConversion(t *testing.T) {
+	if got := InventoryQuantityToLegacyGrams(10, "lb"); got != 4536 {
+		t.Fatalf("legacy grams = %d, want 4536", got)
+	}
+}
+
 func TestActualYieldRateRoundsToFourDecimals(t *testing.T) {
 	got, err := ActualYieldRate(227, 3, 19, 1000)
 	if err != nil {

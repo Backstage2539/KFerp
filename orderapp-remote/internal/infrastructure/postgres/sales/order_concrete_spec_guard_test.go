@@ -45,7 +45,9 @@ func TestManualConcreteOrderPriceSourceKeepsFrozenPublicationAndSKU(t *testing.T
 		Usage: orderbeans.Usage{PublicationID: 901, VersionNo: "V1"},
 		Spec: orderbeans.PublishedProductSpec{
 			SKUID: 551, ParentProductID: 550, QuantityBasis: "sales_spec_count",
-			EffectiveSalesSpecJSON: `{"sku_id":551,"spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g"}`,
+			SpecLabel: "227g", SalesUnit: "袋", NetContentQty: 227, NetContentUnit: "g",
+			InventoryUnit: "kg", InventoryConversionJSON: `{"袋":{"kg":0.227}}`,
+			EffectiveSalesSpecJSON: `{"sku_id":551,"parent_product_id":550,"spec_label":"227g","sales_unit":"袋","net_content_qty":227,"net_content_unit":"g","inventory_unit":"kg","inventory_conversion_json":{"袋":{"kg":0.227}}}`,
 		},
 	}
 	var got map[string]any
@@ -58,6 +60,69 @@ func TestManualConcreteOrderPriceSourceKeepsFrozenPublicationAndSKU(t *testing.T
 	frozen, _ := got["effective_sales_spec"].(map[string]any)
 	if frozen["spec_label"] != "227g" || frozen["sales_unit"] != "袋" {
 		t.Fatalf("manual frozen spec = %#v", frozen)
+	}
+	assertOrderProductionQuantitySnapshot(t, got, 551, 550, "227g", "袋", "kg", 0.227, "published_inventory_conversion")
+}
+
+func TestPublishedConcreteOrderPriceSourceFreezesProductionQuantitySnapshot(t *testing.T) {
+	spec := orderbeans.PublishedProductSpec{
+		SKUID: 789, ParentProductID: 644,
+		SpecLabel: "454g", SalesUnit: "454g", NetContentQty: 454, NetContentUnit: "g",
+		InventoryUnit: "kg", InventoryConversionJSON: `{"454g":{"kg":0.454}}`,
+		EffectiveSalesSpecJSON: `{"sku_id":789,"parent_product_id":644,"spec_label":"454g","sales_unit":"454g","net_content_qty":454,"net_content_unit":"g","inventory_unit":"kg","inventory_conversion_json":{"454g":{"kg":0.454}}}`,
+	}
+	pricing := orderbeans.PublishedPricing{
+		UnitPrice: 88, PriceUnit: "454g", InventoryUnit: "kg",
+		InventoryConversionJSON: `{"454g":{"kg":0.454}}`,
+		EffectiveSalesSpecJSON:  spec.EffectiveSalesSpecJSON,
+	}
+	var got map[string]any
+	raw := beanListPriceSourceJSONWithPricing("commercial", orderbeans.Usage{PublicationID: 901, VersionNo: "V1"}, 789, pricing, spec)
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatal(err)
+	}
+	assertOrderProductionQuantitySnapshot(t, got, 789, 644, "454g", "454g", "kg", 0.454, "published_inventory_conversion")
+}
+
+func TestConcreteOrderProductionQuantitySnapshotRejectsMissingCompatibleConversion(t *testing.T) {
+	_, err := concreteOrderProductionQuantitySnapshot(orderbeans.PublishedProductSpec{
+		SKUID: 789, ParentProductID: 644,
+		SpecLabel: "454g", SalesUnit: "454g",
+		InventoryUnit: "kg",
+	})
+	if err == nil || !strings.Contains(err.Error(), "库存单位换算") {
+		t.Fatalf("missing concrete SKU conversion err = %v", err)
+	}
+}
+
+func TestConcreteOrderProductionQuantitySnapshotUsesFrozenNetContentFallback(t *testing.T) {
+	got, err := concreteOrderProductionQuantitySnapshot(orderbeans.PublishedProductSpec{
+		SKUID: 789, ParentProductID: 644,
+		SpecLabel: "454g", SalesUnit: "454g",
+		NetContentQty: 454, NetContentUnit: "g", InventoryUnit: "kg",
+	})
+	if err != nil {
+		t.Fatalf("frozen net-content conversion: %v", err)
+	}
+	if got.InventoryQtyPerSalesUnit != 0.454 || got.ConversionSource != "effective_sales_spec_net_content" {
+		t.Fatalf("frozen net-content snapshot = %+v", got)
+	}
+}
+
+func assertOrderProductionQuantitySnapshot(t *testing.T, source map[string]any, skuID, parentID int64, specLabel, salesUnit, inventoryUnit string, qty float64, conversionSource string) {
+	t.Helper()
+	snapshot, ok := source["production_quantity_snapshot"].(map[string]any)
+	if !ok {
+		t.Fatalf("production_quantity_snapshot missing: %#v", source)
+	}
+	if snapshot["sku_id"] != float64(skuID) ||
+		snapshot["parent_product_id"] != float64(parentID) ||
+		snapshot["spec_label"] != specLabel ||
+		snapshot["sales_unit"] != salesUnit ||
+		snapshot["inventory_unit"] != inventoryUnit ||
+		snapshot["inventory_qty_per_sales_unit"] != qty ||
+		snapshot["conversion_source"] != conversionSource {
+		t.Fatalf("production quantity snapshot = %#v", snapshot)
 	}
 }
 
@@ -96,6 +161,8 @@ func TestOrderRepositoryValidatesConcretePublicationBeforeManualPriceBypass(t *t
 		"价格表 SKU 不属于订单商品",
 		"COALESCE(p.active,true)=true",
 		"derived_spec_status",
+		"ResolveOrderProductionProductSpec",
+		"AttachProductionQuantitySnapshot(items[idx].priceSourceJSON, selection.Spec)",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("concrete order guard missing %q", want)

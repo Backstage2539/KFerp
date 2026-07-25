@@ -820,7 +820,32 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	} else {
 		baseLineTotal = customerFulfillmentLineTotalFromPriceUnit(pricing.UnitPrice, specG, item.QuantityUnits, pricing.UnitG)
 	}
-	priceSourceSnapshot = customerFulfillmentPublishedPriceSourceSnapshot(orderbeans.ListTypeForProductKind(productKind, false), beanListUsage, item.ProductID, pricing)
+	_, publishedSpec, err := orderbeans.ResolvePublishedProductSpecForPublication(
+		ctx,
+		tx,
+		r.schema,
+		customerID,
+		item.ProductID,
+		orderbeans.ListTypeForProductKind(productKind, false),
+		beanListUsage.PublicationID,
+	)
+	if err != nil {
+		return submittedDirectShipQuotedItem{}, err
+	}
+	publishedSpec, err = orderbeans.ResolveOrderProductionProductSpec(ctx, tx, r.schema, item.ProductID, publishedSpec)
+	if err != nil {
+		return submittedDirectShipQuotedItem{}, err
+	}
+	priceSourceSnapshot, err = customerFulfillmentPublishedPriceSourceSnapshot(
+		orderbeans.ListTypeForProductKind(productKind, false),
+		beanListUsage,
+		item.ProductID,
+		pricing,
+		publishedSpec,
+	)
+	if err != nil {
+		return submittedDirectShipQuotedItem{}, err
+	}
 	if err := requireCustomerAliasDirectShipPrice(aliasSnapshot, unitPrice); err != nil {
 		return submittedDirectShipQuotedItem{}, err
 	}
@@ -1028,7 +1053,7 @@ func customerFulfillmentMissingPublishedPriceMessage(listType string) string {
 	}
 }
 
-func customerFulfillmentPublishedPriceSourceSnapshot(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing) string {
+func customerFulfillmentPublishedPriceSourceSnapshot(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing, spec orderbeans.PublishedProductSpec) (string, error) {
 	conversion := json.RawMessage(`{}`)
 	if raw := strings.TrimSpace(pricing.InventoryConversionJSON); raw != "" && json.Valid([]byte(raw)) {
 		conversion = json.RawMessage(raw)
@@ -1046,7 +1071,7 @@ func customerFulfillmentPublishedPriceSourceSnapshot(listType string, usage orde
 		"inventory_unit":            pricing.InventoryUnit,
 		"inventory_conversion_json": conversion,
 	})
-	return string(b)
+	return orderbeans.AttachProductionQuantitySnapshot(string(b), spec)
 }
 
 func customerFulfillmentDripSpecText(salesUnit string, bagGrams float64, boxBagCount int) string {
@@ -4160,13 +4185,22 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 	} else if !errors.Is(productErr, pgx.ErrNoRows) {
 		return 0, productErr
 	}
-	usage := orderbeans.Usage{}
+	currentSpec := orderbeans.PublishedProductSpec{}
 	if matchedProductID > 0 {
-		var usageErr error
-		usage, usageErr = orderbeans.ResolveUsage(ctx, tx, r.schema, customerID, matchedProductID, orderbeans.ListTypeCommercial)
-		if usageErr != nil {
-			return 0, usageErr
+		var specErr error
+		currentSpec, specErr = orderbeans.ResolveCurrentOrderProductionProductSpec(
+			ctx,
+			tx,
+			r.schema,
+			matchedProductID,
+		)
+		if specErr != nil {
+			return 0, specErr
 		}
+	}
+	priceSourceSnapshot, err := orderbeans.AttachProductionQuantitySnapshot("{}", currentSpec)
+	if err != nil {
+		return 0, err
 	}
 	quantity := payloadInt64(row.Payload, "quantity_units")
 	var importItemID int64
@@ -4237,9 +4271,10 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 				unit_price=0,
 				line_total=0,
 				bean_list_publication_id=NULLIF($6,0),
-				bean_list_version_no=$7
+				bean_list_version_no=$7,
+				price_source_json=$8::jsonb
 			WHERE id=$1
-		`, r.schema), orderItemID, productID, productTitle, quantity, payloadString(row.Payload, "spec"), usage.PublicationID, usage.VersionNo); err != nil {
+		`, r.schema), orderItemID, productID, productTitle, quantity, payloadString(row.Payload, "spec"), int64(0), "", priceSourceSnapshot); err != nil {
 			return 0, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -4250,9 +4285,9 @@ func (r *Repository) applyDirectShipItemTx(ctx context.Context, tx pgx.Tx, custo
 		}
 	} else if errors.Is(err, pgx.ErrNoRows) {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total, bean_list_publication_id, bean_list_version_no)
-			VALUES($1,$2,$3,$4,$5,'件',$6,0,0,NULLIF($7,0),$8)
-		`, r.schema), orderID, lineNo, productID, productTitle, quantity, payloadString(row.Payload, "spec"), usage.PublicationID, usage.VersionNo); err != nil {
+			INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, qty, unit, spec, unit_price, line_total, bean_list_publication_id, bean_list_version_no, price_source_json)
+			VALUES($1,$2,$3,$4,$5,'件',$6,0,0,NULLIF($7,0),$8,$9::jsonb)
+		`, r.schema), orderID, lineNo, productID, productTitle, quantity, payloadString(row.Payload, "spec"), int64(0), "", priceSourceSnapshot); err != nil {
 			return 0, err
 		}
 	} else {

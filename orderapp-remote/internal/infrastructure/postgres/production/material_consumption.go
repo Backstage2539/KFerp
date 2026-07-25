@@ -19,6 +19,7 @@ type materialConsumptionNeed struct {
 	MaterialName       string
 	Unit               string
 	Qty                int64
+	QtyDecimal         float64
 	DeductG            int64
 	DeductUnits        int64
 	RatioPct           float64
@@ -60,7 +61,7 @@ type materialSnapshotRow struct {
 
 func isWeightMaterialUnit(unit string) bool {
 	unit = strings.ToLower(strings.TrimSpace(unit))
-	return unit == "g" || unit == "kg" || unit == "克" || unit == "千克"
+	return unit == "g" || unit == "kg" || unit == "lb" || unit == "克" || unit == "千克" || unit == "公斤" || unit == "磅"
 }
 
 func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits int64) {
@@ -71,6 +72,8 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 	switch unit {
 	case "kg", "千克":
 		return qty * 1000, 0
+	case "lb", "磅":
+		return int64(math.Ceil(float64(qty) * 453.59237)), 0
 	case "g", "克":
 		return qty, 0
 	default:
@@ -94,6 +97,53 @@ func componentConsumptionQtyWithMaterialLoss(consumeUnit string, qtyPerUnit floa
 		packedUnits = int64(math.Ceil(float64(packedUnits) * factor))
 	}
 	return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, boxUnits, outputQty, outputUnit)
+}
+
+func componentConsumptionWeightGramsWithMaterialLoss(consumeUnit string, qtyPerUnit, ratioPct float64, materialUnit string, rawG, outputG, packedUnits, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) int64 {
+	normalized := normalizeBomConsumeUnit(consumeUnit)
+	if normalized == "ratio_pct" {
+		ratio := bomdomain.NormalizeRatioPct(ratioPct)
+		if ratio <= 0 {
+			return 0
+		}
+		lossRate := normalizeMaterialLossRate(materialLossRate)
+		factor := 1.0
+		if lossRate > 0 {
+			factor = 1 / (1 - lossRate)
+		}
+		return int64(math.Ceil(float64(rawG) * ratio / 100 * factor))
+	}
+	outputFactor := bomOutputBasisFactor(outputG, packedUnits, outputQty, outputUnit)
+	var grams float64
+	switch normalized {
+	case "g":
+		grams = qtyPerUnit * outputFactor
+	case "kg":
+		grams = qtyPerUnit * outputFactor * 1000
+	case "g_per_bag":
+		grams = float64(packedUnits) * qtyPerUnit
+	case "unit_per_bag":
+		grams = float64(packedUnits) * qtyPerUnit * productionWeightUnitGrams(materialUnit)
+	case "unit_per_box":
+		grams = float64(boxUnits) * qtyPerUnit * productionWeightUnitGrams(materialUnit)
+	default:
+		grams = qtyPerUnit * outputFactor * productionWeightUnitGrams(materialUnit)
+	}
+	if grams <= 0 {
+		return 0
+	}
+	return int64(math.Ceil(grams))
+}
+
+func productionWeightUnitGrams(unit string) float64 {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg", "千克", "公斤":
+		return 1000
+	case "lb", "磅":
+		return 453.59237
+	default:
+		return 1
+	}
 }
 
 func normalizeMaterialLossRate(rate float64) float64 {
@@ -158,6 +208,10 @@ func bomOutputBasisFactor(outputG int64, packedUnits int64, outputQty float64, o
 	case "kg", "千克":
 		if outputG > 0 {
 			return float64(outputG) / (outputQty * 1000.0)
+		}
+	case "lb", "磅":
+		if outputG > 0 {
+			return float64(outputG) / (outputQty * 453.59237)
 		}
 	}
 	if packedUnits > 0 {
@@ -642,6 +696,74 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 	return json.Marshal(rows)
 }
 
+func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, bomVersionID int64) ([]byte, error) {
+	if bomVersionID <= 0 {
+		return nil, fmt.Errorf("production BOM version required: %s", r.Product)
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT
+			i.material_id,
+			COALESCE(m.name,''),
+			COALESCE(NULLIF(m.unit,''),'g'),
+			COALESCE(i.ratio_pct,0)::float8,
+			COALESCE(i.material_loss_rate,0)::float8,
+			COALESCE(NULLIF(i.component_type,''),'material'),
+			COALESCE(i.component_product_id,0),
+			COALESCE(cp.name,''),
+			COALESCE(i.component_spec_g,0),
+			COALESCE(NULLIF(i.consume_unit,''),'ratio_pct'),
+			COALESCE(i.qty_per_unit,0)::float8,
+			COALESCE(NULLIF(v.output_qty,0),1)::float8,
+			COALESCE(NULLIF(v.output_unit,''),'unit')
+		FROM %s.production_bom_version_items i
+		JOIN %s.production_bom_versions v ON v.id=i.version_id
+		LEFT JOIN %s.materials m ON m.id=i.material_id
+		LEFT JOIN %s.products cp ON cp.id=i.component_product_id
+		WHERE i.version_id=$1
+		ORDER BY i.id
+	`, schema, schema, schema, schema), bomVersionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	snapshot := make([]materialSnapshotRow, 0)
+	for rows.Next() {
+		var row materialSnapshotRow
+		var componentProductName string
+		if err := rows.Scan(
+			&row.MaterialID, &row.MaterialName, &row.Unit, &row.RatioPct, &row.MaterialLossRate,
+			&row.ComponentType, &row.ComponentProductID, &componentProductName, &row.ComponentSpecG,
+			&row.ConsumeUnit, &row.QtyPerUnit, &row.OutputQty, &row.OutputUnit,
+		); err != nil {
+			return nil, err
+		}
+		row.ComponentType = normalizeBomComponentType(row.ComponentType)
+		row.ConsumeUnit = normalizeBomConsumeUnit(row.ConsumeUnit)
+		row.RatioPct = bomdomain.NormalizeRatioPct(row.RatioPct)
+		row.MaterialLossRate = normalizeMaterialLossRate(row.MaterialLossRate)
+		row.Source = "bom"
+		if row.ComponentType == "finished_product" {
+			if row.ComponentProductID <= 0 || row.QtyPerUnit <= 0 {
+				return nil, fmt.Errorf("production BOM version has invalid finished-product component: %s", r.Product)
+			}
+			row.MaterialID = row.ComponentProductID
+			row.MaterialName = firstNonEmpty(componentProductName, fmt.Sprintf("finished product %d", row.ComponentProductID))
+			row.Unit = "g"
+			row.Source = "finished_product"
+		} else if row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" || (row.RatioPct <= 0 && row.QtyPerUnit <= 0) {
+			return nil, fmt.Errorf("production BOM version has invalid material line: %s", r.Product)
+		}
+		snapshot = append(snapshot, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(snapshot) == 0 {
+		return nil, fmt.Errorf("production BOM version has no material lines: %s", r.Product)
+	}
+	return json.Marshal(snapshot)
+}
+
 func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, bool, error) {
 	raw := strings.TrimSpace(r.MaterialSnapshot)
 	if raw == "" || raw == "[]" || raw == "null" {
@@ -680,6 +802,8 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			source = "bom"
 		}
 		qty := int64(0)
+		qtyDecimal := float64(0)
+		deductG, deductUnits := int64(0), int64(0)
 		ratioPct := row.RatioPct
 		if normalizeBomConsumeUnit(row.ConsumeUnit) == "ratio_pct" && !isWeightMaterialUnit(unit) && ratioPct <= 0 {
 			ratioPct = 100
@@ -689,13 +813,26 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			qty = packedUnits
 		} else if source == "finished_product" {
 			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, 0)
+		} else if isWeightMaterialUnit(unit) {
+			deductG = componentConsumptionWeightGramsWithMaterialLoss(
+				row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG,
+				packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate,
+			)
+			if productionWeightUnitGrams(unit) > 1 {
+				qtyDecimal = float64(deductG) / productionWeightUnitGrams(unit)
+			} else {
+				qtyDecimal = float64(deductG)
+			}
+			qty = int64(math.Ceil(qtyDecimal))
 		} else {
 			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate)
 		}
-		if qty <= 0 {
+		if qty <= 0 && deductG <= 0 {
 			continue
 		}
-		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		if deductG <= 0 {
+			deductG, deductUnits = materialNeedToDeduct(unit, qty)
+		}
 		if source == "finished_product" {
 			deductG = qty
 			deductUnits = 0
@@ -705,6 +842,7 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			MaterialName:       strings.TrimSpace(row.MaterialName),
 			Unit:               unit,
 			Qty:                qty,
+			QtyDecimal:         qtyDecimal,
 			DeductG:            deductG,
 			DeductUnits:        deductUnits,
 			RatioPct:           row.RatioPct,
@@ -1015,6 +1153,7 @@ func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materi
 			row.Unit = need.Unit
 		}
 		row.Qty += need.Qty
+		row.QtyDecimal += need.QtyDecimal
 		row.DeductG += need.DeductG
 		row.DeductUnits += need.DeductUnits
 		byMaterial[need.MaterialID] = row

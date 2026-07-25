@@ -2437,6 +2437,9 @@ func newCustomerPortalTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	if err := postgresmaterials.EnsureSchema(context.Background(), pool, schema); err != nil {
 		t.Fatalf("materials.EnsureSchema: %v", err)
 	}
+	if err := postgrescosting.EnsureSchema(context.Background(), pool, schema); err != nil {
+		t.Fatalf("costing.EnsureSchema: %v", err)
+	}
 	return pool, schema
 }
 

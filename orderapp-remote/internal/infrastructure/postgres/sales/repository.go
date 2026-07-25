@@ -616,7 +616,7 @@ func beanListPriceSourceJSON(listType string, usage orderbeans.Usage, productID 
 	return string(buf)
 }
 
-func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing) string {
+func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing, specs ...orderbeans.PublishedProductSpec) string {
 	source := map[string]any{
 		"source":                   "bean_list_publication",
 		"list_type":                strings.TrimSpace(listType),
@@ -676,6 +676,11 @@ func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage,
 		var snapshot map[string]any
 		if err := json.Unmarshal([]byte(pricing.EffectiveSalesSpecJSON), &snapshot); err == nil && len(snapshot) > 0 {
 			source["effective_sales_spec"] = snapshot
+		}
+	}
+	if len(specs) > 0 {
+		if snapshot, err := concreteOrderProductionQuantitySnapshot(specs[0]); err == nil {
+			source["production_quantity_snapshot"] = snapshot
 		}
 	}
 	buf, err := json.Marshal(source)
@@ -977,6 +982,12 @@ func concreteOrderSpecWeightG(spec orderbeans.PublishedProductSpec) int64 {
 	return int64(math.Round(spec.NetContentQty * factor))
 }
 
+type orderProductionQuantitySnapshot = orderbeans.ProductionQuantitySnapshot
+
+func concreteOrderProductionQuantitySnapshot(spec orderbeans.PublishedProductSpec) (orderProductionQuantitySnapshot, error) {
+	return orderbeans.BuildProductionQuantitySnapshot(spec)
+}
+
 func manualConcreteOrderPriceSourceJSON(selection concreteOrderPublicationSelection, productID int64) string {
 	source := map[string]any{
 		"source":                   "manual",
@@ -995,6 +1006,9 @@ func manualConcreteOrderPriceSourceJSON(selection concreteOrderPublicationSelect
 		if json.Unmarshal([]byte(raw), &snapshot) == nil && len(snapshot) > 0 {
 			source["effective_sales_spec"] = snapshot
 		}
+	}
+	if snapshot, err := concreteOrderProductionQuantitySnapshot(selection.Spec); err == nil {
+		source["production_quantity_snapshot"] = snapshot
 	}
 	buf, err := json.Marshal(source)
 	if err != nil {
@@ -1275,8 +1289,21 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if items[idx].submittedParentProductID > 0 && selection.Usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
 			}
+			selection.Spec, err = orderbeans.ResolveOrderProductionProductSpec(
+				ctx,
+				tx,
+				r.schema,
+				*items[idx].productID,
+				selection.Spec,
+			)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
 		}
 		if selection.Strict {
+			if _, snapshotErr := concreteOrderProductionQuantitySnapshot(selection.Spec); snapshotErr != nil {
+				return salesapp.SaveOrderResult{}, snapshotErr
+			}
 			items[idx].productKind = strings.TrimSpace(selection.Product.ProductKind)
 			items[idx].priceListType = selection.ListType
 			items[idx].itemBeanListPublicationID = selection.Usage.PublicationID
@@ -1334,9 +1361,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if selection.Strict {
 				items[idx].matchedPriceQty = float64(items[idx].units)
 				items[idx].priceSourceJSON = manualConcreteOrderPriceSourceJSON(selection, *items[idx].productID)
-			} else if items[idx].productKind == "drip_bag" {
+			} else {
 				items[idx].matchedPriceQty = float64(items[idx].units)
 				items[idx].priceSourceJSON = `{"source":"manual"}`
+			}
+			items[idx].priceSourceJSON, err = orderbeans.AttachProductionQuantitySnapshot(items[idx].priceSourceJSON, selection.Spec)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
 			}
 			items[idx].baseLineTotal = lineTotal
 			applyItemDiscount(idx)
@@ -1381,7 +1412,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].priceListType = priceListType
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(priceListType, usage, *items[idx].productID, pricing)
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(priceListType, usage, *items[idx].productID, pricing, selection.Spec)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1409,7 +1440,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].priceListType = orderbeans.ListTypeRetail
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeRetail, usage, *items[idx].productID, pricing)
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeRetail, usage, *items[idx].productID, pricing, selection.Spec)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1435,7 +1466,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].priceListType = orderbeans.ListTypeGreen
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing)
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing, selection.Spec)
 			if items[idx].baseLineTotal <= 0 || strings.TrimSpace(pricing.QuantityBasis) == "sales_spec_count" {
 				items[idx].baseLineTotal = publishedPricingLineTotal(pricing, items[idx].specG, items[idx].units)
 			}
@@ -1467,7 +1498,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].priceListType = orderbeans.ListTypeCommercial
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing)
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing, selection.Spec)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
