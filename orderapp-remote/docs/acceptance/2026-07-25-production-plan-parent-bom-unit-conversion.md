@@ -32,7 +32,9 @@
 - GREEN（完整后端）：`scripts/verify_kferp.sh backend` 通过。
 - GREEN（构建）：`npm run build` 通过。
 - 基线说明（完整前端）：功能分支 804/811，7 个失败与同一提交的干净 `origin/develop` 基线完全一致；本次新增定向测试全部通过。
-- development 部署和安全冒烟证据：集成完成后补充。
+- GREEN（development 部署）：feature `2803c0d7` 合并为 `develop` 的 `e7a5cbdb`；`./deploy_orderapp.sh development` 中 Vue、小程序和 Docker 内完整 Go 测试通过，备份 `/opt/stacks/erp/orderapp.backup.deploy-20260726013435`。
+- GREEN（development 只读冒烟）：`erp_orderapp` 与 `erp_docconvert` 运行、`erp_postgres` healthy；生产计划 Vue 页面、REQ、未生产需求与生产计划列表 API 均返回成功，PR-553 和部署源码标记存在，启动日志无 panic/FATAL/SQLSTATE。
+- GREEN（真实订单只读需求）：SO-20260725-0001 中如目达摩行返回具体 SKU 789、父商品 644、4件、0.454Kg/件、需求及缺口 1.816Kg，且仍为 `unplanned`；未发起生产计划写请求。
 
 ## 必测异常
 
@@ -54,6 +56,6 @@
 ## 交付状态
 
 - 功能分支：`codex/pr553-production-plan-parent-bom-unit-conversion`
-- development：待部署。
+- development：代码已部署并完成只读冒烟。
 - 开发数据纠错：预检发现当前 V002 未绑定工艺路线；纠错版本必须复制有效路线，但现状没有可复制值。获得明确路线选择前不写入。
 - production：明确不部署。
