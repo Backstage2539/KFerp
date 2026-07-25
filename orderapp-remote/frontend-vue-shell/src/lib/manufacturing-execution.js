@@ -59,11 +59,13 @@ export function workOrderStatusLabel(status) {
 
 export function stockEntryTypeOptions() {
   return [
+    { value: 'material_receipt', label: '原料入库' },
+    { value: 'material_issue', label: '物料发出 / 报废' },
+    { value: 'material_transfer', label: '库存转仓' },
     { value: 'material_transfer_for_manufacture', label: '生产领料' },
-    { value: 'material_return_from_manufacture', label: '生产退料' },
-    { value: 'material_consumption_for_manufacture', label: '生产消耗' },
+    { value: 'material_return_from_manufacture', label: '退回未用原料' },
+    { value: 'material_consumption_for_manufacture', label: '记录生产消耗' },
     { value: 'manufacture', label: '完工入库' },
-    { value: 'stock_adjustment', label: '库存调整' },
   ]
 }
 
@@ -86,10 +88,14 @@ export function normalizeStockEntryPurpose(type) {
     finished_receipt: 'manufacture',
     finish_receipt: 'manufacture',
     manufacture: 'manufacture',
-    scrap_loss: 'stock_adjustment',
-    scrap: 'stock_adjustment',
-    stock_adjustment: 'stock_adjustment',
+    material_receipt: 'material_receipt',
+    material_issue: 'material_issue',
+    material_transfer: 'material_transfer',
   })[String(type || '').trim()] || String(type || '').trim()
+}
+
+export function stockDocumentPreviewEndpoint(row) {
+  return workOrderActionEndpoint(row, 'stock-document-preview')
 }
 
 export function canRunJobCardAction(row, action) {

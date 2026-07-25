@@ -355,6 +355,8 @@ type MaterialTransferAllocation struct {
 type MaterialTransferResult struct {
 	TransferID  int64                        `json:"transfer_id"`
 	TransferNo  string                       `json:"transfer_no"`
+	EntryID     int64                        `json:"entry_id,omitempty"`
+	EntryNo     string                       `json:"entry_no,omitempty"`
 	Allocations []MaterialTransferAllocation `json:"allocations"`
 }
 
@@ -373,6 +375,8 @@ type FinishedProductTransferCommand struct {
 type FinishedProductTransferResult struct {
 	TransferID int64  `json:"transfer_id"`
 	TransferNo string `json:"transfer_no"`
+	EntryID    int64  `json:"entry_id,omitempty"`
+	EntryNo    string `json:"entry_no,omitempty"`
 }
 
 type MaterialReceiptCommand struct {
@@ -394,6 +398,134 @@ type MaterialReceiptResult struct {
 	ReceiptID int64  `json:"receipt_id"`
 	BatchID   int64  `json:"batch_id"`
 	BatchCode string `json:"batch_code"`
+	EntryID   int64  `json:"entry_id,omitempty"`
+	EntryNo   string `json:"entry_no,omitempty"`
+}
+
+const (
+	itemTypeMaterial                      = "material"
+	itemTypeFinishedProduct               = "finished_product"
+	PurposeMaterialReceipt                = "material_receipt"
+	PurposeMaterialIssue                  = "material_issue"
+	PurposeMaterialTransfer               = "material_transfer"
+	PurposeMaterialTransferForManufacture = "material_transfer_for_manufacture"
+	PurposeMaterialConsumption            = "material_consumption_for_manufacture"
+	PurposeManufacture                    = "manufacture"
+	legacyPurposeMaterialReturn           = "material_return_from_manufacture"
+)
+
+type StockDocumentItemCommand struct {
+	MaterialID                int64   `json:"material_id"`
+	ProductID                 int64   `json:"product_id"`
+	ItemType                  string  `json:"item_type"`
+	ItemName                  string  `json:"item_name"`
+	SpecG                     int64   `json:"spec_g"`
+	InventoryUnit             string  `json:"inventory_unit"`
+	FromWarehouse             string  `json:"from_warehouse"`
+	ToWarehouse               string  `json:"to_warehouse"`
+	QtyG                      int64   `json:"qty_g"`
+	QtyUnits                  int64   `json:"qty_units"`
+	BatchCode                 string  `json:"batch_code"`
+	UnitCost                  float64 `json:"unit_cost"`
+	Supplier                  string  `json:"supplier"`
+	CropSeason                string  `json:"crop_season"`
+	Origin                    string  `json:"origin"`
+	ProducerFlavorDescription string  `json:"producer_flavor_description"`
+}
+
+type StockDocumentCommand struct {
+	EntryType      string                     `json:"entry_type"`
+	Purpose        string                     `json:"purpose"`
+	IsReturn       bool                       `json:"is_return"`
+	WorkOrderID    int64                      `json:"work_order_id"`
+	JobCardID      int64                      `json:"job_card_id"`
+	RunningItemID  int64                      `json:"running_item_id"`
+	SourceType     string                     `json:"source_type"`
+	SourceID       int64                      `json:"source_id"`
+	ReturnSource   string                     `json:"return_source"`
+	Operator       string                     `json:"operator"`
+	Note           string                     `json:"note"`
+	IdempotencyKey string                     `json:"idempotency_key"`
+	Items          []StockDocumentItemCommand `json:"items"`
+}
+
+type StockDocumentQuery struct {
+	Q           string
+	Purpose     string
+	Status      string
+	WorkOrderID int64
+	JobCardID   int64
+	Limit       int
+	Offset      int
+}
+
+type StockDocumentBatchAllocation struct {
+	MaterialBatchID int64   `json:"material_batch_id"`
+	BatchCode       string  `json:"batch_code"`
+	QtyG            int64   `json:"qty_g"`
+	QtyUnits        int64   `json:"qty_units"`
+	UnitCost        float64 `json:"unit_cost"`
+}
+
+type StockDocumentItemRow struct {
+	ID                        int64                          `json:"id"`
+	StockEntryID              int64                          `json:"stock_entry_id"`
+	MaterialID                int64                          `json:"material_id"`
+	ProductID                 int64                          `json:"product_id"`
+	ItemType                  string                         `json:"item_type"`
+	ItemName                  string                         `json:"item_name"`
+	SpecG                     int64                          `json:"spec_g"`
+	InventoryUnit             string                         `json:"inventory_unit"`
+	FromWarehouse             string                         `json:"from_warehouse"`
+	ToWarehouse               string                         `json:"to_warehouse"`
+	QtyG                      int64                          `json:"qty_g"`
+	QtyUnits                  int64                          `json:"qty_units"`
+	BatchCode                 string                         `json:"batch_code"`
+	UnitCost                  float64                        `json:"unit_cost"`
+	TotalCost                 float64                        `json:"total_cost"`
+	Supplier                  string                         `json:"supplier"`
+	CropSeason                string                         `json:"crop_season"`
+	Origin                    string                         `json:"origin"`
+	ProducerFlavorDescription string                         `json:"producer_flavor_description"`
+	Allocations               []StockDocumentBatchAllocation `json:"allocations"`
+}
+
+type StockDocumentRow struct {
+	ID            int64   `json:"id"`
+	EntryNo       string  `json:"entry_no"`
+	EntryType     string  `json:"entry_type"`
+	Purpose       string  `json:"purpose"`
+	IsReturn      bool    `json:"is_return"`
+	Status        string  `json:"status"`
+	WorkOrderID   int64   `json:"work_order_id"`
+	JobCardID     int64   `json:"job_card_id"`
+	RunningItemID int64   `json:"running_item_id"`
+	SourceType    string  `json:"source_type"`
+	SourceID      int64   `json:"source_id"`
+	ReturnSource  string  `json:"return_source"`
+	ItemCount     int64   `json:"item_count"`
+	TotalQtyG     int64   `json:"total_qty_g"`
+	TotalCost     float64 `json:"total_cost"`
+	Operator      string  `json:"operator"`
+	Note          string  `json:"note"`
+	Legacy        bool    `json:"legacy"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
+}
+
+type StockDocumentDetail struct {
+	StockDocumentRow
+	Items []StockDocumentItemRow `json:"items"`
+}
+
+type StockDocumentResult struct {
+	Rows       []StockDocumentRow `json:"rows"`
+	HasNext    bool               `json:"has_next"`
+	Total      int                `json:"total"`
+	Page       int                `json:"page"`
+	Limit      int                `json:"limit"`
+	Offset     int                `json:"offset"`
+	TotalPages int                `json:"total_pages"`
 }
 
 type StockAdjustmentCommand struct {
@@ -439,12 +571,268 @@ type Repository interface {
 	BindWarehouseCustomer(ctx context.Context, cmd BindWarehouseCustomerCommand) (WarehouseRow, error)
 }
 
+type StockDocumentRepository interface {
+	CreateStockDocumentDraft(ctx context.Context, cmd StockDocumentCommand) (StockDocumentDetail, error)
+	UpdateStockDocumentDraft(ctx context.Context, id int64, cmd StockDocumentCommand) (StockDocumentDetail, error)
+	SubmitStockDocument(ctx context.Context, id int64, actor string) (StockDocumentDetail, error)
+	CancelStockDocument(ctx context.Context, id int64, actor string) (StockDocumentDetail, error)
+	ListStockDocuments(ctx context.Context, query StockDocumentQuery) (StockDocumentResult, error)
+	GetStockDocument(ctx context.Context, id int64) (StockDocumentDetail, error)
+	CreateAndSubmitStockDocument(ctx context.Context, cmd StockDocumentCommand) (StockDocumentDetail, error)
+}
+
 type Service struct {
 	repo Repository
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) stockDocumentRepo() (StockDocumentRepository, error) {
+	repo, ok := s.repo.(StockDocumentRepository)
+	if !ok {
+		return nil, fmt.Errorf("stock document repository unavailable")
+	}
+	return repo, nil
+}
+
+func (s *Service) CreateStockDocumentDraft(ctx context.Context, cmd StockDocumentCommand) (StockDocumentDetail, error) {
+	repo, err := s.stockDocumentRepo()
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	cmd, err = normalizeStockDocumentCommand(cmd)
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	return repo.CreateStockDocumentDraft(ctx, cmd)
+}
+
+func (s *Service) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd StockDocumentCommand) (StockDocumentDetail, error) {
+	if id <= 0 {
+		return StockDocumentDetail{}, fmt.Errorf("stock_document_id required")
+	}
+	repo, err := s.stockDocumentRepo()
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	cmd, err = normalizeStockDocumentCommand(cmd)
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	return repo.UpdateStockDocumentDraft(ctx, id, cmd)
+}
+
+func (s *Service) SubmitStockDocument(ctx context.Context, id int64, actor string) (StockDocumentDetail, error) {
+	if id <= 0 {
+		return StockDocumentDetail{}, fmt.Errorf("stock_document_id required")
+	}
+	repo, err := s.stockDocumentRepo()
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "stock"
+	}
+	return repo.SubmitStockDocument(ctx, id, actor)
+}
+
+func (s *Service) CancelStockDocument(ctx context.Context, id int64, actor string) (StockDocumentDetail, error) {
+	if id <= 0 {
+		return StockDocumentDetail{}, fmt.Errorf("stock_document_id required")
+	}
+	repo, err := s.stockDocumentRepo()
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "stock"
+	}
+	return repo.CancelStockDocument(ctx, id, actor)
+}
+
+func (s *Service) ListStockDocuments(ctx context.Context, query StockDocumentQuery) (StockDocumentResult, error) {
+	repo, err := s.stockDocumentRepo()
+	if err != nil {
+		return StockDocumentResult{}, err
+	}
+	query.Q = strings.TrimSpace(query.Q)
+	query.Purpose = strings.TrimSpace(query.Purpose)
+	query.Status = strings.TrimSpace(query.Status)
+	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
+	return repo.ListStockDocuments(ctx, query)
+}
+
+func (s *Service) GetStockDocument(ctx context.Context, id int64) (StockDocumentDetail, error) {
+	if id <= 0 {
+		return StockDocumentDetail{}, fmt.Errorf("stock_document_id required")
+	}
+	repo, err := s.stockDocumentRepo()
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	return repo.GetStockDocument(ctx, id)
+}
+
+func (s *Service) CreateAndSubmitStockDocument(ctx context.Context, cmd StockDocumentCommand) (StockDocumentDetail, error) {
+	repo, err := s.stockDocumentRepo()
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	cmd, err = normalizeStockDocumentCommand(cmd)
+	if err != nil {
+		return StockDocumentDetail{}, err
+	}
+	return repo.CreateAndSubmitStockDocument(ctx, cmd)
+}
+
+func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentCommand, error) {
+	cmd.Purpose = strings.TrimSpace(cmd.Purpose)
+	cmd.EntryType = strings.TrimSpace(cmd.EntryType)
+	if cmd.Purpose == "" {
+		cmd.Purpose = purposeForLegacyEntryType(cmd.EntryType)
+	} else {
+		cmd.Purpose = purposeForLegacyEntryType(cmd.Purpose)
+	}
+	if cmd.Purpose == legacyPurposeMaterialReturn {
+		cmd.Purpose = PurposeMaterialTransferForManufacture
+		cmd.IsReturn = true
+	}
+	switch cmd.Purpose {
+	case PurposeMaterialReceipt, PurposeMaterialIssue, PurposeMaterialTransfer,
+		PurposeMaterialTransferForManufacture, PurposeMaterialConsumption, PurposeManufacture:
+	default:
+		return StockDocumentCommand{}, fmt.Errorf("invalid stock document purpose")
+	}
+	if (cmd.Purpose == PurposeMaterialTransferForManufacture || cmd.Purpose == PurposeMaterialConsumption || cmd.Purpose == PurposeManufacture) && cmd.WorkOrderID <= 0 {
+		return StockDocumentCommand{}, fmt.Errorf("work_order_id required")
+	}
+	cmd.EntryType = entryTypeForPurpose(cmd.Purpose, cmd.IsReturn)
+	cmd.SourceType = strings.TrimSpace(cmd.SourceType)
+	cmd.ReturnSource = strings.TrimSpace(cmd.ReturnSource)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	if cmd.Operator == "" {
+		cmd.Operator = "stock"
+	}
+	if len(cmd.Items) == 0 {
+		return StockDocumentCommand{}, fmt.Errorf("stock document items required")
+	}
+	for i := range cmd.Items {
+		item := &cmd.Items[i]
+		item.ItemType = normalizeStockItemType(item.ItemType)
+		if item.ItemType == "" {
+			if item.MaterialID > 0 {
+				item.ItemType = itemTypeMaterial
+			} else if item.ProductID > 0 {
+				item.ItemType = itemTypeFinishedProduct
+			}
+		}
+		if item.ItemType == itemTypeMaterial && item.MaterialID <= 0 {
+			return StockDocumentCommand{}, fmt.Errorf("item %d material_id required", i+1)
+		}
+		if item.ItemType == itemTypeFinishedProduct && item.ProductID <= 0 {
+			return StockDocumentCommand{}, fmt.Errorf("item %d product_id required", i+1)
+		}
+		if item.ItemType == itemTypeFinishedProduct && item.SpecG <= 0 {
+			return StockDocumentCommand{}, fmt.Errorf("item %d spec_g required", i+1)
+		}
+		if item.ItemType != itemTypeMaterial && item.ItemType != itemTypeFinishedProduct {
+			return StockDocumentCommand{}, fmt.Errorf("item %d invalid item_type", i+1)
+		}
+		if item.QtyG <= 0 && item.QtyUnits <= 0 {
+			return StockDocumentCommand{}, fmt.Errorf("item %d qty required", i+1)
+		}
+		if item.UnitCost < 0 {
+			return StockDocumentCommand{}, fmt.Errorf("item %d unit_cost must be >= 0", i+1)
+		}
+		item.ItemName = strings.TrimSpace(item.ItemName)
+		item.InventoryUnit = strings.TrimSpace(item.InventoryUnit)
+		item.BatchCode = strings.TrimSpace(item.BatchCode)
+		item.Supplier = strings.TrimSpace(item.Supplier)
+		item.CropSeason = strings.TrimSpace(item.CropSeason)
+		item.Origin = strings.TrimSpace(item.Origin)
+		item.ProducerFlavorDescription = strings.TrimSpace(item.ProducerFlavorDescription)
+		item.FromWarehouse = normalizeWarehouse(item.FromWarehouse)
+		item.ToWarehouse = normalizeWarehouse(item.ToWarehouse)
+		normalizeStockDocumentWarehouses(cmd.Purpose, cmd.IsReturn, item)
+		if item.FromWarehouse != "" && item.FromWarehouse == item.ToWarehouse {
+			return StockDocumentCommand{}, fmt.Errorf("item %d from/to warehouse must differ", i+1)
+		}
+	}
+	return cmd, nil
+}
+
+func normalizeStockDocumentWarehouses(purpose string, isReturn bool, item *StockDocumentItemCommand) {
+	switch purpose {
+	case PurposeMaterialReceipt:
+		item.FromWarehouse = ""
+		if item.ToWarehouse == "" {
+			item.ToWarehouse = stockdomain.WarehouseRawMaterials
+		}
+	case PurposeMaterialIssue:
+		if item.FromWarehouse == "" {
+			item.FromWarehouse = stockdomain.WarehouseRawMaterials
+		}
+		item.ToWarehouse = ""
+	case PurposeMaterialTransferForManufacture:
+		if isReturn {
+			item.FromWarehouse = stockdomain.WarehouseWIP
+			item.ToWarehouse = stockdomain.WarehouseRawMaterials
+		} else {
+			item.FromWarehouse = stockdomain.WarehouseRawMaterials
+			item.ToWarehouse = stockdomain.WarehouseWIP
+		}
+	case PurposeMaterialConsumption:
+		if item.FromWarehouse == "" {
+			item.FromWarehouse = stockdomain.WarehouseWIP
+		}
+		item.ToWarehouse = ""
+	case PurposeManufacture:
+		item.FromWarehouse = ""
+		if item.ToWarehouse == "" {
+			item.ToWarehouse = stockdomain.WarehouseFinishedGoods
+		}
+	}
+}
+
+func purposeForLegacyEntryType(entryType string) string {
+	switch strings.TrimSpace(entryType) {
+	case "material_issue_to_wip":
+		return PurposeMaterialTransferForManufacture
+	case "wip_return":
+		return legacyPurposeMaterialReturn
+	case "material_consume":
+		return PurposeMaterialConsumption
+	case "finished_receipt":
+		return PurposeManufacture
+	case "finished_transfer":
+		return PurposeMaterialTransfer
+	case "scrap_loss":
+		return PurposeMaterialIssue
+	default:
+		return strings.TrimSpace(entryType)
+	}
+}
+
+func entryTypeForPurpose(purpose string, isReturn bool) string {
+	switch purpose {
+	case PurposeMaterialTransferForManufacture:
+		if isReturn {
+			return "wip_return"
+		}
+		return "material_issue_to_wip"
+	case PurposeMaterialConsumption:
+		return "material_consume"
+	case PurposeManufacture:
+		return "finished_receipt"
+	default:
+		return purpose
+	}
 }
 
 func (s *Service) ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error) {
@@ -562,6 +950,38 @@ func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComman
 	if cmd.Operator == "" {
 		cmd.Operator = "stock"
 	}
+	if _, ok := s.repo.(StockDocumentRepository); ok {
+		detail, err := s.CreateAndSubmitStockDocument(ctx, StockDocumentCommand{
+			Purpose:  PurposeMaterialReceipt,
+			Operator: cmd.Operator,
+			Note:     cmd.Note,
+			Items: []StockDocumentItemCommand{{
+				MaterialID:                cmd.MaterialID,
+				ItemType:                  itemTypeMaterial,
+				InventoryUnit:             cmd.UnitCode,
+				ToWarehouse:               stockdomain.WarehouseRawMaterials,
+				QtyG:                      cmd.QtyG,
+				QtyUnits:                  cmd.QtyUnits,
+				UnitCost:                  cmd.UnitCost,
+				Supplier:                  cmd.Supplier,
+				CropSeason:                cmd.CropSeason,
+				Origin:                    cmd.Origin,
+				ProducerFlavorDescription: cmd.ProducerFlavorDescription,
+			}},
+		})
+		if err != nil {
+			return MaterialReceiptResult{}, err
+		}
+		result := MaterialReceiptResult{ReceiptID: detail.ID, EntryID: detail.ID, EntryNo: detail.EntryNo}
+		if len(detail.Items) > 0 {
+			result.BatchCode = detail.Items[0].BatchCode
+			if len(detail.Items[0].Allocations) > 0 {
+				result.BatchID = detail.Items[0].Allocations[0].MaterialBatchID
+				result.BatchCode = detail.Items[0].Allocations[0].BatchCode
+			}
+		}
+		return result, nil
+	}
 	return s.repo.ReceiveMaterial(ctx, cmd)
 }
 
@@ -622,6 +1042,35 @@ func (s *Service) TransferMaterial(ctx context.Context, cmd MaterialTransferComm
 	if cmd.Operator == "" {
 		cmd.Operator = "stock"
 	}
+	if _, ok := s.repo.(StockDocumentRepository); ok {
+		detail, err := s.CreateAndSubmitStockDocument(ctx, StockDocumentCommand{
+			Purpose:        PurposeMaterialTransfer,
+			Operator:       cmd.Operator,
+			Note:           cmd.Note,
+			IdempotencyKey: cmd.IdempotencyKey,
+			Items: []StockDocumentItemCommand{{
+				MaterialID:    cmd.MaterialID,
+				ItemType:      itemTypeMaterial,
+				FromWarehouse: cmd.FromWarehouse,
+				ToWarehouse:   cmd.ToWarehouse,
+				QtyG:          cmd.QtyG,
+			}},
+		})
+		if err != nil {
+			return MaterialTransferResult{}, err
+		}
+		result := MaterialTransferResult{TransferID: detail.ID, TransferNo: detail.EntryNo, EntryID: detail.ID, EntryNo: detail.EntryNo}
+		if len(detail.Items) > 0 {
+			for _, alloc := range detail.Items[0].Allocations {
+				result.Allocations = append(result.Allocations, MaterialTransferAllocation{
+					MaterialBatchID: alloc.MaterialBatchID,
+					BatchCode:       alloc.BatchCode,
+					QtyG:            alloc.QtyG,
+				})
+			}
+		}
+		return result, nil
+	}
 	return s.repo.TransferMaterial(ctx, cmd)
 }
 
@@ -658,6 +1107,27 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
 	if cmd.Operator == "" {
 		cmd.Operator = "stock"
+	}
+	if _, ok := s.repo.(StockDocumentRepository); ok {
+		detail, err := s.CreateAndSubmitStockDocument(ctx, StockDocumentCommand{
+			Purpose:        PurposeMaterialTransfer,
+			Operator:       cmd.Operator,
+			Note:           cmd.Note,
+			IdempotencyKey: cmd.IdempotencyKey,
+			Items: []StockDocumentItemCommand{{
+				ProductID:     cmd.ProductID,
+				ItemType:      itemTypeFinishedProduct,
+				SpecG:         cmd.SpecG,
+				FromWarehouse: cmd.FromWarehouse,
+				ToWarehouse:   cmd.ToWarehouse,
+				QtyG:          cmd.QtyLooseG,
+				QtyUnits:      cmd.QtyUnits,
+			}},
+		})
+		if err != nil {
+			return FinishedProductTransferResult{}, err
+		}
+		return FinishedProductTransferResult{TransferID: detail.ID, TransferNo: detail.EntryNo, EntryID: detail.ID, EntryNo: detail.EntryNo}, nil
 	}
 	return s.repo.TransferFinishedProduct(ctx, cmd)
 }

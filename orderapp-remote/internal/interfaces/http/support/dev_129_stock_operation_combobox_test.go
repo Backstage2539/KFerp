@@ -33,9 +33,9 @@ func TestDev129StockOperationRequirementSeeds(t *testing.T) {
 func TestDev129StockOperationVueUsesInDropdownSearchAndUnifiedLayout(t *testing.T) {
 	views := map[string]string{
 		"MaterialReceiptsView.vue":  "原料入库",
-		"WipMaterialsView.vue":     "WIP在制仓",
+		"WipMaterialsView.vue":      "WIP在制仓",
 		"FinishedTransfersView.vue": "成品转仓",
-		"StockAdjustmentsView.vue": "库存调整单",
+		"StockAdjustmentsView.vue":  "盘点调整",
 	}
 	for file, title := range views {
 		content, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", file))
@@ -83,7 +83,7 @@ func TestDev129ProduceRunningOpensStockOperationDrawerOnWIPShortage(t *testing.T
 		"StockOperationsView",
 		"stockDrawerOpen",
 		"isWipInsufficientError",
-		"initial-tab=\"wip\"",
+		"initial-tab=\"stockEntries\"",
 		"打开库存作业",
 	} {
 		if !strings.Contains(src, want) {

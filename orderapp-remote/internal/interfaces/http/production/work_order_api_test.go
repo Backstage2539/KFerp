@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	productionapp "orderapp/internal/application/production"
+	stockapp "orderapp/internal/application/stock"
 	"strings"
 	"testing"
 
@@ -58,6 +59,73 @@ type workOrderAPIRepo struct {
 	ledgerRows          []productionapp.WorkOrderLedgerEntryRow
 	qualityQuery        productionapp.QualityInspectionQuery
 	qualityRows         []productionapp.QualityInspectionRow
+}
+
+type stockDocumentAPIRepo struct {
+	stockapp.Repository
+	detail      stockapp.StockDocumentDetail
+	createCount int
+	updateCount int
+	submitCount int
+	cancelCount int
+}
+
+func (r *stockDocumentAPIRepo) CreateStockDocumentDraft(_ context.Context, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
+	r.createCount++
+	r.detail = stockapp.StockDocumentDetail{
+		StockDocumentRow: stockapp.StockDocumentRow{
+			ID: 31, EntryNo: "SE-0000000031", EntryType: cmd.EntryType, Purpose: cmd.Purpose,
+			IsReturn: cmd.IsReturn, Status: "draft", WorkOrderID: cmd.WorkOrderID, Operator: cmd.Operator,
+		},
+	}
+	return r.detail, nil
+}
+
+func (r *stockDocumentAPIRepo) UpdateStockDocumentDraft(_ context.Context, id int64, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
+	r.updateCount++
+	r.detail.ID = id
+	r.detail.Purpose = cmd.Purpose
+	r.detail.EntryType = cmd.EntryType
+	r.detail.IsReturn = cmd.IsReturn
+	r.detail.Note = cmd.Note
+	return r.detail, nil
+}
+
+func (r *stockDocumentAPIRepo) SubmitStockDocument(_ context.Context, id int64, actor string) (stockapp.StockDocumentDetail, error) {
+	if r.detail.Status != "submitted" {
+		r.submitCount++
+	}
+	r.detail.ID = id
+	r.detail.Status = "submitted"
+	r.detail.Operator = actor
+	return r.detail, nil
+}
+
+func (r *stockDocumentAPIRepo) CancelStockDocument(_ context.Context, id int64, actor string) (stockapp.StockDocumentDetail, error) {
+	if r.detail.Status != "cancelled" {
+		r.cancelCount++
+	}
+	r.detail.ID = id
+	r.detail.Status = "cancelled"
+	r.detail.Operator = actor
+	return r.detail, nil
+}
+
+func (r *stockDocumentAPIRepo) ListStockDocuments(_ context.Context, _ stockapp.StockDocumentQuery) (stockapp.StockDocumentResult, error) {
+	return stockapp.StockDocumentResult{Rows: []stockapp.StockDocumentRow{r.detail.StockDocumentRow}, Total: 1, Limit: 100}, nil
+}
+
+func (r *stockDocumentAPIRepo) GetStockDocument(_ context.Context, id int64) (stockapp.StockDocumentDetail, error) {
+	r.detail.ID = id
+	return r.detail, nil
+}
+
+func (r *stockDocumentAPIRepo) CreateAndSubmitStockDocument(ctx context.Context, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
+	detail, err := r.CreateStockDocumentDraft(ctx, cmd)
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	return r.SubmitStockDocument(ctx, detail.ID, cmd.Operator)
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -666,6 +734,112 @@ func TestStockDocumentPurposeAliasesUseERPNextFlowLanguage(t *testing.T) {
 	if rec.Code != http.StatusOK || repo.stockEntryID != 7 || !strings.Contains(rec.Body.String(), `"purpose":"material_transfer_for_manufacture"`) {
 		t.Fatalf("GET /api/stock-documents/7 status=%d body=%s id=%d", rec.Code, rec.Body.String(), repo.stockEntryID)
 	}
+}
+
+func TestUnifiedStockDocumentHTTPLifecycleKeepsDraftUnpostedAndIsIdempotent(t *testing.T) {
+	productionRepo := &workOrderAPIRepo{}
+	stockRepo := &stockDocumentAPIRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "仓管")
+			c.Set("actor", "仓管")
+			return next(c)
+		}
+	})
+	registerStockEntryAPI(e, productionapp.NewService(productionRepo), stockapp.NewService(stockRepo))
+
+	body := `{
+		"purpose":"material_transfer_for_manufacture",
+		"work_order_id":88,
+		"note":"按工单领料",
+		"items":[{"material_id":10,"item_type":"material","qty_g":1500}]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/stock-documents", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || stockRepo.createCount != 1 || stockRepo.submitCount != 0 || !strings.Contains(rec.Body.String(), `"status":"draft"`) {
+		t.Fatalf("create draft status=%d body=%s counts=%d/%d", rec.Code, rec.Body.String(), stockRepo.createCount, stockRepo.submitCount)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/stock-documents/31", strings.NewReader(strings.Replace(body, "按工单领料", "复核后领料", 1)))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || stockRepo.updateCount != 1 || !strings.Contains(rec.Body.String(), "复核后领料") {
+		t.Fatalf("update draft status=%d body=%s count=%d", rec.Code, rec.Body.String(), stockRepo.updateCount)
+	}
+
+	for i := 0; i < 2; i++ {
+		req = httptest.NewRequest(http.MethodPost, "/api/stock-documents/31/submit", nil)
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"submitted"`) {
+			t.Fatalf("submit %d status=%d body=%s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	if stockRepo.submitCount != 1 {
+		t.Fatalf("submit count=%d, want one posting", stockRepo.submitCount)
+	}
+
+	for i := 0; i < 2; i++ {
+		req = httptest.NewRequest(http.MethodPost, "/api/stock-documents/31/cancel", nil)
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"cancelled"`) {
+			t.Fatalf("cancel %d status=%d body=%s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	if stockRepo.cancelCount != 1 {
+		t.Fatalf("cancel count=%d, want one reverse posting", stockRepo.cancelCount)
+	}
+}
+
+func TestWorkOrderStockDocumentPreviewUsesPhysicalWIPGapAndReturnableBalance(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		rows: []productionapp.WorkOrderRow{{
+			ID: 88, WorkOrderNo: "WO-0000000088", Status: "running", RunningItemID: 99,
+			ProductID: 9, ProductName: "测试熟豆", SpecG: 1000, PlannedUnits: 5,
+		}},
+		reservationRows: []productionapp.WIPReservationRow{{
+			ID: 1, WorkOrderID: 88, WorkOrderNo: "WO-0000000088", RunningItemID: 99,
+			MaterialID: 10, MaterialName: "测试生豆", RequiredG: 6000, ReservedG: 6000,
+			ConsumedG: 1000, ReturnedG: 500, RemainingReservedG: 4500,
+		}},
+		ledgerRows: []productionapp.WorkOrderLedgerEntryRow{{
+			ID: 1, StockEntryID: 7, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip",
+			Purpose: "material_transfer_for_manufacture", ItemType: "material", ItemID: 10,
+			ItemName: "测试生豆", Warehouse: "wip", QtyChangeG: 3000,
+		}},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "仓管")
+			return next(c)
+		}
+	})
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	assertPreview := func(action string, wants ...string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/stock-document-preview", strings.NewReader(fmt.Sprintf(`{"action":%q}`, action)))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("preview %s status=%d body=%s", action, rec.Code, rec.Body.String())
+		}
+		for _, want := range wants {
+			if !strings.Contains(rec.Body.String(), want) {
+				t.Fatalf("preview %s missing %s: %s", action, want, rec.Body.String())
+			}
+		}
+	}
+	assertPreview("issue", `"qty_g":1500`, `"from_warehouse":"raw_materials"`, `"to_warehouse":"wip"`)
+	assertPreview("return", `"qty_g":3000`, `"is_return":true`, `"from_warehouse":"wip"`, `"to_warehouse":"raw_materials"`)
 }
 
 func TestWorkOrderProducePathOwnsInventoryActionsAndDetail(t *testing.T) {

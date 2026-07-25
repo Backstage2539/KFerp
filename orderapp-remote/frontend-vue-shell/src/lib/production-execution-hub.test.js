@@ -22,12 +22,15 @@ test('execution hub actions carry production context to work order, WIP, job car
   }
   const actions = buildExecutionHubActions(hub).map((action) => [action.key, action.label, action.view, action.params])
 
-  assert.deepEqual(actions.slice(0, 7), [
+  assert.deepEqual(actions.slice(0, 10), [
     ['startProduction', '开始生产', 'workOrders', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['openWipIssue', '打开/创建 WIP 领料', 'stockOperations', { tab: 'wip', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', shortage_g: 1200 }],
+    ['productionIssue', '生产领料', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', shortage_g: 1200 }],
+    ['productionSupplement', '补料', 'stockOperations', { tab: 'stockEntries', action: 'supplement', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['productionReturn', '退回未用原料', 'stockOperations', { tab: 'stockEntries', action: 'return', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['productionConsume', '记录生产消耗', 'stockOperations', { tab: 'stockEntries', action: 'consume', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['finishedReceipt', '完工入库', 'stockOperations', { tab: 'stockEntries', action: 'finish', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openJobCard', '打开工序卡', 'jobCards', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openQuality', '打开质检', 'qualityInspections', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', reference_no: 'WO-00088' }],
-    ['finishedReceipt', '完工入库', 'workOrders', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', focus: 'finished_receipt' }],
     ['openCost', '成本', 'productionCosts', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openLogs', '日志', 'produceLogs', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
   ])
@@ -57,10 +60,14 @@ test('production context params preserve work order, job card, running item, mat
     material_id: '12',
     shortage_g: '1200',
     batch_id: 'BATCH-WO-88',
-    tab: 'wip',
+    tab: 'stockEntries',
+    action: 'issue',
+    return_source: 'work_order',
     ignored: 'x',
   }), {
-    tab: 'wip',
+    tab: 'stockEntries',
+    action: 'issue',
+    return_source: 'work_order',
     work_order_id: 88,
     job_card_id: 91,
     running_item_id: 99,
@@ -83,7 +90,7 @@ test('production pages mount the shared execution hub drawer instead of separate
   }
 
   const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
-  for (const key of ['work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id']) {
+  for (const key of ['work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'action', 'return_source']) {
     assert.match(appSource, new RegExp(`'${key}'`), `App.vue should preserve ${key} in view params`)
   }
 })

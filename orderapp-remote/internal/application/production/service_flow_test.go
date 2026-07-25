@@ -1080,8 +1080,19 @@ func TestWorkOrderExecutionHubReadModelAndTraceTimeline(t *testing.T) {
 			t.Fatalf("trace timeline missing %s: %+v", typ, hub.TraceTimeline)
 		}
 	}
-	if !contextActionKeysContain(hub.ContextActions, "openWipIssue") || !contextActionKeysContain(hub.ContextActions, "openJobCard") || !contextActionKeysContain(hub.ContextActions, "openQuality") {
-		t.Fatalf("context actions = %+v", hub.ContextActions)
+	for _, key := range []string{
+		"productionIssue",
+		"productionSupplement",
+		"productionReturn",
+		"productionConsume",
+		"finishedReceipt",
+		"openJobCard",
+		"openQuality",
+	} {
+		if contextActionKeysContain(hub.ContextActions, key) {
+			continue
+		}
+		t.Fatalf("context actions missing %s: %+v", key, hub.ContextActions)
 	}
 	if repo.qualityQuery.Scope != "work_order" {
 		t.Fatalf("quality query = %+v", repo.qualityQuery)

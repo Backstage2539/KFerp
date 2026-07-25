@@ -3,8 +3,8 @@
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2>库存调整单</h2>
-          <p>按盘点结果修正原料、包材或成品库存。</p>
+          <h2>盘点调整</h2>
+          <p>只用于实物盘点数量和批次成本修正，不替代正常发料、转仓或工艺损耗。</p>
         </div>
         <button class="secondary" type="button" @click="loadOptions" :disabled="loading">刷新</button>
       </div>
@@ -57,7 +57,7 @@
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>目标散装g</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>成品目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本（元/{{ selectedMaterialCostUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
-        <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="盘点调整/损耗/更正" /></label>
+        <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="实物盘点差异 / 批次成本更正" /></label>
         <button class="primary" type="button" @click="submit" :disabled="saving || (isMaterialCostAdjustment && !isSelectedMaterialWeight)">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
       </div>
     </section>

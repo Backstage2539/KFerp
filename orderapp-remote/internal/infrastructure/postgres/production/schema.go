@@ -411,6 +411,14 @@ CREATE INDEX IF NOT EXISTS stock_entry_items_entry_idx ON %s.stock_entry_items(s
 		return err
 	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS is_return BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS return_source TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS idempotency_key TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS legacy BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS work_order_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS job_card_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS running_item_id BIGINT NOT NULL DEFAULT 0`, schema),
@@ -420,6 +428,11 @@ CREATE INDEX IF NOT EXISTS stock_entry_items_entry_idx ON %s.stock_entry_items(s
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS to_warehouse TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS supplier TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS crop_season TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS producer_flavor_description TEXT NOT NULL DEFAULT ''`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err

@@ -1187,3 +1187,14 @@
 - 销售单页面初始化不再为了追溯额外请求 `/api/orders/{id}/detail`；销售单版本、预览、备注、客户信息、设置、PDF、图片和分享流程保持不变。
 - 订单详情继续保留报价来源和生产来源，追溯数据和详情 API 不删除；本需求只精简销售单生成界面，历史订单、价格快照、生产快照和已生成文件均不修改。
 - 本需求无数据库迁移、API 变更或业务写操作；完成前端、支持合同和构建验证后合并并部署 development，production 不部署。
+
+### PR-552-STOCK-ENTRY-CONVERGENCE：库存作业与 Stock Entry 收敛
+- 库存作业只保留“库存单据”和“盘点调整”两个主区域；原料入库、普通转仓、生产领料、补料、退料、生产消耗和完工入库统一使用 Stock Entry，库存盘点继续独立。
+- Stock Entry 支持 `material_receipt`、`material_issue`、`material_transfer`、`material_transfer_for_manufacture`、`material_consumption_for_manufacture`、`manufacture`；旧 `material_return_from_manufacture` 兼容映射为生产转移且 `is_return=true`。
+- 草稿不得改变库存；提交必须在一个数据库事务中冻结批次分配并更新批次位置、库存余额、真实库存流水、工单统计和操作日志；重复提交不得重复过账。
+- 取消已提交单据时按冻结批次分配生成反向库存变更；目标库存已被后续业务消耗或批次状态不允许时拒绝取消，引导用户使用冲销或修正单。
+- 未手选原料批次时按 FIFO 分配并保存实际分配结果；冻结、待检、不合格、库存不足、跨工单退料和超可退数量均拒绝提交。
+- 工单提供生产领料、补料、退回未用原料、记录生产消耗和完工入库快捷动作，统一打开 Stock Entry 抽屉并带入工单、工序卡、物料、仓库、缺口和返回来源。
+- 旧 `/api/stock/material-transfers`、`/api/stock/finished-transfers`、`/api/stock/material-receipts`、`/api/stock-entries` 暂时保留但转发统一服务；新写入只返回 `SE-*`，不得再新增独立 MT/FT/原料入库流水。
+- 历史 MT、FT、Stock Entry 和盘点单只读展示并标记历史单据，不重写、不重复过账；上线前只生成差异报告，不自动修复库存。
+- 首次只合并并部署 development，完整验证原料入库到完工闭环；production 上线和历史差异修复必须另行确认。

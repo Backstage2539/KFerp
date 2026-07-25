@@ -87,7 +87,7 @@
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">执行枢纽</button>
               <button class="secondary compact" v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
               <button class="primary compact" v-if="canStartWorkOrder(row)" @click="startWorkOrder(row)" :disabled="startingId === row.id">开始生产</button>
-              <button class="primary compact" v-if="canCompleteWorkOrder(row)" @click="completeWorkOrder(row)" :disabled="completingId === row.id">完工入库</button>
+              <button class="primary compact" v-if="canCompleteWorkOrder(row)" @click="openStockDocument(row, 'finish')">完工入库</button>
               <button class="secondary compact" @click="printWorkOrder(row)">打印</button>
             </td>
           </tr>
@@ -219,7 +219,7 @@ import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
-import { canCompleteWorkOrder, workOrderCompleteEndpoint, workOrderStatusLabel } from '../lib/manufacturing-execution'
+import { canCompleteWorkOrder, workOrderStatusLabel } from '../lib/manufacturing-execution'
 import {
   applicableOperationCapacities,
   buildOperationCapacityAutoSplits,
@@ -233,7 +233,6 @@ import {
   canEditWorkOrderSplits,
   canStartWorkOrder,
   formatWorkOrderPlannedOutput,
-  workOrderPlannedOutput,
   workOrderOperationSplitsEndpoint,
   workOrderStartEndpoint,
   workOrderStatusOptions,
@@ -249,7 +248,6 @@ const workstationCapacities = ref([])
 const status = ref('')
 const loading = ref(false)
 const startingId = ref(0)
-const completingId = ref(0)
 const error = ref('')
 const printRow = ref(null)
 const workOrderSplitRow = ref(null)
@@ -618,6 +616,27 @@ function openExecutionHub(row, focus = 'summary') {
   executionHub.value = { open: true, workOrderId: id, focus }
 }
 
+function openStockDocument(row, action) {
+  const workOrderID = Number(row?.id || row?.work_order_id || 0)
+  if (!workOrderID) return
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'stockOperations',
+      params: {
+        tab: 'stockEntries',
+        action,
+        work_order_id: workOrderID,
+        running_item_id: Number(row?.running_item_id || 0),
+        return_source: 'work_order',
+      },
+      returnNavigation: {
+        key: 'workOrders',
+        params: { work_order_id: workOrderID },
+      },
+    },
+  }))
+}
+
 async function saveWorkOrderOperationSplits() {
   const endpoint = workOrderOperationSplitsEndpoint(workOrderSplitRow.value)
   if (!endpoint) return
@@ -648,31 +667,6 @@ async function startWorkOrder(row) {
     error.value = err.message || '开始生产失败'
   } finally {
     startingId.value = 0
-  }
-}
-
-async function completeWorkOrder(row) {
-  const endpoint = workOrderCompleteEndpoint(row)
-  if (!endpoint) return
-  const plannedOutput = workOrderPlannedOutput(row)
-  completingId.value = Number(row.id || 0)
-  error.value = ''
-  try {
-    await apiSend(endpoint, {
-      body: {
-        finished_units: plannedOutput.units,
-        finished_loose_g: plannedOutput.loose_g,
-        consumed_input_g: Number(row.wip_consumed_g || row.planned_g || 0),
-        warehouse: 'finished_goods',
-        note: '生产工单页完工入库',
-      },
-    })
-    status.value = 'completed'
-    await load()
-  } catch (err) {
-    error.value = err.message || '完工入库失败'
-  } finally {
-    completingId.value = 0
   }
 }
 

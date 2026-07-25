@@ -102,7 +102,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 	manufacturinghttp.RegisterRoutes(e, manufacturinghttp.Dependencies{Manufacturing: manufacturingSvc})
 	stockhttp.RegisterRoutes(e, stockhttp.Dependencies{Stock: stockSvc})
 	purchasehttp.RegisterRoutes(e, purchasehttp.Dependencies{Purchase: purchaseSvc})
-	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc, MessageCenter: messageCenterSvc})
+	productionhttp.RegisterRoutes(e, productionhttp.Dependencies{Production: productionSvc, Stock: stockSvc, MessageCenter: messageCenterSvc})
 	companyhttp.RegisterRoutes(e, companyhttp.Dependencies{Company: companySvc})
 	contractshttp.RegisterRoutes(e, contractshttp.Dependencies{Contracts: contractsSvc})
 	customerhttp.RegisterRoutes(e, customerhttp.Dependencies{Customer: customerSvc, AssetDir: assetDir})

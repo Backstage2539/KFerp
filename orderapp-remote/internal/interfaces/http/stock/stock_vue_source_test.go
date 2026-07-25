@@ -7,72 +7,74 @@ import (
 	"testing"
 )
 
-func TestVueShellIncludesWIPMaterialsView(t *testing.T) {
+func TestVueShellRedirectsLegacyStockWritersToUnifiedStockOperations(t *testing.T) {
 	app, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "App.vue"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(app)
 	for _, want := range []string{
-		"WipMaterialsView",
-		"wipMaterials",
+		"materialReceipts: 'stockOperations'",
+		"wipMaterials: 'stockOperations'",
+		"requestedViewParam === 'materialReceipts'",
+		"requestedViewParam === 'wipMaterials'",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("App.vue missing %q", want)
 		}
 	}
-	menuIA, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"))
+
+	operations, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockOperationsView.vue"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(menuIA), "WIP在制仓") {
-		t.Fatal("menu-ia.js missing WIP legacy view title")
+	operationsSrc := string(operations)
+	for _, want := range []string{"库存单据", "盘点调整", "StockEntriesView", "StockAdjustmentsView"} {
+		if !strings.Contains(operationsSrc, want) {
+			t.Fatalf("StockOperationsView.vue missing %q", want)
+		}
 	}
-	view, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "WipMaterialsView.vue"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	viewSrc := string(view)
-	for _, want := range []string{
-		"/api/stock/material-transfers",
-		"/api/stock/material-batch-locations",
-		"领料到WIP",
-		"退回原料仓",
+	for _, forbidden := range []string{
+		"WipMaterialsView",
+		"MaterialReceiptsView",
+		"FinishedTransfersView",
+		"WIP领退/转仓",
+		"成品转仓",
 	} {
-		if !strings.Contains(viewSrc, want) {
-			t.Fatalf("WipMaterialsView.vue missing %q", want)
+		if strings.Contains(operationsSrc, forbidden) {
+			t.Fatalf("StockOperationsView.vue must not expose legacy writer %q", forbidden)
 		}
 	}
 }
 
-func TestVueStockWorkspaceIncludesFinishedTransferAndTraceLookup(t *testing.T) {
+func TestVueStockWorkspaceUsesUnifiedTransferAndKeepsTraceLookup(t *testing.T) {
 	operations, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockOperationsView.vue"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	operationsSrc := string(operations)
 	for _, want := range []string{
-		"成品转仓",
-		"FinishedTransfersView",
+		"库存单据",
+		"StockEntriesView",
 	} {
 		if !strings.Contains(operationsSrc, want) {
 			t.Fatalf("StockOperationsView.vue missing %q", want)
 		}
 	}
 
-	transferView, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "FinishedTransfersView.vue"))
+	entryView, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockEntriesView.vue"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	transferSrc := string(transferView)
+	transferSrc := string(entryView)
 	for _, want := range []string{
-		"/api/stock/finished-transfers",
+		"material_transfer",
 		"from_warehouse",
 		"to_warehouse",
-		"qty_units",
+		"item_type",
 	} {
 		if !strings.Contains(transferSrc, want) {
-			t.Fatalf("FinishedTransfersView.vue missing %q", want)
+			t.Fatalf("StockEntriesView.vue missing unified transfer marker %q", want)
 		}
 	}
 

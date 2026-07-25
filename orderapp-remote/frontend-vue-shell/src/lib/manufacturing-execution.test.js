@@ -9,6 +9,7 @@ import {
   jobCardActionEndpoint,
   jobCardStatusOptions,
   stockEntryEndpoint,
+  stockDocumentPreviewEndpoint,
   stockEntryTypeOptions,
   workOrderCancelEndpoint,
   workOrderCompleteEndpoint,
@@ -19,6 +20,7 @@ import {
 
 test('manufacturing execution helpers expose phase2 endpoints and status labels', () => {
   assert.equal(stockEntryEndpoint(), '/api/stock-documents')
+  assert.equal(stockDocumentPreviewEndpoint({ id: 88 }), '/api/produce/work-orders/88/stock-document-preview')
   assert.equal(workOrderStartEndpoint({ id: 88 }), '/api/produce/work-orders/88/start')
   assert.equal(workOrderIssueMaterialsEndpoint({ id: 88 }), '/api/produce/work-orders/88/issue-materials')
   assert.equal(workOrderCompleteEndpoint({ id: 88 }), '/api/produce/work-orders/88/complete')
@@ -47,11 +49,13 @@ test('manufacturing execution helpers expose phase2 endpoints and status labels'
   assert.equal(workOrderStatusLabel('completed'), '已完成')
 
   assert.deepEqual(stockEntryTypeOptions().map((item) => item.value), [
+    'material_receipt',
+    'material_issue',
+    'material_transfer',
     'material_transfer_for_manufacture',
     'material_return_from_manufacture',
     'material_consumption_for_manufacture',
     'manufacture',
-    'stock_adjustment',
   ])
 })
 
@@ -86,7 +90,7 @@ test('buildJobCardActionPayload includes actual quantities and loss reason witho
 
 test('phase2 Vue pages expose work order execution, job-card actions, and stock entry documents', () => {
   const workOrders = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
-  for (const want of ['已领料', '已消耗', '可退料', '工序进度', '成本汇总', 'completeWorkOrder(row)', 'workOrderCompleteEndpoint(row)']) {
+  for (const want of ['已领料', '已消耗', '可退料', '工序进度', '成本汇总', "openStockDocument(row, 'finish')", 'stockOperations']) {
     assert.ok(workOrders.includes(want), `WorkOrdersView.vue missing ${want}`)
   }
 
@@ -97,14 +101,17 @@ test('phase2 Vue pages expose work order execution, job-card actions, and stock 
 
   const stockOperations = fs.readFileSync(new URL('../views/StockOperationsView.vue', import.meta.url), 'utf8')
   assert.match(stockOperations, /StockEntriesView/)
-  assert.match(stockOperations, /Stock Entry单据/)
+  assert.match(stockOperations, /库存单据/)
+  assert.doesNotMatch(stockOperations, /WIP领退\/转仓/)
+  assert.doesNotMatch(stockOperations, /成品转仓/)
 
   const stockEntries = fs.readFileSync(new URL('../views/StockEntriesView.vue', import.meta.url), 'utf8')
-  for (const want of ['/api/stock-documents', '生产领料', '生产退料', '生产消耗', '完工入库', '库存调整']) {
+  for (const want of ['/api/stock-documents', '盘点调整']) {
     if (want === '/api/stock-documents') {
       assert.ok(stockEntries.includes(want) || stockEntries.includes('stockEntryEndpoint'), `StockEntriesView.vue missing ${want}`)
-    } else {
-      assert.ok(stockEntries.includes(want), `StockEntriesView.vue missing ${want}`)
+    } else if (want === '盘点调整') {
+      assert.ok(stockOperations.includes(want), `StockOperationsView.vue missing ${want}`)
     }
   }
+  assert.deepEqual(stockEntryTypeOptions().map((item) => item.label), ['原料入库', '物料发出 / 报废', '库存转仓', '生产领料', '退回未用原料', '记录生产消耗', '完工入库'])
 })

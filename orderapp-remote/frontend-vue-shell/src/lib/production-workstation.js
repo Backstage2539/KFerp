@@ -22,7 +22,7 @@ function productionNavBadgeText(badge) {
 }
 
 export function stockOperationContextParams(task = {}) {
-  const params = { tab: 'wip' }
+  const params = { tab: 'stockEntries', action: 'issue', return_source: 'work_order' }
   for (const key of ['work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g']) {
     const value = Number(task?.[key] || 0)
     if (value > 0) params[key] = value

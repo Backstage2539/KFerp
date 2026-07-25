@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-552-STOCK-ENTRY-CONVERGENCE
+- Branch: codex/pr552-stock-entry-convergence
+- Owner/session: Codex / 2026-07-25
+- Status: implementation and verification complete; development integration/deployment pending
+- Scope: 库存作业收敛为统一 Stock Entry 生命周期与独立盘点调整；生产领料、补料、退料、消耗和完工从工单预填同一库存单据；旧库存写接口转发统一服务，历史记录只读兼容。
+- DEV:
+  - DEV-552-STOCK-DOCUMENT-LIFECYCLE：实现 Stock Entry 草稿、修改、提交、取消、幂等和退料规范化。
+  - DEV-552-AUTHORITATIVE-POSTING：提交在同一事务更新批次位置、余额、实际流水、工单统计和操作日志；取消按冻结分配反向过账。
+  - DEV-552-LEGACY-COMPATIBILITY：旧原料入库、WIP 转移、成品转仓和 `/api/stock-entries` 写入口转发统一服务并返回 `SE-*`，历史单据不重放。
+  - DEV-552-WORKORDER-PREVIEW：工单领料、补料、退料、消耗、完工生成统一 Stock Entry 预填并校验工单上下文。
+  - DEV-552-INVENTORY-UI：库存作业只保留库存单据和盘点调整；工单快捷动作打开统一抽屉；仓库库存提供 WIP 默认过滤入口。
+  - DEV-552-DOCS-DELIVERY：同步库存、生产、工单手册、需求、验收、差异报告和开发环境交付证据。
+- Verifier:
+  - RED: `go test ./internal/application/stock -run TestCreateStockDocumentNormalizesLegacyReturnPurpose -count=1` 在统一 Stock Document 类型尚未实现时编译失败（`undefined: StockDocumentCommand` 等）。
+  - GREEN: 完整 `go test ./... -count=1`；真实 development PostgreSQL 临时 schema 中 6 个统一库存事务测试；Stock Document HTTP 生命周期、工单预填、PR-552 支持合同；生产/工单定向前端 65/65；Vue/Vite production build；`scripts/verify_kferp.sh changed` 与 `git diff --check`。
+- Deployment: development pending; production explicitly out of scope
+- Last update: 2026-07-25 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-552；`--claim stock-entry-convergence` 命中既有 awk multiline bug，因此手工登记。本次不重写历史 MT/FT/SE/调整单，不自动修复库存差异，不部署 production。开发库迁移前只读差异报告得到物料主档/批次 8 条、批次/仓位 7 条、最新流水/仓位 37 条待核对差异；保留历史原料入库 11 条、物料转仓 20 条、成品转仓 0 条。
+
 ### PR-551-REMOVE-SALES-ORDER-TRACE
 - Branch: codex/pr551-remove-sales-order-trace
 - Owner/session: Codex / 2026-07-24
