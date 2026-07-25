@@ -191,7 +191,6 @@ import MallSettingsView from './views/MallSettingsView.vue'
 import ManufacturingOperationsView from './views/ManufacturingOperationsView.vue'
 import ManufacturingWorkstationsView from './views/ManufacturingWorkstationsView.vue'
 import MaterialBatchesView from './views/MaterialBatchesView.vue'
-import MaterialReceiptsView from './views/MaterialReceiptsView.vue'
 import MaterialsView from './views/MaterialsView.vue'
 import OrderEntryView from './views/OrderEntryView.vue'
 import OrderInvoiceView from './views/OrderInvoiceView.vue'
@@ -216,14 +215,12 @@ import RequirementsView from './views/RequirementsView.vue'
 import SalesOrderSettingsView from './views/SalesOrderSettingsView.vue'
 import SalesOrderView from './views/SalesOrderView.vue'
 import SenderSettingsView from './views/SenderSettingsView.vue'
-import StockAdjustmentsView from './views/StockAdjustmentsView.vue'
 import StockBatchesView from './views/StockBatchesView.vue'
 import StockLedgerView from './views/StockLedgerView.vue'
 import StockOperationsView from './views/StockOperationsView.vue'
 import StockOutboundLogsView from './views/StockOutboundLogsView.vue'
 import UISettingsView from './views/UISettingsView.vue'
 import GroupTemplatesView from './views/GroupTemplatesView.vue'
-import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkstationView from './views/WorkstationView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
@@ -291,7 +288,12 @@ import {
 const collapsed = ref(false)
 const content = ref(null)
 const notificationStack = ref(null)
-const viewAliases = { userPermissions: 'employees' }
+const viewAliases = {
+  userPermissions: 'employees',
+  materialReceipts: 'stockOperations',
+  wipMaterials: 'stockOperations',
+  stockAdjustments: 'stockOperations',
+}
 function normalizeViewKey(key) {
   return viewAliases[key] || key
 }
@@ -369,12 +371,9 @@ const internalViews = {
   stockOperations: StockOperationsView,
   purchase: PurchaseView,
   materials: MaterialsView,
-  materialReceipts: MaterialReceiptsView,
   materialBatches: MaterialBatchesView,
-  wipMaterials: WipMaterialsView,
   stockLedger: StockLedgerView,
   stockBatches: StockBatchesView,
-  stockAdjustments: StockAdjustmentsView,
   stockOutboundLogs: StockOutboundLogsView,
   inventoryMaterialsManual: OperationManualView,
   bom: BomView,
@@ -474,9 +473,20 @@ const customerAccountActorMenuGroups = [
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source']) {
     const value = params.get(key)
     if (value) out[key] = value
+  }
+  if (requestedViewParam === 'materialReceipts') {
+    out.tab ||= 'stockEntries'
+    out.action ||= 'receipt'
+  }
+  if (requestedViewParam === 'wipMaterials') {
+    out.tab ||= 'stockEntries'
+    out.action ||= 'issue'
+  }
+  if (requestedViewParam === 'stockAdjustments') {
+    out.tab ||= 'adjustments'
   }
   return out
 }

@@ -1605,3 +1605,13 @@
 - [x] 销售单初始化不再请求订单详情追溯接口，销售单版本、预览、备注、客户信息、设置、PDF、图片和分享功能保持原样。
 - [x] 订单详情仍显示报价来源和生产来源，详情 API 和历史追溯数据未删除。
 - [x] 定向前端、支持合同、Vue/Vite 构建、development 部署和浏览器冒烟完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-24-remove-sales-order-trace.md`。
+
+### K94. 库存作业与 Stock Entry 收敛（PR-552-STOCK-ENTRY-CONVERGENCE）
+- [x] Stock Entry 草稿不改变库存，提交只过账一次，取消按冻结批次安全反向过账；业务写操作均写入操作日志。
+- [x] 生产退料规范化为 `material_transfer_for_manufacture + is_return=true`，旧退料 purpose 继续兼容且方向正确。
+- [x] 原料 FIFO 分配、冻结批次、库存不足、跨工单退料和可退数量均有自动化验证；流水 `before/change/after` 与实际余额一致。
+- [x] 原料入库、WIP 转移、成品转仓和旧 Stock Entry 写入口只生成一个 `SE-*`，不再新增平行 MT/FT 单据或脱节流水。
+- [x] 工单领料、补料、余料退回、消耗和完工快捷动作打开统一抽屉并准确预填工单、工序卡、物料、仓库、缺口和返回来源。
+- [x] 库存作业只显示库存单据和盘点调整；历史 `tab=wip` 安全跳转到统一库存单据，仓库库存可直接查看 WIP 仓。
+- [x] 历史单据只读兼容且不重放；差异报告只列待修复数据，不自动修改库存。
+- [ ] 定向测试、数据库事务测试、完整后端、Vue/Vite 构建、development 部署、API 和浏览器闭环冒烟完成。证据记录在 `orderapp-remote/docs/acceptance/2026-07-25-stock-entry-convergence.md`。

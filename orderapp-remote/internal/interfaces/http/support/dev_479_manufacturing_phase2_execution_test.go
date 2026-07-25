@@ -48,7 +48,7 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			"可退料",
 			"工序进度",
 			"成本汇总",
-			"completeWorkOrder(row)",
+			"openStockDocument(row, 'finish')",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"): {
 			"开始",
@@ -59,12 +59,12 @@ func TestDev479ManufacturingPhase2ExecutionContracts(t *testing.T) {
 			"损耗原因",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "StockEntriesView.vue"): {
-			"Stock Entry单据",
-			"领料到WIP",
-			"WIP退料",
-			"工单消耗",
-			"完工入库",
-			"报废/损耗",
+			"库存单据",
+			"material_transfer_for_manufacture",
+			"material_consumption_for_manufacture",
+			"material_return_from_manufacture",
+			"material_issue",
+			"manufacture",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-479-MANUFACTURING-PHASE2-EXECUTION-COST-CLOSED-LOOP",

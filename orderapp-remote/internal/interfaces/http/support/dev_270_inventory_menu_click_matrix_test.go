@@ -46,9 +46,9 @@ func TestInventoryMenuClickMatrixViewsExposeActions(t *testing.T) {
 	checks := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "StockOperationsView.vue"): {
 			"库存作业",
-			"WIP领退/转仓",
-			"成品转仓",
-			"库存调整",
+			"库存单据",
+			"盘点调整",
+			"StockEntriesView",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "StockOutboundLogsView.vue"): {
 			"/api/stock/outbound-logs",

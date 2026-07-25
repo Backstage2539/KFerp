@@ -1,4 +1,4 @@
-const contextKeys = ['tab', 'work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id']
+const contextKeys = ['tab', 'action', 'return_source', 'work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id']
 
 function positiveInt(value) {
   const n = Number(value || 0)
@@ -56,10 +56,13 @@ export function buildExecutionHubActions(hub = {}) {
   const wipLink = firstRelatedLink(hub, 'wip') || firstRelatedLink(hub, 'stockOperations')
   return [
     { key: 'startProduction', label: '开始生产', view: 'workOrders', params: actionParams(hub) },
-    { key: 'openWipIssue', label: '打开/创建 WIP 领料', view: 'stockOperations', params: actionParams(hub, { tab: 'wip', ...(wipLink?.params || {}) }) },
+    { key: 'productionIssue', label: '生产领料', view: 'stockOperations', params: actionParams(hub, { ...(wipLink?.params || {}), tab: 'stockEntries', action: 'issue', return_source: 'work_order' }) },
+    { key: 'productionSupplement', label: '补料', view: 'stockOperations', params: actionParams(hub, { tab: 'stockEntries', action: 'supplement', return_source: 'work_order' }) },
+    { key: 'productionReturn', label: '退回未用原料', view: 'stockOperations', params: actionParams(hub, { tab: 'stockEntries', action: 'return', return_source: 'work_order' }) },
+    { key: 'productionConsume', label: '记录生产消耗', view: 'stockOperations', params: actionParams(hub, { tab: 'stockEntries', action: 'consume', return_source: 'work_order' }) },
+    { key: 'finishedReceipt', label: '完工入库', view: 'stockOperations', params: actionParams(hub, { tab: 'stockEntries', action: 'finish', return_source: 'work_order' }) },
     { key: 'openJobCard', label: '打开工序卡', view: 'jobCards', params: actionParams(hub) },
     { key: 'openQuality', label: '打开质检', view: 'qualityInspections', params: actionParams(hub, { reference_no: wo.work_order_no }) },
-    { key: 'finishedReceipt', label: '完工入库', view: 'workOrders', params: actionParams(hub, { focus: 'finished_receipt' }) },
     { key: 'openCost', label: '成本', view: 'productionCosts', params: actionParams(hub) },
     { key: 'openLogs', label: '日志', view: 'produceLogs', params: actionParams(hub) },
   ]

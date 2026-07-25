@@ -106,7 +106,9 @@ test('stock operation context carries WIP prefill parameters from production tas
     material_id: 10,
     shortage_g: 600,
   }), {
-    tab: 'wip',
+    tab: 'stockEntries',
+    action: 'issue',
+    return_source: 'work_order',
     work_order_id: 88,
     job_card_id: 91,
     running_item_id: 99,

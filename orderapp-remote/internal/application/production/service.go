@@ -1129,14 +1129,32 @@ type BatchCostRow struct {
 type StockEntryCommand struct {
 	EntryType     string                  `json:"entry_type"`
 	Purpose       string                  `json:"purpose"`
+	IsReturn      bool                    `json:"is_return"`
 	WorkOrderID   int64                   `json:"work_order_id"`
 	JobCardID     int64                   `json:"job_card_id"`
 	RunningItemID int64                   `json:"running_item_id"`
 	SourceType    string                  `json:"source_type"`
 	SourceID      int64                   `json:"source_id"`
+	ReturnSource  string                  `json:"return_source"`
 	Operator      string                  `json:"operator"`
 	Note          string                  `json:"note"`
 	Items         []StockEntryItemCommand `json:"items"`
+}
+
+type StockDocumentPreviewCommand struct {
+	ID            int64
+	Action        string
+	MaterialID    int64
+	JobCardID     int64
+	RunningItemID int64
+	ReturnSource  string
+	Operator      string
+}
+
+type StockDocumentPreview struct {
+	Action    string            `json:"action"`
+	WorkOrder WorkOrderRow      `json:"work_order"`
+	Document  StockEntryCommand `json:"document"`
 }
 
 type StockEntryItemCommand struct {
@@ -1811,6 +1829,132 @@ func (s *Service) IssueWorkOrderMaterials(ctx context.Context, cmd WorkOrderIssu
 		Note:        cmd.Note,
 		Items:       cmd.Items,
 	})
+}
+
+func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDocumentPreviewCommand) (StockDocumentPreview, error) {
+	if cmd.ID <= 0 {
+		return StockDocumentPreview{}, fmt.Errorf("work_order_id required")
+	}
+	cmd.Action = strings.TrimSpace(cmd.Action)
+	switch cmd.Action {
+	case "issue", "supplement", "return", "consume", "finish":
+	default:
+		return StockDocumentPreview{}, fmt.Errorf("invalid stock document action")
+	}
+	detail, err := s.GetWorkOrderDetail(ctx, cmd.ID)
+	if err != nil {
+		return StockDocumentPreview{}, err
+	}
+	if detail.WorkOrder.Status == "cancelled" || detail.WorkOrder.Status == "completed" {
+		return StockDocumentPreview{}, fmt.Errorf("work order is not open")
+	}
+	document := StockEntryCommand{
+		WorkOrderID:   detail.WorkOrder.ID,
+		JobCardID:     cmd.JobCardID,
+		RunningItemID: detail.WorkOrder.RunningItemID,
+		SourceType:    "work_order",
+		SourceID:      detail.WorkOrder.ID,
+		ReturnSource:  strings.TrimSpace(cmd.ReturnSource),
+		Operator:      strings.TrimSpace(cmd.Operator),
+	}
+	if document.ReturnSource == "" {
+		document.ReturnSource = "work_order"
+	}
+	switch cmd.Action {
+	case "issue", "supplement":
+		document.Purpose = "material_transfer_for_manufacture"
+		document.Note = map[bool]string{true: "工单补料", false: "工单生产领料"}[cmd.Action == "supplement"]
+	case "return":
+		document.Purpose = "material_transfer_for_manufacture"
+		document.IsReturn = true
+		document.Note = "退回未用原料"
+	case "consume":
+		document.Purpose = "material_consumption_for_manufacture"
+		document.Note = "记录生产消耗"
+	case "finish":
+		document.Purpose = "manufacture"
+		document.Note = "完工入库"
+	}
+	if cmd.Action == "finish" {
+		qtyG := detail.WorkOrder.PlannedLooseG
+		qtyUnits := detail.WorkOrder.PlannedUnits
+		if qtyUnits <= 0 && qtyG <= 0 {
+			qtyG = detail.WorkOrder.PlannedOutputG
+		}
+		document.Items = []StockEntryItemCommand{{
+			ProductID:   detail.WorkOrder.ProductID,
+			ItemType:    "finished_product",
+			ItemName:    detail.WorkOrder.ProductName,
+			SpecG:       detail.WorkOrder.SpecG,
+			ToWarehouse: stockdomain.WarehouseFinishedGoods,
+			QtyG:        qtyG,
+			QtyUnits:    qtyUnits,
+		}}
+	} else {
+		wipByMaterial := workOrderWIPBalances(detail.LedgerEntries)
+		for _, material := range detail.Materials {
+			if cmd.MaterialID > 0 && material.MaterialID != cmd.MaterialID {
+				continue
+			}
+			qtyG := material.RequiredG
+			qtyUnits := material.RequiredUnits
+			wip := wipByMaterial[material.MaterialID]
+			if cmd.Action == "issue" || cmd.Action == "supplement" {
+				issuedG := wip.QtyG + material.ConsumedG + material.ReturnedG
+				issuedUnits := wip.QtyUnits + material.ConsumedUnits + material.ReturnedUnits
+				qtyG = nonnegativeInt64(material.RequiredG - issuedG)
+				qtyUnits = nonnegativeInt64(material.RequiredUnits - issuedUnits)
+			}
+			if cmd.Action == "return" || cmd.Action == "consume" {
+				qtyG = nonnegativeInt64(wip.QtyG)
+				qtyUnits = nonnegativeInt64(wip.QtyUnits)
+			}
+			if qtyG <= 0 && qtyUnits <= 0 {
+				continue
+			}
+			fromWarehouse, toWarehouse := stockdomain.WarehouseRawMaterials, stockdomain.WarehouseWIP
+			if cmd.Action == "return" {
+				fromWarehouse, toWarehouse = stockdomain.WarehouseWIP, stockdomain.WarehouseRawMaterials
+			}
+			if cmd.Action == "consume" {
+				fromWarehouse, toWarehouse = stockdomain.WarehouseWIP, ""
+			}
+			document.Items = append(document.Items, StockEntryItemCommand{
+				MaterialID: material.MaterialID, ItemType: "material", ItemName: material.MaterialName,
+				FromWarehouse: fromWarehouse, ToWarehouse: toWarehouse, QtyG: qtyG, QtyUnits: qtyUnits,
+			})
+		}
+	}
+	if len(document.Items) == 0 {
+		return StockDocumentPreview{}, fmt.Errorf("no stock document items available")
+	}
+	return StockDocumentPreview{Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: document}, nil
+}
+
+type workOrderWIPBalance struct {
+	QtyG     int64
+	QtyUnits int64
+}
+
+func nonnegativeInt64(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func workOrderWIPBalances(entries []WorkOrderLedgerEntryRow) map[int64]workOrderWIPBalance {
+	out := make(map[int64]workOrderWIPBalance)
+	for _, entry := range entries {
+		if entry.ItemType != "material" || entry.ItemID <= 0 || entry.Warehouse != stockdomain.WarehouseWIP {
+			continue
+		}
+		current := out[entry.ItemID]
+		current.QtyG += entry.QtyChangeG
+		current.QtyUnits += entry.QtyChangeUnits
+		out[entry.ItemID] = current
+	}
+	return out
 }
 
 func (s *Service) GetWorkOrderDetail(ctx context.Context, id int64) (WorkOrderDetail, error) {
@@ -2516,7 +2660,7 @@ func buildWorkOrderExecutionReadiness(wo WorkOrderRow, reservations []WIPReserva
 			fmt.Sprintf("WIP 不足 %dg", shortage),
 			"blocked",
 			"仓库/物料",
-			[]ProductionRelatedLink{productionRelatedLink("wip", "处理 WIP", "stockOperations", workOrderContextParams(wo, firstJobCardID(jobCards), map[string]any{"tab": "wip", "material_id": firstShortageMaterialID(reservations), "shortage_g": shortage}))},
+			[]ProductionRelatedLink{productionRelatedLink("wip", "处理 WIP", "stockOperations", workOrderContextParams(wo, firstJobCardID(jobCards), map[string]any{"tab": "stockEntries", "action": "supplement", "return_source": "work_order", "material_id": firstShortageMaterialID(reservations), "shortage_g": shortage}))},
 		))
 	}
 	quality := buildProductionQualityStatus(wo, qualityRows)
@@ -2928,10 +3072,13 @@ func buildWorkOrderContextActions(wo WorkOrderRow, cards []JobCardRow, readiness
 	jobCardID := firstJobCardID(cards)
 	actions := []ProductionContextAction{
 		{Key: "startProduction", Label: "开始生产", View: "workOrders", Params: workOrderContextParams(wo, 0, nil), Disabled: !readiness.CanStart, Reason: disabledReason(!readiness.CanStart, readiness)},
-		{Key: "openWipIssue", Label: "打开/创建 WIP 领料", View: "stockOperations", Params: workOrderContextParams(wo, jobCardID, map[string]any{"tab": "wip"})},
+		{Key: "productionIssue", Label: "生产领料", View: "stockOperations", Params: workOrderContextParams(wo, jobCardID, map[string]any{"tab": "stockEntries", "action": "issue", "return_source": "work_order"})},
+		{Key: "productionSupplement", Label: "补料", View: "stockOperations", Params: workOrderContextParams(wo, jobCardID, map[string]any{"tab": "stockEntries", "action": "supplement", "return_source": "work_order"})},
+		{Key: "productionReturn", Label: "退回未用原料", View: "stockOperations", Params: workOrderContextParams(wo, jobCardID, map[string]any{"tab": "stockEntries", "action": "return", "return_source": "work_order"})},
+		{Key: "productionConsume", Label: "记录生产消耗", View: "stockOperations", Params: workOrderContextParams(wo, jobCardID, map[string]any{"tab": "stockEntries", "action": "consume", "return_source": "work_order"})},
+		{Key: "finishedReceipt", Label: "完工入库", View: "stockOperations", Params: workOrderContextParams(wo, 0, map[string]any{"tab": "stockEntries", "action": "finish", "return_source": "work_order"}), Disabled: !readiness.CanComplete, Reason: disabledReason(!readiness.CanComplete, readiness)},
 		{Key: "openJobCard", Label: "打开工序卡", View: "jobCards", Params: workOrderContextParams(wo, jobCardID, nil)},
 		{Key: "openQuality", Label: "打开质检", View: "qualityInspections", Params: workOrderContextParams(wo, jobCardID, map[string]any{"reference_no": wo.WorkOrderNo})},
-		{Key: "finishedReceipt", Label: "完工入库", View: "workOrders", Params: workOrderContextParams(wo, 0, map[string]any{"focus": "finished_receipt"}), Disabled: !readiness.CanComplete, Reason: disabledReason(!readiness.CanComplete, readiness)},
 		{Key: "openCost", Label: "成本", View: "productionCosts", Params: workOrderContextParams(wo, 0, nil)},
 		{Key: "openLogs", Label: "日志", View: "produceLogs", Params: workOrderContextParams(wo, 0, nil)},
 	}

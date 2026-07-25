@@ -44,7 +44,7 @@
             :key="action.key"
             type="button"
             :disabled="action.disabled"
-            :class="{ primary: action.key === readiness.suggested_action || action.key === 'openWipIssue' }"
+            :class="{ primary: action.key === readiness.suggested_action || action.key === 'productionIssue' }"
             :title="action.reason || action.label"
             @click="navigate(action)">
             {{ action.label }}

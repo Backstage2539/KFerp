@@ -21,10 +21,10 @@ func registerStockPages(e *echo.Echo) {
 	}{
 		{"/stock/ledger", "stockLedger"},
 		{"/stock/batches", "stockBatches"},
-		{"/stock/wip", "wipMaterials"},
-		{"/stock/material-receipts", "materialReceipts"},
+		{"/stock/wip", "stockOperations&tab=stockEntries&action=issue"},
+		{"/stock/material-receipts", "stockOperations&tab=stockEntries&action=receipt"},
 		{"/stock/material-batches", "materialBatches"},
-		{"/stock/adjustments", "stockAdjustments"},
+		{"/stock/adjustments", "stockOperations&tab=adjustments"},
 		{"/stock/outbound-logs", "stockOutboundLogs"},
 	} {
 		path, view := route.path, route.view

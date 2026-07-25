@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>库存作业</h2>
-          <p>入库、WIP 领退、成品转仓和盘点调整集中在这里处理。</p>
+          <p>库存移动统一使用库存单据；实物盘点和成本修正独立处理。</p>
         </div>
       </div>
       <div class="tabs" role="tablist" aria-label="库存作业">
@@ -30,33 +30,28 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import FinishedTransfersView from './FinishedTransfersView.vue'
-import MaterialReceiptsView from './MaterialReceiptsView.vue'
 import StockAdjustmentsView from './StockAdjustmentsView.vue'
 import StockEntriesView from './StockEntriesView.vue'
-import WipMaterialsView from './WipMaterialsView.vue'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
-  initialTab: { type: String, default: 'receipts' },
+  initialTab: { type: String, default: 'stockEntries' },
   viewParams: { type: Object, default: () => ({}) },
 })
 
 const tabs = [
-  { key: 'receipts', label: '原料入库', component: MaterialReceiptsView },
-  { key: 'stockEntries', label: 'Stock Entry单据', component: StockEntriesView },
-  { key: 'wip', label: 'WIP领退/转仓', component: WipMaterialsView },
-  { key: 'finishedTransfers', label: '成品转仓', component: FinishedTransfersView },
-  { key: 'adjustments', label: '库存调整', component: StockAdjustmentsView },
+  { key: 'stockEntries', label: '库存单据', component: StockEntriesView },
+  { key: 'adjustments', label: '盘点调整', component: StockAdjustmentsView },
 ]
 
 function normalizedTab(key) {
-  return tabs.some((tab) => tab.key === key) ? key : 'receipts'
+  if (['receipts', 'wip', 'finishedTransfers'].includes(key)) return 'stockEntries'
+  return tabs.some((tab) => tab.key === key) ? key : 'stockEntries'
 }
 
 const initialActiveTab = computed(() => normalizedTab(props.viewParams?.tab || props.initialTab))
 const activeTab = ref(initialActiveTab.value)
-const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || MaterialReceiptsView)
+const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || StockEntriesView)
 const contextBadges = computed(() => {
   const params = props.viewParams || {}
   return [

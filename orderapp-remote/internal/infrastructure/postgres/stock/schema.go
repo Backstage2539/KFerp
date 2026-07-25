@@ -29,7 +29,103 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureFinishedProductTransferTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureUnifiedStockDocumentTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureStockAdjustmentTables(ctx, pool, schema)
+}
+
+func ensureUnifiedStockDocumentTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.stock_entries (
+	id BIGSERIAL PRIMARY KEY,
+	entry_no TEXT NOT NULL UNIQUE,
+	entry_type TEXT NOT NULL DEFAULT '',
+	purpose TEXT NOT NULL DEFAULT '',
+	is_return BOOLEAN NOT NULL DEFAULT false,
+	status TEXT NOT NULL DEFAULT 'draft',
+	work_order_id BIGINT NOT NULL DEFAULT 0,
+	job_card_id BIGINT NOT NULL DEFAULT 0,
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	source_type TEXT NOT NULL DEFAULT '',
+	source_id BIGINT NOT NULL DEFAULT 0,
+	return_source TEXT NOT NULL DEFAULT '',
+	operator TEXT NOT NULL DEFAULT '',
+	note TEXT NOT NULL DEFAULT '',
+	idempotency_key TEXT NOT NULL DEFAULT '',
+	legacy BOOLEAN NOT NULL DEFAULT false,
+	submitted_at TIMESTAMPTZ,
+	cancelled_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS stock_entries_work_order_idx ON %s.stock_entries(work_order_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS stock_entries_type_idx ON %s.stock_entries(entry_type, status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS stock_entries_idempotency_uq
+	ON %s.stock_entries(idempotency_key) WHERE idempotency_key <> '';
+
+CREATE TABLE IF NOT EXISTS %s.stock_entry_items (
+	id BIGSERIAL PRIMARY KEY,
+	stock_entry_id BIGINT NOT NULL,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	item_type TEXT NOT NULL DEFAULT '',
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	inventory_unit TEXT NOT NULL DEFAULT '',
+	from_warehouse TEXT NOT NULL DEFAULT '',
+	to_warehouse TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	total_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	supplier TEXT NOT NULL DEFAULT '',
+	crop_season TEXT NOT NULL DEFAULT '',
+	origin TEXT NOT NULL DEFAULT '',
+	producer_flavor_description TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS stock_entry_items_entry_idx ON %s.stock_entry_items(stock_entry_id, id);
+
+CREATE TABLE IF NOT EXISTS %s.stock_entry_batch_allocations (
+	id BIGSERIAL PRIMARY KEY,
+	stock_entry_item_id BIGINT NOT NULL,
+	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
+	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS stock_entry_batch_allocations_item_idx
+	ON %s.stock_entry_batch_allocations(stock_entry_item_id, id);
+`, schema, schema, schema, schema, schema, schema, schema, schema)); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS is_return BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS return_source TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS idempotency_key TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS legacy BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS supplier TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS crop_season TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS producer_flavor_description TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`UPDATE %s.stock_entries SET purpose=CASE entry_type WHEN 'material_issue_to_wip' THEN 'material_transfer_for_manufacture' WHEN 'wip_return' THEN 'material_transfer_for_manufacture' WHEN 'material_consume' THEN 'material_consumption_for_manufacture' WHEN 'finished_receipt' THEN 'manufacture' WHEN 'finished_transfer' THEN 'material_transfer' ELSE entry_type END, is_return=(entry_type='wip_return'), legacy=true, submitted_at=COALESCE(submitted_at,created_at), updated_at=COALESCE(updated_at,created_at) WHERE purpose=''`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE UNIQUE INDEX IF NOT EXISTS stock_entries_idempotency_uq
+	ON %s.stock_entries(idempotency_key) WHERE idempotency_key <> '';
+`, schema))
+	return err
 }
 
 func ensureFinishedInventoryWarehouse(ctx context.Context, pool *pgxpool.Pool, schema string) error {

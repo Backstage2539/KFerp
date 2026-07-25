@@ -246,7 +246,7 @@ test('submitted production plan exposes next-step actions to work orders, job ca
     ['workOrders', '打开工单', 'workOrders', { work_order_id: 88 }],
     ['jobCards', '打开工序卡', 'jobCards', { job_card_id: 91, work_order_id: 88 }],
     ['assignWorkstation', '分配工位', 'productionOverview', { work_order_id: 88, job_card_id: 91 }],
-    ['issueWip', '领料到 WIP', 'stockOperations', { tab: 'wip', work_order_id: 88, job_card_id: 91 }],
+    ['issueWip', '生产领料', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, job_card_id: 91 }],
   ])
 })
 

@@ -170,7 +170,7 @@ export function buildProductionPlanNextActions(result = {}) {
     { key: 'workOrders', label: '打开工单', view: 'workOrders', params: compactPositiveParams({ work_order_id: workOrderID }) },
     { key: 'jobCards', label: '打开工序卡', view: 'jobCards', params: compactPositiveParams({ job_card_id: jobCardID, work_order_id: workOrderID }) },
     { key: 'assignWorkstation', label: '分配工位', view: 'productionOverview', params: compactPositiveParams({ work_order_id: workOrderID, job_card_id: jobCardID }) },
-    { key: 'issueWip', label: '领料到 WIP', view: 'stockOperations', params: compactPositiveParams({ tab: 'wip', work_order_id: workOrderID, job_card_id: jobCardID }) },
+    { key: 'issueWip', label: '生产领料', view: 'stockOperations', params: compactPositiveParams({ tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: workOrderID, job_card_id: jobCardID }) },
   ]
 }
 
