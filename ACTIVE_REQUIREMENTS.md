@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-552-STOCK-ENTRY-CONVERGENCE
 - Branch: codex/pr552-stock-entry-convergence
 - Owner/session: Codex / 2026-07-25
-- Status: implementation and verification complete; development integration/deployment pending
+- Status: merged to `develop`, deployed to development, automated database/API/static smoke complete; awaiting Van visual acceptance
 - Scope: 库存作业收敛为统一 Stock Entry 生命周期与独立盘点调整；生产领料、补料、退料、消耗和完工从工单预填同一库存单据；旧库存写接口转发统一服务，历史记录只读兼容。
 - DEV:
   - DEV-552-STOCK-DOCUMENT-LIFECYCLE：实现 Stock Entry 草稿、修改、提交、取消、幂等和退料规范化。
@@ -21,9 +21,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: `go test ./internal/application/stock -run TestCreateStockDocumentNormalizesLegacyReturnPurpose -count=1` 在统一 Stock Document 类型尚未实现时编译失败（`undefined: StockDocumentCommand` 等）。
   - GREEN: 完整 `go test ./... -count=1`；真实 development PostgreSQL 临时 schema 中 6 个统一库存事务测试；Stock Document HTTP 生命周期、工单预填、PR-552 支持合同；生产/工单定向前端 65/65；Vue/Vite production build；`scripts/verify_kferp.sh changed` 与 `git diff --check`。
-- Deployment: development pending; production explicitly out of scope
+- Deployment: feature commits `df6275d0` / `a6e932ab` pushed; merged to `develop` as `8647ce5a` / migration hotfix `e6b8fa9f2117c1e6623b3b568f001a96fe6dfb3d`; development deployed; production explicitly unchanged
 - Last update: 2026-07-25 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh` 返回 PR-552；`--claim stock-entry-convergence` 命中既有 awk multiline bug，因此手工登记。本次不重写历史 MT/FT/SE/调整单，不自动修复库存差异，不部署 production。开发库迁移前只读差异报告得到物料主档/批次 8 条、批次/仓位 7 条、最新流水/仓位 37 条待核对差异；保留历史原料入库 11 条、物料转仓 20 条、成品转仓 0 条。
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-552；`--claim stock-entry-convergence` 命中既有 awk multiline bug，因此手工登记。本次不重写历史 MT/FT/SE/调整单，不自动修复库存差异，不部署 production。开发库迁移前后只读差异报告均得到物料主档/批次 8 条、批次/仓位 7 条、最新流水/仓位 37 条待核对差异；保留历史原料入库 11 条、物料转仓 20 条、成品转仓 0 条；部署后统一 SE 缺流水为 0。首次部署暴露旧表先建 idempotency 索引的迁移顺序错误，真实旧表回归后以 `a6e932ab` 修复并重新部署；最终备份 `/opt/stacks/erp/orderapp.backup.deploy-20260725105659`，容器重启数 0，日志错误标记 0。API 和部署资产通过；Chrome/应用内浏览器均被开发域证书 `ERR_CERT_AUTHORITY_INVALID` 拦截，未创建开发业务单据，页面视觉待 Van 验收。
 
 ### PR-551-REMOVE-SALES-ORDER-TRACE
 - Branch: codex/pr551-remove-sales-order-trace
