@@ -61,8 +61,6 @@ CREATE TABLE IF NOT EXISTS %s.stock_entries (
 );
 CREATE INDEX IF NOT EXISTS stock_entries_work_order_idx ON %s.stock_entries(work_order_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS stock_entries_type_idx ON %s.stock_entries(entry_type, status, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS stock_entries_idempotency_uq
-	ON %s.stock_entries(idempotency_key) WHERE idempotency_key <> '';
 
 CREATE TABLE IF NOT EXISTS %s.stock_entry_items (
 	id BIGSERIAL PRIMARY KEY,
@@ -98,7 +96,7 @@ CREATE TABLE IF NOT EXISTS %s.stock_entry_batch_allocations (
 );
 CREATE INDEX IF NOT EXISTS stock_entry_batch_allocations_item_idx
 	ON %s.stock_entry_batch_allocations(stock_entry_item_id, id);
-`, schema, schema, schema, schema, schema, schema, schema, schema)); err != nil {
+`, schema, schema, schema, schema, schema, schema, schema)); err != nil {
 		return err
 	}
 	for _, stmt := range []string{

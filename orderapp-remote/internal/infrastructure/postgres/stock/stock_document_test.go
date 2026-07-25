@@ -11,6 +11,57 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestEnsureUnifiedStockDocumentTablesAddsColumnsBeforeDependentIndex(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %s.stock_entries (
+			id BIGSERIAL PRIMARY KEY,entry_no TEXT NOT NULL UNIQUE,entry_type TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'submitted',work_order_id BIGINT NOT NULL DEFAULT 0,
+			job_card_id BIGINT NOT NULL DEFAULT 0,running_item_id BIGINT NOT NULL DEFAULT 0,
+			source_type TEXT NOT NULL DEFAULT '',source_id BIGINT NOT NULL DEFAULT 0,
+			operator TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE TABLE %s.stock_entry_items (
+			id BIGSERIAL PRIMARY KEY,stock_entry_id BIGINT NOT NULL,material_id BIGINT NOT NULL DEFAULT 0,
+			product_id BIGINT NOT NULL DEFAULT 0,item_type TEXT NOT NULL DEFAULT '',item_name TEXT NOT NULL DEFAULT '',
+			spec_g BIGINT NOT NULL DEFAULT 0,from_warehouse TEXT NOT NULL DEFAULT '',to_warehouse TEXT NOT NULL DEFAULT '',
+			qty_g BIGINT NOT NULL DEFAULT 0,qty_units BIGINT NOT NULL DEFAULT 0,batch_code TEXT NOT NULL DEFAULT '',
+			unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,total_cost NUMERIC(12,4) NOT NULL DEFAULT 0
+		);
+		INSERT INTO %s.stock_entries(entry_no,entry_type) VALUES('SE-LEGACY-1','wip_return');
+	`, schema, schema, schema))
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	})
+
+	if err := ensureUnifiedStockDocumentTables(ctx, pool, schema); err != nil {
+		t.Fatalf("ensureUnifiedStockDocumentTables on existing Stock Entry tables: %v", err)
+	}
+	var purpose string
+	var isReturn, legacy bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT purpose,is_return,legacy
+		FROM %s.stock_entries
+		WHERE entry_no='SE-LEGACY-1'
+	`, schema)).Scan(&purpose, &isReturn, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	var indexCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pg_indexes
+		WHERE schemaname=$1 AND tablename='stock_entries' AND indexname='stock_entries_idempotency_uq'
+	`, schema).Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if purpose != stockapp.PurposeMaterialTransferForManufacture || !isReturn || !legacy || indexCount != 1 {
+		t.Fatalf("legacy purpose/return/legacy/index = %q/%t/%t/%d", purpose, isReturn, legacy, indexCount)
+	}
+}
+
 func setupUnifiedStockDocumentTest(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool, schema := newStockTestDB(t)
