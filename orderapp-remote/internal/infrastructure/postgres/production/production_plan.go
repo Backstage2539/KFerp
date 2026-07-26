@@ -474,7 +474,8 @@ func (r Repository) ListProductionPlans(ctx context.Context, query productionapp
 		SELECT pp.id,pp.plan_no,pp.source_type,pp.status,COUNT(pi.id)::bigint,
 		       pp.created_by,to_char(pp.created_at,'YYYY-MM-DD HH24:MI'),
 		       pp.submitted_by,COALESCE(to_char(pp.submitted_at,'YYYY-MM-DD HH24:MI'),''),
-		       COALESCE(to_char(pp.completed_at,'YYYY-MM-DD HH24:MI'),'')
+		       COALESCE(to_char(pp.completed_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(pp.cancelled_at,'YYYY-MM-DD HH24:MI'),'')
 		FROM %s.production_plans pp
 		LEFT JOIN %s.production_plan_items pi ON pi.production_plan_id=pp.id
 		WHERE %s
@@ -489,7 +490,11 @@ func (r Repository) ListProductionPlans(ctx context.Context, query productionapp
 	out := make([]productionapp.ProductionPlanRow, 0)
 	for rows.Next() {
 		var row productionapp.ProductionPlanRow
-		if err := rows.Scan(&row.ID, &row.PlanNo, &row.SourceType, &row.Status, &row.ItemCount, &row.CreatedBy, &row.CreatedAt, &row.SubmittedBy, &row.SubmittedAt, &row.CompletedAt); err != nil {
+		if err := rows.Scan(
+			&row.ID, &row.PlanNo, &row.SourceType, &row.Status, &row.ItemCount,
+			&row.CreatedBy, &row.CreatedAt, &row.SubmittedBy, &row.SubmittedAt,
+			&row.CompletedAt, &row.CancelledAt,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -518,10 +523,15 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,plan_no,source_type,status,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI'),
 		       submitted_by,COALESCE(to_char(submitted_at,'YYYY-MM-DD HH24:MI'),''),
-		       COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),'')
+		       COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(cancelled_at,'YYYY-MM-DD HH24:MI'),'')
 		FROM %s.production_plans
 		WHERE id=$1
-	`, schema), id).Scan(&detail.ID, &detail.PlanNo, &detail.SourceType, &detail.Status, &detail.CreatedBy, &detail.CreatedAt, &detail.SubmittedBy, &detail.SubmittedAt, &detail.CompletedAt)
+	`, schema), id).Scan(
+		&detail.ID, &detail.PlanNo, &detail.SourceType, &detail.Status,
+		&detail.CreatedBy, &detail.CreatedAt, &detail.SubmittedBy,
+		&detail.SubmittedAt, &detail.CompletedAt, &detail.CancelledAt,
+	)
 	if err == pgx.ErrNoRows {
 		return productionapp.ProductionPlanDetail{}, fmt.Errorf("production plan not found")
 	}
@@ -1315,6 +1325,96 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 		return productionapp.ProductionPlanSubmitResult{}, err
 	}
 	return productionapp.ProductionPlanSubmitResult{Plan: plan, WorkOrders: workOrders, JobCards: jobCards}, nil
+}
+
+func (r Repository) CancelProductionPlan(ctx context.Context, cmd productionapp.CancelProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var planNo, status string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT plan_no,status
+		FROM %s.production_plans
+		WHERE id=$1
+		FOR UPDATE
+	`, r.schema), cmd.ID).Scan(&planNo, &status); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.ProductionPlanDetail{}, fmt.Errorf("production plan not found")
+		}
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if status == "cancelled" {
+		detail, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
+		if err != nil {
+			return productionapp.ProductionPlanDetail{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return productionapp.ProductionPlanDetail{}, err
+		}
+		return detail, nil
+	}
+	if status != "draft" {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("production plan must be draft to cancel")
+	}
+
+	var workOrderCount, itemCount int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			(
+				SELECT COUNT(*)::bigint
+				FROM %s.work_orders wo
+				WHERE wo.production_plan_id=$1
+				   OR EXISTS (
+						SELECT 1
+						FROM %s.production_plan_items pi
+						WHERE pi.id=wo.production_plan_item_id
+						  AND pi.production_plan_id=$1
+				   )
+			),
+			(SELECT COUNT(*)::bigint FROM %s.production_plan_items WHERE production_plan_id=$1)
+	`, r.schema, r.schema, r.schema), cmd.ID).Scan(&workOrderCount, &itemCount); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if workOrderCount > 0 {
+		return productionapp.ProductionPlanDetail{}, fmt.Errorf("production plan with work order cannot be cancelled as draft")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.production_plans
+		SET status='cancelled',cancelled_at=now()
+		WHERE id=$1
+	`, r.schema), cmd.ID); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(
+		ctx,
+		tx,
+		r.schema,
+		cmd.Operator,
+		"production_plan",
+		&cmd.ID,
+		"cancel",
+		postgresinfra.StrPtr("status"),
+		postgresinfra.StrPtr("draft"),
+		postgresinfra.StrPtr("cancelled"),
+		postgresinfra.AuditMeta{
+			"plan_no":    planNo,
+			"item_count": itemCount,
+			"note":       cmd.Note,
+		},
+	); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	detail, err := loadProductionPlanDetailTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	return detail, nil
 }
 
 func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionPlanItem, splits []productionapp.ProductionPlanOperationSplit) error {

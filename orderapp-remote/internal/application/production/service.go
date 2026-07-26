@@ -405,6 +405,7 @@ type ProductionPlanRow struct {
 	SubmittedBy string `json:"submitted_by"`
 	SubmittedAt string `json:"submitted_at"`
 	CompletedAt string `json:"completed_at"`
+	CancelledAt string `json:"cancelled_at"`
 }
 
 type ProductionPlanItem struct {
@@ -525,6 +526,7 @@ type ProductionPlanDetail struct {
 	SubmittedBy       string                           `json:"submitted_by"`
 	SubmittedAt       string                           `json:"submitted_at"`
 	CompletedAt       string                           `json:"completed_at"`
+	CancelledAt       string                           `json:"cancelled_at"`
 	Items             []ProductionPlanItem             `json:"items"`
 	OperationSplits   []ProductionPlanOperationSplit   `json:"operation_splits"`
 	MaterialSummary   []MaterialNeed                   `json:"material_summary"`
@@ -550,6 +552,12 @@ type ProductionPlanRelatedWorkOrder struct {
 type SubmitProductionPlanCommand struct {
 	ID       int64
 	Operator string
+}
+
+type CancelProductionPlanCommand struct {
+	ID       int64
+	Operator string
+	Note     string
 }
 
 type SubmitProductionPlansCommand struct {
@@ -1519,6 +1527,7 @@ type Repository interface {
 	PreviewProductionPlanOperationSplits(ctx context.Context, cmd PreviewProductionPlanOperationSplitsCommand) (ProductionPlanOperationSplitPreview, error)
 	SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error)
 	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
+	CancelProductionPlan(ctx context.Context, cmd CancelProductionPlanCommand) (ProductionPlanDetail, error)
 	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
 	CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error)
 	CancelWorkOrder(ctx context.Context, cmd WorkOrderCancelCommand) (WorkOrderRow, error)
@@ -1806,6 +1815,15 @@ func (s *Service) SubmitProductionPlan(ctx context.Context, cmd SubmitProduction
 	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	return s.repo.SubmitProductionPlan(ctx, cmd)
+}
+
+func (s *Service) CancelProductionPlan(ctx context.Context, cmd CancelProductionPlanCommand) (ProductionPlanDetail, error) {
+	if cmd.ID <= 0 {
+		return ProductionPlanDetail{}, fmt.Errorf("production_plan_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	return s.repo.CancelProductionPlan(ctx, cmd)
 }
 
 func (s *Service) SubmitProductionPlans(ctx context.Context, cmd SubmitProductionPlansCommand) (ProductionPlanSubmitBatchResult, error) {

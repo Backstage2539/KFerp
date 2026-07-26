@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	productionapp "orderapp/internal/application/production"
+	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,129 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
+
+func TestProductionPlanDraftCancelIsConcurrentAndIdempotent(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		Selected: map[string]bool{"1-227": true},
+		Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+
+	app := newProductionFlowTestEcho(pool, schema)
+	results := make(chan int, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID), nil)
+			rec := httptest.NewRecorder()
+			app.ServeHTTP(rec, req)
+			results <- rec.Code
+		}()
+	}
+	close(start)
+	for range 2 {
+		if code := <-results; code != http.StatusOK {
+			t.Fatalf("concurrent cancel status = %d, want 200", code)
+		}
+	}
+
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='cancelled' AND cancelled_at IS NOT NULL", plan.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("production_plan_id=%d", plan.ID), 0)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 1)
+}
+
+func TestProductionPlanSubmitAndDraftCancelAreSerialized(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		Selected: map[string]bool{"1-227": true},
+		Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+
+	app := newProductionFlowTestEcho(pool, schema)
+	type transitionResult struct {
+		action string
+		code   int
+		body   string
+	}
+	results := make(chan transitionResult, 2)
+	start := make(chan struct{})
+	for action, path := range map[string]string{
+		"submit": fmt.Sprintf("/api/production-plans/%d/submit", plan.ID),
+		"cancel": fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID),
+	} {
+		go func(action, path string) {
+			<-start
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			rec := httptest.NewRecorder()
+			app.ServeHTTP(rec, req)
+			results <- transitionResult{action: action, code: rec.Code, body: rec.Body.String()}
+		}(action, path)
+	}
+	close(start)
+
+	got := []transitionResult{<-results, <-results}
+	successes := 0
+	rejections := 0
+	for _, result := range got {
+		switch result.code {
+		case http.StatusOK:
+			successes++
+		case http.StatusBadRequest:
+			if !strings.Contains(result.body, "must be draft") {
+				t.Fatalf("%s rejected for unexpected reason: %s", result.action, result.body)
+			}
+			rejections++
+		default:
+			t.Fatalf("%s status=%d body=%s", result.action, result.code, result.body)
+		}
+	}
+	if successes != 1 || rejections != 1 {
+		t.Fatalf("submit/cancel outcomes=%+v, want one success and one draft-state rejection", got)
+	}
+
+	var status string
+	var workOrderCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT pp.status,COUNT(wo.id)::int
+		FROM %s.production_plans pp
+		LEFT JOIN %s.work_orders wo ON wo.production_plan_id=pp.id
+		WHERE pp.id=$1
+		GROUP BY pp.id
+	`, schema, schema), plan.ID).Scan(&status, &workOrderCount); err != nil {
+		t.Fatalf("load final production plan state: %v", err)
+	}
+	switch status {
+	case "cancelled":
+		if workOrderCount != 0 {
+			t.Fatalf("cancelled plan has %d work orders, want 0", workOrderCount)
+		}
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 1)
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='submit'", plan.ID), 0)
+	case "submitted":
+		if workOrderCount != 1 {
+			t.Fatalf("submitted plan has %d work orders, want 1", workOrderCount)
+		}
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 0)
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='submit'", plan.ID), 1)
+	default:
+		t.Fatalf("final production plan status = %q, want cancelled or submitted", status)
+	}
+}
 
 func TestProductionPlanAPIConcurrentCreatePlansDemandOnlyOnce(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)

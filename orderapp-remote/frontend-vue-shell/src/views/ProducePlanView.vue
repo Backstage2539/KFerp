@@ -14,6 +14,7 @@
         <button class="secondary" type="button" @click="load(false)" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="notice" class="ok">{{ notice }}</div>
       <div v-if="stockTip" class="ok direct-ship-tip">
         <div>
           <strong>{{ stockTip }}</strong>
@@ -241,6 +242,7 @@
             <div class="actions current-plan-actions">
               <button v-if="!currentPlan" class="primary" type="button" @click="createProductionPlan" :disabled="saving || previewLoading || !planReady">创建生产计划</button>
               <button v-else class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
+              <button v-if="currentPlanDraft" class="danger" type="button" @click="cancelProductionPlanDraft(currentPlan, 'current')" :disabled="saving || loading">撤销草稿</button>
               <span v-if="currentPlan && !currentPlanDraft" class="muted">当前计划状态为 {{ productionPlanStatusLabel(currentPlan.status) }}，无需重复提交。</span>
             </div>
             <div v-if="postSubmitActions.length" class="next-step-panel">
@@ -377,10 +379,11 @@
               <td>{{ plan.item_count || 0 }}</td>
               <td>{{ plan.created_by || '-' }}</td>
               <td>{{ plan.submitted_by || '-' }}</td>
-              <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small></td>
+              <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small><small>撤 {{ plan.cancelled_at || '-' }}</small></td>
               <td class="row-actions">
                 <button class="secondary compact" type="button" @click="openProductionPlanDetail(plan)">详情</button>
                 <button v-if="productionPlanSelectable(plan)" class="secondary compact" type="button" @click="openProductionPlanSplitDrawer(plan)">编辑拆分</button>
+                <button v-if="productionPlanSelectable(plan)" class="danger compact" type="button" @click="cancelProductionPlanDraft(plan, 'list')" :disabled="saving || loading">撤销草稿</button>
               </td>
             </tr>
             <tr v-if="!productionPlans.length">
@@ -401,6 +404,7 @@
           <div class="drawer-head-actions">
             <span :class="['status', `status-${productionPlanStatusTone(productionPlanDetail.status)}`]">{{ productionPlanStatusLabel(productionPlanDetail.status) }}</span>
             <button v-if="productionPlanSelectable(productionPlanDetail)" class="secondary compact" type="button" @click="openProductionPlanSplitDrawer(productionPlanDetail)">编辑拆分</button>
+            <button v-if="productionPlanSelectable(productionPlanDetail)" class="danger compact" type="button" @click="cancelProductionPlanDraft(productionPlanDetail, 'detail')" :disabled="saving || loading">撤销草稿</button>
             <button class="secondary compact" type="button" @click="closeProductionPlanDetail">关闭</button>
           </div>
         </div>
@@ -416,6 +420,7 @@
               <div><dt>创建</dt><dd>{{ productionPlanDetail.created_by || '-' }} / {{ productionPlanDetail.created_at || '-' }}</dd></div>
               <div><dt>提交</dt><dd>{{ productionPlanDetail.submitted_by || '-' }} / {{ productionPlanDetail.submitted_at || '-' }}</dd></div>
               <div><dt>完成</dt><dd>{{ productionPlanDetail.completed_at || '-' }}</dd></div>
+              <div><dt>撤销</dt><dd>{{ productionPlanDetail.cancelled_at || '-' }}</dd></div>
             </dl>
           </section>
 
@@ -731,6 +736,8 @@ import {
   productionPlanSteps,
   productionPlanSplitBatchCards,
   productionPlanBatchSubmitEndpoint,
+  productionPlanCancelEndpoint,
+  productionPlanCancelTargetsCurrentPlan,
   productionPlanDetailEndpoint,
   productionPlanOperationSplitsEndpoint,
   productionPlanOperationSplitsPreviewEndpoint,
@@ -759,6 +766,7 @@ const loading = ref(false)
 const saving = ref(false)
 const previewLoading = ref(false)
 const error = ref('')
+const notice = ref('')
 const previewError = ref('')
 const stockTip = ref('')
 const rows = ref([])
@@ -788,6 +796,7 @@ const selected = reactive({})
 const selectedProductionPlans = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
+let demandRequestSeq = 0
 let productionPlanSplitPreviewTimer = 0
 let productionPlanSplitPreviewRequestSeq = 0
 const tableScrollDrag = {
@@ -957,18 +966,21 @@ function applyUnproducedData(data, plan) {
 }
 
 async function load(plan) {
+  const requestID = ++demandRequestSeq
   loading.value = true
   error.value = ''
   previewError.value = ''
   try {
     const data = await apiGet(buildUnproducedURL(plan))
+    if (requestID !== demandRequestSeq) return
     applyUnproducedData(data, plan)
     if (!plan) currentPlan.value = null
     if (!plan && selectedKeys().length) schedulePlanPreview()
   } catch (err) {
+    if (requestID !== demandRequestSeq) return
     error.value = err.message || '加载失败'
   } finally {
-    loading.value = false
+    if (requestID === demandRequestSeq) loading.value = false
   }
 }
 
@@ -1012,6 +1024,27 @@ async function loadProductionPlans() {
     pruneProductionPlanSelections()
   } catch (err) {
     error.value = err.message || '加载生产计划失败'
+  }
+}
+
+async function refreshProductionDemandAfterDraftCancel(preserveCurrentPlan = false) {
+  const requestID = ++demandRequestSeq
+  loading.value = true
+  try {
+    const data = await apiGet(buildUnproducedURL(false, []))
+    if (requestID !== demandRequestSeq) return
+    if (preserveCurrentPlan) {
+      rows.value = data.rows || []
+      stockTip.value = data.stock_tip || ''
+      updateUrl(true)
+    } else {
+      applyUnproducedData(data, false)
+    }
+  } catch (err) {
+    if (requestID !== demandRequestSeq) return
+    error.value = `草稿已撤销，但待生产需求刷新失败：${err.message || '加载失败'}`
+  } finally {
+    if (requestID === demandRequestSeq) loading.value = false
   }
 }
 
@@ -1706,6 +1739,64 @@ async function submitSelectedProductionPlans() {
     }
   } catch (err) {
     error.value = err.message || '提交生成工单失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function cancelProductionPlanDraft(plan, source = 'list') {
+  if (!productionPlanSelectable(plan) || !productionPlanCancelEndpoint(plan)) return
+  const planNo = String(plan?.plan_no || `#${Number(plan?.id || 0)}`)
+  if (!window.confirm(`确认撤销生产计划草稿 ${planNo}？撤销后该草稿不能再提交，关联订单商品将回到待生产需求。`)) return
+
+  saving.value = true
+  notice.value = ''
+  if (source === 'current') previewError.value = ''
+  else if (source === 'detail') productionPlanDetailError.value = ''
+  else error.value = ''
+  try {
+    const cancelled = await apiSend(productionPlanCancelEndpoint(plan), { body: {} })
+    const cancelledID = Number(cancelled?.id || plan?.id || 0)
+    const cancelledCurrentPlan = productionPlanCancelTargetsCurrentPlan({ id: cancelledID }, currentPlan.value)
+    delete selectedProductionPlans[String(cancelledID)]
+
+    if (cancelledCurrentPlan) {
+      currentPlan.value = null
+      operationSplits.value = []
+      postSubmitActions.value = []
+    }
+    if (Number(productionPlanDetail.value?.id || 0) === cancelledID) {
+      closeProductionPlanDetail()
+    }
+    if (Number(productionPlanSplitDrawer.value?.id || 0) === cancelledID) {
+      closeProductionPlanSplitDrawer()
+    }
+
+    if (cancelledCurrentPlan) {
+      replaceSelected({})
+      if (previewTimer) {
+        clearTimeout(previewTimer)
+        previewTimer = 0
+      }
+      previewRequestSeq += 1
+      previewLoading.value = false
+      planRows.value = []
+      initialMaterials.value = []
+      filters.demand_status = defaultProductionDemandStatusFilter()
+      demandPanelCollapsed.value = false
+      updateUrl(false)
+    }
+    notice.value = `生产计划草稿 ${planNo} 已撤销，相关订单商品已回到待生产需求。`
+
+    await Promise.all([
+      refreshProductionDemandAfterDraftCancel(!cancelledCurrentPlan),
+      loadProductionPlans(),
+    ])
+  } catch (err) {
+    const message = err.message || '撤销生产计划草稿失败'
+    if (source === 'current') previewError.value = err.message || '撤销生产计划草稿失败'
+    else if (source === 'detail') productionPlanDetailError.value = err.message || '撤销生产计划草稿失败'
+    else error.value = message
   } finally {
     saving.value = false
   }

@@ -27,6 +27,10 @@ type productionPlanOperationSplitsRequest struct {
 	Items []productionapp.ProductionPlanOperationSplit `json:"items"`
 }
 
+type productionPlanCancelRequest struct {
+	Note string `json:"note"`
+}
+
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.GET("/api/production-plans", func(c echo.Context) error {
 		rows, err := productionSvc.ListProductionPlans(c.Request().Context(), productionapp.ProductionPlanQuery{
@@ -147,5 +151,29 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, res)
+	})
+	e.POST("/api/production-plans/:id/cancel", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_id"})
+		}
+		var req productionPlanCancelRequest
+		if c.Request().Body != nil && c.Request().ContentLength != 0 {
+			if err := c.Bind(&req); err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+			}
+		}
+		plan, err := productionSvc.CancelProductionPlan(c.Request().Context(), productionapp.CancelProductionPlanCommand{
+			ID:       id,
+			Operator: support.ActorOf(c),
+			Note:     req.Note,
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				return c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
+			}
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, plan)
 	})
 }

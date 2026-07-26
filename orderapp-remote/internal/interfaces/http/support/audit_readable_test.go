@@ -48,6 +48,38 @@ func TestDecorateAuditLogRowMakesMaterialUpdateReadable(t *testing.T) {
 	}
 }
 
+func TestDecorateAuditLogRowMakesProductionPlanDraftCancelReadable(t *testing.T) {
+	field := "status"
+	oldValue := "draft"
+	newValue := "cancelled"
+	meta := `{"plan_no":"PP-0000000041","item_count":1,"note":"订单调整"}`
+	row := AuditLogRow{
+		Actor:      "计划员",
+		EntityType: "production_plan",
+		EntityID:   int64Ptr(41),
+		Action:     "cancel",
+		Field:      &field,
+		OldValue:   &oldValue,
+		NewValue:   &newValue,
+		Meta:       &meta,
+	}
+
+	decorateAuditLogRow(&row, nil, nil)
+
+	if row.Menu != "生产管理 / 生产流程 / 生产计划" {
+		t.Fatalf("Menu = %q", row.Menu)
+	}
+	if row.Feature != "撤销生产计划草稿" {
+		t.Fatalf("Feature = %q", row.Feature)
+	}
+	if row.EntityType != "生产计划" || row.Action != "取消" {
+		t.Fatalf("EntityType/Action = %q/%q", row.EntityType, row.Action)
+	}
+	if !strings.Contains(row.Summary, "PP-0000000041") {
+		t.Fatalf("Summary = %q, want readable production plan number", row.Summary)
+	}
+}
+
 func TestDecorateAuditLogRowIdentifiesOperationMenuAndFeature(t *testing.T) {
 	field := "POST /app/api/materials/22"
 	status := "200"

@@ -181,6 +181,22 @@ test('productionPlanSubmitEndpoint points submit action at the formal production
   assert.equal(productionPlanSubmitEndpoint({}), '')
 })
 
+test('production plan cancel endpoint only targets a concrete plan', () => {
+  assert.equal(
+    producePlan.productionPlanCancelEndpoint({ id: 41 }),
+    '/api/production-plans/41/cancel',
+  )
+  assert.equal(producePlan.productionPlanCancelEndpoint({ id: 0 }), '')
+  assert.equal(producePlan.productionPlanCancelEndpoint(null), '')
+})
+
+test('production plan cancel only resets a workbench showing the same draft', () => {
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 41 }, { id: 41 }), true)
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 41 }, { id: 42 }), false)
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 41 }, null), false)
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 0 }, { id: 0 }), false)
+})
+
 test('production plan list query includes status and date filters with a 50 row default', () => {
   assert.equal(
     producePlan.buildProductionPlanListQuery({
@@ -581,6 +597,34 @@ test('ProducePlanView submits the current draft plan through the batch submit AP
   assert.match(source, /buildCurrentProductionPlanSubmitPayload\(currentPlan\.value\)/)
   assert.match(source, /apiSend\(productionPlanBatchSubmitEndpoint\(\), \{ body: payload \}\)/)
   assert.doesNotMatch(source, /@click="submitPlanRow\(plan\)"/)
+})
+
+test('ProducePlanView cancels draft plans and refreshes returned production demand', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    '撤销草稿',
+    'cancelProductionPlanDraft',
+    'productionPlanCancelEndpoint(plan)',
+    'productionPlanCancelTargetsCurrentPlan',
+    'window.confirm',
+    'replaceSelected({})',
+    'defaultProductionDemandStatusFilter()',
+    'refreshProductionDemandAfterDraftCancel',
+    'loadProductionPlans()',
+  ]) {
+    assert.ok(source.includes(marker), `missing ${marker}`)
+  }
+  assert.match(source, /v-if="currentPlanDraft"[\s\S]*@click="cancelProductionPlanDraft\(currentPlan, 'current'\)"/)
+  assert.match(source, /v-if="productionPlanSelectable\(plan\)"[\s\S]*@click="cancelProductionPlanDraft\(plan, 'list'\)"/)
+  assert.match(source, /v-if="productionPlanSelectable\(productionPlanDetail\)"[\s\S]*@click="cancelProductionPlanDraft\(productionPlanDetail, 'detail'\)"/)
+  assert.match(source, /previewError\.value = err\.message \|\| '撤销生产计划草稿失败'/)
+  assert.match(source, /productionPlanDetailError\.value = err\.message \|\| '撤销生产计划草稿失败'/)
+  assert.match(source, /if \(cancelledCurrentPlan\) \{[\s\S]*replaceSelected\(\{\}\)[\s\S]*planRows\.value = \[\]/)
+  assert.match(source, /refreshProductionDemandAfterDraftCancel\(!cancelledCurrentPlan\)/)
+  assert.match(source, /let demandRequestSeq = 0/)
+  assert.match(source, /if \(requestID !== demandRequestSeq\) return/)
+  assert.match(source, /:disabled="saving \|\| loading">撤销草稿/)
 })
 
 test('ProducePlanView owns operation capacity splits after draft plan creation', () => {

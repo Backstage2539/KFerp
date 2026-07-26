@@ -319,6 +319,7 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		return err
 	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.production_plans ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_source_product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS sales_spec_count NUMERIC(18,6) NOT NULL DEFAULT 0`, schema),

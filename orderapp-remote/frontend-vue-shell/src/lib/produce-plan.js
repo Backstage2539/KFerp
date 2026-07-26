@@ -625,3 +625,15 @@ export function productionPlanSubmitEndpoint(plan) {
   if (id <= 0) return ''
   return `/api/production-plans/${id}/submit`
 }
+
+export function productionPlanCancelEndpoint(plan) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0) return ''
+  return `/api/production-plans/${id}/cancel`
+}
+
+export function productionPlanCancelTargetsCurrentPlan(cancelledPlan, currentPlan) {
+  const cancelledID = Number(cancelledPlan?.id || 0)
+  const currentID = Number(currentPlan?.id || 0)
+  return cancelledID > 0 && cancelledID === currentID
+}
