@@ -29,7 +29,11 @@
   - `scripts/verify_kferp.sh changed`
   - `npm run build`
 - 完整前端：806/813；7 个 customer/workspace 既有契约失败与 PR-555 改动文件不重叠，和当前既有基线一致。
-- 真实 PostgreSQL / development smoke：待集成与部署后补充。
+- GREEN real PostgreSQL（开发服务器临时 schema）：
+  - 撤销后需求回流、冻结计划行和工序拆分快照保留。
+  - submitted 与仅通过计划行关联异常工单的 draft 均拒绝撤销。
+  - 并发双撤销幂等且只写一次日志；提交/撤销竞争只允许一个状态转换成功。
+  - 操作日志写入失败时 `draft -> cancelled` 整体回滚。
 
 ## 自动化验收矩阵
 
@@ -47,5 +51,10 @@
 
 - 部署目标：development
 - production：不部署、不写数据
-- 自动化 API / 页面只读冒烟：待部署后补充。
+- 功能分支：`codex/pr555-production-plan-draft-cancel` / `33fa9d1d`
+- `origin/develop`：`a67bc0b7`
+- 部署备份：`/opt/stacks/erp/orderapp.backup.deploy-20260726234857`
+- 容器：`erp_orderapp` 正常启动，`erp_postgres` healthy；应用日志只有正常监听信息。
+- 页面/API：`/vue-shell?view=producePlan` 返回 200，生产计划只读 API 返回 200；REQ 数据存在 `PR-555-PRODUCTION-PLAN-DRAFT-CANCEL`，服务器源码存在 `/api/production-plans/:id/cancel`。
+- 应用内浏览器：development 使用本地 CA，浏览器被 `ERR_CERT_AUTHORITY_INVALID` 安全页拦截；按安全要求未绕过，因此视觉验收留给用户。
 - 人工业务写：不自动撤销现有生产计划草稿，由用户在页面确认后执行。
