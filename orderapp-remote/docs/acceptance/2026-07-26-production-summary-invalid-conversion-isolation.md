@@ -27,5 +27,8 @@
 
 - 本次测试使用临时 PostgreSQL 数据；不修改 `CDS-20260526-1186`，不补写商品换算，不创建真实生产计划。
 - 不自动修复历史订单、商品档案、BOM、工单、库存或生产日志。
-- development 部署与只读 API/页面冒烟待完整验证完成后补充。
+- 功能提交 `b1a65ab4` 已推送，合并到 `develop` 的提交为 `b775375a`；使用 `./deploy_orderapp.sh development` 完成 development 部署，备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260726145520`。
+- Docker 镜像内完整 Go 测试通过；`erp_orderapp` 重启数为 0，`erp_postgres` 为 healthy，部署后日志中 `panic/fatal`、`SQLSTATE`、`conn busy` 和 error 标记均为 0。
+- 认证 Vue shell 与需求 API 返回 200，PR-554 和部署源码标记可读。`/api/produce/unproduced` 返回 200、6 条有效可选需求、0 条阻塞需求；`CDS-20260526-1186` 不在结果中。
+- 应用内浏览器访问 development 时被本地 CA 的 `ERR_CERT_AUTHORITY_INVALID` 安全页拦截；未绕过证书安全页，页面视觉交由 Van 手工确认。
 - production 明确不部署、不写业务数据。
