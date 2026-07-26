@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-555-PRODUCTION-PLAN-DRAFT-CANCEL
 - Branch: codex/pr555-production-plan-draft-cancel
 - Owner/session: Codex / 2026-07-26
-- Status: verifying
+- Status: merged to `develop`, deployed to development, automated API/PostgreSQL smoke complete; awaiting Van visual acceptance
 - Scope: 生产计划生成草稿后支持正式“撤销草稿”；仅草稿可撤销，计划单据与冻结快照保留为已取消，关联订单商品重新回到待生产需求，不生成或回滚不存在的工单、WIP 或库存记录。
 - DEV:
   - DEV-555-DRAFT-CANCEL-LIFECYCLE：新增 `POST /api/production-plans/{id}/cancel`，以计划行锁原子完成 `draft -> cancelled`，重复撤销幂等，非草稿或已有下游工单时拒绝。
@@ -18,10 +18,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-555-DOCS-DELIVERY：同步生产手册、需求、验收资料、PR/DEV 种子与开发环境交付证据。
 - Verifier:
   - RED: `node --test src/lib/produce-plan.test.js` 因缺少 `productionPlanCancelEndpoint` 和“撤销草稿”交互失败；`go test ./internal/interfaces/http/production -run TestProductionPlanDraftCancelRouteReturnsCancelledPlan -count=1` 因路由返回 404 失败。
-  - GREEN local: 生产计划取消路由、应用服务、操作日志可读性和前端 `produce-plan` 43/43 通过；`go test ./... -count=1`、Vue/Vite production build、`scripts/verify_kferp.sh changed` 通过。完整前端 806/813，7 个失败与既有 customer/workspace 契约基线一致且不涉及 PR-555 改动；真实 PostgreSQL 生命周期与部署冒烟待集成后完成。
-- Deployment: pending；development only，production 不部署。
+  - GREEN: 生产计划取消路由、应用服务、操作日志可读性和前端 `produce-plan` 43/43 通过；合并前后 `go test ./... -count=1`、Vue/Vite production build、`scripts/verify_kferp.sh changed` 通过。开发服务器临时 PostgreSQL schema 中，需求回流、拆分快照保留、非草稿和异常工单拒绝、并发双撤销、提交/撤销竞争及审计失败回滚全部通过。完整前端 806/813，7 个失败与既有 customer/workspace 契约基线一致且不涉及 PR-555 改动；独立复审无合并阻断。
+- Deployment: feature `33fa9d1d` pushed；merged to `develop` as `a67bc0b7` and deployed to development；backup `/opt/stacks/erp/orderapp.backup.deploy-20260726234857`；production 明确不部署。
 - Last update: 2026-07-26 Asia/Shanghai
-- Notes: 撤销采用软取消并保留 PP 单据快照；草稿阶段没有工单、WIP 占用或库存流水。已提交/生产中计划的整单撤销不在本需求范围内，继续按工单取消业务处理。
+- Notes: 部署后 `erp_orderapp` 正常启动、PostgreSQL healthy、日志仅有正常监听信息；`/vue-shell?view=producePlan` 和生产计划只读 API 返回 200，REQ 数据存在 PR-555，服务器源码存在 cancel 路由。应用内浏览器被 development 本地 CA 的 `ERR_CERT_AUTHORITY_INVALID` 安全页拦截且未绕过；未撤销任何真实草稿、未写业务订单或库存数据。撤销采用软取消并保留 PP 单据快照；已提交/生产中计划的整单撤销不在本需求范围内，继续按工单取消业务处理。
 
 ### PR-554-PRODUCTION-SUMMARY-CONVERSION-ISOLATION
 - Branch: codex/pr554-production-summary-conversion-isolation

@@ -1646,4 +1646,4 @@
 - [x] 撤销后原订单商品重新显示为 `待计划 / unplanned` 且可勾选；可创建一个新草稿，旧已取消计划继续可查但不再占用需求。
 - [x] 重复撤销幂等返回同一已取消计划，操作日志只写一次；撤销与提交共享计划行锁，不产生“已取消但已有新工单”的中间状态。
 - [x] 操作日志显示“生产管理 / 生产流程 / 生产计划”“撤销生产计划草稿”、计划号和状态变化。
-- [ ] 完整 Go 测试、前端测试、Vue/Vite 构建、迁移幂等、development 部署和 API/页面冒烟通过；production 未部署且未自动撤销现有草稿。证据记录在 `orderapp-remote/docs/acceptance/2026-07-26-production-plan-draft-cancel.md`。
+- [x] 完整 Go、PR-555 前端 43/43、Vue/Vite 构建、幂等 schema 变更、development 部署、真实 PostgreSQL 和 API/页面只读冒烟通过；完整前端 806/813，7 个失败为既有 customer/workspace 基线且不涉及本改动。production 未部署，未自动撤销现有草稿；应用内浏览器因 development 本地 CA 被安全页拦截且未绕过，等待 Van 视觉确认。证据记录在 `orderapp-remote/docs/acceptance/2026-07-26-production-plan-draft-cancel.md`。
