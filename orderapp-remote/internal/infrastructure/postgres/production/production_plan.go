@@ -106,6 +106,12 @@ func (r Repository) productionPlanSelectedNeeds(ctx context.Context, tx pgx.Tx, 
 	if err := r.attachProductionDemandStatusesQuery(ctx, tx, appRows); err != nil {
 		return nil, err
 	}
+	for _, row := range appRows {
+		if cmd.Selected[producePlanKey(row.ProductID, row.SpecG)] &&
+			strings.TrimSpace(row.BlockingReason) != "" {
+			return nil, fmt.Errorf("%s", row.BlockingReason)
+		}
+	}
 	return selectedProductionPlanStartNeeds(appRows, cmd.Selected), nil
 }
 
@@ -113,7 +119,10 @@ func selectedProductionPlanStartNeeds(rows []productionapp.UnprodNeedRow, select
 	out := make([]productionapp.StartNeed, 0)
 	for _, row := range rows {
 		key := producePlanKey(row.ProductID, row.SpecG)
-		if !selected[key] || (row.GapG <= 0 && row.GapInventoryQty <= 0) || row.DemandStatus != "unplanned" {
+		if !selected[key] ||
+			strings.TrimSpace(row.BlockingReason) != "" ||
+			(row.GapG <= 0 && row.GapInventoryQty <= 0) ||
+			row.DemandStatus != "unplanned" {
 			continue
 		}
 		out = append(out, productionapp.StartNeed{

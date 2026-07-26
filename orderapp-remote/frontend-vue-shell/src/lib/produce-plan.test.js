@@ -112,6 +112,14 @@ test('production demand status helpers only allow unplanned shortage rows to be 
     { product_id: 1, spec_g: 454, gap_g: 454, demand_status: 'unplanned' },
     { product_id: 2, spec_g: 227, gap_g: 227, demand_status: 'in_production' },
     { product_id: 3, spec_g: 100, gap_g: 0, demand_status: 'completed' },
+    {
+      product_id: 4,
+      spec_g: 0,
+      gap_g: 100,
+      demand_status: 'unplanned',
+      demand_selectable: false,
+      blocking_reason: '销售单位“件”无法换算到库存单位“盒”',
+    },
   ]
 
   assert.equal(productionDemandStatusLabel('unplanned'), '待计划')
@@ -126,8 +134,9 @@ test('production demand status helpers only allow unplanned shortage rows to be 
   assert.equal(productionDemandSelectable(demandRows[0]), true)
   assert.equal(productionDemandSelectable(demandRows[1]), false)
   assert.equal(productionDemandSelectable(demandRows[2]), false)
+  assert.equal(productionDemandSelectable(demandRows[3]), false)
   assert.deepEqual(buildProductionDemandSelection(demandRows, true), { '1-454': true })
-  assert.deepEqual(productionDemandSelectionState(demandRows, { '1-454': true, '2-227': true }), {
+  assert.deepEqual(productionDemandSelectionState(demandRows, { '1-454': true, '2-227': true, '4-0': true }), {
     checked: true,
     indeterminate: false,
     selectedCount: 1,
@@ -683,6 +692,8 @@ test('ProducePlanView maintains production demand statuses and filters planned r
     'isProductionDemandSelected',
     'status-demand-in-production',
     '已进入生产计划的需求不可重复生成计划',
+    'blocking_reason',
+    '资料待完善',
   ]) {
     assert.match(source, new RegExp(marker))
   }

@@ -45,6 +45,7 @@ type UnprodNeedRow struct {
 	DemandStatus             string  `json:"demand_status,omitempty"`
 	DemandStatusLabel        string  `json:"demand_status_label,omitempty"`
 	DemandSelectable         bool    `json:"demand_selectable"`
+	BlockingReason           string  `json:"blocking_reason,omitempty"`
 	ProductionPlanID         int64   `json:"production_plan_id,omitempty"`
 	ProductionPlanNo         string  `json:"production_plan_no,omitempty"`
 	WorkOrderID              int64   `json:"work_order_id,omitempty"`
@@ -76,14 +77,14 @@ type productionDemandQueryer interface {
 }
 
 func fetchUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
-	where := fmt.Sprintf(`WHERE o.is_void=false AND %s
+	where := fmt.Sprintf(`WHERE o.is_void=false AND p.active=true AND %s
 	AND COALESCE(oi.product_id,0) > 0
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss
 		WHERE ss.id=o.ship_status_id
 		  AND ss.name='已发货'
 	)`, productionPlanOpenStatusFilter(schema, "o"), schema)
-	demandWhere := []string{"d.status='planned'", "COALESCE(d.product_id,0) > 0"}
+	demandWhere := []string{"d.status='planned'", "COALESCE(d.product_id,0) > 0", "p.active=true"}
 	args := []any{}
 	argn := 1
 	if customerID > 0 {
@@ -235,13 +236,47 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			netContentQty, netContentUnit, inventoryUnit,
 		)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"order %s / product %s / spec %s: %w",
-				firstNonEmpty(orderNo, "(unknown)"),
-				firstNonEmpty(product, fmt.Sprintf("product#%d", productID)),
-				firstNonEmpty(specLabel, salesUnit, "(unknown)"),
-				err,
+			blockingSalesUnit, blockingInventoryUnit := productionQuantitySnapshotUnits(
+				priceSourceJSON,
+				salesUnit,
+				specLabel,
+				inventoryUnit,
 			)
+			blockingReason := productionQuantitySnapshotBlockingReason(blockingSalesUnit, blockingInventoryUnit, err)
+			groupKey := strings.Join([]string{
+				"blocked",
+				strconv.FormatInt(productID, 10),
+				strconv.FormatInt(parentProductID, 10),
+				strings.TrimSpace(orderNo),
+				strings.TrimSpace(specLabel),
+				strings.TrimSpace(salesUnit),
+				blockingReason,
+			}, "\x1f")
+			demand := bySnapshot[groupKey]
+			if demand == nil {
+				demand = &productionDemand{
+					UnprodNeedRow: UnprodNeedRow{
+						ProductID: productID, ParentProductID: parentProductID, Product: product,
+						ProductionKind: productionKind, ProductTypeCategoryID: typeID,
+						ProductSubtypeCategoryID: subtypeID, ProductTypeName: typeName,
+						ProductSubtypeName: subtypeName, OperationTemplateID: operationTemplateID,
+						SpecLabel: firstNonEmpty(specLabel, blockingSalesUnit), SalesUnit: blockingSalesUnit,
+						InventoryUnit:  blockingInventoryUnit,
+						BlockingReason: blockingReason,
+					},
+					orderNos: map[string]bool{},
+				}
+				bySnapshot[groupKey] = demand
+				order = append(order, groupKey)
+			}
+			demand.SalesSpecCount += qty
+			if forceProduce {
+				demand.forceSalesSpecCount += qty
+			}
+			if strings.TrimSpace(orderNo) != "" {
+				demand.orderNos[strings.TrimSpace(orderNo)] = true
+			}
+			continue
 		}
 		groupKey := productionQuantitySnapshotGroupKey(snapshot)
 		demand := bySnapshot[groupKey]
@@ -463,6 +498,51 @@ func resolveProductionQuantitySnapshot(
 	return snapshot, string(rawJSON), nil
 }
 
+func productionQuantitySnapshotUnits(priceSourceJSON, orderSalesUnit, catalogSpecLabel, catalogInventoryUnit string) (string, string) {
+	var source map[string]any
+	if strings.TrimSpace(priceSourceJSON) != "" {
+		_ = json.Unmarshal([]byte(priceSourceJSON), &source)
+	}
+	frozen, _ := source["production_quantity_snapshot"].(map[string]any)
+	effective, _ := source["effective_sales_spec"].(map[string]any)
+	salesUnit := firstNonEmpty(
+		jsonString(frozen["sales_unit"]),
+		jsonString(effective["sales_unit"]),
+		orderSalesUnit,
+		catalogSpecLabel,
+	)
+	inventoryUnit := firstNonEmpty(
+		jsonString(frozen["inventory_unit"]),
+		jsonString(effective["inventory_unit"]),
+		jsonString(source["inventory_unit"]),
+		catalogInventoryUnit,
+	)
+	return salesUnit, normalizeProductionQuantityUnit(inventoryUnit)
+}
+
+func productionQuantitySnapshotBlockingReason(salesUnit, inventoryUnit string, err error) string {
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	switch {
+	case strings.Contains(message, "no valid inventory unit conversion"):
+		return fmt.Sprintf(
+			"销售单位“%s”无法换算到库存单位“%s”，请在商品档案配置该销售规格的库存换算",
+			firstNonEmpty(strings.TrimSpace(salesUnit), "(未设置)"),
+			firstNonEmpty(strings.TrimSpace(inventoryUnit), "(未设置)"),
+		)
+	case strings.Contains(message, "price source snapshot invalid"):
+		return "订单价格来源快照格式错误，请检查订单商品规格后重新保存"
+	case strings.Contains(message, "production quantity snapshot invalid"):
+		return "订单生产数量快照格式错误，请检查订单商品规格后重新保存"
+	case strings.Contains(message, "production quantity snapshot does not match"):
+		return "订单冻结的生产数量换算与具体 SKU 不一致或不完整，请检查订单商品规格"
+	default:
+		return "订单生产数量换算不可用，请检查订单商品规格与库存单位换算"
+	}
+}
+
 func productionInventoryConversionFactor(source, effective map[string]any, salesUnit, inventoryUnit string) float64 {
 	for _, owner := range []map[string]any{effective, source} {
 		raw, _ := owner["inventory_conversion_json"].(map[string]any)
@@ -666,6 +746,12 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	out := make([]UnprodNeedRow, 0, len(orderedDemands))
 	for _, demand := range orderedDemands {
 		row := demand.UnprodNeedRow
+		if strings.TrimSpace(row.BlockingReason) != "" {
+			row.NeedUnits = int64(math.Ceil(demand.SalesSpecCount))
+			row.DemandSelectable = false
+			out = append(out, row)
+			continue
+		}
 		availabilityKey := fmt.Sprintf("%d-%d", row.ProductID, row.SpecG)
 		current := availability[availabilityKey]
 		if current == nil {

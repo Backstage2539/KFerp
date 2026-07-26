@@ -255,6 +255,7 @@ type UnprodNeedRow struct {
 	DemandStatus                      string  `json:"demand_status,omitempty"`
 	DemandStatusLabel                 string  `json:"demand_status_label,omitempty"`
 	DemandSelectable                  bool    `json:"demand_selectable"`
+	BlockingReason                    string  `json:"blocking_reason,omitempty"`
 	ProductionPlanID                  int64   `json:"production_plan_id,omitempty"`
 	ProductionPlanNo                  string  `json:"production_plan_no,omitempty"`
 	WorkOrderID                       int64   `json:"work_order_id,omitempty"`

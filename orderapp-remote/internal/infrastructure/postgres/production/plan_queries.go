@@ -82,6 +82,11 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 			continue
 		}
 		selectedCount++
+		if strings.TrimSpace(row.BlockingReason) != "" {
+			data.PlanReady = false
+			data.Error = row.BlockingReason
+			return data, nil
+		}
 		if row.GapG <= 0 || row.DemandStatus != "unplanned" {
 			continue
 		}
@@ -160,6 +165,7 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 			DemandStatus:             row.DemandStatus,
 			DemandStatusLabel:        row.DemandStatusLabel,
 			DemandSelectable:         row.DemandSelectable,
+			BlockingReason:           row.BlockingReason,
 			ProductionPlanID:         row.ProductionPlanID,
 			ProductionPlanNo:         row.ProductionPlanNo,
 			WorkOrderID:              row.WorkOrderID,
@@ -202,7 +208,7 @@ func (r Repository) splitUnproducedNeedsByProductionPlanQuery(ctx context.Contex
 		for i := range rows {
 			rows[i].DemandStatus = "unplanned"
 			rows[i].DemandStatusLabel = productionDemandStatusLabel("unplanned")
-			rows[i].DemandSelectable = rows[i].GapG > 0
+			rows[i].DemandSelectable = rows[i].GapG > 0 && strings.TrimSpace(rows[i].BlockingReason) == ""
 		}
 		return rows, nil
 	}
@@ -217,7 +223,7 @@ func (r Repository) splitUnproducedNeedsByProductionPlanQuery(ctx context.Contex
 		if len(rowParts) == 0 {
 			row.DemandStatus = "unplanned"
 			row.DemandStatusLabel = productionDemandStatusLabel("unplanned")
-			row.DemandSelectable = row.GapG > 0
+			row.DemandSelectable = row.GapG > 0 && strings.TrimSpace(row.BlockingReason) == ""
 			out = append(out, row)
 			continue
 		}
@@ -297,7 +303,7 @@ func splitProductionDemandRowByParts(row UnprodNeedRow, parts []productionDemand
 				group.row.GapSalesSpecCount = float64(group.row.GapG) / float64(group.row.SpecG)
 				group.row.GapInventoryQty = productiondomain.SalesSpecCountToInventoryQuantity(group.row.GapSalesSpecCount, group.row.InventoryQtyPerSalesUnit)
 			}
-			group.row.DemandSelectable = group.row.GapG > 0
+			group.row.DemandSelectable = group.row.GapG > 0 && strings.TrimSpace(group.row.BlockingReason) == ""
 		} else {
 			group.row.GapG = group.row.NeedG
 			if group.row.InventoryQtyPerSalesUnit > 0 {
@@ -554,7 +560,9 @@ func (r Repository) attachProductionDemandStatusesQuery(ctx context.Context, que
 			rows[i].DemandStatus = "unplanned"
 		}
 		rows[i].DemandStatusLabel = productionDemandStatusLabel(rows[i].DemandStatus)
-		rows[i].DemandSelectable = rows[i].GapG > 0 && rows[i].DemandStatus == "unplanned"
+		rows[i].DemandSelectable = rows[i].GapG > 0 &&
+			rows[i].DemandStatus == "unplanned" &&
+			strings.TrimSpace(rows[i].BlockingReason) == ""
 	}
 	return nil
 }
