@@ -997,6 +997,10 @@ func (s *threeTemplateWalkthroughStore) SubmitProductionPlan(context.Context, pr
 	return productionapp.ProductionPlanSubmitResult{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CancelProductionPlan(_ context.Context, cmd productionapp.CancelProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	return productionapp.ProductionPlanDetail{ID: cmd.ID, Status: "cancelled"}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) StartWorkOrder(context.Context, productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
 	return productionapp.WorkOrderStartResult{}, nil
 }

@@ -15,6 +15,7 @@ type fakeFlowRepo struct {
 	cancel         CancelCommand
 
 	createPlan          CreateProductionPlanCommand
+	cancelPlan          CancelProductionPlanCommand
 	submitPlan          SubmitProductionPlanCommand
 	submitPlans         []SubmitProductionPlanCommand
 	startWorkOrder      WorkOrderStartCommand
@@ -164,6 +165,13 @@ func (r *fakeFlowRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProdu
 		}
 	}
 	return r.submittedPlan, nil
+}
+
+func (r *fakeFlowRepo) CancelProductionPlan(ctx context.Context, cmd CancelProductionPlanCommand) (ProductionPlanDetail, error) {
+	r.cancelPlan = cmd
+	r.productionPlan.ID = cmd.ID
+	r.productionPlan.Status = "cancelled"
+	return r.productionPlan, nil
 }
 
 func (r *fakeFlowRepo) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error) {
@@ -436,6 +444,32 @@ func TestServiceOwnsFormalProductionPlanWorkOrderLifecycle(t *testing.T) {
 	}
 }
 
+func TestServiceCancelsProductionPlanDraftWithTrimmedAuditContext(t *testing.T) {
+	repo := &fakeFlowRepo{
+		productionPlan: ProductionPlanDetail{
+			ID:     41,
+			PlanNo: "PP-0000000041",
+			Status: "draft",
+		},
+	}
+	svc := NewService(repo)
+
+	cancelled, err := svc.CancelProductionPlan(context.Background(), CancelProductionPlanCommand{
+		ID:       41,
+		Operator: " 计划员 ",
+		Note:     " 订单调整 ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.ID != 41 || cancelled.Status != "cancelled" {
+		t.Fatalf("CancelProductionPlan() = %+v, want cancelled plan", cancelled)
+	}
+	if repo.cancelPlan.ID != 41 || repo.cancelPlan.Operator != "计划员" || repo.cancelPlan.Note != "订单调整" {
+		t.Fatalf("cancel plan command = %+v, want trimmed audit context", repo.cancelPlan)
+	}
+}
+
 func TestCreateProductionPlanDefaultsSelectedNeedInputWhenPlanRowHasNoEditableRoastInput(t *testing.T) {
 	repo := &fakeFlowRepo{
 		productionPlan: ProductionPlanDetail{
@@ -533,6 +567,9 @@ func TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands(t *testing.T) {
 	}
 	if _, err := svc.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: 0, Operator: "计划员"}); err == nil {
 		t.Fatal("SubmitProductionPlan should reject empty id")
+	}
+	if _, err := svc.CancelProductionPlan(ctx, CancelProductionPlanCommand{ID: 0, Operator: "计划员"}); err == nil {
+		t.Fatal("CancelProductionPlan should reject empty id")
 	}
 	if _, err := svc.SubmitProductionPlans(ctx, SubmitProductionPlansCommand{IDs: []int64{}, Operator: "计划员"}); err == nil {
 		t.Fatal("SubmitProductionPlans should reject empty ids")

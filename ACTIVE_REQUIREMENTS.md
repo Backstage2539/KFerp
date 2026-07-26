@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-555-PRODUCTION-PLAN-DRAFT-CANCEL
+- Branch: codex/pr555-production-plan-draft-cancel
+- Owner/session: Codex / 2026-07-26
+- Status: verifying
+- Scope: 生产计划生成草稿后支持正式“撤销草稿”；仅草稿可撤销，计划单据与冻结快照保留为已取消，关联订单商品重新回到待生产需求，不生成或回滚不存在的工单、WIP 或库存记录。
+- DEV:
+  - DEV-555-DRAFT-CANCEL-LIFECYCLE：新增 `POST /api/production-plans/{id}/cancel`，以计划行锁原子完成 `draft -> cancelled`，重复撤销幂等，非草稿或已有下游工单时拒绝。
+  - DEV-555-DEMAND-RETURN-AUDIT：取消后沿既有派生查询恢复 `unplanned` 可选需求，保留计划行、BOM/规格/工艺拆分快照，并同事务写可读操作日志。
+  - DEV-555-PRODUCTION-PLAN-UI：当前计划、计划单据列表和详情抽屉提供“撤销草稿”，二次确认后清理旧预览并刷新待生产需求和计划列表。
+  - DEV-555-DOCS-DELIVERY：同步生产手册、需求、验收资料、PR/DEV 种子与开发环境交付证据。
+- Verifier:
+  - RED: `node --test src/lib/produce-plan.test.js` 因缺少 `productionPlanCancelEndpoint` 和“撤销草稿”交互失败；`go test ./internal/interfaces/http/production -run TestProductionPlanDraftCancelRouteReturnsCancelledPlan -count=1` 因路由返回 404 失败。
+  - GREEN local: 生产计划取消路由、应用服务、操作日志可读性和前端 `produce-plan` 43/43 通过；`go test ./... -count=1`、Vue/Vite production build、`scripts/verify_kferp.sh changed` 通过。完整前端 806/813，7 个失败与既有 customer/workspace 契约基线一致且不涉及 PR-555 改动；真实 PostgreSQL 生命周期与部署冒烟待集成后完成。
+- Deployment: pending；development only，production 不部署。
+- Last update: 2026-07-26 Asia/Shanghai
+- Notes: 撤销采用软取消并保留 PP 单据快照；草稿阶段没有工单、WIP 占用或库存流水。已提交/生产中计划的整单撤销不在本需求范围内，继续按工单取消业务处理。
+
 ### PR-554-PRODUCTION-SUMMARY-CONVERSION-ISOLATION
 - Branch: codex/pr554-production-summary-conversion-isolation
 - Owner/session: Codex / 2026-07-26

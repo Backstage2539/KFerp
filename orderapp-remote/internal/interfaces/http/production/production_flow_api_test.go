@@ -37,6 +37,33 @@ type materialSummaryItemForTest struct {
 	DeductUnits  int64  `json:"deduct_units"`
 }
 
+func TestProductionPlanDraftCancelRouteReturnsCancelledPlan(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "测试计划员")
+			return next(c)
+		}
+	})
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-plans/41/cancel", strings.NewReader(`{"note":" 订单调整 "}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/production-plans/41/cancel status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"id":41`) || !strings.Contains(rec.Body.String(), `"status":"cancelled"`) {
+		t.Fatalf("cancel response = %s, want cancelled plan 41", rec.Body.String())
+	}
+	if repo.cancelPlan.ID != 41 || repo.cancelPlan.Operator != "测试计划员" || repo.cancelPlan.Note != "订单调整" {
+		t.Fatalf("cancel command = %+v, want actor and trimmed note", repo.cancelPlan)
+	}
+}
+
 func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -1245,6 +1272,184 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
+}
+
+func TestProductionPlanDraftCancelAPIReturnsDemandAndKeepsFrozenHistory(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_plan_operation_splits(
+			production_plan_id,production_plan_item_id,operation_seq,operation,planned_qty,planned_qty_g
+		)
+		VALUES($1,$2,1,'烘焙',600,600)
+	`, schema), plan.ID, plan.Items[0].ID); err != nil {
+		t.Fatalf("seed production plan split: %v", err)
+	}
+
+	e := newProductionFlowTestEcho(pool, schema)
+	before := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?demand_status=in_production", nil)
+	beforeRec := httptest.NewRecorder()
+	e.ServeHTTP(beforeRec, before)
+	if beforeRec.Code != http.StatusOK {
+		t.Fatalf("GET in-production demand status = %d, body=%s", beforeRec.Code, beforeRec.Body.String())
+	}
+	for _, want := range []string{`"demand_status":"in_production"`, `"demand_selectable":false`, plan.PlanNo} {
+		if !strings.Contains(beforeRec.Body.String(), want) {
+			t.Fatalf("planned demand missing %s before cancel: %s", want, beforeRec.Body.String())
+		}
+	}
+
+	cancelPath := fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID)
+	cancelReq := httptest.NewRequest(http.MethodPost, cancelPath, nil)
+	cancelRec := httptest.NewRecorder()
+	e.ServeHTTP(cancelRec, cancelReq)
+	if cancelRec.Code != http.StatusOK {
+		t.Fatalf("POST %s status = %d, want 200 body=%s", cancelPath, cancelRec.Code, cancelRec.Body.String())
+	}
+	var cancelled struct {
+		ID          int64                              `json:"id"`
+		Status      string                             `json:"status"`
+		CancelledAt string                             `json:"cancelled_at"`
+		Items       []productionapp.ProductionPlanItem `json:"items"`
+	}
+	if err := json.Unmarshal(cancelRec.Body.Bytes(), &cancelled); err != nil {
+		t.Fatalf("unmarshal cancelled production plan: %v\n%s", err, cancelRec.Body.String())
+	}
+	if cancelled.ID != plan.ID || cancelled.Status != "cancelled" || cancelled.CancelledAt == "" || len(cancelled.Items) != 1 {
+		t.Fatalf("cancelled production plan = %+v, want cancelled history with one frozen item", cancelled)
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plan_items", fmt.Sprintf("production_plan_id=%d", plan.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "production_plan_operation_splits", fmt.Sprintf("production_plan_id=%d", plan.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("production_plan_id=%d", plan.ID), 0)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 1)
+
+	retryReq := httptest.NewRequest(http.MethodPost, cancelPath, nil)
+	retryRec := httptest.NewRecorder()
+	e.ServeHTTP(retryRec, retryReq)
+	if retryRec.Code != http.StatusOK {
+		t.Fatalf("idempotent POST %s status = %d, want 200 body=%s", cancelPath, retryRec.Code, retryRec.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 1)
+
+	after := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?demand_status=unplanned", nil)
+	afterRec := httptest.NewRecorder()
+	e.ServeHTTP(afterRec, after)
+	if afterRec.Code != http.StatusOK {
+		t.Fatalf("GET returned demand status = %d, body=%s", afterRec.Code, afterRec.Body.String())
+	}
+	for _, want := range []string{`"order_nos":"SO-PLAN-1"`, `"demand_status":"unplanned"`, `"demand_selectable":true`} {
+		if !strings.Contains(afterRec.Body.String(), want) {
+			t.Fatalf("returned demand missing %s after cancel: %s", want, afterRec.Body.String())
+		}
+	}
+
+	replanned, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan after cancel: %v", err)
+	}
+	if replanned.ID == plan.ID || replanned.Status != "draft" {
+		t.Fatalf("replanned production plan = %+v, want new draft", replanned)
+	}
+}
+
+func TestProductionPlanDraftCancelAPIRejectsNonDraftAndDownstreamWork(t *testing.T) {
+	t.Run("submitted plan", func(t *testing.T) {
+		pool, schema := newProductionFlowTestDB(t)
+		ctx := context.Background()
+		seedProductionPlanLifecycleData(t, ctx, pool, schema)
+		repo := postgresproduction.NewRepository(pool, schema)
+		plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+			Selected: map[string]bool{"1-227": true},
+			Operator: "计划员",
+		})
+		if err != nil {
+			t.Fatalf("CreateProductionPlan: %v", err)
+		}
+		if _, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"}); err != nil {
+			t.Fatalf("SubmitProductionPlan: %v", err)
+		}
+
+		e := newProductionFlowTestEcho(pool, schema)
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID), nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "draft") {
+			t.Fatalf("submitted plan cancel status = %d body=%s, want draft guard", rec.Code, rec.Body.String())
+		}
+		assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='submitted'", plan.ID), 1)
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 0)
+	})
+
+	t.Run("draft with downstream work order", func(t *testing.T) {
+		pool, schema := newProductionFlowTestDB(t)
+		ctx := context.Background()
+		seedProductionPlanLifecycleData(t, ctx, pool, schema)
+		repo := postgresproduction.NewRepository(pool, schema)
+		plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+			Selected: map[string]bool{"1-227": true},
+			Operator: "计划员",
+		})
+		if err != nil {
+			t.Fatalf("CreateProductionPlan: %v", err)
+		}
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.work_orders(work_order_no,production_plan_item_id,status)
+			VALUES($1,$2,'released')
+		`, schema), "WO-ANOMALY-555", plan.Items[0].ID); err != nil {
+			t.Fatalf("seed downstream work order: %v", err)
+		}
+
+		e := newProductionFlowTestEcho(pool, schema)
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID), nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "work order") {
+			t.Fatalf("downstream plan cancel status = %d body=%s, want work order guard", rec.Code, rec.Body.String())
+		}
+		assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='draft'", plan.ID), 1)
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 0)
+	})
+}
+
+func TestProductionPlanDraftCancelRollsBackWhenAuditWriteFails(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		Selected: map[string]bool{"1-227": true},
+		Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`DROP TABLE %s.audit_logs`, schema)); err != nil {
+		t.Fatalf("drop audit log table: %v", err)
+	}
+
+	if _, err := repo.CancelProductionPlan(ctx, productionapp.CancelProductionPlanCommand{ID: plan.ID, Operator: "计划员"}); err == nil {
+		t.Fatal("CancelProductionPlan should fail when audit write fails")
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='draft' AND cancelled_at IS NULL", plan.ID), 1)
 }
 
 func TestLegacyProduceStartAPIUsesTemporaryPlanAndStillStartsProduction(t *testing.T) {

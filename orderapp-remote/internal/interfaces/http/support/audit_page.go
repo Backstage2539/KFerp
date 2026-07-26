@@ -201,6 +201,11 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		default:
 			return "生产管理 / 工艺模板", "维护工艺模板"
 		}
+	case "production_plan":
+		if action == "cancel" {
+			return "生产管理 / 生产流程 / 生产计划", "撤销生产计划草稿"
+		}
+		return "生产管理 / 生产流程 / 生产计划", "维护生产计划"
 	case "industry_field_template":
 		if action == "deactivate" {
 			return "设置 / 行业设置", "停用行业字段模板"
@@ -738,6 +743,8 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(firstMetaText(meta, "batch_id", "batch_code"), valueForField(r, "batch_id"))
 	case "produce_running":
 		return firstMetaText(meta, "work_order_no", "running_item_id", "batch_id", "product_id")
+	case "production_plan":
+		return firstMetaText(meta, "plan_no")
 	case "wip_reservation":
 		return firstMetaText(meta, "work_order_no", "note", "running_item_id", "material_id")
 	case "product_category":
@@ -866,6 +873,8 @@ func labelEntityType(t string) string {
 		return "产品分类"
 	case "process_template":
 		return "工艺模板"
+	case "production_plan":
+		return "生产计划"
 	case "industry_field_template":
 		return "行业字段模板"
 	case "material":

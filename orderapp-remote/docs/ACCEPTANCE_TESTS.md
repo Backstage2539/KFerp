@@ -1637,3 +1637,13 @@
 - [x] 系统不从商品名或规格名推导数量，也不猜测 `1件 = 1盒`；提示用户回到商品档案补充具体销售规格的权威库存换算。
 - [x] 数据库或 SQL 等系统错误不被降级吞掉；行级隔离只处理具体商品资料的换算错误。
 - [x] 完整后端、Vue/Vite 构建、development 部署和生产需求 API 冒烟完成；接口返回 6 条有效可选需求，`CDS-20260526-1186` 对应停用测试商品不再进入新需求。应用内浏览器因 development 本地 CA 证书被安全页拦截且未绕过，等待 Van 视觉确认；production 未部署，未写业务数据。证据记录在 `orderapp-remote/docs/acceptance/2026-07-26-production-summary-invalid-conversion-isolation.md`。
+
+### K97. 生产计划草稿撤销与待生产需求回流（PR-555-PRODUCTION-PLAN-DRAFT-CANCEL）
+- [x] 当前生产计划、生产计划单据草稿行和单据详情抽屉均显示“撤销草稿”；已提交、生产中、已完成和已取消计划不显示该动作。
+- [x] 撤销前显示二次确认，明确草稿不能再提交且关联订单商品会回到待生产需求；取消确认不调用接口、不改变页面。
+- [x] `POST /api/production-plans/{id}/cancel` 只允许 `draft`，在同一事务以行锁更新为 `cancelled` 并写 `cancelled_at`；非草稿和异常已有工单的草稿被拒绝且不改状态。
+- [x] 撤销保留计划号、计划行、规格/BOM/物料/路线/配置/拆分快照；不生成工单、工序卡、running item、WIP 占用、库存单据或反向库存流水。
+- [x] 撤销后原订单商品重新显示为 `待计划 / unplanned` 且可勾选；可创建一个新草稿，旧已取消计划继续可查但不再占用需求。
+- [x] 重复撤销幂等返回同一已取消计划，操作日志只写一次；撤销与提交共享计划行锁，不产生“已取消但已有新工单”的中间状态。
+- [x] 操作日志显示“生产管理 / 生产流程 / 生产计划”“撤销生产计划草稿”、计划号和状态变化。
+- [ ] 完整 Go 测试、前端测试、Vue/Vite 构建、迁移幂等、development 部署和 API/页面冒烟通过；production 未部署且未自动撤销现有草稿。证据记录在 `orderapp-remote/docs/acceptance/2026-07-26-production-plan-draft-cancel.md`。

@@ -27,6 +27,7 @@ type workOrderAPIRepo struct {
 	saveWorkOrderSplits productionapp.SaveWorkOrderOperationSplitsCommand
 	planSplits          []productionapp.ProductionPlanOperationSplit
 	workOrderSplitRows  []productionapp.JobCardRow
+	cancelPlan          productionapp.CancelProductionPlanCommand
 	submitPlan          productionapp.SubmitProductionPlanCommand
 	submitPlans         []productionapp.SubmitProductionPlanCommand
 	startWorkOrder      productionapp.WorkOrderStartCommand
@@ -252,6 +253,15 @@ func (r *workOrderAPIRepo) SubmitProductionPlan(ctx context.Context, cmd product
 		}
 	}
 	return r.submittedPlan, nil
+}
+func (r *workOrderAPIRepo) CancelProductionPlan(ctx context.Context, cmd productionapp.CancelProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	r.cancelPlan = cmd
+	return productionapp.ProductionPlanDetail{
+		ID:          cmd.ID,
+		PlanNo:      "PP-0000000041",
+		Status:      "cancelled",
+		CancelledAt: "2026-07-26 12:00",
+	}, nil
 }
 func (r *workOrderAPIRepo) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
 	r.startWorkOrder = cmd
