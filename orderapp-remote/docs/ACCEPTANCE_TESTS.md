@@ -1636,4 +1636,4 @@
 - [x] 同一日期范围内的其他有效需求继续返回并可选择，不因一条无效换算行被清空；有效的 454g 换算仍按冻结快照计算。
 - [x] 系统不从商品名或规格名推导数量，也不猜测 `1件 = 1盒`；提示用户回到商品档案补充具体销售规格的权威库存换算。
 - [x] 数据库或 SQL 等系统错误不被降级吞掉；行级隔离只处理具体商品资料的换算错误。
-- [ ] 完整后端、Vue/Vite 构建、development 部署和生产流程页面/API 冒烟完成；`CDS-20260526-1186` 对应停用测试商品不再进入新需求，其他有效待生产订单可见。production 未部署，未写业务数据。证据记录在 `orderapp-remote/docs/acceptance/2026-07-26-production-summary-invalid-conversion-isolation.md`。
+- [x] 完整后端、Vue/Vite 构建、development 部署和生产需求 API 冒烟完成；接口返回 6 条有效可选需求，`CDS-20260526-1186` 对应停用测试商品不再进入新需求。应用内浏览器因 development 本地 CA 证书被安全页拦截且未绕过，等待 Van 视觉确认；production 未部署，未写业务数据。证据记录在 `orderapp-remote/docs/acceptance/2026-07-26-production-summary-invalid-conversion-isolation.md`。
