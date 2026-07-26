@@ -99,7 +99,7 @@
                 <th>选择</th>
                 <th>商品</th>
                 <th>订单号</th>
-                <th>规格(g)</th>
+                <th>规格</th>
                 <th>需求(件)</th>
                 <th>需求(g)</th>
                 <th>库存(件)</th>
@@ -117,19 +117,25 @@
                     type="checkbox"
                     :checked="isProductionDemandSelected(row)"
                     :disabled="!productionDemandSelectable(row)"
-                    :title="productionDemandSelectable(row) ? '选择生成生产计划' : '已进入生产计划的需求不可重复生成计划'"
+                    :title="row.blocking_reason || (productionDemandSelectable(row) ? '选择生成生产计划' : '已进入生产计划的需求不可重复生成计划')"
                     @change="toggleInsufficientRow(row, $event.target.checked)"
                   />
                 </td>
-                <td>{{ row.product }}</td>
+                <td>
+                  {{ row.product }}
+                  <small v-if="row.blocking_reason" class="blocking-reason">{{ row.blocking_reason }}</small>
+                </td>
                 <td class="muted">{{ row.order_nos }}</td>
-                <td>{{ row.spec_g }}</td>
+                <td>{{ row.spec_label || row.sales_unit || productionPlanLegacyGramLabel(row.spec_g) }}</td>
                 <td>{{ row.need_units }}</td>
-                <td>{{ row.need_g }}</td>
+                <td>{{ row.blocking_reason ? '-' : row.need_g }}</td>
                 <td>{{ row.inv_units }}</td>
-                <td>{{ row.inv_g }}</td>
-                <td><strong>{{ row.gap_g }}</strong></td>
-                <td><span :class="['status', `status-demand-${productionDemandStatusTone(row.demand_status)}`]">{{ productionDemandStatusLabel(row.demand_status) }}</span></td>
+                <td>{{ row.blocking_reason ? '-' : row.inv_g }}</td>
+                <td><strong>{{ row.blocking_reason ? '-' : row.gap_g }}</strong></td>
+                <td>
+                  <span v-if="row.blocking_reason" class="status status-demand-blocked">资料待完善</span>
+                  <span v-else :class="['status', `status-demand-${productionDemandStatusTone(row.demand_status)}`]">{{ productionDemandStatusLabel(row.demand_status) }}</span>
+                </td>
                 <td class="muted">{{ row.production_plan_no || '-' }}</td>
               </tr>
               <tr v-if="!stockInsufficientRows.length">
@@ -843,8 +849,8 @@ const planReady = computed(() => planRows.value.length > 0 || (currentPlan.value
 const computedPlanRows = computed(() => planRows.value || [])
 const computedMaterials = computed(() => initialMaterials.value || [])
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
-const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
-const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
+const stockInsufficientRows = computed(() => rows.value.filter((row) => String(row.blocking_reason || '').trim() || Number(row.gap_g || 0) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
+const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && Number(row.gap_g || 0) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
 const insufficientSelection = computed(() => productionDemandSelectionState(stockInsufficientRows.value, selected))
 const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
 const productionPlanSelection = computed(() => productionPlanSelectionState(productionPlans.value, selectedProductionPlans))
@@ -939,6 +945,7 @@ function applyUnproducedData(data, plan) {
   stockTip.value = data.stock_tip || ''
   planRows.value = data.plan_rows || []
   initialMaterials.value = data.materials || []
+  if (plan && data.error) previewError.value = data.error
   if (data.selected) {
     Object.keys(selected).forEach((key) => delete selected[key])
     for (const key of Object.keys(data.selected)) {
@@ -1821,6 +1828,8 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .status-demand-unplanned { border-color: #d1d5db; background: #f9fafb; color: #374151; }
 .status-demand-in-production { border-color: #fdba74; background: #fff7ed; color: #c2410c; }
 .status-demand-completed { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+.status-demand-blocked { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.blocking-reason { color: #b91c1c; font-weight: 600; overflow-wrap: anywhere; }
 .plan-result { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
 .table-wrap { overflow: auto; max-width: 100%; }
 .drag-scroll-wrap { cursor: grab; overscroll-behavior: auto; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }

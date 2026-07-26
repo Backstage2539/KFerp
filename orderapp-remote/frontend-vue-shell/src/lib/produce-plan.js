@@ -75,6 +75,8 @@ export function productionDemandPanelEmptyText(status) {
 }
 
 export function productionDemandSelectable(row) {
+  if (String(row?.blocking_reason || '').trim()) return false
+  if (row?.demand_selectable === false) return false
   return Number(row?.gap_g || 0) > 0 && normalizedProductionDemandStatus(row?.demand_status) === 'unplanned'
 }
 

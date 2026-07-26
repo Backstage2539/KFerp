@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-554-PRODUCTION-SUMMARY-CONVERSION-ISOLATION
+- Branch: codex/pr554-production-summary-conversion-isolation
+- Owner/session: Codex / 2026-07-26
+- Status: locally verified; awaiting feature push, develop merge and development deployment
+- Scope: 修复一条停用商品或无有效销售规格到库存单位换算的历史订单拖垮整页生产需求的问题；停用商品不进入新生产需求，启用但换算无效的商品保留为可见且不可选择的“资料待完善”行，其他有效需求继续加载。
+- DEV:
+  - DEV-554-INACTIVE-PRODUCT-ISOLATION：未生产订单和代加工需求查询只纳入启用商品，停用历史测试商品不再进入新的生产需求。
+  - DEV-554-CONVERSION-BLOCKING-ROW：启用商品的具体 SKU 换算缺失时返回行级 `blocking_reason`，禁止选择和生成计划；不得猜测 `1件 = 1盒`。
+  - DEV-554-PRODUCTION-DEMAND-UI：生产计划页面展示“资料待完善”和具体修复原因，置灰复选框并保留其他有效需求。
+  - DEV-554-DOCS-DELIVERY：同步生产手册、需求、验收资料和 support contract，并交付 development 只读冒烟。
+- Verifier:
+  - RED: 真实 PostgreSQL API 用例中，有效 454g 需求与无换算的启用商品同时存在时 `GET /api/produce/unproduced` 返回 500；前端定向测试显示阻塞行仍可选择且页面没有“资料待完善”说明。
+  - GREEN: 真实 PostgreSQL production repository/HTTP 两包通过；`go test ./internal/interfaces/http/production -run '^TestProducePlanSummaryKeepsValidDemandWhenAnotherOrderHasInvalidInventoryConversion$' -count=1` 通过；`node --test src/lib/produce-plan.test.js` 40/40 通过；support contract、完整后端、Vue/Vite build、changed 与 diff-check 通过；独立只读复核无阻断发现。
+- Deployment: development pending；production 明确不部署；不修补历史订单、不创建生产计划、不写业务数据。
+- Last update: 2026-07-26 Asia/Shanghai
+- Notes: development 现场 `CDS-20260526-1186 / Codex测试速溶盒装 10条/盒` 对应停用历史测试商品，订单销售单位为“件”、商品库存单位为“盒”，且不存在权威件到盒换算。系统不以名称或经验猜测换算；启用商品若出现同类问题，用户仍可在列表看到并按行修复资料。
+
 ### PR-553-PRODUCTION-PLAN-PARENT-BOM-UNIT-CONVERSION
 - Branch: codex/pr553-production-plan-parent-bom-unit-conversion
 - Owner/session: Codex / 2026-07-25
