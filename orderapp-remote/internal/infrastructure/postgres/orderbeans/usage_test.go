@@ -96,6 +96,104 @@ func TestPublishedPricingEnrichesTypedEffectiveSalesSpecWithInventoryConversion(
 	}
 }
 
+func TestInspectPublishedProductSpecAllowsPriceRowConversionSubsetOfEffectiveSpecAuthority(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{
+			"product_id":644,
+			"sku_id":789,
+			"parent_product_id":644,
+			"quantity_basis":"sales_spec_count",
+			"inventory_unit":"kg",
+			"inventory_conversion_json":{"454g":{"kg":0.454}},
+			"effective_sales_spec":{
+				"sku_id":789,
+				"spec_name":"454g",
+				"spec_label":"454g",
+				"sales_unit":"454g",
+				"net_content_qty":454,
+				"net_content_unit":"g",
+				"inventory_unit":"kg",
+				"inventory_conversion_json":{
+					"g":{"kg":0.001},
+					"kg":{"kg":1},
+					"lb":{"kg":0.45359237},
+					"磅":{"kg":0.45359237},
+					"454g":{"kg":0.454}
+				}
+			}
+		}]
+	}`)
+
+	got, err := inspectPublishedProductSpecContent(content, 789)
+	if err != nil {
+		t.Fatalf("inspect compatible conversion subset: %v", err)
+	}
+	if !got.ConcretePublication || !got.ProductFound || got.SKUID != 789 {
+		t.Fatalf("concrete product spec = %+v", got)
+	}
+	if !strings.Contains(got.InventoryConversionJSON, `"454g":{"kg":0.454}`) ||
+		!strings.Contains(got.InventoryConversionJSON, `"磅":{"kg":0.45359237}`) {
+		t.Fatalf("effective inventory conversion authority = %s", got.InventoryConversionJSON)
+	}
+	snapshot, err := BuildProductionQuantitySnapshot(got)
+	if err != nil {
+		t.Fatalf("build production quantity snapshot: %v", err)
+	}
+	if snapshot.SalesUnit != "454g" || snapshot.InventoryUnit != "kg" || snapshot.InventoryQtyPerSalesUnit != 0.454 {
+		t.Fatalf("production quantity snapshot = %+v", snapshot)
+	}
+}
+
+func TestInspectPublishedProductSpecAllowsEquivalentFlatAndNestedConversionShapes(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[{
+			"product_id":791,
+			"sku_id":791,
+			"parent_product_id":644,
+			"quantity_basis":"sales_spec_count",
+			"inventory_unit":"kg",
+			"inventory_conversion_json":{"kg":1},
+			"effective_sales_spec":{
+				"sku_id":791,
+				"spec_name":"1Kg",
+				"spec_label":"1Kg",
+				"sales_unit":"kg",
+				"net_content_qty":1,
+				"net_content_unit":"kg",
+				"inventory_unit":"kg",
+				"inventory_conversion_json":{"kg":{"kg":1}}
+			}
+		}]
+	}`)
+
+	got, err := inspectPublishedProductSpecContent(content, 791)
+	if err != nil {
+		t.Fatalf("inspect equivalent flat conversion: %v", err)
+	}
+	if !got.ConcretePublication || !got.ProductFound || got.SKUID != 791 {
+		t.Fatalf("concrete product spec = %+v", got)
+	}
+}
+
+func TestValidatePublishedEffectiveSalesSpecAllowsEquivalentPoundAliases(t *testing.T) {
+	frozen := publishedEffectiveSalesSpec{
+		SalesUnit:     "磅",
+		InventoryUnit: "kg",
+		InventoryConversionJSON: json.RawMessage(`{
+			"lb":{"kg":0.45359237},
+			"lbs":{"kg":0.45359237},
+			"磅":{"kg":0.45359237}
+		}`),
+	}
+	if err := validatePublishedEffectiveSalesSpecInventoryAuthority(
+		frozen,
+		"公斤",
+		json.RawMessage(`{"lb":{"公斤":0.45359237}}`),
+	); err != nil {
+		t.Fatalf("validate equivalent pound aliases: %v", err)
+	}
+}
+
 func TestInspectPublishedProductSpecRejectsConflictingInventoryConversionSnapshots(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -148,6 +246,51 @@ func TestInspectPublishedProductSpecRejectsConflictingInventoryConversionSnapsho
 			}`,
 			wantErr: "库存换算",
 		},
+		{
+			name: "equivalent pound aliases disagree",
+			content: `{
+				"price_rows":[{
+					"product_id":550,
+					"sku_id":551,
+					"parent_product_id":550,
+					"quantity_basis":"sales_spec_count",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"lb":{"kg":0.454}},
+					"effective_sales_spec":{
+						"sku_id":551,
+						"spec_label":"磅",
+						"sales_unit":"磅",
+						"inventory_unit":"kg",
+						"inventory_conversion_json":{
+							"lb":{"kg":0.454},
+							"磅":{"kg":0.45359237}
+						}
+					}
+				}]
+			}`,
+			wantErr: "库存换算",
+		},
+		{
+			name: "empty conversion edge",
+			content: `{
+				"price_rows":[{
+					"product_id":550,
+					"sku_id":551,
+					"parent_product_id":550,
+					"quantity_basis":"sales_spec_count",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"磅":{}},
+					"effective_sales_spec":{
+						"sku_id":551,
+						"spec_label":"磅",
+						"sales_unit":"磅",
+						"inventory_unit":"kg",
+						"inventory_conversion_json":{"磅":{"kg":0.45359237}}
+					}
+				}]
+			}`,
+			wantErr: "库存换算",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -155,6 +298,55 @@ func TestInspectPublishedProductSpecRejectsConflictingInventoryConversionSnapsho
 				t.Fatalf("inspect conflict err = %v, want %s conflict", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestInspectPublishedProductSpecIgnoresUnrelatedSKUConversionConflict(t *testing.T) {
+	content := []byte(`{
+		"price_rows":[
+			{
+				"product_id":700,
+				"sku_id":700,
+				"parent_product_id":699,
+				"quantity_basis":"sales_spec_count",
+				"inventory_unit":"kg",
+				"inventory_conversion_json":{"袋":{"kg":0.5}},
+				"effective_sales_spec":{
+					"sku_id":700,
+					"sales_unit":"袋",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"袋":{"kg":0.25}}
+				}
+			},
+			{
+				"product_id":789,
+				"sku_id":789,
+				"parent_product_id":644,
+				"quantity_basis":"sales_spec_count",
+				"inventory_unit":"kg",
+				"inventory_conversion_json":{"454g":{"kg":0.454}},
+				"effective_sales_spec":{
+					"sku_id":789,
+					"sales_unit":"454g",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{
+						"454g":{"kg":0.454},
+						"磅":{"kg":0.45359237}
+					}
+				}
+			}
+		]
+	}`)
+
+	got, err := inspectPublishedProductSpecContent(content, 789)
+	if err != nil {
+		t.Fatalf("inspect target SKU with unrelated conflict: %v", err)
+	}
+	if !got.ProductFound || got.SKUID != 789 {
+		t.Fatalf("target product spec = %+v", got)
+	}
+	if _, err := inspectPublishedProductSpecContent(content, 700); err == nil || !strings.Contains(err.Error(), "库存换算") {
+		t.Fatalf("inspect conflicting SKU error = %v, want inventory conversion conflict", err)
 	}
 }
 
