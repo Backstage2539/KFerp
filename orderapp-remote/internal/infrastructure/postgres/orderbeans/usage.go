@@ -288,13 +288,6 @@ func inspectPublishedProductSpecContent(raw []byte, productID int64) (PublishedP
 		}
 		if len(row.frozenRaw) > 0 && string(row.frozenRaw) != "null" {
 			_ = json.Unmarshal(row.frozenRaw, &row.frozen)
-			if err := validatePublishedEffectiveSalesSpecInventoryAuthority(
-				row.frozen,
-				publishedJSONStringField(fields, "inventory_unit"),
-				fields["inventory_conversion_json"],
-			); err != nil {
-				return PublishedProductSpec{}, err
-			}
 			row.frozen, row.frozenRaw = enrichPublishedEffectiveSalesSpec(
 				row.frozenRaw,
 				row.parentID,
@@ -315,6 +308,13 @@ func inspectPublishedProductSpecContent(raw []byte, productID int64) (PublishedP
 		}
 		if !row.concrete || row.skuID != productID {
 			continue
+		}
+		if err := validatePublishedEffectiveSalesSpecInventoryAuthority(
+			row.frozen,
+			publishedJSONStringField(row.fields, "inventory_unit"),
+			row.fields["inventory_conversion_json"],
+		); err != nil {
+			return PublishedProductSpec{}, err
 		}
 		if row.frozen.SKUID != row.skuID {
 			return PublishedProductSpec{}, fmt.Errorf("价格表 SKU 快照身份不一致: 价格行 SKU=%d，有效销售规格 SKU=%d", row.skuID, row.frozen.SKUID)
@@ -396,10 +396,11 @@ func inspectPublishedProductSpecContent(raw []byte, productID int64) (PublishedP
 	return result, nil
 }
 
-// The nested effective_sales_spec is the immutable per-SKU authority. A
-// top-level value may backfill an older snapshot only when the nested value is
-// absent; conflicting duplicate values are rejected instead of silently
-// choosing one.
+// The nested effective_sales_spec is the immutable per-SKU authority. The
+// top-level price row intentionally freezes only the selected price unit, while
+// the nested snapshot may carry the product's complete conversion graph. Treat
+// a semantically equal top-level subset as compatible, but keep rejecting any
+// duplicated edge whose factor really differs from the authority.
 func validatePublishedEffectiveSalesSpecInventoryAuthority(frozen publishedEffectiveSalesSpec, inventoryUnit string, inventoryConversionJSON json.RawMessage) error {
 	nestedUnit := strings.TrimSpace(frozen.InventoryUnit)
 	topLevelUnit := strings.TrimSpace(inventoryUnit)
@@ -407,11 +408,74 @@ func validatePublishedEffectiveSalesSpecInventoryAuthority(frozen publishedEffec
 		return fmt.Errorf("价格表有效销售规格库存单位与价格行库存单位冲突: %s / %s", nestedUnit, topLevelUnit)
 	}
 	if publishedJSONHasContent(frozen.InventoryConversionJSON) &&
-		publishedJSONHasContent(inventoryConversionJSON) &&
-		compactPublishedJSON(frozen.InventoryConversionJSON) != compactPublishedJSON(inventoryConversionJSON) {
-		return fmt.Errorf("价格表有效销售规格库存换算与价格行库存换算冲突")
+		publishedJSONHasContent(inventoryConversionJSON) {
+		salesUnit := strings.TrimSpace(frozen.SalesUnit)
+		inventoryUnit := nestedUnit
+		if inventoryUnit == "" {
+			inventoryUnit = topLevelUnit
+		}
+		if salesUnit == "" || inventoryUnit == "" {
+			if compactPublishedJSON(frozen.InventoryConversionJSON) != compactPublishedJSON(inventoryConversionJSON) {
+				return fmt.Errorf("价格表有效销售规格库存换算与价格行库存换算冲突")
+			}
+			return nil
+		}
+		authorityFactor, authorityOK := publishedInventoryAuthorityFactor(frozen.InventoryConversionJSON, salesUnit, inventoryUnit)
+		rowFactor, rowOK := publishedInventoryAuthorityFactor(inventoryConversionJSON, salesUnit, inventoryUnit)
+		if !authorityOK || !rowOK || authorityFactor != rowFactor {
+			return fmt.Errorf("价格表有效销售规格库存换算与价格行库存换算冲突")
+		}
 	}
 	return nil
+}
+
+func publishedInventoryAuthorityFactor(raw json.RawMessage, salesUnit string, inventoryUnit string) (float64, bool) {
+	var graph map[string]any
+	if json.Unmarshal(raw, &graph) != nil {
+		return 0, false
+	}
+	factor := float64(0)
+	found := false
+	for sourceUnit, rawTargets := range graph {
+		if !publishedUnitsEquivalent(sourceUnit, salesUnit) {
+			continue
+		}
+		factors, valid := publishedInventoryTargetFactors(rawTargets, inventoryUnit)
+		if !valid || len(factors) == 0 {
+			return 0, false
+		}
+		for _, candidate := range factors {
+			candidate = normalizePublishedInventoryFactor(candidate)
+			if candidate <= 0 || (found && candidate != factor) {
+				return 0, false
+			}
+			factor = candidate
+			found = true
+		}
+	}
+	return factor, found
+}
+
+func publishedInventoryTargetFactors(rawTargets any, inventoryUnit string) ([]float64, bool) {
+	if direct, ok := rawTargets.(float64); ok {
+		return []float64{direct}, direct > 0
+	}
+	targets, ok := rawTargets.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	factors := make([]float64, 0, 1)
+	for targetUnit, rawFactor := range targets {
+		if !publishedUnitsEquivalent(targetUnit, inventoryUnit) {
+			continue
+		}
+		factor, ok := rawFactor.(float64)
+		if !ok || factor <= 0 {
+			return nil, false
+		}
+		factors = append(factors, factor)
+	}
+	return factors, len(factors) > 0
 }
 
 func samePublishedProductSpec(left, right PublishedProductSpec) bool {
