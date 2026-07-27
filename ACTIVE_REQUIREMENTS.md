@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX
 - Branch: codex/pr556-production-plan-draft-split-ux
 - Owner/session: Codex / 2026-07-27
-- Status: verified; awaiting integration and development deployment
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van visual acceptance
 - Scope: 生产计划 BOM 摘要移除已废弃的预期产出率，仅在存在预期损耗时展示预期损耗；生成草稿成功后立即打开现有拆分产能抽屉；删除当前计划区重复的“创建生产计划”按钮。
 - DEV:
   - DEV-556-BOM-LOSS-SUMMARY：生产计划预览使用预期损耗业务口径，不再展示预期产出率；无损耗时不追加损耗说明。
@@ -22,9 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: `node --test src/lib/produce-plan.test.js` 46/46 passed; Vue/Vite production build passed; full frontend produced the same 8 failure reports (7 existing assertions plus suite summary) as clean `origin/develop`.
   - Manual: `docs/OP_MANUAL_PRODUCTION.md` documents BOM loss/error summary, automatic draft-to-split transition, unsaved split state, and the single top create action.
   - Review/acceptance: independent final review found no P0/P1/P2 blockers; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
-- Deployment: development pending; production excluded
+- Deployment: feature `db9448e8` pushed; merged to `develop` as `f29e24fd` and deployed to development; backup `/opt/stacks/erp/orderapp.backup.deploy-20260727114607`; production excluded
 - Last update: 2026-07-27 Asia/Shanghai
-- Notes: 最新 `origin/develop` 中 `scripts/reserve_req_id.sh` 返回 PR-556；实现从独立工作树开始，不修改用户现有脏工作区。BOM 配置类错误作为行级“BOM 配置待完善”，数据库/连接/事务错误直接由接口返回；未保存的自动拆分不会提前推进步骤。
+- Notes: 最新 `origin/develop` 中 `scripts/reserve_req_id.sh` 返回 PR-556；实现从独立工作树开始，不修改用户现有脏工作区。BOM 配置类错误作为行级“BOM 配置待完善”，数据库/连接/事务错误直接由接口返回；未保存的自动拆分不会提前推进步骤。部署后 `erp_orderapp` 重启次数 0、PostgreSQL healthy、Vue/REQ/生产需求只读 API 均返回成功，现场计划预览包含 `bom_material_loss_rate`；应用内浏览器确认页面无“预期产出率”和重复“创建生产计划”，顶部“生成草稿”唯一存在且控制台无错误。未点击生成草稿、未创建或提交真实生产计划。
 
 ### PR-555-PRODUCTION-PLAN-DRAFT-CANCEL
 - Branch: codex/pr555-production-plan-draft-cancel

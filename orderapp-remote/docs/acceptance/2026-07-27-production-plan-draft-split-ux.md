@@ -36,5 +36,14 @@
 - [x] 创建草稿后调用现有拆分产能入口并打开同一抽屉。
 - [x] 未保存的自动拆分不会让步骤提前跳到提交工单。
 - [x] 完整 Go、定向前端 46/46、Vue/Vite 构建和变更检查通过；完整前端的 8 条失败报告（7 个既有断言加套件汇总）与干净 `origin/develop` 基线完全一致。
-- [ ] 合并到 `develop` 并部署 development；production 不部署。
-- [ ] 部署后完成只读 API、页面资源和服务健康冒烟，不自动创建真实生产计划。
+- [x] 合并到 `develop` 并部署 development；production 不部署。
+- [x] 部署后完成只读 API、页面资源和服务健康冒烟，不自动创建真实生产计划。
+
+## 部署证据
+
+- 功能提交：`db9448e8`；`develop` 合并提交：`f29e24fd`。
+- 执行 `./deploy_orderapp.sh development`，开发服务器备份：`/opt/stacks/erp/orderapp.backup.deploy-20260727114607`。
+- `erp_orderapp` 启动且重启次数为 0；`erp_postgres` 为 `healthy`；部署后日志只有正常监听信息，最近日志中 `panic / fatal / SQLSTATE / conn busy` 计数为 0。
+- Caddy 回环检查：`/vue-shell?view=producePlan`、REQ API 和未计划生产需求 API 均为 200；REQ 数据包含 PR-556；只读计划预览返回 `bom_material_loss_rate`，现场首条可选需求按新规则返回 BOM 配置提示。
+- 应用内浏览器只读打开生产计划页成功：顶部“生成草稿”步骤唯一存在，页面中“创建生产计划”和“预期产出率”计数均为 0，控制台错误为 0。
+- 未点击“生成草稿”、未保存拆分、未提交工单、未写 WIP/库存；production 未部署。

@@ -1657,4 +1657,4 @@
 - [x] 从顶部步骤条或 sticky 下一步点击“生成草稿”后，系统创建 `draft` 并立即打开同一草稿的拆分产能抽屉；关闭后可从第 3 步或单据“编辑拆分”重新打开。
 - [x] 草稿创建后不会先把未保存的自动拆分写入步骤状态；流程保持在“拆分产能”，保存拆分后才进入“提交工单”。
 - [x] 自动打开抽屉不会自动保存拆分、提交工单、生成工单/工序卡、建立 WIP 占用或写库存流水。
-- [ ] 完整 Go、前端、Vue/Vite 构建、development 部署和只读 API/页面冒烟通过；production 未部署，未自动创建或提交真实生产计划。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-draft-split-ux.md`。
+- [x] 完整 Go、定向前端 46/46、Vue/Vite 构建、development 部署和只读 API/页面冒烟通过；完整前端失败集与干净 `origin/develop` 基线一致。production 未部署，未自动创建或提交真实生产计划。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-draft-split-ux.md`。
