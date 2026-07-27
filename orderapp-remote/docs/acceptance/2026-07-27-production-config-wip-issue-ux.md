@@ -47,9 +47,21 @@
 ## 开发环境只读冒烟
 
 - 指定工单：`WO-PP-0000000080-0000000050`
-- 验证内容：真实工单号、逐物料 WIP 缺口、生产领料多物料预览、单数量与库存单位。
-- 禁止动作：不保存/提交库存单据，不开始生产，不修改 BOM、工单、库存或生产日志。
+- 部署提交：`1c1d04f90d5c72749b00999537dc83a082a2bc49`
+- 备份：`/opt/stacks/erp/orderapp.backup.deploy-20260728004632`
+- 容器：`erp_orderapp`、`erp_docconvert` 正常运行，`erp_postgres` healthy；部署后近10分钟日志无 panic/fatal/error。
+- HTTP：
+  - `/app/` 返回303。
+  - `vue-shell?view=productionConfig&tab=bom` 返回200。
+  - `assets/index-DEeHJ0vK.js` 返回200。
+  - PR-559需求接口返回200并包含 `PR-559-PRODUCTION-CONFIG-WIP-ISSUE-UX`。
+- 工单只读验证：
+  - 工单列表、详情与生产领料预览均返回200，详情和 `execution_hub.header` 均返回真实工单号，不以内部 ID `39` 作为界面标识。
+  - WIP状态为 `blocked`，返回逐物料 `inventory_unit / quantity_basis / required_qty / available_qty / shortage_qty`。
+  - `action=issue` 只读预览返回同一真实工单号、`material_transfer_for_manufacture` 和自动库存单位/默认剩余缺口数量。
+- 未保存草稿、未提交库存单据、未开始生产，未修改 BOM、工单、库存或生产日志。
+- 浏览器检查：内置浏览器被 development 证书链 `ERR_CERT_AUTHORITY_INVALID` 阻断；Chrome 控制不可用。没有绕过安全警告，页面级手工验收需用户在已信任该证书的浏览器完成。
 
 ## 结论
 
-- 代码与自动化验证已完成；等待合并、development 部署和指定工单只读冒烟。production 明确不部署。
+- PR-559 已合并 `develop` 并部署 development；自动化、真实 PostgreSQL、API/资源和指定工单只读冒烟通过。production 未部署，等待用户手工验收。

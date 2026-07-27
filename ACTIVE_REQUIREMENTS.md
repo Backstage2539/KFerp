@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-559-PRODUCTION-CONFIG-WIP-ISSUE-UX
 - Branch: codex/pr559-production-config-wip-issue-ux
 - Owner/session: Codex / 2026-07-27
-- Status: implementation and automated verification complete; integration/development deployment pending
+- Status: merged to develop and deployed to development; automated/API/read-only smoke complete, awaiting user acceptance
 - Scope: 将生产 BOM 合并为生产配置第 4 个 Tab；以工单冻结物料快照统一计算 WIP 覆盖并在执行枢纽阻断提示；工单生产领料改为显示真实工单号、自动带出全部短缺物料的单数量多物料 Stock Entry。
 - DEV:
   - DEV-559-PRODUCTION-CONFIG-BOM-TAB：移除独立生产 BOM 主菜单，保留旧链接并规范到 `productionConfig&tab=bom`；保持 BOM 只读/写入权限边界。
@@ -24,9 +24,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed: `scripts/verify_kferp.sh changed` PASS.
   - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md
   - Review/acceptance: orderapp-remote/docs/acceptance/2026-07-27-production-config-wip-issue-ux.md
-- Deployment: development pending; production explicitly excluded
-- Last update: 2026-07-27 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` confirmed next id PR-559 but hit the known awk multiline-string bug; seeded manually. Development work order `WO-PP-0000000080-0000000050` is reserved for read-only preview smoke only; do not submit stock or start production.
+- Deployment: development deployed from `1c1d04f90d5c72749b00999537dc83a082a2bc49`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260728004632`; containers running, recent error count 0; `/app/` 303, Vue shell 200, `index-DEeHJ0vK.js` 200, PR-559 API 200.
+- Last update: 2026-07-28 00:58 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` confirmed next id PR-559 but hit the known awk multiline-string bug; seeded manually. Work order `WO-PP-0000000080-0000000050` detail and production-issue preview returned 200 with true work-order number, WIP shortage material and one canonical quantity/unit; no stock document was saved/submitted and production was not started. In-app browser was blocked by the development certificate chain (`ERR_CERT_AUTHORITY_INVALID`) and Chrome control was unavailable; the certificate warning was not bypassed. Production was not deployed.
 
 ### PR-558-PRODUCTION-PLAN-PREVIEW-PARENT-BOM-NO-LOSS
 - Branch: codex/pr558-production-plan-bom-fallback-no-loss
