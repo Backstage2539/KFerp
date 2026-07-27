@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### BUG-20260727-ORDER-PRICE-CONVERSION-SNAPSHOT
+- Branch: codex/order-entry-price-conversion-conflict
+- Owner/session: Codex / 2026-07-27
+- Status: fixed, merged to `develop`, deployed to development, automated API/source smoke complete
+- Scope: 修复录单读取具体 SKU 已发布价格时，把价格行当前销售规格换算子集与 `effective_sales_spec` 完整换算图误判为冲突的问题；保持真实库存单位、换算因子和别名歧义拦截。
+- Verifier:
+  - RED: `TestInspectPublishedProductSpecAllowsPriceRowConversionSubsetOfEffectiveSpecAuthority` 复现“价格表有效销售规格库存换算与价格行库存换算冲突”。
+  - GREEN: `orderbeans`、销售 repository/API 定向测试和完整 `go test ./... -count=1` 通过；独立复审无 P0/P1/P2。
+  - Live read-only: 开发发布快照中如目达摩具体规格为 `454g -> 0.454kg/件`，价格行选中边与嵌套权威边一致；嵌套额外携带标准重量换算图，无需改商品或重新发布价格表。
+- Deployment: feature `e1165542` pushed；merged to `develop` as `2ecd7444`；development backup `/opt/stacks/erp/orderapp.backup.deploy-20260727125324`；production unchanged
+- Last update: 2026-07-27 Asia/Shanghai
+- Notes: 部署后 `erp_orderapp` running、重启次数 0、PostgreSQL healthy、近 10 分钟致命错误标记 0；认证录单页与 `/app/api/order/form` 返回 200；服务器目标回归测试通过。未创建订单、未修改价格表或商品数据。
+
 ### PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX
 - Branch: codex/pr556-production-plan-draft-split-ux
 - Owner/session: Codex / 2026-07-27
