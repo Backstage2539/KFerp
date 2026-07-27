@@ -21,8 +21,8 @@ func TestDev557ProductionPlanBomLossDemandContracts(t *testing.T) {
 		filepath.Join("internal", "infrastructure", "postgres", "production", "plan_queries.go"): {
 			"theoreticalInputByKey",
 			"loadPlanBomItemsFromRows",
-			"resolveProductionBomForDemandProductTx",
-			"calcProducePlanMaterialsFromFinalInputs(planRows, theoreticalInputByKey",
+			"resolveProductionBomForDemandProductPreviewTx",
+			"calcProducePlanMaterialsFromFinalInputs(materialPreviewRows, theoreticalInputByKey",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "production", "material_consumption.go"): {
 			"InputIncludesMaterialLoss",

@@ -35,12 +35,20 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		VALUES
 			(10,'RAW-A','豆子A','bean','g',0,0,10,0),
 			(11,'RAW-B','豆子B','bean','g',0,0,10,0);
+		INSERT INTO %s.material_batches(
+			id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status
+		) VALUES
+			(100,'MB-RAW-A-WIP',10,'豆子A',100,100,10,'active','pass'),
+			(101,'MB-RAW-A-RAW',10,'豆子A',400,400,10,'active','pass');
+		INSERT INTO %s.material_batch_locations(material_batch_id,material_id,warehouse,qty_g) VALUES
+			(100,10,'wip',100),
+			(101,10,'raw_materials',400);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES
 			(1,10,0.7500),
 			(1,11,0.2500);
 		INSERT INTO %s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
 		VALUES ('样机',2000,'2000',1000,true);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 
 	e := newProducePlanTestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=1-1000&plan=1", nil)
@@ -51,7 +59,21 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"roast_plans"`, `"materials"`, `"plan_rows"`, `"final_input_g":2000`, `"qty":938`, `"qty":313`, `"bom_summary_error":"product BOM not configured: 曲奇拼配"`} {
+	for _, needle := range []string{
+		`"roast_plans"`,
+		`"materials"`,
+		`"plan_rows"`,
+		`"final_input_g":2000`,
+		`"qty":938`,
+		`"qty":313`,
+		`"wip_g":100`,
+		`"available_g":100`,
+		`"raw_g":400`,
+		`"wip_transfer_suggestion_g":400`,
+		`"shortage_g":438`,
+		`"purchase_suggestion_g":438`,
+		`"bom_summary_error":"product BOM not configured: 曲奇拼配"`,
+	} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("response missing %s: %s", needle, body)
 		}
@@ -467,6 +489,256 @@ func TestProducePlanSummaryAPIUsesInheritedPublishedBomLossOnceWithoutMachineRou
 	}
 }
 
+func TestProducePlanSummaryAPIIgnoresInProductionSiblingDemandForParentBomMaterialPlan(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedRumuParentBomLossDemand(t, ctx, pool, schema)
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES (
+			55801,'SO-PR558-RUMU-OLD','2026-07-25',false,
+			(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理' LIMIT 1)
+		);
+		INSERT INTO %[1]s.order_items(
+			order_id,line_no,item_name,qty,unit,sales_unit,spec,product_id,unit_price,line_total,price_source_json
+		) VALUES (
+			55801,1,'如目达摩',4,'454g','454g','454g',789,0,0,
+			'{"product_id":789,"parent_product_id":644,"inventory_unit":"kg","effective_sales_spec":{"sku_id":789,"parent_product_id":644,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_conversion_json":{"454g":0.454}}}'::jsonb
+		);
+		INSERT INTO %[1]s.production_plans(id,plan_no,source_type,status,created_by,created_at)
+		VALUES (55801,'PP-PR558-RUMU-OLD','erp_order','submitted','tester',now());
+		INSERT INTO %[1]s.production_plan_items(
+			id,production_plan_id,product_id,product_name,spec_g,planned_g,planned_output_g,gap_g,order_nos,
+			component_snapshot_json,process_route_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,created_at
+		) VALUES (
+			55801,55801,789,'如目达摩',454,2215,1816,1816,'SO-PR558-RUMU-OLD',
+			'[]'::jsonb,'{}'::jsonb,'{}'::jsonb,'[]'::jsonb,now()
+		);
+	`, schema))
+
+	app := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/produce/unproduced?demand_status=unplanned&selected=789-454&plan=1",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET add-on parent BOM preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload productionapp.PlanSummaryData
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode add-on parent BOM preview: %v\n%s", err, rec.Body.String())
+	}
+	if len(payload.PlanRows) != 1 || payload.PlanRows[0].OrderNos != "SO-PR557-RUMU" {
+		t.Fatalf("plan rows must contain only the new unplanned order: %+v", payload.PlanRows)
+	}
+	var material *productionapp.MaterialNeed
+	for i := range payload.Materials {
+		if payload.Materials[i].Name == "如目达摩生豆" {
+			material = &payload.Materials[i]
+			break
+		}
+	}
+	if material == nil || material.Unit != "g" || material.Qty != 7751 || material.ExactQty != 7751 {
+		t.Fatalf("material plan must exclude the old in-production demand: material=%+v all=%+v", material, payload.Materials)
+	}
+
+	materialReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/produce/material-plan?selected=789-454",
+		nil,
+	)
+	materialRec := httptest.NewRecorder()
+	app.ServeHTTP(materialRec, materialReq)
+	if materialRec.Code != http.StatusOK {
+		t.Fatalf("GET material plan add-on status=%d body=%s", materialRec.Code, materialRec.Body.String())
+	}
+	var materialPayload MaterialPlanAPIResponse
+	if err := json.Unmarshal(materialRec.Body.Bytes(), &materialPayload); err != nil {
+		t.Fatalf("decode material plan add-on response: %v\n%s", err, materialRec.Body.String())
+	}
+	var materialPlanRow *productionapp.MaterialPlanRow
+	for i := range materialPayload.Rows {
+		if materialPayload.Rows[i].MaterialName == "如目达摩生豆" {
+			materialPlanRow = &materialPayload.Rows[i]
+			break
+		}
+	}
+	if materialPlanRow == nil || materialPlanRow.RequiredG != 7751 {
+		t.Fatalf("public material plan must exclude old in-production demand: row=%+v all=%+v", materialPlanRow, materialPayload.Rows)
+	}
+}
+
+func TestProducePlanSummaryAPIPreviewsNoLossParentBomMaterialsWhenRouteMissing(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(
+			id,name,parent_product_id,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES
+			(619,'初晓',0,0,true,'',0,'','{"inventory_unit":"kg"}'::jsonb),
+			(765,'初晓',619,0,true,'454g',454,'g','{}'::jsonb);
+		INSERT INTO %[1]s.order_process_statuses(name,sort,active)
+		VALUES ('待处理',10,true) ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES (
+			55802,'SO-PR558-CHUXIAO','2026-07-25',false,
+			(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理' LIMIT 1)
+		);
+		INSERT INTO %[1]s.order_items(
+			order_id,line_no,item_name,qty,unit,sales_unit,spec,product_id,unit_price,line_total,price_source_json
+		) VALUES (
+			55802,1,'初晓',14,'454g','454g','454g',765,0,0,
+			'{"production_quantity_snapshot":{"sku_id":765,"parent_product_id":619,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published_inventory_conversion"}}'::jsonb
+		);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES
+			(55821,'RAW-PR558-A','初晓原料A','bean','g',0,0,54,0),
+			(55822,'RAW-PR558-B','初晓原料B','bean','g',0,0,78,0),
+			(55823,'RAW-PR558-C','初晓原料C','bean','g',0,0,82,0);
+		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
+		VALUES (55802,'BOM-000619','初晓 生产 BOM',619,'active');
+		INSERT INTO %[1]s.production_bom_versions(
+			id,bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,process_route_id,published_at
+		) VALUES (55802,55802,'V002','published',0.8,1,'kg',0,0,'2026-07-25 00:00:00+00');
+		INSERT INTO %[1]s.production_bom_version_items(
+			version_id,material_id,component_type,consume_unit,ratio_pct,material_loss_rate
+		) VALUES
+			(55802,55821,'material','ratio_pct',50,0),
+			(55802,55822,'material','ratio_pct',25,0),
+			(55802,55823,'material','ratio_pct',25,0);
+		INSERT INTO %[1]s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+		VALUES (619,55802,55802,'test');
+		INSERT INTO %[1]s.product_production_configs(
+			product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,note,created_by,updated_by
+		) VALUES
+			(619,55802,55802,0,0.2,'legacy-backfill','test','test'),
+			(765,0,0,0,0.2,'legacy-backfill','test','test')
+		ON CONFLICT (product_id) DO UPDATE SET
+			expected_loss_rate=excluded.expected_loss_rate,
+			note=excluded.note,
+			updated_by=excluded.updated_by;
+	`, schema))
+
+	app := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=765-454&plan=1", nil)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET no-loss parent BOM preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload productionapp.PlanSummaryData
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode no-loss parent BOM preview: %v\n%s", err, rec.Body.String())
+	}
+	if len(payload.PlanRows) != 1 {
+		t.Fatalf("plan rows=%d want 1: %s", len(payload.PlanRows), rec.Body.String())
+	}
+	row := payload.PlanRows[0]
+	if row.InputG != 6356 || row.BomMaterialLossRate != 0 {
+		t.Fatalf("no-loss parent BOM preview row=%+v, want input 6356g and loss 0", row)
+	}
+	if !strings.Contains(row.BomSummaryError, "未配置工艺路线") {
+		t.Fatalf("route warning must remain visible without changing material demand: %+v", row)
+	}
+	exactTotal := float64(0)
+	materialNames := map[string]bool{}
+	for _, material := range payload.Materials {
+		switch material.Name {
+		case "初晓原料A", "初晓原料B", "初晓原料C":
+			materialNames[material.Name] = true
+			exactTotal += material.ExactQty
+		}
+		if strings.Contains(material.Name, "初晓 454g 生豆") {
+			t.Fatalf("preview must not fall back to fabricated no-BOM material: %+v", payload.Materials)
+		}
+	}
+	if len(materialNames) != 3 || math.Abs(exactTotal-6356) > 0.000000001 {
+		t.Fatalf("no-loss BOM materials=%+v exact_total=%v, want three BOM materials totaling 6356g", payload.Materials, exactTotal)
+	}
+
+	createReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/production-plans",
+		strings.NewReader(`{"source_type":"erp_order","selected":["765-454"]}`),
+	)
+	createReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	createRec := httptest.NewRecorder()
+	app.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusBadRequest || !strings.Contains(createRec.Body.String(), "未配置工艺路线") {
+		t.Fatalf("formal plan creation must still reject the missing route, status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", "1=1", 0)
+	assertProductionFlowCount(t, pool, schema, "production_plan_items", "1=1", 0)
+}
+
+func TestProducePlanSummaryAPIDoesNotReplaceInvalidFormalBomWithAnotherRecipe(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(
+			id,name,parent_product_id,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (55901,'显式草稿 BOM 商品',0,0,true,'454g',454,'g','{"inventory_unit":"kg"}'::jsonb);
+		INSERT INTO %[1]s.order_process_statuses(name,sort,active)
+		VALUES ('待处理',10,true) ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES (
+			55901,'SO-PR558-INVALID-BOM','2026-07-27',false,
+			(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理' LIMIT 1)
+		);
+		INSERT INTO %[1]s.order_items(
+			order_id,line_no,item_name,qty,unit,sales_unit,spec,product_id,unit_price,line_total,price_source_json
+		) VALUES (
+			55901,1,'显式草稿 BOM 商品',1,'454g','454g','454g',55901,0,0,
+			'{"production_quantity_snapshot":{"sku_id":55901,"parent_product_id":55901,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published_inventory_conversion"}}'::jsonb
+		);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES
+			(55911,'RAW-PR558-PUBLISHED','禁止替代的已发布配方','bean','g',0,0,54,0),
+			(55912,'RAW-PR558-DRAFT','显式草稿配方','bean','g',0,0,54,0),
+			(55913,'RAW-PR558-LEGACY','禁止替代的旧版配方','bean','g',0,0,54,0);
+		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes)
+		VALUES (55901,'测试路线','active','测试设备',10);
+		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
+		VALUES (55901,'BOM-PR558-INVALID','显式草稿 BOM',55901,'active');
+		INSERT INTO %[1]s.production_bom_versions(
+			id,bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,process_route_id,published_at
+		) VALUES
+			(55911,55901,'V001','published',1,1,'kg',0,55901,'2026-07-26 00:00:00+00'),
+			(55912,55901,'V002','draft',1,1,'kg',0,55901,NULL);
+		INSERT INTO %[1]s.production_bom_version_items(
+			version_id,material_id,component_type,consume_unit,ratio_pct,material_loss_rate
+		) VALUES
+			(55911,55911,'material','ratio_pct',100,0),
+			(55912,55912,'material','ratio_pct',100,0);
+		INSERT INTO %[1]s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+		VALUES (55901,55901,55912,'test');
+		INSERT INTO %[1]s.product_bom(product_id,yield_rate) VALUES (55901,0.8);
+		INSERT INTO %[1]s.product_bom_items(product_id,material_id,ratio_pct)
+		VALUES (55901,55913,100);
+	`, schema))
+
+	app := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=55901-454&plan=1", nil)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET invalid formal BOM preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload productionapp.PlanSummaryData
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode invalid formal BOM preview: %v\n%s", err, rec.Body.String())
+	}
+	if len(payload.PlanRows) != 1 || !strings.Contains(payload.PlanRows[0].BomSummaryError, "not published") {
+		t.Fatalf("invalid formal BOM warning missing: %+v", payload.PlanRows)
+	}
+	if len(payload.Materials) != 0 {
+		t.Fatalf("invalid formal BOM must not show published, legacy, or fabricated replacement materials: %+v", payload.Materials)
+	}
+}
+
 func seedRumuParentBomLossDemand(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
@@ -771,6 +1043,7 @@ func newProducePlanTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	registerUnprodSummaryPages(e)
 	registerUnprodSummaryAPI(e, productionSvc)
 	registerProductionPlanAPI(e, productionSvc)
+	registerManufacturingGapAPI(e, productionSvc)
 	registerProductionFlowPages(e, productionSvc, nil)
 	return e
 }

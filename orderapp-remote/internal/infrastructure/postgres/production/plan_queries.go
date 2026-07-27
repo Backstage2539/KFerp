@@ -112,10 +112,11 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	bomVersionByDemandKey := map[string]int64{}
 	bomLossByDemandKey := map[string]float64{}
 	skipMaterialPlanDemandKeys := map[string]bool{}
+	includedMaterialPlanDemandKeys := map[string]bool{}
 	for i, row := range planRows {
 		demandKey := producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)
-		if i >= len(bomSummaries) || strings.TrimSpace(bomSummaries[i].Error) != "" {
-			skipMaterialPlanDemandKeys[demandKey] = true
+		includedMaterialPlanDemandKeys[demandKey] = true
+		if i >= len(bomSummaries) || bomSummaries[i].BomVersionID <= 0 {
 			continue
 		}
 		theoreticalInputByKey[demandKey] = bomSummaries[i].InputG
@@ -130,12 +131,30 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	if err != nil {
 		return data, err
 	}
+	for i, row := range planRows {
+		demandKey := producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)
+		if i >= len(bomSummaries) ||
+			(bomSummaries[i].BomVersionID <= 0 &&
+				(!bomSummaries[i].LegacyCompatible || len(bomMap[demandKey]) == 0)) {
+			skipMaterialPlanDemandKeys[demandKey] = true
+		}
+	}
 	machines, _ := r.ListMachines(ctx, true)
 	if err := r.attachDripUpstreamShortages(ctx, planRows, bomMap); err != nil {
 		return data, err
 	}
+	materialPreviewRows := make([]productionapp.UnprodNeedRow, 0, len(planRows))
+	for i, row := range planRows {
+		if i < len(bomSummaries) &&
+			bomSummaries[i].BomVersionID <= 0 &&
+			strings.TrimSpace(bomSummaries[i].Error) != "" &&
+			!bomSummaries[i].LegacyCompatible {
+			continue
+		}
+		materialPreviewRows = append(materialPreviewRows, row)
+	}
 	data.RoastPlans = buildRoastPlanRows(planRows, machines, yieldMap, theoreticalInputByKey)
-	data.MaterialRatios = buildRoastPlanMaterialRatios(planRows, bomMap)
+	data.MaterialRatios = buildRoastPlanMaterialRatios(materialPreviewRows, bomMap)
 	data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap, theoreticalInputByKey)
 	for i := range data.PlanRows {
 		if i < len(bomSummaries) {
@@ -143,12 +162,13 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 			data.PlanRows[i].BomSummaryError = bomSummaries[i].Error
 		}
 	}
-	data.Materials = calcProducePlanMaterialsFromFinalInputs(planRows, theoreticalInputByKey, bomMap, params)
+	data.Materials = calcProducePlanMaterialsFromFinalInputs(materialPreviewRows, theoreticalInputByKey, bomMap, params)
 	materialPlan, err := r.MaterialPlan(ctx, productionapp.MaterialPlanQuery{
 		From:                  query.From,
 		To:                    query.To,
 		CustomerID:            query.CustomerID,
 		Selected:              query.Selected,
+		IncludedDemandKeys:    includedMaterialPlanDemandKeys,
 		InputByDemandKey:      theoreticalInputByKey,
 		BomVersionByDemandKey: bomVersionByDemandKey,
 		BomLossByDemandKey:    bomLossByDemandKey,
@@ -984,6 +1004,7 @@ type productionPlanBomSummary struct {
 	MaterialLossRate float64
 	InputG           int64
 	BomVersionID     int64
+	LegacyCompatible bool
 	Error            string
 }
 
@@ -1003,7 +1024,7 @@ func (r Repository) loadResolvedPlanBomSummaries(ctx context.Context, rows []pro
 		if row.ProductID <= 0 {
 			continue
 		}
-		resolved, err := resolveProductionBomForDemandProductTx(
+		resolved, err := resolveProductionBomForDemandProductPreviewTx(
 			ctx,
 			tx,
 			r.schema,
@@ -1014,6 +1035,7 @@ func (r Repository) loadResolvedPlanBomSummaries(ctx context.Context, rows []pro
 		if err != nil {
 			if isProductionBomConfigurationError(err) {
 				out[i].Error = err.Error()
+				out[i].LegacyCompatible = isProductionBomNotConfiguredError(err)
 				continue
 			}
 			return nil, err
@@ -1021,6 +1043,9 @@ func (r Repository) loadResolvedPlanBomSummaries(ctx context.Context, rows []pro
 		out[i].MaterialLossRate = productionPlanBomMaterialLossRate(resolved)
 		out[i].InputG = productionInputGFromBomMaterialLoss(row.GapG, out[i].MaterialLossRate)
 		out[i].BomVersionID = resolved.BomVersionID
+		if resolved.ProcessRouteID <= 0 || strings.TrimSpace(resolved.ProcessRouteName) == "" {
+			out[i].Error = productionBomMissingRouteConfigurationError(resolved, row.Product).Error()
+		}
 	}
 	return out, nil
 }
@@ -1099,6 +1124,9 @@ func (r Repository) loadPlanBomItemsFromRows(ctx context.Context, rows []product
 		}
 		seenDemands[demandKey] = true
 		if i >= len(summaries) || summaries[i].BomVersionID <= 0 {
+			if i >= len(summaries) || !summaries[i].LegacyCompatible {
+				continue
+			}
 			legacyDemandProductIDs[demandKey] = row.ProductID
 			if !seenProducts[row.ProductID] {
 				seenProducts[row.ProductID] = true

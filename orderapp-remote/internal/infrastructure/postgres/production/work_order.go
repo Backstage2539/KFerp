@@ -170,14 +170,24 @@ type latestUsableBomRoute struct {
 
 type productionBomConfigurationError struct {
 	message string
+	reason  string
 }
 
 func (e *productionBomConfigurationError) Error() string {
 	return e.message
 }
 
+const productionBomErrorReasonNotConfigured = "not_configured"
+
 func productionBomConfigurationErrorf(format string, args ...any) error {
 	return &productionBomConfigurationError{message: fmt.Sprintf(format, args...)}
+}
+
+func productionBomNotConfiguredError(productName string) error {
+	return &productionBomConfigurationError{
+		message: fmt.Sprintf("product BOM not configured: %s", productName),
+		reason:  productionBomErrorReasonNotConfigured,
+	}
 }
 
 func isProductionBomConfigurationError(err error) bool {
@@ -185,7 +195,32 @@ func isProductionBomConfigurationError(err error) bool {
 	return errors.As(err, &target)
 }
 
+func isProductionBomNotConfiguredError(err error) bool {
+	var target *productionBomConfigurationError
+	return errors.As(err, &target) && target.reason == productionBomErrorReasonNotConfigured
+}
+
 func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, frozenParentProductID int64, productName string) (latestUsableBomRoute, error) {
+	return resolveProductionBomForDemandProductWithRouteRequirementTx(
+		ctx, tx, schema, productID, frozenParentProductID, productName, true,
+	)
+}
+
+func resolveProductionBomForDemandProductPreviewTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, frozenParentProductID int64, productName string) (latestUsableBomRoute, error) {
+	return resolveProductionBomForDemandProductWithRouteRequirementTx(
+		ctx, tx, schema, productID, frozenParentProductID, productName, false,
+	)
+}
+
+func resolveProductionBomForDemandProductWithRouteRequirementTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	productID int64,
+	frozenParentProductID int64,
+	productName string,
+	requireProcessRoute bool,
+) (latestUsableBomRoute, error) {
 	var currentParentProductID int64
 	var catalogName string
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -223,12 +258,16 @@ func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, sche
 		}
 	}
 	productName = firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID))
-	resolved, configured, err := resolveProductionBomForSourceProductTx(ctx, tx, schema, productID, productName)
+	resolved, configured, err := resolveProductionBomForSourceProductWithRouteRequirementTx(
+		ctx, tx, schema, productID, productName, requireProcessRoute,
+	)
 	if err != nil {
 		return latestUsableBomRoute{}, err
 	}
 	if !configured && parentProductID != productID {
-		resolved, configured, err = resolveProductionBomForSourceProductTx(ctx, tx, schema, parentProductID, productName)
+		resolved, configured, err = resolveProductionBomForSourceProductWithRouteRequirementTx(
+			ctx, tx, schema, parentProductID, productName, requireProcessRoute,
+		)
 		if err != nil {
 			return latestUsableBomRoute{}, err
 		}
@@ -237,7 +276,7 @@ func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, sche
 		}
 	}
 	if !configured {
-		return latestUsableBomRoute{}, productionBomConfigurationErrorf("product BOM not configured: %s", productName)
+		return latestUsableBomRoute{}, productionBomNotConfiguredError(productName)
 	}
 	resolved.ProductID = productID
 	resolved.ParentProductID = parentProductID
@@ -246,6 +285,19 @@ func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, sche
 }
 
 func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, demandProductName string) (latestUsableBomRoute, bool, error) {
+	return resolveProductionBomForSourceProductWithRouteRequirementTx(
+		ctx, tx, schema, sourceProductID, demandProductName, true,
+	)
+}
+
+func resolveProductionBomForSourceProductWithRouteRequirementTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	sourceProductID int64,
+	demandProductName string,
+	requireProcessRoute bool,
+) (latestUsableBomRoute, bool, error) {
 	out := latestUsableBomRoute{BomSourceProductID: sourceProductID, ProductName: demandProductName}
 	var (
 		configBomID, configVersionID, bindingBomID, bindingVersionID int64
@@ -401,10 +453,19 @@ func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, sche
 	if itemCount <= 0 {
 		return out, true, productionBomConfigurationErrorf("production BOM version has no material lines: %s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo)
 	}
-	if out.ProcessRouteID <= 0 || strings.TrimSpace(out.ProcessRouteName) == "" {
-		return out, true, productionBomConfigurationErrorf("最新可用 BOM 版本未配置工艺路线: %s/%s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo, demandProductName)
+	if requireProcessRoute && (out.ProcessRouteID <= 0 || strings.TrimSpace(out.ProcessRouteName) == "") {
+		return out, true, productionBomMissingRouteConfigurationError(out, demandProductName)
 	}
 	return out, true, nil
+}
+
+func productionBomMissingRouteConfigurationError(resolved latestUsableBomRoute, demandProductName string) error {
+	return productionBomConfigurationErrorf(
+		"最新可用 BOM 版本未配置工艺路线: %s/%s/%s",
+		firstNonEmpty(resolved.BomName, resolved.BomCode),
+		resolved.BomVersionNo,
+		demandProductName,
+	)
 }
 
 func resolveLatestUsableBomRouteForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, productName string) (latestUsableBomRoute, error) {

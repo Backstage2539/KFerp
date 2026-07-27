@@ -156,6 +156,12 @@ func TestProductionBomSummaryOnlyTreatsTypedConfigurationErrorsAsRowWarnings(t *
 	if !isProductionBomConfigurationError(productionBomConfigurationErrorf("product BOM not configured: 测试商品")) {
 		t.Fatal("typed BOM configuration error must remain a row-level warning")
 	}
+	if !isProductionBomNotConfiguredError(productionBomNotConfiguredError("测试商品")) {
+		t.Fatal("missing formal BOM must carry the explicit legacy-compatible reason")
+	}
+	if isProductionBomNotConfiguredError(productionBomConfigurationErrorf("product BOM not configured: 测试商品")) {
+		t.Fatal("matching error text without the explicit reason must not enable legacy fallback")
+	}
 	if isProductionBomConfigurationError(errors.New("connection interrupted")) {
 		t.Fatal("database and connection errors must propagate instead of becoming BOM configuration warnings")
 	}

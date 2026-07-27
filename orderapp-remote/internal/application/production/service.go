@@ -1377,6 +1377,7 @@ type MaterialPlanQuery struct {
 	To                    string
 	CustomerID            int64
 	Selected              map[string]bool
+	IncludedDemandKeys    map[string]bool
 	InputByKey            map[string]int64
 	InputByDemandKey      map[string]int64
 	BomVersionByDemandKey map[string]int64
