@@ -1254,3 +1254,13 @@
 - 当前计划预览删除 `计划投料(g)` 列；BOM摘要继续显示已发布版本的预期损耗，生产计划草稿、详情和工单仍保留冻结计划投入。
 - 只有 `published` BOM 版本可以进入生产计划。草稿 V004 不得静默替代已发布 V003；发布 V004 后新建计划使用 V004，已存在草稿继续读取自身冻结版本，需由用户撤销后重建。
 - 本需求不重算、不改写历史计划、工单、库存或生产日志；完成临时 PostgreSQL 回归、前端测试、完整后端和 Vue/Vite 构建后集成到 develop，production 不部署。
+
+### PR-558-PRODUCTION-PLAN-PREVIEW-PARENT-BOM-NO-LOSS：生产计划精确需求与缺路线父 BOM 预览
+- `PlanSummary` 与 `MaterialPlan` 必须使用同一组本次选择后形成的精确需求键，只处理 `demand_status=unplanned` 的订单需求。同一具体 SKU、父商品和规格下，已经进入草稿、已提交、生产中或已完成生产计划的旧订单不得再次进入本次物料需求汇总。
+- 生产计划预览解析顺序继续是“具体 SKU BOM 优先 → 具体 SKU 完全没有 BOM 时继承订单冻结父商品当前已发布 BOM”。父 BOM 已发布且物料明细完整、但未配置工艺路线时，预览不得降级为 `product BOM not configured`，也不得伪造“商品名 生豆”物料。
+- 预览阶段将 BOM 配方可用性与工艺路线完整性分开：仍返回已发布 BOM 版本、`bom_material_loss_rate`、真实组件需求和物料汇总，同时通过 `bom_summary_error` 明确提示“最新可用 BOM 版本未配置工艺路线”。页面继续显示 `BOM 配置待完善`，用户修复路线前不得生成正式草稿。
+- 只有“具体 SKU 与父商品均完全没有 formal BOM”且存在有效历史 `product_bom` 物料行时，才允许历史配方参与预览及 WIP/原料仓建议。若已显式绑定 formal BOM 但版本未发布、失效或冲突，必须显示配置错误，不得静默改用另一个 published 版本、历史配方或伪造兜底物料。
+- BOM 的 `material_loss_rate=0` 时，理论投入必须等于订单冻结的成品需求。初晓14件454g按 `14 × 0.454Kg = 6.356Kg`，组件预计消耗合计必须为6356g；不得读取旧 `yield_rate=0.8`、商品 `expected_loss_rate` 或同 SKU 已排产旧订单放大为9932g。
+- BOM 的 `material_loss_rate>0` 时仍沿用 PR-557 的单次损耗公式，且只作用于本次 `unplanned` 需求；预览和 MaterialPlan 不得因重新查询完整 SKU 汇总而把旧订单数量或损耗再次加入。
+- 正式 `POST /api/production-plans` 继续使用严格解析器。已发布 BOM 缺少工艺路线时必须返回明确配置错误，事务不得新增生产计划、计划行、工单、工序卡、WIP 占用或库存流水；配置并发布有效路线后才允许创建草稿。
+- 本需求不新增数据库字段，不修改订单、BOM、历史生产计划、工单、库存或生产日志；验证后合并 `develop` 并部署 development，production 不部署。

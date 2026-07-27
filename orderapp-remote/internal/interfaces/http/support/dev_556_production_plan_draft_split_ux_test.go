@@ -22,7 +22,7 @@ func TestDev556ProductionPlanDraftSplitUXContracts(t *testing.T) {
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "production", "plan_queries.go"): {
 			"loadResolvedPlanBomSummaries",
-			"resolveProductionBomForDemandProductTx",
+			"resolveProductionBomForDemandProductPreviewTx",
 			"productionPlanBomMaterialLossRate",
 			"isProductionBomConfigurationError",
 			"BomMaterialLossRate = bomSummaries[i].MaterialLossRate",

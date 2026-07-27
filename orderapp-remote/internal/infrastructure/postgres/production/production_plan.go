@@ -329,7 +329,7 @@ func createLegacyProductionPlanItemForGroupTx(
 	if err == nil {
 		return item, nil
 	}
-	if !strings.Contains(err.Error(), "product BOM not configured") {
+	if !isProductionBomNotConfiguredError(err) {
 		// A present-but-invalid child/default BOM must never be hidden by the
 		// legacy compatibility path.
 		return productionapp.ProductionPlanItem{}, err

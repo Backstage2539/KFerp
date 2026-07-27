@@ -1669,3 +1669,13 @@
 - [x] 当前计划预览不再显示 `计划投料(g)`，BOM摘要、物料需求汇总和工艺路线摘要保留；计划详情和工单执行仍可查看冻结计划投入。
 - [x] V004 为草稿时生产计划继续使用已发布 V003；只有发布 V004 并撤销旧草稿后重建，新计划才使用V004。现有 PP-0000000077 不自动修改。
 - [x] production相关 Go 全包、HTTP production 包、定向前端46/46、Vue/Vite构建和 develop 集成完成；完整前端7项失败与干净基线一致，全仓 Go 仍受既有非production临时schema合同失败影响。development和production均未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-bom-loss-demand.md`。
+
+### K100. 生产计划精确需求与缺路线父 BOM 预览（PR-558-PRODUCTION-PLAN-PREVIEW-PARENT-BOM-NO-LOSS）
+- [x] 同一具体 SKU、父商品和454g规格同时存在已排产旧订单与新 `unplanned` 订单时，计划预览只返回本次选中的新订单号；物料汇总不包含旧生产计划已经覆盖的数量。
+- [x] 如目达摩454g继承父商品当前已发布 BOM 时，预览不再返回 `product BOM not configured`；BOM版本、损耗和真实物料来自同一次父 BOM 解析。
+- [x] 初晓14件454g的订单冻结需求为6356g；父 BOM 原料损耗为0时，预览计划投入和真实组件预计消耗合计均为6356g，不读取旧80%产出率、商品 legacy 损耗或同 SKU 旧计划形成9932g。
+- [x] 父 BOM 已发布、物料完整但缺少工艺路线时，预览仍显示 BOM 摘要和真实组件物料，同时通过 `bom_summary_error` / `BOM 配置待完善` 明确提示“未配置工艺路线”；不得伪造“初晓 454g 生豆”兜底物料。
+- [x] 历史 `product_bom` 商品仍能返回物料需求、WIP、原料仓、建议领料和采购建议；但显式绑定 draft/失效/冲突 formal BOM 时不得改用另一已发布版本、历史配方或伪物料，物料预览保持为空并显示配置错误。
+- [x] `POST /api/production-plans` 对同一缺路线 BOM 仍返回400配置错误，并且数据库中不新增生产计划、计划行、工单、工序卡、WIP占用或库存流水。
+- [x] 补齐并发布有效工艺路线后，正式创建继续按订单冻结换算、同一父 BOM 版本及损耗口径生成草稿，不因预览兼容逻辑改变正式冻结规则。
+- [ ] production定向Go/API、支持合同、完整Go、Vue/Vite构建、develop集成、development部署和只读API/页面冒烟完成；production未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-preview-parent-bom-no-loss.md`。
