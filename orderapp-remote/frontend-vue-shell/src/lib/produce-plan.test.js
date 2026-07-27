@@ -35,6 +35,7 @@ import {
   operationSplitPreviewStatusLabel,
   operationSplitPreviewStatusTone,
   productionPlanItemQuantitySummary,
+  productionPlanBomSummary,
   productionPlanLegacyGramLabel,
   productionPlanItemBomSourceLabel,
 } from './produce-plan.js'
@@ -65,6 +66,14 @@ test('production plan item summary uses frozen sales-spec conversion and parent 
   )
   assert.equal(productionPlanLegacyGramLabel(1816), '1816g')
   assert.equal(productionPlanLegacyGramLabel(0), '0g')
+})
+
+test('production plan BOM summary hides legacy yield and only shows configured BOM loss', () => {
+  assert.equal(productionPlanBomSummary({}), '默认 BOM')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0 }), '默认 BOM')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0.2 }), '默认 BOM / 预期损耗 20.00%')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 1 }), '默认 BOM')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0, bom_summary_error: 'product BOM not configured' }), 'BOM 配置待完善')
 })
 
 test('production plan detail labels legacy gram projections instead of showing ambiguous bare numbers', () => {
@@ -546,7 +555,7 @@ test('production plan split drawer renders live demand gap preview', () => {
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /创建生产计划/)
+  assert.match(source, /生成草稿/)
   assert.match(source, /提交生成工单/)
   assert.match(source, /apiSend\('\/api\/production-plans'/)
   assert.match(source, /productionPlanBatchSubmitEndpoint\(\)/)
@@ -558,23 +567,43 @@ test('ProducePlanView creates draft plans and batch submits checked draft plans'
   assert.doesNotMatch(source, /apiSend\('\/api\/produce\/start'/)
 })
 
-test('ProducePlanView uses an ERPNext-style current plan workspace instead of top create and bottom details', () => {
+test('ProducePlanView uses the top workflow action and removes the duplicate current-plan create button', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   const workbenchIndex = source.indexOf('planning-workbench')
   const currentPlanIndex = source.indexOf('当前生产计划')
-  const createIndex = source.indexOf('创建生产计划')
   const historyIndex = source.indexOf('生产计划单据')
-  const topPanel = source.slice(source.indexOf('<h2>生产计划</h2>'), workbenchIndex)
 
   assert.ok(workbenchIndex > 0, 'production page should have a planning workbench')
   assert.match(source, /待生产需求/)
   assert.ok(currentPlanIndex > 0, 'current plan workspace should be visible')
-  assert.ok(createIndex > currentPlanIndex, 'create action should live in the current plan workspace')
   assert.ok(historyIndex > currentPlanIndex, 'history list should be below the current plan workspace')
-  assert.doesNotMatch(topPanel, /创建生产计划/)
+  assert.match(source, /@click="runPlanNextStep"/)
+  assert.doesNotMatch(source, /<button[^>]*@click="createProductionPlan"[^>]*>创建生产计划<\/button>/)
+  assert.match(source, /@click="submitCurrentProductionPlan"[^>]*>提交当前计划生成工单<\/button>/)
+  assert.match(source, /@click="cancelProductionPlanDraft\(currentPlan, 'current'\)"[^>]*>撤销草稿<\/button>/)
   assert.doesNotMatch(source, /选择库存不足商品后点击“创建生产计划”/)
   assert.match(source, /勾选库存不足商品后生成计划预览/)
+})
+
+test('ProducePlanView opens the existing split-capacity drawer immediately after draft creation', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const createStart = source.indexOf('async function createProductionPlan()')
+  const createEnd = source.indexOf('async function submitCurrentProductionPlan()', createStart)
+  const createSource = source.slice(createStart, createEnd)
+
+  assert.ok(createStart > 0 && createEnd > createStart, 'createProductionPlan function should exist')
+  assert.match(createSource, /currentPlan\.value = await apiSend\('\/api\/production-plans'/)
+  assert.match(createSource, /await openCurrentPlanSplitDrawer\(\)/)
+  assert.doesNotMatch(createSource, /loadProductionPlanOperationSplits/, 'unsaved auto splits must not advance the step before the drawer opens')
+})
+
+test('ProducePlanView renders BOM expected loss without the removed expected-yield label', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\{\{\s*productionPlanBomSummary\(row\)\s*\}\}/)
+  assert.match(source, /:title="row\.bom_summary_error \|\| ''"/)
+  assert.doesNotMatch(source, /预期产出率/)
 })
 
 test('ProducePlanView automatically loads selected demand into the current plan preview', () => {

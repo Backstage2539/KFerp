@@ -311,8 +311,10 @@ func (m *MaterialNeed) UnmarshalJSON(data []byte) error {
 
 type ProducePlanDisplayRow struct {
 	UnprodNeedRow
-	BomYieldRate float64 `json:"bom_yield_rate"`
-	InputG       int64   `json:"input_g"`
+	BomYieldRate        float64 `json:"bom_yield_rate"`
+	BomMaterialLossRate float64 `json:"bom_material_loss_rate"`
+	BomSummaryError     string  `json:"bom_summary_error,omitempty"`
+	InputG              int64   `json:"input_g"`
 }
 
 type PlanSummaryQuery struct {

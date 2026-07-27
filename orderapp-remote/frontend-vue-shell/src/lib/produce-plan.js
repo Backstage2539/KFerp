@@ -291,6 +291,13 @@ export function productionPlanLegacyGramLabel(value) {
   return `${compactProductionQuantity(grams)}g`
 }
 
+export function productionPlanBomSummary(row = {}) {
+  if (String(row.bom_summary_error || '').trim()) return 'BOM 配置待完善'
+  const lossRate = Number(row.bom_material_loss_rate || 0)
+  if (!Number.isFinite(lossRate) || lossRate <= 0 || lossRate >= 1) return '默认 BOM'
+  return `默认 BOM / 预期损耗 ${(lossRate * 100).toFixed(2)}%`
+}
+
 export function productionPlanItemBomSourceLabel(item = {}) {
   const versionID = Number(item.bom_version_id || 0)
   const versionLabel = versionID > 0 ? `BOM版本 #${versionID}` : '默认 BOM'

@@ -50,7 +50,7 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"roast_plans"`, `"materials"`, `"plan_rows"`, `"final_input_g":2000`, `"qty":1500`, `"qty":500`} {
+	for _, needle := range []string{`"roast_plans"`, `"materials"`, `"plan_rows"`, `"final_input_g":2000`, `"qty":1500`, `"qty":500`, `"bom_summary_error":"product BOM not configured: 曲奇拼配"`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("response missing %s: %s", needle, body)
 		}
@@ -71,7 +71,11 @@ func TestProducePlanSummaryAPIUsesLatestDefaultProductionBomMaterials(t *testing
 		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	var payload struct {
-		Materials  []productionapp.MaterialNeed `json:"materials"`
+		Materials []productionapp.MaterialNeed `json:"materials"`
+		PlanRows  []struct {
+			BomMaterialLossRate float64 `json:"bom_material_loss_rate"`
+			BomSummaryError     string  `json:"bom_summary_error"`
+		} `json:"plan_rows"`
 		RoastPlans []struct {
 			YieldRate   float64 `json:"yield_rate"`
 			FinalInputG int64   `json:"final_input_g"`
@@ -88,6 +92,15 @@ func TestProducePlanSummaryAPIUsesLatestDefaultProductionBomMaterials(t *testing
 	}
 	if payload.RoastPlans[0].YieldRate != 0.8 || payload.RoastPlans[0].FinalInputG != 2000 {
 		t.Fatalf("roast plan = %+v, want yield 0.8 and machine-rounded final_input_g 2000", payload.RoastPlans[0])
+	}
+	if len(payload.PlanRows) != 1 || payload.PlanRows[0].BomMaterialLossRate != 0 {
+		t.Fatalf("no-loss BOM plan row = %+v, want explicit zero loss", payload.PlanRows)
+	}
+	if payload.PlanRows[0].BomSummaryError != "" {
+		t.Fatalf("valid no-loss BOM must not report a summary error: %+v", payload.PlanRows[0])
+	}
+	if !strings.Contains(rec.Body.String(), `"bom_material_loss_rate":0`) {
+		t.Fatalf("response must preserve explicit no-loss BOM marker: %s", rec.Body.String())
 	}
 }
 
@@ -346,6 +359,64 @@ func TestProducePlanSummaryAPIReturnsExactYieldRateForRoastPlans(t *testing.T) {
 	}
 	if payload.RoastPlans[0].YieldRate != 0.815 {
 		t.Fatalf("roast plan yield_rate = %.4f, want 0.8150", payload.RoastPlans[0].YieldRate)
+	}
+}
+
+func TestProducePlanSummaryAPIReturnsConfiguredBomMaterialLossRate(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(
+			id,name,parent_product_id,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES
+			(1,'损耗摘要父商品',0,50,true,'1000g',1000,'g','{"inventory_unit":"kg"}'::jsonb),
+			(2,'损耗摘要测试商品',1,50,true,'1000g',1000,'g','{"inventory_unit":"kg"}'::jsonb);
+		INSERT INTO %[1]s.order_process_statuses(name,sort,active) VALUES ('待处理',10,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES (1,'SO-BOM-LOSS-001','2026-07-27',false,(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %[1]s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (1,1,'损耗摘要测试商品',1,'件','1000g',2,50,50);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (10,'RAW-BOM-LOSS','损耗测试原料','bean','kg',0,0,10,0);
+		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
+		VALUES (1,'BOM-LOSS-001','损耗摘要测试 BOM',1,'active');
+		INSERT INTO %[1]s.process_routes(id,name,status)
+		VALUES (1,'损耗摘要测试路线','active');
+		INSERT INTO %[1]s.production_bom_versions(
+			id,bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,process_route_id,published_at
+		) VALUES (1,1,'V001','published',1,1,'kg',0.2,1,'2026-07-27 00:00:00+00');
+		INSERT INTO %[1]s.production_bom_version_items(
+			version_id,material_id,component_type,consume_unit,qty_per_unit,ratio_pct,material_loss_rate
+		) VALUES (1,10,'material','ratio_pct',0,100,0);
+	`, schema))
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=2-1000&plan=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		PlanRows []struct {
+			BomMaterialLossRate float64 `json:"bom_material_loss_rate"`
+			BomSummaryError     string  `json:"bom_summary_error"`
+		} `json:"plan_rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(payload.PlanRows) != 1 {
+		t.Fatalf("plan_rows = %d, want 1: %s", len(payload.PlanRows), rec.Body.String())
+	}
+	if payload.PlanRows[0].BomMaterialLossRate != 0.2 {
+		t.Fatalf("bom_material_loss_rate = %.4f, want 0.2000: %s", payload.PlanRows[0].BomMaterialLossRate, rec.Body.String())
+	}
+	if payload.PlanRows[0].BomSummaryError != "" {
+		t.Fatalf("inherited valid BOM must not report a summary error: %+v", payload.PlanRows[0])
 	}
 }
 

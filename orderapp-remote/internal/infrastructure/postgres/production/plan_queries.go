@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	productionapp "orderapp/internal/application/production"
 )
 
@@ -116,7 +118,17 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	for _, row := range data.RoastPlans {
 		finalInputByKey[row.Key] = row.FinalInputG
 	}
+	bomSummaries, err := r.loadResolvedPlanBomSummaries(ctx, planRows)
+	if err != nil {
+		return data, err
+	}
 	data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap, finalInputByKey)
+	for i := range data.PlanRows {
+		if i < len(bomSummaries) {
+			data.PlanRows[i].BomMaterialLossRate = bomSummaries[i].MaterialLossRate
+			data.PlanRows[i].BomSummaryError = bomSummaries[i].Error
+		}
+	}
 	data.Materials = calcProducePlanMaterialsFromFinalInputs(planRows, finalInputByKey, bomMap, params)
 	if materialPlan, err := r.MaterialPlan(ctx, productionapp.MaterialPlanQuery{
 		From:       query.From,
@@ -947,6 +959,55 @@ func buildProducePlanDisplayRows(rows []productionapp.UnprodNeedRow, yieldByProd
 		out = append(out, productionapp.ProducePlanDisplayRow{UnprodNeedRow: r, BomYieldRate: yieldRate, InputG: inputG})
 	}
 	return out
+}
+
+type productionPlanBomSummary struct {
+	MaterialLossRate float64
+	Error            string
+}
+
+func (r Repository) loadResolvedPlanBomSummaries(ctx context.Context, rows []productionapp.UnprodNeedRow) ([]productionPlanBomSummary, error) {
+	out := make([]productionPlanBomSummary, len(rows))
+	if len(rows) == 0 {
+		return out, nil
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	for i, row := range rows {
+		if row.ProductID <= 0 {
+			continue
+		}
+		resolved, err := resolveProductionBomForDemandProductTx(
+			ctx,
+			tx,
+			r.schema,
+			row.ProductID,
+			row.ParentProductID,
+			row.Product,
+		)
+		if err != nil {
+			if isProductionBomConfigurationError(err) {
+				out[i].Error = err.Error()
+				continue
+			}
+			return nil, err
+		}
+		out[i].MaterialLossRate = productionPlanBomMaterialLossRate(resolved)
+	}
+	return out, nil
+}
+
+func productionPlanBomMaterialLossRate(resolved latestUsableBomRoute) float64 {
+	rate := resolved.BomMaterialLossRate
+	if rate <= 0 || rate >= 1 {
+		return 0
+	}
+	return rate
 }
 
 func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productionapp.RoastMachine, yieldByProductID map[int64]float64) []productionapp.RoastPlanRow {
