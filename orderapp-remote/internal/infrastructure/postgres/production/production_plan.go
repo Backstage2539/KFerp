@@ -1707,18 +1707,12 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 		OperationTemplateID: wo.OperationTemplateID,
 		MaterialSnapshot:    string(materialSnapshot),
 	}
-	if err := ensureWIPStockForRunningItemTx(ctx, tx, r.schema, run, materialSnapshot); err != nil {
-		return productionapp.WorkOrderStartResult{}, err
-	}
-	needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
+	needs, err := runningItemWorkOrderMaterialNeedsTx(ctx, tx, r.schema, wo.ID, run, materialSnapshot)
 	if err != nil {
 		return productionapp.WorkOrderStartResult{}, err
 	}
-	if !ok {
-		needs, err = currentMaterialNeedsTx(ctx, tx, r.schema, run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
-		if err != nil {
-			return productionapp.WorkOrderStartResult{}, err
-		}
+	if err := ensureWIPStockForWorkOrderNeedsTx(ctx, tx, r.schema, wo.ID, needs); err != nil {
+		return productionapp.WorkOrderStartResult{}, err
 	}
 
 	var runningItemID int64

@@ -7,8 +7,10 @@ import {
   buildExecutionHubFocus,
   executionHubTimelineFilters,
   filterExecutionHubTimeline,
+  inventoryUnitWeightInGrams,
   productionContextParams,
   readinessBadgeTone,
+  stockCanonicalQuantity,
 } from './production-execution-hub.js'
 
 test('execution hub actions carry production context to work order, WIP, job card, quality, costs and logs pages', () => {
@@ -24,11 +26,11 @@ test('execution hub actions carry production context to work order, WIP, job car
 
   assert.deepEqual(actions.slice(0, 10), [
     ['startProduction', '开始生产', 'workOrders', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['productionIssue', '生产领料', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', shortage_g: 1200 }],
-    ['productionSupplement', '补料', 'stockOperations', { tab: 'stockEntries', action: 'supplement', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['productionReturn', '退回未用原料', 'stockOperations', { tab: 'stockEntries', action: 'return', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['productionConsume', '记录生产消耗', 'stockOperations', { tab: 'stockEntries', action: 'consume', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['finishedReceipt', '完工入库', 'stockOperations', { tab: 'stockEntries', action: 'finish', return_source: 'work_order', work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['productionIssue', '生产领料', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['productionSupplement', '补料', 'stockOperations', { tab: 'stockEntries', action: 'supplement', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['productionReturn', '退回未用原料', 'stockOperations', { tab: 'stockEntries', action: 'return', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['productionConsume', '记录生产消耗', 'stockOperations', { tab: 'stockEntries', action: 'consume', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['finishedReceipt', '完工入库', 'stockOperations', { tab: 'stockEntries', action: 'finish', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
     ['openJobCard', '打开工序卡', 'jobCards', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openQuality', '打开质检', 'qualityInspections', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', reference_no: 'WO-00088' }],
     ['openCost', '成本', 'productionCosts', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
@@ -55,6 +57,7 @@ test('execution hub readiness and timeline helpers expose filters and focused ar
 test('production context params preserve work order, job card, running item, material and shortage context', () => {
   assert.deepEqual(productionContextParams({
     work_order_id: '88',
+    work_order_no: 'WO-00088',
     job_card_id: '91',
     running_item_id: '99',
     material_id: '12',
@@ -69,6 +72,7 @@ test('production context params preserve work order, job card, running item, mat
     action: 'issue',
     return_source: 'work_order',
     work_order_id: 88,
+    work_order_no: 'WO-00088',
     job_card_id: 91,
     running_item_id: 99,
     material_id: 12,
@@ -90,7 +94,57 @@ test('production pages mount the shared execution hub drawer instead of separate
   }
 
   const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
-  for (const key of ['work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'action', 'return_source']) {
+  for (const key of ['work_order_id', 'work_order_no', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'action', 'return_source']) {
     assert.match(appSource, new RegExp(`'${key}'`), `App.vue should preserve ${key} in view params`)
   }
+})
+
+test('execution hub and stock-entry UI expose WIP shortage detail and business-facing production issue fields', () => {
+  const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+  assert.match(drawerSource, /WIP库存不足/)
+  assert.match(drawerSource, /wipStatus\.materials/)
+  for (const field of ['required_qty', 'available_qty', 'shortage_qty', 'inventory_unit']) {
+    assert.match(drawerSource, new RegExp(field), `execution hub should display ${field}`)
+  }
+  assert.match(drawerSource, /productionIssue/)
+
+  const operationsSource = fs.readFileSync(new URL('../views/StockOperationsView.vue', import.meta.url), 'utf8')
+  assert.match(operationsSource, /工单号：/)
+  assert.doesNotMatch(operationsSource, /工单 #\$\{params\.work_order_id\}/)
+  assert.doesNotMatch(operationsSource, /生产中 #/)
+
+  const entrySource = fs.readFileSync(new URL('../views/StockEntriesView.vue', import.meta.url), 'utf8')
+  assert.match(entrySource, /row\.work_order_no/)
+  assert.match(entrySource, /工单号：\{\{ form\.work_order_no/)
+  assert.doesNotMatch(entrySource, /<span>工序卡<\/span><input/)
+  assert.doesNotMatch(entrySource, /<span>生产中<\/span><input/)
+  assert.match(entrySource, /v-model="form\.purpose_key" :disabled="!isDraft \|\| isBoundProductionDocument"/)
+  assert.match(entrySource, /v-if="usesSingleQuantity\(item\)"/)
+  assert.match(entrySource, /v-model\.number="item\.quantity"/)
+  assert.match(entrySource, /item\.inventory_unit \|\| '-'/)
+  assert.match(entrySource, /v-if="!usesSingleQuantity\(item\)"><span>数量\(g\)/)
+  assert.match(entrySource, /v-if="!usesSingleQuantity\(item\)"><span>数量\(件\)/)
+  assert.match(entrySource, /v-if="isReceipt"[^>]*><span>单位成本/)
+  assert.doesNotMatch(entrySource, /material_id: Number\(params\.material_id/)
+  assert.doesNotMatch(entrySource, /running_item_id: Number\(params\.running_item_id/)
+  assert.doesNotMatch(entrySource, /form\.items\[0\]\.qty_g = Number\(params\.shortage_g/)
+})
+
+test('stock issue quantity maps inventory units to canonical fields without parsing the product specification label', () => {
+  assert.equal(inventoryUnitWeightInGrams('kg'), 1000)
+  assert.equal(inventoryUnitWeightInGrams('公斤'), 1000)
+  assert.equal(inventoryUnitWeightInGrams('lb'), 453.59237)
+  assert.equal(inventoryUnitWeightInGrams('磅'), 453.59237)
+  assert.deepEqual(stockCanonicalQuantity({ quantity: 7.751, quantity_basis: 'weight', inventory_unit: 'kg', spec_label: '任意名称' }), {
+    qty_g: 7751,
+    qty_units: 0,
+  })
+  assert.deepEqual(stockCanonicalQuantity({ quantity: 12, quantity_basis: 'count', inventory_unit: '袋', spec_label: '454g' }), {
+    qty_g: 0,
+    qty_units: 12,
+  })
+  assert.throws(
+    () => stockCanonicalQuantity({ quantity: 1.6, quantity_basis: 'count', inventory_unit: '袋' }),
+    /计数物料数量必须为整数/,
+  )
 })

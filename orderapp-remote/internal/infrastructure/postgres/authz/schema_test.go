@@ -47,4 +47,7 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 	if views["quotePrint"] != "" {
 		t.Fatal("removed quote export page should not keep a view permission")
 	}
+	if views["productionConfig"] != "bom.read" {
+		t.Fatalf("productionConfig permission=%q, want bom.read so BOM readers can open the consolidated page", views["productionConfig"])
+	}
 }

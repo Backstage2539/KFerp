@@ -16,6 +16,7 @@ import (
 	"time"
 
 	productionapp "orderapp/internal/application/production"
+	stockapp "orderapp/internal/application/stock"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
@@ -1272,6 +1273,137 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
+}
+
+func TestHistoricalWorkOrderStartUsesReservationRequirementsWhenMaterialSnapshotIsMissing(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatalf("SubmitProductionPlan: %v", err)
+	}
+	if len(submitted.WorkOrders) != 1 {
+		t.Fatalf("submitted work orders = %+v, want one", submitted.WorkOrders)
+	}
+	workOrder := submitted.WorkOrders[0]
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (11,'RAW-HIST','历史预约生豆','bean','g',600,0,60,0);
+		UPDATE %s.work_orders SET material_snapshot='[]'::jsonb WHERE id=%d;
+		INSERT INTO %s.work_order_material_reservations(
+			work_order_id,running_item_id,material_id,material_name,unit,
+			required_g,required_units,reserved_g,reserved_units,status
+		) VALUES (%d,0,11,'历史预约生豆','g',600,0,600,0,'reserved');
+	`, schema, schema, workOrder.ID, schema, workOrder.ID))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 11, 11, "MB-HIST-RAW", "历史预约生豆", 600)
+
+	coverage, err := repo.GetWorkOrderWIPCoverage(ctx, workOrder.ID)
+	if err != nil {
+		t.Fatalf("GetWorkOrderWIPCoverage: %v", err)
+	}
+	if coverage.Status != "ok" || len(coverage.Materials) != 1 || coverage.Materials[0].MaterialID != 11 || coverage.Materials[0].RequiredG != 600 {
+		t.Fatalf("historical coverage = %+v, want reservation material 11 / 600g ready", coverage)
+	}
+
+	started, err := repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "开工员"})
+	if err != nil {
+		t.Fatalf("StartWorkOrder must use the same reservation requirement as coverage: %v", err)
+	}
+	if started.WorkOrder.Status != "running" || started.RunningItemID <= 0 {
+		t.Fatalf("started = %+v, want running work order", started)
+	}
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(
+		"work_order_id=%d AND running_item_id=%d AND material_id=11 AND required_g=600 AND status='reserved'",
+		workOrder.ID, started.RunningItemID,
+	), 1)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(
+		"work_order_id=%d AND material_id=10",
+		workOrder.ID,
+	), 0)
+}
+
+func TestReleasedWorkOrderIssueMakesWIPReadyThenStarts(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	productionRepo := postgresproduction.NewRepository(pool, schema)
+	plan, err := productionRepo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	submitted, err := productionRepo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatalf("SubmitProductionPlan: %v", err)
+	}
+	if len(submitted.WorkOrders) != 1 {
+		t.Fatalf("submitted work orders = %+v, want one", submitted.WorkOrders)
+	}
+	workOrder := submitted.WorkOrders[0]
+	before, err := productionRepo.GetWorkOrderWIPCoverage(ctx, workOrder.ID)
+	if err != nil {
+		t.Fatalf("coverage before issue: %v", err)
+	}
+	if before.Status != "blocked" || before.ShortageG != 600 {
+		t.Fatalf("coverage before issue = %+v, want blocked shortage 600g", before)
+	}
+
+	stockService := stockapp.NewService(postgresstock.NewRepository(pool, schema))
+	if _, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 10, ItemType: "material", InventoryUnit: "g", QtyG: 600, UnitCost: 54,
+		}},
+	}); err != nil {
+		t.Fatalf("material receipt: %v", err)
+	}
+	issue, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: workOrder.ID, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 10, ItemType: "material", InventoryUnit: "g", QtyG: 600,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("work-order issue: %v", err)
+	}
+	if issue.Status != "submitted" || issue.WorkOrderNo != workOrder.WorkOrderNo || len(issue.Items) != 1 {
+		t.Fatalf("issue = %+v, want one submitted work-order SE", issue)
+	}
+
+	after, err := productionRepo.GetWorkOrderWIPCoverage(ctx, workOrder.ID)
+	if err != nil {
+		t.Fatalf("coverage after issue: %v", err)
+	}
+	if after.Status != "ok" || after.ShortageG != 0 || after.AvailableG < 600 {
+		t.Fatalf("coverage after issue = %+v, want ready with 600g available", after)
+	}
+	started, err := productionRepo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "开工员"})
+	if err != nil {
+		t.Fatalf("StartWorkOrder after issue: %v", err)
+	}
+	if started.WorkOrder.Status != "running" || started.RunningItemID <= 0 {
+		t.Fatalf("started = %+v, want running work order", started)
+	}
 }
 
 func TestProductionPlanDraftCancelAPIReturnsDemandAndKeepsFrozenHistory(t *testing.T) {

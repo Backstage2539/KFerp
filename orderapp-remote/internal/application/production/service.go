@@ -965,6 +965,10 @@ type ProductionWIPStatus struct {
 	RemainingG     int64               `json:"remaining_g"`
 	AvailableG     int64               `json:"available_g"`
 	ShortageG      int64               `json:"shortage_g"`
+	RequiredUnits  int64               `json:"required_units"`
+	AvailableUnits int64               `json:"available_units"`
+	ShortageUnits  int64               `json:"shortage_units"`
+	DataComplete   bool                `json:"data_complete"`
 	Status         string              `json:"status"`
 	BlockingReason string              `json:"blocking_reason"`
 	Materials      []WIPReservationRow `json:"materials"`
@@ -1207,10 +1211,14 @@ type BatchCostRow struct {
 }
 
 type StockEntryCommand struct {
+	ID            int64                   `json:"id,omitempty"`
+	EntryNo       string                  `json:"entry_no,omitempty"`
+	Status        string                  `json:"status,omitempty"`
 	EntryType     string                  `json:"entry_type"`
 	Purpose       string                  `json:"purpose"`
 	IsReturn      bool                    `json:"is_return"`
 	WorkOrderID   int64                   `json:"work_order_id"`
+	WorkOrderNo   string                  `json:"work_order_no,omitempty"`
 	JobCardID     int64                   `json:"job_card_id"`
 	RunningItemID int64                   `json:"running_item_id"`
 	SourceType    string                  `json:"source_type"`
@@ -1247,6 +1255,12 @@ type StockEntryItemCommand struct {
 	ToWarehouse   string  `json:"to_warehouse"`
 	QtyG          int64   `json:"qty_g"`
 	QtyUnits      int64   `json:"qty_units"`
+	InventoryUnit string  `json:"inventory_unit,omitempty"`
+	QuantityBasis string  `json:"quantity_basis,omitempty"`
+	RequiredQty   float64 `json:"required_qty,omitempty"`
+	RemainingQty  float64 `json:"remaining_qty,omitempty"`
+	RememberedQty float64 `json:"remembered_qty,omitempty"`
+	DefaultQty    float64 `json:"default_qty,omitempty"`
 	BatchCode     string  `json:"batch_code"`
 	UnitCost      float64 `json:"unit_cost"`
 }
@@ -1448,27 +1462,37 @@ type WIPReservationQuery struct {
 }
 
 type WIPReservationRow struct {
-	ID                 int64  `json:"id"`
-	WorkOrderID        int64  `json:"work_order_id"`
-	WorkOrderNo        string `json:"work_order_no"`
-	RunningItemID      int64  `json:"running_item_id"`
-	ProductName        string `json:"product_name"`
-	MaterialID         int64  `json:"material_id"`
-	MaterialName       string `json:"material_name"`
-	Unit               string `json:"unit"`
-	RequiredG          int64  `json:"required_g"`
-	RequiredUnits      int64  `json:"required_units"`
-	ReservedG          int64  `json:"reserved_g"`
-	ReservedUnits      int64  `json:"reserved_units"`
-	ConsumedG          int64  `json:"consumed_g"`
-	ConsumedUnits      int64  `json:"consumed_units"`
-	ReturnedG          int64  `json:"returned_g"`
-	ReturnedUnits      int64  `json:"returned_units"`
-	RemainingReservedG int64  `json:"remaining_reserved_g"`
-	Status             string `json:"status"`
-	WIPG               int64  `json:"wip_g"`
-	AvailableG         int64  `json:"available_g"`
-	UpdatedAt          string `json:"updated_at"`
+	ID                 int64   `json:"id"`
+	WorkOrderID        int64   `json:"work_order_id"`
+	WorkOrderNo        string  `json:"work_order_no"`
+	RunningItemID      int64   `json:"running_item_id"`
+	ProductName        string  `json:"product_name"`
+	MaterialID         int64   `json:"material_id"`
+	MaterialName       string  `json:"material_name"`
+	Unit               string  `json:"unit"`
+	RequiredG          int64   `json:"required_g"`
+	RequiredUnits      int64   `json:"required_units"`
+	ReservedG          int64   `json:"reserved_g"`
+	ReservedUnits      int64   `json:"reserved_units"`
+	ConsumedG          int64   `json:"consumed_g"`
+	ConsumedUnits      int64   `json:"consumed_units"`
+	ReturnedG          int64   `json:"returned_g"`
+	ReturnedUnits      int64   `json:"returned_units"`
+	RemainingReservedG int64   `json:"remaining_reserved_g"`
+	Status             string  `json:"status"`
+	WIPG               int64   `json:"wip_g"`
+	AvailableG         int64   `json:"available_g"`
+	WIPUnits           int64   `json:"wip_units"`
+	AvailableUnits     int64   `json:"available_units"`
+	ShortageG          int64   `json:"shortage_g"`
+	ShortageUnits      int64   `json:"shortage_units"`
+	InventoryUnit      string  `json:"inventory_unit"`
+	QuantityBasis      string  `json:"quantity_basis"`
+	RequiredQty        float64 `json:"required_qty"`
+	AvailableQty       float64 `json:"available_qty"`
+	ShortageQty        float64 `json:"shortage_qty"`
+	RememberedQty      float64 `json:"remembered_qty"`
+	UpdatedAt          string  `json:"updated_at"`
 }
 
 type WIPReservationResult struct {
@@ -1560,6 +1584,17 @@ type Repository interface {
 	AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error)
 	ReleaseWIPReservations(ctx context.Context, cmd WIPReservationReleaseCommand) (WIPReservationReleaseResult, error)
 	AcceptanceSmoke(ctx context.Context) (AcceptanceSmokeResult, error)
+}
+
+// workOrderWIPCoverageRepository is intentionally optional so older adapters
+// and focused application fakes remain compatible while the PostgreSQL
+// implementation supplies the authoritative frozen-snapshot projection.
+type workOrderWIPCoverageRepository interface {
+	GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int64) (ProductionWIPStatus, error)
+}
+
+type workOrderStockDraftRepository interface {
+	GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string) (*StockEntryCommand, error)
 }
 
 type Service struct {
@@ -1943,8 +1978,33 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 	if detail.WorkOrder.Status == "cancelled" || detail.WorkOrder.Status == "completed" {
 		return StockDocumentPreview{}, fmt.Errorf("work order is not open")
 	}
+	if cmd.JobCardID > 0 {
+		belongs := false
+		for _, jobCard := range detail.JobCards {
+			if jobCard.ID == cmd.JobCardID && jobCard.WorkOrderID == detail.WorkOrder.ID {
+				belongs = true
+				break
+			}
+		}
+		if !belongs {
+			return StockDocumentPreview{}, fmt.Errorf("job card does not belong to work order")
+		}
+	}
+	if draftRepo, ok := s.repo.(workOrderStockDraftRepository); ok {
+		draft, err := draftRepo.GetWorkOrderStockDocumentDraft(ctx, detail.WorkOrder.ID, cmd.Action)
+		if err != nil {
+			return StockDocumentPreview{}, err
+		}
+		if draft != nil {
+			draft.WorkOrderID = detail.WorkOrder.ID
+			draft.WorkOrderNo = detail.WorkOrder.WorkOrderNo
+			draft.RunningItemID = detail.WorkOrder.RunningItemID
+			return StockDocumentPreview{Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: *draft}, nil
+		}
+	}
 	document := StockEntryCommand{
 		WorkOrderID:   detail.WorkOrder.ID,
+		WorkOrderNo:   detail.WorkOrder.WorkOrderNo,
 		JobCardID:     cmd.JobCardID,
 		RunningItemID: detail.WorkOrder.RunningItemID,
 		SourceType:    "work_order",
@@ -1993,12 +2053,26 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 			}
 			qtyG := material.RequiredG
 			qtyUnits := material.RequiredUnits
+			defaultQty := material.ShortageQty
 			wip := wipByMaterial[material.MaterialID]
 			if cmd.Action == "issue" || cmd.Action == "supplement" {
-				issuedG := wip.QtyG + material.ConsumedG + material.ReturnedG
-				issuedUnits := wip.QtyUnits + material.ConsumedUnits + material.ReturnedUnits
-				qtyG = nonnegativeInt64(material.RequiredG - issuedG)
-				qtyUnits = nonnegativeInt64(material.RequiredUnits - issuedUnits)
+				if material.QuantityBasis != "" {
+					qtyG = material.ShortageG
+					qtyUnits = material.ShortageUnits
+					if material.RememberedQty > 0 && material.RememberedQty < defaultQty {
+						defaultQty = material.RememberedQty
+						if material.QuantityBasis == "weight" {
+							qtyG = inventoryQuantityToGrams(defaultQty, material.InventoryUnit)
+						} else {
+							qtyUnits = int64(math.Ceil(defaultQty))
+						}
+					}
+				} else {
+					issuedG := wip.QtyG + material.ConsumedG + material.ReturnedG
+					issuedUnits := wip.QtyUnits + material.ConsumedUnits + material.ReturnedUnits
+					qtyG = nonnegativeInt64(material.RequiredG - issuedG)
+					qtyUnits = nonnegativeInt64(material.RequiredUnits - issuedUnits)
+				}
 			}
 			if cmd.Action == "return" || cmd.Action == "consume" {
 				qtyG = nonnegativeInt64(wip.QtyG)
@@ -2017,6 +2091,9 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 			document.Items = append(document.Items, StockEntryItemCommand{
 				MaterialID: material.MaterialID, ItemType: "material", ItemName: material.MaterialName,
 				FromWarehouse: fromWarehouse, ToWarehouse: toWarehouse, QtyG: qtyG, QtyUnits: qtyUnits,
+				InventoryUnit: material.InventoryUnit, QuantityBasis: material.QuantityBasis,
+				RequiredQty: material.RequiredQty, RemainingQty: material.ShortageQty,
+				RememberedQty: material.RememberedQty, DefaultQty: defaultQty,
 			})
 		}
 	}
@@ -2036,6 +2113,17 @@ func nonnegativeInt64(value int64) int64 {
 		return 0
 	}
 	return value
+}
+
+func inventoryQuantityToGrams(value float64, unit string) int64 {
+	factor := 1.0
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg", "千克", "公斤":
+		factor = 1000
+	case "lb", "磅":
+		factor = 453.59237
+	}
+	return int64(math.Ceil(value * factor))
 }
 
 func workOrderWIPBalances(entries []WorkOrderLedgerEntryRow) map[int64]workOrderWIPBalance {
@@ -2068,6 +2156,14 @@ func (s *Service) GetWorkOrderDetail(ctx context.Context, id int64) (WorkOrderDe
 	if err != nil {
 		return WorkOrderDetail{}, err
 	}
+	wipStatus := buildProductionWIPStatus(reservations.Rows)
+	if coverageRepo, ok := s.repo.(workOrderWIPCoverageRepository); ok {
+		wipStatus, err = coverageRepo.GetWorkOrderWIPCoverage(ctx, wo.ID)
+		if err != nil {
+			return WorkOrderDetail{}, err
+		}
+	}
+	materials := wipStatus.Materials
 	jobCards, err := s.ListJobCards(ctx, JobCardQuery{WorkOrderID: wo.ID, Limit: 200})
 	if err != nil {
 		return WorkOrderDetail{}, err
@@ -2098,14 +2194,14 @@ func (s *Service) GetWorkOrderDetail(ctx context.Context, id int64) (WorkOrderDe
 	}
 	return WorkOrderDetail{
 		WorkOrder:      wo,
-		Materials:      reservations.Rows,
+		Materials:      materials,
 		JobCards:       jobCards,
 		StockDocuments: stockEntries,
 		StockEntries:   stockEntries,
 		LedgerEntries:  ledgerEntries,
 		ProductionLogs: logs,
 		CostSummary:    cost,
-		ExecutionHub:   buildWorkOrderExecutionHub(wo, reservations.Rows, jobCards, stockEntries, ledgerEntries, logs, cost, qualityRows),
+		ExecutionHub:   buildWorkOrderExecutionHub(wo, wipStatus, jobCards, stockEntries, ledgerEntries, logs, cost, qualityRows),
 	}, nil
 }
 
@@ -2440,6 +2536,30 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 		}
 		tasks = append(tasks, productionTaskFromWorkOrder(workOrder))
 	}
+	if coverageRepo, ok := s.repo.(workOrderWIPCoverageRepository); ok {
+		coverageByWorkOrder := make(map[int64]ProductionWIPStatus)
+		for i := range tasks {
+			task := &tasks[i]
+			coverage, found := coverageByWorkOrder[task.WorkOrderID]
+			if !found {
+				coverage, err = coverageRepo.GetWorkOrderWIPCoverage(ctx, task.WorkOrderID)
+				if err != nil {
+					return ProductionWorkstationOverview{}, err
+				}
+				coverageByWorkOrder[task.WorkOrderID] = coverage
+			}
+			if coverage.DataComplete && coverage.ShortageG <= 0 && coverage.ShortageUnits <= 0 {
+				continue
+			}
+			task.IsBlocked = true
+			task.StatusLabel = "异常"
+			task.Readiness = "blocked"
+			task.ReadinessLabel = "WIP库存不足"
+			task.NextHandler = "仓库/物料"
+			task.BlockingReason = firstNonEmpty(coverage.BlockingReason, "WIP资料待完善")
+			applyProductionTaskReadinessDetail(task)
+		}
+	}
 
 	sortProductionTasks(tasks)
 	load := buildProductionWorkstationLoad(tasks)
@@ -2703,9 +2823,9 @@ func productionWorkstationLoadStatus(row ProductionWorkstationLoad) string {
 	return "normal"
 }
 
-func buildWorkOrderExecutionHub(wo WorkOrderRow, reservations []WIPReservationRow, jobCards []JobCardRow, stockEntries []StockEntryRow, ledgerEntries []WorkOrderLedgerEntryRow, logs ProductionLogsResult, cost BatchCostRow, qualityRows []QualityInspectionRow) WorkOrderExecutionHub {
+func buildWorkOrderExecutionHub(wo WorkOrderRow, wipStatus ProductionWIPStatus, jobCards []JobCardRow, stockEntries []StockEntryRow, ledgerEntries []WorkOrderLedgerEntryRow, logs ProductionLogsResult, cost BatchCostRow, qualityRows []QualityInspectionRow) WorkOrderExecutionHub {
 	filteredQualityRows := qualityRowsForWorkOrder(wo, qualityRows)
-	readiness := buildWorkOrderExecutionReadiness(wo, reservations, jobCards, filteredQualityRows)
+	readiness := buildWorkOrderExecutionReadiness(wo, wipStatus, jobCards, filteredQualityRows)
 	return WorkOrderExecutionHub{
 		Header:                buildWorkOrderExecutionHeader(wo),
 		Readiness:             readiness,
@@ -2713,7 +2833,7 @@ func buildWorkOrderExecutionHub(wo WorkOrderRow, reservations []WIPReservationRo
 		RouteSummary:          workOrderRouteSummary(wo, jobCards),
 		OperationProgress:     buildWorkOrderOperationProgress(jobCards),
 		WorkstationAssignment: buildWorkOrderAssignment(wo, jobCards),
-		WIPStatus:             buildProductionWIPStatus(reservations),
+		WIPStatus:             wipStatus,
 		QualityStatus:         buildProductionQualityStatus(wo, filteredQualityRows),
 		StockEntries:          stockEntries,
 		FinishedReceipts:      filterFinishedReceiptEntries(stockEntries),
@@ -2747,15 +2867,27 @@ func buildWorkOrderExecutionHeader(wo WorkOrderRow) WorkOrderExecutionHeader {
 	}
 }
 
-func buildWorkOrderExecutionReadiness(wo WorkOrderRow, reservations []WIPReservationRow, jobCards []JobCardRow, qualityRows []QualityInspectionRow) ProductionExecutionReadiness {
+func buildWorkOrderExecutionReadiness(wo WorkOrderRow, wipStatus ProductionWIPStatus, jobCards []JobCardRow, qualityRows []QualityInspectionRow) ProductionExecutionReadiness {
 	reasons := make([]ProductionBlockingReason, 0)
-	if shortage := productionWIPShortageG(reservations); shortage > 0 {
+	if !wipStatus.DataComplete {
+		reasons = append(reasons, productionBlockingReasonRow(
+			"wip_data_incomplete",
+			firstNonEmpty(wipStatus.BlockingReason, "WIP资料待完善"),
+			"blocked",
+			"生产配置",
+			[]ProductionRelatedLink{productionRelatedLink("workOrder", "打开工单", "workOrders", workOrderContextParams(wo, 0, nil))},
+		))
+	} else if shortage := wipStatus.ShortageG; shortage > 0 || wipStatus.ShortageUnits > 0 {
+		label := fmt.Sprintf("WIP 不足 %dg", shortage)
+		if shortage <= 0 {
+			label = fmt.Sprintf("WIP 不足 %d件", wipStatus.ShortageUnits)
+		}
 		reasons = append(reasons, productionBlockingReasonRow(
 			"wip_shortage",
-			fmt.Sprintf("WIP 不足 %dg", shortage),
+			label,
 			"blocked",
 			"仓库/物料",
-			[]ProductionRelatedLink{productionRelatedLink("wip", "处理 WIP", "stockOperations", workOrderContextParams(wo, firstJobCardID(jobCards), map[string]any{"tab": "stockEntries", "action": "supplement", "return_source": "work_order", "material_id": firstShortageMaterialID(reservations), "shortage_g": shortage}))},
+			[]ProductionRelatedLink{productionRelatedLink("wip", "生产领料", "stockOperations", workOrderContextParams(wo, firstJobCardID(jobCards), map[string]any{"tab": "stockEntries", "action": "issue", "return_source": "work_order"}))},
 		))
 	}
 	quality := buildProductionQualityStatus(wo, qualityRows)
@@ -2847,20 +2979,34 @@ func productionBlockingReasonRow(code, label, severity, nextHandler string, link
 }
 
 func buildProductionWIPStatus(rows []WIPReservationRow) ProductionWIPStatus {
-	status := ProductionWIPStatus{Materials: rows, Status: "ok"}
+	status := ProductionWIPStatus{Materials: rows, Status: "ok", DataComplete: len(rows) > 0}
 	for _, row := range rows {
 		status.RequiredG += row.RequiredG
+		status.RequiredUnits += row.RequiredUnits
 		status.ReservedG += row.ReservedG
 		status.ConsumedG += row.ConsumedG
 		status.RemainingG += row.RemainingReservedG
 		status.AvailableG += row.AvailableG
-		if row.RequiredG > row.ReservedG+row.ConsumedG {
+		status.AvailableUnits += row.AvailableUnits
+		if row.QuantityBasis != "" {
+			status.ShortageG += row.ShortageG
+			status.ShortageUnits += row.ShortageUnits
+		} else if row.RequiredG > row.ReservedG+row.ConsumedG {
 			status.ShortageG += row.RequiredG - row.ReservedG - row.ConsumedG
+		} else if row.RequiredUnits > row.ReservedUnits+row.ConsumedUnits {
+			status.ShortageUnits += row.RequiredUnits - row.ReservedUnits - row.ConsumedUnits
 		}
 	}
-	if status.ShortageG > 0 {
+	if len(rows) == 0 {
 		status.Status = "blocked"
-		status.BlockingReason = fmt.Sprintf("WIP 不足 %dg", status.ShortageG)
+		status.BlockingReason = "WIP资料待完善"
+	} else if status.ShortageG > 0 || status.ShortageUnits > 0 {
+		status.Status = "blocked"
+		if status.ShortageG > 0 {
+			status.BlockingReason = fmt.Sprintf("WIP 不足 %dg", status.ShortageG)
+		} else {
+			status.BlockingReason = fmt.Sprintf("WIP 不足 %d件", status.ShortageUnits)
+		}
 	}
 	return status
 }

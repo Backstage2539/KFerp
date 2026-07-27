@@ -11,7 +11,7 @@ import (
 
 func registerBomPages(e *echo.Echo) {
 	e.GET("/bom", func(c echo.Context) error {
-		target := "/vue-shell?view=bom"
+		target := "/vue-shell?view=productionConfig&tab=bom"
 		if productID := strings.TrimSpace(c.QueryParam("product_id")); productID != "" {
 			target += "&product_id=" + url.QueryEscape(productID)
 		}

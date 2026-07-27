@@ -2,6 +2,7 @@ package stock
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	stockapp "orderapp/internal/application/stock"
@@ -42,6 +43,9 @@ func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd 
 	}
 	if status != "draft" {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("only draft stock document can be edited")
+	}
+	if err := r.resolveStockDocumentWorkOrderContextTx(ctx, tx, &cmd); err != nil {
+		return stockapp.StockDocumentDetail{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.stock_entries
@@ -197,21 +201,23 @@ func (r Repository) ListStockDocuments(ctx context.Context, query stockapp.Stock
 	documentsCTE := fmt.Sprintf(`
 		WITH documents AS (
 			SELECT se.id,se.entry_no,se.entry_type,se.purpose,se.is_return,se.status,
-			       se.work_order_id,se.job_card_id,se.running_item_id,se.source_type,se.source_id,se.return_source,
+			       se.work_order_id,COALESCE(wo.work_order_no,'') AS work_order_no,se.job_card_id,se.running_item_id,se.source_type,se.source_id,se.return_source,
 			       COUNT(si.id)::bigint AS item_count,COALESCE(SUM(si.qty_g),0)::bigint AS total_qty_g,
+			       COALESCE(SUM(si.qty_units),0)::bigint AS total_qty_units,
 			       COALESCE(SUM(si.total_cost),0)::float8 AS total_cost,se.operator,se.note,se.legacy,
 			       se.created_at,se.updated_at
 			FROM %[1]s.stock_entries se
 			LEFT JOIN %[1]s.stock_entry_items si ON si.stock_entry_id=se.id
-			GROUP BY se.id
+			LEFT JOIN %[1]s.work_orders wo ON wo.id=se.work_order_id
+			GROUP BY se.id,wo.work_order_no
 
 			UNION ALL
 
 			SELECT -(1000000000000::bigint+mr.id),
 			       concat('MR-HIST-',lpad(mr.id::text,10,'0')),
 			       'material_receipt','material_receipt',false,mr.status,
-			       0,0,0,'material_receipt',mr.id,'',
-			       1,mr.qty_g,
+			       0,'',0,0,'material_receipt',mr.id,'',
+			       1,mr.qty_g,mr.qty_units,
 			       (CASE WHEN mr.qty_g>0 THEN mr.qty_g::numeric/1000 ELSE mr.qty_units::numeric END*mr.unit_cost)::float8,
 			       mr.operator,mr.note,true,mr.created_at,mr.created_at
 			FROM %[1]s.material_receipts mr
@@ -220,16 +226,16 @@ func (r Repository) ListStockDocuments(ctx context.Context, query stockapp.Stock
 
 			SELECT -(2000000000000::bigint+mt.id),mt.transfer_no,
 			       'material_transfer','material_transfer',false,mt.status,
-			       0,0,0,'material_transfer',mt.id,'',
-			       1,mt.qty_g,0::float8,mt.operator,mt.note,true,mt.created_at,mt.created_at
+			       0,'',0,0,'material_transfer',mt.id,'',
+			       1,mt.qty_g,0::bigint,0::float8,mt.operator,mt.note,true,mt.created_at,mt.created_at
 			FROM %[1]s.material_transfers mt
 
 			UNION ALL
 
 			SELECT -(3000000000000::bigint+ft.id),ft.transfer_no,
 			       'finished_transfer','material_transfer',false,ft.status,
-			       0,0,0,'finished_product_transfer',ft.id,'',
-			       1,ft.qty_g,0::float8,ft.operator,ft.note,true,ft.created_at,ft.created_at
+			       0,'',0,0,'finished_product_transfer',ft.id,'',
+			       1,ft.qty_g,ft.qty_units,0::float8,ft.operator,ft.note,true,ft.created_at,ft.created_at
 			FROM %[1]s.finished_product_transfers ft
 		)
 	`, r.schema)
@@ -239,8 +245,8 @@ func (r Repository) ListStockDocuments(ctx context.Context, query stockapp.Stock
 	}
 	args = append(args, query.Limit+1, query.Offset)
 	rows, err := r.pool.Query(ctx, documentsCTE+fmt.Sprintf(`
-		SELECT d.id,d.entry_no,d.entry_type,d.purpose,d.is_return,d.status,d.work_order_id,d.job_card_id,d.running_item_id,
-		       d.source_type,d.source_id,d.return_source,d.item_count,d.total_qty_g,d.total_cost,d.operator,d.note,d.legacy,
+		SELECT d.id,d.entry_no,d.entry_type,d.purpose,d.is_return,d.status,d.work_order_id,d.work_order_no,d.job_card_id,d.running_item_id,
+		       d.source_type,d.source_id,d.return_source,d.item_count,d.total_qty_g,d.total_qty_units,d.total_cost,d.operator,d.note,d.legacy,
 		       to_char(d.created_at,'YYYY-MM-DD HH24:MI'),to_char(d.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM documents d
 		WHERE %s
@@ -254,8 +260,8 @@ func (r Repository) ListStockDocuments(ctx context.Context, query stockapp.Stock
 	out := make([]stockapp.StockDocumentRow, 0)
 	for rows.Next() {
 		var row stockapp.StockDocumentRow
-		if err := rows.Scan(&row.ID, &row.EntryNo, &row.EntryType, &row.Purpose, &row.IsReturn, &row.Status, &row.WorkOrderID, &row.JobCardID, &row.RunningItemID,
-			&row.SourceType, &row.SourceID, &row.ReturnSource, &row.ItemCount, &row.TotalQtyG, &row.TotalCost, &row.Operator, &row.Note, &row.Legacy, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.EntryNo, &row.EntryType, &row.Purpose, &row.IsReturn, &row.Status, &row.WorkOrderID, &row.WorkOrderNo, &row.JobCardID, &row.RunningItemID,
+			&row.SourceType, &row.SourceID, &row.ReturnSource, &row.ItemCount, &row.TotalQtyG, &row.TotalQtyUnits, &row.TotalCost, &row.Operator, &row.Note, &row.Legacy, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return stockapp.StockDocumentResult{}, err
 		}
 		out = append(out, row)
@@ -297,6 +303,9 @@ func (r Repository) createStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, c
 			return stockapp.StockDocumentDetail{}, err
 		}
 	}
+	if err := r.resolveStockDocumentWorkOrderContextTx(ctx, tx, &cmd); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_entries(
@@ -319,6 +328,41 @@ func (r Repository) createStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, c
 		return stockapp.StockDocumentDetail{}, err
 	}
 	return r.loadStockDocumentDetailTx(ctx, tx, id)
+}
+
+func (r Repository) resolveStockDocumentWorkOrderContextTx(ctx context.Context, tx pgx.Tx, cmd *stockapp.StockDocumentCommand) error {
+	if cmd == nil || cmd.WorkOrderID <= 0 {
+		return nil
+	}
+	switch cmd.Purpose {
+	case stockapp.PurposeMaterialTransferForManufacture, stockapp.PurposeMaterialConsumption, stockapp.PurposeManufacture, stockapp.PurposeMaterialIssue:
+	default:
+		return fmt.Errorf("stock document purpose cannot be linked to work order")
+	}
+	var runningItemID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(running_item_id,0) FROM %s.work_orders WHERE id=$1`, r.schema), cmd.WorkOrderID).Scan(&runningItemID); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("work order not found")
+		}
+		return err
+	}
+	cmd.RunningItemID = runningItemID
+	if cmd.JobCardID > 0 {
+		var belongs bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.job_cards WHERE id=$1 AND work_order_id=$2)`, r.schema), cmd.JobCardID, cmd.WorkOrderID).Scan(&belongs); err != nil {
+			return err
+		}
+		if !belongs {
+			return fmt.Errorf("job card does not belong to work order")
+		}
+	}
+	if cmd.SourceType == "" {
+		cmd.SourceType = "work_order"
+	}
+	if cmd.SourceID <= 0 {
+		cmd.SourceID = cmd.WorkOrderID
+	}
+	return nil
 }
 
 func (r Repository) insertStockDocumentItemsTx(ctx context.Context, tx pgx.Tx, stockEntryID int64, items []stockapp.StockDocumentItemCommand) error {
@@ -393,11 +437,13 @@ func (r Repository) lockStockDocumentStatusTx(ctx context.Context, tx pgx.Tx, id
 func (r Repository) loadStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, id int64) (stockapp.StockDocumentDetail, error) {
 	var out stockapp.StockDocumentDetail
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id,entry_no,entry_type,purpose,is_return,status,work_order_id,job_card_id,running_item_id,
-		       source_type,source_id,return_source,operator,note,legacy,
-		       to_char(created_at,'YYYY-MM-DD HH24:MI'),to_char(updated_at,'YYYY-MM-DD HH24:MI')
-		FROM %s.stock_entries WHERE id=$1
-	`, r.schema), id).Scan(&out.ID, &out.EntryNo, &out.EntryType, &out.Purpose, &out.IsReturn, &out.Status, &out.WorkOrderID, &out.JobCardID, &out.RunningItemID,
+		SELECT se.id,se.entry_no,se.entry_type,se.purpose,se.is_return,se.status,se.work_order_id,COALESCE(wo.work_order_no,''),se.job_card_id,se.running_item_id,
+		       se.source_type,se.source_id,se.return_source,se.operator,se.note,se.legacy,
+		       to_char(se.created_at,'YYYY-MM-DD HH24:MI'),to_char(se.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.stock_entries se
+		LEFT JOIN %s.work_orders wo ON wo.id=se.work_order_id
+		WHERE se.id=$1
+	`, r.schema, r.schema), id).Scan(&out.ID, &out.EntryNo, &out.EntryType, &out.Purpose, &out.IsReturn, &out.Status, &out.WorkOrderID, &out.WorkOrderNo, &out.JobCardID, &out.RunningItemID,
 		&out.SourceType, &out.SourceID, &out.ReturnSource, &out.Operator, &out.Note, &out.Legacy, &out.CreatedAt, &out.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return stockapp.StockDocumentDetail{}, fmt.Errorf("stock document not found")
@@ -456,19 +502,51 @@ func (r Repository) loadStockDocumentDetailTx(ctx context.Context, tx pgx.Tx, id
 	out.ItemCount = int64(len(out.Items))
 	for _, item := range out.Items {
 		out.TotalQtyG += item.QtyG
+		out.TotalQtyUnits += item.QtyUnits
 		out.TotalCost += item.TotalCost
 	}
 	return out, nil
 }
 
 func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail) error {
-	if detail.Purpose != stockapp.PurposeMaterialTransferForManufacture &&
-		detail.Purpose != stockapp.PurposeMaterialConsumption &&
-		detail.Purpose != stockapp.PurposeManufacture {
+	requiresWorkOrder := detail.Purpose == stockapp.PurposeMaterialTransferForManufacture ||
+		detail.Purpose == stockapp.PurposeMaterialConsumption ||
+		detail.Purpose == stockapp.PurposeManufacture
+	if detail.WorkOrderID <= 0 {
+		if requiresWorkOrder {
+			return fmt.Errorf("work_order_id required")
+		}
 		return nil
 	}
+	if !requiresWorkOrder && detail.Purpose != stockapp.PurposeMaterialIssue {
+		return fmt.Errorf("stock document purpose cannot be linked to work order")
+	}
+	expectedItemType := itemTypeMaterial
+	if detail.Purpose == stockapp.PurposeManufacture {
+		expectedItemType = itemTypeFinishedProduct
+	}
+	for index, item := range detail.Items {
+		if item.ItemType != expectedItemType {
+			return fmt.Errorf("item %d item type must be %s for work order purpose %s", index+1, expectedItemType, detail.Purpose)
+		}
+	}
 	var status string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.work_orders WHERE id=$1 FOR UPDATE`, r.schema), detail.WorkOrderID).Scan(&status); err != nil {
+	var plannedG, plannedOutputG, plannedUnits int64
+	var materialSnapshot string
+	hasSnapshot, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_orders", "material_snapshot")
+	if err != nil {
+		return err
+	}
+	if hasSnapshot {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT status,COALESCE(planned_g,0),COALESCE(planned_output_g,0),CEIL(COALESCE(sales_spec_count,0))::bigint,
+			       COALESCE(material_snapshot,'[]'::jsonb)::text
+			FROM %s.work_orders WHERE id=$1 FOR UPDATE
+		`, r.schema), detail.WorkOrderID).Scan(&status, &plannedG, &plannedOutputG, &plannedUnits, &materialSnapshot)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.work_orders WHERE id=$1 FOR UPDATE`, r.schema), detail.WorkOrderID).Scan(&status)
+	}
+	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("work order not found")
 		}
@@ -502,24 +580,325 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 			return fmt.Errorf("work order still has unconsumed or unreturned material")
 		}
 	}
+	frozenRequirements, err := stockFrozenMaterialRequirements(materialSnapshot, plannedG, plannedOutputG, plannedUnits)
+	if err != nil {
+		return err
+	}
+	type submittedMaterialQty struct{ g, units int64 }
+	submittedByMaterial := make(map[int64]submittedMaterialQty)
 	for _, item := range detail.Items {
 		if item.MaterialID <= 0 {
 			continue
 		}
-		var exists bool
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT EXISTS(
-				SELECT 1 FROM %s.work_order_material_reservations
-				WHERE work_order_id=$1 AND material_id=$2
-			)
-		`, r.schema), detail.WorkOrderID, item.MaterialID).Scan(&exists); err != nil {
+		qty := submittedByMaterial[item.MaterialID]
+		qty.g += item.QtyG
+		qty.units += item.QtyUnits
+		submittedByMaterial[item.MaterialID] = qty
+	}
+	for _, item := range detail.Items {
+		if item.MaterialID <= 0 {
+			continue
+		}
+		reservationRequirement, reservationMember, err := stockReservationMaterialRequirementTx(
+			ctx, tx, r.schema, detail.WorkOrderID, item.MaterialID,
+		)
+		if err != nil {
 			return err
 		}
-		if !exists {
+		requirement, frozenMember := frozenRequirements[item.MaterialID]
+		if !frozenMember && reservationMember {
+			requirement = reservationRequirement
+		}
+		requirementMember := frozenMember || reservationMember
+		if !requirementMember {
 			return fmt.Errorf("material does not belong to work order")
+		}
+		if item.InventoryUnit != "" && requirement.InventoryUnit != "" && !sameInventoryUnit(item.InventoryUnit, requirement.InventoryUnit) {
+			return fmt.Errorf("material inventory unit does not match frozen work order requirement")
+		}
+		if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn {
+			availableG, availableUnits, consumedG, consumedUnits, err := eligibleWIPBalanceForWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID, item.MaterialID)
+			if err != nil {
+				return err
+			}
+			remainingG := nonnegativeStockQty(requirement.RequiredG - consumedG - availableG)
+			remainingUnits := nonnegativeStockQty(requirement.RequiredUnits - consumedUnits - availableUnits)
+			submitted := submittedByMaterial[item.MaterialID]
+			if submitted.g > remainingG || submitted.units > remainingUnits {
+				return fmt.Errorf("material quantity exceeds current remaining WIP shortage")
+			}
 		}
 	}
 	return nil
+}
+
+func stockReservationMaterialRequirementTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, materialID int64) (stockFrozenMaterialRequirement, bool, error) {
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1 FROM %s.work_order_material_reservations
+			WHERE work_order_id=$1 AND material_id=$2
+		)
+	`, schema), workOrderID, materialID).Scan(&exists); err != nil || !exists {
+		return stockFrozenMaterialRequirement{}, exists, err
+	}
+	hasRequiredG, err := stockSchemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "required_g")
+	if err != nil {
+		return stockFrozenMaterialRequirement{}, false, err
+	}
+	hasRequiredUnits, err := stockSchemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "required_units")
+	if err != nil {
+		return stockFrozenMaterialRequirement{}, false, err
+	}
+	hasUnit, err := stockSchemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "unit")
+	if err != nil {
+		return stockFrozenMaterialRequirement{}, false, err
+	}
+	requiredGExpr := "COALESCE(SUM(reserved_g),0)::bigint"
+	if hasRequiredG {
+		requiredGExpr = "COALESCE(SUM(CASE WHEN required_g>0 THEN required_g ELSE reserved_g END),0)::bigint"
+	}
+	requiredUnitsExpr := "COALESCE(SUM(reserved_units),0)::bigint"
+	if hasRequiredUnits {
+		requiredUnitsExpr = "COALESCE(SUM(CASE WHEN required_units>0 THEN required_units ELSE reserved_units END),0)::bigint"
+	}
+	var requirement stockFrozenMaterialRequirement
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT %s,%s
+		FROM %s.work_order_material_reservations
+		WHERE work_order_id=$1 AND material_id=$2
+	`, requiredGExpr, requiredUnitsExpr, schema), workOrderID, materialID).Scan(&requirement.RequiredG, &requirement.RequiredUnits); err != nil {
+		return stockFrozenMaterialRequirement{}, false, err
+	}
+	if hasUnit {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(NULLIF(MAX(unit),''),'')
+			FROM %s.work_order_material_reservations
+			WHERE work_order_id=$1 AND material_id=$2
+		`, schema), workOrderID, materialID).Scan(&requirement.InventoryUnit); err != nil {
+			return stockFrozenMaterialRequirement{}, false, err
+		}
+	}
+	if strings.TrimSpace(requirement.InventoryUnit) == "" {
+		if requirement.RequiredUnits > 0 && requirement.RequiredG <= 0 {
+			requirement.InventoryUnit = "个"
+		} else {
+			requirement.InventoryUnit = "g"
+		}
+	}
+	return requirement, true, nil
+}
+
+type stockFrozenMaterialRequirement struct {
+	InventoryUnit string
+	RequiredG     int64
+	RequiredUnits int64
+}
+
+type stockFrozenMaterialSnapshotRow struct {
+	MaterialID                int64   `json:"material_id"`
+	Unit                      string  `json:"unit"`
+	RatioPct                  float64 `json:"ratio_pct"`
+	MaterialLossRate          float64 `json:"material_loss_rate"`
+	InputIncludesMaterialLoss bool    `json:"input_includes_material_loss"`
+	Source                    string  `json:"source"`
+	ConsumeUnit               string  `json:"consume_unit"`
+	QtyPerUnit                float64 `json:"qty_per_unit"`
+	OutputQty                 float64 `json:"output_qty"`
+	OutputUnit                string  `json:"output_unit"`
+}
+
+func stockFrozenMaterialRequirements(raw string, plannedG, plannedOutputG, plannedUnits int64) (map[int64]stockFrozenMaterialRequirement, error) {
+	out := map[int64]stockFrozenMaterialRequirement{}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" || raw == "null" {
+		return out, nil
+	}
+	var rows []stockFrozenMaterialSnapshotRow
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		return nil, fmt.Errorf("invalid frozen work order material snapshot: %w", err)
+	}
+	if plannedOutputG <= 0 {
+		plannedOutputG = plannedG
+	}
+	for _, row := range rows {
+		if row.MaterialID <= 0 {
+			continue
+		}
+		unit := strings.TrimSpace(row.Unit)
+		if unit == "" {
+			unit = "g"
+		}
+		weightFactor := stockWeightUnitGrams(unit)
+		requiredG, requiredUnits := int64(0), int64(0)
+		source := strings.ToLower(strings.TrimSpace(row.Source))
+		consumeUnit := strings.ToLower(strings.TrimSpace(row.ConsumeUnit))
+		if source == "packaging" {
+			requiredUnits = plannedUnits
+		} else if consumeUnit == "" || consumeUnit == "ratio_pct" {
+			ratio := row.RatioPct
+			if ratio <= 0 && weightFactor == 0 {
+				ratio = 100
+			}
+			base := float64(plannedG) * ratio / 100
+			loss := row.MaterialLossRate
+			if loss > 1 {
+				loss /= 100
+			}
+			if row.InputIncludesMaterialLoss {
+				loss = 0
+			}
+			if loss > 0 && loss < 1 {
+				base /= 1 - loss
+			}
+			if weightFactor > 0 {
+				requiredG = int64(math.Ceil(base))
+			} else {
+				requiredUnits = int64(math.Ceil(base))
+			}
+		} else {
+			outputQty := row.OutputQty
+			if outputQty <= 0 {
+				outputQty = 1
+			}
+			outputFactor := float64(plannedOutputG)
+			switch strings.ToLower(strings.TrimSpace(row.OutputUnit)) {
+			case "kg", "千克", "公斤":
+				outputFactor /= 1000
+			case "lb", "磅":
+				outputFactor /= 453.59237
+			}
+			outputFactor /= outputQty
+			if weightFactor > 0 {
+				grams := row.QtyPerUnit * outputFactor * weightFactor
+				switch consumeUnit {
+				case "g":
+					grams = row.QtyPerUnit * outputFactor
+				case "kg":
+					grams = row.QtyPerUnit * outputFactor * 1000
+				case "g_per_bag":
+					grams = row.QtyPerUnit * float64(plannedUnits)
+				case "unit_per_bag":
+					grams = row.QtyPerUnit * float64(plannedUnits) * weightFactor
+				case "unit_per_box":
+					grams = 0
+				}
+				requiredG = int64(math.Ceil(grams))
+			} else {
+				qty := row.QtyPerUnit * outputFactor
+				switch consumeUnit {
+				case "unit_per_bag", "g_per_bag":
+					qty = row.QtyPerUnit * float64(plannedUnits)
+				case "unit_per_box":
+					qty = 0
+				}
+				requiredUnits = int64(math.Ceil(qty))
+			}
+		}
+		current := out[row.MaterialID]
+		current.InventoryUnit = unit
+		current.RequiredG += requiredG
+		current.RequiredUnits += requiredUnits
+		out[row.MaterialID] = current
+	}
+	return out, nil
+}
+
+func stockWeightUnitGrams(unit string) float64 {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "g", "克":
+		return 1
+	case "kg", "千克", "公斤":
+		return 1000
+	case "lb", "磅":
+		return 453.59237
+	default:
+		return 0
+	}
+}
+
+func sameInventoryUnit(a, b string) bool {
+	a = strings.ToLower(strings.TrimSpace(a))
+	b = strings.ToLower(strings.TrimSpace(b))
+	if a == b {
+		return true
+	}
+	aliases := map[string]string{"克": "g", "千克": "kg", "公斤": "kg", "磅": "lb"}
+	if alias := aliases[a]; alias != "" {
+		a = alias
+	}
+	if alias := aliases[b]; alias != "" {
+		b = alias
+	}
+	return a == b
+}
+
+func eligibleWIPBalanceForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, materialID int64) (int64, int64, int64, int64, error) {
+	var wipG, wipUnits int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(l.qty_g),0)::bigint,COALESCE(SUM(l.qty_units),0)::bigint
+		FROM %s.material_batch_locations l
+		JOIN %s.material_batches b ON b.id=l.material_batch_id
+		WHERE l.material_id=$1 AND l.warehouse='wip'
+		  AND (l.qty_g>0 OR l.qty_units>0)
+		  AND b.status='active'
+		  AND (b.remaining_g>0 OR b.remaining_units>0)
+		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+	`, schema, schema), materialID).Scan(&wipG, &wipUnits); err != nil {
+		return 0, 0, 0, 0, err
+	}
+	var reservedG, reservedUnits int64
+	hasWorkOrderStatus, err := stockSchemaColumnExistsTx(ctx, tx, schema, "work_orders", "status")
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if hasWorkOrderStatus {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint,
+			       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units)),0)::bigint
+			FROM %s.work_order_material_reservations r
+			JOIN %s.work_orders wo ON wo.id=r.work_order_id
+			WHERE r.material_id=$1 AND r.status='reserved' AND r.work_order_id<>$2
+			  AND wo.status IN ('released','running','partially_completed','paused')
+		`, schema, schema), materialID, workOrderID).Scan(&reservedG, &reservedUnits)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,
+			       COALESCE(SUM(GREATEST(0,reserved_units-consumed_units-returned_units)),0)::bigint
+			FROM %s.work_order_material_reservations
+			WHERE material_id=$1 AND status='reserved' AND work_order_id<>$2
+		`, schema), materialID, workOrderID).Scan(&reservedG, &reservedUnits)
+	}
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	var consumedG, consumedUnits int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(consumed_g),0)::bigint,COALESCE(SUM(consumed_units),0)::bigint
+		FROM %s.work_order_material_reservations
+		WHERE work_order_id=$1 AND material_id=$2
+	`, schema), workOrderID, materialID).Scan(&consumedG, &consumedUnits); err != nil {
+		return 0, 0, 0, 0, err
+	}
+	return nonnegativeStockQty(wipG - reservedG), nonnegativeStockQty(wipUnits - reservedUnits), consumedG, consumedUnits, nil
+}
+
+func nonnegativeStockQty(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func stockSchemaColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table, column string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+		)
+	`, schema, table, column).Scan(&exists)
+	return exists, err
 }
 
 func (r Repository) postStockDocumentItemTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item *stockapp.StockDocumentItemRow, actor string) error {

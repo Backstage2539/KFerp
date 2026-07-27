@@ -34,6 +34,8 @@ const viewScopedParams = [
   'material_id',
   'shortage_g',
   'gap_g',
+  'production_bom_id',
+  'bom_id',
 ]
 
 export function viewNavigationURL(currentURL, key, params = {}) {

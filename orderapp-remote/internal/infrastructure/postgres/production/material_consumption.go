@@ -866,58 +866,253 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 }
 
 func ensureWIPStockForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, materialSnapshot []byte) error {
+	return ensureWIPStockForRunningItemWorkOrderTx(ctx, tx, schema, 0, r, materialSnapshot)
+}
+
+func runningItemWorkOrderMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, r ProduceRunRow, materialSnapshot []byte) ([]materialConsumptionNeed, error) {
 	r.MaterialSnapshot = strings.TrimSpace(string(materialSnapshot))
 	needs, ok, err := materialSnapshotNeedsTx(r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if !ok {
-		needs, err = currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
+	if ok && len(needs) > 0 {
+		return needs, nil
+	}
+	if workOrderID > 0 {
+		needs, err = workOrderReservationNeedsTx(ctx, tx, schema, workOrderID)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		if len(needs) == 0 {
+			return nil, fmt.Errorf("WIP资料待完善: work order %d has no frozen material snapshot or reservation requirements", workOrderID)
+		}
+		return needs, nil
 	}
-	return ensureWIPStockForNeedsTx(ctx, tx, schema, needs)
+	return currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
 }
 
-func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, needs []materialConsumptionNeed) error {
-	shortages := make([]string, 0)
+func ensureWIPStockForRunningItemWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, r ProduceRunRow, materialSnapshot []byte) error {
+	needs, err := runningItemWorkOrderMaterialNeedsTx(ctx, tx, schema, workOrderID, r, materialSnapshot)
+	if err != nil {
+		return err
+	}
+	return ensureWIPStockForWorkOrderNeedsTx(ctx, tx, schema, workOrderID, needs)
+}
+
+type workOrderWIPNeedCoverage struct {
+	Need                 materialConsumptionNeed
+	WIPG                 int64
+	WIPUnits             int64
+	CurrentConsumedG     int64
+	CurrentConsumedUnits int64
+	OtherReservedG       int64
+	OtherReservedUnits   int64
+	AvailableG           int64
+	AvailableUnits       int64
+	ShortageG            int64
+	ShortageUnits        int64
+}
+
+func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, needs []materialConsumptionNeed) ([]workOrderWIPNeedCoverage, error) {
+	hasLocationUnits, err := schemaColumnExistsTx(ctx, tx, schema, "material_batch_locations", "qty_units")
+	if err != nil {
+		return nil, err
+	}
+	hasReservationUnits, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "reserved_units")
+	if err != nil {
+		return nil, err
+	}
+	hasReservationWorkOrder, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "work_order_id")
+	if err != nil {
+		return nil, err
+	}
+	hasBatchRemainingUnits, err := schemaColumnExistsTx(ctx, tx, schema, "material_batches", "remaining_units")
+	if err != nil {
+		return nil, err
+	}
+	hasWorkOrderStatus, err := schemaColumnExistsTx(ctx, tx, schema, "work_orders", "status")
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]workOrderWIPNeedCoverage, 0)
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
 		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
 			continue
 		}
-		if need.MaterialID <= 0 || need.DeductG <= 0 {
+		if need.MaterialID <= 0 || (need.DeductG <= 0 && need.DeductUnits <= 0) {
 			continue
 		}
-		var availableG int64
-		err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT COALESCE(SUM(l.qty_g),0)::bigint
-			FROM %s.material_batch_locations l
-			JOIN %s.material_batches b ON b.id=l.material_batch_id
-			WHERE l.material_id=$1
-			  AND l.warehouse=$2
-			  AND l.qty_g > 0
-			  AND b.status='active'
-			  AND b.remaining_g > 0
-			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-		`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&availableG)
+		var wipG, wipUnits int64
+		if hasLocationUnits && hasBatchRemainingUnits {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(l.qty_g),0)::bigint,COALESCE(SUM(l.qty_units),0)::bigint
+				FROM %s.material_batch_locations l
+				JOIN %s.material_batches b ON b.id=l.material_batch_id
+				WHERE l.material_id=$1
+				  AND l.warehouse=$2
+				  AND (l.qty_g > 0 OR l.qty_units > 0)
+				  AND b.status='active'
+				  AND (b.remaining_g > 0 OR b.remaining_units > 0)
+				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG, &wipUnits)
+		} else {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(l.qty_g),0)::bigint
+				FROM %s.material_batch_locations l
+				JOIN %s.material_batches b ON b.id=l.material_batch_id
+				WHERE l.material_id=$1 AND l.warehouse=$2 AND l.qty_g>0
+				  AND b.status='active' AND b.remaining_g>0
+				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG)
+			wipUnits = 0
+		}
 		if err != nil {
-			if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
-				return nil
+			return nil, err
+		}
+		var otherReservedG, otherReservedUnits int64
+		if hasReservationUnits && hasReservationWorkOrder {
+			if hasWorkOrderStatus {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint,
+					       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units)),0)::bigint
+					FROM %s.work_order_material_reservations r
+					JOIN %s.work_orders wo ON wo.id=r.work_order_id
+					WHERE r.material_id=$1 AND r.status='reserved'
+					  AND wo.status IN ('released','running','partially_completed','paused')
+					  AND ($2::bigint=0 OR r.work_order_id<>$2)
+				`, schema, schema), need.MaterialID, workOrderID).Scan(&otherReservedG, &otherReservedUnits)
+			} else {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,
+					       COALESCE(SUM(GREATEST(0,reserved_units-consumed_units-returned_units)),0)::bigint
+					FROM %s.work_order_material_reservations
+					WHERE material_id=$1 AND status='reserved' AND ($2::bigint=0 OR work_order_id<>$2)
+				`, schema), need.MaterialID, workOrderID).Scan(&otherReservedG, &otherReservedUnits)
 			}
-			return err
+		} else {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint
+				FROM %s.work_order_material_reservations
+				WHERE material_id=$1 AND status='reserved'
+			`, schema), need.MaterialID).Scan(&otherReservedG)
+			otherReservedUnits = 0
 		}
-		reservedG, err := reservedWIPGForMaterialTx(ctx, tx, schema, need.MaterialID)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		availableForNew := availableG - reservedG
-		if availableForNew < need.DeductG {
-			name := strings.TrimSpace(need.MaterialName)
+		var currentConsumedG, currentConsumedUnits int64
+		if workOrderID > 0 && hasReservationWorkOrder {
+			if hasReservationUnits {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(consumed_g),0)::bigint,COALESCE(SUM(consumed_units),0)::bigint
+					FROM %s.work_order_material_reservations
+					WHERE work_order_id=$1 AND material_id=$2
+				`, schema), workOrderID, need.MaterialID).Scan(&currentConsumedG, &currentConsumedUnits)
+			} else {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(consumed_g),0)::bigint
+					FROM %s.work_order_material_reservations
+					WHERE work_order_id=$1 AND material_id=$2
+				`, schema), workOrderID, need.MaterialID).Scan(&currentConsumedG)
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+		availableG := wipG - otherReservedG
+		if availableG < 0 {
+			availableG = 0
+		}
+		availableUnits := wipUnits - otherReservedUnits
+		if availableUnits < 0 {
+			availableUnits = 0
+		}
+		row := workOrderWIPNeedCoverage{
+			Need: need, WIPG: wipG, WIPUnits: wipUnits,
+			CurrentConsumedG: currentConsumedG, CurrentConsumedUnits: currentConsumedUnits,
+			OtherReservedG: otherReservedG, OtherReservedUnits: otherReservedUnits,
+			AvailableG: availableG, AvailableUnits: availableUnits,
+		}
+		row.ShortageG = workOrderRemainingWIPShortage(need.DeductG, currentConsumedG, availableG)
+		row.ShortageUnits = workOrderRemainingWIPShortage(need.DeductUnits, currentConsumedUnits, availableUnits)
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func schemaColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table, column string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+		)
+	`, schema, table, column).Scan(&exists)
+	return exists, err
+}
+
+func nonnegativeQuantity(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func workOrderRemainingWIPShortage(required, consumed, available int64) int64 {
+	return nonnegativeQuantity(required - consumed - available)
+}
+
+func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, needs []materialConsumptionNeed) error {
+	return ensureWIPStockForWorkOrderNeedsTx(ctx, tx, schema, 0, needs)
+}
+
+func ensureWIPStockForWorkOrderNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, needs []materialConsumptionNeed) error {
+	hasMaterials, err := schemaColumnExistsTx(ctx, tx, schema, "materials", "id")
+	if err != nil {
+		return err
+	}
+	if hasMaterials {
+		materialIDs := make([]int64, 0)
+		seen := map[int64]bool{}
+		for _, need := range aggregateMaterialConsumptionNeeds(needs) {
+			if need.MaterialID > 0 && !seen[need.MaterialID] {
+				seen[need.MaterialID] = true
+				materialIDs = append(materialIDs, need.MaterialID)
+			}
+		}
+		if len(materialIDs) > 0 {
+			rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE`, schema), materialIDs)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return err
+			}
+			rows.Close()
+		}
+	}
+	coverage, err := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, workOrderID, needs)
+	if err != nil {
+		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
+			return nil
+		}
+		return err
+	}
+	shortages := make([]string, 0)
+	for _, row := range coverage {
+		if row.ShortageG > 0 || row.ShortageUnits > 0 {
+			name := strings.TrimSpace(row.Need.MaterialName)
 			if name == "" {
-				name = fmt.Sprintf("material %d", need.MaterialID)
+				name = fmt.Sprintf("material %d", row.Need.MaterialID)
 			}
-			shortages = append(shortages, fmt.Sprintf("%s need %dg, available %dg, reserved %dg", name, need.DeductG, availableG, reservedG))
+			if row.Need.DeductG > 0 {
+				shortages = append(shortages, fmt.Sprintf("%s need %dg, available %dg, reserved %dg", name, row.Need.DeductG, row.WIPG, row.OtherReservedG))
+			} else {
+				shortages = append(shortages, fmt.Sprintf("%s need %d%s, available %d%s, reserved %d%s", name, row.Need.DeductUnits, row.Need.Unit, row.WIPUnits, row.Need.Unit, row.OtherReservedUnits, row.Need.Unit))
+			}
 		}
 	}
 	if len(shortages) > 0 {
@@ -1192,6 +1387,20 @@ func createMaterialReservationsForRunningItemTx(ctx context.Context, tx pgx.Tx, 
 			continue
 		}
 		if need.MaterialID <= 0 || (need.DeductG <= 0 && need.DeductUnits <= 0) {
+			continue
+		}
+		tag, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.work_order_material_reservations
+			SET running_item_id=$2,updated_at=now()
+			WHERE work_order_id=$1
+			  AND material_id=$3
+			  AND status='reserved'
+			  AND running_item_id IN (0,$2)
+		`, schema), workOrderID, runningItemID, need.MaterialID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() > 0 {
 			continue
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`

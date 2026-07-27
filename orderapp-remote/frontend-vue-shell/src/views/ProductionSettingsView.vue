@@ -3,7 +3,7 @@
     <header class="page-head">
       <div>
         <h2>生产配置</h2>
-        <p>集中维护工艺路线、工序和工位/设备等制造主数据。</p>
+        <p>集中维护工艺路线、工序、工位设备和生产 BOM 等制造主数据。</p>
       </div>
     </header>
 
@@ -15,31 +15,66 @@
         role="tab"
         :aria-selected="activeTab === tab.key"
         :class="{ active: activeTab === tab.key }"
-        @click="activeTab = tab.key">
+        @click="selectTab(tab.key)">
         {{ tab.label }}
       </button>
     </nav>
 
     <section class="tab-panel" role="tabpanel">
-      <component :is="activeComponent" />
+      <BomView
+        v-if="activeTab === 'bom'"
+        :view-params="viewParams"
+        :workspace-mode="workspaceMode"
+        :customer-context-id="customerContextId"
+        :customer-context-label="customerContextLabel" />
+      <component v-else :is="activeComponent" />
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, markRaw, ref } from 'vue'
+import { computed, markRaw, ref, watch } from 'vue'
+import BomView from './BomView.vue'
 import ManufacturingOperationsView from './ManufacturingOperationsView.vue'
 import ManufacturingWorkstationsView from './ManufacturingWorkstationsView.vue'
 import ProcessTemplatesView from './ProcessTemplatesView.vue'
 
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
+
 const tabs = [
   { key: 'routes', label: '工艺路线', component: markRaw(ProcessTemplatesView) },
   { key: 'operations', label: '工序', component: markRaw(ManufacturingOperationsView) },
-  { key: 'workstations', label: '工位/设备', component: markRaw(ManufacturingWorkstationsView) },
+  { key: 'workstations', label: '工位设备', component: markRaw(ManufacturingWorkstationsView) },
+  { key: 'bom', label: '生产 BOM', component: markRaw(BomView) },
 ]
 
-const activeTab = ref(tabs[0].key)
+function normalizeTab(value) {
+  const key = String(value || '').trim()
+  return tabs.some((tab) => tab.key === key) ? key : tabs[0].key
+}
+
+const activeTab = ref(normalizeTab(props.viewParams?.tab))
 const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || tabs[0].component)
+
+function selectTab(key) {
+  const next = normalizeTab(key)
+  if (next === activeTab.value) return
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'productionConfig',
+      params: next === tabs[0].key ? {} : { tab: next },
+    },
+  }))
+}
+
+watch(() => props.viewParams?.tab, (value) => {
+  activeTab.value = normalizeTab(value)
+})
 </script>
 
 <style scoped>

@@ -11,6 +11,42 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestStockFrozenMaterialRequirementsPreserveWeightLossAndCountBasis(t *testing.T) {
+	requirements, err := stockFrozenMaterialRequirements(`[
+		{"material_id":1,"unit":"g","consume_unit":"ratio_pct","ratio_pct":100,"material_loss_rate":0.12},
+		{"material_id":2,"unit":"个","source":"packaging","consume_unit":"unit_per_bag","qty_per_unit":1}
+	]`, 6356, 6356, 14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requirements[1].RequiredG != 7223 || requirements[1].RequiredUnits != 0 {
+		t.Fatalf("weight requirement = %+v, want 7223g", requirements[1])
+	}
+	if requirements[2].RequiredUnits != 14 || requirements[2].RequiredG != 0 {
+		t.Fatalf("count requirement = %+v, want 14 units", requirements[2])
+	}
+}
+
+func TestStockFrozenMaterialRequirementsHonorConsumeUnitConversion(t *testing.T) {
+	requirements, err := stockFrozenMaterialRequirements(`[
+		{"material_id":1,"unit":"g","consume_unit":"kg","qty_per_unit":1,"output_qty":1,"output_unit":"kg"},
+		{"material_id":2,"unit":"kg","consume_unit":"g","qty_per_unit":100,"output_qty":1,"output_unit":"kg"},
+		{"material_id":3,"unit":"g","consume_unit":"g_per_bag","qty_per_unit":12,"output_qty":1,"output_unit":"kg"}
+	]`, 1000, 1000, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requirements[1].RequiredG != 1000 {
+		t.Fatalf("1kg consumed into g inventory = %+v, want 1000g", requirements[1])
+	}
+	if requirements[2].RequiredG != 100 {
+		t.Fatalf("100g consumed into kg inventory = %+v, want 100g", requirements[2])
+	}
+	if requirements[3].RequiredG != 48 {
+		t.Fatalf("12g per bag x 4 = %+v, want 48g", requirements[3])
+	}
+}
+
 func TestEnsureUnifiedStockDocumentTablesAddsColumnsBeforeDependentIndex(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()
@@ -87,13 +123,18 @@ CREATE TABLE %s.audit_logs (
 );
 CREATE TABLE %s.work_orders (
 	id BIGINT PRIMARY KEY,work_order_no TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'running',
-	product_id BIGINT NOT NULL DEFAULT 0,spec_g BIGINT NOT NULL DEFAULT 0,completed_at TIMESTAMPTZ
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,spec_g BIGINT NOT NULL DEFAULT 0,
+	planned_g BIGINT NOT NULL DEFAULT 0,planned_output_g BIGINT NOT NULL DEFAULT 0,
+	sales_spec_count NUMERIC(18,6) NOT NULL DEFAULT 0,
+	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,completed_at TIMESTAMPTZ
 );
 CREATE TABLE %s.work_order_material_reservations (
 	id BIGSERIAL PRIMARY KEY,work_order_id BIGINT NOT NULL,material_id BIGINT NOT NULL,
 	reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
 	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
 	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved',
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE %s.job_cards (
@@ -198,6 +239,40 @@ func TestUnifiedStockDocumentListIncludesLegacyParallelDocumentsReadOnly(t *test
 		if !seen[sourceType] {
 			t.Fatalf("legacy list missing source type %q: %+v", sourceType, result.Rows)
 		}
+	}
+}
+
+func TestUnifiedStockDocumentListAndDetailExposeWorkOrderNumberAndCountTotal(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+
+	draft, err := svc.CreateStockDocumentDraft(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 88, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "个", QtyUnits: 7,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create count draft: %v", err)
+	}
+	result, err := svc.ListStockDocuments(ctx, stockapp.StockDocumentQuery{WorkOrderID: 88, Limit: 20})
+	if err != nil {
+		t.Fatalf("list stock documents: %v", err)
+	}
+	if len(result.Rows) != 1 {
+		t.Fatalf("list rows = %+v, want one work-order document", result.Rows)
+	}
+	row := result.Rows[0]
+	if row.ID != draft.ID || row.WorkOrderNo != "WO-0000000088" || row.TotalQtyG != 0 || row.TotalQtyUnits != 7 {
+		t.Fatalf("list row = %+v, want work order number and 7 count units", row)
+	}
+	detail, err := svc.GetStockDocument(ctx, draft.ID)
+	if err != nil {
+		t.Fatalf("get stock document: %v", err)
+	}
+	if detail.WorkOrderNo != "WO-0000000088" || detail.TotalQtyG != 0 || detail.TotalQtyUnits != 7 {
+		t.Fatalf("detail = %+v, want work order number and 7 count units", detail.StockDocumentRow)
 	}
 }
 
@@ -349,6 +424,152 @@ func TestUnifiedStockDocumentRejectsFrozenBatchAndCrossWorkOrderReturn(t *testin
 		Items: []stockapp.StockDocumentItemCommand{{MaterialID: 1, ItemType: "material", QtyG: 1000}},
 	}); err == nil || !strings.Contains(err.Error(), "insufficient") {
 		t.Fatalf("cross-work-order return error = %v, want insufficient", err)
+	}
+}
+
+func TestReleasedWorkOrderIssueUsesFrozenSnapshotWithoutReservationAndGuardsQuantity(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.materials SET unit='个' WHERE id=1;
+		INSERT INTO %s.work_orders(
+			id,work_order_no,status,product_id,spec_g,planned_g,planned_output_g,sales_spec_count,material_snapshot
+		) VALUES(
+			90,'WO-PR559-0090','released',9,1000,5,5,5,
+			'[{"material_id":1,"material_name":"水洗豆","unit":"个","source":"packaging","consume_unit":"unit_per_bag","qty_per_unit":1}]'::jsonb
+		);
+	`, schema, schema))
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "个", QtyUnits: 10, UnitCost: 1,
+		}},
+	}); err != nil {
+		t.Fatalf("receipt: %v", err)
+	}
+	draft, err := svc.CreateStockDocumentDraft(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 90, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "个", QtyUnits: 6,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("draft: %v", err)
+	}
+	if _, err := svc.SubmitStockDocument(ctx, draft.ID, "jj"); err == nil || !strings.Contains(err.Error(), "remaining WIP shortage") {
+		t.Fatalf("over-issue error = %v", err)
+	}
+	valid, err := svc.UpdateStockDocumentDraft(ctx, draft.ID, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 90, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "个", QtyUnits: 5,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("update draft: %v", err)
+	}
+	submitted, err := svc.SubmitStockDocument(ctx, valid.ID, "jj")
+	if err != nil {
+		t.Fatalf("submit frozen snapshot material: %v", err)
+	}
+	if submitted.WorkOrderNo != "WO-PR559-0090" {
+		t.Fatalf("work order no = %q", submitted.WorkOrderNo)
+	}
+}
+
+func TestHistoricalWorkOrderIssueUsesReservationRequirementAndCurrentWIPShortage(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %s.work_order_material_reservations
+			ADD COLUMN material_name TEXT NOT NULL DEFAULT '',
+			ADD COLUMN unit TEXT NOT NULL DEFAULT 'g',
+			ADD COLUMN required_g BIGINT NOT NULL DEFAULT 0,
+			ADD COLUMN required_units BIGINT NOT NULL DEFAULT 0;
+		UPDATE %s.work_orders SET status='completed' WHERE id=88;
+		UPDATE %s.work_order_material_reservations SET status='released' WHERE work_order_id=88;
+		INSERT INTO %s.work_orders(
+			id,work_order_no,status,product_id,spec_g,planned_g,planned_output_g,sales_spec_count,material_snapshot
+		) VALUES(92,'WO-HIST-0092','released',9,1000,5000,5000,5,'[]'::jsonb);
+		INSERT INTO %s.work_order_material_reservations(
+			work_order_id,material_id,material_name,unit,required_g,reserved_g,status
+		) VALUES(92,1,'水洗豆','g',5000,5000,'reserved');
+	`, schema, schema, schema, schema, schema))
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 6000, UnitCost: 40,
+		}},
+	}); err != nil {
+		t.Fatalf("receipt: %v", err)
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 2000,
+		}},
+	}); err != nil {
+		t.Fatalf("first partial issue: %v", err)
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 4000,
+		}},
+	}); err == nil || !strings.Contains(err.Error(), "remaining WIP shortage") {
+		t.Fatalf("historical over-issue error = %v, want remaining WIP shortage", err)
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 3000,
+		}},
+	}); err != nil {
+		t.Fatalf("issue exact remaining shortage: %v", err)
+	}
+}
+
+func TestWorkOrderStockDocumentRejectsPurposeItemTypeMismatch(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	tests := []struct {
+		name    string
+		purpose string
+		item    stockapp.StockDocumentItemCommand
+	}{
+		{
+			name: "production issue only accepts material", purpose: stockapp.PurposeMaterialTransferForManufacture,
+			item: stockapp.StockDocumentItemCommand{ProductID: 9, ItemType: "finished_product", SpecG: 1000, QtyUnits: 1},
+		},
+		{
+			name: "production consumption only accepts material", purpose: stockapp.PurposeMaterialConsumption,
+			item: stockapp.StockDocumentItemCommand{ProductID: 9, ItemType: "finished_product", SpecG: 1000, QtyUnits: 1},
+		},
+		{
+			name: "manufacture only accepts finished product", purpose: stockapp.PurposeManufacture,
+			item: stockapp.StockDocumentItemCommand{MaterialID: 1, ItemType: "material", QtyG: 1000},
+		},
+		{
+			name: "work order material issue only accepts material", purpose: stockapp.PurposeMaterialIssue,
+			item: stockapp.StockDocumentItemCommand{ProductID: 9, ItemType: "finished_product", SpecG: 1000, QtyUnits: 1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			draft, err := svc.CreateStockDocumentDraft(ctx, stockapp.StockDocumentCommand{
+				Purpose: tt.purpose, WorkOrderID: 88, Operator: "jj",
+				Items: []stockapp.StockDocumentItemCommand{tt.item},
+			})
+			if err != nil {
+				t.Fatalf("create draft: %v", err)
+			}
+			if _, err := svc.SubmitStockDocument(ctx, draft.ID, "jj"); err == nil || !strings.Contains(err.Error(), "item type") {
+				t.Fatalf("submit mismatch error = %v, want item type rejection", err)
+			}
+		})
 	}
 }
 

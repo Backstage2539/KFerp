@@ -16,7 +16,7 @@
 - `OP_MANUAL_REQUIREMENTS.md`：需求管理 5 张表和证据闭环。
 - `OP_MANUAL_WORKSPACE_MODE.md`：顶部“当前视图”/视图上下文、客户视图、订单视图、保存视图和旧工作台 URL 兼容。
 - `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、销售单、合同盖章和出库单。
-- `OP_MANUAL_PRODUCTION.md`：生产配置、生产流程五个 Tab、生产中、BOM 版本/多层展开快照、生产日志、分配批次和工单成本追溯。
+- `OP_MANUAL_PRODUCTION.md`：生产配置四个 Tab（含生产 BOM）、生产流程五个 Tab、生产中、BOM 版本/多层展开快照、WIP 覆盖、生产日志、分配批次和工单成本追溯。
 - `OP_MANUAL_STOCK.md`：库存作业、Stock Entry单据、WIP 领退、工单消耗、完工入库、报废/损耗和库存操作日志。
 - `OP_MANUAL_INVENTORY_MATERIALS.md`：物料、原料入库、批次、库存流水、库存调整、商品档案、客户商品、商品配置和分类模板、阶梯价模板、单位模板、生产 BOM 制造主档/BOM 大组与组内分类、BOM 版本级组件编辑、商品 BOM 使用关系、分类交互和行业字段。
 - `OP_MANUAL_COSTING.md`：成本试算、商品生产配置字段、分类模板单归类、产品价格表预览、价格表发布、客户商品价格来源。

@@ -498,6 +498,7 @@ type StockDocumentRow struct {
 	IsReturn      bool    `json:"is_return"`
 	Status        string  `json:"status"`
 	WorkOrderID   int64   `json:"work_order_id"`
+	WorkOrderNo   string  `json:"work_order_no"`
 	JobCardID     int64   `json:"job_card_id"`
 	RunningItemID int64   `json:"running_item_id"`
 	SourceType    string  `json:"source_type"`
@@ -505,6 +506,7 @@ type StockDocumentRow struct {
 	ReturnSource  string  `json:"return_source"`
 	ItemCount     int64   `json:"item_count"`
 	TotalQtyG     int64   `json:"total_qty_g"`
+	TotalQtyUnits int64   `json:"total_qty_units"`
 	TotalCost     float64 `json:"total_cost"`
 	Operator      string  `json:"operator"`
 	Note          string  `json:"note"`
@@ -709,6 +711,13 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 	}
 	if (cmd.Purpose == PurposeMaterialTransferForManufacture || cmd.Purpose == PurposeMaterialConsumption || cmd.Purpose == PurposeManufacture) && cmd.WorkOrderID <= 0 {
 		return StockDocumentCommand{}, fmt.Errorf("work_order_id required")
+	}
+	if cmd.WorkOrderID > 0 &&
+		cmd.Purpose != PurposeMaterialTransferForManufacture &&
+		cmd.Purpose != PurposeMaterialConsumption &&
+		cmd.Purpose != PurposeManufacture &&
+		cmd.Purpose != PurposeMaterialIssue {
+		return StockDocumentCommand{}, fmt.Errorf("stock document purpose cannot be linked to work order")
 	}
 	cmd.EntryType = entryTypeForPurpose(cmd.Purpose, cmd.IsReturn)
 	cmd.SourceType = strings.TrimSpace(cmd.SourceType)

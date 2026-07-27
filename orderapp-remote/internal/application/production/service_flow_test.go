@@ -59,6 +59,8 @@ type fakeFlowRepo struct {
 	jobCardQuery        JobCardQuery
 	batchCostQuery      BatchCostQuery
 	batchCosts          []BatchCostRow
+	wipCoverage         ProductionWIPStatus
+	stockDraft          *StockEntryCommand
 }
 
 func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -338,6 +340,20 @@ func (r *fakeFlowRepo) ListQualityInspections(ctx context.Context, query Quality
 func (r *fakeFlowRepo) ListWIPReservations(ctx context.Context, query WIPReservationQuery) (WIPReservationResult, error) {
 	r.reservationQuery = query
 	return WIPReservationResult{Rows: r.reservationRows, TotalRemainingG: 40000}, nil
+}
+
+func (r *fakeFlowRepo) GetWorkOrderWIPCoverage(ctx context.Context, workOrderID int64) (ProductionWIPStatus, error) {
+	if r.wipCoverage.Status == "" && len(r.wipCoverage.Materials) == 0 {
+		if len(r.reservationRows) == 0 {
+			return ProductionWIPStatus{DataComplete: true, Status: "ok", Materials: []WIPReservationRow{}}, nil
+		}
+		return buildProductionWIPStatus(r.reservationRows), nil
+	}
+	return r.wipCoverage, nil
+}
+
+func (r *fakeFlowRepo) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string) (*StockEntryCommand, error) {
+	return r.stockDraft, nil
 }
 
 func (r *fakeFlowRepo) AdjustWIPReservation(ctx context.Context, cmd WIPReservationAdjustCommand) (WIPReservationRow, error) {
@@ -1133,6 +1149,78 @@ func TestWorkOrderExecutionHubReadModelAndTraceTimeline(t *testing.T) {
 	}
 	if repo.qualityQuery.Scope != "work_order" {
 		t.Fatalf("quality query = %+v", repo.qualityQuery)
+	}
+}
+
+func TestReleasedWorkOrderUsesFrozenSnapshotWIPCoverageWithoutReservation(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{
+			ID: 88, WorkOrderNo: "WO-PR559-001", Status: "released",
+			ProductID: 9, ProductName: "如目达摩", PlannedG: 6356,
+		}},
+		jobCards: []JobCardRow{{
+			ID: 91, WorkOrderID: 88, WorkOrderNo: "WO-PR559-001",
+			Operation: "烘焙", Workstation: "15kg烘焙机", Status: "pending",
+		}},
+		wipCoverage: ProductionWIPStatus{
+			DataComplete: true,
+			Status:       "blocked",
+			RequiredG:    6356,
+			AvailableG:   1200,
+			ShortageG:    5156,
+			Materials: []WIPReservationRow{{
+				WorkOrderID: 88, WorkOrderNo: "WO-PR559-001",
+				MaterialID: 10, MaterialName: "如目达摩生豆",
+				InventoryUnit: "g", QuantityBasis: "weight",
+				RequiredQty: 6356, AvailableQty: 1200, ShortageQty: 5156,
+				RequiredG: 6356, AvailableG: 1200, ShortageG: 5156,
+			}},
+		},
+	}
+	svc := NewService(repo)
+
+	detail, err := svc.GetWorkOrderDetail(context.Background(), 88)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.ExecutionHub.Readiness.CanStart {
+		t.Fatalf("released work order with WIP shortage must not be startable: %+v", detail.ExecutionHub.Readiness)
+	}
+	if detail.ExecutionHub.WIPStatus.ShortageG != 5156 || len(detail.Materials) != 1 {
+		t.Fatalf("coverage = %+v materials=%+v", detail.ExecutionHub.WIPStatus, detail.Materials)
+	}
+	preview, err := svc.PreviewWorkOrderStockDocument(context.Background(), StockDocumentPreviewCommand{ID: 88, Action: "issue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Document.WorkOrderNo != "WO-PR559-001" || preview.Document.RunningItemID != 0 {
+		t.Fatalf("preview context = %+v", preview.Document)
+	}
+	if len(preview.Document.Items) != 1 {
+		t.Fatalf("preview items = %+v", preview.Document.Items)
+	}
+	item := preview.Document.Items[0]
+	if item.InventoryUnit != "g" || item.QuantityBasis != "weight" || item.RequiredQty != 6356 || item.RemainingQty != 5156 || item.DefaultQty != 5156 || item.QtyG != 5156 || item.QtyUnits != 0 {
+		t.Fatalf("preview item = %+v", item)
+	}
+}
+
+func TestWorkOrderStockDocumentPreviewRestoresExistingDraft(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders:  []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR559-001", Status: "released"}},
+		wipCoverage: ProductionWIPStatus{DataComplete: true, Status: "blocked", ShortageG: 500},
+		stockDraft: &StockEntryCommand{
+			ID: 71, EntryNo: "SE-0000000071", Status: "draft",
+			Purpose: "material_transfer_for_manufacture", WorkOrderID: 88,
+			Items: []StockEntryItemCommand{{MaterialID: 10, ItemName: "生豆", InventoryUnit: "g", QtyG: 300}},
+		},
+	}
+	preview, err := NewService(repo).PreviewWorkOrderStockDocument(context.Background(), StockDocumentPreviewCommand{ID: 88, Action: "issue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Document.ID != 71 || preview.Document.EntryNo != "SE-0000000071" || preview.Document.WorkOrderNo != "WO-PR559-001" || len(preview.Document.Items) != 1 || preview.Document.Items[0].QtyG != 300 {
+		t.Fatalf("restored draft = %+v", preview.Document)
 	}
 }
 

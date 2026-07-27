@@ -54,12 +54,16 @@ const activeTab = ref(initialActiveTab.value)
 const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || StockEntriesView)
 const contextBadges = computed(() => {
   const params = props.viewParams || {}
+  const actionLabel = ({
+    issue: '生产领料',
+    supplement: '补料',
+    return: '退回未用原料',
+    consume: '记录生产消耗',
+    finish: '完工入库',
+  })[String(params.action || '')] || ''
   return [
-    params.work_order_id ? `工单 #${params.work_order_id}` : '',
-    params.job_card_id ? `工序卡 #${params.job_card_id}` : '',
-    params.running_item_id ? `生产中 #${params.running_item_id}` : '',
-    params.material_id ? `物料 #${params.material_id}` : '',
-    params.shortage_g ? `缺口 ${params.shortage_g}g` : '',
+    params.work_order_no ? `工单号：${params.work_order_no}` : (params.work_order_id ? '已绑定工单' : ''),
+    actionLabel,
   ].filter(Boolean)
 })
 
