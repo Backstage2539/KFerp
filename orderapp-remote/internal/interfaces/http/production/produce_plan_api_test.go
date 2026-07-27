@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,7 +51,7 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"roast_plans"`, `"materials"`, `"plan_rows"`, `"final_input_g":2000`, `"qty":1500`, `"qty":500`, `"bom_summary_error":"product BOM not configured: 曲奇拼配"`} {
+	for _, needle := range []string{`"roast_plans"`, `"materials"`, `"plan_rows"`, `"final_input_g":2000`, `"qty":938`, `"qty":313`, `"bom_summary_error":"product BOM not configured: 曲奇拼配"`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("response missing %s: %s", needle, body)
 		}
@@ -90,8 +91,8 @@ func TestProducePlanSummaryAPIUsesLatestDefaultProductionBomMaterials(t *testing
 	if len(payload.RoastPlans) == 0 {
 		t.Fatalf("roast_plans empty: %s", rec.Body.String())
 	}
-	if payload.RoastPlans[0].YieldRate != 0.8 || payload.RoastPlans[0].FinalInputG != 2000 {
-		t.Fatalf("roast plan = %+v, want yield 0.8 and machine-rounded final_input_g 2000", payload.RoastPlans[0])
+	if payload.RoastPlans[0].YieldRate != 1 || payload.RoastPlans[0].FinalInputG != 2000 {
+		t.Fatalf("roast plan = %+v, want no-loss BOM yield 1 and machine-rounded final_input_g 2000", payload.RoastPlans[0])
 	}
 	if len(payload.PlanRows) != 1 || payload.PlanRows[0].BomMaterialLossRate != 0 {
 		t.Fatalf("no-loss BOM plan row = %+v, want explicit zero loss", payload.PlanRows)
@@ -418,6 +419,104 @@ func TestProducePlanSummaryAPIReturnsConfiguredBomMaterialLossRate(t *testing.T)
 	if payload.PlanRows[0].BomSummaryError != "" {
 		t.Fatalf("inherited valid BOM must not report a summary error: %+v", payload.PlanRows[0])
 	}
+}
+
+func TestProducePlanSummaryAPIUsesInheritedPublishedBomLossOnceWithoutMachineRounding(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedRumuParentBomLossDemand(t, ctx, pool, schema)
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?from=2026-07-27&to=2026-07-27&selected=789-454&plan=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		PlanRows []struct {
+			InputG              int64   `json:"input_g"`
+			BomMaterialLossRate float64 `json:"bom_material_loss_rate"`
+			BomSummaryError     string  `json:"bom_summary_error"`
+		} `json:"plan_rows"`
+		Materials []productionapp.MaterialNeed `json:"materials"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v\n%s", err, rec.Body.String())
+	}
+	if len(payload.PlanRows) != 1 {
+		t.Fatalf("plan_rows = %d, want 1: %s", len(payload.PlanRows), rec.Body.String())
+	}
+	row := payload.PlanRows[0]
+	if row.BomSummaryError != "" || math.Abs(row.BomMaterialLossRate-0.18) > 0.000000001 {
+		t.Fatalf("resolved inherited BOM summary = %+v, want published V004 loss 18%%", row)
+	}
+	if row.InputG != 7751 {
+		t.Fatalf("plan input_g = %d, want round(14*454/(1-0.18)) = 7751", row.InputG)
+	}
+	var material *productionapp.MaterialNeed
+	for i := range payload.Materials {
+		if payload.Materials[i].Name == "如目达摩生豆" {
+			material = &payload.Materials[i]
+			break
+		}
+	}
+	if material == nil || material.Unit != "g" || material.Qty != 7751 || material.ExactQty != 7751 {
+		t.Fatalf("material demand = %+v in %+v, want 7751g with BOM loss applied exactly once", material, payload.Materials)
+	}
+}
+
+func seedRumuParentBomLossDemand(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(
+			id,name,parent_product_id,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES
+			(644,'如目达摩',0,0,true,'',0,'','{"inventory_unit":"kg"}'::jsonb),
+			(789,'如目达摩',644,0,true,'454g',454,'g','{}'::jsonb);
+		INSERT INTO %[1]s.order_process_statuses(name,sort,active)
+		VALUES ('待处理',10,true) ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES (
+			55701,'SO-PR557-RUMU','2026-07-27',false,
+			(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理' LIMIT 1)
+		);
+		INSERT INTO %[1]s.order_items(
+			order_id,line_no,item_name,qty,unit,sales_unit,spec,product_id,unit_price,line_total,price_source_json
+		) VALUES (
+			55701,1,'如目达摩',14,'454g','454g','454g',789,0,0,
+			'{"production_quantity_snapshot":{"sku_id":789,"parent_product_id":644,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published_inventory_conversion"}}'::jsonb
+		);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (55701,'RAW-PR557-RUMU','如目达摩生豆','bean','g',0,0,54,0);
+		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes)
+		VALUES (55701,'如目达摩标准烘焙','active','智烘',20);
+		INSERT INTO %[1]s.process_route_operations(
+			route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss
+		) VALUES (55701,1,'烘焙','烘焙中心','智烘',20,true);
+		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
+		VALUES (55701,'BOM-000644','如目达摩 生产 BOM',644,'active');
+		INSERT INTO %[1]s.production_bom_versions(
+			id,bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,process_route_id,published_at
+		) VALUES (55704,55701,'V004','published',0.8,1,'kg',0.18,55701,'2026-07-27 00:00:00+00');
+		INSERT INTO %[1]s.production_bom_version_items(
+			version_id,material_id,component_type,consume_unit,ratio_pct,material_loss_rate
+		) VALUES (55704,55701,'material','ratio_pct',100,0.18);
+		INSERT INTO %[1]s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+		VALUES (644,55701,55704,'test');
+		INSERT INTO %[1]s.product_production_configs(
+			product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,note,created_by,updated_by
+		) VALUES
+			(644,55701,55704,55701,0.2,'legacy-backfill','test','test'),
+			(789,0,0,0,0.2,'legacy-backfill','test','test')
+		ON CONFLICT (product_id) DO UPDATE SET
+			expected_loss_rate=excluded.expected_loss_rate,
+			note=excluded.note,
+			updated_by=excluded.updated_by;
+		INSERT INTO %[1]s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
+		VALUES ('智烘',4000,'2000,4000',2000,true);
+	`, schema))
 }
 
 func TestProducePlanTreatsDeclinedStockBatchDecisionAsProductionGap(t *testing.T) {

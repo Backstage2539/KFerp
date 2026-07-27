@@ -30,16 +30,25 @@ func (r Repository) MaterialPlan(ctx context.Context, query productionapp.Materi
 	order := make([]int64, 0)
 	for _, row := range rows {
 		key := producePlanKey(row.ProductID, row.SpecG)
+		demandKey := producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)
 		if len(query.Selected) > 0 && !query.Selected[key] {
+			continue
+		}
+		if query.SkipDemandKeys[demandKey] {
 			continue
 		}
 		if row.GapG <= 0 {
 			continue
 		}
 		yieldRate := normalizeYieldRate(yieldByProductID[row.ProductID])
-		inputG := query.InputByKey[key]
+		inputG, hasResolvedInput := query.InputByDemandKey[demandKey]
+		if !hasResolvedInput {
+			inputG = query.InputByKey[key]
+		}
 		if inputG <= 0 {
 			inputG = int64(math.Ceil(float64(row.GapG) / yieldRate))
+		} else {
+			yieldRate = float64(row.GapG) / float64(inputG)
 		}
 		plan := runningInventoryPlan(row.SpecG, row.GapG, inputG, yieldRate)
 		run := ProduceRunRow{
@@ -52,7 +61,41 @@ func (r Repository) MaterialPlan(ctx context.Context, query productionapp.Materi
 			PlanUnits:    plan.Units,
 			PlanLooseG:   plan.LooseG,
 		}
-		needs, err := currentMaterialNeedsTx(ctx, tx, r.schema, run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
+		var needs []materialConsumptionNeed
+		bomVersionID := query.BomVersionByDemandKey[demandKey]
+		bomLossRate := query.BomLossByDemandKey[demandKey]
+		if bomVersionID <= 0 && query.InputByKey[key] > 0 {
+			resolved, resolveErr := resolveProductionBomForDemandProductTx(ctx, tx, r.schema, row.ProductID, row.ParentProductID, row.Product)
+			if resolveErr != nil {
+				return productionapp.MaterialPlanResult{}, resolveErr
+			}
+			bomVersionID = resolved.BomVersionID
+			bomLossRate = productionPlanBomMaterialLossRate(resolved)
+		}
+		if bomVersionID > 0 {
+			snapshot, snapshotErr := buildMaterialSnapshotForBomVersionTx(
+				ctx,
+				tx,
+				r.schema,
+				run,
+				bomVersionID,
+				bomLossRate > 0,
+			)
+			if snapshotErr != nil {
+				return productionapp.MaterialPlanResult{}, snapshotErr
+			}
+			run.MaterialSnapshot = string(snapshot)
+			var ok bool
+			needs, ok, err = materialSnapshotNeedsTx(run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
+			if err != nil {
+				return productionapp.MaterialPlanResult{}, err
+			}
+			if !ok {
+				return productionapp.MaterialPlanResult{}, fmt.Errorf("production BOM version has no material lines: %s", row.Product)
+			}
+		} else {
+			needs, err = currentMaterialNeedsTx(ctx, tx, r.schema, run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
+		}
 		if err != nil {
 			return productionapp.MaterialPlanResult{}, err
 		}

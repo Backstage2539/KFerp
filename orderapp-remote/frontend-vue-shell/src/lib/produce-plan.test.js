@@ -71,6 +71,8 @@ test('production plan item summary uses frozen sales-spec conversion and parent 
 test('production plan BOM summary hides legacy yield and only shows configured BOM loss', () => {
   assert.equal(productionPlanBomSummary({}), '默认 BOM')
   assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0 }), '默认 BOM')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0.12 }), '默认 BOM / 预期损耗 12.00%')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0.18 }), '默认 BOM / 预期损耗 18.00%')
   assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0.2 }), '默认 BOM / 预期损耗 20.00%')
   assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 1 }), '默认 BOM')
   assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0, bom_summary_error: 'product BOM not configured' }), 'BOM 配置待完善')
@@ -603,6 +605,8 @@ test('ProducePlanView renders BOM expected loss without the removed expected-yie
 
   assert.match(source, /\{\{\s*productionPlanBomSummary\(row\)\s*\}\}/)
   assert.match(source, /:title="row\.bom_summary_error \|\| ''"/)
+  assert.doesNotMatch(source, /<th>计划投料\(g\)<\/th>/)
+  assert.doesNotMatch(source, /<td>\{\{\s*row\.input_g\s*\}\}<\/td>/)
   assert.doesNotMatch(source, /预期产出率/)
 })
 

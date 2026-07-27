@@ -29,7 +29,7 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
-			"拖拽计划预览表格可查看 BOM 摘要、计划投料和工艺路线摘要",
+			"拖拽计划预览表格可查看 BOM 摘要和工艺路线摘要",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",

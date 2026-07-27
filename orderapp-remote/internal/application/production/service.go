@@ -1373,11 +1373,15 @@ type JobCardActionResult struct {
 }
 
 type MaterialPlanQuery struct {
-	From       string
-	To         string
-	CustomerID int64
-	Selected   map[string]bool
-	InputByKey map[string]int64
+	From                  string
+	To                    string
+	CustomerID            int64
+	Selected              map[string]bool
+	InputByKey            map[string]int64
+	InputByDemandKey      map[string]int64
+	BomVersionByDemandKey map[string]int64
+	BomLossByDemandKey    map[string]float64
+	SkipDemandKeys        map[string]bool
 }
 
 type MaterialPlanRow struct {

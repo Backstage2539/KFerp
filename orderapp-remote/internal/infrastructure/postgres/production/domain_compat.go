@@ -27,6 +27,10 @@ func defaultProductionInputG(needG int64, yieldRate float64) int64 {
 	return productiondomain.DefaultInputGrams(needG, yieldRate)
 }
 
+func productionInputGFromBomMaterialLoss(needG int64, lossRate float64) int64 {
+	return productiondomain.PlannedInputGramsFromMaterialLoss(needG, lossRate)
+}
+
 func finishedTotalG(specG, units, looseG int64) int64 {
 	return productiondomain.FinishedTotalGrams(specG, units, looseG)
 }

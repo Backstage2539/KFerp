@@ -212,9 +212,10 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 	if err := validateProductionDemandInventoryUnitAgainstBomOutput(group, bomRoute); err != nil {
 		return productionapp.ProductionPlanItem{}, err
 	}
-	normalizedYield := normalizeYieldRate(bomRoute.YieldRate)
+	bomMaterialLossRate := normalizeMaterialLossRate(bomRoute.BomMaterialLossRate)
+	normalizedYield := 1 - bomMaterialLossRate
 	if !group.ManualInput {
-		group.InputG = defaultProductionInputG(group.NeedG, normalizedYield)
+		group.InputG = productionInputGFromBomMaterialLoss(group.NeedG, bomMaterialLossRate)
 	}
 	plan := runningInventoryPlan(group.SpecG, group.NeedG, group.InputG, normalizedYield)
 	run := ProduceRunRow{
@@ -230,7 +231,14 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 		OperationTemplateID: group.OperationTemplateID,
 		Outputs:             group.Outputs,
 	}
-	materialSnapshot, err := buildMaterialSnapshotForBomVersionTx(ctx, tx, schema, run, bomRoute.BomVersionID)
+	materialSnapshot, err := buildMaterialSnapshotForBomVersionTx(
+		ctx,
+		tx,
+		schema,
+		run,
+		bomRoute.BomVersionID,
+		bomMaterialLossRate > 0,
+	)
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
 	}
@@ -1198,14 +1206,18 @@ func productionPlanMaterialSnapshotQty(item productionapp.ProductionPlanItem, ro
 	if normalizeBomConsumeUnit(row.ConsumeUnit) == "ratio_pct" && !isWeightMaterialUnit(unit) && ratioPct <= 0 {
 		ratioPct = 100
 	}
+	materialLossRate := row.MaterialLossRate
+	if row.InputIncludesMaterialLoss {
+		materialLossRate = 0
+	}
 	if isWeightMaterialUnit(unit) {
 		grams := componentConsumptionWeightGramsWithMaterialLoss(
 			row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG,
-			packedUnits, 0, row.OutputQty, row.OutputUnit, row.MaterialLossRate,
+			packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate,
 		)
 		return float64(grams) / productionWeightUnitGrams(unit)
 	}
-	return float64(componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, row.MaterialLossRate))
+	return float64(componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate))
 }
 
 func productionPlanMaterialPreviewStatus(required, arranged float64) string {

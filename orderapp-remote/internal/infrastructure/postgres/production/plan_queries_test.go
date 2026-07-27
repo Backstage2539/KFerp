@@ -109,7 +109,7 @@ func TestBuildRoastPlanRowsCarriesOperationTemplateID(t *testing.T) {
 		OperationTemplateID:      22,
 	}}
 
-	got := buildRoastPlanRows(rows, nil, map[int64]float64{89: 1})
+	got := buildRoastPlanRows(rows, nil, map[int64]float64{89: 1}, nil)
 
 	if len(got) != 1 || got[0].OperationTemplateID != 22 {
 		t.Fatalf("roast plan operation template = %+v, want 22", got)
@@ -133,7 +133,7 @@ func TestBuildRoastPlanMaterialRatiosUsesInstantCoffeeRawMaterial(t *testing.T) 
 		ProductionKind: "instant_coffee",
 	}}
 
-	got := buildRoastPlanMaterialRatios(rows, map[int64][]planBomItem{})
+	got := buildRoastPlanMaterialRatios(rows, map[string][]planBomItem{})
 
 	if len(got) != 1 {
 		t.Fatalf("material ratios = %+v, want one row", got)
@@ -168,15 +168,17 @@ func TestCalcProducePlanMaterialsUsesDictionaryGramQuantities(t *testing.T) {
 		SpecG:     454,
 		GapG:      908,
 	}}
-	bomMap := map[int64][]planBomItem{
-		556: {
+	bomMap := map[string][]planBomItem{
+		producePlanDemandKey(rows[0].ProductID, rows[0].ParentProductID, rows[0].SpecG, rows[0].SalesSpecSnapshotJSON): {
 			{MaterialName: "哥伦比亚EP", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 114},
 			{MaterialName: "孟连水洗A", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 284},
 			{MaterialName: "生豆-巴布亚之光-石光", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 171},
 		},
 	}
 
-	got := calcProducePlanMaterialsFromFinalInputs(rows, map[string]int64{producePlanKey(556, 454): 1135}, bomMap, defaultPlanParams())
+	got := calcProducePlanMaterialsFromFinalInputs(rows, map[string]int64{
+		producePlanDemandKey(rows[0].ProductID, rows[0].ParentProductID, rows[0].SpecG, rows[0].SalesSpecSnapshotJSON): 1135,
+	}, bomMap, defaultPlanParams())
 
 	assertMaterialNeed(t, got, "哥伦比亚EP", 228, "g")
 	assertMaterialNeed(t, got, "孟连水洗A", 568, "g")

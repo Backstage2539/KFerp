@@ -44,19 +44,20 @@ type materialConsumptionSummaryItem struct {
 }
 
 type materialSnapshotRow struct {
-	MaterialID         int64   `json:"material_id"`
-	MaterialName       string  `json:"material_name"`
-	Unit               string  `json:"unit"`
-	RatioPct           float64 `json:"ratio_pct,omitempty"`
-	MaterialLossRate   float64 `json:"material_loss_rate,omitempty"`
-	Source             string  `json:"source"`
-	ComponentType      string  `json:"component_type,omitempty"`
-	ComponentProductID int64   `json:"component_product_id,omitempty"`
-	ComponentSpecG     int64   `json:"component_spec_g,omitempty"`
-	ConsumeUnit        string  `json:"consume_unit,omitempty"`
-	QtyPerUnit         float64 `json:"qty_per_unit,omitempty"`
-	OutputQty          float64 `json:"output_qty,omitempty"`
-	OutputUnit         string  `json:"output_unit,omitempty"`
+	MaterialID                int64   `json:"material_id"`
+	MaterialName              string  `json:"material_name"`
+	Unit                      string  `json:"unit"`
+	RatioPct                  float64 `json:"ratio_pct,omitempty"`
+	MaterialLossRate          float64 `json:"material_loss_rate,omitempty"`
+	InputIncludesMaterialLoss bool    `json:"input_includes_material_loss,omitempty"`
+	Source                    string  `json:"source"`
+	ComponentType             string  `json:"component_type,omitempty"`
+	ComponentProductID        int64   `json:"component_product_id,omitempty"`
+	ComponentSpecG            int64   `json:"component_spec_g,omitempty"`
+	ConsumeUnit               string  `json:"consume_unit,omitempty"`
+	QtyPerUnit                float64 `json:"qty_per_unit,omitempty"`
+	OutputQty                 float64 `json:"output_qty,omitempty"`
+	OutputUnit                string  `json:"output_unit,omitempty"`
 }
 
 func isWeightMaterialUnit(unit string) bool {
@@ -696,7 +697,7 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 	return json.Marshal(rows)
 }
 
-func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, bomVersionID int64) ([]byte, error) {
+func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, bomVersionID int64, inputIncludesMaterialLoss bool) ([]byte, error) {
 	if bomVersionID <= 0 {
 		return nil, fmt.Errorf("production BOM version required: %s", r.Product)
 	}
@@ -741,6 +742,7 @@ func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema
 		row.ConsumeUnit = normalizeBomConsumeUnit(row.ConsumeUnit)
 		row.RatioPct = bomdomain.NormalizeRatioPct(row.RatioPct)
 		row.MaterialLossRate = normalizeMaterialLossRate(row.MaterialLossRate)
+		row.InputIncludesMaterialLoss = inputIncludesMaterialLoss && row.MaterialLossRate > 0
 		row.Source = "bom"
 		if row.ComponentType == "finished_product" {
 			if row.ComponentProductID <= 0 || row.QtyPerUnit <= 0 {
@@ -809,6 +811,9 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			ratioPct = 100
 		}
 		materialLossRate := normalizeMaterialLossRate(row.MaterialLossRate)
+		if row.InputIncludesMaterialLoss {
+			materialLossRate = 0
+		}
 		if source == "packaging" {
 			qty = packedUnits
 		} else if source == "finished_product" {

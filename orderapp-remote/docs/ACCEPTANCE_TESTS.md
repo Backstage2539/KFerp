@@ -71,7 +71,7 @@
 - [ ] PR-485-BOM-VERSION-ROUTE-DEFAULT：工艺路线页不出现 SKU、BOM 或 BOM 版本字段；生产菜单拆为 `工艺路线`、`工序`、`工位/设备`。生产排程 payload 不包含 `bom_id/bom_version_id/process_route_id` 覆盖字段。
 - [ ] PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS / PR-512-PRICING-RULE-TRIAL-SOURCE-COST / PR-514-WORKSTATION-COST-COMPONENTS：工艺路线页维护路线名称、状态、备注、工序顺序、工序名称快照、是否记录损耗和质检项；不展示 `工位产能`、标准分钟、继承小时成本或 `计划工序成本`。
 - [ ] PR-488-PRODUCTION-PLAN-SPLIT-QTY-AUTOBATCH：创建草稿生产计划后，点击步骤条第 3 步 `拆分产能` 或草稿单据 `编辑拆分` 打开拆分抽屉，在抽屉中为烘焙工序添加 `布勒 18kg` 承担 90kg 和 `智烘 4kg` 承担 8kg；页面自动显示 5 批和 2 批，保存拆分后提交计划，生成的工序卡冻结对应工位产能、计划批次数、计划分钟和计划工序成本，且再次修改工位产能主数据不回改已生成工序卡。
-- [ ] PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT：在生产计划页勾选库存不足商品后，拖拽计划预览表格可查看 BOM 摘要、计划投料和工艺路线摘要；点击 `收起待生产需求` 后当前生产计划变宽，点击 `收起当前生产计划` 后待生产需求变宽；当前计划工作台不展示 `工序产能拆分` 表。
+- [ ] PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT：在生产计划页勾选库存不足商品后，拖拽计划预览表格可查看 BOM 摘要和工艺路线摘要，当前预览不再显示 `计划投料(g)`；点击 `收起待生产需求` 后当前生产计划变宽，点击 `收起当前生产计划` 后待生产需求变宽；当前计划工作台不展示 `工序产能拆分` 表。
 - [ ] PR-490-JOB-CARD-BATCH-CARDS：创建草稿生产计划后，在 `工序产能拆分` 中选择 `布勒 18kg` 并填写承担产量 `72kg`，页面显示 `自动批次数 4`，并渲染 `第1批` 到 `第4批` 四个批次卡片；填写 `20kg` 时显示 2 个批次卡片，最后一批为 `2kg` 并标记 `不足标准批量`。
 - [ ] PR-519-PRODUCTION-PLAN-SPLIT-DEMAND-GAP：打开草稿生产计划的 `工序产能拆分` 抽屉，顶部显示 `产能安排总览` 和 `用料需求差距`。20kg 实际需求安排 12kg 时总览为红色 `short`，安排 20kg 为绿色 `matched`，安排 24kg 为橙色 `over`；用料需求差距随承担产量实时刷新，保存拆分仍走原保存接口。
 - [ ] PR-490-JOB-CARD-BATCH-CARDS：提交生产计划生成工单后进入工序卡页，主表不得出现 `计划投入`、`实际投入`、`实际产出` 表头或输入框；仍可录入 `实际分钟`、`损耗原因`、`异常原因`，并执行开始、暂停、继续、完成和保存实际。
@@ -104,7 +104,7 @@
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：修改商品默认 BOM 或工艺路线后，已提交生产计划、已生成生产工单和工序卡仍展示提交时冻结的 BOM、BOM 版本、工艺路线、工序和工作中心快照。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：旧 `POST /api/produce/start` 入口仍可完成现有开始生产流程，但内部应形成临时生产计划并保留 duplicate-start 保护。
-- [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：生产计划页选择库存不足商品后，页面只展示商品、订单号、规格、需求、库存、缺口、BOM 摘要、计划投料、物料需求汇总和工艺路线摘要；不得出现 `生产建议`、`推荐机器`、`每锅数量`、`锅数`、`最终投料数` 或 `预计成品`，也不得请求 `/api/produce/machines`。
+- [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：生产计划页选择库存不足商品后，当前计划预览只展示商品、订单号、规格、需求、库存、缺口、BOM 摘要、物料需求汇总和工艺路线摘要，不显示 `计划投料(g)`；不得出现 `生产建议`、`推荐机器`、`每锅数量`、`锅数`、`最终投料数` 或 `预计成品`，也不得请求 `/api/produce/machines`。
 - [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：点击 `创建生产计划` 时，`POST /api/production-plans` 请求只包含 `from/to/customer_id/selected/source_type`，不包含前端编辑出来的 `input_by_key`；PR439 场景 `selected=["539-454"]` 仍由后端默认 BOM 和预期损耗率计算计划投料并创建 draft 生产计划。
 - [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：生产工单页主列表展示 `BOM/工艺路线`、`工序摘要`、`工艺参数`、计划数量、实际损耗、WIP 和状态；历史 `roast_level` 仍可作为工艺参数兼容展示，但不作为咖啡烘焙主列，不展示建议设备或锅次。
 - [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：咖啡熟豆场景按 `BOM = 生豆 + 包材`、`工艺路线 = 烘焙 -> 包装 -> 质检` 创建计划和工单；包装盒场景按 `BOM = 纸板 + 油墨 + 胶水`、`工艺路线 = 印刷 -> 模切 -> 糊盒 -> 质检` 创建计划和工单；童装场景按 `BOM = 布料 + 辅料`、`工艺路线 = 裁剪 -> 缝制 -> 整烫 -> 质检` 创建计划和工单，页面不出现烘焙建议词。
@@ -1650,11 +1650,22 @@
 
 ### K98. 生产计划损耗摘要与草稿拆分衔接（PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX）
 - [x] `GET /api/produce/unproduced?plan=1&selected=...` 的计划行显式返回 `bom_material_loss_rate`，来源是实际解析到的生产 BOM 版本 `material_loss_rate`；具体 SKU 继承父商品 BOM 时返回父 BOM 当前有效版本的损耗。
-- [x] BOM 版本损耗为 20% 时摘要显示 `默认 BOM / 预期损耗 20.00%`；`yield_rate=0.8` 但 `material_loss_rate=0` 时摘要只显示 `默认 BOM`，页面不出现“预期产出率”。
+- [x] BOM 版本损耗为 12%、18% 或 20% 时摘要分别显示 `默认 BOM / 预期损耗 12.00%`、`18.00%` 或 `20.00%`；`yield_rate=0.8` 但 `material_loss_rate=0` 时摘要只显示 `默认 BOM`，页面不出现“预期产出率”。
 - [x] BOM 无法解析时返回 `bom_summary_error` 并显示 `BOM 配置待完善`，不得用 0 损耗伪装成有效无损耗 BOM。
 - [x] 只有已分类的 BOM 业务配置错误进入 `bom_summary_error`；数据库、连接、上下文或事务错误必须让接口失败，不得伪装成商品配置问题或把底层错误放进页面悬停内容。
+- [x] 当前计划预览不显示 `计划投料(g)` 表头或 `row.input_g` 单元格；生产计划详情和工单执行数据中的计划投料仍保留。
 - [x] 当前计划区底部不再显示“创建生产计划”；草稿存在时仍显示“提交当前计划生成工单”和“撤销草稿”。
 - [x] 从顶部步骤条或 sticky 下一步点击“生成草稿”后，系统创建 `draft` 并立即打开同一草稿的拆分产能抽屉；关闭后可从第 3 步或单据“编辑拆分”重新打开。
 - [x] 草稿创建后不会先把未保存的自动拆分写入步骤状态；流程保持在“拆分产能”，保存拆分后才进入“提交工单”。
 - [x] 自动打开抽屉不会自动保存拆分、提交工单、生成工单/工序卡、建立 WIP 占用或写库存流水。
 - [x] 完整 Go、定向前端 46/46、Vue/Vite 构建、development 部署和只读 API/页面冒烟通过；完整前端失败集与干净 `origin/develop` 基线一致。production 未部署，未自动创建或提交真实生产计划。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-draft-split-ux.md`。
+
+### K99. 生产计划 BOM 损耗与理论物料需求（PR-557-PRODUCTION-PLAN-BOM-LOSS-DEMAND）
+- [x] 临时 PostgreSQL 中，454g具体 SKU 无 BOM、父商品有已发布 V004 时，预览和新草稿都冻结父商品 V004，BOM摘要显示18%损耗。
+- [x] 14件 × 454g = 6356g；18% BOM原料损耗只应用一次，计划投入和如目达摩生豆需求均为四舍五入 7751g，不读取旧80%产出率或商品20% legacy 损耗。
+- [x] 智烘4kg标准批量可以在拆分产能阶段安排8kg，但计划预览物料需求仍为7751g，不产生设备取整后的8000g或重复放大的10000g。
+- [x] 新草稿物料快照带 `input_includes_material_loss`，计划详情、WIP需求和领料不再把18%损耗重复应用为9453g；历史快照不补写、不重算。
+- [x] 同一具体 SKU 和规格来自不同冻结父商品的需求，预览按完整销售规格快照隔离；BOM摘要、损耗、物料和可用量复用各自已解析的固定 BOM 版本，不串用当前父商品绑定。
+- [x] 当前计划预览不再显示 `计划投料(g)`，BOM摘要、物料需求汇总和工艺路线摘要保留；计划详情和工单执行仍可查看冻结计划投入。
+- [x] V004 为草稿时生产计划继续使用已发布 V003；只有发布 V004 并撤销旧草稿后重建，新计划才使用V004。现有 PP-0000000077 不自动修改。
+- [ ] 完整 Go、定向前端、Vue/Vite构建、develop集成和开发环境验证完成；production不部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-bom-loss-demand.md`。
