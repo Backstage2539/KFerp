@@ -9,6 +9,15 @@ func TestDefaultInputGramsUsesYieldRate(t *testing.T) {
 	}
 }
 
+func TestPlannedInputGramsFromMaterialLossUsesBomLossOnce(t *testing.T) {
+	if got := PlannedInputGramsFromMaterialLoss(14*454, 0.18); got != 7751 {
+		t.Fatalf("PlannedInputGramsFromMaterialLoss() = %d, want 7751", got)
+	}
+	if got := PlannedInputGramsFromMaterialLoss(14*454, 0); got != 6356 {
+		t.Fatalf("zero-loss planned input = %d, want 6356", got)
+	}
+}
+
 func TestDefaultInputGramsFallsBackToPointEight(t *testing.T) {
 	got := DefaultInputGrams(2270, 0)
 	if got != 2838 {

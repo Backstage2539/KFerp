@@ -185,7 +185,6 @@
                         <th>库存(g)</th>
                         <th>缺口(g)</th>
                         <th>BOM摘要</th>
-                        <th>计划投料(g)</th>
                         <th>工艺路线摘要</th>
                       </tr>
                     </thead>
@@ -198,7 +197,6 @@
                         <td>{{ row.inv_g }}</td>
                         <td><strong>{{ row.gap_g }}</strong></td>
                         <td :title="row.bom_summary_error || ''">{{ productionPlanBomSummary(row) }}</td>
-                        <td>{{ row.input_g }}</td>
                         <td>{{ productionRouteSummary(row) }}</td>
                       </tr>
                     </tbody>
@@ -1924,7 +1922,7 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .demand-table { min-width: 860px; }
 .materials-table { min-width: 760px; }
-.plan-preview-table { min-width: 1160px; }
+.plan-preview-table { min-width: 1040px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; vertical-align: top; }
 td small { display: block; color: #666; line-height: 1.6; }
 .muted { color: #666; }

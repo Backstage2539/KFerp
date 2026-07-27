@@ -252,6 +252,46 @@ func TestProductionPlanAPIInheritsParentBOMAndFreezesSalesSpecConversion(t *test
 	assertProductionFlowCount(t, pool, schema, "production_plans", "1=1", 1)
 }
 
+func TestProductionPlanAPIAppliesInheritedPublishedBomLossOnce(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedRumuParentBomLossDemand(t, ctx, pool, schema)
+
+	app := newProductionFlowTestEcho(pool, schema)
+	createReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/production-plans",
+		strings.NewReader(`{"from":"2026-07-27","to":"2026-07-27","source_type":"erp_order","selected":["789-454"]}`),
+	)
+	createReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	createRec := httptest.NewRecorder()
+	app.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("POST production plan status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var plan productionapp.ProductionPlanDetail
+	if err := json.Unmarshal(createRec.Body.Bytes(), &plan); err != nil {
+		t.Fatalf("decode production plan: %v\n%s", err, createRec.Body.String())
+	}
+	if len(plan.Items) != 1 {
+		t.Fatalf("production plan items=%d, want 1: %s", len(plan.Items), createRec.Body.String())
+	}
+	item := plan.Items[0]
+	if item.BomVersionID != 55704 || item.BomSourceProductID != 644 || !item.BomInherited {
+		t.Fatalf("production plan did not freeze inherited published V004: %+v", item)
+	}
+	if item.PlannedOutputG != 6356 || item.PlannedG != 7751 {
+		t.Fatalf("production plan quantities=%+v, want output 6356g and 18%% loss input 7751g", item)
+	}
+	if len(plan.MaterialSummary) != 1 {
+		t.Fatalf("material summary=%+v, want one row", plan.MaterialSummary)
+	}
+	material := plan.MaterialSummary[0]
+	if material.Name != "如目达摩生豆" || material.Unit != "g" || material.Qty != 7751 || material.ExactQty != 7751 {
+		t.Fatalf("material summary=%+v, want loss applied once rather than old yield plus line loss", material)
+	}
+}
+
 func TestProductionPlanAPIKeepsSameSKUWithDifferentFrozenParentsIsolated(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -290,15 +330,15 @@ func TestProductionPlanAPIKeepsSameSKUWithDifferentFrozenParentsIsolated(t *test
 			(55311,'PBOM-SNAPSHOT-A','旧父商品 BOM',644,'active'),
 			(55312,'PBOM-SNAPSHOT-B','新父商品 BOM',645,'active');
 		INSERT INTO %[1]s.production_bom_versions(
-			id,bom_id,version_no,status,yield_rate,output_qty,output_unit,process_route_id,published_at
+			id,bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,process_route_id,published_at
 		) VALUES
-			(55311,55311,'V001','published',1,1,'kg',55311,now()),
-			(55312,55312,'V001','published',1,1,'kg',55312,now());
+			(55311,55311,'V001','published',1,1,'kg',0.1,55311,now()),
+			(55312,55312,'V001','published',1,1,'kg',0.2,55312,now());
 		INSERT INTO %[1]s.production_bom_version_items(
-			version_id,material_id,component_type,consume_unit,ratio_pct
+			version_id,material_id,component_type,consume_unit,ratio_pct,material_loss_rate
 		) VALUES
-			(55311,9011,'material','ratio_pct',100),
-			(55312,9012,'material','ratio_pct',100);
+			(55311,9011,'material','ratio_pct',100,0.1),
+			(55312,9012,'material','ratio_pct',100,0.2);
 		INSERT INTO %[1]s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by) VALUES
 			(644,55311,55311,'test'),
 			(645,55312,55312,'test');
@@ -324,6 +364,35 @@ func TestProductionPlanAPIKeepsSameSKUWithDifferentFrozenParentsIsolated(t *test
 	}
 	if !parents[644] || !parents[645] {
 		t.Fatalf("same SKU frozen parents were not isolated: %+v", summary.Rows)
+	}
+
+	previewReq := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?from=2026-07-27&to=2026-07-27&plan=1&selected=789-454", nil)
+	previewRec := httptest.NewRecorder()
+	app.ServeHTTP(previewRec, previewReq)
+	if previewRec.Code != http.StatusOK {
+		t.Fatalf("GET split snapshot preview status=%d body=%s", previewRec.Code, previewRec.Body.String())
+	}
+	var preview productionapp.PlanSummaryData
+	if err := json.Unmarshal(previewRec.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("decode split snapshot preview: %v\n%s", err, previewRec.Body.String())
+	}
+	if len(preview.PlanRows) != 2 {
+		t.Fatalf("same SKU preview rows=%d, want 2: %s", len(preview.PlanRows), previewRec.Body.String())
+	}
+	losses := map[float64]bool{}
+	for _, row := range preview.PlanRows {
+		losses[row.BomMaterialLossRate] = true
+	}
+	if !losses[0.1] || !losses[0.2] {
+		t.Fatalf("same SKU preview BOM losses were mixed: %+v", preview.PlanRows)
+	}
+	materialQty := map[string]float64{}
+	for _, material := range preview.Materials {
+		materialQty[material.Name] = material.ExactQty
+	}
+	if math.Abs(materialQty["旧父商品原料"]-0.504) > 0.000000001 ||
+		math.Abs(materialQty["新父商品原料"]-0.568) > 0.000000001 {
+		t.Fatalf("same SKU preview materials were mixed: %+v", preview.Materials)
 	}
 
 	createReq := httptest.NewRequest(
