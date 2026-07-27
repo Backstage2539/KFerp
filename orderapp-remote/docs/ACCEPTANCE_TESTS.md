@@ -1678,4 +1678,4 @@
 - [x] 历史 `product_bom` 商品仍能返回物料需求、WIP、原料仓、建议领料和采购建议；但显式绑定 draft/失效/冲突 formal BOM 时不得改用另一已发布版本、历史配方或伪物料，物料预览保持为空并显示配置错误。
 - [x] `POST /api/production-plans` 对同一缺路线 BOM 仍返回400配置错误，并且数据库中不新增生产计划、计划行、工单、工序卡、WIP占用或库存流水。
 - [x] 补齐并发布有效工艺路线后，正式创建继续按订单冻结换算、同一父 BOM 版本及损耗口径生成草稿，不因预览兼容逻辑改变正式冻结规则。
-- [ ] production定向Go/API、支持合同、完整Go、Vue/Vite构建、develop集成、development部署和只读API/页面冒烟完成；production未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-preview-parent-bom-no-loss.md`。
+- [x] production定向Go/API、支持合同、完整Go、Vue/Vite构建、develop集成、development部署和只读API/页面冒烟完成；production未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-preview-parent-bom-no-loss.md`。

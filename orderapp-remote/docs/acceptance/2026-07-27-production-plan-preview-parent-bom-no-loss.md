@@ -41,4 +41,9 @@ scripts/verify_kferp.sh changed
 - PR/DEV、需求、验收、生产操作手册和支持合同已登记。
 - 业务 RED/GREEN已完成；生产相关临时 PostgreSQL 套件、支持合同、`scripts/verify_kferp.sh changed` 和全仓后端 verifier 通过。
 - 独立复审最终结论：P0/P1/P2/P3均无；确认 legacy兼容、无效 formal BOM隔离、缺路线预览/正式创建边界与0%损耗口径。
-- develop合并、development部署和只读冒烟待完成后补充提交、备份及状态证据。
+- 功能提交 `48af54f5`，develop集成提交及实际部署提交 `c1c61ccde7a233951b73d2e372a12c8663c7ebe8`。
+- development部署成功；服务器备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260727214503`。容器内全仓Go测试、Vue/Vite和小程序构建通过，orderapp容器健康且近5分钟日志无错误。
+- 页面HTTP冒烟：`/app/`返回303、`/app/vue-shell`返回200、`assets/index-Bkc2703T.js`返回200（2135839 bytes）；PR-558 requirements API返回200。
+- 如目达摩只读预览 `selected=789-454` 返回200，只包含 `SO-20260727-0001`，`input_g=6356`、克重物料合计6356g且不再报 `product BOM not configured`。
+- 初晓只读预览 `selected=765-454` 返回200，`input_g=6356`、三条克重物料合计6356g，并保留 `最新可用 BOM 版本未配置工艺路线: 初晓 生产 BOM/V002/初晓 454g`。
+- 交互式浏览器页面冒烟被 development 证书链 `ERR_CERT_AUTHORITY_INVALID` 阻止；遵守浏览器安全边界未绕过证书提示。服务端、页面资源和业务API均已完成只读验证；production未部署、未写入真实订单/BOM/计划/库存。

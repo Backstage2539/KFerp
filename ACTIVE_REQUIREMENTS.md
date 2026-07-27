@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-558-PRODUCTION-PLAN-PREVIEW-PARENT-BOM-NO-LOSS
 - Branch: codex/pr558-production-plan-bom-fallback-no-loss
 - Owner/session: Codex / 2026-07-27
-- Status: implementation, RED/GREEN, related production suites, support contracts, changed verifier, full backend verifier and independent review complete; develop integration and development deployment pending
+- Status: merged to develop and deployed to development; automated and read-only API/page smoke complete, awaiting user acceptance
 - Scope: 生产计划预览只汇总本次选中的精确 `unplanned` 需求，排除同一具体 SKU 已进入旧生产计划的订单；预览阶段允许父商品已发布 BOM 暂缺工艺路线，仍展示该 BOM 的物料与原料损耗并给出路线警告；正式生成草稿继续要求工艺路线完整。BOM 原料损耗为 0 时，14件454g的6356g需求保持6356g，不读取旧产出率或商品 legacy 损耗。
 - DEV:
   - DEV-558-EXACT-UNPLANNED-DEMAND-SCOPE：PlanSummary 与 MaterialPlan 使用同一组本次预览精确需求键，只计算 `unplanned` 订单，不能把同 SKU 已排产旧订单重新计入物料需求。
@@ -20,8 +20,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: 如目达摩454g新订单选择预览时返回 `product BOM not configured`；初晓14件454g无 BOM 原料损耗时，6356g需求被旧产出率/历史损耗或同 SKU 旧计划放大为9932g。
   - GREEN: 临时 PostgreSQL 验证同 SKU 已排产旧单被排除；缺路线父 BOM 仍返回三条真实组件且合计6356g、损耗0、路线警告可见；正式创建返回缺路线错误且不产生草稿。历史 `product_bom` 库存建议继续有效；显式无效 formal BOM 不会静默使用替代配方。
   - PASS: `ORDERAPP_TEST_DATABASE_URL=postgres://... go test ./internal/domain/production ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1`; `scripts/verify_kferp.sh changed`; `scripts/verify_kferp.sh backend`; independent review P0/P1/P2/P3 none.
-- Deployment: pending; development only, production excluded
-- Last update: 2026-07-27 Asia/Shanghai
+- Deployment: development deployed from `c1c61ccde7a233951b73d2e372a12c8663c7ebe8`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260727214503`; `/app/`303, Vue shell200, `index-Bkc2703T.js`200, orderapp healthy, PR-558 requirements API200. 如目达摩789-454只读预览200且仅含 `SO-20260727-0001`、投入/克重物料6356g；初晓765-454只读预览200、投入/三条克重物料6356g并保留缺路线警告。交互式浏览器被 development 证书链 `ERR_CERT_AUTHORITY_INVALID` 阻止，未绕过安全提示；production未部署。
+- Last update: 2026-07-27 22:08 Asia/Shanghai
 - Notes: 本需求不修改订单、BOM、历史计划、工单、库存或生产日志；预览放宽只用于读取和提示，不能绕过正式排产的工艺路线校验。
 
 ### PR-557-PRODUCTION-PLAN-BOM-LOSS-DEMAND
