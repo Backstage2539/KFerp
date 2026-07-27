@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-559-PRODUCTION-CONFIG-WIP-ISSUE-UX
+- Branch: codex/pr559-production-config-wip-issue-ux
+- Owner/session: Codex / 2026-07-27
+- Status: implementation and automated verification complete; integration/development deployment pending
+- Scope: 将生产 BOM 合并为生产配置第 4 个 Tab；以工单冻结物料快照统一计算 WIP 覆盖并在执行枢纽阻断提示；工单生产领料改为显示真实工单号、自动带出全部短缺物料的单数量多物料 Stock Entry。
+- DEV:
+  - DEV-559-PRODUCTION-CONFIG-BOM-TAB：移除独立生产 BOM 主菜单，保留旧链接并规范到 `productionConfig&tab=bom`；保持 BOM 只读/写入权限边界。
+  - DEV-559-WIP-COVERAGE：统一 released/running 工单的重量和计数物料 WIP 覆盖计算，供执行枢纽、生产视图、开工校验和领料预览复用。
+  - DEV-559-MULTI-MATERIAL-ISSUE：工单生产领料显示真实工单号，隐藏内部 ID/工序卡/生产中输入，自动预填全部短缺物料、单数量与库存单位，并支持分批数量记忆。
+  - DEV-559-DOCS-DELIVERY：同步生产/库存手册、需求、验收资料，完成测试、合并、开发环境部署和只读冒烟。
+- Verifier:
+  - RED: conversion test exposed 1g versus 1000g; stock-document test exposed the missing `work_order_no` join; application test exposed invalid purpose/work-order binding; final review tests exposed historical start using live BOM, historical over-issue, and purpose/item-type mixing.
+  - Unit: `go test ./... -count=1` PASS; production/stock application and repository contract tests PASS.
+  - API/PostgreSQL: temporary PostgreSQL PASS for released/no-reservation WIP coverage, historical reservation fallback through display/issue/start, weight/count materials, stock-document work-order number, guarded snapshot/legacy issue, purpose-item type validation, and `released -> issue -> WIP ready -> start`.
+  - Frontend/build: PR-559 production/menu tests PASS; `scripts/verify_kferp.sh frontend-build` PASS. Full frontend is 812/819; all 7 failures reproduce unchanged on clean `origin/develop` and are unrelated stale customer workspace/view-context assertions.
+  - Changed: `scripts/verify_kferp.sh changed` PASS.
+  - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md
+  - Review/acceptance: orderapp-remote/docs/acceptance/2026-07-27-production-config-wip-issue-ux.md
+- Deployment: development pending; production explicitly excluded
+- Last update: 2026-07-27 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` confirmed next id PR-559 but hit the known awk multiline-string bug; seeded manually. Development work order `WO-PP-0000000080-0000000050` is reserved for read-only preview smoke only; do not submit stock or start production.
+
 ### PR-558-PRODUCTION-PLAN-PREVIEW-PARENT-BOM-NO-LOSS
 - Branch: codex/pr558-production-plan-bom-fallback-no-loss
 - Owner/session: Codex / 2026-07-27

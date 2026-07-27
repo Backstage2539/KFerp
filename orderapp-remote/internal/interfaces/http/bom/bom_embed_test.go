@@ -7,25 +7,30 @@ import (
 )
 
 func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
-	app, err := os.ReadFile("frontend-vue-shell/src/App.vue")
+	app, err := os.ReadFile("frontend-vue-shell/src/views/ProductionSettingsView.vue")
 	if err != nil {
-		t.Fatalf("ReadFile(App.vue): %v", err)
+		t.Fatalf("ReadFile(ProductionSettingsView.vue): %v", err)
 	}
 	appSrc := string(app)
 	for _, want := range []string{
-		"import BomView from './views/BomView.vue'",
-		"bom: BomView",
+		"import BomView from './BomView.vue'",
+		"key: 'bom'",
+		"label: '生产 BOM'",
 	} {
 		if !strings.Contains(appSrc, want) {
-			t.Fatalf("frontend-vue-shell/src/App.vue missing %q", want)
+			t.Fatalf("frontend-vue-shell/src/views/ProductionSettingsView.vue missing %q", want)
 		}
 	}
 	menuIA, err := os.ReadFile("frontend-vue-shell/src/lib/menu-ia.js")
 	if err != nil {
 		t.Fatalf("ReadFile(menu-ia.js): %v", err)
 	}
-	if !strings.Contains(string(menuIA), "生产 BOM") {
-		t.Fatal("frontend-vue-shell/src/lib/menu-ia.js missing BOM menu title")
+	menuSrc := string(menuIA)
+	if !strings.Contains(menuSrc, "bom: '生产 BOM'") {
+		t.Fatal("frontend-vue-shell/src/lib/menu-ia.js missing legacy BOM view title")
+	}
+	if strings.Contains(menuSrc, "{ key: 'bom', label: '生产 BOM'") {
+		t.Fatal("frontend-vue-shell/src/lib/menu-ia.js should not keep a standalone BOM menu entry")
 	}
 	for _, bad := range []string{"BOM_REACT_URL", "legacyUrl: BOM_REACT_URL"} {
 		if strings.Contains(appSrc, bad) {

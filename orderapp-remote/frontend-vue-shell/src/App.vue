@@ -164,7 +164,6 @@
 import { computed, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
-import BomView from './views/BomView.vue'
 import BusinessSettingsView from './views/BusinessSettingsView.vue'
 import CompanyProfileView from './views/CompanyProfileView.vue'
 import CompanyStaffView from './views/CompanyStaffView.vue'
@@ -293,6 +292,7 @@ const viewAliases = {
   materialReceipts: 'stockOperations',
   wipMaterials: 'stockOperations',
   stockAdjustments: 'stockOperations',
+  bom: 'productionConfig',
 }
 function normalizeViewKey(key) {
   return viewAliases[key] || key
@@ -376,7 +376,6 @@ const internalViews = {
   stockBatches: StockBatchesView,
   stockOutboundLogs: StockOutboundLogsView,
   inventoryMaterialsManual: OperationManualView,
-  bom: BomView,
   processTemplates: ProcessTemplatesView,
   manufacturingOperations: ManufacturingOperationsView,
   manufacturingWorkstations: ManufacturingWorkstationsView,
@@ -473,7 +472,7 @@ const customerAccountActorMenuGroups = [
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_order_id', 'work_order_no', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source', 'production_bom_id', 'bom_id']) {
     const value = params.get(key)
     if (value) out[key] = value
   }
@@ -487,6 +486,9 @@ function readViewParams() {
   }
   if (requestedViewParam === 'stockAdjustments') {
     out.tab ||= 'adjustments'
+  }
+  if (requestedViewParam === 'bom') {
+    out.tab ||= 'bom'
   }
   return out
 }
@@ -600,6 +602,9 @@ function isProductSettingsKey(key) {
 }
 
 function hardNavigateToView(key, params = {}) {
+  const requestedKey = key
+  key = normalizeViewKey(key)
+  if (requestedKey === 'bom') params = { ...params, tab: params?.tab || 'bom' }
   const url = applyViewContextToUrl(viewNavigationURL(new URL(window.location.href), key, viewContextViewParams(params, currentViewContext.value)))
   window.location.assign(relativeURLForHistory(url))
 }
@@ -619,6 +624,9 @@ function scrollCurrentViewToTop() {
 }
 
 function open(key, params = {}, options = {}) {
+  const requestedKey = key
+  key = normalizeViewKey(key)
+  if (requestedKey === 'bom') params = { ...params, tab: params?.tab || 'bom' }
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
   transientReturnNavigation.value = options.returnNavigation
@@ -764,7 +772,8 @@ function toggleMenu() {
 
 function handleNavigateView(event) {
   const key = event?.detail?.key
-  if (key && menuMap[key] && isViewAllowed(key, allowedViewKeys.value)) {
+  const canonicalKey = normalizeViewKey(key)
+  if (key && menuMap[canonicalKey] && isViewAllowed(canonicalKey, allowedViewKeys.value)) {
     open(key, event?.detail?.params || {}, { returnNavigation: event?.detail?.returnNavigation || event?.detail?.return_navigation || null })
   }
 }

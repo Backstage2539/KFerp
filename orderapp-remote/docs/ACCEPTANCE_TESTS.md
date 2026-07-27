@@ -1679,3 +1679,13 @@
 - [x] `POST /api/production-plans` 对同一缺路线 BOM 仍返回400配置错误，并且数据库中不新增生产计划、计划行、工单、工序卡、WIP占用或库存流水。
 - [x] 补齐并发布有效工艺路线后，正式创建继续按订单冻结换算、同一父 BOM 版本及损耗口径生成草稿，不因预览兼容逻辑改变正式冻结规则。
 - [x] production定向Go/API、支持合同、完整Go、Vue/Vite构建、develop集成、development部署和只读API/页面冒烟完成；production未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-preview-parent-bom-no-loss.md`。
+
+### K101. 生产配置、WIP 提示与工单领料（PR-559-PRODUCTION-CONFIG-WIP-ISSUE-UX）
+- [ ] 生产配置显示 `工艺路线 / 工序 / 工位设备 / 生产 BOM` 四个 Tab，默认仍为工艺路线；主菜单不再显示独立生产 BOM，旧 `view=bom` 和指定 BOM 深链会规范到生产配置 BOM Tab。
+- [ ] 仅有 `bom.read` 的角色可以读取生产配置中的 BOM，不能新增、修改、发布或失效；BOM、工艺路线、工序和工位设备的写 API 继续要求 `bom.write`。
+- [ ] released 且无 reservation 的工单按冻结物料快照返回 WIP 覆盖；重量和计数物料均逐行返回正确库存单位、需求、可用和缺口，冻结/拒收/停用/耗尽批次与其他开放工单占用不会被误算为本工单可用量。
+- [ ] 执行枢纽在 WIP 不足时显示红色阻断和全部短缺物料明细，并提供生产领料入口；补足后刷新恢复可开始，开工接口与页面使用同一覆盖结果。
+- [ ] 工单生产领料显示真实工单号，不显示内部 ID，也不要求填写工序卡或生产中 ID；预览一次带出全部短缺物料，每行只有一个领用数量和自动库存单位，生产领料不显示单位成本。
+- [ ] 首次领料默认剩余缺口；分批提交后，同工单同物料下一次默认不超过最近已提交领料量和当前剩余缺口；取消单据不作为记忆来源，已有草稿可以恢复。
+- [ ] 跨工单物料、单位不一致、超过剩余缺口、原料仓库存不足均在提交时拒绝且不产生部分库存变更；合法多物料领料只生成一个 `SE-*`，库存、流水、工单关联和操作日志原子成功。
+- [ ] 临时 PostgreSQL 完成 `released 工单 -> 生产领料 -> WIP 就绪 -> 开工` API 闭环；完整 Go、定向 Vue、Vue/Vite 构建、develop 集成和 development 部署通过。指定真实工单只做只读预览，不提交库存、不开始生产；production 未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-config-wip-issue-ux.md`。

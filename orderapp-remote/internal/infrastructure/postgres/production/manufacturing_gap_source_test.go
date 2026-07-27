@@ -33,7 +33,7 @@ func TestManufacturingGapSchemaAndReservationGuards(t *testing.T) {
 		"createMaterialReservationsForRunningItemTx",
 		"releaseMaterialReservationsForRunningItemTx",
 		"updateMaterialReservationConsumedTx",
-		"availableG - reservedG",
+		"wipG - otherReservedG",
 		"quality_inspections",
 		"MaterialPlan(ctx context.Context",
 		"purchaseSuggestionG",

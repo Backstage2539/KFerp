@@ -90,6 +90,32 @@ func TestCreateStockDocumentNormalizesLegacyFinishedTransferPurpose(t *testing.T
 	}
 }
 
+func TestCreateStockDocumentRejectsNonManufacturingPurposeBoundToWorkOrder(t *testing.T) {
+	for _, purpose := range []string{
+		PurposeMaterialReceipt,
+		PurposeMaterialTransfer,
+	} {
+		t.Run(purpose, func(t *testing.T) {
+			repo := &fakeStockDocumentRepository{fakeRepo: &fakeRepo{}}
+			svc := NewService(repo)
+
+			_, err := svc.CreateStockDocumentDraft(context.Background(), StockDocumentCommand{
+				Purpose:     purpose,
+				WorkOrderID: 88,
+				Items: []StockDocumentItemCommand{{
+					MaterialID: 1, QtyG: 1000,
+				}},
+			})
+			if err == nil {
+				t.Fatalf("purpose %q error = nil, want work-order purpose rejection", purpose)
+			}
+			if repo.draftCommand.Purpose != "" {
+				t.Fatalf("purpose %q reached repository with command %+v", purpose, repo.draftCommand)
+			}
+		})
+	}
+}
+
 func TestStockDocumentLifecycleDelegatesWithoutSubmittingDraft(t *testing.T) {
 	repo := &fakeStockDocumentRepository{fakeRepo: &fakeRepo{}}
 	svc := NewService(repo)
