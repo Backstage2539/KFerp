@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX
+- Branch: codex/pr556-production-plan-draft-split-ux
+- Owner/session: Codex / 2026-07-27
+- Status: verified; awaiting integration and development deployment
+- Scope: 生产计划 BOM 摘要移除已废弃的预期产出率，仅在存在预期损耗时展示预期损耗；生成草稿成功后立即打开现有拆分产能抽屉；删除当前计划区重复的“创建生产计划”按钮。
+- DEV:
+  - DEV-556-BOM-LOSS-SUMMARY：生产计划预览使用预期损耗业务口径，不再展示预期产出率；无损耗时不追加损耗说明。
+  - DEV-556-DRAFT-TO-SPLIT：步骤条“生成草稿”成功后自动进入同一份拆分产能编辑抽屉，仍保持草稿不自动提交工单。
+  - DEV-556-REMOVE-DUPLICATE-CREATE：删除当前计划区底部重复创建入口，创建动作只保留在顶部生产流程步骤条。
+  - DEV-556-DOCS-DELIVERY：同步生产手册、需求、验收资料和 PR/DEV 可见数据，验证后合并并部署开发环境。
+- Verifier:
+  - Unit: `go test ./... -count=1` passed; production loss classification, no-loss, parent-BOM inheritance, and draft-to-split contracts passed.
+  - API: disposable PostgreSQL 16 ran the no-BOM warning, valid no-loss BOM, and child-SKU inherited parent-BOM 20% loss `/api/produce/unproduced` cases successfully.
+  - Frontend/build: `node --test src/lib/produce-plan.test.js` 46/46 passed; Vue/Vite production build passed; full frontend produced the same 8 failure reports (7 existing assertions plus suite summary) as clean `origin/develop`.
+  - Manual: `docs/OP_MANUAL_PRODUCTION.md` documents BOM loss/error summary, automatic draft-to-split transition, unsaved split state, and the single top create action.
+  - Review/acceptance: independent final review found no P0/P1/P2 blockers; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Deployment: development pending; production excluded
+- Last update: 2026-07-27 Asia/Shanghai
+- Notes: 最新 `origin/develop` 中 `scripts/reserve_req_id.sh` 返回 PR-556；实现从独立工作树开始，不修改用户现有脏工作区。BOM 配置类错误作为行级“BOM 配置待完善”，数据库/连接/事务错误直接由接口返回；未保存的自动拆分不会提前推进步骤。
+
 ### PR-555-PRODUCTION-PLAN-DRAFT-CANCEL
 - Branch: codex/pr555-production-plan-draft-cancel
 - Owner/session: Codex / 2026-07-26

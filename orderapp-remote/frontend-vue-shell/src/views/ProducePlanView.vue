@@ -197,7 +197,7 @@
                         <td>{{ row.need_g }}</td>
                         <td>{{ row.inv_g }}</td>
                         <td><strong>{{ row.gap_g }}</strong></td>
-                        <td>默认 BOM / 预期产出率 {{ percent(row.bom_yield_rate) }}</td>
+                        <td :title="row.bom_summary_error || ''">{{ productionPlanBomSummary(row) }}</td>
                         <td>{{ row.input_g }}</td>
                         <td>{{ productionRouteSummary(row) }}</td>
                       </tr>
@@ -240,8 +240,7 @@
             </div>
             <div v-else-if="hasSelectedRows && !previewLoading" class="muted empty-state">已选择商品，等待计划预览。</div>
             <div class="actions current-plan-actions">
-              <button v-if="!currentPlan" class="primary" type="button" @click="createProductionPlan" :disabled="saving || previewLoading || !planReady">创建生产计划</button>
-              <button v-else class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
+              <button v-if="currentPlan" class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
               <button v-if="currentPlanDraft" class="danger" type="button" @click="cancelProductionPlanDraft(currentPlan, 'current')" :disabled="saving || loading">撤销草稿</button>
               <span v-if="currentPlan && !currentPlanDraft" class="muted">当前计划状态为 {{ productionPlanStatusLabel(currentPlan.status) }}，无需重复提交。</span>
             </div>
@@ -743,6 +742,7 @@ import {
   productionPlanOperationSplitsPreviewEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
+  productionPlanBomSummary,
   productionPlanItemBomSourceLabel,
   productionPlanItemQuantitySummary,
   productionPlanLegacyGramLabel,
@@ -848,10 +848,6 @@ function productionDemandSelectionKey(row) {
 
 function isProductionDemandSelected(row) {
   return productionDemandSelectable(row) && !!selected[productionDemandSelectionKey(row)]
-}
-
-function percent(v) {
-  return `${(Number(v || 0) * 100).toFixed(2)}%`
 }
 
 const planReady = computed(() => planRows.value.length > 0 || (currentPlan.value?.items || []).length > 0)
@@ -1528,7 +1524,7 @@ async function openCurrentPlanSplitDrawer() {
     window.alert('当前生产计划已提交，工序产能拆分只能在草稿计划提交工单前编辑')
     return
   }
-  window.alert('请先生成草稿生产计划；草稿生成后点第 3 步或在生产计划单据列表点“编辑拆分”。')
+  window.alert('请先通过顶部“生成草稿”创建生产计划；创建成功后会自动打开拆分产能，也可稍后点第 3 步或在生产计划单据列表点“编辑拆分”。')
 }
 
 async function openProductionPlanSplitDrawer(plan) {
@@ -1691,8 +1687,8 @@ async function createProductionPlan() {
     }
     const payload = buildProductionPlanCreatePayload(filters, keys)
     currentPlan.value = await apiSend('/api/production-plans', { body: payload })
-    await loadProductionPlanOperationSplits(currentPlan.value)
     await loadProductionPlans()
+    await openCurrentPlanSplitDrawer()
   } catch (err) {
     previewError.value = err.message || '创建生产计划失败'
   } finally {

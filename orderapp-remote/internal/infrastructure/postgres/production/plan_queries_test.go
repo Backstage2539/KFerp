@@ -1,6 +1,7 @@
 package production
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -139,6 +140,24 @@ func TestBuildRoastPlanMaterialRatiosUsesInstantCoffeeRawMaterial(t *testing.T) 
 	}
 	if got[0].MaterialName != "速溶咖啡" || got[0].MaterialUnit != "g" || got[0].RatioPct != 100 {
 		t.Fatalf("instant coffee material ratio = %+v", got[0])
+	}
+}
+
+func TestProductionPlanBomMaterialLossRateUsesResolvedVersionMetadata(t *testing.T) {
+	if got := productionPlanBomMaterialLossRate(latestUsableBomRoute{YieldRate: 0.8, BomMaterialLossRate: 0.2}); got != 0.2 {
+		t.Fatalf("productionPlanBomMaterialLossRate() = %.4f, want 0.2000", got)
+	}
+	if got := productionPlanBomMaterialLossRate(latestUsableBomRoute{YieldRate: 0.8}); got != 0 {
+		t.Fatalf("legacy yield must not imply the BOM version loss checkbox, got %.4f", got)
+	}
+}
+
+func TestProductionBomSummaryOnlyTreatsTypedConfigurationErrorsAsRowWarnings(t *testing.T) {
+	if !isProductionBomConfigurationError(productionBomConfigurationErrorf("product BOM not configured: 测试商品")) {
+		t.Fatal("typed BOM configuration error must remain a row-level warning")
+	}
+	if isProductionBomConfigurationError(errors.New("connection interrupted")) {
+		t.Fatal("database and connection errors must propagate instead of becoming BOM configuration warnings")
 	}
 }
 

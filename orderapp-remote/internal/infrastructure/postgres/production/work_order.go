@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	productiondomain "orderapp/internal/domain/production"
@@ -167,6 +168,23 @@ type latestUsableBomRoute struct {
 	BomOutputUnit       string
 }
 
+type productionBomConfigurationError struct {
+	message string
+}
+
+func (e *productionBomConfigurationError) Error() string {
+	return e.message
+}
+
+func productionBomConfigurationErrorf(format string, args ...any) error {
+	return &productionBomConfigurationError{message: fmt.Sprintf(format, args...)}
+}
+
+func isProductionBomConfigurationError(err error) bool {
+	var target *productionBomConfigurationError
+	return errors.As(err, &target)
+}
+
 func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, frozenParentProductID int64, productName string) (latestUsableBomRoute, error) {
 	var currentParentProductID int64
 	var catalogName string
@@ -177,7 +195,7 @@ func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, sche
 		WHERE id=$1 AND COALESCE(active,true)=true
 	`, schema), productID).Scan(&currentParentProductID, &catalogName)
 	if err == pgx.ErrNoRows {
-		return latestUsableBomRoute{}, fmt.Errorf("production demand product not found or inactive: %d", productID)
+		return latestUsableBomRoute{}, productionBomConfigurationErrorf("production demand product not found or inactive: %d", productID)
 	}
 	if err != nil {
 		return latestUsableBomRoute{}, err
@@ -194,7 +212,7 @@ func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, sche
 			WHERE id=$1
 		`, schema), parentProductID).Scan(&frozenParentActive)
 		if err == pgx.ErrNoRows || (err == nil && !frozenParentActive) {
-			return latestUsableBomRoute{}, fmt.Errorf(
+			return latestUsableBomRoute{}, productionBomConfigurationErrorf(
 				"frozen parent product not found or inactive: product %s / parent #%d",
 				firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID)),
 				parentProductID,
@@ -219,7 +237,7 @@ func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, sche
 		}
 	}
 	if !configured {
-		return latestUsableBomRoute{}, fmt.Errorf("product BOM not configured: %s", productName)
+		return latestUsableBomRoute{}, productionBomConfigurationErrorf("product BOM not configured: %s", productName)
 	}
 	resolved.ProductID = productID
 	resolved.ParentProductID = parentProductID
@@ -252,10 +270,10 @@ func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, sche
 		return out, false, err
 	}
 	if configBomID > 0 && bindingBomID > 0 && configBomID != bindingBomID {
-		return out, true, fmt.Errorf("conflicting default production BOM configuration: %s", demandProductName)
+		return out, true, productionBomConfigurationErrorf("conflicting default production BOM configuration: %s", demandProductName)
 	}
 	if configVersionID > 0 && bindingVersionID > 0 && configVersionID != bindingVersionID {
-		return out, true, fmt.Errorf("conflicting default production BOM version configuration: %s", demandProductName)
+		return out, true, productionBomConfigurationErrorf("conflicting default production BOM version configuration: %s", demandProductName)
 	}
 	explicitBomID := configBomID
 	if explicitBomID <= 0 {
@@ -268,7 +286,7 @@ func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, sche
 	if explicitBomID <= 0 && explicitVersionID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id FROM %s.production_bom_versions WHERE id=$1`, schema), explicitVersionID).Scan(&explicitBomID); err != nil {
 			if err == pgx.ErrNoRows {
-				return out, true, fmt.Errorf("configured production BOM version no longer exists: %s", demandProductName)
+				return out, true, productionBomConfigurationErrorf("configured production BOM version no longer exists: %s", demandProductName)
 			}
 			return out, true, err
 		}
@@ -282,16 +300,16 @@ func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, sche
 			WHERE id=$1
 		`, schema), explicitVersionID).Scan(&configuredVersionBomID, &configuredVersionStatus)
 		if err == pgx.ErrNoRows {
-			return out, true, fmt.Errorf("configured production BOM version no longer exists: %s", demandProductName)
+			return out, true, productionBomConfigurationErrorf("configured production BOM version no longer exists: %s", demandProductName)
 		}
 		if err != nil {
 			return out, true, err
 		}
 		if explicitBomID > 0 && configuredVersionBomID != explicitBomID {
-			return out, true, fmt.Errorf("configured production BOM version belongs to another BOM: %s", demandProductName)
+			return out, true, productionBomConfigurationErrorf("configured production BOM version belongs to another BOM: %s", demandProductName)
 		}
 		if configuredVersionStatus != "published" {
-			return out, true, fmt.Errorf("configured production BOM version is not published: %s", demandProductName)
+			return out, true, productionBomConfigurationErrorf("configured production BOM version is not published: %s", demandProductName)
 		}
 	}
 
@@ -302,9 +320,9 @@ func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, sche
 			WHERE pb.id=$1
 			  AND pb.output_product_id=$2
 			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
-		`, schema), explicitBomID, sourceProductID).Scan(&out.BomID, &out.BomCode, &out.BomName)
+			`, schema), explicitBomID, sourceProductID).Scan(&out.BomID, &out.BomCode, &out.BomName)
 		if err == pgx.ErrNoRows {
-			return out, true, fmt.Errorf("default production BOM is no longer an active output BOM: %s", demandProductName)
+			return out, true, productionBomConfigurationErrorf("default production BOM is no longer an active output BOM: %s", demandProductName)
 		}
 		if err != nil {
 			return out, true, err
@@ -341,10 +359,10 @@ func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, sche
 			return out, false, nil
 		}
 		if activeCount == 0 {
-			return out, true, fmt.Errorf("production BOM is inactive: %s", demandProductName)
+			return out, true, productionBomConfigurationErrorf("production BOM is inactive: %s", demandProductName)
 		}
 		if activeCount > 1 {
-			return out, true, fmt.Errorf("multiple active production BOMs found: %s, please set default production BOM", demandProductName)
+			return out, true, productionBomConfigurationErrorf("multiple active production BOMs found: %s, please set default production BOM", demandProductName)
 		}
 	}
 
@@ -373,18 +391,18 @@ func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, sche
 	)
 	if err == pgx.ErrNoRows {
 		if explicitVersionID > 0 {
-			return out, true, fmt.Errorf("configured production BOM version is not a usable published version: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
+			return out, true, productionBomConfigurationErrorf("configured production BOM version is not a usable published version: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
 		}
-		return out, true, fmt.Errorf("latest usable production BOM version not found: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
+		return out, true, productionBomConfigurationErrorf("latest usable production BOM version not found: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
 	}
 	if err != nil {
 		return out, true, err
 	}
 	if itemCount <= 0 {
-		return out, true, fmt.Errorf("production BOM version has no material lines: %s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo)
+		return out, true, productionBomConfigurationErrorf("production BOM version has no material lines: %s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo)
 	}
 	if out.ProcessRouteID <= 0 || strings.TrimSpace(out.ProcessRouteName) == "" {
-		return out, true, fmt.Errorf("最新可用 BOM 版本未配置工艺路线: %s/%s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo, demandProductName)
+		return out, true, productionBomConfigurationErrorf("最新可用 BOM 版本未配置工艺路线: %s/%s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo, demandProductName)
 	}
 	return out, true, nil
 }
