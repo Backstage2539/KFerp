@@ -1668,4 +1668,4 @@
 - [x] 同一具体 SKU 和规格来自不同冻结父商品的需求，预览按完整销售规格快照隔离；BOM摘要、损耗、物料和可用量复用各自已解析的固定 BOM 版本，不串用当前父商品绑定。
 - [x] 当前计划预览不再显示 `计划投料(g)`，BOM摘要、物料需求汇总和工艺路线摘要保留；计划详情和工单执行仍可查看冻结计划投入。
 - [x] V004 为草稿时生产计划继续使用已发布 V003；只有发布 V004 并撤销旧草稿后重建，新计划才使用V004。现有 PP-0000000077 不自动修改。
-- [ ] 完整 Go、定向前端、Vue/Vite构建、develop集成和开发环境验证完成；production不部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-bom-loss-demand.md`。
+- [x] production相关 Go 全包、HTTP production 包、定向前端46/46、Vue/Vite构建和 develop 集成完成；完整前端7项失败与干净基线一致，全仓 Go 仍受既有非production临时schema合同失败影响。development和production均未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-plan-bom-loss-demand.md`。

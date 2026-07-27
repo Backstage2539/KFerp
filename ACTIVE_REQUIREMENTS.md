@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-557-PRODUCTION-PLAN-BOM-LOSS-DEMAND
 - Branch: codex/production-plan-bom-loss-demand-fix
 - Owner/session: Codex / 2026-07-27
-- Status: implementation verified locally; integration pending
+- Status: verified and merged into `develop`; not deployed
 - Scope: 生产计划预览和新草稿统一使用具体 SKU/父商品解析到的同一已发布 BOM 版本；理论物料需求按 BOM 原料损耗计算一次，不再叠加旧产出率、商品 legacy 损耗或设备整批取整；当前计划预览删除计划投料列。
 - DEV:
   - DEV-557-RESOLVED-BOM-LOSS-INPUT：父商品 BOM 回退后按 `成品需求 ÷ (1 - BOM原料损耗)` 计算计划投入，忽略旧 `yield_rate` 与商品 `expected_loss_rate`。
@@ -18,9 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: 如目达摩父 BOM V004 场景预览得到 8000g、草稿得到 7945g，带损耗快照的草稿物料汇总二次放大为 9453g。
   - GREEN: 临时 PostgreSQL 中 14件 × 454g、已发布父 BOM 损耗18%得到计划/生豆需求7751g；设备4kg整批不改变理论物料需求；同一 SKU 不同冻结父商品使用各自 BOM 版本和物料；前端预览无计划投料列。
-- Deployment: not deployed in this turn; production unchanged
+- Deployment: feature commit `bd08360b` merged by integration commit `dbed1beb`; pushed to `origin/develop`; development and production were not deployed in this turn
 - Last update: 2026-07-27 Asia/Shanghai
-- Notes: 开发库只读核对显示 V003 为 published 且损耗0，V004 为 draft 且实际损耗18%；现有 PP-0000000077 冻结 V003，不自动重写。V004 发布并撤销旧草稿后，新计划才会使用 V004。
+- Notes: 开发库只读核对显示 V003 为 published 且损耗0，V004 为 draft 且实际损耗18%；现有 PP-0000000077 冻结 V003，不自动重写。V004 发布并撤销旧草稿后，新计划才会使用 V004。合并态 production Go 包、HTTP production 包、支持合同、前端定向46/46和 changed verifier 通过。
 
 ### BUG-20260727-ORDER-PRICE-CONVERSION-SNAPSHOT
 - Branch: codex/order-entry-price-conversion-conflict

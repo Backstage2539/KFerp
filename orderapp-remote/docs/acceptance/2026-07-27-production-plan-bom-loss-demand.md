@@ -41,3 +41,10 @@
 - 全部前端测试为810/817；7项失败与干净`origin/develop`基线完全一致，均位于既有workspace/customer上下文测试，不涉及本需求文件。
 - `git diff --check`、冲突标记检查和独立二次代码审查通过。
 - 全仓Go测试仍受既有非production临时schema合同失败影响；本需求涉及的production包均独立全绿。
+
+## 集成
+
+- 功能提交：`bd08360b`。
+- 最新`origin/develop`基线：`b7388726`；无冲突合并提交：`dbed1beb`。
+- 合并态重新通过`verify_kferp.sh changed`、production domain/application/infrastructure/support Go全包、HTTP production包及前端定向46/46。
+- 已推送到`origin/develop`；本轮不部署development或production。
