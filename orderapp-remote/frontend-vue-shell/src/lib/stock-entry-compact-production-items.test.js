@@ -48,15 +48,36 @@ test('compact work-order rows fit desktop and wrap only on narrow screens', () =
   assert.match(mobileSource, /\.compact-production-item-grid \.mobile-field-label\{display:block\}/)
 })
 
-test('stale work-order draft warnings and current WIP limits stay visible', () => {
+test('work-order WIP shortage stays a visible suggestion instead of a quantity limit', () => {
   assert.match(source, /const drawerWarnings = ref\(\[\]\)/)
   assert.match(source, /class="warning-list" role="status"/)
   assert.match(source, /drawerWarnings\.value = Array\.isArray\(warnings\)/)
   assert.match(source, /\}, preview\.warnings\)/)
-  assert.match(source, /limitsToCurrentWIPShortage/)
-  assert.match(source, /领用数量超过当前剩余 WIP 缺口/)
+  assert.doesNotMatch(source, /limitsToCurrentWIPShortage/)
+  assert.doesNotMatch(source, /:max="[^"]*remaining_qty/)
+  assert.doesNotMatch(source, /领用数量超过当前剩余 WIP 缺口/)
+  assert.match(source, /工单建议领用量仅用于默认填充/)
+  assert.match(source, /超出工单当前需求的部分将保留为可用 WIP 库存/)
+  assert.match(source, /生产消耗仍需另行记录/)
   assert.match(source, /remaining_qty: null/)
-  assert.match(source, /amount >= 0 \? amount : undefined/)
+  assert.match(source, /stockCanonicalQuantity\(item\)/)
+  assert.match(source, /缺少库存单位换算/)
+})
+
+test('saving omits zero canonical quantities and rejects an all-zero document', () => {
+  assert.match(source, /stockDocumentPositiveItems\(form\.items/)
+  assert.match(source, /canonicalQuantity\(item\)/)
+  assert.match(source, /缺少库存单位换算/)
+})
+
+test('opening a bound production draft refreshes it through the work-order preview', () => {
+  assert.match(source, /productionStockDocumentPreviewAction\(row\)/)
+  assert.match(source, /row\.status === 'draft'/)
+  assert.match(source, /\/api\/produce\/work-orders\/\$\{workOrderID\}\/stock-document-preview/)
+  assert.match(source, /stock_document_id: Number\(row\.id \|\| 0\)/)
+  assert.match(source, /return_source: 'stock_document_list'/)
+  assert.match(source, /preview\.warnings/)
+  assert.match(source, /applyDocument\(await apiGet\(`\$\{stockEntryEndpoint\(\)\}\/\$\{row\.id\}`\)\)/)
 })
 
 test('regular stock documents keep the existing card form', () => {

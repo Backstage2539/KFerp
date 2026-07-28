@@ -551,7 +551,7 @@ func TestProductionReturnCapsQualityBlockedBatchToWorkOrderBalance(t *testing.T)
 	}
 }
 
-func TestReleasedWorkOrderIssueUsesFrozenSnapshotWithoutReservationAndGuardsQuantity(t *testing.T) {
+func TestReleasedWorkOrderIssueAllowsBulkQuantityAboveSuggestedWIPShortage(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
 	svc := stockapp.NewService(NewRepository(pool, schema))
@@ -581,31 +581,334 @@ func TestReleasedWorkOrderIssueUsesFrozenSnapshotWithoutReservationAndGuardsQuan
 	if err != nil {
 		t.Fatalf("draft: %v", err)
 	}
-	if _, err := svc.SubmitStockDocument(ctx, draft.ID, "jj"); err == nil ||
-		!strings.Contains(err.Error(), "当前剩余 WIP 缺口") ||
-		!strings.Contains(err.Error(), "本次领用6个") ||
-		!strings.Contains(err.Error(), "当前可领5个") {
-		t.Fatalf("over-issue error = %v, want Chinese material quantity detail", err)
-	}
-	valid, err := svc.UpdateStockDocumentDraft(ctx, draft.ID, stockapp.StockDocumentCommand{
-		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 90, Operator: "jj",
-		Items: []stockapp.StockDocumentItemCommand{{
-			MaterialID: 1, ItemType: "material", InventoryUnit: "个", QtyUnits: 5,
-		}},
-	})
+	submitted, err := svc.SubmitStockDocument(ctx, draft.ID, "jj")
 	if err != nil {
-		t.Fatalf("update draft: %v", err)
-	}
-	submitted, err := svc.SubmitStockDocument(ctx, valid.ID, "jj")
-	if err != nil {
-		t.Fatalf("submit frozen snapshot material: %v", err)
+		t.Fatalf("submit bulk quantity above suggested WIP shortage: %v", err)
 	}
 	if submitted.WorkOrderNo != "WO-PR559-0090" {
 		t.Fatalf("work order no = %q", submitted.WorkOrderNo)
 	}
+	var rawUnits, wipUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			COALESCE(SUM(qty_units) FILTER (WHERE warehouse='raw_materials'),0)::bigint,
+			COALESCE(SUM(qty_units) FILTER (WHERE warehouse='wip'),0)::bigint
+		FROM %s.material_batch_locations
+		WHERE material_id=1
+	`, schema)).Scan(&rawUnits, &wipUnits); err != nil {
+		t.Fatal(err)
+	}
+	if rawUnits != 4 || wipUnits != 6 {
+		t.Fatalf("raw/wip after bulk issue = %d/%d, want 4/6", rawUnits, wipUnits)
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 90, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "个", QtyUnits: 5,
+		}},
+	}); err == nil ||
+		!strings.Contains(err.Error(), "原料仓库存不足") ||
+		!strings.Contains(err.Error(), "需领用5个") ||
+		!strings.Contains(err.Error(), "可用4个") ||
+		!strings.Contains(err.Error(), "缺口1个") {
+		t.Fatalf("real raw stock shortage error = %v, want Chinese FIFO detail", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			COALESCE(SUM(qty_units) FILTER (WHERE warehouse='raw_materials'),0)::bigint,
+			COALESCE(SUM(qty_units) FILTER (WHERE warehouse='wip'),0)::bigint
+		FROM %s.material_batch_locations
+		WHERE material_id=1
+	`, schema)).Scan(&rawUnits, &wipUnits); err != nil {
+		t.Fatal(err)
+	}
+	if rawUnits != 4 || wipUnits != 6 {
+		t.Fatalf("raw/wip after rejected real shortage = %d/%d, want unchanged 4/6", rawUnits, wipUnits)
+	}
 }
 
-func TestHistoricalWorkOrderIssueUsesReservationRequirementAndCurrentWIPShortage(t *testing.T) {
+func TestWorkOrderIssueMovesThreeStandard60KgBatchesWithoutRecordingConsumption(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.materials SET name='哥伦比亚',unit='g' WHERE id=1;
+		INSERT INTO %s.materials(id,code,name,unit) VALUES
+			(2,'BEAN-2','耶加雪菲G2','g'),
+			(3,'BEAN-3','黄波旁水洗','g');
+		INSERT INTO %s.work_orders(
+			id,work_order_no,status,product_id,spec_g,planned_g,planned_output_g,sales_spec_count,material_snapshot
+		) VALUES(
+			93,'WO-PP-0000000083-0000000051','released',9,1000,7896,7896,8,
+			'[
+				{"material_id":1,"material_name":"哥伦比亚","unit":"g","consume_unit":"ratio_pct","ratio_pct":25},
+				{"material_id":2,"material_name":"耶加雪菲G2","unit":"g","consume_unit":"ratio_pct","ratio_pct":25},
+				{"material_id":3,"material_name":"黄波旁水洗","unit":"g","consume_unit":"ratio_pct","ratio_pct":50}
+			]'::jsonb
+		);
+		INSERT INTO %s.work_order_material_reservations(work_order_id,material_id,reserved_g) VALUES
+			(93,1,1974),(93,2,1974),(93,3,3948);
+	`, schema, schema, schema, schema))
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{MaterialID: 1, ItemType: "material", InventoryUnit: "g", ToWarehouse: "raw_materials", QtyG: 60000, UnitCost: 40},
+			{MaterialID: 2, ItemType: "material", InventoryUnit: "g", ToWarehouse: "raw_materials", QtyG: 60000, UnitCost: 50},
+			{MaterialID: 3, ItemType: "material", InventoryUnit: "g", ToWarehouse: "raw_materials", QtyG: 60000, UnitCost: 60},
+		},
+	}); err != nil {
+		t.Fatalf("receipt three standard batches: %v", err)
+	}
+	issue, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 93, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{MaterialID: 1, ItemType: "material", InventoryUnit: "g", FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 60000},
+			{MaterialID: 2, ItemType: "material", InventoryUnit: "g", FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 60000},
+			{MaterialID: 3, ItemType: "material", InventoryUnit: "g", FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 60000},
+		},
+	})
+	if err != nil {
+		t.Fatalf("issue three 60Kg batches above 1974/1974/3948g suggestions: %v", err)
+	}
+	if issue.WorkOrderNo != "WO-PP-0000000083-0000000051" || len(issue.Items) != 3 {
+		t.Fatalf("submitted issue = %+v", issue)
+	}
+	type materialBalance struct {
+		rawG int64
+		wipG int64
+	}
+	for materialID := int64(1); materialID <= 3; materialID++ {
+		var balance materialBalance
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT
+				COALESCE(SUM(qty_g) FILTER (WHERE warehouse='raw_materials'),0)::bigint,
+				COALESCE(SUM(qty_g) FILTER (WHERE warehouse='wip'),0)::bigint
+			FROM %s.material_batch_locations
+			WHERE material_id=$1
+		`, schema), materialID).Scan(&balance.rawG, &balance.wipG); err != nil {
+			t.Fatal(err)
+		}
+		if balance.rawG != 0 || balance.wipG != 60000 {
+			t.Fatalf("material %d raw/wip = %d/%d, want 0/60000", materialID, balance.rawG, balance.wipG)
+		}
+	}
+	var entryCount, allocationCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*)::int
+		FROM %s.stock_entries
+		WHERE work_order_id=93 AND purpose='material_transfer_for_manufacture' AND status='submitted'
+	`, schema)).Scan(&entryCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*)::int
+		FROM %s.stock_entry_batch_allocations a
+		JOIN %s.stock_entry_items i ON i.id=a.stock_entry_item_id
+		WHERE i.stock_entry_id=$1
+	`, schema, schema), issue.ID).Scan(&allocationCount); err != nil {
+		t.Fatal(err)
+	}
+	if entryCount != 1 || allocationCount != 3 {
+		t.Fatalf("submitted entries/allocations = %d/%d, want 1/3", entryCount, allocationCount)
+	}
+	var consumedG, returnedG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(consumed_g),0)::bigint,COALESCE(SUM(returned_g),0)::bigint
+		FROM %s.work_order_material_reservations
+		WHERE work_order_id=93
+	`, schema)).Scan(&consumedG, &returnedG); err != nil {
+		t.Fatal(err)
+	}
+	if consumedG != 0 || returnedG != 0 {
+		t.Fatalf("issue must not record production consumption/return = %d/%d", consumedG, returnedG)
+	}
+
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: 93, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{MaterialID: 1, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 60000},
+			{MaterialID: 2, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 60000},
+			{MaterialID: 3, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 60000},
+		},
+	}); err == nil ||
+		!strings.Contains(err.Error(), "生产消耗数量超过工单剩余需求") ||
+		!strings.Contains(err.Error(), "哥伦比亚") ||
+		!strings.Contains(err.Error(), "耶加雪菲G2") ||
+		!strings.Contains(err.Error(), "黄波旁水洗") ||
+		!strings.Contains(err.Error(), "本次消耗60000g") ||
+		!strings.Contains(err.Error(), "剩余可消耗1974g") ||
+		!strings.Contains(err.Error(), "剩余可消耗3948g") {
+		t.Fatalf("bulk production consumption error = %v, want frozen-requirement Chinese detail", err)
+	}
+
+	consumption, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: 93, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{MaterialID: 1, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 1974},
+			{MaterialID: 2, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 1974},
+			{MaterialID: 3, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 3948},
+		},
+	})
+	if err != nil {
+		t.Fatalf("consume exactly frozen requirements: %v", err)
+	}
+	if len(consumption.Items) != 3 {
+		t.Fatalf("consumption items = %d, want 3", len(consumption.Items))
+	}
+	for materialID, wantWIP := range map[int64]int64{1: 58026, 2: 58026, 3: 56052} {
+		var wipG int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(qty_g),0)::bigint
+			FROM %s.material_batch_locations
+			WHERE material_id=$1 AND warehouse='wip'
+		`, schema), materialID).Scan(&wipG); err != nil {
+			t.Fatal(err)
+		}
+		if wipG != wantWIP {
+			t.Fatalf("material %d WIP after requirement consumption = %d, want %d", materialID, wipG, wantWIP)
+		}
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: 93, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 1,
+		}},
+	}); err == nil ||
+		!strings.Contains(err.Error(), "生产消耗数量超过工单剩余需求") ||
+		!strings.Contains(err.Error(), "剩余可消耗0g") {
+		t.Fatalf("second consumption error = %v, want submitted consumption deducted from requirement", err)
+	}
+}
+
+func TestWorkOrderMaterialQuantityBasisMustMatchFrozenRequirement(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.materials SET name='重量豆',unit='g' WHERE id=1;
+		INSERT INTO %s.materials(id,code,name,unit) VALUES(2,'PACK-2','包装箱','箱');
+		INSERT INTO %s.work_orders(
+			id,work_order_no,status,product_id,spec_g,planned_g,planned_output_g,sales_spec_count,material_snapshot
+		) VALUES(
+			94,'WO-BASIS-0094','released',9,1000,5000,5000,5,
+			'[
+				{"material_id":1,"material_name":"重量豆","unit":"g","consume_unit":"ratio_pct","ratio_pct":100},
+				{"material_id":2,"material_name":"包装箱","unit":"箱","source":"packaging","consume_unit":"unit_per_bag","qty_per_unit":1}
+			]'::jsonb
+		);
+	`, schema, schema, schema))
+
+	for _, tc := range []struct {
+		name string
+		item stockapp.StockDocumentItemCommand
+		want string
+	}{
+		{
+			name: "weight requirement rejects count quantity",
+			item: stockapp.StockDocumentItemCommand{
+				MaterialID: 1, ItemType: "material", InventoryUnit: "g",
+				FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyUnits: 1,
+			},
+			want: "物料“重量豆”的工单需求按重量计量，请填写重量数量",
+		},
+		{
+			name: "count requirement rejects weight quantity",
+			item: stockapp.StockDocumentItemCommand{
+				MaterialID: 2, ItemType: "material", InventoryUnit: "箱",
+				FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 1000,
+			},
+			want: "物料“包装箱”的工单需求按计数计量，请填写计数数量",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+				Purpose:     stockapp.PurposeMaterialTransferForManufacture,
+				WorkOrderID: 94,
+				Operator:    "jj",
+				Items:       []stockapp.StockDocumentItemCommand{tc.item},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProductionConsumptionHonorsHistoricalReservationConsumedQuantity(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.materials SET name='历史重量物料',unit='g' WHERE id=1;
+		INSERT INTO %s.materials(id,code,name,unit) VALUES(2,'PACK-HISTORY','历史计数物料','个');
+		INSERT INTO %s.work_orders(
+			id,work_order_no,status,product_id,spec_g,planned_g,planned_output_g,sales_spec_count,material_snapshot
+		) VALUES(
+			95,'WO-HISTORY-CONSUMED-0095','released',9,1000,5000,5000,5,
+			'[
+				{"material_id":1,"material_name":"历史重量物料","unit":"g","consume_unit":"ratio_pct","ratio_pct":100},
+				{"material_id":2,"material_name":"历史计数物料","unit":"个","source":"packaging","consume_unit":"unit_per_bag","qty_per_unit":1}
+			]'::jsonb
+		);
+		INSERT INTO %s.work_order_material_reservations(
+			work_order_id,material_id,reserved_g,reserved_units,consumed_g,consumed_units
+		) VALUES
+			(95,1,5000,0,3000,0),
+			(95,2,0,5,0,3);
+	`, schema, schema, schema, schema))
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{MaterialID: 1, ItemType: "material", InventoryUnit: "g", ToWarehouse: "raw_materials", QtyG: 5000, UnitCost: 40},
+			{MaterialID: 2, ItemType: "material", InventoryUnit: "个", ToWarehouse: "raw_materials", QtyUnits: 5, UnitCost: 1},
+		},
+	}); err != nil {
+		t.Fatalf("receipt: %v", err)
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 95, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{MaterialID: 1, ItemType: "material", InventoryUnit: "g", FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 5000},
+			{MaterialID: 2, ItemType: "material", InventoryUnit: "个", FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyUnits: 5},
+		},
+	}); err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: 95, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 2001,
+		}},
+	}); err == nil ||
+		!strings.Contains(err.Error(), "生产消耗数量超过工单剩余需求") ||
+		!strings.Contains(err.Error(), "历史重量物料") ||
+		!strings.Contains(err.Error(), "剩余可消耗2000g") {
+		t.Fatalf("historical weight consumption error = %v, want remaining 2000g", err)
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: 95, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 2, ItemType: "material", InventoryUnit: "个", FromWarehouse: "wip", QtyUnits: 3,
+		}},
+	}); err == nil ||
+		!strings.Contains(err.Error(), "生产消耗数量超过工单剩余需求") ||
+		!strings.Contains(err.Error(), "历史计数物料") ||
+		!strings.Contains(err.Error(), "剩余可消耗2个") {
+		t.Fatalf("historical count consumption error = %v, want remaining 2 units", err)
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialConsumption, WorkOrderID: 95, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{MaterialID: 1, ItemType: "material", InventoryUnit: "g", FromWarehouse: "wip", QtyG: 2000},
+			{MaterialID: 2, ItemType: "material", InventoryUnit: "个", FromWarehouse: "wip", QtyUnits: 2},
+		},
+	}); err != nil {
+		t.Fatalf("consume historical remaining requirement exactly: %v", err)
+	}
+}
+
+func TestHistoricalWorkOrderIssueAllowsStaleDraftAboveSuggestedWIPShortage(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
 	svc := stockapp.NewService(NewRepository(pool, schema))
@@ -649,24 +952,21 @@ func TestHistoricalWorkOrderIssueUsesReservationRequirementAndCurrentWIPShortage
 	}); err != nil {
 		t.Fatalf("first partial issue: %v", err)
 	}
-	if _, err := svc.SubmitStockDocument(ctx, staleDraft.ID, "jj"); err == nil ||
-		!strings.Contains(err.Error(), "当前剩余 WIP 缺口") ||
-		!strings.Contains(err.Error(), "本次领用4000g") ||
-		!strings.Contains(err.Error(), "当前可领3000g") ||
-		!strings.Contains(err.Error(), "超出1000g") {
-		t.Fatalf("stale draft over-issue error = %v, want current remaining WIP shortage detail", err)
+	if _, err := svc.SubmitStockDocument(ctx, staleDraft.ID, "jj"); err != nil {
+		t.Fatalf("submit stale bulk draft above suggested WIP shortage: %v", err)
 	}
-	currentDraft, err := svc.UpdateStockDocumentDraft(ctx, staleDraft.ID, stockapp.StockDocumentCommand{
-		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
-		Items: []stockapp.StockDocumentItemCommand{{
-			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 3000,
-		}},
-	})
-	if err != nil {
-		t.Fatalf("refresh stale draft: %v", err)
+	var rawG, wipG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			COALESCE(SUM(qty_g) FILTER (WHERE warehouse='raw_materials'),0)::bigint,
+			COALESCE(SUM(qty_g) FILTER (WHERE warehouse='wip'),0)::bigint
+		FROM %s.material_batch_locations
+		WHERE material_id=1
+	`, schema)).Scan(&rawG, &wipG); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := svc.SubmitStockDocument(ctx, currentDraft.ID, "jj"); err != nil {
-		t.Fatalf("issue exact remaining shortage: %v", err)
+	if rawG != 0 || wipG != 6000 {
+		t.Fatalf("raw/wip after stale bulk draft = %d/%d, want 0/6000", rawG, wipG)
 	}
 }
 

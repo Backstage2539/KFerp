@@ -29,6 +29,10 @@ export function stockQuantityUsesCount(item = {}) {
   const basis = String(item.quantity_basis || '').trim().toLowerCase()
   if (['count', 'units', 'unit', 'quantity_units'].includes(basis)) return true
   if (['weight', 'mass', 'g', 'quantity_g'].includes(basis)) return false
+  const qtyUnits = Number(item.qty_units || 0)
+  const qtyG = Number(item.qty_g || 0)
+  if (qtyUnits > 0 && qtyG <= 0) return true
+  if (qtyG > 0 && qtyUnits <= 0) return false
   const unit = String(item.inventory_unit || '').trim().toLowerCase()
   return ['个', '件', '袋', '盒', '条', '包', 'pcs', 'pc', 'unit', 'units'].includes(unit)
 }
@@ -41,6 +45,23 @@ export function stockCanonicalQuantity(item = {}) {
   }
   const factor = Number(item.canonical_qty_per_unit || 0) || inventoryUnitWeightInGrams(item.inventory_unit)
   return { qty_g: factor > 0 ? Math.round(quantity * factor) : 0, qty_units: 0 }
+}
+
+export function stockDocumentPositiveItems(items = [], canonicalize = stockCanonicalQuantity) {
+  const requestItems = items
+    .map((item) => ({ item, quantity: canonicalize(item) }))
+    .filter(({ quantity }) => Number(quantity.qty_g || 0) > 0 || Number(quantity.qty_units || 0) > 0)
+  if (!requestItems.length) throw new Error('至少填写一个大于 0 的领用数量')
+  return requestItems
+}
+
+export function productionStockDocumentPreviewAction(row = {}) {
+  const purpose = String(row.purpose || row.entry_type || '').trim()
+  if (row.is_return || purpose === 'material_return_from_manufacture') return 'return'
+  if (purpose === 'material_transfer_for_manufacture') return 'issue'
+  if (purpose === 'material_consumption_for_manufacture') return 'consume'
+  if (purpose === 'manufacture') return 'finish'
+  return ''
 }
 
 export function productionContextParams(input = {}) {

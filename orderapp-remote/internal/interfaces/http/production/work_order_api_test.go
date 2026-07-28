@@ -22,46 +22,47 @@ type workOrderAPIRepo struct {
 	jobCardActual  productionapp.JobCardActualsCommand
 	jobCardAction  productionapp.JobCardActionCommand
 
-	createPlan          productionapp.CreateProductionPlanCommand
-	savePlanSplits      productionapp.SaveProductionPlanOperationSplitsCommand
-	previewPlanSplits   productionapp.PreviewProductionPlanOperationSplitsCommand
-	saveWorkOrderSplits productionapp.SaveWorkOrderOperationSplitsCommand
-	planSplits          []productionapp.ProductionPlanOperationSplit
-	workOrderSplitRows  []productionapp.JobCardRow
-	cancelPlan          productionapp.CancelProductionPlanCommand
-	submitPlan          productionapp.SubmitProductionPlanCommand
-	submitPlans         []productionapp.SubmitProductionPlanCommand
-	startWorkOrder      productionapp.WorkOrderStartCommand
-	completeWorkOrder   productionapp.WorkOrderCompleteCommand
-	cancelWorkOrder     productionapp.WorkOrderCancelCommand
-	productionPlanQuery productionapp.ProductionPlanQuery
-	productionPlan      productionapp.ProductionPlanDetail
-	submittedPlan       productionapp.ProductionPlanSubmitResult
-	submitPlanByID      map[int64]productionapp.ProductionPlanSubmitResult
-	submitPlanErrByID   map[int64]error
-	workOrderStarted    productionapp.WorkOrderStartResult
-	workOrderCompleted  productionapp.WorkOrderCompleteResult
-	workOrderCancelled  productionapp.WorkOrderRow
-	scheduleAssignment  productionapp.ScheduleAssignmentCommand
-	capacityCalendar    productionapp.CapacityCalendarCommand
-	scheduleQuery       productionapp.ScheduleBoardQuery
-	mrpQuery            productionapp.MRPSuggestionQuery
-	traceQuery          productionapp.ProductionTraceAnalyticsQuery
-	stockEntry          productionapp.StockEntryCommand
-	stockDocumentDraft  *productionapp.StockEntryCommand
-	stockEntryQuery     productionapp.StockEntryQuery
-	stockEntryRows      []productionapp.StockEntryRow
-	stockEntryID        int64
-	reservationQuery    productionapp.WIPReservationQuery
-	reservationRows     []productionapp.WIPReservationRow
-	productionLogsQuery productionapp.ProductionLogsQuery
-	productionLogs      productionapp.ProductionLogsResult
-	batchCostQuery      productionapp.BatchCostQuery
-	batchCosts          []productionapp.BatchCostRow
-	ledgerQuery         productionapp.WorkOrderLedgerQuery
-	ledgerRows          []productionapp.WorkOrderLedgerEntryRow
-	qualityQuery        productionapp.QualityInspectionQuery
-	qualityRows         []productionapp.QualityInspectionRow
+	createPlan           productionapp.CreateProductionPlanCommand
+	savePlanSplits       productionapp.SaveProductionPlanOperationSplitsCommand
+	previewPlanSplits    productionapp.PreviewProductionPlanOperationSplitsCommand
+	saveWorkOrderSplits  productionapp.SaveWorkOrderOperationSplitsCommand
+	planSplits           []productionapp.ProductionPlanOperationSplit
+	workOrderSplitRows   []productionapp.JobCardRow
+	cancelPlan           productionapp.CancelProductionPlanCommand
+	submitPlan           productionapp.SubmitProductionPlanCommand
+	submitPlans          []productionapp.SubmitProductionPlanCommand
+	startWorkOrder       productionapp.WorkOrderStartCommand
+	completeWorkOrder    productionapp.WorkOrderCompleteCommand
+	cancelWorkOrder      productionapp.WorkOrderCancelCommand
+	productionPlanQuery  productionapp.ProductionPlanQuery
+	productionPlan       productionapp.ProductionPlanDetail
+	submittedPlan        productionapp.ProductionPlanSubmitResult
+	submitPlanByID       map[int64]productionapp.ProductionPlanSubmitResult
+	submitPlanErrByID    map[int64]error
+	workOrderStarted     productionapp.WorkOrderStartResult
+	workOrderCompleted   productionapp.WorkOrderCompleteResult
+	workOrderCancelled   productionapp.WorkOrderRow
+	scheduleAssignment   productionapp.ScheduleAssignmentCommand
+	capacityCalendar     productionapp.CapacityCalendarCommand
+	scheduleQuery        productionapp.ScheduleBoardQuery
+	mrpQuery             productionapp.MRPSuggestionQuery
+	traceQuery           productionapp.ProductionTraceAnalyticsQuery
+	stockEntry           productionapp.StockEntryCommand
+	stockDocumentDraft   *productionapp.StockEntryCommand
+	stockDocumentDraftID int64
+	stockEntryQuery      productionapp.StockEntryQuery
+	stockEntryRows       []productionapp.StockEntryRow
+	stockEntryID         int64
+	reservationQuery     productionapp.WIPReservationQuery
+	reservationRows      []productionapp.WIPReservationRow
+	productionLogsQuery  productionapp.ProductionLogsQuery
+	productionLogs       productionapp.ProductionLogsResult
+	batchCostQuery       productionapp.BatchCostQuery
+	batchCosts           []productionapp.BatchCostRow
+	ledgerQuery          productionapp.WorkOrderLedgerQuery
+	ledgerRows           []productionapp.WorkOrderLedgerEntryRow
+	qualityQuery         productionapp.QualityInspectionQuery
+	qualityRows          []productionapp.QualityInspectionRow
 }
 
 type stockDocumentAPIRepo struct {
@@ -327,7 +328,11 @@ func (r *workOrderAPIRepo) GetStockEntry(ctx context.Context, id int64) (product
 	r.stockEntryID = id
 	return productionapp.StockEntryDetail{ID: id, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Purpose: "material_transfer_for_manufacture", Status: "submitted", Items: []productionapp.StockEntryItemRow{{ID: 1, MaterialID: 10, ItemType: "material", QtyG: 60000}}}, nil
 }
-func (r *workOrderAPIRepo) GetWorkOrderStockDocumentDraft(_ context.Context, _ int64, _ string) (*productionapp.StockEntryCommand, error) {
+func (r *workOrderAPIRepo) GetWorkOrderStockDocumentDraft(_ context.Context, _ int64, _ string, stockDocumentID int64) (*productionapp.StockEntryCommand, error) {
+	r.stockDocumentDraftID = stockDocumentID
+	if stockDocumentID > 0 && (r.stockDocumentDraft == nil || r.stockDocumentDraft.ID != stockDocumentID) {
+		return nil, nil
+	}
 	return r.stockDocumentDraft, nil
 }
 func (r *workOrderAPIRepo) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
@@ -857,7 +862,7 @@ func TestWorkOrderStockDocumentPreviewUsesPhysicalWIPGapAndReturnableBalance(t *
 	assertPreview("return", `"qty_g":3000`, `"is_return":true`, `"from_warehouse":"wip"`, `"to_warehouse":"raw_materials"`)
 }
 
-func TestWorkOrderStockDocumentPreviewAPIRefreshesStaleDraftAgainstCurrentWIPShortage(t *testing.T) {
+func TestWorkOrderStockDocumentPreviewAPIPreservesBulkDraftAndReportsSuggestion(t *testing.T) {
 	repo := &workOrderAPIRepo{
 		rows: []productionapp.WorkOrderRow{{
 			ID: 88, WorkOrderNo: "WO-PR560-001", Status: "released",
@@ -880,7 +885,7 @@ func TestWorkOrderStockDocumentPreviewAPIRefreshesStaleDraftAgainstCurrentWIPSho
 	e := echo.New()
 	registerWorkOrderAPI(e, productionapp.NewService(repo))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/stock-document-preview", strings.NewReader(`{"action":"issue"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/stock-document-preview", strings.NewReader(`{"action":"issue","stock_document_id":71}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -891,14 +896,80 @@ func TestWorkOrderStockDocumentPreviewAPIRefreshesStaleDraftAgainstCurrentWIPSho
 	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if len(preview.Document.Items) != 1 || preview.Document.Items[0].QtyG != 7751 || preview.Document.Items[0].RemainingQty != 7751 {
+	if len(preview.Document.Items) != 1 ||
+		preview.Document.Items[0].QtyG != 8000 ||
+		preview.Document.Items[0].RemainingQty != 7751 ||
+		preview.Document.Items[0].DefaultQty != 8000 {
 		t.Fatalf("preview document = %+v", preview.Document)
 	}
-	if len(preview.Warnings) != 1 || !strings.Contains(preview.Warnings[0], "8000g") || !strings.Contains(preview.Warnings[0], "7751g") {
+	if len(preview.Warnings) != 1 ||
+		!strings.Contains(preview.Warnings[0], "当前建议领用7751g") ||
+		!strings.Contains(preview.Warnings[0], "草稿保留8000g") ||
+		!strings.Contains(preview.Warnings[0], "超出部分提交后作为可用 WIP 库存保留") {
 		t.Fatalf("preview warnings = %+v", preview.Warnings)
 	}
 	if repo.stockDocumentDraft.Items[0].QtyG != 8000 {
 		t.Fatalf("preview must not persistently mutate draft: %+v", repo.stockDocumentDraft.Items[0])
+	}
+	if repo.stockDocumentDraftID != 71 {
+		t.Fatalf("requested stock document id=%d, want 71", repo.stockDocumentDraftID)
+	}
+}
+
+func TestWorkOrderStockDocumentPreviewAcceptsDraftIDAlias(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		rows: []productionapp.WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR561-001", Status: "released"}},
+		reservationRows: []productionapp.WIPReservationRow{{
+			WorkOrderID: 88, MaterialID: 10, MaterialName: "哥伦比亚",
+			InventoryUnit: "g", QuantityBasis: "weight", RequiredQty: 1974, ShortageQty: 1974,
+			RequiredG: 1974, ShortageG: 1974,
+		}},
+		stockDocumentDraft: &productionapp.StockEntryCommand{
+			ID: 72, EntryNo: "SE-0000000072", Status: "draft",
+			Purpose: "material_transfer_for_manufacture", WorkOrderID: 88,
+			Items: []productionapp.StockEntryItemCommand{{
+				MaterialID: 10, ItemName: "哥伦比亚", InventoryUnit: "g", QtyG: 60000,
+			}},
+		},
+	}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/stock-document-preview", strings.NewReader(`{"action":"issue","draft_id":72}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.stockDocumentDraftID != 72 {
+		t.Fatalf("requested draft alias id=%d, want 72", repo.stockDocumentDraftID)
+	}
+}
+
+func TestWorkOrderStockDocumentPreviewRejectsAnotherDraftID(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		rows: []productionapp.WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR561-001", Status: "released"}},
+		reservationRows: []productionapp.WIPReservationRow{{
+			WorkOrderID: 88, MaterialID: 10, MaterialName: "哥伦比亚",
+			InventoryUnit: "g", QuantityBasis: "weight", RequiredQty: 1974, ShortageQty: 1974,
+			RequiredG: 1974, ShortageG: 1974,
+		}},
+		stockDocumentDraft: &productionapp.StockEntryCommand{
+			ID: 72, EntryNo: "SE-0000000072", Status: "draft",
+			Purpose: "material_transfer_for_manufacture", WorkOrderID: 88,
+		},
+	}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/stock-document-preview", strings.NewReader(`{"action":"issue","stock_document_id":71}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "指定库存草稿不存在") {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.stockDocumentDraftID != 71 {
+		t.Fatalf("requested draft id=%d, want 71", repo.stockDocumentDraftID)
 	}
 }
 

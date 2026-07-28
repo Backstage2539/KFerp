@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-561-WIP-BULK-MATERIAL-ISSUE
+- Branch: codex/pr561-wip-bulk-issue
+- Owner/session: Codex / 2026-07-28
+- Status: verified; awaiting develop integration and development deployment
+- Scope: 工单生产领料的 WIP 缺口改为建议领用量，不再作为原料仓到 WIP 的硬上限；支持按 60Kg 等实际标准批量领料，保留真实原料仓合格 FIFO/指定批次库存校验和原子过账。
+- DEV:
+  - DEV-561-WIP-SHORTAGE-AS-SUGGESTION：生产领料保留工单物料归属和库存单位校验，但提交数量不再受当前 WIP 缺口限制。
+  - DEV-561-BULK-DRAFT-PRESERVATION：已有批量草稿恢复时保留原数量，只刷新当前建议量；当前缺口为 0 时仍允许填写标准批量。
+  - DEV-561-CONSUMPTION-BOUNDARY：生产消耗按工单冻结需求减去统一/历史已耗数量限制，批量领入的多余 WIP 不误记为本工单消耗。
+  - DEV-561-DRAFT-IDENTITY-QUANTITY-SAFETY：从列表按具体 Stock Entry ID 恢复草稿；过滤零数量行并拒绝负数量和重量/计数口径错用。
+  - DEV-561-ISSUE-UX-MANUAL：移除前端数量 max/保存阻断，增加“超出部分保留为可用 WIP、生产消耗另记”的紧凑说明并更新操作手册。
+  - DEV-561-DOCS-DELIVERY：同步需求、验收、支持合同，完成测试、集成和 development 部署。
+- Verifier:
+  - RED: application/API tests reproduced 8000g draft being reduced to 7751g and zero-shortage rows being removed; frontend contract reproduced HTML max and save-time hard rejection.
+  - GREEN: temporary PostgreSQL verifies one `SE-*` can issue three 60000g material rows above 1974g/1974g/3948g suggestions, real raw-stock shortage remains Chinese and atomic, production consumption stays capped to frozen remaining demand, historical consumed quantities and count materials remain valid, and an exact draft ID cannot open another draft.
+  - GREEN: full Go suite passes; focused frontend tests pass 14/14; Vite build passes. Full frontend remains at the same 815/823 baseline as clean `origin/develop` with no new failure.
+- Deployment: pending; development only, production must not be deployed
+- Last update: 2026-07-28 Asia/Shanghai
+- Notes: 指定真实工单只做只读预览和接口冒烟；不自动提交 60Kg 领料，不改变真实库存。
+
 ### PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS
 - Branch: codex/pr560-production-issue-compact-diagnostics
 - Owner/session: Codex / 2026-07-28
