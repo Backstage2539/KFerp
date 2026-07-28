@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,7 @@ type workOrderAPIRepo struct {
 	mrpQuery            productionapp.MRPSuggestionQuery
 	traceQuery          productionapp.ProductionTraceAnalyticsQuery
 	stockEntry          productionapp.StockEntryCommand
+	stockDocumentDraft  *productionapp.StockEntryCommand
 	stockEntryQuery     productionapp.StockEntryQuery
 	stockEntryRows      []productionapp.StockEntryRow
 	stockEntryID        int64
@@ -324,6 +326,9 @@ func (r *workOrderAPIRepo) ListStockEntries(ctx context.Context, query productio
 func (r *workOrderAPIRepo) GetStockEntry(ctx context.Context, id int64) (productionapp.StockEntryDetail, error) {
 	r.stockEntryID = id
 	return productionapp.StockEntryDetail{ID: id, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Purpose: "material_transfer_for_manufacture", Status: "submitted", Items: []productionapp.StockEntryItemRow{{ID: 1, MaterialID: 10, ItemType: "material", QtyG: 60000}}}, nil
+}
+func (r *workOrderAPIRepo) GetWorkOrderStockDocumentDraft(_ context.Context, _ int64, _ string) (*productionapp.StockEntryCommand, error) {
+	return r.stockDocumentDraft, nil
 }
 func (r *workOrderAPIRepo) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
 	r.jobCardAction = cmd
@@ -850,6 +855,51 @@ func TestWorkOrderStockDocumentPreviewUsesPhysicalWIPGapAndReturnableBalance(t *
 	}
 	assertPreview("issue", `"qty_g":1500`, `"from_warehouse":"raw_materials"`, `"to_warehouse":"wip"`)
 	assertPreview("return", `"qty_g":3000`, `"is_return":true`, `"from_warehouse":"wip"`, `"to_warehouse":"raw_materials"`)
+}
+
+func TestWorkOrderStockDocumentPreviewAPIRefreshesStaleDraftAgainstCurrentWIPShortage(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		rows: []productionapp.WorkOrderRow{{
+			ID: 88, WorkOrderNo: "WO-PR560-001", Status: "released",
+		}},
+		reservationRows: []productionapp.WIPReservationRow{{
+			ID: 1, WorkOrderID: 88, WorkOrderNo: "WO-PR560-001",
+			MaterialID: 10, MaterialName: "如目达摩生豆",
+			InventoryUnit: "g", QuantityBasis: "weight",
+			RequiredQty: 7751, ShortageQty: 7751,
+			RequiredG: 7751, RemainingReservedG: 7751,
+		}},
+		stockDocumentDraft: &productionapp.StockEntryCommand{
+			ID: 71, EntryNo: "SE-0000000071", Status: "draft",
+			Purpose: "material_transfer_for_manufacture", WorkOrderID: 88,
+			Items: []productionapp.StockEntryItemCommand{{
+				MaterialID: 10, ItemName: "如目达摩生豆", InventoryUnit: "g", QtyG: 8000,
+			}},
+		},
+	}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/stock-document-preview", strings.NewReader(`{"action":"issue"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var preview productionapp.StockDocumentPreview
+	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Document.Items) != 1 || preview.Document.Items[0].QtyG != 7751 || preview.Document.Items[0].RemainingQty != 7751 {
+		t.Fatalf("preview document = %+v", preview.Document)
+	}
+	if len(preview.Warnings) != 1 || !strings.Contains(preview.Warnings[0], "8000g") || !strings.Contains(preview.Warnings[0], "7751g") {
+		t.Fatalf("preview warnings = %+v", preview.Warnings)
+	}
+	if repo.stockDocumentDraft.Items[0].QtyG != 8000 {
+		t.Fatalf("preview must not persistently mutate draft: %+v", repo.stockDocumentDraft.Items[0])
+	}
 }
 
 func TestWorkOrderProducePathOwnsInventoryActionsAndDetail(t *testing.T) {

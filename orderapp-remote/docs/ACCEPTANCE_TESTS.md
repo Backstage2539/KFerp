@@ -1689,3 +1689,10 @@
 - [x] 首次领料默认剩余缺口；分批提交后，同工单同物料下一次默认不超过最近已提交领料量和当前剩余缺口；取消单据不作为记忆来源，已有草稿可以恢复。
 - [x] 跨工单物料、单位不一致、超过剩余缺口、原料仓库存不足均在提交时拒绝且不产生部分库存变更；合法多物料领料只生成一个 `SE-*`，库存、流水、工单关联和操作日志原子成功。
 - [x] 临时 PostgreSQL 完成 `released 工单 -> 生产领料 -> WIP 就绪 -> 开工` API 闭环；完整 Go、定向 Vue、Vue/Vite 构建、develop 集成和 development 部署通过。指定真实工单只做只读预览，不提交库存、不开始生产；production 未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-27-production-config-wip-issue-ux.md`。
+
+### K102. 生产领料紧凑明细与库存诊断（PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS）
+- [ ] 工单生产领料多物料明细在桌面端按同一列头逐行对齐，不重复显示固定类型；常规浏览器视口可以连续查看 10 条物料，窄屏仍可换行录入。
+- [x] 原料仓合格 FIFO/指定批次不足时整单不入账，页面使用中文逐物料显示来源仓、需领、可用、缺少和库存单位；质检冻结与真实数量不足可以区分。
+- [x] 已有领料草稿重新打开时按当前 WIP 覆盖刷新 `required_qty / remaining_qty / default_qty`；过期草稿数量大于当前剩余 WIP 缺口时收敛到当前可领数量，并提示用户缺口已变化。
+- [x] 预览后发生并发领料时，提交仍以事务内当前缺口为准；超额错误使用中文显示物料、本次领用、当前可领和单位，多物料不能部分过账。
+- [ ] 临时 PostgreSQL 覆盖原料仓不足、质检冻结、旧草稿刷新、并发缺口变化和合法多物料原子领料；定向 Go/Vue、Vue/Vite 构建、develop 集成和 development 只读冒烟通过。真实工单诊断不创建或提交库存单据、不开始生产；production 未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-28-production-issue-compact-diagnostics.md`。

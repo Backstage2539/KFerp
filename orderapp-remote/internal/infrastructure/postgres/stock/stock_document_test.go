@@ -156,6 +156,84 @@ INSERT INTO %s.job_cards(id,work_order_id,status) VALUES(91,88,'completed');
 	return pool, schema
 }
 
+func TestProductionIssueReportsChineseRawMaterialFIFOShortageWithoutPartialPosting(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,unit) VALUES(2,'BEAN-2','黄波旁水洗','g');
+		INSERT INTO %s.work_order_material_reservations(work_order_id,material_id,reserved_g) VALUES(88,2,6000);
+	`, schema, schema))
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{
+				MaterialID: 1, ItemType: "material", InventoryUnit: "g",
+				ToWarehouse: "raw_materials", QtyG: 1000, UnitCost: 40,
+			},
+			{
+				MaterialID: 2, ItemType: "material", InventoryUnit: "g",
+				ToWarehouse: "raw_materials", QtyG: 500, UnitCost: 50,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("receipt: %v", err)
+	}
+	frozenReceipt, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 2, ItemType: "material", InventoryUnit: "g",
+			ToWarehouse: "raw_materials", QtyG: 1, UnitCost: 50,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("frozen receipt: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.material_batches SET quality_status='hold' WHERE batch_code='%s';
+	`, schema, frozenReceipt.Items[0].BatchCode))
+	_, err = svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 88, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{
+			{
+				MaterialID: 1, ItemType: "material", ItemName: "水洗豆", InventoryUnit: "g",
+				FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 500,
+			},
+			{
+				MaterialID: 2, ItemType: "material", ItemName: "黄波旁水洗", InventoryUnit: "g",
+				FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 1974,
+			},
+		},
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "原料仓库存不足") ||
+		!strings.Contains(err.Error(), "黄波旁水洗") ||
+		!strings.Contains(err.Error(), "需领用1974g") ||
+		!strings.Contains(err.Error(), "可用500g") ||
+		!strings.Contains(err.Error(), "缺口1474g") ||
+		!strings.Contains(err.Error(), "另有质检冻结库存1g，解除后仍不足") {
+		t.Fatalf("issue error = %v, want Chinese FIFO shortage detail", err)
+	}
+	var firstRawG, firstWIPG, secondRawG, secondWIPG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			COALESCE(SUM(qty_g) FILTER (WHERE material_id=1 AND warehouse='raw_materials'),0)::bigint,
+			COALESCE(SUM(qty_g) FILTER (WHERE material_id=1 AND warehouse='wip'),0)::bigint,
+			COALESCE(SUM(qty_g) FILTER (WHERE material_id=2 AND warehouse='raw_materials'),0)::bigint,
+			COALESCE(SUM(qty_g) FILTER (WHERE material_id=2 AND warehouse='wip'),0)::bigint
+		FROM %s.material_batch_locations
+		WHERE material_id IN (1,2)
+	`, schema)).Scan(&firstRawG, &firstWIPG, &secondRawG, &secondWIPG); err != nil {
+		t.Fatal(err)
+	}
+	if firstRawG != 1000 || firstWIPG != 0 || secondRawG != 501 || secondWIPG != 0 {
+		t.Fatalf(
+			"raw/wip after failed multi-material issue = %d/%d and %d/%d, want 1000/0 and 501/0",
+			firstRawG, firstWIPG, secondRawG, secondWIPG,
+		)
+	}
+}
+
 func TestUnifiedStockDocumentDraftSubmitIdempotencyAndCancel(t *testing.T) {
 	pool, schema := setupUnifiedStockDocumentTest(t)
 	ctx := context.Background()
@@ -365,8 +443,8 @@ func TestUnifiedStockDocumentManufacturingFIFOAndRollback(t *testing.T) {
 	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
 		Purpose: stockapp.PurposeMaterialTransferForManufacture, IsReturn: true, WorkOrderID: 88, Operator: "jj",
 		Items: []stockapp.StockDocumentItemCommand{{MaterialID: 1, ItemType: "material", QtyG: 2000}},
-	}); err == nil || !strings.Contains(err.Error(), "insufficient") {
-		t.Fatalf("over-return error = %v, want insufficient", err)
+	}); err == nil || !strings.Contains(err.Error(), "库存不足") {
+		t.Fatalf("over-return error = %v, want Chinese stock shortage", err)
 	}
 	if _, err := svc.CancelStockDocument(ctx, consume.ID, "jj"); err != nil {
 		t.Fatalf("cancel consumption: %v", err)
@@ -404,8 +482,8 @@ func TestUnifiedStockDocumentRejectsFrozenBatchAndCrossWorkOrderReturn(t *testin
 		Items: []stockapp.StockDocumentItemCommand{{
 			MaterialID: 1, ItemType: "material", QtyG: 1000, BatchCode: receipt.Items[0].BatchCode,
 		}},
-	}); err == nil || !strings.Contains(err.Error(), "quality") {
-		t.Fatalf("frozen batch error = %v, want quality block", err)
+	}); err == nil || !strings.Contains(err.Error(), "质检冻结") {
+		t.Fatalf("frozen batch error = %v, want Chinese quality block", err)
 	}
 	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.material_batches SET quality_status='pass' WHERE id=%d;
@@ -422,8 +500,54 @@ func TestUnifiedStockDocumentRejectsFrozenBatchAndCrossWorkOrderReturn(t *testin
 	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
 		Purpose: stockapp.PurposeMaterialTransferForManufacture, IsReturn: true, WorkOrderID: 89, Operator: "jj",
 		Items: []stockapp.StockDocumentItemCommand{{MaterialID: 1, ItemType: "material", QtyG: 1000}},
-	}); err == nil || !strings.Contains(err.Error(), "insufficient") {
-		t.Fatalf("cross-work-order return error = %v, want insufficient", err)
+	}); err == nil || !strings.Contains(err.Error(), "库存不足") {
+		t.Fatalf("cross-work-order return error = %v, want Chinese stock shortage", err)
+	}
+}
+
+func TestProductionReturnCapsQualityBlockedBatchToWorkOrderBalance(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.work_orders(id,work_order_no,status,product_id,spec_g) VALUES(89,'WO-0000000089','running',9,1000);
+		INSERT INTO %s.work_order_material_reservations(work_order_id,material_id,reserved_g) VALUES(89,1,6000);
+	`, schema, schema))
+	receipt, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g",
+			ToWarehouse: "raw_materials", QtyG: 1000, UnitCost: 40,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("receipt: %v", err)
+	}
+	for workOrderID, quantity := range map[int64]int64{88: 100, 89: 900} {
+		if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+			Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: workOrderID, Operator: "jj",
+			Items: []stockapp.StockDocumentItemCommand{{
+				MaterialID: 1, ItemType: "material", InventoryUnit: "g",
+				FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: quantity,
+			}},
+		}); err != nil {
+			t.Fatalf("issue work order %d: %v", workOrderID, err)
+		}
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.material_batches SET quality_status='hold' WHERE batch_code='%s';
+	`, schema, receipt.Items[0].BatchCode))
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, IsReturn: true, WorkOrderID: 88, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g",
+			FromWarehouse: "wip", ToWarehouse: "raw_materials", QtyG: 500,
+		}},
+	}); err == nil ||
+		!strings.Contains(err.Error(), "WIP在制仓库存不足") ||
+		!strings.Contains(err.Error(), "另有质检冻结库存100g，解除后仍不足") ||
+		strings.Contains(err.Error(), "请先处理质检") {
+		t.Fatalf("return error = %v, want work-order-capped blocked stock diagnostic", err)
 	}
 }
 
@@ -457,8 +581,11 @@ func TestReleasedWorkOrderIssueUsesFrozenSnapshotWithoutReservationAndGuardsQuan
 	if err != nil {
 		t.Fatalf("draft: %v", err)
 	}
-	if _, err := svc.SubmitStockDocument(ctx, draft.ID, "jj"); err == nil || !strings.Contains(err.Error(), "remaining WIP shortage") {
-		t.Fatalf("over-issue error = %v", err)
+	if _, err := svc.SubmitStockDocument(ctx, draft.ID, "jj"); err == nil ||
+		!strings.Contains(err.Error(), "当前剩余 WIP 缺口") ||
+		!strings.Contains(err.Error(), "本次领用6个") ||
+		!strings.Contains(err.Error(), "当前可领5个") {
+		t.Fatalf("over-issue error = %v, want Chinese material quantity detail", err)
 	}
 	valid, err := svc.UpdateStockDocumentDraft(ctx, draft.ID, stockapp.StockDocumentCommand{
 		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 90, Operator: "jj",
@@ -505,6 +632,15 @@ func TestHistoricalWorkOrderIssueUsesReservationRequirementAndCurrentWIPShortage
 	}); err != nil {
 		t.Fatalf("receipt: %v", err)
 	}
+	staleDraft, err := svc.CreateStockDocumentDraft(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 4000,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("stale draft: %v", err)
+	}
 	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
 		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
 		Items: []stockapp.StockDocumentItemCommand{{
@@ -513,20 +649,23 @@ func TestHistoricalWorkOrderIssueUsesReservationRequirementAndCurrentWIPShortage
 	}); err != nil {
 		t.Fatalf("first partial issue: %v", err)
 	}
-	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
-		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
-		Items: []stockapp.StockDocumentItemCommand{{
-			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 4000,
-		}},
-	}); err == nil || !strings.Contains(err.Error(), "remaining WIP shortage") {
-		t.Fatalf("historical over-issue error = %v, want remaining WIP shortage", err)
+	if _, err := svc.SubmitStockDocument(ctx, staleDraft.ID, "jj"); err == nil ||
+		!strings.Contains(err.Error(), "当前剩余 WIP 缺口") ||
+		!strings.Contains(err.Error(), "本次领用4000g") ||
+		!strings.Contains(err.Error(), "当前可领3000g") ||
+		!strings.Contains(err.Error(), "超出1000g") {
+		t.Fatalf("stale draft over-issue error = %v, want current remaining WIP shortage detail", err)
 	}
-	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+	currentDraft, err := svc.UpdateStockDocumentDraft(ctx, staleDraft.ID, stockapp.StockDocumentCommand{
 		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 92, Operator: "jj",
 		Items: []stockapp.StockDocumentItemCommand{{
 			MaterialID: 1, ItemType: "material", InventoryUnit: "g", QtyG: 3000,
 		}},
-	}); err != nil {
+	})
+	if err != nil {
+		t.Fatalf("refresh stale draft: %v", err)
+	}
+	if _, err := svc.SubmitStockDocument(ctx, currentDraft.ID, "jj"); err != nil {
 		t.Fatalf("issue exact remaining shortage: %v", err)
 	}
 }
