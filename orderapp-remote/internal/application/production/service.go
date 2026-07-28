@@ -8,6 +8,7 @@ import (
 	productiondomain "orderapp/internal/domain/production"
 	stockdomain "orderapp/internal/domain/stock"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -1243,6 +1244,7 @@ type StockDocumentPreview struct {
 	Action    string            `json:"action"`
 	WorkOrder WorkOrderRow      `json:"work_order"`
 	Document  StockEntryCommand `json:"document"`
+	Warnings  []string          `json:"warnings,omitempty"`
 }
 
 type StockEntryItemCommand struct {
@@ -1258,7 +1260,7 @@ type StockEntryItemCommand struct {
 	InventoryUnit string  `json:"inventory_unit,omitempty"`
 	QuantityBasis string  `json:"quantity_basis,omitempty"`
 	RequiredQty   float64 `json:"required_qty,omitempty"`
-	RemainingQty  float64 `json:"remaining_qty,omitempty"`
+	RemainingQty  float64 `json:"remaining_qty"`
 	RememberedQty float64 `json:"remembered_qty,omitempty"`
 	DefaultQty    float64 `json:"default_qty,omitempty"`
 	BatchCode     string  `json:"batch_code"`
@@ -1996,10 +1998,16 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 			return StockDocumentPreview{}, err
 		}
 		if draft != nil {
+			draftCopy := *draft
+			draftCopy.Items = append([]StockEntryItemCommand(nil), draft.Items...)
+			draft = &draftCopy
 			draft.WorkOrderID = detail.WorkOrder.ID
 			draft.WorkOrderNo = detail.WorkOrder.WorkOrderNo
 			draft.RunningItemID = detail.WorkOrder.RunningItemID
-			return StockDocumentPreview{Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: *draft}, nil
+			warnings := refreshWorkOrderStockDocumentDraft(draft, detail.Materials, cmd.Action)
+			return StockDocumentPreview{
+				Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: *draft, Warnings: warnings,
+			}, nil
 		}
 	}
 	document := StockEntryCommand{
@@ -2103,6 +2111,80 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 	return StockDocumentPreview{Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: document}, nil
 }
 
+func refreshWorkOrderStockDocumentDraft(draft *StockEntryCommand, materials []WIPReservationRow, action string) []string {
+	if draft == nil || (action != "issue" && action != "supplement") {
+		return nil
+	}
+	coverageByMaterial := make(map[int64]WIPReservationRow, len(materials))
+	for _, material := range materials {
+		if material.MaterialID > 0 {
+			coverageByMaterial[material.MaterialID] = material
+		}
+	}
+	warnings := make([]string, 0)
+	refreshedItems := make([]StockEntryItemCommand, 0, len(draft.Items))
+	for index := range draft.Items {
+		item := draft.Items[index]
+		material, ok := coverageByMaterial[item.MaterialID]
+		if !ok {
+			refreshedItems = append(refreshedItems, item)
+			continue
+		}
+		item.InventoryUnit = material.InventoryUnit
+		item.QuantityBasis = material.QuantityBasis
+		item.RequiredQty = material.RequiredQty
+		item.RemainingQty = material.ShortageQty
+		item.RememberedQty = material.RememberedQty
+		currentQty := float64(item.QtyUnits)
+		if material.QuantityBasis == "weight" {
+			currentQty = inventoryQuantityFromGrams(item.QtyG, material.InventoryUnit)
+		}
+		item.DefaultQty = currentQty
+		if material.ShortageQty <= 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"%s当前已无 WIP 缺口，已从本次领料中移除；原草稿未修改",
+				material.MaterialName,
+			))
+			continue
+		}
+		if currentQty <= material.ShortageQty {
+			refreshedItems = append(refreshedItems, item)
+			continue
+		}
+		adjustedQty := material.ShortageQty
+		if material.QuantityBasis == "weight" {
+			item.QtyG = material.ShortageG
+			if item.QtyG <= 0 && adjustedQty > 0 {
+				item.QtyG = inventoryQuantityToGrams(adjustedQty, material.InventoryUnit)
+			}
+			item.QtyUnits = 0
+			adjustedQty = inventoryQuantityFromGrams(item.QtyG, material.InventoryUnit)
+			item.RemainingQty = adjustedQty
+		} else {
+			item.QtyG = 0
+			item.QtyUnits = int64(math.Ceil(adjustedQty))
+		}
+		item.DefaultQty = adjustedQty
+		warnings = append(warnings, fmt.Sprintf(
+			"%s草稿领用数量已按当前剩余 WIP 缺口从%s调整为%s；保存或提交后才会更新草稿",
+			material.MaterialName,
+			productionInventoryQuantityLabel(currentQty, material.InventoryUnit),
+			productionInventoryQuantityLabel(adjustedQty, material.InventoryUnit),
+		))
+		refreshedItems = append(refreshedItems, item)
+	}
+	draft.Items = refreshedItems
+	return warnings
+}
+
+func productionInventoryQuantityLabel(quantity float64, unit string) string {
+	unit = strings.TrimSpace(unit)
+	if unit == "" {
+		unit = "件"
+	}
+	return strconv.FormatFloat(quantity, 'f', -1, 64) + unit
+}
+
 type workOrderWIPBalance struct {
 	QtyG     int64
 	QtyUnits int64
@@ -2124,6 +2206,17 @@ func inventoryQuantityToGrams(value float64, unit string) int64 {
 		factor = 453.59237
 	}
 	return int64(math.Ceil(value * factor))
+}
+
+func inventoryQuantityFromGrams(value int64, unit string) float64 {
+	factor := 1.0
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg", "千克", "公斤":
+		factor = 1000
+	case "lb", "磅":
+		factor = 453.59237
+	}
+	return float64(value) / factor
 }
 
 func workOrderWIPBalances(entries []WorkOrderLedgerEntryRow) map[int64]workOrderWIPBalance {

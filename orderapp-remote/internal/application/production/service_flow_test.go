@@ -1207,20 +1207,113 @@ func TestReleasedWorkOrderUsesFrozenSnapshotWIPCoverageWithoutReservation(t *tes
 
 func TestWorkOrderStockDocumentPreviewRestoresExistingDraft(t *testing.T) {
 	repo := &fakeFlowRepo{
-		workOrders:  []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR559-001", Status: "released"}},
-		wipCoverage: ProductionWIPStatus{DataComplete: true, Status: "blocked", ShortageG: 500},
+		workOrders: []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR559-001", Status: "released"}},
+		wipCoverage: ProductionWIPStatus{
+			DataComplete: true, Status: "blocked", RequiredG: 7751, ShortageG: 7751,
+			Materials: []WIPReservationRow{{
+				WorkOrderID: 88, WorkOrderNo: "WO-PR559-001",
+				MaterialID: 10, MaterialName: "如目达摩生豆",
+				InventoryUnit: "g", QuantityBasis: "weight",
+				RequiredQty: 7751, AvailableQty: 0, ShortageQty: 7751,
+				RequiredG: 7751, AvailableG: 0, ShortageG: 7751,
+			}},
+		},
 		stockDraft: &StockEntryCommand{
 			ID: 71, EntryNo: "SE-0000000071", Status: "draft",
 			Purpose: "material_transfer_for_manufacture", WorkOrderID: 88,
-			Items: []StockEntryItemCommand{{MaterialID: 10, ItemName: "生豆", InventoryUnit: "g", QtyG: 300}},
+			Items: []StockEntryItemCommand{{MaterialID: 10, ItemName: "如目达摩生豆", InventoryUnit: "g", QtyG: 8000}},
 		},
 	}
 	preview, err := NewService(repo).PreviewWorkOrderStockDocument(context.Background(), StockDocumentPreviewCommand{ID: 88, Action: "issue"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Document.ID != 71 || preview.Document.EntryNo != "SE-0000000071" || preview.Document.WorkOrderNo != "WO-PR559-001" || len(preview.Document.Items) != 1 || preview.Document.Items[0].QtyG != 300 {
+	if preview.Document.ID != 71 || preview.Document.EntryNo != "SE-0000000071" || preview.Document.WorkOrderNo != "WO-PR559-001" || len(preview.Document.Items) != 1 {
 		t.Fatalf("restored draft = %+v", preview.Document)
+	}
+	item := preview.Document.Items[0]
+	if item.QtyG != 7751 || item.RequiredQty != 7751 || item.RemainingQty != 7751 || item.DefaultQty != 7751 {
+		t.Fatalf("refreshed draft item = %+v, want current 7751g WIP shortage", item)
+	}
+	if len(preview.Warnings) != 1 || !strings.Contains(preview.Warnings[0], "8000g") || !strings.Contains(preview.Warnings[0], "7751g") || !strings.Contains(preview.Warnings[0], "当前剩余 WIP 缺口") {
+		t.Fatalf("preview warnings = %+v", preview.Warnings)
+	}
+	if repo.stockDraft.Items[0].QtyG != 8000 {
+		t.Fatalf("preview must not persistently mutate stored draft, got %+v", repo.stockDraft.Items[0])
+	}
+}
+
+func TestWorkOrderStockDocumentPreviewRemovesDraftItemsWithoutCurrentWIPShortage(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR560-001", Status: "released"}},
+		wipCoverage: ProductionWIPStatus{
+			DataComplete: true, Status: "ready", RequiredG: 7751, AvailableG: 7751,
+			Materials: []WIPReservationRow{{
+				WorkOrderID: 88, WorkOrderNo: "WO-PR560-001",
+				MaterialID: 10, MaterialName: "如目达摩生豆",
+				InventoryUnit: "g", QuantityBasis: "weight",
+				RequiredQty: 7751, AvailableQty: 7751, ShortageQty: 0,
+				RequiredG: 7751, AvailableG: 7751, ShortageG: 0,
+			}},
+		},
+		stockDraft: &StockEntryCommand{
+			ID: 72, EntryNo: "SE-0000000072", Status: "draft",
+			Purpose: "material_transfer_for_manufacture", WorkOrderID: 88,
+			Items: []StockEntryItemCommand{{MaterialID: 10, ItemName: "如目达摩生豆", InventoryUnit: "g", QtyG: 7751}},
+		},
+	}
+	preview, err := NewService(repo).PreviewWorkOrderStockDocument(context.Background(), StockDocumentPreviewCommand{ID: 88, Action: "issue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Document.Items) != 0 {
+		t.Fatalf("items without a current WIP shortage must be removed from preview: %+v", preview.Document.Items)
+	}
+	if len(preview.Warnings) != 1 || !strings.Contains(preview.Warnings[0], "当前已无 WIP 缺口") || !strings.Contains(preview.Warnings[0], "原草稿未修改") {
+		t.Fatalf("preview warnings = %+v", preview.Warnings)
+	}
+	if len(repo.stockDraft.Items) != 1 || repo.stockDraft.Items[0].QtyG != 7751 {
+		t.Fatalf("preview must not persistently mutate stored draft, got %+v", repo.stockDraft.Items)
+	}
+}
+
+func TestRefreshWorkOrderStockDocumentDraftPreservesCanonicalWeightGrams(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		unit      string
+		shortageG int64
+	}{
+		{name: "kg", unit: "kg", shortageG: 2007},
+		{name: "lb", unit: "lb", shortageG: 61},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			draft := &StockEntryCommand{
+				Items: []StockEntryItemCommand{{
+					MaterialID: 10, ItemName: "测试物料",
+					InventoryUnit: testCase.unit, QtyG: testCase.shortageG + 1000,
+				}},
+			}
+			expectedQuantity := inventoryQuantityFromGrams(testCase.shortageG, testCase.unit)
+			warnings := refreshWorkOrderStockDocumentDraft(draft, []WIPReservationRow{{
+				MaterialID: 10, MaterialName: "测试物料",
+				InventoryUnit: testCase.unit, QuantityBasis: "weight",
+				RequiredQty: expectedQuantity, ShortageQty: expectedQuantity,
+				RequiredG: testCase.shortageG, ShortageG: testCase.shortageG,
+			}}, "issue")
+			if len(warnings) != 1 {
+				t.Fatalf("warnings = %+v", warnings)
+			}
+			if len(draft.Items) != 1 {
+				t.Fatalf("draft items = %+v", draft.Items)
+			}
+			item := draft.Items[0]
+			if item.QtyG != testCase.shortageG {
+				t.Fatalf("qty_g = %d, want exact canonical shortage %d", item.QtyG, testCase.shortageG)
+			}
+			if item.DefaultQty != expectedQuantity || item.RemainingQty != expectedQuantity {
+				t.Fatalf("default/remaining = %v/%v, want %v", item.DefaultQty, item.RemainingQty, expectedQuantity)
+			}
+		})
 	}
 }
 

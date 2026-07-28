@@ -7,6 +7,7 @@ import (
 	"math"
 	stockapp "orderapp/internal/application/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -586,6 +587,8 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 	}
 	type submittedMaterialQty struct{ g, units int64 }
 	submittedByMaterial := make(map[int64]submittedMaterialQty)
+	checkedShortage := make(map[int64]bool)
+	shortageErrors := make([]string, 0)
 	for _, item := range detail.Items {
 		if item.MaterialID <= 0 {
 			continue
@@ -616,7 +619,8 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 		if item.InventoryUnit != "" && requirement.InventoryUnit != "" && !sameInventoryUnit(item.InventoryUnit, requirement.InventoryUnit) {
 			return fmt.Errorf("material inventory unit does not match frozen work order requirement")
 		}
-		if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn {
+		if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn && !checkedShortage[item.MaterialID] {
+			checkedShortage[item.MaterialID] = true
 			availableG, availableUnits, consumedG, consumedUnits, err := eligibleWIPBalanceForWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID, item.MaterialID)
 			if err != nil {
 				return err
@@ -625,9 +629,30 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 			remainingUnits := nonnegativeStockQty(requirement.RequiredUnits - consumedUnits - availableUnits)
 			submitted := submittedByMaterial[item.MaterialID]
 			if submitted.g > remainingG || submitted.units > remainingUnits {
-				return fmt.Errorf("material quantity exceeds current remaining WIP shortage")
+				materialName, err := stockMaterialDisplayNameTx(ctx, tx, r.schema, item.MaterialID, item.ItemName)
+				if err != nil {
+					return err
+				}
+				unit := strings.TrimSpace(requirement.InventoryUnit)
+				if unit == "" {
+					unit = item.InventoryUnit
+				}
+				shortageErrors = append(shortageErrors, fmt.Sprintf(
+					"%s，本次领用%s，当前可领%s，超出%s",
+					materialName,
+					stockQuantityLabel(submitted.g, submitted.units, unit),
+					stockQuantityLabel(remainingG, remainingUnits, unit),
+					stockQuantityLabel(
+						nonnegativeStockQty(submitted.g-remainingG),
+						nonnegativeStockQty(submitted.units-remainingUnits),
+						unit,
+					),
+				))
 			}
 		}
+	}
+	if len(shortageErrors) > 0 {
+		return fmt.Errorf("物料领用数量超过当前剩余 WIP 缺口：%s", strings.Join(shortageErrors, "；"))
 	}
 	return nil
 }
@@ -817,6 +842,58 @@ func stockWeightUnitGrams(unit string) float64 {
 	}
 }
 
+func stockQuantityLabel(qtyG, qtyUnits int64, unit string) string {
+	unit = strings.TrimSpace(unit)
+	if qtyUnits > 0 && qtyG <= 0 {
+		if unit == "" {
+			unit = "件"
+		}
+		return strconv.FormatInt(qtyUnits, 10) + unit
+	}
+	if factor := stockWeightUnitGrams(unit); factor > 0 {
+		return strconv.FormatFloat(float64(qtyG)/factor, 'f', -1, 64) + unit
+	}
+	if unit == "" {
+		unit = "g"
+	}
+	if qtyG > 0 || qtyUnits <= 0 {
+		return strconv.FormatInt(qtyG, 10) + unit
+	}
+	return strconv.FormatInt(qtyUnits, 10) + unit
+}
+
+func stockWarehouseLabel(code string) string {
+	switch strings.TrimSpace(code) {
+	case "raw_materials":
+		return "原料仓"
+	case "wip":
+		return "WIP在制仓"
+	case "finished_goods":
+		return "成品仓"
+	default:
+		if strings.TrimSpace(code) == "" {
+			return "来源仓"
+		}
+		return code
+	}
+}
+
+func stockMaterialDisplayNameTx(ctx context.Context, tx pgx.Tx, schema string, materialID int64, fallback string) (string, error) {
+	name := strings.TrimSpace(fallback)
+	var storedName string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.materials WHERE id=$1`, schema), materialID).Scan(&storedName)
+	if err != nil && err != pgx.ErrNoRows {
+		return "", err
+	}
+	if strings.TrimSpace(storedName) != "" {
+		name = strings.TrimSpace(storedName)
+	}
+	if name == "" {
+		name = fmt.Sprintf("物料#%d", materialID)
+	}
+	return name, nil
+}
+
 func sameInventoryUnit(a, b string) bool {
 	a = strings.ToLower(strings.TrimSpace(a))
 	b = strings.ToLower(strings.TrimSpace(b))
@@ -999,11 +1076,16 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 		}
 		return err
 	}
-	available, blocked, err := r.materialMoveAvailabilityTx(ctx, tx, detail, *item)
+	available, blockedG, blockedUnits, err := r.materialMoveAvailabilityTx(ctx, tx, detail, *item)
 	if err != nil {
 		return err
 	}
 	requiredG, requiredUnits := item.QtyG, item.QtyUnits
+	availableG, availableUnits := int64(0), int64(0)
+	for _, row := range available {
+		availableG += row.AvailableG
+		availableUnits += row.AvailableQty
+	}
 	allocations := make([]stockapp.StockDocumentBatchAllocation, 0)
 	for _, row := range available {
 		if requiredG <= 0 && requiredUnits <= 0 {
@@ -1021,10 +1103,32 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 		requiredUnits -= takeUnits
 	}
 	if requiredG > 0 || requiredUnits > 0 {
-		if blocked {
-			return fmt.Errorf("material stock blocked by quality status in %s", item.FromWarehouse)
+		warehouseLabel := stockWarehouseLabel(item.FromWarehouse)
+		requiredLabel := stockQuantityLabel(item.QtyG, item.QtyUnits, unit)
+		availableLabel := stockQuantityLabel(availableG, availableUnits, unit)
+		shortageLabel := stockQuantityLabel(
+			nonnegativeStockQty(item.QtyG-availableG),
+			nonnegativeStockQty(item.QtyUnits-availableUnits),
+			unit,
+		)
+		blockedCanCover := item.QtyG <= availableG+blockedG && item.QtyUnits <= availableUnits+blockedUnits
+		if blockedCanCover && (blockedG > 0 || blockedUnits > 0) {
+			return fmt.Errorf(
+				"%s存在质检冻结且合格库存不足：%s，需领用%s，可用合格库存%s，缺口%s；请先处理质检或更换合格批次",
+				warehouseLabel, materialName, requiredLabel, availableLabel, shortageLabel,
+			)
 		}
-		return fmt.Errorf("material stock insufficient in %s", item.FromWarehouse)
+		blockedNote := ""
+		if blockedG > 0 || blockedUnits > 0 {
+			blockedNote = fmt.Sprintf(
+				"；另有质检冻结库存%s，解除后仍不足",
+				stockQuantityLabel(blockedG, blockedUnits, unit),
+			)
+		}
+		return fmt.Errorf(
+			"%s库存不足：%s，需领用%s，可用%s，缺口%s%s",
+			warehouseLabel, materialName, requiredLabel, availableLabel, shortageLabel, blockedNote,
+		)
 	}
 	isConsumption := detail.Purpose == stockapp.PurposeMaterialIssue || detail.Purpose == stockapp.PurposeMaterialConsumption
 	var weightedCost float64
@@ -1034,7 +1138,14 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 			return err
 		}
 		if beforeFromG < alloc.QtyG || beforeFromUnits < alloc.QtyUnits {
-			return fmt.Errorf("material stock insufficient in %s", item.FromWarehouse)
+			return fmt.Errorf(
+				"%s库存不足：%s，批次%s需领用%s，当前可用%s",
+				stockWarehouseLabel(item.FromWarehouse),
+				materialName,
+				alloc.BatchCode,
+				stockQuantityLabel(alloc.QtyG, alloc.QtyUnits, unit),
+				stockQuantityLabel(beforeFromG, beforeFromUnits, unit),
+			)
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			UPDATE %s.material_batch_locations SET qty_g=$3,qty_units=$4,updated_at=now()
@@ -1120,7 +1231,7 @@ func (r Repository) postMaterialMovementItemTx(ctx context.Context, tx pgx.Tx, d
 	return err
 }
 
-func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item stockapp.StockDocumentItemRow) ([]materialMoveAvailability, bool, error) {
+func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item stockapp.StockDocumentItemRow) ([]materialMoveAvailability, int64, int64, error) {
 	args := []any{item.MaterialID, item.FromWarehouse}
 	batchFilter := ""
 	if item.BatchCode != "" {
@@ -1155,24 +1266,24 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 		FOR UPDATE OF l,b
 	`, r.schema, r.schema, batchFilter, workFilter), args...)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, 0, err
 	}
 	defer rows.Close()
 	out := make([]materialMoveAvailability, 0)
-	blocked := false
+	blockedRows := make([]materialMoveAvailability, 0)
 	for rows.Next() {
 		var row materialMoveAvailability
 		if err := rows.Scan(&row.BatchID, &row.BatchCode, &row.AvailableG, &row.AvailableQty, &row.UnitCost, &row.Quality); err != nil {
-			return nil, false, err
+			return nil, 0, 0, err
 		}
 		if row.Quality == "hold" || row.Quality == "reject" {
-			blocked = true
+			blockedRows = append(blockedRows, row)
 			continue
 		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, false, err
+		return nil, 0, 0, err
 	}
 	// pgx cannot execute another statement on the same transaction connection
 	// while this result set is still open. Material return/consumption needs a
@@ -1180,7 +1291,7 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 	// received, so close the FIFO cursor before calculating those caps.
 	rows.Close()
 	if detail.WorkOrderID > 0 && (detail.IsReturn || detail.Purpose == stockapp.PurposeMaterialConsumption) {
-		for index := range out {
+		capToWorkOrderBalance := func(row *materialMoveAvailability) error {
 			var allowedG, allowedUnits int64
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT
@@ -1194,14 +1305,30 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 				JOIN %s.stock_entry_items si ON si.id=a.stock_entry_item_id
 				JOIN %s.stock_entries se ON se.id=si.stock_entry_id
 				WHERE se.work_order_id=$1 AND se.status='submitted' AND si.material_id=$2 AND a.material_batch_id=$3
-			`, r.schema, r.schema, r.schema), detail.WorkOrderID, item.MaterialID, out[index].BatchID).Scan(&allowedG, &allowedUnits); err != nil {
-				return nil, false, err
+			`, r.schema, r.schema, r.schema), detail.WorkOrderID, item.MaterialID, row.BatchID).Scan(&allowedG, &allowedUnits); err != nil {
+				return err
 			}
-			out[index].AvailableG = minInt64(out[index].AvailableG, allowedG)
-			out[index].AvailableQty = minInt64(out[index].AvailableQty, allowedUnits)
+			row.AvailableG = minInt64(row.AvailableG, allowedG)
+			row.AvailableQty = minInt64(row.AvailableQty, allowedUnits)
+			return nil
+		}
+		for index := range out {
+			if err := capToWorkOrderBalance(&out[index]); err != nil {
+				return nil, 0, 0, err
+			}
+		}
+		for index := range blockedRows {
+			if err := capToWorkOrderBalance(&blockedRows[index]); err != nil {
+				return nil, 0, 0, err
+			}
 		}
 	}
-	return out, blocked, nil
+	var blockedG, blockedUnits int64
+	for _, row := range blockedRows {
+		blockedG += row.AvailableG
+		blockedUnits += row.AvailableQty
+	}
+	return out, blockedG, blockedUnits, nil
 }
 
 func (r Repository) postFinishedItemTx(ctx context.Context, tx pgx.Tx, detail stockapp.StockDocumentDetail, item *stockapp.StockDocumentItemRow, actor string) error {

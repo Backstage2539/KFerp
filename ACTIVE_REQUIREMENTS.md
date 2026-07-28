@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS
+- Branch: codex/pr560-production-issue-compact-diagnostics
+- Owner/session: Codex / 2026-07-28
+- Status: green / review complete; integration and development deployment pending
+- Scope: 工单生产领料多物料明细压缩为对齐的行式布局；原料仓库存不足和超出当前 WIP 缺口改为中文、逐物料可诊断错误；核对预览、草稿和提交的库存与缺口口径。
+- DEV:
+  - DEV-560-COMPACT-MATERIAL-ROWS：生产领料多物料行紧凑对齐，桌面单页可连续查看 10 条，移动端保持可用。
+  - DEV-560-RAW-STOCK-DIAGNOSTIC：FIFO 原料仓库存不足按物料返回中文的需要、可用、仓库和库存单位。
+  - DEV-560-WIP-SHORTAGE-CONSISTENCY：预览、已存草稿和提交统一当前 WIP 剩余缺口口径，过期草稿明确提示并可恢复到当前可领数量。
+  - DEV-560-DOCS-DELIVERY：同步生产/库存手册、需求、验收资料，完成测试、集成和开发环境交付。
+- Verifier:
+  - Unit: `scripts/verify_kferp.sh backend` PASS；Kg/lb权威克数、零缺口草稿过滤和过期草稿收敛PASS。
+  - API/PostgreSQL: HTTP草稿刷新PASS；临时PostgreSQL 16的多物料FIFO回滚、质检/总量不足区分、工单冻结批次封顶和并发旧草稿提交校验PASS；指定development工单只读诊断PASS。
+  - Frontend/build: PR-560及相邻生产执行10/10 PASS；Vite生产构建PASS。完整前端816/823，7项均为`origin/develop`已有的客户工作区/视图上下文陈旧断言。
+  - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_STOCK.md
+  - Review/acceptance: 独立审查P0/P1已清零；待development实际浏览器高度验收。证据：orderapp-remote/docs/acceptance/2026-07-28-production-issue-compact-diagnostics.md
+- Deployment: development pending; production excluded
+- Last update: 2026-07-28 Asia/Shanghai
+- Notes: 指定工单只做只读 API/数据库诊断，不保存或提交真实库存单据，不开始生产。
+
 ### PR-559-PRODUCTION-CONFIG-WIP-ISSUE-UX
 - Branch: codex/pr559-production-config-wip-issue-ux
 - Owner/session: Codex / 2026-07-27
