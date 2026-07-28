@@ -1706,4 +1706,4 @@
 - [x] 超过建议量的草稿显示非阻断说明，明确超出部分保留为可用 WIP，生产消耗仍需另行记录；提示不为每个物料额外增加高行，继续满足紧凑明细。
 - [x] 临时 PostgreSQL 验证冻结工单和历史 reservation 两种路径均允许超过建议量过账；真实原料仓库存不足仍用中文拒绝，多物料失败时不产生部分库存；重量/计数提交口径不一致仍拒绝。
 - [x] 60Kg 批量领入 WIP 后，生产消耗预览和提交仍以工单剩余冻结需求为上限；未消耗的批量余额继续保留在 WIP，不会误记为本工单实际消耗。
-- [ ] 定向 Go、临时 PostgreSQL、前端测试、Vue/Vite 构建、develop 集成、development 部署和只读冒烟全部通过；真实工单不自动提交 60Kg 领料，production 不部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-28-wip-bulk-material-issue.md`。
+- [ ] 定向 Go、临时 PostgreSQL、前端测试、Vue/Vite 构建、develop 集成、development 部署和 API/静态资源只读冒烟通过；真实工单不自动提交 60Kg 领料，production 不部署。公网浏览器仍被开发站点证书 `ERR_CERT_AUTHORITY_INVALID` 阻断，待登录态手工验收后勾选。证据记录在 `orderapp-remote/docs/acceptance/2026-07-28-wip-bulk-material-issue.md`。

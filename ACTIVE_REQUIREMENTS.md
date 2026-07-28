@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-561-WIP-BULK-MATERIAL-ISSUE
 - Branch: codex/pr561-wip-bulk-issue
 - Owner/session: Codex / 2026-07-28
-- Status: verified; awaiting develop integration and development deployment
+- Status: merged to develop / development deployed; read-only API smoke passed, awaiting logged-in browser acceptance
 - Scope: 工单生产领料的 WIP 缺口改为建议领用量，不再作为原料仓到 WIP 的硬上限；支持按 60Kg 等实际标准批量领料，保留真实原料仓合格 FIFO/指定批次库存校验和原子过账。
 - DEV:
   - DEV-561-WIP-SHORTAGE-AS-SUGGESTION：生产领料保留工单物料归属和库存单位校验，但提交数量不再受当前 WIP 缺口限制。
@@ -22,9 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: application/API tests reproduced 8000g draft being reduced to 7751g and zero-shortage rows being removed; frontend contract reproduced HTML max and save-time hard rejection.
   - GREEN: temporary PostgreSQL verifies one `SE-*` can issue three 60000g material rows above 1974g/1974g/3948g suggestions, real raw-stock shortage remains Chinese and atomic, production consumption stays capped to frozen remaining demand, historical consumed quantities and count materials remain valid, and an exact draft ID cannot open another draft.
   - GREEN: full Go suite passes; focused frontend tests pass 14/14; Vite build passes. Full frontend remains at the same 815/823 baseline as clean `origin/develop` with no new failure.
-- Deployment: pending; development only, production must not be deployed
-- Last update: 2026-07-28 Asia/Shanghai
-- Notes: 指定真实工单只做只读预览和接口冒烟；不自动提交 60Kg 领料，不改变真实库存。
+- Deployment: merge `3227a0a1b3d745df4c5400b9c5eda533c86f5bb7` 已推送 `origin/develop` 并部署 development；备份 `/opt/stacks/erp/orderapp.backup.deploy-20260729010445`；容器、认证页面、`index-CJz3ddQX.js` 和指定工单只读预览通过；公网浏览器因 `ERR_CERT_AUTHORITY_INVALID` 未通过；production 未部署
+- Last update: 2026-07-29 Asia/Shanghai
+- Notes: 指定真实工单只做只读预览和接口冒烟；预览前后库存单据列表一致，不自动提交 60Kg 领料，不改变真实库存。实时诊断确认 BOM 物料 `哥伦比亚`（ID 14）无原料仓批次，不能自动借用另一物料 `哥伦比亚EP`（ID 2）的库存。
 
 ### PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS
 - Branch: codex/pr560-production-issue-compact-diagnostics
