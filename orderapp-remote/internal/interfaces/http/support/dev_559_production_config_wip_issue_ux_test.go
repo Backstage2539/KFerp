@@ -61,7 +61,7 @@ func TestDev559ProductionConfigWIPIssueUXContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_STOCK.md"): {
 			"PR-559-PRODUCTION-CONFIG-WIP-ISSUE-UX",
-			"一个单据自动带出全部短缺物料",
+			"一个单据显示全部冻结物料",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-27-production-config-wip-issue-ux.md"): {
 			"PR-559 生产配置、WIP 提示与工单领料验收",

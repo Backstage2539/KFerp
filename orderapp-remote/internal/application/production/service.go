@@ -1231,13 +1231,14 @@ type StockEntryCommand struct {
 }
 
 type StockDocumentPreviewCommand struct {
-	ID            int64
-	Action        string
-	MaterialID    int64
-	JobCardID     int64
-	RunningItemID int64
-	ReturnSource  string
-	Operator      string
+	ID              int64
+	Action          string
+	StockDocumentID int64
+	MaterialID      int64
+	JobCardID       int64
+	RunningItemID   int64
+	ReturnSource    string
+	Operator        string
 }
 
 type StockDocumentPreview struct {
@@ -1596,7 +1597,7 @@ type workOrderWIPCoverageRepository interface {
 }
 
 type workOrderStockDraftRepository interface {
-	GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string) (*StockEntryCommand, error)
+	GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string, stockDocumentID int64) (*StockEntryCommand, error)
 }
 
 type Service struct {
@@ -1993,9 +1994,12 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 		}
 	}
 	if draftRepo, ok := s.repo.(workOrderStockDraftRepository); ok {
-		draft, err := draftRepo.GetWorkOrderStockDocumentDraft(ctx, detail.WorkOrder.ID, cmd.Action)
+		draft, err := draftRepo.GetWorkOrderStockDocumentDraft(ctx, detail.WorkOrder.ID, cmd.Action, cmd.StockDocumentID)
 		if err != nil {
 			return StockDocumentPreview{}, err
+		}
+		if draft == nil && cmd.StockDocumentID > 0 {
+			return StockDocumentPreview{}, fmt.Errorf("指定库存草稿不存在，或不属于当前工单和库存动作")
 		}
 		if draft != nil {
 			draftCopy := *draft
@@ -2009,6 +2013,8 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 				Action: cmd.Action, WorkOrder: detail.WorkOrder, Document: *draft, Warnings: warnings,
 			}, nil
 		}
+	} else if cmd.StockDocumentID > 0 {
+		return StockDocumentPreview{}, fmt.Errorf("当前库存仓储不支持按指定草稿打开")
 	}
 	document := StockEntryCommand{
 		WorkOrderID:   detail.WorkOrder.ID,
@@ -2055,6 +2061,7 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 		}}
 	} else {
 		wipByMaterial := workOrderWIPBalances(detail.LedgerEntries)
+		consumedByMaterial := workOrderMaterialConsumptionBalances(detail.LedgerEntries)
 		for _, material := range detail.Materials {
 			if cmd.MaterialID > 0 && material.MaterialID != cmd.MaterialID {
 				continue
@@ -2062,12 +2069,13 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 			qtyG := material.RequiredG
 			qtyUnits := material.RequiredUnits
 			defaultQty := material.ShortageQty
+			remainingQty := material.ShortageQty
 			wip := wipByMaterial[material.MaterialID]
 			if cmd.Action == "issue" || cmd.Action == "supplement" {
 				if material.QuantityBasis != "" {
 					qtyG = material.ShortageG
 					qtyUnits = material.ShortageUnits
-					if material.RememberedQty > 0 && material.RememberedQty < defaultQty {
+					if material.RememberedQty > 0 {
 						defaultQty = material.RememberedQty
 						if material.QuantityBasis == "weight" {
 							qtyG = inventoryQuantityToGrams(defaultQty, material.InventoryUnit)
@@ -2086,7 +2094,23 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 				qtyG = nonnegativeInt64(wip.QtyG)
 				qtyUnits = nonnegativeInt64(wip.QtyUnits)
 			}
-			if qtyG <= 0 && qtyUnits <= 0 {
+			if cmd.Action == "consume" {
+				consumed := consumedByMaterial[material.MaterialID]
+				consumedG := greaterInt64(nonnegativeInt64(material.ConsumedG), nonnegativeInt64(consumed.QtyG))
+				consumedUnits := greaterInt64(nonnegativeInt64(material.ConsumedUnits), nonnegativeInt64(consumed.QtyUnits))
+				remainingG := nonnegativeInt64(material.RequiredG - consumedG)
+				remainingUnits := nonnegativeInt64(material.RequiredUnits - consumedUnits)
+				qtyG = lesserInt64(qtyG, remainingG)
+				qtyUnits = lesserInt64(qtyUnits, remainingUnits)
+				if material.QuantityBasis == "weight" {
+					remainingQty = inventoryQuantityFromGrams(remainingG, material.InventoryUnit)
+					defaultQty = inventoryQuantityFromGrams(qtyG, material.InventoryUnit)
+				} else {
+					remainingQty = float64(remainingUnits)
+					defaultQty = float64(qtyUnits)
+				}
+			}
+			if qtyG <= 0 && qtyUnits <= 0 && cmd.Action != "issue" && cmd.Action != "supplement" {
 				continue
 			}
 			fromWarehouse, toWarehouse := stockdomain.WarehouseRawMaterials, stockdomain.WarehouseWIP
@@ -2100,7 +2124,7 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 				MaterialID: material.MaterialID, ItemType: "material", ItemName: material.MaterialName,
 				FromWarehouse: fromWarehouse, ToWarehouse: toWarehouse, QtyG: qtyG, QtyUnits: qtyUnits,
 				InventoryUnit: material.InventoryUnit, QuantityBasis: material.QuantityBasis,
-				RequiredQty: material.RequiredQty, RemainingQty: material.ShortageQty,
+				RequiredQty: material.RequiredQty, RemainingQty: remainingQty,
 				RememberedQty: material.RememberedQty, DefaultQty: defaultQty,
 			})
 		}
@@ -2141,35 +2165,25 @@ func refreshWorkOrderStockDocumentDraft(draft *StockEntryCommand, materials []WI
 		}
 		item.DefaultQty = currentQty
 		if material.ShortageQty <= 0 {
-			warnings = append(warnings, fmt.Sprintf(
-				"%s当前已无 WIP 缺口，已从本次领料中移除；原草稿未修改",
-				material.MaterialName,
-			))
+			if currentQty > 0 {
+				warnings = append(warnings, fmt.Sprintf(
+					"%s：当前工单 WIP 已满足，草稿%s仍保留；提交后作为可用 WIP 库存保留",
+					material.MaterialName,
+					productionInventoryQuantityLabel(currentQty, material.InventoryUnit),
+				))
+			}
+			refreshedItems = append(refreshedItems, item)
 			continue
 		}
 		if currentQty <= material.ShortageQty {
 			refreshedItems = append(refreshedItems, item)
 			continue
 		}
-		adjustedQty := material.ShortageQty
-		if material.QuantityBasis == "weight" {
-			item.QtyG = material.ShortageG
-			if item.QtyG <= 0 && adjustedQty > 0 {
-				item.QtyG = inventoryQuantityToGrams(adjustedQty, material.InventoryUnit)
-			}
-			item.QtyUnits = 0
-			adjustedQty = inventoryQuantityFromGrams(item.QtyG, material.InventoryUnit)
-			item.RemainingQty = adjustedQty
-		} else {
-			item.QtyG = 0
-			item.QtyUnits = int64(math.Ceil(adjustedQty))
-		}
-		item.DefaultQty = adjustedQty
 		warnings = append(warnings, fmt.Sprintf(
-			"%s草稿领用数量已按当前剩余 WIP 缺口从%s调整为%s；保存或提交后才会更新草稿",
+			"%s：当前建议领用%s，草稿保留%s；超出部分提交后作为可用 WIP 库存保留",
 			material.MaterialName,
+			productionInventoryQuantityLabel(material.ShortageQty, material.InventoryUnit),
 			productionInventoryQuantityLabel(currentQty, material.InventoryUnit),
-			productionInventoryQuantityLabel(adjustedQty, material.InventoryUnit),
 		))
 		refreshedItems = append(refreshedItems, item)
 	}
@@ -2195,6 +2209,20 @@ func nonnegativeInt64(value int64) int64 {
 		return 0
 	}
 	return value
+}
+
+func lesserInt64(left, right int64) int64 {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func greaterInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func inventoryQuantityToGrams(value float64, unit string) int64 {
@@ -2228,6 +2256,23 @@ func workOrderWIPBalances(entries []WorkOrderLedgerEntryRow) map[int64]workOrder
 		current := out[entry.ItemID]
 		current.QtyG += entry.QtyChangeG
 		current.QtyUnits += entry.QtyChangeUnits
+		out[entry.ItemID] = current
+	}
+	return out
+}
+
+func workOrderMaterialConsumptionBalances(entries []WorkOrderLedgerEntryRow) map[int64]workOrderWIPBalance {
+	out := make(map[int64]workOrderWIPBalance)
+	for _, entry := range entries {
+		if entry.ItemType != "material" ||
+			entry.ItemID <= 0 ||
+			entry.Warehouse != stockdomain.WarehouseWIP ||
+			strings.TrimSpace(strings.ToLower(entry.Purpose)) != "material_consumption_for_manufacture" {
+			continue
+		}
+		current := out[entry.ItemID]
+		current.QtyG -= entry.QtyChangeG
+		current.QtyUnits -= entry.QtyChangeUnits
 		out[entry.ItemID] = current
 	}
 	return out

@@ -42,11 +42,13 @@ type workOrderCancelRequest struct {
 }
 
 type workOrderStockDocumentPreviewRequest struct {
-	Action        string `json:"action"`
-	MaterialID    int64  `json:"material_id"`
-	JobCardID     int64  `json:"job_card_id"`
-	RunningItemID int64  `json:"running_item_id"`
-	ReturnSource  string `json:"return_source"`
+	Action          string `json:"action"`
+	StockDocumentID int64  `json:"stock_document_id"`
+	DraftID         int64  `json:"draft_id"`
+	MaterialID      int64  `json:"material_id"`
+	JobCardID       int64  `json:"job_card_id"`
+	RunningItemID   int64  `json:"running_item_id"`
+	ReturnSource    string `json:"return_source"`
 }
 
 func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, stockServices ...*stockapp.Service) {
@@ -195,8 +197,12 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
+		stockDocumentID := req.StockDocumentID
+		if stockDocumentID <= 0 {
+			stockDocumentID = req.DraftID
+		}
 		preview, err := productionSvc.PreviewWorkOrderStockDocument(c.Request().Context(), productionapp.StockDocumentPreviewCommand{
-			ID: id, Action: req.Action, MaterialID: req.MaterialID, JobCardID: req.JobCardID,
+			ID: id, Action: req.Action, StockDocumentID: stockDocumentID, MaterialID: req.MaterialID, JobCardID: req.JobCardID,
 			RunningItemID: req.RunningItemID, ReturnSource: req.ReturnSource, Operator: support.ActorOf(c),
 		})
 		if err != nil {

@@ -87,6 +87,7 @@
           <h4>单据明细</h4>
           <button v-if="isDraft && !isBoundProductionDocument" class="secondary" type="button" @click="addItem">新增明细</button>
         </div>
+        <p v-if="showsWIPIssueSuggestion" class="production-issue-hint" role="note">工单建议领用量仅用于默认填充，不限制实际领料；超出工单当前需求的部分将保留为可用 WIP 库存，生产消耗仍需另行记录。</p>
         <div v-if="usesCompactProductionItemRows" class="compact-production-items">
           <div class="compact-production-items-head" aria-hidden="true">
             <span>物料</span>
@@ -123,7 +124,7 @@
               </label>
               <label>
                 <span class="mobile-field-label">{{ productionQuantityLabel }}</span>
-                <input v-model.number="item.quantity" type="number" min="0" :max="limitsToCurrentWIPShortage ? positiveLimit(item.remaining_qty) : undefined" :step="itemUsesCount(item) ? 1 : 'any'" :aria-label="productionQuantityLabel" :disabled="!isDraft" />
+                <input v-model.number="item.quantity" type="number" min="0" :step="itemUsesCount(item) ? 1 : 'any'" :aria-label="productionQuantityLabel" :disabled="!isDraft" />
               </label>
               <label>
                 <span class="mobile-field-label">库存单位</span>
@@ -176,7 +177,7 @@
             <label><span>入库仓</span><select v-model="item.to_warehouse" :disabled="!isDraft || isBoundProductionDocument"><option value="">无</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
             <label v-if="usesSingleQuantity(item)">
               <span>{{ productionQuantityLabel }}</span>
-              <input v-model.number="item.quantity" type="number" min="0" :max="limitsToCurrentWIPShortage ? positiveLimit(item.remaining_qty) : undefined" :step="itemUsesCount(item) ? 1 : 'any'" :disabled="!isDraft" />
+              <input v-model.number="item.quantity" type="number" min="0" :step="itemUsesCount(item) ? 1 : 'any'" :disabled="!isDraft" />
             </label>
             <label v-if="usesSingleQuantity(item)"><span>库存单位</span><div class="readonly-value">{{ item.inventory_unit || '-' }}</div></label>
             <label v-if="!usesSingleQuantity(item)"><span>数量(g)</span><input v-model.number="item.qty_g" type="number" min="0" :disabled="!isDraft" /></label>
@@ -211,7 +212,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { stockEntryEndpoint, stockEntryTypeLabel, stockEntryTypeOptions } from '../lib/manufacturing-execution'
-import { inventoryUnitWeightInGrams, stockCanonicalQuantity, stockQuantityUsesCount } from '../lib/production-execution-hub'
+import { inventoryUnitWeightInGrams, productionStockDocumentPreviewAction, stockCanonicalQuantity, stockDocumentPositiveItems, stockQuantityUsesCount } from '../lib/production-execution-hub'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -236,7 +237,7 @@ const form = reactive(emptyDocument())
 const isDraft = computed(() => !form.id || form.status === 'draft')
 const isReceipt = computed(() => form.purpose_key === 'material_receipt')
 const isBoundProductionDocument = computed(() => Number(form.work_order_id || 0) > 0)
-const limitsToCurrentWIPShortage = computed(() => (
+const showsWIPIssueSuggestion = computed(() => (
   isBoundProductionDocument.value && form.purpose_key === 'material_transfer_for_manufacture'
 ))
 const usesCompactProductionItemRows = computed(() => (
@@ -299,12 +300,6 @@ function quantityLabel(row) {
   return '-'
 }
 
-function positiveLimit(value) {
-  if (value === null || value === undefined || value === '') return undefined
-  const amount = Number(value)
-  return Number.isFinite(amount) && amount >= 0 ? amount : undefined
-}
-
 function itemUsesCount(item = {}) {
   return stockQuantityUsesCount(item)
 }
@@ -340,11 +335,6 @@ function normalizedItem(item = {}) {
 }
 
 function canonicalQuantity(item = {}) {
-  const explicitQuantity = Number(item.quantity || 0)
-  const currentLimit = positiveLimit(item.remaining_qty)
-  if (limitsToCurrentWIPShortage.value && currentLimit !== undefined && explicitQuantity > currentLimit) {
-    throw new Error(`${item.item_name || '物料'}领用数量超过当前剩余 WIP 缺口：本次领用${explicitQuantity}${item.inventory_unit || ''}，当前可领${currentLimit}${item.inventory_unit || ''}`)
-  }
   const quantity = stockCanonicalQuantity(item)
   if (Number(item.quantity || 0) > 0 && quantity.qty_g <= 0 && quantity.qty_units <= 0) {
     throw new Error(`${item.item_name || '物料'}缺少库存单位换算`)
@@ -428,6 +418,11 @@ function closeDrawer() {
 }
 
 function requestBody() {
+  const requestItems = stockDocumentPositiveItems(form.items, (item) => (
+    usesSingleQuantity(item)
+      ? canonicalQuantity(item)
+      : { qty_g: Number(item.qty_g || 0), qty_units: Number(item.qty_units || 0) }
+  ))
   return {
     purpose: normalizedPurpose(form.purpose_key),
     is_return: form.purpose_key === 'material_return_from_manufacture',
@@ -438,10 +433,7 @@ function requestBody() {
     source_id: Number(form.source_id || 0),
     return_source: form.return_source || '',
     note: form.note || '',
-    items: form.items.map((item) => {
-      const quantity = usesSingleQuantity(item)
-        ? canonicalQuantity(item)
-        : { qty_g: Number(item.qty_g || 0), qty_units: Number(item.qty_units || 0) }
+    items: requestItems.map(({ item, quantity }) => {
       return {
         material_id: Number(item.material_id || 0), product_id: Number(item.product_id || 0),
         item_type: item.item_type, item_name: item.item_name || '', spec_g: Number(item.spec_g || 0),
@@ -516,6 +508,19 @@ function applyDocument(data = {}, warnings = []) {
 async function openExisting(row) {
   drawerError.value = ''
   try {
+    const action = productionStockDocumentPreviewAction(row)
+    const workOrderID = Number(row.work_order_id || 0)
+    if (row.status === 'draft' && workOrderID > 0 && action) {
+      const preview = await apiSend(`/api/produce/work-orders/${workOrderID}/stock-document-preview`, {
+        body: { action, stock_document_id: Number(row.id || 0), return_source: 'stock_document_list' },
+      })
+      applyDocument({
+        ...preview.document,
+        work_order_no: preview.document?.work_order_no || preview.work_order_no || row.work_order_no || '',
+        status: 'draft',
+      }, preview.warnings)
+      return
+    }
     applyDocument(await apiGet(`${stockEntryEndpoint()}/${row.id}`))
   } catch (err) {
     error.value = err.message || '加载单据失败'
@@ -602,7 +607,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.stock-entry-page,.stock-entry-page *{box-sizing:border-box}.stock-entry-page{padding:16px;display:grid;gap:16px}.stock-entry-page.embedded{padding:0}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.drawer-head,.line-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head{margin-bottom:12px}.panel-head h2,.drawer-head h3,.line-head h4{margin:0 0 4px}.panel-head p,.drawer-head p{margin:0;color:#6b7280;font-size:13px}.head-actions,.row-actions,.drawer-actions{display:flex;gap:8px;flex-wrap:wrap}.filters{display:grid;grid-template-columns:minmax(200px,1.5fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end}label{min-width:0}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #d1d5db;padding:7px 9px}.readonly-value{display:block;min-height:36px;border:1px solid #d1d5db;border-radius:6px;background:#f9fafb;padding:7px 9px;color:#374151}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.link,.danger-link{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0}.danger-link{color:#b91c1c}.disabled{color:#9ca3af}.legacy-readonly{color:#6b7280}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.warning-list{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;color:#92400e}.warning-list p{margin:0}.warning-list p+p{margin-top:4px}.table-wrap{overflow:auto}table{width:100%;min-width:1050px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px}.status.submitted{border-color:#86efac;background:#f0fdf4;color:#15803d}.status.draft{border-color:#fcd34d;background:#fffbeb;color:#a16207}.muted{text-align:center;color:#666}.drawer-mask{position:fixed;inset:0;background:rgba(17,24,39,.35);z-index:80;display:flex;justify-content:flex-end}.drawer{width:min(980px,96vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 32px rgba(15,23,42,.2);display:grid;align-content:start;gap:16px}.drawer-head{border-bottom:1px solid #e5e7eb;padding-bottom:12px}.document-form,.item-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px}.wide{grid-column:span 2}.line-head{align-items:center}.item-card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:grid;gap:10px}.compact-production-items{display:grid;gap:4px}.compact-production-items-head,.compact-production-item-grid{display:grid;grid-template-columns:minmax(150px,2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(90px,.8fr) minmax(64px,.55fr) minmax(120px,1.2fr) 52px;gap:6px;align-items:end}.compact-production-items-head{padding:0 6px;color:#6b7280;font-size:12px;font-weight:600}.compact-production-item{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}.compact-production-item-grid>label{margin:0}.compact-production-item-grid .mobile-field-label{display:none}.compact-production-item-grid select,.compact-production-item-grid input,.compact-production-item-grid .readonly-value{min-height:32px;height:32px;padding:4px 6px}.compact-delete{align-self:center;justify-self:center}.compact-allocations{margin-top:4px}.allocations{display:flex;flex-wrap:wrap;gap:6px}.allocations span{background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:3px 8px;font-size:12px}.drawer-actions{justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
+.stock-entry-page,.stock-entry-page *{box-sizing:border-box}.stock-entry-page{padding:16px;display:grid;gap:16px}.stock-entry-page.embedded{padding:0}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head,.drawer-head,.line-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.panel-head{margin-bottom:12px}.panel-head h2,.drawer-head h3,.line-head h4{margin:0 0 4px}.panel-head p,.drawer-head p{margin:0;color:#6b7280;font-size:13px}.head-actions,.row-actions,.drawer-actions{display:flex;gap:8px;flex-wrap:wrap}.filters{display:grid;grid-template-columns:minmax(200px,1.5fr) repeat(2,minmax(130px,1fr)) auto;gap:10px;align-items:end}label{min-width:0}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #d1d5db;padding:7px 9px}.readonly-value{display:block;min-height:36px;border:1px solid #d1d5db;border-radius:6px;background:#f9fafb;padding:7px 9px;color:#374151}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.link,.danger-link{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0}.danger-link{color:#b91c1c}.disabled{color:#9ca3af}.legacy-readonly{color:#6b7280}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.warning-list{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;color:#92400e}.warning-list p{margin:0}.warning-list p+p{margin-top:4px}.production-issue-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eff6ff;color:#1e40af;font-size:12px}.table-wrap{overflow:auto}table{width:100%;min-width:1050px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px}.status.submitted{border-color:#86efac;background:#f0fdf4;color:#15803d}.status.draft{border-color:#fcd34d;background:#fffbeb;color:#a16207}.muted{text-align:center;color:#666}.drawer-mask{position:fixed;inset:0;background:rgba(17,24,39,.35);z-index:80;display:flex;justify-content:flex-end}.drawer{width:min(980px,96vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 32px rgba(15,23,42,.2);display:grid;align-content:start;gap:16px}.drawer-head{border-bottom:1px solid #e5e7eb;padding-bottom:12px}.document-form,.item-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px}.wide{grid-column:span 2}.line-head{align-items:center}.item-card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:grid;gap:10px}.compact-production-items{display:grid;gap:4px}.compact-production-items-head,.compact-production-item-grid{display:grid;grid-template-columns:minmax(150px,2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(90px,.8fr) minmax(64px,.55fr) minmax(120px,1.2fr) 52px;gap:6px;align-items:end}.compact-production-items-head{padding:0 6px;color:#6b7280;font-size:12px;font-weight:600}.compact-production-item{border:1px solid #e5e7eb;border-radius:6px;padding:4px 6px}.compact-production-item-grid>label{margin:0}.compact-production-item-grid .mobile-field-label{display:none}.compact-production-item-grid select,.compact-production-item-grid input,.compact-production-item-grid .readonly-value{min-height:32px;height:32px;padding:4px 6px}.compact-delete{align-self:center;justify-self:center}.compact-allocations{margin-top:4px}.allocations{display:flex;flex-wrap:wrap;gap:6px}.allocations span{background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:3px 8px;font-size:12px}.drawer-actions{justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 @media(max-width:900px){.stock-entry-page{padding:12px}.panel-head,.drawer-head{display:grid}.filters,.document-form,.item-grid{grid-template-columns:1fr}.wide{grid-column:auto}.drawer{width:100%}.compact-production-items-head{display:none}.compact-production-item-grid{grid-template-columns:1fr 1fr;align-items:end}.compact-production-item-grid .mobile-field-label{display:block}.compact-production-item-grid .compact-material-name{grid-column:1/-1}.compact-delete{justify-self:start;margin-top:4px}}
 @media(max-width:560px){.compact-production-item-grid{grid-template-columns:1fr}.compact-production-item-grid .compact-material-name{grid-column:auto}}
 </style>

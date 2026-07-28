@@ -753,8 +753,11 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 		if item.ItemType != itemTypeMaterial && item.ItemType != itemTypeFinishedProduct {
 			return StockDocumentCommand{}, fmt.Errorf("item %d invalid item_type", i+1)
 		}
-		if item.QtyG <= 0 && item.QtyUnits <= 0 {
-			return StockDocumentCommand{}, fmt.Errorf("item %d qty required", i+1)
+		if item.QtyG < 0 || item.QtyUnits < 0 {
+			return StockDocumentCommand{}, fmt.Errorf("第 %d 行数量不能为负数", i+1)
+		}
+		if item.QtyG == 0 && item.QtyUnits == 0 {
+			return StockDocumentCommand{}, fmt.Errorf("第 %d 行数量必须大于 0", i+1)
 		}
 		if item.UnitCost < 0 {
 			return StockDocumentCommand{}, fmt.Errorf("item %d unit_cost must be >= 0", i+1)

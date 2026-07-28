@@ -585,74 +585,102 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 	if err != nil {
 		return err
 	}
-	type submittedMaterialQty struct{ g, units int64 }
-	submittedByMaterial := make(map[int64]submittedMaterialQty)
-	checkedShortage := make(map[int64]bool)
-	shortageErrors := make([]string, 0)
-	for _, item := range detail.Items {
-		if item.MaterialID <= 0 {
-			continue
-		}
-		qty := submittedByMaterial[item.MaterialID]
-		qty.g += item.QtyG
-		qty.units += item.QtyUnits
-		submittedByMaterial[item.MaterialID] = qty
+	type validatedMaterialRequirement struct {
+		name        string
+		requirement stockFrozenMaterialRequirement
+		currentG    int64
+		currentUnit int64
 	}
+	validatedRequirements := make(map[int64]validatedMaterialRequirement)
+	validatedMaterialIDs := make([]int64, 0, len(detail.Items))
 	for _, item := range detail.Items {
 		if item.MaterialID <= 0 {
 			continue
 		}
-		reservationRequirement, reservationMember, err := stockReservationMaterialRequirementTx(
-			ctx, tx, r.schema, detail.WorkOrderID, item.MaterialID,
-		)
-		if err != nil {
-			return err
-		}
-		requirement, frozenMember := frozenRequirements[item.MaterialID]
-		if !frozenMember && reservationMember {
-			requirement = reservationRequirement
-		}
-		requirementMember := frozenMember || reservationMember
-		if !requirementMember {
-			return fmt.Errorf("material does not belong to work order")
-		}
-		if item.InventoryUnit != "" && requirement.InventoryUnit != "" && !sameInventoryUnit(item.InventoryUnit, requirement.InventoryUnit) {
-			return fmt.Errorf("material inventory unit does not match frozen work order requirement")
-		}
-		if detail.Purpose == stockapp.PurposeMaterialTransferForManufacture && !detail.IsReturn && !checkedShortage[item.MaterialID] {
-			checkedShortage[item.MaterialID] = true
-			availableG, availableUnits, consumedG, consumedUnits, err := eligibleWIPBalanceForWorkOrderTx(ctx, tx, r.schema, detail.WorkOrderID, item.MaterialID)
+		validated, alreadyValidated := validatedRequirements[item.MaterialID]
+		if !alreadyValidated {
+			validatedMaterialIDs = append(validatedMaterialIDs, item.MaterialID)
+			reservationRequirement, reservationMember, err := stockReservationMaterialRequirementTx(
+				ctx, tx, r.schema, detail.WorkOrderID, item.MaterialID,
+			)
 			if err != nil {
 				return err
 			}
-			remainingG := nonnegativeStockQty(requirement.RequiredG - consumedG - availableG)
-			remainingUnits := nonnegativeStockQty(requirement.RequiredUnits - consumedUnits - availableUnits)
-			submitted := submittedByMaterial[item.MaterialID]
-			if submitted.g > remainingG || submitted.units > remainingUnits {
-				materialName, err := stockMaterialDisplayNameTx(ctx, tx, r.schema, item.MaterialID, item.ItemName)
-				if err != nil {
-					return err
+			requirement, frozenMember := frozenRequirements[item.MaterialID]
+			if !frozenMember && reservationMember {
+				requirement = reservationRequirement
+			}
+			requirementMember := frozenMember || reservationMember
+			if !requirementMember {
+				return fmt.Errorf("material does not belong to work order")
+			}
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(name,'') FROM %s.materials WHERE id=$1
+			`, r.schema), item.MaterialID).Scan(&validated.name); err != nil {
+				if err == pgx.ErrNoRows {
+					return fmt.Errorf("material not found")
 				}
-				unit := strings.TrimSpace(requirement.InventoryUnit)
-				if unit == "" {
-					unit = item.InventoryUnit
-				}
-				shortageErrors = append(shortageErrors, fmt.Sprintf(
-					"%s，本次领用%s，当前可领%s，超出%s",
-					materialName,
-					stockQuantityLabel(submitted.g, submitted.units, unit),
-					stockQuantityLabel(remainingG, remainingUnits, unit),
-					stockQuantityLabel(
-						nonnegativeStockQty(submitted.g-remainingG),
-						nonnegativeStockQty(submitted.units-remainingUnits),
-						unit,
-					),
+				return err
+			}
+			validated.requirement = requirement
+		}
+		requirement := validated.requirement
+		if item.InventoryUnit != "" && requirement.InventoryUnit != "" && !sameInventoryUnit(item.InventoryUnit, requirement.InventoryUnit) {
+			return fmt.Errorf("material inventory unit does not match frozen work order requirement")
+		}
+		if requirement.RequiredG > 0 && requirement.RequiredUnits <= 0 && item.QtyUnits > 0 {
+			return fmt.Errorf("物料“%s”的工单需求按重量计量，请填写重量数量", validated.name)
+		}
+		if requirement.RequiredUnits > 0 && requirement.RequiredG <= 0 && item.QtyG > 0 {
+			return fmt.Errorf("物料“%s”的工单需求按计数计量，请填写计数数量", validated.name)
+		}
+		validated.currentG += item.QtyG
+		validated.currentUnit += item.QtyUnits
+		validatedRequirements[item.MaterialID] = validated
+	}
+	if detail.Purpose == stockapp.PurposeMaterialConsumption {
+		consumptionErrors := make([]string, 0)
+		for _, materialID := range validatedMaterialIDs {
+			validated := validatedRequirements[materialID]
+			var submittedConsumedG, submittedConsumedUnits int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(i.qty_g),0)::bigint,COALESCE(SUM(i.qty_units),0)::bigint
+				FROM %s.stock_entry_items i
+				JOIN %s.stock_entries e ON e.id=i.stock_entry_id
+				WHERE e.work_order_id=$1
+				  AND e.purpose=$2
+				  AND e.status='submitted'
+				  AND i.material_id=$3
+			`, r.schema, r.schema), detail.WorkOrderID, stockapp.PurposeMaterialConsumption, materialID).Scan(&submittedConsumedG, &submittedConsumedUnits); err != nil {
+				return err
+			}
+			var reservationConsumedG, reservationConsumedUnits int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(consumed_g),0)::bigint,COALESCE(SUM(consumed_units),0)::bigint
+				FROM %s.work_order_material_reservations
+				WHERE work_order_id=$1 AND material_id=$2
+			`, r.schema), detail.WorkOrderID, materialID).Scan(&reservationConsumedG, &reservationConsumedUnits); err != nil {
+				return err
+			}
+			// Unified Stock Entry posting also updates reservation consumption.
+			// Take the larger projection so historical reservation-only usage is
+			// honored without counting newly unified consumption twice.
+			consumedG := maxInt64(submittedConsumedG, reservationConsumedG)
+			consumedUnits := maxInt64(submittedConsumedUnits, reservationConsumedUnits)
+			remainingG := maxInt64(0, validated.requirement.RequiredG-consumedG)
+			remainingUnits := maxInt64(0, validated.requirement.RequiredUnits-consumedUnits)
+			if validated.currentG > remainingG || validated.currentUnit > remainingUnits {
+				currentLabel := stockQuantityLabel(validated.currentG, validated.currentUnit, validated.requirement.InventoryUnit)
+				remainingLabel := stockQuantityLabel(remainingG, remainingUnits, validated.requirement.InventoryUnit)
+				consumptionErrors = append(consumptionErrors, fmt.Sprintf(
+					"%s，本次消耗%s，剩余可消耗%s",
+					validated.name, currentLabel, remainingLabel,
 				))
 			}
 		}
-	}
-	if len(shortageErrors) > 0 {
-		return fmt.Errorf("物料领用数量超过当前剩余 WIP 缺口：%s", strings.Join(shortageErrors, "；"))
+		if len(consumptionErrors) > 0 {
+			return fmt.Errorf("生产消耗数量超过工单剩余需求：%s", strings.Join(consumptionErrors, "；"))
+		}
 	}
 	return nil
 }
@@ -1252,6 +1280,9 @@ func (r Repository) materialMoveAvailabilityTx(ctx context.Context, tx pgx.Tx, d
 				HAVING SUM(CASE WHEN se.purpose='material_transfer_for_manufacture' AND se.is_return=false THEN a.qty_g ELSE 0 END)
 				     - SUM(CASE WHEN (se.purpose='material_transfer_for_manufacture' AND se.is_return=true)
 				                    OR se.purpose='material_consumption_for_manufacture' THEN a.qty_g ELSE 0 END) > 0
+				    OR SUM(CASE WHEN se.purpose='material_transfer_for_manufacture' AND se.is_return=false THEN a.qty_units ELSE 0 END)
+				     - SUM(CASE WHEN (se.purpose='material_transfer_for_manufacture' AND se.is_return=true)
+				                    OR se.purpose='material_consumption_for_manufacture' THEN a.qty_units ELSE 0 END) > 0
 			)
 		`, r.schema, r.schema, r.schema, len(args))
 	}
@@ -1668,6 +1699,13 @@ func stockItemTotalCost(qtyG, qtyUnits int64, unitCost float64) float64 {
 
 func minInt64(a, b int64) int64 {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
 		return a
 	}
 	return b

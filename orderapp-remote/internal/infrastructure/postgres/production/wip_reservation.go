@@ -210,7 +210,7 @@ func productionInventoryQuantity(qtyG int64, unit string) float64 {
 	}
 }
 
-func (r Repository) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string) (*productionapp.StockEntryCommand, error) {
+func (r Repository) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string, stockDocumentID int64) (*productionapp.StockEntryCommand, error) {
 	hasStockEntries := false
 	if err := r.pool.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -242,9 +242,10 @@ func (r Repository) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrde
 		       source_type,source_id,return_source,operator,note
 		FROM %s.stock_entries
 		WHERE work_order_id=$1 AND purpose=$2 AND is_return=$3 AND status='draft'
+		  AND ($4=0 OR id=$4)
 		ORDER BY updated_at DESC,id DESC
 		LIMIT 1
-	`, r.schema), workOrderID, purpose, isReturn).Scan(
+	`, r.schema), workOrderID, purpose, isReturn, stockDocumentID).Scan(
 		&draft.ID, &draft.EntryNo, &draft.Status, &draft.EntryType, &draft.Purpose, &draft.IsReturn,
 		&draft.WorkOrderID, &draft.JobCardID, &draft.RunningItemID, &draft.SourceType, &draft.SourceID,
 		&draft.ReturnSource, &draft.Operator, &draft.Note,

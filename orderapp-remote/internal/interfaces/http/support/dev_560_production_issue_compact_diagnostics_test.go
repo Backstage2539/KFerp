@@ -18,7 +18,7 @@ func TestDev560ProductionIssueCompactDiagnosticsContracts(t *testing.T) {
 		filepath.Join("internal", "infrastructure", "postgres", "stock", "stock_document.go"): {
 			"原料仓",
 			"库存不足：",
-			"当前剩余 WIP 缺口",
+			"material does not belong to work order",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "StockEntriesView.vue"): {
 			"compact-production-items",
@@ -30,14 +30,14 @@ func TestDev560ProductionIssueCompactDiagnosticsContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS",
 			"原料仓库存不足",
-			"过期草稿",
+			"PR-561 后",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"K102. 生产领料紧凑明细与库存诊断",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS",
-			"当前剩余 WIP 缺口",
+			"原料仓库存不足",
 		},
 		filepath.Join("docs", "OP_MANUAL_STOCK.md"): {
 			"PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS",

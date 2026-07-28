@@ -2,6 +2,7 @@ package stock
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -161,5 +162,53 @@ func TestStockDocumentRejectsAdjustmentAndInvalidLines(t *testing.T) {
 		Items:   []StockDocumentItemCommand{{MaterialID: 1, QtyG: 0, FromWarehouse: "raw_materials", ToWarehouse: "wip"}},
 	}); err == nil {
 		t.Fatal("zero quantity must be rejected")
+	}
+}
+
+func TestStockDocumentRejectsMixedPositiveAndNegativeQuantities(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		qtyG     int64
+		qtyUnits int64
+	}{
+		{name: "positive weight cannot hide negative count", qtyG: 60000, qtyUnits: -100},
+		{name: "positive count cannot hide negative weight", qtyG: -100, qtyUnits: 60000},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := &fakeStockDocumentRepository{fakeRepo: &fakeRepo{}}
+			_, err := NewService(repo).CreateStockDocumentDraft(context.Background(), StockDocumentCommand{
+				Purpose: PurposeMaterialTransfer,
+				Items: []StockDocumentItemCommand{{
+					MaterialID: 1, QtyG: testCase.qtyG, QtyUnits: testCase.qtyUnits,
+					FromWarehouse: "raw_materials", ToWarehouse: "wip",
+				}},
+			})
+			if err == nil {
+				t.Fatal("mixed positive and negative quantity must be rejected")
+			}
+			if !strings.Contains(err.Error(), "数量不能为负数") {
+				t.Fatalf("error = %q, want Chinese negative-quantity explanation", err)
+			}
+			if len(repo.draftCommand.Items) != 0 {
+				t.Fatalf("invalid quantity reached repository: %+v", repo.draftCommand)
+			}
+		})
+	}
+}
+
+func TestStockDocumentAllowsNormal60KgMaterialTransfer(t *testing.T) {
+	repo := &fakeStockDocumentRepository{fakeRepo: &fakeRepo{}}
+	_, err := NewService(repo).CreateStockDocumentDraft(context.Background(), StockDocumentCommand{
+		Purpose: PurposeMaterialTransfer,
+		Items: []StockDocumentItemCommand{{
+			MaterialID: 1, QtyG: 60000,
+			FromWarehouse: "raw_materials", ToWarehouse: "wip",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("normal 60Kg material transfer: %v", err)
+	}
+	if len(repo.draftCommand.Items) != 1 || repo.draftCommand.Items[0].QtyG != 60000 || repo.draftCommand.Items[0].QtyUnits != 0 {
+		t.Fatalf("repository command = %+v", repo.draftCommand)
 	}
 }

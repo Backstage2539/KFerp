@@ -8,9 +8,12 @@ import {
   executionHubTimelineFilters,
   filterExecutionHubTimeline,
   inventoryUnitWeightInGrams,
+  productionStockDocumentPreviewAction,
   productionContextParams,
   readinessBadgeTone,
   stockCanonicalQuantity,
+  stockDocumentPositiveItems,
+  stockQuantityUsesCount,
 } from './production-execution-hub.js'
 
 test('execution hub actions carry production context to work order, WIP, job card, quality, costs and logs pages', () => {
@@ -147,4 +150,38 @@ test('stock issue quantity maps inventory units to canonical fields without pars
     () => stockCanonicalQuantity({ quantity: 1.6, quantity_basis: 'count', inventory_unit: '袋' }),
     /计数物料数量必须为整数/,
   )
+  assert.equal(stockQuantityUsesCount({ inventory_unit: '箱', qty_units: 60, qty_g: 0 }), true)
+  assert.deepEqual(stockCanonicalQuantity({ quantity: 60, inventory_unit: '箱', qty_units: 60, qty_g: 0 }), {
+    qty_g: 0,
+    qty_units: 60,
+  })
+  assert.equal(stockQuantityUsesCount({ inventory_unit: '自定义重量', qty_g: 60000, qty_units: 0 }), false)
+})
+
+test('stock document payload omits zero rows but still validates every positive row', () => {
+  const rows = stockDocumentPositiveItems(
+    [{ name: '已覆盖', quantity: 0 }, { name: '待领用', quantity: 60 }],
+    (item) => ({ qty_g: item.quantity * 1000, qty_units: 0 }),
+  )
+  assert.deepEqual(rows, [{
+    item: { name: '待领用', quantity: 60 },
+    quantity: { qty_g: 60000, qty_units: 0 },
+  }])
+  assert.throws(
+    () => stockDocumentPositiveItems([{ quantity: 0 }], () => ({ qty_g: 0, qty_units: 0 })),
+    /至少填写一个大于 0 的领用数量/,
+  )
+  assert.throws(
+    () => stockDocumentPositiveItems([{ quantity: 1 }], () => { throw new Error('物料缺少库存单位换算') }),
+    /缺少库存单位换算/,
+  )
+})
+
+test('production stock document drafts map to the matching work-order preview action', () => {
+  assert.equal(productionStockDocumentPreviewAction({ purpose: 'material_transfer_for_manufacture' }), 'issue')
+  assert.equal(productionStockDocumentPreviewAction({ purpose: 'material_transfer_for_manufacture', is_return: true }), 'return')
+  assert.equal(productionStockDocumentPreviewAction({ entry_type: 'material_return_from_manufacture' }), 'return')
+  assert.equal(productionStockDocumentPreviewAction({ purpose: 'material_consumption_for_manufacture' }), 'consume')
+  assert.equal(productionStockDocumentPreviewAction({ purpose: 'manufacture' }), 'finish')
+  assert.equal(productionStockDocumentPreviewAction({ purpose: 'material_receipt' }), '')
 })
