@@ -22,7 +22,9 @@
 - 前端：`stock-entry-compact-production-items.test.js`与`production-execution-hub.test.js`共10项通过；Vue/Vite生产构建通过。
 - 完整校验：`scripts/verify_kferp.sh backend`全绿；完整前端823项中816项通过，7项均为当前`origin/develop`已有的客户工作区/视图上下文陈旧断言，PR-560新增及相邻生产执行测试全部通过。
 - 临时 PostgreSQL 全量stock包另有2项与本改动无关的既有失败：期初批次回填改变旧测试的批次数假设、旧仓库清单测试schema缺少`products.customer_id`。两项均在干净`origin/develop@8df3bada`原样复现；本需求涉及的4组事务测试全部通过。
-- 待补：develop 集成、development 部署和只读 API/资源冒烟。
+- 集成与部署：功能分支提交`3487726a`经独立复核后合并为`0f8d3645`，已推送`origin/develop`并部署development。部署期间Vue、miniapp和Docker内完整Go测试通过，容器重建成功；部署前备份为`/opt/stacks/erp/orderapp.backup.deploy-20260728165344`。
+- 部署后只读冒烟：开发环境Vue shell、PR/DEV API和指定工单领料预览均正常。工单40返回三项当前缺口1974g/1974g/3948g；工单39返回7751g，并提示旧草稿从8000g按当前缺口调整为7751g。未保存、提交或取消库存单据。
+- 浏览器边界：公网development在受控浏览器中被`ERR_CERT_AUTHORITY_INVALID`阻断；未绕过证书。通过只读SSH隧道访问同一已部署容器可到达“系统登录”页且控制台无错误，但未借用业务账号绕过登录。因此桌面10条同屏的源码合同、定向测试和构建已通过，最终登录态视觉验收仍由Van手工确认。
 
 ## 真实工单只读诊断
 
@@ -36,3 +38,4 @@
 - 不新增数据库字段，不重写历史工单、库存批次、库存流水或已提交 Stock Entry。
 - 多物料提交继续原子过账；任一物料失败时不产生部分库存、流水、工单统计或操作日志。
 - 只部署 development，production 不部署。
+- development部署完成后未执行任何真实库存写入；PR保持review，等待登录态页面人工验收。

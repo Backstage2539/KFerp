@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS
 - Branch: codex/pr560-production-issue-compact-diagnostics
 - Owner/session: Codex / 2026-07-28
-- Status: green / review complete; integration and development deployment pending
+- Status: merged to develop / development deployed; awaiting logged-in browser acceptance
 - Scope: 工单生产领料多物料明细压缩为对齐的行式布局；原料仓库存不足和超出当前 WIP 缺口改为中文、逐物料可诊断错误；核对预览、草稿和提交的库存与缺口口径。
 - DEV:
   - DEV-560-COMPACT-MATERIAL-ROWS：生产领料多物料行紧凑对齐，桌面单页可连续查看 10 条，移动端保持可用。
@@ -21,8 +21,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - API/PostgreSQL: HTTP草稿刷新PASS；临时PostgreSQL 16的多物料FIFO回滚、质检/总量不足区分、工单冻结批次封顶和并发旧草稿提交校验PASS；指定development工单只读诊断PASS。
   - Frontend/build: PR-560及相邻生产执行10/10 PASS；Vite生产构建PASS。完整前端816/823，7项均为`origin/develop`已有的客户工作区/视图上下文陈旧断言。
   - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_STOCK.md
-  - Review/acceptance: 独立审查P0/P1已清零；待development实际浏览器高度验收。证据：orderapp-remote/docs/acceptance/2026-07-28-production-issue-compact-diagnostics.md
-- Deployment: development pending; production excluded
+  - Review/acceptance: 独立审查P0/P1/P2已清零；development真实API与静态资源只读冒烟通过。公网浏览器被`ERR_CERT_AUTHORITY_INVALID`阻断，本地只读隧道到达系统登录页且控制台无错误，未绕过证书或借用业务账号；10条同屏仍待登录态手工验收。证据：orderapp-remote/docs/acceptance/2026-07-28-production-issue-compact-diagnostics.md
+- Deployment: merge `0f8d3645` 已推送`origin/develop`并部署development；备份`/opt/stacks/erp/orderapp.backup.deploy-20260728165344`；production未部署
 - Last update: 2026-07-28 Asia/Shanghai
 - Notes: 指定工单只做只读 API/数据库诊断，不保存或提交真实库存单据，不开始生产。
 

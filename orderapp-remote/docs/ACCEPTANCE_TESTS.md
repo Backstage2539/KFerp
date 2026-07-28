@@ -1695,4 +1695,4 @@
 - [x] 原料仓合格 FIFO/指定批次不足时整单不入账，页面使用中文逐物料显示来源仓、需领、可用、缺少和库存单位；质检冻结与真实数量不足可以区分。
 - [x] 已有领料草稿重新打开时按当前 WIP 覆盖刷新 `required_qty / remaining_qty / default_qty`；过期草稿数量大于当前剩余 WIP 缺口时收敛到当前可领数量，并提示用户缺口已变化。
 - [x] 预览后发生并发领料时，提交仍以事务内当前缺口为准；超额错误使用中文显示物料、本次领用、当前可领和单位，多物料不能部分过账。
-- [ ] 临时 PostgreSQL 覆盖原料仓不足、质检冻结、旧草稿刷新、并发缺口变化和合法多物料原子领料；定向 Go/Vue、Vue/Vite 构建、develop 集成和 development 只读冒烟通过。真实工单诊断不创建或提交库存单据、不开始生产；production 未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-28-production-issue-compact-diagnostics.md`。
+- [x] 临时 PostgreSQL 覆盖原料仓不足、质检冻结、旧草稿刷新、并发缺口变化和合法多物料原子领料；定向 Go/Vue、Vue/Vite 构建、develop 集成和 development 只读冒烟通过。真实工单诊断不创建或提交库存单据、不开始生产；production 未部署。证据记录在 `orderapp-remote/docs/acceptance/2026-07-28-production-issue-compact-diagnostics.md`。
