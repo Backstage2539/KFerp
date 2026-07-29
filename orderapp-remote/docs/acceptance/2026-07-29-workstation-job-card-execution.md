@@ -76,11 +76,12 @@ scripts/verify_kferp.sh frontend-build
 ### development 只读冒烟
 
 - [ ] 工单列表入口和按钮符合新职责。
-- [ ] 执行枢纽显示 command 开工及 readiness 阻断。
-- [ ] 工序卡只读并可进入工位或执行枢纽。
-- [ ] 工位动作和完成面板符合服务端状态。
-- [ ] API、静态资源、容器日志和浏览器控制台无新增错误。
-- [ ] 未对指定真实工单或真实库存执行写操作。
+- [x] 指定工单详情 API 的执行枢纽返回 command 开工、正确 endpoint 及 readiness 阻断。
+- [x] 指定工单工序卡返回冻结工序要求；当前工序卡已完成，不再进入可执行工位队列。
+- [x] 当前工位任务均由服务端返回 `available_actions`，且不再出现旧 `partial_finish` 动作。
+- [x] 容器运行、重启次数、需求记录、API、Vue shell 和 `index-DYYLfyWR.js` 均正常，容器日志无新增错误。
+- [ ] 应用内浏览器因开发站点 `ERR_CERT_AUTHORITY_INVALID` 未进入页面，未绕过证书，浏览器控制台和页面布局待登录浏览器验收。
+- [x] 未对指定真实工单或真实库存执行写操作。
 
 ## 手册
 
@@ -90,5 +91,10 @@ scripts/verify_kferp.sh frontend-build
 
 ## 最终交付
 
-- 分支、合并提交、development 备份、部署结果和浏览器证据：待主交付代理补充。
+- 功能分支：`codex/pr562-production-execution-entry`，提交 `835d38c8b080a883b1937acac292a2766e7eb911`。
+- `develop` 合并提交：`ac21a5964f0cf24e098c19105d112b5b0c856e1a`。
+- development 备份：`/opt/stacks/erp/orderapp.backup.deploy-20260730001320`。
+- development 部署：成功；`erp_orderapp` 运行且重启次数为 0，部署镜像完整 Go 测试通过，Vue shell 与 `index-DYYLfyWR.js` 返回 200。
+- 只读业务冒烟：PR-562 需求记录可见；指定工单详情、执行枢纽 command、冻结工序要求和当前工位动作合同通过；未调用任何状态或库存写接口。
+- 浏览器：开发证书触发 `ERR_CERT_AUTHORITY_INVALID`，页面级验收未通过且未绕过。
 - production：不部署。
