@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-562-PRODUCTION-EXECUTION-JOB-CARD-CONSOLIDATION
 - Branch: codex/pr562-production-execution-entry
 - Owner/session: Codex / 2026-07-29
-- Status: green / ready to integrate
+- Status: merged to develop / development deployed; read-only API and static smoke passed, awaiting logged-in browser acceptance
 - Scope: 工单级操作统一进入生产执行枢纽；工序卡收敛为只读执行记录；工序开始、暂停、继续、完成及实际数据统一在工位视图执行。
 - DEV:
   - DEV-562-WORKORDER-EXECUTION-HUB-COMMAND：工单列表删除直接开工和完工入库；执行枢纽开始生产改为受 readiness 控制的原地命令，成功刷新、失败中文提示并防重复提交。
@@ -21,9 +21,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED backend/support: `go test ./internal/application/production ./internal/interfaces/http/support -run 'TestPR562|TestDev562' -count=1`.
   - GREEN/API: production application, HTTP production and support packages; temporary PostgreSQL job-card state and audit closure.
   - GREEN frontend/build: focused Node tests, full frontend suite and Vite production build.
-- Deployment: verified for integration; development deploy pending, production forbidden
+- Deployment: merge `ac21a5964f0cf24e098c19105d112b5b0c856e1a` 已推送 `origin/develop` 并部署 development；备份 `/opt/stacks/erp/orderapp.backup.deploy-20260730001320`；容器、需求记录、指定工单执行枢纽/工序卡只读 API、工位动作合同和 `index-DYYLfyWR.js` 通过；production forbidden
 - Last update: 2026-07-29 Asia/Shanghai
-- Notes: 指定真实工单 `WO-PP-0000000083-0000000051` 只做只读冒烟，不执行开工、暂停、继续、完成或库存写入。
+- Notes: 指定真实工单 `WO-PP-0000000083-0000000051` 只做只读冒烟，确认当前为部分完成、唯一工序卡已完成且不再出现在可执行工位队列；未执行开工、暂停、继续、完成或库存写入。公网浏览器仍被 `ERR_CERT_AUTHORITY_INVALID` 拦截，未绕过证书。
 
 ### PR-561-WIP-BULK-MATERIAL-ISSUE
 - Branch: codex/pr561-wip-bulk-issue
