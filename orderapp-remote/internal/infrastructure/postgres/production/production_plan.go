@@ -1559,9 +1559,9 @@ func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema 
 				work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
 				workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
 				planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
-				status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
+				status,planned_input_qty,records_loss,parameter_schema_json
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',now(),'',$15,$16,$17::jsonb)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15,$16,$17::jsonb)
 			RETURNING id
 		`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, metrics.PlannedOperationCost, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)).Scan(&id); err != nil {
 			return nil, err
@@ -1618,9 +1618,9 @@ func insertPendingJobCardForOperationSplitTx(ctx context.Context, tx pgx.Tx, sch
 			work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
 			workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
 			planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
-			status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
+			status,planned_input_qty,records_loss,parameter_schema_json
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',now(),'',$15,$16,$17::jsonb)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15,$16,$17::jsonb)
 		RETURNING id
 	`, schema), workOrderID, op.Seq, firstPositiveInt64(split.OperationID, op.OperationID), split.WorkstationID, operation, split.Workstation, split.WorkstationCapacityID, split.WorkstationCapacityName, split.BatchSizeQty, split.BatchSizeUnit, split.PlannedBatchCount, split.PlannedMinutes, split.HourlyRate, split.PlannedOperationCost, plannedInputQty, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)).Scan(&id); err != nil {
 		return productionapp.JobCardRow{}, err
@@ -1728,9 +1728,6 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 		SET running_item_id=$2,batch_id=$3,status='running'
 		WHERE id=$1 AND status='released' AND running_item_id=0
 	`, r.schema), wo.ID, runningItemID, batchID); err != nil {
-		return productionapp.WorkOrderStartResult{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.job_cards SET status='running', started_at=now(), operator=$2 WHERE work_order_id=$1 AND status='pending'`, r.schema), wo.ID, cmd.Operator); err != nil {
 		return productionapp.WorkOrderStartResult{}, err
 	}
 	if err := createMaterialReservationsForRunningItemTx(ctx, tx, r.schema, wo.ID, runningItemID, needs); err != nil {

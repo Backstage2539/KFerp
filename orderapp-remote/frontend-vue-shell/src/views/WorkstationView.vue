@@ -57,25 +57,36 @@
             <span>负责人</span>
             <span>动作</span>
           </div>
-          <div v-for="task in section.tasks" :key="taskKey(task)" class="task-row">
+          <div v-for="task in section.tasks"
+            :key="taskKey(task)"
+            class="task-row"
+            :class="{ focused: isRequestedTask(task) }"
+            :data-task-key="taskKey(task)">
             <div class="task-title">
               <strong>{{ taskTitle(task) }}</strong>
               <small>{{ task.work_order_no || '-' }} · P{{ task.priority || 0 }}</small>
+              <small>工序要求：{{ task.process_requirement || '按冻结工艺路线执行' }}</small>
             </div>
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
             <span>{{ task.next_handler || task.assigned_to || '-' }}</span>
             <div class="actions">
               <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">详情</button>
               <button
-                v-for="action in task.available_actions || []"
+                v-for="action in workstationVisibleActions(task)"
                 :key="action"
                 type="button"
                 :class="{ primary: action === 'start' || action === 'complete' }"
-                :disabled="busyKey === `${task.job_card_id}:${action}`"
+                :disabled="Boolean(busyKey) || loading"
                 @click="handleTaskAction(task, action)"
               >
                 {{ actionLabel(action) }}
               </button>
+            </div>
+            <div
+              v-if="taskFeedback.taskKey === taskKey(task) && (taskFeedback.message || taskFeedback.error)"
+              class="task-feedback"
+              :class="{ error: Boolean(taskFeedback.error) }">
+              {{ taskFeedback.error || taskFeedback.message }}
             </div>
             <div v-if="isIssuePanelForTask(task)" class="task-action-panel">
               <div class="section-title-row">
@@ -95,19 +106,23 @@
             <div v-if="isFinishPanelForTask(task)" class="task-action-panel">
               <div class="section-title-row">
                 <div>
-                  <div class="section-title">{{ finishPanel.mode === 'partial_finish' ? '部分完成' : '完成本工序' }}</div>
+                  <div class="section-title">完成本工序</div>
                   <p class="muted">{{ finishPanel.title }}</p>
                 </div>
                 <button class="secondary" type="button" @click="closeFinishPanel">关闭</button>
               </div>
               <div class="form-grid">
-                <label><span>投料(g)</span><input v-model.number="finishPanel.consumed_input_g" type="number" min="0" /></label>
-                <label><span>成品件数</span><input v-model.number="finishPanel.finished_units" type="number" min="0" /></label>
-                <label><span>余料(g)</span><input v-model.number="finishPanel.finished_loose_g" type="number" min="0" /></label>
+                <label><span>实际分钟</span><input v-model.number="finishPanel.actual_minutes" type="number" min="0" /></label>
+                <label><span>实际投入（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.actual_input_qty" type="number" min="0" step="any" /></label>
+                <label><span>实际产出（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.actual_output_qty" type="number" min="0" step="any" :disabled="Number(finishPanel.finished_units || 0) > 0" /></label>
+                <label><span>成品件数（件）</span><input v-model.number="finishPanel.finished_units" type="number" min="0" step="1" :disabled="Number(finishPanel.actual_output_qty || 0) > 0" /><small>实际产出或成品件数二选一</small></label>
+                <label><span>余料（{{ finishPanel.inventory_unit || '-' }}）</span><input v-model.number="finishPanel.leftover_qty" type="number" min="0" step="any" /></label>
                 <label><span>入库仓</span><input v-model.trim="finishPanel.warehouse" /></label>
-                <label class="span-2"><span>异常/备注</span><input v-model.trim="finishPanel.note" /></label>
+                <label><span>损耗原因</span><input v-model.trim="finishPanel.loss_reason" /></label>
+                <label><span>异常原因</span><input v-model.trim="finishPanel.exception_reason" /></label>
+                <label class="span-2"><span>备注</span><input v-model.trim="finishPanel.note" /></label>
                 <button class="primary" type="button" @click="submitFinishPanel" :disabled="busyKey !== ''">
-                  {{ finishPanel.mode === 'partial_finish' ? '记录部分完成' : '完成本工序' }}
+                  完成本工序
                 </button>
               </div>
             </div>
@@ -121,16 +136,25 @@
       :work-order-id="executionHub.workOrderId"
       :focus="executionHub.focus"
       :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, job_card_id: executionHub.jobCardId, focus: executionHub.focus }"
-      @close="executionHub.open = false" />
+      @close="executionHub.open = false"
+      @updated="load" />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { fetchProductionWorkstationOverview, finishRunningProduction, runProductionTaskAction } from '../api/production.js'
+import { fetchProductionWorkstationOverview, runProductionTaskAction } from '../api/production.js'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
-import { productionTaskActionEndpoint, taskTitle, workstationTaskSections } from '../lib/production-workstation.js'
+import {
+  productionCompletionMetrics,
+  productionCompletionOutputQty,
+  productionTaskActionEndpoint,
+  productionTaskActionErrorMessage,
+  taskTitle,
+  workstationVisibleActions,
+  workstationTaskSections,
+} from '../lib/production-workstation.js'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
@@ -144,14 +168,20 @@ const selectedWorkstation = ref('')
 const overview = ref({ tasks: [] })
 const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' })
 const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
+const requestedJobCardID = computed(() => Number(props.viewParams?.job_card_id || 0))
+const taskFeedback = reactive({ taskKey: '', message: '', error: '' })
 const finishPanel = reactive({
   open: false,
-  mode: '',
   title: '',
   task: null,
+  inventory_unit: '',
+  actual_minutes: 0,
+  actual_input_qty: 0,
+  actual_output_qty: 0,
   finished_units: 0,
-  finished_loose_g: 0,
-  consumed_input_g: 0,
+  leftover_qty: 0,
+  loss_reason: '',
+  exception_reason: '',
   warehouse: 'finished_goods',
   note: '',
 })
@@ -164,6 +194,31 @@ const singleStationLayout = computed(() => visibleSections.value.length === 1)
 
 function taskKey(task) {
   return `${task.job_card_id || 0}:${task.work_order_id || 0}`
+}
+
+function isRequestedTask(task) {
+  return requestedJobCardID.value > 0 && Number(task?.job_card_id || 0) === requestedJobCardID.value
+}
+
+function focusRequestedTask() {
+  const focus = String(props.viewParams?.focus || '')
+  if (focus !== 'workstation_task' || requestedJobCardID.value <= 0) return false
+  const matchedTask = tasks.value.find((task) => Number(task?.job_card_id || 0) === requestedJobCardID.value)
+  if (!matchedTask) {
+    error.value = '未找到指定工序任务，请确认工序卡仍有效'
+    return false
+  }
+  selectedWorkstation.value = matchedTask.workstation
+  window.requestAnimationFrame(() => {
+    document.querySelector(`[data-task-key="${taskKey(matchedTask)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  })
+  return true
+}
+
+function updateTaskFeedback(task, { message: nextMessage = '', error: nextError = '' } = {}) {
+  taskFeedback.taskKey = taskKey(task)
+  taskFeedback.message = nextMessage
+  taskFeedback.error = nextError
 }
 
 function taskMeta(task) {
@@ -191,7 +246,6 @@ function actionLabel(action) {
     pause: '暂停',
     resume: '继续',
     complete: '完成本工序',
-    partial_finish: '部分完成',
     report_exception: '报异常',
     material_call: '呼叫补料',
   }[action] || action
@@ -229,18 +283,22 @@ function openIssue(task, mode) {
   issue.note = mode === 'material_call' ? '' : (task.blocking_reason || '')
 }
 
-function openFinishPanel(task, mode) {
+function openFinishPanel(task) {
   issue.open = false
   issue.task = null
   finishPanel.open = true
-  finishPanel.mode = mode
   finishPanel.task = task
   finishPanel.title = `${taskTitle(task)} · ${task.work_order_no || ''}`
-  finishPanel.finished_units = 0
-  finishPanel.finished_loose_g = 0
-  finishPanel.consumed_input_g = Number(task.planned_g || task.planned_output_g || 0)
+  finishPanel.inventory_unit = String(task.inventory_unit || '').trim()
+  finishPanel.actual_minutes = Number(task.actual_minutes || 0)
+  finishPanel.actual_input_qty = Number(task.actual_input_qty || task.planned_input_inventory_qty || 0)
+  finishPanel.actual_output_qty = Number(task.actual_output_qty || 0)
+  finishPanel.finished_units = Number(task.actual_finished_units || 0)
+  finishPanel.leftover_qty = Number(task.leftover_qty || 0)
+  finishPanel.loss_reason = task.loss_reason || ''
+  finishPanel.exception_reason = task.exception_reason || ''
   finishPanel.warehouse = 'finished_goods'
-  finishPanel.note = task.blocking_reason || ''
+  finishPanel.note = task.note || ''
 }
 
 function openExecutionHub(task, focus = 'job_card') {
@@ -257,8 +315,8 @@ async function handleTaskAction(task, action) {
     openIssue(task, action)
     return
   }
-  if (action === 'complete' || action === 'partial_finish') {
-    openFinishPanel(task, action)
+  if (action === 'complete') {
+    openFinishPanel(task)
     return
   }
   const endpoint = productionTaskActionEndpoint(task, action)
@@ -266,12 +324,22 @@ async function handleTaskAction(task, action) {
   busyKey.value = `${task.job_card_id}:${action}`
   error.value = ''
   message.value = ''
+  updateTaskFeedback(task)
   try {
     await runProductionTaskAction(endpoint, {})
-    message.value = `${actionLabel(action)}已提交`
-    await load()
+    const refreshed = await load()
+    if (!refreshed) {
+      const explanation = `${actionLabel(action)}已提交，但状态刷新失败，请手动刷新`
+      error.value = explanation
+      updateTaskFeedback(task, { error: explanation })
+      return
+    }
+    message.value = `${actionLabel(action)}成功`
+    updateTaskFeedback(task, { message: `${actionLabel(action)}成功，状态已刷新` })
   } catch (err) {
-    error.value = err.message || '操作失败'
+    const explanation = productionTaskActionErrorMessage(err, action)
+    error.value = explanation
+    updateTaskFeedback(task, { error: explanation })
   } finally {
     busyKey.value = ''
   }
@@ -285,14 +353,25 @@ async function submitIssue() {
   busyKey.value = `${task.job_card_id}:${mode}`
   error.value = ''
   message.value = ''
+  updateTaskFeedback(task)
   try {
     const payload = mode === 'material_call' ? { note: issue.note } : { exception_reason: issue.note }
     await runProductionTaskAction(endpoint, payload)
     closeIssue()
-    message.value = mode === 'material_call' ? '已呼叫补料' : '已上报异常'
-    await load()
+    const submittedMessage = mode === 'material_call' ? '呼叫补料' : '上报异常'
+    const refreshed = await load()
+    if (!refreshed) {
+      const explanation = `${submittedMessage}已提交，但状态刷新失败，请手动刷新`
+      error.value = explanation
+      updateTaskFeedback(task, { error: explanation })
+      return
+    }
+    message.value = `${submittedMessage}成功`
+    updateTaskFeedback(task, { message: `${submittedMessage}成功，状态已刷新` })
   } catch (err) {
-    error.value = err.message || '提交失败'
+    const explanation = productionTaskActionErrorMessage(err, mode)
+    error.value = explanation
+    updateTaskFeedback(task, { error: explanation })
   } finally {
     busyKey.value = ''
   }
@@ -301,42 +380,52 @@ async function submitIssue() {
 async function submitFinishPanel() {
   const task = finishPanel.task
   if (!task) return
-  const mode = finishPanel.mode
-  busyKey.value = `${task.job_card_id}:${mode}`
+  busyKey.value = `${task.job_card_id}:complete`
   error.value = ''
   message.value = ''
+  updateTaskFeedback(task)
   try {
-    if (mode === 'partial_finish') {
-      if (!task.running_item_id) throw new Error('缺少生产中项目，无法记录部分完成')
-      await finishRunningProduction({
-        id: Number(task.running_item_id),
-        finished_units: Number(finishPanel.finished_units || 0),
-        finished_loose_g: Number(finishPanel.finished_loose_g || 0),
-        consumed_input_g: Number(finishPanel.consumed_input_g || 0),
-        partial: true,
-        warehouse: finishPanel.warehouse || 'finished_goods',
-      })
-      message.value = '已记录部分完成'
-    } else {
-      const endpoint = productionTaskActionEndpoint(task, 'complete')
-      const actualOutputG = Number(task.spec_g || 0) * Number(finishPanel.finished_units || 0) + Number(finishPanel.finished_loose_g || 0)
-      await runProductionTaskAction(endpoint, {
-        actual_input_qty: Number(finishPanel.consumed_input_g || 0),
-        actual_output_qty: actualOutputG,
-        exception_reason: finishPanel.note,
-      })
-      message.value = '完成本工序已提交'
-    }
+    const finishedUnits = Number(finishPanel.finished_units || 0)
+    const actualOutputQty = productionCompletionOutputQty({
+      actualOutputQty: finishPanel.actual_output_qty,
+      finishedUnits,
+      inventoryQtyPerSalesUnit: task.inventory_qty_per_sales_unit,
+    })
+    const endpoint = productionTaskActionEndpoint(task, 'complete')
+    await runProductionTaskAction(endpoint, {
+      actual_minutes: Number(finishPanel.actual_minutes || 0),
+      actual_input_qty: Number(finishPanel.actual_input_qty || 0),
+      actual_output_qty: actualOutputQty,
+      loss_reason: finishPanel.loss_reason || '',
+      exception_reason: finishPanel.exception_reason || '',
+      metrics_json: productionCompletionMetrics({
+        inventoryUnit: finishPanel.inventory_unit,
+        leftoverQty: finishPanel.leftover_qty,
+        note: finishPanel.note,
+        warehouse: finishPanel.warehouse,
+        finishedUnits,
+      }),
+    })
     closeFinishPanel()
-    await load()
+    const refreshed = await load()
+    if (!refreshed) {
+      const explanation = '完成本工序已提交，但状态刷新失败，请手动刷新'
+      error.value = explanation
+      updateTaskFeedback(task, { error: explanation })
+      return
+    }
+    message.value = '完成本工序成功'
+    updateTaskFeedback(task, { message: message.value })
   } catch (err) {
-    error.value = err.message || '完成操作失败'
+    const explanation = productionTaskActionErrorMessage(err, 'complete')
+    error.value = explanation
+    updateTaskFeedback(task, { error: explanation })
   } finally {
     busyKey.value = ''
   }
 }
 
-async function load() {
+async function load(options = {}) {
   loading.value = true
   error.value = ''
   try {
@@ -344,22 +433,26 @@ async function load() {
     if (selectedWorkstation.value && !sections.value.some((section) => section.workstation === selectedWorkstation.value)) {
       selectedWorkstation.value = ''
     }
+    if (options?.focusRequested === true) focusRequestedTask()
+    return true
   } catch (err) {
     error.value = err.message || '加载失败'
+    return false
   } finally {
     loading.value = false
   }
 }
 
-onMounted(() => {
-  load()
+onMounted(async () => {
+  await load({ focusRequested: true })
+  const focus = String(props.viewParams?.focus || '')
+  if (focus === 'workstation_task') return
   const id = Number(props.viewParams?.work_order_id || 0)
-  if (id > 0) {
-    executionHub.workOrderId = id
-    executionHub.jobCardId = Number(props.viewParams?.job_card_id || 0)
-    executionHub.focus = props.viewParams?.focus || (executionHub.jobCardId ? 'job_card' : 'summary')
-    executionHub.open = true
-  }
+  if (!id) return
+  executionHub.workOrderId = id
+  executionHub.jobCardId = Number(props.viewParams?.job_card_id || 0)
+  executionHub.focus = focus || (executionHub.jobCardId ? 'job_card' : 'summary')
+  executionHub.open = true
 })
 </script>
 
@@ -487,6 +580,10 @@ textarea { resize: vertical; }
   font-size: 13px;
   font-weight: 700;
 }
+.task-row.focused {
+  background: #fffbea;
+  box-shadow: inset 3px 0 0 #d97706;
+}
 .task-title { display: grid; gap: 3px; min-width: 0; }
 .task-title strong, .task-title small {
   overflow: hidden;
@@ -506,6 +603,20 @@ textarea { resize: vertical; }
 .pill.danger { border-color: #efb9b9; background: #fff2f2; color: #9d2424; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .actions button { min-height: 30px; padding: 4px 8px; font-size: 12px; }
+.task-feedback {
+  grid-column: 1 / -1;
+  border: 1px solid #b7dfc4;
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: #effaf2;
+  color: #175c2f;
+  font-size: 13px;
+}
+.task-feedback.error {
+  border-color: #efb9b9;
+  background: #fff2f2;
+  color: #9d2424;
+}
 .empty-state {
   grid-column: 1 / -1;
   border: 1px solid #e2ded7;

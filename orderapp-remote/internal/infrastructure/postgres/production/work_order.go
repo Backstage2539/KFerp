@@ -37,6 +37,7 @@ type processSnapshotOperation struct {
 	PlannedMinutes          int     `json:"planned_minutes"`
 	PlannedOperationCost    float64 `json:"planned_operation_cost"`
 	RecordsLoss             bool    `json:"records_loss"`
+	ProcessRequirement      string  `json:"process_requirement,omitempty"`
 	ParameterSchemaJSON     string  `json:"parameter_schema_json"`
 	QualityChecklistJSON    string  `json:"quality_checklist_json"`
 }
@@ -688,6 +689,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 		       0,
 		       0::float8,
 		       pro.records_loss,
+		       COALESCE(mo.note,''),
 		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
@@ -704,7 +706,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.QualityChecklistJSON,
+			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -739,7 +741,7 @@ func routeSequenceOnlyOperation(op processSnapshotOperation) processSnapshotOper
 	return op
 }
 
-func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {
+func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64) (int64, error) {
 	processSnapshot, processSnapshotJSON, err := loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, productID)
 	if err != nil {
 		return 0, err
@@ -827,10 +829,10 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 					work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
 					workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
 					planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
-					status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
+					status,planned_input_qty,records_loss,parameter_schema_json
 				)
-				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'running',now(),$15,$16,$17,$18::jsonb)
-			`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, metrics.PlannedOperationCost, operator, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)); err != nil {
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15,$16,$17::jsonb)
+			`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, metrics.PlannedOperationCost, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)); err != nil {
 				return 0, err
 			}
 		}
@@ -845,11 +847,11 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		for _, step := range steps {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				INSERT INTO %s.job_cards(
-					work_order_id,sequence_no,operation,workstation,status,started_at,operator,
+					work_order_id,sequence_no,operation,workstation,status,
 					planned_input_qty,records_loss,operation_template_step_id,cost_type,cost_rate
 				)
-				VALUES($1,$2,$3,$4,'running',now(),$5,$6,$7,$8,$9,$10)
-			`, schema), workOrderID, step.Position, step.Operation, step.Workstation, operator, plannedG, true, step.ID, step.CostType, step.CostRate); err != nil {
+				VALUES($1,$2,$3,$4,'pending',$5,$6,$7,$8,$9)
+			`, schema), workOrderID, step.Position, step.Operation, step.Workstation, plannedG, true, step.ID, step.CostType, step.CostRate); err != nil {
 				return 0, err
 			}
 		}
@@ -1066,6 +1068,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 		       0,
 		       0::float8,
 		       pro.records_loss,
+		       COALESCE(mo.note,''),
 		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
@@ -1085,7 +1088,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.QualityChecklistJSON,
+			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -1142,23 +1145,25 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 	}
 	snapshot.Source = "process_template"
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
-		       operation,workstation,COALESCE(workstation_capacity_name,''),
-		       default_equipment,default_minutes,
-		       COALESCE(batch_size_qty,0)::float8,
-		       COALESCE(batch_size_unit,''),
-		       COALESCE(standard_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,
-		       COALESCE(planned_batch_count,0),
-		       COALESCE(planned_minutes,0),
-		       COALESCE(planned_operation_cost,0)::float8,
-		       records_loss,
-		       COALESCE(parameter_schema_json,'{}'::jsonb)::text,
-		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
-		FROM %s.process_template_operations
-		WHERE template_id=$1
-		ORDER BY seq, id
-	`, schema), snapshot.ID)
+		SELECT pto.seq,pto.operation_id,pto.workstation_id,COALESCE(pto.workstation_capacity_id,0),
+		       pto.operation,pto.workstation,COALESCE(pto.workstation_capacity_name,''),
+		       pto.default_equipment,pto.default_minutes,
+		       COALESCE(pto.batch_size_qty,0)::float8,
+		       COALESCE(pto.batch_size_unit,''),
+		       COALESCE(pto.standard_minutes,0),
+		       COALESCE(pto.hourly_rate,0)::float8,
+		       COALESCE(pto.planned_batch_count,0),
+		       COALESCE(pto.planned_minutes,0),
+		       COALESCE(pto.planned_operation_cost,0)::float8,
+		       pto.records_loss,
+		       COALESCE(pto.parameter_schema_json,'{}'::jsonb)::text,
+		       COALESCE(pto.quality_checklist_json,'[]'::jsonb)::text,
+		       COALESCE(mo.note,'')
+		FROM %s.process_template_operations pto
+		LEFT JOIN %s.manufacturing_operations mo ON mo.id=pto.operation_id
+		WHERE pto.template_id=$1
+		ORDER BY pto.seq, pto.id
+	`, schema, schema), snapshot.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "process_template_operations") {
 			return nil, nil, nil
@@ -1172,7 +1177,7 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON,
+			&op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON, &op.ProcessRequirement,
 		); err != nil {
 			return nil, nil, err
 		}

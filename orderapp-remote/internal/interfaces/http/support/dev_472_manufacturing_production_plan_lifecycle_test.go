@@ -49,8 +49,10 @@ func TestDev472ManufacturingProductionPlanLifecycleContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
 			"workOrderStatusOptions",
-			"startWorkOrder(row)",
-			"开始生产",
+			"执行枢纽",
+			"编辑拆分",
+			"打印",
+			"@updated=\"load\"",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "work-orders.js"): {
 			"draft",
@@ -60,11 +62,11 @@ func TestDev472ManufacturingProductionPlanLifecycleContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE",
-			"生产计划 -> 生产工单 -> 工序卡 -> 开始生产",
+			"生产计划 -> 生产工单 -> 工序卡 -> 执行枢纽开始生产",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE",
-			"重复开始生产",
+			"重复命令必须返回错误",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE",
@@ -85,6 +87,17 @@ func TestDev472ManufacturingProductionPlanLifecycleContracts(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-472 marker %q", rel, want)
 			}
+		}
+	}
+
+	workOrders := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue")))
+	template := workOrders
+	if idx := strings.Index(template, "<script setup>"); idx >= 0 {
+		template = template[:idx]
+	}
+	for _, forbidden := range []string{"startWorkOrder(row)", "openStockDocument(row, 'finish')"} {
+		if strings.Contains(template, forbidden) {
+			t.Fatalf("WorkOrdersView list must delegate lifecycle commands to execution hub and omit %q", forbidden)
 		}
 	}
 }

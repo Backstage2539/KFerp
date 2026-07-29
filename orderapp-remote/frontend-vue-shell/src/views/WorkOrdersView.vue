@@ -86,8 +86,6 @@
             <td class="row-actions">
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">执行枢纽</button>
               <button class="secondary compact" v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
-              <button class="primary compact" v-if="canStartWorkOrder(row)" @click="startWorkOrder(row)" :disabled="startingId === row.id">开始生产</button>
-              <button class="primary compact" v-if="canCompleteWorkOrder(row)" @click="openStockDocument(row, 'finish')">完工入库</button>
               <button class="secondary compact" @click="printWorkOrder(row)">打印</button>
             </td>
           </tr>
@@ -170,7 +168,8 @@
       :work-order-id="executionHub.workOrderId"
       :focus="executionHub.focus"
       :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, focus: executionHub.focus }"
-      @close="executionHub.open = false" />
+      @close="executionHub.open = false"
+      @updated="load" />
 
     <section v-if="printRow" class="print-sheet">
       <header class="print-head">
@@ -219,7 +218,7 @@ import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
-import { canCompleteWorkOrder, workOrderStatusLabel } from '../lib/manufacturing-execution'
+import { workOrderStatusLabel } from '../lib/manufacturing-execution'
 import {
   applicableOperationCapacities,
   buildOperationCapacityAutoSplits,
@@ -231,10 +230,8 @@ import {
 import {
   buildWorkOrderOperationSplitPayload,
   canEditWorkOrderSplits,
-  canStartWorkOrder,
   formatWorkOrderPlannedOutput,
   workOrderOperationSplitsEndpoint,
-  workOrderStartEndpoint,
   workOrderStatusOptions,
 } from '../lib/work-orders'
 
@@ -247,7 +244,6 @@ const rows = ref([])
 const workstationCapacities = ref([])
 const status = ref('')
 const loading = ref(false)
-const startingId = ref(0)
 const error = ref('')
 const printRow = ref(null)
 const workOrderSplitRow = ref(null)
@@ -616,27 +612,6 @@ function openExecutionHub(row, focus = 'summary') {
   executionHub.value = { open: true, workOrderId: id, focus }
 }
 
-function openStockDocument(row, action) {
-  const workOrderID = Number(row?.id || row?.work_order_id || 0)
-  if (!workOrderID) return
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
-    detail: {
-      key: 'stockOperations',
-      params: {
-        tab: 'stockEntries',
-        action,
-        work_order_id: workOrderID,
-        running_item_id: Number(row?.running_item_id || 0),
-        return_source: 'work_order',
-      },
-      returnNavigation: {
-        key: 'workOrders',
-        params: { work_order_id: workOrderID },
-      },
-    },
-  }))
-}
-
 async function saveWorkOrderOperationSplits() {
   const endpoint = workOrderOperationSplitsEndpoint(workOrderSplitRow.value)
   if (!endpoint) return
@@ -651,22 +626,6 @@ async function saveWorkOrderOperationSplits() {
     workOrderSplitError.value = err.message || '保存工单拆分失败'
   } finally {
     workOrderSplitSaving.value = false
-  }
-}
-
-async function startWorkOrder(row) {
-  const endpoint = workOrderStartEndpoint(row)
-  if (!endpoint) return
-  startingId.value = Number(row.id || 0)
-  error.value = ''
-  try {
-    await apiSend(endpoint, { body: {} })
-    status.value = 'running'
-    await load()
-  } catch (err) {
-    error.value = err.message || '开始生产失败'
-  } finally {
-    startingId.value = 0
   }
 }
 

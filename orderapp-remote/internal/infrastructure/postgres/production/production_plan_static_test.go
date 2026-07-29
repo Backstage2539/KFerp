@@ -7,6 +7,33 @@ import (
 	"testing"
 )
 
+func TestWorkOrderStartLeavesJobCardsPendingForWorkstationExecution(t *testing.T) {
+	src, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	if strings.Contains(text, "UPDATE %s.job_cards SET status='running'") {
+		t.Fatal("work order start must not start every job card; workstation owns each operation start")
+	}
+}
+
+func TestPendingJobCardsDoNotPretendTheyAlreadyStarted(t *testing.T) {
+	src, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, forbidden := range []string{
+		"status,started_at,operator,planned_input_qty",
+		"'pending',now()",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("pending job cards must leave start time empty until the workstation starts them; found %q", forbidden)
+		}
+	}
+}
+
 func TestProductionPlanCreateAllowsDefaultInputForSelectedRows(t *testing.T) {
 	src, err := os.ReadFile("production_plan.go")
 	if err != nil {

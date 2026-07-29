@@ -3,9 +3,13 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
   navItemsWithProductionBadges,
+  productionCompletionMetrics,
+  productionCompletionOutputQty,
   productionTaskActionEndpoint,
+  productionTaskActionErrorMessage,
   productionTopNavItems,
   stockOperationContextParams,
+  workstationVisibleActions,
   workstationTaskSections,
 } from './production-workstation.js'
 
@@ -80,6 +84,49 @@ test('production task action endpoints stay aligned with workstation action butt
   assert.equal(productionTaskActionEndpoint({ job_card_id: 91 }, 'unknown'), '')
 })
 
+test('production task action failures are explained in Chinese without changing the server state locally', () => {
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('invalid job card status transition: running -> resume'), 'resume'),
+    '当前工序状态不允许继续，请刷新后按最新状态操作',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('job card not found'), 'pause'),
+    '工序卡不存在或已失效，请刷新后重试',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('invalid job card action resume from running'), 'resume'),
+    '当前工序状态不允许继续，请刷新后按最新状态操作',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('work order must be running before job card start'), 'start'),
+    '请先从工单执行枢纽开始生产，再在工位开始本工序',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('permission denied'), 'complete'),
+    '当前账号没有执行此操作的权限，请联系管理员',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('work order must be released'), 'start'),
+    '工单必须先下达后才能执行工序',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('work order is not running'), 'resume'),
+    '工单尚未开始生产，请先从执行枢纽开始生产',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('actual input and output quantity invalid'), 'complete'),
+    '实际投入或实际产出数量不正确，请检查后重试',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('实际产出和成品件数只能填写一项'), 'complete'),
+    '实际产出和成品件数只能填写一项',
+  )
+  assert.equal(
+    productionTaskActionErrorMessage(new Error('network unavailable'), 'pause'),
+    '暂停失败，请稍后重试；如持续失败请联系管理员',
+  )
+})
+
 test('production top nav renders count badges for high-frequency production views', () => {
   const items = navItemsWithProductionBadges(productionTopNavItems, {
     productionOverview: { pending: 2, blocked: 1, running: 3 },
@@ -136,7 +183,127 @@ test('workstation action buttons reveal their forms inside the clicked task row'
   assert.match(source, /function isIssuePanelForTask\(task\)/)
   assert.match(source, /function isFinishPanelForTask\(task\)/)
   assert.match(source, /function openIssue\(task, mode\) \{[\s\S]*finishPanel\.open = false/)
-  assert.match(source, /function openFinishPanel\(task, mode\) \{[\s\S]*issue\.open = false/)
+  assert.match(source, /function openFinishPanel\(task\) \{[\s\S]*issue\.open = false/)
   assert.doesNotMatch(source, /<section v-if="issue\.open" class="panel action-panel">/)
   assert.doesNotMatch(source, /<section v-if="finishPanel\.open" class="panel action-panel">/)
+})
+
+test('workstation is the only job-card execution surface and completes with actual records in one submission', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /:disabled="Boolean\(busyKey\) \|\| loading"/)
+  assert.match(source, /工序要求：\{\{ task\.process_requirement \|\| '按冻结工艺路线执行' \}\}/)
+  for (const field of [
+    'finishPanel.actual_minutes',
+    'finishPanel.actual_input_qty',
+    'finishPanel.actual_output_qty',
+    'finishPanel.leftover_qty',
+    'finishPanel.loss_reason',
+    'finishPanel.exception_reason',
+  ]) {
+    assert.match(source, new RegExp(field.replace('.', '\\.')))
+  }
+  assert.match(source, /actual_minutes: Number\(finishPanel\.actual_minutes/)
+  assert.match(source, /actual_input_qty: Number\(finishPanel\.actual_input_qty/)
+  assert.match(source, /actual_output_qty: actualOutputQty/)
+  assert.match(source, /task\.planned_input_inventory_qty/)
+  assert.match(source, /inventory_qty_per_sales_unit/)
+  assert.match(source, /finishPanel\.inventory_unit/)
+  assert.match(source, /loss_reason: finishPanel\.loss_reason/)
+  assert.match(source, /exception_reason: finishPanel\.exception_reason/)
+  assert.match(source, /productionCompletionMetrics/)
+  assert.match(source, /实际投入（\{\{ finishPanel\.inventory_unit \|\| '-' \}\}）/)
+  assert.match(source, /实际产出（\{\{ finishPanel\.inventory_unit \|\| '-' \}\}）/)
+  assert.doesNotMatch(source, /Number\(finishPanel\.finished_loose_g \|\| 0\)[\s\S]*actualOutputG/)
+  assert.doesNotMatch(source, /finishRunningProduction/)
+  assert.doesNotMatch(source, /partial_finish/)
+})
+
+test('workstation entry focuses the requested task instead of reopening the execution hub', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /focus === 'workstation_task'/)
+  assert.match(source, /requestedJobCardID/)
+  assert.match(source, /selectedWorkstation\.value = matchedTask\.workstation/)
+  assert.match(source, /:class="\{ focused: isRequestedTask\(task\) \}"/)
+  assert.match(source, /load\(\{ focusRequested: true \}\)/)
+  assert.match(source, /if \(options\?\.focusRequested === true\) focusRequestedTask\(\)/)
+  assert.doesNotMatch(source, /^\s*focusRequestedTask\(\)\s*$/m)
+  assert.doesNotMatch(source, /if \(id > 0\) \{\s*executionHub\.workOrderId = id/s)
+})
+
+test('workstation completion keeps input and output in the frozen inventory unit', () => {
+  assert.equal(productionCompletionOutputQty({
+    actualOutputQty: 0,
+    finishedUnits: 14,
+    inventoryQtyPerSalesUnit: 0.454,
+  }), 6.356)
+  assert.equal(productionCompletionOutputQty({
+    actualOutputQty: 6.2,
+    finishedUnits: 0,
+    inventoryQtyPerSalesUnit: 0.454,
+  }), 6.2)
+  assert.throws(
+    () => productionCompletionOutputQty({
+      actualOutputQty: 6.2,
+      finishedUnits: 14,
+      inventoryQtyPerSalesUnit: 0.454,
+    }),
+    /实际产出和成品件数只能填写一项/,
+  )
+  assert.throws(
+    () => productionCompletionOutputQty({
+      actualOutputQty: 0,
+      finishedUnits: 0,
+      inventoryQtyPerSalesUnit: 0.454,
+    }),
+    /请填写实际产出或成品件数/,
+  )
+  assert.throws(
+    () => productionCompletionOutputQty({
+      actualOutputQty: 0,
+      finishedUnits: 14,
+      inventoryQtyPerSalesUnit: 0,
+    }),
+    /缺少库存单位换算/,
+  )
+  assert.throws(
+    () => productionCompletionOutputQty({
+      actualOutputQty: 0,
+      finishedUnits: 14.5,
+      inventoryQtyPerSalesUnit: 0.454,
+    }),
+    /成品件数必须为整数/,
+  )
+})
+
+test('workstation completion freezes inventory-unit interpretation and hides legacy partial finish', () => {
+  assert.deepEqual(productionCompletionMetrics({
+    inventoryUnit: 'Kg',
+    leftoverQty: 0.2,
+    note: '包装抽检',
+    warehouse: 'finished_goods',
+    finishedUnits: 14,
+  }), {
+    quantity_basis: 'inventory_unit',
+    inventory_unit: 'Kg',
+    leftover_qty: 0.2,
+    note: '包装抽检',
+    warehouse: 'finished_goods',
+    finished_units: 14,
+  })
+  assert.deepEqual(workstationVisibleActions({
+    available_actions: ['pause', 'complete', 'partial_finish', 'report_exception', 'material_call'],
+  }), ['pause', 'complete', 'report_exception', 'material_call'])
+})
+
+test('workstation distinguishes a submitted command whose state refresh failed', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /const refreshed = await load\(\)/)
+  assert.match(source, /if \(!refreshed\)/)
+  assert.match(source, /已提交，但状态刷新失败，请手动刷新/)
+  assert.match(source, /return true/)
+  assert.match(source, /return false/)
+  assert.doesNotMatch(source, /await load\(\)\s*\n\s*message\.value = `\$\{actionLabel\(action\)\}成功`/)
 })

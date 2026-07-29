@@ -1255,6 +1255,16 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 0)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 0)
 
+	productionSvc := productionapp.NewService(repo)
+	if _, err := productionSvc.StartJobCard(ctx, productionapp.JobCardActionCommand{
+		ID: submitted.JobCards[0].ID, Operator: "绕过执行枢纽",
+	}); err == nil || !strings.Contains(err.Error(), "work order must be running before job card start") {
+		t.Fatalf("StartJobCard before work order start err=%v, want work order running guard", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='pending'", submitted.JobCards[0].ID), 1)
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='pending' AND started_at IS NULL", submitted.JobCards[0].ID), 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='job_card' AND entity_id=%d", submitted.JobCards[0].ID), 0)
+
 	started, err := repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "开工员"})
 	if err != nil {
 		t.Fatalf("StartWorkOrder: %v", err)
@@ -1264,8 +1274,46 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 1)
 	assertProductionFlowCount(t, pool, schema, "work_orders", "status='running' AND running_item_id > 0", 1)
-	assertProductionFlowCount(t, pool, schema, "job_cards", "status='running'", 2)
+	assertProductionFlowCount(t, pool, schema, "job_cards", "status='pending'", 2)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "status='reserved' AND running_item_id > 0", 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='work_order' AND entity_id=%d AND action='start'", workOrder.ID), 1)
+
+	jobCardID := submitted.JobCards[0].ID
+	jobCardStarted, err := productionSvc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: jobCardID, Operator: "工位操作员"})
+	if err != nil || jobCardStarted.JobCard.Status != "running" {
+		t.Fatalf("StartJobCard after work order start result=%+v err=%v, want running", jobCardStarted, err)
+	}
+	jobCardPaused, err := productionSvc.PauseJobCard(ctx, productionapp.JobCardActionCommand{ID: jobCardID, Operator: "工位操作员", ExceptionReason: "设备检查"})
+	if err != nil || jobCardPaused.JobCard.Status != "paused" {
+		t.Fatalf("PauseJobCard result=%+v err=%v, want paused", jobCardPaused, err)
+	}
+	jobCardResumed, err := productionSvc.ResumeJobCard(ctx, productionapp.JobCardActionCommand{ID: jobCardID, Operator: "工位操作员"})
+	if err != nil || jobCardResumed.JobCard.Status != "running" {
+		t.Fatalf("ResumeJobCard result=%+v err=%v, want running", jobCardResumed, err)
+	}
+	jobCardCompleted, err := productionSvc.CompleteJobCard(ctx, productionapp.JobCardActionCommand{
+		ID: jobCardID, Operator: "工位操作员",
+		ActualInputQty: 600, ActualOutputQty: 540, ActualMinutes: 45,
+		LossReason: "正常损耗", ExceptionReason: "无异常",
+	})
+	if err != nil || jobCardCompleted.JobCard.Status != "completed" {
+		t.Fatalf("CompleteJobCard result=%+v err=%v, want completed", jobCardCompleted, err)
+	}
+	if _, err := productionSvc.CompleteJobCard(ctx, productionapp.JobCardActionCommand{
+		ID: jobCardID, Operator: "重复完成人",
+		ActualInputQty: 600, ActualOutputQty: 540, ActualMinutes: 45,
+	}); err == nil || !strings.Contains(err.Error(), "invalid job card action") {
+		t.Fatalf("duplicate CompleteJobCard err=%v, want invalid transition", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf(
+		"id=%d AND status='completed' AND actual_minutes=45 AND actual_input_qty=600 AND actual_output_qty=540 AND actual_loss_qty=60 AND actual_loss_rate=0.1 AND started_at IS NOT NULL AND paused_at IS NOT NULL AND resumed_at IS NOT NULL AND completed_at IS NOT NULL",
+		jobCardID,
+	), 1)
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='pending'", submitted.JobCards[1].ID), 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf(
+		"entity_type='job_card' AND entity_id=%d AND action IN ('start','pause','resume','complete')",
+		jobCardID,
+	), 4)
 
 	_, err = repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "重复开工员"})
 	if err == nil || !strings.Contains(err.Error(), "already started") {
@@ -1604,7 +1652,7 @@ func TestLegacyProduceStartAPIUsesTemporaryPlanAndStillStartsProduction(t *testi
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", "product_id=1 AND planned_g=600", 1)
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 1)
 	assertProductionFlowCount(t, pool, schema, "work_orders", "status='running' AND running_item_id > 0", 1)
-	assertProductionFlowCount(t, pool, schema, "job_cards", "status='running' AND operation IN ('烘焙','包装')", 2)
+	assertProductionFlowCount(t, pool, schema, "job_cards", "status='pending' AND operation IN ('烘焙','包装')", 2)
 }
 
 func TestProduceStartAPIRejectsEmptySelectionWithoutOpeningWork(t *testing.T) {

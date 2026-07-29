@@ -590,7 +590,7 @@ func TestProductionWorkstationOverviewAPIAndStationActions(t *testing.T) {
 		`"current_task":"包装 / 桂花乌龙"`,
 		`"next_handler":"现场主管"`,
 		`"blocking_reason":"包材未到位"`,
-		`"available_actions":["pause","complete","partial_finish","report_exception","material_call"]`,
+		`"available_actions":["pause","complete","report_exception","material_call"]`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("overview response missing %s: %s", want, rec.Body.String())

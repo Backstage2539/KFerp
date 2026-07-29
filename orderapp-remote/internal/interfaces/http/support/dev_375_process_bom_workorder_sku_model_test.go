@@ -57,9 +57,12 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"字段定义",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"): {
+			"工序要求",
 			"实际分钟",
 			"实际损耗",
-			"保存实际",
+			"损耗原因",
+			"进入工位",
+			"执行枢纽",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
 			"v-model=\"status\"",
@@ -90,6 +93,22 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			t.Fatalf("WorkOrdersView.vue should not keep removed BOM demand preview marker %q", unwanted)
 		}
 	}
+
+	jobCards := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue")))
+	jobCardTemplate := jobCards
+	if idx := strings.Index(jobCardTemplate, "<script setup>"); idx >= 0 {
+		jobCardTemplate = jobCardTemplate[:idx]
+	}
+	for _, unwanted := range []string{"<input", "保存实际"} {
+		if strings.Contains(jobCardTemplate, unwanted) {
+			t.Fatalf("JobCardsView.vue must be a read-only record and omit %q", unwanted)
+		}
+	}
+	for _, unwanted := range []string{"runJobCardAction", "saveActuals"} {
+		if strings.Contains(jobCards, unwanted) {
+			t.Fatalf("JobCardsView.vue must delegate execution to workstation and omit %q", unwanted)
+		}
+	}
 }
 
 func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
@@ -97,7 +116,7 @@ func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL",
 			"BOM 是生产端主档案",
-			"工序卡记录实际工时",
+			"工序卡以只读方式记录实际工时",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL",
@@ -110,6 +129,7 @@ func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"工序卡",
+			"工位视图",
 			"实际损耗",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {

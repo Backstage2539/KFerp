@@ -320,6 +320,14 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "finance.write"
 	}
+	if strings.HasPrefix(path, "/api/production/") ||
+		strings.HasPrefix(path, "/api/job-cards/") ||
+		strings.HasPrefix(path, "/api/work-orders/") {
+		if method == http.MethodGet {
+			return "production.read"
+		}
+		return "production.run"
+	}
 	if strings.HasPrefix(path, "/api/produce/allocations") {
 		return "stock.read"
 	}

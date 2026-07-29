@@ -1693,10 +1693,13 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	if running.ReadinessDetail.CanStart || !running.ReadinessDetail.CanComplete || running.ReadinessDetail.SuggestedAction != "complete_job_card" || running.ReadinessDetail.Severity != "info" {
 		t.Fatalf("running task readiness detail = %+v", running.ReadinessDetail)
 	}
-	for _, action := range []string{"pause", "complete", "partial_finish", "report_exception", "material_call"} {
+	for _, action := range []string{"pause", "complete", "report_exception", "material_call"} {
 		if !stringSliceContains(running.AvailableActions, action) {
 			t.Fatalf("running task actions missing %s: %+v", action, running.AvailableActions)
 		}
+	}
+	if stringSliceContains(running.AvailableActions, "partial_finish") {
+		t.Fatalf("running task actions must not expose partial_finish: %+v", running.AvailableActions)
 	}
 	blocked := findProductionTask(overview.Tasks, 93)
 	if !blocked.IsBlocked || blocked.Readiness != "blocked" || blocked.ReadinessLabel != "不能做" || blocked.BlockingReason != "缺少生豆领料" || blocked.NextHandler != "现场主管" {
@@ -1708,9 +1711,14 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	if !relatedLinksContainView(blocked.ReadinessDetail.RelatedLinks, "stockOperations") {
 		t.Fatalf("blocked task links = %+v", blocked.ReadinessDetail.RelatedLinks)
 	}
-	for _, action := range []string{"resume", "complete", "report_exception", "material_call"} {
+	for _, action := range []string{"resume", "complete"} {
 		if !stringSliceContains(blocked.AvailableActions, action) {
 			t.Fatalf("blocked task actions missing %s: %+v", action, blocked.AvailableActions)
+		}
+	}
+	for _, forbidden := range []string{"start", "pause", "report_exception", "material_call"} {
+		if stringSliceContains(blocked.AvailableActions, forbidden) {
+			t.Fatalf("paused task actions must not include %s: %+v", forbidden, blocked.AvailableActions)
 		}
 	}
 }

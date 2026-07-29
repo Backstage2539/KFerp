@@ -112,17 +112,30 @@ function stockActionParams(hub = {}, extra = {}) {
 
 export function buildExecutionHubActions(hub = {}) {
   const wo = hubWorkOrder(hub)
+  const readiness = hub.readiness || {}
+  const startBlocked = readiness.can_start === false
+  const startReason = startBlocked
+    ? (readiness.blocking_reasons || []).map((row) => row?.label).find(Boolean) || '当前状态不可开始生产'
+    : ''
   return [
-    { key: 'startProduction', label: '开始生产', view: 'workOrders', params: actionParams(hub) },
-    { key: 'productionIssue', label: '生产领料', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'issue', return_source: 'work_order' }) },
-    { key: 'productionSupplement', label: '补料', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'supplement', return_source: 'work_order' }) },
-    { key: 'productionReturn', label: '退回未用原料', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'return', return_source: 'work_order' }) },
-    { key: 'productionConsume', label: '记录生产消耗', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'consume', return_source: 'work_order' }) },
-    { key: 'finishedReceipt', label: '完工入库', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'finish', return_source: 'work_order' }) },
-    { key: 'openJobCard', label: '打开工序卡', view: 'jobCards', params: actionParams(hub) },
-    { key: 'openQuality', label: '打开质检', view: 'qualityInspections', params: actionParams(hub, { reference_no: wo.work_order_no }) },
-    { key: 'openCost', label: '成本', view: 'productionCosts', params: actionParams(hub) },
-    { key: 'openLogs', label: '日志', view: 'produceLogs', params: actionParams(hub) },
+    {
+      key: 'startProduction',
+      label: '开始生产',
+      action_type: 'command',
+      endpoint: wo.id ? `/api/produce/work-orders/${wo.id}/start` : '',
+      params: actionParams(hub),
+      disabled: startBlocked || !wo.id,
+      reason: startReason,
+    },
+    { key: 'productionIssue', label: '生产领料', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'issue', return_source: 'work_order' }) },
+    { key: 'productionSupplement', label: '补料', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'supplement', return_source: 'work_order' }) },
+    { key: 'productionReturn', label: '退回未用原料', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'return', return_source: 'work_order' }) },
+    { key: 'productionConsume', label: '记录生产消耗', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'consume', return_source: 'work_order' }) },
+    { key: 'finishedReceipt', label: '完工入库', action_type: 'navigate', view: 'stockOperations', params: stockActionParams(hub, { tab: 'stockEntries', action: 'finish', return_source: 'work_order' }) },
+    { key: 'openJobCard', label: '打开工序卡', action_type: 'navigate', view: 'jobCards', params: actionParams(hub) },
+    { key: 'openQuality', label: '打开质检', action_type: 'navigate', view: 'qualityInspections', params: actionParams(hub, { reference_no: wo.work_order_no }) },
+    { key: 'openCost', label: '成本', action_type: 'navigate', view: 'productionCosts', params: actionParams(hub) },
+    { key: 'openLogs', label: '日志', action_type: 'navigate', view: 'produceLogs', params: actionParams(hub) },
   ]
 }
 
@@ -147,6 +160,49 @@ export function readinessBadgeTone(readiness = {}) {
   if (readiness.severity === 'warning') return 'warning'
   if (readiness.can_start || readiness.can_complete || readiness.severity === 'ready') return 'success'
   return 'neutral'
+}
+
+export function executionHubCommandErrorMessage(error, action = {}) {
+  const raw = String(error?.message || '').trim()
+  const normalized = raw.toLowerCase()
+  const label = String(action?.label || '操作').trim() || '操作'
+  if (
+    normalized.includes('permission denied')
+    || normalized.includes('forbidden')
+    || normalized.includes('unauthorized')
+  ) {
+    return '当前账号没有执行此操作的权限，请联系管理员'
+  }
+  if (normalized.includes('wip') && (normalized.includes('insufficient') || normalized.includes('shortage'))) {
+    return 'WIP库存不足，补足物料后再开始生产'
+  }
+  if (normalized.includes('not found')) return '生产工单不存在或已失效，请刷新后重试'
+  if (normalized.includes('work order must be released')) return '工单必须先下达后才能开始生产'
+  if (
+    normalized.includes('work order must be running')
+    || normalized.includes('work order is not running')
+  ) {
+    return '工单尚未开始生产，请先从执行枢纽开始生产'
+  }
+  if (
+    normalized.includes('actual input')
+    || normalized.includes('actual output')
+    || normalized.includes('input/output')
+    || normalized.includes('input and output')
+  ) {
+    return '实际投入或实际产出数量不正确，请检查后重试'
+  }
+  if (normalized.includes('quantity') || normalized.includes('qty')) {
+    return '数量不正确，请检查后重试'
+  }
+  if (
+    normalized.includes('status')
+    || normalized.includes('already started')
+    || normalized.includes('cannot start')
+  ) {
+    return '当前工单状态不允许开始生产，请刷新后按最新状态操作'
+  }
+  return `${label}失败，请稍后重试；如持续失败请联系管理员`
 }
 
 export function buildExecutionHubFocus(params = {}) {
