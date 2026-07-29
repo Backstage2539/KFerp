@@ -51,18 +51,23 @@ func TestDev490JobCardBatchCardsContracts(t *testing.T) {
 	if idx := strings.Index(jobCardsTemplate, "<script setup>"); idx >= 0 {
 		jobCardsTemplate = jobCardsTemplate[:idx]
 	}
-	for _, forbidden := range []string{"计划投入", "实际投入", "实际产出", `v-model.number="draftFor(row).planned_input_qty"`, `v-model.number="draftFor(row).actual_input_qty"`, `v-model.number="draftFor(row).actual_output_qty"`} {
+	for _, forbidden := range []string{"计划投入", "实际投入", "实际产出", `v-model.number="draftFor(row).planned_input_qty"`, `v-model.number="draftFor(row).actual_input_qty"`, `v-model.number="draftFor(row).actual_output_qty"`, "<input", "保存实际"} {
 		if strings.Contains(jobCardsTemplate, forbidden) {
 			t.Fatalf("JobCardsView template must not expose %s", forbidden)
 		}
 	}
-	for _, marker := range []string{"实际分钟", "实际工序成本", "实际损耗", "损耗原因", "保存实际"} {
+	for _, marker := range []string{"工序要求", "实际分钟", "实际工序成本", "实际损耗", "损耗原因", "异常原因", "进入工位", "执行枢纽"} {
 		if !strings.Contains(jobCardsTemplate, marker) {
 			t.Fatalf("JobCardsView template missing %s", marker)
 		}
 	}
-	if !strings.Contains(contents["workOrdersTest"], "job card main table hides coffee-specific input and output quantity columns") {
-		t.Fatal("work-orders.test missing job card generic actuals contract")
+	for _, forbidden := range []string{"runJobCardAction", "saveActuals"} {
+		if strings.Contains(contents["jobCardsView"], forbidden) {
+			t.Fatalf("JobCardsView must delegate execution to workstation and omit %s", forbidden)
+		}
+	}
+	if !strings.Contains(contents["workOrdersTest"], "job card main table is a read-only execution record") {
+		t.Fatal("work-orders.test missing read-only job card contract")
 	}
 
 	for _, key := range []string{"requirements", "acceptance", "manual", "evidence"} {

@@ -11,8 +11,9 @@
       </div>
 
       <div v-if="loading" class="notice">加载中</div>
-      <div v-else-if="error" class="error">{{ error }}</div>
       <template v-else>
+        <div v-if="message" class="notice">{{ message }}</div>
+        <div v-if="error" class="error">{{ error }}</div>
         <section class="summary-grid">
           <div><span>工单状态</span><strong>{{ header.status || '-' }}</strong></div>
           <div><span>BOM / 路线</span><strong>{{ hub.bom_summary || '-' }}</strong><small>{{ hub.route_summary || '-' }}</small></div>
@@ -43,10 +44,10 @@
             v-for="action in contextActions"
             :key="action.key"
             type="button"
-            :disabled="action.disabled"
+            :disabled="action.disabled || Boolean(actionBusyKey)"
             :class="{ primary: action.key === readiness.suggested_action || action.key === 'productionIssue' }"
             :title="action.reason || action.label"
-            @click="navigate(action)">
+            @click="runAction(action)">
             {{ action.label }}
           </button>
         </section>
@@ -65,7 +66,14 @@
             </div>
             <p v-else>需求 {{ formatG(wipStatus.required_g) }} · 可用 {{ formatG(wipStatus.available_g ?? wipStatus.reserved_g) }} · 缺口 {{ formatG(wipStatus.shortage_g) }}</p>
             <small v-if="wipStatus.blocking_reason">{{ wipStatus.blocking_reason }}</small>
-            <button v-if="wipHasShortage && productionIssueAction" class="primary compact issue-action" type="button" @click="navigate(productionIssueAction)">生产领料</button>
+            <button
+              v-if="wipHasShortage && productionIssueAction"
+              class="primary compact issue-action"
+              type="button"
+              :disabled="productionIssueAction.disabled || Boolean(actionBusyKey)"
+              @click="runAction(productionIssueAction)">
+              生产领料
+            </button>
           </article>
           <article>
             <div class="section-title">质检状态</div>
@@ -118,10 +126,11 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { apiGet } from '../api/client'
+import { apiGet, apiSend } from '../api/client'
 import {
   buildExecutionHubActions,
   buildExecutionHubFocus,
+  executionHubCommandErrorMessage,
   executionHubTimelineFilters,
   filterExecutionHubTimeline,
   readinessBadgeTone,
@@ -134,10 +143,12 @@ const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
 })
 
-defineEmits(['close'])
+const emit = defineEmits(['close', 'updated'])
 
 const loading = ref(false)
+const actionBusyKey = ref('')
 const error = ref('')
+const message = ref('')
 const detail = ref({})
 const timelineFilter = ref('all')
 const filters = executionHubTimelineFilters()
@@ -160,12 +171,20 @@ const fallbackActions = computed(() => buildExecutionHubActions({ ...hub.value, 
 const contextActions = computed(() => {
   const actions = hub.value.context_actions?.length ? hub.value.context_actions : fallbackActions.value
   return actions.map((action) => {
+    const fallback = fallbackActions.value.find((row) => row.key === action.key) || {}
     let params = action.params || {}
     if (action.view === 'stockOperations') {
-      params = { ...(fallbackActions.value.find((fallback) => fallback.key === action.key)?.params || params) }
+      params = { ...(fallback.params || params) }
       if (focusState.value.section === 'job_card' && focusState.value.job_card_id) params.job_card_id = focusState.value.job_card_id
     }
-    return { ...action, params, disabled: Boolean(action.disabled) }
+    return {
+      ...action,
+      action_type: action.action_type || fallback.action_type || 'navigate',
+      endpoint: action.endpoint || fallback.endpoint || '',
+      view: action.view || fallback.view || '',
+      params,
+      disabled: Boolean(action.disabled),
+    }
   })
 })
 const productionIssueAction = computed(() => contextActions.value.find((action) => action.key === 'productionIssue'))
@@ -203,14 +222,47 @@ function navigate(action) {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key: action.view, params: action.params || {} } }))
 }
 
+async function runAction(action) {
+  if (!action || action.disabled || actionBusyKey.value) return
+  if (action.action_type === 'command') {
+    if (!action.endpoint) {
+      error.value = `${action.label || '操作'}缺少执行地址，请刷新后重试`
+      return
+    }
+    actionBusyKey.value = action.key || 'command'
+    error.value = ''
+    message.value = ''
+    try {
+      await apiSend(action.endpoint, { body: {} })
+      const refreshed = await load()
+      emit('updated', { action: action.key, work_order_id: props.workOrderId })
+      if (!refreshed) {
+        message.value = ''
+        error.value = `${action.label || '操作'}已提交，但状态刷新失败，请手动刷新`
+        return
+      }
+      message.value = `${action.label || '操作'}成功`
+    } catch (err) {
+      error.value = executionHubCommandErrorMessage(err, action)
+    } finally {
+      actionBusyKey.value = ''
+    }
+    return
+  }
+  navigate(action)
+}
+
 async function load() {
-  if (!props.open || !props.workOrderId) return
+  if (!props.open || !props.workOrderId) return false
   loading.value = true
   error.value = ''
+  message.value = ''
   try {
     detail.value = await apiGet(`/api/produce/work-orders/${props.workOrderId}`)
+    return true
   } catch (err) {
     error.value = err.message || '加载执行枢纽失败'
+    return false
   } finally {
     loading.value = false
   }

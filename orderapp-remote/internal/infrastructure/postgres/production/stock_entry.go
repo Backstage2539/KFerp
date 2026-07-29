@@ -255,12 +255,39 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var workOrderID int64
-	var currentStatus string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id,status FROM %s.job_cards WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&workOrderID, &currentStatus); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&workOrderID); err != nil {
 		if err == pgx.ErrNoRows {
 			return productionapp.JobCardActionResult{}, fmt.Errorf("job card not found")
 		}
 		return productionapp.JobCardActionResult{}, err
+	}
+	var workOrderStatus string
+	var runningItemID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT status,COALESCE(running_item_id,0)
+		FROM %s.work_orders
+		WHERE id=$1
+		FOR UPDATE
+	`, r.schema), workOrderID).Scan(&workOrderStatus, &runningItemID); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.JobCardActionResult{}, fmt.Errorf("work order not found for job card")
+		}
+		return productionapp.JobCardActionResult{}, err
+	}
+	var currentStatus string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT status
+		FROM %s.job_cards
+		WHERE id=$1 AND work_order_id=$2
+		FOR UPDATE
+	`, r.schema), cmd.ID, workOrderID).Scan(&currentStatus); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.JobCardActionResult{}, fmt.Errorf("job card not found")
+		}
+		return productionapp.JobCardActionResult{}, err
+	}
+	if cmd.Action == "start" && !jobCardStartAllowedForWorkOrder(workOrderStatus, runningItemID) {
+		return productionapp.JobCardActionResult{}, fmt.Errorf("work order must be running before job card start")
 	}
 	if !validJobCardTransition(currentStatus, cmd.Action) {
 		return productionapp.JobCardActionResult{}, fmt.Errorf("invalid job card action %s from %s", cmd.Action, currentStatus)
@@ -307,7 +334,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	if err := updateWorkOrderStatusFromJobCardsTx(ctx, tx, r.schema, workOrderID); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "loss_reason": cmd.LossReason}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "loss_reason": cmd.LossReason, "exception_reason": cmd.ExceptionReason}); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
 	card, err := loadJobCardRowTx(ctx, tx, r.schema, cmd.ID)
@@ -396,6 +423,18 @@ func validJobCardTransition(current, action string) bool {
 		return current == "paused"
 	case "complete":
 		return current == "running" || current == "paused"
+	default:
+		return false
+	}
+}
+
+func jobCardStartAllowedForWorkOrder(status string, runningItemID int64) bool {
+	if runningItemID <= 0 {
+		return false
+	}
+	switch strings.TrimSpace(status) {
+	case "running", "partially_completed":
+		return true
 	default:
 		return false
 	}

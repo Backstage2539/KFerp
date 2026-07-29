@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   buildExecutionHubActions,
   buildExecutionHubFocus,
+  executionHubCommandErrorMessage,
   executionHubTimelineFilters,
   filterExecutionHubTimeline,
   inventoryUnitWeightInGrams,
@@ -25,20 +26,67 @@ test('execution hub actions carry production context to work order, WIP, job car
       related_links: [{ key: 'wip', label: '处理 WIP', view: 'stockOperations', params: { tab: 'wip', shortage_g: 1200 } }],
     },
   }
-  const actions = buildExecutionHubActions(hub).map((action) => [action.key, action.label, action.view, action.params])
+  const actions = buildExecutionHubActions(hub).map((action) => [
+    action.key,
+    action.label,
+    action.action_type,
+    action.endpoint || '',
+    action.view || '',
+    action.params,
+  ])
 
   assert.deepEqual(actions.slice(0, 10), [
-    ['startProduction', '开始生产', 'workOrders', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['productionIssue', '生产领料', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['productionSupplement', '补料', 'stockOperations', { tab: 'stockEntries', action: 'supplement', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['productionReturn', '退回未用原料', 'stockOperations', { tab: 'stockEntries', action: 'return', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['productionConsume', '记录生产消耗', 'stockOperations', { tab: 'stockEntries', action: 'consume', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['finishedReceipt', '完工入库', 'stockOperations', { tab: 'stockEntries', action: 'finish', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
-    ['openJobCard', '打开工序卡', 'jobCards', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['openQuality', '打开质检', 'qualityInspections', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', reference_no: 'WO-00088' }],
-    ['openCost', '成本', 'productionCosts', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
-    ['openLogs', '日志', 'produceLogs', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['startProduction', '开始生产', 'command', '/api/produce/work-orders/88/start', '', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['productionIssue', '生产领料', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['productionSupplement', '补料', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'supplement', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['productionReturn', '退回未用原料', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'return', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['productionConsume', '记录生产消耗', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'consume', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['finishedReceipt', '完工入库', 'navigate', '', 'stockOperations', { tab: 'stockEntries', action: 'finish', return_source: 'work_order', work_order_id: 88, work_order_no: 'WO-00088', batch_id: 'BATCH-WO-88' }],
+    ['openJobCard', '打开工序卡', 'navigate', '', 'jobCards', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['openQuality', '打开质检', 'navigate', '', 'qualityInspections', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88', reference_no: 'WO-00088' }],
+    ['openCost', '成本', 'navigate', '', 'productionCosts', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
+    ['openLogs', '日志', 'navigate', '', 'produceLogs', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
   ])
+})
+
+test('execution hub runs command actions in place and refreshes without navigating away', () => {
+  const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+
+  assert.match(drawerSource, /import \{ apiGet, apiSend \}/)
+  assert.match(drawerSource, /action\.action_type === 'command'/)
+  assert.match(drawerSource, /await apiSend\(action\.endpoint/)
+  assert.match(drawerSource, /const refreshed = await load\(\)/)
+  assert.match(drawerSource, /if \(!refreshed\)/)
+  assert.match(drawerSource, /已提交，但状态刷新失败，请手动刷新/)
+  assert.match(drawerSource, /return true/)
+  assert.match(drawerSource, /return false/)
+  assert.match(drawerSource, /emit\('updated'/)
+  assert.match(drawerSource, /:disabled="action\.disabled \|\| Boolean\(actionBusyKey\)"/)
+  assert.doesNotMatch(drawerSource, /@click="navigate\(action\)"/)
+})
+
+test('execution hub command failures stay Chinese and do not expose backend English errors', () => {
+  const action = { label: '开始生产' }
+  assert.equal(
+    executionHubCommandErrorMessage(new Error('permission denied'), action),
+    '当前账号没有执行此操作的权限，请联系管理员',
+  )
+  assert.equal(
+    executionHubCommandErrorMessage(new Error('work order must be released before start'), action),
+    '工单必须先下达后才能开始生产',
+  )
+  assert.equal(
+    executionHubCommandErrorMessage(new Error('work order must be running'), action),
+    '工单尚未开始生产，请先从执行枢纽开始生产',
+  )
+  assert.equal(
+    executionHubCommandErrorMessage(new Error('actual input/output quantity invalid'), action),
+    '实际投入或实际产出数量不正确，请检查后重试',
+  )
+  assert.equal(
+    executionHubCommandErrorMessage(new Error('unexpected backend failure'), action),
+    '开始生产失败，请稍后重试；如持续失败请联系管理员',
+  )
 })
 
 test('execution hub readiness and timeline helpers expose filters and focused areas', () => {

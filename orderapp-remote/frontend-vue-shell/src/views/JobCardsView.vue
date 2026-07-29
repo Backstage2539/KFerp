@@ -23,12 +23,12 @@
       <table>
         <thead>
           <tr>
-            <th>ID</th>
             <th>工单</th>
             <th>商品</th>
             <th>BOM/配方</th>
             <th>顺序</th>
             <th>工序</th>
+            <th>工序要求</th>
             <th>工位</th>
             <th>工位产能</th>
             <th>状态</th>
@@ -39,110 +39,66 @@
             <th>实际损耗</th>
             <th>损耗原因</th>
             <th>异常原因</th>
-            <th>开始</th>
-            <th>暂停/继续</th>
-            <th>完成</th>
+            <th>开始时间</th>
+            <th>暂停时间</th>
+            <th>继续时间</th>
+            <th>完成时间</th>
             <th>操作人</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
-            <td>#{{ row.id }}</td>
-            <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'job_card')">{{ row.work_order_no || `#${row.work_order_id}` }}</button></td>
+            <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'job_card')">{{ row.work_order_no || '工单号缺失' }}</button></td>
             <td>{{ row.product_name || '-' }}</td>
             <td>{{ bomRecipeLabel(row) }}</td>
             <td>{{ row.sequence_no || 1 }}</td>
             <td>{{ operationLabel(row.operation) }}<small v-if="row.records_loss">记录损耗</small></td>
-            <td>{{ row.workstation }}</td>
+            <td class="requirement-cell">{{ row.process_requirement || '按冻结工艺路线执行' }}</td>
+            <td>{{ row.workstation || '-' }}</td>
             <td>{{ row.workstation_capacity_name || '-' }}</td>
             <td><span class="status" :class="statusBadgeClass(row.status)">{{ jobCardStatusLabel(row.status) }}</span></td>
             <td>{{ row.planned_minutes || 0 }}</td>
             <td>{{ money(row.planned_operation_cost) }}</td>
-            <td><input v-model.number="draftFor(row).actual_minutes" type="number" min="0" step="1" /></td>
-            <td>{{ actualOperationCost(row) }}</td>
+            <td>{{ row.actual_minutes || 0 }}</td>
+            <td>{{ money(row.actual_operation_cost) }}</td>
             <td>
               <strong>{{ qty(actualLossQty(row)) }}</strong>
               <small>{{ formatPercent(actualLossRate(row)) }}</small>
             </td>
-            <td><input v-model.trim="draftFor(row).loss_reason" placeholder="损耗原因" /></td>
-            <td><input v-model.trim="draftFor(row).exception_reason" placeholder="可选" /></td>
-            <td>{{ row.started_at }}</td>
-            <td>
-              <small>暂停 {{ row.paused_at || '-' }}</small>
-              <small>继续 {{ row.resumed_at || '-' }}</small>
-            </td>
+            <td>{{ row.loss_reason || '-' }}</td>
+            <td>{{ row.exception_reason || '-' }}</td>
+            <td>{{ row.started_at || '-' }}</td>
+            <td>{{ row.paused_at || '-' }}</td>
+            <td>{{ row.resumed_at || '-' }}</td>
             <td>{{ row.completed_at || '-' }}</td>
-            <td>{{ row.operator }}</td>
+            <td>{{ row.operator || '-' }}</td>
             <td class="row-actions">
-              <button class="primary compact" @click="runJobCardAction(row, 'start')" :disabled="!canRunJobCardAction(row, 'start') || loading">开始</button>
-              <button class="secondary compact" @click="runJobCardAction(row, 'pause')" :disabled="!canRunJobCardAction(row, 'pause') || loading">暂停</button>
-              <button class="secondary compact" @click="runJobCardAction(row, 'resume')" :disabled="!canRunJobCardAction(row, 'resume') || loading">继续</button>
-              <button class="primary compact" @click="runJobCardAction(row, 'complete')" :disabled="!canRunJobCardAction(row, 'complete') || loading">完成</button>
-              <button class="secondary compact" @click="saveActuals(row)" :disabled="loading">保存实际</button>
+              <button class="primary compact" type="button" @click="openWorkstation(row)">进入工位</button>
+              <button class="secondary compact" type="button" @click="openExecutionHub(row, 'job_card')">执行枢纽</button>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="21" class="muted">暂无工序卡</td></tr>
+          <tr v-if="!rows.length"><td colspan="22" class="muted">暂无工序卡</td></tr>
         </tbody>
       </table>
     </section>
-
-    <div v-if="workOrderDrawerRow" class="drawer-backdrop job-card-work-order-drawer" @click.self="closeJobCardWorkOrderDrawer">
-      <aside class="drawer">
-        <div class="drawer-head">
-          <h3>工单详情</h3>
-          <button class="secondary compact" type="button" @click="closeJobCardWorkOrderDrawer">关闭</button>
-        </div>
-        <dl class="detail-grid">
-          <div><dt>工单</dt><dd>{{ workOrderDrawerRow.work_order_no || `#${workOrderDrawerRow.work_order_id}` }}</dd></div>
-          <div><dt>商品</dt><dd>{{ workOrderDrawerRow.product_name || '-' }}</dd></div>
-          <div><dt>规格</dt><dd>{{ workOrderDrawerRow.spec_g || '-' }}g</dd></div>
-          <div><dt>订单号</dt><dd>{{ workOrderDrawerRow.order_nos || '-' }}</dd></div>
-          <div><dt>计划数量</dt><dd>{{ workOrderDrawerRow.planned_g || 0 }}g</dd></div>
-          <div><dt>计划产出</dt><dd>{{ workOrderDrawerRow.planned_output_g || 0 }}g</dd></div>
-          <div><dt>BOM/配方</dt><dd>{{ bomRecipeLabel(workOrderDrawerRow) }}</dd></div>
-          <div><dt>当前工序</dt><dd>{{ operationLabel(workOrderDrawerRow.operation) }}</dd></div>
-        </dl>
-        <section class="drawer-section">
-          <h4>配方物料</h4>
-          <table class="mini-table">
-            <thead>
-              <tr>
-                <th>物料</th>
-                <th>数量/比例</th>
-                <th>单位</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(item, index) in materialSnapshotRows(workOrderDrawerRow)" :key="`${item.material_id || item.id || index}-${item.material_name || item.name || index}`">
-                <td>{{ item.material_name || item.name || item.material || '-' }}</td>
-                <td>{{ materialQtyText(item) }}</td>
-                <td>{{ item.unit || item.material_unit || item.consume_unit || '-' }}</td>
-              </tr>
-              <tr v-if="!materialSnapshotRows(workOrderDrawerRow).length">
-                <td colspan="3" class="muted">暂无配方物料快照</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-      </aside>
-    </div>
 
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
       :work-order-id="executionHub.workOrderId"
       :focus="executionHub.focus"
       :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, job_card_id: executionHub.jobCardId, focus: executionHub.focus }"
-      @close="executionHub.open = false" />
+      @close="executionHub.open = false"
+      @updated="load" />
   </div>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue'
-import { apiGet, apiSend } from '../api/client'
+import { apiGet } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
-import { buildJobCardActionPayload, canRunJobCardAction, jobCardActionEndpoint, jobCardStatusLabel, jobCardStatusOptions } from '../lib/manufacturing-execution'
+import { jobCardStatusLabel, jobCardStatusOptions } from '../lib/manufacturing-execution'
 import { formatPercent } from '../lib/manufacturing-loss'
 
 const props = defineProps({
@@ -154,28 +110,8 @@ const rows = ref([])
 const status = ref('')
 const loading = ref(false)
 const error = ref('')
-const drafts = ref({})
-const workOrderDrawerRow = ref(null)
 const executionHub = ref({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
 const statusOptions = jobCardStatusOptions()
-
-function buildDraft(row) {
-  return {
-    planned_input_qty: Number(row.planned_input_qty || 0),
-    actual_input_qty: Number(row.actual_input_qty || 0),
-    actual_output_qty: Number(row.actual_output_qty || 0),
-    actual_minutes: Number(row.actual_minutes || 0),
-    loss_reason: row.loss_reason || '',
-    exception_reason: row.exception_reason || '',
-    metrics_json: row.metrics_json || '{}',
-  }
-}
-
-function draftFor(row) {
-  const id = String(row.id)
-  if (!drafts.value[id]) drafts.value[id] = buildDraft(row)
-  return drafts.value[id]
-}
 
 function qty(value) {
   const n = Number(value || 0)
@@ -194,54 +130,14 @@ function actualLossRate(row) {
   return Math.max(0, Number(row.actual_loss_rate || 0))
 }
 
-function actualOperationCost(row) {
-  const draft = draftFor(row)
-  const minutes = Number(draft.actual_minutes || 0)
-  const hourlyRate = Number(row.hourly_rate || 0)
-  if (minutes > 0 && hourlyRate > 0) return money((minutes / 60) * hourlyRate)
-  return money(row.actual_operation_cost || 0)
-}
-
 function operationLabel(operation) {
   if (operation === 'roast') return '生产'
   return operation || '-'
 }
 
-function parseJSONSnapshot(raw, fallback) {
-  if (raw && typeof raw === 'object') return raw
-  const text = String(raw || '').trim()
-  if (!text) return fallback
-  try {
-    return JSON.parse(text)
-  } catch {
-    return fallback
-  }
-}
-
 function bomRecipeLabel(row) {
   const bomID = Number(row?.bom_version_id || 0)
   return bomID > 0 ? `BOM版本 #${bomID}` : '默认 BOM/配方'
-}
-
-function materialSnapshotRows(row) {
-  const parsed = parseJSONSnapshot(row?.material_snapshot, [])
-  return Array.isArray(parsed) ? parsed : []
-}
-
-function materialQtyText(item) {
-  const qty = item.qty ?? item.qty_g ?? item.consume_qty ?? item.planned_qty ?? item.required_qty
-  if (qty !== undefined && qty !== null && String(qty) !== '') return String(qty)
-  const ratio = item.ratio_pct ?? item.ratio
-  if (ratio !== undefined && ratio !== null && String(ratio) !== '') return `${ratio}%`
-  return '-'
-}
-
-function openJobCardWorkOrderDrawer(row) {
-  openExecutionHub(row, 'job_card')
-}
-
-function closeJobCardWorkOrderDrawer() {
-  workOrderDrawerRow.value = null
 }
 
 function openExecutionHub(row, focus = 'job_card') {
@@ -255,6 +151,30 @@ function openExecutionHub(row, focus = 'job_card') {
   }
 }
 
+function openWorkstation(row) {
+  const workOrderID = Number(row?.work_order_id || 0)
+  const jobCardID = Number(row?.id || row?.job_card_id || 0)
+  if (!workOrderID || !jobCardID) return
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'workstationView',
+      params: {
+        work_order_id: workOrderID,
+        job_card_id: jobCardID,
+        focus: 'workstation_task',
+      },
+      returnNavigation: {
+        key: 'jobCards',
+        params: {
+          work_order_id: workOrderID,
+          job_card_id: jobCardID,
+          focus: 'job_card',
+        },
+      },
+    },
+  }))
+}
+
 function statusBadgeClass(statusValue) {
   return {
     pending: 'neutral',
@@ -266,16 +186,6 @@ function statusBadgeClass(statusValue) {
   }[String(statusValue || '').trim()] || 'neutral'
 }
 
-function metricsPayload(value) {
-  if (!value) return {}
-  if (typeof value === 'object') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return {}
-  }
-}
-
 async function load() {
   loading.value = true
   error.value = ''
@@ -284,50 +194,8 @@ async function load() {
     if (status.value) url.searchParams.set('status', status.value)
     const data = await apiGet(url)
     rows.value = data.rows || []
-    const next = {}
-    for (const row of rows.value) next[String(row.id)] = buildDraft(row)
-    drafts.value = next
   } catch (err) {
     error.value = err.message || '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function saveActuals(row) {
-  loading.value = true
-  error.value = ''
-  try {
-    const draft = draftFor(row)
-    await apiSend(`/api/produce/job-cards/${row.id}/actuals`, {
-      body: {
-        planned_input_qty: Number(draft.planned_input_qty || 0),
-        actual_input_qty: Number(draft.actual_input_qty || 0),
-        actual_output_qty: Number(draft.actual_output_qty || 0),
-        actual_minutes: Number(draft.actual_minutes || 0),
-        loss_reason: draft.loss_reason || '',
-        exception_reason: draft.exception_reason || '',
-        metrics_json: metricsPayload(draft.metrics_json),
-      },
-    })
-    await load()
-  } catch (err) {
-    error.value = err.message || '保存失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function runJobCardAction(row, action) {
-  const endpoint = jobCardActionEndpoint(row, action)
-  if (!endpoint) return
-  loading.value = true
-  error.value = ''
-  try {
-    await apiSend(endpoint, { body: buildJobCardActionPayload(draftFor(row)) })
-    await load()
-  } catch (err) {
-    error.value = err.message || '工序状态更新失败'
   } finally {
     loading.value = false
   }
@@ -342,5 +210,5 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button,input{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:600}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:260px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1420px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.24);z-index:30;display:flex;justify-content:flex-end}.drawer{width:min(520px,92vw);height:100%;background:#fff;border-left:1px solid #e5e7eb;padding:16px;overflow:auto;box-shadow:-10px 0 24px rgba(0,0,0,.14)}.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.drawer-head h3{margin:0;font-size:18px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}.detail-grid div{border:1px solid #f0f0f0;border-radius:8px;padding:8px}.detail-grid dt{font-size:12px;color:#6b7280}.detail-grid dd{margin:3px 0 0;color:#111}.drawer-section{margin-top:16px}.drawer-section h4{margin:0 0 8px}.mini-table{min-width:0}.mini-table th,.mini-table td{font-size:12px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button{font:inherit;min-height:36px;border-radius:6px}select{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:600}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:170px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1880px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.requirement-cell{min-width:190px;max-width:280px;white-space:normal;line-height:1.45}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}
 </style>

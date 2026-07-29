@@ -22,9 +22,19 @@ test('work orders display frozen route operations from process snapshot when no 
   assert.match(source, /workstation:\s*item\.workstation\s*\|\|\s*item\.workstation_name/)
   assert.match(source, /status:\s*item\.status\s*\|\|\s*'frozen'/)
   assert.match(source, /item\.workstation\s*\|\|\s*item\.workstation_name/)
-  assert.match(source, /开始生产/)
-  assert.match(source, /startWorkOrder\(row\)/)
-  assert.match(source, /workOrderStartEndpoint\(row\)/)
+})
+
+test('work order list keeps query actions only and delegates lifecycle commands to the execution hub', () => {
+  const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  const template = source.slice(0, source.indexOf('<script setup>'))
+  const rowActions = template.slice(template.indexOf('<td class="row-actions">'), template.indexOf('</td>', template.indexOf('<td class="row-actions">')) + 5)
+
+  for (const marker of ['执行枢纽', '编辑拆分', '打印']) assert.match(rowActions, new RegExp(marker))
+  for (const forbidden of ['开始生产', '完工入库', 'startWorkOrder(row)', "openStockDocument(row, 'finish')"]) {
+    assert.doesNotMatch(rowActions, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.match(source, /@updated="load"/)
+  assert.doesNotMatch(source, /async function startWorkOrder/)
 })
 
 test('work orders and job cards surface frozen workstation capacity time and operation cost', () => {
@@ -55,7 +65,7 @@ test('work orders and job cards surface frozen workstation capacity time and ope
   }
 })
 
-test('job card main table hides coffee-specific input and output quantity columns', () => {
+test('job card main table is a read-only execution record', () => {
   const source = fs.readFileSync(new URL('../views/JobCardsView.vue', import.meta.url), 'utf8')
   const template = source.slice(0, source.indexOf('<script setup>'))
 
@@ -66,6 +76,12 @@ test('job card main table hides coffee-specific input and output quantity column
     'v-model.number="draftFor(row).planned_input_qty"',
     'v-model.number="draftFor(row).actual_input_qty"',
     'v-model.number="draftFor(row).actual_output_qty"',
+    '<input',
+    '保存实际',
+    '>开始<',
+    '>暂停<',
+    '>继续<',
+    '>完成<',
   ]) {
     assert.doesNotMatch(template, new RegExp(forbidden))
   }
@@ -76,17 +92,23 @@ test('job card main table hides coffee-specific input and output quantity column
     '实际工序成本',
     '实际损耗',
     '损耗原因',
-    '保存实际',
+    '异常原因',
+    '工序要求',
+    '进入工位',
+    '执行枢纽',
   ]) {
     assert.match(template, new RegExp(required))
   }
 
-  assert.match(source, /planned_input_qty: Number\(draft\.planned_input_qty \|\| 0\)/)
-  assert.match(source, /actual_input_qty: Number\(draft\.actual_input_qty \|\| 0\)/)
-  assert.match(source, /actual_output_qty: Number\(draft\.actual_output_qty \|\| 0\)/)
+  assert.match(source, /row\.process_requirement \|\| '按冻结工艺路线执行'/)
+  assert.match(source, /function openWorkstation\(row\)/)
+  assert.match(source, /key: 'workstationView'/)
+  assert.match(source, /focus: 'workstation_task'/)
+  assert.doesNotMatch(source, /runJobCardAction/)
+  assert.doesNotMatch(source, /saveActuals/)
 })
 
-test('job cards show product and BOM recipe context with a work order drawer link', () => {
+test('job cards show product and BOM recipe context with execution navigation', () => {
   const source = fs.readFileSync(new URL('../views/JobCardsView.vue', import.meta.url), 'utf8')
   const template = source.slice(0, source.indexOf('<script setup>'))
 
@@ -94,18 +116,16 @@ test('job cards show product and BOM recipe context with a work order drawer lin
     '<th>商品</th>',
     '<th>BOM/配方</th>',
     'row.work_order_no',
-    'openJobCardWorkOrderDrawer',
-    'job-card-work-order-drawer',
-    '工单详情',
-    '配方物料',
-    'materialSnapshotRows',
-    'workOrderDrawerRow',
+    'openExecutionHub',
+    'openWorkstation',
     'bomRecipeLabel',
   ]) {
     assert.match(source, new RegExp(marker))
   }
   assert.match(template, /button class="link-button work-order-link"/)
   assert.match(template, /{{ row\.product_name \|\| '-' }}/)
+  assert.doesNotMatch(template, /#\{\{ row\.id \}\}/)
+  assert.doesNotMatch(source, /job-card-work-order-drawer/)
 })
 
 test('work order main table uses generic manufacturing columns instead of roasting advice', () => {

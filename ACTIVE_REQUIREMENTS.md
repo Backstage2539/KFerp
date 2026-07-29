@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-562-PRODUCTION-EXECUTION-JOB-CARD-CONSOLIDATION
+- Branch: codex/pr562-production-execution-entry
+- Owner/session: Codex / 2026-07-29
+- Status: green / ready to integrate
+- Scope: 工单级操作统一进入生产执行枢纽；工序卡收敛为只读执行记录；工序开始、暂停、继续、完成及实际数据统一在工位视图执行。
+- DEV:
+  - DEV-562-WORKORDER-EXECUTION-HUB-COMMAND：工单列表删除直接开工和完工入库；执行枢纽开始生产改为受 readiness 控制的原地命令，成功刷新、失败中文提示并防重复提交。
+  - DEV-562-JOB-CARD-READONLY-PROJECTION：工序卡删除状态按钮、编辑框和保存实际，展示冻结工序要求、实际记录、时间与操作人，并提供进入工位和执行枢纽。
+  - DEV-562-WORKSTATION-STATE-ACTUALS：工位严格按服务端 available_actions 执行状态闭环；完成本工序一次提交实际分钟、投入产出、余料、损耗与异常信息。
+  - DEV-562-DOCS-DELIVERY：更新生产手册、需求、验收、PR/DEV 记录，完成测试、合并、development 部署与只读冒烟。
+- Verifier:
+  - RED frontend: `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/work-orders.test.js src/lib/manufacturing-execution.test.js`.
+  - RED backend/support: `go test ./internal/application/production ./internal/interfaces/http/support -run 'TestPR562|TestDev562' -count=1`.
+  - GREEN/API: production application, HTTP production and support packages; temporary PostgreSQL job-card state and audit closure.
+  - GREEN frontend/build: focused Node tests, full frontend suite and Vite production build.
+- Deployment: verified for integration; development deploy pending, production forbidden
+- Last update: 2026-07-29 Asia/Shanghai
+- Notes: 指定真实工单 `WO-PP-0000000083-0000000051` 只做只读冒烟，不执行开工、暂停、继续、完成或库存写入。
+
 ### PR-561-WIP-BULK-MATERIAL-ISSUE
 - Branch: codex/pr561-wip-bulk-issue
 - Owner/session: Codex / 2026-07-28

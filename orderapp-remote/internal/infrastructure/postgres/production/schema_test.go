@@ -204,6 +204,49 @@ func TestJobCardsSchemaCreatesActualLossColumnsOnCleanSchema(t *testing.T) {
 	}
 }
 
+func TestJobCardsStartedAtRemainsNullUntilExecutionStarts(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	start := strings.Index(text, "CREATE TABLE IF NOT EXISTS %s.job_cards")
+	if start < 0 {
+		t.Fatal("schema.go missing job_cards create table DDL")
+	}
+	end := strings.Index(text[start:], "CREATE INDEX IF NOT EXISTS job_cards_work_order_idx")
+	if end < 0 {
+		t.Fatal("schema.go missing job_cards index after create table")
+	}
+	jobCardsDDL := text[start : start+end]
+	if !strings.Contains(jobCardsDDL, "started_at TIMESTAMPTZ,") {
+		t.Fatal("job_cards.started_at must be nullable and have no default on a clean schema")
+	}
+	for _, forbidden := range []string{
+		"started_at TIMESTAMPTZ NOT NULL",
+		"started_at TIMESTAMPTZ DEFAULT",
+	} {
+		if strings.Contains(jobCardsDDL, forbidden) {
+			t.Fatalf("job_cards clean-schema DDL must not auto-populate started_at; found %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"ALTER TABLE %s.job_cards ALTER COLUMN started_at DROP NOT NULL",
+		"ALTER TABLE %s.job_cards ALTER COLUMN started_at DROP DEFAULT",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("existing job_cards migration must make started_at nullable without a default; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"UPDATE %s.job_cards SET started_at",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("started_at compatibility migration must not rewrite historical rows; found %q", forbidden)
+		}
+	}
+}
+
 func TestJobCardsSchemaFreezesRouteOperationTimeAndCost(t *testing.T) {
 	src, err := os.ReadFile("schema.go")
 	if err != nil {
