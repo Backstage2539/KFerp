@@ -172,6 +172,7 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 		) selected ON true
 		LEFT JOIN %[1]s.production_bom_version_operation_costs oc
 		  ON oc.version_id=selected.version_id
+		 AND COALESCE(NULLIF(oc.cost_method,''),'time')='time'
 		 AND (NULLIF(oc.operation_cost_unit,'') IS NULL OR lower(oc.operation_cost_unit)=lower(selected.output_unit))
 		WHERE p.active=true
 		GROUP BY p.id, selected.version_id, selected.yield_rate, selected.output_qty, selected.output_unit

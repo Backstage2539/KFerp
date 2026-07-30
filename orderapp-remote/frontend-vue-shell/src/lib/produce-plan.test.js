@@ -35,6 +35,7 @@ import {
   operationSplitPreviewStatusLabel,
   operationSplitPreviewStatusTone,
   productionPlanItemQuantitySummary,
+  productionPlanItemOutputTargetG,
   productionPlanBomSummary,
   productionPlanLegacyGramLabel,
   productionPlanItemBomSourceLabel,
@@ -363,6 +364,25 @@ test('production plan operation capacity split helpers derive batch count from a
   })
 })
 
+test('piece-costed operation uses completed pieces instead of batches or workstation hours', () => {
+  assert.deepEqual(plannedCapacitySplitMetrics({
+    cost_method: 'piece',
+    piece_rate: 0.5,
+    planned_qty: 100,
+    batch_size_qty: 20,
+    batch_size_unit: '件',
+    standard_minutes: 10,
+    hourly_rate: 300,
+    spec_g: 227,
+  }), {
+    planned_batch_count: 5,
+    planned_qty: 100,
+    planned_qty_g: 22700,
+    planned_minutes: 50,
+    planned_operation_cost: 50,
+  })
+})
+
 test('production plan operation capacity split helper renders batch cards without splitting records', () => {
   assert.deepEqual(productionPlanSplitBatchCards({
     workstation_capacity_name: '布勒 18kg',
@@ -478,6 +498,110 @@ test('operation capacity auto split supports count-based packaging capacity thro
     [30, 3, 1362],
   ])
   assert.equal(qtyFromGForCapacityUnit(10442, '袋', 454), 23)
+})
+
+test('operation capacity auto split freezes piece costing fields', () => {
+  const rows = buildOperationCapacityAutoSplits(
+    { id: 52, planned_g: 22700, spec_g: 227 },
+    { seq: 2, operation_id: 8, operation: '包装' },
+    [{
+      id: 100,
+      workstation_id: 3,
+      name: '包装100件',
+      status: 'active',
+      cost_method: 'piece',
+      piece_rate: 0.5,
+      batch_size_qty: 100,
+      batch_size_unit: '件',
+      standard_minutes: 20,
+      hourly_rate: 90,
+      applicable_operation_ids: [8],
+    }],
+  )
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].cost_method, 'piece')
+  assert.equal(rows[0].piece_rate, 0.5)
+  assert.equal(plannedCapacitySplitMetrics(rows[0]).planned_operation_cost, 50)
+})
+
+test('piece capacity uses frozen sales-spec count when legacy spec grams are unavailable', () => {
+  const rows = buildOperationCapacityAutoSplits(
+    { id: 53, planned_g: 200, spec_g: 0, sales_spec_count: 100 },
+    { seq: 3, operation_id: 9, operation: '包装' },
+    [{
+      id: 101,
+      workstation_id: 3,
+      name: '包装20件',
+      status: 'active',
+      cost_method: 'piece',
+      piece_rate: 0.5,
+      batch_size_qty: 20,
+      batch_size_unit: '件',
+      standard_minutes: 5,
+      applicable_operation_ids: [9],
+    }],
+  )
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].planned_qty, 100)
+  assert.equal(rows[0].sales_spec_count, 100)
+  assert.equal(plannedCapacitySplitMetrics(rows[0]).planned_qty_g, 200)
+  assert.equal(plannedCapacitySplitMetrics(rows[0]).planned_operation_cost, 50)
+})
+
+test('count capacity projects finished output while weight capacity keeps loss-adjusted input', () => {
+  const item = {
+    id: 54,
+    planned_g: 25795,
+    planned_output_g: 22700,
+    sales_spec_count: 100,
+    inventory_qty_per_sales_unit: 0.227,
+    inventory_unit: 'kg',
+    planned_inventory_qty: 22.7,
+    spec_g: 0,
+  }
+  assert.equal(productionPlanItemOutputTargetG(item), 22700)
+
+  const packageRows = buildOperationCapacityAutoSplits(item, {
+    seq: 3,
+    operation_id: 9,
+    operation: '包装',
+  }, [{
+    id: 101,
+    workstation_id: 3,
+    name: '包装20件',
+    status: 'active',
+    cost_method: 'piece',
+    piece_rate: 0.5,
+    batch_size_qty: 20,
+    batch_size_unit: '件',
+    standard_minutes: 5,
+    applicable_operation_ids: [9],
+  }])
+  assert.equal(packageRows.length, 1)
+  assert.equal(packageRows[0].planned_qty, 100)
+  assert.equal(packageRows[0].item_target_g, 22700)
+  assert.equal(plannedCapacitySplitMetrics(packageRows[0]).planned_qty_g, 22700)
+  assert.equal(plannedCapacitySplitMetrics(packageRows[0]).planned_operation_cost, 50)
+
+  const roastRows = buildOperationCapacityAutoSplits(item, {
+    seq: 1,
+    operation_id: 7,
+    operation: '烘焙',
+  }, [{
+    id: 102,
+    workstation_id: 1,
+    name: '烘焙10kg',
+    status: 'active',
+    batch_size_qty: 10,
+    batch_size_unit: 'kg',
+    standard_minutes: 30,
+    hourly_rate: 24,
+    applicable_operation_ids: [7],
+  }])
+  assert.deepEqual(roastRows.map((row) => row.planned_qty), [25.795])
+  assert.equal(roastRows.reduce((sum, row) => sum + plannedCapacitySplitMetrics(row).planned_qty_g, 0), 25795)
 })
 
 test('production material quantities keep non-weight purchase suggestions in material units', () => {

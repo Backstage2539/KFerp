@@ -63,6 +63,8 @@ func (r *fakeRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd
 		BatchSizeUnit:      cmd.BatchSizeUnit,
 		StandardMinutes:    cmd.StandardMinutes,
 		HourlyRate:         cmd.HourlyRate,
+		CostMethod:         cmd.CostMethod,
+		PieceRate:          cmd.PieceRate,
 		ProductionCapacity: cmd.ProductionCapacity,
 		SortOrder:          cmd.SortOrder,
 		Note:               cmd.Note,
@@ -373,6 +375,93 @@ func TestSaveWorkstationCapacityIgnoresApplicableOperationIDs(t *testing.T) {
 	}
 }
 
+func TestSaveWorkstationCapacitySupportsPieceCostForCountUnits(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	got, err := svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
+		WorkstationID:      2,
+		Name:               "包装 100 件",
+		BatchSizeQty:       100,
+		BatchSizeUnit:      "件",
+		StandardMinutes:    20,
+		CostMethod:         "piece",
+		PieceRate:          0.5,
+		ProductionCapacity: 1,
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingWorkstationCapacity: %v", err)
+	}
+	if got.CostMethod != "piece" || got.PieceRate != 0.5 {
+		t.Fatalf("piece capacity = %+v, want piece 0.5", got)
+	}
+	if repo.savedWorkstationCapacity.CostMethod != "piece" || repo.savedWorkstationCapacity.PieceRate != 0.5 {
+		t.Fatalf("saved piece capacity = %+v", repo.savedWorkstationCapacity)
+	}
+	if repo.savedWorkstationCapacity.BatchSizeUnit != "件" {
+		t.Fatalf("saved piece unit = %q, want canonical 件", repo.savedWorkstationCapacity.BatchSizeUnit)
+	}
+
+	_, err = svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
+		WorkstationID: 2,
+		Name:          "兼容英文计件",
+		BatchSizeQty:  100,
+		BatchSizeUnit: "pcs",
+		CostMethod:    "piece",
+		PieceRate:     0.5,
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingWorkstationCapacity alias: %v", err)
+	}
+	if repo.savedWorkstationCapacity.BatchSizeUnit != "件" {
+		t.Fatalf("aliased piece unit = %q, want canonical 件", repo.savedWorkstationCapacity.BatchSizeUnit)
+	}
+}
+
+func TestSaveWorkstationCapacityRejectsPieceCostForWeightUnits(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
+		WorkstationID: 2,
+		Name:          "错误包装产能",
+		BatchSizeQty:  22.7,
+		BatchSizeUnit: "kg",
+		CostMethod:    "piece",
+		PieceRate:     0.5,
+	})
+	if err == nil || !strings.Contains(err.Error(), "标准产能单位必须使用“件”") {
+		t.Fatalf("weight piece cost error = %v, want Chinese sales-spec piece rejection", err)
+	}
+	_, err = svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
+		WorkstationID: 2,
+		Name:          "歧义包装产能",
+		BatchSizeQty:  100,
+		BatchSizeUnit: "袋",
+		CostMethod:    "piece",
+		PieceRate:     0.5,
+	})
+	if err == nil || !strings.Contains(err.Error(), "标准产能单位必须使用“件”") {
+		t.Fatalf("package-layer piece cost error = %v, want Chinese sales-spec piece rejection", err)
+	}
+}
+
+func TestSaveWorkstationCapacityDefaultsLegacyCostToTime(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	got, err := svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
+		WorkstationID: 2,
+		Name:          "布勒 18kg",
+		BatchSizeQty:  18,
+		BatchSizeUnit: "kg",
+		PieceRate:     9,
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingWorkstationCapacity: %v", err)
+	}
+	if got.CostMethod != "time" || got.PieceRate != 0 {
+		t.Fatalf("legacy capacity = %+v, want time with zero piece rate", got)
+	}
+}
+
 func TestSaveProcessRouteClearsWorkstationCapacityCostFields(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Workstation: "布勒烘焙机", Name: "布勒 18kg", Status: "active",
@@ -403,8 +492,33 @@ func TestSaveProcessRouteClearsWorkstationCapacityCostFields(t *testing.T) {
 	if op.WorkstationID != 0 || op.Workstation != "" || op.WorkstationCapacityID != 0 || op.WorkstationCapacityName != "" {
 		t.Fatalf("route operation should clear workstation capacity fields: %+v", op)
 	}
-	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.PlannedOperationCost != 0 {
+	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.CostMethod != "time" || op.PieceRate != 0 || op.PlannedOperationCost != 0 {
 		t.Fatalf("route operation should clear capacity cost fields: %+v", op)
+	}
+}
+
+func TestSaveProcessRouteSnapshotsPieceCostCapacity(t *testing.T) {
+	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
+		ID: 9, WorkstationID: 2, Workstation: "包装工位", Name: "包装 100 件", Status: "active",
+		BatchSizeQty: 100, BatchSizeUnit: "件", StandardMinutes: 20, HourlyRate: 300,
+		CostMethod: "piece", PieceRate: 0.5, ApplicableOperationIDs: []int64{7},
+	}}}
+	svc := NewService(repo)
+	route, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "计件包装路线",
+		Operations: []ProcessRouteOperation{{
+			OperationID: 7, Operation: "包装", StandardCostCapacityID: 9,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveProcessRoute: %v", err)
+	}
+	op := route.Operations[0]
+	if op.CostMethod != "piece" || op.PieceRate != 0.5 || op.PlannedOperationCost != 0.5 {
+		t.Fatalf("piece route snapshot = %+v, want 0.5 per bag", op)
+	}
+	if !strings.Contains(op.StandardCostSummary, "0.5000元/销售规格件") {
+		t.Fatalf("piece route summary = %q", op.StandardCostSummary)
 	}
 }
 

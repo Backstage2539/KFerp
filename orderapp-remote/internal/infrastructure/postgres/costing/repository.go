@@ -1201,6 +1201,9 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(oc.standard_minutes_snapshot,0)::float8,
 		       COALESCE(oc.batch_size_qty_snapshot,0)::float8,
 		       COALESCE(oc.batch_size_unit_snapshot,'') AS batch_size_unit,
+		       COALESCE(NULLIF(oc.cost_method,''),'time') AS cost_method,
+		       COALESCE(oc.piece_rate_snapshot,0)::float8 AS piece_rate,
+		       COALESCE(NULLIF(oc.rate_unit_snapshot,''),'') AS rate_unit,
 		       COALESCE(oc.operation_unit_cost,0)::float8,
 		       COALESCE(NULLIF(oc.operation_cost_unit,''),'') AS operation_cost_unit
 		FROM %[1]s.production_bom_version_operation_costs oc
@@ -1216,7 +1219,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
 		var capacityID int64
-		if err := opRows.Scan(&id, &capacityID, &row.Name, &row.WorkstationName, &row.CapacityName, &row.HourlyRate, &row.StandardMinutes, &row.StandardOutputQty, &row.StandardOutputUnit, &row.UnitCost, &row.Unit); err != nil {
+		if err := opRows.Scan(&id, &capacityID, &row.Name, &row.WorkstationName, &row.CapacityName, &row.HourlyRate, &row.StandardMinutes, &row.StandardOutputQty, &row.StandardOutputUnit, &row.CostMethod, &row.PieceRate, &row.RateUnit, &row.UnitCost, &row.Unit); err != nil {
 			return nil, err
 		}
 		_ = capacityID
@@ -1232,12 +1235,25 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		row.TypeLabel = "标准工序"
 		row.ConsumeUnit = "per_inventory_unit"
 		row.Quantity = 1
+		if strings.EqualFold(strings.TrimSpace(row.CostMethod), "piece") {
+			row.ConsumeUnit = "per_sales_unit"
+			row.AmountPerUnit = row.PieceRate
+			row.UnitCost = row.PieceRate
+			row.Unit = firstNonEmptyString(strings.TrimSpace(input.QuoteUnit), strings.TrimSpace(input.OrderUnit))
+		}
 		row.Unit = unit
 		row.CostUnit = unit
 		row.CostUnitCost = row.UnitCost
 		row.AmountPerUnit = row.UnitCost
 		row.CapacitySelectionSource = "bom_operation_snapshot"
-		row.Description = fmt.Sprintf("标准工序成本来自 BOM 工序成本快照：%s · %s · %.4f/%s", row.WorkstationName, row.CapacityName, row.UnitCost, unit)
+		if strings.EqualFold(strings.TrimSpace(row.CostMethod), "piece") {
+			row.Unit = firstNonEmptyString(strings.TrimSpace(input.QuoteUnit), strings.TrimSpace(input.OrderUnit), unit)
+			row.CostUnit = row.Unit
+			row.CostUnitCost = row.PieceRate
+			row.Description = fmt.Sprintf("标准工序成本来自 BOM 计件工序成本快照：%s · %s · %.4f元/销售规格件", row.WorkstationName, row.CapacityName, row.PieceRate)
+		} else {
+			row.Description = fmt.Sprintf("标准工序成本来自 BOM 工序成本快照：%s · %s · %.4f/%s", row.WorkstationName, row.CapacityName, row.UnitCost, unit)
+		}
 		out = append(out, row)
 		operationSnapshotCount++
 	}

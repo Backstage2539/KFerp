@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
+import { workstationCapacityCostMeta } from './workstation-capacity-costing.js'
 
 test('process route page is route-only and does not select SKU or BOM versions', () => {
   const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
@@ -63,7 +64,13 @@ test('process route operation row selects standard cost capacity without actual 
   assert.match(source, /standard_cost_capacity_id/)
   assert.match(source, /standardCostCapacityOptions/)
   assert.match(source, /standardCostCapacitySummary/)
-  assert.match(source, /小时费率.*标准分钟.*\/ 60 \/ 标准批量/s)
+  assert.equal(workstationCapacityCostMeta({
+    cost_method: 'time',
+    hourly_rate: 24,
+    batch_size_qty: 10,
+    batch_size_unit: 'kg',
+    standard_minutes: 30,
+  }), '小时费率 24 × 标准分钟 30 / 60 / 标准批量 10kg = 1.2/kg')
   assert.match(source, /只用于 BOM\/价格标准成本/)
   assert.doesNotMatch(source, /生产计划实际产能/)
   assert.doesNotMatch(source, /实际工位产能/)
@@ -78,6 +85,19 @@ test('process route operation row selects standard cost capacity without actual 
   assert.doesNotMatch(source, /标准分钟\/批/)
   assert.doesNotMatch(source, /工位能力模式/)
   assert.doesNotMatch(source, /默认工时\(分钟\)/)
+})
+
+test('process route standard cost summary supports time and piece capacity methods', () => {
+  const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /workstationCapacityCostMeta/)
+  assert.match(source, /cost_method/)
+  assert.match(source, /piece_rate/)
+  assert.equal(workstationCapacityCostMeta({
+    cost_method: 'piece',
+    piece_rate: 0.5,
+    batch_size_unit: '件',
+  }), '计件成本 0.5元/销售规格件')
 })
 
 test('operation and workstation master data are maintained on separate pages', () => {

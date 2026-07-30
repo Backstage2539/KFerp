@@ -77,7 +77,7 @@
           <div v-if="!form.id" class="muted inline-muted">先选择或保存工位/设备</div>
           <table v-else class="capacity-table">
             <thead>
-              <tr><th>工位产能</th><th>批量</th><th>标准分钟/批</th><th>继承小时成本</th><th>状态</th></tr>
+              <tr><th>工位产能</th><th>标准产能</th><th>成本方式</th><th>标准分钟/批</th><th>成本口径</th><th>状态</th></tr>
             </thead>
             <tbody>
               <tr v-for="row in capacitiesForSelectedWorkstation" :key="row.id" :class="{ active: row.id === capacityForm.id }" @click="editCapacity(row)">
@@ -86,24 +86,45 @@
                   <small>{{ row.code || '无编码' }}</small>
                 </td>
                 <td>{{ Number(row.batch_size_qty || 0) }} {{ row.batch_size_unit || '' }}</td>
+                <td>{{ capacityCostMethodLabel(row) }}</td>
                 <td>{{ row.standard_minutes || 0 }}</td>
-                <td>{{ Number(row.hourly_rate || 0).toFixed(2) }}</td>
+                <td>{{ workstationCapacityCostMeta(row) }}</td>
                 <td>
                   <span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span>
                   <button class="text danger" type="button" :disabled="row.status === 'inactive'" @click.stop="deactivateCapacity(row)">停用</button>
                 </td>
               </tr>
-              <tr v-if="!capacitiesForSelectedWorkstation.length"><td colspan="5" class="muted">暂无工位产能</td></tr>
+              <tr v-if="!capacitiesForSelectedWorkstation.length"><td colspan="6" class="muted">暂无工位产能</td></tr>
             </tbody>
           </table>
 
           <div v-if="form.id" class="capacity-form">
             <label><span>产能名称</span><input v-model.trim="capacityForm.name" placeholder="布勒 18kg / 智烘 3kg" /></label>
             <label><span>编码</span><input v-model.trim="capacityForm.code" placeholder="BUHLER-18KG" /></label>
+            <label>
+              <span>成本方式</span>
+              <select v-model="capacityForm.cost_method" @change="onCapacityCostMethodChange">
+                <option value="time">按时间</option>
+                <option value="piece">按件</option>
+              </select>
+            </label>
             <label><span>标准批量</span><input v-model.number="capacityForm.batch_size_qty" type="number" min="0" step="0.001" /></label>
-            <label><span>单位</span><input v-model.trim="capacityForm.batch_size_unit" placeholder="kg / g / 件" /></label>
-            <label><span>标准分钟/批</span><input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" /></label>
-            <label><span>继承工位小时成本</span><input :value="workstationHourlyRate.toFixed(2)" type="text" readonly /></label>
+            <label>
+              <span>单位</span>
+              <input v-if="capacityForm.cost_method === 'piece'" value="件" type="text" readonly />
+              <input v-else v-model.trim="capacityForm.batch_size_unit" placeholder="kg / g" />
+            </label>
+            <label><span>{{ capacityForm.cost_method === 'piece' ? '标准分钟/批（排产用）' : '标准分钟/批' }}</span><input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" /></label>
+            <label v-if="capacityForm.cost_method === 'piece'">
+              <span>计件成本（元/销售规格件）</span>
+              <input v-model.number="capacityForm.piece_rate" type="number" min="0" step="0.0001" />
+              <small>“件”指当前商品的一个销售规格，例如一袋227g或一盒10条。</small>
+            </label>
+            <label v-else><span>继承工位小时成本</span><input :value="workstationHourlyRate.toFixed(2)" type="text" readonly /></label>
+            <label>
+              <span>候选单位成本</span>
+              <input :value="capacityCandidateCost" type="text" readonly />
+            </label>
             <label>
               <span>状态</span>
               <select v-model="capacityForm.status">
@@ -126,6 +147,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import {
+  capacityCostMethodLabel,
+  isCountCapacityUnit,
+  normalizeCapacityCostMethod,
+  workstationCapacityCostMeta,
+} from '../lib/workstation-capacity-costing'
 
 const loading = ref(false)
 const error = ref('')
@@ -139,6 +166,10 @@ const capacityForm = reactive(blankCapacity())
 const capacitiesForSelectedWorkstation = computed(() => workstationCapacities.value.filter((row) => Number(row.workstation_id || 0) === Number(form.id || 0)))
 const activeOperations = computed(() => operations.value.filter((row) => String(row.status || 'active') === 'active'))
 const workstationHourlyRate = computed(() => Number((Number(form.machine_hourly_cost || 0) + Number(form.labor_hourly_cost || 0) + Number(form.overhead_hourly_cost || 0)).toFixed(2)))
+const capacityCandidateCost = computed(() => workstationCapacityCostMeta({
+  ...capacityForm,
+  hourly_rate: workstationHourlyRate.value,
+}))
 
 function blankWorkstation() {
   return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, machine_hourly_cost: 0, labor_hourly_cost: 0, overhead_hourly_cost: 0, hourly_rate: 0, applicable_operation_ids: [], note: '' }
@@ -154,6 +185,8 @@ function blankCapacity() {
     batch_size_qty: 0,
     batch_size_unit: 'kg',
     standard_minutes: 0,
+    cost_method: 'time',
+    piece_rate: 0,
     production_capacity: 1,
     sort_order: 0,
     note: '',
@@ -232,9 +265,17 @@ function editCapacity(row) {
     workstation_id: Number(row.workstation_id || form.id || 0),
     batch_size_qty: Number(row.batch_size_qty || 0),
     standard_minutes: Number(row.standard_minutes || 0),
+    cost_method: normalizeCapacityCostMethod(row),
+    piece_rate: Number(row.piece_rate || 0),
     production_capacity: Number(row.production_capacity || 1),
     sort_order: Number(row.sort_order || 0),
   })
+}
+
+function onCapacityCostMethodChange() {
+  if (normalizeCapacityCostMethod(capacityForm) === 'piece') {
+    capacityForm.batch_size_unit = '件'
+  }
 }
 
 async function mutate(action) {
@@ -290,6 +331,14 @@ async function saveCapacity() {
     error.value = '请填写工位产能名称'
     return
   }
+  if (normalizeCapacityCostMethod(capacityForm) === 'piece' && Number(capacityForm.piece_rate || 0) <= 0) {
+    error.value = '请填写大于 0 的计件成本'
+    return
+  }
+  if (normalizeCapacityCostMethod(capacityForm) === 'piece' && !isCountCapacityUnit(capacityForm.batch_size_unit)) {
+    error.value = '按件成本的标准产能单位必须使用“件”，每件表示当前商品的一个销售规格'
+    return
+  }
   await mutate(async () => {
     const saved = await apiSend('/api/manufacturing-workstation-capacities', {
       body: {
@@ -297,6 +346,8 @@ async function saveCapacity() {
         workstation_id: Number(form.id || 0),
         batch_size_qty: Number(capacityForm.batch_size_qty || 0),
         standard_minutes: Number(capacityForm.standard_minutes || 0),
+        cost_method: normalizeCapacityCostMethod(capacityForm),
+        piece_rate: normalizeCapacityCostMethod(capacityForm) === 'piece' ? Number(capacityForm.piece_rate || 0) : 0,
         hourly_rate: 0,
         production_capacity: Number(capacityForm.production_capacity || 1),
         sort_order: Number(capacityForm.sort_order || 0),

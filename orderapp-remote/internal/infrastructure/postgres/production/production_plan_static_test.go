@@ -199,7 +199,7 @@ func TestProductionPlanOperationSplitsOwnCapacityBatchPlanning(t *testing.T) {
 		"planned_qty_g",
 		"planned_minutes",
 		"planned_operation_cost",
-		"createPendingJobCardsForWorkOrderTx(ctx, tx, schema, id, item.ProcessSnapshotJSON, item.OperationTemplateID, item.PlannedG, splits)",
+		"createPendingJobCardsForWorkOrderTx(ctx, tx, schema, id, item.ProcessSnapshotJSON, item.OperationTemplateID, item.PlannedG, item.SalesSpecCount, splits)",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("production plan must own operation capacity split planning; missing %q", want)

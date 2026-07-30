@@ -353,11 +353,20 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_operation_costs (
 	standard_minutes_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0,
 	batch_size_qty_snapshot NUMERIC(14,6) NOT NULL DEFAULT 0,
 	batch_size_unit_snapshot TEXT NOT NULL DEFAULT '',
+	cost_method TEXT NOT NULL DEFAULT 'time',
+	piece_rate_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0,
+	rate_unit_snapshot TEXT NOT NULL DEFAULT '',
 	operation_unit_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
 	operation_cost_unit TEXT NOT NULL DEFAULT '',
 	sort_order INT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time';
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS piece_rate_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS rate_unit_snapshot TEXT NOT NULL DEFAULT '';
+UPDATE %[1]s.production_bom_version_operation_costs
+SET cost_method='time'
+WHERE COALESCE(NULLIF(cost_method,''),'')='';
 CREATE INDEX IF NOT EXISTS production_bom_version_operation_costs_version_idx
 	ON %[1]s.production_bom_version_operation_costs(version_id, sort_order, id);
 
