@@ -106,6 +106,7 @@ test('view context reuses existing permission-filtered menus without introducing
 
 test('vue shell exposes current view selector and passes view context to pages', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  const apiSource = readFileSync(new URL('../api/view-context.js', import.meta.url), 'utf8')
 
   for (const marker of [
     '当前视图',
@@ -114,9 +115,9 @@ test('vue shell exposes current view selector and passes view context to pages',
     'showViewContextSelector',
     'currentViewContext',
     ':view-context="currentViewContext"',
-    '/api/view-context/options?type=customer',
-    '/api/view-context/options?type=order',
-    '/api/view-context/presets',
+    'fetchWorkspaceCustomerOptions',
+    'fetchWorkspaceOrderOptions',
+    'fetchViewContextPresets',
     '保存当前视图',
     '停用视图',
     '恢复默认视图',
@@ -125,5 +126,13 @@ test('vue shell exposes current view selector and passes view context to pages',
     'workspace=customer',
   ]) {
     assert.ok(source.includes(marker), `App.vue should include ${marker}`)
+  }
+
+  for (const endpoint of [
+    '/api/view-context/options?type=customer',
+    '/api/view-context/options?type=order',
+    '/api/view-context/presets',
+  ]) {
+    assert.ok(apiSource.includes(endpoint), `view-context API adapter should include ${endpoint}`)
   }
 })

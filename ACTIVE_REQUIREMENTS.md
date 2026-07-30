@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-563-WORKSTATION-PIECE-COST
 - Branch: codex/workstation-piece-cost
 - Owner/session: Codex / 2026-07-30
-- Status: merged to develop / development deployed; automated, temporary PostgreSQL and read-only API/static smoke passed; logged-in browser acceptance blocked by development certificate trust
+- Status: merged to develop / development deployed; production release branch `codex/release-main-20260730` is validating
 - Scope: 工位产能新增 `按工时 / 按计件` 成本方式。按工时沿用工位小时成本、标准分钟和批次数；按计件以具体 SKU 销售规格件为唯一费率口径，并按计划销售规格件数或实际产出件数计费。标准成本、生产计划、工单、工序卡和成本追溯按工序分别冻结并展示烘焙、色选、包装成本。
 - DEV:
   - DEV-563-CAPACITY-COST-METHOD：工位产能新增 `cost_method=time|piece` 和按销售规格件计价的 `piece_rate`；历史和缺省数据按 `time` 读取，新计件产能单位固定为 `件`，保存/修改/停用继续写操作日志。
@@ -23,8 +23,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Database/API: temporary PostgreSQL verifies historical default `time`, count-unit validation, snapshots, operation logs and the 100-bag planned/actual cost scenario.
   - Build/review: affected Go packages, Vue Node tests, Vite production build, `scripts/verify_kferp.sh changed`, `git diff --check`.
   - Manual/acceptance: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-07-30-workstation-piece-cost.md`.
-- Deployment: merge `a3706ce2f3680ecbaa92787803ba72e2370a9afd` 已推送 `origin/develop` 并部署 development；候选镜像 `sha256:61c263bb8808cec3484d6208d1be489539d1126d6550f2ef416f002c4572cdb0`；数据库备份 `/opt/stacks/erp/backups/pre-pr563-20260730184251.dump`；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260730184251`；回滚镜像 `erp-orderapp:rollback-pr563-20260730184251`。完整 Docker `go test ./...`、临时 PostgreSQL、Vue/小程序构建、容器和外部静态/API冒烟通过；应用内浏览器因 `ERR_CERT_AUTHORITY_INVALID` 未完成登录态视觉验收；production forbidden
+- Deployment: merge `a3706ce2f3680ecbaa92787803ba72e2370a9afd` 已推送 `origin/develop` 并部署 development；候选镜像 `sha256:61c263bb8808cec3484d6208d1be489539d1126d6550f2ef416f002c4572cdb0`；数据库备份 `/opt/stacks/erp/backups/pre-pr563-20260730184251.dump`；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260730184251`；回滚镜像 `erp-orderapp:rollback-pr563-20260730184251`。完整 Docker `go test ./...`、临时 PostgreSQL、Vue/小程序构建、容器和外部静态/API冒烟通过；应用内浏览器因 `ERR_CERT_AUTHORITY_INVALID` 未完成登录态视觉验收。Van 已于 2026-07-30 授权将累计 `develop` 发布到 production；发布前需完成 release 分支全量门禁、生产备份与回滚点。
 - Last update: 2026-07-30 Asia/Shanghai
+- Notes: 生产发布审计补齐旧 `POST /api/produce/start` 的销售规格件数、单位换算和计划产出冻结；计件路线缺失有效件数时中文拒绝，不再生成零计件成本工序卡。旧客户工作区源码静态断言已按当前 helper/菜单架构更新，完整 Vue 测试恢复为 `847/847`。
 
 ### PR-562-PRODUCTION-EXECUTION-JOB-CARD-CONSOLIDATION
 - Branch: codex/pr562-production-execution-entry

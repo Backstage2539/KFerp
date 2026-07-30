@@ -50,6 +50,45 @@ type plannedOperationMetrics struct {
 	PlannedOperationCost float64
 }
 
+type legacyWorkOrderQuantitySnapshot struct {
+	ParentProductID          int64
+	PlannedOutputG           int64
+	SalesSpecCount           float64
+	InventoryQtyPerSalesUnit float64
+	InventoryUnit            string
+	PlannedInventoryQty      float64
+	SalesSpecSnapshotJSON    string
+	OrderNos                 string
+}
+
+func legacyWorkOrderQuantitySnapshotFromGroup(group startRunGroup) legacyWorkOrderQuantitySnapshot {
+	return legacyWorkOrderQuantitySnapshot{
+		ParentProductID:          group.ParentProductID,
+		PlannedOutputG:           group.NeedG,
+		SalesSpecCount:           group.SalesSpecCount,
+		InventoryQtyPerSalesUnit: group.InventoryQtyPerSalesUnit,
+		InventoryUnit:            strings.TrimSpace(group.InventoryUnit),
+		PlannedInventoryQty:      group.PlannedInventoryQty,
+		SalesSpecSnapshotJSON:    defaultJSONObject(group.SalesSpecSnapshotJSON),
+		OrderNos:                 strings.TrimSpace(group.OrderNos),
+	}
+}
+
+func validateLegacyPieceCostQuantity(snapshot *processTemplateSnapshot, salesSpecCount float64) error {
+	if snapshot == nil {
+		return nil
+	}
+	for _, op := range snapshot.Operations {
+		if normalizeProductionCostMethod(op.CostMethod) != "piece" {
+			continue
+		}
+		if salesSpecCount <= 0 || math.IsNaN(salesSpecCount) || math.IsInf(salesSpecCount, 0) {
+			return fmt.Errorf("旧生产入口缺少有效销售规格件数，无法按计件工艺路线生成工单")
+		}
+	}
+	return nil
+}
+
 func plannedJobCardMetrics(op processSnapshotOperation, plannedG int64, salesSpecCount ...float64) plannedOperationMetrics {
 	plannedPieceQty := 0.0
 	if len(salesSpecCount) > 0 {
@@ -784,7 +823,7 @@ func routeSequenceOnlyOperation(op processSnapshotOperation) processSnapshotOper
 	return op
 }
 
-func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64) (int64, error) {
+func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, quantity legacyWorkOrderQuantitySnapshot) (int64, error) {
 	processSnapshot, processSnapshotJSON, err := loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, productID)
 	if err != nil {
 		return 0, err
@@ -800,6 +839,17 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if processSnapshot != nil {
 		processTemplateID = processSnapshot.ID
 		processTemplateName = processSnapshot.Name
+	}
+	if err := validateLegacyPieceCostQuantity(processSnapshot, quantity.SalesSpecCount); err != nil {
+		return 0, err
+	}
+	salesSpecSnapshotJSON, err := freezeProductionPlanSalesSpecSnapshot(
+		quantity.SalesSpecSnapshotJSON,
+		quantity.SalesSpecCount,
+		quantity.PlannedInventoryQty,
+	)
+	if err != nil {
+		return 0, err
 	}
 	if len(processSnapshotJSON) == 0 {
 		processSnapshotJSON = []byte("{}")
@@ -841,20 +891,39 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 			    process_template_name=$11,
 			    process_snapshot_json=$12,
 			    production_config_snapshot_json=$13,
-			    customer_product_snapshot_json=$14
+			    customer_product_snapshot_json=$14,
+			    parent_product_id=$15,
+			    sales_spec_count=$16,
+			    inventory_qty_per_sales_unit=$17,
+			    inventory_unit=$18,
+			    planned_inventory_qty=$19,
+			    sales_spec_snapshot_json=$20::jsonb,
+			    planned_output_g=$21,
+			    order_nos=$22
 			WHERE id=$1
-		`, schema), workOrderID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot); err != nil {
+		`, schema), workOrderID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot,
+			quantity.ParentProductID, quantity.SalesSpecCount, quantity.InventoryQtyPerSalesUnit, quantity.InventoryUnit,
+			quantity.PlannedInventoryQty, salesSpecSnapshotJSON, quantity.PlannedOutputG, quantity.OrderNos); err != nil {
 			return 0, err
 		}
 	} else if err == pgx.ErrNoRows {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.work_orders(
 				work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
-				material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,created_at
+				material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,
+				production_config_snapshot_json,customer_product_snapshot_json,
+				parent_product_id,sales_spec_count,inventory_qty_per_sales_unit,inventory_unit,planned_inventory_qty,
+				sales_spec_snapshot_json,planned_output_g,order_nos,created_at
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,$15,now())
+			VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,$15,
+			       $16,$17,$18,$19,$20,$21::jsonb,$22,$23,now())
 			RETURNING id
-		`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot).Scan(&workOrderID); err != nil {
+		`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG,
+			materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName,
+			processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot,
+			quantity.ParentProductID, quantity.SalesSpecCount, quantity.InventoryQtyPerSalesUnit, quantity.InventoryUnit,
+			quantity.PlannedInventoryQty, salesSpecSnapshotJSON, quantity.PlannedOutputG, quantity.OrderNos,
+		).Scan(&workOrderID); err != nil {
 			return 0, err
 		}
 	} else {
@@ -866,7 +935,7 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 
 	if processSnapshot != nil && len(processSnapshot.Operations) > 0 {
 		for _, op := range processSnapshot.Operations {
-			metrics := plannedJobCardMetrics(op, plannedG)
+			metrics := plannedJobCardMetrics(op, plannedG, quantity.SalesSpecCount)
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				INSERT INTO %s.job_cards(
 					work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,

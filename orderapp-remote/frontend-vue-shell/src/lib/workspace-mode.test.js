@@ -47,10 +47,9 @@ test('customer workspace keeps only customer-facing operations and finance', () 
     'orders',
     'warehouseInventory',
     'productMaster',
-    'customerProductAliases',
     'productPriceManagement',
     'costing',
-    'bom',
+    'productionConfig',
     'financeExpenses',
   ]) {
     assert.ok(keys.includes(key), `${key} should be reachable in customer workspace`)
@@ -75,6 +74,8 @@ test('customer workspace keeps only customer-facing operations and finance', () 
     'qualityInspections',
     'produceLogs',
     'productionCosts',
+    'customerProductAliases',
+    'bom',
     'productConfigTemplates',
     'pricingGradientTemplates',
     'productUnitTemplates',
@@ -116,6 +117,7 @@ test('customer workspace injects current customer into routed view params', () =
 
 test('vue shell wires workspace mode into navigation and routed pages', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  const apiSource = readFileSync(new URL('../api/view-context.js', import.meta.url), 'utf8')
 
   for (const marker of [
     'workspace-switcher',
@@ -130,16 +132,21 @@ test('vue shell wires workspace mode into navigation and routed pages', () => {
     "key: 'financeClosing'",
     "key: 'financeReport'",
     'fetchCustomerProcessingPortalOverview',
-    'menuGroupsForWorkspaceMode',
+    'menuGroupsForViewContext',
     'kferp.workspace.customerId',
     ':customer-context-id="workspaceCustomerContextId"',
     ':customer-context-label="workspaceCustomerLabel"',
-    '/api/customer-fulfillment/customers?limit=200',
+    'fetchWorkspaceCustomerOptions',
     'WORKSPACE_CUSTOMERS_REFRESH_EVENT',
     'workspaceCustomersRefreshEventName',
   ]) {
     assert.ok(source.includes(marker), `App.vue should include ${marker}`)
   }
+
+  assert.ok(
+    apiSource.includes('/api/customer-fulfillment/customers?limit=200'),
+    'view-context API adapter should retain the permission-compatible customer fallback',
+  )
 })
 
 test('workspace customer refresh event has a stable browser event name', () => {
