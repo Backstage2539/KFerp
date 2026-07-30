@@ -16,5 +16,9 @@
 ## 验收结论
 
 - 代码/API/构建验收：通过。
-- development 部署与真实员工账号人工验收：待部署后补充。
+- development 部署：通过，`origin/develop=91e8f921e9c3d395e6ec385e9a6cf063419b42f2`。
+- 镜像内 `go test ./...`：通过；`erp_orderapp` 已重建并启动。
+- 容器内 smoke：根入口 303、无 token 的员工订单接口 401、员工操作手册 200。
+- development 数据回读：`PR-564-MINIAPP-EMPLOYEE-ERP=review`；当前有 5 个启用且未禁用登录的销售/管理员员工账号具备验收前置条件。
+- 真实员工账号在微信开发者工具中的人工登录/录单/订单查看：待 VA 验收。
 - 产品验收人：VA。
