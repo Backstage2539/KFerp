@@ -67,5 +67,12 @@
 - Vue/Vite production build passed with `396` transformed modules; generated `index-Cf3Mre-d.js` and `index-DKkhIOE4.css`.
 - `scripts/verify_kferp.sh changed` and `git diff --check` passed.
 - Fixed acceptance calculation passed: roast `36` + sort `6` + package `50` = `92`; package actual output `98` produces `49`.
-- Temporary PostgreSQL execution and isolated server full `go test ./...` are part of the pre-switch deployment gate.
-- Development deployment and browser acceptance: pending.
+- Temporary PostgreSQL passed `TestPR563PieceCapacityPersistsAndAuditsInPostgres`, including idempotent schema, piece capacity persistence, deactivation and `rate_unit=sales_spec_count` audit metadata.
+- Isolated server Docker build passed complete `go test ./...`; Vue and miniapp typecheck/build passed before container switch.
+- `origin/develop` merge/deployment commit: `a3706ce2f3680ecbaa92787803ba72e2370a9afd`; candidate/running image: `sha256:61c263bb8808cec3484d6208d1be489539d1126d6550f2ef416f002c4572cdb0`.
+- Development safeguards:
+  - database backup: `/opt/stacks/erp/backups/pre-pr563-20260730184251.dump`;
+  - source backup: `/opt/stacks/erp/orderapp.backup.deploy-20260730184251`;
+  - rollback image: `erp-orderapp:rollback-pr563-20260730184251`.
+- Development smoke passed: container remains running, PostgreSQL healthy, `/app/` and `/vue-shell/` return `200`, and deployed shell references `index-Cf3Mre-d.js` / `index-DKkhIOE4.css`; protected manufacturing/process-route APIs return expected unauthenticated `401`.
+- In-app logged-in browser acceptance is not claimed: navigation is blocked by development certificate `ERR_CERT_AUTHORITY_INVALID`. Production was not deployed and no real workstation, production or inventory business write was performed.
