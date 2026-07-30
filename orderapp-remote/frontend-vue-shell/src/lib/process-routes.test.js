@@ -17,6 +17,19 @@ test('process route page is route-only and does not select SKU or BOM versions',
   assert.doesNotMatch(source, /key_params_json/)
 })
 
+test('publishing a process route saves current operation edits before changing status', () => {
+  const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
+  const publishRouteSource = source.match(/async function publishRoute\(\) \{([\s\S]*?)\n\}/)?.[1] || ''
+  const saveCall = "apiSend('/api/process-routes', { body: routePayload() })"
+  const publishCall = 'apiSend(`/api/process-routes/${routeId}/publish`, { body: {} })'
+
+  assert.match(publishRouteSource, /const saved = await apiSend\('\/api\/process-routes', \{ body: routePayload\(\) \}\)/)
+  assert.match(publishRouteSource, /const routeId = Number\(saved\.id \|\| form\.id \|\| 0\)/)
+  assert.match(publishRouteSource, /apiSend\(`\/api\/process-routes\/\$\{routeId\}\/publish`, \{ body: \{\} \}\)/)
+  assert.match(publishRouteSource, /\|\| \{ \.\.\.saved, status: 'active' \}/)
+  assert.ok(publishRouteSource.indexOf(saveCall) < publishRouteSource.indexOf(publishCall))
+})
+
 test('process route page keeps route list and editor in a desktop two pane layout', () => {
   const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
 

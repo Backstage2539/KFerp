@@ -428,10 +428,13 @@ async function saveRoute() {
 async function publishRoute() {
   if (!form.id) return
   await mutate(async () => {
-    await apiSend(`/api/process-routes/${form.id}/publish`, { body: {} })
+    const saved = await apiSend('/api/process-routes', { body: routePayload() })
+    const routeId = Number(saved.id || form.id || 0)
+    if (!routeId) throw new Error('保存工艺路线失败：未返回路线编号')
+    await apiSend(`/api/process-routes/${routeId}/publish`, { body: {} })
     await loadRoutes()
-    const current = routes.value.find((row) => Number(row.id) === Number(form.id))
-    if (current) resetForm(normalizeRoute(current))
+    const current = routes.value.find((row) => Number(row.id) === routeId) || { ...saved, status: 'active' }
+    resetForm(normalizeRoute(current))
     ok.value = '已发布工艺路线'
   })
 }
