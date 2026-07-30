@@ -9,7 +9,7 @@
     {
       "path": "pages/login/login",
       "style": {
-        "navigationBarTitleText": "客户登录"
+        "navigationBarTitleText": "系统登录"
       }
     },
     {
@@ -52,6 +52,18 @@
       "path": "pages/profile/profile",
       "style": {
         "navigationBarTitleText": "个人中心"
+      }
+    },
+    {
+      "path": "pages/employee-order-entry/employee-order-entry",
+      "style": {
+        "navigationBarTitleText": "录单"
+      }
+    },
+    {
+      "path": "pages/employee-orders/employee-orders",
+      "style": {
+        "navigationBarTitleText": "查看订单"
       }
     }
   ],

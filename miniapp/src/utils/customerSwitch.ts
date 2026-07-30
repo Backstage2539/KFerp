@@ -22,6 +22,6 @@ export function selectedCustomerID(bindings: CustomerBinding[] = [], index: numb
 }
 
 export function customerEntryRoute(context: { miniapp_entry_mode?: string; capabilities?: Capability[] }): string {
-  void context
+  if ((context as { account_type?: string }).account_type === 'employee') return '/pages/home/home'
   return '/pages/home/home'
 }

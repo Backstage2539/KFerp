@@ -20,6 +20,11 @@ export type LoginResponse = {
   current_customer_id: number
   theme_key?: MiniappThemeKey | string
   miniapp_entry_mode?: MiniappEntryMode | string
+  account_type?: 'employee' | 'customer' | string
+  employee_id?: number
+  employee_name?: string
+  roles?: string[]
+  permissions?: string[]
   bindings: CustomerBinding[]
   capabilities: Capability[]
 }
@@ -30,6 +35,11 @@ export type MeResponse = {
   current_customer_name: string
   theme_key?: MiniappThemeKey | string
   miniapp_entry_mode?: MiniappEntryMode | string
+  account_type?: 'employee' | 'customer' | string
+  employee_id?: number
+  employee_name?: string
+  roles?: string[]
+  permissions?: string[]
   bindings: CustomerBinding[]
   capabilities: Capability[]
 }
@@ -495,6 +505,49 @@ export function loginWithPassword(login: string, password: string): Promise<Logi
 
 export function fetchMe(token: string): Promise<MeResponse> {
   return miniRequest<MeResponse>('/api/mini/me', { token })
+}
+
+export type EmployeeOrderForm = {
+  today: string
+  customers: Array<{ id: number; name: string }>
+  sources: Array<{ id: number; name: string }>
+  order_types: Array<{ id: number; name: string }>
+  pay_statuses: Array<{ id: number; name: string }>
+  ship_statuses: Array<{ id: number; name: string }>
+  products: Array<{ id: number; name: string; product_kind?: string }>
+}
+
+export type EmployeeOrder = {
+  id: number
+  order_no: string
+  order_date: string
+  customer: string
+  grand_total: string
+  pay_status: string
+  ship_status: string
+  process_status: string
+  responsible_name: string
+}
+
+export function fetchEmployeeOrderForm(token: string): Promise<EmployeeOrderForm> {
+  return miniRequest<EmployeeOrderForm>(buildEmployeeOrderFormPath(), { token })
+}
+
+export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: EmployeeOrder[]; has_next: boolean }> {
+  const suffix = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''
+  return miniRequest(`${buildEmployeeOrdersPath()}${suffix}`, { token })
+}
+
+export function createEmployeeOrder(token: string, data: Record<string, unknown>): Promise<{ order_id: number; order_no: string }> {
+  return miniRequest(buildEmployeeOrdersPath(), { method: 'POST', token, data })
+}
+
+export function buildEmployeeOrderFormPath(): string {
+  return '/api/mini/employee/order-form'
+}
+
+export function buildEmployeeOrdersPath(): string {
+  return '/api/mini/employee/orders'
 }
 
 export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilters = {}): string {

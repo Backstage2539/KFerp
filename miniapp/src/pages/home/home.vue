@@ -12,7 +12,12 @@ const loading = ref(false)
 const errorMessage = ref('')
 
 const entries = computed(() => visibleHomeEntries(session.capabilities))
-const customerName = computed(() => session.currentCustomerName || '客户中心')
+const employeeEntries = [
+  { key: 'employeeOrderEntry', label: '录单', url: '/pages/employee-order-entry/employee-order-entry' },
+  { key: 'employeeOrders', label: '查看订单', url: '/pages/employee-orders/employee-orders' },
+]
+const visibleEntries = computed(() => session.accountType === 'employee' ? employeeEntries : entries.value)
+const customerName = computed(() => session.accountType === 'employee' ? `${session.employeeName || '员工'} · 简易 ERP` : (session.currentCustomerName || '客户中心'))
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
 const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
 
@@ -62,8 +67,8 @@ onShow(() => {
       <text>{{ errorMessage }}</text>
     </view>
 
-    <view v-else-if="entries.length" class="grid">
-      <view v-for="entry in entries" :key="entry.key" class="entry" hover-class="entry-pressed" @tap="openEntry(entry.url)">
+    <view v-else-if="visibleEntries.length" class="grid">
+      <view v-for="entry in visibleEntries" :key="entry.key" class="entry" hover-class="entry-pressed" @tap="openEntry(entry.url)">
         <text class="entry-label">{{ entry.label }}</text>
       </view>
     </view>
@@ -72,7 +77,7 @@ onShow(() => {
       <text>暂无可用服务</text>
     </view>
 
-    <MainTabBar current="home" />
+    <MainTabBar v-if="session.accountType !== 'employee'" current="home" />
   </view>
 </template>
 

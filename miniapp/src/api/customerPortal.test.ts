@@ -7,6 +7,8 @@ import {
   buildBeanListPNGPath,
   buildMiniLoginPayload,
   buildPasswordLoginPath,
+  buildEmployeeOrderFormPath,
+  buildEmployeeOrdersPath,
   buildCustomerProductsPath,
   buildCustomerProductCategoriesPath,
   buildCustomerProductCategoryPath,
@@ -55,6 +57,11 @@ describe('customer portal API helpers', () => {
 
   it('exposes the ERP password login API path', () => {
     expect(buildPasswordLoginPath()).toBe('/api/mini/login/password')
+  })
+
+  it('exposes employee ERP order API paths', () => {
+    expect(buildEmployeeOrderFormPath()).toBe('/api/mini/employee/order-form')
+    expect(buildEmployeeOrdersPath()).toBe('/api/mini/employee/orders')
   })
 
   it('exposes customer products and category management mini API paths', () => {
