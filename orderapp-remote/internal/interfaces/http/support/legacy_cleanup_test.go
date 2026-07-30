@@ -28,6 +28,13 @@ func TestDeployScriptTargetsIsolatedReleaseBranchesAndVueShell(t *testing.T) {
 		"docker compose -f docker-compose.yml -f docker-compose.docconvert.yml build orderapp",
 		`WECHAT_MINI_APP_ID: \${WECHAT_MINI_APP_ID:-}`,
 		`WECHAT_MINI_APP_SECRET: \${WECHAT_MINI_APP_SECRET:-}`,
+		`git status --porcelain`,
+		`mkdir -p $STACK_DIR/orderapp_data/shipping_exports`,
+		`cp /data/ship_temp.xlsx $STACK_DIR/orderapp_data/ship_temp.xlsx`,
+		`DOC_CONVERT_STATE=`,
+		`docker inspect --format`,
+		`running|healthy|starting`,
+		`up -d --pull missing --force-recreate docconvert`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("deploy script missing %q", want)
@@ -36,6 +43,9 @@ func TestDeployScriptTargetsIsolatedReleaseBranchesAndVueShell(t *testing.T) {
 	for _, bad := range []string{
 		"cd orderapp-remote/frontend\n",
 		"Building frontend (React)",
+		"--untracked-files=no",
+		"mkdir -p /opt/stacks/erp/orderapp_data/shipping_exports",
+		"pull docconvert",
 	} {
 		if strings.Contains(src, bad) {
 			t.Fatalf("deploy script still contains obsolete deployment concern %q", bad)

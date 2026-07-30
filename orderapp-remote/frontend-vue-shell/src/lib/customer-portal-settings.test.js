@@ -10,15 +10,16 @@ test('customer portal settings opens the customer dossier drawer for the current
   )
 })
 
-test('customer portal settings refreshes the top customer account options after external account changes', () => {
+test('customer portal settings opens the scoped fulfillment workspace and refreshes customer options after account changes', () => {
   const source = readFileSync(new URL('../views/CustomerPortalSettingsView.vue', import.meta.url), 'utf8')
 
   for (const marker of [
-    '打开客户档案',
+    '打开客户履约工作台',
     'openCustomerProfile(row)',
+    "key: 'customerProcessingPortal'",
+    'params: { customer_id: customerID }',
     'workspaceCustomersRefreshEvent',
     'refreshWorkspaceCustomers()',
-    'customerDossierNavigationDetail(row)',
   ]) {
     assert.ok(source.includes(marker), `CustomerPortalSettingsView.vue should include ${marker}`)
   }

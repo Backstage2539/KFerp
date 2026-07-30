@@ -9,19 +9,19 @@ function source(rel) {
   return readFileSync(join(root, rel), 'utf8')
 }
 
-test('vue shell remounts page components when switching menu views after SKU settings', () => {
+test('vue shell remounts page components by view identity when switching after product settings', () => {
   const app = source('App.vue')
   assert.match(app, /<ProductSettingsView\s+v-else-if="isProductSettingsView"/)
   assert.match(app, /function isProductSettingsKey\(key\)/)
   assert.match(app, /'productMaster'/)
-  assert.match(app, /'customerProductAliases'/)
+  assert.match(app, /'productPriceManagement'/)
   assert.match(app, /'productConfigTemplates'/)
   assert.match(app, /:key="currentViewIdentity"/)
   assert.match(app, /:is="resolveInternalView\(currentKey\)"/)
   assert.match(app, /markRaw\(internalViews\[key\] \|\| UnknownView\)/)
   assert.match(app, /function isProductSettingsKey\(key\)/)
-  assert.match(app, /isProductSettingsKey\(currentKey\.value\) && !isProductSettingsKey\(key\)/)
-  assert.match(app, /window\.location\.assign\(relativeURLForHistory\(url\)\)/)
+  assert.match(app, /const currentViewIdentity = computed\(\(\) => `\$\{currentKey\.value\}:/)
+  assert.match(app, /function open\(key, params = \{\}, options = \{\}\)[\s\S]*?currentKey\.value = key/)
   assert.doesNotMatch(app, /const currentInternalView\s*=/)
 })
 
