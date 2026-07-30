@@ -360,7 +360,11 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 				return productionapp.StartResult{}, err
 			}
 		}
-		workOrderID, err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, group.ProductID, group.ProductName, group.SpecG, inputG, materialSnapshot, group.OperationTemplateID)
+		workOrderID, err := createWorkOrderForRunningItemTx(
+			ctx, tx, r.schema, runningItemID, batchID, group.ProductID, group.ProductName,
+			group.SpecG, inputG, materialSnapshot, group.OperationTemplateID,
+			legacyWorkOrderQuantitySnapshotFromGroup(group),
+		)
 		if err != nil {
 			return productionapp.StartResult{}, err
 		}

@@ -65,8 +65,8 @@ if [ "$BRANCH" != "$REQUIRED_BRANCH" ]; then
   echo "ERROR: $TARGET_ENV deploy requires branch=$REQUIRED_BRANCH, got $BRANCH" >&2
   exit 1
 fi
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  echo "ERROR: tracked working tree not clean; commit first" >&2
+if [ -n "$(git status --porcelain)" ]; then
+  echo "ERROR: working tree not clean; commit or remove untracked files first" >&2
   exit 1
 fi
 if git remote get-url origin >/dev/null 2>&1; then
@@ -127,7 +127,7 @@ if [ -d miniapp ]; then
   ssh -i "$KEY" "$SERVER" "rm -rf $APP_DIR/miniapp && mkdir -p $APP_DIR/miniapp"
   COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' --exclude='./node_modules' -C miniapp -cf - . | ssh -i "$KEY" "$SERVER" "tar -C $APP_DIR/miniapp -xf - && test -d $APP_DIR/miniapp/dist/build/mp-weixin"
 fi
-ssh -i "$KEY" "$SERVER" "set -e; mkdir -p /opt/stacks/erp/orderapp_data/shipping_exports; if [ -f /data/ship_temp.xlsx ]; then cp /data/ship_temp.xlsx /opt/stacks/erp/orderapp_data/ship_temp.xlsx; fi"
+ssh -i "$KEY" "$SERVER" "set -e; mkdir -p $STACK_DIR/orderapp_data/shipping_exports; if [ -f /data/ship_temp.xlsx ]; then cp /data/ship_temp.xlsx $STACK_DIR/orderapp_data/ship_temp.xlsx; fi"
 
 # 4) Ensure the DOCX conversion service is isolated from the app image.
 ssh -i "$KEY" "$SERVER" "cat > $STACK_DIR/docker-compose.docconvert.yml <<'YAML'
@@ -147,8 +147,23 @@ services:
     restart: unless-stopped
 YAML"
 
-# 5) Build & restart
-ssh -i "$KEY" "$SERVER" "cd $STACK_DIR && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml pull docconvert && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml up -d docconvert && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml build orderapp && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml up -d orderapp"
+# 5) Keep a healthy converter in place. First-time, stopped, or unhealthy
+# converters are created from the current compose configuration without
+# refreshing a mutable image tag that is already available locally.
+DOC_CONVERT_STATE="$(ssh -i "$KEY" "$SERVER" "if docker inspect '$DOC_CONVERT_CONTAINER' >/dev/null 2>&1; then docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' '$DOC_CONVERT_CONTAINER'; else printf missing; fi")"
+case "$DOC_CONVERT_STATE" in
+  running|healthy|starting )
+    echo "Keeping existing docconvert container $DOC_CONVERT_CONTAINER ($DOC_CONVERT_STATE)."
+    ;;
+  * )
+    echo "Initializing docconvert container $DOC_CONVERT_CONTAINER (state: $DOC_CONVERT_STATE)."
+    ssh -i "$KEY" "$SERVER" "cd $STACK_DIR && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml up -d --pull missing --force-recreate docconvert"
+    ;;
+esac
+
+# Build and restart only the application. Compose leaves unchanged running
+# dependencies in place while still starting missing base-stack dependencies.
+ssh -i "$KEY" "$SERVER" "cd $STACK_DIR && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml build orderapp && docker compose -f docker-compose.yml -f docker-compose.docconvert.yml up -d orderapp"
 
 echo "Deployed $TARGET_ENV origin/$REQUIRED_BRANCH=$REMOTE_HEAD with docs synced to $SERVER:$DOCS_DIR"
 echo "Frontend URL: $PUBLIC_URL"

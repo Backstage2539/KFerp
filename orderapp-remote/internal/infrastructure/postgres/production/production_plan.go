@@ -385,15 +385,25 @@ func createLegacyProductionPlanItemForGroupTx(
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
 	}
+	salesSpecSnapshotJSON, err := freezeProductionPlanSalesSpecSnapshot(
+		group.SalesSpecSnapshotJSON,
+		group.SalesSpecCount,
+		group.PlannedInventoryQty,
+	)
+	if err != nil {
+		return productionapp.ProductionPlanItem{}, err
+	}
 
 	var legacyItem productionapp.ProductionPlanItem
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_plan_items(
-			production_plan_id,product_id,product_name,spec_g,planned_g,planned_output_g,gap_g,order_nos,
+			production_plan_id,product_id,parent_product_id,product_name,spec_g,
+			sales_spec_count,inventory_qty_per_sales_unit,inventory_unit,planned_inventory_qty,sales_spec_snapshot_json,
+			planned_g,planned_output_g,gap_g,order_nos,
 			component_snapshot_json,process_route_snapshot_json,production_config_snapshot_json,
 			customer_product_snapshot_json,created_at
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,'{}'::jsonb,$10::jsonb,$11::jsonb,now())
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15::jsonb,'{}'::jsonb,$16::jsonb,$17::jsonb,now())
 		RETURNING id,production_plan_id,product_id,parent_product_id,bom_source_product_id,product_name,spec_g,
 		          sales_spec_count::float8,inventory_qty_per_sales_unit::float8,inventory_unit,planned_inventory_qty::float8,
 		          COALESCE(sales_spec_snapshot_json,'{}'::jsonb)::text,bom_inherited,
@@ -403,8 +413,10 @@ func createLegacyProductionPlanItemForGroupTx(
 		          COALESCE(production_config_snapshot_json,'{}'::jsonb)::text,
 		          COALESCE(customer_product_snapshot_json,'[]'::jsonb)::text
 	`, schema),
-		planID, group.ProductID, group.ProductName, group.SpecG, group.InputG, group.NeedG, group.NeedG,
-		group.OrderNos, materialSnapshot, productionConfigSnapshot, customerProductSnapshot,
+		planID, group.ProductID, group.ParentProductID, group.ProductName, group.SpecG,
+		group.SalesSpecCount, group.InventoryQtyPerSalesUnit, group.InventoryUnit, group.PlannedInventoryQty, salesSpecSnapshotJSON,
+		group.InputG, group.NeedG, group.NeedG, group.OrderNos,
+		materialSnapshot, productionConfigSnapshot, customerProductSnapshot,
 	).Scan(
 		&legacyItem.ID, &legacyItem.PlanID, &legacyItem.ProductID, &legacyItem.ParentProductID,
 		&legacyItem.BomSourceProductID, &legacyItem.ProductName, &legacyItem.SpecG,

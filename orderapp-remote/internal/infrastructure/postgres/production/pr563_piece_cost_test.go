@@ -46,6 +46,83 @@ func TestPR563JobCardRecalculatesPieceSnapshotUnitRateAsWorkOrderTotal(t *testin
 	}
 }
 
+func TestPR563LegacyProduceStartFreezesPieceQuantityOrRejectsMissingCount(t *testing.T) {
+	quantity := legacyWorkOrderQuantitySnapshotFromGroup(startRunGroup{
+		ParentProductID:          644,
+		NeedG:                    22700,
+		SalesSpecCount:           100,
+		InventoryQtyPerSalesUnit: 0.227,
+		InventoryUnit:            "kg",
+		PlannedInventoryQty:      22.7,
+		SalesSpecSnapshotJSON:    `{"spec_label":"227g"}`,
+		OrderNos:                 "SO-TEST-0001",
+	})
+	if quantity.ParentProductID != 644 ||
+		quantity.PlannedOutputG != 22700 ||
+		quantity.SalesSpecCount != 100 ||
+		quantity.InventoryQtyPerSalesUnit != 0.227 ||
+		quantity.InventoryUnit != "kg" ||
+		quantity.PlannedInventoryQty != 22.7 ||
+		quantity.OrderNos != "SO-TEST-0001" {
+		t.Fatalf("legacy quantity snapshot = %+v", quantity)
+	}
+
+	pieceRoute := &processTemplateSnapshot{Operations: []processSnapshotOperation{{
+		Operation:  "包装",
+		CostMethod: "piece",
+		PieceRate:  0.5,
+	}}}
+	if err := validateLegacyPieceCostQuantity(pieceRoute, quantity.SalesSpecCount); err != nil {
+		t.Fatalf("valid legacy piece quantity rejected: %v", err)
+	}
+	if err := validateLegacyPieceCostQuantity(pieceRoute, 0); err == nil || !strings.Contains(err.Error(), "销售规格件数") {
+		t.Fatalf("missing legacy piece quantity error = %v", err)
+	}
+}
+
+func TestPR563LegacyProduceStartUsesFrozenPieceQuantityInPlanAndJobCard(t *testing.T) {
+	planSource, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planText := string(planSource)
+	start := strings.Index(planText, "func createLegacyProductionPlanItemForGroupTx")
+	if start < 0 {
+		t.Fatal("legacy production-plan compatibility function not found")
+	}
+	end := strings.Index(planText[start:], "func createLegacyProductionPlanForStartGroupsTx")
+	if end < 0 {
+		t.Fatal("legacy production-plan compatibility function not found")
+	}
+	legacyPlanText := planText[start : start+end]
+	for _, want := range []string{
+		"sales_spec_count,inventory_qty_per_sales_unit,inventory_unit,planned_inventory_qty,sales_spec_snapshot_json",
+		"freezeProductionPlanSalesSpecSnapshot(",
+	} {
+		if !strings.Contains(legacyPlanText, want) {
+			t.Fatalf("legacy production-plan item must freeze sales-spec quantity; missing %q", want)
+		}
+	}
+
+	workOrderSource, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workOrderText := string(workOrderSource)
+	compactWorkOrderText := strings.NewReplacer("\n", "", "\t", "", " ", "").Replace(workOrderText)
+	for _, want := range []string{
+		"plannedJobCardMetrics(op, plannedG, quantity.SalesSpecCount)",
+		"sales_spec_count=$16",
+	} {
+		if !strings.Contains(workOrderText, want) {
+			t.Fatalf("legacy work order must freeze and use sales-spec quantity; missing %q", want)
+		}
+	}
+	if want := "sales_spec_count,inventory_qty_per_sales_unit,inventory_unit,planned_inventory_qty,sales_spec_snapshot_json"; !strings.Contains(compactWorkOrderText, want) {
+		t.Fatalf("legacy work order must freeze and use sales-spec quantity; missing %q", want)
+	}
+}
+
 func TestPR563CountSplitUsesFrozenPlanSalesSpecRatioWithoutSpecG(t *testing.T) {
 	got := plannedCapacitySplitMetricsWithBasis(productionapp.ProductionPlanOperationSplit{
 		PlannedQty:      100,
