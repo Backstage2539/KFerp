@@ -35,6 +35,65 @@ func TestLoadProductInputsDoesNotUsePublishedDefaultPriceAsBeanCost(t *testing.T
 	}
 }
 
+func TestResolveProductSpecIdentityChecksCurrentParentAndSalesSpecTemplate(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductSpecIdentity")
+	end := strings.Index(src, "func (r Repository) ResolveProductDefaultSalesUnit")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("ResolveProductSpecIdentity function not found")
+	}
+	body := src[start:end]
+	for _, want := range []string{
+		"effective_parent_product_id",
+		"parent_product_name",
+		"parent.name",
+		"p.name",
+		"COALESCE(p.active,true)",
+		"COALESCE(parent.active,false)",
+		"derived_spec_status",
+		"derived_unit_template_id",
+		"parent.unit_template_id",
+		"product_unit_templates",
+		"sales_specs_json",
+		"derived_spec_key",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("product spec identity query missing %q", want)
+		}
+	}
+	for _, want := range []string{"NOT EXISTS", "child.parent_product_id=p.id", "child.active=true"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("parent self-SKU validity must require no valid active child SKU; missing %q", want)
+		}
+	}
+}
+
+func TestResolveProductSalesUnitRuleBuildsAuthoritativeSKUSnapshotFields(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductSalesUnitRule")
+	end := strings.Index(src, "func (r Repository) ResolveProductSpecIdentity")
+	if start < 0 || end <= start {
+		t.Fatal("ResolveProductSalesUnitRule function not found")
+	}
+	body := src[start:end]
+	for _, want := range []string{
+		"p.sku_name", "p.sku_code", "p.barcode", "p.derived_spec_key", "p.derived_spec_name",
+		"p.spec_label", "p.net_content_qty", "p.net_content_unit", "product_unit_template_default_spec.spec_key",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("authoritative product sales specification query missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsUsesBomCostSnapshotForGreenBeanCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -494,6 +553,93 @@ func TestResolveProductSalesUnitRuleUsesProductMasterAndLegacyFallbacks(t *testi
 	}
 }
 
+func TestResolveProductSalesUnitRuleUsesDerivedSkuNetContentConversion(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductSalesUnitRule")
+	if start < 0 {
+		t.Fatalf("missing ResolveProductSalesUnitRule")
+	}
+	end := strings.Index(src[start:], "func (r Repository) ResolveCustomerProductSalesUnitRule")
+	if end < 0 {
+		t.Fatalf("missing ResolveProductSalesUnitRule end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{
+		"derived_sku_unit_factor",
+		"p.net_content_qty",
+		"p.net_content_unit",
+		"/ 1000.0",
+		"jsonb_build_object(p.derived_sales_unit",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("derived SKU publication snapshots must convert net content to the parent inventory unit; missing %q", want)
+		}
+	}
+	if strings.Contains(fn, "conversion[derivedSalesUnit] = map[string]float64{inventoryUnit: 1}") {
+		t.Fatalf("derived SKU publication snapshots must not hard-code one parent inventory unit per sales unit")
+	}
+}
+
+func TestResolvePriceTierTemplateUnitRuleReadsActiveTemplateAndTiers(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolvePriceTierTemplateUnitRule")
+	if start < 0 {
+		t.Fatalf("missing ResolvePriceTierTemplateUnitRule")
+	}
+	end := strings.Index(src[start:], "func productSalesUnitConversionMap")
+	if end < 0 {
+		t.Fatalf("missing ResolvePriceTierTemplateUnitRule end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{
+		"price_tier_templates",
+		"price_tier_template_tiers",
+		"tier.template_id=template.id",
+		"tier.active=true",
+		"template.active=true",
+		"tier.quantity_unit",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("tier-template compatibility must read authoritative active template tiers; missing %q", want)
+		}
+	}
+}
+
+func TestResolveProductDefaultSalesUnitReadsExplicitCurrentSpecWithoutInventoryFallback(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductDefaultSalesUnit")
+	if start < 0 {
+		t.Fatal("missing ResolveProductDefaultSalesUnit")
+	}
+	end := strings.Index(src[start:], "func (r Repository) ResolveCustomerProductSalesUnitRule")
+	if end < 0 {
+		t.Fatal("missing ResolveProductDefaultSalesUnit end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{"derived_sales_unit", "sku_name", "sales_specs_json", "default_sales_unit", "order_unit", "quote_unit"} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("strict current-sales-spec resolver missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"inventory_unit", "'kg'"} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("strict current-sales-spec resolver must not fall back to %q", forbidden)
+		}
+	}
+}
+
 func TestProductSalesUnitConversionMapAcceptsLegacyFlatConversions(t *testing.T) {
 	got := productSalesUnitConversionMap(`{"盒":0.2,"袋":"0.25"}`, "kg")
 	if got["盒"]["kg"] != 0.2 {
@@ -724,6 +870,26 @@ func TestPricingRuleTrialDetailsConvertGramBomItemsToKgCost(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialUsesMaterialCostUnitInsteadOfInventoryUnit(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnStart < 0 || fnEnd < 0 {
+		t.Fatal("cannot locate pricing rule trial base cost loader")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	if !strings.Contains(fn, "COALESCE(NULLIF(m.cost_unit,''),'kg') AS unit_cost_unit") {
+		t.Fatal("pricing rule trial must expose material cost_unit as unit_cost_unit")
+	}
+	if strings.Contains(fn, "COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit") {
+		t.Fatal("pricing rule trial must not use inventory unit as cost unit")
+	}
+}
+
 func TestPricingRuleTrialDetailsGrossRatioCostsByMaterialLossRate(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -924,18 +1090,81 @@ func TestLoadProductInputsReadsChildSKUMetadataForPriceListRows(t *testing.T) {
 		"COALESCE(p.parent_product_id,0) AS parent_product_id",
 		"effective_parent_product_id",
 		"COALESCE(p.sku_code,'') AS sku_code",
+		"derived_spec_key",
 		"COALESCE(p.spec_label,'') AS spec_label",
 		"COALESCE(NULLIF(p.net_content_qty,0), NULLIF(product_unit_template_default_spec.net_content_qty,0), 0)::float8 AS net_content_qty",
 		"COALESCE(NULLIF(p.net_content_unit,''), NULLIF(product_unit_template_default_spec.net_content_unit,''), '') AS net_content_unit",
 		"&input.SKUID",
 		"&input.ParentProductID",
 		"&input.SKUName",
+		"&input.SpecKey",
 		"&input.SpecLabel",
 		"&input.NetContentQty",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must load child SKU metadata for price list rows; missing %q", want)
 		}
+	}
+}
+
+func TestLoadProductInputsProjectsParentAuthoritativeDefaultSKU(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.products parent_product",
+		"COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS default_sku_id",
+		"p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS is_default_sku",
+		"&input.DefaultSKUID",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing product input default-SKU projection missing %q", want)
+		}
+	}
+	if strings.Contains(src, "(COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku") {
+		t.Fatalf("costing rows must not force every parent product to be the default SKU")
+	}
+}
+
+func TestLoadProductInputsJoinsParentProductOnceForParentAndChildRows(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) loadProductInputs")
+	if start < 0 {
+		t.Fatal("loadProductInputs function not found")
+	}
+	endOffset := strings.Index(src[start+1:], "\nfunc ")
+	if endOffset < 0 {
+		t.Fatal("loadProductInputs function end not found")
+	}
+	loadProductInputs := src[start : start+1+endOffset]
+	join := "LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AND parent_product.active=true"
+	if !strings.Contains(loadProductInputs, join) {
+		t.Fatalf("loadProductInputs must resolve the authoritative parent for both parent and child rows; missing %q", join)
+	}
+	if count := strings.Count(loadProductInputs, "LEFT JOIN %[1]s.products parent_product ON"); count != 1 {
+		t.Fatalf("loadProductInputs parent_product joins = %d, want exactly 1 to avoid SQLSTATE 42712", count)
+	}
+}
+
+func TestBeanListProductScopeIncludesConcreteSKUPriceRows(t *testing.T) {
+	content := map[string]any{
+		"groups": []any{map[string]any{"items": []any{map[string]any{
+			"product_id": float64(550), "name": "初晓",
+		}}}},
+		"price_rows": []any{map[string]any{
+			"product_id": float64(550), "sku_id": float64(551), "parent_product_id": float64(550),
+			"quantity_basis": "sales_spec_count", "final_unit_price": float64(68),
+		}},
+	}
+	got := beanListContentProductIDs(content)
+	if len(got) != 2 || got[0] != 550 || got[1] != 551 {
+		t.Fatalf("publish scope product IDs = %v, want parent 550 and concrete SKU 551", got)
 	}
 }
 

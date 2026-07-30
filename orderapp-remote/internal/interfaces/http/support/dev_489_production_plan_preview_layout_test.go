@@ -13,15 +13,15 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 			"DEV-489-PREVIEW-TABLE-DRAG-COLLAPSE",
 			"DEV-489-SPLIT-VISIBILITY-HINT",
 		},
-			filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
-				"drag-scroll-wrap",
-				"startTableScrollDrag",
-				"demandPanelTitle",
-				"收起${demandPanelTitle}",
-				"收起当前生产计划",
-				"openCurrentPlanSplitDrawer",
-				"请先生成草稿生产计划；草稿生成后点第 3 步",
-			},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
+			"drag-scroll-wrap",
+			"startTableScrollDrag",
+			"demandPanelTitle",
+			"收起${demandPanelTitle}",
+			"收起当前生产计划",
+			"openCurrentPlanSplitDrawer",
+			"创建成功后会自动打开拆分产能",
+		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
 			"计划预览表格支持横向拖拽滚动",
@@ -29,14 +29,14 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
-			"拖拽计划预览表格可查看 BOM 摘要、计划投料和工艺路线摘要",
+			"拖拽计划预览表格可查看 BOM 摘要和工艺路线摘要",
 		},
-			filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-				"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
-				"收起待生产需求",
-				"当前计划工作台只展示计划预览、物料汇总和提交动作",
-				"点击步骤条第 3 步 `拆分产能`",
-			},
+		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
+			"PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT",
+			"收起待生产需求",
+			"当前计划工作台只展示计划预览、物料汇总和提交/撤销动作",
+			"点击步骤条第 3 步",
+		},
 		filepath.Join("docs", "acceptance", "2026-06-12-production-plan-preview-layout.md"): {
 			"PR-489 Production Plan Preview Layout",
 			"左右两栏支持收起和展开",

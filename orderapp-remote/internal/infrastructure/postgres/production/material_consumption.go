@@ -19,6 +19,7 @@ type materialConsumptionNeed struct {
 	MaterialName       string
 	Unit               string
 	Qty                int64
+	QtyDecimal         float64
 	DeductG            int64
 	DeductUnits        int64
 	RatioPct           float64
@@ -43,24 +44,25 @@ type materialConsumptionSummaryItem struct {
 }
 
 type materialSnapshotRow struct {
-	MaterialID         int64   `json:"material_id"`
-	MaterialName       string  `json:"material_name"`
-	Unit               string  `json:"unit"`
-	RatioPct           float64 `json:"ratio_pct,omitempty"`
-	MaterialLossRate   float64 `json:"material_loss_rate,omitempty"`
-	Source             string  `json:"source"`
-	ComponentType      string  `json:"component_type,omitempty"`
-	ComponentProductID int64   `json:"component_product_id,omitempty"`
-	ComponentSpecG     int64   `json:"component_spec_g,omitempty"`
-	ConsumeUnit        string  `json:"consume_unit,omitempty"`
-	QtyPerUnit         float64 `json:"qty_per_unit,omitempty"`
-	OutputQty          float64 `json:"output_qty,omitempty"`
-	OutputUnit         string  `json:"output_unit,omitempty"`
+	MaterialID                int64   `json:"material_id"`
+	MaterialName              string  `json:"material_name"`
+	Unit                      string  `json:"unit"`
+	RatioPct                  float64 `json:"ratio_pct,omitempty"`
+	MaterialLossRate          float64 `json:"material_loss_rate,omitempty"`
+	InputIncludesMaterialLoss bool    `json:"input_includes_material_loss,omitempty"`
+	Source                    string  `json:"source"`
+	ComponentType             string  `json:"component_type,omitempty"`
+	ComponentProductID        int64   `json:"component_product_id,omitempty"`
+	ComponentSpecG            int64   `json:"component_spec_g,omitempty"`
+	ConsumeUnit               string  `json:"consume_unit,omitempty"`
+	QtyPerUnit                float64 `json:"qty_per_unit,omitempty"`
+	OutputQty                 float64 `json:"output_qty,omitempty"`
+	OutputUnit                string  `json:"output_unit,omitempty"`
 }
 
 func isWeightMaterialUnit(unit string) bool {
 	unit = strings.ToLower(strings.TrimSpace(unit))
-	return unit == "g" || unit == "kg" || unit == "克" || unit == "千克"
+	return unit == "g" || unit == "kg" || unit == "lb" || unit == "克" || unit == "千克" || unit == "公斤" || unit == "磅"
 }
 
 func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits int64) {
@@ -71,6 +73,8 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 	switch unit {
 	case "kg", "千克":
 		return qty * 1000, 0
+	case "lb", "磅":
+		return int64(math.Ceil(float64(qty) * 453.59237)), 0
 	case "g", "克":
 		return qty, 0
 	default:
@@ -94,6 +98,53 @@ func componentConsumptionQtyWithMaterialLoss(consumeUnit string, qtyPerUnit floa
 		packedUnits = int64(math.Ceil(float64(packedUnits) * factor))
 	}
 	return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, boxUnits, outputQty, outputUnit)
+}
+
+func componentConsumptionWeightGramsWithMaterialLoss(consumeUnit string, qtyPerUnit, ratioPct float64, materialUnit string, rawG, outputG, packedUnits, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) int64 {
+	normalized := normalizeBomConsumeUnit(consumeUnit)
+	if normalized == "ratio_pct" {
+		ratio := bomdomain.NormalizeRatioPct(ratioPct)
+		if ratio <= 0 {
+			return 0
+		}
+		lossRate := normalizeMaterialLossRate(materialLossRate)
+		factor := 1.0
+		if lossRate > 0 {
+			factor = 1 / (1 - lossRate)
+		}
+		return int64(math.Ceil(float64(rawG) * ratio / 100 * factor))
+	}
+	outputFactor := bomOutputBasisFactor(outputG, packedUnits, outputQty, outputUnit)
+	var grams float64
+	switch normalized {
+	case "g":
+		grams = qtyPerUnit * outputFactor
+	case "kg":
+		grams = qtyPerUnit * outputFactor * 1000
+	case "g_per_bag":
+		grams = float64(packedUnits) * qtyPerUnit
+	case "unit_per_bag":
+		grams = float64(packedUnits) * qtyPerUnit * productionWeightUnitGrams(materialUnit)
+	case "unit_per_box":
+		grams = float64(boxUnits) * qtyPerUnit * productionWeightUnitGrams(materialUnit)
+	default:
+		grams = qtyPerUnit * outputFactor * productionWeightUnitGrams(materialUnit)
+	}
+	if grams <= 0 {
+		return 0
+	}
+	return int64(math.Ceil(grams))
+}
+
+func productionWeightUnitGrams(unit string) float64 {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg", "千克", "公斤":
+		return 1000
+	case "lb", "磅":
+		return 453.59237
+	default:
+		return 1
+	}
 }
 
 func normalizeMaterialLossRate(rate float64) float64 {
@@ -158,6 +209,10 @@ func bomOutputBasisFactor(outputG int64, packedUnits int64, outputQty float64, o
 	case "kg", "千克":
 		if outputG > 0 {
 			return float64(outputG) / (outputQty * 1000.0)
+		}
+	case "lb", "磅":
+		if outputG > 0 {
+			return float64(outputG) / (outputQty * 453.59237)
 		}
 	}
 	if packedUnits > 0 {
@@ -642,6 +697,75 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 	return json.Marshal(rows)
 }
 
+func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, bomVersionID int64, inputIncludesMaterialLoss bool) ([]byte, error) {
+	if bomVersionID <= 0 {
+		return nil, fmt.Errorf("production BOM version required: %s", r.Product)
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT
+			i.material_id,
+			COALESCE(m.name,''),
+			COALESCE(NULLIF(m.unit,''),'g'),
+			COALESCE(i.ratio_pct,0)::float8,
+			COALESCE(i.material_loss_rate,0)::float8,
+			COALESCE(NULLIF(i.component_type,''),'material'),
+			COALESCE(i.component_product_id,0),
+			COALESCE(cp.name,''),
+			COALESCE(i.component_spec_g,0),
+			COALESCE(NULLIF(i.consume_unit,''),'ratio_pct'),
+			COALESCE(i.qty_per_unit,0)::float8,
+			COALESCE(NULLIF(v.output_qty,0),1)::float8,
+			COALESCE(NULLIF(v.output_unit,''),'unit')
+		FROM %s.production_bom_version_items i
+		JOIN %s.production_bom_versions v ON v.id=i.version_id
+		LEFT JOIN %s.materials m ON m.id=i.material_id
+		LEFT JOIN %s.products cp ON cp.id=i.component_product_id
+		WHERE i.version_id=$1
+		ORDER BY i.id
+	`, schema, schema, schema, schema), bomVersionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	snapshot := make([]materialSnapshotRow, 0)
+	for rows.Next() {
+		var row materialSnapshotRow
+		var componentProductName string
+		if err := rows.Scan(
+			&row.MaterialID, &row.MaterialName, &row.Unit, &row.RatioPct, &row.MaterialLossRate,
+			&row.ComponentType, &row.ComponentProductID, &componentProductName, &row.ComponentSpecG,
+			&row.ConsumeUnit, &row.QtyPerUnit, &row.OutputQty, &row.OutputUnit,
+		); err != nil {
+			return nil, err
+		}
+		row.ComponentType = normalizeBomComponentType(row.ComponentType)
+		row.ConsumeUnit = normalizeBomConsumeUnit(row.ConsumeUnit)
+		row.RatioPct = bomdomain.NormalizeRatioPct(row.RatioPct)
+		row.MaterialLossRate = normalizeMaterialLossRate(row.MaterialLossRate)
+		row.InputIncludesMaterialLoss = inputIncludesMaterialLoss && row.MaterialLossRate > 0
+		row.Source = "bom"
+		if row.ComponentType == "finished_product" {
+			if row.ComponentProductID <= 0 || row.QtyPerUnit <= 0 {
+				return nil, fmt.Errorf("production BOM version has invalid finished-product component: %s", r.Product)
+			}
+			row.MaterialID = row.ComponentProductID
+			row.MaterialName = firstNonEmpty(componentProductName, fmt.Sprintf("finished product %d", row.ComponentProductID))
+			row.Unit = "g"
+			row.Source = "finished_product"
+		} else if row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" || (row.RatioPct <= 0 && row.QtyPerUnit <= 0) {
+			return nil, fmt.Errorf("production BOM version has invalid material line: %s", r.Product)
+		}
+		snapshot = append(snapshot, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(snapshot) == 0 {
+		return nil, fmt.Errorf("production BOM version has no material lines: %s", r.Product)
+	}
+	return json.Marshal(snapshot)
+}
+
 func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, bool, error) {
 	raw := strings.TrimSpace(r.MaterialSnapshot)
 	if raw == "" || raw == "[]" || raw == "null" {
@@ -680,22 +804,40 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			source = "bom"
 		}
 		qty := int64(0)
+		qtyDecimal := float64(0)
+		deductG, deductUnits := int64(0), int64(0)
 		ratioPct := row.RatioPct
 		if normalizeBomConsumeUnit(row.ConsumeUnit) == "ratio_pct" && !isWeightMaterialUnit(unit) && ratioPct <= 0 {
 			ratioPct = 100
 		}
 		materialLossRate := normalizeMaterialLossRate(row.MaterialLossRate)
+		if row.InputIncludesMaterialLoss {
+			materialLossRate = 0
+		}
 		if source == "packaging" {
 			qty = packedUnits
 		} else if source == "finished_product" {
 			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, 0)
+		} else if isWeightMaterialUnit(unit) {
+			deductG = componentConsumptionWeightGramsWithMaterialLoss(
+				row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG,
+				packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate,
+			)
+			if productionWeightUnitGrams(unit) > 1 {
+				qtyDecimal = float64(deductG) / productionWeightUnitGrams(unit)
+			} else {
+				qtyDecimal = float64(deductG)
+			}
+			qty = int64(math.Ceil(qtyDecimal))
 		} else {
 			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate)
 		}
-		if qty <= 0 {
+		if qty <= 0 && deductG <= 0 {
 			continue
 		}
-		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		if deductG <= 0 {
+			deductG, deductUnits = materialNeedToDeduct(unit, qty)
+		}
 		if source == "finished_product" {
 			deductG = qty
 			deductUnits = 0
@@ -705,6 +847,7 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			MaterialName:       strings.TrimSpace(row.MaterialName),
 			Unit:               unit,
 			Qty:                qty,
+			QtyDecimal:         qtyDecimal,
 			DeductG:            deductG,
 			DeductUnits:        deductUnits,
 			RatioPct:           row.RatioPct,
@@ -723,58 +866,253 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 }
 
 func ensureWIPStockForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, materialSnapshot []byte) error {
+	return ensureWIPStockForRunningItemWorkOrderTx(ctx, tx, schema, 0, r, materialSnapshot)
+}
+
+func runningItemWorkOrderMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, r ProduceRunRow, materialSnapshot []byte) ([]materialConsumptionNeed, error) {
 	r.MaterialSnapshot = strings.TrimSpace(string(materialSnapshot))
 	needs, ok, err := materialSnapshotNeedsTx(r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if !ok {
-		needs, err = currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
+	if ok && len(needs) > 0 {
+		return needs, nil
+	}
+	if workOrderID > 0 {
+		needs, err = workOrderReservationNeedsTx(ctx, tx, schema, workOrderID)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		if len(needs) == 0 {
+			return nil, fmt.Errorf("WIP资料待完善: work order %d has no frozen material snapshot or reservation requirements", workOrderID)
+		}
+		return needs, nil
 	}
-	return ensureWIPStockForNeedsTx(ctx, tx, schema, needs)
+	return currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
 }
 
-func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, needs []materialConsumptionNeed) error {
-	shortages := make([]string, 0)
+func ensureWIPStockForRunningItemWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, r ProduceRunRow, materialSnapshot []byte) error {
+	needs, err := runningItemWorkOrderMaterialNeedsTx(ctx, tx, schema, workOrderID, r, materialSnapshot)
+	if err != nil {
+		return err
+	}
+	return ensureWIPStockForWorkOrderNeedsTx(ctx, tx, schema, workOrderID, needs)
+}
+
+type workOrderWIPNeedCoverage struct {
+	Need                 materialConsumptionNeed
+	WIPG                 int64
+	WIPUnits             int64
+	CurrentConsumedG     int64
+	CurrentConsumedUnits int64
+	OtherReservedG       int64
+	OtherReservedUnits   int64
+	AvailableG           int64
+	AvailableUnits       int64
+	ShortageG            int64
+	ShortageUnits        int64
+}
+
+func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, needs []materialConsumptionNeed) ([]workOrderWIPNeedCoverage, error) {
+	hasLocationUnits, err := schemaColumnExistsTx(ctx, tx, schema, "material_batch_locations", "qty_units")
+	if err != nil {
+		return nil, err
+	}
+	hasReservationUnits, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "reserved_units")
+	if err != nil {
+		return nil, err
+	}
+	hasReservationWorkOrder, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "work_order_id")
+	if err != nil {
+		return nil, err
+	}
+	hasBatchRemainingUnits, err := schemaColumnExistsTx(ctx, tx, schema, "material_batches", "remaining_units")
+	if err != nil {
+		return nil, err
+	}
+	hasWorkOrderStatus, err := schemaColumnExistsTx(ctx, tx, schema, "work_orders", "status")
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]workOrderWIPNeedCoverage, 0)
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
 		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
 			continue
 		}
-		if need.MaterialID <= 0 || need.DeductG <= 0 {
+		if need.MaterialID <= 0 || (need.DeductG <= 0 && need.DeductUnits <= 0) {
 			continue
 		}
-		var availableG int64
-		err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT COALESCE(SUM(l.qty_g),0)::bigint
-			FROM %s.material_batch_locations l
-			JOIN %s.material_batches b ON b.id=l.material_batch_id
-			WHERE l.material_id=$1
-			  AND l.warehouse=$2
-			  AND l.qty_g > 0
-			  AND b.status='active'
-			  AND b.remaining_g > 0
-			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-		`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&availableG)
+		var wipG, wipUnits int64
+		if hasLocationUnits && hasBatchRemainingUnits {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(l.qty_g),0)::bigint,COALESCE(SUM(l.qty_units),0)::bigint
+				FROM %s.material_batch_locations l
+				JOIN %s.material_batches b ON b.id=l.material_batch_id
+				WHERE l.material_id=$1
+				  AND l.warehouse=$2
+				  AND (l.qty_g > 0 OR l.qty_units > 0)
+				  AND b.status='active'
+				  AND (b.remaining_g > 0 OR b.remaining_units > 0)
+				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG, &wipUnits)
+		} else {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(l.qty_g),0)::bigint
+				FROM %s.material_batch_locations l
+				JOIN %s.material_batches b ON b.id=l.material_batch_id
+				WHERE l.material_id=$1 AND l.warehouse=$2 AND l.qty_g>0
+				  AND b.status='active' AND b.remaining_g>0
+				  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			`, schema, schema), need.MaterialID, stockdomain.WarehouseWIP).Scan(&wipG)
+			wipUnits = 0
+		}
 		if err != nil {
-			if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
-				return nil
+			return nil, err
+		}
+		var otherReservedG, otherReservedUnits int64
+		if hasReservationUnits && hasReservationWorkOrder {
+			if hasWorkOrderStatus {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint,
+					       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units)),0)::bigint
+					FROM %s.work_order_material_reservations r
+					JOIN %s.work_orders wo ON wo.id=r.work_order_id
+					WHERE r.material_id=$1 AND r.status='reserved'
+					  AND wo.status IN ('released','running','partially_completed','paused')
+					  AND ($2::bigint=0 OR r.work_order_id<>$2)
+				`, schema, schema), need.MaterialID, workOrderID).Scan(&otherReservedG, &otherReservedUnits)
+			} else {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,
+					       COALESCE(SUM(GREATEST(0,reserved_units-consumed_units-returned_units)),0)::bigint
+					FROM %s.work_order_material_reservations
+					WHERE material_id=$1 AND status='reserved' AND ($2::bigint=0 OR work_order_id<>$2)
+				`, schema), need.MaterialID, workOrderID).Scan(&otherReservedG, &otherReservedUnits)
 			}
-			return err
+		} else {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint
+				FROM %s.work_order_material_reservations
+				WHERE material_id=$1 AND status='reserved'
+			`, schema), need.MaterialID).Scan(&otherReservedG)
+			otherReservedUnits = 0
 		}
-		reservedG, err := reservedWIPGForMaterialTx(ctx, tx, schema, need.MaterialID)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		availableForNew := availableG - reservedG
-		if availableForNew < need.DeductG {
-			name := strings.TrimSpace(need.MaterialName)
+		var currentConsumedG, currentConsumedUnits int64
+		if workOrderID > 0 && hasReservationWorkOrder {
+			if hasReservationUnits {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(consumed_g),0)::bigint,COALESCE(SUM(consumed_units),0)::bigint
+					FROM %s.work_order_material_reservations
+					WHERE work_order_id=$1 AND material_id=$2
+				`, schema), workOrderID, need.MaterialID).Scan(&currentConsumedG, &currentConsumedUnits)
+			} else {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(consumed_g),0)::bigint
+					FROM %s.work_order_material_reservations
+					WHERE work_order_id=$1 AND material_id=$2
+				`, schema), workOrderID, need.MaterialID).Scan(&currentConsumedG)
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+		availableG := wipG - otherReservedG
+		if availableG < 0 {
+			availableG = 0
+		}
+		availableUnits := wipUnits - otherReservedUnits
+		if availableUnits < 0 {
+			availableUnits = 0
+		}
+		row := workOrderWIPNeedCoverage{
+			Need: need, WIPG: wipG, WIPUnits: wipUnits,
+			CurrentConsumedG: currentConsumedG, CurrentConsumedUnits: currentConsumedUnits,
+			OtherReservedG: otherReservedG, OtherReservedUnits: otherReservedUnits,
+			AvailableG: availableG, AvailableUnits: availableUnits,
+		}
+		row.ShortageG = workOrderRemainingWIPShortage(need.DeductG, currentConsumedG, availableG)
+		row.ShortageUnits = workOrderRemainingWIPShortage(need.DeductUnits, currentConsumedUnits, availableUnits)
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func schemaColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table, column string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+		)
+	`, schema, table, column).Scan(&exists)
+	return exists, err
+}
+
+func nonnegativeQuantity(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func workOrderRemainingWIPShortage(required, consumed, available int64) int64 {
+	return nonnegativeQuantity(required - consumed - available)
+}
+
+func ensureWIPStockForNeedsTx(ctx context.Context, tx pgx.Tx, schema string, needs []materialConsumptionNeed) error {
+	return ensureWIPStockForWorkOrderNeedsTx(ctx, tx, schema, 0, needs)
+}
+
+func ensureWIPStockForWorkOrderNeedsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, needs []materialConsumptionNeed) error {
+	hasMaterials, err := schemaColumnExistsTx(ctx, tx, schema, "materials", "id")
+	if err != nil {
+		return err
+	}
+	if hasMaterials {
+		materialIDs := make([]int64, 0)
+		seen := map[int64]bool{}
+		for _, need := range aggregateMaterialConsumptionNeeds(needs) {
+			if need.MaterialID > 0 && !seen[need.MaterialID] {
+				seen[need.MaterialID] = true
+				materialIDs = append(materialIDs, need.MaterialID)
+			}
+		}
+		if len(materialIDs) > 0 {
+			rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE`, schema), materialIDs)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return err
+			}
+			rows.Close()
+		}
+	}
+	coverage, err := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, workOrderID, needs)
+	if err != nil {
+		if strings.Contains(err.Error(), "material_batches") || strings.Contains(err.Error(), "material_batch_locations") || strings.Contains(err.Error(), "quality_status") {
+			return nil
+		}
+		return err
+	}
+	shortages := make([]string, 0)
+	for _, row := range coverage {
+		if row.ShortageG > 0 || row.ShortageUnits > 0 {
+			name := strings.TrimSpace(row.Need.MaterialName)
 			if name == "" {
-				name = fmt.Sprintf("material %d", need.MaterialID)
+				name = fmt.Sprintf("material %d", row.Need.MaterialID)
 			}
-			shortages = append(shortages, fmt.Sprintf("%s need %dg, available %dg, reserved %dg", name, need.DeductG, availableG, reservedG))
+			if row.Need.DeductG > 0 {
+				shortages = append(shortages, fmt.Sprintf("%s need %dg, available %dg, reserved %dg", name, row.Need.DeductG, row.WIPG, row.OtherReservedG))
+			} else {
+				shortages = append(shortages, fmt.Sprintf("%s need %d%s, available %d%s, reserved %d%s", name, row.Need.DeductUnits, row.Need.Unit, row.WIPUnits, row.Need.Unit, row.OtherReservedUnits, row.Need.Unit))
+			}
 		}
 	}
 	if len(shortages) > 0 {
@@ -1015,6 +1353,7 @@ func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materi
 			row.Unit = need.Unit
 		}
 		row.Qty += need.Qty
+		row.QtyDecimal += need.QtyDecimal
 		row.DeductG += need.DeductG
 		row.DeductUnits += need.DeductUnits
 		byMaterial[need.MaterialID] = row
@@ -1048,6 +1387,20 @@ func createMaterialReservationsForRunningItemTx(ctx context.Context, tx pgx.Tx, 
 			continue
 		}
 		if need.MaterialID <= 0 || (need.DeductG <= 0 && need.DeductUnits <= 0) {
+			continue
+		}
+		tag, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.work_order_material_reservations
+			SET running_item_id=$2,updated_at=now()
+			WHERE work_order_id=$1
+			  AND material_id=$3
+			  AND status='reserved'
+			  AND running_item_id IN (0,$2)
+		`, schema), workOrderID, runningItemID, need.MaterialID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() > 0 {
 			continue
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`

@@ -140,6 +140,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import {
+  normalizeCapacityCostMethod,
+  workstationCapacityCostMeta,
+} from '../lib/workstation-capacity-costing'
 
 const loading = ref(false)
 const error = ref('')
@@ -178,6 +182,8 @@ function blankOperation(seq) {
     batch_size_unit: '',
     standard_minutes: 0,
     hourly_rate: 0,
+    cost_method: 'time',
+    piece_rate: 0,
     records_loss: false,
     quality_checklist_json: '[]',
     quality_checklist_text: '',
@@ -213,24 +219,9 @@ function standardCostCapacityLabel(option) {
   return [workstation, name].filter(Boolean).join(' · ') || name || ''
 }
 
-function standardCostCapacityUnitCost(option) {
-  const qty = Number(option?.batch_size_qty || 0)
-  const minutes = Number(option?.standard_minutes || 0)
-  const hourly = Number(option?.hourly_rate || 0)
-  if (qty <= 0 || minutes <= 0 || hourly <= 0) return 0
-  return (hourly * minutes / 60) / qty
-}
-
-function formatCostNumber(value) {
-  const num = Number(value || 0)
-  if (!Number.isFinite(num)) return '0'
-  return Number(num.toFixed(4)).toString()
-}
-
 function standardCostCapacityMeta(option) {
-  const unit = String(option?.batch_size_unit || 'unit').trim() || 'unit'
-  const cost = standardCostCapacityUnitCost(option)
-  return `小时费率 ${formatCostNumber(option?.hourly_rate)} × 标准分钟 ${formatCostNumber(option?.standard_minutes)} / 60 / 标准批量 ${formatCostNumber(option?.batch_size_qty)}${unit} = ${formatCostNumber(cost)}/${unit}`
+  // 按时间使用小时费率与标准批量；按件固定按具体 SKU 的销售规格件计费。
+  return workstationCapacityCostMeta(option)
 }
 
 function standardCostCapacitySummary(op) {
@@ -317,6 +308,8 @@ function normalizeRoute(row) {
       batch_size_unit: op.batch_size_unit || '',
       standard_minutes: Number(op.standard_minutes || 0),
       hourly_rate: Number(op.hourly_rate || 0),
+      cost_method: normalizeCapacityCostMethod(op),
+      piece_rate: Number(op.piece_rate || 0),
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
       quality_checklist_text: qualityChecklistTextFromJSON(op.quality_checklist_json || '[]'),
@@ -386,13 +379,14 @@ function applyOperation(index, option) {
   op.batch_size_unit = ''
   op.standard_minutes = 0
   op.hourly_rate = 0
+  op.cost_method = 'time'
+  op.piece_rate = 0
 }
 
 function applyStandardCostCapacity(index, option) {
   const op = form.operations[index]
   if (!op || !option) return
   const unit = String(option.batch_size_unit || 'unit').trim() || 'unit'
-  const cost = standardCostCapacityUnitCost(option)
   op.standard_cost_capacity_id = Number(option.id || 0)
   op.standard_cost_capacity_name = option.name || ''
   op.standard_cost_workstation = option.workstation || ''
@@ -400,6 +394,8 @@ function applyStandardCostCapacity(index, option) {
   op.batch_size_unit = unit
   op.standard_minutes = Number(option.standard_minutes || 0)
   op.hourly_rate = Number(option.hourly_rate || 0)
+  op.cost_method = normalizeCapacityCostMethod(option)
+  op.piece_rate = Number(option.piece_rate || 0)
   op.standard_cost_summary = `${standardCostCapacityLabel(option)}：${standardCostCapacityMeta(option)}`
 }
 
@@ -428,10 +424,13 @@ async function saveRoute() {
 async function publishRoute() {
   if (!form.id) return
   await mutate(async () => {
-    await apiSend(`/api/process-routes/${form.id}/publish`, { body: {} })
+    const saved = await apiSend('/api/process-routes', { body: routePayload() })
+    const routeId = Number(saved.id || form.id || 0)
+    if (!routeId) throw new Error('保存工艺路线失败：未返回路线编号')
+    await apiSend(`/api/process-routes/${routeId}/publish`, { body: {} })
     await loadRoutes()
-    const current = routes.value.find((row) => Number(row.id) === Number(form.id))
-    if (current) resetForm(normalizeRoute(current))
+    const current = routes.value.find((row) => Number(row.id) === routeId) || { ...saved, status: 'active' }
+    resetForm(normalizeRoute(current))
     ok.value = '已发布工艺路线'
   })
 }

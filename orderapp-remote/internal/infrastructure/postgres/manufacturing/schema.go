@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_capacities (
 	batch_size_unit TEXT NOT NULL DEFAULT '',
 	standard_minutes INT NOT NULL DEFAULT 0,
 	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+	cost_method TEXT NOT NULL DEFAULT 'time',
+	piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
 	production_capacity INT NOT NULL DEFAULT 1,
 	sort_order INT NOT NULL DEFAULT 0,
 	note TEXT NOT NULL DEFAULT '',
@@ -112,6 +114,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstation_capacities_code_uq
 	WHERE code <> '';
 CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacities_workstation_idx
 	ON %[1]s.manufacturing_workstation_capacities(workstation_id, status, sort_order, id);
+ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time';
+ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_capacity_operations (
 	capacity_id BIGINT NOT NULL,
@@ -166,6 +170,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.process_template_operations (
 	batch_size_unit TEXT NOT NULL DEFAULT '',
 	standard_minutes INT NOT NULL DEFAULT 0,
 	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+	cost_method TEXT NOT NULL DEFAULT 'time',
+	piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
 	planned_batch_count INT NOT NULL DEFAULT 0,
 	planned_minutes INT NOT NULL DEFAULT 0,
 	planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
@@ -187,6 +193,8 @@ ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS batch_siz
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS batch_size_unit TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS standard_minutes INT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time';
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS planned_batch_count INT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS planned_minutes INT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
@@ -220,6 +228,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.process_route_operations (
 	batch_size_unit TEXT NOT NULL DEFAULT '',
 	standard_minutes INT NOT NULL DEFAULT 0,
 	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+	cost_method TEXT NOT NULL DEFAULT 'time',
+	piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
 	planned_batch_count INT NOT NULL DEFAULT 0,
 	planned_minutes INT NOT NULL DEFAULT 0,
 	planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
@@ -241,6 +251,8 @@ ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_q
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_unit TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS standard_minutes INT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time';
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_batch_count INT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_minutes INT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0;

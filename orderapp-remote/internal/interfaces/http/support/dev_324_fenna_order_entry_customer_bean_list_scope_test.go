@@ -49,7 +49,8 @@ func TestDev324FennaOrderEntryCustomerBeanListScopeWiring(t *testing.T) {
 	for _, want := range []string{
 		"normalizePublicationIDsByType",
 		"productMatchesPublicationScope",
-		"filterProductsForCustomer(products, customerID, publicationIDsByType = {}, publicUsages = [])",
+		"export function filterProductsForCustomer(",
+		"customerOwnedPublicationIDsByType = {}",
 	} {
 		if !strings.Contains(libSrc, want) {
 			t.Fatalf("order-entry lib scope wiring missing %q", want)

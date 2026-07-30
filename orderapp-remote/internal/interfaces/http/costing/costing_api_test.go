@@ -28,6 +28,12 @@ type capturingPricingRuleTrialService struct {
 	last appcosting.PricingRuleTrialCommand
 }
 
+type capturingPricingRuleTrialBatchService struct {
+	fakeService
+	calls int
+	last  []appcosting.PricingRuleTrialCommand
+}
+
 func containsWarning(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -53,7 +59,7 @@ func (fakeService) ExplainPrice(ctx context.Context, req appcosting.PriceExplana
 func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
 	return &appcosting.PricingRuleTrialResult{
 		PricingRuleID:      10,
-		PricingRuleName:    "PR452 毛利含税",
+		PricingRuleName:    "PR452 加价含税",
 		FormulaVersion:     "v2",
 		ProductID:          549,
 		ProductName:        "PR452 试算商品",
@@ -77,34 +83,49 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 		CostBaseTotal:       62.5,
 		CostAfterYield:      78.13,
 		YieldLossAmount:     15.63,
-		ProfitMarkupAmount:  26.04,
-		PreTaxPrice:         104.17,
-		TaxAmount:           6.25,
-		TaxInPriceAmount:    6.25,
-		FinalBeforeRounding: 110.42,
+		PriceAfterMarkup:    97.66,
+		ProfitMarkupAmount:  19.53,
+		PreTaxPrice:         97.66,
+		TaxAmount:           5.86,
+		TaxInPriceAmount:    5.86,
+		FinalBeforeRounding: 103.52,
 		RoundingAdjustment:  -0.02,
-		FinalUnitPrice:      110.4,
-		GrossMarginRate:     0.25,
+		FinalUnitPrice:      103.5,
+		GrossMarginRate:     0.2,
 		MinimumMarginRate:   0.18,
 		ProfitExplanation: appcosting.PricingRuleTrialProfitExplanation{
-			Method:         "gross_margin",
-			MethodLabel:    "毛利率",
+			Method:         "markup",
+			MethodLabel:    "加价率",
 			Rate:           0.25,
 			Source:         "pricing_rule",
 			CostAfterYield: 78.13,
-			MarkupAmount:   26.04,
-			PreTaxPrice:    104.17,
-			Formula:        "税前价 = 损耗后成本 / (1 - 毛利率 25%)",
+			MarkupAmount:   19.53,
+			PreTaxPrice:    97.66,
+			Formula:        "税前价 = 损耗后成本 * (1 + 加价率 25%)",
 		},
-		FormulaExpression: "最终售价 = (标准制造成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
+		FormulaExpression: "最终售价 = (标准制造成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) * (1 + 加价率 25%) * (1 + 税率 6%) = 103.5/kg",
 		FormulaExpressionLines: []string{
 			"成本基数 = 标准制造成本 60/kg + 其他成本 2.5/kg = 62.5/kg",
-			"最终售价 = 110.4/kg",
+			"最终售价 = 103.5/kg",
 		},
 		Steps: []domain.PriceExplanationStep{
-			{Key: "final_unit_price", Label: "试算单价", Value: 110.4, Unit: "kg"},
+			{Key: "final_unit_price", Label: "试算单价", Value: 103.5, Unit: "kg"},
 		},
 	}, nil
+}
+
+func (fakeService) PricingRuleTrialBatch(ctx context.Context, requests []appcosting.PricingRuleTrialCommand) ([]appcosting.PricingRuleTrialBatchRow, error) {
+	rows := make([]appcosting.PricingRuleTrialBatchRow, len(requests))
+	for i, request := range requests {
+		rows[i].Index = i
+		result, err := (fakeService{}).PricingRuleTrial(ctx, request)
+		if err != nil {
+			rows[i].Error = err.Error()
+			continue
+		}
+		rows[i].Result = result
+	}
+	return rows, nil
 }
 
 func (fakePricingRuleTrialErrorService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
@@ -148,15 +169,15 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		MinimumMarginRate:   0,
 		ProfitExplanation: appcosting.PricingRuleTrialProfitExplanation{
 			Method:         "supplier_tier_markup",
-			MethodLabel:    "档位利润率/加价率",
+			MethodLabel:    "档位加价率",
 			Rate:           0.3,
 			Source:         "temporary_override",
 			CostAfterYield: 73.7625,
 			MarkupAmount:   39.987,
 			PreTaxPrice:    116.7092,
-			Formula:        "加价后价格 = 损耗后成本 * (1 + 档位利润率/加价率 30%)",
+			Formula:        "加价后价格 = 损耗后成本 * (1 + 档位加价率 30%)",
 		},
-		FormulaExpression: "最终售价 = (标准制造成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位利润率/加价率 54.21%) = 116.7092/kg",
+		FormulaExpression: "最终售价 = (标准制造成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位加价率 54.21%) = 116.7092/kg",
 		FormulaExpressionLines: []string{
 			"成本基数 = 标准制造成本 67.5/kg + 生产项目成本 6.2625/kg = 73.7625/kg",
 			"最终售价 = 116.7092/kg",
@@ -178,6 +199,15 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 			{Key: "post_markup_cost_total", Label: "加价附加成本", Value: 2.9596, Unit: "kg"},
 			{Key: "final_unit_price", Label: "试算单价", Value: 116.7092, Unit: "kg"},
 		},
+	}, nil
+}
+
+func (s *capturingPricingRuleTrialBatchService) PricingRuleTrialBatch(_ context.Context, requests []appcosting.PricingRuleTrialCommand) ([]appcosting.PricingRuleTrialBatchRow, error) {
+	s.calls++
+	s.last = append([]appcosting.PricingRuleTrialCommand(nil), requests...)
+	return []appcosting.PricingRuleTrialBatchRow{
+		{Index: 0, Result: &appcosting.PricingRuleTrialResult{ProductID: requests[0].ProductID, FinalUnitPrice: 88}},
+		{Index: 1, Error: "product not found"},
 	}, nil
 }
 
@@ -502,6 +532,31 @@ func (fakeRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.
 	return nil, nil
 }
 
+type skuBeanListRepo struct{ fakeRepo }
+
+func (skuBeanListRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
+	params := domain.DefaultParameters()
+	return []domain.ProductInput{{
+		ProductID:          551,
+		SKUID:              551,
+		ParentProductID:    550,
+		DefaultSKUID:       552,
+		SKUName:            "初晓 磅",
+		SKUCode:            "SKU-000551",
+		SpecLabel:          "磅",
+		NetContentQty:      1,
+		NetContentUnit:     "lb",
+		Name:               "初晓 磅",
+		ProductName:        "初晓",
+		InventoryUnit:      "kg",
+		OrderUnit:          "磅",
+		QuoteUnit:          "磅",
+		UnitConversionJSON: `{"磅":{"kg":0.45359237}}`,
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+	}}, nil
+}
+
 func (fakeRepo) LoadProductPricingRule(context.Context, int64) (appcosting.ProductPricingRule, error) {
 	return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
 }
@@ -625,6 +680,37 @@ func TestBeanListAPIReturnsEmptyItemsWhenCatalogHasNoProducts(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "products required") {
 		t.Fatalf("response must not expose products required: %s", rec.Body.String())
+	}
+}
+
+func TestBeanListAPIReturnsConcreteSKUSalesSpecMetadata(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(skuBeanListRepo{})})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := body["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", body["items"])
+	}
+	row, _ := items[0].(map[string]any)
+	if row["sku_id"] != float64(551) || row["parent_product_id"] != float64(550) {
+		t.Fatalf("concrete SKU identity missing: %s", rec.Body.String())
+	}
+	if row["default_sku_id"] != float64(552) {
+		t.Fatalf("parent-authoritative default SKU missing: %s", rec.Body.String())
+	}
+	spec, _ := row["effective_sales_spec"].(map[string]any)
+	if spec["sku_id"] != float64(551) || spec["spec_name"] != "磅" || spec["sales_unit"] != "磅" {
+		t.Fatalf("effective_sales_spec = %#v; body=%s", spec, rec.Body.String())
 	}
 }
 
@@ -828,6 +914,9 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if len(got.OtherCostDetails) == 0 || got.ProfitExplanation.Method == "" {
 		t.Fatalf("trial response missing explanation fields: %+v", got)
 	}
+	if got.ProfitExplanation.MethodLabel != "档位加价率" || strings.Contains(rec.Body.String(), "档位利润率/加价率") {
+		t.Fatalf("trial response must expose markup-only labels: %+v", got.ProfitExplanation)
+	}
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
@@ -835,6 +924,58 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestPricingRuleTrialBatchAPIUsesBatchServiceAndReturnsPartialErrorsInOrder(t *testing.T) {
+	e := echo.New()
+	svc := &capturingPricingRuleTrialBatchService{}
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	body := bytes.NewBufferString(`{"requests":[{"pricing_rule_id":7,"product_id":101,"quote_unit":"kg"},{"pricing_rule_id":7,"product_id":999,"quote_unit":"kg"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trials", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.calls != 1 || len(svc.last) != 2 || svc.last[0].ProductID != 101 || svc.last[1].ProductID != 999 {
+		t.Fatalf("batch service calls=%d requests=%+v", svc.calls, svc.last)
+	}
+	var got struct {
+		Rows []appcosting.PricingRuleTrialBatchRow `json:"rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Rows) != 2 || got.Rows[0].Index != 0 || got.Rows[0].Result == nil || got.Rows[0].Result.FinalUnitPrice != 88 || got.Rows[1].Index != 1 || got.Rows[1].Error != "product not found" {
+		t.Fatalf("batch response = %+v", got.Rows)
+	}
+}
+
+func TestPricingRuleTrialBatchAPIRejectsMoreThanOneHundredRequests(t *testing.T) {
+	e := echo.New()
+	svc := &capturingPricingRuleTrialBatchService{}
+	RegisterRoutes(e, Dependencies{Costing: svc})
+	requests := make([]appcosting.PricingRuleTrialCommand, 101)
+	for i := range requests {
+		requests[i] = appcosting.PricingRuleTrialCommand{PricingRuleID: 7, ProductID: int64(i + 1)}
+	}
+	body, err := json.Marshal(map[string]any{"requests": requests})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trials", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status=%d calls=%d body=%s", rec.Code, svc.calls, rec.Body.String())
 	}
 }
 
@@ -1267,6 +1408,47 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 	}
 }
 
+func TestPublicBeanListPageKeepsProductNameSeparateFromSelectedSalesSpec(t *testing.T) {
+	page, err := renderPublicBeanListPage(appcosting.BeanListPublication{
+		ListType: "commercial",
+		Version:  "V4.4.0",
+		Config:   map[string]any{"layoutStyle": "card", "cardsPerRow": 2},
+		Content: map[string]any{
+			"groups": []any{map[string]any{
+				"category": "1、咖啡熟豆",
+				"items": []any{
+					map[string]any{
+						"name":           "白月光瑰夏",
+						"attributeLines": []any{"规格：227g", "烘焙度：浅烘"},
+						"prices":         []any{map[string]any{"label": "2-13件", "price": 82.0, "unit": "227g"}},
+					},
+					map[string]any{
+						"name":           "白月光瑰夏",
+						"attributeLines": []any{"规格：454g", "烘焙度：浅烘"},
+						"prices":         []any{map[string]any{"label": "2-13件", "price": 148.0, "unit": "454g"}},
+					},
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(page, "白月光瑰夏"); got != 2 {
+		t.Fatalf("public page product name count=%d, want 2; body=%s", got, page)
+	}
+	for _, want := range []string{"规格：227g", "规格：454g", "2-13件"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("public page missing %q; body=%s", want, page)
+		}
+	}
+	for _, forbidden := range []string{"白月光瑰夏227g", "白月光瑰夏454g", "白月光瑰夏 · 227g", "白月光瑰夏 · 454g", "2-13个227g", "2-13个454g"} {
+		if strings.Contains(page, forbidden) {
+			t.Fatalf("public page concatenated product name and spec as %q; body=%s", forbidden, page)
+		}
+	}
+}
+
 func TestPublicBeanListPagePassesProductTypeCategory(t *testing.T) {
 	svc := &recordingBeanListService{}
 	e := echo.New()
@@ -1374,6 +1556,49 @@ type costingSettingsRepo struct {
 
 type pricingRuleTrialUnitValidationRepo struct {
 	fakeRepo
+}
+
+type priceTierTemplateUnitMismatchRepo struct {
+	fakeRepo
+}
+
+func (priceTierTemplateUnitMismatchRepo) ResolveProductSalesUnitRule(_ context.Context, productID int64, priceUnit string) (appcosting.ProductSalesUnitRule, error) {
+	if productID != 550 || (priceUnit != "" && priceUnit != "磅") {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return appcosting.ProductSalesUnitRule{
+		ProductID:        550,
+		DefaultSalesUnit: "磅",
+		InventoryUnit:    "kg",
+		Conversion: map[string]map[string]float64{
+			"磅": {"kg": 0.45359237},
+		},
+	}, nil
+}
+
+func (priceTierTemplateUnitMismatchRepo) ResolveProductDefaultSalesUnit(_ context.Context, productID int64) (string, error) {
+	if productID != 550 {
+		return "", appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return "磅", nil
+}
+
+func (priceTierTemplateUnitMismatchRepo) ResolveProductSpecIdentity(_ context.Context, productID int64) (appcosting.ProductSpecIdentity, error) {
+	if productID != 550 {
+		return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
+	}
+	return appcosting.ProductSpecIdentity{ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true}, nil
+}
+
+func (priceTierTemplateUnitMismatchRepo) ResolvePriceTierTemplateUnitRule(_ context.Context, templateID int64) (appcosting.PriceTierTemplateUnitRule, error) {
+	if templateID != 8 {
+		return appcosting.PriceTierTemplateUnitRule{}, appcosting.ErrPriceTierTemplateUnitRuleNotFound
+	}
+	return appcosting.PriceTierTemplateUnitRule{
+		TemplateID:   8,
+		TemplateName: "咖啡熟豆",
+		TierUnits:    map[int64]string{81: "lb", 82: "kg"},
+	}, nil
 }
 
 func (pricingRuleTrialUnitValidationRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
@@ -1522,6 +1747,313 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBeanListPublicationAPIPreservesSeparatedProductNameAndSalesSpecSnapshot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "publish", path: "/api/costing/bean-list/publications"},
+		{name: "draft", path: "/api/costing/bean-list/drafts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &recordingBeanListService{}
+			e := echo.New()
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("basic_auth_admin", true)
+					c.Set("employee_id", int64(7))
+					return next(c)
+				}
+			})
+			RegisterRoutes(e, Dependencies{Costing: svc})
+
+			body := bytes.NewBufferString(`{
+				"list_type":"commercial",
+				"version":"V4.4.0",
+				"scope":"mine",
+				"config":{"product_spec_selections":[{"parent_product_id":600,"sku_id":991,"selection_source":"explicit","default_sku_id_at_selection":990}]},
+				"content":{
+					"groups":[{"category":"1、咖啡豆","items":[{
+						"name":"白月光瑰夏",
+						"display_name_snapshot":"白月光瑰夏",
+						"product_name_snapshot":"白月光瑰夏",
+						"sku_id":991,
+						"parent_product_id":600,
+						"sku_name":"227g袋装",
+						"spec_label":"227g",
+						"effective_sales_spec":{"sku_id":991,"spec_name":"227g","sales_unit":"袋"},
+						"productAttributes":[{"key":"sales_spec","label":"规格","value":"227g"}],
+						"attributeLines":["规格：227g"]
+					}]}],
+					"price_rows":[{"product_id":991,"sku_id":991,"parent_product_id":600,"product_name":"白月光瑰夏","sku_name":"227g袋装","spec_label":"227g","quantity_basis":"sales_spec_count"}]
+				}
+			}`)
+			req := httptest.NewRequest(http.MethodPost, tc.path, body)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+
+			cmd := svc.lastPublish
+			if tc.name == "draft" {
+				cmd = svc.lastDraft
+			}
+			groups := publicMapsFromAny(cmd.Content["groups"])
+			if len(groups) != 1 {
+				t.Fatalf("groups=%v", cmd.Content["groups"])
+			}
+			items := publicMapsFromAny(groups[0]["items"])
+			if len(items) != 1 {
+				t.Fatalf("items=%v", groups[0]["items"])
+			}
+			item := items[0]
+			if got := mapString(item, "name", ""); got != "白月光瑰夏" {
+				t.Fatalf("item name=%q", got)
+			}
+			if got := mapString(item, "product_name_snapshot", ""); got != "白月光瑰夏" {
+				t.Fatalf("product snapshot name=%q", got)
+			}
+			if got := publicStringList(item["attributeLines"]); len(got) != 1 || got[0] != "规格：227g" {
+				t.Fatalf("attribute lines=%v", got)
+			}
+			priceRows := publicMapsFromAny(cmd.Content["price_rows"])
+			if len(priceRows) != 1 || mapString(priceRows[0], "product_name", "") != "白月光瑰夏" || int64(mapNumber(priceRows[0], "sku_id", 0)) != 991 {
+				t.Fatalf("price rows=%v", cmd.Content["price_rows"])
+			}
+		})
+	}
+}
+
+type pr543BeanListPublicationRepo struct {
+	fakeRepo
+	published appcosting.PublishBeanListCommand
+}
+
+func (r *pr543BeanListPublicationRepo) ResolveProductSpecIdentity(_ context.Context, productID int64) (appcosting.ProductSpecIdentity, error) {
+	switch productID {
+	case 600:
+		return appcosting.ProductSpecIdentity{ProductID: 600, EffectiveParentProductID: 600, ParentProductName: "白月光瑰夏", Active: true, SpecValid: true}, nil
+	case 991:
+		return appcosting.ProductSpecIdentity{ProductID: 991, EffectiveParentProductID: 600, ParentProductName: "白月光瑰夏", Active: true, SpecValid: true}, nil
+	default:
+		return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
+	}
+}
+
+func (r *pr543BeanListPublicationRepo) ResolveProductSalesUnitRule(_ context.Context, productID int64, _ string) (appcosting.ProductSalesUnitRule, error) {
+	if productID != 991 {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return appcosting.ProductSalesUnitRule{
+		ProductID:        991,
+		SKUName:          "227g袋装",
+		DefaultSalesUnit: "227g",
+		InventoryUnit:    "g",
+		Conversion:       map[string]map[string]float64{"227g": {"g": 227}},
+		EffectiveSalesSpec: &domain.EffectiveSalesSpec{
+			SKUID:                   991,
+			SpecName:                "227g",
+			SpecLabel:               "227g",
+			SalesUnit:               "227g",
+			InventoryUnit:           "g",
+			InventoryConversionJSON: map[string]map[string]float64{"227g": {"g": 227}},
+		},
+	}, nil
+}
+
+func (r *pr543BeanListPublicationRepo) PublishBeanList(_ context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+	r.published = cmd
+	return &appcosting.BeanListPublication{
+		ListType:           cmd.ListType,
+		Version:            cmd.Version,
+		Status:             "published",
+		PublicationPurpose: cmd.PublicationPurpose,
+		OwnerType:          cmd.OwnerType,
+		OwnerKey:           cmd.OwnerKey,
+		Config:             cmd.Config,
+		Content:            cmd.Content,
+	}, nil
+}
+
+func TestBeanListPublicationHTTPPersistsPieceTierAndSeparatedParentProductName(t *testing.T) {
+	repo := &pr543BeanListPublicationRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(repo)})
+
+	body := bytes.NewBufferString(`{
+		"list_type":"commercial",
+		"version":"V5.3.1",
+		"scope":"mine",
+		"config":{"product_spec_selections":[{
+			"parent_product_id":600,
+			"sku_id":991,
+			"selection_source":"explicit",
+			"default_sku_id_at_selection":991
+		}]},
+		"content":{
+			"groups":[{"category":"1、咖啡豆","items":[{
+				"product_id":991,
+				"sku_id":991,
+				"parent_product_id":600,
+				"name":"白月光瑰夏227g",
+				"display_name_snapshot":"白月光瑰夏227g",
+				"product_name_snapshot":"白月光瑰夏227g",
+				"sku_name":"227g袋装",
+				"spec_label":"227g",
+				"effective_sales_spec":{"sku_id":991,"spec_name":"227g","sales_unit":"227g"},
+				"productAttributes":[{"key":"sales_spec","label":"规格","value":"227g"}],
+				"attributeLines":["规格：227g"],
+				"prices":[{"label":"2-13个227g","price":82,"unit":"227g"}]
+			}]}],
+			"price_rows":[{
+				"product_id":991,
+				"sku_id":991,
+				"parent_product_id":600,
+				"product_name":"白月光瑰夏227g",
+				"sku_name":"227g袋装",
+				"spec_label":"227g",
+				"tier_label":"2-13个227g",
+				"min_qty":2,
+				"max_qty":13,
+				"pricing_mode":"tier_template",
+				"pricing_mode_source":"sku",
+				"tier_template_id":8,
+				"tier_template_source":"sku",
+				"template_tier_id":81,
+				"pricing_rule_id":40,
+				"pricing_rule_source":"tier_template",
+				"pricing_rule_version":"熟豆-v1",
+				"tier_pricing_rule_id":40,
+				"tier_pricing_rule_version":"熟豆-v1",
+				"final_unit_price":82,
+				"original_final_unit_price":82,
+				"price_unit":"227g",
+				"inventory_unit":"g",
+				"inventory_conversion_json":{"227g":{"g":227}},
+				"group_snapshot":{"group_id":3,"group_name":"商品价格表分组","group_item_id":101,"group_item_name":"咖啡熟豆"},
+				"group_source":"product_catalog",
+				"cost_source_snapshot":{"source":"fixed_price"},
+				"customer_reference_snapshot":{},
+				"manual_adjusted":false,
+				"quantity_basis":"sales_spec_count"
+			}]
+		}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	groups := publicMapsFromAny(repo.published.Content["groups"])
+	if len(groups) != 1 {
+		t.Fatalf("persisted groups=%v", repo.published.Content["groups"])
+	}
+	items := publicMapsFromAny(groups[0]["items"])
+	if len(items) != 1 {
+		t.Fatalf("persisted items=%v", groups[0]["items"])
+	}
+	if got := mapString(items[0], "name", ""); got != "白月光瑰夏" {
+		t.Fatalf("persisted product name=%q, want parent product name", got)
+	}
+	if got := mapString(items[0], "display_name_snapshot", ""); got != "白月光瑰夏" {
+		t.Fatalf("persisted display name=%q, want parent product name", got)
+	}
+	rows := publicMapsFromAny(repo.published.Content["price_rows"])
+	if len(rows) != 1 {
+		t.Fatalf("persisted price rows=%v", repo.published.Content["price_rows"])
+	}
+	if got := mapString(rows[0], "tier_label", ""); got != "2-13件" {
+		t.Fatalf("persisted tier label=%q, want 2-13件", got)
+	}
+	persistedPrices := publicMapsFromAny(items[0]["prices"])
+	if len(persistedPrices) != 1 || mapString(persistedPrices[0], "label", "") != "2-13件" {
+		t.Fatalf("persisted preview prices=%v, want generic piece label", items[0]["prices"])
+	}
+}
+
+func TestBeanListPublicationAndDraftAPIsUseConcreteSalesSpecCountInsteadOfTemplateUnitLabels(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "publish", path: "/api/costing/bean-list/publications"},
+		{name: "draft", path: "/api/costing/bean-list/drafts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("basic_auth_admin", true)
+					c.Set("employee_id", int64(7))
+					return next(c)
+				}
+			})
+			RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(priceTierTemplateUnitMismatchRepo{})})
+
+			body := bytes.NewBufferString(`{
+				"list_type":"commercial",
+				"version":"V4.3.0",
+				"scope":"mine",
+				"config":{"product_spec_selections":[{"parent_product_id":550,"sku_id":550,"selection_source":"product_default","default_sku_id_at_selection":550}]},
+				"content":{"price_rows":[{
+					"product_id":550,
+					"sku_id":550,
+					"parent_product_id":550,
+					"product_name":"初晓",
+					"tier_label":"1kg+",
+					"min_qty":1,
+					"final_unit_price":68,
+					"original_final_unit_price":68,
+					"price_unit":"磅",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"磅":{"kg":0.45359237}},
+					"group_snapshot":{"group_id":3,"group_name":"商品价格表分组","group_item_id":101,"group_item_name":"咖啡豆"},
+					"group_source":"product_catalog",
+					"pricing_mode":"tier_template",
+					"pricing_mode_source":"product",
+					"tier_template_id":8,
+					"tier_template_name":"伪造可用模板",
+					"tier_template_source":"product",
+					"template_tier_id":81,
+					"tier_quantity_unit":"磅",
+					"pricing_rule_id":40,
+					"pricing_rule_source":"tier_template",
+					"pricing_rule_version":"咖啡熟豆模板-v1",
+					"tier_pricing_rule_id":40,
+					"tier_pricing_rule_version":"咖啡熟豆模板-v1",
+					"cost_source_snapshot":{"bom_version_no":"BOM-CHUXIAO/V001"},
+					"customer_reference_snapshot":{"customer_id":0},
+					"manual_adjusted":true,
+					"quantity_basis":"sales_spec_count"
+				}]}
+			}`)
+			req := httptest.NewRequest(http.MethodPost, tc.path, body)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "阶梯模板不可用") || strings.Contains(rec.Body.String(), "不匹配") {
+				t.Fatalf("historical template quantity-unit wording must not block a concrete sales-spec-count request: %s", rec.Body.String())
+			}
+		})
 	}
 }
 

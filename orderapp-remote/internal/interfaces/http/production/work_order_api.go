@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	productionapp "orderapp/internal/application/production"
+	stockapp "orderapp/internal/application/stock"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
 	"strings"
@@ -40,7 +41,21 @@ type workOrderCancelRequest struct {
 	Note string `json:"note"`
 }
 
-func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
+type workOrderStockDocumentPreviewRequest struct {
+	Action          string `json:"action"`
+	StockDocumentID int64  `json:"stock_document_id"`
+	DraftID         int64  `json:"draft_id"`
+	MaterialID      int64  `json:"material_id"`
+	JobCardID       int64  `json:"job_card_id"`
+	RunningItemID   int64  `json:"running_item_id"`
+	ReturnSource    string `json:"return_source"`
+}
+
+func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, stockServices ...*stockapp.Service) {
+	var stockSvc *stockapp.Service
+	if len(stockServices) > 0 {
+		stockSvc = stockServices[0]
+	}
 	e.GET("/produce/work-orders", func(c echo.Context) error {
 		target := "/vue-shell?view=workOrders"
 		if raw := c.QueryString(); raw != "" {
@@ -106,11 +121,27 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
+		if stockSvc != nil {
+			items := make([]stockapp.StockDocumentItemCommand, 0, len(req.Items))
+			for _, item := range req.Items {
+				items = append(items, stockapp.StockDocumentItemCommand{
+					MaterialID: item.MaterialID, ProductID: item.ProductID, ItemType: item.ItemType, ItemName: item.ItemName,
+					SpecG: item.SpecG, FromWarehouse: item.FromWarehouse, ToWarehouse: item.ToWarehouse,
+					QtyG: item.QtyG, QtyUnits: item.QtyUnits, BatchCode: item.BatchCode, UnitCost: item.UnitCost,
+				})
+			}
+			detail, err := stockSvc.CreateAndSubmitStockDocument(c.Request().Context(), stockapp.StockDocumentCommand{
+				Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: id,
+				SourceType: "work_order", SourceID: id, ReturnSource: "work_order",
+				Operator: support.ActorOf(c), Note: req.Note, Items: items,
+			})
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			}
+			return c.JSON(http.StatusOK, detail)
+		}
 		detail, err := productionSvc.IssueWorkOrderMaterials(c.Request().Context(), productionapp.WorkOrderIssueMaterialsCommand{
-			ID:       id,
-			Operator: support.ActorOf(c),
-			Note:     req.Note,
-			Items:    req.Items,
+			ID: id, Operator: support.ActorOf(c), Note: req.Note, Items: req.Items,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -157,6 +188,28 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "work_order": row})
 	}
+	previewStockDocument := func(c echo.Context) error {
+		id, err := workOrderID(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		var req workOrderStockDocumentPreviewRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		stockDocumentID := req.StockDocumentID
+		if stockDocumentID <= 0 {
+			stockDocumentID = req.DraftID
+		}
+		preview, err := productionSvc.PreviewWorkOrderStockDocument(c.Request().Context(), productionapp.StockDocumentPreviewCommand{
+			ID: id, Action: req.Action, StockDocumentID: stockDocumentID, MaterialID: req.MaterialID, JobCardID: req.JobCardID,
+			RunningItemID: req.RunningItemID, ReturnSource: req.ReturnSource, Operator: support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, preview)
+	}
 	e.GET("/api/produce/work-orders/:id", getWorkOrderDetail)
 	e.POST("/api/work-orders/:id/start", startWorkOrder)
 	e.POST("/api/produce/work-orders/:id/start", startWorkOrder)
@@ -164,6 +217,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.POST("/api/work-orders/:id/complete", completeWorkOrder)
 	e.POST("/api/produce/work-orders/:id/complete", completeWorkOrder)
 	e.POST("/api/produce/work-orders/:id/cancel", cancelWorkOrder)
+	e.POST("/api/produce/work-orders/:id/stock-document-preview", previewStockDocument)
 	e.POST("/api/work-orders/:id/operation-splits", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {

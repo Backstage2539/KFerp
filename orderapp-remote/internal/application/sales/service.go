@@ -55,6 +55,7 @@ type SaveOrderCommand struct {
 
 type OrderItemCommand struct {
 	ProductID                          *int64
+	ParentProductID                    int64
 	CustomerProductAliasID             int64
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
@@ -241,20 +242,36 @@ type EmployeeOption struct {
 }
 
 type ProductTierOption struct {
-	ID              int64    `json:"id"`
-	SpecG           int64    `json:"spec_g"`
-	MinQty          float64  `json:"min_qty"`
-	MaxQty          *float64 `json:"max_qty"`
-	UnitPrice       float64  `json:"unit_price"`
-	DisplayUnit     string   `json:"display_unit,omitempty"`
-	ProductKind     string   `json:"product_kind"`
-	SalesUnit       string   `json:"sales_unit"`
-	UnitBagCount    int64    `json:"unit_bag_count"`
-	PriceSourceJSON string   `json:"price_source_json"`
+	ID                   int64          `json:"id"`
+	SpecG                int64          `json:"spec_g"`
+	MinQty               float64        `json:"min_qty"`
+	MaxQty               *float64       `json:"max_qty"`
+	UnitPrice            float64        `json:"unit_price"`
+	DisplayUnit          string         `json:"display_unit,omitempty"`
+	ProductKind          string         `json:"product_kind"`
+	SalesUnit            string         `json:"sales_unit"`
+	UnitBagCount         int64          `json:"unit_bag_count"`
+	PriceSourceJSON      string         `json:"price_source_json"`
+	QuantityBasis        string         `json:"quantity_basis,omitempty"`
+	TierQuantityUnit     string         `json:"tier_quantity_unit,omitempty"`
+	EffectiveSalesSpec   map[string]any `json:"effective_sales_spec,omitempty"`
+	PublicationID        int64          `json:"publication_id,omitempty"`
+	PublicationVersionNo string         `json:"publication_version_no,omitempty"`
+	ListType             string         `json:"list_type,omitempty"`
 }
 
 type ProductOption struct {
 	ID                               int64               `json:"id"`
+	SKUID                            int64               `json:"sku_id,omitempty"`
+	ParentProductID                  int64               `json:"parent_product_id,omitempty"`
+	ParentProductName                string              `json:"parent_product_name,omitempty"`
+	SKUName                          string              `json:"sku_name,omitempty"`
+	SKUCode                          string              `json:"sku_code,omitempty"`
+	SpecLabel                        string              `json:"spec_label,omitempty"`
+	NetContentQty                    float64             `json:"net_content_qty,omitempty"`
+	NetContentUnit                   string              `json:"net_content_unit,omitempty"`
+	IsDefaultSKU                     bool                `json:"is_default_sku,omitempty"`
+	DefaultSKUID                     int64               `json:"default_sku_id,omitempty"`
 	Name                             string              `json:"name"`
 	ProductCode                      string              `json:"product_code,omitempty"`
 	ProductRecordName                string              `json:"product_record_name,omitempty"`
@@ -292,17 +309,19 @@ type ProductOption struct {
 }
 
 type BeanListVersionOption struct {
-	CustomerID            int64  `json:"customer_id"`
-	ListType              string `json:"list_type"`
-	ProductTypeCategoryID int64  `json:"product_type_category_id,omitempty"`
-	ProductTypeName       string `json:"product_type_name,omitempty"`
-	ID                    int64  `json:"id"`
-	VersionNo             string `json:"version_no"`
-	Label                 string `json:"label"`
-	PublishedAt           string `json:"published_at"`
-	Changelog             string `json:"changelog"`
-	IsCustomerOwned       bool   `json:"is_customer_owned"`
-	IsDefault             bool   `json:"is_default"`
+	CustomerID                 int64  `json:"customer_id"`
+	ListType                   string `json:"list_type"`
+	ProductTypeCategoryID      int64  `json:"product_type_category_id,omitempty"`
+	ProductTypeName            string `json:"product_type_name,omitempty"`
+	ClassificationTemplateID   int64  `json:"classification_template_id,omitempty"`
+	ClassificationTemplateName string `json:"classification_template_name,omitempty"`
+	ID                         int64  `json:"id"`
+	VersionNo                  string `json:"version_no"`
+	Label                      string `json:"label"`
+	PublishedAt                string `json:"published_at"`
+	Changelog                  string `json:"changelog"`
+	IsCustomerOwned            bool   `json:"is_customer_owned"`
+	IsDefault                  bool   `json:"is_default"`
 }
 
 type CustomerPublicUsageOption struct {
@@ -357,6 +376,7 @@ type OrderEditItem struct {
 	UnitPrice                          string
 	LineTotal                          string
 	PriceTierID                        int64
+	PriceOverride                      bool
 	BeanListPublicationID              int64
 	BeanListVersionNo                  string
 	DiscountType                       string

@@ -68,6 +68,9 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
 	}
+	if err := validateCreateOrderManualPrices(req); err != nil {
+		return salesapp.SaveOrderCommand{}, err
+	}
 	return salesapp.SaveOrderCommand{
 		Actor:                           actor,
 		EditID:                          editID,
@@ -114,6 +117,19 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	}, nil
 }
 
+func validateCreateOrderManualPrices(req CreateOrderRequest) error {
+	for i := 0; i < maxLen(req.TierID, req.UnitPrice); i++ {
+		if strings.TrimSpace(getStr(req.TierID, i)) != "manual" {
+			continue
+		}
+		price, err := strconv.ParseFloat(strings.TrimSpace(getStr(req.UnitPrice, i)), 64)
+		if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+			return fmt.Errorf("手动单价必须大于0")
+		}
+	}
+	return nil
+}
+
 func parseCreateOrderAmount(raw, field string) (float64, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -128,7 +144,7 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.CustomerProductAliasID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.CustomerProductAliasID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
@@ -151,6 +167,15 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 		if pidStr != "" {
 			if pid, err := strconv.ParseInt(pidStr, 10, 64); err == nil && pid > 0 {
 				it.ProductID = &pid
+			}
+		}
+		parentIDStr := strings.TrimSpace(getStr(req.ItemParentProductID, i))
+		if parentIDStr == "" {
+			parentIDStr = strings.TrimSpace(getStr(req.ParentProductID, i))
+		}
+		if parentIDStr != "" {
+			if parentID, err := strconv.ParseInt(parentIDStr, 10, 64); err == nil && parentID > 0 {
+				it.ParentProductID = parentID
 			}
 		}
 		if aliasStr := strings.TrimSpace(getStr(req.CustomerProductAliasID, i)); aliasStr != "" {

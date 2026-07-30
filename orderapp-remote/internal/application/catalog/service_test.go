@@ -13,6 +13,9 @@ type fakeRepo struct {
 	create                 CreateProductCommand
 	copyProduct            CopyProductCommand
 	skuCreate              CreateSKUCommand
+	defaultSKU             SetProductDefaultSKUCommand
+	defaultSKUResult       Product
+	defaultSKUErr          error
 	custom                 CreateCustomProductCommand
 	derivedProduct         DeriveCustomerProductCommand
 	derivedCategory        DeriveProductCategoryCommand
@@ -33,6 +36,7 @@ type fakeRepo struct {
 	ruleOverride           SaveCustomerProductRuleOverrideCommand
 	ruleBinding            CustomerProductRuleTemplateBindingCommand
 	configTemplate         SaveProductConfigTemplateCommand
+	productionConfig       SaveProductProductionConfigCommand
 	deleteConfig           DeleteProductConfigTemplateCommand
 	priceGroup             SaveProductPriceGroupCommand
 	deleteGroup            DeleteBusinessGroupCommand
@@ -51,6 +55,7 @@ type fakeRepo struct {
 	priceRecords           []ProductPriceRecord
 	priceRecordByID        map[int64]ProductPriceRecord
 	tierPriceSchemes       []ProductTierPriceScheme
+	pricingRules           []ProductPricingRule
 	products               map[int64]Product
 	publicUsages           []CustomerPublicUsage
 	deactivated            bool
@@ -115,6 +120,14 @@ func (r *fakeRepo) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product
 	return Product{ID: 12, SKUID: 12, ParentProductID: cmd.ParentProductID, EffectiveParentProductID: cmd.ParentProductID, SKUName: cmd.SKUName, SKUCode: cmd.SKUCode, Barcode: cmd.Barcode, SpecLabel: cmd.SpecLabel, NetContentQty: cmd.NetContentQty, NetContentUnit: cmd.NetContentUnit, IsDefaultSKU: cmd.IsDefaultSKU, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON, ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
 }
 
+func (r *fakeRepo) SetProductDefaultSKU(ctx context.Context, cmd SetProductDefaultSKUCommand) (Product, error) {
+	r.defaultSKU = cmd
+	if r.defaultSKUErr != nil {
+		return Product{}, r.defaultSKUErr
+	}
+	return r.defaultSKUResult, nil
+}
+
 func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
 	return []ProductCategory{{ID: 1, Name: "咖啡豆", Level: 1, Position: 1}}, nil
 }
@@ -128,6 +141,7 @@ func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int
 }
 
 func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
+	r.productionConfig = cmd
 	return ProductProductionConfig{
 		ProductID:               cmd.ProductID,
 		ProductionBomID:         cmd.ProductionBomID,
@@ -138,6 +152,59 @@ func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProd
 		Note:                    cmd.Note,
 		Fields:                  cmd.Fields,
 	}, nil
+}
+
+func TestSaveProductProductionConfigClearsFieldsWithoutIndustryTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	result, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:               91,
+		IndustryFieldTemplateID: 0,
+		Fields: []ProductProductionConfigField{{
+			FieldKey:  "roast_level",
+			Label:     "roast_level",
+			ValueText: "深烘",
+		}, {
+			FieldKey:  "   ",
+			Label:     "stale_field",
+			ValueText: "legacy",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.productionConfig.ProductID != 91 {
+		t.Fatalf("saved product_id=%d, want repository dispatch for product 91", repo.productionConfig.ProductID)
+	}
+	if repo.productionConfig.Fields == nil {
+		t.Fatal("saved fields=nil, want non-nil empty fields without industry template")
+	}
+	if len(repo.productionConfig.Fields) != 0 {
+		t.Fatalf("saved fields=%+v, want none without industry template", repo.productionConfig.Fields)
+	}
+	if len(result.Fields) != 0 {
+		t.Fatalf("result fields=%+v, want none without industry template", result.Fields)
+	}
+}
+
+func TestSaveProductProductionConfigRejectsBlankFieldKeyWithIndustryTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:               91,
+		IndustryFieldTemplateID: 3001,
+		Fields: []ProductProductionConfigField{{
+			FieldKey: "   ",
+		}},
+	})
+	if err == nil || !IsValidationError(err) || err.Error() != "field_key required" {
+		t.Fatalf("err=%v, want field_key required", err)
+	}
+	if repo.productionConfig.ProductID != 0 {
+		t.Fatalf("saved product_id=%d, want no repository dispatch after validation failure", repo.productionConfig.ProductID)
+	}
 }
 
 func (r *fakeRepo) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {
@@ -242,7 +309,7 @@ func (r *fakeRepo) SaveProductCustomerReference(ctx context.Context, cmd Product
 }
 
 func (r *fakeRepo) ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error) {
-	return []ProductPricingRule{}, nil
+	return r.pricingRules, nil
 }
 
 func (r *fakeRepo) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
@@ -896,6 +963,119 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 	}
 }
 
+func TestProductPricingRuleUsesMarkupAsTheOnlyPricingMethod(t *testing.T) {
+	tests := []struct {
+		name       string
+		marginRate float64
+		method     string
+		wantRate   float64
+	}{
+		{name: "legacy gross margin keeps the entered percentage meaning", marginRate: 0.8, method: "gross_margin", wantRate: 0.8},
+		{name: "legacy whole percent is normalized", marginRate: 80, method: "gross_margin", wantRate: 0.8},
+		{name: "missing legacy method becomes markup", marginRate: 0.35, method: "", wantRate: 0.35},
+		{name: "markup over one remains a valid rate", marginRate: 1.2, method: "markup", wantRate: 1.2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calculation := map[string]any{}
+			if tt.method != "" {
+				calculation["profit_method"] = tt.method
+			}
+			rule, err := NewService(&fakeRepo{}).SaveProductPricingRule(context.Background(), ProductPricingRule{
+				Name:            "加价率模板",
+				MarginRate:      tt.marginRate,
+				CalculationJSON: calculation,
+			})
+			if err != nil {
+				t.Fatalf("SaveProductPricingRule() err=%v", err)
+			}
+			if rule.MarginRate != tt.wantRate {
+				t.Fatalf("margin_rate=%v, want %v", rule.MarginRate, tt.wantRate)
+			}
+			got, ok := rule.CalculationJSON["profit_method"].(string)
+			if !ok || strings.TrimSpace(got) != "markup" {
+				t.Fatalf("profit_method=%v, want markup", rule.CalculationJSON["profit_method"])
+			}
+		})
+	}
+
+	_, err := NewService(&fakeRepo{}).SaveProductPricingRule(context.Background(), ProductPricingRule{
+		Name:            "旧固定加价模板",
+		MarginRate:      3,
+		CalculationJSON: map[string]any{"profit_method": "fixed_add"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "only markup rate is supported") {
+		t.Fatalf("fixed_add err=%v, want explicit markup-only validation", err)
+	}
+
+	_, err = NewService(&fakeRepo{}).SaveProductPricingRule(context.Background(), ProductPricingRule{
+		Name:       "已隔离旧固定加价模板",
+		MarginRate: 0,
+		CalculationJSON: map[string]any{
+			"profit_method":        "markup",
+			"legacy_profit_method": "fixed_add",
+			"legacy_margin_rate":   3,
+			"migration_warning":    "only markup rate is supported",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "quarantined legacy pricing rule") {
+		t.Fatalf("quarantined legacy rule err=%v, want replacement validation", err)
+	}
+}
+
+func TestProductPricingRuleRejectsCleanUpdateOverQuarantinedExistingTemplate(t *testing.T) {
+	repo := &fakeRepo{pricingRules: []ProductPricingRule{{
+		ID:         77,
+		Name:       "已隔离旧固定加价模板",
+		MarginRate: 0,
+		Active:     false,
+		CalculationJSON: map[string]any{
+			"profit_method":        "markup",
+			"legacy_profit_method": "fixed_add",
+			"legacy_margin_rate":   3,
+			"migration_warning":    "only markup rate is supported",
+		},
+	}}}
+
+	_, err := NewService(repo).SaveProductPricingRule(context.Background(), ProductPricingRule{
+		ID:              77,
+		Name:            "试图覆盖隔离模板",
+		MarginRate:      0.8,
+		Active:          true,
+		CalculationJSON: map[string]any{"profit_method": "markup"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "quarantined legacy pricing rule") {
+		t.Fatalf("clean update over quarantined row err=%v, want replacement validation", err)
+	}
+}
+
+func TestListProductPricingRulesNormalizesLegacyMethodsWithoutChangingPublishedPrices(t *testing.T) {
+	repo := &fakeRepo{pricingRules: []ProductPricingRule{
+		{ID: 1, Name: "旧毛利率", MarginRate: 20, Active: true, CalculationJSON: map[string]any{"profit_method": "gross_margin"}},
+		{ID: 2, Name: "旧固定加价", MarginRate: 3, Active: true, CalculationJSON: map[string]any{"profit_method": "fixed_add"}},
+	}}
+	rows, err := NewService(repo).ListProductPricingRules(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].MarginRate != 0.2 || rows[0].CalculationJSON["profit_method"] != "markup" || !rows[0].Active {
+		t.Fatalf("legacy gross-margin row=%+v, want active markup 0.2", rows[0])
+	}
+	if rows[1].MarginRate != 0 || rows[1].CalculationJSON["profit_method"] != "markup" || rows[1].Active {
+		t.Fatalf("legacy fixed-add row=%+v, want quarantined inactive markup row", rows[1])
+	}
+	if rows[1].CalculationJSON["legacy_profit_method"] != "fixed_add" || rows[1].CalculationJSON["legacy_margin_rate"] != float64(3) {
+		t.Fatalf("legacy fixed-add evidence missing: %+v", rows[1].CalculationJSON)
+	}
+	settings, err := NewService(repo).ProductSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.ProductPricingRules) != 2 || settings.ProductPricingRules[0].MarginRate != 0.2 || settings.ProductPricingRules[0].CalculationJSON["profit_method"] != "markup" || settings.ProductPricingRules[1].Active {
+		t.Fatalf("ProductSettings pricing rules bypassed markup-only normalization: %+v", settings.ProductPricingRules)
+	}
+}
+
 func TestProductSettingsKeepsBomParamsOnNonGreenSKU(t *testing.T) {
 	settings := BuildProductSettings(nil, []Product{{
 		ID:          88,
@@ -911,6 +1091,31 @@ func TestProductSettingsKeepsBomParamsOnNonGreenSKU(t *testing.T) {
 	got := settings.Products[0]
 	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 0.96 {
 		t.Fatalf("instant coffee product settings = %+v, want roast/yield from SKU", got)
+	}
+}
+
+func TestSetProductDefaultSKUValidatesAndDelegates(t *testing.T) {
+	repo := &fakeRepo{defaultSKUResult: Product{ID: 41, DefaultSKUID: 43, EffectiveDefaultSKUID: 43, DefaultSpecLabel: "1磅"}}
+	svc := NewService(repo)
+
+	for _, cmd := range []SetProductDefaultSKUCommand{
+		{ParentProductID: 0, SKUID: 43},
+		{ParentProductID: 41, SKUID: 0},
+	} {
+		if _, err := svc.SetProductDefaultSKU(context.Background(), cmd); err == nil || !IsValidationError(err) {
+			t.Fatalf("command %+v should fail validation, got %v", cmd, err)
+		}
+	}
+
+	got, err := svc.SetProductDefaultSKU(context.Background(), SetProductDefaultSKUCommand{Actor: "  刘祎泊  ", ParentProductID: 41, SKUID: 43})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.defaultSKU.Actor != "刘祎泊" || repo.defaultSKU.ParentProductID != 41 || repo.defaultSKU.SKUID != 43 {
+		t.Fatalf("delegated command = %+v", repo.defaultSKU)
+	}
+	if got.DefaultSKUID != 43 || got.EffectiveDefaultSKUID != 43 || got.DefaultSpecLabel != "1磅" {
+		t.Fatalf("result = %+v", got)
 	}
 }
 

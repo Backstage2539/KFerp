@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>库存作业</h2>
-          <p>入库、WIP 领退、成品转仓和盘点调整集中在这里处理。</p>
+          <p>库存移动统一使用库存单据；实物盘点和成本修正独立处理。</p>
         </div>
       </div>
       <div class="tabs" role="tablist" aria-label="库存作业">
@@ -30,41 +30,40 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import FinishedTransfersView from './FinishedTransfersView.vue'
-import MaterialReceiptsView from './MaterialReceiptsView.vue'
 import StockAdjustmentsView from './StockAdjustmentsView.vue'
 import StockEntriesView from './StockEntriesView.vue'
-import WipMaterialsView from './WipMaterialsView.vue'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
-  initialTab: { type: String, default: 'receipts' },
+  initialTab: { type: String, default: 'stockEntries' },
   viewParams: { type: Object, default: () => ({}) },
 })
 
 const tabs = [
-  { key: 'receipts', label: '原料入库', component: MaterialReceiptsView },
-  { key: 'stockEntries', label: 'Stock Entry单据', component: StockEntriesView },
-  { key: 'wip', label: 'WIP领退/转仓', component: WipMaterialsView },
-  { key: 'finishedTransfers', label: '成品转仓', component: FinishedTransfersView },
-  { key: 'adjustments', label: '库存调整', component: StockAdjustmentsView },
+  { key: 'stockEntries', label: '库存单据', component: StockEntriesView },
+  { key: 'adjustments', label: '盘点调整', component: StockAdjustmentsView },
 ]
 
 function normalizedTab(key) {
-  return tabs.some((tab) => tab.key === key) ? key : 'receipts'
+  if (['receipts', 'wip', 'finishedTransfers'].includes(key)) return 'stockEntries'
+  return tabs.some((tab) => tab.key === key) ? key : 'stockEntries'
 }
 
 const initialActiveTab = computed(() => normalizedTab(props.viewParams?.tab || props.initialTab))
 const activeTab = ref(initialActiveTab.value)
-const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || MaterialReceiptsView)
+const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || StockEntriesView)
 const contextBadges = computed(() => {
   const params = props.viewParams || {}
+  const actionLabel = ({
+    issue: '生产领料',
+    supplement: '补料',
+    return: '退回未用原料',
+    consume: '记录生产消耗',
+    finish: '完工入库',
+  })[String(params.action || '')] || ''
   return [
-    params.work_order_id ? `工单 #${params.work_order_id}` : '',
-    params.job_card_id ? `工序卡 #${params.job_card_id}` : '',
-    params.running_item_id ? `生产中 #${params.running_item_id}` : '',
-    params.material_id ? `物料 #${params.material_id}` : '',
-    params.shortage_g ? `缺口 ${params.shortage_g}g` : '',
+    params.work_order_no ? `工单号：${params.work_order_no}` : (params.work_order_id ? '已绑定工单' : ''),
+    actionLabel,
   ].filter(Boolean)
 })
 

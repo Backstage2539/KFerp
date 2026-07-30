@@ -43,6 +43,21 @@ type Parameters struct {
 	WholesaleDripMultipliers      []float64 `json:"wholesale_drip_multipliers"`
 }
 
+// EffectiveSalesSpec freezes the concrete SKU sales specification used by
+// price-list publishing and downstream order pricing. Tier quantities for new
+// publications are counts of this specification, not inventory-weight units.
+type EffectiveSalesSpec struct {
+	SKUID                   int64                         `json:"sku_id"`
+	SpecKey                 string                        `json:"spec_key,omitempty"`
+	SpecName                string                        `json:"spec_name"`
+	SpecLabel               string                        `json:"spec_label,omitempty"`
+	SalesUnit               string                        `json:"sales_unit"`
+	NetContentQty           float64                       `json:"net_content_qty,omitempty"`
+	NetContentUnit          string                        `json:"net_content_unit,omitempty"`
+	InventoryUnit           string                        `json:"inventory_unit,omitempty"`
+	InventoryConversionJSON map[string]map[string]float64 `json:"inventory_conversion_json,omitempty"`
+}
+
 type ProductInput struct {
 	ProductID                  int64                     `json:"product_id"`
 	SKUID                      int64                     `json:"sku_id,omitempty"`
@@ -51,10 +66,12 @@ type ProductInput struct {
 	SKUName                    string                    `json:"sku_name,omitempty"`
 	SKUCode                    string                    `json:"sku_code,omitempty"`
 	Barcode                    string                    `json:"barcode,omitempty"`
+	SpecKey                    string                    `json:"spec_key,omitempty"`
 	SpecLabel                  string                    `json:"spec_label,omitempty"`
 	NetContentQty              float64                   `json:"net_content_qty,omitempty"`
 	NetContentUnit             string                    `json:"net_content_unit,omitempty"`
 	IsDefaultSKU               bool                      `json:"is_default_sku,omitempty"`
+	DefaultSKUID               int64                     `json:"default_sku_id,omitempty"`
 	ProductCode                string                    `json:"product_code,omitempty"`
 	ProductName                string                    `json:"product_name,omitempty"`
 	Name                       string                    `json:"name"`
@@ -316,6 +333,19 @@ type ProductAttribute struct {
 
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
+	SKUID                          int64                     `json:"sku_id,omitempty"`
+	ParentProductID                int64                     `json:"parent_product_id,omitempty"`
+	EffectiveParentProductID       int64                     `json:"effective_parent_product_id,omitempty"`
+	SKUName                        string                    `json:"sku_name,omitempty"`
+	SKUCode                        string                    `json:"sku_code,omitempty"`
+	Barcode                        string                    `json:"barcode,omitempty"`
+	SpecKey                        string                    `json:"spec_key,omitempty"`
+	SpecLabel                      string                    `json:"spec_label,omitempty"`
+	NetContentQty                  float64                   `json:"net_content_qty,omitempty"`
+	NetContentUnit                 string                    `json:"net_content_unit,omitempty"`
+	IsDefaultSKU                   bool                      `json:"is_default_sku,omitempty"`
+	DefaultSKUID                   int64                     `json:"default_sku_id,omitempty"`
+	EffectiveSalesSpec             *EffectiveSalesSpec       `json:"effective_sales_spec,omitempty"`
 	ProductCode                    string                    `json:"product_code,omitempty"`
 	ProductName                    string                    `json:"product_name,omitempty"`
 	Name                           string                    `json:"name"`
@@ -543,6 +573,54 @@ func normalizeProductKind(kind string) string {
 	}
 }
 
+func effectiveSalesSpecFromInput(in ProductInput) *EffectiveSalesSpec {
+	skuID := in.SKUID
+	if skuID <= 0 {
+		skuID = in.ProductID
+	}
+	if skuID <= 0 {
+		return nil
+	}
+	specName := strings.TrimSpace(in.SpecLabel)
+	if specName == "" {
+		specName = strings.TrimSpace(in.SKUName)
+	}
+	if specName == "" {
+		specName = strings.TrimSpace(in.Name)
+	}
+	salesUnit := strings.TrimSpace(in.OrderUnit)
+	if salesUnit == "" {
+		salesUnit = strings.TrimSpace(in.QuoteUnit)
+	}
+	if salesUnit == "" {
+		salesUnit = specName
+	}
+	if salesUnit == "" {
+		salesUnit = strings.TrimSpace(in.InventoryUnit)
+	}
+	if specName == "" {
+		specName = salesUnit
+	}
+	conversion := map[string]map[string]float64{}
+	if raw := strings.TrimSpace(in.UnitConversionJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &conversion)
+	}
+	if len(conversion) == 0 {
+		conversion = nil
+	}
+	return &EffectiveSalesSpec{
+		SKUID:                   skuID,
+		SpecKey:                 strings.TrimSpace(in.SpecKey),
+		SpecName:                specName,
+		SpecLabel:               strings.TrimSpace(in.SpecLabel),
+		SalesUnit:               salesUnit,
+		NetContentQty:           in.NetContentQty,
+		NetContentUnit:          strings.TrimSpace(in.NetContentUnit),
+		InventoryUnit:           strings.TrimSpace(in.InventoryUnit),
+		InventoryConversionJSON: conversion,
+	}
+}
+
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	if strings.TrimSpace(in.ProductKind) == "green_bean" {
 		return calculateGreenBeanProduct(params, in)
@@ -586,6 +664,19 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 
 	out := ProductResult{
 		ProductID:                  in.ProductID,
+		SKUID:                      in.SKUID,
+		ParentProductID:            in.ParentProductID,
+		EffectiveParentProductID:   in.EffectiveParentProductID,
+		SKUName:                    in.SKUName,
+		SKUCode:                    in.SKUCode,
+		Barcode:                    in.Barcode,
+		SpecKey:                    in.SpecKey,
+		SpecLabel:                  in.SpecLabel,
+		NetContentQty:              in.NetContentQty,
+		NetContentUnit:             in.NetContentUnit,
+		IsDefaultSKU:               in.IsDefaultSKU,
+		DefaultSKUID:               in.DefaultSKUID,
+		EffectiveSalesSpec:         effectiveSalesSpecFromInput(in),
 		ProductCode:                in.ProductCode,
 		ProductName:                in.ProductName,
 		Name:                       in.Name,
@@ -745,6 +836,19 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 	}
 	out := ProductResult{
 		ProductID:                  in.ProductID,
+		SKUID:                      in.SKUID,
+		ParentProductID:            in.ParentProductID,
+		EffectiveParentProductID:   in.EffectiveParentProductID,
+		SKUName:                    in.SKUName,
+		SKUCode:                    in.SKUCode,
+		Barcode:                    in.Barcode,
+		SpecKey:                    in.SpecKey,
+		SpecLabel:                  in.SpecLabel,
+		NetContentQty:              in.NetContentQty,
+		NetContentUnit:             in.NetContentUnit,
+		IsDefaultSKU:               in.IsDefaultSKU,
+		DefaultSKUID:               in.DefaultSKUID,
+		EffectiveSalesSpec:         effectiveSalesSpecFromInput(in),
 		ProductCode:                in.ProductCode,
 		ProductName:                in.ProductName,
 		Name:                       in.Name,

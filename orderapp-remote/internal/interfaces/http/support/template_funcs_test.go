@@ -24,7 +24,7 @@ func TestTemplateFuncMapExposesBomURL(t *testing.T) {
 	if !ok {
 		t.Fatalf("bomURL has unexpected type %T", raw)
 	}
-	if got, want := bomURL(), "/vue-shell?view=bom"; got != want {
+	if got, want := bomURL(), "/vue-shell?view=productionConfig&tab=bom"; got != want {
 		t.Fatalf("bomURL() = %q, want %q", got, want)
 	}
 }
@@ -36,13 +36,13 @@ func TestBomEntrypointsUseVueURL(t *testing.T) {
 		forbidden []string
 	}{
 		{
-			path:      "frontend-vue-shell/src/App.vue",
-			required:  []string{"import BomView from './views/BomView.vue'", "bom: BomView"},
+			path:      "frontend-vue-shell/src/views/ProductionSettingsView.vue",
+			required:  []string{"import BomView from './BomView.vue'", "key: 'bom'", "label: '生产 BOM'"},
 			forbidden: []string{"BOM_REACT_URL", "legacyUrl: BOM_REACT_URL"},
 		},
 		{
 			path:     "frontend-vue-shell/src/lib/menu-ia.js",
-			required: []string{"bom", "生产 BOM"},
+			required: []string{"bom: '生产 BOM'"},
 		},
 	}
 

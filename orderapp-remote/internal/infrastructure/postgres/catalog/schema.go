@@ -44,6 +44,7 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_config_template_id B
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS net_content_qty NUMERIC(14,6) NOT NULL DEFAULT 0;
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS net_content_unit TEXT NOT NULL DEFAULT '';
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS is_default_sku BOOLEAN NOT NULL DEFAULT false;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS default_sku_id BIGINT NOT NULL DEFAULT 0;
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS auto_derived_sku BOOLEAN NOT NULL DEFAULT false;
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_unit_template_id BIGINT NOT NULL DEFAULT 0;
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_key TEXT NOT NULL DEFAULT '';
@@ -255,6 +256,34 @@ CREATE INDEX IF NOT EXISTS product_pricing_rules_active_idx
 ON %[1]s.product_pricing_rules(active, id);
 ALTER TABLE %[1]s.product_pricing_rules ADD COLUMN IF NOT EXISTS calculation_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.product_pricing_rules ADD COLUMN IF NOT EXISTS formula_version TEXT NOT NULL DEFAULT 'v1';
+-- PR-539 pricing rules use markup only.
+UPDATE %[1]s.product_pricing_rules
+SET margin_rate=CASE WHEN margin_rate>1 THEN margin_rate / 100 ELSE margin_rate END,
+	calculation_json=jsonb_set(calculation_json, '{profit_method}', '"markup"'::jsonb, true),
+	updated_at=now(),
+	updated_by='system-pr539-migration'
+WHERE jsonb_typeof(calculation_json)='object'
+	AND lower(trim(COALESCE(calculation_json->>'profit_method', ''))) IN ('', 'gross_margin');
+UPDATE %[1]s.product_pricing_rules
+SET active=false,
+	margin_rate=0,
+	calculation_json=(CASE
+		WHEN jsonb_typeof(calculation_json)='object' THEN calculation_json
+		ELSE jsonb_build_object('legacy_calculation_json', calculation_json)
+	END) || jsonb_build_object(
+		'legacy_profit_method', CASE
+			WHEN jsonb_typeof(calculation_json)='object' THEN COALESCE(NULLIF(trim(calculation_json->>'profit_method'), ''), 'unknown')
+			ELSE 'invalid_calculation_json'
+		END,
+		'legacy_margin_rate', margin_rate,
+		'profit_method', 'markup',
+		'migration_warning', 'only markup rate is supported; review this template before enabling it'
+	),
+	updated_at=now(),
+	updated_by='system-pr539-migration'
+WHERE jsonb_typeof(calculation_json)<>'object'
+	OR lower(trim(COALESCE(calculation_json->>'profit_method', ''))) <> 'markup';
+-- PR-539 pricing rules use markup only end.
 CREATE TABLE IF NOT EXISTS %[1]s.price_tier_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -881,6 +910,9 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
+	if err := backfillProductDefaultSKUs(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := migrateProductCategoriesToBusinessGroups(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -894,6 +926,90 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
 		return err
 	}
 	return backfillProductProductionConfigs(ctx, pool, schema)
+}
+
+// backfillProductDefaultSKUs makes the parent pointer authoritative while
+// retaining the legacy row flag as a read-compatible projection. A valid
+// existing child pointer is preserved on every subsequent schema run.
+func backfillProductDefaultSKUs(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+WITH parent_choices AS (
+	SELECT parent.id AS parent_id,
+	       COALESCE(current_child.id, unique_legacy_child.id, template_default_child.id, first_valid_child.id, parent.id) AS selected_sku_id
+	FROM %[1]s.products parent
+	LEFT JOIN %[1]s.products current_child
+	  ON current_child.id=parent.default_sku_id
+	 AND current_child.parent_product_id=parent.id
+	 AND COALESCE(current_child.active,true)=true
+	 AND COALESCE(current_child.derived_spec_status,'') IN ('', 'active')
+	 AND (COALESCE(current_child.auto_derived_sku,false)=false OR current_child.derived_unit_template_id=parent.unit_template_id)
+	LEFT JOIN LATERAL (
+		SELECT COUNT(*) FILTER (WHERE child.is_default_sku=true) AS legacy_default_count
+		FROM %[1]s.products child
+		WHERE child.parent_product_id=parent.id
+		  AND COALESCE(child.active,true)=true
+		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
+		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
+	) legacy_flags ON current_child.id IS NULL
+	LEFT JOIN LATERAL (
+		SELECT child.id
+		FROM %[1]s.products child
+		WHERE child.parent_product_id=parent.id
+		  AND COALESCE(child.active,true)=true
+		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
+		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
+		  AND child.is_default_sku=true
+		  AND COALESCE(legacy_flags.legacy_default_count,0) = 1
+		ORDER BY child.id
+		LIMIT 1
+	) unique_legacy_child ON current_child.id IS NULL
+	LEFT JOIN LATERAL (
+		SELECT child.id
+		FROM %[1]s.products child
+		WHERE child.parent_product_id=parent.id
+		  AND COALESCE(child.active,true)=true
+		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
+		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
+		  AND EXISTS (
+				SELECT 1
+				FROM %[1]s.product_unit_templates template,
+				     LATERAL jsonb_array_elements(COALESCE(template.sales_specs_json,'[]'::jsonb)) spec
+				WHERE template.id=parent.unit_template_id
+				  AND COALESCE((spec->>'default')::boolean,false)=true
+				  AND COALESCE(spec->>'spec_key','')=child.derived_spec_key
+			)
+		ORDER BY child.id
+		LIMIT 1
+	) template_default_child ON current_child.id IS NULL AND unique_legacy_child.id IS NULL
+	LEFT JOIN LATERAL (
+		SELECT child.id
+		FROM %[1]s.products child
+		WHERE child.parent_product_id=parent.id
+		  AND COALESCE(child.active,true)=true
+		  AND COALESCE(child.derived_spec_status,'') IN ('', 'active')
+		  AND (COALESCE(child.auto_derived_sku,false)=false OR child.derived_unit_template_id=parent.unit_template_id)
+		ORDER BY child.id
+		LIMIT 1
+	) first_valid_child ON current_child.id IS NULL
+		AND unique_legacy_child.id IS NULL
+		AND template_default_child.id IS NULL
+	WHERE COALESCE(parent.parent_product_id,0)=0
+)
+	UPDATE %[1]s.products parent
+	SET default_sku_id=choice.selected_sku_id
+	FROM parent_choices choice
+	WHERE parent.id=choice.parent_id
+	  AND parent.default_sku_id IS DISTINCT FROM choice.selected_sku_id
+;
+UPDATE %[1]s.products child
+SET is_default_sku=(child.id=parent.default_sku_id)
+FROM %[1]s.products parent
+WHERE COALESCE(parent.parent_product_id,0)=0
+  AND (child.id=parent.id OR child.parent_product_id=parent.id)
+  AND child.is_default_sku IS DISTINCT FROM (child.id=parent.default_sku_id)
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func migrateProductCategoriesToBusinessGroups(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -1194,33 +1310,52 @@ LEFT JOIN %[1]s.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
 LEFT JOIN %[1]s.product_bom pb ON pb.product_id=p.id
 WHERE COALESCE(p.active,true)=true
 ON CONFLICT (product_id) DO NOTHING;
-
-WITH source_attrs AS (
-	SELECT p.id AS product_id,
-	       CASE
-	         WHEN COALESCE(NULLIF(p.roast_level,''),'') <> ''
-	         THEN jsonb_set(COALESCE(p.special_attrs_json, '{}'::jsonb), '{roast_level}', to_jsonb(p.roast_level), true)
-	         ELSE COALESCE(p.special_attrs_json, '{}'::jsonb)
-	       END AS attrs_json
-	FROM %[1]s.products p
-	JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id
-),
-attr_rows AS (
-	SELECT source_attrs.product_id,
-	       kv.key AS field_key,
-	       kv.value AS value_text,
-	       row_number() OVER (PARTITION BY source_attrs.product_id ORDER BY kv.key)::int AS sort_order
-	FROM source_attrs
-	CROSS JOIN LATERAL jsonb_each_text(source_attrs.attrs_json) AS kv(key,value)
-	WHERE COALESCE(kv.key,'') <> '' AND COALESCE(kv.value,'') <> ''
-)
-INSERT INTO %[1]s.product_production_config_fields(
-	product_id, field_key, label, field_type, unit, value_text, show_in_price_list, sort_order
-)
-SELECT product_id, field_key, field_key, 'text', '', value_text, true, sort_order
-FROM attr_rows
-ON CONFLICT (product_id, lower(field_key)) DO NOTHING;
 `, schema)
-	_, err := pool.Exec(ctx, q)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	return cleanupProductProductionConfigIndustryFields(ctx, pool, schema)
+}
+
+func cleanupProductProductionConfigIndustryFields(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+DELETE FROM %[1]s.product_production_config_fields f
+WHERE NOT EXISTS (
+	SELECT 1 FROM %[1]s.product_production_configs c WHERE c.product_id=f.product_id
+)
+OR EXISTS (
+	SELECT 1
+	FROM %[1]s.product_production_configs c
+	WHERE c.product_id=f.product_id
+	  AND COALESCE(c.industry_field_template_id,0) <= 0
+);
+`, schema)); err != nil {
+		return err
+	}
+
+	var hasIndustryTemplates, hasIndustryDefinitions bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`, schema+".industry_field_templates", schema+".industry_field_definitions").Scan(&hasIndustryTemplates, &hasIndustryDefinitions); err != nil {
+		return err
+	}
+	if !hasIndustryTemplates || !hasIndustryDefinitions {
+		return nil
+	}
+
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+DELETE FROM %[1]s.product_production_config_fields f
+WHERE EXISTS (
+	SELECT 1
+	FROM %[1]s.product_production_configs c
+	WHERE c.product_id=f.product_id
+	  AND COALESCE(c.industry_field_template_id,0) > 0
+	  AND NOT EXISTS (
+		SELECT 1
+		FROM %[1]s.industry_field_templates t
+		JOIN %[1]s.industry_field_definitions d ON d.template_id=t.id
+		WHERE t.id=c.industry_field_template_id
+		  AND btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))
+	  )
+);
+`, schema))
 	return err
 }

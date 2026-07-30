@@ -4,9 +4,17 @@ import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
 import {
+  activeBeanListPublicationIDsByType,
+  beanListVersionGroupForPublicationID,
   beanListVersionOptionGroups,
+  beanListVersionOptionForGroup,
+  beanListVersionOptionForProductGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
+  closeOrderProductDropdowns,
+  CUSTOM_SPEC_VALUE,
+  defaultDripSalesUnit,
+  defaultDripSalesUnitSpec,
   defaultWholesaleSpec,
   defaultStatusID,
   filterOptions,
@@ -18,6 +26,17 @@ import {
   latestBeanListVersionOption,
   latestProductPriceListVersionOption,
   needsTrailingBlankOrderLine,
+  normalizeOrderProductFamilies,
+  orderFamilyDefaultSpec,
+  orderFamilyForSKU,
+  orderFamilySpecRowPatch,
+  orderFamilySpecsForPublication,
+  orderFamilySpecProduct,
+  orderFamilySpecOptions,
+  orderLegacyProductForPublication,
+  orderProductFamilyOptions,
+  orderProductKindFilterOptions,
+  orderSpecSelectionAfterPublicationChange,
   orderRowPriceUnit,
   resolveWholesaleTierPrice,
   syncDripTierPrice,
@@ -26,17 +45,600 @@ import {
   orderReceiptMethodOptions,
   productKindBadgeClass,
   productKindLabel,
+  productBeanListType,
   requiresOrderPaymentMethod,
   requiresOrderPaymentReceipt,
   responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
   rowUsesStaleBeanListPublication,
+  shouldKeepFrozenOrderPublication,
   sortProductsByCustomerUsage,
   wholesalePriceUnit,
   wholesaleTierPriceRows,
   wholesaleSpecOptions,
 } from './order-entry.js'
+
+test('order price-list families keep one parent result while matching concrete spec and SKU text', () => {
+  const families = normalizeOrderProductFamilies([{
+    parent_product_id: 70,
+    parent_product_name: '乌拉嘎',
+    name: '乌拉嘎',
+    product_kind: 'roasted_bean',
+    default_sku_id: 702,
+    specs: [
+      { sku_id: 701, sku_name: 'SKU-ULG-100', spec_label: '100g', tiers: [{ id: 1, publication_id: 91, unit_price: 39 }] },
+      { sku_id: 702, sku_name: 'SKU-ULG-227', spec_label: '227g', is_default_sku: true, tiers: [{ id: 2, publication_id: 91, unit_price: 68 }] },
+    ],
+  }], [])
+
+  assert.equal(families.length, 1)
+  assert.equal(families[0].name, '乌拉嘎')
+  assert.deepEqual(orderProductFamilyOptions(families, '227g').map((item) => item.parent_product_id), [70])
+  assert.deepEqual(orderProductFamilyOptions(families, 'SKU-ULG-100').map((item) => item.parent_product_id), [70])
+})
+
+test('order product options combine visible category and text filters', () => {
+  const families = [
+    { id: 1, name: '森林瑰夏水洗', product_kind: 'roasted_bean' },
+    { id: 2, name: '初晓 挂耳', product_kind: 'drip_bag' },
+    { id: 3, name: '红酒日晒 生豆', product_kind: 'green_bean' },
+    { id: 4, name: '冷萃速溶', product_kind: 'instant_coffee' },
+  ]
+
+  assert.deepEqual(orderProductKindFilterOptions(families), [
+    { value: '', label: '全部' },
+    { value: 'roasted', label: '熟豆' },
+    { value: 'drip_bag', label: '挂耳' },
+    { value: 'green_bean', label: '生豆' },
+    { value: 'instant_coffee', label: '速溶咖啡' },
+  ])
+  assert.deepEqual(orderProductFamilyOptions(families, '', 'drip_bag').map((item) => item.id), [2])
+  assert.deepEqual(orderProductFamilyOptions(families, '初晓', 'drip_bag').map((item) => item.id), [2])
+  assert.deepEqual(orderProductFamilyOptions(families, '森林', 'drip_bag'), [])
+})
+
+test('order product dropdown closer keeps only the clicked combobox open', () => {
+  const rows = [
+    { key: 'a', product_open: true },
+    { key: 'b', product_open: true },
+  ]
+
+  closeOrderProductDropdowns(rows, 'b')
+  assert.deepEqual(rows.map((row) => row.product_open), [false, true])
+
+  closeOrderProductDropdowns(rows)
+  assert.deepEqual(rows.map((row) => row.product_open), [false, false])
+})
+
+test('order price-list family fallback groups enriched flat products without appending specs to parent name', () => {
+  const families = normalizeOrderProductFamilies([], [
+    {
+      id: 701,
+      name: '乌拉嘎 100g',
+      parent_product_id: 70,
+      parent_product_name: '乌拉嘎',
+      effective_sales_spec: '100g',
+      tiers: [{
+        id: 1,
+        publication_id: 91,
+        unit_price: 39,
+        quantity_basis: 'sales_spec_count',
+        effective_sales_spec: { sku_id: 701, spec_label: '100g', sales_unit: '袋' },
+      }],
+    },
+    {
+      id: 702,
+      name: '乌拉嘎 227g',
+      parent_product_id: 70,
+      parent_product_name: '乌拉嘎',
+      effective_sales_spec: '227g',
+      is_default_sku: true,
+      tiers: [{
+        id: 2,
+        publication_id: 91,
+        unit_price: 68,
+        quantity_basis: 'sales_spec_count',
+        effective_sales_spec: { sku_id: 702, spec_label: '227g', sales_unit: '袋' },
+      }],
+    },
+  ])
+
+  assert.equal(families.length, 1)
+  assert.equal(families[0].name, '乌拉嘎')
+  assert.deepEqual(families[0].specs.map((item) => item.sku_id), [701, 702])
+  assert.equal(orderFamilyForSKU(families, 702)?.parent_product_id, 70)
+})
+
+test('pure legacy fallback keeps same-parent historical SKU identities and their own price tiers', () => {
+  const families = normalizeOrderProductFamilies([], [
+    {
+      id: 551,
+      name: '乌拉嘎 227g',
+      parent_product_id: 550,
+      parent_product_name: '乌拉嘎',
+      tiers: [{ id: 11, publication_id: 901, spec_g: 227, min: 1, unit_price: 68 }],
+    },
+    {
+      id: 552,
+      name: '乌拉嘎 454g',
+      parent_product_id: 550,
+      parent_product_name: '乌拉嘎',
+      tiers: [{ id: 12, publication_id: 901, spec_g: 454, min: 1, unit_price: 118 }],
+    },
+  ])
+
+  assert.deepEqual(families.map((product) => product.id), [551, 552])
+  assert.deepEqual(families.map((product) => product.__order_legacy_price_product), [true, true])
+  assert.deepEqual(families.map((product) => product.tiers.map((tier) => tier.id)), [[11], [12]])
+})
+
+test('pure legacy publication keeps the original common-spec order-entry path', () => {
+  const families = normalizeOrderProductFamilies([], [{
+    id: 7,
+    name: '乌拉嘎',
+    product_kind: 'roasted_bean',
+    tiers: [{ id: 11, publication_id: 901, spec_g: 454, min: 1, unit_price: 68 }],
+  }])
+
+  assert.equal(families.length, 1)
+  assert.equal(families[0].__order_concrete_price_family, false)
+  assert.ok(wholesaleSpecOptions(families[0]).some((option) => option.value === '227'))
+  assert.ok(wholesaleSpecOptions(families[0]).some((option) => option.value === CUSTOM_SPEC_VALUE))
+})
+
+test('mixed concrete and legacy history routes each selected publication to its own order-entry path', () => {
+  const mixedProduct = {
+    id: 551,
+    name: '乌拉嘎 227g',
+    parent_product_id: 550,
+    parent_product_name: '乌拉嘎',
+    tiers: [
+      {
+        id: 21,
+        publication_id: 902,
+        quantity_basis: 'sales_spec_count',
+        effective_sales_spec: { sku_id: 551, spec_label: '227g', sales_unit: '袋' },
+        unit_price: 70,
+      },
+      { id: 11, publication_id: 901, spec_g: 227, min: 1, unit_price: 68 },
+    ],
+  }
+
+  assert.equal(orderLegacyProductForPublication(mixedProduct, 902), null)
+  const legacy = orderLegacyProductForPublication(mixedProduct, 901)
+  assert.equal(legacy?.__order_legacy_price_product, true)
+  assert.deepEqual(legacy?.tiers.map((tier) => tier.publication_id), [901])
+  assert.ok(wholesaleSpecOptions(legacy).some((option) => option.value === CUSTOM_SPEC_VALUE))
+})
+
+test('publication pricing mode detects a legacy to concrete price-list transition', () => {
+  const product = {
+    tiers: [
+      { id: 11, publication_id: 901, spec_g: 227, min: 1, unit_price: 68 },
+      {
+        id: 21,
+        publication_id: 902,
+        quantity_basis: 'sales_spec_count',
+        effective_sales_spec: { sku_id: 551, spec_label: '227g', sales_unit: '袋' },
+        unit_price: 70,
+      },
+    ],
+  }
+
+  assert.equal(orderEntry.orderProductPublicationMode(product, 901), 'legacy')
+  assert.equal(orderEntry.orderProductPublicationMode(product, 902), 'concrete')
+  assert.equal(orderEntry.orderProductPublicationMode(product, 999), '')
+})
+
+test('an unrelated legacy product remains available when another product has a concrete family', () => {
+  const families = normalizeOrderProductFamilies([{
+    parent_product_id: 70,
+    parent_product_name: '乌拉嘎',
+    name: '乌拉嘎',
+    specs: [{
+      sku_id: 701,
+      spec_label: '227g',
+      tiers: [{
+        id: 21,
+        publication_id: 902,
+        quantity_basis: 'sales_spec_count',
+        effective_sales_spec: { sku_id: 701, spec_label: '227g', sales_unit: '袋' },
+        unit_price: 70,
+      }],
+    }],
+  }], [{
+    id: 8,
+    name: '历史豆',
+    product_kind: 'roasted_bean',
+    tiers: [{ id: 12, publication_id: 901, spec_g: 454, min: 1, unit_price: 66 }],
+  }])
+
+  assert.deepEqual(families.map((family) => [family.parent_product_id, family.__order_concrete_price_family]), [
+    [70, true],
+    [8, false],
+  ])
+})
+
+test('order spec choices only include concrete SKUs priced by the selected publication', () => {
+  const family = normalizeOrderProductFamilies([{
+    parent_product_id: 70,
+    parent_product_name: '乌拉嘎',
+    name: '乌拉嘎',
+    default_sku_id: 702,
+    specs: [
+      { sku_id: 701, spec_label: '100g', tiers: [{ id: 1, publication_id: 91, unit_price: 39 }] },
+      { sku_id: 702, spec_label: '227g', is_default_sku: true, tiers: [{ id: 2, publication_id: 92, unit_price: 68 }] },
+      { sku_id: 703, spec_label: '454g', tiers: [] },
+    ],
+  }], [])[0]
+
+  assert.deepEqual(orderFamilySpecOptions(family, 91), [{ label: '100g', value: '701', skuID: 701 }])
+  assert.equal(orderFamilyDefaultSpec(family, 91)?.sku_id, 701)
+  assert.deepEqual(orderFamilySpecsForPublication(family, 92).map((item) => item.sku_id), [702])
+  assert.equal(orderFamilyDefaultSpec(family, 92)?.sku_id, 702)
+  assert.equal(orderSpecSelectionAfterPublicationChange(family, 702, 92)?.sku_id, 702)
+  assert.equal(orderSpecSelectionAfterPublicationChange(family, 702, 91), null)
+})
+
+test('selecting an order price-list spec freezes concrete SKU identity while keeping the parent product name', () => {
+  const family = normalizeOrderProductFamilies([{
+    parent_product_id: 70,
+    parent_product_name: '乌拉嘎',
+    name: '客户别名乌拉嘎',
+    customer_product_alias_id: 19,
+    customer_product_display_name: '客户别名乌拉嘎',
+    product_kind: 'roasted_bean',
+    specs: [{
+      sku_id: 702,
+      sku_name: 'SKU-ULG-227',
+      product_code: 'SKU-ULG-227',
+      spec_label: '227g',
+      net_content_qty: 227,
+      net_content_unit: 'g',
+      order_unit: '件',
+      tiers: [{
+        id: 2,
+        publication_id: 92,
+        version_no: 'V3.0.6',
+        unit_price: 68,
+        display_unit: '227g',
+        quantity_basis: 'sales_spec_count',
+      }],
+    }],
+  }], [])[0]
+  const spec = orderFamilyDefaultSpec(family, 92)
+  const patch = orderFamilySpecRowPatch(family, spec, 92)
+  const product = orderFamilySpecProduct(family, spec, 92)
+
+  assert.equal(patch.parent_product_id, 70)
+  assert.equal(patch.product_id, 702)
+  assert.equal(patch.product_name, '客户别名乌拉嘎')
+  assert.equal(patch.product_record_name, '乌拉嘎')
+  assert.equal(patch.product_query, '客户别名乌拉嘎')
+  assert.equal(patch.spec_mode, '702')
+  assert.equal(patch.spec_label, '227g')
+  assert.equal(patch.spec_g, 227)
+  assert.equal(patch.unit, '件')
+  assert.equal(patch.bean_list_publication_id, 92)
+  assert.equal(patch.bean_list_version_no, 'V3.0.6')
+  assert.equal(product.id, 702)
+  assert.equal(product.name, '客户别名乌拉嘎')
+  assert.deepEqual(product.tiers.map((tier) => tier.id), [2])
+})
+
+test('the selected publication effective sales spec overrides stale top-level SKU metadata', () => {
+  const family = normalizeOrderProductFamilies([{
+    parent_product_id: 70,
+    parent_product_name: '乌拉嘎',
+    name: '乌拉嘎',
+    product_kind: 'roasted_bean',
+    default_sku_id: 702,
+    specs: [{
+      sku_id: 702,
+      sku_name: '227g袋装',
+      spec_label: '227g',
+      net_content_qty: 227,
+      net_content_unit: 'g',
+      sales_unit: '件',
+      tiers: [
+        {
+          id: 21,
+          publication_id: 91,
+          version_no: 'V1',
+          unit_price: 68,
+          effective_sales_spec: {
+            sku_id: 702,
+            spec_key: 'bag-227g',
+            spec_name: '227g袋装',
+            spec_label: '227g',
+            sales_unit: '袋',
+            net_content_qty: 227,
+            net_content_unit: 'g',
+            product_kind: 'roasted_bean',
+          },
+        },
+        {
+          id: 22,
+          publication_id: 92,
+          version_no: 'V2',
+          unit_price: 118,
+          effective_sales_spec: {
+            sku_id: 702,
+            spec_key: 'bag-454g',
+            spec_name: '454g袋装',
+            spec_label: '454g',
+            sales_unit: '袋',
+            net_content_qty: 454,
+            net_content_unit: 'g',
+            inventory_unit: 'g',
+            inventory_conversion_json: { '袋': { g: 454 } },
+            product_kind: 'instant_coffee',
+          },
+        },
+      ],
+    }],
+  }], [])[0]
+
+  const selected = orderFamilySpecsForPublication(family, 92)[0]
+  const patch = orderFamilySpecRowPatch(family, selected, 92)
+  const product = orderFamilySpecProduct(family, selected, 92)
+
+  assert.equal(selected.spec_label, '454g')
+  assert.equal(selected.sku_name, '454g袋装')
+  assert.equal(selected.sales_unit, '袋')
+  assert.equal(selected.net_content_qty, 454)
+  assert.equal(selected.net_content_unit, 'g')
+  assert.equal(selected.product_kind, 'instant_coffee')
+  assert.deepEqual(selected.inventory_conversion_json, { '袋': { g: 454 } })
+  assert.equal(patch.spec_label, '454g')
+  assert.equal(patch.spec_g, 454)
+  assert.equal(patch.unit, '袋')
+  assert.equal(patch.product_kind, 'instant_coffee')
+  assert.equal(patch.bean_list_version_no, 'V2')
+  assert.equal(product.effective_sales_spec.spec_key, 'bag-454g')
+})
+
+test('order payload submits the authoritative parent and concrete SKU separately', () => {
+  const payload = buildOrderPayload({
+    form: {},
+    rows: [{
+      parent_product_id: 70,
+      product_id: 702,
+      product_name: '乌拉嘎',
+      product_record_name: '乌拉嘎',
+      product_kind: 'roasted_bean',
+      spec_source: 'price_list_sku',
+      spec_mode: '702',
+      spec_label: '227g',
+      spec_g: 227,
+      qty: 3,
+      unit: '件',
+      unit_price: 68,
+      tier_id: 2,
+    }],
+  })
+
+  assert.deepEqual(payload.product_id, ['702'])
+  assert.deepEqual(payload.parent_product_id, ['70'])
+  assert.deepEqual(payload.product_name_snapshot, ['乌拉嘎'])
+  assert.deepEqual(payload.item_name, ['乌拉嘎'])
+  assert.deepEqual(payload.spec, ['227'])
+})
+
+test('OrderEntryView uses parent product families and concrete published SKU specs without global gram choices', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /const productFamilies = ref\(\[\]\)/)
+  assert.match(source, /normalizeOrderProductFamilies\(data\.product_families \|\| \[\], products\.value\)/)
+  assert.match(source, /orderProductFamilyOptions\(/)
+  assert.match(source, /const concreteParentIDs = new Set\(productFamilies\.value/)
+  assert.match(source, /:key="productOptionKey\(product\)"/)
+  assert.match(source, /__order_legacy_price_product\) return `legacy:\$\{Number\(product\.id \|\| 0\)\}`/)
+  assert.match(source, /orderFamilySpecOptions\(/)
+  assert.match(source, /function onSpecChange\(row\)/)
+  assert.match(source, /function invalidatePriceListSpecRow\(row/)
+  assert.match(source, /所选价格表不包含该商品当前规格，请重新选择规格/)
+  assert.match(source, /row\.spec_source === 'legacy_price_list' && options\.priceListChanged/)
+  assert.match(source, /syncBeanListVersionForCustomer\(\{ force: !!copyID \}\)/)
+  assert.match(source, /if \(copyID\) syncRowsForType\(\{ priceListChanged: true \}\)/)
+  assert.match(source, /orderProductPublicationMode\(legacyProduct \|\| row, selectedPublicationID\)/)
+  assert.match(source, /const publicationMode = orderProductPublicationMode\([\s\S]*?family \|\| product \|\| flatProduct \|\| hydrated,[\s\S]*?item\.bean_list_publication_id/)
+  assert.match(source, /hydrated\.spec_source = publicationMode === 'legacy' \? 'legacy_price_list' : 'price_list_sku'/)
+  assert.match(source, /const keepFrozenPublication = shouldKeepFrozenOrderPublication\([\s\S]*?copyMode\.value/)
+  assert.match(source, /hydrated\.historical_spec_readonly = !pricedSpec \|\| keepFrozenPublication/)
+  assert.match(source, /已切换到具体规格价格表，请重新选择价格表中的规格/)
+  assert.match(source, /isConcretePriceListRow\(row\)[\s\S]*?onSpecChange\(row\)/)
+  assert.match(source, /historical_spec_readonly/)
+  assert.match(source, /历史规格，当前价格表不可用/)
+
+  const concreteSpecBlock = source.slice(source.indexOf('<div class="spec-control">'), source.indexOf('</div>', source.indexOf('<div class="spec-control">')))
+  assert.match(concreteSpecBlock, /isConcretePriceListRow\(row\)/)
+  assert.doesNotMatch(concreteSpecBlock, /COMMON_SPEC_GRAMS/)
+  assert.match(source, /v-if="!isConcretePriceListRow\(row\) && row\.spec_mode === CUSTOM_SPEC_VALUE"/)
+})
+
+test('OrderEntryView manual explains parent products and published price-list specs instead of common grams', () => {
+  const source = orderEntryViewSource()
+  const manual = source.slice(source.indexOf('<details class="manual">'), source.indexOf('</details>', source.indexOf('<details class="manual">')))
+
+  assert.match(manual, /商品按父商品展示/)
+  assert.match(manual, /只能选择当前价格表已发布的具体规格/)
+  assert.match(manual, /切换价格表版本/)
+  assert.doesNotMatch(manual, /常用规格：36g/)
+})
+
+test('挂耳新录单统一选择 commercial 商品价格表', () => {
+  assert.equal(productBeanListType({ product_kind: 'drip_bag' }), 'commercial')
+  assert.equal(productBeanListType({ product_kind: 'roasted' }), 'commercial')
+  assert.equal(productBeanListType({ product_kind: 'green_bean' }), 'green')
+})
+
+test('挂耳 commercial 阶梯使用 API 的 min_qty/max_qty 且盒价不重复乘袋数', () => {
+  const product = {
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 1, product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10, min_qty: 10, max_qty: 99, unit_price: 32.8 },
+      { id: 2, product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10, min_qty: 100, unit_price: 30.8 },
+    ],
+  }
+  assert.deepEqual(syncDripTierPrice(product, { sales_unit: 'box', unit_bag_count: 10, qty: 20 }), { tierID: '1', unitPrice: '32.8' })
+  assert.equal(dripTierPriceRows(product, { sales_unit: 'box', unit_bag_count: 10 })[0].rangeLabel, '10-99盒')
+})
+
+test('新价格表按 concrete SKU 销售规格件数命中阶梯，旧发布继续按重量回退', () => {
+	const countProduct = {
+	  tiers: [{
+	    id: 501,
+	    spec_g: 1000,
+	    min: 2,
+	    max: 4,
+	    unit_price: 68,
+	    display_unit: '磅',
+	    quantity_basis: 'sales_spec_count',
+	    tier_quantity_unit: '磅',
+	    price_source_json: '{"source":"published_bean_list","quantity_basis":"sales_spec_count"}',
+	  }],
+	}
+	const countRow = { spec_mode: '227', qty: 2, tier_id: 'auto', unit_price: '' }
+	const countResult = resolveWholesaleTierPrice(countProduct, countRow)
+	assert.equal(countResult.tierID, '501')
+	assert.equal(countResult.unitPrice, '68')
+	assert.equal(lineTotal(countProduct, {
+	  ...countRow,
+	  tier_id: countResult.tierID,
+	  unit_price: countResult.unitPrice,
+	  price_unit: countResult.priceUnit.label,
+	  price_unit_suffix: countResult.priceUnit.suffix,
+	  price_unit_g: countResult.priceUnit.unitG,
+	}, false), 136)
+
+	const legacyProduct = {
+	  tiers: [{ id: 502, spec_g: 1000, min_qty: 1, unit_price: 82, display_unit: 'kg' }],
+	}
+	const legacyResult = resolveWholesaleTierPrice(legacyProduct, { spec_mode: '454', qty: 3, tier_id: 'auto', unit_price: '' })
+	assert.equal(legacyResult.tierID, '502')
+	assert.equal(legacyResult.unitPrice, '82')
+	assert.equal(Number(lineTotal(legacyProduct, {
+	  spec_mode: '454',
+	  qty: 3,
+	  tier_id: legacyResult.tierID,
+	  unit_price: legacyResult.unitPrice,
+	  price_unit: legacyResult.priceUnit.label,
+	  price_unit_suffix: legacyResult.priceUnit.suffix,
+	  price_unit_g: legacyResult.priceUnit.unitG,
+	}, false).toFixed(3)), 111.684)
+})
+
+test('零售订单优先使用 concrete SKU 发布价并按件计价和折扣', () => {
+	const countProduct = {
+		retail_price_227g: 50,
+		tiers: [{
+			id: 503,
+			spec_g: 227,
+			min: 1,
+			max: null,
+			unit_price: 68,
+			display_unit: '227g',
+			quantity_basis: 'sales_spec_count',
+			price_source_json: '{"source":"published_bean_list","list_type":"retail","quantity_basis":"sales_spec_count"}',
+		}],
+	}
+	const resolved = resolveWholesaleTierPrice(countProduct, { spec_mode: '227', qty: 2, tier_id: 'auto' })
+	assert.equal(resolved.tierID, '503')
+	assert.equal(resolved.quantityBasis, 'sales_spec_count')
+	assert.equal(lineTotal(countProduct, {
+		spec_mode: '227',
+		qty: 2,
+		tier_id: resolved.tierID,
+		unit_price: resolved.unitPrice,
+		quantity_basis: resolved.quantityBasis,
+		discount_type: 'unit_amount',
+		discount_value: 10,
+	}, true), 116)
+})
+
+test('零售订单有新发布件数阶梯但数量无档位时不回退到主数据价', () => {
+	const resolved = resolveWholesaleTierPrice({
+		tiers: [{
+			id: 504,
+			spec_g: 227,
+			min: 10,
+			max: 20,
+			unit_price: 68,
+			quantity_basis: 'sales_spec_count',
+		}],
+	}, { spec_mode: '227', qty: 2, tier_id: 'auto' })
+	assert.equal(resolved.tierID, 'auto')
+	assert.equal(resolved.quantityBasis, 'sales_spec_count')
+	assert.equal(resolved.priceMissing, true)
+})
+
+test('选中零售发布版本时不回退到另一商用发布版本', () => {
+	const resolved = resolveWholesaleTierPrice({
+		tiers: [{
+			id: 505,
+			min: 1,
+			max: null,
+			unit_price: 68,
+			quantity_basis: 'sales_spec_count',
+			price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":11,"quantity_basis":"sales_spec_count"}',
+		}],
+	}, { spec_mode: '227', qty: 2, tier_id: 'auto', bean_list_publication_id: 22 })
+	assert.equal(resolved.tierID, 'auto')
+	assert.equal(resolved.unitPrice, '')
+	assert.equal(resolved.priceMissing, true)
+})
+
+test('手动价保留发布价的销售规格件数口径', () => {
+	const priceSourceJSON = '{"source":"published_bean_list","publication_id":22,"quantity_basis":"sales_spec_count"}'
+	const payload = buildOrderPayload({
+		form: {},
+		rows: [{
+			product_id: 558,
+			product_name: '初晓',
+			product_kind: 'roasted_bean',
+			spec_mode: '227',
+			qty: 2,
+			tier_id: 'manual',
+			unit_price: '68',
+			price_source_json: priceSourceJSON,
+		}],
+	})
+	assert.deepEqual(payload.price_source_json, [priceSourceJSON])
+})
+
+test('挂耳派生盒 SKU 从录单单位或唯一阶梯推导盒装默认值', () => {
+  const boxProduct = {
+    product_kind: 'drip_bag',
+    order_unit: '盒（10袋）',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [{ product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10 }],
+  }
+  assert.equal(defaultDripSalesUnit(boxProduct), 'box')
+  const boxSpec = defaultDripSalesUnitSpec(boxProduct)
+  assert.deepEqual(boxSpec, {
+    salesUnit: 'box', unitBeanG: 10, unitBagCount: 10, unitLabel: '盒', specG: 100, specLabel: '10袋/盒',
+  })
+  const payload = buildOrderPayload({
+    form: {},
+    rows: [{
+      product_id: 701, product_name: '金色山脉 挂耳 盒（10袋）', product_kind: 'drip_bag', qty: 2,
+      sales_unit: boxSpec.salesUnit, unit_bag_count: boxSpec.unitBagCount, unit_bean_g: boxSpec.unitBeanG,
+    }],
+  })
+  assert.deepEqual(payload.sales_unit, ['box'])
+  assert.deepEqual(payload.unit_bag_count, ['10'])
+  assert.deepEqual(payload.spec, ['100'])
+  assert.deepEqual(payload.unit, ['盒'])
+  assert.equal(defaultDripSalesUnit({ product_kind: 'drip_bag', tiers: [{ product_kind: 'drip_bag', sales_unit: 'box' }] }), 'box')
+  assert.match(orderEntryViewSource(), /const defaultSpec = defaultDripSalesUnitSpec\(product\)/)
+  assert.match(orderEntryViewSource(), /row\.unit_bag_count = defaultSpec\.unitBagCount/)
+  assert.match(orderEntryViewSource(), /row\.unit = defaultSpec\.unitLabel/)
+})
 
 function orderEntryViewSource() {
   return readFileSync(new URL('../views/OrderEntryView.vue', import.meta.url), 'utf8')
@@ -530,7 +1132,7 @@ test('syncWholesaleTierPrice preserves kg display-unit prices for kg rows', () =
 })
 
 test('syncWholesaleTierPrice converts kg display-unit prices for lb rows', () => {
-  const row = { spec_mode: '80', qty: 10, tier_id: 'auto', unit_price: '' }
+  const row = { spec_mode: '80', qty: 13, tier_id: 'auto', unit_price: '' }
   const got = syncWholesaleTierPrice({
     tiers: [
       { id: 50, spec_g: 1000, min: 1, max: 59, unit_price: 23.49, display_unit: 'kg' },
@@ -540,8 +1142,8 @@ test('syncWholesaleTierPrice converts kg display-unit prices for lb rows', () =>
   assert.deepEqual(got, { tierID: '50', unitPrice: '23.49' })
 })
 
-test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-min warning for small package orders', () => {
-  const row = { spec_mode: '80', qty: 1, tier_id: 'auto', unit_price: '' }
+test('resolveWholesaleTierPrice keeps kg tier unit and source version for small packages inside the published range', () => {
+  const row = { spec_mode: '80', qty: 313, tier_id: 'auto', unit_price: '' }
   const got = resolveWholesaleTierPrice({
     tiers: [
       {
@@ -562,7 +1164,8 @@ test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-mi
   assert.equal(got.tierPriceLabel, '82/kg')
   assert.equal(got.beanListPublicationID, 9909)
   assert.equal(got.beanListVersionNo, 'V3.0.9')
-  assert.equal(got.belowMinTier, true)
+  assert.equal(got.belowMinTier, false)
+  assert.equal(got.priceMissing, false)
 
   const pricedRow = {
     ...row,
@@ -573,15 +1176,62 @@ test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-mi
     price_unit_g: got.priceUnit.unitG,
   }
   assert.deepEqual(orderRowPriceUnit(pricedRow), { label: '元/kg', suffix: '/kg', unitG: 1000 })
-  assert.equal(Number(lineTotal({ tiers: [] }, pricedRow, false).toFixed(2)), 6.56)
+  assert.equal(Number(lineTotal({ tiers: [] }, pricedRow, false).toFixed(2)), 2053.28)
 })
 
-test('OrderEntryView shows tier unit price, price-list source without unrecorded fallback, and below-min warning', () => {
+test('resolveWholesaleTierPrice leaves price blank below minimum, above finite maximum, and in tier gaps', () => {
+  const product = {
+    tiers: [
+      {
+        id: 64,
+        spec_g: 1000,
+        min: 25,
+        max: 49,
+        unit_price: 82,
+        display_unit: 'kg',
+        price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":9909,"version_no":"V3.0.9","price_unit":"kg"}',
+      },
+      {
+        id: 65,
+        spec_g: 1000,
+        min: 51,
+        max: 60,
+        unit_price: 78,
+        display_unit: 'kg',
+        price_source_json: '{"source":"published_bean_list","list_type":"commercial","publication_id":9909,"version_no":"V3.0.9","price_unit":"kg"}',
+      },
+    ],
+  }
+
+  for (const qty of [1, 50, 61]) {
+    const got = resolveWholesaleTierPrice(product, { spec_mode: '1000', qty, tier_id: 'auto', unit_price: '' })
+    assert.equal(got.tierID, 'auto')
+    assert.equal(got.unitPrice, '')
+    assert.equal(got.priceMissing, true)
+    assert.equal(got.belowMinTier, false)
+  }
+})
+
+test('OrderEntryView shows explicit missing published price and blocks save without a manual override', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /tier_price_label/)
-  assert.match(source, /低于最低梯度/)
-  assert.match(source, /\.tier-warning/)
+  assert.match(source, /当前数量无已发布价格，不能保存/)
+  assert.match(source, /row\.price_missing/)
+  assert.match(source, /hasUnpricedPublishedRow/)
+  assert.match(source, /rowHasBlockingPrice/)
+  assert.match(source, /手动价必须大于0，不能保存/)
+  assert.match(source, /missingPublishedPriceRowIndex/)
+  assert.match(source, /repriceHydratedRows/)
+  assert.match(source, /const draftRestored = restoreOrderEntryDraft\(\)/)
+  assert.match(source, /if \(draftRestored\) \{\s*syncBeanListVersionForCustomer\(\{ force: true \}\)\s*syncRowsForType\(\{ priceListChanged: true \}\)\s*\} else \{\s*repriceHydratedRows\(\)\s*\}/)
+  assert.match(source, /function selectTier[\s\S]*?isDripRow[\s\S]*?syncPrice\(row, \{ force: true \}\)/)
+  assert.match(source, /const publishedPrice = resolveWholesaleTierPrice\(product, row\)/)
+  assert.match(source, /publishedPrice\.quantityBasis === 'sales_spec_count'[\s\S]*?applyResolvedWholesalePrice\(row, publishedPrice\)/)
+  assert.match(source, /price_source_json: item\.price_source_json \|\| ''/)
+  assert.match(source, /manual_price: item\.price_override === true \|\| item\.tier_id === 'manual'/)
+  assert.match(source, /if \(retailOrder\.value\) return listType === 'retail' \|\| listType === 'drip'/)
+  assert.match(source, /currentOrderBeanListTypeForProductKind/)
   assert.match(source, /报价来源：价格表/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
 })
@@ -600,18 +1250,20 @@ test('OrdersView detail shows read-only quote source and production source trace
   }
 })
 
-test('SalesOrderView shows read-only quote source and production source trace blocks', () => {
+test('SalesOrderView omits the sales order trace panel and its detail request', () => {
   const source = salesOrderViewSource()
-  for (const expected of [
-    '报价来源',
-    '生产来源',
+  for (const forbidden of [
+    '销售单追溯',
+    '刷新追溯',
+    'sales-trace-panel',
     'quote_source_trace',
     'production_source_trace',
     'salesOrderTraceLineLabel',
     'salesOrderTraceLines',
     'loadSalesOrderTrace',
+    `/api/orders/\${orderID.value}/detail`,
   ]) {
-    assert.match(source, new RegExp(expected))
+    assert.doesNotMatch(source, new RegExp(forbidden))
   }
 })
 
@@ -626,6 +1278,44 @@ test('rowUsesStaleBeanListPublication flags product rows whose publication is no
   assert.equal(rowUsesStaleBeanListPublication({ product_id: 7, product_kind: 'roasted_bean', bean_list_publication_id: 33 }, options), false)
   assert.equal(rowUsesStaleBeanListPublication({ product_id: 8, product_kind: 'green_bean', bean_list_publication_id: 41 }, options), false)
   assert.equal(rowUsesStaleBeanListPublication({ product_id: 0, bean_list_publication_id: 31 }, options), false)
+})
+
+test('rowUsesStaleBeanListPublication compares versions inside the same classification group', () => {
+  const options = [
+    {
+      id: 91,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      version_no: 'V3.0.19',
+      published_at: '2026-07-22 10:00',
+    },
+    {
+      id: 92,
+      list_type: 'commercial',
+      classification_template_id: 2,
+      classification_template_name: '挂耳',
+      version_no: 'V3.0.20',
+      published_at: '2026-07-22 11:00',
+    },
+  ]
+
+  const row = {
+    product_id: 7,
+    product_kind: 'roasted_bean',
+    bean_list_publication_id: 91,
+  }
+  assert.equal(rowUsesStaleBeanListPublication(row, options), false)
+
+  options.push({
+    id: 94,
+    list_type: 'commercial',
+    classification_template_id: 221,
+    classification_template_name: '熟豆',
+    version_no: 'V3.0.21',
+    published_at: '2026-07-22 12:00',
+  })
+  assert.equal(rowUsesStaleBeanListPublication(row, options), true)
 })
 
 test('latestBeanListVersionOption uses the newest published version instead of default flag alone', () => {
@@ -659,8 +1349,223 @@ test('beanListVersionOptionGroups groups price lists by custom product category 
   ])
 
   assert.deepEqual(groups.map((group) => [group.key, group.label, group.listType, group.options.map((item) => item.id)]), [
-    ['category:9', '冷萃类', 'commercial', [1, 2]],
+    ['classification:9:commercial', '冷萃类', 'commercial', [1, 2]],
     ['legacy:green', '生豆豆单', 'green', [3]],
+  ])
+})
+
+test('价格表分组使用分类模板 ID，不因价格表名称变化拆组', () => {
+  const groups = beanListVersionOptionGroups([
+    {
+      id: 91,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      product_type_name: '咖啡豆',
+      version_no: 'V3.0.19',
+    },
+    {
+      id: 94,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      product_type_name: '咖啡熟豆新名称',
+      version_no: 'V3.0.21',
+    },
+  ])
+
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].key, 'classification:221:commercial')
+  assert.deepEqual(groups[0].options.map((item) => item.id), [91, 94])
+})
+
+test('录单仅自动启用权威分类价格表，旧分类名价格表保持显式可选', () => {
+  const groups = beanListVersionOptionGroups([
+    {
+      id: 90,
+      list_type: 'commercial',
+      product_type_category_id: 0,
+      product_type_name: 'KMM商品供应售价',
+      version_no: 'V3.0.18',
+      published_at: '2026-07-20 09:00',
+      is_default: true,
+    },
+    {
+      id: 91,
+      list_type: 'commercial',
+      product_type_category_id: 0,
+      product_type_name: '咖啡豆',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      version_no: 'V3.0.19',
+      published_at: '2026-07-22 14:43',
+      is_default: true,
+    },
+    {
+      id: 92,
+      list_type: 'commercial',
+      product_type_category_id: 0,
+      product_type_name: '挂耳咖啡',
+      classification_template_id: 2,
+      classification_template_name: '挂耳',
+      version_no: 'V3.0.20',
+      published_at: '2026-07-22 15:10',
+      is_default: true,
+    },
+  ])
+
+  assert.deepEqual(groups.map((group) => [group.key, group.label, group.autoSelect]), [
+    ['legacy:commercial', 'KMM商品供应售价', false],
+    ['classification:221:commercial', '熟豆', true],
+    ['classification:2:commercial', '挂耳', true],
+  ])
+  assert.equal(beanListVersionOptionForGroup(groups[0], 0), null)
+  assert.deepEqual(activeBeanListPublicationIDsByType(groups, {}), {
+    commercial: [91, 92],
+  })
+  assert.deepEqual(activeBeanListPublicationIDsByType(groups, {
+    [groups[0].key]: 90,
+  }), {
+    commercial: [90, 91, 92],
+  })
+
+  const products = [
+    { id: 884, tiers: [{ publication_id: 91, list_type: 'commercial' }] },
+    { id: 986, tiers: [{ publication_id: 91, list_type: 'commercial' }] },
+    { id: 551, tiers: [{ publication_id: 90, list_type: 'commercial' }] },
+  ]
+  const activeIDs = activeBeanListPublicationIDsByType(groups, {})
+  assert.deepEqual(filterProductsForCustomer(products, 0, activeIDs).map((item) => item.id), [884, 986])
+})
+
+test('V3.0.19 熟豆目录按父商品聚合后只保留四款，不混入 V3.0.18 多规格商品', () => {
+  const currentNames = ['白月光瑰夏', '风味孟连', '果皮茶', '黑巧炸弹']
+  const currentFamilies = currentNames.map((name, index) => ({
+    parent_product_id: 800 + index,
+    parent_product_name: name,
+    name,
+    product_kind: 'roasted_bean',
+    specs: [{
+      sku_id: 900 + index,
+      sku_name: `${name} SKU`,
+      spec_label: '227g',
+      tiers: [{
+        id: 1000 + index,
+        publication_id: 91,
+        list_type: 'commercial',
+        quantity_basis: 'sales_spec_count',
+        sku_id: 900 + index,
+        unit_price: 60 + index,
+      }],
+    }],
+  }))
+  const legacyProducts = [
+    { id: 701, parent_product_id: 70, parent_product_name: '旧拼配', name: '旧拼配 227g', product_kind: 'roasted_bean', tiers: [{ publication_id: 90, list_type: 'commercial', unit_price: 55 }] },
+    { id: 702, parent_product_id: 70, parent_product_name: '旧拼配', name: '旧拼配 454g', product_kind: 'roasted_bean', tiers: [{ publication_id: 90, list_type: 'commercial', unit_price: 105 }] },
+  ]
+  const families = normalizeOrderProductFamilies(currentFamilies, legacyProducts)
+  const scoped = filterProductsForCustomer(families, 0, { commercial: [91] })
+
+  assert.deepEqual(scoped.map((item) => item.name), currentNames)
+  assert.equal(scoped.length, 4)
+  assert.equal(scoped.some((item) => item.parent_product_name === '旧拼配'), false)
+})
+
+test('纯历史价格表环境继续自动启用原有分组', () => {
+  const groups = beanListVersionOptionGroups([
+    { id: 80, list_type: 'commercial', product_type_name: '历史熟豆', version_no: 'V2.0.0' },
+    { id: 81, list_type: 'commercial', product_type_name: '历史挂耳', version_no: 'V2.0.1' },
+  ])
+
+  assert.deepEqual(groups.map((group) => group.autoSelect), [true])
+  assert.deepEqual(activeBeanListPublicationIDsByType(groups, {}), { commercial: [81] })
+})
+
+test('历史编辑精确恢复冻结发布，复制订单改按当前分类发布校验', () => {
+  const groups = beanListVersionOptionGroups([
+    { id: 90, list_type: 'commercial', version_no: 'V3.0.18', is_default: false },
+    {
+      id: 91,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      classification_template_name: '熟豆',
+      version_no: 'V3.0.19',
+      is_default: true,
+    },
+  ])
+  const legacyGroup = beanListVersionGroupForPublicationID(groups, 90)
+  const currentGroup = beanListVersionGroupForPublicationID(groups, 91)
+  const overlappingFamily = {
+    list_type: 'commercial',
+    tiers: [
+      { publication_id: 90, sku_id: 7001 },
+      { publication_id: 91, sku_id: 7001 },
+    ],
+  }
+
+  assert.equal(legacyGroup?.key, 'legacy:commercial')
+  assert.equal(currentGroup?.key, 'classification:221:commercial')
+  assert.equal(beanListVersionOptionForProductGroups(groups, {
+    [legacyGroup.key]: 90,
+    [currentGroup.key]: 91,
+  }, overlappingFamily, 90)?.id, 90)
+  assert.equal(beanListVersionOptionForProductGroups(groups, {
+    [legacyGroup.key]: 0,
+    [currentGroup.key]: 91,
+  }, overlappingFamily, 90)?.id, 91)
+})
+
+test('客户当前分类替换旧公共版本时，历史编辑保留冻结发布而复制订单使用当前版本', () => {
+  const groups = beanListVersionOptionGroups([{
+    id: 9951,
+    customer_id: 3,
+    list_type: 'commercial',
+    classification_template_id: 221,
+    classification_template_name: '熟豆',
+    version_no: 'CUSTOMER-CURRENT',
+    is_customer_owned: true,
+    is_default: true,
+  }])
+
+  assert.equal(shouldKeepFrozenOrderPublication(groups, 9952, false), true)
+  assert.equal(shouldKeepFrozenOrderPublication(groups, 9952, true), false)
+  assert.equal(shouldKeepFrozenOrderPublication(groups, 9951, false), false)
+
+  const family = {
+    parent_product_id: 700,
+    parent_product_name: '重叠规格商品',
+    name: '重叠规格商品',
+  }
+  const oldSpec = {
+    sku_id: 7001,
+    sku_name: 'SKU-7001',
+    spec_label: '227g',
+    tiers: [{ publication_id: 9952, unit_price: 68 }],
+  }
+  const hydrated = orderEntry.orderFamilyHydratedSpecRowPatch(
+    family,
+    oldSpec,
+    9952,
+    {
+      unit_price: '68',
+      price_source_json: '{"publication_id":9952}',
+      bean_list_publication_id: 9952,
+    },
+    true,
+  )
+  assert.equal(hydrated.bean_list_publication_id, 9952)
+  assert.equal(hydrated.unit_price, '68')
+  assert.equal(hydrated.historical_spec_readonly, true)
+})
+
+test('订单价格表分组不合并同分类的商用和零售发布', () => {
+  const groups = beanListVersionOptionGroups([
+    { id: 11, list_type: 'commercial', product_type_category_id: 9, product_type_name: '咖啡熟豆' },
+    { id: 22, list_type: 'retail', product_type_category_id: 9, product_type_name: '咖啡熟豆' },
+  ])
+  assert.deepEqual(groups.map((group) => [group.key, group.listType, group.options.map((item) => item.id)]), [
+    ['classification:9:commercial', 'commercial', [11]],
+    ['classification:9:retail', 'retail', [22]],
   ])
 })
 
@@ -783,6 +1688,7 @@ test('OrderEntryView shows selected bean lists as readable rows and refreshes ro
   assert.match(lineSection, /:disabled="!canOpenBeanListDrawer"/)
   assert.doesNotMatch(lineSection, /:disabled="!form\.customer_id"/)
   assert.match(source, /const canOpenBeanListDrawer = computed/)
+  assert.match(source, /不使用该历史价格表/)
 
   const summaryListStyles = cssBlock(source, '.bean-list-summary-list')
   const summaryStyles = cssBlock(source, '.bean-list-summary')
@@ -943,7 +1849,7 @@ test('order entry raises the active combobox above following fields', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /<label[^>]*class="customer-combobox combobox"[^>]*:class="\{\s*open:\s*customerOpen\s*\}"[^>]*>/)
-  assert.match(source, /<label class="product-combobox combobox product-cell"\s+:class="\{\s*open:\s*row\.product_open\s*\}">/)
+  assert.match(source, /<label\s+class="product-combobox combobox product-cell"\s+:class="\{\s*open:\s*row\.product_open\s*\}"\s+:data-product-combobox-key="row\.key"\s*>/)
   assert.match(source, /<span>客户负责人<\/span>/)
   assert.doesNotMatch(source, /responsible-combobox/)
   assert.doesNotMatch(source, /responsibleOpen/)
@@ -954,6 +1860,23 @@ test('order entry raises the active combobox above following fields', () => {
   const productZIndex = zIndexForSelector(source, '.product-cell')
   assert.ok(openZIndex > baseZIndex, `expected active combobox z-index ${openZIndex} to exceed base z-index ${baseZIndex}`)
   assert.ok(openZIndex > productZIndex, `expected active combobox z-index ${openZIndex} to exceed product cell z-index ${productZIndex}`)
+})
+
+test('order entry product dropdown exposes category filters and closes on outside pointerdown', () => {
+  const source = orderEntryViewSource()
+
+  assert.match(source, /:data-product-combobox-key="row\.key"/)
+  assert.match(source, /class="product-kind-filter"[^>]*aria-label="商品分类"/)
+  assert.match(source, /v-if="productKindFilterOptions\(row\)\.length > 1"/)
+  assert.match(source, /v-for="option in productKindFilterOptions\(row\)"/)
+  assert.match(source, /@mousedown\.prevent/)
+  assert.match(source, /@click\.stop="row\.product_kind_filter = option\.value"/)
+  assert.match(source, /@focus="openProductDropdown\(row\)"/)
+  assert.match(source, /@keydown\.down\.prevent="openProductDropdown\(row\)"/)
+  assert.match(source, /function openProductDropdown\(row\)[\s\S]*?closeOrderProductDropdowns\(rows\.value, row\?\.key\)[\s\S]*?row\.product_open = true/)
+  assert.match(source, /document\.addEventListener\('pointerdown', handleOrderProductPointerDown\)/)
+  assert.match(source, /document\.removeEventListener\('pointerdown', handleOrderProductPointerDown\)/)
+  assert.match(source, /onBeforeUnmount\(saveOrderEntryDraft\)/)
 })
 
 test('order entry shows save errors in a fixed global alert', () => {
@@ -1360,6 +2283,81 @@ test('filterProductsForCustomer hides public products when customer disables pub
   )
 })
 
+test('customer-owned publication scope stays separate from public fallback when public SKU usage is disabled', () => {
+  const groups = beanListVersionOptionGroups([
+    {
+      id: 9951,
+      customer_id: 74,
+      list_type: 'commercial',
+      classification_template_id: 221,
+      is_customer_owned: true,
+      is_default: true,
+    },
+    {
+      id: 9953,
+      customer_id: 74,
+      list_type: 'commercial',
+      classification_template_id: 222,
+      is_customer_owned: false,
+      is_default: true,
+    },
+  ])
+  const available = activeBeanListPublicationIDsByType(groups, {})
+  const owned = orderEntry.activeCustomerOwnedBeanListPublicationIDsByType(groups, {}, 74)
+  const rows = [
+    { id: 1, name: '客户发布中的公共档案', visibility: 'public', tiers: [{ publication_id: 9951, list_type: 'commercial' }] },
+    { id: 2, name: '公共回退商品', visibility: 'public', tiers: [{ publication_id: 9953, list_type: 'commercial' }] },
+    { id: 3, name: '客户专属商品', customer_id: 74, visibility: 'customer_only', tiers: [{ publication_id: 9951, list_type: 'commercial' }] },
+  ]
+
+  assert.deepEqual(available, { commercial: [9951, 9953] })
+  assert.deepEqual(owned, { commercial: [9951] })
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 74, available, [{ customer_id: 74, use_public_sku: false }], owned).map((item) => item.name),
+    ['客户发布中的公共档案', '客户专属商品'],
+  )
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 74, available, [{ customer_id: 74, use_public_sku: true }], owned).map((item) => item.name),
+    ['客户发布中的公共档案', '公共回退商品', '客户专属商品'],
+  )
+})
+
+test('publication filtering uses frozen tier list type and exact active publication IDs', () => {
+  const rows = [
+    { id: 1, name: '旧零售', product_kind: 'roasted', tiers: [{ publication_id: 99, list_type: 'retail' }] },
+    { id: 2, name: '新零售', product_kind: 'roasted', tiers: [{ publication_id: 101, list_type: 'retail' }] },
+    { id: 3, name: '旧挂耳', product_kind: 'drip_bag', tiers: [{ publication_id: 90, list_type: 'drip' }] },
+    { id: 4, name: '新挂耳', product_kind: 'drip_bag', tiers: [{ publication_id: 92, list_type: 'drip' }] },
+    { id: 5, name: '分类挂耳', product_kind: 'drip_bag', tiers: [{ publication_id: 93, list_type: 'commercial' }] },
+    { id: 6, name: '当前生豆', product_kind: 'green_bean', tiers: [{ publication_id: 94, list_type: 'green' }] },
+  ]
+
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { retail: [101] }).map((item) => item.name), ['新零售'])
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { drip: [92] }).map((item) => item.name), ['新挂耳'])
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { commercial: [93] }).map((item) => item.name), ['分类挂耳'])
+  assert.deepEqual(filterProductsForCustomer(rows, 0, { green: [94] }).map((item) => item.name), ['当前生豆'])
+  assert.deepEqual(
+    filterProductsForCustomer(rows, 0, { commercial: [93], drip: [92] }).map((item) => item.name),
+    ['新挂耳', '分类挂耳'],
+  )
+})
+
+test('latest classified publication comparison stays inside the requested list type', () => {
+  const options = [
+    { id: 11, list_type: 'commercial', classification_template_id: 9, version_no: 'V3.0.9', published_at: '2026-07-21 09:00' },
+    { id: 22, list_type: 'retail', classification_template_id: 9, version_no: 'V9.0.0', published_at: '2026-07-22 09:00' },
+  ]
+  const row = {
+    product_id: 7,
+    product_kind: 'roasted_bean',
+    product_type_category_id: 9,
+    bean_list_publication_id: 11,
+  }
+
+  assert.equal(latestProductPriceListVersionOption(options, row, 'commercial')?.id, 11)
+  assert.equal(rowUsesStaleBeanListPublication(row, options, 'commercial'), false)
+})
+
 test('sortProductsByCustomerUsage moves customer common products first without losing original fallback order', () => {
   const rows = [
     { id: 1, name: 'A 公共豆' },
@@ -1383,11 +2381,25 @@ test('sortProductsByCustomerUsage moves customer common products first without l
   )
 })
 
+test('sortProductsByCustomerUsage aggregates concrete SKU history onto one parent family', () => {
+  const rows = [
+    { id: 10, name: 'A', specs: [{ sku_id: 101 }, { sku_id: 102 }] },
+    { id: 20, name: 'B', specs: [{ sku_id: 201 }] },
+  ]
+  const usage = [
+    { customer_id: 3, product_id: 102, order_count: 9, item_count: 12, last_order_date: '2026-07-20' },
+  ]
+
+  assert.deepEqual(sortProductsByCustomerUsage(rows, 3, usage).map((item) => item.id), [10, 20])
+})
+
 test('order entry product dropdown applies customer product usage after filtering customer scope', () => {
   const source = orderEntryViewSource()
   assert.match(source, /const customerProductUsages = ref\(\[\]\)/)
   assert.match(source, /customerProductUsages\.value = data\.customer_product_usages \|\| \[\]/)
-  assert.match(source, /sortProductsByCustomerUsage\(\s*filterOptions\(\s*filterProductsForCustomer\(/s)
+  assert.match(source, /const scopedFamilies = filterProductsForCustomer\(/)
+  assert.match(source, /return \[\.\.\.scopedFamilies, \.\.\.scopedLegacyProducts\]/)
+  assert.match(source, /sortProductsByCustomerUsage\(\s*orderProductFamilyOptions\(scopedOrderProductOptions\(\), row\.product_query, activeProductKindFilter\(row\)\)/s)
   assert.match(source, /form\.customer_id,\s*customerProductUsages\.value/s)
 })
 
@@ -1415,7 +2427,7 @@ test('syncDripTierPrice matches bag tiers by bag quantity', () => {
   assert.equal(lineTotal(dripProduct, { product_kind: 'drip_bag', sales_unit: 'bag', qty: 120, unit_price: '2.15' }, false), 258)
 })
 
-test('syncDripTierPrice converts box orders to bag tiers before pricing', () => {
+test('syncDripTierPrice uses an explicit box tier before bag conversion', () => {
   const dripProduct = {
     id: 22,
     name: '哥伦比亚挂耳',
@@ -1432,8 +2444,40 @@ test('syncDripTierPrice converts box orders to bag tiers before pricing', () => 
   const row = { product_kind: 'drip_bag', sales_unit: 'box', unit_bag_count: 10, unit_bean_g: 10, qty: 12 }
   const got = syncDripTierPrice(dripProduct, row)
 
+  assert.deepEqual(got, { tierID: '93', unitPrice: '30' })
+  assert.equal(lineTotal(dripProduct, { ...row, unit_price: got.unitPrice }, false), 360)
+})
+
+test('syncDripTierPrice converts boxes to bag tiers only when no box tiers are published', () => {
+  const dripProduct = {
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 91, product_kind: 'drip_bag', sales_unit: 'bag', min: 1, max: 99, unit_price: 2.4, unit_bag_count: 1 },
+      { id: 92, product_kind: 'drip_bag', sales_unit: 'bag', min: 100, max: null, unit_price: 2.15, unit_bag_count: 1 },
+    ],
+  }
+
+  const got = syncDripTierPrice(dripProduct, { sales_unit: 'box', unit_bag_count: 10, qty: 12 })
   assert.deepEqual(got, { tierID: '92', unitPrice: '21.5' })
-  assert.equal(lineTotal(dripProduct, { ...row, unit_price: got.unitPrice }, false), 258)
+})
+
+test('syncDripTierPrice leaves price blank outside legal bag and explicit box tiers', () => {
+  const dripProduct = {
+    product_kind: 'drip_bag',
+    drip_bag_grams: 10,
+    drip_box_bag_count: 10,
+    tiers: [
+      { id: 91, product_kind: 'drip_bag', sales_unit: 'bag', min: 1, max: 99, unit_price: 2.4, unit_bag_count: 1 },
+      { id: 92, product_kind: 'drip_bag', sales_unit: 'bag', min: 100, max: 199, unit_price: 2.15, unit_bag_count: 1 },
+      { id: 94, product_kind: 'drip_bag', sales_unit: 'bag', min: 300, max: null, unit_price: 2, unit_bag_count: 1 },
+      { id: 93, product_kind: 'drip_bag', sales_unit: 'box', min: 20, max: 29, unit_price: 30, unit_bag_count: 10 },
+    ],
+  }
+
+  assert.deepEqual(syncDripTierPrice(dripProduct, { sales_unit: 'bag', qty: 250 }), { tierID: 'auto', unitPrice: '' })
+  assert.deepEqual(syncDripTierPrice(dripProduct, { sales_unit: 'box', unit_bag_count: 10, qty: 10 }), { tierID: 'auto', unitPrice: '' })
 })
 
 test('dripTierPriceRows exposes unit labels for bag and box quotation', () => {

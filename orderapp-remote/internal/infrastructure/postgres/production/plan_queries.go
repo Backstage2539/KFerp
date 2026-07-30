@@ -2,14 +2,18 @@ package production
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	bomdomain "orderapp/internal/domain/bom"
 	catalogdomain "orderapp/internal/domain/catalog"
+	productiondomain "orderapp/internal/domain/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	productionapp "orderapp/internal/application/production"
 )
@@ -81,6 +85,11 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 			continue
 		}
 		selectedCount++
+		if strings.TrimSpace(row.BlockingReason) != "" {
+			data.PlanReady = false
+			data.Error = row.BlockingReason
+			return data, nil
+		}
 		if row.GapG <= 0 || row.DemandStatus != "unplanned" {
 			continue
 		}
@@ -95,32 +104,80 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	if err != nil {
 		return data, err
 	}
+	bomSummaries, err := r.loadResolvedPlanBomSummaries(ctx, planRows)
+	if err != nil {
+		return data, err
+	}
+	theoreticalInputByKey := map[string]int64{}
+	bomVersionByDemandKey := map[string]int64{}
+	bomLossByDemandKey := map[string]float64{}
+	skipMaterialPlanDemandKeys := map[string]bool{}
+	includedMaterialPlanDemandKeys := map[string]bool{}
+	for i, row := range planRows {
+		demandKey := producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)
+		includedMaterialPlanDemandKeys[demandKey] = true
+		if i >= len(bomSummaries) || bomSummaries[i].BomVersionID <= 0 {
+			continue
+		}
+		theoreticalInputByKey[demandKey] = bomSummaries[i].InputG
+		bomVersionByDemandKey[demandKey] = bomSummaries[i].BomVersionID
+		bomLossByDemandKey[demandKey] = bomSummaries[i].MaterialLossRate
+	}
 	params := defaultPlanParams()
 	if mappings, err := postgresinfra.ListBagSpecMappings(ctx, r.pool, r.schema); err == nil {
 		params.BagNameBySpecG = bomdomain.MappingNameBySpec(mappings)
 	}
-	bomMap, _ := r.loadPlanBomItemsFromRows(ctx, planRows)
+	bomMap, err := r.loadPlanBomItemsFromRows(ctx, planRows, bomSummaries)
+	if err != nil {
+		return data, err
+	}
+	for i, row := range planRows {
+		demandKey := producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)
+		if i >= len(bomSummaries) ||
+			(bomSummaries[i].BomVersionID <= 0 &&
+				(!bomSummaries[i].LegacyCompatible || len(bomMap[demandKey]) == 0)) {
+			skipMaterialPlanDemandKeys[demandKey] = true
+		}
+	}
 	machines, _ := r.ListMachines(ctx, true)
 	if err := r.attachDripUpstreamShortages(ctx, planRows, bomMap); err != nil {
 		return data, err
 	}
-	data.RoastPlans = buildRoastPlanRows(planRows, machines, yieldMap)
-	data.MaterialRatios = buildRoastPlanMaterialRatios(planRows, bomMap)
-	finalInputByKey := map[string]int64{}
-	for _, row := range data.RoastPlans {
-		finalInputByKey[row.Key] = row.FinalInputG
+	materialPreviewRows := make([]productionapp.UnprodNeedRow, 0, len(planRows))
+	for i, row := range planRows {
+		if i < len(bomSummaries) &&
+			bomSummaries[i].BomVersionID <= 0 &&
+			strings.TrimSpace(bomSummaries[i].Error) != "" &&
+			!bomSummaries[i].LegacyCompatible {
+			continue
+		}
+		materialPreviewRows = append(materialPreviewRows, row)
 	}
-	data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap, finalInputByKey)
-	data.Materials = calcProducePlanMaterialsFromFinalInputs(planRows, finalInputByKey, bomMap, params)
-	if materialPlan, err := r.MaterialPlan(ctx, productionapp.MaterialPlanQuery{
-		From:       query.From,
-		To:         query.To,
-		CustomerID: query.CustomerID,
-		Selected:   query.Selected,
-		InputByKey: finalInputByKey,
-	}); err == nil {
-		data.Materials = mergeMaterialAvailability(data.Materials, materialPlan.Rows)
+	data.RoastPlans = buildRoastPlanRows(planRows, machines, yieldMap, theoreticalInputByKey)
+	data.MaterialRatios = buildRoastPlanMaterialRatios(materialPreviewRows, bomMap)
+	data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap, theoreticalInputByKey)
+	for i := range data.PlanRows {
+		if i < len(bomSummaries) {
+			data.PlanRows[i].BomMaterialLossRate = bomSummaries[i].MaterialLossRate
+			data.PlanRows[i].BomSummaryError = bomSummaries[i].Error
+		}
 	}
+	data.Materials = calcProducePlanMaterialsFromFinalInputs(materialPreviewRows, theoreticalInputByKey, bomMap, params)
+	materialPlan, err := r.MaterialPlan(ctx, productionapp.MaterialPlanQuery{
+		From:                  query.From,
+		To:                    query.To,
+		CustomerID:            query.CustomerID,
+		Selected:              query.Selected,
+		IncludedDemandKeys:    includedMaterialPlanDemandKeys,
+		InputByDemandKey:      theoreticalInputByKey,
+		BomVersionByDemandKey: bomVersionByDemandKey,
+		BomLossByDemandKey:    bomLossByDemandKey,
+		SkipDemandKeys:        skipMaterialPlanDemandKeys,
+	})
+	if err != nil {
+		return data, err
+	}
+	data.Materials = mergeMaterialAvailability(data.Materials, materialPlan.Rows)
 	data.RoastSplits = calcRoastSplits(planRows, machines, params.YieldRate)
 	return data, nil
 }
@@ -130,8 +187,11 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 	for _, row := range rows {
 		out = append(out, productionapp.UnprodNeedRow{
 			ProductID:                row.ProductID,
+			ParentProductID:          row.ParentProductID,
 			Product:                  row.Product,
 			OrderNos:                 row.OrderNos,
+			SpecLabel:                row.SpecLabel,
+			SalesUnit:                row.SalesUnit,
 			SpecG:                    row.SpecG,
 			NeedUnits:                row.NeedUnits,
 			NeedG:                    row.NeedG,
@@ -139,6 +199,14 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 			InvLooseG:                row.InvLooseG,
 			InvG:                     row.InvG,
 			GapG:                     row.GapG,
+			SalesSpecCount:           row.SalesSpecCount,
+			InventoryQtyPerSalesUnit: row.InventoryQtyPerSalesUnit,
+			InventoryUnit:            row.InventoryUnit,
+			NeedInventoryQty:         row.NeedInventoryQty,
+			AvailableInventoryQty:    row.AvailableInventoryQty,
+			GapInventoryQty:          row.GapInventoryQty,
+			GapSalesSpecCount:        row.GapSalesSpecCount,
+			SalesSpecSnapshotJSON:    row.SalesSpecSnapshotJSON,
 			ProductionKind:           catalogdomain.NormalizeProductKind(row.ProductionKind),
 			ProductTypeCategoryID:    row.ProductTypeCategoryID,
 			ProductSubtypeCategoryID: row.ProductSubtypeCategoryID,
@@ -148,6 +216,7 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 			DemandStatus:             row.DemandStatus,
 			DemandStatusLabel:        row.DemandStatusLabel,
 			DemandSelectable:         row.DemandSelectable,
+			BlockingReason:           row.BlockingReason,
 			ProductionPlanID:         row.ProductionPlanID,
 			ProductionPlanNo:         row.ProductionPlanNo,
 			WorkOrderID:              row.WorkOrderID,
@@ -175,10 +244,14 @@ type productionDemandPart struct {
 }
 
 func (r Repository) splitUnproducedNeedsByProductionPlan(ctx context.Context, rows []UnprodNeedRow) ([]UnprodNeedRow, error) {
+	return r.splitUnproducedNeedsByProductionPlanQuery(ctx, r.pool, rows)
+}
+
+func (r Repository) splitUnproducedNeedsByProductionPlanQuery(ctx context.Context, queryer productionDemandQueryer, rows []UnprodNeedRow) ([]UnprodNeedRow, error) {
 	if len(rows) == 0 {
 		return rows, nil
 	}
-	parts, err := r.fetchProductionDemandParts(ctx, rows)
+	parts, err := r.fetchProductionDemandPartsQuery(ctx, queryer, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +259,7 @@ func (r Repository) splitUnproducedNeedsByProductionPlan(ctx context.Context, ro
 		for i := range rows {
 			rows[i].DemandStatus = "unplanned"
 			rows[i].DemandStatusLabel = productionDemandStatusLabel("unplanned")
-			rows[i].DemandSelectable = rows[i].GapG > 0
+			rows[i].DemandSelectable = rows[i].GapG > 0 && strings.TrimSpace(rows[i].BlockingReason) == ""
 		}
 		return rows, nil
 	}
@@ -201,7 +274,7 @@ func (r Repository) splitUnproducedNeedsByProductionPlan(ctx context.Context, ro
 		if len(rowParts) == 0 {
 			row.DemandStatus = "unplanned"
 			row.DemandStatusLabel = productionDemandStatusLabel("unplanned")
-			row.DemandSelectable = row.GapG > 0
+			row.DemandSelectable = row.GapG > 0 && strings.TrimSpace(row.BlockingReason) == ""
 			out = append(out, row)
 			continue
 		}
@@ -268,12 +341,26 @@ func splitProductionDemandRowByParts(row UnprodNeedRow, parts []productionDemand
 	for _, groupKey := range order {
 		group := groups[groupKey]
 		group.row.OrderNos = joinProductionDemandOrderNos(group.orderNos)
-		group.row.NeedG = group.row.NeedUnits * group.row.SpecG
+		if group.row.InventoryQtyPerSalesUnit > 0 {
+			group.row.SalesSpecCount = float64(group.row.NeedUnits)
+			group.row.NeedInventoryQty = productiondomain.SalesSpecCountToInventoryQuantity(group.row.SalesSpecCount, group.row.InventoryQtyPerSalesUnit)
+			group.row.NeedG = productiondomain.InventoryQuantityToLegacyGrams(group.row.NeedInventoryQty, group.row.InventoryUnit)
+		} else {
+			group.row.NeedG = group.row.NeedUnits * group.row.SpecG
+		}
 		if group.row.DemandStatus == "unplanned" {
 			group.row.GapG = calcProductionDemandGap(group.row.SpecG, group.row.NeedUnits, group.forceProduceUnits, row.AvailableG)
-			group.row.DemandSelectable = group.row.GapG > 0
+			if group.row.InventoryQtyPerSalesUnit > 0 && group.row.SpecG > 0 {
+				group.row.GapSalesSpecCount = float64(group.row.GapG) / float64(group.row.SpecG)
+				group.row.GapInventoryQty = productiondomain.SalesSpecCountToInventoryQuantity(group.row.GapSalesSpecCount, group.row.InventoryQtyPerSalesUnit)
+			}
+			group.row.DemandSelectable = group.row.GapG > 0 && strings.TrimSpace(group.row.BlockingReason) == ""
 		} else {
 			group.row.GapG = group.row.NeedG
+			if group.row.InventoryQtyPerSalesUnit > 0 {
+				group.row.GapSalesSpecCount = group.row.SalesSpecCount
+				group.row.GapInventoryQty = group.row.NeedInventoryQty
+			}
 			group.row.DemandSelectable = false
 		}
 		out = append(out, group.row)
@@ -325,63 +412,44 @@ func joinProductionDemandOrderNos(values map[string]bool) string {
 	return strings.Join(out, ",")
 }
 
-func (r Repository) fetchProductionDemandParts(ctx context.Context, rows []UnprodNeedRow) ([]productionDemandPart, error) {
-	productSeen := map[int64]bool{}
-	specSeen := map[int64]bool{}
-	orderSeen := map[string]bool{}
-	productIDs := make([]int64, 0)
-	specGs := make([]int64, 0)
-	orderNos := make([]string, 0)
-	for _, row := range rows {
-		if row.ProductID <= 0 || row.SpecG <= 0 {
-			continue
-		}
-		if !productSeen[row.ProductID] {
-			productSeen[row.ProductID] = true
-			productIDs = append(productIDs, row.ProductID)
-		}
-		if !specSeen[row.SpecG] {
-			specSeen[row.SpecG] = true
-			specGs = append(specGs, row.SpecG)
-		}
-		for orderNo := range splitProductionDemandOrderNos(row.OrderNos) {
-			if !orderSeen[orderNo] {
-				orderSeen[orderNo] = true
-				orderNos = append(orderNos, orderNo)
-			}
-		}
-	}
-	if len(productIDs) == 0 || len(specGs) == 0 || len(orderNos) == 0 {
+func (r Repository) fetchProductionDemandPartsQuery(ctx context.Context, queryer productionDemandQueryer, rows []UnprodNeedRow) ([]productionDemandPart, error) {
+	productIDs, specGs, orderNos := productionDemandPartRequestTuples(rows)
+	if len(productIDs) == 0 {
 		return nil, nil
 	}
 	q := fmt.Sprintf(`
-		WITH source_need AS (
+		WITH requested AS (
+			SELECT *
+			FROM unnest($1::bigint[],$2::bigint[],$3::text[]) AS requested(product_id,spec_g,order_no)
+		),
+		source_need AS (
 			SELECT
 				oi.product_id,
-				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
+				requested.spec_g,
 				COALESCE(o.order_no,'') AS order_no,
 				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
 				SUM(CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN COALESCE(oi.qty,0) ELSE 0 END)::bigint AS force_produce_units
 			FROM %s.order_items oi
 			JOIN %s.orders o ON o.id=oi.order_id
+			JOIN requested
+			  ON requested.product_id=oi.product_id
+			 AND requested.order_no=COALESCE(o.order_no,'')
 			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id=o.id
-			WHERE oi.product_id = ANY($1::bigint[])
-			  AND COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint = ANY($2::bigint[])
-			  AND COALESCE(o.order_no,'') = ANY($3::text[])
-			GROUP BY oi.product_id, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint, COALESCE(o.order_no,'')
+			GROUP BY oi.product_id, requested.spec_g, COALESCE(o.order_no,'')
 			UNION ALL
 			SELECT
 				d.product_id,
-				d.spec_g,
+				requested.spec_g,
 				COALESCE(d.request_no,'') AS order_no,
 				SUM(COALESCE(d.target_qty,0))::bigint AS need_units,
 				SUM(COALESCE(d.target_qty,0))::bigint AS force_produce_units
 			FROM %s.customer_processing_production_demands d
-			WHERE d.product_id = ANY($1::bigint[])
-			  AND d.spec_g = ANY($2::bigint[])
-			  AND COALESCE(d.request_no,'') = ANY($3::text[])
-			  AND d.status='planned'
-			GROUP BY d.product_id,d.spec_g,COALESCE(d.request_no,'')
+			JOIN requested
+			  ON requested.product_id=d.product_id
+			 AND requested.spec_g=d.spec_g
+			 AND requested.order_no=COALESCE(d.request_no,'')
+			WHERE d.status='planned'
+			GROUP BY d.product_id,requested.spec_g,COALESCE(d.request_no,'')
 		)
 		SELECT
 			sn.product_id,sn.spec_g,sn.order_no,sn.need_units,sn.force_produce_units,
@@ -413,7 +481,7 @@ func (r Repository) fetchProductionDemandParts(ctx context.Context, rows []Unpro
 		) pm ON true
 		ORDER BY sn.product_id,sn.spec_g,sn.order_no
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
-	sqlRows, err := r.pool.Query(ctx, q, productIDs, specGs, orderNos)
+	sqlRows, err := queryer.Query(ctx, q, productIDs, specGs, orderNos)
 	if err != nil {
 		return nil, err
 	}
@@ -441,6 +509,34 @@ func (r Repository) fetchProductionDemandParts(ctx context.Context, rows []Unpro
 		parts = append(parts, part)
 	}
 	return parts, sqlRows.Err()
+}
+
+func productionDemandPartRequestTuples(rows []UnprodNeedRow) ([]int64, []int64, []string) {
+	seen := map[string]bool{}
+	productIDs := make([]int64, 0)
+	specGs := make([]int64, 0)
+	orderNos := make([]string, 0)
+	for _, row := range rows {
+		if row.ProductID <= 0 || row.SpecG <= 0 {
+			continue
+		}
+		refs := make([]string, 0)
+		for orderNo := range splitProductionDemandOrderNos(row.OrderNos) {
+			refs = append(refs, orderNo)
+		}
+		sort.Strings(refs)
+		for _, orderNo := range refs {
+			key := fmt.Sprintf("%d\x1f%d\x1f%s", row.ProductID, row.SpecG, orderNo)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			productIDs = append(productIDs, row.ProductID)
+			specGs = append(specGs, row.SpecG)
+			orderNos = append(orderNos, orderNo)
+		}
+	}
+	return productIDs, specGs, orderNos
 }
 
 func filterProductionDemandRows(rows []productionapp.UnprodNeedRow, status string) []productionapp.UnprodNeedRow {
@@ -479,6 +575,10 @@ func productionDemandStatusLabel(status string) string {
 }
 
 func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []productionapp.UnprodNeedRow) error {
+	return r.attachProductionDemandStatusesQuery(ctx, r.pool, rows)
+}
+
+func (r Repository) attachProductionDemandStatusesQuery(ctx context.Context, queryer productionDemandQueryer, rows []productionapp.UnprodNeedRow) error {
 	missing := make([]productionapp.UnprodNeedRow, 0)
 	for _, row := range rows {
 		if strings.TrimSpace(row.DemandStatus) == "" {
@@ -488,7 +588,7 @@ func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []p
 	states := map[string]productionDemandPlanState{}
 	if len(missing) > 0 {
 		var err error
-		states, err = r.productionDemandStatusByKey(ctx, missing)
+		states, err = r.productionDemandStatusByKeyQuery(ctx, queryer, missing)
 		if err != nil {
 			return err
 		}
@@ -511,12 +611,14 @@ func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []p
 			rows[i].DemandStatus = "unplanned"
 		}
 		rows[i].DemandStatusLabel = productionDemandStatusLabel(rows[i].DemandStatus)
-		rows[i].DemandSelectable = rows[i].GapG > 0 && rows[i].DemandStatus == "unplanned"
+		rows[i].DemandSelectable = rows[i].GapG > 0 &&
+			rows[i].DemandStatus == "unplanned" &&
+			strings.TrimSpace(rows[i].BlockingReason) == ""
 	}
 	return nil
 }
 
-func (r Repository) productionDemandStatusByKey(ctx context.Context, rows []productionapp.UnprodNeedRow) (map[string]productionDemandPlanState, error) {
+func (r Repository) productionDemandStatusByKeyQuery(ctx context.Context, queryer productionDemandQueryer, rows []productionapp.UnprodNeedRow) (map[string]productionDemandPlanState, error) {
 	out := map[string]productionDemandPlanState{}
 	productSeen := map[int64]bool{}
 	specSeen := map[int64]bool{}
@@ -554,7 +656,7 @@ func (r Repository) productionDemandStatusByKey(ctx context.Context, rows []prod
 		  AND COALESCE(pp.status,'') <> 'cancelled'
 		ORDER BY pp.created_at DESC,pp.id DESC,wo.id DESC
 	`, r.schema, r.schema, r.schema)
-	sqlRows, err := r.pool.Query(ctx, q, productIDs, specGs)
+	sqlRows, err := queryer.Query(ctx, q, productIDs, specGs)
 	if err != nil {
 		return nil, err
 	}
@@ -890,7 +992,7 @@ func buildProducePlanDisplayRows(rows []productionapp.UnprodNeedRow, yieldByProd
 	for _, r := range rows {
 		yieldRate := yieldRateForPlanRow(r, yieldByProductID)
 		inputG := defaultProductionInputG(r.GapG, yieldRate)
-		if v := inputByKey[producePlanKey(r.ProductID, r.SpecG)]; v > 0 {
+		if v := inputByKey[producePlanDemandKey(r.ProductID, r.ParentProductID, r.SpecG, r.SalesSpecSnapshotJSON)]; v > 0 {
 			inputG = v
 		}
 		out = append(out, productionapp.ProducePlanDisplayRow{UnprodNeedRow: r, BomYieldRate: yieldRate, InputG: inputG})
@@ -898,14 +1000,77 @@ func buildProducePlanDisplayRows(rows []productionapp.UnprodNeedRow, yieldByProd
 	return out
 }
 
-func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productionapp.RoastMachine, yieldByProductID map[int64]float64) []productionapp.RoastPlanRow {
+type productionPlanBomSummary struct {
+	MaterialLossRate float64
+	InputG           int64
+	BomVersionID     int64
+	LegacyCompatible bool
+	Error            string
+}
+
+func (r Repository) loadResolvedPlanBomSummaries(ctx context.Context, rows []productionapp.UnprodNeedRow) ([]productionPlanBomSummary, error) {
+	out := make([]productionPlanBomSummary, len(rows))
+	if len(rows) == 0 {
+		return out, nil
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	for i, row := range rows {
+		if row.ProductID <= 0 {
+			continue
+		}
+		resolved, err := resolveProductionBomForDemandProductPreviewTx(
+			ctx,
+			tx,
+			r.schema,
+			row.ProductID,
+			row.ParentProductID,
+			row.Product,
+		)
+		if err != nil {
+			if isProductionBomConfigurationError(err) {
+				out[i].Error = err.Error()
+				out[i].LegacyCompatible = isProductionBomNotConfiguredError(err)
+				continue
+			}
+			return nil, err
+		}
+		out[i].MaterialLossRate = productionPlanBomMaterialLossRate(resolved)
+		out[i].InputG = productionInputGFromBomMaterialLoss(row.GapG, out[i].MaterialLossRate)
+		out[i].BomVersionID = resolved.BomVersionID
+		if resolved.ProcessRouteID <= 0 || strings.TrimSpace(resolved.ProcessRouteName) == "" {
+			out[i].Error = productionBomMissingRouteConfigurationError(resolved, row.Product).Error()
+		}
+	}
+	return out, nil
+}
+
+func productionPlanBomMaterialLossRate(resolved latestUsableBomRoute) float64 {
+	rate := resolved.BomMaterialLossRate
+	if rate <= 0 || rate >= 1 {
+		return 0
+	}
+	return rate
+}
+
+func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productionapp.RoastMachine, yieldByProductID map[int64]float64, inputByKey map[string]int64) []productionapp.RoastPlanRow {
 	out := make([]productionapp.RoastPlanRow, 0, len(rows))
 	for _, r := range rows {
 		if r.GapG <= 0 {
 			continue
 		}
 		yieldRate := yieldRateForPlanRow(r, yieldByProductID)
-		rawG := defaultProductionInputG(r.GapG, yieldRate)
+		rawG := inputByKey[producePlanDemandKey(r.ProductID, r.ParentProductID, r.SpecG, r.SalesSpecSnapshotJSON)]
+		if rawG > 0 {
+			yieldRate = float64(r.GapG) / float64(rawG)
+		} else {
+			rawG = defaultProductionInputG(r.GapG, yieldRate)
+		}
 		machine, batches := pickMachineAndBatches(rawG, machines)
 		batchCount := int64(len(batches))
 		batchG := int64(0)
@@ -941,16 +1106,93 @@ func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productio
 	return out
 }
 
-func (r Repository) loadPlanBomItemsFromRows(ctx context.Context, rows []productionapp.UnprodNeedRow) (map[int64][]planBomItem, error) {
-	productIDs := make([]int64, 0, len(rows))
-	seen := map[int64]bool{}
-	for _, row := range rows {
-		if row.ProductID > 0 && !seen[row.ProductID] {
-			seen[row.ProductID] = true
-			productIDs = append(productIDs, row.ProductID)
+func (r Repository) loadPlanBomItemsFromRows(ctx context.Context, rows []productionapp.UnprodNeedRow, summaries []productionPlanBomSummary) (map[string][]planBomItem, error) {
+	out := map[string][]planBomItem{}
+	legacyProductIDs := make([]int64, 0, len(rows))
+	legacyDemandProductIDs := map[string]int64{}
+	seenProducts := map[int64]bool{}
+	seenDemands := map[string]bool{}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for i, row := range rows {
+		demandKey := producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)
+		if row.ProductID <= 0 || seenDemands[demandKey] {
+			continue
+		}
+		seenDemands[demandKey] = true
+		if i >= len(summaries) || summaries[i].BomVersionID <= 0 {
+			if i >= len(summaries) || !summaries[i].LegacyCompatible {
+				continue
+			}
+			legacyDemandProductIDs[demandKey] = row.ProductID
+			if !seenProducts[row.ProductID] {
+				seenProducts[row.ProductID] = true
+				legacyProductIDs = append(legacyProductIDs, row.ProductID)
+			}
+			continue
+		}
+		snapshotJSON, err := buildMaterialSnapshotForBomVersionTx(
+			ctx,
+			tx,
+			r.schema,
+			ProduceRunRow{Product: row.Product, ProductID: row.ProductID},
+			summaries[i].BomVersionID,
+			false,
+		)
+		if err != nil {
+			return nil, err
+		}
+		var snapshotRows []materialSnapshotRow
+		if err := json.Unmarshal(snapshotJSON, &snapshotRows); err != nil {
+			return nil, err
+		}
+		var roastLevel string
+		var dripBoxBagCount int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(roast_level,''),COALESCE(NULLIF(drip_box_bag_count,0),10)
+			FROM %s.products
+			WHERE id=$1
+		`, r.schema), row.ProductID).Scan(&roastLevel, &dripBoxBagCount); err != nil {
+			return nil, err
+		}
+		for _, snapshot := range snapshotRows {
+			out[demandKey] = append(out[demandKey], planBomItem{
+				ProductID:          row.ProductID,
+				RoastLevel:         roastLevel,
+				YieldRate:          1 - summaries[i].MaterialLossRate,
+				MaterialID:         snapshot.MaterialID,
+				MaterialName:       snapshot.MaterialName,
+				MaterialUnit:       snapshot.Unit,
+				RatioPct:           snapshot.RatioPct,
+				MaterialLossRate:   snapshot.MaterialLossRate,
+				ComponentType:      snapshot.ComponentType,
+				ComponentProductID: snapshot.ComponentProductID,
+				ComponentSpecG:     snapshot.ComponentSpecG,
+				ConsumeUnit:        snapshot.ConsumeUnit,
+				QtyPerUnit:         snapshot.QtyPerUnit,
+				OutputQty:          snapshot.OutputQty,
+				OutputUnit:         snapshot.OutputUnit,
+				DripBoxBagCount:    dripBoxBagCount,
+			})
 		}
 	}
-	return r.loadPlanBomItems(ctx, productIDs)
+	if len(legacyProductIDs) > 0 {
+		legacyRows, err := r.loadPlanBomItems(ctx, legacyProductIDs)
+		if err != nil {
+			return nil, err
+		}
+		for productID, items := range legacyRows {
+			for demandKey, demandProductID := range legacyDemandProductIDs {
+				if demandProductID == productID {
+					out[demandKey] = items
+				}
+			}
+		}
+	}
+	return out, nil
 }
 
 func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (map[int64][]planBomItem, error) {
@@ -1056,10 +1298,10 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 	return out, rows.Err()
 }
 
-func buildRoastPlanMaterialRatios(rows []productionapp.UnprodNeedRow, bomMap map[int64][]planBomItem) []productionapp.RoastPlanMaterialRatio {
+func buildRoastPlanMaterialRatios(rows []productionapp.UnprodNeedRow, bomMap map[string][]planBomItem) []productionapp.RoastPlanMaterialRatio {
 	out := make([]productionapp.RoastPlanMaterialRatio, 0)
 	for _, row := range rows {
-		items := bomMap[row.ProductID]
+		items := bomMap[producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)]
 		if len(items) == 0 {
 			out = append(out, productionapp.RoastPlanMaterialRatio{
 				Key:          producePlanKey(row.ProductID, row.SpecG),
@@ -1088,11 +1330,15 @@ func buildRoastPlanMaterialRatios(rows []productionapp.UnprodNeedRow, bomMap map
 	return out
 }
 
-func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow, finalInputByKey map[string]int64, bomMap map[int64][]planBomItem, p planParams) []productionapp.MaterialNeed {
+func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow, finalInputByKey map[string]int64, bomMap map[string][]planBomItem, p planParams) []productionapp.MaterialNeed {
 	m := map[string]productionapp.MaterialNeed{}
 	add := func(item productionapp.MaterialNeed) {
 		name := strings.TrimSpace(item.Name)
-		if item.Qty <= 0 {
+		exactQty := item.ExactQty
+		if exactQty <= 0 {
+			exactQty = float64(item.Qty)
+		}
+		if exactQty <= 0 {
 			return
 		}
 		key := materialAvailabilityKey(name, item.Unit)
@@ -1101,8 +1347,10 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 			existing = item
 			existing.Name = name
 			existing.Qty = 0
+			existing.ExactQty = 0
 		}
-		existing.Qty += item.Qty
+		existing.ExactQty += exactQty
+		existing.Qty = int64(math.Ceil(existing.ExactQty))
 		if existing.ComponentType == "" {
 			existing.ComponentType = item.ComponentType
 		}
@@ -1127,8 +1375,9 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 		if row.GapG <= 0 || row.SpecG <= 0 {
 			continue
 		}
-		finalInputG := finalInputByKey[producePlanKey(row.ProductID, row.SpecG)]
-		items := bomMap[row.ProductID]
+		demandKey := producePlanDemandKey(row.ProductID, row.ParentProductID, row.SpecG, row.SalesSpecSnapshotJSON)
+		finalInputG, inputIncludesBomMaterialLoss := finalInputByKey[demandKey]
+		items := bomMap[demandKey]
 		if finalInputG <= 0 {
 			if len(items) == 0 && isInstantCoffeePlanRow(row) {
 				finalInputG = row.GapG
@@ -1159,29 +1408,41 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 			if unit == "" {
 				unit = "g"
 			}
+			materialLossRate := bom.MaterialLossRate
+			if inputIncludesBomMaterialLoss {
+				materialLossRate = 0
+			}
 			qty := componentConsumptionQtyWithMaterialLoss(
-				bom.ConsumeUnit,
-				bom.QtyPerUnit,
-				bom.RatioPct,
-				unit,
-				finalInputG,
-				row.GapG,
-				unitsMissing,
-				dripBoxesMissing(row, bom.DripBoxBagCount),
-				bom.OutputQty,
-				bom.OutputUnit,
-				bom.MaterialLossRate,
+				bom.ConsumeUnit, bom.QtyPerUnit, bom.RatioPct, unit, finalInputG, row.GapG,
+				unitsMissing, dripBoxesMissing(row, bom.DripBoxBagCount), bom.OutputQty,
+				bom.OutputUnit, materialLossRate,
 			)
+			exactQty := float64(qty)
+			weightGrams := int64(0)
+			if isWeightMaterialUnit(unit) {
+				weightGrams = componentConsumptionWeightGramsWithMaterialLoss(
+					bom.ConsumeUnit, bom.QtyPerUnit, bom.RatioPct, unit, finalInputG, row.GapG,
+					unitsMissing, dripBoxesMissing(row, bom.DripBoxBagCount), bom.OutputQty,
+					bom.OutputUnit, materialLossRate,
+				)
+				exactQty = float64(weightGrams) / productionWeightUnitGrams(unit)
+				qty = int64(math.Ceil(exactQty))
+			}
 			if bom.ComponentType == "finished_product" {
+				if weightGrams > 0 {
+					exactQty = float64(weightGrams)
+					qty = weightGrams
+				}
 				add(productionapp.MaterialNeed{
 					Name:              bom.MaterialName,
 					Qty:               qty,
+					ExactQty:          exactQty,
 					Unit:              "g",
 					ComponentType:     "finished_product",
 					UpstreamProductID: bom.ComponentProductID,
 				})
 			} else {
-				add(productionapp.MaterialNeed{Name: bom.MaterialName, Qty: qty, Unit: unit})
+				add(productionapp.MaterialNeed{Name: bom.MaterialName, Qty: qty, ExactQty: exactQty, Unit: unit})
 			}
 		}
 
@@ -1209,13 +1470,13 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 	return out
 }
 
-func (r Repository) attachDripUpstreamShortages(ctx context.Context, rows []productionapp.UnprodNeedRow, bomMap map[int64][]planBomItem) error {
+func (r Repository) attachDripUpstreamShortages(ctx context.Context, rows []productionapp.UnprodNeedRow, bomMap map[string][]planBomItem) error {
 	for i := range rows {
 		if rows[i].ProductionKind != "drip_bag" || rows[i].GapG <= 0 || rows[i].SpecG <= 0 {
 			continue
 		}
 		bagsMissing := dripOrPackedUnitsMissing(rows[i])
-		for _, item := range bomMap[rows[i].ProductID] {
+		for _, item := range bomMap[producePlanDemandKey(rows[i].ProductID, rows[i].ParentProductID, rows[i].SpecG, rows[i].SalesSpecSnapshotJSON)] {
 			if item.ComponentType != "finished_product" || item.ComponentProductID <= 0 {
 				continue
 			}
@@ -1557,6 +1818,10 @@ func pickSmallestAtLeast(loads []int64, target int64) (int64, bool) {
 
 func producePlanKey(productID, specG int64) string {
 	return fmt.Sprintf("%d-%d", productID, specG)
+}
+
+func producePlanDemandKey(productID, parentProductID, specG int64, salesSpecSnapshotJSON string) string {
+	return fmt.Sprintf("%d-%d-%d-%s", productID, parentProductID, specG, strings.TrimSpace(salesSpecSnapshotJSON))
 }
 
 func formatBatchPlanKg(batches []int64) string {

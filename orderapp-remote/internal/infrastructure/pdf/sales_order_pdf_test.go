@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -48,6 +49,54 @@ func TestRenderSalesOrderPDF(t *testing.T) {
 	}
 	if len(b) < 1000 {
 		t.Fatalf("PDF size = %d, want >= 1000", len(b))
+	}
+}
+
+func TestRenderSalesOrderPublishedSpecCountArtifacts(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	snapshot := salesdomain.SalesOrderSnapshot{
+		OrderID:                550,
+		OrderNo:                "SO-PR550-TEST",
+		DocumentDate:           "2026-07-24",
+		OrderDate:              "2026-07-24",
+		CustomerName:           "测试客户",
+		CustomerCompanyName:    "测试客户",
+		CustomerCompanyPhone:   "00000000000",
+		CustomerCompanyAddress: "测试地址",
+		CompanyName:            "测试咖啡公司",
+		Items: []salesdomain.SalesOrderSnapshotItem{{
+			Name: "曲奇", Spec: "1Kg", Qty: "30", Unit: "1Kg", QuantityBasis: "sales_spec_count",
+			UnitPrice: "81.00", LineTotal: "2430.00", Note: "2.5Kg袋装，共12袋",
+		}},
+		TotalAmount: "2430.00",
+		Shipping:    "0.00",
+		Discount:    "0.00",
+		GrandTotal:  "2430.00",
+	}
+	pdfBytes, err := renderer.RenderPreview(snapshot)
+	if err != nil {
+		t.Fatalf("RenderPreview: %v", err)
+	}
+	if !bytes.HasPrefix(pdfBytes, []byte("%PDF-")) {
+		t.Fatalf("preview PDF prefix=%q", pdfBytes[:min(len(pdfBytes), 8)])
+	}
+	pngBytes, err := renderer.RenderPNG(snapshot)
+	if err != nil {
+		t.Fatalf("RenderPNG: %v", err)
+	}
+	if _, err := png.Decode(bytes.NewReader(pngBytes)); err != nil {
+		t.Fatalf("decode rendered PNG: %v", err)
+	}
+	if outputDir := strings.TrimSpace(os.Getenv("PR550_ARTIFACT_DIR")); outputDir != "" {
+		if err := os.MkdirAll(outputDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outputDir, "pr550-sales-order-spec-preview.pdf"), pdfBytes, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outputDir, "pr550-sales-order-spec-preview.png"), pngBytes, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -150,6 +199,43 @@ func TestSalesOrderItemRowsShowSpecPerUnitDiscountAndFinalNote(t *testing.T) {
 	}
 }
 
+func TestSalesOrderItemCellsKeepPublishedSalesSpecCountSeparate(t *testing.T) {
+	var item salesdomain.SalesOrderSnapshotItem
+	if err := json.Unmarshal([]byte(`{
+		"name":"曲奇",
+		"spec":"1Kg",
+		"qty":"30",
+		"unit":"1Kg",
+		"unit_price":"81.00",
+		"line_total":"2430.00",
+		"note":"2.5Kg袋装，共12袋",
+		"quantity_basis":"sales_spec_count"
+	}`), &item); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"曲奇", "1Kg", "30", "81.00", "2430.00", "2.5Kg袋装，共12袋"}
+	if got := salesOrderItemCells(item, false); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("sales spec count cells=%v want %v", got, want)
+	}
+}
+
+func TestSalesOrderWrapCellTextPreservesEveryRune(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	fontPath, err := renderer.resolveFontPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf := newSalesOrderTestPDF(t, fontPath)
+	note := "2.5Kg袋装，共12袋"
+	lines := salesOrderWrapCellText(pdf, note, 30.26)
+	if got := strings.Join(lines, ""); got != note {
+		t.Fatalf("wrapped note lost characters: lines=%q joined=%q want=%q", lines, got, note)
+	}
+	if len(lines) < 2 {
+		t.Fatalf("wrapped note lines=%q, want automatic line wrap", lines)
+	}
+}
+
 func TestSalesOrderFinancialRowsHideDiscountTotalWhenNoDiscount(t *testing.T) {
 	rows := salesOrderFinancialRows(salesdomain.SalesOrderSnapshot{
 		TotalAmount:    "2455.00",
@@ -169,7 +255,6 @@ func TestSalesOrderFinancialRowsHideDiscountTotalWhenNoDiscount(t *testing.T) {
 	})
 	want := []salesOrderFinancialRow{
 		{Label: "快递费备注", Value: "顺丰到付前电话确认"},
-		{Label: "订单明细备注", Value: "芬纳定制-红酒日晒-中深烘：磨粉；芬纳-曲奇定制：贴标"},
 		{Label: "销售单备注", Value: "客户要求周五前发出"},
 		{Cells: []string{"商品合计： 2455.00", "优惠合计： 261.65", "运费： 169.00", "应收： 2362.35"}, Bold: true},
 	}

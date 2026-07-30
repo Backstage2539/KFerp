@@ -100,6 +100,8 @@ test('view context reuses existing permission-filtered menus without introducing
   assert.deepEqual(order.map((group) => group.name), ['客户账户', '客户商品与配方', '客户财务'])
   assert.equal(primaryMenuKeys(customer).includes('producePlan'), false)
   assert.equal(primaryMenuKeys(order).includes('producePlan'), false)
+  assert.equal(primaryMenuKeys(customer).includes('productionConfig'), true)
+  assert.equal(primaryMenuKeys(customer).includes('bom'), false)
 })
 
 test('vue shell exposes current view selector and passes view context to pages', () => {

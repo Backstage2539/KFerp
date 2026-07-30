@@ -50,6 +50,8 @@ type workstationCapacityRequest struct {
 	BatchSizeUnit          string  `json:"batch_size_unit"`
 	StandardMinutes        int     `json:"standard_minutes"`
 	HourlyRate             float64 `json:"hourly_rate"`
+	CostMethod             string  `json:"cost_method"`
+	PieceRate              float64 `json:"piece_rate"`
 	ProductionCapacity     int     `json:"production_capacity"`
 	SortOrder              int     `json:"sort_order"`
 	Note                   string  `json:"note"`
@@ -208,6 +210,8 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			BatchSizeUnit:      req.BatchSizeUnit,
 			StandardMinutes:    req.StandardMinutes,
 			HourlyRate:         req.HourlyRate,
+			CostMethod:         req.CostMethod,
+			PieceRate:          req.PieceRate,
 			ProductionCapacity: req.ProductionCapacity,
 			SortOrder:          req.SortOrder,
 			Note:               req.Note,

@@ -29,7 +29,7 @@
             <option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option>
           </select>
         </label>
-        <label><span>成本/{{ selectedMaterialUnitLabel }}</span><input type="number" min="0" step="0.01" v-model.number="form.unit_cost" /></label>
+        <label><span>成本（元/{{ selectedMaterialCostUnitLabel }}）</span><input type="number" min="0" step="0.01" v-model.number="form.unit_cost" /></label>
         <label><span>产季</span><input v-model.trim="form.crop_season" placeholder="2025/26" /></label>
         <label><span>产地</span><input v-model.trim="form.origin" placeholder="云南保山" /></label>
         <label class="span-2"><span>产家风味描述</span><input v-model.trim="form.producer_flavor_description" placeholder="供应商/产家描述的风味" /></label>
@@ -69,6 +69,7 @@ const unitOptions = computed(() => {
   ]
 })
 const selectedMaterialUnitLabel = computed(() => unitDisplay(form.unit_code || selectedMaterial.value?.unit || 'kg'))
+const selectedMaterialCostUnitLabel = computed(() => unitDisplay(materialCostUnit(selectedMaterial.value)))
 
 async function loadMaterials() {
   loading.value = true
@@ -113,6 +114,13 @@ function normalizeUnit(row) {
 function unitDisplay(unitCode) {
   const row = unitOptions.value.find((unit) => unit.code === unitCode)
   return row?.name || row?.label || unitCode || '-'
+}
+
+function materialCostUnit(material) {
+  const costUnit = String(material?.cost_unit || material?.CostUnit || '').trim()
+  if (costUnit) return costUnit
+  const inventoryUnit = String(material?.unit || material?.Unit || 'kg').trim()
+  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit.toLowerCase()) ? 'kg' : inventoryUnit
 }
 
 watch(() => form.material_id, () => {

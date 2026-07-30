@@ -16,6 +16,7 @@ import (
 	"time"
 
 	productionapp "orderapp/internal/application/production"
+	stockapp "orderapp/internal/application/stock"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
@@ -37,12 +38,41 @@ type materialSummaryItemForTest struct {
 	DeductUnits  int64  `json:"deduct_units"`
 }
 
+func TestProductionPlanDraftCancelRouteReturnsCancelledPlan(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "测试计划员")
+			return next(c)
+		}
+	})
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-plans/41/cancel", strings.NewReader(`{"note":" 订单调整 "}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/production-plans/41/cancel status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"id":41`) || !strings.Contains(rec.Body.String(), `"status":"cancelled"`) {
+		t.Fatalf("cancel response = %s, want cancelled plan 41", rec.Body.String())
+	}
+	if repo.cancelPlan.ID != 41 || repo.cancelPlan.Operator != "测试计划员" || repo.cancelPlan.Note != "订单调整" {
+		t.Fatalf("cancel command = %+v, want actor and trimmed note", repo.cancelPlan)
+	}
+}
+
 func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -114,12 +144,14 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	}
 }
 
-func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) {
+func TestProduceStartAPIMergesSameConcreteSKUOrdersAndKeepsAllOrderNos(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'Uraga乌拉嘎',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'Uraga乌拉嘎',50,true,'454g',454,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -127,10 +159,10 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-MERGE-454','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1)),
 			(2,'SO-MERGE-227','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
-		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
-		VALUES
-			(1,1,'Uraga乌拉嘎',24,'袋','454g',1,50,1200),
-			(2,1,'Uraga乌拉嘎',2,'袋','227g',1,50,100);
+			INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+			VALUES
+				(1,1,'Uraga乌拉嘎',24,'袋','454g',1,50,1200),
+				(2,1,'Uraga乌拉嘎',2,'袋','454g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
 		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES (10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0);
@@ -142,7 +174,7 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 
 	app := newProductionFlowTestEcho(pool, schema)
-	body := bytes.NewReader([]byte(`{"selected":["1-454","1-227"],"input_by_key":{"1-454":16000,"1-227":600}}`))
+	body := bytes.NewReader([]byte(`{"selected":["1-454"],"input_by_key":{"1-454":16600}}`))
 	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -169,8 +201,8 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 	`, schema)).Scan(&runningItemID, &needG, &inputG, &orderNos); err != nil {
 		t.Fatalf("query running item: %v", err)
 	}
-	if needG != 11350 || inputG != 16600 {
-		t.Fatalf("running item need/input = %d/%d, want 11350/16600", needG, inputG)
+	if needG != 11804 || inputG != 16600 {
+		t.Fatalf("running item need/input = %d/%d, want 11804/16600", needG, inputG)
 	}
 	for _, want := range []string{"SO-MERGE-454", "SO-MERGE-227"} {
 		if !strings.Contains(orderNos, want) {
@@ -182,8 +214,8 @@ func TestProduceStartAPIMergesSameProductSpecsAndKeepsAllOrderNos(t *testing.T) 
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*)::int FROM %s.produce_running_outputs WHERE running_item_id=$1`, schema), runningItemID).Scan(&outputCount); err != nil {
 		t.Fatalf("query running outputs: %v", err)
 	}
-	if outputCount != 2 {
-		t.Fatalf("running output count = %d, want 2", outputCount)
+	if outputCount != 0 {
+		t.Fatalf("running output count = %d, want 0 because a single concrete SKU stays on the running item", outputCount)
 	}
 }
 
@@ -192,9 +224,11 @@ func TestProduceStartAPIReturnsAggregatedWIPShortagesAcrossSelectedProducts(t *t
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES
-			(1,'拼配A',50,true),
-			(2,'拼配B',60,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES
+				(1,'拼配A',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb),
+				(2,'拼配B',60,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -420,9 +454,11 @@ func TestProduceFinishAPIKeepsOrderInProductionWhenOtherItemsRemainUnproduced(t 
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES
-			(1,'半产状态A',50,true),
-			(2,'半产状态B',60,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES
+				(1,'半产状态A',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb),
+				(2,'半产状态B',60,true,'454g',454,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true),
@@ -493,7 +529,9 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('生产中',20,true)
 		ON CONFLICT (name) DO NOTHING;
@@ -627,7 +665,9 @@ func TestProduceFinishAPIUsesEditedInputForFullCompletion(t *testing.T) {
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('生产中',20,true)
 		ON CONFLICT (name) DO NOTHING;
@@ -966,7 +1006,9 @@ func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) 
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (1,'橘皮乌龙',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -1077,7 +1119,9 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曲奇拼配',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'曲奇拼配',50,true,'1000g',1000,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -1211,6 +1255,16 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 0)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 0)
 
+	productionSvc := productionapp.NewService(repo)
+	if _, err := productionSvc.StartJobCard(ctx, productionapp.JobCardActionCommand{
+		ID: submitted.JobCards[0].ID, Operator: "绕过执行枢纽",
+	}); err == nil || !strings.Contains(err.Error(), "work order must be running before job card start") {
+		t.Fatalf("StartJobCard before work order start err=%v, want work order running guard", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='pending'", submitted.JobCards[0].ID), 1)
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='pending' AND started_at IS NULL", submitted.JobCards[0].ID), 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='job_card' AND entity_id=%d", submitted.JobCards[0].ID), 0)
+
 	started, err := repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "开工员"})
 	if err != nil {
 		t.Fatalf("StartWorkOrder: %v", err)
@@ -1220,8 +1274,46 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 1)
 	assertProductionFlowCount(t, pool, schema, "work_orders", "status='running' AND running_item_id > 0", 1)
-	assertProductionFlowCount(t, pool, schema, "job_cards", "status='running'", 2)
+	assertProductionFlowCount(t, pool, schema, "job_cards", "status='pending'", 2)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "status='reserved' AND running_item_id > 0", 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='work_order' AND entity_id=%d AND action='start'", workOrder.ID), 1)
+
+	jobCardID := submitted.JobCards[0].ID
+	jobCardStarted, err := productionSvc.StartJobCard(ctx, productionapp.JobCardActionCommand{ID: jobCardID, Operator: "工位操作员"})
+	if err != nil || jobCardStarted.JobCard.Status != "running" {
+		t.Fatalf("StartJobCard after work order start result=%+v err=%v, want running", jobCardStarted, err)
+	}
+	jobCardPaused, err := productionSvc.PauseJobCard(ctx, productionapp.JobCardActionCommand{ID: jobCardID, Operator: "工位操作员", ExceptionReason: "设备检查"})
+	if err != nil || jobCardPaused.JobCard.Status != "paused" {
+		t.Fatalf("PauseJobCard result=%+v err=%v, want paused", jobCardPaused, err)
+	}
+	jobCardResumed, err := productionSvc.ResumeJobCard(ctx, productionapp.JobCardActionCommand{ID: jobCardID, Operator: "工位操作员"})
+	if err != nil || jobCardResumed.JobCard.Status != "running" {
+		t.Fatalf("ResumeJobCard result=%+v err=%v, want running", jobCardResumed, err)
+	}
+	jobCardCompleted, err := productionSvc.CompleteJobCard(ctx, productionapp.JobCardActionCommand{
+		ID: jobCardID, Operator: "工位操作员",
+		ActualInputQty: 600, ActualOutputQty: 540, ActualMinutes: 45,
+		LossReason: "正常损耗", ExceptionReason: "无异常",
+	})
+	if err != nil || jobCardCompleted.JobCard.Status != "completed" {
+		t.Fatalf("CompleteJobCard result=%+v err=%v, want completed", jobCardCompleted, err)
+	}
+	if _, err := productionSvc.CompleteJobCard(ctx, productionapp.JobCardActionCommand{
+		ID: jobCardID, Operator: "重复完成人",
+		ActualInputQty: 600, ActualOutputQty: 540, ActualMinutes: 45,
+	}); err == nil || !strings.Contains(err.Error(), "invalid job card action") {
+		t.Fatalf("duplicate CompleteJobCard err=%v, want invalid transition", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf(
+		"id=%d AND status='completed' AND actual_minutes=45 AND actual_input_qty=600 AND actual_output_qty=540 AND actual_loss_qty=60 AND actual_loss_rate=0.1 AND started_at IS NOT NULL AND paused_at IS NOT NULL AND resumed_at IS NOT NULL AND completed_at IS NOT NULL",
+		jobCardID,
+	), 1)
+	assertProductionFlowCount(t, pool, schema, "job_cards", fmt.Sprintf("id=%d AND status='pending'", submitted.JobCards[1].ID), 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf(
+		"entity_type='job_card' AND entity_id=%d AND action IN ('start','pause','resume','complete')",
+		jobCardID,
+	), 4)
 
 	_, err = repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "重复开工员"})
 	if err == nil || !strings.Contains(err.Error(), "already started") {
@@ -1229,6 +1321,315 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 1)
 	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
+}
+
+func TestHistoricalWorkOrderStartUsesReservationRequirementsWhenMaterialSnapshotIsMissing(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatalf("SubmitProductionPlan: %v", err)
+	}
+	if len(submitted.WorkOrders) != 1 {
+		t.Fatalf("submitted work orders = %+v, want one", submitted.WorkOrders)
+	}
+	workOrder := submitted.WorkOrders[0]
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (11,'RAW-HIST','历史预约生豆','bean','g',600,0,60,0);
+		UPDATE %s.work_orders SET material_snapshot='[]'::jsonb WHERE id=%d;
+		INSERT INTO %s.work_order_material_reservations(
+			work_order_id,running_item_id,material_id,material_name,unit,
+			required_g,required_units,reserved_g,reserved_units,status
+		) VALUES (%d,0,11,'历史预约生豆','g',600,0,600,0,'reserved');
+	`, schema, schema, workOrder.ID, schema, workOrder.ID))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 11, 11, "MB-HIST-RAW", "历史预约生豆", 600)
+
+	coverage, err := repo.GetWorkOrderWIPCoverage(ctx, workOrder.ID)
+	if err != nil {
+		t.Fatalf("GetWorkOrderWIPCoverage: %v", err)
+	}
+	if coverage.Status != "ok" || len(coverage.Materials) != 1 || coverage.Materials[0].MaterialID != 11 || coverage.Materials[0].RequiredG != 600 {
+		t.Fatalf("historical coverage = %+v, want reservation material 11 / 600g ready", coverage)
+	}
+
+	started, err := repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "开工员"})
+	if err != nil {
+		t.Fatalf("StartWorkOrder must use the same reservation requirement as coverage: %v", err)
+	}
+	if started.WorkOrder.Status != "running" || started.RunningItemID <= 0 {
+		t.Fatalf("started = %+v, want running work order", started)
+	}
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(
+		"work_order_id=%d AND running_item_id=%d AND material_id=11 AND required_g=600 AND status='reserved'",
+		workOrder.ID, started.RunningItemID,
+	), 1)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(
+		"work_order_id=%d AND material_id=10",
+		workOrder.ID,
+	), 0)
+}
+
+func TestReleasedWorkOrderIssueMakesWIPReadyThenStarts(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	productionRepo := postgresproduction.NewRepository(pool, schema)
+	plan, err := productionRepo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	submitted, err := productionRepo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatalf("SubmitProductionPlan: %v", err)
+	}
+	if len(submitted.WorkOrders) != 1 {
+		t.Fatalf("submitted work orders = %+v, want one", submitted.WorkOrders)
+	}
+	workOrder := submitted.WorkOrders[0]
+	before, err := productionRepo.GetWorkOrderWIPCoverage(ctx, workOrder.ID)
+	if err != nil {
+		t.Fatalf("coverage before issue: %v", err)
+	}
+	if before.Status != "blocked" || before.ShortageG != 600 {
+		t.Fatalf("coverage before issue = %+v, want blocked shortage 600g", before)
+	}
+
+	stockService := stockapp.NewService(postgresstock.NewRepository(pool, schema))
+	if _, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 10, ItemType: "material", InventoryUnit: "g", QtyG: 600, UnitCost: 54,
+		}},
+	}); err != nil {
+		t.Fatalf("material receipt: %v", err)
+	}
+	issue, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: workOrder.ID, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 10, ItemType: "material", InventoryUnit: "g", QtyG: 600,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("work-order issue: %v", err)
+	}
+	if issue.Status != "submitted" || issue.WorkOrderNo != workOrder.WorkOrderNo || len(issue.Items) != 1 {
+		t.Fatalf("issue = %+v, want one submitted work-order SE", issue)
+	}
+
+	after, err := productionRepo.GetWorkOrderWIPCoverage(ctx, workOrder.ID)
+	if err != nil {
+		t.Fatalf("coverage after issue: %v", err)
+	}
+	if after.Status != "ok" || after.ShortageG != 0 || after.AvailableG < 600 {
+		t.Fatalf("coverage after issue = %+v, want ready with 600g available", after)
+	}
+	started, err := productionRepo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "开工员"})
+	if err != nil {
+		t.Fatalf("StartWorkOrder after issue: %v", err)
+	}
+	if started.WorkOrder.Status != "running" || started.RunningItemID <= 0 {
+		t.Fatalf("started = %+v, want running work order", started)
+	}
+}
+
+func TestProductionPlanDraftCancelAPIReturnsDemandAndKeepsFrozenHistory(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_plan_operation_splits(
+			production_plan_id,production_plan_item_id,operation_seq,operation,planned_qty,planned_qty_g
+		)
+		VALUES($1,$2,1,'烘焙',600,600)
+	`, schema), plan.ID, plan.Items[0].ID); err != nil {
+		t.Fatalf("seed production plan split: %v", err)
+	}
+
+	e := newProductionFlowTestEcho(pool, schema)
+	before := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?demand_status=in_production", nil)
+	beforeRec := httptest.NewRecorder()
+	e.ServeHTTP(beforeRec, before)
+	if beforeRec.Code != http.StatusOK {
+		t.Fatalf("GET in-production demand status = %d, body=%s", beforeRec.Code, beforeRec.Body.String())
+	}
+	for _, want := range []string{`"demand_status":"in_production"`, `"demand_selectable":false`, plan.PlanNo} {
+		if !strings.Contains(beforeRec.Body.String(), want) {
+			t.Fatalf("planned demand missing %s before cancel: %s", want, beforeRec.Body.String())
+		}
+	}
+
+	cancelPath := fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID)
+	cancelReq := httptest.NewRequest(http.MethodPost, cancelPath, nil)
+	cancelRec := httptest.NewRecorder()
+	e.ServeHTTP(cancelRec, cancelReq)
+	if cancelRec.Code != http.StatusOK {
+		t.Fatalf("POST %s status = %d, want 200 body=%s", cancelPath, cancelRec.Code, cancelRec.Body.String())
+	}
+	var cancelled struct {
+		ID          int64                              `json:"id"`
+		Status      string                             `json:"status"`
+		CancelledAt string                             `json:"cancelled_at"`
+		Items       []productionapp.ProductionPlanItem `json:"items"`
+	}
+	if err := json.Unmarshal(cancelRec.Body.Bytes(), &cancelled); err != nil {
+		t.Fatalf("unmarshal cancelled production plan: %v\n%s", err, cancelRec.Body.String())
+	}
+	if cancelled.ID != plan.ID || cancelled.Status != "cancelled" || cancelled.CancelledAt == "" || len(cancelled.Items) != 1 {
+		t.Fatalf("cancelled production plan = %+v, want cancelled history with one frozen item", cancelled)
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plan_items", fmt.Sprintf("production_plan_id=%d", plan.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "production_plan_operation_splits", fmt.Sprintf("production_plan_id=%d", plan.ID), 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", fmt.Sprintf("production_plan_id=%d", plan.ID), 0)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 1)
+
+	retryReq := httptest.NewRequest(http.MethodPost, cancelPath, nil)
+	retryRec := httptest.NewRecorder()
+	e.ServeHTTP(retryRec, retryReq)
+	if retryRec.Code != http.StatusOK {
+		t.Fatalf("idempotent POST %s status = %d, want 200 body=%s", cancelPath, retryRec.Code, retryRec.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 1)
+
+	after := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?demand_status=unplanned", nil)
+	afterRec := httptest.NewRecorder()
+	e.ServeHTTP(afterRec, after)
+	if afterRec.Code != http.StatusOK {
+		t.Fatalf("GET returned demand status = %d, body=%s", afterRec.Code, afterRec.Body.String())
+	}
+	for _, want := range []string{`"order_nos":"SO-PLAN-1"`, `"demand_status":"unplanned"`, `"demand_selectable":true`} {
+		if !strings.Contains(afterRec.Body.String(), want) {
+			t.Fatalf("returned demand missing %s after cancel: %s", want, afterRec.Body.String())
+		}
+	}
+
+	replanned, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan after cancel: %v", err)
+	}
+	if replanned.ID == plan.ID || replanned.Status != "draft" {
+		t.Fatalf("replanned production plan = %+v, want new draft", replanned)
+	}
+}
+
+func TestProductionPlanDraftCancelAPIRejectsNonDraftAndDownstreamWork(t *testing.T) {
+	t.Run("submitted plan", func(t *testing.T) {
+		pool, schema := newProductionFlowTestDB(t)
+		ctx := context.Background()
+		seedProductionPlanLifecycleData(t, ctx, pool, schema)
+		repo := postgresproduction.NewRepository(pool, schema)
+		plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+			Selected: map[string]bool{"1-227": true},
+			Operator: "计划员",
+		})
+		if err != nil {
+			t.Fatalf("CreateProductionPlan: %v", err)
+		}
+		if _, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"}); err != nil {
+			t.Fatalf("SubmitProductionPlan: %v", err)
+		}
+
+		e := newProductionFlowTestEcho(pool, schema)
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID), nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "draft") {
+			t.Fatalf("submitted plan cancel status = %d body=%s, want draft guard", rec.Code, rec.Body.String())
+		}
+		assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='submitted'", plan.ID), 1)
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 0)
+	})
+
+	t.Run("draft with downstream work order", func(t *testing.T) {
+		pool, schema := newProductionFlowTestDB(t)
+		ctx := context.Background()
+		seedProductionPlanLifecycleData(t, ctx, pool, schema)
+		repo := postgresproduction.NewRepository(pool, schema)
+		plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+			Selected: map[string]bool{"1-227": true},
+			Operator: "计划员",
+		})
+		if err != nil {
+			t.Fatalf("CreateProductionPlan: %v", err)
+		}
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.work_orders(work_order_no,production_plan_item_id,status)
+			VALUES($1,$2,'released')
+		`, schema), "WO-ANOMALY-555", plan.Items[0].ID); err != nil {
+			t.Fatalf("seed downstream work order: %v", err)
+		}
+
+		e := newProductionFlowTestEcho(pool, schema)
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/cancel", plan.ID), nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "work order") {
+			t.Fatalf("downstream plan cancel status = %d body=%s, want work order guard", rec.Code, rec.Body.String())
+		}
+		assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='draft'", plan.ID), 1)
+		assertProductionFlowCount(t, pool, schema, "audit_logs", fmt.Sprintf("entity_type='production_plan' AND entity_id=%d AND action='cancel'", plan.ID), 0)
+	})
+}
+
+func TestProductionPlanDraftCancelRollsBackWhenAuditWriteFails(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		Selected: map[string]bool{"1-227": true},
+		Operator: "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`DROP TABLE %s.audit_logs`, schema)); err != nil {
+		t.Fatalf("drop audit log table: %v", err)
+	}
+
+	if _, err := repo.CancelProductionPlan(ctx, productionapp.CancelProductionPlanCommand{ID: plan.ID, Operator: "计划员"}); err == nil {
+		t.Fatal("CancelProductionPlan should fail when audit write fails")
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", fmt.Sprintf("id=%d AND status='draft' AND cancelled_at IS NULL", plan.ID), 1)
 }
 
 func TestLegacyProduceStartAPIUsesTemporaryPlanAndStillStartsProduction(t *testing.T) {
@@ -1251,7 +1652,7 @@ func TestLegacyProduceStartAPIUsesTemporaryPlanAndStillStartsProduction(t *testi
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", "product_id=1 AND planned_g=600", 1)
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 1)
 	assertProductionFlowCount(t, pool, schema, "work_orders", "status='running' AND running_item_id > 0", 1)
-	assertProductionFlowCount(t, pool, schema, "job_cards", "status='running' AND operation IN ('烘焙','包装')", 2)
+	assertProductionFlowCount(t, pool, schema, "job_cards", "status='pending' AND operation IN ('烘焙','包装')", 2)
 }
 
 func TestProduceStartAPIRejectsEmptySelectionWithoutOpeningWork(t *testing.T) {
@@ -1278,16 +1679,24 @@ func TestProduceStartAPIDefaultsMissingInputFromPlanWithoutBlockingWork(t *testi
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'曲奇拼配',50,true);
+			INSERT INTO %s.products(
+				id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+			) VALUES (1,'曲奇拼配',50,true,'1000g',1000,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
 		ON CONFLICT (name) DO NOTHING;
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-API-START-NOINPUT','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
-		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
-		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
-	`, schema, schema, schema, schema, schema))
+			INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+			VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
+			INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
+			INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-NOINPUT','缺省投料生豆','bean','g',3000,0,54,0);
+			INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct)
+			VALUES (1,10,100.0000);
+		`, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-NOINPUT", "缺省投料生豆", 3000)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", bytes.NewBufferString(`{"selected":["1-1000"],"input_by_key":{}}`))
@@ -1796,7 +2205,9 @@ func assertProductionFlowCount(t *testing.T, pool *pgxpool.Pool, schema, table, 
 func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'计划拼配',50,true);
+		INSERT INTO %s.products(
+			id,name,default_price,active,spec_label,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES (1,'计划拼配',50,true,'227g',227,'g','{"inventory_unit":"kg"}'::jsonb);
 		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
 			('待处理',10,true),
 			('生产中',20,true)
@@ -1810,8 +2221,8 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 		VALUES (10,'RAW-PLAN','计划生豆','bean','g',1000,0,54,0);
 		INSERT INTO %s.production_boms(id,code,name,output_product_id,status)
 		VALUES (100,'PBOM-PLAN','计划拼配 BOM',1,'active');
-		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,published_at)
-		VALUES (100,100,'V001','published',0.8200,now());
+		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,published_at)
+		VALUES (100,100,'V001','published',0.8200,1,'kg',now());
 		INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,ratio_pct)
 		VALUES (100,10,'material',100.0000);
 		INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
@@ -1823,6 +2234,7 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 		VALUES
 			(30,1,'烘焙','烘焙中心','滚筒机',25,true),
 			(30,2,'包装','包装台','封口机',10,false);
+		UPDATE %s.production_bom_versions SET process_route_id=30 WHERE id=100;
 		INSERT INTO %s.product_production_configs(product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,created_by,updated_by)
 		VALUES (1,100,100,30,0.1800,'test','test')
 		ON CONFLICT (product_id) DO UPDATE SET
@@ -1830,7 +2242,7 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 			production_bom_version_id=excluded.production_bom_version_id,
 			process_route_id=excluded.process_route_id,
 			expected_loss_rate=excluded.expected_loss_rate;
-		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 }
 
 func mustExecProductionFlowTestSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
@@ -1876,6 +2288,7 @@ func productionFlowTestBaseDDL(schema string) string {
 			name TEXT NOT NULL UNIQUE,
 			roast_level TEXT NOT NULL DEFAULT '',
 			default_price NUMERIC NOT NULL DEFAULT 0,
+			base_product_id BIGINT NOT NULL DEFAULT 0,
 			active BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
@@ -1890,13 +2303,19 @@ func productionFlowTestBaseDDL(schema string) string {
 		CREATE TABLE %s.customers (
 			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL DEFAULT '',
+			raw_name TEXT NOT NULL DEFAULT '',
+			customer_type TEXT NOT NULL DEFAULT 'retail',
 			company_name TEXT NOT NULL DEFAULT '',
 			company_address TEXT NOT NULL DEFAULT '',
 			company_phone TEXT NOT NULL DEFAULT '',
 			contact TEXT NOT NULL DEFAULT '',
 			phone TEXT NOT NULL DEFAULT '',
 			address TEXT NOT NULL DEFAULT '',
-			active BOOLEAN NOT NULL DEFAULT true
+			customer_product_rule_template_id BIGINT NOT NULL DEFAULT 0,
+			responsible_employee_id BIGINT NOT NULL DEFAULT 0,
+			active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		CREATE TABLE %s.order_process_statuses (
 			id SERIAL PRIMARY KEY,
@@ -1912,6 +2331,7 @@ func productionFlowTestBaseDDL(schema string) string {
 			id BIGSERIAL PRIMARY KEY,
 			order_no TEXT,
 			order_date DATE,
+			customer_id BIGINT NOT NULL DEFAULT 0,
 			is_void BOOLEAN NOT NULL DEFAULT false,
 			process_status_id INTEGER REFERENCES %s.order_process_statuses(id),
 			ship_status_id BIGINT REFERENCES %s.ship_statuses(id),

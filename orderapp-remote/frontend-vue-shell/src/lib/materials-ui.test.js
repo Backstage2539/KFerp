@@ -6,8 +6,10 @@ import { test } from 'node:test'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const materialsSource = readFileSync(resolve(here, '../views/MaterialsView.vue'), 'utf8')
+const materialReceiptsSource = readFileSync(resolve(here, '../views/MaterialReceiptsView.vue'), 'utf8')
 const warehouseSource = readFileSync(resolve(here, '../views/WarehouseInventoryView.vue'), 'utf8')
 const stockAdjustmentsSource = readFileSync(resolve(here, '../views/StockAdjustmentsView.vue'), 'utf8')
+const purchaseSource = readFileSync(resolve(here, '../views/PurchaseView.vue'), 'utf8')
 
 test('warehouse settings opens from selected warehouse while grouping is handled by shared controls', () => {
   const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
@@ -176,4 +178,33 @@ test('existing material inventory unit is locked after create', () => {
   assert.match(materialsSource, /:disabled="materialInventoryUnitLocked"/)
   assert.match(materialsSource, /库存单位保存后不可修改/)
   assert.match(materialsSource, /unit:\s*draftMode\.value\s*\?\s*draft\.value\.unit\s*:\s*\(selected\.value\?\.unit\s*\|\|\s*draft\.value\.unit\)/)
+})
+
+test('materials archive separates inventory unit from locked cost unit', () => {
+  assert.match(materialsSource, /成本计价单位/)
+  assert.match(materialsSource, /materialCostUnitLocked/)
+  assert.match(materialsSource, /:disabled="materialCostUnitLocked"/)
+  assert.match(materialsSource, /重量物料统一按 kg 计价/)
+  assert.match(materialsSource, /采购价（元\/\{\{\s*draft\.cost_unit\s*\}\}）/)
+  assert.match(materialsSource, /cost_unit:/)
+  assert.match(materialsSource, /cost_unit:\s*draftMode\.value\s*\?\s*draft\.value\.cost_unit\s*:\s*\(selected\.value\?\.cost_unit\s*\|\|\s*draft\.value\.cost_unit\)/)
+})
+
+test('material receipt, stock adjustment and purchase prices use material cost unit', () => {
+  assert.match(materialReceiptsSource, /selectedMaterialCostUnitLabel/)
+  assert.match(materialReceiptsSource, /成本（元\/\{\{\s*selectedMaterialCostUnitLabel\s*\}\}）/)
+  assert.doesNotMatch(materialReceiptsSource, /成本\/\{\{\s*selectedMaterialUnitLabel\s*\}\}/)
+
+  assert.match(stockAdjustmentsSource, /selectedMaterialCostUnitLabel/)
+  assert.match(stockAdjustmentsSource, /目标成本（元\/\{\{\s*selectedMaterialCostUnitLabel\s*\}\}）/)
+  assert.match(stockAdjustmentsSource, /补录成本（元\/\{\{\s*selectedMaterialCostUnitLabel\s*\}\}）/)
+  assert.doesNotMatch(stockAdjustmentsSource, /目标成本\/千克|补录成本\/千克/)
+
+  assert.match(purchaseSource, /selectedPurchaseMaterialCostUnit/)
+  assert.match(purchaseSource, /单价（元\/\{\{\s*selectedPurchaseMaterialCostUnit\s*\}\}）/)
+  assert.match(purchaseSource, /materialCostUnit\(row\.material_id\)/)
+  assert.match(purchaseSource, /purchasableMaterials/)
+  assert.match(purchaseSource, /当前采购单按克记录数量，仅支持重量物料/)
+  assert.match(stockAdjustmentsSource, /isSelectedMaterialWeight/)
+  assert.match(stockAdjustmentsSource, /批次成本调整当前只支持重量物料/)
 })

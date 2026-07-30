@@ -7,6 +7,7 @@ import { test } from 'node:test'
 const here = dirname(fileURLToPath(import.meta.url))
 const viewSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
 const priceListWorkflowSource = readFileSync(resolve(here, './costing-price-list-workflow.js'), 'utf8')
+const priceListSelectionSource = readFileSync(resolve(here, './product-price-list-selection.js'), 'utf8')
 
 test('product bean-list view exposes publication versions without pricing trial workspace', () => {
   const versionListIndex = viewSource.indexOf('已发布价格表')
@@ -39,6 +40,98 @@ test('product bean-list view exposes publication versions without pricing trial 
     '复制已有豆单配置',
   ]) {
     assert.equal(viewSource.includes(forbidden), false, `old bean-list copy/scope behavior should be removed: ${forbidden}`)
+  }
+})
+
+test('product price list header and published versions use the compact pricing toolbar', () => {
+  const pageHeaderStart = viewSource.indexOf('<section class="panel">')
+  const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  assert.ok(pageHeaderStart > -1 && versionPanelStart > pageHeaderStart, 'missing price-list page header and version panel')
+
+  const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
+  assert.doesNotMatch(pageHeaderSource, /<span>模型<\/span>/)
+  assert.doesNotMatch(pageHeaderSource, /<strong>Price List \/ Item Price<\/strong>/)
+
+  const versionPanelEnd = viewSource.indexOf('<section class="panel">', versionPanelStart + 1)
+  const versionPanelSource = viewSource.slice(versionPanelStart, versionPanelEnd)
+  assert.doesNotMatch(versionPanelSource, /查看当前范围下的已发布价格表、生成新版、撤回和归档。/)
+  assert.doesNotMatch(versionPanelSource, /刷新版本/)
+  assert.doesNotMatch(versionPanelSource, /refreshBeanListVersionList/)
+  assert.match(versionPanelSource, /:aria-label="publicationListCollapsed \? '展开已发布价格表' : '收起已发布价格表'"/)
+  assert.match(versionPanelSource, /'⇊'\s*:\s*'⇈'/)
+
+  const collapseButtonIndex = versionPanelSource.indexOf('class="publication-list-collapse-toggle')
+  const versionTitleIndex = versionPanelSource.indexOf('<div class="section-title">已发布价格表</div>')
+  assert.ok(collapseButtonIndex > -1 && collapseButtonIndex < versionTitleIndex, 'collapse toggle must sit to the left of the title')
+
+  const productTypeIndex = versionPanelSource.indexOf('<span>商品类型</span>')
+  const searchIndex = versionPanelSource.indexOf('<span>搜索</span>')
+  assert.ok(productTypeIndex > -1 && productTypeIndex < searchIndex, 'product type filter must sit to the left of search')
+  assert.match(viewSource, /\.version-controls input,\s*\.version-controls select\s*\{[^}]*min-height:\s*38px/s)
+
+  assert.match(viewSource, /<strong>计价规则<\/strong>/)
+  assert.doesNotMatch(viewSource, /<strong>Price List \/ Item Price 生成规则<\/strong>/)
+})
+
+test('product price list keeps product count scope and tier template action on one compact row', () => {
+  const pageHeaderStart = viewSource.indexOf('<section class="panel">')
+  const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
+
+  assert.match(pageHeaderSource, /class="price-list-top-toolbar"/)
+  const productCountIndex = pageHeaderSource.indexOf('<span>商品数</span>')
+  const scopeIndex = pageHeaderSource.indexOf('aria-label="价格表归属"')
+  const tierTemplateIndex = pageHeaderSource.indexOf('>管理阶梯模板</button>')
+  assert.ok(productCountIndex > -1 && scopeIndex > productCountIndex && tierTemplateIndex > scopeIndex)
+  assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
+  assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s)
+})
+
+test('product price list groups all three management actions in the top toolbar with equal summary heights', () => {
+  const pageHeaderStart = viewSource.indexOf('<section class="panel">')
+  const versionPanelStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const pageHeaderSource = viewSource.slice(pageHeaderStart, versionPanelStart)
+  const generatePanelStart = viewSource.indexOf('<div class="bean-list-generate-bar">')
+  const generatePanelEnd = viewSource.indexOf('</section>', generatePanelStart)
+  const generatePanelSource = viewSource.slice(generatePanelStart, generatePanelEnd)
+
+  assert.doesNotMatch(pageHeaderSource, />刷新<\/button>/)
+  assert.match(pageHeaderSource, /class="price-list-toolbar-actions"/)
+  const tierTemplateIndex = pageHeaderSource.indexOf('>管理阶梯模板</button>')
+  const pricingRulesIndex = pageHeaderSource.indexOf('>计价模式规则</button>')
+  const priceListConfigIndex = pageHeaderSource.indexOf('>价格表配置</button>')
+  assert.ok(
+    tierTemplateIndex > -1 && pricingRulesIndex > tierTemplateIndex && priceListConfigIndex > pricingRulesIndex,
+    'top toolbar must contain tier templates, pricing rules and price-list config in order',
+  )
+  assert.doesNotMatch(generatePanelSource, />计价模式规则<\/button>/)
+  assert.doesNotMatch(generatePanelSource, />价格表配置<\/button>/)
+  assert.equal((viewSource.match(/>管理阶梯模板<\/button>/g) || []).length, 1)
+  assert.equal((viewSource.match(/>计价模式规则<\/button>/g) || []).length, 1)
+  assert.equal((viewSource.match(/>价格表配置<\/button>/g) || []).length, 1)
+  assert.match(viewSource, /\.price-list-top-toolbar\s*\{[^}]*align-items:\s*stretch/s)
+  assert.match(
+    viewSource,
+    /\.price-list-toolbar-stat,\s*\.price-list-toolbar-scope\s*\{[^}]*min-height:\s*76px/s,
+  )
+  assert.match(viewSource, /\.price-list-toolbar-actions\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/s)
+  assert.match(
+    viewSource,
+    /@media \(max-width:\s*1200px\)[\s\S]*\.price-list-top-toolbar\s*\{[^}]*grid-template-columns:\s*minmax\(120px,\s*\.35fr\)\s*minmax\(260px,\s*1fr\)[^}]*\}[\s\S]*\.price-list-toolbar-actions\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s,
+  )
+  assert.match(viewSource, /@media \(max-width:\s*900px\)[\s\S]*\.price-list-toolbar-actions button\s*\{[^}]*flex:\s*1 1 180px/s)
+  assert.match(viewSource, /onMounted\(\(\) => \{[\s\S]*loadBeanList\(\)/s)
+})
+
+test('product price list restores and persists browser scope and product type preferences', () => {
+  for (const expected of [
+    'readPriceListPagePreferences()',
+    'writePriceListPagePreferences(',
+    'resolvePriceListScopePreference(',
+    'resolveProductTypePreference(',
+    'PRICE_LIST_PAGE_PREFERENCES_KEY',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing price-list browser preference behavior: ${expected}`)
   }
 })
 
@@ -291,7 +384,7 @@ test('product price-list version scope selector lists public and each fulfillmen
   assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
   const versionListSource = viewSource.slice(versionListStart, versionListEnd)
 
-  const pageScopeStart = viewSource.indexOf('<div class="bean-list-global-scope">')
+  const pageScopeStart = viewSource.indexOf('<div class="price-list-top-toolbar">')
   const pageScopeEnd = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   assert.ok(pageScopeStart > -1 && pageScopeEnd > pageScopeStart, 'missing top-level bean-list scope selector')
   const pageScopeSource = viewSource.slice(pageScopeStart, pageScopeEnd)
@@ -358,7 +451,7 @@ test('product bean-list generate area uses inline price-list configuration inste
     'priceListRenderTypeForItem',
     'productPriceListTypeKey',
     'price-list-page-config',
-    '<strong>Price List / Item Price 生成规则</strong>',
+    '<strong>计价规则</strong>',
     '<button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>',
     'aria-label="价格表配置"',
     "greenTierPriceRows",
@@ -412,8 +505,10 @@ test('price list mode rules are opened from a button and not shown as a persiste
     'price-list-rules-dialog',
     '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
     'group_source=price_list',
+    '父商品只选择一次计价模式',
+    '固定价金额按规格分别录入',
   ]) {
-    assert.ok(pageSource.includes(expected), `missing modal price-list mode rule behavior: ${expected}`)
+    assert.ok(viewSource.includes(expected), `missing modal price-list mode rule behavior: ${expected}`)
   }
 
   const oldPanelStart = pageSource.indexOf('data-pr442-price-list-group-source')
@@ -488,6 +583,96 @@ test('price list product picker selection uses product-catalog state and cascade
   }
 })
 
+test('price list product picker renders one parent row with independently selectable specs and shared parent pricing', () => {
+  const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
+  const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', productSelectionStart)
+  assert.ok(productSelectionStart > -1 && dialogStart > productSelectionStart, 'missing product selection block')
+  const selectionSource = viewSource.slice(productSelectionStart, dialogStart)
+
+  for (const expected of [
+    'X款/Y规格',
+    'row.sku_options',
+    'togglePdfProductSpec',
+    'isPdfProductSpecSelected',
+    'priceListProductSpecLabel(spec)',
+    "openPriceListPricingPopover('product', priceListParentProductPricingRow(row))",
+    ':indeterminate.prop="isPdfCategoryPartiallySelected(category.code)"',
+  ]) {
+    assert.ok(selectionSource.includes(expected), `missing parent/spec picker behavior: ${expected}`)
+  }
+
+  assert.equal(selectionSource.includes('v-for="row in category.items"'), true)
+  assert.equal(selectionSource.includes('priceListProductRowForItem(row)'), false, 'parent row must not be priced as if it were one SKU')
+  assert.equal(
+    selectionSource.includes('{{ priceListPricingPopover.productRow?.parent_product_name }} · {{ priceListPricingPopover.productRow?.sku_name }}'),
+    false,
+    'pricing panel must not concatenate the SKU into the product name',
+  )
+})
+
+test('price list product specs use compact wrapping rows without per-spec pricing controls', () => {
+  assert.match(viewSource, /\.product-spec-options\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s)
+  assert.match(viewSource, /\.product-spec-option\s*\{[^}]*display:\s*flex;/s)
+  assert.doesNotMatch(viewSource, /class="product-spec-pricing"/)
+  assert.doesNotMatch(viewSource, /class="product-spec-pricing-panel"/)
+  assert.doesNotMatch(viewSource, /设置当前规格计价/)
+})
+
+test('flat price rows render the unchanged product name with a separate spec description', () => {
+  const flatRowStart = viewSource.indexOf('<div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">')
+  const previewStart = viewSource.indexOf('<div class="price-list-preview"', flatRowStart)
+  assert.ok(flatRowStart > -1, 'missing flat price row editor')
+  const flatRowSource = viewSource.slice(flatRowStart, previewStart > flatRowStart ? previewStart : undefined)
+
+  assert.match(flatRowSource, /<strong>\{\{ priceListFlatRowDisplayTitle\(row\) \}\}<\/strong>/)
+  assert.match(flatRowSource, /\{\{ priceListFlatRowSpecDescription\(row\) \}\}/)
+  assert.match(viewSource, /product_name:\s*item\.product_name_snapshot \|\| item\.product_name \|\| item\.__price_list_product_name/)
+  assert.match(viewSource, /priceListSalesSpecCountTierLabel\(templateTier\)/)
+  assert.doesNotMatch(viewSource, /\$\{formatQty\(minQty\)\}-\$\{formatQty\(maxQty\)\}个\$\{spec\}/)
+})
+
+test('price list exposes one shared parent-product pricing choice above category inheritance', () => {
+  assert.match(viewSource, /商品 &gt; 子类 &gt; 父类 &gt; 价格表/)
+  assert.match(viewSource, /商品计价/)
+  assert.match(viewSource, /priceListParentProductPricingRow\(row\)/)
+  assert.match(viewSource, /scope: 'parent_product'/)
+  assert.match(viewSource, /priceListProductTemplateOverrideKey/)
+  assert.doesNotMatch(viewSource, /规格 &gt; 商品 &gt;/)
+})
+
+test('price list inherits fixed-price mode but requires each selected spec to enter its own amount', () => {
+  assert.match(viewSource, /固定价金额按具体规格分别录入/)
+  assert.doesNotMatch(viewSource, /:value="priceListTemplateDefaults\.fixed_unit_price"/)
+  assert.match(viewSource, /v-for="spec in selectedSpecsForProduct\(priceListPricingPopover\.productRow\)"/)
+  assert.match(viewSource, /固定价（元\/\{\{ priceListProductSpecLabel\(spec\) \}\}）/)
+  assert.match(viewSource, /setPriceListProductFixedPrice\(priceListPricingPopover\.productRow, spec/)
+  assert.match(viewSource, /function priceListEffectiveProductPricingSelection/)
+  assert.match(viewSource, /selectedSpecsForProduct\(row\)\[0\]/)
+  const activeSelectionStart = viewSource.indexOf('function priceListActivePricingSelection()')
+  const activeSelectionEnd = viewSource.indexOf('function setPriceListPricingPopoverMode', activeSelectionStart)
+  assert.ok(activeSelectionStart > -1 && activeSelectionEnd > activeSelectionStart, 'missing active pricing selection helper')
+  assert.match(
+    viewSource.slice(activeSelectionStart, activeSelectionEnd),
+    /priceListEffectiveProductPricingSelection\(priceListPricingPopover\.value\.productRow \|\| \{\}\)/,
+    'product popover must display inherited effective fixed mode, not only the explicit parent override',
+  )
+  assert.match(viewSource, /const representative = selectedSpecsForProduct\(item\)\[0\]/)
+})
+
+test('price list generation persists concrete product spec selections and materializes only selected SKUs', () => {
+  for (const expected of [
+    'productSpecSelectionsByType',
+    'product_spec_selections: pdfProductSpecSelections.value',
+    'priceListSelectedSkuCategoryRows(categoryProductGroups.value, pdfProductSpecSelections.value)',
+    'normalizePriceListProductSpecSelections',
+    'defaultPriceListProductSpecSelections',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing product spec selection data flow: ${expected}`)
+  }
+  assert.ok(priceListSelectionSource.includes('selection_source'), 'selection helper must freeze the selection source')
+  assert.ok(priceListSelectionSource.includes('default_sku_id_at_selection'), 'selection helper must freeze the default SKU at selection time')
+})
+
 test('price list generation keeps A/B positions as summaries and edits pricing in an anchored popover', () => {
   const builderStart = viewSource.indexOf('<div class="pdf-picker price-list-template-builder"')
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
@@ -525,11 +710,11 @@ test('price list generation keeps A/B positions as summaries and edits pricing i
 
   for (const expected of [
     'product-compact-status',
-    'priceListProductPricingSummary(priceListProductRowForItem(row))',
-    'priceListProductDisplaySummary(itemProductID(row))',
-    "openPriceListPricingPopover('product', priceListProductRowForItem(row))",
-    "isPriceListPricingPopoverOpen('product', priceListProductRowForItem(row))",
-    'openPriceListProductDisplayDialog(itemProductID(row))',
+    'priceListProductPricingSummary(priceListParentProductPricingRow(row))',
+    'priceListProductDisplaySummary(priceListParentProductID(row))',
+    "openPriceListPricingPopover('product', priceListParentProductPricingRow(row))",
+    "isPriceListPricingPopoverOpen('product', priceListParentProductPricingRow(row))",
+    'openPriceListProductDisplayDialog(priceListParentProductID(row))',
   ]) {
     assert.ok(productRowSource.includes(expected), `missing B-position product summary: ${expected}`)
   }
@@ -555,7 +740,7 @@ test('price list generation keeps A/B positions as summaries and edits pricing i
     'setPriceListPricingPopoverMode(option.value)',
     "setPriceListPricingPopoverField('tier_template_id'",
     "setPriceListPricingPopoverField('pricing_rule_id'",
-    "setPriceListPricingPopoverField('fixed_unit_price'",
+    'setPriceListProductFixedPrice(',
   ]) {
     assert.ok(selectionSource.includes(expected) || viewSource.includes(expected), `missing anchored pricing popover behavior: ${expected}`)
   }
@@ -584,11 +769,15 @@ test('price list generation persists pricing drafts and applies tier-template tr
     'restorePriceListGenerationDraftForActiveType',
     'productCatalogBusinessGroupRowsForPriceList',
     'priceListPricingRuleTrialRequestsForRows',
-    'watch(priceListFlatRows',
-    'flush: \'post\'',
+    'watch(priceListPricingRuleTrialRequests',
+    "apiSend('/api/costing/pricing-rule-trials'",
+    'mergePriceListPricingRuleTrialCache',
+    'executePriceListPricingRuleTrialBatches',
   ]) {
     assert.ok(viewSource.includes(expected), `missing price-list draft/group persistence behavior: ${expected}`)
   }
+  assert.match(priceListWorkflowSource, /start \+= chunkSize/, 'batch executor should advance by its tested chunk size')
+  assert.equal(viewSource.includes('watch(priceListFlatRows'), false, 'flat price rows must not trigger a duplicate deep trial watcher')
 
   const flatRowStart = viewSource.indexOf('function priceListFlatRowFromSource')
   const flatRowEnd = viewSource.indexOf('function priceListPricingRuleTrialResultForRow', flatRowStart)
@@ -657,14 +846,14 @@ test('price list pricing-rule preview retries current rows after user pricing ch
   )
 })
 
-test('price list flat rows collapse duplicate tier-template rows before preview and publish', () => {
+test('price list flat rows collapse only identical tier-template rows before preview and publish', () => {
   assert.ok(
     viewSource.includes('dedupePriceListFlatRows'),
     'price-list flat rows should import the duplicate tier-template row guard',
   )
   assert.ok(
     viewSource.includes('dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value))'),
-    'price-list flat rows should collapse same-product same-rule tier-template rows before preview and publish',
+    'price-list flat rows should collapse only identical generated template-tier rows before preview and publish',
   )
 })
 
@@ -674,20 +863,13 @@ test('price list pricing-rule preview uses product quote unit before package fal
   assert.ok(unitStart > -1 && unitEnd > unitStart, 'flatRowPriceUnit block not found')
   const unitSource = viewSource.slice(unitStart, unitEnd)
 
-  for (const expected of [
-    'item.price_unit',
-    'item.priceUnit',
-    'item.quote_unit',
-    'item.quoteUnit',
-    'item.inventory_unit',
-    'item.inventoryUnit',
-  ]) {
-    assert.ok(unitSource.includes(expected), `flat row price unit should include product-level unit source: ${expected}`)
-  }
+  assert.match(unitSource, /productCurrentSalesSpecUnit\(item\)/, 'flat row price unit should use the shared current-sales-spec resolver')
+  assert.match(unitSource, /item\.inventory_unit/)
+  assert.match(unitSource, /item\.inventoryUnit/)
   assert.match(unitSource, /return Number\(tier\.spec_g \|\| tier\.specG \|\| 0\) === 1000 \? 'kg' : 'lb'/)
 })
 
-test('price list product selection summaries avoid parent child wording and inherited rows say category inheritance', () => {
+test('price list product selection summaries expose category and shared parent-product inheritance', () => {
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
   const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', productSelectionStart)
   assert.ok(productSelectionStart > -1 && dialogStart > productSelectionStart, 'missing product selection block')
@@ -725,11 +907,42 @@ test('price list product selection summaries avoid parent child wording and inhe
     'category-pricing-summary',
     'product-compact-status',
     'priceListCategoryPricingSummary(category)',
-    'priceListProductPricingSummary(priceListProductRowForItem(row))',
-    'priceListProductDisplaySummary(itemProductID(row))',
+    'priceListProductPricingSummary(priceListParentProductPricingRow(row))',
+    'priceListProductDisplaySummary(priceListParentProductID(row))',
   ]) {
     assert.ok(selectionSource.includes(expected), `missing compact summary behavior: ${expected}`)
   }
+})
+
+test('price list draft restoration promotes legacy SKU pricing and blocks conflicting configs until parent repricing', () => {
+  const restoreStart = viewSource.indexOf('function restorePriceListGenerationDraftForActiveType()')
+  const restoreEnd = viewSource.indexOf('function beanListPublicationTypeKey', restoreStart)
+  assert.ok(restoreStart > -1 && restoreEnd > restoreStart, 'missing price-list draft restore block')
+  const restoreSource = viewSource.slice(restoreStart, restoreEnd)
+
+  assert.match(restoreSource, /normalizeParentSharedPriceListProductOverrides\(draft\.productOverrides/)
+  assert.match(restoreSource, /productSpecSelections: draft\.product_spec_selections/)
+  assert.match(restoreSource, /priceListLegacyPricingConflicts\.value = migratedProductOverrides\.conflicts/)
+  assert.match(viewSource, /旧草稿存在规格级计价冲突，发布已阻止/)
+  assert.match(viewSource, /priceListLegacyPricingBlockedReason/)
+  assert.match(viewSource, /clearPriceListLegacyPricingConflict\(row\.parent_product_id \|\| row\.product_id\)/)
+})
+
+test('price list treats tier templates as shared sales-spec counts and keeps fixed prices labeled per selected spec', () => {
+  for (const expected of [
+    'priceListSalesSpecCountTierLabel',
+    'quantity_basis',
+    'tier_quantity_unit',
+    'selectedSpecsForProduct(priceListPricingPopover.productRow)',
+    'priceListProductSpecLabel(spec)',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing sales-spec-count tier UI: ${expected}`)
+  }
+  assert.doesNotMatch(viewSource, /:disabled="priceListTierTemplateOptionDisabled\(template\)"/)
+  assert.match(viewSource, /固定价（元\/\{\{ priceListProductSpecLabel\(spec\) \}\}）/)
+  assert.doesNotMatch(viewSource, /<select v-model="tier\.quantity_unit">/)
+  assert.match(viewSource, />最小件数</)
+  assert.match(viewSource, />最大件数</)
 })
 
 test('price list category pricing target helper separates parent, subgroup and product overrides', () => {
@@ -784,19 +997,29 @@ test('price list preview builds from current selected products instead of empty 
   const groupsSource = viewSource.slice(groupsStart, groupsEnd)
 
   assert.ok(groupsSource.includes('downloadSourcePublication.value?.content?.groups'), 'download action should still render stored publication content')
-  assert.ok(groupsSource.includes('buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value'), 'generate drawer should render from the same category rows as product picker')
+  assert.ok(groupsSource.includes('buildBeanListPdfGroupsFromCategoryRows(selectedSkuCategoryProductGroups.value'), 'generate drawer should render materialized selected SKU rows from the picker')
   assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
-  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))'), true, 'flat rows should be generated from base preview groups and duplicate tier rows should collapse')
+  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))'), true, 'flat rows should be generated from base preview groups and only identical tier rows should collapse')
   assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into PDF groups')
-  assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trial'"), true, 'pricing-rule rows should load live trial prices')
+  assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trials'"), true, 'pricing-rule rows should load live trial prices in one batch')
+  assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trial'"), false, 'price-list rows should not send one HTTP request per product')
   assert.equal(viewSource.includes('priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })'), true, 'pricing-rule trial payload should be scoped to the current customer')
   assert.equal(priceListWorkflowSource.includes("cached?.status === 'error'"), true, 'failed pricing-rule trial requests should not spin in a retry loop')
   assert.equal(viewSource.includes('visibleCategoryCodes: pdfVisibleCategoryCodes.value'), true, 'preview should keep the product picker category codes')
   assert.equal(viewSource.includes('const pdfVisiblePreviewCategoryCodes = computed(() => pdfCategoryCodesForVisibleSelection'), false, 'preview should not translate picker category codes into legacy PDF category codes')
   assert.equal(viewSource.includes('function pdfCategoryCodesForVisibleSelection'), false, 'legacy preview category code mapper should be removed')
   assert.equal(viewSource.includes('<div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">'), true, 'empty flat price rows should stay hidden')
-  assert.equal(viewSource.includes('const priceListFlatRowsReady = computed(() => arePriceListFlatRowsReady(priceListFlatRows.value))'), true, 'flat price publish readiness should use the shared helper')
+  assert.equal(viewSource.includes('trialStatusForRow: priceListFlatRowPricingTrialStatus'), true, 'flat price publish readiness should require successful live trials')
   assert.equal(priceListWorkflowSource.includes('return rows.length > 0 && rows.every'), true, 'empty flat price rows should not be publish-ready')
+  assert.equal(viewSource.includes('重新试算失败项'), true, 'failed live trials should expose an explicit retry action')
+})
+
+test('price list preview spans the page below flat price rows', () => {
+  assert.match(viewSource, /<section class="price-list-preview">[\s\S]*?<div class="pdf-preview-title">[\s\S]*?<div class="pdf-preview-phone bean-list-pdf-surface"/)
+  assert.match(viewSource, /<div v-if="priceListFlatRows\.length" class="pdf-picker flat-price-row-editor">[\s\S]*?<\/div>\s*<section class="price-list-preview">/)
+  assert.match(viewSource, /\.price-list-page-config\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)[^}]*min-width:\s*0/)
+  assert.match(viewSource, /\.price-list-preview\s*\{[^}]*grid-column:\s*1\s*\/\s*-1[^}]*width:\s*100%[^}]*min-width:\s*0/)
+  assert.match(viewSource, /\.price-list-preview\s+\.pdf-preview-phone\s*\{[^}]*width:\s*100%[^}]*max-width:\s*none/)
 })
 
 test('product bean-list drawer derives publication owner from current page scope', () => {
@@ -824,7 +1047,7 @@ test('product bean-list view maps green and commercial fields without dedicated 
     'function beanListPublicationTypeKey',
     'product_type_category_id',
     'product_type_name',
-    'selectedProductIDsByType.value = {}',
+    'productSpecSelectionsByType.value = {}',
   ]) {
     assert.ok(viewSource.includes(expected), `missing bean-list type mapping: ${expected}`)
   }
@@ -843,8 +1066,8 @@ test('product bean-list view exposes manual green bean tier price editing', () =
     'green-tier-price-editor',
     '梯度按 KG，单价按元/KG',
     '生成并发布新版价格表后，录单才会使用新价格',
-    'greenTierPriceRows(row)',
-    'setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)',
+    'greenTierPriceRows(spec)',
+    'setGreenBeanTierPrice(priceListSkuID(spec), tier, $event.target.value)',
     'function setGreenBeanTierPrice',
     'greenPriceOverrides',
     "listType: 'green'",

@@ -77,6 +77,20 @@ func TestAggregateProductionPlanMaterialSummaryUsesDictionaryGramQuantities(t *t
 	assertProductionPlanMaterial(t, got, "生豆-巴布亚之光-石光", 342, "g")
 }
 
+func TestAggregateProductionPlanMaterialSummaryDoesNotApplyBomLossTwice(t *testing.T) {
+	got := aggregateProductionPlanMaterialSummary([]productionapp.ProductionPlanItem{{
+		ID:             557,
+		SpecG:          454,
+		PlannedG:       7751,
+		PlannedOutputG: 6356,
+		MaterialSnapshot: `[
+			{"material_name":"如目达摩生豆","unit":"g","source":"bom","consume_unit":"ratio_pct","ratio_pct":100,"material_loss_rate":0.18,"input_includes_material_loss":true}
+		]`,
+	}})
+
+	assertProductionPlanMaterial(t, got, "如目达摩生豆", 7751, "g")
+}
+
 func TestPreviewProductionPlanOperationSplitsShowsCoverageAndMaterialGap(t *testing.T) {
 	items := []productionapp.ProductionPlanItem{{
 		ID:             51,

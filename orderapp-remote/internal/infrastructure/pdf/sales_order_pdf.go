@@ -474,8 +474,8 @@ func salesOrderItemHeaders(hasDiscount bool) []string {
 func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem, hasDiscount bool) []string {
 	cells := []string{
 		item.Name,
-		salesOrderSpecPerUnit(item),
-		strings.TrimSpace(item.Qty + item.Unit),
+		salesOrderItemSpec(item),
+		salesOrderItemQuantity(item),
 		item.UnitPrice,
 	}
 	if hasDiscount {
@@ -486,13 +486,27 @@ func salesOrderItemCells(item salesdomain.SalesOrderSnapshotItem, hasDiscount bo
 	return cells
 }
 
-func salesOrderSpecPerUnit(item salesdomain.SalesOrderSnapshotItem) string {
+func salesOrderItemSpec(item salesdomain.SalesOrderSnapshotItem) string {
 	spec := strings.TrimSpace(item.Spec)
 	unit := strings.TrimSpace(item.Unit)
+	if strings.TrimSpace(item.QuantityBasis) == "sales_spec_count" {
+		if spec != "" {
+			return spec
+		}
+		return unit
+	}
 	if spec == "" || unit == "" || strings.Contains(spec, "/") {
 		return spec
 	}
 	return spec + "/" + unit
+}
+
+func salesOrderItemQuantity(item salesdomain.SalesOrderSnapshotItem) string {
+	qty := strings.TrimSpace(item.Qty)
+	if strings.TrimSpace(item.QuantityBasis) == "sales_spec_count" {
+		return qty
+	}
+	return strings.TrimSpace(qty + item.Unit)
 }
 
 func salesOrderDiscountCell(amount string) string {
@@ -513,13 +527,36 @@ func salesOrderTrimMoney(amount string) string {
 }
 
 func salesOrderWrapCellText(pdf *gofpdf.Fpdf, text string, width float64) []string {
-	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n"))
 	if text == "" {
 		return []string{""}
 	}
-	lines := pdf.SplitText(text, width)
+	usableWidth := width - 2*pdf.GetCellMargin()
+	if usableWidth <= 0 {
+		usableWidth = width
+	}
+	lines := make([]string, 0, 2)
+	for _, paragraph := range strings.Split(text, "\n") {
+		if paragraph == "" {
+			lines = append(lines, "")
+			continue
+		}
+		current := ""
+		for _, r := range paragraph {
+			next := current + string(r)
+			if current != "" && pdf.GetStringWidth(next) > usableWidth {
+				lines = append(lines, current)
+				current = string(r)
+				continue
+			}
+			current = next
+		}
+		if current != "" {
+			lines = append(lines, current)
+		}
+	}
 	if len(lines) == 0 {
-		return []string{text}
+		return []string{""}
 	}
 	return lines
 }
@@ -599,9 +636,6 @@ func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrd
 	if note := strings.TrimSpace(snapshot.ExpressFee); note != "" {
 		rows = append(rows, salesOrderFinancialRow{Label: "快递费备注", Value: note})
 	}
-	if note := salesOrderItemNoteSummary(snapshot.Items); note != "" {
-		rows = append(rows, salesOrderFinancialRow{Label: "订单明细备注", Value: note})
-	}
 	if note := strings.TrimSpace(snapshot.SalesOrderNote); note != "" {
 		rows = append(rows, salesOrderFinancialRow{Label: "销售单备注", Value: note})
 	}
@@ -616,28 +650,11 @@ func salesOrderFinancialRows(snapshot salesdomain.SalesOrderSnapshot) []salesOrd
 
 func salesOrderFinancialRowWrapLeft(row salesOrderFinancialRow) bool {
 	switch row.Label {
-	case "快递费备注", "订单明细备注", "销售单备注", "订单备注":
+	case "快递费备注", "销售单备注", "订单备注":
 		return true
 	default:
 		return false
 	}
-}
-
-func salesOrderItemNoteSummary(items []salesdomain.SalesOrderSnapshotItem) string {
-	parts := make([]string, 0, len(items))
-	for _, item := range items {
-		note := strings.TrimSpace(item.Note)
-		if note == "" {
-			continue
-		}
-		name := strings.TrimSpace(item.Name)
-		if name == "" {
-			parts = append(parts, note)
-			continue
-		}
-		parts = append(parts, name+"："+note)
-	}
-	return strings.Join(parts, "；")
 }
 
 func salesOrderSnapshotHasDiscount(snapshot salesdomain.SalesOrderSnapshot) bool {

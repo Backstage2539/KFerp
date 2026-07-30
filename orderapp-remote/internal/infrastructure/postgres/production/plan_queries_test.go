@@ -1,6 +1,7 @@
 package production
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -42,6 +43,23 @@ func TestUnproducedNeedsSelectsEffectiveOperationTemplateAlias(t *testing.T) {
 	}
 	if strings.Contains(src, "n.operation_template_id") {
 		t.Fatalf("unproduced summary query selects n.operation_template_id, but the need CTE exposes effective_operation_template_id")
+	}
+}
+
+func TestProductionDemandPartRequestTuplesKeepSnapshotSpecBoundToItsOrder(t *testing.T) {
+	productIDs, specGs, orderNos := productionDemandPartRequestTuples([]UnprodNeedRow{
+		{ProductID: 789, SpecG: 454, OrderNos: "SO-OLD"},
+		{ProductID: 789, SpecG: 500, OrderNos: "SO-NEW"},
+		{ProductID: 789, SpecG: 454, OrderNos: "SO-OLD"},
+	})
+	if len(productIDs) != 2 || len(specGs) != 2 || len(orderNos) != 2 {
+		t.Fatalf("request tuples=%v/%v/%v, want two unique product/spec/order tuples", productIDs, specGs, orderNos)
+	}
+	if productIDs[0] != 789 || specGs[0] != 454 || orderNos[0] != "SO-OLD" {
+		t.Fatalf("first request tuple=%d/%d/%s, want 789/454/SO-OLD", productIDs[0], specGs[0], orderNos[0])
+	}
+	if productIDs[1] != 789 || specGs[1] != 500 || orderNos[1] != "SO-NEW" {
+		t.Fatalf("second request tuple=%d/%d/%s, want 789/500/SO-NEW", productIDs[1], specGs[1], orderNos[1])
 	}
 }
 
@@ -91,7 +109,7 @@ func TestBuildRoastPlanRowsCarriesOperationTemplateID(t *testing.T) {
 		OperationTemplateID:      22,
 	}}
 
-	got := buildRoastPlanRows(rows, nil, map[int64]float64{89: 1})
+	got := buildRoastPlanRows(rows, nil, map[int64]float64{89: 1}, nil)
 
 	if len(got) != 1 || got[0].OperationTemplateID != 22 {
 		t.Fatalf("roast plan operation template = %+v, want 22", got)
@@ -115,13 +133,37 @@ func TestBuildRoastPlanMaterialRatiosUsesInstantCoffeeRawMaterial(t *testing.T) 
 		ProductionKind: "instant_coffee",
 	}}
 
-	got := buildRoastPlanMaterialRatios(rows, map[int64][]planBomItem{})
+	got := buildRoastPlanMaterialRatios(rows, map[string][]planBomItem{})
 
 	if len(got) != 1 {
 		t.Fatalf("material ratios = %+v, want one row", got)
 	}
 	if got[0].MaterialName != "速溶咖啡" || got[0].MaterialUnit != "g" || got[0].RatioPct != 100 {
 		t.Fatalf("instant coffee material ratio = %+v", got[0])
+	}
+}
+
+func TestProductionPlanBomMaterialLossRateUsesResolvedVersionMetadata(t *testing.T) {
+	if got := productionPlanBomMaterialLossRate(latestUsableBomRoute{YieldRate: 0.8, BomMaterialLossRate: 0.2}); got != 0.2 {
+		t.Fatalf("productionPlanBomMaterialLossRate() = %.4f, want 0.2000", got)
+	}
+	if got := productionPlanBomMaterialLossRate(latestUsableBomRoute{YieldRate: 0.8}); got != 0 {
+		t.Fatalf("legacy yield must not imply the BOM version loss checkbox, got %.4f", got)
+	}
+}
+
+func TestProductionBomSummaryOnlyTreatsTypedConfigurationErrorsAsRowWarnings(t *testing.T) {
+	if !isProductionBomConfigurationError(productionBomConfigurationErrorf("product BOM not configured: 测试商品")) {
+		t.Fatal("typed BOM configuration error must remain a row-level warning")
+	}
+	if !isProductionBomNotConfiguredError(productionBomNotConfiguredError("测试商品")) {
+		t.Fatal("missing formal BOM must carry the explicit legacy-compatible reason")
+	}
+	if isProductionBomNotConfiguredError(productionBomConfigurationErrorf("product BOM not configured: 测试商品")) {
+		t.Fatal("matching error text without the explicit reason must not enable legacy fallback")
+	}
+	if isProductionBomConfigurationError(errors.New("connection interrupted")) {
+		t.Fatal("database and connection errors must propagate instead of becoming BOM configuration warnings")
 	}
 }
 
@@ -132,15 +174,17 @@ func TestCalcProducePlanMaterialsUsesDictionaryGramQuantities(t *testing.T) {
 		SpecG:     454,
 		GapG:      908,
 	}}
-	bomMap := map[int64][]planBomItem{
-		556: {
+	bomMap := map[string][]planBomItem{
+		producePlanDemandKey(rows[0].ProductID, rows[0].ParentProductID, rows[0].SpecG, rows[0].SalesSpecSnapshotJSON): {
 			{MaterialName: "哥伦比亚EP", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 114},
 			{MaterialName: "孟连水洗A", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 284},
 			{MaterialName: "生豆-巴布亚之光-石光", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 171},
 		},
 	}
 
-	got := calcProducePlanMaterialsFromFinalInputs(rows, map[string]int64{producePlanKey(556, 454): 1135}, bomMap, defaultPlanParams())
+	got := calcProducePlanMaterialsFromFinalInputs(rows, map[string]int64{
+		producePlanDemandKey(rows[0].ProductID, rows[0].ParentProductID, rows[0].SpecG, rows[0].SalesSpecSnapshotJSON): 1135,
+	}, bomMap, defaultPlanParams())
 
 	assertMaterialNeed(t, got, "哥伦比亚EP", 228, "g")
 	assertMaterialNeed(t, got, "孟连水洗A", 568, "g")

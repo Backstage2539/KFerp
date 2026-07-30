@@ -201,6 +201,11 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		default:
 			return "生产管理 / 工艺模板", "维护工艺模板"
 		}
+	case "production_plan":
+		if action == "cancel" {
+			return "生产管理 / 生产流程 / 生产计划", "撤销生产计划草稿"
+		}
+		return "生产管理 / 生产流程 / 生产计划", "维护生产计划"
 	case "industry_field_template":
 		if action == "deactivate" {
 			return "设置 / 行业设置", "停用行业字段模板"
@@ -261,6 +266,17 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "库存管理 / 仓库库存", "调整成品库存"
 	case "stock_adjustment":
 		return "库存管理 / 库存作业", "提交库存调整"
+	case "stock_entry":
+		switch action {
+		case "create_draft":
+			return "库存管理 / 库存作业 / 库存单据", "创建库存单据草稿"
+		case "update_draft":
+			return "库存管理 / 库存作业 / 库存单据", "修改库存单据草稿"
+		case "cancel":
+			return "库存管理 / 库存作业 / 库存单据", "取消库存单据"
+		default:
+			return "库存管理 / 库存作业 / 库存单据", "提交库存单据"
+		}
 	case "cost_parameter":
 		return "商品 / 商品价格管理 / 成本参数设置", "保存成本参数"
 	case "bean_list_publication":
@@ -710,6 +726,8 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(productID, specG)
 	case "stock_adjustment":
 		return firstMetaText(meta, "batch_code", "material_batch_id", "item_name", "item_id")
+	case "stock_entry":
+		return firstMetaText(meta, "entry_no", "work_order_id", "purpose")
 	case "cost_parameter":
 		return firstNonEmpty(firstMetaText(meta, "label", "key"), labelField(fieldText(r.Field)))
 	case "bean_list_publication":
@@ -725,6 +743,8 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(firstMetaText(meta, "batch_id", "batch_code"), valueForField(r, "batch_id"))
 	case "produce_running":
 		return firstMetaText(meta, "work_order_no", "running_item_id", "batch_id", "product_id")
+	case "production_plan":
+		return firstMetaText(meta, "plan_no")
 	case "wip_reservation":
 		return firstMetaText(meta, "work_order_no", "note", "running_item_id", "material_id")
 	case "product_category":
@@ -853,6 +873,8 @@ func labelEntityType(t string) string {
 		return "产品分类"
 	case "process_template":
 		return "工艺模板"
+	case "production_plan":
+		return "生产计划"
 	case "industry_field_template":
 		return "行业字段模板"
 	case "material":
@@ -893,6 +915,8 @@ func labelEntityType(t string) string {
 		return "成品库存"
 	case "stock_adjustment":
 		return "库存调整单"
+	case "stock_entry":
+		return "库存单据"
 	case "cost_parameter":
 		return "成本参数"
 	case "bean_list_publication":
@@ -942,6 +966,10 @@ func labelAction(a string) string {
 		return "发布"
 	case "save_draft":
 		return "保存草稿"
+	case "create_draft":
+		return "创建草稿"
+	case "update_draft":
+		return "修改草稿"
 	case "withdraw":
 		return "撤回"
 	case "move":

@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"fmt"
+	productionapp "orderapp/internal/application/production"
 	"os"
 	"strings"
 	"testing"
@@ -33,8 +34,111 @@ func TestMaterialNeedToDeduct(t *testing.T) {
 	}
 }
 
+func TestWorkOrderRemainingWIPShortageSubtractsConsumedBeforeAvailable(t *testing.T) {
+	if got := workOrderRemainingWIPShortage(7751, 2000, 5751); got != 0 {
+		t.Fatalf("shortage = %d, want 0 after 2000g consumed and 5751g available", got)
+	}
+	if got := workOrderRemainingWIPShortage(8, 2, 3); got != 3 {
+		t.Fatalf("count shortage = %d, want 3", got)
+	}
+}
+
+func TestMaterialSnapshotNeedsPreserveExactKilograms(t *testing.T) {
+	tests := []struct {
+		name           string
+		snapshot       string
+		wantDeductG    int64
+		wantQtyDecimal float64
+	}{
+		{
+			name: "ratio",
+			snapshot: `[{
+				"material_id":9001,
+				"material_name":"如目达摩生豆",
+				"unit":"kg",
+				"source":"bom",
+				"consume_unit":"ratio_pct",
+				"ratio_pct":100,
+				"output_qty":1,
+				"output_unit":"kg"
+			}]`,
+			wantDeductG:    1816,
+			wantQtyDecimal: 1.816,
+		},
+		{
+			name: "fixed quantity per kilogram output",
+			snapshot: `[{
+				"material_id":9001,
+				"material_name":"如目达摩生豆",
+				"unit":"kg",
+				"source":"bom",
+				"consume_unit":"fixed_qty",
+				"qty_per_unit":1,
+				"output_qty":1,
+				"output_unit":"kg"
+			}]`,
+			wantDeductG:    1816,
+			wantQtyDecimal: 1.816,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			needs, ok, err := materialSnapshotNeedsTx(ProduceRunRow{
+				ProductID:        789,
+				Product:          "如目达摩",
+				SpecG:            454,
+				NeedG:            1816,
+				InputG:           1816,
+				MaterialSnapshot: tt.snapshot,
+			}, InvQty{Units: 4})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok || len(needs) != 1 {
+				t.Fatalf("material needs=%+v ok=%v, want one frozen need", needs, ok)
+			}
+			if needs[0].DeductG != tt.wantDeductG || needs[0].Qty != 2 {
+				t.Fatalf("material need=%+v, want %dg with compatibility qty=2", needs[0], tt.wantDeductG)
+			}
+			if diff := needs[0].QtyDecimal - tt.wantQtyDecimal; diff < -0.0000001 || diff > 0.0000001 {
+				t.Fatalf("qty decimal=%v, want %v", needs[0].QtyDecimal, tt.wantQtyDecimal)
+			}
+		})
+	}
+}
+
+func TestMaterialLossIsAppliedExactlyOnceToExactWeight(t *testing.T) {
+	got := componentConsumptionWeightGramsWithMaterialLoss(
+		"ratio_pct", 0, 100, "kg",
+		1816, 1816, 4, 0,
+		1, "kg", 0.2,
+	)
+	if got != 2270 {
+		t.Fatalf("loss-adjusted weight=%dg, want 2270g", got)
+	}
+}
+
+func TestFixedPoundComponentUsesExactGramFactor(t *testing.T) {
+	got := componentConsumptionWeightGramsWithMaterialLoss(
+		"fixed_qty", 1, 0, "lb",
+		1000, 1000, 0, 0,
+		1, "kg", 0,
+	)
+	if got != 454 {
+		t.Fatalf("one pound fixed component=%dg, want ceil(453.59237)=454g", got)
+	}
+}
+
+func TestBomOutputBasisFactorConvertsPoundOutputFromFrozenGrams(t *testing.T) {
+	got := bomOutputBasisFactor(907, 2, 1, "lb")
+	want := float64(907) / 453.59237
+	if diff := got - want; diff < -0.0000001 || diff > 0.0000001 {
+		t.Fatalf("pound output factor=%v, want %v", got, want)
+	}
+}
+
 func TestIsWeightMaterialUnit(t *testing.T) {
-	for _, unit := range []string{"g", "kg", "克", "千克"} {
+	for _, unit := range []string{"g", "kg", "lb", "克", "千克", "磅"} {
 		if !isWeightMaterialUnit(unit) {
 			t.Fatalf("expected %q to be weight unit", unit)
 		}
@@ -262,6 +366,14 @@ CREATE TABLE %s.material_batch_locations (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY(material_batch_id, warehouse)
 );
+CREATE TABLE %s.work_order_material_reservations (
+	id BIGSERIAL PRIMARY KEY,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	reserved_g BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved'
+);
 INSERT INTO %s.material_batches(id,batch_code,material_id,qty_g,remaining_g)
 VALUES
 	(1,'MB-CATIM',11,200,200),
@@ -270,7 +382,7 @@ INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id
 VALUES
 	(1,'MB-CATIM',11,'wip',200),
 	(2,'MB-GESHA',12,'wip',120);
-`, schema, schema, schema, schema))
+`, schema, schema, schema, schema, schema))
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -297,6 +409,140 @@ VALUES
 	}
 }
 
+func TestWorkOrderWIPCoverageSupportsWeightCountAndOtherReservations(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.material_batches (
+	id BIGINT PRIMARY KEY,batch_code TEXT NOT NULL,material_id BIGINT NOT NULL,
+	remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked'
+);
+CREATE TABLE %s.material_batch_locations (
+	material_batch_id BIGINT NOT NULL,material_id BIGINT NOT NULL,warehouse TEXT NOT NULL,
+	qty_g BIGINT NOT NULL DEFAULT 0,qty_units BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.work_order_material_reservations (
+	id BIGINT PRIMARY KEY,work_order_id BIGINT NOT NULL,material_id BIGINT NOT NULL,
+	reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved'
+);
+INSERT INTO %s.material_batches VALUES
+	(1,'WEIGHT',11,1000,0,'active','pass'),
+	(2,'COUNT',12,0,10,'active','pass'),
+	(3,'HOLD',11,500,0,'active','hold');
+INSERT INTO %s.material_batch_locations VALUES
+	(1,11,'wip',1000,0),(2,12,'wip',0,10),(3,11,'wip',500,0);
+INSERT INTO %s.work_order_material_reservations VALUES
+	(1,88,11,300,0,200,0,0,0,'reserved'),
+	(2,89,11,200,0,0,0,0,0,'reserved'),
+	(3,89,12,0,4,0,0,0,0,'reserved');
+`, schema, schema, schema, schema, schema, schema))
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, 88, []materialConsumptionNeed{
+		{MaterialID: 11, MaterialName: "生豆", Unit: "g", DeductG: 1000},
+		{MaterialID: 12, MaterialName: "豆袋", Unit: "个", DeductUnits: 8},
+	})
+	_ = tx.Rollback(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("coverage rows = %+v", rows)
+	}
+	if rows[0].AvailableG != 800 || rows[0].CurrentConsumedG != 200 || rows[0].ShortageG != 0 {
+		t.Fatalf("weight coverage = %+v", rows[0])
+	}
+	if rows[1].AvailableUnits != 6 || rows[1].ShortageUnits != 2 {
+		t.Fatalf("count coverage = %+v", rows[1])
+	}
+}
+
+func TestHistoricalWorkOrderWIPCoverageFallsBackToReservationRequirementsAndIgnoresClosedOrders(t *testing.T) {
+	pool, schema := newProductionTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.work_orders (
+	id BIGINT PRIMARY KEY,work_order_no TEXT NOT NULL,running_item_id BIGINT NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,product_name TEXT NOT NULL DEFAULT '',spec_g BIGINT NOT NULL DEFAULT 0,
+	planned_g BIGINT NOT NULL DEFAULT 0,planned_output_g BIGINT NOT NULL DEFAULT 0,
+	sales_spec_count NUMERIC(18,6) NOT NULL DEFAULT 0,order_nos TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'released',operation_template_id BIGINT NOT NULL DEFAULT 0,
+	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE TABLE %s.material_batches (
+	id BIGINT PRIMARY KEY,batch_code TEXT NOT NULL,material_id BIGINT NOT NULL,
+	remaining_g BIGINT NOT NULL DEFAULT 0,remaining_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',quality_status TEXT NOT NULL DEFAULT 'unchecked'
+);
+CREATE TABLE %s.material_batch_locations (
+	material_batch_id BIGINT NOT NULL,material_id BIGINT NOT NULL,warehouse TEXT NOT NULL,
+	qty_g BIGINT NOT NULL DEFAULT 0,qty_units BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.work_order_material_reservations (
+	id BIGINT PRIMARY KEY,work_order_id BIGINT NOT NULL,material_id BIGINT NOT NULL,
+	material_name TEXT NOT NULL DEFAULT '',unit TEXT NOT NULL DEFAULT 'g',
+	required_g BIGINT NOT NULL DEFAULT 0,required_units BIGINT NOT NULL DEFAULT 0,
+	reserved_g BIGINT NOT NULL DEFAULT 0,reserved_units BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,consumed_units BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,returned_units BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved'
+);
+INSERT INTO %s.work_orders(id,work_order_no,product_name,status) VALUES
+	(88,'WO-HIST-0088','历史工单','released'),
+	(89,'WO-OPEN-0089','开放工单','released'),
+	(90,'WO-DONE-0090','已完成工单','completed'),
+	(91,'WO-CANCEL-0091','已取消工单','cancelled');
+INSERT INTO %s.material_batches VALUES
+	(1,'WEIGHT',11,400,0,'active','pass'),
+	(2,'COUNT',12,0,3,'active','pass');
+INSERT INTO %s.material_batch_locations VALUES
+	(1,11,'wip',400,0),(2,12,'wip',0,3);
+INSERT INTO %s.work_order_material_reservations VALUES
+	(1,88,11,'生豆','g',1000,0,1000,0,0,0,0,0,'reserved'),
+	(2,88,12,'豆袋','个',0,8,0,8,0,0,0,0,'reserved'),
+	(3,89,11,'生豆','g',100,0,100,0,0,0,0,0,'reserved'),
+	(4,89,12,'豆袋','个',0,1,0,1,0,0,0,0,'reserved'),
+	(5,90,11,'生豆','g',250,0,250,0,0,0,0,0,'reserved'),
+	(6,90,12,'豆袋','个',0,2,0,2,0,0,0,0,'reserved'),
+	(7,91,11,'生豆','g',150,0,150,0,0,0,0,0,'reserved'),
+	(8,91,12,'豆袋','个',0,1,0,1,0,0,0,0,'reserved');
+`, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	status, err := NewRepository(pool, schema).GetWorkOrderWIPCoverage(ctx, 88)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.DataComplete || status.Status != "blocked" || len(status.Materials) != 2 {
+		t.Fatalf("historical coverage status = %+v", status)
+	}
+	byMaterial := make(map[int64]productionapp.WIPReservationRow, len(status.Materials))
+	for _, row := range status.Materials {
+		byMaterial[row.MaterialID] = row
+	}
+	weight := byMaterial[11]
+	if weight.RequiredG != 1000 || weight.WIPG != 400 || weight.AvailableG != 300 || weight.ShortageG != 700 {
+		t.Fatalf("historical weight coverage = %+v, want requirement 1000, physical 400, open-order available 300, shortage 700", weight)
+	}
+	count := byMaterial[12]
+	if count.RequiredUnits != 8 || count.WIPUnits != 3 || count.AvailableUnits != 2 || count.ShortageUnits != 6 {
+		t.Fatalf("historical count coverage = %+v, want requirement 8, physical 3, open-order available 2, shortage 6", count)
+	}
+}
+
 func TestFinishedProductComponentConsumptionDeductsFinishedInventoryNotRawMaterialBatches(t *testing.T) {
 	pool, schema := newProductionTestDB(t)
 	ctx := context.Background()
@@ -310,7 +556,51 @@ CREATE TABLE %s.products (
 	id BIGINT PRIMARY KEY,
 	name TEXT NOT NULL DEFAULT '',
 	roast_level TEXT NOT NULL DEFAULT '',
+	drip_box_bag_count BIGINT NOT NULL DEFAULT 10,
 	active BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE %s.product_bom_sources (
+	product_id BIGINT PRIMARY KEY,
+	source_type TEXT NOT NULL DEFAULT '',
+	source_product_id BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.product_production_configs (
+	product_id BIGINT PRIMARY KEY,
+	production_bom_id BIGINT NOT NULL DEFAULT 0,
+	production_bom_version_id BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.product_production_bom_bindings (
+	product_id BIGINT PRIMARY KEY,
+	bom_id BIGINT NOT NULL DEFAULT 0,
+	bom_version_id BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.production_boms (
+	id BIGINT PRIMARY KEY,
+	output_product_id BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.production_bom_versions (
+	id BIGINT PRIMARY KEY,
+	bom_id BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'draft',
+	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1,
+	output_qty NUMERIC(14,6) NOT NULL DEFAULT 1,
+	output_unit TEXT NOT NULL DEFAULT 'kg',
+	published_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.production_bom_version_items (
+	id BIGSERIAL PRIMARY KEY,
+	version_id BIGINT NOT NULL DEFAULT 0,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	ratio_pct NUMERIC(10,4) NOT NULL DEFAULT 0,
+	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',
+	component_product_id BIGINT NOT NULL DEFAULT 0,
+	component_spec_g BIGINT NOT NULL DEFAULT 0,
+	consume_unit TEXT NOT NULL DEFAULT 'ratio_pct',
+	qty_per_unit NUMERIC(14,6) NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.product_bom (
 	product_id BIGINT PRIMARY KEY,
@@ -334,6 +624,10 @@ CREATE TABLE %s.materials (
 	onhand_g BIGINT NOT NULL DEFAULT 0,
 	onhand_units BIGINT NOT NULL DEFAULT 0,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.packaging_spec_material_map (
+	spec_g BIGINT PRIMARY KEY,
+	material_id BIGINT NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.finished_inventory (
 	product_id BIGINT NOT NULL,
@@ -405,7 +699,7 @@ INSERT INTO %s.product_bom_items(
 ) VALUES (1,0,0,'finished_product',2,0,'g_per_bag',10);
 INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 VALUES (2,0,'finished_goods',0,200);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {

@@ -22,6 +22,76 @@ export function priceListPricingRuleTrialRequestsForRows(sourceRows = [], option
   return requests
 }
 
+export async function executePriceListPricingRuleTrialBatches(sourceRequests = [], options = {}) {
+  const requests = Array.isArray(sourceRequests) ? sourceRequests : []
+  const sendBatch = options?.sendBatch
+  if (!requests.length) return {}
+  if (typeof sendBatch !== 'function') throw new Error('sendBatch required')
+
+  const requestedChunkSize = Math.floor(Number(options?.chunkSize || 100))
+  const chunkSize = requestedChunkSize > 0 ? requestedChunkSize : 100
+  const timeoutMs = Math.max(1, Number(options?.timeoutMs || 30000))
+  const createAbortController = typeof options?.createAbortController === 'function'
+    ? options.createAbortController
+    : () => new AbortController()
+  const scheduleTimeout = typeof options?.scheduleTimeout === 'function'
+    ? options.scheduleTimeout
+    : (callback, delay) => globalThis.setTimeout(callback, delay)
+  const cancelTimeout = typeof options?.cancelTimeout === 'function'
+    ? options.cancelTimeout
+    : (timerID) => globalThis.clearTimeout(timerID)
+  const timeoutError = String(options?.timeoutError || '价格计算超时，请重新试算').trim()
+  const fallbackError = String(options?.fallbackError || 'pricing rule trial failed').trim()
+  const completed = {}
+
+  for (let start = 0; start < requests.length; start += chunkSize) {
+    const chunk = requests.slice(start, start + chunkSize)
+    const controller = createAbortController()
+    const timeoutID = scheduleTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await sendBatch(chunk.map(({ payload }) => payload), { signal: controller.signal })
+      const responseRows = Array.isArray(response?.rows) ? response.rows : []
+      const responseByIndex = new Map(responseRows.map((row, index) => [row?.index === undefined ? index : Number(row.index), row]))
+      chunk.forEach(({ key }, index) => {
+        const row = responseByIndex.get(index)
+        const result = row?.result
+        const finalUnitPrice = Number(result?.final_unit_price ?? result?.finalUnitPrice)
+        if (result && Number.isFinite(finalUnitPrice) && finalUnitPrice > 0) {
+          completed[key] = { status: 'success', result }
+          return
+        }
+        const warnings = Array.isArray(result?.warnings)
+          ? result.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
+          : []
+        completed[key] = {
+          status: 'error',
+          error: row?.error || warnings.join('；') || (result ? '试算未生成有效价格' : fallbackError),
+        }
+      })
+    } catch (err) {
+      chunk.forEach(({ key }) => {
+        completed[key] = {
+          status: 'error',
+          error: err?.name === 'AbortError' ? timeoutError : (err?.message || fallbackError),
+        }
+      })
+    } finally {
+      cancelTimeout(timeoutID)
+    }
+  }
+  return completed
+}
+
+export function priceListPricingRuleTrialCacheForRetry(sourceCache = {}, sourceKeys = []) {
+  const cache = sourceCache && typeof sourceCache === 'object' && !Array.isArray(sourceCache) ? sourceCache : {}
+  const next = { ...cache }
+  ;(Array.isArray(sourceKeys) ? sourceKeys : []).forEach((rawKey) => {
+    const key = String(rawKey || '').trim()
+    if (key && next[key]?.status === 'error') delete next[key]
+  })
+  return next
+}
+
 export function dedupePriceListFlatRows(sourceRows = []) {
   const rows = Array.isArray(sourceRows) ? sourceRows : []
   const seen = new Map()
@@ -38,20 +108,42 @@ export function dedupePriceListFlatRows(sourceRows = []) {
       out.push(row)
       return
     }
-    if (row?.manual_adjusted === true && out[existingIndex]?.manual_adjusted !== true) {
+    if (priceListFlatRowIsManualAdjusted(row) && !priceListFlatRowIsManualAdjusted(out[existingIndex])) {
       out[existingIndex] = row
     }
   })
   return out
 }
 
-export function priceListFlatRowsReady(sourceRows = []) {
+export function priceListFlatRowsReady(sourceRows = [], options = {}) {
   const rows = Array.isArray(sourceRows) ? sourceRows : []
-  return rows.length > 0 && rows.every((row) => priceListFlatRowErrors(row).length === 0)
+  const trialStatusForRow = typeof options?.trialStatusForRow === 'function' ? options.trialStatusForRow : null
+  return rows.length > 0 && rows.every((row) => {
+    if (priceListFlatRowErrors(row).length > 0) return false
+    if (!trialStatusForRow || !priceListFlatRowUsesLiveTrial(row) || priceListFlatRowIsManualAdjusted(row)) return true
+    return String(trialStatusForRow(row) || '').trim() === 'success'
+  })
 }
 
-export function priceListFlatRowErrors(row = {}) {
-  const title = priceListFlatRowDisplayTitle(row)
+export function priceListSalesSpecCountTierLabel(tier = {}) {
+  const minQty = Number(tier?.min_qty ?? tier?.minQty ?? 0)
+  const maxRaw = tier?.max_qty ?? tier?.maxQty
+  const maxQty = maxRaw === null || maxRaw === undefined || maxRaw === '' ? null : Number(maxRaw)
+  if (!Number.isFinite(minQty) || minQty < 0) return ''
+  const formatQty = (value) => Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)))
+  if (Number.isFinite(maxQty) && maxQty > minQty) return `${formatQty(minQty)}-${formatQty(maxQty)}件`
+  if (Number.isFinite(maxQty)) return `${formatQty(minQty)}件`
+  return `${formatQty(minQty)}件+`
+}
+
+export function priceListFlatRowErrors(row = {}, options = {}) {
+  const title = priceListFlatRowContextLabel(row)
+  if (!priceListFlatRowUsesSalesSpecCount(row) && (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false)) {
+    const detail = String(row?.tier_unit_compatibility_error || row?.tierUnitCompatibilityError || '').trim()
+    const productUnit = String(row?.product_sales_spec_unit || row?.productSalesSpecUnit || row?.price_unit || row?.priceUnit || '-').trim() || '-'
+    const tierUnit = String(row?.tier_quantity_unit || row?.tierQuantityUnit || '-').trim() || '-'
+    return [`${title}：${detail || `阶梯模板不可用：商品规格“${productUnit}”与阶梯规格“${tierUnit}”不匹配`}`]
+  }
   const errors = []
   const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
   if (!mode) {
@@ -72,8 +164,12 @@ export function priceListFlatRowErrors(row = {}) {
     errors.push(`${title}：计价模式无效`)
   }
 
-  if (Number(row?.final_unit_price || row?.finalUnitPrice || 0) <= 0) {
+  if (Number(row?.final_unit_price || row?.finalUnitPrice || 0) <= 0 && String(options?.trialStatus || '').trim() !== 'loading') {
     errors.push(`${title}：最终价必须大于 0`)
+  }
+  if (priceListFlatRowUsesLiveTrial(row) && !priceListFlatRowIsManualAdjusted(row) && String(options?.trialStatus || '').trim() === 'error') {
+    const detail = String(options?.trialError || '').trim()
+    errors.push(`${title}：价格计算失败${detail ? `：${detail}` : ''}`)
   }
 
   const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
@@ -93,17 +189,30 @@ export function priceListFlatRowErrors(row = {}) {
   return errors
 }
 
+function priceListFlatRowUsesLiveTrial(row = {}) {
+  if (!priceListFlatRowUsesSalesSpecCount(row) && (row?.tier_unit_compatible === false || row?.tierUnitCompatible === false)) return false
+  const mode = String(row?.pricing_mode || row?.pricingMode || '').trim()
+  return mode === 'pricing_rule' || mode === 'tier_template'
+}
+
+function priceListFlatRowUsesSalesSpecCount(row = {}) {
+  return String(row?.quantity_basis || row?.quantityBasis || '').trim() === 'sales_spec_count'
+}
+
 export function priceListFlatRowDisplayTitle(row = {}) {
   const productName = String(row?.product_name || row?.productName || row?.name || '').trim()
-  const spec = priceListFlatRowSpecLabel(row)
-  if (!productName) return spec || '未命名商品'
-  if (!spec || productName.includes(spec)) return productName
-  return `${productName}（${spec}）`
+  return productName || '未命名商品'
+}
+
+export function priceListFlatRowSpecDescription(row = {}) {
+  const spec = priceListFlatRowPriceUnitLabel(row)
+  return `规格：${spec || '-'}`
 }
 
 export function priceListFlatRowPriceUnitLabel(row = {}) {
   const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
   const spec = priceListFlatRowUnitSpecLabel(row)
+  if (spec && priceListFlatRowUsesSalesSpecCount(row)) return compactSpecLabelFromText(spec) || spec
   if (spec && (priceUnit === '袋' || priceUnit === '包' || priceUnit === '个' || priceUnit === '盒' || priceUnit === 'unit')) {
     return spec
   }
@@ -112,36 +221,27 @@ export function priceListFlatRowPriceUnitLabel(row = {}) {
   return priceUnit || '-'
 }
 
-function priceListFlatRowSpecLabel(row = {}) {
-  const snapshot = parsePlainObject(row?.sku_snapshot ?? row?.skuSnapshot)
-  const candidates = [
-    row?.sku_name,
-    row?.skuName,
-    snapshot?.sku_name,
-    snapshot?.skuName,
-    row?.derived_spec_name,
-    row?.derivedSpecName,
-    row?.spec_label,
-    row?.specLabel,
-    snapshot?.spec_label,
-    snapshot?.specLabel,
-    netContentLabel(row),
-    netContentLabel(snapshot),
-  ]
-  for (const candidate of candidates) {
-    const text = String(candidate || '').trim()
-    if (text) return text
-  }
-  return ''
+export function priceListFlatRowContextLabel(row = {}) {
+  const productName = priceListFlatRowDisplayTitle(row)
+  const spec = priceListFlatRowPriceUnitLabel(row)
+  if (!spec || spec === '-') return productName
+  return `${productName} / 规格：${spec}`
 }
 
 function priceListFlatRowUnitSpecLabel(row = {}) {
   const snapshot = parsePlainObject(row?.sku_snapshot ?? row?.skuSnapshot)
+  const effectiveSpec = parsePlainObject(row?.effective_sales_spec ?? row?.effectiveSalesSpec)
   const candidates = [
+    effectiveSpec?.spec_label,
+    effectiveSpec?.specLabel,
+    effectiveSpec?.spec_name,
+    effectiveSpec?.specName,
     row?.spec_label,
     row?.specLabel,
     snapshot?.spec_label,
     snapshot?.specLabel,
+    row?.tier_quantity_unit,
+    row?.tierQuantityUnit,
     compactSpecLabelFromText(row?.derived_spec_name),
     compactSpecLabelFromText(row?.derivedSpecName),
     compactSpecLabelFromText(row?.sku_name),
@@ -221,10 +321,30 @@ function duplicateTierTemplateFlatRowKey(row = {}) {
   if (String(row?.pricing_mode || row?.pricingMode || '').trim() !== 'tier_template') return ''
   const productKey = flatRowProductKey(row)
   const templateID = Number(row?.tier_template_id || row?.tierTemplateID || 0)
+  const templateTierID = Number(row?.template_tier_id || row?.templateTierID || 0)
   const pricingRuleID = Number(row?.tier_pricing_rule_id || row?.tierPricingRuleID || row?.pricing_rule_id || row?.pricingRuleID || 0)
   const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()
   if (!productKey || templateID <= 0 || pricingRuleID <= 0 || !priceUnit) return ''
-  return `${productKey}:tier-template:${templateID}:pricing-rule:${pricingRuleID}:unit:${priceUnit}`
+  const tierKey = templateTierID > 0
+    ? `id:${templateTierID}`
+    : `range:${String(row?.tier_label || row?.tierLabel || '').trim()}:${Number(row?.min_qty ?? row?.minQty ?? 0)}:${nullableTierLimit(row?.max_qty ?? row?.maxQty)}`
+  return `${productKey}:tier-template:${templateID}:tier:${tierKey}:pricing-rule:${pricingRuleID}:unit:${priceUnit}`
+}
+
+function nullableTierLimit(value) {
+  if (value === undefined || value === null || value === '') return 'open'
+  const number = Number(value)
+  return Number.isFinite(number) ? String(number) : String(value).trim()
+}
+
+function priceListFlatRowIsManualAdjusted(row = {}) {
+  if (row?.manual_adjusted === true || row?.manualAdjusted === true) return true
+  const finalRaw = row?.final_unit_price ?? row?.finalUnitPrice
+  const originalRaw = row?.original_final_unit_price ?? row?.originalFinalUnitPrice
+  if (finalRaw === undefined || finalRaw === null || finalRaw === '' || originalRaw === undefined || originalRaw === null || originalRaw === '') return false
+  const finalPrice = Number(finalRaw)
+  const originalPrice = Number(originalRaw)
+  return Number.isFinite(finalPrice) && Number.isFinite(originalPrice) && Math.abs(finalPrice - originalPrice) > 0.005
 }
 
 function flatRowProductKey(row = {}) {

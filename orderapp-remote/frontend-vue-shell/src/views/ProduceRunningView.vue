@@ -135,7 +135,7 @@
           </div>
           <button class="secondary" type="button" @click="stockDrawerOpen = false">关闭</button>
         </div>
-        <StockOperationsView embedded initial-tab="wip" :view-params="{ tab: 'wip' }" />
+        <StockOperationsView embedded initial-tab="stockEntries" :view-params="{ tab: 'stockEntries' }" />
       </aside>
     </div>
   </div>

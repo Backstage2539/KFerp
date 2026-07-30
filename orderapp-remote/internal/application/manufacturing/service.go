@@ -71,6 +71,8 @@ type ManufacturingWorkstationCapacity struct {
 	BatchSizeUnit          string                   `json:"batch_size_unit"`
 	StandardMinutes        int                      `json:"standard_minutes"`
 	HourlyRate             float64                  `json:"hourly_rate"`
+	CostMethod             string                   `json:"cost_method"`
+	PieceRate              float64                  `json:"piece_rate"`
 	ProductionCapacity     int                      `json:"production_capacity"`
 	SortOrder              int                      `json:"sort_order"`
 	Note                   string                   `json:"note"`
@@ -96,6 +98,8 @@ type ProcessTemplateOperation struct {
 	BatchSizeUnit           string  `json:"batch_size_unit"`
 	StandardMinutes         int     `json:"standard_minutes"`
 	HourlyRate              float64 `json:"hourly_rate"`
+	CostMethod              string  `json:"cost_method"`
+	PieceRate               float64 `json:"piece_rate"`
 	PlannedBatchCount       int     `json:"planned_batch_count"`
 	PlannedMinutes          int     `json:"planned_minutes"`
 	PlannedOperationCost    float64 `json:"planned_operation_cost"`
@@ -143,6 +147,8 @@ type ProcessRouteOperation struct {
 	BatchSizeUnit            string  `json:"batch_size_unit"`
 	StandardMinutes          int     `json:"standard_minutes"`
 	HourlyRate               float64 `json:"hourly_rate"`
+	CostMethod               string  `json:"cost_method"`
+	PieceRate                float64 `json:"piece_rate"`
 	PlannedBatchCount        int     `json:"planned_batch_count"`
 	PlannedMinutes           int     `json:"planned_minutes"`
 	PlannedOperationCost     float64 `json:"planned_operation_cost"`
@@ -222,6 +228,8 @@ type SaveWorkstationCapacityCommand struct {
 	BatchSizeUnit          string
 	StandardMinutes        int
 	HourlyRate             float64
+	CostMethod             string
+	PieceRate              float64
 	ProductionCapacity     int
 	SortOrder              int
 	Note                   string
@@ -410,6 +418,7 @@ func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Status = normalizeStatus(cmd.Status, "active")
 	cmd.BatchSizeUnit = strings.TrimSpace(cmd.BatchSizeUnit)
+	cmd.CostMethod = normalizeCapacityCostMethod(cmd.CostMethod)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	if cmd.WorkstationID <= 0 {
 		return ManufacturingWorkstationCapacity{}, fmt.Errorf("workstation_id required")
@@ -426,12 +435,28 @@ func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 	if cmd.StandardMinutes < 0 {
 		return ManufacturingWorkstationCapacity{}, fmt.Errorf("standard_minutes must be >= 0")
 	}
+	if cmd.PieceRate < 0 {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("计件成本不能小于 0")
+	}
 	cmd.HourlyRate = 0
 	if cmd.ProductionCapacity <= 0 {
 		cmd.ProductionCapacity = 1
 	}
 	if cmd.BatchSizeUnit == "" {
 		cmd.BatchSizeUnit = "unit"
+	}
+	if cmd.CostMethod == "piece" {
+		if !isCountCapacityUnit(cmd.BatchSizeUnit) {
+			return ManufacturingWorkstationCapacity{}, fmt.Errorf("按件成本的标准产能单位必须使用“件”；每件表示当前商品的一个销售规格，不能使用 %s", cmd.BatchSizeUnit)
+		}
+		// Accept API aliases for compatibility, but persist one unambiguous
+		// business unit. A piece always means one concrete SKU sales spec.
+		cmd.BatchSizeUnit = "件"
+		if cmd.PieceRate <= 0 {
+			return ManufacturingWorkstationCapacity{}, fmt.Errorf("按件成本必须大于 0")
+		}
+	} else {
+		cmd.PieceRate = 0
 	}
 	if cmd.Code == "" {
 		cmd.Code = codeFromName(cmd.Name)
@@ -688,6 +713,22 @@ func normalizeStatus(status, fallback string) string {
 	return status
 }
 
+func normalizeCapacityCostMethod(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "piece") {
+		return "piece"
+	}
+	return "time"
+}
+
+func isCountCapacityUnit(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "件", "unit", "units", "pc", "pcs", "piece", "pieces":
+		return true
+	default:
+		return false
+	}
+}
+
 func codeFromName(name string) string {
 	code := strings.ToLower(strings.TrimSpace(name))
 	code = strings.Map(func(r rune) rune {
@@ -811,6 +852,8 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	op.BatchSizeUnit = ""
 	op.StandardMinutes = 0
 	op.HourlyRate = 0
+	op.CostMethod = "time"
+	op.PieceRate = 0
 	op.PlannedBatchCount = 0
 	op.PlannedMinutes = 0
 	op.PlannedOperationCost = 0
@@ -842,9 +885,14 @@ func (s *Service) applyStandardCostCapacitySnapshot(ctx context.Context, op Proc
 		op.BatchSizeUnit = row.BatchSizeUnit
 		op.StandardMinutes = row.StandardMinutes
 		op.HourlyRate = row.HourlyRate
+		op.CostMethod = normalizeCapacityCostMethod(row.CostMethod)
+		op.PieceRate = row.PieceRate
 		op.PlannedBatchCount = 1
 		op.PlannedMinutes = row.StandardMinutes
-		if row.BatchSizeQty > 0 && row.StandardMinutes > 0 && row.HourlyRate > 0 {
+		if op.CostMethod == "piece" && row.PieceRate > 0 {
+			op.PlannedOperationCost = row.PieceRate
+			op.StandardCostSummary = fmt.Sprintf("%s：计件成本 %.4f元/销售规格件", row.Name, row.PieceRate)
+		} else if row.BatchSizeQty > 0 && row.StandardMinutes > 0 && row.HourlyRate > 0 {
 			op.PlannedOperationCost = roundMoney((float64(row.StandardMinutes) / 60 * row.HourlyRate) / row.BatchSizeQty)
 			op.StandardCostSummary = fmt.Sprintf("%s：%.4f × %d / 60 / %.4f%s = %.4f/%s", row.Name, row.HourlyRate, row.StandardMinutes, row.BatchSizeQty, row.BatchSizeUnit, op.PlannedOperationCost, row.BatchSizeUnit)
 		}
@@ -876,10 +924,14 @@ func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op Proce
 		op.BatchSizeUnit = row.BatchSizeUnit
 		op.StandardMinutes = row.StandardMinutes
 		op.HourlyRate = row.HourlyRate
+		op.CostMethod = normalizeCapacityCostMethod(row.CostMethod)
+		op.PieceRate = row.PieceRate
 		op.DefaultMinutes = row.StandardMinutes
 		op.PlannedBatchCount = 1
 		op.PlannedMinutes = row.StandardMinutes
-		if op.BatchSizeQty > 0 && op.StandardMinutes > 0 && op.HourlyRate > 0 {
+		if op.CostMethod == "piece" && op.PieceRate > 0 {
+			op.PlannedOperationCost = op.PieceRate
+		} else if op.BatchSizeQty > 0 && op.StandardMinutes > 0 && op.HourlyRate > 0 {
 			op.PlannedOperationCost = roundMoney((float64(op.StandardMinutes) / 60 * op.HourlyRate) / op.BatchSizeQty)
 		} else {
 			op.PlannedOperationCost = 0

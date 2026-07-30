@@ -24,6 +24,7 @@ type materialRow struct {
 	Name                       string
 	Kind                       string
 	Unit                       string
+	CostUnit                   string
 	BatchNo                    string
 	PurchasePrice              float64
 	SalePrice                  float64
@@ -50,6 +51,7 @@ type materialInput struct {
 	Name                    string
 	Kind                    string
 	Unit                    string
+	CostUnit                string
 	BatchNo                 string
 	PurchasePrice           float64
 	SalePrice               float64
@@ -181,7 +183,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 	limitArg := argn
 
 	sql := fmt.Sprintf(`
-		SELECT m.id, m.code, m.name, m.kind, m.unit,
+		SELECT m.id, m.code, m.name, m.kind, m.unit, m.cost_unit,
 		       COALESCE(m.batch_no, ''),
 		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
 		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
@@ -216,7 +218,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 		var r materialRow
 		var profile beanProfileInput
 		var packProfile packProfileInput
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.IndustryFieldTemplateID, &r.ClassificationGroupID, &r.ClassificationGroupName, &r.ClassificationCategoryID, &r.ClassificationCategoryName, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &packProfile.SizeSpec, &packProfile.Dimensions, &packProfile.Material, &packProfile.Capacity, &packProfile.Color, &packProfile.Note, &r.UpdatedAt, &r.DeprecatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.CostUnit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.IndustryFieldTemplateID, &r.ClassificationGroupID, &r.ClassificationGroupName, &r.ClassificationCategoryID, &r.ClassificationCategoryName, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &packProfile.SizeSpec, &packProfile.Dimensions, &packProfile.Material, &packProfile.Capacity, &packProfile.Color, &packProfile.Note, &r.UpdatedAt, &r.DeprecatedAt); err != nil {
 			return nil, err
 		}
 		r.Kind = normalizeMaterialKind(r.Kind)
@@ -244,6 +246,8 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, fmt.Errorf("invalid id")
 	}
 	requestedInventoryUnit := strings.TrimSpace(in.Unit)
+	requestedCostUnit := strings.TrimSpace(in.CostUnit)
+	in.CostUnit = ""
 	next, err := normalizeMaterialInput(in)
 	if err != nil {
 		return materialRow{}, err
@@ -261,7 +265,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var old materialRow
-	qOld := fmt.Sprintf(`SELECT m.id, m.code, m.name, m.kind, m.unit,
+	qOld := fmt.Sprintf(`SELECT m.id, m.code, m.name, m.kind, m.unit, m.cost_unit,
 		       COALESCE(m.batch_no, ''),
 		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
 		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
@@ -280,7 +284,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		FOR UPDATE OF m`, schema, schema, schema)
 	var oldProfile beanProfileInput
 	var oldPackProfile packProfileInput
-	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &old.IndustryFieldTemplateID, &oldProfile.Origin, &oldProfile.ProcessingStation, &oldProfile.Variety, &oldProfile.ProcessMethod, &oldProfile.Grade, &oldProfile.Altitude, &oldProfile.Flavor, &oldProfile.BeanListNote, &oldPackProfile.SizeSpec, &oldPackProfile.Dimensions, &oldPackProfile.Material, &oldPackProfile.Capacity, &oldPackProfile.Color, &oldPackProfile.Note, &old.UpdatedAt, &old.DeprecatedAt); err != nil {
+	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.CostUnit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &old.IndustryFieldTemplateID, &oldProfile.Origin, &oldProfile.ProcessingStation, &oldProfile.Variety, &oldProfile.ProcessMethod, &oldProfile.Grade, &oldProfile.Altitude, &oldProfile.Flavor, &oldProfile.BeanListNote, &oldPackProfile.SizeSpec, &oldPackProfile.Dimensions, &oldPackProfile.Material, &oldPackProfile.Capacity, &oldPackProfile.Color, &oldPackProfile.Note, &old.UpdatedAt, &old.DeprecatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return materialRow{}, fmt.Errorf("not found")
 		}
@@ -301,6 +305,10 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 	next.Unit = old.Unit
+	if err := assertMaterialCostUnitReadOnly(old, next, requestedCostUnit); err != nil {
+		return materialRow{}, err
+	}
+	next.CostUnit = old.CostUnit
 	if err := assertMaterialStockFieldsReadOnly(old, next); err != nil {
 		return materialRow{}, err
 	}
@@ -310,17 +318,18 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 			name=$3,
 			kind=$4,
 			unit=$5,
-			batch_no=$6,
-			purchase_price=$7,
-			sale_price=$8,
-			onhand_g=$9,
-			onhand_units=$10,
-			min_level_g=$11,
-			min_level_units=$12,
-			industry_field_template_id=$13,
+			cost_unit=$6,
+			batch_no=$7,
+			purchase_price=$8,
+			sale_price=$9,
+			onhand_g=$10,
+			onhand_units=$11,
+			min_level_g=$12,
+			min_level_units=$13,
+			industry_field_template_id=$14,
 			updated_at=now()
 		WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID); err != nil {
+	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.CostUnit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID); err != nil {
 		return materialRow{}, err
 	}
 	if err := writeBeanProfileTx(ctx, tx, schema, id, next); err != nil {
@@ -366,13 +375,13 @@ func createMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	q := fmt.Sprintf(`INSERT INTO %s.materials(
-			code, name, kind, unit, batch_no, purchase_price, sale_price,
+			code, name, kind, unit, cost_unit, batch_no, purchase_price, sale_price,
 			onhand_g, onhand_units, min_level_g, min_level_units, industry_field_template_id, updated_at
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
 		RETURNING id`, schema)
 	var id int64
-	if err := tx.QueryRow(ctx, q, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, q, next.Code, next.Name, next.Kind, next.Unit, next.CostUnit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID).Scan(&id); err != nil {
 		return materialRow{}, err
 	}
 	if err := writeBeanProfileTx(ctx, tx, schema, id, next); err != nil {
@@ -452,6 +461,7 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Kind = strings.TrimSpace(in.Kind)
 	in.Unit = strings.TrimSpace(in.Unit)
+	in.CostUnit = normalizeMaterialCostUnit(in.CostUnit)
 	in.BatchNo = strings.TrimSpace(in.BatchNo)
 	if in.Profile != nil {
 		in.Profile.normalize()
@@ -471,6 +481,21 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	in.Kind = normalizeMaterialKind(in.Kind)
 	if in.Unit == "" {
 		in.Unit = "g"
+	}
+	if isMaterialWeightUnit(in.Unit) {
+		if in.CostUnit == "" {
+			in.CostUnit = "kg"
+		}
+		if in.CostUnit != "kg" {
+			return materialInput{}, fmt.Errorf("重量物料成本计价单位必须为 kg")
+		}
+	} else {
+		if in.CostUnit == "" {
+			in.CostUnit = in.Unit
+		}
+		if in.CostUnit != in.Unit {
+			return materialInput{}, fmt.Errorf("非重量物料成本计价单位必须与库存单位一致")
+		}
 	}
 	if in.MinLevelQty > 0 && in.MinLevelG == 0 && in.MinLevelUnits == 0 {
 		in.MinLevelG, in.MinLevelUnits = quantityToLegacy(in.Unit, in.MinLevelQty)
@@ -539,6 +564,25 @@ func normalizeMaterialKind(kind string) string {
 	}
 }
 
+func normalizeMaterialCostUnit(unit string) string {
+	unit = strings.TrimSpace(unit)
+	switch strings.ToLower(unit) {
+	case "kg", "千克":
+		return "kg"
+	default:
+		return unit
+	}
+}
+
+func isMaterialWeightUnit(unit string) bool {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "g", "kg", "lb", "oz", "克", "千克":
+		return true
+	default:
+		return false
+	}
+}
+
 func materialQtyForUnit(unit string, qtyG, qtyUnits int64) float64 {
 	switch strings.ToLower(strings.TrimSpace(unit)) {
 	case "kg":
@@ -597,6 +641,21 @@ func assertMaterialInventoryUnitReadOnly(old materialRow, next materialInput, re
 	return nil
 }
 
+func assertMaterialCostUnitReadOnly(old materialRow, next materialInput, requestedCostUnit string) error {
+	requestedCostUnit = normalizeMaterialCostUnit(requestedCostUnit)
+	if requestedCostUnit == "" {
+		return nil
+	}
+	oldCostUnit := normalizeMaterialCostUnit(old.CostUnit)
+	if oldCostUnit == "" {
+		oldCostUnit = normalizeMaterialCostUnit(next.CostUnit)
+	}
+	if oldCostUnit != requestedCostUnit {
+		return fmt.Errorf("成本计价单位保存后不能修改；如需调整，请新建物料档案")
+	}
+	return nil
+}
+
 func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, old materialRow, next materialInput) error {
 	actor = strings.TrimSpace(actor)
 	if actor == "" {
@@ -621,6 +680,7 @@ func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, ol
 		{"name", old.Name, next.Name},
 		{"kind", old.Kind, next.Kind},
 		{"unit", old.Unit, next.Unit},
+		{"cost_unit", old.CostUnit, next.CostUnit},
 		{"batch_no", old.BatchNo, next.BatchNo},
 		{"purchase_price", fmt.Sprintf("%.2f", old.PurchasePrice), fmt.Sprintf("%.2f", next.PurchasePrice)},
 		{"sale_price", fmt.Sprintf("%.2f", old.SalePrice), fmt.Sprintf("%.2f", next.SalePrice)},
@@ -659,7 +719,12 @@ func logMaterialCreateTx(ctx context.Context, tx pgx.Tx, schema, actor string, i
 	}
 	q := fmt.Sprintf(`INSERT INTO %s.audit_logs(actor, entity_type, entity_id, action, field, old_value, new_value, meta)
 		VALUES($1,'material',$2,'create','material','',$3,jsonb_build_object('material_id',$2::bigint,'code',$4::text))`, schema)
-	_, err := tx.Exec(ctx, q, actor, id, next.Name, next.Code)
+	if _, err := tx.Exec(ctx, q, actor, id, next.Name, next.Code); err != nil {
+		return err
+	}
+	costUnitQ := fmt.Sprintf(`INSERT INTO %s.audit_logs(actor, entity_type, entity_id, action, field, old_value, new_value, meta)
+		VALUES($1,'material',$2,'create','cost_unit','',$3,jsonb_build_object('material_id',$2::bigint,'code',$4::text))`, schema)
+	_, err := tx.Exec(ctx, costUnitQ, actor, id, next.CostUnit, next.Code)
 	return err
 }
 
@@ -1203,6 +1268,7 @@ func materialToApp(row materialRow) materialsapp.Material {
 		Name:                       row.Name,
 		Kind:                       row.Kind,
 		Unit:                       row.Unit,
+		CostUnit:                   row.CostUnit,
 		BatchNo:                    row.BatchNo,
 		PurchasePrice:              row.PurchasePrice,
 		SalePrice:                  row.SalePrice,
@@ -1231,6 +1297,7 @@ func materialInputFromApp(in materialsapp.MaterialInput) materialInput {
 		Name:                    in.Name,
 		Kind:                    in.Kind,
 		Unit:                    in.Unit,
+		CostUnit:                in.CostUnit,
 		BatchNo:                 in.BatchNo,
 		PurchasePrice:           in.PurchasePrice,
 		SalePrice:               in.SalePrice,

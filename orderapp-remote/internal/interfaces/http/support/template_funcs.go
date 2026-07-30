@@ -36,7 +36,7 @@ func TemplateFuncMap() template.FuncMap {
 			return template.JS(b)
 		},
 		"assetLabel":          assetKindLabel,
-		"bomURL":              func() string { return "/vue-shell?view=bom" },
+		"bomURL":              func() string { return "/vue-shell?view=productionConfig&tab=bom" },
 		"custShort":           customerShortLabel,
 		"eq64":                func(a, b int64) bool { return a == b },
 		"eqi":                 func(a, b int) bool { return a == b },

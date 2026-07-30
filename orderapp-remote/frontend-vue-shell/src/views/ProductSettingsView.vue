@@ -225,7 +225,7 @@
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
                     <strong :title="group.path_label || group.label">{{ group.label }}</strong>
-                    <small>{{ group.rows.length }} 款</small>
+                    <small>{{ group.total }} 款</small>
                   </td>
                 </tr>
                 <template v-if="!isProductClassificationGroupCollapsed(group.key)">
@@ -282,6 +282,18 @@
                   </td>
                 </tr>
               </template>
+                  <tr v-if="group.needsPagination" class="classification-pagination-row">
+                    <td :colspan="12">
+                      <PaginationControls
+                        :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
+                        :page="group.page"
+                        :page-size="group.pageSize"
+                        :total="group.total"
+                        :disabled="loading"
+                        @change="handleSkuGroupPaginationChange(group.key, $event)"
+                      />
+                    </td>
+                  </tr>
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
@@ -291,14 +303,6 @@
           </table>
           </div>
         </div>
-        <PaginationControls
-          :key="skuPaginationKey"
-          :page="skuPage"
-          :page-size="skuPageSize"
-          :total="skuDisplayTotal"
-          :disabled="loading"
-          @change="handleSkuPaginationChange"
-        />
       </div>
         </div>
       </div>
@@ -740,7 +744,7 @@
           <section class="product-price-records-panel pricing-rule-management-panel">
             <div class="field-group-head">
               <strong>价格计算模板 / Pricing Rule</strong>
-              <small>模板只负责基础成本、其他成本、利润税费和取整公式；不绑定商品，不保存数量档位和最终成交价。商品价格表引用模板后生成平铺价格行。</small>
+              <small>模板只负责基础成本、其他成本、加价率、税费和取整公式；不绑定商品，不保存数量档位和最终成交价。商品价格表引用模板后生成平铺价格行。</small>
             </div>
             <div class="table-wrap compact-table-wrap">
               <table>
@@ -749,8 +753,7 @@
                     <th>模板</th>
                     <th>公式版本</th>
                     <th>基础成本</th>
-                    <th>利润方式</th>
-                    <th>利润率</th>
+                    <th>加价率</th>
                     <th>税率</th>
                     <th>取整规则</th>
                     <th>状态</th>
@@ -763,125 +766,30 @@
                       <button class="text-button pricing-rule-name-button" type="button" @click="startPricingRuleEdit(rule)">
                         {{ rule.name || rule.code || `Pricing Rule #${rule.id}` }}
                       </button>
+                      <small v-if="pricingRuleNeedsMarkupConfirmation(rule)" class="pricing-rule-migration-warning">旧方式待确认，请新建加价率模板</small>
                     </td>
                     <td>{{ rule.formula_version || 'v1' }}</td>
                     <td>{{ pricingRuleCostSourceLabel(rule.cost_source_mode) }}</td>
-                    <td>{{ pricingRuleProfitMethodLabel(rule.profit_method) }}</td>
                     <td>{{ percentDisplay(rule.margin_rate) }}</td>
                     <td>{{ percentDisplay(rule.tax_rate) }}</td>
                     <td>{{ pricingRuleRoundingLabel(rule.rounding_mode) }}</td>
                     <td><span :class="['status-pill', rule.active === false ? 'inactive' : '']">{{ rule.active === false ? '停用' : '启用' }}</span></td>
                     <td class="table-actions">
-                      <button class="secondary compact-action pricing-rule-copy-action" type="button" :disabled="productPriceSaving" @click="copyPricingRule(rule)">复制</button>
+                      <button
+                        class="secondary compact-action pricing-rule-copy-action"
+                        type="button"
+                        :disabled="productPriceSaving || pricingRuleNeedsMarkupConfirmation(rule)"
+                        :title="pricingRuleNeedsMarkupConfirmation(rule) ? '旧价格方式无法安全换算，请新建加价率模板' : '复制价格计算模板'"
+                        @click="copyPricingRule(rule)">复制</button>
                       <button v-if="rule.active !== false" class="secondary compact-action danger-outline" type="button" :disabled="productPriceSaving" @click="deactivatePricingRule(rule)">失效</button>
                     </td>
                   </tr>
                   <tr v-if="!pricingRules.length">
-                    <td colspan="9" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
+                    <td colspan="8" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <form class="template-editor pricing-rule-form" @submit.prevent="savePricingRule">
-              <div class="template-editor-grid">
-                <label>
-                  <span>模板名称</span>
-                  <input v-model.trim="pricingRuleForm.name" placeholder="如 成本加成含税" />
-                </label>
-                <label>
-                  <span>模板编号</span>
-                  <input v-model.trim="pricingRuleForm.code" placeholder="如 PR-COST-PLUS" />
-                </label>
-                <label>
-                  <span>基础成本</span>
-                  <select v-model="pricingRuleForm.cost_source_mode">
-                    <option value="bom_current_cost">生产 BOM 成本（物料+工序）</option>
-                  </select>
-                </label>
-                <label>
-                  <span>公式版本</span>
-                  <input v-model.trim="pricingRuleForm.formula_version" placeholder="v1" />
-                </label>
-              </div>
-              <div class="pricing-rule-form-section">
-                <div class="pricing-rule-section-head">
-                  <strong>其他成本</strong>
-                  <button class="secondary compact-action" type="button" @click="addPricingRuleOtherCostRow">新增其他成本</button>
-                </div>
-                <small class="muted">生产 BOM 成本已包含物料采购成本和已选择工序成本；货币使用全局币种配置，当前不在价格模板中单独设置。</small>
-                <div class="pricing-rule-other-cost-list">
-                  <div v-for="(row, index) in pricingRuleForm.other_cost_rows" :key="index" class="pricing-rule-other-cost-row">
-                    <label>
-                      <span>成本名</span>
-                      <input v-model.trim="row.key" placeholder="如 包装贴标" />
-                    </label>
-                    <label>
-                      <span>成本价格</span>
-                      <input v-model.number="row.value" type="number" min="0" step="0.0001" placeholder="0" />
-                    </label>
-                    <button class="secondary compact-action" type="button" @click="removePricingRuleOtherCostRow(index)">删除</button>
-                  </div>
-                </div>
-              </div>
-              <div class="template-editor-grid">
-                <label>
-                  <span>损耗/出率</span>
-                  <select v-model="pricingRuleForm.yield_loss_mode">
-                    <option value="bom_or_product">按 BOM 或商品生产参数</option>
-                    <option value="none">不单独计算</option>
-                    <option value="manual">手工输入</option>
-                  </select>
-                </label>
-                <label>
-                  <span>利润方式</span>
-                  <select v-model="pricingRuleForm.profit_method">
-                    <option value="gross_margin">毛利率</option>
-                    <option value="markup">加价率</option>
-                    <option value="fixed_add">固定加价</option>
-                  </select>
-                </label>
-                <label>
-                  <span>利润率</span>
-                  <input v-model.number="pricingRuleForm.margin_rate" type="number" min="0" step="0.0001" placeholder="0.3" />
-                </label>
-                <label>
-                  <span>最低毛利</span>
-                  <input v-model.number="pricingRuleForm.minimum_margin_rate" type="number" min="0" step="0.0001" placeholder="0.18" />
-                </label>
-                <label>
-                  <span>税费方式</span>
-                  <select v-model="pricingRuleForm.tax_mode">
-                    <option value="tax_included">含税</option>
-                    <option value="tax_excluded">未税</option>
-                    <option value="none">不计税</option>
-                  </select>
-                </label>
-                <label>
-                  <span>税率</span>
-                  <input v-model.number="pricingRuleForm.tax_rate" type="number" min="0" step="0.0001" placeholder="0.06" />
-                </label>
-                <label>
-                  <span>取整规则</span>
-                  <select v-model="pricingRuleForm.rounding_mode">
-                    <option value="none">不取整</option>
-                    <option value="jiao">保留到角</option>
-                    <option value="yuan">保留到元</option>
-                  </select>
-                </label>
-              </div>
-              <label class="wide-field">
-                <span>备注</span>
-                <textarea v-model.trim="pricingRuleForm.remark" rows="2" placeholder="说明 BOM/耗材/工艺成本如何参与试算"></textarea>
-              </label>
-              <label class="wide-field">
-                <span>试算说明</span>
-                <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、销售单位后按生产 BOM 成本试算"></textarea>
-              </label>
-              <div class="form-actions">
-                <button class="primary" type="submit" :disabled="productPriceSaving">保存价格计算模板</button>
-                <button v-if="pricingRuleForm.id && pricingRuleForm.active !== false" class="secondary danger-outline" type="button" :disabled="productPriceSaving" @click="deactivatePricingRule(pricingRuleForm)">失效</button>
-              </div>
-            </form>
           </section>
         </div>
         <p class="muted price-list-flat-row-note" aria-label="商品 > 子类 > 父类 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则固定为：商品 &gt; 子类 &gt; 父类 &gt; 价格表。阶梯模板在商品价格表维护。</p>
@@ -889,6 +797,125 @@
         </div>
       </div>
     </section>
+
+    <div v-if="pricingRuleEditorDrawerOpen" class="settings-drawer-mask" @click.self="closePricingRuleEditor" @keydown.esc.stop.prevent="closePricingRuleEditor">
+      <aside
+        ref="pricingRuleEditorDrawer"
+        class="settings-drawer pricing-rule-editor-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="价格计算模板编辑"
+        tabindex="-1"
+        @keydown.tab="trapPricingRuleEditorFocus">
+        <div class="drawer-head">
+          <div>
+            <h3>{{ pricingRuleForm.id ? '编辑价格计算模板' : '新建价格计算模板' }}</h3>
+            <p>统一按加价率计算。80% 请填写 0.8；税前价 = 成本基数 × (1 + 加价率)，最终售价再计算税额和取整。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closePricingRuleEditor">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <div v-if="pricingRuleNeedsMarkupConfirmation(pricingRuleForm)" class="error pricing-rule-migration-alert" role="alert">
+            <strong>旧价格方式无法安全换算；请新建加价率模板。</strong>
+            <span>该模板仅供核对，不能复制或直接保存。原方式：{{ pricingRuleLegacyMethodLabel(pricingRuleForm) }}；原参数：{{ pricingRuleLegacyValueLabel(pricingRuleForm) }}。</span>
+          </div>
+          <form class="template-editor pricing-rule-form" @submit.prevent="savePricingRule">
+            <div class="template-editor-grid">
+              <label>
+                <span>模板名称</span>
+                <input v-model.trim="pricingRuleForm.name" placeholder="如 成本加成含税" />
+              </label>
+              <label>
+                <span>模板编号</span>
+                <input v-model.trim="pricingRuleForm.code" placeholder="如 PR-COST-PLUS" />
+              </label>
+              <label>
+                <span>基础成本</span>
+                <select v-model="pricingRuleForm.cost_source_mode">
+                  <option value="bom_current_cost">生产 BOM 成本（物料+工序）</option>
+                </select>
+              </label>
+              <label>
+                <span>公式版本</span>
+                <input v-model.trim="pricingRuleForm.formula_version" placeholder="v1" />
+              </label>
+            </div>
+            <div class="pricing-rule-form-section">
+              <div class="pricing-rule-section-head">
+                <strong>其他成本</strong>
+                <button class="secondary compact-action" type="button" @click="addPricingRuleOtherCostRow">新增其他成本</button>
+              </div>
+              <small class="muted">生产 BOM 成本已包含物料采购成本和已选择工序成本；货币使用全局币种配置，当前不在价格模板中单独设置。</small>
+              <div class="pricing-rule-other-cost-list">
+                <div v-for="(row, index) in pricingRuleForm.other_cost_rows" :key="index" class="pricing-rule-other-cost-row">
+                  <label>
+                    <span>成本名</span>
+                    <input v-model.trim="row.key" placeholder="如 包装贴标" />
+                  </label>
+                  <label>
+                    <span>成本价格</span>
+                    <input v-model.number="row.value" type="number" min="0" step="0.0001" placeholder="0" />
+                  </label>
+                  <button class="secondary compact-action" type="button" @click="removePricingRuleOtherCostRow(index)">删除</button>
+                </div>
+              </div>
+            </div>
+            <div class="template-editor-grid">
+              <label>
+                <span>损耗/出率</span>
+                <select v-model="pricingRuleForm.yield_loss_mode">
+                  <option value="bom_or_product">按 BOM 或商品生产参数</option>
+                  <option value="none">不单独计算</option>
+                  <option value="manual">手工输入</option>
+                </select>
+              </label>
+              <label>
+                <span>加价率（80%=0.8）</span>
+                <input v-model.number="pricingRuleForm.margin_rate" type="number" min="0" step="0.0001" placeholder="如 0.8" />
+                <small>计算公式：税前价 = 成本基数 × (1 + 加价率)；最终售价再计算税额和取整</small>
+              </label>
+              <label>
+                <span>最低毛利率（仅预警）</span>
+                <input v-model.number="pricingRuleForm.minimum_margin_rate" type="number" min="0" step="0.0001" placeholder="0.18" />
+                <small>只比较试算结果，不参与售价计算</small>
+              </label>
+              <label>
+                <span>税费方式</span>
+                <select v-model="pricingRuleForm.tax_mode">
+                  <option value="tax_included">含税</option>
+                  <option value="tax_excluded">未税</option>
+                  <option value="none">不计税</option>
+                </select>
+              </label>
+              <label>
+                <span>税率</span>
+                <input v-model.number="pricingRuleForm.tax_rate" type="number" min="0" step="0.0001" placeholder="0.06" />
+              </label>
+              <label>
+                <span>取整规则</span>
+                <select v-model="pricingRuleForm.rounding_mode">
+                  <option value="none">不取整</option>
+                  <option value="jiao">保留到角</option>
+                  <option value="yuan">保留到元</option>
+                </select>
+              </label>
+            </div>
+            <label class="wide-field">
+              <span>备注</span>
+              <textarea v-model.trim="pricingRuleForm.remark" rows="2" placeholder="说明 BOM/耗材/工艺成本如何参与试算"></textarea>
+            </label>
+            <label class="wide-field">
+              <span>试算说明</span>
+              <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、销售单位后按生产 BOM 成本试算"></textarea>
+            </label>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="productPriceSaving || pricingRuleNeedsMarkupConfirmation(pricingRuleForm)">保存价格计算模板</button>
+              <button v-if="pricingRuleForm.id && pricingRuleForm.active !== false" class="secondary danger-outline" type="button" :disabled="productPriceSaving" @click="deactivatePricingRule(pricingRuleForm)">失效</button>
+            </div>
+          </form>
+        </div>
+      </aside>
+    </div>
 
     <div v-if="pricingRuleTrialDrawerOpen" class="settings-drawer-mask" @click.self="closePricingRuleTrial">
       <aside class="settings-drawer pricing-rule-trial-drawer" aria-label="价格计算模板试算">
@@ -907,7 +934,7 @@
             </div>
             <div class="pricing-rule-trial-rule-grid">
               <span>基础成本：{{ pricingRuleCostSourceLabel(pricingRuleTrialRule?.cost_source_mode) }}</span>
-              <span>利润方式：{{ pricingRuleProfitMethodLabel(pricingRuleTrialRule?.profit_method) }}</span>
+              <span>计价方式：加价率</span>
               <span>取整规则：{{ pricingRuleRoundingLabel(pricingRuleTrialRule?.rounding_mode) }}（来自价格计算模板）</span>
               <span>税率：{{ pricingRuleTrialTaxRateSummary(pricingRuleTrialResult, pricingRuleTrialRule) }}</span>
             </div>
@@ -973,7 +1000,7 @@
                 <input v-model.number="pricingRuleTrialForm.expected_loss_rate" type="number" min="0" max="0.9999" step="0.0001" placeholder="空=不额外计损耗" />
               </label>
               <label>
-                <span>临时利润/加价</span>
+                <span>临时加价率</span>
                 <input v-model.number="pricingRuleTrialForm.margin_rate" type="number" min="0" step="0.0001" />
               </label>
               <label>
@@ -1131,7 +1158,7 @@
                 </div>
               </template>
               <template v-else-if="pricingRuleTrialActiveExplanation === 'profit_markup'">
-                <p>加价方式设置位置：价格计算模板编辑区「利润方式 / 利润率」。本次试算抽屉「临时利润/加价」有值时，会覆盖本次计算使用的利润参数。</p>
+                <p>加价率设置位置：价格计算模板编辑抽屉「加价率」。80% 填写 0.8，按“税前价 = 成本基数 × (1 + 加价率)”计算，最终售价再计算税额和取整；本次试算抽屉「临时加价率」有值时，会覆盖本次计算使用的加价率。</p>
                 <dl class="pricing-rule-trial-explanation-grid">
                   <div>
                     <dt>加价方式</dt>
@@ -1507,7 +1534,18 @@
                   <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
                   <small v-if="row.derived_spec_status === 'template_removed'" class="muted">历史 SKU 保留用于历史单据，不参与新建业务</small>
                 </div>
-                <span v-if="row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' || row.active === false" :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
+                <div class="sales-spec-default-actions">
+                  <span v-if="productSalesSpecIsDefault(row)" class="template-meta-chip default-spec-chip">默认规格</span>
+                  <button
+                    v-else-if="productSalesSpecCanSetDefault(row)"
+                    class="secondary compact-action"
+                    type="button"
+                    :disabled="defaultSkuSavingID === productSalesSpecSkuID(row)"
+                    @click="setDefaultProductSalesSpec(row)">
+                    {{ defaultSkuSavingID === productSalesSpecSkuID(row) ? '设置中' : '设为默认规格' }}
+                  </button>
+                  <span v-if="row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' || row.active === false" :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
+                </div>
               </article>
               <p v-if="!productProductionVisibleSalesSpecRows.length" class="muted">当前模板没有可用规格；打开“显示历史规格”可查看历史保留 SKU。</p>
             </div>
@@ -1782,6 +1820,7 @@ import {
   categoryDisplayState,
   customerSkuCustomerOptions,
   customerProductAliasRowsForCustomer,
+  filterSkuRows,
   groupRowsByClassificationCategory,
   industryFieldSummary,
   gradientTemplateBelongsToSkuContext,
@@ -1803,6 +1842,7 @@ import {
   productPriceRecordLabel,
   productKindSupportsBomParams,
   productCodeLabel,
+  primaryCategoryOptions,
   pricingRuleTrialDefaultQuoteUnit,
   pricingRuleTrialQuoteUnitOptionsForProduct,
   productSkuRowsForParent,
@@ -1811,14 +1851,16 @@ import {
   resolveCreatedProductForConfig,
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
+  secondaryCategoryOptions,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
-  skuTableState,
+  skuGroupTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
+  visibleSkuGroupRows,
   visibleNonDeletedRows,
 } from '../lib/product-settings'
 import { normalizePageSize } from '../lib/pagination'
@@ -1834,6 +1876,7 @@ const props = defineProps({
 })
 const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
 const UNCLASSIFIED_CATEGORY_MOVE_ID = -999999
+const DEFAULT_SKU_GROUP_PAGE_SIZE = 10
 let restoringProductSettingsDraft = false
 
 const categories = ref([])
@@ -1854,6 +1897,8 @@ const productPriceRecords = ref([])
 const productTierPriceSchemes = ref([])
 const pricingRules = ref([])
 const priceTierTemplates = ref([])
+const pricingRuleEditorDrawerOpen = ref(false)
+const pricingRuleEditorDrawer = ref(null)
 const pricingRuleTrialDrawerOpen = ref(false)
 const pricingRuleTrialLoading = ref(false)
 const pricingRuleTrialRule = ref(null)
@@ -1863,6 +1908,7 @@ const pricingRuleTrialActiveExplanation = ref('')
 const pricingRuleTrialError = ref('')
 let pricingRuleTrialAutoRunTimer = null
 let pricingRuleTrialRunID = 0
+let pricingRuleEditorReturnFocus = null
 const customerPublicUsages = ref([])
 const customerProductAliases = ref([])
 const customerProductRuleTemplates = ref([])
@@ -1936,6 +1982,7 @@ const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'te
 const showProductPriceManagementPane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'product-price-management')
 const productDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
+let productProductionConfigOpenGeneration = 0
 const customerAliasCreateDrawerOpen = ref(false)
 const customerAliasCreateMode = ref('single')
 const classificationTemplateCreateDrawerOpen = ref(false)
@@ -1963,8 +2010,7 @@ const collapsedProductClassificationGroups = ref([])
 const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
 const aliasFilters = ref({ query: '', active: 'active' })
-const skuPage = ref(1)
-const skuPageSize = ref(10)
+const skuGroupPagination = ref({})
 const publicUsageSaving = ref(false)
 const skuForm = ref(defaultSkuForm())
 const productForm = skuForm
@@ -1992,6 +2038,7 @@ const productProductionConfigSaving = ref(false)
 const showProductProductionHistoricalSpecs = ref(false)
 const childSkuForm = ref(defaultChildSkuForm())
 const childSkuSaving = ref(false)
+const defaultSkuSavingID = ref(0)
 const aliasIndustryFieldDrawerOpen = ref(false)
 const aliasIndustryFieldSaving = ref(false)
 const aliasIndustryFieldAlias = ref(null)
@@ -2285,7 +2332,9 @@ function productionConfigForProduct(product) {
 
 function productionConfigPriceListFields(product) {
   const config = productionConfigForProduct(product)
-  return (config.fields || []).filter((field) => field.show_in_price_list)
+  const template = industryFieldTemplateForConfig(config)
+  return productProductionConfigFieldsFromTemplate(config.fields || [], template)
+    .filter((field) => field.show_in_price_list)
 }
 
 function productionConfigLossLabel(product) {
@@ -2306,15 +2355,10 @@ const customerSkuRows = computed(() => productArchiveRowsWithSkus(customerSkuRow
 const currentSkuSourceRows = computed(() => (
   skuContextCustomerID.value > 0 ? customerSkuRows.value : publicSkuRows.value
 ).slice())
-const skuVisibleTableState = computed(() => skuTableState(currentSkuSourceRows.value, skuFilters.value, {
-  page: skuPage.value,
-  pageSize: skuPageSize.value,
-}))
-const normalizedSkuFilters = computed(() => skuVisibleTableState.value.filters)
-const skuDisplayTotal = computed(() => skuVisibleTableState.value.total)
-const displaySkuRows = computed(() => skuVisibleTableState.value.rows)
-const skuPrimaryCategoryOptions = computed(() => skuVisibleTableState.value.primaryOptions)
-const skuSecondaryCategoryOptions = computed(() => skuVisibleTableState.value.secondaryOptions)
+const normalizedSkuFilters = computed(() => normalizeVisibleSkuFilters(skuFilters.value, currentSkuSourceRows.value))
+const filteredSkuRows = computed(() => filterSkuRows(currentSkuSourceRows.value, normalizedSkuFilters.value))
+const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(currentSkuSourceRows.value))
+const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(currentSkuSourceRows.value, normalizedSkuFilters.value.primaryCategory))
 const hasActiveSkuFilters = computed(() => Boolean(
   normalizedSkuFilters.value.query
     || normalizedSkuFilters.value.primaryCategory
@@ -2322,16 +2366,27 @@ const hasActiveSkuFilters = computed(() => Boolean(
 ))
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
-  skuDisplayTotal.value,
-  skuPage.value,
-  skuPageSize.value,
+  filteredSkuRows.value.length,
+  selectedProductGroupTemplateID.value,
   normalizedSkuFilters.value.query || '',
   normalizedSkuFilters.value.primaryCategory || '',
   normalizedSkuFilters.value.secondaryCategory || '',
 ].join(':'))
 const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
-const skuPaginationKey = computed(() => `${skuDisplayKey.value}:pagination`)
-const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
+const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplate(filteredSkuRows.value, {
+  template: selectedProductGroupTemplate.value,
+  assignments: businessGroupAssignments.value,
+  usageKey: 'product_catalog',
+  objectKey: 'product',
+  objectIDForRow: (row) => Number(row.id || 0),
+}))
+const groupedSkuTableState = computed(() => skuGroupTableState(fullDisplaySkuGroups.value, skuGroupPagination.value, {
+  defaultPageSize: DEFAULT_SKU_GROUP_PAGE_SIZE,
+}))
+const displaySkuGroups = computed(() => groupedSkuTableState.value.groups)
+const displaySkuRows = computed(() => groupedSkuTableState.value.visibleRows)
+const visibleDisplaySkuRows = computed(() => visibleSkuGroupRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
+const editableDisplaySkuRows = computed(() => visibleDisplaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const allAliasRowsSelected = computed(() => visibleCustomerProductAliases.value.length > 0 && visibleCustomerProductAliases.value.every((row) => row.active === false || selectedAliasIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
@@ -2427,13 +2482,6 @@ const classificationTemplateEditorCategories = computed(() => (classificationTem
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const productClassificationCategories = computed(() => (currentProductClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasClassificationCategories = computed(() => (currentAliasClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
-const displaySkuGroups = computed(() => groupRowsByBusinessGroupTemplate(displaySkuRows.value, {
-  template: selectedProductGroupTemplate.value,
-  assignments: businessGroupAssignments.value,
-  usageKey: 'product_catalog',
-  objectKey: 'product',
-  objectIDForRow: (row) => Number(row.id || 0),
-}))
 const visibleCustomerAliasGroups = computed(() => {
   const tab = currentAliasClassificationTab.value
   if (!tab || tab.all) return [{ key: 'all-aliases', label: '全部客户商品', rows: visibleCustomerProductAliases.value, all: true }]
@@ -2505,10 +2553,23 @@ function syncVisibleSkuTableState() {
   if (JSON.stringify(normalizedFilters) !== JSON.stringify(skuFilters.value)) {
     skuFilters.value = normalizedFilters
   }
-  const tableState = skuVisibleTableState.value
-  if (Number(skuPage.value || 1) !== tableState.page) {
-    skuPage.value = tableState.page
+}
+
+function syncSkuGroupPaginationState() {
+  const normalizedPagination = groupedSkuTableState.value.pagination
+  if (JSON.stringify(normalizedPagination) !== JSON.stringify(skuGroupPagination.value)) {
+    skuGroupPagination.value = normalizedPagination
   }
+}
+
+function resetSkuGroupPages() {
+  if (restoringProductSettingsDraft) return
+  skuGroupPagination.value = Object.fromEntries(
+    Object.entries(skuGroupPagination.value).map(([key, value]) => [key, {
+      page: 1,
+      pageSize: normalizePageSize(value?.pageSize || DEFAULT_SKU_GROUP_PAGE_SIZE),
+    }]),
+  )
 }
 
 function defaultSkuForm() {
@@ -2864,7 +2925,7 @@ function defaultPricingRuleForm(rule = {}) {
     calculation_json: calculation,
     other_cost_rows: pricingRuleOtherCostRowsFromCalculation(calculation),
     yield_loss_mode: calculation.yield_loss_mode || 'bom_or_product',
-    profit_method: calculation.profit_method || 'gross_margin',
+    profit_method: 'markup',
     tax_mode: calculation.tax_mode || 'tax_included',
     minimum_margin_rate: Number(calculation.minimum_margin_rate || 0),
     trial_note: calculation.trial_note || '',
@@ -3016,8 +3077,7 @@ function saveProductSettingsDraft() {
     activeConfigTemplateSection: activeConfigTemplateSection.value,
     categorySearchQuery: categorySearchQuery.value,
     skuFilters: skuFilters.value,
-    skuPage: skuPage.value,
-    skuPageSize: skuPageSize.value,
+    skuGroupPagination: skuGroupPagination.value,
     selectedProductGroupTemplateID: selectedProductGroupTemplateID.value,
   })
 }
@@ -3026,10 +3086,10 @@ watch([
   publicSkuRows,
   customerSkuRows,
   skuFilters,
-  skuPage,
-  skuPageSize,
   selectedCustomerSkuCustomerID,
 ], syncVisibleSkuTableState, { deep: true, immediate: true })
+
+watch(fullDisplaySkuGroups, syncSkuGroupPaginationState, { deep: true, immediate: true })
 
 async function restoreProductSettingsDraft() {
   const draft = readFormDraft(productSettingsDraftKey())
@@ -3060,8 +3120,9 @@ async function restoreProductSettingsDraft() {
   activeConfigTemplateSection.value = ['product-config', 'product-price-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
-  skuPage.value = Number(draft.skuPage || 1)
-  skuPageSize.value = normalizePageSize(draft.skuPageSize)
+  skuGroupPagination.value = draft.skuGroupPagination && typeof draft.skuGroupPagination === 'object'
+    ? draft.skuGroupPagination
+    : {}
   ensureProductTypeCategorySelected(skuForm.value)
   await nextTick()
   syncVisibleSkuTableState()
@@ -3614,10 +3675,78 @@ function startProductPriceRecordEdit(record) {
 
 function resetPricingRuleForm() {
   pricingRuleForm.value = defaultPricingRuleForm()
+  error.value = ''
+  ok.value = ''
+  openPricingRuleEditorDrawer()
 }
 
 function startPricingRuleEdit(rule) {
   pricingRuleForm.value = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule || {})))
+  error.value = ''
+  ok.value = ''
+  openPricingRuleEditorDrawer()
+}
+
+function openPricingRuleEditorDrawer() {
+  if (typeof document !== 'undefined' && !pricingRuleEditorDrawerOpen.value) {
+    pricingRuleEditorReturnFocus = document.activeElement
+  }
+  pricingRuleEditorDrawerOpen.value = true
+  nextTick(() => {
+    const firstField = pricingRuleEditorDrawer.value?.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])')
+    ;(firstField || pricingRuleEditorDrawer.value)?.focus?.()
+  })
+}
+
+function closePricingRuleEditor() {
+  pricingRuleEditorDrawerOpen.value = false
+  error.value = ''
+  ok.value = ''
+  const returnFocus = pricingRuleEditorReturnFocus
+  pricingRuleEditorReturnFocus = null
+  nextTick(() => returnFocus?.focus?.())
+}
+
+function trapPricingRuleEditorFocus(event) {
+  const drawer = pricingRuleEditorDrawer.value
+  if (!drawer) return
+  const focusable = [...drawer.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+    .filter((element) => element.getAttribute('aria-hidden') !== 'true')
+  if (!focusable.length) {
+    event.preventDefault()
+    drawer.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+function pricingRuleNeedsMarkupConfirmation(rule = {}) {
+  const calculation = pricingRuleCalculationFromRule(rule)
+  const rawMethod = String(calculation.profit_method ?? rule.profit_method ?? '').trim().toLowerCase()
+  return Boolean(
+    String(calculation.legacy_profit_method || '').trim()
+    || String(calculation.migration_warning || '').trim()
+    || (rawMethod && !['markup', 'gross_margin'].includes(rawMethod))
+  )
+}
+
+function pricingRuleLegacyMethodLabel(rule = {}) {
+  const calculation = pricingRuleCalculationFromRule(rule)
+  return String(calculation.legacy_profit_method || calculation.profit_method || '未知').trim() || '未知'
+}
+
+function pricingRuleLegacyValueLabel(rule = {}) {
+  const calculation = pricingRuleCalculationFromRule(rule)
+  const value = calculation.legacy_margin_rate ?? calculation.legacy_fixed_amount ?? rule.margin_rate
+  return value === null || typeof value === 'undefined' || String(value).trim() === '' ? '未记录' : String(value)
 }
 
 function pricingRuleOptionLabel(rule = {}) {
@@ -3823,14 +3952,6 @@ function removePriceTierTemplateTier(index) {
 
 function pricingRuleCostSourceLabel() {
   return '生产 BOM 成本（物料+工序）'
-}
-
-function pricingRuleProfitMethodLabel(value) {
-  return {
-    gross_margin: '毛利率',
-    markup: '加价率',
-    fixed_add: '固定加价',
-  }[String(value || '')] || '毛利率'
 }
 
 function pricingRuleRoundingLabel(value) {
@@ -4066,6 +4187,10 @@ function pricingRuleTrialTaxRateSummary(result = null, rule = null) {
 }
 
 async function savePricingRule() {
+  if (pricingRuleNeedsMarkupConfirmation(pricingRuleForm.value)) {
+    error.value = '旧价格方式无法安全换算；请新建加价率模板'
+    return
+  }
   const payload = buildPricingRulePayload(pricingRuleForm.value)
   if (!payload.name) {
     error.value = '请填写价格计算模板名称'
@@ -4093,6 +4218,10 @@ async function savePricingRule() {
 }
 
 async function copyPricingRule(rule) {
+  if (pricingRuleNeedsMarkupConfirmation(rule)) {
+    startPricingRuleEdit(rule)
+    return
+  }
   const payload = buildPricingRuleCopyPayload(rule || {}, pricingRules.value)
   if (!payload.name) {
     error.value = '请选择可复制的价格计算模板'
@@ -4110,6 +4239,7 @@ async function copyPricingRule(rule) {
     ]
     pricingRuleForm.value = row
     ok.value = '价格计算模板已复制'
+    openPricingRuleEditorDrawer()
   } catch (err) {
     error.value = err.message || '复制价格计算模板失败'
   } finally {
@@ -4544,6 +4674,50 @@ function derivedSkuCodeLabel(row = {}) {
   if (code) return code
   const id = Number(row.sku_id || row.id || row.derived_sku_id || 0)
   return id > 0 ? `SKU-${String(id).padStart(6, '0')}` : '保存后生成'
+}
+
+function productSalesSpecSkuID(row = {}) {
+  return Number(row.derived_sku_id || row.sku_id || row.id || 0)
+}
+
+function productSalesSpecIsDefault(row = {}) {
+  const defaultSKUID = Number(
+    productProductionConfigParentProduct.value?.default_sku_id
+      || productProductionConfigParentProduct.value?.effective_default_sku_id
+      || 0,
+  )
+  const skuID = productSalesSpecSkuID(row)
+  if (defaultSKUID > 0) return skuID === defaultSKUID
+  return row.is_default_sku === true || row.isDefaultSKU === true
+}
+
+function productSalesSpecCanSetDefault(row = {}) {
+  const status = String(row.derived_spec_status || row.derivedSpecStatus || '').trim()
+  return productSalesSpecSkuID(row) > 0
+    && row.active !== false
+    && status !== 'template_removed'
+    && status !== 'template_disabled'
+}
+
+async function setDefaultProductSalesSpec(row = {}) {
+  const parentProductID = productProductionConfigParentProductID.value
+  const skuID = productSalesSpecSkuID(row)
+  if (!parentProductID || !skuID || !productSalesSpecCanSetDefault(row)) return
+  defaultSkuSavingID.value = skuID
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/products/${parentProductID}/default-sku`, {
+      method: 'PUT',
+      body: { sku_id: skuID },
+    })
+    await loadAll()
+    ok.value = `默认规格已设置为 ${String(row.spec_name || row.sku_name || row.name || skuID).trim()}`
+  } catch (err) {
+    error.value = err.message || '设置默认规格失败'
+  } finally {
+    defaultSkuSavingID.value = 0
+  }
 }
 
 function derivedSpecStatusLabel(status = '') {
@@ -5373,9 +5547,16 @@ function toggleAllProductRows(checked) {
   selectedProductIds.value = checked ? editableDisplaySkuRows.value.map((row) => Number(row.id)).filter(Boolean) : []
 }
 
-function handleSkuPaginationChange({ page, pageSize }) {
-  skuPageSize.value = normalizePageSize(pageSize)
-  skuPage.value = page
+function handleSkuGroupPaginationChange(groupKey, { page, pageSize }) {
+  const key = String(groupKey || '')
+  if (!key) return
+  skuGroupPagination.value = {
+    ...skuGroupPagination.value,
+    [key]: {
+      page: Number(page || 1),
+      pageSize: normalizePageSize(pageSize || DEFAULT_SKU_GROUP_PAGE_SIZE),
+    },
+  }
 }
 
 function selectedBaseProduct() {
@@ -5820,9 +6001,26 @@ async function selectProductProductionConfigBom(bom) {
   if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
 }
 
+function isCurrentProductProductionConfigOpen(generation, productID) {
+  const currentProductID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  return generation === productProductionConfigOpenGeneration
+    && productProductionConfigDrawerOpen.value
+    && currentProductID === Number(productID || 0)
+}
+
+function isCurrentProductProductionConfigIndustryProjection(generation, productID, industryFieldTemplateID) {
+  return isCurrentProductProductionConfigOpen(generation, productID)
+    && Number(productProductionConfigForm.value.industry_field_template_id || 0) === Number(industryFieldTemplateID || 0)
+}
+
 async function openProductProductionConfig(row) {
+  const openGeneration = ++productProductionConfigOpenGeneration
+  const config = productProductionConfigByProductID(row?.id)
+  const productID = Number(row?.id || config?.product_id || 0)
+  const industryFieldTemplateID = Number(config?.industry_field_template_id || 0)
+  const industryFieldTemplateAvailableAtOpen = Boolean(industryFieldTemplateForConfig(config))
   productProductionConfigProduct.value = row || null
-  productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
+  productProductionConfigForm.value = defaultProductProductionConfigForm(config, row)
   showProductProductionHistoricalSpecs.value = false
   const parentID = Number(row?.parent_product_id || row?.parentProductID || row?.id || 0)
   const parentProduct = products.value.find((product) => Number(product.id || 0) === parentID) || row || {}
@@ -5832,21 +6030,35 @@ async function openProductProductionConfig(row) {
   }
   productProductionConfigDrawerOpen.value = true
   error.value = ''
-	try {
-		await Promise.all([
-			loadProductionBomCatalog(),
-			loadProcessRoutes(),
-			loadIndustryFieldTemplates(),
-		])
-		await ensureProductBomUsage(row?.id)
-		if (productProductionConfigForm.value.production_bom_id) {
-			await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
-			if (!productProductionConfigForm.value.production_bom_version_id) {
+  try {
+    let industryFieldTemplatesPromise = loadIndustryFieldTemplates()
+    if (!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0) {
+      industryFieldTemplatesPromise = industryFieldTemplatesPromise.then(() => {
+        if (!isCurrentProductProductionConfigIndustryProjection(openGeneration, productID, industryFieldTemplateID)) return
+        productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+          config?.fields || [],
+          industryFieldTemplateForConfig(config),
+        )
+      })
+    }
+    await Promise.all([
+      loadProductionBomCatalog(),
+      loadProcessRoutes(),
+      industryFieldTemplatesPromise,
+    ])
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
+    await ensureProductBomUsage(productID)
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
+    if (productProductionConfigForm.value.production_bom_id) {
+      await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+      if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
+      if (!productProductionConfigForm.value.production_bom_version_id) {
         const latest = productProductionConfigVersionOptions.value[0]
         if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
       }
     }
   } catch (err) {
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     error.value = err.message || '加载商品生产配置失败'
   }
 }
@@ -5855,12 +6067,6 @@ async function loadIndustryFieldTemplates() {
   if (industryFieldTemplates.value.length) return
   const data = await apiGet('/api/industry-field-templates')
   industryFieldTemplates.value = data?.rows || []
-}
-
-function selectedIndustryFieldTemplate() {
-  const id = Number(productProductionConfigForm.value.industry_field_template_id || 0)
-  if (!id) return null
-  return activeIndustryFieldTemplates.value.find((template) => Number(template.id || 0) === id) || null
 }
 
 function industryFieldTemplateForConfig(config = {}) {
@@ -5872,12 +6078,15 @@ function industryFieldTemplateForConfig(config = {}) {
 }
 
 function applyIndustryFieldTemplateToProductionConfig() {
-  const template = selectedIndustryFieldTemplate()
-  if (!template) return
-  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(productProductionConfigForm.value.fields || [], template)
+  const template = industryFieldTemplateForConfig(productProductionConfigForm.value)
+  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+    productProductionConfigForm.value.fields || [],
+    template,
+  )
 }
 
 function closeProductProductionConfigDrawer() {
+  productProductionConfigOpenGeneration += 1
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()
@@ -6214,7 +6423,11 @@ async function saveProductProductionConfig() {
     error.value = '预期损耗率必须在 0% 到 99.999% 之间'
     return
   }
-  const fields = productProductionConfigForm.value.fields
+  const industryFieldTemplate = industryFieldTemplateForConfig(productProductionConfigForm.value)
+  const fields = productProductionConfigFieldsFromTemplate(
+    productProductionConfigForm.value.fields || [],
+    industryFieldTemplate,
+  )
     .map((field, index) => normalizeProductProductionConfigFieldForSave(field, index))
     .filter((field) => field.label || field.value_text || field.value_number !== null || field.value_bool !== null)
   productProductionConfigSaving.value = true
@@ -7300,7 +7513,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
   resetProductConfigTemplateForm()
   resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
-  skuPage.value = 1
+  skuGroupPagination.value = {}
   collapsedPrimaryCategoryIds.value = []
   collapsedSecondaryCategoryIds.value = []
   if (Number(customerID || 0) > 0) {
@@ -7345,9 +7558,7 @@ watch(() => customForm.value.custom_type, () => {
   }
 })
 
-watch(skuFilters, () => {
-  skuPage.value = 1
-}, { deep: true })
+watch(skuFilters, resetSkuGroupPages, { deep: true })
 
 watch(() => skuFilters.value.primaryCategory, () => {
   if (!skuSecondaryCategoryOptions.value.includes(skuFilters.value.secondaryCategory)) {
@@ -7387,13 +7598,15 @@ watch(currentSkuSourceRows, () => {
   }
 }, { deep: true })
 
-watch(displaySkuRows, (rows) => {
+watch(visibleDisplaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
 watch(selectedProductGroupTemplateID, () => {
   selectedProductBusinessGroupItemID.value = 0
-  if (!restoringProductSettingsDraft) saveProductSettingsDraft()
+  if (restoringProductSettingsDraft) return
+  skuGroupPagination.value = {}
+  saveProductSettingsDraft()
 })
 
 async function applyProductSettingsViewParams(params = {}) {
@@ -7520,6 +7733,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .template-meta-chip { border: 1px solid #e4ded6; border-radius: 999px; background: #fbfaf8; color: #5f5a52; padding: 2px 7px; font-size: 11px; line-height: 1.35; }
 .template-copy-action { white-space: nowrap; }
 .template-editor, .product-config-editor { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
+.pricing-rule-form { display: grid; gap: 10px; }
 .template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
 .template-editor label, .product-config-editor label { display: grid; gap: 5px; font-size: 13px; }
 .unit-template-form .template-editor-grid { grid-template-columns: minmax(0, 1fr); }
@@ -7666,9 +7880,12 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
-.pricing-rule-row.inactive td:not(.table-actions) { opacity: 0.42; }
+.pricing-rule-row.inactive td:not(.table-actions):not(:first-child) { opacity: 0.42; }
+.pricing-rule-row.inactive td:first-child .pricing-rule-name-button { opacity: 0.42; }
 .pricing-rule-row.inactive .pricing-rule-copy-action { opacity: 1; }
 .pricing-rule-name-button { text-align: left; font-weight: 700; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; }
+.pricing-rule-migration-warning { display: block; margin-top: 4px; color: #a14618; font-weight: 700; line-height: 1.35; }
+.pricing-rule-migration-alert { display: grid; gap: 4px; margin: 0 0 14px; }
 .product-return-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; }
 .product-return-banner span { font-size: 13px; color: #31577f; }
 .product-return-button { border-color: #1d4ed8; color: #1d4ed8; background: #fff; }
@@ -7698,6 +7915,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
     .product-production-config-drawer { width: min(980px, 96vw); grid-template-rows: auto 1fr auto; }
 .category-settings-drawer { width: min(920px, 96vw); }
 .global-unit-dictionary-drawer { width: min(760px, 94vw); }
+.pricing-rule-editor-drawer { width: min(860px, 96vw); }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #eee8df; padding-bottom: 12px; }
 .drawer-head h3 { margin: 0 0 4px; font-size: 18px; }
 .drawer-head p { margin: 0; color: #666; font-size: 12px; }
@@ -7721,6 +7939,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
 .child-sku-list { display: grid; gap: 8px; }
 .sales-spec-template-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sales-spec-default-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.default-spec-chip { border-color: #9fc5ff; background: #edf5ff; color: #1658a5; font-weight: 700; }
 .sales-spec-history-toggle { margin: 0; }
 .child-sku-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; padding: 8px 10px; min-width: 0; }
 .child-sku-row.inactive { background: #fbfaf8; opacity: .78; }
@@ -7819,6 +8039,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-group-row small { color: #7c7064; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
 .classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }
+.classification-pagination-row td { background: #fbf9f5; padding: 8px 16px 12px; }
+.classification-pagination-row :deep(.list-pagination-controls) { margin-top: 0; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }

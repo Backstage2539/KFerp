@@ -50,12 +50,12 @@ func TestDev494CapacityOperationAutoSplitContracts(t *testing.T) {
 	}
 	for _, marker := range []string{
 		"buildOperationCapacityAutoSplits",
-			"maxAssignableQtyForCapacitySplit",
-			"qtyFromGForCapacityUnit",
-			"applicableOperationCapacities",
-			"autoSplitProductionPlanDrawerOperation",
-			"autoSplitWorkOrderOperation",
-			"自动拆分",
+		"maxAssignableQtyForCapacitySplit",
+		"qtyFromGForCapacityUnit",
+		"applicableOperationCapacities",
+		"autoSplitProductionPlanDrawerOperation",
+		"autoSplitWorkOrderOperation",
+		"自动拆分",
 	} {
 		if !strings.Contains(contents["producePlanLib"]+contents["producePlanView"]+contents["workOrdersView"], marker) {
 			t.Fatalf("frontend auto split support missing %s", marker)
@@ -75,7 +75,7 @@ func TestDev494CapacityOperationAutoSplitContracts(t *testing.T) {
 	for _, marker := range []string{
 		"plannedCapacitySplitMetrics(split productionapp.ProductionPlanOperationSplit, specG ...int64)",
 		"plannedCapacitySplitQtyG(qty float64, unit string, specG ...int64)",
-		"case \"件\", \"个\", \"袋\", \"盒\", \"unit\", \"units\", \"pc\", \"pcs\":",
+		"case \"件\", \"个\", \"袋\", \"盒\", \"包\", \"条\", \"unit\", \"units\", \"pc\", \"pcs\", \"piece\", \"pieces\":",
 	} {
 		if !strings.Contains(contents["productionPlan"], marker) {
 			t.Fatalf("production count-unit split support missing %s", marker)

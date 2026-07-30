@@ -88,6 +88,9 @@ func (r *fakeRepo) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWor
 func (r *fakeRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
 	return ProductionPlanSubmitResult{}, nil
 }
+func (r *fakeRepo) CancelProductionPlan(ctx context.Context, cmd CancelProductionPlanCommand) (ProductionPlanDetail, error) {
+	return ProductionPlanDetail{ID: cmd.ID, Status: "cancelled"}, nil
+}
 func (r *fakeRepo) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error) {
 	return WorkOrderStartResult{}, nil
 }

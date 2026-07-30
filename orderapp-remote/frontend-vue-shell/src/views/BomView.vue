@@ -1127,7 +1127,8 @@ function clearSelectedProductionBom() {
 
 function updateUrl() {
   const url = new URL(window.location.href)
-  url.searchParams.set('view', 'bom')
+  url.searchParams.set('view', 'productionConfig')
+  url.searchParams.set('tab', 'bom')
   const bomID = currentProductionBomID.value
   if (bomID) url.searchParams.set('production_bom_id', String(bomID))
   else url.searchParams.delete('production_bom_id')
@@ -1156,9 +1157,9 @@ function openReferencedProductConfig(product) {
       key: 'productMaster',
       params: { open_product_config_id: productID },
       returnNavigation: {
-        key: 'bom',
+        key: 'productionConfig',
         label: `返回BOM编辑：${currentProductionBomLabel.value || '生产 BOM'}`,
-        params: bomID > 0 ? { production_bom_id: bomID } : {},
+        params: bomID > 0 ? { tab: 'bom', production_bom_id: bomID } : { tab: 'bom' },
         source_label: `商品档案配置：${labelProductName}`,
         targetKey: 'productMaster',
       },
@@ -1356,8 +1357,9 @@ function openBusinessGroupManagement() {
     detail: {
       key: 'groupTemplates',
       returnNavigation: {
-        key: 'bom',
+        key: 'productionConfig',
         label: '返回生产 BOM',
+        params: { tab: 'bom' },
       },
     },
   }))

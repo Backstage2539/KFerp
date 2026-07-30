@@ -173,6 +173,24 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "products.write"
 	}
+	if strings.HasPrefix(path, "/api/production-bom") ||
+		(strings.HasPrefix(path, "/api/products/") &&
+			(strings.HasSuffix(path, "/default-production-bom") || strings.HasSuffix(path, "/production-bom-binding"))) {
+		if method == http.MethodGet {
+			return "bom.read"
+		}
+		return "bom.write"
+	}
+	if strings.HasPrefix(path, "/api/process-routes") ||
+		strings.HasPrefix(path, "/api/process-templates") ||
+		strings.HasPrefix(path, "/api/manufacturing-operations") ||
+		strings.HasPrefix(path, "/api/manufacturing-workstations") ||
+		strings.HasPrefix(path, "/api/manufacturing-workstation-capacities") {
+		if method == http.MethodGet {
+			return "bom.read"
+		}
+		return "bom.write"
+	}
 	if strings.HasPrefix(path, "/api/products/inventory") {
 		if method == http.MethodGet {
 			return "stock.read"
@@ -275,7 +293,7 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/costing/bean-list/drafts") {
 		return "costing.read"
 	}
-	if path == "/api/costing/pricing-rule-trial" {
+	if path == "/api/costing/pricing-rule-trial" || path == "/api/costing/pricing-rule-trials" {
 		return "costing.read"
 	}
 	if strings.HasPrefix(path, "/api/costing/") {
@@ -301,6 +319,14 @@ func requiredPermissionForRequest(method, path string) string {
 			return "finance.read"
 		}
 		return "finance.write"
+	}
+	if strings.HasPrefix(path, "/api/production/") ||
+		strings.HasPrefix(path, "/api/job-cards/") ||
+		strings.HasPrefix(path, "/api/work-orders/") {
+		if method == http.MethodGet {
+			return "production.read"
+		}
+		return "production.run"
 	}
 	if strings.HasPrefix(path, "/api/produce/allocations") {
 		return "stock.read"

@@ -33,6 +33,9 @@ type Product struct {
 	NetContentQty               float64
 	NetContentUnit              string
 	IsDefaultSKU                bool
+	DefaultSKUID                int64
+	EffectiveDefaultSKUID       int64
+	DefaultSpecLabel            string
 	AutoDerivedSKU              bool
 	DerivedUnitTemplateID       int64
 	DerivedSpecKey              string
@@ -339,6 +342,9 @@ type ProductSettingsProduct struct {
 	NetContentQty               float64      `json:"net_content_qty"`
 	NetContentUnit              string       `json:"net_content_unit"`
 	IsDefaultSKU                bool         `json:"is_default_sku"`
+	DefaultSKUID                int64        `json:"default_sku_id"`
+	EffectiveDefaultSKUID       int64        `json:"effective_default_sku_id"`
+	DefaultSpecLabel            string       `json:"default_spec_label"`
 	AutoDerivedSKU              bool         `json:"auto_derived_sku"`
 	DerivedUnitTemplateID       int64        `json:"derived_unit_template_id"`
 	DerivedSpecKey              string       `json:"derived_spec_key"`
@@ -723,6 +729,12 @@ type UpdateProductBasicsCommand struct {
 	UnitRuleOverrideJSON        string
 	ProductConfigTemplateID     int64
 	ClassificationTemplateID    int64
+}
+
+type SetProductDefaultSKUCommand struct {
+	Actor           string
+	ParentProductID int64
+	SKUID           int64
 }
 
 type CreateProductCommand struct {
@@ -1341,6 +1353,9 @@ func (s *Service) SaveProductProductionConfig(ctx context.Context, cmd SaveProdu
 	if cmd.IndustryFieldTemplateID < 0 {
 		return ProductProductionConfig{}, ValidationError{Message: "invalid industry_field_template_id"}
 	}
+	if cmd.IndustryFieldTemplateID == 0 {
+		cmd.Fields = []ProductProductionConfigField{}
+	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	for i := range cmd.Fields {
@@ -1422,6 +1437,17 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	}
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.UpdateProductBasics(ctx, cmd)
+}
+
+func (s *Service) SetProductDefaultSKU(ctx context.Context, cmd SetProductDefaultSKUCommand) (Product, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ParentProductID <= 0 {
+		return Product{}, ValidationError{Message: "invalid parent_product_id"}
+	}
+	if cmd.SKUID <= 0 {
+		return Product{}, ValidationError{Message: "invalid sku_id"}
+	}
+	return s.repo.SetProductDefaultSKU(ctx, cmd)
 }
 
 func (s *Service) DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error {
@@ -1698,7 +1724,7 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
-	productPricingRules, err := s.repo.ListProductPricingRules(ctx)
+	productPricingRules, err := s.ListProductPricingRules(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
@@ -1882,7 +1908,35 @@ func (s *Service) SaveProductCustomerReference(ctx context.Context, cmd ProductC
 }
 
 func (s *Service) ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error) {
-	return s.repo.ListProductPricingRules(ctx)
+	rules, err := s.repo.ListProductPricingRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rules {
+		legacyMethod := pricingRuleProfitMethod(rules[i].CalculationJSON)
+		legacyRate := rules[i].MarginRate
+		switch legacyMethod {
+		case "", "gross_margin", "markup":
+			rules[i].MarginRate = normalizeLegacyPricingRuleMarkupRate(legacyRate, legacyMethod)
+			rules[i].CalculationJSON, err = normalizePricingRuleCalculationJSON(rules[i].CalculationJSON)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			calculationJSON, cloneErr := clonePricingRuleCalculationJSON(rules[i].CalculationJSON)
+			if cloneErr != nil {
+				return nil, cloneErr
+			}
+			calculationJSON["legacy_profit_method"] = legacyMethod
+			calculationJSON["legacy_margin_rate"] = legacyRate
+			calculationJSON["profit_method"] = "markup"
+			calculationJSON["migration_warning"] = "only markup rate is supported; review this template before enabling it"
+			rules[i].CalculationJSON = calculationJSON
+			rules[i].MarginRate = 0
+			rules[i].Active = false
+		}
+	}
+	return rules, nil
 }
 
 func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
@@ -1905,14 +1959,30 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	if cmd.FormulaVersion == "" {
 		cmd.FormulaVersion = "v1"
 	}
-	if cmd.MarginRate < 0 || cmd.TaxRate < 0 {
+	legacyProfitMethod := pricingRuleProfitMethod(cmd.CalculationJSON)
+	if math.IsNaN(cmd.MarginRate) || math.IsInf(cmd.MarginRate, 0) || math.IsNaN(cmd.TaxRate) || math.IsInf(cmd.TaxRate, 0) || cmd.MarginRate < 0 || cmd.TaxRate < 0 {
 		return ProductPricingRule{}, ValidationError{Message: "rate must not be negative"}
+	}
+	if pricingRuleCalculationHasLegacyQuarantine(cmd.CalculationJSON) {
+		return ProductPricingRule{}, ValidationError{Message: "quarantined legacy pricing rule must be replaced with a new markup template"}
+	}
+	if cmd.ID > 0 {
+		existingRules, err := s.repo.ListProductPricingRules(ctx)
+		if err != nil {
+			return ProductPricingRule{}, err
+		}
+		for _, existing := range existingRules {
+			if existing.ID == cmd.ID && pricingRuleCalculationNeedsQuarantine(existing.CalculationJSON) {
+				return ProductPricingRule{}, ValidationError{Message: "quarantined legacy pricing rule must be replaced with a new markup template"}
+			}
+		}
 	}
 	calculationJSON, err := normalizePricingRuleCalculationJSON(cmd.CalculationJSON)
 	if err != nil {
 		return ProductPricingRule{}, ValidationError{Message: err.Error()}
 	}
 	cmd.CalculationJSON = calculationJSON
+	cmd.MarginRate = normalizeLegacyPricingRuleMarkupRate(cmd.MarginRate, legacyProfitMethod)
 	if cmd.ID == 0 {
 		cmd.Active = true
 	}
@@ -3568,23 +3638,20 @@ func normalizeJSONArrayText(raw string) (string, error) {
 }
 
 func normalizePricingRuleCalculationJSON(raw map[string]any) (map[string]any, error) {
-	if raw == nil {
-		return map[string]any{}, nil
-	}
 	if pricingRuleCalculationContainsQuantityTierField(raw) {
 		return nil, fmt.Errorf("pricing rule must not contain quantity tiers")
 	}
-	encoded, err := json.Marshal(raw)
+	profitMethod := pricingRuleProfitMethod(raw)
+	switch profitMethod {
+	case "", "gross_margin", "markup":
+	default:
+		return nil, fmt.Errorf("only markup rate is supported")
+	}
+	normalized, err := clonePricingRuleCalculationJSON(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid calculation_json")
+		return nil, err
 	}
-	var normalized map[string]any
-	if err := json.Unmarshal(encoded, &normalized); err != nil {
-		return nil, fmt.Errorf("invalid calculation_json")
-	}
-	if normalized == nil {
-		normalized = map[string]any{}
-	}
+	normalized["profit_method"] = "markup"
 	stripPricingRuleRemovedCostFields(normalized)
 	otherCosts, err := normalizePricingRuleOtherCosts(normalized["other_costs"])
 	if err != nil {
@@ -3601,6 +3668,64 @@ func normalizePricingRuleCalculationJSON(raw map[string]any) (map[string]any, er
 		normalized["other_costs"] = otherCosts
 	}
 	return normalized, nil
+}
+
+func clonePricingRuleCalculationJSON(raw map[string]any) (map[string]any, error) {
+	if raw == nil {
+		return map[string]any{}, nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid calculation_json")
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(encoded, &normalized); err != nil {
+		return nil, fmt.Errorf("invalid calculation_json")
+	}
+	if normalized == nil {
+		normalized = map[string]any{}
+	}
+	return normalized, nil
+}
+
+func pricingRuleProfitMethod(calculationJSON map[string]any) string {
+	if calculationJSON == nil {
+		return ""
+	}
+	value, ok := calculationJSON["profit_method"]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(fmt.Sprint(value)))
+}
+
+func pricingRuleCalculationHasLegacyQuarantine(calculationJSON map[string]any) bool {
+	for _, key := range []string{"legacy_profit_method", "migration_warning"} {
+		value := strings.TrimSpace(fmt.Sprint(calculationJSON[key]))
+		if value != "" && value != "<nil>" {
+			return true
+		}
+	}
+	return false
+}
+
+func pricingRuleCalculationNeedsQuarantine(calculationJSON map[string]any) bool {
+	if pricingRuleCalculationHasLegacyQuarantine(calculationJSON) {
+		return true
+	}
+	switch pricingRuleProfitMethod(calculationJSON) {
+	case "", "gross_margin", "markup":
+		return false
+	default:
+		return true
+	}
+}
+
+func normalizeLegacyPricingRuleMarkupRate(rate float64, profitMethod string) float64 {
+	if (profitMethod == "" || profitMethod == "gross_margin") && rate > 1 {
+		return rate / 100
+	}
+	return rate
 }
 
 func normalizePricingRuleCostSourceMode(mode string) string {
@@ -3874,6 +3999,9 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		NetContentQty:               p.NetContentQty,
 		NetContentUnit:              p.NetContentUnit,
 		IsDefaultSKU:                p.IsDefaultSKU,
+		DefaultSKUID:                p.DefaultSKUID,
+		EffectiveDefaultSKUID:       p.EffectiveDefaultSKUID,
+		DefaultSpecLabel:            p.DefaultSpecLabel,
 		AutoDerivedSKU:              p.AutoDerivedSKU,
 		DerivedUnitTemplateID:       p.DerivedUnitTemplateID,
 		DerivedSpecKey:              p.DerivedSpecKey,

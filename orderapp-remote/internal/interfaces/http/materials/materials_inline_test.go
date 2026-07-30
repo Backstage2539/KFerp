@@ -119,6 +119,72 @@ func TestMaterialsAPIUpdateAllowsBaseFieldsAndWritesAudit(t *testing.T) {
 	}
 }
 
+func TestMaterialsAPICreatesAndLocksIndependentCostUnit(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "api-test")
+			return next(c)
+		}
+	})
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
+
+	body, err := json.Marshal(materialsapp.MaterialInput{
+		Code:          "m-api-cost-unit",
+		Name:          "成本单位物料",
+		Kind:          "bean",
+		Unit:          "g",
+		CostUnit:      "kg",
+		PurchasePrice: 54,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/materials", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/materials status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var created materialsapp.Material
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Unit != "g" || created.CostUnit != "kg" || created.PurchasePrice != 54 {
+		t.Fatalf("created material = %+v, want inventory g and cost kg", created)
+	}
+	var auditCount int
+	if err := pool.QueryRow(context.Background(), fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s.audit_logs
+		WHERE entity_type='material' AND entity_id=$1
+		  AND action='create' AND field='cost_unit'
+		  AND old_value='' AND new_value='kg'`, schema), created.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("cost unit create audit count = %d, want 1", auditCount)
+	}
+
+	update := map[string]any{
+		"code": created.Code, "name": created.Name, "kind": created.Kind,
+		"unit": created.Unit, "cost_unit": "g", "purchase_price": 54,
+	}
+	body, err = json.Marshal(update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", created.ID), bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "成本计价单位保存后不能修改") {
+		t.Fatalf("POST /api/materials/:id status = %d body=%s, want cost unit lock rejection", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMaterialsAPIUpdateRejectsInventoryUnitChange(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -212,8 +278,8 @@ func TestMaterialsAPIUpdateAllowsOmittedInventoryUnit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Unit != "kg" || updated.Name != "旧客户端物料改名" || updated.PurchasePrice != 11 {
-		t.Fatalf("updated material = %+v, want unit kg preserved with base edits", updated)
+	if updated.Unit != "kg" || updated.CostUnit != "kg" || updated.Name != "旧客户端物料改名" || updated.PurchasePrice != 11 {
+		t.Fatalf("updated material = %+v, want inventory and cost unit kg preserved with base edits", updated)
 	}
 }
 
@@ -401,7 +467,7 @@ func TestMaterialsAPICreateCopyDeprecateAndPackProfile(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if created.ID == 0 || created.PackProfile == nil || created.PackProfile.SizeSpec != "227g袋" || created.BeanProfile != nil {
+	if created.ID == 0 || created.CostUnit != "个" || created.PackProfile == nil || created.PackProfile.SizeSpec != "227g袋" || created.BeanProfile != nil {
 		t.Fatalf("created material = %+v", created)
 	}
 

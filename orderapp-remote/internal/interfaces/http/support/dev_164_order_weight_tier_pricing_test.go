@@ -78,7 +78,7 @@ func TestDev164ManualDocumentsOrderWeightTierPricing(t *testing.T) {
 		doc := string(readOrderAppFileForTest(t, rel))
 		wants := []string{"454"}
 		if strings.Contains(rel, "OP_MANUAL_ORDER_SALES") {
-			wants = append(wants, "规格没有专属梯度", "元/kg", "1000g × 30")
+			wants = append(wants, "价格表中的规格", "元/kg", "1000g × 30")
 		} else {
 			wants = append(wants, "1000g", "30")
 		}

@@ -93,15 +93,18 @@ func TestDev491ProductionDemandStatusJobCardContextContracts(t *testing.T) {
 		}
 	}
 	for _, marker := range []string{
-		"job-card-work-order-drawer",
-		"openJobCardWorkOrderDrawer",
-		"materialSnapshotRows",
+		"openExecutionHub",
+		"openWorkstation",
 		"BOM/配方",
-		"配方物料",
+		"工序要求",
+		"进入工位",
 	} {
 		if !strings.Contains(contents["jobCardsView"], marker) || !strings.Contains(contents["workOrdersTest"], marker) {
 			t.Fatalf("job card context UI/test missing %s", marker)
 		}
+	}
+	if strings.Contains(contents["jobCardsView"], "job-card-work-order-drawer") {
+		t.Fatal("JobCardsView must use the shared execution hub instead of a duplicate work-order drawer")
 	}
 	for _, key := range []string{"requirements", "acceptance", "manual", "acceptanceEvidence"} {
 		if !strings.Contains(contents[key], "PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT") {

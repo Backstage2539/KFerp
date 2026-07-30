@@ -30,6 +30,52 @@ func DefaultInputGrams(needG int64, yieldRate float64) int64 {
 	return int64(math.Ceil(float64(needG) / NormalizeYieldRate(yieldRate)))
 }
 
+func PlannedInputGramsFromMaterialLoss(needG int64, lossRate float64) int64 {
+	if needG <= 0 {
+		return 0
+	}
+	if math.IsNaN(lossRate) || math.IsInf(lossRate, 0) || lossRate <= 0 || lossRate >= 1 {
+		return needG
+	}
+	return int64(math.Round(float64(needG) / (1 - lossRate)))
+}
+
+func SalesSpecCountToInventoryQuantity(salesSpecCount, inventoryQtyPerSalesUnit float64) float64 {
+	if salesSpecCount <= 0 || inventoryQtyPerSalesUnit <= 0 {
+		return 0
+	}
+	return math.Round(salesSpecCount*inventoryQtyPerSalesUnit*1_000_000_000) / 1_000_000_000
+}
+
+func InventoryQuantityToLegacyGrams(quantity float64, unit string) int64 {
+	if quantity <= 0 {
+		return 0
+	}
+	switch normalizeProductionUnit(unit) {
+	case "g":
+		return int64(math.Round(quantity))
+	case "kg":
+		return int64(math.Round(quantity * 1000))
+	case "lb":
+		return int64(math.Round(quantity * 453.59237))
+	default:
+		return 0
+	}
+}
+
+func normalizeProductionUnit(unit string) string {
+	switch unit {
+	case "G", "g", "克":
+		return "g"
+	case "KG", "Kg", "kg", "千克", "公斤":
+		return "kg"
+	case "LB", "Lb", "lb", "磅":
+		return "lb"
+	default:
+		return unit
+	}
+}
+
 func FinishedTotalGrams(specG, units, looseG int64) int64 {
 	if specG <= 0 || units < 0 || looseG < 0 {
 		return 0

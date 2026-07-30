@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	productiondomain "orderapp/internal/domain/production"
@@ -32,10 +33,13 @@ type processSnapshotOperation struct {
 	BatchSizeUnit           string  `json:"batch_size_unit"`
 	StandardMinutes         int     `json:"standard_minutes"`
 	HourlyRate              float64 `json:"hourly_rate"`
+	CostMethod              string  `json:"cost_method"`
+	PieceRate               float64 `json:"piece_rate"`
 	PlannedBatchCount       int     `json:"planned_batch_count"`
 	PlannedMinutes          int     `json:"planned_minutes"`
 	PlannedOperationCost    float64 `json:"planned_operation_cost"`
 	RecordsLoss             bool    `json:"records_loss"`
+	ProcessRequirement      string  `json:"process_requirement,omitempty"`
 	ParameterSchemaJSON     string  `json:"parameter_schema_json"`
 	QualityChecklistJSON    string  `json:"quality_checklist_json"`
 }
@@ -46,35 +50,58 @@ type plannedOperationMetrics struct {
 	PlannedOperationCost float64
 }
 
-func plannedJobCardMetrics(op processSnapshotOperation, plannedG int64) plannedOperationMetrics {
+func plannedJobCardMetrics(op processSnapshotOperation, plannedG int64, salesSpecCount ...float64) plannedOperationMetrics {
+	plannedPieceQty := 0.0
+	if len(salesSpecCount) > 0 {
+		plannedPieceQty = salesSpecCount[0]
+	}
 	standardMinutes := op.StandardMinutes
 	if standardMinutes <= 0 {
 		standardMinutes = op.DefaultMinutes
 	}
 	batchCount := op.PlannedBatchCount
 	if batchCount <= 0 {
-		batchCount = ceilPlannedBatchCount(plannedG, op.BatchSizeQty, op.BatchSizeUnit)
+		batchCount = ceilPlannedBatchCountForQty(plannedG, plannedPieceQty, op.BatchSizeQty, op.BatchSizeUnit)
 	}
 	plannedMinutes := op.PlannedMinutes
 	if plannedMinutes <= 0 && batchCount > 0 && standardMinutes > 0 {
 		plannedMinutes = batchCount * standardMinutes
 	}
 	plannedOperationCost := op.PlannedOperationCost
-	if plannedOperationCost <= 0 {
+	if normalizeProductionCostMethod(op.CostMethod) == "piece" {
+		// A process-template snapshot carries the unit piece rate in
+		// PlannedOperationCost. A concrete job card must always freeze the
+		// total for this work order instead of reusing that unit amount.
+		plannedOperationCost = 0
+		if plannedPieceQty > 0 && op.PieceRate > 0 {
+			plannedOperationCost = roundProductionPlanMoney(plannedPieceQty * op.PieceRate)
+		}
+	} else if plannedOperationCost <= 0 {
 		plannedOperationCost = plannedJobCardOperationCost(plannedMinutes, op.HourlyRate)
 	}
 	return plannedOperationMetrics{PlannedBatchCount: batchCount, PlannedMinutes: plannedMinutes, PlannedOperationCost: plannedOperationCost}
 }
 
 func ceilPlannedBatchCount(plannedG int64, batchSizeQty float64, batchSizeUnit string) int {
+	return ceilPlannedBatchCountForQty(plannedG, 0, batchSizeQty, batchSizeUnit)
+}
+
+func ceilPlannedBatchCountForQty(plannedG int64, plannedPieceQty float64, batchSizeQty float64, batchSizeUnit string) int {
 	if plannedG <= 0 || batchSizeQty <= 0 {
-		return 0
+		if plannedPieceQty <= 0 || batchSizeQty <= 0 {
+			return 0
+		}
 	}
 	plannedQty := float64(plannedG)
 	switch strings.ToLower(strings.TrimSpace(batchSizeUnit)) {
 	case "kg", "千克", "公斤":
 		plannedQty = plannedQty / 1000
 	case "g", "克":
+	case "件", "个", "袋", "盒", "包", "条", "unit", "units", "pc", "pcs", "piece", "pieces":
+		if plannedPieceQty <= 0 {
+			return 0
+		}
+		plannedQty = plannedPieceQty
 	default:
 		plannedQty = plannedQty / 1000
 	}
@@ -88,6 +115,22 @@ func plannedJobCardOperationCost(plannedMinutes int, hourlyRate float64) float64
 	return math.Round((float64(plannedMinutes)/60*hourlyRate)*100) / 100
 }
 
+func actualPieceQuantity(metricsJSON string, actualOutputQty float64, inventoryQtyPerSalesUnit float64) float64 {
+	var metrics struct {
+		FinishedUnits float64 `json:"finished_units"`
+	}
+	if err := json.Unmarshal([]byte(defaultJSONObject(metricsJSON)), &metrics); err == nil &&
+		metrics.FinishedUnits > 0 && !math.IsNaN(metrics.FinishedUnits) && !math.IsInf(metrics.FinishedUnits, 0) {
+		return metrics.FinishedUnits
+	}
+	if actualOutputQty <= 0 || inventoryQtyPerSalesUnit <= 0 ||
+		math.IsNaN(actualOutputQty) || math.IsInf(actualOutputQty, 0) ||
+		math.IsNaN(inventoryQtyPerSalesUnit) || math.IsInf(inventoryQtyPerSalesUnit, 0) {
+		return 0
+	}
+	return actualOutputQty / inventoryQtyPerSalesUnit
+}
+
 type processTemplateSnapshot struct {
 	Source               string                     `json:"source"`
 	ID                   int64                      `json:"id"`
@@ -98,6 +141,7 @@ type processTemplateSnapshot struct {
 	ProductName          string                     `json:"product_name"`
 	BomVersionID         int64                      `json:"bom_version_id"`
 	BomVersionNo         string                     `json:"bom_version_no"`
+	YieldRate            float64                    `json:"yield_rate"`
 	IndustryTemplateID   int64                      `json:"industry_template_id"`
 	IndustryTemplateName string                     `json:"industry_template_name"`
 	DefaultEquipment     string                     `json:"default_equipment"`
@@ -148,16 +192,322 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 }
 
 type latestUsableBomRoute struct {
-	ProductID        int64
-	ProductName      string
-	BomID            int64
-	BomCode          string
-	BomName          string
-	BomVersionID     int64
-	BomVersionNo     string
-	ProcessRouteID   int64
-	ProcessRouteName string
-	YieldRate        float64
+	ProductID           int64
+	ParentProductID     int64
+	BomSourceProductID  int64
+	BomInherited        bool
+	ProductName         string
+	BomID               int64
+	BomCode             string
+	BomName             string
+	BomVersionID        int64
+	BomVersionNo        string
+	ProcessRouteID      int64
+	ProcessRouteName    string
+	YieldRate           float64
+	BomMaterialLossRate float64
+	BomOutputQty        float64
+	BomOutputUnit       string
+}
+
+type productionBomConfigurationError struct {
+	message string
+	reason  string
+}
+
+func (e *productionBomConfigurationError) Error() string {
+	return e.message
+}
+
+const productionBomErrorReasonNotConfigured = "not_configured"
+
+func productionBomConfigurationErrorf(format string, args ...any) error {
+	return &productionBomConfigurationError{message: fmt.Sprintf(format, args...)}
+}
+
+func productionBomNotConfiguredError(productName string) error {
+	return &productionBomConfigurationError{
+		message: fmt.Sprintf("product BOM not configured: %s", productName),
+		reason:  productionBomErrorReasonNotConfigured,
+	}
+}
+
+func isProductionBomConfigurationError(err error) bool {
+	var target *productionBomConfigurationError
+	return errors.As(err, &target)
+}
+
+func isProductionBomNotConfiguredError(err error) bool {
+	var target *productionBomConfigurationError
+	return errors.As(err, &target) && target.reason == productionBomErrorReasonNotConfigured
+}
+
+func resolveProductionBomForDemandProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, frozenParentProductID int64, productName string) (latestUsableBomRoute, error) {
+	return resolveProductionBomForDemandProductWithRouteRequirementTx(
+		ctx, tx, schema, productID, frozenParentProductID, productName, true,
+	)
+}
+
+func resolveProductionBomForDemandProductPreviewTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, frozenParentProductID int64, productName string) (latestUsableBomRoute, error) {
+	return resolveProductionBomForDemandProductWithRouteRequirementTx(
+		ctx, tx, schema, productID, frozenParentProductID, productName, false,
+	)
+}
+
+func resolveProductionBomForDemandProductWithRouteRequirementTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	productID int64,
+	frozenParentProductID int64,
+	productName string,
+	requireProcessRoute bool,
+) (latestUsableBomRoute, error) {
+	var currentParentProductID int64
+	var catalogName string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT CASE WHEN COALESCE(parent_product_id,0)>0 THEN parent_product_id ELSE id END,
+		       COALESCE(name,'')
+		FROM %s.products
+		WHERE id=$1 AND COALESCE(active,true)=true
+	`, schema), productID).Scan(&currentParentProductID, &catalogName)
+	if err == pgx.ErrNoRows {
+		return latestUsableBomRoute{}, productionBomConfigurationErrorf("production demand product not found or inactive: %d", productID)
+	}
+	if err != nil {
+		return latestUsableBomRoute{}, err
+	}
+	parentProductID := frozenParentProductID
+	if parentProductID <= 0 {
+		parentProductID = currentParentProductID
+	}
+	if parentProductID != productID {
+		var frozenParentActive bool
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(active,true)
+			FROM %s.products
+			WHERE id=$1
+		`, schema), parentProductID).Scan(&frozenParentActive)
+		if err == pgx.ErrNoRows || (err == nil && !frozenParentActive) {
+			return latestUsableBomRoute{}, productionBomConfigurationErrorf(
+				"frozen parent product not found or inactive: product %s / parent #%d",
+				firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID)),
+				parentProductID,
+			)
+		}
+		if err != nil {
+			return latestUsableBomRoute{}, err
+		}
+	}
+	productName = firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID))
+	resolved, configured, err := resolveProductionBomForSourceProductWithRouteRequirementTx(
+		ctx, tx, schema, productID, productName, requireProcessRoute,
+	)
+	if err != nil {
+		return latestUsableBomRoute{}, err
+	}
+	if !configured && parentProductID != productID {
+		resolved, configured, err = resolveProductionBomForSourceProductWithRouteRequirementTx(
+			ctx, tx, schema, parentProductID, productName, requireProcessRoute,
+		)
+		if err != nil {
+			return latestUsableBomRoute{}, err
+		}
+		if configured {
+			resolved.BomInherited = true
+		}
+	}
+	if !configured {
+		return latestUsableBomRoute{}, productionBomNotConfiguredError(productName)
+	}
+	resolved.ProductID = productID
+	resolved.ParentProductID = parentProductID
+	resolved.ProductName = productName
+	return resolved, nil
+}
+
+func resolveProductionBomForSourceProductTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, demandProductName string) (latestUsableBomRoute, bool, error) {
+	return resolveProductionBomForSourceProductWithRouteRequirementTx(
+		ctx, tx, schema, sourceProductID, demandProductName, true,
+	)
+}
+
+func resolveProductionBomForSourceProductWithRouteRequirementTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	sourceProductID int64,
+	demandProductName string,
+	requireProcessRoute bool,
+) (latestUsableBomRoute, bool, error) {
+	out := latestUsableBomRoute{BomSourceProductID: sourceProductID, ProductName: demandProductName}
+	var (
+		configBomID, configVersionID, bindingBomID, bindingVersionID int64
+	)
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			COALESCE(ppc.production_bom_id,0),
+			COALESCE(ppc.production_bom_version_id,0),
+			COALESCE(pbb.bom_id,0),
+			COALESCE(pbb.bom_version_id,0)
+		FROM %s.products p
+		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
+		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		WHERE p.id=$1 AND COALESCE(p.active,true)=true
+	`, schema, schema, schema), sourceProductID).Scan(
+		&configBomID, &configVersionID, &bindingBomID, &bindingVersionID,
+	)
+	if err == pgx.ErrNoRows {
+		return out, false, nil
+	}
+	if err != nil {
+		return out, false, err
+	}
+	if configBomID > 0 && bindingBomID > 0 && configBomID != bindingBomID {
+		return out, true, productionBomConfigurationErrorf("conflicting default production BOM configuration: %s", demandProductName)
+	}
+	if configVersionID > 0 && bindingVersionID > 0 && configVersionID != bindingVersionID {
+		return out, true, productionBomConfigurationErrorf("conflicting default production BOM version configuration: %s", demandProductName)
+	}
+	explicitBomID := configBomID
+	if explicitBomID <= 0 {
+		explicitBomID = bindingBomID
+	}
+	explicitVersionID := configVersionID
+	if explicitVersionID <= 0 {
+		explicitVersionID = bindingVersionID
+	}
+	if explicitBomID <= 0 && explicitVersionID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id FROM %s.production_bom_versions WHERE id=$1`, schema), explicitVersionID).Scan(&explicitBomID); err != nil {
+			if err == pgx.ErrNoRows {
+				return out, true, productionBomConfigurationErrorf("configured production BOM version no longer exists: %s", demandProductName)
+			}
+			return out, true, err
+		}
+	}
+	if explicitVersionID > 0 {
+		var configuredVersionBomID int64
+		var configuredVersionStatus string
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT bom_id,COALESCE(status,'')
+			FROM %s.production_bom_versions
+			WHERE id=$1
+		`, schema), explicitVersionID).Scan(&configuredVersionBomID, &configuredVersionStatus)
+		if err == pgx.ErrNoRows {
+			return out, true, productionBomConfigurationErrorf("configured production BOM version no longer exists: %s", demandProductName)
+		}
+		if err != nil {
+			return out, true, err
+		}
+		if explicitBomID > 0 && configuredVersionBomID != explicitBomID {
+			return out, true, productionBomConfigurationErrorf("configured production BOM version belongs to another BOM: %s", demandProductName)
+		}
+		if configuredVersionStatus != "published" {
+			return out, true, productionBomConfigurationErrorf("configured production BOM version is not published: %s", demandProductName)
+		}
+	}
+
+	if explicitBomID > 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT pb.id,COALESCE(pb.code,''),COALESCE(pb.name,'')
+			FROM %s.production_boms pb
+			WHERE pb.id=$1
+			  AND pb.output_product_id=$2
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			`, schema), explicitBomID, sourceProductID).Scan(&out.BomID, &out.BomCode, &out.BomName)
+		if err == pgx.ErrNoRows {
+			return out, true, productionBomConfigurationErrorf("default production BOM is no longer an active output BOM: %s", demandProductName)
+		}
+		if err != nil {
+			return out, true, err
+		}
+	} else {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`
+			SELECT id,COALESCE(code,''),COALESCE(name,''),COALESCE(NULLIF(status,''),'active')
+			FROM %s.production_boms
+			WHERE output_product_id=$1
+			ORDER BY updated_at DESC,id DESC
+		`, schema), sourceProductID)
+		if err != nil {
+			return out, false, err
+		}
+		defer rows.Close()
+		foundAny := false
+		activeCount := 0
+		for rows.Next() {
+			var id int64
+			var code, name, status string
+			if err := rows.Scan(&id, &code, &name, &status); err != nil {
+				return out, false, err
+			}
+			foundAny = true
+			if status == "active" {
+				activeCount++
+				out.BomID, out.BomCode, out.BomName = id, code, name
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return out, false, err
+		}
+		if !foundAny {
+			return out, false, nil
+		}
+		if activeCount == 0 {
+			return out, true, productionBomConfigurationErrorf("production BOM is inactive: %s", demandProductName)
+		}
+		if activeCount > 1 {
+			return out, true, productionBomConfigurationErrorf("multiple active production BOMs found: %s, please set default production BOM", demandProductName)
+		}
+	}
+
+	var itemCount int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.id,
+		       COALESCE(v.version_no,''),
+		       COALESCE(v.process_route_id,0),
+		       COALESCE(pr.name,''),
+		       COALESCE(NULLIF(v.yield_rate,0),1)::float8,
+		       COALESCE(v.material_loss_rate,0)::float8,
+		       COALESCE(NULLIF(v.output_qty,0),1)::float8,
+		       COALESCE(NULLIF(v.output_unit,''),'unit'),
+		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items item WHERE item.version_id=v.id),0)
+		FROM %s.production_bom_versions v
+		LEFT JOIN %s.process_routes pr ON pr.id=v.process_route_id AND pr.status='active'
+		WHERE v.bom_id=$1
+		  AND v.status='published'
+		  AND ($2::bigint=0 OR v.id=$2)
+		ORDER BY v.published_at DESC NULLS LAST,v.created_at DESC,v.id DESC
+		LIMIT 1
+	`, schema, schema, schema), out.BomID, explicitVersionID).Scan(
+		&out.BomVersionID, &out.BomVersionNo, &out.ProcessRouteID, &out.ProcessRouteName,
+		&out.YieldRate, &out.BomMaterialLossRate, &out.BomOutputQty, &out.BomOutputUnit,
+		&itemCount,
+	)
+	if err == pgx.ErrNoRows {
+		if explicitVersionID > 0 {
+			return out, true, productionBomConfigurationErrorf("configured production BOM version is not a usable published version: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
+		}
+		return out, true, productionBomConfigurationErrorf("latest usable production BOM version not found: %s/%s", firstNonEmpty(out.BomName, out.BomCode), demandProductName)
+	}
+	if err != nil {
+		return out, true, err
+	}
+	if itemCount <= 0 {
+		return out, true, productionBomConfigurationErrorf("production BOM version has no material lines: %s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo)
+	}
+	if requireProcessRoute && (out.ProcessRouteID <= 0 || strings.TrimSpace(out.ProcessRouteName) == "") {
+		return out, true, productionBomMissingRouteConfigurationError(out, demandProductName)
+	}
+	return out, true, nil
+}
+
+func productionBomMissingRouteConfigurationError(resolved latestUsableBomRoute, demandProductName string) error {
+	return productionBomConfigurationErrorf(
+		"最新可用 BOM 版本未配置工艺路线: %s/%s/%s",
+		firstNonEmpty(resolved.BomName, resolved.BomCode),
+		resolved.BomVersionNo,
+		demandProductName,
+	)
 }
 
 func resolveLatestUsableBomRouteForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, productName string) (latestUsableBomRoute, error) {
@@ -380,6 +730,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 		       0,
 		       0::float8,
 		       pro.records_loss,
+		       COALESCE(mo.note,''),
 		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
@@ -396,7 +747,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.QualityChecklistJSON,
+			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -425,13 +776,15 @@ func routeSequenceOnlyOperation(op processSnapshotOperation) processSnapshotOper
 	op.BatchSizeUnit = ""
 	op.StandardMinutes = 0
 	op.HourlyRate = 0
+	op.CostMethod = "time"
+	op.PieceRate = 0
 	op.PlannedBatchCount = 0
 	op.PlannedMinutes = 0
 	op.PlannedOperationCost = 0
 	return op
 }
 
-func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {
+func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64) (int64, error) {
 	processSnapshot, processSnapshotJSON, err := loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, productID)
 	if err != nil {
 		return 0, err
@@ -518,11 +871,11 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 				INSERT INTO %s.job_cards(
 					work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
 					workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
-					planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
-					status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
+					planned_batch_count,planned_minutes,hourly_rate,cost_method,piece_rate,planned_operation_cost,
+					status,planned_input_qty,records_loss,parameter_schema_json
 				)
-				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'running',now(),$15,$16,$17,$18::jsonb)
-			`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, metrics.PlannedOperationCost, operator, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)); err != nil {
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',$17,$18,$19::jsonb)
+			`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, normalizeProductionCostMethod(op.CostMethod), op.PieceRate, metrics.PlannedOperationCost, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)); err != nil {
 				return 0, err
 			}
 		}
@@ -537,11 +890,11 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		for _, step := range steps {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				INSERT INTO %s.job_cards(
-					work_order_id,sequence_no,operation,workstation,status,started_at,operator,
+					work_order_id,sequence_no,operation,workstation,status,
 					planned_input_qty,records_loss,operation_template_step_id,cost_type,cost_rate
 				)
-				VALUES($1,$2,$3,$4,'running',now(),$5,$6,$7,$8,$9,$10)
-			`, schema), workOrderID, step.Position, step.Operation, step.Workstation, operator, plannedG, true, step.ID, step.CostType, step.CostRate); err != nil {
+				VALUES($1,$2,$3,$4,'pending',$5,$6,$7,$8,$9)
+			`, schema), workOrderID, step.Position, step.Operation, step.Workstation, plannedG, true, step.ID, step.CostType, step.CostRate); err != nil {
 				return 0, err
 			}
 		}
@@ -758,6 +1111,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 		       0,
 		       0::float8,
 		       pro.records_loss,
+		       COALESCE(mo.note,''),
 		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
@@ -777,7 +1131,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
 			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.QualityChecklistJSON,
+			&op.RecordsLoss, &op.ProcessRequirement, &op.QualityChecklistJSON,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -834,23 +1188,27 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 	}
 	snapshot.Source = "process_template"
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
-		       operation,workstation,COALESCE(workstation_capacity_name,''),
-		       default_equipment,default_minutes,
-		       COALESCE(batch_size_qty,0)::float8,
-		       COALESCE(batch_size_unit,''),
-		       COALESCE(standard_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,
-		       COALESCE(planned_batch_count,0),
-		       COALESCE(planned_minutes,0),
-		       COALESCE(planned_operation_cost,0)::float8,
-		       records_loss,
-		       COALESCE(parameter_schema_json,'{}'::jsonb)::text,
-		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
-		FROM %s.process_template_operations
-		WHERE template_id=$1
-		ORDER BY seq, id
-	`, schema), snapshot.ID)
+		SELECT pto.seq,pto.operation_id,pto.workstation_id,COALESCE(pto.workstation_capacity_id,0),
+		       pto.operation,pto.workstation,COALESCE(pto.workstation_capacity_name,''),
+		       pto.default_equipment,pto.default_minutes,
+		       COALESCE(pto.batch_size_qty,0)::float8,
+		       COALESCE(pto.batch_size_unit,''),
+		       COALESCE(pto.standard_minutes,0),
+		       COALESCE(pto.hourly_rate,0)::float8,
+		       COALESCE(NULLIF(pto.cost_method,''),'time'),
+		       COALESCE(pto.piece_rate,0)::float8,
+		       COALESCE(pto.planned_batch_count,0),
+		       COALESCE(pto.planned_minutes,0),
+		       COALESCE(pto.planned_operation_cost,0)::float8,
+		       pto.records_loss,
+		       COALESCE(pto.parameter_schema_json,'{}'::jsonb)::text,
+		       COALESCE(pto.quality_checklist_json,'[]'::jsonb)::text,
+		       COALESCE(mo.note,'')
+		FROM %s.process_template_operations pto
+		LEFT JOIN %s.manufacturing_operations mo ON mo.id=pto.operation_id
+		WHERE pto.template_id=$1
+		ORDER BY pto.seq, pto.id
+	`, schema, schema), snapshot.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "process_template_operations") {
 			return nil, nil, nil
@@ -863,8 +1221,8 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 		if err := rows.Scan(
 			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
 			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
-			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
-			&op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON,
+			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.CostMethod, &op.PieceRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
+			&op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON, &op.ProcessRequirement,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -909,6 +1267,8 @@ func operationSummaryJSONForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema s
 			'planned_batch_count', planned_batch_count,
 			'planned_minutes', planned_minutes,
 			'hourly_rate', hourly_rate,
+			'cost_method', COALESCE(NULLIF(cost_method,''),'time'),
+			'piece_rate', piece_rate,
 			'planned_operation_cost', planned_operation_cost,
 			'actual_minutes', actual_minutes,
 			'actual_operation_cost', actual_operation_cost,
@@ -1023,10 +1383,23 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.production_plan_id,wo.production_plan_item_id,
-		       wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
+		       wo.batch_id,wo.product_id,wo.parent_product_id,wo.bom_source_product_id,wo.product_name,wo.spec_g,
+		       wo.sales_spec_count::float8,wo.inventory_qty_per_sales_unit::float8,wo.inventory_unit,
+		       wo.planned_inventory_qty::float8,COALESCE(wo.sales_spec_snapshot_json,'{}'::jsonb)::text,wo.bom_inherited,
+		       wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
 		       COALESCE(wo.actual_cost,0),to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(NULLIF(wo.production_config_snapshot_json->'fields'->0->>'value_text',''), NULLIF(bound_bv.special_attrs_json->>'roast_level',''), COALESCE(p.roast_level,'')),
-		       COALESCE(NULLIF(ri.bom_yield_rate,0), CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END, bound_bv.yield_rate, pb.yield_rate, 0),
+		       COALESCE(
+		         NULLIF(ri.bom_yield_rate,0),
+		         NULLIF(CASE
+		           WHEN COALESCE(wo.process_snapshot_json->>'yield_rate','') ~ '^[0-9]+([.][0-9]+)?$'
+		           THEN (wo.process_snapshot_json->>'yield_rate')::numeric
+		           ELSE 0
+		         END,0),
+		         NULLIF(bound_bv.yield_rate,0),
+		         pb.yield_rate,
+		         0
+		       ),
 		       COALESCE(NULLIF(ri.input_g,0), wo.planned_g, 0),
 		       COALESCE(ri.planned_units,0),
 		       COALESCE(ri.planned_loose_g,0),
@@ -1066,6 +1439,8 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		               'planned_batch_count', jc.planned_batch_count,
 		               'planned_minutes', jc.planned_minutes,
 		               'hourly_rate', jc.hourly_rate,
+		               'cost_method', COALESCE(NULLIF(jc.cost_method,''),'time'),
+		               'piece_rate', jc.piece_rate,
 		               'planned_operation_cost', jc.planned_operation_cost,
 		               'actual_minutes', jc.actual_minutes,
 		               'actual_operation_cost', jc.actual_operation_cost,
@@ -1123,11 +1498,20 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		var row productionapp.WorkOrderRow
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
-			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
+			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID,
+			&row.BatchID, &row.ProductID, &row.ParentProductID, &row.BomSourceProductID, &row.ProductName, &row.SpecG,
+			&row.SalesSpecCount, &row.InventoryQtyPerSalesUnit, &row.InventoryUnit, &row.PlannedInventoryQty,
+			&row.SalesSpecSnapshotJSON, &row.BomInherited,
+			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
 			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON,
 			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter, &fallbackMaterialSummary,
 		); err != nil {
 			return nil, err
+		}
+		if row.BomInherited {
+			row.BomSource = "parent"
+		} else {
+			row.BomSource = "sku"
 		}
 		row.MaterialSummary = formatMaterialSnapshotSummary(snapshotText)
 		if row.MaterialSummary == "" {
@@ -1242,7 +1626,8 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 		       COALESCE(jc.workstation_capacity_id,0),COALESCE(jc.workstation_capacity_name,''),
 		       COALESCE(jc.batch_size_qty,0)::float8,COALESCE(jc.batch_size_unit,''),
 		       COALESCE(jc.planned_batch_count,0),COALESCE(jc.planned_minutes,0),
-		       COALESCE(jc.hourly_rate,0)::float8,COALESCE(jc.planned_operation_cost,0)::float8,
+		       COALESCE(jc.hourly_rate,0)::float8,COALESCE(NULLIF(jc.cost_method,''),'time'),
+		       COALESCE(jc.piece_rate,0)::float8,COALESCE(jc.planned_operation_cost,0)::float8,
 		       COALESCE(jc.actual_minutes,0),COALESCE(jc.actual_operation_cost,0)::float8,
 		       jc.status,
 		       COALESCE(to_char(jc.started_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(jc.paused_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(jc.resumed_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(jc.completed_at,'YYYY-MM-DD HH24:MI'),''),jc.operator,
@@ -1283,7 +1668,7 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 			&row.SequenceNo, &row.OperationID, &row.WorkstationID,
 			&row.Operation, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
 			&row.BatchSizeQty, &row.BatchSizeUnit, &row.PlannedBatchCount, &row.PlannedMinutes,
-			&row.HourlyRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
+			&row.HourlyRate, &row.CostMethod, &row.PieceRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
 			&row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator,
 			&row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate,
 			&row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON,
@@ -1304,7 +1689,22 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var workOrderID int64
+	var inventoryQtyPerSalesUnit float64
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT jc.work_order_id,COALESCE(wo.inventory_qty_per_sales_unit,0)::float8
+		FROM %s.job_cards jc
+		JOIN %s.work_orders wo ON wo.id=jc.work_order_id
+		WHERE jc.id=$1
+		FOR UPDATE OF jc
+	`, r.schema, r.schema), cmd.ID).Scan(&workOrderID, &inventoryQtyPerSalesUnit)
+	if err == pgx.ErrNoRows {
+		return fmt.Errorf("job card not found")
+	}
+	if err != nil {
+		return err
+	}
+	actualPieceQty := actualPieceQuantity(cmd.MetricsJSON, cmd.ActualOutputQty, inventoryQtyPerSalesUnit)
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.job_cards
 		SET planned_input_qty=$2,
 		    actual_input_qty=$3,
@@ -1316,15 +1716,16 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 		    operator=COALESCE(NULLIF($9,''), operator),
 		    actual_minutes=$10,
 		    actual_operation_cost=CASE
+		        WHEN COALESCE(NULLIF(cost_method,''),'time')='piece'
+		            THEN CASE WHEN $11 > 0
+		                THEN ROUND($11::numeric * COALESCE(piece_rate,0), 4)
+		                ELSE actual_operation_cost
+		            END
 		        WHEN $10 > 0 THEN ROUND(($10::numeric / 60.0) * COALESCE(hourly_rate,0), 4)
 		        ELSE actual_operation_cost
 		    END
 		WHERE id=$1
-		RETURNING work_order_id
-	`, r.schema), cmd.ID, cmd.PlannedInputQty, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.ExceptionReason, cmd.MetricsJSON, cmd.Actor, cmd.ActualMinutes).Scan(&workOrderID)
-	if err == pgx.ErrNoRows {
-		return fmt.Errorf("job card not found")
-	}
+	`, r.schema), cmd.ID, cmd.PlannedInputQty, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.ExceptionReason, cmd.MetricsJSON, cmd.Actor, cmd.ActualMinutes, actualPieceQty)
 	if err != nil {
 		return err
 	}
@@ -1335,7 +1736,7 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, r.schema), workOrderID, summary); err != nil {
 		return err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "job_card", &cmd.ID, "update_metrics", postgresinfra.StrPtr("actual_loss"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", cmd.ActualLossQty)), postgresinfra.AuditMeta{"work_order_id": workOrderID, "planned_input_qty": cmd.PlannedInputQty, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "exception_reason": cmd.ExceptionReason}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "job_card", &cmd.ID, "update_metrics", postgresinfra.StrPtr("actual_loss"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", cmd.ActualLossQty)), postgresinfra.AuditMeta{"work_order_id": workOrderID, "planned_input_qty": cmd.PlannedInputQty, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_piece_qty": actualPieceQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "exception_reason": cmd.ExceptionReason}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

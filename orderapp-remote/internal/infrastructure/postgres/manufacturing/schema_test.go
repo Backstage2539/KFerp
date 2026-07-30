@@ -105,6 +105,8 @@ func TestManufacturingSchemaAddsWorkstationCapacitiesAndRouteCostSnapshots(t *te
 		"batch_size_unit TEXT NOT NULL DEFAULT ''",
 		"standard_minutes INT NOT NULL DEFAULT 0",
 		"hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"cost_method TEXT NOT NULL DEFAULT 'time'",
+		"piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0",
 		"production_capacity INT NOT NULL DEFAULT 1",
 		"manufacturing_workstation_capacities_workstation_idx",
 		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_capacity_operations",
@@ -117,10 +119,41 @@ func TestManufacturingSchemaAddsWorkstationCapacitiesAndRouteCostSnapshots(t *te
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_qty",
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS standard_minutes",
 		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_operation_cost",
+		"ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS cost_method",
+		"ALTER TABLE %[1]s.manufacturing_workstation_capacities ADD COLUMN IF NOT EXISTS piece_rate",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS cost_method",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS piece_rate",
 		"ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("manufacturing schema missing workstation capacity marker %q", want)
+		}
+	}
+}
+
+func TestPR563CapacityDeactivationAuditKeepsPieceRateSemantics(t *testing.T) {
+	src, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	start := strings.Index(text, "func (r Repository) DeactivateManufacturingWorkstationCapacity")
+	end := strings.Index(text[start:], "func (r Repository) manufacturingWorkstationCapacityByID")
+	if start < 0 || end <= 0 {
+		t.Fatal("capacity deactivation implementation not found")
+	}
+	body := text[start : start+end]
+	for _, want := range []string{
+		"FOR UPDATE",
+		"RowsAffected() != 1",
+		`rateUnit = "sales_spec_count"`,
+		`"cost_method":`,
+		`"piece_rate":`,
+		`"rate_unit":`,
+		`"batch_size_unit":`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("capacity deactivation audit missing %q", want)
 		}
 	}
 }

@@ -1,6 +1,10 @@
 package sales
 
-import "testing"
+import (
+	"testing"
+
+	"orderapp/internal/infrastructure/postgres/orderbeans"
+)
 
 func TestApplyOrderItemDiscountSupportsUnitAmount(t *testing.T) {
 	discount, lineTotal := applyOrderItemDiscount(176, "unit_amount", 10, 2)
@@ -36,6 +40,14 @@ func TestOrderItemUnitDiscountUnitsUsesCurrentPriceUnit(t *testing.T) {
 			want:        3,
 		},
 		{
+			name: "published sales spec count ignores wholesale weight basis",
+			item: orderDiscountItem{
+				productKind: "roasted_bean", quantityBasis: "sales_spec_count", specG: 227, units: 2,
+			},
+			retailOrder: false,
+			want:        2,
+		},
+		{
 			name:        "drip uses sales unit quantity",
 			item:        orderDiscountItem{productKind: "drip_bag", salesUnit: "box", specG: 100, units: 4},
 			retailOrder: false,
@@ -49,5 +61,30 @@ func TestOrderItemUnitDiscountUnitsUsesCurrentPriceUnit(t *testing.T) {
 				t.Fatalf("orderItemUnitDiscountUnits() = %.3f, want %.3f", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPublishedSalesSpecCountPriceAndUnitDiscountUseSameQuantityBasis(t *testing.T) {
+	pricing := orderbeans.PublishedPricing{UnitPrice: 68, UnitG: 1000, QuantityBasis: "sales_spec_count"}
+	base := publishedPricingLineTotal(pricing, 227, 2)
+	discountUnits := orderItemUnitDiscountUnits(orderDiscountItem{
+		productKind: "roasted_bean", quantityBasis: pricing.QuantityBasis, specG: 227, units: 2,
+	}, false)
+	discount, lineTotal := applyOrderItemDiscount(base, "unit_amount", 10, discountUnits)
+	if base != 136 || discount != 20 || lineTotal != 116 {
+		t.Fatalf("sales-spec-count amount chain = base %.2f discount %.2f total %.2f, want 136/20/116", base, discount, lineTotal)
+	}
+}
+
+func TestManualSalesSpecCountPriceKeepsPackageQuantityBasis(t *testing.T) {
+	item := orderDiscountItem{
+		productKind: "roasted_bean", quantityBasis: "sales_spec_count", specG: 227, units: 2,
+	}
+	if got := orderManualPriceLineTotal(68, item, false); got != 136 {
+		t.Fatalf("manual sales-spec-count line total = %.2f, want 136", got)
+	}
+	item.quantityBasis = ""
+	if got := orderManualPriceLineTotal(68, item, false); got != 68 {
+		t.Fatalf("legacy manual weight line total = %.2f, want 68", got)
 	}
 }

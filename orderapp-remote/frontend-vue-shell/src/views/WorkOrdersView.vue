@@ -86,8 +86,6 @@
             <td class="row-actions">
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">执行枢纽</button>
               <button class="secondary compact" v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
-              <button class="primary compact" v-if="canStartWorkOrder(row)" @click="startWorkOrder(row)" :disabled="startingId === row.id">开始生产</button>
-              <button class="primary compact" v-if="canCompleteWorkOrder(row)" @click="completeWorkOrder(row)" :disabled="completingId === row.id">完工入库</button>
               <button class="secondary compact" @click="printWorkOrder(row)">打印</button>
             </td>
           </tr>
@@ -170,7 +168,8 @@
       :work-order-id="executionHub.workOrderId"
       :focus="executionHub.focus"
       :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, focus: executionHub.focus }"
-      @close="executionHub.open = false" />
+      @close="executionHub.open = false"
+      @updated="load" />
 
     <section v-if="printRow" class="print-sheet">
       <header class="print-head">
@@ -219,23 +218,25 @@ import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
-import { canCompleteWorkOrder, workOrderCompleteEndpoint, workOrderStatusLabel } from '../lib/manufacturing-execution'
+import { workOrderStatusLabel } from '../lib/manufacturing-execution'
 import {
   applicableOperationCapacities,
   buildOperationCapacityAutoSplits,
   maxAssignableQtyForCapacitySplit,
   plannedCapacitySplitMetrics,
+  productionPlanItemOutputTargetG,
   productionPlanSplitBatchCards,
   qtyFromGForCapacityUnit,
 } from '../lib/produce-plan'
 import {
+  normalizeCapacityCostMethod,
+  workstationCapacityOptionLabel,
+} from '../lib/workstation-capacity-costing'
+import {
   buildWorkOrderOperationSplitPayload,
   canEditWorkOrderSplits,
-  canStartWorkOrder,
   formatWorkOrderPlannedOutput,
-  workOrderPlannedOutput,
   workOrderOperationSplitsEndpoint,
-  workOrderStartEndpoint,
   workOrderStatusOptions,
 } from '../lib/work-orders'
 
@@ -248,8 +249,6 @@ const rows = ref([])
 const workstationCapacities = ref([])
 const status = ref('')
 const loading = ref(false)
-const startingId = ref(0)
-const completingId = ref(0)
 const error = ref('')
 const printRow = ref(null)
 const workOrderSplitRow = ref(null)
@@ -491,11 +490,7 @@ function qtyFromGForSplitUnit(qtyG, unit) {
 }
 
 function capacityOptionLabel(capacity) {
-  const parts = [capacity?.name || `#${capacity?.id || ''}`]
-  if (Number(capacity?.batch_size_qty || 0) > 0) parts.push(`${capacity.batch_size_qty}${capacity.batch_size_unit || ''}`)
-  if (Number(capacity?.standard_minutes || 0) > 0) parts.push(`${capacity.standard_minutes}分钟/批`)
-  if (Number(capacity?.hourly_rate || 0) > 0) parts.push(`${capacity.hourly_rate}/小时`)
-  return parts.filter(Boolean).join(' · ')
+  return workstationCapacityOptionLabel(capacity)
 }
 
 function splitSameOperation(left, right) {
@@ -511,7 +506,12 @@ function splitSameOperation(left, right) {
 function defaultPlannedQtyForWorkOrderSplit(split) {
   return maxAssignableQtyForCapacitySplit(split, workOrderSplitRows.value, {
     planned_g: Math.max(0, Number(workOrderSplitRow.value?.planned_g || 0)),
+    planned_output_g: Math.max(0, Number(workOrderSplitRow.value?.planned_output_g || 0)),
     spec_g: Number(workOrderSplitRow.value?.spec_g || 0),
+    sales_spec_count: Number(workOrderSplitRow.value?.sales_spec_count || 0),
+    inventory_qty_per_sales_unit: Number(workOrderSplitRow.value?.inventory_qty_per_sales_unit || 0),
+    inventory_unit: String(workOrderSplitRow.value?.inventory_unit || ''),
+    planned_inventory_qty: Number(workOrderSplitRow.value?.planned_inventory_qty || 0),
   })
 }
 
@@ -530,8 +530,12 @@ function normalizeWorkOrderSplit(row = {}) {
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
+    cost_method: normalizeCapacityCostMethod(row),
+    piece_rate: Number(row.piece_rate || 0),
     planned_batch_count: Number(row.planned_batch_count || 0),
     spec_g: Number(row.spec_g || workOrderSplitRow.value?.spec_g || 0),
+    sales_spec_count: Number(row.sales_spec_count || workOrderSplitRow.value?.sales_spec_count || 0),
+    item_target_g: Number(row.item_target_g || productionPlanItemOutputTargetG(workOrderSplitRow.value || {})),
     planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_input_qty || row.planned_qty_g || 0), row.batch_size_unit)),
     planned_qty_g: Number(row.planned_qty_g || row.planned_input_qty || 0),
     planned_minutes: Number(row.planned_minutes || 0),
@@ -565,7 +569,11 @@ function applyWorkOrderSplitCapacity(split) {
   split.batch_size_unit = capacity.batch_size_unit || ''
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
+  split.cost_method = normalizeCapacityCostMethod(capacity)
+  split.piece_rate = Number(capacity.piece_rate || 0)
   split.spec_g = Number(split.spec_g || workOrderSplitRow.value?.spec_g || 0)
+  split.sales_spec_count = Number(split.sales_spec_count || workOrderSplitRow.value?.sales_spec_count || 0)
+  split.item_target_g = Number(split.item_target_g || productionPlanItemOutputTargetG(workOrderSplitRow.value || {}))
   if (Number(split.planned_qty || 0) <= 0) {
     split.planned_qty = defaultPlannedQtyForWorkOrderSplit(split)
   }
@@ -576,7 +584,12 @@ function autoSplitWorkOrderOperation(operation) {
   const autoRows = buildOperationCapacityAutoSplits({
     id: Number(workOrderSplitRow.value.production_plan_item_id || 0),
     planned_g: Number(workOrderSplitRow.value.planned_g || 0),
+    planned_output_g: Number(workOrderSplitRow.value.planned_output_g || 0),
     spec_g: Number(workOrderSplitRow.value.spec_g || 0),
+    sales_spec_count: Number(workOrderSplitRow.value.sales_spec_count || 0),
+    inventory_qty_per_sales_unit: Number(workOrderSplitRow.value.inventory_qty_per_sales_unit || 0),
+    inventory_unit: String(workOrderSplitRow.value.inventory_unit || ''),
+    planned_inventory_qty: Number(workOrderSplitRow.value.planned_inventory_qty || 0),
   }, operation, activeWorkstationCapacities.value).map(normalizeWorkOrderSplit)
   workOrderSplitRows.value = [
     ...workOrderSplitRows.value.filter((split) => !splitMatchesOperation(split, operation)),
@@ -591,7 +604,12 @@ function withAutoWorkOrderSplits(rows) {
     const autoRows = buildOperationCapacityAutoSplits({
       id: Number(workOrderSplitRow.value?.production_plan_item_id || 0),
       planned_g: Number(workOrderSplitRow.value?.planned_g || 0),
+      planned_output_g: Number(workOrderSplitRow.value?.planned_output_g || 0),
       spec_g: Number(workOrderSplitRow.value?.spec_g || 0),
+      sales_spec_count: Number(workOrderSplitRow.value?.sales_spec_count || 0),
+      inventory_qty_per_sales_unit: Number(workOrderSplitRow.value?.inventory_qty_per_sales_unit || 0),
+      inventory_unit: String(workOrderSplitRow.value?.inventory_unit || ''),
+      planned_inventory_qty: Number(workOrderSplitRow.value?.planned_inventory_qty || 0),
     }, operation, activeWorkstationCapacities.value).map(normalizeWorkOrderSplit)
     if (autoRows.length) nextRows = [...nextRows, ...autoRows]
   }
@@ -632,47 +650,6 @@ async function saveWorkOrderOperationSplits() {
     workOrderSplitError.value = err.message || '保存工单拆分失败'
   } finally {
     workOrderSplitSaving.value = false
-  }
-}
-
-async function startWorkOrder(row) {
-  const endpoint = workOrderStartEndpoint(row)
-  if (!endpoint) return
-  startingId.value = Number(row.id || 0)
-  error.value = ''
-  try {
-    await apiSend(endpoint, { body: {} })
-    status.value = 'running'
-    await load()
-  } catch (err) {
-    error.value = err.message || '开始生产失败'
-  } finally {
-    startingId.value = 0
-  }
-}
-
-async function completeWorkOrder(row) {
-  const endpoint = workOrderCompleteEndpoint(row)
-  if (!endpoint) return
-  const plannedOutput = workOrderPlannedOutput(row)
-  completingId.value = Number(row.id || 0)
-  error.value = ''
-  try {
-    await apiSend(endpoint, {
-      body: {
-        finished_units: plannedOutput.units,
-        finished_loose_g: plannedOutput.loose_g,
-        consumed_input_g: Number(row.wip_consumed_g || row.planned_g || 0),
-        warehouse: 'finished_goods',
-        note: '生产工单页完工入库',
-      },
-    })
-    status.value = 'completed'
-    await load()
-  } catch (err) {
-    error.value = err.message || '完工入库失败'
-  } finally {
-    completingId.value = 0
   }
 }
 

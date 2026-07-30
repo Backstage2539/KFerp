@@ -233,6 +233,82 @@ func TestMessageCenterAPIRequiresOrderReadPermission(t *testing.T) {
 	}
 }
 
+func TestProductionConfigurationAPIPermissionsSeparateReadAndWrite(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/api/production-boms?status=all", "bom.read"},
+		{http.MethodPost, "/api/production-boms", "bom.write"},
+		{http.MethodPut, "/api/production-boms/11", "bom.write"},
+		{http.MethodPost, "/api/production-bom-versions/103/publish", "bom.write"},
+		{http.MethodPut, "/api/products/7/default-production-bom", "bom.write"},
+		{http.MethodGet, "/api/products/7/production-bom-binding", "bom.read"},
+		{http.MethodGet, "/api/process-routes?status=active", "bom.read"},
+		{http.MethodPost, "/api/process-routes", "bom.write"},
+		{http.MethodPost, "/api/process-routes/9/publish", "bom.write"},
+		{http.MethodGet, "/api/process-templates?product_id=7", "bom.read"},
+		{http.MethodGet, "/api/manufacturing-operations", "bom.read"},
+		{http.MethodPost, "/api/manufacturing-operations", "bom.write"},
+		{http.MethodGet, "/api/manufacturing-workstations", "bom.read"},
+		{http.MethodPost, "/api/manufacturing-workstations/9/deactivate", "bom.write"},
+		{http.MethodGet, "/api/manufacturing-workstation-capacities?workstation_id=9", "bom.read"},
+		{http.MethodPost, "/api/manufacturing-workstation-capacities", "bom.write"},
+	} {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s permission = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestProductionExecutionAPIPermissionsSeparateReadAndRun(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/api/production/workstation-overview", "production.read"},
+		{http.MethodPost, "/api/production/workstation/tasks/91/exception", "production.run"},
+		{http.MethodGet, "/api/job-cards/91", "production.read"},
+		{http.MethodPost, "/api/job-cards/91/start", "production.run"},
+		{http.MethodPatch, "/api/job-cards/91", "production.run"},
+		{http.MethodGet, "/api/work-orders/88", "production.read"},
+		{http.MethodPost, "/api/work-orders/88/start", "production.run"},
+		{http.MethodDelete, "/api/work-orders/88", "production.run"},
+	} {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s permission = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestProductionExecutionWriteRejectsReadOnlyActor(t *testing.T) {
+	e := echo.New()
+	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"production.read"}}}
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(3))
+			return next(c)
+		}
+	})
+	e.Use(AuthorizationMiddleware(authz))
+	called := false
+	e.POST("/api/job-cards/:id/start", func(c echo.Context) error {
+		called = true
+		return c.NoContent(http.StatusOK)
+	})
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/job-cards/91/start", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403, body=%s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Fatal("read-only production actor reached a production execution write handler")
+	}
+}
+
 func TestRequiredPermissionForInternalAccounts(t *testing.T) {
 	if got := requiredPermissionForRequest(http.MethodGet, "/api/auth/internal-accounts"); got != "" {
 		t.Fatalf("GET /api/auth/internal-accounts middleware permission = %q, want empty", got)
@@ -273,6 +349,9 @@ func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 func TestPricingRuleTrialPermissionIsReadOnly(t *testing.T) {
 	if got := requiredPermissionForRequest(http.MethodPost, "/api/costing/pricing-rule-trial"); got != "costing.read" {
 		t.Fatalf("POST /api/costing/pricing-rule-trial permission = %q, want costing.read", got)
+	}
+	if got := requiredPermissionForRequest(http.MethodPost, "/api/costing/pricing-rule-trials"); got != "costing.read" {
+		t.Fatalf("POST /api/costing/pricing-rule-trials permission = %q, want costing.read", got)
 	}
 }
 

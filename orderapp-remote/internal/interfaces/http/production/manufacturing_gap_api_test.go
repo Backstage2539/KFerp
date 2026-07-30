@@ -86,6 +86,9 @@ func (r *fakeManufacturingGapRepo) SaveWorkOrderOperationSplits(ctx context.Cont
 func (r *fakeManufacturingGapRepo) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
 	return productionapp.ProductionPlanSubmitResult{}, nil
 }
+func (r *fakeManufacturingGapRepo) CancelProductionPlan(ctx context.Context, cmd productionapp.CancelProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	return productionapp.ProductionPlanDetail{ID: cmd.ID, Status: "cancelled"}, nil
+}
 func (r *fakeManufacturingGapRepo) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
 	return productionapp.WorkOrderStartResult{}, nil
 }

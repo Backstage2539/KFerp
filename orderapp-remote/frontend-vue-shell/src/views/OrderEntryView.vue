@@ -238,36 +238,73 @@
       </div>
       <div class="line-list">
         <article v-for="(row, idx) in rows" :key="row.key" class="line-item">
-          <label class="product-combobox combobox product-cell" :class="{ open: row.product_open }">
+          <label
+            class="product-combobox combobox product-cell"
+            :class="{ open: row.product_open }"
+            :data-product-combobox-key="row.key"
+          >
             <span>商品</span>
             <input
               v-model.trim="row.product_query"
               type="search"
               placeholder="选择商品"
               autocomplete="off"
-              @focus="row.product_open = true"
+              @focus="openProductDropdown(row)"
               @input="clearProduct(row)"
-              @keydown.down.prevent="row.product_open = true"
+              @keydown.down.prevent="openProductDropdown(row)"
             />
             <div v-if="row.product_open" class="combo-menu">
+              <div
+                v-if="productKindFilterOptions(row).length > 1"
+                class="product-kind-filter"
+                role="group"
+                aria-label="商品分类"
+              >
+                <button
+                  v-for="option in productKindFilterOptions(row)"
+                  :key="option.value || 'all'"
+                  type="button"
+                  class="product-kind-filter-option"
+                  :class="{ active: activeProductKindFilter(row) === option.value }"
+                  :aria-pressed="activeProductKindFilter(row) === option.value"
+                  @mousedown.prevent
+                  @click.stop="row.product_kind_filter = option.value"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
               <button
                 v-for="product in productOptions(row)"
-                :key="product.id"
+                :key="productOptionKey(product)"
                 type="button"
                 class="combo-option"
                 @mousedown.prevent="chooseProduct(row, product)"
               >
                 <strong>{{ product.name }} <span class="kind-badge" :class="productKindBadgeClass(product)">{{ productKindLabel(product) }}</span></strong>
-                <small v-if="product.tiers?.length">{{ product.tiers.length }} 个价格梯度</small>
+                <small v-if="productSpecCountForCurrentList(product)">{{ productSpecCountForCurrentList(product) }} 个可售规格</small>
+                <small v-else-if="!product.__order_concrete_price_family && product.tiers?.length">{{ product.tiers.length }} 个价格梯度</small>
               </button>
               <div v-if="!productOptions(row).length" class="combo-empty">没有匹配商品</div>
             </div>
           </label>
 
           <label>
-            <span>{{ isDripRow(row) ? '单位' : '规格' }}</span>
+            <span>{{ !isConcretePriceListRow(row) && isDripRow(row) ? '单位' : '规格' }}</span>
             <div class="spec-control">
-              <select v-if="isDripRow(row)" v-model="row.sales_unit" @change="onDripUnitChange(row)">
+              <select v-if="isConcretePriceListRow(row)" v-model="row.spec_mode" @change="onSpecChange(row)">
+                <option value="">选择规格</option>
+                <option
+                  v-if="row.historical_spec_readonly && !specOptions(row).some((option) => option.value === row.spec_mode)"
+                  :value="row.spec_mode"
+                  disabled
+                >
+                  {{ row.spec_label || '历史规格' }}（历史规格，当前价格表不可用）
+                </option>
+                <option v-for="option in specOptions(row)" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <select v-else-if="isDripRow(row)" v-model="row.sales_unit" @change="onDripUnitChange(row)">
                 <option v-for="option in dripUnitOptionsForRow(row)" :key="option.value" :value="option.value">
                   {{ option.spec }}
                 </option>
@@ -279,7 +316,7 @@
                 </option>
               </select>
               <input
-                v-if="row.spec_mode === CUSTOM_SPEC_VALUE"
+                v-if="!isConcretePriceListRow(row) && row.spec_mode === CUSTOM_SPEC_VALUE"
                 v-model.number="row.custom_spec_g"
                 type="number"
                 min="1"
@@ -334,7 +371,7 @@
             <span>小计</span>
             <strong>{{ money(rowTotal(row)) }}</strong>
             <small>{{ row.manual_price ? '手动价' : autoPriceLabel(row) }}</small>
-            <small v-if="row.tier_below_min" class="tier-warning">低于最低梯度，已按最低档 {{ row.tier_price_label || '价格' }} 计价</small>
+            <small v-if="rowHasBlockingPrice(row)" class="price-missing-warning">{{ rowPriceBlockingMessage(row) }}</small>
             <small
               v-if="row.product_id && row.bean_list_version_no"
               class="bean-list-version-meta"
@@ -412,7 +449,7 @@
             class="secondary"
             type="button"
             @click="save({ continueBackfill: false })"
-            :disabled="saving"
+            :disabled="saving || hasUnpricedPublishedRow"
           >
             保存并查看订单
           </button>
@@ -421,7 +458,7 @@
             class="primary"
             type="button"
             @click="save({ continueBackfill: true })"
-            :disabled="saving"
+            :disabled="saving || hasUnpricedPublishedRow"
           >
             保存并继续补录
           </button>
@@ -430,7 +467,7 @@
             class="primary"
             type="button"
             @click="save({ continueBackfill: false })"
-            :disabled="saving"
+            :disabled="saving || hasUnpricedPublishedRow"
           >
             保存订单
           </button>
@@ -443,11 +480,15 @@
           <li>录单时可点“新增客户”打开右侧抽屉，粘贴收件信息后可解析姓名、联系电话和地址。</li>
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
+          <li>商品下拉可按当前可选的熟豆、挂耳、生豆、速溶咖啡分类过滤，并可继续输入名称或拼音；点击下拉外部会自动收起。</li>
           <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
           <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
-          <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
-          <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
+          <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
+          <li>商品按父商品展示，商品名不再拼接规格；规格列只能选择当前价格表已发布的具体规格。</li>
+          <li>首次选择商品使用其默认规格；切换价格表版本后，当前规格仍有发布价时保留，否则清空规格和价格并要求重新选择。</li>
+          <li>新版挂耳商品同样从当前价格表选择袋或盒规格；历史挂耳数据仍保留旧单位选择兼容。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
+          <li>数量低于起订量、高于有限最高量或落在档位空隙时不猜测最低价；页面提示“当前数量无已发布价格，不能保存”，请调整数量、补齐已发布价格表档位或按授权流程输入手动价。</li>
           <li>需要临时改价时直接修改单价，点击 ↺ 恢复自动梯度价。</li>
           <li>每条商品明细可选择减免数额、单价优惠、折扣或免费，保存后会计入订单优惠。</li>
           <li>每条商品明细可填写“条目备注”，会随该商品带入销售单和出库单。</li>
@@ -551,6 +592,7 @@
               :value="selectedBeanListPublicationIDs[group.key] || selectedBeanListVersionOptionByGroup(group)?.id || 0"
               @change="setBeanListVersion(group.key, $event.target.value)"
             >
+              <option v-if="!group.autoSelect" :value="0">不使用该历史价格表</option>
               <option v-for="option in group.options" :key="option.id" :value="option.id">
                 {{ beanListVersionLabel(option) }}
               </option>
@@ -581,10 +623,18 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { apiGet, apiSend } from '../api/client'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
+  activeBeanListPublicationIDsByType,
+  activeCustomerOwnedBeanListPublicationIDsByType,
   CUSTOM_SPEC_VALUE,
+  beanListVersionGroupIdentity,
+  beanListVersionGroupForPublicationID,
   beanListVersionOptionGroups,
+  beanListVersionOptionForGroup,
+  beanListVersionOptionForProductGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
+  closeOrderProductDropdowns,
+  defaultDripSalesUnitSpec,
   defaultWholesaleSpec,
   defaultStatusID,
   dripSalesUnitSpec,
@@ -593,12 +643,26 @@ import {
   filterOptions,
   isOrderTierActive,
   lineTotal,
-  latestProductPriceListVersionOption,
+  latestBeanListVersionOption,
   needsTrailingBlankOrderLine,
   normalizeSpecG,
+  normalizeOrderProductFamilies,
+  orderFamilyDefaultSpec,
+  orderFamilyForSKU,
+  orderFamilySpecOptions,
+  orderFamilySpecProduct,
+  orderFamilyHydratedSpecRowPatch,
+  orderFamilySpecRowPatch,
+  orderFamilySpecsForPublication,
+  orderLegacyProductForPublication,
+  orderProductPublicationMode,
+  orderProductFamilyOptions,
+  orderProductKindFilterOptions,
+  orderSpecSelectionAfterPublicationChange,
   orderRowPriceUnit,
   orderReceiptMethodOptions,
   orderTotalPreview,
+  productBeanListType,
   productKindBadgeClass,
   productKindLabel,
   requiresOrderPaymentMethod,
@@ -607,6 +671,7 @@ import {
   retailPackagePrice,
   retailSpecOptions,
   rowUsesStaleBeanListPublication,
+  shouldKeepFrozenOrderPublication,
   sortProductsByCustomerUsage,
   syncDripTierPrice,
   toInt,
@@ -645,6 +710,7 @@ const shipStatuses = ref([])
 const payStatuses = ref([])
 const orderTypes = ref([])
 const products = ref([])
+const productFamilies = ref([])
 const employees = ref([])
 const logisticsCompanies = ref([])
 const beanListVersionOptions = ref([])
@@ -652,6 +718,7 @@ const customerPublicUsages = ref([])
 const customerProductUsages = ref([])
 const selectedBeanListPublicationIDs = reactive({})
 const rows = ref([newRow()])
+const hasUnpricedPublishedRow = computed(() => rows.value.some(rowHasBlockingPrice))
 const paymentVoucher = ref(null)
 const paymentVoucherFile = ref(null)
 const uploadingVoucher = ref(false)
@@ -714,6 +781,9 @@ function newRow() {
     key: `${Date.now()}-${Math.random()}`,
     product_query: '',
     product_open: false,
+    product_kind_filter: '',
+    parent_product_id: 0,
+    parent_product_name: '',
     product_id: 0,
     product_name: '',
     product_code: '',
@@ -726,6 +796,8 @@ function newRow() {
     product_type_category_id: 0,
     product_type_name: '',
     tier_id: 'auto',
+    quantity_basis: '',
+    price_source_json: '',
     bean_list_publication_id: 0,
     bean_list_version_no: '',
     bean_list_version_tip_open: false,
@@ -735,8 +807,14 @@ function newRow() {
     price_unit_g: 0,
     tier_price_label: '',
     tier_below_min: false,
+    price_missing: false,
     manual_price: false,
     spec_mode: '',
+    spec_source: '',
+    spec_label: '',
+    spec_g: 0,
+    historical_spec_readonly: false,
+    spec_invalid_message: '',
     custom_spec_g: '',
     sales_unit: '',
     unit_bag_count: 0,
@@ -803,7 +881,7 @@ function saveOrderEntryDraft() {
 
 function restoreOrderEntryDraft() {
   const draft = readFormDraft(orderEntryDraftKey())
-  if (!draft) return
+  if (!draft) return false
   Object.assign(form, draft.form || {})
   rows.value = Array.isArray(draft.rows) && draft.rows.length
     ? draft.rows.map((row) => ({ ...newRow(), ...row, product_open: false }))
@@ -813,6 +891,7 @@ function restoreOrderEntryDraft() {
   customerPaste.value = draft.customerPaste || ''
   Object.assign(customerForm, emptyCustomerForm(), draft.customerForm || {})
   backfillMode.value = Boolean(draft.backfillMode)
+  return true
 }
 
 function selectedOrderType() {
@@ -881,7 +960,12 @@ const orderBeanListTypes = [
   { type: 'drip', label: '挂耳豆单' },
 ]
 const customerBeanListVersionOptions = computed(() => {
-  return beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
+  const rows = beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
+  return rows.filter((item) => {
+    const listType = String(item?.list_type || 'commercial').trim()
+    if (retailOrder.value) return listType === 'retail' || listType === 'drip'
+    return listType !== 'retail'
+  })
 })
 const beanListVersionGroups = computed(() => beanListVersionOptionGroups(customerBeanListVersionOptions.value))
 const canOpenBeanListDrawer = computed(() => {
@@ -895,18 +979,59 @@ const selectedBeanListSummaryItems = computed(() => beanListVersionGroups.value
       label: group.label,
       versionLabel: selected ? beanListVersionLabel(selected) : '暂无',
     }
-  }))
+  })
+  .filter((item) => item.versionLabel !== '暂无'))
 
 function selectedCustomerMissingProfileLabels() {
   if (!selectedCustomer.value) return []
   return selectedCustomerProfileSummary.value.filter((item) => item.missing).map((item) => item.label)
 }
 function productByID(id) {
-  return products.value.find((item) => Number(item.id) === Number(id)) || null
+  const productID = Number(id || 0)
+  const family = orderFamilyForSKU(productFamilies.value, productID)
+  if (family) {
+    const spec = (family.specs || []).find((item) => Number(item.sku_id || 0) === productID)
+    if (spec) return orderFamilySpecProduct(family, spec, 0)
+  }
+  return products.value.find((item) => Number(item.id) === productID) || null
+}
+
+function productFamilyByParentID(id) {
+  const parentID = Number(id || 0)
+  if (parentID <= 0) return null
+  return productFamilies.value.find((item) => Number(item.parent_product_id || item.id || 0) === parentID) || null
+}
+
+function productFamilyForRow(row) {
+  if (row?.__order_legacy_price_product || row?.spec_source === 'legacy_price_list') return null
+  return productFamilyByParentID(row?.parent_product_id)
+    || orderFamilyForSKU(productFamilies.value, row?.product_id)
+    || null
+}
+
+function isConcretePriceListRow(row) {
+  if (row?.__order_legacy_price_product || row?.spec_source === 'legacy_price_list') return false
+  const family = productFamilyForRow(row)
+  return row?.spec_source === 'price_list_sku'
+    || Boolean(family?.__order_concrete_price_family)
+}
+
+function productForRow(row) {
+  if (row?.__order_legacy_price_product || row?.spec_source === 'legacy_price_list') {
+    return products.value.find((item) => Number(item.id || 0) === Number(row?.product_id || 0)) || null
+  }
+  const family = productFamilyForRow(row)
+  if (!family || !isConcretePriceListRow(row)) return productByID(row?.product_id)
+  const selected = selectedBeanListVersionOptionForProduct(family)
+  const publicationID = Number(selected?.id || row?.bean_list_publication_id || 0)
+  const spec = orderFamilySpecsForPublication(family, publicationID)
+    .find((item) => Number(item.sku_id || 0) === Number(row?.product_id || row?.spec_mode || 0))
+  if (!spec) return productByID(row?.product_id)
+  return orderFamilySpecProduct(family, spec, publicationID)
 }
 
 function isDripRow(row) {
-  return row?.product_kind === 'drip_bag' || isDripProduct(productByID(row?.product_id))
+  return row?.product_kind === 'drip_bag' || isDripProduct(productForRow(row))
 }
 
 function optionName(options, id) {
@@ -982,7 +1107,7 @@ function fieldIsValid(fieldKey) {
   if (fieldKey === 'payment_goods_amount') return !paymentReceiptRequired.value || toNumber(form.payment_goods_amount) > 0
   if (fieldKey === 'payment_shipping_amount') return !paymentReceiptRequired.value || String(form.payment_shipping_amount || '').trim() !== ''
   if (fieldKey === 'payment_voucher_asset_id') return !paymentReceiptRequired.value || Number(form.payment_voucher_asset_id || 0) > 0
-  if (fieldKey === 'product_items') return hasValidProductLine()
+  if (fieldKey === 'product_items') return hasValidProductLine() && !hasUnpricedPublishedRow.value
   return false
 }
 
@@ -1051,8 +1176,9 @@ function chooseCustomer(item) {
   form.customer_id = Number(item.id || 0)
   customerQuery.value = item.name || ''
   customerOpen.value = false
-  syncOrderHeaderFromCustomer(item)
+  syncOrderHeaderFromCustomer(item, { syncRows: false })
   syncBeanListVersionForCustomer({ force: true })
+  syncRowsForType({ priceListChanged: true })
   notifyWorkspaceCustomerChanged(form.customer_id)
 }
 
@@ -1084,15 +1210,28 @@ function beanListVersionLabel(item) {
 }
 
 function beanListVersionField(listType) {
+  if (listType === 'retail') return 'bean_list_publication_id'
   if (listType === 'green') return 'green_bean_list_publication_id'
   if (listType === 'drip') return 'drip_bean_list_publication_id'
   return 'commercial_bean_list_publication_id'
 }
 
 function orderBeanListTypeForProductKind(productKind) {
-  if (productKind === 'green_bean') return 'green'
-  if (productKind === 'drip_bag') return 'drip'
-  return 'commercial'
+  return productBeanListType({ product_kind: productKind })
+}
+
+function currentOrderBeanListTypeForProductKind(productKind) {
+  if (String(productKind || '').trim() === 'drip_bag') return 'drip'
+  if (retailOrder.value) return 'retail'
+  return orderBeanListTypeForProductKind(productKind)
+}
+
+function currentPriceListTypeForProduct(productOrRow) {
+  if (productOrRow?.__order_concrete_price_family || isConcretePriceListRow(productOrRow)) {
+    if (retailOrder.value && productBeanListType(productOrRow) === 'commercial') return 'retail'
+    return productBeanListType(productOrRow)
+  }
+  return currentOrderBeanListTypeForProductKind(productOrRow?.product_kind)
 }
 
 function customerBeanListVersionOptionsByType(listType) {
@@ -1100,29 +1239,23 @@ function customerBeanListVersionOptionsByType(listType) {
 }
 
 function beanListGroupKeyForProduct(productOrRow) {
-  const categoryID = Number(productOrRow?.product_type_category_id || 0)
-  const categoryName = String(productOrRow?.product_type_name || '').trim()
-  if (categoryID > 0) return `category:${categoryID}`
-  if (categoryName) return `category-name:${categoryName}`
-  return `legacy:${orderBeanListTypeForProductKind(productOrRow?.product_kind)}`
+  return beanListVersionGroupForProduct(productOrRow)?.key
+    || beanListVersionGroupIdentity({
+      ...productOrRow,
+      list_type: currentPriceListTypeForProduct(productOrRow),
+    }).key
 }
 
 function selectedBeanListPublicationIDsByType() {
-  const out = {}
-  for (const group of beanListVersionGroups.value) {
-    const item = selectedBeanListVersionOptionByGroup(group)
-    if (!item) continue
-    const id = Number(item.id || 0)
-    if (id <= 0) continue
-    const listType = String(item.list_type || group.listType || 'commercial')
-    if (!out[listType]) out[listType] = []
-    out[listType].push(id)
-  }
-  return out
+  return activeBeanListPublicationIDsByType(beanListVersionGroups.value, selectedBeanListPublicationIDs)
 }
 
 function customerOwnedBeanListPublicationIDsByType() {
-  return selectedBeanListPublicationIDsByType()
+  return activeCustomerOwnedBeanListPublicationIDsByType(
+    beanListVersionGroups.value,
+    selectedBeanListPublicationIDs,
+    form.customer_id,
+  )
 }
 
 function showBeanListVersionPickerByType(listType) {
@@ -1140,23 +1273,64 @@ function selectedBeanListVersionOptionByType(listType) {
 }
 
 function selectedBeanListVersionOptionByGroup(group) {
-  const rows = group?.options || []
-  if (!rows.length) return null
-  const selected = Number(selectedBeanListPublicationIDs[group.key] || 0)
-  return rows.find((item) => Number(item.id) === selected)
-    || rows.find((item) => item.is_default)
-    || rows[0]
+  return beanListVersionOptionForGroup(group, selectedBeanListPublicationIDs[group?.key])
+}
+
+function productPublicationIDs(product = {}) {
+  const ids = new Set()
+  const currentID = Number(product?.bean_list_publication_id || 0)
+  if (currentID > 0) ids.add(currentID)
+  for (const tier of product?.tiers || []) {
+    const id = Number(tier?.publication_id || 0)
+    if (id > 0) ids.add(id)
+  }
+  return ids
+}
+
+function beanListVersionGroupForProduct(product = {}) {
+  const publicationIDs = productPublicationIDs(product)
+  const currentID = Number(product?.bean_list_publication_id || 0)
+  if (currentID > 0) {
+    const exact = beanListVersionGroups.value.find((group) => (
+      (group?.options || []).some((item) => Number(item?.id || 0) === currentID)
+    ))
+    if (exact) return exact
+  }
+  const selectedMatch = beanListVersionGroups.value.find((group) => {
+    const selected = selectedBeanListVersionOptionByGroup(group)
+    return Number(selected?.id || 0) > 0 && publicationIDs.has(Number(selected.id))
+  })
+  if (selectedMatch) return selectedMatch
+  const identity = beanListVersionGroupIdentity({
+    ...product,
+    list_type: currentPriceListTypeForProduct(product),
+  })
+  return beanListVersionGroups.value.find((group) => group.key === identity.key)
+    || beanListVersionGroups.value.find((group) => (
+      (group?.options || []).some((item) => publicationIDs.has(Number(item?.id || 0)))
+    ))
+    || null
 }
 
 function selectedBeanListVersionOptionForProduct(productOrRow) {
-  const product = productOrRow?.product_id ? (productByID(productOrRow.product_id) || productOrRow) : productOrRow
-  const groupKey = beanListGroupKeyForProduct(product)
-  const group = beanListVersionGroups.value.find((item) => item.key === groupKey)
-  if (group) {
-    const selected = selectedBeanListVersionOptionByGroup(group)
-    if (selected) return selected
-  }
-  return latestProductPriceListVersionOption(customerBeanListVersionOptions.value, product)
+  const legacyProduct = productOrRow?.__order_legacy_price_product || productOrRow?.spec_source === 'legacy_price_list'
+    ? (products.value.find((item) => Number(item.id || 0) === Number(productOrRow?.product_id || productOrRow?.id || 0)) || productOrRow)
+    : null
+  const product = productFamilyForRow(productOrRow)
+    || legacyProduct
+    || (productOrRow?.product_id ? (productByID(productOrRow.product_id) || productOrRow) : productOrRow)
+  const selected = beanListVersionOptionForProductGroups(
+    beanListVersionGroups.value,
+    selectedBeanListPublicationIDs,
+    product,
+    productOrRow?.bean_list_publication_id,
+  )
+  if (selected) return selected
+  if (beanListVersionGroupForPublicationID(beanListVersionGroups.value, productOrRow?.bean_list_publication_id)) return null
+  return latestBeanListVersionOption(
+    customerBeanListVersionOptions.value,
+    currentPriceListTypeForProduct(product),
+  )
 }
 
 function setBeanListVersion(groupKey, value) {
@@ -1170,12 +1344,12 @@ function setBeanListVersion(groupKey, value) {
     const field = beanListVersionField(listType)
     form[field] = selectedID
   }
-  if (listType === 'commercial') {
+  if (listType === 'commercial' || listType === 'retail') {
     const field = beanListVersionField(listType)
     if (legacyKey) form[field] = selectedID
     form.bean_list_publication_id = selectedID
   }
-  syncRowsForType()
+  syncRowsForType({ priceListChanged: true })
 }
 
 function openBeanListDrawer() {
@@ -1193,29 +1367,33 @@ function closeBeanListDrawer() {
 function beanListDrawerHint(group) {
   const rows = group?.options || []
   if (!rows.length) return '没有可用的已发布豆单'
+  if (!group?.autoSelect && !selectedBeanListVersionOptionByGroup(group)) return '历史兼容价格表，默认不参与新订单；需要时可手工启用'
   if (rows.some((item) => item.is_customer_owned)) return '可选择客户自定义豆单版本'
   return '当前使用公共豆单'
 }
 
 function syncBeanListVersionForCustomer(options = {}) {
-  for (const item of orderBeanListTypes) {
+  const activeTypes = retailOrder.value
+    ? [{ type: 'retail', label: '零售价格表' }, { type: 'drip', label: '挂耳豆单' }]
+    : orderBeanListTypes
+  for (const item of activeTypes) {
     const rows = customerBeanListVersionOptionsByType(item.type)
     const field = beanListVersionField(item.type)
     if (!rows.length) {
       form[field] = 0
-      if (item.type === 'commercial') form.bean_list_publication_id = 0
+      if (item.type === 'commercial' || item.type === 'retail') form.bean_list_publication_id = 0
       continue
     }
     const currentID = Number(form[field] || 0)
     if (!options.force && rows.some((row) => Number(row.id) === currentID)) continue
     const selected = rows.find((row) => row.is_default) || rows[0]
     form[field] = Number(selected?.id || 0)
-    if (item.type === 'commercial') form.bean_list_publication_id = form[field]
+    if (item.type === 'commercial' || item.type === 'retail') form.bean_list_publication_id = form[field]
   }
   for (const group of beanListVersionGroups.value) {
     const currentID = Number(selectedBeanListPublicationIDs[group.key] || 0)
     if (!options.force && group.options.some((row) => Number(row.id) === currentID)) continue
-    const selected = group.options.find((row) => row.is_default) || group.options[0]
+    const selected = beanListVersionOptionForGroup(group, 0)
     selectedBeanListPublicationIDs[group.key] = Number(selected?.id || 0)
   }
 }
@@ -1341,24 +1519,81 @@ async function saveCustomerFromDrawer() {
   }
 }
 
+function scopedOrderProductOptions() {
+  const concreteParentIDs = new Set(productFamilies.value
+    .filter((family) => family?.__order_concrete_price_family)
+    .map((family) => Number(family.parent_product_id || family.id || 0)))
+  const scopedFamilies = filterProductsForCustomer(
+    productFamilies.value,
+    form.customer_id,
+    selectedBeanListPublicationIDsByType(),
+    customerPublicUsages.value,
+    customerOwnedBeanListPublicationIDsByType(),
+  ).filter((family) => {
+    if (!family?.__order_concrete_price_family) return true
+    const selected = selectedBeanListVersionOptionForProduct(family)
+    return Number(selected?.id || 0) > 0
+      && orderFamilySpecsForPublication(family, selected.id).length > 0
+  })
+  const scopedLegacyProducts = filterProductsForCustomer(
+    products.value,
+    form.customer_id,
+    selectedBeanListPublicationIDsByType(),
+    customerPublicUsages.value,
+    customerOwnedBeanListPublicationIDsByType(),
+  ).flatMap((product) => {
+    const parentProductID = Number(product.parent_product_id || product.id || 0)
+    if (!concreteParentIDs.has(parentProductID)) return []
+    const selected = selectedBeanListVersionOptionForProduct({ ...product, __order_legacy_price_product: true })
+    const legacy = orderLegacyProductForPublication(product, selected?.id || 0)
+    return legacy ? [legacy] : []
+  })
+  return [...scopedFamilies, ...scopedLegacyProducts]
+}
+
+function productKindFilterOptions() {
+  return orderProductKindFilterOptions(scopedOrderProductOptions())
+}
+
+function activeProductKindFilter(row) {
+  const selected = String(row?.product_kind_filter || '').trim()
+  return productKindFilterOptions(row).some((option) => option.value === selected) ? selected : ''
+}
+
 function productOptions(row) {
   return sortProductsByCustomerUsage(
-    filterOptions(
-      filterProductsForCustomer(
-        products.value,
-        form.customer_id,
-        customerOwnedBeanListPublicationIDsByType(),
-        customerPublicUsages.value,
-      ),
-      row.product_query,
-    ),
+    orderProductFamilyOptions(scopedOrderProductOptions(), row.product_query, activeProductKindFilter(row)),
     form.customer_id,
     customerProductUsages.value,
   ).slice(0, 30)
 }
 
+function handleOrderProductPointerDown(event) {
+  const combobox = event?.target?.closest?.('[data-product-combobox-key]')
+  closeOrderProductDropdowns(rows.value, combobox?.dataset?.productComboboxKey || '')
+}
+
+function openProductDropdown(row) {
+  closeOrderProductDropdowns(rows.value, row?.key)
+  if (row) row.product_open = true
+}
+
+function productOptionKey(product) {
+  if (product?.__order_legacy_price_product) return `legacy:${Number(product.id || 0)}`
+  return `family:${Number(product?.parent_product_id || product?.id || 0)}`
+}
+
+function productSpecCountForCurrentList(family) {
+  if (!family?.__order_concrete_price_family) return 0
+  const selected = selectedBeanListVersionOptionForProduct(family)
+  if (Number(selected?.id || 0) <= 0) return 0
+  return orderFamilySpecsForPublication(family, selected.id).length
+}
+
 function clearProduct(row) {
   row.product_open = true
+  row.parent_product_id = 0
+  row.parent_product_name = ''
   row.product_id = 0
   row.product_name = ''
   row.product_code = ''
@@ -1378,6 +1613,11 @@ function clearProduct(row) {
   clearWholesalePriceMetadata(row)
   row.manual_price = false
   row.spec_mode = ''
+  row.spec_source = ''
+  row.spec_label = ''
+  row.spec_g = 0
+  row.historical_spec_readonly = false
+  row.spec_invalid_message = ''
   row.custom_spec_g = ''
   row.sales_unit = ''
   row.unit_bag_count = 0
@@ -1385,7 +1625,84 @@ function clearProduct(row) {
   row.unit = '件'
 }
 
+function assignProductFamilyHeader(row, family) {
+  row.parent_product_id = Number(family?.parent_product_id || family?.id || 0)
+  row.parent_product_name = family?.parent_product_name || family?.product_name_snapshot || family?.name || ''
+  row.product_name = family?.name || row.parent_product_name
+  row.product_query = row.product_name
+  row.product_record_name = row.parent_product_name
+  row.customer_product_alias_id = Number(family?.customer_product_alias_id || 0)
+  row.customer_product_display_name = family?.customer_product_display_name || row.product_name
+  row.customer_item_code = family?.customer_item_code || ''
+  row.brand_name = family?.brand_name || ''
+  row.product_kind = family?.product_kind || 'roasted_bean'
+  row.product_type_category_id = Number(family?.product_type_category_id || 0)
+  row.product_type_name = family?.product_type_name || ''
+}
+
+function applyPriceListSpecToRow(row, family, spec, publicationID) {
+  const qty = row.qty
+  const itemNote = row.item_note
+  const discountType = row.discount_type
+  const discountValue = row.discount_value
+  clearWholesalePriceMetadata(row)
+  Object.assign(row, orderFamilySpecRowPatch(family, spec, publicationID), {
+    tier_id: 'auto',
+    unit_price: '',
+    manual_price: false,
+    qty,
+    item_note: itemNote,
+    discount_type: discountType,
+    discount_value: discountValue,
+  })
+}
+
+function invalidatePriceListSpecRow(row, message = '所选价格表不包含该商品当前规格，请重新选择规格。') {
+  const family = productFamilyForRow(row)
+  if (family) assignProductFamilyHeader(row, family)
+  const selected = family ? selectedBeanListVersionOptionForProduct(family) : null
+  row.product_id = 0
+  row.product_code = ''
+  row.spec_source = 'price_list_sku'
+  row.spec_mode = ''
+  row.spec_label = ''
+  row.spec_g = 0
+  row.custom_spec_g = ''
+  row.sales_unit = ''
+  row.unit_bag_count = 0
+  row.unit_bean_g = ''
+  row.unit = '件'
+  row.tier_id = 'auto'
+  row.unit_price = ''
+  row.manual_price = false
+  row.historical_spec_readonly = false
+  row.spec_invalid_message = message
+  row.bean_list_publication_id = Number(selected?.id || 0)
+  row.bean_list_version_no = String(selected?.version_no || '').trim()
+  clearWholesalePriceMetadata(row)
+  row.price_missing = true
+}
+
 function chooseProduct(row, product) {
+  const family = product?.__order_legacy_price_product
+    ? null
+    : (product?.__order_product_family ? product : productFamilyByParentID(product?.parent_product_id || product?.id))
+  if (family?.__order_concrete_price_family) {
+    assignProductFamilyHeader(row, family)
+    row.product_open = false
+    const selected = selectedBeanListVersionOptionForProduct(family)
+    const spec = Number(selected?.id || 0) > 0 ? orderFamilyDefaultSpec(family, selected.id) : null
+    if (!spec) {
+      invalidatePriceListSpecRow(row, '当前价格表没有该商品的已发布规格，请更换价格表。')
+      return
+    }
+    applyPriceListSpecToRow(row, family, spec, selected?.id || 0)
+    syncPrice(row, { force: true })
+    ensureTrailingBlankRow()
+    return
+  }
+  row.parent_product_id = product?.__order_legacy_price_product ? 0 : Number(product?.parent_product_id || 0)
+  row.parent_product_name = product?.parent_product_name || product?.product_name_snapshot || product?.name || ''
   row.product_id = Number(product?.id || 0)
   row.product_name = product?.name || ''
   row.product_query = product?.name || ''
@@ -1400,11 +1717,17 @@ function chooseProduct(row, product) {
   row.product_kind = product?.product_kind || 'roasted_bean'
   row.product_type_category_id = Number(product?.product_type_category_id || 0)
   row.product_type_name = product?.product_type_name || ''
+  row.spec_source = product?.__order_legacy_price_product ? 'legacy_price_list' : ''
+  row.spec_label = ''
+  row.spec_g = 0
+  row.historical_spec_readonly = false
+  row.spec_invalid_message = ''
   if (isDripProduct(product)) {
-    row.sales_unit = 'bag'
-    row.unit_bean_g = Number(product?.drip_bag_grams || 10)
-    row.unit_bag_count = 1
-    row.unit = '袋'
+    const defaultSpec = defaultDripSalesUnitSpec(product)
+    row.sales_unit = defaultSpec.salesUnit
+    row.unit_bean_g = defaultSpec.unitBeanG
+    row.unit_bag_count = defaultSpec.unitBagCount
+    row.unit = defaultSpec.unitLabel
     row.spec_mode = ''
     row.custom_spec_g = ''
     syncPrice(row, { force: true })
@@ -1426,23 +1749,88 @@ function chooseProduct(row, product) {
 }
 
 function specOptions(row) {
-  const product = productByID(row.product_id)
+  const family = productFamilyForRow(row)
+  if (family?.__order_concrete_price_family || row?.spec_source === 'price_list_sku') {
+    const selected = selectedBeanListVersionOptionForProduct(family || row)
+    if (Number(selected?.id || 0) <= 0) return []
+    return orderFamilySpecOptions(family || {}, selected.id)
+  }
+  const product = productForRow(row)
   if (isDripProduct(product)) return []
   if (retailOrder.value) return retailSpecOptions(product, true)
   return wholesaleSpecOptions(product)
 }
 
-function syncRowsForType() {
+function onSpecChange(row) {
+  const family = productFamilyForRow(row)
+  if (!family) return
+  const selected = selectedBeanListVersionOptionForProduct(family)
+  const spec = Number(selected?.id || 0) > 0
+    ? orderFamilySpecsForPublication(family, selected.id)
+    .find((item) => Number(item.sku_id || 0) === Number(row.spec_mode || 0))
+    : null
+  if (!spec) {
+    invalidatePriceListSpecRow(row)
+    return
+  }
+  applyPriceListSpecToRow(row, family, spec, selected?.id || 0)
+  syncPrice(row, { force: true })
+}
+
+function syncRowsForType(options = {}) {
   rows.value.forEach((row) => {
+    if (row.spec_source === 'legacy_price_list' && options.priceListChanged) {
+      const legacyProduct = products.value.find((item) => Number(item.id || 0) === Number(row.product_id || 0)) || null
+      const selected = selectedBeanListVersionOptionForProduct(row)
+      const selectedPublicationID = Number(selected?.id || 0)
+      const publicationMode = orderProductPublicationMode(legacyProduct || row, selectedPublicationID)
+      if (publicationMode !== 'legacy') {
+        const family = orderFamilyForSKU(productFamilies.value, row.product_id)
+          || productFamilyByParentID(legacyProduct?.parent_product_id)
+        if (family) assignProductFamilyHeader(row, family)
+        else {
+          row.parent_product_id = Number(legacyProduct?.parent_product_id || 0)
+          row.parent_product_name = legacyProduct?.parent_product_name || legacyProduct?.product_name_snapshot || ''
+        }
+        row.spec_source = 'price_list_sku'
+        invalidatePriceListSpecRow(
+          row,
+          publicationMode === 'concrete'
+            ? '已切换到具体规格价格表，请重新选择价格表中的规格。'
+            : '所选价格表不包含该商品当前规格，请重新选择规格。',
+        )
+        if (!family) {
+          row.bean_list_publication_id = selectedPublicationID
+          row.bean_list_version_no = String(selected?.version_no || '').trim()
+        }
+        return
+      }
+    }
+    const family = productFamilyForRow(row)
+    if (family?.__order_concrete_price_family || row.spec_source === 'price_list_sku') {
+      if (row.historical_spec_readonly && !options.priceListChanged) return
+      const selected = selectedBeanListVersionOptionForProduct(family || row)
+      const currentSkuID = Number(row.product_id || row.spec_mode || 0)
+      const spec = family && Number(selected?.id || 0) > 0
+        ? orderSpecSelectionAfterPublicationChange(family, currentSkuID, selected.id)
+        : null
+      if (!spec) {
+        invalidatePriceListSpecRow(row)
+        return
+      }
+      applyPriceListSpecToRow(row, family, spec, selected?.id || 0)
+      syncPrice(row, { force: true })
+      return
+    }
     if (!row.product_id) return
     row.manual_price = false
     if (isDripRow(row)) {
       syncPrice(row, { force: true })
       return
     }
-    const options = specOptions(row)
-    if (!options.some((option) => option.value === row.spec_mode)) {
-      row.spec_mode = retailOrder.value ? (options[0]?.value || '') : defaultWholesaleSpec(productByID(row.product_id))
+    const specChoices = specOptions(row)
+    if (!specChoices.some((option) => option.value === row.spec_mode)) {
+      row.spec_mode = retailOrder.value ? (specChoices[0]?.value || '') : defaultWholesaleSpec(productForRow(row))
       row.custom_spec_g = ''
     }
     syncPrice(row, { force: true })
@@ -1450,10 +1838,17 @@ function syncRowsForType() {
 }
 
 function syncPrice(row, options = {}) {
-  const product = productByID(row.product_id)
+  const product = productForRow(row)
   if (!product) {
     row.unit_price = ''
     clearWholesalePriceMetadata(row)
+    return
+  }
+  if (isConcretePriceListRow(row)) {
+    if (row.manual_price && !options.force) return
+    syncRowBeanListVersionFromSelection(row)
+    applyResolvedWholesalePrice(row, resolveWholesaleTierPrice(product, row))
+    row.manual_price = false
     return
   }
   if (isDripProduct(product)) {
@@ -1465,12 +1860,19 @@ function syncPrice(row, options = {}) {
     const price = syncDripTierPrice(product, row)
     row.tier_id = price.tierID
     row.unit_price = price.unitPrice
+    row.price_missing = price.unitPrice === ''
     row.manual_price = false
     return
   }
   if (row.manual_price && !options.force) return
   if (retailOrder.value) {
     syncRowBeanListVersionFromSelection(row)
+    const publishedPrice = resolveWholesaleTierPrice(product, row)
+    if (publishedPrice.quantityBasis === 'sales_spec_count') {
+      applyResolvedWholesalePrice(row, publishedPrice)
+      row.manual_price = false
+      return
+    }
     row.tier_id = 'auto'
     row.unit_price = String(retailPackagePrice(product, normalizeSpecG(row)) || '')
     clearWholesalePriceMetadata(row)
@@ -1484,21 +1886,27 @@ function syncPrice(row, options = {}) {
 }
 
 function clearWholesalePriceMetadata(row) {
+  row.quantity_basis = ''
+  row.price_source_json = ''
   row.price_unit = ''
   row.price_unit_suffix = ''
   row.price_unit_g = 0
   row.tier_price_label = ''
   row.tier_below_min = false
+  row.price_missing = false
 }
 
 function applyResolvedWholesalePrice(row, price) {
   row.tier_id = price.tierID
   row.unit_price = price.unitPrice
+  row.quantity_basis = String(price.quantityBasis || '')
+  row.price_source_json = String(price.priceSourceJSON || '')
   row.price_unit = price.priceUnit?.label || ''
   row.price_unit_suffix = price.priceUnit?.suffix || ''
   row.price_unit_g = Number(price.priceUnit?.unitG || 0)
   row.tier_price_label = price.tierPriceLabel || ''
   row.tier_below_min = Boolean(price.belowMinTier)
+  row.price_missing = Boolean(price.priceMissing)
   ensureRowBeanListVersion(row, price)
 }
 
@@ -1518,7 +1926,11 @@ function syncRowBeanListVersionFromSelection(row) {
 }
 
 function isRowBeanListVersionStale(row) {
-  return rowUsesStaleBeanListPublication(row, customerBeanListVersionOptions.value)
+  return rowUsesStaleBeanListPublication(
+    row,
+    customerBeanListVersionOptions.value,
+    currentPriceListTypeForProduct(row),
+  )
 }
 
 function toggleBeanListVersionTip(row) {
@@ -1540,12 +1952,31 @@ function onDripUnitChange(row) {
 }
 
 function dripUnitOptionsForRow(row) {
-  return dripUnitOptions(productByID(row.product_id))
+  return dripUnitOptions(productForRow(row))
 }
 
 function markManualPrice(row) {
   row.manual_price = true
   row.tier_id = 'manual'
+}
+
+function hasPositiveManualPrice(row) {
+  return Boolean(row?.manual_price) && toNumber(row?.unit_price) > 0
+}
+
+function rowHasBlockingPrice(row) {
+  if (Number(row?.product_id || row?.parent_product_id || 0) <= 0) return false
+  if (row?.spec_invalid_message) return true
+  if (row?.manual_price) return !hasPositiveManualPrice(row)
+  return Boolean(row?.price_missing)
+}
+
+function rowPriceBlockingMessage(row) {
+  if (row?.spec_invalid_message) return row.spec_invalid_message
+  if (row?.manual_price && !hasPositiveManualPrice(row)) {
+    return '手动价必须大于0，不能保存；请输入有效手动价或恢复自动价。'
+  }
+  return '当前数量无已发布价格，不能保存；请调整数量、补齐价格表档位或输入手动价。'
 }
 
 function resetAutoPrice(row) {
@@ -1554,16 +1985,20 @@ function resetAutoPrice(row) {
 }
 
 function tierRows(row) {
-  if (retailOrder.value) return []
-  if (isDripRow(row)) return dripTierPriceRows(productByID(row.product_id), row)
-  return wholesaleTierPriceRows(productByID(row.product_id), row)
+  if (retailOrder.value && !isConcretePriceListRow(row)) return []
+  if (!isConcretePriceListRow(row) && isDripRow(row)) return dripTierPriceRows(productForRow(row), row)
+  return wholesaleTierPriceRows(productForRow(row), row)
 }
 
 function selectTier(row, tier) {
+  if (isConcretePriceListRow(row)) {
+    row.manual_price = false
+    syncPrice(row, { force: true })
+    return
+  }
   if (isDripRow(row)) {
     row.manual_price = false
-    row.tier_id = tier.id || 'auto'
-    row.unit_price = String(tier.unitPrice || '')
+    syncPrice(row, { force: true })
     return
   }
   row.spec_mode = String(tier.specG || '')
@@ -1595,7 +2030,7 @@ function quantityLabel(row) {
 }
 
 function rowTotal(row) {
-  return lineTotal(productByID(row.product_id), row, retailOrder.value)
+  return lineTotal(productForRow(row), row, retailOrder.value)
 }
 
 function onRowDiscountTypeChange(row) {
@@ -1710,6 +2145,9 @@ function applyEditData(data) {
   customerQuery.value = optionName(customers.value, form.customer_id)
   rows.value = editItems.map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
+    const flatProduct = products.value.find((entry) => Number(entry.id || 0) === Number(item.product_id || 0)) || null
+    const family = orderFamilyForSKU(productFamilies.value, item.product_id)
+      || productFamilyByParentID(item.parent_product_id || flatProduct?.parent_product_id)
     const product = productByID(item.product_id)
     const productKind = item.product_kind || product?.product_kind || 'roasted_bean'
     const salesUnit = item.sales_unit || (item.unit === '盒' ? 'box' : 'bag')
@@ -1723,8 +2161,10 @@ function applyEditData(data) {
       || 10
     const retailSpecs = (product?.retail_specs || []).map(toInt)
     const shouldUseCustomSpec = productKind !== 'drip_bag' && retailOrder.value && !retailSpecs.includes(toInt(spec))
-    return {
+    const hydrated = {
       ...newRow(),
+      parent_product_id: Number(family?.parent_product_id || product?.parent_product_id || 0),
+      parent_product_name: family?.parent_product_name || product?.parent_product_name || '',
       product_id: Number(item.product_id || 0),
       product_name: item.product_name || '',
       product_query: item.product_name || '',
@@ -1738,6 +2178,8 @@ function applyEditData(data) {
       product_type_category_id: Number(product?.product_type_category_id || 0),
       product_type_name: product?.product_type_name || '',
       tier_id: item.tier_id || 'auto',
+      quantity_basis: '',
+      price_source_json: item.price_source_json || '',
       bean_list_publication_id: Number(item.bean_list_publication_id || 0),
       bean_list_version_no: item.bean_list_version_no || '',
       unit_price: item.unit_price || '',
@@ -1746,7 +2188,7 @@ function applyEditData(data) {
       price_unit_g: 0,
       tier_price_label: '',
       tier_below_min: false,
-      manual_price: item.tier_id === 'manual',
+      manual_price: item.price_override === true || item.tier_id === 'manual',
       spec_mode: productKind === 'drip_bag' ? '' : (shouldUseCustomSpec ? CUSTOM_SPEC_VALUE : spec),
       custom_spec_g: shouldUseCustomSpec ? spec : '',
       sales_unit: productKind === 'drip_bag' ? salesUnit : '',
@@ -1758,6 +2200,63 @@ function applyEditData(data) {
       discount_type: item.discount_type || '',
       discount_value: item.discount_value || '',
     }
+    const publicationMode = orderProductPublicationMode(
+      family || product || flatProduct || hydrated,
+      item.bean_list_publication_id,
+    )
+    const keepFrozenPublication = shouldKeepFrozenOrderPublication(
+      beanListVersionGroups.value,
+      item.bean_list_publication_id,
+      copyMode.value,
+    )
+    if (publicationMode === 'legacy') hydrated.spec_source = 'legacy_price_list'
+    if (keepFrozenPublication) hydrated.historical_spec_readonly = true
+    const hasConcreteSpecIdentity = Boolean(family?.__order_concrete_price_family)
+      || Number(item.parent_product_id || flatProduct?.parent_product_id || 0) > 0
+    if (!hasConcreteSpecIdentity) return hydrated
+
+    const publicationID = Number(item.bean_list_publication_id || 0)
+    const pricedSpec = orderFamilySpecsForPublication(family || {}, publicationID)
+      .find((entry) => Number(entry.sku_id || 0) === Number(item.product_id || 0))
+    if (family) {
+      assignProductFamilyHeader(hydrated, family)
+    } else {
+      hydrated.parent_product_id = Number(item.parent_product_id || flatProduct?.parent_product_id || 0)
+      hydrated.parent_product_name = flatProduct?.parent_product_name || item.product_name_snapshot || item.product_name || ''
+      hydrated.product_name = hydrated.parent_product_name
+      hydrated.product_query = hydrated.product_name
+      hydrated.product_record_name = hydrated.parent_product_name
+    }
+    hydrated.product_id = Number(item.product_id || 0)
+    hydrated.product_code = item.product_code_snapshot || pricedSpec?.product_code || pricedSpec?.sku_name || `SKU-${item.product_id}`
+    hydrated.spec_source = publicationMode === 'legacy' ? 'legacy_price_list' : 'price_list_sku'
+    hydrated.spec_mode = String(item.product_id || '')
+    hydrated.spec_label = pricedSpec?.spec_label || item.spec_label || item.effective_sales_spec || (specNumber > 0 ? `${specNumber}g` : '历史规格')
+    hydrated.spec_g = specNumber
+    hydrated.custom_spec_g = ''
+    hydrated.historical_spec_readonly = !pricedSpec || keepFrozenPublication
+    hydrated.spec_invalid_message = ''
+    if (pricedSpec && family) {
+      Object.assign(hydrated, orderFamilyHydratedSpecRowPatch(
+        family,
+        pricedSpec,
+        publicationID,
+        {
+          tier_id: item.tier_id || 'auto',
+          unit_price: item.unit_price || '',
+          price_source_json: item.price_source_json || '',
+          bean_list_publication_id: publicationID,
+          bean_list_version_no: item.bean_list_version_no || hydrated.bean_list_version_no,
+          manual_price: item.price_override === true || item.tier_id === 'manual',
+          qty: Number(item.qty || 1),
+          item_note: item.note || '',
+          discount_type: item.discount_type || '',
+          discount_value: item.discount_value || '',
+        },
+        keepFrozenPublication,
+      ))
+    }
+    return hydrated
   })
   if (!rows.value.length) rows.value = [newRow()]
   for (const row of rows.value) {
@@ -1766,19 +2265,53 @@ function applyEditData(data) {
     const listType = orderBeanListTypeForProductKind(row.product_kind)
     const field = beanListVersionField(listType)
     if (!Number(form[field] || 0)) form[field] = publicationID
+    const group = beanListVersionGroupForPublicationID(beanListVersionGroups.value, publicationID)
+    if (group?.options?.some((entry) => Number(entry.id || 0) === publicationID)) {
+      selectedBeanListPublicationIDs[group.key] = publicationID
+    }
   }
   form.bean_list_publication_id = Number(form.commercial_bean_list_publication_id || form.bean_list_publication_id || 0)
+  repriceHydratedRows()
+}
+
+function repriceHydratedRows() {
   for (const row of rows.value) {
+    if (row.historical_spec_readonly) {
+      ensureRowBeanListVersion(row)
+      continue
+    }
+    const family = productFamilyForRow(row)
+    if (family?.__order_concrete_price_family || row.spec_source === 'price_list_sku') {
+      const selected = selectedBeanListVersionOptionForProduct(family || row)
+      const spec = family
+        ? orderSpecSelectionAfterPublicationChange(family, row.product_id, selected?.id || row.bean_list_publication_id || 0)
+        : null
+      if (!spec) {
+        invalidatePriceListSpecRow(row)
+        continue
+      }
+      const frozen = {
+        unit_price: row.unit_price,
+        tier_id: row.tier_id,
+        manual_price: row.manual_price,
+        price_source_json: row.price_source_json,
+        qty: row.qty,
+        item_note: row.item_note,
+        discount_type: row.discount_type,
+        discount_value: row.discount_value,
+      }
+      Object.assign(row, orderFamilySpecRowPatch(family, spec, selected?.id || row.bean_list_publication_id || 0), frozen)
+    }
     if (!row.product_id || row.manual_price) {
       ensureRowBeanListVersion(row)
       continue
     }
-    const product = productByID(row.product_id)
-    if (!product || isDripProduct(product) || retailOrder.value) {
+    const product = productForRow(row)
+    if (!product || (retailOrder.value && !isConcretePriceListRow(row))) {
       ensureRowBeanListVersion(row)
       continue
     }
-    applyResolvedWholesalePrice(row, resolveWholesaleTierPrice(product, row))
+    syncPrice(row, { force: true })
   }
 }
 
@@ -1805,6 +2338,7 @@ async function load() {
     payStatuses.value = data.pay_statuses || []
     orderTypes.value = data.order_types || []
     products.value = data.products || []
+    productFamilies.value = normalizeOrderProductFamilies(data.product_families || [], products.value)
     employees.value = data.employees || []
     logisticsCompanies.value = data.logistics_companies || []
     beanListVersionOptions.value = data.bean_list_version_options || []
@@ -1830,6 +2364,7 @@ async function load() {
       form.edit_id = Number(editData.edit_id || 0)
       applyEditData(editData)
       syncBeanListVersionForCustomer({ force: !!copyID })
+      if (copyID) syncRowsForType({ priceListChanged: true })
     } else {
       applyCustomerContextToNewOrder()
       syncBeanListVersionForCustomer({ force: true })
@@ -1916,6 +2451,11 @@ async function save(options = {}) {
       raiseSaveError('请至少录入一条有效明细', 'product_items')
       return
     }
+    const missingPublishedPriceRowIndex = rows.value.findIndex(rowHasBlockingPrice)
+    if (missingPublishedPriceRowIndex >= 0) {
+      raiseSaveError(`第 ${missingPublishedPriceRowIndex + 1} 行：${rowPriceBlockingMessage(rows.value[missingPublishedPriceRowIndex])}`, 'product_items')
+      return
+    }
     const stockDecision = await previewStockBatchesBeforeSave(payload)
     if (stockDecision) payload.stock_batch_decision = stockDecision
     const data = await apiSend('/api/order', { body: payload })
@@ -1967,11 +2507,19 @@ function stockBatchConfirmText(preview) {
 }
 
 onMounted(async () => {
+  document.addEventListener('pointerdown', handleOrderProductPointerDown)
   await load()
-  restoreOrderEntryDraft()
+  const draftRestored = restoreOrderEntryDraft()
+  if (draftRestored) {
+    syncBeanListVersionForCustomer({ force: true })
+    syncRowsForType({ priceListChanged: true })
+  } else {
+    repriceHydratedRows()
+  }
 })
 
 onBeforeUnmount(saveOrderEntryDraft)
+onBeforeUnmount(() => document.removeEventListener('pointerdown', handleOrderProductPointerDown))
 
 watch(
   () => props.editId,
@@ -2140,6 +2688,10 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .combo-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; max-height: 280px; overflow: auto; border: 1px solid #d7dbe3; border-radius: 8px; background: #fff; box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16); padding: 6px; }
 .combo-option { width: 100%; display: grid; gap: 2px; text-align: left; border: 0; background: transparent; padding: 8px; border-radius: 6px; }
 .combo-option:hover { background: #f3f6fb; }
+.product-kind-filter { position: sticky; top: -6px; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; margin: -6px -6px 4px; padding: 8px 6px 6px; border-bottom: 1px solid #edf0f5; background: #fff; }
+.product-kind-filter-option { min-height: 28px; padding: 4px 10px; border: 1px solid #d7dbe3; border-radius: 999px; background: #fff; color: #475467; font: inherit; font-size: 12px; line-height: 1.2; cursor: pointer; }
+.product-kind-filter-option:hover { background: #f3f6fb; }
+.product-kind-filter-option.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-left: 4px; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
@@ -2157,7 +2709,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .line-total { display: grid; gap: 3px; padding-bottom: 2px; }
 .line-total strong { font-size: 18px; }
 .line-total small { color: #667085; font-size: 12px; }
-.line-total small.tier-warning { color: #b42318; font-weight: 700; }
+.line-total small.price-missing-warning { color: #b42318; font-weight: 700; }
 .bean-list-version-meta { position: relative; display: inline-flex; align-items: center; gap: 5px; width: fit-content; }
 .bean-list-version-meta.stale { color: #b42318; font-weight: 700; }
 .bean-list-version-warning { width: 18px; height: 18px; padding: 0; display: inline-grid; place-items: center; border: 1px solid #fda29b; border-radius: 50%; background: #fff1f0; color: #b42318; font-size: 12px; font-weight: 800; line-height: 1; }

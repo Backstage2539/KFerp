@@ -14,6 +14,7 @@
         <button class="secondary" type="button" @click="load(false)" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="notice" class="ok">{{ notice }}</div>
       <div v-if="stockTip" class="ok direct-ship-tip">
         <div>
           <strong>{{ stockTip }}</strong>
@@ -99,7 +100,7 @@
                 <th>选择</th>
                 <th>商品</th>
                 <th>订单号</th>
-                <th>规格(g)</th>
+                <th>规格</th>
                 <th>需求(件)</th>
                 <th>需求(g)</th>
                 <th>库存(件)</th>
@@ -117,19 +118,25 @@
                     type="checkbox"
                     :checked="isProductionDemandSelected(row)"
                     :disabled="!productionDemandSelectable(row)"
-                    :title="productionDemandSelectable(row) ? '选择生成生产计划' : '已进入生产计划的需求不可重复生成计划'"
+                    :title="row.blocking_reason || (productionDemandSelectable(row) ? '选择生成生产计划' : '已进入生产计划的需求不可重复生成计划')"
                     @change="toggleInsufficientRow(row, $event.target.checked)"
                   />
                 </td>
-                <td>{{ row.product }}</td>
+                <td>
+                  {{ row.product }}
+                  <small v-if="row.blocking_reason" class="blocking-reason">{{ row.blocking_reason }}</small>
+                </td>
                 <td class="muted">{{ row.order_nos }}</td>
-                <td>{{ row.spec_g }}</td>
+                <td>{{ row.spec_label || row.sales_unit || productionPlanLegacyGramLabel(row.spec_g) }}</td>
                 <td>{{ row.need_units }}</td>
-                <td>{{ row.need_g }}</td>
+                <td>{{ row.blocking_reason ? '-' : row.need_g }}</td>
                 <td>{{ row.inv_units }}</td>
-                <td>{{ row.inv_g }}</td>
-                <td><strong>{{ row.gap_g }}</strong></td>
-                <td><span :class="['status', `status-demand-${productionDemandStatusTone(row.demand_status)}`]">{{ productionDemandStatusLabel(row.demand_status) }}</span></td>
+                <td>{{ row.blocking_reason ? '-' : row.inv_g }}</td>
+                <td><strong>{{ row.blocking_reason ? '-' : row.gap_g }}</strong></td>
+                <td>
+                  <span v-if="row.blocking_reason" class="status status-demand-blocked">资料待完善</span>
+                  <span v-else :class="['status', `status-demand-${productionDemandStatusTone(row.demand_status)}`]">{{ productionDemandStatusLabel(row.demand_status) }}</span>
+                </td>
                 <td class="muted">{{ row.production_plan_no || '-' }}</td>
               </tr>
               <tr v-if="!stockInsufficientRows.length">
@@ -178,7 +185,6 @@
                         <th>库存(g)</th>
                         <th>缺口(g)</th>
                         <th>BOM摘要</th>
-                        <th>计划投料(g)</th>
                         <th>工艺路线摘要</th>
                       </tr>
                     </thead>
@@ -190,8 +196,7 @@
                         <td>{{ row.need_g }}</td>
                         <td>{{ row.inv_g }}</td>
                         <td><strong>{{ row.gap_g }}</strong></td>
-                        <td>默认 BOM / 预期产出率 {{ percent(row.bom_yield_rate) }}</td>
-                        <td>{{ row.input_g }}</td>
+                        <td :title="row.bom_summary_error || ''">{{ productionPlanBomSummary(row) }}</td>
                         <td>{{ productionRouteSummary(row) }}</td>
                       </tr>
                     </tbody>
@@ -233,8 +238,8 @@
             </div>
             <div v-else-if="hasSelectedRows && !previewLoading" class="muted empty-state">已选择商品，等待计划预览。</div>
             <div class="actions current-plan-actions">
-              <button v-if="!currentPlan" class="primary" type="button" @click="createProductionPlan" :disabled="saving || previewLoading || !planReady">创建生产计划</button>
-              <button v-else class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
+              <button v-if="currentPlan" class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
+              <button v-if="currentPlanDraft" class="danger" type="button" @click="cancelProductionPlanDraft(currentPlan, 'current')" :disabled="saving || loading">撤销草稿</button>
               <span v-if="currentPlan && !currentPlanDraft" class="muted">当前计划状态为 {{ productionPlanStatusLabel(currentPlan.status) }}，无需重复提交。</span>
             </div>
             <div v-if="postSubmitActions.length" class="next-step-panel">
@@ -371,10 +376,11 @@
               <td>{{ plan.item_count || 0 }}</td>
               <td>{{ plan.created_by || '-' }}</td>
               <td>{{ plan.submitted_by || '-' }}</td>
-              <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small></td>
+              <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small><small>撤 {{ plan.cancelled_at || '-' }}</small></td>
               <td class="row-actions">
                 <button class="secondary compact" type="button" @click="openProductionPlanDetail(plan)">详情</button>
                 <button v-if="productionPlanSelectable(plan)" class="secondary compact" type="button" @click="openProductionPlanSplitDrawer(plan)">编辑拆分</button>
+                <button v-if="productionPlanSelectable(plan)" class="danger compact" type="button" @click="cancelProductionPlanDraft(plan, 'list')" :disabled="saving || loading">撤销草稿</button>
               </td>
             </tr>
             <tr v-if="!productionPlans.length">
@@ -395,6 +401,7 @@
           <div class="drawer-head-actions">
             <span :class="['status', `status-${productionPlanStatusTone(productionPlanDetail.status)}`]">{{ productionPlanStatusLabel(productionPlanDetail.status) }}</span>
             <button v-if="productionPlanSelectable(productionPlanDetail)" class="secondary compact" type="button" @click="openProductionPlanSplitDrawer(productionPlanDetail)">编辑拆分</button>
+            <button v-if="productionPlanSelectable(productionPlanDetail)" class="danger compact" type="button" @click="cancelProductionPlanDraft(productionPlanDetail, 'detail')" :disabled="saving || loading">撤销草稿</button>
             <button class="secondary compact" type="button" @click="closeProductionPlanDetail">关闭</button>
           </div>
         </div>
@@ -410,6 +417,7 @@
               <div><dt>创建</dt><dd>{{ productionPlanDetail.created_by || '-' }} / {{ productionPlanDetail.created_at || '-' }}</dd></div>
               <div><dt>提交</dt><dd>{{ productionPlanDetail.submitted_by || '-' }} / {{ productionPlanDetail.submitted_at || '-' }}</dd></div>
               <div><dt>完成</dt><dd>{{ productionPlanDetail.completed_at || '-' }}</dd></div>
+              <div><dt>撤销</dt><dd>{{ productionPlanDetail.cancelled_at || '-' }}</dd></div>
             </dl>
           </section>
 
@@ -434,9 +442,9 @@
                     <td>{{ item.product_name || '-' }}</td>
                     <td class="muted">{{ item.order_nos || '-' }}</td>
                     <td>{{ planItemSpecLabel(item) }}</td>
-                    <td>{{ item.gap_g || 0 }}</td>
-                    <td>{{ item.planned_g || 0 }}</td>
-                    <td>{{ item.planned_output_g || 0 }}</td>
+                    <td>{{ productionPlanLegacyGramLabel(item.gap_g) }}</td>
+                    <td>{{ productionPlanLegacyGramLabel(item.planned_g) }}</td>
+                    <td>{{ productionPlanLegacyGramLabel(item.planned_output_g) }}</td>
                     <td>{{ planItemBomLabel(item) }}</td>
                     <td>{{ planItemRouteSummary(item) }}</td>
                   </tr>
@@ -725,11 +733,18 @@ import {
   productionPlanSteps,
   productionPlanSplitBatchCards,
   productionPlanBatchSubmitEndpoint,
+  productionPlanCancelEndpoint,
+  productionPlanCancelTargetsCurrentPlan,
   productionPlanDetailEndpoint,
   productionPlanOperationSplitsEndpoint,
   productionPlanOperationSplitsPreviewEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
+  productionPlanBomSummary,
+  productionPlanItemBomSourceLabel,
+  productionPlanItemOutputTargetG,
+  productionPlanItemQuantitySummary,
+  productionPlanLegacyGramLabel,
   productionPlanStatusLabel,
   productionPlanStatusTone,
   operationSplitPreviewStatusLabel,
@@ -737,6 +752,10 @@ import {
   producePlanKey,
 } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
+import {
+  normalizeCapacityCostMethod,
+  workstationCapacityOptionLabel,
+} from '../lib/workstation-capacity-costing'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -750,6 +769,7 @@ const loading = ref(false)
 const saving = ref(false)
 const previewLoading = ref(false)
 const error = ref('')
+const notice = ref('')
 const previewError = ref('')
 const stockTip = ref('')
 const rows = ref([])
@@ -779,6 +799,7 @@ const selected = reactive({})
 const selectedProductionPlans = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
+let demandRequestSeq = 0
 let productionPlanSplitPreviewTimer = 0
 let productionPlanSplitPreviewRequestSeq = 0
 const tableScrollDrag = {
@@ -832,16 +853,12 @@ function isProductionDemandSelected(row) {
   return productionDemandSelectable(row) && !!selected[productionDemandSelectionKey(row)]
 }
 
-function percent(v) {
-  return `${(Number(v || 0) * 100).toFixed(2)}%`
-}
-
 const planReady = computed(() => planRows.value.length > 0 || (currentPlan.value?.items || []).length > 0)
 const computedPlanRows = computed(() => planRows.value || [])
 const computedMaterials = computed(() => initialMaterials.value || [])
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
-const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
-const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
+const stockInsufficientRows = computed(() => rows.value.filter((row) => String(row.blocking_reason || '').trim() || Number(row.gap_g || 0) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
+const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && Number(row.gap_g || 0) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
 const insufficientSelection = computed(() => productionDemandSelectionState(stockInsufficientRows.value, selected))
 const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
 const productionPlanSelection = computed(() => productionPlanSelectionState(productionPlans.value, selectedProductionPlans))
@@ -936,6 +953,7 @@ function applyUnproducedData(data, plan) {
   stockTip.value = data.stock_tip || ''
   planRows.value = data.plan_rows || []
   initialMaterials.value = data.materials || []
+  if (plan && data.error) previewError.value = data.error
   if (data.selected) {
     Object.keys(selected).forEach((key) => delete selected[key])
     for (const key of Object.keys(data.selected)) {
@@ -947,18 +965,21 @@ function applyUnproducedData(data, plan) {
 }
 
 async function load(plan) {
+  const requestID = ++demandRequestSeq
   loading.value = true
   error.value = ''
   previewError.value = ''
   try {
     const data = await apiGet(buildUnproducedURL(plan))
+    if (requestID !== demandRequestSeq) return
     applyUnproducedData(data, plan)
     if (!plan) currentPlan.value = null
     if (!plan && selectedKeys().length) schedulePlanPreview()
   } catch (err) {
+    if (requestID !== demandRequestSeq) return
     error.value = err.message || '加载失败'
   } finally {
-    loading.value = false
+    if (requestID === demandRequestSeq) loading.value = false
   }
 }
 
@@ -1002,6 +1023,27 @@ async function loadProductionPlans() {
     pruneProductionPlanSelections()
   } catch (err) {
     error.value = err.message || '加载生产计划失败'
+  }
+}
+
+async function refreshProductionDemandAfterDraftCancel(preserveCurrentPlan = false) {
+  const requestID = ++demandRequestSeq
+  loading.value = true
+  try {
+    const data = await apiGet(buildUnproducedURL(false, []))
+    if (requestID !== demandRequestSeq) return
+    if (preserveCurrentPlan) {
+      rows.value = data.rows || []
+      stockTip.value = data.stock_tip || ''
+      updateUrl(true)
+    } else {
+      applyUnproducedData(data, false)
+    }
+  } catch (err) {
+    if (requestID !== demandRequestSeq) return
+    error.value = `草稿已撤销，但待生产需求刷新失败：${err.message || '加载失败'}`
+  } finally {
+    if (requestID === demandRequestSeq) loading.value = false
   }
 }
 
@@ -1129,14 +1171,11 @@ function parseJSONSnapshot(raw, fallback) {
 }
 
 function planItemSpecLabel(item) {
-  const spec = Number(item?.spec_g || 0)
-  if (spec > 0) return `${spec}g`
-  return '按商品单位'
+  return productionPlanItemQuantitySummary(item)
 }
 
 function planItemBomLabel(item) {
-  const id = Number(item?.bom_version_id || 0)
-  return id > 0 ? `BOM版本 #${id}` : '默认 BOM'
+  return productionPlanItemBomSourceLabel(item)
 }
 
 function planItemRouteSummary(item) {
@@ -1268,14 +1307,11 @@ function splitSameOperation(left, right) {
 }
 
 function capacityOptionLabel(capacity) {
-  const parts = [capacity?.name || `#${capacity?.id || ''}`]
-  if (Number(capacity?.batch_size_qty || 0) > 0) parts.push(`${capacity.batch_size_qty}${capacity.batch_size_unit || ''}`)
-  if (Number(capacity?.standard_minutes || 0) > 0) parts.push(`${capacity.standard_minutes}分钟/批`)
-  if (Number(capacity?.hourly_rate || 0) > 0) parts.push(`${capacity.hourly_rate}/小时`)
-  return parts.filter(Boolean).join(' · ')
+  return workstationCapacityOptionLabel(capacity)
 }
 
 function normalizeOperationSplit(row = {}) {
+  const planItem = currentPlanItemForSplit(row)
   return {
     local_key: row.local_key || `split-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     id: Number(row.id || 0),
@@ -1292,9 +1328,13 @@ function normalizeOperationSplit(row = {}) {
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
+    cost_method: normalizeCapacityCostMethod(row),
+    piece_rate: Number(row.piece_rate || 0),
     planned_batch_count: Number(row.planned_batch_count || 0),
-    spec_g: Number(row.spec_g || row.item_spec_g || currentPlanItemForSplit(row)?.spec_g || 0),
-    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_qty_g || 0), row.batch_size_unit, row.spec_g || row.item_spec_g || currentPlanItemForSplit(row)?.spec_g || 0)),
+    spec_g: Number(row.spec_g || row.item_spec_g || planItem?.spec_g || 0),
+    sales_spec_count: Number(row.sales_spec_count || row.item_sales_spec_count || planItem?.sales_spec_count || 0),
+    item_target_g: Number(row.item_target_g || productionPlanItemOutputTargetG(planItem || {})),
+    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_qty_g || 0), row.batch_size_unit, row.spec_g || row.item_spec_g || planItem?.spec_g || 0)),
     planned_qty_g: Number(row.planned_qty_g || 0),
     planned_minutes: Number(row.planned_minutes || 0),
     planned_operation_cost: Number(row.planned_operation_cost || 0),
@@ -1312,7 +1352,11 @@ function applySplitCapacity(split, rows = operationSplits.value, plan = currentP
   split.batch_size_unit = capacity.batch_size_unit || ''
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
+  split.cost_method = normalizeCapacityCostMethod(capacity)
+  split.piece_rate = Number(capacity.piece_rate || 0)
   split.spec_g = Number(split.spec_g || currentPlanItemForSplit(split, plan)?.spec_g || 0)
+  split.sales_spec_count = Number(split.sales_spec_count || currentPlanItemForSplit(split, plan)?.sales_spec_count || 0)
+  split.item_target_g = Number(split.item_target_g || productionPlanItemOutputTargetG(currentPlanItemForSplit(split, plan) || {}))
   split.planned_qty = capacityDefaultPlannedQty(capacity)
 }
 
@@ -1488,7 +1532,7 @@ async function openCurrentPlanSplitDrawer() {
     window.alert('当前生产计划已提交，工序产能拆分只能在草稿计划提交工单前编辑')
     return
   }
-  window.alert('请先生成草稿生产计划；草稿生成后点第 3 步或在生产计划单据列表点“编辑拆分”。')
+  window.alert('请先通过顶部“生成草稿”创建生产计划；创建成功后会自动打开拆分产能，也可稍后点第 3 步或在生产计划单据列表点“编辑拆分”。')
 }
 
 async function openProductionPlanSplitDrawer(plan) {
@@ -1651,8 +1695,8 @@ async function createProductionPlan() {
     }
     const payload = buildProductionPlanCreatePayload(filters, keys)
     currentPlan.value = await apiSend('/api/production-plans', { body: payload })
-    await loadProductionPlanOperationSplits(currentPlan.value)
     await loadProductionPlans()
+    await openCurrentPlanSplitDrawer()
   } catch (err) {
     previewError.value = err.message || '创建生产计划失败'
   } finally {
@@ -1699,6 +1743,64 @@ async function submitSelectedProductionPlans() {
     }
   } catch (err) {
     error.value = err.message || '提交生成工单失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function cancelProductionPlanDraft(plan, source = 'list') {
+  if (!productionPlanSelectable(plan) || !productionPlanCancelEndpoint(plan)) return
+  const planNo = String(plan?.plan_no || `#${Number(plan?.id || 0)}`)
+  if (!window.confirm(`确认撤销生产计划草稿 ${planNo}？撤销后该草稿不能再提交，关联订单商品将回到待生产需求。`)) return
+
+  saving.value = true
+  notice.value = ''
+  if (source === 'current') previewError.value = ''
+  else if (source === 'detail') productionPlanDetailError.value = ''
+  else error.value = ''
+  try {
+    const cancelled = await apiSend(productionPlanCancelEndpoint(plan), { body: {} })
+    const cancelledID = Number(cancelled?.id || plan?.id || 0)
+    const cancelledCurrentPlan = productionPlanCancelTargetsCurrentPlan({ id: cancelledID }, currentPlan.value)
+    delete selectedProductionPlans[String(cancelledID)]
+
+    if (cancelledCurrentPlan) {
+      currentPlan.value = null
+      operationSplits.value = []
+      postSubmitActions.value = []
+    }
+    if (Number(productionPlanDetail.value?.id || 0) === cancelledID) {
+      closeProductionPlanDetail()
+    }
+    if (Number(productionPlanSplitDrawer.value?.id || 0) === cancelledID) {
+      closeProductionPlanSplitDrawer()
+    }
+
+    if (cancelledCurrentPlan) {
+      replaceSelected({})
+      if (previewTimer) {
+        clearTimeout(previewTimer)
+        previewTimer = 0
+      }
+      previewRequestSeq += 1
+      previewLoading.value = false
+      planRows.value = []
+      initialMaterials.value = []
+      filters.demand_status = defaultProductionDemandStatusFilter()
+      demandPanelCollapsed.value = false
+      updateUrl(false)
+    }
+    notice.value = `生产计划草稿 ${planNo} 已撤销，相关订单商品已回到待生产需求。`
+
+    await Promise.all([
+      refreshProductionDemandAfterDraftCancel(!cancelledCurrentPlan),
+      loadProductionPlans(),
+    ])
+  } catch (err) {
+    const message = err.message || '撤销生产计划草稿失败'
+    if (source === 'current') previewError.value = err.message || '撤销生产计划草稿失败'
+    else if (source === 'detail') productionPlanDetailError.value = err.message || '撤销生产计划草稿失败'
+    else error.value = message
   } finally {
     saving.value = false
   }
@@ -1821,6 +1923,8 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .status-demand-unplanned { border-color: #d1d5db; background: #f9fafb; color: #374151; }
 .status-demand-in-production { border-color: #fdba74; background: #fff7ed; color: #c2410c; }
 .status-demand-completed { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+.status-demand-blocked { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.blocking-reason { color: #b91c1c; font-weight: 600; overflow-wrap: anywhere; }
 .plan-result { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
 .table-wrap { overflow: auto; max-width: 100%; }
 .drag-scroll-wrap { cursor: grab; overscroll-behavior: auto; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
@@ -1828,7 +1932,7 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .demand-table { min-width: 860px; }
 .materials-table { min-width: 760px; }
-.plan-preview-table { min-width: 1160px; }
+.plan-preview-table { min-width: 1040px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; vertical-align: top; }
 td small { display: block; color: #666; line-height: 1.6; }
 .muted { color: #666; }

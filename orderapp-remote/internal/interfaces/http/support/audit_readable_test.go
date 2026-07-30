@@ -48,6 +48,38 @@ func TestDecorateAuditLogRowMakesMaterialUpdateReadable(t *testing.T) {
 	}
 }
 
+func TestDecorateAuditLogRowMakesProductionPlanDraftCancelReadable(t *testing.T) {
+	field := "status"
+	oldValue := "draft"
+	newValue := "cancelled"
+	meta := `{"plan_no":"PP-0000000041","item_count":1,"note":"订单调整"}`
+	row := AuditLogRow{
+		Actor:      "计划员",
+		EntityType: "production_plan",
+		EntityID:   int64Ptr(41),
+		Action:     "cancel",
+		Field:      &field,
+		OldValue:   &oldValue,
+		NewValue:   &newValue,
+		Meta:       &meta,
+	}
+
+	decorateAuditLogRow(&row, nil, nil)
+
+	if row.Menu != "生产管理 / 生产流程 / 生产计划" {
+		t.Fatalf("Menu = %q", row.Menu)
+	}
+	if row.Feature != "撤销生产计划草稿" {
+		t.Fatalf("Feature = %q", row.Feature)
+	}
+	if row.EntityType != "生产计划" || row.Action != "取消" {
+		t.Fatalf("EntityType/Action = %q/%q", row.EntityType, row.Action)
+	}
+	if !strings.Contains(row.Summary, "PP-0000000041") {
+		t.Fatalf("Summary = %q, want readable production plan number", row.Summary)
+	}
+}
+
 func TestDecorateAuditLogRowIdentifiesOperationMenuAndFeature(t *testing.T) {
 	field := "POST /app/api/materials/22"
 	status := "200"
@@ -243,6 +275,19 @@ func TestDecorateAuditLogRowScannedEntitiesUseReadableLabels(t *testing.T) {
 			wantAction:  "提交",
 			wantField:   "批次成本/kg",
 			wantTarget:  "库存调整单 MB-0000000007",
+		},
+		{
+			name:        "stock entry submit",
+			entityType:  "stock_entry",
+			action:      "submit",
+			field:       "status",
+			meta:        `{"entry_no":"SE-0000000031","purpose":"material_transfer_for_manufacture","work_order_id":88}`,
+			wantMenu:    "库存管理 / 库存作业 / 库存单据",
+			wantFeature: "提交库存单据",
+			wantEntity:  "库存单据",
+			wantAction:  "提交",
+			wantField:   "状态",
+			wantTarget:  "库存单据 SE-0000000031",
 		},
 		{
 			name:        "auth account",

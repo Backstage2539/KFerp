@@ -5,7 +5,40 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	appcosting "orderapp/internal/application/costing"
 )
+
+func TestBeanListPublicationPDFKeepsProductNameAndRendersSalesSpecAsAttribute(t *testing.T) {
+	doc := beanListPublicationPDFDocument(appcosting.BeanListPublication{
+		ListType: "commercial",
+		Version:  "V4.4.0",
+		Config:   map[string]any{"layoutStyle": "card"},
+		Content: map[string]any{
+			"groups": []any{map[string]any{
+				"category": "1、咖啡豆",
+				"items": []any{map[string]any{
+					"name":           "白月光瑰夏",
+					"attributeLines": []any{"规格：227g", "烘焙度：浅烘"},
+					"prices":         []any{map[string]any{"label": "2-13件", "price": 31.0, "unit": "227g"}},
+				}},
+			}},
+		},
+	})
+	if len(doc.Groups) != 1 || len(doc.Groups[0].Items) != 1 {
+		t.Fatalf("document groups=%+v", doc.Groups)
+	}
+	item := doc.Groups[0].Items[0]
+	if item.Name != "白月光瑰夏" {
+		t.Fatalf("name=%q", item.Name)
+	}
+	if got := strings.Join(item.AttributeLines, " / "); got != "规格：227g / 烘焙度：浅烘" {
+		t.Fatalf("attributes=%q", got)
+	}
+	if len(item.Prices) != 1 || item.Prices[0].Label != "2-13件" || item.Prices[0].Value != "31/227g" {
+		t.Fatalf("prices=%+v", item.Prices)
+	}
+}
 
 func TestCostingViewHasBeanListPDFDrawerAndStoredPreviewPDFWorkflow(t *testing.T) {
 	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
@@ -240,7 +273,7 @@ func TestCostingViewHasInlineBeanListConfiguration(t *testing.T) {
 	src := string(view)
 	for _, want := range []string{
 		"price-list-page-config",
-		"Price List / Item Price 生成规则",
+		"计价规则",
 		"productSelection",
 		"categoryProductGroups",
 		"price-list-rules-dialog",

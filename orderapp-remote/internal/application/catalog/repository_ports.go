@@ -11,6 +11,7 @@ type Repository interface {
 	CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error)
 	CopyProduct(ctx context.Context, cmd CopyProductCommand) (Product, error)
 	CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error)
+	SetProductDefaultSKU(ctx context.Context, cmd SetProductDefaultSKUCommand) (Product, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error)
 	GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error)

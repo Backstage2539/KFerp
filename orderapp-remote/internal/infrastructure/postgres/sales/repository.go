@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
@@ -171,16 +172,20 @@ func normalizeOrderItemDiscountType(value string) string {
 }
 
 type orderDiscountItem struct {
-	productKind string
-	salesUnit   string
-	specG       int64
-	units       int64
+	productKind   string
+	salesUnit     string
+	quantityBasis string
+	specG         int64
+	units         int64
 }
 
 func orderItemUnitDiscountUnits(item orderDiscountItem, retailOrder bool) float64 {
 	units := item.units
 	if units <= 0 {
 		return 0
+	}
+	if strings.TrimSpace(item.quantityBasis) == "sales_spec_count" {
+		return float64(units)
 	}
 	if item.productKind == "drip_bag" || item.salesUnit == "bag" || item.salesUnit == "box" {
 		return float64(units)
@@ -192,6 +197,16 @@ func orderItemUnitDiscountUnits(item orderDiscountItem, retailOrder bool) float6
 		return float64(units)
 	}
 	return float64(item.specG*units) / wholesaleDisplayUnitG(item.specG)
+}
+
+func orderManualPriceLineTotal(unitPrice float64, item orderDiscountItem, retailOrder bool) float64 {
+	if unitPrice <= 0 || item.units <= 0 {
+		return 0
+	}
+	if strings.TrimSpace(item.quantityBasis) == "sales_spec_count" || item.productKind == "drip_bag" || retailOrder {
+		return unitPrice * float64(item.units)
+	}
+	return wholesaleLineTotalFromDisplayUnit(unitPrice, item.specG, item.units)
 }
 
 func applyOrderItemDiscount(baseLineTotal float64, discountType string, discountValue float64, discountUnits ...float64) (float64, float64) {
@@ -468,6 +483,16 @@ func wholesaleLineTotalFromPriceUnit(unitPrice float64, specG int64, units int64
 	return unitPrice * (float64(specG*units) / unitG)
 }
 
+func publishedPricingLineTotal(pricing orderbeans.PublishedPricing, specG int64, units int64) float64 {
+	if pricing.UnitPrice <= 0 || units <= 0 {
+		return 0
+	}
+	if strings.TrimSpace(pricing.QuantityBasis) == "sales_spec_count" {
+		return pricing.UnitPrice * float64(units)
+	}
+	return wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, specG, units, pricing.UnitG)
+}
+
 func wholesaleTierQuantityForSpec(specG int64, units int64) float64 {
 	if specG >= 1000 {
 		return float64(specG*units) / 1000.0
@@ -493,6 +518,87 @@ func selectedOrderBeanListPublicationID(cmd salesapp.SaveOrderCommand, listType 
 	}
 }
 
+func orderItemBeanListPublicationID(cmd salesapp.SaveOrderCommand, itemPublicationID int64, listType string) int64 {
+	if itemPublicationID > 0 {
+		return itemPublicationID
+	}
+	return selectedOrderBeanListPublicationID(cmd, listType)
+}
+
+type orderHeaderPublicationRef struct {
+	publicationID int64
+	listType      string
+}
+
+func resolvedOrderHeaderPublicationID(requestedID int64, refs []orderHeaderPublicationRef, listType string) (int64, bool) {
+	publicationIDs := map[int64]bool{}
+	for _, ref := range refs {
+		if ref.publicationID <= 0 || strings.TrimSpace(ref.listType) != strings.TrimSpace(listType) {
+			continue
+		}
+		publicationIDs[ref.publicationID] = true
+	}
+	if len(publicationIDs) == 0 {
+		return requestedID, false
+	}
+	if len(publicationIDs) > 1 {
+		return 0, true
+	}
+	for publicationID := range publicationIDs {
+		return publicationID, false
+	}
+	return requestedID, false
+}
+
+type orderBeanListCandidate struct {
+	ListType               string
+	RequestedPublicationID int64
+}
+
+func dripOrderBeanListCandidates(cmd salesapp.SaveOrderCommand, itemPublicationID int64, sourceListType string) []orderBeanListCandidate {
+	sourceListType = strings.TrimSpace(sourceListType)
+	if itemPublicationID > 0 {
+		switch sourceListType {
+		case orderbeans.ListTypeCommercial, orderbeans.ListTypeDrip:
+			return []orderBeanListCandidate{{ListType: sourceListType, RequestedPublicationID: itemPublicationID}}
+		default:
+			return []orderBeanListCandidate{
+				{ListType: orderbeans.ListTypeCommercial, RequestedPublicationID: itemPublicationID},
+				{ListType: orderbeans.ListTypeDrip, RequestedPublicationID: itemPublicationID},
+			}
+		}
+	}
+	return []orderBeanListCandidate{
+		{ListType: orderbeans.ListTypeCommercial, RequestedPublicationID: selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial)},
+		{ListType: orderbeans.ListTypeDrip, RequestedPublicationID: selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeDrip)},
+	}
+}
+
+func orderBeanListTypeFromPriceSource(raw string) string {
+	var source struct {
+		ListType string `json:"list_type"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &source) != nil {
+		return ""
+	}
+	switch strings.TrimSpace(source.ListType) {
+	case orderbeans.ListTypeCommercial, orderbeans.ListTypeRetail, orderbeans.ListTypeGreen, orderbeans.ListTypeDrip:
+		return strings.TrimSpace(source.ListType)
+	default:
+		return ""
+	}
+}
+
+func orderQuantityBasisFromPriceSource(raw string) string {
+	var source struct {
+		QuantityBasis string `json:"quantity_basis"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &source) != nil {
+		return ""
+	}
+	return strings.TrimSpace(source.QuantityBasis)
+}
+
 func beanListPriceSourceJSON(listType string, usage orderbeans.Usage, productID int64) string {
 	source := map[string]any{
 		"source":                   "bean_list_publication",
@@ -510,12 +616,14 @@ func beanListPriceSourceJSON(listType string, usage orderbeans.Usage, productID 
 	return string(buf)
 }
 
-func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing) string {
+func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing, specs ...orderbeans.PublishedProductSpec) string {
 	source := map[string]any{
 		"source":                   "bean_list_publication",
 		"list_type":                strings.TrimSpace(listType),
 		"bean_list_publication_id": usage.PublicationID,
 		"bean_list_version_no":     usage.VersionNo,
+		"publication_id":           usage.PublicationID,
+		"version":                  usage.VersionNo,
 		"product_id":               productID,
 	}
 	if strings.TrimSpace(pricing.PriceUnit) != "" {
@@ -556,6 +664,23 @@ func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage,
 		var snapshot map[string]any
 		if err := json.Unmarshal([]byte(pricing.CustomerSnapshotJSON), &snapshot); err == nil && len(snapshot) > 0 {
 			source["customer_reference_snapshot"] = snapshot
+		}
+	}
+	if strings.TrimSpace(pricing.QuantityBasis) != "" {
+		source["quantity_basis"] = strings.TrimSpace(pricing.QuantityBasis)
+	}
+	if strings.TrimSpace(pricing.TierQuantityUnit) != "" {
+		source["tier_quantity_unit"] = strings.TrimSpace(pricing.TierQuantityUnit)
+	}
+	if strings.TrimSpace(pricing.EffectiveSalesSpecJSON) != "" {
+		var snapshot map[string]any
+		if err := json.Unmarshal([]byte(pricing.EffectiveSalesSpecJSON), &snapshot); err == nil && len(snapshot) > 0 {
+			source["effective_sales_spec"] = snapshot
+		}
+	}
+	if len(specs) > 0 {
+		if snapshot, err := concreteOrderProductionQuantitySnapshot(specs[0]); err == nil {
+			source["production_quantity_snapshot"] = snapshot
 		}
 	}
 	buf, err := json.Marshal(source)
@@ -641,6 +766,257 @@ func loadOrderProductUnitDefaultsTx(ctx context.Context, tx pgx.Tx, schema strin
 	return normalizeOrderItemProductKind(productKind), unitBeanG, unitBagCount
 }
 
+type concreteOrderProductIdentity struct {
+	SKUID             int64
+	ParentProductID   int64
+	ParentProductName string
+	SKUName           string
+	SKUCode           string
+	ProductKind       string
+}
+
+type concreteOrderPublicationSelection struct {
+	Strict   bool
+	ListType string
+	Usage    orderbeans.Usage
+	Spec     orderbeans.PublishedProductSpec
+	Product  concreteOrderProductIdentity
+}
+
+func loadConcreteOrderProductIdentityTx(ctx context.Context, tx pgx.Tx, schema string, skuID int64) (concreteOrderProductIdentity, error) {
+	var result concreteOrderProductIdentity
+	q := fmt.Sprintf(`
+		SELECT p.id,
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END,
+		       COALESCE(NULLIF(parent.name,''),p.name,''),
+		       COALESCE(NULLIF(p.sku_name,''),NULLIF(p.spec_label,''),p.name,''),
+		       COALESCE(NULLIF(p.sku_code,''),'SKU-' || p.id::text),
+		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.products parent ON parent.id=p.parent_product_id
+		WHERE p.id=$1
+		  AND COALESCE(p.active,true)=true
+		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
+		  AND (COALESCE(p.parent_product_id,0)=0 OR (parent.id IS NOT NULL AND COALESCE(parent.active,true)=true))
+	`, schema)
+	if err := tx.QueryRow(ctx, q, skuID).Scan(&result.SKUID, &result.ParentProductID, &result.ParentProductName, &result.SKUName, &result.SKUCode, &result.ProductKind); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return concreteOrderProductIdentity{}, fmt.Errorf("商品规格已停用或不存在，请重新选择")
+		}
+		return concreteOrderProductIdentity{}, err
+	}
+	return result, nil
+}
+
+func resolveConcreteOrderPublicationSelectionTx(ctx context.Context, tx pgx.Tx, schema string, cmd salesapp.SaveOrderCommand, productID, submittedParentProductID int64, productKind string, retailOrder bool, itemPublicationID int64, sourceListType, sourceJSON string) (concreteOrderPublicationSelection, error) {
+	if productID <= 0 {
+		return concreteOrderPublicationSelection{}, nil
+	}
+	candidates := make([]orderBeanListCandidate, 0, 2)
+	if strings.TrimSpace(productKind) == "drip_bag" {
+		candidates = dripOrderBeanListCandidates(cmd, itemPublicationID, sourceListType)
+	} else {
+		listType := orderbeans.ListTypeForProductKind(productKind, retailOrder)
+		candidates = append(candidates, orderBeanListCandidate{
+			ListType:               listType,
+			RequestedPublicationID: orderItemBeanListPublicationID(cmd, itemPublicationID, listType),
+		})
+	}
+	requestedPublication := false
+	for _, candidate := range candidates {
+		if candidate.RequestedPublicationID > 0 {
+			requestedPublication = true
+		}
+		usage, spec, err := orderbeans.ResolvePublishedProductSpecForPublication(ctx, tx, schema, cmd.CustomerID, productID, candidate.ListType, candidate.RequestedPublicationID)
+		if err != nil {
+			return concreteOrderPublicationSelection{}, err
+		}
+		if usage.PublicationID <= 0 {
+			continue
+		}
+		if !spec.ConcretePublication {
+			// A commercial legacy publication still wins over historical drip;
+			// the existing pricing path decides whether it contains a usable tier.
+			if candidate.RequestedPublicationID > 0 && !spec.ProductFound {
+				return concreteOrderPublicationSelection{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
+			}
+			return concreteOrderPublicationSelection{
+				ListType: candidate.ListType,
+				Usage:    usage,
+				Spec:     spec,
+			}, nil
+		}
+		if !spec.ProductFound {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
+		}
+		product, err := loadConcreteOrderProductIdentityTx(ctx, tx, schema, productID)
+		if err != nil {
+			return concreteOrderPublicationSelection{}, err
+		}
+		if spec.SKUID != product.SKUID {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("价格表 SKU 与订单商品规格不一致")
+		}
+		if spec.ParentProductID != product.ParentProductID {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("价格表 SKU 不属于订单商品，请重新选择规格")
+		}
+		if submittedParentProductID > 0 && submittedParentProductID != product.ParentProductID {
+			return concreteOrderPublicationSelection{}, fmt.Errorf("提交的商品与 SKU 归属不一致，请重新选择商品规格")
+		}
+		if err := validateConcreteOrderPriceSourceIdentity(sourceJSON, usage, spec); err != nil {
+			return concreteOrderPublicationSelection{}, err
+		}
+		return concreteOrderPublicationSelection{
+			Strict:   true,
+			ListType: candidate.ListType,
+			Usage:    usage,
+			Spec:     spec,
+			Product:  product,
+		}, nil
+	}
+	if requestedPublication {
+		return concreteOrderPublicationSelection{}, fmt.Errorf("所选价格表版本无效、无权访问或不包含该商品规格，请重新选择价格表和规格")
+	}
+	return concreteOrderPublicationSelection{}, nil
+}
+
+func validateConcreteOrderPriceSourceIdentity(raw string, usage orderbeans.Usage, spec orderbeans.PublishedProductSpec) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var source map[string]any
+	if json.Unmarshal([]byte(raw), &source) != nil {
+		return nil
+	}
+	publicationID := anyInt64(source["publication_id"])
+	if publicationID <= 0 {
+		publicationID = anyInt64(source["bean_list_publication_id"])
+	}
+	if publicationID > 0 && publicationID != usage.PublicationID {
+		return fmt.Errorf("订单行价格表版本与所选发布版本不一致")
+	}
+	if sourceSKUID := anyInt64(source["sku_id"]); sourceSKUID > 0 && sourceSKUID != spec.SKUID {
+		return fmt.Errorf("订单行 SKU 与价格表规格快照不一致")
+	}
+	if sourceParentID := anyInt64(source["parent_product_id"]); sourceParentID > 0 && sourceParentID != spec.ParentProductID {
+		return fmt.Errorf("订单行商品与价格表规格快照不一致")
+	}
+	if frozen, ok := source["effective_sales_spec"].(map[string]any); ok {
+		if sourceSKUID := anyInt64(frozen["sku_id"]); sourceSKUID > 0 && sourceSKUID != spec.SKUID {
+			return fmt.Errorf("订单行有效销售规格 SKU 与价格表不一致")
+		}
+		for _, field := range []struct {
+			key  string
+			want string
+		}{
+			{key: "spec_key", want: spec.SpecKey},
+			{key: "spec_name", want: spec.SpecName},
+			{key: "spec_label", want: spec.SpecLabel},
+			{key: "sales_unit", want: spec.SalesUnit},
+			{key: "net_content_unit", want: spec.NetContentUnit},
+		} {
+			if got := strings.TrimSpace(fmt.Sprint(frozen[field.key])); frozen[field.key] != nil && got != "" && got != strings.TrimSpace(field.want) {
+				return fmt.Errorf("订单行有效销售规格 %s 与价格表不一致", field.key)
+			}
+		}
+		if got := anyFloat64(frozen["net_content_qty"]); got > 0 && math.Abs(got-spec.NetContentQty) > 0.000001 {
+			return fmt.Errorf("订单行有效销售规格净含量与价格表不一致")
+		}
+	}
+	return nil
+}
+
+func anyFloat64(value any) float64 {
+	switch value := value.(type) {
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case float64:
+		return value
+	case json.Number:
+		parsed, _ := value.Float64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func anyInt64(value any) int64 {
+	switch value := value.(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func concreteOrderSpecWeightG(spec orderbeans.PublishedProductSpec) int64 {
+	if spec.NetContentQty <= 0 {
+		return 0
+	}
+	factor := float64(0)
+	switch strings.ToLower(strings.TrimSpace(spec.NetContentUnit)) {
+	case "g", "克":
+		factor = 1
+	case "kg", "千克", "公斤":
+		factor = 1000
+	case "lb", "lbs", "磅":
+		factor = 453.59237
+	}
+	if factor <= 0 {
+		return 0
+	}
+	return int64(math.Round(spec.NetContentQty * factor))
+}
+
+type orderProductionQuantitySnapshot = orderbeans.ProductionQuantitySnapshot
+
+func concreteOrderProductionQuantitySnapshot(spec orderbeans.PublishedProductSpec) (orderProductionQuantitySnapshot, error) {
+	return orderbeans.BuildProductionQuantitySnapshot(spec)
+}
+
+func manualConcreteOrderPriceSourceJSON(selection concreteOrderPublicationSelection, productID int64) string {
+	source := map[string]any{
+		"source":                   "manual",
+		"list_type":                selection.ListType,
+		"publication_id":           selection.Usage.PublicationID,
+		"bean_list_publication_id": selection.Usage.PublicationID,
+		"version_no":               selection.Usage.VersionNo,
+		"bean_list_version_no":     selection.Usage.VersionNo,
+		"product_id":               productID,
+		"sku_id":                   selection.Spec.SKUID,
+		"parent_product_id":        selection.Spec.ParentProductID,
+		"quantity_basis":           "sales_spec_count",
+	}
+	if raw := strings.TrimSpace(selection.Spec.EffectiveSalesSpecJSON); raw != "" {
+		var snapshot map[string]any
+		if json.Unmarshal([]byte(raw), &snapshot) == nil && len(snapshot) > 0 {
+			source["effective_sales_spec"] = snapshot
+		}
+	}
+	if snapshot, err := concreteOrderProductionQuantitySnapshot(selection.Spec); err == nil {
+		source["production_quantity_snapshot"] = snapshot
+	}
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return `{"source":"manual"}`
+	}
+	return string(buf)
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -656,6 +1032,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	type item struct {
 		productID                          *int64
+		submittedParentProductID           int64
 		customerProductAliasID             int64
 		customerProductDisplayNameSnapshot string
 		customerItemCodeSnapshot           string
@@ -685,6 +1062,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		unitBeanG                          float64
 		matchedPriceQty                    float64
 		priceSourceJSON                    string
+		priceListType                      string
+		quantityBasis                      string
 	}
 	items := make([]item, 0, len(cmd.Items))
 	for _, src := range cmd.Items {
@@ -694,6 +1073,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		it := item{
 			productID:                          src.ProductID,
+			submittedParentProductID:           src.ParentProductID,
 			customerProductAliasID:             src.CustomerProductAliasID,
 			customerProductDisplayNameSnapshot: strings.TrimSpace(src.CustomerProductDisplayNameSnapshot),
 			customerItemCodeSnapshot:           strings.TrimSpace(src.CustomerItemCodeSnapshot),
@@ -715,6 +1095,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			unitBagCount:                       src.UnitBagCount,
 			unitBeanG:                          src.UnitBeanG,
 			priceSourceJSON:                    strings.TrimSpace(src.PriceSourceJSON),
+			priceListType:                      orderBeanListTypeFromPriceSource(src.PriceSourceJSON),
+			quantityBasis:                      orderQuantityBasisFromPriceSource(src.PriceSourceJSON),
 		}
 		if it.productKind == "drip_bag" {
 			if it.unitBeanG <= 0 && it.specG > 0 {
@@ -752,10 +1134,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 		items = append(items, it)
 	}
-	// Validate: need at least one item with spec+units
+	// Concrete publications restore the authoritative spec after the transaction
+	// starts, so only concrete product identity and quantity are required here.
 	valid := false
 	for _, it := range items {
-		if it.productID != nil && it.specG > 0 && it.units > 0 {
+		if it.productID != nil && *it.productID > 0 && it.units > 0 {
 			valid = true
 			break
 		}
@@ -827,10 +1210,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	applyItemDiscount := func(idx int) {
 		discountUnits := orderItemUnitDiscountUnits(orderDiscountItem{
-			productKind: items[idx].productKind,
-			salesUnit:   items[idx].salesUnit,
-			specG:       items[idx].specG,
-			units:       items[idx].units,
+			productKind:   items[idx].productKind,
+			salesUnit:     items[idx].salesUnit,
+			quantityBasis: items[idx].quantityBasis,
+			specG:         items[idx].specG,
+			units:         items[idx].units,
 		}, retailOrder)
 		items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue, discountUnits)
 	}
@@ -875,18 +1259,115 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if items[idx].productKind == "" {
 			items[idx].productKind = "roasted_bean"
 		}
+		selection := concreteOrderPublicationSelection{}
+		if items[idx].productID != nil && *items[idx].productID > 0 {
+			if items[idx].submittedParentProductID > 0 {
+				identity, identityErr := loadConcreteOrderProductIdentityTx(ctx, tx, r.schema, *items[idx].productID)
+				if identityErr != nil {
+					return salesapp.SaveOrderResult{}, identityErr
+				}
+				if identity.ParentProductID != items[idx].submittedParentProductID {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("提交的商品与 SKU 归属不一致，请重新选择商品规格")
+				}
+			}
+			selection, err = resolveConcreteOrderPublicationSelectionTx(
+				ctx,
+				tx,
+				r.schema,
+				cmd,
+				*items[idx].productID,
+				items[idx].submittedParentProductID,
+				items[idx].productKind,
+				retailOrder,
+				items[idx].itemBeanListPublicationID,
+				items[idx].priceListType,
+				items[idx].priceSourceJSON,
+			)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if items[idx].submittedParentProductID > 0 && selection.Usage.PublicationID <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("所选价格表版本不包含该商品规格，请重新选择价格表和规格")
+			}
+			selection.Spec, err = orderbeans.ResolveOrderProductionProductSpec(
+				ctx,
+				tx,
+				r.schema,
+				*items[idx].productID,
+				selection.Spec,
+			)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+		}
+		if selection.Strict {
+			if _, snapshotErr := concreteOrderProductionQuantitySnapshot(selection.Spec); snapshotErr != nil {
+				return salesapp.SaveOrderResult{}, snapshotErr
+			}
+			items[idx].productKind = strings.TrimSpace(selection.Product.ProductKind)
+			items[idx].priceListType = selection.ListType
+			items[idx].itemBeanListPublicationID = selection.Usage.PublicationID
+			items[idx].itemBeanListVersionNo = selection.Usage.VersionNo
+			items[idx].quantityBasis = "sales_spec_count"
+			if frozenSpecG := concreteOrderSpecWeightG(selection.Spec); frozenSpecG > 0 {
+				items[idx].specG = frozenSpecG
+			}
+			items[idx].salesUnit = normalizeOrderItemSalesUnit(selection.Spec.SalesUnit)
+			if items[idx].salesUnit == "" {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("价格表商品规格缺少销售单位，请重新发布价格表")
+			}
+			unit := strings.TrimSpace(selection.Spec.SalesUnit)
+			items[idx].unit = &unit
+			specLabel := firstNonEmpty(selection.Spec.SpecLabel, selection.Spec.SpecName, selection.Product.SKUName)
+			items[idx].spec = &specLabel
+			if selection.Spec.UnitBagCount > 0 {
+				items[idx].unitBagCount = selection.Spec.UnitBagCount
+			}
+			if selection.Spec.UnitBeanG > 0 {
+				items[idx].unitBeanG = selection.Spec.UnitBeanG
+			}
+			aliasSnapshot, aliasErr := resolveOrderItemCustomerAliasSnapshotTx(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, items[idx].customerProductAliasID)
+			if aliasErr != nil {
+				return salesapp.SaveOrderResult{}, aliasErr
+			}
+			items[idx].name = firstNonEmpty(aliasSnapshot.DisplayName, selection.Product.ParentProductName)
+			items[idx].productNameSnapshot = selection.Product.ParentProductName
+			items[idx].productCodeSnapshot = selection.Product.SKUCode
+			if aliasSnapshot.AliasID > 0 {
+				items[idx].customerProductAliasID = aliasSnapshot.AliasID
+				items[idx].customerProductDisplayNameSnapshot = aliasSnapshot.DisplayName
+				items[idx].customerItemCodeSnapshot = aliasSnapshot.CustomerItemCode
+				items[idx].brandNameSnapshot = aliasSnapshot.BrandName
+			}
+			items[idx].matchedPriceQty = float64(items[idx].units)
+		} else if items[idx].productID != nil && items[idx].specG <= 0 {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("at least one item required")
+		}
 		itemWeightG := orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
 		orderWeightG += itemWeightG
 
+		if items[idx].manualPrice != nil && (*items[idx].manualPrice <= 0 || math.IsNaN(*items[idx].manualPrice) || math.IsInf(*items[idx].manualPrice, 0)) {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("手动单价必须大于0")
+		}
 		if items[idx].manualPrice != nil {
-			lineTotal := wholesaleLineTotalFromDisplayUnit(*items[idx].manualPrice, items[idx].specG, items[idx].units)
-			if items[idx].productKind == "drip_bag" {
-				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
+			discountItem := orderDiscountItem{
+				productKind:   items[idx].productKind,
+				salesUnit:     items[idx].salesUnit,
+				quantityBasis: items[idx].quantityBasis,
+				specG:         items[idx].specG,
+				units:         items[idx].units,
+			}
+			lineTotal := orderManualPriceLineTotal(*items[idx].manualPrice, discountItem, retailOrder)
+			if selection.Strict {
+				items[idx].matchedPriceQty = float64(items[idx].units)
+				items[idx].priceSourceJSON = manualConcreteOrderPriceSourceJSON(selection, *items[idx].productID)
+			} else {
 				items[idx].matchedPriceQty = float64(items[idx].units)
 				items[idx].priceSourceJSON = `{"source":"manual"}`
 			}
-			if retailOrder {
-				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
+			items[idx].priceSourceJSON, err = orderbeans.AttachProductionQuantitySnapshot(items[idx].priceSourceJSON, selection.Spec)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
 			}
 			items[idx].baseLineTotal = lineTotal
 			applyItemDiscount(idx)
@@ -896,32 +1377,47 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].productKind == "drip_bag" && items[idx].productID != nil {
-			requestedPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeDrip)
-			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeDrip, requestedPublicationID)
-			if err != nil {
-				return salesapp.SaveOrderResult{}, err
+			var usage orderbeans.Usage
+			var pricing orderbeans.PublishedPricing
+			var priceListType string
+			for _, candidate := range dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType) {
+				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, candidate.RequestedPublicationID)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				if resolvedUsage.PublicationID <= 0 {
+					continue
+				}
+				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, resolvedUsage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				if resolvedPricing.UnitPrice <= 0 {
+					return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
+				}
+				usage = resolvedUsage
+				pricing = resolvedPricing
+				priceListType = candidate.ListType
+				break
 			}
-			if usage.PublicationID <= 0 {
-				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
-			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeDrip, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
-			if err != nil {
-				return salesapp.SaveOrderResult{}, err
-			}
-			if pricing.UnitPrice <= 0 {
+			if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少挂耳价格表价格")
 			}
 			items[idx].tierID = nil
 			items[idx].unitPrice = pricing.UnitPrice
+			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
 			items[idx].baseLineTotal = pricing.UnitPrice * float64(items[idx].units)
 			applyItemDiscount(idx)
 			items[idx].matchedPriceQty = float64(items[idx].units)
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeDrip, usage, *items[idx].productID, pricing)
+			items[idx].priceListType = priceListType
+			items[idx].itemBeanListPublicationID = usage.PublicationID
+			items[idx].itemBeanListVersionNo = usage.VersionNo
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(priceListType, usage, *items[idx].productID, pricing, selection.Spec)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if retailOrder && items[idx].productID != nil {
-			requestedPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeRetail)
+			requestedPublicationID := orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, orderbeans.ListTypeRetail)
 			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeRetail, requestedPublicationID)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
@@ -938,14 +1434,18 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 			items[idx].tierID = nil
 			items[idx].unitPrice = pricing.UnitPrice
-			items[idx].baseLineTotal = wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, items[idx].specG, items[idx].units, pricing.UnitG)
+			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
+			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, items[idx].specG, items[idx].units)
 			applyItemDiscount(idx)
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeRetail, usage, *items[idx].productID, pricing)
+			items[idx].priceListType = orderbeans.ListTypeRetail
+			items[idx].itemBeanListPublicationID = usage.PublicationID
+			items[idx].itemBeanListVersionNo = usage.VersionNo
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeRetail, usage, *items[idx].productID, pricing, selection.Spec)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].productID != nil && items[idx].productKind == "green_bean" {
-			requestedPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeGreen)
+			requestedPublicationID := orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, orderbeans.ListTypeGreen)
 			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, requestedPublicationID)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
@@ -962,16 +1462,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
 			}
 			items[idx].unitPrice = pricing.UnitPrice
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing)
-			if items[idx].baseLineTotal <= 0 {
-				items[idx].baseLineTotal = wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, items[idx].specG, items[idx].units, pricing.UnitG)
+			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
+			items[idx].priceListType = orderbeans.ListTypeGreen
+			items[idx].itemBeanListPublicationID = usage.PublicationID
+			items[idx].itemBeanListVersionNo = usage.VersionNo
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing, selection.Spec)
+			if items[idx].baseLineTotal <= 0 || strings.TrimSpace(pricing.QuantityBasis) == "sales_spec_count" {
+				items[idx].baseLineTotal = publishedPricingLineTotal(pricing, items[idx].specG, items[idx].units)
 			}
 			applyItemDiscount(idx)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].productID != nil {
-			requestedPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial)
+			requestedPublicationID := orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, orderbeans.ListTypeCommercial)
 			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeCommercial, requestedPublicationID)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
@@ -988,9 +1492,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 			items[idx].tierID = nil
 			items[idx].unitPrice = pricing.UnitPrice
-			items[idx].baseLineTotal = wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, items[idx].specG, items[idx].units, pricing.UnitG)
+			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
+			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, items[idx].specG, items[idx].units)
 			applyItemDiscount(idx)
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing)
+			items[idx].priceListType = orderbeans.ListTypeCommercial
+			items[idx].itemBeanListPublicationID = usage.PublicationID
+			items[idx].itemBeanListVersionNo = usage.VersionNo
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing, selection.Spec)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1000,7 +1508,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].baseLineTotal = items[idx].lineTotal
 		}
 		if items[idx].baseLineTotal == 0 {
-			items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
+			items[idx].baseLineTotal = orderManualPriceLineTotal(items[idx].unitPrice, orderDiscountItem{
+				productKind:   items[idx].productKind,
+				salesUnit:     items[idx].salesUnit,
+				quantityBasis: items[idx].quantityBasis,
+				specG:         items[idx].specG,
+				units:         items[idx].units,
+			}, retailOrder)
 		}
 		applyItemDiscount(idx)
 		totalAmt += items[idx].baseLineTotal
@@ -1062,10 +1576,25 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if cmd.PortalServiceCode != "" {
 		portalServiceCode = cmd.PortalServiceCode
 	}
-	headerPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial)
-	beanListPublicationID, beanListVersionNo, err := r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, headerPublicationID, orderbeans.ListTypeCommercial)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
+	publicationRefs := make([]orderHeaderPublicationRef, 0, len(items))
+	for _, it := range items {
+		publicationRefs = append(publicationRefs, orderHeaderPublicationRef{
+			publicationID: it.itemBeanListPublicationID,
+			listType:      it.priceListType,
+		})
+	}
+	headerPublicationID, ambiguousHeaderPublication := resolvedOrderHeaderPublicationID(
+		selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial),
+		publicationRefs,
+		orderbeans.ListTypeCommercial,
+	)
+	beanListPublicationID := int64(0)
+	beanListVersionNo := ""
+	if !ambiguousHeaderPublication {
+		beanListPublicationID, beanListVersionNo, err = r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, headerPublicationID, orderbeans.ListTypeCommercial)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
 	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
@@ -1286,11 +1815,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if strings.TrimSpace(it.customerProductDisplayNameSnapshot) == "" && aliasSnapshot.AliasID > 0 {
 			it.customerProductDisplayNameSnapshot = aliasSnapshot.DisplayName
 		}
-		itemListType := orderbeans.ListTypeForProductKind(it.productKind, retailOrder)
-		itemPublicationID := it.itemBeanListPublicationID
-		if itemPublicationID <= 0 {
-			itemPublicationID = selectedOrderBeanListPublicationID(cmd, itemListType)
+		itemListType := strings.TrimSpace(it.priceListType)
+		if itemListType == "" {
+			itemListType = orderbeans.ListTypeForProductKind(it.productKind, retailOrder)
 		}
+		itemPublicationID := orderItemBeanListPublicationID(cmd, it.itemBeanListPublicationID, itemListType)
 		if !it.priceOverride && productID > 0 && it.unitPrice <= 0 && it.specG > 0 && it.units > 0 {
 			publishedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, productID, itemListType, itemPublicationID, int64(it.specG), int64(it.units), it.salesUnit, it.unitBagCount)
 			if err != nil {
@@ -1298,10 +1827,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			}
 			if publishedPricing.UnitPrice > 0 {
 				it.unitPrice = publishedPricing.UnitPrice
+				it.quantityBasis = strings.TrimSpace(publishedPricing.QuantityBasis)
 				if it.productKind == "drip_bag" {
 					it.baseLineTotal = publishedPricing.UnitPrice * float64(it.units)
 				} else {
-					it.baseLineTotal = wholesaleLineTotalFromPriceUnit(publishedPricing.UnitPrice, it.specG, it.units, publishedPricing.UnitG)
+					it.baseLineTotal = publishedPricingLineTotal(publishedPricing, it.specG, it.units)
 				}
 				if it.lineTotal <= 0 {
 					it.lineTotal = it.baseLineTotal
@@ -1451,6 +1981,7 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 			SELECT version_no
 			FROM %s.bean_list_publications
 			WHERE id=$1 AND status='published'
+			  AND publication_purpose='factory_supply'
 			  AND list_type=$2
 			  AND ((owner_type='customer' AND owner_key=$3) OR owner_type='official')
 		`, r.schema), requestedID, listType, customerKey).Scan(&version)
@@ -1468,6 +1999,7 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 				JOIN %s.bean_list_publications b ON b.id=p.bean_list_publication_id
 				WHERE p.customer_id=$1 AND p.bean_list_mode='fixed'
 				  AND b.owner_type='customer' AND b.owner_key=$2 AND b.status='published'
+				  AND b.publication_purpose='factory_supply'
 				  AND b.list_type=$3
 			`, r.schema, r.schema), customerID, customerKey, listType).Scan(&fixedID)
 		if err == nil && fixedID > 0 {
@@ -1478,7 +2010,8 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 				SELECT id
 				FROM %s.bean_list_publications
-				WHERE owner_type='customer' AND owner_key=$1 AND status='published' AND list_type=$2
+				WHERE owner_type='customer' AND owner_key=$1 AND status='published'
+				  AND publication_purpose='factory_supply' AND list_type=$2
 				ORDER BY published_at DESC, id DESC
 				LIMIT 1
 			`, r.schema), customerKey, listType).Scan(&requestedID)
@@ -1486,7 +2019,8 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 			_ = tx.QueryRow(ctx, fmt.Sprintf(`
 					SELECT id
 					FROM %s.bean_list_publications
-					WHERE owner_type='official' AND status='published' AND list_type=$1
+					WHERE owner_type='official' AND status='published'
+					  AND publication_purpose='factory_supply' AND list_type=$1
 					ORDER BY published_at DESC, id DESC
 					LIMIT 1
 				`, r.schema), listType).Scan(&requestedID)
@@ -1559,32 +2093,42 @@ type orderItemCustomerAliasSnapshot struct {
 }
 
 func resolveOrderItemCustomerAliasSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID, productID, requestedAliasID int64) (orderItemCustomerAliasSnapshot, error) {
-	snap := orderItemCustomerAliasSnapshot{
-		ProductCode: fmt.Sprintf("SKU-%d", productID),
-	}
+	snap := orderItemCustomerAliasSnapshot{ProductCode: fmt.Sprintf("SKU-%d", productID)}
 	if productID <= 0 {
 		return orderItemCustomerAliasSnapshot{}, nil
 	}
-	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, schema), productID).Scan(&snap.ProductName)
+	effectiveParentID := productID
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(p.sku_code,''),'SKU-' || p.id::text),
+		       CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END,
+		       COALESCE(NULLIF(parent.name,''),p.name,'')
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.products parent ON parent.id=p.parent_product_id
+		WHERE p.id=$1
+	`, schema), productID).Scan(&snap.ProductCode, &effectiveParentID, &snap.ProductName)
 	if !relationExistsTx(ctx, tx, fmt.Sprintf("%s.customer_product_aliases", schema)) {
+		if requestedAliasID > 0 {
+			return orderItemCustomerAliasSnapshot{}, fmt.Errorf("客户商品别名与当前客户或父商品不匹配，或已停用")
+		}
 		return snap, nil
 	}
 
 	q := fmt.Sprintf(`
 		SELECT a.id,
-		       COALESCE(NULLIF(a.display_name,''), p.name, ''),
+		       COALESCE(NULLIF(a.display_name,''), effective_parent.name, alias_product.name, ''),
 		       COALESCE(a.customer_item_code,''),
 		       COALESCE(a.brand_name,''),
-		       COALESCE(p.name,''),
+		       COALESCE(effective_parent.name, alias_product.name, ''),
 		       COALESCE(a.display_category_id,0),
 		       ''
 		FROM %[1]s.customer_product_aliases a
-		JOIN %[1]s.products p ON p.id=a.product_id
+		JOIN %[1]s.products alias_product ON alias_product.id=a.product_id
+		LEFT JOIN %[1]s.products effective_parent ON effective_parent.id=CASE WHEN COALESCE(alias_product.parent_product_id,0)>0 THEN alias_product.parent_product_id ELSE alias_product.id END
 		WHERE a.customer_id=$1
-		  AND a.product_id=$2
+		  AND CASE WHEN COALESCE(alias_product.parent_product_id,0)>0 THEN alias_product.parent_product_id ELSE alias_product.id END=$2
 		  AND a.active=true
 	`, schema)
-	args := []any{customerID, productID}
+	args := []any{customerID, effectiveParentID}
 	if requestedAliasID > 0 {
 		q += " AND a.id=$3"
 		args = append(args, requestedAliasID)
@@ -1601,7 +2145,7 @@ func resolveOrderItemCustomerAliasSnapshotTx(ctx context.Context, tx pgx.Tx, sch
 	)
 	if err == pgx.ErrNoRows {
 		if requestedAliasID > 0 {
-			return orderItemCustomerAliasSnapshot{}, fmt.Errorf("customer_product_alias invalid")
+			return orderItemCustomerAliasSnapshot{}, fmt.Errorf("客户商品别名与当前客户或父商品不匹配，或已停用")
 		}
 		return snap, nil
 	}

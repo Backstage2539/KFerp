@@ -255,15 +255,48 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var workOrderID int64
-	var currentStatus string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id,status FROM %s.job_cards WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&workOrderID, &currentStatus); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT work_order_id FROM %s.job_cards WHERE id=$1`, r.schema), cmd.ID).Scan(&workOrderID); err != nil {
 		if err == pgx.ErrNoRows {
 			return productionapp.JobCardActionResult{}, fmt.Errorf("job card not found")
 		}
 		return productionapp.JobCardActionResult{}, err
 	}
+	var workOrderStatus string
+	var runningItemID int64
+	var inventoryQtyPerSalesUnit float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT status,COALESCE(running_item_id,0),COALESCE(inventory_qty_per_sales_unit,0)::float8
+		FROM %s.work_orders
+		WHERE id=$1
+		FOR UPDATE
+	`, r.schema), workOrderID).Scan(&workOrderStatus, &runningItemID, &inventoryQtyPerSalesUnit); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.JobCardActionResult{}, fmt.Errorf("work order not found for job card")
+		}
+		return productionapp.JobCardActionResult{}, err
+	}
+	var currentStatus string
+	var currentCostMethod string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT status,COALESCE(NULLIF(cost_method,''),'time')
+		FROM %s.job_cards
+		WHERE id=$1 AND work_order_id=$2
+		FOR UPDATE
+	`, r.schema), cmd.ID, workOrderID).Scan(&currentStatus, &currentCostMethod); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.JobCardActionResult{}, fmt.Errorf("job card not found")
+		}
+		return productionapp.JobCardActionResult{}, err
+	}
+	if cmd.Action == "start" && !jobCardStartAllowedForWorkOrder(workOrderStatus, runningItemID) {
+		return productionapp.JobCardActionResult{}, fmt.Errorf("work order must be running before job card start")
+	}
 	if !validJobCardTransition(currentStatus, cmd.Action) {
 		return productionapp.JobCardActionResult{}, fmt.Errorf("invalid job card action %s from %s", cmd.Action, currentStatus)
+	}
+	actualPieceQty := actualPieceQuantity(cmd.MetricsJSON, cmd.ActualOutputQty, inventoryQtyPerSalesUnit)
+	if cmd.Action == "complete" && normalizeProductionCostMethod(currentCostMethod) == "piece" && actualPieceQty <= 0 {
+		return productionapp.JobCardActionResult{}, fmt.Errorf("计件工序完成时必须填写成品件数，或提供可按冻结规格换算的实际产出数量")
 	}
 	nextStatus := nextJobCardStatus(cmd.Action)
 	switch cmd.Action {
@@ -288,11 +321,16 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 			    metrics_json=$10::jsonb,
 			    actual_minutes=$11,
 			    actual_operation_cost=CASE
+			        WHEN COALESCE(NULLIF(cost_method,''),'time')='piece'
+			            THEN CASE WHEN $12 > 0
+			                THEN ROUND($12::numeric * COALESCE(piece_rate,0), 4)
+			                ELSE actual_operation_cost
+			            END
 			        WHEN $11 > 0 THEN ROUND(($11::numeric / 60.0) * COALESCE(hourly_rate,0), 4)
 			        ELSE actual_operation_cost
 			    END
 			WHERE id=$1
-		`, r.schema), cmd.ID, nextStatus, cmd.Operator, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.LossReason, cmd.ExceptionReason, cmd.MetricsJSON, cmd.ActualMinutes)
+		`, r.schema), cmd.ID, nextStatus, cmd.Operator, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.LossReason, cmd.ExceptionReason, cmd.MetricsJSON, cmd.ActualMinutes, actualPieceQty)
 	}
 	if err != nil {
 		return productionapp.JobCardActionResult{}, err
@@ -307,7 +345,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	if err := updateWorkOrderStatusFromJobCardsTx(ctx, tx, r.schema, workOrderID); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "loss_reason": cmd.LossReason}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_piece_qty": actualPieceQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "loss_reason": cmd.LossReason, "exception_reason": cmd.ExceptionReason}); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
 	card, err := loadJobCardRowTx(ctx, tx, r.schema, cmd.ID)
@@ -401,6 +439,18 @@ func validJobCardTransition(current, action string) bool {
 	}
 }
 
+func jobCardStartAllowedForWorkOrder(status string, runningItemID int64) bool {
+	if runningItemID <= 0 {
+		return false
+	}
+	switch strings.TrimSpace(status) {
+	case "running", "partially_completed":
+		return true
+	default:
+		return false
+	}
+}
+
 func nextJobCardStatus(action string) string {
 	switch action {
 	case "pause":
@@ -454,7 +504,8 @@ func loadJobCardRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (
 		       COALESCE(workstation_capacity_id,0),COALESCE(workstation_capacity_name,''),
 		       COALESCE(batch_size_qty,0)::float8,COALESCE(batch_size_unit,''),
 		       COALESCE(planned_batch_count,0),COALESCE(planned_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,COALESCE(planned_operation_cost,0)::float8,
+		       COALESCE(hourly_rate,0)::float8,COALESCE(NULLIF(cost_method,''),'time'),
+		       COALESCE(piece_rate,0)::float8,COALESCE(planned_operation_cost,0)::float8,
 		       COALESCE(actual_minutes,0),COALESCE(actual_operation_cost,0)::float8,
 		       status,
 		       COALESCE(to_char(started_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(paused_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(resumed_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
@@ -474,7 +525,7 @@ func loadJobCardRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (
 		&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.OperationID, &row.WorkstationID,
 		&row.Operation, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
 		&row.BatchSizeQty, &row.BatchSizeUnit, &row.PlannedBatchCount, &row.PlannedMinutes,
-		&row.HourlyRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
+		&row.HourlyRate, &row.CostMethod, &row.PieceRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
 		&row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator,
 		&row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate,
 		&row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON,

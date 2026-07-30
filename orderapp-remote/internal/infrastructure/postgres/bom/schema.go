@@ -278,7 +278,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions (
 	bom_id BIGINT NOT NULL,
 	version_no TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'draft',
-	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000,
 	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
 	output_qty NUMERIC(14,6) NOT NULL DEFAULT 1,
 	output_unit TEXT NOT NULL DEFAULT 'unit',
@@ -296,6 +296,7 @@ ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions ALTER COLUMN yield_rate SET DEFAULT 1.0000;
 UPDATE %[1]s.production_bom_versions SET output_qty=1 WHERE output_qty IS NULL OR output_qty <= 0;
 UPDATE %[1]s.production_bom_versions SET output_unit='unit' WHERE COALESCE(output_unit,'')='';
 UPDATE %[1]s.production_bom_versions SET material_loss_rate=0 WHERE material_loss_rate IS NULL;
@@ -352,11 +353,20 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_operation_costs (
 	standard_minutes_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0,
 	batch_size_qty_snapshot NUMERIC(14,6) NOT NULL DEFAULT 0,
 	batch_size_unit_snapshot TEXT NOT NULL DEFAULT '',
+	cost_method TEXT NOT NULL DEFAULT 'time',
+	piece_rate_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0,
+	rate_unit_snapshot TEXT NOT NULL DEFAULT '',
 	operation_unit_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
 	operation_cost_unit TEXT NOT NULL DEFAULT '',
 	sort_order INT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time';
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS piece_rate_snapshot NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_version_operation_costs ADD COLUMN IF NOT EXISTS rate_unit_snapshot TEXT NOT NULL DEFAULT '';
+UPDATE %[1]s.production_bom_version_operation_costs
+SET cost_method='time'
+WHERE COALESCE(NULLIF(cost_method,''),'')='';
 CREATE INDEX IF NOT EXISTS production_bom_version_operation_costs_version_idx
 	ON %[1]s.production_bom_version_operation_costs(version_id, sort_order, id);
 

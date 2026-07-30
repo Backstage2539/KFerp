@@ -1690,7 +1690,7 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_boms SET code=$1 WHERE id=$2`, r.schema), code, bomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	yieldRate := 0.8
+	yieldRate := 1.0
 	if cmd.ExpectedLossRate != nil {
 		yieldRate = productiondomain.NormalizeYieldRate(1 - *cmd.ExpectedLossRate)
 	}
@@ -2242,6 +2242,8 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		       COALESCE(c.standard_minutes,0)::float8 AS standard_minutes,
 		       COALESCE(c.batch_size_qty,0)::float8 AS batch_size_qty,
 		       COALESCE(c.batch_size_unit,'') AS batch_size_unit,
+		       COALESCE(NULLIF(c.cost_method,''),'time') AS cost_method,
+		       COALESCE(c.piece_rate,0)::float8 AS piece_rate,
 		       COALESCE(wo.operation_id,0) AS applicable_operation_id,
 		       COALESCE(pro.standard_cost_capacity_id,0) AS standard_cost_capacity_id
 		FROM %[1]s.process_route_operations pro
@@ -2257,18 +2259,22 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 	}
 	defer rows.Close()
 	type operationCostSnapshot struct {
-		seq             int
-		operationID     int64
-		operationName   string
-		workstationID   int64
-		workstationName string
-		capacityID      int64
-		capacityName    string
-		hourlyRate      float64
-		standardMinutes float64
-		batchSizeQty    float64
-		batchSizeUnit   string
-		unitCost        float64
+		seq               int
+		operationID       int64
+		operationName     string
+		workstationID     int64
+		workstationName   string
+		capacityID        int64
+		capacityName      string
+		hourlyRate        float64
+		standardMinutes   float64
+		batchSizeQty      float64
+		batchSizeUnit     string
+		costMethod        string
+		pieceRate         float64
+		rateUnit          string
+		unitCost          float64
+		operationCostUnit string
 	}
 	var snapshots []operationCostSnapshot
 	for rows.Next() {
@@ -2283,9 +2289,11 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		var standardMinutes float64
 		var batchSizeQty float64
 		var batchSizeUnit string
+		var costMethod string
+		var pieceRate float64
 		var applicableOperationID int64
 		var standardCostCapacityID int64
-		if err := rows.Scan(&seq, &operationID, &operationName, &workstationID, &workstationName, &capacityID, &capacityName, &hourlyRate, &standardMinutes, &batchSizeQty, &batchSizeUnit, &applicableOperationID, &standardCostCapacityID); err != nil {
+		if err := rows.Scan(&seq, &operationID, &operationName, &workstationID, &workstationName, &capacityID, &capacityName, &hourlyRate, &standardMinutes, &batchSizeQty, &batchSizeUnit, &costMethod, &pieceRate, &applicableOperationID, &standardCostCapacityID); err != nil {
 			return 0, err
 		}
 		if standardCostCapacityID <= 0 {
@@ -2294,27 +2302,30 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		if capacityID <= 0 || workstationID <= 0 || applicableOperationID <= 0 {
 			return 0, fmt.Errorf("标准成本产能档必须来自启用工位且适用当前工序")
 		}
-		outputBatchQty, ok := convertBomOperationBatchQty(batchSizeQty, batchSizeUnit, outputUnit)
-		if !ok || outputBatchQty <= 0 {
+		unitCost, operationCostUnit, ok := calculateBomOperationSnapshotCost(costMethod, pieceRate, hourlyRate, standardMinutes, batchSizeQty, batchSizeUnit, outputUnit)
+		if !ok {
+			if normalizeBomOperationCostMethod(costMethod) == "piece" {
+				return 0, fmt.Errorf("计件成本必须大于 0")
+			}
 			return 0, fmt.Errorf("工序成本批量单位 %s 不能换算为 BOM 产出库存单位 %s", strings.TrimSpace(batchSizeUnit), strings.TrimSpace(outputUnit))
 		}
-		unitCost := 0.0
-		if hourlyRate > 0 && standardMinutes > 0 {
-			unitCost = hourlyRate * standardMinutes / 60 / outputBatchQty
-		}
 		snapshots = append(snapshots, operationCostSnapshot{
-			seq:             seq,
-			operationID:     operationID,
-			operationName:   operationName,
-			workstationID:   workstationID,
-			workstationName: workstationName,
-			capacityID:      capacityID,
-			capacityName:    capacityName,
-			hourlyRate:      hourlyRate,
-			standardMinutes: standardMinutes,
-			batchSizeQty:    batchSizeQty,
-			batchSizeUnit:   batchSizeUnit,
-			unitCost:        unitCost,
+			seq:               seq,
+			operationID:       operationID,
+			operationName:     operationName,
+			workstationID:     workstationID,
+			workstationName:   workstationName,
+			capacityID:        capacityID,
+			capacityName:      capacityName,
+			hourlyRate:        hourlyRate,
+			standardMinutes:   standardMinutes,
+			batchSizeQty:      batchSizeQty,
+			batchSizeUnit:     batchSizeUnit,
+			costMethod:        normalizeBomOperationCostMethod(costMethod),
+			pieceRate:         pieceRate,
+			rateUnit:          bomOperationCostRateUnit(costMethod),
+			unitCost:          unitCost,
+			operationCostUnit: operationCostUnit,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -2327,13 +2338,46 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 			INSERT INTO %s.production_bom_version_operation_costs(
 				version_id,operation_id,operation_name,workstation_id,workstation_name,
 				workstation_capacity_id,capacity_name,hourly_rate_snapshot,standard_minutes_snapshot,
-				batch_size_qty_snapshot,batch_size_unit_snapshot,operation_unit_cost,operation_cost_unit,sort_order,created_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
-		`, schema), versionID, snapshot.operationID, snapshot.operationName, snapshot.workstationID, snapshot.workstationName, snapshot.capacityID, snapshot.capacityName, snapshot.hourlyRate, snapshot.standardMinutes, snapshot.batchSizeQty, snapshot.batchSizeUnit, snapshot.unitCost, outputUnit, snapshot.seq); err != nil {
+				batch_size_qty_snapshot,batch_size_unit_snapshot,cost_method,piece_rate_snapshot,rate_unit_snapshot,
+				operation_unit_cost,operation_cost_unit,sort_order,created_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now())
+		`, schema), versionID, snapshot.operationID, snapshot.operationName, snapshot.workstationID, snapshot.workstationName, snapshot.capacityID, snapshot.capacityName, snapshot.hourlyRate, snapshot.standardMinutes, snapshot.batchSizeQty, snapshot.batchSizeUnit, snapshot.costMethod, snapshot.pieceRate, snapshot.rateUnit, snapshot.unitCost, snapshot.operationCostUnit, snapshot.seq); err != nil {
 			return 0, err
 		}
 	}
 	return len(snapshots), nil
+}
+
+func calculateBomOperationSnapshotCost(costMethod string, pieceRate float64, hourlyRate float64, standardMinutes float64, batchSizeQty float64, batchSizeUnit string, outputUnit string) (float64, string, bool) {
+	if normalizeBomOperationCostMethod(costMethod) == "piece" {
+		if pieceRate <= 0 {
+			return 0, "", false
+		}
+		return pieceRate, "sales_spec_count", true
+	}
+	outputBatchQty, ok := convertBomOperationBatchQty(batchSizeQty, batchSizeUnit, outputUnit)
+	if !ok || outputBatchQty <= 0 {
+		return 0, "", false
+	}
+	unitCost := 0.0
+	if hourlyRate > 0 && standardMinutes > 0 {
+		unitCost = hourlyRate * standardMinutes / 60 / outputBatchQty
+	}
+	return unitCost, strings.TrimSpace(outputUnit), true
+}
+
+func normalizeBomOperationCostMethod(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "piece") {
+		return "piece"
+	}
+	return "time"
+}
+
+func bomOperationCostRateUnit(costMethod string) string {
+	if normalizeBomOperationCostMethod(costMethod) == "piece" {
+		return "sales_spec_count"
+	}
+	return "hour"
 }
 
 func convertBomOperationBatchQty(qty float64, sourceUnit string, targetUnit string) (float64, bool) {

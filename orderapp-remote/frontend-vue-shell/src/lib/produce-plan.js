@@ -1,3 +1,5 @@
+import { normalizeCapacityCostMethod } from './workstation-capacity-costing.js'
+
 export function producePlanKey(productId, specG) {
   return `${productId}-${specG}`
 }
@@ -75,6 +77,8 @@ export function productionDemandPanelEmptyText(status) {
 }
 
 export function productionDemandSelectable(row) {
+  if (String(row?.blocking_reason || '').trim()) return false
+  if (row?.demand_selectable === false) return false
   return Number(row?.gap_g || 0) > 0 && normalizedProductionDemandStatus(row?.demand_status) === 'unplanned'
 }
 
@@ -170,7 +174,7 @@ export function buildProductionPlanNextActions(result = {}) {
     { key: 'workOrders', label: '打开工单', view: 'workOrders', params: compactPositiveParams({ work_order_id: workOrderID }) },
     { key: 'jobCards', label: '打开工序卡', view: 'jobCards', params: compactPositiveParams({ job_card_id: jobCardID, work_order_id: workOrderID }) },
     { key: 'assignWorkstation', label: '分配工位', view: 'productionOverview', params: compactPositiveParams({ work_order_id: workOrderID, job_card_id: jobCardID }) },
-    { key: 'issueWip', label: '领料到 WIP', view: 'stockOperations', params: compactPositiveParams({ tab: 'wip', work_order_id: workOrderID, job_card_id: jobCardID }) },
+    { key: 'issueWip', label: '生产领料', view: 'stockOperations', params: compactPositiveParams({ tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: workOrderID, job_card_id: jobCardID }) },
   ]
 }
 
@@ -258,6 +262,52 @@ export function productionPlanOperationSplitsPreviewEndpoint(plan) {
   return `/api/production-plans/${id}/operation-splits/preview`
 }
 
+function compactProductionQuantity(value) {
+  const number = Number(value || 0)
+  if (!Number.isFinite(number)) return '0'
+  return String(Number(number.toFixed(9)))
+}
+
+function productionInventoryUnitLabel(unit) {
+  const value = String(unit || '').trim()
+  if (value.toLowerCase() === 'kg') return 'Kg'
+  return value
+}
+
+export function productionPlanItemQuantitySummary(item = {}) {
+  const count = Number(item.sales_spec_count || 0)
+  const quantityPerUnit = Number(item.inventory_qty_per_sales_unit || 0)
+  const plannedQuantity = Number(item.planned_inventory_qty || 0)
+  const unit = productionInventoryUnitLabel(item.inventory_unit)
+  if (count > 0 && quantityPerUnit > 0 && plannedQuantity > 0 && unit) {
+    return `${compactProductionQuantity(count)}件、${compactProductionQuantity(quantityPerUnit)}${unit}/件、合计${compactProductionQuantity(plannedQuantity)}${unit}`
+  }
+  const legacySpecG = Number(item.spec_g || 0)
+  if (legacySpecG > 0) return `${compactProductionQuantity(legacySpecG)}g`
+  return '按商品单位'
+}
+
+export function productionPlanLegacyGramLabel(value) {
+  const grams = Number(value || 0)
+  if (!Number.isFinite(grams)) return '0g'
+  return `${compactProductionQuantity(grams)}g`
+}
+
+export function productionPlanBomSummary(row = {}) {
+  if (String(row.bom_summary_error || '').trim()) return 'BOM 配置待完善'
+  const lossRate = Number(row.bom_material_loss_rate || 0)
+  if (!Number.isFinite(lossRate) || lossRate <= 0 || lossRate >= 1) return '默认 BOM'
+  return `默认 BOM / 预期损耗 ${(lossRate * 100).toFixed(2)}%`
+}
+
+export function productionPlanItemBomSourceLabel(item = {}) {
+  const versionID = Number(item.bom_version_id || 0)
+  const versionLabel = versionID > 0 ? `BOM版本 #${versionID}` : '默认 BOM'
+  if (item.bom_inherited === true) return `${versionLabel} · 继承父商品BOM`
+  if (Number(item.bom_source_product_id || 0) > 0) return `${versionLabel} · 具体SKU BOM`
+  return versionLabel
+}
+
 const OPERATION_SPLIT_PREVIEW_STATUS = {
   matched: { label: '已覆盖', tone: 'matched' },
   short: { label: '不足', tone: 'short' },
@@ -289,16 +339,45 @@ function isCountCapacityUnit(unit) {
   return COUNT_CAPACITY_UNITS.has(normalizedCapacityUnit(unit))
 }
 
-function plannedCapacitySplitQtyG(qty, unit, specG = 0) {
+function plannedCapacitySplitQtyG(qty, unit, specG = 0, salesSpecCount = 0, targetG = 0) {
   const normalized = String(unit || '').trim().toLowerCase()
   if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return Math.round(qty * 1000)
   if (normalized === 'g' || normalized === '克') return Math.round(qty)
+  if (isCountCapacityUnit(unit) && Number(salesSpecCount || 0) > 0 && Number(targetG || 0) > 0) {
+    return Math.round(qty * Number(targetG) / Number(salesSpecCount))
+  }
   if (isCountCapacityUnit(unit) && Number(specG || 0) > 0) return Math.round(qty * Number(specG || 0))
   return 0
 }
 
-function productionPlanItemTargetG(item = {}) {
+export function productionPlanItemTargetG(item = {}) {
   return Math.max(0, Number(item.planned_g || item.planned_output_g || item.gap_g || 0))
+}
+
+export function productionPlanItemOutputTargetG(item = {}) {
+  const frozenOutputG = Math.max(0, Number(item.planned_output_g || 0))
+  if (frozenOutputG > 0) return frozenOutputG
+
+  const inventoryUnit = String(item.inventory_unit || '').trim().toLowerCase()
+  const toGrams = (quantity) => {
+    const value = Math.max(0, Number(quantity || 0))
+    if (inventoryUnit === 'g' || inventoryUnit === '克') return Math.round(value)
+    if (inventoryUnit === 'kg' || inventoryUnit === '千克' || inventoryUnit === '公斤') return Math.round(value * 1000)
+    if (inventoryUnit === 'lb' || inventoryUnit === '磅') return Math.round(value * 453.59237)
+    return 0
+  }
+
+  const plannedInventoryG = toGrams(item.planned_inventory_qty)
+  if (plannedInventoryG > 0) return plannedInventoryG
+
+  const count = Math.max(0, Number(item.sales_spec_count || 0))
+  const inventoryQtyPerSalesUnit = Math.max(0, Number(item.inventory_qty_per_sales_unit || 0))
+  const convertedG = toGrams(count * inventoryQtyPerSalesUnit)
+  if (convertedG > 0) return convertedG
+
+  const specG = Math.max(0, Number(item.spec_g || 0))
+  if (count > 0 && specG > 0) return Math.round(count * specG)
+  return productionPlanItemTargetG(item)
 }
 
 function isProductionMaterialWeightUnit(unit) {
@@ -331,6 +410,8 @@ export function plannedCapacitySplitMetrics(split = {}) {
   const hourlyRate = Math.max(0, Number(split.hourly_rate || 0))
   const legacyBatchCount = Math.max(0, Math.round(Number(split.planned_batch_count || 0)))
   const specG = Number(split.spec_g || split.item_spec_g || 0)
+  const salesSpecCount = Number(split.sales_spec_count || split.item_sales_spec_count || 0)
+  const itemTargetG = Number(split.item_target_g || split.planned_item_g || 0)
   let plannedQty = Math.max(0, Number(split.planned_qty || 0))
   if (plannedQty <= 0 && legacyBatchCount > 0 && batchSizeQty > 0) {
     plannedQty = legacyBatchCount * batchSizeQty
@@ -339,12 +420,14 @@ export function plannedCapacitySplitMetrics(split = {}) {
   const plannedBatchCount = plannedQty > 0 && batchSizeQty > 0
     ? Math.ceil(plannedQty / batchSizeQty)
     : legacyBatchCount
-  let plannedQtyG = plannedCapacitySplitQtyG(plannedQty, split.batch_size_unit, specG)
+  let plannedQtyG = plannedCapacitySplitQtyG(plannedQty, split.batch_size_unit, specG, salesSpecCount, itemTargetG)
   if (plannedQtyG <= 0 && Number(split.planned_qty_g || 0) > 0) {
     plannedQtyG = Math.round(Number(split.planned_qty_g || 0))
   }
   const plannedMinutes = plannedBatchCount * standardMinutes
-  const plannedOperationCost = Number(((plannedMinutes / 60) * hourlyRate).toFixed(2))
+  const plannedOperationCost = normalizeCapacityCostMethod(split) === 'piece'
+    ? Number((plannedQty * Math.max(0, Number(split.piece_rate || 0))).toFixed(2))
+    : Number(((plannedMinutes / 60) * hourlyRate).toFixed(2))
   return {
     planned_batch_count: plannedBatchCount,
     planned_qty: plannedQty,
@@ -389,7 +472,13 @@ export function productionPlanSplitBatchCards(split = {}) {
       batch_size_qty: batchSizeQty,
       batch_size_unit: unit,
       planned_qty: plannedQtyForBatch,
-      planned_qty_g: plannedCapacitySplitQtyG(plannedQtyForBatch, unit, split.spec_g || split.item_spec_g || 0),
+      planned_qty_g: plannedCapacitySplitQtyG(
+        plannedQtyForBatch,
+        unit,
+        split.spec_g || split.item_spec_g || 0,
+        split.sales_spec_count || split.item_sales_spec_count || 0,
+        split.item_target_g || split.planned_item_g || 0,
+      ),
       planned_minutes: standardMinutes,
       underfilled: batchSizeQty > 0 && plannedQtyForBatch > 0 && plannedQtyForBatch < batchSizeQty,
     }
@@ -429,7 +518,7 @@ export function applicableOperationCapacities(operation = {}, capacities = []) {
 }
 
 export function operationCapacityAutoSplitError(item = {}, operation = {}, capacities = []) {
-  if (productionPlanItemTargetG(item) <= 0) return '当前计划行缺少计划产量，无法自动拆分'
+  if (productionPlanItemTargetG(item) <= 0 && Number(item.sales_spec_count || 0) <= 0) return '当前计划行缺少计划产量，无法自动拆分'
   if (!applicableOperationCapacities(operation, capacities).length) {
     return '当前工序没有可用的工位产能，或工位产能未绑定该工序'
   }
@@ -444,6 +533,9 @@ function capacityBaseQty(capacity = {}, item = {}) {
   if (isWeightCapacityUnit(unit)) {
     const batchBaseQty = plannedCapacitySplitQtyG(batchSizeQty, unit, item.spec_g || item.item_spec_g || 0)
     return { kind: 'weight', batchBaseQty, targetBaseQty: targetG }
+  }
+  if (isCountCapacityUnit(unit) && Number(item.sales_spec_count || 0) > 0) {
+    return { kind: 'count', batchBaseQty: batchSizeQty, targetBaseQty: Number(item.sales_spec_count) }
   }
   if (isCountCapacityUnit(unit) && Number(item.spec_g || 0) > 0) {
     return { kind: 'count', batchBaseQty: batchSizeQty, targetBaseQty: qtyFromGForCapacityUnit(targetG, unit, item.spec_g || 0) }
@@ -474,6 +566,17 @@ function splitRowsSameOperation(row, split) {
 export function maxAssignableQtyForCapacitySplit(split = {}, rows = [], target = {}) {
   const specG = Number(target.spec_g || split.spec_g || split.item_spec_g || 0)
   const plannedG = productionPlanItemTargetG(target)
+  const salesSpecCount = Number(target.sales_spec_count || split.sales_spec_count || split.item_sales_spec_count || 0)
+  if (isCountCapacityUnit(split.batch_size_unit) && salesSpecCount > 0) {
+    const usedQty = (rows || [])
+      .filter((row) => row !== split && splitRowsSameOperation(row, split))
+      .reduce((sum, row) => sum + Number(plannedCapacitySplitMetrics(row).planned_qty || 0), 0)
+    const remainingQty = Math.max(0, salesSpecCount - usedQty)
+    const batchQty = Number(split.batch_size_qty || 0)
+    if (remainingQty <= 0) return 0
+    if (batchQty > 0 && remainingQty >= batchQty) return roundedSplitQty(Math.floor(remainingQty / batchQty) * batchQty)
+    return roundedSplitQty(remainingQty)
+  }
   const usedG = (rows || [])
     .filter((row) => row !== split && splitRowsSameOperation(row, split))
     .reduce((sum, row) => sum + (plannedCapacitySplitMetrics({ ...row, spec_g: row.spec_g || specG }).planned_qty_g || 0), 0)
@@ -487,8 +590,9 @@ export function maxAssignableQtyForCapacitySplit(split = {}, rows = [], target =
 }
 
 export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capacities = []) {
-  const targetG = productionPlanItemTargetG(item)
-  if (targetG <= 0) return []
+  const inputTargetG = productionPlanItemTargetG(item)
+  const outputTargetG = productionPlanItemOutputTargetG(item)
+  if (inputTargetG <= 0 && Number(item.sales_spec_count || 0) <= 0) return []
   const candidates = applicableOperationCapacities(operation, capacities)
     .map((capacity) => {
       const base = capacityBaseQty(capacity, item)
@@ -537,7 +641,11 @@ export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capa
       batch_size_unit: String(capacity.batch_size_unit || ''),
       standard_minutes: Math.max(0, Math.round(Number(capacity.standard_minutes || 0))),
       hourly_rate: Math.max(0, Number(capacity.hourly_rate || 0)),
+      cost_method: normalizeCapacityCostMethod(capacity),
+      piece_rate: Math.max(0, Number(capacity.piece_rate || 0)),
       spec_g: Number(item.spec_g || 0),
+      sales_spec_count: Number(item.sales_spec_count || 0),
+      item_target_g: outputTargetG,
       planned_qty: qtyFromBaseForCapacity(amount, capacity.batch_size_unit, item.spec_g || 0),
       note: '',
     }
@@ -583,4 +691,16 @@ export function productionPlanSubmitEndpoint(plan) {
   const id = Number(plan?.id || 0)
   if (id <= 0) return ''
   return `/api/production-plans/${id}/submit`
+}
+
+export function productionPlanCancelEndpoint(plan) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0) return ''
+  return `/api/production-plans/${id}/cancel`
+}
+
+export function productionPlanCancelTargetsCurrentPlan(cancelledPlan, currentPlan) {
+  const cancelledID = Number(cancelledPlan?.id || 0)
+  const currentID = Number(currentPlan?.id || 0)
+  return cancelledID > 0 && cancelledID === currentID
 }

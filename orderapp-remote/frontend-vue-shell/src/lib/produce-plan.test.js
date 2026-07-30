@@ -34,6 +34,11 @@ import {
   productionDemandStatusTone,
   operationSplitPreviewStatusLabel,
   operationSplitPreviewStatusTone,
+  productionPlanItemQuantitySummary,
+  productionPlanItemOutputTargetG,
+  productionPlanBomSummary,
+  productionPlanLegacyGramLabel,
+  productionPlanItemBomSourceLabel,
 } from './produce-plan.js'
 
 const rows = [
@@ -41,6 +46,46 @@ const rows = [
   { product_id: 2, spec_g: 227 },
   { product_id: 3, spec_g: 100 },
 ]
+
+test('production plan item summary uses frozen sales-spec conversion and parent BOM source', () => {
+  const item = {
+    sales_spec_count: 4,
+    inventory_qty_per_sales_unit: 0.454,
+    inventory_unit: 'kg',
+    planned_inventory_qty: 1.816,
+    bom_inherited: true,
+    bom_source_product_id: 644,
+    bom_version_id: 1337,
+  }
+
+  assert.equal(productionPlanItemQuantitySummary(item), '4件、0.454Kg/件、合计1.816Kg')
+  assert.equal(productionPlanItemBomSourceLabel(item), 'BOM版本 #1337 · 继承父商品BOM')
+  assert.equal(
+    productionPlanItemQuantitySummary({ spec_g: 454 }),
+    '454g',
+    '历史计划行保持旧规格投影',
+  )
+  assert.equal(productionPlanLegacyGramLabel(1816), '1816g')
+  assert.equal(productionPlanLegacyGramLabel(0), '0g')
+})
+
+test('production plan BOM summary hides legacy yield and only shows configured BOM loss', () => {
+  assert.equal(productionPlanBomSummary({}), '默认 BOM')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0 }), '默认 BOM')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0.12 }), '默认 BOM / 预期损耗 12.00%')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0.18 }), '默认 BOM / 预期损耗 18.00%')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0.2 }), '默认 BOM / 预期损耗 20.00%')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 1 }), '默认 BOM')
+  assert.equal(productionPlanBomSummary({ bom_material_loss_rate: 0, bom_summary_error: 'product BOM not configured' }), 'BOM 配置待完善')
+})
+
+test('production plan detail labels legacy gram projections instead of showing ambiguous bare numbers', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /productionPlanLegacyGramLabel\(item\.gap_g\)/)
+  assert.match(source, /productionPlanLegacyGramLabel\(item\.planned_g\)/)
+  assert.match(source, /productionPlanLegacyGramLabel\(item\.planned_output_g\)/)
+  assert.doesNotMatch(source, /<td>\{\{\s*item\.(?:gap_g|planned_g|planned_output_g)\s*\|\|\s*0\s*\}\}<\/td>/)
+})
 
 test('insufficient selection state shows unchecked, checked, and indeterminate header states', () => {
   assert.deepEqual(insufficientSelectionState(rows, {}), {
@@ -79,6 +124,14 @@ test('production demand status helpers only allow unplanned shortage rows to be 
     { product_id: 1, spec_g: 454, gap_g: 454, demand_status: 'unplanned' },
     { product_id: 2, spec_g: 227, gap_g: 227, demand_status: 'in_production' },
     { product_id: 3, spec_g: 100, gap_g: 0, demand_status: 'completed' },
+    {
+      product_id: 4,
+      spec_g: 0,
+      gap_g: 100,
+      demand_status: 'unplanned',
+      demand_selectable: false,
+      blocking_reason: '销售单位“件”无法换算到库存单位“盒”',
+    },
   ]
 
   assert.equal(productionDemandStatusLabel('unplanned'), '待计划')
@@ -93,8 +146,9 @@ test('production demand status helpers only allow unplanned shortage rows to be 
   assert.equal(productionDemandSelectable(demandRows[0]), true)
   assert.equal(productionDemandSelectable(demandRows[1]), false)
   assert.equal(productionDemandSelectable(demandRows[2]), false)
+  assert.equal(productionDemandSelectable(demandRows[3]), false)
   assert.deepEqual(buildProductionDemandSelection(demandRows, true), { '1-454': true })
-  assert.deepEqual(productionDemandSelectionState(demandRows, { '1-454': true, '2-227': true }), {
+  assert.deepEqual(productionDemandSelectionState(demandRows, { '1-454': true, '2-227': true, '4-0': true }), {
     checked: true,
     indeterminate: false,
     selectedCount: 1,
@@ -137,6 +191,22 @@ test('buildProductionPlanCreatePayload creates a generic draft plan and lets bac
 test('productionPlanSubmitEndpoint points submit action at the formal production plan API', () => {
   assert.equal(productionPlanSubmitEndpoint({ id: 41 }), '/api/production-plans/41/submit')
   assert.equal(productionPlanSubmitEndpoint({}), '')
+})
+
+test('production plan cancel endpoint only targets a concrete plan', () => {
+  assert.equal(
+    producePlan.productionPlanCancelEndpoint({ id: 41 }),
+    '/api/production-plans/41/cancel',
+  )
+  assert.equal(producePlan.productionPlanCancelEndpoint({ id: 0 }), '')
+  assert.equal(producePlan.productionPlanCancelEndpoint(null), '')
+})
+
+test('production plan cancel only resets a workbench showing the same draft', () => {
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 41 }, { id: 41 }), true)
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 41 }, { id: 42 }), false)
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 41 }, null), false)
+  assert.equal(producePlan.productionPlanCancelTargetsCurrentPlan({ id: 0 }, { id: 0 }), false)
 })
 
 test('production plan list query includes status and date filters with a 50 row default', () => {
@@ -246,7 +316,7 @@ test('submitted production plan exposes next-step actions to work orders, job ca
     ['workOrders', '打开工单', 'workOrders', { work_order_id: 88 }],
     ['jobCards', '打开工序卡', 'jobCards', { job_card_id: 91, work_order_id: 88 }],
     ['assignWorkstation', '分配工位', 'productionOverview', { work_order_id: 88, job_card_id: 91 }],
-    ['issueWip', '领料到 WIP', 'stockOperations', { tab: 'wip', work_order_id: 88, job_card_id: 91 }],
+    ['issueWip', '生产领料', 'stockOperations', { tab: 'stockEntries', action: 'issue', return_source: 'work_order', work_order_id: 88, job_card_id: 91 }],
   ])
 })
 
@@ -291,6 +361,25 @@ test('production plan operation capacity split helpers derive batch count from a
       { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 8, planned_qty: 90 },
       { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 9, planned_qty: 8 },
     ],
+  })
+})
+
+test('piece-costed operation uses completed pieces instead of batches or workstation hours', () => {
+  assert.deepEqual(plannedCapacitySplitMetrics({
+    cost_method: 'piece',
+    piece_rate: 0.5,
+    planned_qty: 100,
+    batch_size_qty: 20,
+    batch_size_unit: '件',
+    standard_minutes: 10,
+    hourly_rate: 300,
+    spec_g: 227,
+  }), {
+    planned_batch_count: 5,
+    planned_qty: 100,
+    planned_qty_g: 22700,
+    planned_minutes: 50,
+    planned_operation_cost: 50,
   })
 })
 
@@ -411,6 +500,110 @@ test('operation capacity auto split supports count-based packaging capacity thro
   assert.equal(qtyFromGForCapacityUnit(10442, '袋', 454), 23)
 })
 
+test('operation capacity auto split freezes piece costing fields', () => {
+  const rows = buildOperationCapacityAutoSplits(
+    { id: 52, planned_g: 22700, spec_g: 227 },
+    { seq: 2, operation_id: 8, operation: '包装' },
+    [{
+      id: 100,
+      workstation_id: 3,
+      name: '包装100件',
+      status: 'active',
+      cost_method: 'piece',
+      piece_rate: 0.5,
+      batch_size_qty: 100,
+      batch_size_unit: '件',
+      standard_minutes: 20,
+      hourly_rate: 90,
+      applicable_operation_ids: [8],
+    }],
+  )
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].cost_method, 'piece')
+  assert.equal(rows[0].piece_rate, 0.5)
+  assert.equal(plannedCapacitySplitMetrics(rows[0]).planned_operation_cost, 50)
+})
+
+test('piece capacity uses frozen sales-spec count when legacy spec grams are unavailable', () => {
+  const rows = buildOperationCapacityAutoSplits(
+    { id: 53, planned_g: 200, spec_g: 0, sales_spec_count: 100 },
+    { seq: 3, operation_id: 9, operation: '包装' },
+    [{
+      id: 101,
+      workstation_id: 3,
+      name: '包装20件',
+      status: 'active',
+      cost_method: 'piece',
+      piece_rate: 0.5,
+      batch_size_qty: 20,
+      batch_size_unit: '件',
+      standard_minutes: 5,
+      applicable_operation_ids: [9],
+    }],
+  )
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].planned_qty, 100)
+  assert.equal(rows[0].sales_spec_count, 100)
+  assert.equal(plannedCapacitySplitMetrics(rows[0]).planned_qty_g, 200)
+  assert.equal(plannedCapacitySplitMetrics(rows[0]).planned_operation_cost, 50)
+})
+
+test('count capacity projects finished output while weight capacity keeps loss-adjusted input', () => {
+  const item = {
+    id: 54,
+    planned_g: 25795,
+    planned_output_g: 22700,
+    sales_spec_count: 100,
+    inventory_qty_per_sales_unit: 0.227,
+    inventory_unit: 'kg',
+    planned_inventory_qty: 22.7,
+    spec_g: 0,
+  }
+  assert.equal(productionPlanItemOutputTargetG(item), 22700)
+
+  const packageRows = buildOperationCapacityAutoSplits(item, {
+    seq: 3,
+    operation_id: 9,
+    operation: '包装',
+  }, [{
+    id: 101,
+    workstation_id: 3,
+    name: '包装20件',
+    status: 'active',
+    cost_method: 'piece',
+    piece_rate: 0.5,
+    batch_size_qty: 20,
+    batch_size_unit: '件',
+    standard_minutes: 5,
+    applicable_operation_ids: [9],
+  }])
+  assert.equal(packageRows.length, 1)
+  assert.equal(packageRows[0].planned_qty, 100)
+  assert.equal(packageRows[0].item_target_g, 22700)
+  assert.equal(plannedCapacitySplitMetrics(packageRows[0]).planned_qty_g, 22700)
+  assert.equal(plannedCapacitySplitMetrics(packageRows[0]).planned_operation_cost, 50)
+
+  const roastRows = buildOperationCapacityAutoSplits(item, {
+    seq: 1,
+    operation_id: 7,
+    operation: '烘焙',
+  }, [{
+    id: 102,
+    workstation_id: 1,
+    name: '烘焙10kg',
+    status: 'active',
+    batch_size_qty: 10,
+    batch_size_unit: 'kg',
+    standard_minutes: 30,
+    hourly_rate: 24,
+    applicable_operation_ids: [7],
+  }])
+  assert.deepEqual(roastRows.map((row) => row.planned_qty), [25.795])
+  assert.equal(roastRows.reduce((sum, row) => sum + plannedCapacitySplitMetrics(row).planned_qty_g, 0), 25795)
+})
+
 test('production material quantities keep non-weight purchase suggestions in material units', () => {
   assert.equal(productionMaterialQuantity({ unit: 'g', purchase_suggestion_g: 1500, qty: 21 }, 'purchase_suggestion_g'), 1500)
   assert.equal(productionMaterialQuantity({ unit: '个', purchase_suggestion_g: 0, available_g: 0, raw_g: 0, qty: 21 }, 'purchase_suggestion_g'), 21)
@@ -488,7 +681,7 @@ test('production plan split drawer renders live demand gap preview', () => {
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /创建生产计划/)
+  assert.match(source, /生成草稿/)
   assert.match(source, /提交生成工单/)
   assert.match(source, /apiSend\('\/api\/production-plans'/)
   assert.match(source, /productionPlanBatchSubmitEndpoint\(\)/)
@@ -500,23 +693,45 @@ test('ProducePlanView creates draft plans and batch submits checked draft plans'
   assert.doesNotMatch(source, /apiSend\('\/api\/produce\/start'/)
 })
 
-test('ProducePlanView uses an ERPNext-style current plan workspace instead of top create and bottom details', () => {
+test('ProducePlanView uses the top workflow action and removes the duplicate current-plan create button', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   const workbenchIndex = source.indexOf('planning-workbench')
   const currentPlanIndex = source.indexOf('当前生产计划')
-  const createIndex = source.indexOf('创建生产计划')
   const historyIndex = source.indexOf('生产计划单据')
-  const topPanel = source.slice(source.indexOf('<h2>生产计划</h2>'), workbenchIndex)
 
   assert.ok(workbenchIndex > 0, 'production page should have a planning workbench')
   assert.match(source, /待生产需求/)
   assert.ok(currentPlanIndex > 0, 'current plan workspace should be visible')
-  assert.ok(createIndex > currentPlanIndex, 'create action should live in the current plan workspace')
   assert.ok(historyIndex > currentPlanIndex, 'history list should be below the current plan workspace')
-  assert.doesNotMatch(topPanel, /创建生产计划/)
+  assert.match(source, /@click="runPlanNextStep"/)
+  assert.doesNotMatch(source, /<button[^>]*@click="createProductionPlan"[^>]*>创建生产计划<\/button>/)
+  assert.match(source, /@click="submitCurrentProductionPlan"[^>]*>提交当前计划生成工单<\/button>/)
+  assert.match(source, /@click="cancelProductionPlanDraft\(currentPlan, 'current'\)"[^>]*>撤销草稿<\/button>/)
   assert.doesNotMatch(source, /选择库存不足商品后点击“创建生产计划”/)
   assert.match(source, /勾选库存不足商品后生成计划预览/)
+})
+
+test('ProducePlanView opens the existing split-capacity drawer immediately after draft creation', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  const createStart = source.indexOf('async function createProductionPlan()')
+  const createEnd = source.indexOf('async function submitCurrentProductionPlan()', createStart)
+  const createSource = source.slice(createStart, createEnd)
+
+  assert.ok(createStart > 0 && createEnd > createStart, 'createProductionPlan function should exist')
+  assert.match(createSource, /currentPlan\.value = await apiSend\('\/api\/production-plans'/)
+  assert.match(createSource, /await openCurrentPlanSplitDrawer\(\)/)
+  assert.doesNotMatch(createSource, /loadProductionPlanOperationSplits/, 'unsaved auto splits must not advance the step before the drawer opens')
+})
+
+test('ProducePlanView renders BOM expected loss without the removed expected-yield label', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\{\{\s*productionPlanBomSummary\(row\)\s*\}\}/)
+  assert.match(source, /:title="row\.bom_summary_error \|\| ''"/)
+  assert.doesNotMatch(source, /<th>计划投料\(g\)<\/th>/)
+  assert.doesNotMatch(source, /<td>\{\{\s*row\.input_g\s*\}\}<\/td>/)
+  assert.doesNotMatch(source, /预期产出率/)
 })
 
 test('ProducePlanView automatically loads selected demand into the current plan preview', () => {
@@ -539,6 +754,34 @@ test('ProducePlanView submits the current draft plan through the batch submit AP
   assert.match(source, /buildCurrentProductionPlanSubmitPayload\(currentPlan\.value\)/)
   assert.match(source, /apiSend\(productionPlanBatchSubmitEndpoint\(\), \{ body: payload \}\)/)
   assert.doesNotMatch(source, /@click="submitPlanRow\(plan\)"/)
+})
+
+test('ProducePlanView cancels draft plans and refreshes returned production demand', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    '撤销草稿',
+    'cancelProductionPlanDraft',
+    'productionPlanCancelEndpoint(plan)',
+    'productionPlanCancelTargetsCurrentPlan',
+    'window.confirm',
+    'replaceSelected({})',
+    'defaultProductionDemandStatusFilter()',
+    'refreshProductionDemandAfterDraftCancel',
+    'loadProductionPlans()',
+  ]) {
+    assert.ok(source.includes(marker), `missing ${marker}`)
+  }
+  assert.match(source, /v-if="currentPlanDraft"[\s\S]*@click="cancelProductionPlanDraft\(currentPlan, 'current'\)"/)
+  assert.match(source, /v-if="productionPlanSelectable\(plan\)"[\s\S]*@click="cancelProductionPlanDraft\(plan, 'list'\)"/)
+  assert.match(source, /v-if="productionPlanSelectable\(productionPlanDetail\)"[\s\S]*@click="cancelProductionPlanDraft\(productionPlanDetail, 'detail'\)"/)
+  assert.match(source, /previewError\.value = err\.message \|\| '撤销生产计划草稿失败'/)
+  assert.match(source, /productionPlanDetailError\.value = err\.message \|\| '撤销生产计划草稿失败'/)
+  assert.match(source, /if \(cancelledCurrentPlan\) \{[\s\S]*replaceSelected\(\{\}\)[\s\S]*planRows\.value = \[\]/)
+  assert.match(source, /refreshProductionDemandAfterDraftCancel\(!cancelledCurrentPlan\)/)
+  assert.match(source, /let demandRequestSeq = 0/)
+  assert.match(source, /if \(requestID !== demandRequestSeq\) return/)
+  assert.match(source, /:disabled="saving \|\| loading">撤销草稿/)
 })
 
 test('ProducePlanView owns operation capacity splits after draft plan creation', () => {
@@ -650,6 +893,8 @@ test('ProducePlanView maintains production demand statuses and filters planned r
     'isProductionDemandSelected',
     'status-demand-in-production',
     '已进入生产计划的需求不可重复生成计划',
+    'blocking_reason',
+    '资料待完善',
   ]) {
     assert.match(source, new RegExp(marker))
   }

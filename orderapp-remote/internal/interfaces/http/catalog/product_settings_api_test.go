@@ -42,6 +42,7 @@ type productSettingsRepo struct {
 	productPriceRecords                 []catalogapp.ProductPriceRecord
 	productPriceRecordByID              map[int64]catalogapp.ProductPriceRecord
 	productTierPriceSchemes             []catalogapp.ProductTierPriceScheme
+	productPricingRules                 []catalogapp.ProductPricingRule
 	deletedPriceTierTemplateID          int64
 	productProductionConfigs            []catalogapp.ProductProductionConfig
 	savedCategory                       catalogapp.SaveProductCategoryCommand
@@ -71,6 +72,8 @@ type productSettingsRepo struct {
 	deactivated                         catalogapp.DeactivateProductsCommand
 	createdPublic                       catalogapp.CreateProductCommand
 	createdSKU                          catalogapp.CreateSKUCommand
+	defaultSKU                          catalogapp.SetProductDefaultSKUCommand
+	defaultSKUErr                       error
 	copiedProduct                       catalogapp.CopyProductCommand
 	publicUsage                         catalogapp.CustomerPublicUsageCommand
 	publicUsages                        []catalogapp.CustomerPublicUsage
@@ -281,6 +284,21 @@ func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.Crea
 		UnitRuleOverrideJSON:     cmd.UnitRuleOverrideJSON,
 		Visibility:               visibility,
 	}, nil
+}
+
+func (r *productSettingsRepo) SetProductDefaultSKU(ctx context.Context, cmd catalogapp.SetProductDefaultSKUCommand) (catalogapp.Product, error) {
+	r.defaultSKU = cmd
+	if r.defaultSKUErr != nil {
+		return catalogapp.Product{}, r.defaultSKUErr
+	}
+	for i := range r.products {
+		if r.products[i].ID == cmd.ParentProductID {
+			r.products[i].DefaultSKUID = cmd.SKUID
+			r.products[i].EffectiveDefaultSKUID = cmd.SKUID
+			return r.products[i], nil
+		}
+	}
+	return catalogapp.Product{ID: cmd.ParentProductID, DefaultSKUID: cmd.SKUID, EffectiveDefaultSKUID: cmd.SKUID}, nil
 }
 
 func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
@@ -550,7 +568,7 @@ func (r *productSettingsRepo) SaveProductCustomerReference(ctx context.Context, 
 }
 
 func (r *productSettingsRepo) ListProductPricingRules(ctx context.Context) ([]catalogapp.ProductPricingRule, error) {
-	return []catalogapp.ProductPricingRule{}, nil
+	return r.productPricingRules, nil
 }
 
 func (r *productSettingsRepo) SaveProductPricingRule(ctx context.Context, cmd catalogapp.ProductPricingRule) (catalogapp.ProductPricingRule, error) {
@@ -2442,6 +2460,43 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 	}
 }
 
+func TestProductSettingsAPIClearsIndustryFieldsWithoutTemplate(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/product-production-configs/91", bytes.NewBufferString(`{
+		"industry_field_template_id":0,
+		"expected_loss_rate":0.2,
+		"fields":[
+			{"field_key":"roast_level","label":"roast_level","value_text":"深烘"},
+			{"field_key":"   ","label":"stale_field","value_text":"legacy"}
+		]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product production config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productionConfigSaved {
+		t.Fatal("product production config repository was not called")
+	}
+	if repo.savedProductionConfig.ProductID != 91 {
+		t.Fatalf("saved product_id=%d, want 91", repo.savedProductionConfig.ProductID)
+	}
+	if repo.savedProductionConfig.Fields == nil {
+		t.Fatal("saved fields=nil, want non-nil empty fields without industry template")
+	}
+	if len(repo.savedProductionConfig.Fields) != 0 {
+		t.Fatalf("saved fields=%+v, want none without industry template", repo.savedProductionConfig.Fields)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"fields":[]`)) {
+		t.Fatalf("response should expose empty fields: %s", rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	repo := &productSettingsRepo{products: []catalogapp.Product{{ID: 7, Name: "橘皮乌龙", ProductKind: "roasted"}}}
 	e := echo.New()
@@ -2587,6 +2642,82 @@ func TestProductOptionFromCatalogIncludesDerivedSKUMetadata(t *testing.T) {
 	})
 	if !got.AutoDerivedSKU || got.DerivedUnitTemplateID != 12 || got.DerivedSpecKey != "bag-227g" || got.DerivedSalesUnit != "袋" || got.DerivedSpecStatus != "active" {
 		t.Fatalf("derived SKU metadata lost in API mapping: %+v", got)
+	}
+}
+
+func TestProductOptionFromCatalogIncludesPerProductDefaultSKUProjection(t *testing.T) {
+	parent := productOptionFromCatalog(catalogapp.Product{
+		ID: 88, DefaultSKUID: 91, EffectiveDefaultSKUID: 91, DefaultSpecLabel: "1磅", IsDefaultSKU: false,
+	})
+	if parent.DefaultSKUID != 91 || parent.EffectiveDefaultSKUID != 91 || parent.DefaultSpecLabel != "1磅" || parent.IsDefaultSKU {
+		t.Fatalf("parent projection = %+v", parent)
+	}
+	child := productOptionFromCatalog(catalogapp.Product{
+		ID: 91, ParentProductID: 88, DefaultSKUID: 0, EffectiveDefaultSKUID: 91, DefaultSpecLabel: "1磅", IsDefaultSKU: true,
+	})
+	if child.DefaultSKUID != 0 || child.EffectiveDefaultSKUID != 91 || child.DefaultSpecLabel != "1磅" || !child.IsDefaultSKU {
+		t.Fatalf("child projection = %+v", child)
+	}
+}
+
+func TestProductSettingsAPIUpdatesPerProductDefaultSKU(t *testing.T) {
+	repo := &productSettingsRepo{products: []catalogapp.Product{{ID: 88, Name: "初晓", DefaultSpecLabel: "1磅"}}}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("operator_employee", "刘祎泊")
+			return next(c)
+		}
+	})
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/product-settings/products/88/default-sku", strings.NewReader(`{"sku_id":91}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.defaultSKU.Actor != "刘祎泊" || repo.defaultSKU.ParentProductID != 88 || repo.defaultSKU.SKUID != 91 {
+		t.Fatalf("command=%+v", repo.defaultSKU)
+	}
+	for _, want := range []string{`"default_sku_id":91`, `"effective_default_sku_id":91`, `"default_spec_label":"1磅"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPIRejectsInvalidPerProductDefaultSKU(t *testing.T) {
+	tests := []struct {
+		path string
+		body string
+	}{
+		{path: "/api/product-settings/products/0/default-sku", body: `{"sku_id":91}`},
+		{path: "/api/product-settings/products/88/default-sku", body: `{"sku_id":0}`},
+		{path: "/api/product-settings/products/88/default-sku", body: `{`},
+	}
+	for _, tt := range tests {
+		e := echo.New()
+		registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+		req := httptest.NewRequest(http.MethodPut, tt.path, strings.NewReader(tt.body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s body=%s status=%d, want 400", tt.path, tt.body, rec.Code)
+		}
+	}
+
+	repo := &productSettingsRepo{defaultSKUErr: catalogapp.ValidationError{Message: "sku does not belong to parent product"}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+	req := httptest.NewRequest(http.MethodPut, "/api/product-settings/products/88/default-sku", strings.NewReader(`{"sku_id":99}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "sku does not belong") {
+		t.Fatalf("validation status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -3318,7 +3449,7 @@ func TestProductPricingRuleAPIReplacesFinalPriceRecordMasterData(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST pricing rule status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"name":"成本加成模板"`, `"code":"RULE-001"`, `"cost_source_mode":"bom_current_cost"`, `"rounding_mode":"none"`} {
+	for _, want := range []string{`"name":"成本加成模板"`, `"code":"RULE-001"`, `"cost_source_mode":"bom_current_cost"`, `"rounding_mode":"none"`, `"profit_method":"markup"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("pricing rule response missing %s: %s", want, rec.Body.String())
 		}
@@ -3361,7 +3492,7 @@ func TestProductPricingRuleAPISavesCalculationTemplateWithoutQuantityTiers(t *te
 		`"cost_source_mode":"bom_current_cost"`,
 		`"formula_version":"v2"`,
 		`"yield_loss_mode":"bom_or_product"`,
-		`"profit_method":"gross_margin"`,
+		`"profit_method":"markup"`,
 		`"tax_mode":"tax_included"`,
 		`"minimum_margin_rate":0.18`,
 		`"other_costs":{"包装贴标":1.25,"认证费":2.5}`,
@@ -3375,6 +3506,70 @@ func TestProductPricingRuleAPISavesCalculationTemplateWithoutQuantityTiers(t *te
 		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
 			t.Fatalf("pricing rule response must not carry removed field %s: %s", forbidden, rec.Body.String())
 		}
+	}
+}
+
+func TestProductPricingRuleAPINormalizesLegacyWholePercentToMarkup(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-pricing-rules", bytes.NewBufferString(`{
+		"name":"旧80%毛利模板",
+		"margin_rate":80,
+		"calculation_json":{"profit_method":"gross_margin","tax_mode":"none"}
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST legacy pricing rule status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"margin_rate":0.8`, `"profit_method":"markup"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("legacy pricing rule response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-pricing-rules", bytes.NewBufferString(`{
+		"name":"旧固定加价模板",
+		"margin_rate":3,
+		"calculation_json":{"profit_method":"fixed_add"}
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("only markup rate is supported")) {
+		t.Fatalf("POST fixed-add pricing rule status=%d body=%s, want markup-only validation", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProductPricingRuleAPIRejectsCleanUpdateOverQuarantinedExistingTemplate(t *testing.T) {
+	repo := &productSettingsRepo{productPricingRules: []catalogapp.ProductPricingRule{{
+		ID:         77,
+		Name:       "已隔离旧固定加价模板",
+		MarginRate: 0,
+		Active:     false,
+		CalculationJSON: map[string]any{
+			"profit_method":        "markup",
+			"legacy_profit_method": "fixed_add",
+			"legacy_margin_rate":   3,
+			"migration_warning":    "only markup rate is supported",
+		},
+	}}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/product-pricing-rules/77", bytes.NewBufferString(`{
+		"name":"试图覆盖隔离模板",
+		"margin_rate":0.8,
+		"active":true,
+		"calculation_json":{"profit_method":"markup"}
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("quarantined legacy pricing rule")) {
+		t.Fatalf("PUT clean update over quarantined pricing rule status=%d body=%s, want replacement validation", rec.Code, rec.Body.String())
 	}
 }
 

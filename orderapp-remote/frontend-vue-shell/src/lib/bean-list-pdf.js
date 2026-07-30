@@ -244,14 +244,28 @@ export function buildBeanListPdfGroupsFromCategoryRows(categoryRows = [], listTy
 }
 
 export function applyPriceListFlatRowsToBeanListPdfGroups(groups = [], rows = [], listType = 'commercial') {
-  const normalizedRows = (Array.isArray(rows) ? rows : [])
-    .map(normalizePriceListFlatRow)
-    .filter((row) => row.final_unit_price > 0)
-  if (!normalizedRows.length) return JSON.parse(JSON.stringify(Array.isArray(groups) ? groups : []))
+  const allRows = (Array.isArray(rows) ? rows : []).map(normalizePriceListFlatRow)
+  const blockedRows = allRows.filter((row) => (
+    row.quantity_basis !== 'sales_spec_count'
+    && row.tier_unit_compatible === false
+  ))
+  const normalizedRows = allRows.filter((row) => (
+    row.final_unit_price > 0
+    && (row.quantity_basis === 'sales_spec_count' || row.tier_unit_compatible !== false)
+  ))
+  if (!normalizedRows.length && !blockedRows.length) return JSON.parse(JSON.stringify(Array.isArray(groups) ? groups : []))
   const tierKey = priceListTierKeyForType(listType)
   return (Array.isArray(groups) ? groups : []).map((group) => ({
     ...group,
     items: (Array.isArray(group?.items) ? group.items : []).map((item) => {
+      if (flatRowsForPdfItem(item, blockedRows).length) {
+        return {
+          ...item,
+          prices: [],
+          tiers_snapshot: [],
+          [tierKey]: [],
+        }
+      }
       const itemRows = flatRowsForPdfItem(item, normalizedRows)
       if (!itemRows.length) return { ...item }
       const prices = itemRows.map((row) => ({
@@ -285,10 +299,14 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
   const badge = normalizeBadge(customizer.badge)
   const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
-  const productAttributes = normalizeProductAttributes(item.product_attributes || item.productAttributes)
+  const productAttributes = normalizeProductAttributes(
+    item.product_attributes || item.productAttributes,
+    item.__price_list_sales_spec_label,
+  )
   const tierSnapshots = attachProductPriceSnapshotsToTiers(item, pdfTierSnapshots(item, tierKey, listType, customizer), listType)
   const prices = pdfPriceRows(item, tierKey, listType, customizer, tierSnapshots)
-  const displayName = stringField(item.customer_product_display_name ?? item.customerProductDisplayName ?? meta.display_name ?? item.name)
+  const displayName = stringField(item.__price_list_display_name ?? item.customer_product_display_name ?? item.customerProductDisplayName ?? meta.display_name ?? item.name)
+  const productName = stringField(item.__price_list_product_name ?? item.product_name ?? item.productName ?? item.name)
   const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
   const includeMarketingFields = options.includeMarketingFields !== false
   return {
@@ -300,6 +318,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
     sku_name: stringField(item.sku_name ?? item.skuName),
     sku_code: stringField(item.sku_code ?? item.skuCode),
     barcode: stringField(item.barcode),
+    spec_key: stringField(item.spec_key ?? item.specKey),
     spec_label: stringField(item.spec_label ?? item.specLabel),
     net_content_qty: firstNumber(item.net_content_qty, item.netContentQty),
     net_content_unit: stringField(item.net_content_unit ?? item.netContentUnit),
@@ -309,6 +328,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
     order_unit: stringField(item.order_unit ?? item.orderUnit),
     unit_conversion_json: parseJSONObject(item.unit_conversion_json ?? item.unitConversionJSON),
     sales_units: Array.isArray(item.sales_units) ? item.sales_units.slice() : (Array.isArray(item.salesUnits) ? item.salesUnits.slice() : []),
+    effective_sales_spec: parseJSONObject(item.effective_sales_spec ?? item.effectiveSalesSpec),
     customer_product_alias_id: firstNumber(item.customer_product_alias_id, item.customerProductAliasID),
     customer_id: firstNumber(item.customer_id, item.customerID),
     code: code || meta.code || '',
@@ -319,7 +339,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
     brand_name_snapshot: stringField(item.brand_name ?? item.brandName),
     display_category_snapshot: stringField(item.display_category_name ?? item.displayCategoryName ?? meta.category),
     product_code_snapshot: stringField(item.product_code ?? item.productCode),
-    product_name_snapshot: stringField(item.product_name ?? item.productName ?? item.name),
+    product_name_snapshot: productName,
     bom_version_id_snapshot: firstNumber(item.bom_version_id, item.bomVersionID),
     bom_version_no_snapshot: stringField(item.bom_version_no ?? item.bomVersionNo),
     bom_usage_mode_snapshot: stringField(item.bom_usage_mode ?? item.bomUsageMode),
@@ -340,11 +360,11 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers, optio
   }
 }
 
-function normalizeProductAttributes(value = []) {
-  if (!Array.isArray(value)) return []
+function normalizeProductAttributes(value = [], selectedSalesSpec = '') {
+  const source = Array.isArray(value) ? value : []
   const seen = new Set()
   const rows = []
-  value.forEach((row) => {
+  source.forEach((row) => {
     const key = String(row?.key || '').trim()
     const label = productAttributeDisplayLabel(key, row?.label)
     const attr = {
@@ -358,6 +378,12 @@ function normalizeProductAttributes(value = []) {
     seen.add(dedupeKey)
     rows.push(attr)
   })
+  const salesSpec = String(selectedSalesSpec || '').trim()
+  if (salesSpec) {
+    const withoutOldSalesSpec = rows.filter((attr) => !isSalesSpecProductAttribute(attr))
+    withoutOldSalesSpec.push({ key: 'sales_spec', label: '规格', value: salesSpec })
+    return withoutOldSalesSpec
+  }
   return rows
 }
 
@@ -374,6 +400,12 @@ function productAttributeDedupeKey(attr = {}) {
   const normalizedLabel = normalizeProductAttributeToken(attr.label)
   if (normalizedKey === 'roast_level' || normalizedLabel === 'roast_level') return 'roast_level'
   return normalizedKey || normalizedLabel
+}
+
+function isSalesSpecProductAttribute(attr = {}) {
+  const aliases = new Set(['sales_spec', 'salesspec', 'sales_specification', 'spec', '规格', '销售规格'])
+  return aliases.has(String(attr.key || '').trim().toLowerCase())
+    || aliases.has(String(attr.label || '').trim().toLowerCase())
 }
 
 function normalizeProductAttributeToken(value) {
@@ -493,6 +525,7 @@ export function buildPriceListGenerationSnapshot(input = {}) {
   return {
     config: {
       price_list_template_selection: {
+        product_pricing_scope: 'parent_product_shared',
         defaults,
         group_selections: groupSelections,
         product_overrides: productOverrides,
@@ -528,7 +561,10 @@ function normalizeGroupTemplateSelection(row = {}) {
 
 function normalizeProductTemplateOverride(row = {}) {
   return {
+    scope: stringField(row.scope ?? row.override_scope ?? row.overrideScope),
     product_id: firstNumber(row.product_id, row.productID, row.productId),
+    sku_id: firstNumber(row.sku_id, row.skuID, row.skuId),
+    parent_product_id: firstNumber(row.parent_product_id, row.parentProductID, row.parentProductId),
     product_key: stringField(row.product_key ?? row.productKey),
     product_name: stringField(row.product_name ?? row.productName),
     ...normalizeTemplateSelection(row),
@@ -548,6 +584,7 @@ function normalizePriceListFlatRow(row = {}) {
     sku_name: stringField(row.sku_name ?? row.skuName),
     sku_code: stringField(row.sku_code ?? row.skuCode),
     barcode: stringField(row.barcode),
+    spec_key: stringField(row.spec_key ?? row.specKey),
     spec_label: stringField(row.spec_label ?? row.specLabel),
     net_content_qty: firstNumber(row.net_content_qty, row.netContentQty),
     net_content_unit: stringField(row.net_content_unit ?? row.netContentUnit),
@@ -559,7 +596,7 @@ function normalizePriceListFlatRow(row = {}) {
     pricing_mode_source: stringField(row.pricing_mode_source ?? row.pricingModeSource),
     tier_label: stringField(row.tier_label ?? row.tierLabel ?? row.label),
     min_qty: firstNumber(row.min_qty, row.minQty),
-    max_qty: firstNumber(row.max_qty, row.maxQty),
+    max_qty: nullableFirstNumber(row.max_qty, row.maxQty),
     price_unit: stringField(row.price_unit ?? row.priceUnit),
     final_unit_price: finalUnitPrice,
     original_final_unit_price: originalFinalUnitPrice,
@@ -568,8 +605,17 @@ function normalizePriceListFlatRow(row = {}) {
     inventory_conversion_json: inventoryConversionSnapshot(row, row.price_unit ?? row.priceUnit, row.inventory_unit ?? row.inventoryUnit),
     source_price_record_id: firstNumber(row.source_price_record_id, row.sourcePriceRecordID),
     tier_template_id: firstNumber(row.tier_template_id, row.tierTemplateID),
+    ...(stringField(row.tier_template_name ?? row.tierTemplateName) ? { tier_template_name: stringField(row.tier_template_name ?? row.tierTemplateName) } : {}),
     tier_template_source: stringField(row.tier_template_source ?? row.tierTemplateSource),
     template_tier_id: firstNumber(row.template_tier_id, row.templateTierID),
+	quantity_basis: stringField(row.quantity_basis ?? row.quantityBasis),
+	effective_sales_spec: parseJSONObject(row.effective_sales_spec ?? row.effectiveSalesSpec),
+    ...(stringField(row.tier_quantity_unit ?? row.tierQuantityUnit) ? { tier_quantity_unit: stringField(row.tier_quantity_unit ?? row.tierQuantityUnit) } : {}),
+    ...(stringField(row.product_sales_spec_unit ?? row.productSalesSpecUnit) ? { product_sales_spec_unit: stringField(row.product_sales_spec_unit ?? row.productSalesSpecUnit) } : {}),
+    ...((Object.prototype.hasOwnProperty.call(row, 'tier_unit_compatible') || Object.prototype.hasOwnProperty.call(row, 'tierUnitCompatible'))
+      ? { tier_unit_compatible: row.tier_unit_compatible !== false && row.tierUnitCompatible !== false }
+      : {}),
+    ...(stringField(row.tier_unit_compatibility_error ?? row.tierUnitCompatibilityError) ? { tier_unit_compatibility_error: stringField(row.tier_unit_compatibility_error ?? row.tierUnitCompatibilityError) } : {}),
     pricing_rule_id: firstNumber(row.pricing_rule_id, row.pricingRuleID),
     pricing_rule_source: stringField(row.pricing_rule_source ?? row.pricingRuleSource),
     pricing_rule_version: stringField(row.pricing_rule_version ?? row.pricingRuleVersion),
@@ -653,6 +699,9 @@ function flatRowTierSnapshot(row = {}) {
     tier_template_id: row.tier_template_id,
     tier_template_source: row.tier_template_source,
     template_tier_id: row.template_tier_id,
+	quantity_basis: row.quantity_basis,
+	tier_quantity_unit: row.tier_quantity_unit,
+	effective_sales_spec: row.effective_sales_spec,
     pricing_mode: row.pricing_mode,
     pricing_rule_id: row.pricing_rule_id,
     pricing_rule_source: row.pricing_rule_source,
@@ -779,6 +828,16 @@ function firstNumber(...values) {
     if (Number.isFinite(n)) return n
   }
   return 0
+}
+
+function nullableFirstNumber(...values) {
+  for (const value of values) {
+    if (value === undefined) continue
+    if (value === null || value === '') return null
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+  }
+  return null
 }
 
 function roundTo(value, precision = 2) {

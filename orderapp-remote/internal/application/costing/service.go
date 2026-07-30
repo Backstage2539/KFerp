@@ -10,14 +10,18 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	domain "orderapp/internal/domain/costing"
 )
 
 var (
-	ErrBeanListPublicationNotFound  = errors.New("bean list publication not found")
-	ErrProductPricingRuleNotFound   = errors.New("product pricing rule not found")
-	ErrProductSalesUnitRuleNotFound = errors.New("product sales unit rule not found")
+	ErrBeanListPublicationNotFound       = errors.New("bean list publication not found")
+	ErrProductPricingRuleNotFound        = errors.New("product pricing rule not found")
+	ErrProductSalesUnitRuleNotFound      = errors.New("product sales unit rule not found")
+	ErrProductSpecIdentityNotFound       = errors.New("product spec identity not found")
+	ErrPriceTierTemplateUnitRuleNotFound = errors.New("price tier template unit rule not found")
+	priceTierMassUnitPattern             = regexp.MustCompile(`^(?:\d+(?:\.\d+)?)?(kg|kgs|公斤|千克|g|克|lb|lbs|磅)(?:袋装)?$`)
 )
 
 const (
@@ -55,9 +59,31 @@ type ProductPricingRule struct {
 }
 
 type ProductSalesUnitRule struct {
-	ProductID     int64                         `json:"product_id"`
-	InventoryUnit string                        `json:"inventory_unit"`
-	Conversion    map[string]map[string]float64 `json:"unit_conversion_json"`
+	ProductID          int64                         `json:"product_id"`
+	SKUName            string                        `json:"sku_name,omitempty"`
+	SKUCode            string                        `json:"sku_code,omitempty"`
+	Barcode            string                        `json:"barcode,omitempty"`
+	DefaultSalesUnit   string                        `json:"default_sales_unit"`
+	InventoryUnit      string                        `json:"inventory_unit"`
+	Conversion         map[string]map[string]float64 `json:"unit_conversion_json"`
+	EffectiveSalesSpec *domain.EffectiveSalesSpec    `json:"effective_sales_spec,omitempty"`
+}
+
+// ProductSpecIdentity is the current product-master identity used to validate
+// a price-list selection. EffectiveParentProductID equals ProductID for a
+// historical parent-only product and otherwise points at the owning parent.
+type ProductSpecIdentity struct {
+	ProductID                int64
+	EffectiveParentProductID int64
+	ParentProductName        string
+	Active                   bool
+	SpecValid                bool
+}
+
+type PriceTierTemplateUnitRule struct {
+	TemplateID   int64
+	TemplateName string
+	TierUnits    map[int64]string
 }
 
 type PricingRuleTrialCommand struct {
@@ -69,6 +95,12 @@ type PricingRuleTrialCommand struct {
 	OperationTemplateID int64                     `json:"operation_template_id,omitempty"`
 	QuoteUnit           string                    `json:"quote_unit,omitempty"`
 	Overrides           PricingRuleTrialOverrides `json:"overrides,omitempty"`
+}
+
+type PricingRuleTrialBatchRow struct {
+	Index  int                     `json:"index"`
+	Result *PricingRuleTrialResult `json:"result,omitempty"`
+	Error  string                  `json:"error,omitempty"`
 }
 
 type PricingRuleTrialOverrides struct {
@@ -135,6 +167,9 @@ type PricingRuleTrialWorkstationCostSnapshotRow struct {
 	OperationName      string  `json:"operation_name,omitempty"`
 	WorkstationName    string  `json:"workstation_name,omitempty"`
 	CapacityName       string  `json:"capacity_name,omitempty"`
+	CostMethod         string  `json:"cost_method,omitempty"`
+	PieceRate          float64 `json:"piece_rate,omitempty"`
+	RateUnit           string  `json:"rate_unit,omitempty"`
 	HourlyRate         float64 `json:"hourly_rate,omitempty"`
 	StandardMinutes    float64 `json:"standard_minutes,omitempty"`
 	StandardOutputQty  float64 `json:"standard_output_qty,omitempty"`
@@ -219,6 +254,9 @@ type PricingRuleTrialBaseCostDetail struct {
 	CapacityName            string  `json:"capacity_name,omitempty"`
 	CapacitySelectionSource string  `json:"capacity_selection_source,omitempty"`
 	Warning                 string  `json:"warning,omitempty"`
+	CostMethod              string  `json:"cost_method,omitempty"`
+	PieceRate               float64 `json:"piece_rate,omitempty"`
+	RateUnit                string  `json:"rate_unit,omitempty"`
 	HourlyRate              float64 `json:"hourly_rate,omitempty"`
 	StandardMinutes         float64 `json:"standard_minutes,omitempty"`
 	StandardOutputQty       float64 `json:"standard_output_qty,omitempty"`
@@ -447,8 +485,20 @@ type productSalesUnitRuleRepository interface {
 	ResolveProductSalesUnitRule(ctx context.Context, productID int64, priceUnit string) (ProductSalesUnitRule, error)
 }
 
+type productSpecIdentityRepository interface {
+	ResolveProductSpecIdentity(ctx context.Context, productID int64) (ProductSpecIdentity, error)
+}
+
+type productDefaultSalesUnitRepository interface {
+	ResolveProductDefaultSalesUnit(ctx context.Context, productID int64) (string, error)
+}
+
 type customerProductSalesUnitRuleRepository interface {
 	ResolveCustomerProductSalesUnitRule(ctx context.Context, productID int64, customerProductAliasID int64, priceUnit string) (ProductSalesUnitRule, error)
+}
+
+type priceTierTemplateUnitRuleRepository interface {
+	ResolvePriceTierTemplateUnitRule(ctx context.Context, templateID int64) (PriceTierTemplateUnitRule, error)
 }
 
 type customerScopedProductInputRepository interface {
@@ -457,6 +507,10 @@ type customerScopedProductInputRepository interface {
 
 type pricingRuleTrialBaseCostDetailRepository interface {
 	LoadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput) ([]PricingRuleTrialBaseCostDetail, error)
+}
+
+type pricingRuleTrialBatchBaseCostDetailRepository interface {
+	LoadPricingRuleTrialBaseCostDetailsBatch(ctx context.Context, inputs []domain.ProductInput) ([][]PricingRuleTrialBaseCostDetail, []error, error)
 }
 
 type pricingRuleTrialProductionOptionRepository interface {
@@ -637,6 +691,186 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 		}
 	}
 	return calculatePricingRuleTrial(rule, input, cmd, baseCostDetails, productionOptions, defaultTaxRate)
+}
+
+type preparedPricingRuleTrial struct {
+	index             int
+	command           PricingRuleTrialCommand
+	rule              ProductPricingRule
+	input             domain.ProductInput
+	productionOptions PricingRuleTrialProductionOptions
+}
+
+func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingRuleTrialCommand) ([]PricingRuleTrialBatchRow, error) {
+	rows := make([]PricingRuleTrialBatchRow, len(commands))
+	for i := range rows {
+		rows[i].Index = i
+	}
+	if len(commands) == 0 {
+		return rows, nil
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	params, err := s.Parameters(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rules := make(map[int64]ProductPricingRule)
+	ruleErrors := make(map[int64]error)
+	inputsByCustomer := make(map[int64]map[int64]domain.ProductInput)
+	prepared := make([]preparedPricingRuleTrial, 0, len(commands))
+	for index, original := range commands {
+		cmd := original
+		if cmd.PricingRuleID <= 0 {
+			rows[index].Error = "pricing_rule_id required"
+			continue
+		}
+		if cmd.ProductID <= 0 {
+			rows[index].Error = "product_id required"
+			continue
+		}
+
+		if ruleErr, failed := ruleErrors[cmd.PricingRuleID]; failed {
+			rows[index].Error = ruleErr.Error()
+			continue
+		}
+		rule, ok := rules[cmd.PricingRuleID]
+		if !ok {
+			rule, err = s.repo.LoadProductPricingRule(ctx, cmd.PricingRuleID)
+			if err != nil {
+				ruleErrors[cmd.PricingRuleID] = err
+				rows[index].Error = err.Error()
+				continue
+			}
+			rules[cmd.PricingRuleID] = rule
+		}
+
+		customerInputs, ok := inputsByCustomer[cmd.CustomerID]
+		if !ok {
+			inputs, loadErr := s.pricingRuleTrialProductInputs(ctx, params, cmd.CustomerID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			customerInputs = make(map[int64]domain.ProductInput, len(inputs))
+			for _, input := range inputs {
+				customerInputs[input.ProductID] = input
+			}
+			inputsByCustomer[cmd.CustomerID] = customerInputs
+		}
+		input, ok := customerInputs[cmd.ProductID]
+		if !ok {
+			rows[index].Error = "product not found"
+			continue
+		}
+
+		prepared = append(prepared, preparedPricingRuleTrial{
+			index:   index,
+			command: cmd,
+			rule:    rule,
+			input:   input,
+		})
+	}
+	if len(prepared) == 0 {
+		return rows, nil
+	}
+	productionOptions := make([]PricingRuleTrialProductionOptions, len(prepared))
+	productionOptionErrors := make([]error, len(prepared))
+	if optionRepo, ok := s.repo.(pricingRuleTrialProductionOptionRepository); ok {
+		productionOptions, productionOptionErrors = loadPricingRuleTrialProductionOptionsBatch(ctx, optionRepo, prepared)
+	}
+	ready := make([]preparedPricingRuleTrial, 0, len(prepared))
+	for i, item := range prepared {
+		if productionOptionErrors[i] != nil {
+			rows[item.index].Error = productionOptionErrors[i].Error()
+			continue
+		}
+		input, options, applyErr := pricingRuleTrialApplyProductionSelection(item.input, item.command, productionOptions[i])
+		if applyErr != nil {
+			rows[item.index].Error = applyErr.Error()
+			continue
+		}
+		quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, item.command.QuoteUnit)
+		if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
+			rows[item.index].Error = fmt.Sprintf("销售单位%s缺少可解析的单位换算，请先在商品档案维护销售规格或单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
+			continue
+		}
+		item.command.QuoteUnit = quoteUnit
+		item.input = input
+		item.productionOptions = options
+		ready = append(ready, item)
+	}
+	prepared = ready
+	if len(prepared) == 0 {
+		return rows, nil
+	}
+
+	defaultTaxRate := PricingRuleTrialDefaultTaxRate{}
+	if taxRepo, ok := s.repo.(pricingRuleTrialDefaultTaxRateRepository); ok {
+		defaultTaxRate, err = taxRepo.LoadPricingRuleTrialDefaultTaxRate(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	inputs := make([]domain.ProductInput, len(prepared))
+	for i := range prepared {
+		inputs[i] = prepared[i].input
+	}
+	details := make([][]PricingRuleTrialBaseCostDetail, len(prepared))
+	detailErrors := make([]error, len(prepared))
+	if batchRepo, ok := s.repo.(pricingRuleTrialBatchBaseCostDetailRepository); ok {
+		details, detailErrors, err = batchRepo.LoadPricingRuleTrialBaseCostDetailsBatch(ctx, inputs)
+		if err != nil {
+			return nil, err
+		}
+		if len(details) != len(prepared) || len(detailErrors) != len(prepared) {
+			return nil, fmt.Errorf("pricing rule trial batch details count mismatch")
+		}
+	} else if _, ok := s.repo.(pricingRuleTrialBaseCostDetailRepository); ok {
+		return nil, fmt.Errorf("repository batch pricing rule trial details required")
+	}
+
+	for i, item := range prepared {
+		if detailErrors[i] != nil {
+			rows[item.index].Error = detailErrors[i].Error()
+			continue
+		}
+		result, calculateErr := calculatePricingRuleTrial(item.rule, item.input, item.command, details[i], item.productionOptions, defaultTaxRate)
+		if calculateErr != nil {
+			rows[item.index].Error = calculateErr.Error()
+			continue
+		}
+		rows[item.index].Result = result
+	}
+	return rows, nil
+}
+
+func loadPricingRuleTrialProductionOptionsBatch(ctx context.Context, repo pricingRuleTrialProductionOptionRepository, items []preparedPricingRuleTrial) ([]PricingRuleTrialProductionOptions, []error) {
+	options := make([]PricingRuleTrialProductionOptions, len(items))
+	errs := make([]error, len(items))
+	workerCount := len(items)
+	if workerCount > 6 {
+		workerCount = 6
+	}
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for worker := 0; worker < workerCount; worker++ {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				options[index], errs[index] = repo.LoadPricingRuleTrialProductionOptions(ctx, items[index].input)
+			}
+		}()
+	}
+	for index := range items {
+		jobs <- index
+	}
+	close(jobs)
+	workers.Wait()
+	return options, errs
 }
 
 func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
@@ -933,10 +1167,21 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if formulaMode == "standard" && len(postMarkupCosts) > 0 {
 		formulaMode = "supplier_tier_markup"
 	}
-	profitMethod := pricingRuleTrialString(calc, "profit_method", "gross_margin")
+	if pricingRuleTrialString(calc, "legacy_profit_method", "") != "" || pricingRuleTrialString(calc, "migration_warning", "") != "" {
+		return nil, fmt.Errorf("quarantined legacy pricing rule must be replaced with a new markup template")
+	}
+	legacyProfitMethod := strings.ToLower(strings.TrimSpace(pricingRuleTrialString(calc, "profit_method", "")))
+	switch legacyProfitMethod {
+	case "", "gross_margin", "markup":
+	default:
+		return nil, fmt.Errorf("only markup rate is supported; update this pricing rule before trial")
+	}
+	profitMethod := "markup"
 	marginRate := rule.MarginRate
 	if cmd.Overrides.MarginRate != nil {
 		marginRate = *cmd.Overrides.MarginRate
+	} else if (legacyProfitMethod == "" || legacyProfitMethod == "gross_margin") && marginRate > 1 {
+		marginRate /= 100
 	}
 	if marginRate < 0 {
 		return nil, fmt.Errorf("margin_rate must be >= 0")
@@ -962,6 +1207,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 			warnings = appendUniqueString(warnings, warning)
 		}
 	}
+	warnings = pricingRuleTrialCombinedLossWarnings(warnings, input, baseCostDetails)
 	if cmd.Overrides.BaseCost == nil {
 		if detailBaseCost := bomCostTotal + operationCostTotal; detailBaseCost > 0 {
 			baseCost = detailBaseCost
@@ -1022,7 +1268,11 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if formulaMode == "supplier_tier_markup" {
 		finalBeforeRoundingRounded = roundPricingRuleTrialDetail(finalBeforeRounding)
 	}
-	roundingAdjustment := finalUnitPrice - finalBeforeRoundingRounded
+	displayedWaterfallBeforeRounding := pricingRuleTrialResultAmount(formulaMode, costBaseTotal) +
+		pricingRuleTrialResultAmount(formulaMode, yieldLossAmount) +
+		pricingRuleTrialResultAmount(formulaMode, profitMarkupAmount) +
+		pricingRuleTrialResultAmount(formulaMode, taxInPriceAmount)
+	roundingAdjustment := finalUnitPrice - displayedWaterfallBeforeRounding
 	grossMarginRate := 0.0
 	if preTaxPrice > 0 {
 		grossMarginRate = (preTaxPrice - costAfterYield) / preTaxPrice
@@ -1170,6 +1420,7 @@ func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUn
 		if row.Type == "" {
 			row.Type = "material"
 		}
+		pricingRuleTrialPreparePieceCostDetail(input, &row)
 		if strings.TrimSpace(row.TypeLabel) == "" {
 			row.TypeLabel = pricingRuleTrialBaseCostTypeLabel(row.Type)
 		}
@@ -1226,6 +1477,9 @@ func pricingRuleTrialWorkstationCostSnapshot(details []PricingRuleTrialBaseCostD
 			OperationName:      row.Name,
 			WorkstationName:    row.WorkstationName,
 			CapacityName:       row.CapacityName,
+			CostMethod:         row.CostMethod,
+			PieceRate:          row.PieceRate,
+			RateUnit:           row.RateUnit,
 			HourlyRate:         row.HourlyRate,
 			StandardMinutes:    row.StandardMinutes,
 			StandardOutputQty:  row.StandardOutputQty,
@@ -1235,6 +1489,41 @@ func pricingRuleTrialWorkstationCostSnapshot(details []PricingRuleTrialBaseCostD
 		})
 	}
 	return snapshot
+}
+
+func pricingRuleTrialPreparePieceCostDetail(input domain.ProductInput, row *PricingRuleTrialBaseCostDetail) {
+	if row == nil || !strings.EqualFold(strings.TrimSpace(row.CostMethod), "piece") {
+		return
+	}
+	row.CostMethod = "piece"
+	if row.PieceRate <= 0 {
+		row.AmountPerUnit = 0
+		row.UnitCost = 0
+		row.Warning = "BOM 计件工序成本快照缺少有效计件单价"
+		return
+	}
+	salesUnit := firstNonEmptyString(strings.TrimSpace(input.QuoteUnit), strings.TrimSpace(input.OrderUnit))
+	if salesUnit == "" {
+		row.AmountPerUnit = 0
+		row.UnitCost = 0
+		row.Warning = "具体 SKU 缺少权威销售规格单位，无法折算计件工序成本"
+		return
+	}
+	inventoryUnit := strings.TrimSpace(input.InventoryUnit)
+	if inventoryUnit != "" && pricingRuleTrialUnitKey(salesUnit) != pricingRuleTrialUnitKey(inventoryUnit) &&
+		pricingRuleTrialUnitTargetFactor(salesUnit, inventoryUnit, input.UnitConversionJSON) <= 0 {
+		row.AmountPerUnit = 0
+		row.UnitCost = 0
+		row.Warning = "具体 SKU 缺少权威 inventory_qty_per_sales_unit，无法折算计件工序成本"
+		return
+	}
+	row.RateUnit = firstNonEmptyString(strings.TrimSpace(row.RateUnit), "sales_spec_count")
+	row.ConsumeUnit = "per_sales_unit"
+	row.AmountPerUnit = row.PieceRate
+	row.UnitCost = row.PieceRate
+	row.Unit = salesUnit
+	row.CostUnit = salesUnit
+	row.CostUnitCost = row.PieceRate
 }
 
 func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetail, quoteUnit string, conversionJSON string, quoteKgFactor float64, usePerKg bool, perUnitSourceUnit string) (float64, string, float64) {
@@ -1287,6 +1576,9 @@ func pricingRuleTrialConvertCostAmount(amount float64, sourceUnit string, target
 	if pricingRuleTrialUnitKey(sourceUnit) == pricingRuleTrialUnitKey(targetUnit) {
 		return amount, targetUnit, 1, true
 	}
+	if scale := pricingRuleTrialUnitTargetFactor(targetUnit, sourceUnit, conversionJSON); scale > 0 {
+		return amount * scale, targetUnit, scale, true
+	}
 	sourceKgFactor := pricingRuleTrialUnitKgFactor(sourceUnit, conversionJSON)
 	targetKgFactor := pricingRuleTrialUnitKgFactor(targetUnit, conversionJSON)
 	if sourceKgFactor <= 0 || targetKgFactor <= 0 {
@@ -1298,7 +1590,7 @@ func pricingRuleTrialConvertCostAmount(amount float64, sourceUnit string, target
 
 func pricingRuleTrialBaseCostDetailUnitCostFollowsOutput(row PricingRuleTrialBaseCostDetail) bool {
 	switch strings.TrimSpace(row.ConsumeUnit) {
-	case "ratio_pct", "per_kg", "per_kg_output", "per_finished_kg", "per_inventory_unit":
+	case "ratio_pct", "per_kg", "per_kg_output", "per_finished_kg", "per_inventory_unit", "per_sales_unit":
 		return true
 	default:
 		return false
@@ -1418,7 +1710,7 @@ func pricingRuleTrialBaseCostDetailDescription(row PricingRuleTrialBaseCostDetai
 	}
 }
 
-func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMode string, quoteUnit string, profitMethod string, taxMode string, taxRate float64, roundingMode string, expectedLossRate float64, yieldMode string, marginRate float64, profitParameterRate float64, finalBeforeRounding float64) (string, []string) {
+func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMode string, quoteUnit string, _ string, taxMode string, taxRate float64, roundingMode string, expectedLossRate float64, yieldMode string, marginRate float64, profitParameterRate float64, finalBeforeRounding float64) (string, []string) {
 	if result == nil {
 		return "", nil
 	}
@@ -1441,9 +1733,9 @@ func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMo
 	}
 
 	if strings.TrimSpace(formulaMode) == "supplier_tier_markup" {
-		currentExpr = fmt.Sprintf("%s * (1 + 档位利润率/加价率 %s", currentExpr, pricingRuleTrialPercentExpression(marginRate))
+		currentExpr = fmt.Sprintf("%s * (1 + 档位加价率 %s", currentExpr, pricingRuleTrialPercentExpression(marginRate))
 		if profitParameterRate != 0 {
-			currentExpr = fmt.Sprintf("%s + 利润参数 %s", currentExpr, pricingRuleTrialPercentExpression(profitParameterRate))
+			currentExpr = fmt.Sprintf("%s + 加价参数 %s", currentExpr, pricingRuleTrialPercentExpression(profitParameterRate))
 		}
 		currentExpr += ")"
 		lines = append(lines, fmt.Sprintf("加价后价格 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PriceAfterMarkup, unit)))
@@ -1454,19 +1746,8 @@ func pricingRuleTrialFormulaExpression(result *PricingRuleTrialResult, formulaMo
 			lines = append(lines, fmt.Sprintf("税前价 = %s", pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
 		}
 	} else {
-		switch strings.TrimSpace(profitMethod) {
-		case "", "gross_margin":
-			currentExpr = fmt.Sprintf("%s / (1 - 毛利率 %s)", currentExpr, pricingRuleTrialPercentExpression(marginRate))
-			lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		case "markup":
-			currentExpr = fmt.Sprintf("%s * (1 + 加价率 %s)", currentExpr, pricingRuleTrialPercentExpression(marginRate))
-			lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		case "fixed_add":
-			currentExpr = fmt.Sprintf("%s + 固定加价 %s", currentExpr, pricingRuleTrialMoneyExpression(marginRate, unit))
-			lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		default:
-			lines = append(lines, fmt.Sprintf("税前价 = %s", pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
-		}
+		currentExpr = fmt.Sprintf("%s * (1 + 加价率 %s)", currentExpr, pricingRuleTrialPercentExpression(marginRate))
+		lines = append(lines, fmt.Sprintf("税前价 = %s = %s", currentExpr, pricingRuleTrialMoneyExpression(result.PreTaxPrice, unit)))
 	}
 
 	switch strings.TrimSpace(taxMode) {
@@ -1725,18 +2006,17 @@ func pricingRuleTrialOtherCostDetails(costs map[string]float64, formulaMode stri
 	return out
 }
 
-func pricingRuleTrialProfitExplanation(formulaMode string, method string, unit string, marginRate float64, profitParameterRate float64, source string, costAfterYield float64, markupAmount float64, preTaxPrice float64, priceAfterMarkup float64, postMarkupCostTotal float64) PricingRuleTrialProfitExplanation {
+func pricingRuleTrialProfitExplanation(formulaMode string, _ string, unit string, marginRate float64, profitParameterRate float64, source string, costAfterYield float64, markupAmount float64, preTaxPrice float64, priceAfterMarkup float64, postMarkupCostTotal float64) PricingRuleTrialProfitExplanation {
 	mode := strings.TrimSpace(formulaMode)
-	normalizedMethod := strings.TrimSpace(method)
 	if mode == "supplier_tier_markup" {
 		rate := marginRate + profitParameterRate
-		formula := fmt.Sprintf("加价后价格 = 损耗后成本 * (1 + 档位利润率/加价率 %s) = %s", pricingRuleTrialPercentExpression(rate), pricingRuleTrialMoneyExpression(priceAfterMarkup, unit))
+		formula := fmt.Sprintf("加价后价格 = 损耗后成本 * (1 + 档位加价率 %s) = %s", pricingRuleTrialPercentExpression(rate), pricingRuleTrialMoneyExpression(priceAfterMarkup, unit))
 		if postMarkupCostTotal > 0 {
 			formula += fmt.Sprintf("；税前价 = 加价后价格 + 加价附加成本 %s = %s", pricingRuleTrialMoneyExpression(postMarkupCostTotal, unit), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
 		}
 		return PricingRuleTrialProfitExplanation{
 			Method:         "supplier_tier_markup",
-			MethodLabel:    "档位利润率/加价率",
+			MethodLabel:    "档位加价率",
 			Rate:           roundRatio(rate),
 			Source:         source,
 			CostAfterYield: costAfterYield,
@@ -1745,23 +2025,10 @@ func pricingRuleTrialProfitExplanation(formulaMode string, method string, unit s
 			Formula:        formula,
 		}
 	}
-	if normalizedMethod == "" {
-		normalizedMethod = "gross_margin"
-	}
-	label := pricingRuleTrialProfitLabel(normalizedMethod)
-	formula := ""
-	switch normalizedMethod {
-	case "markup":
-		formula = fmt.Sprintf("税前价 = 损耗后成本 * (1 + 加价率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
-	case "fixed_add":
-		formula = fmt.Sprintf("税前价 = 损耗后成本 + 固定加价 %s = %s", pricingRuleTrialMoneyExpression(marginRate, unit), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
-	default:
-		normalizedMethod = "gross_margin"
-		formula = fmt.Sprintf("税前价 = 损耗后成本 / (1 - 毛利率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
-	}
+	formula := fmt.Sprintf("税前价 = 损耗后成本 * (1 + 加价率 %s) = %s", pricingRuleTrialPercentExpression(marginRate), pricingRuleTrialMoneyExpression(preTaxPrice, unit))
 	return PricingRuleTrialProfitExplanation{
-		Method:         normalizedMethod,
-		MethodLabel:    label,
+		Method:         "markup",
+		MethodLabel:    "加价率",
 		Rate:           roundRatio(marginRate),
 		Source:         source,
 		CostAfterYield: costAfterYield,
@@ -1780,10 +2047,10 @@ func pricingRuleTrialSupplierSteps(result *PricingRuleTrialResult, cmd PricingRu
 	steps = append(steps,
 		domain.PriceExplanationStep{Key: "expected_loss_rate", Label: "预期损耗率", Source: pricingRuleTrialLossSource(cmd.Overrides.ExpectedLossRate, yieldMode), Value: roundRatio(expectedLossRate), Unit: "ratio", Changed: lossChanged},
 		domain.PriceExplanationStep{Key: "cost_after_yield", Label: "成本基数", Source: "formula", Value: result.CostAfterYield, Unit: quoteUnit, Changed: expectedLossRate > 0 && yieldMode != "none"},
-		domain.PriceExplanationStep{Key: "tier_markup_rate", Label: "档位利润率/加价率", Source: pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), Value: roundRatio(marginRate), Unit: "ratio", Changed: cmd.Overrides.MarginRate != nil},
+		domain.PriceExplanationStep{Key: "tier_markup_rate", Label: "档位加价率", Source: pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), Value: roundRatio(marginRate), Unit: "ratio", Changed: cmd.Overrides.MarginRate != nil},
 	)
 	if profitParameterRate != 0 {
-		steps = append(steps, domain.PriceExplanationStep{Key: "profit_parameter_rate", Label: "利润参数", Source: "pricing_rule", Value: roundRatio(profitParameterRate), Unit: "ratio"})
+		steps = append(steps, domain.PriceExplanationStep{Key: "profit_parameter_rate", Label: "加价参数", Source: "pricing_rule", Value: roundRatio(profitParameterRate), Unit: "ratio"})
 	}
 	steps = append(steps,
 		domain.PriceExplanationStep{Key: "price_after_markup", Label: "加价后价格", Source: "formula", Value: result.PriceAfterMarkup, Unit: quoteUnit, Changed: true},
@@ -1855,6 +2122,33 @@ func pricingRuleTrialExpectedLossRate(input domain.ProductInput, override *float
 	return loss, changed, nil
 }
 
+func pricingRuleTrialCombinedLossWarnings(warnings []string, input domain.ProductInput, details []PricingRuleTrialBaseCostDetail) []string {
+	overallLossRate := input.ExpectedLossRate
+	if overallLossRate <= 0 && input.YieldRate > 0 && input.YieldRate < 1 {
+		overallLossRate = 1 - input.YieldRate
+	}
+	if overallLossRate <= 0 || overallLossRate >= 1 {
+		return warnings
+	}
+
+	materialLossRate := 0.0
+	for _, detail := range details {
+		if detail.MaterialLossRate > materialLossRate && detail.MaterialLossRate < 1 {
+			materialLossRate = detail.MaterialLossRate
+		}
+	}
+	if materialLossRate <= 0 {
+		return warnings
+	}
+
+	warning := fmt.Sprintf(
+		"生产 BOM 同时设置了整体预期损耗 %s 和原料损耗 %s，两项会连续放大标准制造成本；如只需计算原料损耗，请在商品档案生产配置将整体预期损耗率设为 0，并使用整体损耗为 0 的已发布 BOM 版本。",
+		pricingRuleTrialPercentExpression(overallLossRate),
+		pricingRuleTrialPercentExpression(materialLossRate),
+	)
+	return appendUniqueString(warnings, warning)
+}
+
 func pricingRuleTrialResolvedTaxRate(rule ProductPricingRule, cmd PricingRuleTrialCommand, taxMode string, defaultTaxRate PricingRuleTrialDefaultTaxRate) (float64, string, bool, error) {
 	if strings.TrimSpace(taxMode) == "none" {
 		return 0, "tax_disabled", false, nil
@@ -1899,17 +2193,10 @@ func pricingRuleTrialSuppressDefaultLossForActualBomCost(input domain.ProductInp
 
 func pricingRuleTrialPreTaxPrice(cost float64, marginRate float64, method string) (float64, error) {
 	switch strings.TrimSpace(method) {
-	case "", "gross_margin":
-		if marginRate >= 1 {
-			return 0, fmt.Errorf("margin_rate must be < 1 for gross_margin")
-		}
-		return cost / (1 - marginRate), nil
 	case "markup":
 		return cost * (1 + marginRate), nil
-	case "fixed_add":
-		return cost + marginRate, nil
 	default:
-		return 0, fmt.Errorf("invalid profit_method")
+		return 0, fmt.Errorf("only markup rate is supported")
 	}
 }
 
@@ -2009,15 +2296,8 @@ func pricingRuleTrialOverrideSource(value *float64) string {
 	return "pricing_rule"
 }
 
-func pricingRuleTrialProfitLabel(method string) string {
-	switch strings.TrimSpace(method) {
-	case "markup":
-		return "加价率"
-	case "fixed_add":
-		return "固定加价"
-	default:
-		return "毛利率"
-	}
+func pricingRuleTrialProfitLabel(_ string) string {
+	return "加价率"
 }
 
 func pricingRuleTrialTaxLabel(mode string) string {
@@ -2296,6 +2576,14 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateProductSpecSelections(ctx, &normalized); err != nil {
+		return nil, err
+	}
+	if !beanListUsesConcreteProductSpecSelections(&normalized) {
+		if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+			return nil, err
+		}
+	}
 	if s.repo != nil {
 		if err := s.applyNextBeanListPublicationVersion(ctx, &normalized); err != nil {
 			return nil, err
@@ -2437,35 +2725,211 @@ func beanListPublicationVersionDigitsOnly(value string) bool {
 	return true
 }
 
+func (s *Service) validatePriceTierTemplateUnitCompatibility(ctx context.Context, cmd *PublishBeanListCommand) error {
+	templateResolver, hasTemplateResolver := s.repo.(priceTierTemplateUnitRuleRepository)
+	productResolver, hasProductResolver := s.repo.(productDefaultSalesUnitRepository)
+	if !hasTemplateResolver || cmd == nil || cmd.Content == nil {
+		return nil
+	}
+	rows := priceTierTemplateCompatibilityRows(cmd.Content["price_rows"])
+	if len(rows) == 0 {
+		return nil
+	}
+	if !hasProductResolver {
+		return fmt.Errorf("阶梯模板不可用：服务缺少当前商品销售规格校验能力")
+	}
+
+	templateCache := map[int64]PriceTierTemplateUnitRule{}
+	productCache := map[int64]string{}
+	for idx, rawRow := range rows {
+		row, ok := rawRow.(map[string]any)
+		if !ok || normalizePriceRowPricingMode(row) != "tier_template" {
+			continue
+		}
+		templateID := int64(numberValue(row["tier_template_id"]))
+		templateTierID := int64(numberValue(row["template_tier_id"]))
+		productID := int64(numberValue(row["product_id"]))
+		skuID := int64(numberValue(row["sku_id"]))
+		if templateID <= 0 || templateTierID <= 0 {
+			return fmt.Errorf("阶梯模板不可用：第%d行缺少有效模板或档位", idx+1)
+		}
+		unitProductID := skuID
+		if unitProductID <= 0 {
+			unitProductID = productID
+		}
+		if unitProductID <= 0 {
+			return fmt.Errorf("阶梯模板不可用：第%d行缺少有效商品或子 SKU", idx+1)
+		}
+
+		templateRule, cached := templateCache[templateID]
+		if !cached {
+			resolved, err := templateResolver.ResolvePriceTierTemplateUnitRule(ctx, templateID)
+			if err != nil {
+				if errors.Is(err, ErrPriceTierTemplateUnitRuleNotFound) {
+					return fmt.Errorf("阶梯模板不可用：第%d行引用的阶梯模板不存在、已停用或没有有效档位", idx+1)
+				}
+				return err
+			}
+			templateRule = resolved
+			templateCache[templateID] = resolved
+		}
+		tierUnit := strings.TrimSpace(templateRule.TierUnits[templateTierID])
+		if tierUnit == "" {
+			return fmt.Errorf("阶梯模板不可用：第%d行引用的阶梯模板“%s”不包含当前有效档位", idx+1, priceTierTemplateUnitRuleName(templateRule, templateID))
+		}
+
+		productUnit, cached := productCache[unitProductID]
+		if !cached {
+			resolved, err := productResolver.ResolveProductDefaultSalesUnit(ctx, unitProductID)
+			if err != nil {
+				if errors.Is(err, ErrProductSalesUnitRuleNotFound) {
+					return fmt.Errorf("阶梯模板不可用：商品“%s”缺少有效默认销售规格，无法校验阶梯模板“%s”", beanListFlatRowProductName(row, idx+1), priceTierTemplateUnitRuleName(templateRule, templateID))
+				}
+				return err
+			}
+			productUnit = strings.TrimSpace(resolved)
+			productCache[unitProductID] = productUnit
+		}
+
+		if productUnit == "" {
+			return fmt.Errorf("阶梯模板不可用：商品“%s”缺少有效默认销售规格，无法校验阶梯模板“%s”", beanListFlatRowProductName(row, idx+1), priceTierTemplateUnitRuleName(templateRule, templateID))
+		}
+		productUnitIdentity := normalizePriceTierCompatibilityUnit(productUnit)
+		tierIDs := make([]int64, 0, len(templateRule.TierUnits))
+		for tierID := range templateRule.TierUnits {
+			tierIDs = append(tierIDs, tierID)
+		}
+		sort.Slice(tierIDs, func(i, j int) bool { return tierIDs[i] < tierIDs[j] })
+		if len(tierIDs) == 0 {
+			return fmt.Errorf("阶梯模板不可用：阶梯模板“%s”没有有效档位", priceTierTemplateUnitRuleName(templateRule, templateID))
+		}
+		for _, tierID := range tierIDs {
+			activeTierUnit := strings.TrimSpace(templateRule.TierUnits[tierID])
+			if activeTierUnit == "" {
+				return fmt.Errorf("阶梯模板不可用：阶梯模板“%s”存在缺少数量单位的有效档位", priceTierTemplateUnitRuleName(templateRule, templateID))
+			}
+			if productUnitIdentity != normalizePriceTierCompatibilityUnit(activeTierUnit) {
+				return fmt.Errorf("阶梯模板不可用：商品“%s”的默认销售规格“%s”与阶梯模板“%s”的档位数量单位“%s”不匹配", beanListFlatRowProductName(row, idx+1), productUnit, priceTierTemplateUnitRuleName(templateRule, templateID), activeTierUnit)
+			}
+		}
+		row["tier_template_name"] = priceTierTemplateUnitRuleName(templateRule, templateID)
+		row["tier_quantity_unit"] = tierUnit
+		row["product_sales_unit"] = productUnit
+	}
+	return nil
+}
+
+func priceTierTemplateCompatibilityRows(value any) []any {
+	switch rows := value.(type) {
+	case []any:
+		return rows
+	case []map[string]any:
+		out := make([]any, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, row)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func normalizePriceTierCompatibilityUnit(unit string) string {
+	compact := strings.ToLower(strings.Join(strings.Fields(unit), ""))
+	if strings.HasPrefix(compact, "盒(") || strings.HasPrefix(compact, "盒（") {
+		return "盒"
+	}
+	if strings.HasPrefix(compact, "袋(") || strings.HasPrefix(compact, "袋（") {
+		return "袋"
+	}
+	if strings.HasPrefix(compact, "条(") || strings.HasPrefix(compact, "条（") {
+		return "条"
+	}
+	if matches := priceTierMassUnitPattern.FindStringSubmatch(compact); len(matches) == 2 {
+		compact = matches[1]
+	}
+	switch compact {
+	case "kg", "公斤", "千克":
+		return "kg"
+	case "kgs":
+		return "kg"
+	case "lb", "lbs", "磅":
+		return "lb"
+	case "g", "克":
+		return "g"
+	default:
+		return compact
+	}
+}
+
+func priceTierTemplateUnitRuleName(rule PriceTierTemplateUnitRule, templateID int64) string {
+	if name := strings.TrimSpace(rule.TemplateName); name != "" {
+		return name
+	}
+	return fmt.Sprintf("#%d", templateID)
+}
+
+func beanListFlatRowProductName(row map[string]any, position int) string {
+	if name := beanListFlatRowString(row, "product_name", "display_name_snapshot", "product_name_snapshot", "name"); name != "" {
+		return name
+	}
+	return fmt.Sprintf("第%d行商品", position)
+}
+
 func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *PublishBeanListCommand) error {
 	resolver, ok := s.repo.(productSalesUnitRuleRepository)
 	if !ok || cmd == nil || cmd.Content == nil {
 		return nil
 	}
-	rows, ok := cmd.Content["price_rows"].([]any)
-	if !ok {
+	rows := priceTierTemplateCompatibilityRows(cmd.Content["price_rows"])
+	if len(rows) == 0 {
 		return nil
 	}
+	strictSnapshots := beanListUsesConcreteProductSpecSelections(cmd)
 	for idx, rawRow := range rows {
 		row, ok := rawRow.(map[string]any)
 		if !ok || !beanListFlatPriceRowHasPrice(row) {
 			continue
 		}
 		productID := int64(numberValue(row["product_id"]))
+		skuID := int64(numberValue(row["sku_id"]))
+		concreteProductID := skuID
+		if concreteProductID <= 0 {
+			concreteProductID = productID
+		}
 		priceUnit := strings.TrimSpace(stringValue(row["price_unit"]))
-		if productID <= 0 || priceUnit == "" {
+		if concreteProductID <= 0 || priceUnit == "" {
 			continue
 		}
-		applyFlatRowSKUSnapshot(row, productID)
 		customerAliasID := beanListFlatPriceRowCustomerAliasID(row)
 		rule, err := ProductSalesUnitRule{}, error(nil)
+		specRule, specErr := resolver.ResolveProductSalesUnitRule(ctx, concreteProductID, "")
+		if specErr != nil || specRule.ProductID <= 0 {
+			if strictSnapshots {
+				if specErr != nil && !errors.Is(specErr, ErrProductSalesUnitRuleNotFound) {
+					return specErr
+				}
+				return beanListFlatRowUnitConversionError("商品档案缺少权威销售规格", idx+1, row, priceUnit)
+			}
+			specRule = ProductSalesUnitRule{}
+		}
 		if customerAliasID > 0 {
 			if customerResolver, ok := s.repo.(customerProductSalesUnitRuleRepository); ok {
-				rule, err = customerResolver.ResolveCustomerProductSalesUnitRule(ctx, productID, customerAliasID, priceUnit)
+				aliasProductID := productID
+				if aliasProductID <= 0 {
+					aliasProductID = concreteProductID
+				}
+				rule, err = customerResolver.ResolveCustomerProductSalesUnitRule(ctx, aliasProductID, customerAliasID, priceUnit)
 			} else {
-				rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
+				rule, err = resolver.ResolveProductSalesUnitRule(ctx, concreteProductID, priceUnit)
 			}
 		} else {
+			rule, err = resolver.ResolveProductSalesUnitRule(ctx, concreteProductID, priceUnit)
+		}
+		if errors.Is(err, ErrProductSalesUnitRuleNotFound) && productID > 0 && productID != concreteProductID {
+			// Historical flat rows could carry a display-only sku_id without a
+			// parent_product_id. Keep their conversion fallback, while the new
+			// sales-spec snapshot remains anchored to the concrete SKU identity.
 			rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
 		}
 		if err != nil {
@@ -2483,11 +2947,19 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		}
 		row["inventory_unit"] = strings.TrimSpace(rule.InventoryUnit)
 		row["inventory_conversion_json"] = productSalesUnitConversionSnapshot(priceUnit, targets)
+		if specRule.ProductID <= 0 {
+			specRule = rule
+		}
+		spec, err := applyFlatRowEffectiveSalesSpec(row, concreteProductID, priceUnit, specRule, strictSnapshots)
+		if err != nil {
+			return beanListFlatRowUnitConversionError(err.Error(), idx+1, row, priceUnit)
+		}
+		applyFlatRowSKUSnapshot(row, concreteProductID, specRule, spec, strictSnapshots)
 	}
 	return nil
 }
 
-func applyFlatRowSKUSnapshot(row map[string]any, productID int64) {
+func applyFlatRowSKUSnapshot(row map[string]any, productID int64, rule ProductSalesUnitRule, spec domain.EffectiveSalesSpec, strict bool) {
 	if row == nil {
 		return
 	}
@@ -2502,22 +2974,142 @@ func applyFlatRowSKUSnapshot(row map[string]any, productID int64) {
 		row["parent_product_id"] = float64(parentID)
 	}
 	snapshot := map[string]any{}
-	if existing, ok := row["sku_snapshot"].(map[string]any); ok {
-		for key, value := range existing {
-			snapshot[key] = value
+	if !strict {
+		if existing, ok := row["sku_snapshot"].(map[string]any); ok {
+			for key, value := range existing {
+				snapshot[key] = value
+			}
 		}
 	}
-	for _, field := range []string{"sku_name", "sku_code", "barcode", "spec_label", "net_content_unit"} {
-		if value := strings.TrimSpace(stringValue(row[field])); value != "" {
-			snapshot[field] = value
+	if skuID > 0 {
+		snapshot["sku_id"] = float64(skuID)
+	}
+	stringFields := map[string]string{
+		"sku_name":         strings.TrimSpace(rule.SKUName),
+		"sku_code":         strings.TrimSpace(rule.SKUCode),
+		"barcode":          strings.TrimSpace(rule.Barcode),
+		"spec_key":         strings.TrimSpace(spec.SpecKey),
+		"spec_label":       strings.TrimSpace(spec.SpecLabel),
+		"net_content_unit": strings.TrimSpace(spec.NetContentUnit),
+		"sales_unit":       strings.TrimSpace(spec.SalesUnit),
+	}
+	if stringFields["sku_name"] == "" {
+		if !strict {
+			stringFields["sku_name"] = firstNonEmptyBeanListString(beanListFlatRowString(row, "sku_name"), beanListFlatRowString(snapshot, "sku_name"))
+		}
+		if stringFields["sku_name"] == "" {
+			stringFields["sku_name"] = strings.TrimSpace(spec.SpecName)
 		}
 	}
-	if qty := numberValue(row["net_content_qty"]); qty > 0 {
-		snapshot["net_content_qty"] = qty
+	for field, value := range stringFields {
+		if !strict && value == "" {
+			value = strings.TrimSpace(stringValue(row[field]))
+			if value == "" {
+				value = strings.TrimSpace(stringValue(snapshot[field]))
+			}
+		}
+		if value == "" {
+			if strict {
+				delete(row, field)
+			}
+			continue
+		}
+		row[field] = value
+		snapshot[field] = value
 	}
-	if len(snapshot) > 0 {
-		row["sku_snapshot"] = snapshot
+	if spec.NetContentQty > 0 {
+		row["net_content_qty"] = spec.NetContentQty
+		snapshot["net_content_qty"] = spec.NetContentQty
+	} else {
+		delete(row, "net_content_qty")
 	}
+	row["sku_snapshot"] = snapshot
+}
+
+func applyFlatRowEffectiveSalesSpec(row map[string]any, skuID int64, priceUnit string, rule ProductSalesUnitRule, strict bool) (domain.EffectiveSalesSpec, error) {
+	if row == nil || skuID <= 0 {
+		return domain.EffectiveSalesSpec{}, fmt.Errorf("商品档案缺少权威销售规格")
+	}
+	spec := domain.EffectiveSalesSpec{}
+	if rule.EffectiveSalesSpec != nil {
+		spec = *rule.EffectiveSalesSpec
+	}
+	if !strict {
+		existing, _ := objectSnapshotMap(row["effective_sales_spec"])
+		if spec.SpecKey == "" {
+			spec.SpecKey = beanListFlatRowString(existing, "spec_key")
+		}
+		if spec.SpecName == "" {
+			spec.SpecName = beanListFlatRowString(existing, "spec_name")
+		}
+		if spec.SpecLabel == "" {
+			spec.SpecLabel = firstNonEmptyBeanListString(beanListFlatRowString(row, "spec_label"), beanListFlatRowString(existing, "spec_label"))
+		}
+		if spec.SalesUnit == "" {
+			spec.SalesUnit = firstNonEmptyBeanListString(beanListFlatRowString(existing, "sales_unit"), beanListFlatRowString(row, "sales_unit"))
+		}
+		if spec.NetContentQty <= 0 {
+			spec.NetContentQty = numberValue(row["net_content_qty"])
+			if spec.NetContentQty <= 0 {
+				spec.NetContentQty = numberValue(existing["net_content_qty"])
+			}
+		}
+		if spec.NetContentUnit == "" {
+			spec.NetContentUnit = firstNonEmptyBeanListString(beanListFlatRowString(row, "net_content_unit"), beanListFlatRowString(existing, "net_content_unit"))
+		}
+	}
+	if spec.SKUID > 0 && spec.SKUID != skuID {
+		return domain.EffectiveSalesSpec{}, fmt.Errorf("商品档案销售规格身份与价格行 SKU 不一致")
+	}
+	spec.SKUID = skuID
+	spec.SpecKey = strings.TrimSpace(spec.SpecKey)
+	spec.SpecName = strings.TrimSpace(spec.SpecName)
+	spec.SpecLabel = strings.TrimSpace(spec.SpecLabel)
+	spec.SalesUnit = strings.TrimSpace(spec.SalesUnit)
+	spec.NetContentUnit = strings.TrimSpace(spec.NetContentUnit)
+	if spec.SpecName == "" {
+		spec.SpecName = strings.TrimSpace(rule.DefaultSalesUnit)
+	}
+	if !strict && spec.SpecName == "" {
+		spec.SpecName = firstNonEmptyBeanListString(spec.SpecLabel, beanListFlatRowString(row, "sku_name"), strings.TrimSpace(priceUnit))
+	}
+	if spec.SpecLabel == "" {
+		spec.SpecLabel = spec.SpecName
+	}
+	if spec.SalesUnit == "" {
+		spec.SalesUnit = strings.TrimSpace(rule.DefaultSalesUnit)
+	}
+	if spec.SalesUnit == "" {
+		spec.SalesUnit = spec.SpecName
+	}
+	if spec.SpecName == "" {
+		spec.SpecName = spec.SalesUnit
+	}
+	if spec.SpecName == "" || spec.SalesUnit == "" {
+		return domain.EffectiveSalesSpec{}, fmt.Errorf("商品档案缺少权威销售规格名称或销售单位")
+	}
+	if strings.TrimSpace(rule.InventoryUnit) != "" {
+		spec.InventoryUnit = strings.TrimSpace(rule.InventoryUnit)
+	}
+	if len(rule.Conversion) > 0 {
+		spec.InventoryConversionJSON = rule.Conversion
+	}
+	payload, _ := json.Marshal(spec)
+	snapshot := map[string]any{}
+	_ = json.Unmarshal(payload, &snapshot)
+	row["quantity_basis"] = "sales_spec_count"
+	row["effective_sales_spec"] = snapshot
+	row["tier_quantity_unit"] = spec.SpecName
+	return spec, nil
+}
+
+func firstNonEmptyBeanListString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func beanListFlatPriceRowCustomerAliasID(row map[string]any) int64 {
@@ -2559,7 +3151,552 @@ func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListComm
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
 	}
+	if err := s.validateProductSpecSelections(ctx, &normalized); err != nil {
+		return nil, err
+	}
+	if !beanListUsesConcreteProductSpecSelections(&normalized) {
+		if err := s.validatePriceTierTemplateUnitCompatibility(ctx, &normalized); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.applyProductSalesUnitSnapshots(ctx, &normalized); err != nil {
+		return nil, err
+	}
 	return s.repo.SaveBeanListDraft(ctx, normalized)
+}
+
+type beanListProductSpecSelection struct {
+	ParentProductID         int64
+	SKUID                   int64
+	SelectionSource         string
+	DefaultSKUIDAtSelection int64
+}
+
+func beanListUsesConcreteProductSpecSelections(cmd *PublishBeanListCommand) bool {
+	if cmd == nil || cmd.Config == nil {
+		return false
+	}
+	_, present := cmd.Config["product_spec_selections"]
+	return present
+}
+
+func beanListUsesSharedParentProductPricing(cmd *PublishBeanListCommand) bool {
+	if cmd == nil || cmd.Config == nil {
+		return false
+	}
+	selection, ok := objectSnapshotMap(cmd.Config["price_list_template_selection"])
+	if !ok {
+		return false
+	}
+	return strings.TrimSpace(stringValue(selection["product_pricing_scope"])) == "parent_product_shared"
+}
+
+type beanListParentPricingSelection struct {
+	pricingMode    string
+	tierTemplateID int64
+	pricingRuleID  int64
+}
+
+func validateSharedParentProductPricing(cmd *PublishBeanListCommand) error {
+	if !beanListUsesSharedParentProductPricing(cmd) {
+		// Drafts and publications created before the shared-parent pricing
+		// contract retain their historical per-SKU interpretation.
+		return nil
+	}
+
+	selection, _ := objectSnapshotMap(cmd.Config["price_list_template_selection"])
+	for idx, rawOverride := range beanListAnySlice(selection["product_overrides"]) {
+		override, ok := objectSnapshotMap(rawOverride)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(stringValue(override["scope"])) != "sku" {
+			continue
+		}
+		if strings.TrimSpace(stringValue(override["pricing_mode"])) != "" ||
+			numberValue(override["tier_template_id"]) > 0 ||
+			numberValue(override["pricing_rule_id"]) > 0 {
+			return fmt.Errorf("商品计价设置无效：第%d个规格不能单独设置计价类型或模板", idx+1)
+		}
+	}
+
+	byParent := map[int64]beanListParentPricingSelection{}
+	for idx, rawRow := range beanListAnySlice(cmd.Content["price_rows"]) {
+		row, ok := objectSnapshotMap(rawRow)
+		if !ok {
+			continue
+		}
+		parentProductID := int64(numberValue(row["parent_product_id"]))
+		if parentProductID <= 0 {
+			continue
+		}
+		current := beanListParentPricingSelection{
+			pricingMode:    normalizePriceRowPricingMode(row),
+			tierTemplateID: int64(numberValue(row["tier_template_id"])),
+			pricingRuleID:  int64(numberValue(row["pricing_rule_id"])),
+		}
+		previous, exists := byParent[parentProductID]
+		if !exists {
+			byParent[parentProductID] = current
+			continue
+		}
+		if previous.pricingMode != current.pricingMode {
+			return fmt.Errorf("商品规格价格行无效：第%d行同一父商品只能选择一种计价类型", idx+1)
+		}
+		switch current.pricingMode {
+		case "tier_template":
+			if previous.tierTemplateID != current.tierTemplateID {
+				return fmt.Errorf("商品规格价格行无效：第%d行同一父商品只能选择一个阶梯模板", idx+1)
+			}
+		case "pricing_rule":
+			if previous.pricingRuleID != current.pricingRuleID {
+				return fmt.Errorf("商品规格价格行无效：第%d行同一父商品只能选择一个价格计算模板", idx+1)
+			}
+		}
+	}
+	return nil
+}
+
+type beanListConcreteSpecSnapshot struct {
+	productName string
+	aliasID     int64
+	tierLabels  []beanListTierLabelSnapshot
+}
+
+type beanListTierLabelSnapshot struct {
+	oldLabel       string
+	newLabel       string
+	templateTierID int64
+	minQty         float64
+	maxQty         *float64
+}
+
+func normalizeConcreteProductSpecPublicationSnapshots(cmd *PublishBeanListCommand, parentProductNamesBySKU map[int64]string) {
+	if !beanListUsesConcreteProductSpecSelections(cmd) || cmd.Content == nil {
+		return
+	}
+
+	groups := beanListAnySlice(cmd.Content["groups"])
+	bySKU := map[int64]beanListConcreteSpecSnapshot{}
+	for groupIdx, rawGroup := range groups {
+		group, ok := objectSnapshotMap(rawGroup)
+		if !ok {
+			continue
+		}
+		groups[groupIdx] = group
+		items := beanListAnySlice(group["items"])
+		for itemIdx, rawItem := range items {
+			item, ok := objectSnapshotMap(rawItem)
+			if !ok {
+				continue
+			}
+			items[itemIdx] = item
+			skuID := beanListConcreteSpecSKUID(item)
+			if skuID <= 0 {
+				continue
+			}
+			snapshot := bySKU[skuID]
+			snapshot.productName = firstNonEmptyBeanListString(
+				snapshot.productName,
+				beanListFlatRowString(item, "product_name_snapshot", "product_name"),
+			)
+			if snapshot.aliasID <= 0 {
+				snapshot.aliasID = int64(numberValue(item["customer_product_alias_id"]))
+			}
+			bySKU[skuID] = snapshot
+		}
+		group["items"] = items
+	}
+	cmd.Content["groups"] = groups
+
+	rows := beanListAnySlice(cmd.Content["price_rows"])
+	for rowIdx, rawRow := range rows {
+		row, ok := objectSnapshotMap(rawRow)
+		if !ok {
+			continue
+		}
+		rows[rowIdx] = row
+		skuID := beanListConcreteSpecSKUID(row)
+		if skuID <= 0 {
+			continue
+		}
+		snapshot := bySKU[skuID]
+		productName := firstNonEmptyBeanListString(
+			parentProductNamesBySKU[skuID],
+			snapshot.productName,
+			beanListFlatRowString(row, "product_name_snapshot", "product_name"),
+		)
+		if productName != "" {
+			row["product_name"] = productName
+			row["product_name_snapshot"] = productName
+			snapshot.productName = productName
+		}
+		if snapshot.aliasID <= 0 {
+			snapshot.aliasID = beanListFlatPriceRowCustomerAliasID(row)
+		}
+		if tierLabel, ok := normalizeBeanListSalesSpecCountTierLabel(row); ok {
+			oldLabel := beanListFlatRowString(row, "tier_label", "label")
+			row["tier_label"] = tierLabel
+			if costSnapshot, exists := objectSnapshotMap(row["cost_source_snapshot"]); exists {
+				costSnapshot["tier_label"] = tierLabel
+				row["cost_source_snapshot"] = costSnapshot
+			}
+			snapshot.tierLabels = append(snapshot.tierLabels, beanListTierLabelSnapshot{
+				oldLabel:       oldLabel,
+				newLabel:       tierLabel,
+				templateTierID: int64(numberValue(row["template_tier_id"])),
+				minQty:         numberValue(row["min_qty"]),
+				maxQty:         beanListOptionalNumber(row["max_qty"]),
+			})
+		}
+		bySKU[skuID] = snapshot
+	}
+	cmd.Content["price_rows"] = rows
+
+	for _, rawGroup := range groups {
+		group, ok := objectSnapshotMap(rawGroup)
+		if !ok {
+			continue
+		}
+		items := beanListAnySlice(group["items"])
+		for itemIdx, rawItem := range items {
+			item, ok := objectSnapshotMap(rawItem)
+			if !ok {
+				continue
+			}
+			items[itemIdx] = item
+			skuID := beanListConcreteSpecSKUID(item)
+			snapshot := bySKU[skuID]
+			normalizeBeanListItemSalesSpecCountTierLabels(item, snapshot.tierLabels)
+			productName := firstNonEmptyBeanListString(
+				parentProductNamesBySKU[skuID],
+				snapshot.productName,
+				beanListFlatRowString(item, "product_name_snapshot", "product_name"),
+			)
+			if productName == "" {
+				continue
+			}
+			item["product_name"] = productName
+			item["product_name_snapshot"] = productName
+			aliasID := int64(numberValue(item["customer_product_alias_id"]))
+			if aliasID <= 0 {
+				aliasID = snapshot.aliasID
+			}
+			if aliasID > 0 {
+				displayName := beanListFlatRowString(item,
+					"customer_product_display_name_snapshot",
+					"customer_product_display_name",
+					"display_name_snapshot",
+					"name",
+				)
+				if displayName != "" {
+					item["name"] = displayName
+					item["display_name_snapshot"] = displayName
+				}
+				continue
+			}
+			item["name"] = productName
+			item["display_name_snapshot"] = productName
+		}
+		group["items"] = items
+	}
+	cmd.Content["groups"] = groups
+}
+
+func beanListConcreteSpecSKUID(row map[string]any) int64 {
+	skuID := int64(numberValue(row["sku_id"]))
+	if skuID <= 0 {
+		skuID = int64(numberValue(row["product_id"]))
+	}
+	return skuID
+}
+
+func normalizeBeanListSalesSpecCountTierLabel(row map[string]any) (string, bool) {
+	if strings.TrimSpace(stringValue(row["quantity_basis"])) != "sales_spec_count" || normalizePriceRowPricingMode(row) != "tier_template" {
+		return "", false
+	}
+	minQty := numberValue(row["min_qty"])
+	maxQty := beanListOptionalNumber(row["max_qty"])
+	if minQty < 0 {
+		return "", false
+	}
+	formatQty := func(value float64) string {
+		return strconv.FormatFloat(math.Round((value+1e-12)*10000)/10000, 'f', -1, 64)
+	}
+	if maxQty == nil {
+		return formatQty(minQty) + "件+", true
+	}
+	if *maxQty > minQty {
+		return formatQty(minQty) + "-" + formatQty(*maxQty) + "件", true
+	}
+	return formatQty(minQty) + "件", true
+}
+
+func beanListOptionalNumber(value any) *float64 {
+	if value == nil || strings.TrimSpace(stringValue(value)) == "" {
+		return nil
+	}
+	number := numberValue(value)
+	return &number
+}
+
+func normalizeBeanListItemSalesSpecCountTierLabels(item map[string]any, labels []beanListTierLabelSnapshot) {
+	if len(labels) == 0 {
+		return
+	}
+	oldToNew := make(map[string]string, len(labels))
+	for _, label := range labels {
+		if label.oldLabel != "" && label.newLabel != "" {
+			oldToNew[label.oldLabel] = label.newLabel
+		}
+	}
+	tierKeys := []string{"commercial_wholesale_tiers", "green_bean_sale_tiers", "retail_bean_tiers", "drip_wholesale_tiers", "tiers_snapshot"}
+	for _, key := range tierKeys {
+		tiers := beanListAnySlice(item[key])
+		if len(tiers) == 0 {
+			continue
+		}
+		for idx, rawTier := range tiers {
+			tier, ok := objectSnapshotMap(rawTier)
+			if !ok {
+				continue
+			}
+			tiers[idx] = tier
+			if label, ok := normalizeBeanListSalesSpecCountTierLabel(tier); ok {
+				tier["label"] = label
+				tier["tier_label"] = label
+				continue
+			}
+			if replacement := beanListTierLabelReplacement(tier, labels); replacement != "" {
+				tier["label"] = replacement
+				tier["tier_label"] = replacement
+			}
+		}
+		item[key] = tiers
+	}
+
+	prices := beanListAnySlice(item["prices"])
+	for idx, rawPrice := range prices {
+		price, ok := objectSnapshotMap(rawPrice)
+		if !ok {
+			continue
+		}
+		prices[idx] = price
+		oldLabel := beanListFlatRowString(price, "label", "tier_label")
+		newLabel := oldToNew[oldLabel]
+		if newLabel == "" && len(prices) == len(labels) {
+			newLabel = labels[idx].newLabel
+		}
+		if newLabel != "" {
+			price["label"] = newLabel
+			if _, exists := price["tier_label"]; exists {
+				price["tier_label"] = newLabel
+			}
+		}
+	}
+	if len(prices) > 0 {
+		item["prices"] = prices
+	}
+}
+
+func beanListTierLabelReplacement(tier map[string]any, labels []beanListTierLabelSnapshot) string {
+	templateTierID := int64(numberValue(tier["template_tier_id"]))
+	oldLabel := beanListFlatRowString(tier, "label", "tier_label")
+	minQty := numberValue(tier["min_qty"])
+	maxQty := beanListOptionalNumber(tier["max_qty"])
+	for _, candidate := range labels {
+		if templateTierID > 0 && candidate.templateTierID == templateTierID {
+			return candidate.newLabel
+		}
+		if oldLabel != "" && candidate.oldLabel == oldLabel {
+			return candidate.newLabel
+		}
+		if minQty == candidate.minQty && beanListOptionalNumbersEqual(maxQty, candidate.maxQty) {
+			return candidate.newLabel
+		}
+	}
+	return ""
+}
+
+func beanListOptionalNumbersEqual(left, right *float64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return math.Abs(*left-*right) < 1e-9
+}
+
+func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *PublishBeanListCommand) error {
+	if cmd == nil || cmd.Config == nil {
+		return nil
+	}
+	rawSelections, present := cmd.Config["product_spec_selections"]
+	if !present {
+		if beanListUsesSharedParentProductPricing(cmd) {
+			return fmt.Errorf("商品规格选择无效：父商品共享计价必须提供 product_spec_selections 数组")
+		}
+		// Historical drafts and publications predate SKU-bound selections and
+		// must keep their original compatibility path.
+		return nil
+	}
+	selectionRows := beanListAnySlice(rawSelections)
+	if rawSelections == nil || selectionRows == nil {
+		return fmt.Errorf("商品规格选择无效：product_spec_selections 必须是数组")
+	}
+	if err := validateSharedParentProductPricing(cmd); err != nil {
+		return err
+	}
+	resolver, ok := s.repo.(productSpecIdentityRepository)
+	if !ok {
+		return fmt.Errorf("商品规格选择校验不可用：服务缺少当前商品规格身份校验能力")
+	}
+
+	identityCache := map[int64]ProductSpecIdentity{}
+	resolveIdentity := func(productID int64) (ProductSpecIdentity, error) {
+		if identity, exists := identityCache[productID]; exists {
+			return identity, nil
+		}
+		identity, err := resolver.ResolveProductSpecIdentity(ctx, productID)
+		if err != nil {
+			if errors.Is(err, ErrProductSpecIdentityNotFound) {
+				return ProductSpecIdentity{}, fmt.Errorf("商品规格不存在：%d", productID)
+			}
+			return ProductSpecIdentity{}, err
+		}
+		identityCache[productID] = identity
+		return identity, nil
+	}
+
+	selections := make(map[string]beanListProductSpecSelection, len(selectionRows))
+	selectionBySKU := make(map[int64]beanListProductSpecSelection, len(selectionRows))
+	parentProductNamesBySKU := make(map[int64]string, len(selectionRows))
+	for idx, rawSelection := range selectionRows {
+		selectionMap, ok := objectSnapshotMap(rawSelection)
+		if !ok {
+			return fmt.Errorf("商品规格选择无效：第%d项必须是对象", idx+1)
+		}
+		selection := beanListProductSpecSelection{
+			ParentProductID:         int64(numberValue(selectionMap["parent_product_id"])),
+			SKUID:                   int64(numberValue(selectionMap["sku_id"])),
+			SelectionSource:         strings.TrimSpace(stringValue(selectionMap["selection_source"])),
+			DefaultSKUIDAtSelection: int64(numberValue(selectionMap["default_sku_id_at_selection"])),
+		}
+		if selection.ParentProductID <= 0 || selection.SKUID <= 0 || selection.DefaultSKUIDAtSelection <= 0 {
+			return fmt.Errorf("商品规格选择无效：第%d项缺少父商品、具体 SKU 或选择时默认规格", idx+1)
+		}
+		if selection.SelectionSource != "product_default" && selection.SelectionSource != "explicit" {
+			return fmt.Errorf("商品规格选择无效：第%d项选择来源必须是 product_default 或 explicit", idx+1)
+		}
+		parent, err := resolveIdentity(selection.ParentProductID)
+		if err != nil {
+			return fmt.Errorf("商品规格选择无效：第%d项父商品校验失败：%w", idx+1, err)
+		}
+		if parent.ProductID != selection.ParentProductID || parent.EffectiveParentProductID != selection.ParentProductID {
+			return fmt.Errorf("商品规格选择无效：第%d项 parent_product_id 不是父商品", idx+1)
+		}
+		if !parent.Active {
+			return fmt.Errorf("商品规格选择无效：第%d项父商品已停用", idx+1)
+		}
+		sku, err := resolveIdentity(selection.SKUID)
+		if err != nil {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU 校验失败：%w", idx+1, err)
+		}
+		if sku.EffectiveParentProductID != selection.ParentProductID {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU %d 不属于父商品 %d", idx+1, selection.SKUID, selection.ParentProductID)
+		}
+		if !sku.Active {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU %d 已停用", idx+1, selection.SKUID)
+		}
+		if !sku.SpecValid {
+			return fmt.Errorf("商品规格选择无效：第%d项 SKU %d 规格已失效", idx+1, selection.SKUID)
+		}
+		defaultSKU, err := resolveIdentity(selection.DefaultSKUIDAtSelection)
+		if err != nil {
+			return fmt.Errorf("商品规格选择无效：第%d项选择时默认规格校验失败：%w", idx+1, err)
+		}
+		if defaultSKU.EffectiveParentProductID != selection.ParentProductID {
+			return fmt.Errorf("商品规格选择无效：第%d项选择时默认规格不属于父商品 %d", idx+1, selection.ParentProductID)
+		}
+		key := beanListProductSpecSelectionKey(selection.ParentProductID, selection.SKUID)
+		if _, duplicate := selections[key]; duplicate {
+			return fmt.Errorf("商品规格选择无效：第%d项重复选择 SKU %d", idx+1, selection.SKUID)
+		}
+		selections[key] = selection
+		selectionBySKU[selection.SKUID] = selection
+		parentProductNamesBySKU[selection.SKUID] = strings.TrimSpace(parent.ParentProductName)
+	}
+	for groupIdx, rawGroup := range beanListAnySlice(cmd.Content["groups"]) {
+		group, ok := objectSnapshotMap(rawGroup)
+		if !ok {
+			return fmt.Errorf("商品规格分组无效：第%d组必须是对象", groupIdx+1)
+		}
+		for itemIdx, rawItem := range beanListAnySlice(group["items"]) {
+			item, ok := objectSnapshotMap(rawItem)
+			if !ok {
+				return fmt.Errorf("商品规格分组无效：第%d组第%d个商品项必须是对象", groupIdx+1, itemIdx+1)
+			}
+			skuID := int64(numberValue(item["sku_id"]))
+			if skuID <= 0 {
+				skuID = int64(numberValue(item["product_id"]))
+			}
+			selection, selected := selectionBySKU[skuID]
+			if !selected {
+				return fmt.Errorf("分组商品项无效：第%d组第%d项 SKU %d 未在规格选择中", groupIdx+1, itemIdx+1, skuID)
+			}
+			parentProductID := int64(numberValue(item["parent_product_id"]))
+			if parentProductID <= 0 {
+				parentProductID = int64(numberValue(item["effective_parent_product_id"]))
+			}
+			if parentProductID > 0 && parentProductID != selection.ParentProductID {
+				return fmt.Errorf("分组商品项无效：第%d组第%d项父商品与规格选择不一致", groupIdx+1, itemIdx+1)
+			}
+		}
+	}
+
+	covered := make(map[string]bool, len(selections))
+	priceRows := beanListAnySlice(cmd.Content["price_rows"])
+	for idx, rawRow := range priceRows {
+		row, ok := objectSnapshotMap(rawRow)
+		if !ok {
+			return fmt.Errorf("商品规格价格行无效：第%d行必须是对象", idx+1)
+		}
+		parentProductID := int64(numberValue(row["parent_product_id"]))
+		skuID := int64(numberValue(row["sku_id"]))
+		if parentProductID <= 0 || skuID <= 0 {
+			return fmt.Errorf("商品规格价格行无效：第%d行缺少 parent_product_id 或 sku_id", idx+1)
+		}
+		selection, skuSelected := selectionBySKU[skuID]
+		if skuSelected && selection.ParentProductID != parentProductID {
+			return fmt.Errorf("商品规格价格行无效：第%d行父商品与规格选择不一致", idx+1)
+		}
+		key := beanListProductSpecSelectionKey(parentProductID, skuID)
+		if _, selected := selections[key]; !selected {
+			return fmt.Errorf("商品规格价格行无效：第%d行 SKU %d 未在规格选择中", idx+1, skuID)
+		}
+		if snapshot, exists := objectSnapshotMap(row["sku_snapshot"]); exists {
+			if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != skuID {
+				return fmt.Errorf("商品规格价格行无效：第%d行 SKU 快照身份不一致", idx+1)
+			}
+		}
+		if snapshot, exists := objectSnapshotMap(row["effective_sales_spec"]); exists {
+			if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != skuID {
+				return fmt.Errorf("商品规格价格行无效：第%d行有效销售规格快照身份不一致", idx+1)
+			}
+		}
+		if beanListFlatPriceRowHasPrice(row) {
+			covered[key] = true
+		}
+	}
+	for key, selection := range selections {
+		if !covered[key] {
+			return fmt.Errorf("商品规格选择无效：父商品 %d 的 SKU %d 缺少对应有效价格行", selection.ParentProductID, selection.SKUID)
+		}
+	}
+	normalizeConcreteProductSpecPublicationSnapshots(cmd, parentProductNamesBySKU)
+	return nil
+}
+
+func beanListProductSpecSelectionKey(parentProductID, skuID int64) string {
+	return fmt.Sprintf("%d:%d", parentProductID, skuID)
 }
 
 func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListCommand, error) {

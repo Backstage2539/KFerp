@@ -44,6 +44,7 @@ import {
   applyPricingRuleTrialToPriceTableRow,
   priceTablePricingRuleTrialPayload,
   buildProductProductionConfigForm,
+  productProductionConfigFieldsFromTemplate,
   buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -76,6 +77,9 @@ import {
   productPriceRecordLabel,
   pricingRuleTrialDefaultQuoteUnit,
   pricingRuleTrialQuoteUnitOptionsForProduct,
+  productCurrentSalesSpecUnit,
+  priceTierTemplateRowKey,
+  priceTierTemplateUnitCompatibility,
   resolvePriceTableTemplateInheritance,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
@@ -89,6 +93,7 @@ import {
   productSkuRowsForParent,
   productArchiveRowsWithSkus,
   skuListRowsFromProducts,
+  skuGroupTableState,
   skuTableState,
   skuTypeLabel,
   skuTypeOptions,
@@ -96,6 +101,7 @@ import {
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
   unitRuleJSONFromForm,
+  visibleSkuGroupRows,
   visibleNonDeletedRows,
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
@@ -249,6 +255,26 @@ test('product SKU rows group child SKUs under the selected parent product', () =
     [101, '227g袋装', '227g'],
     [102, '100g袋装', '100g'],
   ])
+})
+
+test('product SKU rows project the parent default_sku_id onto one concrete child SKU', () => {
+  const products = [
+    { id: 88, sku_id: 88, name: '初晓', parent_product_id: 0, default_sku_id: 102, is_default_sku: true },
+    { id: 101, sku_id: 101, name: '初晓 227g', parent_product_id: 88, sku_name: '227g', is_default_sku: false },
+    { id: 102, sku_id: 102, name: '初晓 454g', parent_product_id: 88, sku_name: '454g', is_default_sku: false },
+  ]
+
+  const rows = productSkuRowsForParent(products, 88)
+  assert.equal(rows.find((row) => row.sku_id === 88)?.is_default_sku, false)
+  assert.equal(rows.find((row) => row.sku_id === 101)?.is_default_sku, false)
+  assert.equal(rows.find((row) => row.sku_id === 102)?.is_default_sku, true)
+})
+
+test('product archive configuration exposes an audited default sales spec action', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  assert.match(source, /设为默认规格/)
+  assert.match(source, /默认规格/)
+  assert.match(source, /\/api\/product-settings\/products\/\$\{parentProductID\}\/default-sku/)
 })
 
 test('product archive rows keep sales-spec SKUs inside one parent product row', () => {
@@ -573,7 +599,7 @@ test('pricing rules and tier templates are independent templates used by price l
     formula_version: 'v2',
     calculation_json: {
       yield_loss_mode: 'bom_or_product',
-      profit_method: 'gross_margin',
+      profit_method: 'markup',
       tax_mode: 'tax_included',
       minimum_margin_rate: 0.18,
       trial_note: '选择商品、报价单位后试算',
@@ -602,10 +628,35 @@ test('pricing rules and tier templates are independent templates used by price l
     active: true,
     remark: '',
     tiers: [
-      { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'kg', pricing_rule_id: 10, position: 1, active: true, remark: '' },
-      { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg', pricing_rule_id: 20, position: 2, active: true, remark: '' },
+      { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'sales_spec_count', pricing_rule_id: 10, position: 1, active: true, remark: '' },
+      { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'sales_spec_count', pricing_rule_id: 20, position: 2, active: true, remark: '' },
     ],
   })
+})
+
+test('pricing rule payload normalizes compatible legacy or missing profit methods to markup', () => {
+  for (const profitMethod of [undefined, '', 'gross_margin', 'markup']) {
+    const payload = buildPricingRulePayload({
+      name: '统一加价模板',
+      margin_rate: 0.8,
+      calculation_json: profitMethod === undefined ? {} : { profit_method: profitMethod },
+      profit_method: profitMethod,
+    })
+    assert.equal(payload.margin_rate, 0.8)
+    assert.equal(payload.calculation_json.profit_method, 'markup')
+  }
+})
+
+test('pricing rule payload preserves unsupported legacy methods so the API can reject unsafe reinterpretation', () => {
+  for (const profitMethod of ['fixed_add', 'unexpected_method']) {
+    const payload = buildPricingRulePayload({
+      name: '旧方式待确认',
+      margin_rate: 3,
+      calculation_json: { profit_method: profitMethod },
+      profit_method: 'markup',
+    })
+    assert.equal(payload.calculation_json.profit_method, profitMethod)
+  }
 })
 
 test('pricing rule copy payload creates an active unique template from inactive source', () => {
@@ -745,7 +796,7 @@ test('pricing rule trial resolves derived SKU sales unit from net content when c
   assert.equal(pricingRuleTrialDefaultQuoteUnit(product, globalUnits), '袋')
 })
 
-test('price table resolves pricing mode by product, subgroup, parent group, price list', () => {
+test('price table resolves pricing mode by parent product, subgroup, parent group, price list', () => {
   const resolved = resolvePriceTableTemplateInheritance({
     defaults: { pricing_mode: 'fixed_price', tier_template_id: 1, pricing_rule_id: 10, fixed_unit_price: 99 },
     groupAssignments: [
@@ -753,9 +804,10 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
       { group_item_id: 101, pricing_mode: 'tier_template', tier_template_id: 3, pricing_rule_id: 0, fixed_unit_price: 0, parent_group_item_id: 100 },
     ],
     productOverrides: [
-      { product_id: 88, group_item_id: 101, tier_template_id: 0, pricing_rule_id: 40 },
+      { scope: 'parent_product', product_id: 88, parent_product_id: 88, group_item_id: 101, tier_template_id: 0, pricing_rule_id: 40 },
+      { scope: 'sku', product_id: 88, sku_id: 88, parent_product_id: 88 },
     ],
-    product: { id: 88, group_item_id: 101 },
+    product: { id: 88, sku_id: 88, parent_product_id: 88, group_item_id: 101 },
   })
 
   assert.deepEqual(resolved, {
@@ -764,13 +816,20 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
     tier_template_id: 3,
     tier_template_source: 'subgroup',
     pricing_rule_id: 40,
-    pricing_rule_source: 'product',
-    fixed_unit_price: 99,
-    fixed_unit_price_source: 'default',
+    pricing_rule_source: 'parent_product',
+    fixed_unit_price: 0,
+    fixed_unit_price_source: 'sku',
   })
 
+  assert.equal(resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'fixed_price', fixed_unit_price: 99 },
+    groupAssignments: [{ group_item_id: 101, fixed_unit_price: 88 }],
+    productOverrides: [{ scope: 'sku', product_id: 88, sku_id: 88, parent_product_id: 88, fixed_unit_price: 59.92 }],
+    product: { id: 88, sku_id: 88, parent_product_id: 88, group_item_id: 101 },
+  }).fixed_unit_price, 59.92)
+
   assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
-    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg', default_sales_unit: '盒', unit_conversion_json: '{"盒":{"kg":0.2}}' },
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg', default_sales_unit: 'kg', unit_conversion_json: '{"kg":{"kg":1}}' },
     resolution: resolved,
     tierTemplate: {
       id: 3,
@@ -787,9 +846,217 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
     },
     unitPriceByTier: { '1kg+': 88, '10kg+': 78 },
   }), [
-    { product_id: 88, product_name: '初晓拼配', price_unit: '盒', inventory_unit: 'kg', inventory_conversion_json: { 盒: { kg: 0.2 } }, tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 31, pricing_rule_id: 41, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-1KG', tier_pricing_rule_id: 41, tier_pricing_rule_version: 'PR-1KG' },
-    { product_id: 88, product_name: '初晓拼配', price_unit: '盒', inventory_unit: 'kg', inventory_conversion_json: { 盒: { kg: 0.2 } }, tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 32, pricing_rule_id: 42, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-10KG', tier_pricing_rule_id: 42, tier_pricing_rule_version: 'PR-10KG' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', inventory_unit: 'kg', inventory_conversion_json: { kg: { kg: 1 } }, tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 31, pricing_rule_id: 41, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-1KG', tier_pricing_rule_id: 41, tier_pricing_rule_version: 'PR-1KG', quantity_basis: 'sales_spec_count', tier_quantity_unit: 'kg', tier_template_name: '批发阶梯' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', inventory_unit: 'kg', inventory_conversion_json: { kg: { kg: 1 } }, tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 32, pricing_rule_id: 42, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-10KG', tier_pricing_rule_id: 42, tier_pricing_rule_version: 'PR-10KG', quantity_basis: 'sales_spec_count', tier_quantity_unit: 'kg', tier_template_name: '批发阶梯' },
   ])
+})
+
+test('price table inheritance resolves shared parent pricing for every SKU and isolates fixed prices per SKU', () => {
+  const common = {
+    defaults: { pricing_mode: 'fixed_price', tier_template_id: 1, pricing_rule_id: 10, fixed_unit_price: 99 },
+    groupAssignments: [
+      { group_item_id: 100, pricing_mode: 'pricing_rule', tier_template_id: 2, pricing_rule_id: 20, fixed_unit_price: 77 },
+      { group_item_id: 101, pricing_mode: 'tier_template', tier_template_id: 3, pricing_rule_id: 30, fixed_unit_price: 88, parent_group_item_id: 100 },
+    ],
+    productOverrides: [
+      {
+        scope: 'parent_product',
+        parent_product_id: 500,
+        pricing_mode: 'pricing_rule',
+        tier_template_id: 4,
+        pricing_rule_id: 40,
+        fixed_unit_price: 199,
+      },
+      {
+        scope: 'sku',
+        sku_id: 501,
+        parent_product_id: 500,
+        fixed_unit_price: 59.92,
+      },
+      {
+        scope: 'sku',
+        product_id: 503,
+        parent_product_id: 500,
+        pricing_mode: 'tier_template',
+        tier_template_id: 5,
+        pricing_rule_id: 50,
+      },
+    ],
+  }
+
+  assert.deepEqual(resolvePriceTableTemplateInheritance({
+    ...common,
+    product: { id: 501, sku_id: 501, parent_product_id: 500, group_item_id: 101 },
+  }), {
+    pricing_mode: 'pricing_rule',
+    pricing_mode_source: 'parent_product',
+    tier_template_id: 4,
+    tier_template_source: 'parent_product',
+    pricing_rule_id: 40,
+    pricing_rule_source: 'parent_product',
+    fixed_unit_price: 59.92,
+    fixed_unit_price_source: 'sku',
+  })
+
+  assert.deepEqual(resolvePriceTableTemplateInheritance({
+    ...common,
+    product: { id: 502, sku_id: 502, parent_product_id: 500, group_item_id: 101 },
+  }), {
+    pricing_mode: 'pricing_rule',
+    pricing_mode_source: 'parent_product',
+    tier_template_id: 4,
+    tier_template_source: 'parent_product',
+    pricing_rule_id: 40,
+    pricing_rule_source: 'parent_product',
+    fixed_unit_price: 0,
+    fixed_unit_price_source: 'sku',
+  })
+
+  assert.deepEqual(resolvePriceTableTemplateInheritance({
+    ...common,
+    product: { id: 503, sku_id: 503, parent_product_id: 500, group_item_id: 101 },
+  }), {
+    pricing_mode: 'pricing_rule',
+    pricing_mode_source: 'parent_product',
+    tier_template_id: 4,
+    tier_template_source: 'parent_product',
+    pricing_rule_id: 40,
+    pricing_rule_source: 'parent_product',
+    fixed_unit_price: 0,
+    fixed_unit_price_source: 'sku',
+  })
+})
+
+test('shared parent pricing exposes inherited fixed mode while keeping two SKU amounts isolated', () => {
+  const productOverrides = [
+    { scope: 'sku', product_id: 501, sku_id: 501, parent_product_id: 500, fixed_unit_price: 59.92 },
+    { scope: 'sku', product_id: 502, sku_id: 502, parent_product_id: 500, fixed_unit_price: 109.9 },
+  ]
+  const defaults = { pricing_mode: 'fixed_price' }
+
+  const first = resolvePriceTableTemplateInheritance({
+    defaults,
+    productOverrides,
+    product: { id: 501, sku_id: 501, parent_product_id: 500, group_item_id: 101 },
+  })
+  const second = resolvePriceTableTemplateInheritance({
+    defaults,
+    productOverrides,
+    product: { id: 502, sku_id: 502, parent_product_id: 500, group_item_id: 101 },
+  })
+
+  assert.equal(first.pricing_mode, 'fixed_price')
+  assert.equal(first.pricing_mode_source, 'default')
+  assert.equal(first.fixed_unit_price, 59.92)
+  assert.equal(second.pricing_mode, 'fixed_price')
+  assert.equal(second.fixed_unit_price, 109.9)
+
+  const categoryFixed = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'tier_template', tier_template_id: 8 },
+    groupAssignments: [{ group_item_id: 101, pricing_mode: 'fixed_price' }],
+    productOverrides,
+    product: { id: 501, sku_id: 501, parent_product_id: 500, group_item_id: 101 },
+  })
+  assert.equal(categoryFixed.pricing_mode, 'fixed_price')
+  assert.equal(categoryFixed.pricing_mode_source, 'subgroup')
+  assert.equal(categoryFixed.fixed_unit_price, 59.92)
+})
+
+test('price tier template quantities are sales-spec counts and ignore legacy kg/lb tier units', () => {
+  const kgTemplate = {
+    id: 3,
+    name: '咖啡熟豆',
+    tiers: [
+      { id: 31, label: '1kg+', quantity_unit: 'kg', active: true },
+      { id: 32, label: '24kg+', quantity_unit: '公斤', active: true },
+    ],
+  }
+
+  assert.deepEqual(priceTierTemplateUnitCompatibility({ name: '初晓', default_sales_unit: '磅' }, kgTemplate), {
+    compatible: true,
+    product_unit: '磅',
+    template_units: ['kg'],
+    message: '',
+  })
+  assert.deepEqual(priceTierTemplateUnitCompatibility({
+    name: '初晓',
+    default_sales_unit: '磅',
+    price_unit_snapshot: 'kg',
+    price_unit: 'kg',
+  }, kgTemplate), {
+    compatible: true,
+    product_unit: '磅',
+    template_units: ['kg'],
+    message: '',
+  })
+  assert.equal(priceTierTemplateUnitCompatibility({
+    price_unit: '',
+    default_sales_unit: '',
+    quote_unit: '磅',
+    price_unit_snapshot: 'kg',
+  }, kgTemplate).compatible, true)
+  assert.equal(priceTablePricingRuleTrialPayload({
+    product_id: 550,
+    pricing_mode: 'tier_template',
+    tier_unit_compatible: false,
+    quantity_basis: 'sales_spec_count',
+    pricing_rule_id: 41,
+    price_unit: 'lb',
+  })?.quote_unit, 'lb', 'a sales-spec-count tier row may create a Pricing Rule trial request regardless of legacy tier unit')
+  assert.equal(productCurrentSalesSpecUnit({ price_unit: '', quote_unit: '磅', price_unit_snapshot: 'kg' }), '磅')
+  const kgOverrideKey = priceTierTemplateRowKey({
+    productID: 550, templateID: 3, tierID: 31,
+    product: { default_sales_unit: 'kg' }, tier: { quantity_unit: 'kg' },
+  })
+  const poundOverrideKey = priceTierTemplateRowKey({
+    productID: 550, templateID: 3, tierID: 31,
+    product: { default_sales_unit: '磅' }, tier: { quantity_unit: 'lb' },
+  })
+  assert.notEqual(kgOverrideKey, poundOverrideKey, 'a concrete SKU sales-spec transition must invalidate its old manual price override key')
+  assert.equal(
+    priceTierTemplateRowKey({ productID: 550, templateID: 3, tierID: 31, product: { default_sales_unit: '磅' }, tier: { quantity_unit: 'kg' } }),
+    priceTierTemplateRowKey({ productID: 550, templateID: 3, tierID: 31, product: { default_sales_unit: '磅' }, tier: { quantity_unit: 'lb' } }),
+    'legacy tier quantity units must not affect a current sales-spec-count row identity',
+  )
+  const poundRows = buildPriceTableRowsFromTemplateResolution({
+    product: { id: 550, name: '初晓', default_sales_unit: '磅', price_unit: 'kg', inventory_unit: 'kg', unit_conversion_json: { 磅: { kg: 0.45359237 } } },
+    resolution: { pricing_mode: 'tier_template', tier_template_id: 4, tier_template_source: 'product' },
+    tierTemplate: { id: 4, name: '磅装阶梯', tiers: [{ id: 41, label: '1磅+', quantity_unit: 'lb', pricing_rule_id: 41 }] },
+    pricingRulesByID: { 41: { id: 41, code: 'PR-LB' } },
+    unitPriceByTier: { '1磅+': 68 },
+  })
+  assert.equal(poundRows[0].price_unit, '磅', 'generated rows must use the current sales spec instead of a stale price unit')
+  assert.equal(poundRows[0].tier_quantity_unit, '磅', 'the tier display unit must be the selected SKU sales spec')
+  assert.equal(poundRows[0].quantity_basis, 'sales_spec_count')
+  assert.equal(priceTierTemplateUnitCompatibility({ default_sales_unit: 'lbs' }, { tiers: [{ quantity_unit: '磅' }] }).compatible, true)
+  assert.equal(priceTierTemplateUnitCompatibility({ default_sales_unit: '1Kg' }, { tiers: [{ quantity_unit: '千克' }] }).compatible, true)
+  assert.equal(priceTierTemplateUnitCompatibility({ default_sales_unit: '盒（10袋）' }, { tiers: [{ quantity_unit: '盒' }] }).compatible, true)
+  assert.deepEqual(priceTierTemplateUnitCompatibility({}, kgTemplate), {
+    compatible: false, product_unit: '', template_units: ['kg'], message: '阶梯模板不可用：商品缺少有效默认销售规格',
+  })
+  assert.deepEqual(priceTierTemplateUnitCompatibility({ default_sales_unit: 'kg' }, { tiers: [{ min_qty: 1, quantity_unit: '' }] }), {
+    compatible: true, product_unit: 'kg', template_units: [], message: '',
+  })
+  assert.deepEqual(priceTierTemplateUnitCompatibility({ default_sales_unit: 'kg' }, { tiers: [] }), {
+    compatible: false, product_unit: 'kg', template_units: [], message: '阶梯模板不可用：阶梯模板缺少有效数量档位',
+  })
+})
+
+test('price table generates sales-spec-count tiers even when legacy template units differ', () => {
+  const rows = buildPriceTableRowsFromTemplateResolution({
+    product: { id: 88, name: '初晓', inventory_unit: 'kg', default_sales_unit: '磅', unit_conversion_json: '{"磅":{"kg":0.454}}' },
+    resolution: { pricing_mode: 'tier_template', tier_template_id: 3, tier_template_source: 'product' },
+    tierTemplate: {
+      id: 3,
+      name: '咖啡熟豆',
+      tiers: [{ id: 31, label: '1kg+', min_qty: 1, quantity_unit: 'kg', pricing_rule_id: 41 }],
+    },
+    pricingRulesByID: { 41: { id: 41, code: 'PR-1KG' } },
+    unitPriceByTier: { '1kg+': 88 },
+  })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].tier_quantity_unit, '磅')
+  assert.equal(rows[0].quantity_basis, 'sales_spec_count')
 })
 
 test('price table can generate a single row from pricing rule mode or fixed price mode', () => {
@@ -898,6 +1165,30 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'bom_operation_snapshot')
 })
 
+test('price table pricing-rule preview keeps a manually adjusted final price while refreshing its automatic baseline', () => {
+  const got = applyPricingRuleTrialToPriceTableRow({
+    product_id: 550,
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 40,
+    price_unit: 'kg',
+    inventory_unit: 'kg',
+    final_unit_price: 88,
+    original_final_unit_price: 80,
+    manual_adjusted: true,
+    cost_source_snapshot: {},
+  }, {
+    pricing_rule_id: 40,
+    product_id: 550,
+    quote_unit: 'kg',
+    inventory_unit: 'kg',
+    final_unit_price: 84,
+  })
+
+  assert.equal(got.final_unit_price, 88)
+  assert.equal(got.original_final_unit_price, 84)
+  assert.equal(got.manual_adjusted, true)
+})
+
 test('price table pricing-rule preview payload falls back to numeric product key', () => {
   const row = {
     row_key: '550:pricing_rule',
@@ -983,25 +1274,64 @@ test('price table tier-template preview rows use their tier pricing rule trial r
   assert.deepEqual(got.inventory_conversion_json, { lb: { kg: 0.454 } })
 })
 
-test('product settings exposes pricing rule pane instead of final price records', () => {
+test('product price management edits markup-only pricing rules in a right drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
+  const editorDrawer = source.match(/<div v-if="pricingRuleEditorDrawerOpen"[\s\S]*?<div v-if="pricingRuleTrialDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
 
-  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '价格试算', '新建价格计算模板', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则', '复制', '失效']) {
+  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '价格试算', '新建价格计算模板', '基础成本', '加价率', '税率', '取整规则', '复制', '失效']) {
     assert.equal(pane.includes(want), true, `product price management pane should expose ${want}`)
   }
-  for (const want of ['pricingRules', 'buildPricingRulePayload', 'buildPricingRuleCopyPayload', 'startPricingRuleEdit', 'copyPricingRule', 'deactivatePricingRule', 'addPricingRuleOtherCostRow']) {
+  for (const want of ['pricingRules', 'pricingRuleEditorDrawerOpen', 'buildPricingRulePayload', 'buildPricingRuleCopyPayload', 'startPricingRuleEdit', 'closePricingRuleEditor', 'pricingRuleNeedsMarkupConfirmation', 'copyPricingRule', 'deactivatePricingRule', 'addPricingRuleOtherCostRow']) {
     assert.match(script, new RegExp(want))
   }
   assert.match(pane, /@click="openPricingRuleTrial\(\)"[^>]*>价格试算<\/button>[\s\S]*@click="resetPricingRuleForm"[^>]*>新建价格计算模板<\/button>/)
   assert.match(pane, /class="text-button pricing-rule-name-button"[\s\S]*@click="startPricingRuleEdit\(rule\)"/)
   assert.match(pane, /class="secondary compact-action pricing-rule-copy-action"[\s\S]*@click="copyPricingRule\(rule\)"[\s\S]*>复制<\/button>/)
+  assert.match(pane, /:disabled="productPriceSaving \|\| pricingRuleNeedsMarkupConfirmation\(rule\)"/)
   assert.match(pane, /:class="\['pricing-rule-row', \{ inactive: rule\.active === false \}\]"/)
+  assert.doesNotMatch(pane, /<form class="template-editor pricing-rule-form"/)
   assert.doesNotMatch(pane, />编辑模板<\/button>/)
   assert.doesNotMatch(pane, /@click="openPricingRuleTrial\(rule\)"/)
+
+  for (const want of ['价格计算模板编辑', '编辑价格计算模板', '新建价格计算模板', 'pricing-rule-form', '模板名称', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '加价率（80%=0.8）', '税前价 = 成本基数 × (1 + 加价率)', '最终售价再计算税额和取整', '税费方式', '最低毛利率（仅预警）', '只比较试算结果，不参与售价计算', '公式版本', '试算说明', '税率', '取整规则', '保存价格计算模板']) {
+    assert.equal(editorDrawer.includes(want), true, `pricing rule editor drawer should expose ${want}`)
+  }
+  assert.match(editorDrawer, /class="settings-drawer-mask"[^>]*@click\.self="closePricingRuleEditor"/)
+  assert.match(editorDrawer, /class="settings-drawer pricing-rule-editor-drawer"[^>]*aria-label="价格计算模板编辑"/)
+  assert.match(editorDrawer, /role="dialog"/)
+  assert.match(editorDrawer, /aria-modal="true"/)
+  assert.match(editorDrawer, /@keydown\.esc\.stop\.prevent="closePricingRuleEditor"/)
+  assert.match(editorDrawer, /@keydown\.tab="trapPricingRuleEditorFocus"/)
+  assert.match(editorDrawer, /@click="closePricingRuleEditor"[^>]*>关闭<\/button>/)
+  assert.match(editorDrawer, /<form class="template-editor pricing-rule-form"[^>]*@submit\.prevent="savePricingRule"/)
+  assert.match(editorDrawer, /v-if="pricingRuleNeedsMarkupConfirmation\(pricingRuleForm\)"[\s\S]*旧价格方式无法安全换算；请新建加价率模板/)
+  assert.doesNotMatch(editorDrawer, /v-model="pricingRuleForm\.profit_method"/)
+  assert.doesNotMatch(editorDrawer, /value="gross_margin"|value="fixed_add"|>毛利率<|>固定加价</)
+  assert.doesNotMatch(editorDrawer, /<div v-if="(?:error|ok)"/)
+  assert.match(script, /const pricingRuleEditorDrawerOpen = ref\(false\)/)
+  assert.match(script, /function resetPricingRuleForm\(\) \{[\s\S]*?openPricingRuleEditorDrawer\(\)[\s\S]*?\}/)
+  assert.match(script, /function startPricingRuleEdit\(rule\) \{[\s\S]*?openPricingRuleEditorDrawer\(\)[\s\S]*?\}/)
+  assert.match(script, /function openPricingRuleEditorDrawer\(\) \{[\s\S]*?pricingRuleEditorDrawerOpen\.value = true[\s\S]*?firstField[\s\S]*?focus/)
+  assert.match(script, /function closePricingRuleEditor\(\) \{[\s\S]*?pricingRuleEditorDrawerOpen\.value = false[\s\S]*?\}/)
+  assert.match(script, /function trapPricingRuleEditorFocus\(event\)/)
+  const copyStart = script.indexOf('async function copyPricingRule')
+  const copyEnd = script.indexOf('async function deactivatePricingRule', copyStart)
+  assert.ok(copyStart > -1 && copyEnd > copyStart, 'copyPricingRule block not found')
+  assert.equal(script.slice(copyStart, copyEnd).includes('openPricingRuleEditorDrawer()'), true, 'copied pricing rule should open the editor drawer')
+  assert.equal(script.slice(copyStart, copyEnd).includes('pricingRuleNeedsMarkupConfirmation(rule)'), true, 'unsupported legacy pricing rules must not be copied into active markup templates')
+  const saveStart = script.indexOf('async function savePricingRule')
+  assert.ok(saveStart > -1 && copyStart > saveStart, 'savePricingRule block not found')
+  assert.equal(script.slice(saveStart, copyStart).includes("ok.value = '价格计算模板已保存'"), true, 'saving should keep the global success notification feedback')
+  assert.match(style, /\.pricing-rule-editor-drawer/)
+  assert.match(source, /计价方式：加价率/)
+  assert.match(source, /临时加价率/)
+  assert.doesNotMatch(source, /利润方式：/)
+  assert.doesNotMatch(source, /临时利润\/加价/)
   for (const forbidden of ['商品成本上下文', '成本项配置', '库存成本', '手工成本', '最近采购成本', '成本取数口径', '商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
-    assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
+    assert.equal(`${pane}${editorDrawer}`.includes(forbidden), false, `product price management should not expose ${forbidden}`)
   }
 })
 
@@ -1029,7 +1359,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '销售单位',
     '临时损耗率',
     '空=不额外计损耗',
-    '临时利润/加价',
+    '临时加价率',
     '临时税率',
     '其他成本',
     '加价后价格',
@@ -1079,8 +1409,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '试算说明',
     '点击查看试算说明',
     '本次试算抽屉',
-    '价格计算模板编辑区',
-    '临时利润/加价',
+    '价格计算模板编辑抽屉',
+    '临时加价率',
     '计算公式',
     'formula_expression_lines',
     '公式步骤',
@@ -1153,6 +1483,22 @@ test('product price list owns tier template drawer and three pricing modes', () 
   }
   assert.doesNotMatch(source, /默认阶梯价模板/)
   assert.doesNotMatch(source, /子组/)
+})
+
+test('tier template drawer keeps long template names inside the list column', () => {
+  const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+  const style = source.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] || ''
+  const listStyle = style.match(/\.tier-template-list\s*\{([^}]*)\}/)?.[1] || ''
+  const rowStyle = style.match(/\.tier-template-list-row\s*\{([^}]*)\}/)?.[1] || ''
+  const textStyle = style.match(/\.tier-template-list-row strong,\s*\.tier-template-list-row small\s*\{([^}]*)\}/)?.[1] || ''
+
+  assert.match(listStyle, /grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+  assert.match(listStyle, /min-width:\s*0/)
+  assert.match(rowStyle, /box-sizing:\s*border-box/)
+  assert.match(rowStyle, /min-width:\s*0/)
+  assert.match(rowStyle, /white-space:\s*normal/)
+  assert.match(textStyle, /overflow-wrap:\s*anywhere/)
+  assert.match(textStyle, /white-space:\s*normal/)
 })
 
 test('customer alias rename overrides list display while preserving customer product name field', () => {
@@ -1269,6 +1615,27 @@ test('industry field helpers use comma text for select options and build alias f
   })
 })
 
+test('product production config has no industry fields without a selected template', () => {
+  const legacyFields = [{
+    field_key: 'roast_level',
+    template_field_key: '',
+    label: 'roast_level',
+    field_type: 'text',
+    value_text: '深烘',
+    sort_order: 1,
+  }]
+
+  assert.deepEqual(productProductionConfigFieldsFromTemplate(legacyFields, null), [])
+
+  const form = buildProductProductionConfigForm({
+    product_id: 556,
+    industry_field_template_id: 0,
+    fields: legacyFields,
+  }, { id: 556, name: '无模板旧商品' })
+
+  assert.deepEqual(form.fields, [])
+})
+
 test('product production config form keeps only current template industry fields', () => {
   const roastTemplate = {
     id: 2,
@@ -1328,7 +1695,35 @@ test('product production config form keeps only current template industry fields
   assert.equal(legacyOnly.fields[0].field_key, '烘焙度')
   assert.equal(legacyOnly.fields[0].template_field_key, '烘焙度')
   assert.equal(legacyOnly.fields[0].field_type, 'select')
-  assert.equal(legacyOnly.fields[0].value_text, '中烘')
+  assert.equal(legacyOnly.fields[0].value_text, '')
+})
+
+test('product production config rejects label-only legacy industry field matches', () => {
+  const roastTemplate = {
+    id: 2,
+    fields: [{
+      field_key: '烘焙度',
+      label: '烘焙度',
+      field_type: 'select',
+      options_json: '["浅烘","中烘","深烘"]',
+      sort_order: 1,
+    }],
+  }
+  const legacyFields = [{
+    field_key: 'legacy_roast',
+    template_field_key: '',
+    label: '烘焙度',
+    field_type: 'text',
+    value_text: '中烘',
+    sort_order: 1,
+  }]
+
+  const projected = productProductionConfigFieldsFromTemplate(legacyFields, roastTemplate)
+
+  assert.equal(projected.length, 1)
+  assert.equal(projected[0].field_key, '烘焙度')
+  assert.equal(projected[0].template_field_key, '烘焙度')
+  assert.equal(projected[0].value_text, '')
 })
 
 test('classification template usages are page-level tabs instead of object fields', () => {
@@ -2290,6 +2685,70 @@ test('skuTableState keeps visible rows, total, and category filters in one consi
     pageSize: 10,
     rows: rows.slice(0, 10),
   })
+})
+
+test('skuGroupTableState paginates every product category independently', () => {
+  const coffeeRows = Array.from({ length: 12 }, (_, index) => ({
+    id: `coffee-${index + 1}`,
+    name: `咖啡豆 ${index + 1}`,
+  }))
+  const dripRows = Array.from({ length: 13 }, (_, index) => ({
+    id: `drip-${index + 1}`,
+    name: `挂耳咖啡 ${index + 1}`,
+  }))
+
+  const state = skuGroupTableState([
+    { key: 'coffee', label: '咖啡豆', rows: coffeeRows },
+    { key: 'drip', label: '挂耳咖啡', rows: dripRows },
+  ], {
+    coffee: { page: 2, pageSize: 10 },
+    drip: { page: 1, pageSize: 10 },
+  })
+
+  assert.equal(state.groups[0].total, 12)
+  assert.equal(state.groups[0].page, 2)
+  assert.deepEqual(state.groups[0].rows.map((row) => row.id), ['coffee-11', 'coffee-12'])
+  assert.equal(state.groups[1].total, 13)
+  assert.equal(state.groups[1].page, 1)
+  assert.deepEqual(state.groups[1].rows.map((row) => row.id), dripRows.slice(0, 10).map((row) => row.id))
+  assert.deepEqual(state.pagination, {
+    coffee: { page: 2, pageSize: 10 },
+    drip: { page: 1, pageSize: 10 },
+  })
+  assert.equal(state.visibleRows.length, 12)
+})
+
+test('skuGroupTableState keeps full totals, clamps pages, and counts parent products only', () => {
+  const parentRows = [{
+    id: 1,
+    name: '金色山脉',
+    sku_rows: Array.from({ length: 6 }, (_, index) => ({ id: 100 + index })),
+  }]
+  const state = skuGroupTableState([
+    { key: 'coffee', label: '咖啡豆', rows: parentRows },
+    { key: 'empty', label: '空分类', rows: [] },
+  ], {
+    coffee: { page: 9, pageSize: 10 },
+    empty: { page: 3, pageSize: 10 },
+  })
+
+  assert.equal(state.groups[0].total, 1)
+  assert.equal(state.groups[0].page, 1)
+  assert.equal(state.groups[0].rows.length, 1)
+  assert.equal(state.groups[0].needsPagination, false)
+  assert.equal(state.groups[1].total, 0)
+  assert.equal(state.groups[1].page, 1)
+  assert.equal(state.groups[1].needsPagination, false)
+})
+
+test('visibleSkuGroupRows excludes collapsed categories from visible bulk selection', () => {
+  const groups = [
+    { key: 'coffee', rows: [{ id: 1 }, { id: 2 }] },
+    { key: 'drip', rows: [{ id: 3 }] },
+  ]
+
+  assert.deepEqual(visibleSkuGroupRows(groups, ['coffee']).map((row) => row.id), [3])
+  assert.deepEqual(visibleSkuGroupRows(groups, []).map((row) => row.id), [1, 2, 3])
 })
 
 test('category filter options are derived from current SKU rows', () => {
@@ -3315,32 +3774,41 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.doesNotMatch(productArchiveWorkspace, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
   assert.doesNotMatch(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
-  assert.match(template, /:total="skuDisplayTotal"/)
   assert.match(template, /<table :key="skuTableKey" class="sku-table"/)
   assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /\{\{ group\.total \}\} 款/)
   assert.match(template, /v-for="row in group\.rows"/)
+  assert.match(template, /group\.needsPagination[\s\S]*<PaginationControls[\s\S]*handleSkuGroupPaginationChange\(group\.key, \$event\)/)
   assert.match(template, /v-if="!displaySkuRows\.length"/)
-  assert.match(template, /:key="skuPaginationKey"/)
+  assert.doesNotMatch(productArchiveWorkspace, /:key="skuPaginationKey"/)
+  assert.doesNotMatch(productArchiveWorkspace, /:total="skuDisplayTotal"/)
   assert.match(script, /const customerID = skuContextCustomerID\.value\s+return sortRowsForCustomerSkuPriority\(/)
   assert.match(script, /product\) => customerID > 0 && skuContextProductFilter\(product\)/)
   assert.match(script, /const currentSkuSourceRows = computed\(\(\) => \(/)
   assert.match(script, /skuContextCustomerID\.value > 0 \? customerSkuRows\.value : publicSkuRows\.value/)
-  assert.match(script, /const skuVisibleTableState = computed\(\(\) => skuTableState\(currentSkuSourceRows\.value, skuFilters\.value, \{/)
-  assert.match(script, /const normalizedSkuFilters = computed\(\(\) => skuVisibleTableState\.value\.filters\)/)
-  assert.match(script, /const skuDisplayTotal = computed\(\(\) => skuVisibleTableState\.value\.total\)/)
+  assert.match(script, /const normalizedSkuFilters = computed\(\(\) => normalizeVisibleSkuFilters\(skuFilters\.value, currentSkuSourceRows\.value\)\)/)
+  assert.match(script, /const filteredSkuRows = computed\(\(\) => filterSkuRows\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\)\)/)
   assert.match(script, /const skuDisplayKey = computed/)
   assert.match(script, /const skuTableKey = computed\(\(\) => `\$\{skuDisplayKey\.value\}:table`\)/)
-  assert.match(script, /const skuPaginationKey = computed\(\(\) => `\$\{skuDisplayKey\.value\}:pagination`\)/)
-  assert.match(script, /const displaySkuRows = computed\(\(\) => skuVisibleTableState\.value\.rows\)/)
-  assert.match(script, /const skuPrimaryCategoryOptions = computed\(\(\) => skuVisibleTableState\.value\.primaryOptions\)/)
-  assert.match(script, /const skuSecondaryCategoryOptions = computed\(\(\) => skuVisibleTableState\.value\.secondaryOptions\)/)
+  assert.match(script, /const fullDisplaySkuGroups = computed\(\(\) => groupRowsByBusinessGroupTemplate\(filteredSkuRows\.value, \{/)
+  assert.match(script, /const groupedSkuTableState = computed\(\(\) => skuGroupTableState\(fullDisplaySkuGroups\.value, skuGroupPagination\.value, \{/)
+  assert.match(script, /const displaySkuGroups = computed\(\(\) => groupedSkuTableState\.value\.groups\)/)
+  assert.match(script, /const displaySkuRows = computed\(\(\) => groupedSkuTableState\.value\.visibleRows\)/)
+  assert.match(script, /const visibleDisplaySkuRows = computed\(\(\) => visibleSkuGroupRows\(displaySkuGroups\.value, collapsedProductClassificationGroups\.value\)\)/)
+  assert.match(script, /const editableDisplaySkuRows = computed\(\(\) => visibleDisplaySkuRows\.value\.filter\(canEditSkuRow\)\)/)
+  assert.match(script, /const skuPrimaryCategoryOptions = computed\(\(\) => primaryCategoryOptions\(currentSkuSourceRows\.value\)\)/)
+  assert.match(script, /const skuSecondaryCategoryOptions = computed\(\(\) => secondaryCategoryOptions\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\.primaryCategory\)\)/)
   assert.doesNotMatch(script, /const skuRenderRows = computed/)
   assert.doesNotMatch(script, /const skuRenderTotal = computed/)
-  assert.match(script, /skuDisplayTotal\.value/)
   assert.match(script, /function syncVisibleSkuTableState\(\)/)
-  assert.match(script, /const tableState = skuVisibleTableState\.value/)
+  assert.match(script, /function handleSkuGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
+  assert.match(script, /function resetSkuGroupPages\(\) \{\s+if \(restoringProductSettingsDraft\) return/)
+  assert.match(script, /watch\(skuFilters, resetSkuGroupPages, \{ deep: true \}\)/)
+  assert.match(script, /watch\(selectedProductGroupTemplateID, \(\) => \{\s+selectedProductBusinessGroupItemID\.value = 0\s+if \(restoringProductSettingsDraft\) return\s+skuGroupPagination\.value = \{\}/)
+  assert.match(script, /skuGroupPagination: skuGroupPagination\.value/)
+  assert.match(script, /watch\(visibleDisplaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
   assert.doesNotMatch(script, /displaySkuRows\.value = pageState\.rows|const pageState = sliceVisibleSkuRows/)
-  assert.match(script, /watch\(\[\s*publicSkuRows,\s*customerSkuRows,\s*skuFilters,\s*skuPage,\s*skuPageSize,\s*selectedCustomerSkuCustomerID,\s*\], syncVisibleSkuTableState, \{ deep: true, immediate: true \}\)/)
+  assert.match(script, /watch\(\[\s*publicSkuRows,\s*customerSkuRows,\s*skuFilters,\s*selectedCustomerSkuCustomerID,\s*\], syncVisibleSkuTableState, \{ deep: true, immediate: true \}\)/)
   assert.match(script, /applyWorkspaceCustomerContext\(\)\s+syncVisibleSkuTableState\(\)\s+pruneSelectedProducts\(displaySkuRows\.value\)/)
   assert.match(script, /await nextTick\(\)\s+syncVisibleSkuTableState\(\)\s+restoringProductSettingsDraft = false/)
   assert.doesNotMatch(script, /const skuTable = computed/)
@@ -3872,6 +4340,60 @@ test('product archive industry fields are generated from templates without ad-ho
   assert.doesNotMatch(drawer, /删除<\/button>/)
   assert.doesNotMatch(drawer, />字段名</)
   assert.doesNotMatch(drawer, />类型</)
+})
+
+test('product archive displays and saves industry fields only through the selected template', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const sourceBetween = (start, end) => {
+    const startIndex = script.indexOf(start)
+    const endIndex = script.indexOf(end, startIndex + start.length)
+    assert.ok(startIndex >= 0, `missing source block start: ${start}`)
+    assert.ok(endIndex > startIndex, `missing source block end: ${end}`)
+    return script.slice(startIndex, endIndex)
+  }
+  const listBlock = sourceBetween('function productionConfigPriceListFields(', 'function productionConfigLossLabel(')
+  const openBlock = sourceBetween('async function openProductProductionConfig(', 'async function loadIndustryFieldTemplates(')
+  const applyBlock = sourceBetween('function applyIndustryFieldTemplateToProductionConfig(', 'function closeProductProductionConfigDrawer(')
+  const closeBlock = sourceBetween('function closeProductProductionConfigDrawer(', 'async function refreshClassificationTemplates(')
+  const saveBlock = sourceBetween('async function saveProductProductionConfig(', 'async function createSku(')
+
+  assert.match(listBlock, /const template = industryFieldTemplateForConfig\(config\)/)
+  assert.match(listBlock, /return productProductionConfigFieldsFromTemplate\(config\.fields \|\| \[\], template\)/)
+  assert.match(applyBlock, /const template = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
+  assert.match(applyBlock, /productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
+  assert.doesNotMatch(applyBlock, /if \(!template\) return/)
+  assert.match(saveBlock, /const industryFieldTemplate = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
+  assert.match(saveBlock, /const fields = productProductionConfigFieldsFromTemplate/)
+
+  assert.match(script, /^let productProductionConfigOpenGeneration = 0$/m)
+  assert.match(openBlock, /const openGeneration = \+\+productProductionConfigOpenGeneration/)
+  assert.match(openBlock, /const productID = Number\(row\?\.id \|\| config\?\.product_id \|\| 0\)/)
+  assert.match(openBlock, /const industryFieldTemplateID = Number\(config\?\.industry_field_template_id \|\| 0\)/)
+  assert.match(openBlock, /const industryFieldTemplateAvailableAtOpen = Boolean\(industryFieldTemplateForConfig\(config\)\)/)
+  assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)/)
+  assert.match(openBlock, /if \(!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0\) \{\s*industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then/)
+  assert.match(openBlock, /industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then\(\(\) => \{[\s\S]*?isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateID\)[\s\S]*?productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
+  assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)[\s\S]*?industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then[\s\S]*?await Promise\.all\(/)
+  assert.match(openBlock, /Promise\.all\(\[[\s\S]*?industryFieldTemplatesPromise,[\s\S]*?\]\)/)
+  assert.doesNotMatch(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*productProductionConfigForm\.value\.fields\s*=/)
+  assert.match(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return\s*await ensureProductBomUsage\(productID\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return/)
+  assert.match(openBlock, /await ensureProductionBomDetail\(productProductionConfigForm\.value\.production_bom_id\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return/)
+  assert.match(openBlock, /catch \(err\) \{\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return\s*error\.value =/)
+  assert.equal((openBlock.match(/isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateID\)/g) || []).length, 1)
+  assert.equal((openBlock.match(/isCurrentProductProductionConfigOpen\(openGeneration, productID\)/g) || []).length, 4)
+  assert.doesNotMatch(openBlock, /isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)/)
+  assert.doesNotMatch(openBlock, /\t/)
+
+  const drawerGuardBlock = sourceBetween('function isCurrentProductProductionConfigOpen(', 'function isCurrentProductProductionConfigIndustryProjection(')
+  const projectionGuardBlock = sourceBetween('function isCurrentProductProductionConfigIndustryProjection(', 'async function openProductProductionConfig(')
+  assert.match(drawerGuardBlock, /generation === productProductionConfigOpenGeneration/)
+  assert.match(drawerGuardBlock, /productProductionConfigDrawerOpen\.value/)
+  assert.match(drawerGuardBlock, /currentProductID === Number\(productID \|\| 0\)/)
+  assert.doesNotMatch(drawerGuardBlock, /industryFieldTemplateID|industry_field_template_id/)
+  assert.match(projectionGuardBlock, /isCurrentProductProductionConfigOpen\(generation, productID\)/)
+  assert.match(projectionGuardBlock, /industry_field_template_id \|\| 0\) === Number\(industryFieldTemplateID \|\| 0\)/)
+  assert.match(closeBlock, /productProductionConfigOpenGeneration \+= 1\s*productProductionConfigDrawerOpen\.value = false/)
 })
 
 test('product settings uses product business groups instead of product classification page controls', () => {

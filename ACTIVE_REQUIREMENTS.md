@@ -6,6 +6,547 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-563-WORKSTATION-PIECE-COST
+- Branch: codex/workstation-piece-cost
+- Owner/session: Codex / 2026-07-30
+- Status: merged to develop / development deployed; automated, temporary PostgreSQL and read-only API/static smoke passed; logged-in browser acceptance blocked by development certificate trust
+- Scope: 工位产能新增 `按工时 / 按计件` 成本方式。按工时沿用工位小时成本、标准分钟和批次数；按计件以具体 SKU 销售规格件为唯一费率口径，并按计划销售规格件数或实际产出件数计费。标准成本、生产计划、工单、工序卡和成本追溯按工序分别冻结并展示烘焙、色选、包装成本。
+- DEV:
+  - DEV-563-CAPACITY-COST-METHOD：工位产能新增 `cost_method=time|piece` 和按销售规格件计价的 `piece_rate`；历史和缺省数据按 `time` 读取，新计件产能单位固定为 `件`，保存/修改/停用继续写操作日志。
+  - DEV-563-STANDARD-COST-SNAPSHOT：工艺路线标准成本产能档和 BOM 发布快照冻结成本方式、计件费率、费率单位及折算关系；按计件标准成本通过商品/SKU 权威单位换算折算到 BOM 库存单位，不从 `227g` 等显示名称解析数量。
+  - DEV-563-PLAN-ACTUAL-PIECE-COST：计划计件成本按 `计划数量 × 计件费率`，实际计件成本按 `实际产出数量 × 冻结计件费率`；按工时路径保持现有批次数/分钟公式，工单和工序卡逐工序冻结并汇总。
+  - DEV-563-UI-AUDIT：工位产能表单按成本方式显示对应字段和公式；生产计划、工单、工序卡、执行枢纽与成本追溯分列展示烘焙/色选/包装成本，主数据写操作和执行状态操作可审计。
+  - DEV-563-DOCS-ACCEPTANCE：同步需求、验收、生产/成本手册和验收证据；以初晓拼配227g具体 SKU 的100个销售规格件验证包装 `100件 × 0.5元/销售规格件 = 50元`，并验证烘焙、色选、包装三项成本独立且合计正确。
+- Verifier:
+  - RED/GREEN backend: manufacturing schema/service/repository/API, BOM operation cost snapshot, production plan/work order/job card freeze, actual cost aggregation and support contracts.
+  - RED/GREEN frontend: workstation capacity cost-method form, production split/cost detail, workstation completion and cost breakdown tests.
+  - Database/API: temporary PostgreSQL verifies historical default `time`, count-unit validation, snapshots, operation logs and the 100-bag planned/actual cost scenario.
+  - Build/review: affected Go packages, Vue Node tests, Vite production build, `scripts/verify_kferp.sh changed`, `git diff --check`.
+  - Manual/acceptance: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-07-30-workstation-piece-cost.md`.
+- Deployment: merge `a3706ce2f3680ecbaa92787803ba72e2370a9afd` 已推送 `origin/develop` 并部署 development；候选镜像 `sha256:61c263bb8808cec3484d6208d1be489539d1126d6550f2ef416f002c4572cdb0`；数据库备份 `/opt/stacks/erp/backups/pre-pr563-20260730184251.dump`；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260730184251`；回滚镜像 `erp-orderapp:rollback-pr563-20260730184251`。完整 Docker `go test ./...`、临时 PostgreSQL、Vue/小程序构建、容器和外部静态/API冒烟通过；应用内浏览器因 `ERR_CERT_AUTHORITY_INVALID` 未完成登录态视觉验收；production forbidden
+- Last update: 2026-07-30 Asia/Shanghai
+
+### PR-562-PRODUCTION-EXECUTION-JOB-CARD-CONSOLIDATION
+- Branch: codex/pr562-production-execution-entry
+- Owner/session: Codex / 2026-07-29
+- Status: merged to develop / development deployed; read-only API and static smoke passed, awaiting logged-in browser acceptance
+- Scope: 工单级操作统一进入生产执行枢纽；工序卡收敛为只读执行记录；工序开始、暂停、继续、完成及实际数据统一在工位视图执行。
+- DEV:
+  - DEV-562-WORKORDER-EXECUTION-HUB-COMMAND：工单列表删除直接开工和完工入库；执行枢纽开始生产改为受 readiness 控制的原地命令，成功刷新、失败中文提示并防重复提交。
+  - DEV-562-JOB-CARD-READONLY-PROJECTION：工序卡删除状态按钮、编辑框和保存实际，展示冻结工序要求、实际记录、时间与操作人，并提供进入工位和执行枢纽。
+  - DEV-562-WORKSTATION-STATE-ACTUALS：工位严格按服务端 available_actions 执行状态闭环；完成本工序一次提交实际分钟、投入产出、余料、损耗与异常信息。
+  - DEV-562-DOCS-DELIVERY：更新生产手册、需求、验收、PR/DEV 记录，完成测试、合并、development 部署与只读冒烟。
+- Verifier:
+  - RED frontend: `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/work-orders.test.js src/lib/manufacturing-execution.test.js`.
+  - RED backend/support: `go test ./internal/application/production ./internal/interfaces/http/support -run 'TestPR562|TestDev562' -count=1`.
+  - GREEN/API: production application, HTTP production and support packages; temporary PostgreSQL job-card state and audit closure.
+  - GREEN frontend/build: focused Node tests, full frontend suite and Vite production build.
+- Deployment: merge `ac21a5964f0cf24e098c19105d112b5b0c856e1a` 已推送 `origin/develop` 并部署 development；备份 `/opt/stacks/erp/orderapp.backup.deploy-20260730001320`；容器、需求记录、指定工单执行枢纽/工序卡只读 API、工位动作合同和 `index-DYYLfyWR.js` 通过；production forbidden
+- Last update: 2026-07-29 Asia/Shanghai
+- Notes: 指定真实工单 `WO-PP-0000000083-0000000051` 只做只读冒烟，确认当前为部分完成、唯一工序卡已完成且不再出现在可执行工位队列；未执行开工、暂停、继续、完成或库存写入。公网浏览器仍被 `ERR_CERT_AUTHORITY_INVALID` 拦截，未绕过证书。
+
+### PR-561-WIP-BULK-MATERIAL-ISSUE
+- Branch: codex/pr561-wip-bulk-issue
+- Owner/session: Codex / 2026-07-28
+- Status: merged to develop / development deployed; read-only API smoke passed, awaiting logged-in browser acceptance
+- Scope: 工单生产领料的 WIP 缺口改为建议领用量，不再作为原料仓到 WIP 的硬上限；支持按 60Kg 等实际标准批量领料，保留真实原料仓合格 FIFO/指定批次库存校验和原子过账。
+- DEV:
+  - DEV-561-WIP-SHORTAGE-AS-SUGGESTION：生产领料保留工单物料归属和库存单位校验，但提交数量不再受当前 WIP 缺口限制。
+  - DEV-561-BULK-DRAFT-PRESERVATION：已有批量草稿恢复时保留原数量，只刷新当前建议量；当前缺口为 0 时仍允许填写标准批量。
+  - DEV-561-CONSUMPTION-BOUNDARY：生产消耗按工单冻结需求减去统一/历史已耗数量限制，批量领入的多余 WIP 不误记为本工单消耗。
+  - DEV-561-DRAFT-IDENTITY-QUANTITY-SAFETY：从列表按具体 Stock Entry ID 恢复草稿；过滤零数量行并拒绝负数量和重量/计数口径错用。
+  - DEV-561-ISSUE-UX-MANUAL：移除前端数量 max/保存阻断，增加“超出部分保留为可用 WIP、生产消耗另记”的紧凑说明并更新操作手册。
+  - DEV-561-DOCS-DELIVERY：同步需求、验收、支持合同，完成测试、集成和 development 部署。
+- Verifier:
+  - RED: application/API tests reproduced 8000g draft being reduced to 7751g and zero-shortage rows being removed; frontend contract reproduced HTML max and save-time hard rejection.
+  - GREEN: temporary PostgreSQL verifies one `SE-*` can issue three 60000g material rows above 1974g/1974g/3948g suggestions, real raw-stock shortage remains Chinese and atomic, production consumption stays capped to frozen remaining demand, historical consumed quantities and count materials remain valid, and an exact draft ID cannot open another draft.
+  - GREEN: full Go suite passes; focused frontend tests pass 14/14; Vite build passes. Full frontend remains at the same 815/823 baseline as clean `origin/develop` with no new failure.
+- Deployment: merge `3227a0a1b3d745df4c5400b9c5eda533c86f5bb7` 已推送 `origin/develop` 并部署 development；备份 `/opt/stacks/erp/orderapp.backup.deploy-20260729010445`；容器、认证页面、`index-CJz3ddQX.js` 和指定工单只读预览通过；公网浏览器因 `ERR_CERT_AUTHORITY_INVALID` 未通过；production 未部署
+- Last update: 2026-07-29 Asia/Shanghai
+- Notes: 指定真实工单只做只读预览和接口冒烟；预览前后库存单据列表一致，不自动提交 60Kg 领料，不改变真实库存。实时诊断确认 BOM 物料 `哥伦比亚`（ID 14）无原料仓批次，不能自动借用另一物料 `哥伦比亚EP`（ID 2）的库存。
+
+### PR-560-PRODUCTION-ISSUE-COMPACT-DIAGNOSTICS
+- Branch: codex/pr560-production-issue-compact-diagnostics
+- Owner/session: Codex / 2026-07-28
+- Status: merged to develop / development deployed; awaiting logged-in browser acceptance
+- Scope: 工单生产领料多物料明细压缩为对齐的行式布局；原料仓库存不足和超出当前 WIP 缺口改为中文、逐物料可诊断错误；核对预览、草稿和提交的库存与缺口口径。
+- DEV:
+  - DEV-560-COMPACT-MATERIAL-ROWS：生产领料多物料行紧凑对齐，桌面单页可连续查看 10 条，移动端保持可用。
+  - DEV-560-RAW-STOCK-DIAGNOSTIC：FIFO 原料仓库存不足按物料返回中文的需要、可用、仓库和库存单位。
+  - DEV-560-WIP-SHORTAGE-CONSISTENCY：预览、已存草稿和提交统一当前 WIP 剩余缺口口径，过期草稿明确提示并可恢复到当前可领数量。
+  - DEV-560-DOCS-DELIVERY：同步生产/库存手册、需求、验收资料，完成测试、集成和开发环境交付。
+- Verifier:
+  - Unit: `scripts/verify_kferp.sh backend` PASS；Kg/lb权威克数、零缺口草稿过滤和过期草稿收敛PASS。
+  - API/PostgreSQL: HTTP草稿刷新PASS；临时PostgreSQL 16的多物料FIFO回滚、质检/总量不足区分、工单冻结批次封顶和并发旧草稿提交校验PASS；指定development工单只读诊断PASS。
+  - Frontend/build: PR-560及相邻生产执行10/10 PASS；Vite生产构建PASS。完整前端816/823，7项均为`origin/develop`已有的客户工作区/视图上下文陈旧断言。
+  - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_STOCK.md
+  - Review/acceptance: 独立审查P0/P1/P2已清零；development真实API与静态资源只读冒烟通过。公网浏览器被`ERR_CERT_AUTHORITY_INVALID`阻断，本地只读隧道到达系统登录页且控制台无错误，未绕过证书或借用业务账号；10条同屏仍待登录态手工验收。证据：orderapp-remote/docs/acceptance/2026-07-28-production-issue-compact-diagnostics.md
+- Deployment: merge `0f8d3645` 已推送`origin/develop`并部署development；备份`/opt/stacks/erp/orderapp.backup.deploy-20260728165344`；production未部署
+- Last update: 2026-07-28 Asia/Shanghai
+- Notes: 指定工单只做只读 API/数据库诊断，不保存或提交真实库存单据，不开始生产。
+
+### PR-559-PRODUCTION-CONFIG-WIP-ISSUE-UX
+- Branch: codex/pr559-production-config-wip-issue-ux
+- Owner/session: Codex / 2026-07-27
+- Status: merged to develop and deployed to development; automated/API/read-only smoke complete, awaiting user acceptance
+- Scope: 将生产 BOM 合并为生产配置第 4 个 Tab；以工单冻结物料快照统一计算 WIP 覆盖并在执行枢纽阻断提示；工单生产领料改为显示真实工单号、自动带出全部短缺物料的单数量多物料 Stock Entry。
+- DEV:
+  - DEV-559-PRODUCTION-CONFIG-BOM-TAB：移除独立生产 BOM 主菜单，保留旧链接并规范到 `productionConfig&tab=bom`；保持 BOM 只读/写入权限边界。
+  - DEV-559-WIP-COVERAGE：统一 released/running 工单的重量和计数物料 WIP 覆盖计算，供执行枢纽、生产视图、开工校验和领料预览复用。
+  - DEV-559-MULTI-MATERIAL-ISSUE：工单生产领料显示真实工单号，隐藏内部 ID/工序卡/生产中输入，自动预填全部短缺物料、单数量与库存单位，并支持分批数量记忆。
+  - DEV-559-DOCS-DELIVERY：同步生产/库存手册、需求、验收资料，完成测试、合并、开发环境部署和只读冒烟。
+- Verifier:
+  - RED: conversion test exposed 1g versus 1000g; stock-document test exposed the missing `work_order_no` join; application test exposed invalid purpose/work-order binding; final review tests exposed historical start using live BOM, historical over-issue, and purpose/item-type mixing.
+  - Unit: `go test ./... -count=1` PASS; production/stock application and repository contract tests PASS.
+  - API/PostgreSQL: temporary PostgreSQL PASS for released/no-reservation WIP coverage, historical reservation fallback through display/issue/start, weight/count materials, stock-document work-order number, guarded snapshot/legacy issue, purpose-item type validation, and `released -> issue -> WIP ready -> start`.
+  - Frontend/build: PR-559 production/menu tests PASS; `scripts/verify_kferp.sh frontend-build` PASS. Full frontend is 812/819; all 7 failures reproduce unchanged on clean `origin/develop` and are unrelated stale customer workspace/view-context assertions.
+  - Changed: `scripts/verify_kferp.sh changed` PASS.
+  - Manual: orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md
+  - Review/acceptance: orderapp-remote/docs/acceptance/2026-07-27-production-config-wip-issue-ux.md
+- Deployment: development deployed from `1c1d04f90d5c72749b00999537dc83a082a2bc49`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260728004632`; containers running, recent error count 0; `/app/` 303, Vue shell 200, `index-DEeHJ0vK.js` 200, PR-559 API 200.
+- Last update: 2026-07-28 00:58 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` confirmed next id PR-559 but hit the known awk multiline-string bug; seeded manually. Work order `WO-PP-0000000080-0000000050` detail and production-issue preview returned 200 with true work-order number, WIP shortage material and one canonical quantity/unit; no stock document was saved/submitted and production was not started. In-app browser was blocked by the development certificate chain (`ERR_CERT_AUTHORITY_INVALID`) and Chrome control was unavailable; the certificate warning was not bypassed. Production was not deployed.
+
+### PR-558-PRODUCTION-PLAN-PREVIEW-PARENT-BOM-NO-LOSS
+- Branch: codex/pr558-production-plan-bom-fallback-no-loss
+- Owner/session: Codex / 2026-07-27
+- Status: merged to develop and deployed to development; automated and read-only API/page smoke complete, awaiting user acceptance
+- Scope: 生产计划预览只汇总本次选中的精确 `unplanned` 需求，排除同一具体 SKU 已进入旧生产计划的订单；预览阶段允许父商品已发布 BOM 暂缺工艺路线，仍展示该 BOM 的物料与原料损耗并给出路线警告；正式生成草稿继续要求工艺路线完整。BOM 原料损耗为 0 时，14件454g的6356g需求保持6356g，不读取旧产出率或商品 legacy 损耗。
+- DEV:
+  - DEV-558-EXACT-UNPLANNED-DEMAND-SCOPE：PlanSummary 与 MaterialPlan 使用同一组本次预览精确需求键，只计算 `unplanned` 订单，不能把同 SKU 已排产旧订单重新计入物料需求。
+  - DEV-558-PREVIEW-BOM-ROUTE-DECOUPLING：预览解析父商品当前已发布 BOM 时把“可读取 BOM 物料/损耗”和“工艺路线完整”分开；缺路线时保留 BOM 摘要、组件需求和 `bom_summary_error` 路线警告。
+  - DEV-558-FORMAL-CREATE-ROUTE-GUARD：正式创建生产计划仍使用严格 BOM 解析，缺少工艺路线时返回明确错误并确保事务无写入。
+  - DEV-558-DOCS-DELIVERY：同步生产手册、需求、验收资料、PR/DEV 支持合同，验证后合并 `develop` 并部署 development。
+- Verifier:
+  - RED: 如目达摩454g新订单选择预览时返回 `product BOM not configured`；初晓14件454g无 BOM 原料损耗时，6356g需求被旧产出率/历史损耗或同 SKU 旧计划放大为9932g。
+  - GREEN: 临时 PostgreSQL 验证同 SKU 已排产旧单被排除；缺路线父 BOM 仍返回三条真实组件且合计6356g、损耗0、路线警告可见；正式创建返回缺路线错误且不产生草稿。历史 `product_bom` 库存建议继续有效；显式无效 formal BOM 不会静默使用替代配方。
+  - PASS: `ORDERAPP_TEST_DATABASE_URL=postgres://... go test ./internal/domain/production ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1`; `scripts/verify_kferp.sh changed`; `scripts/verify_kferp.sh backend`; independent review P0/P1/P2/P3 none.
+- Deployment: development deployed from `c1c61ccde7a233951b73d2e372a12c8663c7ebe8`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260727214503`; `/app/`303, Vue shell200, `index-Bkc2703T.js`200, orderapp healthy, PR-558 requirements API200. 如目达摩789-454只读预览200且仅含 `SO-20260727-0001`、投入/克重物料6356g；初晓765-454只读预览200、投入/三条克重物料6356g并保留缺路线警告。交互式浏览器被 development 证书链 `ERR_CERT_AUTHORITY_INVALID` 阻止，未绕过安全提示；production未部署。
+- Last update: 2026-07-27 22:08 Asia/Shanghai
+- Notes: 本需求不修改订单、BOM、历史计划、工单、库存或生产日志；预览放宽只用于读取和提示，不能绕过正式排产的工艺路线校验。
+
+### PR-557-PRODUCTION-PLAN-BOM-LOSS-DEMAND
+- Branch: codex/production-plan-bom-loss-demand-fix
+- Owner/session: Codex / 2026-07-27
+- Status: merged into `develop` and deployed to development
+- Scope: 生产计划预览和新草稿统一使用具体 SKU/父商品解析到的同一已发布 BOM 版本；理论物料需求按 BOM 原料损耗计算一次，不再叠加旧产出率、商品 legacy 损耗或设备整批取整；当前计划预览删除计划投料列。
+- DEV:
+  - DEV-557-RESOLVED-BOM-LOSS-INPUT：父商品 BOM 回退后按 `成品需求 ÷ (1 - BOM原料损耗)` 计算计划投入，忽略旧 `yield_rate` 与商品 `expected_loss_rate`。
+  - DEV-557-MATERIAL-DEMAND-SINGLE-LOSS：预览、草稿、WIP 需求和物料汇总使用同一冻结 BOM 物料快照，损耗只应用一次，设备整批只影响拆分产能。
+  - DEV-557-PREVIEW-DOCS：当前计划预览删除计划投料列并同步生产手册、需求、验收和支持合同。
+- Verifier:
+  - RED: 如目达摩父 BOM V004 场景预览得到 8000g、草稿得到 7945g，带损耗快照的草稿物料汇总二次放大为 9453g。
+  - GREEN: 临时 PostgreSQL 中 14件 × 454g、已发布父 BOM 损耗18%得到计划/生豆需求7751g；设备4kg整批不改变理论物料需求；同一 SKU 不同冻结父商品使用各自 BOM 版本和物料；前端预览无计划投料列。
+- Deployment: feature commit `bd08360b` merged by integration commit `dbed1beb`; development deployed from `origin/develop=f2aa10c0` with `./deploy_orderapp.sh development`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260727152034`; production unchanged
+- Last update: 2026-07-27 Asia/Shanghai
+- Notes: 开发库只读核对显示 V003 为 published 且损耗0，V004 为 draft 且实际损耗18%；现有 PP-0000000077 冻结 V003，不自动重写。V004 发布并撤销旧草稿后，新计划才会使用 V004。合并态 production Go 包、HTTP production 包、支持合同、前端定向46/46和 changed verifier 通过。部署构建通过Vue、小程序类型检查/构建和镜像内完整`go test ./...`；开发容器健康、最近日志错误数0，认证应用/外壳为303/200，需求API为200并暴露PR-557，服务器源码损耗计算标记存在。
+
+### BUG-20260727-ORDER-PRICE-CONVERSION-SNAPSHOT
+- Branch: codex/order-entry-price-conversion-conflict
+- Owner/session: Codex / 2026-07-27
+- Status: fixed, merged to `develop`, deployed to development, automated API/source smoke complete
+- Scope: 修复录单读取具体 SKU 已发布价格时，把价格行当前销售规格换算子集与 `effective_sales_spec` 完整换算图误判为冲突的问题；保持真实库存单位、换算因子和别名歧义拦截。
+- Verifier:
+  - RED: `TestInspectPublishedProductSpecAllowsPriceRowConversionSubsetOfEffectiveSpecAuthority` 复现“价格表有效销售规格库存换算与价格行库存换算冲突”。
+  - GREEN: `orderbeans`、销售 repository/API 定向测试和完整 `go test ./... -count=1` 通过；独立复审无 P0/P1/P2。
+  - Live read-only: 开发发布快照中如目达摩具体规格为 `454g -> 0.454kg/件`，价格行选中边与嵌套权威边一致；嵌套额外携带标准重量换算图，无需改商品或重新发布价格表。
+- Deployment: feature `e1165542` pushed；merged to `develop` as `2ecd7444`；development backup `/opt/stacks/erp/orderapp.backup.deploy-20260727125324`；production unchanged
+- Last update: 2026-07-27 Asia/Shanghai
+- Notes: 部署后 `erp_orderapp` running、重启次数 0、PostgreSQL healthy、近 10 分钟致命错误标记 0；认证录单页与 `/app/api/order/form` 返回 200；服务器目标回归测试通过。未创建订单、未修改价格表或商品数据。
+
+### PR-556-PRODUCTION-PLAN-DRAFT-SPLIT-UX
+- Branch: codex/pr556-production-plan-draft-split-ux
+- Owner/session: Codex / 2026-07-27
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van visual acceptance
+- Scope: 生产计划 BOM 摘要移除已废弃的预期产出率，仅在存在预期损耗时展示预期损耗；生成草稿成功后立即打开现有拆分产能抽屉；删除当前计划区重复的“创建生产计划”按钮。
+- DEV:
+  - DEV-556-BOM-LOSS-SUMMARY：生产计划预览使用预期损耗业务口径，不再展示预期产出率；无损耗时不追加损耗说明。
+  - DEV-556-DRAFT-TO-SPLIT：步骤条“生成草稿”成功后自动进入同一份拆分产能编辑抽屉，仍保持草稿不自动提交工单。
+  - DEV-556-REMOVE-DUPLICATE-CREATE：删除当前计划区底部重复创建入口，创建动作只保留在顶部生产流程步骤条。
+  - DEV-556-DOCS-DELIVERY：同步生产手册、需求、验收资料和 PR/DEV 可见数据，验证后合并并部署开发环境。
+- Verifier:
+  - Unit: `go test ./... -count=1` passed; production loss classification, no-loss, parent-BOM inheritance, and draft-to-split contracts passed.
+  - API: disposable PostgreSQL 16 ran the no-BOM warning, valid no-loss BOM, and child-SKU inherited parent-BOM 20% loss `/api/produce/unproduced` cases successfully.
+  - Frontend/build: `node --test src/lib/produce-plan.test.js` 46/46 passed; Vue/Vite production build passed; full frontend produced the same 8 failure reports (7 existing assertions plus suite summary) as clean `origin/develop`.
+  - Manual: `docs/OP_MANUAL_PRODUCTION.md` documents BOM loss/error summary, automatic draft-to-split transition, unsaved split state, and the single top create action.
+  - Review/acceptance: independent final review found no P0/P1/P2 blockers; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Deployment: feature `db9448e8` pushed; merged to `develop` as `f29e24fd` and deployed to development; backup `/opt/stacks/erp/orderapp.backup.deploy-20260727114607`; production excluded
+- Last update: 2026-07-27 Asia/Shanghai
+- Notes: 最新 `origin/develop` 中 `scripts/reserve_req_id.sh` 返回 PR-556；实现从独立工作树开始，不修改用户现有脏工作区。BOM 配置类错误作为行级“BOM 配置待完善”，数据库/连接/事务错误直接由接口返回；未保存的自动拆分不会提前推进步骤。部署后 `erp_orderapp` 重启次数 0、PostgreSQL healthy、Vue/REQ/生产需求只读 API 均返回成功，现场计划预览包含 `bom_material_loss_rate`；应用内浏览器确认页面无“预期产出率”和重复“创建生产计划”，顶部“生成草稿”唯一存在且控制台无错误。未点击生成草稿、未创建或提交真实生产计划。
+
+### PR-555-PRODUCTION-PLAN-DRAFT-CANCEL
+- Branch: codex/pr555-production-plan-draft-cancel
+- Owner/session: Codex / 2026-07-26
+- Status: merged to `develop`, deployed to development, automated API/PostgreSQL smoke complete; awaiting Van visual acceptance
+- Scope: 生产计划生成草稿后支持正式“撤销草稿”；仅草稿可撤销，计划单据与冻结快照保留为已取消，关联订单商品重新回到待生产需求，不生成或回滚不存在的工单、WIP 或库存记录。
+- DEV:
+  - DEV-555-DRAFT-CANCEL-LIFECYCLE：新增 `POST /api/production-plans/{id}/cancel`，以计划行锁原子完成 `draft -> cancelled`，重复撤销幂等，非草稿或已有下游工单时拒绝。
+  - DEV-555-DEMAND-RETURN-AUDIT：取消后沿既有派生查询恢复 `unplanned` 可选需求，保留计划行、BOM/规格/工艺拆分快照，并同事务写可读操作日志。
+  - DEV-555-PRODUCTION-PLAN-UI：当前计划、计划单据列表和详情抽屉提供“撤销草稿”，二次确认后清理旧预览并刷新待生产需求和计划列表。
+  - DEV-555-DOCS-DELIVERY：同步生产手册、需求、验收资料、PR/DEV 种子与开发环境交付证据。
+- Verifier:
+  - RED: `node --test src/lib/produce-plan.test.js` 因缺少 `productionPlanCancelEndpoint` 和“撤销草稿”交互失败；`go test ./internal/interfaces/http/production -run TestProductionPlanDraftCancelRouteReturnsCancelledPlan -count=1` 因路由返回 404 失败。
+  - GREEN: 生产计划取消路由、应用服务、操作日志可读性和前端 `produce-plan` 43/43 通过；合并前后 `go test ./... -count=1`、Vue/Vite production build、`scripts/verify_kferp.sh changed` 通过。开发服务器临时 PostgreSQL schema 中，需求回流、拆分快照保留、非草稿和异常工单拒绝、并发双撤销、提交/撤销竞争及审计失败回滚全部通过。完整前端 806/813，7 个失败与既有 customer/workspace 契约基线一致且不涉及 PR-555 改动；独立复审无合并阻断。
+- Deployment: feature `33fa9d1d` pushed；merged to `develop` as `a67bc0b7` and deployed to development；backup `/opt/stacks/erp/orderapp.backup.deploy-20260726234857`；production 明确不部署。
+- Last update: 2026-07-26 Asia/Shanghai
+- Notes: 部署后 `erp_orderapp` 正常启动、PostgreSQL healthy、日志仅有正常监听信息；`/vue-shell?view=producePlan` 和生产计划只读 API 返回 200，REQ 数据存在 PR-555，服务器源码存在 cancel 路由。应用内浏览器被 development 本地 CA 的 `ERR_CERT_AUTHORITY_INVALID` 安全页拦截且未绕过；未撤销任何真实草稿、未写业务订单或库存数据。撤销采用软取消并保留 PP 单据快照；已提交/生产中计划的整单撤销不在本需求范围内，继续按工单取消业务处理。
+
+### PR-554-PRODUCTION-SUMMARY-CONVERSION-ISOLATION
+- Branch: codex/pr554-production-summary-conversion-isolation
+- Owner/session: Codex / 2026-07-26
+- Status: merged to `develop`, deployed to development, automated API smoke complete; awaiting Van visual acceptance
+- Scope: 修复一条停用商品或无有效销售规格到库存单位换算的历史订单拖垮整页生产需求的问题；停用商品不进入新生产需求，启用但换算无效的商品保留为可见且不可选择的“资料待完善”行，其他有效需求继续加载。
+- DEV:
+  - DEV-554-INACTIVE-PRODUCT-ISOLATION：未生产订单和代加工需求查询只纳入启用商品，停用历史测试商品不再进入新的生产需求。
+  - DEV-554-CONVERSION-BLOCKING-ROW：启用商品的具体 SKU 换算缺失时返回行级 `blocking_reason`，禁止选择和生成计划；不得猜测 `1件 = 1盒`。
+  - DEV-554-PRODUCTION-DEMAND-UI：生产计划页面展示“资料待完善”和具体修复原因，置灰复选框并保留其他有效需求。
+  - DEV-554-DOCS-DELIVERY：同步生产手册、需求、验收资料和 support contract，并交付 development 只读冒烟。
+- Verifier:
+  - RED: 真实 PostgreSQL API 用例中，有效 454g 需求与无换算的启用商品同时存在时 `GET /api/produce/unproduced` 返回 500；前端定向测试显示阻塞行仍可选择且页面没有“资料待完善”说明。
+  - GREEN: 真实 PostgreSQL production repository/HTTP 两包通过；`go test ./internal/interfaces/http/production -run '^TestProducePlanSummaryKeepsValidDemandWhenAnotherOrderHasInvalidInventoryConversion$' -count=1` 通过；`node --test src/lib/produce-plan.test.js` 40/40 通过；support contract、完整后端、Vue/Vite build、changed 与 diff-check 通过；独立只读复核无阻断发现。
+- Deployment: feature `b1a65ab4` pushed；merged to `develop` as `b775375a` and deployed to development；backup `/opt/stacks/erp/orderapp.backup.deploy-20260726145520`；production 明确不部署。
+- Last update: 2026-07-26 Asia/Shanghai
+- Notes: development 现场 `CDS-20260526-1186 / Codex测试速溶盒装 10条/盒` 对应停用历史测试商品，订单销售单位为“件”、商品库存单位为“盒”，且不存在权威件到盒换算。部署后 `/api/produce/unproduced` 返回 200 和 6 条有效可选需求，该停用测试订单不存在于结果；容器重启数 0、数据库 healthy、部署后日志错误标记 0。应用内浏览器被 development 本地 CA 的 `ERR_CERT_AUTHORITY_INVALID` 拦截，未绕过安全页；未修补历史订单、未创建生产计划、未写业务数据。
+
+### PR-553-PRODUCTION-PLAN-PARENT-BOM-UNIT-CONVERSION
+- Branch: codex/pr553-production-plan-parent-bom-unit-conversion
+- Owner/session: Codex / 2026-07-25
+- Status: merged to `develop` and deployed to development; controlled data correction blocked pending route confirmation
+- Scope: 生产计划按订单冻结的销售规格到库存单位换算计算计划数量；具体 SKU BOM 优先、完全未配置时继承父商品当前有效 BOM；计划与工单冻结规格换算及 BOM 来源，历史数据保持兼容。
+- DEV:
+  - DEV-553-ORDER-CONVERSION-SNAPSHOT：订单统一冻结具体 SKU、父商品、销售规格、库存单位和每件库存数量；生产计划禁止从规格名称提取数字。
+  - DEV-553-PARENT-BOM-RESOLUTION：统一解析具体 SKU BOM 与父商品 BOM，物料和工艺路线使用同一版本；错误子 BOM 不静默回退。
+  - DEV-553-PRODUCTION-FREEZE：计划与工单冻结规格件数、每件库存数量、计划库存数量、父商品及 BOM 来源，同时保留历史克数投影。
+  - DEV-553-DOCS-DATA-DELIVERY：同步生产手册、需求、验收和操作日志契约；开发环境受控纠正如目达摩损耗配置与新 BOM 版本。
+- Verifier:
+  - RED: `node --test src/lib/produce-plan.test.js` 因规格数量/BOM 来源展示辅助函数缺失失败；`go test ./internal/interfaces/http/support -run '^TestDev553' -count=1` 因需求合同缺失且正式生产需求仍读取旧规格路径失败。
+  - GREEN: 订单四个写入模块定向 Go 测试通过；production domain/application/repository 通过；真实 PostgreSQL `internal/interfaces/http/production` 全包通过；同 SKU 多冻结快照闭环通过；并发创建测试 10 轮稳定只生成一个计划；迁移定向测试重复执行两次通过；前端定向 40/40、Vite build、完整 Go 测试通过。完整前端 804/811，7 个失败与干净 `origin/develop` 基线完全一致。
+- Deployment: feature `2803c0d7` merged to `develop` as `e7a5cbdb` and deployed to development；backup `/opt/stacks/erp/orderapp.backup.deploy-20260726013435`；production 明确不部署；未自动为 SO-20260725-0001 创建生产计划。
+- Last update: 2026-07-26 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-553；`--claim production-plan-parent-bom-unit-conversion` 命中既有 awk multiline bug，因此手工登记。部署后容器、Vue 页面、REQ、未生产需求与生产计划只读 API 均通过，真实订单需求只读返回 `4件 × 0.454Kg/件 = 1.816Kg`。开发数据预检发现如目达摩当前 V002 未绑定工艺路线；未获得路线选择前不猜测创建纠错版本、不清零损耗配置。
+
+### PR-552-STOCK-ENTRY-CONVERGENCE
+- Branch: codex/pr552-stock-entry-convergence
+- Owner/session: Codex / 2026-07-25
+- Status: merged to `develop`, deployed to development, automated database/API/static smoke complete; awaiting Van visual acceptance
+- Scope: 库存作业收敛为统一 Stock Entry 生命周期与独立盘点调整；生产领料、补料、退料、消耗和完工从工单预填同一库存单据；旧库存写接口转发统一服务，历史记录只读兼容。
+- DEV:
+  - DEV-552-STOCK-DOCUMENT-LIFECYCLE：实现 Stock Entry 草稿、修改、提交、取消、幂等和退料规范化。
+  - DEV-552-AUTHORITATIVE-POSTING：提交在同一事务更新批次位置、余额、实际流水、工单统计和操作日志；取消按冻结分配反向过账。
+  - DEV-552-LEGACY-COMPATIBILITY：旧原料入库、WIP 转移、成品转仓和 `/api/stock-entries` 写入口转发统一服务并返回 `SE-*`，历史单据不重放。
+  - DEV-552-WORKORDER-PREVIEW：工单领料、补料、退料、消耗、完工生成统一 Stock Entry 预填并校验工单上下文。
+  - DEV-552-INVENTORY-UI：库存作业只保留库存单据和盘点调整；工单快捷动作打开统一抽屉；仓库库存提供 WIP 默认过滤入口。
+  - DEV-552-DOCS-DELIVERY：同步库存、生产、工单手册、需求、验收、差异报告和开发环境交付证据。
+- Verifier:
+  - RED: `go test ./internal/application/stock -run TestCreateStockDocumentNormalizesLegacyReturnPurpose -count=1` 在统一 Stock Document 类型尚未实现时编译失败（`undefined: StockDocumentCommand` 等）。
+  - GREEN: 完整 `go test ./... -count=1`；真实 development PostgreSQL 临时 schema 中 6 个统一库存事务测试；Stock Document HTTP 生命周期、工单预填、PR-552 支持合同；生产/工单定向前端 65/65；Vue/Vite production build；`scripts/verify_kferp.sh changed` 与 `git diff --check`。
+- Deployment: feature commits `df6275d0` / `a6e932ab` pushed; merged to `develop` as `8647ce5a` / migration hotfix `e6b8fa9f2117c1e6623b3b568f001a96fe6dfb3d`; development deployed; production explicitly unchanged
+- Last update: 2026-07-25 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-552；`--claim stock-entry-convergence` 命中既有 awk multiline bug，因此手工登记。本次不重写历史 MT/FT/SE/调整单，不自动修复库存差异，不部署 production。开发库迁移前后只读差异报告均得到物料主档/批次 8 条、批次/仓位 7 条、最新流水/仓位 37 条待核对差异；保留历史原料入库 11 条、物料转仓 20 条、成品转仓 0 条；部署后统一 SE 缺流水为 0。首次部署暴露旧表先建 idempotency 索引的迁移顺序错误，真实旧表回归后以 `a6e932ab` 修复并重新部署；最终备份 `/opt/stacks/erp/orderapp.backup.deploy-20260725105659`，容器重启数 0，日志错误标记 0。API 和部署资产通过；Chrome/应用内浏览器均被开发域证书 `ERR_CERT_AUTHORITY_INVALID` 拦截，未创建开发业务单据，页面视觉待 Van 验收。
+
+### PR-551-REMOVE-SALES-ORDER-TRACE
+- Branch: codex/pr551-remove-sales-order-trace
+- Owner/session: Codex / 2026-07-24
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van acceptance
+- Scope: 从销售单页面和抽屉删除“销售单追溯”区块及刷新追溯请求；订单详情继续保留报价来源和生产来源追溯。
+- DEV:
+  - DEV-551-REMOVE-TRACE-UI：删除销售单追溯面板、报价来源/生产来源展示、刷新按钮和专用样式。
+  - DEV-551-REMOVE-TRACE-REQUEST：销售单初始化不再请求订单详情追溯接口；订单详情页原追溯能力和接口保持不变。
+  - DEV-551-DOCS-DELIVERY：同步订单手册、需求、验收资料和 Vue 支持合同。
+- Verifier:
+  - RED: `order-entry.test.js` 在旧 `SalesOrderView.vue` 中仍发现“销售单追溯”、追溯状态/格式化函数和 `/api/orders/{id}/detail` 请求。
+  - GREEN: `order-entry.test.js` 119/119 通过，确认销售单组件不含追溯区块/追溯请求且订单详情继续保留两类追溯；订单详情 API 追溯回归、PR-551 支持合同和完整后端测试通过；Vue/Vite production build 通过（402 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+- Deployment: feature commit `23151d30` pushed to `origin/codex/pr551-remove-sales-order-trace`; merged to `develop` as `9d3fc26ba390b565ee4660cac4da85e18e15e181` and deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260724215239`. Production unchanged.
+- Last update: 2026-07-24 21:57 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-551；`--claim` 命中既有 awk multiline bug，因此手工登记。无数据库、API 或业务写操作变更。Docker 构建内完整 Go 测试通过；`erp_orderapp` 与 `erp_postgres` 正常运行、数据库 healthy、应用重启计数为 0，部署后日志无 panic/fatal/conn busy/error。认证入口和订单页返回 200，需求 API 可见 PR-551。浏览器打开单张销售单抽屉：销售单追溯、刷新追溯、报价来源和生产来源计数均为 0，销售单预览正常可见，控制台无错误。
+
+### PR-550-SALES-SPEC-ORDER-OUTPUT-FIX
+- Branch: codex/pr550-sales-spec-order-output-fix
+- Owner/session: Codex / 2026-07-24
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van acceptance
+- Scope: 修复销售规格明细新增规格时报 `conn busy`；修复销售单预览/PDF中规格重复、数量粘连库存单位、商品行备注缺字和不可换行。
+- DEV:
+  - DEV-550-SALES-SPEC-CONNECTION：新增销售规格必须串行完成同一连接上的数据库读写，避免连接忙错误，同时保持默认规格、SKU归属和操作日志语义。
+  - DEV-550-ORDER-SPEC-QUANTITY：销售单规格只显示具体销售规格（如 `1Kg`），数量只显示销售规格件数（如 `30`），不得拼成 `1Kg/1Kg` 或 `301Kg`。
+  - DEV-550-LINE-NOTE：订单级备注只读取订单备注；商品行备注完整保留原文并支持换行，不把商品行备注重复汇总成订单备注。
+  - DEV-550-PDF-CACHE-DOCS：同步销售单 PDF/PNG 缓存版本、测试、手册和验收证据。
+- Verifier:
+  - RED: pgxmock 证明销售规格同步在父商品/子 SKU 查询结果集仍打开时进入嵌套读写并失败；销售单单元格测试得到 `1Kg/1Kg`、`301Kg`，中文备注换行后丢失末尾 `袋`，结算区仍重复生成 `订单明细备注`。
+  - GREEN: 两层同步结果集先缓冲关闭再继续读写；一次性 PostgreSQL 16 内完整保存链路、仓储快照和 HTTP API 3/3 通过；销售单 `sales_spec_count` 快照输出 `1Kg`、`30`，历史缺少标记的快照继续旧兼容；rune-safe 换行和真实订单备注测试通过；合成 PDF/PNG 视觉检查无丢字、遮挡或重复备注；完整后端、132 条定向前端测试、Vue/Vite build、changed 与 diff-check 通过。全量前端 802/809 的 7 条既有 customer workspace 静态合同失败与本分支无 frontend 差异。
+- Deployment: feature commit `2c535e3f` pushed to `origin/codex/pr550-sales-spec-order-output-fix`; merged to `develop` as `e16ae404b3a3ba48c6d85d0dc475f79f3d6eab60` and deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260724184521`. Production unchanged.
+- Last update: 2026-07-24 19:14 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-550；本需求未保存截图对应开发订单、未生成正式销售单，也未改生产数据。部署镜像构建中的完整 Go 测试通过；`erp_orderapp` 与 `erp_postgres` 正常运行且应用重启计数为 0，部署后日志未出现 `conn busy`、panic、fatal 或 ERROR。开发环境需求 API 可见 PR-550；截图对应开发订单的只读预览快照核验为规格 `1Kg`、数量 `30`、`quantity_basis=sales_spec_count`、完整商品备注及空订单备注，PDF 返回 A4 单页；浏览器打开销售单抽屉并完成 PDF 加载，全程未保存或生成业务数据。
+
+### PR-549-PRICE-LIST-TOP-ACTIONS
+- Branch: codex/pr549-price-list-top-actions
+- Owner/session: Codex / 2026-07-23
+- Status: merged to `develop`, deployed to development, automated API/browser smoke complete; awaiting Van acceptance
+- Scope: 商品价格表顶部统一放置管理阶梯模板、计价模式规则和价格表配置三个入口；商品数与价格表归属卡片等高；删除顶部刷新按钮。
+- DEV:
+  - DEV-549-TOP-ACTION-GROUP：三个价格表管理入口在顶部右侧成组排列，生成价格表说明区不再重复放置入口。
+  - DEV-549-EQUAL-HEIGHT-SUMMARY：商品数和价格表归属卡片使用一致固定高度，桌面端同行且窄屏安全换行。
+  - DEV-549-REMOVE-REFRESH：删除商品价格表顶部刷新按钮，继续沿用页面进入和选择变化的自动加载。
+  - DEV-549-DOCS-DELIVERY：同步需求、成本手册、验收资料和支持合同。
+- Verifier:
+  - RED: `costing-bean-list-version-ui.test.js` 因顶部仍有刷新且两个管理入口仍在生成区失败；PR-549 支持合同因缺少需求种子和交付文档失败。
+  - GREEN: 价格表相关前端测试 65/65；PR-547/548/549 支持合同、完整后端测试、Vue/Vite production build、`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过；独立复核发现并关闭中等宽度按钮裁切问题，最终无 P0-P3。
+- Deployment: feature `74e744ad` merged to `develop` as `31b7d19092aeda01d715f56b7eb297bc6763effd` and deployed to development; backup `/opt/stacks/erp/orderapp.backup.deploy-20260723145039`; production unchanged
+- Last update: 2026-07-23 15:12 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-549；`--claim price-list-top-actions` 命中已知 macOS awk 多行字符串错误，故手工登记。本需求不新增业务写操作或操作日志。首次 Vue 构建因新工作树尚未安装依赖返回 `vite: command not found`，按锁文件 `npm ci --no-audit --no-fund` 后构建通过。开发部署的 Docker build 内完整 `go test ./...` 通过；`erp_orderapp` 正常、重启数 0，`erp_postgres` healthy，JS/CSS 和需求 API 返回 200，PR-549 marker 可读。浏览器在 1470px 宽度确认商品数与价格表归属均为 82px 高、三个顶部按钮顺序正确、无顶部刷新和横向溢出，三个原有界面均可打开并关闭；没有保存或修改业务数据。
+
+### PR-548-PRICE-LIST-SCOPE-MEMORY
+- Branch: codex/pr548-price-list-scope-memory
+- Owner/session: Codex / 2026-07-23
+- Status: merged to `develop`, deployed to development, automated smoke complete; awaiting Van acceptance
+- Scope: 商品价格表顶部把商品数、价格表归属选择和管理阶梯模板压缩到同一行；浏览器记住普通价格表页面最后选择的价格表归属和商品类型，下次进入自动恢复。
+- DEV:
+  - DEV-548-COMPACT-TOP-TOOLBAR：合并顶部商品数、价格表归属和阶梯模板入口，并保持窄屏单列回退。
+  - DEV-548-BROWSER-SELECTION-MEMORY：用浏览器本地偏好恢复归属和商品类型；无效客户或类型自动回退，客户工作区锁定归属不覆盖普通页面偏好。
+  - DEV-548-DOCS-DELIVERY：同步需求、成本手册、验收和支持合同。
+- Verifier:
+  - RED: 前端测试因缺少 `price-list-top-toolbar`、浏览器偏好 helper 和页面接入失败；支持合同因缺少 PR-548 种子失败。
+  - GREEN: 页面/偏好/价格表回归前端测试 64/64；支持合同包与完整 `scripts/verify_kferp.sh backend` 通过；Vue/Vite production build 通过（402 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+- Deployment: development `ee22949f3d3e80f8a91dc90695026a52f7b2ba82`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260723115210`; production unchanged
+- Last update: 2026-07-23 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-548；`--claim price-list-toolbar-scope-memory` 命中已知 macOS awk 多行字符串错误，故手工登记。本需求只写浏览器本地偏好，不新增业务写操作或操作日志。第一次部署在小程序 `npm ci` 完成 postinstall 后卡在在线审计，服务器同步尚未开始，安全中止后用 `npm_config_audit=false ./deploy_orderapp.sh development` 重跑成功；类型检查、小程序构建、Docker 内完整 Go 测试均未跳过。开发栈正常、数据库 healthy；公开入口未认证 401、BasicAuth shell 200；数据库存在 PR-548，服务器源码、helper 和 dist 标记均存在。
+
+### PR-547-PRICE-LIST-PAGE-TOOLBAR-UX
+- Branch: codex/pr547-price-list-page-toolbar-ux
+- Owner/session: Codex / 2026-07-22
+- Status: merged to `develop`, deployed to development, automated smoke complete; awaiting Van acceptance
+- Scope: 商品价格表顶部删除“模型”；生成规则标题改为“计价规则”；已发布价格表删除说明与“刷新版本”，把上下双箭头收起/展开按钮放到标题左侧，并把商品类型过滤放到搜索左侧且统一控件高度。
+- DEV:
+  - DEV-547-PRICE-LIST-LABEL-CLEANUP：删除顶部模型指标，将 Price List / Item Price 生成规则改为计价规则。
+  - DEV-547-PUBLISHED-LIST-TOOLBAR：重排已发布价格表标题、收起按钮、商品类型和搜索控件，删除冗余说明及刷新版本入口。
+  - DEV-547-DOCS-ACCEPTANCE：同步成本手册、需求、验收和 Vue 源码合同测试。
+- Verifier:
+  - RED: `node --test src/lib/costing-bean-list-version-ui.test.js` 因顶部仍存在“模型”失败；`go test ./internal/interfaces/http/support -run '^TestDev547PriceListPageToolbarUXContracts$' -count=1` 因缺少 PR-547 需求种子失败。
+  - GREEN: `costing-bean-list-version-ui.test.js` + `product-bean-list-split.test.js` 59/59；支持合同包与完整 `scripts/verify_kferp.sh backend` 通过；Vue/Vite production build 通过（401 modules）；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+- Deployment: development `ac61d4d4af5667a5316a6da00187529bf628115c`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722233552`; production unchanged
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-547；`--claim price-list-page-toolbar-ux` 命中已知 macOS awk 多行字符串错误，故手工登记。开发部署 Docker build 内完整 Go 测试通过，`erp_orderapp` 正常、`erp_postgres` healthy；公开入口未认证 401、BasicAuth shell 200；开发数据库存在 PR-547，服务器源码与 dist 均包含收起按钮标记。浏览器到达系统登录页，未使用或索取业务账号绕过登录，最终布局待 Van 手工确认。
+
+### PR-546-ORDER-PRODUCT-CATEGORY-FILTER
+- Branch: codex/pr546-order-product-category-filter
+- Owner/session: Codex / 2026-07-22
+- Status: done / closed; merged to `develop`, deployed to development, automated smoke passed, and Van manually accepted on 2026-07-22
+- Scope: 录单商品选择下拉只基于当前客户和当前启用价格表的可选父商品生成分类过滤项；分类沿用商品候选现有“熟豆 / 挂耳 / 生豆 / 速溶咖啡”标签，名称/拼音搜索与分类条件叠加。点击商品下拉外任意区域自动收起，多行切换时只保留当前行菜单。
+- DEV:
+  - DEV-546-PRODUCT-CATEGORY-FILTER：在商品下拉顶部显示当前作用域实际存在的分类，支持“全部”和按分类过滤，不改变 publication、SKU、规格或定价逻辑。
+  - DEV-546-DROPDOWN-OUTSIDE-DISMISS：通过 document pointerdown 判断当前商品组合框，点击外部关闭全部、点击另一行关闭旧行且不打断菜单内分类/候选点击。
+  - DEV-546-DOCS-DELIVERY：同步需求、订单手册、验收与页面内帮助，完成 RED/GREEN、前端构建、功能分支推送、develop 合并和开发环境部署。
+- Verifier:
+  - RED: `node --test src/lib/order-entry.test.js` 因缺少分类过滤和菜单关闭 helper 失败；`go test ./internal/interfaces/http/support -run TestDev546OrderProductCategoryFilterContracts -count=1` 因缺少 PR-546 种子失败。
+  - GREEN: `order-entry.test.js` 119/119；`form-draft-cache.test.js` 3/3；支持合同、订单表单 API 与 PostgreSQL 查询合同通过；Vue/Vite production build 通过；完整前端 796/802，和最新 `origin/develop` 基线 793/799 的同 6 个 workspace-context 既有失败完全一致，新增 3 个测试全部通过。
+- Deployment: feature baseline deployed from `origin/develop` `f574d991aaa5e403bb6867040dc1dc4f2d58ae68`; manual-acceptance closure deployed from `origin/develop` `8967d7053d65f4240854d2321879a7a20a9d4cd1`; latest backup `/opt/stacks/erp/orderapp.backup.deploy-20260722225950`; `erp_orderapp` and PostgreSQL healthy; unauthenticated `/app/` returns 303 and BasicAuth follows to 200; database confirms PR-546 and REV-546 are `done`; production unchanged
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` 返回 PR-546；`--claim order-product-category-filter` 命中已知 macOS awk 多行字符串错误，故手工记录本条。首次 Docker build 暴露 PR-340 单行源码断言，`75f0a48f` 改为独立标记后本机及镜像内 `go test ./...` 全通过。自动浏览器因开发域 `ERR_CERT_AUTHORITY_INVALID` 未执行；Van 已在开发环境手工验证分类过滤与点击外部收起均通过，REV-546 和 PR-546 关闭。
+
+### PR-545-ORDER-PRICE-LIST-CATALOG-SCOPE
+- Branch: codex/pr545-order-price-list-catalog-scope
+- Owner/session: Codex / 2026-07-22
+- Status: implementation, independent review, develop integration, development deployment and read-only browser smoke complete; awaiting Van review
+- Scope: 录单按已发布产品价格表的权威分类模板选择版本；新订单和复制订单只展示当前自动启用或用户明确启用价格表中的商品/规格，旧价格表继续供历史订单冻结快照与显式历史选择使用，不再自动把旧多规格 SKU 混入新订单。
+- DEV:
+  - DEV-545-CLASSIFICATION-VERSION-IDENTITY：录单价格表版本接口返回分类模板 ID/名称，并按有效分类身份计算每组最新版本及客户/公共兜底。
+  - DEV-545-ACTIVE-PUBLICATION-FILTER：前端按分类模板分组；存在权威分类组时不自动启用旧分类名组，商品候选只匹配当前启用的具体 publication。
+  - DEV-545-HISTORY-COMPAT：历史订单编辑保留冻结 SKU、publication 和价格；旧版本仅在历史恢复或用户明确选择时启用，复制订单按当前价格表重新选品。
+  - DEV-545-DOCS-DEPLOY：同步订单手册、需求与验收证据，完成 RED/GREEN、全量验证、develop 合并、开发部署和录单冒烟。
+- Verifier:
+  - Unit/API GREEN: complete `go test ./...`; targeted sales/application/repository/API/support packages; four classification, customer fallback, line-publication and multi-classification header cases passed against a temporary schema on the real development PostgreSQL.
+  - Frontend/build GREEN: `order-entry.test.js` 116/116; Vue/Vite build passed with 401 modules. Full frontend is 793/799 with the same six unrelated workspace-context failures reproduced on clean `origin/develop` (783/789).
+  - Manual: requirements, acceptance checklist, order-sales single-source manual and Vue in-page help updated; historical-only environments remain compatible.
+  - Review/acceptance: independent backend/frontend final reviews addressed customer/public scope separation, retail/drip/green exact publication filtering, restored-draft revalidation, frozen historical hydration, classification-scoped stale warnings, source-list-type headers and single/multi-publication order headers; no remaining P0/P1. Development browser smoke explicitly selected V3.0.19 and returned exactly 果皮茶、白月光瑰夏、风味孟连、黑巧炸弹 four 熟豆 candidates; V3.0.18 remains a default-disabled historical compatibility choice.
+- Deployment: behavior merged to `develop` as `7f8775468a31cd040996aa0b5ae845261390e9bb` and deployed to development from a clean integration tree matching `origin/develop`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722192649`. `erp_orderapp` is running, `erp_postgres` was healthy during deployment, HTTPS and authenticated Vue smoke passed, deployed classification source markers are present, and recent application error markers are 0. Production was not deployed.
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: no order was saved and no price table was withdrawn, saved or republished during verification/deployment; no production write or deployment was performed. V3.0.21 became the current 熟豆 version before live smoke, so V3.0.19 was selected explicitly in a separate blank order form for the four-product regression check without changing server data.
+
+### PR-544-PARENT-PRICING-ORDER-PRICE-LIST-SPECS
+- Branch: codex/pr544-parent-pricing-order-specs
+- Owner/session: Codex / 2026-07-21
+- Status: implementation, independent review, develop merge, development deployment and read-only smoke complete; awaiting Van review
+- Scope: 商品价格表每个父商品只选择一次计价类型及阶梯/价格计算模板，选中规格统一继承，固定价金额仍按具体 SKU 分别录入；录单商品按父商品展示，规格只允许选择当前已选已发布价格表中存在的具体 SKU，不再叠加全局克数或把规格拼入商品名。
+- DEV:
+  - DEV-544-PARENT-PRICING：移除规格级计价类型/模板入口，父商品统一配置并向所有选中规格继承；固定价在同一商品计价面板按规格分别填写，草稿兼容旧规格覆盖。
+  - DEV-544-PUBLISH-GUARD：新草稿/发布快照标记父商品统一计价范围，后端拒绝同父商品混用计价类型或模板，并保留历史发布兼容。
+  - DEV-544-ORDER-PRICE-LIST-SPECS：录单商品按父商品聚合；规格候选和值来自当前适用价格表具体 SKU，切换规格同步 SKU/价格快照，后端拒绝 SKU、规格与发布版本错配。
+  - DEV-544-DOCS-DEPLOY：同步需求、验收、成本及订单手册，完成 RED/GREEN、完整验证、develop 合并、开发部署和 API/浏览器冒烟。
+- Verifier:
+  - Unit/API GREEN: Costing shared-parent marker and mixed-config rejection; order application/repository/API concrete SKU, parent/spec/publication validation; concrete + legacy publication merge and empty-snapshot coverage; support contract.
+  - Frontend GREEN: seven targeted price-list/order files 395/395; pricing-only subset 252/252; order-entry 106/106 after RED reproduced legacy SKU aggregation and missing publication-mode handling.
+  - Full verification: `changed`, complete Go suite and Vite build (401 modules) pass. Full frontend is 783/789; the same six workspace-context assertions fail on clean `origin/develop` (whose baseline also has an extra contract-stamp failure), so there is no PR-544 regression.
+  - Manual: costing/order single-source manuals and Vue in-page help updated.
+  - Review/acceptance: independent post-fix review found and verified the concrete/legacy publication, pure-legacy identity, version-switch reset, public-parent filtering and explicit-publication bypass fixes; final result has no remaining P0/P1. Development container/API smoke passed; browser navigation stopped at the development local-CA certificate error without bypassing it.
+- Deployment: behavior merged as `b4e78be463c4e20adec4e8abbb63fc16644e2902` and deployed to development; backup `/opt/stacks/erp/orderapp.backup.deploy-20260722113846`. `erp_orderapp` is running, `erp_postgres` is healthy, authenticated requirement/order-form APIs return 200, PR-544 and deployed source/manual markers are present, and recent error markers are 0. Existing development publications remained historical compatibility rows and were not republished; production was untouched.
+- Last update: 2026-07-22 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` reported PR-544; `--claim parent-pricing-order-specs` hit the known macOS awk multiline-string error, so this entry was recorded with apply_patch.
+
+### PR-543-PRICE-LIST-PIECE-TIER-LABEL
+- Branch: codex/pr543-price-list-piece-label
+- Owner/session: Codex / 2026-07-21
+- Status: implementation, verification, develop merge and development deployment complete; awaiting Van review
+- Scope: 新 `quantity_basis=sales_spec_count` 价格行的阶梯数量只显示件数范围，例如 `2-13件`，销售规格继续作为独立属性；预览、新草稿、新发布、公开页和 PDF 不把规格拼入商品名，无客户别名时服务端规范化为父商品名，有真实客户别名时保留别名但仍不追加规格。
+- DEV:
+  - DEV-543-PIECE-TIER-LABEL：平铺价格行、预览、新发布快照、公开页和 PDF 对销售规格件数档位统一显示 `1件`、`2-13件`、`14件+`，不显示 `个227g` 等规格拼接文案。
+  - DEV-543-SERVER-NAME-NORMALIZATION：新草稿和新发布由服务端统一规范商品名；无客户别名时使用父商品名，真实客户别名继续有效，规格仅写入独立 `sales_spec / 规格` 属性。
+  - DEV-543-DOCS-DEPLOY：同步需求、验收和成本手册，完成 RED/GREEN、开发环境部署及页面/PDF 冒烟；不部署生产环境，不自动重新发布现有价格表。
+- Verifier: frontend RED failed 2/63 on the missing generic-piece helper and old spec-concatenating UI call; backend RED first failed on the missing publication-name normalizer, then the hardened real HTTP→Service test exposed stale `2-13个227g` persistence; support RED failed on missing PR-543 seeds. GREEN: targeted frontend 208/208 before server hardening and 125/125 after it; targeted Costing application/PostgreSQL repository/real HTTP API/support; full `go test ./... -count=1`; Vite build (401 modules); changed verifier; server PDF overlay render and PNG inspection.
+- Deployment: merged as `00c4c20b5f69f84301fad968dd30c7c5a60e0536` and deployed to development; backup `/opt/stacks/erp/orderapp.backup.deploy-20260721010754`. Container, HTTPS GET, deployed source/manual markers and server PDF smoke passed. Chrome page smoke was attempted but stopped at the development local-CA certificate error without bypassing it. Production was not deployed or written, and no price table was republished.
+- Last update: 2026-07-21 Asia/Shanghai
+
+### PR-542-PRICE-LIST-INLINE-SPEC-DISPLAY
+- Branch: codex/pr542-price-list-inline-spec-display
+- Owner/session: Codex / 2026-07-20
+- Status: implementation, verification, develop merge and development deployment complete; awaiting Van review
+- Scope: 商品价格表“选择分类和产品”将同一父商品的规格改为横向紧凑排列；平铺价格行、计价面板、预览、新草稿、新发布、公开页和 PDF 保持父商品名或客户显示名不变，销售规格作为独立属性展示，具体 SKU 与计价快照继续隔离。
+- DEV:
+  - DEV-542-INLINE-SPEC-PICKER：规格选择横向排列并自动换行，规格项内保留勾选、默认标识和计价入口，活动计价面板在规格行下方全宽展开。
+  - DEV-542-NAME-SPEC-SNAPSHOT：商品名与规格在平铺行、预览、发布快照、公开页和 PDF 中分离；名称不追加规格，规格以 `sales_spec / 规格` 属性展示，具体 SKU 字段保持不变。
+  - DEV-542-DOCS-DEPLOY：同步需求、验收和成本手册，完成测试、构建、开发环境部署以及浏览器/PDF 冒烟。
+- Verifier:
+  - RED: support contract first failed on the missing `PR-542-PRICE-LIST-INLINE-SPEC-DISPLAY` seed; UI/workflow target suite failed 6/62 on the old vertical/concatenated-name behavior; selection/PDF target suite failed 2/48 because the child SKU name was still projected as the product name.
+  - Browser RED/GREEN: the first development smoke exposed a blank-priority label falling back to `SKU-000884`, and the second exposed a generated child display name overriding the parent preview title; each received a focused RED regression before the final related frontend suites passed 112/112.
+  - GREEN: `go test ./... -count=1`; Vite build (401 modules); server PDF overlay render and PNG inspection. Full frontend suite is 739/745 with the same six workspace failures reproduced on clean `origin/develop` b4553da0 (734/740).
+- Deployment: behavior merged through `775694ebba637a01ff5ad4396bd9111e3e4f5db5` and deployed to development; browser smoke verified the 227g/454g picker, pricing panels, flat rows and preview. Production was not deployed or written, and existing price tables were not republished.
+- Last update: 2026-07-20 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` reported PR-542; `--claim price-list-inline-spec-display` hit the known macOS awk multiline-string error, so this placeholder was recorded with apply_patch.
+
+### PR-541-PRICE-LIST-PRODUCT-SPEC-SELECTION
+- Branch: codex/price-list-product-spec-selection-20260720
+- Owner/session: Codex / 2026-07-20
+- Status: implementation, verification, develop merge and development deployment complete; server/API/browser smoke complete; awaiting Van review
+- Scope: 商品档案为每个父商品维护一个具体默认规格；商品价格表按父商品展示并允许勾选一个或多个具体销售规格，分类/商品首次选中只带入默认规格。阶梯模板只定义销售规格件数，价格模板、固定价、发布快照、PDF 和订单取价全部绑定具体 SKU 及其销售规格。
+- DEV:
+  - DEV-541-PRODUCT-DEFAULT-SKU：父商品保存权威 `default_sku_id`，商品档案可切换默认规格；迁移、模板同步和正式 API 保证归属、启用状态、唯一性及操作日志。
+  - DEV-541-PRICE-LIST-SPEC-SELECTION：价格表选品按父商品聚合，支持默认规格和额外规格勾选，草稿保存父商品到具体 SKU 的选择及来源，固定价按规格隔离。
+  - DEV-541-SALES-SPEC-TIER-SNAPSHOT：新阶梯档位按销售规格件数解释，发布行冻结具体 SKU、有效销售规格和数量口径；订单/PDF 精确匹配具体 SKU，历史快照继续兼容。
+  - DEV-541-DOCS-DEPLOY：同步需求、验收、商品/成本/订单手册，完成测试、构建、合并 develop、开发部署和浏览器/API 冒烟。
+- Verifier:
+  - RED support contract: `go test ./internal/interfaces/http/support -run TestDev541PriceListProductSpecSelectionContracts -count=1` failed because PR-541/DEV/REV seeds and the new default-SKU/spec-selection/sales-spec-count contracts were absent.
+  - RED product UI: `node --test src/lib/product-settings.test.js` failed 2 new tests because the parent row was still forced to `is_default_sku=true`, the concrete child was not projected from `default_sku_id`, and 商品档案 lacked `设为默认规格` plus the default-SKU API action.
+  - RED feature tests: catalog default-SKU projection/API, parent/spec selection, open-ended quantity tiers, exact-SKU snapshots, count-basis order totals and fixed-price isolation all failed before their production paths existed; the focused tests now preserve those regressions.
+  - Unit/API GREEN: `go test ./... -count=1` passed, including catalog API, Costing selection/snapshot hardening, explicit-empty selection rejection, exact-SKU order matching and count-basis discounts. Development startup ran the default-SKU backfill twice; all 533 parent products retained exactly one valid default SKU and all invalid-pointer/projection-mismatch counts remained zero.
+  - Frontend/build GREEN: focused PR-541 suites passed 384/384 across product settings, selection/draft/workflow/PDF/order entry and UI contracts; full frontend is 734/740 with only the same six pre-existing clean-`origin/develop` workspace/customer-context failures; `npm run build` passed (401 modules).
+  - Manual/review: requirements, acceptance and the inventory/costing/order manuals are updated; independent money-integrity review findings were fixed before integration. Development browser smoke confirmed parent aggregation, default-only initial selection, multi-spec selection/counts and independent SKU units/price rows with no console errors.
+  - Deployment regression: the first live load exposed duplicate PostgreSQL alias `parent_product` (`SQLSTATE 42712`); a RED repository regression test reproduced it, the single effective-parent JOIN fix passed targeted/full Go tests, and browser reload confirmed 386 SKU candidates load normally.
+- Deployment: behavior merged through `96478bd19c57dae40776969d6b4159a2563a8ea0` and deployed to development on 2026-07-20; latest behavior backup `/opt/stacks/erp/orderapp.backup.deploy-20260720193327`; production was not deployed or written, and existing price tables were not republished.
+- Last update: 2026-07-20 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` reported PR-541; `--claim` hit the known macOS awk multiline-string error, so the placeholder was recorded with apply_patch.
+
+### PR-540-PRICE-TIER-UNIT-COMPATIBILITY
+- Branch: codex/price-list-template-unit-compat-20260719
+- Owner/session: Codex / 2026-07-19
+- Status: implementation, focused/full verification and build complete; develop merge and development deployment in progress
+- Scope: 商品价格表使用阶梯模板时，商品当前默认销售规格必须与阶梯档位数量单位严格同类；`磅/lb/lbs` 与 `kg/公斤/千克` 分属不同单位，不因可换算而兼容。直接选择不可用模板时禁用并提示；继承来的不兼容配置在具体商品和平铺价格行阻断，预览/PDF 不显示旧价；保存草稿和发布由后端按当前商品、客户别名和模板主数据重复校验。
+- DEV:
+  - DEV-540-TIER-UNIT-COMPATIBILITY：统一单位同义词规范化，商品级不兼容模板禁用，继承配置在具体商品行显示精确错误，并停止价格试算和旧价格回填。
+  - DEV-540-PUBLISH-UNIT-GUARD：保存草稿和发布前从数据库解析当前商品默认销售规格及阶梯模板有效档位单位，拒绝客户端伪造或手工改价绕过。
+  - DEV-540-DOCS-DEPLOY：同步需求、验收和成本手册，完成全量验证、合并 develop、开发部署及“初晓”浏览器烟测。
+- Verifier:
+  - RED: 前端缺少 `priceTierTemplateUnitCompatibility`，不兼容行没有错误且仍可试算/预览；应用层和 HTTP 发布/草稿接口对“初晓=磅、咖啡熟豆=kg”仍返回成功；PR-540 支持合同缺少需求种子。
+  - GREEN focused/full: frontend unit/workflow/PDF/UI tests 253/253；Costing application/PostgreSQL/HTTP/support 定向 Go 包和完整 `go test ./...` 全部通过；Vue/Vite 构建通过（401 modules）；当前全量前端 731/737，干净 `origin/develop=fe849630` 为 725/731，失败的是同 6 个既有工作区上下文合同，本需求新增 6 个测试全部通过。
+- Deployment: merged to `origin/develop=4ac8766ad544d19ba4e40d42221ed06b105412de` and deployed to development on 2026-07-20; backup `/opt/stacks/erp/orderapp.backup.deploy-20260720103433`; production is out of scope. Container rebuild and Go test gate passed; external authenticated browser smoke was unavailable because the development DNS endpoint was not reachable from the server.
+- Last update: 2026-07-19 Asia/Shanghai
+
+### PR-539-PRICING-MARKUP-DRAWER
+- Branch: codex/pricing-markup-drawer-20260717
+- Owner/session: Codex / 2026-07-17
+- Status: development deployed; authenticated API, live browser and audit smoke complete; awaiting Van review
+- Scope: 价格计算模板只使用加价率口径，成本 100、加价率 80% 的税前价为 180；实际毛利率继续作为试算结果和最低毛利预警。点击模板名称、新建或复制模板时，使用右侧抽屉编辑，不再在列表下方展开表单；历史发布价格和订单快照不回算。
+- DEV:
+  - DEV-539-MARKUP-ONLY：模板保存、读取兼容、试算和价格表新生成统一按 `成本基数 × (1 + 加价率)` 得到税前价，最终售价再计算税额和取整；旧百分数数据先规范到小数比例，已发布快照不回改。历史 `fixed_add` 等隔离模板不可复制或直接保存，必须新建加价率模板。
+  - DEV-539-PRICING-RULE-DRAWER：模板名称、新建和复制入口打开右侧编辑抽屉，列表只保留模板行和动作。
+  - DEV-539-DOCS-DEPLOY：同步需求、验收和成本手册，完成定向/全量验证、合并 develop、部署开发环境及 API/UI 烟测。
+- Verifier:
+  - RED: catalog tests showed legacy gross/missing/whole-percent methods stayed unchanged and fixed-add still saved; costing tests showed cost 100 with gross_margin=0.8 still produced 500 and fixed-add still trialed; HTTP returned gross_margin/80 unchanged; schema lacked the bounded PR-539 migration. Frontend RED was 157/160 before markup-only payload normalization and the editor drawer.
+  - GREEN backend/API: pricing-rule Catalog/Costing/API/schema targeted tests pass; `./scripts/verify_kferp.sh backend` passes in full. Local PostgreSQL 16 migration ran twice with gross/missing/whole-percent/fixed-add and malformed JSON samples: second run changed 0 rows and frozen price 88.500000 stayed unchanged.
+  - GREEN frontend/build: `node --test src/lib/product-settings.test.js` passed 161/161; `npm run build` passed (401 modules, existing large-chunk warning only). Full frontend verifier remains at the same six unrelated failures reproduced on a clean `origin/develop` baseline; PR-539 adds no frontend failure.
+  - Manual/review/acceptance: root/docs requirements and acceptance are mirrored; `OP_MANUAL_COSTING.md`, PR-539 acceptance evidence and requirement seeds are updated; full Go support contracts and final review pass. Development API/UI/browser/audit smoke is green.
+- Deployment: feature `15d63614`, behavior merge `8e241ff9`, deploy-gate fix `db27ab6c`, and final deployed `origin/develop=c1e767231364a86d885723ff25c23087ec3ec720`; development app backup `/opt/stacks/erp/orderapp.backup.deploy-20260718144532`. The first build attempt stopped before container replacement because the PR-539 support test read short-lived `ACTIVE_REQUIREMENTS.md` outside the Docker context; the minimal fix removed only that transient-file assertion, then container-internal `go test ./...`, Vue build, miniapp build and restart passed. `erp_orderapp` is up, PostgreSQL is healthy, unauthenticated `/app/` returns 303, authenticated Vue/requirement/pricing APIs return 200, raw database pricing rules are markup-only, and the read-only trial returns cost 100 + markup 80 = pre-tax/final 180 with actual gross margin 44.44%. Live Chrome rendered the markup-only list and right editor drawer; template-name and new-template entry points open the drawer, Esc closes it and restores focus, console errors are zero. Development smoke template id 13 was created then immediately deactivated; `/api/audit` contains two `product_pricing_rule/save_product_pricing_rule` rows and raw operation logs contain the matching POST/PUT rows. Production was not deployed, written or switched.
+- Last update: 2026-07-18 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh` returned PR-539; placeholder recorded with apply_patch to preserve workspace editing rules.
+
+### PR-538-MATERIAL-COST-UNIT-LOSS
+- Branch: codex/material-cost-unit-loss-20260716
+- Owner/session: Codex / 2026-07-17
+- Status: development deployed; 榛巧拼配 V004 data repair and authenticated live API acceptance complete; visual browser smoke blocked by the development certificate; awaiting Van review
+- Scope: 物料库存单位与成本计价单位分离；重量物料成本统一按元/kg，价格试算展示真实成本单位；新建生产 BOM 不再隐式默认 20% 整体损耗，原料损耗与整体预期损耗同时存在时明确警告；修复开发环境榛巧拼配为仅保留 20% 原料损耗。
+- DEV:
+  - DEV-538-MATERIAL-COST-UNIT：物料档案/API/数据库新增锁定的成本计价单位，历史重量物料回填 kg，计件物料回填库存单位，采购价和相关录入界面显示元/成本单位。
+  - DEV-538-BOM-DEFAULT-LOSS：新生产 BOM 默认整体预期损耗为 0（yield_rate=1），不再生成隐藏的 80% 产出率；历史显式双损耗仍按既有连续放大口径兼容。
+  - DEV-538-TRIAL-COST-LOSS-CLARITY：标准制造成本试算使用物料成本计价单位；双损耗时返回明确警告，开发环境榛巧拼配修复后验证物料成本80.50、工序2.04、标准制造成本82.54。
+  - DEV-538-DOCS-DEPLOY：同步物料/成本手册、需求与验收证据，合并 develop 并部署开发环境。
+- Verifier:
+  - RED: materials repository/API did not compile because `CostUnit` was absent; schema/source contracts lacked `cost_unit`; costing SQL still read `m.unit`; BOM default test found `yieldRate := 0.8`; combined-loss warning and materials UI contracts failed.
+  - GREEN backend: `go test ./...` passed, including materials schema/normalization/lock/API, BOM default `yield_rate=1`, costing `cost_unit`, combined-loss warning and exact 榛巧 calculation `80.50 + 2.04 = 82.54`.
+  - GREEN frontend/build: `node --test src/lib/materials-ui.test.js` passed 12/12; Vue/Vite build passed (401 modules, existing large-chunk warning only). Independent review follow-up limits legacy purchase orders and batch-cost adjustment to weight materials so discrete units cannot form `qty_g + 元/个` records.
+  - GREEN workflow: `go test ./internal/interfaces/http/support -run TestDev538MaterialCostUnitLossContracts -count=1`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
+  - API/live: the original screenshot captured V003 as `cost_unit=g`, material `100.64`, operation `2.04`, base `102.68`. After code deployment and before data repair, authenticated V003 trial still returned `102.68` for compatibility, but displayed `cost_unit=kg` and returned the combined-loss warning. Audited repair published V004/1400 with overall loss 0, material loss 20% and route 4, then bound product 658 to it; the default trial now returns material `80.50`, operation `2.04`, standard manufacturing `82.54`, with three `cost_unit=kg` rows.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+  - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-16-material-cost-unit-loss.md`.
+- Deployment: feature `9e5a8c48`, merged/deployed development `05badaa3`; development DB backup `/opt/stacks/erp/backups/kferp-dev-before-pr538-20260717-112234.dump` and app backup `/opt/stacks/erp/orderapp.backup.deploy-20260717112508`; Docker full Go suite, Vue, miniapp and containers green. Chrome and in-app Browser both reject `https://dev.erp.qacoohee.com/vue-shell?view=productPriceManagement` with `ERR_CERT_AUTHORITY_INVALID`, so no unsafe bypass or screenshot was taken. Production was not deployed, written or switched.
+- Last update: 2026-07-17 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim MATERIAL-COST-UNIT-LOSS` hit the known macOS awk multiline-string error; PR-538 was reserved manually after the script reported it as next id.
+
+### PR-537-KMM-PRICING-ORDER-COMPAT
+- Branch: codex/kmm-pricing-order-fix-20260715
+- Owner/session: Codex / 2026-07-15
+- Status: development deployed; KMM data import and API/order/finance acceptance complete; awaiting Van review
+- Scope: 修复 PR-415 后挂耳已进入通用 commercial 商品价格表、但录单仍强制读取旧 drip 发布类型的回归；保留旧 drip 快照只读兼容，并为 KMM BOM/阶梯售价开发环境配置提供可验证录单链路。
+- DEV:
+  - DEV-537-DRIP-COMMERCIAL-ORDER：挂耳派生袋/盒 SKU 按通用 commercial 平铺价格行录单，新价格表优先。
+  - DEV-537-LEGACY-DRIP-FALLBACK：找不到新 commercial 价格时，只读回退旧 drip 发布快照，不新增旧挂耳模板。
+  - DEV-537-KMM-DATA-ACCEPTANCE：开发环境备份后逐条导入 KMM 物料、BOM、价格计算模板、阶梯模板和发布价格表，并验证熟豆/挂耳录单与财务收入快照。
+- Verifier:
+  - RED backend: focused tests failed because derived drip SKUs were excluded from commercial order tiers, order save forced `list_type=drip`, and custom bag/box price units became `lb`.
+  - RED frontend: `node --test src/lib/order-entry.test.js` failed because `productBeanListType({product_kind:'drip_bag'})` returned `drip` instead of `commercial`.
+  - GREEN backend: `go test ./internal/infrastructure/postgres/orderbeans ./internal/infrastructure/postgres/sales ./internal/infrastructure/postgres/customerportal ./internal/infrastructure/postgres/customerfulfillment -count=1` passed. Sales uses item-level commercial snapshots first and legacy drip only when no applicable commercial publication exists; the shared portal helper keeps the historical drip mapping.
+  - GREEN frontend: `node --test src/lib/order-entry.test.js` passed 83/83, including derived bag/box min/max quantities, price units, default box selection and 100g/10-bag payload metadata.
+  - GREEN full Go: `go test ./...` passed.
+  - Frontend baseline: `node --test src/lib/*.test.js` passed 683/689; the same six pre-existing workspace-context failures remain (`vue shell remounts...`, customer portal account refresh, current view context, BOM customer context, customer workspace menu, routed workspace mode). PR-537 focused tests are all green and introduce no new failure.
+  - GREEN build: `npm run build` passed (401 modules; existing large-chunk warning only).
+  - GREEN support/manual: `go test ./internal/interfaces/http/support -run TestDev537KMMCommercialOrderContracts -count=1` passed; manual and acceptance evidence are under `orderapp-remote/docs`.
+  - Follow-up RED 2026-07-16: backend contracts first exposed commercial publications merging the same SKU across history, `customer_resale` entering ERP resolvers, legal-range misses falling through to the last tier, and explicit box-tier misses falling back to bag tiers; frontend contracts exposed the same below/above/gap guessing and box fallback. The old PR-339 support contract also failed after the strict message replaced its obsolete `低于最低梯度` marker.
+  - Follow-up GREEN 2026-07-16: `go test ./internal/infrastructure/postgres/orderbeans -count=1`, `go test ./internal/infrastructure/postgres/sales -count=1`, the related PostgreSQL/HTTP/support package set, `go test ./...`, and both PR-339/PR-537 support contracts passed. Commercial history now resolves newest-first per derived SKU `product_id`, newest blank coverage blocks older prices, and every ERP resolver is restricted to `factory_supply`.
+  - Follow-up GREEN frontend 2026-07-16: `node --test src/lib/order-entry.test.js` passed 86/86; `node --test src/lib/*.test.js` passed 686/692 with the same six pre-existing workspace-context failures and no PR-537 regression; `npm run build` passed (401 modules, existing large-chunk warning only).
+  - Follow-up review GREEN 2026-07-16: additional RED contracts reproduced green order-form `customer_resale` leakage, top-level `price_rows`/derived `sku_id` omission, flat weight-bound projection, stale drip/draft price state, and blank/invalid/zero/negative manual-price bypass. The minimal fix makes valid `sku_id` authoritative over parent `product_id`, prefers valid flat rows without duplicating mirrored nested tiers, reprices hydrated non-manual rows, and rejects every non-positive or invalid manual price in both HTTP mapping and repository. Target Go/HTTP/support tests, frontend 86/86, full `go test ./...`, `npm run build`, and `git diff --check` passed.
+  - Derived quote-unit RED/GREEN 2026-07-16: real development trial exposed `盒（10袋）` retaining the per-bag BOM cost. `TestPricingRuleTrialScalesPerUnitCostsForDerivedBoxQuoteUnit` failed at `1.34/1.10/0.24` versus `13.40/11.00/2.40`, then passed after non-mass unit conversion was applied; existing 227g and bag conversions stayed green and `go test ./... -count=1` passed.
+  - Behavior-code deploy GREEN: pricing/order behavior commit `ef72910221c38bf73189346285eb0bc8a9ba96ca` was deployed by `./deploy_orderapp.sh development`; Docker `go test ./...`, Vue build, miniapp typecheck/build and container startup passed. Previous app backup: `/opt/stacks/erp/orderapp.backup.deploy-20260716012948`. The final evidence/status commit is deployed separately and its exact develop commit/backup is recorded in the delivery report and deployment log, avoiding describing this behavior commit as the final deployment tip.
+  - KMM data GREEN: pre-apply database backup `/opt/stacks/erp/backups/kferp-dev-kmm-preapply-20260716010537.dump`, SHA256 `67416924cd041380131ee6992607bcc6b2f59fa457199487894e2229ba3119a8`, validated by `pg_restore -l`. Import created/reused 56 published BOM versions and bindings, one Pricing Rule, four tier templates and official `factory_supply` publication `90 / V3.0.18` with 996 price rows for 240 SKU items. Post-deploy dry-run completed with 2 preflight successes, 107 skips, 0 failures and 0 planned writes.
+  - Live API GREEN: SKU-887 quantity 50 was rejected with `缺少商品价格表价格` and no order row. `SO-20260715-0001` used SKU-884 ×5 at 189.77, SKU-670 ×100 at 3.43 and SKU-671 ×10 at 36.30, total 1654.85; every line froze publication 90 / `V3.0.18`, tier/unit conversion and BOM source. Finance showed order revenue 1654.85 and COGS 0 before production consumption; official void returned finance to 0 while preserving create/void audit records.
+- Deployment: behavior code deployed at `ef72910221c38bf73189346285eb0bc8a9ba96ca`; final evidence/status commit is deployed after integration and verified through the requirement API; production not deployed or written
+- Last update: 2026-07-16 Asia/Shanghai
+
+### PR-536-PRODUCT-INDUSTRY-TEMPLATE-ONLY
+- Branch: codex/product-industry-template-only-20260714
+- Owner/session: Codex / 2026-07-14
+- Status: deployed to development; awaiting Van acceptance
+- Scope: 商品行业字段只允许来自商品明确引用的行业字段模板；清除无模板和模板外历史字段，停止旧 `roast_level` / `special_attrs_json` 自动生成商品行业字段。
+- DEV:
+  - DEV-536-FRONTEND-TEMPLATE-PROJECTION：商品列表抽屉模板切换和保存只投影当前行业字段模板。
+  - DEV-536-BACKEND-TEMPLATE-CONSTRAINT：应用服务无模板时先清空字段，仓储为直接调用方重复防御并校验所选模板成员；复制商品不制造孤立字段。
+  - DEV-536-LEGACY-FIELD-CLEANUP：停止旧属性字段回填并幂等清理无模板孤儿和模板外字段。
+  - DEV-536-DOCS-ACCEPTANCE：同步商品行业字段需求验收操作手册和交付证据。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` 的新增断言先后暴露无模板仍保留字段、仅显示名错误匹配、旧异步请求覆盖当前商品/模板投影。
+  - RED backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog -count=1` 的新增断言先后暴露模板 ID 为 0 仍接收字段、复制商品制造孤立字段、旧字段回填和清理缺口。
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev536ProductIndustryTemplateOnlyContracts -count=1` 退出码 1，缺少手册标记 `取消行业字段模板会清空商品行业字段`。
+  - RED support follow-up: 强化六条 PR/DEV/REV 状态、当前复制边界和双手册证据合同后，同一命令退出码 1，暴露 `DEV-536-DOCS-ACCEPTANCE` 缺少 `OP_MANUAL_COSTING.md` 证据。
+  - RED support K20 follow-up: 增加 K20 历史口径覆盖及模板字段删除/改名后即时清理合同后，同一命令退出码 1，暴露 `docs/REQUIREMENTS.md` 缺少该当前口径。
+  - RED concurrency: 模板保存与商品生产配置保存并发时，商品保存可能先读取旧模板定义，并在模板事务清理完成后仍成功回写已删除的旧字段键。
+  - GREEN frontend: `node --test src/lib/product-settings.test.js` passed 159/159.
+  - GREEN application/API/repository: `go test ./internal/application/catalog -count=1`; `go test ./internal/interfaces/http/catalog -count=1`; `go test ./internal/infrastructure/postgres/catalog -count=1` passed.
+  - GREEN cleanup SQL: disposable LOCAL PostgreSQL matrix passed first run, second-run idempotence, orphan/no-template/template-external cleanup and first-boot missing-template-table safety; development and production were not touched.
+  - GREEN support: focused PR-536 contract and `go test ./internal/interfaces/http/support -count=1` passed；PR-409 支持测试不再绑定仓储内部 Go 返回字面量，`fields` 的非 nil 空切片和 HTTP `[]` 语义由应用、API、仓储行为测试负责；合同固定 K20 已被 K78 / PR-536 覆盖，模板字段删除/改名后只即时清理当前商品配置，不改历史业务快照。
+  - GREEN concurrency: `SaveIndustryTemplate` 在同一事务内按新定义立即清理引用商品的模板外字段，并在审计元数据记录 `removed_product_field_count`；`SaveProductProductionConfig` 在读取字段定义前使用 `FOR SHARE`，与模板写锁串行化。一次性 LOCAL PostgreSQL 的 catalog 与 manufacturing 完整测试通过，真实验证商品保存等待模板锁，并在模板提交后拒绝 `old-key`；development 和 production 未触碰。
+  - GREEN Task 7 after `ccfb36cf`: `go test ./...` passed；frontend `node --test src/lib/product-settings.test.js` passed 159/159；`npm run build` passed with only the existing Vite chunk-size warning；`scripts/verify_kferp.sh changed` exited 0；`git diff --check` passed。
+  - GREEN development deploy: `./deploy_orderapp.sh development` deployed `origin/develop=207436b9d1dc1066f8afb9bb35e07d2b0ebe0c4a`; Docker build `go test ./...`, Vue build, miniapp typecheck/build passed. `erp_orderapp`/`erp_postgres` running, internal authenticated product settings/requirements/Vue shell returned 200, and PR-536 is exposed by the requirement API. Development cleanup changed orphan/no-template/template-external/total field counts from `0/799/6/811` to `0/0/0/6`; 498 production configs returned no `fields:null` (`492` empty arrays, `6` non-empty). `dev.erp.qacoohee.com` remained HTTP `000` because only `erp_prod_caddy` owns the public entrypoint; production Caddy/stack was not switched or deployed.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+  - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-14-product-industry-template-only.md`.
+- Deployment: development deployed at `207436b9d1dc1066f8afb9bb35e07d2b0ebe0c4a`; database backup `/opt/stacks/erp/backups/kferp-dev-pr536-industry-fields-predeploy-20260715121952.dump`; previous app backup `/opt/stacks/erp/orderapp.backup.deploy-20260715122139`; production not deployed
+- Last update: 2026-07-15 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 命中已知 macOS awk 多行字符串错误；按脚本给出的下一个编号手工登记 PR-536。清理只删除 `product_production_config_fields`，保留行业字段模板、`products.roast_level`、`products.special_attrs_json` 和历史业务快照。编辑模板并删除或改名字段后，保存模板立即清理引用商品当前配置中的模板外字段；不改历史订单、工单或价格表快照。当前仍为 PR review、REV todo、K78 未验收；开发环境已部署并完成服务器/API/数据库烟测，生产环境未部署。
+
 ### PR-535-REMOVE-OBSOLETE-COST-PARAMETERS
 - Branch: codex/cost-parameters-pricing-tabs-20260712
 - Owner/session: Codex / 2026-07-12

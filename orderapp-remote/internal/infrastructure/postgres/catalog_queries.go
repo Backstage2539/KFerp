@@ -35,6 +35,9 @@ type ProductOption struct {
 	NetContentQty               float64
 	NetContentUnit              string
 	IsDefaultSKU                bool
+	DefaultSKUID                int64
+	EffectiveDefaultSKUID       int64
+	DefaultSpecLabel            string
 	AutoDerivedSKU              bool
 	DerivedUnitTemplateID       int64
 	DerivedSpecKey              string
@@ -139,7 +142,14 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(p.spec_label,'') AS spec_label,
 		COALESCE(p.net_content_qty,0)::float8 AS net_content_qty,
 		COALESCE(p.net_content_unit,'') AS net_content_unit,
-		(COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku,
+		(p.id=CASE WHEN COALESCE(p.parent_product_id,0)>0
+			THEN COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id)
+			ELSE COALESCE(NULLIF(p.default_sku_id,0), p.id) END) AS is_default_sku,
+		COALESCE(p.default_sku_id,0) AS default_sku_id,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0
+			THEN COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id)
+			ELSE COALESCE(NULLIF(p.default_sku_id,0), p.id) END AS effective_default_sku_id,
+		COALESCE(NULLIF(effective_default_sku.spec_label,''), NULLIF(effective_default_sku.derived_spec_name,''), NULLIF(effective_default_sku.sku_name,''), '默认规格') AS default_spec_label,
 		COALESCE(p.auto_derived_sku,false) AS auto_derived_sku,
 		COALESCE(p.derived_unit_template_id,0) AS derived_unit_template_id,
 		COALESCE(p.derived_spec_key,'') AS derived_spec_key,
@@ -275,6 +285,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(pbg.name,'') AS production_bom_group_name
 			FROM %[1]s.products p
 			LEFT JOIN %[1]s.products parent_product ON parent_product.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END
+			LEFT JOIN %[1]s.products effective_default_sku ON effective_default_sku.id=CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) ELSE COALESCE(NULLIF(p.default_sku_id,0), p.id) END
 			LEFT JOIN %[1]s.product_config_templates parent_product_config ON parent_product_config.id=COALESCE(parent_product.product_config_template_id,0) AND parent_product_config.deleted_at IS NULL
 			LEFT JOIN %[1]s.product_unit_templates parent_product_direct_unit_template ON parent_product_direct_unit_template.id=COALESCE(parent_product.unit_template_id,0) AND parent_product_direct_unit_template.active=true AND parent_product_direct_unit_template.deleted_at IS NULL
 			LEFT JOIN %[1]s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=COALESCE(parent_product_config.unit_template_id,0) AND parent_product_unit_template.deleted_at IS NULL
@@ -326,7 +337,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.SKUID, &p.ParentProductID, &p.EffectiveParentProductID, &p.SKUName, &p.SKUCode, &p.Barcode, &p.SpecLabel, &p.NetContentQty, &p.NetContentUnit, &p.IsDefaultSKU, &p.AutoDerivedSKU, &p.DerivedUnitTemplateID, &p.DerivedSpecKey, &p.DerivedSpecName, &p.DerivedSalesUnit, &p.DerivedSpecStatus, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.DefaultSalesUnit, &p.UnitConversionJSON, &p.SalesUnitRulesJSON, &p.UnitTemplateID, &p.UnitTemplateName, &p.UnitRuleSource, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
+		if err := rows.Scan(&p.ID, &p.SKUID, &p.ParentProductID, &p.EffectiveParentProductID, &p.SKUName, &p.SKUCode, &p.Barcode, &p.SpecLabel, &p.NetContentQty, &p.NetContentUnit, &p.IsDefaultSKU, &p.DefaultSKUID, &p.EffectiveDefaultSKUID, &p.DefaultSpecLabel, &p.AutoDerivedSKU, &p.DerivedUnitTemplateID, &p.DerivedSpecKey, &p.DerivedSpecName, &p.DerivedSalesUnit, &p.DerivedSpecStatus, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.DefaultSalesUnit, &p.UnitConversionJSON, &p.SalesUnitRulesJSON, &p.UnitTemplateID, &p.UnitTemplateName, &p.UnitRuleSource, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
 			return nil, err
 		}
 		p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)
