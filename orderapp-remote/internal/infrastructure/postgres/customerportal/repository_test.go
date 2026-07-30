@@ -12,6 +12,7 @@ import (
 	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
@@ -766,7 +767,7 @@ func TestCreatePasswordLoginSessionAuthenticatesChannelCustomerBinding(t *testin
 	}
 }
 
-func TestCreatePasswordLoginSessionRejectsInternalEmployee(t *testing.T) {
+func TestCreatePasswordLoginSessionAllowsSalesEmployee(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
 	ensureCustomerPortalERPBindingTestSchema(t, ctx, pool, schema)
@@ -791,6 +792,9 @@ func TestCreatePasswordLoginSessionRejectsInternalEmployee(t *testing.T) {
 	`, schema), employeeID, customerPortalTestPasswordHash("secret")); err != nil {
 		t.Fatalf("insert password: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %[1]s.employee_roles(employee_id,role_code) VALUES($1,'sales')`, schema), employeeID); err != nil {
+		t.Fatalf("insert sales role: %v", err)
+	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by)
 		VALUES($1,$2,'owner','active','test')
@@ -798,9 +802,16 @@ func TestCreatePasswordLoginSessionRejectsInternalEmployee(t *testing.T) {
 		t.Fatalf("insert erp binding: %v", err)
 	}
 
-	_, err := repo.CreatePasswordLoginSession(ctx, customerportalapp.CreatePasswordLoginSessionCommand{Login: "13800138076", Password: "secret"})
-	if !errors.Is(err, customerportalapp.ErrCustomerBindingNotFound) {
-		t.Fatalf("CreatePasswordLoginSession internal err=%v, want ErrCustomerBindingNotFound", err)
+	got, err := repo.CreatePasswordLoginSession(ctx, customerportalapp.CreatePasswordLoginSessionCommand{Login: "13800138076", Password: "secret"})
+	if err != nil {
+		t.Fatalf("CreatePasswordLoginSession internal sales: %v", err)
+	}
+	if got.AccountType != "employee" || got.EmployeeID != employeeID || !containsString(got.Roles, "sales") || !containsString(got.Permissions, "orders.write") {
+		t.Fatalf("employee login=%+v", got)
+	}
+	current, err := repo.CurrentContextByToken(ctx, got.Token)
+	if err != nil || current.AccountType != "employee" || current.EmployeeID != employeeID {
+		t.Fatalf("employee current=%+v err=%v", current, err)
 	}
 }
 
@@ -2402,6 +2413,9 @@ func ensureCustomerPortalERPBindingTestSchema(t *testing.T, ctx context.Context,
 	t.Helper()
 	if err := postgrescompany.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("company.EnsureSchema: %v", err)
+	}
+	if err := postgresauthz.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("authz.EnsureSchema: %v", err)
 	}
 	if err := postgrescustomerfulfillment.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customerfulfillment.EnsureSchema: %v", err)
