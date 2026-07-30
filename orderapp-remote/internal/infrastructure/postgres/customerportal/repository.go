@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	customerportalapp "orderapp/internal/application/customerportal"
@@ -247,7 +248,42 @@ func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customer
 		return customerportalapp.LoginResult{}, err
 	}
 	if strings.TrimSpace(accountType) != "channel_customer" {
-		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+		if strings.TrimSpace(accountType) != "internal_employee" {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+		}
+		if loginDisabled {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrMiniAccountLoginDisabled
+		}
+		if passwordHash == "" || passwordHash != erpPasswordHash(password) {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrMiniInvalidLogin
+		}
+		roles, permissions, err := r.employeeMiniAccessTx(ctx, tx, employeeID)
+		if err != nil {
+			return customerportalapp.LoginResult{}, err
+		}
+		if !containsString(roles, "admin") && !containsString(roles, "sales") {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+		}
+		if !containsString(permissions, "orders.read") || !containsString(permissions, "orders.write") {
+			return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+		}
+		miniUserID, err := r.upsertEmployeeMiniUserTx(ctx, tx, employeeID, employeeName, employeePhone)
+		if err != nil {
+			return customerportalapp.LoginResult{}, err
+		}
+		result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
+		if err != nil {
+			return customerportalapp.LoginResult{}, err
+		}
+		result.AccountType = "employee"
+		result.EmployeeID = employeeID
+		result.EmployeeName = strings.TrimSpace(employeeName)
+		result.Roles = roles
+		result.Permissions = permissions
+		if err := tx.Commit(ctx); err != nil {
+			return customerportalapp.LoginResult{}, err
+		}
+		return result, nil
 	}
 	if loginDisabled {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniAccountLoginDisabled
@@ -360,17 +396,44 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var miniUserID, sessionCustomerID int64
+	var openID string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT s.mini_user_id, COALESCE(s.current_customer_id,0)
+		SELECT s.mini_user_id, COALESCE(s.current_customer_id,0), COALESCE(u.openid,'')
 		FROM %s.mini_sessions s
 		JOIN %s.mini_users u ON u.id=s.mini_user_id
 		WHERE s.token=$1 AND s.expire_at>now() AND u.active=true
 		FOR UPDATE OF s
-	`, r.schema, r.schema), token).Scan(&miniUserID, &sessionCustomerID); err != nil {
+	`, r.schema, r.schema), token).Scan(&miniUserID, &sessionCustomerID, &openID); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 		}
 		return customerportalapp.CurrentContext{}, err
+	}
+	if strings.HasPrefix(openID, "erp-internal-employee:") {
+		employeeID, parseErr := strconv.ParseInt(strings.TrimPrefix(openID, "erp-internal-employee:"), 10, 64)
+		if parseErr != nil || employeeID <= 0 {
+			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
+		}
+		var employeeName string
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1 AND active=true AND account_type='internal_employee'`, r.schema), employeeID).Scan(&employeeName); err != nil {
+			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
+		}
+		roles, permissions, err := r.employeeMiniAccessTx(ctx, tx, employeeID)
+		if err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+		if (!containsString(roles, "admin") && !containsString(roles, "sales")) || !containsString(permissions, "orders.read") || !containsString(permissions, "orders.write") {
+			return customerportalapp.CurrentContext{}, customerportalapp.ErrCustomerBindingNotFound
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+		return customerportalapp.CurrentContext{
+			MiniUserID: miniUserID, AccountType: "employee", EmployeeID: employeeID,
+			EmployeeName: employeeName, Roles: roles, Permissions: permissions,
+			Bindings: []customerportalapp.CustomerBinding{}, Capabilities: []customerportalapp.Capability{},
+			ThemeKey: customerportalapp.PortalThemeCleanOps, MiniappEntryMode: customerportalapp.MiniappEntryModeServices,
+		}, nil
 	}
 	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
 	if err != nil {
@@ -422,6 +485,55 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 		ThemeKey:            themeKey,
 		MiniappEntryMode:    entryMode,
 	}, nil
+}
+
+func (r Repository) upsertEmployeeMiniUserTx(ctx context.Context, tx pgx.Tx, employeeID int64, name, phone string) (int64, error) {
+	var miniUserID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mini_users(openid, phone, nickname, active, last_login_at)
+		VALUES($1,$2,$3,true,now())
+		ON CONFLICT(openid) DO UPDATE SET phone=EXCLUDED.phone,nickname=EXCLUDED.nickname,last_login_at=now()
+		RETURNING id
+	`, r.schema), fmt.Sprintf("erp-internal-employee:%d", employeeID), strings.TrimSpace(phone), strings.TrimSpace(name)).Scan(&miniUserID)
+	return miniUserID, err
+}
+
+func (r Repository) employeeMiniAccessTx(ctx context.Context, q txQuerier, employeeID int64) ([]string, []string, error) {
+	rows, err := q.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT er.role_code, rp.permission_code
+		FROM %s.employee_roles er
+		LEFT JOIN %s.auth_role_permissions rp ON rp.role_code=er.role_code
+		WHERE er.employee_id=$1
+		ORDER BY er.role_code, rp.permission_code
+	`, r.schema, r.schema), employeeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	roles, permissions := []string{}, []string{}
+	for rows.Next() {
+		var role string
+		var permission *string
+		if err := rows.Scan(&role, &permission); err != nil {
+			return nil, nil, err
+		}
+		if !containsString(roles, role) {
+			roles = append(roles, role)
+		}
+		if permission != nil && !containsString(permissions, *permission) {
+			permissions = append(permissions, *permission)
+		}
+	}
+	return roles, permissions, rows.Err()
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (r Repository) SwitchCurrentCustomer(ctx context.Context, token string, customerID int64) (customerportalapp.CurrentContext, error) {

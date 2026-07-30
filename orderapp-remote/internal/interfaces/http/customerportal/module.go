@@ -61,6 +61,7 @@ type Dependencies struct {
 	MessageCenter       MessagePublisher
 	BeanListPDFRenderer BeanListPDFRenderer
 	SalesDocuments      SalesDocuments
+	EmployeeSales       EmployeeSales
 	AssetDir            string
 }
 
@@ -77,12 +78,19 @@ type SalesDocuments interface {
 	LoadDeliveryNoteDocumentFile(context.Context, int64, int64, bool) (salesapp.DeliveryNoteDocumentFile, error)
 }
 
+type EmployeeSales interface {
+	ListOrders(context.Context, salesapp.OrderListQuery) (salesapp.OrderListResult, error)
+	OrderForm(context.Context, int64) (salesapp.OrderFormData, error)
+	SaveOrder(context.Context, salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error)
+}
+
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	renderer := deps.BeanListPDFRenderer
 	if renderer == nil {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
 	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments)
+	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)
 }
 

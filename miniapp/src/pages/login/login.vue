@@ -89,14 +89,14 @@ async function handlePasswordLogin() {
   <view class="page" :class="themeClass">
     <view class="hero">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
-      <text class="title">客户中心</text>
+      <text class="title">棵凡小程序</text>
       <text class="subtitle">{{ themeMeta.subtitle }}</text>
     </view>
 
     <view class="panel">
       <view class="mode-tabs">
         <button class="mode-tab" :class="{ active: loginMode === 'quick' }" @tap="loginMode = 'quick'">手机号快捷登录</button>
-        <button class="mode-tab" :class="{ active: loginMode === 'password' }" @tap="loginMode = 'password'">密码登录</button>
+        <button class="mode-tab" :class="{ active: loginMode === 'password' }" @tap="loginMode = 'password'">员工 / 客户账号</button>
       </view>
 
       <view v-if="loginMode === 'quick'" class="login-block">

@@ -131,6 +131,11 @@ type CreatePasswordLoginSessionCommand struct {
 type LoginResult struct {
 	Token             string            `json:"token"`
 	MiniUserID        int64             `json:"mini_user_id"`
+	AccountType       string            `json:"account_type"`
+	EmployeeID        int64             `json:"employee_id,omitempty"`
+	EmployeeName      string            `json:"employee_name,omitempty"`
+	Roles             []string          `json:"roles"`
+	Permissions       []string          `json:"permissions"`
 	CurrentCustomerID int64             `json:"current_customer_id"`
 	ThemeKey          string            `json:"theme_key"`
 	MiniappEntryMode  string            `json:"miniapp_entry_mode"`
@@ -153,6 +158,11 @@ type Capability struct {
 
 type CurrentContext struct {
 	MiniUserID          int64             `json:"mini_user_id"`
+	AccountType         string            `json:"account_type"`
+	EmployeeID          int64             `json:"employee_id,omitempty"`
+	EmployeeName        string            `json:"employee_name,omitempty"`
+	Roles               []string          `json:"roles"`
+	Permissions         []string          `json:"permissions"`
 	CurrentCustomerID   int64             `json:"current_customer_id"`
 	CurrentCustomerName string            `json:"current_customer_name"`
 	ThemeKey            string            `json:"theme_key"`
