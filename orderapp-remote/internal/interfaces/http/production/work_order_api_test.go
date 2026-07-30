@@ -1092,6 +1092,8 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 				Operation:               "烘焙",
 				WorkstationCapacityID:   8,
 				WorkstationCapacityName: "布勒 18kg",
+				CostMethod:              "piece",
+				PieceRate:               0.5,
 				PlannedBatchCount:       5,
 				PlannedQtyG:             90000,
 				PlannedMinutes:          75,
@@ -1108,14 +1110,14 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET operation splits status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"operation":"烘焙"`, `"workstation_capacity_name":"布勒 18kg"`, `"planned_batch_count":5`, `"planned_qty_g":90000`} {
+	for _, want := range []string{`"operation":"烘焙"`, `"workstation_capacity_name":"布勒 18kg"`, `"cost_method":"piece"`, `"piece_rate":0.5`, `"planned_batch_count":5`, `"planned_qty_g":90000`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("GET operation splits missing %s: %s", want, rec.Body.String())
 		}
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/production-plans/41/operation-splits", strings.NewReader(`{"items":[
-		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":8,"planned_qty":90},
+		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":8,"planned_qty":90,"cost_method":"piece","piece_rate":0.5},
 		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":9,"planned_qty":8}
 	]}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -1129,6 +1131,9 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 	}
 	if repo.savePlanSplits.Items[0].WorkstationCapacityID != 8 || repo.savePlanSplits.Items[1].PlannedQty != 8 {
 		t.Fatalf("saved split items = %+v", repo.savePlanSplits.Items)
+	}
+	if repo.savePlanSplits.Items[0].CostMethod != "piece" || repo.savePlanSplits.Items[0].PieceRate != 0.5 {
+		t.Fatalf("piece cost fields = %+v", repo.savePlanSplits.Items[0])
 	}
 }
 

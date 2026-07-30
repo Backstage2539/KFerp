@@ -3,6 +3,7 @@ package manufacturing
 import (
 	"context"
 	"fmt"
+	manufacturingapp "orderapp/internal/application/manufacturing"
 	"os"
 	"slices"
 	"strings"
@@ -12,6 +13,111 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestPR563PieceCapacityPersistsAndAuditsInPostgres(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for manufacturing postgres tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	schema := fmt.Sprintf("test_pr563_piece_capacity_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	})
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema first run: %v", err)
+	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema second run must be idempotent: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.audit_logs (
+			id BIGSERIAL PRIMARY KEY,
+			actor TEXT NOT NULL DEFAULT '',
+			entity_type TEXT NOT NULL DEFAULT '',
+			entity_id BIGINT NULL,
+			action TEXT NOT NULL DEFAULT '',
+			field TEXT NULL,
+			old_value TEXT NULL,
+			new_value TEXT NULL,
+			meta JSONB NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`, schema)); err != nil {
+		t.Fatalf("create audit logs: %v", err)
+	}
+
+	var workstationID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.manufacturing_workstations(code,name,status,hourly_rate)
+		VALUES('PACK-PR563','包装工位','active',90)
+		RETURNING id
+	`, schema)).Scan(&workstationID); err != nil {
+		t.Fatalf("insert workstation: %v", err)
+	}
+
+	repo := NewRepository(pool, schema)
+	saved, err := repo.SaveManufacturingWorkstationCapacity(ctx, manufacturingapp.SaveWorkstationCapacityCommand{
+		WorkstationID:      workstationID,
+		Code:               "PACK-100",
+		Name:               "包装100件",
+		Status:             "active",
+		BatchSizeQty:       100,
+		BatchSizeUnit:      "件",
+		StandardMinutes:    20,
+		CostMethod:         "piece",
+		PieceRate:          0.5,
+		ProductionCapacity: 1,
+		Actor:              "pr563-test",
+	})
+	if err != nil {
+		t.Fatalf("save piece capacity: %v", err)
+	}
+	if saved.CostMethod != "piece" || saved.PieceRate != 0.5 || saved.BatchSizeUnit != "件" {
+		t.Fatalf("saved piece capacity = %+v", saved)
+	}
+
+	if err := repo.DeactivateManufacturingWorkstationCapacity(ctx, manufacturingapp.TemplateStatusCommand{
+		ID:    saved.ID,
+		Actor: "pr563-test",
+	}); err != nil {
+		t.Fatalf("deactivate piece capacity: %v", err)
+	}
+	var status, meta string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT c.status, COALESCE(a.meta::text,'')
+		FROM %s.manufacturing_workstation_capacities c
+		JOIN %s.audit_logs a ON a.entity_id=c.id
+		WHERE c.id=$1
+		  AND a.entity_type='manufacturing_workstation_capacity'
+		  AND a.action='deactivate'
+		ORDER BY a.id DESC
+		LIMIT 1
+	`, schema, schema), saved.ID).Scan(&status, &meta); err != nil {
+		t.Fatalf("load deactivation audit: %v", err)
+	}
+	if status != "inactive" {
+		t.Fatalf("capacity status = %q, want inactive", status)
+	}
+	for _, want := range []string{`"cost_method": "piece"`, `"piece_rate": 0.5`, `"rate_unit": "sales_spec_count"`, `"batch_size_unit": "件"`} {
+		if !strings.Contains(meta, want) {
+			t.Fatalf("deactivation audit meta %s missing %q", meta, want)
+		}
+	}
+}
 
 func TestManufacturingRepositoryKeepsOperationCostAndWorkstationApplicability(t *testing.T) {
 	src, err := os.ReadFile("repository.go")

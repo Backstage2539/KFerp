@@ -55,7 +55,7 @@ func (r *apiRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 	return manufacturingapp.ManufacturingWorkstationCapacity{
 		ID: 9, WorkstationID: cmd.WorkstationID, Code: cmd.Code, Name: cmd.Name, Status: cmd.Status,
 		BatchSizeQty: cmd.BatchSizeQty, BatchSizeUnit: cmd.BatchSizeUnit, StandardMinutes: cmd.StandardMinutes,
-		HourlyRate: cmd.HourlyRate, ProductionCapacity: cmd.ProductionCapacity,
+		HourlyRate: cmd.HourlyRate, CostMethod: cmd.CostMethod, PieceRate: cmd.PieceRate, ProductionCapacity: cmd.ProductionCapacity,
 		ApplicableOperationIDs: cmd.ApplicableOperationIDs,
 	}, nil
 }
@@ -322,6 +322,39 @@ func TestWorkstationCapacityAPIListSaveAndDeactivate(t *testing.T) {
 	}
 	if len(repo.workstationCapacitySaved.ApplicableOperationIDs) != 0 {
 		t.Fatalf("capacity should ignore applicable operations = %+v", repo.workstationCapacitySaved.ApplicableOperationIDs)
+	}
+
+	body = `{"workstation_id":2,"name":"包装100件","batch_size_qty":100,"batch_size_unit":"件","standard_minutes":20,"cost_method":"piece","piece_rate":0.5}`
+	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"cost_method":"piece"`) || !strings.Contains(rec.Body.String(), `"piece_rate":0.5`) {
+		t.Fatalf("save piece capacity status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.workstationCapacitySaved.CostMethod != "piece" || repo.workstationCapacitySaved.PieceRate != 0.5 {
+		t.Fatalf("saved piece capacity command = %+v", repo.workstationCapacitySaved)
+	}
+	if repo.workstationCapacitySaved.BatchSizeUnit != "件" {
+		t.Fatalf("saved piece capacity unit = %q", repo.workstationCapacitySaved.BatchSizeUnit)
+	}
+
+	body = `{"workstation_id":2,"name":"错误计件","batch_size_qty":10,"batch_size_unit":"kg","cost_method":"piece","piece_rate":0.5}`
+	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "标准产能单位必须使用") {
+		t.Fatalf("weight piece capacity status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	body = `{"workstation_id":2,"name":"歧义包装计件","batch_size_qty":100,"batch_size_unit":"盒","cost_method":"piece","piece_rate":0.5}`
+	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "标准产能单位必须使用") {
+		t.Fatalf("package-layer piece capacity status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities/9/deactivate", strings.NewReader(`{}`))

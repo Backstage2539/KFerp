@@ -167,6 +167,9 @@ type PricingRuleTrialWorkstationCostSnapshotRow struct {
 	OperationName      string  `json:"operation_name,omitempty"`
 	WorkstationName    string  `json:"workstation_name,omitempty"`
 	CapacityName       string  `json:"capacity_name,omitempty"`
+	CostMethod         string  `json:"cost_method,omitempty"`
+	PieceRate          float64 `json:"piece_rate,omitempty"`
+	RateUnit           string  `json:"rate_unit,omitempty"`
 	HourlyRate         float64 `json:"hourly_rate,omitempty"`
 	StandardMinutes    float64 `json:"standard_minutes,omitempty"`
 	StandardOutputQty  float64 `json:"standard_output_qty,omitempty"`
@@ -251,6 +254,9 @@ type PricingRuleTrialBaseCostDetail struct {
 	CapacityName            string  `json:"capacity_name,omitempty"`
 	CapacitySelectionSource string  `json:"capacity_selection_source,omitempty"`
 	Warning                 string  `json:"warning,omitempty"`
+	CostMethod              string  `json:"cost_method,omitempty"`
+	PieceRate               float64 `json:"piece_rate,omitempty"`
+	RateUnit                string  `json:"rate_unit,omitempty"`
 	HourlyRate              float64 `json:"hourly_rate,omitempty"`
 	StandardMinutes         float64 `json:"standard_minutes,omitempty"`
 	StandardOutputQty       float64 `json:"standard_output_qty,omitempty"`
@@ -1414,6 +1420,7 @@ func pricingRuleTrialNormalizeBaseCostDetails(input domain.ProductInput, quoteUn
 		if row.Type == "" {
 			row.Type = "material"
 		}
+		pricingRuleTrialPreparePieceCostDetail(input, &row)
 		if strings.TrimSpace(row.TypeLabel) == "" {
 			row.TypeLabel = pricingRuleTrialBaseCostTypeLabel(row.Type)
 		}
@@ -1470,6 +1477,9 @@ func pricingRuleTrialWorkstationCostSnapshot(details []PricingRuleTrialBaseCostD
 			OperationName:      row.Name,
 			WorkstationName:    row.WorkstationName,
 			CapacityName:       row.CapacityName,
+			CostMethod:         row.CostMethod,
+			PieceRate:          row.PieceRate,
+			RateUnit:           row.RateUnit,
 			HourlyRate:         row.HourlyRate,
 			StandardMinutes:    row.StandardMinutes,
 			StandardOutputQty:  row.StandardOutputQty,
@@ -1479,6 +1489,41 @@ func pricingRuleTrialWorkstationCostSnapshot(details []PricingRuleTrialBaseCostD
 		})
 	}
 	return snapshot
+}
+
+func pricingRuleTrialPreparePieceCostDetail(input domain.ProductInput, row *PricingRuleTrialBaseCostDetail) {
+	if row == nil || !strings.EqualFold(strings.TrimSpace(row.CostMethod), "piece") {
+		return
+	}
+	row.CostMethod = "piece"
+	if row.PieceRate <= 0 {
+		row.AmountPerUnit = 0
+		row.UnitCost = 0
+		row.Warning = "BOM 计件工序成本快照缺少有效计件单价"
+		return
+	}
+	salesUnit := firstNonEmptyString(strings.TrimSpace(input.QuoteUnit), strings.TrimSpace(input.OrderUnit))
+	if salesUnit == "" {
+		row.AmountPerUnit = 0
+		row.UnitCost = 0
+		row.Warning = "具体 SKU 缺少权威销售规格单位，无法折算计件工序成本"
+		return
+	}
+	inventoryUnit := strings.TrimSpace(input.InventoryUnit)
+	if inventoryUnit != "" && pricingRuleTrialUnitKey(salesUnit) != pricingRuleTrialUnitKey(inventoryUnit) &&
+		pricingRuleTrialUnitTargetFactor(salesUnit, inventoryUnit, input.UnitConversionJSON) <= 0 {
+		row.AmountPerUnit = 0
+		row.UnitCost = 0
+		row.Warning = "具体 SKU 缺少权威 inventory_qty_per_sales_unit，无法折算计件工序成本"
+		return
+	}
+	row.RateUnit = firstNonEmptyString(strings.TrimSpace(row.RateUnit), "sales_spec_count")
+	row.ConsumeUnit = "per_sales_unit"
+	row.AmountPerUnit = row.PieceRate
+	row.UnitCost = row.PieceRate
+	row.Unit = salesUnit
+	row.CostUnit = salesUnit
+	row.CostUnitCost = row.PieceRate
 }
 
 func pricingRuleTrialBaseCostDetailQuoteAmount(row PricingRuleTrialBaseCostDetail, quoteUnit string, conversionJSON string, quoteKgFactor float64, usePerKg bool, perUnitSourceUnit string) (float64, string, float64) {
@@ -1545,7 +1590,7 @@ func pricingRuleTrialConvertCostAmount(amount float64, sourceUnit string, target
 
 func pricingRuleTrialBaseCostDetailUnitCostFollowsOutput(row PricingRuleTrialBaseCostDetail) bool {
 	switch strings.TrimSpace(row.ConsumeUnit) {
-	case "ratio_pct", "per_kg", "per_kg_output", "per_finished_kg", "per_inventory_unit":
+	case "ratio_pct", "per_kg", "per_kg_output", "per_finished_kg", "per_inventory_unit", "per_sales_unit":
 		return true
 	default:
 		return false

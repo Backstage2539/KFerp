@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-563-WORKSTATION-PIECE-COST
+- Branch: codex/workstation-piece-cost
+- Owner/session: Codex / 2026-07-30
+- Status: implementation complete; final verification, integration and development deployment in progress
+- Scope: 工位产能新增 `按工时 / 按计件` 成本方式。按工时沿用工位小时成本、标准分钟和批次数；按计件以具体 SKU 销售规格件为唯一费率口径，并按计划销售规格件数或实际产出件数计费。标准成本、生产计划、工单、工序卡和成本追溯按工序分别冻结并展示烘焙、色选、包装成本。
+- DEV:
+  - DEV-563-CAPACITY-COST-METHOD：工位产能新增 `cost_method=time|piece` 和按销售规格件计价的 `piece_rate`；历史和缺省数据按 `time` 读取，新计件产能单位固定为 `件`，保存/修改/停用继续写操作日志。
+  - DEV-563-STANDARD-COST-SNAPSHOT：工艺路线标准成本产能档和 BOM 发布快照冻结成本方式、计件费率、费率单位及折算关系；按计件标准成本通过商品/SKU 权威单位换算折算到 BOM 库存单位，不从 `227g` 等显示名称解析数量。
+  - DEV-563-PLAN-ACTUAL-PIECE-COST：计划计件成本按 `计划数量 × 计件费率`，实际计件成本按 `实际产出数量 × 冻结计件费率`；按工时路径保持现有批次数/分钟公式，工单和工序卡逐工序冻结并汇总。
+  - DEV-563-UI-AUDIT：工位产能表单按成本方式显示对应字段和公式；生产计划、工单、工序卡、执行枢纽与成本追溯分列展示烘焙/色选/包装成本，主数据写操作和执行状态操作可审计。
+  - DEV-563-DOCS-ACCEPTANCE：同步需求、验收、生产/成本手册和验收证据；以初晓拼配227g具体 SKU 的100个销售规格件验证包装 `100件 × 0.5元/销售规格件 = 50元`，并验证烘焙、色选、包装三项成本独立且合计正确。
+- Verifier:
+  - RED/GREEN backend: manufacturing schema/service/repository/API, BOM operation cost snapshot, production plan/work order/job card freeze, actual cost aggregation and support contracts.
+  - RED/GREEN frontend: workstation capacity cost-method form, production split/cost detail, workstation completion and cost breakdown tests.
+  - Database/API: temporary PostgreSQL verifies historical default `time`, count-unit validation, snapshots, operation logs and the 100-bag planned/actual cost scenario.
+  - Build/review: affected Go packages, Vue Node tests, Vite production build, `scripts/verify_kferp.sh changed`, `git diff --check`.
+  - Manual/acceptance: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-07-30-workstation-piece-cost.md`.
+- Deployment: pending implementation, verification, merge and development deployment; production forbidden unless separately authorized
+- Last update: 2026-07-30 Asia/Shanghai
+
 ### PR-562-PRODUCTION-EXECUTION-JOB-CARD-CONSOLIDATION
 - Branch: codex/pr562-production-execution-entry
 - Owner/session: Codex / 2026-07-29

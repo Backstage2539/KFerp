@@ -258,4 +258,17 @@ test('WorkOrdersView exposes capacity split editor drawer', () => {
   assert.doesNotMatch(source, /assignRemainingWorkOrderSplitQty/)
   assert.doesNotMatch(source, /分配剩余产量/)
   assert.doesNotMatch(source, /分配剩余产能/)
+
+  const autoSplitStart = source.indexOf('function withAutoWorkOrderSplits')
+  const autoSplitEnd = source.indexOf('function openWorkOrderSplitDrawer', autoSplitStart)
+  const autoSplitSource = source.slice(autoSplitStart, autoSplitEnd)
+  for (const frozenOutputField of [
+    'planned_output_g',
+    'sales_spec_count',
+    'inventory_qty_per_sales_unit',
+    'inventory_unit',
+    'planned_inventory_qty',
+  ]) {
+    assert.match(autoSplitSource, new RegExp(frozenOutputField))
+  }
 })

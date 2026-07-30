@@ -742,6 +742,7 @@ import {
   productionPlanSelectionState,
   productionPlanBomSummary,
   productionPlanItemBomSourceLabel,
+  productionPlanItemOutputTargetG,
   productionPlanItemQuantitySummary,
   productionPlanLegacyGramLabel,
   productionPlanStatusLabel,
@@ -751,6 +752,10 @@ import {
   producePlanKey,
 } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
+import {
+  normalizeCapacityCostMethod,
+  workstationCapacityOptionLabel,
+} from '../lib/workstation-capacity-costing'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -1302,14 +1307,11 @@ function splitSameOperation(left, right) {
 }
 
 function capacityOptionLabel(capacity) {
-  const parts = [capacity?.name || `#${capacity?.id || ''}`]
-  if (Number(capacity?.batch_size_qty || 0) > 0) parts.push(`${capacity.batch_size_qty}${capacity.batch_size_unit || ''}`)
-  if (Number(capacity?.standard_minutes || 0) > 0) parts.push(`${capacity.standard_minutes}分钟/批`)
-  if (Number(capacity?.hourly_rate || 0) > 0) parts.push(`${capacity.hourly_rate}/小时`)
-  return parts.filter(Boolean).join(' · ')
+  return workstationCapacityOptionLabel(capacity)
 }
 
 function normalizeOperationSplit(row = {}) {
+  const planItem = currentPlanItemForSplit(row)
   return {
     local_key: row.local_key || `split-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     id: Number(row.id || 0),
@@ -1326,9 +1328,13 @@ function normalizeOperationSplit(row = {}) {
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
+    cost_method: normalizeCapacityCostMethod(row),
+    piece_rate: Number(row.piece_rate || 0),
     planned_batch_count: Number(row.planned_batch_count || 0),
-    spec_g: Number(row.spec_g || row.item_spec_g || currentPlanItemForSplit(row)?.spec_g || 0),
-    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_qty_g || 0), row.batch_size_unit, row.spec_g || row.item_spec_g || currentPlanItemForSplit(row)?.spec_g || 0)),
+    spec_g: Number(row.spec_g || row.item_spec_g || planItem?.spec_g || 0),
+    sales_spec_count: Number(row.sales_spec_count || row.item_sales_spec_count || planItem?.sales_spec_count || 0),
+    item_target_g: Number(row.item_target_g || productionPlanItemOutputTargetG(planItem || {})),
+    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_qty_g || 0), row.batch_size_unit, row.spec_g || row.item_spec_g || planItem?.spec_g || 0)),
     planned_qty_g: Number(row.planned_qty_g || 0),
     planned_minutes: Number(row.planned_minutes || 0),
     planned_operation_cost: Number(row.planned_operation_cost || 0),
@@ -1346,7 +1352,11 @@ function applySplitCapacity(split, rows = operationSplits.value, plan = currentP
   split.batch_size_unit = capacity.batch_size_unit || ''
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
+  split.cost_method = normalizeCapacityCostMethod(capacity)
+  split.piece_rate = Number(capacity.piece_rate || 0)
   split.spec_g = Number(split.spec_g || currentPlanItemForSplit(split, plan)?.spec_g || 0)
+  split.sales_spec_count = Number(split.sales_spec_count || currentPlanItemForSplit(split, plan)?.sales_spec_count || 0)
+  split.item_target_g = Number(split.item_target_g || productionPlanItemOutputTargetG(currentPlanItemForSplit(split, plan) || {}))
   split.planned_qty = capacityDefaultPlannedQty(capacity)
 }
 

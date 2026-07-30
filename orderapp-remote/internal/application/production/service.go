@@ -454,6 +454,8 @@ type ProductionPlanOperationSplit struct {
 	BatchSizeUnit           string  `json:"batch_size_unit"`
 	StandardMinutes         int     `json:"standard_minutes"`
 	HourlyRate              float64 `json:"hourly_rate"`
+	CostMethod              string  `json:"cost_method"`
+	PieceRate               float64 `json:"piece_rate"`
 	PlannedBatchCount       int     `json:"planned_batch_count"`
 	PlannedQty              float64 `json:"planned_qty"`
 	PlannedQtyG             int64   `json:"planned_qty_g"`
@@ -767,6 +769,8 @@ type JobCardRow struct {
 	PlannedBatchCount            int     `json:"planned_batch_count"`
 	PlannedMinutes               int     `json:"planned_minutes"`
 	HourlyRate                   float64 `json:"hourly_rate"`
+	CostMethod                   string  `json:"cost_method"`
+	PieceRate                    float64 `json:"piece_rate"`
 	PlannedOperationCost         float64 `json:"planned_operation_cost"`
 	ActualMinutes                int     `json:"actual_minutes"`
 	ActualOperationCost          float64 `json:"actual_operation_cost"`
