@@ -17,6 +17,7 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 		"acceptance":    filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 		"manual":        filepath.Join("docs", "OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md"),
 		"evidence":      filepath.Join("docs", "acceptance", "2026-07-31-miniapp-order-entry-closure.md"),
+		"releaseScript": filepath.Join("..", "scripts", "remote_orderapp_release.sh"),
 	}
 	contents := map[string]string{}
 	for key, rel := range files {
@@ -72,6 +73,18 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 		if !strings.Contains(contents[key], "PR-566") {
 			t.Fatalf("%s missing PR-566 marker", key)
 		}
+	}
+	for _, marker := range []string{
+		"wait_for_orderapp_http 60 3",
+		"wait_for_public_http 15",
+		"docker logs --tail 200",
+	} {
+		if !strings.Contains(contents["releaseScript"], marker) {
+			t.Fatalf("remote release script missing readiness retry %q", marker)
+		}
+	}
+	if strings.Contains(contents["releaseScript"], "STABLE_CHECKS") {
+		t.Fatal("remote release script must not accept Running=true as HTTP readiness")
 	}
 
 	miniappRoot := filepath.Join(findAncestorForTest(t, "go.mod"), "..", "miniapp")
