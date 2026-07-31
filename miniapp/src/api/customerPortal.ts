@@ -515,18 +515,35 @@ export type EmployeeOrderForm = {
   pay_statuses: Array<{ id: number; name: string }>
   ship_statuses: Array<{ id: number; name: string }>
   product_families: EmployeeOrderProductFamily[]
+  products?: EmployeeOrderLegacyProduct[]
 }
 
 export type EmployeeOrderCustomer = {
   id: number
   name: string
+  py?: string
+  pyi?: string
   customer_type?: string
   default_source_id?: number
   default_order_type_id?: number
+  contact?: string
+  phone?: string
+  address?: string
+  company_name?: string
+  company_address?: string
+  company_phone?: string
   receiver_name?: string
   receiver_phone?: string
   receiver_address?: string
   receiver_company?: string
+}
+
+export type EmployeeOrderLegacyProduct = {
+  id: number
+  name: string
+  product_kind?: string
+  sales_units?: string[]
+  retail_specs?: number[]
 }
 
 export type EmployeeOrderProductTier = {
@@ -539,7 +556,10 @@ export type EmployeeOrderProductTier = {
 export type EmployeeOrderProductSpec = {
   product_id: number
   sku_id?: number
+  sku_code?: string
   sku_name?: string
+  py?: string
+  pyi?: string
   spec_label?: string
   net_content_qty?: number
   net_content_unit?: string
@@ -553,8 +573,18 @@ export type EmployeeOrderProductSpec = {
 
 export type EmployeeOrderProductFamily = {
   parent_product_id: number
+  parent_product_name?: string
   name: string
+  alias_name?: string
+  customer_product_display_name?: string
+  customer_item_code?: string
+  code?: string
+  py?: string
+  pyi?: string
+  product_code?: string
+  product_type_name?: string
   customer_id?: number
+  customer_product_alias_id?: number
   default_sku_id?: number
   product_kind?: string
   specs: EmployeeOrderProductSpec[]

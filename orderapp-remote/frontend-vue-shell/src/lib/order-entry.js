@@ -235,9 +235,15 @@ function normalizeExplicitOrderFamily(raw = {}) {
   const searchCode = [
     raw.code,
     raw.product_code,
+    raw.alias_name,
+    raw.customer_product_display_name,
     parentProductName,
     ...specs.flatMap((spec) => [spec.sku_name, spec.product_code, spec.spec_label]),
   ].map(orderFamilyText).filter(Boolean).join(' ')
+  const familyKey = orderProductFamilyIdentity({
+    ...raw,
+    parent_product_id: parentProductID,
+  })
   return {
     ...raw,
     id: parentProductID,
@@ -245,8 +251,10 @@ function normalizeExplicitOrderFamily(raw = {}) {
     parent_product_name: parentProductName,
     product_name_snapshot: parentProductName,
     name: displayName,
+    alias_name: orderFamilyText(raw.alias_name ?? raw.customer_product_display_name ?? raw.customerProductDisplayName),
     customer_product_display_name: orderFamilyText(raw.customer_product_display_name ?? raw.customerProductDisplayName ?? displayName),
     default_sku_id: orderFamilyID(raw.default_sku_id, raw.defaultSkuID),
+    family_key: familyKey,
     specs,
     tiers: specs.flatMap((spec) => spec.tiers || []),
     code: searchCode,
@@ -326,12 +334,24 @@ function fallbackOrderFamilies(products = []) {
 
 export function normalizeOrderProductFamilies(productFamilies = [], products = []) {
   if (Array.isArray(productFamilies) && productFamilies.length) {
-    const productByID = new Map((products || []).map((product) => [toInt(product?.id), product]))
+    const productsByFamilySKU = new Map()
+    const productsBySKU = new Map()
+    for (const product of products || []) {
+      const skuID = orderFamilyID(product?.sku_id, product?.skuID, product?.id, product?.product_id)
+      if (skuID <= 0) continue
+      productsByFamilySKU.set(`${orderProductFamilyIdentity(product)}:${skuID}`, product)
+      if (!productsBySKU.has(skuID)) productsBySKU.set(skuID, [])
+      productsBySKU.get(skuID).push(product)
+    }
     const concreteFamilies = productFamilies.map((raw) => {
-      const enrichedSpecs = (raw?.specs || []).map((spec) => ({
-        ...(productByID.get(orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id)) || {}),
-        ...spec,
-      }))
+      const familyIdentity = orderProductFamilyIdentity(raw)
+      const enrichedSpecs = (raw?.specs || []).map((spec) => {
+        const skuID = orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id)
+        const exact = productsByFamilySKU.get(`${familyIdentity}:${skuID}`)
+        const candidates = productsBySKU.get(skuID) || []
+        const source = exact || (candidates.length === 1 ? candidates[0] : null)
+        return { ...(source || {}), ...spec }
+      })
       const family = normalizeExplicitOrderFamily({ ...raw, specs: enrichedSpecs })
       family.py = orderFamilyText(raw?.py) || family.specs.map((spec) => orderFamilyText(spec?.py)).filter(Boolean).join(' ')
       family.pyi = orderFamilyText(raw?.pyi) || family.specs.map((spec) => orderFamilyText(spec?.pyi)).filter(Boolean).join(' ')
@@ -346,6 +366,38 @@ export function normalizeOrderProductFamilies(productFamilies = [], products = [
     return [...concreteFamilies, ...fallbackOrderFamilies(unrelatedLegacyProducts)]
   }
   return fallbackOrderFamilies(products)
+}
+
+export function isOrderProductFamily(family = {}) {
+  return Boolean(family?.__order_product_family) && Array.isArray(family?.specs) && family.specs.length > 0
+}
+
+export function orderProductFamilyIdentity(family = {}) {
+  return [
+    orderFamilyID(family?.customer_id, family?.customerID),
+    orderFamilyID(family?.parent_product_id, family?.parentProductID, family?.id),
+    orderFamilyID(family?.customer_product_alias_id, family?.customerProductAliasID),
+  ].join(':')
+}
+
+export function orderProductFamilyForContext(families = [], reference = {}) {
+  const candidates = Array.isArray(families) ? families : []
+  const familyKey = orderFamilyText(reference?.product_family_key ?? reference?.family_key)
+  if (familyKey) {
+    const exact = candidates.find((family) => orderProductFamilyIdentity(family) === familyKey)
+    if (exact) return exact
+  }
+  const aliasID = orderFamilyID(reference?.customer_product_alias_id, reference?.customerProductAliasID)
+  if (aliasID > 0) {
+    const aliased = candidates.find((family) => orderFamilyID(family?.customer_product_alias_id, family?.customerProductAliasID) === aliasID)
+    if (aliased) return aliased
+  }
+  const customerID = orderFamilyID(reference?.customer_id, reference?.customerID)
+  if (customerID > 0) {
+    const customerFamily = candidates.find((family) => orderFamilyID(family?.customer_id, family?.customerID) === customerID)
+    if (customerFamily) return customerFamily
+  }
+  return candidates.find((family) => orderFamilyID(family?.customer_id, family?.customerID) === 0) || candidates[0] || null
 }
 
 const ORDER_PRODUCT_KIND_FILTERS = [
@@ -372,6 +424,8 @@ export function orderProductFamilyOptions(families = [], query = '', productKind
     const haystack = [
       family?.name,
       family?.parent_product_name,
+      family?.alias_name,
+      family?.customer_product_display_name,
       family?.py,
       family?.pyi,
       family?.code,
@@ -402,7 +456,7 @@ export function orderFamilySpecsForPublication(family = {}, publicationID = 0) {
       if (selectedPublicationID <= 0) return true
       return tierPublicationID(tier) === selectedPublicationID
     })
-    if (!tiers.length) return []
+    if (!tiers.length && selectedPublicationID > 0) return []
     const tier = tiers[0] || {}
     const source = tierPriceSource(tier) || {}
     const sourceSnapshot = orderFamilyObject(source.effective_sales_spec ?? source.effectiveSalesSpec)
@@ -456,8 +510,16 @@ export function orderFamilySpecsForPublication(family = {}, publicationID = 0) {
   })
 }
 
+export function orderFamilyMaintainedSpecs(family = {}) {
+  return (family?.specs || []).map((spec) => ({
+    ...spec,
+    tiers: Array.isArray(spec?.tiers) ? spec.tiers : [],
+  }))
+}
+
 export function orderFamilySpecOptions(family = {}, publicationID = 0) {
-  return orderFamilySpecsForPublication(family, publicationID).map((spec) => ({
+  void publicationID
+  return orderFamilyMaintainedSpecs(family).map((spec) => ({
     label: orderSpecLabel(spec),
     value: String(toInt(spec.sku_id)),
     skuID: toInt(spec.sku_id),
@@ -465,7 +527,8 @@ export function orderFamilySpecOptions(family = {}, publicationID = 0) {
 }
 
 export function orderFamilyDefaultSpec(family = {}, publicationID = 0) {
-  const specs = orderFamilySpecsForPublication(family, publicationID)
+  void publicationID
+  const specs = orderFamilyMaintainedSpecs(family)
   const defaultSkuID = orderFamilyID(family?.default_sku_id, family?.defaultSkuID)
   return specs.find((spec) => toInt(spec.sku_id) === defaultSkuID)
     || specs.find((spec) => spec.is_default_sku)
@@ -476,8 +539,11 @@ export function orderFamilyDefaultSpec(family = {}, publicationID = 0) {
 export function orderSpecSelectionAfterPublicationChange(family = {}, currentSkuID = 0, publicationID = 0) {
   const skuID = toInt(currentSkuID)
   if (skuID <= 0) return null
-  return orderFamilySpecsForPublication(family, publicationID)
-    .find((spec) => toInt(spec.sku_id) === skuID) || null
+  const maintained = orderFamilyMaintainedSpecs(family)
+    .find((spec) => toInt(spec.sku_id) === skuID)
+  if (!maintained) return null
+  return orderFamilySpecsForPublication({ specs: [maintained] }, publicationID)[0]
+    || { ...maintained, tiers: [] }
 }
 
 function orderFamilyTierVersion(tier = {}) {
