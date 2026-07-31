@@ -32,6 +32,10 @@ type customerAPIOption struct {
 	CustomerType            string `json:"customer_type,omitempty"`
 	Contact                 string `json:"contact,omitempty"`
 	Phone                   string `json:"phone,omitempty"`
+	Address                 string `json:"address,omitempty"`
+	CompanyName             string `json:"company_name,omitempty"`
+	CompanyAddress          string `json:"company_address,omitempty"`
+	CompanyPhone            string `json:"company_phone,omitempty"`
 	Py                      string `json:"py"`
 	Pyi                     string `json:"pyi"`
 	DefaultSourceID         int64  `json:"default_source_id,omitempty"`
@@ -619,6 +623,10 @@ func apiCustomerOptions(in []CustomerOption) []customerAPIOption {
 			CustomerType:            item.CustomerType,
 			Contact:                 item.Contact,
 			Phone:                   item.Phone,
+			Address:                 item.Address,
+			CompanyName:             item.CompanyName,
+			CompanyAddress:          item.CompanyAddress,
+			CompanyPhone:            item.CompanyPhone,
 			Py:                      support.PinyinFull(item.Name),
 			Pyi:                     support.PinyinInitials(item.Name),
 			DefaultSourceID:         item.DefaultSourceID,
