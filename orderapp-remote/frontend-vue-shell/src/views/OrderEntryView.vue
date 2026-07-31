@@ -281,7 +281,7 @@
                 @mousedown.prevent="chooseProduct(row, product)"
               >
                 <strong>{{ product.name }} <span class="kind-badge" :class="productKindBadgeClass(product)">{{ productKindLabel(product) }}</span></strong>
-                <small v-if="productSpecCountForCurrentList(product)">{{ productSpecCountForCurrentList(product) }} 个可售规格</small>
+                <small v-if="productSpecCountForCurrentList(product)">{{ productSpecCountForCurrentList(product) }} 个规格</small>
                 <small v-else-if="!product.__order_concrete_price_family && product.tiers?.length">{{ product.tiers.length }} 个价格梯度</small>
               </button>
               <div v-if="!productOptions(row).length" class="combo-empty">没有匹配商品</div>
@@ -484,7 +484,7 @@
           <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
           <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
           <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
-          <li>商品按父商品展示，商品名不再拼接规格；规格列只能选择当前价格表已发布的具体规格。</li>
+          <li>商品按父商品展示，商品名不再拼接规格；规格列展示商品档案全部现有规格，当前价格表未定价的规格会明确提示并阻止保存。</li>
           <li>首次选择商品使用其默认规格；切换价格表版本后，当前规格仍有发布价时保留，否则清空规格和价格并要求重新选择。</li>
           <li>新版挂耳商品同样从当前价格表选择袋或盒规格；历史挂耳数据仍保留旧单位选择兼容。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -641,6 +641,7 @@ import {
   dripTierPriceRows,
   filterProductsForCustomer,
   filterOptions,
+  isOrderProductFamily,
   isOrderTierActive,
   lineTotal,
   latestBeanListVersionOption,
@@ -648,7 +649,6 @@ import {
   normalizeSpecG,
   normalizeOrderProductFamilies,
   orderFamilyDefaultSpec,
-  orderFamilyForSKU,
   orderFamilySpecOptions,
   orderFamilySpecProduct,
   orderFamilyHydratedSpecRowPatch,
@@ -657,6 +657,8 @@ import {
   orderLegacyProductForPublication,
   orderProductPublicationMode,
   orderProductFamilyOptions,
+  orderProductFamilyForContext,
+  orderProductFamilyIdentity,
   orderProductKindFilterOptions,
   orderSpecSelectionAfterPublicationChange,
   orderRowPriceUnit,
@@ -782,6 +784,7 @@ function newRow() {
     product_query: '',
     product_open: false,
     product_kind_filter: '',
+    product_family_key: '',
     parent_product_id: 0,
     parent_product_name: '',
     product_id: 0,
@@ -986,9 +989,24 @@ function selectedCustomerMissingProfileLabels() {
   if (!selectedCustomer.value) return []
   return selectedCustomerProfileSummary.value.filter((item) => item.missing).map((item) => item.label)
 }
-function productByID(id) {
+function preferredProductFamily(candidates, reference = {}) {
+  return orderProductFamilyForContext(candidates, {
+    customer_id: form.customer_id,
+    ...reference,
+  })
+}
+
+function productFamilyBySKU(id, reference = {}) {
   const productID = Number(id || 0)
-  const family = orderFamilyForSKU(productFamilies.value, productID)
+  if (productID <= 0) return null
+  const candidates = productFamilies.value.filter((family) => (family.specs || [])
+    .some((spec) => Number(spec.sku_id || 0) === productID))
+  return preferredProductFamily(candidates, reference)
+}
+
+function productByID(id, reference = {}) {
+  const productID = Number(id || 0)
+  const family = productFamilyBySKU(productID, reference)
   if (family) {
     const spec = (family.specs || []).find((item) => Number(item.sku_id || 0) === productID)
     if (spec) return orderFamilySpecProduct(family, spec, 0)
@@ -996,16 +1014,17 @@ function productByID(id) {
   return products.value.find((item) => Number(item.id) === productID) || null
 }
 
-function productFamilyByParentID(id) {
+function productFamilyByParentID(id, reference = {}) {
   const parentID = Number(id || 0)
   if (parentID <= 0) return null
-  return productFamilies.value.find((item) => Number(item.parent_product_id || item.id || 0) === parentID) || null
+  const candidates = productFamilies.value.filter((item) => Number(item.parent_product_id || item.id || 0) === parentID)
+  return preferredProductFamily(candidates, reference)
 }
 
 function productFamilyForRow(row) {
   if (row?.__order_legacy_price_product || row?.spec_source === 'legacy_price_list') return null
-  return productFamilyByParentID(row?.parent_product_id)
-    || orderFamilyForSKU(productFamilies.value, row?.product_id)
+  return productFamilyByParentID(row?.parent_product_id, row)
+    || productFamilyBySKU(row?.product_id, row)
     || null
 }
 
@@ -1013,7 +1032,7 @@ function isConcretePriceListRow(row) {
   if (row?.__order_legacy_price_product || row?.spec_source === 'legacy_price_list') return false
   const family = productFamilyForRow(row)
   return row?.spec_source === 'price_list_sku'
-    || Boolean(family?.__order_concrete_price_family)
+    || isOrderProductFamily(family)
 }
 
 function productForRow(row) {
@@ -1021,12 +1040,15 @@ function productForRow(row) {
     return products.value.find((item) => Number(item.id || 0) === Number(row?.product_id || 0)) || null
   }
   const family = productFamilyForRow(row)
-  if (!family || !isConcretePriceListRow(row)) return productByID(row?.product_id)
+  if (!family || !isConcretePriceListRow(row)) return productByID(row?.product_id, row)
   const selected = selectedBeanListVersionOptionForProduct(family)
   const publicationID = Number(selected?.id || row?.bean_list_publication_id || 0)
-  const spec = orderFamilySpecsForPublication(family, publicationID)
-    .find((item) => Number(item.sku_id || 0) === Number(row?.product_id || row?.spec_mode || 0))
-  if (!spec) return productByID(row?.product_id)
+  const spec = orderSpecSelectionAfterPublicationChange(
+    family,
+    Number(row?.product_id || row?.spec_mode || 0),
+    publicationID,
+  )
+  if (!spec) return null
   return orderFamilySpecProduct(family, spec, publicationID)
 }
 
@@ -1318,7 +1340,7 @@ function selectedBeanListVersionOptionForProduct(productOrRow) {
     : null
   const product = productFamilyForRow(productOrRow)
     || legacyProduct
-    || (productOrRow?.product_id ? (productByID(productOrRow.product_id) || productOrRow) : productOrRow)
+    || (productOrRow?.product_id ? (productByID(productOrRow.product_id, productOrRow) || productOrRow) : productOrRow)
   const selected = beanListVersionOptionForProductGroups(
     beanListVersionGroups.value,
     selectedBeanListPublicationIDs,
@@ -1520,10 +1542,7 @@ async function saveCustomerFromDrawer() {
 }
 
 function scopedOrderProductOptions() {
-  const concreteParentIDs = new Set(productFamilies.value
-    .filter((family) => family?.__order_concrete_price_family)
-    .map((family) => Number(family.parent_product_id || family.id || 0)))
-  const scopedFamilies = filterProductsForCustomer(
+  return filterProductsForCustomer(
     productFamilies.value,
     form.customer_id,
     selectedBeanListPublicationIDsByType(),
@@ -1535,20 +1554,6 @@ function scopedOrderProductOptions() {
     return Number(selected?.id || 0) > 0
       && orderFamilySpecsForPublication(family, selected.id).length > 0
   })
-  const scopedLegacyProducts = filterProductsForCustomer(
-    products.value,
-    form.customer_id,
-    selectedBeanListPublicationIDsByType(),
-    customerPublicUsages.value,
-    customerOwnedBeanListPublicationIDsByType(),
-  ).flatMap((product) => {
-    const parentProductID = Number(product.parent_product_id || product.id || 0)
-    if (!concreteParentIDs.has(parentProductID)) return []
-    const selected = selectedBeanListVersionOptionForProduct({ ...product, __order_legacy_price_product: true })
-    const legacy = orderLegacyProductForPublication(product, selected?.id || 0)
-    return legacy ? [legacy] : []
-  })
-  return [...scopedFamilies, ...scopedLegacyProducts]
 }
 
 function productKindFilterOptions() {
@@ -1580,19 +1585,18 @@ function openProductDropdown(row) {
 
 function productOptionKey(product) {
   if (product?.__order_legacy_price_product) return `legacy:${Number(product.id || 0)}`
-  return `family:${Number(product?.parent_product_id || product?.id || 0)}`
+  return `family:${orderProductFamilyIdentity(product)}`
 }
 
 function productSpecCountForCurrentList(family) {
-  if (!family?.__order_concrete_price_family) return 0
-  const selected = selectedBeanListVersionOptionForProduct(family)
-  if (Number(selected?.id || 0) <= 0) return 0
-  return orderFamilySpecsForPublication(family, selected.id).length
+  if (!isOrderProductFamily(family)) return 0
+  return orderFamilySpecOptions(family).length
 }
 
 function clearProduct(row) {
   row.product_open = true
   row.parent_product_id = 0
+  row.product_family_key = ''
   row.parent_product_name = ''
   row.product_id = 0
   row.product_name = ''
@@ -1626,6 +1630,7 @@ function clearProduct(row) {
 }
 
 function assignProductFamilyHeader(row, family) {
+  row.product_family_key = orderProductFamilyIdentity(family)
   row.parent_product_id = Number(family?.parent_product_id || family?.id || 0)
   row.parent_product_name = family?.parent_product_name || family?.product_name_snapshot || family?.name || ''
   row.product_name = family?.name || row.parent_product_name
@@ -1655,6 +1660,9 @@ function applyPriceListSpecToRow(row, family, spec, publicationID) {
     discount_type: discountType,
     discount_value: discountValue,
   })
+  if (Number(publicationID || 0) > 0 && orderFamilySpecsForPublication({ specs: [spec] }, publicationID).length === 0) {
+    row.spec_invalid_message = '当前价格表未发布该商品规格，不能保存；请补齐价格表或选择有价规格。'
+  }
 }
 
 function invalidatePriceListSpecRow(row, message = '所选价格表不包含该商品当前规格，请重新选择规格。') {
@@ -1686,14 +1694,14 @@ function invalidatePriceListSpecRow(row, message = '所选价格表不包含该�
 function chooseProduct(row, product) {
   const family = product?.__order_legacy_price_product
     ? null
-    : (product?.__order_product_family ? product : productFamilyByParentID(product?.parent_product_id || product?.id))
-  if (family?.__order_concrete_price_family) {
+    : (product?.__order_product_family ? product : productFamilyByParentID(product?.parent_product_id || product?.id, product))
+  if (isOrderProductFamily(family)) {
     assignProductFamilyHeader(row, family)
     row.product_open = false
     const selected = selectedBeanListVersionOptionForProduct(family)
-    const spec = Number(selected?.id || 0) > 0 ? orderFamilyDefaultSpec(family, selected.id) : null
+    const spec = orderFamilyDefaultSpec(family, selected?.id || 0)
     if (!spec) {
-      invalidatePriceListSpecRow(row, '当前价格表没有该商品的已发布规格，请更换价格表。')
+      invalidatePriceListSpecRow(row, '当前商品没有可用规格，请维护商品规格后重试。')
       return
     }
     applyPriceListSpecToRow(row, family, spec, selected?.id || 0)
@@ -1701,6 +1709,7 @@ function chooseProduct(row, product) {
     ensureTrailingBlankRow()
     return
   }
+  row.product_family_key = ''
   row.parent_product_id = product?.__order_legacy_price_product ? 0 : Number(product?.parent_product_id || 0)
   row.parent_product_name = product?.parent_product_name || product?.product_name_snapshot || product?.name || ''
   row.product_id = Number(product?.id || 0)
@@ -1750,10 +1759,9 @@ function chooseProduct(row, product) {
 
 function specOptions(row) {
   const family = productFamilyForRow(row)
-  if (family?.__order_concrete_price_family || row?.spec_source === 'price_list_sku') {
+  if (isOrderProductFamily(family) || row?.spec_source === 'price_list_sku') {
     const selected = selectedBeanListVersionOptionForProduct(family || row)
-    if (Number(selected?.id || 0) <= 0) return []
-    return orderFamilySpecOptions(family || {}, selected.id)
+    return orderFamilySpecOptions(family || {}, selected?.id || 0)
   }
   const product = productForRow(row)
   if (isDripProduct(product)) return []
@@ -1765,10 +1773,11 @@ function onSpecChange(row) {
   const family = productFamilyForRow(row)
   if (!family) return
   const selected = selectedBeanListVersionOptionForProduct(family)
-  const spec = Number(selected?.id || 0) > 0
-    ? orderFamilySpecsForPublication(family, selected.id)
-    .find((item) => Number(item.sku_id || 0) === Number(row.spec_mode || 0))
-    : null
+  const spec = orderSpecSelectionAfterPublicationChange(
+    family,
+    Number(row.spec_mode || 0),
+    selected?.id || 0,
+  )
   if (!spec) {
     invalidatePriceListSpecRow(row)
     return
@@ -1785,8 +1794,8 @@ function syncRowsForType(options = {}) {
       const selectedPublicationID = Number(selected?.id || 0)
       const publicationMode = orderProductPublicationMode(legacyProduct || row, selectedPublicationID)
       if (publicationMode !== 'legacy') {
-        const family = orderFamilyForSKU(productFamilies.value, row.product_id)
-          || productFamilyByParentID(legacyProduct?.parent_product_id)
+        const family = productFamilyBySKU(row.product_id, row)
+          || productFamilyByParentID(legacyProduct?.parent_product_id, row)
         if (family) assignProductFamilyHeader(row, family)
         else {
           row.parent_product_id = Number(legacyProduct?.parent_product_id || 0)
@@ -2146,9 +2155,13 @@ function applyEditData(data) {
   rows.value = editItems.map((item) => {
     const spec = String(item.spec || '').replace(/g$/i, '')
     const flatProduct = products.value.find((entry) => Number(entry.id || 0) === Number(item.product_id || 0)) || null
-    const family = orderFamilyForSKU(productFamilies.value, item.product_id)
-      || productFamilyByParentID(item.parent_product_id || flatProduct?.parent_product_id)
-    const product = productByID(item.product_id)
+    const familyReference = {
+      customer_id: form.customer_id,
+      customer_product_alias_id: item.customer_product_alias_id,
+    }
+    const family = productFamilyBySKU(item.product_id, familyReference)
+      || productFamilyByParentID(item.parent_product_id || flatProduct?.parent_product_id, familyReference)
+    const product = productByID(item.product_id, familyReference)
     const productKind = item.product_kind || product?.product_kind || 'roasted_bean'
     const salesUnit = item.sales_unit || (item.unit === '盒' ? 'box' : 'bag')
     const unitBagCount = salesUnit === 'box'
@@ -2163,6 +2176,7 @@ function applyEditData(data) {
     const shouldUseCustomSpec = productKind !== 'drip_bag' && retailOrder.value && !retailSpecs.includes(toInt(spec))
     const hydrated = {
       ...newRow(),
+      product_family_key: family ? orderProductFamilyIdentity(family) : '',
       parent_product_id: Number(family?.parent_product_id || product?.parent_product_id || 0),
       parent_product_name: family?.parent_product_name || product?.parent_product_name || '',
       product_id: Number(item.product_id || 0),

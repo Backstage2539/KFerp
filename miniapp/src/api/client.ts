@@ -6,6 +6,24 @@ export type RequestOptions = {
   data?: UniNamespace.RequestOptions['data']
 }
 
+export class MiniRequestError extends Error {
+  readonly statusCode: number
+
+  constructor(message: string, statusCode: number) {
+    super(message)
+    this.name = 'MiniRequestError'
+    this.statusCode = statusCode
+  }
+}
+
+export function isUnauthorizedRequestError(cause: unknown): boolean {
+  return cause instanceof MiniRequestError && (cause.statusCode === 401 || cause.statusCode === 403)
+}
+
+export function isAuthenticationExpiredRequestError(cause: unknown): boolean {
+  return cause instanceof MiniRequestError && cause.statusCode === 401
+}
+
 export function normalizeAPIBase(base: string): string {
   const trimmed = base.trim().replace(/\/+$/, '')
   return trimmed || DEFAULT_API_BASE
@@ -36,7 +54,7 @@ export function miniRequest<T>(path: string, options: RequestOptions = {}): Prom
           return
         }
         const body = res.data as { error?: string }
-        reject(new Error(body?.error || `request failed: ${res.statusCode}`))
+        reject(new MiniRequestError(body?.error || `request failed: ${res.statusCode}`, res.statusCode))
       },
       fail: (err) => reject(new Error(err.errMsg || 'network error')),
     })

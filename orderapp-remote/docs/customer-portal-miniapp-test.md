@@ -41,20 +41,34 @@ CUSTOMER_PORTAL_DEV_UNIONID=
 
 ## 小程序构建
 
-默认接口地址是线上开发栈：
+不要在 Mac 上执行 `npm ci`、类型检查或 UniApp 构建。统一走仓库根目录的远程发布脚本：
 
 ```bash
-cd miniapp
-npm ci
-npm run typecheck
-VITE_KFERP_API_BASE=https://erp.qacoohee.com/app npm run build:mp-weixin
+# 已推送功能分支：只在服务器做隔离预检，不部署、不重启
+./deploy_orderapp.sh --preflight development
+
+# develop 分支：服务器串行测试并构建开发 API 包
+./deploy_orderapp.sh development
+
+# main 分支：服务器串行测试并构建正式 API 包，随后拉回固定目录
+./deploy_orderapp.sh production
 ```
 
-微信开发者工具导入：
+功能分支必须先通过 `--preflight` 才能合入 `develop`。预检使用唯一临时镜像标签，结束后清理临时源码、依赖、构建目录和镜像；不会改写 `/opt/stacks/erp*`、Compose 文件、运行中容器或 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
+
+API 地址由脚本强制按环境写入：development 为
+`https://dev.erp.qacoohee.com/app`，production 为
+`https://erp.qacoohee.com/app`。生产构建成功后，微信开发者工具只导入固定目录：
 
 ```text
-miniapp/dist/build/mp-weixin
+/Users/yiiiple-work/KFerp-miniapp-mp-weixin
 ```
+
+不要再导入功能分支、临时 worktree 或 `miniapp/dist/build/mp-weixin` 旧目录。导入固定目录后先清理构建缓存并重新编译，再核对界面字段和请求域名。
+
+导入前打开固定目录中的 `RELEASE_INFO`，确认 `environment=production`、`api_base=https://erp.qacoohee.com/app`，并且 `commit` 等于本次发布的 `origin/main`。同级带 `backup-时间-commit` 后缀的目录是上一份本机产物，可用于独立回滚预览；不要把备份目录当作本次新版本上传。
+
+**重要：服务器 ERP 部署与微信小程序发布不是同一步。** 远程脚本完成，只代表后端已部署且小程序代码包已生成/同步；仍需在微信开发者工具点击“上传”，到微信公众平台提交审核并发布，用户微信里的版本才会更新。
 
 开发者工具里填测试小程序 AppID。联调阶段可在“详情 -> 本地设置”勾选“不校验合法域名、web-view、TLS 版本以及 HTTPS 证书”。如果不勾选，需要在小程序后台把 `https://erp.qacoohee.com` 同时加入 request 合法域名和 downloadFile 合法域名；商品价格表 `PDF`、`长图` 都走 `downloadFile`。
 
@@ -191,7 +205,7 @@ ERP 后台路径：`设置 -> 客户门户配置`。
 ## 验收
 
 1. 打开微信开发者工具。
-2. 导入 `miniapp/dist/build/mp-weixin`。
+2. 导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，清理缓存后重新编译。
 3. 在登录页输入 ERP 渠道客户账号的用户名/手机号和密码。
 4. 登录成功后进入小程序首页、服务首页或商城首页。
 5. 进入个人中心，确认可看到当前客户；点击“切换用户”应回到登录页。
@@ -212,8 +226,8 @@ ERP 后台路径：`设置 -> 客户门户配置`。
 
 ## 工厂商品表联调（PR-434-MINIAPP-FACTORY-PRODUCT-TABLES-SPLIT）
 
-1. 本地构建小程序：`cd miniapp && npm ci && npm run typecheck && npm run build:mp-weixin`。
-2. 微信开发者工具导入路径：`miniapp/dist/build/mp-weixin`。
+1. 从对应发布分支运行远程部署脚本；不要在 Mac 本地安装依赖或构建。
+2. 生产包由脚本同步后，微信开发者工具导入路径为 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
 3. 使用已绑定 `bean_list` 能力的客户账号登录，进入底部 `个人中心`。
 4. 点击 `工厂商品表`，确认页面按商品类型展示当前客户可见的最新工厂商品价格表；大类和快照分类都可以收起展开。
 5. 点击价格表右侧 `PDF`，应打开文档预览并显示系统菜单；点击 `长图`，应进入图片预览。
