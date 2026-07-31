@@ -66,8 +66,8 @@ func TestAPIProductFamiliesAggregatePricedConcreteSKUsUnderParent(t *testing.T) 
 	if len(got) != 1 || got[0].ParentProductID != 550 || got[0].ParentProductName != "乌拉嘎" || got[0].Name != "乌拉嘎" {
 		t.Fatalf("families = %+v", got)
 	}
-	if len(got[0].Specs) != 2 {
-		t.Fatalf("family specs = %+v, want only the two priced concrete SKUs", got[0].Specs)
+	if len(got[0].Specs) != 3 {
+		t.Fatalf("family specs = %+v, want all concrete SKUs including the unpriced SKU", got[0].Specs)
 	}
 	first := got[0].Specs[0]
 	if first.SKUID != 551 || first.SKUName != "227g袋装" || first.SpecLabel != "227g" || first.NetContentQty != 227 || first.NetContentUnit != "g" || !first.IsDefaultSKU {
@@ -78,7 +78,7 @@ func TestAPIProductFamiliesAggregatePricedConcreteSKUsUnderParent(t *testing.T) 
 	}
 }
 
-func TestAPIProductFamiliesSkipPureLegacyPublicationTiers(t *testing.T) {
+func TestAPIProductFamiliesKeepPureLegacyPublicationTierOnItsConcreteSpec(t *testing.T) {
 	products := []ProductOption{{
 		ID: 551, SKUID: 551, ParentProductID: 550, ParentProductName: "乌拉嘎", SKUName: "227g袋装", SpecLabel: "227g",
 		Name: "乌拉嘎 227g", ProductRecordName: "乌拉嘎", ProductKind: "roasted_bean",
@@ -87,12 +87,21 @@ func TestAPIProductFamiliesSkipPureLegacyPublicationTiers(t *testing.T) {
 		}},
 	}}
 
-	if families := apiProductFamilies(products); len(families) != 0 {
-		t.Fatalf("pure legacy publication must stay on products compatibility path, got families = %#v", families)
+	families := apiProductFamilies(products)
+	if len(families) != 1 {
+		t.Fatalf("pure legacy publication family = %#v", families)
+	}
+	specs, _ := families[0]["specs"].([]map[string]any)
+	if len(specs) != 1 {
+		t.Fatalf("pure legacy specs = %#v", specs)
+	}
+	tiers, _ := specs[0]["tiers"].([]map[string]any)
+	if len(tiers) != 1 || tiers[0]["publication_id"] != int64(901) || tiers[0]["spec_g"] != int64(227) {
+		t.Fatalf("pure legacy tiers = %#v", tiers)
 	}
 }
 
-func TestAPIProductFamiliesKeepOnlyConcreteTiersFromMixedProductHistory(t *testing.T) {
+func TestAPIProductFamiliesKeepConcreteAndLegacyTiersFromMixedProductHistory(t *testing.T) {
 	products := []ProductOption{{
 		ID: 551, SKUID: 551, ParentProductID: 550, ParentProductName: "乌拉嘎", SKUName: "227g袋装", SpecLabel: "227g",
 		Name: "乌拉嘎 227g", ProductRecordName: "乌拉嘎", ProductKind: "roasted_bean",
@@ -116,8 +125,8 @@ func TestAPIProductFamiliesKeepOnlyConcreteTiersFromMixedProductHistory(t *testi
 		t.Fatalf("mixed product specs = %#v", specs)
 	}
 	tiers, _ := specs[0]["tiers"].([]map[string]any)
-	if len(tiers) != 1 || tiers[0]["publication_id"] != int64(902) {
-		t.Fatalf("mixed product concrete tiers = %#v, want only V2 publication 902", tiers)
+	if len(tiers) != 2 || tiers[0]["publication_id"] != int64(902) || tiers[1]["publication_id"] != int64(901) {
+		t.Fatalf("mixed product tiers = %#v, want V2 concrete and legacy V1 histories", tiers)
 	}
 }
 

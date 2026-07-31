@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-566-MINIAPP-ORDER-ENTRY-CLOSURE
+- Branch: codex/pr566-mini-order-closure
+- Owner/session: Codex / 2026-07-31
+- Status: implementing
+- Scope: 修复员工小程序录单的商品族/规格契约、客户与商品搜索、收货快照、错误状态和鉴权控制流；ERP 网页复用同一商品族逻辑；把重型测试、构建和双环境发布永久迁移到开发服务器串行执行，并将正式小程序产物同步到固定目录后上传发布。
+- DEV:
+  - DEV-566-SHARED-PRODUCT-FAMILIES：销售应用层统一构建网页与小程序商品族，保留旧 `products` 兼容字段并补齐搜索、分类、SKU、价格和单位元数据。
+  - DEV-566-MINIAPP-SEARCH-RECEIVER：小程序提供上海当天日期、固定字段标签、客户/商品模糊搜索与商品分类过滤、规格联动和客户收货快照整体覆盖。
+  - DEV-566-MINIAPP-AUTH-COMPAT：员工鉴权验证与 HTTP 响应分离，未授权请求立即停止且不泄露订单主数据；加载失败、重试和登录失效有明确状态。
+  - DEV-566-REMOTE-BUILD-RELEASE：Mac 不运行重型构建；开发服务器持锁、限资源、串行完成测试/双环境构建和 Docker 发布，并同步固定 `mp-weixin` 目录、记录版本与回滚点。
+- Verifier:
+  - Unit: 客户中文/拼音搜索、商品搜索与分类、商品族去重/客户隔离/默认规格、日期与收货信息覆盖。
+  - API: 新旧商品字段兼容、“乌拉嘎”单一商品族与完整规格、无令牌纯 401 且服务未调用、销售/管理员权限矩阵。
+  - Frontend/build: 开发服务器串行执行小程序测试/类型检查/development+production 构建、Vue 测试/构建、Go `-p 1` 和 Docker 构建。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; 小程序导入/发布说明。
+  - Review/acceptance: `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-07-31-miniapp-order-entry-closure.md`。
+- Deployment: pending development and production; production miniapp artifact target `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`
+- Last update: 2026-07-31 Asia/Shanghai
+- Notes: 不做数据库迁移，不修改订单、库存、价格表或客户主数据。微信扫码、审核或平台人工确认是唯一允许等待用户的发布门槛。
+
 ### PR-563-WORKSTATION-PIECE-COST
 - Branch: codex/workstation-piece-cost
 - Owner/session: Codex / 2026-07-30
