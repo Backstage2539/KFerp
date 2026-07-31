@@ -204,6 +204,40 @@ fi
 ssh "${SSH_ARGS[@]}" "$SERVER" "$remote_release_command"
 REMOTE_STAGE_CREATED=0
 
+external_smoke() {
+  local smoke_url="${PUBLIC_URL%/}/login"
+  local smoke_code=""
+  local curl_args=(-sS --connect-timeout 3 --max-time 8)
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "ERROR: curl is required for the external deployment smoke" >&2
+    return 1
+  fi
+  if [ "$TARGET_ENV" = "development" ]; then
+    # Development has no public DNS record. Probe the server's public ingress
+    # from the Mac with the intended TLS SNI/Host instead of the Mac's local
+    # development mapping or the server's unavailable DNS path.
+    curl_args+=(
+      -k
+      --resolve "dev.erp.qacoohee.com:443:${KFERP_DEVELOPMENT_PUBLIC_IP:-1.12.242.58}"
+    )
+  fi
+
+  for _external_attempt in $(seq 1 15); do
+    smoke_code="$(curl "${curl_args[@]}" -o /dev/null -w '%{http_code}' "$smoke_url" 2>/dev/null || true)"
+    case "$smoke_code" in
+      200|301|302|303|401 )
+        echo "External smoke passed: $smoke_url returned HTTP $smoke_code"
+        return 0
+        ;;
+    esac
+    sleep 2
+  done
+  echo "ERROR: server deployment is internally healthy, but external smoke failed: $smoke_url returned HTTP ${smoke_code:-none}" >&2
+  echo "The deployed server release was not rolled back for a client-network or ingress-only failure; stop before promoting the next environment." >&2
+  return 1
+}
+
 sync_production_miniapp() {
   local target_dir="${KFERP_MINIAPP_EXPORT_DIR:-/Users/yiiiple-work/KFerp-miniapp-mp-weixin}"
   local target_parent
@@ -277,6 +311,10 @@ sync_production_miniapp() {
     echo "Previous mp-weixin artifact retained at: $backup_dir"
   fi
 }
+
+if [ "$PREFLIGHT" -eq 0 ]; then
+  external_smoke
+fi
 
 if [ "$PREFLIGHT" -eq 0 ] && [ "$TARGET_ENV" = "production" ] && [ "${KFERP_SKIP_MINIAPP_EXPORT:-0}" != "1" ]; then
   sync_production_miniapp
