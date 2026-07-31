@@ -101,6 +101,50 @@ PROMOTED=0
 DEPLOY_OK=0
 IMAGE_BUILT=0
 
+wait_for_orderapp_http() {
+  local max_attempts="$1"
+  local required_successes="$2"
+  local consecutive_successes=0
+  local running=""
+  local health=""
+  local response=""
+
+  for _ready_attempt in $(seq 1 "$max_attempts"); do
+    running="$(docker inspect --format '{{.State.Running}}' "$ORDERAPP_CONTAINER" 2>/dev/null || true)"
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$ORDERAPP_CONTAINER" 2>/dev/null || true)"
+    if [ "$running" = "true" ] && [ "$health" != "unhealthy" ]; then
+      response="$(docker exec "$ORDERAPP_CONTAINER" sh -ec \
+        'wget -S -O /dev/null http://127.0.0.1:8080/login 2>&1 || true')"
+      if printf '%s\n' "$response" | grep -Eq 'HTTP/[0-9.]+ (200|302|401)'; then
+        consecutive_successes=$((consecutive_successes + 1))
+        if [ "$consecutive_successes" -ge "$required_successes" ]; then
+          return 0
+        fi
+      else
+        consecutive_successes=0
+      fi
+    else
+      consecutive_successes=0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+PUBLIC_HTTP_CODE=""
+wait_for_public_http() {
+  local max_attempts="$1"
+  for _public_attempt in $(seq 1 "$max_attempts"); do
+    PUBLIC_HTTP_CODE="$(curl -ksS --connect-timeout 3 --max-time 5 \
+      -o /dev/null -w '%{http_code}' "$API_BASE/login" 2>/dev/null || true)"
+    case "$PUBLIC_HTTP_CODE" in
+      200|301|302|401 ) return 0 ;;
+    esac
+    sleep 2
+  done
+  return 1
+}
+
 cleanup() {
   local status=$?
   local rollback_needed=0
@@ -145,20 +189,7 @@ cleanup() {
       fi
     fi
     if [ "$rollback_needed" -eq 1 ] && [ "$rollback_ok" -eq 1 ]; then
-      local rollback_ready=0
-      local rollback_http=""
-      for _rollback_attempt in $(seq 1 15); do
-        if [ "$(docker inspect --format '{{.State.Running}}' "$ORDERAPP_CONTAINER" 2>/dev/null || true)" = "true" ]; then
-          rollback_http="$(docker exec "$ORDERAPP_CONTAINER" sh -ec \
-            'wget -S -O /dev/null http://127.0.0.1:8080/login 2>&1 || true')"
-          if printf '%s\n' "$rollback_http" | grep -Eq 'HTTP/[0-9.]+ (200|302|401)'; then
-            rollback_ready=1
-            break
-          fi
-        fi
-        sleep 2
-      done
-      if [ "$rollback_ready" -eq 1 ]; then
+      if wait_for_orderapp_http 15 1; then
         echo "Rollback verified: prior orderapp release is running and serving HTTP." >&2
       else
         echo "ERROR: rollback did not restore a healthy orderapp HTTP service" >&2
@@ -369,50 +400,24 @@ esac
   docker compose -f docker-compose.yml -f docker-compose.docconvert.yml up -d --no-build orderapp
 )
 
-READY=0
-STABLE_CHECKS=0
-for _attempt in $(seq 1 30); do
-  RUNNING="$(docker inspect --format '{{.State.Running}}' "$ORDERAPP_CONTAINER" 2>/dev/null || true)"
-  HEALTH="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$ORDERAPP_CONTAINER" 2>/dev/null || true)"
-  if [ "$RUNNING" = "true" ] && [ "$HEALTH" != "unhealthy" ]; then
-    STABLE_CHECKS=$((STABLE_CHECKS + 1))
-    if [ "$STABLE_CHECKS" -ge 3 ]; then
-      READY=1
-      break
-    fi
-  else
-    STABLE_CHECKS=0
-  fi
-  sleep 2
-done
-if [ "$READY" -ne 1 ]; then
-  echo "ERROR: orderapp did not reach a running state; rollback will start" >&2
-  exit 1
-fi
-
-# A running container can still be in a crash loop or serve no HTTP. Probe the
-# app from inside the container and again through the environment URL before
-# accepting the deployment. 200/302/401 are all intentional live responses.
-INTERNAL_HTTP="$(docker exec "$ORDERAPP_CONTAINER" sh -ec \
-  'wget -S -O /dev/null http://127.0.0.1:8080/login 2>&1 || true')"
-if ! printf '%s\n' "$INTERNAL_HTTP" | grep -Eq 'HTTP/[0-9.]+ (200|302|401)'; then
+# A running container can still be in a crash loop or need several seconds
+# before the HTTP listener is ready. Poll for up to two minutes and require
+# three consecutive live responses instead of treating Running=true as ready.
+if ! wait_for_orderapp_http 60 3; then
+  docker logs --tail 200 "$ORDERAPP_CONTAINER" >&2 || true
   echo "ERROR: orderapp container HTTP readiness failed; rollback will start" >&2
   exit 1
 fi
 
-PUBLIC_HTTP_CODE="$(curl -kfsS -o /dev/null -w '%{http_code}' "$API_BASE/login" 2>/dev/null || true)"
-case "$PUBLIC_HTTP_CODE" in
-  200|301|302|401 ) ;;
-  * )
-    echo "ERROR: $API_BASE/login returned HTTP ${PUBLIC_HTTP_CODE:-none}; rollback will start" >&2
-    exit 1
-    ;;
-esac
+if ! wait_for_public_http 15; then
+  echo "ERROR: $API_BASE/login returned HTTP ${PUBLIC_HTTP_CODE:-none}; rollback will start" >&2
+  exit 1
+fi
 
-# Require the same container to remain running after both HTTP probes.
+# Require the same container to keep serving HTTP after both probes.
 sleep 4
-if [ "$(docker inspect --format '{{.State.Running}}' "$ORDERAPP_CONTAINER" 2>/dev/null || true)" != "true" ]; then
-  echo "ERROR: orderapp exited after HTTP readiness; rollback will start" >&2
+if ! wait_for_orderapp_http 1 1; then
+  echo "ERROR: orderapp stopped serving HTTP after readiness; rollback will start" >&2
   exit 1
 fi
 

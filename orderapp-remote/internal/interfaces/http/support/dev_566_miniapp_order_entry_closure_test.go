@@ -73,6 +73,31 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 			t.Fatalf("%s missing PR-566 marker", key)
 		}
 	}
+	// The first server-side Go gate runs from the complete repository and owns
+	// this root release-script contract. The Docker safety gate intentionally
+	// receives only orderapp-remote as its build context, so the root script is
+	// absent there and was already checked before the image build started.
+	orderappRoot := findAncestorForTest(t, "go.mod")
+	workspaceRoot := filepath.Dir(orderappRoot)
+	if _, err := os.Stat(filepath.Join(workspaceRoot, "deploy_orderapp.sh")); err == nil {
+		releaseBytes, err := os.ReadFile(filepath.Join(workspaceRoot, "scripts", "remote_orderapp_release.sh"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		releaseScript := string(releaseBytes)
+		for _, marker := range []string{
+			"wait_for_orderapp_http 60 3",
+			"wait_for_public_http 15",
+			"docker logs --tail 200",
+		} {
+			if !strings.Contains(releaseScript, marker) {
+				t.Fatalf("remote release script missing readiness retry %q", marker)
+			}
+		}
+		if strings.Contains(releaseScript, "STABLE_CHECKS") {
+			t.Fatal("remote release script must not accept Running=true as HTTP readiness")
+		}
+	}
 
 	miniappRoot := filepath.Join(findAncestorForTest(t, "go.mod"), "..", "miniapp")
 	if _, err := os.Stat(miniappRoot); os.IsNotExist(err) {
