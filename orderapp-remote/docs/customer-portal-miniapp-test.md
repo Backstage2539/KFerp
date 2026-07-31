@@ -54,6 +54,8 @@ CUSTOMER_PORTAL_DEV_UNIONID=
 ./deploy_orderapp.sh production
 ```
 
+远程门禁中的小程序构建命令为 `npm run build:mp-weixin`，只由上述脚本在开发服务器的临时目录内执行，不在 Mac 本机执行。
+
 功能分支必须先通过 `--preflight` 才能合入 `develop`。预检使用唯一临时镜像标签，结束后清理临时源码、依赖、构建目录和镜像；不会改写 `/opt/stacks/erp*`、Compose 文件、运行中容器或 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
 
 API 地址由脚本强制按环境写入：development 为
