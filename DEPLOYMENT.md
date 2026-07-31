@@ -193,7 +193,7 @@ docker compose ps
 docker logs --tail=200 erp_orderapp
 ```
 
-自动发布不会把 `Running=true` 当成服务已经就绪：新容器必须在最长 120 秒内连续三次通过容器内 HTTP 探测，环境 URL 还会在短暂 502 或容器地址切换时限内重试。探测最终失败会先保留新容器日志，再恢复上一版服务器源码和镜像；终端中的 `previous_source` 与 `rollback_image` 是本次回滚证据。
+自动发布不会把 `Running=true` 当成服务已经就绪：新容器必须在最长 120 秒内连续三次通过容器内 HTTP 探测，环境 URL 还会在短暂 502 或容器地址切换时限内重试。开发服务器没有 `dev.erp.qacoohee.com` 的 DNS 记录，因此 development 在服务器上通过 `127.0.0.1` 验证真实 Caddy TLS/Host 路由，远端成功后再由 Mac 直连服务器公网 IP 并携带开发域名 SNI/Host 做外部探测；production 始终使用正式 DNS 且严格校验证书。外部探测失败会阻止继续提升到下一环境，但不会因客户端网络或入口拓扑问题回滚内部已健康的服务；容器内探测最终失败则会先保留新容器日志，再恢复上一版服务器源码和镜像。终端中的 `previous_source` 与 `rollback_image` 是本次回滚证据。
 
 ---
 

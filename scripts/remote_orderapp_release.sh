@@ -63,6 +63,11 @@ if [ -z "$API_BASE" ] || [ -z "$ORDERAPP_CONTAINER" ] || [ -z "$DOC_CONVERT_CONT
   echo "ERROR: api base and container names are required" >&2
   exit 1
 fi
+case "$TARGET_ENV:$API_BASE" in
+  development:https://dev.erp.qacoohee.com/app ) ;;
+  production:https://erp.qacoohee.com/app ) ;;
+  * ) echo "ERROR: api base does not match environment: $API_BASE" >&2; exit 1 ;;
+esac
 if [ ! -f "$SOURCE_ROOT/.release-commit" ] || [ "$(cat "$SOURCE_ROOT/.release-commit")" != "$EXPECTED_COMMIT" ]; then
   echo "ERROR: uploaded source commit marker does not match $EXPECTED_COMMIT" >&2
   exit 1
@@ -100,6 +105,13 @@ OLD_IMAGE_REF=""
 PROMOTED=0
 DEPLOY_OK=0
 IMAGE_BUILT=0
+PUBLIC_RESOLVE_ARGS=()
+if [ "$TARGET_ENV" = "development" ]; then
+  # The deployment host intentionally has no DNS record for the development
+  # hostname. Keep testing the real Caddy TLS/vhost route via loopback; the
+  # caller performs an additional external smoke after deployment.
+  PUBLIC_RESOLVE_ARGS=(--resolve dev.erp.qacoohee.com:443:127.0.0.1)
+fi
 
 wait_for_orderapp_http() {
   local max_attempts="$1"
@@ -135,7 +147,7 @@ PUBLIC_HTTP_CODE=""
 wait_for_public_http() {
   local max_attempts="$1"
   for _public_attempt in $(seq 1 "$max_attempts"); do
-    PUBLIC_HTTP_CODE="$(curl -ksS --connect-timeout 3 --max-time 5 \
+    PUBLIC_HTTP_CODE="$(curl -ksS --connect-timeout 3 --max-time 5 "${PUBLIC_RESOLVE_ARGS[@]}" \
       -o /dev/null -w '%{http_code}' "$API_BASE/login" 2>/dev/null || true)"
     case "$PUBLIC_HTTP_CODE" in
       200|301|302|401 ) return 0 ;;
