@@ -509,12 +509,55 @@ export function fetchMe(token: string): Promise<MeResponse> {
 
 export type EmployeeOrderForm = {
   today: string
-  customers: Array<{ id: number; name: string }>
+  customers: EmployeeOrderCustomer[]
   sources: Array<{ id: number; name: string }>
   order_types: Array<{ id: number; name: string }>
   pay_statuses: Array<{ id: number; name: string }>
   ship_statuses: Array<{ id: number; name: string }>
-  products: Array<{ id: number; name: string; product_kind?: string }>
+  product_families: EmployeeOrderProductFamily[]
+}
+
+export type EmployeeOrderCustomer = {
+  id: number
+  name: string
+  customer_type?: string
+  default_source_id?: number
+  default_order_type_id?: number
+  receiver_name?: string
+  receiver_phone?: string
+  receiver_address?: string
+  receiver_company?: string
+}
+
+export type EmployeeOrderProductTier = {
+  unit_price: number
+  price?: number
+  sales_unit?: string
+  unit_bag_count?: number
+}
+
+export type EmployeeOrderProductSpec = {
+  product_id: number
+  sku_id?: number
+  sku_name?: string
+  spec_label?: string
+  net_content_qty?: number
+  net_content_unit?: string
+  is_default_sku?: boolean
+  product_kind?: string
+  sales_unit?: string
+  unit_bag_count?: number
+  unit_bean_g?: number
+  tiers?: EmployeeOrderProductTier[]
+}
+
+export type EmployeeOrderProductFamily = {
+  parent_product_id: number
+  name: string
+  customer_id?: number
+  default_sku_id?: number
+  product_kind?: string
+  specs: EmployeeOrderProductSpec[]
 }
 
 export type EmployeeOrder = {
