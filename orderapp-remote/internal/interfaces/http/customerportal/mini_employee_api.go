@@ -1,7 +1,9 @@
 package customerportal
 
 import (
+	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -54,17 +56,21 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales) 
 		if err != nil {
 			return miniInternalError(c)
 		}
-		products := make([]map[string]any, 0, len(form.Products))
-		for _, product := range form.Products {
-			products = append(products, map[string]any{
-				"id": product.ID, "name": product.Name, "product_kind": product.ProductKind,
-				"sales_units": product.SalesUnits, "retail_specs": product.RetailSpecs,
+		customers := make([]map[string]any, 0, len(form.Customers))
+		for _, customer := range form.Customers {
+			customers = append(customers, map[string]any{
+				"id": customer.ID, "name": customer.Name, "customer_type": customer.CustomerType,
+				"default_source_id": customer.DefaultSourceID, "default_order_type_id": customer.DefaultOrderTypeID,
+				"receiver_name":    firstMiniOrderValue(customer.Contact, customer.Name),
+				"receiver_phone":   firstMiniOrderValue(customer.Phone, customer.CompanyPhone),
+				"receiver_address": firstMiniOrderValue(customer.Address, customer.CompanyAddress),
+				"receiver_company": firstMiniOrderValue(customer.CompanyName, customer.Name),
 			})
 		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"today": form.Today, "customers": form.Customers, "sources": form.Sources,
+			"today": form.Today, "customers": customers, "sources": form.Sources,
 			"order_types": form.OrderTypes, "pay_statuses": form.PayStatuses,
-			"ship_statuses": form.ShipStatuses, "products": products,
+			"ship_statuses": form.ShipStatuses, "product_families": miniEmployeeProductFamilies(form.Products),
 		})
 	})
 
@@ -133,6 +139,95 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales) 
 		}
 		return c.JSON(http.StatusCreated, map[string]any{"order_id": result.OrderID, "order_no": result.OrderNo})
 	})
+}
+
+func miniEmployeeProductFamilies(products []salesapp.ProductOption) []map[string]any {
+	type fallbackFamily struct {
+		row   map[string]any
+		specs []map[string]any
+	}
+	byKey := map[string]*fallbackFamily{}
+	var fallback []*fallbackFamily
+	families := make([]map[string]any, 0)
+	for _, product := range products {
+		productID := product.SKUID
+		if productID <= 0 {
+			productID = product.ID
+		}
+		if productID <= 0 {
+			continue
+		}
+		parentID := product.ParentProductID
+		if parentID <= 0 {
+			parentID = product.ID
+		}
+		specLabel := strings.TrimSpace(product.SpecLabel)
+		if specLabel == "" && product.NetContentQty > 0 && strings.TrimSpace(product.NetContentUnit) != "" {
+			specLabel = fmt.Sprintf("%g%s", product.NetContentQty, strings.TrimSpace(product.NetContentUnit))
+		}
+		if specLabel == "" {
+			continue
+		}
+		key := fmt.Sprintf("%d:%d:%d", product.CustomerID, parentID, product.CustomerProductAliasID)
+		state := byKey[key]
+		if state == nil {
+			parentName := firstMiniOrderValue(product.CustomerProductDisplayName, product.ParentProductName, product.ProductRecordName, product.Name)
+			parentName = strings.TrimSpace(strings.TrimSuffix(parentName, specLabel))
+			state = &fallbackFamily{row: map[string]any{
+				"parent_product_id":             parentID,
+				"name":                          parentName,
+				"customer_id":                   product.CustomerID,
+				"default_sku_id":                product.DefaultSKUID,
+				"product_kind":                  product.ProductKind,
+				"customer_product_alias_id":     product.CustomerProductAliasID,
+				"customer_product_display_name": product.CustomerProductDisplayName,
+			}}
+			byKey[key] = state
+			fallback = append(fallback, state)
+		}
+		tiers := make([]map[string]any, 0, len(product.Tiers))
+		for _, tier := range product.Tiers {
+			tiers = append(tiers, map[string]any{
+				"id": tier.ID, "spec_g": tier.SpecG, "min": tier.MinQty, "max": tier.MaxQty,
+				"min_qty": tier.MinQty, "max_qty": tier.MaxQty, "unit_price": tier.UnitPrice,
+				"price": tier.UnitPrice, "sales_unit": tier.SalesUnit, "unit_bag_count": tier.UnitBagCount,
+				"publication_id": tier.PublicationID, "quantity_basis": tier.QuantityBasis,
+			})
+		}
+		state.specs = append(state.specs, map[string]any{
+			"product_id":       productID,
+			"sku_id":           productID,
+			"sku_name":         firstMiniOrderValue(product.SKUName, specLabel),
+			"spec_label":       specLabel,
+			"net_content_qty":  product.NetContentQty,
+			"net_content_unit": product.NetContentUnit,
+			"is_default_sku":   product.IsDefaultSKU,
+			"product_kind":     product.ProductKind,
+			"sales_unit":       product.OrderUnit,
+			"unit_bean_g":      product.DripBagGrams,
+			"unit_bag_count":   product.DripBoxBagCount,
+			"tiers":            tiers,
+		})
+	}
+	for _, state := range fallback {
+		sort.SliceStable(state.specs, func(i, j int) bool {
+			left := strings.TrimSpace(fmt.Sprint(state.specs[i]["spec_label"]))
+			right := strings.TrimSpace(fmt.Sprint(state.specs[j]["spec_label"]))
+			return left < right
+		})
+		state.row["specs"] = state.specs
+		families = append(families, state.row)
+	}
+	return families
+}
+
+func firstMiniOrderValue(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func requireMiniEmployee(c echo.Context, portal Service, permission string) (customerportalapp.CurrentContext, error) {

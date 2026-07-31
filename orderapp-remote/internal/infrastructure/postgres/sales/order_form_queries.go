@@ -263,7 +263,9 @@ func (r Repository) fetchOrderCustomerPublicUsages(ctx context.Context) ([]sales
 
 func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.CustomerOption, error) {
 	q := fmt.Sprintf(`
-		SELECT c.id, c.name, COALESCE(c.customer_type,''), COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.default_source_id,0), COALESCE(c.default_order_type_id,0),
+		SELECT c.id, c.name, COALESCE(c.customer_type,''), COALESCE(c.contact,''), COALESCE(c.phone,''),
+			COALESCE(c.address,''), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''),
+			COALESCE(c.default_source_id,0), COALESCE(c.default_order_type_id,0),
 			COALESCE(c.responsible_employee_id,0), COALESCE(e.name,'')
 		FROM %s.customers c
 		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
@@ -278,7 +280,9 @@ func (r Repository) fetchOrderCustomers(ctx context.Context) ([]salesapp.Custome
 	out := make([]salesapp.CustomerOption, 0)
 	for rows.Next() {
 		var row salesapp.CustomerOption
-		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerType, &row.Contact, &row.Phone, &row.DefaultSourceID, &row.DefaultOrderTypeID, &row.ResponsibleEmployeeID, &row.ResponsibleEmployeeName); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerType, &row.Contact, &row.Phone,
+			&row.Address, &row.CompanyName, &row.CompanyAddress, &row.CompanyPhone,
+			&row.DefaultSourceID, &row.DefaultOrderTypeID, &row.ResponsibleEmployeeID, &row.ResponsibleEmployeeName); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

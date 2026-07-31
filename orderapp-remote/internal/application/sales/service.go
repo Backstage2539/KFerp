@@ -227,6 +227,10 @@ type CustomerOption struct {
 	CustomerType            string `json:"customer_type"`
 	Contact                 string `json:"contact"`
 	Phone                   string `json:"phone"`
+	Address                 string `json:"address"`
+	CompanyName             string `json:"company_name"`
+	CompanyAddress          string `json:"company_address"`
+	CompanyPhone            string `json:"company_phone"`
 	DefaultSourceID         int64  `json:"default_source_id"`
 	DefaultOrderTypeID      int64  `json:"default_order_type_id"`
 	ResponsibleEmployeeID   int64  `json:"responsible_employee_id"`
