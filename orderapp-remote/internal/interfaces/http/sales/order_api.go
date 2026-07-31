@@ -2,7 +2,6 @@ package sales
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"

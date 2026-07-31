@@ -380,7 +380,7 @@ func orderFamilyTier(t ProductTierOption) map[string]any {
 }
 
 func orderFamilyTierKey(tier ProductTierOption) string {
-	return fmt.Sprintf("%d:%d:%s:%s:%g:%g", tier.PublicationID, tier.ID, tier.ListType, tier.PublicationVersionNo, tier.SpecG, tier.MinQty)
+	return fmt.Sprintf("%d:%d:%s:%s:%d:%g", tier.PublicationID, tier.ID, tier.ListType, tier.PublicationVersionNo, tier.SpecG, tier.MinQty)
 }
 
 func orderFamilyTierIsConcrete(tier ProductTierOption) bool {
