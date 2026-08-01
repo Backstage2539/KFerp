@@ -1347,4 +1347,12 @@
 - 页面必须区分加载中、加载失败、重试和登录失效。请求失败不得静默显示空白客户或商品列表；401 必须提示登录失效并进入登录流程，403 必须保留当前会话并明确提示权限不足。
 - 员工鉴权函数只返回验证结果，HTTP 处理器统一且只写一次响应；无令牌、令牌失效或权限不足时立即停止，不调用订单表单服务，401/403 正文不得包含客户、商品或价格主数据。
 - 本需求不迁移数据库，不修改订单、库存、价格表或客户主数据。Mac 仅做 Git、文本差异与小文件检查；Go、Node、Vue、小程序和 Docker 的测试/构建全部在开发服务器临时目录内持锁串行执行，Node 限制内存，Go 使用 `-p 1`，完成后清理临时依赖和构建目录。
-- development 小程序构建写入 `https://dev.erp.qacoohee.com/app`，production 写入 `https://erp.qacoohee.com/app`。开发和正式部署完成后，把正式 `mp-weixin` 产物同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，微信开发者工具固定导入该目录，并记录服务器提交、小程序版本和上一正式版本用于分别回滚。
+- development 小程序构建写入 `https://dev.qacoohee.com/app`，production 写入 `https://erp.qacoohee.com/app`。开发和正式部署完成后，把正式 `mp-weixin` 产物同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，微信开发者工具固定导入该目录，并记录服务器提交、小程序版本和上一正式版本用于分别回滚。
+
+# PR-567-DEVELOPMENT-PUBLIC-DOMAIN 开发环境公网域名（2026-08-01）
+
+- `DEV-567-DEVELOPMENT-URL`：开发环境的网页、API、小程序构建和发布输出统一使用 `https://dev.qacoohee.com`；生产环境继续使用 `https://erp.qacoohee.com`，不得把两个环境的 API 地址或静态资产混用。
+- `DEV-567-PUBLIC-INGRESS`：服务器唯一公网 Caddy 同时承载两个公开 HTTPS 域名。`dev.qacoohee.com` 只转发 `erp_orderapp:8080`，`erp.qacoohee.com` 只转发 `erp_prod_orderapp:8080`；开发域名不再使用内部 CA。
+- `DEV-567-DEPLOYMENT-GUARD`：development 发布在改变入口前必须校验 Caddy 配置并保留时间戳备份，使用热加载更新路由，不重启生产应用或数据库；失败时恢复上一份 Caddy 配置。
+- 两个域名的发布探针必须严格校验证书。开发探针可用 `--resolve dev.qacoohee.com:443:1.12.242.58` 绕过本地代理或 fake-IP DNS，但不得使用 `-k` 跳过证书验证。
+- 本需求不修改数据库、业务主数据、生产应用镜像或生产数据库；完成定向合同、完整远程预检、development 部署、双域名 HTTPS 和容器边界验证后交付。

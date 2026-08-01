@@ -871,3 +871,9 @@
 - [x] 100件“初晓拼配 227g”使用权威换算 `1销售规格件=0.227kg` 得到22.7kg，不解析商品名；该 SKU 的100件即100袋。包装产能为 `piece`、标准产能单位件、费率0.5元/销售规格件时，计划和实际产出100件的包装成本都为50元。
 - [x] 同一生产计划/工单的烘焙、色选使用各自按工时产能，包装使用按计件产能；API和页面分别展示三道工序的计划/实际成本，成本合计等于明细之和，不能只显示总数。
 - [ ] 临时 PostgreSQL、定向/完整测试、Vue/小程序构建及 development API/静态只读冒烟已通过；应用内登录态视觉验收被开发域名 `ERR_CERT_AUTHORITY_INVALID` 阻断，待证书信任恢复后补验。证据记录在 `orderapp-remote/docs/acceptance/2026-07-30-workstation-piece-cost.md`。
+
+### K40. 开发环境公网域名（PR-567-DEVELOPMENT-PUBLIC-DOMAIN）
+- [ ] `DEV-567-DEVELOPMENT-URL`：development 构建和发布只使用 `https://dev.qacoohee.com/app`，production 仍只使用 `https://erp.qacoohee.com/app`。
+- [ ] `DEV-567-PUBLIC-INGRESS`：两个域名的公开证书均有效，开发和生产分别命中 `erp_orderapp`、`erp_prod_orderapp`。
+- [ ] `DEV-567-DEPLOYMENT-GUARD`：入口更新有校验、备份、热加载和失败恢复，生产应用和数据库未重启。
+- [ ] 功能分支预检、development 部署、严格 TLS 双域名烟测和证据文档全部通过。

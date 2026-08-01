@@ -82,8 +82,8 @@ case "$TARGET_ENV" in
     STACK_DIR="/opt/stacks/erp"
     ORDERAPP_CONTAINER="erp_orderapp"
     DOC_CONVERT_CONTAINER="erp_docconvert"
-    API_BASE="https://dev.erp.qacoohee.com/app"
-    PUBLIC_URL="${DEVELOPMENT_PUBLIC_URL:-https://dev.erp.qacoohee.com/app/}"
+    API_BASE="https://dev.qacoohee.com/app"
+    PUBLIC_URL="${DEVELOPMENT_PUBLIC_URL:-https://dev.qacoohee.com/app/}"
     ;;
 esac
 APP_DIR="$STACK_DIR/orderapp"
@@ -214,12 +214,10 @@ external_smoke() {
     return 1
   fi
   if [ "$TARGET_ENV" = "development" ]; then
-    # Development has no public DNS record. Probe the server's public ingress
-    # from the Mac with the intended TLS SNI/Host instead of the Mac's local
-    # development mapping or the server's unavailable DNS path.
+    # Force the known public ingress IP so a local proxy or fake-IP DNS mapping
+    # cannot send the smoke elsewhere. Keep certificate validation enabled.
     curl_args+=(
-      -k
-      --resolve "dev.erp.qacoohee.com:443:${KFERP_DEVELOPMENT_PUBLIC_IP:-1.12.242.58}"
+      --resolve "dev.qacoohee.com:443:${KFERP_DEVELOPMENT_PUBLIC_IP:-1.12.242.58}"
     )
   fi
 

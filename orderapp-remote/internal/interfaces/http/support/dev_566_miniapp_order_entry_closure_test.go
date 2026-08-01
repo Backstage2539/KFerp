@@ -89,9 +89,9 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 			"wait_for_orderapp_http 60 3",
 			"wait_for_public_http 15",
 			"docker logs --tail 200",
-			"development:https://dev.erp.qacoohee.com/app",
+			"development:https://dev.qacoohee.com/app",
 			"production:https://erp.qacoohee.com/app",
-			"--resolve dev.erp.qacoohee.com:443:127.0.0.1",
+			"--resolve dev.qacoohee.com:443:127.0.0.1",
 		} {
 			if !strings.Contains(releaseScript, marker) {
 				t.Fatalf("remote release script missing readiness retry %q", marker)
@@ -108,7 +108,7 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 		for _, marker := range []string{
 			"external_smoke()",
 			"KFERP_DEVELOPMENT_PUBLIC_IP",
-			"--resolve \"dev.erp.qacoohee.com:443:",
+			"--resolve \"dev.qacoohee.com:443:",
 			"stop before promoting the next environment",
 		} {
 			if !strings.Contains(deployScript, marker) {

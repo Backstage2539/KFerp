@@ -64,7 +64,7 @@ if [ -z "$API_BASE" ] || [ -z "$ORDERAPP_CONTAINER" ] || [ -z "$DOC_CONVERT_CONT
   exit 1
 fi
 case "$TARGET_ENV:$API_BASE" in
-  development:https://dev.erp.qacoohee.com/app ) ;;
+  development:https://dev.qacoohee.com/app ) ;;
   production:https://erp.qacoohee.com/app ) ;;
   * ) echo "ERROR: api base does not match environment: $API_BASE" >&2; exit 1 ;;
 esac
@@ -107,10 +107,9 @@ DEPLOY_OK=0
 IMAGE_BUILT=0
 PUBLIC_RESOLVE_ARGS=()
 if [ "$TARGET_ENV" = "development" ]; then
-  # The deployment host intentionally has no DNS record for the development
-  # hostname. Keep testing the real Caddy TLS/vhost route via loopback; the
-  # caller performs an additional external smoke after deployment.
-  PUBLIC_RESOLVE_ARGS=(--resolve dev.erp.qacoohee.com:443:127.0.0.1)
+  # Exercise the same public-certificate vhost through loopback; the caller
+  # performs an additional strict external smoke against the public IP.
+  PUBLIC_RESOLVE_ARGS=(--resolve dev.qacoohee.com:443:127.0.0.1)
 fi
 
 wait_for_orderapp_http() {
@@ -147,7 +146,7 @@ PUBLIC_HTTP_CODE=""
 wait_for_public_http() {
   local max_attempts="$1"
   for _public_attempt in $(seq 1 "$max_attempts"); do
-    PUBLIC_HTTP_CODE="$(curl -ksS --connect-timeout 3 --max-time 5 "${PUBLIC_RESOLVE_ARGS[@]}" \
+    PUBLIC_HTTP_CODE="$(curl -sS --connect-timeout 3 --max-time 5 "${PUBLIC_RESOLVE_ARGS[@]}" \
       -o /dev/null -w '%{http_code}' "$API_BASE/login" 2>/dev/null || true)"
     case "$PUBLIC_HTTP_CODE" in
       200|301|302|401 ) return 0 ;;
@@ -330,6 +329,11 @@ if [ "$PREFLIGHT" -eq 1 ]; then
   echo "environment=$TARGET_ENV"
   echo "commit=$EXPECTED_COMMIT"
   exit 0
+fi
+
+if [ "$TARGET_ENV" = "development" ]; then
+  "$SOURCE_ROOT/scripts/configure_public_ingress.sh" \
+    "$SOURCE_ROOT/scripts/Caddyfile.public"
 fi
 
 # Preserve the legacy shipping export directory and optional template copy only
