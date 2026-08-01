@@ -26,7 +26,9 @@
 - GREEN targeted：同一 Vitest 命令通过，4 个文件共 12 项；环境门禁缺失/错配返回非零，development 与 production 正确配对返回零。
 - GREEN miniapp：完整 `npm test -- --maxWorkers=1 --minWorkers=1 --no-file-parallelism` 通过，19 个文件共 97 项；`npm run typecheck` 通过。
 - GREEN release contract：`go test ./internal/interfaces/http/support -run TestDev568MiniappEnvironmentSeparationContract -count=1` 与完整 support 包测试通过；`bash -n deploy_orderapp.sh`、`bash -n scripts/remote_orderapp_release.sh`、`git diff --check` 通过。
-- 远程双环境构建与 development 部署：待功能分支推送后执行。
+- GREEN remote development preflight：功能提交 `1a3d4c4f329963c3e28c44f03a92af23a7457181` 通过 Vue 852 项测试/构建、小程序 97 项测试/类型检查/development 包构建、完整 Go 测试与隔离 Docker 构建；产物只含开发 API 地址。未提升源码、重启容器或同步固定目录。
+- GREEN remote production preflight：同一功能提交通过 production 包构建及相同完整门禁；产物只含生产 API 地址。未部署 production、未重启生产容器、未覆盖正式小程序目录。
+- development 集成部署与开发固定目录只读验收：待合入 `develop` 后执行。
 
 ## 部署与环境边界
 

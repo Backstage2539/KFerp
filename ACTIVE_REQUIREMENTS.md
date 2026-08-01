@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-568-MINIAPP-ENVIRONMENT-SEPARATION
 - Branch: codex/miniapp-env-routing-20260801
 - Owner/session: Codex / 2026-08-01
-- Status: local GREEN / awaiting remote preflight
+- Status: local + dual-environment remote preflight GREEN / ready to merge
 - Scope: 同一微信 AppID 下隔离 development/production API、令牌、缓存和固定构建目录；开发包显示环境标识并禁止误发正式版，缺失环境配置时不回退生产。
 - DEV:
   - DEV-568-CLIENT-ENVIRONMENT-GUARD：构建环境与 API 地址显式绑定，开发包正式发布时阻断请求，开发页面显示环境标识，合法域名校验默认启用。
@@ -22,9 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Remote: feature branch 分别执行 development/production 隔离预检；合入 develop 后部署 development 并核对开发固定目录和只读 API。
   - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; `DEPLOYMENT.md`。
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-01-miniapp-environment-separation.md`。
-- Deployment: pending development; production explicitly out of scope
+- Deployment: development pending integration; production preflight only and explicitly not deployed
 - Last update: 2026-08-01 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim miniapp-env-routing` 因现有 awk 多行字符串错误失败，已按下一可用编号 PR-568 手工登记。服务器只读检查确认两套 AppID/AppSecret 均已配置且 AppID 相同；未读取或输出 Secret。
+- Notes: `scripts/reserve_req_id.sh --claim miniapp-env-routing` 因现有 awk 多行字符串错误失败，已按下一可用编号 PR-568 手工登记。服务器只读检查确认两套 AppID/AppSecret 均已配置且 AppID 相同；未读取或输出 Secret。功能提交 `1a3d4c4f` 分别通过 development/production 远程隔离预检；两次均未提升源码、重启容器或同步固定目录。
 
 ### PR-567-DEVELOPMENT-PUBLIC-DOMAIN
 - Branch: codex/dev-domain-20260801
