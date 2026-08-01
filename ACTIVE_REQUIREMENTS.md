@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC
 - Branch: codex/miniapp-devtools-preview-sync-20260801
 - Owner/session: Codex / 2026-08-01
-- Status: reproduced / RED-GREEN and full verification complete / independent review clean / remote preflight and dual deployment pending
+- Status: merged to develop/main / development and production deployed / awaiting user DevTools re-import and automatic-preview acceptance
 - Scope: 修复固定小程序目录更新后微信开发者工具自动预览仍使用旧上传清单并报 `800059 ... employee-customers.js, file not found`；补齐逐页产物完整性门禁和项目刷新指引。
 - DEV:
   - DEV-571-ARTIFACT-CLOSURE：服务器构建后解析 `app.json`、逐页校验并生成 `PAGE_FILE_MANIFEST`；固定包下载后按清单复验全部页面文件。
@@ -19,10 +19,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED/GREEN: `go test ./internal/interfaces/http/support -run TestDev571MiniappArtifactValidationAndDevToolsRefreshContract -count=1`。
   - Artifact: 开发/生产固定包逐页闭包校验；缺失客户维护页 `.js` 的夹具必须失败。
   - Quality: full `go test ./... -count=1`, `scripts/verify_kferp.sh changed`, Shell/Node syntax and fault-injected swap recovery GREEN; backend/frontend/docs final reviews have no open P0-P2.
-  - Release: feature branch development/production 远程预检，合并后双环境部署、固定包 `RELEASE_INFO` 与重新导入项目检查。
-- Deployment: pending; user reported the failure in the production fixed package opened by WeChat DevTools. No database or business-data change.
-- Last update: 2026-08-01 Asia/Shanghai
-- Notes: 当前 development/production 固定包均有 12 个页面和 48 个页面生成文件；根因是 production 项目在固定目录替换前已打开，DevTools 最后成功上传清单仍为旧版本。清编译缓存未重建上传清单，需关闭项目并重新导入一次。
+  - Release: feature `f14468c8` development/production 远程预检通过；develop `668a2a80` 与 main `4a08b58b` 已分别部署，两个固定包均按 `PAGE_FILE_MANIFEST` 复验 48 个文件。
+- Deployment: development `668a2a80` and production `4a08b58b` deployed; both external login smokes returned HTTP 200; previous server sources, rollback images and fixed miniapp packages retained. No database or business-data change.
+- Last update: 2026-08-01 19:49 Asia/Shanghai
+- Notes: 根因是 production 项目在固定目录替换前已打开，DevTools 最后成功上传清单仍为旧版本。正式固定目录已更新为完整新包；命令行服务端口关闭，未改安全设置，也未上传/审核/发布微信版本。Van 验收前需手动关闭项目并重新导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
 
 ### PR-570-ORDER-ENTRY-PRICE-SPECS-ORDER-DETAIL
 - Branch: codex/order-entry-price-specs-20260801

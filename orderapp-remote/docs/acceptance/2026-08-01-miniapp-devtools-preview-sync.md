@@ -24,5 +24,16 @@
 
 - 完整 `go test ./... -count=1`、`scripts/verify_kferp.sh changed`、Shell/Node 语法检查通过。故障注入覆盖第二次目录移动失败和第一次移动后收到 TERM，两种情况都恢复旧固定包；远端/本机路径规则和合法连续句点路径均通过。
 - 后端、前端/DevTools 根因和需求文档三方独立复核当前无未关闭 P0-P2。
-- development/production 远程预检、分支合并、双环境部署提交和固定包备份在发布完成后补充。
-- 本次现有 DevTools 会话需要一次性关闭项目并重新导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。重新编译/自动预览由 Van 验收；微信上传、审核和正式发布不属于服务器部署步骤。
+- 功能分支 `f14468c8cafaefc35d013448a13dbde07ed85877` 分别使用 development 和 production 配置完成远程预检；两次预检都确认 12 个声明页面齐全，且没有更新服务器源码、容器或固定小程序目录。
+- develop 合并提交 `668a2a80b2610d82d43dbeec4b16d706fcc80664` 已部署 development：
+  - 外部登录冒烟 `https://dev.qacoohee.com/app/login` 返回 HTTP 200。
+  - 服务器上一源码：`/opt/stacks/erp/orderapp.backup.deploy-20260801193421-668a2a80b261`。
+  - 回滚镜像：`kferp-orderapp-rollback:development-20260801193421-668a2a80b261`。
+  - 固定包按 `PAGE_FILE_MANIFEST` 复验 48 个文件；上一固定包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801193951-668a2a80b261`。
+- main 合并提交 `4a08b58b6a536ac0c24ba66b122eb547c2affd28` 已部署 production：
+  - 外部登录冒烟 `https://erp.qacoohee.com/app/login` 返回 HTTP 200。
+  - 服务器上一源码：`/opt/stacks/erp-production/orderapp.backup.deploy-20260801194252-4a08b58b6a53`。
+  - 回滚镜像：`kferp-orderapp-rollback:production-20260801194252-4a08b58b6a53`。
+  - 正式固定包按 `PAGE_FILE_MANIFEST` 复验 48 个文件；上一固定包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260801194820-4a08b58b6a53`。
+- 连续发布前服务器磁盘空间不足，部署锁释放后仅删除两个未被容器引用、无标签且分别创建于 2026-05-29 和 2026-04-30 的可重建镜像，并清理 24 小时以前的未使用构建缓存；保留当前运行镜像和 development/production 最新回滚镜像。
+- 本次现有 DevTools 会话需要一次性关闭项目并重新导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。命令行服务端口关闭，未修改 DevTools 安全设置；重新编译/自动预览由 Van 验收，微信上传、审核和正式发布均未执行。
