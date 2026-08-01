@@ -1771,9 +1771,9 @@
 
 # PR-567-DEVELOPMENT-PUBLIC-DOMAIN 开发环境公网域名
 
-- [ ] `DEV-567-DEVELOPMENT-URL`：development 网页、API、小程序构建和发布输出只包含 `https://dev.qacoohee.com/app`；production 继续只包含 `https://erp.qacoohee.com/app`。
-- [ ] `DEV-567-PUBLIC-INGRESS`：`dev.qacoohee.com` 使用公开可信证书并转发到 `erp_orderapp:8080`；`erp.qacoohee.com` 仍使用原公开证书并转发到 `erp_prod_orderapp:8080`。
-- [ ] `DEV-567-DEPLOYMENT-GUARD`：入口配置先校验再备份和热加载，加载失败会恢复；切换时生产应用和生产数据库的启动时间不变。
-- [ ] `curl --resolve dev.qacoohee.com:443:1.12.242.58 https://dev.qacoohee.com/app/login` 在不使用 `-k` 时返回 200/301/302/303/401 之一，证书主机名匹配。
-- [ ] 同样严格探测 `erp.qacoohee.com` 通过，且开发/生产响应分别来自 `erp_orderapp` 与 `erp_prod_orderapp`，没有跨环境串流。
-- [ ] 定向 Go 合同、Shell 语法、功能分支远程预检、development 发布和双环境只读冒烟通过；证据记录在 `docs/acceptance/2026-08-01-development-public-domain.md`。
+- [x] `DEV-567-DEVELOPMENT-URL`：development 网页、API、小程序构建和发布输出只包含 `https://dev.qacoohee.com/app`；production 继续只包含 `https://erp.qacoohee.com/app`。
+- [x] `DEV-567-PUBLIC-INGRESS`：`dev.qacoohee.com` 使用公开可信证书并转发到 `erp_orderapp:8080`；`erp.qacoohee.com` 仍使用原公开证书并转发到 `erp_prod_orderapp:8080`。
+- [x] `DEV-567-DEPLOYMENT-GUARD`：入口配置先校验再备份和热加载，加载失败会恢复；切换时生产应用和生产数据库的启动时间不变。
+- [x] `curl --resolve dev.qacoohee.com:443:1.12.242.58 https://dev.qacoohee.com/app/login` 在不使用 `-k` 时返回 200/301/302/303/401 之一，证书主机名匹配。
+- [x] 同样严格探测 `erp.qacoohee.com` 通过，且开发/生产响应分别来自 `erp_orderapp` 与 `erp_prod_orderapp`，没有跨环境串流。
+- [x] 定向 Go 合同、Shell 语法、功能分支远程预检、development 发布和双环境只读冒烟通过；证据记录在 `docs/acceptance/2026-08-01-development-public-domain.md`。

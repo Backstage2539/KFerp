@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-567-DEVELOPMENT-PUBLIC-DOMAIN
 - Branch: codex/dev-domain-20260801
 - Owner/session: Codex / 2026-08-01
-- Status: implementing
+- Status: merged to develop / development deployed
 - Scope: 开发环境公网入口统一改为 `dev.qacoohee.com`，构建期 API、发布探针和 Caddy 路由使用新域名；生产环境继续使用 `erp.qacoohee.com`，不重启生产应用或数据库。
 - DEV:
   - DEV-567-DEVELOPMENT-URL：开发构建和发布地址固定为 `https://dev.qacoohee.com/app`，生产地址保持不变。
@@ -21,9 +21,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: 服务器串行完成 Vue、小程序、Go 和 Docker 预检及 development 发布。
   - Manual: `DEPLOYMENT.md` 与开发域名验收证据。
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-01-development-public-domain.md`。
-- Deployment: pending development only; production app/database forbidden
+- Deployment: feature `225884eb0eddc6c40a3d040063629b9fd472527c` merged as `cb46d61dcb2f3bf0229a23586351e147bc7b54a4` and deployed development. Caddy backup `/opt/stacks/erp-production/Caddyfile.backup.domain-20260801121058`; development source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801120816-cb46d61dcb2f`; rollback image `kferp-orderapp-rollback:development-20260801120816-cb46d61dcb2f`.
 - Last update: 2026-08-01 Asia/Shanghai
-- Notes: DNS 已由用户发布；本地代理可能返回 fake-IP，以服务器解析和 `--resolve 1.12.242.58` 的严格 TLS 结果为准。
+- Notes: DNS 由服务器解析为 `1.12.242.58`。严格 TLS、双域名 HTTP、容器路由、开发小程序 API 地址和 Chrome 登录页均通过；production 分支未由本需求部署。发布排队期间另一独立 production 发布先完成，故以其完成后的新基线验证本需求未重启生产应用、数据库和网关。
 
 ### PR-566-MINIAPP-ORDER-ENTRY-CLOSURE
 - Branch: codex/pr566-mini-order-closure
