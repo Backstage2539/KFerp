@@ -30,6 +30,7 @@ import {
   normalizeOrderProductFamilies,
   orderFamilyDefaultSpec,
   orderFamilyForSKU,
+  orderFamilySearchScopeForPublication,
   orderFamilySpecRowPatch,
   orderFamilySpecsForPublication,
   orderFamilySpecProduct,
@@ -166,6 +167,26 @@ test('maintained spec choices use current SKU metadata while selected price hist
 
   assert.deepEqual(orderFamilySpecOptions(family, 901).map((item) => item.label), ['当前454g'])
   assert.equal(orderSpecSelectionAfterPublicationChange(family, 551, 901)?.spec_label, '历史500g')
+})
+
+test('order product search only matches specifications sold by the selected publication', () => {
+  const family = normalizeOrderProductFamilies([{
+    parent_product_id: 550,
+    name: '乌拉嘎',
+    code: 'PARENT-550 SKU-100 SKU-1KG',
+    product_code: 'SKU-1KG',
+    specs: [
+      { sku_id: 551, sku_code: 'SKU-100', spec_label: '100g', tiers: [{ publication_id: 901, unit_price: 39 }] },
+      { sku_id: 552, sku_code: 'SKU-1KG', spec_label: '1Kg', tiers: [{ publication_id: 902, unit_price: 88 }] },
+    ],
+  }], [])[0]
+  const scoped = orderFamilySearchScopeForPublication(family, 901)
+
+  assert.deepEqual(scoped.specs.map((spec) => spec.sku_id), [551])
+  assert.deepEqual(orderProductFamilyOptions([scoped], '100g').map((item) => item.parent_product_id), [550])
+  assert.deepEqual(orderProductFamilyOptions([scoped], 'SKU-100').map((item) => item.parent_product_id), [550])
+  assert.deepEqual(orderProductFamilyOptions([scoped], '1kg'), [])
+  assert.deepEqual(orderProductFamilyOptions([scoped], 'SKU-1KG'), [])
 })
 
 test('order product options combine visible category and text filters', () => {
@@ -365,24 +386,14 @@ test('order spec choices only include concrete SKUs priced by the selected publi
 
   assert.deepEqual(orderFamilySpecOptions(family, 91), [
     { label: '100g', value: '701', skuID: 701 },
-    { label: '227g', value: '702', skuID: 702 },
-    { label: '454g', value: '703', skuID: 703 },
   ])
-  assert.equal(orderFamilyDefaultSpec(family, 91)?.sku_id, 702)
+  assert.equal(orderFamilyDefaultSpec(family, 91)?.sku_id, 701)
   assert.deepEqual(orderFamilySpecsForPublication(family, 92).map((item) => item.sku_id), [702])
   assert.equal(orderFamilyDefaultSpec(family, 92)?.sku_id, 702)
+  assert.deepEqual(orderFamilySpecOptions(family, 999), [])
+  assert.equal(orderFamilyDefaultSpec(family, 999), null)
   assert.equal(orderSpecSelectionAfterPublicationChange(family, 702, 92)?.sku_id, 702)
-  assert.equal(orderSpecSelectionAfterPublicationChange(family, 702, 91)?.sku_id, 702)
-  assert.deepEqual(orderSpecSelectionAfterPublicationChange(family, 702, 91)?.tiers, [])
-  const unpriced = orderSpecSelectionAfterPublicationChange(family, 702, 91)
-  const unpricedProduct = orderFamilySpecProduct(family, unpriced, 91)
-  assert.equal(resolveWholesaleTierPrice(unpricedProduct, {
-    product_id: 702,
-    parent_product_id: 70,
-    spec_mode: '702',
-    qty: 1,
-    bean_list_publication_id: 91,
-  }).priceMissing, true)
+  assert.equal(orderSpecSelectionAfterPublicationChange(family, 702, 91), null)
 })
 
 test('selecting an order price-list spec freezes concrete SKU identity while keeping the parent product name', () => {
@@ -543,6 +554,12 @@ test('OrderEntryView uses parent product families and concrete published SKU spe
   assert.match(source, /product_family_key: ''/)
   assert.match(source, /orderProductFamilyForContext\(candidates/)
   assert.match(source, /orderFamilySpecOptions\(/)
+  assert.match(source, /function productSpecCountForCurrentList\(family\)[\s\S]*?selectedBeanListVersionOptionForProduct\(family\)[\s\S]*?orderFamilySpecOptions\(family, selected\.id\)\.length/)
+  assert.match(source, /const selectedPublicationID = Number\(selected\?\.id \|\| 0\)[\s\S]*?if \(selectedPublicationID <= 0\)[\s\S]*?invalidatePriceListSpecRow/)
+  assert.match(source, /const defaultSpec = orderFamilyDefaultSpec\(family, selectedPublicationID\)[\s\S]*?orderSpecSelectionAfterPublicationChange\([\s\S]*?defaultSpec\?\.sku_id,[\s\S]*?selectedPublicationID/)
+  assert.match(source, /orderFamilySearchScopeForPublication\(family, selected\.id\)/)
+  assert.match(source, /if \(!isOrderProductFamily\(family\)\) return \[family\]/)
+  assert.doesNotMatch(source, /if \(!family\?\.__order_concrete_price_family\) return \[family\]/)
   assert.match(source, /isOrderProductFamily\(family\)/)
   assert.match(source, /function onSpecChange\(row\)/)
   assert.match(source, /当前价格表未发布该商品规格，不能保存；请补齐价格表或选择有价规格。/)
@@ -574,8 +591,8 @@ test('OrderEntryView manual explains parent products and published price-list sp
   const manual = source.slice(source.indexOf('<details class="manual">'), source.indexOf('</details>', source.indexOf('<details class="manual">')))
 
   assert.match(manual, /商品按父商品展示/)
-  assert.match(manual, /规格列展示商品档案全部现有规格/)
-  assert.match(manual, /当前价格表未定价的规格会明确提示并阻止保存/)
+  assert.match(manual, /规格列和规格搜索只使用当前已选已发布价格表中有价的规格/)
+  assert.match(manual, /价格表没有的商品档案规格不会出现在新订单候选中/)
   assert.match(manual, /切换价格表版本/)
   assert.doesNotMatch(manual, /常用规格：36g/)
 })
