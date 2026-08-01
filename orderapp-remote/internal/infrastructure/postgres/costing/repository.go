@@ -1582,7 +1582,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.spec_label,'') AS spec_label,
 		       COALESCE(NULLIF(p.net_content_qty,0), NULLIF(product_unit_template_default_spec.net_content_qty,0), 0)::float8 AS net_content_qty,
 		       COALESCE(NULLIF(p.net_content_unit,''), NULLIF(product_unit_template_default_spec.net_content_unit,''), '') AS net_content_unit,
-		       p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS is_default_sku,
+		       COALESCE(p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id), false) AS is_default_sku,
 		       COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS default_sku_id,
 		       CASE WHEN $2 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END,
 		       'SKU-' || p.id::text,
