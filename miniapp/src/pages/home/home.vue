@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchMe } from '../../api/customerPortal'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
@@ -15,8 +16,14 @@ const entries = computed(() => visibleHomeEntries(session.capabilities))
 const employeeEntries = [
   { key: 'employeeOrderEntry', label: '录单', url: '/pages/employee-order-entry/employee-order-entry' },
   { key: 'employeeOrders', label: '查看订单', url: '/pages/employee-orders/employee-orders' },
+  { key: 'employeeCustomers', label: '客户维护', url: '/pages/employee-customers/employee-customers' },
 ]
-const visibleEntries = computed(() => session.accountType === 'employee' ? employeeEntries : entries.value)
+const visibleEntries = computed(() => {
+  if (session.accountType !== 'employee') return entries.value
+  const canMaintainCustomers = session.permissions.includes('customers.read')
+    && session.permissions.includes('customers.write')
+  return employeeEntries.filter((entry) => entry.key !== 'employeeCustomers' || canMaintainCustomers)
+})
 const customerName = computed(() => session.accountType === 'employee' ? `${session.employeeName || '员工'} · 简易 ERP` : (session.currentCustomerName || '客户中心'))
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
 const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
@@ -53,6 +60,7 @@ onShow(() => {
 
 <template>
   <view class="page" :class="themeClass">
+    <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ customerName }}</text>

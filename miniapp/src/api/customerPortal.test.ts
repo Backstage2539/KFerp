@@ -9,6 +9,9 @@ import {
   buildPasswordLoginPath,
   buildEmployeeOrderFormPath,
   buildEmployeeOrdersPath,
+  buildEmployeeCustomersPath,
+  buildEmployeeCustomerPath,
+  buildEmployeeOrderDraftPath,
   buildCustomerProductsPath,
   buildCustomerProductCategoriesPath,
   buildCustomerProductCategoryPath,
@@ -17,7 +20,12 @@ import {
   buildServicePagePath,
   buildSwitchCustomerPath,
 } from './customerPortal'
-import type { CreateFulfillmentOrderPayload, ProductSummary } from './customerPortal'
+import type {
+  CreateFulfillmentOrderPayload,
+  EmployeeCustomersResponse,
+  EmployeeOrderDraftPayload,
+  ProductSummary,
+} from './customerPortal'
 
 describe('customer portal API helpers', () => {
   it('encodes service page filters into the mini service path', () => {
@@ -62,6 +70,73 @@ describe('customer portal API helpers', () => {
   it('exposes employee ERP order API paths', () => {
     expect(buildEmployeeOrderFormPath()).toBe('/api/mini/employee/order-form')
     expect(buildEmployeeOrdersPath()).toBe('/api/mini/employee/orders')
+    expect(buildEmployeeCustomersPath()).toBe('/api/mini/employee/customers')
+    expect(buildEmployeeCustomersPath({ q: '上海 客户', page: 2, limit: 100 })).toBe('/api/mini/employee/customers?q=%E4%B8%8A%E6%B5%B7%20%E5%AE%A2%E6%88%B7&page=2&limit=100')
+    expect(buildEmployeeCustomerPath(31)).toBe('/api/mini/employee/customers/31')
+    expect(buildEmployeeOrderDraftPath()).toBe('/api/mini/employee/order-draft')
+  })
+
+  it('types scoped employee customers and multi-item server drafts', () => {
+    const customers: EmployeeCustomersResponse = {
+      rows: [{ id: 8, name: '客户A', can_maintain: true }],
+      sources: [{ id: 1, name: '小程序' }],
+      order_types: [{ id: 2, name: '销售订单' }],
+      employees: [{ id: 3, name: '销售A' }],
+      customer_type_options: [{ value: 'wholesale', label: '批发客户' }],
+      is_admin: false,
+      total: 1,
+      has_next: false,
+    }
+    const draft: EmployeeOrderDraftPayload = {
+      order_date: '2026-08-01',
+      customer_id: 8,
+      source_id: 1,
+      order_type_id: 2,
+      pay_status_id: 0,
+      ship_status_id: 0,
+      receiver_name: '',
+      receiver_phone: '',
+      receiver_address: '',
+      receiver_company: '',
+      notes: '',
+      items: [
+        {
+          key: 'line-1',
+          product_family_key: '0:10:0',
+          product_family_id: 10,
+          customer_product_alias_id: 0,
+          product_id: 11,
+          product_name: '商品A',
+          product_kind: 'roasted_bean',
+          spec_label: '227g',
+          spec_g: 227,
+          sales_unit: '袋',
+          unit_bag_count: 0,
+          unit_bean_g: 0,
+          qty: 2,
+          unit_price: 48,
+        },
+        {
+          key: 'line-2',
+          product_family_key: '0:20:0',
+          product_family_id: 20,
+          customer_product_alias_id: 0,
+          product_id: 21,
+          product_name: '商品B',
+          product_kind: 'roasted_bean',
+          spec_label: '454g',
+          spec_g: 454,
+          sales_unit: '袋',
+          unit_bag_count: 0,
+          unit_bean_g: 0,
+          qty: 1,
+          unit_price: 80,
+        },
+      ],
+    }
+
+    expect(customers.rows[0]?.can_maintain).toBe(true)
+    expect(draft.items).toHaveLength(2)
   })
 
   it('exposes customer products and category management mini API paths', () => {

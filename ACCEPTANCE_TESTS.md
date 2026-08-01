@@ -871,3 +871,29 @@
 - [x] 100件“初晓拼配 227g”使用权威换算 `1销售规格件=0.227kg` 得到22.7kg，不解析商品名；该 SKU 的100件即100袋。包装产能为 `piece`、标准产能单位件、费率0.5元/销售规格件时，计划和实际产出100件的包装成本都为50元。
 - [x] 同一生产计划/工单的烘焙、色选使用各自按工时产能，包装使用按计件产能；API和页面分别展示三道工序的计划/实际成本，成本合计等于明细之和，不能只显示总数。
 - [ ] 临时 PostgreSQL、定向/完整测试、Vue/小程序构建及 development API/静态只读冒烟已通过；应用内登录态视觉验收被开发域名 `ERR_CERT_AUTHORITY_INVALID` 阻断，待证书信任恢复后补验。证据记录在 `orderapp-remote/docs/acceptance/2026-07-30-workstation-piece-cost.md`。
+
+### K40. 开发环境公网域名（PR-567-DEVELOPMENT-PUBLIC-DOMAIN）
+- [x] `DEV-567-DEVELOPMENT-URL`：development 构建和发布只使用 `https://dev.qacoohee.com/app`，production 仍只使用 `https://erp.qacoohee.com/app`。
+- [x] `DEV-567-PUBLIC-INGRESS`：两个域名的公开证书均有效，开发和生产分别命中 `erp_orderapp`、`erp_prod_orderapp`。
+- [x] `DEV-567-DEPLOYMENT-GUARD`：入口更新有校验、备份、热加载和失败恢复，生产应用和数据库未重启。
+- [x] 功能分支预检、development 部署、严格 TLS 双域名烟测和证据文档全部通过。
+
+### K41. 小程序开发/生产环境隔离与防误发（PR-568-MINIAPP-ENVIRONMENT-SEPARATION）
+- [ ] 缺少构建环境或 API 地址、环境与地址不匹配时，小程序构建门禁失败；普通本地构建不会静默回退到生产地址。
+- [ ] development 构建只包含 `https://dev.qacoohee.com/app`，所有页面显示“开发环境 · 测试数据”；development 包处于微信 `release` 正式版本时 API 请求被明确阻断。
+- [ ] production 构建只包含 `https://erp.qacoohee.com/app`，不显示开发环境标识，既有 production 固定目录和发布人工确认流程保持不变。
+- [ ] 登录令牌、豆单缓存键包含 development/production 环境命名空间，旧 `kferp.mini.token` 不会自动迁入任一环境。
+- [ ] development 部署把通过 `RELEASE_INFO` 校验的产物原子同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；production 仍同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，两者不会互相覆盖。
+- [ ] 小程序工程开启合法域名校验；下载域名错误按当前包显示 `dev.qacoohee.com` 或 `erp.qacoohee.com`，不再提示关闭校验。
+- [ ] 两套服务器微信参数均已配置且使用同一 AppID；定向小程序测试、类型检查、双环境远程预检、development 部署和开发包静态/API 冒烟通过，production 未部署。
+
+### K42. 小程序客户维护、多商品录单与订单草稿（PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM）
+- [ ] `DEV-569-CUSTOMER-PERMISSION`：销售新增客户时服务端忽略或拒绝伪造负责人并固定为当前员工；销售修改本人负责客户成功，修改其他员工负责客户或尝试改派负责人返回 403，客户和操作日志均无越权写入。
+- [ ] 管理员可以新增、修改任意客户并调整负责人；管理员改派后，原销售立即失去该客户修改权，新负责人获得修改权。合法客户新增、字段修改和负责人变更均能在操作日志按客户和操作人查到。
+- [ ] `DEV-569-ORDER-CUSTOMER-QUICK-EDIT`：录单选中本人负责客户后可原地打开客户维护，保存后不离开录单页并刷新客户名称和默认值；本单收货资料未手改时同步最新资料，已手改时可选择“同步”或“保留本单”。选中他人负责客户时只读，绕过按钮直接保存仍返回 403。
+- [ ] `DEV-569-MULTI-ITEM`：一张新订单可连续加入至少三条不同商品/规格明细，支持编辑和删除任意行；每行商品、规格、数量、销售单位和单价独立，页面合计等于全部有效行小计之和。
+- [ ] 切换客户后全部商品行逐行重新校验公共/客户商品范围；存在新客户不可用商品时不能静默提交。正式提交只生成一张订单，订单明细数量、顺序、具体 SKU、数量、单价和合计与页面全部有效行一致。
+- [ ] `DEV-569-ORDER-DRAFT`：销售和管理员分别保存时，每个登录员工只产生一份自己的服务器草稿；再次保存覆盖本人草稿，双方不能读取或覆盖对方草稿。
+- [ ] 离开录单页、重新进入或重新登录后，恢复草稿仍保留订单日期、客户、收货快照、系统带入的收款/发货状态默认值、备注、全部商品行及行顺序；增加、删除或修改明细后再次保存和恢复结果一致。
+- [ ] 保存草稿不生成订单号，不写正式订单和订单明细，也不触发生产、库存、发货或财务。单次正式提交只生成一张订单，提交处理中前端禁用重复操作，创建成功后服务端清理当前员工草稿。
+- [ ] `DEV-569-AUDIT-DOCS-DELIVERY`：客户和草稿合法写操作进入操作日志；根目录与线上需求/验收、PR/DEV 种子、三份相关操作手册、总索引和本需求验收记录均已同步，自动化与部署证据见 `orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md`。

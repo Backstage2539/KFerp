@@ -1,4 +1,7 @@
-const DEFAULT_API_BASE = 'https://erp.qacoohee.com/app'
+import {
+  assertMiniappRuntimeSafe,
+  configuredMiniappEnvironment,
+} from '../config/environment'
 
 export type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
@@ -26,11 +29,11 @@ export function isAuthenticationExpiredRequestError(cause: unknown): boolean {
 
 export function normalizeAPIBase(base: string): string {
   const trimmed = base.trim().replace(/\/+$/, '')
-  return trimmed || DEFAULT_API_BASE
+  return trimmed
 }
 
 export function configuredAPIBase(): string {
-  return normalizeAPIBase(import.meta.env.VITE_KFERP_API_BASE || DEFAULT_API_BASE)
+  return assertMiniappRuntimeSafe(configuredMiniappEnvironment()).apiBase
 }
 
 export function buildAPIURL(path: string, base = configuredAPIBase()): string {
@@ -40,8 +43,15 @@ export function buildAPIURL(path: string, base = configuredAPIBase()): string {
 
 export function miniRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return new Promise((resolve, reject) => {
+    let url = ''
+    try {
+      url = buildAPIURL(path)
+    } catch (cause) {
+      reject(cause instanceof Error ? cause : new Error('小程序环境配置错误'))
+      return
+    }
     uni.request({
-      url: buildAPIURL(path),
+      url,
       method: options.method || 'GET',
       data: options.data,
       header: {

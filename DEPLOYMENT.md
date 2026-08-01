@@ -4,7 +4,7 @@
 > 
 > 当前线上环境：
 > - 生产前端 URL：`https://erp.qacoohee.com/app/`
-> - 开发前端 URL：`https://dev.erp.qacoohee.com/app/`
+> - 开发前端 URL：`https://dev.qacoohee.com/app/`
 > - 服务器：`root@1.12.242.58`
 > - 生产部署目录：`/opt/stacks/erp-production`
 > - 开发部署目录：`/opt/stacks/erp`
@@ -77,9 +77,9 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58
 部署脚本会把当前环境 `.env` 中的 `WECHAT_MINI_APP_ID` 和 `WECHAT_MINI_APP_SECRET`
 注入 `orderapp` 容器。生产与开发使用各自目录下的 `.env`，不会跨环境读取微信凭证。
 
-构建期 API 地址固定按环境区分：development 使用
-`https://dev.erp.qacoohee.com/app`，production 使用
-`https://erp.qacoohee.com/app`。
+构建期必须同时传入环境和 API 地址，脚本只接受以下严格配对：development 使用
+`https://dev.qacoohee.com/app`，production 使用
+`https://erp.qacoohee.com/app`。缺失、未知环境或地址不匹配会在 UniApp 构建前失败，小程序客户端也不会默认回退到生产地址。
 
 ### 2.2 功能分支远程预检
 
@@ -99,8 +99,16 @@ chmod +x deploy_orderapp.sh
 ```
 
 执行完成后，访问：
-- `https://dev.erp.qacoohee.com/app/`
-- `https://dev.erp.qacoohee.com/app/docs`
+- `https://dev.qacoohee.com/app/`
+- `https://dev.qacoohee.com/app/docs`
+
+开发部署成功后，脚本还会把 development 小程序包原子同步到：
+
+```text
+/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev
+```
+
+该目录只能用于开发版/体验版预览和上传。页面持续显示“开发环境 · 测试数据”；若开发包被错误发布成微信正式版，客户端会阻断 API 请求。
 
 ### 2.4 执行生产环境部署
 生产环境只能从 `main` 分支部署：
@@ -120,13 +128,14 @@ chmod +x deploy_orderapp.sh
 ```
 
 同步只下载构建文件，不在 Mac 执行 npm。临时跳过下载可设置
-`KFERP_SKIP_MINIAPP_EXPORT=1`；需要改到其他同名目录可设置
+`KFERP_SKIP_MINIAPP_EXPORT=1`；开发和生产的自定义目标分别使用
+`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin-dev` 与
 `KFERP_MINIAPP_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin`。
 
-每个正式包包含 `RELEASE_INFO`，记录 Git commit、API 地址、环境和构建时间。替换固定目录前，原目录会保留为
-`KFerp-miniapp-mp-weixin.backup-时间-commit`；需要回滚本机预览包时，关闭微信开发者工具后把该备份目录恢复为固定目录即可。微信平台正式版回滚仍在微信公众平台按已发布版本操作。
+每个包都包含 `RELEASE_INFO`，记录 Git commit、API 地址、环境和构建时间。替换固定目录前，原目录会保留为同名
+`backup-时间-commit` 目录；需要回滚本机预览包时，关闭微信开发者工具后把对应环境备份恢复为固定目录即可。微信平台正式版回滚仍在微信公众平台按已发布版本操作。
 
-> **发布边界：** `deploy_orderapp.sh` 只发布 ERP 服务并生成、同步小程序代码包；它不会上传微信平台、提交审核或发布正式版。还需要在微信开发者工具导入上面的固定目录，执行“上传”，再到微信公众平台完成审核和发布。服务器部署成功不代表用户微信里的小程序已更新。
+> **发布边界：** `deploy_orderapp.sh` 只发布 ERP 服务并生成、同步小程序代码包；它不会上传微信平台、提交审核或发布正式版。开发联调导入 `KFerp-miniapp-mp-weixin-dev`，正式上传只导入 `KFerp-miniapp-mp-weixin`。服务器部署成功不代表用户微信里的小程序已更新。
 
 ---
 
@@ -193,7 +202,7 @@ docker compose ps
 docker logs --tail=200 erp_orderapp
 ```
 
-自动发布不会把 `Running=true` 当成服务已经就绪：新容器必须在最长 120 秒内连续三次通过容器内 HTTP 探测，环境 URL 还会在短暂 502 或容器地址切换时限内重试。开发服务器没有 `dev.erp.qacoohee.com` 的 DNS 记录，因此 development 在服务器上通过 `127.0.0.1` 验证真实 Caddy TLS/Host 路由，远端成功后再由 Mac 直连服务器公网 IP 并携带开发域名 SNI/Host 做外部探测；production 始终使用正式 DNS 且严格校验证书。外部探测失败会阻止继续提升到下一环境，但不会因客户端网络或入口拓扑问题回滚内部已健康的服务；容器内探测最终失败则会先保留新容器日志，再恢复上一版服务器源码和镜像。终端中的 `previous_source` 与 `rollback_image` 是本次回滚证据。
+自动发布不会把 `Running=true` 当成服务已经就绪：新容器必须在最长 120 秒内连续三次通过容器内 HTTP 探测，环境 URL 还会在短暂 502 或容器地址切换时限内重试。development 使用已发布 DNS 的 `dev.qacoohee.com`，production 使用 `erp.qacoohee.com`。唯一公网 Caddy 同时把两者转发到各自独立容器；开发发布会先校验、备份并热加载版本化入口配置，不重启生产应用或数据库。服务器通过 `127.0.0.1` 携带真实 SNI/Host 验证公开证书，Mac 再使用服务器公网 IP 做严格外部探测，避免本地代理或 fake-IP DNS 干扰。外部探测失败会阻止继续提升到下一环境，但不会因客户端网络或入口拓扑问题回滚内部已健康的服务；容器内探测最终失败则会先保留新容器日志，再恢复上一版服务器源码和镜像。终端中的 `previous_source`、`rollback_image` 与 `previous_caddy` 是回滚证据。
 
 ---
 

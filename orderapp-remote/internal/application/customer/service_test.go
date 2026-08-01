@@ -8,10 +8,35 @@ import (
 
 type fakeRepo struct {
 	upsert             UpsertCommand
+	managedActor       MaintenancePrincipal
+	managedID          *int64
+	managedUpsert      UpsertCommand
+	managedListQuery   ListQuery
+	managedListResult  ListResult
+	managedEditor      *EditorData
+	managedErr         error
 	asset              SaveAssetCommand
 	listQuery          ListQuery
 	customerTypeCreate CreateCustomerTypeCommand
 	orderTypeCreate    CreateOrderTypeCommand
+}
+
+func (r *fakeRepo) ListManaged(ctx context.Context, actor MaintenancePrincipal, query ListQuery) (ListResult, error) {
+	r.managedActor = actor
+	r.managedListQuery = query
+	return r.managedListResult, r.managedErr
+}
+
+func (r *fakeRepo) EditorManaged(ctx context.Context, actor MaintenancePrincipal, id int64) (*EditorData, error) {
+	r.managedActor = actor
+	return r.managedEditor, r.managedErr
+}
+
+func (r *fakeRepo) UpsertManaged(ctx context.Context, actor MaintenancePrincipal, id *int64, cmd UpsertCommand) (int64, error) {
+	r.managedActor = actor
+	r.managedID = id
+	r.managedUpsert = cmd
+	return 9, r.managedErr
 }
 
 func (r *fakeRepo) Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error) {
@@ -235,5 +260,76 @@ func TestServiceListRespectsExplicitSort(t *testing.T) {
 	}
 	if repo.listQuery.Limit != 15 {
 		t.Fatalf("limit = %d, want 15", repo.listQuery.Limit)
+	}
+}
+
+func TestServiceManagedCustomerForcesSalesOwnershipAndProtectedFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	portalEnabled := true
+	actor := MaintenancePrincipal{EmployeeID: 7, EmployeeName: "销售甲"}
+
+	_, err := svc.UpsertManaged(context.Background(), actor, nil, UpsertCommand{
+		Name:                  "客户甲",
+		CustomerType:          CustomerTypeWholesale,
+		DefaultSourceID:       "1",
+		DefaultOrderTypeID:    "2",
+		ResponsibleEmployeeID: "99",
+		Active:                "",
+		PortalEnabled:         &portalEnabled,
+	})
+	if err != nil {
+		t.Fatalf("UpsertManaged(create) error = %v", err)
+	}
+	if repo.managedActor.EmployeeID != 7 || repo.managedActor.IsAdmin {
+		t.Fatalf("managed actor = %+v", repo.managedActor)
+	}
+	if repo.managedUpsert.ResponsibleEmployeeID != "7" {
+		t.Fatalf("responsible employee = %q, want current employee 7", repo.managedUpsert.ResponsibleEmployeeID)
+	}
+	if repo.managedUpsert.Active != "on" {
+		t.Fatalf("new sales customer active = %q, want on", repo.managedUpsert.Active)
+	}
+	if repo.managedUpsert.PortalEnabled != nil {
+		t.Fatalf("sales must not set portal_enabled, got %+v", repo.managedUpsert.PortalEnabled)
+	}
+
+	id := int64(9)
+	_, err = svc.UpsertManaged(context.Background(), actor, &id, UpsertCommand{
+		Name:                  "客户甲改",
+		CustomerType:          CustomerTypeWholesale,
+		DefaultSourceID:       "1",
+		DefaultOrderTypeID:    "2",
+		ResponsibleEmployeeID: "99",
+		PortalEnabled:         &portalEnabled,
+	})
+	if err != nil {
+		t.Fatalf("UpsertManaged(update) error = %v", err)
+	}
+	if repo.managedUpsert.ResponsibleEmployeeID != "7" || repo.managedUpsert.PortalEnabled != nil {
+		t.Fatalf("sales protected update leaked to repository: %+v", repo.managedUpsert)
+	}
+}
+
+func TestServiceManagedCustomerKeepsAdministratorFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	portalEnabled := true
+	actor := MaintenancePrincipal{EmployeeID: 1, EmployeeName: "管理员", IsAdmin: true}
+
+	_, err := svc.UpsertManaged(context.Background(), actor, nil, UpsertCommand{
+		Name:                  "管理员客户",
+		CustomerType:          CustomerTypeChannel,
+		DefaultSourceID:       "1",
+		DefaultOrderTypeID:    "2",
+		ResponsibleEmployeeID: "8",
+		Active:                "",
+		PortalEnabled:         &portalEnabled,
+	})
+	if err != nil {
+		t.Fatalf("UpsertManaged(admin) error = %v", err)
+	}
+	if !repo.managedActor.IsAdmin || repo.managedUpsert.ResponsibleEmployeeID != "8" || repo.managedUpsert.PortalEnabled == nil || !*repo.managedUpsert.PortalEnabled {
+		t.Fatalf("administrator fields were not preserved: actor=%+v cmd=%+v", repo.managedActor, repo.managedUpsert)
 	}
 }

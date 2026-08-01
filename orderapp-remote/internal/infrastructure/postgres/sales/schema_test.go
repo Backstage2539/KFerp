@@ -47,6 +47,25 @@ func TestEnsureSchemaBackfillsERPOrdersForFulfillmentCustomers(t *testing.T) {
 	}
 }
 
+func TestEnsureSchemaAddsOneEmployeeOrderDraftPerEmployee(t *testing.T) {
+	body, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatalf("read schema.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"ensureEmployeeOrderDraftTable",
+		"employee_order_drafts",
+		"employee_id BIGINT NOT NULL",
+		"payload JSONB NOT NULL",
+		"UNIQUE(employee_id)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("sales schema missing employee draft marker %q", want)
+		}
+	}
+}
+
 func TestEnsureOrderItemUnitPricingColumnsAddsCustomerAliasSnapshots(t *testing.T) {
 	body, err := os.ReadFile("schema.go")
 	if err != nil {

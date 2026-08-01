@@ -92,7 +92,7 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 
 	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc})
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
-	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, AssetDir: assetDir})
+	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, AssetDir: assetDir})
 	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc, Customers: customerSvc, MessageCenter: messageCenterSvc, Sales: salesSvc})
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})

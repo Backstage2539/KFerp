@@ -18,9 +18,28 @@ describe('miniapp startup route and main tabs', () => {
         'pages/factory-products/factory-products',
         'pages/customer-products/customer-products',
         'pages/price-table-settings/price-table-settings',
+        'pages/employee-customers/employee-customers',
         'pages/profile/profile',
       ]),
     )
+  })
+
+  it('adds employee customer maintenance to the simple ERP home', () => {
+    const home = readSource('src/pages/home/home.vue')
+    const customerPage = readSource('src/pages/employee-customers/employee-customers.vue')
+    const editor = readSource('src/components/EmployeeCustomerEditor.vue')
+
+    expect(home).toContain("label: '客户维护'")
+    expect(home).toContain('/pages/employee-customers/employee-customers')
+    expect(home).toContain("session.permissions.includes('customers.read')")
+    expect(home).toContain("session.permissions.includes('customers.write')")
+    expect(customerPage).toContain('EmployeeCustomerEditor')
+    expect(customerPage).toContain('fetchEmployeeCustomers')
+    expect(customerPage).toContain("context?.is_admin ? '可维护全部客户' : '仅显示并维护本人负责的客户'")
+    expect(editor).toContain('v-if="isAdmin"')
+    expect(editor).toContain('负责人')
+    expect(editor).toContain("isAdmin.value && !Number(form.responsible_employee_id || 0)")
+    expect(editor).toContain('允许登录客户门户')
   })
 
   it('routes startup users through reLaunch instead of leaving a blank page', () => {

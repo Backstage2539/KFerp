@@ -4,8 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev:mp-weixin": "uni -p mp-weixin",
-    "build:mp-weixin": "uni build -p mp-weixin",
+    "check:environment": "node scripts/assert-build-environment.mjs",
+    "dev:mp-weixin": "npm run check:environment && uni -p mp-weixin",
+    "dev:mp-weixin:development": "VITE_KFERP_ENVIRONMENT=development VITE_KFERP_API_BASE=https://dev.qacoohee.com/app npm run dev:mp-weixin",
+    "build:mp-weixin": "npm run check:environment && uni build -p mp-weixin",
+    "build:mp-weixin:development": "VITE_KFERP_ENVIRONMENT=development VITE_KFERP_API_BASE=https://dev.qacoohee.com/app npm run build:mp-weixin",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run"
   },

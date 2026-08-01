@@ -6,6 +6,65 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM
+- Branch: codex/miniapp-customer-maintenance-drafts-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: implementation and local full verification GREEN / independent review clean / develop-main integration pending
+- Scope: 小程序员工端新增客户档案维护，销售只能维护本人负责客户、管理员可维护全部客户；录单选择客户后可快捷维护；录单支持服务器草稿和一单多商品明细。
+- DEV:
+  - DEV-569-CUSTOMER-PERMISSION：新增小程序客户新增/编辑 API，后端强制校验负责人范围，管理员可编辑和分配全部客户。
+  - DEV-569-ORDER-CUSTOMER-QUICK-EDIT：录单页选择客户后可直接打开客户编辑，保存后刷新客户及收货默认信息。
+  - DEV-569-ORDER-DRAFT：订单草稿按当前员工隔离保存、恢复和删除，完整保留客户、收货、备注及所有商品行。
+  - DEV-569-MULTI-ITEM：录单页支持连续添加、编辑和删除多个商品规格明细，并一次提交同一订单。
+  - DEV-569-AUDIT-DOCS-DELIVERY：客户及草稿业务写入操作日志，同步需求、验收与小程序员工手册，合并 develop/main 并部署 development/production。
+- Verifier:
+  - Unit: full `go test ./... -count=1` GREEN; customer permission, employee draft repository/service, multi-item alias identity and draft serialization regressions included.
+  - API: mini employee customer permission matrix, safe validation/internal-error boundary, customer option referential guard, customer/draft audit and multi-item order payload tests GREEN.
+  - Frontend/build: miniapp 19 files / 113 tests, `vue-tsc --noEmit` and environment-gated development/production `uni build -p mp-weixin` GREEN; Vue shell 853 tests and production build GREEN.
+  - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; OP_MANUAL_ORDER_SALES.md; OP_MANUAL_CUSTOMER_FULFILLMENT.md.
+  - Review/acceptance: independent backend/frontend/docs reviews have no open P0-P2; orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md.
+- Deployment: develop/main integration and development/production deployment pending; user will perform business acceptance after deployment.
+- Last update: 2026-08-01 Asia/Shanghai
+- Notes: 开始实施时 `scripts/reserve_req_id.sh` 返回 PR-568，但共享 `develop` 随后先合入另一项 PR-568；合并前重新检查后按当前下一编号顺延为 PR-569，避免需求与验收证据冲突。`--claim` 的既有 awk 多行错误仍未在本需求内处理。
+### PR-568-MINIAPP-ENVIRONMENT-SEPARATION
+- Branch: codex/miniapp-env-routing-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: merged to develop / development deployed / production untouched
+- Scope: 同一微信 AppID 下隔离 development/production API、令牌、缓存和固定构建目录；开发包显示环境标识并禁止误发正式版，缺失环境配置时不回退生产。
+- DEV:
+  - DEV-568-CLIENT-ENVIRONMENT-GUARD：构建环境与 API 地址显式绑定，开发包正式发布时阻断请求，开发页面显示环境标识，合法域名校验默认启用。
+  - DEV-568-STORAGE-BOUNDARY：登录令牌与豆单缓存按 development/production 分区，旧无环境令牌不迁移。
+  - DEV-568-FIXED-ARTIFACTS：开发和生产产物分别同步到固定目录，按提交、环境和 API 地址校验 `RELEASE_INFO` 后原子替换。
+  - DEV-568-DOCS-ACCEPTANCE：同步小程序测试/员工手册、部署说明、PR/DEV/UT/API/REV 和验收证据。
+- Verifier:
+  - RED/GREEN miniapp: 环境配置、正式版阻断、存储命名空间、动态下载域名、全页面开发标识。
+  - Release contract: shell/Go 合同覆盖双构建变量、单域名产物、双固定目录、`RELEASE_INFO` 和 `urlCheck`。
+  - Remote: feature branch 分别执行 development/production 隔离预检；合入 develop 后部署 development 并核对开发固定目录和只读 API。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; `DEPLOYMENT.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-01-miniapp-environment-separation.md`。
+- Deployment: development application and development mp-weixin artifact deployed from `a939a85249f6fced320d756663243bfdf44e2180`; production preflight only and explicitly not deployed
+- Last update: 2026-08-01 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim miniapp-env-routing` 因现有 awk 多行字符串错误失败，已按下一可用编号 PR-568 手工登记。服务器只读检查确认两套 AppID/AppSecret 均已配置且 AppID 相同；未读取或输出 Secret。功能提交 `1a3d4c4f` 分别通过 development/production 远程隔离预检；两次均未提升源码、重启容器或同步固定目录。最终开发部署的 Vue 852 项、小程序 97 项、类型检查、完整 Go 测试、Docker 构建和严格 TLS smoke 均通过；开发需求 API 返回 PR-568，固定开发包 `RELEASE_INFO`、单域名、`urlCheck=true` 和 11 页开发标识验收通过。生产容器、源码及正式固定包保持原版本 `3250dd2c`。
+
+### PR-567-DEVELOPMENT-PUBLIC-DOMAIN
+- Branch: codex/dev-domain-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: merged to develop / development deployed
+- Scope: 开发环境公网入口统一改为 `dev.qacoohee.com`，构建期 API、发布探针和 Caddy 路由使用新域名；生产环境继续使用 `erp.qacoohee.com`，不重启生产应用或数据库。
+- DEV:
+  - DEV-567-DEVELOPMENT-URL：开发构建和发布地址固定为 `https://dev.qacoohee.com/app`，生产地址保持不变。
+  - DEV-567-PUBLIC-INGRESS：唯一公网 Caddy 使用公开证书，把 `dev.qacoohee.com` 转发到 `erp_orderapp:8080`，把 `erp.qacoohee.com` 继续转发到 `erp_prod_orderapp:8080`。
+  - DEV-567-DEPLOYMENT-GUARD：发布脚本校验、备份并热加载入口配置，严格校验证书和双环境 HTTP 路由。
+- Verifier:
+  - Unit: Go 支持合同验证双域名、目标容器、公开 TLS、严格 curl 和旧域名清理。
+  - API: 开发与生产登录入口通过各自 SNI/Host 返回有效 HTTP，且指向各自容器。
+  - Frontend/build: 服务器串行完成 Vue、小程序、Go 和 Docker 预检及 development 发布。
+  - Manual: `DEPLOYMENT.md` 与开发域名验收证据。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-01-development-public-domain.md`。
+- Deployment: feature `225884eb0eddc6c40a3d040063629b9fd472527c` merged as `cb46d61dcb2f3bf0229a23586351e147bc7b54a4` and deployed development. Caddy backup `/opt/stacks/erp-production/Caddyfile.backup.domain-20260801121058`; development source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801120816-cb46d61dcb2f`; rollback image `kferp-orderapp-rollback:development-20260801120816-cb46d61dcb2f`.
+- Last update: 2026-08-01 Asia/Shanghai
+- Notes: DNS 由服务器解析为 `1.12.242.58`。严格 TLS、双域名 HTTP、容器路由、开发小程序 API 地址和 Chrome 登录页均通过；production 分支未由本需求部署。发布排队期间另一独立 production 发布先完成，故以其完成后的新基线验证本需求未重启生产应用、数据库和网关。
+
 ### PR-566-MINIAPP-ORDER-ENTRY-CLOSURE
 - Branch: codex/pr566-mini-order-closure
 - Owner/session: Codex / 2026-07-31

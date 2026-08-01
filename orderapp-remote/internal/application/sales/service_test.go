@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -34,12 +35,69 @@ type fakeRepo struct {
 	sealAssets             []SalesOrderAsset
 	voidManyIDs            []int64
 	voidManyReason         string
+	draft                  *EmployeeOrderDraft
+	draftSaveCmd           SaveEmployeeOrderDraftCommand
+	draftDeletedEmployeeID int64
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {
 	r.saveCmd = cmd
 	r.saveCalls++
 	return SaveOrderResult{OrderID: 7, OrderNo: "SO-TEST", Edited: cmd.EditID > 0, StockBatchUsed: cmd.StockBatchDecision == "use_batch"}, nil
+}
+
+func (r *fakeRepo) GetEmployeeOrderDraft(ctx context.Context, employeeID int64) (*EmployeeOrderDraft, error) {
+	if r.draft == nil {
+		return nil, nil
+	}
+	copyDraft := *r.draft
+	copyDraft.Payload = append(json.RawMessage(nil), r.draft.Payload...)
+	return &copyDraft, nil
+}
+
+func (r *fakeRepo) SaveEmployeeOrderDraft(ctx context.Context, cmd SaveEmployeeOrderDraftCommand) (EmployeeOrderDraft, error) {
+	r.draftSaveCmd = cmd
+	return EmployeeOrderDraft{ID: 9, Payload: append(json.RawMessage(nil), cmd.Payload...), UpdatedAt: time.Now()}, nil
+}
+
+func (r *fakeRepo) DeleteEmployeeOrderDraft(ctx context.Context, employeeID int64, actor string) (bool, error) {
+	r.draftDeletedEmployeeID = employeeID
+	return true, nil
+}
+
+func TestServiceEmployeeOrderDraftIsScopedToEmployeeAndValidatesPayload(t *testing.T) {
+	repo := &fakeRepo{draft: &EmployeeOrderDraft{ID: 3, EmployeeID: 41, Payload: json.RawMessage(`{"customer_id":7}`)}}
+	svc := NewService(repo)
+
+	draft, err := svc.GetEmployeeOrderDraft(context.Background(), 41)
+	if err != nil || draft == nil || draft.EmployeeID != 41 {
+		t.Fatalf("GetEmployeeOrderDraft() draft=%+v err=%v", draft, err)
+	}
+	if _, err := svc.GetEmployeeOrderDraft(context.Background(), 0); err == nil {
+		t.Fatal("GetEmployeeOrderDraft() employee validation error=nil")
+	}
+
+	saved, err := svc.SaveEmployeeOrderDraft(context.Background(), SaveEmployeeOrderDraftCommand{
+		EmployeeID: 41,
+		Actor:      "mini-employee:41",
+		Payload:    json.RawMessage(`{"customer_id":7,"items":[{"qty":2}]}`),
+	})
+	if err != nil {
+		t.Fatalf("SaveEmployeeOrderDraft() error=%v", err)
+	}
+	if saved.ID != 9 || repo.draftSaveCmd.EmployeeID != 41 {
+		t.Fatalf("SaveEmployeeOrderDraft() saved=%+v cmd=%+v", saved, repo.draftSaveCmd)
+	}
+	for _, payload := range []json.RawMessage{nil, json.RawMessage(`[]`), json.RawMessage(`{"broken"`)} {
+		if _, err := svc.SaveEmployeeOrderDraft(context.Background(), SaveEmployeeOrderDraftCommand{EmployeeID: 41, Payload: payload}); err == nil {
+			t.Fatalf("SaveEmployeeOrderDraft(%s) error=nil", payload)
+		}
+	}
+
+	deleted, err := svc.DeleteEmployeeOrderDraft(context.Background(), 41, "mini-employee:41")
+	if err != nil || !deleted || repo.draftDeletedEmployeeID != 41 {
+		t.Fatalf("DeleteEmployeeOrderDraft() deleted=%v employee=%d err=%v", deleted, repo.draftDeletedEmployeeID, err)
+	}
 }
 
 func (r *fakeRepo) PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBatchPreviewCommand) (OrderStockBatchPreview, error) {
@@ -561,12 +619,12 @@ func TestSaveOrderCommandUsesTypedFields(t *testing.T) {
 
 func TestSaveOrderCommandCarriesReceiverFields(t *testing.T) {
 	cmd := SaveOrderCommand{
-		ReceiverName:    "张三",
-		ReceiverPhone:   "13800138000",
-		ReceiverAddress: "北京市朝阳区某某路1号",
-		ReceiverCompany: "某咖啡店",
+		ReceiverName:      "张三",
+		ReceiverPhone:     "13800138000",
+		ReceiverAddress:   "北京市朝阳区某某路1号",
+		ReceiverCompany:   "某咖啡店",
 		PortalServiceCode: "direct_ship",
-		OrdersScope:      "fulfillment",
+		OrdersScope:       "fulfillment",
 	}
 	if cmd.ReceiverName != "张三" {
 		t.Fatalf("ReceiverName = %q, want 张三", cmd.ReceiverName)
@@ -590,14 +648,14 @@ func TestSaveOrderPassesReceiverFieldsToRepository(t *testing.T) {
 	svc := NewService(repo)
 
 	res, err := svc.SaveOrder(context.Background(), SaveOrderCommand{
-		OrderDate:       time.Date(2026, 5, 30, 0, 0, 0, 0, time.UTC),
-		CustomerID:      3,
-		ReceiverName:    "李四",
-		ReceiverPhone:   "13900139000",
-		ReceiverAddress: "上海市浦东新区某某街2号",
-		ReceiverCompany: "某烘焙坊",
+		OrderDate:         time.Date(2026, 5, 30, 0, 0, 0, 0, time.UTC),
+		CustomerID:        3,
+		ReceiverName:      "李四",
+		ReceiverPhone:     "13900139000",
+		ReceiverAddress:   "上海市浦东新区某某街2号",
+		ReceiverCompany:   "某烘焙坊",
 		PortalServiceCode: "direct_ship",
-		OrdersScope:      "fulfillment",
+		OrdersScope:       "fulfillment",
 		Items: []OrderItemCommand{{
 			ProductID: int64Ptr(11),
 			Name:      "初晓",

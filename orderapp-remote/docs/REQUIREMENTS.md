@@ -1347,4 +1347,28 @@
 - 页面必须区分加载中、加载失败、重试和登录失效。请求失败不得静默显示空白客户或商品列表；401 必须提示登录失效并进入登录流程，403 必须保留当前会话并明确提示权限不足。
 - 员工鉴权函数只返回验证结果，HTTP 处理器统一且只写一次响应；无令牌、令牌失效或权限不足时立即停止，不调用订单表单服务，401/403 正文不得包含客户、商品或价格主数据。
 - 本需求不迁移数据库，不修改订单、库存、价格表或客户主数据。Mac 仅做 Git、文本差异与小文件检查；Go、Node、Vue、小程序和 Docker 的测试/构建全部在开发服务器临时目录内持锁串行执行，Node 限制内存，Go 使用 `-p 1`，完成后清理临时依赖和构建目录。
-- development 小程序构建写入 `https://dev.erp.qacoohee.com/app`，production 写入 `https://erp.qacoohee.com/app`。开发和正式部署完成后，把正式 `mp-weixin` 产物同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，微信开发者工具固定导入该目录，并记录服务器提交、小程序版本和上一正式版本用于分别回滚。
+- development 小程序构建写入 `https://dev.qacoohee.com/app`，production 写入 `https://erp.qacoohee.com/app`。开发和正式部署完成后，把正式 `mp-weixin` 产物同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，微信开发者工具固定导入该目录，并记录服务器提交、小程序版本和上一正式版本用于分别回滚。
+
+# PR-567-DEVELOPMENT-PUBLIC-DOMAIN 开发环境公网域名（2026-08-01）
+
+- `DEV-567-DEVELOPMENT-URL`：开发环境的网页、API、小程序构建和发布输出统一使用 `https://dev.qacoohee.com`；生产环境继续使用 `https://erp.qacoohee.com`，不得把两个环境的 API 地址或静态资产混用。
+- `DEV-567-PUBLIC-INGRESS`：服务器唯一公网 Caddy 同时承载两个公开 HTTPS 域名。`dev.qacoohee.com` 只转发 `erp_orderapp:8080`，`erp.qacoohee.com` 只转发 `erp_prod_orderapp:8080`；开发域名不再使用内部 CA。
+- `DEV-567-DEPLOYMENT-GUARD`：development 发布在改变入口前必须校验 Caddy 配置并保留时间戳备份，使用热加载更新路由，不重启生产应用或数据库；失败时恢复上一份 Caddy 配置。
+- 两个域名的发布探针必须严格校验证书。开发探针可用 `--resolve dev.qacoohee.com:443:1.12.242.58` 绕过本地代理或 fake-IP DNS，但不得使用 `-k` 跳过证书验证。
+- 本需求不修改数据库、业务主数据、生产应用镜像或生产数据库；完成定向合同、完整远程预检、development 部署、双域名 HTTPS 和容器边界验证后交付。
+
+# PR-568-MINIAPP-ENVIRONMENT-SEPARATION 小程序开发/生产环境隔离与防误发（2026-08-01）
+
+- `DEV-568-CLIENT-ENVIRONMENT-GUARD`：同一个微信小程序 AppID 使用两套可审计构建目标。development 包只连接 `https://dev.qacoohee.com/app`，production 包只连接 `https://erp.qacoohee.com/app`；构建环境和 API 地址必须成对传入且严格匹配，不能在缺少配置时默认连接生产。development 包持续显示“开发环境 · 测试数据”；若被错误发布为微信正式版，客户端必须阻断 API 请求并提示使用 production 包。
+- `DEV-568-STORAGE-BOUNDARY`：登录令牌和豆单页面缓存按构建环境分区；旧无环境令牌不自动迁移，避免同一 AppID 的开发版和正式版共享认证或缓存数据。
+- `DEV-568-FIXED-ARTIFACTS`：development 产物固定同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，production 产物继续同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。同步必须校验提交、环境和 API 地址并原子替换，两个目录分别保留上一版本。
+- `DEV-568-DOCS-ACCEPTANCE`：工程默认开启合法域名校验。两个环境都要配置 `request` 与 `downloadFile` 合法域名；客户端错误提示按当前 API 域名显示，不再把关闭校验作为常规操作。同步手册、测试说明与验收证据。
+- 本需求不修改业务数据、不部署 production，也不自动上传或发布微信版本。development 部署完成后由微信开发者工具导入开发固定目录进行预览或上传开发/体验版本；正式审核发布仍只允许使用 production 固定目录并人工确认。
+
+# PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM 小程序客户维护、多商品录单与订单草稿（2026-08-01）
+
+- `DEV-569-CUSTOMER-PERMISSION`：员工小程序提供客户新增和编辑能力，并继续要求 `customers.read/customers.write`。销售新增客户时负责人由服务端固定为当前员工；销售只能修改 `responsible_employee_id` 为本人的客户，不能把客户改派给自己或他人。管理员可以修改全部客户资料并调整负责人。列表按钮和请求参数都不是权限边界，后端必须对客户 ID、当前负责人和角色重新校验，越权返回 403 且不写客户或操作日志；合法新增、修改和负责人变更必须写操作日志。
+- `DEV-569-ORDER-CUSTOMER-QUICK-EDIT`：录单选择客户后可在当前页面直接打开客户维护；有权员工保存后仍停留在本张订单并刷新当前客户展示、默认来源和默认订单类型。本单收货资料未手动修改时同步客户最新默认资料，已手动修改时必须让员工选择同步最新资料或保留本单快照。无权修改的销售可以继续按既有录单权限选择客户，但客户资料只读，直接调用保存接口仍被拒绝。
+- `DEV-569-MULTI-ITEM`：小程序新建订单支持连续新增、编辑和删除多条商品明细；每行独立保存商品、具体规格、数量、销售单位和单价，合计由全部有效明细计算。切换客户后逐行重新校验公共商品和客户商品范围；正式提交把全部有效明细按当前顺序写入同一张 ERP 销售订单，不能只提交当前编辑行或把规格、数量、单价串到其他行。
+- `DEV-569-ORDER-DRAFT`：销售和管理员每个登录员工都只有一份服务器录单草稿，并且只能保存、恢复和清理自己的草稿。重复保存覆盖本人当前草稿，完整保留订单日期、客户、收货快照、系统带入的收款/发货状态默认值、备注及全部商品明细和行顺序。保存草稿不生成正式订单，不进入生产、库存、发货或财务；单次正式提交只生成一张销售订单，提交处理中前端禁用重复操作，创建成功后服务端清理当前员工草稿。
+- `DEV-569-AUDIT-DOCS-DELIVERY`：客户新增/修改、订单草稿保存/清理等用户触发写操作必须进入操作日志；需求、验收和小程序员工 ERP、订单销售、客户履约三份手册同步说明权限、多商品和草稿边界。PR 保持待 Van 验收，测试和部署证据记录在 `orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md`。
