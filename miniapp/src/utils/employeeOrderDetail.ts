@@ -9,6 +9,12 @@ import type {
 
 let rememberedListQuery = ''
 
+export function employeeOrderDetailPagePath(orderID: unknown): string {
+  const id = Number(orderID)
+  if (!Number.isSafeInteger(id) || id <= 0) return ''
+  return `/pages/employee-order-detail/employee-order-detail?id=${id}`
+}
+
 export function rememberEmployeeOrderListQuery(query: string) {
   rememberedListQuery = String(query || '').trim()
 }

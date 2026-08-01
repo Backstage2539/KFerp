@@ -6,12 +6,21 @@ import {
   employeeOrderItemPriceSourceLabel,
   employeeOrderItemSpecLabel,
   employeeOrderInvoiceStatusLabel,
+  employeeOrderDetailPagePath,
   employeeOrderTraceSourceLines,
   employeeOrderListQuery,
   rememberEmployeeOrderListQuery,
 } from './employeeOrderDetail'
 
 describe('employee order detail presentation', () => {
+  it('builds a safe native detail-page path from an order id', () => {
+    expect(employeeOrderDetailPagePath(42)).toBe('/pages/employee-order-detail/employee-order-detail?id=42')
+    expect(employeeOrderDetailPagePath('42')).toBe('/pages/employee-order-detail/employee-order-detail?id=42')
+    expect(employeeOrderDetailPagePath(0)).toBe('')
+    expect(employeeOrderDetailPagePath(-1)).toBe('')
+    expect(employeeOrderDetailPagePath('not-an-id')).toBe('')
+  })
+
   it('maps document availability from the detail response without inventing a version', () => {
     const documents = {
       sales_order: {
