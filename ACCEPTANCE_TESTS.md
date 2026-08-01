@@ -897,3 +897,10 @@
 - [ ] 离开录单页、重新进入或重新登录后，恢复草稿仍保留订单日期、客户、收货快照、系统带入的收款/发货状态默认值、备注、全部商品行及行顺序；增加、删除或修改明细后再次保存和恢复结果一致。
 - [ ] 保存草稿不生成订单号，不写正式订单和订单明细，也不触发生产、库存、发货或财务。单次正式提交只生成一张订单，提交处理中前端禁用重复操作，创建成功后服务端清理当前员工草稿。
 - [ ] `DEV-569-AUDIT-DOCS-DELIVERY`：客户和草稿合法写操作进入操作日志；根目录与线上需求/验收、PR/DEV 种子、三份相关操作手册、总索引和本需求验收记录均已同步，自动化与部署证据见 `orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md`。
+
+### K43. 小程序 DevTools 自动预览产物完整性与项目刷新（PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC）
+- [ ] 构造 `app.json` 声明 `pages/employee-customers/employee-customers` 但删除对应 `.js` 时，服务器构建校验和下载端 `PAGE_FILE_MANIFEST` 复验都明确失败并报告缺失路径；补齐 `.js/.json/.wxml/.wxss` 后通过。
+- [ ] development 和 production 固定包的全部主包/分包页面均通过四类文件闭包校验，`RELEASE_INFO` 的环境、API 地址和提交与目标分支一致。
+- [ ] 固定目录替换前继续保留同环境上一包，失败时不留下半包；发布完成输出明确要求已打开项目的 DevTools 关闭项目后重新导入固定目录。
+- [ ] 使用部署后重新导入的 production 固定目录进行自动预览时，上传清单包含 `pages/employee-customers/employee-customers.js`，不再返回 `800059 file not found`；只清编译缓存不是本项验收步骤。
+- [ ] 发布/测试说明和 `orderapp-remote/docs/acceptance/2026-08-01-miniapp-devtools-preview-sync.md` 已同步；本需求没有业务写操作或操作日志影响，微信上传、审核和发布仍由人工执行。

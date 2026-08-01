@@ -67,7 +67,9 @@ API 地址由脚本强制按环境写入：development 为
 正式版：      /Users/yiiiple-work/KFerp-miniapp-mp-weixin
 ```
 
-不要再导入功能分支、临时 worktree、`miniapp/dist/build/mp-weixin` 旧目录或另一环境目录。导入固定目录后先清理构建缓存并重新编译，再核对界面字段和请求域名。
+不要再导入功能分支、临时 worktree、`miniapp/dist/build/mp-weixin` 旧目录或另一环境目录。首次导入固定目录后重新编译，再核对界面字段和请求域名。
+
+固定目录发布时会被完整替换。如果该项目在发布前已经由微信开发者工具打开，发布后必须关闭当前项目并从项目列表重新导入同一固定目录，再执行编译、预览或上传。只点击“清除编译缓存”可能仍沿用替换前的上传文件清单，表现为 `800059` 和某个新页面 `.js file not found`。重新导入前可直接在固定目录确认报错文件存在；不要改为导入备份目录或临时构建目录。重新导入仍失败时，彻底退出微信开发者工具，再打开并重新导入固定目录。
 
 导入前打开固定目录中的 `RELEASE_INFO`。开发目录必须是 `environment=development`、`api_base=https://dev.qacoohee.com/app`、commit 等于目标 `origin/develop`；正式目录必须是 `environment=production`、`api_base=https://erp.qacoohee.com/app`、commit 等于目标 `origin/main`。同级带 `backup-时间-commit` 后缀的目录是上一份同环境产物；不要把备份或另一环境目录当作本次新版本上传。
 
@@ -81,6 +83,12 @@ API 地址由脚本强制按环境写入：development 为
 - `DEV-568-CLIENT-ENVIRONMENT-GUARD`：开发包显示环境标识；被误发为微信正式版时阻断 API 请求。
 - `DEV-568-STORAGE-BOUNDARY`：令牌和豆单缓存按环境分区，首次升级可能需要重新登录。
 - `DEV-568-FIXED-ARTIFACTS`：开发/生产分别使用两个固定目录，且必须核对 `RELEASE_INFO`。
+
+### PR-570 DevTools 自动预览文件清单检查
+
+- `PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC`：服务器构建时逐页校验并生成 `PAGE_FILE_MANIFEST`，固定包下载后按清单复验；目录替换后重新打开 DevTools 项目以重建预览/上传清单。
+- `DEV-570-ARTIFACT-CLOSURE`：`app.json` 声明的每个主包/分包页面都必须同时存在 `.js/.json/.wxml/.wxss`，缺一项即停止发布。
+- `DEV-570-DEVTOOLS-REFRESH`：若发布时项目已打开，关闭当前项目并重新导入对应固定目录；只清编译缓存不能替代重新导入。
 
 ## 客户账号准备
 

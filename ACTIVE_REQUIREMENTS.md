@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC
+- Branch: codex/miniapp-devtools-preview-sync-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: reproduced / RED-GREEN and full verification complete / independent review clean / remote preflight and dual deployment pending
+- Scope: 修复固定小程序目录更新后微信开发者工具自动预览仍使用旧上传清单并报 `800059 ... employee-customers.js, file not found`；补齐逐页产物完整性门禁和项目刷新指引。
+- DEV:
+  - DEV-570-ARTIFACT-CLOSURE：服务器构建后解析 `app.json`、逐页校验并生成 `PAGE_FILE_MANIFEST`；固定包下载后按清单复验全部页面文件。
+  - DEV-570-DEVTOOLS-REFRESH：保留完整目录替换和上一包回滚点，发布完成明确提示关闭并重新导入已打开的 DevTools 项目。
+  - DEV-570-DOCS-DELIVERY：同步发布/测试说明、PR/DEV 种子和验收证据；双环境合并部署由本需求整体交付步骤记录。
+- Verifier:
+  - RED/GREEN: `go test ./internal/interfaces/http/support -run TestDev570MiniappArtifactValidationAndDevToolsRefreshContract -count=1`。
+  - Artifact: 开发/生产固定包逐页闭包校验；缺失客户维护页 `.js` 的夹具必须失败。
+  - Quality: full `go test ./... -count=1`, `scripts/verify_kferp.sh changed`, Shell/Node syntax and fault-injected swap recovery GREEN; backend/frontend/docs final reviews have no open P0-P2.
+  - Release: feature branch development/production 远程预检，合并后双环境部署、固定包 `RELEASE_INFO` 与重新导入项目检查。
+- Deployment: pending; user reported the failure in the production fixed package opened by WeChat DevTools. No database or business-data change.
+- Last update: 2026-08-01 Asia/Shanghai
+- Notes: 当前 development/production 固定包均有 12 个页面和 48 个页面生成文件；根因是 production 项目在固定目录替换前已打开，DevTools 最后成功上传清单仍为旧版本。清编译缓存未重建上传清单，需关闭项目并重新导入一次。
+
 ### PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM
 - Branch: codex/miniapp-customer-maintenance-drafts-20260801
 - Owner/session: Codex / 2026-08-01

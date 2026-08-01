@@ -260,6 +260,10 @@ echo "[2/6] Testing, type-checking and building mp-weixin on the server..."
   test -f dist/build/mp-weixin/app.json
   test -f dist/build/mp-weixin/project.config.json
   test -d dist/build/mp-weixin/pages
+  node "$SOURCE_ROOT/scripts/verify_mp_weixin_artifact.mjs" \
+    dist/build/mp-weixin \
+    dist/build/mp-weixin/PAGE_FILE_MANIFEST
+  test -f dist/build/mp-weixin/PAGE_FILE_MANIFEST
   if ! grep -R -Fq "$API_BASE" dist/build/mp-weixin; then
     echo "ERROR: mp-weixin artifact does not contain the expected API base: $API_BASE" >&2
     exit 1
