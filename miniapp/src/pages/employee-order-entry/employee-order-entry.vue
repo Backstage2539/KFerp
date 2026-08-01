@@ -66,6 +66,8 @@ const editingCustomerMode = ref<'create' | 'edit'>('create')
 const draftRecord = ref<EmployeeOrderDraft | null>(null)
 const canCreateCustomer = computed(() => session.permissions.includes('customers.read')
   && session.permissions.includes('customers.write'))
+let customerEditorIntentSequence = 0
+let customerContextLoadPromise: Promise<boolean> | undefined
 
 function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
   return {
@@ -173,11 +175,13 @@ function upsertOrderCustomer(customer: EmployeeCustomer) {
 
 function openCustomerSelector() {
   if (loading.value || !formData.value) return
+  customerEditorIntentSequence += 1
   customerQuery.value = ''
   customerSelectorOpen.value = true
 }
 
 function closeCustomerSelector() {
+  customerEditorIntentSequence += 1
   customerSelectorOpen.value = false
 }
 
@@ -201,17 +205,29 @@ function chooseCustomer(customer: EmployeeOrderCustomer) {
 
 async function ensureCustomerContext(): Promise<boolean> {
   if (customerContext.value) return true
+  if (!customerContextLoadPromise) {
+    customerContextLoadPromise = (async () => {
+      try {
+        customerContext.value = await fetchEmployeeCustomers(session.token)
+        return true
+      } catch (cause) {
+        uni.showToast({ title: cause instanceof Error ? cause.message : '客户维护数据加载失败', icon: 'none' })
+        return false
+      }
+    })()
+  }
+  const pending = customerContextLoadPromise
   try {
-    customerContext.value = await fetchEmployeeCustomers(session.token)
-    return true
-  } catch (cause) {
-    uni.showToast({ title: cause instanceof Error ? cause.message : '客户维护数据加载失败', icon: 'none' })
-    return false
+    return await pending
+  } finally {
+    if (customerContextLoadPromise === pending) customerContextLoadPromise = undefined
   }
 }
 
 async function openCustomerCreate() {
+  const intentSequence = ++customerEditorIntentSequence
   if (!await ensureCustomerContext()) return
+  if (intentSequence !== customerEditorIntentSequence) return
   editingCustomerMode.value = 'create'
   editingCustomerID.value = 0
   customerSelectorOpen.value = false
@@ -219,9 +235,11 @@ async function openCustomerCreate() {
 }
 
 async function openSelectedCustomerEdit() {
+  const intentSequence = ++customerEditorIntentSequence
   const targetCustomerID = Number(selectedCustomer.value?.id || 0)
   if (targetCustomerID <= 0 || !selectedCustomer.value?.can_maintain) return
   if (!await ensureCustomerContext()) return
+  if (intentSequence !== customerEditorIntentSequence) return
   if (Number(selectedCustomer.value?.id || 0) !== targetCustomerID || !selectedCustomer.value?.can_maintain) return
   editingCustomerMode.value = 'edit'
   editingCustomerID.value = targetCustomerID
@@ -229,6 +247,7 @@ async function openSelectedCustomerEdit() {
 }
 
 function closeCustomerEditor() {
+  customerEditorIntentSequence += 1
   customerEditorOpen.value = false
 }
 
@@ -551,6 +570,7 @@ onLoad(() => void loadForm())
         <button v-else class="status-action" @tap="loadForm">重试</button>
       </view>
 
+      <template v-else-if="formData">
       <text class="label">订单日期</text>
       <picker mode="date" :value="form.order_date" @change="form.order_date = ($event.detail as any).value">
         <view class="field selector-field">{{ form.order_date }}</view>
@@ -669,6 +689,7 @@ onLoad(() => void loadForm())
           提交订单
         </button>
       </view>
+      </template>
     </view>
 
     <view v-if="customerSelectorOpen" class="overlay" @tap.self="closeCustomerSelector">

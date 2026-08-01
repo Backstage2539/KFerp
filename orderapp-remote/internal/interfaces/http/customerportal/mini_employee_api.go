@@ -251,7 +251,10 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 			EmployeeID: employee.EmployeeID, Actor: miniEmployeeActor(employee), Payload: req.Payload,
 		})
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			if message, ok := salesapp.EmployeeOrderDraftValidationMessage(err); ok {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
+			}
+			return miniInternalError(c)
 		}
 		return c.JSON(http.StatusOK, map[string]any{"draft": draft})
 	})

@@ -20,7 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - Unit: full `go test ./... -count=1` GREEN; customer permission, employee draft repository/service, multi-item alias identity and draft serialization regressions included.
   - API: mini employee customer permission matrix, safe validation/internal-error boundary, customer option referential guard, customer/draft audit and multi-item order payload tests GREEN.
-  - Frontend/build: miniapp 19 files / 111 tests, `vue-tsc --noEmit` and environment-gated development/production `uni build -p mp-weixin` GREEN; Vue shell 853 tests and production build GREEN.
+  - Frontend/build: miniapp 19 files / 113 tests, `vue-tsc --noEmit` and environment-gated development/production `uni build -p mp-weixin` GREEN; Vue shell 853 tests and production build GREEN.
   - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; OP_MANUAL_ORDER_SALES.md; OP_MANUAL_CUSTOMER_FULFILLMENT.md.
   - Review/acceptance: independent backend/frontend/docs reviews have no open P0-P2; orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md.
 - Deployment: develop/main integration and development/production deployment pending; user will perform business acceptance after deployment.

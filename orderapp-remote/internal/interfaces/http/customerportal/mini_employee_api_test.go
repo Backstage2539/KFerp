@@ -25,6 +25,7 @@ type miniEmployeeSalesFake struct {
 	saveCalls      int
 	draft          *salesapp.EmployeeOrderDraft
 	draftSave      salesapp.SaveEmployeeOrderDraftCommand
+	draftSaveError error
 	draftDeleteID  int64
 }
 
@@ -69,6 +70,9 @@ func (f *miniEmployeeSalesFake) GetEmployeeOrderDraft(_ context.Context, employe
 
 func (f *miniEmployeeSalesFake) SaveEmployeeOrderDraft(_ context.Context, cmd salesapp.SaveEmployeeOrderDraftCommand) (salesapp.EmployeeOrderDraft, error) {
 	f.draftSave = cmd
+	if f.draftSaveError != nil {
+		return salesapp.EmployeeOrderDraft{}, f.draftSaveError
+	}
 	return salesapp.EmployeeOrderDraft{ID: 12, EmployeeID: cmd.EmployeeID, Payload: cmd.Payload, UpdatedAt: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)}, nil
 }
 
@@ -561,6 +565,33 @@ func TestMiniEmployeeOrderDraftContractsUseTokenEmployeeOnly(t *testing.T) {
 	}
 	if sales.draftSave.EmployeeID != 7 || sales.draftDeleteID != 7 || strings.Contains(string(sales.draftSave.Payload), "employee_id") {
 		t.Fatalf("draft save=%+v delete employee=%d", sales.draftSave, sales.draftDeleteID)
+	}
+}
+
+func TestMiniEmployeeOrderDraftSaveExposesOnlySafeValidationErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		status     int
+		want       string
+		notContain string
+	}{
+		{name: "validation", err: salesapp.NewEmployeeOrderDraftValidationError("草稿内容不正确"), status: http.StatusBadRequest, want: "草稿内容不正确"},
+		{name: "repository failure", err: errors.New("pq: secret_schema.employee_order_drafts unavailable"), status: http.StatusInternalServerError, want: `"error":"internal error"`, notContain: "secret_schema"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			sales := &miniEmployeeSalesFake{draftSaveError: tc.err}
+			registerMiniEmployeeAPI(e, employeePortalService(), sales)
+			req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/order-draft", strings.NewReader(`{"payload":{"customer_id":9,"items":[]}}`))
+			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.want) || (tc.notContain != "" && strings.Contains(rec.Body.String(), tc.notContain)) {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

@@ -52,6 +52,25 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('客户已停用，请重新选择启用客户')
   })
 
+  it('invalidates stale customer-editor intents while customer context is loading', () => {
+    expect(pageSource).toContain('let customerEditorIntentSequence = 0')
+    expect(pageSource).toContain('const intentSequence = ++customerEditorIntentSequence')
+    expect(pageSource).toContain('intentSequence !== customerEditorIntentSequence')
+    expect(pageSource).toContain('customerContextLoadPromise')
+    expect(pageSource).toContain('customerEditorIntentSequence += 1')
+  })
+
+  it('keeps the editable order form hidden until both form data and the server draft finish loading', () => {
+    expect(pageSource).toContain('<template v-else-if="formData">')
+    const guardedFormSource = pageSource.slice(
+      pageSource.indexOf('<template v-else-if="formData">'),
+      pageSource.indexOf('</template>', pageSource.indexOf('<template v-else-if="formData">')),
+    )
+    expect(guardedFormSource).toContain('<text class="label">订单日期</text>')
+    expect(guardedFormSource).toContain('v-model="form.notes"')
+    expect(guardedFormSource).toContain('@tap="submit"')
+  })
+
   it('drops stale customer detail responses and prevents closing during save', () => {
     expect(customerEditorSource).toContain('customerLoadSequence')
     expect(customerEditorSource).toContain('sequence !== customerLoadSequence')

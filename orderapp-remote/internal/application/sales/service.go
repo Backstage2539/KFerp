@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	salesdomain "orderapp/internal/domain/sales"
 	"strings"
@@ -94,6 +95,26 @@ type EmployeeOrderDraft struct {
 	EmployeeID int64           `json:"-"`
 	Payload    json.RawMessage `json:"payload"`
 	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
+type EmployeeOrderDraftValidationError struct {
+	message string
+}
+
+func (e *EmployeeOrderDraftValidationError) Error() string {
+	return e.message
+}
+
+func NewEmployeeOrderDraftValidationError(message string) error {
+	return &EmployeeOrderDraftValidationError{message: strings.TrimSpace(message)}
+}
+
+func EmployeeOrderDraftValidationMessage(err error) (string, bool) {
+	var validationErr *EmployeeOrderDraftValidationError
+	if !errors.As(err, &validationErr) || validationErr == nil || validationErr.message == "" {
+		return "", false
+	}
+	return validationErr.message, true
 }
 
 type SaveEmployeeOrderDraftCommand struct {
@@ -1235,11 +1256,11 @@ func (s *Service) SaveEmployeeOrderDraft(ctx context.Context, cmd SaveEmployeeOr
 		return EmployeeOrderDraft{}, fmt.Errorf("employee required")
 	}
 	if len(cmd.Payload) == 0 || len(cmd.Payload) > 1<<20 || !json.Valid(cmd.Payload) {
-		return EmployeeOrderDraft{}, fmt.Errorf("invalid draft payload")
+		return EmployeeOrderDraft{}, NewEmployeeOrderDraftValidationError("草稿内容不正确")
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(cmd.Payload, &object); err != nil || object == nil {
-		return EmployeeOrderDraft{}, fmt.Errorf("invalid draft payload")
+		return EmployeeOrderDraft{}, NewEmployeeOrderDraftValidationError("草稿内容不正确")
 	}
 	repo, ok := s.repo.(EmployeeOrderDraftRepository)
 	if !ok {
