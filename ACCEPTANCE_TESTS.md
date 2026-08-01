@@ -904,3 +904,10 @@
 - [ ] `DEV-570-ORDER-DETAIL-SCHEMA-COMPAT`：点击至少一张已有订单的订单号后详情接口返回 200，页面正常展示；`price_overridden=true` 的历史行仍向 API 输出 `price_override:true`，日志中不再出现 `column oi.price_override does not exist`。数据库没有新增 `price_override` 列，订单数据未被改写。
 - [ ] `DEV-570-HISTORY-DOCS-DELIVERY`：历史订单中当前价格表已无的冻结规格仍以只读历史规格显示；复制同一订单时按当前价格表清空无价规格并要求重选。根目录/线上需求验收、PR/DEV 种子、销售手册和验收记录已同步。
 - [ ] 定向测试、Vue/Go 受影响套件、支持合同、远程 development/production 预检、双分支合并与双环境发布通过；两个域名均完成认证后的只读订单详情/API/静态与日志冒烟，全程不创建测试订单，证据见 `orderapp-remote/docs/acceptance/2026-08-01-order-entry-price-specs-order-detail.md`。
+
+### K44. 小程序 DevTools 自动预览产物完整性与项目刷新（PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC）
+- [ ] 构造 `app.json` 声明 `pages/employee-customers/employee-customers` 但删除对应 `.js` 时，服务器构建校验和下载端 `PAGE_FILE_MANIFEST` 复验都明确失败并报告缺失路径；补齐 `.js/.json/.wxml/.wxss` 后通过。
+- [ ] development 和 production 固定包的全部主包/分包页面均通过四类文件闭包校验，`RELEASE_INFO` 的环境、API 地址和提交与目标分支一致。
+- [ ] 固定目录替换前继续保留同环境上一包，失败时不留下半包；发布完成输出明确要求已打开项目的 DevTools 关闭项目后重新导入固定目录。
+- [ ] 使用部署后重新导入的 production 固定目录进行自动预览时，上传清单包含 `pages/employee-customers/employee-customers.js`，不再返回 `800059 file not found`；只清编译缓存不是本项验收步骤。
+- [ ] 发布/测试说明和 `orderapp-remote/docs/acceptance/2026-08-01-miniapp-devtools-preview-sync.md` 已同步；本需求没有业务写操作或操作日志影响，微信上传、审核和发布仍由人工执行。

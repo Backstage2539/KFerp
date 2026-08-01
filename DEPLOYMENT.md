@@ -132,8 +132,9 @@ chmod +x deploy_orderapp.sh
 `KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin-dev` 与
 `KFERP_MINIAPP_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin`。
 
-每个包都包含 `RELEASE_INFO`，记录 Git commit、API 地址、环境和构建时间。替换固定目录前，原目录会保留为同名
-`backup-时间-commit` 目录；需要回滚本机预览包时，关闭微信开发者工具后把对应环境备份恢复为固定目录即可。微信平台正式版回滚仍在微信公众平台按已发布版本操作。
+每个包都包含 `RELEASE_INFO`，记录 Git commit、API 地址、环境和构建时间。服务器构建完成后按 `app.json` 校验所有主包/分包页面的 `.js/.json/.wxml/.wxss` 并生成 `PAGE_FILE_MANIFEST`；下载完成后，Mac 仅用基础 shell 按清单复验全部页面文件，不需要本地 Node。缺少任何页面文件都会停止发布。替换固定目录前，原目录会保留为同名 `backup-时间-commit` 目录；需要回滚本机预览包时，关闭微信开发者工具后把对应环境备份恢复为固定目录即可。微信平台正式版回滚仍在微信公众平台按已发布版本操作。
+
+固定目录采用完整目录替换。如果微信开发者工具在替换前已经打开该项目，工具可能继续使用部署前的自动预览/上传文件清单并报 `800059 ... file not found`。部署完成后应关闭当前项目，再从项目列表重新导入同一固定目录；只清除编译缓存可能不会重建上传清单。重新导入仍失败时，彻底退出微信开发者工具后再次打开并重新导入。
 
 > **发布边界：** `deploy_orderapp.sh` 只发布 ERP 服务并生成、同步小程序代码包；它不会上传微信平台、提交审核或发布正式版。开发联调导入 `KFerp-miniapp-mp-weixin-dev`，正式上传只导入 `KFerp-miniapp-mp-weixin`。服务器部署成功不代表用户微信里的小程序已更新。
 
@@ -178,7 +179,7 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58 "docker logs --tail=200 erp_orderapp
 ### Q0.1: ERP 已发布，为什么微信里仍是旧页面？
 
 ERP 服务发布和微信小程序发布是两条链路。确认生产脚本已更新固定目录
-`/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，再用微信开发者工具导入该目录、清缓存并编译，然后上传新版本、提交审核并发布。只重启服务器容器不会更新微信客户端代码。
+`/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，再用微信开发者工具关闭旧项目并重新导入该目录、编译，然后上传新版本、提交审核并发布。只清编译缓存不足以修复目录替换后残留的旧上传清单；只重启服务器容器也不会更新微信客户端代码。
 
 ### Q0.2: 提示 another KFerp build or deployment is running
 
