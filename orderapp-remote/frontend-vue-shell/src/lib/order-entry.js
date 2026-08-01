@@ -517,9 +517,29 @@ export function orderFamilyMaintainedSpecs(family = {}) {
   }))
 }
 
+function orderFamilyMaintainedSpecsForPublication(family = {}, publicationID = 0) {
+  const selectedPublicationID = toInt(publicationID)
+  const specs = orderFamilyMaintainedSpecs(family)
+  if (selectedPublicationID <= 0) return specs
+  return specs.filter((spec) => spec.tiers.some((tier) => tierPublicationID(tier) === selectedPublicationID))
+}
+
+export function orderFamilySearchScopeForPublication(family = {}, publicationID = 0) {
+  const selectedPublicationID = toInt(publicationID)
+  if (selectedPublicationID <= 0) return family
+  const specs = orderFamilyMaintainedSpecsForPublication(family, selectedPublicationID)
+  const codeParts = [
+    family?.parent_product_code,
+    family?.customer_item_code,
+    ...specs.flatMap((spec) => [spec?.sku_code, spec?.product_code]),
+  ].map(orderFamilyText).filter(Boolean)
+  const code = [...new Set(codeParts)].join(' ')
+  return { ...family, specs, code }
+}
+
 export function orderFamilySpecOptions(family = {}, publicationID = 0) {
-  void publicationID
-  return orderFamilyMaintainedSpecs(family).map((spec) => ({
+  const specs = orderFamilyMaintainedSpecsForPublication(family, publicationID)
+  return specs.map((spec) => ({
     label: orderSpecLabel(spec),
     value: String(toInt(spec.sku_id)),
     skuID: toInt(spec.sku_id),
@@ -527,8 +547,7 @@ export function orderFamilySpecOptions(family = {}, publicationID = 0) {
 }
 
 export function orderFamilyDefaultSpec(family = {}, publicationID = 0) {
-  void publicationID
-  const specs = orderFamilyMaintainedSpecs(family)
+  const specs = orderFamilyMaintainedSpecsForPublication(family, publicationID)
   const defaultSkuID = orderFamilyID(family?.default_sku_id, family?.defaultSkuID)
   return specs.find((spec) => toInt(spec.sku_id) === defaultSkuID)
     || specs.find((spec) => spec.is_default_sku)
@@ -542,8 +561,9 @@ export function orderSpecSelectionAfterPublicationChange(family = {}, currentSku
   const maintained = orderFamilyMaintainedSpecs(family)
     .find((spec) => toInt(spec.sku_id) === skuID)
   if (!maintained) return null
-  return orderFamilySpecsForPublication({ specs: [maintained] }, publicationID)[0]
-    || { ...maintained, tiers: [] }
+  const selectedPublicationID = toInt(publicationID)
+  if (selectedPublicationID <= 0) return maintained
+  return orderFamilySpecsForPublication({ specs: [maintained] }, selectedPublicationID)[0] || null
 }
 
 function orderFamilyTierVersion(tier = {}) {

@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-570-ORDER-ENTRY-PRICE-SPECS-ORDER-DETAIL
+- Branch: codex/order-entry-price-specs-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: implementing / RED and focused GREEN captured / development and production deployment pending
+- Scope: ERP 录单的新建、复制和主动切换价格表只提供当前已选已发布价格表中有价的具体规格；历史订单保持冻结规格只读兼容；修复订单详情查询误读不存在的 `order_items.price_override` 字段。
+- DEV:
+  - DEV-570-PRICE-TABLE-SPEC-SCOPE：规格候选、默认规格和商品候选规格计数统一按当前发布价格表过滤；默认规格无价时选择该价格表第一项，当前规格切换后无价则清空并要求重选。
+  - DEV-570-ORDER-DETAIL-SCHEMA-COMPAT：订单详情 SQL 读取数据库权威 `price_overridden`，应用和 JSON 继续使用 `PriceOverride` / `price_override`，不新增字段、不迁移数据。
+  - DEV-570-HISTORY-DOCS-DELIVERY：历史编辑保留冻结规格，复制订单使用当前价格表规则；同步需求、验收、销售手册，合入 develop/main 并部署 development/production。
+- Verifier:
+  - RED: Vue 规格测试复现 publication 91 错误暴露 701/702/703 且默认无价 702；Go 查询测试复现缺少权威 SQL helper / 旧字段错误。
+  - Focused GREEN: Vue `order-entry.test.js` 125/125；Go 查询、销售 HTTP 和 PR-570 支持合同相关包 PASS；两轮独立审查清零 P0-P2。
+  - Pending: support contract, affected/full suites, remote preflight, dual deployment and authenticated read-only existing-order API smoke.
+- Deployment: pending development and production; no schema migration and no test-order writes
+- Last update: 2026-08-01 Asia/Shanghai
+
 ### PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM
 - Branch: codex/miniapp-customer-maintenance-drafts-20260801
 - Owner/session: Codex / 2026-08-01

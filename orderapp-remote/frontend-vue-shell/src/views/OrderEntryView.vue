@@ -281,7 +281,7 @@
                 @mousedown.prevent="chooseProduct(row, product)"
               >
                 <strong>{{ product.name }} <span class="kind-badge" :class="productKindBadgeClass(product)">{{ productKindLabel(product) }}</span></strong>
-                <small v-if="productSpecCountForCurrentList(product)">{{ productSpecCountForCurrentList(product) }} 个规格</small>
+                <small v-if="productSpecCountForCurrentList(product)">{{ productSpecCountForCurrentList(product) }} 个可售规格</small>
                 <small v-else-if="!product.__order_concrete_price_family && product.tiers?.length">{{ product.tiers.length }} 个价格梯度</small>
               </button>
               <div v-if="!productOptions(row).length" class="combo-empty">没有匹配商品</div>
@@ -484,7 +484,7 @@
           <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
           <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
           <li>同一价格表类型已有按商品分类发布的价格表时，新订单只自动启用当前分类价格表；旧全局价格表默认不参与商品候选，需要时可手工启用。仅有旧全局价格表时仍按历史规则自动使用。</li>
-          <li>商品按父商品展示，商品名不再拼接规格；规格列展示商品档案全部现有规格，当前价格表未定价的规格会明确提示并阻止保存。</li>
+          <li>商品按父商品展示，商品名不再拼接规格；规格列和规格搜索只使用当前已选已发布价格表中有价的规格，价格表没有的商品档案规格不会出现在新订单候选中。</li>
           <li>首次选择商品使用其默认规格；切换价格表版本后，当前规格仍有发布价时保留，否则清空规格和价格并要求重新选择。</li>
           <li>新版挂耳商品同样从当前价格表选择袋或盒规格；历史挂耳数据仍保留旧单位选择兼容。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>
@@ -649,6 +649,7 @@ import {
   normalizeSpecG,
   normalizeOrderProductFamilies,
   orderFamilyDefaultSpec,
+  orderFamilySearchScopeForPublication,
   orderFamilySpecOptions,
   orderFamilySpecProduct,
   orderFamilyHydratedSpecRowPatch,
@@ -1548,11 +1549,14 @@ function scopedOrderProductOptions() {
     selectedBeanListPublicationIDsByType(),
     customerPublicUsages.value,
     customerOwnedBeanListPublicationIDsByType(),
-  ).filter((family) => {
-    if (!family?.__order_concrete_price_family) return true
+  ).flatMap((family) => {
+    if (!isOrderProductFamily(family)) return [family]
     const selected = selectedBeanListVersionOptionForProduct(family)
-    return Number(selected?.id || 0) > 0
-      && orderFamilySpecsForPublication(family, selected.id).length > 0
+    if (Number(selected?.id || 0) <= 0) {
+      return family?.__order_concrete_price_family ? [] : [family]
+    }
+    const scoped = orderFamilySearchScopeForPublication(family, selected.id)
+    return scoped.specs.length > 0 ? [scoped] : []
   })
 }
 
@@ -1590,7 +1594,9 @@ function productOptionKey(product) {
 
 function productSpecCountForCurrentList(family) {
   if (!isOrderProductFamily(family)) return 0
-  return orderFamilySpecOptions(family).length
+  const selected = selectedBeanListVersionOptionForProduct(family)
+  if (Number(selected?.id || 0) <= 0) return 0
+  return orderFamilySpecOptions(family, selected.id).length
 }
 
 function clearProduct(row) {
@@ -1699,12 +1705,22 @@ function chooseProduct(row, product) {
     assignProductFamilyHeader(row, family)
     row.product_open = false
     const selected = selectedBeanListVersionOptionForProduct(family)
-    const spec = orderFamilyDefaultSpec(family, selected?.id || 0)
-    if (!spec) {
-      invalidatePriceListSpecRow(row, '当前商品没有可用规格，请维护商品规格后重试。')
+    const selectedPublicationID = Number(selected?.id || 0)
+    if (selectedPublicationID <= 0) {
+      invalidatePriceListSpecRow(row, '当前商品没有可用价格表，请先发布价格表后重试。')
       return
     }
-    applyPriceListSpecToRow(row, family, spec, selected?.id || 0)
+    const defaultSpec = orderFamilyDefaultSpec(family, selectedPublicationID)
+    const spec = orderSpecSelectionAfterPublicationChange(
+      family,
+      defaultSpec?.sku_id,
+      selectedPublicationID,
+    )
+    if (!spec) {
+      invalidatePriceListSpecRow(row, '当前价格表没有该商品的可售规格，请先维护并发布价格后重试。')
+      return
+    }
+    applyPriceListSpecToRow(row, family, spec, selectedPublicationID)
     syncPrice(row, { force: true })
     ensureTrailingBlankRow()
     return
