@@ -10,6 +10,7 @@ import {
   type EmployeeOrderProductSpec,
 } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError } from '../../api/client'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import {
   customerProductFamilies,
   customerShippingDefaults,
@@ -282,6 +283,7 @@ onLoad(() => void loadForm())
 
 <template>
   <view class="page">
+    <EnvironmentBadge />
     <view class="panel">
       <text class="title">新建销售订单</text>
 

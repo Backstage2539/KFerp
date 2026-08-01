@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onShow } from '@dcloudio/uni-app'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
@@ -19,6 +20,7 @@ onShow(() => {
 
 <template>
   <view class="page">
+    <EnvironmentBadge />
     <text>加载中...</text>
   </view>
 </template>

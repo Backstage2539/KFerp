@@ -1,13 +1,29 @@
 import { defineStore } from 'pinia'
 import type { CustomerBinding, MiniappEntryMode } from '../api/customerPortal'
+import {
+  configuredMiniappEnvironment,
+  miniappStorageKey,
+  type MiniappBuildEnvironment,
+} from '../config/environment'
 import type { Capability } from '../utils/capabilities'
 import { defaultMiniappThemeKey, normalizeMiniappThemeKey, type MiniappThemeKey } from '../utils/themes'
 
-const tokenKey = 'kferp.mini.token'
+const legacyTokenKey = 'kferp.mini.token'
+
+export function miniappTokenStorageKey(environment?: MiniappBuildEnvironment): string {
+  if (environment) return `kferp.mini.${environment}.token`
+  return miniappStorageKey('token', configuredMiniappEnvironment())
+}
+
+function storedMiniappToken(): string {
+  const token = uni.getStorageSync(miniappTokenStorageKey()) || ''
+  if (uni.getStorageSync(legacyTokenKey)) uni.removeStorageSync(legacyTokenKey)
+  return token
+}
 
 export const useSessionStore = defineStore('session', {
   state: () => ({
-    token: uni.getStorageSync(tokenKey) || '',
+    token: storedMiniappToken(),
     miniUserID: 0,
     currentCustomerID: 0,
     currentCustomerName: '',
@@ -24,7 +40,7 @@ export const useSessionStore = defineStore('session', {
   actions: {
     setToken(token: string) {
       this.token = token
-      uni.setStorageSync(tokenKey, token)
+      uni.setStorageSync(miniappTokenStorageKey(), token)
     },
     clearSession() {
       this.token = ''
@@ -40,7 +56,7 @@ export const useSessionStore = defineStore('session', {
       this.employeeName = ''
       this.roles = []
       this.permissions = []
-      uni.removeStorageSync(tokenKey)
+      uni.removeStorageSync(miniappTokenStorageKey())
     },
     applyContext(context: {
       mini_user_id: number

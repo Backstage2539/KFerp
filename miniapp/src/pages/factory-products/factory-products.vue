@@ -9,6 +9,7 @@ import {
   type BeanListSummary,
   type CustomerPriceTableGroup,
 } from '../../api/customerPortal'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import { openMiniappFileOutput } from '../../utils/fileOutput'
@@ -88,6 +89,7 @@ onShow(() => {
 
 <template>
   <view class="page" :class="themeClass">
+    <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">商品价格表</text>
       <text class="title">工厂商品表</text>

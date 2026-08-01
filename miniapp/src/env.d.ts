@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_KFERP_ENVIRONMENT?: 'development' | 'production'
   readonly VITE_KFERP_API_BASE?: string
 }
 

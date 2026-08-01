@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import { useSessionStore } from '../../stores/session'
 import { customerEntryRoute } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
@@ -87,6 +88,7 @@ async function handlePasswordLogin() {
 
 <template>
   <view class="page" :class="themeClass">
+    <EnvironmentBadge />
     <view class="hero">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">棵凡小程序</text>

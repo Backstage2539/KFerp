@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchEmployeeOrders, type EmployeeOrder } from '../../api/customerPortal'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
@@ -26,6 +27,7 @@ onShow(() => void load())
 
 <template>
   <view class="page">
+    <EnvironmentBadge />
     <view class="search"><input v-model="q" placeholder="订单号 / 客户" confirm-type="search" @confirm="load" /><button @tap="load">查询</button></view>
     <text v-if="loading" class="state">加载中...</text>
     <text v-else-if="error" class="state error">{{ error }}</text>
