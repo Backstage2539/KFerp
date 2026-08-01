@@ -2,18 +2,14 @@ package support
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestDev572MiniappOrderDetailDocumentShareContract(t *testing.T) {
-	orderappRoot := findAncestorForTest(t, "go.mod")
-	workspaceRoot := filepath.Dir(orderappRoot)
-
 	assertSourceMarkers := func(relativePath string, markers ...string) string {
 		t.Helper()
-		path := filepath.Join(workspaceRoot, relativePath)
+		path := repoFilePath(t, relativePath)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", relativePath, err)
