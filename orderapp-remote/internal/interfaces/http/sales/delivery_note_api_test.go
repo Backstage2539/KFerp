@@ -84,6 +84,9 @@ func TestDeliveryNoteDocumentAPI(t *testing.T) {
 	if err := json.Unmarshal(generateRec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode generated document: %v", err)
 	}
+	if created.ImageAssetID <= 0 || created.ImageDownloadURL == "" {
+		t.Fatalf("generated delivery note image metadata missing: %+v", created)
+	}
 
 	downloadReq := httptest.NewRequest(http.MethodGet, "/orders/1/delivery-note-latest.pdf", nil)
 	downloadRec := httptest.NewRecorder()
@@ -96,6 +99,22 @@ func TestDeliveryNoteDocumentAPI(t *testing.T) {
 	e.ServeHTTP(historyRec, historyReq)
 	if historyRec.Code != http.StatusOK || historyRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
 		t.Fatalf("history download status=%d content-type=%q body=%s", historyRec.Code, historyRec.Header().Get(echo.HeaderContentType), historyRec.Body.String())
+	}
+
+	latestImageReq := httptest.NewRequest(http.MethodGet, "/orders/1/delivery-note-latest.png", nil)
+	latestImageRec := httptest.NewRecorder()
+	e.ServeHTTP(latestImageRec, latestImageReq)
+	if latestImageRec.Code != http.StatusOK || latestImageRec.Header().Get(echo.HeaderContentType) != "image/png" {
+		t.Fatalf("latest image status=%d content-type=%q body=%s", latestImageRec.Code, latestImageRec.Header().Get(echo.HeaderContentType), latestImageRec.Body.String())
+	}
+	if !bytes.HasPrefix(latestImageRec.Body.Bytes(), []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("latest image missing PNG signature: %q", latestImageRec.Body.Bytes()[:min(len(latestImageRec.Body.Bytes()), 8)])
+	}
+	historyImageReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/orders/1/delivery-notes/%d.png", created.ID), nil)
+	historyImageRec := httptest.NewRecorder()
+	e.ServeHTTP(historyImageRec, historyImageReq)
+	if historyImageRec.Code != http.StatusOK || historyImageRec.Header().Get(echo.HeaderContentType) != "image/png" {
+		t.Fatalf("history image status=%d content-type=%q body=%s", historyImageRec.Code, historyImageRec.Header().Get(echo.HeaderContentType), historyImageRec.Body.String())
 	}
 }
 
@@ -111,9 +130,34 @@ func TestDeliveryNoteDocumentRoutesRegisterPreviewPDF(t *testing.T) {
 		"GET /api/orders/:id/delivery-note-preview.pdf",
 		"POST /api/orders/:id/delivery-notes",
 		"GET /orders/:id/delivery-note-latest.pdf",
+		"GET /orders/:id/delivery-note-latest.png",
+		"GET /orders/:id/delivery-notes/:doc_file",
 	} {
 		if !routes[want] {
 			t.Fatalf("missing route %s", want)
+		}
+	}
+}
+
+func TestDeliveryNoteHistoricalPDFAndPNGUseOneNonCollidingRoute(t *testing.T) {
+	e := echo.New()
+	registerDeliveryNoteDocumentRoutes(e, salesapp.NewService(nil))
+	var routedPath, routedFile string
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			routedPath = c.Path()
+			routedFile = c.Param("doc_file")
+			return c.NoContent(http.StatusNoContent)
+		}
+	})
+
+	for _, wantFile := range []string{"7.pdf", "7.png"} {
+		routedPath, routedFile = "", ""
+		req := httptest.NewRequest(http.MethodGet, "/orders/1/delivery-notes/"+wantFile, nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent || routedPath != "/orders/:id/delivery-notes/:doc_file" || routedFile != wantFile {
+			t.Fatalf("file=%s status=%d path=%q param=%q", wantFile, rec.Code, routedPath, routedFile)
 		}
 	}
 }
@@ -191,6 +235,16 @@ func TestParseDeliveryNoteDocumentIDAcceptsPDFPathFallback(t *testing.T) {
 	}
 	if got != 2 {
 		t.Fatalf("parse param with suffix = %d, want 2", got)
+	}
+	got, err = parseDeliveryNoteDocumentID("3.png", "/orders/254/delivery-notes/3.png")
+	if err != nil {
+		t.Fatalf("parse png param with suffix: %v", err)
+	}
+	if got != 3 {
+		t.Fatalf("parse png param with suffix = %d, want 3", got)
+	}
+	if _, _, err := parseDeliveryNoteDocumentFile("4.txt", "/orders/254/delivery-notes/4.txt"); err == nil {
+		t.Fatal("parse unsupported document format error = nil")
 	}
 	if _, err := parseDeliveryNoteDocumentID("", "/orders/254/delivery-notes/0.pdf"); err == nil {
 		t.Fatal("parse invalid document id error = nil")

@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
+- Branch: codex/miniapp-order-detail-share-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: implemented / local GREEN / independent review complete / remote preflight pending
+- Scope: 小程序订单中心从概要列表进入完整订单详情，展示网页版订单详情已有的订单、客户、收货、商品、金额、物流、状态及来源信息；可导出销售单和发货单的 PDF/图片，并使用微信原生文件能力转发给客户；录单页“新增商品”按钮固定在商品明细列表末尾。
+- DEV:
+  - DEV-572-EMPLOYEE-ORDER-DETAIL：新增员工订单完整详情接口和小程序独立详情页，管理员/销售范围由服务端校验。
+  - DEV-572-EMPLOYEE-ORDER-DOCUMENT-OUTPUT：销售单 PDF/PNG 沿用既有逻辑，出库单新正式版本按同一快照原子生成 PDF/PNG。
+  - DEV-572-MINIAPP-WECHAT-FILE-SHARE：小程序下载鉴权真实文件后使用微信文件/图片分享，低版本回退打开文档或图片预览。
+  - DEV-572-ORDER-ENTRY-ADD-ITEM-POSITION：把录单页“新增商品”入口移动到商品明细最后一行下方并保持多行交互。
+  - DEV-572-DOCS-ACCEPTANCE-DELIVERY：同步 PR/DEV、操作手册、前端手册入口与验收证据，完成开发环境集成发布。
+- Verifier:
+  - Unit/API: `go test ./... -count=1`、customerportal/sales/support/应用/PDF/Postgres 定向套件 GREEN。
+  - Frontend/build: miniapp Vitest 21 files / 129 tests、`vue-tsc --noEmit`、development mp-weixin build GREEN；新详情页四类产物齐全。
+  - Output: 代表性出库单 PNG 为 2480×9440，长地址、36 行商品、长备注、页尾与留白视觉检查通过。
+  - Database integration: 本机缺少 `ORDERAPP_TEST_DATABASE_URL`，3 项文件回滚/成对资产用例按条件跳过；必须由 development 远程预检连接测试库补跑。
+  - Manual: miniapp employee ERP、order-sales、总索引和联调手册已同步。
+  - Review/acceptance: 两轮独立复核发现的鉴权状态透传、缺文件自愈、快递费文本、寄件人展示、图片下载路由与 Echo 路由冲突均已关闭；无开放 P0-P2。
+- Deployment: development pending; production not requested.
+- Last update: 2026-08-01 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` still fails on its multiline awk string; PR-572 was manually reserved after `scripts/reserve_req_id.sh` returned PR-572.
+
 ### PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC
 - Branch: codex/miniapp-devtools-preview-sync-20260801
 - Owner/session: Codex / 2026-08-01

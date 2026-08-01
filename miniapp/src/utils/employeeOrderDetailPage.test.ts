@@ -1,0 +1,49 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+const listSource = readFileSync(resolve('src/pages/employee-orders/employee-orders.vue'), 'utf8')
+const detailSource = readFileSync(resolve('src/pages/employee-order-detail/employee-order-detail.vue'), 'utf8')
+const entrySource = readFileSync(resolve('src/pages/employee-order-entry/employee-order-entry.vue'), 'utf8')
+const pagesSource = readFileSync(resolve('src/pages.json'), 'utf8')
+
+describe('employee order detail miniapp page contract', () => {
+  it('opens a full detail page from a summary card and keeps the current query', () => {
+    expect(listSource).toContain('@tap="openOrderDetail(row)"')
+    expect(listSource).toContain('/pages/employee-order-detail/employee-order-detail?id=')
+    expect(listSource).toContain('rememberEmployeeOrderListQuery(q.value)')
+    expect(listSource).toContain('employeeOrderListQuery()')
+  })
+
+  it('registers the detail page and renders the web-order information groups', () => {
+    expect(pagesSource).toContain('pages/employee-order-detail/employee-order-detail')
+    for (const label of ['订单日期', '单据日期', '收件信息', '物流信息', '订单状态', '费用明细', '商品明细', '报价来源', '生产来源', '订单信息']) {
+      expect(detailSource).toContain(label)
+    }
+    for (const field of ['收款', '发货', '生产', '开票', '寄件人', '负责人', '录入人', '备注', '价格表版本', '小计']) {
+      expect(detailSource).toContain(field)
+    }
+    expect(detailSource).toContain('order.sender_label')
+  })
+
+  it('offers real PDF and image sharing for sales orders and delivery notes', () => {
+    expect(detailSource).toContain('fetchEmployeeOrderDetail')
+    expect(detailSource).toContain('generateEmployeeOrderDocument')
+    expect(detailSource).toContain('shareMiniappFileOutput')
+    expect(detailSource).toContain('asset?.filename')
+    expect(detailSource).toContain('asset?.version_no')
+    for (const label of ['销售单 PDF', '销售单图片', '发货单 PDF', '发货单图片']) {
+      expect(detailSource).toContain(label)
+    }
+  })
+
+  it('renders exactly one add-product action after the final item row', () => {
+    const itemLoop = entrySource.indexOf('v-for="(item, index) in form.items"')
+    const addButton = entrySource.indexOf('@tap="addItem"')
+    expect(itemLoop).toBeGreaterThan(-1)
+    expect(addButton).toBeGreaterThan(itemLoop)
+    expect(entrySource.match(/@tap="addItem"/g)).toHaveLength(1)
+    const sectionHead = entrySource.slice(entrySource.indexOf('<view class="section-head">'), itemLoop)
+    expect(sectionHead).not.toContain('@tap="addItem"')
+  })
+})

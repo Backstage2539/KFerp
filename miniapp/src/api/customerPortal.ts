@@ -694,6 +694,172 @@ export type EmployeeOrder = {
   responsible_name: string
 }
 
+export type EmployeeOrderDetailItem = {
+  id?: number
+  item_id?: number
+  line_no?: number
+  product_id: number
+  product_name: string
+  customer_product_display_name_snapshot?: string
+  customer_item_code_snapshot?: string
+  brand_name_snapshot?: string
+  product_code_snapshot?: string
+  product_name_snapshot?: string
+  note?: string
+  spec?: string
+  qty: string
+  unit?: string
+  unit_price: string
+  line_total: string
+  price_override?: boolean
+  bean_list_publication_id?: number
+  bean_list_version_no?: string
+  product_kind?: string
+  sales_unit?: string
+  unit_bag_count?: number
+  unit_bean_g?: string
+  matched_price_qty?: string
+  unit_conversion_label?: string
+  price_source_json?: string
+}
+
+export type EmployeeOrderTrace = {
+  product_id?: number
+  product_name?: string
+  productName?: string
+  tier_label?: string
+  tierLabel?: string
+  price_list_publication_id?: number
+  price_list_version?: string
+  final_unit_price?: string | number
+  price_unit?: string
+  pricing_rule_version?: string
+  manual_adjusted?: boolean
+  source_label?: string
+  bom_version_no?: string
+  process_route_name?: string
+  process_card_no?: string
+  work_order_no?: string
+  material_batch_no?: string
+}
+
+export type EmployeeOrderAsset = {
+  id: number
+  kind: string
+  filename: string
+  content_type: string
+  bytes: number
+  created_at: string
+  created_by: string
+  url?: string
+}
+
+export type EmployeeOrderDetail = EmployeeOrder & {
+  document_date?: string
+  customer_id?: number
+  source_id?: number
+  source?: string
+  order_type_id?: number
+  order_type?: string
+  pay_status_id?: number
+  payment_method?: string
+  ship_status_id?: number
+  process_status_id?: number
+  invoice_status?: string
+  receiver_name?: string
+  receiver_phone?: string
+  receiver_company?: string
+  receiver_address?: string
+  ship_method?: string
+  ship_tracking_no?: string
+  logistics_company_id?: number
+  logistics_company?: string
+  logistics_product_id?: number
+  logistics_product?: string
+  sender_id?: number
+  sender_label?: string
+  sender_name?: string
+  payment_goods_amount?: string
+  payment_shipping_amount?: string
+  payment_voucher_asset_id?: number
+  payment_voucher?: EmployeeOrderAsset
+  responsible_type?: string
+  responsible_id?: number
+  portal_service_code?: string
+  source_warehouse?: string
+  bean_list_publication_id?: number
+  bean_list_version_no?: string
+  total_amount?: string
+  shipping_amount?: string
+  discount_amount?: string
+  rounding_amount?: string
+  round_to_int?: boolean
+  express_fee?: string
+  outsource_material_fee?: string
+  outsource_roast_fee?: string
+  outsource_packaging_fee?: string
+  outsource_manual_fee?: string
+  outsource_tax_fee?: string
+  outsource_other_fee?: string
+  outsource_total_fee?: string
+  created_by_employee?: string
+  notes?: string
+  is_void?: boolean
+  voided_at?: string
+  void_reason?: string
+  invoice_filename?: string
+  invoice_file_url?: string
+  items: EmployeeOrderDetailItem[]
+  quote_source_trace?: EmployeeOrderTrace[]
+  production_source_trace?: EmployeeOrderTrace[]
+}
+
+export type EmployeeOrderDocumentKind = 'sales-order' | 'delivery-note'
+export type EmployeeOrderDocumentFormat = 'pdf' | 'png'
+
+export type EmployeeOrderDocumentAsset = {
+  available?: boolean
+  version_no?: number | string
+  filename?: string
+  content_type?: string
+  generated?: boolean
+  download_url?: string
+  url?: string
+  path?: string
+}
+
+export type EmployeeOrderDocumentGroup = {
+  pdf?: EmployeeOrderDocumentAsset
+  png?: EmployeeOrderDocumentAsset
+}
+
+export type EmployeeOrderDocuments = {
+  sales_order?: EmployeeOrderDocumentGroup
+  delivery_note?: EmployeeOrderDocumentGroup
+  sales_order_pdf?: EmployeeOrderDocumentAsset
+  sales_order_png?: EmployeeOrderDocumentAsset
+  delivery_note_pdf?: EmployeeOrderDocumentAsset
+  delivery_note_png?: EmployeeOrderDocumentAsset
+}
+
+export type EmployeeOrderDetailResponse = {
+  order: EmployeeOrderDetail
+  documents?: EmployeeOrderDocuments
+}
+
+export type EmployeeOrderDocumentGenerateResponse = EmployeeOrderDocumentAsset & {
+  document?: EmployeeOrderDocumentAsset
+  asset?: EmployeeOrderDocumentAsset
+}
+
+const employeeOrderDocumentFiles: Record<
+  EmployeeOrderDocumentKind,
+  Record<EmployeeOrderDocumentFormat, string>
+> = {
+  'sales-order': { pdf: 'sales-order.pdf', png: 'sales-order.png' },
+  'delivery-note': { pdf: 'delivery-note.pdf', png: 'delivery-note.png' },
+}
+
 export function fetchEmployeeOrderForm(token: string): Promise<EmployeeOrderForm> {
   return miniRequest<EmployeeOrderForm>(buildEmployeeOrderFormPath(), { token })
 }
@@ -701,6 +867,23 @@ export function fetchEmployeeOrderForm(token: string): Promise<EmployeeOrderForm
 export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: EmployeeOrder[]; has_next: boolean }> {
   const suffix = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''
   return miniRequest(`${buildEmployeeOrdersPath()}${suffix}`, { token })
+}
+
+export function fetchEmployeeOrderDetail(token: string, orderID: number): Promise<EmployeeOrderDetailResponse> {
+  return miniRequest<EmployeeOrderDetailResponse>(buildEmployeeOrderDetailPath(orderID), { token })
+}
+
+export function generateEmployeeOrderDocument(
+  token: string,
+  orderID: number,
+  kind: EmployeeOrderDocumentKind,
+  format: EmployeeOrderDocumentFormat,
+): Promise<EmployeeOrderDocumentGenerateResponse> {
+  return miniRequest<EmployeeOrderDocumentGenerateResponse>(buildEmployeeOrderDocumentPath(orderID, kind, format), {
+    method: 'POST',
+    token,
+    data: {},
+  })
 }
 
 export function createEmployeeOrder(token: string, data: Record<string, unknown>): Promise<{ order_id: number; order_no: string }> {
@@ -745,6 +928,18 @@ export function buildEmployeeOrderFormPath(): string {
 
 export function buildEmployeeOrdersPath(): string {
   return '/api/mini/employee/orders'
+}
+
+export function buildEmployeeOrderDetailPath(orderID: number): string {
+  return `${buildEmployeeOrdersPath()}/${Number(orderID || 0)}`
+}
+
+export function buildEmployeeOrderDocumentPath(
+  orderID: number,
+  kind: EmployeeOrderDocumentKind,
+  format: EmployeeOrderDocumentFormat,
+): string {
+  return `${buildEmployeeOrderDetailPath(orderID)}/documents/${employeeOrderDocumentFiles[kind][format]}`
 }
 
 export function buildEmployeeCustomersPath(query: EmployeeCustomerListQuery = {}): string {

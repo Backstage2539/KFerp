@@ -34,8 +34,9 @@ func registerDeliveryNoteDocumentRoutes(e *echo.Echo, salesSvc *salesapp.Service
 	e.GET("/api/orders/:id/delivery-note-preview.pdf", h.previewPDF)
 	e.POST("/api/orders/:id/delivery-note", h.saveForm)
 	e.POST("/api/orders/:id/delivery-notes", h.generate)
-	e.GET("/orders/:id/delivery-notes/:doc_id.pdf", h.download)
+	e.GET("/orders/:id/delivery-notes/:doc_file", h.downloadVersion)
 	e.GET("/orders/:id/delivery-note-latest.pdf", h.downloadLatest)
+	e.GET("/orders/:id/delivery-note-latest.png", h.downloadLatestImage)
 }
 
 func (h deliveryNoteDocumentHandler) list(c echo.Context) error {
@@ -122,14 +123,17 @@ func (h deliveryNoteDocumentHandler) generate(c echo.Context) error {
 	return c.JSON(http.StatusOK, res.Document)
 }
 
-func (h deliveryNoteDocumentHandler) download(c echo.Context) error {
+func (h deliveryNoteDocumentHandler) downloadVersion(c echo.Context) error {
 	orderID, err := parseDeliveryNoteOrderID(c)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
-	docID, err := parseDeliveryNoteDocumentID(c.Param("doc_id"), c.Request().URL.Path)
+	docID, format, err := parseDeliveryNoteDocumentFile(c.Param("doc_file"), c.Request().URL.Path)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid document id"})
+	}
+	if format == "png" {
+		return h.downloadImageFile(c, orderID, docID, false)
 	}
 	return h.downloadFile(c, orderID, docID, false)
 }
@@ -142,6 +146,14 @@ func (h deliveryNoteDocumentHandler) downloadLatest(c echo.Context) error {
 	return h.downloadFile(c, orderID, 0, true)
 }
 
+func (h deliveryNoteDocumentHandler) downloadLatestImage(c echo.Context) error {
+	orderID, err := parseDeliveryNoteOrderID(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return h.downloadImageFile(c, orderID, 0, true)
+}
+
 func (h deliveryNoteDocumentHandler) downloadFile(c echo.Context, orderID, docID int64, latest bool) error {
 	file, err := h.sales.LoadDeliveryNoteDocumentFile(c.Request().Context(), orderID, docID, latest)
 	if err != nil {
@@ -152,17 +164,42 @@ func (h deliveryNoteDocumentHandler) downloadFile(c echo.Context, orderID, docID
 	return c.File(file.Path)
 }
 
+func (h deliveryNoteDocumentHandler) downloadImageFile(c echo.Context, orderID, docID int64, latest bool) error {
+	file, err := h.sales.LoadDeliveryNoteImageFile(c.Request().Context(), orderID, docID, latest)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"error": err.Error()})
+	}
+	c.Response().Header().Set(echo.HeaderContentType, "image/png")
+	c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, file.Filename))
+	return c.File(file.Path)
+}
+
 func parseDeliveryNoteDocumentID(rawParam, requestPath string) (int64, error) {
+	docID, _, err := parseDeliveryNoteDocumentFile(rawParam, requestPath)
+	return docID, err
+}
+
+func parseDeliveryNoteDocumentFile(rawParam, requestPath string) (int64, string, error) {
 	raw := strings.TrimSpace(rawParam)
 	if raw == "" {
 		raw = path.Base(strings.TrimSpace(requestPath))
 	}
-	raw = strings.TrimSuffix(raw, ".pdf")
+	format := ""
+	switch {
+	case strings.HasSuffix(strings.ToLower(raw), ".pdf"):
+		format = "pdf"
+		raw = raw[:len(raw)-len(".pdf")]
+	case strings.HasSuffix(strings.ToLower(raw), ".png"):
+		format = "png"
+		raw = raw[:len(raw)-len(".png")]
+	default:
+		return 0, "", fmt.Errorf("invalid document id")
+	}
 	docID, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || docID <= 0 {
-		return 0, fmt.Errorf("invalid document id")
+		return 0, "", fmt.Errorf("invalid document id")
 	}
-	return docID, nil
+	return docID, format, nil
 }
 
 func parseDeliveryNoteOrderID(c echo.Context) (int64, error) {
