@@ -24,7 +24,17 @@ func TestDev572MiniappOrderDetailDocumentShareContract(t *testing.T) {
 	}
 
 	assertSourceMarkers("miniapp/src/pages.json", "pages/employee-order-detail/employee-order-detail")
-	assertSourceMarkers("miniapp/src/pages/employee-orders/employee-orders.vue", "openOrderDetail", "pages/employee-order-detail/employee-order-detail?id=")
+	listPage := assertSourceMarkers(
+		"miniapp/src/pages/employee-orders/employee-orders.vue",
+		"<navigator v-for=\"row in rows\"", ":url=\"employeeOrderDetailPagePath(row.id)\"", "rememberListQuery",
+	)
+	if strings.Contains(listPage, "@tap=\"openOrderDetail(row)\"") {
+		t.Error("employee order cards must navigate natively instead of relying on a dynamic tap handler")
+	}
+	assertSourceMarkers(
+		"miniapp/src/utils/employeeOrderDetail.ts",
+		"employeeOrderDetailPagePath", "/pages/employee-order-detail/employee-order-detail?id=",
+	)
 	detailPage := assertSourceMarkers(
 		"miniapp/src/pages/employee-order-detail/employee-order-detail.vue",
 		"收件信息", "物流信息", "订单状态", "费用明细", "商品明细", "报价来源", "生产来源",
