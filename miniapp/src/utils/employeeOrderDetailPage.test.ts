@@ -8,9 +8,11 @@ const entrySource = readFileSync(resolve('src/pages/employee-order-entry/employe
 const pagesSource = readFileSync(resolve('src/pages.json'), 'utf8')
 
 describe('employee order detail miniapp page contract', () => {
-  it('opens a full detail page from a summary card and keeps the current query', () => {
-    expect(listSource).toContain('@tap="openOrderDetail(row)"')
-    expect(listSource).toContain('/pages/employee-order-detail/employee-order-detail?id=')
+  it('opens every summary card through a native navigator and keeps the current query', () => {
+    expect(listSource).toMatch(
+      /<navigator\b(?=[^>]*v-for="row in rows")(?=[^>]*:url="employeeOrderDetailPagePath\(row\.id\)")[^>]*>/,
+    )
+    expect(listSource).not.toContain('@tap="openOrderDetail(row)"')
     expect(listSource).toContain('rememberEmployeeOrderListQuery(q.value)')
     expect(listSource).toContain('employeeOrderListQuery()')
   })

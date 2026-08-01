@@ -4,7 +4,11 @@ import { onShow } from '@dcloudio/uni-app'
 import { fetchEmployeeOrders, type EmployeeOrder } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import { useSessionStore } from '../../stores/session'
-import { employeeOrderListQuery, rememberEmployeeOrderListQuery } from '../../utils/employeeOrderDetail'
+import {
+  employeeOrderDetailPagePath,
+  employeeOrderListQuery,
+  rememberEmployeeOrderListQuery,
+} from '../../utils/employeeOrderDetail'
 
 const session = useSessionStore()
 const q = ref(employeeOrderListQuery())
@@ -25,11 +29,8 @@ async function load() {
   }
 }
 
-function openOrderDetail(row: EmployeeOrder) {
-  const id = Number(row?.id || 0)
-  if (!id) return
+function rememberListQuery() {
   rememberEmployeeOrderListQuery(q.value)
-  uni.navigateTo({ url: `/pages/employee-order-detail/employee-order-detail?id=${id}` })
 }
 onShow(() => void load())
 </script>
@@ -41,12 +42,12 @@ onShow(() => void load())
     <text v-if="loading" class="state">加载中...</text>
     <text v-else-if="error" class="state error">{{ error }}</text>
     <view v-else-if="rows.length" class="list">
-      <view v-for="row in rows" :key="row.id" class="card" hover-class="card-active" @tap="openOrderDetail(row)">
+      <navigator v-for="row in rows" :key="row.id" class="card" hover-class="card-active" :url="employeeOrderDetailPagePath(row.id)" @tap="rememberListQuery">
         <view class="line"><text class="no">{{ row.order_no }}</text><text>¥{{ row.grand_total || '0.00' }}</text></view>
         <text class="customer">{{ row.customer }}</text>
         <text class="meta">{{ row.order_date }} · {{ row.pay_status }} · {{ row.ship_status }} · {{ row.process_status }}</text>
         <text class="open-hint">查看完整订单 ›</text>
-      </view>
+      </navigator>
     </view>
     <text v-else class="state">没有找到订单</text>
   </view>
