@@ -19,13 +19,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-572-DOCS-ACCEPTANCE-DELIVERY：同步 PR/DEV、操作手册、前端手册入口与验收证据，完成开发环境集成发布。
 - Verifier:
   - Unit/API: `go test ./... -count=1`、customerportal/sales/support/应用/PDF/Postgres 定向套件 GREEN。
-  - Frontend/build: miniapp Vitest 21 files / 129 tests、`vue-tsc --noEmit`、development mp-weixin build GREEN；新详情页四类产物齐全。
+  - Frontend/build: miniapp Vitest 21 files / 130 tests、`vue-tsc --noEmit`、development mp-weixin build GREEN；新详情页四类产物齐全；订单卡片使用原生 `navigator` 进入完整订单详情，固定开发包 WXML 已核对。
   - Output: 代表性出库单 PNG 为 2480×9440，长地址、36 行商品、长备注、页尾与留白视觉检查通过。
   - Database integration: development 数据库唯一临时测试 schema 中 5 项文件回滚、成对 PDF/PNG、历史兼容和字段幂等用例全部通过；测试 schema 自动删除，真实订单数据未写入。
   - Manual: miniapp employee ERP、order-sales、总索引和联调手册已同步。
   - Review/acceptance: 两轮独立复核发现的鉴权状态透传、缺文件自愈、快递费文本、寄件人展示、图片下载路由与 Echo 路由冲突均已关闭；无开放 P0-P2。
-- Deployment: feature `a543c2dd3412f2d49f9dde86b8dacce8c2ff40bb` passed development remote preflight without environment mutation. `origin/develop` merge `6e257b17cb96948c592a02a602f7e41494cb3f64` deployed to development; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801221451-6e257b17cb96`, rollback image `kferp-orderapp-rollback:development-20260801221451-6e257b17cb96`, external login smoke HTTP 200. Development miniapp fixed directory `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` verified 52 manifest files with backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801222026-6e257b17cb96`. Production was not deployed or restarted.
-- Last update: 2026-08-01 Asia/Shanghai
+- Deployment: feature `a543c2dd3412f2d49f9dde86b8dacce8c2ff40bb` passed development remote preflight without environment mutation. `origin/develop` merge `6e257b17cb96948c592a02a602f7e41494cb3f64` deployed to development; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801221451-6e257b17cb96`, rollback image `kferp-orderapp-rollback:development-20260801221451-6e257b17cb96`, external login smoke HTTP 200. Development miniapp fixed directory `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` verified 52 manifest files with backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801222026-6e257b17cb96`. Follow-up click fix feature `0c619ee76472b8d53ef5524c89801e8c6d589209` passed development remote preflight without mutation; merge `6b36639578d05c884bccbb7e9c24330c3b8d9a0a` deployed to development with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260802001425-6b36639578d0`, rollback image `kferp-orderapp-rollback:development-20260802001425-6b36639578d0`, fixed miniapp backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260802002008-6b36639578d0`, manifest 52 files, external login smoke HTTP 200, unauthenticated order API HTTP 401, healthy development database and application container. Production was not deployed or restarted.
+- Last update: 2026-08-02 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` still fails on its multiline awk string; PR-572 was manually reserved after `scripts/reserve_req_id.sh` returned PR-572.
 
 ### PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC
