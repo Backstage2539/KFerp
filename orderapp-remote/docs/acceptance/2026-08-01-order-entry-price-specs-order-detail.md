@@ -22,9 +22,16 @@
 - SQL 仅把不存在的 `oi.price_override` 更正为 `oi.price_overridden`；Go 字段和 JSON 名称不变。
 - 本需求没有新增用户写操作，不改变操作日志范围；验收不创建测试订单、不修改生产业务数据。
 
-## 待完成
+## 自动验收与交付证据
 
-- [ ] 支持合同、受影响/完整测试、前端构建和双环境远程预检。
-- [ ] 分支推送并合入 `develop`、`main`。
-- [ ] development、production 部署和认证后的已有订单详情只读冒烟。
-- [ ] 用户业务验收。
+- [x] 支持合同、受影响测试及完整门禁通过：Vue 854 项、miniapp 113 项、miniapp 类型检查与 development/production 构建、Go 全量测试、隔离 Docker 构建均为 GREEN。
+- [x] development 远程预检与部署通过，实际应用提交为 `34513324c909748a611c1c0915812486f38c0d85`；源码备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260801185634-34513324c909`，回滚镜像为 `kferp-orderapp-rollback:development-20260801185634-34513324c909`。
+- [x] development 认证只读冒烟通过：既有订单列表、`/api/orders/:id/detail` 和 `/api/order/form?edit_id=:id` 均返回 200，明细包含 `price_override`；新容器日志无旧列错误、`SQLSTATE 42703`、panic 或 fatal。
+- [x] `develop` 已合入；production 候选从最新 `main` 合入已验证 `develop`，生产配置远程预检通过后合入 `main`。
+- [x] production 部署通过，实际应用提交为 `5adb44b858f36b8d8b73435643fde8d4d636290e`；源码备份为 `/opt/stacks/erp-production/orderapp.backup.deploy-20260801192708-5adb44b858f3`，回滚镜像为 `kferp-orderapp-rollback:production-20260801192708-5adb44b858f3`。
+- [x] production 当前真实库订单与明细均为 0，无法做已有订单点击冒烟；为保持零写入，已在真实生产表验证仅存在 `price_overridden`、不存在 `price_override`，修正后的只读 SQL 可编译执行，空白录单 API 与需求合同返回 200，新容器日志无旧列错误、`SQLSTATE 42703`、panic 或 fatal。
+- [x] 两环境数据库均未重启；无数据库迁移、数据修复或测试订单写入。服务器发布不上传或发布微信小程序版本。
+
+## 待用户验收
+
+- [ ] 用户在 development/production 自行检查：录单仅显示当前价格表有价规格；有历史订单的环境点击订单名称可正常打开。
