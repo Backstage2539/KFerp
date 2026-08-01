@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM
 - Branch: codex/miniapp-customer-maintenance-drafts-20260801
 - Owner/session: Codex / 2026-08-01
-- Status: implementation and local full verification GREEN / independent review clean / develop-main integration pending
+- Status: merged to develop/main / development and production deployed / awaiting user business acceptance
 - Scope: 小程序员工端新增客户档案维护，销售只能维护本人负责客户、管理员可维护全部客户；录单选择客户后可快捷维护；录单支持服务器草稿和一单多商品明细。
 - DEV:
   - DEV-569-CUSTOMER-PERMISSION：新增小程序客户新增/编辑 API，后端强制校验负责人范围，管理员可编辑和分配全部客户。
@@ -23,7 +23,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: miniapp 19 files / 113 tests, `vue-tsc --noEmit` and environment-gated development/production `uni build -p mp-weixin` GREEN; Vue shell 853 tests and production build GREEN.
   - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; OP_MANUAL_ORDER_SALES.md; OP_MANUAL_CUSTOMER_FULFILLMENT.md.
   - Review/acceptance: independent backend/frontend/docs reviews have no open P0-P2; orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md.
-- Deployment: develop/main integration and development/production deployment pending; user will perform business acceptance after deployment.
+- Deployment: feature `05828bc3b448dd97fdd8006c20f704b43b040936` passed development/production remote preflight without mutating either environment. `origin/develop` application commit `fb792ead8db7fb6d985ea9d0dc3655a240e3836f` was deployed to development; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801172738-fb792ead8db7`, rollback image `kferp-orderapp-rollback:development-20260801172738-fb792ead8db7`, external smoke `https://dev.qacoohee.com/app/login` HTTP 200, development miniapp synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` with backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801173306-fb792ead8db7`. `origin/main` application commit `77477e3e8a9fc3d2116b1cf33e328c523538e61a` was deployed to production; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260801173547-77477e3e8a9f`, rollback image `kferp-orderapp-rollback:production-20260801173547-77477e3e8a9f`, external smoke `https://erp.qacoohee.com/app/login` HTTP 200, formal miniapp synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin` with backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260801174114-77477e3e8a9f`. Only the target application container was restarted in each deployment; databases, gateway, and the other environment were untouched. User will perform business acceptance; formal miniapp upload/review/publish remains a manual WeChat DevTools step.
 - Last update: 2026-08-01 Asia/Shanghai
 - Notes: 开始实施时 `scripts/reserve_req_id.sh` 返回 PR-568，但共享 `develop` 随后先合入另一项 PR-568；合并前重新检查后按当前下一编号顺延为 PR-569，避免需求与验收证据冲突。`--claim` 的既有 awk 多行错误仍未在本需求内处理。
 ### PR-568-MINIAPP-ENVIRONMENT-SEPARATION

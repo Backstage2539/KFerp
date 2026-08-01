@@ -38,5 +38,10 @@
 
 ## 交付与人工验收
 
-- 自动化实现、构建、develop/main 分支集成以及 development/production 部署由 PR-569 主任务统一补充。
+- 功能分支 `05828bc3b448dd97fdd8006c20f704b43b040936` 分别通过 development/production 远程预检；两次预检均未提升服务器源码、重启容器或替换固定小程序目录。
+- `origin/develop` 应用提交 `fb792ead8db7fb6d985ea9d0dc3655a240e3836f` 已部署 development。服务器源码备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260801172738-fb792ead8db7`，回滚镜像为 `kferp-orderapp-rollback:development-20260801172738-fb792ead8db7`；`https://dev.qacoohee.com/app/login` 严格外部冒烟返回 HTTP 200。
+- development 小程序包已同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，上一包备份为 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801173306-fb792ead8db7`。
+- `origin/main` 应用提交 `77477e3e8a9fc3d2116b1cf33e328c523538e61a` 已部署 production。服务器源码备份为 `/opt/stacks/erp-production/orderapp.backup.deploy-20260801173547-77477e3e8a9f`，回滚镜像为 `kferp-orderapp-rollback:production-20260801173547-77477e3e8a9f`；`https://erp.qacoohee.com/app/login` 严格外部冒烟返回 HTTP 200。
+- production 正式小程序包已同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，上一包备份为 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260801174114-77477e3e8a9f`。上传、微信审核和发布仍须在微信开发者工具中人工完成。
+- 两次发布均只重启目标应用容器；数据库、网关和另一环境未重启。本记录中的 HTTP 200 是部署脚本冒烟证据，不代替业务验收。
 - PR 保持待 Van 验收；本记录不代替销售/管理员权限、多商品草稿恢复和正式提交的人工验证。
