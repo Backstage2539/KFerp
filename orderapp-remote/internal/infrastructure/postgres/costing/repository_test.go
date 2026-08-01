@@ -1115,8 +1115,8 @@ func TestLoadProductInputsProjectsParentAuthoritativeDefaultSKU(t *testing.T) {
 	src := string(b)
 	for _, want := range []string{
 		"LEFT JOIN %[1]s.products parent_product",
-		"COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS default_sku_id",
-		"p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id) AS is_default_sku",
+		"COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id, 0) AS default_sku_id",
+		"COALESCE(p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id), false) AS is_default_sku",
 		"&input.DefaultSKUID",
 	} {
 		if !strings.Contains(src, want) {
@@ -1125,6 +1125,30 @@ func TestLoadProductInputsProjectsParentAuthoritativeDefaultSKU(t *testing.T) {
 	}
 	if strings.Contains(src, "(COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku") {
 		t.Fatalf("costing rows must not force every parent product to be the default SKU")
+	}
+}
+
+func TestLoadProductInputsCoalescesMissingDefaultSKUFlag(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	want := "COALESCE(p.id=COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id), false) AS is_default_sku"
+	if !strings.Contains(src, want) {
+		t.Fatalf("costing product input must scan a non-null default-SKU flag; missing %q", want)
+	}
+}
+
+func TestLoadProductInputsCoalescesMissingDefaultSKUID(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	want := "COALESCE(NULLIF(parent_product.default_sku_id,0), parent_product.id, 0) AS default_sku_id"
+	if !strings.Contains(src, want) {
+		t.Fatalf("costing product input must scan a non-null default-SKU ID; missing %q", want)
 	}
 }
 
