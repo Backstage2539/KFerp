@@ -898,7 +898,14 @@
 - [ ] 保存草稿不生成订单号，不写正式订单和订单明细，也不触发生产、库存、发货或财务。单次正式提交只生成一张订单，提交处理中前端禁用重复操作，创建成功后服务端清理当前员工草稿。
 - [ ] `DEV-569-AUDIT-DOCS-DELIVERY`：客户和草稿合法写操作进入操作日志；根目录与线上需求/验收、PR/DEV 种子、三份相关操作手册、总索引和本需求验收记录均已同步，自动化与部署证据见 `orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md`。
 
-### K43. 小程序 DevTools 自动预览产物完整性与项目刷新（PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC）
+### K43. 录单规格以价格表为准与订单详情恢复（PR-570-ORDER-ENTRY-PRICE-SPECS-ORDER-DETAIL）
+- [ ] `DEV-570-PRICE-TABLE-SPEC-SCOPE`：选定发布价格表后，含 100g/227g/454g 三个商品档案规格、但该表只给 100g 定价的商品，规格下拉和商品候选计数只显示一个 100g 可售规格；默认 227g 无价时自动选择 100g，不能显示或保存无价 227g/454g。
+- [ ] 切换价格表后当前 SKU 在新表无价时，页面保留父商品但清空规格与自动价，明确要求重新选择；数量低于起订量或落在价格档位空隙时仍保留该已发布规格，并由现有数量缺价提示阻止保存。
+- [ ] `DEV-570-ORDER-DETAIL-SCHEMA-COMPAT`：点击至少一张已有订单的订单号后详情接口返回 200，页面正常展示；`price_overridden=true` 的历史行仍向 API 输出 `price_override:true`，日志中不再出现 `column oi.price_override does not exist`。数据库没有新增 `price_override` 列，订单数据未被改写。
+- [ ] `DEV-570-HISTORY-DOCS-DELIVERY`：历史订单中当前价格表已无的冻结规格仍以只读历史规格显示；复制同一订单时按当前价格表清空无价规格并要求重选。根目录/线上需求验收、PR/DEV 种子、销售手册和验收记录已同步。
+- [ ] 定向测试、Vue/Go 受影响套件、支持合同、远程 development/production 预检、双分支合并与双环境发布通过；两个域名均完成认证后的只读订单详情/API/静态与日志冒烟，全程不创建测试订单，证据见 `orderapp-remote/docs/acceptance/2026-08-01-order-entry-price-specs-order-detail.md`。
+
+### K44. 小程序 DevTools 自动预览产物完整性与项目刷新（PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC）
 - [ ] 构造 `app.json` 声明 `pages/employee-customers/employee-customers` 但删除对应 `.js` 时，服务器构建校验和下载端 `PAGE_FILE_MANIFEST` 复验都明确失败并报告缺失路径；补齐 `.js/.json/.wxml/.wxss` 后通过。
 - [ ] development 和 production 固定包的全部主包/分包页面均通过四类文件闭包校验，`RELEASE_INFO` 的环境、API 地址和提交与目标分支一致。
 - [ ] 固定目录替换前继续保留同环境上一包，失败时不留下半包；发布完成输出明确要求已打开项目的 DevTools 关闭项目后重新导入固定目录。

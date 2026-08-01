@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestDev570MiniappArtifactValidationAndDevToolsRefreshContract(t *testing.T) {
+func TestDev571MiniappArtifactValidationAndDevToolsRefreshContract(t *testing.T) {
 	orderappRoot := findAncestorForTest(t, "go.mod")
 	workspaceRoot := filepath.Dir(orderappRoot)
 	deployScript := filepath.Join(workspaceRoot, "deploy_orderapp.sh")
@@ -244,9 +244,9 @@ exec /bin/mv "$@"
 	} {
 		contents := string(readOrderAppFileForTest(t, rel))
 		for _, marker := range []string{
-			"PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC",
-			"DEV-570-ARTIFACT-CLOSURE",
-			"DEV-570-DEVTOOLS-REFRESH",
+			"PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC",
+			"DEV-571-ARTIFACT-CLOSURE",
+			"DEV-571-DEVTOOLS-REFRESH",
 		} {
 			if !strings.Contains(contents, marker) {
 				t.Fatalf("%s missing %s", rel, marker)

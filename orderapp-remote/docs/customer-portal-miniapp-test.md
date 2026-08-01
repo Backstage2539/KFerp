@@ -84,11 +84,11 @@ API 地址由脚本强制按环境写入：development 为
 - `DEV-568-STORAGE-BOUNDARY`：令牌和豆单缓存按环境分区，首次升级可能需要重新登录。
 - `DEV-568-FIXED-ARTIFACTS`：开发/生产分别使用两个固定目录，且必须核对 `RELEASE_INFO`。
 
-### PR-570 DevTools 自动预览文件清单检查
+### PR-571 DevTools 自动预览文件清单检查
 
-- `PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC`：服务器构建时逐页校验并生成 `PAGE_FILE_MANIFEST`，固定包下载后按清单复验；目录替换后重新打开 DevTools 项目以重建预览/上传清单。
-- `DEV-570-ARTIFACT-CLOSURE`：`app.json` 声明的每个主包/分包页面都必须同时存在 `.js/.json/.wxml/.wxss`，缺一项即停止发布。
-- `DEV-570-DEVTOOLS-REFRESH`：若发布时项目已打开，关闭当前项目并重新导入对应固定目录；只清编译缓存不能替代重新导入。
+- `PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC`：服务器构建时逐页校验并生成 `PAGE_FILE_MANIFEST`，固定包下载后按清单复验；目录替换后重新打开 DevTools 项目以重建预览/上传清单。
+- `DEV-571-ARTIFACT-CLOSURE`：`app.json` 声明的每个主包/分包页面都必须同时存在 `.js/.json/.wxml/.wxss`，缺一项即停止发布。
+- `DEV-571-DEVTOOLS-REFRESH`：若发布时项目已打开，关闭当前项目并重新导入对应固定目录；只清编译缓存不能替代重新导入。
 
 ## 客户账号准备
 

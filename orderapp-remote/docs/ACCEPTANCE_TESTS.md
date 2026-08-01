@@ -1798,9 +1798,17 @@
 - [ ] 保存草稿不生成订单号，不写正式订单和订单明细，也不触发生产、库存、发货或财务。单次正式提交只生成一张订单，提交处理中前端禁用重复操作，创建成功后服务端清理当前员工草稿。
 - [ ] `DEV-569-AUDIT-DOCS-DELIVERY`：客户和草稿合法写操作进入操作日志；根目录与线上需求/验收、PR/DEV 种子、三份相关操作手册、总索引和本需求验收记录均已同步，自动化与部署证据见 `docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md`。
 
-# PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC 小程序 DevTools 自动预览产物完整性与项目刷新
+# PR-570-ORDER-ENTRY-PRICE-SPECS-ORDER-DETAIL 录单规格以价格表为准与订单详情恢复
 
-- [ ] `DEV-570-ARTIFACT-CLOSURE`：构造已声明但缺少 `.js` 的客户维护页产物时校验失败并明确报告路径；四类页面文件齐全时通过。服务器构建后解析 `app.json` 并生成 `PAGE_FILE_MANIFEST`，固定包下载后按该清单复验。
-- [ ] `DEV-570-DEVTOOLS-REFRESH`：开发、生产固定目录替换继续保留上一包；发布输出要求已打开项目的 DevTools 关闭并重新导入固定目录，不能仅清编译缓存后继续使用旧上传清单。
+- [ ] `DEV-570-PRICE-TABLE-SPEC-SCOPE`：选定发布价格表后，含 100g/227g/454g 三个商品档案规格、但该表只给 100g 定价的商品，规格下拉和商品候选计数只显示一个 100g 可售规格；默认 227g 无价时自动选择 100g，不能显示或保存无价 227g/454g。
+- [ ] 切换价格表后当前 SKU 在新表无价时，页面保留父商品但清空规格与自动价，明确要求重新选择；数量低于起订量或落在价格档位空隙时仍保留该已发布规格，并由现有数量缺价提示阻止保存。
+- [ ] `DEV-570-ORDER-DETAIL-SCHEMA-COMPAT`：点击至少一张已有订单的订单号后详情接口返回 200，页面正常展示；`price_overridden=true` 的历史行仍向 API 输出 `price_override:true`，日志中不再出现 `column oi.price_override does not exist`。数据库没有新增 `price_override` 列，订单数据未被改写。
+- [ ] `DEV-570-HISTORY-DOCS-DELIVERY`：历史订单中当前价格表已无的冻结规格仍以只读历史规格显示；复制同一订单时按当前价格表清空无价规格并要求重选。根目录/线上需求验收、PR/DEV 种子、销售手册和验收记录已同步。
+- [ ] 定向测试、Vue/Go 受影响套件、支持合同、远程 development/production 预检、双分支合并与双环境发布通过；两个域名均完成认证后的只读订单详情/API/静态与日志冒烟，全程不创建测试订单，证据见 `docs/acceptance/2026-08-01-order-entry-price-specs-order-detail.md`。
+
+# PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC 小程序 DevTools 自动预览产物完整性与项目刷新
+
+- [ ] `DEV-571-ARTIFACT-CLOSURE`：构造已声明但缺少 `.js` 的客户维护页产物时校验失败并明确报告路径；四类页面文件齐全时通过。服务器构建后解析 `app.json` 并生成 `PAGE_FILE_MANIFEST`，固定包下载后按该清单复验。
+- [ ] `DEV-571-DEVTOOLS-REFRESH`：开发、生产固定目录替换继续保留上一包；发布输出要求已打开项目的 DevTools 关闭并重新导入固定目录，不能仅清编译缓存后继续使用旧上传清单。
 - [ ] 重新导入 production 固定目录后，自动预览上传清单包含 `pages/employee-customers/employee-customers.js`，不再出现 `800059 file not found`。
-- [ ] `DEV-570-DOCS-DELIVERY`：发布说明、测试说明和 `docs/acceptance/2026-08-01-miniapp-devtools-preview-sync.md` 已同步。本需求没有业务写操作或操作日志影响，微信上传/审核/发布仍为人工步骤。
+- [ ] `DEV-571-DOCS-DELIVERY`：发布说明、测试说明和 `docs/acceptance/2026-08-01-miniapp-devtools-preview-sync.md` 已同步。本需求没有业务写操作或操作日志影响，微信上传/审核/发布仍为人工步骤。

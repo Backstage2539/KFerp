@@ -1,4 +1,4 @@
-# PR-570-MINIAPP-DEVTOOLS-PREVIEW-SYNC 验收记录
+# PR-571-MINIAPP-DEVTOOLS-PREVIEW-SYNC 验收记录
 
 ## 复现与根因
 
@@ -8,16 +8,16 @@
 
 ## 修复
 
-- `DEV-570-ARTIFACT-CLOSURE`：服务器构建后解析主包及分包页面，逐页检查四类生成文件并生成 `PAGE_FILE_MANIFEST`；固定包下载后由不依赖 Node 的 shell 校验器按清单复验全部页面文件。
-- `DEV-570-DEVTOOLS-REFRESH`：保留完整目录替换和上一包备份，避免逐文件更新产生半包；部署完成明确提示已打开项目关闭并重新导入固定目录，只清编译缓存不作为恢复步骤。
-- `DEV-570-DOCS-DELIVERY`：需求、验收、PR/DEV 种子、发布说明和小程序测试说明同步。没有业务数据或操作日志影响。
+- `DEV-571-ARTIFACT-CLOSURE`：服务器构建后解析主包及分包页面，逐页检查四类生成文件并生成 `PAGE_FILE_MANIFEST`；固定包下载后由不依赖 Node 的 shell 校验器按清单复验全部页面文件。
+- `DEV-571-DEVTOOLS-REFRESH`：保留完整目录替换和上一包备份，避免逐文件更新产生半包；部署完成明确提示已打开项目关闭并重新导入固定目录，只清编译缓存不作为恢复步骤。
+- `DEV-571-DOCS-DELIVERY`：需求、验收、PR/DEV 种子、发布说明和小程序测试说明同步。没有业务数据或操作日志影响。
 
 ## TDD 证据
 
-- RED：实现前测试名为 `TestDev570MiniappArtifactValidationAndWatcherSafeSync`，随后根据独立复核把范围收敛并更名为 `TestDev570MiniappArtifactValidationAndDevToolsRefreshContract`。
+- RED：实现前测试名为 `TestDev570MiniappArtifactValidationAndWatcherSafeSync`，随后根据独立复核把最终需求编号顺延为 571，并把范围收敛为 `TestDev571MiniappArtifactValidationAndDevToolsRefreshContract`。
   - 当时命令：`go test ./internal/interfaces/http/support -run TestDev570MiniappArtifactValidationAndWatcherSafeSync -count=1`。
   - 当时结果：失败，明确报告缺少 `scripts/verify_mp_weixin_artifact.mjs`，证明发布流程没有逐页产物闭包门禁；测试更名原因和最终 GREEN 命令保留在下一项，避免把当前“无测试匹配”误当作 RED。
-- GREEN：`go test ./internal/interfaces/http/support -run TestDev570MiniappArtifactValidationAndDevToolsRefreshContract -count=1`
+- GREEN：`go test ./internal/interfaces/http/support -run TestDev571MiniappArtifactValidationAndDevToolsRefreshContract -count=1`
   - 结果：通过。完整客户维护页产物通过；删除 `pages/employee-customers/employee-customers.js` 后校验失败并明确报告该路径；发布脚本同时包含远程构建后、下载后校验及重开项目提示。
 
 ## 发布与人工验收
