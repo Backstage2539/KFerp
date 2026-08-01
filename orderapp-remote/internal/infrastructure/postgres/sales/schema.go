@@ -62,6 +62,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOrderInvoiceTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureEmployeeOrderDraftTable(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureOrderStockDecisionTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -69,6 +72,20 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		return err
 	}
 	return ensureExternalShareResourceTables(ctx, pool, schema)
+}
+
+func ensureEmployeeOrderDraftTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s.employee_order_drafts (
+			id BIGSERIAL PRIMARY KEY,
+			employee_id BIGINT NOT NULL REFERENCES %s.company_employees(id) ON DELETE CASCADE,
+			payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE(employee_id)
+		)
+	`, schema, schema))
+	return err
 }
 
 func ensureOrderBeanListColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {

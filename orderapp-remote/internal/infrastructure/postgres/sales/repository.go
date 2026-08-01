@@ -1878,6 +1878,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if err := r.applyOrderStockDecisionTx(ctx, tx, orderID, stockItems, stockDecision, cmd.Actor); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
+	if cmd.DraftEmployeeID > 0 {
+		if _, err := deleteEmployeeOrderDraftTx(ctx, tx, r.schema, cmd.DraftEmployeeID, cmd.Actor, "order_submitted"); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.SaveOrderResult{}, err

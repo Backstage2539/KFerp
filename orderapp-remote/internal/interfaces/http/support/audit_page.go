@@ -47,8 +47,8 @@ func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from
 		arg++
 	}
 	if strings.TrimSpace(q) != "" {
-		// search in actor, action, field, old/new, and meta text
-		w = append(w, fmt.Sprintf("(actor ILIKE $%d OR action ILIKE $%d OR COALESCE(field,'') ILIKE $%d OR COALESCE(old_value,'') ILIKE $%d OR COALESCE(new_value,'') ILIKE $%d OR COALESCE(meta::text,'') ILIKE $%d)", arg, arg, arg, arg, arg, arg))
+		// search in business object type, actor, action, field, old/new, and meta text
+		w = append(w, fmt.Sprintf("(entity_type ILIKE $%d OR actor ILIKE $%d OR action ILIKE $%d OR COALESCE(field,'') ILIKE $%d OR COALESCE(old_value,'') ILIKE $%d OR COALESCE(new_value,'') ILIKE $%d OR COALESCE(meta::text,'') ILIKE $%d)", arg, arg, arg, arg, arg, arg, arg))
 		args = append(args, "%"+q+"%")
 		arg++
 	}
@@ -218,6 +218,11 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 			return "订单销售 / 客户档案", "维护客户附件"
 		}
 		return "订单销售 / 客户档案", "编辑客户档案"
+	case "employee_order_draft":
+		if action == "delete" {
+			return "订单销售 / 录单", "清除订单草稿"
+		}
+		return "订单销售 / 录单", "保存订单草稿"
 	case "view_context_preset":
 		switch action {
 		case "disable_view_context_preset":
@@ -599,6 +604,13 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 		actor = "unknown"
 	}
 	menuName := leafMenuName(r.Menu)
+	if rawEntityType == "employee_order_draft" {
+		target := auditTargetName(r, rawEntityType)
+		if rawAction == "delete" {
+			return fmt.Sprintf("%s 在%s清除了%s", actor, menuName, target)
+		}
+		return fmt.Sprintf("%s 在%s保存了%s", actor, menuName, target)
+	}
 	switch rawAction {
 	case "request":
 		status := ""
@@ -693,6 +705,11 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(firstMetaText(meta, "company_name", "name"), valueForField(r, "company_name"))
 	case "customer", "product", "material":
 		return firstMetaText(meta, "name", "code")
+	case "employee_order_draft":
+		if employeeID := firstMetaText(meta, "employee_id"); employeeID != "" {
+			return "员工 " + employeeID
+		}
+		return ""
 	case "customer_asset", "sales_order_asset":
 		return firstNonEmpty(firstMetaText(meta, "kind", "asset_id"), valueForField(r, "kind"))
 	case "sales_order_payment_code":
@@ -883,6 +900,8 @@ func labelEntityType(t string) string {
 		return "客户"
 	case "customer_asset":
 		return "客户附件"
+	case "employee_order_draft":
+		return "订单草稿"
 	case "view_context_preset":
 		return "保存视图"
 	case "company_profile":
@@ -1009,6 +1028,8 @@ func labelField(f string) string {
 		return "发货状态"
 	case "notes":
 		return "备注"
+	case "payload":
+		return "草稿内容"
 	case "created":
 		return "创建"
 	case "header":

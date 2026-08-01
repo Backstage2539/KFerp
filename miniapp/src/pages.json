@@ -65,6 +65,13 @@
       "style": {
         "navigationBarTitleText": "查看订单"
       }
+    },
+    {
+      "path": "pages/employee-customers/employee-customers",
+      "style": {
+        "navigationBarTitleText": "客户维护",
+        "enablePullDownRefresh": true
+      }
     }
   ],
   "globalStyle": {

@@ -598,6 +598,11 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			phone TEXT NOT NULL DEFAULT '',
 			address TEXT NOT NULL DEFAULT ''
 		)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.company_employees (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			active BOOLEAN NOT NULL DEFAULT true
+		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.company_profile (
 			id INTEGER PRIMARY KEY DEFAULT 1,
 			company_name TEXT NOT NULL DEFAULT '',
