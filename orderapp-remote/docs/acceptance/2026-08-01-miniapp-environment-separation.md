@@ -28,11 +28,13 @@
 - GREEN release contract：`go test ./internal/interfaces/http/support -run TestDev568MiniappEnvironmentSeparationContract -count=1` 与完整 support 包测试通过；`bash -n deploy_orderapp.sh`、`bash -n scripts/remote_orderapp_release.sh`、`git diff --check` 通过。
 - GREEN remote development preflight：功能提交 `1a3d4c4f329963c3e28c44f03a92af23a7457181` 通过 Vue 852 项测试/构建、小程序 97 项测试/类型检查/development 包构建、完整 Go 测试与隔离 Docker 构建；产物只含开发 API 地址。未提升源码、重启容器或同步固定目录。
 - GREEN remote production preflight：同一功能提交通过 production 包构建及相同完整门禁；产物只含生产 API 地址。未部署 production、未重启生产容器、未覆盖正式小程序目录。
-- development 集成部署与开发固定目录只读验收：待合入 `develop` 后执行。
+- GREEN development 集成部署：功能分支经合并提交进入 `develop`，部署修正提交 `a939a85249f6fced320d756663243bfdf44e2180` 完整通过 Vue 852 项测试/构建、小程序 97 项测试/类型检查/development 构建、完整 Go 测试、Docker 构建与严格 TLS smoke；`https://dev.qacoohee.com/app/login` 返回 200。
+- GREEN development 发布后验收：开发 `RELEASE_INFO` 精确匹配提交、`environment=development` 和 `api_base=https://dev.qacoohee.com/app`；固定开发包只含开发 API 地址、`urlCheck=true`，11 个页面均引用开发环境标识；认证需求 API 返回 200 且包含 PR-568，开发应用启动后日志 `panic/fatal` 命中 0。
+- GREEN production 隔离验收：生产应用与数据库仍运行，启动时间早于本次开发发布；生产 `RELEASE_INFO` 仍为 `3250dd2c586d2cb987f69ebd92a8cb852a25a3c5`、`environment=production`、`api_base=https://erp.qacoohee.com/app`，生产源码及正式固定包均未写入 PR-568。
 
 ## 部署与环境边界
 
-- 目标：合入 `develop` 并部署 development。
+- 状态：已合入 `develop` 并部署 development。
 - development 固定小程序目录：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`。
 - production 固定小程序目录：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，本需求不部署、不覆盖。
 - 微信开发者工具的预览、上传、体验版及正式发布均需人工确认，脚本不代替微信平台操作。
