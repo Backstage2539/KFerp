@@ -310,7 +310,7 @@ sync_miniapp_artifact() {
     return 1
   fi
   rm -rf "$incoming_root"
-  echo "Production mp-weixin artifact synced to: $target_dir"
+  echo "$TARGET_ENV mp-weixin artifact synced to: $target_dir"
   if [ -n "$backup_dir" ]; then
     echo "Previous mp-weixin artifact retained at: $backup_dir"
   fi
