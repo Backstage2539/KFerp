@@ -7,18 +7,29 @@ export type DownloadFailureMessage = {
   content?: string
 }
 
-export function downloadFailureMessage(errMsg = ''): DownloadFailureMessage {
+function apiOrigin(apiBase: string): string {
+  const match = String(apiBase || '').trim().match(/^(https?:\/\/[^/]+)/i)
+  return match?.[1] || '当前小程序接口域名'
+}
+
+export function downloadFailureMessage(errMsg = '', apiBase = ''): DownloadFailureMessage {
   if (/downloadFile.*合法域名|不在以下 downloadFile 合法域名列表|url not in domain list|domain list/i.test(errMsg)) {
     return {
       title: '下载域名未配置',
-      content: '请在微信后台把 https://erp.qacoohee.com 加入 downloadFile 合法域名；开发者工具可在详情中关闭合法域名校验后重试。',
+      content: `请在微信公众平台把 ${apiOrigin(apiBase)} 加入 downloadFile 合法域名后重试。`,
     }
   }
   return { title: '文件下载失败' }
 }
 
 export function showDownloadFailure(err?: UniNamespace.GeneralCallbackResult) {
-  const message = downloadFailureMessage(err?.errMsg || '')
+  let apiBase = ''
+  try {
+    apiBase = buildAPIURL('/').replace(/\/$/, '')
+  } catch {
+    // Environment errors are reported by the request guard; keep this modal concise.
+  }
+  const message = downloadFailureMessage(err?.errMsg || '', apiBase)
   if (message.content) {
     uni.showModal({
       title: message.title,
@@ -37,9 +48,21 @@ export function openMiniappFileOutput(options: {
   loadingTitle?: string
 }): Promise<void> {
   return new Promise((resolve) => {
+    let url = ''
+    try {
+      url = buildAPIURL(options.path)
+    } catch (cause) {
+      uni.showModal({
+        title: '小程序环境错误',
+        content: cause instanceof Error ? cause.message : '小程序环境配置错误',
+        showCancel: false,
+      })
+      resolve()
+      return
+    }
     uni.showLoading({ title: options.loadingTitle || '生成中' })
     uni.downloadFile({
-      url: buildAPIURL(options.path),
+      url,
       header: { Authorization: `Bearer ${options.token}` },
       success: (res) => {
         if (res.statusCode !== 200 || !res.tempFilePath) {

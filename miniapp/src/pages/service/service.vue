@@ -34,6 +34,7 @@ import {
   updateCustomerProductCategory,
 } from '../../api/customerPortal'
 import { buildAPIURL } from '../../api/client'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
@@ -930,6 +931,7 @@ onShow(() => {
 
 <template>
   <view class="page" :class="themeClass">
+    <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">{{ title }}</text>

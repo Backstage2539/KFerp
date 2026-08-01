@@ -108,9 +108,12 @@ flowchart LR
 ## 小程序版本更新与导入
 
 - 服务器发布与微信小程序包发布是两条独立链路。ERP development/production 部署成功，不代表微信中的小程序已经更新。
-- 微信开发者工具固定导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，不要再导入 PR 临时 worktree 或旧 `miniapp/dist` 目录。
-- 正式服务器构建完成后，发布流程会把 production `mp-weixin` 产物同步到固定目录。开发者工具应清理缓存并重新编译，再做预览、上传、审核和正式发布。
-- 上传前核对固定目录中的接口地址为 `https://erp.qacoohee.com/app`，并记录上一正式版本、本次上传版本和对应服务器提交，便于服务器与微信版本分别回滚。
+- `DEV-568-FIXED-ARTIFACTS`：开发联调固定导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；正式上传固定导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。不要导入 PR 临时 worktree、旧 `miniapp/dist` 或另一环境目录。
+- `DEV-568-CLIENT-ENVIRONMENT-GUARD`：开发包所有页面显示“开发环境 · 测试数据”。如果看到“开发包禁止正式使用”，说明 development 包被放进了微信正式版，客户端已经阻断请求；应立即撤回并上传 production 固定目录中的包。
+- `DEV-568-STORAGE-BOUNDARY`：开发版和正式版分别保存登录令牌与豆单缓存。升级到本版本后旧的无环境登录令牌不会迁移，首次进入时需要重新登录一次，这是正常的安全隔离。
+- 上传或预览前打开固定目录的 `RELEASE_INFO`：开发包应为 `environment=development`、`api_base=https://dev.qacoohee.com/app`；正式包应为 `environment=production`、`api_base=https://erp.qacoohee.com/app`。同时核对 commit 与目标分支提交一致。
+- 小程序默认开启域名校验。两个域名都必须同时配置为微信公众平台的 `request` 和 `downloadFile` 合法域名；不把关闭校验作为日常联调或发布方式。
+- 本节对应 `PR-568-MINIAPP-ENVIRONMENT-SEPARATION`，部署完成后仍需在微信开发者工具人工预览/上传，正式版还需在微信公众平台审核发布。
 
 ## 数据影响
 
@@ -122,6 +125,6 @@ flowchart LR
 ## 构建与微信发布
 
 1. 开发和生产发布统一从仓库根目录运行 `deploy_orderapp.sh`。Mac 只传输已提交源码；npm、Go、Vue/UniApp 和 Docker 的重型测试与构建均在服务器加锁后串行执行。
-2. 生产脚本会把正式 `mp-weixin` 产物同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。微信开发者工具必须导入这个固定目录，不再使用临时 worktree 或历史 `miniapp/dist/build/mp-weixin`。
-3. 导入后清理缓存并编译，确认请求地址为 `https://erp.qacoohee.com/app`。
-4. 服务器部署成功不会自动更新微信版本。必须在微信开发者工具上传，然后到微信公众平台提交审核并发布；记录本次服务器提交、小程序新旧版本号和回滚点。
+2. development 脚本把开发包同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，production 脚本把正式包同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
+3. 导入后清理缓存并编译，按 `RELEASE_INFO` 核对环境、接口地址和提交；开发版还应看到持续环境标识。
+4. 服务器部署成功不会自动更新微信版本。开发包可人工预览或上传开发/体验版本；production 包才可提交审核和发布，并记录小程序新旧版本号和回滚点。

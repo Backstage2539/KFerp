@@ -1,4 +1,5 @@
 import type { BeanListSummary } from '../api/customerPortal'
+import { configuredMiniappEnvironment, type MiniappBuildEnvironment } from '../config/environment'
 
 export type BeanListPageCacheRecord = {
   publication_id: number
@@ -11,8 +12,12 @@ export type BeanListPageCacheRecord = {
 
 export type BeanListPageCacheable = Pick<BeanListSummary, 'id' | 'list_type' | 'version_no' | 'cache_key'>
 
-export function beanListPageCacheStorageKey(customerID: number, item: BeanListPageCacheable): string {
-  return `kferp:bean-list-page:${customerID || 0}:${item.list_type || 'default'}`
+export function beanListPageCacheStorageKey(
+  customerID: number,
+  item: BeanListPageCacheable,
+  environment: MiniappBuildEnvironment = configuredMiniappEnvironment().environment,
+): string {
+  return `kferp:${environment}:bean-list-page:${customerID || 0}:${item.list_type || 'default'}`
 }
 
 export function beanListPageCacheChanged(cached: BeanListPageCacheRecord | null | undefined, item: BeanListPageCacheable): boolean {

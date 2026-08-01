@@ -1778,6 +1778,14 @@
 - [x] 同样严格探测 `erp.qacoohee.com` 通过，且开发/生产响应分别来自 `erp_orderapp` 与 `erp_prod_orderapp`，没有跨环境串流。
 - [x] 定向 Go 合同、Shell 语法、功能分支远程预检、development 发布和双环境只读冒烟通过；证据记录在 `docs/acceptance/2026-08-01-development-public-domain.md`。
 
+# PR-568-MINIAPP-ENVIRONMENT-SEPARATION 小程序开发/生产环境隔离与防误发
+
+- [ ] `DEV-568-CLIENT-ENVIRONMENT-GUARD`：构建门禁要求 `VITE_KFERP_ENVIRONMENT` 与 `VITE_KFERP_API_BASE` 成对匹配；缺失、未知环境或地址不匹配均失败，不存在生产默认回退。development 包只含开发 API 地址、全页面显示开发标识，并在微信正式版运行时阻断请求；production 包只含生产 API 地址且不显示开发标识。
+- [ ] `DEV-568-STORAGE-BOUNDARY`：登录令牌和豆单缓存键按环境分区，旧无环境令牌不迁移，开发与生产认证状态和缓存不能串用。
+- [ ] `DEV-568-FIXED-ARTIFACTS`：development/production 产物分别同步到两个固定目录，同步前严格校验 `RELEASE_INFO`，原子替换并保留同环境上一版本。
+- [ ] `DEV-568-DOCS-ACCEPTANCE`：`urlCheck` 默认启用；下载域名提示使用当前包 API 域名且不建议关闭校验，手册和验收证据同步。
+- [ ] 两套服务器的 AppID/AppSecret 配置存在且 AppID 相同；定向测试、类型检查、双环境远程预检、development 部署和只读冒烟证据记录在 `docs/acceptance/2026-08-01-miniapp-environment-separation.md`，production 未部署。
+
 # PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM 小程序客户维护、多商品录单与订单草稿
 
 - [ ] `DEV-569-CUSTOMER-PERMISSION`：销售新增客户时服务端忽略或拒绝伪造负责人并固定为当前员工；销售修改本人负责客户成功，修改其他员工负责客户或尝试改派负责人返回 403，客户和操作日志均无越权写入。

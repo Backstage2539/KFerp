@@ -878,6 +878,15 @@
 - [x] `DEV-567-DEPLOYMENT-GUARD`：入口更新有校验、备份、热加载和失败恢复，生产应用和数据库未重启。
 - [x] 功能分支预检、development 部署、严格 TLS 双域名烟测和证据文档全部通过。
 
+### K41. 小程序开发/生产环境隔离与防误发（PR-568-MINIAPP-ENVIRONMENT-SEPARATION）
+- [ ] 缺少构建环境或 API 地址、环境与地址不匹配时，小程序构建门禁失败；普通本地构建不会静默回退到生产地址。
+- [ ] development 构建只包含 `https://dev.qacoohee.com/app`，所有页面显示“开发环境 · 测试数据”；development 包处于微信 `release` 正式版本时 API 请求被明确阻断。
+- [ ] production 构建只包含 `https://erp.qacoohee.com/app`，不显示开发环境标识，既有 production 固定目录和发布人工确认流程保持不变。
+- [ ] 登录令牌、豆单缓存键包含 development/production 环境命名空间，旧 `kferp.mini.token` 不会自动迁入任一环境。
+- [ ] development 部署把通过 `RELEASE_INFO` 校验的产物原子同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；production 仍同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，两者不会互相覆盖。
+- [ ] 小程序工程开启合法域名校验；下载域名错误按当前包显示 `dev.qacoohee.com` 或 `erp.qacoohee.com`，不再提示关闭校验。
+- [ ] 两套服务器微信参数均已配置且使用同一 AppID；定向小程序测试、类型检查、双环境远程预检、development 部署和开发包静态/API 冒烟通过，production 未部署。
+
 ### K42. 小程序客户维护、多商品录单与订单草稿（PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM）
 - [ ] `DEV-569-CUSTOMER-PERMISSION`：销售新增客户时服务端忽略或拒绝伪造负责人并固定为当前员工；销售修改本人负责客户成功，修改其他员工负责客户或尝试改派负责人返回 403，客户和操作日志均无越权写入。
 - [ ] 管理员可以新增、修改任意客户并调整负责人；管理员改派后，原销售立即失去该客户修改权，新负责人获得修改权。合法客户新增、字段修改和负责人变更均能在操作日志按客户和操作人查到。

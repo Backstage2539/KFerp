@@ -9,6 +9,7 @@ import {
   type CustomerPriceTableGroup,
   type CustomerProductSummary,
 } from '../../api/customerPortal'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import { openMiniappFileOutput } from '../../utils/fileOutput'
@@ -74,6 +75,7 @@ onShow(() => {
 
 <template>
   <view class="page" :class="themeClass">
+    <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">客户商品</text>
       <text class="title">我的商品</text>

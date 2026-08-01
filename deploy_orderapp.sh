@@ -15,7 +15,8 @@ set -euo pipefail
 # Optional environment variables:
 #   KFERP_SSH_KEY=/absolute/key          # otherwise use SSH agent/default keys
 #   KFERP_MINIAPP_EXPORT_DIR=/path       # production artifact destination
-#   KFERP_SKIP_MINIAPP_EXPORT=1          # do not pull production mp-weixin
+#   KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/path  # development artifact destination
+#   KFERP_SKIP_MINIAPP_EXPORT=1          # do not pull the target mp-weixin artifact
 
 # Remote helper contract and source-level regression markers. The commands run
 # in scripts/remote_orderapp_release.sh, never on the Mac:
@@ -236,16 +237,21 @@ external_smoke() {
   return 1
 }
 
-sync_production_miniapp() {
-  local target_dir="${KFERP_MINIAPP_EXPORT_DIR:-/Users/yiiiple-work/KFerp-miniapp-mp-weixin}"
+sync_miniapp_artifact() {
+  local target_dir=""
+  case "$TARGET_ENV" in
+    development ) target_dir="${KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR:-/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev}" ;;
+    production ) target_dir="${KFERP_MINIAPP_EXPORT_DIR:-/Users/yiiiple-work/KFerp-miniapp-mp-weixin}" ;;
+  esac
   local target_parent
   local incoming_root
   local incoming_dir
   local replaced_dir=""
   local backup_dir=""
 
-  case "$target_dir" in
-    /*/KFerp-miniapp-mp-weixin ) ;;
+  case "$TARGET_ENV:$target_dir" in
+    development:/*/KFerp-miniapp-mp-weixin-dev ) ;;
+    production:/*/KFerp-miniapp-mp-weixin ) ;;
     * ) echo "ERROR: refusing unexpected miniapp export target: $target_dir" >&2; return 1 ;;
   esac
   target_parent="$(dirname "$target_dir")"
@@ -266,7 +272,7 @@ sync_production_miniapp() {
 
   if ! ssh "${SSH_ARGS[@]}" "$SERVER" "$artifact_check" | tar -C "$incoming_dir" -xf -; then
     rm -rf "$incoming_root"
-    echo "ERROR: could not download the production mp-weixin artifact" >&2
+    echo "ERROR: could not download the $TARGET_ENV mp-weixin artifact" >&2
     return 1
   fi
   if [ ! -f "$incoming_dir/app.json" ] || \
@@ -278,7 +284,7 @@ sync_production_miniapp() {
     return 1
   fi
   if ! grep -Fxq "commit=$REMOTE_HEAD" "$incoming_dir/RELEASE_INFO" || \
-     ! grep -Fxq "environment=production" "$incoming_dir/RELEASE_INFO" || \
+     ! grep -Fxq "environment=$TARGET_ENV" "$incoming_dir/RELEASE_INFO" || \
      ! grep -Fxq "api_base=$API_BASE" "$incoming_dir/RELEASE_INFO"; then
     rm -rf "$incoming_root"
     echo "ERROR: downloaded mp-weixin RELEASE_INFO does not match this production release" >&2
@@ -304,7 +310,7 @@ sync_production_miniapp() {
     return 1
   fi
   rm -rf "$incoming_root"
-  echo "Production mp-weixin artifact synced to: $target_dir"
+  echo "$TARGET_ENV mp-weixin artifact synced to: $target_dir"
   if [ -n "$backup_dir" ]; then
     echo "Previous mp-weixin artifact retained at: $backup_dir"
   fi
@@ -314,8 +320,8 @@ if [ "$PREFLIGHT" -eq 0 ]; then
   external_smoke
 fi
 
-if [ "$PREFLIGHT" -eq 0 ] && [ "$TARGET_ENV" = "production" ] && [ "${KFERP_SKIP_MINIAPP_EXPORT:-0}" != "1" ]; then
-  sync_production_miniapp
+if [ "$PREFLIGHT" -eq 0 ] && [ "${KFERP_SKIP_MINIAPP_EXPORT:-0}" != "1" ]; then
+  sync_miniapp_artifact
 fi
 
 if [ "$PREFLIGHT" -eq 1 ]; then
@@ -330,4 +336,7 @@ echo "Server source: $SERVER:$APP_DIR"
 if [ "$TARGET_ENV" = "production" ]; then
   echo "NOTICE: server deployment does not upload or publish a WeChat Mini Program version."
   echo "Import /Users/yiiiple-work/KFerp-miniapp-mp-weixin into WeChat DevTools, then upload/review/publish separately."
+else
+  echo "NOTICE: server deployment does not upload a WeChat Mini Program development or trial version."
+  echo "Import /Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev into WeChat DevTools, then preview or upload separately."
 fi

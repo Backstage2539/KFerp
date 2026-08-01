@@ -15,6 +15,7 @@ import {
   type ResaleBeanListPage,
   type ResaleGradientTemplate,
 } from '../../api/customerPortal'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import {
@@ -353,6 +354,7 @@ onShow(() => {
 
 <template>
   <view class="page" :class="themeClass">
+    <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">我的价格表设置</text>
       <text class="title">价格表设置</text>

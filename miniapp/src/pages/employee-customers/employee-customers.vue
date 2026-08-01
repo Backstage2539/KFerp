@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
+import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import {
   fetchEmployeeCustomers,
   type EmployeeCustomer,
@@ -124,6 +125,7 @@ onPullDownRefresh(reloadCustomers)
 
 <template>
   <view class="page">
+    <EnvironmentBadge />
     <view class="head">
       <view>
         <text class="title">客户维护</text>

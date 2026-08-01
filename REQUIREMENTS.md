@@ -712,6 +712,14 @@
 - `DEV-567-PUBLIC-INGRESS`：唯一公网 Caddy 为两个域名申请公开证书，并分别转发到 `erp_orderapp:8080` 和 `erp_prod_orderapp:8080`；开发域名不再使用内部 CA。
 - `DEV-567-DEPLOYMENT-GUARD`：development 发布先校验、备份并热加载入口配置，失败时恢复；不重启生产应用和数据库，探针不得跳过 TLS 证书验证。
 
+## 41. 小程序开发/生产环境隔离与防误发（PR-568-MINIAPP-ENVIRONMENT-SEPARATION）
+- 同一个微信小程序 AppID 继续使用两套构建目标：development 包只连接 `https://dev.qacoohee.com/app`，production 包只连接 `https://erp.qacoohee.com/app`。构建时必须同时声明环境和 API 地址且严格匹配；缺失或不匹配时拒绝构建或请求，不得回退到生产地址。
+- development 包在所有页面持续显示“开发环境 · 测试数据”标识；如果 development 包被错误发布成微信正式版，所有 API 请求必须被阻断并提示重新上传 production 包，不能静默改连生产。
+- 同一 AppID 下的登录令牌和豆单页面缓存必须按 development/production 分区。升级后不读取旧的无环境令牌，避免开发包复用正式登录态或正式包复用开发缓存。
+- development 和 production 构建产物分别原子同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 与 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`；同步前校验 `RELEASE_INFO` 中的提交、环境和 API 地址，保留上一份同环境产物用于回滚。
+- 小程序工程默认开启合法域名校验。请求和文件下载错误必须提示当前构建所用域名，不再建议关闭校验；两个环境都需要在微信公众平台配置 `request` 和 `downloadFile` 合法域名。
+- 本需求不修改订单、客户、价格表、库存或其他业务数据，不部署 production。服务器部署与微信小程序上传仍是两条独立链路，微信开发者工具的上传、体验版、审核和正式发布继续由人工确认。
+
 ## 42. 小程序客户维护、多商品录单与订单草稿（PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM）
 - `DEV-569-CUSTOMER-PERMISSION`：员工小程序提供客户新增和编辑能力，并继续要求 `customers.read/customers.write`。销售新增客户时负责人由服务端固定为当前员工；销售只能修改 `responsible_employee_id` 为本人的客户，不能把客户改派给自己或他人。管理员可以修改全部客户资料并调整负责人。列表按钮和请求参数都不是权限边界，后端必须对客户 ID、当前负责人和角色重新校验，越权返回 403 且不写客户或操作日志；合法新增、修改和负责人变更必须写操作日志。
 - `DEV-569-ORDER-CUSTOMER-QUICK-EDIT`：录单选择客户后可在当前页面直接打开客户维护；有权员工保存后仍停留在本张订单并刷新当前客户展示、默认来源和默认订单类型。本单收货资料未手动修改时同步客户最新默认资料，已手动修改时必须让员工选择同步最新资料或保留本单快照。无权修改的销售可以继续按既有录单权限选择客户，但客户资料只读，直接调用保存接口仍被拒绝。

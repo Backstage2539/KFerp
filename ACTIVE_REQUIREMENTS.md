@@ -20,12 +20,31 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - Unit: full `go test ./... -count=1` GREEN; customer permission, employee draft repository/service, multi-item alias identity and draft serialization regressions included.
   - API: mini employee customer permission matrix, safe validation/internal-error boundary, customer option referential guard, customer/draft audit and multi-item order payload tests GREEN.
-  - Frontend/build: miniapp 17 files / 104 tests, `vue-tsc --noEmit` and `uni build -p mp-weixin` GREEN; Vue shell 853 tests and production build GREEN.
+  - Frontend/build: miniapp 19 files / 111 tests, `vue-tsc --noEmit` and environment-gated development/production `uni build -p mp-weixin` GREEN; Vue shell 853 tests and production build GREEN.
   - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; OP_MANUAL_ORDER_SALES.md; OP_MANUAL_CUSTOMER_FULFILLMENT.md.
   - Review/acceptance: independent backend/frontend/docs reviews have no open P0-P2; orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md.
 - Deployment: develop/main integration and development/production deployment pending; user will perform business acceptance after deployment.
 - Last update: 2026-08-01 Asia/Shanghai
 - Notes: 开始实施时 `scripts/reserve_req_id.sh` 返回 PR-568，但共享 `develop` 随后先合入另一项 PR-568；合并前重新检查后按当前下一编号顺延为 PR-569，避免需求与验收证据冲突。`--claim` 的既有 awk 多行错误仍未在本需求内处理。
+### PR-568-MINIAPP-ENVIRONMENT-SEPARATION
+- Branch: codex/miniapp-env-routing-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: merged to develop / development deployed / production untouched
+- Scope: 同一微信 AppID 下隔离 development/production API、令牌、缓存和固定构建目录；开发包显示环境标识并禁止误发正式版，缺失环境配置时不回退生产。
+- DEV:
+  - DEV-568-CLIENT-ENVIRONMENT-GUARD：构建环境与 API 地址显式绑定，开发包正式发布时阻断请求，开发页面显示环境标识，合法域名校验默认启用。
+  - DEV-568-STORAGE-BOUNDARY：登录令牌与豆单缓存按 development/production 分区，旧无环境令牌不迁移。
+  - DEV-568-FIXED-ARTIFACTS：开发和生产产物分别同步到固定目录，按提交、环境和 API 地址校验 `RELEASE_INFO` 后原子替换。
+  - DEV-568-DOCS-ACCEPTANCE：同步小程序测试/员工手册、部署说明、PR/DEV/UT/API/REV 和验收证据。
+- Verifier:
+  - RED/GREEN miniapp: 环境配置、正式版阻断、存储命名空间、动态下载域名、全页面开发标识。
+  - Release contract: shell/Go 合同覆盖双构建变量、单域名产物、双固定目录、`RELEASE_INFO` 和 `urlCheck`。
+  - Remote: feature branch 分别执行 development/production 隔离预检；合入 develop 后部署 development 并核对开发固定目录和只读 API。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; `DEPLOYMENT.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-01-miniapp-environment-separation.md`。
+- Deployment: development application and development mp-weixin artifact deployed from `a939a85249f6fced320d756663243bfdf44e2180`; production preflight only and explicitly not deployed
+- Last update: 2026-08-01 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim miniapp-env-routing` 因现有 awk 多行字符串错误失败，已按下一可用编号 PR-568 手工登记。服务器只读检查确认两套 AppID/AppSecret 均已配置且 AppID 相同；未读取或输出 Secret。功能提交 `1a3d4c4f` 分别通过 development/production 远程隔离预检；两次均未提升源码、重启容器或同步固定目录。最终开发部署的 Vue 852 项、小程序 97 项、类型检查、完整 Go 测试、Docker 构建和严格 TLS smoke 均通过；开发需求 API 返回 PR-568，固定开发包 `RELEASE_INFO`、单域名、`urlCheck=true` 和 11 页开发标识验收通过。生产容器、源码及正式固定包保持原版本 `3250dd2c`。
 
 ### PR-567-DEVELOPMENT-PUBLIC-DOMAIN
 - Branch: codex/dev-domain-20260801
