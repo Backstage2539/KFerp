@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
 - Branch: codex/miniapp-order-detail-share-20260801
 - Owner/session: Codex / 2026-08-01
-- Status: implemented / local GREEN / independent review complete / remote preflight pending
+- Status: merged to develop / development deployed / awaiting user miniapp acceptance
 - Scope: 小程序订单中心从概要列表进入完整订单详情，展示网页版订单详情已有的订单、客户、收货、商品、金额、物流、状态及来源信息；可导出销售单和发货单的 PDF/图片，并使用微信原生文件能力转发给客户；录单页“新增商品”按钮固定在商品明细列表末尾。
 - DEV:
   - DEV-572-EMPLOYEE-ORDER-DETAIL：新增员工订单完整详情接口和小程序独立详情页，管理员/销售范围由服务端校验。
@@ -21,10 +21,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Unit/API: `go test ./... -count=1`、customerportal/sales/support/应用/PDF/Postgres 定向套件 GREEN。
   - Frontend/build: miniapp Vitest 21 files / 129 tests、`vue-tsc --noEmit`、development mp-weixin build GREEN；新详情页四类产物齐全。
   - Output: 代表性出库单 PNG 为 2480×9440，长地址、36 行商品、长备注、页尾与留白视觉检查通过。
-  - Database integration: 本机缺少 `ORDERAPP_TEST_DATABASE_URL`，3 项文件回滚/成对资产用例按条件跳过；必须由 development 远程预检连接测试库补跑。
+  - Database integration: development 数据库唯一临时测试 schema 中 5 项文件回滚、成对 PDF/PNG、历史兼容和字段幂等用例全部通过；测试 schema 自动删除，真实订单数据未写入。
   - Manual: miniapp employee ERP、order-sales、总索引和联调手册已同步。
   - Review/acceptance: 两轮独立复核发现的鉴权状态透传、缺文件自愈、快递费文本、寄件人展示、图片下载路由与 Echo 路由冲突均已关闭；无开放 P0-P2。
-- Deployment: development pending; production not requested.
+- Deployment: feature `a543c2dd3412f2d49f9dde86b8dacce8c2ff40bb` passed development remote preflight without environment mutation. `origin/develop` merge `6e257b17cb96948c592a02a602f7e41494cb3f64` deployed to development; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260801221451-6e257b17cb96`, rollback image `kferp-orderapp-rollback:development-20260801221451-6e257b17cb96`, external login smoke HTTP 200. Development miniapp fixed directory `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` verified 52 manifest files with backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801222026-6e257b17cb96`. Production was not deployed or restarted.
 - Last update: 2026-08-01 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` still fails on its multiline awk string; PR-572 was manually reserved after `scripts/reserve_req_id.sh` returned PR-572.
 

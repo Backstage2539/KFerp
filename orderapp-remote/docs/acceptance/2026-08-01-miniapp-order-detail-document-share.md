@@ -14,7 +14,7 @@
 - `DEV-572-EMPLOYEE-ORDER-DOCUMENT-OUTPUT`：完成。
 - `DEV-572-MINIAPP-WECHAT-FILE-SHARE`：完成。
 - `DEV-572-ORDER-ENTRY-ADD-ITEM-POSITION`：完成。
-- `DEV-572-DOCS-ACCEPTANCE-DELIVERY`：完成，development 发布证据待本次集成后补齐。
+- `DEV-572-DOCS-ACCEPTANCE-DELIVERY`：完成，development 集成、发布和冒烟证据已补齐。
 
 ## TDD RED 证据
 
@@ -26,7 +26,7 @@
 
 - 后端定向：application sales、PDF、Postgres sales、customerportal HTTP、sales HTTP 与 support 合同均通过。
 - 后端完整：`cd orderapp-remote && go test ./... -count=1` 通过。
-- 本机未配置 `ORDERAPP_TEST_DATABASE_URL`，3 项数据库清理/成对资产集成用例按既有条件跳过；合并前 development 远程预检必须在测试数据库中实际运行并补齐证据。
+- 本机未配置 `ORDERAPP_TEST_DATABASE_URL` 时数据库集成用例按既有条件跳过；发布后使用 development 数据库中的唯一临时测试 schema 补跑 5 项文件回滚、PDF/PNG 成对资产、历史兼容和字段幂等用例，全部通过并自动删除测试 schema，未写真实订单数据。
 - 小程序：21 个 Vitest 文件、129 项测试全部通过；`npm run typecheck` 通过；`npm run build:mp-weixin:development` 通过。
 - 构建产物：`pages/employee-order-detail/employee-order-detail` 的 `.js/.json/.wxml/.wxss` 四文件齐全；构建产物包含订单跳转、四类文件路径、`wx.shareFileMessage`、`wx.showShareImageMenu` 及降级逻辑。“新增商品”在编译后的商品循环之后、订单合计之前且仅出现一次。
 - 视觉输出：`/tmp/kferp-delivery-note-pr572.png` 为 2480×9440 高清长图，已检查中文表头、长地址、36 行商品、长备注、签收栏和底部留白，无重叠、截断或分页裁切。
@@ -42,9 +42,13 @@
 ## 部署与冒烟
 
 - 功能分支：`codex/miniapp-order-detail-share-20260801`。
-- `origin/develop`：待合并。
-- development 部署：待执行。
-- production：未请求、不得部署。
+- 功能提交：`a543c2dd3412f2d49f9dde86b8dacce8c2ff40bb`，development 远程预检通过且未修改运行环境。
+- `origin/develop`：合并提交 `6e257b17cb96948c592a02a602f7e41494cb3f64`。
+- development：已部署上述 `origin/develop`；外部 `https://dev.qacoohee.com/app/login` 返回 HTTP 200，订单详情及四类单据 GET/POST 未登录请求统一返回 401，容器日志无 `panic/fatal/error`。
+- 数据库：正式 development schema 已存在 `delivery_note_documents.image_asset_id`；临时 schema 中 5 项 PostgreSQL 集成用例通过。
+- 开发小程序：52 个清单文件复验通过，`RELEASE_INFO` 为 development、API 为 `https://dev.qacoohee.com/app`、提交为 `6e257b17`；固定目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，上一版备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260801222026-6e257b17cb96`。
+- 回滚点：源码 `/opt/stacks/erp/orderapp.backup.deploy-20260801221451-6e257b17cb96`；镜像 `kferp-orderapp-rollback:development-20260801221451-6e257b17cb96`。
+- production：未部署；生产应用启动时间早于本次 development 切换且未重启。
 
 ## Van 验收清单
 
