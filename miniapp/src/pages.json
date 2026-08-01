@@ -67,6 +67,12 @@
       }
     },
     {
+      "path": "pages/employee-order-detail/employee-order-detail",
+      "style": {
+        "navigationBarTitleText": "订单详情"
+      }
+    },
+    {
       "path": "pages/employee-customers/employee-customers",
       "style": {
         "navigationBarTitleText": "客户维护",

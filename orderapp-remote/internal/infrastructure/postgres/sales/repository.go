@@ -26,6 +26,7 @@ type Repository struct {
 	assetDir                 string
 	renderer                 SalesOrderPDFRenderer
 	deliveryNoteRenderer     DeliveryNotePDFRenderer
+	deliveryNoteAssetWriter  func(path string, data []byte) error
 	combinedSalesRenderer    CombinedSalesOrderPDFRenderer
 	combinedDeliveryRenderer CombinedDeliveryNotePDFRenderer
 }
@@ -39,6 +40,7 @@ type SalesOrderPDFRenderer interface {
 type DeliveryNotePDFRenderer interface {
 	Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
 	RenderPreview(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
+	RenderPNG(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
 }
 
 type CombinedSalesOrderPDFRenderer interface {

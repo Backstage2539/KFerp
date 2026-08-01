@@ -247,28 +247,45 @@ func (r Repository) GenerateDeliveryNoteDocument(ctx context.Context, cmd salesa
 	if err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
-	objectKey := filepath.ToSlash(filepath.Join("delivery_note_documents", safeDeliveryNotePathPart(snapshot.OrderNo), fmt.Sprintf("V%d.pdf", versionNo)))
-	fileWritten := false
+	imageBytes, err := r.deliveryNoteRenderer.RenderPNG(snapshot)
+	if err != nil {
+		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
+	}
+	objectDir := filepath.ToSlash(filepath.Join("delivery_note_documents", safeDeliveryNotePathPart(snapshot.OrderNo)))
+	pdfObjectKey := filepath.ToSlash(filepath.Join(objectDir, fmt.Sprintf("V%d.pdf", versionNo)))
+	imageObjectKey := filepath.ToSlash(filepath.Join(objectDir, fmt.Sprintf("V%d.png", versionNo)))
+	writtenObjectKeys := make([]string, 0, 2)
 	committed := false
 	defer func() {
-		if fileWritten && !committed {
-			cleanupGeneratedDeliveryNoteAssetFile(r.assetDir, objectKey)
+		if !committed {
+			for _, objectKey := range writtenObjectKeys {
+				cleanupGeneratedDeliveryNoteAssetFile(r.assetDir, objectKey)
+			}
 		}
 	}()
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(r.assetDir, objectKey)), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(r.assetDir, objectDir), 0755); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
-	if err := os.WriteFile(filepath.Join(r.assetDir, objectKey), pdfBytes, 0644); err != nil {
+	writtenObjectKeys = append(writtenObjectKeys, pdfObjectKey)
+	if err := r.writeDeliveryNoteAssetFile(filepath.Join(r.assetDir, pdfObjectKey), pdfBytes); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
-	fileWritten = true
-	sum := sha256.Sum256(pdfBytes)
-	var assetID int64
+	writtenObjectKeys = append(writtenObjectKeys, imageObjectKey)
+	if err := r.writeDeliveryNoteAssetFile(filepath.Join(r.assetDir, imageObjectKey), imageBytes); err != nil {
+		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
+	}
+	pdfSum := sha256.Sum256(pdfBytes)
+	imageSum := sha256.Sum256(imageBytes)
+	var pdfAssetID, imageAssetID int64
 	assetQ := fmt.Sprintf(`INSERT INTO %s.delivery_note_assets(kind, filename, content_type, bytes, sha256, object_key, created_by)
-		VALUES('delivery_note_pdf',$1,'application/pdf',$2,$3,$4,$5)
+		VALUES($1,$2,$3,$4,$5,$6,$7)
 		RETURNING id`, r.schema)
-	filename := fmt.Sprintf("%s-DN-V%d.pdf", snapshot.OrderNo, versionNo)
-	if err := tx.QueryRow(ctx, assetQ, filename, int64(len(pdfBytes)), hex.EncodeToString(sum[:]), objectKey, cmd.Actor).Scan(&assetID); err != nil {
+	pdfFilename := fmt.Sprintf("%s-DN-V%d.pdf", snapshot.OrderNo, versionNo)
+	if err := tx.QueryRow(ctx, assetQ, "delivery_note_pdf", pdfFilename, "application/pdf", int64(len(pdfBytes)), hex.EncodeToString(pdfSum[:]), pdfObjectKey, cmd.Actor).Scan(&pdfAssetID); err != nil {
+		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
+	}
+	imageFilename := fmt.Sprintf("%s-DN-V%d.png", snapshot.OrderNo, versionNo)
+	if err := tx.QueryRow(ctx, assetQ, "delivery_note_image", imageFilename, "image/png", int64(len(imageBytes)), hex.EncodeToString(imageSum[:]), imageObjectKey, cmd.Actor).Scan(&imageAssetID); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
 	snapshotJSON, err := json.Marshal(snapshot)
@@ -279,15 +296,16 @@ func (r Repository) GenerateDeliveryNoteDocument(ctx context.Context, cmd salesa
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
 	var doc salesapp.DeliveryNoteDocument
-	insertQ := fmt.Sprintf(`INSERT INTO %s.delivery_note_documents(order_id, order_no, version_no, snapshot_json, pdf_asset_id, is_latest, created_by)
-		VALUES($1,$2,$3,$4,$5,true,$6)
-		RETURNING id, order_id, order_no, version_no, pdf_asset_id, is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by`, r.schema)
-	if err := tx.QueryRow(ctx, insertQ, cmd.OrderID, snapshot.OrderNo, versionNo, snapshotJSON, assetID, cmd.Actor).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+	insertQ := fmt.Sprintf(`INSERT INTO %s.delivery_note_documents(order_id, order_no, version_no, snapshot_json, pdf_asset_id, image_asset_id, is_latest, created_by)
+		VALUES($1,$2,$3,$4,$5,$6,true,$7)
+		RETURNING id, order_id, order_no, version_no, pdf_asset_id, image_asset_id, is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by`, r.schema)
+	if err := tx.QueryRow(ctx, insertQ, cmd.OrderID, snapshot.OrderNo, versionNo, snapshotJSON, pdfAssetID, imageAssetID, cmd.Actor).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
 	doc.Snapshot = snapshot
 	doc.DownloadURL = deliveryNoteDocumentDownloadURL(doc.OrderID, doc.ID)
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "delivery_note_document", &doc.ID, "create", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", versionNo)), postgresinfra.AuditMeta{"order_id": cmd.OrderID, "order_no": snapshot.OrderNo}); err != nil {
+	doc.ImageDownloadURL = deliveryNoteImageDownloadURL(doc.OrderID, doc.ID)
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "delivery_note_document", &doc.ID, "create", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", versionNo)), postgresinfra.AuditMeta{"order_id": cmd.OrderID, "order_no": snapshot.OrderNo, "pdf_asset_id": pdfAssetID, "image_asset_id": imageAssetID}); err != nil {
 		return salesapp.GenerateDeliveryNoteDocumentResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -295,6 +313,13 @@ func (r Repository) GenerateDeliveryNoteDocument(ctx context.Context, cmd salesa
 	}
 	committed = true
 	return salesapp.GenerateDeliveryNoteDocumentResult{Document: doc, Snapshot: snapshot}, nil
+}
+
+func (r Repository) writeDeliveryNoteAssetFile(path string, data []byte) error {
+	if r.deliveryNoteAssetWriter != nil {
+		return r.deliveryNoteAssetWriter(path, data)
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 func (r Repository) buildDeliveryNoteSnapshotTx(ctx context.Context, tx pgx.Tx, orderID int64, form salesapp.DeliveryNoteForm) (salesdomain.DeliveryNoteSnapshot, error) {
@@ -412,7 +437,7 @@ func (r Repository) loadDeliveryNoteVersionsTx(ctx context.Context, tx pgx.Tx, o
 }
 
 func (r Repository) ListDeliveryNoteDocuments(ctx context.Context, orderID int64) ([]salesapp.DeliveryNoteDocument, error) {
-	q := fmt.Sprintf(`SELECT id, order_id, order_no, version_no, snapshot_json, COALESCE(pdf_asset_id,0), is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
+	q := fmt.Sprintf(`SELECT id, order_id, order_no, version_no, snapshot_json, COALESCE(pdf_asset_id,0), COALESCE(image_asset_id,0), is_latest, to_char(created_at,'YYYY-MM-DD HH24:MI:SS'), created_by
 		FROM %s.delivery_note_documents
 		WHERE order_id=$1
 		ORDER BY version_no DESC`, r.schema)
@@ -425,11 +450,14 @@ func (r Repository) ListDeliveryNoteDocuments(ctx context.Context, orderID int64
 	for rows.Next() {
 		var doc salesapp.DeliveryNoteDocument
 		var raw []byte
-		if err := rows.Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &raw, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
+		if err := rows.Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &raw, &doc.PDFAssetID, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(raw, &doc.Snapshot)
 		doc.DownloadURL = deliveryNoteDocumentDownloadURL(doc.OrderID, doc.ID)
+		if doc.ImageAssetID > 0 {
+			doc.ImageDownloadURL = deliveryNoteImageDownloadURL(doc.OrderID, doc.ID)
+		}
 		out = append(out, doc)
 	}
 	return out, rows.Err()
@@ -442,7 +470,7 @@ func (r Repository) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, d
 		where = "d.order_id=$1 AND d.is_latest=true"
 		args = []any{orderID}
 	}
-	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, COALESCE(d.pdf_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
+	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, COALESCE(d.pdf_asset_id,0), COALESCE(d.image_asset_id,0), d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
 			a.object_key
 		FROM %s.delivery_note_documents d
 		JOIN %s.delivery_note_assets a ON a.id=d.pdf_asset_id
@@ -451,14 +479,45 @@ func (r Repository) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, d
 		LIMIT 1`, r.schema, r.schema, where)
 	var doc salesapp.DeliveryNoteDocument
 	var objectKey string
-	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
 		return salesapp.DeliveryNoteDocumentFile{}, err
 	}
 	doc.DownloadURL = deliveryNoteDocumentDownloadURL(doc.OrderID, doc.ID)
+	if doc.ImageAssetID > 0 {
+		doc.ImageDownloadURL = deliveryNoteImageDownloadURL(doc.OrderID, doc.ID)
+	}
 	return salesapp.DeliveryNoteDocumentFile{
 		Document: doc,
 		Path:     filepath.Join(r.assetDir, objectKey),
 		Filename: fmt.Sprintf("%s-DN-V%d.pdf", doc.OrderNo, doc.VersionNo),
+	}, nil
+}
+
+func (r Repository) LoadDeliveryNoteImageFile(ctx context.Context, orderID, documentID int64, latest bool) (salesapp.DeliveryNoteImageFile, error) {
+	where := "d.order_id=$1 AND d.id=$2"
+	args := []any{orderID, documentID}
+	if latest {
+		where = "d.order_id=$1 AND d.is_latest=true"
+		args = []any{orderID}
+	}
+	q := fmt.Sprintf(`SELECT d.id, d.order_id, d.order_no, d.version_no, COALESCE(d.pdf_asset_id,0), d.image_asset_id, d.is_latest, to_char(d.created_at,'YYYY-MM-DD HH24:MI:SS'), d.created_by,
+			a.object_key
+		FROM %s.delivery_note_documents d
+		JOIN %s.delivery_note_assets a ON a.id=d.image_asset_id AND a.kind='delivery_note_image'
+		WHERE %s
+		ORDER BY d.version_no DESC
+		LIMIT 1`, r.schema, r.schema, where)
+	var doc salesapp.DeliveryNoteDocument
+	var objectKey string
+	if err := r.pool.QueryRow(ctx, q, args...).Scan(&doc.ID, &doc.OrderID, &doc.OrderNo, &doc.VersionNo, &doc.PDFAssetID, &doc.ImageAssetID, &doc.IsLatest, &doc.CreatedAt, &doc.CreatedBy, &objectKey); err != nil {
+		return salesapp.DeliveryNoteImageFile{}, err
+	}
+	doc.DownloadURL = deliveryNoteDocumentDownloadURL(doc.OrderID, doc.ID)
+	doc.ImageDownloadURL = deliveryNoteImageDownloadURL(doc.OrderID, doc.ID)
+	return salesapp.DeliveryNoteImageFile{
+		Document: doc,
+		Path:     filepath.Join(r.assetDir, objectKey),
+		Filename: fmt.Sprintf("%s-DN-V%d.png", doc.OrderNo, doc.VersionNo),
 	}, nil
 }
 
@@ -504,6 +563,10 @@ func deliveryMethodDisplayName(code string) string {
 
 func deliveryNoteDocumentDownloadURL(orderID, documentID int64) string {
 	return fmt.Sprintf("/orders/%d/delivery-notes/%d.pdf", orderID, documentID)
+}
+
+func deliveryNoteImageDownloadURL(orderID, documentID int64) string {
+	return fmt.Sprintf("/orders/%d/delivery-notes/%d.png", orderID, documentID)
 }
 
 func safeDeliveryNotePathPart(s string) string {

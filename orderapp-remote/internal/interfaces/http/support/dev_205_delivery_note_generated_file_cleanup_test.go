@@ -14,7 +14,9 @@ func TestDeliveryNoteGeneratedFileCleanupEvidenceExists(t *testing.T) {
 	for _, want := range []string{
 		"cleanupGeneratedDeliveryNoteAssetFile",
 		"GenerateDeliveryNoteDocument",
-		"fileWritten",
+		"writtenObjectKeys",
+		"pdfObjectKey",
+		"imageObjectKey",
 		"committed",
 	} {
 		if !strings.Contains(repository, want) {

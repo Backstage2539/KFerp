@@ -2,11 +2,15 @@ package sales
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	salesapp "orderapp/internal/application/sales"
-	salesdomain "orderapp/internal/domain/sales"
+	"os"
 	"testing"
 
+	salesapp "orderapp/internal/application/sales"
+	salesdomain "orderapp/internal/domain/sales"
+
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -50,6 +54,207 @@ func TestGenerateDeliveryNoteDocumentCleansFileWhenDocumentInsertFails(t *testin
 		t.Fatalf("GenerateDeliveryNoteDocument should fail when document insert is rejected")
 	}
 	assertSalesPostgresAssetDirEmpty(t, assetDir)
+	var assetRows int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.delivery_note_assets`, schema)).Scan(&assetRows); err != nil {
+		t.Fatalf("count rolled back delivery note assets: %v", err)
+	}
+	if assetRows != 0 {
+		t.Fatalf("delivery note asset rows after rollback = %d, want 0", assetRows)
+	}
+}
+
+func TestGenerateDeliveryNoteDocumentCleansPartialFilesWhenImageWriteFails(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	prepareDeliveryNoteGenerationOrderColumns(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(assetDir))
+	repo.deliveryNoteRenderer = fakeDeliveryNoteRenderer{}
+	writeCalls := 0
+	repo.deliveryNoteAssetWriter = func(path string, data []byte) error {
+		writeCalls++
+		if writeCalls == 1 {
+			return os.WriteFile(path, data, 0644)
+		}
+		partial := data
+		if len(partial) > 8 {
+			partial = partial[:8]
+		}
+		if err := os.WriteFile(path, partial, 0644); err != nil {
+			return err
+		}
+		return errors.New("injected image write failure after partial file creation")
+	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedDeliveryNoteGenerationOrder(t, ctx, pool, schema)
+
+	if _, err := repo.GenerateDeliveryNoteDocument(ctx, salesapp.GenerateDeliveryNoteDocumentCommand{Actor: "测试员", OrderID: 1}); err == nil {
+		t.Fatal("GenerateDeliveryNoteDocument should fail after partial image write")
+	}
+	if writeCalls != 2 {
+		t.Fatalf("asset write calls = %d, want 2", writeCalls)
+	}
+	assertSalesPostgresAssetDirEmpty(t, assetDir)
+	var assetRows, documentRows, auditRows int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.delivery_note_assets`, schema)).Scan(&assetRows); err != nil {
+		t.Fatalf("count rolled back assets: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.delivery_note_documents`, schema)).Scan(&documentRows); err != nil {
+		t.Fatalf("count rolled back documents: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='delivery_note_document'`, schema)).Scan(&auditRows); err != nil {
+		t.Fatalf("count rolled back audits: %v", err)
+	}
+	if assetRows != 0 || documentRows != 0 || auditRows != 0 {
+		t.Fatalf("rows after partial write failure assets=%d documents=%d audits=%d", assetRows, documentRows, auditRows)
+	}
+}
+
+func TestGenerateDeliveryNoteDocumentCreatesPairedPDFAndPNGAssets(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	prepareDeliveryNoteGenerationOrderColumns(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(assetDir))
+	repo.deliveryNoteRenderer = fakeDeliveryNoteRenderer{}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedDeliveryNoteGenerationOrder(t, ctx, pool, schema)
+
+	result, err := repo.GenerateDeliveryNoteDocument(ctx, salesapp.GenerateDeliveryNoteDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("GenerateDeliveryNoteDocument: %v", err)
+	}
+	doc := result.Document
+	if doc.PDFAssetID <= 0 || doc.ImageAssetID <= 0 || doc.PDFAssetID == doc.ImageAssetID {
+		t.Fatalf("paired asset ids = pdf:%d image:%d", doc.PDFAssetID, doc.ImageAssetID)
+	}
+	if doc.DownloadURL == "" || doc.ImageDownloadURL == "" {
+		t.Fatalf("paired download URLs missing: %+v", doc)
+	}
+	documents, err := repo.ListDeliveryNoteDocuments(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListDeliveryNoteDocuments: %v", err)
+	}
+	if len(documents) != 1 || documents[0].ImageAssetID != doc.ImageAssetID || documents[0].ImageDownloadURL != doc.ImageDownloadURL {
+		t.Fatalf("listed paired document = %+v, generated = %+v", documents, doc)
+	}
+
+	pdfFile, err := repo.LoadDeliveryNoteDocumentFile(ctx, 1, doc.ID, false)
+	if err != nil {
+		t.Fatalf("LoadDeliveryNoteDocumentFile: %v", err)
+	}
+	imageFile, err := repo.LoadDeliveryNoteImageFile(ctx, 1, doc.ID, false)
+	if err != nil {
+		t.Fatalf("LoadDeliveryNoteImageFile: %v", err)
+	}
+	latestImage, err := repo.LoadDeliveryNoteImageFile(ctx, 1, 0, true)
+	if err != nil {
+		t.Fatalf("LoadDeliveryNoteImageFile latest: %v", err)
+	}
+	if imageFile.Document.ID != doc.ID || latestImage.Document.ID != doc.ID || imageFile.Filename != "SO-20260513-DN01-DN-V1.png" {
+		t.Fatalf("image files = explicit:%+v latest:%+v", imageFile, latestImage)
+	}
+	pdfBytes, err := os.ReadFile(pdfFile.Path)
+	if err != nil {
+		t.Fatalf("read generated PDF: %v", err)
+	}
+	imageBytes, err := os.ReadFile(imageFile.Path)
+	if err != nil {
+		t.Fatalf("read generated PNG: %v", err)
+	}
+	if string(pdfBytes) != "%PDF-delivery-test" || string(imageBytes) != "\x89PNG\r\n\x1a\ndelivery-image-test" {
+		t.Fatalf("generated bytes pdf=%q image=%q", pdfBytes, imageBytes)
+	}
+
+	var pdfAssets, imageAssets, auditRows int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FILTER (WHERE kind='delivery_note_pdf'), count(*) FILTER (WHERE kind='delivery_note_image') FROM %s.delivery_note_assets`, schema)).Scan(&pdfAssets, &imageAssets); err != nil {
+		t.Fatalf("count paired assets: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='delivery_note_document' AND entity_id=$1 AND action='create'`, schema), doc.ID).Scan(&auditRows); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if pdfAssets != 1 || imageAssets != 1 || auditRows != 1 {
+		t.Fatalf("asset/audit counts pdf=%d image=%d audit=%d", pdfAssets, imageAssets, auditRows)
+	}
+}
+
+func TestLoadDeliveryNoteImageFileReturnsNotFoundForLegacyVersionWithoutImage(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	prepareDeliveryNoteGenerationOrderColumns(t, ctx, pool, schema)
+	assetDir := t.TempDir()
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(assetDir))
+	repo.deliveryNoteRenderer = fakeDeliveryNoteRenderer{}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedDeliveryNoteGenerationOrder(t, ctx, pool, schema)
+	result, err := repo.GenerateDeliveryNoteDocument(ctx, salesapp.GenerateDeliveryNoteDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("GenerateDeliveryNoteDocument: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.delivery_note_documents SET image_asset_id=NULL WHERE id=$1`, schema), result.Document.ID); err != nil {
+		t.Fatalf("make legacy document: %v", err)
+	}
+
+	_, err = repo.LoadDeliveryNoteImageFile(ctx, 1, result.Document.ID, false)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("LoadDeliveryNoteImageFile legacy error = %v, want pgx.ErrNoRows", err)
+	}
+	_, err = repo.LoadDeliveryNoteImageFile(ctx, 1, 0, true)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("LoadDeliveryNoteImageFile latest legacy error = %v, want pgx.ErrNoRows", err)
+	}
+}
+
+func TestEnsureDeliveryNoteTablesAddsImageAssetIDIdempotently(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	for _, stmt := range []string{
+		fmt.Sprintf(`CREATE TABLE %s.delivery_note_assets (id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL, filename TEXT NOT NULL DEFAULT '', content_type TEXT NOT NULL DEFAULT '', bytes BIGINT NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', object_key TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), created_by TEXT NOT NULL DEFAULT '')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.delivery_note_documents (id BIGSERIAL PRIMARY KEY, order_id BIGINT NOT NULL REFERENCES %s.orders(id), order_no TEXT NOT NULL DEFAULT '', version_no INTEGER NOT NULL, snapshot_json JSONB NOT NULL, pdf_asset_id BIGINT REFERENCES %s.delivery_note_assets(id), is_latest BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), created_by TEXT NOT NULL DEFAULT '', UNIQUE(order_id, version_no))`, schema, schema, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create legacy delivery note schema: %v", err)
+		}
+	}
+	if err := ensureDeliveryNoteTables(ctx, pool, schema); err != nil {
+		t.Fatalf("first ensureDeliveryNoteTables: %v", err)
+	}
+	if err := ensureDeliveryNoteTables(ctx, pool, schema); err != nil {
+		t.Fatalf("second ensureDeliveryNoteTables: %v", err)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=$1 AND table_name='delivery_note_documents' AND column_name='image_asset_id')`, schema).Scan(&exists); err != nil {
+		t.Fatalf("check image_asset_id: %v", err)
+	}
+	if !exists {
+		t.Fatal("delivery_note_documents.image_asset_id was not added")
+	}
 }
 
 type fakeDeliveryNoteRenderer struct{}
@@ -66,6 +271,13 @@ func (fakeDeliveryNoteRenderer) RenderPreview(snapshot salesdomain.DeliveryNoteS
 		return nil, err
 	}
 	return []byte("%PDF-delivery-preview-test"), nil
+}
+
+func (fakeDeliveryNoteRenderer) RenderPNG(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error) {
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	return []byte("\x89PNG\r\n\x1a\ndelivery-image-test"), nil
 }
 
 func prepareDeliveryNoteGenerationOrderColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {

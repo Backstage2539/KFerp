@@ -597,7 +597,6 @@ onLoad(() => void loadForm())
 
       <view class="section-head">
         <text class="section-title">商品明细</text>
-        <button class="add-item" @tap="addItem">新增商品</button>
       </view>
 
       <view v-for="(item, index) in form.items" :key="item.key" class="item-card">
@@ -643,6 +642,8 @@ onLoad(() => void loadForm())
           <text class="unit-suffix">元/{{ displayedSalesUnit(item) }}</text>
         </view>
       </view>
+
+      <button class="add-item add-item-after-list" @tap="addItem">新增商品</button>
 
       <view class="order-total">
         <text>商品估算合计</text>
@@ -798,6 +799,7 @@ onLoad(() => void loadForm())
 .item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18rpx; }
 .item-title { color: #203b2e; font-size: 27rpx; font-weight: 750; }
 .add-item, .remove-item { margin: 0; padding: 0 20rpx; min-height: 58rpx; line-height: 58rpx; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 23rpx; }
+.add-item-after-list { width: 100%; margin: 2rpx 0 20rpx; border-style: dashed; }
 .remove-item { border-color: #d7aaa3; color: #9a3e34; }
 .item-error { display: block; margin: -8rpx 0 16rpx; color: #a7352a; font-size: 23rpx; }
 .order-total { display: flex; align-items: center; justify-content: space-between; margin: 10rpx 0 24rpx; padding: 22rpx; border-radius: 12rpx; background: #edf5f0; color: #355345; font-size: 27rpx; font-weight: 700; }

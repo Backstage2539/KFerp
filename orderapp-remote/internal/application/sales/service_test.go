@@ -379,6 +379,10 @@ func (r *fakeRepo) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, do
 	return DeliveryNoteDocumentFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-DN-V1.pdf"}, nil
 }
 
+func (r *fakeRepo) LoadDeliveryNoteImageFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteImageFile, error) {
+	return DeliveryNoteImageFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1, ImageAssetID: 12}, Path: "/tmp/test.png", Filename: "SO-TEST-DN-V1.png"}, nil
+}
+
 func (r *fakeRepo) ListCombinedDeliveryNoteDocuments(ctx context.Context, orderIDs []int64) ([]CombinedDeliveryNoteDocument, error) {
 	return []CombinedDeliveryNoteDocument{{ID: 32, OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
 }
@@ -1060,5 +1064,18 @@ func TestServiceOwnsDeliveryNoteUseCases(t *testing.T) {
 	}
 	if len(docs) != 1 || docs[0].OrderID != 18 {
 		t.Fatalf("ListDeliveryNoteDocuments() = %+v", docs)
+	}
+	image, err := svc.LoadDeliveryNoteImageFile(context.Background(), 18, 10, false)
+	if err != nil || image.Filename != "SO-TEST-DN-V1.png" {
+		t.Fatalf("LoadDeliveryNoteImageFile() = %+v err=%v", image, err)
+	}
+	if _, err := svc.LoadDeliveryNoteImageFile(context.Background(), 0, 10, false); err == nil {
+		t.Fatal("LoadDeliveryNoteImageFile invalid order error = nil")
+	}
+	if _, err := svc.LoadDeliveryNoteImageFile(context.Background(), 18, 0, false); err == nil {
+		t.Fatal("LoadDeliveryNoteImageFile should require document id unless latest")
+	}
+	if _, err := svc.LoadDeliveryNoteImageFile(context.Background(), 18, 0, true); err != nil {
+		t.Fatalf("LoadDeliveryNoteImageFile latest error = %v", err)
 	}
 }

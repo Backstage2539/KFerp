@@ -737,11 +737,13 @@ func ensureDeliveryNoteTables(ctx context.Context, pool *pgxpool.Pool, schema st
 			version_no INTEGER NOT NULL,
 			snapshot_json JSONB NOT NULL,
 			pdf_asset_id BIGINT REFERENCES %s.delivery_note_assets(id),
+			image_asset_id BIGINT REFERENCES %s.delivery_note_assets(id),
 			is_latest BOOLEAN NOT NULL DEFAULT true,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			created_by TEXT NOT NULL DEFAULT '',
 			UNIQUE(order_id, version_no)
-		)`, schema, schema, schema),
+		)`, schema, schema, schema, schema),
+		fmt.Sprintf(`ALTER TABLE %s.delivery_note_documents ADD COLUMN IF NOT EXISTS image_asset_id BIGINT REFERENCES %s.delivery_note_assets(id)`, schema, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_delivery_note_latest ON %s.delivery_note_documents(order_id) WHERE is_latest`, schema, schema),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.combined_delivery_note_documents (
 			id BIGSERIAL PRIMARY KEY,
