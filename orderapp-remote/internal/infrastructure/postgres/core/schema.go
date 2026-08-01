@@ -161,7 +161,25 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_items (
 	if err := ensureCoreColumns(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := syncSerialIDSequence(ctx, pool, schema, "products"); err != nil {
+		return err
+	}
 	return seedCoreOptions(ctx, pool, schema)
+}
+
+func syncSerialIDSequence(ctx context.Context, pool *pgxpool.Pool, schema, table string) error {
+	q := fmt.Sprintf(`
+DO $$
+DECLARE
+	seq TEXT;
+BEGIN
+	SELECT pg_get_serial_sequence('%[1]s.%[2]s', 'id') INTO seq;
+	IF seq IS NOT NULL THEN
+		PERFORM setval(seq, COALESCE((SELECT MAX(id) FROM %[1]s.%[2]s), 0) + 1, false);
+	END IF;
+END $$;`, schema, table)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) error {
