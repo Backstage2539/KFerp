@@ -27,7 +27,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-570-ORDER-ENTRY-PRICE-SPECS-ORDER-DETAIL
 - Branch: codex/order-entry-price-specs-20260801
 - Owner/session: Codex / 2026-08-01
-- Status: implementing / RED and focused GREEN captured / development and production deployment pending
+- Status: merged to develop/main / development and production deployed / awaiting user business acceptance
 - Scope: ERP 录单的新建、复制和主动切换价格表只提供当前已选已发布价格表中有价的具体规格；历史订单保持冻结规格只读兼容；修复订单详情查询误读不存在的 `order_items.price_override` 字段。
 - DEV:
   - DEV-570-PRICE-TABLE-SPEC-SCOPE：规格候选、默认规格和商品候选规格计数统一按当前发布价格表过滤；默认规格无价时选择该价格表第一项，当前规格切换后无价则清空并要求重选。
@@ -36,8 +36,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED: Vue 规格测试复现 publication 91 错误暴露 701/702/703 且默认无价 702；Go 查询测试复现缺少权威 SQL helper / 旧字段错误。
   - Focused GREEN: Vue `order-entry.test.js` 125/125；Go 查询、销售 HTTP 和 PR-570 支持合同相关包 PASS；两轮独立审查清零 P0-P2。
-  - Pending: support contract, affected/full suites, remote preflight, dual deployment and authenticated read-only existing-order API smoke.
-- Deployment: pending development and production; no schema migration and no test-order writes
+  - Full gates: Vue 854 tests、miniapp 113 tests、miniapp typecheck/development+production builds、Go full suite、隔离 Docker build 与 development/production 远程预检全部通过。
+  - Runtime: development 既有订单的列表、详情和编辑表单认证只读链路返回 200 且明细保留 `price_override`；production 当前订单与明细均为 0，改以真实生产表列合同/只读 SQL 编译、空白录单 API、需求合同和容器日志验收，全部通过且零写入。
+- Deployment: development deployed commit `34513324c909748a611c1c0915812486f38c0d85`; production deployed commit `5adb44b858f36b8d8b73435643fde8d4d636290e`; no schema migration and no test-order writes
 - Last update: 2026-08-01 Asia/Shanghai
 
 ### PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM
