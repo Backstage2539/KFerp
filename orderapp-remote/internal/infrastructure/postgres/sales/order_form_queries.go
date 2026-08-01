@@ -64,6 +64,43 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	return data, nil
 }
 
+func orderEditItemsQuery(schema string) string {
+	return fmt.Sprintf(`
+			SELECT oi.id, oi.line_no,
+				COALESCE(oi.product_id,0),
+				COALESCE(NULLIF(oi.customer_product_display_name_snapshot,''), NULLIF(oi.item_name,''), p.name, ''),
+				COALESCE(oi.customer_product_alias_id,0),
+				COALESCE(oi.customer_product_display_name_snapshot,''),
+				COALESCE(oi.customer_item_code_snapshot,''),
+				COALESCE(oi.brand_name_snapshot,''),
+				COALESCE(oi.product_code_snapshot,''),
+				COALESCE(oi.product_name_snapshot,''),
+				COALESCE(oi.item_note,''),
+				COALESCE(oi.spec,''),
+				COALESCE(oi.qty,0),
+				COALESCE(oi.unit,''),
+				COALESCE(oi.unit_price,0),
+				COALESCE(oi.line_total,0),
+				COALESCE(oi.price_tier_id,0),
+				COALESCE(oi.price_overridden,false),
+				COALESCE(oi.bean_list_publication_id,0),
+				COALESCE(oi.bean_list_version_no,''),
+				COALESCE(oi.discount_type,''),
+				COALESCE(oi.discount_value,0),
+				COALESCE(oi.discount_amount,0),
+				COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
+				COALESCE(oi.sales_unit,''),
+				COALESCE(oi.unit_bag_count,0),
+				COALESCE(oi.unit_bean_g,0)::float8,
+				COALESCE(oi.matched_price_qty,0)::float8,
+				COALESCE(oi.price_source_json,'{}'::jsonb)::text
+		FROM %s.order_items oi
+		LEFT JOIN %s.products p ON p.id=oi.product_id
+		WHERE oi.order_id=$1
+		ORDER BY oi.line_no, oi.id
+	`, schema, schema)
+}
+
 func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]salesapp.BeanListVersionOption, error) {
 	var exists bool
 	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.bean_list_publications", r.schema)).Scan(&exists); err != nil || !exists {
@@ -1909,40 +1946,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	d.OutsourceOtherFee = fmt.Sprintf("%.2f", outsourceOther)
 	d.OutsourceTotalFee = fmt.Sprintf("%.2f", outsourceTotal)
 
-	itemsQ := fmt.Sprintf(`
-			SELECT oi.id, oi.line_no,
-				COALESCE(oi.product_id,0),
-				COALESCE(NULLIF(oi.customer_product_display_name_snapshot,''), NULLIF(oi.item_name,''), p.name, ''),
-				COALESCE(oi.customer_product_alias_id,0),
-				COALESCE(oi.customer_product_display_name_snapshot,''),
-				COALESCE(oi.customer_item_code_snapshot,''),
-				COALESCE(oi.brand_name_snapshot,''),
-				COALESCE(oi.product_code_snapshot,''),
-				COALESCE(oi.product_name_snapshot,''),
-				COALESCE(oi.item_note,''),
-				COALESCE(oi.spec,''),
-				COALESCE(oi.qty,0),
-				COALESCE(oi.unit,''),
-				COALESCE(oi.unit_price,0),
-				COALESCE(oi.line_total,0),
-				COALESCE(oi.price_tier_id,0),
-				COALESCE(oi.price_override,false),
-				COALESCE(oi.bean_list_publication_id,0),
-				COALESCE(oi.bean_list_version_no,''),
-				COALESCE(oi.discount_type,''),
-				COALESCE(oi.discount_value,0),
-				COALESCE(oi.discount_amount,0),
-				COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted'),
-				COALESCE(oi.sales_unit,''),
-				COALESCE(oi.unit_bag_count,0),
-				COALESCE(oi.unit_bean_g,0)::float8,
-				COALESCE(oi.matched_price_qty,0)::float8,
-				COALESCE(oi.price_source_json,'{}'::jsonb)::text
-		FROM %s.order_items oi
-		LEFT JOIN %s.products p ON p.id=oi.product_id
-		WHERE oi.order_id=$1
-		ORDER BY oi.line_no, oi.id
-	`, r.schema, r.schema)
+	itemsQ := orderEditItemsQuery(r.schema)
 	rows, err := r.pool.Query(ctx, itemsQ, id)
 	if err != nil {
 		return nil, err
