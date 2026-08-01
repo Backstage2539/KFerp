@@ -90,6 +90,32 @@ API 地址由脚本强制按环境写入：development 为
 - `DEV-571-ARTIFACT-CLOSURE`：`app.json` 声明的每个主包/分包页面都必须同时存在 `.js/.json/.wxml/.wxss`，缺一项即停止发布。
 - `DEV-571-DEVTOOLS-REFRESH`：若发布时项目已打开，关闭当前项目并重新导入对应固定目录；只清编译缓存不能替代重新导入。
 
+### PR-572 员工订单详情与微信单据分享检查
+
+1. 使用销售员工登录开发版小程序，进入“简易 ERP → 查看订单”，点击本人负责的订单卡片。
+2. 核对详情中的单据日期、订单日期、客户与收件资料、物流、四类状态、费用、商品规格/数量/单价/条目备注、价格表版本、报价来源、生产来源、责任人与创建人是否和 ERP 网页订单详情一致。
+3. 点击“销售单 PDF”和“销售单图片”，确认没有正式版本时只生成一次，随后下载真实文件并调起微信分享；重复分享不新增版本。
+4. 选择一张已发货订单，分别检查“发货单 PDF”和“发货单图片”；两种文件应来自同一个新正式版本。未发货订单应得到明确提示，不能生成发货单。
+5. 在不支持 `wx.shareFileMessage` 或 `wx.showShareImageMenu` 的客户端验证降级：PDF 打开文档并保留右上角发送菜单，图片进入可长按/右上角发送的预览。
+6. 使用另一个销售账号手工进入第一名销售的订单详情路径，详情、生成和下载均应按不存在处理；管理员账号应能打开全部订单，客户账号不能进入员工订单详情。
+7. 回到“录单”，连续新增三条以上商品，确认唯一的“新增商品”按钮始终位于最后一条商品明细下方、商品估算合计之前。
+
+接口检查：
+
+```text
+GET  /app/api/mini/employee/orders/:id
+GET  /app/api/mini/employee/orders/:id/documents/sales-order.pdf
+POST /app/api/mini/employee/orders/:id/documents/sales-order.pdf
+GET  /app/api/mini/employee/orders/:id/documents/sales-order.png
+POST /app/api/mini/employee/orders/:id/documents/sales-order.png
+GET  /app/api/mini/employee/orders/:id/documents/delivery-note.pdf
+POST /app/api/mini/employee/orders/:id/documents/delivery-note.pdf
+GET  /app/api/mini/employee/orders/:id/documents/delivery-note.png
+POST /app/api/mini/employee/orders/:id/documents/delivery-note.png
+```
+
+文件下载使用当前 mini token，并继续要求当前环境域名已经同时加入微信公众平台的 `request` 和 `downloadFile` 合法域名；不要为了联调关闭合法域名校验。
+
 ## 客户账号准备
 
 1. 在 ERP 客户门户配置中找到目标客户。

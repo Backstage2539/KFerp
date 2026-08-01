@@ -1034,16 +1034,18 @@ type CombinedDeliveryNotePreviewPDF struct {
 }
 
 type DeliveryNoteDocument struct {
-	ID          int64                            `json:"id"`
-	OrderID     int64                            `json:"order_id"`
-	OrderNo     string                           `json:"order_no"`
-	VersionNo   int                              `json:"version_no"`
-	Snapshot    salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
-	PDFAssetID  int64                            `json:"pdf_asset_id"`
-	IsLatest    bool                             `json:"is_latest"`
-	CreatedAt   string                           `json:"created_at"`
-	CreatedBy   string                           `json:"created_by"`
-	DownloadURL string                           `json:"download_url"`
+	ID               int64                            `json:"id"`
+	OrderID          int64                            `json:"order_id"`
+	OrderNo          string                           `json:"order_no"`
+	VersionNo        int                              `json:"version_no"`
+	Snapshot         salesdomain.DeliveryNoteSnapshot `json:"snapshot"`
+	PDFAssetID       int64                            `json:"pdf_asset_id"`
+	ImageAssetID     int64                            `json:"image_asset_id"`
+	IsLatest         bool                             `json:"is_latest"`
+	CreatedAt        string                           `json:"created_at"`
+	CreatedBy        string                           `json:"created_by"`
+	DownloadURL      string                           `json:"download_url"`
+	ImageDownloadURL string                           `json:"image_download_url"`
 }
 
 type DeliveryNoteContext struct {
@@ -1054,6 +1056,12 @@ type DeliveryNoteContext struct {
 }
 
 type DeliveryNoteDocumentFile struct {
+	Document DeliveryNoteDocument
+	Path     string
+	Filename string
+}
+
+type DeliveryNoteImageFile struct {
 	Document DeliveryNoteDocument
 	Path     string
 	Filename string
@@ -1214,6 +1222,7 @@ type Repository interface {
 	PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error)
 	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
 	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
+	LoadDeliveryNoteImageFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteImageFile, error)
 	ListCombinedDeliveryNoteDocuments(ctx context.Context, orderIDs []int64) ([]CombinedDeliveryNoteDocument, error)
 	PreviewCombinedDeliveryNoteDocument(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreview, error)
 	PreviewCombinedDeliveryNotePDF(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreviewPDF, error)
@@ -2152,6 +2161,16 @@ func (s *Service) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, doc
 		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid document id")
 	}
 	return s.repo.LoadDeliveryNoteDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) LoadDeliveryNoteImageFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteImageFile, error) {
+	if orderID <= 0 {
+		return DeliveryNoteImageFile{}, fmt.Errorf("invalid order id")
+	}
+	if !latest && documentID <= 0 {
+		return DeliveryNoteImageFile{}, fmt.Errorf("invalid document id")
+	}
+	return s.repo.LoadDeliveryNoteImageFile(ctx, orderID, documentID, latest)
 }
 
 func (s *Service) ListCombinedDeliveryNoteDocuments(ctx context.Context, orderIDs []int64) ([]CombinedDeliveryNoteDocument, error) {

@@ -8,6 +8,8 @@ import {
   buildMiniLoginPayload,
   buildPasswordLoginPath,
   buildEmployeeOrderFormPath,
+  buildEmployeeOrderDetailPath,
+  buildEmployeeOrderDocumentPath,
   buildEmployeeOrdersPath,
   buildEmployeeCustomersPath,
   buildEmployeeCustomerPath,
@@ -23,6 +25,7 @@ import {
 import type {
   CreateFulfillmentOrderPayload,
   EmployeeCustomersResponse,
+  EmployeeOrderDetailResponse,
   EmployeeOrderDraftPayload,
   ProductSummary,
 } from './customerPortal'
@@ -70,6 +73,11 @@ describe('customer portal API helpers', () => {
   it('exposes employee ERP order API paths', () => {
     expect(buildEmployeeOrderFormPath()).toBe('/api/mini/employee/order-form')
     expect(buildEmployeeOrdersPath()).toBe('/api/mini/employee/orders')
+    expect(buildEmployeeOrderDetailPath(42)).toBe('/api/mini/employee/orders/42')
+    expect(buildEmployeeOrderDocumentPath(42, 'sales-order', 'pdf')).toBe('/api/mini/employee/orders/42/documents/sales-order.pdf')
+    expect(buildEmployeeOrderDocumentPath(42, 'sales-order', 'png')).toBe('/api/mini/employee/orders/42/documents/sales-order.png')
+    expect(buildEmployeeOrderDocumentPath(42, 'delivery-note', 'pdf')).toBe('/api/mini/employee/orders/42/documents/delivery-note.pdf')
+    expect(buildEmployeeOrderDocumentPath(42, 'delivery-note', 'png')).toBe('/api/mini/employee/orders/42/documents/delivery-note.png')
     expect(buildEmployeeCustomersPath()).toBe('/api/mini/employee/customers')
     expect(buildEmployeeCustomersPath({ q: '上海 客户', page: 2, limit: 100 })).toBe('/api/mini/employee/customers?q=%E4%B8%8A%E6%B5%B7%20%E5%AE%A2%E6%88%B7&page=2&limit=100')
     expect(buildEmployeeCustomerPath(31)).toBe('/api/mini/employee/customers/31')
@@ -137,6 +145,44 @@ describe('customer portal API helpers', () => {
 
     expect(customers.rows[0]?.can_maintain).toBe(true)
     expect(draft.items).toHaveLength(2)
+  })
+
+  it('types the complete employee order detail and four authenticated document outputs', () => {
+    const response: EmployeeOrderDetailResponse = {
+      order: {
+        id: 42,
+        order_no: 'SO-42',
+        document_date: '2026-08-01',
+        order_date: '2026-08-01',
+        customer: '客户A',
+        grand_total: '96.00',
+        pay_status: '待收款',
+        ship_status: '待发货',
+        process_status: '待生产',
+        responsible_name: '销售甲',
+        created_by_employee: '录单乙',
+        items: [{
+          item_id: 1,
+          product_id: 8,
+          product_name: '商品A',
+          spec: '227',
+          qty: '2',
+          unit: '袋',
+          unit_price: '48.00',
+          line_total: '96.00',
+          bean_list_version_no: 'V3',
+        }],
+      },
+      documents: {
+        sales_order_pdf: { available: true, path: '/api/mini/employee/orders/42/documents/sales-order.pdf', content_type: 'application/pdf' },
+        sales_order_png: { available: true, path: '/api/mini/employee/orders/42/documents/sales-order.png', content_type: 'image/png' },
+        delivery_note_pdf: { available: false },
+        delivery_note_png: { available: false },
+      },
+    }
+
+    expect(response.order.items[0]?.line_total).toBe('96.00')
+    expect(response.documents?.sales_order_png?.content_type).toBe('image/png')
   })
 
   it('exposes customer products and category management mini API paths', () => {
