@@ -2,11 +2,37 @@ package customer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 )
+
+var (
+	ErrCustomerMaintenanceForbidden = errors.New("customer maintenance forbidden")
+	ErrCustomerNotFound             = errors.New("customer not found")
+)
+
+type MaintenanceValidationError struct {
+	message string
+}
+
+func (e *MaintenanceValidationError) Error() string {
+	return e.message
+}
+
+func NewMaintenanceValidationError(message string) error {
+	return &MaintenanceValidationError{message: strings.TrimSpace(message)}
+}
+
+func MaintenanceValidationMessage(err error) (string, bool) {
+	var validationErr *MaintenanceValidationError
+	if !errors.As(err, &validationErr) || validationErr == nil || validationErr.message == "" {
+		return "", false
+	}
+	return validationErr.message, true
+}
 
 const (
 	CustomerTypeRetail    = "retail"
@@ -80,13 +106,20 @@ type DeleteAssetResult struct {
 }
 
 type ListQuery struct {
-	Query         string
-	Limit         int
-	Offset        int
-	CustomerType  string
-	Active        *bool
-	SortBy        string
-	SortDirection string
+	Query                 string
+	Limit                 int
+	Offset                int
+	CustomerType          string
+	Active                *bool
+	ResponsibleEmployeeID int64
+	SortBy                string
+	SortDirection         string
+}
+
+type MaintenancePrincipal struct {
+	EmployeeID   int64
+	EmployeeName string
+	IsAdmin      bool
 }
 
 type ListResult struct {
@@ -208,6 +241,12 @@ type Repository interface {
 	CreateOrderTypeOption(ctx context.Context, actor string, cmd CreateOrderTypeCommand) (Option, error)
 }
 
+type ManagedRepository interface {
+	ListManaged(ctx context.Context, actor MaintenancePrincipal, query ListQuery) (ListResult, error)
+	EditorManaged(ctx context.Context, actor MaintenancePrincipal, id int64) (*EditorData, error)
+	UpsertManaged(ctx context.Context, actor MaintenancePrincipal, id *int64, cmd UpsertCommand) (int64, error)
+}
+
 type Service struct {
 	repo Repository
 }
@@ -226,6 +265,37 @@ func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd Upser
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (ListResult, error) {
+	query = normalizeListQuery(query)
+	return s.repo.List(ctx, query)
+}
+
+func (s *Service) ListManaged(ctx context.Context, actor MaintenancePrincipal, query ListQuery) (ListResult, error) {
+	actor, err := normalizeMaintenancePrincipal(actor)
+	if err != nil {
+		return ListResult{}, err
+	}
+	repo, ok := s.repo.(ManagedRepository)
+	if !ok {
+		return ListResult{}, fmt.Errorf("managed customer repository required")
+	}
+	result, err := repo.ListManaged(ctx, actor, normalizeListQuery(query))
+	if err != nil {
+		return ListResult{}, err
+	}
+	if !actor.IsAdmin {
+		employees := make([]Option, 0, 1)
+		for _, employee := range result.Employees {
+			if employee.ID == actor.EmployeeID {
+				employees = append(employees, employee)
+				break
+			}
+		}
+		result.Employees = employees
+	}
+	return result, nil
+}
+
+func normalizeListQuery(query ListQuery) ListQuery {
 	query.CustomerType = NormalizeCustomerTypeFilter(query.CustomerType)
 	query.SortBy = NormalizeCustomerSortBy(query.SortBy)
 	query.SortDirection = NormalizeCustomerSortDirection(query.SortDirection)
@@ -238,11 +308,58 @@ func (s *Service) List(ctx context.Context, query ListQuery) (ListResult, error)
 	if query.Offset < 0 {
 		query.Offset = 0
 	}
-	return s.repo.List(ctx, query)
+	return query
 }
 
 func (s *Service) Editor(ctx context.Context, id int64) (*EditorData, error) {
 	return s.repo.Editor(ctx, id)
+}
+
+func (s *Service) EditorManaged(ctx context.Context, actor MaintenancePrincipal, id int64) (*EditorData, error) {
+	actor, err := normalizeMaintenancePrincipal(actor)
+	if err != nil {
+		return nil, err
+	}
+	if id <= 0 {
+		return nil, ErrCustomerNotFound
+	}
+	repo, ok := s.repo.(ManagedRepository)
+	if !ok {
+		return nil, fmt.Errorf("managed customer repository required")
+	}
+	return repo.EditorManaged(ctx, actor, id)
+}
+
+func (s *Service) UpsertManaged(ctx context.Context, actor MaintenancePrincipal, id *int64, cmd UpsertCommand) (int64, error) {
+	actor, err := normalizeMaintenancePrincipal(actor)
+	if err != nil {
+		return 0, err
+	}
+	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+		return 0, err
+	}
+	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
+	cmd.CapabilityTemplateKey = ""
+	if !actor.IsAdmin {
+		cmd.ResponsibleEmployeeID = strconv.FormatInt(actor.EmployeeID, 10)
+		cmd.PortalEnabled = nil
+		if id == nil {
+			cmd.Active = "on"
+		}
+	}
+	repo, ok := s.repo.(ManagedRepository)
+	if !ok {
+		return 0, fmt.Errorf("managed customer repository required")
+	}
+	return repo.UpsertManaged(ctx, actor, id, cmd)
+}
+
+func normalizeMaintenancePrincipal(actor MaintenancePrincipal) (MaintenancePrincipal, error) {
+	if actor.EmployeeID <= 0 {
+		return MaintenancePrincipal{}, ErrCustomerMaintenanceForbidden
+	}
+	actor.EmployeeName = strings.TrimSpace(actor.EmployeeName)
+	return actor, nil
 }
 
 func (s *Service) Prefs(ctx context.Context, id int64) (*Prefs, error) {
@@ -328,7 +445,7 @@ func validateRequiredCustomerProfileDefaults(customerType, sourceID, orderTypeID
 		missing = append(missing, "订单类型")
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("请维护客户资料：%s", strings.Join(missing, "、"))
+		return NewMaintenanceValidationError(fmt.Sprintf("请维护客户资料：%s", strings.Join(missing, "、")))
 	}
 	return nil
 }

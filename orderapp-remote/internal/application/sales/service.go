@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	salesdomain "orderapp/internal/domain/sales"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 type SaveOrderCommand struct {
 	Actor                           string
+	DraftEmployeeID                 int64
 	EditID                          int64
 	DocumentDate                    time.Time
 	OrderDate                       time.Time
@@ -85,6 +87,19 @@ type SaveOrderResult struct {
 	OrderNo        string
 	Edited         bool
 	StockBatchUsed bool
+}
+
+type EmployeeOrderDraft struct {
+	ID         int64           `json:"id"`
+	EmployeeID int64           `json:"-"`
+	Payload    json.RawMessage `json:"payload"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
+type SaveEmployeeOrderDraftCommand struct {
+	EmployeeID int64
+	Actor      string
+	Payload    json.RawMessage
 }
 
 type OrderStockBatchPreviewCommand struct {
@@ -1190,12 +1205,59 @@ type Repository interface {
 	SaveOrderInvoiceFile(ctx context.Context, cmd SaveOrderInvoiceFileCommand) (OrderInvoice, error)
 }
 
+type EmployeeOrderDraftRepository interface {
+	GetEmployeeOrderDraft(ctx context.Context, employeeID int64) (*EmployeeOrderDraft, error)
+	SaveEmployeeOrderDraft(ctx context.Context, cmd SaveEmployeeOrderDraftCommand) (EmployeeOrderDraft, error)
+	DeleteEmployeeOrderDraft(ctx context.Context, employeeID int64, actor string) (bool, error)
+}
+
 type Service struct {
 	repo Repository
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) GetEmployeeOrderDraft(ctx context.Context, employeeID int64) (*EmployeeOrderDraft, error) {
+	if employeeID <= 0 {
+		return nil, fmt.Errorf("employee required")
+	}
+	repo, ok := s.repo.(EmployeeOrderDraftRepository)
+	if !ok {
+		return nil, fmt.Errorf("employee order draft repository required")
+	}
+	return repo.GetEmployeeOrderDraft(ctx, employeeID)
+}
+
+func (s *Service) SaveEmployeeOrderDraft(ctx context.Context, cmd SaveEmployeeOrderDraftCommand) (EmployeeOrderDraft, error) {
+	if cmd.EmployeeID <= 0 {
+		return EmployeeOrderDraft{}, fmt.Errorf("employee required")
+	}
+	if len(cmd.Payload) == 0 || len(cmd.Payload) > 1<<20 || !json.Valid(cmd.Payload) {
+		return EmployeeOrderDraft{}, fmt.Errorf("invalid draft payload")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(cmd.Payload, &object); err != nil || object == nil {
+		return EmployeeOrderDraft{}, fmt.Errorf("invalid draft payload")
+	}
+	repo, ok := s.repo.(EmployeeOrderDraftRepository)
+	if !ok {
+		return EmployeeOrderDraft{}, fmt.Errorf("employee order draft repository required")
+	}
+	cmd.Payload = append(json.RawMessage(nil), cmd.Payload...)
+	return repo.SaveEmployeeOrderDraft(ctx, cmd)
+}
+
+func (s *Service) DeleteEmployeeOrderDraft(ctx context.Context, employeeID int64, actor string) (bool, error) {
+	if employeeID <= 0 {
+		return false, fmt.Errorf("employee required")
+	}
+	repo, ok := s.repo.(EmployeeOrderDraftRepository)
+	if !ok {
+		return false, fmt.Errorf("employee order draft repository required")
+	}
+	return repo.DeleteEmployeeOrderDraft(ctx, employeeID, actor)
 }
 
 func (s *Service) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {

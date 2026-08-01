@@ -23,6 +23,7 @@
               <option value="order">订单</option>
               <option value="customer">客户</option>
               <option value="customer_asset">客户附件</option>
+              <option value="employee_order_draft">订单草稿</option>
               <option value="sales_order_settings">销售单设置</option>
               <option value="sales_order_asset">销售单素材</option>
               <option value="sales_order_payment_code">收款二维码</option>
@@ -62,7 +63,7 @@
         </label>
         <label>
           <span>搜索</span>
-          <input v-model.trim="filters.q" placeholder="操作者/字段/内容" @keyup.enter="loadPage(1)" />
+          <input v-model.trim="filters.q" placeholder="操作者/对象类型/字段/内容" @keyup.enter="loadPage(1)" />
         </label>
         <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">筛选</button>
       </div>

@@ -536,6 +536,98 @@ export type EmployeeOrderCustomer = {
   receiver_phone?: string
   receiver_address?: string
   receiver_company?: string
+  responsible_employee_id?: number
+  responsible_employee_name?: string
+  can_maintain?: boolean
+}
+
+export type EmployeeCustomer = EmployeeOrderCustomer & {
+  active?: boolean
+  portal_enabled?: boolean
+  capability_template_key?: string
+  updated?: string
+}
+
+export type EmployeeCustomerOption = {
+  id: number
+  name: string
+}
+
+export type EmployeeCustomerTypeOption = {
+  value: string
+  label: string
+}
+
+export type EmployeeCustomersResponse = {
+  rows: EmployeeCustomer[]
+  sources: EmployeeCustomerOption[]
+  order_types: EmployeeCustomerOption[]
+  employees: EmployeeCustomerOption[]
+  customer_type_options: EmployeeCustomerTypeOption[]
+  is_admin: boolean
+  total?: number
+  has_next?: boolean
+}
+
+export type EmployeeCustomerListQuery = {
+  q?: string
+  page?: number
+  limit?: number
+}
+
+export type EmployeeCustomerPayload = {
+  name: string
+  customer_type: string
+  company_name?: string
+  company_address?: string
+  company_phone?: string
+  contact?: string
+  phone?: string
+  address?: string
+  default_source_id: number
+  default_order_type_id: number
+  responsible_employee_id?: number
+  active?: boolean
+  portal_enabled?: boolean
+}
+
+export type EmployeeOrderDraftItem = {
+  key: string
+  product_family_key: string
+  product_family_id: number
+  customer_product_alias_id: number
+  product_id: number
+  product_name: string
+  product_kind: string
+  spec_label: string
+  spec_g: number
+  sales_unit: string
+  unit_bag_count: number
+  unit_bean_g: number
+  qty: number
+  unit_price: number
+  validation_error?: string
+}
+
+export type EmployeeOrderDraftPayload = {
+  order_date: string
+  customer_id: number
+  source_id: number
+  order_type_id: number
+  pay_status_id: number
+  ship_status_id: number
+  receiver_name: string
+  receiver_phone: string
+  receiver_address: string
+  receiver_company: string
+  notes: string
+  items: EmployeeOrderDraftItem[]
+}
+
+export type EmployeeOrderDraft = {
+  id: number
+  payload: EmployeeOrderDraftPayload
+  updated_at: string
 }
 
 export type EmployeeOrderLegacyProduct = {
@@ -615,12 +707,63 @@ export function createEmployeeOrder(token: string, data: Record<string, unknown>
   return miniRequest(buildEmployeeOrdersPath(), { method: 'POST', token, data })
 }
 
+export function fetchEmployeeCustomers(token: string, query: EmployeeCustomerListQuery = {}): Promise<EmployeeCustomersResponse> {
+  return miniRequest<EmployeeCustomersResponse>(buildEmployeeCustomersPath(query), { token })
+}
+
+export function fetchEmployeeCustomer(token: string, customerID: number): Promise<{ customer: EmployeeCustomer }> {
+  return miniRequest<{ customer: EmployeeCustomer }>(buildEmployeeCustomerPath(customerID), { token })
+}
+
+export function createEmployeeCustomer(token: string, data: EmployeeCustomerPayload): Promise<{ customer: EmployeeCustomer }> {
+  return miniRequest<{ customer: EmployeeCustomer }>(buildEmployeeCustomersPath(), { method: 'POST', token, data })
+}
+
+export function updateEmployeeCustomer(token: string, customerID: number, data: EmployeeCustomerPayload): Promise<{ customer: EmployeeCustomer }> {
+  return miniRequest<{ customer: EmployeeCustomer }>(buildEmployeeCustomerPath(customerID), { method: 'PUT', token, data })
+}
+
+export function fetchEmployeeOrderDraft(token: string): Promise<{ draft: EmployeeOrderDraft | null }> {
+  return miniRequest<{ draft: EmployeeOrderDraft | null }>(buildEmployeeOrderDraftPath(), { token })
+}
+
+export function saveEmployeeOrderDraft(token: string, payload: EmployeeOrderDraftPayload): Promise<{ draft: EmployeeOrderDraft }> {
+  return miniRequest<{ draft: EmployeeOrderDraft }>(buildEmployeeOrderDraftPath(), {
+    method: 'PUT',
+    token,
+    data: { payload },
+  })
+}
+
+export function deleteEmployeeOrderDraft(token: string): Promise<{ deleted: boolean }> {
+  return miniRequest<{ deleted: boolean }>(buildEmployeeOrderDraftPath(), { method: 'DELETE', token })
+}
+
 export function buildEmployeeOrderFormPath(): string {
   return '/api/mini/employee/order-form'
 }
 
 export function buildEmployeeOrdersPath(): string {
   return '/api/mini/employee/orders'
+}
+
+export function buildEmployeeCustomersPath(query: EmployeeCustomerListQuery = {}): string {
+  const params = [
+    ['q', String(query.q || '').trim()],
+    ['page', Number(query.page || 0) > 0 ? String(Number(query.page)) : ''],
+    ['limit', Number(query.limit || 0) > 0 ? String(Number(query.limit)) : ''],
+  ]
+    .filter(([, value]) => value !== '')
+    .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
+  return `/api/mini/employee/customers${params.length ? `?${params.join('&')}` : ''}`
+}
+
+export function buildEmployeeCustomerPath(customerID: number): string {
+  return `${buildEmployeeCustomersPath()}/${Number(customerID || 0)}`
+}
+
+export function buildEmployeeOrderDraftPath(): string {
+  return '/api/mini/employee/order-draft'
 }
 
 export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilters = {}): string {

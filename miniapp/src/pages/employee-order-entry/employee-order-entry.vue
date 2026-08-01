@@ -1,37 +1,56 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
 import {
   createEmployeeOrder,
+  deleteEmployeeOrderDraft,
+  fetchEmployeeCustomers,
+  fetchEmployeeOrderDraft,
   fetchEmployeeOrderForm,
+  saveEmployeeOrderDraft,
+  type EmployeeCustomer,
+  type EmployeeCustomersResponse,
   type EmployeeOrderCustomer,
+  type EmployeeOrderDraft,
+  type EmployeeOrderDraftItem,
+  type EmployeeOrderDraftPayload,
   type EmployeeOrderForm,
   type EmployeeOrderProductFamily,
   type EmployeeOrderProductSpec,
 } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError } from '../../api/client'
 import {
+  buildEmployeeOrderItemsPayload,
+  createEmployeeOrderItem,
   customerProductFamilies,
   customerShippingDefaults,
   defaultProductSpec,
+  employeeOrderItemFromSpec,
+  employeeOrderItemsTotal,
   employeeOrderProductCategories,
   employeeOrderProductCategory,
   employeeOrderProductFamilyKey,
+  employeeOrderShippingChanged,
   filterEmployeeOrderCustomers,
   filterEmployeeOrderProductFamilies,
-  firstSpecUnitPrice,
   productSpecLabel,
-  productSpecWeightG,
+  preserveEmployeeOrderDraftItemsForMissingCustomer,
+  revalidateEmployeeOrderItems,
   salesUnitLabel,
   shanghaiToday,
   type EmployeeOrderProductCategory,
+  type EmployeeOrderShippingSnapshot,
 } from '../../utils/employeeOrder'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
 const formData = ref<EmployeeOrderForm>()
+const customerContext = ref<EmployeeCustomersResponse>()
 const loading = ref(false)
 const saving = ref(false)
+const savingDraft = ref(false)
+const clearingDraft = ref(false)
 const loadError = ref('')
 const authExpired = ref(false)
 const customerSelectorOpen = ref(false)
@@ -39,32 +58,43 @@ const customerQuery = ref('')
 const productSelectorOpen = ref(false)
 const productQuery = ref('')
 const productCategory = ref<EmployeeOrderProductCategory>('all')
+const editingItemKey = ref('')
+const customerEditorOpen = ref(false)
+const editingCustomerID = ref(0)
+const editingCustomerMode = ref<'create' | 'edit'>('create')
+const draftRecord = ref<EmployeeOrderDraft | null>(null)
+const canCreateCustomer = computed(() => session.permissions.includes('customers.read')
+  && session.permissions.includes('customers.write'))
 
-const form = ref({
-  order_date: shanghaiToday(),
-  customer_id: 0,
-  source_id: 0,
-  order_type_id: 0,
-  pay_status_id: 0,
-  ship_status_id: 0,
-  receiver_name: '',
-  receiver_phone: '',
-  receiver_address: '',
-  receiver_company: '',
-  notes: '',
-  product_family_key: '',
-  product_family_id: 0,
-  product_id: 0,
-  product_name: '',
-  product_kind: 'roasted_bean',
-  spec_label: '',
-  spec_g: 0,
-  sales_unit: '袋',
-  unit_bag_count: 0,
-  unit_bean_g: 0,
-  qty: 1,
-  unit_price: 0,
-})
+function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
+  return {
+    receiver_name: '',
+    receiver_phone: '',
+    receiver_address: '',
+    receiver_company: '',
+  }
+}
+
+const shippingBaseline = ref<EmployeeOrderShippingSnapshot>(emptyShippingSnapshot())
+
+function createOrderForm(): EmployeeOrderDraftPayload {
+  return {
+    order_date: shanghaiToday(),
+    customer_id: 0,
+    source_id: 0,
+    order_type_id: 0,
+    pay_status_id: 0,
+    ship_status_id: 0,
+    receiver_name: '',
+    receiver_phone: '',
+    receiver_address: '',
+    receiver_company: '',
+    notes: '',
+    items: [createEmployeeOrderItem()],
+  }
+}
+
+const form = ref<EmployeeOrderDraftPayload>(createOrderForm())
 
 const selectedCustomer = computed(() => formData.value?.customers.find(
   (row) => Number(row.id) === Number(form.value.customer_id),
@@ -83,33 +113,61 @@ const filteredProductFamilies = computed(() => filterEmployeeOrderProductFamilie
   productQuery.value,
   productCategory.value,
 ))
-const selectedFamily = computed(() => productFamilies.value.find(
-  (row) => employeeOrderProductFamilyKey(row) === form.value.product_family_key,
-))
-const specLabels = computed(() => selectedFamily.value?.specs.map(productSpecLabel) || [])
-const selectedSpecIndex = computed(() => Math.max(0, selectedFamily.value?.specs.findIndex(
-  (row) => Number(row.product_id || row.sku_id) === Number(form.value.product_id),
-) ?? 0))
-const displayedSalesUnit = computed(() => salesUnitLabel(form.value.sales_unit))
+const editingItem = computed(() => form.value.items.find((item) => item.key === editingItemKey.value))
+const orderItemsTotal = computed(() => employeeOrderItemsTotal(form.value.items))
 
 function categoryLabel(family: EmployeeOrderProductFamily): string {
   const category = employeeOrderProductCategory(family)
   return employeeOrderProductCategories.find((row) => row.key === category)?.label || '未分类'
 }
 
-function clearProduct() {
-  Object.assign(form.value, {
-    product_family_key: '',
-    product_family_id: 0,
-    product_id: 0,
-    product_name: '',
-    spec_label: '',
-    spec_g: 0,
-    sales_unit: '袋',
-    unit_bag_count: 0,
-    unit_bean_g: 0,
-    unit_price: 0,
-  })
+function currentShippingSnapshot(): EmployeeOrderShippingSnapshot {
+  return {
+    receiver_name: form.value.receiver_name,
+    receiver_phone: form.value.receiver_phone,
+    receiver_address: form.value.receiver_address,
+    receiver_company: form.value.receiver_company,
+  }
+}
+
+function applyCustomerShipping(customer: EmployeeOrderCustomer) {
+  const defaults = customerShippingDefaults(customer)
+  Object.assign(form.value, defaults)
+  shippingBaseline.value = { ...defaults }
+}
+
+function familyForItem(item: EmployeeOrderDraftItem): EmployeeOrderProductFamily | undefined {
+  return productFamilies.value.find((family) => employeeOrderProductFamilyKey(family) === item.product_family_key)
+}
+
+function specLabelsForItem(item: EmployeeOrderDraftItem): string[] {
+  return familyForItem(item)?.specs.map(productSpecLabel) || []
+}
+
+function selectedSpecIndexForItem(item: EmployeeOrderDraftItem): number {
+  const family = familyForItem(item)
+  return Math.max(0, family?.specs.findIndex(
+    (spec) => Number(spec.product_id || spec.sku_id) === Number(item.product_id),
+  ) ?? 0)
+}
+
+function displayedSalesUnit(item: EmployeeOrderDraftItem): string {
+  return salesUnitLabel(item.sales_unit)
+}
+
+function upsertOrderCustomer(customer: EmployeeCustomer) {
+  if (!formData.value) return
+  const index = formData.value.customers.findIndex((row) => Number(row.id) === Number(customer.id))
+  if (index >= 0) {
+    const current = formData.value.customers[index]
+    formData.value.customers.splice(index, 1, {
+      ...current,
+      ...customer,
+      can_maintain: customer.can_maintain ?? current.can_maintain,
+    })
+  } else {
+    formData.value.customers.unshift({ ...customer, can_maintain: customer.can_maintain ?? true })
+  }
 }
 
 function openCustomerSelector() {
@@ -123,20 +181,114 @@ function closeCustomerSelector() {
 }
 
 function chooseCustomer(customer: EmployeeOrderCustomer) {
+  const selectedBefore = form.value.items.filter((item) => item.product_id > 0).length
   form.value.customer_id = Number(customer.id)
-  Object.assign(form.value, customerShippingDefaults(customer))
+  applyCustomerShipping(customer)
   if (Number(customer.default_source_id || 0) > 0) form.value.source_id = Number(customer.default_source_id)
   if (Number(customer.default_order_type_id || 0) > 0) form.value.order_type_id = Number(customer.default_order_type_id)
-  if (form.value.product_family_key && !selectedFamily.value) clearProduct()
+  form.value.items = revalidateEmployeeOrderItems(
+    form.value.items,
+    formData.value?.product_families || [],
+    form.value.customer_id,
+  )
+  const selectedAfter = form.value.items.filter((item) => item.product_id > 0).length
+  if (selectedAfter < selectedBefore) {
+    uni.showToast({ title: '部分商品不适用于该客户，已清空', icon: 'none' })
+  }
   closeCustomerSelector()
 }
 
-function openProductSelector() {
+async function ensureCustomerContext(): Promise<boolean> {
+  if (customerContext.value) return true
+  try {
+    customerContext.value = await fetchEmployeeCustomers(session.token)
+    return true
+  } catch (cause) {
+    uni.showToast({ title: cause instanceof Error ? cause.message : '客户维护数据加载失败', icon: 'none' })
+    return false
+  }
+}
+
+async function openCustomerCreate() {
+  if (!await ensureCustomerContext()) return
+  editingCustomerMode.value = 'create'
+  editingCustomerID.value = 0
+  customerSelectorOpen.value = false
+  customerEditorOpen.value = true
+}
+
+async function openSelectedCustomerEdit() {
+  const targetCustomerID = Number(selectedCustomer.value?.id || 0)
+  if (targetCustomerID <= 0 || !selectedCustomer.value?.can_maintain) return
+  if (!await ensureCustomerContext()) return
+  if (Number(selectedCustomer.value?.id || 0) !== targetCustomerID || !selectedCustomer.value?.can_maintain) return
+  editingCustomerMode.value = 'edit'
+  editingCustomerID.value = targetCustomerID
+  customerEditorOpen.value = true
+}
+
+function closeCustomerEditor() {
+  customerEditorOpen.value = false
+}
+
+function customerSaved(customer: EmployeeCustomer) {
+  if (customer.active === false) {
+    const customerIndex = formData.value?.customers.findIndex((row) => Number(row.id) === Number(customer.id)) ?? -1
+    if (customerIndex >= 0) formData.value?.customers.splice(customerIndex, 1)
+    if (Number(form.value.customer_id) === Number(customer.id)) {
+      form.value.customer_id = 0
+      form.value.source_id = 0
+      form.value.order_type_id = 0
+      shippingBaseline.value = emptyShippingSnapshot()
+      form.value.items = preserveEmployeeOrderDraftItemsForMissingCustomer(form.value.items)
+    }
+    uni.showToast({ title: '客户已停用，请重新选择启用客户', icon: 'none' })
+    return
+  }
+  upsertOrderCustomer(customer)
+  if (editingCustomerMode.value === 'create') {
+    chooseCustomer(customer)
+    uni.showToast({ title: '客户已新增并选中', icon: 'success' })
+    return
+  }
+  if (Number(form.value.customer_id) !== Number(customer.id)) return
+  if (Number(customer.default_source_id || 0) > 0) form.value.source_id = Number(customer.default_source_id)
+  if (Number(customer.default_order_type_id || 0) > 0) form.value.order_type_id = Number(customer.default_order_type_id)
+
+  if (!employeeOrderShippingChanged(currentShippingSnapshot(), shippingBaseline.value)) {
+    applyCustomerShipping(customer)
+    return
+  }
+  uni.showModal({
+    title: '客户资料已更新',
+    content: '本单收货资料已手动修改，是否同步客户最新收货资料？',
+    confirmText: '同步',
+    cancelText: '保留本单',
+    success: (result) => {
+      if (result.confirm) applyCustomerShipping(customer)
+    },
+  })
+}
+
+function addItem() {
+  form.value.items.push(createEmployeeOrderItem())
+}
+
+function removeItem(index: number) {
+  if (form.value.items.length === 1) {
+    form.value.items.splice(0, 1, createEmployeeOrderItem(form.value.items[0]?.key))
+    return
+  }
+  form.value.items.splice(index, 1)
+}
+
+function openProductSelector(itemKey: string) {
   if (!form.value.customer_id) {
     uni.showToast({ title: '请先选择客户', icon: 'none' })
     return
   }
   if (loading.value || !formData.value) return
+  editingItemKey.value = itemKey
   productQuery.value = ''
   productCategory.value = 'all'
   productSelectorOpen.value = true
@@ -144,21 +296,13 @@ function openProductSelector() {
 
 function closeProductSelector() {
   productSelectorOpen.value = false
+  editingItemKey.value = ''
 }
 
-function applySpec(family: EmployeeOrderProductFamily, spec: EmployeeOrderProductSpec) {
-  const tier = spec.tiers?.[0]
-  form.value.product_family_key = employeeOrderProductFamilyKey(family)
-  form.value.product_family_id = Number(family.parent_product_id)
-  form.value.product_id = Number(spec.product_id || spec.sku_id || 0)
-  form.value.product_name = family.name
-  form.value.product_kind = spec.product_kind || family.product_kind || 'roasted_bean'
-  form.value.spec_label = productSpecLabel(spec)
-  form.value.spec_g = productSpecWeightG(spec)
-  form.value.sales_unit = spec.sales_unit || tier?.sales_unit || '袋'
-  form.value.unit_bag_count = Number(spec.unit_bag_count || tier?.unit_bag_count || 0)
-  form.value.unit_bean_g = Number(spec.unit_bean_g || 0)
-  form.value.unit_price = firstSpecUnitPrice(spec)
+function applySpec(family: EmployeeOrderProductFamily, spec: EmployeeOrderProductSpec, item?: EmployeeOrderDraftItem) {
+  const target = item || editingItem.value
+  if (!target) return
+  Object.assign(target, employeeOrderItemFromSpec(target, family, spec))
 }
 
 function chooseProduct(family: EmployeeOrderProductFamily) {
@@ -171,10 +315,10 @@ function chooseProduct(family: EmployeeOrderProductFamily) {
   closeProductSelector()
 }
 
-function chooseSpec(event: { detail?: { value?: number | string } }) {
-  const family = selectedFamily.value
+function chooseSpec(item: EmployeeOrderDraftItem, event: { detail?: { value?: number | string } }) {
+  const family = familyForItem(item)
   const spec = family?.specs[Number(event.detail?.value || 0)]
-  if (family && spec) applySpec(family, spec)
+  if (family && spec) applySpec(family, spec, item)
 }
 
 function setProductCategory(category: EmployeeOrderProductCategory) {
@@ -184,6 +328,53 @@ function setProductCategory(category: EmployeeOrderProductCategory) {
 function goToLogin() {
   session.clearSession()
   uni.reLaunch({ url: '/pages/login/login' })
+}
+
+function normalizeDraftItems(items: EmployeeOrderDraftItem[] | undefined): EmployeeOrderDraftItem[] {
+  if (!Array.isArray(items) || !items.length) return [createEmployeeOrderItem()]
+  return items.map((item, index) => ({
+    ...createEmployeeOrderItem(String(item?.key || `draft-${index + 1}`)),
+    ...item,
+    key: String(item?.key || `draft-${index + 1}`),
+    qty: item?.qty == null ? 1 : Number(item.qty),
+    unit_price: Number(item?.unit_price || 0),
+  }))
+}
+
+function restoreDraft(draft: EmployeeOrderDraft) {
+  const payload = draft.payload || ({} as EmployeeOrderDraftPayload)
+  const customer = formData.value?.customers.find((row) => Number(row.id) === Number(payload.customer_id || 0))
+  form.value = {
+    ...createOrderForm(),
+    ...payload,
+    customer_id: customer ? Number(payload.customer_id) : 0,
+    items: normalizeDraftItems(payload.items),
+  }
+  if (customer) {
+    shippingBaseline.value = customerShippingDefaults(customer)
+    form.value.items = revalidateEmployeeOrderItems(
+      form.value.items,
+      formData.value?.product_families || [],
+      form.value.customer_id,
+      { preserveUnitPrice: true, preserveUnavailable: true },
+    )
+  } else {
+    shippingBaseline.value = emptyShippingSnapshot()
+    form.value.items = preserveEmployeeOrderDraftItemsForMissingCustomer(form.value.items)
+  }
+  draftRecord.value = draft
+}
+
+async function loadDraft() {
+  const response = await fetchEmployeeOrderDraft(session.token)
+  if (response.draft) restoreDraft(response.draft)
+}
+
+function applyDefaultOptions() {
+  form.value.source_id ||= formData.value?.sources[0]?.id || 0
+  form.value.order_type_id ||= formData.value?.order_types[0]?.id || 0
+  form.value.pay_status_id ||= formData.value?.pay_statuses[0]?.id || 0
+  form.value.ship_status_id ||= formData.value?.ship_statuses[0]?.id || 0
 }
 
 async function loadForm() {
@@ -202,10 +393,8 @@ async function loadForm() {
       ship_statuses: data.ship_statuses || [],
       product_families: data.product_families || [],
     }
-    form.value.source_id ||= formData.value.sources[0]?.id || 0
-    form.value.order_type_id ||= formData.value.order_types[0]?.id || 0
-    form.value.pay_status_id ||= formData.value.pay_statuses[0]?.id || 0
-    form.value.ship_status_id ||= formData.value.ship_statuses[0]?.id || 0
+    applyDefaultOptions()
+    await loadDraft()
   } catch (cause) {
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
     if (authExpired.value) session.clearSession()
@@ -218,19 +407,91 @@ async function loadForm() {
   }
 }
 
-async function submit() {
+async function saveDraft() {
+  if (clearingDraft.value) return
+  savingDraft.value = true
+  try {
+    const response = await saveEmployeeOrderDraft(session.token, {
+      ...form.value,
+      items: form.value.items.map((item) => ({ ...item })),
+    })
+    draftRecord.value = response.draft
+    uni.showToast({ title: '草稿已保存', icon: 'success' })
+  } catch (cause) {
+    uni.showToast({ title: cause instanceof Error ? cause.message : '草稿保存失败', icon: 'none' })
+  } finally {
+    savingDraft.value = false
+  }
+}
+
+function clearDraft() {
+  if (saving.value || savingDraft.value || clearingDraft.value) return
+  uni.showModal({
+    title: '清除草稿',
+    content: '确定清除服务器上的当前录单草稿吗？',
+    confirmText: '清除',
+    confirmColor: '#a7352a',
+    success: async (result) => {
+      if (!result.confirm) return
+      clearingDraft.value = true
+      try {
+        await deleteEmployeeOrderDraft(session.token)
+        resetAfterSubmit()
+        uni.showToast({ title: '草稿已清除', icon: 'success' })
+      } catch (cause) {
+        uni.showToast({ title: cause instanceof Error ? cause.message : '草稿清除失败', icon: 'none' })
+      } finally {
+        clearingDraft.value = false
+      }
+    },
+  })
+}
+
+function validateOrder(): boolean {
   if (!form.value.customer_id) {
     uni.showToast({ title: '请选择客户', icon: 'none' })
-    return
+    return false
   }
-  if (!form.value.product_id || !form.value.spec_label) {
-    uni.showToast({ title: '请选择商品和规格', icon: 'none' })
-    return
+  let completeCount = 0
+  for (let index = 0; index < form.value.items.length; index += 1) {
+    const item = form.value.items[index]
+    const blank = !item.product_id && !item.product_name && !item.spec_label
+    if (blank) continue
+    if (!item.product_id || !item.spec_label) {
+      uni.showToast({ title: `第${index + 1}行请选择商品和规格`, icon: 'none' })
+      return false
+    }
+    if (item.validation_error) {
+      uni.showToast({ title: `第${index + 1}行${item.validation_error}`, icon: 'none' })
+      return false
+    }
+    if (Number(item.qty) <= 0) {
+      uni.showToast({ title: `第${index + 1}行数量不正确`, icon: 'none' })
+      return false
+    }
+    if (!Number.isFinite(Number(item.unit_price)) || Number(item.unit_price) <= 0) {
+      uni.showToast({ title: `第${index + 1}行销售单价必须大于 0`, icon: 'none' })
+      return false
+    }
+    completeCount += 1
   }
-  if (Number(form.value.qty) <= 0) {
-    uni.showToast({ title: '请填写正确数量', icon: 'none' })
-    return
+  if (!completeCount) {
+    uni.showToast({ title: '请至少添加一个商品', icon: 'none' })
+    return false
   }
+  return true
+}
+
+function resetAfterSubmit() {
+  form.value = createOrderForm()
+  shippingBaseline.value = emptyShippingSnapshot()
+  draftRecord.value = null
+  applyDefaultOptions()
+}
+
+async function submit() {
+  if (clearingDraft.value) return
+  if (!validateOrder()) return
   saving.value = true
   try {
     const result = await createEmployeeOrder(session.token, {
@@ -245,19 +506,10 @@ async function submit() {
       receiver_address: form.value.receiver_address,
       receiver_company: form.value.receiver_company,
       notes: form.value.notes,
-      items: [{
-        product_id: form.value.product_id,
-        name: form.value.product_name,
-        product_kind: form.value.product_kind,
-        qty: Number(form.value.qty),
-        spec_g: Number(form.value.spec_g),
-        unit: form.value.sales_unit,
-        sales_unit: form.value.sales_unit,
-        unit_bag_count: form.value.unit_bag_count,
-        unit_bean_g: form.value.unit_bean_g,
-        unit_price: Number(form.value.unit_price),
-      }],
+      items: buildEmployeeOrderItemsPayload(form.value.items),
     })
+    // The backend creates the order and clears the employee draft atomically.
+    resetAfterSubmit()
     uni.showModal({
       title: '录单成功',
       content: result.order_no,
@@ -283,7 +535,10 @@ onLoad(() => void loadForm())
 <template>
   <view class="page">
     <view class="panel">
-      <text class="title">新建销售订单</text>
+      <view class="title-row">
+        <text class="title">新建销售订单</text>
+        <text v-if="draftRecord" class="draft-meta">草稿 {{ draftRecord.updated_at }}</text>
+      </view>
 
       <view v-if="loading" class="status-card">
         <text>正在加载客户和商品...</text>
@@ -300,58 +555,84 @@ onLoad(() => void loadForm())
       </picker>
 
       <text class="label">客户</text>
-      <view
-        class="field selector-field"
-        :class="{ muted: loading || !formData }"
-        @tap="openCustomerSelector"
-      >
-        <text>{{ selectedCustomer?.name || '搜索并选择客户 *' }}</text>
-        <text class="chevron">›</text>
-      </view>
-
-      <view class="section-title">商品明细</view>
-      <text class="label">商品</text>
-      <view
-        class="field selector-field"
-        :class="{ muted: !form.customer_id || loading || !formData }"
-        @tap="openProductSelector"
-      >
-        <text>{{ form.product_name || (form.customer_id ? '搜索并选择商品 *' : '请先选择客户') }}</text>
-        <text class="chevron">›</text>
-      </view>
-
-      <text class="label">规格</text>
-      <picker mode="selector" :range="specLabels" :value="selectedSpecIndex" :disabled="!selectedFamily" @change="chooseSpec">
-        <view class="field selector-field" :class="{ muted: !selectedFamily }">
-          <text>{{ form.spec_label || (selectedFamily ? '选择该商品的规格 *' : '请先选择商品') }}</text>
+      <view class="customer-field-row">
+        <view
+          class="field selector-field customer-field"
+          :class="{ muted: loading || !formData }"
+          @tap="openCustomerSelector"
+        >
+          <text>{{ selectedCustomer?.name || '搜索并选择客户 *' }}</text>
           <text class="chevron">›</text>
         </view>
-      </picker>
-
-      <text class="label">数量（{{ displayedSalesUnit }}）</text>
-      <view class="input-with-unit">
-        <input v-model="form.qty" type="number" class="field" :placeholder="`填写数量（${displayedSalesUnit}） *`" />
-        <text class="unit-suffix">{{ displayedSalesUnit }}</text>
+        <button
+          v-if="selectedCustomer?.can_maintain"
+          class="compact-action"
+          @tap="openSelectedCustomerEdit"
+        >
+          维护
+        </button>
       </view>
 
-      <view class="item-summary">
-        <view><text>商品</text><text class="summary-value">{{ form.product_name || '未选择' }}</text></view>
-        <view><text>规格</text><text class="summary-value">{{ form.spec_label || '未选择' }}</text></view>
-        <view><text>数量</text><text class="summary-value">{{ Number(form.qty) > 0 ? `${form.qty} ${displayedSalesUnit}` : '未填写' }}</text></view>
+      <view class="section-head">
+        <text class="section-title">商品明细</text>
+        <button class="add-item" @tap="addItem">新增商品</button>
       </view>
 
-      <text class="label">销售单价（元/{{ displayedSalesUnit }}）</text>
-      <view class="input-with-unit">
-        <input v-model="form.unit_price" type="digit" class="field" :placeholder="`填写每${displayedSalesUnit}单价`" />
-        <text class="unit-suffix">元/{{ displayedSalesUnit }}</text>
+      <view v-for="(item, index) in form.items" :key="item.key" class="item-card">
+        <view class="item-head">
+          <text class="item-title">商品 {{ index + 1 }}</text>
+          <button class="remove-item" @tap="removeItem(index)">删除本行</button>
+        </view>
+
+        <text class="label">商品</text>
+        <view
+          class="field selector-field"
+          :class="{ muted: !form.customer_id || loading || !formData }"
+          @tap="openProductSelector(item.key)"
+        >
+          <text>{{ item.product_name || (form.customer_id ? '搜索并选择商品 *' : '请先选择客户') }}</text>
+          <text class="chevron">›</text>
+        </view>
+        <text v-if="item.validation_error" class="item-error">{{ item.validation_error }}</text>
+
+        <text class="label">规格</text>
+        <picker
+          mode="selector"
+          :range="specLabelsForItem(item)"
+          :value="selectedSpecIndexForItem(item)"
+          :disabled="!familyForItem(item)"
+          @change="chooseSpec(item, $event)"
+        >
+          <view class="field selector-field" :class="{ muted: !familyForItem(item) }">
+            <text>{{ item.spec_label || (familyForItem(item) ? '选择该商品的规格 *' : '请先选择商品') }}</text>
+            <text class="chevron">›</text>
+          </view>
+        </picker>
+
+        <text class="label">数量（{{ displayedSalesUnit(item) }}）</text>
+        <view class="input-with-unit">
+          <input v-model="item.qty" type="number" class="field" :placeholder="`填写数量（${displayedSalesUnit(item)}） *`" />
+          <text class="unit-suffix">{{ displayedSalesUnit(item) }}</text>
+        </view>
+
+        <text class="label">销售单价（元/{{ displayedSalesUnit(item) }}）*</text>
+        <view class="input-with-unit">
+          <input v-model="item.unit_price" type="digit" class="field" :placeholder="`填写每${displayedSalesUnit(item)}单价`" />
+          <text class="unit-suffix">元/{{ displayedSalesUnit(item) }}</text>
+        </view>
       </view>
 
-      <view class="section-title">收货信息</view>
+      <view class="order-total">
+        <text>商品估算合计</text>
+        <text class="order-total-value">¥{{ orderItemsTotal.toFixed(2) }}</text>
+      </view>
+
+      <view class="section-title standalone">收货信息</view>
       <text class="hint">选择客户后自动带入，可按本次订单修改</text>
       <text class="label">收货人</text>
       <input v-model="form.receiver_name" class="field" placeholder="收货人" />
       <text class="label">联系电话</text>
-      <input v-model="form.receiver_phone" type="number" class="field" placeholder="联系电话" />
+      <input v-model="form.receiver_phone" class="field" placeholder="联系电话（可含区号或分机）" />
       <text class="label">收货单位</text>
       <input v-model="form.receiver_company" class="field" placeholder="收货单位" />
       <text class="label">收货地址</text>
@@ -359,14 +640,43 @@ onLoad(() => void loadForm())
 
       <text class="label">备注</text>
       <textarea v-model="form.notes" class="field area" placeholder="备注" />
-      <button class="submit" :loading="saving" :disabled="saving || loading || Boolean(loadError)" @tap="submit">提交订单</button>
+      <view class="form-actions">
+        <button
+          v-if="draftRecord"
+          class="clear-draft-button"
+          :loading="clearingDraft"
+          :disabled="savingDraft || saving || clearingDraft"
+          @tap="clearDraft"
+        >
+          清除草稿
+        </button>
+        <button
+          class="draft-button"
+          :loading="savingDraft"
+          :disabled="savingDraft || saving || clearingDraft || loading || Boolean(loadError)"
+          @tap="saveDraft"
+        >
+          保存草稿
+        </button>
+        <button
+          class="submit"
+          :loading="saving"
+          :disabled="saving || savingDraft || clearingDraft || loading || Boolean(loadError)"
+          @tap="submit"
+        >
+          提交订单
+        </button>
+      </view>
     </view>
 
     <view v-if="customerSelectorOpen" class="overlay" @tap.self="closeCustomerSelector">
       <view class="select-sheet" @tap.stop>
         <view class="sheet-head">
           <text class="sheet-title">选择客户</text>
-          <text class="sheet-close" @tap="closeCustomerSelector">关闭</text>
+          <view class="sheet-actions">
+            <text v-if="canCreateCustomer" class="sheet-create" @tap="openCustomerCreate">新增客户</text>
+            <text class="sheet-close" @tap="closeCustomerSelector">关闭</text>
+          </view>
         </view>
         <input
           v-model="customerQuery"
@@ -427,38 +737,65 @@ onLoad(() => void loadForm())
         <text class="result-hint">每个商品只显示一条，最多显示 30 条</text>
       </view>
     </view>
+
+    <EmployeeCustomerEditor
+      :visible="customerEditorOpen"
+      :token="session.token"
+      :customer-id="editingCustomerID"
+      :context="customerContext"
+      @close="closeCustomerEditor"
+      @saved="customerSaved"
+    />
   </view>
 </template>
 
 <style scoped>
 .page { min-height: 100vh; padding: 28rpx; background: #f5f7f6; box-sizing: border-box; }
 .panel { padding: 28rpx; background: #fff; border-radius: 18rpx; }
-.title { display: block; margin-bottom: 28rpx; font-size: 36rpx; font-weight: 800; }
-.section-title { margin: 30rpx 0 18rpx; padding-top: 24rpx; border-top: 1rpx solid #edf1ee; font-size: 30rpx; font-weight: 750; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 28rpx; }
+.title { font-size: 36rpx; font-weight: 800; }
+.draft-meta { color: #718078; font-size: 21rpx; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin: 30rpx 0 18rpx; padding-top: 24rpx; border-top: 1rpx solid #edf1ee; }
+.section-title { font-size: 30rpx; font-weight: 750; }
+.section-title.standalone { margin: 30rpx 0 18rpx; padding-top: 24rpx; border-top: 1rpx solid #edf1ee; }
 .label { display: block; margin: 0 0 8rpx 4rpx; color: #42524a; font-size: 25rpx; font-weight: 650; }
 .hint { display: block; margin: -8rpx 0 20rpx; color: #718078; font-size: 23rpx; }
 .field { width: 100%; min-height: 82rpx; margin-bottom: 18rpx; padding: 20rpx; border: 1rpx solid #dfe7e2; border-radius: 12rpx; box-sizing: border-box; background: #fff; }
 .selector-field { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.customer-field-row { display: flex; align-items: stretch; gap: 12rpx; }
+.customer-field { flex: 1; min-width: 0; }
+.compact-action { flex: 0 0 auto; width: 110rpx; margin: 0 0 18rpx; padding: 0; min-height: 82rpx; line-height: 82rpx; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 24rpx; }
 .chevron { color: #7b8780; font-size: 38rpx; line-height: 1; }
 .muted { color: #9aa59f; background: #f7f9f8; }
 .area { height: 130rpx; }
 .input-with-unit { position: relative; }
 .input-with-unit .field { padding-right: 150rpx; }
 .unit-suffix { position: absolute; top: 25rpx; right: 22rpx; color: #65736b; font-size: 24rpx; }
-.item-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10rpx; margin: 4rpx 0 22rpx; }
-.item-summary view { min-width: 0; padding: 16rpx 12rpx; border-radius: 10rpx; background: #f1f6f3; }
-.item-summary text { display: block; overflow: hidden; margin-bottom: 6rpx; color: #6e7c74; font-size: 22rpx; text-overflow: ellipsis; white-space: nowrap; }
-.item-summary .summary-value { margin-bottom: 0; color: #203b2e; font-size: 25rpx; font-weight: 700; }
-.submit { margin-top: 12rpx; background: #28624a; color: #fff; }
+.item-card { margin-bottom: 18rpx; padding: 22rpx; border: 1rpx solid #dce7e0; border-radius: 16rpx; background: #fbfdfc; }
+.item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18rpx; }
+.item-title { color: #203b2e; font-size: 27rpx; font-weight: 750; }
+.add-item, .remove-item { margin: 0; padding: 0 20rpx; min-height: 58rpx; line-height: 58rpx; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 23rpx; }
+.remove-item { border-color: #d7aaa3; color: #9a3e34; }
+.item-error { display: block; margin: -8rpx 0 16rpx; color: #a7352a; font-size: 23rpx; }
+.order-total { display: flex; align-items: center; justify-content: space-between; margin: 10rpx 0 24rpx; padding: 22rpx; border-radius: 12rpx; background: #edf5f0; color: #355345; font-size: 27rpx; font-weight: 700; }
+.order-total-value { color: #1d5b3f; font-size: 32rpx; font-weight: 850; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 14rpx; margin-top: 12rpx; }
+.form-actions button { margin: 0; }
+.form-actions .clear-draft-button { flex: 1 1 100%; border: 1rpx solid #d7aaa3; background: #fff; color: #9a3e34; }
+.form-actions .draft-button, .form-actions .submit { flex: 1 1 0; }
+.draft-button { border: 1rpx solid #28624a; background: #fff; color: #28624a; }
+.submit { background: #28624a; color: #fff; }
 .status-card { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 22rpx; padding: 18rpx 20rpx; border-radius: 12rpx; background: #eef5f1; color: #355345; font-size: 24rpx; }
 .error-card { background: #fff2f0; color: #a7352a; }
 .status-action { flex: 0 0 auto; margin: 0; padding: 0 22rpx; min-height: 58rpx; line-height: 58rpx; background: #28624a; color: #fff; font-size: 24rpx; }
-.overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; background: rgba(16, 28, 22, 0.48); }
+.overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; background: rgba(16, 28, 22, .48); }
 .select-sheet { width: 100%; max-height: 78vh; padding: 28rpx 28rpx calc(24rpx + env(safe-area-inset-bottom)); border-radius: 24rpx 24rpx 0 0; box-sizing: border-box; background: #fff; }
 .product-sheet { max-height: 86vh; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
+.sheet-actions { display: flex; align-items: center; gap: 12rpx; }
 .sheet-title { color: #1e362a; font-size: 32rpx; font-weight: 800; }
-.sheet-close { padding: 12rpx; color: #28624a; font-size: 26rpx; }
+.sheet-create, .sheet-close { padding: 12rpx; color: #28624a; font-size: 26rpx; }
+.sheet-close { color: #718078; }
 .search-input { width: 100%; min-height: 78rpx; padding: 0 22rpx; border: 2rpx solid #b8ccc0; border-radius: 12rpx; box-sizing: border-box; background: #f9fbfa; }
 .category-scroll { width: 100%; margin: 18rpx 0 8rpx; white-space: nowrap; }
 .category-row { display: inline-flex; gap: 12rpx; padding-right: 20rpx; }

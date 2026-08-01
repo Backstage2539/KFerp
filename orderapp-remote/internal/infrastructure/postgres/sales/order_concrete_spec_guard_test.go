@@ -244,6 +244,7 @@ func TestResolveConcreteOrderPublicationSelectionAndParentAliasPostgres(t *testi
 		INSERT INTO %[1]s.customer_product_aliases(id,customer_id,product_id,display_name,customer_item_code,active)
 		VALUES
 			(81,3,550,'客户乌拉嘎','C-WLG',true),
+			(85,3,550,'客户乌拉嘎别名B','C-WLG-B',true),
 			(82,4,550,'其他客户乌拉嘎','OTHER-CUSTOMER',true),
 			(83,3,600,'其他父商品别名','OTHER-PARENT',true),
 			(84,3,550,'已停用乌拉嘎','INACTIVE',false);
@@ -270,6 +271,13 @@ func TestResolveConcreteOrderPublicationSelectionAndParentAliasPostgres(t *testi
 	}
 	if alias.AliasID != 81 || alias.DisplayName != "客户乌拉嘎" || alias.ProductName != "乌拉嘎" || alias.ProductCode != "SKU-WLG-227" {
 		t.Fatalf("parent alias snapshot = %+v", alias)
+	}
+	aliasB, err := resolveOrderItemCustomerAliasSnapshotTx(ctx, tx, schema, 3, 551, 85)
+	if err != nil {
+		t.Fatalf("resolve explicitly selected second alias for child SKU: %v", err)
+	}
+	if aliasB.AliasID != 85 || aliasB.DisplayName != "客户乌拉嘎别名B" || aliasB.CustomerItemCode != "C-WLG-B" {
+		t.Fatalf("selected second alias snapshot = %+v", aliasB)
 	}
 	for _, tt := range []struct {
 		name    string

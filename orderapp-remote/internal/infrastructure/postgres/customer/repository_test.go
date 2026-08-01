@@ -3,8 +3,10 @@ package customer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +35,26 @@ func TestFetchCustomerDashboardCoalescesEmptyAggregates(t *testing.T) {
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("fetchCustomerDashboard missing aggregate null guard %q", want)
+		}
+	}
+}
+
+func TestCustomerUpsertWritesCanonicalEmptyStringsForOptionalContactFields(t *testing.T) {
+	src, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, forbidden := range []string{
+		"nullText(contact)",
+		"nullText(phone)",
+		"nullText(address)",
+		"nullText(next.contact)",
+		"nullText(next.phone)",
+		"nullText(next.address)",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("customer optional text must use canonical empty strings, found %q", forbidden)
 		}
 	}
 }
@@ -213,6 +235,209 @@ func TestCustomerUpsertRequiresActiveInternalResponsibleEmployeeAndAuditsChanges
 	}
 	if oldValue != fmt.Sprintf("%d", ownerA) || newValue != fmt.Sprintf("%d", ownerB) {
 		t.Fatalf("responsible audit old/new=%q/%q, want %d/%d", oldValue, newValue, ownerA, ownerB)
+	}
+}
+
+func TestManagedCustomerUpsertEnforcesOwnershipAndProtectedFieldsInTransaction(t *testing.T) {
+	ctx := context.Background()
+	pool := newCustomerRepositoryTestPool(t)
+	schema := fmt.Sprintf("customer_managed_permissions_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA %s`, schema)); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, schema))
+	})
+	if err := postgrescore.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("core.EnsureSchema: %v", err)
+	}
+	if err := postgrescompany.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("company.EnsureSchema: %v", err)
+	}
+	if err := postgrescustomerportal.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("customerportal.EnsureSchema: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.audit_logs (
+			id BIGSERIAL PRIMARY KEY,
+			actor TEXT NOT NULL DEFAULT '',
+			entity_type TEXT NOT NULL DEFAULT '',
+			entity_id BIGINT NULL,
+			action TEXT NOT NULL DEFAULT '',
+			field TEXT NULL,
+			old_value TEXT NULL,
+			new_value TEXT NULL,
+			meta JSONB NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`, schema)); err != nil {
+		t.Fatalf("create audit logs: %v", err)
+	}
+
+	var ownerA, ownerB int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.company_employees(name, phone, department_id, account_type, active)
+		VALUES('销售甲', '13900002001', (SELECT id FROM %s.company_departments WHERE name='销售' LIMIT 1), 'internal_employee', true)
+		RETURNING id
+	`, schema, schema)).Scan(&ownerA); err != nil {
+		t.Fatalf("insert owner A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.company_employees(name, phone, department_id, account_type, active)
+		VALUES('销售乙', '13900002002', (SELECT id FROM %s.company_departments WHERE name='销售' LIMIT 1), 'internal_employee', true)
+		RETURNING id
+	`, schema, schema)).Scan(&ownerB); err != nil {
+		t.Fatalf("insert owner B: %v", err)
+	}
+
+	repo := NewRepository(pool, schema, t.TempDir())
+	portalEnabled := true
+	ownedID, err := repo.Upsert(ctx, "seed", nil, customerapp.UpsertCommand{
+		Name:                  "甲负责客户",
+		CustomerType:          customerapp.CustomerTypeWholesale,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerA),
+		Active:                "on",
+		PortalEnabled:         &portalEnabled,
+	})
+	if err != nil {
+		t.Fatalf("seed owned customer: %v", err)
+	}
+	otherID, err := repo.Upsert(ctx, "seed", nil, customerapp.UpsertCommand{
+		Name:                  "乙负责客户",
+		CustomerType:          customerapp.CustomerTypeWholesale,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerB),
+		Active:                "on",
+	})
+	if err != nil {
+		t.Fatalf("seed other customer: %v", err)
+	}
+
+	salesA := customerapp.MaintenancePrincipal{EmployeeID: ownerA, EmployeeName: "销售甲"}
+	var sourceID, orderTypeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.sources ORDER BY id LIMIT 1`, schema)).Scan(&sourceID); err != nil {
+		t.Fatalf("read source option: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.order_types ORDER BY id LIMIT 1`, schema)).Scan(&orderTypeID); err != nil {
+		t.Fatalf("read order type option: %v", err)
+	}
+	var invalidCustomerBefore, invalidAuditBefore int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.customers`, schema)).Scan(&invalidCustomerBefore); err != nil {
+		t.Fatalf("count customers before invalid option: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.audit_logs`, schema)).Scan(&invalidAuditBefore); err != nil {
+		t.Fatalf("count audits before invalid option: %v", err)
+	}
+	for _, tc := range []struct {
+		name        string
+		sourceID    int64
+		orderTypeID int64
+		want        string
+	}{
+		{name: "missing source", sourceID: 999999, orderTypeID: orderTypeID, want: "来源不存在"},
+		{name: "missing order type", sourceID: sourceID, orderTypeID: 999999, want: "订单类型不存在"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := repo.UpsertManaged(ctx, salesA, nil, customerapp.UpsertCommand{
+				Name: "无效选项客户", CustomerType: customerapp.CustomerTypeRetail,
+				DefaultSourceID: strconv.FormatInt(tc.sourceID, 10), DefaultOrderTypeID: strconv.FormatInt(tc.orderTypeID, 10),
+			})
+			if message, ok := customerapp.MaintenanceValidationMessage(err); !ok || !strings.Contains(message, tc.want) {
+				t.Fatalf("invalid option err=%v message=%q ok=%v", err, message, ok)
+			}
+		})
+	}
+	var invalidCustomerAfter, invalidAuditAfter int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.customers`, schema)).Scan(&invalidCustomerAfter); err != nil {
+		t.Fatalf("count customers after invalid option: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.audit_logs`, schema)).Scan(&invalidAuditAfter); err != nil {
+		t.Fatalf("count audits after invalid option: %v", err)
+	}
+	if invalidCustomerAfter != invalidCustomerBefore || invalidAuditAfter != invalidAuditBefore {
+		t.Fatalf("invalid options mutated customers/audits: customers %d->%d audits %d->%d", invalidCustomerBefore, invalidCustomerAfter, invalidAuditBefore, invalidAuditAfter)
+	}
+
+	portalDisabled := false
+	if _, err := repo.UpsertManaged(ctx, salesA, &ownedID, customerapp.UpsertCommand{
+		Name:                  "甲负责客户（已维护）",
+		CustomerType:          customerapp.CustomerTypeWholesale,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerB),
+		Active:                "",
+		PortalEnabled:         &portalDisabled,
+	}); err != nil {
+		t.Fatalf("sales update own customer: %v", err)
+	}
+	var name string
+	var active bool
+	var responsibleID int64
+	var savedPortalEnabled bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT c.name, c.active, c.responsible_employee_id, COALESCE(p.enabled,false)
+		FROM %s.customers c
+		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		WHERE c.id=$1
+	`, schema, schema), ownedID).Scan(&name, &active, &responsibleID, &savedPortalEnabled); err != nil {
+		t.Fatalf("read managed customer: %v", err)
+	}
+	if name != "甲负责客户（已维护）" || !active || responsibleID != ownerA || !savedPortalEnabled {
+		t.Fatalf("sales protected fields changed: name=%q active=%v owner=%d portal=%v", name, active, responsibleID, savedPortalEnabled)
+	}
+
+	var auditCountBefore int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.audit_logs`, schema)).Scan(&auditCountBefore); err != nil {
+		t.Fatalf("count audits before forbidden update: %v", err)
+	}
+	if _, err := repo.UpsertManaged(ctx, salesA, &otherID, customerapp.UpsertCommand{
+		Name:                  "越权修改",
+		CustomerType:          customerapp.CustomerTypeWholesale,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerA),
+		Active:                "on",
+	}); !errors.Is(err, customerapp.ErrCustomerMaintenanceForbidden) {
+		t.Fatalf("sales update other customer error=%v, want forbidden", err)
+	}
+	var otherName string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.customers WHERE id=$1`, schema), otherID).Scan(&otherName); err != nil {
+		t.Fatalf("read other customer: %v", err)
+	}
+	var auditCountAfter int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.audit_logs`, schema)).Scan(&auditCountAfter); err != nil {
+		t.Fatalf("count audits after forbidden update: %v", err)
+	}
+	if otherName != "乙负责客户" || auditCountAfter != auditCountBefore {
+		t.Fatalf("forbidden update mutated data/audit: name=%q audits=%d->%d", otherName, auditCountBefore, auditCountAfter)
+	}
+
+	createdID, err := repo.UpsertManaged(ctx, salesA, nil, customerapp.UpsertCommand{
+		Name:                  "销售新客户",
+		CustomerType:          customerapp.CustomerTypeRetail,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerB),
+		Active:                "",
+		PortalEnabled:         &portalEnabled,
+	})
+	if err != nil {
+		t.Fatalf("sales create customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT active, responsible_employee_id FROM %s.customers WHERE id=$1`, schema), createdID).Scan(&active, &responsibleID); err != nil {
+		t.Fatalf("read sales-created customer: %v", err)
+	}
+	if !active || responsibleID != ownerA {
+		t.Fatalf("sales-created protected fields active=%v owner=%d, want true/%d", active, responsibleID, ownerA)
+	}
+
+	admin := customerapp.MaintenancePrincipal{EmployeeID: ownerA, EmployeeName: "管理员", IsAdmin: true}
+	if _, err := repo.UpsertManaged(ctx, admin, &otherID, customerapp.UpsertCommand{
+		Name:                  "管理员已维护",
+		CustomerType:          customerapp.CustomerTypeWholesale,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerA),
+		Active:                "",
+	}); err != nil {
+		t.Fatalf("admin update customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT name, active, responsible_employee_id FROM %s.customers WHERE id=$1`, schema), otherID).Scan(&otherName, &active, &responsibleID); err != nil {
+		t.Fatalf("read admin-updated customer: %v", err)
+	}
+	if otherName != "管理员已维护" || active || responsibleID != ownerA {
+		t.Fatalf("admin fields not persisted: name=%q active=%v owner=%d", otherName, active, responsibleID)
 	}
 }
 

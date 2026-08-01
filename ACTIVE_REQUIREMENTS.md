@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-569-MINIAPP-CUSTOMER-DRAFTS-MULTI-ITEM
+- Branch: codex/miniapp-customer-maintenance-drafts-20260801
+- Owner/session: Codex / 2026-08-01
+- Status: implementation and local full verification GREEN / independent review clean / develop-main integration pending
+- Scope: 小程序员工端新增客户档案维护，销售只能维护本人负责客户、管理员可维护全部客户；录单选择客户后可快捷维护；录单支持服务器草稿和一单多商品明细。
+- DEV:
+  - DEV-569-CUSTOMER-PERMISSION：新增小程序客户新增/编辑 API，后端强制校验负责人范围，管理员可编辑和分配全部客户。
+  - DEV-569-ORDER-CUSTOMER-QUICK-EDIT：录单页选择客户后可直接打开客户编辑，保存后刷新客户及收货默认信息。
+  - DEV-569-ORDER-DRAFT：订单草稿按当前员工隔离保存、恢复和删除，完整保留客户、收货、备注及所有商品行。
+  - DEV-569-MULTI-ITEM：录单页支持连续添加、编辑和删除多个商品规格明细，并一次提交同一订单。
+  - DEV-569-AUDIT-DOCS-DELIVERY：客户及草稿业务写入操作日志，同步需求、验收与小程序员工手册，合并 develop/main 并部署 development/production。
+- Verifier:
+  - Unit: full `go test ./... -count=1` GREEN; customer permission, employee draft repository/service, multi-item alias identity and draft serialization regressions included.
+  - API: mini employee customer permission matrix, safe validation/internal-error boundary, customer option referential guard, customer/draft audit and multi-item order payload tests GREEN.
+  - Frontend/build: miniapp 17 files / 104 tests, `vue-tsc --noEmit` and `uni build -p mp-weixin` GREEN; Vue shell 853 tests and production build GREEN.
+  - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; OP_MANUAL_ORDER_SALES.md; OP_MANUAL_CUSTOMER_FULFILLMENT.md.
+  - Review/acceptance: independent backend/frontend/docs reviews have no open P0-P2; orderapp-remote/docs/acceptance/2026-08-01-miniapp-customer-drafts-multi-item.md.
+- Deployment: develop/main integration and development/production deployment pending; user will perform business acceptance after deployment.
+- Last update: 2026-08-01 Asia/Shanghai
+- Notes: 开始实施时 `scripts/reserve_req_id.sh` 返回 PR-568，但共享 `develop` 随后先合入另一项 PR-568；合并前重新检查后按当前下一编号顺延为 PR-569，避免需求与验收证据冲突。`--claim` 的既有 awk 多行错误仍未在本需求内处理。
+
 ### PR-567-DEVELOPMENT-PUBLIC-DOMAIN
 - Branch: codex/dev-domain-20260801
 - Owner/session: Codex / 2026-08-01

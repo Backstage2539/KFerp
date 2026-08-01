@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -61,7 +62,11 @@ func NewRepository(pool *pgxpool.Pool, schema, assetDir string) Repository {
 }
 
 func (r Repository) Upsert(ctx context.Context, actor string, id *int64, cmd customerapp.UpsertCommand) (int64, error) {
-	req := upsertRequest{
+	return upsertCustomer(ctx, r.pool, r.schema, actor, id, upsertRequestFromCommand(cmd), nil)
+}
+
+func upsertRequestFromCommand(cmd customerapp.UpsertCommand) upsertRequest {
+	return upsertRequest{
 		Name:                  cmd.Name,
 		RawName:               cmd.RawName,
 		CustomerType:          cmd.CustomerType,
@@ -78,7 +83,10 @@ func (r Repository) Upsert(ctx context.Context, actor string, id *int64, cmd cus
 		PortalEnabled:         cmd.PortalEnabled,
 		CapabilityTemplateKey: cmd.CapabilityTemplateKey,
 	}
-	return upsertCustomer(ctx, r.pool, r.schema, actor, id, req)
+}
+
+func (r Repository) UpsertManaged(ctx context.Context, principal customerapp.MaintenancePrincipal, id *int64, cmd customerapp.UpsertCommand) (int64, error) {
+	return upsertCustomer(ctx, r.pool, r.schema, miniEmployeeCustomerActor(principal), id, upsertRequestFromCommand(cmd), &principal)
 }
 
 func (r Repository) Prefs(ctx context.Context, id int64) (*customerapp.Prefs, error) {
@@ -170,8 +178,41 @@ func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (cust
 	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Employees: employees, CustomerTypeOptions: customerTypes, Total: total, HasNext: hasNext}, nil
 }
 
+func (r Repository) ListManaged(ctx context.Context, principal customerapp.MaintenancePrincipal, query customerapp.ListQuery) (customerapp.ListResult, error) {
+	if !principal.IsAdmin {
+		query.ResponsibleEmployeeID = principal.EmployeeID
+	}
+	return r.List(ctx, query)
+}
+
 func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
-	customer, err := fetchCustomerByID(ctx, r.pool, r.schema, id)
+	return r.editor(ctx, id, nil)
+}
+
+func (r Repository) EditorManaged(ctx context.Context, principal customerapp.MaintenancePrincipal, id int64) (*customerapp.EditorData, error) {
+	if principal.IsAdmin {
+		data, err := r.editor(ctx, id, nil)
+		if err == nil && data == nil {
+			return nil, customerapp.ErrCustomerNotFound
+		}
+		return data, err
+	}
+	data, err := r.editor(ctx, id, &principal.EmployeeID)
+	if err != nil || data != nil {
+		return data, err
+	}
+	var exists bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1)`, r.schema), id).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, customerapp.ErrCustomerMaintenanceForbidden
+	}
+	return nil, customerapp.ErrCustomerNotFound
+}
+
+func (r Repository) editor(ctx context.Context, id int64, responsibleEmployeeID *int64) (*customerapp.EditorData, error) {
+	customer, err := fetchCustomerByID(ctx, r.pool, r.schema, id, responsibleEmployeeID)
 	if err != nil || customer == nil {
 		return nil, err
 	}
@@ -208,6 +249,14 @@ func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorDa
 		Assets:              assets,
 		Dashboard:           dashboard,
 	}, nil
+}
+
+func miniEmployeeCustomerActor(principal customerapp.MaintenancePrincipal) string {
+	name := strings.TrimSpace(principal.EmployeeName)
+	if name == "" {
+		return fmt.Sprintf("mini-employee:%d", principal.EmployeeID)
+	}
+	return fmt.Sprintf("mini-employee:%d:%s", principal.EmployeeID, name)
 }
 
 func (r Repository) AssetObject(ctx context.Context, assetID int64) (customerapp.AssetObject, error) {
@@ -337,6 +386,14 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 		}
 		args = append(args, *query.Active)
 	}
+	if query.ResponsibleEmployeeID > 0 {
+		if len(args) > 0 {
+			where += " AND c.responsible_employee_id = $" + strconv.Itoa(len(args)+1)
+		} else {
+			where = "WHERE c.responsible_employee_id = $1"
+		}
+		args = append(args, query.ResponsibleEmployeeID)
+	}
 	countArgs := append([]any(nil), args...)
 	countSQL := fmt.Sprintf(`SELECT count(*)::int FROM %s.customers c %s`, schema, where)
 	if err := pool.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
@@ -400,7 +457,7 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 	return out, total, hasNext, nil
 }
 
-func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*customerapp.CustomerEditData, error) {
+func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64, responsibleEmployeeID *int64) (*customerapp.CustomerEditData, error) {
 	portalProfiles := relationExists(ctx, pool, fmt.Sprintf("%s.customer_portal_profiles", schema))
 	portalSelect := "false, ''"
 	portalJoin := ""
@@ -408,14 +465,20 @@ func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		portalSelect = "COALESCE(p.enabled,false), COALESCE(p.capability_template_key,'')"
 		portalJoin = fmt.Sprintf("LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id", schema)
 	}
+	where := "WHERE c.id=$1"
+	args := []any{id}
+	if responsibleEmployeeID != nil {
+		where += " AND c.responsible_employee_id=$2"
+		args = append(args, *responsibleEmployeeID)
+	}
 	q := fmt.Sprintf(`SELECT c.id, c.name, COALESCE(c.raw_name,''), COALESCE(NULLIF(c.customer_type,''),'retail'), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''), COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.address,''),
 		COALESCE(c.default_source_id::text,''), COALESCE(c.default_order_type_id::text,''), COALESCE(NULLIF(c.responsible_employee_id,0)::text,''), COALESCE(e.name,''), %s, c.active
 		FROM %s.customers c
 		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
 		%s
-		WHERE c.id=$1`, portalSelect, schema, schema, portalJoin)
+		%s`, portalSelect, schema, schema, portalJoin, where)
 	var d customerapp.CustomerEditData
-	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.ResponsibleEmployeeID, &d.ResponsibleEmployeeName, &d.PortalEnabled, &d.CapabilityTemplateKey, &d.Active)
+	err := pool.QueryRow(ctx, q, args...).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.ResponsibleEmployeeID, &d.ResponsibleEmployeeName, &d.PortalEnabled, &d.CapabilityTemplateKey, &d.Active)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -574,10 +637,10 @@ func fetchCustomerDashboard(ctx context.Context, pool *pgxpool.Pool, schema stri
 	return dashboard, nil
 }
 
-func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, actor string, id *int64, req upsertRequest) (int64, error) {
+func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, actor string, id *int64, req upsertRequest, principal *customerapp.MaintenancePrincipal) (int64, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return 0, fmt.Errorf("name required")
+		return 0, customerapp.NewMaintenanceValidationError("请填写客户名称")
 	}
 	raw := strings.TrimSpace(req.RawName)
 	customerType := customerapp.NormalizeCustomerType(req.CustomerType)
@@ -604,17 +667,27 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	responsibleEmployeeID, err := resolveCustomerResponsibleEmployeeTx(ctx, tx, schema, req.ResponsibleEmployeeID)
-	if err != nil {
-		return 0, err
+	if principal != nil {
+		if err := validateCustomerProfileOptionsTx(ctx, tx, schema, ds, dt); err != nil {
+			return 0, err
+		}
 	}
 
 	var newID int64
 	if id == nil {
+		if principal != nil && !principal.IsAdmin {
+			req.ResponsibleEmployeeID = strconv.FormatInt(principal.EmployeeID, 10)
+			active = true
+			req.PortalEnabled = nil
+			req.CapabilityTemplateKey = ""
+		}
+		responsibleEmployeeID, err := resolveCustomerResponsibleEmployeeTx(ctx, tx, schema, req.ResponsibleEmployeeID)
+		if err != nil {
+			return 0, err
+		}
 		q := fmt.Sprintf(`INSERT INTO %s.customers(name, raw_name, customer_type, company_name, company_address, company_phone, contact, phone, address, active, default_source_id, default_order_type_id, responsible_employee_id, created_at, updated_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now(), now()) RETURNING id`, schema)
-		if err := tx.QueryRow(ctx, q, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, responsibleEmployeeID).Scan(&newID); err != nil {
+		if err := tx.QueryRow(ctx, q, name, raw, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt, responsibleEmployeeID).Scan(&newID); err != nil {
 			return 0, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &newID, "create", nil, nil, nil, postgresinfra.AuditMeta{"name": name}); err != nil {
@@ -625,13 +698,33 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		var oldName, oldRaw, oldCustomerType, oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr string
 		var oldActive bool
 		var oldDS, oldDT, oldResponsibleEmployeeID *int
-		q0 := fmt.Sprintf(`SELECT name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id, NULLIF(COALESCE(responsible_employee_id,0),0)::int FROM %s.customers WHERE id=$1`, schema)
+		q0 := fmt.Sprintf(`SELECT name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''), active, default_source_id, default_order_type_id, NULLIF(COALESCE(responsible_employee_id,0),0)::int FROM %s.customers WHERE id=$1 FOR UPDATE`, schema)
 		if err := tx.QueryRow(ctx, q0, newID).Scan(&oldName, &oldRaw, &oldCustomerType, &oldCompanyName, &oldCompanyAddress, &oldCompanyPhone, &oldContact, &oldPhone, &oldAddr, &oldActive, &oldDS, &oldDT, &oldResponsibleEmployeeID); err != nil {
+			if err == pgx.ErrNoRows && principal != nil {
+				return 0, customerapp.ErrCustomerNotFound
+			}
 			return 0, err
+		}
+		if principal != nil && !principal.IsAdmin {
+			if oldResponsibleEmployeeID == nil || int64(*oldResponsibleEmployeeID) != principal.EmployeeID {
+				return 0, customerapp.ErrCustomerMaintenanceForbidden
+			}
+			active = oldActive
+			req.PortalEnabled = nil
+			req.CapabilityTemplateKey = ""
+		}
+		var responsibleEmployeeID *int
+		if principal != nil && !principal.IsAdmin {
+			responsibleEmployeeID = oldResponsibleEmployeeID
+		} else {
+			responsibleEmployeeID, err = resolveCustomerResponsibleEmployeeTx(ctx, tx, schema, req.ResponsibleEmployeeID)
+			if err != nil {
+				return 0, err
+			}
 		}
 		q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, raw_name=$3, customer_type=$4, company_name=$5, company_address=$6, company_phone=$7, contact=$8, phone=$9, address=$10, active=$11,
 			default_source_id=$12, default_order_type_id=$13, responsible_employee_id=$14, updated_at=$15 WHERE id=$1`, schema)
-		if _, err := tx.Exec(ctx, q, newID, name, raw, customerType, companyName, companyAddress, companyPhone, nullText(contact), nullText(phone), nullText(address), active, ds, dt, responsibleEmployeeID, time.Now()); err != nil {
+		if _, err := tx.Exec(ctx, q, newID, name, raw, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt, responsibleEmployeeID, time.Now()); err != nil {
 			return 0, err
 		}
 		if err := auditCustomerDiffs(ctx, tx, schema, actor, newID, customerSnapshot{oldName, customerapp.NormalizeCustomerType(oldCustomerType), oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr, oldActive, oldDS, oldDT, oldResponsibleEmployeeID}, customerSnapshot{name, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt, responsibleEmployeeID}); err != nil {
@@ -653,7 +746,7 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 func resolveCustomerResponsibleEmployeeTx(ctx context.Context, tx pgx.Tx, schema, raw string) (*int, error) {
 	employeeID := parseOptionalInt(raw)
 	if employeeID == nil {
-		return nil, fmt.Errorf("responsible_employee_id required")
+		return nil, customerapp.NewMaintenanceValidationError("请选择负责人")
 	}
 	var activeID int
 	q := fmt.Sprintf(`
@@ -662,9 +755,34 @@ func resolveCustomerResponsibleEmployeeTx(ctx context.Context, tx pgx.Tx, schema
 		WHERE id=$1 AND active=true AND (account_type='internal_employee' OR COALESCE(account_type,'')='')
 	`, schema)
 	if err := tx.QueryRow(ctx, q, *employeeID).Scan(&activeID); err != nil {
-		return nil, fmt.Errorf("responsible employee not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, customerapp.NewMaintenanceValidationError("负责人不存在或已停用，请重新选择")
+		}
+		return nil, err
 	}
 	return &activeID, nil
+}
+
+func validateCustomerProfileOptionsTx(ctx context.Context, tx pgx.Tx, schema string, sourceID, orderTypeID *int) error {
+	if sourceID != nil {
+		var exists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.sources WHERE id=$1)`, schema), *sourceID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return customerapp.NewMaintenanceValidationError("来源不存在，请重新选择")
+		}
+	}
+	if orderTypeID != nil {
+		var exists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.order_types WHERE id=$1)`, schema), *orderTypeID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return customerapp.NewMaintenanceValidationError("订单类型不存在，请重新选择")
+		}
+	}
+	return nil
 }
 
 func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor string, id int64, req inlineRequest) error {
@@ -721,7 +839,7 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	}
 	q := fmt.Sprintf(`UPDATE %s.customers SET name=$2, customer_type=$3, company_name=$4, company_address=$5, company_phone=$6, contact=$7, phone=$8, address=$9, active=$10,
 		default_source_id=$11, default_order_type_id=$12, responsible_employee_id=$13, updated_at=$14 WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.name, next.customerType, next.companyName, next.companyAddress, next.companyPhone, nullText(next.contact), nullText(next.phone), nullText(next.address), next.active, next.sourceID, next.typeID, next.responsibleEmployeeID, time.Now()); err != nil {
+	if _, err := tx.Exec(ctx, q, id, next.name, next.customerType, next.companyName, next.companyAddress, next.companyPhone, next.contact, next.phone, next.address, next.active, next.sourceID, next.typeID, next.responsibleEmployeeID, time.Now()); err != nil {
 		return err
 	}
 	if err := auditCustomerDiffs(ctx, tx, schema, actor, id, old, next); err != nil {
@@ -1044,12 +1162,4 @@ func relationExists(ctx context.Context, q interface {
 		return false
 	}
 	return ok
-}
-
-func nullText(v string) any {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return nil
-	}
-	return v
 }

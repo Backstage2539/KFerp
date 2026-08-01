@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	customerapp "orderapp/internal/application/customer"
 	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
@@ -62,6 +63,7 @@ type Dependencies struct {
 	BeanListPDFRenderer BeanListPDFRenderer
 	SalesDocuments      SalesDocuments
 	EmployeeSales       EmployeeSales
+	CustomerMaintenance CustomerMaintenance
 	AssetDir            string
 }
 
@@ -82,6 +84,15 @@ type EmployeeSales interface {
 	ListOrders(context.Context, salesapp.OrderListQuery) (salesapp.OrderListResult, error)
 	OrderForm(context.Context, int64) (salesapp.OrderFormData, error)
 	SaveOrder(context.Context, salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error)
+	GetEmployeeOrderDraft(context.Context, int64) (*salesapp.EmployeeOrderDraft, error)
+	SaveEmployeeOrderDraft(context.Context, salesapp.SaveEmployeeOrderDraftCommand) (salesapp.EmployeeOrderDraft, error)
+	DeleteEmployeeOrderDraft(context.Context, int64, string) (bool, error)
+}
+
+type CustomerMaintenance interface {
+	ListManaged(context.Context, customerapp.MaintenancePrincipal, customerapp.ListQuery) (customerapp.ListResult, error)
+	EditorManaged(context.Context, customerapp.MaintenancePrincipal, int64) (*customerapp.EditorData, error)
+	UpsertManaged(context.Context, customerapp.MaintenancePrincipal, *int64, customerapp.UpsertCommand) (int64, error)
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
@@ -90,7 +101,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
 	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments)
-	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales)
+	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps.CustomerMaintenance)
 	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)
 }
 
