@@ -246,7 +246,6 @@ sync_miniapp_artifact() {
   local target_parent
   local incoming_root
   local incoming_dir
-  local replaced_dir=""
   local backup_dir=""
 
   case "$TARGET_ENV:$target_dir" in
@@ -263,10 +262,11 @@ sync_miniapp_artifact() {
   incoming_root="$(mktemp -d "$target_parent/.kferp-miniapp-sync.XXXXXX")"
   incoming_dir="$incoming_root/incoming"
   mkdir "$incoming_dir"
-  printf -v artifact_check 'test -f %q && test -f %q && test -f %q && test -d %q && tar -C %q -cf - .' \
+  printf -v artifact_check 'test -f %q && test -f %q && test -f %q && test -f %q && test -d %q && tar -C %q -cf - .' \
     "$APP_DIR/miniapp/dist/build/mp-weixin/app.json" \
     "$APP_DIR/miniapp/dist/build/mp-weixin/project.config.json" \
     "$APP_DIR/miniapp/dist/build/mp-weixin/RELEASE_INFO" \
+    "$APP_DIR/miniapp/dist/build/mp-weixin/PAGE_FILE_MANIFEST" \
     "$APP_DIR/miniapp/dist/build/mp-weixin/pages" \
     "$APP_DIR/miniapp/dist/build/mp-weixin"
 
@@ -278,9 +278,15 @@ sync_miniapp_artifact() {
   if [ ! -f "$incoming_dir/app.json" ] || \
      [ ! -f "$incoming_dir/project.config.json" ] || \
      [ ! -d "$incoming_dir/pages" ] || \
-     [ ! -f "$incoming_dir/RELEASE_INFO" ]; then
+     [ ! -f "$incoming_dir/RELEASE_INFO" ] || \
+     [ ! -f "$incoming_dir/PAGE_FILE_MANIFEST" ]; then
     rm -rf "$incoming_root"
     echo "ERROR: downloaded mp-weixin artifact is incomplete" >&2
+    return 1
+  fi
+  if ! bash "$REPO_ROOT/scripts/verify_mp_weixin_manifest.sh" "$incoming_dir"; then
+    rm -rf "$incoming_root"
+    echo "ERROR: downloaded mp-weixin artifact has an incomplete declared page" >&2
     return 1
   fi
   if ! grep -Fxq "commit=$REMOTE_HEAD" "$incoming_dir/RELEASE_INFO" || \
@@ -298,13 +304,8 @@ sync_miniapp_artifact() {
       echo "ERROR: miniapp backup destination already exists: $backup_dir" >&2
       return 1
     fi
-    mv "$target_dir" "$backup_dir"
-    replaced_dir="$backup_dir"
   fi
-  if ! mv "$incoming_dir" "$target_dir"; then
-    if [ -n "$replaced_dir" ] && [ -e "$replaced_dir" ]; then
-      mv "$replaced_dir" "$target_dir"
-    fi
+  if ! bash "$REPO_ROOT/scripts/swap_miniapp_export.sh" "$target_dir" "$incoming_dir" "$backup_dir"; then
     rm -rf "$incoming_root"
     echo "ERROR: could not atomically replace $target_dir" >&2
     return 1
@@ -314,6 +315,7 @@ sync_miniapp_artifact() {
   if [ -n "$backup_dir" ]; then
     echo "Previous mp-weixin artifact retained at: $backup_dir"
   fi
+  echo "If WeChat DevTools already has this fixed directory open, close and re-import $target_dir before preview or upload; clearing compile cache alone may retain a stale upload manifest."
 }
 
 if [ "$PREFLIGHT" -eq 0 ]; then
