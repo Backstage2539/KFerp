@@ -59,7 +59,7 @@ CUSTOMER_PORTAL_DEV_UNIONID=
 功能分支必须先通过 `--preflight` 才能合入 `develop`。预检使用唯一临时镜像标签，结束后清理临时源码、依赖、构建目录和镜像；不会改写 `/opt/stacks/erp*`、Compose 文件、运行中容器或 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
 
 API 地址由脚本强制按环境写入：development 为
-`https://dev.erp.qacoohee.com/app`，production 为
+`https://dev.qacoohee.com/app`，production 为
 `https://erp.qacoohee.com/app`。生产构建成功后，微信开发者工具只导入固定目录：
 
 ```text
