@@ -54,25 +54,33 @@ CUSTOMER_PORTAL_DEV_UNIONID=
 ./deploy_orderapp.sh production
 ```
 
-远程门禁中的小程序构建命令为 `npm run build:mp-weixin`，只由上述脚本在开发服务器的临时目录内执行，不在 Mac 本机执行。
+远程门禁中的小程序构建命令为 `npm run build:mp-weixin`，并同时注入 `VITE_KFERP_ENVIRONMENT` 与 `VITE_KFERP_API_BASE`。只由上述脚本在开发服务器的临时目录内执行，不在 Mac 本机执行；缺失或环境/地址不匹配时构建立即失败。
 
-功能分支必须先通过 `--preflight` 才能合入 `develop`。预检使用唯一临时镜像标签，结束后清理临时源码、依赖、构建目录和镜像；不会改写 `/opt/stacks/erp*`、Compose 文件、运行中容器或 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
+功能分支必须先通过 `--preflight` 才能合入 `develop`。预检使用唯一临时镜像标签，结束后清理临时源码、依赖、构建目录和镜像；不会改写 `/opt/stacks/erp*`、Compose 文件、运行中容器或任一固定小程序目录。
 
 API 地址由脚本强制按环境写入：development 为
 `https://dev.qacoohee.com/app`，production 为
-`https://erp.qacoohee.com/app`。生产构建成功后，微信开发者工具只导入固定目录：
+`https://erp.qacoohee.com/app`。构建与部署成功后，微信开发者工具按用途导入对应固定目录：
 
 ```text
-/Users/yiiiple-work/KFerp-miniapp-mp-weixin
+开发版/体验版：/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev
+正式版：      /Users/yiiiple-work/KFerp-miniapp-mp-weixin
 ```
 
-不要再导入功能分支、临时 worktree 或 `miniapp/dist/build/mp-weixin` 旧目录。导入固定目录后先清理构建缓存并重新编译，再核对界面字段和请求域名。
+不要再导入功能分支、临时 worktree、`miniapp/dist/build/mp-weixin` 旧目录或另一环境目录。导入固定目录后先清理构建缓存并重新编译，再核对界面字段和请求域名。
 
-导入前打开固定目录中的 `RELEASE_INFO`，确认 `environment=production`、`api_base=https://erp.qacoohee.com/app`，并且 `commit` 等于本次发布的 `origin/main`。同级带 `backup-时间-commit` 后缀的目录是上一份本机产物，可用于独立回滚预览；不要把备份目录当作本次新版本上传。
+导入前打开固定目录中的 `RELEASE_INFO`。开发目录必须是 `environment=development`、`api_base=https://dev.qacoohee.com/app`、commit 等于目标 `origin/develop`；正式目录必须是 `environment=production`、`api_base=https://erp.qacoohee.com/app`、commit 等于目标 `origin/main`。同级带 `backup-时间-commit` 后缀的目录是上一份同环境产物；不要把备份或另一环境目录当作本次新版本上传。
 
 **重要：服务器 ERP 部署与微信小程序发布不是同一步。** 远程脚本完成，只代表后端已部署且小程序代码包已生成/同步；仍需在微信开发者工具点击“上传”，到微信公众平台提交审核并发布，用户微信里的版本才会更新。
 
-开发者工具里填测试小程序 AppID。联调阶段可在“详情 -> 本地设置”勾选“不校验合法域名、web-view、TLS 版本以及 HTTPS 证书”。如果不勾选，需要在小程序后台把 `https://erp.qacoohee.com` 同时加入 request 合法域名和 downloadFile 合法域名；商品价格表 `PDF`、`长图` 都走 `downloadFile`。
+开发、生产继续使用同一个小程序 AppID。工程默认开启合法域名校验；在微信公众平台把 `https://dev.qacoohee.com` 和 `https://erp.qacoohee.com` 同时加入 `request` 与 `downloadFile` 合法域名。商品价格表 `PDF`、`长图` 走 `downloadFile`，不要通过关闭域名校验绕过配置问题。
+
+### PR-568 小程序环境隔离检查
+
+- `PR-568-MINIAPP-ENVIRONMENT-SEPARATION`：同一 AppID 的开发包和正式包按构建目标隔离，不依赖手工修改源码地址。
+- `DEV-568-CLIENT-ENVIRONMENT-GUARD`：开发包显示环境标识；被误发为微信正式版时阻断 API 请求。
+- `DEV-568-STORAGE-BOUNDARY`：令牌和豆单缓存按环境分区，首次升级可能需要重新登录。
+- `DEV-568-FIXED-ARTIFACTS`：开发/生产分别使用两个固定目录，且必须核对 `RELEASE_INFO`。
 
 ## 客户账号准备
 
@@ -126,7 +134,7 @@ GET /app/api/mini/resale-bean-lists/:id.png
 
 - 如果列表没有授权模板：检查 ERP 阶梯价模板是否 active 且已打开“允许客户转售豆单使用”。
 - 如果发布提示价格不匹配：检查来源供货豆单是否有对应档位价格，以及模板展示单位是否与来源价格单位一致。
-- 如果 PDF/长图打不开：先看开发者工具 Console 是否出现 `downloadFile 合法域名校验出错`。出现该错误时，在微信后台把 `https://erp.qacoohee.com` 加入 downloadFile 合法域名，或在开发者工具“详情 -> 本地设置”关闭合法域名校验后重新编译。域名无误后，再检查 mini token、当前客户绑定、`bean_list` 能力和 `bean_list_publication_assets` 缓存记录。
+- 如果 PDF/长图打不开：先看开发者工具 Console 是否出现 `downloadFile 合法域名校验出错`。按当前包错误提示，把 `https://dev.qacoohee.com` 或 `https://erp.qacoohee.com` 加入 `downloadFile` 合法域名。域名无误后，再检查 mini token、当前客户绑定、`bean_list` 能力和 `bean_list_publication_assets` 缓存记录。
 
 ## 旧 openid 客户绑定 SQL
 
@@ -207,7 +215,7 @@ ERP 后台路径：`设置 -> 客户门户配置`。
 ## 验收
 
 1. 打开微信开发者工具。
-2. 导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，清理缓存后重新编译。
+2. 开发验收导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；正式验收才导入 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。清理缓存后重新编译。
 3. 在登录页输入 ERP 渠道客户账号的用户名/手机号和密码。
 4. 登录成功后进入小程序首页、服务首页或商城首页。
 5. 进入个人中心，确认可看到当前客户；点击“切换用户”应回到登录页。

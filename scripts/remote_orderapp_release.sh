@@ -64,8 +64,8 @@ if [ -z "$API_BASE" ] || [ -z "$ORDERAPP_CONTAINER" ] || [ -z "$DOC_CONVERT_CONT
   exit 1
 fi
 case "$TARGET_ENV:$API_BASE" in
-  development:https://dev.qacoohee.com/app ) ;;
-  production:https://erp.qacoohee.com/app ) ;;
+  development:https://dev.qacoohee.com/app ) UNEXPECTED_API_BASE="https://erp.qacoohee.com/app" ;;
+  production:https://erp.qacoohee.com/app ) UNEXPECTED_API_BASE="https://dev.qacoohee.com/app" ;;
   * ) echo "ERROR: api base does not match environment: $API_BASE" >&2; exit 1 ;;
 esac
 if [ ! -f "$SOURCE_ROOT/.release-commit" ] || [ "$(cat "$SOURCE_ROOT/.release-commit")" != "$EXPECTED_COMMIT" ]; then
@@ -256,12 +256,16 @@ echo "[2/6] Testing, type-checking and building mp-weixin on the server..."
   nice -n 10 npm ci --no-audit --no-fund
   nice -n 10 npm test -- --maxWorkers=1 --minWorkers=1 --no-file-parallelism
   nice -n 10 npm run typecheck
-  VITE_KFERP_API_BASE="$API_BASE" nice -n 10 npm run build:mp-weixin
+  VITE_KFERP_ENVIRONMENT="$TARGET_ENV" VITE_KFERP_API_BASE="$API_BASE" nice -n 10 npm run build:mp-weixin
   test -f dist/build/mp-weixin/app.json
   test -f dist/build/mp-weixin/project.config.json
   test -d dist/build/mp-weixin/pages
   if ! grep -R -Fq "$API_BASE" dist/build/mp-weixin; then
     echo "ERROR: mp-weixin artifact does not contain the expected API base: $API_BASE" >&2
+    exit 1
+  fi
+  if grep -R -Fq "$UNEXPECTED_API_BASE" dist/build/mp-weixin; then
+    echo "ERROR: mp-weixin artifact contains the opposite environment API base: $UNEXPECTED_API_BASE" >&2
     exit 1
   fi
   for order_entry_marker in 订单日期 商品 规格 数量 销售单价 选择客户后自动带入; do

@@ -1356,3 +1356,11 @@
 - `DEV-567-DEPLOYMENT-GUARD`：development 发布在改变入口前必须校验 Caddy 配置并保留时间戳备份，使用热加载更新路由，不重启生产应用或数据库；失败时恢复上一份 Caddy 配置。
 - 两个域名的发布探针必须严格校验证书。开发探针可用 `--resolve dev.qacoohee.com:443:1.12.242.58` 绕过本地代理或 fake-IP DNS，但不得使用 `-k` 跳过证书验证。
 - 本需求不修改数据库、业务主数据、生产应用镜像或生产数据库；完成定向合同、完整远程预检、development 部署、双域名 HTTPS 和容器边界验证后交付。
+
+# PR-568-MINIAPP-ENVIRONMENT-SEPARATION 小程序开发/生产环境隔离与防误发（2026-08-01）
+
+- `DEV-568-CLIENT-ENVIRONMENT-GUARD`：同一个微信小程序 AppID 使用两套可审计构建目标。development 包只连接 `https://dev.qacoohee.com/app`，production 包只连接 `https://erp.qacoohee.com/app`；构建环境和 API 地址必须成对传入且严格匹配，不能在缺少配置时默认连接生产。development 包持续显示“开发环境 · 测试数据”；若被错误发布为微信正式版，客户端必须阻断 API 请求并提示使用 production 包。
+- `DEV-568-STORAGE-BOUNDARY`：登录令牌和豆单页面缓存按构建环境分区；旧无环境令牌不自动迁移，避免同一 AppID 的开发版和正式版共享认证或缓存数据。
+- `DEV-568-FIXED-ARTIFACTS`：development 产物固定同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，production 产物继续同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。同步必须校验提交、环境和 API 地址并原子替换，两个目录分别保留上一版本。
+- `DEV-568-DOCS-ACCEPTANCE`：工程默认开启合法域名校验。两个环境都要配置 `request` 与 `downloadFile` 合法域名；客户端错误提示按当前 API 域名显示，不再把关闭校验作为常规操作。同步手册、测试说明与验收证据。
+- 本需求不修改业务数据、不部署 production，也不自动上传或发布微信版本。development 部署完成后由微信开发者工具导入开发固定目录进行预览或上传开发/体验版本；正式审核发布仍只允许使用 production 固定目录并人工确认。

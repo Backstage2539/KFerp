@@ -23,7 +23,8 @@ describe('bean list native page cache helpers', () => {
   }
 
   it('scopes the native page cache by customer and list type', () => {
-    expect(beanListPageCacheStorageKey(147, beanList)).toBe('kferp:bean-list-page:147:commercial')
+    expect(beanListPageCacheStorageKey(147, beanList, 'development')).toBe('kferp:development:bean-list-page:147:commercial')
+    expect(beanListPageCacheStorageKey(147, beanList, 'production')).toBe('kferp:production:bean-list-page:147:commercial')
   })
 
   it('keeps cached native content until the server cache key changes', () => {

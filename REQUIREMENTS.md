@@ -711,3 +711,11 @@
 - `DEV-567-DEVELOPMENT-URL`：development 网页、API、小程序构建和发布输出统一使用 `https://dev.qacoohee.com`；production 继续使用 `https://erp.qacoohee.com`。
 - `DEV-567-PUBLIC-INGRESS`：唯一公网 Caddy 为两个域名申请公开证书，并分别转发到 `erp_orderapp:8080` 和 `erp_prod_orderapp:8080`；开发域名不再使用内部 CA。
 - `DEV-567-DEPLOYMENT-GUARD`：development 发布先校验、备份并热加载入口配置，失败时恢复；不重启生产应用和数据库，探针不得跳过 TLS 证书验证。
+
+## 41. 小程序开发/生产环境隔离与防误发（PR-568-MINIAPP-ENVIRONMENT-SEPARATION）
+- 同一个微信小程序 AppID 继续使用两套构建目标：development 包只连接 `https://dev.qacoohee.com/app`，production 包只连接 `https://erp.qacoohee.com/app`。构建时必须同时声明环境和 API 地址且严格匹配；缺失或不匹配时拒绝构建或请求，不得回退到生产地址。
+- development 包在所有页面持续显示“开发环境 · 测试数据”标识；如果 development 包被错误发布成微信正式版，所有 API 请求必须被阻断并提示重新上传 production 包，不能静默改连生产。
+- 同一 AppID 下的登录令牌和豆单页面缓存必须按 development/production 分区。升级后不读取旧的无环境令牌，避免开发包复用正式登录态或正式包复用开发缓存。
+- development 和 production 构建产物分别原子同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 与 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`；同步前校验 `RELEASE_INFO` 中的提交、环境和 API 地址，保留上一份同环境产物用于回滚。
+- 小程序工程默认开启合法域名校验。请求和文件下载错误必须提示当前构建所用域名，不再建议关闭校验；两个环境都需要在微信公众平台配置 `request` 和 `downloadFile` 合法域名。
+- 本需求不修改订单、客户、价格表、库存或其他业务数据，不部署 production。服务器部署与微信小程序上传仍是两条独立链路，微信开发者工具的上传、体验版、审核和正式发布继续由人工确认。

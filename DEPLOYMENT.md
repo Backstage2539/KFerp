@@ -77,9 +77,9 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58
 部署脚本会把当前环境 `.env` 中的 `WECHAT_MINI_APP_ID` 和 `WECHAT_MINI_APP_SECRET`
 注入 `orderapp` 容器。生产与开发使用各自目录下的 `.env`，不会跨环境读取微信凭证。
 
-构建期 API 地址固定按环境区分：development 使用
+构建期必须同时传入环境和 API 地址，脚本只接受以下严格配对：development 使用
 `https://dev.qacoohee.com/app`，production 使用
-`https://erp.qacoohee.com/app`。
+`https://erp.qacoohee.com/app`。缺失、未知环境或地址不匹配会在 UniApp 构建前失败，小程序客户端也不会默认回退到生产地址。
 
 ### 2.2 功能分支远程预检
 
@@ -102,6 +102,14 @@ chmod +x deploy_orderapp.sh
 - `https://dev.qacoohee.com/app/`
 - `https://dev.qacoohee.com/app/docs`
 
+开发部署成功后，脚本还会把 development 小程序包原子同步到：
+
+```text
+/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev
+```
+
+该目录只能用于开发版/体验版预览和上传。页面持续显示“开发环境 · 测试数据”；若开发包被错误发布成微信正式版，客户端会阻断 API 请求。
+
 ### 2.4 执行生产环境部署
 生产环境只能从 `main` 分支部署：
 ```bash
@@ -120,13 +128,14 @@ chmod +x deploy_orderapp.sh
 ```
 
 同步只下载构建文件，不在 Mac 执行 npm。临时跳过下载可设置
-`KFERP_SKIP_MINIAPP_EXPORT=1`；需要改到其他同名目录可设置
+`KFERP_SKIP_MINIAPP_EXPORT=1`；开发和生产的自定义目标分别使用
+`KFERP_MINIAPP_DEVELOPMENT_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin-dev` 与
 `KFERP_MINIAPP_EXPORT_DIR=/绝对路径/KFerp-miniapp-mp-weixin`。
 
-每个正式包包含 `RELEASE_INFO`，记录 Git commit、API 地址、环境和构建时间。替换固定目录前，原目录会保留为
-`KFerp-miniapp-mp-weixin.backup-时间-commit`；需要回滚本机预览包时，关闭微信开发者工具后把该备份目录恢复为固定目录即可。微信平台正式版回滚仍在微信公众平台按已发布版本操作。
+每个包都包含 `RELEASE_INFO`，记录 Git commit、API 地址、环境和构建时间。替换固定目录前，原目录会保留为同名
+`backup-时间-commit` 目录；需要回滚本机预览包时，关闭微信开发者工具后把对应环境备份恢复为固定目录即可。微信平台正式版回滚仍在微信公众平台按已发布版本操作。
 
-> **发布边界：** `deploy_orderapp.sh` 只发布 ERP 服务并生成、同步小程序代码包；它不会上传微信平台、提交审核或发布正式版。还需要在微信开发者工具导入上面的固定目录，执行“上传”，再到微信公众平台完成审核和发布。服务器部署成功不代表用户微信里的小程序已更新。
+> **发布边界：** `deploy_orderapp.sh` 只发布 ERP 服务并生成、同步小程序代码包；它不会上传微信平台、提交审核或发布正式版。开发联调导入 `KFerp-miniapp-mp-weixin-dev`，正式上传只导入 `KFerp-miniapp-mp-weixin`。服务器部署成功不代表用户微信里的小程序已更新。
 
 ---
 
