@@ -199,6 +199,19 @@ onLoad((options) => {
     </view>
 
     <template v-else-if="order">
+      <view class="section document-section">
+        <text class="section-title">导出并微信分享</text>
+        <text class="section-hint">没有历史版本时会先按网页同一模板生成，再打开微信分享；低版本微信会回退到预览菜单。</text>
+        <view class="document-grid">
+          <button :loading="sharingKey === 'sales-order.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'pdf')">销售单 PDF</button>
+          <button :loading="sharingKey === 'sales-order.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'png')">销售单图片</button>
+          <button :loading="sharingKey === 'delivery-note.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'pdf')">发货单 PDF</button>
+          <button :loading="sharingKey === 'delivery-note.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'png')">发货单图片</button>
+        </view>
+        <text class="document-status">销售单：PDF {{ hasDocument('sales-order', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('sales-order', 'png') ? '已有版本' : '点击自动生成' }}</text>
+        <text class="document-status">发货单：PDF {{ hasDocument('delivery-note', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('delivery-note', 'png') ? '已有版本' : '点击自动生成' }}</text>
+      </view>
+
       <view class="hero-card">
         <view class="hero-line">
           <text class="order-no">{{ order.order_no }}</text>
@@ -303,18 +316,6 @@ onLoad((options) => {
         </view>
       </view>
 
-      <view class="section document-section">
-        <text class="section-title">导出并微信分享</text>
-        <text class="section-hint">没有历史版本时会先按网页同一模板生成，再打开微信分享；低版本微信会回退到预览菜单。</text>
-        <view class="document-grid">
-          <button :loading="sharingKey === 'sales-order.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'pdf')">销售单 PDF</button>
-          <button :loading="sharingKey === 'sales-order.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'png')">销售单图片</button>
-          <button :loading="sharingKey === 'delivery-note.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'pdf')">发货单 PDF</button>
-          <button :loading="sharingKey === 'delivery-note.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'png')">发货单图片</button>
-        </view>
-        <text class="document-status">销售单：PDF {{ hasDocument('sales-order', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('sales-order', 'png') ? '已有版本' : '点击自动生成' }}</text>
-        <text class="document-status">发货单：PDF {{ hasDocument('delivery-note', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('delivery-note', 'png') ? '已有版本' : '点击自动生成' }}</text>
-      </view>
     </template>
   </view>
 </template>
