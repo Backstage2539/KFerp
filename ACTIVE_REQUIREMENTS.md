@@ -3936,7 +3936,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-573-MINIAPP-ORDER-CATALOG-EDIT
 - Branch: codex/mini-order-catalog-edit-20260802
 - Owner/session: Codex / 2026-08-02
-- Status: verified locally / merge and development deployment pending
+- Status: deployed / awaiting Van acceptance
 - Scope: 开发环境员工小程序录单商品必须与 ERP 当前已发布价格表可售商品/规格一致；生产开始前支持在小程序编辑订单商品、费用和收件/物流资料，并复用 ERP 状态、权限、审计与价格校验。
 - Verifier:
   - Unit: full `go test ./... -count=1` GREEN; current-publication, editability, edit-revision, audit, order-number lock, legacy-batch lock and shipment lock/revision tests GREEN; affected-package `go vet` GREEN.
@@ -3944,9 +3944,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: miniapp 21 files / 147 tests, `vue-tsc --noEmit`, development mp-weixin build GREEN; Vue shell 854 tests and production build GREEN.
   - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md
   - Review/acceptance: independent backend and frontend reviews have no open P0-P2; `scripts/verify_kferp.sh changed` and `git diff --check` GREEN; evidence in orderapp-remote/docs/acceptance/2026-08-02-miniapp-order-catalog-edit.md.
-- Deployment: development pending; production out of scope
-- Last update: 2026-08-02 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` failed on the local awk implementation before writing; PR-573 was the reported next id and is reserved here manually.
+- Deployment: development `origin/develop` deployed at `0274ee9edd2a2b3831881d20cfb6bf2fe11f26c3`; previous source `/opt/stacks/erp/orderapp.backup.deploy-20260803000425-0274ee9edd2a`; rollback image `kferp-orderapp-rollback:development-20260803000425-0274ee9edd2a`; fixed miniapp package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; production not deployed.
+- Last update: 2026-08-03 00:10 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` failed on the local awk implementation before writing; PR-573 was the reported next id and is reserved here manually. Development smoke: container running with restart count 0; login HTTP 200; unauthenticated mini order-form HTTP 401; recent error scan clear; fixed package manifest 52 files and API base `https://dev.qacoohee.com/app`. Production container retained its 2026-08-01 start time and image.
 
 ## Template
 
