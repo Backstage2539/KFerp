@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	salesapp "orderapp/internal/application/sales"
@@ -16,6 +17,18 @@ func (r Repository) CreateOrderShipment(ctx context.Context, cmd salesapp.Create
 		return salesapp.OrderShipmentResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	orderIDs := make([]int64, 0, len(cmd.Orders))
+	for _, order := range cmd.Orders {
+		if order.OrderID > 0 {
+			orderIDs = append(orderIDs, order.OrderID)
+		}
+	}
+	if err := lockShipmentOrdersTx(ctx, tx, r.schema, orderIDs); err != nil {
+		return salesapp.OrderShipmentResult{}, err
+	}
+	if err := verifyShipmentOrderRevisionsTx(ctx, tx, r.schema, cmd.Orders); err != nil {
+		return salesapp.OrderShipmentResult{}, err
+	}
 
 	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.order_shipments IN SHARE ROW EXCLUSIVE MODE", r.schema)); err != nil {
 		return salesapp.OrderShipmentResult{}, err
@@ -60,6 +73,57 @@ func (r Repository) CreateOrderShipment(ctx context.Context, cmd salesapp.Create
 		return salesapp.OrderShipmentResult{}, err
 	}
 	return salesapp.OrderShipmentResult{ShipmentID: shipmentID, ShipmentNo: shipmentNo}, nil
+}
+
+func verifyShipmentOrderRevisionsTx(ctx context.Context, tx pgx.Tx, schema string, orders []salesapp.OrderShipmentOrderCommand) error {
+	for _, order := range orders {
+		expected := strings.TrimSpace(order.ExpectedRevision)
+		if expected == "" {
+			return salesapp.NewOrderEditConflictError("订单数据版本缺失，请重新生成发货单")
+		}
+		current, err := currentOrderEditRevisionTx(ctx, tx, schema, order.OrderID)
+		if err != nil {
+			return err
+		}
+		if current != expected {
+			return salesapp.NewOrderEditConflictError("订单已被其他操作修改，请重新生成发货单")
+		}
+	}
+	return nil
+}
+
+func lockShipmentOrdersTx(ctx context.Context, tx pgx.Tx, schema string, orderIDs []int64) error {
+	if len(orderIDs) == 0 {
+		return fmt.Errorf("orders required")
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.orders
+		WHERE id = ANY($1)
+		ORDER BY id
+		FOR UPDATE
+	`, schema), orderIDs)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	locked := make(map[int64]bool, len(orderIDs))
+	for rows.Next() {
+		var orderID int64
+		if err := rows.Scan(&orderID); err != nil {
+			return err
+		}
+		locked[orderID] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, orderID := range orderIDs {
+		if !locked[orderID] {
+			return fmt.Errorf("order %d not found", orderID)
+		}
+	}
+	return nil
 }
 
 func (r Repository) FillShipmentTracking(ctx context.Context, cmd salesapp.FillShipmentTrackingCommand) (salesapp.FillShipmentTrackingResult, error) {

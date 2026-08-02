@@ -49,8 +49,9 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 		}
 	}
 	for _, marker := range []string{
-		`"products": form.Products`,
+		`"products": products`,
 		`"product_families": families`,
+		"FilterOrderProductsForDefaultPublications",
 		"requireMiniEmployee",
 		"miniEmployeeAuthError",
 	} {

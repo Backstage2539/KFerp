@@ -101,8 +101,9 @@ func TestDev345OrderCustomerProfileBeanListBackendGuards(t *testing.T) {
 	salesRepo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "repository.go")))
 	for _, want := range []string{
 		"requiredOrderCustomerProfileTx",
-		"cmd.SourceID = customerProfile.sourceID",
-		"cmd.OrderTypeID = customerProfile.orderTypeID",
+		"applyOrderCustomerProfileDefaults(&cmd, customerProfile)",
+		"cmd.SourceID = profile.sourceID",
+		"cmd.OrderTypeID = profile.orderTypeID",
 		"客户资料缺少",
 	} {
 		if !strings.Contains(salesRepo, want) {

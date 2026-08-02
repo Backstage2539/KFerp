@@ -54,6 +54,17 @@ describe('employee order detail miniapp page contract', () => {
     expect(detailSource.match(/class="section document-section"/g)).toHaveLength(1)
   })
 
+  it('refreshes on show and exposes a valid edit action only when the backend allows it', () => {
+    expect(detailSource).toContain("import { onLoad, onShow } from '@dcloudio/uni-app'")
+    expect(detailSource).toContain('onShow(() => void loadDetail())')
+    expect(detailSource).toContain('response.can_edit ?? response.order.can_edit')
+    expect(detailSource).toContain('v-if="canEdit"')
+    expect(detailSource).toContain('@tap="openEditor"')
+    expect(detailSource).toContain('editBlockReason')
+    expect(detailSource).toContain('`/pages/employee-order-entry/employee-order-entry?edit_id=${orderID.value}`')
+    expect(detailSource).not.toMatch(/<navigator[^>]*edit_id/)
+  })
+
   it('renders exactly one add-product action after the final item row', () => {
     const itemLoop = entrySource.indexOf('v-for="(item, index) in form.items"')
     const addButton = entrySource.indexOf('@tap="addItem"')

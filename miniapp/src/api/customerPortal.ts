@@ -592,6 +592,7 @@ export type EmployeeCustomerPayload = {
 }
 
 export type EmployeeOrderDraftItem = {
+  item_id?: number
   key: string
   product_family_key: string
   product_family_id: number
@@ -606,10 +607,19 @@ export type EmployeeOrderDraftItem = {
   unit_bean_g: number
   qty: number
   unit_price: number
+  bean_list_publication_id?: number
+  bean_list_version_no?: string
+  price_override?: boolean
+  price_source_json?: string
+  discount_type?: string
+  discount_value?: number
+  discount_amount?: number
+  retail_order?: boolean
   validation_error?: string
 }
 
 export type EmployeeOrderDraftPayload = {
+  edit_revision?: string
   order_date: string
   customer_id: number
   source_id: number
@@ -620,6 +630,8 @@ export type EmployeeOrderDraftPayload = {
   receiver_phone: string
   receiver_address: string
   receiver_company: string
+  shipping_amount: number
+  discount_amount: number
   notes: string
   items: EmployeeOrderDraftItem[]
 }
@@ -639,10 +651,21 @@ export type EmployeeOrderLegacyProduct = {
 }
 
 export type EmployeeOrderProductTier = {
+  id?: number
   unit_price: number
   price?: number
+  min?: number
+  max?: number | null
+  min_qty?: number
+  max_qty?: number | null
   sales_unit?: string
   unit_bag_count?: number
+  publication_id?: number
+  bean_list_publication_id?: number
+  publication_version_no?: string | number
+  bean_list_version_no?: string | number
+  list_type?: string
+  price_source_json?: string
 }
 
 export type EmployeeOrderProductSpec = {
@@ -660,6 +683,8 @@ export type EmployeeOrderProductSpec = {
   sales_unit?: string
   unit_bag_count?: number
   unit_bean_g?: number
+  default_publication_id?: number
+  default_publication_version_no?: string | number
   tiers?: EmployeeOrderProductTier[]
 }
 
@@ -679,6 +704,8 @@ export type EmployeeOrderProductFamily = {
   customer_product_alias_id?: number
   default_sku_id?: number
   product_kind?: string
+  default_publication_id?: number
+  default_publication_version_no?: string | number
   specs: EmployeeOrderProductSpec[]
 }
 
@@ -699,6 +726,7 @@ export type EmployeeOrderDetailItem = {
   item_id?: number
   line_no?: number
   product_id: number
+  customer_product_alias_id?: number
   product_name: string
   customer_product_display_name_snapshot?: string
   customer_item_code_snapshot?: string
@@ -721,6 +749,10 @@ export type EmployeeOrderDetailItem = {
   matched_price_qty?: string
   unit_conversion_label?: string
   price_source_json?: string
+  spec_g?: number | string
+  discount_type?: string
+  discount_value?: string | number
+  discount_amount?: string | number
 }
 
 export type EmployeeOrderTrace = {
@@ -755,6 +787,7 @@ export type EmployeeOrderAsset = {
 }
 
 export type EmployeeOrderDetail = EmployeeOrder & {
+  edit_revision?: string
   document_date?: string
   customer_id?: number
   source_id?: number
@@ -792,6 +825,7 @@ export type EmployeeOrderDetail = EmployeeOrder & {
   total_amount?: string
   shipping_amount?: string
   discount_amount?: string
+  order_discount_amount?: string | number
   rounding_amount?: string
   round_to_int?: boolean
   express_fee?: string
@@ -812,6 +846,8 @@ export type EmployeeOrderDetail = EmployeeOrder & {
   items: EmployeeOrderDetailItem[]
   quote_source_trace?: EmployeeOrderTrace[]
   production_source_trace?: EmployeeOrderTrace[]
+  can_edit?: boolean
+  edit_block_reason?: string
 }
 
 export type EmployeeOrderDocumentKind = 'sales-order' | 'delivery-note'
@@ -845,6 +881,8 @@ export type EmployeeOrderDocuments = {
 export type EmployeeOrderDetailResponse = {
   order: EmployeeOrderDetail
   documents?: EmployeeOrderDocuments
+  can_edit?: boolean
+  edit_block_reason?: string
 }
 
 export type EmployeeOrderDocumentGenerateResponse = EmployeeOrderDocumentAsset & {
@@ -860,8 +898,8 @@ const employeeOrderDocumentFiles: Record<
   'delivery-note': { pdf: 'delivery-note.pdf', png: 'delivery-note.png' },
 }
 
-export function fetchEmployeeOrderForm(token: string): Promise<EmployeeOrderForm> {
-  return miniRequest<EmployeeOrderForm>(buildEmployeeOrderFormPath(), { token })
+export function fetchEmployeeOrderForm(token: string, customerID = 0): Promise<EmployeeOrderForm> {
+  return miniRequest<EmployeeOrderForm>(buildEmployeeOrderFormPath(customerID), { token })
 }
 
 export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: EmployeeOrder[]; has_next: boolean }> {
@@ -888,6 +926,14 @@ export function generateEmployeeOrderDocument(
 
 export function createEmployeeOrder(token: string, data: Record<string, unknown>): Promise<{ order_id: number; order_no: string }> {
   return miniRequest(buildEmployeeOrdersPath(), { method: 'POST', token, data })
+}
+
+export function updateEmployeeOrder(
+  token: string,
+  orderID: number,
+  data: Record<string, unknown>,
+): Promise<{ order_id: number; order_no: string }> {
+  return miniRequest(buildEmployeeOrderUpdatePath(orderID), { method: 'PUT', token, data })
 }
 
 export function fetchEmployeeCustomers(token: string, query: EmployeeCustomerListQuery = {}): Promise<EmployeeCustomersResponse> {
@@ -922,8 +968,9 @@ export function deleteEmployeeOrderDraft(token: string): Promise<{ deleted: bool
   return miniRequest<{ deleted: boolean }>(buildEmployeeOrderDraftPath(), { method: 'DELETE', token })
 }
 
-export function buildEmployeeOrderFormPath(): string {
-  return '/api/mini/employee/order-form'
+export function buildEmployeeOrderFormPath(customerID = 0): string {
+  const id = Number(customerID || 0)
+  return `/api/mini/employee/order-form${id > 0 ? `?customer_id=${id}` : ''}`
 }
 
 export function buildEmployeeOrdersPath(): string {
@@ -932,6 +979,10 @@ export function buildEmployeeOrdersPath(): string {
 
 export function buildEmployeeOrderDetailPath(orderID: number): string {
   return `${buildEmployeeOrdersPath()}/${Number(orderID || 0)}`
+}
+
+export function buildEmployeeOrderUpdatePath(orderID: number): string {
+  return buildEmployeeOrderDetailPath(orderID)
 }
 
 export function buildEmployeeOrderDocumentPath(

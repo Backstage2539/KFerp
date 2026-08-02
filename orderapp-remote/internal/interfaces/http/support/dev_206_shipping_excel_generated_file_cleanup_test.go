@@ -14,7 +14,9 @@ func TestShippingExcelGeneratedFileCleanupEvidenceExists(t *testing.T) {
 	for _, want := range []string{
 		"cleanupOrderShippingExportFile",
 		"CreateOrderShipment",
-		"SaveAs(path)",
+		"saveOrderShippingWorkbookUnique",
+		"wb.SaveAs(tmpPath)",
+		"os.Rename(tmpPath, path)",
 	} {
 		if !strings.Contains(shippingExcel, want) {
 			t.Fatalf("order shipping excel API missing generated-file cleanup marker %q", want)
@@ -23,7 +25,8 @@ func TestShippingExcelGeneratedFileCleanupEvidenceExists(t *testing.T) {
 	for _, want := range []string{
 		"TestOrdersShippingExcelAPICleansFileWhenShipmentSaveFails",
 		"order_shipment_test_reject_generated",
-		"failed shipment save left shipping export files",
+		"failed shipment save changed existing shipping exports",
+		"existing shipment export was overwritten",
 	} {
 		if !strings.Contains(apiTest, want) {
 			t.Fatalf("order shipping excel API test missing generated-file cleanup marker %q", want)

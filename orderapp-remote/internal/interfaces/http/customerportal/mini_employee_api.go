@@ -22,12 +22,15 @@ import (
 )
 
 type miniEmployeeOrderDetailResponse struct {
-	Order     miniEmployeeOrderDetailDTO    `json:"order"`
-	Documents miniEmployeeOrderDocumentsDTO `json:"documents"`
+	CanEdit         bool                          `json:"can_edit"`
+	EditBlockReason string                        `json:"edit_block_reason"`
+	Order           miniEmployeeOrderDetailDTO    `json:"order"`
+	Documents       miniEmployeeOrderDocumentsDTO `json:"documents"`
 }
 
 type miniEmployeeOrderDetailDTO struct {
 	ID                              int64                             `json:"id"`
+	EditRevision                    string                            `json:"edit_revision"`
 	OrderNo                         string                            `json:"order_no"`
 	DocumentDate                    string                            `json:"document_date"`
 	OrderDate                       string                            `json:"order_date"`
@@ -75,6 +78,7 @@ type miniEmployeeOrderDetailDTO struct {
 	TotalAmount                     string                            `json:"total_amount"`
 	ShippingAmount                  string                            `json:"shipping_amount"`
 	DiscountAmount                  string                            `json:"discount_amount"`
+	OrderDiscountAmount             string                            `json:"order_discount_amount"`
 	RoundToInt                      bool                              `json:"round_to_int"`
 	RoundingAmount                  string                            `json:"rounding_amount"`
 	GrandTotal                      string                            `json:"grand_total"`
@@ -201,8 +205,14 @@ type miniEmployeeDocumentMetadata struct {
 }
 
 type miniEmployeeOrderItemRequest struct {
+	ItemID                 int64   `json:"item_id"`
 	ProductID              int64   `json:"product_id"`
+	ParentProductID        int64   `json:"parent_product_id"`
 	CustomerProductAliasID int64   `json:"customer_product_alias_id"`
+	BeanListPublicationID  int64   `json:"bean_list_publication_id"`
+	BeanListVersionNo      string  `json:"bean_list_version_no"`
+	PriceSourceJSON        string  `json:"price_source_json"`
+	PriceOverride          bool    `json:"price_override"`
 	Name                   string  `json:"name"`
 	Qty                    int64   `json:"qty"`
 	Unit                   string  `json:"unit"`
@@ -215,12 +225,18 @@ type miniEmployeeOrderItemRequest struct {
 }
 
 type miniEmployeeOrderRequest struct {
+	EditRevision    string                         `json:"edit_revision"`
 	OrderDate       string                         `json:"order_date"`
 	CustomerID      int64                          `json:"customer_id"`
 	SourceID        int64                          `json:"source_id"`
 	OrderTypeID     int64                          `json:"order_type_id"`
 	PayStatusID     int64                          `json:"pay_status_id"`
+	PaymentMethod   string                         `json:"payment_method"`
 	ShipStatusID    int64                          `json:"ship_status_id"`
+	ShipMethod      string                         `json:"ship_method"`
+	ShipTrackingNo  string                         `json:"ship_tracking_no"`
+	ShippingAmount  float64                        `json:"shipping_amount"`
+	DiscountAmount  float64                        `json:"discount_amount"`
 	ReceiverName    string                         `json:"receiver_name"`
 	ReceiverPhone   string                         `json:"receiver_phone"`
 	ReceiverAddress string                         `json:"receiver_address"`
@@ -268,6 +284,19 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		if err != nil {
 			return miniInternalError(c)
 		}
+		customerID := int64(0)
+		retailOrder := false
+		if rawCustomerID := strings.TrimSpace(c.QueryParam("customer_id")); rawCustomerID != "" {
+			customerID, err = strconv.ParseInt(rawCustomerID, 10, 64)
+			if err != nil || customerID <= 0 {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "客户编号不正确"})
+			}
+			customer, found := miniEmployeeOrderCustomer(form, customerID)
+			if !found {
+				return c.JSON(http.StatusNotFound, map[string]string{"error": "客户不存在"})
+			}
+			retailOrder = miniEmployeeUsesRetailCatalog(form, customer, 0)
+		}
 		customers := make([]map[string]any, 0, len(form.Customers))
 		for _, customer := range form.Customers {
 			canMaintain := containsMiniRole(employee.Permissions, "customers.read") &&
@@ -286,11 +315,15 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 				"can_maintain":              canMaintain,
 			})
 		}
-		families := salesapp.BuildOrderProductFamilies(form.Products)
+		products := []salesapp.ProductOption{}
+		if customerID > 0 {
+			products = salesapp.FilterOrderProductsForDefaultPublications(form.Products, customerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
+		}
+		families := salesapp.BuildOrderProductFamilies(products)
 		return c.JSON(http.StatusOK, map[string]any{
 			"today": form.Today, "customers": customers, "sources": form.Sources,
 			"order_types": form.OrderTypes, "pay_statuses": form.PayStatuses,
-			"ship_statuses": form.ShipStatuses, "products": form.Products, "product_families": families,
+			"ship_statuses": form.ShipStatuses, "products": products, "product_families": families,
 		})
 	})
 
@@ -490,6 +523,7 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 	e.POST("/api/mini/employee/orders/:id/documents/sales-order.png", orders.generateSalesOrderPNG)
 	e.POST("/api/mini/employee/orders/:id/documents/delivery-note.pdf", orders.generateDeliveryNotePDF)
 	e.POST("/api/mini/employee/orders/:id/documents/delivery-note.png", orders.generateDeliveryNotePNG)
+	e.PUT("/api/mini/employee/orders/:id", orders.update)
 
 	e.POST("/api/mini/employee/orders", func(c echo.Context) error {
 		employee, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write")
@@ -503,32 +537,26 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "请求格式不正确"})
 		}
-		orderDate, err := time.Parse("2006-01-02", strings.TrimSpace(req.OrderDate))
+		cmd, err := miniEmployeeSaveOrderCommand(req, miniEmployeeActor(employee), 0)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "订单日期不正确"})
 		}
-		items := make([]salesapp.OrderItemCommand, 0, len(req.Items))
-		for _, item := range req.Items {
-			productID := item.ProductID
-			price := item.UnitPrice
-			items = append(items, salesapp.OrderItemCommand{
-				ProductID: &productID, CustomerProductAliasID: item.CustomerProductAliasID,
-				Name: strings.TrimSpace(item.Name), Units: item.Qty,
-				Unit: strings.TrimSpace(item.Unit), SpecG: item.SpecG, ProductKind: strings.TrimSpace(item.ProductKind),
-				SalesUnit: strings.TrimSpace(item.SalesUnit), UnitBagCount: item.UnitBagCount,
-				UnitBeanG: item.UnitBeanG, ManualPrice: &price,
-			})
+		if message, err := miniEmployeePrepareCurrentCatalog(c.Request().Context(), sales, &cmd); err != nil {
+			return miniInternalError(c)
+		} else if message != "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
 		}
-		result, err := sales.SaveOrder(c.Request().Context(), salesapp.SaveOrderCommand{
-			Actor: miniEmployeeActor(employee), DraftEmployeeID: employee.EmployeeID, DocumentDate: orderDate, OrderDate: orderDate,
-			CustomerID: req.CustomerID, SourceID: req.SourceID, OrderTypeID: req.OrderTypeID,
-			PayStatusID: req.PayStatusID, ShipStatusID: req.ShipStatusID,
-			ReceiverName: req.ReceiverName, ReceiverPhone: req.ReceiverPhone,
-			ReceiverAddress: req.ReceiverAddress, ReceiverCompany: req.ReceiverCompany,
-			Notes: req.Notes, Items: items,
-		})
+		cmd.DraftEmployeeID = employee.EmployeeID
+		cmd.RequireCurrentDefaultPublications = true
+		result, err := sales.SaveOrder(c.Request().Context(), cmd)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": miniOrderErrorText(err)})
+			if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
+				return c.JSON(http.StatusConflict, map[string]string{"error": message})
+			}
+			if message, known := miniOrderKnownBusinessErrorText(err); known {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
+			}
+			return miniInternalError(c)
 		}
 		return c.JSON(http.StatusCreated, map[string]any{"order_id": result.OrderID, "order_no": result.OrderNo})
 	})
@@ -545,6 +573,413 @@ type miniEmployeeOrderAccess struct {
 	row      salesapp.OrderRow
 }
 
+func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, editID int64) (salesapp.SaveOrderCommand, error) {
+	orderDate, err := time.Parse("2006-01-02", strings.TrimSpace(req.OrderDate))
+	if err != nil {
+		return salesapp.SaveOrderCommand{}, err
+	}
+	items := make([]salesapp.OrderItemCommand, 0, len(req.Items))
+	for _, item := range req.Items {
+		productID := item.ProductID
+		command := salesapp.OrderItemCommand{
+			ItemID:    item.ItemID,
+			ProductID: &productID, ParentProductID: item.ParentProductID,
+			CustomerProductAliasID: item.CustomerProductAliasID,
+			BeanListPublicationID:  item.BeanListPublicationID,
+			BeanListVersionNo:      strings.TrimSpace(item.BeanListVersionNo),
+			PriceSourceJSON:        strings.TrimSpace(item.PriceSourceJSON),
+			Name:                   strings.TrimSpace(item.Name),
+			Units:                  item.Qty,
+			Unit:                   strings.TrimSpace(item.Unit),
+			SpecG:                  item.SpecG,
+			ProductKind:            strings.TrimSpace(item.ProductKind),
+			SalesUnit:              strings.TrimSpace(item.SalesUnit),
+			UnitBagCount:           item.UnitBagCount,
+			UnitBeanG:              item.UnitBeanG,
+		}
+		if item.PriceOverride {
+			price := item.UnitPrice
+			command.ManualPrice = &price
+		}
+		items = append(items, command)
+	}
+	return salesapp.SaveOrderCommand{
+		Actor: actor, EditID: editID, DocumentDate: orderDate, OrderDate: orderDate,
+		CustomerID: req.CustomerID, SourceID: req.SourceID, OrderTypeID: req.OrderTypeID,
+		PayStatusID: req.PayStatusID, PaymentMethod: strings.TrimSpace(req.PaymentMethod),
+		ShipStatusID: req.ShipStatusID, ShipMethod: strings.TrimSpace(req.ShipMethod), ShipTrackingNo: strings.TrimSpace(req.ShipTrackingNo),
+		ShippingAmount: req.ShippingAmount, DiscountAmount: req.DiscountAmount,
+		ReceiverName: strings.TrimSpace(req.ReceiverName), ReceiverPhone: strings.TrimSpace(req.ReceiverPhone),
+		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress), ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),
+		Notes: strings.TrimSpace(req.Notes), Items: items,
+	}, nil
+}
+
+func miniEmployeeOrderCustomer(form salesapp.OrderFormData, customerID int64) (salesapp.CustomerOption, bool) {
+	for _, customer := range form.Customers {
+		if customer.ID == customerID {
+			return customer, true
+		}
+	}
+	return salesapp.CustomerOption{}, false
+}
+
+func miniEmployeeUsesRetailCatalog(form salesapp.OrderFormData, customer salesapp.CustomerOption, fallbackOrderTypeID int64) bool {
+	orderTypeID := customer.DefaultOrderTypeID
+	if orderTypeID <= 0 {
+		orderTypeID = fallbackOrderTypeID
+	}
+	for _, orderType := range form.OrderTypes {
+		if orderType.ID != orderTypeID {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(orderType.Name))
+		return strings.Contains(name, "零售") || strings.Contains(name, "retail")
+	}
+	return false
+}
+
+func miniEmployeePrepareCurrentCatalog(ctx context.Context, sales EmployeeSales, cmd *salesapp.SaveOrderCommand) (string, error) {
+	form, err := sales.OrderForm(ctx, 0)
+	if err != nil {
+		return "", err
+	}
+	return miniEmployeePrepareCurrentCatalogFromForm(form, cmd)
+}
+
+func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd *salesapp.SaveOrderCommand) (string, error) {
+	customer, found := miniEmployeeOrderCustomer(form, cmd.CustomerID)
+	if !found {
+		return "客户不存在", nil
+	}
+	retailOrder := miniEmployeeUsesRetailCatalog(form, customer, cmd.OrderTypeID)
+	products := salesapp.FilterOrderProductsForDefaultPublications(form.Products, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
+	for index := range cmd.Items {
+		item := &cmd.Items[index]
+		if item.ProductID == nil || *item.ProductID <= 0 {
+			return "请选择该客户当前价格表中的商品规格", nil
+		}
+		product, found := miniEmployeeCurrentCatalogProduct(products, *item.ProductID, item.CustomerProductAliasID)
+		if !found {
+			return "所选商品或规格不在该客户当前价格表中，请重新选择", nil
+		}
+		if item.ParentProductID > 0 && item.ParentProductID != miniEmployeeCatalogParentProductID(product) {
+			return "所选商品规格与当前价格表不一致，请重新选择", nil
+		}
+		if item.CustomerProductAliasID > 0 && item.CustomerProductAliasID != product.CustomerProductAliasID {
+			return "所选客户商品与当前价格表不一致，请重新选择", nil
+		}
+		tier, found := miniEmployeeCurrentCatalogTier(product.Tiers, item.BeanListPublicationID, item.BeanListVersionNo, item.PriceSourceJSON)
+		if !found {
+			return "所选商品或规格不在该客户当前价格表中，请重新选择", nil
+		}
+		item.ParentProductID = miniEmployeeCatalogParentProductID(product)
+		item.CustomerProductAliasID = product.CustomerProductAliasID
+		item.BeanListPublicationID = tier.PublicationID
+		item.BeanListVersionNo = tier.PublicationVersionNo
+		item.PriceSourceJSON = tier.PriceSourceJSON
+		item.ProductKind = product.ProductKind
+	}
+	return "", nil
+}
+
+func miniEmployeeCatalogParentProductID(product salesapp.ProductOption) int64 {
+	if product.ParentProductID > 0 {
+		return product.ParentProductID
+	}
+	return product.ID
+}
+
+func miniEmployeeCurrentCatalogProduct(products []salesapp.ProductOption, productID, aliasID int64) (salesapp.ProductOption, bool) {
+	var fallback *salesapp.ProductOption
+	aliasCandidateCount := 0
+	for index := range products {
+		product := products[index]
+		if product.ID != productID {
+			continue
+		}
+		if aliasID > 0 {
+			if product.CustomerProductAliasID == aliasID {
+				return product, true
+			}
+			continue
+		}
+		if product.CustomerProductAliasID == 0 {
+			return product, true
+		}
+		aliasCandidateCount++
+		if fallback == nil {
+			copyProduct := product
+			fallback = &copyProduct
+		}
+	}
+	if fallback != nil && aliasCandidateCount == 1 {
+		return *fallback, true
+	}
+	return salesapp.ProductOption{}, false
+}
+
+func miniEmployeeCurrentCatalogTier(tiers []salesapp.ProductTierOption, publicationID int64, versionNo, sourceJSON string) (salesapp.ProductTierOption, bool) {
+	versionNo = strings.TrimSpace(versionNo)
+	sourcePublicationID := miniEmployeePriceSourcePublicationID(sourceJSON)
+	for _, tier := range tiers {
+		if publicationID > 0 && tier.PublicationID != publicationID {
+			continue
+		}
+		if sourcePublicationID > 0 && tier.PublicationID != sourcePublicationID {
+			continue
+		}
+		if versionNo != "" && strings.TrimSpace(tier.PublicationVersionNo) != versionNo {
+			continue
+		}
+		return tier, true
+	}
+	return salesapp.ProductTierOption{}, false
+}
+
+func miniEmployeePriceSourcePublicationID(raw string) int64 {
+	var source map[string]any
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &source) != nil {
+		return 0
+	}
+	for _, key := range []string{"publication_id", "bean_list_publication_id"} {
+		switch value := source[key].(type) {
+		case float64:
+			if value > 0 {
+				return int64(value)
+			}
+		case string:
+			if parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil && parsed > 0 {
+				return parsed
+			}
+		}
+	}
+	return 0
+}
+
+func miniEmployeePreserveHiddenOrderFields(cmd *salesapp.SaveOrderCommand, existing *salesapp.OrderEditData) error {
+	if cmd == nil || existing == nil {
+		return fmt.Errorf("existing order required")
+	}
+	paymentGoodsAmount, err := miniEmployeeStoredOrderAmount(existing.PaymentGoodsAmount)
+	if err != nil {
+		return err
+	}
+	paymentShippingAmount, err := miniEmployeeStoredOrderAmount(existing.PaymentShippingAmount)
+	if err != nil {
+		return err
+	}
+	materialFee, err := miniEmployeeStoredOrderAmount(existing.OutsourceMaterialFee)
+	if err != nil {
+		return err
+	}
+	roastFee, err := miniEmployeeStoredOrderAmount(existing.OutsourceRoastFee)
+	if err != nil {
+		return err
+	}
+	packagingFee, err := miniEmployeeStoredOrderAmount(existing.OutsourcePackagingFee)
+	if err != nil {
+		return err
+	}
+	manualFee, err := miniEmployeeStoredOrderAmount(existing.OutsourceManualFee)
+	if err != nil {
+		return err
+	}
+	taxFee, err := miniEmployeeStoredOrderAmount(existing.OutsourceTaxFee)
+	if err != nil {
+		return err
+	}
+	otherFee, err := miniEmployeeStoredOrderAmount(existing.OutsourceOtherFee)
+	if err != nil {
+		return err
+	}
+	beanListID, _, commercialID, greenID, dripID := miniEmployeeOrderPublicationFields(existing)
+	documentDate := strings.TrimSpace(existing.DocumentDate)
+	if documentDate == "" {
+		documentDate = strings.TrimSpace(existing.OrderDate)
+	}
+	if documentDate != "" {
+		parsedDocumentDate, err := time.Parse("2006-01-02", documentDate)
+		if err != nil {
+			return fmt.Errorf("invalid stored document date")
+		}
+		cmd.DocumentDate = parsedDocumentDate
+	}
+	cmd.SourceID = existing.SourceID
+	cmd.OrderTypeID = existing.OrderTypeID
+	cmd.PayStatusID = existing.PayStatusID
+	cmd.PaymentMethod = existing.PaymentMethod
+	cmd.ShipStatusID = existing.ShipStatusID
+	cmd.ShipMethod = existing.ShipMethod
+	cmd.ShipTrackingNo = existing.ShipTrackingNo
+	cmd.LogisticsCompanyID = existing.LogisticsCompanyID
+	cmd.LogisticsProductID = existing.LogisticsProductID
+	cmd.PaymentGoodsAmount = paymentGoodsAmount
+	cmd.PaymentShippingAmount = paymentShippingAmount
+	cmd.PaymentVoucherAssetID = existing.PaymentVoucherAssetID
+	cmd.ResponsibleType = existing.ResponsibleType
+	cmd.ResponsibleID = existing.ResponsibleID
+	cmd.ResponsibleName = existing.ResponsibleName
+	cmd.RoundToInt = existing.RoundToInt
+	cmd.ExpressFee = existing.ExpressFee
+	cmd.OutsourceMaterialFee = materialFee
+	cmd.OutsourceRoastFee = roastFee
+	cmd.OutsourcePackagingFee = packagingFee
+	cmd.OutsourceManualFee = manualFee
+	cmd.OutsourceTaxFee = taxFee
+	cmd.OutsourceOtherFee = otherFee
+	cmd.BeanListPublicationID = beanListID
+	cmd.CommercialBeanListPublicationID = commercialID
+	cmd.GreenBeanListPublicationID = greenID
+	cmd.DripBeanListPublicationID = dripID
+	cmd.PortalServiceCode = existing.PortalServiceCode
+	cmd.SourceWarehouse = existing.SourceWarehouse
+	cmd.PreserveResponsibleSnapshot = true
+	cmd.PreserveFulfillmentSnapshot = true
+	return nil
+}
+
+func miniEmployeeStoredOrderAmount(raw string) (float64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid stored order amount")
+	}
+	return value, nil
+}
+
+func miniEmployeePreserveHiddenOrderItemFields(requestItems []miniEmployeeOrderItemRequest, commandItems []salesapp.OrderItemCommand, existingItems []salesapp.OrderEditItem) error {
+	matchedExisting := make([]bool, len(existingItems))
+	matches := make([]int, len(commandItems))
+	for index := range matches {
+		matches[index] = -1
+	}
+	for index := range commandItems {
+		if index >= len(requestItems) || requestItems[index].ItemID <= 0 {
+			continue
+		}
+		for existingIndex := range existingItems {
+			if !matchedExisting[existingIndex] && existingItems[existingIndex].ItemID == requestItems[index].ItemID {
+				matches[index] = existingIndex
+				matchedExisting[existingIndex] = true
+				break
+			}
+		}
+	}
+	for index := range commandItems {
+		if matches[index] >= 0 {
+			continue
+		}
+		for existingIndex := range existingItems {
+			if matchedExisting[existingIndex] || !miniEmployeeOrderItemIdentityMatches(commandItems[index], existingItems[existingIndex]) {
+				continue
+			}
+			matches[index] = existingIndex
+			matchedExisting[existingIndex] = true
+			break
+		}
+	}
+	if len(commandItems) == len(existingItems) {
+		for index := range commandItems {
+			if matches[index] >= 0 || matchedExisting[index] {
+				continue
+			}
+			matches[index] = index
+			matchedExisting[index] = true
+		}
+	}
+	for index, existingIndex := range matches {
+		if existingIndex < 0 {
+			continue
+		}
+		existing := existingItems[existingIndex]
+		discountValue, err := miniEmployeeStoredOrderAmount(existing.DiscountValue)
+		if err != nil {
+			return err
+		}
+		commandItems[index].Note = existing.Note
+		commandItems[index].DiscountType = existing.DiscountType
+		commandItems[index].DiscountValue = discountValue
+		commandItems[index].CustomerProductDisplayNameSnapshot = existing.CustomerProductDisplayNameSnapshot
+		commandItems[index].CustomerItemCodeSnapshot = existing.CustomerItemCodeSnapshot
+		commandItems[index].BrandNameSnapshot = existing.BrandNameSnapshot
+		commandItems[index].ProductCodeSnapshot = existing.ProductCodeSnapshot
+		commandItems[index].ProductNameSnapshot = existing.ProductNameSnapshot
+	}
+	return nil
+}
+
+func miniEmployeeOrderItemIdentityMatches(command salesapp.OrderItemCommand, existing salesapp.OrderEditItem) bool {
+	if command.ProductID == nil || *command.ProductID <= 0 || *command.ProductID != existing.ProductID {
+		return false
+	}
+	if command.CustomerProductAliasID > 0 || existing.CustomerProductAliasID > 0 {
+		if command.CustomerProductAliasID != existing.CustomerProductAliasID {
+			return false
+		}
+	}
+	if command.BeanListPublicationID > 0 && existing.BeanListPublicationID > 0 && command.BeanListPublicationID != existing.BeanListPublicationID {
+		return false
+	}
+	return true
+}
+
+func (h miniEmployeeOrderHandler) update(c echo.Context) error {
+	access, ok, err := h.ensureMiniEmployeeOrderAccess(c, "orders.write")
+	if !ok {
+		return err
+	}
+	var req miniEmployeeOrderRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "请求格式不正确"})
+	}
+	if req.CustomerID != access.row.CustomerID {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "编辑订单不能更换客户"})
+	}
+	form, err := h.sales.OrderForm(c.Request().Context(), access.orderID)
+	if err != nil {
+		return miniInternalError(c)
+	}
+	if form.EditData == nil || form.EditData.ID != access.orderID || form.EditData.CustomerID != access.row.CustomerID {
+		return miniEmployeeOrderNotFound(c)
+	}
+	if currentRevision := strings.TrimSpace(form.EditData.EditRevision); currentRevision != "" && strings.TrimSpace(req.EditRevision) != currentRevision {
+		return c.JSON(http.StatusConflict, map[string]string{"error": "订单已被其他操作修改，请重新打开后再编辑"})
+	}
+	cmd, err := miniEmployeeSaveOrderCommand(req, miniEmployeeActor(access.employee), access.orderID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "订单日期不正确"})
+	}
+	if err := miniEmployeePreserveHiddenOrderFields(&cmd, form.EditData); err != nil {
+		return miniInternalError(c)
+	}
+	if message, err := miniEmployeePrepareCurrentCatalogFromForm(form, &cmd); err != nil {
+		return miniInternalError(c)
+	} else if message != "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
+	}
+	if err := miniEmployeePreserveHiddenOrderItemFields(req.Items, cmd.Items, form.EditData.Items); err != nil {
+		return miniInternalError(c)
+	}
+	cmd.RequirePreProductionEdit = true
+	cmd.RequireCurrentDefaultPublications = true
+	cmd.ExpectedEditRevision = strings.TrimSpace(req.EditRevision)
+	result, err := h.sales.SaveOrder(c.Request().Context(), cmd)
+	if err != nil {
+		if message, conflict := salesapp.OrderEditConflictMessage(err); conflict {
+			return c.JSON(http.StatusConflict, map[string]string{"error": message})
+		}
+		if message, known := miniOrderKnownBusinessErrorText(err); known {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": message})
+		}
+		return miniInternalError(c)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"order_id": result.OrderID, "order_no": result.OrderNo})
+}
+
 func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
 	access, ok, err := h.ensureMiniEmployeeOrderAccess(c, "orders.read")
 	if !ok {
@@ -557,13 +992,20 @@ func (h miniEmployeeOrderHandler) detail(c echo.Context) error {
 	if form.EditData == nil || form.EditData.ID != access.orderID {
 		return miniEmployeeOrderNotFound(c)
 	}
+	editability := salesapp.OrderEditability{BlockReason: "当前账号没有编辑订单权限"}
+	if containsMiniRole(access.employee.Permissions, "orders.write") {
+		editability, err = h.sales.OrderEditability(c.Request().Context(), access.orderID)
+		if err != nil {
+			return miniInternalError(c)
+		}
+	}
 	documents, err := h.documentSummary(c.Request().Context(), access.orderID)
 	if err != nil {
 		return miniInternalError(c)
 	}
 	return c.JSON(http.StatusOK, miniEmployeeOrderDetailResponse{
-		Order:     miniEmployeeOrderDetail(access.row, form),
-		Documents: documents,
+		CanEdit: editability.CanEdit, EditBlockReason: editability.BlockReason,
+		Order: miniEmployeeOrderDetail(access.row, form), Documents: documents,
 	})
 }
 
@@ -671,7 +1113,7 @@ func miniEmployeeLatestSalesOrderPDFAvailable(documents []salesapp.SalesOrderDoc
 			return document.PDFAssetID > 0
 		}
 	}
-	return len(documents) > 0 && documents[0].PDFAssetID > 0
+	return false
 }
 
 func miniEmployeeLatestSalesOrderPNGAvailable(documents []salesapp.SalesOrderImageDocument) bool {
@@ -680,7 +1122,7 @@ func miniEmployeeLatestSalesOrderPNGAvailable(documents []salesapp.SalesOrderIma
 			return document.ImageAssetID > 0
 		}
 	}
-	return len(documents) > 0 && documents[0].ImageAssetID > 0
+	return false
 }
 
 func miniEmployeeLatestDeliveryNoteAvailability(documents []salesapp.DeliveryNoteDocument) (bool, bool) {
@@ -689,10 +1131,7 @@ func miniEmployeeLatestDeliveryNoteAvailability(documents []salesapp.DeliveryNot
 			return document.PDFAssetID > 0, document.ImageAssetID > 0
 		}
 	}
-	if len(documents) == 0 {
-		return false, false
-	}
-	return documents[0].PDFAssetID > 0, documents[0].ImageAssetID > 0
+	return false, false
 }
 
 func (h miniEmployeeOrderHandler) downloadDocument(c echo.Context, kind string) error {
@@ -840,7 +1279,7 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 	}
 	beanListPublicationID, beanListVersionNo, commercialPublicationID, greenPublicationID, dripPublicationID := miniEmployeeOrderPublicationFields(ed)
 	detail := miniEmployeeOrderDetailDTO{
-		ID: row.ID, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
+		ID: row.ID, EditRevision: ed.EditRevision, OrderNo: firstMiniOrderValue(row.OrderNo, ed.OrderNo),
 		DocumentDate: firstMiniOrderValue(ed.DocumentDate, row.DocumentDate), OrderDate: firstMiniOrderValue(ed.OrderDate, row.OrderDate),
 		CustomerID: ed.CustomerID, Customer: row.Customer, SourceID: ed.SourceID, Source: miniEmployeeOptionName(form.Sources, ed.SourceID),
 		OrderTypeID: ed.OrderTypeID, OrderType: firstMiniOrderValue(row.OrderType, miniEmployeeOptionName(form.OrderTypes, ed.OrderTypeID)),
@@ -861,7 +1300,8 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 		GreenBeanListPublicationID: greenPublicationID, DripBeanListPublicationID: dripPublicationID, BeanListVersionNo: beanListVersionNo,
 		Notes: firstMiniOrderValue(ed.Notes, row.Notes), TotalAmount: firstMiniOrderValue(ed.TotalAmount, row.TotalAmount),
 		ShippingAmount: firstMiniOrderValue(ed.ShippingAmount, row.ShippingAmount), DiscountAmount: firstMiniOrderValue(ed.DiscountAmount, row.DiscountAmount),
-		RoundToInt: ed.RoundToInt, RoundingAmount: ed.RoundingAmount, GrandTotal: firstMiniOrderValue(ed.GrandTotal, row.GrandTotal),
+		OrderDiscountAmount: miniEmployeeHeaderDiscountAmount(ed, row.DiscountAmount),
+		RoundToInt:          ed.RoundToInt, RoundingAmount: ed.RoundingAmount, GrandTotal: firstMiniOrderValue(ed.GrandTotal, row.GrandTotal),
 		ExpressFee: firstMiniOrderValue(ed.ExpressFee, row.ExpressFee), OutsourceMaterialFee: firstMiniOrderValue(ed.OutsourceMaterialFee, row.OutsourceMaterialFee),
 		OutsourceRoastFee: firstMiniOrderValue(ed.OutsourceRoastFee, row.OutsourceRoastFee), OutsourcePackagingFee: firstMiniOrderValue(ed.OutsourcePackagingFee, row.OutsourcePackagingFee),
 		OutsourceManualFee: firstMiniOrderValue(ed.OutsourceManualFee, row.OutsourceManualFee), OutsourceTaxFee: firstMiniOrderValue(ed.OutsourceTaxFee, row.OutsourceTaxFee),
@@ -1357,19 +1797,78 @@ func containsMiniRole(values []string, target string) bool {
 	return false
 }
 
-func miniOrderErrorText(err error) string {
+func miniOrderKnownBusinessErrorText(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	if errors.Is(err, salesapp.ErrInvalidShippingAmount) {
+		return "运费金额不能小于 0", true
+	}
+	if errors.Is(err, salesapp.ErrInvalidDiscountAmount) {
+		return "整单优惠不能小于 0", true
+	}
 	switch strings.TrimSpace(err.Error()) {
 	case "customer required":
-		return "请选择客户"
+		return "请选择客户", true
 	case "at least one item required":
-		return "请至少添加一个商品"
+		return "请至少添加一个商品", true
 	case "product required":
-		return "请选择商品"
+		return "请选择商品", true
 	case "spec required":
-		return "请填写规格克重"
+		return "请填写规格克重", true
 	case "qty required":
-		return "请填写正确数量"
-	default:
-		return err.Error()
+		return "请填写正确数量", true
+	case "customer product price unpublished":
+		return "客户商品价格尚未发布", true
+	case "invalid pay_status_id":
+		return "付款状态不正确", true
+	case "payment_method required":
+		return "请选择付款方式", true
+	case "invalid ship_status_id":
+		return "发货状态不正确", true
+	case "logistics_company_id required":
+		return "请选择物流公司", true
+	case "logistics_product_id required", "invalid logistics product":
+		return "请选择正确的物流产品", true
+	case "payment_goods_amount required":
+		return "请填写货款金额", true
+	case "invalid payment_shipping_amount":
+		return "运费金额不正确", true
+	case "payment_voucher_asset_id required", "invalid payment_voucher_asset_id":
+		return "付款凭证不正确", true
 	}
+	message := strings.TrimSpace(err.Error())
+	for _, prefix := range []string{
+		"客户资料缺少", "客户商品别名", "商品规格", "所选价格表", "价格表", "提交的商品",
+		"订单行", "手动单价", "缺少", "具体 SKU", "解析订单价格来源快照失败", "生成订单",
+	} {
+		if strings.HasPrefix(message, prefix) {
+			return message, true
+		}
+	}
+	return "", false
+}
+
+func miniEmployeeHeaderDiscountAmount(ed *salesapp.OrderEditData, fallbackTotal ...string) string {
+	if ed == nil {
+		return "0.00"
+	}
+	rawTotal := strings.TrimSpace(ed.DiscountAmount)
+	if rawTotal == "" && len(fallbackTotal) > 0 {
+		rawTotal = strings.TrimSpace(fallbackTotal[0])
+	}
+	total, err := strconv.ParseFloat(rawTotal, 64)
+	if err != nil {
+		return "0.00"
+	}
+	for _, item := range ed.Items {
+		lineDiscount, parseErr := strconv.ParseFloat(strings.TrimSpace(item.DiscountAmount), 64)
+		if parseErr == nil {
+			total -= lineDiscount
+		}
+	}
+	if total < 0 || total < 0.005 {
+		total = 0
+	}
+	return fmt.Sprintf("%.2f", total)
 }

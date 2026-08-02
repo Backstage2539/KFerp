@@ -4264,6 +4264,19 @@ func TestOrdersShippingExcelAPICleansFileWhenShipmentSaveFails(t *testing.T) {
 	writeOrderShippingTemplateForTest(t, templatePath)
 	t.Setenv("ORDER_SHIP_TEMPLATE", templatePath)
 	t.Setenv("ORDER_SHIP_EXPORT_DIR", exportDir)
+	if err := os.MkdirAll(exportDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	previousFilename := orderShippingFilename(salesapp.OrderShippingExportData{
+		OrderDate:    "2026-04-27",
+		CustomerName: "测试客户",
+		OrderNo:      "SO-SHIP-SAVE-FAIL",
+	})
+	previousPath := filepath.Join(exportDir, previousFilename)
+	previousContents := []byte("previous successful shipment export")
+	if err := os.WriteFile(previousPath, previousContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.sender_settings
 		SET sender_name='寄件人', sender_phone='13900000000', sender_addr='上海市测试路', sender_company='寄件公司', sender_goods='', sf_biz_type='标快'
@@ -4287,12 +4300,22 @@ func TestOrdersShippingExcelAPICleansFileWhenShipmentSaveFails(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("POST /api/orders/shipping-excel status = %d, want 500, body=%s", rec.Code, rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), "快递录单 Excel 生成失败，请稍后重试") || strings.Contains(rec.Body.String(), "SQLSTATE") || strings.Contains(rec.Body.String(), "order_shipment_test_reject_generated") || strings.Contains(rec.Body.String(), "violates check constraint") {
+		t.Fatalf("shipping Excel persistence error leaked database details: %s", rec.Body.String())
+	}
 	files, err := os.ReadDir(exportDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 0 {
-		t.Fatalf("failed shipment save left shipping export files=%v", files)
+	if len(files) != 1 || files[0].Name() != previousFilename {
+		t.Fatalf("failed shipment save changed existing shipping exports=%v", files)
+	}
+	gotContents, err := os.ReadFile(previousPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotContents, previousContents) {
+		t.Fatalf("existing shipment export was overwritten: got %q", gotContents)
 	}
 }
 

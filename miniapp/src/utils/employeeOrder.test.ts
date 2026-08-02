@@ -13,8 +13,17 @@ import {
   shanghaiToday,
   buildEmployeeOrderItemsPayload,
   createEmployeeOrderItem,
+  employeeOrderItemFromSpec,
   employeeOrderShippingChanged,
   employeeOrderItemsTotal,
+  employeeOrderGrandTotal,
+  employeeOrderItemDiscountAmount,
+  employeeOrderEditableOrderDiscount,
+  employeeOrderOutsourceTotal,
+  employeeOrderTierForQuantity,
+  repriceEmployeeOrderItemForQuantity,
+  isEmployeeOrderNonNegativeMoney,
+  hydrateEmployeeOrderEditItems,
   preserveEmployeeOrderDraftItemsForMissingCustomer,
   revalidateEmployeeOrderItems,
 } from './employeeOrder'
@@ -212,6 +221,7 @@ describe('employee mini order entry', () => {
       sales_unit: '袋',
       qty: 2,
       unit_price: 48,
+      price_source_json: '{"quantity_basis":"sales_spec_count"}',
     })
     Object.assign(second, {
       product_id: 661,
@@ -231,6 +241,375 @@ describe('employee mini order entry', () => {
       expect.objectContaining({ product_id: 661, qty: 3, unit_bag_count: 10, unit_price: 80 }),
     ])
     expect(employeeOrderItemsTotal([first, second])).toBe(336)
+    expect(employeeOrderGrandTotal([first, second], 15, 6)).toBe(345)
+  })
+
+  it('hydrates an editable order through the exact customer alias before falling back to the SKU', () => {
+    const families = [
+      {
+        customer_id: 9,
+        parent_product_id: 10,
+        customer_product_alias_id: 201,
+        name: '客户别名A',
+        specs: [{
+          product_id: 11,
+          spec_label: '227g',
+          tiers: [{ unit_price: 60, publication_id: 81, publication_version_no: 'V8' }],
+        }],
+      },
+      {
+        customer_id: 9,
+        parent_product_id: 10,
+        customer_product_alias_id: 202,
+        name: '客户别名B',
+        specs: [{
+          product_id: 11,
+          spec_label: '227g',
+          tiers: [{ unit_price: 72, publication_id: 82, publication_version_no: 'V9' }],
+        }],
+      },
+    ]
+
+    const [item] = hydrateEmployeeOrderEditItems([{
+      item_id: 31,
+      product_id: 11,
+      customer_product_alias_id: 202,
+      product_name: '历史名称',
+      spec: '227',
+      qty: '3',
+      unit: '袋',
+      unit_price: '75.50',
+      line_total: '226.50',
+      price_override: true,
+      bean_list_publication_id: 82,
+      bean_list_version_no: 'V9',
+    }], families, 9)
+
+    expect(item).toMatchObject({
+      item_id: 31,
+      product_family_key: '9:10:202',
+      customer_product_alias_id: 202,
+      product_id: 11,
+      product_name: '客户别名B',
+      qty: 3,
+      unit_price: 75.5,
+      price_override: true,
+      bean_list_publication_id: 82,
+      bean_list_version_no: 'V9',
+      validation_error: '',
+    })
+    expect(buildEmployeeOrderItemsPayload([item])).toEqual([
+      expect.objectContaining({
+        product_id: 11,
+        item_id: 31,
+        parent_product_id: 10,
+        customer_product_alias_id: 202,
+        bean_list_publication_id: 82,
+        bean_list_version_no: 'V9',
+        price_override: true,
+      }),
+    ])
+  })
+
+  it('keeps an unavailable historical edit line visible and blocks it until a current spec is selected', () => {
+    const [item] = hydrateEmployeeOrderEditItems([{
+      item_id: 32,
+      product_id: 99,
+      customer_product_alias_id: 909,
+      product_name: '已从价格表下架的商品',
+      spec: '454g',
+      qty: '2',
+      unit: '袋',
+      unit_price: '88.00',
+      line_total: '176.00',
+      bean_list_publication_id: 70,
+      bean_list_version_no: 'V7',
+    }], [], 9)
+
+    expect(item).toMatchObject({
+      item_id: 32,
+      product_id: 99,
+      customer_product_alias_id: 909,
+      product_name: '已从价格表下架的商品',
+      spec_label: '454g',
+      qty: 2,
+      unit_price: 88,
+      validation_error: '该历史商品或规格已不在当前价格表，请重新选择当前可售规格',
+    })
+  })
+
+  it('hydrates only the order-level discount and never counts preserved line discounts twice', () => {
+    const items = [
+      { discount_amount: '6.50' },
+      { discount_amount: '2.00' },
+    ]
+
+    expect(employeeOrderEditableOrderDiscount('16.50', items)).toBe(8)
+    expect(employeeOrderEditableOrderDiscount('5.00', items)).toBe(0)
+    expect(employeeOrderEditableOrderDiscount('99.00', items, '3.50')).toBe(3.5)
+    expect(employeeOrderEditableOrderDiscount('16.50', items, '0')).toBe(0)
+  })
+
+  it('selects the current quantity tier and keeps automatic prices automatic while quantity changes', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 10,
+      name: '分档商品',
+      specs: [{
+        product_id: 11,
+        spec_label: '227g',
+        tiers: [
+          { unit_price: 68, min_qty: 1, max_qty: 9, publication_id: 91 },
+          { unit_price: 60, min_qty: 10, publication_id: 91 },
+        ],
+      }],
+    }
+    const automatic = Object.assign(createEmployeeOrderItem('auto'), {
+      product_family_key: '0:10:0',
+      product_family_id: 10,
+      product_id: 11,
+      qty: 12,
+      unit_price: 68,
+      price_override: false,
+    })
+    const manual = { ...automatic, key: 'manual', unit_price: 72, price_override: true }
+
+    expect(repriceEmployeeOrderItemForQuantity(automatic, family)).toMatchObject({
+      qty: 12,
+      unit_price: 60,
+      price_override: false,
+    })
+    expect(repriceEmployeeOrderItemForQuantity(manual, family)).toMatchObject({
+      qty: 12,
+      unit_price: 72,
+      price_override: true,
+    })
+
+    const [hydrated] = hydrateEmployeeOrderEditItems([{
+      item_id: 88,
+      product_id: 11,
+      product_name: '分档商品',
+      qty: '12',
+      spec: '227g',
+      unit: '袋',
+      unit_price: '68',
+      line_total: '816',
+      price_override: false,
+    }], [family], 8)
+    expect(hydrated).toMatchObject({ unit_price: 60, price_override: false })
+  })
+
+  it('marks an item unavailable when its quantity falls into a price-tier gap', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 10,
+      name: '断档商品',
+      specs: [{
+        product_id: 11,
+        spec_label: '227g',
+        tiers: [
+          { unit_price: 68, min_qty: 1, max_qty: 1 },
+          { unit_price: 60, min_qty: 3, max_qty: 9 },
+        ],
+      }],
+    }
+    const automatic = Object.assign(createEmployeeOrderItem('gap'), {
+      product_family_key: '0:10:0',
+      product_family_id: 10,
+      product_id: 11,
+      qty: 2,
+      unit_price: 68,
+      price_override: false,
+    })
+
+    expect(employeeOrderTierForQuantity(family.specs[0], 2)).toBeUndefined()
+    expect(repriceEmployeeOrderItemForQuantity(automatic, family)).toMatchObject({
+      qty: 2,
+      unit_price: 0,
+      price_override: false,
+      validation_error: '当前数量没有匹配的价格档，请调整数量',
+    })
+  })
+
+  it('includes hidden line discounts in totals and recalculates them after quantity changes', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 10,
+      name: '优惠商品',
+      specs: [{
+        product_id: 11,
+        spec_label: '227g',
+        sales_unit: 'bag',
+        tiers: [{
+          unit_price: 50,
+          min_qty: 1,
+          price_source_json: '{"quantity_basis":"sales_spec_count"}',
+        }],
+      }],
+    }
+    const [hydrated] = hydrateEmployeeOrderEditItems([{
+      item_id: 90,
+      product_id: 11,
+      product_name: '优惠商品',
+      qty: '2',
+      spec: '227g',
+      unit: '袋',
+      unit_price: '50',
+      line_total: '94',
+      price_override: false,
+      discount_type: 'unit_amount',
+      discount_value: '3',
+      discount_amount: '6',
+    }], [family], 8)
+
+    expect(hydrated).toMatchObject({
+      discount_type: 'unit_amount',
+      discount_value: 3,
+      discount_amount: 6,
+    })
+    expect(employeeOrderItemsTotal([hydrated])).toBe(100)
+    expect(employeeOrderGrandTotal([hydrated], 10, 4)).toBe(100)
+
+    const repriced = repriceEmployeeOrderItemForQuantity({ ...hydrated, qty: 4 }, family)
+    expect(repriced).toMatchObject({ qty: 4, unit_price: 50, discount_amount: 12 })
+    expect(employeeOrderItemsTotal([repriced])).toBe(200)
+    expect(employeeOrderGrandTotal([repriced])).toBe(188)
+
+    const manual = repriceEmployeeOrderItemForQuantity({
+      ...hydrated,
+      qty: 4,
+      unit_price: 70,
+      price_override: true,
+    }, family)
+    expect(manual).toMatchObject({ qty: 4, unit_price: 70, discount_amount: 12 })
+    expect(employeeOrderItemsTotal([manual])).toBe(280)
+    expect(employeeOrderGrandTotal([manual])).toBe(268)
+
+    const base = { ...hydrated, qty: 2, unit_price: 50 }
+    expect(employeeOrderItemDiscountAmount({ ...base, discount_type: 'amount', discount_value: 120 })).toBe(100)
+    expect(employeeOrderItemDiscountAmount({ ...base, discount_type: 'percent', discount_value: 80 })).toBe(20)
+    expect(employeeOrderItemDiscountAmount({ ...base, discount_type: 'free', discount_value: 0 })).toBe(100)
+
+    const legacyWeightDiscount = {
+      ...base,
+      product_kind: 'roasted_bean',
+      sales_unit: 'lb',
+      spec_g: 227,
+      price_source_json: '',
+      discount_type: 'unit_amount',
+      discount_value: 3,
+    }
+    expect(employeeOrderItemDiscountAmount({ ...legacyWeightDiscount, retail_order: false })).toBe(3)
+    expect(employeeOrderItemDiscountAmount({ ...legacyWeightDiscount, retail_order: true })).toBe(6)
+    expect(employeeOrderItemsTotal([{ ...legacyWeightDiscount, retail_order: false }])).toBe(50)
+    expect(employeeOrderGrandTotal([{ ...legacyWeightDiscount, retail_order: false }], 10, 4)).toBe(53)
+    expect(employeeOrderItemDiscountAmount({
+      ...legacyWeightDiscount,
+      price_source_json: '{"quantity_basis":"sales_spec_count"}',
+    })).toBe(6)
+    expect(employeeOrderItemsTotal([{
+      ...legacyWeightDiscount,
+      price_source_json: '{"quantity_basis":"sales_spec_count"}',
+    }])).toBe(100)
+    expect(employeeOrderItemDiscountAmount({
+      ...legacyWeightDiscount,
+      product_kind: 'drip_bag',
+      sales_unit: 'box',
+    })).toBe(6)
+    expect(employeeOrderItemDiscountAmount({
+      ...legacyWeightDiscount,
+      spec_g: 1000,
+      unit_price: 50,
+    })).toBe(6)
+    expect(employeeOrderGrandTotal([{
+      ...legacyWeightDiscount,
+      spec_g: 1000,
+      unit_price: 50,
+    }])).toBe(94)
+
+    const replacementFamily = {
+      customer_id: 0,
+      parent_product_id: 20,
+      name: '换购商品',
+      specs: [{ product_id: 21, spec_label: '227g', sales_unit: 'bag', tiers: [{ unit_price: 40, min_qty: 1 }] }],
+    }
+    const replaced = employeeOrderItemFromSpec(hydrated, replacementFamily, replacementFamily.specs[0])
+    expect(replaced).toMatchObject({
+      product_id: 21,
+      discount_type: 'unit_amount',
+      discount_value: 3,
+      discount_amount: 6,
+    })
+    const [payloadItem] = buildEmployeeOrderItemsPayload([replaced])
+    expect(payloadItem).not.toHaveProperty('discount_type')
+    expect(payloadItem).not.toHaveProperty('discount_value')
+    expect(payloadItem).not.toHaveProperty('discount_amount')
+  })
+
+  it('includes preserved outsource fees and applies the backend round-down rule in edit previews', () => {
+    const item = Object.assign(createEmployeeOrderItem('outsource'), {
+      product_id: 11,
+      product_kind: 'drip_bag',
+      qty: 2,
+      unit_price: 50,
+      discount_type: 'amount',
+      discount_value: 6,
+    })
+    const outsourceTotal = employeeOrderOutsourceTotal({
+      outsource_material_fee: '1.20',
+      outsource_roast_fee: '2.30',
+      outsource_packaging_fee: '3.40',
+      outsource_manual_fee: '4.50',
+      outsource_tax_fee: '5.60',
+      outsource_other_fee: '6.70',
+    })
+
+    expect(outsourceTotal).toBe(23.7)
+    expect(employeeOrderGrandTotal([item], 12, 4, outsourceTotal, false)).toBe(125.7)
+    expect(employeeOrderGrandTotal([item], 12, 4, outsourceTotal, true)).toBe(125)
+  })
+
+  it('does not guess among multiple customer aliases when a historical line has no alias id', () => {
+    const aliases = [
+      {
+        customer_id: 9,
+        parent_product_id: 10,
+        customer_product_alias_id: 201,
+        name: '别名A',
+        specs: [{ product_id: 11, spec_label: '227g', tiers: [{ unit_price: 60 }] }],
+      },
+      {
+        customer_id: 9,
+        parent_product_id: 10,
+        customer_product_alias_id: 202,
+        name: '别名B',
+        specs: [{ product_id: 11, spec_label: '227g', tiers: [{ unit_price: 60 }] }],
+      },
+    ]
+    const [ambiguous] = hydrateEmployeeOrderEditItems([{
+      item_id: 89,
+      product_id: 11,
+      product_name: '历史商品',
+      qty: '1',
+      spec: '227g',
+      unit_price: '60',
+      line_total: '60',
+      price_override: false,
+    }], aliases, 9)
+
+    expect(ambiguous).toMatchObject({
+      item_id: 89,
+      product_name: '历史商品',
+      validation_error: '该历史商品对应多个客户别名，请重新选择当前可售商品',
+    })
+  })
+
+  it('accepts only finite non-negative shipping and order-discount amounts', () => {
+    expect(isEmployeeOrderNonNegativeMoney(0)).toBe(true)
+    expect(isEmployeeOrderNonNegativeMoney('12.50')).toBe(true)
+    expect(isEmployeeOrderNonNegativeMoney(-1)).toBe(false)
+    expect(isEmployeeOrderNonNegativeMoney('abc')).toBe(false)
+    expect(isEmployeeOrderNonNegativeMoney(Number.POSITIVE_INFINITY)).toBe(false)
   })
 
   it('clears only product rows that are no longer available after changing customer', () => {
@@ -258,27 +637,38 @@ describe('employee mini order entry', () => {
     expect(result[1]).toMatchObject({ product_id: 0, product_name: '', qty: 1 })
   })
 
-  it('preserves a manually edited unit price while restoring a valid server draft', () => {
-    const item = Object.assign(createEmployeeOrderItem('draft-line'), {
+  it('reprices restored automatic drafts while preserving explicit manual prices', () => {
+    const automatic = Object.assign(createEmployeeOrderItem('draft-auto'), {
       product_id: 11,
       product_name: '公共商品',
-      unit_price: 72.5,
+      qty: 12,
+      unit_price: 68,
+      price_override: false,
     })
+    const manual = { ...automatic, key: 'draft-manual', unit_price: 72.5, price_override: true }
     const families = [{
       customer_id: 0,
       parent_product_id: 10,
       name: '公共商品',
-      specs: [{ product_id: 11, spec_label: '227g', tiers: [{ unit_price: 68 }] }],
+      specs: [{
+        product_id: 11,
+        spec_label: '227g',
+        tiers: [
+          { unit_price: 68, min_qty: 1, max_qty: 9 },
+          { unit_price: 60, min_qty: 10 },
+        ],
+      }],
     }]
 
-    const [restored] = revalidateEmployeeOrderItems(
-      [item],
+    const [restoredAutomatic, restoredManual] = revalidateEmployeeOrderItems(
+      [automatic, manual],
       families,
       9,
-      { preserveUnitPrice: true },
+      { preserveManualPrice: true },
     )
 
-    expect(restored).toMatchObject({ product_id: 11, unit_price: 72.5 })
+    expect(restoredAutomatic).toMatchObject({ product_id: 11, unit_price: 60, price_override: false })
+    expect(restoredManual).toMatchObject({ product_id: 11, unit_price: 72.5, price_override: true })
   })
 
   it('keeps an unavailable draft line visible and marks it for reselection', () => {

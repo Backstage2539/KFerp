@@ -214,6 +214,40 @@ func createProduceBatchFromOrders(ctx context.Context, pool *pgxpool.Pool, schem
 		return nil, err
 	}
 
+	// Every workflow that may read or replace order_items locks the parent
+	// orders first, in ascending order. This serializes legacy batch creation
+	// with mini/web order edits and prevents a batch from snapshotting rows that
+	// an editor is about to delete and rebuild.
+	lockedOrderRows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.orders
+		WHERE id = ANY($1)
+		ORDER BY id
+		FOR UPDATE
+	`, schema), orderIDs)
+	if err != nil {
+		return nil, err
+	}
+	lockedOrderIDs := make(map[int64]bool, len(orderIDs))
+	for lockedOrderRows.Next() {
+		var orderID int64
+		if err := lockedOrderRows.Scan(&orderID); err != nil {
+			lockedOrderRows.Close()
+			return nil, err
+		}
+		lockedOrderIDs[orderID] = true
+	}
+	if err := lockedOrderRows.Err(); err != nil {
+		lockedOrderRows.Close()
+		return nil, err
+	}
+	lockedOrderRows.Close()
+	for _, orderID := range orderIDs {
+		if orderID <= 0 || !lockedOrderIDs[orderID] {
+			return nil, fmt.Errorf("order %d not found", orderID)
+		}
+	}
+
 	qItems := fmt.Sprintf(`
 SELECT oi.id, oi.order_id, oi.product_id, COALESCE(p.name,''),
        COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,

@@ -14,6 +14,11 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 	q := fmt.Sprintf(`
 		SELECT
 			o.id,
+			md5(to_jsonb(o)::text || '|' || COALESCE((
+				SELECT jsonb_agg(to_jsonb(revision_item) ORDER BY revision_item.id)::text
+				FROM %[1]s.order_items revision_item
+				WHERE revision_item.order_id=o.id
+			), '[]')) AS edit_revision,
 			COALESCE(o.order_no,''),
 			COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), ''),
 			COALESCE(c.name,''),
@@ -24,14 +29,15 @@ func (r Repository) LoadOrderShippingExportData(ctx context.Context, orderID int
 			COALESCE(o.sender_id,0) AS sender_id,
 			COALESCE(ss.name,''),
 			COALESCE(ops.name,'')
-		FROM %s.orders o
-		LEFT JOIN %s.customers c ON c.id=o.customer_id
-		LEFT JOIN %s.ship_statuses ss ON ss.id=o.ship_status_id
-		LEFT JOIN %s.order_process_statuses ops ON ops.id=o.process_status_id
+		FROM %[1]s.orders o
+		LEFT JOIN %[1]s.customers c ON c.id=o.customer_id
+		LEFT JOIN %[1]s.ship_statuses ss ON ss.id=o.ship_status_id
+		LEFT JOIN %[1]s.order_process_statuses ops ON ops.id=o.process_status_id
 		WHERE o.id=$1
-	`, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema)
 	if err := r.pool.QueryRow(ctx, q, orderID).Scan(
 		&out.OrderID,
+		&out.EditRevision,
 		&out.OrderNo,
 		&out.OrderDate,
 		&out.CustomerName,

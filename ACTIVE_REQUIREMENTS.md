@@ -3933,6 +3933,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-06-06 18:13 Asia/Shanghai
 - Notes: 必须在部署阶段构建小程序；发布客户价格表时若复制来源是本人旧 customer_resale 版本，价格来源仍追溯原 factory_supply，避免重复加价。Smoke: erp_orderapp up, /app/ GET 303, /app/vue-shell/ 200 with BasicAuth, PR-434 req marker visible, /api/mini/customer-products and /api/mini/bean-lists/1.png without mini token return 401, remote miniapp/dist/build/mp-weixin app.json/app.js exists.
 
+### PR-573-MINIAPP-ORDER-CATALOG-EDIT
+- Branch: codex/mini-order-catalog-edit-20260802
+- Owner/session: Codex / 2026-08-02
+- Status: verified locally / merge and development deployment pending
+- Scope: 开发环境员工小程序录单商品必须与 ERP 当前已发布价格表可售商品/规格一致；生产开始前支持在小程序编辑订单商品、费用和收件/物流资料，并复用 ERP 状态、权限、审计与价格校验。
+- Verifier:
+  - Unit: full `go test ./... -count=1` GREEN; current-publication, editability, edit-revision, audit, order-number lock, legacy-batch lock and shipment lock/revision tests GREEN; affected-package `go vet` GREEN.
+  - API: mini employee order-form/detail/create/update permission, catalog rejection, negative amount, 409 conflict and safe-error tests GREEN; shipping Excel unique-file/revision/cleanup tests GREEN.
+  - Frontend/build: miniapp 21 files / 147 tests, `vue-tsc --noEmit`, development mp-weixin build GREEN; Vue shell 854 tests and production build GREEN.
+  - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md
+  - Review/acceptance: independent backend and frontend reviews have no open P0-P2; `scripts/verify_kferp.sh changed` and `git diff --check` GREEN; evidence in orderapp-remote/docs/acceptance/2026-08-02-miniapp-order-catalog-edit.md.
+- Deployment: development pending; production out of scope
+- Last update: 2026-08-02 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` failed on the local awk implementation before writing; PR-573 was the reported next id and is reserved here manually.
+
 ## Template
 
 ```markdown

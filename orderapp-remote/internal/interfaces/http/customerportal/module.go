@@ -83,6 +83,7 @@ type SalesDocuments interface {
 type EmployeeSales interface {
 	ListOrders(context.Context, salesapp.OrderListQuery) (salesapp.OrderListResult, error)
 	OrderForm(context.Context, int64) (salesapp.OrderFormData, error)
+	OrderEditability(context.Context, int64) (salesapp.OrderEditability, error)
 	SaveOrder(context.Context, salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error)
 	ListSalesOrderDocuments(context.Context, int64) ([]salesapp.SalesOrderDocument, error)
 	ListSalesOrderImageDocuments(context.Context, int64) ([]salesapp.SalesOrderImageDocument, error)
