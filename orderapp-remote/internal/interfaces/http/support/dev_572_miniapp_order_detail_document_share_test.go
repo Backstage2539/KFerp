@@ -44,6 +44,11 @@ func TestDev572MiniappOrderDetailDocumentShareContract(t *testing.T) {
 		"收件信息", "物流信息", "订单状态", "费用明细", "商品明细", "报价来源", "生产来源",
 		"销售单 PDF", "销售单图片", "发货单 PDF", "发货单图片",
 	)
+	documentSectionIndex := strings.Index(detailPage, `<view class="section document-section">`)
+	heroSectionIndex := strings.Index(detailPage, `<view class="hero-card">`)
+	if documentSectionIndex < 0 || heroSectionIndex < 0 || documentSectionIndex > heroSectionIndex {
+		t.Errorf("导出并微信分享必须是订单加载成功后的首个业务卡片: document=%d hero=%d", documentSectionIndex, heroSectionIndex)
+	}
 	if !strings.Contains(detailPage, "shareMiniappFileOutput") {
 		t.Error("employee order detail does not use the shared WeChat file output helper")
 	}

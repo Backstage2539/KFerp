@@ -45,6 +45,15 @@ describe('employee order detail miniapp page contract', () => {
     }
   })
 
+  it('places export and WeChat sharing before the order summary and detail sections', () => {
+    const documentSection = detailSource.indexOf('<view class="section document-section">')
+    const heroSection = detailSource.indexOf('<view class="hero-card">')
+    expect(documentSection).toBeGreaterThan(-1)
+    expect(heroSection).toBeGreaterThan(-1)
+    expect(documentSection).toBeLessThan(heroSection)
+    expect(detailSource.match(/class="section document-section"/g)).toHaveLength(1)
+  })
+
   it('renders exactly one add-product action after the final item row', () => {
     const itemLoop = entrySource.indexOf('v-for="(item, index) in form.items"')
     const addButton = entrySource.indexOf('@tap="addItem"')
