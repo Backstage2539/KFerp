@@ -35,13 +35,20 @@ func TestDev324FennaOrderEntryCustomerBeanListScopeWiring(t *testing.T) {
 	}
 
 	apiSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "sales", "order_api.go")))
+	filterSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "sales", "order_product_filter.go")))
 	for _, want := range []string{
-		"customerOwnedPublicationIDsByListType",
-		"productMatchesCustomerOwnedBeanListScope",
 		"filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions, data.CustomerPublicUsages)",
 	} {
 		if !strings.Contains(apiSrc, want) {
 			t.Fatalf("order API customer bean-list scope wiring missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"orderCustomerOwnedPublicationIDsByListType",
+		"orderProductMatchesAvailablePublicationScope",
+	} {
+		if !strings.Contains(filterSrc, want) {
+			t.Fatalf("shared order product filter wiring missing %q", want)
 		}
 	}
 

@@ -557,21 +557,25 @@ type orderBeanListCandidate struct {
 	RequestedPublicationID int64
 }
 
-func dripOrderBeanListCandidates(cmd salesapp.SaveOrderCommand, itemPublicationID int64, sourceListType string) []orderBeanListCandidate {
+func dripOrderBeanListCandidates(cmd salesapp.SaveOrderCommand, itemPublicationID int64, sourceListType string, retailOrder bool) []orderBeanListCandidate {
 	sourceListType = strings.TrimSpace(sourceListType)
+	primaryListType := orderbeans.ListTypeCommercial
+	if retailOrder {
+		primaryListType = orderbeans.ListTypeRetail
+	}
 	if itemPublicationID > 0 {
 		switch sourceListType {
-		case orderbeans.ListTypeCommercial, orderbeans.ListTypeDrip:
+		case primaryListType, orderbeans.ListTypeDrip:
 			return []orderBeanListCandidate{{ListType: sourceListType, RequestedPublicationID: itemPublicationID}}
 		default:
 			return []orderBeanListCandidate{
-				{ListType: orderbeans.ListTypeCommercial, RequestedPublicationID: itemPublicationID},
+				{ListType: primaryListType, RequestedPublicationID: itemPublicationID},
 				{ListType: orderbeans.ListTypeDrip, RequestedPublicationID: itemPublicationID},
 			}
 		}
 	}
 	return []orderBeanListCandidate{
-		{ListType: orderbeans.ListTypeCommercial, RequestedPublicationID: selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial)},
+		{ListType: primaryListType, RequestedPublicationID: selectedOrderBeanListPublicationID(cmd, primaryListType)},
 		{ListType: orderbeans.ListTypeDrip, RequestedPublicationID: selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeDrip)},
 	}
 }
@@ -816,7 +820,7 @@ func resolveConcreteOrderPublicationSelectionTx(ctx context.Context, tx pgx.Tx, 
 	}
 	candidates := make([]orderBeanListCandidate, 0, 2)
 	if strings.TrimSpace(productKind) == "drip_bag" {
-		candidates = dripOrderBeanListCandidates(cmd, itemPublicationID, sourceListType)
+		candidates = dripOrderBeanListCandidates(cmd, itemPublicationID, sourceListType, retailOrder)
 	} else {
 		listType := orderbeans.ListTypeForProductKind(productKind, retailOrder)
 		candidates = append(candidates, orderBeanListCandidate{
@@ -1033,6 +1037,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	type item struct {
+		itemID                             int64
 		productID                          *int64
 		submittedParentProductID           int64
 		customerProductAliasID             int64
@@ -1074,6 +1079,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			continue
 		}
 		it := item{
+			itemID:                             src.ItemID,
 			productID:                          src.ProductID,
 			submittedParentProductID:           src.ParentProductID,
 			customerProductAliasID:             src.CustomerProductAliasID,
@@ -1148,38 +1154,6 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if !valid {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("at least one item required")
 	}
-	orderSaveDripAuditSummary := func() string {
-		dripItems := make([]map[string]any, 0)
-		for _, it := range items {
-			if it.productKind != "drip_bag" {
-				continue
-			}
-			itemSummary := map[string]any{
-				"product_kind":      it.productKind,
-				"sales_unit":        it.salesUnit,
-				"qty":               it.units,
-				"unit_bag_count":    it.unitBagCount,
-				"unit_bean_g":       it.unitBeanG,
-				"matched_price_qty": it.matchedPriceQty,
-				"unit_price":        it.unitPrice,
-				"line_total":        it.lineTotal,
-			}
-			var source map[string]any
-			if err := json.Unmarshal([]byte(strings.TrimSpace(it.priceSourceJSON)), &source); err == nil && len(source) > 0 {
-				itemSummary["price_source"] = source
-			}
-			dripItems = append(dripItems, itemSummary)
-		}
-		if len(dripItems) == 0 {
-			return ""
-		}
-		buf, err := json.Marshal(map[string]any{"drip_items": dripItems})
-		if err != nil {
-			return ""
-		}
-		return string(buf)
-	}
-
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
@@ -1191,19 +1165,62 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.orders IN SHARE ROW EXCLUSIVE MODE", r.schema)); err != nil {
-		return salesapp.SaveOrderResult{}, err
+	editID := cmd.EditID
+	var orderID int64
+	orderNo := ""
+	beforeAuditSummary := ""
+	existingPortalServiceCode, existingSourceWarehouse := "", ""
+	if editID > 0 {
+		var lockedCustomerID int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id, order_no, COALESCE(customer_id,0), COALESCE(portal_service_code,''), COALESCE(source_warehouse,'')
+			FROM %s.orders
+			WHERE id=$1
+			FOR UPDATE
+		`, r.schema), editID).Scan(&orderID, &orderNo, &lockedCustomerID, &existingPortalServiceCode, &existingSourceWarehouse); err != nil {
+			return salesapp.SaveOrderResult{}, fmt.Errorf("invalid edit_id")
+		}
+		if lockedCustomerID != cmd.CustomerID {
+			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("订单客户已被其他操作修改，请重新打开后再编辑")
+		}
+		if cmd.RequirePreProductionEdit && strings.TrimSpace(cmd.ExpectedEditRevision) == "" {
+			return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("订单版本信息缺失，请重新打开后再编辑")
+		}
+		if expectedRevision := strings.TrimSpace(cmd.ExpectedEditRevision); expectedRevision != "" {
+			currentRevision, err := currentOrderEditRevisionTx(ctx, tx, r.schema, orderID)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if currentRevision != expectedRevision {
+				return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("订单已被其他操作修改，请重新打开后再编辑")
+			}
+		}
+		if cmd.RequirePreProductionEdit {
+			state, err := loadOrderEditState(ctx, tx, r.schema, orderID, false)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if editability := salesapp.EvaluateOrderEditability(state); !editability.CanEdit {
+				return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError(editability.BlockReason)
+			}
+		}
+		beforeAuditSummary, err = loadOrderSaveAuditSummaryTx(ctx, tx, r.schema, orderID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+	}
+	if cmd.RequireCurrentDefaultPublications {
+		if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.bean_list_publications IN SHARE MODE", r.schema)); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
 	customerProfile, err := r.requiredOrderCustomerProfileTx(ctx, tx, cmd.CustomerID)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
-	cmd.SourceID = customerProfile.sourceID
-	cmd.OrderTypeID = customerProfile.orderTypeID
+	applyOrderCustomerProfileDefaults(&cmd, customerProfile)
 
-	orderNo := ""
 	retailOrder := false
 	if cmd.OrderTypeID > 0 {
 		var orderTypeName string
@@ -1382,7 +1399,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			var usage orderbeans.Usage
 			var pricing orderbeans.PublishedPricing
 			var priceListType string
-			for _, candidate := range dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType) {
+			for _, candidate := range dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType, retailOrder) {
 				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, candidate.RequestedPublicationID)
 				if err != nil {
 					return salesapp.SaveOrderResult{}, err
@@ -1522,6 +1539,23 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		totalAmt += items[idx].baseLineTotal
 		itemDiscountAmt += items[idx].discountAmount
 	}
+	if cmd.RequireCurrentDefaultPublications {
+		checked := make(map[string]bool)
+		for _, it := range items {
+			key := fmt.Sprintf("%d:%s", it.itemBeanListPublicationID, it.priceListType)
+			if checked[key] {
+				continue
+			}
+			checked[key] = true
+			current, err := isCurrentDefaultOrderPublicationTx(ctx, tx, r.schema, cmd.CustomerID, it.itemBeanListPublicationID, it.priceListType)
+			if err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
+			if !current {
+				return salesapp.SaveOrderResult{}, salesapp.NewOrderEditConflictError("价格表已更新，请重新选择商品规格后保存")
+			}
+		}
+	}
 
 	// Amount calculation (items + shipping - discount)
 	shippingAmt := cmd.ShippingAmount
@@ -1568,14 +1602,19 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(cmd.ShipTrackingNo))
 
-	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.CustomerID)
-	if err != nil {
-		return salesapp.SaveOrderResult{}, err
+	responsibleType, responsibleID, responsibleName := strings.TrimSpace(cmd.ResponsibleType), cmd.ResponsibleID, strings.TrimSpace(cmd.ResponsibleName)
+	if !cmd.PreserveResponsibleSnapshot {
+		responsibleType, responsibleID, responsibleName, err = resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.CustomerID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
 	}
 
-	editID := cmd.EditID
 	portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
-	if cmd.PortalServiceCode != "" {
+	if cmd.PreserveFulfillmentSnapshot {
+		portalServiceCode = strings.TrimSpace(cmd.PortalServiceCode)
+		sourceWarehouse = strings.TrimSpace(cmd.SourceWarehouse)
+	} else if cmd.PortalServiceCode != "" {
 		portalServiceCode = cmd.PortalServiceCode
 	}
 	publicationRefs := make([]orderHeaderPublicationRef, 0, len(items))
@@ -1602,13 +1641,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,0),$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30::jsonb)`, r.schema)
 
-	var orderID int64
 	if editID > 0 {
-		var existingPortalServiceCode, existingSourceWarehouse string
-		if err := tx.QueryRow(ctx, fmt.Sprintf("SELECT id, order_no, COALESCE(portal_service_code,''), COALESCE(source_warehouse,'') FROM %s.orders WHERE id=$1 FOR UPDATE", r.schema), editID).Scan(&orderID, &orderNo, &existingPortalServiceCode, &existingSourceWarehouse); err != nil {
-			return salesapp.SaveOrderResult{}, fmt.Errorf("invalid edit_id")
+		if !cmd.PreserveFulfillmentSnapshot {
+			portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, portalServiceCode, sourceWarehouse)
 		}
-		portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, portalServiceCode, sourceWarehouse)
 		uq := fmt.Sprintf(`
 				UPDATE %s.orders
 				SET document_date=$2,
@@ -1647,7 +1683,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						logistics_product_id=$35,
 						payment_goods_amount=$36,
 						payment_shipping_amount=$37,
-						payment_voucher_asset_id=$38
+						payment_voucher_asset_id=$38,
+						receiver_name=$39,
+						receiver_phone=$40,
+						receiver_address=$41,
+						receiver_company=$42
 					WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
@@ -1689,14 +1729,30 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			cmd.PaymentGoodsAmount,
 			cmd.PaymentShippingAmount,
 			cmd.PaymentVoucherAssetID,
+			notNullText(cmd.ReceiverName),
+			notNullText(cmd.ReceiverPhone),
+			notNullText(cmd.ReceiverAddress),
+			notNullText(cmd.ReceiverCompany),
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
+		}
+		for _, invalidate := range []string{
+			fmt.Sprintf("UPDATE %s.sales_order_documents SET is_latest=false WHERE order_id=$1", r.schema),
+			fmt.Sprintf("UPDATE %s.sales_order_images SET is_latest=false WHERE order_id=$1", r.schema),
+			fmt.Sprintf("UPDATE %s.delivery_note_documents SET is_latest=false WHERE order_id=$1", r.schema),
+			fmt.Sprintf("UPDATE %s.combined_sales_order_documents SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
+			fmt.Sprintf("UPDATE %s.combined_sales_order_images SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
+			fmt.Sprintf("UPDATE %s.combined_delivery_note_documents SET is_latest=false WHERE order_ids @> jsonb_build_array($1::bigint)", r.schema),
+		} {
+			if _, err := tx.Exec(ctx, invalidate, orderID); err != nil {
+				return salesapp.SaveOrderResult{}, err
+			}
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf("DELETE FROM %s.order_items WHERE order_id=$1", r.schema), orderID); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	} else {
-		orderNo, err = nextOrderNo(ctx, tx, r.schema, documentDate)
+		orderNo, err = nextOrderNoWithAdvisoryLock(ctx, tx, r.schema, documentDate)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -1885,12 +1941,17 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
+	afterAuditSummary, err := loadOrderSaveAuditSummaryTx(ctx, tx, r.schema, orderID)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	if err := r.logOrderSaveTx(ctx, tx, cmd.Actor, orderID, orderNo, editID > 0, beforeAuditSummary, afterAuditSummary, beanListPublicationID, beanListVersionNo); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
-
-	r.logOrderSave(ctx, cmd.Actor, orderID, orderNo, editID > 0, orderSaveDripAuditSummary(), beanListPublicationID, beanListVersionNo)
 
 	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
 
@@ -2047,6 +2108,14 @@ type requiredOrderCustomerProfile struct {
 	customerType string
 	sourceID     int64
 	orderTypeID  int64
+}
+
+func applyOrderCustomerProfileDefaults(cmd *salesapp.SaveOrderCommand, profile requiredOrderCustomerProfile) {
+	if cmd == nil || (cmd.EditID > 0 && cmd.PreserveFulfillmentSnapshot) {
+		return
+	}
+	cmd.SourceID = profile.sourceID
+	cmd.OrderTypeID = profile.orderTypeID
 }
 
 func (r Repository) requiredOrderCustomerProfileTx(ctx context.Context, tx pgx.Tx, customerID int64) (requiredOrderCustomerProfile, error) {
@@ -2234,25 +2303,90 @@ func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason str
 	return len(updatedIDs), nil
 }
 
-func (r Repository) logOrderSave(ctx context.Context, actor string, orderID int64, orderNo string, edited bool, extraNewValue string, beanListPublicationID int64, beanListVersionNo string) {
+func loadOrderSaveAuditSummaryTx(ctx context.Context, tx pgx.Tx, schema string, orderID int64) (string, error) {
+	var summary string
+	query := fmt.Sprintf(`
+		SELECT jsonb_build_object(
+			'customer_id', COALESCE(o.customer_id,0),
+			'order_date', COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
+			'notes', COALESCE(o.notes,''),
+			'receiver_name', COALESCE(o.receiver_name,''),
+			'receiver_phone', COALESCE(o.receiver_phone,''),
+			'receiver_address', COALESCE(o.receiver_address,''),
+			'receiver_company', COALESCE(o.receiver_company,''),
+			'shipping_amount', COALESCE(o.shipping_amount,0),
+			'order_discount_amount', GREATEST(
+				COALESCE(o.discount_amount,0) - COALESCE((
+					SELECT SUM(discount_item.discount_amount)
+					FROM %[1]s.order_items discount_item
+					WHERE discount_item.order_id=o.id
+				),0),
+				0
+			),
+			'item_count', (SELECT COUNT(*) FROM %[1]s.order_items count_item WHERE count_item.order_id=o.id),
+			'order_items', COALESCE((
+				SELECT jsonb_agg(jsonb_build_object(
+					'line_no', COALESCE(oi.line_no,0),
+					'product_id', COALESCE(oi.product_id,0),
+					'product_kind', COALESCE(oi.product_kind,''),
+					'name', COALESCE(oi.item_name,''),
+					'note', COALESCE(oi.item_note,''),
+					'qty', COALESCE(oi.qty,0),
+					'unit', COALESCE(oi.unit,''),
+					'spec', COALESCE(oi.spec,''),
+					'sales_unit', COALESCE(oi.sales_unit,''),
+					'unit_price', COALESCE(oi.unit_price,0),
+					'line_total', COALESCE(oi.line_total,0),
+					'discount_type', COALESCE(oi.discount_type,''),
+					'discount_value', COALESCE(oi.discount_value,0),
+					'discount_amount', COALESCE(oi.discount_amount,0),
+					'bean_list_publication_id', COALESCE(oi.bean_list_publication_id,0),
+					'bean_list_version_no', COALESCE(oi.bean_list_version_no,'')
+				) ORDER BY oi.line_no, oi.id)
+				FROM %[1]s.order_items oi
+				WHERE oi.order_id=o.id
+			), '[]'::jsonb)
+		)::text
+		FROM %[1]s.orders o
+		WHERE o.id=$1
+	`, schema)
+	if err := tx.QueryRow(ctx, query, orderID).Scan(&summary); err != nil {
+		return "", err
+	}
+	return summary, nil
+}
+
+func (r Repository) logOrderSaveTx(ctx context.Context, tx pgx.Tx, actor string, orderID int64, orderNo string, edited bool, beforeSummary, afterSummary string, beanListPublicationID int64, beanListVersionNo string) error {
 	action := "create"
 	field := "created"
-	newValue := orderNo
+	newValue := strings.TrimSpace(afterSummary)
+	var oldValue *string
 	if edited {
 		action = "update"
 		field = "order"
-		newValue = "updated"
+		if before := strings.TrimSpace(beforeSummary); before != "" {
+			oldValue = postgresinfra.StrPtr(before)
+		}
 	}
-	if strings.TrimSpace(extraNewValue) != "" {
-		newValue = strings.TrimSpace(newValue + " " + extraNewValue)
+	if newValue == "" {
+		newValue = orderNo
 	}
-	r.insertOrderAudit(ctx, actor, orderID, field, nil, postgresinfra.StrPtr(newValue))
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		actor = "unknown"
+	}
+	if _, err := tx.Exec(ctx,
+		fmt.Sprintf(`INSERT INTO %s.order_audit_logs(order_id, actor, field, old_value, new_value) VALUES ($1,$2,$3,$4,$5)`, r.schema),
+		orderID, actor, field, oldValue, postgresinfra.StrPtr(newValue),
+	); err != nil {
+		return err
+	}
 	meta := postgresinfra.AuditMeta{"order_id": orderID, "order_no": orderNo}
 	if beanListPublicationID > 0 {
 		meta["bean_list_publication_id"] = beanListPublicationID
 		meta["bean_list_version_no"] = beanListVersionNo
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order", &orderID, action, postgresinfra.StrPtr(field), nil, postgresinfra.StrPtr(newValue), meta)
+	return postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "order", &orderID, action, postgresinfra.StrPtr(field), oldValue, postgresinfra.StrPtr(newValue), meta)
 }
 
 func (r Repository) logOrderHeaderUpdate(ctx context.Context, actor string, orderID int64) {
@@ -2661,6 +2795,14 @@ func nextOrderNo(ctx context.Context, tx pgx.Tx, schema string, od time.Time) (s
 		return "", err
 	}
 	return fmt.Sprintf("%s%04d", prefix, maxNo+1), nil
+}
+
+func nextOrderNoWithAdvisoryLock(ctx context.Context, tx pgx.Tx, schema string, od time.Time) (string, error) {
+	lockKey := fmt.Sprintf("%s:orders:order_no:%s", schema, od.Format("20060102"))
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+		return "", err
+	}
+	return nextOrderNo(ctx, tx, schema, od)
 }
 
 func calcOutsourceTotal(req salesapp.UpdateHeaderCommand) (float64, [6]float64, error) {

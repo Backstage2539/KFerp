@@ -15,7 +15,7 @@ describe('employee mini order entry page contract', () => {
   })
 
   it('keeps spec weight derived from the selected spec instead of exposing an editable field', () => {
-    expect(pageSource).toContain(':disabled="!familyForItem(item)"')
+    expect(pageSource).toContain(':disabled="productCatalogLoading || !familyForItem(item)"')
     expect(pageSource).toContain('employeeOrderItemFromSpec(target, family, spec)')
     expect(pageSource).not.toContain('v-model="item.spec_g"')
   })
@@ -109,5 +109,93 @@ describe('employee mini order entry page contract', () => {
     )
     expect(loadDraftSource).toContain('await fetchEmployeeOrderDraft(session.token)')
     expect(loadDraftSource).not.toContain('catch')
+  })
+
+  it('reloads the customer-scoped published catalog and disables product selection while it is loading', () => {
+    expect(pageSource).toContain('fetchEmployeeOrderForm(session.token, targetCustomerID)')
+    expect(pageSource).toContain('productCatalogLoading')
+    expect(pageSource).toContain('async function chooseCustomer')
+    expect(pageSource).toContain('await loadCustomerProductCatalog')
+    expect(pageSource).toContain(':class="{ muted: !form.customer_id || productCatalogLoading || loading || !formData }"')
+    expect(pageSource).toContain('if (productCatalogLoading.value')
+    expect(pageSource).toContain('form.value.items = [createEmployeeOrderItem()]')
+    expect(pageSource).toContain('saving || savingDraft || clearingDraft || loading || productCatalogLoading')
+    const restoreDraftSource = pageSource.slice(
+      pageSource.indexOf('async function restoreDraft'),
+      pageSource.indexOf('async function loadDraft'),
+    )
+    expect(restoreDraftSource).toContain('await loadCustomerProductCatalog')
+    expect(restoreDraftSource).toContain('preserveManualPrice: true')
+    expect(restoreDraftSource).not.toContain('preserveUnitPrice: true')
+  })
+
+  it('reuses the entry page for pre-production editing without touching the create-order draft', () => {
+    expect(pageSource).toContain("editOrderID.value = Number(options?.edit_id || 0)")
+    expect(pageSource).toContain("uni.setNavigationBarTitle({ title: '编辑销售订单' })")
+    expect(pageSource).toContain('fetchEmployeeOrderDetail(session.token, editOrderID.value)')
+    expect(pageSource).toContain('hydrateEmployeeOrderEditItems')
+    expect(pageSource).toContain('employeeOrderEditableOrderDiscount')
+    expect(pageSource).toContain('updateEmployeeOrder(session.token, editOrderID.value')
+    expect(pageSource).toContain('v-if="!isEditMode"')
+    expect(pageSource).toContain('{{ isEditMode ? \'保存修改\' : \'提交订单\' }}')
+    expect(pageSource).toContain('if (!isEditMode.value) await loadDraft()')
+    expect(pageSource).toContain('if (isEditMode.value) return')
+    expect(pageSource).toContain('<text class="label">运费（元）</text>')
+    expect(pageSource).toContain('<text class="label">优惠（元）</text>')
+    expect(pageSource).toContain('orderGrandTotal')
+    expect(pageSource).toContain('shipping_amount: Number(form.value.shipping_amount || 0)')
+    expect(pageSource).toContain('discount_amount: Number(form.value.discount_amount || 0)')
+    expect(pageSource).toContain('detail.order_discount_amount')
+    expect(pageSource).toContain('employeeOrderOutsourceTotal(detail)')
+    expect(pageSource).toContain('preservedRoundToInt.value = Boolean(detail.round_to_int)')
+    expect(pageSource).toContain('preservedOutsourceTotal.value')
+    expect(pageSource).toContain('preservedRoundToInt.value')
+    expect(pageSource).toContain('原订单代加工费用（保留）')
+    expect(pageSource).toContain('原订单应收按原设置向下取整')
+    expect(pageSource).toContain("const editRetailOrder = /零售|retail/i.test")
+    expect(pageSource).toContain('targetCustomerID, editRetailOrder)')
+    expect(pageSource).toContain('@input="quantityChanged(item)"')
+    expect(pageSource).toContain('repriceEmployeeOrderItemForQuantity')
+    expect(pageSource).toContain('isEmployeeOrderNonNegativeMoney')
+    expect(pageSource).toContain('cause instanceof MiniRequestError && cause.statusCode === 409')
+    expect(pageSource).toContain("title: '订单已不能编辑'")
+    expect(pageSource).toContain('await refreshCurrentProductCatalog()')
+    expect(pageSource).toContain('价格目录已更新，请检查商品和价格后重试')
+    const catalogInvalidationSource = pageSource.slice(
+      pageSource.indexOf('function isPriceCatalogInvalidationError'),
+      pageSource.indexOf('async function submit()'),
+    )
+    expect(catalogInvalidationSource).toContain('价格表已更新')
+
+    const editPayloadSource = pageSource.slice(
+      pageSource.indexOf('const payload = {'),
+      pageSource.indexOf('if (isEditMode.value)'),
+    )
+    expect(editPayloadSource).not.toContain('outsource_')
+    expect(editPayloadSource).not.toContain('round_to_int')
+  })
+
+  it('keeps the server edit revision in edit state and sends it only with PUT updates', () => {
+    expect(pageSource).toContain("edit_revision: String(detail.edit_revision || '')")
+
+    const submitSource = pageSource.slice(
+      pageSource.indexOf('async function submit()'),
+      pageSource.indexOf('onLoad((options)'),
+    )
+    const basePayloadSource = submitSource.slice(
+      submitSource.indexOf('const payload = {'),
+      submitSource.indexOf('if (isEditMode.value)'),
+    )
+    const editSubmitSource = submitSource.slice(
+      submitSource.indexOf('if (isEditMode.value)'),
+      submitSource.indexOf('const result = await createEmployeeOrder'),
+    )
+    const createSubmitSource = submitSource.slice(
+      submitSource.indexOf('const result = await createEmployeeOrder'),
+    )
+
+    expect(basePayloadSource).not.toContain('edit_revision')
+    expect(editSubmitSource).toContain("edit_revision: String(form.value.edit_revision || '')")
+    expect(createSubmitSource).not.toContain('edit_revision')
   })
 })

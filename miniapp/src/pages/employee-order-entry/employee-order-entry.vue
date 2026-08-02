@@ -7,8 +7,10 @@ import {
   deleteEmployeeOrderDraft,
   fetchEmployeeCustomers,
   fetchEmployeeOrderDraft,
+  fetchEmployeeOrderDetail,
   fetchEmployeeOrderForm,
   saveEmployeeOrderDraft,
+  updateEmployeeOrder,
   type EmployeeCustomer,
   type EmployeeCustomersResponse,
   type EmployeeOrderCustomer,
@@ -19,7 +21,7 @@ import {
   type EmployeeOrderProductFamily,
   type EmployeeOrderProductSpec,
 } from '../../api/customerPortal'
-import { isAuthenticationExpiredRequestError } from '../../api/client'
+import { isAuthenticationExpiredRequestError, MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import {
   buildEmployeeOrderItemsPayload,
@@ -29,15 +31,22 @@ import {
   defaultProductSpec,
   employeeOrderItemFromSpec,
   employeeOrderItemsTotal,
+  employeeOrderGrandTotal,
+  employeeOrderItemDiscountAmount,
+  employeeOrderEditableOrderDiscount,
+  employeeOrderOutsourceTotal,
   employeeOrderProductCategories,
   employeeOrderProductCategory,
   employeeOrderProductFamilyKey,
   employeeOrderShippingChanged,
   filterEmployeeOrderCustomers,
   filterEmployeeOrderProductFamilies,
+  hydrateEmployeeOrderEditItems,
+  isEmployeeOrderNonNegativeMoney,
   productSpecLabel,
   preserveEmployeeOrderDraftItemsForMissingCustomer,
   revalidateEmployeeOrderItems,
+  repriceEmployeeOrderItemForQuantity,
   salesUnitLabel,
   shanghaiToday,
   type EmployeeOrderProductCategory,
@@ -49,6 +58,7 @@ const session = useSessionStore()
 const formData = ref<EmployeeOrderForm>()
 const customerContext = ref<EmployeeCustomersResponse>()
 const loading = ref(false)
+const productCatalogLoading = ref(false)
 const saving = ref(false)
 const savingDraft = ref(false)
 const clearingDraft = ref(false)
@@ -64,10 +74,15 @@ const customerEditorOpen = ref(false)
 const editingCustomerID = ref(0)
 const editingCustomerMode = ref<'create' | 'edit'>('create')
 const draftRecord = ref<EmployeeOrderDraft | null>(null)
+const editOrderID = ref(0)
+const preservedOutsourceTotal = ref(0)
+const preservedRoundToInt = ref(false)
+const isEditMode = computed(() => editOrderID.value > 0)
 const canCreateCustomer = computed(() => session.permissions.includes('customers.read')
   && session.permissions.includes('customers.write'))
 let customerEditorIntentSequence = 0
 let customerContextLoadPromise: Promise<boolean> | undefined
+let productCatalogLoadSequence = 0
 
 function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
   return {
@@ -92,6 +107,8 @@ function createOrderForm(): EmployeeOrderDraftPayload {
     receiver_phone: '',
     receiver_address: '',
     receiver_company: '',
+    shipping_amount: 0,
+    discount_amount: 0,
     notes: '',
     items: [createEmployeeOrderItem()],
   }
@@ -118,6 +135,13 @@ const filteredProductFamilies = computed(() => filterEmployeeOrderProductFamilie
 ))
 const editingItem = computed(() => form.value.items.find((item) => item.key === editingItemKey.value))
 const orderItemsTotal = computed(() => employeeOrderItemsTotal(form.value.items))
+const orderGrandTotal = computed(() => employeeOrderGrandTotal(
+  form.value.items,
+  Number(form.value.shipping_amount || 0),
+  Number(form.value.discount_amount || 0),
+  preservedOutsourceTotal.value,
+  preservedRoundToInt.value,
+))
 
 function categoryLabel(family: EmployeeOrderProductFamily): string {
   const category = employeeOrderProductCategory(family)
@@ -174,7 +198,7 @@ function upsertOrderCustomer(customer: EmployeeCustomer) {
 }
 
 function openCustomerSelector() {
-  if (loading.value || !formData.value) return
+  if (isEditMode.value || loading.value || !formData.value) return
   customerEditorIntentSequence += 1
   customerQuery.value = ''
   customerSelectorOpen.value = true
@@ -185,22 +209,70 @@ function closeCustomerSelector() {
   customerSelectorOpen.value = false
 }
 
-function chooseCustomer(customer: EmployeeOrderCustomer) {
+async function loadCustomerProductCatalog(targetCustomerID: number): Promise<boolean> {
+  const sequence = ++productCatalogLoadSequence
+  productCatalogLoading.value = true
+  try {
+    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID)
+    if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
+    if (!formData.value) return false
+    formData.value = {
+      ...formData.value,
+      ...data,
+      customers: data.customers || formData.value.customers || [],
+      sources: data.sources || formData.value.sources || [],
+      order_types: data.order_types || formData.value.order_types || [],
+      pay_statuses: data.pay_statuses || formData.value.pay_statuses || [],
+      ship_statuses: data.ship_statuses || formData.value.ship_statuses || [],
+      product_families: data.product_families || [],
+    }
+    return true
+  } catch (cause) {
+    if (sequence !== productCatalogLoadSequence || Number(form.value.customer_id) !== targetCustomerID) return false
+    if (formData.value) formData.value.product_families = []
+    uni.showToast({ title: cause instanceof Error ? cause.message : '客户可售商品加载失败', icon: 'none' })
+    return false
+  } finally {
+    if (sequence === productCatalogLoadSequence) productCatalogLoading.value = false
+  }
+}
+
+async function chooseCustomer(customer: EmployeeOrderCustomer) {
+  if (isEditMode.value) return
   const selectedBefore = form.value.items.filter((item) => item.product_id > 0).length
+  const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
+  if (customerChanged) form.value.items = [createEmployeeOrderItem()]
   applyCustomerShipping(customer)
   if (Number(customer.default_source_id || 0) > 0) form.value.source_id = Number(customer.default_source_id)
   if (Number(customer.default_order_type_id || 0) > 0) form.value.order_type_id = Number(customer.default_order_type_id)
+  closeCustomerSelector()
+  const catalogLoaded = await loadCustomerProductCatalog(Number(customer.id))
+  if (Number(form.value.customer_id) !== Number(customer.id)) return
   form.value.items = revalidateEmployeeOrderItems(
     form.value.items,
     formData.value?.product_families || [],
     form.value.customer_id,
+    catalogLoaded ? {} : { preserveUnavailable: true, preserveUnitPrice: true },
   )
   const selectedAfter = form.value.items.filter((item) => item.product_id > 0).length
   if (selectedAfter < selectedBefore) {
     uni.showToast({ title: '部分商品不适用于该客户，已清空', icon: 'none' })
   }
-  closeCustomerSelector()
+}
+
+async function refreshCurrentProductCatalog(): Promise<boolean> {
+  const customerID = Number(form.value.customer_id || 0)
+  if (customerID <= 0) return false
+  const loaded = await loadCustomerProductCatalog(customerID)
+  if (Number(form.value.customer_id || 0) !== customerID) return false
+  form.value.items = revalidateEmployeeOrderItems(
+    form.value.items,
+    formData.value?.product_families || [],
+    customerID,
+    { preserveUnavailable: true, preserveManualPrice: true },
+  )
+  return loaded
 }
 
 async function ensureCustomerContext(): Promise<boolean> {
@@ -267,7 +339,7 @@ function customerSaved(customer: EmployeeCustomer) {
   }
   upsertOrderCustomer(customer)
   if (editingCustomerMode.value === 'create') {
-    chooseCustomer(customer)
+    void chooseCustomer(customer)
     uni.showToast({ title: '客户已新增并选中', icon: 'success' })
     return
   }
@@ -307,7 +379,7 @@ function openProductSelector(itemKey: string) {
     uni.showToast({ title: '请先选择客户', icon: 'none' })
     return
   }
-  if (loading.value || !formData.value) return
+  if (productCatalogLoading.value || loading.value || !formData.value) return
   editingItemKey.value = itemKey
   productQuery.value = ''
   productCategory.value = 'all'
@@ -323,6 +395,16 @@ function applySpec(family: EmployeeOrderProductFamily, spec: EmployeeOrderProduc
   const target = item || editingItem.value
   if (!target) return
   Object.assign(target, employeeOrderItemFromSpec(target, family, spec))
+}
+
+function markPriceOverride(item: EmployeeOrderDraftItem) {
+  item.price_override = true
+  item.discount_amount = employeeOrderItemDiscountAmount(item)
+}
+
+function quantityChanged(item: EmployeeOrderDraftItem) {
+  const family = familyForItem(item)
+  Object.assign(item, repriceEmployeeOrderItemForQuantity(item, family))
 }
 
 function chooseProduct(family: EmployeeOrderProductFamily) {
@@ -361,7 +443,7 @@ function normalizeDraftItems(items: EmployeeOrderDraftItem[] | undefined): Emplo
   }))
 }
 
-function restoreDraft(draft: EmployeeOrderDraft) {
+async function restoreDraft(draft: EmployeeOrderDraft) {
   const payload = draft.payload || ({} as EmployeeOrderDraftPayload)
   const customer = formData.value?.customers.find((row) => Number(row.id) === Number(payload.customer_id || 0))
   form.value = {
@@ -372,11 +454,12 @@ function restoreDraft(draft: EmployeeOrderDraft) {
   }
   if (customer) {
     shippingBaseline.value = customerShippingDefaults(customer)
+    await loadCustomerProductCatalog(Number(customer.id))
     form.value.items = revalidateEmployeeOrderItems(
       form.value.items,
       formData.value?.product_families || [],
       form.value.customer_id,
-      { preserveUnitPrice: true, preserveUnavailable: true },
+      { preserveManualPrice: true, preserveUnavailable: true },
     )
   } else {
     shippingBaseline.value = emptyShippingSnapshot()
@@ -386,8 +469,9 @@ function restoreDraft(draft: EmployeeOrderDraft) {
 }
 
 async function loadDraft() {
+  if (isEditMode.value) return
   const response = await fetchEmployeeOrderDraft(session.token)
-  if (response.draft) restoreDraft(response.draft)
+  if (response.draft) await restoreDraft(response.draft)
 }
 
 function applyDefaultOptions() {
@@ -401,9 +485,21 @@ async function loadForm() {
   loading.value = true
   loadError.value = ''
   authExpired.value = false
+  preservedOutsourceTotal.value = 0
+  preservedRoundToInt.value = false
   try {
     if (!session.token) throw new Error('登录已失效')
-    const data = await fetchEmployeeOrderForm(session.token)
+    const detailResponse = isEditMode.value
+      ? await fetchEmployeeOrderDetail(session.token, editOrderID.value)
+      : undefined
+    if (detailResponse) {
+      const allowed = detailResponse.can_edit ?? detailResponse.order.can_edit
+      if (allowed === false) {
+        throw new Error(detailResponse.edit_block_reason || detailResponse.order.edit_block_reason || '订单当前不能编辑')
+      }
+    }
+    const targetCustomerID = Number(detailResponse?.order.customer_id || 0)
+    const data = await fetchEmployeeOrderForm(session.token, targetCustomerID)
     formData.value = {
       ...data,
       customers: data.customers || [],
@@ -414,7 +510,41 @@ async function loadForm() {
       product_families: data.product_families || [],
     }
     applyDefaultOptions()
-    await loadDraft()
+    if (detailResponse) {
+      const detail = detailResponse.order
+      const customer = formData.value.customers.find((row) => Number(row.id) === targetCustomerID)
+      const editOrderTypeName = String(formData.value.order_types.find(
+        (row) => Number(row.id) === Number(detail.order_type_id || 0),
+      )?.name || '')
+      const editRetailOrder = /零售|retail/i.test(editOrderTypeName)
+      preservedOutsourceTotal.value = employeeOrderOutsourceTotal(detail)
+      preservedRoundToInt.value = Boolean(detail.round_to_int)
+      form.value = {
+        ...createOrderForm(),
+        edit_revision: String(detail.edit_revision || ''),
+        order_date: String(detail.order_date || detail.document_date || shanghaiToday()),
+        customer_id: targetCustomerID,
+        source_id: Number(detail.source_id || 0),
+        order_type_id: Number(detail.order_type_id || 0),
+        pay_status_id: Number(detail.pay_status_id || 0),
+        ship_status_id: Number(detail.ship_status_id || 0),
+        receiver_name: String(detail.receiver_name || ''),
+        receiver_phone: String(detail.receiver_phone || ''),
+        receiver_address: String(detail.receiver_address || ''),
+        receiver_company: String(detail.receiver_company || ''),
+        shipping_amount: Number(detail.shipping_amount || detail.payment_shipping_amount || 0),
+        discount_amount: employeeOrderEditableOrderDiscount(
+          detail.discount_amount,
+          detail.items || [],
+          detail.order_discount_amount,
+        ),
+        notes: String(detail.notes || ''),
+        items: hydrateEmployeeOrderEditItems(detail.items || [], formData.value.product_families, targetCustomerID, editRetailOrder),
+      }
+      shippingBaseline.value = customer ? customerShippingDefaults(customer) : currentShippingSnapshot()
+      applyDefaultOptions()
+    }
+    if (!isEditMode.value) await loadDraft()
   } catch (cause) {
     authExpired.value = !session.token || isAuthenticationExpiredRequestError(cause)
     if (authExpired.value) session.clearSession()
@@ -428,6 +558,8 @@ async function loadForm() {
 }
 
 async function saveDraft() {
+  if (isEditMode.value) return
+  if (productCatalogLoading.value) return
   if (clearingDraft.value) return
   savingDraft.value = true
   try {
@@ -445,6 +577,7 @@ async function saveDraft() {
 }
 
 function clearDraft() {
+  if (isEditMode.value) return
   if (saving.value || savingDraft.value || clearingDraft.value) return
   uni.showModal({
     title: '清除草稿',
@@ -485,7 +618,7 @@ function validateOrder(): boolean {
       uni.showToast({ title: `第${index + 1}行${item.validation_error}`, icon: 'none' })
       return false
     }
-    if (Number(item.qty) <= 0) {
+    if (!Number.isFinite(Number(item.qty)) || Number(item.qty) <= 0) {
       uni.showToast({ title: `第${index + 1}行数量不正确`, icon: 'none' })
       return false
     }
@@ -499,6 +632,11 @@ function validateOrder(): boolean {
     uni.showToast({ title: '请至少添加一个商品', icon: 'none' })
     return false
   }
+  if (!isEmployeeOrderNonNegativeMoney(form.value.shipping_amount)
+    || !isEmployeeOrderNonNegativeMoney(form.value.discount_amount)) {
+    uni.showToast({ title: '运费和优惠必须是大于或等于 0 的有效数字', icon: 'none' })
+    return false
+  }
   return true
 }
 
@@ -509,12 +647,28 @@ function resetAfterSubmit() {
   applyDefaultOptions()
 }
 
+function returnToOrderDetail() {
+  uni.navigateBack({
+    delta: 1,
+    fail: () => uni.redirectTo({
+      url: `/pages/employee-order-detail/employee-order-detail?id=${editOrderID.value}`,
+    }),
+  })
+}
+
+function isPriceCatalogInvalidationError(cause: unknown): boolean {
+  return cause instanceof MiniRequestError
+    && (cause.statusCode === 400 || cause.statusCode === 409)
+    && /当前价格表|价格表已更新|价格目录/.test(cause.message)
+}
+
 async function submit() {
   if (clearingDraft.value) return
+  if (productCatalogLoading.value) return
   if (!validateOrder()) return
   saving.value = true
   try {
-    const result = await createEmployeeOrder(session.token, {
+    const payload = {
       order_date: form.value.order_date,
       customer_id: form.value.customer_id,
       source_id: form.value.source_id,
@@ -525,9 +679,21 @@ async function submit() {
       receiver_phone: form.value.receiver_phone,
       receiver_address: form.value.receiver_address,
       receiver_company: form.value.receiver_company,
+      shipping_amount: Number(form.value.shipping_amount || 0),
+      discount_amount: Number(form.value.discount_amount || 0),
       notes: form.value.notes,
       items: buildEmployeeOrderItemsPayload(form.value.items),
-    })
+    }
+    if (isEditMode.value) {
+      await updateEmployeeOrder(session.token, editOrderID.value, {
+        ...payload,
+        edit_revision: String(form.value.edit_revision || ''),
+      })
+      uni.showToast({ title: '订单已更新', icon: 'success' })
+      returnToOrderDetail()
+      return
+    }
+    const result = await createEmployeeOrder(session.token, payload)
     // The backend creates the order and clears the employee draft atomically.
     resetAfterSubmit()
     uni.showModal({
@@ -543,13 +709,32 @@ async function submit() {
       session.clearSession()
       return
     }
-    uni.showToast({ title: cause instanceof Error ? cause.message : '录单失败', icon: 'none' })
+    if (isPriceCatalogInvalidationError(cause)) {
+      if (await refreshCurrentProductCatalog()) {
+        uni.showToast({ title: '价格目录已更新，请检查商品和价格后重试', icon: 'none' })
+      }
+      return
+    }
+    if (isEditMode.value && cause instanceof MiniRequestError && cause.statusCode === 409) {
+      uni.showModal({
+        title: '订单已不能编辑',
+        content: cause.message || '订单状态已经变化，请返回详情查看最新状态',
+        showCancel: false,
+        success: returnToOrderDetail,
+      })
+      return
+    }
+    uni.showToast({ title: cause instanceof Error ? cause.message : (isEditMode.value ? '订单更新失败' : '录单失败'), icon: 'none' })
   } finally {
     saving.value = false
   }
 }
 
-onLoad(() => void loadForm())
+onLoad((options) => {
+  editOrderID.value = Number(options?.edit_id || 0)
+  if (isEditMode.value) uni.setNavigationBarTitle({ title: '编辑销售订单' })
+  void loadForm()
+})
 </script>
 
 <template>
@@ -557,12 +742,12 @@ onLoad(() => void loadForm())
     <EnvironmentBadge />
     <view class="panel">
       <view class="title-row">
-        <text class="title">新建销售订单</text>
-        <text v-if="draftRecord" class="draft-meta">草稿 {{ draftRecord.updated_at }}</text>
+        <text class="title">{{ isEditMode ? '编辑销售订单' : '新建销售订单' }}</text>
+        <text v-if="!isEditMode && draftRecord" class="draft-meta">草稿 {{ draftRecord.updated_at }}</text>
       </view>
 
       <view v-if="loading" class="status-card">
-        <text>正在加载客户和商品...</text>
+        <text>{{ isEditMode ? '正在加载订单和当前可售商品...' : '正在加载客户和商品...' }}</text>
       </view>
       <view v-else-if="loadError" class="status-card error-card">
         <text>{{ loadError }}</text>
@@ -580,14 +765,14 @@ onLoad(() => void loadForm())
       <view class="customer-field-row">
         <view
           class="field selector-field customer-field"
-          :class="{ muted: loading || !formData }"
+          :class="{ muted: isEditMode || loading || !formData }"
           @tap="openCustomerSelector"
         >
           <text>{{ selectedCustomer?.name || '搜索并选择客户 *' }}</text>
-          <text class="chevron">›</text>
+          <text v-if="!isEditMode" class="chevron">›</text>
         </view>
         <button
-          v-if="selectedCustomer?.can_maintain"
+          v-if="!isEditMode && selectedCustomer?.can_maintain"
           class="compact-action"
           @tap="openSelectedCustomerEdit"
         >
@@ -608,7 +793,7 @@ onLoad(() => void loadForm())
         <text class="label">商品</text>
         <view
           class="field selector-field"
-          :class="{ muted: !form.customer_id || loading || !formData }"
+          :class="{ muted: !form.customer_id || productCatalogLoading || loading || !formData }"
           @tap="openProductSelector(item.key)"
         >
           <text>{{ item.product_name || (form.customer_id ? '搜索并选择商品 *' : '请先选择客户') }}</text>
@@ -621,7 +806,7 @@ onLoad(() => void loadForm())
           mode="selector"
           :range="specLabelsForItem(item)"
           :value="selectedSpecIndexForItem(item)"
-          :disabled="!familyForItem(item)"
+          :disabled="productCatalogLoading || !familyForItem(item)"
           @change="chooseSpec(item, $event)"
         >
           <view class="field selector-field" :class="{ muted: !familyForItem(item) }">
@@ -632,13 +817,13 @@ onLoad(() => void loadForm())
 
         <text class="label">数量（{{ displayedSalesUnit(item) }}）</text>
         <view class="input-with-unit">
-          <input v-model="item.qty" type="number" class="field" :placeholder="`填写数量（${displayedSalesUnit(item)}） *`" />
+          <input v-model="item.qty" type="number" class="field" :placeholder="`填写数量（${displayedSalesUnit(item)}） *`" @input="quantityChanged(item)" />
           <text class="unit-suffix">{{ displayedSalesUnit(item) }}</text>
         </view>
 
         <text class="label">销售单价（元/{{ displayedSalesUnit(item) }}）*</text>
         <view class="input-with-unit">
-          <input v-model="item.unit_price" type="digit" class="field" :placeholder="`填写每${displayedSalesUnit(item)}单价`" />
+          <input v-model="item.unit_price" type="digit" class="field" :placeholder="`填写每${displayedSalesUnit(item)}单价`" @input="markPriceOverride(item)" />
           <text class="unit-suffix">元/{{ displayedSalesUnit(item) }}</text>
         </view>
       </view>
@@ -648,6 +833,25 @@ onLoad(() => void loadForm())
       <view class="order-total">
         <text>商品估算合计</text>
         <text class="order-total-value">¥{{ orderItemsTotal.toFixed(2) }}</text>
+      </view>
+
+      <view class="fee-editor-grid">
+        <view>
+          <text class="label">运费（元）</text>
+          <input v-model="form.shipping_amount" type="digit" class="field" placeholder="0.00" />
+        </view>
+        <view>
+          <text class="label">优惠（元）</text>
+          <input v-model="form.discount_amount" type="digit" class="field" placeholder="0.00" />
+        </view>
+      </view>
+      <view v-if="isEditMode && (preservedOutsourceTotal > 0 || preservedRoundToInt)" class="preserved-pricing-hint">
+        <text v-if="preservedOutsourceTotal > 0">原订单代加工费用（保留）：¥{{ preservedOutsourceTotal.toFixed(2) }}</text>
+        <text v-if="preservedRoundToInt">原订单应收按原设置向下取整</text>
+      </view>
+      <view class="order-total grand-total">
+        <text>订单应收合计</text>
+        <text class="order-total-value">¥{{ orderGrandTotal.toFixed(2) }}</text>
       </view>
 
       <view class="section-title standalone">收货信息</view>
@@ -664,36 +868,38 @@ onLoad(() => void loadForm())
       <text class="label">备注</text>
       <textarea v-model="form.notes" class="field area" placeholder="备注" />
       <view class="form-actions">
-        <button
-          v-if="draftRecord"
-          class="clear-draft-button"
-          :loading="clearingDraft"
-          :disabled="savingDraft || saving || clearingDraft"
-          @tap="clearDraft"
-        >
-          清除草稿
-        </button>
-        <button
-          class="draft-button"
-          :loading="savingDraft"
-          :disabled="savingDraft || saving || clearingDraft || loading || Boolean(loadError)"
-          @tap="saveDraft"
-        >
-          保存草稿
-        </button>
+        <view v-if="!isEditMode" class="draft-action-group">
+          <button
+            v-if="draftRecord"
+            class="clear-draft-button"
+            :loading="clearingDraft"
+            :disabled="savingDraft || saving || clearingDraft || productCatalogLoading"
+            @tap="clearDraft"
+          >
+            清除草稿
+          </button>
+          <button
+            class="draft-button"
+            :loading="savingDraft"
+            :disabled="savingDraft || saving || clearingDraft || loading || productCatalogLoading || Boolean(loadError)"
+            @tap="saveDraft"
+          >
+            保存草稿
+          </button>
+        </view>
         <button
           class="submit"
           :loading="saving"
-          :disabled="saving || savingDraft || clearingDraft || loading || Boolean(loadError)"
+          :disabled="saving || savingDraft || clearingDraft || loading || productCatalogLoading || Boolean(loadError)"
           @tap="submit"
         >
-          提交订单
+          {{ isEditMode ? '保存修改' : '提交订单' }}
         </button>
       </view>
       </template>
     </view>
 
-    <view v-if="customerSelectorOpen" class="overlay" @tap.self="closeCustomerSelector">
+    <view v-if="customerSelectorOpen && !isEditMode" class="overlay" @tap.self="closeCustomerSelector">
       <view class="select-sheet" @tap.stop>
         <view class="sheet-head">
           <text class="sheet-title">选择客户</text>
@@ -804,8 +1010,12 @@ onLoad(() => void loadForm())
 .item-error { display: block; margin: -8rpx 0 16rpx; color: #a7352a; font-size: 23rpx; }
 .order-total { display: flex; align-items: center; justify-content: space-between; margin: 10rpx 0 24rpx; padding: 22rpx; border-radius: 12rpx; background: #edf5f0; color: #355345; font-size: 27rpx; font-weight: 700; }
 .order-total-value { color: #1d5b3f; font-size: 32rpx; font-weight: 850; }
+.fee-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16rpx; }
+.grand-total { margin-top: 0; background: #e4f1e9; }
+.preserved-pricing-hint { display: flex; flex-direction: column; gap: 6rpx; margin: -4rpx 0 18rpx; color: #718078; font-size: 22rpx; }
 .form-actions { display: flex; flex-wrap: wrap; gap: 14rpx; margin-top: 12rpx; }
 .form-actions button { margin: 0; }
+.draft-action-group { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 14rpx; }
 .form-actions .clear-draft-button { flex: 1 1 100%; border: 1rpx solid #d7aaa3; background: #fff; color: #9a3e34; }
 .form-actions .draft-button, .form-actions .submit { flex: 1 1 0; }
 .draft-button { border: 1rpx solid #28624a; background: #fff; color: #28624a; }
@@ -835,4 +1045,7 @@ onLoad(() => void loadForm())
 .option-specs { color: #6d7b73; font-size: 23rpx; line-height: 1.5; }
 .empty-state { display: block; padding: 80rpx 20rpx; color: #7d8982; text-align: center; }
 .result-hint { display: block; padding-top: 14rpx; color: #89958e; font-size: 21rpx; text-align: center; }
+@media (max-width: 380px) {
+  .fee-editor-grid { grid-template-columns: 1fr; gap: 0; }
+}
 </style>

@@ -46,9 +46,14 @@ func TestDev331OrderEntryPublicSKUScopeWiring(t *testing.T) {
 			rel: filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"),
 			markers: []string{
 				"customer_public_usages",
-				"customerAllowsPublicOrderProducts",
-				"productMatchesExplicitCustomerOwnedBeanListScope",
 				"filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions, data.CustomerPublicUsages)",
+			},
+		},
+		{
+			rel: filepath.Join("internal", "application", "sales", "order_product_filter.go"),
+			markers: []string{
+				"orderCustomerAllowsPublicProducts",
+				"orderProductMatchesExplicitPublicationScope",
 			},
 		},
 		{

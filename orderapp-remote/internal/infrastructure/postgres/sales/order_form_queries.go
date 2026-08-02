@@ -137,7 +137,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		),
 		customer_ranked AS (
 			SELECT b.*,
-			       row_number() OVER (PARTITION BY b.customer_id, b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC, b.id DESC) AS group_rank,
+			       row_number() OVER (PARTITION BY b.customer_id, b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC NULLS LAST, b.id DESC) AS group_rank,
 			       bool_or(b.classification_template_id > 0) OVER (PARTITION BY b.customer_id, b.list_type) AS has_classified_publication
 			FROM customer_publications b
 		),
@@ -183,7 +183,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		),
 		official_ranked AS (
 			SELECT b.*,
-			       row_number() OVER (PARTITION BY b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC, b.id DESC) AS group_rank,
+			       row_number() OVER (PARTITION BY b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC NULLS LAST, b.id DESC) AS group_rank,
 			       bool_or(b.classification_template_id > 0) OVER (PARTITION BY b.list_type) AS has_classified_publication
 			FROM official_publications b
 		),
@@ -1850,6 +1850,11 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 			COALESCE(o.outsource_tax_fee,0) as outsource_tax_fee,
 			COALESCE(o.outsource_other_fee,0) as outsource_other_fee,
 			COALESCE(o.outsource_total_fee,0) as outsource_total_fee,
+			md5(to_jsonb(o)::text || '|' || COALESCE((
+				SELECT jsonb_agg(to_jsonb(revision_item) ORDER BY revision_item.id)::text
+				FROM %s.order_items revision_item
+				WHERE revision_item.order_id=o.id
+			), '[]')) AS edit_revision,
 			o.is_void,
 			CASE WHEN o.voided_at IS NULL THEN NULL ELSE to_char(o.voided_at, 'YYYY-MM-DD HH24:MI:SS') END AS voided_at,
 			o.void_reason
@@ -1857,7 +1862,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		LEFT JOIN %s.sales_order_assets a ON a.id=o.payment_voucher_asset_id
 		WHERE o.id=$1
-	`, orderTrackingSummaryExpr(r.schema, "o"), r.schema, r.schema, r.schema)
+	`, orderTrackingSummaryExpr(r.schema, "o"), r.schema, r.schema, r.schema, r.schema)
 
 	var d salesapp.OrderEditData
 	var totalAmt, shipAmt, discAmt, roundAmt, grandAmt float64
@@ -1917,6 +1922,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 		&outsourceTax,
 		&outsourceOther,
 		&outsourceTotal,
+		&d.EditRevision,
 		&d.IsVoid,
 		&d.VoidedAt,
 		&d.VoidReason,

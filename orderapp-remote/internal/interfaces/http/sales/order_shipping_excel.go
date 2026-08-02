@@ -92,10 +92,14 @@ func registerOrderShippingExcelRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 		}
 		file, err := generateOrdersShippingExcel(salesSvc, c, orderIDs, req.SenderID, req.OrderSenders)
 		if err != nil {
+			if message, ok := salesapp.OrderEditConflictMessage(err); ok {
+				return c.JSON(http.StatusConflict, map[string]string{"error": message})
+			}
 			if strings.Contains(err.Error(), "尚不可发货") {
 				return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 			}
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "快递录单 Excel 生成失败：" + err.Error()})
+			c.Logger().Errorf("generate order shipping Excel: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "快递录单 Excel 生成失败，请稍后重试"})
 		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"shipping_excel_url": file.URL,
@@ -364,16 +368,16 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 	}
 	defer wb.Close()
 
-	filename := ordersShippingFilename(rows)
-	path := filepath.Join(dir, filename)
-	if err := wb.SaveAs(path); err != nil {
+	filename, path, err := saveOrderShippingWorkbookUnique(wb, dir, ordersShippingFilename(rows))
+	if err != nil {
 		return orderShippingExcelFile{}, err
 	}
 	shipmentOrders := make([]salesapp.OrderShipmentOrderCommand, 0, len(excelRows))
 	for _, row := range excelRows {
 		shipmentOrders = append(shipmentOrders, salesapp.OrderShipmentOrderCommand{
-			OrderID:  row.Data.OrderID,
-			SenderID: row.Sender.ID,
+			OrderID:          row.Data.OrderID,
+			SenderID:         row.Sender.ID,
+			ExpectedRevision: row.Data.EditRevision,
 		})
 	}
 	shipment, err := salesSvc.CreateOrderShipment(c.Request().Context(), salesapp.CreateOrderShipmentCommand{
@@ -393,6 +397,36 @@ func generateOrdersShippingExcel(salesSvc *salesapp.Service, c echo.Context, ord
 		ShipmentID: shipment.ShipmentID,
 		ShipmentNo: shipment.ShipmentNo,
 	}, nil
+}
+
+func saveOrderShippingWorkbookUnique(wb *excelize.File, dir, readableFilename string) (string, string, error) {
+	readableFilename = filepath.Base(strings.TrimSpace(readableFilename))
+	base := strings.TrimSuffix(readableFilename, filepath.Ext(readableFilename))
+	if base == "" || base == "." {
+		base = "ship"
+	}
+	tmp, err := os.CreateTemp(dir, "."+base+"_tmp_*.xlsx")
+	if err != nil {
+		return "", "", err
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", "", err
+	}
+	if err := wb.SaveAs(tmpPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", "", err
+	}
+	tmpName := filepath.Base(tmpPath)
+	nonceName := strings.TrimPrefix(tmpName, "."+base+"_tmp_")
+	filename := base + "_" + nonceName
+	path := filepath.Join(dir, filename)
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", "", err
+	}
+	return filename, path, nil
 }
 
 func cleanupOrderShippingExportFile(path string) {
