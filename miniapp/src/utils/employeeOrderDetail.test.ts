@@ -7,6 +7,7 @@ import {
   employeeOrderItemSpecLabel,
   employeeOrderInvoiceStatusLabel,
   employeeOrderDetailPagePath,
+  employeeOrderNavigationRows,
   employeeOrderTraceSourceLines,
   employeeOrderListQuery,
   rememberEmployeeOrderListQuery,
@@ -19,6 +20,22 @@ describe('employee order detail presentation', () => {
     expect(employeeOrderDetailPagePath(0)).toBe('')
     expect(employeeOrderDetailPagePath(-1)).toBe('')
     expect(employeeOrderDetailPagePath('not-an-id')).toBe('')
+  })
+
+  it('prepares a native detail-page url without dropping malformed order rows', () => {
+    expect(employeeOrderNavigationRows([
+      { id: 42, order_no: 'SO-42' },
+      { id: 0, order_no: 'SO-BAD' },
+      { order_no: 'SO-MISSING' },
+    ])).toEqual([
+      {
+        id: 42,
+        order_no: 'SO-42',
+        detail_url: '/pages/employee-order-detail/employee-order-detail?id=42',
+      },
+      { id: 0, order_no: 'SO-BAD', detail_url: '' },
+      { order_no: 'SO-MISSING', detail_url: '' },
+    ])
   })
 
   it('maps document availability from the detail response without inventing a version', () => {
