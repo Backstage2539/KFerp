@@ -13,7 +13,7 @@
 - `DEV-573-CUSTOMER-PUBLISHED-CATALOG`：已实现并通过应用层、API 和保存事务校验。
 - `DEV-573-PREPRODUCTION-ORDER-EDIT`：已实现并通过后端与小程序自动化验证。
 - `DEV-573-CONCURRENT-STATE-AUDIT`：已实现订单版本、锁序、状态复核、审计和单据失效验证。
-- `DEV-573-DOCS-DEVELOPMENT-DELIVERY`：需求、验收和操作手册已同步；待补 development 集成、部署与固定包证据。
+- `DEV-573-DOCS-DEVELOPMENT-DELIVERY`：需求、验收和操作手册已同步；development 集成、部署、冒烟与固定包证据已补齐。
 
 ## TDD RED 证据
 
@@ -37,7 +37,7 @@
 - “红岩”复现：商品档案保持启用，但当前默认已发布价格表不包含“红岩”时，ERP 与小程序新建订单均不可选；小程序搜索“红岩”无结果。
 - 历史/归档/非默认发布：只在这些版本中的商品和规格不出现在新建或编辑候选，直接提交 ID 被拒绝且订单不变。
 - 客户切换与草稿：切换客户和恢复草稿分别按对应客户重新加载目录，加载中不能使用旧客户候选，过期商品行必须修正。
-- 证据：严格目录/保存校验自动化、客户切换与草稿竞态 Vitest 已通过；development API 响应摘要与人工观察待部署后补。
+- 证据：严格目录/保存校验自动化、客户切换与草稿竞态 Vitest 已通过；development 未登录 order-form 返回 401，证明新接口继续受鉴权保护；“红岩”与 ERP 同客户目录一致性保留给 Van 使用登录态人工验收，不在发布过程中写入测试业务数据。
 
 ## 编辑状态与并发矩阵
 
@@ -47,7 +47,7 @@
 - [x] 已开始或完成生产执行：拒绝保存且订单不变。
 - [x] 已发货：拒绝保存且订单不变。
 - [x] 页面打开后另一端推进上述任一状态，再保存：版本或状态冲突，不产生部分写入。
-- 证据：应用层状态矩阵、PostgreSQL editability/revision、生产批次锁序、发货 revision 与 HTTP 409 测试通过；development 只读回查待部署后补。
+- 证据：应用层状态矩阵、PostgreSQL editability/revision、生产批次锁序、发货 revision 与 HTTP 409 测试通过；development 容器已运行且接口鉴权正常，具体订单状态由 Van 按下方清单验收。
 
 ## 权限、操作日志与单据版本
 
@@ -55,16 +55,17 @@
 - [x] 合法编辑的操作日志包含员工、订单和业务 before/after 摘要；目录、权限和状态校验失败不写成功编辑日志。
 - [x] 编辑成功后详情与列表读取新订单内容；旧销售单/发货单及合并单据版本不再标记为当前。
 - [x] 再次导出从保存后的订单读取；发货 Excel 以订单 revision 锁后复核、唯一文件原子落盘，失败不会覆盖或删除历史文件。
-- 证据：权限/API、事务审计、单据失效、发货 revision/唯一文件/错误清理自动化通过；development 日志与文件只读回查待部署后补。
+- 证据：权限/API、事务审计、单据失效、发货 revision/唯一文件/错误清理自动化通过；发布过程未写订单，实际操作日志和重导出文件由 Van 编辑测试订单后验收。
 
 ## 部署与冒烟
 
 - 功能分支：`codex/mini-order-catalog-edit-20260802`。
-- 功能提交：待补。
-- `origin/develop` 集成提交：待补。
-- development 预检/部署：待补；记录 `RELEASE_INFO`、容器运行/重启次数、登录与鉴权接口状态和错误日志扫描。
-- 开发小程序固定包：待补 `RELEASE_INFO`、`PAGE_FILE_MANIFEST` 校验、固定目录和上一版备份。
-- production：必须记录未部署，生产应用/数据库/正式小程序固定包未切换。
+- 功能提交：`3a8e2459410517acda16f5078b92e78cf4c51319`。
+- `origin/develop` 集成提交：`0274ee9edd2a2b3831881d20cfb6bf2fe11f26c3`。
+- development 预检/部署：`./deploy_orderapp.sh development` 通过；`RELEASE_INFO` 提交与环境一致；`erp_orderapp` 为 `running`、restart count `0`、image `sha256:fc67236f407328c99d08b50e320637352bb330b45766beb9a14d7ecf25a55f0e`；登录 HTTP 200、未登录 mini order-form HTTP 401，近 10 分钟错误关键词扫描无结果。
+- 回滚证据：previous source `/opt/stacks/erp/orderapp.backup.deploy-20260803000425-0274ee9edd2a`；rollback image `kferp-orderapp-rollback:development-20260803000425-0274ee9edd2a`。
+- 开发小程序固定包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；`RELEASE_INFO` 为 development、API base `https://dev.qacoohee.com/app`、提交 `0274ee9e`；`PAGE_FILE_MANIFEST` 52 项复验通过；上一版保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803001008-0274ee9edd2a`。
+- production：未部署。`erp_prod_orderapp` 仍为 2026-08-01 启动的原实例、restart count `0`、image `sha256:33ef3df6a633dccbbfe4dd96a5d2e5a2cd17d47ef270e020c8adced212de7cc6`；生产应用、数据库和正式小程序固定包未切换。
 
 ## Van 验收清单
 
