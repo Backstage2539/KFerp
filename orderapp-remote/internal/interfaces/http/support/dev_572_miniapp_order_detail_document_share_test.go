@@ -26,14 +26,18 @@ func TestDev572MiniappOrderDetailDocumentShareContract(t *testing.T) {
 	assertSourceMarkers("miniapp/src/pages.json", "pages/employee-order-detail/employee-order-detail")
 	listPage := assertSourceMarkers(
 		"miniapp/src/pages/employee-orders/employee-orders.vue",
-		"<navigator v-for=\"row in rows\"", ":url=\"employeeOrderDetailPagePath(row.id)\"", "rememberListQuery",
+		"<template v-for=\"row in rows\"", "<navigator v-if=\"row.detail_url\"", ":url=\"row.detail_url\"",
+		"<view v-else class=\"card card-disabled\">", "订单编号异常，无法查看", "employeeOrderNavigationRows", "rememberListQuery",
 	)
 	if strings.Contains(listPage, "@tap=\"openOrderDetail(row)\"") {
 		t.Error("employee order cards must navigate natively instead of relying on a dynamic tap handler")
 	}
+	if strings.Contains(listPage, ":url=\"employeeOrderDetailPagePath(row.id)\"") {
+		t.Error("employee order navigator must not render a runtime path that can become an empty url")
+	}
 	assertSourceMarkers(
 		"miniapp/src/utils/employeeOrderDetail.ts",
-		"employeeOrderDetailPagePath", "/pages/employee-order-detail/employee-order-detail?id=",
+		"employeeOrderDetailPagePath", "employeeOrderNavigationRows", "/pages/employee-order-detail/employee-order-detail?id=",
 	)
 	detailPage := assertSourceMarkers(
 		"miniapp/src/pages/employee-order-detail/employee-order-detail.vue",
