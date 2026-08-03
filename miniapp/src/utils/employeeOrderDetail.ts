@@ -15,6 +15,21 @@ export function employeeOrderDetailPagePath(orderID: unknown): string {
   return `/pages/employee-order-detail/employee-order-detail?id=${id}`
 }
 
+export type EmployeeOrderNavigationRow<T extends { id?: unknown }> = T & {
+  detail_url: string
+}
+
+export function employeeOrderNavigationRows<T extends { id?: unknown }>(
+  rows: readonly T[] | null | undefined,
+): EmployeeOrderNavigationRow<T>[] {
+  const result: EmployeeOrderNavigationRow<T>[] = []
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const detailURL = employeeOrderDetailPagePath(row.id)
+    result.push({ ...row, detail_url: detailURL })
+  }
+  return result
+}
+
 export function rememberEmployeeOrderListQuery(query: string) {
   rememberedListQuery = String(query || '').trim()
 }

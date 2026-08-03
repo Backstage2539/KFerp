@@ -167,7 +167,7 @@ func TestDripOrderBeanListCandidatesPreferCommercialAndKeepLegacyFallback(t *tes
 	got := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{
 		CommercialBeanListPublicationID: 101,
 		DripBeanListPublicationID:       202,
-	}, 0, "")
+	}, 0, "", false)
 	if len(got) != 2 || got[0].ListType != "commercial" || got[0].RequestedPublicationID != 101 || got[1].ListType != "drip" || got[1].RequestedPublicationID != 202 {
 		t.Fatalf("drip publication candidates = %+v", got)
 	}
@@ -200,13 +200,27 @@ func TestDripOrderBeanListCandidatesKeepExactItemSnapshotOnEdit(t *testing.T) {
 	got := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{
 		CommercialBeanListPublicationID: 101,
 		DripBeanListPublicationID:       202,
-	}, 303, "drip")
+	}, 303, "drip", false)
 	if len(got) != 1 || got[0].ListType != "drip" || got[0].RequestedPublicationID != 303 {
 		t.Fatalf("exact legacy item publication candidate = %+v", got)
 	}
-	unknown := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{}, 404, "")
+	unknown := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{}, 404, "", false)
 	if len(unknown) != 2 || unknown[0].ListType != "commercial" || unknown[0].RequestedPublicationID != 404 || unknown[1].ListType != "drip" || unknown[1].RequestedPublicationID != 404 {
 		t.Fatalf("unknown item publication candidates = %+v", unknown)
+	}
+}
+
+func TestDripRetailOrderBeanListCandidatesPreferRetailAndKeepLegacyFallback(t *testing.T) {
+	got := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{
+		BeanListPublicationID:     111,
+		DripBeanListPublicationID: 202,
+	}, 0, "", true)
+	if len(got) != 2 || got[0].ListType != "retail" || got[0].RequestedPublicationID != 111 || got[1].ListType != "drip" || got[1].RequestedPublicationID != 202 {
+		t.Fatalf("retail drip publication candidates = %+v", got)
+	}
+	exact := dripOrderBeanListCandidates(salesapp.SaveOrderCommand{}, 303, "retail", true)
+	if len(exact) != 1 || exact[0].ListType != "retail" || exact[0].RequestedPublicationID != 303 {
+		t.Fatalf("exact retail drip publication candidate = %+v", exact)
 	}
 }
 

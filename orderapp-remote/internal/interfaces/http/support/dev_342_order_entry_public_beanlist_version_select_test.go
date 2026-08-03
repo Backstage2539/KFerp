@@ -47,7 +47,7 @@ func TestDev342OrderEntryPublicBeanListVersionSelectWiring(t *testing.T) {
 			rel: filepath.Join("internal", "infrastructure", "postgres", "sales", "order_form_queries.go"),
 			markers: []string{
 				"b.status='published'",
-				"row_number() OVER (PARTITION BY b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC, b.id DESC) AS group_rank",
+				"row_number() OVER (PARTITION BY b.list_type, b.price_list_group_key ORDER BY b.published_at_sort DESC NULLS LAST, b.id DESC) AS group_rank",
 				"o.is_default",
 				"fetchCommercialOrderPublicationTiers",
 			},

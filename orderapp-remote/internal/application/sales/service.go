@@ -5,58 +5,72 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	salesdomain "orderapp/internal/domain/sales"
 	"strings"
 	"time"
 )
 
+var (
+	ErrInvalidShippingAmount = errors.New("invalid shipping_amount")
+	ErrInvalidDiscountAmount = errors.New("invalid discount_amount")
+)
+
 type SaveOrderCommand struct {
-	Actor                           string
-	DraftEmployeeID                 int64
-	EditID                          int64
-	DocumentDate                    time.Time
-	OrderDate                       time.Time
-	CustomerID                      int64
-	SourceID                        int64
-	OrderTypeID                     int64
-	PayStatusID                     int64
-	PaymentMethod                   string
-	ShipStatusID                    int64
-	ShipMethod                      string
-	ShipTrackingNo                  string
-	LogisticsCompanyID              int64
-	LogisticsProductID              int64
-	PaymentGoodsAmount              float64
-	PaymentShippingAmount           float64
-	PaymentVoucherAssetID           int64
-	ResponsibleType                 string
-	ResponsibleID                   int64
-	Notes                           string
-	ShippingAmount                  float64
-	DiscountAmount                  float64
-	RoundToInt                      bool
-	ExpressFee                      string
-	OutsourceMaterialFee            float64
-	OutsourceRoastFee               float64
-	OutsourcePackagingFee           float64
-	OutsourceManualFee              float64
-	OutsourceTaxFee                 float64
-	OutsourceOtherFee               float64
-	StockBatchDecision              string
-	BeanListPublicationID           int64
-	CommercialBeanListPublicationID int64
-	GreenBeanListPublicationID      int64
-	DripBeanListPublicationID       int64
-	ReceiverName                    string
-	ReceiverPhone                   string
-	ReceiverAddress                 string
-	ReceiverCompany                 string
-	PortalServiceCode               string
-	OrdersScope                     string
-	Items                           []OrderItemCommand
+	Actor                             string
+	DraftEmployeeID                   int64
+	EditID                            int64
+	ExpectedEditRevision              string
+	RequirePreProductionEdit          bool
+	RequireCurrentDefaultPublications bool
+	PreserveResponsibleSnapshot       bool
+	PreserveFulfillmentSnapshot       bool
+	DocumentDate                      time.Time
+	OrderDate                         time.Time
+	CustomerID                        int64
+	SourceID                          int64
+	OrderTypeID                       int64
+	PayStatusID                       int64
+	PaymentMethod                     string
+	ShipStatusID                      int64
+	ShipMethod                        string
+	ShipTrackingNo                    string
+	LogisticsCompanyID                int64
+	LogisticsProductID                int64
+	PaymentGoodsAmount                float64
+	PaymentShippingAmount             float64
+	PaymentVoucherAssetID             int64
+	ResponsibleType                   string
+	ResponsibleID                     int64
+	ResponsibleName                   string
+	Notes                             string
+	ShippingAmount                    float64
+	DiscountAmount                    float64
+	RoundToInt                        bool
+	ExpressFee                        string
+	OutsourceMaterialFee              float64
+	OutsourceRoastFee                 float64
+	OutsourcePackagingFee             float64
+	OutsourceManualFee                float64
+	OutsourceTaxFee                   float64
+	OutsourceOtherFee                 float64
+	StockBatchDecision                string
+	BeanListPublicationID             int64
+	CommercialBeanListPublicationID   int64
+	GreenBeanListPublicationID        int64
+	DripBeanListPublicationID         int64
+	ReceiverName                      string
+	ReceiverPhone                     string
+	ReceiverAddress                   string
+	ReceiverCompany                   string
+	PortalServiceCode                 string
+	SourceWarehouse                   string
+	OrdersScope                       string
+	Items                             []OrderItemCommand
 }
 
 type OrderItemCommand struct {
+	ItemID                             int64
 	ProductID                          *int64
 	ParentProductID                    int64
 	CustomerProductAliasID             int64
@@ -157,6 +171,7 @@ type OrderStockBatchPreview struct {
 
 type OrderShippingExportData struct {
 	OrderID       int64
+	EditRevision  string
 	OrderNo       string
 	OrderDate     string
 	CustomerName  string
@@ -433,6 +448,7 @@ type OrderEditItem struct {
 
 type OrderEditData struct {
 	ID                    int64
+	EditRevision          string
 	OrderNo               string
 	DocumentDate          string
 	OrderDate             string
@@ -593,8 +609,9 @@ type SetShipMethodCommand struct {
 }
 
 type OrderShipmentOrderCommand struct {
-	OrderID  int64
-	SenderID int64
+	OrderID          int64
+	SenderID         int64
+	ExpectedRevision string
 }
 
 type CreateOrderShipmentCommand struct {
@@ -1334,6 +1351,12 @@ func validateSaveOrderCommand(cmd SaveOrderCommand) error {
 	if cmd.CustomerID <= 0 {
 		return fmt.Errorf("customer required")
 	}
+	if math.IsNaN(cmd.ShippingAmount) || math.IsInf(cmd.ShippingAmount, 0) || cmd.ShippingAmount < 0 {
+		return ErrInvalidShippingAmount
+	}
+	if math.IsNaN(cmd.DiscountAmount) || math.IsInf(cmd.DiscountAmount, 0) || cmd.DiscountAmount < 0 {
+		return ErrInvalidDiscountAmount
+	}
 	valid := false
 	for _, item := range cmd.Items {
 		if item.ProductID == nil && strings.TrimSpace(item.Name) == "" {
@@ -1535,6 +1558,7 @@ func (s *Service) CreateOrderShipment(ctx context.Context, cmd CreateOrderShipme
 		if order.SenderID <= 0 {
 			order.SenderID = cmd.SenderID
 		}
+		order.ExpectedRevision = strings.TrimSpace(order.ExpectedRevision)
 		orders = append(orders, order)
 	}
 	if len(orders) == 0 {

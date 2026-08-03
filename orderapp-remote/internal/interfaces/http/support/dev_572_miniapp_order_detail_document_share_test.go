@@ -26,20 +26,29 @@ func TestDev572MiniappOrderDetailDocumentShareContract(t *testing.T) {
 	assertSourceMarkers("miniapp/src/pages.json", "pages/employee-order-detail/employee-order-detail")
 	listPage := assertSourceMarkers(
 		"miniapp/src/pages/employee-orders/employee-orders.vue",
-		"<navigator v-for=\"row in rows\"", ":url=\"employeeOrderDetailPagePath(row.id)\"", "rememberListQuery",
+		"<template v-for=\"row in rows\"", "<navigator v-if=\"row.detail_url\"", ":url=\"row.detail_url\"",
+		"<view v-else class=\"card card-disabled\">", "订单编号异常，无法查看", "employeeOrderNavigationRows", "rememberListQuery",
 	)
 	if strings.Contains(listPage, "@tap=\"openOrderDetail(row)\"") {
 		t.Error("employee order cards must navigate natively instead of relying on a dynamic tap handler")
 	}
+	if strings.Contains(listPage, ":url=\"employeeOrderDetailPagePath(row.id)\"") {
+		t.Error("employee order navigator must not render a runtime path that can become an empty url")
+	}
 	assertSourceMarkers(
 		"miniapp/src/utils/employeeOrderDetail.ts",
-		"employeeOrderDetailPagePath", "/pages/employee-order-detail/employee-order-detail?id=",
+		"employeeOrderDetailPagePath", "employeeOrderNavigationRows", "/pages/employee-order-detail/employee-order-detail?id=",
 	)
 	detailPage := assertSourceMarkers(
 		"miniapp/src/pages/employee-order-detail/employee-order-detail.vue",
 		"收件信息", "物流信息", "订单状态", "费用明细", "商品明细", "报价来源", "生产来源",
 		"销售单 PDF", "销售单图片", "发货单 PDF", "发货单图片",
 	)
+	documentSectionIndex := strings.Index(detailPage, `<view class="section document-section">`)
+	heroSectionIndex := strings.Index(detailPage, `<view class="hero-card">`)
+	if documentSectionIndex < 0 || heroSectionIndex < 0 || documentSectionIndex > heroSectionIndex {
+		t.Errorf("导出并微信分享必须是订单加载成功后的首个业务卡片: document=%d hero=%d", documentSectionIndex, heroSectionIndex)
+	}
 	if !strings.Contains(detailPage, "shareMiniappFileOutput") {
 		t.Error("employee order detail does not use the shared WeChat file output helper")
 	}

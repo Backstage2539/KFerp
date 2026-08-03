@@ -7,19 +7,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
-- Branch: codex/miniapp-order-detail-share-20260801
-- Owner/session: Codex / 2026-08-01
-- Status: merged to develop/main / development and production deployed / awaiting user miniapp acceptance
+- Branch: codex/pr572-share-panel-top-20260802 (follow-up)
+- Owner/session: Codex / 2026-08-02
+- Status: follow-up merged to develop / development deployed / prior production release remains active / follow-up awaiting main production release
 - Scope: 小程序订单中心从概要列表进入完整订单详情，展示网页版订单详情已有的订单、客户、收货、商品、金额、物流、状态及来源信息；可导出销售单和发货单的 PDF/图片，并使用微信原生文件能力转发给客户；录单页“新增商品”按钮固定在商品明细列表末尾。
 - DEV:
   - DEV-572-EMPLOYEE-ORDER-DETAIL：新增员工订单完整详情接口和小程序独立详情页，管理员/销售范围由服务端校验。
   - DEV-572-EMPLOYEE-ORDER-DOCUMENT-OUTPUT：销售单 PDF/PNG 沿用既有逻辑，出库单新正式版本按同一快照原子生成 PDF/PNG。
   - DEV-572-MINIAPP-WECHAT-FILE-SHARE：小程序下载鉴权真实文件后使用微信文件/图片分享，低版本回退打开文档或图片预览。
+  - DEV-572-DOCUMENT-SHARE-PANEL-TOP：把“导出并微信分享”完整区块移动到详情加载成功后的顶部，保持四类单据逻辑不变。
   - DEV-572-ORDER-ENTRY-ADD-ITEM-POSITION：把录单页“新增商品”入口移动到商品明细最后一行下方并保持多行交互。
   - DEV-572-DOCS-ACCEPTANCE-DELIVERY：同步 PR/DEV、操作手册、前端手册入口与验收证据，完成开发环境集成发布。
 - Verifier:
   - Unit/API: `go test ./... -count=1`、customerportal/sales/support/应用/PDF/Postgres 定向套件 GREEN。
-  - Frontend/build: miniapp Vitest 21 files / 130 tests、`vue-tsc --noEmit`、development mp-weixin build GREEN；新详情页四类产物齐全；订单卡片使用原生 `navigator` 进入完整订单详情，固定开发包 WXML 已核对。
+  - Frontend/build: miniapp Vitest 21 files / 132 tests、`vue-tsc --noEmit`、development mp-weixin build GREEN；新详情页四类产物齐全；“导出并微信分享”在编译 WXML 中只出现一次并排在订单概要之前；订单卡片使用原生 `navigator` 进入完整订单详情。
   - Output: 代表性出库单 PNG 为 2480×9440，长地址、36 行商品、长备注、页尾与留白视觉检查通过。
   - Database integration: development 数据库唯一临时测试 schema 中 5 项文件回滚、成对 PDF/PNG、历史兼容和字段幂等用例全部通过；测试 schema 自动删除，真实订单数据未写入。
   - Manual: miniapp employee ERP、order-sales、总索引和联调手册已同步。
@@ -3932,6 +3933,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development deployed at origin/develop aba635303ee0a0cbb04232c30a8e9fc93c9cc292; backup root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606181028
 - Last update: 2026-06-06 18:13 Asia/Shanghai
 - Notes: 必须在部署阶段构建小程序；发布客户价格表时若复制来源是本人旧 customer_resale 版本，价格来源仍追溯原 factory_supply，避免重复加价。Smoke: erp_orderapp up, /app/ GET 303, /app/vue-shell/ 200 with BasicAuth, PR-434 req marker visible, /api/mini/customer-products and /api/mini/bean-lists/1.png without mini token return 401, remote miniapp/dist/build/mp-weixin app.json/app.js exists.
+
+### PR-573-MINIAPP-ORDER-CATALOG-EDIT
+- Branch: codex/mini-order-catalog-edit-20260802
+- Owner/session: Codex / 2026-08-02
+- Status: deployed / awaiting Van acceptance
+- Scope: 开发环境员工小程序录单商品必须与 ERP 当前已发布价格表可售商品/规格一致；生产开始前支持在小程序编辑订单商品、费用和收件/物流资料，并复用 ERP 状态、权限、审计与价格校验。
+- Verifier:
+  - Unit: full `go test ./... -count=1` GREEN; current-publication, editability, edit-revision, audit, order-number lock, legacy-batch lock and shipment lock/revision tests GREEN; affected-package `go vet` GREEN.
+  - API: mini employee order-form/detail/create/update permission, catalog rejection, negative amount, 409 conflict and safe-error tests GREEN; shipping Excel unique-file/revision/cleanup tests GREEN.
+  - Frontend/build: miniapp 21 files / 147 tests, `vue-tsc --noEmit`, development mp-weixin build GREEN; Vue shell 854 tests and production build GREEN.
+  - Manual: orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md; orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md
+  - Review/acceptance: independent backend and frontend reviews have no open P0-P2; `scripts/verify_kferp.sh changed` and `git diff --check` GREEN; evidence in orderapp-remote/docs/acceptance/2026-08-02-miniapp-order-catalog-edit.md.
+- Deployment: development `origin/develop` deployed at `0274ee9edd2a2b3831881d20cfb6bf2fe11f26c3`; previous source `/opt/stacks/erp/orderapp.backup.deploy-20260803000425-0274ee9edd2a`; rollback image `kferp-orderapp-rollback:development-20260803000425-0274ee9edd2a`; fixed miniapp package `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; production not deployed.
+- Last update: 2026-08-03 00:10 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` failed on the local awk implementation before writing; PR-573 was the reported next id and is reserved here manually. Development smoke: container running with restart count 0; login HTTP 200; unauthenticated mini order-form HTTP 401; recent error scan clear; fixed package manifest 52 files and API base `https://dev.qacoohee.com/app`. Production container retained its 2026-08-01 start time and image.
 
 ## Template
 

@@ -3,6 +3,8 @@ package sales
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"math"
 	"testing"
 	"time"
 )
@@ -710,6 +712,45 @@ func TestServiceValidatesSaveOrderBeforeRepository(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsNegativeOrNonFiniteEditableOrderAmountsBeforeRepository(t *testing.T) {
+	tests := []struct {
+		name           string
+		shippingAmount float64
+		discountAmount float64
+		want           error
+	}{
+		{name: "negative shipping", shippingAmount: -0.01, want: ErrInvalidShippingAmount},
+		{name: "nan shipping", shippingAmount: math.NaN(), want: ErrInvalidShippingAmount},
+		{name: "infinite shipping", shippingAmount: math.Inf(1), want: ErrInvalidShippingAmount},
+		{name: "negative discount", discountAmount: -0.01, want: ErrInvalidDiscountAmount},
+		{name: "nan discount", discountAmount: math.NaN(), want: ErrInvalidDiscountAmount},
+		{name: "infinite discount", discountAmount: math.Inf(-1), want: ErrInvalidDiscountAmount},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := NewService(repo)
+			_, err := svc.SaveOrder(context.Background(), SaveOrderCommand{
+				OrderDate:      time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+				CustomerID:     8,
+				ShippingAmount: tt.shippingAmount,
+				DiscountAmount: tt.discountAmount,
+				Items: []OrderItemCommand{{
+					ProductID: int64Ptr(551),
+					Units:     1,
+					SpecG:     227,
+				}},
+			})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("SaveOrder() error = %v, want %v", err, tt.want)
+			}
+			if repo.saveCalls != 0 {
+				t.Fatalf("repository was called %d times for invalid amount", repo.saveCalls)
+			}
+		})
+	}
+}
+
 func TestServiceOwnsOutsourceTemplateUseCases(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -784,9 +825,9 @@ func TestServiceOwnsShipmentClosureUseCases(t *testing.T) {
 		SenderID: 3,
 		FileURL:  " /ship/order_exports/a.xlsx ",
 		Orders: []OrderShipmentOrderCommand{
-			{OrderID: 20, SenderID: 3},
-			{OrderID: 20, SenderID: 3},
-			{OrderID: 21, SenderID: 4},
+			{OrderID: 20, SenderID: 3, ExpectedRevision: " revision-20 "},
+			{OrderID: 20, SenderID: 3, ExpectedRevision: "duplicate"},
+			{OrderID: 21, SenderID: 4, ExpectedRevision: "revision-21"},
 			{OrderID: 0, SenderID: 4},
 		},
 	})
@@ -801,6 +842,9 @@ func TestServiceOwnsShipmentClosureUseCases(t *testing.T) {
 	}
 	if len(repo.shipmentCmd.Orders) != 2 || repo.shipmentCmd.Orders[0].OrderID != 20 || repo.shipmentCmd.Orders[1].SenderID != 4 {
 		t.Fatalf("shipment orders = %+v", repo.shipmentCmd.Orders)
+	}
+	if repo.shipmentCmd.Orders[0].ExpectedRevision != "revision-20" || repo.shipmentCmd.Orders[1].ExpectedRevision != "revision-21" {
+		t.Fatalf("shipment order revisions = %+v", repo.shipmentCmd.Orders)
 	}
 
 	updated, err := svc.FillShipmentTracking(context.Background(), FillShipmentTrackingCommand{

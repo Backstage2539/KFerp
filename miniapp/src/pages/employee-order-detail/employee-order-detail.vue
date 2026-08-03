@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   buildEmployeeOrderDocumentPath,
   fetchEmployeeOrderDetail,
@@ -38,6 +38,8 @@ const loading = ref(false)
 const errorMessage = ref('')
 const authExpired = ref(false)
 const sharingKey = ref('')
+const canEdit = ref(false)
+const editBlockReason = ref('')
 
 const fees = computed(() => employeeOrderFeeLines(
   (order.value || {}) as unknown as Record<string, unknown>,
@@ -92,6 +94,8 @@ async function loadDetail() {
     const response = await fetchEmployeeOrderDetail(session.token, orderID.value)
     order.value = response.order
     documents.value = response.documents || {}
+    canEdit.value = Boolean(response.can_edit ?? response.order.can_edit)
+    editBlockReason.value = String(response.edit_block_reason || response.order.edit_block_reason || '')
     if (order.value?.order_no) uni.setNavigationBarTitle({ title: order.value.order_no })
   } catch (cause) {
     authExpired.value = isAuthenticationExpiredRequestError(cause)
@@ -109,6 +113,13 @@ function goToLogin() {
   uni.reLaunch({ url: '/pages/login/login' })
 }
 
+function openEditor() {
+  if (!canEdit.value || orderID.value <= 0) return
+  uni.navigateTo({
+    url: `/pages/employee-order-entry/employee-order-entry?edit_id=${orderID.value}`,
+  })
+}
+
 async function shareDocument(kind: EmployeeOrderDocumentKind, format: EmployeeOrderDocumentFormat) {
   if (!order.value || sharingKey.value) return
   const key = `${kind}.${format}`
@@ -123,6 +134,8 @@ async function shareDocument(kind: EmployeeOrderDocumentKind, format: EmployeeOr
         const refreshed = await fetchEmployeeOrderDetail(session.token, orderID.value)
         order.value = refreshed.order
         documents.value = refreshed.documents || documents.value
+        canEdit.value = Boolean(refreshed.can_edit ?? refreshed.order.can_edit)
+        editBlockReason.value = String(refreshed.edit_block_reason || refreshed.order.edit_block_reason || '')
       } catch {
         // The generated path remains usable even if the metadata refresh is interrupted.
       }
@@ -184,8 +197,8 @@ function logisticsLabel(): string {
 
 onLoad((options) => {
   orderID.value = Number(options?.id || 0)
-  void loadDetail()
 })
+onShow(() => void loadDetail())
 </script>
 
 <template>
@@ -199,6 +212,19 @@ onLoad((options) => {
     </view>
 
     <template v-else-if="order">
+      <view class="section document-section">
+        <text class="section-title">导出并微信分享</text>
+        <text class="section-hint">没有历史版本时会先按网页同一模板生成，再打开微信分享；低版本微信会回退到预览菜单。</text>
+        <view class="document-grid">
+          <button :loading="sharingKey === 'sales-order.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'pdf')">销售单 PDF</button>
+          <button :loading="sharingKey === 'sales-order.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'png')">销售单图片</button>
+          <button :loading="sharingKey === 'delivery-note.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'pdf')">发货单 PDF</button>
+          <button :loading="sharingKey === 'delivery-note.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'png')">发货单图片</button>
+        </view>
+        <text class="document-status">销售单：PDF {{ hasDocument('sales-order', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('sales-order', 'png') ? '已有版本' : '点击自动生成' }}</text>
+        <text class="document-status">发货单：PDF {{ hasDocument('delivery-note', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('delivery-note', 'png') ? '已有版本' : '点击自动生成' }}</text>
+      </view>
+
       <view class="hero-card">
         <view class="hero-line">
           <text class="order-no">{{ order.order_no }}</text>
@@ -209,6 +235,8 @@ onLoad((options) => {
           <text>单据日期：{{ order.document_date || order.order_date || '-' }}</text>
           <text>订单日期：{{ order.order_date || '-' }}</text>
         </view>
+        <button v-if="canEdit" class="edit-order-button" @tap="openEditor">编辑订单</button>
+        <text v-else-if="editBlockReason" class="edit-block-reason">{{ editBlockReason }}</text>
       </view>
 
       <view class="section">
@@ -303,18 +331,6 @@ onLoad((options) => {
         </view>
       </view>
 
-      <view class="section document-section">
-        <text class="section-title">导出并微信分享</text>
-        <text class="section-hint">没有历史版本时会先按网页同一模板生成，再打开微信分享；低版本微信会回退到预览菜单。</text>
-        <view class="document-grid">
-          <button :loading="sharingKey === 'sales-order.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'pdf')">销售单 PDF</button>
-          <button :loading="sharingKey === 'sales-order.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('sales-order', 'png')">销售单图片</button>
-          <button :loading="sharingKey === 'delivery-note.pdf'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'pdf')">发货单 PDF</button>
-          <button :loading="sharingKey === 'delivery-note.png'" :disabled="Boolean(sharingKey)" @tap="shareDocument('delivery-note', 'png')">发货单图片</button>
-        </view>
-        <text class="document-status">销售单：PDF {{ hasDocument('sales-order', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('sales-order', 'png') ? '已有版本' : '点击自动生成' }}</text>
-        <text class="document-status">发货单：PDF {{ hasDocument('delivery-note', 'pdf') ? '已有版本' : '点击自动生成' }}，图片 {{ hasDocument('delivery-note', 'png') ? '已有版本' : '点击自动生成' }}</text>
-      </view>
     </template>
   </view>
 </template>
@@ -327,6 +343,8 @@ onLoad((options) => {
 .amount { color: #28624a; font-size: 34rpx; font-weight: 850; }
 .customer { display: block; margin-top: 12rpx; font-size: 29rpx; font-weight: 700; }
 .date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10rpx; margin-top: 14rpx; color: #68766f; font-size: 23rpx; }
+.edit-order-button { width: 100%; margin: 20rpx 0 0; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 25rpx; }
+.edit-block-reason { display: block; margin-top: 18rpx; padding: 14rpx 16rpx; border-radius: 10rpx; background: #f5f1e8; color: #745b2d; font-size: 22rpx; line-height: 1.5; }
 .section-title { display: block; margin-bottom: 20rpx; font-size: 30rpx; font-weight: 800; }
 .section-hint { display: block; margin: -8rpx 0 20rpx; color: #6e7d75; font-size: 23rpx; line-height: 1.6; }
 .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18rpx 22rpx; font-size: 25rpx; }

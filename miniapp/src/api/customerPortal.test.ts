@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { miniRequest } from './client'
 import {
   buildMallOrderPath,
   buildMallPagePath,
@@ -9,6 +10,7 @@ import {
   buildPasswordLoginPath,
   buildEmployeeOrderFormPath,
   buildEmployeeOrderDetailPath,
+  buildEmployeeOrderUpdatePath,
   buildEmployeeOrderDocumentPath,
   buildEmployeeOrdersPath,
   buildEmployeeCustomersPath,
@@ -21,6 +23,8 @@ import {
   buildCustomerProductCategoryAssignPath,
   buildServicePagePath,
   buildSwitchCustomerPath,
+  fetchEmployeeOrderForm,
+  updateEmployeeOrder,
 } from './customerPortal'
 import type {
   CreateFulfillmentOrderPayload,
@@ -29,6 +33,12 @@ import type {
   EmployeeOrderDraftPayload,
   ProductSummary,
 } from './customerPortal'
+
+vi.mock('./client', () => ({ miniRequest: vi.fn() }))
+
+beforeEach(() => {
+  vi.mocked(miniRequest).mockReset()
+})
 
 describe('customer portal API helpers', () => {
   it('encodes service page filters into the mini service path', () => {
@@ -72,8 +82,10 @@ describe('customer portal API helpers', () => {
 
   it('exposes employee ERP order API paths', () => {
     expect(buildEmployeeOrderFormPath()).toBe('/api/mini/employee/order-form')
+    expect(buildEmployeeOrderFormPath(8)).toBe('/api/mini/employee/order-form?customer_id=8')
     expect(buildEmployeeOrdersPath()).toBe('/api/mini/employee/orders')
     expect(buildEmployeeOrderDetailPath(42)).toBe('/api/mini/employee/orders/42')
+    expect(buildEmployeeOrderUpdatePath(42)).toBe('/api/mini/employee/orders/42')
     expect(buildEmployeeOrderDocumentPath(42, 'sales-order', 'pdf')).toBe('/api/mini/employee/orders/42/documents/sales-order.pdf')
     expect(buildEmployeeOrderDocumentPath(42, 'sales-order', 'png')).toBe('/api/mini/employee/orders/42/documents/sales-order.png')
     expect(buildEmployeeOrderDocumentPath(42, 'delivery-note', 'pdf')).toBe('/api/mini/employee/orders/42/documents/delivery-note.pdf')
@@ -82,6 +94,35 @@ describe('customer portal API helpers', () => {
     expect(buildEmployeeCustomersPath({ q: '上海 客户', page: 2, limit: 100 })).toBe('/api/mini/employee/customers?q=%E4%B8%8A%E6%B5%B7%20%E5%AE%A2%E6%88%B7&page=2&limit=100')
     expect(buildEmployeeCustomerPath(31)).toBe('/api/mini/employee/customers/31')
     expect(buildEmployeeOrderDraftPath()).toBe('/api/mini/employee/order-draft')
+  })
+
+  it('updates an employee order with PUT and forwards the complete edit body', async () => {
+    const payload = {
+      edit_revision: 'rev-42',
+      customer_id: 8,
+      shipping_amount: 15,
+      discount_amount: 3,
+      items: [{ item_id: 51, product_id: 11, qty: 2, unit_price: 48 }],
+    }
+    vi.mocked(miniRequest).mockResolvedValue({ order_id: 42, order_no: 'SO-42' })
+
+    await updateEmployeeOrder('employee-token', 42, payload)
+
+    expect(miniRequest).toHaveBeenCalledWith('/api/mini/employee/orders/42', {
+      method: 'PUT',
+      token: 'employee-token',
+      data: payload,
+    })
+  })
+
+  it('requests the product catalog scoped to the selected customer', async () => {
+    vi.mocked(miniRequest).mockResolvedValue({ product_families: [] })
+
+    await fetchEmployeeOrderForm('employee-token', 8)
+
+    expect(miniRequest).toHaveBeenCalledWith('/api/mini/employee/order-form?customer_id=8', {
+      token: 'employee-token',
+    })
   })
 
   it('types scoped employee customers and multi-item server drafts', () => {
@@ -96,6 +137,7 @@ describe('customer portal API helpers', () => {
       has_next: false,
     }
     const draft: EmployeeOrderDraftPayload = {
+      edit_revision: 'rev-draft',
       order_date: '2026-08-01',
       customer_id: 8,
       source_id: 1,
@@ -106,6 +148,8 @@ describe('customer portal API helpers', () => {
       receiver_phone: '',
       receiver_address: '',
       receiver_company: '',
+      shipping_amount: 0,
+      discount_amount: 0,
       notes: '',
       items: [
         {
@@ -144,6 +188,7 @@ describe('customer portal API helpers', () => {
     }
 
     expect(customers.rows[0]?.can_maintain).toBe(true)
+    expect(draft.edit_revision).toBe('rev-draft')
     expect(draft.items).toHaveLength(2)
   })
 
@@ -151,6 +196,7 @@ describe('customer portal API helpers', () => {
     const response: EmployeeOrderDetailResponse = {
       order: {
         id: 42,
+        edit_revision: 'rev-42',
         order_no: 'SO-42',
         document_date: '2026-08-01',
         order_date: '2026-08-01',
@@ -170,9 +216,14 @@ describe('customer portal API helpers', () => {
           unit: '袋',
           unit_price: '48.00',
           line_total: '96.00',
+          discount_type: 'unit_amount',
+          discount_value: '3.00',
+          discount_amount: '6.00',
           bean_list_version_no: 'V3',
         }],
       },
+      can_edit: true,
+      edit_block_reason: '',
       documents: {
         sales_order_pdf: { available: true, path: '/api/mini/employee/orders/42/documents/sales-order.pdf', content_type: 'application/pdf' },
         sales_order_png: { available: true, path: '/api/mini/employee/orders/42/documents/sales-order.png', content_type: 'image/png' },
@@ -182,6 +233,9 @@ describe('customer portal API helpers', () => {
     }
 
     expect(response.order.items[0]?.line_total).toBe('96.00')
+    expect(response.order.items[0]?.discount_type).toBe('unit_amount')
+    expect(response.order.items[0]?.discount_value).toBe('3.00')
+    expect(response.order.edit_revision).toBe('rev-42')
     expect(response.documents?.sales_order_png?.content_type).toBe('image/png')
   })
 

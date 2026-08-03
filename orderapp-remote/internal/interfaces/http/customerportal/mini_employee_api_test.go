@@ -20,6 +20,24 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+func TestMiniEmployeeCurrentCatalogProductRejectsMissingAliasWhenProductHasMultipleCustomerAliases(t *testing.T) {
+	products := []salesapp.ProductOption{
+		{ID: 551, CustomerProductAliasID: 201, Name: "客户别名一"},
+		{ID: 551, CustomerProductAliasID: 202, Name: "客户别名二"},
+	}
+	if _, found := miniEmployeeCurrentCatalogProduct(products, 551, 0); found {
+		t.Fatal("missing alias_id must not silently select one of multiple customer aliases")
+	}
+	got, found := miniEmployeeCurrentCatalogProduct(products, 551, 202)
+	if !found || got.CustomerProductAliasID != 202 {
+		t.Fatalf("explicit alias selection = %+v, found=%v", got, found)
+	}
+	got, found = miniEmployeeCurrentCatalogProduct(products[:1], 551, 0)
+	if !found || got.CustomerProductAliasID != 201 {
+		t.Fatalf("single alias fallback = %+v, found=%v", got, found)
+	}
+}
+
 type miniEmployeeSalesFake struct {
 	listQuery                salesapp.OrderListQuery
 	listResult               *salesapp.OrderListResult
@@ -29,6 +47,11 @@ type miniEmployeeSalesFake struct {
 	orderFormCalls           int
 	listCalls                int
 	saveCalls                int
+	saveError                error
+	editability              salesapp.OrderEditability
+	editabilityError         error
+	editabilityCalls         int
+	editabilityOrderID       int64
 	draft                    *salesapp.EmployeeOrderDraft
 	draftSave                salesapp.SaveEmployeeOrderDraftCommand
 	draftSaveError           error
@@ -67,9 +90,13 @@ func (f *miniEmployeeSalesFake) OrderForm(_ context.Context, editID int64) (sale
 	f.orderFormCalls++
 	f.orderFormEditID = editID
 	if f.orderFormResult != nil {
-		return *f.orderFormResult, nil
+		result := *f.orderFormResult
+		if editID > 0 && result.EditData == nil {
+			result.EditData = &salesapp.OrderEditData{ID: editID, CustomerID: 8}
+		}
+		return result, nil
 	}
-	return salesapp.OrderFormData{
+	result := salesapp.OrderFormData{
 		Today: "2026-07-30",
 		Customers: []salesapp.CustomerOption{{
 			ID: 8, Name: "客户A", Contact: "收货人A", Phone: "13800000000",
@@ -80,16 +107,37 @@ func (f *miniEmployeeSalesFake) OrderForm(_ context.Context, editID int64) (sale
 			Name: "乌拉嘎 227g", SKUName: "227g袋装", SKUCode: "WLG-227", SpecLabel: "227g",
 			NetContentQty: 227, NetContentUnit: "g", ProductKind: "roasted_bean",
 			Tiers: []salesapp.ProductTierOption{{
-				ID: 11, UnitPrice: 68, PublicationID: 901, QuantityBasis: "sales_spec_count",
+				ID: 11, UnitPrice: 68, PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial",
+				PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`, QuantityBasis: "sales_spec_count",
 				EffectiveSalesSpec: map[string]any{"sku_id": float64(551), "spec_label": "227g", "sales_unit": "袋"},
 			}},
 		}},
-	}, nil
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	if editID > 0 {
+		result.EditData = &salesapp.OrderEditData{ID: editID, CustomerID: 8}
+	}
+	return result, nil
 }
 func (f *miniEmployeeSalesFake) SaveOrder(_ context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	f.saveCalls++
 	f.save = cmd
+	if f.saveError != nil {
+		return salesapp.SaveOrderResult{}, f.saveError
+	}
 	return salesapp.SaveOrderResult{OrderID: 9, OrderNo: "SO-9"}, nil
+}
+
+func (f *miniEmployeeSalesFake) OrderEditability(_ context.Context, orderID int64) (salesapp.OrderEditability, error) {
+	f.editabilityCalls++
+	f.editabilityOrderID = orderID
+	if f.editabilityError != nil {
+		return salesapp.OrderEditability{}, f.editabilityError
+	}
+	if f.editability.BlockReason == "" && !f.editability.CanEdit {
+		return salesapp.OrderEditability{CanEdit: true}, nil
+	}
+	return f.editability, nil
 }
 
 func (f *miniEmployeeSalesFake) GetEmployeeOrderDraft(_ context.Context, employeeID int64) (*salesapp.EmployeeOrderDraft, error) {
@@ -282,7 +330,7 @@ func TestMiniEmployeeOrderDetailReturnsExplicitWebParityDTOAfterScopedLookup(t *
 		CreatedByEmployee: "销售甲", Notes: "订单备注", InvoiceStatus: "uploaded", InvoiceFilename: "invoice.pdf", InvoiceFileURL: "/assets/invoice.pdf",
 	}
 	form := salesapp.OrderFormData{EditData: &salesapp.OrderEditData{
-		ID: 42, OrderNo: "SO-42", DocumentDate: "2026-08-01", OrderDate: "2026-07-31", CustomerID: 8,
+		ID: 42, EditRevision: "rev-42", OrderNo: "SO-42", DocumentDate: "2026-08-01", OrderDate: "2026-07-31", CustomerID: 8,
 		SourceID: 1, OrderTypeID: 2, PayStatusID: 3, PaymentMethod: "银行转账", ShipStatusID: 4,
 		ShipMethod: "顺丰", ShipTrackingNo: "SF123", LogisticsCompanyID: 10, LogisticsProductID: 11,
 		PaymentGoodsAmount: "136.00", PaymentShippingAmount: "12.00", ResponsibleType: "employee", ResponsibleID: 7, ResponsibleName: "销售甲",
@@ -316,9 +364,11 @@ func TestMiniEmployeeOrderDetailReturnsExplicitWebParityDTOAfterScopedLookup(t *
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	for _, want := range []string{
-		`"order":{"id":42,"order_no":"SO-42"`, `"customer":"客户A"`, `"source_id":1`, `"order_type":"批发"`,
+		`"can_edit":true`, `"edit_block_reason":""`,
+		`"order":{"id":42,"edit_revision":"rev-42","order_no":"SO-42"`, `"customer":"客户A"`, `"source_id":1`, `"order_type":"批发"`,
 		`"payment_goods_amount":"136.00"`, `"receiver_address":"上海市测试路1号"`, `"outsource_total_fee":"21.00"`,
-		`"items":[{"item_id":51,"line_no":1,"product_id":551`, `"line_total":"136.00"`, `"price_override":false`,
+		`"discount_amount":"6.00"`, `"order_discount_amount":"0.00"`,
+		`"items":[{"item_id":51,"line_no":1,"product_id":551`, `"customer_product_alias_id":201`, `"line_total":"136.00"`, `"price_override":false`,
 		`"quote_source_trace":[{"product_id":551`, `"price_list_publication_id":91`, `"source_label":"已发布商品价格表快照"`,
 		`"production_source_trace":[{"product_id":551`, `"work_order_no":"WO-42"`, `"bom_version_no":"BOM-V2"`,
 		`"documents":{`, `"sales_order_pdf"`, `"sales_order_png"`, `"delivery_note_pdf"`, `"delivery_note_png"`,
@@ -332,6 +382,44 @@ func TestMiniEmployeeOrderDetailReturnsExplicitWebParityDTOAfterScopedLookup(t *
 	}
 	if sales.orderFormCalls != 1 || sales.orderFormEditID != 42 {
 		t.Fatalf("order form calls=%d edit_id=%d", sales.orderFormCalls, sales.orderFormEditID)
+	}
+	if sales.editabilityCalls != 1 || sales.editabilityOrderID != 42 {
+		t.Fatalf("editability calls=%d order_id=%d", sales.editabilityCalls, sales.editabilityOrderID)
+	}
+}
+
+func TestMiniEmployeeHeaderDiscountAmountSubtractsLineDiscounts(t *testing.T) {
+	ed := &salesapp.OrderEditData{
+		DiscountAmount: "12.50",
+		Items: []salesapp.OrderEditItem{
+			{DiscountAmount: "2.25"},
+			{DiscountAmount: "3.25"},
+		},
+	}
+	if got := miniEmployeeHeaderDiscountAmount(ed); got != "7.00" {
+		t.Fatalf("header discount=%q want 7.00", got)
+	}
+	ed.DiscountAmount = "4.00"
+	if got := miniEmployeeHeaderDiscountAmount(ed); got != "0.00" {
+		t.Fatalf("legacy inconsistent discount must clamp at zero, got %q", got)
+	}
+}
+
+func TestMiniEmployeeOrderDetailReturnsPreProductionEditBlockReason(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", ProcessStatus: "生产中"}}}
+	form := salesapp.OrderFormData{EditData: &salesapp.OrderEditData{ID: 42, OrderNo: "SO-42"}}
+	sales := &miniEmployeeSalesFake{
+		listResult: &result, orderFormResult: &form,
+		editability: salesapp.OrderEditability{CanEdit: false, BlockReason: "订单已进入生产流程，不能再编辑"},
+	}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/orders/42", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"can_edit":false`) || !strings.Contains(rec.Body.String(), `"edit_block_reason":"订单已进入生产流程，不能再编辑"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -452,6 +540,33 @@ func TestMiniEmployeeOrderDetailDoesNotAdvertiseMissingFormalFiles(t *testing.T)
 	}
 	if response.Documents.SalesOrderPDF.Available || response.Documents.SalesOrderPNG.Available || response.Documents.DeliveryNotePDF.Available || response.Documents.DeliveryNotePNG.Available {
 		t.Fatalf("missing files advertised as available: %+v", response.Documents)
+	}
+}
+
+func TestMiniEmployeeOrderDetailDoesNotReuseInvalidatedDocumentVersions(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42"}}}
+	form := salesapp.OrderFormData{EditData: &salesapp.OrderEditData{ID: 42, OrderNo: "SO-42"}}
+	sales := &miniEmployeeSalesFake{
+		listResult: &result, orderFormResult: &form,
+		salesOrderDocuments:   []salesapp.SalesOrderDocument{{ID: 2, OrderID: 42, PDFAssetID: 20, IsLatest: false}},
+		salesOrderImages:      []salesapp.SalesOrderImageDocument{{ID: 3, OrderID: 42, ImageAssetID: 30, IsLatest: false}},
+		deliveryNoteDocuments: []salesapp.DeliveryNoteDocument{{ID: 5, OrderID: 42, PDFAssetID: 50, ImageAssetID: 51, IsLatest: false}},
+	}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/orders/42", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response miniEmployeeOrderDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Documents.SalesOrderPDF.Available || response.Documents.SalesOrderPNG.Available || response.Documents.DeliveryNotePDF.Available || response.Documents.DeliveryNotePNG.Available || sales.documentLoadCalls != 0 {
+		t.Fatalf("invalidated documents reused: %+v loads=%d", response.Documents, sales.documentLoadCalls)
 	}
 }
 
@@ -728,7 +843,7 @@ func miniEmployeeDocumentTestFile(t *testing.T, name, body string) string {
 func TestMiniEmployeeOrderFormSeparatesProductAndSpecsAndReturnsShippingDefaults(t *testing.T) {
 	e := echo.New()
 	registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{})
-	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/order-form", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/order-form?customer_id=8", nil)
 	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -792,6 +907,87 @@ func TestMiniEmployeeOrderFormSeparatesProductAndSpecsAndReturnsShippingDefaults
 	}
 }
 
+func TestMiniEmployeeOrderFormRequiresCustomerBeforeReturningProducts(t *testing.T) {
+	e := echo.New()
+	registerMiniEmployeeAPI(e, employeePortalService(), &miniEmployeeSalesFake{})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/order-form", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Products        []salesapp.ProductOption `json:"products"`
+		ProductFamilies []map[string]any         `json:"product_families"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Products) != 0 || len(response.ProductFamilies) != 0 {
+		t.Fatalf("unscoped form leaked products: %+v", response)
+	}
+}
+
+func TestMiniEmployeeOrderFormRejectsUnknownCustomer(t *testing.T) {
+	e := echo.New()
+	sales := &miniEmployeeSalesFake{}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/order-form?customer_id=999", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "客户不存在") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderFormKeepsOnlyCurrentDefaultPublishedCatalog(t *testing.T) {
+	e := echo.New()
+	sales := &miniEmployeeSalesFake{orderFormResult: &salesapp.OrderFormData{
+		Today:     "2026-08-02",
+		Customers: []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products: []salesapp.ProductOption{
+			{ID: 551, SKUID: 551, ParentProductID: 550, ParentProductName: "乌拉嘎", Name: "乌拉嘎 227g", ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{
+				{ID: 11, PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`},
+				{ID: 10, PublicationID: 900, PublicationVersionNo: "V9.0", ListType: "commercial", UnitPrice: 66, PriceSourceJSON: `{"publication_id":900,"list_type":"commercial"}`},
+			}},
+			{ID: 626, SKUID: 626, ParentProductID: 626, ParentProductName: "红岩", Name: "红岩", ProductKind: "roasted_bean", Visibility: "public"},
+			{ID: 888, SKUID: 888, ParentProductID: 626, ParentProductName: "红岩", Name: "红岩 227g", ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{ID: 20, PublicationID: 900, PublicationVersionNo: "V9.0", ListType: "commercial", UnitPrice: 60, PriceSourceJSON: `{"publication_id":900,"list_type":"commercial"}`}}},
+			{ID: 777, SKUID: 777, ParentProductID: 777, ParentProductName: "旧生豆", Name: "旧生豆", ProductKind: "green_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{ID: 30, PublicationID: 300, PublicationVersionNo: "G3", ListType: "green", UnitPrice: 40, PriceSourceJSON: `{"publication_id":300,"list_type":"green"}`}}},
+		},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{
+			{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true},
+			{CustomerID: 8, ListType: "commercial", ID: 900, VersionNo: "V9.0", IsDefault: false},
+		},
+		CustomerPublicUsages: []salesapp.CustomerPublicUsageOption{{CustomerID: 8, UsePublicSKU: true}},
+	}}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/order-form?customer_id=8", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Products        []salesapp.ProductOption `json:"products"`
+		ProductFamilies []struct {
+			Name  string           `json:"name"`
+			Specs []map[string]any `json:"specs"`
+		} `json:"product_families"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Products) != 1 || response.Products[0].ID != 551 || len(response.Products[0].Tiers) != 1 || response.Products[0].Tiers[0].PublicationID != 901 {
+		t.Fatalf("products=%+v", response.Products)
+	}
+	if len(response.ProductFamilies) != 1 || response.ProductFamilies[0].Name != "乌拉嘎" || len(response.ProductFamilies[0].Specs) != 1 || strings.Contains(rec.Body.String(), "红岩") || strings.Contains(rec.Body.String(), "旧生豆") {
+		t.Fatalf("families=%+v body=%s", response.ProductFamilies, rec.Body.String())
+	}
+}
+
 func TestMiniEmployeeProductFamiliesFallBackToParentAndSKUFields(t *testing.T) {
 	families := salesapp.BuildOrderProductFamilies([]salesapp.ProductOption{
 		{ID: 550, ParentProductID: 550, ParentProductName: "乌拉嘎", Name: "乌拉嘎"},
@@ -841,6 +1037,7 @@ func TestMiniEmployeeOrderListAndCreateWithoutTokenStopBeforeSales(t *testing.T)
 		{method: http.MethodPost, path: "/api/mini/employee/orders/42/documents/sales-order.png"},
 		{method: http.MethodPost, path: "/api/mini/employee/orders/42/documents/delivery-note.pdf"},
 		{method: http.MethodPost, path: "/api/mini/employee/orders", body: `{}`},
+		{method: http.MethodPut, path: "/api/mini/employee/orders/42", body: `{}`},
 	} {
 		req := httptest.NewRequest(request.method, request.path, strings.NewReader(request.body))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -924,7 +1121,12 @@ func TestMiniEmployeeOrderFormHidesMaintainActionWithoutCustomerPermissions(t *t
 
 func TestMiniEmployeeOrderCreateLeavesResponsibilityToCustomerArchive(t *testing.T) {
 	e := echo.New()
-	sales := &miniEmployeeSalesFake{}
+	form := salesapp.OrderFormData{
+		Customers:              []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products:               []salesapp.ProductOption{{ID: 3, ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	sales := &miniEmployeeSalesFake{orderFormResult: &form}
 	registerMiniEmployeeAPI(e, employeePortalService(), sales)
 	body := `{"order_date":"2026-07-30","customer_id":8,"items":[{"product_id":3,"name":"咖啡豆","qty":2,"spec_g":454,"unit_price":68}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders", strings.NewReader(body))
@@ -935,16 +1137,24 @@ func TestMiniEmployeeOrderCreateLeavesResponsibilityToCustomerArchive(t *testing
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"order_no":"SO-9"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if sales.save.ResponsibleID != 0 || sales.save.ResponsibleType != "" || sales.save.DraftEmployeeID != 7 || !sales.save.OrderDate.Equal(time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)) {
+	if sales.save.ResponsibleID != 0 || sales.save.ResponsibleType != "" || sales.save.DraftEmployeeID != 7 || !sales.save.RequireCurrentDefaultPublications || !sales.save.OrderDate.Equal(time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("save=%+v", sales.save)
 	}
 }
 
 func TestMiniEmployeeOrderCreateMapsEverySubmittedItem(t *testing.T) {
 	e := echo.New()
-	sales := &miniEmployeeSalesFake{}
+	form := salesapp.OrderFormData{
+		Customers: []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products: []salesapp.ProductOption{
+			{ID: 3, CustomerID: 8, CustomerProductAliasID: 201, ProductKind: "roasted_bean", Visibility: "customer_alias", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}},
+			{ID: 4, CustomerID: 8, CustomerProductAliasID: 202, ProductKind: "roasted_bean", Visibility: "customer_alias", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 88, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}},
+		},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	sales := &miniEmployeeSalesFake{orderFormResult: &form}
 	registerMiniEmployeeAPI(e, employeePortalService(), sales)
-	body := `{"order_date":"2026-08-01","customer_id":8,"items":[{"product_id":3,"customer_product_alias_id":201,"name":"咖啡豆A","qty":2,"spec_g":227,"unit_price":68},{"product_id":4,"customer_product_alias_id":202,"name":"咖啡豆B","qty":3,"spec_g":454,"unit_price":88}]}`
+	body := `{"order_date":"2026-08-01","customer_id":8,"items":[{"product_id":3,"customer_product_alias_id":201,"name":"咖啡豆A","qty":2,"spec_g":227,"unit_price":68,"price_override":true},{"product_id":4,"customer_product_alias_id":202,"name":"咖啡豆B","qty":3,"spec_g":454,"unit_price":88,"price_override":true}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders", strings.NewReader(body))
 	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -955,6 +1165,362 @@ func TestMiniEmployeeOrderCreateMapsEverySubmittedItem(t *testing.T) {
 	}
 	if sales.saveCalls != 1 || len(sales.save.Items) != 2 || sales.save.Items[0].Units != 2 || sales.save.Items[1].Units != 3 || sales.save.Items[0].CustomerProductAliasID != 201 || sales.save.Items[1].CustomerProductAliasID != 202 || sales.save.Items[0].ManualPrice == nil || *sales.save.Items[0].ManualPrice != 68 || sales.save.Items[1].ManualPrice == nil || *sales.save.Items[1].ManualPrice != 88 {
 		t.Fatalf("save calls=%d items=%+v", sales.saveCalls, sales.save.Items)
+	}
+}
+
+func TestMiniEmployeeOrderCreateRejectsProductOutsideCurrentDefaultCatalog(t *testing.T) {
+	e := echo.New()
+	sales := &miniEmployeeSalesFake{}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{"order_date":"2026-08-02","customer_id":8,"items":[{"product_id":626,"parent_product_id":626,"name":"红岩","qty":1,"spec_g":227,"unit_price":68,"price_override":true}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || sales.saveCalls != 0 || !strings.Contains(rec.Body.String(), "当前价格表") {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderCreateDoesNotExposeUnknownPersistenceError(t *testing.T) {
+	e := echo.New()
+	sales := &miniEmployeeSalesFake{saveError: errors.New(`ERROR: relation private_table does not exist (SQLSTATE 42P01)`)}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{"order_date":"2026-08-02","customer_id":8,"items":[{"product_id":551,"parent_product_id":550,"qty":1,"spec_g":227,"bean_list_publication_id":901,"bean_list_version_no":"V9.1","price_source_json":"{\"publication_id\":901,\"list_type\":\"commercial\"}"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError || sales.saveCalls != 1 || strings.Contains(rec.Body.String(), "private_table") || strings.Contains(rec.Body.String(), "SQLSTATE") {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderCreateMapsInvalidEditableAmountsToSafeBadRequest(t *testing.T) {
+	form := salesapp.OrderFormData{
+		Customers:              []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products:               []salesapp.ProductOption{{ID: 551, ParentProductID: 550, ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	tests := []struct {
+		name      string
+		field     string
+		saveError error
+		want      string
+	}{
+		{name: "negative shipping", field: `"shipping_amount":-0.01`, saveError: salesapp.ErrInvalidShippingAmount, want: "运费金额不能小于 0"},
+		{name: "negative discount", field: `"discount_amount":-0.01`, saveError: salesapp.ErrInvalidDiscountAmount, want: "整单优惠不能小于 0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := echo.New()
+			sales := &miniEmployeeSalesFake{orderFormResult: &form, saveError: tt.saveError}
+			registerMiniEmployeeAPI(e, employeePortalService(), sales)
+			body := `{"order_date":"2026-08-02","customer_id":8,` + tt.field + `,"items":[{"product_id":551,"parent_product_id":550,"qty":1,"spec_g":227,"bean_list_publication_id":901,"bean_list_version_no":"V9.1"}]}`
+			req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders", strings.NewReader(body))
+			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || sales.saveCalls != 1 || !strings.Contains(rec.Body.String(), tt.want) {
+				t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestMiniEmployeeOrderUpdateMapsFullPreProductionCommand(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	form := salesapp.OrderFormData{
+		Customers: []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products: []salesapp.ProductOption{
+			{ID: 551, SKUID: 551, ParentProductID: 550, CustomerID: 8, CustomerProductAliasID: 201, ProductKind: "roasted_bean", Visibility: "customer_alias", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}},
+			{ID: 552, SKUID: 552, ParentProductID: 550, ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 88, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}},
+		},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{
+		"order_date":"2026-08-02","customer_id":8,"source_id":1,"order_type_id":2,"pay_status_id":3,"ship_status_id":4,
+		"shipping_amount":12.5,"discount_amount":3.5,
+		"receiver_name":"新收件人","receiver_phone":"13900000000","receiver_address":"杭州市新地址","receiver_company":"新公司","notes":"修改备注",
+		"items":[
+			{"product_id":551,"parent_product_id":550,"customer_product_alias_id":201,"name":"客户乌拉嘎","qty":2,"unit":"袋","spec_g":227,"product_kind":"roasted_bean","sales_unit":"bag","unit_price":68,"bean_list_publication_id":901,"bean_list_version_no":"V9.1","price_source_json":"{\"publication_id\":901,\"list_type\":\"commercial\"}","price_override":false},
+			{"product_id":552,"parent_product_id":550,"name":"乌拉嘎 454g","qty":1,"unit":"袋","spec_g":454,"product_kind":"roasted_bean","sales_unit":"bag","unit_price":88,"bean_list_publication_id":901,"bean_list_version_no":"V9.1","price_override":true}
+		]
+	}`
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"order_id":9`) || !strings.Contains(rec.Body.String(), `"order_no":"SO-9"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	cmd := sales.save
+	if sales.saveCalls != 1 || cmd.EditID != 42 || !cmd.RequirePreProductionEdit || !cmd.RequireCurrentDefaultPublications || cmd.DraftEmployeeID != 0 || cmd.Actor != "mini-employee:7:销售甲" {
+		t.Fatalf("save calls=%d command=%+v", sales.saveCalls, cmd)
+	}
+	if cmd.ShippingAmount != 12.5 || cmd.DiscountAmount != 3.5 || cmd.ReceiverName != "新收件人" || cmd.ReceiverPhone != "13900000000" || cmd.ReceiverAddress != "杭州市新地址" || cmd.ReceiverCompany != "新公司" || cmd.Notes != "修改备注" {
+		t.Fatalf("header command=%+v", cmd)
+	}
+	if len(cmd.Items) != 2 || cmd.Items[0].ProductID == nil || *cmd.Items[0].ProductID != 551 || cmd.Items[0].ParentProductID != 550 || cmd.Items[0].CustomerProductAliasID != 201 || cmd.Items[0].BeanListPublicationID != 901 || cmd.Items[0].BeanListVersionNo != "V9.1" || cmd.Items[0].PriceSourceJSON == "" {
+		t.Fatalf("first item=%+v", cmd.Items)
+	}
+	if cmd.Items[0].ManualPrice != nil || cmd.Items[1].ManualPrice == nil || *cmd.Items[1].ManualPrice != 88 {
+		t.Fatalf("price override mapping=%+v", cmd.Items)
+	}
+}
+
+func TestMiniEmployeeOrderUpdatePreservesEveryHiddenHeaderAndItemField(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	form := salesapp.OrderFormData{
+		Customers: []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products: []salesapp.ProductOption{{
+			ID: 551, SKUID: 551, ParentProductID: 550, ProductKind: "roasted_bean", Visibility: "public",
+			Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}},
+		}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+		EditData: &salesapp.OrderEditData{
+			ID: 42, EditRevision: "rev-hidden", CustomerID: 8, DocumentDate: "2026-07-31", OrderDate: "2026-07-30", SourceID: 11, OrderTypeID: 12,
+			PayStatusID: 13, PaymentMethod: "bank_transfer", ShipStatusID: 14,
+			ShipMethod: "sf_large", ShipTrackingNo: "SF123456", LogisticsCompanyID: 15, LogisticsProductID: 16,
+			PaymentGoodsAmount: "321.50", PaymentShippingAmount: "18.25", PaymentVoucherAssetID: 17,
+			ResponsibleType: "employee", ResponsibleID: 18, ResponsibleName: "原负责人",
+			PortalServiceCode: "product_order", SourceWarehouse: "finished_goods",
+			BeanListPublicationID: 901, BeanListVersionNo: "V9.1",
+			RoundToInt: true, ExpressFee: "23.80",
+			OutsourceMaterialFee: "1.10", OutsourceRoastFee: "2.20", OutsourcePackagingFee: "3.30",
+			OutsourceManualFee: "4.40", OutsourceTaxFee: "5.50", OutsourceOtherFee: "6.60",
+			Items: []salesapp.OrderEditItem{{
+				ItemID: 51, ProductID: 552, CustomerProductAliasID: 0, BeanListPublicationID: 901, BeanListVersionNo: "V9.1",
+				Note: "保留行备注", DiscountType: "percent", DiscountValue: "7.5",
+				CustomerProductDisplayNameSnapshot: "旧客户商品名", CustomerItemCodeSnapshot: "OLD-551", BrandNameSnapshot: "旧品牌",
+				ProductCodeSnapshot: "SKU-551", ProductNameSnapshot: "乌拉嘎 227g",
+			}},
+		},
+	}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{
+		"edit_revision":"rev-hidden","order_date":"2026-08-02","customer_id":8,
+		"shipping_amount":12.5,"discount_amount":3.5,
+		"receiver_name":"新收件人","receiver_phone":"13900000000","receiver_address":"杭州市新地址","receiver_company":"新公司","notes":"新订单备注",
+		"items":[{"product_id":551,"parent_product_id":550,"qty":2,"unit":"袋","spec_g":227,"sales_unit":"bag","unit_price":68,"bean_list_publication_id":901,"bean_list_version_no":"V9.1","price_source_json":"{\"publication_id\":901,\"list_type\":\"commercial\"}"}]
+	}`
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	cmd := sales.save
+	if cmd.ExpectedEditRevision != "rev-hidden" {
+		t.Fatalf("repository edit revision=%q", cmd.ExpectedEditRevision)
+	}
+	if cmd.DocumentDate.Format("2006-01-02") != "2026-07-31" || cmd.OrderDate.Format("2006-01-02") != "2026-08-02" {
+		t.Fatalf("document/order dates were not separated: document=%s order=%s", cmd.DocumentDate.Format("2006-01-02"), cmd.OrderDate.Format("2006-01-02"))
+	}
+	if cmd.SourceID != 11 || cmd.OrderTypeID != 12 || cmd.PayStatusID != 13 || cmd.PaymentMethod != "bank_transfer" || cmd.ShipStatusID != 14 || cmd.ShipMethod != "sf_large" || cmd.ShipTrackingNo != "SF123456" {
+		t.Fatalf("status/payment/shipping fields lost: %+v", cmd)
+	}
+	if cmd.LogisticsCompanyID != 15 || cmd.LogisticsProductID != 16 || cmd.PaymentGoodsAmount != 321.5 || cmd.PaymentShippingAmount != 18.25 || cmd.PaymentVoucherAssetID != 17 {
+		t.Fatalf("logistics/payment fields lost: %+v", cmd)
+	}
+	if !cmd.RoundToInt || cmd.ExpressFee != "23.80" || cmd.OutsourceMaterialFee != 1.1 || cmd.OutsourceRoastFee != 2.2 || cmd.OutsourcePackagingFee != 3.3 || cmd.OutsourceManualFee != 4.4 || cmd.OutsourceTaxFee != 5.5 || cmd.OutsourceOtherFee != 6.6 {
+		t.Fatalf("rounding/fee fields lost: %+v", cmd)
+	}
+	if cmd.ResponsibleType != "employee" || cmd.ResponsibleID != 18 || cmd.ResponsibleName != "原负责人" || !cmd.PreserveResponsibleSnapshot || cmd.PortalServiceCode != "product_order" || cmd.SourceWarehouse != "finished_goods" || !cmd.PreserveFulfillmentSnapshot || cmd.BeanListPublicationID != 901 || cmd.CommercialBeanListPublicationID != 901 {
+		t.Fatalf("responsible/portal/publication fields lost: %+v", cmd)
+	}
+	if cmd.ShippingAmount != 12.5 || cmd.DiscountAmount != 3.5 || cmd.ReceiverName != "新收件人" || cmd.ReceiverPhone != "13900000000" || cmd.ReceiverAddress != "杭州市新地址" || cmd.ReceiverCompany != "新公司" || cmd.Notes != "新订单备注" {
+		t.Fatalf("explicit editable fields not authoritative: %+v", cmd)
+	}
+	if len(cmd.Items) != 1 || cmd.Items[0].Note != "保留行备注" || cmd.Items[0].DiscountType != "percent" || cmd.Items[0].DiscountValue != 7.5 {
+		t.Fatalf("hidden item fields lost: %+v", cmd.Items)
+	}
+}
+
+func TestMiniEmployeeOrderUpdateUsesExplicitEditableZeroAndEmptyValues(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	form := salesapp.OrderFormData{
+		Customers:              []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products:               []salesapp.ProductOption{{ID: 551, ParentProductID: 550, ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+		EditData: &salesapp.OrderEditData{
+			ID: 42, CustomerID: 8, ShippingAmount: "99.00", DiscountAmount: "10.00",
+			ReceiverName: "旧收件人", ReceiverPhone: "13800000000", ReceiverAddress: "旧地址", ReceiverCompany: "旧公司", Notes: "旧备注",
+			Items: []salesapp.OrderEditItem{{ItemID: 51, ProductID: 551, BeanListPublicationID: 901}},
+		},
+	}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{"order_date":"2026-08-02","customer_id":8,"shipping_amount":0,"discount_amount":0,"receiver_name":"","receiver_phone":"","receiver_address":"","receiver_company":"","notes":"","items":[{"product_id":551,"parent_product_id":550,"qty":1,"unit":"袋","spec_g":227,"sales_unit":"bag","unit_price":68,"bean_list_publication_id":901,"bean_list_version_no":"V9.1"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	cmd := sales.save
+	if cmd.ShippingAmount != 0 || cmd.DiscountAmount != 0 || cmd.ReceiverName != "" || cmd.ReceiverPhone != "" || cmd.ReceiverAddress != "" || cmd.ReceiverCompany != "" || cmd.Notes != "" {
+		t.Fatalf("explicit zero/empty values were replaced by old values: %+v", cmd)
+	}
+}
+
+func TestMiniEmployeeOrderUpdatePreservesHiddenLineFieldsByItemIDAfterDeleteAndProductChange(t *testing.T) {
+	productID := int64(551)
+	requests := []miniEmployeeOrderItemRequest{{ItemID: 52, ProductID: productID}}
+	commands := []salesapp.OrderItemCommand{{ProductID: &productID}}
+	existing := []salesapp.OrderEditItem{
+		{ItemID: 51, ProductID: 550, Note: "已删除行备注", DiscountType: "fixed", DiscountValue: "1"},
+		{ItemID: 52, ProductID: 552, Note: "应保留行备注", DiscountType: "percent", DiscountValue: "8"},
+	}
+	if err := miniEmployeePreserveHiddenOrderItemFields(requests, commands, existing); err != nil {
+		t.Fatal(err)
+	}
+	if commands[0].Note != "应保留行备注" || commands[0].DiscountType != "percent" || commands[0].DiscountValue != 8 {
+		t.Fatalf("hidden line fields matched the wrong original item: %+v", commands[0])
+	}
+}
+
+func TestMiniEmployeeOrderUpdateRejectsCustomerChange(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	sales := &miniEmployeeSalesFake{listResult: &result}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(`{"order_date":"2026-08-02","customer_id":9,"items":[{"product_id":551,"qty":1}]}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || sales.saveCalls != 0 || !strings.Contains(rec.Body.String(), "不能更换客户") {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderUpdateRejectsStalePageRevisionBeforeSaving(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	form := salesapp.OrderFormData{EditData: &salesapp.OrderEditData{ID: 42, CustomerID: 8, EditRevision: "current-revision"}}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(`{"edit_revision":"stale-revision","order_date":"2026-08-02","customer_id":8,"items":[]}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || sales.saveCalls != 0 || !strings.Contains(rec.Body.String(), "重新打开") {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderUpdateRejectsHistoricalPublication(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	form := salesapp.OrderFormData{
+		Customers: []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products: []salesapp.ProductOption{{
+			ID: 551, SKUID: 551, ParentProductID: 550, ParentProductName: "乌拉嘎", ProductKind: "roasted_bean", Visibility: "public",
+			Tiers: []salesapp.ProductTierOption{
+				{ID: 11, PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`},
+				{ID: 10, PublicationID: 900, PublicationVersionNo: "V9.0", ListType: "commercial", PriceSourceJSON: `{"publication_id":900,"list_type":"commercial"}`},
+			},
+		}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{
+			{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true},
+			{CustomerID: 8, ListType: "commercial", ID: 900, VersionNo: "V9.0", IsDefault: false},
+		},
+	}
+	sales := &miniEmployeeSalesFake{listResult: &result, orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{"order_date":"2026-08-02","customer_id":8,"items":[{"product_id":551,"parent_product_id":550,"name":"乌拉嘎 227g","qty":1,"bean_list_publication_id":900,"bean_list_version_no":"V9.0","price_source_json":"{\"publication_id\":900,\"list_type\":\"commercial\"}"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || sales.saveCalls != 0 || !strings.Contains(rec.Body.String(), "当前价格表") {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderUpdateHidesOutOfScopeOrder(t *testing.T) {
+	e := echo.New()
+	empty := salesapp.OrderListResult{}
+	sales := &miniEmployeeSalesFake{listResult: &empty}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(`{"order_date":"2026-08-02","customer_id":8,"items":[]}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || sales.saveCalls != 0 {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderUpdateMapsProductionConflictTo409(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	sales := &miniEmployeeSalesFake{
+		listResult: &result,
+		saveError:  salesapp.NewOrderEditConflictError("订单已进入生产流程，不能再编辑"),
+	}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(`{"order_date":"2026-08-02","customer_id":8,"items":[{"product_id":551,"qty":1,"spec_g":227,"unit_price":68,"price_override":true}]}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || sales.saveCalls != 1 || !strings.Contains(rec.Body.String(), "订单已进入生产流程，不能再编辑") {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderUpdateMapsUnknownPersistenceErrorToGeneric500(t *testing.T) {
+	e := echo.New()
+	result := salesapp.OrderListResult{Rows: []salesapp.OrderRow{{ID: 42, OrderNo: "SO-42", CustomerID: 8}}}
+	sales := &miniEmployeeSalesFake{
+		listResult: &result,
+		saveError:  errors.New(`ERROR: column oi.private_schema_detail does not exist (SQLSTATE 42703)`),
+	}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(`{"order_date":"2026-08-02","customer_id":8,"items":[{"product_id":551,"parent_product_id":550,"qty":1,"spec_g":227,"bean_list_publication_id":901,"bean_list_version_no":"V9.1","price_source_json":"{\"publication_id\":901,\"list_type\":\"commercial\"}"}]}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError || sales.saveCalls != 1 {
+		t.Fatalf("status=%d save_calls=%d body=%s", rec.Code, sales.saveCalls, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "private_schema_detail") || strings.Contains(rec.Body.String(), "SQLSTATE") {
+		t.Fatalf("persistence details leaked: %s", rec.Body.String())
+	}
+}
+
+func TestMiniEmployeeOrderUpdateRequiresWritePermission(t *testing.T) {
+	e := echo.New()
+	portal := fakeService{me: customerportalapp.CurrentContext{AccountType: "employee", EmployeeID: 7, Roles: []string{"sales"}, Permissions: []string{"orders.read"}}}
+	sales := &miniEmployeeSalesFake{}
+	registerMiniEmployeeAPI(e, portal, sales)
+	req := httptest.NewRequest(http.MethodPut, "/api/mini/employee/orders/42", strings.NewReader(`{}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || sales.listCalls != 0 || sales.saveCalls != 0 {
+		t.Fatalf("status=%d list_calls=%d save_calls=%d body=%s", rec.Code, sales.listCalls, sales.saveCalls, rec.Body.String())
 	}
 }
 
