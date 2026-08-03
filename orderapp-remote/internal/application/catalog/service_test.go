@@ -1619,3 +1619,119 @@ func TestAutoDerivedSKUUsesDirectSalesSpecUnitConversionWhenUnitsMatch(t *testin
 		t.Fatalf("conversionJSON = %s, want direct sales spec conversion", conversionJSON)
 	}
 }
+
+func TestResolvePriceTableTemplateInheritanceWalksAllAncestorsAndKeepsFixedPriceOnConcreteProduct(t *testing.T) {
+	got := ResolvePriceTableTemplateInheritance(PriceTableTemplateResolutionInput{
+		DefaultPricingMode:    "tier_template",
+		DefaultTierTemplateID: 90,
+		DefaultFixedUnitPrice: 999,
+		GroupAssignments: []PriceTableGroupTemplateAssignment{
+			{GroupItemID: 10, PricingMode: "fixed_price", FixedUnitPrice: 777},
+			{GroupItemID: 20, ParentGroupItemID: 10},
+			{GroupItemID: 30, ParentGroupItemID: 20},
+			{GroupItemID: 40, ParentGroupItemID: 30},
+		},
+		ProductOverrides: []PriceTableProductTemplateOverride{{ProductID: 401, FixedUnitPrice: 86}},
+		ProductID:        401,
+		GroupItemID:      40,
+	})
+
+	if got.PricingMode != "fixed_price" || got.PricingModeSource != "parent_group" {
+		t.Fatalf("mode = %q from %q, want inherited fixed_price from ancestor", got.PricingMode, got.PricingModeSource)
+	}
+	if got.FixedUnitPrice != 86 || got.FixedUnitPriceSource != "sku" {
+		t.Fatalf("fixed price = %v from %q, want concrete product amount 86", got.FixedUnitPrice, got.FixedUnitPriceSource)
+	}
+}
+
+func TestResolvePriceTableTemplateInheritanceSeparatesParentMethodFromSKUAmounts(t *testing.T) {
+	input := PriceTableTemplateResolutionInput{
+		DefaultPricingMode: "tier_template",
+		ProductOverrides: []PriceTableProductTemplateOverride{
+			{Scope: "parent_product", ProductID: 400, ParentProductID: 400, PricingMode: "fixed_price"},
+			// Legacy fixed-only SKU rows had no explicit scope; they must not
+			// erase the modern parent-product pricing method.
+			{ProductID: 401, SKUID: 401, ParentProductID: 400, FixedUnitPrice: 86},
+			{Scope: "sku", ProductID: 402, SKUID: 402, ParentProductID: 400, FixedUnitPrice: 118},
+		},
+		ParentProductID: 400,
+	}
+
+	input.ProductID = 401
+	first := ResolvePriceTableTemplateInheritance(input)
+	input.ProductID = 402
+	second := ResolvePriceTableTemplateInheritance(input)
+
+	if first.PricingMode != "fixed_price" || first.PricingModeSource != "product" || first.FixedUnitPrice != 86 {
+		t.Fatalf("first resolution = %+v, want parent fixed method and SKU amount 86", first)
+	}
+	if second.PricingMode != "fixed_price" || second.PricingModeSource != "product" || second.FixedUnitPrice != 118 {
+		t.Fatalf("second resolution = %+v, want parent fixed method and SKU amount 118", second)
+	}
+}
+
+func TestResolvePriceTableTemplateInheritanceUsesNearestAncestorAndStopsAtCycles(t *testing.T) {
+	got := ResolvePriceTableTemplateInheritance(PriceTableTemplateResolutionInput{
+		DefaultPricingMode:   "tier_template",
+		DefaultPricingRuleID: 91,
+		GroupAssignments: []PriceTableGroupTemplateAssignment{
+			{GroupItemID: 10, ParentGroupItemID: 20, PricingMode: "fixed_price"},
+			{GroupItemID: 20, ParentGroupItemID: 10, PricingMode: "pricing_rule", PricingRuleID: 22},
+			{GroupItemID: 30, ParentGroupItemID: 20},
+		},
+		ProductID:   401,
+		GroupItemID: 30,
+	})
+
+	if got.PricingMode != "pricing_rule" || got.PricingRuleID != 22 || got.PricingModeSource != "parent_group" {
+		t.Fatalf("resolution = %+v, want nearest ancestor pricing rule without looping", got)
+	}
+}
+
+func TestResolvePriceTableTemplateInheritanceDoesNotBorrowMissingTemplateFromFartherLevel(t *testing.T) {
+	got := ResolvePriceTableTemplateInheritance(PriceTableTemplateResolutionInput{
+		DefaultPricingMode:   "pricing_rule",
+		DefaultPricingRuleID: 88,
+		GroupAssignments: []PriceTableGroupTemplateAssignment{
+			{GroupItemID: 10, PricingMode: "pricing_rule", PricingRuleID: 77},
+			{GroupItemID: 20, ParentGroupItemID: 10, PricingMode: "pricing_rule"},
+		},
+		ProductID:   401,
+		GroupItemID: 20,
+	})
+
+	if got.PricingMode != "pricing_rule" || got.PricingRuleID != 0 || got.PricingRuleSource != "subgroup" {
+		t.Fatalf("resolution = %+v, want missing rule at effective subgroup", got)
+	}
+}
+
+func TestResolvePriceTableTemplateInheritanceDoesNotInferModeFromFixedAmount(t *testing.T) {
+	got := ResolvePriceTableTemplateInheritance(PriceTableTemplateResolutionInput{
+		GroupAssignments: []PriceTableGroupTemplateAssignment{
+			{GroupItemID: 10},
+			{GroupItemID: 20, ParentGroupItemID: 10},
+		},
+		ProductOverrides: []PriceTableProductTemplateOverride{{Scope: "sku", ProductID: 401, SKUID: 401, FixedUnitPrice: 86}},
+		ProductID:        401,
+		GroupItemID:      20,
+	})
+
+	if got.PricingMode != "" || got.FixedUnitPrice != 86 {
+		t.Fatalf("resolution = %+v, want amount preserved without inventing fixed mode", got)
+	}
+}
+
+func TestResolvePriceTableTemplateInheritanceInfersLegacyTemplateModeFromNearestLevel(t *testing.T) {
+	got := ResolvePriceTableTemplateInheritance(PriceTableTemplateResolutionInput{
+		GroupAssignments: []PriceTableGroupTemplateAssignment{
+			{GroupItemID: 10, TierTemplateID: 9},
+			{GroupItemID: 20, ParentGroupItemID: 10, PricingRuleID: 22},
+		},
+		ProductID:   401,
+		GroupItemID: 20,
+	})
+
+	if got.PricingMode != "pricing_rule" || got.PricingModeSource != "subgroup" || got.PricingRuleID != 22 {
+		t.Fatalf("resolution = %+v, want nearest legacy pricing-rule config", got)
+	}
+}

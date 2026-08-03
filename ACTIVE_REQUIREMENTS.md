@@ -3949,6 +3949,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-08-03 16:02 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` failed on the local awk implementation before writing; PR-573 was the reported next id and is reserved here manually. Both environments have application restart count 0, healthy PostgreSQL, login HTTP 200, unauthenticated mini order-form HTTP 401, and clear recent error scans. Formal package is `production`, API base `https://erp.qacoohee.com/app`, manifest 52 files, and contains no `dev.qacoohee.com`. Phone `15302787466` is an active internal employee with admin/sales and order read/write permissions; the reported customer-only home came from a retained customer-persona token. The operator must switch user and use the password-based `员工 / 客户账号` entry; phone quick login intentionally remains a customer login. The formal package still requires manual DevTools upload, review, and WeChat publication.
 
+### PR-574-PRICE-LIST-FIXED-INHERITANCE-GREEN-TEMPLATE
+- Branch: codex/price-list-fixed-inheritance-20260803
+- Owner/session: Codex / 2026-08-03
+- Status: product review / development done / Van acceptance todo
+- Scope: 商品价格表计价方式和模板按商品所在分类的完整祖先链向上继承；商品计价只选择或继承本层计价方式/模板，继承固定价方式时在每个已勾选具体规格行旁分别录入金额；精确迁移旧平铺固定价；删除生豆分类必须挂生豆模板的生成限制和过时提示，并修正父类已有计价方式时仍提示“未设置计价方式”的问题。
+- DEV:
+  - DEV-574-ANCESTOR-PRICING-INHERITANCE：计价方式、阶梯模板和价格计算模板按 `商品 > 当前分类 > 逐级祖先分类（由近到远） > 价格表` 解析；已解析到方式后不再显示“未设置计价方式”，缺少模板或固定金额时显示具体阻断原因。
+  - DEV-574-SKU-FIXED-PRICE-MIGRATION：商品计价只选择或继承本层计价方式/模板；固定价金额在每个已勾选具体规格行旁直接录入且只属于该 SKU。旧平铺键仅在能精确解析为 `${sku_id}:fixed_price` 时一对一回填同一 SKU，已有 SKU 固定价优先，不猜测、不跨兄弟规格复制。
+  - DEV-574-GREEN-BEAN-GENERIC-PRICING：生豆使用通用价格表三种计价方式，不再要求分类挂生豆模板，也不再显示“未挂到带生豆模板的分类”；未完成草稿可继续保留，正式发布仍要求每条平铺价格行最终价大于 0。
+  - DEV-574-DOCS-ACCEPTANCE：同步根目录与线上需求/验收、PR/DEV 种子、成本核算和生豆销售手册及独立验收记录。
+- Verifier:
+  - Unit: 前端 resolver、草稿迁移、固定价校验、警告和工作流定向套件 273/273 GREEN；`go test ./internal/domain/costing ./internal/application/catalog ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1` GREEN。
+  - API/full backend: 成本引擎及豆单 API 不再返回旧 `missing_green_bean_template`；明确固定价为 0 的平铺行继续拒绝发布；`scripts/verify_kferp.sh backend` GREEN。
+  - Frontend/build: `npm run build` GREEN（仅既有 chunk-size warning）；`scripts/verify_kferp.sh changed` 与 `git diff --check` GREEN。
+  - Browser: 本地 mock Vue 页面完成四级分类继承、227g/454g 独立固定价、刷新恢复、旧生豆模板提示消失和缺固定价阻止发布复验；控制台无 warning/error。未使用或改写真实业务数据。
+  - Manual: orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_GREEN_BEAN_SALES.md.
+  - Review/acceptance: REQUIREMENTS.md; ACCEPTANCE_TESTS.md; orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-08-03-price-list-fixed-inheritance-green-template.md.
+- Deployment: not requested and not performed; development and production remain unchanged.
+- Last update: 2026-08-03 Asia/Shanghai
+- Notes: 本需求不新增 schema 或操作日志类型，不迁移或重算历史已发布价格表、PDF、订单和财务快照。旧平铺固定价仅在当前可编辑配置恢复时按精确 SKU 键迁移；无法精确匹配的旧值留待人工修正。
+
 ## Template
 
 ```markdown

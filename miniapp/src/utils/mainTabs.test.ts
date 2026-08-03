@@ -42,6 +42,20 @@ describe('miniapp startup route and main tabs', () => {
     expect(editor).toContain('允许登录客户门户')
   })
 
+  it('lets employees open a personal center and leave a persisted employee session', () => {
+    const home = readSource('src/pages/home/home.vue')
+    const profile = readSource('src/pages/profile/profile.vue')
+
+    expect(home).toContain("{ key: 'employeeProfile', label: '个人中心', url: '/pages/profile/profile' }")
+    expect(profile).toContain("const isEmployee = computed(() => session.accountType === 'employee')")
+    expect(profile).toContain("session.employeeName || '员工'")
+    expect(profile).toContain('当前员工')
+    expect(profile).toContain('v-if="!isEmployee"')
+    expect(profile).toContain('<MainTabBar v-if="!isEmployee" current="mine" />')
+    expect(profile).toContain('切换用户')
+    expect(profile).toContain('退出登录')
+  })
+
   it('routes startup users through reLaunch instead of leaving a blank page', () => {
     const index = readSource('src/pages/index/index.vue')
 
@@ -49,6 +63,17 @@ describe('miniapp startup route and main tabs', () => {
     expect(index).toContain("uni.reLaunch({ url: '/pages/login/login' })")
     expect(index).toContain("uni.reLaunch({ url: '/pages/home/home' })")
     expect(index).not.toContain('redirectTo')
+  })
+
+  it('revalidates a persisted session before rendering its employee or customer persona', () => {
+    const index = readSource('src/pages/index/index.vue')
+    const home = readSource('src/pages/home/home.vue')
+
+    expect(index).toContain("uni.reLaunch({ url: '/pages/home/home' })")
+    expect(home).toContain('fetchMe(session.token)')
+    expect(home).toContain('session.applyContext(response)')
+    expect(home).toContain('session.clearSession()')
+    expect(home).toContain("uni.reLaunch({ url: '/pages/login/login' })")
   })
 
   it('renders four bottom main entries on authenticated top-level pages', () => {
@@ -141,8 +166,12 @@ describe('miniapp startup route and main tabs', () => {
     }
   })
 
-  it('removes top profile links from content pages', () => {
-    for (const path of ['src/pages/home/home.vue', 'src/pages/mall/mall.vue', 'src/pages/service/service.vue']) {
+  it('removes redundant top profile links from content pages', () => {
+    const employeeHome = readSource('src/pages/home/home.vue')
+    expect(employeeHome).not.toContain('profile-link')
+    expect(employeeHome).not.toContain('openProfile')
+
+    for (const path of ['src/pages/mall/mall.vue', 'src/pages/service/service.vue']) {
       const source = readSource(path)
       expect(source).not.toContain('profile-link')
       expect(source).not.toContain('openProfile')

@@ -557,6 +557,17 @@ func (skuBeanListRepo) LoadProductInputs(context.Context, domain.Parameters) ([]
 	}}, nil
 }
 
+type greenBeanWithoutLegacyTemplateRepo struct{ fakeRepo }
+
+func (greenBeanWithoutLegacyTemplateRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
+	return []domain.ProductInput{{
+		ProductID:   912,
+		Name:        "黄波旁水洗生豆",
+		ProductKind: "green_bean",
+		BomStatus:   "missing_green_bean_template",
+	}}, nil
+}
+
 func (fakeRepo) LoadProductPricingRule(context.Context, int64) (appcosting.ProductPricingRule, error) {
 	return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
 }
@@ -680,6 +691,28 @@ func TestBeanListAPIReturnsEmptyItemsWhenCatalogHasNoProducts(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "products required") {
 		t.Fatalf("response must not expose products required: %s", rec.Body.String())
+	}
+}
+
+func TestBeanListAPIGreenBeanWithoutLegacyTemplateDoesNotReportMissingTemplateStatus(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(greenBeanWithoutLegacyTemplateRepo{})})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var body appcosting.CalculateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("items = %+v, want one green bean", body.Items)
+	}
+	if body.Items[0].BomStatus != "" || strings.Contains(rec.Body.String(), "missing_green_bean_template") {
+		t.Fatalf("response must not report the removed legacy-template restriction: %s", rec.Body.String())
 	}
 }
 

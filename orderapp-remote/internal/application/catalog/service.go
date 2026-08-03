@@ -271,6 +271,7 @@ type PriceTableTemplateResolutionInput struct {
 	GroupAssignments      []PriceTableGroupTemplateAssignment
 	ProductOverrides      []PriceTableProductTemplateOverride
 	ProductID             int64
+	ParentProductID       int64
 	GroupItemID           int64
 }
 
@@ -284,12 +285,15 @@ type PriceTableGroupTemplateAssignment struct {
 }
 
 type PriceTableProductTemplateOverride struct {
-	ProductID      int64
-	GroupItemID    int64
-	PricingMode    string
-	TierTemplateID int64
-	PricingRuleID  int64
-	FixedUnitPrice float64
+	Scope           string
+	ProductID       int64
+	SKUID           int64
+	ParentProductID int64
+	GroupItemID     int64
+	PricingMode     string
+	TierTemplateID  int64
+	PricingRuleID   int64
+	FixedUnitPrice  float64
 }
 
 type PriceTableTemplateResolution struct {
@@ -2049,111 +2053,167 @@ func (s *Service) DeletePriceTierTemplate(ctx context.Context, id int64, actor s
 }
 
 func ResolvePriceTableTemplateInheritance(input PriceTableTemplateResolutionInput) PriceTableTemplateResolution {
-	findGroup := func(id int64) (PriceTableGroupTemplateAssignment, bool) {
-		for _, item := range input.GroupAssignments {
-			if item.GroupItemID == id {
-				return item, true
+	groupsByID := make(map[int64]PriceTableGroupTemplateAssignment, len(input.GroupAssignments))
+	for _, item := range input.GroupAssignments {
+		if item.GroupItemID <= 0 {
+			continue
+		}
+		current := groupsByID[item.GroupItemID]
+		current.GroupItemID = item.GroupItemID
+		if current.ParentGroupItemID <= 0 && item.ParentGroupItemID > 0 {
+			current.ParentGroupItemID = item.ParentGroupItemID
+		}
+		if normalizePriceTablePricingMode(current.PricingMode) == "" {
+			current.PricingMode = normalizePriceTablePricingMode(item.PricingMode)
+		}
+		if current.TierTemplateID <= 0 && item.TierTemplateID > 0 {
+			current.TierTemplateID = item.TierTemplateID
+		}
+		if current.PricingRuleID <= 0 && item.PricingRuleID > 0 {
+			current.PricingRuleID = item.PricingRuleID
+		}
+		groupsByID[item.GroupItemID] = current
+	}
+	categoryChain := make([]PriceTableGroupTemplateAssignment, 0, len(groupsByID))
+	visited := make(map[int64]struct{}, len(groupsByID))
+	for id := input.GroupItemID; id > 0; {
+		if _, seen := visited[id]; seen {
+			break
+		}
+		visited[id] = struct{}{}
+		item, ok := groupsByID[id]
+		if !ok {
+			break
+		}
+		categoryChain = append(categoryChain, item)
+		id = item.ParentGroupItemID
+	}
+	var pricingOverride PriceTableProductTemplateOverride
+	var fixedPriceOverride PriceTableProductTemplateOverride
+	for _, item := range input.ProductOverrides {
+		scope := strings.TrimSpace(strings.ToLower(item.Scope))
+		switch scope {
+		case "parent_product", "parent-product":
+			targetParentID := item.ParentProductID
+			if targetParentID <= 0 {
+				targetParentID = item.ProductID
+			}
+			inputParentID := input.ParentProductID
+			if inputParentID <= 0 {
+				inputParentID = input.ProductID
+			}
+			if targetParentID == inputParentID {
+				pricingOverride = item
+			}
+		case "sku", "product_sku":
+			targetSKUID := item.SKUID
+			if targetSKUID <= 0 {
+				targetSKUID = item.ProductID
+			}
+			if targetSKUID == input.ProductID {
+				fixedPriceOverride = item
+			}
+		default:
+			// Compatibility for old in-memory callers that predate explicit
+			// parent/SKU scope. An exact concrete product always owns its amount,
+			// but it replaces a parent method only when it actually carries legacy
+			// method/template metadata. A fixed-only SKU row must not erase the
+			// shared parent-product method.
+			if item.ProductID == input.ProductID {
+				fixedPriceOverride = item
+				if normalizePriceTablePricingMode(item.PricingMode) != "" || item.TierTemplateID > 0 || item.PricingRuleID > 0 {
+					pricingOverride = item
+				}
+			} else if input.ParentProductID > 0 && item.ProductID == input.ParentProductID {
+				pricingOverride = item
 			}
 		}
-		return PriceTableGroupTemplateAssignment{}, false
 	}
-	var override PriceTableProductTemplateOverride
-	for _, item := range input.ProductOverrides {
-		if item.ProductID == input.ProductID {
-			override = item
+	type resolutionLevel struct {
+		source string
+		mode   string
+		tierID int64
+		ruleID int64
+	}
+	levels := []resolutionLevel{{
+		source: "product",
+		mode:   normalizePriceTablePricingMode(pricingOverride.PricingMode),
+		tierID: pricingOverride.TierTemplateID,
+		ruleID: pricingOverride.PricingRuleID,
+	}}
+	for index, item := range categoryChain {
+		source := "parent_group"
+		if index == 0 {
+			source = "subgroup"
+		}
+		levels = append(levels, resolutionLevel{
+			source: source,
+			mode:   normalizePriceTablePricingMode(item.PricingMode),
+			tierID: item.TierTemplateID,
+			ruleID: item.PricingRuleID,
+		})
+	}
+	levels = append(levels, resolutionLevel{
+		source: "default",
+		mode:   normalizePriceTablePricingMode(input.DefaultPricingMode),
+		tierID: input.DefaultTierTemplateID,
+		ruleID: input.DefaultPricingRuleID,
+	})
+
+	modeLevel := resolutionLevel{source: "default"}
+	for _, level := range levels {
+		if level.mode != "" {
+			modeLevel = level
 			break
 		}
 	}
-	subgroup, _ := findGroup(input.GroupItemID)
-	parent, _ := findGroup(subgroup.ParentGroupItemID)
-	tierID, tierSource := firstTemplateSource(
-		templateCandidate{"product", override.TierTemplateID},
-		templateCandidate{"subgroup", subgroup.TierTemplateID},
-		templateCandidate{"parent_group", parent.TierTemplateID},
-		templateCandidate{"default", input.DefaultTierTemplateID},
-	)
-	ruleID, ruleSource := firstTemplateSource(
-		templateCandidate{"product", override.PricingRuleID},
-		templateCandidate{"subgroup", subgroup.PricingRuleID},
-		templateCandidate{"parent_group", parent.PricingRuleID},
-		templateCandidate{"default", input.DefaultPricingRuleID},
-	)
-	fixedPrice, fixedSource := firstNumberSource(
-		numberCandidate{"product", override.FixedUnitPrice},
-		numberCandidate{"subgroup", subgroup.FixedUnitPrice},
-		numberCandidate{"parent_group", parent.FixedUnitPrice},
-		numberCandidate{"default", input.DefaultFixedUnitPrice},
-	)
-	mode, modeSource := firstTextSource(
-		textCandidate{"product", normalizePriceTablePricingMode(override.PricingMode)},
-		textCandidate{"subgroup", normalizePriceTablePricingMode(subgroup.PricingMode)},
-		textCandidate{"parent_group", normalizePriceTablePricingMode(parent.PricingMode)},
-		textCandidate{"default", normalizePriceTablePricingMode(input.DefaultPricingMode)},
-	)
-	if mode == "" {
-		switch {
-		case tierID > 0:
-			mode, modeSource = "tier_template", tierSource
-		case ruleID > 0:
-			mode, modeSource = "pricing_rule", ruleSource
-		case fixedPrice > 0:
-			mode, modeSource = "fixed_price", fixedSource
-		default:
-			mode, modeSource = "tier_template", "default"
+	tierLevel := resolutionLevel{source: "default"}
+	for _, level := range levels {
+		if level.tierID > 0 {
+			tierLevel = level
+			break
 		}
+	}
+	ruleLevel := resolutionLevel{source: "default"}
+	for _, level := range levels {
+		if level.ruleID > 0 {
+			ruleLevel = level
+			break
+		}
+	}
+	if modeLevel.mode == "" {
+		// Older drafts and snapshots can have a template ID without an
+		// explicit mode. Infer it with the same nearest-level ordering used by
+		// modern mode fields. A fixed amount belongs to the concrete SKU and
+		// must never create a pricing method by itself.
+		for _, level := range levels {
+			if level.tierID > 0 {
+				modeLevel = level
+				modeLevel.mode = "tier_template"
+				break
+			}
+			if level.ruleID > 0 {
+				modeLevel = level
+				modeLevel.mode = "pricing_rule"
+				break
+			}
+		}
+	}
+	if modeLevel.mode == "tier_template" {
+		tierLevel = modeLevel
+	} else if modeLevel.mode == "pricing_rule" {
+		ruleLevel = modeLevel
 	}
 	return PriceTableTemplateResolution{
-		PricingMode:          mode,
-		PricingModeSource:    modeSource,
-		TierTemplateID:       tierID,
-		TierTemplateSource:   tierSource,
-		PricingRuleID:        ruleID,
-		PricingRuleSource:    ruleSource,
-		FixedUnitPrice:       fixedPrice,
-		FixedUnitPriceSource: fixedSource,
+		PricingMode:          modeLevel.mode,
+		PricingModeSource:    modeLevel.source,
+		TierTemplateID:       tierLevel.tierID,
+		TierTemplateSource:   tierLevel.source,
+		PricingRuleID:        ruleLevel.ruleID,
+		PricingRuleSource:    ruleLevel.source,
+		FixedUnitPrice:       fixedPriceOverride.FixedUnitPrice,
+		FixedUnitPriceSource: "sku",
 	}
-}
-
-type templateCandidate struct {
-	source string
-	id     int64
-}
-
-func firstTemplateSource(candidates ...templateCandidate) (int64, string) {
-	for _, candidate := range candidates {
-		if candidate.id > 0 {
-			return candidate.id, candidate.source
-		}
-	}
-	return 0, "default"
-}
-
-type numberCandidate struct {
-	source string
-	value  float64
-}
-
-func firstNumberSource(candidates ...numberCandidate) (float64, string) {
-	for _, candidate := range candidates {
-		if candidate.value > 0 {
-			return candidate.value, candidate.source
-		}
-	}
-	return 0, "default"
-}
-
-type textCandidate struct {
-	source string
-	value  string
-}
-
-func firstTextSource(candidates ...textCandidate) (string, string) {
-	for _, candidate := range candidates {
-		if candidate.value != "" {
-			return candidate.value, candidate.source
-		}
-	}
-	return "", "default"
 }
 
 func normalizePriceTablePricingMode(value string) string {

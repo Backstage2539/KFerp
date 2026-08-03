@@ -4045,6 +4045,30 @@ func TestPublishBeanListAcceptsPricingRuleAndFixedPriceModes(t *testing.T) {
 	}
 }
 
+func TestPublishBeanListRejectsExplicitZeroFixedPriceRowWithoutConcreteSpecSelections(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	row := map[string]any{
+		"product_id":          float64(414),
+		"product_name":        "曲奇拼配",
+		"pricing_mode":        "fixed_price",
+		"pricing_mode_source": "product",
+		"fixed_unit_price":    float64(0),
+		"final_unit_price":    float64(0),
+	}
+
+	_, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.2.3",
+		Content:  map[string]any{"price_rows": []any{row}},
+	})
+	if err == nil {
+		t.Fatal("PublishBeanList() must reject an explicit fixed-price row with zero fixed and final prices")
+	}
+	if !strings.Contains(err.Error(), "价格表平铺行缺少最终价") {
+		t.Fatalf("PublishBeanList() error = %q, want explicit zero-price row validation", err.Error())
+	}
+}
+
 func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

@@ -19,7 +19,8 @@ const loading = ref(false)
 const switching = ref(false)
 const errorMessage = ref('')
 
-const customerName = computed(() => session.currentCustomerName || '客户中心')
+const isEmployee = computed(() => session.accountType === 'employee')
+const accountName = computed(() => isEmployee.value ? (session.employeeName || '员工') : (session.currentCustomerName || '客户中心'))
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
 const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
 const canSwitchCustomer = computed(() => shouldShowCustomerSwitcher(session.bindings))
@@ -69,7 +70,7 @@ async function loadContext() {
     const response = await fetchMe(session.token)
     session.applyContext(response)
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '客户信息加载失败'
+    errorMessage.value = error instanceof Error ? error.message : '账号信息加载失败'
     session.clearSession()
     uni.reLaunch({ url: '/pages/login/login' })
   } finally {
@@ -88,7 +89,7 @@ onShow(() => {
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
       <text class="title">个人中心</text>
-      <text class="subtitle">{{ customerName }}</text>
+      <text class="subtitle">{{ accountName }}</text>
     </view>
 
     <view v-if="loading" class="state">
@@ -97,23 +98,23 @@ onShow(() => {
 
     <view v-else class="panel">
       <view class="info-row">
-        <text class="label">当前客户</text>
-        <text class="value">{{ customerName }}</text>
+        <text class="label">{{ isEmployee ? '当前员工' : '当前客户' }}</text>
+        <text class="value">{{ accountName }}</text>
       </view>
 
-      <picker v-if="canSwitchCustomer" mode="selector" :range="customerPickerLabels" :value="customerPickerIndex" @change="handleCustomerSwitch">
+      <picker v-if="!isEmployee && canSwitchCustomer" mode="selector" :range="customerPickerLabels" :value="customerPickerIndex" @change="handleCustomerSwitch">
         <view class="customer-switch">{{ switching ? '切换中...' : customerPickerLabels[customerPickerIndex] || '切换客户' }}</view>
       </picker>
 
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
 
-      <button class="secondary-button" @tap="openFactoryProducts">工厂商品表</button>
-      <button class="secondary-button" @tap="openCustomerProducts">我的商品</button>
+      <button v-if="!isEmployee" class="secondary-button" @tap="openFactoryProducts">工厂商品表</button>
+      <button v-if="!isEmployee" class="secondary-button" @tap="openCustomerProducts">我的商品</button>
       <button class="secondary-button" @tap="clearAndLogin">切换用户</button>
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>
     </view>
 
-    <MainTabBar current="mine" />
+    <MainTabBar v-if="!isEmployee" current="mine" />
   </view>
 </template>
 
