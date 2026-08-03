@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 产品需求：开发中，待 development 部署后转 `review`。
-- 开发需求：实现、本地完整回归、真实 PostgreSQL 临时 schema 验证和第二轮独立复核已完成；develop 合并、development 部署和冒烟待完成。
+- 产品需求：`review`，等待 Van 业务验收。
+- 开发需求：实现、完整回归、真实 PostgreSQL 临时 schema 验证、第二轮独立复核、develop 合并、development 部署及只读冒烟均已完成。
 - Van 业务验收：`todo`。
 - production 仅做只读诊断；没有保存、发布、归档或绑定任何真实 BOM，也没有重算价格表。
 
@@ -40,6 +40,8 @@
 - production 等价只读查询确认 `BOM-000911 / V001 / component_count=0 / V002 draft nonempty`，没有执行写入。
 - Vue/Vite build、`go test ./... -count=1`、`scripts/verify_kferp.sh changed/backend`、完整支持合同和 `git diff --check` 已通过。
 - 首轮独立复核发现 data-modifying CTE 快照/并发幂等、原始计件费率误放行、负数覆盖错误被遮蔽、特殊属性复制空版本和固定历史版本回落风险；均补回归并修复。第二轮复核确认无阻断项；残余仅为同 schema repair 短暂串行及管理员恰在试算时发布版本可能出现一次过时提示，重试即可且不会返回错误价格。
+- 功能提交 `07f374c8` / `28d4ff45` 已推送，合入 `develop` 的应用提交为 `a16d5d6ad85a997e067b47d525eeeb3f7ebecd0c`。development 发布过程再次通过 Vue 871 项、小程序 152 项、类型检查、两端构建、完整 Go 测试和 Docker 构建。
+- development 发布后 `erp_orderapp` 正常运行，外部登录 `https://dev.qacoohee.com/app/login` 返回 HTTP 200；部署源码包含 `pricingRuleTrialRejectEmptyPublishedBom` 和 `pg_advisory_xact_lock` 标记。源码备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260804005441-a16d5d6ad85a`，回滚镜像为 `kferp-orderapp-rollback:development-20260804005441-a16d5d6ad85a`。
 
 ## 历史、数据与操作日志边界
 
@@ -57,5 +59,5 @@
 
 ## 部署边界
 
-- development：待部署。
+- development：已部署应用提交 `a16d5d6ad85a997e067b47d525eeeb3f7ebecd0c`，自动测试和只读冒烟通过。
 - production：未部署，未执行业务写入。

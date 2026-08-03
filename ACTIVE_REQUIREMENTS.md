@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-577-GREEN-BEAN-PRICING-EMPTY-PUBLISHED-BOM
 - Branch: codex/fix-green-price-sack-zero-20260803
 - Owner/session: Codex / 2026-08-04
-- Status: verified / ready for develop integration and development deployment
+- Status: merged to develop / development deployed / awaiting Van acceptance
 - Scope: 修复价格计算模板试算把系统遗留的空已发布生产 BOM 静默计算为 0；阻止旧 BOM 绑定修复再次发布无组件版本，并在存在非空草稿时明确提示先正式发布对应版本。绝不自动读取或发布草稿，不回退到不可追溯旧汇总成本。
 - DEV:
   - DEV-577-EMPTY-PUBLISHED-BOM-DIAGNOSTIC：价格试算读取已发布 BOM 的组件数；选中版本无组件时阻断单次和批量试算，若同 BOM 存在非空草稿则显示已发布版本、草稿版本和正式发布指引。
@@ -22,7 +22,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - PostgreSQL GREEN: development 临时 schema 中真实执行 pricing option 查询/Scan 与 PR-403 repair；version、items、binding 同一次调用完成，重复和两个并发调用仍只有一份组件/绑定，空来源不迁移，测试 schema 全部删除。
   - Full GREEN: `go test ./... -count=1`、Vue/Vite build、`scripts/verify_kferp.sh changed/backend`、`git diff --check` 通过。
   - Independent review: 首轮发现的 CTE 快照、并发幂等、计件归一化、参数错误优先级、特殊属性空复制和固定历史版本回落问题均已修复；第二轮复核无阻断项。
-- Deployment: development requested; production and production business data are out of scope.
+- Deployment: feature commits `07f374c8` / `28d4ff45` were pushed and merged to `develop` as `a16d5d6ad85a997e067b47d525eeeb3f7ebecd0c`; development deployed from that commit with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260804005441-a16d5d6ad85a` and rollback image `kferp-orderapp-rollback:development-20260804005441-a16d5d6ad85a`. Docker build内完整 Go 测试和发布脚本外部登录 HTTP 200 通过，`erp_orderapp` 正常运行，服务器源码包含空发布 BOM 诊断及 advisory-lock 原子修复标记。production 未部署、未重启、未执行业务写入。
 - Last update: 2026-08-04 Asia/Shanghai
 
 ### PR-576-SERIAL-SEQUENCE-DRIFT-REPAIR
