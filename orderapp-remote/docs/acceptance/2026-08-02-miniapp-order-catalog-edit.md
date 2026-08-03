@@ -6,7 +6,7 @@
 - 订单详情顶部进入编辑；编辑态固定原客户为只读，支持商品、规格、数量、成交价、运费、优惠、收件资料和订单备注。
 - 只有未进入生产计划、未生成工单、未开始生产执行且未发货的正常订单可修改；后端在保存事务中重新检查状态，防止页面打开后的并发推进造成越界修改。
 - 合法编辑写操作日志；编辑成功后旧销售单/发货单版本只保留历史追溯，不再作为当前订单内容。
-- 只合并 `develop` 并部署 development，生成 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；production ERP 和正式小程序包不部署。
+- 首次交付只合并 `develop` 并部署 development；2026-08-03 经 Van 明确要求，再由已验证的 `develop` 发布候选合并 `main`、部署 production，并生成 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`。
 
 ## DEV 对照
 
@@ -65,11 +65,21 @@
 - development 预检/部署：`./deploy_orderapp.sh development` 通过；`RELEASE_INFO` 提交与环境一致；`erp_orderapp` 为 `running`、restart count `0`、image `sha256:fc67236f407328c99d08b50e320637352bb330b45766beb9a14d7ecf25a55f0e`；登录 HTTP 200、未登录 mini order-form HTTP 401，近 10 分钟错误关键词扫描无结果。
 - 回滚证据：previous source `/opt/stacks/erp/orderapp.backup.deploy-20260803000425-0274ee9edd2a`；rollback image `kferp-orderapp-rollback:development-20260803000425-0274ee9edd2a`。
 - 开发小程序固定包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；`RELEASE_INFO` 为 development、API base `https://dev.qacoohee.com/app`、提交 `0274ee9e`；`PAGE_FILE_MANIFEST` 52 项复验通过；上一版保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803001008-0274ee9edd2a`。
-- production：未部署。`erp_prod_orderapp` 仍为 2026-08-01 启动的原实例、restart count `0`、image `sha256:33ef3df6a633dccbbfe4dd96a5d2e5a2cd17d47ef270e020c8adced212de7cc6`；生产应用、数据库和正式小程序固定包未切换。
+- production 发布候选：`86f7854458c8ab23ca406fac4a7c8a136b37894d`；完整本地门禁、production 远程预检、Vue 854/854、小程序 21 files / 147 tests、类型检查、production 构建、Go 全套和隔离 Docker 构建均通过。
+- production 数据库备份：`/opt/stacks/erp-production/backups/pre-deploy-20260803135437-86f7854458c8.dump`，SHA-256 `724c39f5d83db0aa2582d72607bf560a1807476a1d442a132af7560867d29ed6`，`pg_restore -l` 可读。
+- production 部署：previous source `/opt/stacks/erp-production/orderapp.backup.deploy-20260803152408-86f7854458c8`；rollback image `kferp-orderapp-rollback:production-20260803152408-86f7854458c8`；`erp_prod_orderapp` running、restart count `0`，`erp_prod_postgres` healthy；登录 HTTP 200、未登录员工录单 API HTTP 401，启动日志无 panic/fatal/SQLSTATE/error。开发容器启动时间和镜像保持不变。
+- 正式小程序固定包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin`；上一版 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260803152953-86f7854458c8`；`RELEASE_INFO` 为 production、API base `https://erp.qacoohee.com/app`，13 页/52 个页面文件闭包通过，`dev.qacoohee.com` 命中 0。服务器发布不代替微信 DevTools 上传、审核与公众平台发布。
+
+## 线上员工身份排查
+
+- `15302787466` 在 production 为启用的 `internal_employee`，已配置密码且登录未禁用，角色为 `admin,sales`，具备 `orders.read` 与 `orders.write`；员工录单权限没有缺失。
+- 同一手机号同时保留客户 persona 与员工 persona。设备持有客户 token 时，`/api/mini/me` 返回 `customer`，首页只显示客户订单；只有密码登录产生的员工 token 才返回 `employee` 并显示录单、查看订单和客户维护。
+- 正确恢复步骤：在小程序个人中心点击切换用户/退出登录，选择 `员工 / 客户账号`，使用 ERP 员工密码登录。默认 `手机号快捷登录` 按既有安全合同只创建客户身份，不应静默提升为员工。
+- 线上出现“开发包禁止正式程序使用”说明微信仍运行此前上传的 development 包；本机 production 固定包不会触发该保护。需关闭旧 DevTools 项目，重新导入不带 `-dev` 的正式目录，确认 AppID 后清缓存、编译、上传，并在公众平台完成审核和发布。
 
 ## Van 验收清单
 
-- [ ] 开发版小程序新建订单选择测试客户后，搜索不到未进入当前默认发布的“红岩”，可售商品/规格与 ERP 同客户录单一致。
+- [ ] 正式版小程序新建订单选择测试客户后，搜索不到未进入当前默认发布的“红岩”，可售商品/规格与 ERP 同客户录单一致。
 - [ ] 打开尚未进入生产和发货的本人订单，详情顶部可进入编辑；客户只读，商品、规格、数量、成交价、运费、优惠、收件和备注均可保存并正确回显。
 - [ ] 打开已进入生产计划/工单/执行或已发货订单，不能编辑；页面打开后由另一端推进状态再保存，也会明确提示冲突且订单不变。
 - [ ] 编辑前的旧单据不再标为当前，重新导出的销售单/发货单内容与编辑后订单一致。
