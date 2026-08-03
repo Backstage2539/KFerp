@@ -48,9 +48,13 @@ func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from
 	}
 	if strings.TrimSpace(q) != "" {
 		// search in business object type, actor, action, field, old/new, and meta text
-		w = append(w, fmt.Sprintf("(entity_type ILIKE $%d OR actor ILIKE $%d OR action ILIKE $%d OR COALESCE(field,'') ILIKE $%d OR COALESCE(old_value,'') ILIKE $%d OR COALESCE(new_value,'') ILIKE $%d OR COALESCE(meta::text,'') ILIKE $%d)", arg, arg, arg, arg, arg, arg, arg))
-		args = append(args, "%"+q+"%")
-		arg++
+		searchClauses := make([]string, 0)
+		for _, term := range auditSearchTerms(q) {
+			searchClauses = append(searchClauses, fmt.Sprintf("(entity_type ILIKE $%d OR actor ILIKE $%d OR action ILIKE $%d OR COALESCE(field,'') ILIKE $%d OR COALESCE(old_value,'') ILIKE $%d OR COALESCE(new_value,'') ILIKE $%d OR COALESCE(meta::text,'') ILIKE $%d)", arg, arg, arg, arg, arg, arg, arg))
+			args = append(args, "%"+term+"%")
+			arg++
+		}
+		w = append(w, "("+strings.Join(searchClauses, " OR ")+")")
 	}
 
 	where := ""
@@ -147,6 +151,11 @@ func decorateAuditLogRow(r *AuditLogRow, payMap, shipMap map[int64]string) {
 	menu, feature := auditMenuFeature(rawEntityType, rawAction, rawField, r.Meta)
 	r.Menu = menu
 	r.Feature = feature
+	r.Actor = labelAuditActor(r.Actor)
+	if rawField == keyMiniappShareImageNeedShowEntrance {
+		r.OldValue = labelAuditBoolValue(r.OldValue)
+		r.NewValue = labelAuditBoolValue(r.NewValue)
+	}
 	r.EntityType = labelEntityType(rawEntityType)
 	r.Action = labelAction(rawAction)
 	if r.Field != nil {
@@ -159,6 +168,51 @@ func decorateAuditLogRow(r *AuditLogRow, payMap, shipMap map[int64]string) {
 		}
 	}
 	r.Summary = auditSummary(r, rawEntityType, rawAction, rawField)
+}
+
+func auditSearchTerms(q string) []string {
+	q = strings.TrimSpace(q)
+	terms := []string{q}
+	aliases := map[string][]string{
+		"ui_setting":                         {"系统设置"},
+		keyMiniappShareImageNeedShowEntrance: {"小程序设置", "分享图片携带小程序入口", "分享图片小程序入口"},
+	}
+	seen := map[string]bool{q: true}
+	for raw, labels := range aliases {
+		for _, label := range labels {
+			if strings.Contains(label, q) || strings.Contains(q, label) {
+				if !seen[raw] {
+					terms = append(terms, raw)
+					seen[raw] = true
+				}
+				break
+			}
+		}
+	}
+	return terms
+}
+
+func labelAuditActor(actor string) string {
+	actor = strings.TrimSpace(actor)
+	parts := strings.SplitN(actor, ":", 3)
+	if len(parts) == 3 && parts[0] == "mini-employee" && strings.TrimSpace(parts[2]) != "" {
+		return strings.TrimSpace(parts[2]) + "（小程序员工）"
+	}
+	return actor
+}
+
+func labelAuditBoolValue(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	label := strings.TrimSpace(*value)
+	switch label {
+	case "true":
+		label = "开启"
+	case "false":
+		label = "关闭"
+	}
+	return &label
 }
 
 func auditMenuFeature(entityType, action, field string, meta *string) (string, string) {
@@ -234,6 +288,11 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		}
 	case "company_profile":
 		return "设置 / 公司设置", "保存公司设置"
+	case "ui_setting":
+		if field == "miniapp.share_image.need_show_entrance" {
+			return "系统 / 小程序设置", "设置分享图片小程序入口"
+		}
+		return "系统 / 全局设置", "修改系统设置"
 	case "sales_order_settings":
 		if field == "seal_asset_id" {
 			return "设置 / 公司设置 / 公章设置", "选择/上传共享公章"
@@ -906,6 +965,8 @@ func labelEntityType(t string) string {
 		return "保存视图"
 	case "company_profile":
 		return "公司信息"
+	case "ui_setting":
+		return "系统设置"
 	case "sales_order_settings":
 		return "销售单设置"
 	case "sales_order_asset":
@@ -1082,6 +1143,8 @@ func labelField(f string) string {
 		return "启用状态"
 	case "settings":
 		return "设置"
+	case "miniapp.share_image.need_show_entrance":
+		return "分享图片携带小程序入口"
 	case "template":
 		return "模板"
 	case "asset_id":

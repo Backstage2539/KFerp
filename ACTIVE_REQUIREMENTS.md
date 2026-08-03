@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING
+- Branch: codex/miniapp-share-image-no-entrance-20260803
+- Owner/session: Codex / 2026-08-03
+- Status: product review / development verified / integration pending / Van acceptance todo
+- Scope: 将员工小程序销售单、发货单图片消息是否携带小程序入口改为全局系统开关；只有员工管理员可在个人中心查看和修改，所有合法员工分享图片时读取当前全局值；权限和审计由后端强制执行。
+- DEV:
+  - DEV-575-SHARE-ENTRANCE-SETTING-API-AUDIT：复用 `app_config` 保存全局开关，员工可读、管理员且具备设置权限才可写；配置更新与旧值/新值操作日志同事务提交。
+  - DEV-575-ADMIN-PROFILE-SETTING：员工管理员个人中心显示“分享图片时携带小程序入口”开关，读取失败不误保存，保存失败恢复服务端旧值；普通销售和客户账号不显示。
+  - DEV-575-IMAGE-SHARE-RUNTIME：每次 PNG 分享前读取当前全局值并传入微信 `needShowEntrance`；读取失败时安全回落为不携带入口，PDF 和图片内容不变。
+  - DEV-575-DOCS-ACCEPTANCE：同步需求、验收、员工小程序手册、设置审计手册、PR/DEV 种子和独立验收证据。
+- Verifier:
+  - RED: 图片分享只支持单一硬编码值；个人中心没有管理员开关；小程序设置 API 不存在；`app_config` 与审计不是同一事务。
+  - Unit/API: customerportal 权限矩阵、默认值/双态保存、原子审计、可读操作日志和 Miniapp API/页面/分享定向测试 GREEN。
+  - Frontend/build: miniapp 21 files / 152 tests、类型检查、development mp-weixin 构建、编译产物静态验收及 ERP Vue/Vite 构建 GREEN。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`。
+  - Review/acceptance: 后端与小程序前端独立复核无开放 P0-P2；`orderapp-remote/docs/acceptance/2026-08-03-miniapp-share-image-entrance-setting.md`。
+- Deployment: not requested; server deployment, miniapp fixed-package sync, WeChat DevTools upload/review/publish are not performed.
+- Last update: 2026-08-03 Asia/Shanghai
+- Notes: 配置不存在时保持升级前行为（携带入口）；管理员关闭后所有员工后续直接图片分享不携带入口。历史已发送图片消息不可追溯修改；低版本微信回退图片预览时，入口由微信客户端控制。
+
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
 - Branch: codex/pr572-share-panel-top-20260802 (follow-up)
 - Owner/session: Codex / 2026-08-02

@@ -890,6 +890,15 @@ export type EmployeeOrderDocumentGenerateResponse = EmployeeOrderDocumentAsset &
   asset?: EmployeeOrderDocumentAsset
 }
 
+export type EmployeeShareSettings = {
+  image_need_show_entrance: boolean
+}
+
+export type EmployeeShareSettingsResponse = {
+  settings: EmployeeShareSettings
+  can_manage: boolean
+}
+
 const employeeOrderDocumentFiles: Record<
   EmployeeOrderDocumentKind,
   Record<EmployeeOrderDocumentFormat, string>
@@ -909,6 +918,18 @@ export function fetchEmployeeOrders(token: string, q = ''): Promise<{ rows: Empl
 
 export function fetchEmployeeOrderDetail(token: string, orderID: number): Promise<EmployeeOrderDetailResponse> {
   return miniRequest<EmployeeOrderDetailResponse>(buildEmployeeOrderDetailPath(orderID), { token })
+}
+
+export function fetchEmployeeShareSettings(token: string): Promise<EmployeeShareSettingsResponse> {
+  return miniRequest<EmployeeShareSettingsResponse>('/api/mini/employee/share-settings', { token })
+}
+
+export function saveEmployeeShareSettings(token: string, imageNeedShowEntrance: boolean): Promise<EmployeeShareSettingsResponse> {
+  return miniRequest<EmployeeShareSettingsResponse>('/api/mini/employee/share-settings', {
+    method: 'PUT',
+    token,
+    data: { image_need_show_entrance: imageNeedShowEntrance },
+  })
 }
 
 export function generateEmployeeOrderDocument(

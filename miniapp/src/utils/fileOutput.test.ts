@@ -65,19 +65,53 @@ describe('shareDownloadedMiniappFile', () => {
     expect(calls).toEqual(['pdf:true'])
   })
 
-  it('shares images through showShareImageMenu and falls back to previewImage', async () => {
-    const shared: string[] = []
-    await shareDownloadedMiniappFile({ filePath: '/tmp/sales-order.png', kind: 'png' }, {
+  it('passes the global miniapp entrance setting to image sharing', async () => {
+    const shared: Array<{ path: string; needShowEntrance?: boolean }> = []
+    await shareDownloadedMiniappFile({
+      filePath: '/tmp/sales-order.png',
+      kind: 'png',
+      needShowEntrance: false,
+    }, {
       showShareImageMenu: (options) => {
-        shared.push(options.path)
+        shared.push({
+          path: options.path,
+          needShowEntrance: options.needShowEntrance,
+        })
         options.success?.({ errMsg: 'ok' })
       },
-      previewImage: () => shared.push('preview'),
+      previewImage: () => undefined,
     })
-    expect(shared).toEqual(['/tmp/sales-order.png'])
+    expect(shared).toEqual([{
+      path: '/tmp/sales-order.png',
+      needShowEntrance: false,
+    }])
 
+    await shareDownloadedMiniappFile({
+      filePath: '/tmp/delivery-note.png',
+      kind: 'png',
+      needShowEntrance: true,
+    }, {
+      showShareImageMenu: (options) => {
+        shared.push({
+          path: options.path,
+          needShowEntrance: options.needShowEntrance,
+        })
+        options.success?.({ errMsg: 'ok' })
+      },
+    })
+    expect(shared[1]).toEqual({
+      path: '/tmp/delivery-note.png',
+      needShowEntrance: true,
+    })
+  })
+
+  it('falls back to previewImage when direct image sharing fails', async () => {
     const fallback: string[] = []
-    await shareDownloadedMiniappFile({ filePath: '/tmp/sales-order.png', kind: 'png' }, {
+    await shareDownloadedMiniappFile({
+      filePath: '/tmp/sales-order.png',
+      kind: 'png',
+      needShowEntrance: false,
+    }, {
       showShareImageMenu: (options) => options.fail?.({ errMsg: 'not supported' }),
       previewImage: (options) => {
         fallback.push(options.current || '')
