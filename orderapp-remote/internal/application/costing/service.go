@@ -3850,7 +3850,10 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 	}
 	for idx, rawRow := range rows {
 		row, ok := rawRow.(map[string]any)
-		if !ok || !beanListFlatPriceRowHasPrice(row) {
+		if !ok {
+			continue
+		}
+		if !beanListFlatPriceRowHasPrice(row) && strings.TrimSpace(stringValue(row["pricing_mode"])) == "" {
 			continue
 		}
 		position := idx + 1

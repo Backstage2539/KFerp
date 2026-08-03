@@ -80,6 +80,7 @@ import {
   productCurrentSalesSpecUnit,
   priceTierTemplateRowKey,
   priceTierTemplateUnitCompatibility,
+  priceTablePricingResolutionWarning,
   resolvePriceTableTemplateInheritance,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
@@ -813,6 +814,9 @@ test('price table resolves pricing mode by parent product, subgroup, parent grou
   assert.deepEqual(resolved, {
     pricing_mode: 'tier_template',
     pricing_mode_source: 'subgroup',
+    pricing_mode_source_group_item_id: 101,
+    pricing_mode_source_group_item_name: '',
+    pricing_mode_source_group_depth: 0,
     tier_template_id: 3,
     tier_template_source: 'subgroup',
     pricing_rule_id: 40,
@@ -890,6 +894,9 @@ test('price table inheritance resolves shared parent pricing for every SKU and i
   }), {
     pricing_mode: 'pricing_rule',
     pricing_mode_source: 'parent_product',
+    pricing_mode_source_group_item_id: 0,
+    pricing_mode_source_group_item_name: '',
+    pricing_mode_source_group_depth: -1,
     tier_template_id: 4,
     tier_template_source: 'parent_product',
     pricing_rule_id: 40,
@@ -904,6 +911,9 @@ test('price table inheritance resolves shared parent pricing for every SKU and i
   }), {
     pricing_mode: 'pricing_rule',
     pricing_mode_source: 'parent_product',
+    pricing_mode_source_group_item_id: 0,
+    pricing_mode_source_group_item_name: '',
+    pricing_mode_source_group_depth: -1,
     tier_template_id: 4,
     tier_template_source: 'parent_product',
     pricing_rule_id: 40,
@@ -918,6 +928,9 @@ test('price table inheritance resolves shared parent pricing for every SKU and i
   }), {
     pricing_mode: 'pricing_rule',
     pricing_mode_source: 'parent_product',
+    pricing_mode_source_group_item_id: 0,
+    pricing_mode_source_group_item_name: '',
+    pricing_mode_source_group_depth: -1,
     tier_template_id: 4,
     tier_template_source: 'parent_product',
     pricing_rule_id: 40,
@@ -960,6 +973,211 @@ test('shared parent pricing exposes inherited fixed mode while keeping two SKU a
   assert.equal(categoryFixed.pricing_mode, 'fixed_price')
   assert.equal(categoryFixed.pricing_mode_source, 'subgroup')
   assert.equal(categoryFixed.fixed_unit_price, 59.92)
+})
+
+test('price table inheritance walks the complete category ancestor chain and reports the effective category', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'tier_template', tier_template_id: 90 },
+    groupAssignments: [
+      { group_item_id: 10, group_item_name: '生豆', pricing_mode: 'fixed_price' },
+      { group_item_id: 20, group_item_name: '产区', parent_group_item_id: 10 },
+      { group_item_id: 30, group_item_name: '处理法', parent_group_item_id: 20 },
+      { group_item_id: 40, group_item_name: '水洗', parent_group_item_id: 30 },
+    ],
+    productOverrides: [
+      { scope: 'sku', sku_id: 401, fixed_unit_price: 86 },
+    ],
+    product: { id: 401, sku_id: 401, parent_product_id: 400, group_item_id: 40 },
+  })
+
+  assert.equal(resolved.pricing_mode, 'fixed_price')
+  assert.equal(resolved.pricing_mode_source, 'parent_group')
+  assert.equal(resolved.pricing_mode_source_group_item_id, 10)
+  assert.equal(resolved.pricing_mode_source_group_item_name, '生豆')
+  assert.equal(resolved.pricing_mode_source_group_depth, 3)
+  assert.equal(resolved.fixed_unit_price, 86)
+  assert.equal(resolved.fixed_unit_price_source, 'sku')
+})
+
+test('price table inheritance lets the nearest configured ancestor override a farther ancestor', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'tier_template', tier_template_id: 90 },
+    groupAssignments: [
+      { group_item_id: 10, group_item_name: '生豆', pricing_mode: 'fixed_price' },
+      { group_item_id: 20, group_item_name: '产区', parent_group_item_id: 10, pricing_mode: 'pricing_rule', pricing_rule_id: 22 },
+      { group_item_id: 30, group_item_name: '处理法', parent_group_item_id: 20 },
+      { group_item_id: 40, group_item_name: '水洗', parent_group_item_id: 30 },
+    ],
+    product: { id: 401, sku_id: 401, parent_product_id: 400, group_item_id: 40 },
+  })
+
+  assert.equal(resolved.pricing_mode, 'pricing_rule')
+  assert.equal(resolved.pricing_mode_source, 'parent_group')
+  assert.equal(resolved.pricing_mode_source_group_item_id, 20)
+  assert.equal(resolved.pricing_mode_source_group_item_name, '产区')
+  assert.equal(resolved.pricing_mode_source_group_depth, 2)
+  assert.equal(resolved.pricing_rule_id, 22)
+  assert.equal(resolved.pricing_rule_source, 'parent_group')
+})
+
+test('price table inheritance coalesces duplicate category nodes without losing configured values or ancestry', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'tier_template', tier_template_id: 90 },
+    groupAssignments: [
+      { group_item_id: 10, group_item_name: '生豆', pricing_mode: '' },
+      { group_item_id: 10, group_item_name: '', pricing_mode: 'fixed_price' },
+      { group_item_id: 20, group_item_name: '水洗', parent_group_item_id: 0 },
+      { group_item_id: 20, group_item_name: '', parent_group_item_id: 10 },
+    ],
+    productOverrides: [
+      { scope: 'sku', sku_id: 201, fixed_unit_price: 66 },
+    ],
+    product: { id: 201, sku_id: 201, parent_product_id: 200, group_item_id: 20 },
+  })
+
+  assert.equal(resolved.pricing_mode, 'fixed_price')
+  assert.equal(resolved.pricing_mode_source_group_item_id, 10)
+  assert.equal(resolved.pricing_mode_source_group_item_name, '生豆')
+  assert.equal(resolved.pricing_mode_source_group_depth, 1)
+  assert.equal(resolved.fixed_unit_price, 66)
+})
+
+test('price table inheritance stops at category cycles and falls back to the price table', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'pricing_rule', pricing_rule_id: 99 },
+    groupAssignments: [
+      { group_item_id: 20, group_item_name: '产区', parent_group_item_id: 30 },
+      { group_item_id: 30, group_item_name: '处理法', parent_group_item_id: 20 },
+      { group_item_id: 40, group_item_name: '水洗', parent_group_item_id: 30 },
+    ],
+    product: { id: 401, sku_id: 401, parent_product_id: 400, group_item_id: 40 },
+  })
+
+  assert.equal(resolved.pricing_mode, 'pricing_rule')
+  assert.equal(resolved.pricing_mode_source, 'default')
+  assert.equal(resolved.pricing_rule_id, 99)
+  assert.equal(resolved.pricing_mode_source_group_item_id, 0)
+  assert.equal(resolved.pricing_mode_source_group_item_name, '')
+  assert.equal(resolved.pricing_mode_source_group_depth, -1)
+})
+
+test('price table inherited fixed mode never shares category or price-list amounts across SKUs', () => {
+  const common = {
+    defaults: { pricing_mode: 'fixed_price', fixed_unit_price: 999 },
+    groupAssignments: [
+      { group_item_id: 10, pricing_mode: 'fixed_price', fixed_unit_price: 888 },
+      { group_item_id: 20, parent_group_item_id: 10, fixed_unit_price: 777 },
+    ],
+    productOverrides: [
+      { scope: 'sku', sku_id: 201, fixed_unit_price: 66 },
+    ],
+  }
+
+  const priced = resolvePriceTableTemplateInheritance({
+    ...common,
+    product: { id: 201, sku_id: 201, parent_product_id: 200, group_item_id: 20 },
+  })
+  const empty = resolvePriceTableTemplateInheritance({
+    ...common,
+    product: { id: 202, sku_id: 202, parent_product_id: 200, group_item_id: 20 },
+  })
+
+  assert.equal(priced.pricing_mode, 'fixed_price')
+  assert.equal(priced.fixed_unit_price, 66)
+  assert.equal(empty.pricing_mode, 'fixed_price')
+  assert.equal(empty.fixed_unit_price, 0)
+  assert.equal(empty.fixed_unit_price_source, 'sku')
+})
+
+test('price table inheritance leaves pricing mode empty when no level configures a method', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: {},
+    groupAssignments: [
+      { group_item_id: 10 },
+      { group_item_id: 20, parent_group_item_id: 10 },
+    ],
+    product: { id: 201, sku_id: 201, parent_product_id: 200, group_item_id: 20 },
+  })
+
+  assert.equal(resolved.pricing_mode, '')
+  assert.equal(resolved.pricing_mode_source, 'default')
+})
+
+test('a SKU fixed amount never invents a pricing method when every level inherits', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: {},
+    groupAssignments: [
+      { group_item_id: 10 },
+      { group_item_id: 20, parent_group_item_id: 10 },
+    ],
+    productOverrides: [
+      { scope: 'sku', sku_id: 201, fixed_unit_price: 66 },
+    ],
+    product: { id: 201, sku_id: 201, parent_product_id: 200, group_item_id: 20 },
+  })
+
+  assert.equal(resolved.pricing_mode, '')
+  assert.equal(resolved.fixed_unit_price, 66)
+  assert.equal(priceTablePricingResolutionWarning(resolved), '未设置计价方式')
+})
+
+test('legacy template IDs infer the method from the nearest configured level', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: {},
+    groupAssignments: [
+      { group_item_id: 10, tier_template_id: 9 },
+      { group_item_id: 20, parent_group_item_id: 10, pricing_rule_id: 22 },
+    ],
+    product: { id: 201, sku_id: 201, parent_product_id: 200, group_item_id: 20 },
+  })
+
+  assert.equal(resolved.pricing_mode, 'pricing_rule')
+  assert.equal(resolved.pricing_mode_source, 'subgroup')
+  assert.equal(resolved.pricing_rule_id, 22)
+})
+
+test('price table pricing resolution warnings distinguish missing method, amount and templates', () => {
+  assert.equal(priceTablePricingResolutionWarning({}), '未设置计价方式')
+  assert.equal(priceTablePricingResolutionWarning({ pricing_mode: 'fixed_price', fixed_unit_price: 0 }), '未填写固定价')
+  assert.equal(priceTablePricingResolutionWarning({ pricing_mode: 'tier_template', tier_template_id: 0 }), '未选择阶梯模板')
+  assert.equal(priceTablePricingResolutionWarning({ pricing_mode: 'pricing_rule', pricing_rule_id: 0 }), '未选择价格计算模板')
+  assert.equal(priceTablePricingResolutionWarning({ pricing_mode: 'fixed_price', fixed_unit_price: 68 }), '')
+  assert.equal(priceTablePricingResolutionWarning({ pricing_mode: 'tier_template', tier_template_id: 9 }), '')
+  assert.equal(priceTablePricingResolutionWarning({ pricing_mode: 'pricing_rule', pricing_rule_id: 11 }), '')
+})
+
+test('price table inheritance does not borrow a pricing rule ID when the effective category selects pricing-rule mode without one', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'pricing_rule', pricing_rule_id: 99 },
+    groupAssignments: [
+      { group_item_id: 10, pricing_mode: 'pricing_rule', pricing_rule_id: 88 },
+      { group_item_id: 20, parent_group_item_id: 10, pricing_mode: 'pricing_rule', pricing_rule_id: 0 },
+    ],
+    product: { id: 201, sku_id: 201, parent_product_id: 200, group_item_id: 20 },
+  })
+
+  assert.equal(resolved.pricing_mode, 'pricing_rule')
+  assert.equal(resolved.pricing_mode_source, 'subgroup')
+  assert.equal(resolved.pricing_rule_id, 0)
+  assert.equal(resolved.pricing_rule_source, 'subgroup')
+})
+
+test('price table inheritance does not borrow a tier template ID when the effective ancestor selects tier mode without one', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: { pricing_mode: 'tier_template', tier_template_id: 99 },
+    groupAssignments: [
+      { group_item_id: 10, pricing_mode: 'tier_template', tier_template_id: 88 },
+      { group_item_id: 20, parent_group_item_id: 10, pricing_mode: 'tier_template', tier_template_id: 0 },
+      { group_item_id: 30, parent_group_item_id: 20 },
+    ],
+    product: { id: 301, sku_id: 301, parent_product_id: 300, group_item_id: 30 },
+  })
+
+  assert.equal(resolved.pricing_mode, 'tier_template')
+  assert.equal(resolved.pricing_mode_source, 'parent_group')
+  assert.equal(resolved.pricing_mode_source_group_item_id, 20)
+  assert.equal(resolved.tier_template_id, 0)
+  assert.equal(resolved.tier_template_source, 'parent_group')
 })
 
 test('price tier template quantities are sales-spec counts and ignore legacy kg/lb tier units', () => {
@@ -1476,7 +1694,7 @@ test('product price list owns tier template drawer and three pricing modes', () 
     '按阶梯模板计算',
     '按价格计算模板计算',
     '固定价',
-    '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
+    '商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表',
     'pricing_rule_id',
   ]) {
     assert.ok(source.includes(want), `CostingView missing marker: ${want}`)

@@ -828,7 +828,10 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		bomStatus = "bom_cost_template_price"
 		if len(tiers) == 0 {
 			tiers = normalizeLegacyGreenBeanSaleTiers(in.GreenBeanSaleTiers)
-			bomStatus = "missing_green_bean_template"
+			bomStatus = strings.TrimSpace(in.BomStatus)
+			if bomStatus == "missing_green_bean_template" {
+				bomStatus = ""
+			}
 			if len(tiers) > 0 {
 				bomStatus = "direct_sale_price"
 			}

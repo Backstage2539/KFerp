@@ -88,14 +88,14 @@ func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 			"客户引用",
 			"销售规格模板",
 			"价格计算模板 / Pricing Rule",
-			"商品 > 子类 > 父类 > 价格表",
+			"父商品 > 所在分类 > 上级分类逐级向上 > 价格表",
 			"平铺价格行",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"Price List / Item Price",
 			"data-pr440-price-list-model",
 			"分组项选品",
-			"商品 &gt; 子类 &gt; 父类 &gt; 价格表",
+			"父商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"): {
 			"选择价格表",

@@ -250,6 +250,104 @@ func TestPricingMethodWarningDoesNotExemptProductKind(t *testing.T) {
 	}
 }
 
+func TestGreenBeanWithoutLegacyTemplateDoesNotReportMissingTemplateStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		bomStatus  string
+		wantStatus string
+	}{
+		{name: "empty", wantStatus: ""},
+		{name: "removed legacy status", bomStatus: "missing_green_bean_template", wantStatus: ""},
+		{name: "active BOM", bomStatus: "active", wantStatus: "active"},
+		{name: "inactive BOM", bomStatus: "inactive", wantStatus: "inactive"},
+		{name: "missing BOM", bomStatus: "missing", wantStatus: "missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CalculateProduct(DefaultParameters(), ProductInput{
+				ProductID:   438,
+				Name:        "黄波旁水洗生豆",
+				ProductKind: "green_bean",
+				BomStatus:   tc.bomStatus,
+			})
+
+			if got.BomStatus != tc.wantStatus {
+				t.Fatalf("bom_status = %q, want %q", got.BomStatus, tc.wantStatus)
+			}
+			if len(got.GreenBeanSaleTiers) != 0 {
+				t.Fatalf("green bean sale tiers = %+v, want none before current price-list configuration", got.GreenBeanSaleTiers)
+			}
+		})
+	}
+}
+
+func TestGreenBeanPricingSourcesRemainCompatibleWithoutClassificationTemplate(t *testing.T) {
+	params := DefaultParameters()
+	tests := []struct {
+		name       string
+		input      ProductInput
+		wantStatus string
+		wantPrice  float64
+	}{
+		{
+			name: "published price snapshot",
+			input: ProductInput{ProductPriceSnapshots: []ProductPriceSnapshot{{
+				SourcePriceRecordID:     701,
+				Label:                   "固定价",
+				MinQty:                  1,
+				FinalUnitPrice:          88,
+				PriceUnit:               "kg",
+				Currency:                "CNY",
+				InventoryUnit:           "kg",
+				InventoryConversionJSON: json.RawMessage(`{"kg":{"kg":1}}`),
+			}}},
+			wantStatus: "direct_sale_price",
+			wantPrice:  88,
+		},
+		{
+			name: "legacy gradient template",
+			input: ProductInput{
+				GreenBeanCostPerKg: 60,
+				GradientTemplate: &GradientTemplate{
+					ID:          18,
+					Name:        "生豆 KG 模板",
+					DisplayUnit: GradientDisplayUnitKg,
+					Tiers: []GradientTemplateTier{{
+						ID: 1801, Label: "1kg+", MinWeightG: 1000, Position: 1,
+					}},
+				},
+			},
+			wantStatus: "bom_cost_template_price",
+			wantPrice:  60,
+		},
+		{
+			name: "legacy green bean sale tier",
+			input: ProductInput{GreenBeanSaleTiers: []CommercialWholesaleTier{{
+				Label: "1kg+", MinQty: 1, PricePerUnit: 128, PricePerKg: 128, DisplayUnit: GradientDisplayUnitKg,
+			}}},
+			wantStatus: "direct_sale_price",
+			wantPrice:  128,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			input := tc.input
+			input.ProductID = 439
+			input.Name = "黄波旁水洗生豆"
+			input.ProductKind = "green_bean"
+			got := CalculateProduct(params, input)
+
+			if got.BomStatus != tc.wantStatus {
+				t.Fatalf("bom_status = %q, want %q", got.BomStatus, tc.wantStatus)
+			}
+			if len(got.GreenBeanSaleTiers) != 1 {
+				t.Fatalf("green bean sale tiers = %+v, want one compatible tier", got.GreenBeanSaleTiers)
+			}
+			assertClose(t, "green bean tier price", got.GreenBeanSaleTiers[0].PricePerUnit, tc.wantPrice)
+		})
+	}
+}
+
 func TestConfiguredFixedPriceAndCostPlusDoNotWarnMissingPricingMethod(t *testing.T) {
 	params := DefaultParameters()
 	cases := []struct {

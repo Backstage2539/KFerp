@@ -45,7 +45,7 @@ func TestDev441PriceListTierTemplateModesContracts(t *testing.T) {
 			"按阶梯模板计算",
 			"按价格计算模板计算",
 			"固定价",
-			"商品 &gt; 子类 &gt; 父类 &gt; 价格表",
+			"父商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-441-PRICE-LIST-TIER-TEMPLATE-MODES",

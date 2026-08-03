@@ -8,6 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const viewSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
 const priceListWorkflowSource = readFileSync(resolve(here, './costing-price-list-workflow.js'), 'utf8')
 const priceListSelectionSource = readFileSync(resolve(here, './product-price-list-selection.js'), 'utf8')
+const priceListDraftSource = readFileSync(resolve(here, './product-price-list-draft.js'), 'utf8')
 
 test('product bean-list view exposes publication versions without pricing trial workspace', () => {
   const versionListIndex = viewSource.indexOf('已发布价格表')
@@ -311,7 +312,7 @@ test('product price-list inactive BOM warnings stay on product rows with product
   }
 })
 
-test('product price-list suppresses missing pricing method warning when price-list fallback resolves', () => {
+test('product price-list replaces backend pricing warnings with precise current-draft warnings', () => {
   const selectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
   const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', selectionStart)
   assert.ok(selectionStart > -1 && dialogStart > selectionStart, 'missing product selection block')
@@ -322,15 +323,13 @@ test('product price-list suppresses missing pricing method warning when price-li
 
   for (const expected of [
     'function visibleItemWarnings',
-    'function itemHasResolvedPriceListPricingMethod',
     'function priceListResolvedTemplateForItem',
+    'function priceListProductSpecPricingWarning',
     'resolvePriceTableTemplateInheritance({',
     'priceListTemplateAssignments()',
     'priceListProductOverridesForSnapshot()',
-    "text === '未设置计价方式' && itemHasResolvedPriceListPricingMethod(item)",
-    "mode === 'pricing_rule' && Number(resolved.pricing_rule_id || 0) > 0",
-    "mode === 'tier_template' && Number(resolved.tier_template_id || 0) > 0",
-    "mode === 'fixed_price' && Number(resolved.fixed_unit_price || 0) > 0",
+    "text !== '未设置计价方式'",
+    'priceTablePricingResolutionWarning(priceListProductSpecPricingResolution(family, spec))',
   ]) {
     assert.ok(viewSource.includes(expected), `missing resolved price-list warning fallback behavior: ${expected}`)
   }
@@ -472,7 +471,7 @@ test('product price list uses classification templates and categories instead of
     '<h2>商品价格表</h2>',
     'Price List / Item Price',
     'data-pr440-price-list-model',
-    '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
+    '商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表',
     '平铺价格行',
     '分组项选品',
     'classification_template_id',
@@ -503,7 +502,7 @@ test('price list mode rules are opened from a button and not shown as a persiste
     'v-if="priceListRulesDialogOpen"',
     'aria-label="计价模式规则"',
     'price-list-rules-dialog',
-    '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
+    '商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表',
     'group_source=price_list',
     '父商品只选择一次计价模式',
     '固定价金额按规格分别录入',
@@ -610,10 +609,11 @@ test('price list product picker renders one parent row with independently select
   )
 })
 
-test('price list product specs use compact wrapping rows without per-spec pricing controls', () => {
+test('price list product specs stay compact and expose only the inherited fixed-price amount inline', () => {
   assert.match(viewSource, /\.product-spec-options\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s)
   assert.match(viewSource, /\.product-spec-option\s*\{[^}]*display:\s*flex;/s)
-  assert.doesNotMatch(viewSource, /class="product-spec-pricing"/)
+  assert.match(viewSource, /class="product-spec-fixed-price"/)
+  assert.match(viewSource, /priceListProductSpecPricingWarning\(row, spec\)/)
   assert.doesNotMatch(viewSource, /class="product-spec-pricing-panel"/)
   assert.doesNotMatch(viewSource, /设置当前规格计价/)
 })
@@ -632,7 +632,7 @@ test('flat price rows render the unchanged product name with a separate spec des
 })
 
 test('price list exposes one shared parent-product pricing choice above category inheritance', () => {
-  assert.match(viewSource, /商品 &gt; 子类 &gt; 父类 &gt; 价格表/)
+  assert.match(viewSource, /商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表/)
   assert.match(viewSource, /商品计价/)
   assert.match(viewSource, /priceListParentProductPricingRow\(row\)/)
   assert.match(viewSource, /scope: 'parent_product'/)
@@ -643,9 +643,10 @@ test('price list exposes one shared parent-product pricing choice above category
 test('price list inherits fixed-price mode but requires each selected spec to enter its own amount', () => {
   assert.match(viewSource, /固定价金额按具体规格分别录入/)
   assert.doesNotMatch(viewSource, /:value="priceListTemplateDefaults\.fixed_unit_price"/)
-  assert.match(viewSource, /v-for="spec in selectedSpecsForProduct\(priceListPricingPopover\.productRow\)"/)
+  assert.match(viewSource, /v-for="spec in row\.sku_options"/)
+  assert.match(viewSource, /priceListProductSpecPricingResolution\(row, spec\)\.pricing_mode === 'fixed_price'/)
   assert.match(viewSource, /固定价（元\/\{\{ priceListProductSpecLabel\(spec\) \}\}）/)
-  assert.match(viewSource, /setPriceListProductFixedPrice\(priceListPricingPopover\.productRow, spec/)
+  assert.match(viewSource, /setPriceListProductFixedPrice\(row, spec/)
   assert.match(viewSource, /function priceListEffectiveProductPricingSelection/)
   assert.match(viewSource, /selectedSpecsForProduct\(row\)\[0\]/)
   const activeSelectionStart = viewSource.indexOf('function priceListActivePricingSelection()')
@@ -653,10 +654,18 @@ test('price list inherits fixed-price mode but requires each selected spec to en
   assert.ok(activeSelectionStart > -1 && activeSelectionEnd > activeSelectionStart, 'missing active pricing selection helper')
   assert.match(
     viewSource.slice(activeSelectionStart, activeSelectionEnd),
-    /priceListEffectiveProductPricingSelection\(priceListPricingPopover\.value\.productRow \|\| \{\}\)/,
-    'product popover must display inherited effective fixed mode, not only the explicit parent override',
+    /priceListProductTemplateOverride\(priceListPricingPopover\.value\.productRow \|\| \{\}\)/,
+    'product popover must keep local inherit selected instead of marking inherited fixed price as local',
   )
+  assert.ok(viewSource.includes('当前生效：{{ priceListPricingPopoverEffectiveSummary() }}'))
   assert.match(viewSource, /const representative = selectedSpecsForProduct\(item\)\[0\]/)
+})
+
+test('flat publication rows resolve pricing ancestry from the concrete selected SKU', () => {
+  const flatRowsSource = viewSource.match(/function priceListFlatRowsFromGroups[\s\S]*?function priceListFlatRowFromSource/)?.[0] || ''
+
+  assert.match(flatRowsSource, /const groupRow = priceListGroupForItem\(item\)/)
+  assert.doesNotMatch(flatRowsSource, /const groupRow = priceListGroupConfigRow\(group\)/)
 })
 
 test('price list generation persists concrete product spec selections and materializes only selected SKUs', () => {
@@ -922,6 +931,9 @@ test('price list draft restoration promotes legacy SKU pricing and blocks confli
 
   assert.match(restoreSource, /normalizeParentSharedPriceListProductOverrides\(draft\.productOverrides/)
   assert.match(restoreSource, /productSpecSelections: draft\.product_spec_selections/)
+  assert.match(restoreSource, /migrateLegacyFixedPriceFlatRowOverrides/)
+  assert.ok(priceListDraftSource.includes("match(/^([0-9]+):fixed_price$/)"))
+  assert.ok(priceListDraftSource.includes('`sku:${skuID}`'))
   assert.match(restoreSource, /priceListLegacyPricingConflicts\.value = migratedProductOverrides\.conflicts/)
   assert.match(viewSource, /旧草稿存在规格级计价冲突，发布已阻止/)
   assert.match(viewSource, /priceListLegacyPricingBlockedReason/)
@@ -933,7 +945,7 @@ test('price list treats tier templates as shared sales-spec counts and keeps fix
     'priceListSalesSpecCountTierLabel',
     'quantity_basis',
     'tier_quantity_unit',
-    'selectedSpecsForProduct(priceListPricingPopover.productRow)',
+    'priceListProductSpecPricingResolution(row, spec)',
     'priceListProductSpecLabel(spec)',
   ]) {
     assert.ok(viewSource.includes(expected), `missing sales-spec-count tier UI: ${expected}`)
@@ -1087,12 +1099,18 @@ test('product bean-list drawer defaults customer versions from the latest source
   }
 })
 
-test('product bean-list warns when a green bean item has no green category template', () => {
-  for (const expected of [
-    "item?.bom_status === 'missing_green_bean_template'",
-    '未挂到带生豆模板的分类，无法生成生豆价格',
-    '请在商品管理里把该生豆商品移到带生豆模板的生豆分类',
-  ]) {
-    assert.ok(viewSource.includes(expected), `missing green bean category warning: ${expected}`)
-  }
+test('product price-list no longer treats a green-bean category template as a pricing prerequisite', () => {
+  assert.equal(viewSource.includes("item?.bom_status === 'missing_green_bean_template'"), false)
+  assert.equal(viewSource.includes('未挂到带生豆模板的分类，无法生成生豆价格'), false)
+  assert.equal(viewSource.includes('请在商品管理里把该生豆商品移到带生豆模板的生豆分类'), false)
+})
+
+test('editing a fixed flat row updates the canonical SKU fixed amount instead of a second override', () => {
+  const setterStart = viewSource.indexOf('function setPriceListFlatRowPrice(row = {}, value)')
+  const setterEnd = viewSource.indexOf('function defaultPriceTierTemplateForm', setterStart)
+  assert.ok(setterStart > -1 && setterEnd > setterStart, 'missing flat-row price setter')
+  const setterSource = viewSource.slice(setterStart, setterEnd)
+  assert.match(setterSource, /row\.pricing_mode.*fixed_price/)
+  assert.match(setterSource, /setPriceListSkuFixedPrice\(row, value\)/)
+  assert.match(setterSource, /delete next\[key\]/)
 })

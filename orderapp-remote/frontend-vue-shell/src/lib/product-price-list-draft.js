@@ -84,6 +84,57 @@ function normalizedSKUFixedPriceOverride(value = {}, parentID = 0) {
   }
 }
 
+export function migrateLegacyFixedPriceFlatRowOverrides(flatRows = {}, productOverrides = {}, productSpecSelections = []) {
+  const nextFlatRows = {}
+  Object.entries(flatRows || {}).forEach(([key, value]) => {
+    const price = Number(value || 0)
+    if (key && Number.isFinite(price) && price > 0) nextFlatRows[key] = price
+  })
+  const nextProductOverrides = { ...(productOverrides || {}) }
+  const selectionsBySkuID = new Map((Array.isArray(productSpecSelections) ? productSpecSelections : [])
+    .map((selection) => [Number(selection?.sku_id ?? selection?.skuID ?? 0) || 0, selection])
+    .filter(([skuID]) => skuID > 0))
+  let migratedCount = 0
+  let changedCount = 0
+
+  Object.entries(nextFlatRows).forEach(([rowKey, price]) => {
+    const matched = String(rowKey || '').match(/^([0-9]+):fixed_price$/)
+    if (!matched) return
+    const skuID = Number(matched[1] || 0)
+    // The legacy fixed row key was written from the concrete flattened SKU
+    // row (`<sku_id>:fixed_price`). Even when that old draft predates saved
+    // spec selections, the numeric prefix is therefore already a one-to-one
+    // SKU identity and can be migrated without sharing an amount.
+    const selection = selectionsBySkuID.get(skuID) || { product_id: skuID, sku_id: skuID }
+    const skuKey = `sku:${skuID}`
+    const existing = nextProductOverrides[skuKey] || nextProductOverrides[String(skuID)] || {}
+    if (Number(existing.fixed_unit_price ?? existing.fixedUnitPrice ?? 0) > 0) {
+      delete nextFlatRows[rowKey]
+      changedCount += 1
+      return
+    }
+    const migrated = normalizedSKUFixedPriceOverride({
+      ...selection,
+      scope: 'sku',
+      product_id: skuID,
+      sku_id: skuID,
+      fixed_unit_price: price,
+    }, Number(selection.parent_product_id ?? selection.parentProductID ?? 0) || 0)
+    if (!migrated) return
+    nextProductOverrides[skuKey] = migrated
+    delete nextFlatRows[rowKey]
+    migratedCount += 1
+    changedCount += 1
+  })
+
+  return {
+    productOverrides: nextProductOverrides,
+    flatRowOverrides: nextFlatRows,
+    migratedCount,
+    changedCount,
+  }
+}
+
 export function normalizeParentSharedPriceListProductOverrides(rows = {}, options = {}) {
   const entries = Array.isArray(rows)
     ? rows.map((value, index) => [String(index), value])
@@ -94,17 +145,29 @@ export function normalizeParentSharedPriceListProductOverrides(rows = {}, option
     Number(row?.parent_product_id ?? row?.parentProductID ?? 0) || 0,
   ]).filter(([skuID, parentID]) => skuID > 0 && parentID > 0))
   const byParent = new Map()
+  const orphanSKUFixedOverrides = []
   for (const [key, rawValue] of entries) {
     const value = rawValue && typeof rawValue === 'object' ? rawValue : {}
     const scope = productOverrideScope(key, value)
     const parentID = overrideParentProductID(scope, value, parentBySku)
-    if (!(parentID > 0)) continue
+    if (!(parentID > 0)) {
+      // A migrated flat-only legacy draft can know the exact SKU before it
+      // knows that SKU's parent. Preserve its independent amount across
+      // reloads; parent metadata can be filled when catalog selections are
+      // available later.
+      if (scope === 'sku') {
+        const fixedOverride = normalizedSKUFixedPriceOverride(value, 0)
+        if (fixedOverride) orphanSKUFixedOverrides.push(fixedOverride)
+      }
+      continue
+    }
     if (!byParent.has(parentID)) byParent.set(parentID, { parent: null, skus: [] })
     if (scope === 'parent_product') byParent.get(parentID).parent = value
     else byParent.get(parentID).skus.push(value)
   }
 
   const overrides = {}
+  orphanSKUFixedOverrides.forEach((row) => { overrides[`sku:${row.sku_id}`] = row })
   const conflicts = []
   for (const [parentID, group] of byParent.entries()) {
     const fixedRows = group.skus.map((row) => normalizedSKUFixedPriceOverride(row, parentID)).filter(Boolean)
