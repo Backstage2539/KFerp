@@ -17,6 +17,7 @@ const employeeEntries = [
   { key: 'employeeOrderEntry', label: '录单', url: '/pages/employee-order-entry/employee-order-entry' },
   { key: 'employeeOrders', label: '查看订单', url: '/pages/employee-orders/employee-orders' },
   { key: 'employeeCustomers', label: '客户维护', url: '/pages/employee-customers/employee-customers' },
+  { key: 'employeeProfile', label: '个人中心', url: '/pages/profile/profile' },
 ]
 const visibleEntries = computed(() => {
   if (session.accountType !== 'employee') return entries.value
