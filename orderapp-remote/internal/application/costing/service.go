@@ -119,15 +119,18 @@ type PricingRuleTrialProductionOptions struct {
 }
 
 type PricingRuleTrialBomVersionOption struct {
-	BomID            int64  `json:"bom_id"`
-	BomCode          string `json:"bom_code,omitempty"`
-	BomName          string `json:"bom_name"`
-	VersionID        int64  `json:"version_id"`
-	VersionNo        string `json:"version_no"`
-	Status           string `json:"status"`
-	IsDefault        bool   `json:"is_default"`
-	ProcessRouteID   int64  `json:"process_route_id,omitempty"`
-	ProcessRouteName string `json:"process_route_name,omitempty"`
+	BomID                        int64  `json:"bom_id"`
+	BomCode                      string `json:"bom_code,omitempty"`
+	BomName                      string `json:"bom_name"`
+	VersionID                    int64  `json:"version_id"`
+	VersionNo                    string `json:"version_no"`
+	Status                       string `json:"status"`
+	IsDefault                    bool   `json:"is_default"`
+	ProcessRouteID               int64  `json:"process_route_id,omitempty"`
+	ProcessRouteName             string `json:"process_route_name,omitempty"`
+	ComponentCount               int    `json:"component_count"`
+	LatestNonEmptyDraftVersionID int64  `json:"latest_nonempty_draft_version_id,omitempty"`
+	LatestNonEmptyDraftVersionNo string `json:"latest_nonempty_draft_version_no,omitempty"`
 }
 
 type PricingRuleTrialProcessRouteOption struct {
@@ -972,6 +975,7 @@ func pricingRuleTrialNormalizeProductionOptions(input domain.ProductInput, optio
 		options.BomVersions[i].VersionNo = strings.TrimSpace(options.BomVersions[i].VersionNo)
 		options.BomVersions[i].Status = strings.TrimSpace(options.BomVersions[i].Status)
 		options.BomVersions[i].ProcessRouteName = strings.TrimSpace(options.BomVersions[i].ProcessRouteName)
+		options.BomVersions[i].LatestNonEmptyDraftVersionNo = strings.TrimSpace(options.BomVersions[i].LatestNonEmptyDraftVersionNo)
 		if options.BomVersions[i].VersionID == input.BomVersionID && !pricingRuleTrialHasDefaultBomVersion(options.BomVersions) {
 			options.BomVersions[i].IsDefault = true
 		}
@@ -989,6 +993,22 @@ func pricingRuleTrialNormalizeProductionOptions(input domain.ProductInput, optio
 		}
 	}
 	return options
+}
+
+func pricingRuleTrialRejectEmptyPublishedBom(input domain.ProductInput, cmd PricingRuleTrialCommand, operationCostTotal float64, options PricingRuleTrialProductionOptions) error {
+	selected := pricingRuleTrialFindBomVersionOption(options.BomVersions, input.BomVersionID)
+	if selected == nil || selected.ComponentCount > 0 || selected.LatestNonEmptyDraftVersionID <= 0 {
+		return nil
+	}
+	if cmd.Overrides.BaseCost != nil && *cmd.Overrides.BaseCost > 0 {
+		return nil
+	}
+	if operationCostTotal > 0 {
+		return nil
+	}
+	publishedVersion := firstNonEmptyString(strings.TrimSpace(selected.VersionNo), fmt.Sprintf("#%d", selected.VersionID))
+	draftVersion := firstNonEmptyString(strings.TrimSpace(selected.LatestNonEmptyDraftVersionNo), fmt.Sprintf("#%d", selected.LatestNonEmptyDraftVersionID))
+	return fmt.Errorf("当前已发布生产 BOM %s 没有组件，无法计算标准制造成本；检测到 %s 草稿未发布，请先发布 %s（入口：生产管理 → 生产 BOM）后再试算", publishedVersion, draftVersion, draftVersion)
 }
 
 func pricingRuleTrialHasDefaultBomVersion(options []PricingRuleTrialBomVersionOption) bool {
@@ -1202,6 +1222,9 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		}
 	}
 	baseCostDetails, bomCostTotal, operationCostTotal := pricingRuleTrialNormalizeBaseCostDetails(input, quoteUnit, formulaMode, baseCost, cmd.Overrides.BaseCost != nil, rawBaseCostDetails)
+	if err := pricingRuleTrialRejectEmptyPublishedBom(input, cmd, operationCostTotal, productionOptions); err != nil {
+		return nil, err
+	}
 	for _, detail := range baseCostDetails {
 		if warning := strings.TrimSpace(detail.Warning); warning != "" {
 			warnings = appendUniqueString(warnings, warning)

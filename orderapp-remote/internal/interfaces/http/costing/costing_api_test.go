@@ -1031,6 +1031,27 @@ func TestPricingRuleTrialAPIRejectsUnresolvableQuoteUnit(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialAPIRejectsEmptyPublishedBomWithNonEmptyDraft(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(emptyPublishedBomTrialRepo{})})
+
+	body := bytes.NewBufferString(`{"pricing_rule_id":18,"product_id":911,"quote_unit":"kg"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trial", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"V001", "没有组件", "V002", "草稿未发布", "先发布"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response = %s, want %q", rec.Body.String(), want)
+		}
+	}
+}
+
 func TestPricingRuleTrialAPIReturnsBadRequestOnServiceError(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakePricingRuleTrialErrorService{}})
@@ -1591,6 +1612,10 @@ type pricingRuleTrialUnitValidationRepo struct {
 	fakeRepo
 }
 
+type emptyPublishedBomTrialRepo struct {
+	fakeRepo
+}
+
 type priceTierTemplateUnitMismatchRepo struct {
 	fakeRepo
 }
@@ -1645,6 +1670,58 @@ func (pricingRuleTrialUnitValidationRepo) LoadProductInputs(context.Context, dom
 		OperationCostPerKg: 5,
 		YieldRate:          1,
 	}}, nil
+}
+
+func (emptyPublishedBomTrialRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
+	return []domain.ProductInput{{
+		ProductID:     911,
+		ProductCode:   "SKU-000911",
+		Name:          "萨其姆-生豆",
+		ProductKind:   "roasted",
+		InventoryUnit: "kg",
+		QuoteUnit:     "kg",
+		YieldRate:     0.8,
+		BomVersionID:  91101,
+		BomVersionNo:  "V001",
+		BomUsageMode:  "production_bom_output",
+		BomStatus:     "active",
+	}}, nil
+}
+
+func (emptyPublishedBomTrialRepo) LoadProductPricingRule(context.Context, int64) (appcosting.ProductPricingRule, error) {
+	return appcosting.ProductPricingRule{
+		ID:             18,
+		Name:           "生豆计算模板-麻袋",
+		CostSourceMode: "bom_current_cost",
+		MarginRate:     0.03,
+		TaxRate:        0.30,
+		RoundingMode:   "jiao",
+		Active:         true,
+		CalculationJSON: map[string]any{
+			"yield_loss_mode": "bom_or_product",
+			"profit_method":   "markup",
+			"tax_mode":        "tax_included",
+		},
+	}, nil
+}
+
+func (emptyPublishedBomTrialRepo) LoadPricingRuleTrialProductionOptions(context.Context, domain.ProductInput) (appcosting.PricingRuleTrialProductionOptions, error) {
+	return appcosting.PricingRuleTrialProductionOptions{BomVersions: []appcosting.PricingRuleTrialBomVersionOption{{
+		BomID:                        9110,
+		BomCode:                      "BOM-000911",
+		BomName:                      "萨其姆-生豆 生产 BOM",
+		VersionID:                    91101,
+		VersionNo:                    "V001",
+		Status:                       "published",
+		IsDefault:                    true,
+		ComponentCount:               0,
+		LatestNonEmptyDraftVersionID: 91102,
+		LatestNonEmptyDraftVersionNo: "V002",
+	}}}, nil
+}
+
+func (emptyPublishedBomTrialRepo) LoadPricingRuleTrialBaseCostDetails(context.Context, domain.ProductInput) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
+	return nil, nil
 }
 
 func (pricingRuleTrialUnitValidationRepo) LoadProductPricingRule(context.Context, int64) (appcosting.ProductPricingRule, error) {

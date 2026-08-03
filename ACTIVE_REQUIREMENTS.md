@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-577-GREEN-BEAN-PRICING-EMPTY-PUBLISHED-BOM
+- Branch: codex/fix-green-price-sack-zero-20260803
+- Owner/session: Codex / 2026-08-04
+- Status: verified / ready for develop integration and development deployment
+- Scope: 修复价格计算模板试算把系统遗留的空已发布生产 BOM 静默计算为 0；阻止旧 BOM 绑定修复再次发布无组件版本，并在存在非空草稿时明确提示先正式发布对应版本。绝不自动读取或发布草稿，不回退到不可追溯旧汇总成本。
+- DEV:
+  - DEV-577-EMPTY-PUBLISHED-BOM-DIAGNOSTIC：价格试算读取已发布 BOM 的组件数；选中版本无组件时阻断单次和批量试算，若同 BOM 存在非空草稿则显示已发布版本、草稿版本和正式发布指引。
+  - DEV-577-LEGACY-BINDING-GUARD：PR-403 旧 BOM 绑定修复只在存在真实可迁移组件或已有非空已发布生产版本时创建发布版本及绑定，不再仅凭空 product_bom / bom_versions 壳数据生成空 V001。
+  - DEV-577-COST-SOURCE-SAFETY：继续只使用 active production BOM 的 published 版本和可追溯组件成本；不读取 V002 等未发布草稿，不恢复 ProductInput/历史售价汇总兜底，价格表仍拒绝 0 价。
+  - DEV-577-DOCS-ACCEPTANCE-DEPLOY：同步需求、验收、成本与生产手册、PR/DEV 种子和独立证据；合入最新 develop 后部署 development 并完成只读/API 冒烟。
+- Verifier:
+  - RED: published V001 component_count=0 时当前单次/批量试算返回 0；PR-403 repair 仅凭空 legacy BOM 壳仍可生成 published V001 和 binding。
+  - Focused GREEN: costing application/repository/API、BOM backfill/repair、support 合同全部通过；覆盖归一化计件成本、负数覆盖校验和单次/批量错误。
+  - PostgreSQL GREEN: development 临时 schema 中真实执行 pricing option 查询/Scan 与 PR-403 repair；version、items、binding 同一次调用完成，重复和两个并发调用仍只有一份组件/绑定，空来源不迁移，测试 schema 全部删除。
+  - Full GREEN: `go test ./... -count=1`、Vue/Vite build、`scripts/verify_kferp.sh changed/backend`、`git diff --check` 通过。
+  - Independent review: 首轮发现的 CTE 快照、并发幂等、计件归一化、参数错误优先级、特殊属性空复制和固定历史版本回落问题均已修复；第二轮复核无阻断项。
+- Deployment: development requested; production and production business data are out of scope.
+- Last update: 2026-08-04 Asia/Shanghai
+
 ### PR-576-SERIAL-SEQUENCE-DRIFT-REPAIR
 - Branch: codex/fix-serial-sequence-drift-20260803
 - Owner/session: Codex / 2026-08-03

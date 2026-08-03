@@ -488,7 +488,18 @@ ON CONFLICT DO NOTHING;
 WITH version_rows AS (
 	SELECT pbom.id AS bom_id, bv.product_id, bv.id AS legacy_bom_version_id,
 	       COALESCE(NULLIF(bv.version_no,''), 'V' || LPAD(row_number() OVER (PARTITION BY bv.product_id ORDER BY bv.id)::text, 3, '0')) AS version_no,
-	       CASE WHEN bv.status='active' THEN 'published' WHEN bv.status='draft' THEN 'draft' ELSE 'archived' END AS status,
+	       CASE
+	         WHEN bv.status='active' AND (
+	           EXISTS (
+	             SELECT 1 FROM %[1]s.bom_version_items source_item WHERE source_item.version_id=bv.id
+	           )
+	           OR EXISTS (
+	             SELECT 1 FROM %[1]s.product_bom_items fallback_item WHERE fallback_item.product_id=bv.product_id
+	           )
+	         ) THEN 'published'
+	         WHEN bv.status IN ('active','draft') THEN 'draft'
+	         ELSE 'archived'
+	       END AS status,
 	       COALESCE(NULLIF(bv.yield_rate,0), 0.8) AS yield_rate,
 	       COALESCE(bv.note,'') AS note,
 	       COALESCE(bv.activated_at, bv.created_at) AS published_at,
@@ -507,7 +518,10 @@ ON CONFLICT DO NOTHING;
 WITH fallback_products AS (
 	SELECT pbom.id AS bom_id, pbom.legacy_product_id AS product_id,
 	       COALESCE(NULLIF(pb.yield_rate,0),0.8) AS yield_rate,
-	       COALESCE(pb.updated_at, now()) AS updated_at
+	       COALESCE(pb.updated_at, now()) AS updated_at,
+	       EXISTS (
+	         SELECT 1 FROM %[1]s.product_bom_items source_item WHERE source_item.product_id=pbom.legacy_product_id
+	       ) AS has_items
 	FROM %[1]s.production_boms pbom
 	LEFT JOIN %[1]s.product_bom pb ON pb.product_id=pbom.legacy_product_id
 	WHERE NOT EXISTS (
@@ -515,7 +529,10 @@ WITH fallback_products AS (
 	)
 )
 INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
-SELECT bom_id, 'V001', 'published', yield_rate, 1, 'kg', '旧 BOM 回填', product_id, 0, updated_at, updated_at, 'system-backfill', 'system-backfill'
+SELECT bom_id, 'V001', CASE WHEN has_items THEN 'published' ELSE 'draft' END,
+       yield_rate, 1, 'kg', '旧 BOM 回填', product_id, 0, updated_at,
+       CASE WHEN has_items THEN updated_at ELSE NULL END,
+       'system-backfill', CASE WHEN has_items THEN 'system-backfill' ELSE '' END
 FROM fallback_products
 ON CONFLICT DO NOTHING;
 
@@ -556,19 +573,30 @@ target_rows AS (
 	         WHEN source_type='' AND source_product_id <> product_id AND NOT has_own_bom THEN source_product_id
 	         ELSE product_id
 	       END AS bom_product_id,
-	       CASE WHEN source_type='inherit_version' THEN source_bom_version_id ELSE 0 END AS source_bom_version_id
+	       CASE WHEN source_type='inherit_version' THEN source_bom_version_id ELSE 0 END AS source_bom_version_id,
+	       source_type='inherit_version' AS locks_bom_version
 	FROM source_rows
 ),
 binding_rows AS (
 	SELECT tr.product_id, pbom.id AS bom_id,
-	       COALESCE(locked.id, latest.id) AS bom_version_id
+	       CASE WHEN tr.locks_bom_version THEN locked.id ELSE latest.id END AS bom_version_id
 	FROM target_rows tr
 	JOIN %[1]s.production_boms pbom ON pbom.legacy_product_id=tr.bom_product_id
-	LEFT JOIN %[1]s.production_bom_versions locked ON locked.legacy_bom_version_id=tr.source_bom_version_id AND tr.source_bom_version_id > 0
+	LEFT JOIN %[1]s.production_bom_versions locked
+	  ON locked.legacy_bom_version_id=tr.source_bom_version_id
+	 AND locked.bom_id=pbom.id
+	 AND tr.locks_bom_version
+	 AND tr.source_bom_version_id > 0
+	 AND EXISTS (
+	   SELECT 1 FROM %[1]s.production_bom_version_items locked_item WHERE locked_item.version_id=locked.id
+	 )
 	LEFT JOIN LATERAL (
 		SELECT id
 		FROM %[1]s.production_bom_versions v
 		WHERE v.bom_id=pbom.id AND v.status='published'
+		  AND EXISTS (
+		    SELECT 1 FROM %[1]s.production_bom_version_items latest_item WHERE latest_item.version_id=v.id
+		  )
 		ORDER BY v.published_at DESC NULLS LAST, v.id DESC
 		LIMIT 1
 	) latest ON true
@@ -626,6 +654,9 @@ func backfillProductionBomVersionSpecialAttrs(ctx context.Context, pool *pgxpool
 			LEFT JOIN %[1]s.product_config_templates parent_pc_config ON parent_pc_config.id=parent_pc.product_config_template_id AND parent_pc_config.active=true
 			WHERE COALESCE(v.special_attrs_schema_json, '[]'::jsonb) = '[]'::jsonb
 			  AND COALESCE(v.special_attrs_json, '{}'::jsonb) = '{}'::jsonb
+			  AND EXISTS (
+			    SELECT 1 FROM %[1]s.production_bom_version_items source_item WHERE source_item.version_id=v.id
+			  )
 		)
 		SELECT product_id, bom_id, bom_version_id, schema_json, attrs_json
 		FROM candidates
@@ -737,14 +768,18 @@ func copyProductionBomForSpecialAttrsConflict(ctx context.Context, pool *pgxpool
 	`, schema), newBomID, yieldRate, materialLossRate, group.SchemaJSON, group.AttrsJSON).Scan(&newVersionID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+	insertedItems, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot)
 		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, material_loss_rate, unit_cost_snapshot
 		FROM %[1]s.production_bom_version_items
 		WHERE version_id=$2
 		ORDER BY id
-	`, schema), newVersionID, sourceVersionID); err != nil {
+	`, schema), newVersionID, sourceVersionID)
+	if err != nil {
 		return err
+	}
+	if insertedItems.RowsAffected() == 0 {
+		return fmt.Errorf("source production BOM version %d has no components", sourceVersionID)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %[1]s.product_production_bom_bindings
