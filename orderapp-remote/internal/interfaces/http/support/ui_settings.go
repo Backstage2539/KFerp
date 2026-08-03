@@ -13,15 +13,18 @@ import (
 )
 
 const keyHideCustomerAccountFulfillment = "ui.customer_account.hide_fulfillment_console"
+const keyMiniappShareImageNeedShowEntrance = "miniapp.share_image.need_show_entrance"
 
 type UISettings struct {
 	HideCustomerAccountFulfillment bool `json:"hide_customer_account_fulfillment"`
 }
 
-type uiSettingsStore interface {
+type AppConfigStore interface {
 	Get(ctx context.Context, key string) (string, bool, error)
 	Set(ctx context.Context, actor, key, value string) error
 }
+
+type uiSettingsStore = AppConfigStore
 
 type pgUISettingsStore struct {
 	pool   *pgxpool.Pool
@@ -30,6 +33,10 @@ type pgUISettingsStore struct {
 
 func newPGUISettingsStore(pool *pgxpool.Pool, schema string) pgUISettingsStore {
 	return pgUISettingsStore{pool: pool, schema: schema}
+}
+
+func NewAppConfigStore(pool *pgxpool.Pool, schema string) AppConfigStore {
+	return newPGUISettingsStore(pool, schema)
 }
 
 func ensureAppConfigTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -45,8 +52,16 @@ CREATE TABLE IF NOT EXISTS %s.app_config (
 }
 
 func (s pgUISettingsStore) Get(ctx context.Context, key string) (string, bool, error) {
+	return appConfigValue(ctx, s.pool, s.schema, key)
+}
+
+type appConfigQueryer interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func appConfigValue(ctx context.Context, queryer appConfigQueryer, schema, key string) (string, bool, error) {
 	var value string
-	err := s.pool.QueryRow(ctx, fmt.Sprintf(`SELECT value FROM %s.app_config WHERE key=$1`, s.schema), key).Scan(&value)
+	err := queryer.QueryRow(ctx, fmt.Sprintf(`SELECT value FROM %s.app_config WHERE key=$1`, schema), key).Scan(&value)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return "", false, nil
@@ -57,11 +72,21 @@ func (s pgUISettingsStore) Get(ctx context.Context, key string) (string, bool, e
 }
 
 func (s pgUISettingsStore) Set(ctx context.Context, actor, key, value string) error {
-	oldValue, hadOld, err := s.Get(ctx, key)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if _, err := s.pool.Exec(ctx, fmt.Sprintf(`
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, key); err != nil {
+		return err
+	}
+
+	oldValue, hadOld, err := appConfigValue(ctx, tx, s.schema, key)
+	if err != nil {
+		return err
+	}
+	oldValue, hadOld = effectiveAppConfigOldValue(key, oldValue, hadOld)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 INSERT INTO %s.app_config(key,value,updated_at,updated_by)
 VALUES($1,$2,now(),$3)
 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=now(), updated_by=excluded.updated_by
@@ -72,7 +97,7 @@ ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=now(), updated_b
 	if hadOld {
 		oldPtr = StrPtr(oldValue)
 	}
-	return NewAuditService(s.pool, s.schema).Insert(ctx, AuditEntry{
+	if err := NewAuditService(tx, s.schema).Insert(ctx, AuditEntry{
 		Actor:      actor,
 		EntityType: "ui_setting",
 		Action:     "update",
@@ -80,7 +105,24 @@ ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=now(), updated_b
 		OldValue:   oldPtr,
 		NewValue:   StrPtr(value),
 		Meta:       AuditMeta{"key": key},
-	})
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func effectiveAppConfigOldValue(key, raw string, exists bool) (string, bool) {
+	defaultValue, hasDefault := map[string]string{
+		keyHideCustomerAccountFulfillment:    "true",
+		keyMiniappShareImageNeedShowEntrance: "true",
+	}[strings.TrimSpace(key)]
+	if !hasDefault {
+		return raw, exists
+	}
+	if !exists {
+		return defaultValue, true
+	}
+	return raw, true
 }
 
 func defaultUISettings() UISettings {

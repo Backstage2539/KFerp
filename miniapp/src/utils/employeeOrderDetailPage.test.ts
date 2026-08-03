@@ -38,6 +38,11 @@ describe('employee order detail miniapp page contract', () => {
     expect(detailSource).toContain('fetchEmployeeOrderDetail')
     expect(detailSource).toContain('generateEmployeeOrderDocument')
     expect(detailSource).toContain('shareMiniappFileOutput')
+    expect(detailSource).toContain('fetchEmployeeShareSettings')
+    expect(detailSource).toContain('needShowEntrance: imageNeedShowEntrance')
+    expect(detailSource).toContain("format === 'png'")
+    expect(detailSource).toContain('await showShareSettingsFallbackNotice()')
+    expect(detailSource).toContain('本次将按安全方式继续，图片不会携带小程序入口。')
     expect(detailSource).toContain('asset?.filename')
     expect(detailSource).toContain('asset?.version_no')
     for (const label of ['销售单 PDF', '销售单图片', '发货单 PDF', '发货单图片']) {

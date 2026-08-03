@@ -53,6 +53,7 @@
             <optgroup label="设置/系统">
               <option value="company_profile">公司信息</option>
               <option value="cost_parameter">成本参数</option>
+              <option value="ui_setting">系统设置</option>
               <option value="auth">登录</option>
               <option value="auth_account">员工账号</option>
               <option value="operation">操作</option>

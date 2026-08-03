@@ -24,6 +24,8 @@ import {
   buildServicePagePath,
   buildSwitchCustomerPath,
   fetchEmployeeOrderForm,
+  fetchEmployeeShareSettings,
+  saveEmployeeShareSettings,
   updateEmployeeOrder,
 } from './customerPortal'
 import type {
@@ -122,6 +124,25 @@ describe('customer portal API helpers', () => {
 
     expect(miniRequest).toHaveBeenCalledWith('/api/mini/employee/order-form?customer_id=8', {
       token: 'employee-token',
+    })
+  })
+
+  it('reads and saves the employee image-share entrance setting', async () => {
+    vi.mocked(miniRequest).mockResolvedValue({
+      settings: { image_need_show_entrance: false },
+      can_manage: true,
+    })
+
+    await fetchEmployeeShareSettings('employee-token')
+    expect(miniRequest).toHaveBeenLastCalledWith('/api/mini/employee/share-settings', {
+      token: 'employee-token',
+    })
+
+    await saveEmployeeShareSettings('employee-token', true)
+    expect(miniRequest).toHaveBeenLastCalledWith('/api/mini/employee/share-settings', {
+      method: 'PUT',
+      token: 'employee-token',
+      data: { image_need_show_entrance: true },
     })
   })
 

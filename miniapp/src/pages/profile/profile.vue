@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { fetchMe, switchCurrentCustomer } from '../../api/customerPortal'
+import {
+  fetchEmployeeShareSettings,
+  fetchMe,
+  saveEmployeeShareSettings,
+  switchCurrentCustomer,
+} from '../../api/customerPortal'
+import { isAuthenticationExpiredRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
@@ -18,8 +24,19 @@ const session = useSessionStore()
 const loading = ref(false)
 const switching = ref(false)
 const errorMessage = ref('')
+const shareSettingLoading = ref(false)
+const shareSettingSaving = ref(false)
+const shareSettingLoaded = ref(false)
+const shareSettingError = ref('')
+const imageNeedShowEntrance = ref(false)
+const savedImageNeedShowEntrance = ref(false)
 
 const isEmployee = computed(() => session.accountType === 'employee')
+const canManageShareSettings = computed(() => (
+  session.accountType === 'employee'
+  && session.roles.includes('admin')
+  && session.permissions.includes('settings.write')
+))
 const accountName = computed(() => isEmployee.value ? (session.employeeName || '员工') : (session.currentCustomerName || '客户中心'))
 const themeClass = computed(() => miniappThemeClass(session.themeKey))
 const themeMeta = computed(() => miniappThemeMeta(session.themeKey))
@@ -30,6 +47,12 @@ const customerPickerIndex = computed(() => selectedCustomerPickerIndex(session.b
 function clearAndLogin() {
   session.clearSession()
   uni.reLaunch({ url: '/pages/login/login' })
+}
+
+function redirectExpiredShareSettingsSession(error: unknown): boolean {
+  if (!isAuthenticationExpiredRequestError(error)) return false
+  clearAndLogin()
+  return true
 }
 
 function openCustomerProducts() {
@@ -58,6 +81,48 @@ async function handleCustomerSwitch(event: { detail?: { value?: number | string 
   }
 }
 
+async function loadShareSettings() {
+  if (!canManageShareSettings.value || !session.token) return
+  shareSettingLoading.value = true
+  shareSettingLoaded.value = false
+  shareSettingError.value = ''
+  try {
+    const response = await fetchEmployeeShareSettings(session.token)
+    const value = response.settings?.image_need_show_entrance === true
+    imageNeedShowEntrance.value = value
+    savedImageNeedShowEntrance.value = value
+    shareSettingLoaded.value = true
+  } catch (error) {
+    if (redirectExpiredShareSettingsSession(error)) return
+    shareSettingError.value = error instanceof Error ? error.message : '分享设置加载失败'
+  } finally {
+    shareSettingLoading.value = false
+  }
+}
+
+async function handleShareSettingChange(event: Event) {
+  if (!canManageShareSettings.value || !shareSettingLoaded.value || shareSettingSaving.value) return
+  const detail = (event as unknown as { detail?: { value?: boolean } }).detail
+  const nextValue = detail?.value === true
+  imageNeedShowEntrance.value = nextValue
+  shareSettingSaving.value = true
+  shareSettingError.value = ''
+  try {
+    const response = await saveEmployeeShareSettings(session.token, nextValue)
+    const savedValue = response.settings?.image_need_show_entrance === true
+    imageNeedShowEntrance.value = savedValue
+    savedImageNeedShowEntrance.value = savedValue
+    uni.showToast({ title: '分享设置已保存', icon: 'success' })
+  } catch (error) {
+    imageNeedShowEntrance.value = savedImageNeedShowEntrance.value
+    if (redirectExpiredShareSettingsSession(error)) return
+    shareSettingError.value = error instanceof Error ? error.message : '分享设置保存失败'
+    uni.showToast({ title: '保存失败，已恢复原设置', icon: 'none' })
+  } finally {
+    shareSettingSaving.value = false
+  }
+}
+
 async function loadContext() {
   if (!session.token) {
     uni.reLaunch({ url: '/pages/login/login' })
@@ -69,6 +134,7 @@ async function loadContext() {
   try {
     const response = await fetchMe(session.token)
     session.applyContext(response)
+    if (canManageShareSettings.value) await loadShareSettings()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '账号信息加载失败'
     session.clearSession()
@@ -100,6 +166,28 @@ onShow(() => {
       <view class="info-row">
         <text class="label">{{ isEmployee ? '当前员工' : '当前客户' }}</text>
         <text class="value">{{ accountName }}</text>
+      </view>
+
+      <view v-if="canManageShareSettings" class="settings-card">
+        <view class="setting-row">
+          <view class="setting-copy">
+            <text class="setting-title">分享图片时携带小程序入口</text>
+            <text class="setting-hint">全系统开关，对所有员工之后分享的销售单、发货单图片生效。</text>
+          </view>
+          <switch
+            color="#28624a"
+            :checked="imageNeedShowEntrance"
+            :disabled="shareSettingLoading || shareSettingSaving || !shareSettingLoaded"
+            @change="handleShareSettingChange"
+          />
+        </view>
+        <text v-if="shareSettingLoading" class="setting-status">正在读取系统设置...</text>
+        <text v-else-if="shareSettingSaving" class="setting-status">正在保存...</text>
+        <view v-else-if="shareSettingError" class="setting-error-row">
+          <text class="error">{{ shareSettingError }}</text>
+          <button class="retry-button" @tap="loadShareSettings">重试</button>
+        </view>
+        <text v-else class="setting-status">当前：{{ imageNeedShowEntrance ? '携带入口' : '不携带入口' }}</text>
       </view>
 
       <picker v-if="!isEmployee && canSwitchCustomer" mode="selector" :range="customerPickerLabels" :value="customerPickerIndex" @change="handleCustomerSwitch">
@@ -198,6 +286,58 @@ onShow(() => {
   border: 1rpx solid #ead9bd;
   border-radius: 16rpx;
   background: #fffaf2;
+}
+
+.settings-card {
+  padding: 28rpx;
+  border: 1rpx solid #d8e4dd;
+  border-radius: 16rpx;
+  background: #ffffff;
+}
+
+.setting-row,
+.setting-error-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.setting-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.setting-title {
+  color: #172c22;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.setting-hint,
+.setting-status {
+  color: #66756c;
+  font-size: 23rpx;
+  line-height: 1.55;
+}
+
+.setting-status {
+  display: block;
+  margin-top: 14rpx;
+}
+
+.retry-button {
+  flex: 0 0 auto;
+  min-height: 58rpx;
+  margin: 0;
+  padding: 0 22rpx;
+  border: 1rpx solid #cddbd4;
+  background: #eef6f2;
+  color: #28624a;
+  font-size: 23rpx;
+  line-height: 58rpx;
 }
 
 .theme-clean-ops .info-row {

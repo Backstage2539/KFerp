@@ -11,7 +11,7 @@ type MiniappCallbackOptions = {
 
 export type MiniappSharePlatform = {
   shareFileMessage?: (options: MiniappCallbackOptions & { filePath: string; fileName?: string }) => void
-  showShareImageMenu?: (options: MiniappCallbackOptions & { path: string }) => void
+  showShareImageMenu?: (options: MiniappCallbackOptions & { path: string; needShowEntrance?: boolean }) => void
   openDocument?: (options: MiniappCallbackOptions & { filePath: string; fileType?: string; showMenu?: boolean }) => void
   previewImage?: (options: MiniappCallbackOptions & { urls: string[]; current?: string }) => void
 }
@@ -108,7 +108,7 @@ async function previewDownloadedImage(filePath: string, platform: MiniappSharePl
 }
 
 export async function shareDownloadedMiniappFile(
-  options: { filePath: string; fileName?: string; kind: MiniappFileOutputKind },
+  options: { filePath: string; fileName?: string; kind: MiniappFileOutputKind; needShowEntrance?: boolean },
   platform: MiniappSharePlatform,
 ): Promise<void> {
   if (options.kind === 'pdf') {
@@ -136,6 +136,7 @@ export async function shareDownloadedMiniappFile(
   try {
     await invokeMiniappCallback((success, fail) => platform.showShareImageMenu?.({
       path: options.filePath,
+      needShowEntrance: options.needShowEntrance === true,
       success,
       fail,
     }))
@@ -165,6 +166,7 @@ export function shareMiniappFileOutput(options: {
   kind: MiniappFileOutputKind
   fileName?: string
   loadingTitle?: string
+  needShowEntrance?: boolean
 }): Promise<void> {
   return new Promise((resolve, reject) => {
     let finished = false
@@ -214,6 +216,7 @@ export function shareMiniappFileOutput(options: {
             filePath: res.tempFilePath,
             fileName: options.fileName,
             kind: options.kind,
+            needShowEntrance: options.needShowEntrance,
           }, currentSharePlatform())
         } catch {
           uni.showToast({
