@@ -956,6 +956,79 @@ func TestPricingRuleTrialIgnoresLegacySummaryCostWithoutOutputBomDetails(t *test
 	}
 }
 
+func greenBeanEmptyPublishedBomPricingTrialRepo(t *testing.T) *fakeRepo {
+	t.Helper()
+	var productionOptions PricingRuleTrialProductionOptions
+	if err := json.Unmarshal([]byte(`{
+		"bom_versions": [{
+			"bom_id": 9110,
+			"bom_code": "BOM-000911",
+			"bom_name": "萨其姆-生豆",
+			"version_id": 91101,
+			"version_no": "V001",
+			"status": "published",
+			"is_default": true,
+			"component_count": 0,
+			"latest_nonempty_draft_version_id": 91102,
+			"latest_nonempty_draft_version_no": "V002"
+		}]
+	}`), &productionOptions); err != nil {
+		t.Fatalf("decode production options: %v", err)
+	}
+
+	return &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:             911,
+			ProductCode:           "SKU-000911",
+			Name:                  "萨其姆-生豆",
+			ProductKind:           "roasted",
+			CategoryPrimaryName:   "咖啡豆",
+			CategorySecondaryName: "生豆",
+			InventoryUnit:         "kg",
+			QuoteUnit:             "kg",
+			YieldRate:             1,
+			BomVersionID:          91101,
+			BomVersionNo:          "V001",
+			BomUsageMode:          "production_bom_output",
+			BomStatus:             "active",
+		}},
+		productionOptions: productionOptions,
+		pricingRules: map[int64]ProductPricingRule{
+			18: {
+				ID:             18,
+				Name:           "生豆计算模板-麻袋",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0.03,
+				TaxRate:        0.30,
+				RoundingMode:   "jiao",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "bom_or_product",
+					"profit_method":   "markup",
+					"tax_mode":        "tax_included",
+				},
+			},
+		},
+	}
+}
+
+func TestPricingRuleTrialRejectsEmptyPublishedBomWhenNonEmptyDraftExists(t *testing.T) {
+	repo := greenBeanEmptyPublishedBomPricingTrialRepo(t)
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 18,
+		ProductID:     911,
+		QuoteUnit:     "kg",
+	})
+	if err == nil {
+		t.Fatalf("PricingRuleTrial() result = %+v, want empty published BOM error", got)
+	}
+	for _, want := range []string{"V001", "没有组件", "V002", "草稿未发布", "先发布"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("PricingRuleTrial() error = %q, want %q", err, want)
+		}
+	}
+}
+
 func TestPricingRuleTrialUsesBaseCostDetailsWhenProductInputSummaryMissing(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
@@ -1961,6 +2034,29 @@ func TestPricingRuleTrialBatchIsolatesBaseCostDetailErrors(t *testing.T) {
 	}
 	if rows[1].Result != nil || rows[1].Error != "BOM detail unavailable" {
 		t.Fatalf("failed detail row = %+v", rows[1])
+	}
+}
+
+func TestPricingRuleTrialBatchRejectsEmptyPublishedBomWhenNonEmptyDraftExists(t *testing.T) {
+	repo := greenBeanEmptyPublishedBomPricingTrialRepo(t)
+	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{{
+		PricingRuleID: 18,
+		ProductID:     911,
+		QuoteUnit:     "kg",
+	}})
+	if err != nil {
+		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("PricingRuleTrialBatch() rows = %d, want 1", len(rows))
+	}
+	if rows[0].Result != nil {
+		t.Fatalf("PricingRuleTrialBatch() result = %+v, want nil", rows[0].Result)
+	}
+	for _, want := range []string{"V001", "没有组件", "V002", "草稿未发布", "先发布"} {
+		if !strings.Contains(rows[0].Error, want) {
+			t.Fatalf("PricingRuleTrialBatch() row error = %q, want %q", rows[0].Error, want)
+		}
 	}
 }
 

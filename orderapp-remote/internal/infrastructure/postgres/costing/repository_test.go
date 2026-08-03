@@ -947,6 +947,48 @@ func TestPricingRuleTrialProductionOptionsExposeProcessRoutes(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialProductionOptionsExposePublishedComponentCountAndLatestNonEmptyDraft(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialProductionOptions")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialProductionOptions not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnEnd < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found after LoadPricingRuleTrialProductionOptions")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"production_bom_version_items",
+		"component_count",
+		"latest_nonempty_draft_version_id",
+		"latest_nonempty_draft_version_no",
+		"draft.bom_id=pb.id",
+		"status='draft'",
+		"EXISTS",
+		"&row.ComponentCount",
+		"&row.LatestNonEmptyDraftVersionID",
+		"&row.LatestNonEmptyDraftVersionNo",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing trial production options must diagnose empty published BOM and the latest non-empty draft; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"unit_cost_snapshot",
+		"purchase_price",
+		"material_valuation",
+	} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("pricing trial production options must report draft metadata without reading draft costs; found %q", forbidden)
+		}
+	}
+}
+
 func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
