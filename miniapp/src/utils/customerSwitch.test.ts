@@ -53,11 +53,13 @@ describe('miniapp customer switching', () => {
     expect(profile).toContain('切换用户')
     expect(profile).toContain('退出登录')
 
+    expect(home).toContain("{ key: 'employeeProfile', label: '个人中心', url: '/pages/profile/profile' }")
+
     for (const source of [home, mall, service]) {
       expect(source).toContain('MainTabBar')
-      expect(source).not.toContain('个人中心')
       expect(source).not.toContain('handleCustomerSwitch')
       expect(source).not.toContain('退出登录')
     }
+    for (const source of [mall, service]) expect(source).not.toContain('个人中心')
   })
 })
