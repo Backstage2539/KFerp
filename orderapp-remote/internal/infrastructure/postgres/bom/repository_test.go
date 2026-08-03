@@ -157,6 +157,80 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 	}
 }
 
+func TestProductionBomLibraryBackfillDoesNotPublishOrBindEmptyLegacyShells(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(schema)
+	start := strings.Index(source, "func backfillProductionBomLibrary")
+	if start == -1 {
+		t.Fatal("backfillProductionBomLibrary source not found")
+	}
+	endOffset := strings.Index(source[start:], "\ntype bomVersionSpecialAttrCandidate")
+	if endOffset == -1 {
+		t.Fatal("backfillProductionBomLibrary source not found")
+	}
+	backfill := source[start : start+endOffset]
+
+	versionStart := strings.Index(backfill, "WITH version_rows AS (")
+	versionEnd := strings.Index(backfill, "\nINSERT INTO %[1]s.production_bom_versions")
+	if versionStart == -1 || versionEnd == -1 || versionEnd <= versionStart {
+		t.Fatal("legacy version_rows source not found")
+	}
+	versionRows := backfill[versionStart:versionEnd]
+	if strings.Contains(versionRows, "CASE WHEN bv.status='active' THEN 'published'") {
+		t.Fatal("empty legacy bom_versions must remain draft instead of becoming published shells")
+	}
+	for _, want := range []string{"%[1]s.bom_version_items", "%[1]s.product_bom_items", "'published'", "'draft'"} {
+		if !strings.Contains(versionRows, want) {
+			t.Fatalf("legacy bom_version publication must depend on a real item source; missing %q", want)
+		}
+	}
+
+	fallbackStart := strings.Index(backfill, "WITH fallback_products AS (")
+	if fallbackStart == -1 {
+		t.Fatal("fallback_products source not found")
+	}
+	fallbackTail := backfill[fallbackStart:]
+	fallbackEnd := strings.Index(fallbackTail, "ON CONFLICT DO NOTHING;")
+	if fallbackEnd == -1 {
+		t.Fatal("fallback_products source not found")
+	}
+	fallback := fallbackTail[:fallbackEnd]
+	if strings.Contains(fallback, "SELECT bom_id, 'V001', 'published'") {
+		t.Fatal("empty product_bom shells must create draft V001 instead of published V001")
+	}
+	for _, want := range []string{"%[1]s.product_bom_items", "'published'", "'draft'"} {
+		if !strings.Contains(fallback, want) {
+			t.Fatalf("fallback V001 publication must depend on real product_bom_items; missing %q", want)
+		}
+	}
+
+	bindingStart := strings.Index(backfill, "binding_rows AS (")
+	if bindingStart == -1 {
+		t.Fatal("backfill binding_rows source not found")
+	}
+	bindingTail := backfill[bindingStart:]
+	bindingEnd := strings.Index(bindingTail, ")\nINSERT INTO %[1]s.product_production_bom_bindings")
+	if bindingEnd == -1 {
+		t.Fatal("backfill binding_rows source not found")
+	}
+	bindingRows := bindingTail[:bindingEnd]
+	latestStart := strings.Index(bindingRows, "LEFT JOIN LATERAL (")
+	if latestStart == -1 {
+		t.Fatal("latest published BOM binding source not found")
+	}
+	lockedBinding := bindingRows[:latestStart]
+	latestBinding := bindingRows[latestStart:]
+	if !strings.Contains(lockedBinding, "%[1]s.production_bom_version_items") {
+		t.Fatal("locked legacy BOM binding must require production BOM version items")
+	}
+	if !strings.Contains(latestBinding, "%[1]s.production_bom_version_items") {
+		t.Fatal("latest published BOM binding must require production BOM version items")
+	}
+}
+
 func TestProductionBomVersionsPersistBomLevelMaterialLossRate(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
@@ -439,6 +513,107 @@ func TestProductionBomBackfillRepairsLegacyItemsWithoutBindings(t *testing.T) {
 	}
 }
 
+func TestProductionBomLegacyBindingRepairRequiresItemBackedSource(t *testing.T) {
+	repository := readRepositorySource(t)
+	start := strings.Index(repository, "func repairLegacyProductionBomBindings")
+	if start == -1 {
+		t.Fatal("repairLegacyProductionBomBindings not found")
+	}
+	repair := repository[start:]
+	candidateStart := strings.Index(repair, "WITH missing_legacy_bindings AS (")
+	candidateEnd := strings.Index(repair, "),\ninserted_boms AS (")
+	if candidateStart == -1 || candidateEnd == -1 || candidateEnd <= candidateStart {
+		t.Fatal("missing_legacy_bindings source not found")
+	}
+	candidates := repair[candidateStart:candidateEnd]
+	for _, forbidden := range []string{
+		"pb.product_id IS NOT NULL",
+		"EXISTS (SELECT 1 FROM %[1]s.bom_versions bv WHERE bv.product_id=p.id)",
+		"JOIN %[1]s.bom_version_items bvi ON bvi.version_id=bv.id",
+	} {
+		if strings.Contains(candidates, forbidden) {
+			t.Fatalf("legacy binding repair must not treat an empty BOM/version shell as repairable; found %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"%[1]s.product_bom_items",
+		"%[1]s.production_bom_versions",
+		"%[1]s.production_bom_version_items",
+	} {
+		if !strings.Contains(candidates, want) {
+			t.Fatalf("legacy binding repair candidates must be backed by real BOM items; missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"pg_advisory_xact_lock",
+		"target_boms AS",
+		"RETURNING id, bom_id, legacy_product_id, published_at",
+		"RETURNING version_id",
+		"binding_version_candidates AS",
+	} {
+		if !strings.Contains(repair, want) {
+			t.Fatalf("legacy binding repair must serialize and sequence inserted BOMs, versions, items, and bindings; missing %q", want)
+		}
+	}
+	bindingStart := strings.Index(repair, "binding_rows AS (")
+	bindingEnd := strings.Index(repair, ")\nINSERT INTO %[1]s.product_production_bom_bindings")
+	if bindingStart == -1 || bindingEnd == -1 || bindingEnd <= bindingStart {
+		t.Fatal("binding_rows source not found")
+	}
+	bindingRows := repair[bindingStart:bindingEnd]
+	if !strings.Contains(bindingRows, "binding_version_candidates") {
+		t.Fatal("legacy binding repair must bind only an item-backed version candidate")
+	}
+}
+
+func TestProductionBomBackfillPreservesExplicitItemBackedHistoricalVersion(t *testing.T) {
+	schema := readBomSchemaSource(t)
+	start := strings.Index(schema, "binding_rows AS (")
+	if start == -1 {
+		t.Fatal("production BOM backfill binding_rows not found")
+	}
+	end := strings.Index(schema[start:], ")\nINSERT INTO %[1]s.product_production_bom_bindings")
+	if end == -1 {
+		t.Fatal("production BOM backfill binding insert not found")
+	}
+	bindingRows := schema[start : start+end]
+	if !strings.Contains(schema, "source_type='inherit_version' AS locks_bom_version") {
+		t.Fatal("explicit inherit_version intent must survive a zero or missing legacy version id")
+	}
+	for _, want := range []string{
+		"CASE WHEN tr.locks_bom_version THEN locked.id ELSE latest.id END",
+		"locked.legacy_bom_version_id=tr.source_bom_version_id",
+		"locked.bom_id=pbom.id",
+		"tr.locks_bom_version",
+		"production_bom_version_items locked_item",
+	} {
+		if !strings.Contains(bindingRows, want) {
+			t.Fatalf("explicit historical binding guard missing %q", want)
+		}
+	}
+	if strings.Contains(bindingRows, "locked.status='published'") {
+		t.Fatal("an explicit item-backed historical version must not silently fall back to the latest published version")
+	}
+}
+
+func TestProductionBomSpecialAttrsBackfillRequiresSourceComponents(t *testing.T) {
+	schema := readBomSchemaSource(t)
+	start := strings.Index(schema, "func backfillProductionBomVersionSpecialAttrs")
+	if start == -1 {
+		t.Fatal("backfillProductionBomVersionSpecialAttrs not found")
+	}
+	backfill := schema[start:]
+	for _, want := range []string{
+		"production_bom_version_items source_item",
+		"insertedItems.RowsAffected() == 0",
+		"has no components",
+	} {
+		if !strings.Contains(backfill, want) {
+			t.Fatalf("special attrs backfill must reject empty published copies; missing %q", want)
+		}
+	}
+}
+
 func TestProductionBomDetailListsReferencedProducts(t *testing.T) {
 	repository := readRepositorySource(t)
 	for _, want := range []string{
@@ -559,6 +734,15 @@ func TestProductionBomVersionSchemaDefaultsNewRowsToFullYield(t *testing.T) {
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func readBomSchemaSource(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
 	}

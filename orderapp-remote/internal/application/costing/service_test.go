@@ -1029,6 +1029,112 @@ func TestPricingRuleTrialRejectsEmptyPublishedBomWhenNonEmptyDraftExists(t *test
 	}
 }
 
+func TestPricingRuleTrialEmptyPublishedBomDiagnosticDoesNotBlockPositiveCostSources(t *testing.T) {
+	t.Run("explicit positive base cost", func(t *testing.T) {
+		repo := greenBeanEmptyPublishedBomPricingTrialRepo(t)
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 18,
+			ProductID:     911,
+			QuoteUnit:     "kg",
+			Overrides: PricingRuleTrialOverrides{
+				BaseCost: floatPtr(54),
+			},
+		})
+		if err != nil {
+			t.Fatalf("PricingRuleTrial() error = %v", err)
+		}
+		if got.BaseCost != 54 || got.FinalUnitPrice <= 0 {
+			t.Fatalf("trial = base %.2f final %.2f, want positive explicit cost", got.BaseCost, got.FinalUnitPrice)
+		}
+	})
+
+	t.Run("positive operation snapshot", func(t *testing.T) {
+		repo := greenBeanEmptyPublishedBomPricingTrialRepo(t)
+		repo.costDetails = []PricingRuleTrialBaseCostDetail{{
+			Key:         "operation:911:1",
+			Type:        "operation",
+			TypeLabel:   "工序",
+			Name:        "麻袋处理",
+			ConsumeUnit: "per_kg",
+			UnitCost:    8,
+			Amount:      8,
+			AmountPerKg: 8,
+			Unit:        "kg",
+		}}
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 18,
+			ProductID:     911,
+			QuoteUnit:     "kg",
+		})
+		if err != nil {
+			t.Fatalf("PricingRuleTrial() error = %v", err)
+		}
+		if got.OperationCostTotal != 8 || got.FinalUnitPrice <= 0 {
+			t.Fatalf("trial = operation %.2f final %.2f, want positive operation cost", got.OperationCostTotal, got.FinalUnitPrice)
+		}
+	})
+
+	t.Run("zero override remains blocked", func(t *testing.T) {
+		repo := greenBeanEmptyPublishedBomPricingTrialRepo(t)
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 18,
+			ProductID:     911,
+			QuoteUnit:     "kg",
+			Overrides: PricingRuleTrialOverrides{
+				BaseCost: floatPtr(0),
+			},
+		})
+		if err == nil {
+			t.Fatalf("PricingRuleTrial() result = %+v, want empty published BOM error", got)
+		}
+	})
+
+	t.Run("invalid piece cost remains blocked after normalization", func(t *testing.T) {
+		repo := greenBeanEmptyPublishedBomPricingTrialRepo(t)
+		repo.inputs[0].QuoteUnit = ""
+		repo.inputs[0].OrderUnit = ""
+		repo.costDetails = []PricingRuleTrialBaseCostDetail{{
+			Key:        "operation:911:piece",
+			Type:       "operation",
+			TypeLabel:  "工序",
+			Name:       "麻袋处理",
+			CostMethod: "piece",
+			PieceRate:  8,
+			UnitCost:   8,
+			Unit:       "kg",
+		}}
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 18,
+			ProductID:     911,
+			QuoteUnit:     "kg",
+		})
+		if err == nil {
+			t.Fatalf("PricingRuleTrial() result = %+v, want empty published BOM error", got)
+		}
+		if !strings.Contains(err.Error(), "V001") {
+			t.Fatalf("PricingRuleTrial() error = %q, want empty published BOM diagnostic", err)
+		}
+	})
+
+	t.Run("invalid negative override keeps validation error", func(t *testing.T) {
+		repo := greenBeanEmptyPublishedBomPricingTrialRepo(t)
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 18,
+			ProductID:     911,
+			QuoteUnit:     "kg",
+			Overrides: PricingRuleTrialOverrides{
+				BaseCost: floatPtr(-1),
+			},
+		})
+		if err == nil {
+			t.Fatalf("PricingRuleTrial() result = %+v, want base cost validation error", got)
+		}
+		if !strings.Contains(err.Error(), "base_cost must be >= 0") {
+			t.Fatalf("PricingRuleTrial() error = %q, want base_cost validation", err)
+		}
+	})
+}
+
 func TestPricingRuleTrialUsesBaseCostDetailsWhenProductInputSummaryMissing(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{

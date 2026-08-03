@@ -1416,3 +1416,10 @@
 - `DEV-575-ADMIN-PROFILE-SETTING`：员工管理员个人中心显示“分享图片时携带小程序入口”全局开关；普通销售、客户和缺权限账号不显示。普通读取失败不清空有效登录、不误保存并支持重试；保存失败恢复上次服务端值；认证失效时清除失效会话并返回登录页。
 - `DEV-575-IMAGE-SHARE-RUNTIME`：销售单/发货单 PNG 每次分享前读取当前值并显式传入 `wx.showShareImageMenu.needShowEntrance`；读取失败安全回落 `false`。PDF、PNG 内容、文档版本、历史文件及已经发送的图片消息不变；低版本微信回退预览时由客户端控制入口。
 - `DEV-575-DOCS-ACCEPTANCE`：同步需求、验收、PR/DEV、员工小程序与设置审计手册和独立证据。代码合入与服务器部署、小程序固定包、DevTools 上传、审核和正式发布分别验收；本需求不部署或发布。
+
+# PR-577-GREEN-BEAN-PRICING-EMPTY-PUBLISHED-BOM 生豆价格试算空发布 BOM 诊断与旧回填保护（2026-08-04）
+
+- `DEV-577-EMPTY-PUBLISHED-BOM-DIAGNOSTIC`：价格计算模板的单次和批量试算继续只读取 active production BOM 的 published 版本。若当前选中 published 版本没有组件、同 BOM 存在有组件的 draft 版本、且本次没有正数成本覆盖或可独立计价的正数工序成本，则不得返回看似有效的 0 元；接口必须指出当前发布版本和待发布草稿版本，并引导到 `生产管理 → 生产 BOM` 检查后正式发布。
+- `DEV-577-LEGACY-BINDING-GUARD`：旧 `product_bom`、`bom_versions` 向 production BOM 的回填、PR-403 绑定修复及特殊属性冲突拆分，只有在来源存在真实组件，或已经存在有组件的 production BOM 版本时，才可生成发布版本和商品绑定；空旧壳最多形成 draft，不得生成或复制 published V001，也不得建立默认绑定。运行时修复必须在显式事务中先取得 schema 级 advisory transaction lock，再在一次 PostgreSQL 语句中通过 `RETURNING` 串联版本、组件和绑定；不能分多次请求逐步补齐，并发或重复调用不得复制组件。显式继承的有组件历史版本继续保持原版本；无效或跨 BOM 的显式版本不静默切换到最新 published。
+- `DEV-577-COST-SOURCE-SAFETY`：诊断只读取草稿版本号和“是否有组件”，不得读取草稿组件成本、自动发布草稿、回退 ProductInput 历史汇总成本或重算历史价格表。明确填写的正数临时基础成本和仅由正数工序快照构成的合法试算继续允许；固定价和价格表发布仍拒绝非正数最终价。
+- `DEV-577-DOCS-ACCEPTANCE-DEPLOY`：同步需求、验收、成本核算、生产和生豆销售手册、PR/DEV 及独立证据；在最新 `develop` 完成回归后部署 development。production 商品、BOM、价格表和历史快照均不自动修改，真实 BOM 草稿发布继续使用现有权限和操作日志。
