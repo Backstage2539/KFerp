@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-576-SERIAL-SEQUENCE-DRIFT-REPAIR
+- Branch: codex/fix-serial-sequence-drift-20260803
+- Owner/session: Codex / 2026-08-03
+- Status: implementation verified / production data unchanged / merge and deployment not requested
+- Scope: 修复主数据迁移显式写入 `id` 后未同步自增序列，导致生产环境新建价格计算模板触发 `product_pricing_rules_pkey` / `SQLSTATE 23505`；在所有模块建表完成后统一校准当前 schema 内由 `id` 字段拥有的 serial/identity 序列，并且只前移、不回退。
+- DEV:
+  - DEV-576-ROOT-CAUSE：生产只读检查确认 `product_pricing_rules` 最大 ID 为 14、序列仍为 7；同批迁移后另有客户、物料、价格、BOM、工艺路线和分类模板等表存在同类漂移。
+  - DEV-576-GENERIC-SEQUENCE-GUARD：从 PostgreSQL 依赖关系发现所有 `id` 自增序列；逐表短暂加锁，在一致状态下比较 `MAX(id)` 与 `last_value`，只把落后的序列校准为 `MAX(id)+1`，空表和已领先序列保持不变。
+  - DEV-576-STARTUP-ORDER：通用校准作为应用 schema 初始化的最后一步执行，覆盖所有模块和未来新增的 serial/identity `id` 表。
+- Verifier:
+  - RED: `serialSequenceRepairValue` 未实现，schema 启动流程未接入最终校准步骤。
+  - Focused GREEN: `go test ./internal/infrastructure/postgres ./internal/appmain -count=1`。
+  - Full GREEN: `go test ./...`。
+- Deployment: not requested; no production sequence, business row, service, branch, or environment has been changed.
+- Last update: 2026-08-03 Asia/Shanghai
+
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
 - Branch: codex/pr572-share-panel-top-20260802 (follow-up)
 - Owner/session: Codex / 2026-08-02
