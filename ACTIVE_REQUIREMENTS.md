@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-576-SERIAL-SEQUENCE-DRIFT-REPAIR
 - Branch: codex/fix-serial-sequence-drift-20260803
 - Owner/session: Codex / 2026-08-03
-- Status: implementation verified / dual-environment release authorized / integration and deployment in progress
+- Status: merged to develop/main / development and production deployed / awaiting Van manual acceptance
 - Scope: 修复主数据迁移显式写入 `id` 后未同步自增序列，导致生产环境新建价格计算模板触发 `product_pricing_rules_pkey` / `SQLSTATE 23505`；在所有模块建表完成后统一校准当前 schema 内由 `id` 字段拥有的 serial/identity 序列，并且只前移、不回退。
 - DEV:
   - DEV-576-ROOT-CAUSE：生产只读检查确认 `product_pricing_rules` 最大 ID 为 14、序列仍为 7；同批迁移后另有客户、物料、价格、BOM、工艺路线和分类模板等表存在同类漂移。
@@ -19,7 +19,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: `serialSequenceRepairValue` 未实现，schema 启动流程未接入最终校准步骤。
   - Focused GREEN: `go test ./internal/infrastructure/postgres ./internal/appmain -count=1`。
   - Full GREEN: `go test ./...`。
-- Deployment: Van authorized direct merge and deployment to development and production on 2026-08-03; additional acceptance is delegated to Van, while release-script mandatory build and safety gates remain enabled.
+- Deployment: development merge `ee77f730f9e39f7c9a869bbf7404defcc90d8329` deployed with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260803223935-ee77f730f9e3` and rollback image `kferp-orderapp-rollback:development-20260803223935-ee77f730f9e3`; production merge `7cdd71e82d8b653c8ab541b741e05df90fabfcde` deployed with source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260803224716-7cdd71e82d8b` and rollback image `kferp-orderapp-rollback:production-20260803224716-7cdd71e82d8b`. Both release-script external login checks returned HTTP 200. The release script did not create a database dump; no separate business/API acceptance was run because Van delegated manual verification.
 - Last update: 2026-08-03 Asia/Shanghai
 
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
