@@ -16,7 +16,7 @@ func TestDev470PriceListArchiveWarningContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"visibleItemWarnings",
-			"itemHasResolvedPriceListPricingMethod",
+			"priceListProductSpecPricingWarning",
 			"归档选中",
 			"归档列表",
 			"移出归档",
@@ -24,7 +24,7 @@ func TestDev470PriceListArchiveWarningContracts(t *testing.T) {
 			"currentScopeArchivedPublicationRows",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "costing-bean-list-version-ui.test.js"): {
-			"product price-list suppresses missing pricing method warning when price-list fallback resolves",
+			"product price-list replaces backend pricing warnings with precise current-draft warnings",
 			"product price-list published versions can be archived and restored from archive list",
 		},
 		filepath.Join("internal", "interfaces", "http", "costing", "costing_api_test.go"): {

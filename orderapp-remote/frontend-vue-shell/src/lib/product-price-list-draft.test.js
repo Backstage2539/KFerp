@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  migrateLegacyFixedPriceFlatRowOverrides,
   normalizeParentSharedPriceListProductOverrides,
   priceListGenerationDraftKey,
   readPriceListGenerationDraft,
@@ -113,4 +114,70 @@ test('legacy SKU configs recover their parent from saved product-spec selections
   assert.deepEqual(normalized.conflicts, [])
   assert.equal(normalized.overrides['parent:550'].pricing_mode, 'pricing_rule')
   assert.equal(normalized.overrides['parent:550'].pricing_rule_id, 40)
+})
+
+test('legacy fixed flat rows migrate one-to-one into the matching concrete SKU override', () => {
+  const migrated = migrateLegacyFixedPriceFlatRowOverrides({
+    '551:fixed_price': 59.9,
+    '552:fixed_price': 109.9,
+  }, {
+    'parent:550': { scope: 'parent_product', product_id: 550, parent_product_id: 550, pricing_mode: 'fixed_price' },
+  }, [
+    { parent_product_id: 550, sku_id: 551, product_name: '小菠萝', sku_name: '227g' },
+    { parent_product_id: 550, sku_id: 552, product_name: '小菠萝', sku_name: '454g' },
+  ])
+
+  assert.equal(migrated.productOverrides['sku:551'].fixed_unit_price, 59.9)
+  assert.equal(migrated.productOverrides['sku:552'].fixed_unit_price, 109.9)
+  assert.equal(migrated.productOverrides['sku:551'].sku_name, '227g')
+  assert.equal(migrated.productOverrides['sku:552'].sku_name, '454g')
+  assert.deepEqual(migrated.flatRowOverrides, {})
+  assert.equal(migrated.migratedCount, 2)
+})
+
+test('a legacy draft containing only fixed flat rows still migrates each exact SKU key', () => {
+  const migrated = migrateLegacyFixedPriceFlatRowOverrides({
+    '551:fixed_price': 59.9,
+    '552:fixed_price': 109.9,
+  })
+
+  assert.equal(migrated.productOverrides['sku:551'].fixed_unit_price, 59.9)
+  assert.equal(migrated.productOverrides['sku:552'].fixed_unit_price, 109.9)
+  assert.equal(migrated.productOverrides['sku:551'].sku_id, 551)
+  assert.equal(migrated.productOverrides['sku:552'].sku_id, 552)
+  assert.deepEqual(migrated.flatRowOverrides, {})
+  assert.equal(migrated.migratedCount, 2)
+})
+
+test('a flat-only fixed migration survives the next draft reload without parent metadata', () => {
+  const migrated = migrateLegacyFixedPriceFlatRowOverrides({
+    '551:fixed_price': 59.9,
+  })
+  const reloaded = normalizeParentSharedPriceListProductOverrides(migrated.productOverrides, {
+    productSpecSelections: [],
+  })
+
+  assert.equal(reloaded.overrides['sku:551'].fixed_unit_price, 59.9)
+  assert.equal(reloaded.overrides['sku:551'].parent_product_id, 0)
+  assert.deepEqual(reloaded.conflicts, [])
+})
+
+test('legacy fixed flat rows preserve existing SKU amounts and ignore non-fixed rows', () => {
+  const migrated = migrateLegacyFixedPriceFlatRowOverrides({
+    '551:fixed_price': 1,
+    '999:fixed_price': 88,
+    '551:pricing_rule': 66,
+  }, {
+    'sku:551': { scope: 'sku', sku_id: 551, parent_product_id: 550, fixed_unit_price: 59.9 },
+  }, [
+    { parent_product_id: 550, sku_id: 551 },
+    { parent_product_id: 550, sku_id: 552 },
+  ])
+
+  assert.equal(migrated.productOverrides['sku:551'].fixed_unit_price, 59.9)
+  assert.equal(migrated.productOverrides['sku:552'], undefined)
+  assert.equal(migrated.productOverrides['sku:999'].fixed_unit_price, 88)
+  assert.deepEqual(migrated.flatRowOverrides, {
+    '551:pricing_rule': 66,
+  })
 })

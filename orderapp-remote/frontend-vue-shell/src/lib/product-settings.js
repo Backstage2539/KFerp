@@ -961,6 +961,89 @@ function priceTableParentProductOverride(productOverrides = [], parentProductID 
   })
 }
 
+function priceTableGroupAssignmentID(row = {}) {
+  return Number(row.group_item_id || row.groupItemID || 0)
+}
+
+function priceTableGroupAssignmentParentID(row = {}) {
+  return Number(row.parent_group_item_id || row.parentGroupItemID || 0)
+}
+
+function priceTableGroupAssignmentName(row = {}) {
+  return String(row.group_item_name ?? row.groupItemName ?? row.name ?? row.label ?? '').trim()
+}
+
+function coalescePriceTableGroupAssignments(groupAssignments = []) {
+  const assignmentsByID = new Map()
+  ;(Array.isArray(groupAssignments) ? groupAssignments : []).forEach((row) => {
+    const groupItemID = priceTableGroupAssignmentID(row)
+    if (!(groupItemID > 0)) return
+    const current = assignmentsByID.get(groupItemID) || {
+      group_item_id: groupItemID,
+      group_item_name: '',
+      parent_group_item_id: 0,
+      pricing_mode: '',
+      tier_template_id: 0,
+      pricing_rule_id: 0,
+    }
+    // The price-list editor can emit both the configured parent row and an
+    // empty structural row for the same category. Coalesce meaningful values
+    // instead of letting row order make an empty duplicate hide configuration.
+    if (!current.group_item_name) current.group_item_name = priceTableGroupAssignmentName(row)
+    if (!(current.parent_group_item_id > 0)) current.parent_group_item_id = priceTableGroupAssignmentParentID(row)
+    if (!current.pricing_mode) current.pricing_mode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
+    if (!(current.tier_template_id > 0)) current.tier_template_id = Number(row.tier_template_id || row.tierTemplateID || 0)
+    if (!(current.pricing_rule_id > 0)) current.pricing_rule_id = Number(row.pricing_rule_id || row.pricingRuleID || 0)
+    assignmentsByID.set(groupItemID, current)
+  })
+  return assignmentsByID
+}
+
+function priceTableGroupAssignmentChain(groupAssignments = [], groupItemID = 0, fallbackParentID = 0) {
+  const assignmentsByID = coalescePriceTableGroupAssignments(groupAssignments)
+  const chain = []
+  const visited = new Set()
+  const startingGroupItemID = Number(groupItemID || 0)
+  let currentID = startingGroupItemID || Number(fallbackParentID || 0)
+  let depth = startingGroupItemID > 0 ? 0 : 1
+  while (currentID > 0 && !visited.has(currentID)) {
+    visited.add(currentID)
+    const row = assignmentsByID.get(currentID) || {
+      group_item_id: currentID,
+      group_item_name: '',
+      parent_group_item_id: 0,
+      pricing_mode: '',
+      tier_template_id: 0,
+      pricing_rule_id: 0,
+    }
+    chain.push({ row, depth })
+    const rowParentID = priceTableGroupAssignmentParentID(row)
+    currentID = rowParentID > 0
+      ? rowParentID
+      : (depth === 0 ? Number(fallbackParentID || 0) : 0)
+    depth += 1
+  }
+  return chain
+}
+
+function priceTableInheritanceCandidate(source, value, row = {}, depth = -1) {
+  const groupSource = source === 'subgroup' || source === 'parent_group'
+  return {
+    source,
+    value,
+    groupItemID: groupSource ? priceTableGroupAssignmentID(row) : 0,
+    groupItemName: groupSource ? priceTableGroupAssignmentName(row) : '',
+    groupDepth: groupSource ? depth : -1,
+  }
+}
+
+function priceTableInheritanceCandidateIsSameLevel(left = {}, right = {}) {
+  if (left.source !== right.source) return false
+  if (left.source !== 'subgroup' && left.source !== 'parent_group') return true
+  return Number(left.groupItemID || 0) === Number(right.groupItemID || 0) &&
+    Number(left.groupDepth ?? -1) === Number(right.groupDepth ?? -1)
+}
+
 export function resolvePriceTableTemplateInheritance({
   defaults = {},
   groupAssignments = [],
@@ -974,27 +1057,43 @@ export function resolvePriceTableTemplateInheritance({
   const skuOverride = skuOverrideMatch.row
   const skuSource = skuOverrideMatch.source
   const parentProductOverride = priceTableParentProductOverride(productOverrides, parentProductID)
-  const subgroup = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === groupItemID)
-  const parentID = Number(subgroup?.parent_group_item_id || subgroup?.parentGroupItemID || product.parent_group_item_id || 0)
-  const parent = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === parentID)
+  const fallbackParentID = Number(product.parent_group_item_id || product.parentGroupItemID || 0)
+  const categoryChain = priceTableGroupAssignmentChain(groupAssignments, groupItemID, fallbackParentID)
+  const categoryCandidates = categoryChain.map(({ row, depth }) => ({
+    row,
+    depth,
+    source: depth === 0 ? 'subgroup' : 'parent_group',
+  }))
 
   const modeCandidates = [
-    { source: 'parent_product', value: normalizePriceTablePricingMode(parentProductOverride?.pricing_mode ?? parentProductOverride?.pricingMode) },
-    { source: 'subgroup', value: normalizePriceTablePricingMode(subgroup?.pricing_mode ?? subgroup?.pricingMode) },
-    { source: 'parent_group', value: normalizePriceTablePricingMode(parent?.pricing_mode ?? parent?.pricingMode) },
-    { source: 'default', value: normalizePriceTablePricingMode(defaults.pricing_mode ?? defaults.pricingMode) },
+    priceTableInheritanceCandidate('parent_product', normalizePriceTablePricingMode(parentProductOverride?.pricing_mode ?? parentProductOverride?.pricingMode)),
+    ...categoryCandidates.map(({ row, depth, source }) => priceTableInheritanceCandidate(
+      source,
+      normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode),
+      row,
+      depth,
+    )),
+    priceTableInheritanceCandidate('default', normalizePriceTablePricingMode(defaults.pricing_mode ?? defaults.pricingMode)),
   ]
   const tierCandidates = [
-    { source: 'parent_product', value: Number(parentProductOverride?.tier_template_id || parentProductOverride?.tierTemplateID || 0) },
-    { source: 'subgroup', value: Number(subgroup?.tier_template_id || subgroup?.tierTemplateID || 0) },
-    { source: 'parent_group', value: Number(parent?.tier_template_id || parent?.tierTemplateID || 0) },
-    { source: 'default', value: Number(defaults.tier_template_id || defaults.tierTemplateID || 0) },
+    priceTableInheritanceCandidate('parent_product', Number(parentProductOverride?.tier_template_id || parentProductOverride?.tierTemplateID || 0)),
+    ...categoryCandidates.map(({ row, depth, source }) => priceTableInheritanceCandidate(
+      source,
+      Number(row.tier_template_id || row.tierTemplateID || 0),
+      row,
+      depth,
+    )),
+    priceTableInheritanceCandidate('default', Number(defaults.tier_template_id || defaults.tierTemplateID || 0)),
   ]
   const pricingCandidates = [
-    { source: 'parent_product', value: Number(parentProductOverride?.pricing_rule_id || parentProductOverride?.pricingRuleID || 0) },
-    { source: 'subgroup', value: Number(subgroup?.pricing_rule_id || subgroup?.pricingRuleID || 0) },
-    { source: 'parent_group', value: Number(parent?.pricing_rule_id || parent?.pricingRuleID || 0) },
-    { source: 'default', value: Number(defaults.pricing_rule_id || defaults.pricingRuleID || 0) },
+    priceTableInheritanceCandidate('parent_product', Number(parentProductOverride?.pricing_rule_id || parentProductOverride?.pricingRuleID || 0)),
+    ...categoryCandidates.map(({ row, depth, source }) => priceTableInheritanceCandidate(
+      source,
+      Number(row.pricing_rule_id || row.pricingRuleID || 0),
+      row,
+      depth,
+    )),
+    priceTableInheritanceCandidate('default', Number(defaults.pricing_rule_id || defaults.pricingRuleID || 0)),
   ]
   // The fixed-price mode may inherit, but the amount is authoritative only at
   // the concrete SKU level. Reusing a category/default amount across package
@@ -1003,18 +1102,43 @@ export function resolvePriceTableTemplateInheritance({
     source: skuOverride ? skuSource : 'sku',
     value: Number(skuOverride?.fixed_unit_price ?? skuOverride?.fixedUnitPrice ?? 0) || 0,
   }
-  const tier = tierCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
-  const pricing = pricingCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
+  const emptyCandidate = () => priceTableInheritanceCandidate('default', 0)
+  let tier = tierCandidates.find((item) => item.value > 0) || emptyCandidate()
+  let pricing = pricingCandidates.find((item) => item.value > 0) || emptyCandidate()
   let mode = modeCandidates.find((item) => item.value)
   if (!mode) {
-    if (tier.value > 0) mode = { source: tier.source, value: 'tier_template' }
-    else if (pricing.value > 0) mode = { source: pricing.source, value: 'pricing_rule' }
-    else if (fixed.value > 0) mode = { source: fixed.source, value: 'fixed_price' }
-    else mode = { source: 'default', value: 'tier_template' }
+    // Legacy drafts and published snapshots may carry a template ID without
+    // an explicit method. Infer that method by the same level ordering as a
+    // modern configuration; do not let a farther tier ID beat a nearer
+    // pricing-rule ID. A SKU amount is data for fixed mode, never the mode
+    // itself.
+    for (let index = 0; index < modeCandidates.length; index += 1) {
+      if (Number(tierCandidates[index]?.value || 0) > 0) {
+        mode = { ...tierCandidates[index], value: 'tier_template' }
+        break
+      }
+      if (Number(pricingCandidates[index]?.value || 0) > 0) {
+        mode = { ...pricingCandidates[index], value: 'pricing_rule' }
+        break
+      }
+    }
+    if (!mode) mode = priceTableInheritanceCandidate('default', '')
+  }
+  // Choosing a method at a nearer level is also an explicit decision about
+  // that method's required template. A blank ID must remain blank so the UI
+  // can report the missing template instead of silently borrowing one from a
+  // farther ancestor or the price-list default.
+  if (mode.value === 'tier_template') {
+    tier = tierCandidates.find((item) => priceTableInheritanceCandidateIsSameLevel(mode, item)) || tier
+  } else if (mode.value === 'pricing_rule') {
+    pricing = pricingCandidates.find((item) => priceTableInheritanceCandidateIsSameLevel(mode, item)) || pricing
   }
   return {
     pricing_mode: mode.value,
     pricing_mode_source: mode.source,
+    pricing_mode_source_group_item_id: Number(mode.groupItemID || 0),
+    pricing_mode_source_group_item_name: String(mode.groupItemName || ''),
+    pricing_mode_source_group_depth: Number.isInteger(mode.groupDepth) ? mode.groupDepth : -1,
     tier_template_id: tier.value,
     tier_template_source: tier.source,
     pricing_rule_id: pricing.value,
@@ -1022,6 +1146,16 @@ export function resolvePriceTableTemplateInheritance({
     fixed_unit_price: fixed.value,
     fixed_unit_price_source: fixed.source,
   }
+}
+
+export function priceTablePricingResolutionWarning(resolution = {}) {
+  const mode = normalizePriceTablePricingMode(resolution.pricing_mode ?? resolution.pricingMode)
+  if (!mode) return '未设置计价方式'
+  if (mode === 'fixed_price' && !(Number(resolution.fixed_unit_price ?? resolution.fixedUnitPrice ?? 0) > 0)) return '未填写固定价'
+  if (mode === 'tier_template' && !(Number(resolution.tier_template_id ?? resolution.tierTemplateID ?? 0) > 0)) return '未选择阶梯模板'
+  if (mode === 'pricing_rule' && !(Number(resolution.pricing_rule_id ?? resolution.pricingRuleID ?? 0) > 0)) return '未选择价格计算模板'
+  if (!['fixed_price', 'tier_template', 'pricing_rule'].includes(mode)) return '未设置计价方式'
+  return ''
 }
 
 export function buildPriceTableRowsFromTemplateResolution({

@@ -792,7 +792,7 @@
             </div>
           </section>
         </div>
-        <p class="muted price-list-flat-row-note" aria-label="商品 > 子类 > 父类 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则固定为：商品 &gt; 子类 &gt; 父类 &gt; 价格表。阶梯模板在商品价格表维护。</p>
+        <p class="muted price-list-flat-row-note" aria-label="父商品 > 所在分类 > 上级分类逐级向上 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则为：父商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表，最近设置优先。阶梯模板在商品价格表维护。</p>
       </div>
         </div>
       </div>
