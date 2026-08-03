@@ -25,7 +25,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING
 - Branch: codex/miniapp-share-image-no-entrance-20260803
 - Owner/session: Codex / 2026-08-03
-- Status: product review / merged to develop / not deployed / Van acceptance todo
+- Status: product review / merged and deployed to development / Van acceptance todo
 - Scope: 将员工小程序销售单、发货单图片消息是否携带小程序入口改为全局系统开关；只有员工管理员可在个人中心查看和修改，所有合法员工分享图片时读取当前全局值；权限和审计由后端强制执行。
 - DEV:
   - DEV-575-SHARE-ENTRANCE-SETTING-API-AUDIT：复用 `app_config` 保存全局开关，员工可读、管理员且具备设置权限才可写；配置更新与旧值/新值操作日志同事务提交。
@@ -38,9 +38,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: miniapp 21 files / 152 tests、类型检查、development mp-weixin 构建、编译产物静态验收及 ERP Vue/Vite 构建 GREEN。
   - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`。
   - Review/acceptance: 后端与小程序前端独立复核无开放 P0-P2；`orderapp-remote/docs/acceptance/2026-08-03-miniapp-share-image-entrance-setting.md`。
-- Deployment: not requested; feature commit `23ad8cce` is integrated into `develop`, but server deployment, miniapp fixed-package sync, WeChat DevTools upload/review/publish are not performed.
-- Last update: 2026-08-03 Asia/Shanghai
-- Notes: 配置不存在时保持升级前行为（携带入口）；管理员关闭后所有员工后续直接图片分享不携带入口。历史已发送图片消息不可追溯修改；低版本微信回退图片预览时，入口由微信客户端控制。
+- Deployment: latest `origin/develop` `ee77f730`（包含 PR-575 集成 `53de06fb`）已部署 development；外部登录 HTTP 200，新设置路由无 mini token 返回 401，需求 API 命中 PR-575。服务器源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260803223935-ee77f730f9e3`，回滚镜像 `kferp-orderapp-rollback:development-20260803223935-ee77f730f9e3`。52 文件 development 小程序固定包已原子同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧包保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803224730-ee77f730f9e3`。production、微信 DevTools 上传/审核/发布未执行。
+- Last update: 2026-08-03 22:47 Asia/Shanghai
+- Notes: 配置不存在时保持升级前行为（携带入口）；管理员关闭后所有员工后续直接图片分享不携带入口。历史已发送图片消息不可追溯修改；低版本微信回退图片预览时，入口由微信客户端控制。发布后服务器剩余约 3.1GB（95% 使用率），后续发布前需继续关注磁盘容量。
 
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
 - Branch: codex/pr572-share-panel-top-20260802 (follow-up)

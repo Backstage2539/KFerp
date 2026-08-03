@@ -6,7 +6,7 @@
 - 开发需求：`done`。
 - Van 业务验收：`todo`。
 - 代码、全量门禁和文档已完成；功能提交 `23ad8cce` 已推送并随本记录合入 `develop`。
-- 本需求没有服务器部署、小程序固定包同步、微信 DevTools 上传、审核或正式发布授权，不宣称已在微信现网生效。
+- Van 已授权部署 development；最新 `origin/develop` `ee77f730`（包含 PR-575 集成提交 `53de06fb`）已部署，development 小程序固定包已同步。production、微信 DevTools 上传、审核或正式发布未执行，不宣称已在微信现网生效。
 
 ## 用户需求
 
@@ -73,6 +73,8 @@
 - Miniapp：21 个测试文件、152 项测试通过；`vue-tsc --noEmit` 与 development `mp-weixin` 构建通过，编译产物包含管理员条件开关、实时设置读取和 `needShowEntrance` 双态透传。
 - ERP 前端：Vue/Vite production build 通过；操作日志新增“系统设置”类型筛选。
 - 后端和小程序前端两轮独立复核均无开放 P0-P2；功能分支 `codex/miniapp-share-image-no-entrance-20260803` 的 `23ad8cce` 已推送，集成提交合入 `develop`。
+- Development 发布：受控发布流程完成服务端 Vue、小程序、Go 与 Docker 构建门禁；`erp_orderapp` 和数据库容器正常，外部 `/app/login` 返回 200，需求 API 命中 PR-575，新设置路由无 mini token 返回 401，近 10 分钟无 panic/fatal/error/SQLSTATE。
+- Development 小程序固定包：`RELEASE_INFO` 为 `ee77f730` / `development` / `https://dev.qacoohee.com/app`，52 个 `PAGE_FILE_MANIFEST` 文件和 PR-575 管理员开关、设置 API、`needShowEntrance` 编译标记复验通过，未混入 production API。
 
 ## Van 验收清单
 
@@ -86,8 +88,8 @@
 
 ## 部署与发布边界
 
-- development 服务器：未部署。
+- development 服务器：已部署 `ee77f730`（包含 PR-575 `53de06fb`）；源码回滚点 `/opt/stacks/erp/orderapp.backup.deploy-20260803223935-ee77f730f9e3`，镜像回滚点 `kferp-orderapp-rollback:development-20260803223935-ee77f730f9e3`。
 - production 服务器：未部署。
-- development/production 固定小程序目录：未同步。
+- development 固定小程序目录：已同步 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，上一包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803224730-ee77f730f9e3`；production 固定目录未同步。
 - 微信开发者工具：未上传、未提交审核、未发布。
-- 旧已发布小程序版本不会因为代码合入 `develop` 自动获得该设置；后续发布需单独完成环境构建、固定包核对、DevTools 上传和微信审核发布。
+- 旧已发布小程序版本不会因为 development 部署或固定包同步自动获得该设置；开发体验需关闭并重新导入固定目录后预览/上传，正式上线仍需 production 构建、DevTools 上传和微信审核发布。
