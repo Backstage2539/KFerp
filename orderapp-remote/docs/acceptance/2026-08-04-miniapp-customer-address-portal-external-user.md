@@ -3,7 +3,7 @@
 - 日期：2026-08-04
 - 分支：`codex/miniapp-address-portal-fix-20260804`
 - 范围：`PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE`、`PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE`
-- 环境边界：自动化使用本地进程和隔离 PostgreSQL；未为验证创建或修改 development/production 客户、账号或订单。development 部署与浏览器/小程序业务验收由主交付流程继续记录，production 不在本次范围。
+- 环境边界：自动化使用本地进程和隔离 PostgreSQL；development 发布只更新应用与开发小程序构建产物，未为验证创建或修改 development/production 客户、账号或订单。production 不在本次范围；微信上传、审核和发布未获授权，Van 的登录态业务验收仍待完成。
 
 ## 业务结论
 
@@ -122,4 +122,12 @@ FAIL
 - `customerportal` 数据库全包中的历史夹具/schema 失败在干净 `origin/develop@3eb87b55` 可逐项同样复现；本分支新增的 20 项投影/内部/人工会话与正式安全写路径矩阵全部 PASS，未新增该包数据库回归。
 - 数据库版 customerfulfillment 全包剩余 8 个失败与干净 `origin/develop@3eb87b55` 的同名同错误基线一致；干净基线共 10 个失败，本分支修复其中 2 个外部账号用例，未新增数据库回归。
 
-功能分支 `0bb882f3` 已推送，develop merge `6e3b4daf` 已完成；development 部署和只读冒烟由主交付继续记录。当前不声明 production 部署、小程序上传/审核/发布或 Van 业务验收已完成。
+## Development 部署与只读冒烟
+
+- 功能分支 `0bb882f3` 已推送，develop merge `6e3b4daf` 已完成；`origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` 于 2026-08-05 部署到 development。
+- 远端 Vue 876/876、小程序 157/157、类型检查、development 构建、13 页/52 文件清单、完整 Go 测试与 Docker 构建均通过。`erp_orderapp` 运行中、重启次数 0，`erp_postgres` healthy，部署后关键错误日志计数 0。
+- `https://dev.qacoohee.com/app/login` 返回 200；未认证调用 `POST /app/api/customer-recipient/parse` 返回 401。服务器源码存在共享解析路由且不再注册旧 `/api/auth/password/set`。
+- 开发小程序产物的 `RELEASE_INFO` 为同一提交、`environment=development`、`api_base=https://dev.qacoohee.com/app`，已同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；上一产物保留在 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260805002617-49489cbd3a7c`。
+- 服务器源码备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260805002028-49489cbd3a7c`，回滚镜像为 `kferp-orderapp-rollback:development-20260805002028-49489cbd3a7c`。production 未部署；未上传、审核或发布微信小程序。
+
+当前不声明 Van 业务验收已完成。请在 development 手工设置“9.9 COFFEE LAB”的目标密码并验证客户小程序登录；本次自动化没有写入该客户或账号。

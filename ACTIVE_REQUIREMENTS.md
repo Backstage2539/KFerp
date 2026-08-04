@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE
 - Branch: codex/miniapp-address-portal-fix-20260804
 - Owner/session: Codex / 2026-08-04
-- Status: merged to develop at `6e3b4daf`; development deployment pending
+- Status: merged to develop at `6e3b4daf`; development deployed from `49489cbd`; automated/read-only smoke complete; awaiting Van acceptance
 - Scope: 客户门户配置新增或设置外部用户密码时，不再把外部账号关联误当成 ERP 工作台授权；无 ERP 工作台能力的模板仍可维护门户登录账号，显式 ERP 工作台绑定继续受能力模板限制。
 - DEV:
   - DEV-580-EXTERNAL-ACCOUNT-WORKBENCH-SEPARATION：active 且门户启用的非工作台/空模板客户可维护外部账号、改密码并登录客户小程序；门户关闭时拒绝创建、重置和启用但仍可禁用；工作台上下文继续拒绝，显式工作台绑定门禁不变。
@@ -26,15 +26,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: Vue build, miniapp typecheck, development mp-weixin build and 13-page manifest PASS.
   - Manual: customer portal, fulfillment, requirements and acceptance synchronized.
   - Review/acceptance: 终审发现的公开认证、ERP/mini 旧会话复活、良性资料误退登录和 inactive 绑定绕过均已完成 RED→GREEN；独立复审确认无剩余 P1/P2，Van development business acceptance pending.
-- Deployment: merged to `develop` at `6e3b4daf`; development deployment pending; production out of scope.
-- Last update: 2026-08-04 Asia/Shanghai
+- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；source backup `/opt/stacks/erp/orderapp.backup.deploy-20260805002028-49489cbd3a7c`；rollback image `kferp-orderapp-rollback:development-20260805002028-49489cbd3a7c`；production out of scope.
+- Last update: 2026-08-05 Asia/Shanghai
 - Notes: 同步校正外部用户接口权限为 customers.read/write；新增现有 `audit_logs` 上的业务审计记录但不新增 schema；验证不修改真实客户数据。
-- Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`；development 部署由主交付补充。
+- Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`，development deploy `49489cbd`。
 
 ### PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE
 - Branch: codex/miniapp-address-portal-fix-20260804
 - Owner/session: Codex / 2026-08-04
-- Status: merged to develop at `6e3b4daf`; development deployment pending
+- Status: merged to develop at `6e3b4daf`; development deployed from `49489cbd`; automated/read-only smoke complete; awaiting Van acceptance
 - Scope: 员工小程序新增或维护客户时可粘贴整段收货信息，并通过 ERP 客户档案同一地址解析接口自动填入联系人、电话和联系地址；解析规则只保留一份。
 - DEV:
   - DEV-579-SHARED-RECIPIENT-PARSE-API：ERP 与员工小程序共用 `POST /api/customer-recipient/parse` 和唯一服务端解析器，解析只读且不记录原文。
@@ -46,10 +46,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: Vue build, miniapp typecheck, development mp-weixin build and 13-page manifest PASS.
   - Manual: miniapp, order sales, requirements and acceptance synchronized.
   - Review/acceptance: customer-name、手改竞争、phone-only 跨端兼容和迟到失败审查项已完成 RED→GREEN；无已知 P1/P2，Van development business acceptance pending.
-- Deployment: merged to `develop` at `6e3b4daf`; development deployment pending; miniapp upload/review/release not authorized.
-- Last update: 2026-08-04 Asia/Shanghai
+- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；development mp-weixin artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；miniapp upload/review/release not authorized；production out of scope.
+- Last update: 2026-08-05 Asia/Shanghai
 - Notes: 地址解析只读且不记录原文；最终客户保存继续沿用现有客户变更操作日志。
-- Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`；development 部署由主交付补充。
+- Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`，development deploy `49489cbd`。
 
 ### PR-578-GREEN-BEAN-BOM-PICKER-MISSING-BOM-DIAGNOSTIC
 - Branch: codex/fix-green-bom-picker-diagnostic-20260804
