@@ -157,17 +157,19 @@ func TestServiceValidatesSaveItem(t *testing.T) {
 	}
 }
 
-func TestServiceHidesGreenBeanProductsFromBomMaintenance(t *testing.T) {
+func TestServiceKeepsGreenBeanProductsAvailableForProductionBomOutputs(t *testing.T) {
 	repo := &fakeRepo{
 		listRows: []ListItem{
 			{ProductID: 1, Product: "岩师傅熟豆", CustomerID: 152, ProductKind: "roasted_bean"},
-			{ProductID: 2, Product: "兰卡拼配生豆", CustomerID: 152, ProductKind: "green_bean"},
+			{ProductID: 2, Product: "萨琪姆 生豆", CustomerID: 0, ProductKind: "green_bean"},
 			{ProductID: 3, Product: "岩师傅挂耳", CustomerID: 152, ProductKind: "drip_bag"},
+			{ProductID: 4, Product: "萨琪姆 生豆 Kg", CustomerID: 0, ProductKind: "green_bean"},
 		},
 		productRows: []Option{
 			{ID: 1, Name: "岩师傅熟豆", CustomerID: 152, ProductKind: "roasted_bean"},
-			{ID: 2, Name: "兰卡拼配生豆", CustomerID: 152, ProductKind: "green_bean"},
+			{ID: 2, Name: "萨琪姆 生豆", CustomerID: 0, ProductKind: "green_bean"},
 			{ID: 3, Name: "岩师傅挂耳", CustomerID: 152, ProductKind: "drip_bag"},
+			{ID: 4, Name: "萨琪姆 生豆 Kg", CustomerID: 0, ProductKind: "green_bean"},
 		},
 	}
 	svc := NewService(repo)
@@ -184,8 +186,8 @@ func TestServiceHidesGreenBeanProductsFromBomMaintenance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Products: %v", err)
 	}
-	if len(productRows) != 2 || productRows[0].ID != 1 || productRows[1].ID != 3 {
-		t.Fatalf("Product rows = %+v, want only non-green products", productRows)
+	if len(productRows) != 4 || productRows[0].ID != 1 || productRows[1].ID != 2 || productRows[2].ID != 3 || productRows[3].ID != 4 {
+		t.Fatalf("Product rows = %+v, want green bean parent and child SKU available as production BOM outputs", productRows)
 	}
 }
 

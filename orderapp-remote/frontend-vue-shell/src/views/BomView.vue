@@ -413,7 +413,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupControls from '../components/BusinessGroupControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupHeaderIndentStyle,
@@ -574,7 +574,7 @@ const canEditCurrentBomItems = computed(() => canEditCurrentBomProduct.value && 
 const canCopyCurrentVersionAsDraft = computed(() => canEditCurrentBomProduct.value && currentProductionBomID.value > 0 && selectedProductionBomVersion.value?.status === 'published')
 const canSetCurrentBomAsDefault = computed(() => currentProductionBomID.value > 0 && currentOutputProductID.value > 0 && Number(currentProductionBomDefaultVersion.value?.id || 0) > 0)
 const canEditBomFormOutputBasis = computed(() => bomForm.mode !== 'edit' || canEditCurrentBomItems.value)
-const outputProductOptions = computed(() => products.value.filter(isBomProductCandidate))
+const outputProductOptions = computed(() => products.value.filter(isProductionBomOutputProductCandidate))
 const productComponentOptions = computed(() => products.value.filter(isBomProductCandidate).filter((product) => Number(product.id || 0) !== Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || 0)))
 const selectedComponent = computed(() => itemForm.component_type === 'product'
   ? productByID(itemForm.component_product_id)

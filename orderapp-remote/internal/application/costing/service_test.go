@@ -115,8 +115,30 @@ func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, input 
 	return r.costDetails, nil
 }
 
-func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, _ domain.ProductInput) (PricingRuleTrialProductionOptions, error) {
-	return r.productionOptions, nil
+func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error) {
+	if len(r.productionOptions.BomVersions) > 0 || len(r.productionOptions.ProcessRoutes) > 0 || len(r.productionOptions.OperationTemplates) > 0 {
+		return r.productionOptions, nil
+	}
+	if input.BomVersionID > 0 && strings.TrimSpace(input.BomStatus) != "missing" && strings.TrimSpace(input.BomUsageMode) != "legacy_product_summary" {
+		return PricingRuleTrialProductionOptions{BomVersions: []PricingRuleTrialBomVersionOption{{
+			VersionID:      input.BomVersionID,
+			VersionNo:      input.BomVersionNo,
+			Status:         "published",
+			IsDefault:      true,
+			ComponentCount: 1,
+		}}}, nil
+	}
+	return PricingRuleTrialProductionOptions{}, nil
+}
+
+func publishedBomTrialOptions(versionID int64) PricingRuleTrialProductionOptions {
+	return PricingRuleTrialProductionOptions{BomVersions: []PricingRuleTrialBomVersionOption{{
+		VersionID:      versionID,
+		VersionNo:      "V001",
+		Status:         "published",
+		IsDefault:      true,
+		ComponentCount: 1,
+	}}}
 }
 
 func (r *fakeRepo) LoadPricingRuleTrialDefaultTaxRate(context.Context) (PricingRuleTrialDefaultTaxRate, error) {
@@ -890,23 +912,15 @@ func TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMi
 		ProductID:     538,
 		QuoteUnit:     "kg",
 	})
-	if err != nil {
-		t.Fatalf("PricingRuleTrial() error = %v", err)
+	const want = "该商品未配置可用于试算的已发布生产 BOM，无法计算标准制造成本；请到 生产管理 → 生产 BOM 新增或发布 BOM 后再试算"
+	if err == nil {
+		t.Fatalf("PricingRuleTrial() result = %+v, must not infer from snapshot; want missing production BOM error", got)
 	}
-	if got.BaseCost != 0 || got.BomCostTotal != 0 || got.OperationCostTotal != 0 || got.CostAfterYield != 0 || got.PreTaxPrice != 0 || got.TaxAmount != 0 || got.FinalUnitPrice != 0 {
-		t.Fatalf("trial must not infer from snapshot = base %.2f bom %.2f operation %.2f after yield %.2f preTax %.2f tax %.2f final %.2f", got.BaseCost, got.BomCostTotal, got.OperationCostTotal, got.CostAfterYield, got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	if err.Error() != want {
+		t.Fatalf("PricingRuleTrial() error = %q, want %q", err, want)
 	}
-	if strings.Contains(got.FormulaExpression, "发布售价快照反推") || strings.Contains(strings.Join(got.FormulaExpressionLines, "\n"), "发布售价快照反推") {
-		t.Fatalf("formula expression should not mention published snapshot inference: %q lines=%+v", got.FormulaExpression, got.FormulaExpressionLines)
-	}
-	if pricingRuleTrialHasStep(got.Steps, "published_price_snapshot") {
-		t.Fatalf("steps must not include published price snapshot source: %+v", got.Steps)
-	}
-	if !pricingRuleTrialWarningsContain(got.Warnings, "该商品暂无可试算的标准制造成本") {
-		t.Fatalf("warnings = %+v, want missing BOM warning", got.Warnings)
-	}
-	if strings.Contains(strings.Join(got.Warnings, "\n"), "反推") {
-		t.Fatalf("warnings must not mention snapshot inference: %+v", got.Warnings)
+	if strings.Contains(err.Error(), "反推") {
+		t.Fatalf("error must not mention snapshot inference: %q", err)
 	}
 }
 
@@ -945,14 +959,12 @@ func TestPricingRuleTrialIgnoresLegacySummaryCostWithoutOutputBomDetails(t *test
 		ProductID:     540,
 		QuoteUnit:     "kg",
 	})
-	if err != nil {
-		t.Fatalf("PricingRuleTrial() error = %v", err)
+	const want = "该商品未配置可用于试算的已发布生产 BOM，无法计算标准制造成本；请到 生产管理 → 生产 BOM 新增或发布 BOM 后再试算"
+	if err == nil {
+		t.Fatalf("PricingRuleTrial() result = %+v, want missing production BOM error instead of legacy summary cost", got)
 	}
-	if got.BaseCost != 0 || got.BomCostTotal != 0 || got.OperationCostTotal != 0 || got.FinalUnitPrice != 0 || len(got.BaseCostDetails) != 0 {
-		t.Fatalf("trial must not use legacy product summary costs: base %.2f bom %.2f op %.2f final %.2f details %+v", got.BaseCost, got.BomCostTotal, got.OperationCostTotal, got.FinalUnitPrice, got.BaseCostDetails)
-	}
-	if !pricingRuleTrialWarningsContain(got.Warnings, "该商品暂无可试算的标准制造成本") {
-		t.Fatalf("warnings = %+v, want missing BOM/operation cost warning", got.Warnings)
+	if err.Error() != want {
+		t.Fatalf("PricingRuleTrial() error = %q, want %q", err, want)
 	}
 }
 
@@ -1026,6 +1038,168 @@ func TestPricingRuleTrialRejectsEmptyPublishedBomWhenNonEmptyDraftExists(t *test
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("PricingRuleTrial() error = %q, want %q", err, want)
 		}
+	}
+}
+
+func productWithoutPublishedBomPricingTrialRepo() *fakeRepo {
+	return &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:     715,
+			ProductCode:   "SKU-000715",
+			Name:          "萨琪姆 生豆 Kg",
+			ProductKind:   "green_bean",
+			InventoryUnit: "kg",
+			QuoteUnit:     "kg",
+			YieldRate:     1,
+			BomStatus:     "missing",
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			18: {
+				ID:             18,
+				Name:           "生豆计算模板-麻袋",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0.03,
+				TaxRate:        0.30,
+				RoundingMode:   "jiao",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "bom_or_product",
+					"profit_method":   "markup",
+					"tax_mode":        "tax_included",
+				},
+			},
+		},
+	}
+}
+
+func TestPricingRuleTrialRejectsProductWithoutPublishedProductionBom(t *testing.T) {
+	repo := productWithoutPublishedBomPricingTrialRepo()
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 18,
+		ProductID:     715,
+		QuoteUnit:     "kg",
+	})
+	const want = "该商品未配置可用于试算的已发布生产 BOM，无法计算标准制造成本；请到 生产管理 → 生产 BOM 新增或发布 BOM 后再试算"
+	if err == nil {
+		t.Fatalf("PricingRuleTrial() result = %+v, want missing production BOM error", got)
+	}
+	if err.Error() != want {
+		t.Fatalf("PricingRuleTrial() error = %q, want %q", err, want)
+	}
+}
+
+func TestPricingRuleTrialRejectsMissingPublishedProductionBomDespiteLegacyBomState(t *testing.T) {
+	repo := productWithoutPublishedBomPricingTrialRepo()
+	repo.inputs[0].BomStatus = "active"
+	repo.inputs[0].BomVersionID = 123
+	repo.inputs[0].BomUsageMode = "legacy_product_summary"
+	repo.costDetailsByBom = map[int64][]PricingRuleTrialBaseCostDetail{
+		123: {{
+			Key:         "material:stale:123",
+			Type:        "material",
+			Name:        "其他商品旧版本原料",
+			ConsumeUnit: "ratio_pct",
+			RatioPct:    100,
+			UnitCost:    54,
+			AmountPerKg: 54,
+			Unit:        "kg",
+		}},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 18,
+		ProductID:     715,
+		QuoteUnit:     "kg",
+	})
+	const want = "该商品未配置可用于试算的已发布生产 BOM，无法计算标准制造成本；请到 生产管理 → 生产 BOM 新增或发布 BOM 后再试算"
+	if err == nil {
+		t.Fatalf("PricingRuleTrial() result = %+v, want missing production BOM error despite legacy BOM state", got)
+	}
+	if err.Error() != want {
+		t.Fatalf("PricingRuleTrial() error = %q, want %q", err, want)
+	}
+	if repo.lastDetailInput.BomVersionID != 0 || repo.lastDetailInput.BomStatus != "missing" {
+		t.Fatalf("detail input = %+v, want authoritative empty production options to clear stale BOM version", repo.lastDetailInput)
+	}
+}
+
+func TestPricingRuleTrialRejectsStaleRequestedProductionBomVersion(t *testing.T) {
+	repo := productWithoutPublishedBomPricingTrialRepo()
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 18,
+		ProductID:     715,
+		QuoteUnit:     "kg",
+		BomVersionID:  999,
+	})
+	if err == nil {
+		t.Fatalf("PricingRuleTrial() result = %+v, want stale production BOM version rejection", got)
+	}
+	if err.Error() != "production BOM version not found for product" {
+		t.Fatalf("PricingRuleTrial() error = %q, want stale production BOM version rejection", err)
+	}
+}
+
+func TestPricingRuleTrialMissingProductionBomDoesNotBlockPositiveCostSources(t *testing.T) {
+	t.Run("explicit positive base cost", func(t *testing.T) {
+		repo := productWithoutPublishedBomPricingTrialRepo()
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 18,
+			ProductID:     715,
+			QuoteUnit:     "kg",
+			Overrides:     PricingRuleTrialOverrides{BaseCost: floatPtr(54)},
+		})
+		if err != nil || got == nil || got.BaseCost != 54 || got.FinalUnitPrice <= 0 {
+			t.Fatalf("PricingRuleTrial() result = %+v error = %v, want positive override trial", got, err)
+		}
+	})
+
+	t.Run("positive operation cost", func(t *testing.T) {
+		repo := productWithoutPublishedBomPricingTrialRepo()
+		repo.costDetails = []PricingRuleTrialBaseCostDetail{{
+			Key:                     "operation:715:1",
+			Type:                    "operation",
+			Name:                    "麻袋处理",
+			ConsumeUnit:             "per_kg",
+			UnitCost:                8,
+			Amount:                  8,
+			AmountPerKg:             8,
+			Unit:                    "kg",
+			CapacitySelectionSource: "operation_template",
+		}}
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 18,
+			ProductID:     715,
+			QuoteUnit:     "kg",
+		})
+		if err != nil || got == nil || got.OperationCostTotal != 8 || got.FinalUnitPrice <= 0 {
+			t.Fatalf("PricingRuleTrial() result = %+v error = %v, want positive operation-cost trial", got, err)
+		}
+	})
+}
+
+func TestPricingRuleTrialMissingProductionBomRejectsBomOperationSnapshotCost(t *testing.T) {
+	repo := productWithoutPublishedBomPricingTrialRepo()
+	repo.costDetails = []PricingRuleTrialBaseCostDetail{{
+		Key:                     "operation:bom_snapshot:7151",
+		Type:                    "operation",
+		Name:                    "并发发布版本工序快照",
+		ConsumeUnit:             "per_kg",
+		UnitCost:                8,
+		AmountPerKg:             8,
+		Unit:                    "kg",
+		CapacitySelectionSource: "bom_operation_snapshot",
+	}}
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 18,
+		ProductID:     715,
+		QuoteUnit:     "kg",
+	})
+	const want = "该商品未配置可用于试算的已发布生产 BOM，无法计算标准制造成本；请到 生产管理 → 生产 BOM 新增或发布 BOM 后再试算"
+	if err == nil {
+		t.Fatalf("PricingRuleTrial() result = %+v, want missing production BOM error for unselected BOM operation snapshot", got)
+	}
+	if err.Error() != want {
+		t.Fatalf("PricingRuleTrial() error = %q, want %q", err, want)
 	}
 }
 
@@ -1663,6 +1837,7 @@ func TestPricingRuleTrialScalesBomAndOperationCostsByQuoteUnit(t *testing.T) {
 			{Key: "material:573", Type: "material", TypeLabel: "物料", Name: "熟豆原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg"},
 			{Key: "operation:573", Type: "operation", TypeLabel: "工序", Name: "包装", ConsumeUnit: "per_kg", UnitCost: 10, Amount: 10, Unit: "kg"},
 		},
+		productionOptions: publishedBomTrialOptions(5731),
 		pricingRules: map[int64]ProductPricingRule{
 			13: {
 				ID:             13,
@@ -1729,6 +1904,7 @@ func TestPricingRuleTrialScalesPerUnitBomCostsBetweenQuoteUnits(t *testing.T) {
 		costDetails: []PricingRuleTrialBaseCostDetail{
 			{Key: "material:574", Type: "material", TypeLabel: "物料", Name: "熟豆原料", ConsumeUnit: "g", Quantity: 227, UnitCost: 50, AmountPerUnit: 11.35},
 		},
+		productionOptions: publishedBomTrialOptions(5741),
 		pricingRules: map[int64]ProductPricingRule{
 			14: {
 				ID:             14,
@@ -1793,6 +1969,7 @@ func TestPricingRuleTrialScalesPerUnitCostsForDerivedBoxQuoteUnit(t *testing.T) 
 			{Key: "material:576", Type: "material", TypeLabel: "物料", Name: "挂耳物料", ConsumeUnit: "per_unit", UnitCost: 1.10, AmountPerUnit: 1.10, Unit: "袋"},
 			{Key: "operation:576", Type: "operation", TypeLabel: "工序", Name: "挂耳包装", ConsumeUnit: "per_inventory_unit", UnitCost: 0.24, AmountPerUnit: 0.24, Unit: "袋"},
 		},
+		productionOptions: publishedBomTrialOptions(5761),
 		pricingRules: map[int64]ProductPricingRule{
 			15: {
 				ID:             15,
@@ -1853,6 +2030,7 @@ func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitCha
 		costDetails: []PricingRuleTrialBaseCostDetail{
 			{Key: "material:575", Type: "material", TypeLabel: "物料", Name: "卡蒂姆红酒日晒", ConsumeUnit: "ratio_pct", RatioPct: 12.5, RecipeRatioPct: 10, EffectiveRatioPct: 12.5, MaterialLossRate: 0.2, UnitCost: 67, AmountPerKg: 8.375, Unit: "kg"},
 		},
+		productionOptions: publishedBomTrialOptions(5751),
 		pricingRules: map[int64]ProductPricingRule{
 			15: {
 				ID:             15,
@@ -2087,6 +2265,7 @@ func TestPricingRuleTrialBatchReusesSharedLoadsAndPreservesOrder(t *testing.T) {
 			Key: "material:1", Type: "material", TypeLabel: "物料", Name: "批量原料",
 			ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg",
 		}},
+		productionOptions: publishedBomTrialOptions(10101),
 	}
 
 	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{
@@ -2125,6 +2304,7 @@ func TestPricingRuleTrialBatchIsolatesBaseCostDetailErrors(t *testing.T) {
 			7: {ID: 7, Name: "批量模板", CostSourceMode: "bom_current_cost", FormulaVersion: "v1", Active: true, CalculationJSON: map[string]any{"profit_method": "markup", "tax_mode": "none"}},
 		},
 		costDetails:       []PricingRuleTrialBaseCostDetail{{Key: "material:1", Type: "material", Name: "批量原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg"}},
+		productionOptions: publishedBomTrialOptions(10101),
 		batchDetailErrors: map[int64]error{102: errors.New("BOM detail unavailable")},
 	}
 
@@ -2163,6 +2343,22 @@ func TestPricingRuleTrialBatchRejectsEmptyPublishedBomWhenNonEmptyDraftExists(t 
 		if !strings.Contains(rows[0].Error, want) {
 			t.Fatalf("PricingRuleTrialBatch() row error = %q, want %q", rows[0].Error, want)
 		}
+	}
+}
+
+func TestPricingRuleTrialBatchRejectsProductWithoutPublishedProductionBom(t *testing.T) {
+	repo := productWithoutPublishedBomPricingTrialRepo()
+	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{{
+		PricingRuleID: 18,
+		ProductID:     715,
+		QuoteUnit:     "kg",
+	}})
+	if err != nil {
+		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
+	}
+	const want = "该商品未配置可用于试算的已发布生产 BOM，无法计算标准制造成本；请到 生产管理 → 生产 BOM 新增或发布 BOM 后再试算"
+	if len(rows) != 1 || rows[0].Result != nil || rows[0].Error != want {
+		t.Fatalf("PricingRuleTrialBatch() rows = %+v, want row-level missing production BOM error", rows)
 	}
 }
 

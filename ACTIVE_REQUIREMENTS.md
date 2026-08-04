@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-578-GREEN-BEAN-BOM-PICKER-MISSING-BOM-DIAGNOSTIC
+- Branch: codex/fix-green-bom-picker-diagnostic-20260804
+- Owner/session: Codex / 2026-08-04
+- Status: full verification and independent review complete / develop merge and development deployment in progress
+- Scope: 当价格计算模板所选商品没有可用于试算的已发布生产 BOM 时，阻断 0 元结果并明确引导新增或发布 BOM；生产 BOM 新建抽屉的产出商品允许选择启用的生豆父商品和具体 SKU，成品组件候选范围保持不变。
+- DEV:
+  - DEV-578-MISSING-PUBLISHED-BOM-DIAGNOSTIC：单次试算返回 4xx、批量试算返回行级错误，明确提示未配置可用于试算的已发布生产 BOM及 `生产管理 → 生产 BOM` 入口；正数临时基础成本和正数工序成本继续允许。
+  - DEV-578-GREEN-BEAN-OUTPUT-CANDIDATE：`/api/bom/products` 返回启用生豆商品；Vue 新建生产 BOM 的产出商品候选使用独立启用状态过滤，商品组件继续使用原有非生豆范围。
+  - DEV-578-DOCS-ACCEPTANCE-DEPLOY：同步成本、生产、生豆手册、需求、验收与 PR/DEV，完成完整回归、浏览器验收、develop 合并及 development 部署。
+- Verifier:
+  - RED: 无已发布 BOM 的试算返回 HTTP 200、0 元和笼统警告；BOM 服务/API/产出下拉共同过滤启用生豆。
+  - Focused GREEN: costing service/API 单次与批量、BOM service/API、Vue BOM helper/source tests 通过。
+  - Full GREEN: `go test ./... -count=1`、Vue 871 项完整测试、Vue BOM 18 项定向测试、Vite build、`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+  - Independent review: 旧 BOM 状态/陈旧版本绕过、跨商品版本成本、并发发布工序快照与旧需求文档冲突均已修复；最终复核无阻断项。
+  - Development data: 启用的“萨琪姆 生豆”父商品和 Kg 规格均存在且没有 production BOM；只读核验，未修改业务数据。
+- Deployment: development requested; production and production business data are out of scope.
+- Last update: 2026-08-04 Asia/Shanghai
+
 ### PR-577-GREEN-BEAN-PRICING-EMPTY-PUBLISHED-BOM
 - Branch: codex/fix-green-price-sack-zero-20260803
 - Owner/session: Codex / 2026-08-04

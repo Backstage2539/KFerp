@@ -520,17 +520,7 @@ func (s *Service) SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (De
 }
 
 func (s *Service) Products(ctx context.Context) ([]Option, error) {
-	rows, err := s.repo.Products(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Option, 0, len(rows))
-	for _, row := range rows {
-		if isBomMaintainedProductKind(row.ProductKind) {
-			out = append(out, row)
-		}
-	}
-	return out, nil
+	return s.repo.Products(ctx)
 }
 
 func (s *Service) Materials(ctx context.Context) ([]Option, error) {
