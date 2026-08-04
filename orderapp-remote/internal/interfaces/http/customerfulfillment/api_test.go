@@ -937,6 +937,51 @@ func TestExternalUsersAPIManagesCustomerAccounts(t *testing.T) {
 	}
 }
 
+func TestExternalUserWriteAPIsUseAuthenticatedActorAndIgnoreXUser(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		createExternalUserResult:   app.CustomerExternalUser{CustomerID: 149, EmployeeID: 24},
+		resetExternalUserResult:    app.CustomerExternalUser{CustomerID: 149, EmployeeID: 24},
+		setExternalUserLoginResult: app.CustomerExternalUser{CustomerID: 149, EmployeeID: 24, LoginEnabled: true},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("operator_employee", "认证管理员")
+			c.Set("actor", "认证回退账号")
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
+
+	request := func(path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		req.Header.Set("X-User", "伪造管理员")
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST %s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+		return rec
+	}
+
+	request("/api/customer-fulfillment/149/external-users", `{"name":"门户账号","phone":"13800138076","password":"secret123"}`)
+	if svc.createExternalUserCmd.Actor != "认证管理员" {
+		t.Fatalf("create actor=%q, want authenticated employee and X-User ignored", svc.createExternalUserCmd.Actor)
+	}
+
+	request("/api/customer-fulfillment/149/external-users/24/password/reset", `{"password":"secret456"}`)
+	if svc.resetExternalUserCmd.Actor != "认证管理员" {
+		t.Fatalf("reset actor=%q, want authenticated employee and X-User ignored", svc.resetExternalUserCmd.Actor)
+	}
+
+	request("/api/customer-fulfillment/149/external-users/24/login-enabled", `{"login_enabled":true}`)
+	if svc.setExternalUserLoginCmd.Actor != "认证管理员" {
+		t.Fatalf("login actor=%q, want authenticated employee and X-User ignored", svc.setExternalUserLoginCmd.Actor)
+	}
+}
+
 func TestCreateSettlementAPIRequiresPeriod(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		settlementResult: app.SettlementResult{BatchID: 88, CustomerID: 147, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", FeeItems: 4, TotalAmountCents: 16300},

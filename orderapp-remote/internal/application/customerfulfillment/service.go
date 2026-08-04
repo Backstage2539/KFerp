@@ -86,7 +86,10 @@ type CreateSettlementCommand struct {
 	CreatedBy  string
 }
 
-var ErrCustomerERPBindingNotFound = errors.New("customer erp binding not found")
+var (
+	ErrCustomerERPBindingNotFound = errors.New("customer erp binding not found")
+	ErrCustomerPortalNotEnabled   = errors.New("customer portal not enabled")
+)
 
 type CustomerERPContext struct {
 	EmployeeID    int64  `json:"employee_id"`
@@ -507,6 +510,17 @@ func (s *Service) CustomerPortalOverview(ctx context.Context, employeeID int64) 
 		return CustomerPortalOverview{}, fmt.Errorf("employee required")
 	}
 	return s.repo.CustomerPortalOverview(ctx, employeeID)
+}
+
+// RequireERPWorkbenchLogin reuses the customer workbench context boundary for
+// channel-customer ERP sessions. Mini-program login intentionally does not use
+// this method because a portal account does not itself grant ERP workbench access.
+func (s *Service) RequireERPWorkbenchLogin(ctx context.Context, employeeID int64) error {
+	if employeeID <= 0 {
+		return fmt.Errorf("employee required")
+	}
+	_, err := s.repo.CustomerPortalContext(ctx, employeeID)
+	return err
 }
 
 func (s *Service) CustomerPortalOptions(ctx context.Context, employeeID int64) (CustomerFulfillmentOptions, error) {

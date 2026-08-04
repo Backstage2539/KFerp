@@ -42,11 +42,13 @@ func TestDev138AuditLogFilterIncludesReadableEntityTypes(t *testing.T) {
 		`value="sales_order_document"`,
 		`value="cost_parameter"`,
 		`value="auth_account"`,
+		`value="customer_external_user"`,
 		"原料入库单",
 		"库存调整单",
 		"销售单文件",
 		"成本参数",
 		"员工账号",
+		"客户外部用户",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("AuditView.vue missing %q", want)

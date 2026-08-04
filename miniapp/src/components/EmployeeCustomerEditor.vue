@@ -3,11 +3,16 @@ import { computed, reactive, ref, watch } from 'vue'
 import {
   createEmployeeCustomer,
   fetchEmployeeCustomer,
+  parseEmployeeCustomerRecipient,
   updateEmployeeCustomer,
   type EmployeeCustomer,
   type EmployeeCustomerPayload,
   type EmployeeCustomersResponse,
 } from '../api/customerPortal'
+import {
+  mergeEmployeeCustomerRecipientFields,
+  snapshotEmployeeCustomerRecipientFields,
+} from '../utils/employeeCustomer'
 
 const props = defineProps<{
   visible: boolean
@@ -23,8 +28,11 @@ const emit = defineEmits<{
 
 const loading = ref(false)
 const saving = ref(false)
+const recipientParsing = ref(false)
+const recipientPaste = ref('')
 const errorMessage = ref('')
 let customerLoadSequence = 0
+let recipientParseSequence = 0
 const isAdmin = computed(() => Boolean(props.context?.is_admin))
 const title = computed(() => Number(props.customerId || 0) > 0 ? '修改客户信息' : '新增客户')
 
@@ -108,6 +116,9 @@ function chooseEmployee(event: { detail?: { value?: number | string } }) {
 async function loadCustomer() {
   const sequence = ++customerLoadSequence
   const targetCustomerID = Number(props.customerId || 0)
+  recipientParseSequence += 1
+  recipientParsing.value = false
+  recipientPaste.value = ''
   if (!props.visible) {
     loading.value = false
     errorMessage.value = ''
@@ -135,10 +146,41 @@ async function loadCustomer() {
 function requestClose() {
   if (saving.value) return
   customerLoadSequence += 1
+  recipientParseSequence += 1
+  recipientParsing.value = false
+  recipientPaste.value = ''
   emit('close')
 }
 
+async function parseRecipient() {
+  const text = recipientPaste.value.trim()
+  if (!text || recipientParsing.value || saving.value) return
+
+  const sequence = ++recipientParseSequence
+  const targetCustomerID = Number(props.customerId || 0)
+  const recipientFieldsAtRequest = snapshotEmployeeCustomerRecipientFields(form)
+  recipientParsing.value = true
+  try {
+    const parsed = await parseEmployeeCustomerRecipient(props.token, text)
+    if (sequence !== recipientParseSequence || !props.visible || Number(props.customerId || 0) !== targetCustomerID || recipientPaste.value.trim() !== text) return
+    const recognized = [parsed.recipient_name, parsed.phone, parsed.address]
+      .some((value) => String(value || '').trim())
+    if (!recognized) {
+      uni.showToast({ title: '未识别到收货人、电话或地址', icon: 'none' })
+      return
+    }
+    Object.assign(form, mergeEmployeeCustomerRecipientFields(form, parsed, recipientFieldsAtRequest))
+    uni.showToast({ title: '收货信息已解析', icon: 'success' })
+  } catch (cause) {
+    if (sequence !== recipientParseSequence || !props.visible || Number(props.customerId || 0) !== targetCustomerID || recipientPaste.value.trim() !== text) return
+    uni.showToast({ title: cause instanceof Error ? cause.message : '收货信息解析失败', icon: 'none' })
+  } finally {
+    if (sequence === recipientParseSequence) recipientParsing.value = false
+  }
+}
+
 async function save() {
+  if (recipientParsing.value) return
   if (!form.name.trim()) {
     uni.showToast({ title: '请填写客户名称', icon: 'none' })
     return
@@ -221,6 +263,24 @@ watch(
           <view class="field selector">{{ context?.customer_type_options?.[selectedTypeIndex()]?.label || '请选择客户类型' }}</view>
         </picker>
 
+        <view class="recipient-paste">
+          <text class="label">粘贴收货信息</text>
+          <textarea
+            v-model="recipientPaste"
+            class="field area paste-area"
+            :maxlength="2000"
+            placeholder="例：张三 13800138000 云南省普洱市思茅区咖啡路 88 号"
+          />
+          <button
+            class="parse-button"
+            :loading="recipientParsing"
+            :disabled="recipientParsing || saving || !recipientPaste.trim()"
+            @tap="parseRecipient"
+          >
+            地址解析
+          </button>
+        </view>
+
         <text class="label">联系人</text>
         <input v-model="form.contact" class="field" placeholder="联系人" />
         <text class="label">联系电话</text>
@@ -278,7 +338,7 @@ watch(
           </view>
         </template>
 
-        <button class="save" :loading="saving" :disabled="saving" @tap="save">保存客户</button>
+        <button class="save" :loading="saving" :disabled="saving || recipientParsing" @tap="save">保存客户</button>
       </scroll-view>
     </view>
   </view>
@@ -295,6 +355,9 @@ watch(
 .label { display: block; margin: 0 0 8rpx 4rpx; color: #42524a; font-size: 25rpx; font-weight: 650; }
 .field { width: 100%; min-height: 78rpx; margin-bottom: 16rpx; padding: 18rpx 20rpx; border: 1rpx solid #dfe7e2; border-radius: 12rpx; box-sizing: border-box; background: #fff; }
 .area { height: 112rpx; }
+.recipient-paste { margin-bottom: 20rpx; padding: 20rpx; border: 1rpx solid #d8e5de; border-radius: 14rpx; background: #f6faf8; }
+.paste-area { height: 132rpx; margin-bottom: 12rpx; background: #fff; }
+.parse-button { width: 100%; min-height: 68rpx; margin: 0; border: 1rpx solid #28624a; background: #fff; color: #28624a; font-size: 25rpx; line-height: 68rpx; }
 .selector { color: #263c31; }
 .switch-row { display: flex; align-items: center; justify-content: space-between; min-height: 78rpx; margin-bottom: 14rpx; padding: 0 8rpx; border-bottom: 1rpx solid #edf1ee; color: #42524a; font-size: 26rpx; }
 .save { margin: 24rpx 0 12rpx; background: #28624a; color: #fff; }

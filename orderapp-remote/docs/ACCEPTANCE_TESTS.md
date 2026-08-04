@@ -725,7 +725,7 @@
 - [ ] 左侧菜单存在“客户管理”，且客户档案、门户客户配置、客户门户能力模板、客户履约手册都在该菜单下；能力模板页面名称显示为“客户门户能力模板”。
 - [ ] 从 SKU 设置切到客户档案、门户客户配置、库存或其他页面时，页面内容必须立即切换，不需要刷新浏览器。
 - [ ] 门户客户配置不显示“代加工仓库”编辑项，只展示该客户通过仓库库存绑定的客户仓库；仓库绑定客户在 库存管理 → 仓库库存 选择仓库后，通过“当前仓库”摘要行右侧“仓库设置”抽屉完成，保存后操作日志可查，其他客户账户不可见该绑定仓库。
-- [ ] ERP “客户门户配置”每个客户行直接展示“外部用户”区域，可创建外部用户、设置或重置密码、启停登录，并维护唯一 active 绑定。
+- [ ] ERP “客户门户配置”每个客户行直接展示“外部用户”区域，可创建外部用户、设置或重置密码、启停登录，并维护唯一 active 账号关联；该关联本身不授予 ERP 工作台。
 - [ ] 客户门户配置页不请求 `/api/auth/accounts`，不出现渠道客户账号下拉框，也不包含 `saveERPBinding` 直接保存绑定逻辑。
 - [ ] 同一外部用户不能 active 绑定第二个客户；客户门户配置页创建或复用外部用户后，列表立即展示姓名、手机号、登录状态和绑定状态。
 - [ ] 禁用登录的外部用户不能继续作为有效工作台绑定；历史 active 绑定对应账号被禁用后，客户工作台和客户履约选择器按无有效绑定处理。
@@ -1871,3 +1871,24 @@
 - [ ] `GET /api/bom/products` 只返回启用候选，并包含 `green_bean` 父商品和具体 SKU，保留 `product_kind` 与库存单位；失效生豆不进入新建 BOM 的产出商品候选。输入“生豆”可以看到现有商品，不需要修改商品形态或分类。
 - [ ] Vue 新建生产 BOM 的“产出商品”使用独立启用状态过滤；BOM 组件中的商品候选仍排除生豆，客户范围和现有生产 BOM 列表行为不被扩大。
 - [ ] 未自动新增、发布或绑定真实 BOM，未修改开发或生产商品数据。Go 定向与完整测试、Vue BOM 测试和构建、支持合同、浏览器候选/提示验收、develop 合并及 development 部署证据记录在 `docs/acceptance/2026-08-04-green-bean-bom-picker-missing-bom-diagnostic.md`。
+
+# PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE 员工小程序客户粘贴收货信息
+
+- [ ] `DEV-579-SHARED-RECIPIENT-PARSE-API`：ERP 客户档案与员工小程序对既有五类收货文本调用同一个 `POST /api/customer-recipient/parse`，均得到相同 `recipient_name/phone/address`；代码检查确认小程序和 Vue 页面没有复制地址解析正则或建立第二个解析接口。
+- [ ] ERP 登录用户与具备 `customers.read` 的员工小程序令牌可解析；无令牌、客户账号、缺权限、空文本、超长文本、格式错误分别返回明确 4xx。接口不创建或更新客户，数据库和操作日志不记录粘贴原文。
+- [ ] `DEV-579-MINIAPP-CUSTOMER-PASTE`：从“简易 ERP → 客户维护”新增和编辑客户时可粘贴收货信息；从录单页新增或维护客户时同样可用。成功后联系人、联系电话、联系地址正确回填，客户名和其他已填字段不被意外覆盖，三个结果字段仍可手工修改；切换客户或修改粘贴原文后，上一请求的迟到成功/失败不更新字段或错误提示。小程序保存的联系电话在 ERP 可见，ERP 再保存 phone-only 客户后电话仍保留。
+- [ ] 解析失败时当前表单完全不变；解析中不能重复提交，切换客户、关闭编辑器或重新打开后，旧请求的迟到响应不能写入新客户。最终保存仍执行 PR-569 的负责人和 `customers.write` 权限，合法保存写操作日志，单独解析不写客户变更日志。
+- [ ] `DEV-579-DOCS-ACCEPTANCE` 的定向 Go、Vue、miniapp 测试、类型检查、构建、支持合同与格式检查通过，证据记录在 `docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；`REV-579-MINIAPP-CUSTOMER-ADDRESS-PASTE` 等待 Van 在 development 手工验收两处入口。
+
+# PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE 客户门户外部账号关联与 ERP 工作台授权分离
+
+- [ ] `DEV-580-EXTERNAL-ACCOUNT-WORKBENCH-SEPARATION`：客户 active 且门户已开通、模板为零售商城/其他非工作台模板或模板键为空时，可创建外部账号、列表读取、重置密码、启停登录；设置密码并启用后可从客户小程序密码登录，不再提示 `ERP workbench unavailable for capability template`。门户未开通/已关闭或客户停用时，创建、重置和启用明确提示门户未启用；关闭门户后仍可禁用已有账号。
+- [ ] `DEV-580-ERP-SESSION-GATE`：同一非工作台、空模板和未知模板外部账号通过 ERP 密码登录返回 403，不签发 `login_sessions`；预置的旧 ERP token 在模板从工作台降级后立即失效。明确暴露工作台的外部账号仍可通过密码登录 ERP，内部员工密码登录及预置有效验证码兼容登录保持可用；渠道客户短信登录统一拒绝且不消费验证码。非工作台账号的客户小程序密码登录仍成功。
+- [ ] `DEV-580-AUTH-BOOTSTRAP-HARDENING`：匿名和已登录请求调用旧 `/api/auth/password/set` 均不能创建员工、写密码或解禁账号；未配置真实短信发送通道时 `/api/auth/sms/send` 返回服务不可用，响应不含 code，且员工、验证码表均无新增。未知或停用手机号即使伪造/预置 code 也不能自动建员、签发 session 或提前消费验证码；既有 active 内部员工的预置有效 code 回归仍可登录。管理员密码重置/启停对内部员工保持可用，对 `channel_customer` 拒绝且不写成功审计。
+- [ ] 上述账号进入 ERP 客户工作台时按无有效工作台绑定返回 `customer ERP binding not found` 或 403，不能读取客户工作台数据。显式激活 ERP 工作台绑定时，零售商城、非工作台和未知模板仍返回 `ERP workbench unavailable for capability template`，且不写工作台授权或隐藏角色。
+- [ ] `DEV-580-EXTERNAL-USER-PERMISSION`：外部用户列表 GET 要求 `customers.read`；创建、重置密码和启停登录要求 `customers.write`。只具备库存权限不能维护外部用户，其他 `/api/customer-fulfillment` 库存接口仍要求 `stock.read/write`。
+- [ ] `DEV-580-EXTERNAL-USER-AUDIT`：创建外部账号、重置密码和启停登录分别在同一事务写入 `customer_external_user` 业务操作日志，页面显示“客户管理 / 客户门户配置”、外部用户名、已认证操作者和可读动作；伪造 `X-User` 不改变操作者，密码明文及密码哈希不出现在任何日志字段。审计失败时业务修改回滚，拒绝请求不产生成功日志。
+- [ ] `DEV-580-MINI-SESSION-REVOCATION`：外部账号通过密码和手机号授权分别登录小程序后，停用账号、替换 active 账号、停用客户或关闭门户都会让旧 token 下一次读取立即失败；之后恢复配置也不能自动复活旧 token，重新登录后才恢复。普通微信人工 approved 绑定与内部员工小程序登录不被误伤。
+- [ ] `DEV-580-ACTIVE-BINDING-MUTATION`：把外部账号从客户 A 替换到 B 后，A 的历史 inactive 行仍可查看，但 A 调用重置密码或启停登录必须拒绝；B 的密码、登录状态及 A/B 操作日志不变。B 当前 active 行仍可正常维护。
+- [ ] 同一外部账号不能 active 关联第二个客户；账号、客户或关联停用后不能继续登录。本需求不新增数据库字段或迁移。
+- [ ] `DEV-580-DOCS-ACCEPTANCE` 的隔离 PostgreSQL、应用、HTTP、权限与支持合同测试通过，证据记录在同一合并验收文件；`REV-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE` 等待 Van 在 development 验收外部账号登录和 ERP 工作台隔离。

@@ -22,6 +22,7 @@
             <optgroup label="订单销售">
               <option value="order">订单</option>
               <option value="customer">客户</option>
+              <option value="customer_external_user">客户外部用户</option>
               <option value="customer_asset">客户附件</option>
               <option value="employee_order_draft">订单草稿</option>
               <option value="sales_order_settings">销售单设置</option>
