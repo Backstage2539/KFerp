@@ -156,7 +156,12 @@
             </button>
           </form>
           <div class="external-user-list">
-            <div v-for="user in row.externalUsers" :key="`${row.customer.id}-${user.employee_id}`" class="external-user-card">
+            <div
+              v-for="user in row.externalUsers"
+              :key="`${row.customer.id}-${user.employee_id}`"
+              class="external-user-card"
+              :class="{ 'inactive-binding': user.binding_status !== 'active' }"
+            >
               <div class="binding-row active-binding">
                 <strong>{{ user.name || '-' }}</strong>
                 <span>{{ user.phone || '未填手机号' }}</span>
@@ -166,15 +171,18 @@
                 <i>{{ user.has_password ? '已设密码' : '未设密码' }}</i>
                 <i>{{ user.binding_status || '-' }}</i>
               </div>
-              <div class="password-row">
-                <input v-model.trim="row.externalUserPasswordMap[String(user.employee_id)]" type="password" placeholder="新密码" />
-                <button class="secondary" type="button" @click="resetExternalUserPassword(row, user)" :disabled="row.externalUsersLoading || !row.externalUserPasswordMap[String(user.employee_id)]">
-                  {{ user.has_password ? '重置密码' : '设置密码' }}
+              <template v-if="user.binding_status === 'active'">
+                <div class="password-row">
+                  <input v-model.trim="row.externalUserPasswordMap[String(user.employee_id)]" type="password" placeholder="新密码" />
+                  <button class="secondary" type="button" @click="resetExternalUserPassword(row, user)" :disabled="row.externalUsersLoading || !row.externalUserPasswordMap[String(user.employee_id)]">
+                    {{ user.has_password ? '重置密码' : '设置密码' }}
+                  </button>
+                </div>
+                <button class="secondary" type="button" @click="toggleExternalUserLogin(row, user)" :disabled="row.externalUsersLoading">
+                  {{ user.login_enabled ? '停用登录' : '启用登录' }}
                 </button>
-              </div>
-              <button class="secondary" type="button" @click="toggleExternalUserLogin(row, user)" :disabled="row.externalUsersLoading">
-                {{ user.login_enabled ? '停用登录' : '启用登录' }}
-              </button>
+              </template>
+              <p v-else class="history-note">历史关联（只读）</p>
             </div>
             <span v-if="!row.externalUsers.length && !row.externalUsersLoading" class="muted">暂无外部用户</span>
             <span v-if="row.externalUsersLoading" class="muted">加载账号中...</span>
@@ -602,8 +610,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .external-user-form, .external-user-list { display: grid; gap: 8px; }
 .external-user-form input { width: 100%; }
 .external-user-card { border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; display: grid; gap: 8px; }
+.external-user-card.inactive-binding { background: #f8fafc; }
 .password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .password-row input { width: 100%; }
+.history-note { margin: 0; color: #666; font-size: 12px; }
 .binding-hint { margin: 0; color: #8a5a16; background: #fff7e6; border: 1px solid #f0d7a0; border-radius: 6px; padding: 7px 8px; font-size: 12px; line-height: 1.45; }
 .active-binding { border-color: #b7d9c2; background: #f7fff9; }
 .muted { color: #666; }

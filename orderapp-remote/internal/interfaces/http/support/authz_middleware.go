@@ -221,6 +221,12 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "customer_processing.submit"
 	}
+	if isCustomerExternalUserPath(path) {
+		if method == http.MethodGet {
+			return "customers.read"
+		}
+		return "customers.write"
+	}
 	if strings.HasPrefix(path, "/api/customer-fulfillment") {
 		if method == http.MethodGet {
 			return "stock.read"
@@ -349,6 +355,15 @@ func requiredPermissionForRequest(method, path string) string {
 		return "production.run"
 	}
 	return ""
+}
+
+func isCustomerExternalUserPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	return len(parts) >= 4 &&
+		parts[0] == "api" &&
+		parts[1] == "customer-fulfillment" &&
+		parts[2] != "" &&
+		parts[3] == "external-users"
 }
 
 func isBeanListPublicationPDFRequest(path string) bool {

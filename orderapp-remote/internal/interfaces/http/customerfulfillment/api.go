@@ -783,10 +783,7 @@ func parseID(value, name string) (int64, error) {
 }
 
 func currentCustomerFulfillmentActor(c echo.Context) string {
-	if v := strings.TrimSpace(c.Request().Header.Get("X-User")); v != "" {
-		return v
-	}
-	return "erp"
+	return support.ActorOf(c)
 }
 
 func customerFulfillmentError(c echo.Context, status int, err error) error {

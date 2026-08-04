@@ -8,7 +8,8 @@ import (
 )
 
 type Dependencies struct {
-	Authz AuthzService
+	Authz               AuthzService
+	ERPLoginEligibility ERPWorkbenchLoginEligibility
 }
 
 func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, deps ...Dependencies) {
@@ -17,7 +18,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, deps ...Dep
 		d = deps[0]
 	}
 	registerStaticFrontendRoutes(e)
-	registerAuthSupportRoutes(e, pool, schema, d.Authz)
+	registerAuthSupportRoutes(e, pool, schema, d.Authz, d.ERPLoginEligibility)
 	registerRequirementSupportRoutes(e, pool, schema)
 	registerUISettingsAPI(e, newPGUISettingsStore(pool, schema), d.Authz)
 	registerViewContextSupportRoutes(e, pool, schema, d.Authz)

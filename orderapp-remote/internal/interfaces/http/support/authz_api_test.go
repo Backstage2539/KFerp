@@ -221,6 +221,26 @@ func TestCustomerPortalAdminAPIRequiresCustomerPermissions(t *testing.T) {
 	}
 }
 
+func TestCustomerExternalUserAPIRequiresCustomerPermissions(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/api/customer-fulfillment/147/external-users", "customers.read"},
+		{http.MethodPost, "/api/customer-fulfillment/147/external-users", "customers.write"},
+		{http.MethodPost, "/api/customer-fulfillment/147/external-users/23/password/reset", "customers.write"},
+		{http.MethodPost, "/api/customer-fulfillment/147/external-users/23/login-enabled", "customers.write"},
+		{http.MethodGet, "/api/customer-fulfillment/147/overview", "stock.read"},
+		{http.MethodPost, "/api/customer-fulfillment/147/custody", "stock.write"},
+	}
+	for _, tc := range cases {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Fatalf("%s %s permission = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestMessageCenterAPIRequiresOrderReadPermission(t *testing.T) {
 	if got := requiredPermissionForRequest(http.MethodGet, "/api/message-center/notifications"); got != "orders.read" {
 		t.Fatalf("message center GET permission = %q, want orders.read", got)

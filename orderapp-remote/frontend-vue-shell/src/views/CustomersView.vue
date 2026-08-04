@@ -45,7 +45,9 @@
           <span>粘贴收件信息</span>
           <textarea v-model.trim="customerPaste" rows="2" placeholder="张三 13800138000 云南省普洱市思茅区咖啡路 88 号"></textarea>
         </label>
-        <button class="secondary parse-button" type="button" @click="applyAddressParse">地址解析</button>
+        <button class="secondary parse-button" type="button" :disabled="addressParsing || !addressParseAvailable" @click="applyAddressParse">
+          {{ addressParsing ? '解析中...' : '地址解析' }}
+        </button>
         <label>
           <span>客户名</span>
           <input v-model.trim="form.name" required />
@@ -106,7 +108,7 @@
           <span>开通客户门户/工作台</span>
         </label>
         <div class="form-actions">
-          <button class="primary" type="submit" :disabled="loading">保存</button>
+          <button class="primary" type="submit" :disabled="loading || addressParsing">保存</button>
         </div>
       </form>
 
@@ -189,7 +191,7 @@
               </td>
               <td>{{ displayCustomerTypeLabel(row.customer_type) }}</td>
               <td>{{ row.company_name || row.name }}</td>
-              <td>{{ row.company_phone || '' }}</td>
+              <td>{{ customerPhoneForERPForm(row) }}</td>
               <td>{{ row.contact || '' }}</td>
               <td class="address">{{ row.address || '' }}</td>
               <td>{{ optionName(sources, row.default_source_id) }}</td>
@@ -220,7 +222,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
-import { parseRecipientText } from '../lib/customer-recipient'
+import { customerPhoneForERPForm, customerRecipientFieldSnapshot, mergeCustomerRecipientFields } from '../lib/customer-recipient-merge'
 import { customerTypeLabel, customerTypeOptions, mergeCustomerTypeOptions, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -250,7 +252,10 @@ const dashboard = reactive({ total_orders: 0, unpaid_orders: 0, unshipped_orders
 const assetKind = ref('label_front')
 const assetInput = ref(null)
 const customerPaste = ref('')
+const addressParsing = ref(false)
 const form = reactive(emptyForm())
+const addressParseAvailable = computed(() => Boolean(String(customerPaste.value || form.address || '').trim()))
+let addressParseSequence = 0
 const assetKinds = [
   { value: 'label_front', label: '标签-正面' },
   { value: 'label_back', label: '标签-反面' },
@@ -280,7 +285,7 @@ function assignForm(data) {
     name: data?.name || '',
     customer_type: normalizeCustomerType(data?.customer_type, customerTypeOptionsForSelect.value),
     company_name: data?.company_name || '',
-    company_phone: data?.company_phone || '',
+    company_phone: customerPhoneForERPForm(data),
     contact: data?.contact || '',
     address: data?.address || '',
     default_source_id: Number(data?.default_source_id || 0),
@@ -461,6 +466,7 @@ async function setSort(field) {
 }
 
 function startNew() {
+  invalidateAddressParse()
   customerDrawerOpen.value = true
   editingId.value = 0
   assets.value = []
@@ -474,6 +480,7 @@ function startNew() {
 }
 
 function closeCustomerDrawer() {
+  invalidateAddressParse()
   customerDrawerOpen.value = false
   editingId.value = 0
   assets.value = []
@@ -482,6 +489,7 @@ function closeCustomerDrawer() {
 }
 
 async function openCustomerDrawer(id) {
+  invalidateAddressParse()
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -505,24 +513,45 @@ async function openCustomerDrawer(id) {
   }
 }
 
-function applyAddressParse() {
+function invalidateAddressParse() {
+  addressParseSequence += 1
+  addressParsing.value = false
+}
+
+function isCurrentAddressParse(sequence, targetEditingID, source) {
+  const currentSource = String(customerPaste.value || form.address || '').trim()
+  return sequence === addressParseSequence &&
+    customerDrawerOpen.value &&
+    Number(editingId.value || 0) === targetEditingID &&
+    currentSource === source
+}
+
+async function applyAddressParse() {
   const source = String(customerPaste.value || form.address || '').trim()
-  if (!source) return
-  const parsed = parseRecipientText(source)
-  if (parsed.recipient_name) {
-    form.contact = parsed.recipient_name
-    if (!form.name) form.name = parsed.recipient_name
+  if (!source || addressParsing.value) return
+  const sequence = ++addressParseSequence
+  const targetEditingID = Number(editingId.value || 0)
+  const targetFieldsAtRequest = customerRecipientFieldSnapshot(form)
+  addressParsing.value = true
+  error.value = ''
+  try {
+    const parsed = await apiSend('/api/customer-recipient/parse', { body: { text: source } })
+    if (!isCurrentAddressParse(sequence, targetEditingID, source)) return
+    Object.assign(form, mergeCustomerRecipientFields(form, parsed, targetFieldsAtRequest))
+  } catch (err) {
+    if (isCurrentAddressParse(sequence, targetEditingID, source)) error.value = err.message || '地址解析失败'
+  } finally {
+    if (sequence === addressParseSequence) addressParsing.value = false
   }
-  if (parsed.phone) form.company_phone = parsed.phone
-  if (parsed.address) form.address = parsed.address
 }
 
 async function saveCustomer() {
+  if (addressParsing.value) return
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
-    if (!form.name && form.contact) form.name = form.contact
+    if (!String(form.name || '').trim()) throw new Error('请填写客户名称')
     if (!validCustomerType(form.customer_type, customerTypeOptionsForSelect.value)) throw new Error('请选择客户类型')
     if (!Number(form.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(form.default_order_type_id || 0)) throw new Error('请选择客户订单类型')

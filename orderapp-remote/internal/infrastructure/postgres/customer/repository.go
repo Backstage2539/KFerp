@@ -146,8 +146,25 @@ func (r Repository) InlineUpdate(ctx context.Context, actor string, id int64, cm
 }
 
 func (r Repository) Delete(ctx context.Context, actor string, id int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var oldActive bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.customers WHERE id=$1 FOR UPDATE`, r.schema), id).Scan(&oldActive); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	q := fmt.Sprintf(`UPDATE %s.customers SET active=false, updated_at=$2 WHERE id=$1`, r.schema)
-	if _, err := r.pool.Exec(ctx, q, id, time.Now()); err != nil {
+	if _, err := tx.Exec(ctx, q, id, time.Now()); err != nil {
+		return err
+	}
+	if oldActive {
+		if err := postgresinfra.ExpireCustomerSecuritySessions(ctx, tx, r.schema, id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "customer", &id, "delete", nil, nil, nil, nil)
@@ -727,6 +744,11 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 		if _, err := tx.Exec(ctx, q, newID, name, raw, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt, responsibleEmployeeID, time.Now()); err != nil {
 			return 0, err
 		}
+		if oldActive != active {
+			if err := postgresinfra.ExpireCustomerSecuritySessions(ctx, tx, schema, newID); err != nil {
+				return 0, err
+			}
+		}
 		if err := auditCustomerDiffs(ctx, tx, schema, actor, newID, customerSnapshot{oldName, customerapp.NormalizeCustomerType(oldCustomerType), oldCompanyName, oldCompanyAddress, oldCompanyPhone, oldContact, oldPhone, oldAddr, oldActive, oldDS, oldDT, oldResponsibleEmployeeID}, customerSnapshot{name, customerType, companyName, companyAddress, companyPhone, contact, phone, address, active, ds, dt, responsibleEmployeeID}); err != nil {
 			return 0, err
 		}
@@ -842,6 +864,11 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if _, err := tx.Exec(ctx, q, id, next.name, next.customerType, next.companyName, next.companyAddress, next.companyPhone, next.contact, next.phone, next.address, next.active, next.sourceID, next.typeID, next.responsibleEmployeeID, time.Now()); err != nil {
 		return err
 	}
+	if old.active != next.active {
+		if err := postgresinfra.ExpireCustomerSecuritySessions(ctx, tx, schema, id); err != nil {
+			return err
+		}
+	}
 	if err := auditCustomerDiffs(ctx, tx, schema, actor, id, old, next); err != nil {
 		return err
 	}
@@ -913,6 +940,16 @@ func syncCustomerPortalProfileTx(ctx context.Context, tx pgx.Tx, schema, actor s
 			updated_by=excluded.updated_by
 	`, schema, schema), customerID, displayName, nextEnabled, nextTemplateKey, updatedBy); err != nil {
 		return err
+	}
+	if hadProfile && oldEnabled != nextEnabled {
+		if err := postgresinfra.ExpireCustomerSecuritySessions(ctx, tx, schema, customerID); err != nil {
+			return err
+		}
+	}
+	if hadProfile && oldTemplateKey != nextTemplateKey {
+		if err := postgresinfra.ExpireCustomerERPSessions(ctx, tx, schema, customerID); err != nil {
+			return err
+		}
 	}
 	if portalEnabled != nil && oldEnabled != nextEnabled {
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &customerID, "update", postgresinfra.StrPtr("portal_enabled"), postgresinfra.StrPtr(fmt.Sprintf("%v", oldEnabled)), postgresinfra.StrPtr(fmt.Sprintf("%v", nextEnabled)), nil); err != nil {

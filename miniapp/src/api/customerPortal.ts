@@ -591,6 +591,12 @@ export type EmployeeCustomerPayload = {
   portal_enabled?: boolean
 }
 
+export type EmployeeCustomerRecipientParseResponse = {
+  recipient_name: string
+  phone: string
+  address: string
+}
+
 export type EmployeeOrderDraftItem = {
   item_id?: number
   key: string
@@ -963,6 +969,17 @@ export function fetchEmployeeCustomers(token: string, query: EmployeeCustomerLis
 
 export function fetchEmployeeCustomer(token: string, customerID: number): Promise<{ customer: EmployeeCustomer }> {
   return miniRequest<{ customer: EmployeeCustomer }>(buildEmployeeCustomerPath(customerID), { token })
+}
+
+export function parseEmployeeCustomerRecipient(
+  token: string,
+  text: string,
+): Promise<EmployeeCustomerRecipientParseResponse> {
+  return miniRequest<EmployeeCustomerRecipientParseResponse>('/api/customer-recipient/parse', {
+    method: 'POST',
+    token,
+    data: { text: String(text || '').trim() },
+  })
 }
 
 export function createEmployeeCustomer(token: string, data: EmployeeCustomerPayload): Promise<{ customer: EmployeeCustomer }> {

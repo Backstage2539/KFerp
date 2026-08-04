@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
 
@@ -29,6 +30,11 @@ type txQuerier interface {
 }
 
 var passwordLoginPhoneRe = regexp.MustCompile(`^1\d{10}$`)
+
+const (
+	projectedMiniBindingPasswordSource    = "erp-password-login"
+	projectedMiniBindingPhoneVerifySource = "phone-verify-login"
+)
 
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
@@ -97,24 +103,48 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 	if !active {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
 	}
+	projectedSource := projectedMiniBindingSource(projectedMiniBindingPhoneVerifySource, employeeID)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_portal_user_bindings(mini_user_id, customer_id, role, status, approved_by)
-		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', 'phone-verify-login'
+		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', $3
 		FROM %s.customer_erp_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
 		JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		WHERE b.employee_id=$2 AND b.status='active'
 		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
-			role=EXCLUDED.role,
+			role=CASE
+				WHEN customer_portal_user_bindings.status='approved'
+				 AND NOT (
+					customer_portal_user_bindings.approved_by IN ('erp-password-login','phone-verify-login')
+					OR customer_portal_user_bindings.approved_by LIKE 'erp-password-login:%%'
+					OR customer_portal_user_bindings.approved_by LIKE 'phone-verify-login:%%'
+				 )
+				THEN customer_portal_user_bindings.role
+				ELSE EXCLUDED.role
+			END,
 			status='approved',
-			approved_by='phone-verify-login'
-	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+			approved_by=CASE
+				WHEN customer_portal_user_bindings.status='approved'
+				 AND NOT (
+					customer_portal_user_bindings.approved_by IN ('erp-password-login','phone-verify-login')
+					OR customer_portal_user_bindings.approved_by LIKE 'erp-password-login:%%'
+					OR customer_portal_user_bindings.approved_by LIKE 'phone-verify-login:%%'
+				 )
+				THEN customer_portal_user_bindings.approved_by
+				ELSE EXCLUDED.approved_by
+			END
+	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID, projectedSource); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.customer_portal_user_bindings
 		SET status='revoked'
 		WHERE mini_user_id=$1
+		  AND (
+			approved_by IN ('erp-password-login','phone-verify-login')
+			OR approved_by LIKE 'erp-password-login:%%'
+			OR approved_by LIKE 'phone-verify-login:%%'
+		  )
 		  AND customer_id NOT IN (
 		    SELECT b.customer_id
 		    FROM %s.customer_erp_user_bindings b
@@ -131,6 +161,9 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 	}
 	if len(bindings) == 0 {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrCustomerBindingNotFound
+	}
+	if err := r.expireMiniUserSessionsTx(ctx, tx, miniUserID); err != nil {
+		return customerportalapp.LoginResult{}, err
 	}
 	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
 	if err != nil {
@@ -342,24 +375,48 @@ func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customer
 	if !active {
 		return customerportalapp.LoginResult{}, customerportalapp.ErrMiniUserDisabled
 	}
+	projectedSource := projectedMiniBindingSource(projectedMiniBindingPasswordSource, employeeID)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_portal_user_bindings(mini_user_id, customer_id, role, status, approved_by)
-		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', 'erp-password-login'
+		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', $3
 		FROM %s.customer_erp_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
 		JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		WHERE b.employee_id=$2 AND b.status='active'
 		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
-			role=EXCLUDED.role,
+			role=CASE
+				WHEN customer_portal_user_bindings.status='approved'
+				 AND NOT (
+					customer_portal_user_bindings.approved_by IN ('erp-password-login','phone-verify-login')
+					OR customer_portal_user_bindings.approved_by LIKE 'erp-password-login:%%'
+					OR customer_portal_user_bindings.approved_by LIKE 'phone-verify-login:%%'
+				 )
+				THEN customer_portal_user_bindings.role
+				ELSE EXCLUDED.role
+			END,
 			status='approved',
-			approved_by='erp-password-login'
-	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+			approved_by=CASE
+				WHEN customer_portal_user_bindings.status='approved'
+				 AND NOT (
+					customer_portal_user_bindings.approved_by IN ('erp-password-login','phone-verify-login')
+					OR customer_portal_user_bindings.approved_by LIKE 'erp-password-login:%%'
+					OR customer_portal_user_bindings.approved_by LIKE 'phone-verify-login:%%'
+				 )
+				THEN customer_portal_user_bindings.approved_by
+				ELSE EXCLUDED.approved_by
+			END
+	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID, projectedSource); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.customer_portal_user_bindings
 		SET status='revoked'
 		WHERE mini_user_id=$1
+		  AND (
+			approved_by IN ('erp-password-login','phone-verify-login')
+			OR approved_by LIKE 'erp-password-login:%%'
+			OR approved_by LIKE 'phone-verify-login:%%'
+		  )
 		  AND customer_id NOT IN (
 		    SELECT b.customer_id
 		    FROM %s.customer_erp_user_bindings b
@@ -371,6 +428,9 @@ func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customer
 		return customerportalapp.LoginResult{}, err
 	}
 
+	if err := r.expireMiniUserSessionsTx(ctx, tx, miniUserID); err != nil {
+		return customerportalapp.LoginResult{}, err
+	}
 	result, err := r.createMiniSessionTx(ctx, tx, miniUserID, 0)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
@@ -397,13 +457,14 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 
 	var miniUserID, sessionCustomerID int64
 	var openID string
+	var sessionCreatedAt time.Time
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT s.mini_user_id, COALESCE(s.current_customer_id,0), COALESCE(u.openid,'')
+		SELECT s.mini_user_id, COALESCE(s.current_customer_id,0), COALESCE(u.openid,''), s.created_at
 		FROM %s.mini_sessions s
 		JOIN %s.mini_users u ON u.id=s.mini_user_id
 		WHERE s.token=$1 AND s.expire_at>now() AND u.active=true
 		FOR UPDATE OF s
-	`, r.schema, r.schema), token).Scan(&miniUserID, &sessionCustomerID, &openID); err != nil {
+	`, r.schema, r.schema), token).Scan(&miniUserID, &sessionCustomerID, &openID, &sessionCreatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 		}
@@ -412,17 +473,48 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 	if strings.HasPrefix(openID, "erp-internal-employee:") {
 		employeeID, parseErr := strconv.ParseInt(strings.TrimPrefix(openID, "erp-internal-employee:"), 10, 64)
 		if parseErr != nil || employeeID <= 0 {
+			if err := r.expireMiniSessionTx(ctx, tx, token); err != nil {
+				return customerportalapp.CurrentContext{}, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return customerportalapp.CurrentContext{}, err
+			}
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 		}
 		var employeeName string
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1 AND active=true AND account_type='internal_employee'`, r.schema), employeeID).Scan(&employeeName); err != nil {
+		var securityUpdatedAt time.Time
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(e.name,''), lp.updated_at
+			FROM %s.company_employees e
+			JOIN %s.employee_login_passwords lp ON lp.employee_id=e.id
+			WHERE e.id=$1
+			  AND e.active=true
+			  AND e.account_type='internal_employee'
+			  AND COALESCE(lp.login_disabled,false)=false
+		`, r.schema, r.schema), employeeID).Scan(&employeeName, &securityUpdatedAt)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && sessionCreatedAt.Before(securityUpdatedAt)) {
+			if err := r.expireMiniSessionTx(ctx, tx, token); err != nil {
+				return customerportalapp.CurrentContext{}, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return customerportalapp.CurrentContext{}, err
+			}
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
+		}
+		if err != nil {
+			return customerportalapp.CurrentContext{}, err
 		}
 		roles, permissions, err := r.employeeMiniAccessTx(ctx, tx, employeeID)
 		if err != nil {
 			return customerportalapp.CurrentContext{}, err
 		}
 		if (!containsString(roles, "admin") && !containsString(roles, "sales")) || !containsString(permissions, "orders.read") || !containsString(permissions, "orders.write") {
+			if err := r.expireMiniSessionTx(ctx, tx, token); err != nil {
+				return customerportalapp.CurrentContext{}, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return customerportalapp.CurrentContext{}, err
+			}
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrCustomerBindingNotFound
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -434,6 +526,19 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 			Bindings: []customerportalapp.CustomerBinding{}, Capabilities: []customerportalapp.Capability{},
 			ThemeKey: customerportalapp.PortalThemeCleanOps, MiniappEntryMode: customerportalapp.MiniappEntryModeServices,
 		}, nil
+	}
+	projectedValidation, err := r.validateProjectedMiniBindingsTx(ctx, tx, miniUserID, openID, sessionCreatedAt)
+	if err != nil {
+		return customerportalapp.CurrentContext{}, err
+	}
+	if projectedValidation.invalidatesSession(openID, sessionCustomerID) {
+		if err := r.expireMiniSessionTx(ctx, tx, token); err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+		return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 	}
 	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
 	if err != nil {
@@ -485,6 +590,197 @@ func (r Repository) CurrentContextByToken(ctx context.Context, token string) (cu
 		ThemeKey:            themeKey,
 		MiniappEntryMode:    entryMode,
 	}, nil
+}
+
+type projectedMiniBindingValidation struct {
+	hasProjectedBindings bool
+	validSessionBindings map[int64]struct{}
+	invalidBindings      map[int64]struct{}
+	staleSessionBindings map[int64]struct{}
+}
+
+func newProjectedMiniBindingValidation() projectedMiniBindingValidation {
+	return projectedMiniBindingValidation{
+		validSessionBindings: make(map[int64]struct{}),
+		invalidBindings:      make(map[int64]struct{}),
+		staleSessionBindings: make(map[int64]struct{}),
+	}
+}
+
+func (v projectedMiniBindingValidation) invalidForCustomer(customerID int64) bool {
+	if customerID <= 0 {
+		return false
+	}
+	if _, ok := v.invalidBindings[customerID]; ok {
+		return true
+	}
+	_, ok := v.staleSessionBindings[customerID]
+	return ok
+}
+
+func (v projectedMiniBindingValidation) invalidatesSession(openID string, currentCustomerID int64) bool {
+	if v.invalidForCustomer(currentCustomerID) {
+		return true
+	}
+	if !strings.HasPrefix(strings.TrimSpace(openID), "erp-employee:") {
+		return false
+	}
+	// A password-projected mini user must always retain at least one live,
+	// session-fresh ERP projection. Historical revoked projections for another
+	// customer must not invalidate a newly authenticated customer session.
+	return !v.hasProjectedBindings || len(v.validSessionBindings) == 0
+}
+
+func (r Repository) validateProjectedMiniBindingsTx(ctx context.Context, tx pgx.Tx, miniUserID int64, openID string, sessionCreatedAt time.Time) (projectedMiniBindingValidation, error) {
+	validation := newProjectedMiniBindingValidation()
+	type projectedBinding struct {
+		customerID int64
+		source     string
+		status     string
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT customer_id, COALESCE(approved_by,''), COALESCE(status,'')
+		FROM %s.customer_portal_user_bindings
+		WHERE mini_user_id=$1
+		  AND (
+			approved_by IN ('erp-password-login','phone-verify-login')
+			OR approved_by LIKE 'erp-password-login:%%'
+			OR approved_by LIKE 'phone-verify-login:%%'
+		  )
+		ORDER BY id
+	`, r.schema), miniUserID)
+	if err != nil {
+		return validation, err
+	}
+	projectedBindings := make([]projectedBinding, 0)
+	for rows.Next() {
+		var binding projectedBinding
+		if err := rows.Scan(&binding.customerID, &binding.source, &binding.status); err != nil {
+			rows.Close()
+			return validation, err
+		}
+		projectedBindings = append(projectedBindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return validation, err
+	}
+	rows.Close()
+	validation.hasProjectedBindings = len(projectedBindings) > 0
+
+	for _, binding := range projectedBindings {
+		if binding.status != "approved" {
+			validation.invalidBindings[binding.customerID] = struct{}{}
+			continue
+		}
+		employeeID, sourceOK := projectedMiniBindingEmployeeID(openID, binding.source)
+		securityUpdatedAt, live, err := r.projectedMiniBindingSecurityUpdatedAtTx(ctx, tx, employeeID, binding.customerID)
+		if err != nil {
+			return validation, err
+		}
+		if !sourceOK || !live {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.customer_portal_user_bindings
+				SET status='revoked'
+				WHERE mini_user_id=$1 AND customer_id=$2 AND status='approved' AND approved_by=$3
+			`, r.schema), miniUserID, binding.customerID, binding.source); err != nil {
+				return validation, err
+			}
+			validation.invalidBindings[binding.customerID] = struct{}{}
+			continue
+		}
+		if sessionCreatedAt.Before(securityUpdatedAt) {
+			validation.staleSessionBindings[binding.customerID] = struct{}{}
+			continue
+		}
+		validation.validSessionBindings[binding.customerID] = struct{}{}
+	}
+	return validation, nil
+}
+
+func (r Repository) projectedMiniBindingSecurityUpdatedAtTx(ctx context.Context, tx pgx.Tx, employeeID, customerID int64) (time.Time, bool, error) {
+	if employeeID <= 0 || customerID <= 0 {
+		return time.Time{}, false, nil
+	}
+	var updatedAt time.Time
+	// Only version rows whose updates are authentication/authorization events.
+	// Employee, customer, and portal-profile updated_at also move for ordinary
+	// name, contact, address, theme, and capability edits; using those broad
+	// timestamps here would incorrectly revoke otherwise valid mini sessions.
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT GREATEST(b.updated_at, COALESCE(lp.updated_at, '-infinity'::timestamptz))
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.company_employees e ON e.id=b.employee_id
+		LEFT JOIN %s.employee_login_passwords lp ON lp.employee_id=e.id
+		JOIN %s.customers c ON c.id=b.customer_id
+		JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		WHERE b.employee_id=$1
+		  AND b.customer_id=$2
+		  AND b.status='active'
+		  AND e.active=true
+		  AND e.account_type='channel_customer'
+		  AND COALESCE(lp.login_disabled,false)=false
+		  AND c.active=true
+		  AND p.enabled=true
+		LIMIT 1
+	`, r.schema, r.schema, r.schema, r.schema, r.schema), employeeID, customerID).Scan(&updatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return updatedAt, true, nil
+}
+
+func projectedMiniBindingSource(source string, employeeID int64) string {
+	return fmt.Sprintf("%s:%d", strings.TrimSpace(source), employeeID)
+}
+
+func projectedMiniBindingEmployeeID(openID, source string) (int64, bool) {
+	openID = strings.TrimSpace(openID)
+	source = strings.TrimSpace(source)
+	switch {
+	case source == projectedMiniBindingPasswordSource:
+		return parseProjectedMiniBindingEmployeeID(strings.TrimPrefix(openID, "erp-employee:"), strings.HasPrefix(openID, "erp-employee:"))
+	case strings.HasPrefix(source, projectedMiniBindingPasswordSource+":"):
+		employeeID, ok := parseProjectedMiniBindingEmployeeID(strings.TrimPrefix(source, projectedMiniBindingPasswordSource+":"), true)
+		if !ok || openID != fmt.Sprintf("erp-employee:%d", employeeID) {
+			return 0, false
+		}
+		return employeeID, true
+	case strings.HasPrefix(source, projectedMiniBindingPhoneVerifySource+":"):
+		return parseProjectedMiniBindingEmployeeID(strings.TrimPrefix(source, projectedMiniBindingPhoneVerifySource+":"), true)
+	default:
+		// Legacy bare phone-verify-login has no immutable employee identity.
+		return 0, false
+	}
+}
+
+func parseProjectedMiniBindingEmployeeID(value string, allowed bool) (int64, bool) {
+	if !allowed {
+		return 0, false
+	}
+	employeeID, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return employeeID, err == nil && employeeID > 0
+}
+
+func (r Repository) expireMiniSessionTx(ctx context.Context, tx pgx.Tx, token string) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.mini_sessions
+		SET expire_at=now()
+		WHERE token=$1 AND expire_at>now()
+	`, r.schema), strings.TrimSpace(token))
+	return err
+}
+
+func (r Repository) expireMiniUserSessionsTx(ctx context.Context, tx pgx.Tx, miniUserID int64) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.mini_sessions
+		SET expire_at=now()
+		WHERE mini_user_id=$1 AND expire_at>now()
+	`, r.schema), miniUserID)
+	return err
 }
 
 func (r Repository) upsertEmployeeMiniUserTx(ctx context.Context, tx pgx.Tx, employeeID int64, name, phone string) (int64, error) {
@@ -547,18 +843,33 @@ func (r Repository) SwitchCurrentCustomer(ctx context.Context, token string, cus
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var miniUserID int64
+	var miniUserID, sessionCustomerID int64
+	var openID string
+	var sessionCreatedAt time.Time
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT s.mini_user_id
+		SELECT s.mini_user_id, COALESCE(s.current_customer_id,0), COALESCE(u.openid,''), s.created_at
 		FROM %s.mini_sessions s
 		JOIN %s.mini_users u ON u.id=s.mini_user_id
 		WHERE s.token=$1 AND s.expire_at>now() AND u.active=true
 		FOR UPDATE OF s
-	`, r.schema, r.schema), token).Scan(&miniUserID); err != nil {
+	`, r.schema, r.schema), token).Scan(&miniUserID, &sessionCustomerID, &openID, &sessionCreatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 		}
 		return customerportalapp.CurrentContext{}, err
+	}
+	projectedValidation, err := r.validateProjectedMiniBindingsTx(ctx, tx, miniUserID, openID, sessionCreatedAt)
+	if err != nil {
+		return customerportalapp.CurrentContext{}, err
+	}
+	if projectedValidation.invalidatesSession(openID, sessionCustomerID) || projectedValidation.invalidForCustomer(customerID) {
+		if err := r.expireMiniSessionTx(ctx, tx, token); err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return customerportalapp.CurrentContext{}, err
+		}
+		return customerportalapp.CurrentContext{}, customerportalapp.ErrMiniSessionNotFound
 	}
 	var bound int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`

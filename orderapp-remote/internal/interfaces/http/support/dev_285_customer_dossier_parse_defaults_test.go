@@ -11,7 +11,8 @@ func TestCustomerDossierParseDefaultsSourceGuards(t *testing.T) {
 	orderEntryView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
 
 	for _, want := range []string{
-		"parseRecipientText",
+		"/api/customer-recipient/parse",
+		"addressParsing",
 		"粘贴收件信息",
 		"地址解析",
 		"<span>联系电话</span>",
@@ -23,6 +24,11 @@ func TestCustomerDossierParseDefaultsSourceGuards(t *testing.T) {
 		if !strings.Contains(customersView, want) {
 			t.Fatalf("CustomersView.vue missing marker %q", want)
 		}
+	}
+	if strings.Contains(customersView, "from '../lib/customer-recipient'") ||
+		strings.Contains(customersView, `from "../lib/customer-recipient"`) ||
+		strings.Contains(customersView, "parseRecipientText(") {
+		t.Fatal("CustomersView.vue must use the shared recipient parse API instead of local parsing rules")
 	}
 
 	for _, forbidden := range []string{

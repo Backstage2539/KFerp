@@ -50,3 +50,36 @@ test('customer drawer exposes inline add actions for customer type and order typ
   assert.match(view, /新增订单类型/)
   assert.match(view, /createOrderTypeOption/)
 })
+
+test('customer drawer uses the shared recipient parsing API', () => {
+  const view = source('views/CustomersView.vue')
+  assert.match(view, /apiSend\('\/api\/customer-recipient\/parse'/)
+  assert.match(view, /customerRecipientFieldSnapshot/)
+  assert.match(view, /mergeCustomerRecipientFields/)
+  assert.match(view, /addressParsing/)
+  assert.match(view, /:disabled="loading \|\| addressParsing"/)
+  assert.match(view, /async function saveCustomer\(\) \{\s+if \(addressParsing\.value\) return/)
+  assert.doesNotMatch(view, /from ['"]\.\.\/lib\/customer-recipient['"]/)
+  assert.doesNotMatch(view, /parseRecipientText\(/)
+  assert.doesNotMatch(view, /form\.name\s*=\s*parsed\.recipient_name/)
+  assert.doesNotMatch(view, /if \(!form\.name && form\.contact\) form\.name = form\.contact/)
+  const parserSource = view.slice(
+    view.indexOf('async function applyAddressParse()'),
+    view.indexOf('async function saveCustomer()'),
+  )
+  assert.match(parserSource, /const targetFieldsAtRequest = customerRecipientFieldSnapshot\(form\)/)
+  assert.ok(
+    parserSource.indexOf('const targetFieldsAtRequest = customerRecipientFieldSnapshot(form)') < parserSource.indexOf("await apiSend('/api/customer-recipient/parse'"),
+  )
+  assert.match(parserSource, /Object\.assign\(form, mergeCustomerRecipientFields\(form, parsed, targetFieldsAtRequest\)\)/)
+  assert.equal(
+    parserSource.match(/isCurrentAddressParse\(sequence, targetEditingID, source\)/g)?.length || 0,
+    2,
+    'success and failure responses must share the same drawer, customer and source guard',
+  )
+  const catchSource = parserSource.slice(parserSource.indexOf('} catch'), parserSource.indexOf('} finally'))
+  assert.match(catchSource, /if \(isCurrentAddressParse\(sequence, targetEditingID, source\)\)/)
+  assert.match(view, /company_phone: customerPhoneForERPForm\(data\)/)
+  assert.match(view, /\{\{ customerPhoneForERPForm\(row\) \}\}/)
+  assert.match(view, /company_phone: form\.company_phone,[\s\S]*?phone: form\.company_phone,/)
+})

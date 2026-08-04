@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	authzapp "orderapp/internal/application/authz"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -74,7 +75,7 @@ func (r Repository) AssignEmployeeRoles(ctx context.Context, cmd authzapp.Assign
 
 	var employeeID int64
 	var accountType string
-	err = tx.QueryRow(ctx, "SELECT id,COALESCE(NULLIF(account_type,''),'internal_employee') FROM "+r.schema+".company_employees WHERE id=$1 AND active=true LIMIT 1", cmd.EmployeeID).Scan(&employeeID, &accountType)
+	err = tx.QueryRow(ctx, "SELECT id,COALESCE(NULLIF(account_type,''),'internal_employee') FROM "+r.schema+".company_employees WHERE id=$1 AND active=true LIMIT 1 FOR UPDATE", cmd.EmployeeID).Scan(&employeeID, &accountType)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("employee not found")
@@ -84,6 +85,24 @@ func (r Repository) AssignEmployeeRoles(ctx context.Context, cmd authzapp.Assign
 	if accountType == "channel_customer" && len(cmd.RoleCodes) > 0 {
 		return fmt.Errorf("channel customer accounts cannot assign roles")
 	}
+	oldRows, err := tx.Query(ctx, "SELECT role_code FROM "+r.schema+".employee_roles WHERE employee_id=$1 ORDER BY role_code", cmd.EmployeeID)
+	if err != nil {
+		return err
+	}
+	oldRoleCodes := make([]string, 0)
+	for oldRows.Next() {
+		var roleCode string
+		if err := oldRows.Scan(&roleCode); err != nil {
+			oldRows.Close()
+			return err
+		}
+		oldRoleCodes = append(oldRoleCodes, roleCode)
+	}
+	if err := oldRows.Err(); err != nil {
+		oldRows.Close()
+		return err
+	}
+	oldRows.Close()
 	if _, err := tx.Exec(ctx, "DELETE FROM "+r.schema+".employee_roles WHERE employee_id=$1", cmd.EmployeeID); err != nil {
 		return err
 	}
@@ -96,7 +115,29 @@ func (r Repository) AssignEmployeeRoles(ctx context.Context, cmd authzapp.Assign
 			return fmt.Errorf("unknown role: %s", roleCode)
 		}
 	}
+	if !sameEmployeeRoleSet(oldRoleCodes, cmd.RoleCodes) {
+		if err := postgresinfra.ExpireEmployeeSecuritySessions(ctx, tx, r.schema, cmd.EmployeeID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
+}
+
+func sameEmployeeRoleSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[string]int, len(left))
+	for _, value := range left {
+		counts[value]++
+	}
+	for _, value := range right {
+		if counts[value] == 0 {
+			return false
+		}
+		counts[value]--
+	}
+	return true
 }
 
 func (r Repository) ListEmployeeRoles(ctx context.Context) (map[int64][]string, error) {

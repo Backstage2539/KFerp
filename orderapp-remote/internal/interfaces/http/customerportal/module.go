@@ -14,6 +14,7 @@ import (
 	messagecenterapp "orderapp/internal/application/messagecenter"
 	salesapp "orderapp/internal/application/sales"
 	pdfinfra "orderapp/internal/infrastructure/pdf"
+	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/labstack/echo/v4"
 )
@@ -59,6 +60,7 @@ type Service interface {
 
 type Dependencies struct {
 	CustomerPortal        Service
+	Authz                 supporthttp.AuthzService
 	MessageCenter         MessagePublisher
 	BeanListPDFRenderer   BeanListPDFRenderer
 	SalesDocuments        SalesDocuments
@@ -113,6 +115,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
 	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments)
+	registerRecipientParseAPI(e, deps.CustomerPortal, deps.Authz)
 	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps.CustomerMaintenance)
 	registerMiniEmployeeShareSettingsAPI(e, deps.CustomerPortal, deps.EmployeeShareSettings)
 	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)

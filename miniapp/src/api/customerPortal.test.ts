@@ -24,6 +24,7 @@ import {
   buildServicePagePath,
   buildSwitchCustomerPath,
   fetchEmployeeOrderForm,
+  parseEmployeeCustomerRecipient,
   fetchEmployeeShareSettings,
   saveEmployeeShareSettings,
   updateEmployeeOrder,
@@ -124,6 +125,26 @@ describe('customer portal API helpers', () => {
 
     expect(miniRequest).toHaveBeenCalledWith('/api/mini/employee/order-form?customer_id=8', {
       token: 'employee-token',
+    })
+  })
+
+  it('parses pasted recipient text through the shared ERP endpoint', async () => {
+    const parsed = {
+      recipient_name: '张三',
+      phone: '13800138000',
+      address: '云南省普洱市思茅区咖啡路 88 号',
+    }
+    vi.mocked(miniRequest).mockResolvedValue(parsed)
+
+    await expect(parseEmployeeCustomerRecipient(
+      'employee-token',
+      '张三 13800138000 云南省普洱市思茅区咖啡路 88 号',
+    )).resolves.toEqual(parsed)
+
+    expect(miniRequest).toHaveBeenCalledWith('/api/customer-recipient/parse', {
+      method: 'POST',
+      token: 'employee-token',
+      data: { text: '张三 13800138000 云南省普洱市思茅区咖啡路 88 号' },
     })
   })
 

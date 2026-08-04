@@ -10,6 +10,7 @@ import (
 	"time"
 
 	app "orderapp/internal/application/customerfulfillment"
+	customerportalapp "orderapp/internal/application/customerportal"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
@@ -2946,6 +2947,39 @@ func TestCreateExternalUserAllowsNonWorkbenchTemplate(t *testing.T) {
 		t.Fatalf("external user = %+v", got)
 	}
 	assertCustomerFulfillmentCount(t, pool, schema, "customer_erp_user_bindings", "customer_id=$1 AND status='active'", customerID, 1)
+
+	listed, err := repo.ListExternalUsers(ctx, customerID)
+	if err != nil {
+		t.Fatalf("ListExternalUsers: %v", err)
+	}
+	if len(listed) != 1 || listed[0].EmployeeID != got.EmployeeID || listed[0].Phone != got.Phone {
+		t.Fatalf("external users = %+v, want created user %+v", listed, got)
+	}
+	reset, err := repo.ResetExternalUserPassword(ctx, app.ResetExternalUserPasswordCommand{
+		CustomerID: customerID,
+		EmployeeID: got.EmployeeID,
+		Password:   "secret456",
+		Actor:      "Codex",
+	})
+	if err != nil {
+		t.Fatalf("ResetExternalUserPassword: %v", err)
+	}
+	if !reset.HasPassword || !reset.LoginEnabled {
+		t.Fatalf("reset external user = %+v", reset)
+	}
+	login, err := postgrescustomerportal.NewRepository(pool, schema).CreatePasswordLoginSession(ctx, customerportalapp.CreatePasswordLoginSessionCommand{
+		Login:    got.Phone,
+		Password: "secret456",
+	})
+	if err != nil {
+		t.Fatalf("CreatePasswordLoginSession: %v", err)
+	}
+	if login.CurrentCustomerID != customerID || len(login.Bindings) != 1 || login.Bindings[0].CustomerID != customerID {
+		t.Fatalf("password login = %+v, want customer %d", login, customerID)
+	}
+	if _, err := repo.CustomerPortalContext(ctx, got.EmployeeID); !errors.Is(err, app.ErrCustomerERPBindingNotFound) {
+		t.Fatalf("CustomerPortalContext err=%v, want non-workbench binding filtered", err)
+	}
 }
 
 func TestCreateExternalUserAllowsPortalEnabledCustomerWithoutCapabilityTemplate(t *testing.T) {
@@ -2980,6 +3014,34 @@ func TestCreateExternalUserAllowsPortalEnabledCustomerWithoutCapabilityTemplate(
 	}
 	if got.CustomerID != customerID || got.Name != "karen" || got.Phone != "13900000124" || !got.LoginEnabled || !got.HasPassword || got.BindingStatus != "active" {
 		t.Fatalf("external user = %+v", got)
+	}
+	listed, err := repo.ListExternalUsers(ctx, customerID)
+	if err != nil {
+		t.Fatalf("ListExternalUsers without capability template: %v", err)
+	}
+	if len(listed) != 1 || listed[0].EmployeeID != got.EmployeeID {
+		t.Fatalf("external users without capability template = %+v", listed)
+	}
+	if _, err := repo.ResetExternalUserPassword(ctx, app.ResetExternalUserPasswordCommand{
+		CustomerID: customerID,
+		EmployeeID: got.EmployeeID,
+		Password:   "secret789",
+		Actor:      "Codex",
+	}); err != nil {
+		t.Fatalf("ResetExternalUserPassword without capability template: %v", err)
+	}
+	login, err := postgrescustomerportal.NewRepository(pool, schema).CreatePasswordLoginSession(ctx, customerportalapp.CreatePasswordLoginSessionCommand{
+		Login:    got.Phone,
+		Password: "secret789",
+	})
+	if err != nil {
+		t.Fatalf("CreatePasswordLoginSession without capability template: %v", err)
+	}
+	if login.CurrentCustomerID != customerID {
+		t.Fatalf("password login current customer = %d, want %d", login.CurrentCustomerID, customerID)
+	}
+	if _, err := repo.CustomerPortalContext(ctx, got.EmployeeID); !errors.Is(err, app.ErrCustomerERPBindingNotFound) {
+		t.Fatalf("CustomerPortalContext err=%v, want empty-template binding filtered", err)
 	}
 }
 
@@ -3648,6 +3710,22 @@ func newCustomerFulfillmentTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	}
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customerfulfillment.EnsureSchema: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.audit_logs (
+			id BIGSERIAL PRIMARY KEY,
+			ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+			actor TEXT NOT NULL,
+			entity_type TEXT NOT NULL,
+			entity_id BIGINT,
+			action TEXT NOT NULL,
+			field TEXT,
+			old_value TEXT,
+			new_value TEXT,
+			meta JSONB
+		)
+	`, schema)); err != nil {
+		t.Fatalf("create audit_logs: %v", err)
 	}
 	return pool, schema
 }

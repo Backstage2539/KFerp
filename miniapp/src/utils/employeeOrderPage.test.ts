@@ -82,6 +82,41 @@ describe('employee mini order entry page contract', () => {
     expect(customerEditorSource).not.toContain('() => [props.visible, props.customerId, props.context] as const')
   })
 
+  it('reuses the shared recipient parser in the customer editor without local parsing rules', () => {
+    expect(customerEditorSource).toContain('parseEmployeeCustomerRecipient')
+    expect(customerEditorSource).toContain('mergeEmployeeCustomerRecipientFields')
+    expect(customerEditorSource).toContain('snapshotEmployeeCustomerRecipientFields')
+    expect(customerEditorSource).toContain('粘贴收货信息')
+    expect(customerEditorSource).toContain('地址解析')
+    expect(customerEditorSource).toContain('recipientParsing')
+    expect(customerEditorSource).toContain('recipientParseSequence')
+    expect(customerEditorSource).toContain('sequence !== recipientParseSequence')
+    expect(customerEditorSource).toContain('Number(props.customerId || 0) !== targetCustomerID')
+    expect(customerEditorSource).toContain('recipientPaste.value.trim() !== text')
+    expect(customerEditorSource).toContain('if (!text || recipientParsing.value || saving.value) return')
+    expect(customerEditorSource).toContain(':disabled="recipientParsing || saving || !recipientPaste.trim()"')
+    expect(customerEditorSource).toContain('if (recipientParsing.value) return')
+    expect(customerEditorSource).toContain(':disabled="saving || recipientParsing"')
+    const parserSource = customerEditorSource.slice(
+      customerEditorSource.indexOf('async function parseRecipient()'),
+      customerEditorSource.indexOf('async function save()'),
+    )
+    expect(parserSource).toContain('const recipientFieldsAtRequest = snapshotEmployeeCustomerRecipientFields(form)')
+    expect(parserSource.indexOf('const recipientFieldsAtRequest = snapshotEmployeeCustomerRecipientFields(form)')).toBeLessThan(
+      parserSource.indexOf('await parseEmployeeCustomerRecipient'),
+    )
+    expect(parserSource.indexOf('sequence !== recipientParseSequence')).toBeLessThan(
+      parserSource.indexOf('Object.assign(form, mergeEmployeeCustomerRecipientFields(form, parsed, recipientFieldsAtRequest))'),
+    )
+    expect(parserSource).not.toContain('form.name =')
+    const parserCatchSource = parserSource.slice(
+      parserSource.indexOf('} catch (cause) {'),
+      parserSource.indexOf('} finally {'),
+    )
+    expect(parserCatchSource).not.toContain('Object.assign')
+    expect(customerEditorSource).not.toMatch(/1\[3-9\].*\\d\{9\}/)
+  })
+
   it('searches the full customer set on the server and exposes pagination', () => {
     expect(customerPageSource).toContain("q: query.value")
     expect(customerPageSource).toContain("page: nextPage")
