@@ -339,7 +339,7 @@
 - SKU设置页的客户SKU列表必须支持按搜索关键词、产品类型和产品子类型过滤；搜索关键词必须能匹配商品名称、商品编号、历史兼容类型标签和备注。
 - PR-312-SKU-CATEGORY-RECREATE-AFTER-DELETE：SKU设置中删除客户自己的产品类型或产品子类型后，必须允许在同一客户归属下重新新增同名分类。软删除历史记录继续保留审计和追溯，但不得触发 `product_categories_customer_parent_name_uniq` 阻止同名重建。
 - PR-313-CUSTOM-ROAST-NO-BASE：历史“定制烘焙度”创建表单已被 PR-382 的统一“新增SKU”取代。新版新增 SKU 不选择基础产品、不展示复制基础产品 BOM/价格梯度，也不提交 `base_product_id/custom_type/copy_bom/copy_price_tiers`；需要复用已有 SKU 时统一通过“SKU复制”复制成客户自己的 SKU。
-- BOM配置 / BOM 配方维护页也必须按“SKU归属”过滤：默认公共SKU；选择客户SKU后，只展示该客户需要维护 BOM 的熟豆、挂耳等 SKU 的 BOM 列表和商品选择；已绑定熟豆 BOM 的生豆 SKU 不出现在 BOM 配方维护候选中，避免被误认为需要单独维护一个 BOM；客户选择列表只存在有可维护 BOM SKU 的客户。从 SKU设置点击“维护 BOM”进入时，BOM 页必须自动定位并过滤到该 SKU 的 BOM，同时提供“显示全部 BOM”恢复当前归属完整列表。
+- BOM配置 / BOM 配方维护页也必须按“SKU归属”过滤：默认公共SKU；选择客户SKU后，既有 BOM 列表和 BOM 商品组件候选只展示该客户需要维护 BOM 的熟豆、挂耳等非生豆 SKU。PR-578 起，新建生产 BOM 的产出商品允许选择启用的生豆父商品和具体 SKU，不再受历史熟豆 BOM 绑定限制；客户选择列表仍只存在有可维护既有 BOM SKU 的客户。从 SKU设置点击“维护 BOM”进入时，BOM 页必须自动定位并过滤到该 SKU 的 BOM，同时提供“显示全部 BOM”恢复当前归属完整列表。
 - 商品失效必须采用软失效：产品标记为 `active=false`，不再出现在录单、报价、成本候选等新业务选择中；历史订单、历史豆单、历史成本记录继续可追溯。
 - 产品失效时，对应当前 BOM 必须同步标记为 BOM失效，不能删除 BOM 明细和历史版本。
 - BOM 维护页不得再提供单独“失效当前 BOM”入口；生产 BOM 列表支持单行失效和勾选后的批量失效。BOM失效后保留配方明细，商品侧负责提示绑定 BOM 已失效。
@@ -1423,3 +1423,9 @@
 - `DEV-577-LEGACY-BINDING-GUARD`：旧 `product_bom`、`bom_versions` 向 production BOM 的回填、PR-403 绑定修复及特殊属性冲突拆分，只有在来源存在真实组件，或已经存在有组件的 production BOM 版本时，才可生成发布版本和商品绑定；空旧壳最多形成 draft，不得生成或复制 published V001，也不得建立默认绑定。运行时修复必须在显式事务中先取得 schema 级 advisory transaction lock，再在一次 PostgreSQL 语句中通过 `RETURNING` 串联版本、组件和绑定；不能分多次请求逐步补齐，并发或重复调用不得复制组件。显式继承的有组件历史版本继续保持原版本；无效或跨 BOM 的显式版本不静默切换到最新 published。
 - `DEV-577-COST-SOURCE-SAFETY`：诊断只读取草稿版本号和“是否有组件”，不得读取草稿组件成本、自动发布草稿、回退 ProductInput 历史汇总成本或重算历史价格表。明确填写的正数临时基础成本和仅由正数工序快照构成的合法试算继续允许；固定价和价格表发布仍拒绝非正数最终价。
 - `DEV-577-DOCS-ACCEPTANCE-DEPLOY`：同步需求、验收、成本核算、生产和生豆销售手册、PR/DEV 及独立证据；在最新 `develop` 完成回归后部署 development。production 商品、BOM、价格表和历史快照均不自动修改，真实 BOM 草稿发布继续使用现有权限和操作日志。
+
+# PR-578-GREEN-BEAN-BOM-PICKER-MISSING-BOM-DIAGNOSTIC 生豆生产 BOM 候选与无 BOM 试算提示（2026-08-04）
+
+- `DEV-578-MISSING-PUBLISHED-BOM-DIAGNOSTIC`：价格计算模板的单次和批量试算若确认商品没有可用于试算的已发布 production BOM、没有正数临时基础成本、也没有可独立计价的正数工序成本，则不得返回 0 元结果或笼统“暂无标准制造成本”警告。单次接口返回 4xx，批量行返回同一错误，并明确提示 `未配置可用于试算的已发布生产 BOM` 及 `生产管理 → 生产 BOM` 新增或发布入口。空 published + 非空 draft 继续使用 PR-577 的具体版本提示。
+- `DEV-578-GREEN-BEAN-OUTPUT-CANDIDATE`：生产 BOM 新建/编辑抽屉的“产出商品”可选择所有启用商品，包括生豆父商品及具体销售/库存 SKU；`/api/bom/products` 不再按 `product_kind=green_bean` 删除候选。失效商品仍不可选；BOM 内的成品组件候选继续沿用原范围，本需求不把生豆扩为成品组件。
+- `DEV-578-DOCS-ACCEPTANCE-DEPLOY`：同步成本核算、生产、生豆销售手册、需求、验收与 PR/DEV；补应用、HTTP、Vue 和开发环境真实数据只读证据，合入最新 `develop` 后部署 development。新建或发布 BOM 继续使用既有权限和操作日志；本需求不新增数据库字段、迁移、写接口或操作日志类型，不自动为现有生豆建立或发布 BOM，production 不部署不写入。

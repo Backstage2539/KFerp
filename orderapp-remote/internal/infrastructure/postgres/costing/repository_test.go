@@ -836,6 +836,32 @@ func TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback(t *testing
 	}
 }
 
+func TestPricingRuleTrialDetailsValidateExplicitVersionAgainstCurrentProduct(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"JOIN pricing_rule_trial_selected_products selected ON selected.product_id=pb.output_product_id",
+		"AND v.status='published'",
+		"AND v.id=$1",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing rule trial explicit BOM version must belong to the current product and be published; missing %q", want)
+		}
+	}
+}
+
 func TestPricingRuleTrialDetailsConvertGramBomItemsToKgCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

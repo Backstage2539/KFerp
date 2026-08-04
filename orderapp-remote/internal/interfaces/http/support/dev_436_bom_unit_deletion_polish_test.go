@@ -27,7 +27,7 @@ func TestDev436BomUnitDeletionPolishSourceMarkers(t *testing.T) {
 			"BusinessGroupControls",
 			"groupRowsByBusinessGroupTemplate",
 			"businessGroupMoveAssignmentPayload",
-			"outputProductOptions = computed(() => products.value.filter(isBomProductCandidate)",
+			"outputProductOptions = computed(() => products.value.filter(isProductionBomOutputProductCandidate)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"deleteProductUnitTemplate",

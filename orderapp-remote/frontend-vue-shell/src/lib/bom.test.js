@@ -7,6 +7,7 @@ import {
   filterBomRowsByProductFocus,
   filterBomContextProducts,
   isBomProductCandidate,
+  isProductionBomOutputProductCandidate,
   productionBomDetailAsRecipeDetail,
   sortBomContextProducts,
   filterProductionBomCatalog,
@@ -23,6 +24,7 @@ test('BOM context shows public and current-customer SKUs while hiding other cust
   ]
 
   assert.equal(isBomProductCandidate(rows[1]), false)
+  assert.equal(isProductionBomOutputProductCandidate(rows[1]), true)
   assert.deepEqual(filterBomContextProducts(rows, 152).map((row) => row.id), [3, 1, 4])
   assert.deepEqual(filterBomContextProducts(rows, 0).map((row) => row.id), [4])
 })
@@ -57,10 +59,12 @@ test('BOM product selector labels include stable SKU codes before duplicate name
   assert.equal(bomProductOptionLabel({ id: 518, product_code: 'SKU-000518', name: 'SKU-000518 初晓' }), 'SKU-000518 初晓')
 })
 
-test('BOM output selector hides inactive products and move actions precede target selectors', async () => {
+test('BOM output selector includes active green beans while finished-product components keep the old scope', async () => {
   assert.equal(isBomProductCandidate({ id: 8, product_kind: 'roasted_bean', active: false }), false)
   assert.equal(isBomProductCandidate({ id: 9, product_kind: 'roasted_bean', status: 'inactive' }), false)
   assert.equal(isBomProductCandidate({ id: 10, product_kind: 'drip_bag', active: true }), true)
+  assert.equal(isProductionBomOutputProductCandidate({ id: 11, product_kind: 'green_bean', active: true }), true)
+  assert.equal(isProductionBomOutputProductCandidate({ id: 12, product_kind: 'green_bean', status: 'inactive' }), false)
 
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
@@ -72,8 +76,8 @@ test('BOM output selector hides inactive products and move actions precede targe
   assert.match(componentSource, /移动到分类/)
   assert.match(componentSource, /目标分类/)
   assert.ok(componentTemplate.indexOf('{{ moveLabel }}') < componentTemplate.indexOf('目标分类'), '移动到分类 button should be left of 目标分类')
-  assert.match(source, /outputProductOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
-  assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
+	assert.match(source, /outputProductOptions = computed\(\(\) => products\.value\.filter\(isProductionBomOutputProductCandidate\)/)
+	assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
   assert.match(componentSource, /前往分组模板/)
   assert.match(source, /\/api\/business-group-assignments/)
   assert.match(source, /businessGroupMoveAssignmentPayload/)

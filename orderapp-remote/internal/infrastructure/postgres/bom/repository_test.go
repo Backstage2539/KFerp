@@ -37,7 +37,7 @@ func TestRepositoryWritesAuditForBomWritePaths(t *testing.T) {
 	}
 }
 
-func TestBomRepositoryExposesProductKindForGreenBeanFiltering(t *testing.T) {
+func TestBomRepositoryExposesProductKindForOutputAndComponentFiltering(t *testing.T) {
 	src := readRepositorySource(t)
 	for _, want := range []string{
 		"COALESCE(NULLIF(p.product_kind,''),'roasted_bean')",
@@ -45,7 +45,7 @@ func TestBomRepositoryExposesProductKindForGreenBeanFiltering(t *testing.T) {
 		"&opt.ProductKind",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("BOM repository must expose product_kind so green bean SKUs stay out of BOM maintenance; missing %q", want)
+			t.Fatalf("BOM repository must expose product_kind so output and component candidates can apply their own rules; missing %q", want)
 		}
 	}
 }

@@ -17,23 +17,26 @@ func TestBomListAndProductsExposeCustomerID(t *testing.T) {
 		listRows: []bomapp.ListItem{
 			{ProductID: 1, Product: "公共SKU", CustomerID: 0, Status: "active", ProductKind: "roasted_bean"},
 			{ProductID: 2, Product: "客户SKU", CustomerID: 9, Status: "active", ProductKind: "roasted_bean"},
-			{ProductID: 3, Product: "客户生豆SKU", CustomerID: 9, Status: "active", ProductKind: "green_bean"},
+			{ProductID: 3, Product: "萨琪姆 生豆", CustomerID: 0, Status: "active", ProductKind: "green_bean"},
+			{ProductID: 4, Product: "萨琪姆 生豆 Kg", CustomerID: 0, Status: "active", ProductKind: "green_bean"},
 		},
 		productRows: []bomapp.Option{
 			{ID: 1, ProductCode: "SKU-000001", Name: "公共SKU", CustomerID: 0, ProductKind: "roasted_bean", InventoryUnit: "kg", InventoryUnitExplicit: false},
 			{ID: 2, ProductCode: "SKU-000002", Name: "客户SKU", CustomerID: 9, ProductKind: "roasted_bean", InventoryUnit: "盒", InventoryUnitExplicit: true},
-			{ID: 3, ProductCode: "SKU-000003", Name: "客户生豆SKU", CustomerID: 9, ProductKind: "green_bean"},
+			{ID: 3, ProductCode: "SKU-000666", Name: "萨琪姆 生豆", CustomerID: 0, ProductKind: "green_bean", InventoryUnit: "kg"},
+			{ID: 4, ProductCode: "SKU-000715", Name: "萨琪姆 生豆 Kg", CustomerID: 0, ProductKind: "green_bean", InventoryUnit: "kg"},
 		},
 	}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
 
 	for _, tc := range []struct {
-		path     string
-		wantJSON string
+		path      string
+		wantJSON  string
+		wantGreen bool
 	}{
-		{path: "/api/bom/list", wantJSON: `"customer_id":9`},
-		{path: "/api/bom/products", wantJSON: `"inventory_unit_explicit":true`},
+		{path: "/api/bom/list", wantJSON: `"customer_id":9`, wantGreen: false},
+		{path: "/api/bom/products", wantJSON: `"inventory_unit_explicit":true`, wantGreen: true},
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		rec := httptest.NewRecorder()
@@ -47,8 +50,16 @@ func TestBomListAndProductsExposeCustomerID(t *testing.T) {
 		if got := rec.Body.String(); !strings.Contains(got, tc.wantJSON) {
 			t.Fatalf("%s body missing %s: %s", tc.path, tc.wantJSON, got)
 		}
-		if got := rec.Body.String(); strings.Contains(got, "客户生豆SKU") || strings.Contains(got, `"product_id":3`) || strings.Contains(got, `"id":3`) {
-			t.Fatalf("%s must not expose green bean SKU in BOM context: %s", tc.path, got)
+		got := rec.Body.String()
+		hasGreen := strings.Contains(got, "萨琪姆 生豆") || strings.Contains(got, `"product_id":3`) || strings.Contains(got, `"id":3`)
+		if hasGreen != tc.wantGreen {
+			t.Fatalf("%s green bean visibility = %t, want %t: %s", tc.path, hasGreen, tc.wantGreen, got)
+		}
+		if tc.wantGreen && !strings.Contains(got, `"product_kind":"green_bean"`) {
+			t.Fatalf("%s must preserve green bean product kind: %s", tc.path, got)
+		}
+		if tc.wantGreen && (!strings.Contains(got, "萨琪姆 生豆") || !strings.Contains(got, "萨琪姆 生豆 Kg")) {
+			t.Fatalf("%s must expose both green bean parent and child SKU: %s", tc.path, got)
 		}
 	}
 }

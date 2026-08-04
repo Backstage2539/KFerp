@@ -1090,8 +1090,12 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			       COALESCE(NULLIF(v.output_unit,''),'unit') AS bom_output_unit
 			FROM %[1]s.production_bom_version_items pbi
 			JOIN %[1]s.production_bom_versions v ON v.id=pbi.version_id
-			WHERE ($1 > 0 AND pbi.version_id=$1)
-			   OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version))
+			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			JOIN pricing_rule_trial_selected_products selected ON selected.product_id=pb.output_product_id
+			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND v.status='published'
+			  AND (($1 > 0 AND pbi.version_id=$1)
+			    OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version)))
 		)
 		SELECT bi.id,
 		       COALESCE(NULLIF(bi.component_type,''),'material') AS component_type,
@@ -1224,7 +1228,16 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			LIMIT 1
 		),
 		selected_bom_version AS (
-			SELECT CASE WHEN $1 > 0 THEN $1 ELSE COALESCE((SELECT id FROM output_bom_version),0) END AS id
+			SELECT v.id
+			FROM pricing_rule_trial_selected_products selected
+			JOIN %[1]s.production_boms pb ON pb.output_product_id=selected.product_id
+			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
+			WHERE $1 > 0
+			  AND v.id=$1
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND v.status='published'
+			UNION ALL
+			SELECT id FROM output_bom_version WHERE $1 <= 0
 		)
 		SELECT oc.id,
 		       COALESCE(oc.workstation_capacity_id,0) AS workstation_capacity_id,
@@ -1338,6 +1351,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		}
 		row.Key = fmt.Sprintf("operation:%d", id)
 		row.Type = "operation"
+		row.CapacitySelectionSource = "operation_template"
 		row.Quantity = 1
 		switch row.ConsumeUnit {
 		case "per_kg", "per_kg_output", "per_finished_kg":

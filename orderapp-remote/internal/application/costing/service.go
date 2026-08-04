@@ -32,6 +32,7 @@ const (
 const (
 	pricingRuleTrialBomOperationSnapshotMissingSource  = "bom_operation_snapshot_missing"
 	pricingRuleTrialBomOperationSnapshotMissingWarning = "请先发布包含标准成本产能档快照的 BOM"
+	pricingRuleTrialMissingPublishedBomError           = "该商品未配置可用于试算的已发布生产 BOM，无法计算标准制造成本；请到 生产管理 → 生产 BOM 新增或发布 BOM 后再试算"
 )
 
 type CalculateRequest struct {
@@ -116,6 +117,7 @@ type PricingRuleTrialProductionOptions struct {
 	BomVersions        []PricingRuleTrialBomVersionOption        `json:"bom_versions,omitempty"`
 	ProcessRoutes      []PricingRuleTrialProcessRouteOption      `json:"process_routes,omitempty"`
 	OperationTemplates []PricingRuleTrialOperationTemplateOption `json:"operation_templates,omitempty"`
+	loaded             bool
 }
 
 type PricingRuleTrialBomVersionOption struct {
@@ -669,6 +671,7 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 		if err != nil {
 			return nil, err
 		}
+		productionOptions.loaded = true
 	}
 	input, productionOptions, err = pricingRuleTrialApplyProductionSelection(input, cmd, productionOptions)
 	if err != nil {
@@ -865,6 +868,7 @@ func loadPricingRuleTrialProductionOptionsBatch(ctx context.Context, repo pricin
 			defer workers.Done()
 			for index := range jobs {
 				options[index], errs[index] = repo.LoadPricingRuleTrialProductionOptions(ctx, items[index].input)
+				options[index].loaded = errs[index] == nil
 			}
 		}()
 	}
@@ -912,6 +916,14 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 				input.BomStatus = "active"
 			}
 		}
+	} else if options.loaded {
+		if cmd.BomVersionID > 0 {
+			return input, options, fmt.Errorf("production BOM version not found for product")
+		}
+		input.BomVersionID = 0
+		input.BomVersionNo = ""
+		input.BomUsageMode = ""
+		input.BomStatus = "missing"
 	} else if cmd.BomVersionID > 0 {
 		input.BomVersionID = cmd.BomVersionID
 		input.BomVersionNo = ""
@@ -1009,6 +1021,39 @@ func pricingRuleTrialRejectEmptyPublishedBom(input domain.ProductInput, cmd Pric
 	publishedVersion := firstNonEmptyString(strings.TrimSpace(selected.VersionNo), fmt.Sprintf("#%d", selected.VersionID))
 	draftVersion := firstNonEmptyString(strings.TrimSpace(selected.LatestNonEmptyDraftVersionNo), fmt.Sprintf("#%d", selected.LatestNonEmptyDraftVersionID))
 	return fmt.Errorf("当前已发布生产 BOM %s 没有组件，无法计算标准制造成本；检测到 %s 草稿未发布，请先发布 %s（入口：生产管理 → 生产 BOM）后再试算", publishedVersion, draftVersion, draftVersion)
+}
+
+func pricingRuleTrialHasIndependentPositiveOperationCost(details []PricingRuleTrialBaseCostDetail) bool {
+	for _, detail := range details {
+		if strings.TrimSpace(detail.Type) != "operation" || detail.Amount <= 0 {
+			continue
+		}
+		switch strings.TrimSpace(detail.CapacitySelectionSource) {
+		case "operation_template", "operation_master", "process_route":
+			return true
+		}
+	}
+	return false
+}
+
+func pricingRuleTrialRejectMissingPublishedBom(input domain.ProductInput, cmd PricingRuleTrialCommand, bomCostTotal float64, details []PricingRuleTrialBaseCostDetail, options PricingRuleTrialProductionOptions) error {
+	missingPublishedBom := options.loaded && len(options.BomVersions) == 0
+	if !options.loaded {
+		missingPublishedBom = strings.TrimSpace(input.BomStatus) == "missing" && input.BomVersionID <= 0
+	}
+	if !missingPublishedBom {
+		return nil
+	}
+	if cmd.Overrides.BaseCost != nil && *cmd.Overrides.BaseCost > 0 {
+		return nil
+	}
+	if pricingRuleTrialHasIndependentPositiveOperationCost(details) {
+		return nil
+	}
+	if !options.loaded && bomCostTotal > 0 {
+		return nil
+	}
+	return errors.New(pricingRuleTrialMissingPublishedBomError)
 }
 
 func pricingRuleTrialHasDefaultBomVersion(options []PricingRuleTrialBomVersionOption) bool {
@@ -1148,7 +1193,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	case "inactive", "disabled":
 		warnings = appendUniqueString(warnings, "BOM已失效：试算结果仅供参考")
 	case "missing":
-		warnings = appendUniqueString(warnings, "该商品暂无可试算的标准制造成本")
+		warnings = appendUniqueString(warnings, "该商品未配置可用于试算的已发布生产 BOM")
 	}
 	if !rule.Active {
 		warnings = appendUniqueString(warnings, "停用模板：试算仅供查看，不能作为新发布价格来源")
@@ -1223,6 +1268,9 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	}
 	baseCostDetails, bomCostTotal, operationCostTotal := pricingRuleTrialNormalizeBaseCostDetails(input, quoteUnit, formulaMode, baseCost, cmd.Overrides.BaseCost != nil, rawBaseCostDetails)
 	if err := pricingRuleTrialRejectEmptyPublishedBom(input, cmd, operationCostTotal, productionOptions); err != nil {
+		return nil, err
+	}
+	if err := pricingRuleTrialRejectMissingPublishedBom(input, cmd, bomCostTotal, baseCostDetails, productionOptions); err != nil {
 		return nil, err
 	}
 	for _, detail := range baseCostDetails {
