@@ -122,4 +122,4 @@ FAIL
 - `customerportal` 数据库全包中的历史夹具/schema 失败在干净 `origin/develop@3eb87b55` 可逐项同样复现；本分支新增的 20 项投影/内部/人工会话与正式安全写路径矩阵全部 PASS，未新增该包数据库回归。
 - 数据库版 customerfulfillment 全包剩余 8 个失败与干净 `origin/develop@3eb87b55` 的同名同错误基线一致；干净基线共 10 个失败，本分支修复其中 2 个外部账号用例，未新增数据库回归。
 
-功能分支提交、develop 合并、development 部署和只读冒烟由主交付完成后补入本记录；当前不声明 production 部署、小程序上传/审核/发布或 Van 业务验收已完成。
+功能分支 `0bb882f3` 已推送，develop merge `6e3b4daf` 已完成；development 部署和只读冒烟由主交付继续记录。当前不声明 production 部署、小程序上传/审核/发布或 Van 业务验收已完成。
