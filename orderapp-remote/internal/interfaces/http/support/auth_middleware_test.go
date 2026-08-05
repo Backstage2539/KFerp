@@ -55,6 +55,34 @@ func TestMiniAPIBypassesBasicAuthForMiniTokenHandlers(t *testing.T) {
 	}
 }
 
+func TestSharedRecipientParserLetsBearerTokensReachItsDualAuthHandler(t *testing.T) {
+	for _, path := range []string{"/api/customer-recipient/parse", "/app/api/customer-recipient/parse"} {
+		if !shouldBypassBasicAuthForRecipientParse(path, "Bearer mini-or-erp-token") {
+			t.Fatalf("%s must let Bearer tokens reach the shared parser handler", path)
+		}
+		if shouldBypassBasicAuthForRecipientParse(path, "Basic b3JkZXI6c2VjcmV0") {
+			t.Fatalf("%s must still validate Basic credentials", path)
+		}
+	}
+}
+
+func TestBasicAuthPassesRecipientParserBearerToHandler(t *testing.T) {
+	e := echo.New()
+	e.Use(BasicAuth("order", "secret", "public", nil))
+	e.POST("/api/customer-recipient/parse", func(c echo.Context) error {
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-recipient/parse", strings.NewReader(`{"text":"张三 13800138000 云南省"}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-or-erp-token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body = %q, want handler response 204", rec.Code, rec.Body.String())
+	}
+}
+
 func TestExternalSharePagesArePublicButShareCreationRequiresOrderWrite(t *testing.T) {
 	for _, path := range []string{"/share/abc123", "/share/abc123/file"} {
 		if !isPublicUnauthenticatedPath(path) {

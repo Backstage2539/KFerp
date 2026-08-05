@@ -214,6 +214,7 @@ func (r *Repository) CustomerPortalContext(ctx context.Context, employeeID int64
 		  AND e.active=true
 		  AND e.account_type='channel_customer'
 		  AND COALESCE(lp.login_disabled,false)=false
+		  AND COALESCE(cp.enabled,false)=true
 		ORDER BY b.id
 	`, r.schema, r.schema, r.schema, r.schema, r.schema), employeeID)
 	if err != nil {
@@ -257,6 +258,7 @@ func (r *Repository) requireActiveCustomerERPWorkbenchBinding(ctx context.Contex
 		  AND e.active=true
 		  AND e.account_type='channel_customer'
 		  AND COALESCE(lp.login_disabled,false)=false
+		  AND COALESCE(cp.enabled,false)=true
 		ORDER BY b.id
 		LIMIT 1
 	`, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&templateKey)
@@ -2112,18 +2114,32 @@ func (r *Repository) CreateExternalUser(ctx context.Context, cmd app.CreateExter
 		return app.CustomerExternalUser{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := r.requireCustomerERPWorkbenchTemplateTx(ctx, tx, cmd.CustomerID); err != nil {
+	if err := r.requireCustomerPortalEnabledTx(ctx, tx, cmd.CustomerID); err != nil {
 		return app.CustomerExternalUser{}, err
 	}
+
 	var depID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.company_departments WHERE active=true ORDER BY id LIMIT 1`, r.schema)).Scan(&depID); err != nil {
 		return app.CustomerExternalUser{}, fmt.Errorf("department not found")
 	}
 	var employeeID int64
-	var accountType string
-	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id, COALESCE(NULLIF(account_type,''),'internal_employee') FROM %s.company_employees WHERE phone=$1 LIMIT 1`, r.schema), cmd.Phone).Scan(&employeeID, &accountType)
+	var accountType, previousName string
+	var previousHadPassword, previousLoginDisabled bool
+	reusedExisting := false
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT e.id,
+		       COALESCE(NULLIF(e.account_type,''),'internal_employee'),
+		       COALESCE(e.name,''),
+		       COALESCE(p.password_hash,'') <> '',
+		       COALESCE(p.login_disabled,false)
+		FROM %s.company_employees e
+		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
+		WHERE e.phone=$1
+		LIMIT 1
+		FOR UPDATE OF e
+	`, r.schema, r.schema), cmd.Phone).Scan(&employeeID, &accountType, &previousName, &previousHadPassword, &previousLoginDisabled)
 	if err == nil {
+		reusedExisting = true
 		if accountType != "channel_customer" {
 			return app.CustomerExternalUser{}, fmt.Errorf("phone already belongs to internal employee")
 		}
@@ -2152,11 +2168,50 @@ func (r *Repository) CreateExternalUser(ctx context.Context, cmd app.CreateExter
 	`, r.schema), employeeID, hashCustomerFulfillmentPassword(cmd.Password)); err != nil {
 		return app.CustomerExternalUser{}, err
 	}
-	if err := r.activateExternalUserBindingTx(ctx, tx, cmd.CustomerID, employeeID, cmd.Actor); err != nil {
+	replacedExternalUsers, err := r.activateExternalUserBindingTx(ctx, tx, cmd.CustomerID, employeeID, cmd.Actor)
+	if err != nil {
 		return app.CustomerExternalUser{}, err
 	}
 	row, err := r.externalUserByID(ctx, tx, cmd.CustomerID, employeeID)
 	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if reusedExisting {
+		if err := postgresinfra.ExpireEmployeeSecuritySessions(ctx, tx, r.schema, employeeID); err != nil {
+			return app.CustomerExternalUser{}, err
+		}
+	}
+	for _, replaced := range replacedExternalUsers {
+		if err := postgresinfra.ExpireEmployeeSecuritySessions(ctx, tx, r.schema, replaced.EmployeeID); err != nil {
+			return app.CustomerExternalUser{}, err
+		}
+	}
+	meta, err := r.customerExternalUserAuditMeta(ctx, tx, row)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	replacedEmployeeIDs := make([]int64, 0, len(replacedExternalUsers))
+	for _, replaced := range replacedExternalUsers {
+		replacedEmployeeIDs = append(replacedEmployeeIDs, replaced.EmployeeID)
+	}
+	nameChanged := reusedExisting && strings.TrimSpace(previousName) != strings.TrimSpace(row.Name)
+	meta["reused_existing"] = reusedExisting
+	meta["name_changed"] = nameChanged
+	meta["password_initialized"] = !reusedExisting || !previousHadPassword
+	meta["password_reset"] = reusedExisting && previousHadPassword
+	meta["login_reenabled"] = reusedExisting && previousLoginDisabled
+	if reusedExisting {
+		meta["previous_external_user_name"] = strings.TrimSpace(previousName)
+	}
+	meta["replaced_employee_ids"] = replacedEmployeeIDs
+	meta["replaced_external_users"] = replacedExternalUsers
+	var field, oldValue, newValue *string
+	if nameChanged {
+		field = postgresinfra.StrPtr("name")
+		oldValue = postgresinfra.StrPtr(strings.TrimSpace(previousName))
+		newValue = postgresinfra.StrPtr(strings.TrimSpace(row.Name))
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_external_user", &employeeID, "create", field, oldValue, newValue, meta); err != nil {
 		return app.CustomerExternalUser{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2171,7 +2226,11 @@ func (r *Repository) ResetExternalUserPassword(ctx context.Context, cmd app.Rese
 		return app.CustomerExternalUser{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID); err != nil {
+	if err := r.requireCustomerPortalEnabledTx(ctx, tx, cmd.CustomerID); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	before, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID)
+	if err != nil {
 		return app.CustomerExternalUser{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -2183,6 +2242,24 @@ func (r *Repository) ResetExternalUserPassword(ctx context.Context, cmd app.Rese
 	}
 	row, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID)
 	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if err := postgresinfra.ExpireEmployeeSecuritySessions(ctx, tx, r.schema, cmd.EmployeeID); err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	meta, err := r.customerExternalUserAuditMeta(ctx, tx, row)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	loginReenabled := !before.LoginEnabled && row.LoginEnabled
+	meta["login_reenabled"] = loginReenabled
+	var field, oldValue, newValue *string
+	if before.LoginEnabled != row.LoginEnabled {
+		field = postgresinfra.StrPtr("login_enabled")
+		oldValue = postgresinfra.StrPtr(strconv.FormatBool(before.LoginEnabled))
+		newValue = postgresinfra.StrPtr(strconv.FormatBool(row.LoginEnabled))
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_external_user", &cmd.EmployeeID, "reset_password", field, oldValue, newValue, meta); err != nil {
 		return app.CustomerExternalUser{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2197,18 +2274,40 @@ func (r *Repository) SetExternalUserLoginEnabled(ctx context.Context, cmd app.Se
 		return app.CustomerExternalUser{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID); err != nil {
+	if cmd.LoginEnabled {
+		if err := r.requireCustomerPortalEnabledTx(ctx, tx, cmd.CustomerID); err != nil {
+			return app.CustomerExternalUser{}, err
+		}
+	}
+	before, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID)
+	if err != nil {
 		return app.CustomerExternalUser{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.employee_login_passwords(employee_id,password_hash,login_disabled,updated_at)
 		VALUES($1,'',$2,now())
 		ON CONFLICT (employee_id) DO UPDATE SET login_disabled=excluded.login_disabled,updated_at=now()
+		WHERE employee_login_passwords.login_disabled IS DISTINCT FROM excluded.login_disabled
 	`, r.schema), cmd.EmployeeID, !cmd.LoginEnabled); err != nil {
 		return app.CustomerExternalUser{}, err
 	}
 	row, err := r.externalUserByID(ctx, tx, cmd.CustomerID, cmd.EmployeeID)
 	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	if before.LoginEnabled != row.LoginEnabled {
+		if err := postgresinfra.ExpireEmployeeSecuritySessions(ctx, tx, r.schema, cmd.EmployeeID); err != nil {
+			return app.CustomerExternalUser{}, err
+		}
+	}
+	meta, err := r.customerExternalUserAuditMeta(ctx, tx, row)
+	if err != nil {
+		return app.CustomerExternalUser{}, err
+	}
+	field := postgresinfra.StrPtr("login_enabled")
+	oldValue := postgresinfra.StrPtr(strconv.FormatBool(before.LoginEnabled))
+	newValue := postgresinfra.StrPtr(strconv.FormatBool(row.LoginEnabled))
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_external_user", &cmd.EmployeeID, "set_login_enabled", field, oldValue, newValue, meta); err != nil {
 		return app.CustomerExternalUser{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2217,7 +2316,27 @@ func (r *Repository) SetExternalUserLoginEnabled(ctx context.Context, cmd app.Se
 	return row, nil
 }
 
-func (r *Repository) activateExternalUserBindingTx(ctx context.Context, tx pgx.Tx, customerID, employeeID int64, actor string) error {
+func (r *Repository) requireCustomerPortalEnabledTx(ctx context.Context, tx pgx.Tx, customerID int64) error {
+	var enabled bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT true
+		FROM %s.customers c
+		JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		WHERE c.id=$1 AND c.active=true AND p.enabled=true
+		FOR SHARE OF c, p
+	`, r.schema, r.schema), customerID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return app.ErrCustomerPortalNotEnabled
+	}
+	return err
+}
+
+type customerExternalUserReplacementAudit struct {
+	EmployeeID       int64  `json:"employee_id"`
+	ExternalUserName string `json:"external_user_name"`
+}
+
+func (r *Repository) activateExternalUserBindingTx(ctx context.Context, tx pgx.Tx, customerID, employeeID int64, actor string) ([]customerExternalUserReplacementAudit, error) {
 	var otherCustomerID int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT customer_id
@@ -2226,17 +2345,43 @@ func (r *Repository) activateExternalUserBindingTx(ctx context.Context, tx pgx.T
 		LIMIT 1
 	`, r.schema), employeeID, customerID).Scan(&otherCustomerID)
 	if err == nil && otherCustomerID > 0 {
-		return fmt.Errorf("external user already bound to another customer")
+		return nil, fmt.Errorf("external user already bound to another customer")
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
+		return nil, err
 	}
+	replacedExternalUsers := make([]customerExternalUserReplacementAudit, 0)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT b.employee_id, COALESCE(e.name,'')
+		FROM %s.customer_erp_user_bindings b
+		JOIN %s.company_employees e ON e.id=b.employee_id
+		WHERE b.customer_id=$1 AND b.status='active' AND b.employee_id<>$2
+		ORDER BY b.employee_id
+		FOR UPDATE OF b
+	`, r.schema, r.schema), customerID, employeeID)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var replaced customerExternalUserReplacementAudit
+		if err := rows.Scan(&replaced.EmployeeID, &replaced.ExternalUserName); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		replaced.ExternalUserName = strings.TrimSpace(replaced.ExternalUserName)
+		replacedExternalUsers = append(replacedExternalUsers, replaced)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.customer_erp_user_bindings
 		SET status='inactive', updated_by=$3, updated_at=now()
 		WHERE customer_id=$1 AND status='active' AND employee_id<>$2
 	`, r.schema), customerID, employeeID, actor); err != nil {
-		return err
+		return nil, err
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, role, status, updated_by, updated_at)
@@ -2247,7 +2392,21 @@ func (r *Repository) activateExternalUserBindingTx(ctx context.Context, tx pgx.T
 			updated_by=excluded.updated_by,
 			updated_at=now()
 	`, r.schema), customerID, employeeID, actor)
-	return err
+	return replacedExternalUsers, err
+}
+
+func (r *Repository) customerExternalUserAuditMeta(ctx context.Context, q queryRower, row app.CustomerExternalUser) (postgresinfra.AuditMeta, error) {
+	var customerName string
+	if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.customers WHERE id=$1`, r.schema), row.CustomerID).Scan(&customerName); err != nil {
+		return nil, err
+	}
+	return postgresinfra.AuditMeta{
+		"customer_id":        row.CustomerID,
+		"customer_name":      strings.TrimSpace(customerName),
+		"employee_id":        row.EmployeeID,
+		"external_user_name": strings.TrimSpace(row.Name),
+		"binding_status":     strings.TrimSpace(row.BindingStatus),
+	}, nil
 }
 
 func (r *Repository) externalUserByID(ctx context.Context, q queryRower, customerID, employeeID int64) (app.CustomerExternalUser, error) {
@@ -2261,7 +2420,7 @@ func (r *Repository) externalUserByID(ctx context.Context, q queryRower, custome
 		FROM %s.customer_erp_user_bindings b
 		JOIN %s.company_employees e ON e.id=b.employee_id
 		LEFT JOIN %s.employee_login_passwords p ON p.employee_id=e.id
-		WHERE b.customer_id=$1 AND e.id=$2 AND e.account_type='channel_customer'
+		WHERE b.customer_id=$1 AND e.id=$2 AND e.account_type='channel_customer' AND b.status='active'
 		LIMIT 1
 	`, r.schema, r.schema, r.schema), customerID, employeeID).Scan(&row.CustomerID, &row.EmployeeID, &row.Name, &row.Phone, &row.HasPassword, &loginDisabled, &row.BindingStatus, &row.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {

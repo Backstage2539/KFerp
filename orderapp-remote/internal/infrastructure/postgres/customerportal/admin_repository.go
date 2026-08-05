@@ -138,7 +138,40 @@ func (r Repository) SaveCapabilityTemplate(ctx context.Context, cmd customerport
 	if err != nil {
 		return customerportalapp.CapabilityTemplate{}, err
 	}
-	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var oldTemplate customerportalapp.CapabilityTemplate
+	var oldPermissionsRaw, oldViewKeysRaw []byte
+	oldExists := true
+	oldStored := true
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT active, erp_permissions, erp_view_keys
+		FROM %s.customer_capability_templates
+		WHERE template_key=$1
+		FOR UPDATE
+	`, r.schema), cmd.Template.Key).Scan(&oldTemplate.Active, &oldPermissionsRaw, &oldViewKeysRaw)
+	if err == pgx.ErrNoRows {
+		oldExists = false
+		oldStored = false
+		err = nil
+		if defaultTemplate, ok := customerportalapp.CustomerCapabilityTemplateByKey(cmd.Template.Key); ok {
+			oldTemplate = defaultTemplate
+			oldExists = true
+		}
+	}
+	if err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	if oldStored {
+		oldTemplate.ERPPermissions = decodeStringSlice(oldPermissionsRaw)
+		oldTemplate.ERPViewKeys = decodeStringSlice(oldViewKeysRaw)
+	}
+
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_capability_templates(
 			template_key, parent_template_key, label, description, theme_key, miniapp_entry_mode,
 			erp_role_codes, erp_permissions, erp_view_keys, capabilities_json,
@@ -174,6 +207,14 @@ func (r Repository) SaveCapabilityTemplate(ctx context.Context, cmd customerport
 		cmd.Template.SortOrder,
 		strings.TrimSpace(cmd.UpdatedBy),
 	); err != nil {
+		return customerportalapp.CapabilityTemplate{}, err
+	}
+	if oldExists && (oldTemplate.Active != cmd.Template.Active || oldTemplate.ExposesERPWorkbench() != cmd.Template.ExposesERPWorkbench()) {
+		if err := postgresinfra.ExpireCapabilityTemplateERPSessions(ctx, tx, r.schema, cmd.Template.Key); err != nil {
+			return customerportalapp.CapabilityTemplate{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.CapabilityTemplate{}, err
 	}
 	return r.capabilityTemplateByKey(ctx, cmd.Template.Key)
@@ -310,6 +351,17 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
+	if oldProfile.exists && oldProfile.enabled != cmd.Enabled {
+		if err := postgresinfra.ExpireCustomerSecuritySessions(ctx, tx, r.schema, cmd.CustomerID); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+	}
+	nextTemplateKey := customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
+	if oldProfile.exists && oldProfile.capabilityTemplateKey != nextTemplateKey {
+		if err := postgresinfra.ExpireCustomerERPSessions(ctx, tx, r.schema, cmd.CustomerID); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+	}
 	for _, capability := range cmd.Capabilities {
 		raw, err := json.Marshal(map[string]any{})
 		if err != nil {
@@ -352,6 +404,10 @@ func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerpor
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	oldProfile, err := portalProfileAuditSnapshotTx(ctx, tx, r.schema, cmd.CustomerID)
+	if err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
 
 	var customerName, displayName string
 	var defaultSenderID int64
@@ -385,6 +441,16 @@ func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerpor
 			updated_by=excluded.updated_by
 	`, r.schema), cmd.CustomerID, displayName, defaultSenderID, customerportalapp.NormalizePortalThemeKey(cmd.Template.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.Template.MiniappEntryMode), cmd.Template.Key, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
+	}
+	if oldProfile.exists && !oldProfile.enabled {
+		if err := postgresinfra.ExpireCustomerSecuritySessions(ctx, tx, r.schema, cmd.CustomerID); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
+	}
+	if oldProfile.exists && oldProfile.capabilityTemplateKey != cmd.Template.Key {
+		if err := postgresinfra.ExpireCustomerERPSessions(ctx, tx, r.schema, cmd.CustomerID); err != nil {
+			return customerportalapp.PortalAdminDetail{}, err
+		}
 	}
 	for _, capability := range cmd.Template.Capabilities {
 		raw, err := json.Marshal(map[string]any{})

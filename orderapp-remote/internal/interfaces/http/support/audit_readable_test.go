@@ -48,6 +48,68 @@ func TestDecorateAuditLogRowMakesMaterialUpdateReadable(t *testing.T) {
 	}
 }
 
+func TestDecorateAuditLogRowMakesMiniappShareSettingReadable(t *testing.T) {
+	field := "miniapp.share_image.need_show_entrance"
+	oldValue := "true"
+	newValue := "false"
+	row := AuditLogRow{
+		Actor:      "mini-employee:17:管理员甲",
+		EntityType: "ui_setting",
+		Action:     "update",
+		Field:      &field,
+		OldValue:   &oldValue,
+		NewValue:   &newValue,
+	}
+
+	decorateAuditLogRow(&row, nil, nil)
+
+	if row.Menu != "系统 / 小程序设置" || row.Feature != "设置分享图片小程序入口" {
+		t.Fatalf("menu/feature = %q/%q", row.Menu, row.Feature)
+	}
+	if row.EntityType != "系统设置" || row.Action != "修改" {
+		t.Fatalf("entity/action = %q/%q", row.EntityType, row.Action)
+	}
+	if row.Field == nil || *row.Field != "分享图片携带小程序入口" {
+		t.Fatalf("field = %v", row.Field)
+	}
+	if row.Actor != "管理员甲（小程序员工）" {
+		t.Fatalf("actor = %q", row.Actor)
+	}
+	if row.OldValue == nil || *row.OldValue != "开启" || row.NewValue == nil || *row.NewValue != "关闭" {
+		t.Fatalf("old/new = %v/%v", row.OldValue, row.NewValue)
+	}
+	if !strings.Contains(row.Summary, "管理员甲（小程序员工）") || !strings.Contains(row.Summary, "开启 -> 关闭") {
+		t.Fatalf("summary = %q", row.Summary)
+	}
+}
+
+func TestAuditSearchTermsIncludeReadableMiniappSettingAliases(t *testing.T) {
+	for _, tc := range []struct {
+		q    string
+		want string
+	}{
+		{q: "系统设置", want: "ui_setting"},
+		{q: "小程序设置", want: keyMiniappShareImageNeedShowEntrance},
+		{q: "分享图片携带小程序入口", want: keyMiniappShareImageNeedShowEntrance},
+	} {
+		t.Run(tc.q, func(t *testing.T) {
+			terms := auditSearchTerms(tc.q)
+			if !containsAuditSearchTerm(terms, tc.want) {
+				t.Fatalf("terms=%v, want alias %q", terms, tc.want)
+			}
+		})
+	}
+}
+
+func containsAuditSearchTerm(terms []string, want string) bool {
+	for _, term := range terms {
+		if term == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDecorateAuditLogRowMakesProductionPlanDraftCancelReadable(t *testing.T) {
 	field := "status"
 	oldValue := "draft"

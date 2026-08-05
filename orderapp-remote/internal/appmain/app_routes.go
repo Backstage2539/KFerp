@@ -90,9 +90,9 @@ func registerAppRoutes(e *echo.Echo, pool *pgxpool.Pool, cfg appConfig) {
 
 	e.Use(supporthttp.AuthorizationMiddleware(authzSvc))
 
-	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc})
+	supporthttp.RegisterRoutes(e, pool, schema, supporthttp.Dependencies{Authz: authzSvc, ERPLoginEligibility: customerFulfillmentSvc})
 	messagecenterhttp.RegisterRoutes(e, messagecenterhttp.Dependencies{MessageCenter: messageCenterSvc})
-	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, AssetDir: assetDir})
+	customerportalhttp.RegisterRoutes(e, customerportalhttp.Dependencies{CustomerPortal: customerPortalSvc, Authz: authzSvc, MessageCenter: messageCenterSvc, SalesDocuments: salesSvc, EmployeeSales: salesSvc, CustomerMaintenance: customerSvc, EmployeeShareSettings: supporthttp.NewAppConfigStore(pool, schema), AssetDir: assetDir})
 	customerfulfillmenthttp.RegisterRoutes(e, customerfulfillmenthttp.Dependencies{CustomerFulfillment: customerFulfillmentSvc, Customers: customerSvc, MessageCenter: messageCenterSvc, Sales: salesSvc})
 	cataloghttp.RegisterRoutes(e, cataloghttp.Dependencies{Catalog: catalogSvc})
 	materialshttp.RegisterRoutes(e, materialshttp.Dependencies{Materials: materialsSvc})

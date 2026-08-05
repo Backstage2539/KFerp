@@ -14,6 +14,10 @@ export function isBomProductCandidate(row = {}) {
   return isActiveBomProductOption(row) && normalizedBomProductKind(row) !== 'green_bean'
 }
 
+export function isProductionBomOutputProductCandidate(row = {}) {
+  return isActiveBomProductOption(row)
+}
+
 export function bomProductCode(row = {}) {
   const explicit = String(row.product_code || row.productCode || row.sku_code || row.skuCode || row.code || '').trim()
   if (explicit) return explicit

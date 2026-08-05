@@ -9,12 +9,18 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFunc {
+func BasicAuth(user, pass, schema string, pool *pgxpool.Pool, eligibility ...ERPWorkbenchLoginEligibility) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := c.Path()
 			requestPath := c.Request().URL.Path
 			if isAuthPublicPath(path) || isAuthPublicPath(requestPath) || path == "/login" || isPublicUnauthenticatedPath(path) || isPublicUnauthenticatedPath(requestPath) {
+				return next(c)
+			}
+			authz := strings.TrimSpace(c.Request().Header.Get("Authorization"))
+			if shouldBypassBasicAuthForRecipientParse(path, authz) || shouldBypassBasicAuthForRecipientParse(requestPath, authz) {
+				// This one endpoint accepts either an ERP employee session token or
+				// an employee mini-program token. Its handler performs both checks.
 				return next(c)
 			}
 
@@ -26,10 +32,9 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 				}
 			}
 
-			authz := strings.TrimSpace(c.Request().Header.Get("Authorization"))
 			if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
 				token := strings.TrimSpace(authz[7:])
-				if eid, ename, err := resolveEmployeeBySessionToken(c, pool, schema, token); err == nil && eid > 0 {
+				if eid, ename, err := resolveEmployeeBySessionToken(c, pool, schema, token, eligibility...); err == nil && eid > 0 {
 					c.Set("employee_id", eid)
 					if ename != "" {
 						c.Set("operator_employee", ename)
@@ -46,6 +51,15 @@ func BasicAuth(user, pass, schema string, pool *pgxpool.Pool) echo.MiddlewareFun
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "auth required"})
 		}
 	}
+}
+
+func shouldBypassBasicAuthForRecipientParse(path, authorization string) bool {
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "/app")
+	if path != "/api/customer-recipient/parse" {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(authorization)), "bearer ")
 }
 
 func shouldAdvertiseBasicAuthChallenge(path, requestPath, authz string) bool {
@@ -73,7 +87,7 @@ func isPublicUnauthenticatedPath(path string) bool {
 
 func isAuthPublicPath(path string) bool {
 	switch path {
-	case "/api/auth/login", "/api/auth/sms/send", "/api/auth/password/set":
+	case "/api/auth/login", "/api/auth/sms/send":
 		return true
 	default:
 		return false

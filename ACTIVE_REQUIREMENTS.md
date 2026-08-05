@@ -6,6 +6,88 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE
+- Branch: codex/miniapp-address-portal-fix-20260804
+- Owner/session: Codex / 2026-08-04
+- Status: merged to develop at `6e3b4daf`; development deployed from `49489cbd`; automated/read-only smoke complete; awaiting Van acceptance
+- Scope: 客户门户配置新增或设置外部用户密码时，不再把外部账号关联误当成 ERP 工作台授权；无 ERP 工作台能力的模板仍可维护门户登录账号，显式 ERP 工作台绑定继续受能力模板限制。
+- DEV:
+  - DEV-580-EXTERNAL-ACCOUNT-WORKBENCH-SEPARATION：active 且门户启用的非工作台/空模板客户可维护外部账号、改密码并登录客户小程序；门户关闭时拒绝创建、重置和启用但仍可禁用；工作台上下文继续拒绝，显式工作台绑定门禁不变。
+  - DEV-580-ERP-SESSION-GATE：ERP 密码登录和既有 Bearer 会话实时复用工作台资格判定；密码、账号、员工、客户、门户、模板、角色或绑定发生安全变化时旧 token 永久失效，普通姓名、地址、显示与模板文案修改不误退登录；短信兼容登录只允许既有 active 内部员工。
+  - DEV-580-AUTH-BOOTSTRAP-HARDENING：停用匿名按手机号设密码；无真实短信通道时发送接口 fail closed 且不回显/落库/建员；管理员账号维护仅限内部员工。
+  - DEV-580-EXTERNAL-USER-PERMISSION：外部用户列表和写接口使用 `customers.read/write`，其他客户履约接口保持 `stock.read/write`。
+  - DEV-580-EXTERNAL-USER-AUDIT：外部账号创建、密码重置、登录启停在同一事务写 `customer_external_user` 业务审计，操作者只取已认证身份，不记录密码或哈希，并在操作日志显示可读业务归类。
+  - DEV-580-MINI-SESSION-REVOCATION：外部账号投影和内部员工的小程序会话实时校验账号、active 关联、客户、门户与角色；安全状态恢复后旧 token 不自动复活，普通资料编辑不误退登录。
+  - DEV-580-ACTIVE-BINDING-MUTATION：历史 inactive 外部账号只读保留，旧客户不能修改新客户当前账号。
+  - DEV-580-DOCS-ACCEPTANCE：同步客户门户、客户履约手册、需求验收、PR/DEV/REV 和合并证据。
+- Verifier:
+  - Unit: full Go PASS; support full PASS; miniapp 157/157 PASS; Vue 876/876 PASS.
+  - API: isolated PostgreSQL password/SMS/session/portal-disabled matrix, 9 类 ERP 永久撤销、20 项 mini 安全/良性矩阵及 external-user audit/rollback PASS。
+  - Frontend/build: Vue build, miniapp typecheck, development mp-weixin build and 13-page manifest PASS.
+  - Manual: customer portal, fulfillment, requirements and acceptance synchronized.
+  - Review/acceptance: 终审发现的公开认证、ERP/mini 旧会话复活、良性资料误退登录和 inactive 绑定绕过均已完成 RED→GREEN；独立复审确认无剩余 P1/P2，Van development business acceptance pending.
+- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；source backup `/opt/stacks/erp/orderapp.backup.deploy-20260805002028-49489cbd3a7c`；rollback image `kferp-orderapp-rollback:development-20260805002028-49489cbd3a7c`；production out of scope.
+- Last update: 2026-08-05 Asia/Shanghai
+- Notes: 同步校正外部用户接口权限为 customers.read/write；新增现有 `audit_logs` 上的业务审计记录但不新增 schema；验证不修改真实客户数据。
+- Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`，development deploy `49489cbd`。
+
+### PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE
+- Branch: codex/miniapp-address-portal-fix-20260804
+- Owner/session: Codex / 2026-08-04
+- Status: merged to develop at `6e3b4daf`; development deployed from `49489cbd`; automated/read-only smoke complete; awaiting Van acceptance
+- Scope: 员工小程序新增或维护客户时可粘贴整段收货信息，并通过 ERP 客户档案同一地址解析接口自动填入联系人、电话和联系地址；解析规则只保留一份。
+- DEV:
+  - DEV-579-SHARED-RECIPIENT-PARSE-API：ERP 与员工小程序共用 `POST /api/customer-recipient/parse` 和唯一服务端解析器，解析只读且不记录原文。
+  - DEV-579-MINIAPP-CUSTOMER-PASTE：共享客户编辑器覆盖客户维护与录单内客户维护，处理失败、重复请求和迟到响应；ERP 兼容小程序 phone-only 客户并防止再次保存清空电话。
+  - DEV-579-DOCS-ACCEPTANCE：同步员工小程序、订单销售手册、需求验收、PR/DEV/REV 和合并证据。
+- Verifier:
+  - Unit: server parser/API tests PASS; miniapp 157/157 PASS; Vue 876/876 PASS.
+  - API: ERP actor and employee mini token share one parse API; permission/input/privacy cases PASS.
+  - Frontend/build: Vue build, miniapp typecheck, development mp-weixin build and 13-page manifest PASS.
+  - Manual: miniapp, order sales, requirements and acceptance synchronized.
+  - Review/acceptance: customer-name、手改竞争、phone-only 跨端兼容和迟到失败审查项已完成 RED→GREEN；无已知 P1/P2，Van development business acceptance pending.
+- Deployment: `origin/develop@49489cbd3a7c205dbb033d4690d1d9672faf149c` deployed to development；development mp-weixin artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；miniapp upload/review/release not authorized；production out of scope.
+- Last update: 2026-08-05 Asia/Shanghai
+- Notes: 地址解析只读且不记录原文；最终客户保存继续沿用现有客户变更操作日志。
+- Evidence: `orderapp-remote/docs/acceptance/2026-08-04-miniapp-customer-address-portal-external-user.md`；feature `0bb882f3`，develop merge `6e3b4daf`，development deploy `49489cbd`。
+
+### PR-578-GREEN-BEAN-BOM-PICKER-MISSING-BOM-DIAGNOSTIC
+- Branch: codex/fix-green-bom-picker-diagnostic-20260804
+- Owner/session: Codex / 2026-08-04
+- Status: full verification and independent review complete / develop merge and development deployment in progress
+- Scope: 当价格计算模板所选商品没有可用于试算的已发布生产 BOM 时，阻断 0 元结果并明确引导新增或发布 BOM；生产 BOM 新建抽屉的产出商品允许选择启用的生豆父商品和具体 SKU，成品组件候选范围保持不变。
+- DEV:
+  - DEV-578-MISSING-PUBLISHED-BOM-DIAGNOSTIC：单次试算返回 4xx、批量试算返回行级错误，明确提示未配置可用于试算的已发布生产 BOM及 `生产管理 → 生产 BOM` 入口；正数临时基础成本和正数工序成本继续允许。
+  - DEV-578-GREEN-BEAN-OUTPUT-CANDIDATE：`/api/bom/products` 返回启用生豆商品；Vue 新建生产 BOM 的产出商品候选使用独立启用状态过滤，商品组件继续使用原有非生豆范围。
+  - DEV-578-DOCS-ACCEPTANCE-DEPLOY：同步成本、生产、生豆手册、需求、验收与 PR/DEV，完成完整回归、浏览器验收、develop 合并及 development 部署。
+- Verifier:
+  - RED: 无已发布 BOM 的试算返回 HTTP 200、0 元和笼统警告；BOM 服务/API/产出下拉共同过滤启用生豆。
+  - Focused GREEN: costing service/API 单次与批量、BOM service/API、Vue BOM helper/source tests 通过。
+  - Full GREEN: `go test ./... -count=1`、Vue 871 项完整测试、Vue BOM 18 项定向测试、Vite build、`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。
+  - Independent review: 旧 BOM 状态/陈旧版本绕过、跨商品版本成本、并发发布工序快照与旧需求文档冲突均已修复；最终复核无阻断项。
+  - Development data: 启用的“萨琪姆 生豆”父商品和 Kg 规格均存在且没有 production BOM；只读核验，未修改业务数据。
+- Deployment: development requested; production and production business data are out of scope.
+- Last update: 2026-08-04 Asia/Shanghai
+
+### PR-577-GREEN-BEAN-PRICING-EMPTY-PUBLISHED-BOM
+- Branch: codex/fix-green-price-sack-zero-20260803
+- Owner/session: Codex / 2026-08-04
+- Status: merged to develop / development deployed / awaiting Van acceptance
+- Scope: 修复价格计算模板试算把系统遗留的空已发布生产 BOM 静默计算为 0；阻止旧 BOM 绑定修复再次发布无组件版本，并在存在非空草稿时明确提示先正式发布对应版本。绝不自动读取或发布草稿，不回退到不可追溯旧汇总成本。
+- DEV:
+  - DEV-577-EMPTY-PUBLISHED-BOM-DIAGNOSTIC：价格试算读取已发布 BOM 的组件数；选中版本无组件时阻断单次和批量试算，若同 BOM 存在非空草稿则显示已发布版本、草稿版本和正式发布指引。
+  - DEV-577-LEGACY-BINDING-GUARD：PR-403 旧 BOM 绑定修复只在存在真实可迁移组件或已有非空已发布生产版本时创建发布版本及绑定，不再仅凭空 product_bom / bom_versions 壳数据生成空 V001。
+  - DEV-577-COST-SOURCE-SAFETY：继续只使用 active production BOM 的 published 版本和可追溯组件成本；不读取 V002 等未发布草稿，不恢复 ProductInput/历史售价汇总兜底，价格表仍拒绝 0 价。
+  - DEV-577-DOCS-ACCEPTANCE-DEPLOY：同步需求、验收、成本与生产手册、PR/DEV 种子和独立证据；合入最新 develop 后部署 development 并完成只读/API 冒烟。
+- Verifier:
+  - RED: published V001 component_count=0 时当前单次/批量试算返回 0；PR-403 repair 仅凭空 legacy BOM 壳仍可生成 published V001 和 binding。
+  - Focused GREEN: costing application/repository/API、BOM backfill/repair、support 合同全部通过；覆盖归一化计件成本、负数覆盖校验和单次/批量错误。
+  - PostgreSQL GREEN: development 临时 schema 中真实执行 pricing option 查询/Scan 与 PR-403 repair；version、items、binding 同一次调用完成，重复和两个并发调用仍只有一份组件/绑定，空来源不迁移，测试 schema 全部删除。
+  - Full GREEN: `go test ./... -count=1`、Vue/Vite build、`scripts/verify_kferp.sh changed/backend`、`git diff --check` 通过。
+  - Independent review: 首轮发现的 CTE 快照、并发幂等、计件归一化、参数错误优先级、特殊属性空复制和固定历史版本回落问题均已修复；第二轮复核无阻断项。
+- Deployment: feature commits `07f374c8` / `28d4ff45` were pushed and merged to `develop` as `a16d5d6ad85a997e067b47d525eeeb3f7ebecd0c`; development deployed from that commit with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260804005441-a16d5d6ad85a` and rollback image `kferp-orderapp-rollback:development-20260804005441-a16d5d6ad85a`. Docker build内完整 Go 测试和发布脚本外部登录 HTTP 200 通过，`erp_orderapp` 正常运行，服务器源码包含空发布 BOM 诊断及 advisory-lock 原子修复标记。production 未部署、未重启、未执行业务写入。
+- Last update: 2026-08-04 Asia/Shanghai
+
 ### PR-576-SERIAL-SEQUENCE-DRIFT-REPAIR
 - Branch: codex/fix-serial-sequence-drift-20260803
 - Owner/session: Codex / 2026-08-03
@@ -21,6 +103,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Full GREEN: `go test ./...`。
 - Deployment: development merge `ee77f730f9e39f7c9a869bbf7404defcc90d8329` deployed with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260803223935-ee77f730f9e3` and rollback image `kferp-orderapp-rollback:development-20260803223935-ee77f730f9e3`; production merge `7cdd71e82d8b653c8ab541b741e05df90fabfcde` deployed with source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260803224716-7cdd71e82d8b` and rollback image `kferp-orderapp-rollback:production-20260803224716-7cdd71e82d8b`. Both release-script external login checks returned HTTP 200. The release script did not create a database dump; no separate business/API acceptance was run because Van delegated manual verification.
 - Last update: 2026-08-03 Asia/Shanghai
+
+### PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING
+- Branch: codex/miniapp-share-image-no-entrance-20260803
+- Owner/session: Codex / 2026-08-03
+- Status: product review / merged and deployed to development / Van acceptance todo
+- Scope: 将员工小程序销售单、发货单图片消息是否携带小程序入口改为全局系统开关；只有员工管理员可在个人中心查看和修改，所有合法员工分享图片时读取当前全局值；权限和审计由后端强制执行。
+- DEV:
+  - DEV-575-SHARE-ENTRANCE-SETTING-API-AUDIT：复用 `app_config` 保存全局开关，员工可读、管理员且具备设置权限才可写；配置更新与旧值/新值操作日志同事务提交。
+  - DEV-575-ADMIN-PROFILE-SETTING：员工管理员个人中心显示“分享图片时携带小程序入口”开关，读取失败不误保存，保存失败恢复服务端旧值；普通销售和客户账号不显示。
+  - DEV-575-IMAGE-SHARE-RUNTIME：每次 PNG 分享前读取当前全局值并传入微信 `needShowEntrance`；读取失败时安全回落为不携带入口，PDF 和图片内容不变。
+  - DEV-575-DOCS-ACCEPTANCE：同步需求、验收、员工小程序手册、设置审计手册、PR/DEV 种子和独立验收证据。
+- Verifier:
+  - RED: 图片分享只支持单一硬编码值；个人中心没有管理员开关；小程序设置 API 不存在；`app_config` 与审计不是同一事务。
+  - Unit/API: customerportal 权限矩阵、默认值/双态保存、原子审计、可读操作日志和 Miniapp API/页面/分享定向测试 GREEN。
+  - Frontend/build: miniapp 21 files / 152 tests、类型检查、development mp-weixin 构建、编译产物静态验收及 ERP Vue/Vite 构建 GREEN。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`。
+  - Review/acceptance: 后端与小程序前端独立复核无开放 P0-P2；`orderapp-remote/docs/acceptance/2026-08-03-miniapp-share-image-entrance-setting.md`。
+- Deployment: latest `origin/develop` `ee77f730`（包含 PR-575 集成 `53de06fb`）已部署 development；外部登录 HTTP 200，新设置路由无 mini token 返回 401，需求 API 命中 PR-575。服务器源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260803223935-ee77f730f9e3`，回滚镜像 `kferp-orderapp-rollback:development-20260803223935-ee77f730f9e3`。52 文件 development 小程序固定包已原子同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，旧包保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260803224730-ee77f730f9e3`。production、微信 DevTools 上传/审核/发布未执行。
+- Last update: 2026-08-03 22:47 Asia/Shanghai
+- Notes: 配置不存在时保持升级前行为（携带入口）；管理员关闭后所有员工后续直接图片分享不携带入口。历史已发送图片消息不可追溯修改；低版本微信回退图片预览时，入口由微信客户端控制。发布后服务器剩余约 3.1GB（95% 使用率），后续发布前需继续关注磁盘容量。
 
 ### PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE
 - Branch: codex/pr572-share-panel-top-20260802 (follow-up)

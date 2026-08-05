@@ -4,6 +4,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   buildEmployeeOrderDocumentPath,
   fetchEmployeeOrderDetail,
+  fetchEmployeeShareSettings,
   generateEmployeeOrderDocument,
   type EmployeeOrderDetail,
   type EmployeeOrderDetailItem,
@@ -120,11 +121,32 @@ function openEditor() {
   })
 }
 
+function showShareSettingsFallbackNotice(): Promise<void> {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title: '分享设置读取失败',
+      content: '本次将按安全方式继续，图片不会携带小程序入口。',
+      showCancel: false,
+      complete: () => resolve(),
+    })
+  })
+}
+
 async function shareDocument(kind: EmployeeOrderDocumentKind, format: EmployeeOrderDocumentFormat) {
   if (!order.value || sharingKey.value) return
   const key = `${kind}.${format}`
   sharingKey.value = key
   try {
+    let imageNeedShowEntrance = false
+    if (format === 'png') {
+      try {
+        const shareSettings = await fetchEmployeeShareSettings(session.token)
+        imageNeedShowEntrance = shareSettings.settings?.image_need_show_entrance === true
+      } catch (cause) {
+        if (isAuthenticationExpiredRequestError(cause)) throw cause
+        await showShareSettingsFallbackNotice()
+      }
+    }
     let generatedBeforeDownload = false
     const generateAndRefresh = async () => {
       generatedBeforeDownload = true
@@ -149,6 +171,7 @@ async function shareDocument(kind: EmployeeOrderDocumentKind, format: EmployeeOr
         kind: format,
         fileName: documentFileName(kind, format),
         loadingTitle: '准备分享',
+        needShowEntrance: imageNeedShowEntrance,
       })
     try {
       await downloadAndShare()

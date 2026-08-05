@@ -22,6 +22,7 @@
             <optgroup label="订单销售">
               <option value="order">订单</option>
               <option value="customer">客户</option>
+              <option value="customer_external_user">客户外部用户</option>
               <option value="customer_asset">客户附件</option>
               <option value="employee_order_draft">订单草稿</option>
               <option value="sales_order_settings">销售单设置</option>
@@ -53,6 +54,7 @@
             <optgroup label="设置/系统">
               <option value="company_profile">公司信息</option>
               <option value="cost_parameter">成本参数</option>
+              <option value="ui_setting">系统设置</option>
               <option value="auth">登录</option>
               <option value="auth_account">员工账号</option>
               <option value="operation">操作</option>

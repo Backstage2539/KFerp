@@ -48,9 +48,13 @@ func fetchAuditPage(ctx context.Context, pool *pgxpool.Pool, schema string, from
 	}
 	if strings.TrimSpace(q) != "" {
 		// search in business object type, actor, action, field, old/new, and meta text
-		w = append(w, fmt.Sprintf("(entity_type ILIKE $%d OR actor ILIKE $%d OR action ILIKE $%d OR COALESCE(field,'') ILIKE $%d OR COALESCE(old_value,'') ILIKE $%d OR COALESCE(new_value,'') ILIKE $%d OR COALESCE(meta::text,'') ILIKE $%d)", arg, arg, arg, arg, arg, arg, arg))
-		args = append(args, "%"+q+"%")
-		arg++
+		searchClauses := make([]string, 0)
+		for _, term := range auditSearchTerms(q) {
+			searchClauses = append(searchClauses, fmt.Sprintf("(entity_type ILIKE $%d OR actor ILIKE $%d OR action ILIKE $%d OR COALESCE(field,'') ILIKE $%d OR COALESCE(old_value,'') ILIKE $%d OR COALESCE(new_value,'') ILIKE $%d OR COALESCE(meta::text,'') ILIKE $%d)", arg, arg, arg, arg, arg, arg, arg))
+			args = append(args, "%"+term+"%")
+			arg++
+		}
+		w = append(w, "("+strings.Join(searchClauses, " OR ")+")")
 	}
 
 	where := ""
@@ -147,6 +151,11 @@ func decorateAuditLogRow(r *AuditLogRow, payMap, shipMap map[int64]string) {
 	menu, feature := auditMenuFeature(rawEntityType, rawAction, rawField, r.Meta)
 	r.Menu = menu
 	r.Feature = feature
+	r.Actor = labelAuditActor(r.Actor)
+	if rawField == keyMiniappShareImageNeedShowEntrance || rawField == "login_enabled" {
+		r.OldValue = labelAuditBoolValue(r.OldValue)
+		r.NewValue = labelAuditBoolValue(r.NewValue)
+	}
 	r.EntityType = labelEntityType(rawEntityType)
 	r.Action = labelAction(rawAction)
 	if r.Field != nil {
@@ -159,6 +168,55 @@ func decorateAuditLogRow(r *AuditLogRow, payMap, shipMap map[int64]string) {
 		}
 	}
 	r.Summary = auditSummary(r, rawEntityType, rawAction, rawField)
+}
+
+func auditSearchTerms(q string) []string {
+	q = strings.TrimSpace(q)
+	terms := []string{q}
+	aliases := map[string][]string{
+		"ui_setting":                         {"系统设置"},
+		keyMiniappShareImageNeedShowEntrance: {"小程序设置", "分享图片携带小程序入口", "分享图片小程序入口"},
+		"customer_external_user":             {"客户外部用户", "外部用户", "客户门户外部用户", "创建外部用户", "复用外部用户", "替换外部用户", "重置外部用户密码", "修改外部用户登录状态"},
+		"reset_password":                     {"重置外部用户密码", "重置密码"},
+		"set_login_enabled":                  {"修改外部用户登录状态", "启用外部用户", "停用外部用户"},
+		"login_enabled":                      {"登录启用状态", "登录状态"},
+	}
+	seen := map[string]bool{q: true}
+	for raw, labels := range aliases {
+		for _, label := range labels {
+			if strings.Contains(label, q) || strings.Contains(q, label) {
+				if !seen[raw] {
+					terms = append(terms, raw)
+					seen[raw] = true
+				}
+				break
+			}
+		}
+	}
+	return terms
+}
+
+func labelAuditActor(actor string) string {
+	actor = strings.TrimSpace(actor)
+	parts := strings.SplitN(actor, ":", 3)
+	if len(parts) == 3 && parts[0] == "mini-employee" && strings.TrimSpace(parts[2]) != "" {
+		return strings.TrimSpace(parts[2]) + "（小程序员工）"
+	}
+	return actor
+}
+
+func labelAuditBoolValue(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	label := strings.TrimSpace(*value)
+	switch label {
+	case "true":
+		label = "开启"
+	case "false":
+		label = "关闭"
+	}
+	return &label
 }
 
 func auditMenuFeature(entityType, action, field string, meta *string) (string, string) {
@@ -218,6 +276,29 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 			return "订单销售 / 客户档案", "维护客户附件"
 		}
 		return "订单销售 / 客户档案", "编辑客户档案"
+	case "customer_external_user":
+		switch action {
+		case "create":
+			auditMeta := auditMetaMap(meta)
+			reused := auditMetaBool(auditMeta, "reused_existing")
+			replaced := len(customerExternalUserReplacementLabels(auditMeta)) > 0
+			if reused && replaced {
+				return "客户管理 / 客户门户配置", "复用并替换外部用户"
+			}
+			if reused {
+				return "客户管理 / 客户门户配置", "复用外部用户"
+			}
+			if replaced {
+				return "客户管理 / 客户门户配置", "创建并替换外部用户"
+			}
+			return "客户管理 / 客户门户配置", "创建外部用户"
+		case "reset_password":
+			return "客户管理 / 客户门户配置", "重置外部用户密码"
+		case "set_login_enabled":
+			return "客户管理 / 客户门户配置", "修改外部用户登录状态"
+		default:
+			return "客户管理 / 客户门户配置", "维护外部用户"
+		}
 	case "employee_order_draft":
 		if action == "delete" {
 			return "订单销售 / 录单", "清除订单草稿"
@@ -234,6 +315,11 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		}
 	case "company_profile":
 		return "设置 / 公司设置", "保存公司设置"
+	case "ui_setting":
+		if field == "miniapp.share_image.need_show_entrance" {
+			return "系统 / 小程序设置", "设置分享图片小程序入口"
+		}
+		return "系统 / 全局设置", "修改系统设置"
 	case "sales_order_settings":
 		if field == "seal_asset_id" {
 			return "设置 / 公司设置 / 公章设置", "选择/上传共享公章"
@@ -631,6 +717,9 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 		newValue := ptrText(r.NewValue)
 		return fmt.Sprintf("%s 在%s修改了%s 的%s：%s -> %s", actor, menuName, target, field, oldValue, newValue)
 	case "create":
+		if rawEntityType == "customer_external_user" {
+			return customerExternalUserCreateAuditSummary(r, actor, menuName)
+		}
 		return fmt.Sprintf("%s 在%s新增了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "deactivate":
 		return fmt.Sprintf("%s 在%s停用了%s", actor, menuName, auditTargetName(r, rawEntityType))
@@ -670,9 +759,16 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 	case "upload":
 		return fmt.Sprintf("%s 在%s上传了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "set_login_enabled":
+		if rawField == "login_enabled" {
+			return fmt.Sprintf("%s 在%s修改了%s启用状态：%s -> %s", actor, menuName, auditTargetName(r, rawEntityType), ptrText(r.OldValue), ptrText(r.NewValue))
+		}
 		return fmt.Sprintf("%s 在%s修改了%s启用状态", actor, menuName, auditTargetName(r, rawEntityType))
 	case "reset_password":
-		return fmt.Sprintf("%s 在%s重置了%s密码", actor, menuName, auditTargetName(r, rawEntityType))
+		summary := fmt.Sprintf("%s 在%s重置了%s密码", actor, menuName, auditTargetName(r, rawEntityType))
+		if rawField == "login_enabled" && ptrText(r.OldValue) != ptrText(r.NewValue) {
+			summary += fmt.Sprintf("，并将%s由%s改为%s", labelField(rawField), ptrText(r.OldValue), ptrText(r.NewValue))
+		}
+		return summary
 	default:
 		return fmt.Sprintf("%s 在%s执行了%s", actor, menuName, r.Feature)
 	}
@@ -705,6 +801,8 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(firstMetaText(meta, "company_name", "name"), valueForField(r, "company_name"))
 	case "customer", "product", "material":
 		return firstMetaText(meta, "name", "code")
+	case "customer_external_user":
+		return firstMetaText(meta, "external_user_name", "employee_id")
 	case "employee_order_draft":
 		if employeeID := firstMetaText(meta, "employee_id"); employeeID != "" {
 			return "员工 " + employeeID
@@ -811,6 +909,65 @@ func auditMetaMap(meta *string) map[string]any {
 	return m
 }
 
+func auditMetaBool(meta map[string]any, key string) bool {
+	value, _ := meta[key].(bool)
+	return value
+}
+
+func customerExternalUserReplacementLabels(meta map[string]any) []string {
+	items, _ := meta["replaced_external_users"].([]any)
+	labels := make([]string, 0, len(items))
+	for _, item := range items {
+		row, _ := item.(map[string]any)
+		name := firstMetaText(row, "external_user_name")
+		employeeID := firstMetaText(row, "employee_id")
+		switch {
+		case name != "" && employeeID != "":
+			labels = append(labels, fmt.Sprintf("%s（员工ID %s）", name, employeeID))
+		case name != "":
+			labels = append(labels, name)
+		case employeeID != "":
+			labels = append(labels, "员工ID "+employeeID)
+		}
+	}
+	if len(labels) > 0 {
+		return labels
+	}
+	legacyIDs, _ := meta["replaced_employee_ids"].([]any)
+	for _, value := range legacyIDs {
+		if employeeID := metaValueText(value); employeeID != "" {
+			labels = append(labels, "员工ID "+employeeID)
+		}
+	}
+	return labels
+}
+
+func customerExternalUserCreateAuditSummary(r *AuditLogRow, actor, menuName string) string {
+	meta := auditMetaMap(r.Meta)
+	verb := "新增了"
+	if auditMetaBool(meta, "reused_existing") {
+		verb = "复用了"
+	}
+	summary := fmt.Sprintf("%s 在%s%s%s", actor, menuName, verb, auditTargetName(r, "customer_external_user"))
+	if auditMetaBool(meta, "name_changed") {
+		oldName := firstMetaText(meta, "previous_external_user_name")
+		newName := firstMetaText(meta, "external_user_name")
+		if oldName != "" && newName != "" {
+			summary += fmt.Sprintf("，姓名由%s改为%s", oldName, newName)
+		}
+	}
+	if auditMetaBool(meta, "password_reset") {
+		summary += "，重置了密码"
+	}
+	if auditMetaBool(meta, "login_reenabled") {
+		summary += "，重新启用了登录"
+	}
+	if replaced := customerExternalUserReplacementLabels(meta); len(replaced) > 0 {
+		summary += "，自动停用了原外部用户 " + strings.Join(replaced, "、")
+	}
+	return summary
+}
+
 func firstMetaText(meta map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if v, ok := meta[key]; ok {
@@ -898,6 +1055,8 @@ func labelEntityType(t string) string {
 		return "物料"
 	case "customer":
 		return "客户"
+	case "customer_external_user":
+		return "客户外部用户"
 	case "customer_asset":
 		return "客户附件"
 	case "employee_order_draft":
@@ -906,6 +1065,8 @@ func labelEntityType(t string) string {
 		return "保存视图"
 	case "company_profile":
 		return "公司信息"
+	case "ui_setting":
+		return "系统设置"
 	case "sales_order_settings":
 		return "销售单设置"
 	case "sales_order_asset":
@@ -1080,8 +1241,12 @@ func labelField(f string) string {
 		return "客户负责人"
 	case "active":
 		return "启用状态"
+	case "login_enabled":
+		return "登录启用状态"
 	case "settings":
 		return "设置"
+	case "miniapp.share_image.need_show_entrance":
+		return "分享图片携带小程序入口"
 	case "template":
 		return "模板"
 	case "asset_id":

@@ -870,6 +870,13 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 			       COALESCE(v.status,'published') AS status,
 			       COALESCE(NULLIF(v.process_route_id,0),0) AS process_route_id,
 			       COALESCE(NULLIF(pr.name,''),'') AS process_route_name,
+			       COALESCE((
+			         SELECT COUNT(*)
+			         FROM %[1]s.production_bom_version_items component
+			         WHERE component.version_id=v.id
+			       ),0) AS component_count,
+			       COALESCE(latest_nonempty_draft.id,0) AS latest_nonempty_draft_version_id,
+			       COALESCE(latest_nonempty_draft.version_no,'') AS latest_nonempty_draft_version_no,
 			       COALESCE((SELECT bom_version_id FROM default_bom),0)>0
 			         AND v.id=COALESCE((SELECT bom_version_id FROM default_bom),0) AS is_default,
 			       selected.source_priority
@@ -877,10 +884,24 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 			JOIN %[1]s.production_boms pb ON pb.output_product_id=selected.product_id
 			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
 			LEFT JOIN %[1]s.process_routes pr ON pr.id=v.process_route_id
+			LEFT JOIN LATERAL (
+				SELECT draft.id, COALESCE(draft.version_no,'') AS version_no
+				FROM %[1]s.production_bom_versions draft
+				WHERE draft.bom_id=pb.id
+				  AND draft.status='draft'
+				  AND EXISTS (
+				    SELECT 1
+				    FROM %[1]s.production_bom_version_items draft_component
+				    WHERE draft_component.version_id=draft.id
+				  )
+				ORDER BY draft.created_at DESC, draft.id DESC
+				LIMIT 1
+			) latest_nonempty_draft ON true
 			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
 			  AND v.status='published'
 		)
-		SELECT bom_id, bom_code, bom_name, version_id, version_no, status, process_route_id, process_route_name, is_default
+		SELECT bom_id, bom_code, bom_name, version_id, version_no, status, process_route_id, process_route_name,
+		       component_count, latest_nonempty_draft_version_id, latest_nonempty_draft_version_no, is_default
 		FROM pricing_rule_trial_bom_versions
 		ORDER BY source_priority, is_default DESC, version_id DESC, bom_code, bom_name
 	`, r.schema), input.ProductID)
@@ -890,7 +911,20 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 	defer bomRows.Close()
 	for bomRows.Next() {
 		var row appcosting.PricingRuleTrialBomVersionOption
-		if err := bomRows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.VersionID, &row.VersionNo, &row.Status, &row.ProcessRouteID, &row.ProcessRouteName, &row.IsDefault); err != nil {
+		if err := bomRows.Scan(
+			&row.BomID,
+			&row.BomCode,
+			&row.BomName,
+			&row.VersionID,
+			&row.VersionNo,
+			&row.Status,
+			&row.ProcessRouteID,
+			&row.ProcessRouteName,
+			&row.ComponentCount,
+			&row.LatestNonEmptyDraftVersionID,
+			&row.LatestNonEmptyDraftVersionNo,
+			&row.IsDefault,
+		); err != nil {
 			return out, err
 		}
 		out.BomVersions = append(out.BomVersions, row)
@@ -1056,8 +1090,12 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			       COALESCE(NULLIF(v.output_unit,''),'unit') AS bom_output_unit
 			FROM %[1]s.production_bom_version_items pbi
 			JOIN %[1]s.production_bom_versions v ON v.id=pbi.version_id
-			WHERE ($1 > 0 AND pbi.version_id=$1)
-			   OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version))
+			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			JOIN pricing_rule_trial_selected_products selected ON selected.product_id=pb.output_product_id
+			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND v.status='published'
+			  AND (($1 > 0 AND pbi.version_id=$1)
+			    OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version)))
 		)
 		SELECT bi.id,
 		       COALESCE(NULLIF(bi.component_type,''),'material') AS component_type,
@@ -1190,7 +1228,16 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			LIMIT 1
 		),
 		selected_bom_version AS (
-			SELECT CASE WHEN $1 > 0 THEN $1 ELSE COALESCE((SELECT id FROM output_bom_version),0) END AS id
+			SELECT v.id
+			FROM pricing_rule_trial_selected_products selected
+			JOIN %[1]s.production_boms pb ON pb.output_product_id=selected.product_id
+			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
+			WHERE $1 > 0
+			  AND v.id=$1
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND v.status='published'
+			UNION ALL
+			SELECT id FROM output_bom_version WHERE $1 <= 0
 		)
 		SELECT oc.id,
 		       COALESCE(oc.workstation_capacity_id,0) AS workstation_capacity_id,
@@ -1304,6 +1351,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		}
 		row.Key = fmt.Sprintf("operation:%d", id)
 		row.Type = "operation"
+		row.CapacitySelectionSource = "operation_template"
 		row.Quantity = 1
 		switch row.ConsumeUnit {
 		case "per_kg", "per_kg_output", "per_finished_kg":

@@ -4,7 +4,9 @@ import (
 	"html/template"
 	"path/filepath"
 
+	customerfulfillmentapp "orderapp/internal/application/customerfulfillment"
 	appconfig "orderapp/internal/config"
+	postgrescustomerfulfillment "orderapp/internal/infrastructure/postgres/customerfulfillment"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,10 +28,11 @@ func newHTTPServer(cfg appConfig, pool *pgxpool.Pool) *echo.Echo {
 	e.Use(middleware.Recover())
 	e.Use(middleware.Secure())
 	e.Use(supporthttp.OperationLogMiddleware(pool, cfg.Schema))
+	erpLoginEligibility := customerfulfillmentapp.NewService(postgrescustomerfulfillment.NewRepository(pool, cfg.Schema))
 	if shouldInstallBasicAuth(cfg) {
-		e.Use(supporthttp.BasicAuth(cfg.AuthUser, cfg.AuthPass, cfg.Schema, pool))
+		e.Use(supporthttp.BasicAuth(cfg.AuthUser, cfg.AuthPass, cfg.Schema, pool, erpLoginEligibility))
 	}
-	e.Use(supporthttp.EmployeeContextMiddleware(pool, cfg.Schema))
+	e.Use(supporthttp.EmployeeContextMiddleware(pool, cfg.Schema, erpLoginEligibility))
 	e.Renderer = supporthttp.NewTemplateRenderer(t)
 	return e
 }

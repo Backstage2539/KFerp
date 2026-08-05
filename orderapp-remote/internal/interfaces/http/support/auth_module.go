@@ -7,9 +7,13 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func registerAuthSupportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, authz AuthzService) {
+type ERPWorkbenchLoginEligibility interface {
+	RequireERPWorkbenchLogin(context.Context, int64) error
+}
+
+func registerAuthSupportRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, authz AuthzService, eligibility ERPWorkbenchLoginEligibility) {
 	registerAuthzAPI(e, authz)
-	registerMobileAuthAPI(e, pool, schema, authz)
+	registerMobileAuthAPI(e, pool, schema, authz, eligibility)
 }
 
 func ensureAuthSupportSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {

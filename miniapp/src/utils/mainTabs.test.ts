@@ -56,6 +56,23 @@ describe('miniapp startup route and main tabs', () => {
     expect(profile).toContain('退出登录')
   })
 
+  it('shows the global image-share entrance switch only to employee administrators', () => {
+    const profile = readSource('src/pages/profile/profile.vue')
+    const api = readSource('src/api/customerPortal.ts')
+
+    expect(profile).toContain("session.accountType === 'employee'")
+    expect(profile).toContain("session.roles.includes('admin')")
+    expect(profile).toContain("session.permissions.includes('settings.write')")
+    expect(profile).toContain('v-if="canManageShareSettings"')
+    expect(profile).toContain('分享图片时携带小程序入口')
+    expect(profile).toContain('fetchEmployeeShareSettings')
+    expect(profile).toContain('saveEmployeeShareSettings')
+    expect(profile).toContain('isAuthenticationExpiredRequestError')
+    expect(profile).toContain('redirectExpiredShareSettingsSession(error)')
+    expect(profile).toContain('clearAndLogin()')
+    expect(api).toContain("'/api/mini/employee/share-settings'")
+  })
+
   it('routes startup users through reLaunch instead of leaving a blank page', () => {
     const index = readSource('src/pages/index/index.vue')
 

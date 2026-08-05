@@ -88,12 +88,29 @@ func (r Repository) CreateEmployee(ctx context.Context, cmd companyapp.EmployeeC
 }
 
 func (r Repository) UpdateEmployee(ctx context.Context, id int64, cmd companyapp.EmployeeCommand) error {
-	tag, err := r.pool.Exec(ctx, "UPDATE "+r.schema+".company_employees SET name=$1,phone=$2,department_id=$3,active=$4,updated_at=now() WHERE id=$5", cmd.Name, cmd.Phone, cmd.DepartmentID, cmd.Active, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var oldActive bool
+	if err := tx.QueryRow(ctx, "SELECT active FROM "+r.schema+".company_employees WHERE id=$1 FOR UPDATE", id).Scan(&oldActive); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("employee not found")
+		}
+		return err
+	}
+	if _, err := tx.Exec(ctx, "UPDATE "+r.schema+".company_employees SET name=$1,phone=$2,department_id=$3,active=$4,updated_at=now() WHERE id=$5", cmd.Name, cmd.Phone, cmd.DepartmentID, cmd.Active, id); err != nil {
 		return mapEmployeeWriteError(err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("employee not found")
+	if oldActive != cmd.Active {
+		if err := postgresinfra.ExpireEmployeeSecuritySessions(ctx, tx, r.schema, id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
 	}
 	return nil
 }
