@@ -3,7 +3,7 @@
 - 日期：2026-08-04
 - 分支：`codex/miniapp-address-portal-fix-20260804`
 - 范围：`PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE`、`PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE`
-- 环境边界：自动化使用本地进程和隔离 PostgreSQL；development 发布只更新应用与开发小程序构建产物，未为验证创建或修改 development/production 客户、账号或订单。production 不在本次范围；微信上传、审核和发布未获授权，Van 的登录态业务验收仍待完成。
+- 环境边界：自动化使用本地进程和隔离 PostgreSQL；development/production 发布只更新应用与对应小程序构建产物，未为验证创建或修改真实客户、账号或订单。微信上传、审核和发布未获授权，Van 的登录态业务验收仍待完成。
 
 ## 业务结论
 
@@ -128,6 +128,13 @@ FAIL
 - 远端 Vue 876/876、小程序 157/157、类型检查、development 构建、13 页/52 文件清单、完整 Go 测试与 Docker 构建均通过。`erp_orderapp` 运行中、重启次数 0，`erp_postgres` healthy，部署后关键错误日志计数 0。
 - `https://dev.qacoohee.com/app/login` 返回 200；未认证调用 `POST /app/api/customer-recipient/parse` 返回 401。服务器源码存在共享解析路由且不再注册旧 `/api/auth/password/set`。
 - 开发小程序产物的 `RELEASE_INFO` 为同一提交、`environment=development`、`api_base=https://dev.qacoohee.com/app`，已同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；上一产物保留在 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260805002617-49489cbd3a7c`。
-- 服务器源码备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260805002028-49489cbd3a7c`，回滚镜像为 `kferp-orderapp-rollback:development-20260805002028-49489cbd3a7c`。production 未部署；未上传、审核或发布微信小程序。
+- 服务器源码备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260805002028-49489cbd3a7c`，回滚镜像为 `kferp-orderapp-rollback:development-20260805002028-49489cbd3a7c`。
 
-当前不声明 Van 业务验收已完成。请在 development 手工设置“9.9 COFFEE LAB”的目标密码并验证客户小程序登录；本次自动化没有写入该客户或账号。
+## Production 部署与包交付
+
+- release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` 已合入 `main` 并部署 production；远端 Vue 876/876、小程序 157/157、类型检查、production 构建、完整 Go 测试和 Docker 构建均通过。
+- 发布前数据库备份 `/opt/stacks/erp-production/backups/pre-deploy-20260805232757-a06aa95ebe38.dump` 已通过清单和隔离恢复验证；源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20260805233037-a06aa95ebe38`，回滚镜像 `kferp-orderapp-rollback:production-20260805233037-a06aa95ebe38`。
+- production 外部登录返回 HTTP 200；未认证地址解析接口返回 401；应用重启次数 0、PostgreSQL healthy、关键错误日志计数 0。验证未创建或修改真实客户、外部账号或订单。
+- production 小程序包已同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin`，上一包保留于 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin.backup-20260805233618-a06aa95ebe38`；交付 ZIP 为 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-production-a06aa95e.zip`，SHA-256 `48f74667fe370b5d14e74d2f48e6f88f64a59032ec3c568f38ad39992aac96ae`。未上传、审核或发布微信小程序。
+
+当前不声明 Van 业务验收已完成。请使用真实登录态手工设置目标客户密码并验证客户小程序登录；本次自动化没有写入该客户或账号。

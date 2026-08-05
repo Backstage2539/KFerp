@@ -65,7 +65,8 @@ func TestDev577GreenBeanPricingEmptyPublishedBomContract(t *testing.T) {
 				"TDD RED 证据",
 				"GREEN 与数据库级证据",
 				"Van 验收清单",
-				"production：未部署",
+				"production：release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` 已部署",
+				"没有自动发布、绑定或改写 BOM",
 			},
 		},
 	}

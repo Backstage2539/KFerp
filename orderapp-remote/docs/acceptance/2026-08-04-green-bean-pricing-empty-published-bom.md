@@ -60,4 +60,4 @@
 ## 部署边界
 
 - development：已部署应用提交 `a16d5d6ad85a997e067b47d525eeeb3f7ebecd0c`，自动测试和只读冒烟通过。
-- production：未部署，未执行业务写入。
+- production：release merge `a06aa95ebe38d7b91806cd234032c0cc3bb62a7e` 已部署；发布前数据库备份已通过隔离恢复验证，应用/数据库健康、关键错误日志计数 0。部署没有自动发布、绑定或改写 BOM，也没有重算价格表；Van 对目标商品 BOM 内容与试算结果的业务验收仍待完成。

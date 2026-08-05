@@ -79,7 +79,7 @@ func TestDev575MiniappShareImageEntranceSettingContract(t *testing.T) {
 		},
 		{
 			path:    filepath.Join("docs", "acceptance", "2026-08-03-miniapp-share-image-entrance-setting.md"),
-			needles: []string{"TDD RED 证据", "自动化验收矩阵", "Van 验收清单", "未部署"},
+			needles: []string{"TDD RED 证据", "自动化验收矩阵", "Van 验收清单", "a06aa95ebe38d7b91806cd234032c0cc3bb62a7e", "未上传、未提交审核、未发布"},
 		},
 	}
 
