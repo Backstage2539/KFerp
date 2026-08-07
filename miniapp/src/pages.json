@@ -31,6 +31,12 @@
       }
     },
     {
+      "path": "pages/customer-inventory-detail/customer-inventory-detail",
+      "style": {
+        "navigationBarTitleText": "库存详情"
+      }
+    },
+    {
       "path": "pages/factory-products/factory-products",
       "style": {
         "navigationBarTitleText": "工厂商品表"

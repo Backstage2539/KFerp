@@ -985,37 +985,145 @@ func (r *Repository) loadMiniDirectShipProductSnapshots(ctx context.Context, q m
 	return out, nil
 }
 
-func (r *Repository) ListMiniDirectShipRequests(ctx context.Context, customerID int64, limit int) ([]app.MiniDirectShipRequest, error) {
+func (r *Repository) ListMiniDirectShipRequests(ctx context.Context, query app.MiniDirectShipListQuery) (app.MiniDirectShipListResult, error) {
+	page := query.Page
+	if page <= 0 {
+		page = 1
+	}
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 20
+	} else if limit > 100 {
+		limit = 100
+	}
+	where := []string{"r.customer_id=$1"}
+	args := []any{query.CustomerID}
+	for _, keyword := range strings.Fields(strings.TrimSpace(query.Q)) {
+		args = append(args, "%"+strings.ToLower(keyword)+"%")
+		placeholder := fmt.Sprintf("$%d", len(args))
+		where = append(where, fmt.Sprintf(`(
+			LOWER(COALESCE(r.recipient_company,'')) LIKE %[1]s
+			OR LOWER(COALESCE(r.recipient_name,'')) LIKE %[1]s
+			OR LOWER(COALESCE(r.recipient_phone,'')) LIKE %[1]s
+			OR LOWER(CONCAT_WS('',r.province,r.city,r.district,r.detail_address)) LIKE %[1]s
+			OR LOWER(COALESCE(c.name,'')) LIKE %[1]s
+		)`, placeholder))
+	}
+	shipmentWhere := make([]string, 0, 2)
+	if value := strings.TrimSpace(query.ShippedFrom); value != "" {
+		from, err := miniDirectShipShanghaiDate(value)
+		if err != nil {
+			return app.MiniDirectShipListResult{}, fmt.Errorf("shipped_from invalid")
+		}
+		args = append(args, from)
+		shipmentWhere = append(shipmentWhere, fmt.Sprintf("effective.shipped_at >= $%d", len(args)))
+	}
+	if value := strings.TrimSpace(query.ShippedTo); value != "" {
+		to, err := miniDirectShipShanghaiDate(value)
+		if err != nil {
+			return app.MiniDirectShipListResult{}, fmt.Errorf("shipped_to invalid")
+		}
+		args = append(args, to.AddDate(0, 0, 1))
+		shipmentWhere = append(shipmentWhere, fmt.Sprintf("effective.shipped_at < $%d", len(args)))
+	}
+	if len(shipmentWhere) > 0 {
+		effectiveShipmentTime := miniDirectShipEffectiveShipmentTimeSQL(
+			r.schema,
+			"ro.order_id",
+			relationExists(ctx, r.pool, fmt.Sprintf("%s.order_shipment_orders", r.schema)),
+			relationExists(ctx, r.pool, fmt.Sprintf("%s.order_shipping_trackings", r.schema)),
+		)
+		where = append(where, fmt.Sprintf(`EXISTS (
+			SELECT 1
+			FROM %s.customer_direct_ship_request_orders ro
+			CROSS JOIN LATERAL (SELECT %s AS shipped_at) effective
+			WHERE ro.request_id=r.id AND effective.shipped_at IS NOT NULL AND %s
+		)`, r.schema, effectiveShipmentTime, strings.Join(shipmentWhere, " AND ")))
+	}
+	fromClause := fmt.Sprintf(`
+		FROM %s.customer_direct_ship_requests r
+		LEFT JOIN %s.customers c ON c.id=r.customer_id
+		WHERE %s
+	`, r.schema, r.schema, strings.Join(where, " AND "))
+	var total64 int64
+	if err := r.pool.QueryRow(ctx, "SELECT COUNT(*) "+fromClause, args...).Scan(&total64); err != nil {
+		return app.MiniDirectShipListResult{}, err
+	}
+	total := int(total64)
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + limit - 1) / limit
+		if page > totalPages {
+			page = totalPages
+		}
+	} else {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	listArgs := append(append([]any{}, args...), limit, offset)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id FROM %s.customer_direct_ship_requests
-		WHERE customer_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2
-	`, r.schema), customerID, limit)
+		SELECT r.id %s
+		ORDER BY r.created_at DESC, r.id DESC
+		LIMIT $%d OFFSET $%d
+	`, fromClause, len(args)+1, len(args)+2), listArgs...)
 	if err != nil {
-		return nil, err
+		return app.MiniDirectShipListResult{}, err
 	}
 	ids := make([]int64, 0)
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return nil, err
+			return app.MiniDirectShipListResult{}, err
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, err
+		return app.MiniDirectShipListResult{}, err
 	}
 	rows.Close()
 	out := make([]app.MiniDirectShipRequest, 0, len(ids))
 	for _, id := range ids {
-		row, err := r.loadMiniDirectShipRequest(ctx, r.pool, customerID, id)
+		row, err := r.loadMiniDirectShipRequest(ctx, r.pool, query.CustomerID, id)
 		if err != nil {
-			return nil, err
+			return app.MiniDirectShipListResult{}, err
 		}
 		out = append(out, row)
 	}
-	return out, nil
+	return app.MiniDirectShipListResult{
+		Rows: out, Total: total, Page: page, Limit: limit, TotalPages: totalPages, HasNext: page < totalPages,
+	}, nil
+}
+
+func miniDirectShipShanghaiDate(value string) (time.Time, error) {
+	return time.ParseInLocation("2006-01-02", strings.TrimSpace(value), time.FixedZone("Asia/Shanghai", 8*60*60))
+}
+
+func miniDirectShipEffectiveShipmentTimeSQL(schema, orderIDExpression string, hasShipmentOrders, hasTrackings bool) string {
+	shipmentTime := "NULL::timestamptz"
+	if hasShipmentOrders {
+		shipmentTime = fmt.Sprintf(`(
+			SELECT MAX(effective_so.shipped_at)
+			FROM %s.order_shipment_orders effective_so
+			WHERE effective_so.order_id=%s
+		)`, schema, orderIDExpression)
+	}
+	trackingTime := "NULL::timestamptz"
+	if hasTrackings {
+		trackingTime = fmt.Sprintf(`(
+			SELECT MIN(effective_tracking.created_at)
+			FROM %s.order_shipping_trackings effective_tracking
+			WHERE effective_tracking.order_id=%s
+		)`, schema, orderIDExpression)
+	}
+	if hasShipmentOrders && hasTrackings {
+		return fmt.Sprintf("COALESCE(%s,%s)", shipmentTime, trackingTime)
+	}
+	if hasShipmentOrders {
+		return shipmentTime
+	}
+	return trackingTime
 }
 
 func (r *Repository) GetMiniDirectShipRequest(ctx context.Context, customerID, requestID int64) (app.MiniDirectShipRequest, error) {
@@ -1059,17 +1167,18 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 	}
 	itemRows.Close()
 
-	shipmentJoin := "LEFT JOIN LATERAL (SELECT NULL::timestamptz AS shipped_at) shipment ON true"
-	if relationExists(ctx, q, fmt.Sprintf("%s.order_shipment_orders", r.schema)) {
-		shipmentJoin = fmt.Sprintf(`LEFT JOIN LATERAL (
-			SELECT MAX(so.shipped_at) AS shipped_at FROM %s.order_shipment_orders so WHERE so.order_id=o.id
-		) shipment ON true`, r.schema)
-	}
+	effectiveShipmentTime := miniDirectShipEffectiveShipmentTimeSQL(
+		r.schema,
+		"o.id",
+		relationExists(ctx, q, fmt.Sprintf("%s.order_shipment_orders", r.schema)),
+		relationExists(ctx, q, fmt.Sprintf("%s.order_shipping_trackings", r.schema)),
+	)
+	shipmentJoin := fmt.Sprintf("LEFT JOIN LATERAL (SELECT %s AS shipped_at) shipment ON true", effectiveShipmentTime)
 	packageRows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT ro.id,ro.order_id,ro.order_no,ro.warehouse_code,ro.status,
 		       COALESCE(o.ship_method,''),
 		       COALESCE(NULLIF(tracking.tracking_no,''),NULLIF(o.ship_tracking_no,''),''),
-		       COALESCE(to_char(shipment.shipped_at,'YYYY-MM-DD HH24:MI:SS'),'')
+		       COALESCE(to_char(shipment.shipped_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),'')
 		FROM %s.customer_direct_ship_request_orders ro
 		JOIN %s.orders o ON o.id=ro.order_id
 		LEFT JOIN LATERAL (
@@ -1165,7 +1274,7 @@ func (r *Repository) loadMiniDirectShipTrackingEvents(ctx context.Context, q min
 	out := make([]app.MiniDirectShipTrackingEvent, 0)
 	if relationExists(ctx, q, fmt.Sprintf("%s.order_shipping_tracking_events", r.schema)) {
 		rows, err := q.Query(ctx, fmt.Sprintf(`
-			SELECT to_char(event_time,'YYYY-MM-DD HH24:MI:SS'),status,description,location
+				SELECT to_char(event_time AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),status,description,location
 			FROM %s.order_shipping_tracking_events
 			WHERE order_id=$1 ORDER BY event_time,id
 		`, r.schema), pkg.OrderID)

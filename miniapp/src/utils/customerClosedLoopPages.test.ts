@@ -19,6 +19,7 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).toContain('v-if="!showCreate"')
     expect(page).toContain('product_name ||')
     expect(page).toContain('pkg.events')
+    expect(page).toContain('发货时间')
     expect(page).toContain('directShipStatusLabel')
     expect(page).not.toContain('新建代发批次')
     expect(page).not.toContain('导入代发地址')
@@ -43,16 +44,20 @@ describe('customer closed-loop miniapp pages', () => {
     expect(page).not.toContain('新建发货订单')
   })
 
-  it('shows central inventory batches and lets the customer prefill a production request', () => {
-    const page = source('src/components/CustomerInventoryPanel.vue')
+  it('opens central inventory batches in a separate page and prefills production requests', () => {
+    const list = source('src/components/CustomerInventoryPanel.vue')
+    const detail = source('src/pages/customer-inventory-detail/customer-inventory-detail.vue')
 
-    expect(page).toContain('fetchCustomerInventory')
-    expect(page).toContain('fetchCustomerInventoryBatches')
-    expect(page).toContain('生产日期')
-    expect(page).toContain('入库时间')
-    expect(page).toContain('历史库存，暂无生产日期')
-    expect(page).toContain('提交生产工单')
-    expect(page).toContain('key=processing')
+    expect(list).toContain('fetchCustomerInventory')
+    expect(list).toContain('customerInventoryDetailPath')
+    expect(list).toContain('生成生产工单')
+    expect(list).not.toContain('fetchCustomerInventoryBatches')
+    expect(detail).toContain('fetchCustomerInventoryBatches')
+    expect(detail).toContain('生产日期')
+    expect(detail).toContain('入库时间')
+    expect(detail).toContain('历史库存，暂无生产日期')
+    expect(detail).toContain('添加生产工单')
+    expect(detail).toContain('processingPrefill.stage')
   })
 
   it('shows only pushed processing bills and opens snapshotted bill details', () => {
@@ -77,7 +82,8 @@ describe('customer closed-loop miniapp pages', () => {
     expect(service).toContain('CustomerBillsPanel')
     expect(service).toContain('isProcessingCustomer')
     expect(service).toContain("return '发货中心'")
-    expect(service).toContain('closedLoopRefreshKey')
+    expect(service).toContain('inventory:${session.currentCustomerID}')
+    expect(service).not.toContain('closedLoopRefreshKey')
     expect(service).toContain('v-if="!isProcessingCustomer"')
   })
 })

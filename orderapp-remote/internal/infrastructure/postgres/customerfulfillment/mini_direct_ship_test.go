@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -18,6 +19,18 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestMiniDirectShipEffectiveShipmentTimeFallsBackWhenPendingShipmentHasNoTimestamp(t *testing.T) {
+	query := miniDirectShipEffectiveShipmentTimeSQL("orderapp", "o.id", true, true)
+	for _, fragment := range []string{"COALESCE(", "MAX(effective_so.shipped_at)", "MIN(effective_tracking.created_at)"} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("effective shipment SQL missing %q: %s", fragment, query)
+		}
+	}
+	if strings.Contains(query, "WHEN EXISTS") {
+		t.Fatalf("pending shipment rows with NULL shipped_at must not suppress tracking fallback: %s", query)
+	}
+}
 
 func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *testing.T) {
 	pool, schema := newMiniDirectShipTestDB(t)
@@ -666,6 +679,244 @@ func TestMiniDirectShipPlannerMergesBatchAllocationsIntoWarehousePackages(t *tes
 	}
 }
 
+func TestListMiniDirectShipRequestsFiltersRealShipmentTimePaginatesAndIsolatesCustomer(t *testing.T) {
+	pool, schema := newMiniDirectShipTestDB(t)
+	ctx := context.Background()
+	seedMiniDirectShipStock(t, pool, schema)
+	repo := NewRepository(pool, schema)
+
+	requests := make([]app.MiniDirectShipRequest, 0, 4)
+	commands := []app.MiniDirectShipCommand{
+		{
+			CustomerID: 501, IdempotencyKey: "LIST-FILTER-A", RecipientName: "张三", RecipientPhone: "13800138001",
+			RecipientCompany: "咖啡甲店", Province: "云南省", City: "普洱市", District: "思茅区", DetailAddress: "咖啡路 1 号",
+			Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:801",
+		},
+		{
+			CustomerID: 501, IdempotencyKey: "LIST-FILTER-B", RecipientName: "李四", RecipientPhone: "13800138002",
+			RecipientCompany: "上海乙店", Province: "上海市", City: "上海市", District: "徐汇区", DetailAddress: "衡山路 2 号",
+			Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:801",
+		},
+		{
+			CustomerID: 501, IdempotencyKey: "LIST-FILTER-C", RecipientName: "王五", RecipientPhone: "13800138003",
+			RecipientCompany: "北京丙店", Province: "北京市", City: "北京市", District: "朝阳区", DetailAddress: "望京路 3 号",
+			Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:801",
+		},
+		{
+			CustomerID: 501, IdempotencyKey: "LIST-FILTER-PENDING", RecipientName: "赵六", RecipientPhone: "13800138004",
+			RecipientCompany: "待发货门店", Province: "广东省", City: "广州市", District: "天河区", DetailAddress: "珠江路 4 号",
+			Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:801",
+		},
+	}
+	for _, cmd := range commands {
+		created, err := repo.SubmitMiniDirectShip(ctx, cmd)
+		if err != nil {
+			t.Fatalf("submit %s: %v", cmd.IdempotencyKey, err)
+		}
+		requests = append(requests, created)
+	}
+	markMiniDirectShipRequestShipped(t, pool, schema, requests[0].ID, "LIST-SHIP-A", "2026-08-01 00:00:00+08")
+	markMiniDirectShipRequestShipped(t, pool, schema, requests[1].ID, "LIST-SHIP-B", "2026-08-03 23:59:59.999999+08")
+	markMiniDirectShipRequestShipped(t, pool, schema, requests[2].ID, "LIST-SHIP-C", "2026-08-04 00:00:00+08")
+
+	otherCustomer, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+		CustomerID: 502, IdempotencyKey: "LIST-FILTER-OTHER", RecipientName: "张三", RecipientPhone: "13800138001",
+		RecipientCompany: "咖啡甲店", Province: "云南省", City: "普洱市", District: "思茅区", DetailAddress: "咖啡路 1 号",
+		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:802",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markMiniDirectShipRequestShipped(t, pool, schema, otherCustomer.ID, "LIST-SHIP-OTHER", "2026-08-02 12:00:00+08")
+
+	keywordTests := []struct {
+		name string
+		q    string
+		want int64
+	}{
+		{name: "recipient company", q: "咖啡甲店", want: requests[0].ID},
+		{name: "recipient name", q: "李四", want: requests[1].ID},
+		{name: "recipient phone", q: "13800138003", want: requests[2].ID},
+		{name: "destination", q: "思茅区咖啡路", want: requests[0].ID},
+		{name: "multi field tokens", q: "咖啡甲店 张三", want: requests[0].ID},
+		{name: "current customer name", q: "DEV-E2E 客户A", want: requests[3].ID},
+	}
+	for _, tc := range keywordTests {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{CustomerID: 501, Q: tc.q, Page: 1, Limit: 20})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "current customer name" {
+				if page.Total != 4 || len(page.Rows) != 4 || page.Rows[0].ID != tc.want {
+					t.Fatalf("customer-name page = %#v", page)
+				}
+				return
+			}
+			if page.Total != 1 || len(page.Rows) != 1 || page.Rows[0].ID != tc.want {
+				t.Fatalf("keyword page = %#v, want request %d", page, tc.want)
+			}
+		})
+	}
+
+	shippedPage, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{
+		CustomerID: 501, ShippedFrom: "2026-08-01", ShippedTo: "2026-08-03", Page: 1, Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shippedPage.Total != 2 || len(shippedPage.Rows) != 2 || shippedPage.Rows[0].ID != requests[1].ID || shippedPage.Rows[1].ID != requests[0].ID {
+		t.Fatalf("shipment boundary page = %#v", shippedPage)
+	}
+	for _, row := range shippedPage.Rows {
+		if row.ID == requests[3].ID {
+			t.Fatalf("unshipped request must not match shipment-time filter: %#v", shippedPage)
+		}
+	}
+
+	firstPage, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{CustomerID: 501, Page: 1, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstPage.Total != 4 || firstPage.TotalPages != 2 || !firstPage.HasNext || len(firstPage.Rows) != 2 || firstPage.Rows[0].ID != requests[3].ID {
+		t.Fatalf("first page = %#v", firstPage)
+	}
+	secondPage, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{CustomerID: 501, Page: 2, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondPage.Total != 4 || secondPage.TotalPages != 2 || secondPage.HasNext || len(secondPage.Rows) != 2 || secondPage.Rows[0].ID == firstPage.Rows[0].ID {
+		t.Fatalf("second page = %#v", secondPage)
+	}
+	clampedPage, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{CustomerID: 501, Page: 99, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clampedPage.Page != 2 || clampedPage.TotalPages != 2 || len(clampedPage.Rows) != 2 {
+		t.Fatalf("clamped page = %#v", clampedPage)
+	}
+
+	isolated, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{
+		CustomerID: 502, Q: "咖啡甲店", ShippedFrom: "2026-08-01", ShippedTo: "2026-08-03", Page: 1, Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isolated.Total != 1 || len(isolated.Rows) != 1 || isolated.Rows[0].ID != otherCustomer.ID {
+		t.Fatalf("isolated page = %#v", isolated)
+	}
+}
+
+func TestListMiniDirectShipRequestsUsesConsistentEffectiveShipmentTimeAcrossPackages(t *testing.T) {
+	pool, schema := newMiniDirectShipTestDB(t)
+	ctx := context.Background()
+	seedMiniDirectShipStock(t, pool, schema)
+	repo := NewRepository(pool, schema)
+
+	created, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+		CustomerID: 501, IdempotencyKey: "LIST-EFFECTIVE-SHIP-TIME", RecipientName: "多包裹收件人", RecipientPhone: "13800138999",
+		RecipientCompany: "多仓门店", Province: "云南省", City: "昆明市", District: "盘龙区", DetailAddress: "咖啡路 99 号",
+		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 3}}, Actor: "mini_user:801",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created.Packages) != 2 {
+		t.Fatalf("packages=%#v, want two warehouses", created.Packages)
+	}
+
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT order_id FROM %s.customer_direct_ship_request_orders
+		WHERE request_id=$1 ORDER BY id
+	`, schema), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderIDs := make([]int64, 0, 2)
+	for rows.Next() {
+		var orderID int64
+		if err := rows.Scan(&orderID); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		orderIDs = append(orderIDs, orderID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatal(err)
+	}
+	rows.Close()
+	if len(orderIDs) != 2 {
+		t.Fatalf("order ids=%v", orderIDs)
+	}
+
+	var pendingShipmentID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_shipments(shipment_no,created_by,status)
+		VALUES('LIST-EFFECTIVE-PENDING','tester','excel_generated') RETURNING id
+	`, schema)).Scan(&pendingShipmentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_shipment_orders(shipment_id,order_id,tracking_no)
+		VALUES($1,$2,'')
+	`, schema), pendingShipmentID, orderIDs[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_shipping_trackings(order_id,tracking_no,source,created_by,created_at)
+		VALUES($1,'SF-FALLBACK-001','order_drawer','tester','2026-08-02 00:30:00+00')
+	`, schema), orderIDs[0]); err != nil {
+		t.Fatal(err)
+	}
+	var shipmentID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_shipments(shipment_no,created_by,status)
+		VALUES('LIST-EFFECTIVE-SECOND','tester','tracking_filled') RETURNING id
+	`, schema)).Scan(&shipmentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_shipment_orders(shipment_id,order_id,tracking_no,shipped_at)
+		VALUES($1,$2,'SF-REAL-002','2026-08-10 12:00:00+08')
+	`, schema), shipmentID, orderIDs[1]); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{
+		CustomerID: 501, ShippedFrom: "2026-08-02", ShippedTo: "2026-08-02", Page: 1, Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Rows) != 1 || page.Rows[0].ID != created.ID {
+		t.Fatalf("fallback shipment page=%#v", page)
+	}
+	if len(page.Rows[0].Packages) != 2 {
+		t.Fatalf("filtered packages=%#v", page.Rows[0].Packages)
+	}
+	packageByOrder := make(map[int64]app.MiniDirectShipPackage, len(page.Rows[0].Packages))
+	for _, pkg := range page.Rows[0].Packages {
+		packageByOrder[pkg.OrderID] = pkg
+	}
+	if got := packageByOrder[orderIDs[0]].ShippedAt; got != "2026-08-02 08:30:00" {
+		t.Fatalf("tracking fallback shipped_at=%q, want Shanghai 2026-08-02 08:30:00", got)
+	}
+	if got := packageByOrder[orderIDs[1]].ShippedAt; got != "2026-08-10 12:00:00" {
+		t.Fatalf("real shipment shipped_at=%q, want Shanghai 2026-08-10 12:00:00", got)
+	}
+
+	empty, err := repo.ListMiniDirectShipRequests(ctx, app.MiniDirectShipListQuery{
+		CustomerID: 501, ShippedFrom: "2026-08-03", ShippedTo: "2026-08-03", Page: 1, Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Total != 0 || len(empty.Rows) != 0 {
+		t.Fatalf("out-of-range shipment page=%#v", empty)
+	}
+}
+
 func newMiniDirectShipTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool, schema := newCustomerFulfillmentTestDB(t)
@@ -689,6 +940,30 @@ func newMiniDirectShipTestDB(t *testing.T) (*pgxpool.Pool, string) {
 		t.Fatalf("order audit test schema: %v", err)
 	}
 	return pool, schema
+}
+
+func markMiniDirectShipRequestShipped(t *testing.T, pool *pgxpool.Pool, schema string, requestID int64, shipmentNo, shippedAt string) {
+	t.Helper()
+	ctx := context.Background()
+	var orderID, shipmentID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT order_id FROM %s.customer_direct_ship_request_orders
+		WHERE request_id=$1 ORDER BY id LIMIT 1
+	`, schema), requestID).Scan(&orderID); err != nil {
+		t.Fatalf("load request order: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_shipments(shipment_no,created_by,status)
+		VALUES($1,'list-filter-test','tracking_filled') RETURNING id
+	`, schema), shipmentNo).Scan(&shipmentID); err != nil {
+		t.Fatalf("insert shipment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.order_shipment_orders(shipment_id,order_id,tracking_no,shipped_at)
+		VALUES($1,$2,$3,$4::timestamptz)
+	`, schema), shipmentID, orderID, "SF-"+shipmentNo, shippedAt); err != nil {
+		t.Fatalf("insert shipment order: %v", err)
+	}
 }
 
 func seedMiniDirectShipStock(t *testing.T, pool *pgxpool.Pool, schema string) {

@@ -16,6 +16,12 @@ import {
   productionStatusLabel,
   productionSubmissionBlockReason,
 } from '../utils/customerFulfillment'
+import {
+  normalizeProcessingPrefillItems,
+  resolveProcessingPrefillLines,
+  type ProcessingPrefillDraftLine,
+  type ProcessingPrefillItem,
+} from '../utils/customerInventory'
 import { productSpecLabel, productSpecWeightG } from '../utils/employeeOrder'
 import CustomerProductSelector from './CustomerProductSelector.vue'
 
@@ -24,12 +30,15 @@ const props = withDefaults(defineProps<{
   customerId: number
   prefillProductId?: number
   prefillSpecG?: number
-}>(), { prefillProductId: 0, prefillSpecG: 0 })
+  prefillItems?: ProcessingPrefillItem[]
+}>(), { prefillProductId: 0, prefillSpecG: 0, prefillItems: () => [] })
 
-type DraftLine = { product_id: number; product_name: string; spec_g: number; spec_label: string; qty: number }
+const emit = defineEmits<{ prefillConsumed: [] }>()
+type DraftLine = ProcessingPrefillDraftLine
 const loading = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
+const prefillWarning = ref('')
 const catalog = ref<DirectShipCatalog>({ current_customer_id: 0, product_families: [] })
 const requests = ref<ProcessingRequest[]>([])
 const lines = ref<DraftLine[]>([])
@@ -37,6 +46,7 @@ const note = ref('')
 const preview = ref<ProcessingRequestPreview | null>(null)
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 let previewVersion = 0
+let prefillApplied = false
 const submissionBlock = computed(() => productionSubmissionBlockReason(preview.value ? {
   complete: preview.value.complete ?? preview.value.items.every((item) => Number(item.bom_version_id || 0) > 0),
   canSubmit: preview.value.can_submit,
@@ -62,23 +72,26 @@ async function load() {
 }
 
 function applyPrefill() {
-  if (!props.prefillProductId || lines.value.length) return
-  for (const family of catalog.value.product_families || []) {
-    const spec = (family.specs || []).find((item) => (
-      Number(item.sku_id || item.product_id || 0) === props.prefillProductId
-      && (!props.prefillSpecG || productSpecWeightG(item) === props.prefillSpecG)
-    ))
-    if (spec) {
-      lines.value.push({
-        product_id: Number(spec.sku_id || spec.product_id || 0),
-        product_name: spec.sku_name || family.customer_product_display_name || family.name,
-        spec_g: productSpecWeightG(spec),
-        spec_label: productSpecLabel(spec),
-        qty: 0,
-      })
-      return
-    }
+  if (prefillApplied) return
+  const requested = normalizeProcessingPrefillItems(
+    props.prefillItems?.length
+      ? props.prefillItems
+      : (props.prefillProductId > 0 ? [{
+          product_id: props.prefillProductId,
+          spec_g: props.prefillSpecG,
+          product_name: `商品 ${props.prefillProductId}`,
+        }] : []),
+  )
+  if (!requested.length) return
+  prefillApplied = true
+  const resolved = resolveProcessingPrefillLines(requested, catalog.value.product_families || [])
+  lines.value.push(...resolved.lines.map((item) => ({ ...item, qty: 0 })))
+  if (resolved.unavailable.length) {
+    prefillWarning.value = `以下商品当前不可生产（商品不可用或未配置有效 BOM），无法添加生产工单：${resolved.unavailable
+      .map((item) => item.product_name || item.sku_code || `商品 ${item.product_id}`)
+      .join('、')}`
   }
+  emit('prefillConsumed')
 }
 
 function addProduct(value: { family: EmployeeOrderProductFamily; spec: EmployeeOrderProductSpec }) {
@@ -166,6 +179,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
     <view class="panel">
       <text class="title">提交生产工单</text>
       <text class="hint">只选择目标 SKU、规格和数量；系统按当前有效 BOM 自动汇总物料需求。</text>
+      <text v-if="prefillWarning" class="warning">{{ prefillWarning }}</text>
       <CustomerProductSelector :families="catalog.product_families" :customer-id="customerId" @select="addProduct" />
       <view v-for="(line, index) in lines" :key="`${line.product_id}:${line.spec_g}`" class="line">
         <view class="line-copy"><text class="line-name">{{ line.product_name }}</text><text class="hint">{{ line.spec_label }}</text></view>
@@ -209,5 +223,5 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
 </template>
 
 <style scoped>
-.workspace,.panel,.preview,.request,.preview-row,.line-copy{display:flex;flex-direction:column;gap:15rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:8rpx;background:#fff}.title{font-size:30rpx;font-weight:900}.subtitle,.line-name{font-size:27rpx;font-weight:800}.hint{color:#707070;font-size:23rpx;line-height:1.5}.line,.request-head{display:flex;align-items:center;gap:12rpx}.line{padding:14rpx 0;border-top:1rpx solid #eee}.line-copy{flex:1;gap:4rpx}.qty{width:120rpx;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.remove{margin:0;color:#a22;background:#fff;border:1rpx solid #e5caca}.textarea{min-height:112rpx;padding:16rpx;border:1rpx solid #ddd;border-radius:8rpx;background:#fafafa;box-sizing:border-box}.primary,.secondary{min-height:76rpx;margin:0;border-radius:8rpx;font-size:25rpx}.primary{background:#2b2118;color:#fff}.secondary{background:#fff;border:1rpx solid #d8d8d8}.preview,.request{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}.preview-row{gap:6rpx;padding:12rpx 0;border-top:1rpx solid #eee}.preview-row.shortage{background:#fff6f4}.request-head{justify-content:space-between}.status{color:#28624a;font-weight:800}.danger,.error{color:#b42318}.error{display:block;padding:18rpx}
+.workspace,.panel,.preview,.request,.preview-row,.line-copy{display:flex;flex-direction:column;gap:15rpx}.panel{padding:24rpx;margin-bottom:20rpx;border:1rpx solid #e6e0d8;border-radius:8rpx;background:#fff}.title{font-size:30rpx;font-weight:900}.subtitle,.line-name{font-size:27rpx;font-weight:800}.hint{color:#707070;font-size:23rpx;line-height:1.5}.warning{display:block;padding:14rpx 16rpx;border-radius:8rpx;background:#fff4e5;color:#8a4b08;font-size:23rpx;line-height:1.5}.line,.request-head{display:flex;align-items:center;gap:12rpx}.line{padding:14rpx 0;border-top:1rpx solid #eee}.line-copy{flex:1;gap:4rpx}.qty{width:120rpx;min-height:72rpx;padding:0 16rpx;border:1rpx solid #ddd;border-radius:8rpx;box-sizing:border-box}.remove{margin:0;color:#a22;background:#fff;border:1rpx solid #e5caca}.textarea{min-height:112rpx;padding:16rpx;border:1rpx solid #ddd;border-radius:8rpx;background:#fafafa;box-sizing:border-box}.primary,.secondary{min-height:76rpx;margin:0;border-radius:8rpx;font-size:25rpx}.primary{background:#2b2118;color:#fff}.secondary{background:#fff;border:1rpx solid #d8d8d8}.preview,.request{padding:16rpx;border:1rpx solid #eee;border-radius:8rpx}.preview-row{gap:6rpx;padding:12rpx 0;border-top:1rpx solid #eee}.preview-row.shortage{background:#fff6f4}.request-head{justify-content:space-between}.status{color:#28624a;font-weight:800}.danger,.error{color:#b42318}.error{display:block;padding:18rpx}
 </style>

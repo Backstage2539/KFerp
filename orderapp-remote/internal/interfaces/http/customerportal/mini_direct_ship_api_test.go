@@ -3,6 +3,7 @@ package customerportal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,20 +16,23 @@ import (
 )
 
 type miniCustomerFulfillmentFake struct {
-	calls               int
-	catalogQuery        customerfulfillmentapp.MiniDirectShipCatalogQuery
-	previewCmd          customerfulfillmentapp.MiniDirectShipCommand
-	submitCmd           customerfulfillmentapp.MiniDirectShipCommand
-	listCustomerID      int64
-	detailCustomerID    int64
-	detailRequestID     int64
-	cancelCustomerID    int64
-	cancelRequestID     int64
-	cancelActor         string
-	inventoryCustomerID int64
-	batchCustomerID     int64
-	batchProductID      int64
-	batchSpecG          int64
+	calls            int
+	catalogQuery     customerfulfillmentapp.MiniDirectShipCatalogQuery
+	previewCmd       customerfulfillmentapp.MiniDirectShipCommand
+	submitCmd        customerfulfillmentapp.MiniDirectShipCommand
+	listQuery        customerfulfillmentapp.MiniDirectShipListQuery
+	listResult       customerfulfillmentapp.MiniDirectShipListResult
+	listErr          error
+	detailCustomerID int64
+	detailRequestID  int64
+	cancelCustomerID int64
+	cancelRequestID  int64
+	cancelActor      string
+	inventoryQuery   customerfulfillmentapp.CustomerInventoryListQuery
+	inventoryResult  customerfulfillmentapp.CustomerInventoryListResult
+	batchCustomerID  int64
+	batchProductID   int64
+	batchSpecG       int64
 }
 
 func (f *miniCustomerFulfillmentFake) MiniDirectShipCatalog(_ context.Context, query customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error) {
@@ -49,10 +53,19 @@ func (f *miniCustomerFulfillmentFake) SubmitMiniDirectShip(_ context.Context, cm
 	return customerfulfillmentapp.MiniDirectShipRequest{ID: 71, RequestNo: "DSR-71", Status: "reserved", Items: cmd.Items}, nil
 }
 
-func (f *miniCustomerFulfillmentFake) ListMiniDirectShipRequests(_ context.Context, customerID int64, _ int) ([]customerfulfillmentapp.MiniDirectShipRequest, error) {
+func (f *miniCustomerFulfillmentFake) ListMiniDirectShipRequests(_ context.Context, query customerfulfillmentapp.MiniDirectShipListQuery) (customerfulfillmentapp.MiniDirectShipListResult, error) {
 	f.calls++
-	f.listCustomerID = customerID
-	return []customerfulfillmentapp.MiniDirectShipRequest{{ID: 71, RequestNo: "DSR-71", Status: "reserved"}}, nil
+	f.listQuery = query
+	if f.listErr != nil {
+		return customerfulfillmentapp.MiniDirectShipListResult{}, f.listErr
+	}
+	if f.listResult.Rows != nil {
+		return f.listResult, nil
+	}
+	return customerfulfillmentapp.MiniDirectShipListResult{
+		Rows:  []customerfulfillmentapp.MiniDirectShipRequest{{ID: 71, RequestNo: "DSR-71", Status: "reserved"}},
+		Total: 1, Page: query.Page, Limit: query.Limit, TotalPages: 1,
+	}, nil
 }
 
 func (f *miniCustomerFulfillmentFake) GetMiniDirectShipRequest(_ context.Context, customerID, requestID int64) (customerfulfillmentapp.MiniDirectShipRequest, error) {
@@ -67,10 +80,19 @@ func (f *miniCustomerFulfillmentFake) CancelMiniDirectShipRequest(_ context.Cont
 	return customerfulfillmentapp.MiniDirectShipRequest{ID: requestID, Status: "cancelled"}, nil
 }
 
-func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventory(_ context.Context, customerID int64) ([]customerfulfillmentapp.CustomerInventorySummary, error) {
+func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventory(_ context.Context, query customerfulfillmentapp.CustomerInventoryListQuery) (customerfulfillmentapp.CustomerInventoryListResult, error) {
 	f.calls++
-	f.inventoryCustomerID = customerID
-	return []customerfulfillmentapp.CustomerInventorySummary{{ProductID: 911, SpecG: 1000, AvailableQty: 3}}, nil
+	f.inventoryQuery = query
+	if f.inventoryResult.Rows != nil {
+		return f.inventoryResult, nil
+	}
+	return customerfulfillmentapp.CustomerInventoryListResult{
+		Rows:       []customerfulfillmentapp.CustomerInventorySummary{{ProductID: 911, SpecG: 1000, AvailableQty: 3}},
+		Total:      1,
+		Page:       1,
+		Limit:      1,
+		TotalPages: 1,
+	}, nil
 }
 
 func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventoryBatches(_ context.Context, customerID, productID, specG int64) ([]customerfulfillmentapp.CustomerInventoryBatch, error) {
@@ -110,6 +132,129 @@ func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing
 	var body customerfulfillmentapp.MiniDirectShipRequest
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.ID != 71 {
 		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
+	}
+}
+
+func TestMiniDirectShipListBindsFiltersPaginationAndCurrentCustomer(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{listResult: customerfulfillmentapp.MiniDirectShipListResult{
+		Rows:  []customerfulfillmentapp.MiniDirectShipRequest{{ID: 71, RequestNo: "DSR-71", Status: "shipped"}},
+		Total: 37, Page: 3, Limit: 10, TotalPages: 4, HasNext: true,
+	}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityDirectShip, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/direct-ship/requests?customer_id=999&q=%E7%94%B2%E5%BA%97&shipped_from=2026-08-01&shipped_to=2026-08-07&page=3&limit=10", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if fulfillment.listQuery.CustomerID != 9 {
+		t.Fatalf("list customer=%d, want token-bound customer 9", fulfillment.listQuery.CustomerID)
+	}
+	if fulfillment.listQuery.Q != "甲店" || fulfillment.listQuery.ShippedFrom != "2026-08-01" || fulfillment.listQuery.ShippedTo != "2026-08-07" {
+		t.Fatalf("list filters = %#v", fulfillment.listQuery)
+	}
+	if fulfillment.listQuery.Page != 3 || fulfillment.listQuery.Limit != 10 {
+		t.Fatalf("list pagination = %#v", fulfillment.listQuery)
+	}
+	var body customerfulfillmentapp.MiniDirectShipListResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
+	}
+	if body.Total != 37 || body.TotalPages != 4 || body.Page != 3 || body.Limit != 10 || !body.HasNext || len(body.Rows) != 1 {
+		t.Fatalf("list body = %#v", body)
+	}
+}
+
+func TestMiniDirectShipListReturnsSpecificShipmentDateValidationMessages(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "invalid from", err: errors.New("shipped_from invalid"), want: "发货开始日期格式不正确，请使用 YYYY-MM-DD"},
+		{name: "invalid to", err: errors.New("shipped_to invalid"), want: "发货结束日期格式不正确，请使用 YYYY-MM-DD"},
+		{name: "reversed", err: errors.New("shipment date range invalid"), want: "发货开始日期不能晚于结束日期"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fulfillment := &miniCustomerFulfillmentFake{listErr: tc.err}
+			e := echo.New()
+			RegisterRoutes(e, Dependencies{
+				CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+					MiniUserID: 17, CurrentCustomerID: 9,
+					Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityProcessing, Enabled: true}},
+				}},
+				CustomerFulfillment: fulfillment,
+			})
+			req := httptest.NewRequest(http.MethodGet, "/api/mini/direct-ship/requests", nil)
+			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			var body map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body["error"] != tc.want {
+				t.Fatalf("body=%s err=%v want=%q", rec.Body.String(), err, tc.want)
+			}
+		})
+	}
+}
+
+func TestMiniCustomerInventoryBindsTokenCustomerFiltersPaginationAndLegacyMode(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{inventoryResult: customerfulfillmentapp.CustomerInventoryListResult{
+		Rows:       []customerfulfillmentapp.CustomerInventorySummary{{ProductID: 552, ProductName: "乌拉嘎 454g", SpecG: 454}},
+		Total:      2,
+		Page:       2,
+		Limit:      1,
+		TotalPages: 2,
+	}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityProcessing, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-inventory?customer_id=999&q=%E4%B9%8C%E6%8B%89%E5%98%8E&page=2&limit=1", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if fulfillment.inventoryQuery.CustomerID != 9 || fulfillment.inventoryQuery.Q != "乌拉嘎" || fulfillment.inventoryQuery.Page != 2 || fulfillment.inventoryQuery.Limit != 1 || fulfillment.inventoryQuery.LegacyAll {
+		t.Fatalf("inventory query = %#v", fulfillment.inventoryQuery)
+	}
+	var body customerfulfillmentapp.CustomerInventoryListResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Total != 2 || body.TotalPages != 2 || body.Page != 2 || body.Limit != 1 || len(body.Rows) != 1 {
+		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
+	}
+
+	legacy := &miniCustomerFulfillmentFake{}
+	e = echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityProcessing, Enabled: true}},
+		}},
+		CustomerFulfillment: legacy,
+	})
+	req = httptest.NewRequest(http.MethodGet, "/api/mini/customer-inventory?customer_id=999", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || legacy.inventoryQuery.CustomerID != 9 || !legacy.inventoryQuery.LegacyAll {
+		t.Fatalf("legacy status=%d query=%#v body=%s", rec.Code, legacy.inventoryQuery, rec.Body.String())
 	}
 }
 
@@ -178,8 +323,8 @@ func TestMiniDirectShipReadAllowsProcessingButWriteRequiresDirectShip(t *testing
 			t.Fatalf("GET %s status=%d body=%s", path, rec.Code, rec.Body.String())
 		}
 	}
-	if fulfillment.listCustomerID != 9 || fulfillment.detailCustomerID != 9 || fulfillment.inventoryCustomerID != 9 || fulfillment.batchCustomerID != 9 {
-		t.Fatalf("customer scopes = list:%d detail:%d inventory:%d batch:%d", fulfillment.listCustomerID, fulfillment.detailCustomerID, fulfillment.inventoryCustomerID, fulfillment.batchCustomerID)
+	if fulfillment.listQuery.CustomerID != 9 || fulfillment.detailCustomerID != 9 || fulfillment.inventoryQuery.CustomerID != 9 || fulfillment.batchCustomerID != 9 {
+		t.Fatalf("customer scopes = list:%d detail:%d inventory:%d batch:%d", fulfillment.listQuery.CustomerID, fulfillment.detailCustomerID, fulfillment.inventoryQuery.CustomerID, fulfillment.batchCustomerID)
 	}
 	callsBeforeDeniedPreview := fulfillment.calls
 	req := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/preview", strings.NewReader(`{}`))
