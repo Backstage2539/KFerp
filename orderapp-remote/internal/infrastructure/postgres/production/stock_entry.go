@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	productionapp "orderapp/internal/application/production"
+	stockdomain "orderapp/internal/domain/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 	"time"
@@ -431,6 +432,9 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 func completionWarehouseForWorkOrder(wo productionapp.WorkOrderRow, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if wo.ProcessingRequestItemID <= 0 {
+		if requested == "" {
+			return stockdomain.WarehouseFinishedGoods, nil
+		}
 		return requested, nil
 	}
 	target := strings.TrimSpace(wo.TargetWarehouse)
