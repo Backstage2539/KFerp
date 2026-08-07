@@ -21,7 +21,8 @@ type recipientParseRequest struct {
 
 func registerRecipientParseAPI(e *echo.Echo, portal Service, authz supporthttp.AuthzService) {
 	e.POST("/api/customer-recipient/parse", func(c echo.Context) error {
-		if err := requireRecipientParseAccess(c, portal, authz); err != nil {
+		allowed, err := requireRecipientParseAccess(c, portal, authz)
+		if err != nil || !allowed {
 			return err
 		}
 
@@ -50,40 +51,40 @@ func registerRecipientParseAPI(e *echo.Echo, portal Service, authz supporthttp.A
 	})
 }
 
-func requireRecipientParseAccess(c echo.Context, portal Service, authz supporthttp.AuthzService) error {
+func requireRecipientParseAccess(c echo.Context, portal Service, authz supporthttp.AuthzService) (bool, error) {
 	actor, ok, err := supporthttp.CurrentActor(c, authz)
 	if err != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied"})
+		return false, c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied"})
 	}
 	if ok {
 		if !actor.Can("customers.read") {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "customers.read"})
+			return false, c.JSON(http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "customers.read"})
 		}
-		return nil
+		return true, nil
 	}
 
 	token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
 	if token == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录"})
+		return false, c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录"})
 	}
 	if portal == nil {
-		return miniInternalError(c)
+		return false, miniInternalError(c)
 	}
 	current, err := portal.Me(c.Request().Context(), token)
 	if err != nil {
-		return miniSessionError(c, err)
+		return false, miniSessionError(c, err)
 	}
 	if current.AccountType == "employee" {
 		if (!containsMiniRole(current.Roles, "sales") && !containsMiniRole(current.Roles, "admin")) || !containsMiniRole(current.Permissions, "customers.read") {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "当前员工无此权限"})
+			return false, c.JSON(http.StatusForbidden, map[string]string{"error": "当前员工无此权限"})
 		}
-		return nil
+		return true, nil
 	}
-	if current.AccountType == "customer" && current.CurrentCustomerID > 0 && current.HasAnyCapability([]string{
+	if current.CurrentCustomerID > 0 && current.HasAnyCapability([]string{
 		customerportalapp.CapabilityDirectShip,
 		customerportalapp.CapabilityProductOrder,
 	}) {
-		return nil
+		return true, nil
 	}
-	return c.JSON(http.StatusForbidden, map[string]string{"error": "当前客户无发货权限"})
+	return false, c.JSON(http.StatusForbidden, map[string]string{"error": "当前客户无发货权限"})
 }

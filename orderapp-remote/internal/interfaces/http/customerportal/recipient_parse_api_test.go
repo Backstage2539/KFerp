@@ -2,7 +2,9 @@ package customerportal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	authzapp "orderapp/internal/application/authz"
@@ -13,6 +15,18 @@ import (
 
 	"github.com/labstack/echo/v4"
 )
+
+type recipientParseReadSpy struct {
+	reader io.Reader
+	reads  int
+}
+
+func (s *recipientParseReadSpy) Read(p []byte) (int, error) {
+	s.reads++
+	return s.reader.Read(p)
+}
+
+func (*recipientParseReadSpy) Close() error { return nil }
 
 func recipientParseMiniEmployee(permissions ...string) customerportalapp.CurrentContext {
 	return customerportalapp.CurrentContext{
@@ -110,6 +124,26 @@ func TestRecipientParseAPIUsesOneContractForERPAndMiniEmployeeTokens(t *testing.
 	}
 }
 
+func TestRecipientParseAPIAcceptsPersistedMiniCustomerContextWithoutAccountType(t *testing.T) {
+	e := echo.New()
+	registerRecipientParseAPI(e, fakeService{me: customerportalapp.CurrentContext{
+		CurrentCustomerID: 8,
+		Capabilities: []customerportalapp.Capability{{
+			Code:    customerportalapp.CapabilityDirectShip,
+			Enabled: true,
+		}},
+	}}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-recipient/parse", strings.NewReader(`{"text":"张三 13800138000 云南省昆明市"}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRecipientParseAPIRequiresCustomerReadPermissionForBothSessionTypes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -146,7 +180,35 @@ func TestRecipientParseAPIRequiresCustomerReadPermissionForBothSessionTypes(t *t
 			if rec.Code != tc.want {
 				t.Fatalf("status=%d want=%d body=%s", rec.Code, tc.want, rec.Body.String())
 			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("denied response must be one valid JSON document: body=%q err=%v", rec.Body.String(), err)
+			}
 		})
+	}
+}
+
+func TestRecipientParseAPIWithoutAccessStopsBeforeReadingOrParsing(t *testing.T) {
+	e := echo.New()
+	registerRecipientParseAPI(e, fakeService{}, nil)
+	bodyReader := &recipientParseReadSpy{reader: strings.NewReader(`{"text":"张三 13800138000 云南省昆明市"}`)}
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-recipient/parse", nil)
+	req.Body = bodyReader
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if bodyReader.reads != 0 {
+		t.Errorf("unauthorized request body was read %d time(s), so parsing was not short-circuited", bodyReader.reads)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Errorf("response must be one valid JSON document: body=%q err=%v", rec.Body.String(), err)
+	} else if body["error"] != "请先登录" {
+		t.Errorf("body=%v", body)
 	}
 }
 
@@ -194,5 +256,9 @@ func TestRecipientParseAPIMasksAuthorizationServiceErrors(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "secret auth database detail") {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("denied response must be one valid JSON document: body=%q err=%v", rec.Body.String(), err)
 	}
 }
