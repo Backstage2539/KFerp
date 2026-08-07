@@ -59,10 +59,13 @@
 
 ## 开发环境部署证据
 
-- 功能分支提交：待实现、验证并推送后补充。
-- `develop` 合并提交：待完成后补充。
-- development 备份、部署命令、容器、HTTP/API、操作日志和浏览器烟测：待实际执行后逐项补充。
-- 本记录不得把本地测试或文档完成写成已部署；未获得新的明确授权时不合入 `main`，不部署或修改 production。
+- 功能分支：`codex/product-multi-group-templates-20260807@eb5535598e495e2b276fbf94c1b3869bc3f79777` 已推送；独立集成分支 `codex/integrate-product-multi-group-templates-20260807` 已推送。
+- `develop`：集成提交 `bb6a35041965003ef2c36c68a72fc52d1aea83cc` 已推送并作为本次 development 运行代码提交。
+- 发布命令：从一次性干净 `develop` 克隆执行 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`；服务器单工锁内完成 Vue 887/887、Vue 构建、miniapp 195/195、typecheck、development 构建、全量 Go 与 Docker 镜像内全量 Go，再只重建并重启 `erp_orderapp`。
+- 回滚证据：源目录备份 `/opt/stacks/erp/orderapp.backup.deploy-20260807231446-bb6a35041965`；回滚镜像 `kferp-orderapp-rollback:development-20260807231446-bb6a35041965`。
+- 服务器烟测：`erp_orderapp`、`erp_docconvert` 运行，`erp_postgres` healthy；外部 `/app/login` 返回 200，未登录和已登录 `/app/` 按现有登录流返回 303；需求 API 返回 200 且包含 PR-584；新表 `product_production_config_industry_templates` 存在；发布源同时包含 `industry_field_template_ids` 与 `replace_usages`；启动错误计数为 0。
+- 浏览器烟测：打开商品档案路由后正确跳转系统登录页，登录页渲染成功且控制台 0 错误。当前浏览器没有已登录会话，未输入或借用业务账号，因此多模板选择、分类收纳、折叠和操作日志的登录后业务验收保留给 Van。
+- 环境边界：本机已有脏 `develop` 工作区未改动；本机 miniapp 导出明确跳过；没有合入 `main`，没有部署或修改 production，也没有执行微信上传、审核或发布。
 
 ## Van 业务验收
 
@@ -77,5 +80,5 @@
 ## 状态
 
 - UI 产品需求：`PR-584-PRODUCT-MULTI-GROUP-TEMPLATES` 为 `review`，验收人 VA。
-- UI 开发需求：四个 `DEV-584-*` 合同登记为 `done`；具体代码、测试、合并和部署证据仍必须按上述待补项如实填写，不能用状态行替代证据。
+- UI 开发需求：四个 `DEV-584-*` 合同登记为 `done`；代码、测试、合并和 development 部署证据已在本记录中独立列明。
 - Van 业务验收：未完成。

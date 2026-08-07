@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-584-PRODUCT-MULTI-GROUP-TEMPLATES
 - Branch: codex/product-multi-group-templates-20260807
 - Owner/session: Codex / 2026-08-07
-- Status: implementation and verification complete; integration and development deployment pending; PR in review; Van acceptance todo
+- Status: implementation, verification, develop integration and development deployment complete; PR in review; Van acceptance todo
 - Scope: 商品档案的行业字段/功能分组引用支持同时引用多个分组模板；只有已引用模板才展示其分类与收纳能力；修复父级大类收起时子类仍保持展开的问题。
 - DEV:
   - DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE：商品配置多模板引用、旧标量兼容、字段并集清理和原子审计。
@@ -23,14 +23,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: 同步最新 `origin/develop` 后，`scripts/verify_kferp.sh frontend-tests` 887/887 GREEN；`frontend-build` GREEN，仅有既有 chunk-size warning。
   - Manual: 已更新商品/物料、设置审计和成本价格表三份单一来源手册。
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-product-multi-group-templates.md`；独立复审最终无未解决 P0/P1/P2，Van development 业务验收待办。
-- Deployment: development pending after latest-origin integration; production out of scope.
+- Deployment: feature `eb553559` merged to `develop` as `bb6a3504` and deployed to development with `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260807231446-bb6a35041965`; rollback image `kferp-orderapp-rollback:development-20260807231446-bb6a35041965`. `erp_orderapp` is running and PostgreSQL is healthy; external login returned 200, authenticated requirement API returned 200 with PR-584, the new industry-template relation exists, release source markers are present, and startup error count is 0. Browser smoke reached the system login page with 0 console errors; authenticated feature interaction and Van business acceptance remain pending. `main`, production, the local miniapp export, WeChat upload/review/release were not touched.
 - Last update: 2026-08-07 Asia/Shanghai
-- Notes: 原脏工作区不动；从 `origin/develop@35cbe1a8` 的独立工作区实施。旧页面的 `usages: []` 保持 no-op，新页面用 `replace_usages` 明确清空；旧单行业模板标量继续兼容。`scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入，按脚本返回的 PR-584 手工登记。
+- Notes: 原脏工作区不动；从 `origin/develop@35cbe1a8` 的独立工作区实施，合并前同步到 `origin/develop@0fbce5a2` 并复验。旧页面的 `usages: []` 保持 no-op，新页面用 `replace_usages` 明确清空；旧单行业模板标量继续兼容。`scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入，按脚本返回的 PR-584 手工登记。
 
 ### PR-583-RECIPIENT-COMPACT-ADDRESS-DIRECT-SHIP-PICKER
 - Branch: codex/pr583-recipient-directship-20260807
 - Owner/session: Codex / 2026-08-07
-- Status: verifying
+- Status: implementation and verification complete; merged to develop and ERP development deployed; DevTools and Van acceptance todo
 - Scope: 修复无分隔收货地址把整段误作姓名并清空地址的问题；一件代发商品明细改为与员工录单一致的“商品、规格、数量”常驻行和融合搜索/分类商品弹层。
 - DEV:
   - DEV-583-COMPACT-RECIPIENT-PARSE：共享 `POST /api/customer-recipient/parse` 保守识别完整行政区地址末尾紧邻手机号的 2–4 字姓名；低置信度时保留地址并让姓名为空。
@@ -40,12 +40,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - Unit: shared recipient parser exact/compact/safety tests；direct ship row/default spec/payload helper tests。
   - API: ERP、员工小程序和客户代发会话共用解析 API，结果一致且不回显原文；代发目录隔离与库存重验回归。
-  - Frontend/build: miniapp targeted/full tests、typecheck、development mp-weixin build、微信开发者工具交互验收。
+  - Frontend/build: miniapp targeted/full tests、typecheck 与 development mp-weixin build GREEN；微信开发者工具交互验收待办。
   - Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`。
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-recipient-direct-ship-picker.md`；Van development 业务验收待办。
-- Deployment: requested for development only; production/main/WeChat upload-review-release out of scope.
+- Deployment: feature merged to `develop` as `35cbe1a8`; the shared development deployment of `bb6a3504` included its ERP and server-built development miniapp sources. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260807231446-bb6a35041965`; rollback image `kferp-orderapp-rollback:development-20260807231446-bb6a35041965`. Local miniapp export was intentionally skipped, so DevTools import/preview remains pending; production/main/WeChat upload-review-release were not touched.
 - Last update: 2026-08-07 Asia/Shanghai
-- Notes: 原脏工作区不动；解析和商品选择本身只读，不新增日志类型，发货提交/取消继续使用现有审计。RED/GREEN、独立复审、全量 Go、miniapp 195 项、typecheck 与 development 构建已通过；等待合并、development 部署和 DevTools 验收。
+- Notes: 原脏工作区不动；解析和商品选择本身只读，不新增日志类型，发货提交/取消继续使用现有审计。RED/GREEN、独立复审、全量 Go、miniapp 195 项、typecheck、development 构建、develop 合并和 ERP development 部署已完成；等待 DevTools 与 Van 验收。
 
 ### PR-582-MINI-FULFILLMENT-LIST-INVENTORY-NAVIGATION
 - Branch: codex/mini-fulfillment-search-inventory-multiselect-20260807
