@@ -1973,6 +1973,13 @@ func loadProductProductionConfigSummaryForOrderItemTx(ctx context.Context, tx pg
 			FROM %[1]s.product_production_configs ppc
 			WHERE ppc.product_id=$1
 		),
+		templates AS (
+			SELECT selected.product_id,
+			       jsonb_agg(selected.template_id ORDER BY selected.sort_order, selected.template_id) AS template_ids_json
+			FROM %[1]s.product_production_config_industry_templates selected
+			WHERE selected.product_id=$1
+			GROUP BY selected.product_id
+		),
 		fields AS (
 			SELECT ppcf.product_id,
 			       jsonb_agg(jsonb_build_object(
@@ -1999,10 +2006,12 @@ func loadProductProductionConfigSummaryForOrderItemTx(ctx context.Context, tx pg
 				'production_bom_version_id', c.production_bom_version_id,
 				'process_route_id', c.process_route_id,
 				'industry_field_template_id', c.industry_field_template_id,
+				'industry_field_template_ids', COALESCE(t.template_ids_json, CASE WHEN c.industry_field_template_id > 0 THEN jsonb_build_array(c.industry_field_template_id) ELSE '[]'::jsonb END),
 				'expected_loss_rate', c.expected_loss_rate,
 			'fields', COALESCE(f.fields_json, '[]'::jsonb)
 		), '{}'::jsonb)::text
 		FROM config c
+		LEFT JOIN templates t ON t.product_id=c.product_id
 		LEFT JOIN fields f ON f.product_id=c.product_id
 	`, schema), productID).Scan(&raw)
 	if err == pgx.ErrNoRows {

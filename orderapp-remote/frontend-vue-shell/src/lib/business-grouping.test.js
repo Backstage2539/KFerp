@@ -6,6 +6,7 @@ import {
   businessGroupControlOptions,
   businessGroupMoveAssignmentPayload,
   groupRowsByBusinessGroupTemplate,
+  groupRowsByBusinessGroupTemplates,
   preferredBusinessGroupTemplateID,
 } from './business-grouping.js'
 
@@ -72,6 +73,63 @@ test('business group template rows prefer current template assignment over legac
   ])
 })
 
+test('multiple referenced business group templates form one non-duplicating product list and one unclassified group', () => {
+  const dripGroup = {
+    id: 10,
+    name: '商品挂耳模板',
+    active: true,
+    usages: [{ usage_key: 'product_catalog', active: true }],
+    items: [
+      { id: 100, group_id: 10, parent_id: 0, name: '挂耳咖啡', active: true, sort_order: 10 },
+      { id: 101, group_id: 10, parent_id: 100, name: '盒装挂耳', active: true, sort_order: 20 },
+    ],
+  }
+  const rows = [
+    { id: 1, name: '熟豆商品' },
+    { id: 2, name: '挂耳商品' },
+    { id: 3, name: '未分类商品' },
+  ]
+  const groups = groupRowsByBusinessGroupTemplates(rows, {
+    templates: [productGroup, dripGroup],
+    usageKey: 'product_catalog',
+    objectKey: 'product',
+    assignments: [
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 1, group_id: 9, group_item_id: 92 },
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 2, group_id: 10, group_item_id: 101 },
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 3, group_id: 8, group_item_id: 80 },
+    ],
+  })
+
+  assert.deepEqual(groups.map((group) => ({
+    key: group.key,
+    template: group.template_label,
+    count: group.rows.length,
+  })), [
+    { key: 'business-group-9-90', template: '商品分组', count: 0 },
+    { key: 'business-group-9-92', template: '商品分组', count: 1 },
+    { key: 'business-group-9-91', template: '商品分组', count: 0 },
+    { key: 'business-group-10-100', template: '商品挂耳模板', count: 0 },
+    { key: 'business-group-10-101', template: '商品挂耳模板', count: 1 },
+    { key: 'business-group-unclassified', template: '', count: 1 },
+  ])
+  assert.deepEqual(groups.flatMap((group) => group.rows).map((row) => row.id).sort(), [1, 2, 3])
+
+  assert.deepEqual(groupRowsByBusinessGroupTemplates(rows, { templates: [] }), [{
+    key: 'all-products',
+    label: '全部商品',
+    path_label: '全部商品',
+    depth: 0,
+    parent_group_item_id: 0,
+    group_id: 0,
+    group_item_id: 0,
+    template_label: '',
+    rows,
+    all: true,
+    unclassified: false,
+    sort_order: 0,
+  }])
+})
+
 test('business group controls expose template and move options for any usage', () => {
   const options = businessGroupControlOptions([productGroup], {
     usageKey: 'production_bom',
@@ -111,17 +169,19 @@ test('preferred business group template keeps warehouse inventory on stock group
   }), 128)
 })
 
-test('product catalog business group rows include generic templates without legacy usage bindings', () => {
+test('product catalog business group rows require explicit active references and allow multiple templates', () => {
   const rows = businessGroupRowsForUsage([
     { id: 6, name: '商品默认分组', code: 'default_product_catalog', active: true, sort_order: 10, usages: [{ usage_key: 'product_catalog', active: true }] },
     { id: 221, name: 'BOM分组', active: true, sort_order: 5, usages: [{ usage_key: 'production_bom', active: true }] },
     { id: 222, name: '通用分组模板', active: true, sort_order: 6, usages: [] },
     { id: 128, name: '商品分组', code: 'product_catalog', active: true, sort_order: 10, usages: [{ usage_key: 'product_catalog', active: true }] },
+    { id: 129, name: '商品挂耳模板', code: 'product_drip', active: true, sort_order: 11, usages: [{ usage_key: 'product_catalog', active: true }] },
+    { id: 130, name: '停用商品引用', active: true, sort_order: 12, usages: [{ usage_key: 'product_catalog', active: false }] },
   ], 'product_catalog')
 
   assert.deepEqual(rows.map((row) => ({ id: row.id, name: row.name })), [
-    { id: 222, name: '通用分组模板' },
     { id: 128, name: '商品分组' },
+    { id: 129, name: '商品挂耳模板' },
   ])
 })
 

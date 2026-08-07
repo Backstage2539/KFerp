@@ -413,8 +413,12 @@ target_group AS (
 ),
 usage_upsert AS (
 	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
-	SELECT id, 'warehouse_inventory', '仓库库存视图仓库归组', true, 'system-pr442-migration', 'system-pr442-migration'
-	FROM target_group
+	SELECT tg.id, 'warehouse_inventory', '仓库库存视图仓库归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group tg
+	WHERE NOT EXISTS (
+		SELECT 1 FROM %[1]s.business_group_usages existing
+		WHERE existing.group_id=tg.id AND lower(existing.usage_key)='warehouse_inventory'
+	)
 	ON CONFLICT DO NOTHING
 ),
 item_rows AS (

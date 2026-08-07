@@ -371,13 +371,14 @@ type productConfigTemplateAPIRequest struct {
 }
 
 type productProductionConfigAPIRequest struct {
-	ProductionBomID         int64                                     `json:"production_bom_id"`
-	ProductionBomVersionID  int64                                     `json:"production_bom_version_id"`
-	ProcessRouteID          int64                                     `json:"process_route_id"`
-	IndustryFieldTemplateID int64                                     `json:"industry_field_template_id"`
-	ExpectedLossRate        float64                                   `json:"expected_loss_rate"`
-	Note                    string                                    `json:"note"`
-	Fields                  []catalogapp.ProductProductionConfigField `json:"fields"`
+	ProductionBomID          int64                                     `json:"production_bom_id"`
+	ProductionBomVersionID   int64                                     `json:"production_bom_version_id"`
+	ProcessRouteID           int64                                     `json:"process_route_id"`
+	IndustryFieldTemplateID  int64                                     `json:"industry_field_template_id"`
+	IndustryFieldTemplateIDs json.RawMessage                           `json:"industry_field_template_ids"`
+	ExpectedLossRate         float64                                   `json:"expected_loss_rate"`
+	Note                     string                                    `json:"note"`
+	Fields                   []catalogapp.ProductProductionConfigField `json:"fields"`
 }
 
 type productClassificationTemplateAPIRequest struct {
@@ -1746,16 +1747,26 @@ func (h productHandler) saveProductProductionConfigAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
+	var industryFieldTemplateIDs []int64
+	if req.IndustryFieldTemplateIDs != nil {
+		if strings.TrimSpace(string(req.IndustryFieldTemplateIDs)) == "null" {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "industry_field_template_ids must be an array"})
+		}
+		if err := json.Unmarshal(req.IndustryFieldTemplateIDs, &industryFieldTemplateIDs); err != nil || industryFieldTemplateIDs == nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "industry_field_template_ids must be an array"})
+		}
+	}
 	row, err := h.catalog.SaveProductProductionConfig(c.Request().Context(), catalogapp.SaveProductProductionConfigCommand{
-		Actor:                   support.ActorOf(c),
-		ProductID:               productID,
-		ProductionBomID:         req.ProductionBomID,
-		ProductionBomVersionID:  req.ProductionBomVersionID,
-		ProcessRouteID:          req.ProcessRouteID,
-		IndustryFieldTemplateID: req.IndustryFieldTemplateID,
-		ExpectedLossRate:        req.ExpectedLossRate,
-		Note:                    req.Note,
-		Fields:                  req.Fields,
+		Actor:                    support.ActorOf(c),
+		ProductID:                productID,
+		ProductionBomID:          req.ProductionBomID,
+		ProductionBomVersionID:   req.ProductionBomVersionID,
+		ProcessRouteID:           req.ProcessRouteID,
+		IndustryFieldTemplateID:  req.IndustryFieldTemplateID,
+		IndustryFieldTemplateIDs: industryFieldTemplateIDs,
+		ExpectedLossRate:         req.ExpectedLossRate,
+		Note:                     req.Note,
+		Fields:                   req.Fields,
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {

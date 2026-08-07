@@ -42,13 +42,14 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 			"assert.match(flatRowSource, /mode === 'pricing_rule' \\|\\| mode === 'tier_template'/)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "business-grouping.test.js"): {
-			"product catalog business group rows include generic templates without legacy usage bindings",
+			"product catalog business group rows require explicit active references and allow multiple templates",
 			"product_catalog",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX",
 			"刷新后继续保留",
 			"熟豆-红岩拼配",
+			"PR-534 的“无用途绑定即通用候选”口径由本需求替代",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX",

@@ -149,6 +149,7 @@
         </div>
         <div v-show="!productsCollapsed">
           <BusinessGroupControls
+            v-if="productCatalogBusinessGroups.length"
             v-model="selectedProductGroupTemplateID"
             v-model:move-model-value="selectedProductBusinessGroupItemID"
             class="classification-view-toolbar product-business-group-controls"
@@ -162,6 +163,10 @@
             :loading="loading"
             @manage="openProductBusinessGroupManagement"
             @move="saveSelectedProductBusinessGroupAssignment" />
+          <div v-else class="classification-view-toolbar product-business-group-empty">
+            <span>商品档案尚未引用分组模板，当前按全部商品平铺展示。</span>
+            <button class="secondary compact-action" type="button" @click="openProductBusinessGroupManagement">维护分组模板</button>
+          </div>
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters product-filter-row">
             <label>
@@ -215,7 +220,7 @@
               </tr>
             </thead>
             <tbody>
-              <template v-for="group in displaySkuGroups" :key="group.key">
+              <template v-for="group in renderedDisplaySkuGroups" :key="group.key">
                 <tr
                   v-if="!group.all"
                   :class="['classification-group-row', { 'classification-subgroup-row': Number(group.depth || 0) > 0 }]"
@@ -225,6 +230,7 @@
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
                     <strong :title="group.path_label || group.label">{{ group.label }}</strong>
+                    <small v-if="group.template_label" class="classification-template-label">{{ group.template_label }}</small>
                     <small>{{ group.total }} 款</small>
                   </td>
                 </tr>
@@ -1614,11 +1620,17 @@
                 <strong>行业字段</strong>
                 <small>字段定义来自行业字段模板；这里只填写字段值和是否在价格表展示。</small>
               </div>
-              <div class="field-group-actions">
-                <select v-model.number="productProductionConfigForm.industry_field_template_id" @change="applyIndustryFieldTemplateToProductionConfig">
-                  <option :value="0">不使用行业字段模板</option>
-                  <option v-for="template in activeIndustryFieldTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-                </select>
+              <div class="field-group-actions industry-template-selector">
+                <label v-for="template in productProductionConfigIndustryTemplateOptions" :key="template.id" class="checkline industry-template-option" :class="{ unavailable: template.unavailable }">
+                  <input
+                    v-model="productProductionConfigForm.industry_field_template_ids"
+                    type="checkbox"
+                    :value="Number(template.id || 0)"
+                    @change="applyIndustryFieldTemplateToProductionConfig" />
+                  <span>{{ industryFieldTemplateOptionLabel(template) }}</span>
+                </label>
+                <small v-if="productProductionConfigIndustryTemplateOptions.length" class="muted industry-template-priority-hint">勾选顺序决定同名字段优先级；取消后重新勾选可调整顺序。</small>
+                <small v-if="!productProductionConfigIndustryTemplateOptions.length" class="muted">暂无可用行业字段模板</small>
               </div>
             </div>
             <div v-for="(field, index) in productProductionConfigForm.fields" :key="field.local_id" class="production-config-field-row">
@@ -1765,7 +1777,7 @@ import {
   businessGroupItemIndentStyle,
   businessGroupHeaderIndentStyle,
   businessGroupMoveAssignmentPayload,
-  groupRowsByBusinessGroupTemplate,
+  groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
@@ -1806,7 +1818,9 @@ import {
   buildPricingRuleTrialPayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
-  productProductionConfigFieldsFromTemplate,
+  industryFieldTemplateIDsFromConfig,
+  industryFieldTemplateOptionsForConfig,
+  productProductionConfigFieldsFromTemplates,
   buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -1852,12 +1866,14 @@ import {
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
   secondaryCategoryOptions,
+  selectedSkuRowIDsAfterVisibleToggle,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
   skuGroupTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
+  skuGroupHiddenByCollapsedAncestor,
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
   visibleSkuGroupRows,
@@ -2290,10 +2306,10 @@ const aliasProductOptions = computed(() => products.value
   .filter((product) => product.active !== false)
   .slice()
   .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
-const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
-  .filter((template) => String(template.status || 'active') === 'active')
-  .slice()
-  .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
+const productProductionConfigIndustryTemplateOptions = computed(() => industryFieldTemplateOptionsForConfig(
+  industryFieldTemplates.value,
+  productProductionConfigForm.value,
+))
 const productProductionConfigActiveBomOptions = computed(() => activeProductionBomOptions(productionBoms.value))
 const productProductionConfigBomUsageRows = computed(() => {
   const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
@@ -2332,8 +2348,7 @@ function productionConfigForProduct(product) {
 
 function productionConfigPriceListFields(product) {
   const config = productionConfigForProduct(product)
-  const template = industryFieldTemplateForConfig(config)
-  return productProductionConfigFieldsFromTemplate(config.fields || [], template)
+  return productProductionConfigFieldsFromTemplates(config.fields || [], industryFieldTemplatesForConfig(config))
     .filter((field) => field.show_in_price_list)
 }
 
@@ -2367,14 +2382,13 @@ const hasActiveSkuFilters = computed(() => Boolean(
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
   filteredSkuRows.value.length,
-  selectedProductGroupTemplateID.value,
   normalizedSkuFilters.value.query || '',
   normalizedSkuFilters.value.primaryCategory || '',
   normalizedSkuFilters.value.secondaryCategory || '',
 ].join(':'))
 const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
-const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplate(filteredSkuRows.value, {
-  template: selectedProductGroupTemplate.value,
+const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplates(filteredSkuRows.value, {
+  templates: productCatalogBusinessGroups.value,
   assignments: businessGroupAssignments.value,
   usageKey: 'product_catalog',
   objectKey: 'product',
@@ -2384,6 +2398,9 @@ const groupedSkuTableState = computed(() => skuGroupTableState(fullDisplaySkuGro
   defaultPageSize: DEFAULT_SKU_GROUP_PAGE_SIZE,
 }))
 const displaySkuGroups = computed(() => groupedSkuTableState.value.groups)
+const renderedDisplaySkuGroups = computed(() => displaySkuGroups.value.filter((group) => (
+  !skuGroupHiddenByCollapsedAncestor(displaySkuGroups.value, group, collapsedProductClassificationGroups.value)
+)))
 const displaySkuRows = computed(() => groupedSkuTableState.value.visibleRows)
 const visibleDisplaySkuRows = computed(() => visibleSkuGroupRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
 const editableDisplaySkuRows = computed(() => visibleDisplaySkuRows.value.filter(canEditSkuRow))
@@ -2630,9 +2647,7 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 }
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
-  const industryFieldTemplate = industryFieldTemplateForConfig(config)
-  if (!industryFieldTemplate) return buildProductProductionConfigForm(config, product)
-  return buildProductProductionConfigForm(config, product, industryFieldTemplate)
+  return buildProductProductionConfigForm(config, product, industryFieldTemplatesForConfig(config))
 }
 
 function defaultChildSkuForm(product = {}) {
@@ -3386,8 +3401,9 @@ async function loadAll() {
     aliasClassificationTemplateUsages.value = (aliasUsageData.rows || []).map(decorateAliasClassificationTemplateUsage)
     businessGroups.value = Array.isArray(data.business_groups) ? data.business_groups : []
     businessGroupAssignments.value = Array.isArray(data.business_group_assignments) ? data.business_group_assignments : []
-    if (!selectedProductGroupTemplateID.value && productCatalogBusinessGroupRows().length) {
-      selectedProductGroupTemplateID.value = Number(productCatalogBusinessGroupRows()[0].id || 0)
+    const referencedProductGroups = productCatalogBusinessGroupRows()
+    if (!referencedProductGroups.some((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0))) {
+      selectedProductGroupTemplateID.value = Number(referencedProductGroups[0]?.id || 0)
     }
     productProductionConfigs.value = data.product_production_configs || []
     industryFieldTemplates.value = industryData?.rows || []
@@ -5544,7 +5560,11 @@ function toggleProductSelection(row, checked) {
 }
 
 function toggleAllProductRows(checked) {
-  selectedProductIds.value = checked ? editableDisplaySkuRows.value.map((row) => Number(row.id)).filter(Boolean) : []
+  selectedProductIds.value = selectedSkuRowIDsAfterVisibleToggle(
+    selectedProductIds.value,
+    editableDisplaySkuRows.value,
+    checked,
+  )
 }
 
 function handleSkuGroupPaginationChange(groupKey, { page, pageSize }) {
@@ -5992,6 +6012,13 @@ function fieldTypeLabel(type) {
   })[String(type || '').trim()] || '文本'
 }
 
+function industryFieldTemplateOptionLabel(template = {}) {
+  const name = String(template.name || '').trim() || `行业字段模板 #${Number(template.id || 0)}`
+  const priority = Number(template.selected_order || 0) > 0 ? `优先级 ${Number(template.selected_order)} · ` : ''
+  if (!template.unavailable) return `${priority}${name}`
+  return `${priority}${name}${String(template.status || '') === 'missing' ? '（不可用，可取消）' : '（已停用，可取消）'}`
+}
+
 async function selectProductProductionConfigBom(bom) {
   const bomID = Number((typeof bom === 'object' && bom !== null ? bom.id : bom) || 0)
   productProductionConfigForm.value.production_bom_id = bomID
@@ -6008,17 +6035,18 @@ function isCurrentProductProductionConfigOpen(generation, productID) {
     && currentProductID === Number(productID || 0)
 }
 
-function isCurrentProductProductionConfigIndustryProjection(generation, productID, industryFieldTemplateID) {
+function isCurrentProductProductionConfigIndustryProjection(generation, productID, industryFieldTemplateSignature) {
   return isCurrentProductProductionConfigOpen(generation, productID)
-    && Number(productProductionConfigForm.value.industry_field_template_id || 0) === Number(industryFieldTemplateID || 0)
+    && industryFieldTemplateIDsFromConfig(productProductionConfigForm.value).join(',') === String(industryFieldTemplateSignature || '')
 }
 
 async function openProductProductionConfig(row) {
   const openGeneration = ++productProductionConfigOpenGeneration
   const config = productProductionConfigByProductID(row?.id)
   const productID = Number(row?.id || config?.product_id || 0)
-  const industryFieldTemplateID = Number(config?.industry_field_template_id || 0)
-  const industryFieldTemplateAvailableAtOpen = Boolean(industryFieldTemplateForConfig(config))
+  const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(config)
+  const industryFieldTemplateSignature = industryFieldTemplateIDs.join(',')
+  const industryFieldTemplatesAvailableAtOpen = industryFieldTemplatesForConfig(config).length === industryFieldTemplateIDs.length
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(config, row)
   showProductProductionHistoricalSpecs.value = false
@@ -6032,12 +6060,12 @@ async function openProductProductionConfig(row) {
   error.value = ''
   try {
     let industryFieldTemplatesPromise = loadIndustryFieldTemplates()
-    if (!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0) {
+    if (!industryFieldTemplatesAvailableAtOpen && industryFieldTemplateIDs.length) {
       industryFieldTemplatesPromise = industryFieldTemplatesPromise.then(() => {
-        if (!isCurrentProductProductionConfigIndustryProjection(openGeneration, productID, industryFieldTemplateID)) return
-        productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+        if (!isCurrentProductProductionConfigIndustryProjection(openGeneration, productID, industryFieldTemplateSignature)) return
+        productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplates(
           config?.fields || [],
-          industryFieldTemplateForConfig(config),
+          industryFieldTemplatesForConfig(config),
         )
       })
     }
@@ -6069,19 +6097,20 @@ async function loadIndustryFieldTemplates() {
   industryFieldTemplates.value = data?.rows || []
 }
 
-function industryFieldTemplateForConfig(config = {}) {
-  const id = Number(config?.industry_field_template_id || 0)
-  if (!id) return null
-  return activeIndustryFieldTemplates.value.find((template) => Number(template.id || 0) === id)
-    || industryFieldTemplates.value.find((template) => Number(template.id || 0) === id)
-    || null
+function industryFieldTemplatesForConfig(config = {}) {
+  const templatesByID = new Map(industryFieldTemplates.value.map((template) => [Number(template.id || 0), template]))
+  return industryFieldTemplateIDsFromConfig(config)
+    .map((id) => templatesByID.get(Number(id || 0)))
+    .filter(Boolean)
 }
 
 function applyIndustryFieldTemplateToProductionConfig() {
-  const template = industryFieldTemplateForConfig(productProductionConfigForm.value)
-  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+  const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(productProductionConfigForm.value)
+  productProductionConfigForm.value.industry_field_template_ids = industryFieldTemplateIDs
+  productProductionConfigForm.value.industry_field_template_id = Number(industryFieldTemplateIDs[0] || 0)
+  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplates(
     productProductionConfigForm.value.fields || [],
-    template,
+    industryFieldTemplatesForConfig(productProductionConfigForm.value),
   )
 }
 
@@ -6423,10 +6452,10 @@ async function saveProductProductionConfig() {
     error.value = '预期损耗率必须在 0% 到 99.999% 之间'
     return
   }
-  const industryFieldTemplate = industryFieldTemplateForConfig(productProductionConfigForm.value)
-  const fields = productProductionConfigFieldsFromTemplate(
+  const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(productProductionConfigForm.value)
+  const fields = productProductionConfigFieldsFromTemplates(
     productProductionConfigForm.value.fields || [],
-    industryFieldTemplate,
+    industryFieldTemplatesForConfig(productProductionConfigForm.value),
   )
     .map((field, index) => normalizeProductProductionConfigFieldForSave(field, index))
     .filter((field) => field.label || field.value_text || field.value_number !== null || field.value_bool !== null)
@@ -6445,7 +6474,8 @@ async function saveProductProductionConfig() {
         production_bom_id: Number(productProductionConfigForm.value.production_bom_id || 0),
         production_bom_version_id: Number(productProductionConfigForm.value.production_bom_version_id || 0),
         process_route_id: Number(productProductionConfigForm.value.process_route_id || 0),
-        industry_field_template_id: Number(productProductionConfigForm.value.industry_field_template_id || 0),
+        industry_field_template_ids: industryFieldTemplateIDs,
+        industry_field_template_id: Number(industryFieldTemplateIDs[0] || 0),
         expected_loss_rate: Number(lossRate.toFixed(6)),
         note: String(productProductionConfigForm.value.note || '').trim(),
         fields,
@@ -7598,14 +7628,13 @@ watch(currentSkuSourceRows, () => {
   }
 }, { deep: true })
 
-watch(visibleDisplaySkuRows, (rows) => {
+watch(displaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
 watch(selectedProductGroupTemplateID, () => {
   selectedProductBusinessGroupItemID.value = 0
   if (restoringProductSettingsDraft) return
-  skuGroupPagination.value = {}
   saveProductSettingsDraft()
 })
 
@@ -8025,6 +8054,10 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-category-row, .classification-assignment-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .classification-assignment-row { grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); }
 .classification-view-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; flex-wrap: wrap; }
+.industry-template-selector { display: flex; align-items: center; justify-content: flex-end; gap: 8px 14px; flex-wrap: wrap; }
+.industry-template-option { white-space: nowrap; }
+.industry-template-option.unavailable { color: #9a3412; }
+.industry-template-priority-hint { flex-basis: 100%; text-align: right; }
 .classification-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .classification-tab { height: 32px; border-color: #d8cec2; background: #fff; color: #2f2a25; }
 .classification-tab.active { border-color: #1f1f1f; background: #1f1f1f; color: #fff; }
@@ -8037,6 +8070,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-subgroup-row td { background: #fbf7f1; }
 .classification-group-row strong { margin: 0 8px; }
 .classification-group-row small { color: #7c7064; }
+.classification-group-row .classification-template-label { display: inline-flex; margin-right: 8px; border: 1px solid #d9cec1; border-radius: 999px; padding: 2px 7px; background: #fff; color: #6b5f52; }
+.product-business-group-empty { justify-content: space-between; color: #6b6258; font-size: 13px; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
 .classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }
 .classification-pagination-row td { background: #fbf9f5; padding: 8px 16px 12px; }

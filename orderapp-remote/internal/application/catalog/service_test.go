@@ -37,6 +37,7 @@ type fakeRepo struct {
 	ruleBinding            CustomerProductRuleTemplateBindingCommand
 	configTemplate         SaveProductConfigTemplateCommand
 	productionConfig       SaveProductProductionConfigCommand
+	businessGroup          BusinessGroup
 	deleteConfig           DeleteProductConfigTemplateCommand
 	priceGroup             SaveProductPriceGroupCommand
 	deleteGroup            DeleteBusinessGroupCommand
@@ -143,15 +144,85 @@ func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int
 func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
 	r.productionConfig = cmd
 	return ProductProductionConfig{
-		ProductID:               cmd.ProductID,
-		ProductionBomID:         cmd.ProductionBomID,
-		ProductionBomVersionID:  cmd.ProductionBomVersionID,
-		ProcessRouteID:          cmd.ProcessRouteID,
-		ExpectedLossRate:        cmd.ExpectedLossRate,
-		IndustryFieldTemplateID: cmd.IndustryFieldTemplateID,
-		Note:                    cmd.Note,
-		Fields:                  cmd.Fields,
+		ProductID:                cmd.ProductID,
+		ProductionBomID:          cmd.ProductionBomID,
+		ProductionBomVersionID:   cmd.ProductionBomVersionID,
+		ProcessRouteID:           cmd.ProcessRouteID,
+		ExpectedLossRate:         cmd.ExpectedLossRate,
+		IndustryFieldTemplateID:  cmd.IndustryFieldTemplateID,
+		IndustryFieldTemplateIDs: cmd.IndustryFieldTemplateIDs,
+		Note:                     cmd.Note,
+		Fields:                   cmd.Fields,
 	}, nil
+}
+
+func TestPR584SaveProductProductionConfigNormalizesOrderedIndustryTemplateIDs(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	result, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:                91,
+		IndustryFieldTemplateID:  -9999,
+		IndustryFieldTemplateIDs: []int64{3002, 3001, 3002},
+		Fields: []ProductProductionConfigField{{
+			FieldKey: " roast_level ",
+			Label:    " Roast level ",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []int64{3002, 3001}
+	if !reflect.DeepEqual(repo.productionConfig.IndustryFieldTemplateIDs, want) {
+		t.Fatalf("saved industry_field_template_ids=%v, want %v", repo.productionConfig.IndustryFieldTemplateIDs, want)
+	}
+	if repo.productionConfig.IndustryFieldTemplateID != 3002 {
+		t.Fatalf("saved legacy industry_field_template_id=%d, want first selected id", repo.productionConfig.IndustryFieldTemplateID)
+	}
+	if !reflect.DeepEqual(result.IndustryFieldTemplateIDs, want) || result.IndustryFieldTemplateID != 3002 {
+		t.Fatalf("result templates=%v legacy=%d, want %v and 3002", result.IndustryFieldTemplateIDs, result.IndustryFieldTemplateID, want)
+	}
+}
+
+func TestPR584SaveProductProductionConfigExplicitEmptyTemplateIDsClearFields(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:                91,
+		IndustryFieldTemplateID:  3001,
+		IndustryFieldTemplateIDs: []int64{},
+		Fields:                   []ProductProductionConfigField{{FieldKey: "roast_level"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.productionConfig.IndustryFieldTemplateID != 0 || len(repo.productionConfig.IndustryFieldTemplateIDs) != 0 {
+		t.Fatalf("saved templates=%v legacy=%d, want explicit clear", repo.productionConfig.IndustryFieldTemplateIDs, repo.productionConfig.IndustryFieldTemplateID)
+	}
+	if repo.productionConfig.Fields == nil || len(repo.productionConfig.Fields) != 0 {
+		t.Fatalf("saved fields=%v, want non-nil empty fields", repo.productionConfig.Fields)
+	}
+}
+
+func TestPR584SaveProductProductionConfigOmittedTemplateIDsFallsBackToLegacyScalar(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:               91,
+		IndustryFieldTemplateID: 3001,
+		Fields:                  []ProductProductionConfigField{{FieldKey: "roast_level"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := repo.productionConfig.IndustryFieldTemplateIDs, []int64{3001}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved industry_field_template_ids=%v, want legacy fallback %v", got, want)
+	}
+	if repo.productionConfig.IndustryFieldTemplateID != 3001 || len(repo.productionConfig.Fields) != 1 {
+		t.Fatalf("saved legacy config=%+v", repo.productionConfig)
+	}
 }
 
 func TestSaveProductProductionConfigClearsFieldsWithoutIndustryTemplate(t *testing.T) {
@@ -248,10 +319,89 @@ func (r *fakeRepo) ListBusinessGroups(ctx context.Context) ([]BusinessGroup, err
 }
 
 func (r *fakeRepo) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error) {
+	r.businessGroup = cmd
 	if cmd.ID == 0 {
 		cmd.ID = 61
 	}
 	return cmd, nil
+}
+
+func TestPR584SaveBusinessGroupKeepsLegacyUsageWritesAndRequiresReplaceFlagToClear(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveBusinessGroup(context.Background(), BusinessGroup{
+		ID:   61,
+		Name: "商品分类模板",
+		Usages: []BusinessGroupUsage{
+			{UsageKey: " PRODUCT_CATALOG ", UsageLabel: " 商品档案 ", Active: true},
+			{UsageKey: BusinessGroupUsageMaterialCatalog, UsageLabel: "物料档案", Active: true},
+			{UsageKey: BusinessGroupUsageProductCatalog, UsageLabel: "重复", Active: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := repo.businessGroup.Usages, []BusinessGroupUsage{
+		{UsageKey: BusinessGroupUsageProductCatalog, UsageLabel: "商品档案", Active: true},
+		{UsageKey: BusinessGroupUsageMaterialCatalog, UsageLabel: "物料档案", Active: true},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved usages=%+v, want %+v", got, want)
+	}
+
+	_, err = service.SaveBusinessGroup(context.Background(), BusinessGroup{ID: 61, Name: "商品分类模板", Usages: []BusinessGroupUsage{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.businessGroup.Usages != nil {
+		t.Fatalf("legacy empty usages=%#v, want nil no-op for cached clients", repo.businessGroup.Usages)
+	}
+
+	_, err = service.SaveBusinessGroup(context.Background(), BusinessGroup{ID: 61, Name: "商品分类模板", ReplaceUsages: true, Usages: []BusinessGroupUsage{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.businessGroup.Usages == nil || len(repo.businessGroup.Usages) != 0 {
+		t.Fatalf("replace usages=%#v, want explicit non-nil empty slice", repo.businessGroup.Usages)
+	}
+}
+
+func TestPR584BusinessGroupUsageAllowlistAndAssignmentNormalization(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+	allUsageKeys := []string{
+		BusinessGroupUsageProductCatalog,
+		BusinessGroupUsageMaterialCatalog,
+		BusinessGroupUsageProductionBOM,
+		BusinessGroupUsageWarehouseInventory,
+		BusinessGroupUsagePriceList,
+	}
+	for _, usageKey := range allUsageKeys {
+		if err := service.EnsureBusinessGroupUsage(context.Background(), 61, " "+strings.ToUpper(usageKey)+" ", "tester"); err != nil {
+			t.Fatalf("supported usage %s rejected: %v", usageKey, err)
+		}
+	}
+
+	_, err := service.SaveBusinessGroupAssignment(context.Background(), BusinessGroupAssignment{
+		GroupID:     61,
+		GroupItemID: 62,
+		UsageKey:    " PRODUCT_CATALOG ",
+		ObjectKey:   " PRODUCT ",
+		ObjectID:    91,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.groupAssignment.UsageKey != BusinessGroupUsageProductCatalog || repo.groupAssignment.ObjectKey != "product" {
+		t.Fatalf("normalized assignment=%+v", repo.groupAssignment)
+	}
+
+	_, err = service.SaveBusinessGroupAssignment(context.Background(), BusinessGroupAssignment{
+		GroupID: 61, GroupItemID: 62, UsageKey: "unknown_usage", ObjectKey: "product", ObjectID: 91,
+	})
+	if err == nil || !IsValidationError(err) || err.Error() != "invalid business group usage" {
+		t.Fatalf("unsupported assignment usage err=%v", err)
+	}
 }
 
 func (r *fakeRepo) DeleteBusinessGroup(ctx context.Context, cmd DeleteBusinessGroupCommand) error {

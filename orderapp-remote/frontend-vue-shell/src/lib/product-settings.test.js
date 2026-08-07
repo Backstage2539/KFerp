@@ -28,6 +28,7 @@ import {
   industryFieldOptionsJSONFromText,
   industryFieldOptionsTextFromJSON,
   industryFieldSummary,
+  industryFieldTemplateOptionsForConfig,
   classificationTemplateTabs,
   groupRowsByClassificationCategory,
   buildCustomerPublicUsagePayload,
@@ -106,6 +107,7 @@ import {
   visibleNonDeletedRows,
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
+  selectedSkuRowIDsAfterVisibleToggle,
 } from './product-settings.js'
 
 const rows = [
@@ -1916,6 +1918,65 @@ test('product production config form keeps only current template industry fields
   assert.equal(legacyOnly.fields[0].value_text, '')
 })
 
+test('product production config form projects multiple industry templates in selected order with first-key wins', () => {
+  const roastTemplate = {
+    id: 2,
+    fields: [
+      { field_key: 'roast_level', label: '烘焙度', field_type: 'select', options_json: '["浅烘","深烘"]', sort_order: 1 },
+      { field_key: 'origin', label: '产地', field_type: 'text', sort_order: 2 },
+    ],
+  }
+  const packageTemplate = {
+    id: 3,
+    fields: [
+      { field_key: 'ROAST_LEVEL', label: '包装烘焙标识', field_type: 'text', sort_order: 1 },
+      { field_key: 'bag_count', label: '每盒袋数', field_type: 'number', sort_order: 2 },
+    ],
+  }
+  const form = buildProductProductionConfigForm({
+    product_id: 557,
+    industry_field_template_ids: [2, 3],
+    fields: [
+      { field_key: 'roast_level', template_field_key: 'roast_level', value_text: '深烘' },
+      { field_key: 'bag_count', template_field_key: 'bag_count', value_number: 10 },
+    ],
+  }, { id: 557, name: '挂耳拼配' }, [roastTemplate, packageTemplate])
+
+  assert.deepEqual(form.industry_field_template_ids, [2, 3])
+  assert.equal(form.industry_field_template_id, 2)
+  assert.deepEqual(form.fields.map((field) => [field.field_key, field.label]), [
+    ['roast_level', '烘焙度'],
+    ['origin', '产地'],
+    ['bag_count', '每盒袋数'],
+  ])
+  assert.equal(form.fields[0].value_text, '深烘')
+  assert.equal(form.fields[2].value_number, 10)
+
+  const legacy = buildProductProductionConfigForm({
+    product_id: 558,
+    industry_field_template_id: 3,
+    fields: [],
+  }, { id: 558 }, [packageTemplate])
+  assert.deepEqual(legacy.industry_field_template_ids, [3])
+})
+
+test('industry template selector puts selected templates first in first-wins order and keeps unavailable selections clearable', () => {
+  const options = industryFieldTemplateOptionsForConfig([
+    { id: 1, name: '咖啡豆字段', status: 'active', sort_order: 20 },
+    { id: 2, name: '旧挂耳字段', status: 'inactive', sort_order: 10 },
+    { id: 3, name: '包装字段', status: 'active', sort_order: 10 },
+  ], {
+    industry_field_template_ids: [2, 99],
+  })
+
+  assert.deepEqual(options.map((template) => [template.id, template.selected_order, template.unavailable, template.status]), [
+    [2, 1, true, 'inactive'],
+    [99, 2, true, 'missing'],
+    [3, 0, false, 'active'],
+    [1, 0, false, 'active'],
+  ])
+})
+
 test('product production config rejects label-only legacy industry field matches', () => {
   const roastTemplate = {
     id: 2,
@@ -2969,6 +3030,32 @@ test('visibleSkuGroupRows excludes collapsed categories from visible bulk select
   assert.deepEqual(visibleSkuGroupRows(groups, []).map((row) => row.id), [1, 2, 3])
 })
 
+test('visibleSkuGroupRows excludes descendants of a collapsed parent without collapsing siblings', () => {
+  const groups = [
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 1 }] },
+    { key: 'business-group-9-92', group_id: 9, group_item_id: 92, parent_group_item_id: 90, rows: [{ id: 2 }] },
+    { key: 'business-group-9-93', group_id: 9, group_item_id: 93, parent_group_item_id: 92, rows: [{ id: 3 }] },
+    { key: 'business-group-9-91', group_id: 9, group_item_id: 91, parent_group_item_id: 0, rows: [{ id: 4 }] },
+    { key: 'business-group-unclassified', group_id: 0, group_item_id: 0, parent_group_item_id: 0, rows: [{ id: 5 }] },
+  ]
+
+  assert.deepEqual(
+    visibleSkuGroupRows(groups, ['business-group-9-90']).map((row) => row.id),
+    [4, 5],
+  )
+  assert.deepEqual(
+    visibleSkuGroupRows(groups, ['business-group-9-92']).map((row) => row.id),
+    [1, 4, 5],
+  )
+})
+
+test('visible bulk selection preserves hidden descendant selections when a parent group is collapsed', () => {
+  const visibleRows = [{ id: 4 }, { id: 5 }]
+
+  assert.deepEqual(selectedSkuRowIDsAfterVisibleToggle([2], visibleRows, true), [2, 4, 5])
+  assert.deepEqual(selectedSkuRowIDsAfterVisibleToggle([2, 4, 5], visibleRows, false), [2])
+})
+
 test('category filter options are derived from current SKU rows', () => {
   assert.deepEqual(primaryCategoryOptions(rows), ['咖啡豆', '生豆'])
   assert.deepEqual(secondaryCategoryOptions(rows, '生豆'), ['单品生豆', '拼配生豆'])
@@ -3970,7 +4057,7 @@ test('SKU settings keeps only the product creation drawer while classification t
 
   for (const expected of [
     'productClassificationTabs',
-    'displaySkuGroups',
+    'renderedDisplaySkuGroups',
     '增加分类',
     '移动到分类',
     'classification-group-row',
@@ -3993,7 +4080,7 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
   assert.doesNotMatch(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
   assert.match(template, /<table :key="skuTableKey" class="sku-table"/)
-  assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
   assert.match(template, /\{\{ group\.total \}\} 款/)
   assert.match(template, /v-for="row in group\.rows"/)
   assert.match(template, /group\.needsPagination[\s\S]*<PaginationControls[\s\S]*handleSkuGroupPaginationChange\(group\.key, \$event\)/)
@@ -4007,10 +4094,14 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(script, /const normalizedSkuFilters = computed\(\(\) => normalizeVisibleSkuFilters\(skuFilters\.value, currentSkuSourceRows\.value\)\)/)
   assert.match(script, /const filteredSkuRows = computed\(\(\) => filterSkuRows\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\)\)/)
   assert.match(script, /const skuDisplayKey = computed/)
+  const skuDisplayKeyBlock = script.slice(script.indexOf('const skuDisplayKey = computed'), script.indexOf('const skuTableKey = computed'))
+  assert.doesNotMatch(skuDisplayKeyBlock, /selectedProductGroupTemplateID/)
   assert.match(script, /const skuTableKey = computed\(\(\) => `\$\{skuDisplayKey\.value\}:table`\)/)
-  assert.match(script, /const fullDisplaySkuGroups = computed\(\(\) => groupRowsByBusinessGroupTemplate\(filteredSkuRows\.value, \{/)
+  assert.match(script, /const fullDisplaySkuGroups = computed\(\(\) => groupRowsByBusinessGroupTemplates\(filteredSkuRows\.value, \{/)
+  assert.match(script, /templates: productCatalogBusinessGroups\.value/)
   assert.match(script, /const groupedSkuTableState = computed\(\(\) => skuGroupTableState\(fullDisplaySkuGroups\.value, skuGroupPagination\.value, \{/)
   assert.match(script, /const displaySkuGroups = computed\(\(\) => groupedSkuTableState\.value\.groups\)/)
+  assert.match(script, /const renderedDisplaySkuGroups = computed[\s\S]*skuGroupHiddenByCollapsedAncestor/)
   assert.match(script, /const displaySkuRows = computed\(\(\) => groupedSkuTableState\.value\.visibleRows\)/)
   assert.match(script, /const visibleDisplaySkuRows = computed\(\(\) => visibleSkuGroupRows\(displaySkuGroups\.value, collapsedProductClassificationGroups\.value\)\)/)
   assert.match(script, /const editableDisplaySkuRows = computed\(\(\) => visibleDisplaySkuRows\.value\.filter\(canEditSkuRow\)\)/)
@@ -4022,9 +4113,11 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(script, /function handleSkuGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
   assert.match(script, /function resetSkuGroupPages\(\) \{\s+if \(restoringProductSettingsDraft\) return/)
   assert.match(script, /watch\(skuFilters, resetSkuGroupPages, \{ deep: true \}\)/)
-  assert.match(script, /watch\(selectedProductGroupTemplateID, \(\) => \{\s+selectedProductBusinessGroupItemID\.value = 0\s+if \(restoringProductSettingsDraft\) return\s+skuGroupPagination\.value = \{\}/)
+  assert.match(script, /watch\(selectedProductGroupTemplateID, \(\) => \{\s+selectedProductBusinessGroupItemID\.value = 0\s+if \(restoringProductSettingsDraft\) return\s+saveProductSettingsDraft\(\)/)
   assert.match(script, /skuGroupPagination: skuGroupPagination\.value/)
-  assert.match(script, /watch\(visibleDisplaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
+  assert.match(script, /watch\(displaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
+  assert.doesNotMatch(script, /watch\(visibleDisplaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
+  assert.match(script, /function toggleAllProductRows\(checked\) \{\s+selectedProductIds\.value = selectedSkuRowIDsAfterVisibleToggle\(/)
   assert.doesNotMatch(script, /displaySkuRows\.value = pageState\.rows|const pageState = sliceVisibleSkuRows/)
   assert.match(script, /watch\(\[\s*publicSkuRows,\s*customerSkuRows,\s*skuFilters,\s*selectedCustomerSkuCustomerID,\s*\], syncVisibleSkuTableState, \{ deep: true, immediate: true \}\)/)
   assert.match(script, /applyWorkspaceCustomerContext\(\)\s+syncVisibleSkuTableState\(\)\s+pruneSelectedProducts\(displaySkuRows\.value\)/)
@@ -4081,7 +4174,7 @@ test('product list moves selected rows through business group assignments while 
     'productBusinessGroupItemOptions',
     'BusinessGroupControls',
     'businessGroupMoveAssignmentPayload',
-    'groupRowsByBusinessGroupTemplate',
+    'groupRowsByBusinessGroupTemplates',
   ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
@@ -4118,7 +4211,7 @@ test('product list moves selected rows through business group assignments while 
   assert.doesNotMatch(template, /classification-action-card/)
   assert.match(template, /product-filter-row[\s\S]*openProductDrawer[\s\S]*deactivateProducts/)
   assert.match(template, /alias-filter-row[\s\S]*openCustomerAliasCreateDrawer[\s\S]*batchDisableCustomerProductAliases/)
-  assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
   assert.match(template, /v-for="group in visibleCustomerAliasGroups"/)
   assert.match(style, /\.classification-group-row\s+td\s*\{/)
 })
@@ -4174,7 +4267,7 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(source, /productCatalogBusinessGroups/)
   assert.match(source, /businessGroupRowsForUsage/)
   assert.match(source, /businessGroupMoveAssignmentPayload/)
-  assert.match(source, /groupRowsByBusinessGroupTemplate/)
+  assert.match(source, /groupRowsByBusinessGroupTemplates/)
   assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
   assert.match(template, /data-pr442-product-group-assignments/)
   assert.match(template, /BusinessGroupControls/)
@@ -4190,7 +4283,7 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.doesNotMatch(template, /复制为客户分类/)
 })
 
-test('SKU table groups rows by selected business group template without product type columns', () => {
+test('SKU table groups rows by every referenced business group template without product type columns', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
@@ -4208,7 +4301,10 @@ test('SKU table groups rows by selected business group template without product 
   }
   assert.doesNotMatch(template, /<th class="sku-col-product-type">产品类型<\/th>/)
   assert.doesNotMatch(template, /<th class="sku-col-product-subtype">产品子类型<\/th>/)
-  assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
+  assert.match(template, /group\.template_label/)
+  assert.match(template, /v-if="productCatalogBusinessGroups\.length"/)
+  assert.match(template, /商品档案尚未引用分组模板，当前按全部商品平铺展示/)
   assert.match(template, /classification-group-toggle/)
   assert.match(style, /\.sku-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s)
   assert.match(style, /\.sku-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*1600px;/s)
@@ -4552,7 +4648,14 @@ test('product archive industry fields are generated from templates without ad-ho
 
   assert.ok(drawer, 'product archive config drawer should exist')
   assert.match(drawer, /行业字段/)
-  assert.match(drawer, /industry_field_template_id/)
+  assert.match(drawer, /industry_field_template_ids/)
+  assert.match(drawer, /type="checkbox"/)
+  assert.match(drawer, /productProductionConfigIndustryTemplateOptions/)
+  assert.match(drawer, /industryFieldTemplateOptionLabel\(template\)/)
+  assert.match(source, /已停用，可取消/)
+  assert.match(source, /不可用，可取消/)
+  assert.match(source, /优先级/)
+  assert.match(drawer, /勾选顺序决定同名字段优先级；取消后重新勾选可调整顺序/)
   assert.doesNotMatch(drawer, /行业字段值/)
   assert.doesNotMatch(drawer, /新增字段/)
   assert.doesNotMatch(drawer, /删除<\/button>/)
@@ -4560,7 +4663,7 @@ test('product archive industry fields are generated from templates without ad-ho
   assert.doesNotMatch(drawer, />类型</)
 })
 
-test('product archive displays and saves industry fields only through the selected template', () => {
+test('product archive displays and saves the ordered union of selected industry templates', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const sourceBetween = (start, end) => {
@@ -4576,31 +4679,32 @@ test('product archive displays and saves industry fields only through the select
   const closeBlock = sourceBetween('function closeProductProductionConfigDrawer(', 'async function refreshClassificationTemplates(')
   const saveBlock = sourceBetween('async function saveProductProductionConfig(', 'async function createSku(')
 
-  assert.match(listBlock, /const template = industryFieldTemplateForConfig\(config\)/)
-  assert.match(listBlock, /return productProductionConfigFieldsFromTemplate\(config\.fields \|\| \[\], template\)/)
-  assert.match(applyBlock, /const template = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
-  assert.match(applyBlock, /productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
-  assert.doesNotMatch(applyBlock, /if \(!template\) return/)
-  assert.match(saveBlock, /const industryFieldTemplate = industryFieldTemplateForConfig\(productProductionConfigForm\.value\)/)
-  assert.match(saveBlock, /const fields = productProductionConfigFieldsFromTemplate/)
+  assert.match(listBlock, /productProductionConfigFieldsFromTemplates\(config\.fields \|\| \[\], industryFieldTemplatesForConfig\(config\)\)/)
+  assert.match(applyBlock, /const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig\(productProductionConfigForm\.value\)/)
+  assert.match(applyBlock, /productProductionConfigForm\.value\.industry_field_template_ids = industryFieldTemplateIDs/)
+  assert.match(applyBlock, /productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplates/)
+  assert.match(saveBlock, /const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig\(productProductionConfigForm\.value\)/)
+  assert.match(saveBlock, /const fields = productProductionConfigFieldsFromTemplates/)
+  assert.match(saveBlock, /industry_field_template_ids: industryFieldTemplateIDs/)
 
   assert.match(script, /^let productProductionConfigOpenGeneration = 0$/m)
   assert.match(openBlock, /const openGeneration = \+\+productProductionConfigOpenGeneration/)
   assert.match(openBlock, /const productID = Number\(row\?\.id \|\| config\?\.product_id \|\| 0\)/)
-  assert.match(openBlock, /const industryFieldTemplateID = Number\(config\?\.industry_field_template_id \|\| 0\)/)
-  assert.match(openBlock, /const industryFieldTemplateAvailableAtOpen = Boolean\(industryFieldTemplateForConfig\(config\)\)/)
+  assert.match(openBlock, /const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig\(config\)/)
+  assert.match(openBlock, /const industryFieldTemplateSignature = industryFieldTemplateIDs\.join\(','\)/)
+  assert.match(openBlock, /const industryFieldTemplatesAvailableAtOpen = industryFieldTemplatesForConfig\(config\)\.length === industryFieldTemplateIDs\.length/)
   assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)/)
-  assert.match(openBlock, /if \(!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0\) \{\s*industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then/)
-  assert.match(openBlock, /industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then\(\(\) => \{[\s\S]*?isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateID\)[\s\S]*?productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplate/)
+  assert.match(openBlock, /if \(!industryFieldTemplatesAvailableAtOpen && industryFieldTemplateIDs\.length\) \{\s*industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then/)
+  assert.match(openBlock, /industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then\(\(\) => \{[\s\S]*?isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateSignature\)[\s\S]*?productProductionConfigForm\.value\.fields = productProductionConfigFieldsFromTemplates/)
   assert.match(openBlock, /let industryFieldTemplatesPromise = loadIndustryFieldTemplates\(\)[\s\S]*?industryFieldTemplatesPromise = industryFieldTemplatesPromise\.then[\s\S]*?await Promise\.all\(/)
   assert.match(openBlock, /Promise\.all\(\[[\s\S]*?industryFieldTemplatesPromise,[\s\S]*?\]\)/)
   assert.doesNotMatch(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*productProductionConfigForm\.value\.fields\s*=/)
   assert.match(openBlock, /await Promise\.all\([\s\S]*?\]\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return\s*await ensureProductBomUsage\(productID\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return/)
   assert.match(openBlock, /await ensureProductionBomDetail\(productProductionConfigForm\.value\.production_bom_id\)\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return/)
   assert.match(openBlock, /catch \(err\) \{\s*if \(!isCurrentProductProductionConfigOpen\(openGeneration, productID\)\) return\s*error\.value =/)
-  assert.equal((openBlock.match(/isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateID\)/g) || []).length, 1)
+  assert.equal((openBlock.match(/isCurrentProductProductionConfigIndustryProjection\(openGeneration, productID, industryFieldTemplateSignature\)/g) || []).length, 1)
   assert.equal((openBlock.match(/isCurrentProductProductionConfigOpen\(openGeneration, productID\)/g) || []).length, 4)
-  assert.doesNotMatch(openBlock, /isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateID\)/)
+  assert.doesNotMatch(openBlock, /isCurrentProductProductionConfigOpen\(openGeneration, productID, industryFieldTemplateSignature\)/)
   assert.doesNotMatch(openBlock, /\t/)
 
   const drawerGuardBlock = sourceBetween('function isCurrentProductProductionConfigOpen(', 'function isCurrentProductProductionConfigIndustryProjection(')
@@ -4608,9 +4712,9 @@ test('product archive displays and saves industry fields only through the select
   assert.match(drawerGuardBlock, /generation === productProductionConfigOpenGeneration/)
   assert.match(drawerGuardBlock, /productProductionConfigDrawerOpen\.value/)
   assert.match(drawerGuardBlock, /currentProductID === Number\(productID \|\| 0\)/)
-  assert.doesNotMatch(drawerGuardBlock, /industryFieldTemplateID|industry_field_template_id/)
+  assert.doesNotMatch(drawerGuardBlock, /industryFieldTemplateIDs|industry_field_template_ids/)
   assert.match(projectionGuardBlock, /isCurrentProductProductionConfigOpen\(generation, productID\)/)
-  assert.match(projectionGuardBlock, /industry_field_template_id \|\| 0\) === Number\(industryFieldTemplateID \|\| 0\)/)
+  assert.match(projectionGuardBlock, /industryFieldTemplateIDsFromConfig\(productProductionConfigForm\.value\)\.join\(','\) === String\(industryFieldTemplateSignature \|\| ''\)/)
   assert.match(closeBlock, /productProductionConfigOpenGeneration \+= 1\s*productProductionConfigDrawerOpen\.value = false/)
 })
 
@@ -4629,7 +4733,7 @@ test('product settings uses product business groups instead of product classific
     'selectedProductBusinessGroupItemID',
     'saveSelectedProductBusinessGroupAssignment',
     'BusinessGroupControls',
-    'groupRowsByBusinessGroupTemplate',
+    'groupRowsByBusinessGroupTemplates',
     'businessGroupMoveAssignmentPayload',
     'data-pr442-product-group-assignments',
 	  ]) {
@@ -4909,7 +5013,7 @@ test('product archive grouping is template-driven without category tabs or categ
   )
 
   assert.match(source, /BusinessGroupControls/)
-  assert.match(source, /groupRowsByBusinessGroupTemplate/)
+  assert.match(source, /groupRowsByBusinessGroupTemplates/)
   assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
   assert.doesNotMatch(productArchiveBlock, /<div v-if="selectedProductGroupTemplate" class="classification-tabs">/)
