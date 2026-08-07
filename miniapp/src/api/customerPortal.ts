@@ -540,10 +540,28 @@ export type DirectShipRequest = {
   city?: string
   district?: string
   detail_address: string
+  recipient_company?: string
   items: ProcessingTargetItem[]
   packages?: DirectShipPackage[]
   created_at: string
   note?: string
+}
+
+export type DirectShipRequestListFilters = {
+  q?: string
+  shipped_from?: string
+  shipped_to?: string
+  page?: number
+  limit?: number
+}
+
+export type DirectShipRequestListResponse = {
+  rows: DirectShipRequest[]
+  total: number
+  total_pages: number
+  page: number
+  limit: number
+  has_next?: boolean
 }
 
 export type DirectShipPreview = {
@@ -562,6 +580,21 @@ export type CustomerInventorySummary = {
   reserved_qty: number
   total_qty: number
   warehouses: string[]
+}
+
+export type CustomerInventoryListFilters = {
+  q?: string
+  page?: number
+  limit?: number
+}
+
+export type CustomerInventoryListResponse = {
+  rows: CustomerInventorySummary[]
+  total: number
+  total_pages: number
+  page: number
+  limit: number
+  has_next?: boolean
 }
 
 export type CustomerInventoryBatch = {
@@ -1245,8 +1278,22 @@ export function buildDirectShipCatalogPath(): string {
   return '/api/mini/direct-ship/catalog'
 }
 
-export function buildDirectShipRequestsPath(): string {
-  return '/api/mini/direct-ship/requests'
+export function buildDirectShipRequestsPath(filters: DirectShipRequestListFilters = {}): string {
+  const query = String(filters.q || '').trim().replace(/\s+/g, ' ')
+  const shippedFrom = String(filters.shipped_from || '').trim()
+  const shippedTo = String(filters.shipped_to || '').trim()
+  const page = Math.trunc(Number(filters.page || 0))
+  const limit = Math.trunc(Number(filters.limit || 0))
+  const params: Array<[string, string | number]> = []
+  if (query) params.push(['q', query])
+  if (shippedFrom) params.push(['shipped_from', shippedFrom])
+  if (shippedTo) params.push(['shipped_to', shippedTo])
+  if (page > 0) params.push(['page', page])
+  if (limit > 0) params.push(['limit', limit])
+  const suffix = params.length
+    ? `?${params.map(([name, value]) => `${name}=${encodeURIComponent(String(value))}`).join('&')}`
+    : ''
+  return `/api/mini/direct-ship/requests${suffix}`
 }
 
 export function buildDirectShipRequestDetailPath(requestID: number): string {
@@ -1265,8 +1312,18 @@ export function buildProcessingRequestDetailPath(requestID: number): string {
   return `${buildProcessingRequestsPath()}/${Number(requestID || 0)}`
 }
 
-export function buildCustomerInventoryPath(): string {
-  return '/api/mini/customer-inventory'
+export function buildCustomerInventoryPath(filters: CustomerInventoryListFilters = {}): string {
+  const query = String(filters.q || '').trim().replace(/\s+/g, ' ')
+  const page = Math.trunc(Number(filters.page || 0))
+  const limit = Math.trunc(Number(filters.limit || 0))
+  const params: Array<[string, string | number]> = []
+  if (query) params.push(['q', query])
+  if (page > 0) params.push(['page', page])
+  if (limit > 0) params.push(['limit', limit])
+  const suffix = params.length
+    ? `?${params.map(([name, value]) => `${name}=${encodeURIComponent(String(value))}`).join('&')}`
+    : ''
+  return `/api/mini/customer-inventory${suffix}`
 }
 
 export function buildCustomerInventoryBatchesPath(productID: number, specG = 0): string {
@@ -1431,8 +1488,11 @@ export function createDirectShipRequest(token: string, payload: DirectShipReques
   })
 }
 
-export function fetchDirectShipRequests(token: string): Promise<{ rows: DirectShipRequest[] }> {
-  return miniRequest<{ rows: DirectShipRequest[] }>(buildDirectShipRequestsPath(), { token })
+export function fetchDirectShipRequests(
+  token: string,
+  filters: DirectShipRequestListFilters = {},
+): Promise<DirectShipRequestListResponse> {
+  return miniRequest<DirectShipRequestListResponse>(buildDirectShipRequestsPath(filters), { token })
 }
 
 export function fetchDirectShipRequestDetail(token: string, requestID: number): Promise<{ request: DirectShipRequest }> {
@@ -1446,8 +1506,11 @@ export function cancelDirectShipRequest(token: string, requestID: number): Promi
   })
 }
 
-export function fetchCustomerInventory(token: string): Promise<{ rows: CustomerInventorySummary[] }> {
-  return miniRequest<{ rows: CustomerInventorySummary[] }>(buildCustomerInventoryPath(), { token })
+export function fetchCustomerInventory(
+  token: string,
+  filters: CustomerInventoryListFilters = {},
+): Promise<CustomerInventoryListResponse> {
+  return miniRequest<CustomerInventoryListResponse>(buildCustomerInventoryPath(filters), { token })
 }
 
 export function fetchCustomerInventoryBatches(

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var (
@@ -114,6 +115,24 @@ type MiniDirectShipRequest struct {
 	Note             string                      `json:"note,omitempty"`
 }
 
+type MiniDirectShipListQuery struct {
+	CustomerID  int64
+	Q           string
+	ShippedFrom string
+	ShippedTo   string
+	Page        int
+	Limit       int
+}
+
+type MiniDirectShipListResult struct {
+	Rows       []MiniDirectShipRequest `json:"rows"`
+	Total      int                     `json:"total"`
+	Page       int                     `json:"page"`
+	Limit      int                     `json:"limit"`
+	TotalPages int                     `json:"total_pages"`
+	HasNext    bool                    `json:"has_next"`
+}
+
 type CustomerInventorySummary struct {
 	ProductID       int64    `json:"product_id"`
 	ProductName     string   `json:"product_name"`
@@ -124,6 +143,23 @@ type CustomerInventorySummary struct {
 	ReservedQty     int64    `json:"reserved_qty"`
 	TotalQty        int64    `json:"total_qty"`
 	Warehouses      []string `json:"warehouses"`
+}
+
+type CustomerInventoryListQuery struct {
+	CustomerID int64
+	Q          string
+	Page       int
+	Limit      int
+	LegacyAll  bool
+}
+
+type CustomerInventoryListResult struct {
+	Rows       []CustomerInventorySummary `json:"rows"`
+	Total      int                        `json:"total"`
+	Page       int                        `json:"page"`
+	Limit      int                        `json:"limit"`
+	TotalPages int                        `json:"total_pages"`
+	HasNext    bool                       `json:"has_next"`
 }
 
 type CustomerInventoryBatch struct {
@@ -149,7 +185,7 @@ type MiniDirectShipRepository interface {
 	MiniDirectShipCatalog(context.Context, MiniDirectShipCatalogQuery) (MiniDirectShipCatalog, error)
 	PreviewMiniDirectShip(context.Context, MiniDirectShipCommand) (MiniDirectShipPreview, error)
 	SubmitMiniDirectShip(context.Context, MiniDirectShipCommand) (MiniDirectShipRequest, error)
-	ListMiniDirectShipRequests(context.Context, int64, int) ([]MiniDirectShipRequest, error)
+	ListMiniDirectShipRequests(context.Context, MiniDirectShipListQuery) (MiniDirectShipListResult, error)
 	GetMiniDirectShipRequest(context.Context, int64, int64) (MiniDirectShipRequest, error)
 	CancelMiniDirectShipRequest(context.Context, int64, int64, string) (MiniDirectShipRequest, error)
 	ListCustomerCentralInventory(context.Context, int64) ([]CustomerInventorySummary, error)
@@ -201,18 +237,51 @@ func (s *Service) SubmitMiniDirectShip(ctx context.Context, cmd MiniDirectShipCo
 	return repo.SubmitMiniDirectShip(ctx, cmd)
 }
 
-func (s *Service) ListMiniDirectShipRequests(ctx context.Context, customerID int64, limit int) ([]MiniDirectShipRequest, error) {
-	if customerID <= 0 {
-		return nil, fmt.Errorf("customer required")
-	}
-	if limit <= 0 || limit > 100 {
-		limit = 50
+func (s *Service) ListMiniDirectShipRequests(ctx context.Context, query MiniDirectShipListQuery) (MiniDirectShipListResult, error) {
+	query, err := normalizeMiniDirectShipListQuery(query)
+	if err != nil {
+		return MiniDirectShipListResult{}, err
 	}
 	repo, err := s.miniDirectShipRepository()
 	if err != nil {
-		return nil, err
+		return MiniDirectShipListResult{}, err
 	}
-	return repo.ListMiniDirectShipRequests(ctx, customerID, limit)
+	return repo.ListMiniDirectShipRequests(ctx, query)
+}
+
+func normalizeMiniDirectShipListQuery(query MiniDirectShipListQuery) (MiniDirectShipListQuery, error) {
+	if query.CustomerID <= 0 {
+		return MiniDirectShipListQuery{}, fmt.Errorf("customer required")
+	}
+	query.Q = strings.Join(strings.Fields(strings.TrimSpace(query.Q)), " ")
+	query.ShippedFrom = strings.TrimSpace(query.ShippedFrom)
+	query.ShippedTo = strings.TrimSpace(query.ShippedTo)
+	var from, to time.Time
+	var err error
+	if query.ShippedFrom != "" {
+		from, err = time.Parse("2006-01-02", query.ShippedFrom)
+		if err != nil {
+			return MiniDirectShipListQuery{}, fmt.Errorf("shipped_from invalid")
+		}
+	}
+	if query.ShippedTo != "" {
+		to, err = time.Parse("2006-01-02", query.ShippedTo)
+		if err != nil {
+			return MiniDirectShipListQuery{}, fmt.Errorf("shipped_to invalid")
+		}
+	}
+	if !from.IsZero() && !to.IsZero() && from.After(to) {
+		return MiniDirectShipListQuery{}, fmt.Errorf("shipment date range invalid")
+	}
+	if query.Page <= 0 {
+		query.Page = 1
+	}
+	if query.Limit <= 0 {
+		query.Limit = 50
+	} else if query.Limit > 100 {
+		query.Limit = 100
+	}
+	return query, nil
 }
 
 func (s *Service) GetMiniDirectShipRequest(ctx context.Context, customerID, requestID int64) (MiniDirectShipRequest, error) {
@@ -237,15 +306,91 @@ func (s *Service) CancelMiniDirectShipRequest(ctx context.Context, customerID, r
 	return repo.CancelMiniDirectShipRequest(ctx, customerID, requestID, strings.TrimSpace(actor))
 }
 
-func (s *Service) ListCustomerCentralInventory(ctx context.Context, customerID int64) ([]CustomerInventorySummary, error) {
-	if customerID <= 0 {
-		return nil, fmt.Errorf("customer required")
+func (s *Service) ListCustomerCentralInventory(ctx context.Context, query CustomerInventoryListQuery) (CustomerInventoryListResult, error) {
+	query, err := normalizeCustomerInventoryListQuery(query)
+	if err != nil {
+		return CustomerInventoryListResult{}, err
 	}
 	repo, err := s.miniDirectShipRepository()
 	if err != nil {
-		return nil, err
+		return CustomerInventoryListResult{}, err
 	}
-	return repo.ListCustomerCentralInventory(ctx, customerID)
+	rows, err := repo.ListCustomerCentralInventory(ctx, query.CustomerID)
+	if err != nil {
+		return CustomerInventoryListResult{}, err
+	}
+	return customerInventoryListResult(rows, query), nil
+}
+
+func normalizeCustomerInventoryListQuery(query CustomerInventoryListQuery) (CustomerInventoryListQuery, error) {
+	if query.CustomerID <= 0 {
+		return CustomerInventoryListQuery{}, fmt.Errorf("customer required")
+	}
+	query.Q = normalizedCustomerInventorySearch(query.Q)
+	if query.LegacyAll {
+		query.Page = 1
+		query.Limit = 0
+		return query, nil
+	}
+	if query.Page <= 0 {
+		query.Page = 1
+	}
+	if query.Limit <= 0 {
+		query.Limit = 20
+	} else if query.Limit > 100 {
+		query.Limit = 100
+	}
+	return query, nil
+}
+
+func customerInventoryListResult(rows []CustomerInventorySummary, query CustomerInventoryListQuery) CustomerInventoryListResult {
+	filtered := make([]CustomerInventorySummary, 0, len(rows))
+	for _, row := range rows {
+		if query.Q != "" && !strings.Contains(normalizedCustomerInventorySearch(row.ProductName), query.Q) {
+			continue
+		}
+		filtered = append(filtered, row)
+	}
+	total := len(filtered)
+	if query.LegacyAll {
+		limit := total
+		if limit <= 0 {
+			limit = 1
+		}
+		totalPages := 0
+		if total > 0 {
+			totalPages = 1
+		}
+		return CustomerInventoryListResult{
+			Rows: filtered, Total: total, Page: 1, Limit: limit, TotalPages: totalPages,
+		}
+	}
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + query.Limit - 1) / query.Limit
+		if query.Page > totalPages {
+			query.Page = totalPages
+		}
+	} else {
+		query.Page = 1
+	}
+	offset := (query.Page - 1) * query.Limit
+	end := offset + query.Limit
+	if end > total {
+		end = total
+	}
+	return CustomerInventoryListResult{
+		Rows:       append([]CustomerInventorySummary(nil), filtered[offset:end]...),
+		Total:      total,
+		Page:       query.Page,
+		Limit:      query.Limit,
+		TotalPages: totalPages,
+		HasNext:    query.Page < totalPages,
+	}
+}
+
+func normalizedCustomerInventorySearch(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), ""))
 }
 
 func (s *Service) ListCustomerCentralInventoryBatches(ctx context.Context, customerID, productID, specG int64) ([]CustomerInventoryBatch, error) {

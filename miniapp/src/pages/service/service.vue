@@ -37,6 +37,7 @@ import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vu
 import CustomerInventoryPanel from '../../components/CustomerInventoryPanel.vue'
 import CustomerProcessingPanel from '../../components/CustomerProcessingPanel.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
 import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
 import {
@@ -46,6 +47,7 @@ import {
   type BeanListPageCacheRecord,
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
+import type { ProcessingPrefillItem } from '../../utils/customerInventory'
 import { priceTableGroupLabel } from '../../utils/customerProducts'
 import { openMiniappFileOutput } from '../../utils/fileOutput'
 import { buildResaleBeanListPublishPayload, defaultResaleBeanListDraft, resaleBeanListItemKey, resaleCardsPerRowOptions, resaleStyleColorPresets } from '../../utils/resaleBeanList'
@@ -74,6 +76,7 @@ type PickerOption<T = unknown> = {
 }
 
 const session = useSessionStore()
+const processingPrefill = useProcessingPrefillStore()
 const serviceKey = ref<ServiceKey>('beanList')
 const page = ref<ServicePageResponse | null>(null)
 const loading = ref(false)
@@ -100,7 +103,7 @@ const defaultShipStatusOptions = ['未发货', '待发货', '已发货']
 const fulfillmentForm = ref(emptyFulfillmentForm())
 const prefillProductID = ref(0)
 const prefillSpecG = ref(0)
-const closedLoopRefreshKey = ref(0)
+const processingPrefillItems = ref<ProcessingPrefillItem[]>([])
 
 const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
 const title = computed(() => {
@@ -270,6 +273,12 @@ function resetLocalForms() {
   customerCategoryName.value = ''
   selectedCustomerCategoryID.value = 0
   categoryNameEdits.value = {}
+}
+
+function clearProcessingPrefill() {
+  processingPrefillItems.value = []
+  prefillProductID.value = 0
+  prefillSpecG.value = 0
 }
 
 async function applyOrderFilters() {
@@ -843,6 +852,9 @@ onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
   prefillProductID.value = Number(query?.product_id || 0)
   prefillSpecG.value = Number(query?.spec_g || 0)
+  processingPrefillItems.value = serviceKey.value === 'processing'
+    ? processingPrefill.consume(session.currentCustomerID)
+    : []
   orderSearch.value = emptyOrderSearch()
   const keyword = String(query?.q || '').trim()
   if (keyword) {
@@ -851,7 +863,6 @@ onLoad((query) => {
 })
 
 onShow(() => {
-  if (isClosedLoopService.value) closedLoopRefreshKey.value += 1
   void loadPage()
 })
 </script>
@@ -876,27 +887,34 @@ onShow(() => {
 
       <CustomerDirectShipPanel
         v-if="serviceKey === 'directShip'"
-        :key="`direct-ship-create:${closedLoopRefreshKey}`"
+        :key="`direct-ship-create:${session.currentCustomerID}`"
         :token="session.token"
         :customer-id="session.currentCustomerID"
       />
       <CustomerDirectShipPanel
         v-else-if="serviceKey === 'orders' && isProcessingCustomer"
-        :key="`fulfillment-center:${closedLoopRefreshKey}`"
+        :key="`fulfillment-center:${session.currentCustomerID}`"
         :token="session.token"
         :customer-id="session.currentCustomerID"
         :show-create="false"
       />
       <CustomerProcessingPanel
         v-else-if="serviceKey === 'processing'"
-        :key="`processing:${closedLoopRefreshKey}`"
+        :key="`processing:${session.currentCustomerID}`"
         :token="session.token"
         :customer-id="session.currentCustomerID"
         :prefill-product-id="prefillProductID"
         :prefill-spec-g="prefillSpecG"
+        :prefill-items="processingPrefillItems"
+        @prefill-consumed="clearProcessingPrefill"
       />
-      <CustomerInventoryPanel v-else-if="serviceKey === 'inventory'" :key="`inventory:${closedLoopRefreshKey}`" :token="session.token" />
-      <CustomerBillsPanel v-else-if="serviceKey === 'settlement'" :key="`settlement:${closedLoopRefreshKey}`" :token="session.token" />
+      <CustomerInventoryPanel
+        v-else-if="serviceKey === 'inventory'"
+        :key="`inventory:${session.currentCustomerID}`"
+        :token="session.token"
+        :customer-id="session.currentCustomerID"
+      />
+      <CustomerBillsPanel v-else-if="serviceKey === 'settlement'" :key="`settlement:${session.currentCustomerID}`" :token="session.token" />
 
       <template v-if="!isClosedLoopService">
 

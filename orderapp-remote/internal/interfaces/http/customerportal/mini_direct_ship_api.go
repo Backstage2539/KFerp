@@ -18,10 +18,10 @@ type MiniCustomerFulfillment interface {
 	MiniDirectShipCatalog(context.Context, customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error)
 	PreviewMiniDirectShip(context.Context, customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipPreview, error)
 	SubmitMiniDirectShip(context.Context, customerfulfillmentapp.MiniDirectShipCommand) (customerfulfillmentapp.MiniDirectShipRequest, error)
-	ListMiniDirectShipRequests(context.Context, int64, int) ([]customerfulfillmentapp.MiniDirectShipRequest, error)
+	ListMiniDirectShipRequests(context.Context, customerfulfillmentapp.MiniDirectShipListQuery) (customerfulfillmentapp.MiniDirectShipListResult, error)
 	GetMiniDirectShipRequest(context.Context, int64, int64) (customerfulfillmentapp.MiniDirectShipRequest, error)
 	CancelMiniDirectShipRequest(context.Context, int64, int64, string) (customerfulfillmentapp.MiniDirectShipRequest, error)
-	ListCustomerCentralInventory(context.Context, int64) ([]customerfulfillmentapp.CustomerInventorySummary, error)
+	ListCustomerCentralInventory(context.Context, customerfulfillmentapp.CustomerInventoryListQuery) (customerfulfillmentapp.CustomerInventoryListResult, error)
 	ListCustomerCentralInventoryBatches(context.Context, int64, int64, int64) ([]customerfulfillmentapp.CustomerInventoryBatch, error)
 }
 
@@ -93,12 +93,20 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if fulfillment == nil {
 			return miniInternalError(c)
 		}
+		page, _ := strconv.Atoi(c.QueryParam("page"))
 		limit, _ := strconv.Atoi(c.QueryParam("limit"))
-		rows, err := fulfillment.ListMiniDirectShipRequests(c.Request().Context(), current.CurrentCustomerID, limit)
+		result, err := fulfillment.ListMiniDirectShipRequests(c.Request().Context(), customerfulfillmentapp.MiniDirectShipListQuery{
+			CustomerID:  current.CurrentCustomerID,
+			Q:           c.QueryParam("q"),
+			ShippedFrom: c.QueryParam("shipped_from"),
+			ShippedTo:   c.QueryParam("shipped_to"),
+			Page:        page,
+			Limit:       limit,
+		})
 		if err != nil {
 			return miniCustomerFulfillmentError(c, err)
 		}
-		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+		return c.JSON(http.StatusOK, result)
 	})
 
 	e.GET("/api/mini/direct-ship/requests/:id", func(c echo.Context) error {
@@ -147,11 +155,22 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if fulfillment == nil {
 			return miniInternalError(c)
 		}
-		rows, err := fulfillment.ListCustomerCentralInventory(c.Request().Context(), current.CurrentCustomerID)
+		rawPage := strings.TrimSpace(c.QueryParam("page"))
+		rawLimit := strings.TrimSpace(c.QueryParam("limit"))
+		page, _ := strconv.Atoi(rawPage)
+		limit, _ := strconv.Atoi(rawLimit)
+		queryText := c.QueryParam("q")
+		result, err := fulfillment.ListCustomerCentralInventory(c.Request().Context(), customerfulfillmentapp.CustomerInventoryListQuery{
+			CustomerID: current.CurrentCustomerID,
+			Q:          queryText,
+			Page:       page,
+			Limit:      limit,
+			LegacyAll:  strings.TrimSpace(queryText) == "" && rawPage == "" && rawLimit == "",
+		})
 		if err != nil {
 			return miniCustomerFulfillmentError(c, err)
 		}
-		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+		return c.JSON(http.StatusOK, result)
 	})
 
 	e.GET("/api/mini/customer-inventory/:product_id/batches", func(c echo.Context) error {
@@ -220,7 +239,14 @@ func miniCustomerFulfillmentActor(current customerportalapp.CurrentContext) stri
 }
 
 func miniCustomerFulfillmentError(c echo.Context, err error) error {
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
+	case strings.Contains(message, "shipped_from invalid"):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货开始日期格式不正确，请使用 YYYY-MM-DD"})
+	case strings.Contains(message, "shipped_to invalid"):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货结束日期格式不正确，请使用 YYYY-MM-DD"})
+	case strings.Contains(message, "shipment date range invalid"):
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "发货开始日期不能晚于结束日期"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipStockInsufficient):
 		return c.JSON(http.StatusConflict, map[string]string{"error": "当前客户成品仓库存不足，无法提交发货"})
 	case errors.Is(err, customerfulfillmentapp.ErrMiniDirectShipIdempotency):

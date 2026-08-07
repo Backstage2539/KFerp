@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-582-MINI-FULFILLMENT-LIST-INVENTORY-NAVIGATION
+- Branch: codex/mini-fulfillment-search-inventory-multiselect-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: implementation RED/GREEN complete; integration and development delivery pending; Van acceptance todo
+- Scope: 优化代加工客户小程序发货中心和我的库存：发货条目以目的地与收件人为主标题，支持包裹有效发货时间与客户/电话/目的地搜索；库存详情改为独立页面，列表支持商品搜索和多选后一次预填生产工单。
+- DEV:
+  - DEV-582-DIRECT-SHIP-LIST：发货中心按包裹有效发货时间提供当天、三天内、一周内、当月和自定义范围筛选；按收件客户/收件公司、收件人、电话和目的地服务端模糊搜索，并返回标准分页元数据。有效时间优先真实 `shipped_at`，历史/订单抽屉物流缺少该时间时兼容使用首条物流录入时间。
+  - DEV-582-INVENTORY-DETAIL：库存卡片进入独立详情页，使用微信原生导航栈返回；详情展示汇总与批次追溯并可添加生产工单。
+  - DEV-582-INVENTORY-MULTI-PREFILL：库存列表支持商品名称服务端搜索、分页和跨搜索/跨页多选且选中项不丢失；多项通过一次性内存上下文进入生产工单并分别填数量，未配置可用 BOM 的商品明确提示。
+  - DEV-582-DOCS-ACCEPTANCE-DEPLOY：同步需求、验收、客户门户/履约/库存手册，完成测试、开发构建、develop 合并与 development 部署。
+- Verifier:
+  - RED: 发货卡片仍显示 `DSR-*`，列表 API 无有效发货时间/关键词/分页参数；库存详情内嵌且生产预填只支持单项并可能重复消费。
+  - Unit/API: customer fulfillment 应用、HTTP、PostgreSQL筛选分页测试；miniapp 发货筛选、库存导航、多选和一次性预填测试。
+  - Frontend/build: miniapp targeted/full tests、typecheck、development mp-weixin build、页面清单与微信开发者工具交互验收。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_STOCK.md`。
+- Deployment: pending; target is `develop`, development ERP and本地微信开发者工具开发包。`main`, production and WeChat upload/review are out of scope.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 每个包裹优先取最新非空 `order_shipment_orders.shipped_at`；历史/订单抽屉物流没有真实时间时取最早 `order_shipping_trackings.created_at` 作为兼容有效时间。任一包裹按 Asia/Shanghai 自然日命中即返回整张申请及全部包裹；启用时间筛选时无有效时间的记录不命中。新增筛选、导航和预填只读交互不新增操作日志类型；最终生产申请继续沿用既有审计写接口。
+
 ### PR-581-MINI-CUSTOMER-FULFILLMENT-CLOSED-LOOP
 - Branch: codex/mini-customer-fulfillment-closed-loop-20260806
 - Owner/session: Codex / 2026-08-06
