@@ -39,12 +39,19 @@ type directShipBatchRequest struct {
 }
 
 type processingRequestPayload struct {
-	InputMaterialID int64  `json:"input_material_id"`
-	InputQtyG       int64  `json:"input_qty_g"`
-	TargetProductID int64  `json:"target_product_id"`
-	TargetSpecG     int64  `json:"target_spec_g"`
-	TargetQty       int    `json:"target_qty"`
-	Note            string `json:"note"`
+	Items []customerportalapp.ProcessingRequestItemCommand `json:"items"`
+	Note  string                                           `json:"note"`
+}
+
+type miniProcessingRequestService interface {
+	PreviewProcessingRequest(context.Context, string, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequestPreview, error)
+	ListProcessingRequests(context.Context, string, int) ([]customerportalapp.ProcessingRequest, error)
+	GetProcessingRequest(context.Context, string, int64) (customerportalapp.ProcessingRequest, error)
+}
+
+type miniCustomerBillsService interface {
+	ListCustomerBills(context.Context, string) ([]customerportalapp.CustomerBillSummary, error)
+	GetCustomerBill(context.Context, string, int64) (customerportalapp.CustomerBillDetail, error)
 }
 
 type fulfillmentOrderRequest struct {
@@ -81,7 +88,8 @@ type beanListPNGCacheService interface {
 	GetBeanListPublicationPNG(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error)
 }
 
-func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments) {
+func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments, closeLegacyFulfillmentWrites ...bool) {
+	legacyFulfillmentWritesClosed := len(closeLegacyFulfillmentWrites) > 0 && closeLegacyFulfillmentWrites[0]
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -155,6 +163,42 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			return miniSwitchCustomerError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/mini/customer-bills", func(c echo.Context) error {
+		billService, ok := svc.(miniCustomerBillsService)
+		if !ok || billService == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		rows, err := billService.ListCustomerBills(c.Request().Context(), token)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/mini/customer-bills/:id", func(c echo.Context) error {
+		billService, ok := svc.(miniCustomerBillsService)
+		if !ok || billService == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		billID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || billID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		bill, err := billService.GetCustomerBill(c.Request().Context(), token, billID)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"bill": bill})
 	})
 
 	e.GET("/api/mini/services/:key", func(c echo.Context) error {
@@ -589,6 +633,9 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 	})
 
 	e.POST("/api/mini/direct-ship/batches", func(c echo.Context) error {
+		if legacyFulfillmentWritesClosed {
+			return c.JSON(http.StatusGone, map[string]string{"error": "legacy mini direct ship write endpoint retired"})
+		}
 		if svc == nil {
 			return miniInternalError(c)
 		}
@@ -624,17 +671,74 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
 		result, err := svc.CreateProcessingRequest(c.Request().Context(), token, customerportalapp.CreateProcessingRequestCommand{
-			InputMaterialID: req.InputMaterialID,
-			InputQtyG:       req.InputQtyG,
-			TargetProductID: req.TargetProductID,
-			TargetSpecG:     req.TargetSpecG,
-			TargetQty:       req.TargetQty,
-			Note:            req.Note,
+			Items: req.Items,
+			Note:  req.Note,
 		})
+		if err != nil {
+			var unavailable *customerportalapp.ProcessingMaterialsUnavailableError
+			if errors.As(err, &unavailable) {
+				return c.JSON(http.StatusConflict, map[string]any{"error": err.Error(), "preview": unavailable.Preview})
+			}
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/processing-requests/preview", func(c echo.Context) error {
+		processingSvc, ok := svc.(miniProcessingRequestService)
+		if !ok {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		var req processingRequestPayload
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := processingSvc.PreviewProcessingRequest(c.Request().Context(), token, customerportalapp.CreateProcessingRequestCommand{Items: req.Items})
 		if err != nil {
 			return miniBusinessError(c, err)
 		}
 		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/mini/processing-requests", func(c echo.Context) error {
+		processingSvc, ok := svc.(miniProcessingRequestService)
+		if !ok {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		limit, _ := strconv.Atoi(strings.TrimSpace(c.QueryParam("limit")))
+		rows, err := processingSvc.ListProcessingRequests(c.Request().Context(), token, limit)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/mini/processing-requests/:id", func(c echo.Context) error {
+		processingSvc, ok := svc.(miniProcessingRequestService)
+		if !ok {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		requestID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || requestID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, err := processingSvc.GetProcessingRequest(c.Request().Context(), token, requestID)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"request": row})
 	})
 
 	e.POST("/api/mini/fulfillment-orders", func(c echo.Context) error {
@@ -648,6 +752,9 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		var req fulfillmentOrderRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		if legacyFulfillmentWritesClosed && legacyMiniFulfillmentWriteRetired(req.ServiceCode) {
+			return c.JSON(http.StatusGone, map[string]string{"error": "legacy mini fulfillment write endpoint retired"})
 		}
 		result, err := svc.CreateFulfillmentOrder(c.Request().Context(), token, customerportalapp.CreateFulfillmentOrderCommand{
 			PortalServiceCode: req.ServiceCode,
@@ -668,6 +775,16 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		publishMiniOrderCreated(c, messages, result, req.ServiceCode)
 		return c.JSON(http.StatusOK, result)
 	})
+}
+
+func legacyMiniFulfillmentWriteRetired(serviceCode string) bool {
+	switch strings.ToLower(strings.TrimSpace(serviceCode)) {
+	case "", "directship", customerportalapp.PortalServiceDirectShip,
+		"processing", "processingshipment", customerportalapp.PortalServiceProcessingShipment:
+		return true
+	default:
+		return false
+	}
 }
 
 func miniPublicationIDParam(c echo.Context, suffix string) (int64, error) {
@@ -878,6 +995,12 @@ func miniBusinessError(c echo.Context, err error) error {
 	if errors.Is(err, customerportalapp.ErrResaleGradientTemplateNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "resale gradient template not found"})
 	}
+	if errors.Is(err, customerportalapp.ErrCustomerBillNotFound) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "customer bill not found"})
+	}
+	if err != nil && err.Error() == "processing request not found" {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "processing request not found"})
+	}
 	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
 		return miniCustomerConfigUpdatedError(c)
 	}
@@ -905,13 +1028,17 @@ func isMiniValidationError(err error) bool {
 		"login mode invalid",
 		"service key invalid", "source_name required", "total_rows invalid", "input_material required",
 		"input_qty required", "target_product required", "target_spec required", "target_qty required",
-		"input material unavailable", "target product unavailable",
+		"input material unavailable", "target product unavailable", "target_qty invalid", "processing_request required",
 		"bean_list required", "recipient_name required", "recipient_phone required", "recipient_address required",
 		"items required", "mall_product required", "qty required", "product unavailable", "mall product unavailable",
 		"mall price unavailable", "sales_unit invalid", "drip price unpublished", "product BOM not configured":
 		return true
 	default:
-		return false
+		message := err.Error()
+		return strings.Contains(message, "product BOM not configured") ||
+			strings.Contains(message, "production BOM") ||
+			strings.Contains(message, "customer warehouse binding required") ||
+			strings.Contains(message, "最新可用 BOM 版本未配置工艺路线")
 	}
 }
 

@@ -1546,7 +1546,8 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		               WHERE COALESCE(NULLIF(wo.bom_version_id,0), NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0)=0 AND lbi.product_id=wo.product_id
 		           ) bi
 		           LEFT JOIN %s.materials m ON m.id=bi.material_id
-		       ), '')
+		       ), ''),
+		       COALESCE(wo.customer_id,0),COALESCE(wo.target_warehouse,''),COALESCE(wo.processing_request_item_id,0)
 		FROM %s.work_orders wo
 		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
 		LEFT JOIN %s.products p ON p.id=wo.product_id
@@ -1574,6 +1575,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
 			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON,
 			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter, &fallbackMaterialSummary,
+			&row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -1844,13 +1846,14 @@ func (r Repository) ListBatchCosts(ctx context.Context, query productionapp.Batc
 }
 
 func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCancelCommand) (productionapp.WorkOrderRow, error) {
-	var runningItemID int64
-	var status string
+	var runningItemID, processingRequestItemID int64
+	var status, runningItemStatus string
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT running_item_id,status
-		FROM %s.work_orders
-		WHERE id=$1
-	`, r.schema), cmd.ID).Scan(&runningItemID, &status); err != nil {
+		SELECT wo.running_item_id,wo.status,COALESCE(wo.processing_request_item_id,0),COALESCE(run.status,'')
+		FROM %s.work_orders wo
+		LEFT JOIN %s.produce_running_items run ON run.id=wo.running_item_id
+		WHERE wo.id=$1
+	`, r.schema, r.schema), cmd.ID).Scan(&runningItemID, &status, &processingRequestItemID, &runningItemStatus); err != nil {
 		if err == pgx.ErrNoRows {
 			return productionapp.WorkOrderRow{}, fmt.Errorf("work order not found")
 		}
@@ -1859,7 +1862,7 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 	if status == "completed" {
 		return productionapp.WorkOrderRow{}, fmt.Errorf("work order already completed")
 	}
-	if status == "running" && runningItemID > 0 {
+	if shouldDelegateFullWorkOrderCancel(status, runningItemID, runningItemStatus) {
 		if err := r.Cancel(ctx, productionapp.CancelCommand{ID: runningItemID, Operator: cmd.Operator}); err != nil {
 			return productionapp.WorkOrderRow{}, err
 		}
@@ -1901,6 +1904,13 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 	`, r.schema), cmd.ID, cmd.Operator); err != nil {
 		return productionapp.WorkOrderRow{}, err
 	}
+	var releasedProcessingReservations int64
+	if processingRequestItemID > 0 {
+		releasedProcessingReservations, err = cancelCustomerProcessingWorkOrderTx(ctx, tx, r.schema, cmd.ID, cmd.Operator)
+		if err != nil {
+			return productionapp.WorkOrderRow{}, err
+		}
+	}
 	if runningItemID > 0 {
 		if err := releaseMaterialReservationsForRunningItemTx(ctx, tx, r.schema, runningItemID); err != nil {
 			return productionapp.WorkOrderRow{}, err
@@ -1909,6 +1919,7 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &cmd.ID, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(status), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"note": cmd.Note, "running_item_id": runningItemID}); err != nil {
 		return productionapp.WorkOrderRow{}, err
 	}
+	_ = releasedProcessingReservations // the settlement helper writes the reservation audit in this transaction
 	row, err := loadWorkOrderExecutionRowTx(ctx, tx, r.schema, cmd.ID)
 	if err != nil {
 		return productionapp.WorkOrderRow{}, err
@@ -1917,4 +1928,41 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 		return productionapp.WorkOrderRow{}, err
 	}
 	return row, nil
+}
+
+func shouldDelegateFullWorkOrderCancel(workOrderStatus string, runningItemID int64, runningItemStatus string) bool {
+	if runningItemID <= 0 || strings.EqualFold(strings.TrimSpace(workOrderStatus), "completed") || strings.EqualFold(strings.TrimSpace(workOrderStatus), "cancelled") {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(runningItemStatus)) {
+	case "running", "paused", "partially_completed":
+		return true
+	default:
+		return false
+	}
+}
+
+func cancelCustomerProcessingWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, operator string) (int64, error) {
+	if workOrderID <= 0 {
+		return 0, nil
+	}
+	released, err := settleCustomerProcessingReservationsForWorkOrderTx(ctx, tx, schema, workOrderID, true, operator)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_processing_production_demands
+		SET status='cancelled',updated_at=now()
+		WHERE linked_work_order_id=$1 AND status='planned'
+	`, schema), workOrderID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.processing_job_request_items
+		SET status='cancelled',updated_at=now()
+		WHERE linked_work_order_id=$1
+	`, schema), workOrderID); err != nil {
+		return 0, err
+	}
+	return released, nil
 }

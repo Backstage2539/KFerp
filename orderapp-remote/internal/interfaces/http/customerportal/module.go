@@ -60,6 +60,7 @@ type Service interface {
 
 type Dependencies struct {
 	CustomerPortal        Service
+	CustomerFulfillment   MiniCustomerFulfillment
 	Authz                 supporthttp.AuthzService
 	MessageCenter         MessagePublisher
 	BeanListPDFRenderer   BeanListPDFRenderer
@@ -114,10 +115,12 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	if renderer == nil {
 		renderer = pdfinfra.BeanListRenderer{}
 	}
-	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments)
+	registerMiniAPI(e, deps.CustomerPortal, deps.MessageCenter, renderer, deps.SalesDocuments, deps.CustomerFulfillment != nil)
+	registerMiniProcessingCatalogAPI(e, deps.CustomerPortal, deps.EmployeeSales)
 	registerRecipientParseAPI(e, deps.CustomerPortal, deps.Authz)
 	registerMiniEmployeeAPI(e, deps.CustomerPortal, deps.EmployeeSales, deps.CustomerMaintenance)
 	registerMiniEmployeeShareSettingsAPI(e, deps.CustomerPortal, deps.EmployeeShareSettings)
+	registerMiniCustomerFulfillmentAPI(e, deps.CustomerPortal, deps.CustomerFulfillment)
 	registerAdminAPI(e, deps.CustomerPortal, deps.AssetDir)
 }
 

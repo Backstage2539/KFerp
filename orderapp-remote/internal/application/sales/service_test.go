@@ -10,36 +10,43 @@ import (
 )
 
 type fakeRepo struct {
-	saveCmd                SaveOrderCommand
-	stockPreviewCmd        OrderStockBatchPreviewCommand
-	inlineCmd              InlineUpdateCommand
-	saveCalls              int
-	outsourceSaved         SaveOutsourceTemplateCommand
-	trackingCmd            FillTrackingPairsCommand
-	shipMethodCmd          SetShipMethodCommand
-	shipmentCmd            CreateOrderShipmentCommand
-	trackingItems          FillShipmentTrackingCommand
-	orderNoTracking        FillShipmentTrackingByOrderNoCommand
-	orderTracking          FillOrderTrackingCommand
-	settingsCmd            SaveSalesOrderSettingsCommand
-	salesOrderNoteCmd      SaveSalesOrderNoteCommand
-	generateCmd            GenerateSalesOrderDocumentCommand
-	combinedSalesCmd       CombinedDocumentCommand
-	imageCmd               GenerateSalesOrderImageCommand
-	previewOrderID         int64
-	deliveryFormCmd        SaveDeliveryNoteFormCommand
-	generateDeliveryCmd    GenerateDeliveryNoteDocumentCommand
-	combinedDeliveryCmd    CombinedDocumentCommand
-	previewDeliveryOrderID int64
-	shareCmd               CreateExternalShareResourceCommand
-	invoiceRequestCmd      RequestOrderInvoiceCommand
-	invoiceFileCmd         SaveOrderInvoiceFileCommand
-	sealAssets             []SalesOrderAsset
-	voidManyIDs            []int64
-	voidManyReason         string
-	draft                  *EmployeeOrderDraft
-	draftSaveCmd           SaveEmployeeOrderDraftCommand
-	draftDeletedEmployeeID int64
+	saveCmd                     SaveOrderCommand
+	stockPreviewCmd             OrderStockBatchPreviewCommand
+	inlineCmd                   InlineUpdateCommand
+	saveCalls                   int
+	outsourceSaved              SaveOutsourceTemplateCommand
+	processingBillingCustomerID int64
+	processingBillingPreviewCmd PreviewProcessingBillingCommand
+	processingBillingConfirmCmd ConfirmProcessingBillingCommand
+	processingBillingRunsQuery  ProcessingBillingRunsQuery
+	processingBillingPayCmd     PayProcessingBillingCommand
+	processingBillingReverseCmd ReverseProcessingBillingCommand
+	processingBillingAdjustCmd  AdjustProcessingBillingCommand
+	trackingCmd                 FillTrackingPairsCommand
+	shipMethodCmd               SetShipMethodCommand
+	shipmentCmd                 CreateOrderShipmentCommand
+	trackingItems               FillShipmentTrackingCommand
+	orderNoTracking             FillShipmentTrackingByOrderNoCommand
+	orderTracking               FillOrderTrackingCommand
+	settingsCmd                 SaveSalesOrderSettingsCommand
+	salesOrderNoteCmd           SaveSalesOrderNoteCommand
+	generateCmd                 GenerateSalesOrderDocumentCommand
+	combinedSalesCmd            CombinedDocumentCommand
+	imageCmd                    GenerateSalesOrderImageCommand
+	previewOrderID              int64
+	deliveryFormCmd             SaveDeliveryNoteFormCommand
+	generateDeliveryCmd         GenerateDeliveryNoteDocumentCommand
+	combinedDeliveryCmd         CombinedDocumentCommand
+	previewDeliveryOrderID      int64
+	shareCmd                    CreateExternalShareResourceCommand
+	invoiceRequestCmd           RequestOrderInvoiceCommand
+	invoiceFileCmd              SaveOrderInvoiceFileCommand
+	sealAssets                  []SalesOrderAsset
+	voidManyIDs                 []int64
+	voidManyReason              string
+	draft                       *EmployeeOrderDraft
+	draftSaveCmd                SaveEmployeeOrderDraftCommand
+	draftDeletedEmployeeID      int64
 }
 
 func (r *fakeRepo) SaveOrder(ctx context.Context, cmd SaveOrderCommand) (SaveOrderResult, error) {

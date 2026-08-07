@@ -13,6 +13,7 @@ import (
 
 	customerportalapp "orderapp/internal/application/customerportal"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
+	postgresbom "orderapp/internal/infrastructure/postgres/bom"
 	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
@@ -198,6 +199,7 @@ func TestCurrentContextByTokenSwitchesInactiveCurrentCustomerToFirstActiveBindin
 	`, schema)).Scan(&activeCustomerID); err != nil {
 		t.Fatalf("insert active customer: %v", err)
 	}
+	seedEnabledCustomerPortalProfiles(t, ctx, pool, schema, inactiveCustomerID, activeCustomerID)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.customer_portal_user_bindings(mini_user_id, customer_id, role, status)
 		VALUES($1,$2,'owner','approved'),($1,$3,'member','approved')
@@ -407,6 +409,7 @@ func TestMiniappCurrentCustomerSwitchScopesOrderServicePage(t *testing.T) {
 	`, schema)).Scan(&customerBID); err != nil {
 		t.Fatalf("insert customer B: %v", err)
 	}
+	seedEnabledCustomerPortalProfiles(t, ctx, pool, schema, customerAID, customerBID)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.customer_portal_user_bindings(mini_user_id, customer_id, role, status)
 		VALUES($1,$2,'owner','approved'),($1,$3,'member','approved')
@@ -594,6 +597,7 @@ func TestMiniappCurrentCustomerSwitchRejectsUnapprovedCustomerWithoutChangingSes
 	`, schema)).Scan(&customerBID); err != nil {
 		t.Fatalf("insert customer B: %v", err)
 	}
+	seedEnabledCustomerPortalProfiles(t, ctx, pool, schema, customerAID, customerBID)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.customer_portal_user_bindings(mini_user_id, customer_id, role, status)
 		VALUES($1,$2,'owner','approved'),($1,$3,'member','pending')
@@ -636,6 +640,7 @@ func TestCreateLoginSessionReturnsDefaultThemeForUnconfiguredCustomer(t *testing
 	`, schema)).Scan(&customerID); err != nil {
 		t.Fatalf("insert customer: %v", err)
 	}
+	seedEnabledCustomerPortalProfiles(t, ctx, pool, schema, customerID)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.customer_portal_user_bindings(mini_user_id, customer_id, role, status)
 		VALUES($1,$2,'owner','approved')
@@ -915,6 +920,7 @@ func TestCreateFulfillmentOrderUsesSmallBatchWeightTierForNon454Spec(t *testing.
 	`, schema)).Scan(&productID); err != nil {
 		t.Fatalf("insert product: %v", err)
 	}
+	seedCurrentCatalogSalesSpec(t, ctx, pool, schema, productID, "1000g", "袋", 1000)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.customer_service_capabilities(customer_id, capability_code, enabled, config_json)
 		VALUES($1,'direct_ship',true,'{"small_batch_price_rule":{"enabled":true,"threshold_lb":14,"tier_min_lb":15,"tier_max_lb":28}}'::jsonb)
@@ -922,13 +928,13 @@ func TestCreateFulfillmentOrderUsesSmallBatchWeightTierForNon454Spec(t *testing.
 		t.Fatalf("insert capability: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s.product_price_tiers(product_id, spec_g, min_qty_lb, max_qty_lb, price_per_lb, active)
-		VALUES
-			($1,454,1,14,120,true),
-			($1,454,15,28,90,true),
-			($1,454,29,NULL,80,true)
-	`, schema), productID); err != nil {
-		t.Fatalf("insert tiers: %v", err)
+		INSERT INTO %[1]s.bean_list_publications(
+			publication_purpose,list_type,version_no,status,owner_type,owner_key,content_json,actor
+		)
+		VALUES('factory_supply','commercial','TEST-WEIGHT','published','official','',
+		       $1::jsonb,'customerportal-test')
+	`, schema), fmt.Sprintf(`{"price_rows":[{"product_id":%d,"spec_g":1000,"min_lb":1,"max_lb":14,"price_per_lb":90}]}`, productID)); err != nil {
+		t.Fatalf("insert published weight price: %v", err)
 	}
 
 	_, err := repo.CreateFulfillmentOrder(ctx, customerportalapp.CreateFulfillmentOrderCommand{
@@ -986,13 +992,15 @@ func TestCreateFulfillmentOrderUsesKgExactTierWithoutSmallBatchRule(t *testing.T
 	`, schema), customerID).Scan(&productID); err != nil {
 		t.Fatalf("insert product: %v", err)
 	}
+	seedCurrentCatalogSalesSpec(t, ctx, pool, schema, productID, "1000g", "袋", 1000)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_price_tiers(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, price_per_lb, active)
-		VALUES
-			($1,1000,24,49,81.91,81.91*454.0/1000.0,true),
-			($1,1000,50,99,78.01,78.01*454.0/1000.0,true)
-	`, schema), productID); err != nil {
-		t.Fatalf("insert tiers: %v", err)
+		INSERT INTO %[1]s.bean_list_publications(
+			publication_purpose,list_type,version_no,status,owner_type,owner_key,content_json,actor
+		)
+		VALUES('factory_supply','commercial','TEST-KG','published','official','',
+		       $1::jsonb,'customerportal-test')
+	`, schema), fmt.Sprintf(`{"price_rows":[{"product_id":%d,"spec_g":1000,"quantity_basis":"sales_spec_count","min_qty":24,"max_qty":49,"final_unit_price":82,"price_unit":"kg"}]}`, productID)); err != nil {
+		t.Fatalf("insert published kg price: %v", err)
 	}
 
 	_, err := repo.CreateFulfillmentOrder(ctx, customerportalapp.CreateFulfillmentOrderCommand{
@@ -1047,6 +1055,16 @@ func TestCreateFulfillmentOrderIgnoresClientSuppliedUnitPrice(t *testing.T) {
 		RETURNING id
 	`, schema)).Scan(&productID); err != nil {
 		t.Fatalf("insert product: %v", err)
+	}
+	seedCurrentCatalogSalesSpec(t, ctx, pool, schema, productID, "454g", "袋", 454)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(
+			publication_purpose,list_type,version_no,status,owner_type,owner_key,content_json,actor
+		)
+		VALUES('factory_supply','commercial','TEST-SERVER-PRICE','published','official','',
+		       $1::jsonb,'customerportal-test')
+	`, schema), fmt.Sprintf(`{"price_rows":[{"product_id":%d,"spec_g":454,"quantity_basis":"sales_spec_count","min_qty":1,"final_unit_price":88,"price_unit":"lb"}]}`, productID)); err != nil {
+		t.Fatalf("insert published server price: %v", err)
 	}
 
 	_, err := repo.CreateFulfillmentOrder(ctx, customerportalapp.CreateFulfillmentOrderCommand{
@@ -1103,6 +1121,7 @@ func TestCreateFulfillmentOrderSavesGreenBeanKindAndPublishedBeanListPrice(t *te
 	`, schema)).Scan(&productID); err != nil {
 		t.Fatalf("insert green product: %v", err)
 	}
+	seedCurrentCatalogSalesSpec(t, ctx, pool, schema, productID, "1kg", "kg", 1000)
 	content := fmt.Sprintf(`{"groups":[{"items":[{"productId":%d,"name":"埃塞瑰夏生豆","green_bean_sale_tiers":[{"label":"1kg+","spec_g":1000,"min_qty":1,"price_per_unit":128,"price_per_lb":58.112,"display_unit":"kg"}]}]}]}`, productID)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
@@ -1191,7 +1210,7 @@ func TestLoadProductOrderServicePageFiltersCustomerOnlyProducts(t *testing.T) {
 	}
 }
 
-func TestLoadProductServicePageReplacesBaseProductWithCustomerAlias(t *testing.T) {
+func TestLoadProductServicePageKeepsLegacyBaseProductAlongsideCustomerAlias(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
 	repo := NewRepository(pool, schema)
@@ -1233,11 +1252,10 @@ func TestLoadProductServicePageReplacesBaseProductWithCustomerAlias(t *testing.T
 		names = append(names, product.Name)
 	}
 	got := strings.Join(names, ",")
-	if strings.Contains(got, "基础款曲奇") {
-		t.Fatalf("alias base product should be replaced for customer: %q", got)
-	}
-	if !strings.Contains(got, "岩师傅兰卡") || !strings.Contains(got, "公共保留款") {
-		t.Fatalf("products=%q missing alias or unrelated public product", got)
+	for _, want := range []string{"基础款曲奇", "岩师傅兰卡", "公共保留款"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("legacy product service products=%q missing %q", got, want)
+		}
 	}
 }
 
@@ -1414,6 +1432,7 @@ func TestCreateMallOrderUsesBagMallPriceForDripBoxOrders(t *testing.T) {
 	`, schema)).Scan(&productID); err != nil {
 		t.Fatalf("insert drip product: %v", err)
 	}
+	seedCurrentCatalogSalesSpec(t, ctx, pool, schema, productID, "10g/袋", "bag", 10)
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.mall_products(product_id, title, spec_g, unit_price, status, sort_order)
 		VALUES($1,'花魁挂耳',10,3.5,'published',1)
@@ -1523,6 +1542,7 @@ func TestCreateMallOrderSavesGreenBeanProductKind(t *testing.T) {
 	`, schema)).Scan(&productID); err != nil {
 		t.Fatalf("insert green product: %v", err)
 	}
+	seedCurrentCatalogSalesSpec(t, ctx, pool, schema, productID, "1kg", "kg", 1000)
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.mall_products(product_id, title, spec_g, unit_price, status, sort_order)
 		VALUES($1,'巴拿马生豆',1000,168,'published',1)
@@ -1705,6 +1725,7 @@ func TestCreatePhoneVerifiedLoginSessionAutoApprovesBindingFromActiveERPAccount(
 	`, schema)).Scan(&customerID); err != nil {
 		t.Fatalf("insert customer: %v", err)
 	}
+	seedEnabledCustomerPortalProfiles(t, ctx, pool, schema, customerID)
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.company_employees(name, phone, account_type, department_id, active)
 		VALUES('渠道客户账号','13800138000','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1),true)
@@ -1797,8 +1818,8 @@ func TestCreateProcessingRequestRejectsAnotherCustomerInventory(t *testing.T) {
 		TargetSpecG:         454,
 		TargetQty:           2,
 	})
-	if err == nil || !strings.Contains(err.Error(), "input material unavailable") {
-		t.Fatalf("CreateProcessingRequest error=%v, want input material unavailable", err)
+	if err == nil || !strings.Contains(err.Error(), "items required") {
+		t.Fatalf("CreateProcessingRequest legacy write error=%v, want items required", err)
 	}
 	assertNoProcessingRequestRows(t, ctx, pool, schema, customerAID, "another customer processing request created")
 }
@@ -1821,8 +1842,8 @@ func TestCreateProcessingRequestRejectsInsufficientCustomerInventory(t *testing.
 		TargetSpecG:         454,
 		TargetQty:           2,
 	})
-	if err == nil || !strings.Contains(err.Error(), "input material unavailable") {
-		t.Fatalf("CreateProcessingRequest error=%v, want input material unavailable", err)
+	if err == nil || !strings.Contains(err.Error(), "items required") {
+		t.Fatalf("CreateProcessingRequest legacy write error=%v, want items required", err)
 	}
 	assertNoProcessingRequestRows(t, ctx, pool, schema, customerAID, "insufficient inventory processing request created")
 }
@@ -1878,8 +1899,8 @@ func TestCreateProcessingRequestRejectsAnotherCustomerTargetProduct(t *testing.T
 		TargetSpecG:         454,
 		TargetQty:           2,
 	})
-	if err == nil || !strings.Contains(err.Error(), "target product unavailable") {
-		t.Fatalf("CreateProcessingRequest error=%v, want target product unavailable", err)
+	if err == nil || !strings.Contains(err.Error(), "items required") {
+		t.Fatalf("CreateProcessingRequest legacy write error=%v, want items required", err)
 	}
 	assertNoProcessingRequestRows(t, ctx, pool, schema, customerAID, "another customer processing request created")
 }
@@ -2339,9 +2360,6 @@ func TestResaleBeanListPageSeparatesFactorySupplySnapshotsAndAuthorizedTemplates
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)
 	ensureCustomerPortalCostingSchema(t, ctx, pool, schema)
-	if err := postgrescatalog.EnsureSchema(ctx, pool, schema); err != nil {
-		t.Fatalf("catalog.EnsureSchema: %v", err)
-	}
 	repo := NewRepository(pool, schema)
 
 	var customerID int64
@@ -2442,6 +2460,38 @@ func seedBeanListPublicationForCustomerPortalTest(t *testing.T, ctx context.Cont
 	return publicationID
 }
 
+func seedEnabledCustomerPortalProfiles(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, customerIDs ...int64) {
+	t.Helper()
+	for _, customerID := range customerIDs {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %[1]s.customer_portal_profiles(customer_id, display_name, enabled)
+			SELECT id, name, true
+			FROM %[1]s.customers
+			WHERE id=$1
+			ON CONFLICT(customer_id) DO UPDATE
+			SET enabled=true
+		`, schema), customerID); err != nil {
+			t.Fatalf("seed enabled customer portal profile for customer %d: %v", customerID, err)
+		}
+	}
+}
+
+func seedCurrentCatalogSalesSpec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, productID int64, specLabel, salesUnit string, netContentG float64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %[1]s.products
+		SET sku_name=name,
+		    spec_label=$2,
+		    derived_sales_unit=$3,
+		    net_content_qty=$4,
+		    net_content_unit='g',
+		    unit_rule_override_json='{"inventory_unit":"kg"}'::jsonb
+		WHERE id=$1
+	`, schema), productID, specLabel, salesUnit, netContentG); err != nil {
+		t.Fatalf("seed current catalog sales spec for product %d: %v", productID, err)
+	}
+}
+
 func newCustomerPortalTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	pool, schema := newCustomerPortalCoreOnlyTestDB(t)
@@ -2450,6 +2500,28 @@ func newCustomerPortalTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	}
 	if err := postgresmaterials.EnsureSchema(context.Background(), pool, schema); err != nil {
 		t.Fatalf("materials.EnsureSchema: %v", err)
+	}
+	if err := postgresbom.EnsureSchema(context.Background(), pool, schema); err != nil {
+		t.Fatalf("bom.EnsureSchema: %v", err)
+	}
+	if err := postgrescatalog.EnsureSchema(context.Background(), pool, schema); err != nil {
+		t.Fatalf("catalog.EnsureSchema: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %[1]s.audit_logs (
+			id BIGSERIAL PRIMARY KEY,
+			ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+			actor TEXT NOT NULL DEFAULT '',
+			entity_type TEXT NOT NULL DEFAULT '',
+			entity_id BIGINT NULL,
+			action TEXT NOT NULL DEFAULT '',
+			field TEXT NULL,
+			old_value TEXT NULL,
+			new_value TEXT NULL,
+			meta JSONB NULL
+		)
+	`, schema)); err != nil {
+		t.Fatalf("audit fixture schema: %v", err)
 	}
 	if err := postgrescosting.EnsureSchema(context.Background(), pool, schema); err != nil {
 		t.Fatalf("costing.EnsureSchema: %v", err)

@@ -68,9 +68,9 @@ func TestProcessingRequestCustodyBoundaryManualsAndRequirementDocs(t *testing.T)
 	} {
 		doc := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
-			"代加工申请库存与目标产品范围",
-			"当前客户托管库存",
-			"不能使用其他客户",
+			"生产工单库存与目标产品范围",
+			"当前客户库存",
+			"其他客户库存",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing processing custody boundary marker %q", path, want)

@@ -15,7 +15,7 @@ const entries: HomeEntry[] = [
   { key: 'mall', label: '商城下单', capability: 'mall', url: '/pages/mall/mall' },
   { key: 'productOrder', label: '现货下单', capability: 'product_order', url: '/pages/service/service?key=productOrder' },
   { key: 'directShip', label: '一件代发', capability: 'direct_ship', url: '/pages/service/service?key=directShip' },
-  { key: 'processing', label: '代加工', capability: 'processing', url: '/pages/service/service?key=processing' },
+  { key: 'processing', label: '生产工单', capability: 'processing', url: '/pages/service/service?key=processing' },
   { key: 'inventory', label: '我的库存', capability: 'inventory_custody', url: '/pages/service/service?key=inventory' },
 ]
 

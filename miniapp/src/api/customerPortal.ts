@@ -357,6 +357,15 @@ export type ProcessingRequest = {
   created_at: string
   accepted_at: string
   linked_work_order_id: number
+  items?: Array<ProcessingTargetItem & {
+    id?: number
+    line_no: number
+    product_name: string
+    status: string
+    work_order_id?: number
+    work_order_no?: string
+    production_plan_id?: number
+  }>
 }
 
 export type FulfillmentOrder = {
@@ -424,13 +433,176 @@ export type CreateDirectShipBatchPayload = {
   note?: string
 }
 
+export type ProcessingTargetItem = {
+  product_id: number
+  spec_g: number
+  qty: number
+  product_name?: string
+  sku_code?: string
+  spec_label?: string
+}
+
 export type CreateProcessingRequestPayload = {
-  input_material_id: number
-  input_qty_g: number
-  target_product_id: number
-  target_spec_g: number
-  target_qty: number
+  items: ProcessingTargetItem[]
   note?: string
+}
+
+export type ProcessingMaterialPreview = {
+  material_id: number
+  material_name: string
+  unit: string
+  component_type: string
+  required_g: number
+  required_units: number
+  factory_inventory_g: number
+  factory_inventory_units: number
+  factory_wip_g: number
+  factory_wip_units: number
+  customer_inventory_g: number
+  customer_inventory_units: number
+  customer_wip_g: number
+  customer_wip_units: number
+  reserved_g: number
+  reserved_units: number
+  available_g: number
+  available_units: number
+  shortage_g: number
+  shortage_units: number
+}
+
+export type ProcessingTargetPreview = ProcessingTargetItem & {
+  line_no: number
+  product_name: string
+  parent_product_id: number
+  need_g: number
+  target_warehouse: string
+  bom_version_id: number
+  bom_version_no: string
+  bom_source_product_id: number
+  bom_inherited: boolean
+  max_producible_qty: number
+  material_snapshot?: Record<string, unknown>
+  materials: ProcessingMaterialPreview[]
+}
+
+export type ProcessingRequestPreview = {
+  can_submit: boolean
+  complete?: boolean
+  items: ProcessingTargetPreview[]
+  materials: ProcessingMaterialPreview[]
+}
+
+export type DirectShipRequestPayload = {
+  idempotency_key: string
+  recipient_name: string
+  recipient_phone: string
+  province?: string
+  city?: string
+  district?: string
+  detail_address: string
+  recipient_company?: string
+  items: ProcessingTargetItem[]
+  note?: string
+}
+
+export type DirectShipCatalog = {
+  current_customer_id: number
+  categories?: Array<{ key: string; label: string }>
+  product_families: EmployeeOrderProductFamily[]
+}
+
+export type DirectShipPackage = {
+  id: number
+  order_id: number
+  order_no: string
+  warehouse: string
+  status: string
+  carrier_name?: string
+  tracking_no?: string
+  shipped_at?: string
+  delivered_at?: string
+  items?: ProcessingTargetItem[]
+  events?: Array<{
+    time?: string
+    status?: string
+    description?: string
+    location?: string
+  }>
+}
+
+export type DirectShipRequest = {
+  id: number
+  request_no: string
+  status: string
+  recipient_name: string
+  recipient_phone: string
+  province?: string
+  city?: string
+  district?: string
+  detail_address: string
+  items: ProcessingTargetItem[]
+  packages?: DirectShipPackage[]
+  created_at: string
+  note?: string
+}
+
+export type DirectShipPreview = {
+  can_submit: boolean
+  warehouses: Array<{ warehouse: string; items: ProcessingTargetItem[] }>
+  shortages?: Array<ProcessingTargetItem & { available_qty: number }>
+}
+
+export type CustomerInventorySummary = {
+  product_id: number
+  product_name: string
+  parent_product_id?: number
+  sku_code?: string
+  spec_g: number
+  available_qty: number
+  reserved_qty: number
+  total_qty: number
+  warehouses: string[]
+}
+
+export type CustomerInventoryBatch = {
+  batch_id: number
+  batch_no: string
+  product_id: number
+  product_name: string
+  sku_code?: string
+  spec_g: number
+  warehouse: string
+  production_date?: string
+  inbound_at?: string
+  available_qty: number
+  reserved_qty: number
+  quality_status: string
+  historical_without_production_date?: boolean
+}
+
+export type CustomerBillSummary = {
+  id: number
+  settlement_no: string
+  status: string
+  total_amount: string
+  currency: string
+  confirmed_at?: string
+  paid_at?: string
+  work_order_count: number
+  summary?: string
+}
+
+export type CustomerBillDetail = CustomerBillSummary & {
+  work_orders: Array<{ work_order_id: number; work_order_no: string; product_name: string; completed_at?: string }>
+  lines: Array<{
+    work_order_id: number
+    fee_type: string
+    fee_name: string
+    basis: string
+    base_quantity: string | number
+    unit_price: string
+    amount: string
+  }>
 }
 
 export type CreateFulfillmentOrderPayload = {
@@ -595,6 +767,10 @@ export type EmployeeCustomerRecipientParseResponse = {
   recipient_name: string
   phone: string
   address: string
+  province?: string
+  city?: string
+  district?: string
+  detail_address?: string
 }
 
 export type EmployeeOrderDraftItem = {
@@ -1065,6 +1241,47 @@ export function buildServicePagePath(key: ServiceKey, filters: ServicePageFilter
   return `/api/mini/services/${key}${suffix}`
 }
 
+export function buildDirectShipCatalogPath(): string {
+  return '/api/mini/direct-ship/catalog'
+}
+
+export function buildDirectShipRequestsPath(): string {
+  return '/api/mini/direct-ship/requests'
+}
+
+export function buildDirectShipRequestDetailPath(requestID: number): string {
+  return `${buildDirectShipRequestsPath()}/${Number(requestID || 0)}`
+}
+
+export function buildProcessingRequestsPath(): string {
+  return '/api/mini/processing-requests'
+}
+
+export function buildProcessingCatalogPath(): string {
+  return '/api/mini/processing/catalog'
+}
+
+export function buildProcessingRequestDetailPath(requestID: number): string {
+  return `${buildProcessingRequestsPath()}/${Number(requestID || 0)}`
+}
+
+export function buildCustomerInventoryPath(): string {
+  return '/api/mini/customer-inventory'
+}
+
+export function buildCustomerInventoryBatchesPath(productID: number, specG = 0): string {
+  const path = `${buildCustomerInventoryPath()}/${Number(productID || 0)}/batches`
+  return Number(specG || 0) > 0 ? `${path}?spec_g=${Number(specG)}` : path
+}
+
+export function buildCustomerBillsPath(): string {
+  return '/api/mini/customer-bills'
+}
+
+export function buildCustomerBillDetailPath(billID: number): string {
+  return `${buildCustomerBillsPath()}/${Number(billID || 0)}`
+}
+
 export function buildMallPagePath(): string {
   return '/api/mini/mall'
 }
@@ -1164,11 +1381,89 @@ export function createProcessingRequest(
   token: string,
   payload: CreateProcessingRequestPayload,
 ): Promise<ProcessingRequest> {
-  return miniRequest<ProcessingRequest>('/api/mini/processing-requests', {
+  return miniRequest<ProcessingRequest>(buildProcessingRequestsPath(), {
     method: 'POST',
     token,
     data: payload,
   })
+}
+
+export function previewProcessingRequest(
+  token: string,
+  payload: CreateProcessingRequestPayload,
+): Promise<ProcessingRequestPreview> {
+  return miniRequest<ProcessingRequestPreview>(`${buildProcessingRequestsPath()}/preview`, {
+    method: 'POST',
+    token,
+    data: payload,
+  })
+}
+
+export function fetchProcessingRequests(token: string): Promise<{ rows: ProcessingRequest[] }> {
+  return miniRequest<{ rows: ProcessingRequest[] }>(buildProcessingRequestsPath(), { token })
+}
+
+export function fetchProcessingCatalog(token: string): Promise<DirectShipCatalog> {
+  return miniRequest<DirectShipCatalog>(buildProcessingCatalogPath(), { token })
+}
+
+export function fetchProcessingRequestDetail(token: string, requestID: number): Promise<{ request: ProcessingRequest }> {
+  return miniRequest<{ request: ProcessingRequest }>(buildProcessingRequestDetailPath(requestID), { token })
+}
+
+export function fetchDirectShipCatalog(token: string): Promise<DirectShipCatalog> {
+  return miniRequest<DirectShipCatalog>(buildDirectShipCatalogPath(), { token })
+}
+
+export function previewDirectShipRequest(token: string, payload: DirectShipRequestPayload): Promise<DirectShipPreview> {
+  return miniRequest<DirectShipPreview>('/api/mini/direct-ship/preview', {
+    method: 'POST',
+    token,
+    data: payload,
+  })
+}
+
+export function createDirectShipRequest(token: string, payload: DirectShipRequestPayload): Promise<DirectShipRequest> {
+  return miniRequest<DirectShipRequest>(buildDirectShipRequestsPath(), {
+    method: 'POST',
+    token,
+    data: payload,
+  })
+}
+
+export function fetchDirectShipRequests(token: string): Promise<{ rows: DirectShipRequest[] }> {
+  return miniRequest<{ rows: DirectShipRequest[] }>(buildDirectShipRequestsPath(), { token })
+}
+
+export function fetchDirectShipRequestDetail(token: string, requestID: number): Promise<{ request: DirectShipRequest }> {
+  return miniRequest<{ request: DirectShipRequest }>(buildDirectShipRequestDetailPath(requestID), { token })
+}
+
+export function cancelDirectShipRequest(token: string, requestID: number): Promise<DirectShipRequest> {
+  return miniRequest<DirectShipRequest>(`${buildDirectShipRequestDetailPath(requestID)}/cancel`, {
+    method: 'POST',
+    token,
+  })
+}
+
+export function fetchCustomerInventory(token: string): Promise<{ rows: CustomerInventorySummary[] }> {
+  return miniRequest<{ rows: CustomerInventorySummary[] }>(buildCustomerInventoryPath(), { token })
+}
+
+export function fetchCustomerInventoryBatches(
+  token: string,
+  productID: number,
+  specG = 0,
+): Promise<{ rows: CustomerInventoryBatch[] }> {
+  return miniRequest<{ rows: CustomerInventoryBatch[] }>(buildCustomerInventoryBatchesPath(productID, specG), { token })
+}
+
+export function fetchCustomerBills(token: string): Promise<{ rows: CustomerBillSummary[] }> {
+  return miniRequest<{ rows: CustomerBillSummary[] }>(buildCustomerBillsPath(), { token })
+}
+
+export function fetchCustomerBillDetail(token: string, billID: number): Promise<{ bill: CustomerBillDetail }> {
+  return miniRequest<{ bill: CustomerBillDetail }>(buildCustomerBillDetailPath(billID), { token })
 }
 
 export function createFulfillmentOrder(

@@ -1,16 +1,21 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useSessionStore } from '../stores/session'
+
 type MainTabKey = 'home' | 'orders' | 'billing' | 'mine'
 
 const props = defineProps<{
   current: MainTabKey
 }>()
 
-const tabs: Array<{ key: MainTabKey; label: string; url: string }> = [
+const session = useSessionStore()
+const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
+const tabs = computed<Array<{ key: MainTabKey; label: string; url: string }>>(() => [
   { key: 'home', label: '首页', url: '/pages/home/home' },
-  { key: 'orders', label: '订单中心', url: '/pages/service/service?key=orders' },
+  { key: 'orders', label: isProcessingCustomer.value ? '发货中心' : '订单中心', url: '/pages/service/service?key=orders' },
   { key: 'billing', label: '费用中心', url: '/pages/service/service?key=settlement' },
   { key: 'mine', label: '个人中心', url: '/pages/profile/profile' },
-]
+])
 
 function openTab(tab: { key: MainTabKey; url: string }) {
   if (tab.key === props.current) return

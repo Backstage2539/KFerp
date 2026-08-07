@@ -269,6 +269,21 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_shipping_trackings (
 CREATE INDEX IF NOT EXISTS idx_%[1]s_order_shipping_trackings_order ON %[1]s.order_shipping_trackings(order_id, id);
 CREATE INDEX IF NOT EXISTS idx_%[1]s_order_shipping_trackings_no ON %[1]s.order_shipping_trackings(tracking_no);
 
+CREATE TABLE IF NOT EXISTS %[1]s.order_shipping_tracking_events (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
+	tracking_no TEXT NOT NULL DEFAULT '',
+	event_time TIMESTAMPTZ NOT NULL,
+	status TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	location TEXT NOT NULL DEFAULT '',
+	source TEXT NOT NULL DEFAULT '',
+	payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS order_shipping_tracking_events_order_time_idx
+	ON %[1]s.order_shipping_tracking_events(order_id,event_time,id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.customer_billing_rules (
 	id BIGSERIAL PRIMARY KEY,
 	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
@@ -283,6 +298,105 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_billing_rules (
 );
 CREATE INDEX IF NOT EXISTS customer_billing_rules_customer_fee_idx
 	ON %[1]s.customer_billing_rules(customer_id, fee_type, active);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_requests (
+	id BIGSERIAL PRIMARY KEY,
+	request_no TEXT NOT NULL DEFAULT '',
+	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
+	employee_id BIGINT NOT NULL DEFAULT 0,
+	mini_user_id BIGINT NOT NULL DEFAULT 0,
+	idempotency_key TEXT NOT NULL DEFAULT '',
+	request_hash TEXT NOT NULL DEFAULT '',
+	recipient_name TEXT NOT NULL DEFAULT '',
+	recipient_phone TEXT NOT NULL DEFAULT '',
+	province TEXT NOT NULL DEFAULT '',
+	city TEXT NOT NULL DEFAULT '',
+	district TEXT NOT NULL DEFAULT '',
+	detail_address TEXT NOT NULL DEFAULT '',
+	recipient_company TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'reserved',
+	note TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	cancelled_at TIMESTAMPTZ NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_requests_customer_key_uq
+	ON %[1]s.customer_direct_ship_requests(customer_id, idempotency_key)
+	WHERE idempotency_key <> '';
+CREATE INDEX IF NOT EXISTS customer_direct_ship_requests_customer_created_idx
+	ON %[1]s.customer_direct_ship_requests(customer_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_items (
+	id BIGSERIAL PRIMARY KEY,
+	request_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_requests(id) ON DELETE CASCADE,
+	line_no INTEGER NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	product_name TEXT NOT NULL DEFAULT '',
+	sku_code TEXT NOT NULL DEFAULT '',
+	spec_label TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	qty BIGINT NOT NULL DEFAULT 0,
+	snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(request_id, line_no),
+	UNIQUE(request_id, product_id, spec_g)
+);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_orders (
+	id BIGSERIAL PRIMARY KEY,
+	request_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_requests(id) ON DELETE CASCADE,
+	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
+	warehouse_code TEXT NOT NULL DEFAULT '',
+	order_no TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'reserved',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(request_id, warehouse_code),
+	UNIQUE(order_id)
+);
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_allocations (
+	id BIGSERIAL PRIMARY KEY,
+	request_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_requests(id) ON DELETE CASCADE,
+	request_item_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_request_items(id) ON DELETE CASCADE,
+	request_order_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_request_orders(id) ON DELETE CASCADE,
+	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
+	order_item_id BIGINT NOT NULL REFERENCES %[1]s.order_items(id) ON DELETE CASCADE,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	warehouse_code TEXT NOT NULL DEFAULT '',
+	batch_id BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	allocated_qty BIGINT NOT NULL DEFAULT 0,
+	allocated_g BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS customer_direct_ship_request_alloc_request_idx
+	ON %[1]s.customer_direct_ship_request_allocations(request_id, status, id);
+CREATE INDEX IF NOT EXISTS customer_direct_ship_request_alloc_batch_idx
+	ON %[1]s.customer_direct_ship_request_allocations(batch_id, warehouse_code, status);
+
+ALTER TABLE %[1]s.customer_direct_ship_request_items ADD COLUMN IF NOT EXISTS spec_label TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS %[1]s.order_stock_batch_allocations (
+	id BIGSERIAL PRIMARY KEY,
+	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	need_g BIGINT NOT NULL DEFAULT 0,
+	batch_id BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	allocated_g BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS order_item_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS request_id BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS customer_direct_ship_order_stock_request_idx
+	ON %[1]s.order_stock_batch_allocations(request_id, order_id);
 `, schema)
 	_, err := pool.Exec(ctx, q)
 	if err != nil {

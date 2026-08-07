@@ -43,6 +43,9 @@ type fakeService struct {
 	mallOrderCmd      *customerportalapp.CreateMallOrderCommand
 	directShip        customerportalapp.DirectShipBatch
 	processing        customerportalapp.ProcessingRequest
+	processingPreview customerportalapp.ProcessingRequestPreview
+	processingRows    []customerportalapp.ProcessingRequest
+	processingCmd     *customerportalapp.CreateProcessingRequestCommand
 	fulfillment       customerportalapp.FulfillmentOrder
 	fulfillmentCmd    *customerportalapp.CreateFulfillmentOrderCommand
 	beanList          customerportalapp.BeanListSummary
@@ -357,7 +360,34 @@ func (s fakeService) CreateDirectShipBatch(context.Context, string, customerport
 	return s.directShip, nil
 }
 
-func (s fakeService) CreateProcessingRequest(context.Context, string, customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
+func (s fakeService) CreateProcessingRequest(_ context.Context, _ string, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
+	if s.err != nil {
+		return customerportalapp.ProcessingRequest{}, s.err
+	}
+	if s.processingCmd != nil {
+		*s.processingCmd = cmd
+	}
+	return s.processing, nil
+}
+
+func (s fakeService) PreviewProcessingRequest(_ context.Context, _ string, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequestPreview, error) {
+	if s.err != nil {
+		return customerportalapp.ProcessingRequestPreview{}, s.err
+	}
+	if s.processingCmd != nil {
+		*s.processingCmd = cmd
+	}
+	return s.processingPreview, nil
+}
+
+func (s fakeService) ListProcessingRequests(context.Context, string, int) ([]customerportalapp.ProcessingRequest, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.processingRows, nil
+}
+
+func (s fakeService) GetProcessingRequest(context.Context, string, int64) (customerportalapp.ProcessingRequest, error) {
 	if s.err != nil {
 		return customerportalapp.ProcessingRequest{}, s.err
 	}
@@ -1781,7 +1811,7 @@ func TestMiniDirectShipAndProcessingSubmitAPIs(t *testing.T) {
 		t.Fatalf("direct status=%d body=%s", directRec.Code, directRec.Body.String())
 	}
 
-	processingReq := httptest.NewRequest(http.MethodPost, "/api/mini/processing-requests", strings.NewReader(`{"input_material_id":4,"input_qty_g":30000,"target_product_id":5,"target_spec_g":454,"target_qty":50,"note":"代加工申请"}`))
+	processingReq := httptest.NewRequest(http.MethodPost, "/api/mini/processing-requests", strings.NewReader(`{"items":[{"product_id":5,"spec_g":454,"qty":50}],"note":"代加工申请"}`))
 	processingReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	processingReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	processingRec := httptest.NewRecorder()
@@ -2247,7 +2277,7 @@ func validMiniDirectShipBatchJSON() string {
 }
 
 func validMiniProcessingRequestJSON() string {
-	return `{"input_material_id":4,"input_qty_g":30000,"target_product_id":5,"target_spec_g":454,"target_qty":50}`
+	return `{"items":[{"product_id":5,"spec_g":454,"qty":50}]}`
 }
 
 func validMiniFulfillmentOrderJSON(serviceCode string) string {

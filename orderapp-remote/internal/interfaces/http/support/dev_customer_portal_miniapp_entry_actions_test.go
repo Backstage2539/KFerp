@@ -52,7 +52,7 @@ func TestCustomerPortalMiniappEntriesAreTappable(t *testing.T) {
 	if !strings.Contains(string(pages), "pages/service/service") {
 		t.Fatal("service page must be registered")
 	}
-	for _, want := range []string{"fetchServicePage", "createDirectShipBatch", "createProcessingRequest"} {
+	for _, want := range []string{"fetchServicePage", "CustomerDirectShipPanel", "CustomerProcessingPanel"} {
 		if !strings.Contains(string(service), want) {
 			t.Fatalf("service page must connect real business API, missing %q", want)
 		}

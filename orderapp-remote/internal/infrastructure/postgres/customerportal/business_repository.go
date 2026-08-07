@@ -2115,31 +2115,7 @@ func (r Repository) listInventory(ctx context.Context, customerID int64, limit i
 }
 
 func (r Repository) listProcessingRequests(ctx context.Context, customerID int64, limit int) ([]customerportalapp.ProcessingRequest, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT r.id, r.request_no, r.input_material_id, COALESCE(m.name,''), r.input_qty_g,
-		       r.target_product_id, COALESCE(p.name,''), r.target_spec_g, r.target_qty,
-		       r.status, r.note, to_char(r.created_at,'YYYY-MM-DD HH24:MI'),
-		       COALESCE(to_char(r.accepted_at,'YYYY-MM-DD HH24:MI'), ''), r.linked_work_order_id
-		FROM %s.processing_job_requests r
-		LEFT JOIN %s.materials m ON m.id=r.input_material_id
-		LEFT JOIN %s.products p ON p.id=r.target_product_id
-		WHERE r.customer_id=$1
-		ORDER BY r.created_at DESC, r.id DESC
-		LIMIT $2
-	`, r.schema, r.schema, r.schema), customerID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]customerportalapp.ProcessingRequest, 0)
-	for rows.Next() {
-		var row customerportalapp.ProcessingRequest
-		if err := rows.Scan(&row.ID, &row.RequestNo, &row.InputMaterialID, &row.InputMaterialName, &row.InputQtyG, &row.TargetProductID, &row.TargetProductName, &row.TargetSpecG, &row.TargetQty, &row.Status, &row.Note, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
+	return r.ListProcessingRequests(ctx, customerID, limit)
 }
 
 func (r Repository) listFeeItems(ctx context.Context, customerID int64, limit int) ([]customerportalapp.FeeItem, error) {
@@ -2221,70 +2197,7 @@ func (r Repository) CreateDirectShipBatch(ctx context.Context, cmd customerporta
 }
 
 func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
-	note := strings.TrimSpace(cmd.Note)
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := r.ensureProcessingInputInventoryTx(ctx, tx, cmd.CustomerID, cmd.InputMaterialID, cmd.InputQtyG); err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	if err := r.ensureProcessingTargetProductTx(ctx, tx, cmd.CustomerID, cmd.TargetProductID); err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-
-	var id int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.processing_job_requests(customer_id, input_material_id, input_qty_g, target_product_id, target_spec_g, target_qty, status, note, created_by_mini_user_id)
-		VALUES($1,$2,$3,$4,$5,$6,'submitted',$7,$8)
-		RETURNING id
-	`, r.schema), cmd.CustomerID, cmd.InputMaterialID, cmd.InputQtyG, cmd.TargetProductID, cmd.TargetSpecG, cmd.TargetQty, note, cmd.CreatedByMiniUserID).Scan(&id); err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	var row customerportalapp.ProcessingRequest
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		UPDATE %s.processing_job_requests
-		SET request_no='PJ-' || to_char(created_at,'YYYYMMDD') || '-' || lpad(id::text,4,'0')
-		WHERE id=$1
-		RETURNING id, request_no, input_material_id, input_qty_g, target_product_id, target_spec_g, target_qty, status, note, to_char(created_at,'YYYY-MM-DD HH24:MI'), COALESCE(to_char(accepted_at,'YYYY-MM-DD HH24:MI'), ''), linked_work_order_id
-	`, r.schema), id).Scan(&row.ID, &row.RequestNo, &row.InputMaterialID, &row.InputQtyG, &row.TargetProductID, &row.TargetSpecG, &row.TargetQty, &row.Status, &row.Note, &row.CreatedAt, &row.AcceptedAt, &row.LinkedWorkOrderID); err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	warehouseCode, err := r.processingWarehouseForCustomerTx(ctx, tx, cmd.CustomerID)
-	if err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	ct, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_processing_production_demands(
-			request_id,request_no,customer_id,product_id,product_name,spec_g,target_qty,need_g,target_warehouse,status,created_at,updated_at
-		)
-		SELECT $1,$2,$3,$4,COALESCE(p.name,''),$5,$6,$7,$8,'planned',now(),now()
-		FROM %s.products p
-		WHERE p.id=$4
-		  AND p.active=true
-		  AND %s
-		ON CONFLICT(request_id) DO UPDATE SET
-			request_no=excluded.request_no,
-			product_id=excluded.product_id,
-			product_name=excluded.product_name,
-			spec_g=excluded.spec_g,
-			target_qty=excluded.target_qty,
-			need_g=excluded.need_g,
-			target_warehouse=excluded.target_warehouse,
-			updated_at=now()
-	`, r.schema, r.schema, portalProductVisibleToCustomerAliasSQL(r.schema+".products", "p", "$3")), row.ID, row.RequestNo, cmd.CustomerID, cmd.TargetProductID, cmd.TargetSpecG, int64(cmd.TargetQty), int64(cmd.TargetQty)*cmd.TargetSpecG, warehouseCode)
-	if err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	if ct.RowsAffected() == 0 {
-		return customerportalapp.ProcessingRequest{}, fmt.Errorf("target product unavailable")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
-	return row, nil
+	return r.createProcessingRequestV2(ctx, cmd)
 }
 
 func (r Repository) ensureProcessingInputInventoryTx(ctx context.Context, tx pgx.Tx, customerID, inputMaterialID, inputQtyG int64) error {
@@ -3001,27 +2914,62 @@ func portalSmallBatchTierQuantity(specG int64, qtyLb float64, rule customerporta
 }
 
 func (r Repository) processingWarehouseForCustomerTx(ctx context.Context, tx pgx.Tx, customerID int64) (string, error) {
-	code := ""
+	configuredCode := ""
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(processing_warehouse_code,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, r.schema), customerID).Scan(&configuredCode)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	configuredCode = strings.TrimSpace(configuredCode)
+	if configuredCode != "" {
+		var code string
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT code
+			FROM %s.warehouses
+			WHERE code=$2 AND customer_id=$1 AND active=true
+			  AND lower(trim(kind)) IN ('customer_processing','customer_finished','finished','customer')
+		`, r.schema), customerID, configuredCode).Scan(&code)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("customer warehouse binding required: configured warehouse %s is not an active finished warehouse", configuredCode)
+		}
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(code), nil
+	}
+
+	code := ""
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT code
 		FROM %s.warehouses
 		WHERE active=true
 		  AND customer_id=$1
+		  AND lower(trim(kind)) IN ('customer_processing','customer_finished','finished','customer')
 		ORDER BY
-		  CASE WHEN kind IN ('customer_processing','customer_finished','customer') THEN 0 ELSE 1 END,
+		  is_default DESC,
+		  CASE lower(trim(kind))
+		    WHEN 'customer_processing' THEN 0
+		    WHEN 'customer_finished' THEN 1
+		    WHEN 'finished' THEN 2
+		    WHEN 'customer' THEN 3
+		    ELSE 9
+		  END,
 		  sort_order,
 		  code
 		LIMIT 1
 	`, r.schema), customerID).Scan(&code)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("customer warehouse binding required")
+		return "", fmt.Errorf("customer warehouse binding required: no active finished warehouse")
 	}
 	if err != nil {
 		return "", err
 	}
 	code = strings.TrimSpace(code)
 	if code == "" {
-		return "", fmt.Errorf("customer warehouse binding required")
+		return "", fmt.Errorf("customer warehouse binding required: no active finished warehouse")
 	}
 	return code, nil
 }

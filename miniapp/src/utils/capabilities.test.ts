@@ -16,6 +16,17 @@ describe('visibleHomeEntries', () => {
     expect(entries.map((entry) => entry.key)).toEqual(['mall', 'directShip'])
   })
 
+  it('renames the processing capability entrance to production work order', () => {
+    const entries = visibleHomeEntries([{ code: 'processing', enabled: true }])
+
+    expect(entries).toContainEqual({
+      key: 'processing',
+      label: '生产工单',
+      capability: 'processing',
+      url: '/pages/service/service?key=processing',
+    })
+  })
+
   it('uses the dedicated mall page for customer shopping', () => {
     const entries = visibleHomeEntries([{ code: 'mall', enabled: true }])
     expect(entries).toContainEqual({

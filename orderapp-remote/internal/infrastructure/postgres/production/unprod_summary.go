@@ -132,6 +132,9 @@ type productionQuantitySnapshot struct {
 	InventoryUnit            string  `json:"inventory_unit"`
 	InventoryQtyPerSalesUnit float64 `json:"inventory_qty_per_sales_unit"`
 	ConversionSource         string  `json:"conversion_source"`
+	CustomerID               int64   `json:"customer_id,omitempty"`
+	TargetWarehouse          string  `json:"target_warehouse,omitempty"`
+	ProcessingRequestItemID  int64   `json:"processing_request_item_id,omitempty"`
 }
 
 func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemandQueryer, schema, where string, args []any) ([]productionDemand, error) {
@@ -332,7 +335,10 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 			),
 			COALESCE(d.request_no,''),
 			COALESCE(d.spec_g,0),
-			COALESCE(d.target_qty,0)::float8
+			COALESCE(d.target_qty,0)::float8,
+			COALESCE(d.customer_id,0),
+			COALESCE(d.target_warehouse,''),
+			COALESCE(d.request_item_id,0)
 		FROM %s.customer_processing_production_demands d
 		JOIN %s.products p ON p.id=d.product_id
 		LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)
@@ -359,12 +365,15 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 	for rows.Next() {
 		var (
 			productID, parentProductID, typeID, subtypeID, operationTemplateID, specG int64
+			customerID, requestItemID                                                 int64
 			product, productionKind, typeName, subtypeName, requestNo                 string
+			targetWarehouse                                                           string
 			qty                                                                       float64
 		)
 		if err := rows.Scan(
 			&productID, &parentProductID, &product, &productionKind, &typeID, &subtypeID,
 			&typeName, &subtypeName, &operationTemplateID, &requestNo, &specG, &qty,
+			&customerID, &targetWarehouse, &requestItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -376,6 +385,8 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 			SpecLabel: fmt.Sprintf("%dg", specG), SalesUnit: fmt.Sprintf("%dg", specG),
 			InventoryUnit: "kg", InventoryQtyPerSalesUnit: float64(specG) / 1000,
 			ConversionSource: "customer_processing_spec_g",
+			CustomerID:       customerID, TargetWarehouse: strings.TrimSpace(targetWarehouse),
+			ProcessingRequestItemID: requestItemID,
 		}
 		groupKey := productionQuantitySnapshotGroupKey(snapshot)
 		demand := bySnapshot[groupKey]
@@ -432,6 +443,9 @@ func productionQuantitySnapshotGroupKey(snapshot productionQuantitySnapshot) str
 		normalizeProductionQuantityUnit(snapshot.InventoryUnit),
 		strconv.FormatFloat(snapshot.InventoryQtyPerSalesUnit, 'g', -1, 64),
 		strings.TrimSpace(snapshot.ConversionSource),
+		strconv.FormatInt(snapshot.CustomerID, 10),
+		strings.TrimSpace(snapshot.TargetWarehouse),
+		strconv.FormatInt(snapshot.ProcessingRequestItemID, 10),
 	}, "\x1f")
 }
 

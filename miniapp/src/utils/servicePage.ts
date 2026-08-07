@@ -60,7 +60,7 @@ const labels: Record<ServiceKey, string> = {
   orders: '订单中心',
   productOrder: '现货下单',
   directShip: '一件代发',
-  processing: '代加工',
+  processing: '生产工单',
   inventory: '我的库存',
   settlement: '费用中心',
 }
@@ -91,9 +91,19 @@ export function serviceCapability(key: ServiceKey | string): string {
 
 export function visibleServiceSections(payload: ServicePayload): ServiceSection[] {
   const sections: ServiceSection[] = []
+  const key = normalizeServiceKey(String(payload.key))
+  if (key === 'directShip') return sections
+  if (key === 'processing') {
+    addSection(sections, '生产工单', payload.processing_requests)
+    return sections
+  }
+  if (key === 'settlement') {
+    addSection(sections, '账单', payload.settlement_batches)
+    return sections
+  }
   addSection(sections, '商品价格表', payload.bean_lists)
   addSection(sections, '现货商品', payload.products)
-  addSection(sections, orderSectionTitle(normalizeServiceKey(String(payload.key))), payload.orders)
+  addSection(sections, orderSectionTitle(key), payload.orders)
   addSection(sections, '一件代发批次', payload.direct_ship_batches)
   addSection(sections, '库存', payload.inventory)
   addSection(sections, '加工申请', payload.processing_requests)
@@ -104,7 +114,7 @@ export function visibleServiceSections(payload: ServicePayload): ServiceSection[
 
 export function orderSectionTitle(key: ServiceKey): string {
   if (key === 'orders') return '我的订单'
-  if (key === 'settlement') return '订单账单'
+  if (key === 'settlement') return '账单'
   return '订单 / 物流'
 }
 

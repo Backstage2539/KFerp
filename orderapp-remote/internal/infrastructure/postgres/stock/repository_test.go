@@ -111,10 +111,18 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',3
 	if err != nil {
 		t.Fatalf("ListMaterialBatches: %v", err)
 	}
-	if len(listed.Rows) != 1 ||
-		listed.Rows[0].CropSeason != "2025/26" ||
-		listed.Rows[0].Origin != "云南保山" ||
-		listed.Rows[0].ProducerFlavorDescription != "李子、红糖" {
+	var receiptBatchFound, legacyBatchFound bool
+	for _, row := range listed.Rows {
+		if row.ID == res.BatchID {
+			receiptBatchFound = row.CropSeason == "2025/26" &&
+				row.Origin == "云南保山" &&
+				row.ProducerFlavorDescription == "李子、红糖"
+		}
+		if row.BatchCode == "LEGACY-MAT-0000000001" {
+			legacyBatchFound = row.Supplier == "legacy_onhand" && row.RemainingG == 300
+		}
+	}
+	if len(listed.Rows) != 2 || !receiptBatchFound || !legacyBatchFound {
 		t.Fatalf("listed material batch metadata = %+v", listed.Rows)
 	}
 }
@@ -143,7 +151,8 @@ CREATE TABLE %s.materials (
 );
 CREATE TABLE %s.products (
 	id BIGINT PRIMARY KEY,
-	name TEXT NOT NULL
+	name TEXT NOT NULL,
+	customer_id BIGINT NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.finished_inventory (
 	product_id BIGINT NOT NULL,
@@ -170,6 +179,14 @@ INSERT INTO %s.materials(id,code,name,onhand_units) VALUES (2,'BOX-1','挂耳盒
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %s.business_groups (id BIGINT PRIMARY KEY,name TEXT NOT NULL DEFAULT '');
+		CREATE TABLE %s.business_group_items (id BIGINT PRIMARY KEY,name TEXT NOT NULL DEFAULT '');
+		CREATE TABLE %s.business_group_assignments (
+			id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL DEFAULT 0,group_item_id BIGINT NOT NULL DEFAULT 0,
+			usage_key TEXT NOT NULL DEFAULT '',object_key TEXT NOT NULL DEFAULT '',object_id BIGINT NOT NULL DEFAULT 0,object_ref TEXT NOT NULL DEFAULT ''
+		);
+	`, schema, schema, schema))
 
 	repo := NewRepository(pool, schema)
 	res, err := repo.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{

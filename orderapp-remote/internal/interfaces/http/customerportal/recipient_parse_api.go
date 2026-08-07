@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	customerapp "orderapp/internal/application/customer"
+	customerportalapp "orderapp/internal/application/customerportal"
 	supporthttp "orderapp/internal/interfaces/http/support"
 
 	"github.com/labstack/echo/v4"
@@ -61,8 +62,28 @@ func requireRecipientParseAccess(c echo.Context, portal Service, authz supportht
 		return nil
 	}
 
-	if _, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "customers.read"); err != nil {
-		return miniEmployeeAuthError(c, err)
+	token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录"})
 	}
-	return nil
+	if portal == nil {
+		return miniInternalError(c)
+	}
+	current, err := portal.Me(c.Request().Context(), token)
+	if err != nil {
+		return miniSessionError(c, err)
+	}
+	if current.AccountType == "employee" {
+		if (!containsMiniRole(current.Roles, "sales") && !containsMiniRole(current.Roles, "admin")) || !containsMiniRole(current.Permissions, "customers.read") {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "当前员工无此权限"})
+		}
+		return nil
+	}
+	if current.AccountType == "customer" && current.CurrentCustomerID > 0 && current.HasAnyCapability([]string{
+		customerportalapp.CapabilityDirectShip,
+		customerportalapp.CapabilityProductOrder,
+	}) {
+		return nil
+	}
+	return c.JSON(http.StatusForbidden, map[string]string{"error": "当前客户无发货权限"})
 }
