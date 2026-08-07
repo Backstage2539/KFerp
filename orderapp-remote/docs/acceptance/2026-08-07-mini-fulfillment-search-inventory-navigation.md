@@ -18,7 +18,8 @@
 - `go test ./... -count=1` 通过；PR-582 verifier 通过应用/仓储/HTTP/需求接口定向测试。
 - miniapp 全量 29 个测试文件 / 187 项、`vue-tsc --noEmit`、development 微信包构建、14 个声明页面和 56 文件清单通过；跨美西设备时区日期用例通过。
 - 独立代码复核结论：P0/P1 为 0；已修复详情迟到响应、汇总消失仍显示旧批次，以及待发货关系为空时间时压制物流兼容时间的问题。
-- 微信开发者工具交互、development API smoke、合并和部署：待完成。
+- 首次 development 交付提交为 `6fa32c00c344f0be3d3495fcf342f32bfc691b1f`；服务端备份 `/opt/stacks/erp/orderapp.backup.deploy-20260807175731-6fa32c00c344`，本地开发小程序备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260807180326-6fa32c00c344`。
+- development 容器健康，`https://dev.qacoohee.com/app/login` 返回 HTTP 200。微信开发者工具已重新导入固定目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，UI 验收覆盖发货筛选/搜索与库存列表、独立详情页面。
 
 ## 手工验收
 
@@ -34,5 +35,6 @@
 ## 交付状态
 
 - 功能分支：`codex/mini-fulfillment-search-inventory-multiselect-20260807`
-- `develop` 合并、development 部署和微信开发者工具开发包导入：待完成。
+- 产品需求状态：`review`；`DEV-582-DOCS-ACCEPTANCE-DEPLOY`：`done`；`REV-582-MINI-FULFILLMENT-LIST-INVENTORY-NAVIGATION`：`todo`，继续等待 Van 手工业务验收。
+- 已合入并首次部署 development：`6fa32c00c344f0be3d3495fcf342f32bfc691b1f`；微信开发者工具已重新导入固定开发目录。
 - `main`、production、微信上传/审核：不执行。
