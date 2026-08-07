@@ -1743,6 +1743,23 @@ func TestServiceRejectsInvalidManufacturingPhase2ExecutionCommands(t *testing.T)
 	}
 }
 
+func TestServiceCompleteWorkOrderLeavesEmptyWarehouseForRepositoryResolution(t *testing.T) {
+	repo := &fakeFlowRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.CompleteWorkOrder(context.Background(), WorkOrderCompleteCommand{
+		ID:            88,
+		FinishedUnits: 1,
+		Warehouse:     "   ",
+		Operator:      "主管",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.completeWorkOrder.Warehouse != "" {
+		t.Fatalf("warehouse=%q, want repository to resolve omitted warehouse from frozen work order", repo.completeWorkOrder.Warehouse)
+	}
+}
+
 func summaryHas(rows []ProductionSummaryCount, label string, count int) bool {
 	for _, row := range rows {
 		if row.Label == label && row.Count == count {

@@ -1951,9 +1951,6 @@ func (s *Service) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCo
 		return WorkOrderCompleteResult{}, fmt.Errorf("consumed_input_g must be >= 0")
 	}
 	cmd.Warehouse = strings.TrimSpace(cmd.Warehouse)
-	if cmd.Warehouse == "" {
-		cmd.Warehouse = stockdomain.WarehouseFinishedGoods
-	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {
 		return WorkOrderCompleteResult{}, fmt.Errorf("operator required")
