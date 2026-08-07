@@ -18,6 +18,13 @@ var (
 	landlineRecipientPhonePattern = regexp.MustCompile(`(^|[^0-9A-Za-z])([0-9]{3,4}[-[:space:]]?[0-9]{7,8})($|[^0-9A-Za-z])`)
 	recipientAddressPattern       = regexp.MustCompile(`省|市|区|县|镇|街道|路|号|室|村|组`)
 	recipientPersonNamePattern    = regexp.MustCompile(`^[\p{Han}A-Za-z·]{2,16}$`)
+	recipientAddressBoundary      = regexp.MustCompile(`[0-9号號栋幢单元室楼层门铺店厂坊馆院厦司路街道巷弄村组镇乡区县旗园苑城庄寨湾桥场]$`)
+)
+
+const (
+	recipientSingleSurnames   = "王李张刘陈杨黄赵吴周徐孙胡朱高林何郭马罗梁宋郑谢韩唐冯于董萧程曹袁邓许傅沈曾彭吕苏卢蒋蔡贾丁魏薛叶阎余潘杜戴夏钟汪田任姜范方石姚谭廖邹熊金陆郝孔白崔康毛邱秦江史顾侯邵孟龙万段雷钱汤尹黎易常武乔贺赖龚文庞樊兰殷施陶洪翟安颜倪严牛温芦季俞章鲁葛伍韦申尤毕聂丛焦向柳邢骆岳齐沿梅莫庄辛管祝左涂谷祁时舒耿牟卜路詹关苗凌费纪靳盛童欧甄项曲成游阳裴席卫查屈鲍位覃霍翁隋植甘景薄单包司柏宁柯阮桂闵"
+	recipientCompoundSurnames = "欧阳 太史 端木 上官 司马 东方 独孤 南宫 万俟 闻人 夏侯 诸葛 尉迟 公羊 赫连 澹台 皇甫 宗政 濮阳 公冶 太叔 申屠 公孙 慕容 仲孙 钟离 长孙 宇文 司徒 鲜于 司空 闾丘 子车 亓官 司寇 巫马 公西 颛孙 壤驷 公良 漆雕 乐正 宰父 谷梁 拓跋 夹谷 轩辕 令狐 段干 百里 呼延 东郭 南门 羊舌 微生 西门 左丘 第五"
+	recipientNameAddressRunes = "省市区县旗镇乡村组路街道巷弄号號栋幢楼室层门铺店厂坊馆院府园苑城庄寨湾桥场厦座界"
 )
 
 var (
@@ -85,12 +92,16 @@ func ParseRecipientText(input string) (RecipientParseResult, error) {
 		afterPhone = cleanRecipientLine(normalized[phone.end:])
 	}
 	fromAddressBlock := extractRecipientNameFromAddressBlock(beforePhone)
+	afterPhoneName := firstRecipientToken(afterPhone)
 	if recipientName == "" && phone != nil {
 		switch {
-		case recipientAddressPattern.MatchString(beforePhone) && fromAddressBlock.name != "":
-			recipientName = fromAddressBlock.name
-		case recipientAddressPattern.MatchString(beforePhone) && afterPhone != "" && !recipientAddressPattern.MatchString(afterPhone):
-			recipientName = firstRecipientToken(afterPhone)
+		case recipientAddressPattern.MatchString(beforePhone):
+			switch {
+			case afterPhoneName != "" && !recipientAddressPattern.MatchString(afterPhone) && (fromAddressBlock.name == "" || (fromAddressBlock.compact && likelyExplicitRecipientNameAfterPhone(afterPhoneName))):
+				recipientName = afterPhoneName
+			case fromAddressBlock.name != "":
+				recipientName = fromAddressBlock.name
+			}
 		default:
 			recipientName = firstRecipientToken(stripRecipientNameLabel(beforePhone))
 		}
@@ -105,10 +116,10 @@ func ParseRecipientText(input string) (RecipientParseResult, error) {
 	}
 
 	address := labeledAddress
-	if address == "" && phone != nil && recipientAddressPattern.MatchString(beforePhone) && fromAddressBlock.address != "" {
+	if address == "" && phone != nil && recipientAddressPattern.MatchString(beforePhone) && fromAddressBlock.address != "" && recipientName == fromAddressBlock.name {
 		address = fromAddressBlock.address
 	}
-	if address == "" && phone != nil && recipientAddressPattern.MatchString(beforePhone) && afterPhone != "" && recipientName == firstRecipientToken(afterPhone) {
+	if address == "" && phone != nil && recipientAddressPattern.MatchString(beforePhone) && afterPhoneName != "" && recipientName == afterPhoneName {
 		address = beforePhone
 	}
 	if address == "" {
@@ -273,12 +284,14 @@ func firstRecipientToken(text string) string {
 
 type recipientAddressBlock struct {
 	name, address string
+	compact       bool
 }
 
 func extractRecipientNameFromAddressBlock(text string) recipientAddressBlock {
-	tokens := strings.Fields(cleanRecipientLine(text))
+	cleaned := cleanRecipientLine(text)
+	tokens := strings.Fields(cleaned)
 	if len(tokens) < 2 {
-		return recipientAddressBlock{}
+		return extractCompactRecipientNameFromAddress(cleaned)
 	}
 	last := tokens[len(tokens)-1]
 	penultimate := tokens[len(tokens)-2]
@@ -288,7 +301,76 @@ func extractRecipientNameFromAddressBlock(text string) recipientAddressBlock {
 	if likelyRecipientPersonName(last) && recipientAddressPattern.MatchString(strings.Join(tokens[:len(tokens)-1], " ")) {
 		return recipientAddressBlock{name: last, address: strings.Join(tokens[:len(tokens)-1], " ")}
 	}
+	return extractCompactRecipientNameFromAddress(cleaned)
+}
+
+func extractCompactRecipientNameFromAddress(text string) recipientAddressBlock {
+	province, city, district, detail := splitRecipientAddress(text)
+	if province == "" || city == "" || district == "" || detail == "" {
+		return recipientAddressBlock{}
+	}
+	detailRunes := []rune(detail)
+	for nameLength := 4; nameLength >= 2; nameLength-- {
+		if len(detailRunes) <= nameLength {
+			continue
+		}
+		candidate := string(detailRunes[len(detailRunes)-nameLength:])
+		addressDetail := string(detailRunes[:len(detailRunes)-nameLength])
+		if !likelyCompactRecipientName(candidate) || !recipientAddressBoundary.MatchString(addressDetail) {
+			continue
+		}
+		return recipientAddressBlock{
+			name:    candidate,
+			address: strings.TrimSpace(strings.TrimSuffix(text, candidate)),
+			compact: true,
+		}
+	}
 	return recipientAddressBlock{}
+}
+
+func likelyCompactRecipientName(text string) bool {
+	runes := []rune(text)
+	if len(runes) < 2 || len(runes) > 4 {
+		return false
+	}
+	for _, r := range runes {
+		if !unicode.Is(unicode.Han, r) {
+			return false
+		}
+	}
+	surnameLength := 0
+	if len(runes) >= 3 && strings.Contains(" "+recipientCompoundSurnames+" ", " "+string(runes[:2])+" ") {
+		surnameLength = 2
+	} else if strings.ContainsRune(recipientSingleSurnames, runes[0]) {
+		surnameLength = 1
+	}
+	if surnameLength == 0 {
+		return false
+	}
+	for _, r := range runes[surnameLength:] {
+		if strings.ContainsRune(recipientNameAddressRunes, r) {
+			return false
+		}
+	}
+	return true
+}
+
+func likelyExplicitRecipientNameAfterPhone(text string) bool {
+	if !likelyRecipientPersonName(text) {
+		return false
+	}
+	runes := []rune(text)
+	allHan := true
+	for _, r := range runes {
+		if !unicode.Is(unicode.Han, r) {
+			allHan = false
+			break
+		}
+	}
+	if !allHan {
+		return true
+	}
+	return len(runes) >= 2 && len(runes) <= 4
 }
 
 func likelyRecipientPersonName(text string) bool {

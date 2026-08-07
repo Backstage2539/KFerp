@@ -71,6 +71,16 @@ func (recipientParseAuthz) AssignEmployeeRoles(context.Context, authzapp.Assignm
 }
 
 func TestRecipientParseAPIUsesOneContractForERPAndMiniEmployeeTokens(t *testing.T) {
+	want := customerapp.RecipientParseResult{
+		RecipientName: "王心星",
+		Phone:         "13529003193",
+		Address:       "云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊",
+		Province:      "云南省",
+		City:          "普洱市",
+		District:      "景谷傣族彝族自治县",
+		DetailAddress: "威远江国际大酒店侧面乾民號茶坊",
+	}
+	var sharedResult *customerapp.RecipientParseResult
 	for _, tc := range []struct {
 		name     string
 		portal   Service
@@ -103,7 +113,7 @@ func TestRecipientParseAPIUsesOneContractForERPAndMiniEmployeeTokens(t *testing.
 			}
 			registerRecipientParseAPI(e, tc.portal, tc.authz)
 
-			req := httptest.NewRequest(http.MethodPost, "/api/customer-recipient/parse", strings.NewReader(`{"text":"张三 13800138000 云南省普洱市思茅区咖啡路 88 号"}`))
+			req := httptest.NewRequest(http.MethodPost, "/api/customer-recipient/parse", strings.NewReader(`{"text":"云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊王心星13529003193"}`))
 			req.Header.Set(echo.HeaderAuthorization, "Bearer token")
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
@@ -112,10 +122,18 @@ func TestRecipientParseAPIUsesOneContractForERPAndMiniEmployeeTokens(t *testing.
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 			}
-			for _, want := range []string{`"recipient_name":"张三"`, `"phone":"13800138000"`, `"address":"云南省普洱市思茅区咖啡路 88 号"`, `"province":"云南省"`, `"city":"普洱市"`, `"district":"思茅区"`, `"detail_address":"咖啡路 88 号"`} {
-				if !strings.Contains(rec.Body.String(), want) {
-					t.Fatalf("body=%s missing %s", rec.Body.String(), want)
-				}
+			var got customerapp.RecipientParseResult
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+			}
+			if got != want {
+				t.Fatalf("result=%+v, want %+v", got, want)
+			}
+			if sharedResult == nil {
+				copy := got
+				sharedResult = &copy
+			} else if got != *sharedResult {
+				t.Fatalf("result=%+v differs from first session result %+v", got, *sharedResult)
 			}
 			if strings.Contains(rec.Body.String(), `"text"`) {
 				t.Fatalf("response must not echo request text: %s", rec.Body.String())

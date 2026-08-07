@@ -54,6 +54,51 @@ func TestParseRecipientTextMatchesERPAddressParserExamples(t *testing.T) {
 			want: RecipientParseResult{RecipientName: "郑莉", Phone: "18608120905", Address: "四川省攀枝花市东区炳草岗湖滨路30号4栋", Province: "四川省", City: "攀枝花市", District: "东区", DetailAddress: "炳草岗湖滨路30号4栋"},
 		},
 		{
+			name: "compact full address three character name and mobile",
+			text: "云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊王心星13529003193",
+			want: RecipientParseResult{RecipientName: "王心星", Phone: "13529003193", Address: "云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊", Province: "云南省", City: "普洱市", District: "景谷傣族彝族自治县", DetailAddress: "威远江国际大酒店侧面乾民號茶坊"},
+		},
+		{
+			name: "compact name before mobile wins over trailing delivery note",
+			text: "云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊王心星13529003193 请电话联系",
+			want: RecipientParseResult{RecipientName: "王心星", Phone: "13529003193", Address: "云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊", Province: "云南省", City: "普洱市", District: "景谷傣族彝族自治县", DetailAddress: "威远江国际大酒店侧面乾民號茶坊"},
+		},
+		{
+			name: "compact full address two character name and mobile",
+			text: "云南省普洱市思茅区咖啡路88号李明13800138000",
+			want: RecipientParseResult{RecipientName: "李明", Phone: "13800138000", Address: "云南省普洱市思茅区咖啡路88号", Province: "云南省", City: "普洱市", District: "思茅区", DetailAddress: "咖啡路88号"},
+		},
+		{
+			name: "spaced full address with compact name before mobile",
+			text: "云南省 普洱市 思茅区 咖啡路88号李明13800138000",
+			want: RecipientParseResult{RecipientName: "李明", Phone: "13800138000", Address: "云南省 普洱市 思茅区 咖啡路88号", Province: "云南省", City: "普洱市", District: "思茅区", DetailAddress: "咖啡路88号"},
+		},
+		{
+			name: "compact full address compound surname name and mobile",
+			text: "浙江省杭州市西湖区文三路10号欧阳娜娜13900139000",
+			want: RecipientParseResult{RecipientName: "欧阳娜娜", Phone: "13900139000", Address: "浙江省杭州市西湖区文三路10号", Province: "浙江省", City: "杭州市", District: "西湖区", DetailAddress: "文三路10号"},
+		},
+		{
+			name: "compact full address without name keeps address",
+			text: "云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊13529003193",
+			want: RecipientParseResult{Phone: "13529003193", Address: "云南省普洱市景谷傣族彝族自治县威远江国际大酒店侧面乾民號茶坊", Province: "云南省", City: "普洱市", District: "景谷傣族彝族自治县", DetailAddress: "威远江国际大酒店侧面乾民號茶坊"},
+		},
+		{
+			name: "compact address-like surname suffix is not a name",
+			text: "云南省昆明市五华区万达广场13800138000",
+			want: RecipientParseResult{Phone: "13800138000", Address: "云南省昆明市五华区万达广场", Province: "云南省", City: "昆明市", District: "五华区", DetailAddress: "万达广场"},
+		},
+		{
+			name: "explicit name after mobile wins over compact address suffix heuristic",
+			text: "云南省普洱市思茅区咖啡路88号万达 13800138000 王心星",
+			want: RecipientParseResult{RecipientName: "王心星", Phone: "13800138000", Address: "云南省普洱市思茅区咖啡路88号万达", Province: "云南省", City: "普洱市", District: "思茅区", DetailAddress: "咖啡路88号万达"},
+		},
+		{
+			name: "rare surname after mobile wins over compact address suffix heuristic",
+			text: "云南省普洱市思茅区咖啡路88号万达 13800138000 仇小明",
+			want: RecipientParseResult{RecipientName: "仇小明", Phone: "13800138000", Address: "云南省普洱市思茅区咖啡路88号万达", Province: "云南省", City: "普洱市", District: "思茅区", DetailAddress: "咖啡路88号万达"},
+		},
+		{
 			name: "numeric customer name before phone",
 			text: "QA浏览器客户20260616 13900001616 上海市浦东新区测试路16号",
 			want: RecipientParseResult{RecipientName: "QA浏览器客户20260616", Phone: "13900001616", Address: "上海市浦东新区测试路16号", Province: "上海市", City: "上海市", District: "浦东新区", DetailAddress: "测试路16号"},

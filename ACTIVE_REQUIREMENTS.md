@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-583-RECIPIENT-COMPACT-ADDRESS-DIRECT-SHIP-PICKER
+- Branch: codex/pr583-recipient-directship-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: verifying
+- Scope: 修复无分隔收货地址把整段误作姓名并清空地址的问题；一件代发商品明细改为与员工录单一致的“商品、规格、数量”常驻行和融合搜索/分类商品弹层。
+- DEV:
+  - DEV-583-COMPACT-RECIPIENT-PARSE：共享 `POST /api/customer-recipient/parse` 保守识别完整行政区地址末尾紧邻手机号的 2–4 字姓名；低置信度时保留地址并让姓名为空。
+  - DEV-583-SHARED-PRODUCT-PICKER：员工录单与一件代发共用商品族底部弹层，统一分类、名称、拼音、首字母、编码、SKU 与规格搜索。
+  - DEV-583-DIRECT-SHIP-LINES：一件代发初始和提交后保留空商品行，商品/规格/数量始终显示，默认规格和数量沿用员工录单，多行与有效行归并后提交。
+  - DEV-583-DOCS-ACCEPTANCE-DEPLOY：同步需求、验收、客户门户手册，完成验证、develop 合并、development ERP 部署和小程序开发版导入。
+- Verifier:
+  - Unit: shared recipient parser exact/compact/safety tests；direct ship row/default spec/payload helper tests。
+  - API: ERP、员工小程序和客户代发会话共用解析 API，结果一致且不回显原文；代发目录隔离与库存重验回归。
+  - Frontend/build: miniapp targeted/full tests、typecheck、development mp-weixin build、微信开发者工具交互验收。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-recipient-direct-ship-picker.md`；Van development 业务验收待办。
+- Deployment: requested for development only; production/main/WeChat upload-review-release out of scope.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 原脏工作区不动；解析和商品选择本身只读，不新增日志类型，发货提交/取消继续使用现有审计。RED/GREEN、独立复审、全量 Go、miniapp 195 项、typecheck 与 development 构建已通过；等待合并、development 部署和 DevTools 验收。
+
 ### PR-582-MINI-FULFILLMENT-LIST-INVENTORY-NAVIGATION
 - Branch: codex/mini-fulfillment-search-inventory-multiselect-20260807
 - Owner/session: Codex / 2026-08-07

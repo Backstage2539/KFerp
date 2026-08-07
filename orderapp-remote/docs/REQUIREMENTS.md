@@ -1465,3 +1465,10 @@
 - `DEV-582-INVENTORY-MULTI-PREFILL`：库存列表支持商品名称服务端搜索和分页；切换搜索词或页码时已选商品规格不丢失，一次可把跨页选中的多个商品规格添加到同一张生产工单申请。预填上下文只保存在小程序前端内存并消费一次，不写 URL 长 JSON、不写业务数据；旧单商品 `product_id/spec_g` 参数继续兼容。生产目录中没有可用 BOM 的所选商品必须明确提示，不能静默丢失或默认数量。
 - `DEV-582-DOCS-ACCEPTANCE-DEPLOY`：同步客户门户、客户履约和库存手册及验收证据；完成领域/API/PostgreSQL、小程序测试、类型检查、开发包构建、微信开发者工具验收后，合入 `develop` 并部署 development。`main`、production 和微信上传/审核不在本需求范围。
 - 交付状态（2026-08-07）：产品需求进入 `review`，`DEV-582-DOCS-ACCEPTANCE-DEPLOY` 已完成，`REV-582-MINI-FULFILLMENT-LIST-INVENTORY-NAVIGATION` 继续等待 Van 验收。首次 development 部署提交为 `6fa32c00c344f0be3d3495fcf342f32bfc691b1f`；服务端备份 `/opt/stacks/erp/orderapp.backup.deploy-20260807175731-6fa32c00c344`，本地开发小程序备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260807180326-6fa32c00c344`。development 容器健康，登录页 HTTP 200；微信开发者工具已重新导入固定目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，并完成发货筛选/搜索及库存页面 UI 验收。未操作 `main`、production 或微信上传/审核。
+
+# PR-583-RECIPIENT-COMPACT-ADDRESS-DIRECT-SHIP-PICKER 连写收货地址解析与一件代发商品选择（2026-08-07）
+
+- `DEV-583-COMPACT-RECIPIENT-PARSE`：ERP 客户档案、员工小程序客户维护和客户一件代发继续共用 `POST /api/customer-recipient/parse`。显式标签、空格与收件标记优先；当输入为完整省市区县、详细地址、紧邻手机号的 2–4 字姓名时，服务端按常见单姓或复姓保守拆分。只有姓名可信且移除后仍有有效详细地址时才拆；低置信度时姓名留空并保留完整地址，不能再把整段地址当姓名后清空地址。
+- `DEV-583-SHARED-PRODUCT-PICKER`：员工录单和一件代发共用同一个商品族底部弹层，统一提供全部、熟豆、挂耳、生豆、速溶分类，以及商品名、客户显示名、别名、拼音、首字母、商品编码、SKU 和规格文本搜索。商品目录仍由各自接口按当前客户授权范围提供；一件代发只使用当前客户绑定成品仓的正数可用库存。
+- `DEV-583-DIRECT-SHIP-LINES`：一件代发初始和提交成功后均保留一条空商品行，商品、规格、数量三个控件始终可见。选中商品后按 `default_sku_id > is_default_sku > 第一个可用规格` 自动带入规格，数量默认 1；规格可从该商品现有规格中改选，切换商品保留数量并替换旧 SKU/规格。支持多行，最后一行删除时重置为空；全空行不提交，半填行或非正数量阻止预览/提交，相同 SKU/规格在请求前归并且服务端继续重验库存。
+- `DEV-583-DOCS-ACCEPTANCE-DEPLOY`：同步客户门户手册、需求、验收、PR/DEV 与独立证据；通过 Go、API、miniapp 测试、类型检查和 development 小程序构建后合入 `develop`，部署 development ERP 并导入微信开发者工具开发包。地址解析和选择器本身只读，不新增操作日志类型；正式发货提交和取消继续沿用既有操作日志。`main`、production、微信上传审核和正式发布不在范围内。
