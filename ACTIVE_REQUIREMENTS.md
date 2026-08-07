@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-581-MINI-CUSTOMER-FULFILLMENT-CLOSED-LOOP
 - Branch: codex/mini-customer-fulfillment-closed-loop-20260806
 - Owner/session: Codex / 2026-08-06
-- Status: implementation and independent review complete; integration/development deployment in progress
+- Status: implementation and independent review complete; merged to develop and deployed to development at `b6431f01`; API DEV-E2E and DevTools visual acceptance complete; awaiting Van business confirmation
 - Scope: 重构代加工客户小程序的一件代发、生产工单、客户库存、发货中心与费用中心；复用 ERP 地址解析、商品选择、生产 BOM、中央库存和真实工单链路，补齐工单费用模板与账单闭环，并部署开发环境。
 - DEV:
   - DEV-581-DIRECT-SHIP：客户仓库存目录、多商品发货、FIFO/跨仓拆单、幂等预留及内部代发唯一写入。
@@ -23,11 +23,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Unit: full Go `go test ./...` GREEN；miniapp 173/173 GREEN；ERP Vue 881/881 GREEN。
   - API: shared recipient parser、direct ship、processing、inventory、billing lifecycle and permissions GREEN；customerfulfillment/customerportal/production/sales 真实 PostgreSQL 回归 GREEN。
   - Frontend/build: Vue/Vite build、miniapp typecheck、development mp-weixin build、13-page/52-file artifact manifest GREEN。
+  - Remote preflight: feature、schema upgrade-order、authentication 和 customer completion warehouse hotfix 均通过远端发布前检查；Go 测试、ERP Vue 881 项和 miniapp 173 项均 GREEN。
   - Manual: customer portal、fulfillment、production、stock、finance、requirements and acceptance single-source docs synchronized.
-  - Review/acceptance: independent contract review found and closed billing menu/permission split; final review has no open P0/P1; Van development acceptance pending.
-- Deployment: development requested; production and main are out of scope.
-- Last update: 2026-08-06 Asia/Shanghai
-- Notes: 原脏工作区不动；实现从最新 origin/develop 的干净隔离分支进行。测试账号凭据不写入源码、文档或日志。
+  - Review/acceptance: independent contract review found and closed billing menu/permission split; final review has no open P0/P1; eight new routes returned the expected authentication response and the shared recipient parser returned one JSON document; Codex API DEV-E2E and visual acceptance are complete, with Van business confirmation pending.
+- DEV-E2E: shared address parsing passed; cross-warehouse FIFO direct ship created two packages and passed idempotency/cancellation; production request `3` flowed through plan `86`, work orders `42`/`43` and process cards `65`/`66` to completion in the customer frozen warehouse, producing 4 units of 227g and 3 units of 454g (454g customer inventory total 5 after production); batch `FP-48` exposes production date/inbound time and legacy batches expose the history marker; bill `CPB-19-00000001` contains 2 work orders, 6 lines and total `91.00`, charges customer-owned materials at `0`, and passed idempotency; required operation logs have no gaps.
+- Deployment: feature `6d31cebc` merged to develop as `0f32b5e7`; legacy-schema startup order was corrected by hotfix `5772daa9` / merge `32dac811`, authentication compatibility by hotfix `633d1573` / merge `b6bf1670`, and omitted customer completion warehouse by hotfix `37def50a` / PR `#17` / merge `b6431f01`. Final `origin/develop@b6431f01` is deployed to development. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260807151012-b6431f013acf`; rollback image `kferp-orderapp-rollback:development-20260807151012-b6431f013acf`; application container is healthy.
+- DevTools: latest fixed development package contains all 52 manifest files; the project was reopened, showing 0 errors and 0 warnings. Home page, fulfillment center, production, inventory batch, bill detail and profile entry hiding passed visual inspection. No WeChat upload, review or release was performed.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 原脏工作区不动；实现从最新 origin/develop 的干净隔离分支进行。测试账号凭据不写入源码、文档或日志。Codex DEV-E2E 只通过正常 ERP/API 执行并已全部通过；测试数据 `DEV-E2E-PR581-20260807` 保留至 Van 确认后再清理。Van 业务确认仍待；`main`、production 和微信上传/审核均未操作。
 
 ### PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE
 - Branch: codex/miniapp-address-portal-fix-20260804
