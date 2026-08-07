@@ -101,7 +101,7 @@
                     </td>
                     <td>
                       <button class="text-button bom-name-button" type="button" @click.stop="openBomRowPrimary(row)">
-                        {{ productionBomLabel(row) }}
+                        {{ productionBomListName(row) }}
                       </button>
                       <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
                     </td>
@@ -413,7 +413,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupControls from '../components/BusinessGroupControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomVersionWarning } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupHeaderIndentStyle,
