@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS %s.production_plan_items (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS production_plan_items_plan_idx ON %s.production_plan_items(production_plan_id, id);
-CREATE INDEX IF NOT EXISTS production_plan_items_processing_request_idx ON %s.production_plan_items(processing_request_item_id) WHERE processing_request_item_id>0;
+-- Defer the %s.production_plan_items request-item index until legacy columns are added below.
 
 CREATE TABLE IF NOT EXISTS %s.production_plan_operation_splits (
 	id BIGSERIAL PRIMARY KEY,
@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	work_center TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
-CREATE INDEX IF NOT EXISTS work_orders_processing_request_idx ON %s.work_orders(processing_request_item_id) WHERE processing_request_item_id>0;
+-- Defer the %s.work_orders request-item index until legacy columns are added below.
 CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0;
 
 CREATE TABLE IF NOT EXISTS %s.job_cards (
