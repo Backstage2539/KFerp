@@ -1913,4 +1913,4 @@
 - [ ] 点击库存卡片进入独立库存详情页，列表底部不再出现内嵌详情；顶部返回和右滑返回可回到原库存列表并保留搜索、页码、每页条数和勾选项，详情继续展示批次、生产日期/历史提示、仓库、入库时间、数量及质量。
 - [ ] 库存列表支持商品名称搜索和分页；选中项不因切换搜索词或页码丢失。多选后只进入一张生产工单申请并预填所有所选规格，数量仍由客户填写。
 - [ ] 库存详情单商品添加和旧 `product_id/spec_g` 链接仍可预填；预填只消费一次，提交或重新进入页面不重复恢复。没有可用 BOM 的所选商品显示明确提示且不会静默提交。
-- [ ] 应用/HTTP/PostgreSQL和miniapp测试、typecheck、development构建、页面清单与微信开发者工具验收通过；手册同步，功能分支推送并合入 `develop`、development部署完成，main/production/微信上传审核未操作。
+- [x] 应用/HTTP/PostgreSQL和miniapp测试、typecheck、development构建、页面清单与微信开发者工具验收通过；手册同步，功能分支推送并以 `6fa32c00c344f0be3d3495fcf342f32bfc691b1f` 合入并首次部署到 development。服务端备份 `/opt/stacks/erp/orderapp.backup.deploy-20260807175731-6fa32c00c344`，本地开发小程序备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260807180326-6fa32c00c344`；容器健康、登录页 HTTP 200，微信开发者工具已重新导入固定开发目录并完成发货筛选/搜索及库存页面 UI 验收。main/production/微信上传审核未操作。
