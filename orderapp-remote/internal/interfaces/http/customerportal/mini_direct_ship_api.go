@@ -27,8 +27,8 @@ type MiniCustomerFulfillment interface {
 
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
 	e.GET("/api/mini/direct-ship/catalog", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
+		if err != nil || !allowed {
 			return err
 		}
 		if fulfillment == nil {
@@ -46,8 +46,8 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 
 	e.POST("/api/mini/direct-ship/preview", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
+		if err != nil || !allowed {
 			return err
 		}
 		if fulfillment == nil {
@@ -66,8 +66,8 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 
 	e.POST("/api/mini/direct-ship/requests", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
+		if err != nil || !allowed {
 			return err
 		}
 		if fulfillment == nil {
@@ -86,8 +86,8 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 
 	e.GET("/api/mini/direct-ship/requests", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip, customerportalapp.CapabilityProcessing)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip, customerportalapp.CapabilityProcessing)
+		if err != nil || !allowed {
 			return err
 		}
 		if fulfillment == nil {
@@ -102,8 +102,8 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 
 	e.GET("/api/mini/direct-ship/requests/:id", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip, customerportalapp.CapabilityProcessing)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip, customerportalapp.CapabilityProcessing)
+		if err != nil || !allowed {
 			return err
 		}
 		requestID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
@@ -121,8 +121,8 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 
 	e.POST("/api/mini/direct-ship/requests/:id/cancel", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityDirectShip)
+		if err != nil || !allowed {
 			return err
 		}
 		requestID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
@@ -140,8 +140,8 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 
 	e.GET("/api/mini/customer-inventory", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityInventoryCustody, customerportalapp.CapabilityProcessing)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityInventoryCustody, customerportalapp.CapabilityProcessing)
+		if err != nil || !allowed {
 			return err
 		}
 		if fulfillment == nil {
@@ -155,8 +155,8 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 
 	e.GET("/api/mini/customer-inventory/:product_id/batches", func(c echo.Context) error {
-		current, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityInventoryCustody, customerportalapp.CapabilityProcessing)
-		if err != nil {
+		current, allowed, err := requireMiniCustomerFulfillmentContext(c, portal, customerportalapp.CapabilityInventoryCustody, customerportalapp.CapabilityProcessing)
+		if err != nil || !allowed {
 			return err
 		}
 		productID, err := strconv.ParseInt(strings.TrimSpace(c.Param("product_id")), 10, 64)
@@ -181,25 +181,25 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 	})
 }
 
-func requireMiniCustomerFulfillmentContext(c echo.Context, portal Service, capabilities ...string) (customerportalapp.CurrentContext, error) {
+func requireMiniCustomerFulfillmentContext(c echo.Context, portal Service, capabilities ...string) (customerportalapp.CurrentContext, bool, error) {
 	if portal == nil {
-		return customerportalapp.CurrentContext{}, miniInternalError(c)
+		return customerportalapp.CurrentContext{}, false, miniInternalError(c)
 	}
 	token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
 	if token == "" {
-		return customerportalapp.CurrentContext{}, c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		return customerportalapp.CurrentContext{}, false, c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
 	}
 	current, err := portal.Me(c.Request().Context(), token)
 	if err != nil {
-		return customerportalapp.CurrentContext{}, miniSessionError(c, err)
+		return customerportalapp.CurrentContext{}, false, miniSessionError(c, err)
 	}
 	if current.CurrentCustomerID <= 0 {
-		return customerportalapp.CurrentContext{}, c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
+		return customerportalapp.CurrentContext{}, false, c.JSON(http.StatusForbidden, map[string]string{"error": "customer binding not found"})
 	}
 	if !current.HasAnyCapability(capabilities) {
-		return customerportalapp.CurrentContext{}, c.JSON(http.StatusForbidden, map[string]string{"error": "capability not enabled"})
+		return customerportalapp.CurrentContext{}, false, c.JSON(http.StatusForbidden, map[string]string{"error": "capability not enabled"})
 	}
-	return current, nil
+	return current, true, nil
 }
 
 func bindMiniDirectShipPrincipal(c echo.Context, current customerportalapp.CurrentContext, cmd *customerfulfillmentapp.MiniDirectShipCommand) {
