@@ -320,6 +320,9 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/finance/adjustments") {
 		return "finance.close"
 	}
+	if path == "/api/finance/customer-processing-billing/preview" {
+		return "finance.read"
+	}
 	if strings.HasPrefix(path, "/api/finance/") {
 		if method == http.MethodGet {
 			return "finance.read"

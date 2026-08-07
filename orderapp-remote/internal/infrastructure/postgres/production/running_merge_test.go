@@ -92,3 +92,28 @@ func TestGroupStartNeedsForRunsKeepsDifferentFrozenSnapshotsIsolated(t *testing.
 		t.Fatalf("inventory conversion snapshot was merged or overwritten: %+v", got["SO-LB"])
 	}
 }
+
+func TestGroupStartNeedsForRunsNeverMergesDifferentProcessingCustomersOrRequestItems(t *testing.T) {
+	needs := []productionapp.StartNeed{
+		{
+			ProductID: 789, ParentProductID: 644, ProductName: "客户加工成品", SpecG: 454, GapG: 454,
+			SalesSpecCount: 1, InventoryQtyPerSalesUnit: 0.454, InventoryUnit: "kg", PlannedInventoryQty: 0.454,
+			SalesSpecSnapshotJSON: `{"sku_id":789,"parent_product_id":644,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"customer_processing_spec_g","customer_id":8,"target_warehouse":"CUSTOMER-8","processing_request_item_id":101}`,
+			OrderNos:              "PJ-0001", CustomerID: 8, TargetWarehouse: "CUSTOMER-8", ProcessingRequestItemID: 101,
+		},
+		{
+			ProductID: 789, ParentProductID: 644, ProductName: "客户加工成品", SpecG: 454, GapG: 454,
+			SalesSpecCount: 1, InventoryQtyPerSalesUnit: 0.454, InventoryUnit: "kg", PlannedInventoryQty: 0.454,
+			SalesSpecSnapshotJSON: `{"sku_id":789,"parent_product_id":644,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"customer_processing_spec_g","customer_id":9,"target_warehouse":"CUSTOMER-9","processing_request_item_id":202}`,
+			OrderNos:              "PJ-0002", CustomerID: 9, TargetWarehouse: "CUSTOMER-9", ProcessingRequestItemID: 202,
+		},
+	}
+
+	groups := groupStartNeedsForRuns(needs, nil, nil)
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want customer requests isolated: %+v", len(groups), groups)
+	}
+	if groups[0].CustomerID == groups[1].CustomerID || groups[0].ProcessingRequestItemID == groups[1].ProcessingRequestItemID {
+		t.Fatalf("customer/request identity was lost: %+v", groups)
+	}
+}

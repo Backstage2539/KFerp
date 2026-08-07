@@ -33,7 +33,7 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 		"producePlan", "productionFlow", "productionConfig", "productionAcceptance", "produceRunning", "workOrders", "jobCards", "qualityInspections", "produceLogs", "productionCosts", "productionManual",
 		"warehouseInventory", "stockOperations", "stockOutboundLogs", "inventoryMaterialsManual", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
 		"productSettings", "mallSettings", "bom", "products", "costing", "costingManual",
-		"costingSettings", "machines", "companyProfile", "salesOrderSettings", "senderSettings", "outsourceSettings", "uiSettings", "customerCapabilityTemplates", "customerPortalSettings", "customerPortalManual", "customerFulfillment", "customerFulfillmentManual", "settingsAuditManual",
+		"costingSettings", "machines", "companyProfile", "salesOrderSettings", "senderSettings", "outsourceSettings", "processingBilling", "uiSettings", "customerCapabilityTemplates", "customerPortalSettings", "customerPortalManual", "customerFulfillment", "customerFulfillmentManual", "settingsAuditManual",
 		"departments", "employees", "audit",
 		"reqProduct", "reqDev", "reqUnit", "reqApi", "reqReview", "requirementsManual",
 	} {
@@ -49,5 +49,8 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 	}
 	if views["productionConfig"] != "bom.read" {
 		t.Fatalf("productionConfig permission=%q, want bom.read so BOM readers can open the consolidated page", views["productionConfig"])
+	}
+	if views["processingBilling"] != "finance.read" || views["outsourceSettings"] != "settings.write" {
+		t.Fatalf("processing billing/template view permissions=%q/%q, want finance.read/settings.write", views["processingBilling"], views["outsourceSettings"])
 	}
 }

@@ -21,15 +21,21 @@ var (
 )
 
 var (
-	recipientNameLabels    = []string{"收件人", "姓名", "联系人", "客户"}
-	recipientAddressLabels = []string{"收货地址", "详细地址", "地址"}
-	recipientAllLabels     = []string{"联系方式", "收货地址", "详细地址", "收件人", "联系人", "电话", "手机", "姓名", "客户", "地址"}
+	recipientNameLabels          = []string{"收货人", "收件人", "姓名", "联系人", "客户"}
+	recipientAddressLabels       = []string{"收货地址", "地址"}
+	recipientRegionLabels        = []string{"所在地区", "省市区", "地区"}
+	recipientDetailAddressLabels = []string{"详细地址"}
+	recipientAllLabels           = []string{"手机号码", "联系电话", "联系方式", "所在地区", "收货地址", "详细地址", "收货人", "收件人", "联系人", "省市区", "电话", "手机", "姓名", "客户", "地区", "地址"}
 )
 
 type RecipientParseResult struct {
 	RecipientName string `json:"recipient_name"`
 	Phone         string `json:"phone"`
 	Address       string `json:"address"`
+	Province      string `json:"province"`
+	City          string `json:"city"`
+	District      string `json:"district"`
+	DetailAddress string `json:"detail_address"`
 }
 
 // ParseRecipientText is the single server-side source of truth used by ERP and
@@ -51,6 +57,13 @@ func ParseRecipientText(input string) (RecipientParseResult, error) {
 	}
 	labeledName := recipientValueAfterLabel(normalized, recipientNameLabels)
 	labeledAddress := recipientValueAfterLabel(normalized, recipientAddressLabels)
+	labeledRegion := recipientValueAfterLabel(normalized, recipientRegionLabels)
+	labeledDetailAddress := recipientValueAfterLabel(normalized, recipientDetailAddressLabels)
+	if labeledRegion != "" {
+		labeledAddress = cleanRecipientLine(strings.TrimSpace(labeledRegion + " " + labeledDetailAddress))
+	} else if labeledAddress == "" {
+		labeledAddress = labeledDetailAddress
+	}
 
 	withoutPhone := normalized
 	if phone != nil {
@@ -123,11 +136,66 @@ func ParseRecipientText(input string) (RecipientParseResult, error) {
 		address = cleanRecipientLine(strings.TrimPrefix(address, recipientName))
 	}
 
+	address = cleanRecipientLine(address)
+	province, city, district, detailAddress := splitRecipientAddress(address)
 	return RecipientParseResult{
 		RecipientName: recipientName,
 		Phone:         phoneValue,
-		Address:       cleanRecipientLine(address),
+		Address:       address,
+		Province:      province,
+		City:          city,
+		District:      district,
+		DetailAddress: detailAddress,
 	}, nil
+}
+
+var directMunicipalities = []string{"北京市", "上海市", "天津市", "重庆市"}
+
+var autonomousRegions = []string{
+	"内蒙古自治区", "广西壮族自治区", "西藏自治区", "宁夏回族自治区", "新疆维吾尔自治区",
+	"香港特别行政区", "澳门特别行政区",
+}
+
+var (
+	recipientProvincePattern = regexp.MustCompile(`^(.{2,}?省)`)
+	recipientCityPattern     = regexp.MustCompile(`^(.{2,}?(?:自治州|地区|盟|市))`)
+	recipientDistrictPattern = regexp.MustCompile(`^(.{1,}?(?:自治县|新区|林区|特区|区|县|旗|市))`)
+)
+
+func splitRecipientAddress(address string) (province, city, district, detail string) {
+	rest := strings.TrimSpace(address)
+	if rest == "" {
+		return "", "", "", ""
+	}
+	for _, municipality := range directMunicipalities {
+		if strings.HasPrefix(rest, municipality) {
+			province, city = municipality, municipality
+			rest = strings.TrimSpace(strings.TrimPrefix(rest, municipality))
+			district, rest = takeRecipientAddressPart(rest, recipientDistrictPattern)
+			return province, city, district, strings.TrimSpace(rest)
+		}
+	}
+	for _, region := range autonomousRegions {
+		if strings.HasPrefix(rest, region) {
+			province = region
+			rest = strings.TrimSpace(strings.TrimPrefix(rest, region))
+			break
+		}
+	}
+	if province == "" {
+		province, rest = takeRecipientAddressPart(rest, recipientProvincePattern)
+	}
+	city, rest = takeRecipientAddressPart(rest, recipientCityPattern)
+	district, rest = takeRecipientAddressPart(rest, recipientDistrictPattern)
+	return province, city, district, strings.TrimSpace(rest)
+}
+
+func takeRecipientAddressPart(text string, pattern *regexp.Regexp) (string, string) {
+	match := pattern.FindString(text)
+	if match == "" {
+		return "", text
+	}
+	return strings.TrimSpace(match), strings.TrimSpace(strings.TrimPrefix(text, match))
 }
 
 type recipientPhoneMatch struct {

@@ -754,6 +754,86 @@ func TestInternalProcessingAndDirectShipSubmitAPIsUseExplicitCustomer(t *testing
 	}
 }
 
+func TestInternalDirectShipSubmitAPIUsesSingleAtomicWriter(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerDirectShipResult: app.DirectShipOrderSummary{
+			OrderID:         321,
+			OrderNo:         "CDS-20260806-0321",
+			OrderDate:       "2026-08-06",
+			ReceiverAddress: "张三 13800000000 浙江杭州",
+			Status:          "submitted",
+			ItemCount:       1,
+		},
+	}
+	sales := &recordingSalesSaver{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(23))
+			c.Set("operator_employee", "认证管理员")
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: sales})
+
+	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","items":[{"product_id":12,"product_name":"誉观山冷萃豆","spec_g":227,"quantity_units":2}],"note":"管理员提交"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/direct-ship-orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("internal direct ship submit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.customerDirectShipCalls != 1 {
+		t.Errorf("SubmitCustomerDirectShipOrder calls=%d, want exactly 1", svc.customerDirectShipCalls)
+	}
+	if sales.calls != 0 {
+		t.Errorf("SaveOrder calls=%d, want 0 because the customer fulfillment submit owns the transaction", sales.calls)
+	}
+	if svc.customerDirectShipCmd.Actor != "认证管理员" {
+		t.Errorf("direct ship audit actor=%q, want authenticated operator", svc.customerDirectShipCmd.Actor)
+	}
+	for _, want := range []string{
+		`"order_id":321`,
+		`"order_no":"CDS-20260806-0321"`,
+		`"order_date":"2026-08-06"`,
+		`"receiver_address":"张三 13800000000 浙江杭州"`,
+		`"status":"submitted"`,
+		`"item_count":1`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("internal direct ship response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if strings.Contains(rec.Body.String(), `"cds_order_no"`) {
+		t.Errorf("internal direct ship response exposes duplicate-order compatibility field: %s", rec.Body.String())
+	}
+}
+
+func TestInternalDirectShipSubmitAPIFailureDoesNotFallThroughToSecondWriter(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{customerDirectShipErr: errors.New("atomic direct ship write failed")}
+	sales := &recordingSalesSaver{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: sales})
+
+	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","items":[{"product_id":12,"product_name":"誉观山冷萃豆","spec_g":227,"quantity_units":2}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/direct-ship-orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "atomic direct ship write failed") {
+		t.Fatalf("internal direct ship failure status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.customerDirectShipCalls != 1 {
+		t.Errorf("SubmitCustomerDirectShipOrder calls=%d, want exactly 1", svc.customerDirectShipCalls)
+	}
+	if sales.calls != 0 {
+		t.Errorf("SaveOrder calls=%d after failed unified submit, want 0", sales.calls)
+	}
+}
+
 func TestInternalSubmitAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		customerProcessingErr: errors.New("customer capability processing unavailable"),
@@ -1055,6 +1135,7 @@ type fakeCustomerFulfillmentService struct {
 	customerDirectShipCmd           app.SubmitCustomerDirectShipOrderCommand
 	customerDirectShipResult        app.DirectShipOrderSummary
 	customerDirectShipErr           error
+	customerDirectShipCalls         int
 	custodyAdjustmentCmd            app.AdjustCustodyInventoryCommand
 	custodyAdjustmentResult         app.CustodyBalance
 	custodyAdjustmentErr            error
@@ -1098,6 +1179,15 @@ func (s *fakeSalesSaver) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCo
 }
 
 var testSalesSaver = &fakeSalesSaver{}
+
+type recordingSalesSaver struct {
+	calls int
+}
+
+func (s *recordingSalesSaver) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
+	s.calls++
+	return salesapp.SaveOrderResult{OrderID: 999, OrderNo: "SO-TEST-999"}, nil
+}
 
 func (s *fakeCustomerFulfillmentService) ParseImport(ctx context.Context, cmd app.ParseImportCommand) (app.ImportBatch, error) {
 	s.parseCmd = cmd
@@ -1146,6 +1236,7 @@ func (s *fakeCustomerFulfillmentService) SubmitCustomerProcessingWorkOrder(ctx c
 }
 
 func (s *fakeCustomerFulfillmentService) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.SubmitCustomerDirectShipOrderCommand) (app.DirectShipOrderSummary, error) {
+	s.customerDirectShipCalls++
 	s.customerDirectShipCmd = cmd
 	if s.customerDirectShipErr != nil {
 		return app.DirectShipOrderSummary{}, s.customerDirectShipErr

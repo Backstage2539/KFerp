@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-581-MINI-CUSTOMER-FULFILLMENT-CLOSED-LOOP
+- Branch: codex/mini-customer-fulfillment-closed-loop-20260806
+- Owner/session: Codex / 2026-08-06
+- Status: implementation and independent review complete; integration/development deployment in progress
+- Scope: 重构代加工客户小程序的一件代发、生产工单、客户库存、发货中心与费用中心；复用 ERP 地址解析、商品选择、生产 BOM、中央库存和真实工单链路，补齐工单费用模板与账单闭环，并部署开发环境。
+- DEV:
+  - DEV-581-DIRECT-SHIP：客户仓库存目录、多商品发货、FIFO/跨仓拆单、幂等预留及内部代发唯一写入。
+  - DEV-581-PROCESSING-WORK-ORDERS：多商品生产申请、BOM 物料预览、WIP/库存校验预留、客户目标仓与真实工单状态联动。
+  - DEV-581-CUSTOMER-INVENTORY：客户绑定成品仓中央库存列表、批次详情及库存到生产工单预填。
+  - DEV-581-PROCESSING-BILLING：版本化代加工费用模板、完工工单费用预览/账单快照和小程序账单详情。
+  - DEV-581-MINIAPP-UX：入口改名、发货中心、表单精简、共享商品选择、能力隐藏和账单/库存详情。
+  - DEV-581-DOCS-ACCEPTANCE-DEPLOY：需求、验收、客户门户/履约/生产/库存手册、开发测试数据、develop 合并和 development 部署。
+- Verifier:
+  - Command: `./scripts/verify_pr581_customer_closed_loop.sh` (targeted Go/API + full Vue tests/build + full miniapp tests/typecheck/development build/artifact manifest).
+  - Unit: full Go `go test ./...` GREEN；miniapp 173/173 GREEN；ERP Vue 881/881 GREEN。
+  - API: shared recipient parser、direct ship、processing、inventory、billing lifecycle and permissions GREEN；customerfulfillment/customerportal/production/sales 真实 PostgreSQL 回归 GREEN。
+  - Frontend/build: Vue/Vite build、miniapp typecheck、development mp-weixin build、13-page/52-file artifact manifest GREEN。
+  - Manual: customer portal、fulfillment、production、stock、finance、requirements and acceptance single-source docs synchronized.
+  - Review/acceptance: independent contract review found and closed billing menu/permission split; final review has no open P0/P1; Van development acceptance pending.
+- Deployment: development requested; production and main are out of scope.
+- Last update: 2026-08-06 Asia/Shanghai
+- Notes: 原脏工作区不动；实现从最新 origin/develop 的干净隔离分支进行。测试账号凭据不写入源码、文档或日志。
+
 ### PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE
 - Branch: codex/miniapp-address-portal-fix-20260804
 - Owner/session: Codex / 2026-08-04

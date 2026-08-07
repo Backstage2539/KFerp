@@ -196,6 +196,7 @@ func defaultViewPermissions() map[string]string {
 		"costingSettings":             "costing.write",
 		"financeDashboard":            "finance.read",
 		"financeExpenses":             "finance.write",
+		"processingBilling":           "finance.read",
 		"financeClosing":              "finance.close",
 		"financeReport":               "finance.read",
 		"financeTaxLedger":            "finance.write",

@@ -26,6 +26,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureOutsourceTemplateTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureProcessingBillingTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureCustomerCompanyColumns(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -406,7 +409,170 @@ func ensureOutsourceTemplateTables(ctx context.Context, pool *pgxpool.Pool, sche
 		return err
 	}
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS idx_%s_outsource_templates_default_true ON %s.outsource_templates ((is_default)) WHERE is_default=true`, schema, schema))
-	return nil
+	versions := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.outsource_template_versions (
+	id BIGSERIAL PRIMARY KEY,
+	template_id BIGINT NOT NULL REFERENCES %[1]s.outsource_templates(id) ON DELETE RESTRICT,
+	version_no INTEGER NOT NULL,
+	status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('published','inactive')),
+	roast_unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	bean_pack_unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	drip_pack_unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	sc_unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	created_by TEXT NOT NULL DEFAULT '',
+	published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(template_id, version_no)
+);
+CREATE INDEX IF NOT EXISTS outsource_template_versions_current_idx
+	ON %[1]s.outsource_template_versions(template_id, status, version_no DESC);
+CREATE TABLE IF NOT EXISTS %[1]s.outsource_template_rules (
+	id BIGSERIAL PRIMARY KEY,
+	version_id BIGINT NOT NULL REFERENCES %[1]s.outsource_template_versions(id) ON DELETE RESTRICT,
+	fee_type TEXT NOT NULL CHECK (fee_type IN ('roasting','labor','material','packaging','processing','storage')),
+	name TEXT NOT NULL DEFAULT '',
+	basis TEXT NOT NULL CHECK (basis IN ('actual_input_kg','actual_output_kg','actual_minutes','actual_units','fixed_per_work_order','factory_material_actual_cost')),
+	unit_price NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+	sort_order INTEGER NOT NULL DEFAULT 10,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.outsource_template_rules DROP CONSTRAINT IF EXISTS outsource_template_rules_fee_type_check;
+ALTER TABLE %[1]s.outsource_template_rules ADD CONSTRAINT outsource_template_rules_fee_type_check CHECK (fee_type IN ('roasting','labor','material','packaging','processing','storage'));
+CREATE INDEX IF NOT EXISTS outsource_template_rules_version_idx
+	ON %[1]s.outsource_template_rules(version_id, sort_order, id);
+INSERT INTO %[1]s.outsource_template_versions(
+	template_id,version_no,status,roast_unit_price,bean_pack_unit_price,drip_pack_unit_price,sc_unit_price,created_by,published_at,created_at
+)
+SELECT t.id,1,'published',t.roast_unit_price,t.bean_pack_unit_price,t.drip_pack_unit_price,t.sc_unit_price,'legacy-migration',t.updated_at,t.updated_at
+FROM %[1]s.outsource_templates t
+WHERE NOT EXISTS (SELECT 1 FROM %[1]s.outsource_template_versions v WHERE v.template_id=t.id);
+INSERT INTO %[1]s.outsource_template_rules(version_id,fee_type,name,basis,unit_price,sort_order)
+SELECT v.id,x.fee_type,x.name,x.basis,x.unit_price,x.sort_order
+FROM %[1]s.outsource_template_versions v
+JOIN %[1]s.outsource_templates t ON t.id=v.template_id
+CROSS JOIN LATERAL (VALUES
+	('processing','烘焙费','actual_input_kg',t.roast_unit_price,10),
+	('packaging','咖啡豆包装费','actual_units',t.bean_pack_unit_price,20),
+	('packaging','挂耳包装费','actual_units',t.drip_pack_unit_price,30),
+	('processing','SC挂靠费','actual_units',t.sc_unit_price,40)
+) AS x(fee_type,name,basis,unit_price,sort_order)
+WHERE v.version_no=1 AND x.unit_price > 0
+  AND NOT EXISTS (SELECT 1 FROM %[1]s.outsource_template_rules r WHERE r.version_id=v.id);
+`, schema)
+	_, err := pool.Exec(ctx, versions)
+	return err
+}
+
+func ensureProcessingBillingTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.processing_billing_runs (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	template_id BIGINT NOT NULL REFERENCES %[1]s.outsource_templates(id) ON DELETE RESTRICT,
+	template_version_id BIGINT NOT NULL REFERENCES %[1]s.outsource_template_versions(id) ON DELETE RESTRICT,
+	settlement_batch_id BIGINT NOT NULL DEFAULT 0,
+	run_kind TEXT NOT NULL DEFAULT 'standard' CHECK (run_kind IN ('standard','adjustment','reversal')),
+	source_billing_run_id BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','paid','reversed')),
+	total_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+	currency TEXT NOT NULL DEFAULT 'CNY',
+	created_by TEXT NOT NULL DEFAULT '',
+	confirmed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	paid_at TIMESTAMPTZ,
+	reversed_at TIMESTAMPTZ,
+	lifecycle_reason TEXT NOT NULL DEFAULT '',
+	request_key TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.processing_billing_runs ADD COLUMN IF NOT EXISTS run_kind TEXT NOT NULL DEFAULT 'standard';
+ALTER TABLE %[1]s.processing_billing_runs ADD COLUMN IF NOT EXISTS source_billing_run_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.processing_billing_runs ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+ALTER TABLE %[1]s.processing_billing_runs ADD COLUMN IF NOT EXISTS lifecycle_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.processing_billing_runs ADD COLUMN IF NOT EXISTS request_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.processing_billing_runs DROP CONSTRAINT IF EXISTS processing_billing_runs_status_check;
+ALTER TABLE %[1]s.processing_billing_runs ADD CONSTRAINT processing_billing_runs_status_check CHECK (status IN ('confirmed','paid','reversed'));
+ALTER TABLE %[1]s.processing_billing_runs DROP CONSTRAINT IF EXISTS processing_billing_runs_run_kind_check;
+ALTER TABLE %[1]s.processing_billing_runs ADD CONSTRAINT processing_billing_runs_run_kind_check CHECK (run_kind IN ('standard','adjustment','reversal'));
+CREATE INDEX IF NOT EXISTS processing_billing_runs_customer_idx
+	ON %[1]s.processing_billing_runs(customer_id, status, confirmed_at DESC, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS processing_billing_runs_reversal_source_uq
+	ON %[1]s.processing_billing_runs(source_billing_run_id)
+	WHERE run_kind='reversal' AND source_billing_run_id>0;
+CREATE UNIQUE INDEX IF NOT EXISTS processing_billing_runs_adjustment_request_uq
+	ON %[1]s.processing_billing_runs(source_billing_run_id,request_key)
+	WHERE run_kind='adjustment' AND source_billing_run_id>0 AND request_key<>'';
+CREATE TABLE IF NOT EXISTS %[1]s.processing_billing_work_orders (
+	id BIGSERIAL PRIMARY KEY,
+	billing_run_id BIGINT NOT NULL REFERENCES %[1]s.processing_billing_runs(id) ON DELETE RESTRICT,
+	run_kind TEXT NOT NULL DEFAULT 'standard' CHECK (run_kind IN ('standard','adjustment','reversal')),
+	work_order_id BIGINT NOT NULL,
+	work_order_no TEXT NOT NULL DEFAULT '',
+	request_no TEXT NOT NULL DEFAULT '',
+	product_name TEXT NOT NULL DEFAULT '',
+	completed_at TIMESTAMPTZ,
+	actual_input_kg NUMERIC(16,4) NOT NULL DEFAULT 0,
+	actual_output_kg NUMERIC(16,4) NOT NULL DEFAULT 0,
+	actual_minutes NUMERIC(16,4) NOT NULL DEFAULT 0,
+	actual_units NUMERIC(16,4) NOT NULL DEFAULT 0,
+	factory_material_actual_cost NUMERIC(16,4) NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.processing_billing_work_orders ADD COLUMN IF NOT EXISTS run_kind TEXT NOT NULL DEFAULT 'standard';
+ALTER TABLE %[1]s.processing_billing_work_orders DROP CONSTRAINT IF EXISTS processing_billing_work_orders_work_order_id_key;
+ALTER TABLE %[1]s.processing_billing_work_orders DROP CONSTRAINT IF EXISTS processing_billing_work_orders_run_kind_check;
+ALTER TABLE %[1]s.processing_billing_work_orders ADD CONSTRAINT processing_billing_work_orders_run_kind_check CHECK (run_kind IN ('standard','adjustment','reversal'));
+CREATE UNIQUE INDEX IF NOT EXISTS processing_billing_work_orders_standard_uq
+	ON %[1]s.processing_billing_work_orders(work_order_id) WHERE run_kind='standard';
+CREATE UNIQUE INDEX IF NOT EXISTS processing_billing_work_orders_run_work_order_uq
+	ON %[1]s.processing_billing_work_orders(billing_run_id,work_order_id);
+CREATE INDEX IF NOT EXISTS processing_billing_work_orders_run_idx
+	ON %[1]s.processing_billing_work_orders(billing_run_id, id);
+CREATE TABLE IF NOT EXISTS %[1]s.processing_billing_line_snapshots (
+	id BIGSERIAL PRIMARY KEY,
+	billing_run_id BIGINT NOT NULL REFERENCES %[1]s.processing_billing_runs(id) ON DELETE RESTRICT,
+	work_order_id BIGINT NOT NULL,
+	rule_id BIGINT REFERENCES %[1]s.outsource_template_rules(id) ON DELETE RESTRICT,
+	line_kind TEXT NOT NULL DEFAULT 'calculated' CHECK (line_kind IN ('calculated','adjustment','reversal')),
+	source_line_id BIGINT NOT NULL DEFAULT 0,
+	fee_item_id BIGINT NOT NULL DEFAULT 0,
+	fee_type TEXT NOT NULL DEFAULT '',
+	fee_name TEXT NOT NULL DEFAULT '',
+	basis TEXT NOT NULL DEFAULT '',
+	base_quantity NUMERIC(16,4) NOT NULL DEFAULT 0,
+	unit_price NUMERIC(16,4) NOT NULL DEFAULT 0,
+	amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+	reason TEXT NOT NULL DEFAULT '',
+	calculation_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.processing_billing_line_snapshots ALTER COLUMN rule_id DROP NOT NULL;
+ALTER TABLE %[1]s.processing_billing_line_snapshots ADD COLUMN IF NOT EXISTS line_kind TEXT NOT NULL DEFAULT 'calculated';
+ALTER TABLE %[1]s.processing_billing_line_snapshots ADD COLUMN IF NOT EXISTS source_line_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.processing_billing_line_snapshots ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.processing_billing_line_snapshots DROP CONSTRAINT IF EXISTS processing_billing_line_snapshots_work_order_id_rule_id_key;
+ALTER TABLE %[1]s.processing_billing_line_snapshots DROP CONSTRAINT IF EXISTS processing_billing_line_snapshots_line_kind_check;
+ALTER TABLE %[1]s.processing_billing_line_snapshots ADD CONSTRAINT processing_billing_line_snapshots_line_kind_check CHECK (line_kind IN ('calculated','adjustment','reversal'));
+CREATE UNIQUE INDEX IF NOT EXISTS processing_billing_line_snapshots_calculated_uq
+	ON %[1]s.processing_billing_line_snapshots(billing_run_id,work_order_id,rule_id)
+	WHERE line_kind='calculated';
+CREATE INDEX IF NOT EXISTS processing_billing_line_snapshots_run_idx
+	ON %[1]s.processing_billing_line_snapshots(billing_run_id, work_order_id, id);
+DO $$
+BEGIN
+	IF to_regclass('%[1]s.customer_fee_items') IS NOT NULL THEN
+		ALTER TABLE %[1]s.customer_fee_items ADD COLUMN IF NOT EXISTS processing_billing_run_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.customer_fee_items DROP CONSTRAINT IF EXISTS customer_fee_items_fee_type_check;
+		ALTER TABLE %[1]s.customer_fee_items ADD CONSTRAINT customer_fee_items_fee_type_check CHECK (fee_type IN ('product','roasting','labor','material','processing','shipping','direct_ship_service','packaging','storage','adjustment'));
+		CREATE INDEX IF NOT EXISTS customer_fee_items_processing_billing_run_idx ON %[1]s.customer_fee_items(processing_billing_run_id, id);
+	END IF;
+	IF to_regclass('%[1]s.customer_settlement_batches') IS NOT NULL THEN
+		ALTER TABLE %[1]s.customer_settlement_batches ADD COLUMN IF NOT EXISTS processing_billing_run_id BIGINT NOT NULL DEFAULT 0;
+		CREATE INDEX IF NOT EXISTS customer_settlement_batches_processing_billing_run_idx ON %[1]s.customer_settlement_batches(processing_billing_run_id, id);
+	END IF;
+END $$;
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func ensureLogisticsSettingsTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {

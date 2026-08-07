@@ -198,7 +198,7 @@ test('system menu merges user permissions into employee maintenance', () => {
 
 test('finance menu exposes monthly finance workflows as primary pages', () => {
   const keys = primaryMenuKeys(menuGroups)
-  for (const key of ['financeDashboard', 'financeExpenses', 'financeClosing', 'financeReport', 'financeSettings', 'financeManual']) {
+  for (const key of ['financeDashboard', 'financeExpenses', 'processingBilling', 'financeClosing', 'financeReport', 'financeSettings', 'financeManual']) {
     assert.ok(keys.includes(key))
     assert.equal(groupForView(menuGroups, key)?.id, 'finance')
   }

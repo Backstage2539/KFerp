@@ -9,9 +9,7 @@ import {
   buildResaleBeanListPDFPath,
   buildResaleBeanListPNGPath,
   createCustomerProductCategory,
-  createDirectShipBatch,
   createFulfillmentOrder,
-  createProcessingRequest,
   deleteCustomerProductCategory,
   fetchCustomerProducts,
   fetchResaleBeanListEditor,
@@ -22,7 +20,6 @@ import {
   type CustomerProductCategory,
   type CustomerProductsPage,
   type CustomerProductSummary,
-  type InventoryItem,
   type ProductSummary,
   publishResaleBeanList,
   type ResaleBeanListCommand,
@@ -35,6 +32,10 @@ import {
 } from '../../api/customerPortal'
 import { buildAPIURL } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import CustomerBillsPanel from '../../components/CustomerBillsPanel.vue'
+import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vue'
+import CustomerInventoryPanel from '../../components/CustomerInventoryPanel.vue'
+import CustomerProcessingPanel from '../../components/CustomerProcessingPanel.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
 import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
@@ -49,10 +50,8 @@ import { priceTableGroupLabel } from '../../utils/customerProducts'
 import { openMiniappFileOutput } from '../../utils/fileOutput'
 import { buildResaleBeanListPublishPayload, defaultResaleBeanListDraft, resaleBeanListItemKey, resaleCardsPerRowOptions, resaleStyleColorPresets } from '../../utils/resaleBeanList'
 import {
-  emptyDirectShipForm,
   emptyFulfillmentForm,
   emptyOrderSearch,
-  emptyProcessingForm,
   type OrderSearchForm,
   type OrderStatusField,
 } from '../../utils/serviceForms'
@@ -98,11 +97,23 @@ const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '
 const defaultPayStatusOptions = ['未付款', '已付款', '未收款', '已收款']
 const defaultShipStatusOptions = ['未发货', '待发货', '已发货']
 
-const directShipForm = ref(emptyDirectShipForm())
-const processingForm = ref(emptyProcessingForm())
 const fulfillmentForm = ref(emptyFulfillmentForm())
+const prefillProductID = ref(0)
+const prefillSpecG = ref(0)
+const closedLoopRefreshKey = ref(0)
 
-const title = computed(() => page.value?.title || serviceTitle(serviceKey.value))
+const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
+const title = computed(() => {
+  if (serviceKey.value === 'orders' && isProcessingCustomer.value) return '发货中心'
+  return page.value?.title || serviceTitle(serviceKey.value)
+})
+const isClosedLoopService = computed(() => (
+  serviceKey.value === 'directShip'
+  || serviceKey.value === 'processing'
+  || serviceKey.value === 'inventory'
+  || serviceKey.value === 'settlement'
+  || (serviceKey.value === 'orders' && isProcessingCustomer.value)
+))
 const mainTab = computed(() => {
   if (serviceKey.value === 'orders') return 'orders'
   if (serviceKey.value === 'settlement') return 'billing'
@@ -153,14 +164,8 @@ const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.v
 const processStatusPickerOptions = computed(() => orderStatusOptions('process_status', defaultProcessStatusOptions, '全部生产状态'))
 const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', defaultPayStatusOptions, '全部收款状态'))
 const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
-const processingInputOptions = computed(() => inventoryInputOptions(page.value?.inventory || []))
-const processingInputLabels = computed(() => pickerLabels(processingInputOptions.value, '暂无可用投入物料'))
-const processingTargetProductOptions = computed(() => productPickerOptions(page.value?.products || []))
-const processingTargetProductLabels = computed(() => pickerLabels(processingTargetProductOptions.value, '暂无可选目标产品'))
 const fulfillmentProductOptions = computed(() => productPickerOptions(page.value?.products || []))
 const fulfillmentProductLabels = computed(() => pickerLabels(fulfillmentProductOptions.value, '暂无可选商品'))
-const selectedProcessingInputLabel = computed(() => selectedPickerLabel(processingInputOptions.value, processingForm.value.input_material_id, '选择投入物料'))
-const selectedProcessingTargetProductLabel = computed(() => selectedPickerLabel(processingTargetProductOptions.value, processingForm.value.target_product_id, '选择目标产品'))
 const selectedFulfillmentProductLabel = computed(() => selectedPickerLabel(fulfillmentProductOptions.value, fulfillmentForm.value.product_id, '选择发货商品'))
 const selectedFulfillmentProduct = computed(() => fulfillmentProductOptions.value.find((item) => item.value === fulfillmentForm.value.product_id)?.data || null)
 const fulfillmentSalesUnitPickerOptions = computed(() => fulfillmentSalesUnitOptions(selectedFulfillmentProduct.value))
@@ -173,13 +178,18 @@ async function loadPage() {
     uni.reLaunch({ url: '/pages/login/login' })
     return
   }
+  if (isClosedLoopService.value) {
+    loading.value = false
+    page.value = null
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
     if (serviceKey.value === 'beanList') {
       primeCachedBeanListPage()
     }
-    const filters = serviceKey.value === 'orders' || serviceKey.value === 'settlement' ? buildOrderServiceFilters(orderSearch.value) : {}
+    const filters = serviceKey.value === 'orders' ? buildOrderServiceFilters(orderSearch.value) : {}
     page.value = await fetchServicePage(session.token, serviceKey.value, filters)
     if (page.value.theme_key) {
       session.applyContext({
@@ -250,8 +260,6 @@ function showBeanListCategory(item: BeanListSummary, group: { show_category?: bo
 }
 
 function resetLocalForms() {
-  directShipForm.value = emptyDirectShipForm()
-  processingForm.value = emptyProcessingForm()
   fulfillmentForm.value = emptyFulfillmentForm()
   orderSearch.value = emptyOrderSearch()
   page.value = null
@@ -725,35 +733,12 @@ function pickerOptionAt<T>(options: PickerOption<T>[], event: { detail?: { value
   return options[Number(event.detail?.value ?? -1)] || null
 }
 
-function inventoryInputOptions(items: InventoryItem[]): PickerOption<InventoryItem>[] {
-  const inputTypes = new Set(['raw_bean', 'material', 'green_bean'])
-  return items
-    .filter((item) => inputTypes.has(item.item_type) && item.status === 'available' && Number(item.qty_g) > 0)
-    .map((item) => ({
-      label: `${item.item_name} / ${item.qty_g}g 可用`,
-      value: item.item_id,
-      data: item,
-    }))
-}
-
 function productPickerOptions(products: ProductSummary[]): PickerOption<ProductSummary>[] {
   return products.map((item) => ({
     label: `${productKindLabel(item)} / ${item.name} / 已发布价格表`,
     value: item.id,
     data: item,
   }))
-}
-
-function setProcessingInputMaterial(event: { detail?: { value?: number | string } }) {
-  const option = pickerOptionAt(processingInputOptions.value, event)
-  if (!option) return
-  processingForm.value.input_material_id = option.value
-}
-
-function setProcessingTargetProduct(event: { detail?: { value?: number | string } }) {
-  const option = pickerOptionAt(processingTargetProductOptions.value, event)
-  if (!option) return
-  processingForm.value.target_product_id = option.value
 }
 
 function setFulfillmentProduct(event: { detail?: { value?: number | string } }) {
@@ -787,69 +772,8 @@ function applyFulfillmentSalesUnit(salesUnit: string) {
   fulfillmentForm.value.spec_g = unit.spec_g
 }
 
-async function submitDirectShipBatch() {
-  if (!directShipForm.value.source_name.trim()) {
-    errorMessage.value = '请填写批次名称'
-    return
-  }
-  const totalRows = Number(directShipForm.value.total_rows) || 0
-  if (totalRows <= 0) {
-    errorMessage.value = '订单行数必须大于 0'
-    return
-  }
-  submitting.value = true
-  errorMessage.value = ''
-  try {
-    await createDirectShipBatch(session.token, {
-      source_name: directShipForm.value.source_name,
-      total_rows: totalRows,
-      note: directShipForm.value.note,
-    })
-    directShipForm.value = emptyDirectShipForm()
-    uni.showToast({ title: '已提交', icon: 'success' })
-    await loadPage()
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '提交失败'
-  } finally {
-    submitting.value = false
-  }
-}
-
-async function submitProcessingRequest() {
-  const payload = {
-    input_material_id: Number(processingForm.value.input_material_id) || 0,
-    input_qty_g: Number(processingForm.value.input_qty_g) || 0,
-    target_product_id: Number(processingForm.value.target_product_id) || 0,
-    target_spec_g: Number(processingForm.value.target_spec_g) || 0,
-    target_qty: Number(processingForm.value.target_qty) || 0,
-    note: processingForm.value.note,
-  }
-  if (!payload.input_material_id || !payload.input_qty_g || !payload.target_product_id || !payload.target_spec_g || !payload.target_qty) {
-    errorMessage.value = '请填写完整加工信息'
-    return
-  }
-  submitting.value = true
-  errorMessage.value = ''
-  try {
-    await createProcessingRequest(session.token, payload)
-    processingForm.value = emptyProcessingForm()
-    uni.showToast({ title: '已提交', icon: 'success' })
-    await loadPage()
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '提交失败'
-  } finally {
-    submitting.value = false
-  }
-}
-
-function fulfillmentServiceCode(): 'direct_ship' | 'processing_ship' | 'product_order' {
-  if (serviceKey.value === 'processing') return 'processing_ship'
-  if (serviceKey.value === 'productOrder') return 'product_order'
-  return 'direct_ship'
-}
-
 async function submitFulfillmentOrder() {
-  const payload = buildFulfillmentOrderPayload(fulfillmentServiceCode(), fulfillmentForm.value)
+  const payload = buildFulfillmentOrderPayload('product_order', fulfillmentForm.value)
   if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address || !payload.product_id || !payload.spec_g || !payload.qty) {
     errorMessage.value = '请填写完整发货订单'
     return
@@ -917,6 +841,8 @@ async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
 
 onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
+  prefillProductID.value = Number(query?.product_id || 0)
+  prefillSpecG.value = Number(query?.spec_g || 0)
   orderSearch.value = emptyOrderSearch()
   const keyword = String(query?.q || '').trim()
   if (keyword) {
@@ -925,6 +851,7 @@ onLoad((query) => {
 })
 
 onShow(() => {
+  if (isClosedLoopService.value) closedLoopRefreshKey.value += 1
   void loadPage()
 })
 </script>
@@ -947,6 +874,32 @@ onShow(() => {
         <text>{{ errorMessage }}</text>
       </view>
 
+      <CustomerDirectShipPanel
+        v-if="serviceKey === 'directShip'"
+        :key="`direct-ship-create:${closedLoopRefreshKey}`"
+        :token="session.token"
+        :customer-id="session.currentCustomerID"
+      />
+      <CustomerDirectShipPanel
+        v-else-if="serviceKey === 'orders' && isProcessingCustomer"
+        :key="`fulfillment-center:${closedLoopRefreshKey}`"
+        :token="session.token"
+        :customer-id="session.currentCustomerID"
+        :show-create="false"
+      />
+      <CustomerProcessingPanel
+        v-else-if="serviceKey === 'processing'"
+        :key="`processing:${closedLoopRefreshKey}`"
+        :token="session.token"
+        :customer-id="session.currentCustomerID"
+        :prefill-product-id="prefillProductID"
+        :prefill-spec-g="prefillSpecG"
+      />
+      <CustomerInventoryPanel v-else-if="serviceKey === 'inventory'" :key="`inventory:${closedLoopRefreshKey}`" :token="session.token" />
+      <CustomerBillsPanel v-else-if="serviceKey === 'settlement'" :key="`settlement:${closedLoopRefreshKey}`" :token="session.token" />
+
+      <template v-if="!isClosedLoopService">
+
       <view v-if="summary.length" class="metrics">
         <view v-for="item in summary" :key="item.label" class="metric">
           <text class="metric-value">{{ item.value }}</text>
@@ -954,31 +907,8 @@ onShow(() => {
         </view>
       </view>
 
-      <view v-if="serviceKey === 'directShip'" class="panel">
-        <text class="panel-title">新建代发批次</text>
-        <input v-model="directShipForm.source_name" class="input" placeholder="批次名称，例如 5月直播订单" />
-        <input v-model.number="directShipForm.total_rows" class="input" type="number" placeholder="订单行数" />
-        <textarea v-model="directShipForm.note" class="textarea" placeholder="备注" />
-        <button class="primary" :disabled="submitting" @tap="submitDirectShipBatch">提交批次</button>
-      </view>
-
-      <view v-if="serviceKey === 'processing'" class="panel">
-        <text class="panel-title">提交加工申请</text>
-        <picker mode="selector" :range="processingInputLabels" @change="setProcessingInputMaterial">
-          <view class="picker-field">{{ selectedProcessingInputLabel }}</view>
-        </picker>
-        <input v-model.number="processingForm.input_qty_g" class="input" type="number" placeholder="投入生豆克重" />
-        <picker mode="selector" :range="processingTargetProductLabels" @change="setProcessingTargetProduct">
-          <view class="picker-field">{{ selectedProcessingTargetProductLabel }}</view>
-        </picker>
-        <input v-model.number="processingForm.target_spec_g" class="input" type="number" placeholder="规格克重" />
-        <input v-model.number="processingForm.target_qty" class="input" type="number" placeholder="目标件数" />
-        <textarea v-model="processingForm.note" class="textarea" placeholder="加工要求" />
-        <button class="primary" :disabled="submitting" @tap="submitProcessingRequest">提交申请</button>
-      </view>
-
-      <view v-if="serviceKey === 'directShip' || serviceKey === 'processing' || serviceKey === 'productOrder'" class="panel">
-        <text class="panel-title">新建发货订单</text>
+      <view v-if="serviceKey === 'productOrder'" class="panel">
+        <text class="panel-title">新建现货订单</text>
         <input v-model="fulfillmentForm.recipient_name" class="input" placeholder="收件人" />
         <input v-model="fulfillmentForm.recipient_phone" class="input" placeholder="手机号" />
         <input v-model="fulfillmentForm.recipient_address" class="input" placeholder="收件地址" />
@@ -1297,52 +1227,11 @@ onShow(() => {
         </view>
       </view>
 
-      <view v-if="serviceKey === 'settlement'" class="panel filter-panel">
-        <text class="panel-title">账期筛选</text>
-        <view class="date-presets bill-presets">
-          <button class="chip" @tap="applyDatePreset('week')">本周</button>
-          <button class="chip" @tap="applyDatePreset('month')">本月</button>
-          <button class="chip" @tap="applyDatePreset('year')">本年</button>
-        </view>
-        <view class="date-range">
-          <picker mode="date" :value="orderSearch.date_from" @change="setOrderDateFrom">
-            <view class="picker-field">{{ orderSearch.date_from || '开始日期' }}</view>
-          </picker>
-          <picker mode="date" :value="orderSearch.date_to" @change="setOrderDateTo">
-            <view class="picker-field">{{ orderSearch.date_to || '结束日期' }}</view>
-          </picker>
-        </view>
-        <view class="billing-status-row">
-          <picker mode="selector" :range="payStatusPickerOptions" :value="statusPickerValue(payStatusPickerOptions, orderSearch.pay_status)" @change="setOrderPayStatus">
-            <view class="picker-field status-picker">{{ orderSearch.pay_status || '收款状态' }}</view>
-          </picker>
-        </view>
-        <view class="filter-actions">
-          <button class="secondary" @tap="clearOrderFilters">重置</button>
-          <button class="primary compact" @tap="applyOrderFilters">查询</button>
-        </view>
-      </view>
-
       <view v-if="page?.products?.length" class="panel">
         <text class="panel-title">现货商品</text>
         <view v-for="item in page.products" :key="item.id" class="list-row">
           <text class="row-main">{{ item.name }}</text>
             <text class="row-sub">{{ productKindLabel(item) }} / {{ item.roast_level || '未烘焙' }} / 已发布价格表</text>
-        </view>
-      </view>
-
-      <view v-if="serviceKey === 'settlement' && page?.orders?.length" class="panel bill-panel">
-        <text class="panel-title">订单账单</text>
-        <view v-for="item in page.orders" :key="item.id" class="list-row bill-row">
-          <view class="row-head">
-            <text class="row-main order-link" @tap="openOrderFromBill(item.order_no)">{{ item.order_no || '未编号订单' }}</text>
-            <text class="price">¥{{ item.grand_total || '0.00' }}</text>
-          </view>
-          <view class="bill-meta">
-            <text class="status-pill" :class="{ unpaid: !item.pay_status || item.pay_status.includes('未') }">{{ item.pay_status || '未付款' }}</text>
-            <text class="row-sub">{{ item.order_date || '未填写日期' }}</text>
-          </view>
-          <text class="row-sub">收款方式：{{ paymentMethodText(item.pay_status, item.payment_method) }}</text>
         </view>
       </view>
 
@@ -1366,7 +1255,7 @@ onShow(() => {
           </view>
           <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
           <text class="row-sub">物流：{{ item.ship_tracking_no || '暂无单号' }}</text>
-          <view class="document-actions">
+          <view v-if="!isProcessingCustomer" class="document-actions">
             <button class="secondary compact" @tap="openOrderDocument(item.sales_order_url)">销售单</button>
             <button class="secondary compact" @tap="openOrderDocument(item.delivery_note_url)">出库单</button>
           </view>
@@ -1416,6 +1305,7 @@ onShow(() => {
       <view v-if="page && !hasDisplayData" class="state">
         <text>暂无数据</text>
       </view>
+      </template>
     </view>
 
     <MainTabBar :current="mainTab" />

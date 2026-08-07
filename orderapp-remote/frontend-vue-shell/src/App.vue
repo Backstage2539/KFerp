@@ -396,6 +396,7 @@ const internalViews = {
   greenBeanSalesManual: OperationManualView,
   financeDashboard: FinanceDashboardView,
   financeExpenses: FinanceExpensesView,
+  processingBilling: OutsourceSettingsView,
   financeClosing: FinanceClosingView,
   financeReport: FinanceReportView,
   financeTaxLedger: FinanceTaxLedgerView,

@@ -24,6 +24,17 @@ func recipientParseMiniEmployee(permissions ...string) customerportalapp.Current
 	}
 }
 
+func recipientParseMiniCustomer(capabilities ...string) customerportalapp.CurrentContext {
+	result := customerportalapp.CurrentContext{
+		AccountType:       "customer",
+		CurrentCustomerID: 8,
+	}
+	for _, code := range capabilities {
+		result.Capabilities = append(result.Capabilities, customerportalapp.Capability{Code: code, Enabled: true})
+	}
+	return result
+}
+
 type recipientParseAuthz struct {
 	actor authzapp.Actor
 	err   error
@@ -61,6 +72,10 @@ func TestRecipientParseAPIUsesOneContractForERPAndMiniEmployeeTokens(t *testing.
 			name:   "mini employee session",
 			portal: fakeService{me: recipientParseMiniEmployee("customers.read")},
 		},
+		{
+			name:   "mini customer direct ship session",
+			portal: fakeService{me: recipientParseMiniCustomer(customerportalapp.CapabilityDirectShip)},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
@@ -83,7 +98,7 @@ func TestRecipientParseAPIUsesOneContractForERPAndMiniEmployeeTokens(t *testing.
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 			}
-			for _, want := range []string{`"recipient_name":"张三"`, `"phone":"13800138000"`, `"address":"云南省普洱市思茅区咖啡路 88 号"`} {
+			for _, want := range []string{`"recipient_name":"张三"`, `"phone":"13800138000"`, `"address":"云南省普洱市思茅区咖啡路 88 号"`, `"province":"云南省"`, `"city":"普洱市"`, `"district":"思茅区"`, `"detail_address":"咖啡路 88 号"`} {
 				if !strings.Contains(rec.Body.String(), want) {
 					t.Fatalf("body=%s missing %s", rec.Body.String(), want)
 				}
@@ -106,6 +121,7 @@ func TestRecipientParseAPIRequiresCustomerReadPermissionForBothSessionTypes(t *t
 		{name: "no token", portal: fakeService{}, want: http.StatusUnauthorized},
 		{name: "ERP missing read", authz: recipientParseAuthz{actor: authzapp.Actor{EmployeeID: 7, Permissions: []string{"customers.write"}}}, erpActor: true, want: http.StatusForbidden},
 		{name: "mini missing read", portal: fakeService{me: recipientParseMiniEmployee("customers.write")}, want: http.StatusForbidden},
+		{name: "mini customer missing fulfillment capability", portal: fakeService{me: recipientParseMiniCustomer(customerportalapp.CapabilitySettlement)}, want: http.StatusForbidden},
 	}
 
 	for _, tc := range tests {

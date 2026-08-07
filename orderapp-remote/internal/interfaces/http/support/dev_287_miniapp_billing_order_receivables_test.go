@@ -42,11 +42,11 @@ func TestMiniappBillingOrderReceivablesEvidenceExists(t *testing.T) {
 	} {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
-			"订单账单",
-			"/api/mini/services/settlement",
+			"已确认并推送",
+			"不显示订单应收",
 		} {
 			if !strings.Contains(body, want) {
-				t.Fatalf("%s missing miniapp billing order receivable manual marker %q", path, want)
+				t.Fatalf("%s missing replacement billing manual marker %q", path, want)
 			}
 		}
 	}
@@ -54,26 +54,29 @@ func TestMiniappBillingOrderReceivablesEvidenceExists(t *testing.T) {
 
 func TestMiniappBillingOrderReceivablesSourceWiring(t *testing.T) {
 	for path, wants := range map[string][]string{
-		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go"): {
-			"ServiceKeySettlement",
-			"page.Orders, err = r.listCustomerOrders(ctx, query, limit, false)",
+		filepath.Join("internal", "application", "customerportal", "processing_bills.go"): {
+			"ListCustomerBills",
+			"GetCustomerBill",
+			"CapabilitySettlement",
 		},
-		filepath.Join("internal", "application", "customerportal", "service.go"): {
-			"settlementAccountingSummary",
-			"未付款订单",
-		},
-		filepath.Join("..", "miniapp", "src", "utils", "servicePage.ts"): {
-			"orderSectionTitle",
-			"订单账单",
+		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "processing_bills.go"): {
+			"ListCustomerProcessingBills",
+			"GetCustomerProcessingBill",
+			"processing_billing_run_id",
 		},
 		filepath.Join("..", "miniapp", "src", "pages", "service", "service.vue"): {
-			"orderSectionTitle(serviceKey.value)",
+			"CustomerBillsPanel",
+			"serviceKey.value === 'settlement'",
+		},
+		filepath.Join("..", "miniapp", "src", "components", "CustomerBillsPanel.vue"): {
+			"只显示 ERP 已确认并推送的代加工账单",
+			"fetchCustomerBillDetail",
 		},
 	} {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range wants {
 			if !strings.Contains(body, want) {
-				t.Fatalf("%s missing miniapp billing order receivable source marker %q", path, want)
+				t.Fatalf("%s missing replacement miniapp billing source marker %q", path, want)
 			}
 		}
 	}

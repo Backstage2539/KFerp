@@ -52,15 +52,15 @@ func TestDirectShipBatchNonemptyEvidenceExists(t *testing.T) {
 		t.Fatal("mini API tests missing direct ship empty rows bad request marker")
 	}
 	for _, want := range []string{
-		"订单行数必须大于 0",
-		"if (totalRows <= 0)",
+		"CustomerDirectShipPanel",
+		"show-create",
 	} {
 		if !strings.Contains(miniappService, want) {
-			t.Fatalf("miniapp service page missing direct ship nonempty marker %q", want)
+			t.Fatalf("miniapp service page missing replacement direct ship marker %q", want)
 		}
 	}
-	if !strings.Contains(miniappTest, "validates direct ship batch row count before submitting") {
-		t.Fatal("miniapp tests missing direct ship nonempty frontend marker")
+	if !strings.Contains(miniappTest, "replaces the mini-program batch form with the single-write direct shipment panel") {
+		t.Fatal("miniapp tests missing replacement direct ship frontend marker")
 	}
 	for _, want := range []string{
 		"PR-190-DIRECT-SHIP-BATCH-NONEMPTY",
@@ -97,9 +97,9 @@ func TestDirectShipBatchNonemptyManualsAndRequirementDocs(t *testing.T) {
 	} {
 		doc := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
-			"代发批次不能为空",
 			"订单行数必须大于 0",
-			"不能提交空代发批次",
+			"小程序",
+			"停止受理",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing direct ship nonempty marker %q", path, want)

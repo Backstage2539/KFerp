@@ -688,20 +688,85 @@ type InventoryItem struct {
 }
 
 type ProcessingRequest struct {
-	ID                int64  `json:"id"`
-	RequestNo         string `json:"request_no"`
-	InputMaterialID   int64  `json:"input_material_id"`
-	InputMaterialName string `json:"input_material_name"`
-	InputQtyG         int64  `json:"input_qty_g"`
-	TargetProductID   int64  `json:"target_product_id"`
-	TargetProductName string `json:"target_product_name"`
-	TargetSpecG       int64  `json:"target_spec_g"`
-	TargetQty         int    `json:"target_qty"`
-	Status            string `json:"status"`
-	Note              string `json:"note"`
-	CreatedAt         string `json:"created_at"`
-	AcceptedAt        string `json:"accepted_at"`
-	LinkedWorkOrderID int64  `json:"linked_work_order_id"`
+	ID                int64                   `json:"id"`
+	RequestNo         string                  `json:"request_no"`
+	InputMaterialID   int64                   `json:"input_material_id"`
+	InputMaterialName string                  `json:"input_material_name"`
+	InputQtyG         int64                   `json:"input_qty_g"`
+	TargetProductID   int64                   `json:"target_product_id"`
+	TargetProductName string                  `json:"target_product_name"`
+	TargetSpecG       int64                   `json:"target_spec_g"`
+	TargetQty         int                     `json:"target_qty"`
+	Status            string                  `json:"status"`
+	Note              string                  `json:"note"`
+	CreatedAt         string                  `json:"created_at"`
+	AcceptedAt        string                  `json:"accepted_at"`
+	LinkedWorkOrderID int64                   `json:"linked_work_order_id"`
+	Items             []ProcessingRequestItem `json:"items,omitempty"`
+}
+
+type ProcessingRequestItem struct {
+	ID                   int64                       `json:"id"`
+	LineNo               int                         `json:"line_no"`
+	ProductID            int64                       `json:"product_id"`
+	ParentProductID      int64                       `json:"parent_product_id"`
+	ProductName          string                      `json:"product_name"`
+	SpecG                int64                       `json:"spec_g"`
+	Qty                  int64                       `json:"qty"`
+	NeedG                int64                       `json:"need_g"`
+	TargetWarehouse      string                      `json:"target_warehouse"`
+	BomVersionID         int64                       `json:"bom_version_id"`
+	BomVersionNo         string                      `json:"bom_version_no"`
+	BomSourceProductID   int64                       `json:"bom_source_product_id"`
+	BomInherited         bool                        `json:"bom_inherited"`
+	MaterialSnapshot     string                      `json:"material_snapshot,omitempty"`
+	ProductionPlanID     int64                       `json:"production_plan_id"`
+	ProductionPlanItemID int64                       `json:"production_plan_item_id"`
+	LinkedWorkOrderID    int64                       `json:"linked_work_order_id"`
+	WorkOrderID          int64                       `json:"work_order_id,omitempty"`
+	WorkOrderNo          string                      `json:"work_order_no,omitempty"`
+	Status               string                      `json:"status"`
+	MaxProducibleQty     int64                       `json:"max_producible_qty,omitempty"`
+	Materials            []ProcessingMaterialPreview `json:"materials,omitempty"`
+}
+
+type ProcessingMaterialPreview struct {
+	MaterialID             int64  `json:"material_id"`
+	MaterialName           string `json:"material_name"`
+	Unit                   string `json:"unit"`
+	ComponentType          string `json:"component_type"`
+	ComponentProductID     int64  `json:"component_product_id,omitempty"`
+	ComponentSpecG         int64  `json:"component_spec_g,omitempty"`
+	RequiredG              int64  `json:"required_g"`
+	RequiredUnits          int64  `json:"required_units"`
+	FactoryInventoryG      int64  `json:"factory_inventory_g"`
+	FactoryInventoryUnits  int64  `json:"factory_inventory_units"`
+	FactoryWIPG            int64  `json:"factory_wip_g"`
+	FactoryWIPUnits        int64  `json:"factory_wip_units"`
+	CustomerInventoryG     int64  `json:"customer_inventory_g"`
+	CustomerInventoryUnits int64  `json:"customer_inventory_units"`
+	CustomerWIPG           int64  `json:"customer_wip_g"`
+	CustomerWIPUnits       int64  `json:"customer_wip_units"`
+	ReservedG              int64  `json:"reserved_g"`
+	ReservedUnits          int64  `json:"reserved_units"`
+	AvailableG             int64  `json:"available_g"`
+	AvailableUnits         int64  `json:"available_units"`
+	ShortageG              int64  `json:"shortage_g"`
+	ShortageUnits          int64  `json:"shortage_units"`
+}
+
+type ProcessingRequestPreview struct {
+	CanSubmit bool                        `json:"can_submit"`
+	Items     []ProcessingRequestItem     `json:"items"`
+	Materials []ProcessingMaterialPreview `json:"materials"`
+}
+
+type ProcessingMaterialsUnavailableError struct {
+	Preview ProcessingRequestPreview
+}
+
+func (e *ProcessingMaterialsUnavailableError) Error() string {
+	return "processing materials unavailable"
 }
 
 type FulfillmentOrder struct {
@@ -790,12 +855,21 @@ type CreateDirectShipBatchCommand struct {
 type CreateProcessingRequestCommand struct {
 	CustomerID          int64
 	CreatedByMiniUserID int64
-	InputMaterialID     int64
-	InputQtyG           int64
-	TargetProductID     int64
-	TargetSpecG         int64
-	TargetQty           int
-	Note                string
+	Items               []ProcessingRequestItemCommand
+	// Legacy scalar fields remain for historical repository/read compatibility.
+	// New miniapp writes must use Items.
+	InputMaterialID int64
+	InputQtyG       int64
+	TargetProductID int64
+	TargetSpecG     int64
+	TargetQty       int
+	Note            string
+}
+
+type ProcessingRequestItemCommand struct {
+	ProductID int64 `json:"product_id"`
+	SpecG     int64 `json:"spec_g"`
+	Qty       int64 `json:"qty"`
 }
 
 type CreateFulfillmentOrderCommand struct {
@@ -1027,6 +1101,19 @@ type Service struct {
 	identity IdentityProvider
 }
 
+type processingRequestPreviewRepository interface {
+	PreviewProcessingRequest(context.Context, CreateProcessingRequestCommand) (ProcessingRequestPreview, error)
+}
+
+type processingRequestReader interface {
+	ListProcessingRequests(context.Context, int64, int) ([]ProcessingRequest, error)
+	GetProcessingRequest(context.Context, int64, int64) (ProcessingRequest, error)
+}
+
+type processingCatalogRepository interface {
+	FilterProcessingCatalogProductIDs(context.Context, int64, []int64) ([]int64, error)
+}
+
 func NewService(repo Repository, identity IdentityProvider) *Service {
 	return &Service{repo: repo, identity: identity}
 }
@@ -1190,7 +1277,10 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	if current.CurrentCustomerID <= 0 {
 		return ServicePage{}, ErrCustomerBindingNotFound
 	}
-	if !current.HasAnyCapability(def.capabilities) {
+	if def.key == ServiceKeyBeanList && (!current.HasCapability(CapabilityProductOrder) || !current.HasCapability(CapabilityBeanList)) {
+		return ServicePage{}, ErrCapabilityNotEnabled
+	}
+	if def.key != ServiceKeyBeanList && !current.HasAnyCapability(def.capabilities) {
 		page := emptyServicePage(def, current)
 		page.Summary = serviceSummary(page)
 		return page, nil
@@ -1243,7 +1333,7 @@ func (s *Service) GetBeanListPublication(ctx context.Context, token string, publ
 	if publicationID <= 0 {
 		return BeanListSummary{}, fmt.Errorf("bean_list required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return BeanListSummary{}, err
 	}
@@ -1296,7 +1386,7 @@ func (s *Service) AcknowledgeBeanListPublication(ctx context.Context, token stri
 	if publicationID <= 0 {
 		return fmt.Errorf("bean_list required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return err
 	}
@@ -1310,7 +1400,7 @@ func (s *Service) AcknowledgeBeanListPublication(ctx context.Context, token stri
 }
 
 func (s *Service) GetResaleBeanLists(ctx context.Context, token string) (ResaleBeanListPage, error) {
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return ResaleBeanListPage{}, err
 	}
@@ -1327,7 +1417,7 @@ func (s *Service) GetResaleBeanLists(ctx context.Context, token string) (ResaleB
 }
 
 func (s *Service) GetCustomerProducts(ctx context.Context, token string) (CustomerProductsPage, error) {
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return CustomerProductsPage{}, err
 	}
@@ -1344,7 +1434,7 @@ func (s *Service) GetCustomerProducts(ctx context.Context, token string) (Custom
 }
 
 func (s *Service) CreateCustomerProductCategory(ctx context.Context, token string, cmd CustomerProductCategoryCommand) (CustomerProductCategory, error) {
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return CustomerProductCategory{}, err
 	}
@@ -1363,7 +1453,7 @@ func (s *Service) UpdateCustomerProductCategory(ctx context.Context, token strin
 	if categoryID <= 0 {
 		return CustomerProductCategory{}, fmt.Errorf("category required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return CustomerProductCategory{}, err
 	}
@@ -1383,7 +1473,7 @@ func (s *Service) DeleteCustomerProductCategory(ctx context.Context, token strin
 	if categoryID <= 0 {
 		return fmt.Errorf("category required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return err
 	}
@@ -1397,7 +1487,7 @@ func (s *Service) MoveCustomerProductCategory(ctx context.Context, token string,
 	if categoryID <= 0 {
 		return CustomerProductCategory{}, fmt.Errorf("category required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return CustomerProductCategory{}, err
 	}
@@ -1414,7 +1504,7 @@ func (s *Service) AssignCustomerProductCategory(ctx context.Context, token strin
 	if productID <= 0 {
 		return CustomerProductSummary{}, fmt.Errorf("product required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return CustomerProductSummary{}, err
 	}
@@ -1431,7 +1521,7 @@ func (s *Service) GetResaleBeanListEditor(ctx context.Context, token string, sou
 	if sourcePublicationID <= 0 {
 		return ResaleBeanListEditor{}, fmt.Errorf("source_publication_id required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return ResaleBeanListEditor{}, err
 	}
@@ -1473,7 +1563,7 @@ func (s *Service) saveResaleBeanList(ctx context.Context, token string, cmd Resa
 	if cmd.SourcePublicationID <= 0 {
 		return BeanListSummary{}, fmt.Errorf("source_publication_id required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return BeanListSummary{}, err
 	}
@@ -1549,7 +1639,7 @@ func (s *Service) getResaleBeanListPublicationAsset(ctx context.Context, token s
 	if render == nil {
 		return BeanListSummary{}, nil, fmt.Errorf("bean list renderer required")
 	}
-	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	current, err := s.requireCustomerProductWorkspace(ctx, token)
 	if err != nil {
 		return BeanListSummary{}, nil, err
 	}
@@ -2544,22 +2634,122 @@ func (s *Service) CreateProcessingRequest(ctx context.Context, token string, cmd
 	cmd.CustomerID = current.CurrentCustomerID
 	cmd.CreatedByMiniUserID = current.MiniUserID
 	cmd.Note = strings.TrimSpace(cmd.Note)
-	if cmd.InputMaterialID <= 0 {
-		return ProcessingRequest{}, fmt.Errorf("input_material required")
+	cmd.Items, err = normalizeProcessingRequestItems(cmd.Items)
+	if err != nil {
+		return ProcessingRequest{}, err
 	}
-	if cmd.InputQtyG <= 0 {
-		return ProcessingRequest{}, fmt.Errorf("input_qty required")
-	}
-	if cmd.TargetProductID <= 0 {
-		return ProcessingRequest{}, fmt.Errorf("target_product required")
-	}
-	if cmd.TargetSpecG <= 0 {
-		return ProcessingRequest{}, fmt.Errorf("target_spec required")
-	}
-	if cmd.TargetQty <= 0 {
-		return ProcessingRequest{}, fmt.Errorf("target_qty required")
-	}
+	cmd.InputMaterialID = 0
+	cmd.InputQtyG = 0
+	cmd.TargetProductID = 0
+	cmd.TargetSpecG = 0
+	cmd.TargetQty = 0
 	return s.repo.CreateProcessingRequest(ctx, cmd)
+}
+
+func (s *Service) PreviewProcessingRequest(ctx context.Context, token string, cmd CreateProcessingRequestCommand) (ProcessingRequestPreview, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityProcessing)
+	if err != nil {
+		return ProcessingRequestPreview{}, err
+	}
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.CreatedByMiniUserID = current.MiniUserID
+	cmd.Items, err = normalizeProcessingRequestItems(cmd.Items)
+	if err != nil {
+		return ProcessingRequestPreview{}, err
+	}
+	repo, ok := s.repo.(processingRequestPreviewRepository)
+	if !ok {
+		return ProcessingRequestPreview{}, fmt.Errorf("processing preview unavailable")
+	}
+	return repo.PreviewProcessingRequest(ctx, cmd)
+}
+
+func (s *Service) ListProcessingRequests(ctx context.Context, token string, limit int) ([]ProcessingRequest, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityProcessing)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	repo, ok := s.repo.(processingRequestReader)
+	if !ok {
+		return nil, fmt.Errorf("processing request reader unavailable")
+	}
+	return repo.ListProcessingRequests(ctx, current.CurrentCustomerID, limit)
+}
+
+func (s *Service) GetProcessingRequest(ctx context.Context, token string, requestID int64) (ProcessingRequest, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityProcessing)
+	if err != nil {
+		return ProcessingRequest{}, err
+	}
+	if requestID <= 0 {
+		return ProcessingRequest{}, fmt.Errorf("processing_request required")
+	}
+	repo, ok := s.repo.(processingRequestReader)
+	if !ok {
+		return ProcessingRequest{}, fmt.Errorf("processing request reader unavailable")
+	}
+	return repo.GetProcessingRequest(ctx, current.CurrentCustomerID, requestID)
+}
+
+// FilterProcessingCatalogProductIDs authorizes the customer and applies the
+// database-backed customer visibility and usable-BOM filters. Product display,
+// category and fuzzy-search metadata continue to come from the employee order
+// catalog so both selectors share one contract.
+func (s *Service) FilterProcessingCatalogProductIDs(ctx context.Context, token string, productIDs []int64) ([]int64, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityProcessing)
+	if err != nil {
+		return nil, err
+	}
+	unique := make([]int64, 0, len(productIDs))
+	seen := make(map[int64]bool, len(productIDs))
+	for _, productID := range productIDs {
+		if productID <= 0 || seen[productID] {
+			continue
+		}
+		seen[productID] = true
+		unique = append(unique, productID)
+	}
+	repo, ok := s.repo.(processingCatalogRepository)
+	if !ok {
+		return nil, fmt.Errorf("processing catalog unavailable")
+	}
+	return repo.FilterProcessingCatalogProductIDs(ctx, current.CurrentCustomerID, unique)
+}
+
+func normalizeProcessingRequestItems(items []ProcessingRequestItemCommand) ([]ProcessingRequestItemCommand, error) {
+	if len(items) == 0 {
+		return nil, fmt.Errorf("items required")
+	}
+	out := make([]ProcessingRequestItemCommand, 0, len(items))
+	byKey := make(map[string]int, len(items))
+	for _, item := range items {
+		if item.ProductID <= 0 {
+			return nil, fmt.Errorf("target_product required")
+		}
+		if item.SpecG <= 0 {
+			return nil, fmt.Errorf("target_spec required")
+		}
+		if item.Qty <= 0 {
+			return nil, fmt.Errorf("target_qty required")
+		}
+		key := fmt.Sprintf("%d:%d", item.ProductID, item.SpecG)
+		if pos, ok := byKey[key]; ok {
+			if item.Qty > math.MaxInt64-out[pos].Qty {
+				return nil, fmt.Errorf("target_qty invalid")
+			}
+			out[pos].Qty += item.Qty
+			continue
+		}
+		byKey[key] = len(out)
+		out = append(out, item)
+	}
+	return out, nil
 }
 
 func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd CreateFulfillmentOrderCommand) (FulfillmentOrder, error) {
@@ -2629,6 +2819,14 @@ func fulfillmentOrderCapability(raw string) (string, string, error) {
 }
 
 func (s *Service) requireCustomerCapability(ctx context.Context, token, capability string) (CurrentContext, error) {
+	return s.requireCustomerCapabilities(ctx, token, capability)
+}
+
+func (s *Service) requireCustomerProductWorkspace(ctx context.Context, token string) (CurrentContext, error) {
+	return s.requireCustomerCapabilities(ctx, token, CapabilityProductOrder, CapabilityBeanList)
+}
+
+func (s *Service) requireCustomerCapabilities(ctx context.Context, token string, capabilities ...string) (CurrentContext, error) {
 	current, err := s.Me(ctx, token)
 	if err != nil {
 		return CurrentContext{}, err
@@ -2636,8 +2834,10 @@ func (s *Service) requireCustomerCapability(ctx context.Context, token, capabili
 	if current.CurrentCustomerID <= 0 {
 		return CurrentContext{}, ErrCustomerBindingNotFound
 	}
-	if !current.HasCapability(capability) {
-		return CurrentContext{}, ErrCapabilityNotEnabled
+	for _, capability := range capabilities {
+		if !current.HasCapability(capability) {
+			return CurrentContext{}, ErrCapabilityNotEnabled
+		}
 	}
 	return current, nil
 }

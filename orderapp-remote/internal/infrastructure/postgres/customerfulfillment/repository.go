@@ -558,11 +558,9 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	if err != nil {
 		return app.DirectShipOrderSummary{}, err
 	}
+	auditItems := make([]map[string]any, 0, len(quotedItems))
 	for _, item := range quotedItems {
-		if item.ProductKind != catalogdomain.ProductKindDripBag {
-			continue
-		}
-		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, customerFulfillmentOrderActor(cmd), "customer_fulfillment_order", &orderID, "fulfillment customer drip submit", nil, nil, nil, postgresinfra.AuditMeta{
+		auditItems = append(auditItems, map[string]any{
 			"product_id":     item.ProductID,
 			"sales_unit":     item.SalesUnit,
 			"qty":            item.QuantityUnits,
@@ -570,9 +568,18 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 			"unit_bean_g":    item.UnitBeanG,
 			"price_source":   item.PriceSource,
 			"total":          item.LineTotal,
-		}); err != nil {
-			return app.DirectShipOrderSummary{}, err
-		}
+		})
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, customerFulfillmentOrderActor(cmd), "customer_fulfillment_order", &orderID, "submit", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("submitted"), postgresinfra.AuditMeta{
+		"customer_id":         customerID,
+		"import_order_id":     importOrderID,
+		"order_no":            orderNo,
+		"item_count":          len(quotedItems),
+		"shipping_amount":     cmd.ShippingAmount,
+		"portal_service_code": "direct_ship",
+		"items":               auditItems,
+	}); err != nil {
+		return app.DirectShipOrderSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return app.DirectShipOrderSummary{}, err

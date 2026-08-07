@@ -93,7 +93,7 @@ describe('miniapp startup route and main tabs', () => {
     expect(home).toContain("uni.reLaunch({ url: '/pages/login/login' })")
   })
 
-  it('renders four bottom main entries on authenticated top-level pages', () => {
+  it('renders four bottom main entries and renames order center for processing customers', () => {
     const tabBar = readSource('src/components/MainTabBar.vue')
     const pages = [
       readSource('src/pages/home/home.vue'),
@@ -105,6 +105,8 @@ describe('miniapp startup route and main tabs', () => {
     for (const label of ['首页', '订单中心', '费用中心', '个人中心']) {
       expect(tabBar).toContain(label)
     }
+    expect(tabBar).toContain('发货中心')
+    expect(tabBar).toContain("session.capabilities.some((item) => item.code === 'processing' && item.enabled)")
     for (const url of [
       '/pages/home/home',
       '/pages/service/service?key=orders',
@@ -133,6 +135,8 @@ describe('miniapp startup route and main tabs', () => {
     expect(servicePage).toContain('uni.downloadFile')
     expect(servicePage).toContain('uni.openDocument')
     expect(servicePage).toContain('Authorization: `Bearer ${session.token}`')
+    expect(servicePage).toContain('isProcessingCustomer')
+    expect(servicePage).toContain('v-if="!isProcessingCustomer"')
   })
 
   it('places my products in profile instead of the home shortcuts', () => {
@@ -145,6 +149,9 @@ describe('miniapp startup route and main tabs', () => {
     expect(profile).toContain('我的商品')
     expect(profile).toContain('/pages/factory-products/factory-products')
     expect(profile).toContain('/pages/customer-products/customer-products')
+    expect(profile).toContain('canOpenFactoryProducts')
+    expect(profile).toContain("hasCapability('product_order')")
+    expect(profile).toContain("hasCapability('bean_list')")
   })
 
   it('splits factory product tables, my products, and price table settings into focused pages', () => {

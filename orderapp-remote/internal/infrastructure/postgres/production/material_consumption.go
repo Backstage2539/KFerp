@@ -934,6 +934,10 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 	if err != nil {
 		return nil, err
 	}
+	hasCustomerProcessingReservations, err := schemaColumnExistsTx(ctx, tx, schema, "customer_processing_material_reservations", "id")
+	if err != nil {
+		return nil, err
+	}
 	rows := make([]workOrderWIPNeedCoverage, 0)
 	for _, need := range aggregateMaterialConsumptionNeeds(needs) {
 		if need.Source == "finished_product" || need.ComponentType == "finished_product" {
@@ -999,6 +1003,37 @@ func workOrderWIPCoverageForNeedsTx(ctx context.Context, tx pgx.Tx, schema strin
 		}
 		if err != nil {
 			return nil, err
+		}
+		if hasCustomerProcessingReservations {
+			var customerReservedG, customerReservedUnits int64
+			if hasReservationWorkOrder {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint,
+					       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units)),0)::bigint
+					FROM %s.customer_processing_material_reservations r
+					WHERE r.material_id=$1 AND r.component_type<>'finished_product' AND r.status='reserved'
+					  AND ($2::bigint=0 OR r.work_order_id<>$2)
+					  AND (r.material_batch_id>0 OR r.source_warehouse_code=$3)
+					  AND NOT EXISTS (
+						SELECT 1 FROM %s.work_order_material_reservations wr
+						WHERE wr.work_order_id=r.work_order_id AND wr.material_id=r.material_id AND wr.status='reserved'
+					  )
+				`, schema, schema), need.MaterialID, workOrderID, stockdomain.WarehouseWIP).Scan(&customerReservedG, &customerReservedUnits)
+			} else {
+				err = tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint,
+					       COALESCE(SUM(GREATEST(0,reserved_units-consumed_units-returned_units)),0)::bigint
+					FROM %s.customer_processing_material_reservations
+					WHERE material_id=$1 AND component_type<>'finished_product' AND status='reserved'
+					  AND ($2::bigint=0 OR work_order_id<>$2)
+					  AND (material_batch_id>0 OR source_warehouse_code=$3)
+				`, schema), need.MaterialID, workOrderID, stockdomain.WarehouseWIP).Scan(&customerReservedG, &customerReservedUnits)
+			}
+			if err != nil {
+				return nil, err
+			}
+			otherReservedG += customerReservedG
+			otherReservedUnits += customerReservedUnits
 		}
 		var currentConsumedG, currentConsumedUnits int64
 		if workOrderID > 0 && hasReservationWorkOrder {
@@ -1160,19 +1195,16 @@ func deductMaterialNeedsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema 
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, schema), need.MaterialID, afterG, afterUnits); err != nil {
 			return err
 		}
-		allocations, err := materialBatchAllocationsTx(ctx, tx, schema, need.MaterialID, need.DeductG)
+		allocations, err := materialBatchConsumptionsForRunningItemTx(ctx, tx, schema, r.ID, need.MaterialID, need.DeductG, need.DeductUnits)
 		if err != nil {
 			return err
 		}
 		if len(allocations) == 0 {
-			allocations = []stockdomain.BatchAllocation{{QtyG: need.DeductG}}
+			allocations = []customerProcessingBatchAllocation{{QtyG: need.DeductG, QtyUnits: need.DeductUnits}}
 		}
 		for _, alloc := range allocations {
 			logDeductG := alloc.QtyG
-			logDeductUnits := int64(0)
-			if need.DeductG == 0 {
-				logDeductUnits = need.DeductUnits
-			}
+			logDeductUnits := alloc.QtyUnits
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				INSERT INTO %s.material_consumption_logs(
 					running_item_id,batch_id,product_id,product_name,spec_g,
@@ -1216,23 +1248,35 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 	if productID <= 0 {
 		productID = need.MaterialID
 	}
+	need.DeductG, need.DeductUnits = normalizeCustomerProcessingFinishedQuantity(need.ComponentSpecG, need.DeductG, need.DeductUnits)
 	if productID <= 0 || need.DeductG <= 0 {
 		return nil
 	}
 	specG := need.ComponentSpecG
+	batchAllocations, err := finishedBatchConsumptionsForRunningItemTx(ctx, tx, schema, r.ID, productID, specG, need.DeductG, need.DeductUnits)
+	if err != nil {
+		return err
+	}
+	warehouse, err := finishedComponentConsumptionWarehouse(batchAllocations)
+	if err != nil {
+		return err
+	}
 	var beforeUnits, beforeLooseG int64
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT onhand_units,onhand_loose_g
 		FROM %s.finished_inventory
 		WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3
 		FOR UPDATE
-	`, schema), productID, specG, stockdomain.WarehouseFinishedGoods).Scan(&beforeUnits, &beforeLooseG)
+	`, schema), productID, specG, warehouse).Scan(&beforeUnits, &beforeLooseG)
 	if err != nil && err != pgx.ErrNoRows {
 		return err
 	}
 	beforeG := finishedComponentTotalG(specG, beforeUnits, beforeLooseG)
 	if beforeG < need.DeductG {
 		return fmt.Errorf("finished product stock insufficient: %s", need.MaterialName)
+	}
+	if len(batchAllocations) == 0 {
+		batchAllocations = []customerProcessingFinishedBatchAllocation{{QtyG: need.DeductG, QtyUnits: need.DeductUnits}}
 	}
 	afterUnits, afterLooseG, err := deductFinishedComponentQty(specG, beforeUnits, beforeLooseG, need.DeductG)
 	if err != nil {
@@ -1246,25 +1290,27 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 		SET onhand_units=excluded.onhand_units,
 		    onhand_loose_g=excluded.onhand_loose_g,
 		    updated_at=now()
-	`, schema), productID, specG, stockdomain.WarehouseFinishedGoods, afterUnits, afterLooseG); err != nil {
+	`, schema), productID, specG, warehouse, afterUnits, afterLooseG); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.material_consumption_logs(
-			running_item_id,batch_id,product_id,product_name,spec_g,
-			material_id,material_name,unit,deduct_g,deduct_units,
-			before_g,after_g,before_units,after_units,operator,
-			material_batch_id,material_batch_code
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,$12,$13,$14,0,'')
-	`, schema),
-		r.ID, r.BatchID, r.ProductID, r.Product, r.SpecG,
-		productID, need.MaterialName, "g", need.DeductG,
-		beforeG, afterG, beforeUnits, afterUnits, operator,
-	); err != nil {
-		return err
+	for _, allocation := range batchAllocations {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_consumption_logs(
+				running_item_id,batch_id,product_id,product_name,spec_g,
+				material_id,material_name,unit,deduct_g,deduct_units,
+				before_g,after_g,before_units,after_units,operator,
+				material_batch_id,material_batch_code
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,$16)
+		`, schema),
+			r.ID, r.BatchID, r.ProductID, r.Product, r.SpecG,
+			productID, need.MaterialName, "g", allocation.QtyG, allocation.QtyUnits,
+			beforeG, afterG, beforeUnits, afterUnits, operator, allocation.BatchCode,
+		); err != nil {
+			return err
+		}
 	}
 	if err := insertStockLedgerEntryTx(ctx, tx, schema,
-		stockItemTypeFinishedProduct, productID, need.MaterialName, specG, stockdomain.WarehouseFinishedGoods,
+		stockItemTypeFinishedProduct, productID, need.MaterialName, specG, warehouse,
 		stockSourceProductionRun, r.ID, "", r.BatchID,
 		stockLedgerQty{
 			BeforeG:     beforeG,
@@ -1293,7 +1339,26 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 		"finished_product_component_after_g":        afterG,
 		"finished_product_component_change_g":       -need.DeductG,
 		"finished_product_component_component_spec": specG,
+		"finished_product_component_warehouse":      warehouse,
 	})
+}
+
+func finishedComponentConsumptionWarehouse(allocations []customerProcessingFinishedBatchAllocation) (string, error) {
+	hasCustomerProcessing, hasUnreserved := false, false
+	for _, allocation := range allocations {
+		if allocation.ReservationID > 0 {
+			hasCustomerProcessing = true
+		} else {
+			hasUnreserved = true
+		}
+	}
+	if hasCustomerProcessing && hasUnreserved {
+		return "", fmt.Errorf("finished-product consumption mixes customer processing WIP and unreserved stock")
+	}
+	if hasCustomerProcessing {
+		return stockdomain.WarehouseWIP, nil
+	}
+	return stockdomain.WarehouseFinishedGoods, nil
 }
 
 func finishedComponentTotalG(specG, units, looseG int64) int64 {
@@ -1368,16 +1433,35 @@ func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materi
 func reservedWIPGForMaterialTx(ctx context.Context, tx pgx.Tx, schema string, materialID int64) (int64, error) {
 	var reservedG int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(SUM(GREATEST(0,reserved_g-consumed_g-returned_g)),0)::bigint
-		FROM %s.work_order_material_reservations
-		WHERE material_id=$1 AND status='reserved'
-	`, schema), materialID).Scan(&reservedG)
+		SELECT COALESCE(SUM(GREATEST(0,wr.reserved_g-wr.consumed_g-wr.returned_g)),0)::bigint
+		FROM %s.work_order_material_reservations wr
+		WHERE wr.material_id=$1 AND wr.status='reserved'
+		  AND NOT EXISTS (
+			SELECT 1 FROM %s.customer_processing_material_reservations cpr
+			WHERE cpr.work_order_id=wr.work_order_id AND cpr.material_id=wr.material_id AND cpr.status='reserved'
+		  )
+	`, schema, schema), materialID).Scan(&reservedG)
 	if err != nil {
 		if strings.Contains(err.Error(), "work_order_material_reservations") {
 			return 0, nil
 		}
 		return 0, err
 	}
+	var customerReservedG int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint
+		FROM %s.customer_processing_material_reservations r
+		LEFT JOIN %s.warehouses w ON w.code=r.source_warehouse_code AND w.active=true
+		WHERE r.material_id=$1 AND r.component_type<>'finished_product' AND r.status='reserved'
+		  AND (r.material_batch_id>0 OR w.kind='wip')
+	`, schema, schema), materialID).Scan(&customerReservedG)
+	if err != nil {
+		if strings.Contains(err.Error(), "customer_processing_material_reservations") {
+			return reservedG, nil
+		}
+		return 0, err
+	}
+	reservedG += customerReservedG
 	return reservedG, nil
 }
 

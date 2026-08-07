@@ -70,8 +70,12 @@ func TestCustomerPortalProcessingFulfillmentProductionDemandSource(t *testing.T)
 			want: []string{"customer_processing_production_demands", "target_warehouse TEXT NOT NULL DEFAULT ''", "linked_running_item_id BIGINT NOT NULL DEFAULT 0"},
 		},
 		{
+			path: filepath.Join("internal", "infrastructure", "postgres", "customerportal", "processing_requests.go"),
+			want: []string{"customer_processing_production_demands", "processing_job_request_items", "customer_processing_material_reservations", "target_warehouse"},
+		},
+		{
 			path: filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go"),
-			want: []string{"customer_processing_production_demands", "processingWarehouseForCustomerTx", "target_warehouse", "customer warehouse binding required"},
+			want: []string{"processingWarehouseForCustomerTx", "customer warehouse binding required"},
 		},
 		{
 			path: filepath.Join("internal", "infrastructure", "postgres", "production", "unprod_summary.go"),
@@ -83,7 +87,7 @@ func TestCustomerPortalProcessingFulfillmentProductionDemandSource(t *testing.T)
 		},
 		{
 			path: filepath.Join("internal", "infrastructure", "postgres", "production", "running_repository.go"),
-			want: []string{"finishWarehouseForRunningItemTx", "target_warehouse", "markProcessingDemandsDoneTx", "markProcessingDemandsPlannedTx"},
+			want: []string{"finishWarehouseForRunningItemTx", "target_warehouse", "markProcessingDemandsDoneTx", "markProcessingDemandsCancelledTx"},
 		},
 	}
 	for _, check := range checks {

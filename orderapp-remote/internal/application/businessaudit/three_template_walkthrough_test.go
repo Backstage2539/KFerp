@@ -60,12 +60,8 @@ func TestThreeTemplateBusinessWalkthroughAcrossModules(t *testing.T) {
 		t.Fatalf("processing capabilities = %+v", processingMe.Capabilities)
 	}
 	if _, err := customerPortal.CreateProcessingRequest(ctx, processing.Token, customerportalapp.CreateProcessingRequestCommand{
-		InputMaterialID: 4,
-		InputQtyG:       30000,
-		TargetProductID: 8,
-		TargetSpecG:     250,
-		TargetQty:       80,
-		Note:            "客户小程序代加工申请",
+		Items: []customerportalapp.ProcessingRequestItemCommand{{ProductID: 8, SpecG: 250, Qty: 80}},
+		Note:  "客户小程序代加工申请",
 	}); err != nil {
 		t.Fatalf("processing mini processing request err=%v", err)
 	}
@@ -732,18 +728,22 @@ func (s *threeTemplateWalkthroughStore) CreateDirectShipBatch(_ context.Context,
 }
 
 func (s *threeTemplateWalkthroughStore) CreateProcessingRequest(_ context.Context, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequest, error) {
+	if len(cmd.Items) == 0 {
+		return customerportalapp.ProcessingRequest{}, fmt.Errorf("items required")
+	}
+	item := cmd.Items[0]
 	requestNo := fmt.Sprintf("PJ-AUDIT-%03d", len(s.demands)+1)
-	demand := walkthroughDemand{CustomerID: cmd.CustomerID, RequestNo: requestNo, ProductID: cmd.TargetProductID, ProductName: "客户代加工豆", SpecG: cmd.TargetSpecG, Qty: int64(cmd.TargetQty)}
+	demand := walkthroughDemand{CustomerID: cmd.CustomerID, RequestNo: requestNo, ProductID: item.ProductID, ProductName: "客户代加工豆", SpecG: item.SpecG, Qty: item.Qty}
 	s.demands = append(s.demands, demand)
 	s.processingRows[cmd.CustomerID] = append(s.processingRows[cmd.CustomerID], customerfulfillmentapp.ProcessingOrderSummary{
 		WorkOrderNo: requestNo,
 		ProductName: demand.ProductName,
 		Status:      "planned",
-		QuantityG:   int64(cmd.TargetQty) * cmd.TargetSpecG,
-		Units:       int64(cmd.TargetQty),
+		QuantityG:   item.Qty * item.SpecG,
+		Units:       item.Qty,
 	})
 	s.addFee(cmd.CustomerID, "roasting", "代加工费", 8000)
-	return customerportalapp.ProcessingRequest{ID: int64(len(s.demands)), RequestNo: requestNo, TargetProductID: cmd.TargetProductID, TargetProductName: demand.ProductName, TargetSpecG: cmd.TargetSpecG, TargetQty: cmd.TargetQty, Status: "submitted"}, nil
+	return customerportalapp.ProcessingRequest{ID: int64(len(s.demands)), RequestNo: requestNo, TargetProductID: item.ProductID, TargetProductName: demand.ProductName, TargetSpecG: item.SpecG, TargetQty: int(item.Qty), Status: "submitted"}, nil
 }
 
 func (s *threeTemplateWalkthroughStore) CreateFulfillmentOrder(_ context.Context, cmd customerportalapp.CreateFulfillmentOrderCommand) (customerportalapp.FulfillmentOrder, error) {
