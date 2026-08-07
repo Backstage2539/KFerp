@@ -32,6 +32,58 @@ func TestMiniDirectShipEffectiveShipmentTimeFallsBackWhenPendingShipmentHasNoTim
 	}
 }
 
+func TestMiniDirectShipCatalogExcludesPublicOtherCustomerFrozenAndReservedStock(t *testing.T) {
+	pool, schema := newMiniDirectShipTestDB(t)
+	ctx := context.Background()
+	seedMiniDirectShipStock(t, pool, schema)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.warehouses(code,name,kind,sort_order,active,customer_id)
+		VALUES('DEV-E2E-PUBLIC','公共成品仓','finished',9,true,NULL)
+		ON CONFLICT (code) DO UPDATE SET customer_id=NULL,kind='finished',active=true;
+		INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES(911,1000,'DEV-E2E-PUBLIC',50,0)
+		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=50,onhand_loose_g=0;
+		UPDATE %[1]s.finished_inventory SET onhand_units=onhand_units+5
+		WHERE product_id=911 AND spec_g=1000 AND warehouse='DEV-E2E-A1';
+		INSERT INTO %[1]s.stock_batches(
+			id,batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,
+			qty_g,qty_units,remaining_g,remaining_units,quality_status,created_at
+		) VALUES(
+			1004,'DEV-E2E-FP-A-FROZEN','finished_product',911,'DEV-E2E 萨其姆 1kg',1000,
+			'production_run',2004,5000,5,5000,5,'frozen','2026-08-03 12:00+08'
+		);
+		INSERT INTO %[1]s.stock_ledger_entries(
+			item_type,item_id,item_name,spec_g,warehouse,source_doc_type,source_doc_id,
+			source_batch_code,qty_change_g,qty_after_g,qty_change_units,qty_after_units,created_at
+		) VALUES(
+			'finished_product',911,'DEV-E2E 萨其姆 1kg',1000,'DEV-E2E-A1','production_run',2004,
+			'DEV-E2E-FP-A-FROZEN',5000,7000,5,7,'2026-08-03 12:00+08'
+		);
+	`, schema)); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewRepository(pool, schema)
+	catalog, err := repo.MiniDirectShipCatalog(ctx, app.MiniDirectShipCatalogQuery{CustomerID: 501})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMiniCatalogAvailableQty(t, catalog, 911, 1000, 4)
+
+	if _, err := repo.SubmitMiniDirectShip(ctx, app.MiniDirectShipCommand{
+		CustomerID: 501, EmployeeID: 701, MiniUserID: 801, IdempotencyKey: "DEV-E2E-CATALOG-RESERVED",
+		RecipientName: "目录隔离", RecipientPhone: "13800138000", DetailAddress: "咖啡路 8 号",
+		Items: []app.MiniDirectShipItemCommand{{ProductID: 911, SpecG: 1000, Qty: 1}}, Actor: "mini_user:801",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err = repo.MiniDirectShipCatalog(ctx, app.MiniDirectShipCatalogQuery{CustomerID: 501})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMiniCatalogAvailableQty(t, catalog, 911, 1000, 3)
+}
+
 func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *testing.T) {
 	pool, schema := newMiniDirectShipTestDB(t)
 	ctx := context.Background()
