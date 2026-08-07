@@ -188,6 +188,14 @@ export function productionBomLabel(row = {}) {
   return '无生产 BOM'
 }
 
+export function productionBomListName(row = {}) {
+  let name = String(row.production_bom_name || row.productionBomName || row.name || '').trim()
+  name = name.replace(/^BOM-\d+\s+/i, '')
+  name = name.replace(/\s*\/\s*V\d+\s*$/i, '')
+  name = name.replace(/\s+生产\s*BOM(?=(?:\s+(?:特殊属性)?副本)*\s*$)/i, '')
+  return name.trim() || '未命名 BOM'
+}
+
 export function productionBomVersionWarning(row = {}) {
   const current = String(row.production_bom_version_no || row.productionBomVersionNo || '').trim()
   const latest = String(row.latest_bom_version_no || row.latestBomVersionNo || '').trim()
