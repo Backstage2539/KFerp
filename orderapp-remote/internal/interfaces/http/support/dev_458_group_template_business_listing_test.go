@@ -34,7 +34,7 @@ func TestDev458GroupTemplateBusinessListingContracts(t *testing.T) {
 			"BusinessGroupControls",
 			"productBusinessGroupControls",
 			"groupRowsByBusinessGroupTemplate",
-			"v-for=\"group in displaySkuGroups\"",
+			"v-for=\"group in renderedDisplaySkuGroups\"",
 			"businessGroupMoveAssignmentPayload",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {

@@ -29,6 +29,13 @@ test('system settings and group templates use independent Vue pages', () => {
   assert.match(groupTemplatesSource, /新增小类/)
   assert.match(groupTemplatesSource, /\/api\/business-groups/)
   assert.match(groupTemplatesSource, /\/api\/business-group-items/)
+  assert.match(groupTemplatesSource, /功能引用/)
+  for (const usageKey of ['product_catalog', 'material_catalog', 'production_bom', 'warehouse_inventory', 'price_list']) {
+    assert.match(groupTemplatesSource, new RegExp(usageKey))
+  }
+  assert.match(groupTemplatesSource, /groupTemplateForm\.usage_keys/)
+  assert.match(groupTemplatesSource, /replace_usages:\s*true/)
+  assert.doesNotMatch(groupTemplatesSource, /usages:\s*\[\]/)
   assert.doesNotMatch(groupTemplatesSource, /客户账户模式隐藏履约运营台/)
   assert.doesNotMatch(groupTemplatesSource, /全局单位字典/)
   assert.doesNotMatch(groupTemplatesSource, /fetchUISettings/)

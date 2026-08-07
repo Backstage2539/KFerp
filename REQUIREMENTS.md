@@ -784,3 +784,9 @@
 - `DEV-580-MINI-SESSION-REVOCATION`：由外部账号密码或手机号授权投影到客户小程序的绑定，在每次读取当前上下文时都必须实时复核员工启用、渠道客户类型、登录未停用、同客户 active 账号关联、客户 active 和门户 enabled。任一条件失效、账号被新账号替换或门户关闭后，旧小程序 token 立即失效且不能因之后重新启用自动复活，必须重新登录；普通微信人工批准绑定和内部员工小程序会话保持各自既有门禁。
 - `DEV-580-ACTIVE-BINDING-MUTATION`：密码重置和登录启停只能作用于该客户当前 active 外部账号关联。历史 inactive 关联可继续只读展示用于追溯，但旧客户不得借历史记录修改该员工在新客户下生效的全局密码或登录状态，拒绝时不得写成功审计。
 - 同一外部账号只能保留一个 active 客户关联，账号停用、客户停用或关联失效后不能登录；历史不合规工作台关联继续按无有效工作台绑定处理。`DEV-580-DOCS-ACCEPTANCE` 同步客户门户与客户履约手册和合并证据；`REV-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE` 由 Van 验收账号登录与工作台隔离。
+
+## 51. 商品行业字段与功能分组多模板引用（PR-584-PRODUCT-MULTI-GROUP-TEMPLATES）
+- `DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE`：商品档案配置可同时引用多份行业字段模板；接口以有序 `industry_field_template_ids` 为新合同，并保留首个 `industry_field_template_id` 兼容旧客户端和旧数据。字段按模板顺序合并，同名字段键只保留前序模板定义；取消模板后只清理不再由任何已选模板定义的当前字段，取消全部后不显示也不保存行业字段。模板引用、字段和值同事务保存，操作日志记录完整模板列表。
+- `DEV-584-GROUP-USAGE-MULTI-REFERENCE`：分组模板编辑区提供“功能引用”多选，同一功能可引用多份分组模板。只有明确 active 引用的模板才进入商品、物料、生产 BOM、仓库库存或商品价格表；没有用途绑定的模板不再自动视作商品模板。取消引用只隐藏对应功能分类和归类入口，不删除模板、分类、对象归类或历史快照。
+- `DEV-584-PRODUCT-GROUP-UNION-COLLAPSE`：商品档案同时展示所有明确引用 `product_catalog` 的模板分类树，每个商品按唯一当前归类只显示一次，多模板共用一个 `未分类`；无引用模板时平铺且不显示分类、收起和移动控件。收起大类必须隐藏全部后代分类标题和商品，同时保留子类自身折叠状态、分页和勾选状态。
+- `DEV-584-DOCS-ACCEPTANCE-DEPLOY`：同步需求、验收、商品/物料与设置审计手册、PR/DEV 和独立证据；完成 Go、API、PostgreSQL、Vue/Vite 验证后合入 `develop` 并部署 development，`main` 和 production 不在范围内。

@@ -168,19 +168,22 @@ func TestSaveIndustryTemplateCleansReferencedProductFieldsBeforeAuditAndCommit(t
 
 	cleanup := manufacturingRepositoryFunctionForTest(t, string(src), "func cleanupProductProductionConfigFieldsForIndustryTemplateTx", "func (r Repository) industryTemplateByID")
 	for _, want := range []string{
+		"ranked_definitions AS",
+		"WHERE key_rank=1",
+		"SET field_key=winner.field_key",
+		"label=winner.label",
+		"options_json=winner.options_json",
 		"DELETE FROM %[1]s.product_production_config_fields",
-		"product_production_configs",
-		"c.industry_field_template_id=$1",
-		"d.template_id=$1",
-		"btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))",
+		"product_production_config_industry_templates edited",
+		"edited.template_id=$1",
+		"product_production_config_industry_templates selected",
+		"d.template_id=selected.template_id",
+		"lower(btrim(d.field_key))=lower(COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key)))",
 		"RowsAffected()",
 	} {
 		if !strings.Contains(cleanup, want) {
 			t.Fatalf("template-change product field cleanup missing %q", want)
 		}
-	}
-	if strings.Contains(cleanup, "lower(btrim") {
-		t.Fatal("template-change product field cleanup must keep exact case-sensitive key semantics")
 	}
 }
 
@@ -220,30 +223,55 @@ CREATE TABLE %[1]s.product_production_config_fields (
 	id BIGINT PRIMARY KEY,
 	product_id BIGINT NOT NULL,
 	field_key TEXT NOT NULL DEFAULT '',
-	template_field_key TEXT NOT NULL DEFAULT ''
+	template_field_key TEXT NOT NULL DEFAULT '',
+	label TEXT NOT NULL DEFAULT '',
+	field_type TEXT NOT NULL DEFAULT 'text',
+	unit TEXT NOT NULL DEFAULT '',
+	required BOOLEAN NOT NULL DEFAULT false,
+	options_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	sort_order INT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %[1]s.product_production_config_industry_templates (
+	product_id BIGINT NOT NULL,
+	template_id BIGINT NOT NULL,
+	sort_order INT NOT NULL DEFAULT 1,
+	PRIMARY KEY(product_id, template_id)
 );
 CREATE TABLE %[1]s.industry_field_definitions (
 	id BIGINT PRIMARY KEY,
 	template_id BIGINT NOT NULL,
-	field_key TEXT NOT NULL DEFAULT ''
+	field_key TEXT NOT NULL DEFAULT '',
+	label TEXT NOT NULL DEFAULT '',
+	field_type TEXT NOT NULL DEFAULT 'text',
+	unit TEXT NOT NULL DEFAULT '',
+	required BOOLEAN NOT NULL DEFAULT false,
+	options_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	sort_order INT NOT NULL DEFAULT 0
 );
 
 INSERT INTO %[1]s.product_production_configs(product_id, industry_field_template_id) VALUES
 	(101,10),
 	(102,20),
 	(103,0);
-INSERT INTO %[1]s.industry_field_definitions(id, template_id, field_key) VALUES
-	(1,10,'exact-key'),
-	(2,10,'fallback-key'),
-	(3,10,'CaseKey'),
-	(4,20,'other-key');
-INSERT INTO %[1]s.product_production_config_fields(id, product_id, field_key, template_field_key) VALUES
-	(1,101,'renamed-old-key','renamed-old-key'),
-	(2,101,'ignored-exact-key',' exact-key '),
-	(3,101,' fallback-key ','   '),
-	(4,101,'ignored-case-key','casekey'),
-	(5,102,'template-external-but-unrelated','template-external-but-unrelated'),
-	(6,103,'untemplated-but-unrelated','untemplated-but-unrelated');
+INSERT INTO %[1]s.product_production_config_industry_templates(product_id, template_id, sort_order) VALUES
+	(101,10,1),
+	(101,20,2),
+	(102,20,1);
+INSERT INTO %[1]s.industry_field_definitions(id, template_id, field_key, label, sort_order) VALUES
+	(1,10,'exact-key','Exact A',1),
+	(2,10,'fallback-key','Fallback A',2),
+	(3,10,'CaseKey','Case A',3),
+	(4,20,'other-key','Other B',1),
+	(5,20,'shared-key','Shared B',2);
+INSERT INTO %[1]s.product_production_config_fields(id, product_id, field_key, template_field_key, label) VALUES
+	(1,101,'renamed-old-key','renamed-old-key',''),
+	(2,101,'ignored-exact-key',' exact-key ',''),
+	(3,101,' fallback-key ','   ',''),
+	(4,101,'ignored-case-key','casekey',''),
+	(5,102,'template-external-but-unrelated','template-external-but-unrelated',''),
+	(6,103,'untemplated-but-unrelated','untemplated-but-unrelated',''),
+	(7,101,'shared-key','shared-key','Old A');
 `, schema))
 
 	tx, err := pool.Begin(ctx)
@@ -255,15 +283,32 @@ INSERT INTO %[1]s.product_production_config_fields(id, product_id, field_key, te
 		_ = tx.Rollback(ctx)
 		t.Fatalf("cleanupProductProductionConfigFieldsForIndustryTemplateTx: %v", err)
 	}
-	if removed != 2 {
+	if removed != 1 {
 		_ = tx.Rollback(ctx)
-		t.Fatalf("removed product field count = %d, want 2", removed)
+		t.Fatalf("removed product field count = %d, want 1", removed)
 	}
-	assertManufacturingProductFieldIDs(t, ctx, tx, schema, []int64{2, 3, 5, 6})
+	assertManufacturingProductFieldIDs(t, ctx, tx, schema, []int64{2, 3, 4, 5, 6, 7})
+	var sharedLabel, canonicalCaseKey string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT label FROM %s.product_production_config_fields WHERE id=7`, schema)).Scan(&sharedLabel); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("load shared field metadata: %v", err)
+	}
+	if sharedLabel != "Shared B" {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("shared field label=%q, want remaining template B metadata", sharedLabel)
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT field_key FROM %s.product_production_config_fields WHERE id=4`, schema)).Scan(&canonicalCaseKey); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("load case-insensitive field key: %v", err)
+	}
+	if canonicalCaseKey != "CaseKey" {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("canonical field key=%q, want first selected definition key CaseKey", canonicalCaseKey)
+	}
 	if err := tx.Rollback(ctx); err != nil {
 		t.Fatalf("rollback cleanup transaction: %v", err)
 	}
-	assertManufacturingProductFieldIDs(t, ctx, pool, schema, []int64{1, 2, 3, 4, 5, 6})
+	assertManufacturingProductFieldIDs(t, ctx, pool, schema, []int64{1, 2, 3, 4, 5, 6, 7})
 }
 
 type manufacturingProductFieldIDQuerier interface {

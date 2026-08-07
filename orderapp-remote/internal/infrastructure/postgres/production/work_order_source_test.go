@@ -81,6 +81,10 @@ func TestWorkOrderFreezesProductProductionConfigSnapshot(t *testing.T) {
 		"product_production_config_fields",
 		"expected_loss_rate",
 		"process_route_id",
+		"product_production_config_industry_templates",
+		"jsonb_agg(selected.template_id ORDER BY selected.sort_order, selected.template_id)",
+		"'industry_field_template_ids'",
+		"jsonb_build_array(c.industry_field_template_id)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("work order must freeze product production config snapshots; missing %q", want)

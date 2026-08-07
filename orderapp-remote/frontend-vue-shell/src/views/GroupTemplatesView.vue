@@ -55,6 +55,14 @@
             <span>备注</span>
             <input v-model.trim="groupTemplateForm.remark" placeholder="用于商品、BOM、库存选择分类" />
           </label>
+          <fieldset class="usage-selector wide-field">
+            <legend>功能引用</legend>
+            <label v-for="usage in businessGroupUsageOptions" :key="usage.key" class="usage-option">
+              <input v-model="groupTemplateForm.usage_keys" type="checkbox" :value="usage.key" />
+              <span>{{ usage.label }}</span>
+            </label>
+            <small>同一个功能可引用多个分组模板；只有被引用的模板才会在对应功能中显示分类和收纳。</small>
+          </fieldset>
           <div class="actions form-actions">
             <button v-if="groupTemplateForm.id" class="text-button danger-text" type="button" :disabled="groupTemplateSaving || loading" @click="deleteGroupTemplate">删除模板</button>
             <button class="primary" type="submit" :disabled="groupTemplateSaving || loading">
@@ -158,6 +166,13 @@ const error = ref('')
 const groupTemplates = ref([])
 const selectedGroupTemplateID = ref(0)
 const originalGroupTemplateCategoryParentID = ref(0)
+const businessGroupUsageOptions = [
+  { key: 'product_catalog', label: '商品档案' },
+  { key: 'material_catalog', label: '物料档案' },
+  { key: 'production_bom', label: '生产 BOM' },
+  { key: 'warehouse_inventory', label: '仓库库存' },
+  { key: 'price_list', label: '价格表' },
+]
 const activeGroupTemplates = computed(() => groupTemplates.value
   .filter((group) => !isSystemDefaultBusinessGroup(group) && group.active !== false)
   .slice()
@@ -174,6 +189,10 @@ function defaultGroupTemplate(group = {}) {
     code: String(group.code || '').trim(),
     remark: String(group.remark || '').trim(),
     sort_order: Number(group.sort_order || 100),
+    usage_keys: (Array.isArray(group.usages) ? group.usages : [])
+      .filter((usage) => usage?.active !== false)
+      .map((usage) => String(usage?.usage_key || usage?.usageKey || '').trim())
+      .filter((usageKey, index, rows) => usageKey && rows.indexOf(usageKey) === index),
   }
 }
 
@@ -268,7 +287,14 @@ async function saveGroupTemplate() {
     remark: String(groupTemplateForm.remark || '').trim(),
     active: true,
     sort_order: Number(groupTemplateForm.sort_order || 100),
-    usages: [],
+    replace_usages: true,
+    usages: businessGroupUsageOptions
+      .filter((usage) => groupTemplateForm.usage_keys.includes(usage.key))
+      .map((usage) => ({
+        usage_key: usage.key,
+        usage_label: usage.label,
+        active: true,
+      })),
   }
   if (!payload.name) {
     error.value = '请填写模板名'
@@ -412,6 +438,11 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .group-template-form label, .category-form label { display: grid; gap: 5px; font-size: 13px; color: #333; }
 .group-template-form input, .group-template-form select, .category-form input, .category-form select { min-height: 36px; border: 1px solid #d7dde6; border-radius: 6px; padding: 6px 8px; background: #fff; }
 .wide-field { grid-column: 1 / -1; }
+.usage-selector { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; margin: 0; border: 1px solid #d7dde6; border-radius: 6px; padding: 10px 12px; background: #fff; }
+.usage-selector legend { padding: 0 4px; color: #333; font-size: 13px; }
+.group-template-form .usage-option { display: inline-flex; grid-template-columns: none; align-items: center; gap: 6px; white-space: nowrap; }
+.group-template-form .usage-option input { width: 16px; min-height: 16px; margin: 0; }
+.usage-selector small { flex-basis: 100%; color: #667085; font-size: 12px; }
 .form-actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: 0; }
 .category-editor { display: grid; gap: 12px; margin-top: 14px; border-top: 1px solid #eef2f7; padding-top: 14px; }
 .category-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

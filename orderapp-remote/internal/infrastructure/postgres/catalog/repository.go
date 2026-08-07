@@ -1250,10 +1250,14 @@ func (r Repository) ListProductProductionConfigs(ctx context.Context) ([]catalog
 		if err := rows.Scan(&row.ProductID, &row.ProductionBomID, &row.ProductionBomVersionID, &row.ProcessRouteID, &row.IndustryFieldTemplateID, &row.ExpectedLossRate, &row.Note); err != nil {
 			return nil, err
 		}
+		row.IndustryFieldTemplateIDs = []int64{}
 		row.Fields = []catalogapp.ProductProductionConfigField{}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.attachProductProductionConfigIndustryTemplates(ctx, out); err != nil {
 		return nil, err
 	}
 	if err := r.attachProductProductionConfigFields(ctx, out); err != nil {
@@ -1272,7 +1276,52 @@ func (r Repository) GetProductProductionConfig(ctx context.Context, productID in
 			return row, nil
 		}
 	}
-	return catalogapp.ProductProductionConfig{ProductID: productID, Fields: []catalogapp.ProductProductionConfigField{}}, nil
+	return catalogapp.ProductProductionConfig{ProductID: productID, IndustryFieldTemplateIDs: []int64{}, Fields: []catalogapp.ProductProductionConfigField{}}, nil
+}
+
+func (r Repository) attachProductProductionConfigIndustryTemplates(ctx context.Context, configs []catalogapp.ProductProductionConfig) error {
+	if len(configs) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(configs))
+	index := make(map[int64]int, len(configs))
+	for i := range configs {
+		ids = append(ids, configs[i].ProductID)
+		index[configs[i].ProductID] = i
+		configs[i].IndustryFieldTemplateIDs = []int64{}
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT product_id, template_id
+		FROM %s.product_production_config_industry_templates
+		WHERE product_id=ANY($1)
+		ORDER BY product_id, sort_order, template_id
+	`, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var productID, templateID int64
+		if err := rows.Scan(&productID, &templateID); err != nil {
+			return err
+		}
+		if i, ok := index[productID]; ok {
+			configs[i].IndustryFieldTemplateIDs = append(configs[i].IndustryFieldTemplateIDs, templateID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range configs {
+		if len(configs[i].IndustryFieldTemplateIDs) == 0 && configs[i].IndustryFieldTemplateID > 0 {
+			configs[i].IndustryFieldTemplateIDs = append(configs[i].IndustryFieldTemplateIDs, configs[i].IndustryFieldTemplateID)
+		}
+		configs[i].IndustryFieldTemplateID = 0
+		if len(configs[i].IndustryFieldTemplateIDs) > 0 {
+			configs[i].IndustryFieldTemplateID = configs[i].IndustryFieldTemplateIDs[0]
+		}
+	}
+	return nil
 }
 
 func (r Repository) attachProductProductionConfigFields(ctx context.Context, configs []catalogapp.ProductProductionConfig) error {
@@ -1315,7 +1364,16 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 		return catalogapp.ProductProductionConfig{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	fields, err := normalizeProductProductionConfigFieldsAgainstTemplateTx(ctx, tx, r.schema, cmd.IndustryFieldTemplateID, cmd.Fields)
+	cmd.IndustryFieldTemplateIDs = normalizeIndustryFieldTemplateIDsForSave(cmd.IndustryFieldTemplateIDs, cmd.IndustryFieldTemplateID)
+	cmd.IndustryFieldTemplateID = 0
+	if len(cmd.IndustryFieldTemplateIDs) > 0 {
+		cmd.IndustryFieldTemplateID = cmd.IndustryFieldTemplateIDs[0]
+	}
+	oldTemplateIDs, err := loadProductProductionConfigIndustryTemplateIDsTx(ctx, tx, r.schema, cmd.ProductID)
+	if err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	fields, err := normalizeProductProductionConfigFieldsAgainstTemplatesTx(ctx, tx, r.schema, cmd.IndustryFieldTemplateIDs, cmd.Fields)
 	if err != nil {
 		return catalogapp.ProductProductionConfig{}, err
 	}
@@ -1350,6 +1408,18 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 			return catalogapp.ProductProductionConfig{}, err
 		}
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_production_config_industry_templates WHERE product_id=$1`, r.schema), cmd.ProductID); err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	for i, templateID := range cmd.IndustryFieldTemplateIDs {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_production_config_industry_templates(
+				product_id, template_id, sort_order, created_by, updated_by, created_at, updated_at
+			) VALUES($1,$2,$3,$4,$4,now(),now())
+		`, r.schema), cmd.ProductID, templateID, i+1, strings.TrimSpace(cmd.Actor)); err != nil {
+			return catalogapp.ProductProductionConfig{}, err
+		}
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_production_config_fields WHERE product_id=$1`, r.schema), cmd.ProductID); err != nil {
 		return catalogapp.ProductProductionConfig{}, err
 	}
@@ -1363,7 +1433,7 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 			return catalogapp.ProductProductionConfig{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_production_config", &cmd.ProductID, "save_product_production_config", postgresinfra.StrPtr("product_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ProductID)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "production_bom_id": cmd.ProductionBomID, "production_bom_version_id": cmd.ProductionBomVersionID, "process_route_id": cmd.ProcessRouteID, "industry_field_template_id": cmd.IndustryFieldTemplateID, "expected_loss_rate": cmd.ExpectedLossRate, "field_count": len(cmd.Fields)}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_production_config", &cmd.ProductID, "save_product_production_config", postgresinfra.StrPtr("industry_field_template_ids"), postgresinfra.StrPtr(fmt.Sprint(oldTemplateIDs)), postgresinfra.StrPtr(fmt.Sprint(cmd.IndustryFieldTemplateIDs)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "production_bom_id": cmd.ProductionBomID, "production_bom_version_id": cmd.ProductionBomVersionID, "process_route_id": cmd.ProcessRouteID, "industry_field_template_id": cmd.IndustryFieldTemplateID, "industry_field_template_ids": cmd.IndustryFieldTemplateIDs, "old_industry_field_template_ids": oldTemplateIDs, "expected_loss_rate": cmd.ExpectedLossRate, "field_count": len(cmd.Fields)}); err != nil {
 		return catalogapp.ProductProductionConfig{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1372,45 +1442,128 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 	return r.GetProductProductionConfig(ctx, cmd.ProductID)
 }
 
-func normalizeProductProductionConfigFieldsAgainstTemplateTx(ctx context.Context, tx pgx.Tx, schema string, templateID int64, fields []catalogapp.ProductProductionConfigField) ([]catalogapp.ProductProductionConfigField, error) {
-	if templateID <= 0 {
-		return []catalogapp.ProductProductionConfigField{}, nil
+func normalizeIndustryFieldTemplateIDsForSave(templateIDs []int64, legacyTemplateID int64) []int64 {
+	if templateIDs == nil {
+		if legacyTemplateID <= 0 {
+			return []int64{}
+		}
+		templateIDs = []int64{legacyTemplateID}
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		SELECT id
-		FROM %s.industry_field_templates
-		WHERE id=$1
-		FOR SHARE
-	`, schema), templateID); err != nil {
+	out := make([]int64, 0, len(templateIDs))
+	seen := make(map[int64]struct{}, len(templateIDs))
+	for _, templateID := range templateIDs {
+		if templateID <= 0 {
+			continue
+		}
+		if _, exists := seen[templateID]; exists {
+			continue
+		}
+		seen[templateID] = struct{}{}
+		out = append(out, templateID)
+	}
+	return out
+}
+
+func loadProductProductionConfigIndustryTemplateIDsTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) ([]int64, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT template_id
+		FROM %s.product_production_config_industry_templates
+		WHERE product_id=$1
+		ORDER BY sort_order, template_id
+	`, schema), productID)
+	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+	out := make([]int64, 0)
+	for rows.Next() {
+		var templateID int64
+		if err := rows.Scan(&templateID); err != nil {
+			return nil, err
+		}
+		out = append(out, templateID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	var legacyTemplateID int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(industry_field_template_id,0) FROM %s.product_production_configs WHERE product_id=$1`, schema), productID).Scan(&legacyTemplateID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []int64{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if legacyTemplateID > 0 {
+		return []int64{legacyTemplateID}, nil
+	}
+	return []int64{}, nil
+}
+
+func normalizeProductProductionConfigFieldsAgainstTemplatesTx(ctx context.Context, tx pgx.Tx, schema string, templateIDs []int64, fields []catalogapp.ProductProductionConfigField) ([]catalogapp.ProductProductionConfigField, error) {
+	if len(templateIDs) == 0 {
+		return []catalogapp.ProductProductionConfigField{}, nil
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT field_key, label, field_type, unit, required, COALESCE(options_json,'[]'::jsonb)::text, sort_order
+		SELECT id
+		FROM %s.industry_field_templates
+		WHERE id=ANY($1::bigint[]) AND status='active'
+		ORDER BY id
+		FOR SHARE
+	`, schema), templateIDs)
+	if err != nil {
+		return nil, err
+	}
+	selectedCount := 0
+	for rows.Next() {
+		selectedCount++
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if selectedCount != len(templateIDs) {
+		return nil, catalogapp.ValidationError{Message: "industry field template not found or inactive"}
+	}
+	rows, err = tx.Query(ctx, fmt.Sprintf(`
+		SELECT template_id, field_key, label, field_type, unit, required, COALESCE(options_json,'[]'::jsonb)::text, sort_order
 		FROM %s.industry_field_definitions
-		WHERE template_id=$1
-		ORDER BY sort_order, id
-	`, schema), templateID)
+		WHERE template_id=ANY($1::bigint[])
+		ORDER BY array_position($1::bigint[], template_id), sort_order, id
+	`, schema), templateIDs)
 	if err != nil {
 		return nil, err
 	}
 	type def struct {
-		key      string
-		label    string
-		kind     string
-		unit     string
-		required bool
-		options  string
-		sort     int
+		templateID int64
+		key        string
+		label      string
+		kind       string
+		unit       string
+		required   bool
+		options    string
+		sort       int
 	}
 	defs := map[string]def{}
+	definitionOrder := 0
 	for rows.Next() {
 		var d def
-		if err := rows.Scan(&d.key, &d.label, &d.kind, &d.unit, &d.required, &d.options, &d.sort); err != nil {
+		if err := rows.Scan(&d.templateID, &d.key, &d.label, &d.kind, &d.unit, &d.required, &d.options, &d.sort); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		key := strings.TrimSpace(d.key)
+		d.key = strings.TrimSpace(d.key)
+		key := strings.ToLower(d.key)
 		if key != "" {
+			if _, exists := defs[key]; exists {
+				continue
+			}
+			definitionOrder++
+			d.sort = definitionOrder
 			defs[key] = d
 		}
 	}
@@ -1420,18 +1573,24 @@ func normalizeProductProductionConfigFieldsAgainstTemplateTx(ctx context.Context
 	}
 	rows.Close()
 	if len(defs) == 0 && len(fields) > 0 {
-		return nil, fmt.Errorf("industry field template has no fields")
+		return nil, catalogapp.ValidationError{Message: "selected industry field templates have no fields"}
 	}
 	out := make([]catalogapp.ProductProductionConfigField, 0, len(fields))
+	seenFields := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
 		key := strings.TrimSpace(field.TemplateFieldKey)
 		if key == "" {
 			key = strings.TrimSpace(field.FieldKey)
 		}
+		key = strings.ToLower(key)
+		if _, exists := seenFields[key]; exists {
+			continue
+		}
 		d, ok := defs[key]
 		if !ok {
-			return nil, fmt.Errorf("field %s is not defined by industry field template", key)
+			return nil, catalogapp.ValidationError{Message: fmt.Sprintf("field %s is not defined by selected industry field templates", key)}
 		}
+		seenFields[key] = struct{}{}
 		field.FieldKey = d.key
 		field.TemplateFieldKey = d.key
 		field.Label = d.label
@@ -2198,14 +2357,37 @@ func (r Repository) SaveBusinessGroup(ctx context.Context, cmd catalogapp.Busine
 	if err != nil {
 		return catalogapp.BusinessGroup{}, err
 	}
-	if len(cmd.Usages) > 0 {
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.business_group_usages SET active=false, updated_at=now() WHERE group_id=$1`, r.schema), id); err != nil {
+	oldUsageKeys, err := businessGroupUsageKeysTx(ctx, tx, r.schema, id)
+	if err != nil {
+		return catalogapp.BusinessGroup{}, err
+	}
+	newUsageKeys := oldUsageKeys
+	if cmd.Usages != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.business_group_usages SET active=false, updated_at=now(), updated_by=$2 WHERE group_id=$1`, r.schema), id, cmd.Actor); err != nil {
 			return catalogapp.BusinessGroup{}, err
 		}
+		newUsageKeys = make([]string, 0, len(cmd.Usages))
 		for _, usage := range cmd.Usages {
 			usage.UsageKey = strings.TrimSpace(usage.UsageKey)
 			usage.UsageLabel = strings.TrimSpace(usage.UsageLabel)
 			if usage.UsageKey == "" {
+				continue
+			}
+			newUsageKeys = append(newUsageKeys, usage.UsageKey)
+			tag, err := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.business_group_usages
+				SET usage_label=$3, active=true, updated_at=now(), updated_by=$4
+				WHERE id=(
+					SELECT id FROM %s.business_group_usages
+					WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=false
+					ORDER BY id DESC
+					LIMIT 1
+				)
+			`, r.schema, r.schema), id, usage.UsageKey, usage.UsageLabel, cmd.Actor)
+			if err != nil {
+				return catalogapp.BusinessGroup{}, err
+			}
+			if tag.RowsAffected() > 0 {
 				continue
 			}
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -2234,7 +2416,15 @@ func (r Repository) SaveBusinessGroup(ctx context.Context, cmd catalogapp.Busine
 			}
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group", &id, "save_business_group", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"active": cmd.Active, "sort_order": cmd.SortOrder}); err != nil {
+	auditField := postgresinfra.StrPtr("name")
+	var auditOldValue *string
+	auditNewValue := postgresinfra.StrPtr(cmd.Name)
+	if cmd.Usages != nil {
+		auditField = postgresinfra.StrPtr("usages")
+		auditOldValue = postgresinfra.StrPtr(fmt.Sprint(oldUsageKeys))
+		auditNewValue = postgresinfra.StrPtr(fmt.Sprint(newUsageKeys))
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group", &id, "save_business_group", auditField, auditOldValue, auditNewValue, postgresinfra.AuditMeta{"group_id": id, "name": cmd.Name, "active": cmd.Active, "sort_order": cmd.SortOrder, "old_usage_keys": oldUsageKeys, "usage_keys": newUsageKeys, "usages_changed": cmd.Usages != nil}); err != nil {
 		return catalogapp.BusinessGroup{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2250,6 +2440,28 @@ func (r Repository) SaveBusinessGroup(ctx context.Context, cmd catalogapp.Busine
 		}
 	}
 	return catalogapp.BusinessGroup{}, fmt.Errorf("business group not found")
+}
+
+func businessGroupUsageKeysTx(ctx context.Context, tx pgx.Tx, schema string, groupID int64) ([]string, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT lower(btrim(usage_key))
+		FROM %s.business_group_usages
+		WHERE group_id=$1 AND active=true
+		ORDER BY id
+	`, schema), groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var usageKey string
+		if err := rows.Scan(&usageKey); err != nil {
+			return nil, err
+		}
+		out = append(out, usageKey)
+	}
+	return out, rows.Err()
 }
 
 func (r Repository) DeleteBusinessGroup(ctx context.Context, cmd catalogapp.DeleteBusinessGroupCommand) error {
@@ -2607,8 +2819,8 @@ func (r Repository) SaveBusinessGroupAssignment(ctx context.Context, cmd catalog
 		return catalogapp.BusinessGroupAssignment{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	usageKey := strings.TrimSpace(cmd.UsageKey)
-	objectKey := strings.TrimSpace(cmd.ObjectKey)
+	usageKey := strings.ToLower(strings.TrimSpace(cmd.UsageKey))
+	objectKey := strings.ToLower(strings.TrimSpace(cmd.ObjectKey))
 	objectRef := strings.TrimSpace(cmd.ObjectRef)
 	if cmd.ObjectID > 0 {
 		objectRef = ""
@@ -2627,8 +2839,17 @@ func (r Repository) SaveBusinessGroupAssignment(ctx context.Context, cmd catalog
 	if !itemOK {
 		return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group item mismatch")
 	}
-	if err := ensureBusinessGroupUsageForAssignmentTx(ctx, tx, r.schema, cmd.GroupID, usageKey, cmd.Actor); err != nil {
+	var usageOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1 FROM %s.business_group_usages
+			WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=true
+		)
+	`, r.schema), cmd.GroupID, usageKey).Scan(&usageOK); err != nil {
 		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	if !usageOK {
+		return catalogapp.BusinessGroupAssignment{}, catalogapp.ValidationError{Message: fmt.Sprintf("business group is not referenced by active usage %s", usageKey)}
 	}
 	if cmd.ID > 0 {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE id=$1`, r.schema), cmd.ID); err != nil {
@@ -3654,8 +3875,13 @@ func ensureBusinessGroupUsageForAssignmentTx(ctx context.Context, tx pgx.Tx, sch
 	if tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.business_group_usages
 		SET active=true, updated_at=now(), updated_by=$3
-		WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=false
-	`, schema), groupID, usageKey, actor); err != nil {
+		WHERE id=(
+			SELECT id FROM %s.business_group_usages
+			WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=false
+			ORDER BY id DESC
+			LIMIT 1
+		)
+	`, schema, schema), groupID, usageKey, actor); err != nil {
 		return err
 	} else if tag.RowsAffected() > 0 {
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "business_group_usage", &groupID, "ensure_business_group_usage", postgresinfra.StrPtr("usage_key"), nil, postgresinfra.StrPtr(usageKey), postgresinfra.AuditMeta{"group_id": groupID, "usage_key": usageKey}); err != nil {

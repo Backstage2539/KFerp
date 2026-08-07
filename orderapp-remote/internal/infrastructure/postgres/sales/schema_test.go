@@ -99,6 +99,10 @@ func TestOrderItemsFreezeProductProductionConfigSnapshotInPriceSource(t *testing
 		"production_config",
 		"expected_loss_rate",
 		"process_route_id",
+		"product_production_config_industry_templates",
+		"jsonb_agg(selected.template_id ORDER BY selected.sort_order, selected.template_id)",
+		"'industry_field_template_ids'",
+		"jsonb_build_array(c.industry_field_template_id)",
 		"price_source_json",
 	} {
 		if !strings.Contains(text, want) {

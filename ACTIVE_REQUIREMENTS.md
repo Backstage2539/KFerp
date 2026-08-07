@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-584-PRODUCT-MULTI-GROUP-TEMPLATES
+- Branch: codex/product-multi-group-templates-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: implementation and verification complete; integration and development deployment pending; PR in review; Van acceptance todo
+- Scope: 商品档案的行业字段/功能分组引用支持同时引用多个分组模板；只有已引用模板才展示其分类与收纳能力；修复父级大类收起时子类仍保持展开的问题。
+- DEV:
+  - DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE：商品配置多模板引用、旧标量兼容、字段并集清理和原子审计。
+  - DEV-584-GROUP-USAGE-MULTI-REFERENCE：分组模板维护多功能引用，同一功能可引用多模板，未明确引用模板不进入业务页面。
+  - DEV-584-PRODUCT-GROUP-UNION-COLLAPSE：商品档案合并展示全部已引用模板、单一未分类、无引用平铺和父级折叠隐藏全部后代。
+  - DEV-584-DOCS-ACCEPTANCE-DEPLOY：同步手册与验收证据，验证后合入 develop 并部署 development。
+- Verifier:
+  - RED: 应用层首次 PR-584 定向测试因缺少 `IndustryFieldTemplateIDs` 编译失败；Vue 定向测试分别暴露未引用模板被纳入、多模板投影缺失、父折叠不隐藏后代和缺少“功能引用”。
+  - Unit/API: catalog 应用、HTTP、PostgreSQL 仓储、manufacturing、sales、production、stock 和 support 八个目标包 GREEN；`go test ./... -count=1` 及 `scripts/verify_kferp.sh backend` GREEN。
+  - PostgreSQL: 一次性本地 PostgreSQL 16.13 隔离库实际执行多模板并集/并发锁、模板编辑清理和销售快照用例，全部 GREEN 并已停止隔离库。
+  - Frontend/build: 同步最新 `origin/develop` 后，`scripts/verify_kferp.sh frontend-tests` 887/887 GREEN；`frontend-build` GREEN，仅有既有 chunk-size warning。
+  - Manual: 已更新商品/物料、设置审计和成本价格表三份单一来源手册。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-product-multi-group-templates.md`；独立复审最终无未解决 P0/P1/P2，Van development 业务验收待办。
+- Deployment: development pending after latest-origin integration; production out of scope.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 原脏工作区不动；从 `origin/develop@35cbe1a8` 的独立工作区实施。旧页面的 `usages: []` 保持 no-op，新页面用 `replace_usages` 明确清空；旧单行业模板标量继续兼容。`scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入，按脚本返回的 PR-584 手工登记。
+
 ### PR-583-RECIPIENT-COMPACT-ADDRESS-DIRECT-SHIP-PICKER
 - Branch: codex/pr583-recipient-directship-20260807
 - Owner/session: Codex / 2026-08-07

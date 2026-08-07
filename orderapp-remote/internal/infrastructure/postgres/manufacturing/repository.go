@@ -584,16 +584,65 @@ func (r Repository) SaveIndustryTemplate(ctx context.Context, cmd manufacturinga
 }
 
 func cleanupProductProductionConfigFieldsForIndustryTemplateTx(ctx context.Context, tx pgx.Tx, schema string, templateID int64) (int64, error) {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		WITH ranked_definitions AS (
+			SELECT selected.product_id,
+			       selected.sort_order AS template_sort_order,
+			       selected.template_id,
+			       d.id AS definition_id,
+			       btrim(d.field_key) AS field_key,
+			       d.label,
+			       d.field_type,
+			       d.unit,
+			       d.required,
+			       COALESCE(d.options_json,'[]'::jsonb) AS options_json,
+			       d.sort_order AS definition_sort_order,
+			       row_number() OVER (
+				   PARTITION BY selected.product_id, lower(btrim(d.field_key))
+				   ORDER BY selected.sort_order, selected.template_id, d.sort_order, d.id
+			       ) AS key_rank
+			FROM %[1]s.product_production_config_industry_templates selected
+			JOIN %[1]s.industry_field_definitions d ON d.template_id=selected.template_id
+		),
+		winning_definitions AS (
+			SELECT *,
+			       row_number() OVER (
+				   PARTITION BY product_id
+				   ORDER BY template_sort_order, template_id, definition_sort_order, definition_id
+			       )::int AS union_sort_order
+			FROM ranked_definitions
+			WHERE key_rank=1
+		)
+		UPDATE %[1]s.product_production_config_fields f
+		SET field_key=winner.field_key,
+		    template_field_key=winner.field_key,
+		    label=winner.label,
+		    field_type=winner.field_type,
+		    unit=winner.unit,
+		    required=winner.required,
+		    options_json=winner.options_json,
+		    sort_order=winner.union_sort_order,
+		    updated_at=now()
+		FROM %[1]s.product_production_config_industry_templates edited,
+		     winning_definitions winner
+		WHERE edited.product_id=f.product_id
+		  AND edited.template_id=$1
+		  AND winner.product_id=f.product_id
+		  AND lower(btrim(winner.field_key))=lower(COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key)))
+	`, schema), templateID); err != nil {
+		return 0, err
+	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		DELETE FROM %[1]s.product_production_config_fields f
-		USING %[1]s.product_production_configs c
-		WHERE c.product_id=f.product_id
-		  AND c.industry_field_template_id=$1
+		USING %[1]s.product_production_config_industry_templates edited
+		WHERE edited.product_id=f.product_id
+		  AND edited.template_id=$1
 		  AND NOT EXISTS (
 			SELECT 1
-			FROM %[1]s.industry_field_definitions d
-			WHERE d.template_id=$1
-			  AND btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))
+			FROM %[1]s.product_production_config_industry_templates selected
+			JOIN %[1]s.industry_field_definitions d ON d.template_id=selected.template_id
+			WHERE selected.product_id=f.product_id
+			  AND lower(btrim(d.field_key))=lower(COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key)))
 		  )
 	`, schema), templateID)
 	if err != nil {
