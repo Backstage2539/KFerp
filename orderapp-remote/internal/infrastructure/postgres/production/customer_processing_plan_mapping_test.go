@@ -113,6 +113,9 @@ func TestCustomerProcessingCompletionWarehouseIsFixed(t *testing.T) {
 	if err != nil || got != "CUSTOMER-8" {
 		t.Fatalf("completion warehouse=%q err=%v, want CUSTOMER-8", got, err)
 	}
+	if got, err := completionWarehouseForWorkOrder(productionapp.WorkOrderRow{}, ""); err != nil || got != "finished_goods" {
+		t.Fatalf("ordinary completion warehouse=%q err=%v, want finished_goods", got, err)
+	}
 }
 
 func TestDerivedWorkOrderStatusIncludesPaused(t *testing.T) {
