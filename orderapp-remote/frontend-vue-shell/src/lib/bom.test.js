@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   bomContextCustomerIDs,
+  productionBomListName,
   productionBomLabel,
   productionBomVersionWarning,
   filterBomRowsByProductFocus,
@@ -168,6 +169,30 @@ test('production BOM label shows BOM code name and bound version without source 
     latest_bom_version_no: 'V003',
     is_latest_bom_version: true,
   }), '')
+})
+
+test('production BOM list name hides the code, generated suffix, and version', () => {
+  assert.equal(productionBomListName({
+    code: 'BOM-000659',
+    name: 'ALO TOH#1 生产 BOM',
+    latest_version_no: 'V001',
+  }), 'ALO TOH#1')
+
+  assert.equal(productionBomListName({
+    name: 'BOM-000659 ALO TOH#1 生产 BOM / V001',
+  }), 'ALO TOH#1')
+
+  assert.equal(productionBomListName({
+    name: '生产 BOM 校准配方',
+  }), '生产 BOM 校准配方')
+
+  assert.equal(productionBomListName({
+    name: 'ALO TOH#1 生产 BOM 副本 副本',
+  }), 'ALO TOH#1 副本 副本')
+
+  assert.equal(productionBomListName({
+    name: 'ALO TOH#1 生产 BOM 特殊属性副本',
+  }), 'ALO TOH#1 特殊属性副本')
 })
 
 test('BOM view can set the output product default BOM with the current published version', async () => {
@@ -339,19 +364,22 @@ test('production BOM name opens the settings drawer and list no longer shows edi
   const tableBlock = template.match(/<div class="table-wrap bom-list-panel-scroll">[\s\S]*?<\/table>\s*<\/div>/)?.[0] || ''
 
   assert.match(tableBlock, /@click\.stop="openBomRowPrimary\(row\)"/)
+  assert.match(tableBlock, /\{\{ productionBomListName\(row\) \}\}/)
+  assert.doesNotMatch(tableBlock, /\{\{ productionBomLabel\(row\) \}\}/)
   assert.doesNotMatch(tableBlock, />编辑<\/button>/)
   assert.match(source, /async function openBomRowPrimary\(row\)[\s\S]*openEditProductionBomRecord\(bomRecordFromRow\(row\)\)/)
 })
 
 test('production BOM list supports status filters name search group tabs and inactive copy actions', async () => {
   const rows = [
-    { id: 1, code: 'BOM-001', name: '精品拼配', status: 'active', group_id: 2, group_item_id: 21 },
+    { id: 1, code: 'BOM-001', name: '精品拼配', latest_version_no: 'V001', status: 'active', group_id: 2, group_item_id: 21 },
     { id: 2, code: 'BOM-002', name: '旧版深烘', status: 'inactive', group_id: 2, group_item_id: 21 },
     { id: 3, code: 'BOM-003', name: '挂耳配方', status: 'active', group_id: 3, group_item_id: 31 },
     { id: 4, code: 'BOM-004', name: '未分类配方', status: 'active', group_id: 0, group_item_id: 0 },
   ]
 
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', query: 'BOM-00' }).map((row) => row.id), [1, 3, 4])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', query: 'V001' }).map((row) => row.id), [1])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'inactive', query: '深烘' }).map((row) => row.id), [2])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'all', query: '拼配' }).map((row) => row.id), [1])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupItemID: -1 }).map((row) => row.id), [4])
