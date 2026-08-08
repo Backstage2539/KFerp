@@ -33,7 +33,7 @@ func TestDev534ProductGenericGroupTemplateOptionsContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-584-PRODUCT-MULTI-GROUP-TEMPLATES",
-			"商品档案页面可同时多选",
+			"商品档案可同时多选“商品-咖啡豆”和“商品-挂耳”",
 			"商品价格表不提供自己的分组模板选择",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-12-product-generic-group-template-options.md"): {
