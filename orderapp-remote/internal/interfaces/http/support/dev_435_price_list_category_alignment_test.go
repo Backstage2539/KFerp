@@ -30,7 +30,9 @@ func TestDev435PriceListCategoryAlignmentWiringAndDocs(t *testing.T) {
 			"current_classification_template_id",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"buildClassificationPriceListTypeOptionsFromItems",
+			"buildProductCatalogTemplatePriceListTypeOptions",
+			"businessGroupRowsForFeatureSelection",
+			"apiGet('/api/business-group-feature-selections/product_catalog')",
 			"greenTierPriceRows(item)",
 			"metaKeyForItem(item)",
 			"Price List / Item Price",

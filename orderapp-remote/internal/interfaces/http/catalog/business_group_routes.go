@@ -8,6 +8,8 @@ func registerBusinessGroupRoutes(e *echo.Echo, h productHandler) {
 	e.PUT("/api/business-groups/:id", h.saveBusinessGroupAPI)
 	e.DELETE("/api/business-groups/:id", h.deleteBusinessGroupAPI)
 	e.POST("/api/business-groups/:id/usages", h.ensureBusinessGroupUsageAPI)
+	e.GET("/api/business-group-feature-selections/:feature_key", h.businessGroupFeatureSelectionAPI)
+	e.PUT("/api/business-group-feature-selections/:feature_key", h.saveBusinessGroupFeatureSelectionAPI)
 	e.POST("/api/business-group-items", h.saveBusinessGroupItemAPI)
 	e.PUT("/api/business-group-items/:id", h.saveBusinessGroupItemAPI)
 	e.DELETE("/api/business-group-items/:id", h.deleteBusinessGroupItemAPI)

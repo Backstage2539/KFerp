@@ -796,6 +796,17 @@ func TestPR584ProductIndustryTemplatesAndBusinessGroupUsageRepositoryContracts(t
 			t.Fatalf("PR-584 product industry template schema missing %q", want)
 		}
 	}
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.business_group_usages ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 100",
+	} {
+		if !strings.Contains(schemaSource, want) {
+			t.Fatalf("PR-584 feature-owned group selection schema missing %q", want)
+		}
+	}
+	listGroups := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) ListBusinessGroups", "func (r Repository) SaveBusinessGroup")
+	if !strings.Contains(listGroups, "lower(btrim(usage_key))<>'price_list'") {
+		t.Fatal("historical price_list usages must not be exposed by business group reads")
+	}
 
 	normalize := catalogRepositoryFunctionForTest(t, repositorySource, "func normalizeProductProductionConfigFieldsAgainstTemplatesTx", "func (r Repository) ListProductClassificationTemplates")
 	for _, want := range []string{
@@ -827,16 +838,48 @@ func TestPR584ProductIndustryTemplatesAndBusinessGroupUsageRepositoryContracts(t
 		}
 	}
 
-	saveGroup := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) SaveBusinessGroup", "func businessGroupUsageKeysTx")
+	saveGroup := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) SaveBusinessGroup", "func (r Repository) DeleteBusinessGroup")
+	for _, forbidden := range []string{"cmd.Usages", "business_group_usages", `"usages"`} {
+		if strings.Contains(saveGroup, forbidden) {
+			t.Fatalf("template CRUD must not own feature selection; found %q", forbidden)
+		}
+	}
+
+	listSelection := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) GetBusinessGroupFeatureSelection", "func (r Repository) SaveBusinessGroupFeatureSelection")
 	for _, want := range []string{
-		"if cmd.Usages != nil",
-		"auditField := postgresinfra.StrPtr(\"name\")",
-		"auditField = postgresinfra.StrPtr(\"usages\")",
-		`"group_id": id`,
-		`"usage_keys": newUsageKeys`,
+		"JOIN %s.business_groups bg ON bg.id=u.group_id AND bg.active=true",
+		"left(lower(btrim(bg.code)),8)<>'default_'",
+		"btrim(bg.name) NOT IN ('商品默认分组','生产 BOM 默认分组','仓库库存默认分组')",
+		"u.active=true",
+		"lower(u.usage_key)=lower($1)",
+		"lower(u.usage_key)<>'price_list'",
+		"ORDER BY u.sort_order, u.id",
 	} {
-		if !strings.Contains(saveGroup, want) {
-			t.Fatalf("PR-584 business group usage replacement/audit missing %q", want)
+		if !strings.Contains(listSelection, want) {
+			t.Fatalf("feature selection read contract missing %q", want)
+		}
+	}
+
+	saveSelection := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) SaveBusinessGroupFeatureSelection", "func (r Repository) ListBusinessGroupAssignments")
+	for _, want := range []string{
+		"WHERE id=ANY($1::bigint[]) AND active=true",
+		"ORDER BY id",
+		"FOR SHARE",
+		"protectedBusinessGroupTemplate(groupName, groupCode)",
+		"UPDATE %s.business_group_usages SET active=false",
+		"sort_order=$3",
+		"INSERT INTO %s.business_group_usages(group_id, usage_key, usage_label, active, sort_order, created_by, updated_by)",
+		`"save_business_group_feature_selection"`,
+		`"business_group_feature_selection"`,
+		`"group_template_ids"`,
+	} {
+		if !strings.Contains(saveSelection, want) {
+			t.Fatalf("feature selection atomic save/audit contract missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"DELETE FROM %s.business_groups", "DELETE FROM %s.business_group_items", "DELETE FROM %s.business_group_assignments"} {
+		if strings.Contains(saveSelection, forbidden) {
+			t.Fatalf("clearing a feature selection must not delete templates, categories, or assignments; found %q", forbidden)
 		}
 	}
 
@@ -847,6 +890,158 @@ func TestPR584ProductIndustryTemplatesAndBusinessGroupUsageRepositoryContracts(t
 	for _, want := range []string{"active=true", "business group is not referenced by active usage"} {
 		if !strings.Contains(saveAssignment, want) {
 			t.Fatalf("assignment save must require an explicit active group usage; missing %q", want)
+		}
+	}
+}
+
+func TestPR584BusinessGroupFeatureSelectionPersistsAtomicallyWithoutDeletingGroupData(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog postgres tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_pr584_feature_group_selection_%d", time.Now().UnixNano())
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE SCHEMA %s;
+CREATE TABLE %s.business_groups (
+	id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', remark TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true, sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.business_group_items (
+	id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, parent_id BIGINT NOT NULL DEFAULT 0,
+	name TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', remark TEXT NOT NULL DEFAULT '', active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.business_group_usages (
+	id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, usage_key TEXT NOT NULL, usage_label TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true, sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX business_group_usages_group_key_uq ON %s.business_group_usages(group_id, lower(usage_key)) WHERE active=true;
+CREATE TABLE %s.business_group_assignments (
+	id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, group_item_id BIGINT NOT NULL DEFAULT 0,
+	usage_key TEXT NOT NULL, object_key TEXT NOT NULL, object_id BIGINT NOT NULL, object_ref TEXT NOT NULL DEFAULT '',
+	sort_order INT NOT NULL DEFAULT 100, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now(), actor TEXT NOT NULL DEFAULT '', entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT, action TEXT NOT NULL DEFAULT '', field TEXT, old_value TEXT, new_value TEXT, meta JSONB
+);`, schema, schema, schema, schema, schema, schema, schema)); err != nil {
+		t.Fatalf("create feature selection fixture: %v", err)
+	}
+
+	var coffeeID, dripID, inactiveID, defaultID, itemID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('咖啡豆模板','coffee',true,10) RETURNING id`, schema)).Scan(&coffeeID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('挂耳模板','drip',true,20) RETURNING id`, schema)).Scan(&dripID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('停用模板','inactive',false,30) RETURNING id`, schema)).Scan(&inactiveID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('商品默认分组','default_product_catalog',true,1) RETURNING id`, schema)).Scan(&defaultID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_items(group_id,name,code,active) VALUES ($1,'咖啡豆','bean',true) RETURNING id`, schema), coffeeID).Scan(&itemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_assignments(group_id,group_item_id,usage_key,object_key,object_id) VALUES ($1,$2,'product_catalog','product',901)`, schema), coffeeID, itemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_usages(group_id,usage_key,usage_label,active,sort_order) VALUES ($1,'price_list','商品价格表',true,1)`, schema), coffeeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_usages(group_id,usage_key,usage_label,active,sort_order) VALUES ($1,'product_catalog','商品档案',true,1)`, schema), defaultID); err != nil {
+		t.Fatal(err)
+	}
+
+	repository := NewRepository(pool, schema)
+	loaded, err := repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || len(loaded.GroupTemplateIDs) != 0 {
+		t.Fatalf("system default selection must be hidden, selection=%+v err=%v", loaded, err)
+	}
+	saved, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{dripID, coffeeID},
+	})
+	if err != nil {
+		t.Fatalf("save ordered feature selection: %v", err)
+	}
+	if !reflect.DeepEqual(saved.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("saved order=%v", saved.GroupTemplateIDs)
+	}
+	loaded, err = repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || !reflect.DeepEqual(loaded.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("loaded selection=%+v err=%v", loaded, err)
+	}
+
+	if _, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{inactiveID},
+	}); err == nil || !catalogapp.IsValidationError(err) {
+		t.Fatalf("inactive template must be rejected: %v", err)
+	}
+	loaded, err = repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || !reflect.DeepEqual(loaded.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("failed replacement must roll back, selection=%+v err=%v", loaded, err)
+	}
+	if _, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{defaultID},
+	}); err == nil || !catalogapp.IsValidationError(err) {
+		t.Fatalf("system default template must be rejected: %v", err)
+	}
+
+	if _, err := repository.SaveBusinessGroup(ctx, catalogapp.BusinessGroup{
+		ID: coffeeID, Actor: "cached-client", Name: "咖啡豆模板", Code: "coffee", Active: true, SortOrder: 10,
+		ReplaceUsages: true, Usages: []catalogapp.BusinessGroupUsage{},
+	}); err != nil {
+		t.Fatalf("cached template save: %v", err)
+	}
+	loaded, err = repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || !reflect.DeepEqual(loaded.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("cached template payload overwrote feature selection=%+v err=%v", loaded, err)
+	}
+
+	cleared, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{},
+	})
+	if err != nil || cleared.GroupTemplateIDs == nil || len(cleared.GroupTemplateIDs) != 0 {
+		t.Fatalf("clear selection=%+v err=%v", cleared, err)
+	}
+	var groupCount, itemCount, assignmentCount, auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+SELECT (SELECT count(*) FROM %s.business_groups),
+       (SELECT count(*) FROM %s.business_group_items),
+       (SELECT count(*) FROM %s.business_group_assignments),
+       (SELECT count(*) FROM %s.audit_logs WHERE action='save_business_group_feature_selection')
+`, schema, schema, schema, schema)).Scan(&groupCount, &itemCount, &assignmentCount, &auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if groupCount != 4 || itemCount != 1 || assignmentCount != 1 || auditCount != 2 {
+		t.Fatalf("clear deleted data or missed audit: groups=%d items=%d assignments=%d audits=%d", groupCount, itemCount, assignmentCount, auditCount)
+	}
+	groups, err := repository.ListBusinessGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range groups {
+		for _, usage := range group.Usages {
+			if strings.EqualFold(usage.UsageKey, catalogapp.BusinessGroupUsagePriceList) {
+				t.Fatalf("historical price_list usage leaked into read: %+v", usage)
+			}
 		}
 	}
 }

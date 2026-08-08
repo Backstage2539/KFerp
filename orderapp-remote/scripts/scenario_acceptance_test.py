@@ -7,6 +7,7 @@ import importlib.util
 import pathlib
 import sys
 import unittest
+from copy import deepcopy
 
 
 SCRIPT_PATH = pathlib.Path(__file__).with_name("scenario_acceptance.py")
@@ -21,6 +22,11 @@ class FakeClient:
     def __init__(self) -> None:
         self.requests: list[dict] = []
         self.assignment_id = 19000
+        self.feature_selections = {
+            "product_catalog": [11],
+            "production_bom": [12],
+            "warehouse_inventory": [13],
+        }
 
     def request(self, method: str, path: str, body: dict | None = None, **kwargs) -> dict:
         headers = kwargs.get("headers") or {}
@@ -60,7 +66,22 @@ class FakeClient:
                     ],
                 }
             }
+        if path.startswith("/api/business-group-feature-selections/"):
+            feature_key = path.rsplit("/", 1)[-1]
+            if feature_key not in self.feature_selections:
+                return 400, {"error": "invalid business group feature"}
+            if method == "GET":
+                return {"feature_key": feature_key, "group_template_ids": list(self.feature_selections[feature_key])}
+            if method == "PUT":
+                ids = body.get("group_template_ids")
+                if not isinstance(ids, list):
+                    return 400, {"error": "group_template_ids required"}
+                self.feature_selections[feature_key] = list(ids)
+                return {"feature_key": feature_key, "group_template_ids": list(ids)}
         if method == "POST" and path == "/api/business-group-assignments":
+            usage_key = str(body.get("usage_key") or "")
+            if int(body.get("group_id") or 0) not in self.feature_selections.get(usage_key, []):
+                return 400, {"error": f"business group is not referenced by active usage {usage_key}"}
             self.assignment_id += 1
             return {"assignment": {"id": self.assignment_id}}
         if method == "POST" and path == "/api/production-boms":
@@ -130,6 +151,7 @@ class ScenarioAcceptanceTest(unittest.TestCase):
         cleanup_stack: list = []
         results: list = []
         failures: list = []
+        original_feature_selections = deepcopy(client.feature_selections)
 
         scenario_acceptance.run_generated_main_flow(client, context, cleanup_stack, results, failures)
 
@@ -140,6 +162,16 @@ class ScenarioAcceptanceTest(unittest.TestCase):
         self.assertIn("/api/customer-fulfillment/147/external-users", paths)
         self.assertIn("/api/mini/login/password", paths)
 
+        group_create = next(request for request in client.requests if request["method"] == "POST" and request["path"] == "/api/business-groups")
+        self.assertNotIn("usages", group_create["body"])
+        for feature_key in ("product_catalog", "production_bom", "warehouse_inventory"):
+            feature_path = f"/api/business-group-feature-selections/{feature_key}"
+            self.assertIn(feature_path, paths)
+            saves = [request for request in client.requests if request["method"] == "PUT" and request["path"] == feature_path]
+            self.assertTrue(saves, f"{feature_key} selection must be saved before assignments")
+            self.assertIn(77, saves[0]["body"]["group_template_ids"])
+        self.assertFalse(any(path.endswith("/price_list") for path in paths))
+
         mini_reads = [request for request in client.requests if request["path"].startswith("/api/mini/") and request["method"] == "GET"]
         self.assertTrue(mini_reads, "main flow should read customer miniapp endpoints")
         for request in mini_reads:
@@ -149,6 +181,13 @@ class ScenarioAcceptanceTest(unittest.TestCase):
         self.assertIn("disable generated external user login", cleanup_names)
         self.assertIn("disable generated customer portal visibility", cleanup_names)
         self.assertIn("deactivate generated customer capability template", cleanup_names)
+        for feature_key in ("product_catalog", "production_bom", "warehouse_inventory"):
+            self.assertIn(f"restore {feature_key} group template selection", cleanup_names)
+
+        cleanup_results: list[dict] = []
+        scenario_acceptance.cleanup_generated_data(client, cleanup_stack, cleanup_results)
+        self.assertTrue(all(item["ok"] for item in cleanup_results), cleanup_results)
+        self.assertEqual(original_feature_selections, client.feature_selections)
 
 
 if __name__ == "__main__":

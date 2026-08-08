@@ -13,6 +13,7 @@
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="ok" class="ok">{{ ok }}</div>
       <div class="filters">
         <label><span>搜索</span><input v-model.trim="q" placeholder="物品/批次" @keyup.enter="loadInventoryPage(1)" /></label>
         <label>
@@ -30,7 +31,31 @@
     <div class="workspace">
       <aside class="panel warehouse-panel">
         <div class="panel-title">仓库</div>
+        <div v-if="!isCustomerInventoryContext" class="feature-group-selection" data-feature-key="warehouse_inventory">
+          <div class="feature-group-selection-copy">
+            <strong>仓库库存使用的分组模板</strong>
+            <small>可多选；保存后只有已选模板可用于仓库分类和移动。取消全部后按仓库平铺展示。</small>
+          </div>
+          <div class="feature-group-selection-options">
+            <label v-for="template in selectableWarehouseGroupTemplates" :key="template.id" class="feature-group-selection-option">
+              <input
+                v-model="warehouseGroupFeatureSelectionDraft"
+                type="checkbox"
+                :value="Number(template.id || 0)"
+                :disabled="warehouseGroupFeatureSelectionSaving || loading" />
+              <span>{{ template.label }}</span>
+            </label>
+            <span v-if="!selectableWarehouseGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
+          </div>
+          <div class="feature-group-selection-actions">
+            <button class="secondary" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading" @click="openWarehouseBusinessGroupManagement">维护分组模板</button>
+            <button class="primary" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading || !warehouseGroupFeatureSelectionHasChanges" @click="saveWarehouseGroupFeatureSelection">
+              {{ warehouseGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
+            </button>
+          </div>
+        </div>
         <BusinessGroupControls
+          v-if="!isCustomerInventoryContext && warehouseSelectedBusinessGroups.length"
           v-model="selectedWarehouseGroupTemplateID"
           v-model:move-model-value="selectedWarehouseMoveGroupItemID"
           class="warehouse-group-controls"
@@ -42,8 +67,12 @@
           :can-move="canMoveSelectedWarehouses"
           :can-select-target="canSelectWarehouseMoveTarget"
           :loading="loading"
+          template-label="分类与移动模板"
           @manage="openWarehouseBusinessGroupManagement"
           @move="moveSelectedWarehousesToGroup" />
+        <div v-else-if="!isCustomerInventoryContext" class="feature-group-empty">
+          <span>仓库库存尚未选择分组模板，当前平铺展示。</span>
+        </div>
         <button class="warehouse" :class="{ active: selectedWarehouse === '' }" type="button" @click="selectWarehouse('')">
           <strong>全部仓库</strong>
           <small>跨仓库汇总查询</small>
@@ -51,6 +80,7 @@
         <div class="warehouse-group-list">
           <template v-for="group in warehouseDisplayGroups" :key="group.key">
             <button
+              v-if="warehouseSelectedBusinessGroups.length"
               class="warehouse-section-toggle"
               type="button"
               @click="toggleWarehouseGroup(group.key)">
@@ -61,9 +91,9 @@
               <div
                 v-for="row in group.rows"
                 :key="`${group.key}-${row.code}`"
-                class="warehouse-row"
+                :class="['warehouse-row', { flat: !warehouseSelectedBusinessGroups.length }]"
                 :style="businessGroupItemIndentStyle(group)">
-                <label class="warehouse-select">
+                <label v-if="warehouseSelectedBusinessGroups.length" class="warehouse-select">
                   <input type="checkbox" :checked="isWarehouseSelected(row)" @change="toggleWarehouseSelection(row, $event.target.checked)" />
                 </label>
                 <button
@@ -297,10 +327,12 @@ import BusinessGroupControls from '../components/BusinessGroupControls.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import {
   businessGroupControlOptions,
+  businessGroupFeatureSelectionIDs,
+  businessGroupFeatureSelectionPayload,
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
+  businessGroupRowsForFeatureSelection,
   groupRowsByBusinessGroupTemplate,
-  preferredBusinessGroupTemplateID,
 } from '../lib/business-grouping'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
@@ -321,6 +353,9 @@ const itemType = ref('')
 const selectedWarehouse = ref('')
 const selectedWarehouseGroupTemplateID = ref(0)
 const selectedWarehouseMoveGroupItemID = ref(0)
+const warehouseGroupFeatureSelectionTemplateIDs = ref([])
+const warehouseGroupFeatureSelectionDraft = ref([])
+const warehouseGroupFeatureSelectionSaving = ref(false)
 const selectedWarehouseKeys = ref([])
 const collapsedWarehouseGroups = ref([])
 const page = ref(1)
@@ -328,6 +363,7 @@ const limit = ref(50)
 const total = ref(0)
 const loading = ref(false)
 const error = ref('')
+const ok = ref('')
 const traceDrawerOpen = ref(false)
 const traceBatch = ref('')
 const traceResult = ref(null)
@@ -374,7 +410,16 @@ function traceMaterialBatchQtyLabel(row) {
   if (!row) return '-'
   return `${inventoryQtyLabel({ qty_g: row.qty_g, qty_units: row.qty_units, item_type: 'material' })} / 剩余 ${inventoryQtyLabel({ qty_g: row.remaining_g, qty_units: row.remaining_units, item_type: 'material' })}`
 }
-const warehouseBusinessGroupControls = computed(() => businessGroupControlOptions(warehouseBusinessGroups.value, {
+const selectableWarehouseGroupTemplates = computed(() => businessGroupControlOptions(warehouseBusinessGroups.value).templateOptions)
+const warehouseGroupFeatureSelectionHasChanges = computed(() => (
+  JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: warehouseGroupFeatureSelectionDraft.value }))
+  !== JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: warehouseGroupFeatureSelectionTemplateIDs.value }))
+))
+const warehouseSelectedBusinessGroups = computed(() => businessGroupRowsForFeatureSelection(
+  warehouseBusinessGroups.value,
+  warehouseGroupFeatureSelectionTemplateIDs.value,
+))
+const warehouseBusinessGroupControls = computed(() => businessGroupControlOptions(warehouseSelectedBusinessGroups.value, {
   selectedTemplateID: selectedWarehouseGroupTemplateID.value,
   usageKey: 'warehouse_inventory',
 }))
@@ -393,7 +438,7 @@ const selectedWarehouseRowsForMove = computed(() => {
   return warehouses.value.filter((row) => selected.has(warehouseRowKey(row)))
 })
 const canMoveSelectedWarehouses = computed(() => {
-  if (!selectedWarehouseRowsForMove.value.length) return false
+  if (!selectedWarehouseGroupTemplate.value || !selectedWarehouseRowsForMove.value.length) return false
   const targetGroupItemID = Number(selectedWarehouseMoveGroupItemID.value || 0)
   const targetOption = targetGroupItemID > 0 ? warehouseGroupOptionByItemID(targetGroupItemID) : null
   if (targetGroupItemID > 0 && !targetOption) return false
@@ -478,13 +523,10 @@ function warehouseGroupOptionByItemID(groupItemID) {
   return warehouseGroupItemOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
 }
 
-function preferredWarehouseGroupTemplateID() {
-  return preferredBusinessGroupTemplateID(warehouseBusinessGroups.value, {
-    selectedTemplateID: selectedWarehouseGroupTemplateID.value,
-    usageKey: 'warehouse_inventory',
-    preferredNames: ['库存分组', '仓库库存'],
-    preferredNameIncludes: ['库存', '仓库'],
-  })
+function syncSelectedWarehouseGroupTemplate() {
+  const selectedID = Number(selectedWarehouseGroupTemplateID.value || 0)
+  if (warehouseSelectedBusinessGroups.value.some((group) => Number(group.id || 0) === selectedID)) return
+  selectedWarehouseGroupTemplateID.value = Number(warehouseSelectedBusinessGroups.value[0]?.id || 0)
 }
 
 function isWarehouseGroupCollapsed(key) {
@@ -545,14 +587,19 @@ async function loadWarehouses() {
 async function loadWarehouseBusinessGroups() {
   if (isCustomerInventoryContext.value) {
     warehouseBusinessGroups.value = []
+    warehouseGroupFeatureSelectionTemplateIDs.value = []
+    warehouseGroupFeatureSelectionDraft.value = []
+    selectedWarehouseGroupTemplateID.value = 0
     return
   }
-  const data = await apiGet('/api/business-groups')
-  warehouseBusinessGroups.value = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : [])
-  const nextTemplateID = preferredWarehouseGroupTemplateID()
-  if (nextTemplateID && nextTemplateID !== Number(selectedWarehouseGroupTemplateID.value || 0)) {
-    selectedWarehouseGroupTemplateID.value = nextTemplateID
-  }
+  const [groupData, selectionData] = await Promise.all([
+    apiGet('/api/business-groups'),
+    apiGet('/api/business-group-feature-selections/warehouse_inventory'),
+  ])
+  warehouseBusinessGroups.value = Array.isArray(groupData?.rows) ? groupData.rows : (Array.isArray(groupData) ? groupData : [])
+  warehouseGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(selectionData)
+  warehouseGroupFeatureSelectionDraft.value = [...warehouseGroupFeatureSelectionTemplateIDs.value]
+  syncSelectedWarehouseGroupTemplate()
 }
 
 async function loadCustomers() {
@@ -616,6 +663,33 @@ function openWarehouseBusinessGroupManagement() {
       },
     },
   }))
+}
+
+async function saveWarehouseGroupFeatureSelection() {
+  if (isCustomerInventoryContext.value) return
+  const payload = businessGroupFeatureSelectionPayload('warehouse_inventory', warehouseGroupFeatureSelectionDraft.value)
+  warehouseGroupFeatureSelectionSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend('/api/business-group-feature-selections/warehouse_inventory', {
+      method: 'PUT',
+      body: payload,
+    })
+    warehouseGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(result)
+    warehouseGroupFeatureSelectionDraft.value = [...warehouseGroupFeatureSelectionTemplateIDs.value]
+    syncSelectedWarehouseGroupTemplate()
+    selectedWarehouseMoveGroupItemID.value = 0
+    selectedWarehouseKeys.value = []
+    collapsedWarehouseGroups.value = []
+    ok.value = payload.group_template_ids.length
+      ? `仓库库存已选择 ${payload.group_template_ids.length} 个分组模板`
+      : '仓库库存已改为平铺展示'
+  } catch (err) {
+    error.value = err.message || '保存仓库库存分组模板失败'
+  } finally {
+    warehouseGroupFeatureSelectionSaving.value = false
+  }
 }
 
 async function saveWarehouseCustomerBinding() {
@@ -859,6 +933,6 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 140px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.warehouse-group-controls{display:grid;gap:8px;margin-bottom:10px}.warehouse-group-list{display:grid;gap:4px;margin:8px 0 10px}.warehouse-section-toggle{width:100%;text-align:left;border:1px solid #e5e7eb;background:#f5f5f5;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px}.warehouse-section-toggle b{font-size:11px;color:#999}.warehouse-row{display:grid;grid-template-columns:28px minmax(0,1fr);align-items:flex-start;gap:6px;padding-left:var(--classification-item-indent, 0)}.warehouse-row .warehouse{margin-bottom:8px}.warehouse-select{display:flex;align-items:center;justify-content:center;margin-top:8px}.warehouse-select input{width:auto;min-height:0}.warehouse-empty-row{margin:0 0 8px;padding:6px 8px;color:#6b7280;font-size:13px;background:#fafafa;border-radius:6px}.warehouse-binding-card{display:grid;gap:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;padding:10px;margin-top:10px}.warehouse-binding-card button{width:100%}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1100px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill,.quality-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.muted{color:#666;text-align:center}.muted.left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 140px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.feature-group-selection{display:grid;gap:8px;margin-bottom:10px;padding:10px;border:1px solid #d9e2ec;border-radius:8px;background:#f8fbff}.feature-group-selection-copy{display:grid;gap:3px}.feature-group-selection-copy small{color:#607086;line-height:1.4}.feature-group-selection-options,.feature-group-selection-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.feature-group-selection-option{display:inline-flex;align-items:center;gap:5px}.feature-group-selection-option input{width:auto;min-height:0}.feature-group-selection-actions button{flex:1 1 120px}.feature-group-empty{margin-bottom:10px;padding:9px;border:1px dashed #d1d5db;border-radius:8px;color:#666;font-size:13px}.warehouse-group-controls{display:grid;gap:8px;margin-bottom:10px}.warehouse-group-list{display:grid;gap:4px;margin:8px 0 10px}.warehouse-section-toggle{width:100%;text-align:left;border:1px solid #e5e7eb;background:#f5f5f5;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px}.warehouse-section-toggle b{font-size:11px;color:#999}.warehouse-row{display:grid;grid-template-columns:28px minmax(0,1fr);align-items:flex-start;gap:6px;padding-left:var(--classification-item-indent, 0)}.warehouse-row.flat{grid-template-columns:minmax(0,1fr);padding-left:0}.warehouse-row .warehouse{margin-bottom:8px}.warehouse-select{display:flex;align-items:center;justify-content:center;margin-top:8px}.warehouse-select input{width:auto;min-height:0}.warehouse-empty-row{margin:0 0 8px;padding:6px 8px;color:#6b7280;font-size:13px;background:#fafafa;border-radius:6px}.warehouse-binding-card{display:grid;gap:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;padding:10px;margin-top:10px}.warehouse-binding-card button{width:100%}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1100px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill,.quality-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.muted{color:#666;text-align:center}.muted.left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.ok{background:#f0fff6;border:1px solid #a9d8ba;color:#1f6a3f;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
 @media (max-width:900px){.page{padding:12px}.filters,.workspace,.summary{grid-template-columns:1fr}}
 </style>

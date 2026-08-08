@@ -16,20 +16,23 @@ func TestDev463PriceListProductCatalogUsageCleanupContracts(t *testing.T) {
 			"REV-463-PRICE-LIST-PRODUCT-CATALOG-USAGE-CLEANUP",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-price-list-types.js"): {
-			"buildProductCatalogPriceListTypeOptions",
+			"buildProductCatalogTemplatePriceListTypeOptions",
 			"matchesProductCatalogPriceListType",
 			"businessGroupItemsTreeForPriceList",
+			"product-catalog:flat",
 			"product_catalog",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"buildProductCatalogPriceListTypeOptions",
+			"buildProductCatalogTemplatePriceListTypeOptions",
+			"businessGroupFeatureSelectionIDs",
+			"apiGet('/api/business-group-feature-selections/product_catalog')",
 			"matchesProductCatalogPriceListType",
 			"FACTORY_SUPPLY_PUBLICATION_PURPOSE",
 			"publication_purpose",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-price-list-types.test.js"): {
-			"熟豆-红岩拼配",
-			"product catalog price-list types accept flat business group items",
+			"price list product types partition products by the product catalog templates selected by product archive",
+			"price list uses one safe flat product type when product archive selected no group templates",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "costing-bean-list-version-ui.test.js"): {
 			"product price-list version list hides factory supply and customer resale purpose filter",
@@ -67,6 +70,9 @@ func TestDev463PriceListProductCatalogUsageCleanupContracts(t *testing.T) {
 				"publicationPurposeFilter",
 				"客户转售价格表",
 				"工厂供货价格表",
+				"buildProductCatalogPriceListTypeOptions(",
+				"/api/business-group-feature-selections/price_list",
+				"usage_key=price_list&object_key=product",
 			} {
 				if strings.Contains(src, avoid) {
 					t.Fatalf("%s should not expose ERP purpose UI marker %q", rel, avoid)

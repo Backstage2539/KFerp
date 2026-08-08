@@ -2785,6 +2785,34 @@ func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicationQueryKeepsClassificationTemplateAsItsOwnScope(t *testing.T) {
+	normalized, err := normalizeBeanListPublicationQuery(BeanListPublicationQuery{
+		ListType:                 "commercial",
+		ClassificationTemplateID: 8000000000000128,
+		OwnerType:                "official",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.ClassificationTemplateID != 8000000000000128 || normalized.ProductTypeCategoryID != 0 {
+		t.Fatalf("normalized query = %+v, want independent classification template scope", normalized)
+	}
+
+	repo := &fakeRepo{}
+	_, err = NewService(repo).PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType:                   "commercial",
+		ClassificationTemplateID:   8000000000000128,
+		ClassificationTemplateName: "商品-咖啡豆",
+		Version:                    "V1.0.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.lastBeanListQuery.ClassificationTemplateID != 8000000000000128 || repo.lastBeanListQuery.ProductTypeCategoryID != 0 {
+		t.Fatalf("version query = %+v, want classification-template isolation", repo.lastBeanListQuery)
+	}
+}
+
 func TestPublishBeanListAutoIncrementsDuplicatePublicationVersion(t *testing.T) {
 	repo := &fakeRepo{beanListPublications: []BeanListPublication{
 		{ID: 76, ListType: "commercial", ProductTypeCategoryID: 12, Version: "V3.0.5", Status: "published", OwnerType: "official"},

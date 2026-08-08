@@ -1019,6 +1019,9 @@ func (h productHandler) businessGroupsAPI(c echo.Context) error {
 	}
 	usageKey := strings.TrimSpace(c.QueryParam("usage_key"))
 	if usageKey != "" {
+		if strings.EqualFold(usageKey, catalogapp.BusinessGroupUsagePriceList) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "price_list follows product_catalog feature selection"})
+		}
 		filtered := make([]catalogapp.BusinessGroup, 0, len(rows))
 		for _, row := range rows {
 			if !row.Active {
@@ -1148,6 +1151,51 @@ func (h productHandler) ensureBusinessGroupUsageAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) businessGroupFeatureSelectionAPI(c echo.Context) error {
+	selection, err := h.catalog.GetBusinessGroupFeatureSelection(c.Request().Context(), c.Param("feature_key"))
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, selection)
+}
+
+func (h productHandler) saveBusinessGroupFeatureSelectionAPI(c echo.Context) error {
+	var req struct {
+		FeatureKey       string          `json:"feature_key"`
+		GroupTemplateIDs json.RawMessage `json:"group_template_ids"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	featureKey := strings.ToLower(strings.TrimSpace(c.Param("feature_key")))
+	if req.FeatureKey != "" && !strings.EqualFold(strings.TrimSpace(req.FeatureKey), featureKey) {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "feature_key mismatch"})
+	}
+	rawIDs := strings.TrimSpace(string(req.GroupTemplateIDs))
+	if rawIDs == "" || rawIDs == "null" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "group_template_ids required"})
+	}
+	var groupTemplateIDs []int64
+	if err := json.Unmarshal(req.GroupTemplateIDs, &groupTemplateIDs); err != nil || groupTemplateIDs == nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid group_template_ids"})
+	}
+	selection, err := h.catalog.SaveBusinessGroupFeatureSelection(c.Request().Context(), catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor:            support.ActorOf(c),
+		FeatureKey:       featureKey,
+		GroupTemplateIDs: groupTemplateIDs,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, selection)
 }
 
 func (h productHandler) businessGroupAssignmentsAPI(c echo.Context) error {

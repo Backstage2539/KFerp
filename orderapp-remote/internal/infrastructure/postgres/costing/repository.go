@@ -2579,7 +2579,11 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 	whereClause := "WHERE publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"
 	args := []any{strings.TrimSpace(query.PublicationPurpose), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
 	orderClause := "ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, created_at DESC, id DESC"
-	if query.ProductTypeCategoryID > 0 {
+	if query.ClassificationTemplateID > 0 {
+		whereClause = "WHERE publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(classification_template_id,0)=$2 OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2) OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
+		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ClassificationTemplateID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
+		orderClause = "ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, CASE WHEN COALESCE(classification_template_id,0)=$2 THEN 0 WHEN COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2 THEN 1 ELSE 2 END, created_at DESC, id DESC"
+	} else if query.ProductTypeCategoryID > 0 {
 		whereClause = "WHERE publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(product_type_category_id,0)=$2 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
 		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
 		orderClause = "ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, created_at DESC, id DESC"
@@ -2630,7 +2634,11 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 	whereClause := "publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"
 	args := []any{strings.TrimSpace(query.PublicationPurpose), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
 	orderClause := "published_at DESC, id DESC"
-	if query.ProductTypeCategoryID > 0 {
+	if query.ClassificationTemplateID > 0 {
+		whereClause = "publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(classification_template_id,0)=$2 OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2) OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
+		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ClassificationTemplateID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
+		orderClause = "CASE WHEN COALESCE(classification_template_id,0)=$2 THEN 0 WHEN COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2 THEN 1 ELSE 2 END, published_at DESC, id DESC"
+	} else if query.ProductTypeCategoryID > 0 {
 		whereClause = "publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(product_type_category_id,0)=$2 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
 		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
 		orderClause = "CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, published_at DESC, id DESC"
@@ -2675,7 +2683,10 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 func (r Repository) LoadBeanListPublication(ctx context.Context, query appcosting.BeanListPublicationQuery, publicationID int64) (*appcosting.BeanListPublication, error) {
 	whereClause := "id=$1 AND publication_purpose=$2 AND list_type=$3 AND owner_type=$4 AND owner_key=$5"
 	args := []any{publicationID, strings.TrimSpace(query.PublicationPurpose), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
-	if query.ProductTypeCategoryID > 0 {
+	if query.ClassificationTemplateID > 0 {
+		whereClause = "id=$1 AND publication_purpose=$2 AND owner_type=$4 AND owner_key=$5 AND (COALESCE(classification_template_id,0)=$3 OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$3) OR (COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=0 AND list_type=$6))"
+		args = []any{publicationID, strings.TrimSpace(query.PublicationPurpose), query.ClassificationTemplateID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
+	} else if query.ProductTypeCategoryID > 0 {
 		whereClause = "id=$1 AND publication_purpose=$2 AND owner_type=$4 AND owner_key=$5 AND (COALESCE(product_type_category_id,0)=$3 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$6))"
 		args = []any{publicationID, strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
 	}
@@ -2861,15 +2872,17 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 		return nil, fmt.Errorf("publish failed")
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &published.ID, "publish", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{
-		"publication_purpose":      cmd.PublicationPurpose,
-		"list_type":                cmd.ListType,
-		"product_type_category_id": cmd.ProductTypeCategoryID,
-		"product_type_name":        cmd.ProductTypeName,
-		"version":                  cmd.Version,
-		"owner_type":               cmd.OwnerType,
-		"owner_key":                cmd.OwnerKey,
-		"price_source_publication": cmd.PriceSourcePublicationID,
-		"style_source_publication": cmd.StyleSourcePublicationID,
+		"publication_purpose":          cmd.PublicationPurpose,
+		"list_type":                    cmd.ListType,
+		"product_type_category_id":     cmd.ProductTypeCategoryID,
+		"product_type_name":            cmd.ProductTypeName,
+		"classification_template_id":   cmd.ClassificationTemplateID,
+		"classification_template_name": cmd.ClassificationTemplateName,
+		"version":                      cmd.Version,
+		"owner_type":                   cmd.OwnerType,
+		"owner_key":                    cmd.OwnerKey,
+		"price_source_publication":     cmd.PriceSourcePublicationID,
+		"style_source_publication":     cmd.StyleSourcePublicationID,
 	}); err != nil {
 		return nil, err
 	}
@@ -2953,15 +2966,17 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 		return nil, fmt.Errorf("save draft failed")
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &draft.ID, "save_draft", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("draft"), postgresinfra.AuditMeta{
-		"publication_purpose":      cmd.PublicationPurpose,
-		"list_type":                cmd.ListType,
-		"product_type_category_id": cmd.ProductTypeCategoryID,
-		"product_type_name":        cmd.ProductTypeName,
-		"version":                  cmd.Version,
-		"owner_type":               cmd.OwnerType,
-		"owner_key":                cmd.OwnerKey,
-		"price_source_publication": cmd.PriceSourcePublicationID,
-		"style_source_publication": cmd.StyleSourcePublicationID,
+		"publication_purpose":          cmd.PublicationPurpose,
+		"list_type":                    cmd.ListType,
+		"product_type_category_id":     cmd.ProductTypeCategoryID,
+		"product_type_name":            cmd.ProductTypeName,
+		"classification_template_id":   cmd.ClassificationTemplateID,
+		"classification_template_name": cmd.ClassificationTemplateName,
+		"version":                      cmd.Version,
+		"owner_type":                   cmd.OwnerType,
+		"owner_key":                    cmd.OwnerKey,
+		"price_source_publication":     cmd.PriceSourcePublicationID,
+		"style_source_publication":     cmd.StyleSourcePublicationID,
 	}); err != nil {
 		return nil, err
 	}
