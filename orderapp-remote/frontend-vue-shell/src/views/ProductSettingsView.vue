@@ -148,29 +148,6 @@
           </button>
         </div>
         <div v-show="!productsCollapsed">
-          <div class="product-group-feature-selection" data-feature-key="product_catalog">
-            <div class="product-group-feature-selection-copy">
-              <strong>商品档案使用的分组模板</strong>
-              <small>可多选。商品档案按所选模板展示分类，商品价格表同步使用这些商品类型。</small>
-            </div>
-            <div class="product-group-feature-selection-options">
-              <label v-for="template in selectableProductGroupTemplates" :key="template.id" class="checkline product-group-feature-selection-option">
-                <input
-                  v-model="productGroupFeatureSelectionDraft"
-                  type="checkbox"
-                  :value="Number(template.id || 0)"
-                  :disabled="productGroupFeatureSelectionSaving || loading" />
-                <span>{{ businessGroupDisplayName(template) }}</span>
-              </label>
-              <span v-if="!selectableProductGroupTemplates.length" class="muted">暂无可选分组模板，请先新增模板。</span>
-            </div>
-            <div class="product-group-feature-selection-actions">
-              <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductBusinessGroupManagement">维护分组模板</button>
-              <button class="primary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading || !productGroupFeatureSelectionHasChanges" @click="saveProductGroupFeatureSelection">
-                {{ productGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
-              </button>
-            </div>
-          </div>
           <BusinessGroupControls
             v-if="productCatalogBusinessGroups.length"
             v-model="selectedProductGroupTemplateID"
@@ -186,9 +163,14 @@
             :loading="loading"
             template-label="移动目标模板"
             @manage="openProductBusinessGroupManagement"
-            @move="saveSelectedProductBusinessGroupAssignment" />
+            @move="saveSelectedProductBusinessGroupAssignment">
+            <template #extra-actions>
+              <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
+            </template>
+          </BusinessGroupControls>
           <div v-else class="classification-view-toolbar product-business-group-empty">
             <span>商品档案尚未选择分组模板，当前按全部商品平铺展示。</span>
+            <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
             <button class="secondary compact-action" type="button" @click="openProductBusinessGroupManagement">维护分组模板</button>
           </div>
           <div class="table-wrap sku-table-wrap">
@@ -1766,6 +1748,43 @@
       </aside>
     </div>
 
+    <div v-if="productGroupTemplateDrawerOpen" class="settings-drawer-mask" @click.self="closeProductGroupTemplateDrawer" @keydown.esc.stop.prevent="closeProductGroupTemplateDrawer">
+      <aside class="settings-drawer product-group-template-drawer" aria-label="商品档案分组模板设置">
+        <div class="drawer-head">
+          <div>
+            <strong>分组模板设置</strong>
+            <p>选择商品档案引用的分组模板，已包含商品的模板不可取消。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeProductGroupTemplateDrawer">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <div v-if="deletedProductGroupTemplateWarnings.length" class="product-group-template-deleted-warnings">
+            <div v-for="warn in deletedProductGroupTemplateWarnings" :key="warn.id" class="warning-banner">
+              <strong>{{ warn.name }}</strong> 的分组或分类已删除，相关商品已自动移至未分类。
+            </div>
+          </div>
+          <div v-if="selectableProductGroupTemplates.length" class="product-group-template-list">
+            <label v-for="template in selectableProductGroupTemplates" :key="template.id" class="checkline product-group-template-option" :class="{ 'has-items': productGroupTemplateHasItems(Number(template.id || 0)) }">
+              <input
+                type="checkbox"
+                :checked="productGroupFeatureSelectionDraft.includes(Number(template.id || 0))"
+                :disabled="productGroupFeatureSelectionSaving || loading || productGroupTemplateHasItems(Number(template.id || 0))"
+                @change="toggleProductGroupTemplate(Number(template.id || 0))" />
+              <span>{{ businessGroupDisplayName(template) }}</span>
+              <small v-if="productGroupTemplateHasItems(Number(template.id || 0))" class="muted">已包含商品，不可取消</small>
+            </label>
+          </div>
+          <div v-else class="muted">暂无可选分组模板，请先新增模板。</div>
+          <div class="drawer-actions">
+            <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductBusinessGroupManagement">维护分组模板</button>
+            <button class="primary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading || !productGroupFeatureSelectionHasChanges" @click="saveAndCloseProductGroupTemplateDrawer">
+              {{ productGroupFeatureSelectionSaving ? '保存中' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
   </div>
 </template>
 
@@ -2031,6 +2050,7 @@ const selectedAliasClassificationCategoryID = ref(0)
 const selectedProductBusinessGroupItemID = ref(0)
 const selectedProductGroupTemplateID = ref(0)
 const productGroupFeatureSelectionSaving = ref(false)
+const productGroupTemplateDrawerOpen = ref(false)
 const collapsedProductClassificationGroups = ref([])
 const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
@@ -5629,6 +5649,55 @@ function productCatalogProductAssignmentsForGroup(groupID) {
   ))
 }
 
+function productGroupTemplateHasItems(templateID) {
+  const normalizedID = Number(templateID || 0)
+  if (!normalizedID) return false
+  return (businessGroupAssignments.value || []).some((row) => (
+    Number(row.group_id || 0) === normalizedID
+    && Number(row.group_item_id || 0) > 0
+    && String(row.usage_key || '') === 'product_catalog'
+    && String(row.object_key || '') === 'product'
+  ))
+}
+
+const deletedProductGroupTemplateWarnings = computed(() => {
+  const availableIDs = new Set(selectableProductGroupTemplates.value.map((t) => Number(t.id || 0)))
+  return productGroupFeatureSelectionIDs.value
+    .filter((id) => !availableIDs.has(Number(id)))
+    .map((id) => ({ id, name: `分组模板 #${Number(id)}` }))
+})
+
+function openProductGroupTemplateDrawer() {
+  productGroupFeatureSelectionDraft.value = [...productGroupFeatureSelectionIDs.value]
+  productGroupTemplateDrawerOpen.value = true
+}
+
+function closeProductGroupTemplateDrawer() {
+  productGroupTemplateDrawerOpen.value = false
+}
+
+function toggleProductGroupTemplate(templateID) {
+  const id = Number(templateID || 0)
+  if (!id) return
+  if (productGroupTemplateHasItems(id)) return
+  const draft = [...productGroupFeatureSelectionDraft.value]
+  const idx = draft.indexOf(id)
+  if (idx >= 0) {
+    draft.splice(idx, 1)
+  } else {
+    draft.push(id)
+  }
+  productGroupFeatureSelectionDraft.value = draft
+}
+
+async function saveAndCloseProductGroupTemplateDrawer() {
+  await saveProductGroupFeatureSelection()
+  if (!error.value) {
+    productGroupTemplateDrawerOpen.value = false
+  }
+}
+
+
 function buildProductCatalogBusinessGroupTree() {
   const group = selectedProductCatalogBusinessGroup()
   const groupID = Number(group?.id || 0)
@@ -8121,4 +8190,13 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   100% { background-color: transparent; }
 }
 }
+
+.product-group-template-drawer { width: min(520px, 92vw); }
+.product-group-template-list { display: grid; gap: 8px; }
+.product-group-template-option { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #eee8df; border-radius: 6px; }
+.product-group-template-option.has-items { background: #faf8f3; }
+.product-group-template-option small { margin-left: auto; }
+.product-group-template-deleted-warnings { display: grid; gap: 8px; margin-bottom: 4px; }
+.warning-banner { padding: 8px 12px; border-radius: 6px; background: #fff4e6; border: 1px solid #ffcc80; color: #8a5a00; font-size: 13px; }
+.drawer-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid #eee8df; }
 </style>

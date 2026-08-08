@@ -23,9 +23,10 @@
           </option>
         </select>
       </label>
-      <span class="muted left">已选 {{ selectedCount }} 个可移动对象</span>
-    </template>
-  </div>
+     <span class="muted left">已选 {{ selectedCount }} 个可移动对象</span>
+   </template>
+    <slot name="extra-actions" />
+ </div>
 </template>
 
 <script setup>
