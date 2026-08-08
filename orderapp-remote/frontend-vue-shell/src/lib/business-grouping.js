@@ -44,6 +44,40 @@ export function businessGroupRowsForUsage(groups = [], usageKey = '') {
     .sort((a, b) => toNumber(a.sort_order ?? a.sortOrder) - toNumber(b.sort_order ?? b.sortOrder) || toNumber(a.id) - toNumber(b.id))
 }
 
+function uniquePositiveIDs(values = []) {
+  const out = []
+  const seen = new Set()
+  for (const value of Array.isArray(values) ? values : []) {
+    const id = toNumber(value)
+    if (!(id > 0) || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+export function businessGroupFeatureSelectionIDs(selection = {}) {
+  return uniquePositiveIDs(selection?.group_template_ids)
+}
+
+export function businessGroupFeatureSelectionPayload(featureKey = '', groupTemplateIDs = []) {
+  return {
+    feature_key: normalizedText(featureKey),
+    group_template_ids: uniquePositiveIDs(groupTemplateIDs),
+  }
+}
+
+export function businessGroupRowsForFeatureSelection(groups = [], groupTemplateIDs = []) {
+  const groupsByID = new Map((Array.isArray(groups) ? groups : [])
+    .filter((group) => group?.active !== false)
+    .filter((group) => !isSystemDefaultBusinessGroup(group))
+    .filter((group) => toNumber(group?.id) > 0)
+    .map((group) => [toNumber(group.id), group]))
+  return uniquePositiveIDs(groupTemplateIDs)
+    .map((id) => groupsByID.get(id))
+    .filter(Boolean)
+}
+
 export function businessGroupControlOptions(groups = [], {
   selectedTemplateID = 0,
   usageKey = '',

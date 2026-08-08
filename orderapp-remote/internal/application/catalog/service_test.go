@@ -38,6 +38,8 @@ type fakeRepo struct {
 	configTemplate         SaveProductConfigTemplateCommand
 	productionConfig       SaveProductProductionConfigCommand
 	businessGroup          BusinessGroup
+	featureSelection       BusinessGroupFeatureSelection
+	savedFeatureSelection  SaveBusinessGroupFeatureSelectionCommand
 	deleteConfig           DeleteProductConfigTemplateCommand
 	priceGroup             SaveProductPriceGroupCommand
 	deleteGroup            DeleteBusinessGroupCommand
@@ -368,7 +370,7 @@ func (r *fakeRepo) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bu
 	return cmd, nil
 }
 
-func TestPR584SaveBusinessGroupKeepsLegacyUsageWritesAndRequiresReplaceFlagToClear(t *testing.T) {
+func TestPR584SaveBusinessGroupIgnoresLegacyTemplateOwnedUsageWrites(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
 
@@ -384,11 +386,8 @@ func TestPR584SaveBusinessGroupKeepsLegacyUsageWritesAndRequiresReplaceFlagToCle
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := repo.businessGroup.Usages, []BusinessGroupUsage{
-		{UsageKey: BusinessGroupUsageProductCatalog, UsageLabel: "商品档案", Active: true},
-		{UsageKey: BusinessGroupUsageMaterialCatalog, UsageLabel: "物料档案", Active: true},
-	}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("saved usages=%+v, want %+v", got, want)
+	if repo.businessGroup.Usages != nil || repo.businessGroup.ReplaceUsages {
+		t.Fatalf("cached template-owned usage payload must be ignored, got %+v", repo.businessGroup)
 	}
 
 	_, err = service.SaveBusinessGroup(context.Background(), BusinessGroup{ID: 61, Name: "商品分类模板", Usages: []BusinessGroupUsage{}})
@@ -403,26 +402,60 @@ func TestPR584SaveBusinessGroupKeepsLegacyUsageWritesAndRequiresReplaceFlagToCle
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repo.businessGroup.Usages == nil || len(repo.businessGroup.Usages) != 0 {
-		t.Fatalf("replace usages=%#v, want explicit non-nil empty slice", repo.businessGroup.Usages)
+	if repo.businessGroup.Usages != nil || repo.businessGroup.ReplaceUsages {
+		t.Fatalf("cached explicit clear must not overwrite feature selection, got %+v", repo.businessGroup)
 	}
 }
 
-func TestPR584BusinessGroupUsageAllowlistAndAssignmentNormalization(t *testing.T) {
+func TestPR584BusinessGroupFeatureSelectionIsOrderedFeatureOwnedAndRejectsPriceList(t *testing.T) {
 	repo := &fakeRepo{}
 	service := NewService(repo)
-	allUsageKeys := []string{
-		BusinessGroupUsageProductCatalog,
-		BusinessGroupUsageMaterialCatalog,
-		BusinessGroupUsageProductionBOM,
-		BusinessGroupUsageWarehouseInventory,
-		BusinessGroupUsagePriceList,
+	repo.featureSelection = BusinessGroupFeatureSelection{
+		FeatureKey:       BusinessGroupUsageProductCatalog,
+		GroupTemplateIDs: []int64{72, 71},
 	}
-	for _, usageKey := range allUsageKeys {
-		if err := service.EnsureBusinessGroupUsage(context.Background(), 61, " "+strings.ToUpper(usageKey)+" ", "tester"); err != nil {
-			t.Fatalf("supported usage %s rejected: %v", usageKey, err)
-		}
+	selection, err := service.GetBusinessGroupFeatureSelection(context.Background(), " PRODUCT_CATALOG ")
+	if err != nil {
+		t.Fatal(err)
 	}
+	if !reflect.DeepEqual(selection.GroupTemplateIDs, []int64{72, 71}) {
+		t.Fatalf("ordered feature selection=%v", selection.GroupTemplateIDs)
+	}
+
+	selection, err = service.SaveBusinessGroupFeatureSelection(context.Background(), SaveBusinessGroupFeatureSelectionCommand{
+		Actor:            " tester ",
+		FeatureKey:       " PRODUCT_CATALOG ",
+		GroupTemplateIDs: []int64{72, 71, 72},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := repo.savedFeatureSelection, (SaveBusinessGroupFeatureSelectionCommand{
+		Actor:            "tester",
+		FeatureKey:       BusinessGroupUsageProductCatalog,
+		GroupTemplateIDs: []int64{72, 71},
+	}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved feature selection=%+v, want %+v", got, want)
+	}
+	if !reflect.DeepEqual(selection.GroupTemplateIDs, []int64{72, 71}) {
+		t.Fatalf("saved ordered feature selection=%v", selection.GroupTemplateIDs)
+	}
+
+	_, err = service.SaveBusinessGroupFeatureSelection(context.Background(), SaveBusinessGroupFeatureSelectionCommand{
+		FeatureKey:       BusinessGroupUsagePriceList,
+		GroupTemplateIDs: []int64{72},
+	})
+	if err == nil || !IsValidationError(err) {
+		t.Fatalf("price_list must not be an independent feature selection: %v", err)
+	}
+	if err := service.EnsureBusinessGroupUsage(context.Background(), 61, BusinessGroupUsageProductCatalog, "tester"); err == nil || !IsValidationError(err) {
+		t.Fatalf("legacy template-owned usage mutation must be rejected: %v", err)
+	}
+}
+
+func TestPR584BusinessGroupAssignmentNormalization(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
 
 	_, err := service.SaveBusinessGroupAssignment(context.Background(), BusinessGroupAssignment{
 		GroupID:     61,
@@ -468,6 +501,16 @@ func (r *fakeRepo) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGr
 
 func (r *fakeRepo) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
 	return nil
+}
+
+func (r *fakeRepo) GetBusinessGroupFeatureSelection(ctx context.Context, featureKey string) (BusinessGroupFeatureSelection, error) {
+	return r.featureSelection, nil
+}
+
+func (r *fakeRepo) SaveBusinessGroupFeatureSelection(ctx context.Context, cmd SaveBusinessGroupFeatureSelectionCommand) (BusinessGroupFeatureSelection, error) {
+	r.savedFeatureSelection = cmd
+	r.featureSelection = BusinessGroupFeatureSelection{FeatureKey: cmd.FeatureKey, GroupTemplateIDs: append([]int64(nil), cmd.GroupTemplateIDs...)}
+	return r.featureSelection, nil
 }
 
 func (r *fakeRepo) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {

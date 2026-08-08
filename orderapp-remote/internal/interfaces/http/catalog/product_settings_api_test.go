@@ -33,6 +33,8 @@ type productSettingsRepo struct {
 	productPriceGroups                  []catalogapp.ProductPriceGroup
 	businessGroups                      []catalogapp.BusinessGroup
 	savedBusinessGroup                  catalogapp.BusinessGroup
+	featureSelection                    catalogapp.BusinessGroupFeatureSelection
+	savedFeatureSelection               catalogapp.SaveBusinessGroupFeatureSelectionCommand
 	deletedBusinessGroup                catalogapp.DeleteBusinessGroupCommand
 	savedBusinessGroupItem              catalogapp.BusinessGroupItem
 	deletedBusinessGroupItem            catalogapp.DeleteBusinessGroupItemCommand
@@ -379,7 +381,7 @@ func (r *productSettingsRepo) SaveBusinessGroup(ctx context.Context, cmd catalog
 	return cmd, nil
 }
 
-func TestPR584BusinessGroupAPIKeepsLegacyEmptyUsagesAndAllowsExplicitClear(t *testing.T) {
+func TestPR584BusinessGroupAPIIgnoresCachedTemplateOwnedUsageWrites(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -402,8 +404,8 @@ func TestPR584BusinessGroupAPIKeepsLegacyEmptyUsagesAndAllowsExplicitClear(t *te
 	if clearRec.Code != http.StatusOK {
 		t.Fatalf("explicit clear usages status=%d body=%s", clearRec.Code, clearRec.Body.String())
 	}
-	if !repo.savedBusinessGroup.ReplaceUsages || repo.savedBusinessGroup.Usages == nil || len(repo.savedBusinessGroup.Usages) != 0 {
-		t.Fatalf("explicit clear group=%+v, want replace flag and non-nil empty usages", repo.savedBusinessGroup)
+	if repo.savedBusinessGroup.ReplaceUsages || repo.savedBusinessGroup.Usages != nil {
+		t.Fatalf("cached template-owned clear must not overwrite feature selection: %+v", repo.savedBusinessGroup)
 	}
 }
 
@@ -438,6 +440,71 @@ func (r *productSettingsRepo) EnsureBusinessGroupUsage(ctx context.Context, grou
 	r.ensuredBusinessGroupUsageKey = usageKey
 	r.ensuredBusinessGroupActor = actor
 	return nil
+}
+
+func (r *productSettingsRepo) GetBusinessGroupFeatureSelection(ctx context.Context, featureKey string) (catalogapp.BusinessGroupFeatureSelection, error) {
+	return r.featureSelection, nil
+}
+
+func (r *productSettingsRepo) SaveBusinessGroupFeatureSelection(ctx context.Context, cmd catalogapp.SaveBusinessGroupFeatureSelectionCommand) (catalogapp.BusinessGroupFeatureSelection, error) {
+	r.savedFeatureSelection = cmd
+	r.featureSelection = catalogapp.BusinessGroupFeatureSelection{FeatureKey: cmd.FeatureKey, GroupTemplateIDs: append([]int64(nil), cmd.GroupTemplateIDs...)}
+	return r.featureSelection, nil
+}
+
+func TestPR584BusinessGroupFeatureSelectionAPIUsesFeatureOwnedOrderedTemplates(t *testing.T) {
+	repo := &productSettingsRepo{featureSelection: catalogapp.BusinessGroupFeatureSelection{
+		FeatureKey:       catalogapp.BusinessGroupUsageProductCatalog,
+		GroupTemplateIDs: []int64{72, 71},
+	}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/business-group-feature-selections/product_catalog", nil)
+	getRec := httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK || !bytes.Contains(getRec.Body.Bytes(), []byte(`"group_template_ids":[72,71]`)) {
+		t.Fatalf("feature selection GET status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+
+	putReq := httptest.NewRequest(http.MethodPut, "/api/business-group-feature-selections/product_catalog", strings.NewReader(`{"group_template_ids":[71,72,71]}`))
+	putReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	putReq.Header.Set("X-Actor", "feature-owner")
+	putRec := httptest.NewRecorder()
+	e.ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("feature selection PUT status=%d body=%s", putRec.Code, putRec.Body.String())
+	}
+	if got, want := repo.savedFeatureSelection.GroupTemplateIDs, []int64{71, 72}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved ordered template ids=%v, want %v", got, want)
+	}
+	if repo.savedFeatureSelection.FeatureKey != catalogapp.BusinessGroupUsageProductCatalog {
+		t.Fatalf("saved feature key=%q", repo.savedFeatureSelection.FeatureKey)
+	}
+
+	clearReq := httptest.NewRequest(http.MethodPut, "/api/business-group-feature-selections/product_catalog", strings.NewReader(`{"group_template_ids":[]}`))
+	clearReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	clearRec := httptest.NewRecorder()
+	e.ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != http.StatusOK || repo.savedFeatureSelection.GroupTemplateIDs == nil || len(repo.savedFeatureSelection.GroupTemplateIDs) != 0 {
+		t.Fatalf("explicit clear status=%d saved=%#v body=%s", clearRec.Code, repo.savedFeatureSelection.GroupTemplateIDs, clearRec.Body.String())
+	}
+
+	for name, tc := range map[string][2]string{
+		"missing ids": {"/api/business-group-feature-selections/product_catalog", `{}`},
+		"null ids":    {"/api/business-group-feature-selections/product_catalog", `{"group_template_ids":null}`},
+		"price list":  {"/api/business-group-feature-selections/price_list", `{"group_template_ids":[71]}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPut, tc[0], strings.NewReader(tc[1]))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
 }
 
 func (r *productSettingsRepo) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
@@ -570,7 +637,7 @@ func TestBusinessGroupsAPIDeletesTemplate(t *testing.T) {
 	}
 }
 
-func TestBusinessGroupUsageAPIEnablesGenericGroupForProductionBOM(t *testing.T) {
+func TestPR584LegacyBusinessGroupUsageAPIRejectsTemplateOwnedMutation(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -579,11 +646,11 @@ func TestBusinessGroupUsageAPIEnablesGenericGroupForProductionBOM(t *testing.T) 
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("business group usage status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("legacy business group usage status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.ensuredBusinessGroupID != 72 || repo.ensuredBusinessGroupUsageKey != catalogapp.BusinessGroupUsageProductionBOM {
-		t.Fatalf("unexpected ensured business group usage id=%d key=%q", repo.ensuredBusinessGroupID, repo.ensuredBusinessGroupUsageKey)
+	if repo.ensuredBusinessGroupID != 0 {
+		t.Fatalf("legacy endpoint must not mutate feature selection: id=%d key=%q", repo.ensuredBusinessGroupID, repo.ensuredBusinessGroupUsageKey)
 	}
 }
 

@@ -2,6 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  businessGroupFeatureSelectionIDs,
+  businessGroupFeatureSelectionPayload,
+  businessGroupRowsForFeatureSelection,
   businessGroupRowsForUsage,
   businessGroupControlOptions,
   businessGroupMoveAssignmentPayload,
@@ -169,7 +172,7 @@ test('preferred business group template keeps warehouse inventory on stock group
   }), 128)
 })
 
-test('product catalog business group rows require explicit active references and allow multiple templates', () => {
+test('legacy usage-filtered business group lookup still requires explicit active usages', () => {
   const rows = businessGroupRowsForUsage([
     { id: 6, name: '商品默认分组', code: 'default_product_catalog', active: true, sort_order: 10, usages: [{ usage_key: 'product_catalog', active: true }] },
     { id: 221, name: 'BOM分组', active: true, sort_order: 5, usages: [{ usage_key: 'production_bom', active: true }] },
@@ -183,6 +186,26 @@ test('product catalog business group rows require explicit active references and
     { id: 128, name: '商品分组' },
     { id: 129, name: '商品挂耳模板' },
   ])
+})
+
+test('feature-owned business group selection resolves templates in the selected order without template usages', () => {
+  const rows = businessGroupRowsForFeatureSelection([
+    { id: 6, name: '商品默认分组', code: 'default_product_catalog', active: true, sort_order: 1 },
+    { id: 221, name: '咖啡豆分组', active: true, sort_order: 20, usages: [] },
+    { id: 222, name: '挂耳分组', active: true, sort_order: 10, usages: [{ usage_key: 'production_bom', active: true }] },
+    { id: 223, name: '停用分组', active: false, sort_order: 5 },
+  ], [222, 221, 222, 223, 999])
+
+  assert.deepEqual(rows.map((row) => row.id), [222, 221])
+})
+
+test('feature-owned business group selection normalizes GET and PUT contracts', () => {
+  assert.deepEqual(businessGroupFeatureSelectionIDs({ group_template_ids: [9, '10', 9, 0, -1] }), [9, 10])
+  assert.deepEqual(businessGroupFeatureSelectionIDs({ feature_key: 'product_catalog' }), [])
+  assert.deepEqual(businessGroupFeatureSelectionPayload(' product_catalog ', [10, '9', 10, 0]), {
+    feature_key: 'product_catalog',
+    group_template_ids: [10, 9],
+  })
 })
 
 test('business group move payload supports product BOM and warehouse object identities', () => {

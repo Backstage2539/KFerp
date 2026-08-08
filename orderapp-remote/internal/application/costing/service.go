@@ -4624,9 +4624,6 @@ func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanList
 	if query.ClassificationTemplateID < 0 {
 		return BeanListPublicationQuery{}, fmt.Errorf("classification_template_id must be >= 0")
 	}
-	if query.ProductTypeCategoryID == 0 && query.ClassificationTemplateID > 0 {
-		query.ProductTypeCategoryID = query.ClassificationTemplateID
-	}
 	purpose, err := NormalizeBeanListPublicationPurpose(query.PublicationPurpose)
 	if err != nil {
 		return BeanListPublicationQuery{}, err

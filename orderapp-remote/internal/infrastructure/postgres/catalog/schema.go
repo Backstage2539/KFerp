@@ -177,11 +177,13 @@ CREATE TABLE IF NOT EXISTS %[1]s.business_group_usages (
 	usage_key TEXT NOT NULL,
 	usage_label TEXT NOT NULL DEFAULT '',
 	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.business_group_usages ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 100;
 CREATE UNIQUE INDEX IF NOT EXISTS business_group_usages_group_key_uq
 ON %[1]s.business_group_usages(group_id, lower(usage_key))
 WHERE active=true;

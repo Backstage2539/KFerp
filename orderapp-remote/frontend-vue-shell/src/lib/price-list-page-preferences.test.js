@@ -28,6 +28,21 @@ test('price-list page preferences persist the selected owner and product type', 
   assert.ok(storage.getItem(PRICE_LIST_PAGE_PREFERENCES_KEY))
 })
 
+test('price-list page preferences restore the second product-catalog template after reload', () => {
+  const storage = memoryStorage()
+  const options = [
+    { id: -2000128, label: '商品咖啡豆模板' },
+    { id: -2000129, label: '商品挂耳模板' },
+  ]
+
+  writePriceListPagePreferences({ scope: 'official', productTypeCategoryID: options[1].id }, storage)
+  const reloaded = readPriceListPagePreferences(storage)
+
+  assert.equal(reloaded.productTypeCategoryID, options[1].id)
+  assert.equal(resolveProductTypePreference(reloaded.productTypeCategoryID, options), options[1].id)
+  assert.equal(resolveProductTypePreference(-2000130, options), options[0].id)
+})
+
 test('price-list page preferences ignore malformed browser values', () => {
   const storage = memoryStorage({
     [PRICE_LIST_PAGE_PREFERENCES_KEY]: JSON.stringify({ scope: 'customer:bad', productTypeCategoryID: -4 }),

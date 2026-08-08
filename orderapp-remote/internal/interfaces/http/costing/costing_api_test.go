@@ -1568,6 +1568,37 @@ func TestPublicBeanListPagePassesProductTypeCategory(t *testing.T) {
 	}
 }
 
+func TestPublicBeanListPagePassesClassificationTemplate(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/public/bean-list/commercial?product_type_category_id=8000000000000128&classification_template_id=8000000000000128", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.ProductTypeCategoryID != 8000000000000128 || svc.lastQuery.ClassificationTemplateID != 8000000000000128 {
+		t.Fatalf("public publication query = %+v, want isolated template identity", svc.lastQuery)
+	}
+}
+
+func TestBeanListPublicationPDFDownloadURLKeepsClassificationTemplate(t *testing.T) {
+	got := beanListPublicationPDFDownloadURL(appcosting.BeanListPublicationPDFCommand{
+		PublicationID: 7,
+		Query: appcosting.BeanListPublicationQuery{
+			ListType:                 "commercial",
+			Scope:                    "official",
+			ProductTypeCategoryID:    8000000000000128,
+			ClassificationTemplateID: 8000000000000128,
+		},
+	})
+	if !strings.Contains(got, "product_type_category_id=8000000000000128") || !strings.Contains(got, "classification_template_id=8000000000000128") {
+		t.Fatalf("download URL = %q, want both stable publication identities", got)
+	}
+}
+
 func TestPublicGreenBeanListPageRendersQualitySnapshot(t *testing.T) {
 	page, err := renderPublicBeanListPage(appcosting.BeanListPublication{
 		ID:        12,

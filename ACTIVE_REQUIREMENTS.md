@@ -29,25 +29,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: `scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入；按脚本返回的 PR-585 手工登记。实际生产损耗报表可继续记录真实投入/产出，但不得作为 BOM 计划或标准成本的第二层配置参数。
 
 ### PR-584-PRODUCT-MULTI-GROUP-TEMPLATES
-- Branch: codex/product-multi-group-templates-20260807
+- Branch: codex/pr584-feature-owned-group-selection-20260807
 - Owner/session: Codex / 2026-08-07
-- Status: implementation, verification, develop integration and development deployment complete; PR in review; Van acceptance todo
-- Scope: 商品档案的行业字段/功能分组引用支持同时引用多个分组模板；只有已引用模板才展示其分类与收纳能力；修复父级大类收起时子类仍保持展开的问题。
+- Status: corrected implementation and targeted GREEN complete; previous development delivery used the reversed ownership model and is being superseded; minimal development redeploy pending; PR in review; Van acceptance todo
+- Scope: 分组模板只维护模板与分类树，由商品档案多选自己使用的分组模板；商品档案按所选模板分类和收纳，商品价格表直接继承同一组模板作为商品类型；修复父级大类收起时子类仍保持展开的问题。
 - DEV:
   - DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE：商品配置多模板引用、旧标量兼容、字段并集清理和原子审计。
-  - DEV-584-GROUP-USAGE-MULTI-REFERENCE：分组模板维护多功能引用，同一功能可引用多模板，未明确引用模板不进入业务页面。
-  - DEV-584-PRODUCT-GROUP-UNION-COLLAPSE：商品档案合并展示全部已引用模板、单一未分类、无引用平铺和父级折叠隐藏全部后代。
+  - DEV-584-GROUP-USAGE-MULTI-REFERENCE：各功能页面维护自己选用的分组模板；分组模板页不再选择功能，功能选择原子保存并写操作日志。
+  - DEV-584-PRODUCT-GROUP-UNION-COLLAPSE：商品档案多选并合并展示全部已选模板、单一未分类、无选择平铺和父级折叠隐藏全部后代。
+  - DEV-584-PRICE-LIST-INHERIT-PRODUCT-GROUPS：商品价格表不维护独立分组引用，按商品档案所选模板生成一一对应的商品类型并忽略历史 `price_list` 引用。
   - DEV-584-DOCS-ACCEPTANCE-DEPLOY：同步手册与验收证据，验证后合入 develop 并部署 development。
 - Verifier:
-  - RED: 应用层首次 PR-584 定向测试因缺少 `IndustryFieldTemplateIDs` 编译失败；Vue 定向测试分别暴露未引用模板被纳入、多模板投影缺失、父折叠不隐藏后代和缺少“功能引用”。
-  - Unit/API: catalog 应用、HTTP、PostgreSQL 仓储、manufacturing、sales、production、stock 和 support 八个目标包 GREEN；`go test ./... -count=1` 及 `scripts/verify_kferp.sh backend` GREEN。
-  - PostgreSQL: 一次性本地 PostgreSQL 16.13 隔离库实际执行多模板并集/并发锁、模板编辑清理和销售快照用例，全部 GREEN 并已停止隔离库。
-  - Frontend/build: 同步最新 `origin/develop` 后，`scripts/verify_kferp.sh frontend-tests` 887/887 GREEN；`frontend-build` GREEN，仅有既有 chunk-size warning。
-  - Manual: 已更新商品/物料、设置审计和成本价格表三份单一来源手册。
-  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-product-multi-group-templates.md`；独立复审最终无未解决 P0/P1/P2，Van development 业务验收待办。
-- Deployment: feature `eb553559` merged to `develop` as `bb6a3504` and deployed to development with `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260807231446-bb6a35041965`; rollback image `kferp-orderapp-rollback:development-20260807231446-bb6a35041965`. `erp_orderapp` is running and PostgreSQL is healthy; external login returned 200, authenticated requirement API returned 200 with PR-584, the new industry-template relation exists, release source markers are present, and startup error count is 0. Browser smoke reached the system login page with 0 console errors; authenticated feature interaction and Van business acceptance remain pending. `main`, production, the local miniapp export, WeChat upload/review/release were not touched.
+  - RED correction contract: `go test ./internal/interfaces/http/support -run TestDev584ProductMultiGroupTemplatesDeliveryContracts -count=1` failed because `DEV-584-PRICE-LIST-INHERIT-PRODUCT-GROUPS` and corrected feature-owned documentation were absent.
+  - Unit/API: catalog application/repository/HTTP、costing 定向包、PostgreSQL 16.13 隔离库与场景脚本 GREEN。
+  - Frontend/build: corrected full frontend run 900/900；终审新增的同价目类型模板刷新回归定向 51/51 GREEN；合并前保留最小构建门禁。
+  - Manual: product archive、material/BOM/warehouse feature selection、group-template settings and inherited price-list types synchronized.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-product-multi-group-templates.md`; review P1/P2 findings closed. Van requested no browser/development business verification and will manually accept after deployment.
+- Deployment: previous implementation `eb553559` was merged as `bb6a3504` and deployed to development, but its template-owned “功能引用” model does not satisfy the corrected acceptance contract. Corrective branch merge and development redeploy are pending. `main`, production, the local miniapp export, WeChat upload/review/release remain untouched.
 - Last update: 2026-08-07 Asia/Shanghai
-- Notes: 原脏工作区不动；从 `origin/develop@35cbe1a8` 的独立工作区实施，合并前同步到 `origin/develop@0fbce5a2` 并复验。旧页面的 `usages: []` 保持 no-op，新页面用 `replace_usages` 明确清空；旧单行业模板标量继续兼容。`scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入，按脚本返回的 PR-584 手工登记。
+- Notes: 原脏工作区不动；本次修正从 `origin/develop@f62f686f` 的独立工作区实施。权威关系改为功能侧有序选择：商品、物料、生产 BOM、仓库库存分别通过 `/api/business-group-feature-selections/{feature_key}` 读写；模板保存不得反向覆盖选择；商品价格表不得拥有独立 `price_list` 选择。旧单行业模板标量继续兼容。按 Van 2026-08-08 指示，只做 development 最轻量部署，不做浏览器或业务验证。
 
 ### PR-583-RECIPIENT-COMPACT-ADDRESS-DIRECT-SHIP-PICKER
 - Branch: codex/pr583-recipient-directship-20260807

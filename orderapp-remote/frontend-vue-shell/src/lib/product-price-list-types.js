@@ -1,6 +1,8 @@
 import { normalizePageSize } from './pagination.js'
 
 export const UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID = -1
+// Reserve a collision-free publication namespace while staying below Number.MAX_SAFE_INTEGER with ample room for group IDs.
+export const PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE = 8_000_000_000_000_000
 export const PUBLICATION_VERSION_PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100]
 
 export function buildClassificationPriceListTypeOptions(sourceItems = []) {
@@ -98,16 +100,75 @@ export function buildProductCatalogPriceListTypeOptions(sourceItems = [], {
     })
 }
 
+export function buildProductCatalogTemplatePriceListTypeOptions(sourceItems = [], {
+  templates = [],
+  assignments = [],
+} = {}) {
+  const rows = Array.isArray(sourceItems) ? sourceItems : []
+  const activeTemplates = (Array.isArray(templates) ? templates : [])
+    .filter((template) => template?.active !== false)
+    .filter((template) => !isSystemDefaultBusinessGroup(template))
+    .filter((template) => numberField(template?.id) > 0)
+  if (!activeTemplates.length) {
+    return [{
+      id: 0,
+      categoryID: 0,
+      key: 'product-catalog:flat',
+      label: '全部商品',
+      listType: dominantPriceListRenderType(rows),
+      position: 0,
+      itemCount: uniqueProductCount(rows),
+      productCatalogFlat: true,
+      productCatalogScopeGroups: [],
+      publicationProductTypeCategoryID: 0,
+      publicationClassificationTemplateID: 0,
+    }]
+  }
+
+  const scopeGroups = activeTemplates.map((template) => ({
+    groupID: numberField(template.id),
+    groupItemIDs: businessGroupDescendantIDsForTemplate(template),
+  }))
+  return activeTemplates.map((template, index) => {
+    const templateID = numberField(template.id)
+    const publicationTypeID = productCatalogPublicationTypeID(templateID)
+    const matchedItems = rows.filter((item) => {
+      const assignment = productCatalogAssignmentForItemInScope(item, assignments, scopeGroups)
+      return numberField(assignment?.group_id ?? assignment?.groupID) === templateID
+    })
+    return {
+      id: productCatalogTemplatePriceListTypeID(templateID),
+      categoryID: 0,
+      key: `product-catalog:${templateID}`,
+      label: stringField(template.name) || `分组模板 ${templateID}`,
+      listType: dominantPriceListRenderType(matchedItems),
+      position: numberField(template.sort_order ?? template.sortOrder) || (index + 1) * 10,
+      itemCount: uniqueProductCount(matchedItems),
+      productCatalogGroupID: templateID,
+      productCatalogGroupItemIDs: businessGroupDescendantIDsForTemplate(template),
+      productCatalogScopeGroups: scopeGroups,
+      publicationProductTypeCategoryID: publicationTypeID,
+      publicationClassificationTemplateID: publicationTypeID,
+    }
+  })
+}
+
 export function matchesProductCatalogPriceListType(item = {}, type = {}, {
   assignments = [],
 } = {}) {
+  if (type?.productCatalogFlat === true || type?.product_catalog_flat === true) return true
+  const scopeGroups = normalizeProductCatalogScopeGroups(type)
+  const scopedAssignment = productCatalogAssignmentForItemInScope(item, assignments, scopeGroups)
   const groupID = numberField(type?.productCatalogGroupID ?? type?.product_catalog_group_id)
   if (!(groupID > 0)) return false
   const groupItemIDs = new Set((type?.productCatalogGroupItemIDs || type?.product_catalog_group_item_ids || [])
     .map((id) => numberField(id))
     .filter(Boolean))
   if (!groupItemIDs.size) return false
-  const assignment = productCatalogAssignmentForItem(item, assignments, groupID)
+  const assignment = scopeGroups.length
+    ? scopedAssignment
+    : productCatalogAssignmentForItem(item, assignments, groupID)
+  if (numberField(assignment?.group_id ?? assignment?.groupID) !== groupID) return false
   const groupItemID = numberField(assignment?.group_item_id ?? assignment?.groupItemID)
   return groupItemIDs.has(groupItemID)
 }
@@ -220,12 +281,56 @@ export function classificationTemplateNameOfPublication(publication = {}) {
   return names.size === 1 ? Array.from(names)[0] : ''
 }
 
+export function publicationTypeIdentityForPriceListType(type = {}) {
+  const explicitProductTypeID = numberField(type?.publicationProductTypeCategoryID ?? type?.publication_product_type_category_id)
+  const explicitClassificationID = numberField(type?.publicationClassificationTemplateID ?? type?.publication_classification_template_id)
+  const productCatalogGroupID = numberField(type?.productCatalogGroupID ?? type?.product_catalog_group_id)
+  const productCatalogPublicationID = productCatalogPublicationTypeID(productCatalogGroupID)
+  const fallbackID = numberField(type?.categoryID ?? type?.id)
+  const legacyID = fallbackID > 0 ? fallbackID : 0
+  const productTypeCategoryID = explicitProductTypeID || productCatalogPublicationID || legacyID
+  return {
+    productTypeCategoryID,
+    classificationTemplateID: explicitClassificationID || productCatalogPublicationID || productTypeCategoryID,
+  }
+}
+
+export function publicationTypeIdentityOfPublication(publication = {}) {
+  const productTypeCategoryID = numberField(publication?.product_type_category_id ?? publication?.productTypeCategoryID)
+  const classificationTemplateID = classificationTemplateIDOfPublication(publication)
+  return {
+    productTypeCategoryID,
+    classificationTemplateID: classificationTemplateID || productTypeCategoryID,
+  }
+}
+
+export function priceListTypeOptionForPublication(typeOptions = [], publication = {}) {
+  const publicationIdentity = publicationTypeIdentityOfPublication(publication)
+  return (Array.isArray(typeOptions) ? typeOptions : []).find((type) => {
+    const typeIdentity = publicationTypeIdentityForPriceListType(type)
+    if (publicationIdentity.classificationTemplateID > 0 && typeIdentity.classificationTemplateID === publicationIdentity.classificationTemplateID) return true
+    return publicationIdentity.productTypeCategoryID > 0 && typeIdentity.productTypeCategoryID === publicationIdentity.productTypeCategoryID
+  }) || null
+}
+
+export function preferredPublicationForPriceListType(rows = [], type = {}) {
+  const publishedRows = (Array.isArray(rows) ? rows : []).filter((row) => String(row?.status || '') === 'published')
+  const exact = publishedRows.find((row) => priceListTypeOptionForPublication([type], row))
+  return exact || publishedRows[0] || null
+}
+
 export function matchesPublicationProductType(publication = {}, productTypeCategoryID = 0) {
-  const id = Number(productTypeCategoryID || 0)
+  const type = productTypeCategoryID && typeof productTypeCategoryID === 'object' ? productTypeCategoryID : null
+  const rawID = type ? numberField(type?.categoryID ?? type?.id) : Number(productTypeCategoryID || 0)
+  const identity = type
+    ? publicationTypeIdentityForPriceListType(type)
+    : { productTypeCategoryID: rawID > 0 ? rawID : 0, classificationTemplateID: rawID > 0 ? rawID : 0 }
   const classificationID = classificationTemplateIDOfPublication(publication)
-  if (id === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return classificationID <= 0
-  if (id <= 0) return true
-  if (classificationID === id) return true
+  const storedProductTypeID = numberField(publication?.product_type_category_id ?? publication?.productTypeCategoryID)
+  if (rawID === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return classificationID <= 0
+  if (identity.classificationTemplateID <= 0 && identity.productTypeCategoryID <= 0) return true
+  if (classificationID > 0 && classificationID === identity.classificationTemplateID) return true
+  if (classificationID <= 0 && storedProductTypeID > 0 && storedProductTypeID === identity.productTypeCategoryID) return true
   return isLegacyGlobalCommercialPublication(publication, classificationID)
 }
 
@@ -292,12 +397,75 @@ function productCatalogPriceListTypeID(groupItemID) {
   return -1000000 - numberField(groupItemID)
 }
 
+function productCatalogTemplatePriceListTypeID(groupID) {
+  return -2000000 - numberField(groupID)
+}
+
+function productCatalogPublicationTypeID(groupID) {
+  const normalizedGroupID = numberField(groupID)
+  if (!(normalizedGroupID > 0) || !Number.isSafeInteger(normalizedGroupID)) return 0
+  const id = PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + normalizedGroupID
+  return Number.isSafeInteger(id) ? id : 0
+}
+
+function uniqueProductCount(items = []) {
+  const ids = new Set()
+  let missingIDCount = 0
+  ;(Array.isArray(items) ? items : []).forEach((item) => {
+    const id = productCatalogObjectIDOfItem(item)
+    if (id > 0) ids.add(id)
+    else missingIDCount += 1
+  })
+  return ids.size + missingIDCount
+}
+
+function productCatalogObjectIDOfItem(item = {}) {
+  const effectiveParentID = numberField(item?.effective_parent_product_id ?? item?.effectiveParentProductID)
+  if (effectiveParentID > 0) return effectiveParentID
+  const parentID = numberField(item?.parent_product_id ?? item?.parentProductID)
+  if (parentID > 0) return parentID
+  return numberField(item?.product_id ?? item?.productID ?? item?.id)
+}
+
+function businessGroupDescendantIDsForTemplate(template = {}) {
+  return topLevelBusinessGroupItems(template?.items || [])
+    .flatMap((root) => businessGroupDescendantIDs(root))
+}
+
+function normalizeProductCatalogScopeGroups(type = {}) {
+  const source = Array.isArray(type?.productCatalogScopeGroups)
+    ? type.productCatalogScopeGroups
+    : (Array.isArray(type?.product_catalog_scope_groups) ? type.product_catalog_scope_groups : [])
+  return source.map((group) => ({
+    groupID: numberField(group?.groupID ?? group?.group_id),
+    groupItemIDs: (Array.isArray(group?.groupItemIDs) ? group.groupItemIDs : (Array.isArray(group?.group_item_ids) ? group.group_item_ids : []))
+      .map((id) => numberField(id))
+      .filter(Boolean),
+  })).filter((group) => group.groupID > 0)
+}
+
+function productCatalogAssignmentForItemInScope(item = {}, assignments = [], scopeGroups = []) {
+  for (const scope of Array.isArray(scopeGroups) ? scopeGroups : []) {
+    const groupID = numberField(scope?.groupID ?? scope?.group_id)
+    if (!(groupID > 0)) continue
+    const assignment = productCatalogAssignmentForItem(item, assignments, groupID)
+    if (!assignment) continue
+    const allowedItemIDs = new Set((scope?.groupItemIDs || scope?.group_item_ids || [])
+      .map((id) => numberField(id))
+      .filter(Boolean))
+    const groupItemID = numberField(assignment?.group_item_id ?? assignment?.groupItemID)
+    if (allowedItemIDs.has(groupItemID)) return assignment
+  }
+  return null
+}
+
 function productCatalogAssignmentForItem(item = {}, assignments = [], templateID = 0) {
-  const productID = numberField(item?.product_id ?? item?.productID ?? item?.id)
+  const productID = productCatalogObjectIDOfItem(item)
   if (!(productID > 0)) return null
   return (Array.isArray(assignments) ? assignments : []).find((assignment) => (
     stringField(assignment?.usage_key ?? assignment?.usageKey) === 'product_catalog' &&
     stringField(assignment?.object_key ?? assignment?.objectKey) === 'product' &&
+    assignment?.active !== false &&
     numberField(assignment?.group_id ?? assignment?.groupID) === numberField(templateID) &&
     numberField(assignment?.object_id ?? assignment?.objectID) === productID
   )) || null
@@ -352,6 +520,12 @@ function businessGroupItemsTreeForPriceList(items = []) {
     return rows
   }
   return sortRows(roots)
+}
+
+function isSystemDefaultBusinessGroup(group = {}) {
+  const code = stringField(group?.code).toLowerCase()
+  if (code.startsWith('default_')) return true
+  return ['商品默认分组', '生产 BOM 默认分组', '仓库库存默认分组'].includes(stringField(group?.name))
 }
 
 function numberField(value) {

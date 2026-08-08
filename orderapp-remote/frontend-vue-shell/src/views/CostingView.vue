@@ -1051,8 +1051,7 @@ import {
 } from '../lib/gradient-templates'
 import {
   UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID,
-  buildClassificationPriceListTypeOptions as buildClassificationPriceListTypeOptionsFromItems,
-  buildProductCatalogPriceListTypeOptions,
+  buildProductCatalogTemplatePriceListTypeOptions,
   classificationCategoryIDOfItem as currentClassificationCategoryIDOfItem,
   classificationCategoryNameOfItem as currentClassificationCategoryNameOfItem,
   classificationTemplateIDOfItem as currentClassificationTemplateIDOfItem,
@@ -1062,9 +1061,13 @@ import {
   matchesPublicationProductType as matchesCurrentPublicationProductType,
   matchesProductCatalogPriceListType,
   matchesProductTypeCategory as matchesCurrentProductTypeCategory,
+  preferredPublicationForPriceListType,
+  priceListTypeOptionForPublication,
   publicationVersionListState,
   priceListRenderTypeForItem as currentPriceListRenderTypeForItem,
   priceListSelectionStateKey,
+  publicationTypeIdentityForPriceListType,
+  publicationTypeIdentityOfPublication,
   productTypeCategoryIDOfItem as currentProductTypeCategoryIDOfItem,
   productTypeNameOfItem as currentProductTypeNameOfItem,
 } from '../lib/product-price-list-types'
@@ -1087,8 +1090,8 @@ import {
   priceListVisibleCategoryRows,
 } from '../lib/product-price-list-selection'
 import {
-  businessGroupControlOptions,
-  businessGroupRowsForUsage,
+  businessGroupFeatureSelectionIDs,
+  businessGroupRowsForFeatureSelection,
   groupRowsByBusinessGroupTemplate,
 } from '../lib/business-grouping'
 import {
@@ -1122,7 +1125,6 @@ import {
   priceListPricingRuleTrialCacheForRetry,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
-import { FORM_DRAFT_SCOPES, readFormDraft } from '../lib/form-draft-cache'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 import {
   PRICE_LIST_PAGE_PREFERENCES_KEY,
@@ -1138,7 +1140,6 @@ const props = defineProps({
   customerContextLabel: { type: String, default: '' },
 })
 
-const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
 const FACTORY_SUPPLY_PUBLICATION_PURPOSE = 'factory_supply'
 const initialPriceListPagePreferences = readPriceListPagePreferences()
 
@@ -1220,7 +1221,9 @@ const priceListFlatRowOverrides = ref({})
 const priceListPricingRuleTrialCache = ref({})
 const priceListProductBusinessGroups = ref([])
 const priceListProductBusinessGroupAssignments = ref([])
-const selectedProductCatalogGroupTemplateID = ref(0)
+const priceListProductCatalogFeatureSelection = ref({ feature_key: 'product_catalog', group_template_ids: [] })
+const priceListProductCatalogFeatureSelectionLoaded = ref(false)
+const priceListPublicationTypeOptionsReady = ref(false)
 const priceListConfigDialog = ref(defaultPriceListConfigDialog())
 const priceListPricingPopover = ref(defaultPriceListPricingPopover())
 const productPickerCollapsedCategories = ref({})
@@ -1259,12 +1262,16 @@ const customerScopedSkuCount = computed(() => {
   if (!customerID || activeCostingScope.value !== 'customer') return visibleCostingItems.value.length
   return activePriceListCustomerAliases.value.length
 })
+const selectedProductCatalogGroupTemplates = computed(() => businessGroupRowsForFeatureSelection(
+  priceListProductBusinessGroups.value,
+  businessGroupFeatureSelectionIDs(priceListProductCatalogFeatureSelection.value),
+))
 const productPriceListTypeOptions = computed(() => {
-  const productCatalogOptions = buildProductCatalogPriceListTypeOptions(visibleCostingItems.value, {
-    template: selectedProductCatalogGroupTemplate.value,
+  if (!priceListProductCatalogFeatureSelectionLoaded.value) return []
+  return buildProductCatalogTemplatePriceListTypeOptions(visibleCostingItems.value, {
+    templates: selectedProductCatalogGroupTemplates.value,
     assignments: priceListProductBusinessGroupAssignments.value,
   })
-  return productCatalogOptions.length ? productCatalogOptions : buildClassificationPriceListTypeOptions(visibleCostingItems.value)
 })
 const selectedProductPriceListType = computed(() => {
   const selectedID = Number(selectedProductTypeCategoryID.value || 0)
@@ -1273,18 +1280,14 @@ const selectedProductPriceListType = computed(() => {
 const activeProductTypeCategoryID = computed(() => Number(selectedProductPriceListType.value?.id || selectedProductTypeCategoryID.value || 0))
 const selectedProductPriceListLabel = computed(() => selectedProductPriceListType.value?.label || beanListTypeLabel(pdfTheme.value.listType))
 const activePriceListTypeKey = computed(() => productPriceListTypeKey(selectedProductPriceListType.value, pdfTheme.value.listType))
-const productCatalogBusinessGroupControls = computed(() => businessGroupControlOptions(productCatalogBusinessGroupRowsForPriceList(), {
-  selectedTemplateID: selectedProductCatalogGroupTemplateID.value,
-  usageKey: 'product_catalog',
-}))
-const selectedProductCatalogGroupTemplate = computed(() => (
-  productCatalogBusinessGroupControls.value.selectedTemplate ||
-  productCatalogBusinessGroupControls.value.templateOptions[0]?.group ||
-  null
-))
+const selectedProductCatalogGroupTemplate = computed(() => {
+  const groupID = Number(selectedProductPriceListType.value?.productCatalogGroupID || 0)
+  if (!(groupID > 0)) return null
+  return selectedProductCatalogGroupTemplates.value.find((template) => Number(template?.id || 0) === groupID) || null
+})
 const selectedProductCatalogGroupItemIDs = computed(() => new Set(
-  productCatalogBusinessGroupControls.value.moveOptions
-    .map((option) => Number(option.group_item_id || 0))
+  (selectedProductPriceListType.value?.productCatalogGroupItemIDs || [])
+    .map((id) => Number(id || 0))
     .filter(Boolean),
 ))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
@@ -1400,7 +1403,7 @@ const publicationListState = computed(() => publicationVersionListState(currentS
   collapsed: publicationListCollapsed.value,
 }))
 const paginatedCurrentScopePublicationRows = computed(() => publicationListState.value.rows)
-const versionListCurrentPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
+const versionListCurrentPublication = computed(() => preferredPublicationForPriceListType(currentScopePublicationRows.value, selectedProductPriceListType.value || {}))
 const archivedPublicationListState = computed(() => publicationVersionListState(currentScopeArchivedPublicationRows.value, {
   query: publicationListSearch.value,
   page: publicationArchiveListPage.value,
@@ -1412,7 +1415,7 @@ const archiveSelectableCurrentPagePublicationRows = computed(() => paginatedCurr
 const currentPagePublicationArchiveAllSelected = computed(() => archiveSelectableCurrentPagePublicationRows.value.length > 0 && archiveSelectableCurrentPagePublicationRows.value.every((row) => isPublicationArchiveSelected(row)))
 const currentPagePublicationArchiveSomeSelected = computed(() => archiveSelectableCurrentPagePublicationRows.value.some((row) => isPublicationArchiveSelected(row)))
 const publicationScopeRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, 'factory_supply'))
-const currentBeanListPublication = computed(() => publicationScopeRows.value.find((row) => row.status === 'published') || null)
+const currentBeanListPublication = computed(() => preferredPublicationForPriceListType(publicationScopeRows.value, selectedProductPriceListType.value || {}))
 const officialPriceSourcePublications = computed(() => publicationRows('official', pdfTheme.value.listType, activeProductTypeCategoryID.value, 'factory_supply').filter((row) => row.status === 'published'))
 const selectedPriceSourcePublication = computed(() => officialPriceSourcePublications.value.find((row) => String(row.id) === String(selectedPriceSourcePublicationID.value)) || null)
 const currentPublicationOwnerLabel = computed(() => publicationScopeLabel(publicationScope.value))
@@ -1424,8 +1427,9 @@ const currentPublicationScopeDescription = computed(() => {
 const publicBeanListURL = computed(() => {
   if (publicationScope.value !== 'official' || !currentBeanListPublication.value) return ''
   const params = new URLSearchParams()
-  const productTypeCategoryID = currentClassificationTemplateIDOfPublication(currentBeanListPublication.value)
-  if (productTypeCategoryID > 0) params.set('product_type_category_id', String(productTypeCategoryID))
+  const publicationIdentity = publicationTypeIdentityOfPublication(currentBeanListPublication.value)
+  if (publicationIdentity.productTypeCategoryID > 0) params.set('product_type_category_id', String(publicationIdentity.productTypeCategoryID))
+  if (publicationIdentity.classificationTemplateID > 0) params.set('classification_template_id', String(publicationIdentity.classificationTemplateID))
   const query = params.toString()
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
 })
@@ -1448,7 +1452,24 @@ const pdfPageStyle = computed(() => {
   }
 })
 
+function loadActiveProductTypePublicationViews() {
+  const productTypeCategoryID = activeProductTypeCategoryID.value
+  const listType = normalizeBeanListType(selectedProductPriceListType.value?.listType || pdfTheme.value.listType)
+  loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID)
+  loadBeanListPublications(listType, 'official', productTypeCategoryID, 'factory_supply')
+  loadBeanListPublications(listType, 'mine', productTypeCategoryID, 'factory_supply')
+  if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
+    loadBeanListPublications(listType, 'customer', productTypeCategoryID, 'factory_supply')
+  }
+}
+
 watch(productPriceListTypeOptions, (options) => {
+  if (!priceListProductCatalogFeatureSelectionLoaded.value) {
+    priceListPublicationTypeOptionsReady.value = false
+    return
+  }
+  const optionsJustBecameReady = !priceListPublicationTypeOptionsReady.value && options.length > 0
+  priceListPublicationTypeOptionsReady.value = options.length > 0
   const resolvedID = resolveProductTypePreference(selectedProductTypeCategoryID.value, options)
   if (resolvedID !== Number(selectedProductTypeCategoryID.value || 0)) {
     selectedProductTypeCategoryID.value = resolvedID
@@ -1456,6 +1477,7 @@ watch(productPriceListTypeOptions, (options) => {
   }
   if (!options.length) return
   syncPdfListTypeFromSelectedProductType()
+  if (optionsJustBecameReady) loadActiveProductTypePublicationViews()
 }, { immediate: true })
 
 watch(selectedProductTypeCategoryID, () => {
@@ -1577,14 +1599,6 @@ function customerOptionLabel(customer) {
   return customer?.name || ''
 }
 
-function buildClassificationPriceListTypeOptions(sourceItems = []) {
-  return buildClassificationPriceListTypeOptionsFromItems(sourceItems)
-}
-
-function buildProductPriceListTypeOptions(sourceItems = []) {
-  return buildClassificationPriceListTypeOptions(sourceItems)
-}
-
 function classificationTemplateIDOfItem(item) {
   return currentClassificationTemplateIDOfItem(item)
 }
@@ -1645,10 +1659,6 @@ function priceListGenerationDraftStorageKey() {
     customerID: activeBeanListCustomerID.value,
     typeKey: activePriceListTypeKey.value,
   })
-}
-
-function productCatalogBusinessGroupRowsForPriceList() {
-  return businessGroupRowsForUsage(priceListProductBusinessGroups.value, 'product_catalog')
 }
 
 function normalizePriceListSelectionDraftMap(rows = {}, options = {}) {
@@ -1731,14 +1741,44 @@ function restorePriceListGenerationDraftForActiveType() {
 
 function beanListPublicationTypeKey(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
   if (Number(productTypeCategoryID || 0) === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return 'classification:unclassified'
-  const id = activePublicationProductTypeCategoryID(productTypeCategoryID)
-  if (id > 0) return `product-type:${id}`
+  const publicationIdentity = publicationTypeIdentityForSelection(productTypeCategoryID)
+  if (publicationIdentity.productTypeCategoryID > 0) return `product-type:${publicationIdentity.productTypeCategoryID}`
   return `legacy:${normalizeBeanListType(listType)}`
 }
 
 function activePublicationProductTypeCategoryID(productTypeCategoryID = activeProductTypeCategoryID.value) {
+  return publicationTypeIdentityForSelection(productTypeCategoryID).productTypeCategoryID
+}
+
+function activePublicationClassificationTemplateID(productTypeCategoryID = activeProductTypeCategoryID.value) {
+  return publicationTypeIdentityForSelection(productTypeCategoryID).classificationTemplateID
+}
+
+function productPriceListTypeOptionByID(productTypeCategoryID = activeProductTypeCategoryID.value) {
   const id = Number(productTypeCategoryID || 0)
-  return id > 0 ? id : 0
+  const exact = productPriceListTypeOptions.value.find((type) => (
+    Number(type?.id || 0) === id || Number(type?.categoryID || 0) === id
+  ))
+  if (exact) return exact
+  if (!(id > 0)) return null
+  return productPriceListTypeOptions.value.find((type) => {
+    const identity = publicationTypeIdentityForPriceListType(type)
+    return identity.productTypeCategoryID === id || identity.classificationTemplateID === id
+  }) || null
+}
+
+function publicationTypeIdentityForSelection(productTypeCategoryID = activeProductTypeCategoryID.value) {
+  const option = productPriceListTypeOptionByID(productTypeCategoryID)
+  if (option) return publicationTypeIdentityForPriceListType(option)
+  const id = Number(productTypeCategoryID || 0)
+  return publicationTypeIdentityForPriceListType({ id: id > 0 ? id : 0 })
+}
+
+function productTypeSelectionIDForPublication(row = {}) {
+  const selectedType = priceListTypeOptionForPublication(productPriceListTypeOptions.value, row)
+  if (selectedType) return Number(selectedType.id || 0)
+  const identity = publicationTypeIdentityOfPublication(row)
+  return identity.productTypeCategoryID || identity.classificationTemplateID || UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID
 }
 
 function syncPdfListTypeFromSelectedProductType() {
@@ -3402,7 +3442,7 @@ function metaKeyForItem(item) {
 
 function matchesProductTypeCategory(item, productTypeCategoryID = activeProductTypeCategoryID.value) {
   const selectedType = productPriceListTypeOptions.value.find((type) => Number(type.id || 0) === Number(productTypeCategoryID || 0))
-  if (selectedType?.productCatalogGroupID) {
+  if (selectedType?.productCatalogGroupID || selectedType?.productCatalogFlat) {
     return matchesProductCatalogPriceListType(item, selectedType, {
       assignments: priceListProductBusinessGroupAssignments.value,
     })
@@ -3491,7 +3531,8 @@ function publicationRows(scope, listType, productTypeCategoryID = activeProductT
   const cacheKey = beanListPublicationCacheKey(scope, purpose)
   const typeKey = beanListPublicationTypeKey(listType, productTypeCategoryID)
   const rows = beanListPublications.value?.[cacheKey]?.[typeKey] || []
-  return rows.filter((row) => matchesCurrentPublicationProductType(row, productTypeCategoryID))
+  const selectedType = productPriceListTypeOptionByID(productTypeCategoryID)
+  return rows.filter((row) => matchesCurrentPublicationProductType(row, selectedType || productTypeCategoryID))
 }
 
 function initializePdfDefaults() {
@@ -3692,6 +3733,7 @@ function publicationArchiveRefreshProductTypeIDs(row = {}, fallbackProductTypeCa
   return Array.from(new Set([
     activeProductTypeCategoryID.value,
     fallbackProductTypeCategoryID,
+    productTypeSelectionIDForPublication(row),
     row?.product_type_category_id,
     row?.productTypeCategoryID,
     currentClassificationTemplateIDOfPublication(row),
@@ -3754,8 +3796,9 @@ function beanListPublicationDownloadParams(row) {
   const params = beanListWithdrawScopeParams(row)
   params.set('list_type', normalizeBeanListType(row?.list_type || pdfTheme.value.listType))
   params.set('publication_purpose', row?.publication_purpose || 'factory_supply')
-  const productTypeCategoryID = currentClassificationTemplateIDOfPublication(row)
-  if (productTypeCategoryID > 0) params.set('product_type_category_id', String(productTypeCategoryID))
+  const publicationIdentity = publicationTypeIdentityOfPublication(row)
+  if (publicationIdentity.productTypeCategoryID > 0) params.set('product_type_category_id', String(publicationIdentity.productTypeCategoryID))
+  if (publicationIdentity.classificationTemplateID > 0) params.set('classification_template_id', String(publicationIdentity.classificationTemplateID))
   return params
 }
 
@@ -3805,7 +3848,7 @@ function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.val
   if (!row) return
   const listType = normalizeBeanListType(row.list_type)
   selectProductTypeFromPublication(row)
-  const keyProductTypeID = currentClassificationTemplateIDOfPublication(row) || UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID
+  const keyProductTypeID = productTypeSelectionIDForPublication(row)
   const key = beanListPublicationTypeKey(listType, keyProductTypeID)
   downloadSourcePublication.value = null
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: row }
@@ -3826,7 +3869,7 @@ function beanListPublicationTypeLabel(row) {
   if (classificationName) return classificationName
   const classificationID = currentClassificationTemplateIDOfPublication(row)
   if (classificationID > 0) {
-    const option = productPriceListTypeOptions.value.find((type) => Number(type.categoryID || type.id || 0) === classificationID)
+    const option = priceListTypeOptionForPublication(productPriceListTypeOptions.value, row)
     if (option?.label) return option.label
   }
   const activeTypeID = Number(activeProductTypeCategoryID.value || 0)
@@ -3837,12 +3880,12 @@ function beanListPublicationTypeLabel(row) {
 }
 
 function selectProductTypeFromPublication(row) {
-  const classificationTemplateID = currentClassificationTemplateIDOfPublication(row)
-  if (classificationTemplateID > 0) {
-    selectedProductTypeCategoryID.value = classificationTemplateID
+  const selectedType = priceListTypeOptionForPublication(productPriceListTypeOptions.value, row)
+  if (selectedType) {
+    selectedProductTypeCategoryID.value = Number(selectedType.id || 0)
     return
   }
-  selectedProductTypeCategoryID.value = UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID
+  selectedProductTypeCategoryID.value = productTypeSelectionIDForPublication(row)
 }
 
 function isPdfProductSelected(parentProductID) {
@@ -4179,10 +4222,13 @@ async function loadBeanList() {
 }
 
 async function loadPriceListProductBusinessGroups() {
+  priceListPublicationTypeOptionsReady.value = false
+  priceListProductCatalogFeatureSelectionLoaded.value = false
   try {
-    const [groupsData, assignmentsData] = await Promise.all([
+    const [groupsData, assignmentsData, featureSelectionData] = await Promise.all([
       apiGet('/api/business-groups'),
       apiGet('/api/business-group-assignments?usage_key=product_catalog&object_key=product'),
+      apiGet('/api/business-group-feature-selections/product_catalog'),
     ])
     priceListProductBusinessGroups.value = Array.isArray(groupsData?.rows)
       ? groupsData.rows
@@ -4190,47 +4236,16 @@ async function loadPriceListProductBusinessGroups() {
     priceListProductBusinessGroupAssignments.value = Array.isArray(assignmentsData?.rows)
       ? assignmentsData.rows
       : (Array.isArray(assignmentsData?.assignments) ? assignmentsData.assignments : (Array.isArray(assignmentsData) ? assignmentsData : []))
-    const templateOptions = productCatalogBusinessGroupControls.value.templateOptions
-    if (!templateOptions.length) {
-      selectedProductCatalogGroupTemplateID.value = 0
-      return
-    }
-    const preferredTemplateID = productSettingsSelectedProductGroupTemplateID()
-    if (preferredTemplateID && templateOptions.some((option) => Number(option.id || 0) === preferredTemplateID)) {
-      selectedProductCatalogGroupTemplateID.value = preferredTemplateID
-      return
-    }
-    const selectedTemplateID = Number(selectedProductCatalogGroupTemplateID.value || 0)
-    const selectedTemplateValid = templateOptions.some((option) => Number(option.id || 0) === selectedTemplateID)
-    const assignedTemplate = templateOptions.find((option) => priceListProductBusinessGroupAssignments.value.some((row) => (
-      Number(row?.group_id ?? row?.groupID ?? 0) === Number(option.id || 0) &&
-      String(row?.usage_key ?? row?.usageKey ?? '') === 'product_catalog' &&
-      String(row?.object_key ?? row?.objectKey ?? '') === 'product'
-    )))
-    const selectedHasAssignments = priceListProductBusinessGroupAssignments.value.some((row) => (
-      Number(row?.group_id ?? row?.groupID ?? 0) === selectedTemplateID &&
-      String(row?.usage_key ?? row?.usageKey ?? '') === 'product_catalog' &&
-      String(row?.object_key ?? row?.objectKey ?? '') === 'product'
-    ))
-    if (!selectedTemplateValid || (!selectedHasAssignments && assignedTemplate)) {
-      selectedProductCatalogGroupTemplateID.value = Number(assignedTemplate?.id || templateOptions[0].id || 0)
-    }
+    priceListProductCatalogFeatureSelection.value = featureSelectionData && typeof featureSelectionData === 'object'
+      ? featureSelectionData
+      : { feature_key: 'product_catalog', group_template_ids: [] }
   } catch (err) {
     priceListProductBusinessGroups.value = []
     priceListProductBusinessGroupAssignments.value = []
-    selectedProductCatalogGroupTemplateID.value = 0
+    priceListProductCatalogFeatureSelection.value = { feature_key: 'product_catalog', group_template_ids: [] }
+  } finally {
+    priceListProductCatalogFeatureSelectionLoaded.value = true
   }
-}
-
-function productSettingsDraftKeyForPriceList() {
-  const workspace = props.workspaceMode || 'factory'
-  const customerID = Number(props.customerContextId || 0)
-  return `${SKU_SETTINGS_FORM_DRAFT_SCOPE}:${workspace}:${customerID || 'all'}`
-}
-
-function productSettingsSelectedProductGroupTemplateID() {
-  const draft = readFormDraft(productSettingsDraftKeyForPriceList())
-  return Number(draft?.selectedProductGroupTemplateID || 0)
 }
 
 function beanListURLForCustomerRules() {
@@ -4338,8 +4353,10 @@ function beanListPublicationURL(listType, scope, productTypeCategoryID = activeP
   const requestScope = beanListPublicationRequestScope(scope)
   const params = new URLSearchParams({ list_type: listType, scope: requestScope })
   params.set('publication_purpose', purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE)
-  const categoryID = activePublicationProductTypeCategoryID(productTypeCategoryID)
-  if (categoryID > 0) params.set('product_type_category_id', String(categoryID))
+  const productTypeID = activePublicationProductTypeCategoryID(productTypeCategoryID)
+  const classificationTemplateID = activePublicationClassificationTemplateID(productTypeCategoryID)
+  if (productTypeID > 0) params.set('product_type_category_id', String(productTypeID))
+  if (classificationTemplateID > 0) params.set('classification_template_id', String(classificationTemplateID))
   const customerID = beanListPublicationCustomerID(scope)
   if (requestScope === 'customer') {
     params.set('customer_id', String(customerID || 0))
@@ -4595,7 +4612,7 @@ async function saveGreenBeanPriceDraftForSection(section) {
 function beanListPublicationPayload() {
   const listType = pdfTheme.value.listType
   const selectedProductTypeCategoryID = activeProductTypeCategoryID.value
-  const productTypeCategoryID = activePublicationProductTypeCategoryID(selectedProductTypeCategoryID)
+  const publicationIdentity = publicationTypeIdentityForSelection(selectedProductTypeCategoryID)
   const selectedItems = beanListItemsForType(listType, selectedProductTypeCategoryID)
   const firstClassifiedItem = selectedItems.find((item) => classificationTemplateIDOfItem(item) > 0 || classificationCategoryIDOfItem(item) > 0) || {}
   const generationSnapshot = buildPriceListGenerationSnapshot({
@@ -4607,10 +4624,10 @@ function beanListPublicationPayload() {
   return {
     list_type: listType,
     publication_purpose: 'factory_supply',
-    product_type_category_id: productTypeCategoryID,
+    product_type_category_id: publicationIdentity.productTypeCategoryID,
     product_type_name: selectedProductPriceListLabel.value,
-    classification_template_id: classificationTemplateIDOfItem(firstClassifiedItem) || productTypeCategoryID,
-    classification_template_name: classificationTemplateNameOfItem(firstClassifiedItem) || selectedProductPriceListLabel.value,
+    classification_template_id: publicationIdentity.classificationTemplateID,
+    classification_template_name: selectedProductPriceListLabel.value,
     classification_category_id: classificationCategoryIDOfItem(firstClassifiedItem),
     classification_category_name: classificationCategoryNameOfItem(firstClassifiedItem),
     version: pdfTheme.value.version,
@@ -4621,6 +4638,7 @@ function beanListPublicationPayload() {
     source_version: currentPriceSourcePublication.value?.version || '',
     config: {
       ...pdfTheme.value,
+      product_catalog_group_template_id: Number(selectedProductCatalogGroupTemplate.value?.id || 0),
       selectedProductIDs: pdfSelectedProductIDs.value,
       product_spec_selections: pdfProductSpecSelections.value,
       showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
@@ -4655,7 +4673,7 @@ async function withdrawBeanList(row = currentBeanListPublication.value) {
   error.value = ''
   message.value = ''
   const listType = normalizeBeanListType(row.list_type || pdfTheme.value.listType)
-  const productTypeCategoryID = activePublicationProductTypeCategoryID(row?.product_type_category_id || activeProductTypeCategoryID.value)
+  const productTypeCategoryID = productTypeSelectionIDForPublication(row)
   try {
     const params = beanListWithdrawScopeParams(row)
     await apiSend(`/api/costing/bean-list/publications/${row.id}/withdraw?${params.toString()}`)
@@ -4680,7 +4698,7 @@ async function archiveSelectedBeanListPublications() {
   error.value = ''
   message.value = ''
   const listType = normalizeBeanListType(first.list_type || pdfTheme.value.listType)
-  const productTypeCategoryID = activePublicationProductTypeCategoryID(first?.product_type_category_id || activeProductTypeCategoryID.value)
+  const productTypeCategoryID = productTypeSelectionIDForPublication(first)
   try {
     const params = beanListPublicationDownloadParams(first)
     await apiSend('/api/costing/bean-list/publications/archive' + `?${params.toString()}`, {
@@ -4703,7 +4721,7 @@ async function restoreArchivedBeanListPublication(row) {
   error.value = ''
   message.value = ''
   const listType = normalizeBeanListType(row.list_type || pdfTheme.value.listType)
-  const productTypeCategoryID = activePublicationProductTypeCategoryID(row?.product_type_category_id || activeProductTypeCategoryID.value)
+  const productTypeCategoryID = productTypeSelectionIDForPublication(row)
   try {
     const params = beanListPublicationDownloadParams(row)
     await apiSend('/api/costing/bean-list/publications/unarchive' + `?${params.toString()}`, {
@@ -4721,14 +4739,19 @@ async function restoreArchivedBeanListPublication(row) {
 
 function beanListWithdrawScopeParams(row) {
   const publicationPurpose = row?.publication_purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE
+  let params
   if (row?.owner_type === 'customer') {
-    return new URLSearchParams({ scope: 'customer', customer_id: String(row.owner_key || selectedBeanListCustomerID.value || 0), publication_purpose: publicationPurpose })
+    params = new URLSearchParams({ scope: 'customer', customer_id: String(row.owner_key || selectedBeanListCustomerID.value || 0), publication_purpose: publicationPurpose })
+  } else if (row?.owner_type === 'actor') {
+    params = new URLSearchParams({ scope: 'mine', publication_purpose: publicationPurpose })
+  } else {
+    const scope = publicationScope.value === 'mine' ? 'mine' : 'official'
+    params = new URLSearchParams({ scope, publication_purpose: publicationPurpose })
   }
-  if (row?.owner_type === 'actor') {
-    return new URLSearchParams({ scope: 'mine', publication_purpose: publicationPurpose })
-  }
-  const scope = publicationScope.value === 'mine' ? 'mine' : 'official'
-  return new URLSearchParams({ scope, publication_purpose: publicationPurpose })
+  const publicationIdentity = publicationTypeIdentityOfPublication(row)
+  if (publicationIdentity.productTypeCategoryID > 0) params.set('product_type_category_id', String(publicationIdentity.productTypeCategoryID))
+  if (publicationIdentity.classificationTemplateID > 0) params.set('classification_template_id', String(publicationIdentity.classificationTemplateID))
+  return params
 }
 
 onMounted(() => {

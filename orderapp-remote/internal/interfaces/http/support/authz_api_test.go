@@ -282,6 +282,79 @@ func TestProductionConfigurationAPIPermissionsSeparateReadAndWrite(t *testing.T)
 	}
 }
 
+func TestPR584BusinessGroupFeatureSelectionPermissionsFollowOwningFeature(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/api/business-group-feature-selections/product_catalog", "products.read"},
+		{http.MethodPut, "/api/business-group-feature-selections/product_catalog", "products.write"},
+		{http.MethodGet, "/api/business-group-feature-selections/material_catalog", "materials.read"},
+		{http.MethodPut, "/api/business-group-feature-selections/material_catalog", "materials.write"},
+		{http.MethodGet, "/api/business-group-feature-selections/production_bom", "bom.read"},
+		{http.MethodPut, "/api/business-group-feature-selections/production_bom", "bom.write"},
+		{http.MethodGet, "/api/business-group-feature-selections/warehouse_inventory", "stock.read"},
+		{http.MethodPut, "/api/business-group-feature-selections/warehouse_inventory", "stock.write"},
+	} {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
+			t.Errorf("%s %s permission=%q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestPR584BusinessGroupFeatureSelectionWriteRejectsProductReadOnlyActor(t *testing.T) {
+	e := echo.New()
+	authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{"products.read"}}}
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(3))
+			return next(c)
+		}
+	})
+	e.Use(AuthorizationMiddleware(authz))
+	called := false
+	e.PUT("/api/business-group-feature-selections/:feature_key", func(c echo.Context) error {
+		called = true
+		return c.NoContent(http.StatusOK)
+	})
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/business-group-feature-selections/product_catalog", strings.NewReader(`{"group_template_ids":[]}`)))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403, body=%s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Fatal("products.read actor reached product_catalog feature selection write handler")
+	}
+}
+
+func TestPR584ProductCatalogFeatureSelectionReadAllowsProductsOrCostingReader(t *testing.T) {
+	for _, permission := range []string{"products.read", "costing.read"} {
+		t.Run(permission, func(t *testing.T) {
+			e := echo.New()
+			authz := &fakeAuthzService{actor: authzapp.Actor{Permissions: []string{permission}}}
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("employee_id", int64(3))
+					return next(c)
+				}
+			})
+			e.Use(AuthorizationMiddleware(authz))
+			called := false
+			e.GET("/api/business-group-feature-selections/:feature_key", func(c echo.Context) error {
+				called = true
+				return c.NoContent(http.StatusOK)
+			})
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/business-group-feature-selections/product_catalog", nil))
+			if rec.Code != http.StatusOK || !called {
+				t.Fatalf("permission=%s status=%d called=%t body=%s", permission, rec.Code, called, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestProductionExecutionAPIPermissionsSeparateReadAndRun(t *testing.T) {
 	for _, tc := range []struct {
 		method string

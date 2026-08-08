@@ -392,6 +392,25 @@ func TestBeanListPublicationQueriesFallbackToLegacyListTypeRows(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicationQueriesIsolateClassificationTemplatesBeforeLegacyFallbacks(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"query.ClassificationTemplateID > 0",
+		"COALESCE(classification_template_id,0)=$2",
+		"COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2",
+		"COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=0 AND list_type=$5",
+		"CASE WHEN COALESCE(classification_template_id,0)=$2 THEN 0",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list publication queries must isolate classification templates before compatibility fallbacks; missing %q", want)
+		}
+	}
+}
+
 func TestCommercialTiersForPublishDoesNotInventDefaultTiers(t *testing.T) {
 	item := domain.ProductResult{
 		ProductID:         434,

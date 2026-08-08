@@ -149,6 +149,20 @@ type BusinessGroupUsage struct {
 	Active     bool   `json:"active"`
 }
 
+// BusinessGroupFeatureSelection is owned by a business feature (for example,
+// the product catalog), not by an individual group template. The order is
+// significant and is preserved when the feature renders multiple templates.
+type BusinessGroupFeatureSelection struct {
+	FeatureKey       string  `json:"feature_key"`
+	GroupTemplateIDs []int64 `json:"group_template_ids"`
+}
+
+type SaveBusinessGroupFeatureSelectionCommand struct {
+	Actor            string
+	FeatureKey       string
+	GroupTemplateIDs []int64
+}
+
 type BusinessGroupItem struct {
 	ID        int64               `json:"id"`
 	Actor     string              `json:"-"`
@@ -1833,31 +1847,11 @@ func (s *Service) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bus
 	if cmd.ID == 0 {
 		cmd.Active = true
 	}
-	if cmd.ReplaceUsages && cmd.Usages == nil {
-		cmd.Usages = []BusinessGroupUsage{}
-	} else if !cmd.ReplaceUsages && len(cmd.Usages) == 0 {
-		cmd.Usages = nil
-	}
-	if cmd.Usages != nil {
-		normalizedUsages := make([]BusinessGroupUsage, 0, len(cmd.Usages))
-		seenUsageKeys := make(map[string]struct{}, len(cmd.Usages))
-		for _, usage := range cmd.Usages {
-			usage.UsageKey = strings.ToLower(strings.TrimSpace(usage.UsageKey))
-			usage.UsageLabel = strings.TrimSpace(usage.UsageLabel)
-			if !isSupportedBusinessGroupUsage(usage.UsageKey) {
-				return BusinessGroup{}, ValidationError{Message: "invalid business group usage"}
-			}
-			if _, exists := seenUsageKeys[usage.UsageKey]; exists {
-				continue
-			}
-			seenUsageKeys[usage.UsageKey] = struct{}{}
-			usage.ID = 0
-			usage.GroupID = 0
-			usage.Active = true
-			normalizedUsages = append(normalizedUsages, usage)
-		}
-		cmd.Usages = normalizedUsages
-	}
+	// Functional references are saved exclusively through
+	// SaveBusinessGroupFeatureSelection. Ignore stale template-owned payloads so
+	// a cached settings page cannot overwrite the feature's current selection.
+	cmd.ReplaceUsages = false
+	cmd.Usages = nil
 	return s.repo.SaveBusinessGroup(ctx, cmd)
 }
 
@@ -1912,15 +1906,48 @@ func (s *Service) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGro
 }
 
 func (s *Service) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
-	usageKey = strings.ToLower(strings.TrimSpace(usageKey))
-	actor = strings.TrimSpace(actor)
-	if groupID <= 0 || usageKey == "" {
-		return ValidationError{Message: "invalid business group usage"}
+	return ValidationError{Message: "business group feature selection must be saved by feature"}
+}
+
+func (s *Service) GetBusinessGroupFeatureSelection(ctx context.Context, featureKey string) (BusinessGroupFeatureSelection, error) {
+	featureKey = strings.ToLower(strings.TrimSpace(featureKey))
+	if !isSupportedBusinessGroupUsage(featureKey) {
+		return BusinessGroupFeatureSelection{}, ValidationError{Message: "invalid business group feature"}
 	}
-	if !isSupportedBusinessGroupUsage(usageKey) {
-		return ValidationError{Message: "invalid business group usage"}
+	selection, err := s.repo.GetBusinessGroupFeatureSelection(ctx, featureKey)
+	if err != nil {
+		return BusinessGroupFeatureSelection{}, err
 	}
-	return s.repo.EnsureBusinessGroupUsage(ctx, groupID, usageKey, actor)
+	selection.FeatureKey = featureKey
+	if selection.GroupTemplateIDs == nil {
+		selection.GroupTemplateIDs = []int64{}
+	}
+	return selection, nil
+}
+
+func (s *Service) SaveBusinessGroupFeatureSelection(ctx context.Context, cmd SaveBusinessGroupFeatureSelectionCommand) (BusinessGroupFeatureSelection, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.FeatureKey = strings.ToLower(strings.TrimSpace(cmd.FeatureKey))
+	if !isSupportedBusinessGroupUsage(cmd.FeatureKey) {
+		return BusinessGroupFeatureSelection{}, ValidationError{Message: "invalid business group feature"}
+	}
+	normalizedIDs := make([]int64, 0, len(cmd.GroupTemplateIDs))
+	seen := make(map[int64]struct{}, len(cmd.GroupTemplateIDs))
+	for _, groupID := range cmd.GroupTemplateIDs {
+		if groupID <= 0 {
+			return BusinessGroupFeatureSelection{}, ValidationError{Message: "invalid business group template"}
+		}
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		normalizedIDs = append(normalizedIDs, groupID)
+	}
+	cmd.GroupTemplateIDs = normalizedIDs
+	if cmd.GroupTemplateIDs == nil {
+		cmd.GroupTemplateIDs = []int64{}
+	}
+	return s.repo.SaveBusinessGroupFeatureSelection(ctx, cmd)
 }
 
 func isSupportedBusinessGroupUsage(usageKey string) bool {
@@ -1928,8 +1955,7 @@ func isSupportedBusinessGroupUsage(usageKey string) bool {
 	case BusinessGroupUsageProductCatalog,
 		BusinessGroupUsageMaterialCatalog,
 		BusinessGroupUsageProductionBOM,
-		BusinessGroupUsageWarehouseInventory,
-		BusinessGroupUsagePriceList:
+		BusinessGroupUsageWarehouseInventory:
 		return true
 	default:
 		return false

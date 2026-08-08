@@ -18,15 +18,16 @@ func TestDev459PriceListFollowProductGroupContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"apiGet('/api/business-groups')",
 			"apiGet('/api/business-group-assignments?usage_key=product_catalog&object_key=product')",
+			"apiGet('/api/business-group-feature-selections/product_catalog')",
 			"groupRowsByBusinessGroupTemplate",
-			"selectedProductCatalogGroupTemplate",
-			"readFormDraft(productSettingsDraftKeyForPriceList())",
+			"businessGroupFeatureSelectionIDs(priceListProductCatalogFeatureSelection.value)",
+			"selectedProductCatalogGroupTemplates",
 			"business-group-unclassified",
 			"group_source: 'product_catalog'",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"selectedProductGroupTemplateID: selectedProductGroupTemplateID.value",
-			"draft.selectedProductGroupTemplateID",
+			"apiGet('/api/business-group-feature-selections/product_catalog')",
+			"businessGroupRowsForFeatureSelection(businessGroups.value, productGroupFeatureSelectionIDs.value)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-bean-list-split.test.js"): {
 			"business-group-unclassified",
@@ -63,6 +64,17 @@ func TestDev459PriceListFollowProductGroupContracts(t *testing.T) {
 		for _, want := range wants {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-459 marker %q", rel, want)
+			}
+		}
+		if rel == filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue") {
+			for _, avoid := range []string{
+				"readFormDraft(productSettingsDraftKeyForPriceList())",
+				"/api/business-group-feature-selections/price_list",
+				"usage_key=price_list&object_key=product",
+			} {
+				if strings.Contains(src, avoid) {
+					t.Fatalf("%s should not retain superseded price-list grouping marker %q", rel, avoid)
+				}
 			}
 		}
 	}
