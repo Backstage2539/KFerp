@@ -100,8 +100,22 @@
             </thead>
             <tbody>
               <template v-for="group in productionBomDisplayGroups" :key="group.key">
+                <template v-if="!isProductionBomGroupHiddenByAncestor(group)">
                 <tr
-                  v-if="productionBomSelectedBusinessGroups.length"
+                  v-if="group.is_template_group"
+                  class="classification-template-row bom-classification-template-row"
+                  :class="{ 'classification-template-collapsed': isProductionBomGroupCollapsed(group.key) }">
+                  <td colspan="7">
+                    <button class="classification-group-toggle" type="button" @click="toggleProductionBomGroup(group.key)">
+                      {{ isProductionBomGroupCollapsed(group.key) ? '展开' : '收起' }}
+                    </button>
+                    <strong>{{ group.label }}</strong>
+                    <small>{{ group.template_total }} 个</small>
+                  </td>
+                </tr>
+                <template v-else>
+                <tr
+                  v-if="!group.all"
                   class="classification-group-row bom-classification-group-row"
                   :class="{ 'classification-subgroup-row': Number(group.depth || 0) > 0 }"
                   :style="businessGroupHeaderIndentStyle(group)">
@@ -143,6 +157,8 @@
                       <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
                     </td>
                   </tr>
+                </template>
+                </template>
                 </template>
               </template>
               <tr v-if="!productionBomRows.length">
@@ -451,11 +467,11 @@ import {
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
   businessGroupRowsForFeatureSelection,
-  groupRowsByBusinessGroupTemplate,
+  groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { componentTypeLabel } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
-import { isSystemDefaultBusinessGroup } from '../lib/product-settings'
+import { isSystemDefaultBusinessGroup, skuGroupHiddenByCollapsedAncestor } from '../lib/product-settings'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
@@ -534,8 +550,8 @@ const productionBomRows = computed(() => {
     query: productionBomSearchQuery.value,
   })
 })
-const productionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTemplate(productionBomRows.value, {
-  template: selectedProductionBomTemplate.value,
+const productionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(productionBomRows.value, {
+  templates: productionBomSelectedBusinessGroups.value,
   usageKey: 'production_bom',
   objectKey: 'production_bom',
   objectIDForRow: (row) => Number(row.production_bom_id || row.id || 0),
@@ -726,6 +742,10 @@ function productionBomGroupOptionByItemID(groupItemID) {
 
 function isProductionBomGroupCollapsed(key) {
   return collapsedProductionBomGroups.value.includes(String(key || ''))
+}
+
+function isProductionBomGroupHiddenByAncestor(group) {
+  return skuGroupHiddenByCollapsedAncestor(productionBomDisplayGroups.value, group, collapsedProductionBomGroups.value)
 }
 
 function toggleProductionBomGroup(key) {
@@ -1722,6 +1742,10 @@ tbody tr.active { background: #f3f7fb; }
 .list-panel tbody tr { cursor: pointer; }
 .classification-group-row td { background: #f8f7f5; color: #333; border-top: 1px solid #e6e0d8; padding-left: var(--classification-group-indent, 16px); }
 .classification-group-row strong { margin: 0 8px; }
+.classification-template-row td { background: #ece6dc; border-top: 2px solid #d3c6b0; border-bottom: 1px solid #d3c6b0; color: #2f2820; padding-left: 8px; }
+.classification-template-row strong { margin: 0 8px; font-size: 16px; }
+.classification-template-row small { color: #6b5f4f; }
+.classification-template-collapsed td { border-bottom: 2px solid #d3c6b0; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
 .classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }
 .category-toggle { font-size: 12px; }
