@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-585-BOM-SINGLE-MATERIAL-LOSS
 - Branch: codex/fix-cookie-bom-cost-20260807
 - Owner/session: Codex / 2026-08-07
-- Status: implementation complete; full verification and independent review in progress
+- Status: implementation and automated verification complete; development deployment pending; Van manual acceptance todo
 - Scope: 删除当前 BOM 的整体产出率/整体预期损耗业务概念；未配置原料损耗时不放大，配置后唯一公式为 `净配方 × (1 + BOM原料损耗率)`，价格试算与新生产计划使用同一口径，历史工单、库存流水和价格快照不回算。生产 BOM 的当前名称统一去掉编号、`生产 BOM` 和版本号等结构性前后缀，只保留业务名。
 - DEV:
   - DEV-585-SINGLE-LOSS-MATH：成本图、价格试算、计划投料和组件需求统一使用加耗公式，曲奇 1kg 的 BOM 物料成本为 `62.10元/kg`，冻结工序后标准制造成本为 `64.71元/kg`。
@@ -22,10 +22,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Unit/API: costing、production、BOM application/repository/API 定向测试及相关全量 Go 测试。
   - Frontend/build: Vue BOM/商品配置源测试、全量前端测试和 Vite build。
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`。
-  - Review/acceptance: independent review and `orderapp-remote/docs/acceptance/2026-08-07-bom-single-material-loss.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-bom-single-material-loss.md`; deployment 后由 Van 人工验收。
 - Environment data: development 通过现有 API 清洗 128 条名称，production 清洗 149 条；两个环境残留均为 0，BOM 总数及启用/停用状态不变，操作日志分别新增 128/149 条。回滚映射分别位于 `/opt/stacks/erp/backups/bom-name-normalization-20260807T235317.json` 和 `/opt/stacks/erp-production/backups/bom-name-normalization-20260807T235348.json`。
-- Deployment: application deployment not requested; current code is not deployed to development or production.
-- Last update: 2026-08-07 Asia/Shanghai
+- Deployment: development only with the lightweight ERP path; production application deployment is explicitly out of scope.
+- Last update: 2026-08-08 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入；按脚本返回的 PR-585 手工登记。实际生产损耗报表可继续记录真实投入/产出，但不得作为 BOM 计划或标准成本的第二层配置参数。
 
 ### PR-584-PRODUCT-MULTI-GROUP-TEMPLATES
