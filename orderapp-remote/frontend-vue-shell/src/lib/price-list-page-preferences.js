@@ -5,6 +5,10 @@ const DEFAULT_PREFERENCES = Object.freeze({
   productTypeCategoryID: 0,
 })
 
+// Product-catalog template options use -(2_000_000 + groupTemplateID).
+// Keep this namespace distinct from malformed small negative browser values.
+const PRODUCT_CATALOG_TEMPLATE_TYPE_ID_MAX = -2_000_001
+
 function normalizedScope(value) {
   const scope = String(value || '').trim()
   if (scope === 'official') return scope
@@ -14,7 +18,9 @@ function normalizedScope(value) {
 
 function normalizedProductTypeCategoryID(value) {
   const id = Number(value || 0)
-  return Number.isInteger(id) && id > 0 ? id : 0
+  if (!Number.isSafeInteger(id)) return 0
+  if (id > 0) return id
+  return id <= PRODUCT_CATALOG_TEMPLATE_TYPE_ID_MAX ? id : 0
 }
 
 function defaultStorage() {

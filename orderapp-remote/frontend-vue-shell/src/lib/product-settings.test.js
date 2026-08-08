@@ -3049,6 +3049,20 @@ test('visibleSkuGroupRows excludes descendants of a collapsed parent without col
   )
 })
 
+test('collapsing one selected template parent does not hide the other selected template tree', () => {
+  const groups = [
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 1 }] },
+    { key: 'business-group-9-92', group_id: 9, group_item_id: 92, parent_group_item_id: 90, rows: [{ id: 2 }] },
+    { key: 'business-group-10-90', group_id: 10, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 3 }] },
+    { key: 'business-group-10-92', group_id: 10, group_item_id: 92, parent_group_item_id: 90, rows: [{ id: 4 }] },
+  ]
+
+  assert.deepEqual(
+    visibleSkuGroupRows(groups, ['business-group-9-90']).map((row) => row.id),
+    [3, 4],
+  )
+})
+
 test('visible bulk selection preserves hidden descendant selections when a parent group is collapsed', () => {
   const visibleRows = [{ id: 4 }, { id: 5 }]
 
@@ -4265,7 +4279,11 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(script, /apiGet\('\/api\/product-settings'\)/)
   assert.match(source, /business_groups/)
   assert.match(source, /productCatalogBusinessGroups/)
-  assert.match(source, /businessGroupRowsForUsage/)
+  assert.match(source, /businessGroupRowsForFeatureSelection/)
+  assert.match(source, /businessGroupFeatureSelectionIDs/)
+  assert.match(source, /businessGroupFeatureSelectionPayload/)
+  assert.match(script, /apiGet\('\/api\/business-group-feature-selections\/product_catalog'\)/)
+  assert.match(script, /apiSend\('\/api\/business-group-feature-selections\/product_catalog'/)
   assert.match(source, /businessGroupMoveAssignmentPayload/)
   assert.match(source, /groupRowsByBusinessGroupTemplates/)
   assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
@@ -4304,7 +4322,11 @@ test('SKU table groups rows by every referenced business group template without 
   assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
   assert.match(template, /group\.template_label/)
   assert.match(template, /v-if="productCatalogBusinessGroups\.length"/)
-  assert.match(template, /商品档案尚未引用分组模板，当前按全部商品平铺展示/)
+  assert.match(template, /商品档案尚未选择分组模板，当前按全部商品平铺展示/)
+  assert.match(template, /商品档案使用的分组模板/)
+  assert.match(template, /v-model="productGroupFeatureSelectionDraft"/)
+  assert.match(template, /@click="saveProductGroupFeatureSelection"/)
+  assert.match(template, /template-label="移动目标模板"/)
   assert.match(template, /classification-group-toggle/)
   assert.match(style, /\.sku-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s)
   assert.match(style, /\.sku-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*1600px;/s)
@@ -4728,6 +4750,9 @@ test('product settings uses product business groups instead of product classific
   for (const expected of [
     'businessGroupAssignments',
     'businessGroups',
+    'productGroupFeatureSelectionIDs',
+    'productGroupFeatureSelectionDraft',
+    'saveProductGroupFeatureSelection',
     'productCatalogBusinessGroups',
     'productBusinessGroupItemOptions',
     'selectedProductBusinessGroupItemID',
@@ -4750,6 +4775,7 @@ test('product settings uses product business groups instead of product classific
   assert.match(settingsSource, /新增大类/)
   assert.match(settingsSource, /新增小类/)
   assert.match(source, /\/api\/business-group-items/)
+  assert.match(source, /\/api\/business-group-feature-selections\/product_catalog/)
   assert.doesNotMatch(source, /商品默认分组/)
   assert.doesNotMatch(settingsSource, /\/api\/product-settings\/categories/)
   assert.doesNotMatch(source, /classification-config-drawer/)
@@ -5014,6 +5040,8 @@ test('product archive grouping is template-driven without category tabs or categ
 
   assert.match(source, /BusinessGroupControls/)
   assert.match(source, /groupRowsByBusinessGroupTemplates/)
+  assert.match(source, /商品档案使用的分组模板/)
+  assert.match(source, /保存模板选择/)
   assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
   assert.doesNotMatch(productArchiveBlock, /<div v-if="selectedProductGroupTemplate" class="classification-tabs">/)

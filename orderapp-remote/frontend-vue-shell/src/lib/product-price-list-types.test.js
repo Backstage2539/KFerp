@@ -2,8 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  businessGroupFeatureSelectionIDs,
+  businessGroupRowsForFeatureSelection,
+} from './business-grouping.js'
+
+import {
+  PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE,
   UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID,
   buildClassificationPriceListTypeOptions,
+  buildProductCatalogTemplatePriceListTypeOptions,
   buildProductCatalogPriceListTypeOptions,
   classificationTemplateIDOfItem,
   classificationTemplateIDOfPublication,
@@ -11,6 +18,9 @@ import {
   matchesProductCatalogPriceListType,
   matchesPublicationProductType,
   matchesProductTypeCategory,
+  preferredPublicationForPriceListType,
+  priceListTypeOptionForPublication,
+  publicationTypeIdentityForPriceListType,
   publicationVersionListState,
   priceListRenderTypeForItem,
   priceListSelectionStateKey,
@@ -173,6 +183,149 @@ test('product catalog price-list types keep their own selection state key', () =
     priceListSelectionStateKey([productCatalogType], 'commercial', -1003296),
     'legacy:commercial',
   )
+})
+
+test('price list product types partition products by the product catalog templates selected by product archive', () => {
+  const groups = [
+    {
+      id: 128,
+      name: '商品-咖啡豆',
+      active: true,
+      usages: [{ usage_key: 'product_catalog', active: true }],
+      items: [
+        { id: 3296, name: '咖啡熟豆', parent_id: 0, sort_order: 10 },
+        { id: 3297, name: '意式拼配豆', parent_id: 3296, sort_order: 10 },
+      ],
+    },
+    {
+      id: 129,
+      name: '商品-挂耳',
+      active: true,
+      usages: [{ usage_key: 'product_catalog', active: true }],
+      items: [{ id: 3396, name: '挂耳咖啡', parent_id: 0, sort_order: 10 }],
+    },
+    {
+      id: 130,
+      name: '历史价格表专用模板',
+      active: true,
+      usages: [{ usage_key: 'price_list', active: true }],
+      items: [{ id: 3496, name: '旧价格表分类', parent_id: 0, sort_order: 10 }],
+    },
+  ]
+  const featureSelection = {
+    feature_key: 'product_catalog',
+    group_template_ids: [128, 129, 128],
+    template_ids: [130],
+  }
+  const templates = businessGroupRowsForFeatureSelection(groups, businessGroupFeatureSelectionIDs(featureSelection))
+  const rows = [
+    { product_id: 11, name: '咖啡豆 A', product_kind: 'roasted' },
+    { product_id: 111, effective_parent_product_id: 11, parent_product_id: 11, sku_id: 111, name: '咖啡豆 A / 227g', product_kind: 'roasted' },
+    { product_id: 12, name: '挂耳 A', product_kind: 'drip_bag' },
+    { product_id: 13, name: '未归类商品', product_kind: 'roasted' },
+  ]
+  const assignments = [
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 11, group_id: 128, group_item_id: 3297 },
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 12, group_id: 129, group_item_id: 3396 },
+    { usage_key: 'price_list', object_key: 'product', object_id: 13, group_id: 130, group_item_id: 3496 },
+  ]
+
+  assert.deepEqual(templates.map((template) => template.id), [128, 129])
+  const options = buildProductCatalogTemplatePriceListTypeOptions(rows, { templates, assignments })
+  assert.deepEqual(options.map((option) => [option.label, option.itemCount]), [
+    ['商品-咖啡豆', 1],
+    ['商品-挂耳', 1],
+  ])
+
+  const membership = new Map(options.map((option) => [
+    option.label,
+    rows.filter((row) => matchesProductCatalogPriceListType(row, option, { assignments })).map((row) => row.product_id),
+  ]))
+  assert.deepEqual(membership.get('商品-咖啡豆'), [11, 111])
+  assert.deepEqual(membership.get('商品-挂耳'), [12])
+  assert.deepEqual(new Set(Array.from(membership.values()).flat().map((id) => id === 111 ? 11 : id)), new Set([11, 12]))
+  assert.equal(Array.from(membership.values()).flat().includes(13), false)
+})
+
+test('two commercial product catalog templates keep stable isolated publication identities', () => {
+  const options = buildProductCatalogTemplatePriceListTypeOptions([], {
+    templates: [
+      { id: 128, name: '商品-咖啡豆', active: true, items: [] },
+      { id: 129, name: '商品-挂耳', active: true, items: [] },
+    ],
+  })
+
+  assert.deepEqual(options.map((option) => option.listType), ['commercial', 'commercial'])
+  assert.deepEqual(options.map((option) => publicationTypeIdentityForPriceListType(option)), [
+    {
+      productTypeCategoryID: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 128,
+      classificationTemplateID: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 128,
+    },
+    {
+      productTypeCategoryID: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 129,
+      classificationTemplateID: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 129,
+    },
+  ])
+  assert.equal(Number.isSafeInteger(options[0].publicationProductTypeCategoryID), true)
+  assert.notEqual(options[0].publicationProductTypeCategoryID, options[1].publicationProductTypeCategoryID)
+
+  const coffeePublication = {
+    id: 2,
+    status: 'published',
+    list_type: 'commercial',
+    product_type_category_id: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 128,
+    classification_template_id: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 128,
+  }
+  const dripPublication = {
+    id: 3,
+    status: 'published',
+    list_type: 'commercial',
+    product_type_category_id: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 129,
+    classification_template_id: PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE + 129,
+  }
+  assert.equal(priceListTypeOptionForPublication(options, coffeePublication)?.id, options[0].id)
+  assert.equal(priceListTypeOptionForPublication(options, dripPublication)?.id, options[1].id)
+  assert.equal(matchesPublicationProductType(coffeePublication, options[0]), true)
+  assert.equal(matchesPublicationProductType(coffeePublication, options[1]), false)
+
+  const legacyGlobal = {
+    id: 1,
+    status: 'published',
+    list_type: 'commercial',
+    product_type_category_id: 0,
+    classification_template_id: 0,
+  }
+  assert.equal(preferredPublicationForPriceListType([legacyGlobal, dripPublication, coffeePublication], options[0]), coffeePublication)
+  assert.equal(preferredPublicationForPriceListType([legacyGlobal, coffeePublication, dripPublication], options[1]), dripPublication)
+})
+
+test('price list uses one safe flat product type when product archive selected no group templates', () => {
+  const rows = [
+    { product_id: 11, name: '咖啡豆 A', product_kind: 'roasted' },
+    { product_id: 111, effective_parent_product_id: 11, parent_product_id: 11, sku_id: 111, name: '咖啡豆 A / 227g', product_kind: 'roasted' },
+    { product_id: 12, name: '挂耳 A', product_kind: 'drip_bag' },
+  ]
+  const groups = [
+    { id: 130, name: '历史价格表专用模板', active: true, usages: [{ usage_key: 'price_list', active: true }] },
+  ]
+  const featureSelection = {
+    feature_key: 'product_catalog',
+    group_template_ids: [],
+    template_ids: [130],
+  }
+  const templates = businessGroupRowsForFeatureSelection(groups, businessGroupFeatureSelectionIDs(featureSelection))
+
+  assert.deepEqual(templates, [])
+  const options = buildProductCatalogTemplatePriceListTypeOptions(rows, {
+    templates,
+    assignments: [
+      { usage_key: 'price_list', object_key: 'product', object_id: 11, group_id: 130, group_item_id: 3496 },
+    ],
+  })
+  assert.deepEqual(options.map((option) => ({ key: option.key, label: option.label, itemCount: option.itemCount })), [
+    { key: 'product-catalog:flat', label: '全部商品', itemCount: 2 },
+  ])
+  assert.equal(rows.every((row) => matchesProductCatalogPriceListType(row, options[0], { assignments: [] })), true)
 })
 
 test('unclassified legacy green bean still renders with green bean price rows', () => {

@@ -20,10 +20,15 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		if err != nil {
 			return c.HTML(http.StatusBadRequest, renderNoPublishedBeanListPage(listType))
 		}
+		classificationTemplateID, err := parseOptionalInt64(c.QueryParam("classification_template_id"))
+		if err != nil {
+			return c.HTML(http.StatusBadRequest, renderNoPublishedBeanListPage(listType))
+		}
 		row, err := svc.PublishedBeanList(c.Request().Context(), appcosting.BeanListPublicationQuery{
-			ListType:              listType,
-			ProductTypeCategoryID: productTypeCategoryID,
-			OwnerType:             "official",
+			ListType:                 listType,
+			ProductTypeCategoryID:    productTypeCategoryID,
+			ClassificationTemplateID: classificationTemplateID,
+			OwnerType:                "official",
 		})
 		if err != nil {
 			return c.HTML(http.StatusBadRequest, renderNoPublishedBeanListPage(listType))
@@ -343,10 +348,11 @@ func generateBeanListPublicationPDFAsset(c echo.Context, svc Service, row *appco
 	_, err := svc.GenerateBeanListPublicationPDF(c.Request().Context(), appcosting.BeanListPublicationPDFCommand{
 		PublicationID: row.ID,
 		Query: appcosting.BeanListPublicationQuery{
-			ListType:              row.ListType,
-			ProductTypeCategoryID: row.ProductTypeCategoryID,
-			OwnerType:             row.OwnerType,
-			OwnerKey:              row.OwnerKey,
+			ListType:                 row.ListType,
+			ProductTypeCategoryID:    row.ProductTypeCategoryID,
+			ClassificationTemplateID: row.ClassificationTemplateID,
+			OwnerType:                row.OwnerType,
+			OwnerKey:                 row.OwnerKey,
 		},
 		Actor: support.ActorOf(c),
 	}, renderBeanListPublicationPDF)
@@ -385,6 +391,9 @@ func beanListPublicationPDFDownloadURL(cmd appcosting.BeanListPublicationPDFComm
 	}
 	if cmd.Query.ProductTypeCategoryID > 0 {
 		params.Set("product_type_category_id", strconv.FormatInt(cmd.Query.ProductTypeCategoryID, 10))
+	}
+	if cmd.Query.ClassificationTemplateID > 0 {
+		params.Set("classification_template_id", strconv.FormatInt(cmd.Query.ClassificationTemplateID, 10))
 	}
 	return fmt.Sprintf("/api/costing/bean-list/publications/%d/pdf?%s", cmd.PublicationID, params.Encode())
 }

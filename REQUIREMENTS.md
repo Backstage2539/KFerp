@@ -785,8 +785,9 @@
 - `DEV-580-ACTIVE-BINDING-MUTATION`：密码重置和登录启停只能作用于该客户当前 active 外部账号关联。历史 inactive 关联可继续只读展示用于追溯，但旧客户不得借历史记录修改该员工在新客户下生效的全局密码或登录状态，拒绝时不得写成功审计。
 - 同一外部账号只能保留一个 active 客户关联，账号停用、客户停用或关联失效后不能登录；历史不合规工作台关联继续按无有效工作台绑定处理。`DEV-580-DOCS-ACCEPTANCE` 同步客户门户与客户履约手册和合并证据；`REV-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE` 由 Van 验收账号登录与工作台隔离。
 
-## 51. 商品行业字段与功能分组多模板引用（PR-584-PRODUCT-MULTI-GROUP-TEMPLATES）
+## 51. 商品行业字段与功能自选分组模板（PR-584-PRODUCT-MULTI-GROUP-TEMPLATES）
 - `DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE`：商品档案配置可同时引用多份行业字段模板；接口以有序 `industry_field_template_ids` 为新合同，并保留首个 `industry_field_template_id` 兼容旧客户端和旧数据。字段按模板顺序合并，同名字段键只保留前序模板定义；取消模板后只清理不再由任何已选模板定义的当前字段，取消全部后不显示也不保存行业字段。模板引用、字段和值同事务保存，操作日志记录完整模板列表。
-- `DEV-584-GROUP-USAGE-MULTI-REFERENCE`：分组模板编辑区提供“功能引用”多选，同一功能可引用多份分组模板。只有明确 active 引用的模板才进入商品、物料、生产 BOM、仓库库存或商品价格表；没有用途绑定的模板不再自动视作商品模板。取消引用只隐藏对应功能分类和归类入口，不删除模板、分类、对象归类或历史快照。
-- `DEV-584-PRODUCT-GROUP-UNION-COLLAPSE`：商品档案同时展示所有明确引用 `product_catalog` 的模板分类树，每个商品按唯一当前归类只显示一次，多模板共用一个 `未分类`；无引用模板时平铺且不显示分类、收起和移动控件。收起大类必须隐藏全部后代分类标题和商品，同时保留子类自身折叠状态、分页和勾选状态。
+- `DEV-584-GROUP-USAGE-MULTI-REFERENCE`：分组模板只维护模板与分类树，不在模板编辑区选择功能。由商品档案、物料档案、生产 BOM、仓库库存各自页面多选自己使用的分组模板，并分别有序读写 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory` 的模板 ID；只有已选模板才能进入该功能的分类与移动入口。保存必须校验模板启用状态、原子替换并写操作日志，空数组表示取消全部选择且不删除模板、分类、对象归类或历史快照。模板资料保存和历史模板侧引用请求不得反向覆盖功能选择。
+- `DEV-584-PRODUCT-GROUP-UNION-COLLAPSE`：商品档案提供分组模板多选，合并展示全部已选模板的分类树；每个商品按唯一当前归类只显示一次，多模板共用一个 `未分类`。未选择模板时平铺且不显示分类、收起和移动控件。收起大类必须隐藏全部后代分类标题和商品，同时保留子类自身折叠状态、分页和勾选状态。
+- `DEV-584-PRICE-LIST-INHERIT-PRODUCT-GROUPS`：商品价格表不得维护独立 `price_list` 分组模板引用，而是继承商品档案选择的分组模板。每个当前已选且启用的模板对应一种商品类型，顺序与商品档案选择一致；例如商品档案选择“商品-咖啡豆”和“商品-挂耳”，价格表只出现咖啡豆、挂耳两种模板类型。历史 `price_list` 引用不得产生额外类型，已发布价格表快照不回改。
 - `DEV-584-DOCS-ACCEPTANCE-DEPLOY`：同步需求、验收、商品/物料与设置审计手册、PR/DEV 和独立证据；完成 Go、API、PostgreSQL、Vue/Vite 验证后合入 `develop` 并部署 development，`main` 和 production 不在范围内。

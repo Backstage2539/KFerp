@@ -9,6 +9,7 @@ const viewSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8
 const priceListWorkflowSource = readFileSync(resolve(here, './costing-price-list-workflow.js'), 'utf8')
 const priceListSelectionSource = readFileSync(resolve(here, './product-price-list-selection.js'), 'utf8')
 const priceListDraftSource = readFileSync(resolve(here, './product-price-list-draft.js'), 'utf8')
+const priceListTypesSource = readFileSync(resolve(here, './product-price-list-types.js'), 'utf8')
 
 test('product bean-list view exposes publication versions without pricing trial workspace', () => {
   const versionListIndex = viewSource.indexOf('已发布价格表')
@@ -134,6 +135,44 @@ test('product price list restores and persists browser scope and product type pr
   ]) {
     assert.ok(viewSource.includes(expected), `missing price-list browser preference behavior: ${expected}`)
   }
+})
+
+test('product price list waits for product-catalog feature selection before resolving the remembered template', () => {
+  assert.match(viewSource, /const priceListProductCatalogFeatureSelectionLoaded = ref\(false\)/)
+  assert.match(
+    viewSource,
+    /const productPriceListTypeOptions = computed\(\(\) => \{\s*if \(!priceListProductCatalogFeatureSelectionLoaded\.value\) return \[\]/,
+  )
+  assert.match(
+    viewSource,
+    /watch\(productPriceListTypeOptions, \(options\) => \{\s*if \(!priceListProductCatalogFeatureSelectionLoaded\.value\) \{[\s\S]*?return\s*\}/,
+  )
+  assert.match(
+    viewSource,
+    /async function loadPriceListProductBusinessGroups\(\) \{[\s\S]*priceListProductCatalogFeatureSelectionLoaded\.value = false[\s\S]*finally \{\s*priceListProductCatalogFeatureSelectionLoaded\.value = true\s*\}/,
+  )
+})
+
+test('product price list loads synthetic publication views when remembered template options first become ready', () => {
+  assert.match(viewSource, /const priceListPublicationTypeOptionsReady = ref\(false\)/)
+
+  const watcherStart = viewSource.indexOf('watch(productPriceListTypeOptions, (options) => {')
+  const watcherEnd = viewSource.indexOf('watch(selectedProductTypeCategoryID', watcherStart)
+  assert.ok(watcherStart > -1 && watcherEnd > watcherStart, 'missing product type readiness watcher')
+  const watcherSource = viewSource.slice(watcherStart, watcherEnd)
+  assert.match(watcherSource, /const optionsJustBecameReady = !priceListPublicationTypeOptionsReady\.value/)
+  assert.match(watcherSource, /loadActiveProductTypePublicationViews\(\)/)
+
+  const loaderStart = viewSource.indexOf('function loadActiveProductTypePublicationViews()')
+  const loaderEnd = viewSource.indexOf('watch(selectedProductTypeCategoryID', loaderStart)
+  assert.ok(loaderStart > -1 && loaderEnd > loaderStart, 'missing active synthetic publication loader')
+  const loaderSource = viewSource.slice(loaderStart, loaderEnd)
+  assert.match(loaderSource, /const productTypeCategoryID = activeProductTypeCategoryID\.value/)
+  assert.match(loaderSource, /selectedProductPriceListType\.value\?\.listType/)
+  assert.match(loaderSource, /loadBeanListPublications\(listType, versionListScope\.value, productTypeCategoryID\)/)
+  assert.match(loaderSource, /loadBeanListPublications\(listType, 'official', productTypeCategoryID, 'factory_supply'\)/)
+  assert.match(loaderSource, /loadBeanListPublications\(listType, 'mine', productTypeCategoryID, 'factory_supply'\)/)
+  assert.match(loaderSource, /loadBeanListPublications\(listType, 'customer', productTypeCategoryID, 'factory_supply'\)/)
 })
 
 test('product bean-list version list downloads the selected publication snapshot', () => {
@@ -446,7 +485,7 @@ test('product price-list version list hides factory supply and customer resale p
 
 test('product bean-list generate area uses inline price-list configuration instead of preview cards', () => {
   for (const expected of [
-    'buildProductPriceListTypeOptions',
+    'buildProductCatalogTemplatePriceListTypeOptions',
     'priceListRenderTypeForItem',
     'productPriceListTypeKey',
     'price-list-page-config',
@@ -466,7 +505,7 @@ test('product bean-list generate area uses inline price-list configuration inste
   assert.doesNotMatch(viewSource, /openBeanListDrawer\('drip'\)/)
 })
 
-test('product price list uses classification templates and categories instead of legacy product types', () => {
+test('product price list uses product archive catalog templates and categories instead of legacy product types', () => {
   for (const expected of [
     '<h2>商品价格表</h2>',
     'Price List / Item Price',
@@ -474,20 +513,53 @@ test('product price list uses classification templates and categories instead of
     '商品 &gt; 所在分类 &gt; 上级分类逐级向上 &gt; 价格表',
     '平铺价格行',
     '分组项选品',
-    'classification_template_id',
-    'classification_template_name',
-    'classification_category_id',
-    'classification_category_name',
-    'buildClassificationPriceListTypeOptions',
-    'classificationCategoryIDOfItem',
-    'classificationTemplateNameOfItem',
+    'buildProductCatalogTemplatePriceListTypeOptions',
+    'businessGroupRowsForFeatureSelection',
+    'groupRowsByBusinessGroupTemplate',
+    "usageKey: 'product_catalog'",
   ]) {
     assert.ok(viewSource.includes(expected), `missing classification price-list behavior: ${expected}`)
   }
   assert.doesNotMatch(viewSource, /<h2>产品价格表<\/h2>/)
   assert.doesNotMatch(viewSource, /<span>产品类型<\/span>/)
+  assert.doesNotMatch(viewSource, /buildClassificationPriceListTypeOptions/)
   assert.doesNotMatch(viewSource, /按当前价格表归属和商品管理里的产品类型生成/)
   assert.doesNotMatch(viewSource, /按当前价格表归属、商品当前归类和客户商品生成商品价格表/)
+})
+
+test('product price list inherits product catalog feature selections instead of owning a price-list group usage', () => {
+  assert.match(viewSource, /apiGet\('\/api\/business-group-feature-selections\/product_catalog'\)/)
+  assert.match(viewSource, /businessGroupFeatureSelectionIDs/)
+  assert.match(viewSource, /businessGroupRowsForFeatureSelection/)
+  assert.match(viewSource, /buildProductCatalogTemplatePriceListTypeOptions/)
+  assert.doesNotMatch(viewSource, /business-group-feature-selections\/price_list/)
+  assert.doesNotMatch(viewSource, /usage_key=price_list/)
+  assert.doesNotMatch(viewSource, /selectedProductCatalogGroupTemplateID/)
+  assert.doesNotMatch(viewSource, /productSettingsSelectedProductGroupTemplateID/)
+})
+
+test('same-list product catalog templates keep publication URLs payloads caches and row selection isolated', () => {
+  for (const expected of [
+    'publicationTypeIdentityForPriceListType',
+    'priceListTypeOptionForPublication',
+    'preferredPublicationForPriceListType',
+    'activePublicationClassificationTemplateID',
+    "params.set('classification_template_id'",
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing isolated publication identity behavior: ${expected}`)
+  }
+  for (const expected of [
+    'PRODUCT_CATALOG_PUBLICATION_TYPE_ID_BASE',
+    'publicationProductTypeCategoryID',
+    'publicationClassificationTemplateID',
+  ]) {
+    assert.ok(priceListTypesSource.includes(expected), `missing stable publication type field: ${expected}`)
+  }
+  assert.match(viewSource, /classification_template_id:\s*publicationIdentity\.classificationTemplateID/)
+  assert.match(viewSource, /product_type_category_id:\s*publicationIdentity\.productTypeCategoryID/)
+  assert.match(viewSource, /const selectedType = priceListTypeOptionForPublication\(productPriceListTypeOptions\.value, row\)/)
+  assert.doesNotMatch(viewSource, /const productTypeCategoryID = currentClassificationTemplateIDOfPublication\(currentBeanListPublication\.value\)/)
+  assert.doesNotMatch(viewSource, /const productTypeCategoryID = currentClassificationTemplateIDOfPublication\(row\)/)
 })
 
 test('price list mode rules are opened from a button and not shown as a persistent panel', () => {
@@ -776,7 +848,7 @@ test('price list generation persists pricing drafts and applies tier-template tr
   for (const expected of [
     'savePriceListGenerationDraft(',
     'restorePriceListGenerationDraftForActiveType',
-    'productCatalogBusinessGroupRowsForPriceList',
+    'priceListProductCatalogFeatureSelection',
     'priceListPricingRuleTrialRequestsForRows',
     'watch(priceListPricingRuleTrialRequests',
     "apiSend('/api/costing/pricing-rule-trials'",
