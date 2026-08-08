@@ -20,7 +20,7 @@ func TestDev535RemoveObsoleteCostParametersContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"):                                             {"PR-535-REMOVE-OBSOLETE-COST-PARAMETERS"},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                         {"PR-535-REMOVE-OBSOLETE-COST-PARAMETERS"},
-		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                        {"旧成本参数设置已移除"},
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                        {"过时的成本参数设置已移除"},
 		filepath.Join("docs", "acceptance", "2026-07-12-remove-obsolete-cost-parameters.md"): {"PR-535 删除过时成本参数设置验收"},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

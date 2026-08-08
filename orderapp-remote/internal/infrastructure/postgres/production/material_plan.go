@@ -3,7 +3,6 @@ package production
 import (
 	"context"
 	"fmt"
-	"math"
 	productionapp "orderapp/internal/application/production"
 	stockdomain "orderapp/internal/domain/stock"
 	"strings"
@@ -17,10 +16,6 @@ func (r Repository) MaterialPlan(ctx context.Context, query productionapp.Materi
 		return productionapp.MaterialPlanResult{}, err
 	}
 	rows, err = r.splitUnproducedNeedsByProductionPlan(ctx, rows)
-	if err != nil {
-		return productionapp.MaterialPlanResult{}, err
-	}
-	yieldByProductID, err := r.loadProductYieldRateMap(ctx)
 	if err != nil {
 		return productionapp.MaterialPlanResult{}, err
 	}
@@ -73,7 +68,6 @@ func (r Repository) MaterialPlan(ctx context.Context, query productionapp.Materi
 			}
 		}
 
-		yieldRate := normalizeYieldRate(yieldByProductID[row.ProductID])
 		inputG, hasResolvedInput := query.InputByDemandKey[demandKey]
 		if !hasResolvedInput {
 			inputG = query.InputByKey[key]
@@ -82,18 +76,16 @@ func (r Repository) MaterialPlan(ctx context.Context, query productionapp.Materi
 			inputG = productionInputGFromBomMaterialLoss(row.GapG, bomLossRate)
 		}
 		if inputG <= 0 {
-			inputG = int64(math.Ceil(float64(row.GapG) / yieldRate))
-		} else {
-			yieldRate = float64(row.GapG) / float64(inputG)
+			inputG = row.GapG
 		}
-		plan := runningInventoryPlan(row.SpecG, row.GapG, inputG, yieldRate)
+		plan := plannedFinishedInventoryAddition(row.SpecG, row.GapG)
 		run := ProduceRunRow{
 			Product:      row.Product,
 			ProductID:    row.ProductID,
 			SpecG:        row.SpecG,
 			NeedG:        row.GapG,
 			InputG:       inputG,
-			BomYieldRate: yieldRate,
+			BomYieldRate: 1,
 			PlanUnits:    plan.Units,
 			PlanLooseG:   plan.LooseG,
 		}

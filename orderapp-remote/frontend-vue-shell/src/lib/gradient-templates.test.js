@@ -80,13 +80,20 @@ test('buildPriceExplanationRequest creates a temporary what-if payload without s
     product_id: 501,
     name: '模板拼配',
     green_bean_cost_per_kg: 51.75,
+    yield_rate: 0.8,
     gradient_template: { id: 9, name: '工厂量单模板', display_unit: 'kg', tiers: [] },
   }
-  const got = buildPriceExplanationRequest(item, { label: '24-49kg' }, { margin_rate: 0.3 })
+  const got = buildPriceExplanationRequest(item, { label: '24-49kg' }, {
+    yield_rate: 0.6,
+    expectedYieldRate: 0.7,
+    expectedLossRate: 0.2,
+    margin_rate: 0.3,
+  })
 
   assert.equal(got.product.product_id, 501)
   assert.equal(got.tier_label, '24-49kg')
   assert.deepEqual(got.overrides, { margin_rate: 0.3 })
+  assert.equal(Object.hasOwn(got.product, 'yield_rate'), false)
   assert.equal(got.save, undefined)
 })
 

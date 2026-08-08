@@ -32,7 +32,7 @@ func TestDev556ProductionPlanDraftSplitUXContracts(t *testing.T) {
 			"productionPlanBomSummary",
 			"bom_material_loss_rate",
 			"bom_summary_error",
-			"默认 BOM / 预期损耗",
+			"BOM原料损耗",
 			"BOM 配置待完善",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
@@ -71,6 +71,9 @@ func TestDev556ProductionPlanDraftSplitUXContracts(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue")))
 	if strings.Contains(view, "预期产出率") {
 		t.Fatalf("production plan preview must not show the removed expected-yield label")
+	}
+	if strings.Contains(view, "预期损耗") {
+		t.Fatalf("production plan preview must name the single BOM material loss explicitly")
 	}
 	if strings.Contains(view, `@click="createProductionPlan"`) {
 		t.Fatalf("current production plan must not keep a duplicate create button")

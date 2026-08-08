@@ -701,8 +701,6 @@ export function pricingRuleTrialDefaultQuoteUnit(product = {}, unitOptions = [])
 
 export function buildPricingRuleTrialPayload(form = {}) {
   const overrides = {}
-  const expectedLossRate = optionalNumberFromForm(form.expected_loss_rate ?? form.expectedLossRate)
-  if (expectedLossRate !== null) overrides.expected_loss_rate = expectedLossRate
   const baseCost = optionalNumberFromForm(form.base_cost ?? form.baseCost)
   if (baseCost !== null) overrides.base_cost = baseCost
   const marginRate = optionalNumberFromForm(form.margin_rate ?? form.marginRate)
@@ -897,12 +895,18 @@ function pricingRuleCalculationJSONFromForm(form = {}) {
   const profitMethod = !rawProfitMethod || ['gross_margin', 'markup'].includes(rawProfitMethod) ? 'markup' : rawProfitMethod
   const normalized = {
     ...stripPricingRuleQuantityFields(base),
-    yield_loss_mode: String(form.yield_loss_mode ?? form.yieldLossMode ?? base.yield_loss_mode ?? 'bom_or_product').trim() || 'bom_or_product',
+    yield_loss_mode: 'none',
     profit_method: profitMethod,
     tax_mode: String(form.tax_mode ?? form.taxMode ?? base.tax_mode ?? 'tax_included').trim() || 'tax_included',
     minimum_margin_rate: Number(form.minimum_margin_rate ?? form.minimumMarginRate ?? base.minimum_margin_rate ?? 0) || 0,
     trial_note: String(form.trial_note ?? form.trialNote ?? base.trial_note ?? '').trim(),
   }
+  delete normalized.yield_rate
+  delete normalized.yieldRate
+  delete normalized.expected_yield_rate
+  delete normalized.expectedYieldRate
+  delete normalized.expected_loss_rate
+  delete normalized.expectedLossRate
   normalized.other_costs = pricingRuleOtherCostMapFromForm(form, base)
   return stripPricingRuleQuantityFields(normalized)
 }
@@ -2468,8 +2472,6 @@ export function buildProductCreatePayload(form = {}) {
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
 	if (kind === 'green_bean') return payload
-	const yieldRate = normalizedYieldRateFromPercent(form)
-	if (yieldRate !== null) payload.yield_rate = yieldRate
 	return payload
 }
 
@@ -2496,8 +2498,6 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     payload.copy_bom = false
     payload.copy_price_tiers = false
   }
-  const yieldRate = normalizedYieldRateFromPercent(form)
-  if (yieldRate !== null) payload.yield_rate = yieldRate
   if (kind === 'instant_coffee') {
     payload.copy_bom = false
     return payload
@@ -2805,7 +2805,6 @@ export function buildProductProductionConfigForm(config = {}, product = {}, indu
   const orderedIndustryTemplates = industryTemplateIDs.length
     ? industryTemplateIDs.map((id) => industryTemplatesByID.get(id)).filter(Boolean)
     : sourceIndustryTemplates
-  const lossRate = Number(sourceConfig.expected_loss_rate ?? sourceProduct.expected_loss_rate ?? 0)
   const fields = Array.isArray(sourceConfig.fields) ? sourceConfig.fields : []
   const ruleOverride = parseJSONObject(sourceProduct.unit_rule_override_json || sourceProduct.unitRuleOverrideJSON)
   const salesUnitRules = parseJSONObject(sourceProduct.sales_unit_rules || sourceProduct.salesUnitRules || ruleOverride.sales_unit_rules || {})
@@ -2845,7 +2844,6 @@ export function buildProductProductionConfigForm(config = {}, product = {}, indu
     process_route_id: Number(sourceConfig.process_route_id || 0),
     industry_field_template_ids: industryTemplateIDs,
     industry_field_template_id: Number(industryTemplateIDs[0] || 0),
-    expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
     note: String(sourceConfig.note || sourceProduct.production_config_note || '').trim(),
     fields: productProductionConfigFieldsFromTemplates(fields, orderedIndustryTemplates),
   }
@@ -2876,10 +2874,6 @@ export function buildProductBasicsPayload(row = {}) {
       ? String(row.unit_rule_override_json || '{}').trim() || '{}'
       : stripProductUnitRuleOverrideJSON(row.unit_rule_override_json)
 	}
-	if (kind !== 'green_bean') {
-		const yieldRate = normalizedYieldRateFromPercent(row)
-    if (yieldRate !== null) payload.yield_rate = yieldRate
-  }
   return payload
 }
 
@@ -3023,13 +3017,6 @@ function salesUnitIntegerFromRules(rules = {}, unit = '') {
   if (Object.prototype.hasOwnProperty.call(rule, 'integer_unit')) return Boolean(rule.integer_unit)
   if (Object.prototype.hasOwnProperty.call(rule, 'integer')) return Boolean(rule.integer)
   return false
-}
-
-function normalizedYieldRateFromPercent(form = {}) {
-  if (!Object.prototype.hasOwnProperty.call(form, 'yield_percent')) return null
-  const rate = Number(form.yield_percent || 0) / 100
-  if (!Number.isFinite(rate) || rate <= 0) return null
-  return Number(rate.toFixed(4))
 }
 
 function rowCustomerID(row = {}) {

@@ -215,12 +215,11 @@ func (r Repository) ReplacePriceTiers(ctx context.Context, cmd catalogapp.Replac
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
-	yieldRate := 0.0
+	yieldRate := 1.0
 	if catalogdomain.ProductKindRequiresRoast(productKind) {
 		if roastLevel == "" {
 			roastLevel = "中烘"
 		}
-		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET product_kind=$2, roast_level=$3, default_price=$4,
@@ -291,15 +290,11 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
-	yieldRate := 0.0
+	yieldRate := 1.0
 	if catalogdomain.ProductKindRequiresRoast(productKind) {
 		if roastLevel == "" {
 			roastLevel = "中烘"
 		}
-		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
-	}
-	if catalogdomain.ProductKindSupportsBomParams(productKind) && cmd.YieldRate > 0 {
-		yieldRate = cmd.YieldRate
 	}
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
@@ -456,14 +451,9 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		greenBeanType = ""
 		greenBeanBomProductID = 0
 	}
-	yieldRate := cmd.YieldRate
+	yieldRate := 1.0
 	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
 		roastLevel = "中烘"
-	}
-	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate <= 0 {
-		if catalogdomain.ProductKindRequiresRoast(productKind) {
-			yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
-		}
 	}
 	name := strings.TrimSpace(cmd.Name)
 
@@ -1236,7 +1226,7 @@ func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.Pro
 func (r Repository) ListProductProductionConfigs(ctx context.Context) ([]catalogapp.ProductProductionConfig, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 			SELECT product_id, production_bom_id, production_bom_version_id, process_route_id, COALESCE(industry_field_template_id,0),
-			       COALESCE(expected_loss_rate,0)::float8, COALESCE(note,'')
+		       0::float8 AS neutral_expected_loss_rate, COALESCE(note,'')
 		FROM %s.product_production_configs
 		ORDER BY product_id
 	`, r.schema))
@@ -5635,10 +5625,7 @@ func (r Repository) CreateCustomProduct(ctx context.Context, cmd catalogapp.Crea
 	if cmd.DripBoxBagCount > 0 {
 		dripBoxBagCount = cmd.DripBoxBagCount
 	}
-	yieldRate := cmd.YieldRate
-	if yieldRate <= 0 && catalogdomain.ProductKindRequiresRoast(productKind) {
-		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
-	}
+	yieldRate := 1.0
 	name := strings.TrimSpace(cmd.Name)
 	remark := strings.TrimSpace(cmd.Remark)
 	var productID int64

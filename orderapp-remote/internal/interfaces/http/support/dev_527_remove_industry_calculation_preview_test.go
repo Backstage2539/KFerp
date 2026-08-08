@@ -46,4 +46,20 @@ func TestDev527RemoveIndustryCalculationPreviewContracts(t *testing.T) {
 			t.Fatalf("industry field template view still contains removed preview marker %q", removed)
 		}
 	}
+
+	api := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "manufacturing", "api.go")))
+	for _, want := range []string{"/api/industry-calculators/preview", "http.StatusGone", "原料损耗只能在生产 BOM 版本中配置"} {
+		if !strings.Contains(api, want) {
+			t.Fatalf("retired industry calculation preview API must return an explicit tombstone; missing %q", want)
+		}
+	}
+	if strings.Contains(api, "svc.PreviewIndustryCalculator") {
+		t.Fatal("retired industry calculation preview must not call a calculation service")
+	}
+	service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "manufacturing", "service.go")))
+	for _, removed := range []string{"PreviewIndustryCalculator", "defaultIndustryLossRate", "generic_manufacturing"} {
+		if strings.Contains(service, removed) {
+			t.Fatalf("removed industry calculation preview service still contains %q", removed)
+		}
+	}
 }

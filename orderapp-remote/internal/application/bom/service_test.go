@@ -17,10 +17,12 @@ type fakeRepo struct {
 	productRows                   []Option
 	createdProductionBomCommand   CreateProductionBomCommand
 	updatedProductionBomCommand   UpdateProductionBomCommand
+	copiedProductionBomCommand    CopyProductionBomCommand
 	updatedProductionDraftCommand UpdateProductionBomVersionDraftCommand
 	publishValidationErr          error
 	usageProductID                int64
 	usageRows                     []ProductionBomUsedByBom
+	syncedYield                   SyncProductYieldCommand
 }
 
 func (r *fakeRepo) List(ctx context.Context) ([]ListItem, error) { return r.listRows, nil }
@@ -33,7 +35,37 @@ func (r *fakeRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error
 	return nil, nil
 }
 func (r *fakeRepo) SyncProductYield(ctx context.Context, cmd SyncProductYieldCommand) error {
+	r.syncedYield = cmd
 	return nil
+}
+
+func TestCurrentBomResponsesNeutralizeLegacyOverallYieldAndLoss(t *testing.T) {
+	listItem := ListItem{YieldRate: 0.8, ExpectedYieldRate: 0.8, ExpectedLossRate: 0.2}
+	detail := Detail{YieldRate: 0.8, ExpectedYieldRate: 0.8, ExpectedLossRate: 0.2}
+	version := Version{YieldRate: 0.8, ExpectedYieldRate: 0.8, ExpectedLossRate: 0.2}
+	summary := ProductionBomSummary{ExpectedYieldRate: 0.8, ExpectedLossRate: 0.2}
+	productionVersion := ProductionBomVersion{YieldRate: 0.8, ExpectedYieldRate: 0.8, ExpectedLossRate: 0.2}
+
+	enrichListItemYield(&listItem)
+	enrichDetailYield(&detail)
+	enrichVersionYield(&version)
+	enrichProductionBomSummaryYield(&summary)
+	enrichProductionBomVersionYield(&productionVersion)
+
+	for label, values := range map[string][2]float64{
+		"list":               {listItem.ExpectedYieldRate, listItem.ExpectedLossRate},
+		"detail":             {detail.ExpectedYieldRate, detail.ExpectedLossRate},
+		"version":            {version.ExpectedYieldRate, version.ExpectedLossRate},
+		"production summary": {summary.ExpectedYieldRate, summary.ExpectedLossRate},
+		"production version": {productionVersion.ExpectedYieldRate, productionVersion.ExpectedLossRate},
+	} {
+		if values[0] != 1 || values[1] != 0 {
+			t.Fatalf("%s compatibility yield/loss = %v, want [1 0]", label, values)
+		}
+	}
+	if listItem.YieldRate != 1 || detail.YieldRate != 1 || version.YieldRate != 1 || productionVersion.YieldRate != 1 {
+		t.Fatalf("legacy yield fields must also be neutralized")
+	}
 }
 func (r *fakeRepo) DeactivateBom(ctx context.Context, cmd DeactivateBomCommand) error {
 	r.deactivatedID = cmd.ProductID
@@ -112,8 +144,9 @@ func (r *fakeRepo) UpdateProductionBom(_ context.Context, cmd UpdateProductionBo
 	r.updatedProductionBomCommand = cmd
 	return ProductionBomSummary{ID: cmd.ID, Name: cmd.Name, OutputProductID: cmd.OutputProductID}, nil
 }
-func (r *fakeRepo) CopyProductionBom(context.Context, CopyProductionBomCommand) (ProductionBomSummary, error) {
-	return ProductionBomSummary{}, nil
+func (r *fakeRepo) CopyProductionBom(_ context.Context, cmd CopyProductionBomCommand) (ProductionBomSummary, error) {
+	r.copiedProductionBomCommand = cmd
+	return ProductionBomSummary{Name: cmd.Name}, nil
 }
 func (r *fakeRepo) CreateProductionBomVersion(context.Context, CreateProductionBomVersionCommand) (ProductionBomVersion, error) {
 	return ProductionBomVersion{}, nil
@@ -283,6 +316,79 @@ func TestServiceValidatesDeactivateBom(t *testing.T) {
 	}
 	if repo.deactivatedID != 7 {
 		t.Fatalf("deactivatedID = %d, want 7", repo.deactivatedID)
+	}
+}
+
+func TestServiceIgnoresLegacyOverallLossWrites(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	loss := 0.2
+	if err := svc.SyncProductYield(context.Background(), SyncProductYieldCommand{ProductID: 7, ExpectedLossRate: &loss}); err != nil {
+		t.Fatalf("SyncProductYield: %v", err)
+	}
+	if repo.syncedYield.ExpectedLossRate != nil || repo.syncedYield.ExpectedYieldRate != 1 {
+		t.Fatalf("legacy product loss write must normalize to yield 1: %+v", repo.syncedYield)
+	}
+
+	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{Name: "曲奇拼配", OutputProductID: 643, ExpectedLossRate: &loss}); err != nil {
+		t.Fatalf("CreateProductionBom: %v", err)
+	}
+	if repo.createdProductionBomCommand.ExpectedLossRate == nil || *repo.createdProductionBomCommand.ExpectedLossRate != 0 {
+		t.Fatalf("legacy create loss must normalize to zero: %+v", repo.createdProductionBomCommand)
+	}
+
+	if _, err := svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{VersionID: 11, ExpectedLossRate: &loss}); err != nil {
+		t.Fatalf("UpdateProductionBomVersionDraft: %v", err)
+	}
+	if repo.updatedProductionDraftCommand.ExpectedLossRate == nil || *repo.updatedProductionDraftCommand.ExpectedLossRate != 0 {
+		t.Fatalf("legacy draft loss must normalize to zero: %+v", repo.updatedProductionDraftCommand)
+	}
+}
+
+func TestNormalizeProductionBomNameIsIdempotent(t *testing.T) {
+	tests := map[string]string{
+		"BOM-000659 ALO TOH#1 生产 BOM / V001":       "ALO TOH#1",
+		"BOM000643 曲奇拼配 生产 BOM / V001":             "曲奇拼配",
+		"BOM000643曲奇拼配 生产 BOM":                     "曲奇拼配",
+		"BOM-003262 PR442-SCENARIO Production BOM": "PR442-SCENARIO",
+		"GoalE2E 咖啡熟豆 BOM":                         "GoalE2E 咖啡熟豆",
+		"ALO TOH#1 生产 BOM 副本 副本":                   "ALO TOH#1 副本 副本",
+		"生产 BOM 校准配方":                              "生产 BOM 校准配方",
+	}
+	for input, want := range tests {
+		got := NormalizeProductionBomName(input)
+		if got != want {
+			t.Errorf("NormalizeProductionBomName(%q) = %q, want %q", input, got, want)
+		}
+		if again := NormalizeProductionBomName(got); again != got {
+			t.Errorf("NormalizeProductionBomName must be idempotent: first %q, second %q", got, again)
+		}
+	}
+}
+
+func TestProductionBomWritesNormalizeBusinessName(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.CreateProductionBom(context.Background(), CreateProductionBomCommand{Name: "BOM-000659 ALO TOH#1 生产 BOM / V001", OutputProductID: 643}); err != nil {
+		t.Fatalf("CreateProductionBom: %v", err)
+	}
+	if repo.createdProductionBomCommand.Name != "ALO TOH#1" {
+		t.Fatalf("create name = %q", repo.createdProductionBomCommand.Name)
+	}
+
+	if _, err := svc.UpdateProductionBom(context.Background(), UpdateProductionBomCommand{ID: 11, Name: "BOM000643 曲奇拼配 生产 BOM"}); err != nil {
+		t.Fatalf("UpdateProductionBom: %v", err)
+	}
+	if repo.updatedProductionBomCommand.Name != "曲奇拼配" {
+		t.Fatalf("update name = %q", repo.updatedProductionBomCommand.Name)
+	}
+
+	if _, err := svc.CopyProductionBom(context.Background(), CopyProductionBomCommand{ID: 11, Name: "BOM000643 曲奇拼配 生产 BOM / V001"}); err != nil {
+		t.Fatalf("CopyProductionBom: %v", err)
+	}
+	if repo.copiedProductionBomCommand.Name != "曲奇拼配" {
+		t.Fatalf("copy name = %q", repo.copiedProductionBomCommand.Name)
 	}
 }
 

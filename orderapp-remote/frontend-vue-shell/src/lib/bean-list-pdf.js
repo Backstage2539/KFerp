@@ -1078,7 +1078,6 @@ function beanListItemPriceSource(item, listType, tierKey) {
     drip_price_template_id: firstNumber(item.drip_price_template?.id, item.dripPriceTemplate?.id),
     bom_version_id: firstNumber(item.bom_version_id, item.bomVersionID),
     bom_usage_mode: stringField(item.bom_usage_mode ?? item.bomUsageMode),
-    yield_rate: firstNumber(item.yield_rate, item.yieldRate),
     bom_cost_per_unit: firstNumber(item.bom_cost_per_unit, item.bomCostPerUnit),
     operation_cost_per_unit: firstNumber(item.operation_cost_per_unit, item.operationCostPerUnit),
     operation_cost_per_kg: firstNumber(item.operation_cost_per_kg, item.operationCostPerKg),

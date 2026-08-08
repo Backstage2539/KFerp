@@ -106,15 +106,14 @@ func ResolveCustomerProcessingTargetsTx(ctx context.Context, tx pgx.Tx, schema s
 		needG := target.SpecG * target.Qty
 		lossRate := productionPlanBomMaterialLossRate(bom)
 		inputG := productionInputGFromBomMaterialLoss(needG, lossRate)
-		yieldRate := 1 - normalizeMaterialLossRate(lossRate)
-		plan := runningInventoryPlan(target.SpecG, needG, inputG, yieldRate)
+		plan := plannedFinishedInventoryAddition(target.SpecG, needG)
 		run := ProduceRunRow{
 			Product:      productName,
 			ProductID:    target.ProductID,
 			SpecG:        target.SpecG,
 			NeedG:        needG,
 			InputG:       inputG,
-			BomYieldRate: yieldRate,
+			BomYieldRate: 1,
 			PlanUnits:    plan.Units,
 			PlanLooseG:   plan.LooseG,
 		}

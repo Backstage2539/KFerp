@@ -3,11 +3,6 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : 0
 }
 
-function normalizeYieldRate(value) {
-  const n = Number(value || 0)
-  return n > 0 ? n : 0.8
-}
-
 export function finishedTotalG(row, input) {
   if (Array.isArray(input?.outputs) && input.outputs.length) {
     return input.outputs.reduce((sum, output) => sum + toNumber(output.spec_g) * toNumber(output.finished_units) + toNumber(output.finished_loose_g), 0)
@@ -29,21 +24,14 @@ export function buildFinishInput(row, warehouse = 'finished_goods') {
     consumed_input_g: toNumber(row?.input_g),
     partial: false,
     warehouse,
-    yield_dirty: false,
   }
   if (outputs.length) input.outputs = outputs
   return input
 }
 
-export function markYieldDirty(input) {
-  if (input) input.yield_dirty = true
-}
-
 export function actualYieldRate(row, input) {
-  if (!input?.yield_dirty) return normalizeYieldRate(row?.bom_yield_rate)
-
   const inputG = toNumber(input.consumed_input_g)
-  if (inputG <= 0) return normalizeYieldRate(row?.bom_yield_rate)
+  if (inputG <= 0) return 0
   return finishedTotalG(row, input) / inputG
 }
 

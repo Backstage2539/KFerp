@@ -343,7 +343,7 @@ func TestProducePlanSummaryAPILeavesAddOnOrdersSelectableWhenOlderOrdersPlanned(
 	}
 }
 
-func TestProducePlanSummaryAPIReturnsExactYieldRateForRoastPlans(t *testing.T) {
+func TestProducePlanSummaryAPIReturnsCompatibilityYieldOneForRoastPlans(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 
@@ -380,8 +380,8 @@ func TestProducePlanSummaryAPIReturnsExactYieldRateForRoastPlans(t *testing.T) {
 	if len(payload.RoastPlans) == 0 {
 		t.Fatalf("roast_plans empty: %s", rec.Body.String())
 	}
-	if payload.RoastPlans[0].YieldRate != 0.815 {
-		t.Fatalf("roast plan yield_rate = %.4f, want 0.8150", payload.RoastPlans[0].YieldRate)
+	if payload.RoastPlans[0].YieldRate != 1 {
+		t.Fatalf("roast plan compatibility yield_rate = %.4f, want 1", payload.RoastPlans[0].YieldRate)
 	}
 }
 
@@ -474,8 +474,8 @@ func TestProducePlanSummaryAPIUsesInheritedPublishedBomLossOnceWithoutMachineRou
 	if row.BomSummaryError != "" || math.Abs(row.BomMaterialLossRate-0.18) > 0.000000001 {
 		t.Fatalf("resolved inherited BOM summary = %+v, want published V004 loss 18%%", row)
 	}
-	if row.InputG != 7751 {
-		t.Fatalf("plan input_g = %d, want round(14*454/(1-0.18)) = 7751", row.InputG)
+	if row.InputG != 7501 {
+		t.Fatalf("plan input_g = %d, want ceil(14*454*(1+0.18)) = 7501", row.InputG)
 	}
 	var material *productionapp.MaterialNeed
 	for i := range payload.Materials {
@@ -484,8 +484,8 @@ func TestProducePlanSummaryAPIUsesInheritedPublishedBomLossOnceWithoutMachineRou
 			break
 		}
 	}
-	if material == nil || material.Unit != "g" || material.Qty != 7751 || material.ExactQty != 7751 {
-		t.Fatalf("material demand = %+v in %+v, want 7751g with BOM loss applied exactly once", material, payload.Materials)
+	if material == nil || material.Unit != "g" || material.Qty != 7501 || material.ExactQty != 7501 {
+		t.Fatalf("material demand = %+v in %+v, want 7501g with additive BOM loss applied exactly once", material, payload.Materials)
 	}
 }
 
@@ -541,7 +541,7 @@ func TestProducePlanSummaryAPIIgnoresInProductionSiblingDemandForParentBomMateri
 			break
 		}
 	}
-	if material == nil || material.Unit != "g" || material.Qty != 7751 || material.ExactQty != 7751 {
+	if material == nil || material.Unit != "g" || material.Qty != 7501 || material.ExactQty != 7501 {
 		t.Fatalf("material plan must exclude the old in-production demand: material=%+v all=%+v", material, payload.Materials)
 	}
 
@@ -566,7 +566,7 @@ func TestProducePlanSummaryAPIIgnoresInProductionSiblingDemandForParentBomMateri
 			break
 		}
 	}
-	if materialPlanRow == nil || materialPlanRow.RequiredG != 7751 {
+	if materialPlanRow == nil || materialPlanRow.RequiredG != 7501 {
 		t.Fatalf("public material plan must exclude old in-production demand: row=%+v all=%+v", materialPlanRow, materialPayload.Rows)
 	}
 }

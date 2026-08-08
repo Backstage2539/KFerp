@@ -1113,7 +1113,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(NULLIF(bi.bom_output_unit,''),'unit') AS bom_output_unit,
 		       CASE
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='ratio_pct'
-		         THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))
+		         THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 * (1 + LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))
 		         ELSE 0
 		       END::float8 AS amount_per_kg,
 		       CASE
@@ -1178,7 +1178,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		}
 		if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" && row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
 			row.RecipeRatioPct = row.RatioPct
-			row.EffectiveRatioPct = row.RatioPct / (1 - row.MaterialLossRate)
+			row.EffectiveRatioPct = row.RatioPct * (1 + row.MaterialLossRate)
 			row.RatioPct = row.EffectiveRatioPct
 		} else if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" {
 			row.RecipeRatioPct = row.RatioPct
@@ -1404,8 +1404,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       CASE WHEN output_bom.bom_id IS NOT NULL THEN 'production_bom_output' ELSE COALESCE(NULLIF(bs.source_type,''), '') END AS bom_usage_mode,
 			       COALESCE(NULLIF(output_bom.bom_id,0),0) AS production_bom_id,
 			       COALESCE(NULLIF(output_bom.bom_version_id,0),0) AS production_bom_version_id,
-			       COALESCE(NULLIF(ppc.expected_loss_rate,0), -1)::float8 AS expected_loss_rate,
-			       CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE 0 END::float8 AS production_config_yield_rate,
+			       0::float8 AS expected_loss_rate,
+			       1::float8 AS production_config_yield_rate,
 			       COALESCE(NULLIF(ppc.process_route_id,0),0) AS process_route_id,
 			       CASE
 			         WHEN COALESCE(NULLIF(p.product_kind,''),'roasted')='green_bean'
@@ -1531,7 +1531,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		),
 		finished_product_cost AS (
 			SELECT p.id AS product_id,
-			       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0) AS green_cost_per_kg
+			       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 * (1 + LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0) AS green_cost_per_kg
 			FROM %[1]s.products p
 			LEFT JOIN all_effective_bom_items bi ON bi.product_id = p.id
 				AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
@@ -1804,13 +1804,13 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       ),
 		       COALESCE(pps.product_price_snapshots_json, '[]'),
 		       p.margin_rate_override::float8,
-		       COALESCE(NULLIF(p.production_config_yield_rate,0), NULLIF(current_bv.yield_rate,0), NULLIF(b.yield_rate,0), $1),
+		       1::float8,
 		       CASE
 		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'green_bean'
-		           THEN COALESCE(SUM(COALESCE(NULLIF(bi.unit_cost_snapshot,0), m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0)
+		           THEN COALESCE(SUM(COALESCE(NULLIF(bi.unit_cost_snapshot,0), m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 * (1 + LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0)
 		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'drip_bag' AND COALESCE(fcc.finished_green_cost_per_kg,0) > 0
 		           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
-		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0)
+		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0 * (1 + LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))),0)
 		       END,
 		       COALESCE(MAX(buc.bom_cost_per_unit),0)::float8,
 		       COALESCE(MAX(ouc.operation_cost_per_unit),0)::float8,
@@ -2192,8 +2192,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		}
 		_ = roastLevel
 		input.ProductPriceSnapshots = productPriceSnapshotsFromJSON(productPriceSnapshotsJSON)
-		input.YieldRate = fallbackYield
-		input.ExpectedLossRate = 1 - fallbackYield
+		input.YieldRate = 1
+		input.ExpectedLossRate = 0
 		if strings.TrimSpace(input.BomStatus) == "inactive" {
 			input.Warnings = append(input.Warnings, "BOM已失效：请重新启用 BOM 后再发布价格策略")
 		}
@@ -2217,7 +2217,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			out[i].BomCostPerUnit = 0
 			out[i].OperationCostPerUnit = 0
 			out[i].OperationCostPerKg = 0
-			out[i].Warnings = append(out[i].Warnings, "商品组件成本无法完整解析：请检查组件商品的已发布生产 BOM、物料价格、产出率和循环引用")
+			out[i].Warnings = append(out[i].Warnings, "商品组件成本无法完整解析：请检查组件商品的已发布生产 BOM、物料价格、BOM 原料损耗和循环引用")
 			continue
 		}
 		out[i].BomCostPerUnit = resolvedCost.InputCostPerOutputUnit

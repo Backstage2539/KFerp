@@ -275,7 +275,6 @@ test('product bean-list price source drawer keeps temporary tier trial controls'
     '<span>当前试算</span>',
     '<span>临时试算</span>',
     'v-model="explanationOverrides.green_bean_cost_per_kg"',
-    'v-model="explanationOverrides.yield_rate"',
     'v-model="explanationOverrides.margin_rate"',
     '@click="loadPriceExplanation"',
     'function cleanExplanationOverrides',
@@ -284,4 +283,6 @@ test('product bean-list price source drawer keeps temporary tier trial controls'
   ]) {
     assert.match(costingSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.doesNotMatch(costingSource, /v-model="explanationOverrides\.yield_rate"/)
+  assert.doesNotMatch(costingSource, /临时预期产出率/)
 })

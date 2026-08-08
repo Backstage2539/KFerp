@@ -381,7 +381,6 @@ func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
 		"classification-group-row",
 		"classification-group-toggle",
 		"displaySkuGroups",
-		"yield_percent",
 		"saveProductBasics(row, 'SKU备注已保存')",
 		"activeProductClassificationTab",
 		"productsCollapsed",
@@ -398,6 +397,9 @@ func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
 		"<th>227g</th>",
 		"<th>250g</th>",
 		"编辑基础信息",
+		"yield_percent",
+		"整体产出率",
+		"预期损耗率",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("product basics list should remove price/action editor fragment %q", forbidden)
@@ -405,7 +407,7 @@ func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
 	}
 }
 
-func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
+func TestProductSettingsDragEndAndBomLossAreWiredToSingleSource(t *testing.T) {
 	settings, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"))
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +425,6 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 		"saveSelectedProductClassificationAssignment",
 		"saveSelectedAliasClassificationAssignment",
 		"selectedProductClassificationCategoryID",
-		"预期损耗率",
 		"buildProductCreatePayload(productForm.value)",
 		"buildProductBasicsPayload(row)",
 	} {
@@ -433,6 +434,11 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 	}
 	if strings.Contains(src, "@dragend=\"clearDrag\"") {
 		t.Fatalf("dragend must not synchronously clear drag state before drop handlers run")
+	}
+	for _, forbidden := range []string{"yield_percent", "整体产出率", "预期损耗率"} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("product settings must not expose removed overall yield/loss field %q", forbidden)
+		}
 	}
 	for _, want := range []string{
 		"INSERT INTO %s.product_production_configs(",

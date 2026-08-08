@@ -1333,31 +1333,58 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) ListProducts(ctx context.Context) ([]Product, error) {
-	return s.repo.ListProducts(ctx)
+	rows, err := s.repo.ListProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		normalizeLegacyProductYield(&rows[i])
+	}
+	return rows, nil
 }
 
 func (s *Service) GetProduct(ctx context.Context, id int64) (*Product, error) {
-	return s.repo.GetProduct(ctx, id)
+	row, err := s.repo.GetProduct(ctx, id)
+	if err != nil || row == nil {
+		return row, err
+	}
+	normalizeLegacyProductYield(row)
+	return row, nil
 }
 
 func (s *Service) ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error) {
-	return s.repo.ListProductProductionConfigs(ctx)
+	rows, err := s.repo.ListProductProductionConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i].ExpectedLossRate = 0
+	}
+	return rows, nil
 }
 
 func (s *Service) GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error) {
 	if productID <= 0 {
 		return ProductProductionConfig{}, ValidationError{Message: "product_id required"}
 	}
-	return s.repo.GetProductProductionConfig(ctx, productID)
+	row, err := s.repo.GetProductProductionConfig(ctx, productID)
+	row.ExpectedLossRate = 0
+	return row, err
+}
+
+func normalizeLegacyProductYield(row *Product) {
+	if row == nil {
+		return
+	}
+	row.YieldRate = 1
+	row.ExpectedLossRate = 0
 }
 
 func (s *Service) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
 	if cmd.ProductID <= 0 {
 		return ProductProductionConfig{}, ValidationError{Message: "product_id required"}
 	}
-	if cmd.ExpectedLossRate < 0 || cmd.ExpectedLossRate >= 1 {
-		return ProductProductionConfig{}, ValidationError{Message: "expected_loss_rate must be [0,1)"}
-	}
+	cmd.ExpectedLossRate = 0
 	templateIDs := cmd.IndustryFieldTemplateIDs
 	if templateIDs == nil {
 		if cmd.IndustryFieldTemplateID < 0 {
@@ -1621,6 +1648,9 @@ func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int
 func normalizeProductSalesShape(productKind *string, greenBeanType *string, greenBeanBomProductID *int64, roastLevel *string, defaultPrice *float64, retailPrice100G *float64, retailPrice200G *float64, retailPrice227G *float64, retailPrice250G *float64, yieldRate *float64, tiers *[]PriceTier) error {
 	kind := catalogdomain.NormalizeProductKind(*productKind)
 	*productKind = kind
+	// Retain the legacy field in request/repository contracts, but current
+	// products always persist the neutral value. BOM material loss is authoritative.
+	*yieldRate = 1
 	if kind != catalogdomain.ProductKindGreenBean {
 		*greenBeanType = ""
 		*greenBeanBomProductID = 0
@@ -1634,21 +1664,9 @@ func normalizeProductSalesShape(productKind *string, greenBeanType *string, gree
 				normalizedRoast = "中烘"
 			}
 			*roastLevel = normalizedRoast
-			if *yieldRate <= 0 {
-				*yieldRate = catalogdomain.ResolveYieldRate(*roastLevel, 0.8)
-			}
-			if *yieldRate <= 0 || *yieldRate > 1 {
-				return ValidationError{Message: "invalid yield_rate"}
-			}
 			return nil
 		}
 		*roastLevel = ""
-		if *yieldRate <= 0 {
-			*yieldRate = 0
-		}
-		if *yieldRate > 1 {
-			return ValidationError{Message: "invalid yield_rate"}
-		}
 		return nil
 	}
 	*greenBeanType = normalizeGreenBeanType(*greenBeanType)
@@ -1661,7 +1679,7 @@ func normalizeProductSalesShape(productKind *string, greenBeanType *string, gree
 	*retailPrice200G = 0
 	*retailPrice227G = 0
 	*retailPrice250G = 0
-	*yieldRate = 0
+	*yieldRate = 1
 	if tiers != nil {
 		*tiers = nil
 	}
@@ -1691,6 +1709,12 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	productionConfigs, err := s.repo.ListProductProductionConfigs(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
+	}
+	for i := range products {
+		normalizeLegacyProductYield(&products[i])
+	}
+	for i := range productionConfigs {
+		productionConfigs[i].ExpectedLossRate = 0
 	}
 	classificationTemplates, err := s.repo.ListProductClassificationTemplates(ctx)
 	if err != nil {
@@ -2742,6 +2766,7 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	}
 	requestedKind := strings.TrimSpace(cmd.ProductKind)
 	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	cmd.YieldRate = 1
 	var base *Product
 	var err error
 	requiresBaseProduct := cmd.CustomType != "custom_roast" && (requestedKind == "" || cmd.ProductKind != catalogdomain.ProductKindGreenBean)
@@ -2794,20 +2819,8 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 					cmd.RoastLevel = "中烘"
 				}
 			}
-			if cmd.YieldRate <= 0 && base != nil {
-				cmd.YieldRate = base.YieldRate
-			}
-			if cmd.YieldRate <= 0 {
-				cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
-			}
 		} else {
 			cmd.RoastLevel = ""
-			if cmd.YieldRate <= 0 {
-				cmd.YieldRate = 0
-			}
-		}
-		if cmd.YieldRate > 1 {
-			return Product{}, ValidationError{Message: "invalid yield_rate"}
 		}
 		cmd.GreenBeanType = ""
 		cmd.GreenBeanBomProductID = 0
@@ -4111,9 +4124,10 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
 	inventoryUnit, integerInventoryUnit := productInventoryUnitFields(p)
 	defaultSalesUnit, unitConversionJSON, salesUnitRulesJSON := productSalesUnitRuleFields(p, inventoryUnit)
+	p.YieldRate = 1
+	p.ExpectedLossRate = 0
 	if !catalogdomain.ProductKindSupportsBomParams(productKind) {
 		p.RoastLevel = ""
-		p.YieldRate = 0
 	}
 	return ProductSettingsProduct{
 		ID:                          p.ID,

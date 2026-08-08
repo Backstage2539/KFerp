@@ -113,8 +113,8 @@ func TestMaterialLossIsAppliedExactlyOnceToExactWeight(t *testing.T) {
 		1816, 1816, 4, 0,
 		1, "kg", 0.2,
 	)
-	if got != 2270 {
-		t.Fatalf("loss-adjusted weight=%dg, want 2270g", got)
+	if got != 2180 {
+		t.Fatalf("loss-adjusted weight=%dg, want ceil(1816g * 1.2) = 2180g", got)
 	}
 }
 
@@ -150,8 +150,8 @@ func TestIsWeightMaterialUnit(t *testing.T) {
 
 func TestComponentConsumptionQtyGrossesRatioMaterialLoss(t *testing.T) {
 	got := componentConsumptionQtyWithMaterialLoss("ratio_pct", 0, 40, "g", 1000, 0, 0, 0, 0, "", 0.2)
-	if got != 500 {
-		t.Fatalf("ratio material loss quantity = %d, want 500g", got)
+	if got != 480 {
+		t.Fatalf("ratio material loss quantity = %d, want 1000 * 40%% * 1.2 = 480g", got)
 	}
 	withoutLoss := componentConsumptionQtyWithMaterialLoss("ratio_pct", 0, 40, "g", 1000, 0, 0, 0, 0, "", 0)
 	if withoutLoss != 400 {
@@ -160,6 +160,50 @@ func TestComponentConsumptionQtyGrossesRatioMaterialLoss(t *testing.T) {
 	fixed := componentConsumptionQtyWithMaterialLoss("g", 125, 0, "g", 1000, 1000, 0, 0, 1, "kg", 0.2)
 	if fixed != 125 {
 		t.Fatalf("fixed quantity should ignore material loss, got %d", fixed)
+	}
+}
+
+func TestFrozenMaterialSnapshotKeepsLegacyLossMathWhileNewSnapshotUsesAdditiveLoss(t *testing.T) {
+	legacySnapshot := `[{
+		"material_id":9001,
+		"material_name":"历史生豆",
+		"unit":"g",
+		"source":"bom",
+		"consume_unit":"ratio_pct",
+		"ratio_pct":100,
+		"material_loss_rate":0.2
+	}]`
+	newSnapshot := `[{
+		"material_id":9001,
+		"material_name":"新计划生豆",
+		"unit":"g",
+		"source":"bom",
+		"consume_unit":"ratio_pct",
+		"ratio_pct":100,
+		"material_loss_rate":0.2,
+		"loss_calculation_mode":"additive"
+	}]`
+
+	for _, tc := range []struct {
+		name     string
+		snapshot string
+		wantG    int64
+	}{
+		{name: "legacy frozen snapshot", snapshot: legacySnapshot, wantG: 1250},
+		{name: "new additive snapshot", snapshot: newSnapshot, wantG: 1200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			needs, ok, err := materialSnapshotNeedsTx(ProduceRunRow{
+				ProductID: 9001, Product: "快照兼容", SpecG: 1000, NeedG: 1000, InputG: 1000,
+				MaterialSnapshot: tc.snapshot,
+			}, InvQty{Units: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok || len(needs) != 1 || needs[0].DeductG != tc.wantG {
+				t.Fatalf("material needs = %+v, ok=%v, want one frozen need of %dg", needs, ok, tc.wantG)
+			}
+		})
 	}
 }
 

@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-585-BOM-SINGLE-MATERIAL-LOSS
+- Branch: codex/fix-cookie-bom-cost-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: implementation complete; full verification and independent review in progress
+- Scope: 删除当前 BOM 的整体产出率/整体预期损耗业务概念；未配置原料损耗时不放大，配置后唯一公式为 `净配方 × (1 + BOM原料损耗率)`，价格试算与新生产计划使用同一口径，历史工单、库存流水和价格快照不回算。生产 BOM 的当前名称统一去掉编号、`生产 BOM` 和版本号等结构性前后缀，只保留业务名。
+- DEV:
+  - DEV-585-SINGLE-LOSS-MATH：成本图、价格试算、计划投料和组件需求统一使用加耗公式，曲奇 1kg 的 BOM 物料成本为 `62.10元/kg`，冻结工序后标准制造成本为 `64.71元/kg`。
+  - DEV-585-REMOVE-OVERALL-YIELD：Vue/Vite BOM 与商品生产配置不再展示或提交整体产出率/整体预期损耗；当前业务 API 和计算不再读取旧 `yield_rate/expected_loss_rate` 放大结果。
+  - DEV-585-HISTORY-COMPATIBILITY：旧字段仅保留历史读取兼容，已冻结工单、历史库存流水、已发布价格表和订单快照不重算。
+  - DEV-585-BOM-NAME-NORMALIZATION：BOM 列表、详情及新建/修改/复制写入口幂等清洗 `BOM-000659`/`BOM000643`、`生产 BOM / V001` 等结构性前后缀；开发和生产现有名称通过业务 API 修复并保留状态。
+  - DEV-585-DOCS-ACCEPTANCE：同步生产、成本、商品物料手册、需求和验收证据。
+- Verifier:
+  - RED: 曲奇 `54×75% + 45×25%` 在 20% 原料损耗下当前按除法和旧 80% 产出率得到 `83.47`，而非唯一加耗口径；BOM 详情标签仍可拼出编号、后缀和版本。
+  - Unit/API: costing、production、BOM application/repository/API 定向测试及相关全量 Go 测试。
+  - Frontend/build: Vue BOM/商品配置源测试、全量前端测试和 Vite build。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`。
+  - Review/acceptance: independent review and `orderapp-remote/docs/acceptance/2026-08-07-bom-single-material-loss.md`。
+- Environment data: development 通过现有 API 清洗 128 条名称，production 清洗 149 条；两个环境残留均为 0，BOM 总数及启用/停用状态不变，操作日志分别新增 128/149 条。回滚映射分别位于 `/opt/stacks/erp/backups/bom-name-normalization-20260807T235317.json` 和 `/opt/stacks/erp-production/backups/bom-name-normalization-20260807T235348.json`。
+- Deployment: application deployment not requested; current code is not deployed to development or production.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入；按脚本返回的 PR-585 手工登记。实际生产损耗报表可继续记录真实投入/产出，但不得作为 BOM 计划或标准成本的第二层配置参数。
+
 ### PR-584-PRODUCT-MULTI-GROUP-TEMPLATES
 - Branch: codex/product-multi-group-templates-20260807
 - Owner/session: Codex / 2026-08-07

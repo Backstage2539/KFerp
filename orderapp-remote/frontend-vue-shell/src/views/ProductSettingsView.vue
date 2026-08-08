@@ -868,14 +868,6 @@
             </div>
             <div class="template-editor-grid">
               <label>
-                <span>损耗/出率</span>
-                <select v-model="pricingRuleForm.yield_loss_mode">
-                  <option value="bom_or_product">按 BOM 或商品生产参数</option>
-                  <option value="none">不单独计算</option>
-                  <option value="manual">手工输入</option>
-                </select>
-              </label>
-              <label>
                 <span>加价率（80%=0.8）</span>
                 <input v-model.number="pricingRuleForm.margin_rate" type="number" min="0" step="0.0001" placeholder="如 0.8" />
                 <small>计算公式：税前价 = 成本基数 × (1 + 加价率)；最终售价再计算税额和取整</small>
@@ -1002,10 +994,6 @@
                 </select>
               </label>
               <label>
-                <span>临时损耗率</span>
-                <input v-model.number="pricingRuleTrialForm.expected_loss_rate" type="number" min="0" max="0.9999" step="0.0001" placeholder="空=不额外计损耗" />
-              </label>
-              <label>
                 <span>临时加价率</span>
                 <input v-model.number="pricingRuleTrialForm.margin_rate" type="number" min="0" step="0.0001" />
               </label>
@@ -1059,14 +1047,6 @@
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.other_cost_total, pricingRuleTrialResult.quote_unit) }}</strong>
                 <em>成本基数 {{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }}</em>
               </button>
-              <template v-if="pricingRuleTrialHasYieldLoss(pricingRuleTrialResult)">
-                <span class="pricing-rule-trial-operator">+</span>
-                <div class="pricing-rule-trial-waterfall-card">
-                  <small>损耗增加</small>
-                  <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.yield_loss_amount, pricingRuleTrialResult.quote_unit) }}</strong>
-                  <em>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }} → {{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</em>
-                </div>
-              </template>
               <span class="pricing-rule-trial-operator">+</span>
               <button
                 :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'profit_markup' }]"
@@ -1179,7 +1159,7 @@
                     <dd>{{ pricingRuleTrialSourceDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).source) }}</dd>
                   </div>
                   <div>
-                    <dt>损耗后成本</dt>
+                    <dt>加价基数</dt>
                     <dd>{{ trialMoneyDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).cost_after_yield, pricingRuleTrialResult.quote_unit) }}</dd>
                   </div>
                   <div>
@@ -2216,7 +2196,6 @@ const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   process_route_id: pricingRuleTrialForm.value.process_route_id,
   operation_template_id: pricingRuleTrialForm.value.operation_template_id,
   quote_unit: pricingRuleTrialForm.value.quote_unit,
-  expected_loss_rate: pricingRuleTrialForm.value.expected_loss_rate,
   margin_rate: pricingRuleTrialForm.value.margin_rate,
   tax_rate: pricingRuleTrialForm.value.tax_rate,
   other_cost_rows: pricingRuleTrialForm.value.other_cost_rows,
@@ -2350,13 +2329,6 @@ function productionConfigPriceListFields(product) {
   const config = productionConfigForProduct(product)
   return productProductionConfigFieldsFromTemplates(config.fields || [], industryFieldTemplatesForConfig(config))
     .filter((field) => field.show_in_price_list)
-}
-
-function productionConfigLossLabel(product) {
-  const config = productionConfigForProduct(product)
-  const loss = Number(config.expected_loss_rate ?? product?.expected_loss_rate ?? 0)
-  if (!Number.isFinite(loss) || loss <= 0) return '-'
-  return `${Math.round(loss * 10000) / 100}%`
 }
 
 const customerSkuRowsRaw = computed(() => {
@@ -2731,7 +2703,6 @@ function defaultProductForm() {
     inventory_unit: 'kg',
     integer_inventory_unit: false,
     special_attr_values: {},
-    yield_percent: 80,
   }
 }
 
@@ -2765,7 +2736,6 @@ function defaultCustomForm() {
     product_subtype_category_id: 0,
     product_kind: 'roasted',
     special_attr_values: {},
-    yield_percent: 80,
     custom_type: 'public_sku_alias',
     copy_bom: true,
     copy_price_tiers: true,
@@ -2939,7 +2909,6 @@ function defaultPricingRuleForm(rule = {}) {
     formula_version: rule.formula_version || 'v1',
     calculation_json: calculation,
     other_cost_rows: pricingRuleOtherCostRowsFromCalculation(calculation),
-    yield_loss_mode: calculation.yield_loss_mode || 'bom_or_product',
     profit_method: 'markup',
     tax_mode: calculation.tax_mode || 'tax_included',
     minimum_margin_rate: Number(calculation.minimum_margin_rate || 0),
@@ -2978,7 +2947,6 @@ function defaultPricingRuleTrialForm(rule = {}) {
     process_route_id: 0,
     operation_template_id: 0,
     quote_unit: '',
-    expected_loss_rate: '',
     margin_rate: form.margin_rate,
     tax_rate: '',
     other_cost_rows: form.other_cost_rows.map((row) => ({ ...row })),
@@ -3145,7 +3113,6 @@ async function restoreProductSettingsDraft() {
 }
 
 function decorateProduct(product) {
-  const yieldRate = Number(product.yield_rate || 0.8)
   const productKind = normalizedProductKind(product)
   const marginRateOverride = normalizeBackendMarginRateOverride(product.margin_rate_override)
   return {
@@ -3159,8 +3126,6 @@ function decorateProduct(product) {
       ...(product.roast_level ? { roast_level: product.roast_level } : {}),
       ...specialAttrValuesFromJSON(product.special_attrs_json || '{}'),
     },
-    yield_rate: productKindSupportsBomParams(productKind) ? yieldRate : 0,
-    yield_percent: productKindSupportsBomParams(productKind) ? Number((yieldRate * 100).toFixed(2)) : 0,
     default_price: Number(product.default_price || 0),
     margin_rate_override: marginRateOverride,
     margin_rate_override_input: marginRateOverride === null ? '' : marginRateOverride,
@@ -4019,8 +3984,6 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     operation_master: '工序列表（历史）',
     override: '本次临时录入',
     product_bom: '当前商品 BOM',
-    product_expected_loss: '当前商品损耗率',
-    no_loss: '不计损耗',
     default: '系统默认',
   }
   if (sourceMap[source]) return sourceMap[source]
@@ -4047,11 +4010,6 @@ function pricingRuleTrialOtherCostRows(result = {}) {
 
 function pricingRuleTrialProfitExplanation(result = {}) {
   return result?.profit_explanation && typeof result.profit_explanation === 'object' ? result.profit_explanation : {}
-}
-
-function pricingRuleTrialHasYieldLoss(result = {}) {
-  const amount = Number(result?.yield_loss_amount || 0)
-  return Number.isFinite(amount) && Math.abs(amount) > 0.000001
 }
 
 function pricingRuleTrialHasRoundingAdjustment(result = {}) {
@@ -4108,7 +4066,7 @@ function pricingRuleTrialBaseCostRecipeUsage(row = {}) {
   const explicitRecipeRatio = Number(row.recipe_ratio_pct)
   const ratioPct = Number(row.ratio_pct || 0)
   const lossRate = Number(row.material_loss_rate || 0)
-  const fallbackRecipeRatio = lossRate > 0 && lossRate < 1 ? ratioPct * (1 - lossRate) : ratioPct
+  const fallbackRecipeRatio = lossRate > 0 && lossRate < 1 ? ratioPct / (1 + lossRate) : ratioPct
   const recipeRatio = Number.isFinite(explicitRecipeRatio) && explicitRecipeRatio > 0 ? explicitRecipeRatio : fallbackRecipeRatio
   return recipeRatio > 0 ? `原比例 ${percentDisplay(recipeRatio / 100)}` : '-'
 }
@@ -5789,7 +5747,6 @@ function syncCustomFormFromBaseProduct(product) {
   const kind = normalizedProductKind(product)
   customForm.value.product_kind = kind
   customForm.value.special_attr_values = { ...specialAttrValuesFromJSON(product.special_attrs_json || '{}') }
-  customForm.value.yield_percent = productKindSupportsBomParams(kind) ? Number(((Number(product.yield_rate || 0.8)) * 100).toFixed(2)) : 0
   if (kind !== 'roasted') customForm.value.copy_bom = false
 }
 
@@ -6447,11 +6404,6 @@ async function saveProductProductionConfig() {
     error.value = '请选择销售规格模板'
     return
   }
-  const lossRate = Number(productProductionConfigForm.value.expected_loss_percent || 0) / 100
-  if (!Number.isFinite(lossRate) || lossRate < 0 || lossRate >= 1) {
-    error.value = '预期损耗率必须在 0% 到 99.999% 之间'
-    return
-  }
   const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(productProductionConfigForm.value)
   const fields = productProductionConfigFieldsFromTemplates(
     productProductionConfigForm.value.fields || [],
@@ -6476,7 +6428,6 @@ async function saveProductProductionConfig() {
         process_route_id: Number(productProductionConfigForm.value.process_route_id || 0),
         industry_field_template_ids: industryFieldTemplateIDs,
         industry_field_template_id: Number(industryFieldTemplateIDs[0] || 0),
-        expected_loss_rate: Number(lossRate.toFixed(6)),
         note: String(productProductionConfigForm.value.note || '').trim(),
         fields,
       },
@@ -6571,11 +6522,6 @@ async function createProduct() {
   ensureProductTypeCategorySelected(productForm.value)
   if (!productForm.value.name) {
     error.value = '请填写商品名称'
-    return
-  }
-  const yieldPercent = Number(productForm.value.yield_percent || 0)
-  if (productKindSupportsBomParams(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
   productSaving.value = true
@@ -7467,12 +7413,6 @@ async function dropProductOnSecondary(secondary) {
 async function saveProductBasics(row, successMessage = '商品基础信息已保存') {
   if (!canEditSkuRow(row)) {
     error.value = '公共商品档案为引用，请回到商品档案维护'
-    return
-  }
-  const productKind = normalizedProductKind(row)
-  const yieldPercent = Number(row.yield_percent || 0)
-  if (productKindSupportsBomParams(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
   loading.value = true

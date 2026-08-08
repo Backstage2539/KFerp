@@ -536,7 +536,7 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		return err
 	}
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS input_g BIGINT NOT NULL DEFAULT 0`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_units BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_loose_g BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
@@ -556,7 +556,7 @@ func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		order_nos TEXT NOT NULL DEFAULT '',
 		planned_need_g BIGINT NOT NULL DEFAULT 0,
 		input_g BIGINT NOT NULL DEFAULT 0,
-		bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+		bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000,
 		finished_units BIGINT NOT NULL DEFAULT 0,
 		finished_loose_g BIGINT NOT NULL DEFAULT 0,
 		finished_total_g BIGINT NOT NULL DEFAULT 0,
@@ -575,6 +575,9 @@ func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema st
 	CREATE INDEX IF NOT EXISTS production_logs_finished_idx ON %s.production_logs(finished_at DESC, id DESC);
 	CREATE INDEX IF NOT EXISTS production_logs_product_idx ON %s.production_logs(product_id, finished_at DESC);`, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs ALTER COLUMN bom_yield_rate SET DEFAULT 1.0000`, schema)); err != nil {
 		return err
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs DROP CONSTRAINT IF EXISTS production_logs_running_item_id_key`, schema)); err != nil {

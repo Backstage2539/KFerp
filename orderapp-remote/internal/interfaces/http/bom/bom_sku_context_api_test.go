@@ -90,7 +90,7 @@ func TestBomDetailExposesFinishedProductComponentFields(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`"component_type":"finished_product"`, `"component_product_id":7`, `"consume_unit":"g_per_bag"`, `"qty_per_unit":10`, `"expected_yield_rate":0.82`, `"expected_loss_rate":0.18`} {
+	for _, want := range []string{`"component_type":"finished_product"`, `"component_product_id":7`, `"consume_unit":"g_per_bag"`, `"qty_per_unit":10`, `"expected_yield_rate":1`, `"expected_loss_rate":0`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("detail body missing %s: %s", want, body)
 		}
@@ -156,7 +156,7 @@ func TestBomDeriveOwnedAPIPassesActorAndProductID(t *testing.T) {
 	}
 }
 
-func TestBomSaveAcceptsExpectedLossRate(t *testing.T) {
+func TestBomSaveIgnoresLegacyExpectedLossRateAndNormalizesYield(t *testing.T) {
 	repo := &apiFakeRepo{}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
@@ -172,12 +172,12 @@ func TestBomSaveAcceptsExpectedLossRate(t *testing.T) {
 	if repo.syncedYield.ProductID != 7 {
 		t.Fatalf("product id = %d, want 7", repo.syncedYield.ProductID)
 	}
-	if repo.syncedYield.ExpectedLossRate == nil || *repo.syncedYield.ExpectedLossRate != 0.18 {
-		t.Fatalf("expected loss rate = %v, want 0.18", repo.syncedYield.ExpectedLossRate)
+	if repo.syncedYield.ExpectedLossRate != nil || repo.syncedYield.ExpectedYieldRate != 1 {
+		t.Fatalf("legacy loss write must normalize to yield 1: %+v", repo.syncedYield)
 	}
 }
 
-func TestBomSaveRejectsInvalidExpectedLossRate(t *testing.T) {
+func TestBomSaveIgnoresInvalidLegacyExpectedLossRate(t *testing.T) {
 	repo := &apiFakeRepo{}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
@@ -187,11 +187,11 @@ func TestBomSaveRejectsInvalidExpectedLossRate(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "expected_loss_rate") {
-		t.Fatalf("body missing expected_loss_rate error: %s", rec.Body.String())
+	if repo.syncedYield.ExpectedLossRate != nil || repo.syncedYield.ExpectedYieldRate != 1 {
+		t.Fatalf("invalid legacy loss write must normalize to yield 1: %+v", repo.syncedYield)
 	}
 }
 

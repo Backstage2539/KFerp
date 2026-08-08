@@ -58,7 +58,7 @@ func (r Repository) CreateProductionPlan(ctx context.Context, cmd productionapp.
 		return productionapp.ProductionPlanDetail{}, fmt.Errorf("selected production items required")
 	}
 
-	groups := groupStartNeedsForRuns(needs, cmd.InputByKey, map[int64]float64{})
+	groups := groupStartNeedsForRuns(needs, cmd.InputByKey)
 	if len(groups) == 0 {
 		return productionapp.ProductionPlanDetail{}, fmt.Errorf("selected production items required")
 	}
@@ -248,7 +248,7 @@ func loadCustomerProcessingPlanBasisTx(ctx context.Context, tx pgx.Tx, schema st
 		       i.bom_version_id,COALESCE(i.material_snapshot_json,'[]'::jsonb)::text,
 		       pb.id,COALESCE(pb.code,''),COALESCE(pb.name,''),
 		       COALESCE(v.version_no,''),COALESCE(v.process_route_id,0),COALESCE(pr.name,''),
-		       COALESCE(NULLIF(v.yield_rate,0),1)::float8,COALESCE(v.material_loss_rate,0)::float8,
+		       1::float8,COALESCE(v.material_loss_rate,0)::float8,
 		       COALESCE(NULLIF(v.output_qty,0),1)::float8,COALESCE(NULLIF(v.output_unit,''),'unit'),
 		       i.bom_inherited
 		FROM %s.processing_job_request_items i
@@ -306,18 +306,17 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 		return productionapp.ProductionPlanItem{}, err
 	}
 	bomMaterialLossRate := normalizeMaterialLossRate(bomRoute.BomMaterialLossRate)
-	normalizedYield := 1 - bomMaterialLossRate
 	if !group.ManualInput {
 		group.InputG = productionInputGFromBomMaterialLoss(group.NeedG, bomMaterialLossRate)
 	}
-	plan := runningInventoryPlan(group.SpecG, group.NeedG, group.InputG, normalizedYield)
+	plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
 	run := ProduceRunRow{
 		Product:             group.ProductName,
 		ProductID:           group.ProductID,
 		SpecG:               group.SpecG,
 		NeedG:               group.NeedG,
 		InputG:              group.InputG,
-		BomYieldRate:        normalizedYield,
+		BomYieldRate:        1,
 		PlanUnits:           plan.Units,
 		PlanLooseG:          plan.LooseG,
 		OrderNos:            group.OrderNos,
@@ -353,7 +352,7 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 	processSnapshot.ProductName = group.ProductName
 	processSnapshot.BomVersionID = bomRoute.BomVersionID
 	processSnapshot.BomVersionNo = bomRoute.BomVersionNo
-	processSnapshot.YieldRate = normalizedYield
+	processSnapshot.YieldRate = 1
 	processSnapshot.RouteID = bomRoute.ProcessRouteID
 	processSnapshot.RouteName = bomRoute.ProcessRouteName
 	processSnapshotJSON, err = json.Marshal(processSnapshot)
@@ -460,7 +459,6 @@ func createLegacyProductionPlanItemForGroupTx(
 	schema string,
 	planID int64,
 	group startRunGroup,
-	legacyYieldRate float64,
 ) (productionapp.ProductionPlanItem, error) {
 	item, err := createProductionPlanItemForGroupTx(ctx, tx, schema, planID, group)
 	if err == nil {
@@ -488,18 +486,17 @@ func createLegacyProductionPlanItemForGroupTx(
 		return productionapp.ProductionPlanItem{}, err
 	}
 
-	normalizedYield := normalizeYieldRate(legacyYieldRate)
 	if !group.ManualInput {
-		group.InputG = defaultProductionInputG(group.NeedG, normalizedYield)
+		group.InputG = group.NeedG
 	}
-	plan := runningInventoryPlan(group.SpecG, group.NeedG, group.InputG, normalizedYield)
+	plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
 	run := ProduceRunRow{
 		Product:             group.ProductName,
 		ProductID:           group.ProductID,
 		SpecG:               group.SpecG,
 		NeedG:               group.NeedG,
 		InputG:              group.InputG,
-		BomYieldRate:        normalizedYield,
+		BomYieldRate:        1,
 		PlanUnits:           plan.Units,
 		PlanLooseG:          plan.LooseG,
 		OrderNos:            group.OrderNos,
@@ -568,7 +565,7 @@ func createLegacyProductionPlanItemForGroupTx(
 	return legacyItem, nil
 }
 
-func createLegacyProductionPlanForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema string, groups []startRunGroup, yieldByProductID map[int64]float64, operator string) (int64, map[string]int64, error) {
+func createLegacyProductionPlanForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema string, groups []startRunGroup, operator string) (int64, map[string]int64, error) {
 	if len(groups) == 0 {
 		return 0, nil, nil
 	}
@@ -589,7 +586,7 @@ func createLegacyProductionPlanForStartGroupsTx(ctx context.Context, tx pgx.Tx, 
 		if group.NeedG <= 0 && group.PlannedInventoryQty <= 0 {
 			continue
 		}
-		item, err := createLegacyProductionPlanItemForGroupTx(ctx, tx, schema, planID, group, yieldByProductID[group.ProductID])
+		item, err := createLegacyProductionPlanItemForGroupTx(ctx, tx, schema, planID, group)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -1466,17 +1463,21 @@ func productionPlanMaterialSnapshotQty(item productionapp.ProductionPlanItem, ro
 		ratioPct = 100
 	}
 	materialLossRate := row.MaterialLossRate
+	lossCalculationMode := strings.TrimSpace(row.LossCalculationMode)
+	if lossCalculationMode == "" {
+		lossCalculationMode = legacyMaterialLossCalculationMode
+	}
 	if row.InputIncludesMaterialLoss {
 		materialLossRate = 0
 	}
 	if isWeightMaterialUnit(unit) {
-		grams := componentConsumptionWeightGramsWithMaterialLoss(
+		grams := componentConsumptionWeightGramsWithMaterialLossMode(
 			row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG,
-			packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate,
+			packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate, lossCalculationMode,
 		)
 		return float64(grams) / productionWeightUnitGrams(unit)
 	}
-	return float64(componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate))
+	return float64(componentConsumptionQtyWithMaterialLossMode(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate, lossCalculationMode))
 }
 
 func productionPlanMaterialPreviewStatus(required, arranged float64) string {
@@ -2129,6 +2130,10 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 		plannedOutputG = wo.PlannedG
 	}
 	plan := runningInventoryPlan(wo.SpecG, plannedOutputG, wo.PlannedG, yieldRate)
+	if materialSnapshotUsesAdditiveLoss(materialSnapshot) {
+		plan = plannedFinishedInventoryAddition(wo.SpecG, plannedOutputG)
+		yieldRate = 1
+	}
 	run := ProduceRunRow{
 		BatchID:             batchID,
 		Product:             wo.ProductName,

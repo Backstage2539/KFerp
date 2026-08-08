@@ -1565,7 +1565,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"use_public_gradient_templates":true`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"template_state":"public_template"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"remark":"奶咖主推"`, `"yield_rate":0.82`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"use_public_gradient_templates":true`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"template_state":"public_template"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"remark":"奶咖主推"`, `"yield_rate":1`, `"expected_loss_rate":0`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -1968,7 +1968,7 @@ func TestProductSettingsAPICreatesGreenBeanProductWithBomBinding(t *testing.T) {
 	if repo.createdPublic.DefaultPrice != 0 || len(repo.createdPublic.Tiers) != 0 {
 		t.Fatalf("green bean create should not carry direct sale price fields, got default=%.2f tiers=%+v", repo.createdPublic.DefaultPrice, repo.createdPublic.Tiers)
 	}
-	if repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 0 {
+	if repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 1 {
 		t.Fatalf("green bean create should not require roasted defaults, got roast=%q yield=%.2f", repo.createdPublic.RoastLevel, repo.createdPublic.YieldRate)
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"product_kind":"green_bean"`)) {
@@ -2991,7 +2991,7 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST public product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.publicCreated || repo.createdPublic.Name != "新公共拼配" || repo.createdPublic.RoastLevel != "中深烘" || repo.createdPublic.DefaultPrice != 88 || repo.createdPublic.RetailPrice227G != 88 || repo.createdPublic.YieldRate != 0.805 {
+	if !repo.publicCreated || repo.createdPublic.Name != "新公共拼配" || repo.createdPublic.RoastLevel != "中深烘" || repo.createdPublic.DefaultPrice != 88 || repo.createdPublic.RetailPrice227G != 88 || repo.createdPublic.YieldRate != 1 {
 		t.Fatalf("public product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
 	}
 	if repo.createdPublic.Remark != "奶咖主推" {
@@ -3057,7 +3057,7 @@ func TestProductSettingsAPICreatesInstantCoffeeProductWithoutRoastLevel(t *testi
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST instant coffee product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.publicCreated || repo.createdPublic.ProductKind != "instant_coffee" || repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 0 || repo.createdPublic.DefaultPrice != 39 {
+	if !repo.publicCreated || repo.createdPublic.ProductKind != "instant_coffee" || repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 1 || repo.createdPublic.DefaultPrice != 39 {
 		t.Fatalf("instant coffee product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
 	}
 	var payload struct {
@@ -3212,7 +3212,7 @@ func TestProductSettingsAPIRejectsExplicitZeroDripBagCreate(t *testing.T) {
 	}
 }
 
-func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
+func TestProductSettingsAPIIgnoresRetiredProductYieldRate(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", DefaultPrice: 99, RetailPrice100G: 22, RetailPrice200G: 43, RetailPrice227G: 48, RetailPrice250G: 52, YieldRate: 0.82}},
 	}
@@ -3226,7 +3226,7 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 0.835 || repo.updated.DefaultPrice != 99 || repo.updated.RetailPrice227G != 48 {
+	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 1 || repo.updated.DefaultPrice != 99 || repo.updated.RetailPrice227G != 48 {
 		t.Fatalf("update command = %+v updated=%v", repo.updated, repo.productUpdated)
 	}
 }

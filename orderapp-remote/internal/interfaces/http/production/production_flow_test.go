@@ -85,7 +85,7 @@ func TestRestoreAllocatedInventory(t *testing.T) {
 	}
 }
 
-func TestBuildProducePlanDisplayRowsUsesDefaultInputG(t *testing.T) {
+func TestBuildProducePlanDisplayRowsIgnoresLegacyYield(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{ProductID: 11, Product: "橘皮乌龙", SpecG: 227, GapG: 2270},
 	}
@@ -93,15 +93,15 @@ func TestBuildProducePlanDisplayRowsUsesDefaultInputG(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("buildProducePlanDisplayRows() rows = %d, want 1", len(got))
 	}
-	if got[0].BomYieldRate != 0.82 {
-		t.Fatalf("buildProducePlanDisplayRows() bom_yield_rate = %.4f, want 0.82", got[0].BomYieldRate)
+	if got[0].BomYieldRate != 1 {
+		t.Fatalf("buildProducePlanDisplayRows() bom_yield_rate = %.4f, want compatibility value 1", got[0].BomYieldRate)
 	}
-	if got[0].InputG != 2769 {
-		t.Fatalf("buildProducePlanDisplayRows() input_g = %d, want 2769", got[0].InputG)
+	if got[0].InputG != 2270 {
+		t.Fatalf("buildProducePlanDisplayRows() input_g = %d, want target 2270 without legacy yield inflation", got[0].InputG)
 	}
 }
 
-func TestBuildProducePlanDisplayRowsFallsBackToPointEight(t *testing.T) {
+func TestBuildProducePlanDisplayRowsDefaultsToNoLoss(t *testing.T) {
 	rows := []UnprodNeedRow{
 		{ProductID: 12, Product: "晨曦-娜伊", SpecG: 227, GapG: 2270},
 	}
@@ -109,11 +109,54 @@ func TestBuildProducePlanDisplayRowsFallsBackToPointEight(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("buildProducePlanDisplayRows() rows = %d, want 1", len(got))
 	}
-	if got[0].BomYieldRate != 0.8 {
-		t.Fatalf("buildProducePlanDisplayRows() bom_yield_rate = %.4f, want 0.8", got[0].BomYieldRate)
+	if got[0].BomYieldRate != 1 {
+		t.Fatalf("buildProducePlanDisplayRows() bom_yield_rate = %.4f, want compatibility value 1", got[0].BomYieldRate)
 	}
-	if got[0].InputG != 2838 {
-		t.Fatalf("buildProducePlanDisplayRows() input_g = %d, want 2838", got[0].InputG)
+	if got[0].InputG != 2270 {
+		t.Fatalf("buildProducePlanDisplayRows() input_g = %d, want target 2270", got[0].InputG)
+	}
+}
+
+func TestBuildRoastPlanRowsIgnoresLegacyYield(t *testing.T) {
+	rows := []UnprodNeedRow{{ProductID: 12, Product: "曲奇拼配", SpecG: 1000, GapG: 1000}}
+	got := buildRoastPlanRows(rows, nil, map[int64]float64{12: 0.25})
+	if len(got) != 1 || got[0].FinalInputG != 1000 || got[0].YieldRate != 1 {
+		t.Fatalf("roast plan = %+v, want 1000g target and compatibility rate 1", got)
+	}
+}
+
+func TestCalcRoastSplitsIgnoresLegacyYield(t *testing.T) {
+	rows := []UnprodNeedRow{{ProductID: 12, Product: "曲奇拼配", SpecG: 1000, GapG: 1000}}
+	got := calcRoastSplits(rows, nil, 0.25)
+	if len(got) != 1 || got[0].TotalKg != "1" || got[0].YieldPctStr != "100%" {
+		t.Fatalf("roast splits = %+v, want 1kg target and compatibility rate 100%%", got)
+	}
+}
+
+func TestCurrentPlanCompatibilityPayloadHasNoLegacyExpectedLossCopy(t *testing.T) {
+	src, err := os.ReadFile("internal/interfaces/http/production/roast_split.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(src)
+	for _, forbidden := range []string{"损耗比展示", "预期损耗", "预计损耗", "预期产出率"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("current roast split payload must not describe the compatibility field as legacy overall loss; found %q", forbidden)
+		}
+	}
+	rows := []UnprodNeedRow{{ProductID: 12, Product: "曲奇拼配", SpecG: 1000, GapG: 1000}}
+	got := calcRoastSplits(rows, nil, 0.01)
+	if len(got) != 1 || got[0].YieldPctStr != "100%" {
+		t.Fatalf("current roast split compatibility payload = %+v, want fixed 100%%", got)
+	}
+	p := defaultProducePlanParams()
+	if p.YieldRate != 1 {
+		t.Fatalf("current no-BOM plan compatibility yield_rate = %.4f, want 1", p.YieldRate)
+	}
+	p.YieldRate = 0.01
+	materials := calcNoBomProducePlanMaterials(rows[0], p)
+	if len(materials) == 0 || materials[0].Qty != 1000 {
+		t.Fatalf("current no-BOM plan must ignore legacy overall yield; materials=%+v", materials)
 	}
 }
 

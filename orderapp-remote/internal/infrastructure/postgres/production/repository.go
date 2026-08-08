@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
-	catalogdomain "orderapp/internal/domain/catalog"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
@@ -261,15 +260,8 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 
-	yieldByProductID, err := loadProductYieldRateMapTx(ctx, tx, r.schema)
-	if err != nil {
-		return productionapp.StartResult{}, err
-	}
-	groups := groupStartNeedsForRuns(cmd.Needs, cmd.InputByKey, yieldByProductID)
-	if err := ensureWIPStockForStartGroupsTx(ctx, tx, r.schema, groups, yieldByProductID); err != nil {
-		return productionapp.StartResult{}, err
-	}
-	legacyPlanID, legacyPlanItemIDs, err := createLegacyProductionPlanForStartGroupsTx(ctx, tx, r.schema, groups, yieldByProductID, cmd.Operator)
+	groups := groupStartNeedsForRuns(cmd.Needs, cmd.InputByKey)
+	legacyPlanID, legacyPlanItemIDs, err := createLegacyProductionPlanForStartGroupsTx(ctx, tx, r.schema, groups, cmd.Operator)
 	if err != nil {
 		return productionapp.StartResult{}, err
 	}
@@ -312,27 +304,38 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			}
 		}
 
-		yieldRate := normalizeYieldRate(yieldByProductID[group.ProductID])
 		inputG := group.InputG
-		plan := runningInventoryPlan(group.SpecG, group.NeedG, inputG, yieldRate)
+		planItemID := legacyPlanItemIDs[startRunGroupKey(group)]
+		materialSnapshot := []byte("[]")
+		if planItemID > 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT planned_g,COALESCE(component_snapshot_json,'[]'::jsonb)::text
+				FROM %s.production_plan_items
+				WHERE id=$1
+			`, r.schema), planItemID).Scan(&inputG, &materialSnapshot); err != nil {
+				return productionapp.StartResult{}, err
+			}
+		}
+		plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
 		snapshotRun := ProduceRunRow{
 			Product:             group.ProductName,
 			ProductID:           group.ProductID,
 			SpecG:               group.SpecG,
 			NeedG:               group.NeedG,
 			InputG:              inputG,
-			BomYieldRate:        yieldRate,
+			BomYieldRate:        1,
 			PlanUnits:           plan.Units,
 			PlanLooseG:          plan.LooseG,
 			OperationTemplateID: group.OperationTemplateID,
 			Outputs:             group.Outputs,
 		}
-		materialSnapshot := []byte("[]")
 		var reservationNeeds []materialConsumptionNeed
 		if group.SpecG > 0 {
-			materialSnapshot, err = buildMaterialSnapshotForRunningItemTx(ctx, tx, r.schema, snapshotRun)
-			if err != nil {
-				return productionapp.StartResult{}, err
+			if strings.TrimSpace(string(materialSnapshot)) == "" || strings.TrimSpace(string(materialSnapshot)) == "[]" {
+				materialSnapshot, err = buildMaterialSnapshotForRunningItemTx(ctx, tx, r.schema, snapshotRun)
+				if err != nil {
+					return productionapp.StartResult{}, err
+				}
 			}
 			if err := ensureWIPStockForRunningItemTx(ctx, tx, r.schema, snapshotRun, materialSnapshot); err != nil {
 				return productionapp.StartResult{}, err
@@ -352,7 +355,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			}
 		}
 		var runningItemID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot,operation_template_id) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12,$13) RETURNING id`, r.schema), batchID, group.ProductID, group.ProductName, group.SpecG, group.NeedG, group.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG, materialSnapshot, group.OperationTemplateID).Scan(&runningItemID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot,operation_template_id) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12,$13) RETURNING id`, r.schema), batchID, group.ProductID, group.ProductName, group.SpecG, group.NeedG, group.OrderNos, cmd.Operator, inputG, 1, plan.Units, plan.LooseG, materialSnapshot, group.OperationTemplateID).Scan(&runningItemID); err != nil {
 			return productionapp.StartResult{}, err
 		}
 		if len(group.Outputs) > 1 {
@@ -376,7 +379,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 				    planned_output_g=$4,
 				    order_nos=$5
 				WHERE id=$1
-			`, r.schema), workOrderID, legacyPlanID, legacyPlanItemIDs[startRunGroupKey(group)], group.NeedG, group.OrderNos); err != nil {
+			`, r.schema), workOrderID, legacyPlanID, planItemID, group.NeedG, group.OrderNos); err != nil {
 				return productionapp.StartResult{}, err
 			}
 		}
@@ -394,54 +397,6 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	return productionapp.StartResult{BatchID: batchID}, nil
-}
-
-func ensureWIPStockForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema string, groups []startRunGroup, yieldByProductID map[int64]float64) error {
-	allNeeds := make([]materialConsumptionNeed, 0)
-	for _, group := range groups {
-		if group.NeedG <= 0 {
-			continue
-		}
-		yieldRate := normalizeYieldRate(yieldByProductID[group.ProductID])
-		inputG := group.InputG
-		plan := runningInventoryPlan(group.SpecG, group.NeedG, inputG, yieldRate)
-		run := ProduceRunRow{
-			Product:      group.ProductName,
-			ProductID:    group.ProductID,
-			SpecG:        group.SpecG,
-			NeedG:        group.NeedG,
-			InputG:       inputG,
-			BomYieldRate: yieldRate,
-			PlanUnits:    plan.Units,
-			PlanLooseG:   plan.LooseG,
-			Outputs:      group.Outputs,
-		}
-		if group.SpecG > 0 {
-			materialSnapshot, err := buildMaterialSnapshotForRunningItemTx(ctx, tx, schema, run)
-			if err != nil {
-				return err
-			}
-			run.MaterialSnapshot = strings.TrimSpace(string(materialSnapshot))
-			needs, ok, err := materialSnapshotNeedsTx(run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
-			if err != nil {
-				return err
-			}
-			if !ok {
-				needs, err = currentMaterialNeedsTx(ctx, tx, schema, run, InvQty{Units: plan.Units, LooseG: plan.LooseG})
-				if err != nil {
-					return err
-				}
-			}
-			allNeeds = append(allNeeds, needs...)
-			continue
-		}
-		needs, err := materialNeedsForRunOutputsTx(ctx, tx, schema, run, group.Outputs)
-		if err != nil {
-			return err
-		}
-		allNeeds = append(allNeeds, needs...)
-	}
-	return ensureWIPStockForNeedsTx(ctx, tx, schema, allNeeds)
 }
 
 func startNeedRefs(needs []productionapp.StartNeed) []string {
@@ -536,43 +491,4 @@ func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.Sum
 		})
 	}
 	return out
-}
-
-func loadProductYieldRateMapTx(ctx context.Context, tx pgx.Tx, schema string) (map[int64]float64, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT p.id, COALESCE(p.roast_level,''),
-		       COALESCE(
-		           CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END,
-		           NULLIF(pbv.yield_rate,0),
-		           NULLIF(b.yield_rate,0),
-		           CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END
-		       ),
-		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
-		FROM `+schema+`.products p
-		LEFT JOIN `+schema+`.product_production_configs ppc ON ppc.product_id=p.id
-		LEFT JOIN `+schema+`.product_production_bom_bindings pbb ON pbb.product_id=p.id
-		LEFT JOIN `+schema+`.production_bom_versions pbv ON pbv.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
-		LEFT JOIN `+schema+`.product_bom_sources bs ON bs.product_id=p.id
-		LEFT JOIN `+schema+`.product_bom b ON b.product_id=CASE
-			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
-			ELSE p.id
-		END
-		WHERE p.active=true`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := map[int64]float64{}
-	for rows.Next() {
-		var productID int64
-		var roastLevel string
-		var yieldRate float64
-		var productKind string
-		if err := rows.Scan(&productID, &roastLevel, &yieldRate, &productKind); err != nil {
-			return nil, err
-		}
-		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
-	}
-	return out, rows.Err()
 }

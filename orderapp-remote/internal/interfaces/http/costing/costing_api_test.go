@@ -269,16 +269,16 @@ func pricingRuleTrialAPIFakeBaseCostDetails() []appcosting.PricingRuleTrialBaseC
 		TypeLabel:         "物料",
 		Name:              "测试原料",
 		ConsumeUnit:       "ratio_pct",
-		RatioPct:          12.5,
+		RatioPct:          12,
 		RecipeRatioPct:    10,
-		EffectiveRatioPct: 12.5,
+		EffectiveRatioPct: 12,
 		MaterialLossRate:  0.2,
 		UnitCost:          30.62,
 		CostUnitCost:      67.5,
 		CostUnit:          "kg",
 		Amount:            30.62,
 		Unit:              "lb",
-		Description:       "物料：测试原料，原比例 10%，原料损耗 20%，有效比例 12.5%，单位成本 67.5/kg，折算金额 30.62/lb",
+		Description:       "物料：测试原料，配方比例 10%，原料加耗 20%，计价比例 12%，单位成本 67.5/kg，折算金额 30.62/lb",
 	}}
 }
 
@@ -873,8 +873,11 @@ func TestCostingPriceExplanationAPIIncludesFastCostParameters(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if got.TemplateName != "工厂量单模板" || got.TierLabel != "大客户量单" || got.SavedFinalPrice != 82 || got.PreviewFinalPrice != 91 {
+	if got.TemplateName != "工厂量单模板" || got.TierLabel != "大客户量单" || got.SavedFinalPrice != 67 || got.PreviewFinalPrice != 74 {
 		t.Fatalf("explanation = %+v", got)
+	}
+	if got.HasStep("expected_loss_rate") || strings.Contains(rec.Body.String(), "预期损耗率") {
+		t.Fatalf("current price explanation must not expose retired overall loss: %s", rec.Body.String())
 	}
 	for _, want := range []string{`"key":"large_batch_production_cost_per_kg"`, `"key":"wholesale_package_cost_per_kg"`, `"key":"product_loss_per_kg"`, `"key":"retail_tax_rate"`, `"key":"template_margin_rate"`} {
 		if !strings.Contains(rec.Body.String(), want) {
@@ -953,7 +956,7 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
-	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"recipe_ratio_pct":10`, `"effective_ratio_pct":12.5`, `"material_loss_rate":0.2`, `"cost_unit_cost":67.5`, `"cost_unit":"kg"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `"process_route_id":19`, `"process_route_options"`, `最终售价 = 116.7092/kg`} {
+	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"recipe_ratio_pct":10`, `"effective_ratio_pct":12`, `"material_loss_rate":0.2`, `"cost_unit_cost":67.5`, `"cost_unit":"kg"`, `"other_cost_details"`, `"profit_explanation"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `"process_route_id":19`, `"process_route_options"`, `最终售价 = 116.7092/kg`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}
@@ -1185,7 +1188,7 @@ func TestCostingCalculateAPIRoundsRetailBeanListPricesWithoutCommercialTemplate(
 	if len(item.CommercialWholesaleTiers) != 0 {
 		t.Fatalf("commercial tiers = %+v, want none without gradient template", item.CommercialWholesaleTiers)
 	}
-	if len(item.RetailBeanTiers) != 2 || item.RetailBeanTiers[0].Label != "100g" || item.RetailBeanTiers[0].PricePerUnit != 115 {
+	if len(item.RetailBeanTiers) != 2 || item.RetailBeanTiers[0].Label != "100g" || item.RetailBeanTiers[0].PricePerUnit != 92 {
 		t.Fatalf("retail tiers = %+v", item.RetailBeanTiers)
 	}
 }

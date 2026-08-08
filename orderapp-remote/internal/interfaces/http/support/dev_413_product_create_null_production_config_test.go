@@ -26,7 +26,8 @@ func TestDev413ProductCreateNullProductionConfigSourceMarkers(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"buildProductProductionConfigForm",
 			"const sourceConfig = config && typeof config === 'object' ? config : {}",
-			"sourceConfig.expected_loss_rate ?? sourceProduct.expected_loss_rate ?? 0",
+			"process_route_id: Number(sourceConfig.process_route_id || 0)",
+			"industry_field_template_ids: industryTemplateIDs",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"buildProductProductionConfigForm",
@@ -43,6 +44,13 @@ func TestDev413ProductCreateNullProductionConfigSourceMarkers(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing product create null production config marker %q", rel, want)
 			}
+		}
+	}
+
+	lib := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js")))
+	for _, forbidden := range []string{"sourceConfig.expected_loss_rate", "sourceProduct.expected_loss_rate"} {
+		if strings.Contains(lib, forbidden) {
+			t.Fatalf("current product production form must not restore removed overall loss field %q", forbidden)
 		}
 	}
 }

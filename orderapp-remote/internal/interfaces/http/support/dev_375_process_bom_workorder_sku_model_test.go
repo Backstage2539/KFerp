@@ -68,7 +68,6 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"v-model=\"status\"",
 			"workOrderStatusOptions",
 			"损耗汇总",
-			"预期损耗",
 			"operation_summary_json",
 		},
 	}
@@ -88,6 +87,8 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 		"多层展开策略",
 		"bom-workbench",
 		"apiGet('/api/production-boms?status=all')",
+		"预期损耗",
+		"整体产出率",
 	} {
 		if strings.Contains(workOrders, unwanted) {
 			t.Fatalf("WorkOrdersView.vue should not keep removed BOM demand preview marker %q", unwanted)
@@ -124,8 +125,8 @@ func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
 			"工单冻结 BOM 版本",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"预期损耗率",
-			"预期产出率",
+			"BOM 版本设置中只维护一个 `原料损耗比`",
+			"净配方数量 × (1 + 原料损耗比)",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"工序卡",
@@ -134,7 +135,7 @@ func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"理论成本",
-			"预期产出率",
+			"唯一的原料损耗",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-26-process-bom-workorder-sku-model.md"): {
 			"PR-375",

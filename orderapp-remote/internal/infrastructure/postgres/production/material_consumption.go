@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	bomdomain "orderapp/internal/domain/bom"
-	catalogdomain "orderapp/internal/domain/catalog"
 	stockdomain "orderapp/internal/domain/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
@@ -49,6 +48,7 @@ type materialSnapshotRow struct {
 	Unit                      string  `json:"unit"`
 	RatioPct                  float64 `json:"ratio_pct,omitempty"`
 	MaterialLossRate          float64 `json:"material_loss_rate,omitempty"`
+	LossCalculationMode       string  `json:"loss_calculation_mode,omitempty"`
 	InputIncludesMaterialLoss bool    `json:"input_includes_material_loss,omitempty"`
 	Source                    string  `json:"source"`
 	ComponentType             string  `json:"component_type,omitempty"`
@@ -59,6 +59,11 @@ type materialSnapshotRow struct {
 	OutputQty                 float64 `json:"output_qty,omitempty"`
 	OutputUnit                string  `json:"output_unit,omitempty"`
 }
+
+const (
+	additiveMaterialLossCalculationMode = "additive"
+	legacyMaterialLossCalculationMode   = "legacy_fraction"
+)
 
 func isWeightMaterialUnit(unit string) bool {
 	unit = strings.ToLower(strings.TrimSpace(unit))
@@ -87,12 +92,17 @@ func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct fl
 }
 
 func componentConsumptionQtyWithMaterialLoss(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, outputG int64, packedUnits int64, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) int64 {
+	return componentConsumptionQtyWithMaterialLossMode(
+		consumeUnit, qtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, boxUnits,
+		outputQty, outputUnit, materialLossRate, additiveMaterialLossCalculationMode,
+	)
+}
+
+func componentConsumptionQtyWithMaterialLossMode(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, outputG int64, packedUnits int64, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64, lossCalculationMode string) int64 {
 	if normalizeBomConsumeUnit(consumeUnit) != "ratio_pct" {
 		return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, boxUnits, outputQty, outputUnit)
 	}
-	lossRate := normalizeMaterialLossRate(materialLossRate)
-	if lossRate > 0 {
-		factor := 1.0 / (1.0 - lossRate)
+	if factor := materialLossFactor(materialLossRate, lossCalculationMode); factor > 1 {
 		rawG = int64(math.Ceil(float64(rawG) * factor))
 		outputG = int64(math.Ceil(float64(outputG) * factor))
 		packedUnits = int64(math.Ceil(float64(packedUnits) * factor))
@@ -101,17 +111,20 @@ func componentConsumptionQtyWithMaterialLoss(consumeUnit string, qtyPerUnit floa
 }
 
 func componentConsumptionWeightGramsWithMaterialLoss(consumeUnit string, qtyPerUnit, ratioPct float64, materialUnit string, rawG, outputG, packedUnits, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) int64 {
+	return componentConsumptionWeightGramsWithMaterialLossMode(
+		consumeUnit, qtyPerUnit, ratioPct, materialUnit, rawG, outputG, packedUnits, boxUnits,
+		outputQty, outputUnit, materialLossRate, additiveMaterialLossCalculationMode,
+	)
+}
+
+func componentConsumptionWeightGramsWithMaterialLossMode(consumeUnit string, qtyPerUnit, ratioPct float64, materialUnit string, rawG, outputG, packedUnits, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64, lossCalculationMode string) int64 {
 	normalized := normalizeBomConsumeUnit(consumeUnit)
 	if normalized == "ratio_pct" {
 		ratio := bomdomain.NormalizeRatioPct(ratioPct)
 		if ratio <= 0 {
 			return 0
 		}
-		lossRate := normalizeMaterialLossRate(materialLossRate)
-		factor := 1.0
-		if lossRate > 0 {
-			factor = 1 / (1 - lossRate)
-		}
+		factor := materialLossFactor(materialLossRate, lossCalculationMode)
 		return int64(math.Ceil(float64(rawG) * ratio / 100 * factor))
 	}
 	outputFactor := bomOutputBasisFactor(outputG, packedUnits, outputQty, outputUnit)
@@ -152,6 +165,30 @@ func normalizeMaterialLossRate(rate float64) float64 {
 		return 0
 	}
 	return rate
+}
+
+func materialLossFactor(rate float64, mode string) float64 {
+	rate = normalizeMaterialLossRate(rate)
+	if rate <= 0 {
+		return 1
+	}
+	if strings.TrimSpace(mode) == legacyMaterialLossCalculationMode {
+		return 1 / (1 - rate)
+	}
+	return 1 + rate
+}
+
+func materialSnapshotUsesAdditiveLoss(raw []byte) bool {
+	var rows []materialSnapshotRow
+	if json.Unmarshal(raw, &rows) != nil {
+		return false
+	}
+	for _, row := range rows {
+		if strings.TrimSpace(row.LossCalculationMode) == additiveMaterialLossCalculationMode {
+			return true
+		}
+	}
+	return false
 }
 
 func componentConsumptionQtyWithOutputBasis(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, outputG int64, packedUnits int64, boxUnits int64, outputQty float64, outputUnit string) int64 {
@@ -238,8 +275,6 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
 		       COALESCE(bi.material_loss_rate,0),
-		       COALESCE(p.roast_level,''),
-		       COALESCE(pbv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(NULLIF(bi.component_type,''),'material'),
 		       COALESCE(bi.component_product_id,0),
 		       COALESCE(cp.name,''),
@@ -306,8 +341,6 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		unit                 string
 		ratio                float64
 		materialLossRate     float64
-		roastLevel           string
-		yieldRate            float64
 		componentType        string
 		componentProductID   int64
 		componentProductName string
@@ -322,7 +355,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 	for rows.Next() {
 		var x bomRow
 		if err := rows.Scan(
-			&x.materialID, &x.name, &x.unit, &x.ratio, &x.materialLossRate, &x.roastLevel, &x.yieldRate,
+			&x.materialID, &x.name, &x.unit, &x.ratio, &x.materialLossRate,
 			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
 			&x.consumeUnit, &x.qtyPerUnit, &x.outputQty, &x.outputUnit, &x.dripBoxBagCount,
 		); err != nil {
@@ -354,10 +387,9 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		return nil, fmt.Errorf("product BOM not configured: %s", r.Product)
 	}
 
-	yield := catalogdomain.ResolveYieldRate(bomRows[0].roastLevel, bomRows[0].yieldRate)
 	rawG := r.InputG
 	if rawG <= 0 {
-		rawG = int64(math.Ceil(float64(r.NeedG) / yield))
+		rawG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
 	}
 	packedUnits := finished.Units
 	if packedUnits < 0 {
@@ -443,8 +475,6 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		       COALESCE(NULLIF(m.unit,''),'g'),
 		       COALESCE(bi.ratio_pct,0),
 		       COALESCE(bi.material_loss_rate,0),
-		       COALESCE(p.roast_level,''),
-		       COALESCE(pbv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(NULLIF(bi.component_type,''),'material'),
 		       COALESCE(bi.component_product_id,0),
 		       COALESCE(cp.name,''),
@@ -511,8 +541,6 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		unit                 string
 		ratio                float64
 		materialLossRate     float64
-		roastLevel           string
-		yieldRate            float64
 		componentType        string
 		componentProductID   int64
 		componentProductName string
@@ -527,7 +555,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 	for rows.Next() {
 		var x bomRow
 		if err := rows.Scan(
-			&x.materialID, &x.name, &x.unit, &x.ratio, &x.materialLossRate, &x.roastLevel, &x.yieldRate,
+			&x.materialID, &x.name, &x.unit, &x.ratio, &x.materialLossRate,
 			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
 			&x.consumeUnit, &x.qtyPerUnit, &x.outputQty, &x.outputUnit, &x.dripBoxBagCount,
 		); err != nil {
@@ -559,10 +587,9 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		return nil, fmt.Errorf("product BOM not configured: %s", r.Product)
 	}
 
-	yield := catalogdomain.ResolveYieldRate(bomRows[0].roastLevel, bomRows[0].yieldRate)
 	rawG := r.InputG
 	if rawG <= 0 {
-		rawG = int64(math.Ceil(float64(r.NeedG) / yield))
+		rawG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
 	}
 	totalPackedUnits := int64(0)
 	totalOutputG := int64(0)
@@ -676,19 +703,20 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 			source = "bom"
 		}
 		rows = append(rows, materialSnapshotRow{
-			MaterialID:         need.MaterialID,
-			MaterialName:       need.MaterialName,
-			Unit:               need.Unit,
-			RatioPct:           need.RatioPct,
-			MaterialLossRate:   need.MaterialLossRate,
-			Source:             source,
-			ComponentType:      need.ComponentType,
-			ComponentProductID: need.ComponentProductID,
-			ComponentSpecG:     need.ComponentSpecG,
-			ConsumeUnit:        need.ConsumeUnit,
-			QtyPerUnit:         need.QtyPerUnit,
-			OutputQty:          need.OutputQty,
-			OutputUnit:         need.OutputUnit,
+			MaterialID:          need.MaterialID,
+			MaterialName:        need.MaterialName,
+			Unit:                need.Unit,
+			RatioPct:            need.RatioPct,
+			MaterialLossRate:    need.MaterialLossRate,
+			LossCalculationMode: additiveMaterialLossCalculationMode,
+			Source:              source,
+			ComponentType:       need.ComponentType,
+			ComponentProductID:  need.ComponentProductID,
+			ComponentSpecG:      need.ComponentSpecG,
+			ConsumeUnit:         need.ConsumeUnit,
+			QtyPerUnit:          need.QtyPerUnit,
+			OutputQty:           need.OutputQty,
+			OutputUnit:          need.OutputUnit,
 		})
 	}
 	if len(rows) == 0 {
@@ -742,6 +770,7 @@ func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema
 		row.ConsumeUnit = normalizeBomConsumeUnit(row.ConsumeUnit)
 		row.RatioPct = bomdomain.NormalizeRatioPct(row.RatioPct)
 		row.MaterialLossRate = normalizeMaterialLossRate(row.MaterialLossRate)
+		row.LossCalculationMode = additiveMaterialLossCalculationMode
 		row.InputIncludesMaterialLoss = inputIncludesMaterialLoss && row.MaterialLossRate > 0
 		row.Source = "bom"
 		if row.ComponentType == "finished_product" {
@@ -811,17 +840,21 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			ratioPct = 100
 		}
 		materialLossRate := normalizeMaterialLossRate(row.MaterialLossRate)
+		lossCalculationMode := strings.TrimSpace(row.LossCalculationMode)
+		if lossCalculationMode == "" {
+			lossCalculationMode = legacyMaterialLossCalculationMode
+		}
 		if row.InputIncludesMaterialLoss {
 			materialLossRate = 0
 		}
 		if source == "packaging" {
 			qty = packedUnits
 		} else if source == "finished_product" {
-			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, 0)
+			qty = componentConsumptionQtyWithMaterialLossMode(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, 0, lossCalculationMode)
 		} else if isWeightMaterialUnit(unit) {
-			deductG = componentConsumptionWeightGramsWithMaterialLoss(
+			deductG = componentConsumptionWeightGramsWithMaterialLossMode(
 				row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG,
-				packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate,
+				packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate, lossCalculationMode,
 			)
 			if productionWeightUnitGrams(unit) > 1 {
 				qtyDecimal = float64(deductG) / productionWeightUnitGrams(unit)
@@ -830,7 +863,7 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			}
 			qty = int64(math.Ceil(qtyDecimal))
 		} else {
-			qty = componentConsumptionQtyWithMaterialLoss(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate)
+			qty = componentConsumptionQtyWithMaterialLossMode(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit, materialLossRate, lossCalculationMode)
 		}
 		if qty <= 0 && deductG <= 0 {
 			continue

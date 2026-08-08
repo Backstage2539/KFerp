@@ -14,6 +14,25 @@ import (
 	catalogapp "orderapp/internal/application/catalog"
 )
 
+func TestFetchProductsUsesNeutralLegacyYieldProjection(t *testing.T) {
+	queryBytes, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := string(queryBytes)
+	for _, forbidden := range []string{
+		"CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0)",
+		"COALESCE(ppc.expected_loss_rate, GREATEST(0, 1 - COALESCE(pbv.yield_rate, b.yield_rate, 0.8)))",
+	} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("current product query must not derive overall yield/loss: %q", forbidden)
+		}
+	}
+	if !strings.Contains(query, "1::float8 AS neutral_yield_rate") || !strings.Contains(query, "0::float8 AS neutral_expected_loss_rate") {
+		t.Fatalf("current product query must project neutral compatibility yield/loss values")
+	}
+}
+
 func TestInsertIDAtPositionReordersWithoutDuplicatePositionTie(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -741,7 +760,8 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 		`"product_production_config"`,
 		`"save_product_production_config"`,
 		"LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id",
-		"COALESCE(ppc.expected_loss_rate",
+		"1::float8 AS neutral_yield_rate",
+		"0::float8 AS neutral_expected_loss_rate",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("product production config implementation missing marker %q", want)

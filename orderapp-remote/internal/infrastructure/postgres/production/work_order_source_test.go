@@ -92,6 +92,35 @@ func TestWorkOrderFreezesProductProductionConfigSnapshot(t *testing.T) {
 	}
 }
 
+func TestNewWorkOrderSnapshotsNeutralizeLegacyOverallYieldFields(t *testing.T) {
+	srcBytes, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	if !strings.Contains(src, "0::float8 AS expected_loss_rate") {
+		t.Fatalf("new work-order product config snapshots must freeze expected_loss_rate as compatibility zero")
+	}
+	if strings.Contains(src, "COALESCE(ppc.expected_loss_rate,0)::float8 AS expected_loss_rate") {
+		t.Fatalf("new work-order snapshots must not copy the legacy configured expected_loss_rate")
+	}
+	if got := strings.Count(src, "snapshot.YieldRate = 1"); got < 3 {
+		t.Fatalf("all current process snapshot builders must freeze yield_rate=1; assignments=%d, want at least 3", got)
+	}
+	if !strings.Contains(src, "processSnapshotJSON = []byte(`{\"yield_rate\":1}`)") {
+		t.Fatalf("new work orders without a route/template snapshot must still freeze compatibility yield_rate=1")
+	}
+	for _, want := range []string{
+		"wo.process_snapshot_json->>'yield_rate'",
+		"NULLIF(bound_bv.yield_rate,0)",
+		"pb.yield_rate",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("historical frozen work-order yield fallback must remain readable; missing %q", want)
+		}
+	}
+}
+
 func TestWorkOrderFreezesProcessRouteAndUsesUsableDefaultBomPriority(t *testing.T) {
 	srcBytes, err := os.ReadFile("work_order.go")
 	if err != nil {

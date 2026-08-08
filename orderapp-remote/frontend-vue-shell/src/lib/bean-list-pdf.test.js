@@ -1207,3 +1207,27 @@ test('buildBeanListPdfGroups freezes customer alias and product snapshots in pub
   assert.deepEqual(item.special_attrs_snapshot, [{ key: 'pack', label: '包装', value: '客户专属袋' }])
   assert.equal(item.price_source_json.gradient_template_id, 9)
 })
+
+test('new bean-list publication snapshots omit legacy overall yield fields without rewriting historical snapshots', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 10,
+    name: '曲奇拼配',
+    yield_rate: 0.8,
+    expected_loss_rate: 0.2,
+    commercial_wholesale_tiers: [{ label: '1kg', price_per_unit: 88, display_unit: 'kg' }],
+    commercial_bean_list: { code: '1.1', category: '1、商用', display_name: '曲奇拼配' },
+  }], 'commercial')
+
+  const priceSource = groups[0].items[0].price_source_json
+  assert.equal(Object.hasOwn(priceSource, 'yield_rate'), false)
+  assert.equal(Object.hasOwn(priceSource, 'expected_loss_rate'), false)
+
+  const historical = copyBeanListPublicationContentGroups({
+    content: {
+      groups: [{
+        items: [{ price_source_json: { yield_rate: 0.8, expected_loss_rate: 0.2 } }],
+      }],
+    },
+  })
+  assert.deepEqual(historical[0].items[0].price_source_json, { yield_rate: 0.8, expected_loss_rate: 0.2 })
+})

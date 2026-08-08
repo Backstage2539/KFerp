@@ -49,7 +49,7 @@ type startRunGroup struct {
 	ProcessingRequestItemID  int64
 }
 
-func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64) []startRunGroup {
+func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[string]int64) []startRunGroup {
 	type productGroup struct {
 		startRunGroup
 		orderNosSeen map[string]bool
@@ -142,7 +142,7 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 			}
 		}
 		if group.InputG <= 0 {
-			group.InputG = defaultProductionInputG(group.NeedG, yieldByProductID[productID])
+			group.InputG = group.NeedG
 		}
 		out = append(out, group.startRunGroup)
 	}

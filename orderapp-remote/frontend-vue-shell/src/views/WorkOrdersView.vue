@@ -62,8 +62,6 @@
             </td>
             <td class="summary">
               <strong>{{ productionParamsText(row) }}</strong>
-              <small>预期产出率 {{ percent(expectedYield(row)) }}</small>
-              <small>预期损耗率 {{ percent(expectedLoss(row)) }}</small>
               <small>商品生产配置快照</small>
             </td>
             <td class="summary">{{ row.material_summary || '-' }}</td>
@@ -186,8 +184,6 @@
         <div><span>规格</span><strong>{{ printRow.spec_g }}g</strong></div>
         <div><span>订单</span><strong>{{ printRow.order_nos || '-' }}</strong></div>
         <div><span>计划投料</span><strong>{{ formatG(printRow.planned_g) }}</strong></div>
-        <div><span>预期损耗率</span><strong>{{ percent(expectedLoss(printRow)) }}</strong></div>
-        <div><span>预期产出率</span><strong>{{ percent(expectedYield(printRow)) }}</strong></div>
         <div><span>BOM/工艺路线</span><strong>{{ bomProcessSummary(printRow) }}</strong></div>
         <div><span>WIP剩余占用</span><strong>{{ formatG(printRow.remaining_reserved_g) }}</strong></div>
         <div><span>预计产出</span><strong>{{ formatWorkOrderPlannedOutput(printRow) }}</strong></div>
@@ -203,8 +199,6 @@
           <tr><th>商品生产配置快照</th><td>{{ productConfigSnapshotText(printRow) }}</td></tr>
           <tr><th>工序摘要</th><td>{{ operationSummaryText(printRow) }}</td></tr>
           <tr><th>工序计划</th><td>{{ operationPlanText(printRow) }}</td></tr>
-          <tr><th>预期产出率</th><td>{{ percent(expectedYield(printRow)) }}</td></tr>
-          <tr><th>预期损耗率</th><td>{{ percent(expectedLoss(printRow)) }}</td></tr>
           <tr><th>原料参考</th><td>{{ printRow.material_summary || '-' }}</td></tr>
         </tbody>
       </table>
@@ -217,7 +211,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
-import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
+import { formatPercent } from '../lib/manufacturing-loss'
 import { workOrderStatusLabel } from '../lib/manufacturing-execution'
 import {
   applicableOperationCapacities,
@@ -264,11 +258,6 @@ const formatG = (v) => `${Number(v || 0).toLocaleString('zh-CN')}g`
 const formatQty = (v) => {
   const n = Number(v || 0)
   return n ? `${n.toLocaleString('zh-CN', { maximumFractionDigits: 3 })}` : '-'
-}
-const expectedYield = (row) => Number(row?.expected_yield_rate || row?.yield_rate || 0)
-const expectedLoss = (row) => {
-  if (row && Object.prototype.hasOwnProperty.call(row, 'expected_loss_rate')) return Number(row.expected_loss_rate || 0)
-  return expectedLossRate(expectedYield(row))
 }
 const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => String(row.status || 'active') === 'active'))
 const workOrderSplitOperations = computed(() => {

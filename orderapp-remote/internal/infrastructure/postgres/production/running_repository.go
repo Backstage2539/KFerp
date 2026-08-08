@@ -51,6 +51,10 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 			r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
 		}
 		plan := runningInventoryPlan(r.SpecG, r.NeedG, r.InputG, r.BomYieldRate)
+		if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) {
+			plan = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+			r.BomYieldRate = 1
+		}
 		r.PlanUnits = plan.Units
 		r.PlanLooseG = plan.LooseG
 		out = append(out, r)
@@ -98,6 +102,10 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, schema), r.ProductID, r.SpecG, warehouse).Scan(&unitsBefore, &looseBefore)
 	cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
 	add := runningInventoryPlan(r.SpecG, r.NeedG, r.InputG, r.BomYieldRate)
+	if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) {
+		add = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+		r.BomYieldRate = 1
+	}
 	if cmd.HasFinishedInput {
 		add, err = normalizeFinishedInventoryAddition(r.SpecG, cmd.FinishedUnits, cmd.FinishedLooseG)
 		if err != nil {
@@ -180,6 +188,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 			partial = false
 		} else {
 			remainingPlan := runningInventoryPlan(r.SpecG, remainingNeedG, remainingInputG, r.BomYieldRate)
+			if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) {
+				remainingPlan = plannedFinishedInventoryAddition(r.SpecG, remainingNeedG)
+			}
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				UPDATE %s.produce_running_items
 				SET need_g=$2,input_g=$3,planned_units=$4,planned_loose_g=$5
@@ -439,7 +450,11 @@ func resolveFinishConsumedInput(r ProduceRunRow, cmd productionapp.FinishCommand
 
 	consumedInputG := cmd.ConsumedInputG
 	if consumedInputG <= 0 {
-		consumedInputG = int64(math.Ceil(float64(finishedTotal) / r.BomYieldRate))
+		if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) && r.NeedG > 0 && r.InputG > 0 {
+			consumedInputG = int64(math.Ceil(float64(finishedTotal) * float64(r.InputG) / float64(r.NeedG)))
+		} else {
+			consumedInputG = int64(math.Ceil(float64(finishedTotal) / r.BomYieldRate))
+		}
 	}
 	if consumedInputG <= 0 {
 		return 0, false, fmt.Errorf("本次消耗投料必须大于0")

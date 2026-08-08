@@ -173,54 +173,6 @@ func TestSaveIndustryTemplateValidatesFields(t *testing.T) {
 	}
 }
 
-func TestIndustryCalculatorPreviewUsesGenericManufacturingFormula(t *testing.T) {
-	svc := NewService(&fakeRepo{})
-	cases := []struct {
-		name        string
-		industryKey string
-		lossRate    float64
-		wantInputG  int64
-		wantLossG   int64
-	}{
-		{name: "coffee", industryKey: "coffee", lossRate: 0.18, wantInputG: 55366, wantLossG: 9966},
-		{name: "packaging", industryKey: "packaging_box", lossRate: 0.03, wantInputG: 46805, wantLossG: 1405},
-		{name: "garment", industryKey: "garment", lossRate: 0.08, wantInputG: 49348, wantLossG: 3948},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := svc.PreviewIndustryCalculator(context.Background(), IndustryCalculatorPreviewCommand{
-				IndustryKey: tc.industryKey,
-				Inputs:      map[string]float64{"demand_output_g": 45400},
-				Config: map[string]float64{
-					"loss_rate":                 tc.lossRate,
-					"material_unit_cost_per_kg": 42.5,
-					"operation_minutes":         60,
-					"hourly_rate":               90,
-				},
-			})
-			if err != nil {
-				t.Fatalf("PreviewIndustryCalculator() error = %v", err)
-			}
-			if got.PlannedInputG != tc.wantInputG || got.ExpectedLossG != tc.wantLossG || got.IndustryKey != tc.industryKey {
-				t.Fatalf("preview = %+v", got)
-			}
-			if got.MaterialCost <= 0 || got.OperationCost != 90 || got.TotalCost <= got.MaterialCost || len(got.Lines) < 3 {
-				t.Fatalf("cost/lines not calculated: %+v", got)
-			}
-		})
-	}
-}
-
-func TestIndustryCalculatorPreviewRejectsInvalidInput(t *testing.T) {
-	svc := NewService(&fakeRepo{})
-	if _, err := svc.PreviewIndustryCalculator(context.Background(), IndustryCalculatorPreviewCommand{Inputs: map[string]float64{"demand_output_g": 0}}); err == nil {
-		t.Fatal("PreviewIndustryCalculator() error = nil, want demand validation")
-	}
-	if _, err := svc.PreviewIndustryCalculator(context.Background(), IndustryCalculatorPreviewCommand{Inputs: map[string]float64{"demand_output_g": 1000}, Config: map[string]float64{"loss_rate": 1}}); err == nil {
-		t.Fatal("PreviewIndustryCalculator() error = nil, want loss rate validation")
-	}
-}
-
 func TestPublishProcessTemplateRequiresID(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

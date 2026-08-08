@@ -39,11 +39,6 @@ func calcProducePlanMaterialsFromFinalInputs(rows []UnprodNeedRow, finalInputByK
 		}
 		return (a + b - 1) / b
 	}
-	fallbackYield := p.YieldRate
-	if fallbackYield <= 0 || fallbackYield > 1 {
-		fallbackYield = 0.8
-	}
-
 	for _, r := range rows {
 		if r.GapG <= 0 || r.SpecG <= 0 {
 			continue
@@ -51,11 +46,7 @@ func calcProducePlanMaterialsFromFinalInputs(rows []UnprodNeedRow, finalInputByK
 		finalInputG := finalInputByKey[producePlanKey(r.ProductID, r.SpecG)]
 		items := bomMap[r.ProductID]
 		if finalInputG <= 0 {
-			yield := fallbackYield
-			if len(items) > 0 && items[0].YieldRate > 0 && items[0].YieldRate <= 1 {
-				yield = items[0].YieldRate
-			}
-			finalInputG = int64(math.Ceil(float64(r.GapG) / yield))
+			finalInputG = r.GapG
 		}
 		if len(items) == 0 {
 			noBom := r
@@ -112,9 +103,6 @@ func calcNoBomProducePlanMaterials(r UnprodNeedRow, p ProducePlanParams) []Mater
 	if r.GapG <= 0 || r.SpecG <= 0 {
 		return nil
 	}
-	if p.YieldRate <= 0 || p.YieldRate > 1 {
-		p.YieldRate = 0.8
-	}
 	if p.DripBoxSpec <= 0 {
 		p.DripBoxSpec = 10
 	}
@@ -136,7 +124,7 @@ func calcNoBomProducePlanMaterials(r UnprodNeedRow, p ProducePlanParams) []Mater
 	}
 	out := []MaterialNeed{{
 		Name: rawName,
-		Qty:  int64(math.Ceil(float64(r.GapG) / p.YieldRate)),
+		Qty:  r.GapG,
 		Unit: "g",
 	}}
 	bagName := "豆袋"

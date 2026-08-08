@@ -480,7 +480,7 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if got.ProfitExplanation.CostAfterYield != got.CostAfterYield || got.ProfitExplanation.MarkupAmount != got.ProfitMarkupAmount || got.ProfitExplanation.PreTaxPrice != got.PreTaxPrice {
 		t.Fatalf("profit explanation amounts = %+v, want current waterfall amounts", got.ProfitExplanation)
 	}
-	if !strings.Contains(got.ProfitExplanation.Formula, "损耗后成本 * (1 + 加价率 25%)") {
+	if !strings.Contains(got.ProfitExplanation.Formula, "成本基数 * (1 + 加价率 25%)") {
 		t.Fatalf("profit explanation formula = %q, want markup formula", got.ProfitExplanation.Formula)
 	}
 	waterfallTotal := got.CostBaseTotal + got.YieldLossAmount + got.ProfitMarkupAmount + got.TaxInPriceAmount + got.RoundingAdjustment
@@ -498,10 +498,13 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if strings.Contains(got.FormulaExpression, "/ (1 - 损耗率 20%)") {
 		t.Fatalf("formula expression = %q, should not add default product/BOM loss on actual BOM detail cost", got.FormulaExpression)
 	}
-	for _, key := range []string{"standard_manufacturing_cost", "other_cost_total", "expected_loss_rate", "profit_method", "tax_rate", "rounding_rule", "final_unit_price"} {
+	for _, key := range []string{"standard_manufacturing_cost", "other_cost_total", "profit_method", "tax_rate", "rounding_rule", "final_unit_price"} {
 		if !pricingRuleTrialHasStep(got.Steps, key) {
 			t.Fatalf("steps missing %q: %+v", key, got.Steps)
 		}
+	}
+	if pricingRuleTrialHasStep(got.Steps, "expected_loss_rate") || pricingRuleTrialHasStep(got.Steps, "cost_after_yield") {
+		t.Fatalf("steps must not expose retired overall-loss concepts: %+v", got.Steps)
 	}
 }
 
@@ -780,7 +783,7 @@ func TestPricingRuleTrialTaxModeNoneForcesZeroTax(t *testing.T) {
 	}
 }
 
-func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T) {
+func TestPricingRuleTrialIgnoresRetiredOverallLossOverrideForBomCost(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
 			ProductID:        551,
@@ -823,18 +826,18 @@ func TestPricingRuleTrialExplicitTemporaryLossStillAppliesToBomCost(t *testing.T
 	if err != nil {
 		t.Fatalf("PricingRuleTrial() error = %v", err)
 	}
-	if got.CostBaseTotal != 100 || got.CostAfterYield != 125 || got.YieldLossAmount != 25 {
-		t.Fatalf("explicit temporary loss waterfall = base %.2f after %.2f loss %.2f, want 100 -> 125 with 25 loss", got.CostBaseTotal, got.CostAfterYield, got.YieldLossAmount)
+	if got.CostBaseTotal != 100 || got.CostAfterYield != 100 || got.YieldLossAmount != 0 {
+		t.Fatalf("retired overall loss must not amplify BOM cost: base %.2f after %.2f loss %.2f", got.CostBaseTotal, got.CostAfterYield, got.YieldLossAmount)
 	}
-	if got.FinalUnitPrice != 156.25 {
-		t.Fatalf("final unit price = %.2f, want explicit loss to affect markup price", got.FinalUnitPrice)
+	if got.FinalUnitPrice != 125 {
+		t.Fatalf("final unit price = %.2f, want only 25%% markup on BOM cost", got.FinalUnitPrice)
 	}
-	if !strings.Contains(got.FormulaExpression, "/ (1 - 损耗率 20%)") || !strings.Contains(got.FormulaExpression, "* (1 + 加价率 25%)") {
-		t.Fatalf("formula expression = %q, want explicit temporary loss and markup formula", got.FormulaExpression)
+	if strings.Contains(got.FormulaExpression, "损耗率") || !strings.Contains(got.FormulaExpression, "* (1 + 加价率 25%)") {
+		t.Fatalf("formula expression = %q, want retired overall loss omitted and markup retained", got.FormulaExpression)
 	}
 }
 
-func TestPricingRuleTrialWarnsWhenOverallAndMaterialLossBothApply(t *testing.T) {
+func TestPricingRuleTrialDoesNotExposeRetiredDoubleLossWarning(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
 			ProductID:        658,
@@ -851,18 +854,21 @@ func TestPricingRuleTrialWarnsWhenOverallAndMaterialLossBothApply(t *testing.T) 
 			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "卡蒂姆水洗", ConsumeUnit: "ratio_pct", RatioPct: 75, RecipeRatioPct: 60, EffectiveRatioPct: 75, MaterialLossRate: 0.2, UnitCost: 54, CostUnitCost: 54, CostUnit: "kg", AmountPerKg: 50.625, Unit: "kg"},
 		},
 		pricingRules: map[int64]ProductPricingRule{12: {
-			ID: 12, Name: "双损耗说明", MarginRate: 0, TaxRate: 0, RoundingMode: "none", FormulaVersion: "v1", Active: true,
-			CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "markup", "tax_mode": "none"},
+			ID: 12, Name: "退役整体损耗兼容", MarginRate: 0, TaxRate: 0, RoundingMode: "none", FormulaVersion: "v1", Active: true,
+			CalculationJSON: map[string]any{"yield_loss_mode": "bom_or_product", "profit_method": "markup", "tax_mode": "none"},
 		}},
 	}
 	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 12, ProductID: 658})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got.CostAfterYield != got.CostBaseTotal || got.YieldLossAmount != 0 {
+		t.Fatalf("legacy yield fields must not amplify BOM cost: base %.4f after %.4f loss %.4f", got.CostBaseTotal, got.CostAfterYield, got.YieldLossAmount)
+	}
 	warnings := strings.Join(got.Warnings, "\n")
-	for _, want := range []string{"整体预期损耗 20%", "原料损耗 20%", "连续放大", "商品档案生产配置", "预期损耗率设为 0", "已发布 BOM 版本"} {
-		if !strings.Contains(warnings, want) {
-			t.Fatalf("warnings = %q, want %q", warnings, want)
+	for _, retired := range []string{"整体预期损耗", "连续放大", "预期损耗率设为 0"} {
+		if strings.Contains(warnings, retired) {
+			t.Fatalf("warnings = %q, must not expose retired double-loss guidance %q", warnings, retired)
 		}
 	}
 }
@@ -2028,7 +2034,7 @@ func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitCha
 			ExpectedLossRate:   0,
 		}},
 		costDetails: []PricingRuleTrialBaseCostDetail{
-			{Key: "material:575", Type: "material", TypeLabel: "物料", Name: "卡蒂姆红酒日晒", ConsumeUnit: "ratio_pct", RatioPct: 12.5, RecipeRatioPct: 10, EffectiveRatioPct: 12.5, MaterialLossRate: 0.2, UnitCost: 67, AmountPerKg: 8.375, Unit: "kg"},
+			{Key: "material:575", Type: "material", TypeLabel: "物料", Name: "卡蒂姆红酒日晒", ConsumeUnit: "ratio_pct", RatioPct: 12, RecipeRatioPct: 10, EffectiveRatioPct: 12, MaterialLossRate: 0.2, UnitCost: 67, AmountPerKg: 8.04, Unit: "kg"},
 		},
 		productionOptions: publishedBomTrialOptions(5751),
 		pricingRules: map[int64]ProductPricingRule{
@@ -2061,8 +2067,8 @@ func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitCha
 		t.Fatalf("base cost details = %+v, want one material row", got.BaseCostDetails)
 	}
 	row := got.BaseCostDetails[0]
-	if row.Unit != "lb" || math.Abs(row.Amount-3.8) > 0.005 {
-		t.Fatalf("quote amount = %.4f/%s, want 3.8/lb", row.Amount, row.Unit)
+	if row.Unit != "lb" || math.Abs(row.Amount-3.6469) > 0.005 {
+		t.Fatalf("quote amount = %.4f/%s, want 3.6469/lb", row.Amount, row.Unit)
 	}
 	if row.UnitCost == 67 {
 		t.Fatalf("unit_cost should remain the compatibility quote-unit value, got %.4f", row.UnitCost)
@@ -2070,14 +2076,14 @@ func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitCha
 	if got.BomCostTotal != row.Amount || got.BaseCost != row.Amount || got.FinalUnitPrice != row.Amount {
 		t.Fatalf("trial totals = base %.4f bom %.4f final %.4f row %.4f, want quote-unit totals", got.BaseCost, got.BomCostTotal, got.FinalUnitPrice, row.Amount)
 	}
-	if row.RatioPct != 12.5 {
-		t.Fatalf("compat ratio pct = %.4f, want effective 12.5", row.RatioPct)
+	if row.RatioPct != 12 {
+		t.Fatalf("compat ratio pct = %.4f, want priced ratio 12", row.RatioPct)
 	}
 	if row.RecipeRatioPct != 10 {
 		t.Fatalf("recipe ratio pct = %.4f, want original BOM composition 10", row.RecipeRatioPct)
 	}
-	if row.EffectiveRatioPct != 12.5 {
-		t.Fatalf("effective ratio pct = %.4f, want loss-adjusted 12.5", row.EffectiveRatioPct)
+	if row.EffectiveRatioPct != 12 {
+		t.Fatalf("effective ratio pct = %.4f, want loss-adjusted 12", row.EffectiveRatioPct)
 	}
 	if row.CostUnit != "kg" {
 		t.Fatalf("cost unit = %q, want kg", row.CostUnit)
@@ -2085,8 +2091,11 @@ func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitCha
 	if row.CostUnitCost != 67 {
 		t.Fatalf("cost unit cost = %.4f, want 67/kg", row.CostUnitCost)
 	}
-	if !strings.Contains(row.Description, "原比例 10%") || !strings.Contains(row.Description, "有效比例 12.5%") || !strings.Contains(row.Description, "单位成本 67/kg") || !strings.Contains(row.Description, "折算金额") || !strings.Contains(row.Description, "/lb") {
+	if !strings.Contains(row.Description, "配方比例 10%") || !strings.Contains(row.Description, "原料加耗 20%") || !strings.Contains(row.Description, "计价比例 12%") || !strings.Contains(row.Description, "单位成本 67/kg") || !strings.Contains(row.Description, "折算金额") || !strings.Contains(row.Description, "/lb") {
 		t.Fatalf("description = %q, want material cost unit and quote amount", row.Description)
+	}
+	if strings.Contains(row.Description, "有效比例") {
+		t.Fatalf("description = %q, must not expose retired effective-ratio wording", row.Description)
 	}
 }
 
@@ -2144,7 +2153,7 @@ func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) 
 	if got.ProfitExplanation.Method != "markup" || got.ProfitExplanation.MethodLabel != "加价率" || got.ProfitExplanation.Rate != 0.2 {
 		t.Fatalf("profit explanation = %+v, want markup 20%%", got.ProfitExplanation)
 	}
-	if !strings.Contains(got.ProfitExplanation.Formula, "损耗后成本 * (1 + 加价率 20%)") {
+	if !strings.Contains(got.ProfitExplanation.Formula, "成本基数 * (1 + 加价率 20%)") {
 		t.Fatalf("profit explanation formula = %q, want markup formula", got.ProfitExplanation.Formula)
 	}
 	if got.TaxInPriceAmount != 0 || got.FinalBeforeRounding != 46.8 || got.RoundingAdjustment != 0.2 {
@@ -2219,7 +2228,7 @@ func TestPricingRuleTrialExplanationFieldsUseTemporaryOtherCostsAndMarkup(t *tes
 	if got.ProfitExplanation.CostAfterYield != 22.5 || got.ProfitExplanation.MarkupAmount != 9 || got.ProfitExplanation.PreTaxPrice != 31.5 {
 		t.Fatalf("profit explanation amounts = %+v, want markup waterfall amounts", got.ProfitExplanation)
 	}
-	if !strings.Contains(got.ProfitExplanation.Formula, "损耗后成本 * (1 + 加价率 40%)") {
+	if !strings.Contains(got.ProfitExplanation.Formula, "成本基数 * (1 + 加价率 40%)") {
 		t.Fatalf("profit explanation formula = %q, want markup formula", got.ProfitExplanation.Formula)
 	}
 }
@@ -2713,7 +2722,7 @@ func TestBeanListAppliesProductMarginOverrideBeforeCategoryTemplateMargin(t *tes
 		t.Fatalf("bean list items = %+v", resp.Items)
 	}
 	tier := resp.Items[0].CommercialWholesaleTiers[0]
-	if tier.MarginRate != 0.30 || tier.PricePerUnit != 91 {
+	if tier.MarginRate != 0.30 || tier.PricePerUnit != 74 {
 		t.Fatalf("tier should use product margin override before category template margin, got %+v", tier)
 	}
 }

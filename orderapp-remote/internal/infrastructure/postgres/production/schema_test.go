@@ -391,21 +391,70 @@ func TestWorkOrderSchemaSupportsProcessTemplateSnapshots(t *testing.T) {
 	}
 }
 
-func TestProductionPlanReadsExpectedLossFromProductProductionConfig(t *testing.T) {
+func TestNewProductionPlanDoesNotReadLegacyExpectedLossOrYield(t *testing.T) {
 	for _, file := range []string{"plan_queries.go", "repository.go"} {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
 		text := string(src)
-		for _, want := range []string{
-			"product_production_configs",
+		for _, forbidden := range []string{
 			"expected_loss_rate",
 			"1 - COALESCE(NULLIF(ppc.expected_loss_rate,0)",
 		} {
-			if !strings.Contains(text, want) {
-				t.Fatalf("%s must read expected loss from product production config; missing %q", file, want)
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s must not derive new plan input from legacy overall yield; found %q", file, forbidden)
 			}
+		}
+	}
+}
+
+func TestNewProduceRunningItemsDefaultLegacyYieldCompatibilityToOneWithoutBackfill(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	want := "ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1"
+	if !strings.Contains(text, want) {
+		t.Fatalf("new produce_running_items schemas must default the compatibility bom_yield_rate to 1")
+	}
+	for _, forbidden := range []string{
+		"ALTER TABLE %s.produce_running_items ALTER COLUMN bom_yield_rate SET DEFAULT",
+		"UPDATE %s.produce_running_items SET bom_yield_rate",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("existing produce_running_items rows/defaults must not be migrated; found %q", forbidden)
+		}
+	}
+}
+
+func TestNewProductionLogsDefaultLegacyYieldCompatibilityToOneWithoutBackfill(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	start := strings.Index(text, "func ensureProductionLogTable")
+	end := strings.Index(text[start:], "func ensureQualityInspectionTables")
+	if start < 0 || end < 0 {
+		t.Fatal("schema.go must contain a bounded ensureProductionLogTable function")
+	}
+	section := text[start : start+end]
+	for _, want := range []string{
+		"bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000",
+		"ALTER TABLE %s.production_logs ALTER COLUMN bom_yield_rate SET DEFAULT 1.0000",
+	} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("new production logs must use neutral compatibility yield; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000",
+		"UPDATE %s.production_logs SET bom_yield_rate",
+	} {
+		if strings.Contains(section, forbidden) {
+			t.Fatalf("historical production logs must not be backfilled and new defaults must be neutral; found %q", forbidden)
 		}
 	}
 }

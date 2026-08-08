@@ -324,7 +324,7 @@ func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 			"原料损耗",
 			"损耗后用量",
 			"折算成本",
-			"损耗增加",
+			"加价基数",
 			"加价增加",
 			"tax_in_price_amount",
 			"pricing-rule-trial-waterfall",
@@ -361,7 +361,7 @@ func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 
 	trialDrawer := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	trialDrawer = trialDrawer[strings.Index(trialDrawer, `pricingRuleTrialDrawerOpen`):strings.Index(trialDrawer, `customerAliasCreateDrawerOpen`)]
-	for _, forbidden := range []string{"状态：", "发布售价快照反推"} {
+	for _, forbidden := range []string{"状态：", "发布售价快照反推", "损耗增加"} {
 		if strings.Contains(trialDrawer, forbidden) {
 			t.Fatalf("pricing rule trial drawer should not expose %q", forbidden)
 		}

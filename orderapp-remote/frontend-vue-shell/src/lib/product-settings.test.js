@@ -116,6 +116,56 @@ const rows = [
   { id: 3, name: '拼配生豆 A', product_kind: 'green_bean', primary_name: '生豆', secondary_name: '拼配生豆', green_bean_type: 'blend', custom_type: 'custom_blend', remark: '特殊拼配说明' },
 ]
 
+test('current product and pricing writes ignore legacy overall yield and loss fields', () => {
+  const productCreate = buildProductCreatePayload({
+    name: '曲奇拼配',
+    product_kind: 'roasted',
+    yield_percent: 80,
+  })
+  const productUpdate = buildProductBasicsPayload({
+    name: '曲奇拼配',
+    product_kind: 'roasted',
+    yield_percent: 75,
+  })
+  const customCreate = buildCustomProductCreatePayload(42, {
+    name: '客户曲奇拼配',
+    product_kind: 'roasted',
+    yield_percent: 70,
+  })
+  assert.equal(Object.hasOwn(productCreate, 'yield_rate'), false)
+  assert.equal(Object.hasOwn(productUpdate, 'yield_rate'), false)
+  assert.equal(Object.hasOwn(customCreate, 'yield_rate'), false)
+
+  const pricing = buildPricingRulePayload({
+    name: '熟豆磅装模板',
+    calculation_json: { yield_loss_mode: 'manual', expected_loss_rate: 0.2 },
+    yield_loss_mode: 'bom_or_product',
+  })
+  assert.equal(pricing.calculation_json.yield_loss_mode, 'none')
+  assert.equal(Object.hasOwn(pricing.calculation_json, 'expected_loss_rate'), false)
+
+  const trial = buildPricingRuleTrialPayload({
+    pricing_rule_id: 12,
+    product_id: 643,
+    expected_loss_rate: 0.2,
+    margin_rate: 0.3,
+  })
+  assert.equal(Object.hasOwn(trial.overrides, 'expected_loss_rate'), false)
+
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const saveConfigBlock = source.match(/async function saveProductProductionConfig\(\)[\s\S]*?\n}\n\nasync function createSku/)?.[0] || ''
+  assert.doesNotMatch(source, /pricingRuleForm\.yield_loss_mode/)
+  assert.doesNotMatch(source, /pricingRuleTrialForm\.expected_loss_rate/)
+  assert.doesNotMatch(source, /<span>损耗\/出率<\/span>/)
+  assert.doesNotMatch(source, /<span>临时损耗率<\/span>/)
+  assert.doesNotMatch(source, /yield_percent:/)
+  assert.doesNotMatch(source, /customForm\.value\.yield_percent/)
+  assert.doesNotMatch(saveConfigBlock, /expected_loss_rate/)
+
+  const configForm = buildProductProductionConfigForm({ expected_loss_rate: 0.2 }, { id: 643, yield_rate: 0.8 })
+  assert.equal(Object.hasOwn(configForm, 'expected_loss_percent'), false)
+})
+
 test('filterSkuRows supports product kind, name, primary category, and secondary category filters', () => {
   assert.deepEqual(filterSkuRows(rows, { productKind: 'green_bean' }).map((row) => row.id), [2, 3])
   assert.deepEqual(filterSkuRows(rows, { query: '瑰夏' }).map((row) => row.id), [2])
@@ -130,7 +180,7 @@ test('filterSkuRows supports product kind, name, primary category, and secondary
   ], { productKind: 'instant_coffee' }).map((row) => row.id), [5])
 })
 
-test('instant coffee product kind carries legacy yield without writing SKU special attributes', () => {
+test('instant coffee product kind ignores legacy yield and SKU special attributes on write', () => {
   assert.equal(normalizedProductKind({ product_kind: 'instant_coffee' }), 'instant_coffee')
 
   assert.deepEqual(buildProductCreatePayload({
@@ -143,7 +193,6 @@ test('instant coffee product kind carries legacy yield without writing SKU speci
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
     remark: '原料为速溶咖啡',
-    yield_rate: 0.8,
   })
 
   assert.deepEqual(buildProductBasicsPayload({
@@ -156,7 +205,6 @@ test('instant coffee product kind carries legacy yield without writing SKU speci
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
     remark: '原料为速溶咖啡',
-    yield_rate: 0.8,
   })
 
   assert.deepEqual(buildCustomProductCreatePayload(42, {
@@ -174,7 +222,6 @@ test('instant coffee product kind carries legacy yield without writing SKU speci
     name: '客户A-速溶咖啡',
     remark: '',
     product_kind: 'instant_coffee',
-    yield_rate: 1,
     custom_type: 'public_sku_alias',
     copy_bom: false,
     copy_price_tiers: true,
@@ -601,7 +648,7 @@ test('pricing rules and tier templates are independent templates used by price l
     rounding_mode: 'yuan',
     formula_version: 'v2',
     calculation_json: {
-      yield_loss_mode: 'bom_or_product',
+      yield_loss_mode: 'none',
       profit_method: 'markup',
       tax_mode: 'tax_included',
       minimum_margin_rate: 0.18,
@@ -695,7 +742,7 @@ test('pricing rule copy payload creates an active unique template from inactive 
     rounding_mode: 'jiao',
     formula_version: 'v2',
     calculation_json: {
-      yield_loss_mode: 'manual',
+      yield_loss_mode: 'none',
       profit_method: 'markup',
       tax_mode: 'tax_excluded',
       minimum_margin_rate: 0.15,
@@ -740,7 +787,6 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
     operation_template_id: 27,
     quote_unit: 'kg',
     overrides: {
-      expected_loss_rate: 0.12,
       margin_rate: 0.3,
       tax_rate: 0.06,
       other_costs: {
@@ -1577,8 +1623,6 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'BOM版本',
     '工艺路线',
     '销售单位',
-    '临时损耗率',
-    '空=不额外计损耗',
     '临时加价率',
     '临时税率',
     '其他成本',
@@ -1621,6 +1665,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'cost_unit',
     'recipe_ratio_pct',
     'effective_ratio_pct',
+    'ratioPct / (1 + lossRate)',
     'pricingRuleTrialBaseCostRecipeUsage(row)',
     'pricingRuleTrialBaseCostLossRate(row)',
     'pricingRuleTrialBaseCostEffectiveUsage(row)',
@@ -1637,7 +1682,6 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'pricingRuleTrialQuoteUnitOptions',
     'pricingRuleTrialBomVersionOptions',
     'pricingRuleTrialProcessRouteOptions',
-    'pricingRuleTrialHasYieldLoss(pricingRuleTrialResult)',
     'schedulePricingRuleTrial',
   ]) {
     assert.ok(source.includes(want), `missing pricing rule trial marker: ${want}`)
@@ -1652,6 +1696,11 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'product_production_config',
     'missing',
     '发布售价快照反推',
+    '损耗增加',
+    'pricingRuleTrialHasYieldLoss',
+    '当前商品损耗率',
+    '损耗后成本',
+    'ratioPct * (1 - lossRate)',
   ]) {
     assert.equal(trialDrawer.includes(forbidden), false, `pricing rule trial drawer should not expose ${forbidden}`)
   }
@@ -1673,7 +1722,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(style, /\.pricing-rule-trial-explanation-panel/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('base_cost'\)"[\s\S]*标准制造成本/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('other_cost'\)"[\s\S]*其他成本/)
-  assert.match(trialDrawer, /v-if="pricingRuleTrialHasYieldLoss\(pricingRuleTrialResult\)"[\s\S]*损耗增加/)
+  assert.match(trialDrawer, /<dt>加价基数<\/dt>/)
   assert.match(trialDrawer, /v-if="pricingRuleTrialHasRoundingAdjustment\(pricingRuleTrialResult\)"[\s\S]*取整调整/)
   assert.match(trialDrawer, /type="button"[\s\S]*@click="openPricingRuleTrialExplanation\('profit_markup'\)"[\s\S]*加价增加/)
   assert.doesNotMatch(trialDrawer, /placeholder="按商品\/BOM"/)
@@ -2230,7 +2279,7 @@ test('special KV schema saves edited select options and clears stale options whe
   }]), '[{"key":"roast_level","label":"烘焙度","value_type":"text","options":[],"required":false,"show_in_price_list":true,"position":1}]')
 })
 
-test('instant coffee SKU payload carries legacy yield without SKU special attributes', () => {
+test('instant coffee SKU payload ignores legacy yield and SKU special attributes', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: '速溶盒装',
     product_kind: 'instant_coffee',
@@ -2240,7 +2289,6 @@ test('instant coffee SKU payload carries legacy yield without SKU special attrib
     name: '速溶盒装',
     product_kind: 'instant_coffee',
     remark: '',
-    yield_rate: 0.96,
   })
 
   assert.deepEqual(buildProductBasicsPayload({
@@ -2251,7 +2299,6 @@ test('instant coffee SKU payload carries legacy yield without SKU special attrib
   }), {
     product_kind: 'instant_coffee',
     remark: '条装原料',
-    yield_rate: 0.98,
   })
 })
 
@@ -2473,7 +2520,6 @@ test('legacy explicit product unit override payload carries inventory unit maste
     name: '盒装速溶',
     product_kind: 'instant_coffee',
     remark: '新品',
-    yield_rate: 0.8,
     inventory_unit: '盒',
     integer_inventory_unit: true,
     default_sales_unit: '箱',
@@ -2496,7 +2542,6 @@ test('legacy explicit product unit override payload carries inventory unit maste
     name: '盒装速溶',
     product_kind: 'instant_coffee',
     remark: '库存按盒',
-    yield_rate: 0.8,
     inventory_unit: '个',
     integer_inventory_unit: false,
     default_sales_unit: '盒',
@@ -2521,7 +2566,6 @@ test('product create and basics payload inherit inventory unit from sales spec t
     product_kind: 'roasted',
     remark: '引用咖啡豆单位模板',
     unit_template_id: 7,
-    yield_rate: 0.8,
   })
 
   assert.deepEqual(buildProductCreatePayload({
@@ -2545,7 +2589,6 @@ test('product create and basics payload inherit inventory unit from sales spec t
     default_sales_unit: '箱',
     unit_conversion_json: { 箱: { 盒: 12 } },
     sales_unit_rules: { 箱: { integer_unit: true } },
-    yield_rate: 0.8,
   })
 
   const inheritedPayload = buildProductBasicsPayload({
@@ -3067,7 +3110,6 @@ test('product create payload carries SKU remark without direct green bean prices
     name: '暖阳拼配',
     product_kind: 'roasted',
     remark: '奶咖主推',
-    yield_rate: 0.82,
   })
 
   const green = buildProductCreatePayload({
@@ -3118,7 +3160,7 @@ test('product basics payload no longer writes hard-coded drip bag package fields
 
   assert.equal(payload.product_kind, 'drip_bag')
   assert.equal(payload.remark, '挂耳由商品配置模板承载规格')
-  assert.equal(payload.yield_rate, 0.82)
+  assert.equal(Object.hasOwn(payload, 'yield_rate'), false)
   assert.equal(Object.hasOwn(payload, 'drip_bag_grams'), false)
   assert.equal(Object.hasOwn(payload, 'drip_box_bag_count'), false)
 })
@@ -3136,7 +3178,7 @@ test('product basics payload no longer carries customer SKU margin override', ()
 
   assert.equal(payload.product_kind, 'roasted')
   assert.equal(Object.hasOwn(payload, 'special_attrs_json'), false)
-  assert.equal(payload.yield_rate, 0.8)
+  assert.equal(Object.hasOwn(payload, 'yield_rate'), false)
   assert.equal(Object.hasOwn(payload, 'margin_rate_override'), false)
   assert.equal(payload.remark, '客户定制烘焙')
 })
@@ -3944,7 +3986,7 @@ test('product production config form tolerates newly created products without pr
   assert.equal(form.name, '新建商品')
   assert.equal(form.remark, '刚创建')
   assert.equal(Object.hasOwn(form, 'product_config_template_id'), false)
-  assert.equal(form.expected_loss_percent, 0)
+  assert.equal(Object.hasOwn(form, 'expected_loss_percent'), false)
   assert.deepEqual(form.fields, [])
 })
 
@@ -4673,7 +4715,7 @@ test('product archive displays and saves the ordered union of selected industry 
     assert.ok(endIndex > startIndex, `missing source block end: ${end}`)
     return script.slice(startIndex, endIndex)
   }
-  const listBlock = sourceBetween('function productionConfigPriceListFields(', 'function productionConfigLossLabel(')
+  const listBlock = sourceBetween('function productionConfigPriceListFields(', 'const customerSkuRowsRaw')
   const openBlock = sourceBetween('async function openProductProductionConfig(', 'async function loadIndustryFieldTemplates(')
   const applyBlock = sourceBetween('function applyIndustryFieldTemplateToProductionConfig(', 'function closeProductProductionConfigDrawer(')
   const closeBlock = sourceBetween('function closeProductProductionConfigDrawer(', 'async function refreshClassificationTemplates(')

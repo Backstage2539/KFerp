@@ -97,6 +97,22 @@ func TestNoBomRawMaterialUsesProductTypeNameForInstantCoffee(t *testing.T) {
 	assertNoMaterialNeed(t, got, "冻干美式 生豆")
 }
 
+func TestCurrentNoBomMaterialAndRoastSplitDoNotUseLegacyYield(t *testing.T) {
+	row := productionapp.UnprodNeedRow{
+		ProductID: 90, Product: "曲奇拼配", SpecG: 1000, GapG: 1000,
+	}
+	params := defaultPlanParams()
+	params.YieldRate = 0.25
+
+	materials := calcNoBomProducePlanMaterials(row, params)
+	assertMaterialNeed(t, materials, "曲奇拼配 生豆", 1000, "g")
+
+	splits := calcRoastSplits([]productionapp.UnprodNeedRow{row}, nil, 0.25)
+	if len(splits) != 1 || splits[0].TotalKg != "1" || splits[0].YieldPctStr != "100%" {
+		t.Fatalf("roast splits = %+v, want 1kg without legacy yield inflation", splits)
+	}
+}
+
 func TestBuildRoastPlanRowsCarriesOperationTemplateID(t *testing.T) {
 	rows := []productionapp.UnprodNeedRow{{
 		ProductID:                89,

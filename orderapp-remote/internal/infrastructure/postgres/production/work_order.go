@@ -505,7 +505,7 @@ func resolveProductionBomForSourceProductWithRouteRequirementTx(
 		       COALESCE(v.version_no,''),
 		       COALESCE(v.process_route_id,0),
 		       COALESCE(pr.name,''),
-		       COALESCE(NULLIF(v.yield_rate,0),1)::float8,
+		       1::float8,
 		       COALESCE(v.material_loss_rate,0)::float8,
 		       COALESCE(NULLIF(v.output_qty,0),1)::float8,
 		       COALESCE(NULLIF(v.output_unit,''),'unit'),
@@ -623,7 +623,7 @@ func resolveLatestUsableBomRouteForProductTx(ctx context.Context, tx pgx.Tx, sch
 		       COALESCE(v.version_no,''),
 		       COALESCE(v.process_route_id,0),
 		       COALESCE(pr.name,''),
-		       COALESCE(v.yield_rate,0.8)::float8
+		       1::float8
 		FROM %s.production_bom_versions v
 		LEFT JOIN %s.process_routes pr ON pr.id=v.process_route_id AND pr.status='active'
 		WHERE v.bom_id=$1 AND v.status='published'
@@ -684,7 +684,7 @@ func loadProductProductionConfigSnapshotForWorkOrderTx(ctx context.Context, tx p
 				       COALESCE(ppc.production_bom_version_id,0) AS production_bom_version_id,
 				       COALESCE(ppc.process_route_id,0) AS process_route_id,
 				       COALESCE(ppc.industry_field_template_id,0) AS industry_field_template_id,
-				       COALESCE(ppc.expected_loss_rate,0)::float8 AS expected_loss_rate,
+			       0::float8 AS expected_loss_rate,
 			       COALESCE(ppc.note,'') AS note
 			FROM %[1]s.product_production_configs ppc
 			WHERE ppc.product_id=$1
@@ -806,6 +806,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
+	snapshot.YieldRate = 1
 	b, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, nil, err
@@ -861,7 +862,7 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		return 0, err
 	}
 	if len(processSnapshotJSON) == 0 {
-		processSnapshotJSON = []byte("{}")
+		processSnapshotJSON = []byte(`{"yield_rate":1}`)
 	}
 	customerProductSnapshot, err := loadCustomerProductSnapshotForWorkOrderTx(ctx, tx, schema, runningItemID, productID, specG)
 	if err != nil {
@@ -1220,6 +1221,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
+	snapshot.YieldRate = 1
 	b, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, nil, err
@@ -1309,6 +1311,7 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
+	snapshot.YieldRate = 1
 	b, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, nil, err

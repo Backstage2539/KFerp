@@ -58,6 +58,9 @@ type fakeRepo struct {
 	tierPriceSchemes       []ProductTierPriceScheme
 	pricingRules           []ProductPricingRule
 	products               map[int64]Product
+	listedProducts         []Product
+	productionConfigRows   []ProductProductionConfig
+	productionConfigGet    ProductProductionConfig
 	publicUsages           []CustomerPublicUsage
 	deactivated            bool
 	usageSaved             bool
@@ -71,6 +74,9 @@ type fakeRepo struct {
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
+	if r.listedProducts != nil {
+		return r.listedProducts, nil
+	}
 	return []Product{{ID: 1, Name: "A"}}, nil
 }
 
@@ -134,10 +140,13 @@ func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory
 }
 
 func (r *fakeRepo) ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error) {
-	return nil, nil
+	return r.productionConfigRows, nil
 }
 
 func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error) {
+	if r.productionConfigGet.ProductID > 0 {
+		return r.productionConfigGet, nil
+	}
 	return ProductProductionConfig{ProductID: productID}, nil
 }
 
@@ -154,6 +163,39 @@ func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProd
 		Note:                     cmd.Note,
 		Fields:                   cmd.Fields,
 	}, nil
+}
+
+func TestCurrentCatalogReadsNeutralizeLegacyOverallYieldAndLoss(t *testing.T) {
+	repo := &fakeRepo{
+		listedProducts:       []Product{{ID: 1, YieldRate: 0.8, ExpectedLossRate: 0.2}},
+		products:             map[int64]Product{1: {ID: 1, YieldRate: 0.8, ExpectedLossRate: 0.2}},
+		productionConfigRows: []ProductProductionConfig{{ProductID: 1, ExpectedLossRate: 0.2}},
+		productionConfigGet:  ProductProductionConfig{ProductID: 1, ExpectedLossRate: 0.2},
+	}
+	service := NewService(repo)
+
+	products, err := service.ListProducts(context.Background())
+	if err != nil || len(products) != 1 {
+		t.Fatalf("ListProducts() = %+v, %v", products, err)
+	}
+	if products[0].YieldRate != 1 || products[0].ExpectedLossRate != 0 {
+		t.Fatalf("ListProducts() must return neutral compatibility values: %+v", products[0])
+	}
+	product, err := service.GetProduct(context.Background(), 1)
+	if err != nil || product == nil {
+		t.Fatalf("GetProduct() = %+v, %v", product, err)
+	}
+	if product.YieldRate != 1 || product.ExpectedLossRate != 0 {
+		t.Fatalf("GetProduct() must return neutral compatibility values: %+v", product)
+	}
+	configs, err := service.ListProductProductionConfigs(context.Background())
+	if err != nil || len(configs) != 1 || configs[0].ExpectedLossRate != 0 {
+		t.Fatalf("ListProductProductionConfigs() must return zero compatibility loss: %+v, %v", configs, err)
+	}
+	config, err := service.GetProductProductionConfig(context.Background(), 1)
+	if err != nil || config.ExpectedLossRate != 0 {
+		t.Fatalf("GetProductProductionConfig() must return zero compatibility loss: %+v, %v", config, err)
+	}
 }
 
 func TestPR584SaveProductProductionConfigNormalizesOrderedIndustryTemplateIDs(t *testing.T) {
@@ -1239,8 +1281,8 @@ func TestProductSettingsKeepsBomParamsOnNonGreenSKU(t *testing.T) {
 		t.Fatalf("settings products = %+v", settings.Products)
 	}
 	got := settings.Products[0]
-	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 0.96 {
-		t.Fatalf("instant coffee product settings = %+v, want roast/yield from SKU", got)
+	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 1 || got.ExpectedLossRate != 0 {
+		t.Fatalf("instant coffee product settings = %+v, want roast with retired yield fixed to 1/0", got)
 	}
 }
 
@@ -1283,8 +1325,51 @@ func TestCreateProductKeepsBomParamsOnInstantCoffee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProduct() err=%v", err)
 	}
-	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0.96 || repo.create.SpecialAttrsJSON == "{}" {
-		t.Fatalf("create command = %+v, want instant coffee yield and special attrs preserved without legacy roast", repo.create)
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 1 || repo.create.SpecialAttrsJSON == "{}" {
+		t.Fatalf("create command = %+v, want retired yield fixed to 1 and special attrs preserved without legacy roast", repo.create)
+	}
+}
+
+func TestCurrentProductWriteBoundariesIgnoreRetiredOverallYieldFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.CreateProduct(ctx, CreateProductCommand{
+		Name: "新建商品", ProductKind: "roasted", RoastLevel: "中烘", YieldRate: 0.8,
+	}); err != nil {
+		t.Fatalf("CreateProduct() error = %v", err)
+	}
+	if repo.create.YieldRate != 1 {
+		t.Fatalf("create yield_rate = %.4f, want fixed 1", repo.create.YieldRate)
+	}
+
+	if err := svc.UpdateProductBasics(ctx, UpdateProductBasicsCommand{
+		ProductID: 11, Name: "更新商品", ProductKind: "roasted", RoastLevel: "中烘", YieldRate: 0.7,
+	}); err != nil {
+		t.Fatalf("UpdateProductBasics() error = %v", err)
+	}
+	if repo.update.YieldRate != 1 {
+		t.Fatalf("update yield_rate = %.4f, want fixed 1", repo.update.YieldRate)
+	}
+
+	if _, err := svc.CreateCustomProduct(ctx, CreateCustomProductCommand{
+		CustomerID: 3, Name: "客户定制烘焙", ProductKind: "roasted", RoastLevel: "中烘", YieldRate: 0.6, CustomType: "custom_roast",
+	}); err != nil {
+		t.Fatalf("CreateCustomProduct() error = %v", err)
+	}
+	if repo.custom.YieldRate != 1 {
+		t.Fatalf("custom yield_rate = %.4f, want fixed 1", repo.custom.YieldRate)
+	}
+
+	got, err := svc.SaveProductProductionConfig(ctx, SaveProductProductionConfigCommand{
+		ProductID: 11, ExpectedLossRate: 0.2,
+	})
+	if err != nil {
+		t.Fatalf("SaveProductProductionConfig() error = %v", err)
+	}
+	if repo.productionConfig.ExpectedLossRate != 0 || got.ExpectedLossRate != 0 {
+		t.Fatalf("production config expected_loss_rate = command %.4f result %.4f, want fixed 0", repo.productionConfig.ExpectedLossRate, got.ExpectedLossRate)
 	}
 }
 
@@ -1733,7 +1818,7 @@ func TestCreateProductAcceptsInstantCoffeeWithDefaultBomParams(t *testing.T) {
 		t.Fatalf("CreateProduct(instant_coffee) err=%v", err)
 	}
 
-	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0 || repo.create.GreenBeanBomProductID != 0 {
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 1 || repo.create.GreenBeanBomProductID != 0 {
 		t.Fatalf("instant coffee product command = %+v", repo.create)
 	}
 }

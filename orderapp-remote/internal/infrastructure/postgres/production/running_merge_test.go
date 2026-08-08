@@ -17,7 +17,7 @@ func TestGroupStartNeedsForRunsMergesSpecsByProductAndKeepsOutputs(t *testing.T)
 		"1-454":  16000,
 		"1-227":  600,
 		"2-1000": 2000,
-	}, map[int64]float64{1: 0.82, 2: 0.8})
+	})
 
 	if len(groups) != 2 {
 		t.Fatalf("groups = %d, want 2", len(groups))
@@ -77,7 +77,7 @@ func TestGroupStartNeedsForRunsKeepsDifferentFrozenSnapshotsIsolated(t *testing.
 		},
 	}
 
-	groups := groupStartNeedsForRuns(needs, nil, nil)
+	groups := groupStartNeedsForRuns(needs, nil)
 	if len(groups) != 3 {
 		t.Fatalf("groups = %d, want 3 isolated frozen snapshots: %+v", len(groups), groups)
 	}
@@ -109,7 +109,7 @@ func TestGroupStartNeedsForRunsNeverMergesDifferentProcessingCustomersOrRequestI
 		},
 	}
 
-	groups := groupStartNeedsForRuns(needs, nil, nil)
+	groups := groupStartNeedsForRuns(needs, nil)
 	if len(groups) != 2 {
 		t.Fatalf("groups = %d, want customer requests isolated: %+v", len(groups), groups)
 	}

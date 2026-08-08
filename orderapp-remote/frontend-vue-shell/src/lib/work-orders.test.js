@@ -139,6 +139,26 @@ test('work order main table uses generic manufacturing columns instead of roasti
   }
 })
 
+test('current production views remove legacy expected yield and keep actual yield only', () => {
+  const runningSource = fs.readFileSync(new URL('../views/ProduceRunningView.vue', import.meta.url), 'utf8')
+  const workOrderSource = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  const logSource = fs.readFileSync(new URL('../views/ProductionLogsView.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(runningSource, /预期产出率/)
+  assert.doesNotMatch(runningSource, /bom_yield_rate/)
+  assert.match(runningSource, /实际产出率/)
+
+  assert.doesNotMatch(workOrderSource, /预期产出率|预期损耗率/)
+  assert.doesNotMatch(workOrderSource, /expectedYield|expectedLoss\(/)
+  assert.match(workOrderSource, /实际损耗率/)
+  assert.match(workOrderSource, /实际产出/)
+
+  assert.doesNotMatch(logSource, /BOM预期产出率|row\.bom_yield_rate/)
+  assert.match(logSource, /实际产出率/)
+  assert.match(logSource, /row\.actual_yield_rate/)
+  assert.match(logSource, /colspan="19"/)
+})
+
 test('WorkOrdersView filters work orders only by status without BOM demand preview', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
   const template = source.slice(0, source.indexOf('<script setup>'))
