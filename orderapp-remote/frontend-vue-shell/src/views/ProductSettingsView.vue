@@ -2484,7 +2484,7 @@ const productMoveClassificationOptions = computed(() => {
 const selectableProductGroupTemplates = computed(() => businessGroupControlOptions(businessGroups.value).templateOptions.map((option) => option.group))
 const productGroupFeatureSelectionHasChanges = computed(() => (
   JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: productGroupFeatureSelectionDraft.value }))
-  !== JSON.stringify(productGroupFeatureSelectionIDs({ group_template_ids: productGroupFeatureSelectionIDs.value }))
+  !== JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: productGroupFeatureSelectionIDs.value }))
 ))
 const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
 const productBusinessGroupControls = computed(() => businessGroupControlOptions(productCatalogBusinessGroups.value, {
