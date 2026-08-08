@@ -212,8 +212,14 @@ export function selectedSkuRowIDsAfterVisibleToggle(selectedRowIDs = [], visible
 export function skuGroupHiddenByCollapsedAncestor(groups = [], group = {}, collapsedGroupKeys = []) {
   const collapsed = new Set((Array.isArray(collapsedGroupKeys) ? collapsedGroupKeys : []).map((key) => String(key || '')))
   const groupID = Number(group?.group_id || 0)
+  if (!collapsed.size || !(groupID > 0)) return false
+  if (!group?.is_template_group) {
+    const templateHeader = (Array.isArray(groups) ? groups : [])
+      .find((candidate) => Number(candidate?.group_id || 0) === groupID && candidate?.is_template_group)
+    if (templateHeader && collapsed.has(String(templateHeader.key || ''))) return true
+  }
   let parentID = Number(group?.parent_group_item_id || 0)
-  if (!(groupID > 0) || !(parentID > 0) || !collapsed.size) return false
+  if (!(parentID > 0)) return false
   const byItemID = new Map((Array.isArray(groups) ? groups : [])
     .filter((candidate) => Number(candidate?.group_id || 0) === groupID && Number(candidate?.group_item_id || 0) > 0)
     .map((candidate) => [Number(candidate.group_item_id || 0), candidate]))

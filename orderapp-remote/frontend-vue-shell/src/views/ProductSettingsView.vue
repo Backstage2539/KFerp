@@ -228,6 +228,19 @@
             <tbody>
               <template v-for="group in renderedDisplaySkuGroups" :key="group.key">
                 <tr
+                  v-if="group.is_template_group"
+                  class="classification-template-row"
+                  :class="{ 'classification-template-collapsed': isProductClassificationGroupCollapsed(group.key) }">
+                  <td :colspan="12">
+                    <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
+                      {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
+                    </button>
+                    <strong>{{ group.label }}</strong>
+                    <small>{{ group.template_total }} 款</small>
+                  </td>
+                </tr>
+                <template v-if="!group.is_template_group">
+                <tr
                   v-if="!group.all"
                   :class="['classification-group-row', { 'classification-subgroup-row': Number(group.depth || 0) > 0 }]"
                   :style="classificationGroupIndentStyle(group)">
@@ -236,7 +249,6 @@
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
                     <strong :title="group.path_label || group.label">{{ group.label }}</strong>
-                    <small v-if="group.template_label" class="classification-template-label">{{ group.template_label }}</small>
                     <small>{{ group.total }} 款</small>
                   </td>
                 </tr>
@@ -306,6 +318,7 @@
                       />
                     </td>
                   </tr>
+                </template>
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
@@ -8155,7 +8168,10 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-subgroup-row td { background: #fbf7f1; }
 .classification-group-row strong { margin: 0 8px; }
 .classification-group-row small { color: #7c7064; }
-.classification-group-row .classification-template-label { display: inline-flex; margin-right: 8px; border: 1px solid #d9cec1; border-radius: 999px; padding: 2px 7px; background: #fff; color: #6b5f52; }
+.classification-template-row td { background: #ece3d6; border-top: 2px solid #d3c6b0; border-bottom: 1px solid #d3c6b0; color: #2f2820; padding-left: 8px; }
+.classification-template-row strong { margin: 0 8px; font-size: 16px; }
+.classification-template-row small { color: #6b5f4f; }
+.classification-template-collapsed td { border-bottom: 2px solid #d3c6b0; }
 .product-business-group-empty { justify-content: space-between; color: #6b6258; font-size: 13px; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
 .classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }

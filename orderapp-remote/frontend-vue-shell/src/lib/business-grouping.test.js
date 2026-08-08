@@ -103,18 +103,43 @@ test('multiple referenced business group templates form one non-duplicating prod
     ],
   })
 
-  assert.deepEqual(groups.map((group) => ({
-    key: group.key,
-    template: group.template_label,
-    count: group.rows.length,
-  })), [
-    { key: 'business-group-9-90', template: '商品分组', count: 0 },
-    { key: 'business-group-9-92', template: '商品分组', count: 1 },
-    { key: 'business-group-9-91', template: '商品分组', count: 0 },
-    { key: 'business-group-10-100', template: '商品挂耳模板', count: 0 },
-    { key: 'business-group-10-101', template: '商品挂耳模板', count: 1 },
-    { key: 'business-group-unclassified', template: '', count: 1 },
+  assert.deepEqual(groups.map((group) => group.key), [
+    'business-template-9',
+    'business-group-9-90',
+    'business-group-9-92',
+    'business-group-9-91',
+    'business-template-10',
+    'business-group-10-100',
+    'business-group-10-101',
+    'business-group-unclassified',
   ])
+  assert.deepEqual(
+    groups.filter((group) => group.is_template_group).map((group) => ({
+      key: group.key,
+      label: group.label,
+      template_total: group.template_total,
+      rows: group.rows.length,
+    })),
+    [
+      { key: 'business-template-9', label: '商品分组', template_total: 1, rows: 0 },
+      { key: 'business-template-10', label: '商品挂耳模板', template_total: 1, rows: 0 },
+    ],
+  )
+  assert.deepEqual(
+    groups.filter((group) => !group.is_template_group).map((group) => ({
+      key: group.key,
+      template: group.template_label,
+      count: group.rows.length,
+    })),
+    [
+      { key: 'business-group-9-90', template: '商品分组', count: 0 },
+      { key: 'business-group-9-92', template: '商品分组', count: 1 },
+      { key: 'business-group-9-91', template: '商品分组', count: 0 },
+      { key: 'business-group-10-100', template: '商品挂耳模板', count: 0 },
+      { key: 'business-group-10-101', template: '商品挂耳模板', count: 1 },
+      { key: 'business-group-unclassified', template: '', count: 1 },
+    ],
+  )
   assert.deepEqual(groups.flatMap((group) => group.rows).map((row) => row.id).sort(), [1, 2, 3])
 
   assert.deepEqual(groupRowsByBusinessGroupTemplates(rows, { templates: [] }), [{

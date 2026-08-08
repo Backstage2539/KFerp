@@ -3106,6 +3106,26 @@ test('collapsing one selected template parent does not hide the other selected t
   )
 })
 
+test('collapsing a group template header hides all of its categories but not other templates', () => {
+  const groups = [
+    { key: 'business-template-9', group_id: 9, group_item_id: 0, is_template_group: true, rows: [] },
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 1 }] },
+    { key: 'business-group-9-92', group_id: 9, group_item_id: 92, parent_group_item_id: 90, rows: [{ id: 2 }] },
+    { key: 'business-template-10', group_id: 10, group_item_id: 0, is_template_group: true, rows: [] },
+    { key: 'business-group-10-90', group_id: 10, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 3 }] },
+    { key: 'business-group-unclassified', group_id: 0, group_item_id: 0, parent_group_item_id: 0, rows: [{ id: 4 }] },
+  ]
+
+  assert.deepEqual(
+    visibleSkuGroupRows(groups, ['business-template-9']).map((row) => row.id),
+    [3, 4],
+  )
+  assert.deepEqual(
+    visibleSkuGroupRows(groups, []).map((row) => row.id),
+    [1, 2, 3, 4],
+  )
+})
+
 test('visible bulk selection preserves hidden descendant selections when a parent group is collapsed', () => {
   const visibleRows = [{ id: 4 }, { id: 5 }]
 
@@ -4362,7 +4382,10 @@ test('SKU table groups rows by every referenced business group template without 
   assert.doesNotMatch(template, /<th class="sku-col-product-type">产品类型<\/th>/)
   assert.doesNotMatch(template, /<th class="sku-col-product-subtype">产品子类型<\/th>/)
   assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
-  assert.match(template, /group\.template_label/)
+  assert.match(template, /group\.is_template_group/)
+  assert.match(template, /class="classification-template-row"/)
+  assert.match(template, /\{\{ group\.template_total \}\} 款/)
+  assert.doesNotMatch(template, /class="classification-template-label"/)
   assert.match(template, /v-if="productCatalogBusinessGroups\.length"/)
   assert.match(template, /商品档案尚未选择分组模板，当前按全部商品平铺展示/)
   assert.match(template, /设置分组模板/)

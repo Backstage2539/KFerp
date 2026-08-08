@@ -318,10 +318,29 @@ export function groupRowsByBusinessGroupTemplates(rows = [], {
   const groups = []
   const groupsByAssignmentKey = new Map()
   const templateIDs = new Set()
+  const templateHeaders = []
   for (const template of activeTemplates) {
     const templateID = toNumber(template.id)
     const templateLabel = businessGroupVisibleName(template) || normalizedText(template.name) || `分组模板 #${templateID}`
     templateIDs.add(templateID)
+    const templateHeader = {
+      key: `business-template-${templateID}`,
+      label: templateLabel,
+      path_label: templateLabel,
+      depth: 0,
+      parent_group_item_id: 0,
+      group_id: templateID,
+      group_item_id: 0,
+      template_label: '',
+      rows: [],
+      all: false,
+      unclassified: false,
+      is_template_group: true,
+      template_total: 0,
+      sort_order: groups.length,
+    }
+    groups.push(templateHeader)
+    templateHeaders.push(templateHeader)
     const moveOptions = businessGroupItemMoveOptions([template], usageKey, {
       includeGroupName: false,
       includeGroupsWithoutUsage: true,
@@ -376,6 +395,13 @@ export function groupRowsByBusinessGroupTemplates(rows = [], {
     const assignmentKey = `${toNumber(assignment?.group_id ?? assignment?.groupID)}:${toNumber(assignment?.group_item_id ?? assignment?.groupItemID)}`
     const target = groupsByAssignmentKey.get(assignmentKey) || unclassified
     target.rows.push(row)
+  }
+
+  for (const templateHeader of templateHeaders) {
+    const templateID = toNumber(templateHeader.group_id)
+    templateHeader.template_total = groups
+      .filter((group) => !group.is_template_group && toNumber(group.group_id) === templateID)
+      .reduce((sum, group) => sum + (Array.isArray(group.rows) ? group.rows.length : 0), 0)
   }
 
   return includeUnclassified ? [...groups, unclassified] : groups
