@@ -214,7 +214,7 @@ func TestLoadProductInputsUsesCustomerAliasIndustryFieldOverridesWithoutClassifi
 		"customer_product_alias_industry_field_values",
 		"current_classification_template_id",
 		"current_classification_category_id",
-		"CASE WHEN $2 > 0 THEN NULLIF(alias_attrs.alias_attrs_json::text,'{}')",
+		"CASE WHEN $1 > 0 THEN NULLIF(alias_attrs.alias_attrs_json::text,'{}')",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must use alias industry overrides and qualified classification aliases; missing %q", want)
@@ -239,7 +239,7 @@ func TestLoadProductInputsUsesCustomerAliasRenameAsCustomerDisplayName(t *testin
 	src := string(b)
 	for _, want := range []string{
 		"COALESCE(NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name",
-		"CASE WHEN $2 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END",
+		"CASE WHEN $1 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("customer price lists must use alias rename before customer product name; missing %q", want)
