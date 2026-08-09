@@ -29,7 +29,7 @@ test('production BOM accordion paginates only the active top-level group and tre
     { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: Array.from({ length: 12 }, (_, index) => ({ id: index + 1 })) },
     { key: 'business-template-10', label: '挂耳', group_id: 10, group_item_id: 0, is_template_group: true, template_total: 2, rows: [] },
     { key: 'business-group-10-101', label: '盒装', group_id: 10, group_item_id: 101, parent_group_item_id: 0, rows: [{ id: 21 }, { id: 22 }] },
-    { key: 'business-group-unclassified', label: '未分类', group_id: 0, group_item_id: 0, unclassified: true, rows: [{ id: 31 }, { id: 32 }, { id: 33 }] },
+    { key: 'business-group-unclassified', label: '未分类', group_id: 0, group_item_id: 0, unclassified: true, rows: Array.from({ length: 96 }, (_, index) => ({ id: index + 101 })) },
   ]
 
   const first = bomLib.productionBomAccordionPageState?.(groups, { page: 1, pageSize: 10 }) || {}
@@ -59,8 +59,12 @@ test('production BOM accordion paginates only the active top-level group and tre
     page: 1,
     pageSize: 10,
   }) || {}
-  assert.equal(unclassified.total, 3)
-  assert.deepEqual(unclassified.visibleRows?.map((row) => row.id), [31, 32, 33])
+  assert.equal(unclassified.total, 96)
+  assert.deepEqual(unclassified.visibleRows?.map((row) => row.id), [101, 102, 103, 104, 105, 106, 107, 108, 109, 110])
+  assert.deepEqual(
+    unclassified.groups?.find((group) => group.unclassified)?.rows?.map((row) => row.id),
+    [101, 102, 103, 104, 105, 106, 107, 108, 109, 110],
+  )
 })
 
 test('production BOM accordion excludes collapsed categories and keeps no-template lists paginated', () => {
@@ -781,4 +785,23 @@ test('production BOM list removes the long description and uses one accordion-ow
   assert.match(source, /function toggleProductionBomTopLevelGroup/)
   assert.match(source, /productionBomListPage\.value = 1/)
   assert.ok(listPanel.indexOf('</table>') < listPanel.indexOf('<PaginationControls'), 'single pagination should render after the grouped table')
+})
+
+test('production BOM list renders expanded unclassified rows and opts out of the global table paginator', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const listPanel = template.slice(
+    template.indexOf('<section class="panel list-panel">'),
+    template.indexOf('<section class="panel detail-panel">'),
+  )
+  const groupLoop = listPanel.slice(
+    listPanel.indexOf('<template v-for="group in productionBomDisplayGroups"'),
+    listPanel.indexOf('<tr v-if="!productionBomRows.length"'),
+  )
+
+  assert.match(listPanel, /<table[^>]*data-auto-pagination="off"/)
+  assert.match(groupLoop, /v-if="!isProductionBomTopLevelGroup\(group\) && !group\.all"/)
+  assert.match(groupLoop, /<template v-if="!isProductionBomGroupCollapsed\(group\.key\)">[\s\S]*v-for="row in group\.rows"/)
+  assert.doesNotMatch(groupLoop, /<template v-else>[\s\S]*v-for="row in group\.rows"/)
 })

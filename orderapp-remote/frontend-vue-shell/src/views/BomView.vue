@@ -64,7 +64,7 @@
           </button>
         </div>
         <div class="table-wrap bom-list-panel-scroll">
-          <table>
+          <table data-auto-pagination="off">
             <thead>
               <tr>
                 <th class="select-col"><input type="checkbox" :checked="isAllVisibleBomsSelected" :indeterminate.prop="isSomeVisibleBomsSelected" @change="toggleAllVisibleBoms" /></th>
@@ -91,9 +91,8 @@
                     <small>{{ group.is_template_group ? group.template_total : group.row_total }} 个</small>
                   </td>
                 </tr>
-                <template v-else>
                 <tr
-                  v-if="!group.all"
+                  v-if="!isProductionBomTopLevelGroup(group) && !group.all"
                   class="classification-group-row bom-classification-group-row"
                   :class="{ 'classification-subgroup-row': Number(group.depth || 0) > 0 }"
                   :style="businessGroupHeaderIndentStyle(group)">
@@ -135,7 +134,6 @@
                       <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
                     </td>
                   </tr>
-                </template>
                 </template>
                 </template>
               </template>
