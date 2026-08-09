@@ -804,3 +804,9 @@
 - `DEV-589-CONCRETE-SKU-TRIAL`：单次试算沿用现有 `product_id` 和 `quote_unit`，分别提交所选具体 SKU ID 和该 SKU 权威销售单位，不新增请求字段；前端不再允许独立选择任意销售单位。切换主商品或客户时清空旧商品和规格；切换销售规格时保留新规格，切换价格模板时保留当前主商品和规格；上述切换均立即作废在途旧试算并清空 BOM、工艺路线和旧结果，避免旧响应回填到新上下文。后端继续按具体 SKU 读取单位换算，并沿用既有 SKU → 父商品 BOM 回退；本需求不新增独立防伪或跨父归属校验。
 - 同一具体 SKU、价格计算模板、客户、BOM、工艺路线和临时参数下，价格试算的报价单位、BOM/工序成本口径和最终单价应与商品价格表对该规格执行价格计算模板时一致；不同兄弟 SKU 即使销售单位相同也不得串用身份、换算或结果。当前只读试算不保存模板、价格表或订单，不新增操作日志类型；已发布价格表、历史订单和历史价格快照不回算、不改写。
 - `DEV-589-DOCS-DEVELOPMENT-DELIVERY`：同步根目录与线上需求/验收、成本操作手册、PR/DEV 种子、支持合同和独立验收记录；保留定向 TDD RED/GREEN、costing API、Vue/Vite 测试与构建门禁后合入 `develop` 并部署 development。按 Van 要求不做浏览器或业务验证，由 Van 在 development 人工验收；`main` 和 production 不操作。
+- 验收结论：Van 于 2026-08-10 确认上个问题验证完成，`PR-589-PRICING-TRIAL-PRODUCT-SPECS` 与 `REV-589-PRICING-TRIAL-PRODUCT-SPECS` 关闭为 done。
+
+## 54. 订单非空文本字段兼容与小程序草稿提交安全（PR-590-MINIAPP-BLANK-TRACKING-SUBMIT）
+- `DEV-590-ORDER-NOT-NULL-TEXT-COMPAT`：production 员工小程序从服务器草稿正式提交订单时，可以不填写物流方式、物流单号、订单备注或快递费。`SaveOrder` 新建/完整更新与 `updateOrderHeader` 必须把空 `ship_method`、`ship_tracking_no`、`notes`、`express_fee` 绑定为数据库空字符串，订单明细空 `unit` / `spec` 指针也必须通过 `notNullTextPtr` 规范化为空字符串，不得转换成 SQL `NULL` 后违反 `orders` / `order_items` 非空文本列约束。`VoidMany` 的空 `void_reason` 以及订单行内更新清空 `notes` 同样必须保存为空字符串。非空文本、物流明细和操作语义继续按原规则保存；本需求不新增或修改小程序请求字段。
+- `DEV-590-DRAFT-TRANSACTION-AUDIT-COMPAT`：正式提交必须继续在同一数据库事务内完成订单头、订单明细、物流明细、当前员工草稿清理和原有操作日志。只有事务提交成功才清除草稿；订单写入、草稿清理、审计写入或最终提交任一步失败时全部回滚并保留草稿，不能留下半张订单或让员工丢失待提交内容。操作日志继续使用既有订单创建/更新与 `employee_order_draft` 删除合同，不新增日志类型，也不能把失败请求记录成成功提交或成功清草稿。
+- `DEV-590-DUAL-ENVIRONMENT-DELIVERY`：同步根目录与线上需求/验收、小程序员工 ERP 操作手册、PR/DEV 种子、支持合同和独立验收记录。完成销售仓储定向测试、支持合同、受影响范围验证和部署门禁后，先合入 `develop` 并部署 development，再从最新 `main` 合入已验证 develop、完成 production 预检并部署 production；双环境必须串行并分别记录提交、备份、回滚和健康检查证据。该修复只涉及 ERP 后端存储语义，不修改小程序源码，不自动上传、提审或发布微信版本。
