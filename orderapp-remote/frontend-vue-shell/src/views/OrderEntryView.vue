@@ -632,6 +632,7 @@ import {
   beanListVersionOptionForGroup,
   beanListVersionOptionForProductGroups,
   beanListVersionOptionsForCustomer,
+  filterBeanListVersionOptionsToCurrentTypes,
   buildOrderPayload,
   closeOrderProductDropdowns,
   defaultDripSalesUnitSpec,
@@ -683,6 +684,8 @@ import {
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { businessGroupFeatureSelectionIDs, businessGroupRowsForFeatureSelection } from '../lib/business-grouping'
+import { buildProductCatalogTemplatePriceListTypeOptions } from '../lib/product-price-list-types'
 import { customerTypeLabel, customerTypeOptions, normalizeCustomerType } from '../lib/customer-types'
 import { dripUnitOptions, isDripProduct } from '../lib/drip-product'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
@@ -719,6 +722,10 @@ const logisticsCompanies = ref([])
 const beanListVersionOptions = ref([])
 const customerPublicUsages = ref([])
 const customerProductUsages = ref([])
+const orderProductCatalogGroups = ref([])
+const orderProductCatalogAssignments = ref([])
+const orderProductCatalogFeatureSelection = ref({ feature_key: 'product_catalog', group_template_ids: [] })
+const orderProductCatalogFeatureSelectionLoaded = ref(false)
 const selectedBeanListPublicationIDs = reactive({})
 const rows = ref([newRow()])
 const hasUnpricedPublishedRow = computed(() => rows.value.some(rowHasBlockingPrice))
@@ -963,9 +970,21 @@ const orderBeanListTypes = [
   { type: 'green', label: '生豆豆单' },
   { type: 'drip', label: '挂耳豆单' },
 ]
+const orderCurrentProductCatalogGroupTemplates = computed(() => businessGroupRowsForFeatureSelection(
+  orderProductCatalogGroups.value,
+  businessGroupFeatureSelectionIDs(orderProductCatalogFeatureSelection.value),
+))
+const orderCurrentProductPriceListTypes = computed(() => {
+  if (!orderProductCatalogFeatureSelectionLoaded.value) return []
+  return buildProductCatalogTemplatePriceListTypeOptions(products.value, {
+    templates: orderCurrentProductCatalogGroupTemplates.value,
+    assignments: orderProductCatalogAssignments.value,
+  })
+})
 const customerBeanListVersionOptions = computed(() => {
   const rows = beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
-  return rows.filter((item) => {
+  const scoped = filterBeanListVersionOptionsToCurrentTypes(rows, orderCurrentProductPriceListTypes.value)
+  return scoped.filter((item) => {
     const listType = String(item?.list_type || 'commercial').trim()
     if (retailOrder.value) return listType === 'retail' || listType === 'drip'
     return listType !== 'retail'
@@ -2345,6 +2364,31 @@ function repriceHydratedRows() {
   }
 }
 
+async function loadOrderProductCatalogTypes() {
+  try {
+    const [groupsData, assignmentsData, featureSelectionData] = await Promise.all([
+      apiGet('/api/business-groups'),
+      apiGet('/api/business-group-assignments?usage_key=product_catalog&object_key=product'),
+      apiGet('/api/business-group-feature-selections/product_catalog'),
+    ])
+    orderProductCatalogGroups.value = Array.isArray(groupsData?.rows)
+      ? groupsData.rows
+      : (Array.isArray(groupsData?.groups) ? groupsData.groups : (Array.isArray(groupsData) ? groupsData : []))
+    orderProductCatalogAssignments.value = Array.isArray(assignmentsData?.rows)
+      ? assignmentsData.rows
+      : (Array.isArray(assignmentsData?.assignments) ? assignmentsData.assignments : (Array.isArray(assignmentsData) ? assignmentsData : []))
+    orderProductCatalogFeatureSelection.value = featureSelectionData && typeof featureSelectionData === 'object'
+      ? featureSelectionData
+      : { feature_key: 'product_catalog', group_template_ids: [] }
+  } catch (err) {
+    orderProductCatalogGroups.value = []
+    orderProductCatalogAssignments.value = []
+    orderProductCatalogFeatureSelection.value = { feature_key: 'product_catalog', group_template_ids: [] }
+  } finally {
+    orderProductCatalogFeatureSelectionLoaded.value = true
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -2374,6 +2418,7 @@ async function load() {
     beanListVersionOptions.value = data.bean_list_version_options || []
     customerPublicUsages.value = data.customer_public_usages || []
     customerProductUsages.value = data.customer_product_usages || []
+    await loadOrderProductCatalogTypes()
     applyDefaultSelections(data)
     if (data.edit_mode) {
       const editData = { ...data.edit_data, edit_id: copyID ? 0 : data.edit_id }

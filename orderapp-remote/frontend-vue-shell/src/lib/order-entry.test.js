@@ -2659,3 +2659,31 @@ test('buildOrderPayload carries drip product unit metadata', () => {
   assert.equal(payload.unit[0], '盒')
   assert.equal(payload.spec[0], '100')
 })
+
+test('filterBeanListVersionOptionsToCurrentTypes hides orphaned price-list groups and keeps current ones', () => {
+  const options = [
+    { id: 108, list_type: 'commercial', classification_template_id: 8000000000001532 }, // 咖啡豆 current
+    { id: 107, list_type: 'commercial', classification_template_id: 221 },              // 熟豆 orphaned
+    { id: 106, list_type: 'green', classification_template_id: 222 },                   // 生豆 orphaned
+    { id: 90, list_type: 'green', classification_template_id: 0 },                       // 生豆 legacy
+  ]
+  const currentTypes = [{ id: 8000000000001532, listType: 'commercial', label: '咖啡豆' }]
+  const kept = orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, currentTypes)
+  assert.deepEqual(kept.map((o) => o.id), [108])
+})
+
+test('filterBeanListVersionOptionsToCurrentTypes hides legacy options once classified current types exist', () => {
+  const options = [
+    { id: 108, list_type: 'commercial', classification_template_id: 8000000000001532 },
+    { id: 50, list_type: 'drip', classification_template_id: 0 }, // legacy drip, not a current type -> hide
+  ]
+  const currentTypes = [{ id: 8000000000001532, listType: 'commercial', label: '咖啡豆' }]
+  const kept = orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, currentTypes)
+  assert.deepEqual(kept.map((o) => o.id), [108])
+})
+
+test('filterBeanListVersionOptionsToCurrentTypes falls back to all options when no current types loaded', () => {
+  const options = [{ id: 108, list_type: 'commercial', classification_template_id: 8000000000001532 }]
+  assert.deepEqual(orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, []), options)
+  assert.deepEqual(orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, [{ id: 0, listType: 'commercial', label: '全部商品' }]), options)
+})
