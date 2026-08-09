@@ -2636,6 +2636,87 @@ export function productArchiveRowsWithSkus(products = []) {
   })
 }
 
+export function pricingRuleTrialProductSpecUnit(product = {}) {
+  const candidates = [
+    product?.derived_sales_unit,
+    product?.derivedSalesUnit,
+    product?.sales_unit,
+    product?.salesUnit,
+    product?.default_sales_unit,
+    product?.defaultSalesUnit,
+    product?.quote_unit,
+    product?.quoteUnit,
+    product?.order_unit,
+    product?.orderUnit,
+    product?.derived_spec_name,
+    product?.derivedSpecName,
+    product?.spec_label,
+    product?.specLabel,
+  ]
+  return candidates.map((value) => String(value ?? '').trim()).find(Boolean) || ''
+}
+
+function pricingRuleTrialProductSpecIsActive(product = {}) {
+  if (product?.active === false || product?.active === 0) return false
+  const status = String(product?.status || product?.product_status || '').trim().toLowerCase()
+  if (['inactive', 'disabled', 'deprecated', 'archived'].includes(status)) return false
+  const derivedStatus = String(product?.derived_spec_status || product?.derivedSpecStatus || '').trim().toLowerCase()
+  return derivedStatus === '' || derivedStatus === 'active'
+}
+
+export function pricingRuleTrialProductSpecOptions(products = [], parentProductID = 0) {
+  const source = Array.isArray(products) ? products : []
+  const parentID = Number(parentProductID || 0)
+  if (!(parentID > 0)) return []
+
+  const rows = productSkuRowsForParent(source, parentID)
+  const concreteSpecs = rows.filter((row) => {
+    const rowID = Number(row?.id || row?.product_id || row?.sku_id || 0)
+    const directParentID = Number(row?.parent_product_id || row?.parentProductID || 0)
+    return directParentID === parentID
+      && rowID !== parentID
+      && pricingRuleTrialProductSpecIsActive(row)
+      && Boolean(pricingRuleTrialProductSpecUnit(row))
+  })
+  const parentFallback = rows.find((row) => {
+    const rowID = Number(row?.id || row?.product_id || row?.sku_id || 0)
+    return rowID === parentID
+      && pricingRuleTrialProductSpecIsActive(row)
+      && Boolean(pricingRuleTrialProductSpecUnit(row))
+  })
+  const candidates = concreteSpecs.length ? concreteSpecs : (parentFallback ? [parentFallback] : [])
+
+  const seen = new Set()
+  return candidates.filter((row) => {
+    const skuID = Number(row?.sku_id || row?.id || row?.product_id || 0)
+    if (!(skuID > 0) || seen.has(skuID)) return false
+    seen.add(skuID)
+    return true
+  })
+}
+
+export function pricingRuleTrialDefaultProductSpecID(options = []) {
+  const rows = Array.isArray(options) ? options : []
+  const selected = rows.find((row) => row?.is_default_sku === true || row?.isDefaultSKU === true) || rows[0]
+  return Number(selected?.sku_id || selected?.id || selected?.product_id || 0)
+}
+
+export function pricingRuleTrialProductSpecLabel(product = {}) {
+  const label = String(
+    product?.spec_label
+      || product?.specLabel
+      || product?.derived_spec_name
+      || product?.derivedSpecName
+      || product?.sku_name
+      || product?.skuName
+      || product?.name
+      || '',
+  ).trim()
+  const unit = pricingRuleTrialProductSpecUnit(product)
+  const text = label && unit && label.toLowerCase() !== unit.toLowerCase() ? `${label} / ${unit}` : (label || unit || '未命名规格')
+  return product?.is_default_sku === true || product?.isDefaultSKU === true ? `${text}（默认）` : text
+}
+
 export function pricingRuleTrialMainProductOptions(products = []) {
   const source = Array.isArray(products) ? products : []
   const seen = new Set()
@@ -2654,9 +2735,7 @@ export function pricingRuleTrialMainProductOptions(products = []) {
   const childrenByParentID = new Map()
   for (const product of source) {
     const parentID = Number(product?.parent_product_id || product?.parentProductID || 0)
-    if (!(parentID > 0) || !parentIDs.has(parentID) || product?.active === false || product?.active === 0) continue
-    const status = String(product?.status || product?.product_status || '').trim().toLowerCase()
-    if (['inactive', 'disabled', 'deprecated', 'archived'].includes(status)) continue
+    if (!(parentID > 0) || !parentIDs.has(parentID) || !pricingRuleTrialProductSpecIsActive(product)) continue
     if (!childrenByParentID.has(parentID)) childrenByParentID.set(parentID, [])
     childrenByParentID.get(parentID).push(product)
   }

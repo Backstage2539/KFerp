@@ -963,6 +963,33 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialAPIBindsConcreteSalesSpecSKUAndUnit(t *testing.T) {
+	e := echo.New()
+	svc := &capturingPricingRuleTrialService{}
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	body := bytes.NewBufferString(`{"pricing_rule_id":15,"product_id":560,"quote_unit":"454g"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trial", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.last.ProductID != 560 || svc.last.QuoteUnit != "454g" {
+		t.Fatalf("trial command = %+v, want concrete SKU 560 and unit 454g", svc.last)
+	}
+	var got appcosting.PricingRuleTrialResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ProductID != 560 || got.QuoteUnit != "454g" {
+		t.Fatalf("trial response = %+v, want concrete SKU identity and unit", got)
+	}
+}
+
 func TestPricingRuleTrialBatchAPIUsesBatchServiceAndReturnsPartialErrorsInOrder(t *testing.T) {
 	e := echo.New()
 	svc := &capturingPricingRuleTrialBatchService{}

@@ -1142,6 +1142,29 @@ func TestMiniEmployeeOrderCreateLeavesResponsibilityToCustomerArchive(t *testing
 	}
 }
 
+func TestMiniEmployeeOrderCreateAllowsBlankTrackingNumberForUnshippedDraft(t *testing.T) {
+	e := echo.New()
+	form := salesapp.OrderFormData{
+		Customers:              []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products:               []salesapp.ProductOption{{ID: 3, ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"publication_id":901,"list_type":"commercial"}`}}}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	sales := &miniEmployeeSalesFake{orderFormResult: &form}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	body := `{"order_date":"2026-08-09","customer_id":8,"ship_status_id":1,"ship_tracking_no":"","items":[{"product_id":3,"qty":2,"spec_g":454,"unit_price":68}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/employee/orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if sales.saveCalls != 1 || sales.save.ShipStatusID != 1 || sales.save.ShipTrackingNo != "" || sales.save.DraftEmployeeID != 7 {
+		t.Fatalf("save calls=%d command=%+v", sales.saveCalls, sales.save)
+	}
+}
+
 func TestMiniEmployeeOrderCreateMapsEverySubmittedItem(t *testing.T) {
 	e := echo.New()
 	form := salesapp.OrderFormData{

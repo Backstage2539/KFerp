@@ -1700,16 +1700,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			nullInt(payStatusID),
 			paymentMethod,
 			nullInt(shipStatusID),
-			nullText(shipMethod),
-			nullText(shipTrackingNo),
-			nullText(cmd.Notes),
+			notNullText(shipMethod),
+			notNullText(shipTrackingNo),
+			notNullText(cmd.Notes),
 			totalAmt,
 			shippingAmt,
 			discountAmt,
 			roundToInt,
 			roundingAmt,
 			grandTotal,
-			nullText(cmd.ExpressFee),
+			notNullText(cmd.ExpressFee),
 			outsourceFees[0],
 			outsourceFees[1],
 			outsourceFees[2],
@@ -1798,16 +1798,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			nullInt(payStatusID),
 			paymentMethod,
 			nullInt(shipStatusID),
-			nullText(shipMethod),
-			nullText(shipTrackingNo),
-			nullText(cmd.Notes),
+			notNullText(shipMethod),
+			notNullText(shipTrackingNo),
+			notNullText(cmd.Notes),
 			totalAmt,
 			shippingAmt,
 			discountAmt,
 			roundToInt,
 			roundingAmt,
 			grandTotal,
-			nullText(cmd.ExpressFee),
+			notNullText(cmd.ExpressFee),
 			outsourceFees[0],
 			outsourceFees[1],
 			outsourceFees[2],
@@ -1914,7 +1914,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.customerProductAliasID, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.customerProductAliasID, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -2286,7 +2286,7 @@ func (r Repository) Void(ctx context.Context, id int64, actor, reason string) er
 
 func (r Repository) VoidMany(ctx context.Context, ids []int64, actor, reason string) (int, error) {
 	q := fmt.Sprintf("UPDATE %s.orders SET is_void=true, voided_at=now(), void_reason=$2 WHERE id = ANY($1) AND COALESCE(is_void,false)=false RETURNING id", r.schema)
-	rows, err := r.pool.Query(ctx, q, ids, nullText(reason))
+	rows, err := r.pool.Query(ctx, q, ids, notNullText(reason))
 	if err != nil {
 		return 0, err
 	}
@@ -2617,10 +2617,7 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 		paymentMethodRaw = strings.TrimSpace(*curPaymentMethod)
 	}
 	nextNotes := strings.TrimSpace(req.Notes)
-	var nextNotesPtr *string
-	if nextNotes != "" {
-		nextNotesPtr = &nextNotes
-	}
+	nextNotesPtr := &nextNotes
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -2644,7 +2641,7 @@ func inlineUpdateOrder(ctx context.Context, pool *pgxpool.Pool, schema string, o
 	changed := false
 	if !eqIntPtr(curOrderType, nextOrderType) || !eqIntPtr(curPay, nextPay) || !eqStrPtr(curPaymentMethod, nextPaymentMethod) || !eqIntPtr(curShip, nextShip) || !eqIntPtr(curProc, nextProc) || !eqStrPtr(curNotes, nextNotesPtr) {
 		upd := fmt.Sprintf(`UPDATE %s.orders SET order_type_id=$2, pay_status_id=$3, payment_method=$4, ship_status_id=$5, process_status_id=$6, notes=$7 WHERE id=$1`, schema)
-		if _, err := tx.Exec(ctx, upd, orderID, nextOrderType, nextPay, paymentMethod, nextShip, nextProc, nextNotesPtr); err != nil {
+		if _, err := tx.Exec(ctx, upd, orderID, nextOrderType, nextPay, paymentMethod, nextShip, nextProc, nextNotes); err != nil {
 			return err
 		}
 		changed = true
@@ -2859,14 +2856,14 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		nullInt(req.PayStatusID),
 		paymentMethod,
 		nullInt(req.ShipStatusID),
-		nullText(req.Notes),
+		notNullText(req.Notes),
 		totalAmt,
 		ship,
 		disc,
 		round,
 		roundingAmt,
 		grandTotal,
-		nullText(req.ExpressFee),
+		notNullText(req.ExpressFee),
 		outsourceFees[0],
 		outsourceFees[1],
 		outsourceFees[2],
@@ -2874,8 +2871,8 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		outsourceFees[4],
 		outsourceFees[5],
 		outsourceTotal,
-		nullText(req.ShipMethod),
-		nullText(shipTrackingNo),
+		notNullText(req.ShipMethod),
+		notNullText(shipTrackingNo),
 		req.LogisticsCompanyID,
 		req.LogisticsProductID,
 		paymentGoodsAmount,
@@ -2980,16 +2977,15 @@ func getStr(s []string, i int) string {
 	return s[i]
 }
 
-func nullText(v string) any {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return nil
-	}
-	return v
-}
-
 func notNullText(v string) string {
 	return strings.TrimSpace(v)
+}
+
+func notNullTextPtr(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return notNullText(*v)
 }
 
 func nullInt(v int64) any {
