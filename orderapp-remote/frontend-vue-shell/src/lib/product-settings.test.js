@@ -388,6 +388,58 @@ test('pricing rule trial picker only exposes unique active parent products and r
   assert.deepEqual(orderProductFamilyOptions(candidates, '', 'drip_bag').map((row) => row.id), [200])
 })
 
+test('pricing rule trial sales specs come only from the selected parent concrete SKUs', () => {
+  const catalogProducts = [
+    { id: 58, name: '曜石', parent_product_id: 0, default_sku_id: 560, default_sales_unit: '454g', active: true },
+    { id: 558, name: '曜石 227g', parent_product_id: 58, sku_id: 558, spec_label: '227g', derived_sales_unit: '227g', active: true },
+    { id: 559, name: '曜石 454g旧规格', parent_product_id: 58, sku_id: 559, spec_label: '454g旧', derived_sales_unit: '454g', derived_spec_status: 'template_removed', active: true },
+    { id: 557, name: '曜石 1lb已停用', parent_product_id: 58, sku_id: 557, spec_label: '1lb已停用', derived_sales_unit: 'lb', derived_spec_status: 'template_disabled', active: true },
+    { id: 560, name: '曜石 454g', parent_product_id: 58, sku_id: 560, spec_label: '454g', derived_sales_unit: '454g', is_default_sku: true, active: true },
+    { id: 561, name: '曜石 礼盒A', parent_product_id: 58, sku_id: 561, spec_label: '礼盒A', derived_sales_unit: '盒', active: true },
+    { id: 562, name: '曜石 礼盒B', parent_product_id: 58, sku_id: 562, spec_label: '礼盒B', derived_sales_unit: '盒', active: true },
+    { id: 563, name: '曜石 停用规格', parent_product_id: 58, sku_id: 563, spec_label: '停用', derived_sales_unit: '袋', active: false },
+    { id: 564, name: '曜石 100g', parent_product_id: 58, sku_id: 564, spec_label: '100g', derived_sales_unit: '100g', active: true },
+    { id: 565, name: '曜石 500g', parent_product_id: 58, sku_id: 565, spec_label: '500g', derived_sales_unit: '500g', active: true },
+    { id: 566, name: '曜石 1Kg', parent_product_id: 58, sku_id: 566, spec_label: '1Kg', derived_sales_unit: '1Kg', active: true },
+    { id: 70, name: '晨曦', parent_product_id: 0, default_sales_unit: 'lb', active: true },
+    { id: 80, name: '仅有失效子规格的历史商品', parent_product_id: 0, default_sales_unit: 'kg', active: true },
+    { id: 801, name: '历史商品已停用规格', parent_product_id: 80, sku_id: 801, derived_sales_unit: '500g', derived_spec_status: 'template_disabled', active: true },
+  ]
+
+  assert.equal(typeof productSettings.pricingRuleTrialProductSpecOptions, 'function')
+  assert.equal(typeof productSettings.pricingRuleTrialDefaultProductSpecID, 'function')
+  assert.equal(typeof productSettings.pricingRuleTrialProductSpecUnit, 'function')
+
+  const specs = productSettings.pricingRuleTrialProductSpecOptions?.(catalogProducts, 58) || []
+  assert.deepEqual(specs.map((row) => row.sku_id), [560, 558, 561, 562, 564, 565, 566])
+  assert.deepEqual(specs.map((row) => productSettings.pricingRuleTrialProductSpecUnit(row)), ['454g', '227g', '盒', '盒', '100g', '500g', '1Kg'])
+  assert.equal(productSettings.pricingRuleTrialDefaultProductSpecID(specs), 560)
+  assert.equal(specs.filter((row) => productSettings.pricingRuleTrialProductSpecUnit(row) === '盒').length, 2, 'same-unit SKUs remain separate sales specs')
+  assert.deepEqual(filterSkuRows(productSettings.pricingRuleTrialMainProductOptions(catalogProducts), { query: '454g旧规格' }), [])
+  assert.deepEqual(filterSkuRows(productSettings.pricingRuleTrialMainProductOptions(catalogProducts), { query: '1lb已停用' }), [])
+
+  const legacy = productSettings.pricingRuleTrialProductSpecOptions?.(catalogProducts, 70) || []
+  assert.deepEqual(legacy.map((row) => row.sku_id), [70])
+  assert.equal(productSettings.pricingRuleTrialProductSpecUnit(legacy[0]), 'lb')
+
+  const invalidChildFallback = productSettings.pricingRuleTrialProductSpecOptions?.(catalogProducts, 80) || []
+  assert.deepEqual(invalidChildFallback.map((row) => row.sku_id), [80])
+  assert.equal(productSettings.pricingRuleTrialProductSpecUnit(invalidChildFallback[0]), 'kg')
+})
+
+test('pricing rule trial payload submits the selected concrete SKU while the parent remains UI-only context', () => {
+  const payload = buildPricingRuleTrialPayload({
+    pricing_rule_id: 15,
+    parent_product_id: 58,
+    product_id: 560,
+    quote_unit: '454g',
+    other_cost_rows: [],
+  })
+
+  assert.equal(payload.product_id, 560)
+  assert.equal(payload.quote_unit, '454g')
+})
+
 test('product archive page renders child SKUs inside the parent name cell instead of peer product rows', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -1659,7 +1711,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '请选择启用的价格计算模板',
     'BOM版本',
     '工艺路线',
-    '销售单位',
+    '销售规格',
     '临时加价率',
     '临时税率',
     '其他成本',
@@ -1716,7 +1768,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '计算公式',
     'formula_expression_lines',
     '公式步骤',
-    'pricingRuleTrialQuoteUnitOptions',
+    'pricingRuleTrialSalesSpecOptions',
     'pricingRuleTrialBomVersionOptions',
     'pricingRuleTrialProcessRouteOptions',
     'schedulePricingRuleTrial',
@@ -1750,7 +1802,16 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(trialDrawer, /trialMoneyDisplay\(row\.amount, row\.unit \|\| pricingRuleTrialResult\.quote_unit\)/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.process_route_id"[\s\S]*pricingRuleTrialProcessRouteOptions/)
-  assert.match(source, /<select v-model="pricingRuleTrialForm\.quote_unit"[\s\S]*pricingRuleTrialQuoteUnitOptions/)
+  assert.match(trialDrawer, /<span>试算商品<\/span>[\s\S]*v-model="pricingRuleTrialForm\.parent_product_id"/)
+  assert.match(trialDrawer, /<span>销售规格<\/span>[\s\S]*<select v-model\.number="pricingRuleTrialForm\.product_id"[\s\S]*pricingRuleTrialSalesSpecOptions/)
+  assert.doesNotMatch(trialDrawer, /<span>销售单位<\/span>/)
+  assert.doesNotMatch(trialDrawer, /v-model="pricingRuleTrialForm\.quote_unit"/)
+  assert.match(script, /pricingRuleTrialProductSpecOptions/)
+  assert.match(script, /pricingRuleTrialDefaultProductSpecID/)
+  assert.match(script, /pricingRuleTrialProductSpecUnit/)
+  assert.match(script, /parent_product_id:\s*0/)
+  assert.match(script, /function schedulePricingRuleTrial\(\) \{[\s\S]*pricingRuleTrialRunID\+\+[\s\S]*pricingRuleTrialLoading\.value = false[\s\S]*runPricingRuleTrial\(\)/)
+  assert.match(script, /if \(runID === pricingRuleTrialRunID\) \{[\s\S]*pricingRuleTrialResult\.value = result/)
   assert.doesNotMatch(pane, /@click="runPricingRuleTrial"/)
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
   assert.match(script, /watch\(\(\) => pricingRuleTrialAutoRunSignature\.value/)
@@ -1791,6 +1852,8 @@ test('pricing rule trial product picker mirrors the order-entry type filter inte
   assert.match(trialDrawer, /@click\.stop="setPricingRuleTrialProductKindFilter\(option\.value\)"/)
   assert.match(trialDrawer, /<template\s+#option="\{ option \}">/)
   assert.match(trialDrawer, /productKindBadgeClass\(option\)[\s\S]*productKindLabel\(option\)/)
+  assert.match(script, /watch\(pricingRuleTrialProductKindFilterOptions,[\s\S]*activePricingRuleTrialProductKindFilter\.value = ''/)
+  assert.match(script, /watch\(pricingRuleTrialMainProducts,[\s\S]*pricingRuleTrialForm\.value\.parent_product_id = 0/)
 })
 
 test('product price list owns tier template drawer and three pricing modes', () => {

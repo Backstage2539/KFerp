@@ -973,7 +973,7 @@
                 <span>试算商品</span>
                 <SearchableSelect
                   :key="`pricing-rule-trial-product-picker:${activePricingRuleTrialProductKindFilter}`"
-                  v-model="pricingRuleTrialForm.product_id"
+                  v-model="pricingRuleTrialForm.parent_product_id"
                   :options="pricingRuleTrialProductOptions"
                   :option-label="productOptionLabel"
                   :option-meta="productOptionMeta"
@@ -1034,11 +1034,14 @@
                 </select>
               </label>
               <label>
-                <span>销售单位</span>
-                <select v-model="pricingRuleTrialForm.quote_unit">
-                  <option value="">请选择销售单位</option>
-                  <option v-for="unit in pricingRuleTrialQuoteUnitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                <span>销售规格</span>
+                <select v-model.number="pricingRuleTrialForm.product_id" :disabled="!pricingRuleTrialForm.parent_product_id || !pricingRuleTrialSalesSpecOptions.length">
+                  <option :value="0">{{ pricingRuleTrialForm.parent_product_id ? '请选择销售规格' : '请先选择试算商品' }}</option>
+                  <option v-for="spec in pricingRuleTrialSalesSpecOptions" :key="Number(spec.sku_id || spec.id || 0)" :value="Number(spec.sku_id || spec.id || 0)">
+                    {{ pricingRuleTrialProductSpecLabel(spec) }}
+                  </option>
                 </select>
+                <small v-if="pricingRuleTrialForm.parent_product_id && !pricingRuleTrialSalesSpecOptions.length" class="muted">当前商品暂无可试算的有效销售规格，请先在商品档案维护规格。</small>
               </label>
               <label>
                 <span>临时加价率</span>
@@ -1923,9 +1926,11 @@ import {
   productKindSupportsBomParams,
   productCodeLabel,
   primaryCategoryOptions,
-  pricingRuleTrialDefaultQuoteUnit,
-  pricingRuleTrialQuoteUnitOptionsForProduct,
+  pricingRuleTrialDefaultProductSpecID,
   pricingRuleTrialMainProductOptions,
+  pricingRuleTrialProductSpecLabel,
+  pricingRuleTrialProductSpecOptions,
+  pricingRuleTrialProductSpecUnit,
   productSkuRowsForParent,
   productArchiveRowsWithSkus,
   productionBomOptionLabel,
@@ -2272,8 +2277,9 @@ const activePricingRuleTrialOptions = computed(() => pricingRules.value
   .filter((rule) => rule && rule.active !== false && Number(rule.id || 0) > 0)
   .slice()
   .sort((a, b) => pricingRuleOptionLabel(a).localeCompare(pricingRuleOptionLabel(b))))
+const pricingRuleTrialCatalogProducts = computed(() => products.value.filter(skuContextProductFilter))
 const pricingRuleTrialMainProducts = computed(() => pricingRuleTrialMainProductOptions(
-  products.value.filter(skuContextProductFilter),
+  pricingRuleTrialCatalogProducts.value,
 )
   .slice()
   .sort((a, b) => productOptionLabel(a).localeCompare(productOptionLabel(b))))
@@ -2283,13 +2289,21 @@ const pricingRuleTrialProductOptions = computed(() => orderProductFamilyOptions(
   '',
   activePricingRuleTrialProductKindFilter.value,
 ))
-const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialMainProducts.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)) || null)
+const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialMainProducts.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.parent_product_id || 0)) || null)
+const pricingRuleTrialSalesSpecOptions = computed(() => pricingRuleTrialProductSpecOptions(
+  pricingRuleTrialCatalogProducts.value,
+  pricingRuleTrialForm.value.parent_product_id,
+))
+const selectedPricingRuleTrialProductSpec = computed(() => pricingRuleTrialSalesSpecOptions.value.find((product) => (
+  Number(product?.sku_id || product?.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)
+)) || null)
 const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.bom_version_options) ? pricingRuleTrialResult.value.bom_version_options : [])
 const pricingRuleTrialProcessRouteOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.process_route_options) ? pricingRuleTrialResult.value.process_route_options : [])
 const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
 const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   open: pricingRuleTrialDrawerOpen.value,
   pricing_rule_id: pricingRuleTrialForm.value.pricing_rule_id,
+  parent_product_id: pricingRuleTrialForm.value.parent_product_id,
   product_id: pricingRuleTrialForm.value.product_id,
   customer_id: pricingRuleTrialForm.value.customer_id,
   bom_version_id: pricingRuleTrialForm.value.bom_version_id,
@@ -2501,13 +2515,6 @@ const visibleProductConfigTemplates = computed(() => visibleNonDeletedRows(produ
 const visibleProductClassificationTemplates = computed(() => visibleNonDeletedRows(productClassificationTemplates.value))
 const activeProductUnitDefinitions = computed(() => visibleProductUnitDefinitions.value.filter((unit) => unit.active !== false))
 const activeProductUnitTemplates = computed(() => visibleProductUnitTemplates.value.filter((template) => template.active !== false))
-const basePricingRuleTrialQuoteUnitOptions = computed(() => activeProductUnitDefinitions.value
-  .map((unit) => ({ code: String(unit.code || '').trim(), name: String(unit.name || unit.code || '').trim() }))
-  .filter((unit) => unit.code))
-const pricingRuleTrialQuoteUnitOptions = computed(() => pricingRuleTrialQuoteUnitOptionsForProduct(
-  basePricingRuleTrialQuoteUnitOptions.value,
-  selectedPricingRuleTrialProduct.value || {},
-))
 const gradientDisplayUnitOptions = computed(() => {
   const out = baseGradientDisplayUnitOptions.map((unit) => ({ ...unit }))
   const seen = new Set(out.map((unit) => unit.value))
@@ -3046,6 +3053,7 @@ function defaultPricingRuleTrialForm(rule = {}) {
   const form = defaultPricingRuleForm(rule || {})
   return {
     pricing_rule_id: Number(form.id || 0),
+    parent_product_id: 0,
     product_id: 0,
     customer_id: 0,
     bom_version_id: 0,
@@ -3865,6 +3873,7 @@ function setPricingRuleTrialProductKindFilter(value) {
   activePricingRuleTrialProductKindFilter.value = next
   const selected = selectedPricingRuleTrialProduct.value
   if (!selected || !next || normalizedProductKind(selected) === next) return
+  pricingRuleTrialForm.value.parent_product_id = 0
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
@@ -3879,6 +3888,7 @@ function handlePricingRuleTrialRuleChange() {
   const previous = { ...pricingRuleTrialForm.value }
   pricingRuleTrialRule.value = selected ? defaultPricingRuleForm(JSON.parse(JSON.stringify(selected))) : null
   const next = defaultPricingRuleTrialForm(pricingRuleTrialRule.value || {})
+  next.parent_product_id = Number(previous.parent_product_id || 0)
   next.product_id = Number(previous.product_id || 0)
   next.customer_id = Number(previous.customer_id || 0)
   next.quote_unit = String(previous.quote_unit || '')
@@ -3922,10 +3932,6 @@ function removePricingRuleTrialOtherCostRow(index) {
   if (!pricingRuleTrialForm.value.other_cost_rows.length) {
     addPricingRuleTrialOtherCostRow()
   }
-}
-
-function preferredPricingRuleTrialQuoteUnit(product = {}) {
-  return pricingRuleTrialDefaultQuoteUnit(product, pricingRuleTrialQuoteUnitOptions.value)
 }
 
 function syncPricingRuleTrialProductionSelections(result = {}) {
@@ -3972,6 +3978,8 @@ function pricingRuleTrialOperationTemplateOptionLabel(option = {}) {
 }
 
 function schedulePricingRuleTrial() {
+  pricingRuleTrialRunID++
+  pricingRuleTrialLoading.value = false
   if (pricingRuleTrialAutoRunTimer) {
     clearTimeout(pricingRuleTrialAutoRunTimer)
     pricingRuleTrialAutoRunTimer = null
@@ -3995,12 +4003,16 @@ async function runPricingRuleTrial() {
     pricingRuleTrialError.value = '请选择价格计算模板'
     return
   }
-  if (!payload.product_id) {
+  if (!Number(pricingRuleTrialForm.value.parent_product_id || 0)) {
     pricingRuleTrialError.value = '请选择试算商品'
     return
   }
+  if (!payload.product_id) {
+    pricingRuleTrialError.value = '请选择销售规格'
+    return
+  }
   if (!String(payload.quote_unit || '').trim()) {
-    pricingRuleTrialError.value = '请选择销售单位'
+    pricingRuleTrialError.value = '所选销售规格缺少有效销售单位，请先在商品档案维护规格'
     return
   }
   const runID = ++pricingRuleTrialRunID
@@ -7741,18 +7753,21 @@ watch(() => skuFilters.value.primaryCategory, () => {
   }
 })
 
+watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
+  pricingRuleTrialForm.value.product_id = 0
+  pricingRuleTrialForm.value.quote_unit = ''
+  pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.process_route_id = 0
+  pricingRuleTrialForm.value.operation_template_id = 0
+  pricingRuleTrialResult.value = null
+  pricingRuleTrialActiveExplanation.value = ''
+  const defaultSpecID = pricingRuleTrialDefaultProductSpecID(pricingRuleTrialSalesSpecOptions.value)
+  if (defaultSpecID > 0) pricingRuleTrialForm.value.product_id = defaultSpecID
+})
+
 watch(() => pricingRuleTrialForm.value.product_id, () => {
-  const product = selectedPricingRuleTrialProduct.value
-  if (!product) {
-    pricingRuleTrialForm.value.quote_unit = ''
-    pricingRuleTrialForm.value.bom_version_id = 0
-    pricingRuleTrialForm.value.process_route_id = 0
-    pricingRuleTrialForm.value.operation_template_id = 0
-    pricingRuleTrialResult.value = null
-    pricingRuleTrialActiveExplanation.value = ''
-    return
-  }
-  pricingRuleTrialForm.value.quote_unit = preferredPricingRuleTrialQuoteUnit(product)
+  const product = selectedPricingRuleTrialProductSpec.value
+  pricingRuleTrialForm.value.quote_unit = product ? pricingRuleTrialProductSpecUnit(product) : ''
   pricingRuleTrialForm.value.bom_version_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
@@ -7762,6 +7777,7 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
   activePricingRuleTrialProductKindFilter.value = ''
+  pricingRuleTrialForm.value.parent_product_id = 0
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.bom_version_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
@@ -7769,6 +7785,20 @@ watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
+})
+
+watch(pricingRuleTrialProductKindFilterOptions, (options) => {
+  const selected = String(activePricingRuleTrialProductKindFilter.value || '').trim()
+  if (selected && !(options || []).some((option) => option.value === selected)) {
+    activePricingRuleTrialProductKindFilter.value = ''
+  }
+})
+
+watch(pricingRuleTrialMainProducts, (products) => {
+  const selectedParentID = Number(pricingRuleTrialForm.value.parent_product_id || 0)
+  if (selectedParentID > 0 && !(products || []).some((product) => Number(product?.id || 0) === selectedParentID)) {
+    pricingRuleTrialForm.value.parent_product_id = 0
+  }
 })
 
 watch(() => pricingRuleTrialAutoRunSignature.value, () => {

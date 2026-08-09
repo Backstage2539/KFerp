@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-589-PRICING-TRIAL-PRODUCT-SPECS
+- Branch: codex/pricing-trial-product-specs-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: implementation and automated gates done; develop integration/development deployment doing; Van acceptance todo
+- Scope: 价格试算先按 PR-588 选择主商品，再从该父商品 active 且派生状态为空或 `active` 的具体子 SKU 中选择销售规格；同单位不同 SKU 不合并，默认 `default_sku_id`，没有有效子规格时与价格表一致回退有效主商品自身。单次试算沿用现有 `product_id + quote_unit` 提交所选具体 SKU 及其权威销售单位，并沿用后端 SKU → 父商品 BOM 回退；切换选择会立即作废旧的异步试算，使同规格结果可与商品价格表对账。
+- DEV:
+  - DEV-589-TRIAL-SPEC-CANDIDATES（done）：销售规格只来自当前主商品有效具体 SKU；同单位不同 SKU 独立，默认规格和历史商品回退明确。
+  - DEV-589-CONCRETE-SKU-TRIAL（done）：单次试算提交具体 SKU `product_id` 和该 SKU 权威 `quote_unit`，不新增 API 字段或独立防伪/跨父校验。
+  - DEV-589-DOCS-DEVELOPMENT-DELIVERY（doing）：同步需求、验收、成本手册与支持合同；完成 TDD、API、Vue/Vite 构建门禁后合入并部署 development。
+- Verifier:
+  - RED: `go test ./internal/interfaces/http/support -run TestDev589PricingTrialProductSpecsContracts -count=1` 在缺少 PR/DEV 种子和文档合同时失败。
+  - GREEN: `product-settings.test.js` 191/191、frontend 全量 925/925、costing application/API/repository、support 全包、PR-589 合同、Vite build 和 `scripts/verify_kferp.sh changed` 均通过。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-08-10-pricing-trial-product-specs.md`。
+- Deployment: development pending; production out of scope.
+- Last update: 2026-08-10 Asia/Shanghai
+
 ### PR-588-PRICING-TRIAL-PARENT-PICKER-BOM-ACCORDION
 - Branch: codex/price-trial-bom-list-compact-20260809
 - Owner/session: Codex / 2026-08-09
