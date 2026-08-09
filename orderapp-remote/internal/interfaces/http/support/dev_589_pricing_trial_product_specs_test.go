@@ -16,10 +16,10 @@ func TestDev589PricingTrialProductSpecsContracts(t *testing.T) {
 		status   string
 		assignee string
 	}{
-		{table: "req_product", code: "PR-589-PRICING-TRIAL-PRODUCT-SPECS", status: "doing", assignee: "Codex"},
+		{table: "req_product", code: "PR-589-PRICING-TRIAL-PRODUCT-SPECS", status: "review", assignee: "VA"},
 		{table: "req_dev", code: "DEV-589-TRIAL-SPEC-CANDIDATES", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-589-CONCRETE-SKU-TRIAL", status: "done", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-589-DOCS-DEVELOPMENT-DELIVERY", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-589-DOCS-DEVELOPMENT-DELIVERY", status: "done", assignee: "Codex"},
 		{table: "req_review", code: "REV-589-PRICING-TRIAL-PRODUCT-SPECS", status: "todo", assignee: "VA"},
 	} {
 		requireDev589SeedRow(t, reqStore, row.table, row.code, row.status, row.assignee)
