@@ -52,7 +52,16 @@
 
 ## 交付状态
 
-- `DEV-591-MINI-PULL-UP-BRAND`：done；自动测试、类型检查和 development 构建通过，等待 development 部署及 Van 手工检查上拉手感。
+- `DEV-591-MINI-PULL-UP-BRAND`：done；自动测试、类型检查、development 构建与部署通过，等待 Van 手工检查上拉手感。
 - `DEV-591-SELF-LOGIN-DISABLE-GUARD`：done；production 即时恢复和持久代码防护的 API、数据库状态/审计、Vue 测试与构建均已通过。
-- `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：doing；文档与种子已登记，测试、合并和 development 部署待补证据。
+- `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：done；文档、种子和支持合同已同步，验证后的功能已合入并部署 development。
 - `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`：todo，等待 Van 在 development 人工验收。
+
+## Development 部署证据
+
+- 部署提交：`develop@d4e144b0f0709f8dfa7a88e0c3c85ef4028905b8`。
+- 服务器源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810023729-d4e144b0f070`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20260810023729-d4e144b0f070`。
+- 服务器微信小程序构建产物：`/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`。
+- 本机固定开发包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；替换前备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810024324-d4e144b0f070`。
+- 外部健康检查：HTTP 200。开发包已同步到固定目录，但微信上传、提审和发布未执行；production 代码未部署。

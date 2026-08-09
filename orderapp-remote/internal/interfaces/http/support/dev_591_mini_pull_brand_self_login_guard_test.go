@@ -18,10 +18,10 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 		status   string
 		assignee string
 	}{
-		{table: "req_product", code: "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", status: "doing", assignee: "Codex"},
+		{table: "req_product", code: "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", status: "review", assignee: "VA"},
 		{table: "req_dev", code: "DEV-591-MINI-PULL-UP-BRAND", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-591-SELF-LOGIN-DISABLE-GUARD", status: "done", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-591-DOCS-DEVELOPMENT-DELIVERY", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-591-DOCS-DEVELOPMENT-DELIVERY", status: "done", assignee: "Codex"},
 		{table: "req_review", code: "REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", status: "todo", assignee: "VA"},
 	} {
 		requireDev591SeedRow(t, reqStore, row.table, row.code, row.status, row.assignee)
@@ -199,7 +199,7 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 			t.Fatal(err)
 		}
 	} else {
-		for _, want := range []string{"PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", "Status: doing", "REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"} {
+		for _, want := range []string{"PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", "Status: review", "REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"} {
 			if !strings.Contains(string(active), want) {
 				t.Fatalf("root ACTIVE_REQUIREMENTS.md missing PR-591 marker %q", want)
 			}
