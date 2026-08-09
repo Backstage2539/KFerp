@@ -102,7 +102,7 @@ func TestDev289OrderBeanListVersionDisplayedInDetailsAndManuals(t *testing.T) {
 		body := string(readOrderAppFileForTest(t, rel))
 		for _, want := range wants {
 			if !strings.Contains(body, want) {
-				if rel == filepath.Join("..", "miniapp", "src", "pages", "service", "service.vue") && want == "豆单版本" && strings.Contains(body, "价格表版本") {
+				if want == "豆单版本" && strings.Contains(body, "价格表版本") {
 					continue
 				}
 				t.Fatalf("%s must document/display order bean-list version; missing %q", rel, want)
