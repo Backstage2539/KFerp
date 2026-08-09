@@ -36,7 +36,9 @@
 - GREEN：`go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing -count=1` 通过；`go test ./internal/interfaces/http/support -count=1` 通过。
 - GREEN：`npm run build` 通过（Vite 8.0.10，397 modules）；`scripts/verify_kferp.sh changed` 通过。
 - 独立终审发现并修复 `template_disabled` 规格混入、无有效子规格回退、异步旧响应回填和失效类型筛选无法回到全部四个边界，复审后定向与支持合同均 GREEN。
-- development 部署提交、备份和回滚镜像：pending。
+- development 部署：功能提交 `d3ae9d29` 已通过合并提交 `4341a8eb9683f37c2d4fe6bf4978cbfdbb703816` 合入 `develop`，并使用 `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development` 发布。
+- 部署门禁：服务器 Vue 925/925、小程序 195/195、类型检查/development 构建、完整 Go 测试、镜像内 Go 测试、容器启动均通过；脚本内置外部 smoke 返回 HTTP 200。
+- 部署备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810004102-4341a8eb9683`；回滚镜像：`kferp-orderapp-rollback:development-20260810004102-4341a8eb9683`。
 
 ## 操作手册
 
@@ -55,5 +57,5 @@
 
 - `DEV-589-TRIAL-SPEC-CANDIDATES`：done。
 - `DEV-589-CONCRETE-SKU-TRIAL`：done。
-- `DEV-589-DOCS-DEVELOPMENT-DELIVERY`：doing，自动化、构建、合入和 development 部署待完成。
+- `DEV-589-DOCS-DEVELOPMENT-DELIVERY`：done，自动化、构建、合入和 development 部署已完成。
 - `REV-589-PRICING-TRIAL-PRODUCT-SPECS`：todo，Van 人工验收待办。
