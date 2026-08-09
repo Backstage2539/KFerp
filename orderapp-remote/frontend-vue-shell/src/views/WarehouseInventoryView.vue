@@ -741,12 +741,10 @@ async function saveWarehouseGroupFeatureSelection() {
     })
     warehouseGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(result)
     warehouseGroupFeatureSelectionDraft.value = [...warehouseGroupFeatureSelectionTemplateIDs.value]
-    syncSelectedWarehouseGroupTemplate()
-    selectedWarehouseMoveGroupItemID.value = 0
-    selectedWarehouseKeys.value = []
-    collapsedInventoryGroups.value = []
-    selectedInventoryItemKeys.value = []
     syncSelectedInventoryGroupTemplate()
+    selectedInventoryMoveGroupItemID.value = 0
+    selectedInventoryItemKeys.value = []
+    collapsedInventoryGroups.value = []
     warehouseGroupFeatureDrawerOpen.value = false
     ok.value = payload.group_template_ids.length
       ? `仓库库存已选择 ${payload.group_template_ids.length} 个分组模板`
@@ -1004,16 +1002,16 @@ watch(() => props.customerContextId, () => {
   loadAll()
 })
 
-watch(selectedWarehouseGroupTemplateID, () => {
-  selectedWarehouseMoveGroupItemID.value = 0
-  selectedWarehouseKeys.value = []
-  collapsedWarehouseGroups.value = []
+watch(selectedInventoryGroupTemplateID, () => {
+  selectedInventoryMoveGroupItemID.value = 0
+  selectedInventoryItemKeys.value = []
+  collapsedInventoryGroups.value = []
 })
 
-watch(warehouseGroupItemOptions, (options) => {
-  const selected = Number(selectedWarehouseMoveGroupItemID.value || 0)
+watch(inventoryGroupItemOptions, (options) => {
+  const selected = Number(selectedInventoryMoveGroupItemID.value || 0)
   if (selected > 0 && !options.some((option) => Number(option.group_item_id || 0) === selected)) {
-    selectedWarehouseMoveGroupItemID.value = 0
+    selectedInventoryMoveGroupItemID.value = 0
   }
 })
 

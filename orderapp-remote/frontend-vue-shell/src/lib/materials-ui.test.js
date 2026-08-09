@@ -61,6 +61,26 @@ test('warehouse inventory groups warehouses by template without ordinary custome
   assert.match(warehouseSource, /canMoveSelectedInventoryItems/)
 })
 
+test('warehouse inventory script setup has no stale pre-rename grouping identifiers', () => {
+  const scriptSetup = warehouseSource.split('<script setup>')[1]?.split('</script>')[0] || ''
+  assert.ok(scriptSetup, 'expected a <script setup> block in WarehouseInventoryView.vue')
+
+  const staleIdentifiers = [
+    'selectedWarehouseGroupTemplateID',
+    'warehouseGroupItemOptions',
+    'selectedWarehouseMoveGroupItemID',
+    'selectedWarehouseKeys',
+    'collapsedWarehouseGroups',
+    'syncSelectedWarehouseGroupTemplate',
+  ]
+  for (const name of staleIdentifiers) {
+    assert.doesNotMatch(scriptSetup, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+
+  assert.match(scriptSetup, /watch\(selectedInventoryGroupTemplateID,/)
+  assert.match(scriptSetup, /watch\(inventoryGroupItemOptions,/)
+})
+
 test('group template page manages categories without business objects', () => {
   const settingsSource = readFileSync(resolve(here, '../views/GroupTemplatesView.vue'), 'utf8')
   const templatePanel = settingsSource.match(/data-section-mode="groupTemplates"[\s\S]*/)?.[0] || settingsSource
