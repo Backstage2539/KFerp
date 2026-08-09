@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
+import { buildProductCatalogTemplatePriceListTypeOptions } from './product-price-list-types.js'
 import {
   activeBeanListPublicationIDsByType,
   beanListVersionGroupForPublicationID,
@@ -2660,15 +2661,45 @@ test('buildOrderPayload carries drip product unit metadata', () => {
   assert.equal(payload.spec[0], '100')
 })
 
-test('filterBeanListVersionOptionsToCurrentTypes hides orphaned price-list groups and keeps current ones', () => {
+// Realistic product-catalog type objects (as built by buildProductCatalogTemplatePriceListTypeOptions)
+// carry a negative sentinel id (-2000000-groupID); the publication identity used to match published
+// price lists lives in publicationClassificationTemplateID (8e15+groupID).
+const coffeeBeanPriceListType = {
+  id: -2001532,
+  categoryID: 0,
+  key: 'product-catalog:1532',
+  label: '咖啡豆',
+  listType: 'commercial',
+  productCatalogGroupID: 1532,
+  publicationProductTypeCategoryID: 8000000000001532,
+  publicationClassificationTemplateID: 8000000000001532,
+}
+
+test('filterBeanListVersionOptionsToCurrentTypes keeps current price-list type and hides legacy groups', () => {
   const options = [
     { id: 108, list_type: 'commercial', classification_template_id: 8000000000001532 }, // 咖啡豆 current
     { id: 107, list_type: 'commercial', classification_template_id: 221 },              // 熟豆 orphaned
     { id: 106, list_type: 'green', classification_template_id: 222 },                   // 生豆 orphaned
     { id: 90, list_type: 'green', classification_template_id: 0 },                       // 生豆 legacy
   ]
-  const currentTypes = [{ id: 8000000000001532, listType: 'commercial', label: '咖啡豆' }]
-  const kept = orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, currentTypes)
+  const kept = orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, [coffeeBeanPriceListType])
+  assert.deepEqual(kept.map((o) => o.id), [108])
+})
+
+test('filterBeanListVersionOptionsToCurrentTypes matches real builder output end-to-end', () => {
+  const types = buildProductCatalogTemplatePriceListTypeOptions(
+    [{ id: 1, name: '曜石' }],
+    {
+      templates: [{ id: 1532, name: '咖啡豆', active: true, items: [{ id: 24122, name: '意式咖啡' }] }],
+      assignments: [],
+    },
+  )
+  const options = [
+    { id: 108, list_type: 'commercial', classification_template_id: 8000000000001532 },
+    { id: 107, list_type: 'commercial', classification_template_id: 221 },
+    { id: 90, list_type: 'green', classification_template_id: 0 },
+  ]
+  const kept = orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, types)
   assert.deepEqual(kept.map((o) => o.id), [108])
 })
 
@@ -2677,8 +2708,7 @@ test('filterBeanListVersionOptionsToCurrentTypes hides legacy options once class
     { id: 108, list_type: 'commercial', classification_template_id: 8000000000001532 },
     { id: 50, list_type: 'drip', classification_template_id: 0 }, // legacy drip, not a current type -> hide
   ]
-  const currentTypes = [{ id: 8000000000001532, listType: 'commercial', label: '咖啡豆' }]
-  const kept = orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, currentTypes)
+  const kept = orderEntry.filterBeanListVersionOptionsToCurrentTypes(options, [coffeeBeanPriceListType])
   assert.deepEqual(kept.map((o) => o.id), [108])
 })
 
