@@ -1,4 +1,5 @@
 import { isDripProduct } from './drip-product.js'
+import { publicationTypeIdentityForPriceListType } from './product-price-list-types.js'
 
 export const CUSTOM_SPEC_VALUE = 'custom'
 export const COMMON_SPEC_GRAMS = [36, 80, 100, 227, 454, 500, 1000, 2500]
@@ -1337,7 +1338,10 @@ export function filterBeanListVersionOptionsToCurrentTypes(options = [], current
   const types = Array.isArray(currentTypes) ? currentTypes : []
   if (!types.length) return options
   if (types.some((type) => Number(type?.id || 0) === 0)) return options
-  const currentIDs = new Set(types.map((type) => Number(type?.id || 0)).filter((id) => id > 0))
+  const currentIDs = new Set(types
+    .map((type) => Number(publicationTypeIdentityForPriceListType(type).classificationTemplateID || 0))
+    .filter((id) => id > 0))
+  if (!currentIDs.size) return options
   return (Array.isArray(options) ? options : []).filter((item) => {
     const tplID = Number(item?.classification_template_id ?? item?.classificationTemplateID ?? 0)
     return tplID > 0 && currentIDs.has(tplID)
