@@ -51,5 +51,12 @@
 
 - `DEV-590-ORDER-NOT-NULL-TEXT-COMPAT`：done，仓储实现和定向回归已落地。
 - `DEV-590-DRAFT-TRANSACTION-AUDIT-COMPAT`：done，既有事务顺序和操作日志合同保持不变。
-- `DEV-590-DUAL-ENVIRONMENT-DELIVERY`：doing，文档与支持合同同步中；development、production 交付证据待补。
+- `DEV-590-DUAL-ENVIRONMENT-DELIVERY`：done，development 与 production 已依次完成交付。
 - `REV-590-MINIAPP-BLANK-TRACKING-SUBMIT`：todo，等待双环境交付后由 Van 验收。
+
+## 部署证据
+
+- Development：`develop@062c9be73bc3f1a5376316ab4dd402dce581c05a`；服务器源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810011606-062c9be73bc3`；回滚镜像 `kferp-orderapp-rollback:development-20260810011606-062c9be73bc3`；内置门禁和 `https://dev.qacoohee.com/app/login` HTTP 200 通过。
+- Production preflight：发布候选 `91cda66ad15141dfca3746f65380d7ce264557d6` 通过 Vue 925/925、小程序 195/195、类型检查/production 构建、完整 Go 和隔离镜像构建；预检没有提升源码或重启容器。
+- Production：已验证 develop 合入 `main@91cda66ad15141dfca3746f65380d7ce264557d6`；服务器源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20260810013030-91cda66ad151`；回滚镜像 `kferp-orderapp-rollback:production-20260810013030-91cda66ad151`；内置健康检查和 `https://erp.qacoohee.com/app/login` HTTP 200 通过。
+- 两次部署均设置 `KFERP_SKIP_MINIAPP_EXPORT=1`：服务器仍构建并验证相应环境的小程序包，但未替换本机固定包，也未上传、提审或发布微信版本。未自动提交 production 真实草稿，保留给 Van 人工验收。

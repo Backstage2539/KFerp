@@ -16,10 +16,10 @@ func TestDev590MiniappBlankTrackingSubmitContracts(t *testing.T) {
 		status   string
 		assignee string
 	}{
-		{table: "req_product", code: "PR-590-MINIAPP-BLANK-TRACKING-SUBMIT", status: "doing", assignee: "Codex"},
+		{table: "req_product", code: "PR-590-MINIAPP-BLANK-TRACKING-SUBMIT", status: "review", assignee: "VA"},
 		{table: "req_dev", code: "DEV-590-ORDER-NOT-NULL-TEXT-COMPAT", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-590-DRAFT-TRANSACTION-AUDIT-COMPAT", status: "done", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-590-DUAL-ENVIRONMENT-DELIVERY", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-590-DUAL-ENVIRONMENT-DELIVERY", status: "done", assignee: "Codex"},
 		{table: "req_review", code: "REV-590-MINIAPP-BLANK-TRACKING-SUBMIT", status: "todo", assignee: "VA"},
 	} {
 		requireDev590SeedRow(t, reqStore, row.table, row.code, row.status, row.assignee)
