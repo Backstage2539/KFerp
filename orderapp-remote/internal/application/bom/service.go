@@ -4,9 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	productiondomain "orderapp/internal/domain/production"
+	"regexp"
 	"strings"
 )
+
+var (
+	productionBomCodePrefixPattern    = regexp.MustCompile(`(?i)^BOM-?[0-9]+[[:space:]]*`)
+	productionBomVersionSuffixPattern = regexp.MustCompile(`(?i)[[:space:]]*/[[:space:]]*V[0-9]+[[:space:]]*$`)
+	productionBomGeneratedNamePattern = regexp.MustCompile(`(?i)[[:space:]]+(生产[[:space:]]*BOM|Production[[:space:]]+BOM|BOM)(([[:space:]]+(特殊属性)?副本)*)[[:space:]]*$`)
+)
+
+func NormalizeProductionBomName(value string) string {
+	name := strings.TrimSpace(value)
+	name = productionBomCodePrefixPattern.ReplaceAllString(name, "")
+	name = productionBomVersionSuffixPattern.ReplaceAllString(name, "")
+	name = productionBomGeneratedNamePattern.ReplaceAllString(name, "$2")
+	return strings.TrimSpace(name)
+}
 
 type ListItem struct {
 	ProductID              int64   `json:"product_id"`
@@ -543,13 +557,8 @@ func (s *Service) SyncProductYield(ctx context.Context, cmd SyncProductYieldComm
 	if cmd.ProductID <= 0 {
 		return fmt.Errorf("product required")
 	}
-	if cmd.ExpectedLossRate != nil {
-		yieldRate, err := productiondomain.YieldRateFromExpectedLossRate(*cmd.ExpectedLossRate)
-		if err != nil {
-			return err
-		}
-		cmd.ExpectedYieldRate = yieldRate
-	}
+	cmd.ExpectedLossRate = nil
+	cmd.ExpectedYieldRate = 1
 	return s.repo.SyncProductYield(ctx, cmd)
 }
 
@@ -654,29 +663,26 @@ func (s *Service) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (
 }
 
 func enrichListItemYield(row *ListItem) {
-	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
-	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
-	row.YieldRate = row.ExpectedYieldRate
+	row.ExpectedYieldRate = 1
+	row.ExpectedLossRate = 0
+	row.YieldRate = 1
 }
 
 func enrichDetailYield(row *Detail) {
-	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
-	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
-	row.YieldRate = row.ExpectedYieldRate
+	row.ExpectedYieldRate = 1
+	row.ExpectedLossRate = 0
+	row.YieldRate = 1
 }
 
 func enrichVersionYield(row *Version) {
-	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
-	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
-	row.YieldRate = row.ExpectedYieldRate
+	row.ExpectedYieldRate = 1
+	row.ExpectedLossRate = 0
+	row.YieldRate = 1
 }
 
 func enrichProductionBomSummaryYield(row *ProductionBomSummary) {
-	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.ExpectedYieldRate)
-	if row.ExpectedYieldRate <= 0 {
-		row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(1 - row.ExpectedLossRate)
-	}
-	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
+	row.ExpectedYieldRate = 1
+	row.ExpectedLossRate = 0
 }
 
 func normalizeProductionBomSummaryGroups(row *ProductionBomSummary) {
@@ -707,9 +713,9 @@ func normalizeProductionBomSummaryGroups(row *ProductionBomSummary) {
 }
 
 func enrichProductionBomVersionYield(row *ProductionBomVersion) {
-	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
-	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
-	row.YieldRate = row.ExpectedYieldRate
+	row.ExpectedYieldRate = 1
+	row.ExpectedLossRate = 0
+	row.YieldRate = 1
 }
 
 func (s *Service) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {
@@ -828,7 +834,7 @@ func (s *Service) ListProductionBomUsageByProduct(ctx context.Context, productID
 }
 
 func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error) {
-	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Name = NormalizeProductionBomName(cmd.Name)
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	if cmd.Name == "" {
@@ -840,6 +846,8 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if cmd.OutputQty <= 0 {
 		cmd.OutputQty = 1
 	}
+	legacyLossRate := 0.0
+	cmd.ExpectedLossRate = &legacyLossRate
 	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
@@ -890,7 +898,7 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 	if cmd.ID <= 0 {
 		return ProductionBomSummary{}, fmt.Errorf("bom_id required")
 	}
-	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Name = NormalizeProductionBomName(cmd.Name)
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Status = strings.TrimSpace(cmd.Status)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
@@ -910,7 +918,7 @@ func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCo
 	if cmd.ID <= 0 {
 		return ProductionBomSummary{}, fmt.Errorf("bom_id required")
 	}
-	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Name = NormalizeProductionBomName(cmd.Name)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	row, err := s.repo.CopyProductionBom(ctx, cmd)
 	if err != nil {
@@ -946,6 +954,8 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 	if cmd.OutputQty > 0 && cmd.OutputUnit == "" {
 		cmd.OutputUnit = "unit"
 	}
+	legacyLossRate := 0.0
+	cmd.ExpectedLossRate = &legacyLossRate
 	versionMaterialLossRate := 0.0
 	if cmd.MaterialLossRate != nil {
 		versionMaterialLossRate = *cmd.MaterialLossRate

@@ -188,10 +188,50 @@ export function skuGroupTableState(groups = [], paginationByGroup = {}, options 
 export function visibleSkuGroupRows(groups = [], collapsedGroupKeys = []) {
   const collapsed = new Set((Array.isArray(collapsedGroupKeys) ? collapsedGroupKeys : []).map((key) => String(key || '')))
   return (Array.isArray(groups) ? groups : []).flatMap((group) => (
-    collapsed.has(String(group?.key || '')) || !Array.isArray(group?.rows)
+    collapsed.has(String(group?.key || ''))
+      || skuGroupHiddenByCollapsedAncestor(groups, group, collapsedGroupKeys)
+      || !Array.isArray(group?.rows)
       ? []
       : group.rows
   ))
+}
+
+export function selectedSkuRowIDsAfterVisibleToggle(selectedRowIDs = [], visibleRows = [], checked = false) {
+  const selected = [...new Set((Array.isArray(selectedRowIDs) ? selectedRowIDs : [])
+    .map((id) => Number(id || 0))
+    .filter((id) => id > 0))]
+  const visibleIDs = [...new Set((Array.isArray(visibleRows) ? visibleRows : [])
+    .map((row) => Number(row?.id || 0))
+    .filter((id) => id > 0))]
+  const visibleSet = new Set(visibleIDs)
+  if (!checked) return selected.filter((id) => !visibleSet.has(id))
+  const selectedSet = new Set(selected)
+  return [...selected, ...visibleIDs.filter((id) => !selectedSet.has(id))]
+}
+
+export function skuGroupHiddenByCollapsedAncestor(groups = [], group = {}, collapsedGroupKeys = []) {
+  const collapsed = new Set((Array.isArray(collapsedGroupKeys) ? collapsedGroupKeys : []).map((key) => String(key || '')))
+  const groupID = Number(group?.group_id || 0)
+  if (!collapsed.size || !(groupID > 0)) return false
+  if (!group?.is_template_group) {
+    const templateHeader = (Array.isArray(groups) ? groups : [])
+      .find((candidate) => Number(candidate?.group_id || 0) === groupID && candidate?.is_template_group)
+    if (templateHeader && collapsed.has(String(templateHeader.key || ''))) return true
+  }
+  let parentID = Number(group?.parent_group_item_id || 0)
+  if (!(parentID > 0)) return false
+  const byItemID = new Map((Array.isArray(groups) ? groups : [])
+    .filter((candidate) => Number(candidate?.group_id || 0) === groupID && Number(candidate?.group_item_id || 0) > 0)
+    .map((candidate) => [Number(candidate.group_item_id || 0), candidate]))
+  const seen = new Set()
+  while (parentID > 0 && !seen.has(parentID)) {
+    seen.add(parentID)
+    const parent = byItemID.get(parentID)
+    if (!parent) return false
+    if (collapsed.has(String(parent.key || ''))) return true
+    parentID = Number(parent.parent_group_item_id || 0)
+  }
+  return false
 }
 
 export function skuListRowsFromProducts(products = [], categoryTree = [], filterFn = () => true) {
@@ -667,8 +707,6 @@ export function pricingRuleTrialDefaultQuoteUnit(product = {}, unitOptions = [])
 
 export function buildPricingRuleTrialPayload(form = {}) {
   const overrides = {}
-  const expectedLossRate = optionalNumberFromForm(form.expected_loss_rate ?? form.expectedLossRate)
-  if (expectedLossRate !== null) overrides.expected_loss_rate = expectedLossRate
   const baseCost = optionalNumberFromForm(form.base_cost ?? form.baseCost)
   if (baseCost !== null) overrides.base_cost = baseCost
   const marginRate = optionalNumberFromForm(form.margin_rate ?? form.marginRate)
@@ -863,12 +901,18 @@ function pricingRuleCalculationJSONFromForm(form = {}) {
   const profitMethod = !rawProfitMethod || ['gross_margin', 'markup'].includes(rawProfitMethod) ? 'markup' : rawProfitMethod
   const normalized = {
     ...stripPricingRuleQuantityFields(base),
-    yield_loss_mode: String(form.yield_loss_mode ?? form.yieldLossMode ?? base.yield_loss_mode ?? 'bom_or_product').trim() || 'bom_or_product',
+    yield_loss_mode: 'none',
     profit_method: profitMethod,
     tax_mode: String(form.tax_mode ?? form.taxMode ?? base.tax_mode ?? 'tax_included').trim() || 'tax_included',
     minimum_margin_rate: Number(form.minimum_margin_rate ?? form.minimumMarginRate ?? base.minimum_margin_rate ?? 0) || 0,
     trial_note: String(form.trial_note ?? form.trialNote ?? base.trial_note ?? '').trim(),
   }
+  delete normalized.yield_rate
+  delete normalized.yieldRate
+  delete normalized.expected_yield_rate
+  delete normalized.expectedYieldRate
+  delete normalized.expected_loss_rate
+  delete normalized.expectedLossRate
   normalized.other_costs = pricingRuleOtherCostMapFromForm(form, base)
   return stripPricingRuleQuantityFields(normalized)
 }
@@ -2434,8 +2478,6 @@ export function buildProductCreatePayload(form = {}) {
 	}
   if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
 	if (kind === 'green_bean') return payload
-	const yieldRate = normalizedYieldRateFromPercent(form)
-	if (yieldRate !== null) payload.yield_rate = yieldRate
 	return payload
 }
 
@@ -2462,8 +2504,6 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     payload.copy_bom = false
     payload.copy_price_tiers = false
   }
-  const yieldRate = normalizedYieldRateFromPercent(form)
-  if (yieldRate !== null) payload.yield_rate = yieldRate
   if (kind === 'instant_coffee') {
     payload.copy_bom = false
     return payload
@@ -2660,7 +2700,7 @@ function indexProductProductionConfigFields(fields = []) {
   const byKey = new Map()
   for (const field of Array.isArray(fields) ? fields : []) {
     const keys = [field?.template_field_key, field?.field_key]
-      .map((value) => String(value || '').trim())
+      .map((value) => String(value || '').trim().toLowerCase())
       .filter(Boolean)
     for (const key of keys) {
       if (!byKey.has(key)) byKey.set(key, field)
@@ -2670,21 +2710,27 @@ function indexProductProductionConfigFields(fields = []) {
 }
 
 function productProductionConfigTemplateFieldMatch(field = {}, index = {}) {
-  const key = String(field.field_key || '').trim()
+  const key = String(field.field_key || '').trim().toLowerCase()
   return index.byKey?.get(key) || {}
 }
 
-export function productProductionConfigFieldsFromTemplate(fields = [], template = {}) {
-  const templateFields = Array.isArray(template?.fields) ? template.fields : []
-  if (!templateFields.length) return []
+export function productProductionConfigFieldsFromTemplates(fields = [], templates = []) {
+  const sourceTemplates = Array.isArray(templates) ? templates : (templates ? [templates] : [])
+  if (!sourceTemplates.length) return []
   const existingIndex = indexProductProductionConfigFields(fields)
-  return templateFields
-    .slice()
-    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
-    .map((field, index) => {
+  const projected = []
+  const seenKeys = new Set()
+  for (const template of sourceTemplates) {
+    const templateFields = Array.isArray(template?.fields) ? template.fields : []
+    for (const field of templateFields
+      .slice()
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))) {
       const key = String(field.field_key || '').trim()
+      const normalizedKey = key.toLowerCase()
+      if (!normalizedKey || seenKeys.has(normalizedKey)) continue
+      seenKeys.add(normalizedKey)
       const existing = productProductionConfigTemplateFieldMatch(field, existingIndex)
-      return buildProductProductionConfigField({
+      projected.push(buildProductProductionConfigField({
         ...existing,
         field_key: key,
         template_field_key: key,
@@ -2695,15 +2741,76 @@ export function productProductionConfigFieldsFromTemplate(fields = [], template 
         required: Boolean(field.required),
         options_json: field.options_json || '[]',
         show_in_price_list: existing.show_in_price_list !== false,
-        sort_order: Number(field.sort_order || index + 1),
-      }, index)
-    })
+        sort_order: projected.length + 1,
+      }, projected.length))
+    }
+  }
+  return projected
 }
 
-export function buildProductProductionConfigForm(config = {}, product = {}, industryFieldTemplate = null) {
+export function productProductionConfigFieldsFromTemplate(fields = [], template = {}) {
+  return productProductionConfigFieldsFromTemplates(fields, template ? [template] : [])
+}
+
+export function industryFieldTemplateIDsFromConfig(config = {}) {
+  const source = config && typeof config === 'object' ? config : {}
+  const rawIDs = source.industry_field_template_ids ?? source.industryFieldTemplateIDs
+  if (Array.isArray(rawIDs)) {
+    return [...new Set(rawIDs.map((id) => Number(id || 0)).filter((id) => id > 0))]
+  }
+  const legacyID = Number(source.industry_field_template_id ?? source.industryFieldTemplateID ?? 0)
+  return legacyID > 0 ? [legacyID] : []
+}
+
+export function industryFieldTemplateOptionsForConfig(templates = [], config = {}) {
+  const sourceTemplates = Array.isArray(templates) ? templates : []
+  const selectedIDs = industryFieldTemplateIDsFromConfig(config)
+  const byID = new Map(sourceTemplates
+    .map((template) => [Number(template?.id || 0), template])
+    .filter(([id]) => id > 0))
+  const activeTemplates = sourceTemplates
+    .filter((template) => Number(template?.id || 0) > 0 && String(template?.status || 'active') === 'active')
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || '')))
+  const options = []
+  const includedIDs = new Set()
+  for (const [index, id] of selectedIDs.entries()) {
+    const template = byID.get(id)
+    options.push(template
+      ? {
+          ...template,
+          selected_order: index + 1,
+          unavailable: String(template.status || 'active') !== 'active',
+        }
+      : {
+          id,
+          name: `行业字段模板 #${id}`,
+          status: 'missing',
+          selected_order: index + 1,
+          unavailable: true,
+        })
+    includedIDs.add(id)
+  }
+  for (const template of activeTemplates) {
+    const id = Number(template.id || 0)
+    if (includedIDs.has(id)) continue
+    options.push({ ...template, selected_order: 0, unavailable: false })
+    includedIDs.add(id)
+  }
+  return options
+}
+
+export function buildProductProductionConfigForm(config = {}, product = {}, industryFieldTemplates = []) {
   const sourceConfig = config && typeof config === 'object' ? config : {}
   const sourceProduct = product && typeof product === 'object' ? product : {}
-  const lossRate = Number(sourceConfig.expected_loss_rate ?? sourceProduct.expected_loss_rate ?? 0)
+  const industryTemplateIDs = industryFieldTemplateIDsFromConfig(sourceConfig)
+  const sourceIndustryTemplates = Array.isArray(industryFieldTemplates)
+    ? industryFieldTemplates
+    : (industryFieldTemplates ? [industryFieldTemplates] : [])
+  const industryTemplatesByID = new Map(sourceIndustryTemplates.map((template) => [Number(template?.id || 0), template]))
+  const orderedIndustryTemplates = industryTemplateIDs.length
+    ? industryTemplateIDs.map((id) => industryTemplatesByID.get(id)).filter(Boolean)
+    : sourceIndustryTemplates
   const fields = Array.isArray(sourceConfig.fields) ? sourceConfig.fields : []
   const ruleOverride = parseJSONObject(sourceProduct.unit_rule_override_json || sourceProduct.unitRuleOverrideJSON)
   const salesUnitRules = parseJSONObject(sourceProduct.sales_unit_rules || sourceProduct.salesUnitRules || ruleOverride.sales_unit_rules || {})
@@ -2741,10 +2848,10 @@ export function buildProductProductionConfigForm(config = {}, product = {}, indu
     production_bom_id: Number(sourceConfig.production_bom_id || sourceProduct.production_bom_id || 0),
     production_bom_version_id: Number(sourceConfig.production_bom_version_id || sourceProduct.production_bom_version_id || 0),
     process_route_id: Number(sourceConfig.process_route_id || 0),
-    industry_field_template_id: Number(sourceConfig.industry_field_template_id || 0),
-    expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
+    industry_field_template_ids: industryTemplateIDs,
+    industry_field_template_id: Number(industryTemplateIDs[0] || 0),
     note: String(sourceConfig.note || sourceProduct.production_config_note || '').trim(),
-    fields: productProductionConfigFieldsFromTemplate(fields, industryFieldTemplate),
+    fields: productProductionConfigFieldsFromTemplates(fields, orderedIndustryTemplates),
   }
 }
 
@@ -2773,10 +2880,6 @@ export function buildProductBasicsPayload(row = {}) {
       ? String(row.unit_rule_override_json || '{}').trim() || '{}'
       : stripProductUnitRuleOverrideJSON(row.unit_rule_override_json)
 	}
-	if (kind !== 'green_bean') {
-		const yieldRate = normalizedYieldRateFromPercent(row)
-    if (yieldRate !== null) payload.yield_rate = yieldRate
-  }
   return payload
 }
 
@@ -2920,13 +3023,6 @@ function salesUnitIntegerFromRules(rules = {}, unit = '') {
   if (Object.prototype.hasOwnProperty.call(rule, 'integer_unit')) return Boolean(rule.integer_unit)
   if (Object.prototype.hasOwnProperty.call(rule, 'integer')) return Boolean(rule.integer)
   return false
-}
-
-function normalizedYieldRateFromPercent(form = {}) {
-  if (!Object.prototype.hasOwnProperty.call(form, 'yield_percent')) return null
-  const rate = Number(form.yield_percent || 0) / 100
-  if (!Number.isFinite(rate) || rate <= 0) return null
-  return Number(rate.toFixed(4))
 }
 
 function rowCustomerID(row = {}) {

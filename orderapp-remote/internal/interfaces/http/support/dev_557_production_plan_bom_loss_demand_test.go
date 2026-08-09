@@ -34,11 +34,11 @@ func TestDev557ProductionPlanBomLossDemandContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-557-PRODUCTION-PLAN-BOM-LOSS-DEMAND",
-			"成品需求 ÷ (1 - BOM原料损耗率)",
+			"成品需求 × (1 + BOM原料损耗率)",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"K99. 生产计划 BOM 损耗与理论物料需求",
-			"7751g",
+			"7501g",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-557-PRODUCTION-PLAN-BOM-LOSS-DEMAND",

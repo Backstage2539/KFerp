@@ -87,6 +87,9 @@ ALTER TABLE %s.customer_portal_profiles
 	if err := ensureBusinessSchema(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureProcessingRequestSchema(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensurePortalProfileColumns(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -241,7 +244,7 @@ CREATE TABLE IF NOT EXISTS %s.customer_fee_items (
 	customer_id BIGINT NOT NULL REFERENCES %s.customers(id) ON DELETE CASCADE,
 	source_type TEXT NOT NULL DEFAULT '',
 	source_id BIGINT NOT NULL DEFAULT 0,
-	fee_type TEXT NOT NULL CHECK (fee_type IN ('product','processing','shipping','direct_ship_service','packaging','storage','adjustment')),
+	fee_type TEXT NOT NULL CHECK (fee_type IN ('product','roasting','labor','material','processing','shipping','direct_ship_service','packaging','storage','adjustment')),
 	amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	currency TEXT NOT NULL DEFAULT 'CNY',
 	occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -290,6 +293,141 @@ CREATE TABLE IF NOT EXISTS %s.mall_products (
 CREATE INDEX IF NOT EXISTS mall_products_status_sort_idx
 	ON %s.mall_products(status, sort_order, id);
 `, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func ensureProcessingRequestSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.processing_job_request_items (
+	id BIGSERIAL PRIMARY KEY,
+	request_id BIGINT NOT NULL REFERENCES %[1]s.processing_job_requests(id) ON DELETE CASCADE,
+	line_no INTEGER NOT NULL DEFAULT 1,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	parent_product_id BIGINT NOT NULL DEFAULT 0,
+	product_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	target_qty BIGINT NOT NULL DEFAULT 0,
+	need_g BIGINT NOT NULL DEFAULT 0,
+	target_warehouse TEXT NOT NULL DEFAULT '',
+	bom_version_id BIGINT NOT NULL DEFAULT 0,
+	bom_version_no TEXT NOT NULL DEFAULT '',
+	bom_source_product_id BIGINT NOT NULL DEFAULT 0,
+	bom_inherited BOOLEAN NOT NULL DEFAULT false,
+	material_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	production_plan_id BIGINT NOT NULL DEFAULT 0,
+	production_plan_item_id BIGINT NOT NULL DEFAULT 0,
+	linked_work_order_id BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'submitted',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(request_id, line_no)
+);
+CREATE INDEX IF NOT EXISTS processing_job_request_items_request_idx
+	ON %[1]s.processing_job_request_items(request_id, line_no, id);
+CREATE INDEX IF NOT EXISTS processing_job_request_items_work_order_idx
+	ON %[1]s.processing_job_request_items(linked_work_order_id)
+	WHERE linked_work_order_id > 0;
+
+ALTER TABLE %[1]s.customer_processing_production_demands
+	ADD COLUMN IF NOT EXISTS request_item_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_processing_production_demands
+	ADD COLUMN IF NOT EXISTS production_plan_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_processing_production_demands
+	ADD COLUMN IF NOT EXISTS production_plan_item_id BIGINT NOT NULL DEFAULT 0;
+
+INSERT INTO %[1]s.processing_job_request_items(
+	request_id,line_no,product_id,product_name,spec_g,target_qty,need_g,target_warehouse,
+	linked_work_order_id,status,created_at,updated_at
+)
+SELECT r.id,1,r.target_product_id,COALESCE(p.name,''),r.target_spec_g,r.target_qty,
+	GREATEST(0,r.target_spec_g*r.target_qty::bigint),COALESCE(d.target_warehouse,''),
+	GREATEST(COALESCE(d.linked_work_order_id,0),COALESCE(r.linked_work_order_id,0)),
+	CASE
+		WHEN COALESCE(d.status,'')='done' THEN 'completed'
+		WHEN COALESCE(d.status,'')='running' THEN 'running'
+		WHEN COALESCE(d.linked_work_order_id,0)>0 THEN 'released'
+		ELSE COALESCE(NULLIF(r.status,''),'submitted')
+	END,
+	r.created_at,now()
+FROM %[1]s.processing_job_requests r
+LEFT JOIN %[1]s.products p ON p.id=r.target_product_id
+LEFT JOIN %[1]s.customer_processing_production_demands d ON d.request_id=r.id
+WHERE NOT EXISTS (
+	SELECT 1 FROM %[1]s.processing_job_request_items item WHERE item.request_id=r.id
+);
+
+UPDATE %[1]s.customer_processing_production_demands d
+SET request_item_id=(
+	SELECT i.id
+	FROM %[1]s.processing_job_request_items i
+	WHERE i.request_id=d.request_id
+	ORDER BY
+		CASE WHEN i.product_id=d.product_id AND i.spec_g=d.spec_g THEN 0 ELSE 1 END,
+	i.line_no,
+	i.id
+	LIMIT 1
+)
+WHERE d.request_item_id=0
+  AND EXISTS (
+	SELECT 1 FROM %[1]s.processing_job_request_items i WHERE i.request_id=d.request_id
+  );
+
+ALTER TABLE %[1]s.customer_processing_production_demands
+	DROP CONSTRAINT IF EXISTS customer_processing_production_demands_request_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS customer_processing_production_demands_request_item_uq
+	ON %[1]s.customer_processing_production_demands(request_item_id)
+	WHERE request_item_id > 0;
+CREATE INDEX IF NOT EXISTS customer_processing_production_demands_plan_item_idx
+	ON %[1]s.customer_processing_production_demands(production_plan_item_id)
+	WHERE production_plan_item_id > 0;
+
+CREATE TABLE IF NOT EXISTS %[1]s.customer_processing_material_reservations (
+	id BIGSERIAL PRIMARY KEY,
+	request_id BIGINT NOT NULL REFERENCES %[1]s.processing_job_requests(id) ON DELETE CASCADE,
+	request_item_id BIGINT NOT NULL REFERENCES %[1]s.processing_job_request_items(id) ON DELETE CASCADE,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',
+	component_product_id BIGINT NOT NULL DEFAULT 0,
+	component_spec_g BIGINT NOT NULL DEFAULT 0,
+	required_g BIGINT NOT NULL DEFAULT 0,
+	required_units BIGINT NOT NULL DEFAULT 0,
+	reserved_g BIGINT NOT NULL DEFAULT 0,
+	reserved_units BIGINT NOT NULL DEFAULT 0,
+	consumed_g BIGINT NOT NULL DEFAULT 0,
+	consumed_units BIGINT NOT NULL DEFAULT 0,
+	returned_g BIGINT NOT NULL DEFAULT 0,
+	returned_units BIGINT NOT NULL DEFAULT 0,
+	source_owner_type TEXT NOT NULL DEFAULT 'factory',
+	source_customer_id BIGINT NOT NULL DEFAULT 0,
+	source_warehouse_code TEXT NOT NULL DEFAULT '',
+	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	finished_stock_batch_id BIGINT NOT NULL DEFAULT 0,
+	production_plan_id BIGINT NOT NULL DEFAULT 0,
+	production_plan_item_id BIGINT NOT NULL DEFAULT 0,
+	work_order_id BIGINT NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'reserved',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.customer_processing_material_reservations
+	ADD COLUMN IF NOT EXISTS consumed_g BIGINT NOT NULL DEFAULT 0,
+	ADD COLUMN IF NOT EXISTS consumed_units BIGINT NOT NULL DEFAULT 0,
+	ADD COLUMN IF NOT EXISTS returned_g BIGINT NOT NULL DEFAULT 0,
+	ADD COLUMN IF NOT EXISTS returned_units BIGINT NOT NULL DEFAULT 0,
+	ADD COLUMN IF NOT EXISTS finished_stock_batch_id BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS customer_processing_material_reservations_available_idx
+	ON %[1]s.customer_processing_material_reservations(material_id,component_type,source_warehouse_code,status);
+CREATE INDEX IF NOT EXISTS customer_processing_material_reservations_request_idx
+	ON %[1]s.customer_processing_material_reservations(request_id,request_item_id,id);
+CREATE INDEX IF NOT EXISTS customer_processing_material_reservations_work_order_idx
+	ON %[1]s.customer_processing_material_reservations(work_order_id,status)
+	WHERE work_order_id > 0;
+CREATE INDEX IF NOT EXISTS customer_processing_material_reservations_finished_batch_idx
+	ON %[1]s.customer_processing_material_reservations(finished_stock_batch_id,status)
+	WHERE finished_stock_batch_id > 0;
+`, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
 }

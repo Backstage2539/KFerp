@@ -149,6 +149,7 @@
         </div>
         <div v-show="!productsCollapsed">
           <BusinessGroupControls
+            v-if="productCatalogBusinessGroups.length"
             v-model="selectedProductGroupTemplateID"
             v-model:move-model-value="selectedProductBusinessGroupItemID"
             class="classification-view-toolbar product-business-group-controls"
@@ -160,8 +161,18 @@
             :selected-count="selectedProductIds.length"
             :can-move="canMoveSelectedProductsToBusinessGroup"
             :loading="loading"
+            template-label="移动目标模板"
             @manage="openProductBusinessGroupManagement"
-            @move="saveSelectedProductBusinessGroupAssignment" />
+            @move="saveSelectedProductBusinessGroupAssignment">
+            <template #extra-actions>
+              <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
+            </template>
+          </BusinessGroupControls>
+          <div v-else class="classification-view-toolbar product-business-group-empty">
+            <span>商品档案尚未选择分组模板，当前按全部商品平铺展示。</span>
+            <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
+            <button class="secondary compact-action" type="button" @click="openProductBusinessGroupManagement">维护分组模板</button>
+          </div>
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters product-filter-row">
             <label>
@@ -215,7 +226,20 @@
               </tr>
             </thead>
             <tbody>
-              <template v-for="group in displaySkuGroups" :key="group.key">
+              <template v-for="group in renderedDisplaySkuGroups" :key="group.key">
+                <tr
+                  v-if="group.is_template_group"
+                  class="classification-template-row"
+                  :class="{ 'classification-template-collapsed': isProductClassificationGroupCollapsed(group.key) }">
+                  <td :colspan="12">
+                    <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
+                      {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
+                    </button>
+                    <strong>{{ group.label }}</strong>
+                    <small>{{ group.template_total }} 款</small>
+                  </td>
+                </tr>
+                <template v-if="!group.is_template_group">
                 <tr
                   v-if="!group.all"
                   :class="['classification-group-row', { 'classification-subgroup-row': Number(group.depth || 0) > 0 }]"
@@ -294,6 +318,7 @@
                       />
                     </td>
                   </tr>
+                </template>
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
@@ -862,14 +887,6 @@
             </div>
             <div class="template-editor-grid">
               <label>
-                <span>损耗/出率</span>
-                <select v-model="pricingRuleForm.yield_loss_mode">
-                  <option value="bom_or_product">按 BOM 或商品生产参数</option>
-                  <option value="none">不单独计算</option>
-                  <option value="manual">手工输入</option>
-                </select>
-              </label>
-              <label>
                 <span>加价率（80%=0.8）</span>
                 <input v-model.number="pricingRuleForm.margin_rate" type="number" min="0" step="0.0001" placeholder="如 0.8" />
                 <small>计算公式：税前价 = 成本基数 × (1 + 加价率)；最终售价再计算税额和取整</small>
@@ -996,10 +1013,6 @@
                 </select>
               </label>
               <label>
-                <span>临时损耗率</span>
-                <input v-model.number="pricingRuleTrialForm.expected_loss_rate" type="number" min="0" max="0.9999" step="0.0001" placeholder="空=不额外计损耗" />
-              </label>
-              <label>
                 <span>临时加价率</span>
                 <input v-model.number="pricingRuleTrialForm.margin_rate" type="number" min="0" step="0.0001" />
               </label>
@@ -1053,14 +1066,6 @@
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.other_cost_total, pricingRuleTrialResult.quote_unit) }}</strong>
                 <em>成本基数 {{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }}</em>
               </button>
-              <template v-if="pricingRuleTrialHasYieldLoss(pricingRuleTrialResult)">
-                <span class="pricing-rule-trial-operator">+</span>
-                <div class="pricing-rule-trial-waterfall-card">
-                  <small>损耗增加</small>
-                  <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.yield_loss_amount, pricingRuleTrialResult.quote_unit) }}</strong>
-                  <em>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }} → {{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</em>
-                </div>
-              </template>
               <span class="pricing-rule-trial-operator">+</span>
               <button
                 :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'profit_markup' }]"
@@ -1173,7 +1178,7 @@
                     <dd>{{ pricingRuleTrialSourceDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).source) }}</dd>
                   </div>
                   <div>
-                    <dt>损耗后成本</dt>
+                    <dt>加价基数</dt>
                     <dd>{{ trialMoneyDisplay(pricingRuleTrialProfitExplanation(pricingRuleTrialResult).cost_after_yield, pricingRuleTrialResult.quote_unit) }}</dd>
                   </div>
                   <div>
@@ -1614,11 +1619,17 @@
                 <strong>行业字段</strong>
                 <small>字段定义来自行业字段模板；这里只填写字段值和是否在价格表展示。</small>
               </div>
-              <div class="field-group-actions">
-                <select v-model.number="productProductionConfigForm.industry_field_template_id" @change="applyIndustryFieldTemplateToProductionConfig">
-                  <option :value="0">不使用行业字段模板</option>
-                  <option v-for="template in activeIndustryFieldTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-                </select>
+              <div class="field-group-actions industry-template-selector">
+                <label v-for="template in productProductionConfigIndustryTemplateOptions" :key="template.id" class="checkline industry-template-option" :class="{ unavailable: template.unavailable }">
+                  <input
+                    v-model="productProductionConfigForm.industry_field_template_ids"
+                    type="checkbox"
+                    :value="Number(template.id || 0)"
+                    @change="applyIndustryFieldTemplateToProductionConfig" />
+                  <span>{{ industryFieldTemplateOptionLabel(template) }}</span>
+                </label>
+                <small v-if="productProductionConfigIndustryTemplateOptions.length" class="muted industry-template-priority-hint">勾选顺序决定同名字段优先级；取消后重新勾选可调整顺序。</small>
+                <small v-if="!productProductionConfigIndustryTemplateOptions.length" class="muted">暂无可用行业字段模板</small>
               </div>
             </div>
             <div v-for="(field, index) in productProductionConfigForm.fields" :key="field.local_id" class="production-config-field-row">
@@ -1750,6 +1761,43 @@
       </aside>
     </div>
 
+    <div v-if="productGroupTemplateDrawerOpen" class="settings-drawer-mask" @click.self="closeProductGroupTemplateDrawer" @keydown.esc.stop.prevent="closeProductGroupTemplateDrawer">
+      <aside class="settings-drawer product-group-template-drawer" aria-label="商品档案分组模板设置">
+        <div class="drawer-head">
+          <div>
+            <strong>分组模板设置</strong>
+            <p>选择商品档案引用的分组模板，已包含商品的模板不可取消。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeProductGroupTemplateDrawer">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <div v-if="deletedProductGroupTemplateWarnings.length" class="product-group-template-deleted-warnings">
+            <div v-for="warn in deletedProductGroupTemplateWarnings" :key="warn.id" class="warning-banner">
+              <strong>{{ warn.name }}</strong> 的分组或分类已删除，相关商品已自动移至未分类。
+            </div>
+          </div>
+          <div v-if="selectableProductGroupTemplates.length" class="product-group-template-list">
+            <label v-for="template in selectableProductGroupTemplates" :key="template.id" class="checkline product-group-template-option" :class="{ 'has-items': productGroupTemplateHasItems(Number(template.id || 0)) }">
+              <input
+                type="checkbox"
+                :checked="productGroupFeatureSelectionDraft.includes(Number(template.id || 0))"
+                :disabled="productGroupFeatureSelectionSaving || loading || productGroupTemplateHasItems(Number(template.id || 0))"
+                @change="toggleProductGroupTemplate(Number(template.id || 0))" />
+              <span>{{ businessGroupDisplayName(template) }}</span>
+              <small v-if="productGroupTemplateHasItems(Number(template.id || 0))" class="muted">已包含商品，不可取消</small>
+            </label>
+          </div>
+          <div v-else class="muted">暂无可选分组模板，请先新增模板。</div>
+          <div class="drawer-actions">
+            <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductBusinessGroupManagement">维护分组模板</button>
+            <button class="primary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading || !productGroupFeatureSelectionHasChanges" @click="saveAndCloseProductGroupTemplateDrawer">
+              {{ productGroupFeatureSelectionSaving ? '保存中' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
   </div>
 </template>
 
@@ -1760,12 +1808,14 @@ import BusinessGroupControls from '../components/BusinessGroupControls.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
+  businessGroupFeatureSelectionIDs,
+  businessGroupFeatureSelectionPayload,
   businessGroupControlOptions,
-  businessGroupRowsForUsage,
+  businessGroupRowsForFeatureSelection,
   businessGroupItemIndentStyle,
   businessGroupHeaderIndentStyle,
   businessGroupMoveAssignmentPayload,
-  groupRowsByBusinessGroupTemplate,
+  groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
@@ -1806,7 +1856,9 @@ import {
   buildPricingRuleTrialPayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
-  productProductionConfigFieldsFromTemplate,
+  industryFieldTemplateIDsFromConfig,
+  industryFieldTemplateOptionsForConfig,
+  productProductionConfigFieldsFromTemplates,
   buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -1852,12 +1904,14 @@ import {
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
   secondaryCategoryOptions,
+  selectedSkuRowIDsAfterVisibleToggle,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
   skuGroupTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
+  skuGroupHiddenByCollapsedAncestor,
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
   visibleSkuGroupRows,
@@ -1888,6 +1942,8 @@ const productClassificationTemplateUsages = ref([])
 const aliasClassificationTemplateUsages = ref([])
 const businessGroups = ref([])
 const businessGroupAssignments = ref([])
+const productGroupFeatureSelectionIDs = ref([])
+const productGroupFeatureSelectionDraft = ref([])
 const productProductionConfigs = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
@@ -2006,6 +2062,8 @@ const selectedProductClassificationCategoryID = ref(0)
 const selectedAliasClassificationCategoryID = ref(0)
 const selectedProductBusinessGroupItemID = ref(0)
 const selectedProductGroupTemplateID = ref(0)
+const productGroupFeatureSelectionSaving = ref(false)
+const productGroupTemplateDrawerOpen = ref(false)
 const collapsedProductClassificationGroups = ref([])
 const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
@@ -2200,7 +2258,6 @@ const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   process_route_id: pricingRuleTrialForm.value.process_route_id,
   operation_template_id: pricingRuleTrialForm.value.operation_template_id,
   quote_unit: pricingRuleTrialForm.value.quote_unit,
-  expected_loss_rate: pricingRuleTrialForm.value.expected_loss_rate,
   margin_rate: pricingRuleTrialForm.value.margin_rate,
   tax_rate: pricingRuleTrialForm.value.tax_rate,
   other_cost_rows: pricingRuleTrialForm.value.other_cost_rows,
@@ -2290,10 +2347,10 @@ const aliasProductOptions = computed(() => products.value
   .filter((product) => product.active !== false)
   .slice()
   .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
-const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
-  .filter((template) => String(template.status || 'active') === 'active')
-  .slice()
-  .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
+const productProductionConfigIndustryTemplateOptions = computed(() => industryFieldTemplateOptionsForConfig(
+  industryFieldTemplates.value,
+  productProductionConfigForm.value,
+))
 const productProductionConfigActiveBomOptions = computed(() => activeProductionBomOptions(productionBoms.value))
 const productProductionConfigBomUsageRows = computed(() => {
   const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
@@ -2332,16 +2389,8 @@ function productionConfigForProduct(product) {
 
 function productionConfigPriceListFields(product) {
   const config = productionConfigForProduct(product)
-  const template = industryFieldTemplateForConfig(config)
-  return productProductionConfigFieldsFromTemplate(config.fields || [], template)
+  return productProductionConfigFieldsFromTemplates(config.fields || [], industryFieldTemplatesForConfig(config))
     .filter((field) => field.show_in_price_list)
-}
-
-function productionConfigLossLabel(product) {
-  const config = productionConfigForProduct(product)
-  const loss = Number(config.expected_loss_rate ?? product?.expected_loss_rate ?? 0)
-  if (!Number.isFinite(loss) || loss <= 0) return '-'
-  return `${Math.round(loss * 10000) / 100}%`
 }
 
 const customerSkuRowsRaw = computed(() => {
@@ -2367,14 +2416,13 @@ const hasActiveSkuFilters = computed(() => Boolean(
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
   filteredSkuRows.value.length,
-  selectedProductGroupTemplateID.value,
   normalizedSkuFilters.value.query || '',
   normalizedSkuFilters.value.primaryCategory || '',
   normalizedSkuFilters.value.secondaryCategory || '',
 ].join(':'))
 const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
-const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplate(filteredSkuRows.value, {
-  template: selectedProductGroupTemplate.value,
+const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplates(filteredSkuRows.value, {
+  templates: productCatalogBusinessGroups.value,
   assignments: businessGroupAssignments.value,
   usageKey: 'product_catalog',
   objectKey: 'product',
@@ -2384,6 +2432,9 @@ const groupedSkuTableState = computed(() => skuGroupTableState(fullDisplaySkuGro
   defaultPageSize: DEFAULT_SKU_GROUP_PAGE_SIZE,
 }))
 const displaySkuGroups = computed(() => groupedSkuTableState.value.groups)
+const renderedDisplaySkuGroups = computed(() => displaySkuGroups.value.filter((group) => (
+  !skuGroupHiddenByCollapsedAncestor(displaySkuGroups.value, group, collapsedProductClassificationGroups.value)
+)))
 const displaySkuRows = computed(() => groupedSkuTableState.value.visibleRows)
 const visibleDisplaySkuRows = computed(() => visibleSkuGroupRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
 const editableDisplaySkuRows = computed(() => visibleDisplaySkuRows.value.filter(canEditSkuRow))
@@ -2463,6 +2514,11 @@ const productMoveClassificationOptions = computed(() => {
   if (isProductAllOrUnclassifiedTab.value) return productMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
+const selectableProductGroupTemplates = computed(() => businessGroupControlOptions(businessGroups.value).templateOptions.map((option) => option.group))
+const productGroupFeatureSelectionHasChanges = computed(() => (
+  JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: productGroupFeatureSelectionDraft.value }))
+  !== JSON.stringify(businessGroupFeatureSelectionIDs({ group_template_ids: productGroupFeatureSelectionIDs.value }))
+))
 const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
 const productBusinessGroupControls = computed(() => businessGroupControlOptions(productCatalogBusinessGroups.value, {
   selectedTemplateID: selectedProductGroupTemplateID.value,
@@ -2630,9 +2686,7 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 }
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
-  const industryFieldTemplate = industryFieldTemplateForConfig(config)
-  if (!industryFieldTemplate) return buildProductProductionConfigForm(config, product)
-  return buildProductProductionConfigForm(config, product, industryFieldTemplate)
+  return buildProductProductionConfigForm(config, product, industryFieldTemplatesForConfig(config))
 }
 
 function defaultChildSkuForm(product = {}) {
@@ -2716,7 +2770,6 @@ function defaultProductForm() {
     inventory_unit: 'kg',
     integer_inventory_unit: false,
     special_attr_values: {},
-    yield_percent: 80,
   }
 }
 
@@ -2750,7 +2803,6 @@ function defaultCustomForm() {
     product_subtype_category_id: 0,
     product_kind: 'roasted',
     special_attr_values: {},
-    yield_percent: 80,
     custom_type: 'public_sku_alias',
     copy_bom: true,
     copy_price_tiers: true,
@@ -2924,7 +2976,6 @@ function defaultPricingRuleForm(rule = {}) {
     formula_version: rule.formula_version || 'v1',
     calculation_json: calculation,
     other_cost_rows: pricingRuleOtherCostRowsFromCalculation(calculation),
-    yield_loss_mode: calculation.yield_loss_mode || 'bom_or_product',
     profit_method: 'markup',
     tax_mode: calculation.tax_mode || 'tax_included',
     minimum_margin_rate: Number(calculation.minimum_margin_rate || 0),
@@ -2963,7 +3014,6 @@ function defaultPricingRuleTrialForm(rule = {}) {
     process_route_id: 0,
     operation_template_id: 0,
     quote_unit: '',
-    expected_loss_rate: '',
     margin_rate: form.margin_rate,
     tax_rate: '',
     other_cost_rows: form.other_cost_rows.map((row) => ({ ...row })),
@@ -3130,7 +3180,6 @@ async function restoreProductSettingsDraft() {
 }
 
 function decorateProduct(product) {
-  const yieldRate = Number(product.yield_rate || 0.8)
   const productKind = normalizedProductKind(product)
   const marginRateOverride = normalizeBackendMarginRateOverride(product.margin_rate_override)
   return {
@@ -3144,8 +3193,6 @@ function decorateProduct(product) {
       ...(product.roast_level ? { roast_level: product.roast_level } : {}),
       ...specialAttrValuesFromJSON(product.special_attrs_json || '{}'),
     },
-    yield_rate: productKindSupportsBomParams(productKind) ? yieldRate : 0,
-    yield_percent: productKindSupportsBomParams(productKind) ? Number((yieldRate * 100).toFixed(2)) : 0,
     default_price: Number(product.default_price || 0),
     margin_rate_override: marginRateOverride,
     margin_rate_override_input: marginRateOverride === null ? '' : marginRateOverride,
@@ -3369,13 +3416,14 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData] = await Promise.all([
+    const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData, productGroupSelectionData] = await Promise.all([
       apiGet('/api/product-settings'),
       apiGet('/api/customer-fulfillment/customers?limit=200'),
       apiGet('/api/customer-product-aliases?active=all'),
       apiGet('/api/industry-field-templates'),
       apiGet('/api/product-classification-template-usages/products'),
       apiGet('/api/product-classification-template-usages/customer-aliases'),
+      apiGet('/api/business-group-feature-selections/product_catalog'),
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
@@ -3386,8 +3434,11 @@ async function loadAll() {
     aliasClassificationTemplateUsages.value = (aliasUsageData.rows || []).map(decorateAliasClassificationTemplateUsage)
     businessGroups.value = Array.isArray(data.business_groups) ? data.business_groups : []
     businessGroupAssignments.value = Array.isArray(data.business_group_assignments) ? data.business_group_assignments : []
-    if (!selectedProductGroupTemplateID.value && productCatalogBusinessGroupRows().length) {
-      selectedProductGroupTemplateID.value = Number(productCatalogBusinessGroupRows()[0].id || 0)
+    productGroupFeatureSelectionIDs.value = businessGroupFeatureSelectionIDs(productGroupSelectionData)
+    productGroupFeatureSelectionDraft.value = [...productGroupFeatureSelectionIDs.value]
+    const referencedProductGroups = productCatalogBusinessGroupRows()
+    if (!referencedProductGroups.some((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0))) {
+      selectedProductGroupTemplateID.value = Number(referencedProductGroups[0]?.id || 0)
     }
     productProductionConfigs.value = data.product_production_configs || []
     industryFieldTemplates.value = industryData?.rows || []
@@ -4003,8 +4054,6 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     operation_master: '工序列表（历史）',
     override: '本次临时录入',
     product_bom: '当前商品 BOM',
-    product_expected_loss: '当前商品损耗率',
-    no_loss: '不计损耗',
     default: '系统默认',
   }
   if (sourceMap[source]) return sourceMap[source]
@@ -4031,11 +4080,6 @@ function pricingRuleTrialOtherCostRows(result = {}) {
 
 function pricingRuleTrialProfitExplanation(result = {}) {
   return result?.profit_explanation && typeof result.profit_explanation === 'object' ? result.profit_explanation : {}
-}
-
-function pricingRuleTrialHasYieldLoss(result = {}) {
-  const amount = Number(result?.yield_loss_amount || 0)
-  return Number.isFinite(amount) && Math.abs(amount) > 0.000001
 }
 
 function pricingRuleTrialHasRoundingAdjustment(result = {}) {
@@ -4092,7 +4136,7 @@ function pricingRuleTrialBaseCostRecipeUsage(row = {}) {
   const explicitRecipeRatio = Number(row.recipe_ratio_pct)
   const ratioPct = Number(row.ratio_pct || 0)
   const lossRate = Number(row.material_loss_rate || 0)
-  const fallbackRecipeRatio = lossRate > 0 && lossRate < 1 ? ratioPct * (1 - lossRate) : ratioPct
+  const fallbackRecipeRatio = lossRate > 0 && lossRate < 1 ? ratioPct / (1 + lossRate) : ratioPct
   const recipeRatio = Number.isFinite(explicitRecipeRatio) && explicitRecipeRatio > 0 ? explicitRecipeRatio : fallbackRecipeRatio
   return recipeRatio > 0 ? `原比例 ${percentDisplay(recipeRatio / 100)}` : '-'
 }
@@ -5544,7 +5588,11 @@ function toggleProductSelection(row, checked) {
 }
 
 function toggleAllProductRows(checked) {
-  selectedProductIds.value = checked ? editableDisplaySkuRows.value.map((row) => Number(row.id)).filter(Boolean) : []
+  selectedProductIds.value = selectedSkuRowIDsAfterVisibleToggle(
+    selectedProductIds.value,
+    editableDisplaySkuRows.value,
+    checked,
+  )
 }
 
 function handleSkuGroupPaginationChange(groupKey, { page, pageSize }) {
@@ -5593,7 +5641,7 @@ function flattenBusinessGroupItemsForView(items = [], parent = null, out = []) {
 }
 
 function productCatalogBusinessGroupRows() {
-  return businessGroupRowsForUsage(businessGroups.value, 'product_catalog')
+  return businessGroupRowsForFeatureSelection(businessGroups.value, productGroupFeatureSelectionIDs.value)
 }
 
 function selectedProductCatalogBusinessGroup() {
@@ -5613,6 +5661,55 @@ function productCatalogProductAssignmentsForGroup(groupID) {
     && String(row.object_key || '') === 'product'
   ))
 }
+
+function productGroupTemplateHasItems(templateID) {
+  const normalizedID = Number(templateID || 0)
+  if (!normalizedID) return false
+  return (businessGroupAssignments.value || []).some((row) => (
+    Number(row.group_id || 0) === normalizedID
+    && Number(row.group_item_id || 0) > 0
+    && String(row.usage_key || '') === 'product_catalog'
+    && String(row.object_key || '') === 'product'
+  ))
+}
+
+const deletedProductGroupTemplateWarnings = computed(() => {
+  const availableIDs = new Set(selectableProductGroupTemplates.value.map((t) => Number(t.id || 0)))
+  return productGroupFeatureSelectionIDs.value
+    .filter((id) => !availableIDs.has(Number(id)))
+    .map((id) => ({ id, name: `分组模板 #${Number(id)}` }))
+})
+
+function openProductGroupTemplateDrawer() {
+  productGroupFeatureSelectionDraft.value = [...productGroupFeatureSelectionIDs.value]
+  productGroupTemplateDrawerOpen.value = true
+}
+
+function closeProductGroupTemplateDrawer() {
+  productGroupTemplateDrawerOpen.value = false
+}
+
+function toggleProductGroupTemplate(templateID) {
+  const id = Number(templateID || 0)
+  if (!id) return
+  if (productGroupTemplateHasItems(id)) return
+  const draft = [...productGroupFeatureSelectionDraft.value]
+  const idx = draft.indexOf(id)
+  if (idx >= 0) {
+    draft.splice(idx, 1)
+  } else {
+    draft.push(id)
+  }
+  productGroupFeatureSelectionDraft.value = draft
+}
+
+async function saveAndCloseProductGroupTemplateDrawer() {
+  await saveProductGroupFeatureSelection()
+  if (!error.value) {
+    productGroupTemplateDrawerOpen.value = false
+  }
+}
+
 
 function buildProductCatalogBusinessGroupTree() {
   const group = selectedProductCatalogBusinessGroup()
@@ -5769,7 +5866,6 @@ function syncCustomFormFromBaseProduct(product) {
   const kind = normalizedProductKind(product)
   customForm.value.product_kind = kind
   customForm.value.special_attr_values = { ...specialAttrValuesFromJSON(product.special_attrs_json || '{}') }
-  customForm.value.yield_percent = productKindSupportsBomParams(kind) ? Number(((Number(product.yield_rate || 0.8)) * 100).toFixed(2)) : 0
   if (kind !== 'roasted') customForm.value.copy_bom = false
 }
 
@@ -5992,6 +6088,13 @@ function fieldTypeLabel(type) {
   })[String(type || '').trim()] || '文本'
 }
 
+function industryFieldTemplateOptionLabel(template = {}) {
+  const name = String(template.name || '').trim() || `行业字段模板 #${Number(template.id || 0)}`
+  const priority = Number(template.selected_order || 0) > 0 ? `优先级 ${Number(template.selected_order)} · ` : ''
+  if (!template.unavailable) return `${priority}${name}`
+  return `${priority}${name}${String(template.status || '') === 'missing' ? '（不可用，可取消）' : '（已停用，可取消）'}`
+}
+
 async function selectProductProductionConfigBom(bom) {
   const bomID = Number((typeof bom === 'object' && bom !== null ? bom.id : bom) || 0)
   productProductionConfigForm.value.production_bom_id = bomID
@@ -6008,17 +6111,18 @@ function isCurrentProductProductionConfigOpen(generation, productID) {
     && currentProductID === Number(productID || 0)
 }
 
-function isCurrentProductProductionConfigIndustryProjection(generation, productID, industryFieldTemplateID) {
+function isCurrentProductProductionConfigIndustryProjection(generation, productID, industryFieldTemplateSignature) {
   return isCurrentProductProductionConfigOpen(generation, productID)
-    && Number(productProductionConfigForm.value.industry_field_template_id || 0) === Number(industryFieldTemplateID || 0)
+    && industryFieldTemplateIDsFromConfig(productProductionConfigForm.value).join(',') === String(industryFieldTemplateSignature || '')
 }
 
 async function openProductProductionConfig(row) {
   const openGeneration = ++productProductionConfigOpenGeneration
   const config = productProductionConfigByProductID(row?.id)
   const productID = Number(row?.id || config?.product_id || 0)
-  const industryFieldTemplateID = Number(config?.industry_field_template_id || 0)
-  const industryFieldTemplateAvailableAtOpen = Boolean(industryFieldTemplateForConfig(config))
+  const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(config)
+  const industryFieldTemplateSignature = industryFieldTemplateIDs.join(',')
+  const industryFieldTemplatesAvailableAtOpen = industryFieldTemplatesForConfig(config).length === industryFieldTemplateIDs.length
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(config, row)
   showProductProductionHistoricalSpecs.value = false
@@ -6032,12 +6136,12 @@ async function openProductProductionConfig(row) {
   error.value = ''
   try {
     let industryFieldTemplatesPromise = loadIndustryFieldTemplates()
-    if (!industryFieldTemplateAvailableAtOpen && industryFieldTemplateID > 0) {
+    if (!industryFieldTemplatesAvailableAtOpen && industryFieldTemplateIDs.length) {
       industryFieldTemplatesPromise = industryFieldTemplatesPromise.then(() => {
-        if (!isCurrentProductProductionConfigIndustryProjection(openGeneration, productID, industryFieldTemplateID)) return
-        productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+        if (!isCurrentProductProductionConfigIndustryProjection(openGeneration, productID, industryFieldTemplateSignature)) return
+        productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplates(
           config?.fields || [],
-          industryFieldTemplateForConfig(config),
+          industryFieldTemplatesForConfig(config),
         )
       })
     }
@@ -6069,19 +6173,20 @@ async function loadIndustryFieldTemplates() {
   industryFieldTemplates.value = data?.rows || []
 }
 
-function industryFieldTemplateForConfig(config = {}) {
-  const id = Number(config?.industry_field_template_id || 0)
-  if (!id) return null
-  return activeIndustryFieldTemplates.value.find((template) => Number(template.id || 0) === id)
-    || industryFieldTemplates.value.find((template) => Number(template.id || 0) === id)
-    || null
+function industryFieldTemplatesForConfig(config = {}) {
+  const templatesByID = new Map(industryFieldTemplates.value.map((template) => [Number(template.id || 0), template]))
+  return industryFieldTemplateIDsFromConfig(config)
+    .map((id) => templatesByID.get(Number(id || 0)))
+    .filter(Boolean)
 }
 
 function applyIndustryFieldTemplateToProductionConfig() {
-  const template = industryFieldTemplateForConfig(productProductionConfigForm.value)
-  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplate(
+  const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(productProductionConfigForm.value)
+  productProductionConfigForm.value.industry_field_template_ids = industryFieldTemplateIDs
+  productProductionConfigForm.value.industry_field_template_id = Number(industryFieldTemplateIDs[0] || 0)
+  productProductionConfigForm.value.fields = productProductionConfigFieldsFromTemplates(
     productProductionConfigForm.value.fields || [],
-    template,
+    industryFieldTemplatesForConfig(productProductionConfigForm.value),
   )
 }
 
@@ -6224,6 +6329,32 @@ async function saveSelectedProductClassificationAssignment() {
   selectedProductClassificationCategoryID.value = 0
   await refreshClassificationTemplates()
   activeProductClassificationTab.value = `template-${templateID}`
+}
+
+async function saveProductGroupFeatureSelection() {
+  const payload = businessGroupFeatureSelectionPayload('product_catalog', productGroupFeatureSelectionDraft.value)
+  productGroupFeatureSelectionSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend('/api/business-group-feature-selections/product_catalog', {
+      method: 'PUT',
+      body: payload,
+    })
+    productGroupFeatureSelectionIDs.value = businessGroupFeatureSelectionIDs(result)
+    productGroupFeatureSelectionDraft.value = [...productGroupFeatureSelectionIDs.value]
+    if (!productCatalogBusinessGroupRows().some((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0))) {
+      selectedProductGroupTemplateID.value = Number(productCatalogBusinessGroupRows()[0]?.id || 0)
+    }
+    selectedProductBusinessGroupItemID.value = 0
+    ok.value = payload.group_template_ids.length
+      ? `商品档案已选择 ${payload.group_template_ids.length} 个分组模板`
+      : '商品档案已改为平铺展示'
+  } catch (err) {
+    error.value = err.message || '保存商品档案分组模板失败'
+  } finally {
+    productGroupFeatureSelectionSaving.value = false
+  }
 }
 
 async function saveSelectedProductBusinessGroupAssignment() {
@@ -6418,15 +6549,10 @@ async function saveProductProductionConfig() {
     error.value = '请选择销售规格模板'
     return
   }
-  const lossRate = Number(productProductionConfigForm.value.expected_loss_percent || 0) / 100
-  if (!Number.isFinite(lossRate) || lossRate < 0 || lossRate >= 1) {
-    error.value = '预期损耗率必须在 0% 到 99.999% 之间'
-    return
-  }
-  const industryFieldTemplate = industryFieldTemplateForConfig(productProductionConfigForm.value)
-  const fields = productProductionConfigFieldsFromTemplate(
+  const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(productProductionConfigForm.value)
+  const fields = productProductionConfigFieldsFromTemplates(
     productProductionConfigForm.value.fields || [],
-    industryFieldTemplate,
+    industryFieldTemplatesForConfig(productProductionConfigForm.value),
   )
     .map((field, index) => normalizeProductProductionConfigFieldForSave(field, index))
     .filter((field) => field.label || field.value_text || field.value_number !== null || field.value_bool !== null)
@@ -6445,8 +6571,8 @@ async function saveProductProductionConfig() {
         production_bom_id: Number(productProductionConfigForm.value.production_bom_id || 0),
         production_bom_version_id: Number(productProductionConfigForm.value.production_bom_version_id || 0),
         process_route_id: Number(productProductionConfigForm.value.process_route_id || 0),
-        industry_field_template_id: Number(productProductionConfigForm.value.industry_field_template_id || 0),
-        expected_loss_rate: Number(lossRate.toFixed(6)),
+        industry_field_template_ids: industryFieldTemplateIDs,
+        industry_field_template_id: Number(industryFieldTemplateIDs[0] || 0),
         note: String(productProductionConfigForm.value.note || '').trim(),
         fields,
       },
@@ -6541,11 +6667,6 @@ async function createProduct() {
   ensureProductTypeCategorySelected(productForm.value)
   if (!productForm.value.name) {
     error.value = '请填写商品名称'
-    return
-  }
-  const yieldPercent = Number(productForm.value.yield_percent || 0)
-  if (productKindSupportsBomParams(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
   productSaving.value = true
@@ -7020,12 +7141,19 @@ async function ensureProductCatalogBusinessGroupForEdit() {
       remark: '商品档案归组分组集',
       active: true,
       sort_order: 10,
-      usages: [{ usage_key: 'product_catalog', usage_label: '商品档案归组', active: true }],
       items: [],
     },
   })
+  const created = result?.group || result || {}
+  const createdID = Number(created.id || 0)
+  if (createdID > 0) {
+    await apiSend('/api/business-group-feature-selections/product_catalog', {
+      method: 'PUT',
+      body: businessGroupFeatureSelectionPayload('product_catalog', [...productGroupFeatureSelectionIDs.value, createdID]),
+    })
+  }
   await loadAll()
-  return result?.group || selectedProductCatalogBusinessGroup()
+  return createdID > 0 ? created : selectedProductCatalogBusinessGroup()
 }
 
 async function saveProductCatalogBusinessGroupItem(body, successMessage = '分组已保存') {
@@ -7439,12 +7567,6 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
     error.value = '公共商品档案为引用，请回到商品档案维护'
     return
   }
-  const productKind = normalizedProductKind(row)
-  const yieldPercent = Number(row.yield_percent || 0)
-  if (productKindSupportsBomParams(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
-    return
-  }
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -7598,14 +7720,13 @@ watch(currentSkuSourceRows, () => {
   }
 }, { deep: true })
 
-watch(visibleDisplaySkuRows, (rows) => {
+watch(displaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
 watch(selectedProductGroupTemplateID, () => {
   selectedProductBusinessGroupItemID.value = 0
   if (restoringProductSettingsDraft) return
-  skuGroupPagination.value = {}
   saveProductSettingsDraft()
 })
 
@@ -8024,7 +8145,17 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-category-list, .classification-assignment-list { display: grid; gap: 8px; }
 .classification-category-row, .classification-assignment-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .classification-assignment-row { grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); }
+.product-group-feature-selection { display: grid; grid-template-columns: minmax(210px, .8fr) minmax(320px, 1.6fr) auto; gap: 12px; align-items: center; padding: 12px; margin: 10px 0; border: 1px solid #d9e2ec; border-radius: 8px; background: #f8fbff; }
+.product-group-feature-selection-copy { display: grid; gap: 3px; }
+.product-group-feature-selection-copy small { color: #607086; line-height: 1.4; }
+.product-group-feature-selection-options { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+.product-group-feature-selection-option { white-space: nowrap; }
+.product-group-feature-selection-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .classification-view-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; flex-wrap: wrap; }
+.industry-template-selector { display: flex; align-items: center; justify-content: flex-end; gap: 8px 14px; flex-wrap: wrap; }
+.industry-template-option { white-space: nowrap; }
+.industry-template-option.unavailable { color: #9a3412; }
+.industry-template-priority-hint { flex-basis: 100%; text-align: right; }
 .classification-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .classification-tab { height: 32px; border-color: #d8cec2; background: #fff; color: #2f2a25; }
 .classification-tab.active { border-color: #1f1f1f; background: #1f1f1f; color: #fff; }
@@ -8037,6 +8168,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-subgroup-row td { background: #fbf7f1; }
 .classification-group-row strong { margin: 0 8px; }
 .classification-group-row small { color: #7c7064; }
+.classification-template-row td { background: #ece3d6; border-top: 2px solid #d3c6b0; border-bottom: 1px solid #d3c6b0; color: #2f2820; padding-left: 8px; }
+.classification-template-row strong { margin: 0 8px; font-size: 16px; }
+.classification-template-row small { color: #6b5f4f; }
+.classification-template-collapsed td { border-bottom: 2px solid #d3c6b0; }
+.product-business-group-empty { justify-content: space-between; color: #6b6258; font-size: 13px; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
 .classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }
 .classification-pagination-row td { background: #fbf9f5; padding: 8px 16px 12px; }
@@ -8046,6 +8182,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .master-data-layout { grid-template-columns: 1fr; }
   .production-config-field-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .product-group-feature-selection { grid-template-columns: 1fr; }
+  .product-group-feature-selection-actions { justify-content: flex-start; }
 }
 .sku-table .inactive-sku td { opacity: 0.4; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
@@ -8068,4 +8206,13 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   100% { background-color: transparent; }
 }
 }
+
+.product-group-template-drawer { width: min(520px, 92vw); }
+.product-group-template-list { display: grid; gap: 8px; }
+.product-group-template-option { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #eee8df; border-radius: 6px; }
+.product-group-template-option.has-items { background: #faf8f3; }
+.product-group-template-option small { margin-left: auto; }
+.product-group-template-deleted-warnings { display: grid; gap: 8px; margin-bottom: 4px; }
+.warning-banner { padding: 8px 12px; border-radius: 6px; background: #fff4e6; border: 1px solid #ffcc80; color: #8a5a00; font-size: 13px; }
+.drawer-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid #eee8df; }
 </style>

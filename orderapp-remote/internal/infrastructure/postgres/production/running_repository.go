@@ -51,6 +51,10 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 			r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
 		}
 		plan := runningInventoryPlan(r.SpecG, r.NeedG, r.InputG, r.BomYieldRate)
+		if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) {
+			plan = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+			r.BomYieldRate = 1
+		}
 		r.PlanUnits = plan.Units
 		r.PlanLooseG = plan.LooseG
 		out = append(out, r)
@@ -98,6 +102,10 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, schema), r.ProductID, r.SpecG, warehouse).Scan(&unitsBefore, &looseBefore)
 	cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
 	add := runningInventoryPlan(r.SpecG, r.NeedG, r.InputG, r.BomYieldRate)
+	if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) {
+		add = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
+		r.BomYieldRate = 1
+	}
 	if cmd.HasFinishedInput {
 		add, err = normalizeFinishedInventoryAddition(r.SpecG, cmd.FinishedUnits, cmd.FinishedLooseG)
 		if err != nil {
@@ -180,6 +188,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 			partial = false
 		} else {
 			remainingPlan := runningInventoryPlan(r.SpecG, remainingNeedG, remainingInputG, r.BomYieldRate)
+			if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) {
+				remainingPlan = plannedFinishedInventoryAddition(r.SpecG, remainingNeedG)
+			}
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				UPDATE %s.produce_running_items
 				SET need_g=$2,input_g=$3,planned_units=$4,planned_loose_g=$5
@@ -206,6 +217,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return productionapp.FinishResult{}, err
 	}
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
+		return productionapp.FinishResult{}, err
+	}
+	if _, err := completeCustomerProcessingReservationsForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, consumedInputG, finishedTotal, operator); err != nil {
@@ -348,6 +362,9 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	if _, err := completeCustomerProcessingReservationsForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, consumedInputG, totalFinishedG, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
@@ -433,7 +450,11 @@ func resolveFinishConsumedInput(r ProduceRunRow, cmd productionapp.FinishCommand
 
 	consumedInputG := cmd.ConsumedInputG
 	if consumedInputG <= 0 {
-		consumedInputG = int64(math.Ceil(float64(finishedTotal) / r.BomYieldRate))
+		if materialSnapshotUsesAdditiveLoss([]byte(r.MaterialSnapshot)) && r.NeedG > 0 && r.InputG > 0 {
+			consumedInputG = int64(math.Ceil(float64(finishedTotal) * float64(r.InputG) / float64(r.NeedG)))
+		} else {
+			consumedInputG = int64(math.Ceil(float64(finishedTotal) / r.BomYieldRate))
+		}
 	}
 	if consumedInputG <= 0 {
 		return 0, false, fmt.Errorf("本次消耗投料必须大于0")
@@ -466,18 +487,30 @@ func cumulativeFinishedTotalGForRunningItemTx(ctx context.Context, tx pgx.Tx, sc
 }
 
 func finishWarehouseForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, requested string) (string, error) {
-	warehouse := strings.TrimSpace(requested)
-	if warehouse != "" {
-		return warehouse, nil
-	}
-	warehouse, err := processingDemandTargetWarehouseForRunningItemTx(ctx, tx, schema, runningItemID)
+	targetWarehouse, err := processingDemandTargetWarehouseForRunningItemTx(ctx, tx, schema, runningItemID)
 	if err != nil {
 		return "", err
 	}
-	if warehouse != "" {
-		return warehouse, nil
+	warehouse, err := resolveRequestedFinishWarehouse(requested, targetWarehouse)
+	if err != nil {
+		return "", err
 	}
-	return "finished_goods", nil
+	if warehouse == "" {
+		warehouse = "finished_goods"
+	}
+	return warehouse, nil
+}
+
+func resolveRequestedFinishWarehouse(requested, customerTarget string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	customerTarget = strings.TrimSpace(customerTarget)
+	if customerTarget == "" {
+		return requested, nil
+	}
+	if requested != "" && requested != customerTarget {
+		return "", fmt.Errorf("customer processing completion warehouse is fixed to %s", customerTarget)
+	}
+	return customerTarget, nil
 }
 
 func processingDemandTargetWarehouseForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) (string, error) {
@@ -507,13 +540,24 @@ func processingDemandTargetWarehouseForRunningItemTx(ctx context.Context, tx pgx
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	if len(warehouses) != 1 {
+	if len(warehouses) > 1 {
+		return "", fmt.Errorf("customer processing running item has multiple target warehouses")
+	}
+	if len(warehouses) == 0 {
 		return "", nil
 	}
 	return warehouses[0], nil
 }
 
 func markProcessingDemandsDoneTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.processing_job_request_items i
+		SET status='completed',updated_at=now()
+		FROM %s.customer_processing_production_demands d
+		WHERE d.request_item_id=i.id AND d.linked_running_item_id=$1
+	`, schema, schema), runningItemID); err != nil {
+		return err
+	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.customer_processing_production_demands
 		SET status='done',
@@ -524,18 +568,37 @@ func markProcessingDemandsDoneTx(ctx context.Context, tx pgx.Tx, schema string, 
 	return err
 }
 
-func markProcessingDemandsPlannedTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) error {
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
+func markProcessingDemandsCancelledTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, operator string) (int64, error) {
+	var workOrderID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE running_item_id=$1`, schema), runningItemID).Scan(&workOrderID)
+	if err == pgx.ErrNoRows {
+		workOrderID = 0
+	} else if err != nil {
+		return 0, err
+	}
+	released := int64(0)
+	if workOrderID > 0 {
+		released, err = settleCustomerProcessingReservationsForWorkOrderTx(ctx, tx, schema, workOrderID, true, operator)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.processing_job_request_items i
+		SET status='cancelled',updated_at=now()
+		FROM %s.customer_processing_production_demands d
+		WHERE d.request_item_id=i.id AND d.linked_running_item_id=$1
+	`, schema, schema), runningItemID); err != nil {
+		return 0, err
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.customer_processing_production_demands
-		SET status='planned',
-		    linked_batch_id='',
-		    linked_running_item_id=0,
-		    linked_work_order_id=0,
+		SET status='cancelled',
 		    updated_at=now()
 		WHERE linked_running_item_id=$1
 		  AND status='running'
 	`, schema), runningItemID)
-	return err
+	return released, err
 }
 
 func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
@@ -549,7 +612,7 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	defer tx.Rollback(ctx)
 
 	var r ProduceRunRow
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status IN ('running','paused','partially_completed') FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 		return err
 	}
 	outputs, err := loadRunningOutputsForUpdateTx(ctx, tx, schema, r.ID)
@@ -567,7 +630,8 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	if err := cancelWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return err
 	}
-	if err := markProcessingDemandsPlannedTx(ctx, tx, schema, r.ID); err != nil {
+	releasedProcessingReservations, err := markProcessingDemandsCancelledTx(ctx, tx, schema, r.ID, operator)
+	if err != nil {
 		return err
 	}
 	for _, no := range splitOrderNos(r.OrderNos) {
@@ -575,6 +639,7 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 			return err
 		}
 	}
+	_ = releasedProcessingReservations // reservation settlement is audited atomically by the helper
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}

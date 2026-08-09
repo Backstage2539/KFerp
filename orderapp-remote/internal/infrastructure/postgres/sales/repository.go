@@ -1973,6 +1973,13 @@ func loadProductProductionConfigSummaryForOrderItemTx(ctx context.Context, tx pg
 			FROM %[1]s.product_production_configs ppc
 			WHERE ppc.product_id=$1
 		),
+		templates AS (
+			SELECT selected.product_id,
+			       jsonb_agg(selected.template_id ORDER BY selected.sort_order, selected.template_id) AS template_ids_json
+			FROM %[1]s.product_production_config_industry_templates selected
+			WHERE selected.product_id=$1
+			GROUP BY selected.product_id
+		),
 		fields AS (
 			SELECT ppcf.product_id,
 			       jsonb_agg(jsonb_build_object(
@@ -1999,10 +2006,12 @@ func loadProductProductionConfigSummaryForOrderItemTx(ctx context.Context, tx pg
 				'production_bom_version_id', c.production_bom_version_id,
 				'process_route_id', c.process_route_id,
 				'industry_field_template_id', c.industry_field_template_id,
+				'industry_field_template_ids', COALESCE(t.template_ids_json, CASE WHEN c.industry_field_template_id > 0 THEN jsonb_build_array(c.industry_field_template_id) ELSE '[]'::jsonb END),
 				'expected_loss_rate', c.expected_loss_rate,
 			'fields', COALESCE(f.fields_json, '[]'::jsonb)
 		), '{}'::jsonb)::text
 		FROM config c
+		LEFT JOIN templates t ON t.product_id=c.product_id
 		LEFT JOIN fields f ON f.product_id=c.product_id
 	`, schema), productID).Scan(&raw)
 	if err == pgx.ErrNoRows {
@@ -2425,16 +2434,63 @@ func (r Repository) ListOutsourceTemplates(ctx context.Context) ([]salesapp.Outs
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id,version_no,status
+			FROM %s.outsource_template_versions
+			WHERE template_id=$1 AND status='published'
+			ORDER BY version_no DESC,id DESC
+			LIMIT 1
+		`, r.schema), out[i].ID).Scan(&out[i].CurrentVersionID, &out[i].CurrentVersionNo, &out[i].CurrentVersionStatus)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		ruleRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT id,version_id,fee_type,name,basis,COALESCE(unit_price,0)::float8,sort_order
+			FROM %s.outsource_template_rules
+			WHERE version_id=$1
+			ORDER BY sort_order,id
+		`, r.schema), out[i].CurrentVersionID)
+		if err != nil {
+			return nil, err
+		}
+		for ruleRows.Next() {
+			var rule salesapp.OutsourceTemplateRule
+			if err := ruleRows.Scan(&rule.ID, &rule.VersionID, &rule.FeeType, &rule.Name, &rule.Basis, &rule.UnitPrice, &rule.SortOrder); err != nil {
+				ruleRows.Close()
+				return nil, err
+			}
+			out[i].Rules = append(out[i].Rules, rule)
+		}
+		if err := ruleRows.Err(); err != nil {
+			ruleRows.Close()
+			return nil, err
+		}
+		ruleRows.Close()
+	}
+	return out, nil
 }
 
 func (r Repository) SaveOutsourceTemplate(ctx context.Context, cmd salesapp.SaveOutsourceTemplateCommand) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if cmd.IsDefault {
-		if _, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.outsource_templates SET is_default=false WHERE is_default=true`, r.schema)); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.outsource_templates SET is_default=false WHERE is_default=true`, r.schema)); err != nil {
 			return err
 		}
 	}
-	_, err := r.pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.outsource_templates(name,is_default,roast_unit_price,bean_pack_unit_price,drip_pack_unit_price,sc_unit_price,updated_at)
+	var templateID int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.outsource_templates(name,is_default,roast_unit_price,bean_pack_unit_price,drip_pack_unit_price,sc_unit_price,updated_at)
 		VALUES($1,$2,$3,$4,$5,$6,now())
 		ON CONFLICT (name) DO UPDATE SET
 			is_default=excluded.is_default,
@@ -2442,9 +2498,61 @@ func (r Repository) SaveOutsourceTemplate(ctx context.Context, cmd salesapp.Save
 			bean_pack_unit_price=excluded.bean_pack_unit_price,
 			drip_pack_unit_price=excluded.drip_pack_unit_price,
 			sc_unit_price=excluded.sc_unit_price,
-			updated_at=now()`, r.schema),
-		cmd.Name, cmd.IsDefault, cmd.RoastUnitPrice, cmd.BeanPackUnitPrice, cmd.DripPackUnitPrice, cmd.SCUnitPrice)
-	return err
+			updated_at=now()
+		RETURNING id`, r.schema),
+		cmd.Name, cmd.IsDefault, cmd.RoastUnitPrice, cmd.BeanPackUnitPrice, cmd.DripPackUnitPrice, cmd.SCUnitPrice).Scan(&templateID)
+	if err != nil {
+		return err
+	}
+	var versionNo int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(MAX(version_no),0)+1
+		FROM %s.outsource_template_versions
+		WHERE template_id=$1
+	`, r.schema), templateID).Scan(&versionNo); err != nil {
+		return err
+	}
+	var versionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.outsource_template_versions(
+			template_id,version_no,status,roast_unit_price,bean_pack_unit_price,drip_pack_unit_price,sc_unit_price,created_by,published_at,created_at
+		) VALUES($1,$2,'published',$3,$4,$5,$6,$7,now(),now())
+		RETURNING id
+	`, r.schema), templateID, versionNo, cmd.RoastUnitPrice, cmd.BeanPackUnitPrice, cmd.DripPackUnitPrice, cmd.SCUnitPrice, cmd.Actor).Scan(&versionID); err != nil {
+		return err
+	}
+	rules := cmd.Rules
+	if len(rules) == 0 {
+		rules = legacyOutsourceTemplateRules(cmd)
+	}
+	for _, rule := range rules {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.outsource_template_rules(version_id,fee_type,name,basis,unit_price,sort_order)
+			VALUES($1,$2,$3,$4,$5,$6)
+		`, r.schema), versionID, rule.FeeType, rule.Name, rule.Basis, rule.UnitPrice, rule.SortOrder); err != nil {
+			return err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "outsource_template_version", &versionID, "publish", postgresinfra.StrPtr("version_no"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", versionNo)), postgresinfra.AuditMeta{"template_id": templateID, "template_name": cmd.Name, "rule_count": len(rules)}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func legacyOutsourceTemplateRules(cmd salesapp.SaveOutsourceTemplateCommand) []salesapp.OutsourceTemplateRuleInput {
+	candidates := []salesapp.OutsourceTemplateRuleInput{
+		{FeeType: "processing", Name: "烘焙费", Basis: salesapp.BillingBasisActualInputKG, UnitPrice: cmd.RoastUnitPrice, SortOrder: 10},
+		{FeeType: "packaging", Name: "咖啡豆包装费", Basis: salesapp.BillingBasisActualUnits, UnitPrice: cmd.BeanPackUnitPrice, SortOrder: 20},
+		{FeeType: "packaging", Name: "挂耳包装费", Basis: salesapp.BillingBasisActualUnits, UnitPrice: cmd.DripPackUnitPrice, SortOrder: 30},
+		{FeeType: "processing", Name: "SC挂靠费", Basis: salesapp.BillingBasisActualUnits, UnitPrice: cmd.SCUnitPrice, SortOrder: 40},
+	}
+	out := make([]salesapp.OutsourceTemplateRuleInput, 0, len(candidates))
+	for _, rule := range candidates {
+		if rule.UnitPrice > 0 {
+			out = append(out, rule)
+		}
+	}
+	return out
 }
 
 type inlineUpdateRequest struct {

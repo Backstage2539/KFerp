@@ -62,7 +62,7 @@ func resolveProductionBomCosts(nodes map[int64]productionBomCostNode) map[int64]
 			return productionBomResolvedCost{ProductID: productID}
 		}
 		node, ok := nodes[productID]
-		if !ok || node.ProductID <= 0 || node.VersionID <= 0 || !finitePositiveRate(node.YieldRate) {
+		if !ok || node.ProductID <= 0 || node.VersionID <= 0 {
 			result := productionBomResolvedCost{ProductID: productID, VersionID: node.VersionID, OutputUnit: normalizeProductionBomCostUnit(node.OutputUnit)}
 			resolved[productID] = result
 			state[productID] = 2
@@ -103,7 +103,7 @@ func resolveProductionBomCosts(nodes map[int64]productionBomCostNode) map[int64]
 				valid = false
 				break
 			}
-			amountPerOutputUnit, ok := productionBomItemCostPerOutputUnit(item, amount, node.YieldRate, outputQty)
+			amountPerOutputUnit, ok := productionBomItemCostPerOutputUnit(item, amount, outputQty)
 			if !ok {
 				valid = false
 				break
@@ -278,7 +278,7 @@ func productionBomCostForProduct(costs map[int64]productionBomResolvedCost, prod
 	return productionBomResolvedCost{}, false
 }
 
-func resolveProductionBomTrialItemCost(item productionBomCostItem, materialUnitCost float64, materialCostUnit string, bomYieldRate float64, bomOutputQty float64, bomOutputUnit string, costs map[int64]productionBomResolvedCost) (productionBomResolvedItemCost, bool, string) {
+func resolveProductionBomTrialItemCost(item productionBomCostItem, materialUnitCost float64, materialCostUnit string, _ float64, bomOutputQty float64, bomOutputUnit string, costs map[int64]productionBomResolvedCost) (productionBomResolvedItemCost, bool, string) {
 	componentType := normalizeProductionBomComponentType(item.ComponentType)
 	unitCost := materialUnitCost
 	costUnit := strings.TrimSpace(materialCostUnit)
@@ -290,9 +290,6 @@ func resolveProductionBomTrialItemCost(item productionBomCostItem, materialUnitC
 		unitCost = componentCost.TotalCostPerOutputUnit
 		costUnit = componentCost.OutputUnit
 	}
-	if !finitePositiveRate(bomYieldRate) {
-		return productionBomResolvedItemCost{}, false, "BOM产出率必须大于 0 且不超过 1"
-	}
 	outputQty, ok := normalizedProductionBomOutputQty(bomOutputQty)
 	if !ok {
 		return productionBomResolvedItemCost{}, false, "BOM产出数量必须大于 0"
@@ -301,7 +298,7 @@ func resolveProductionBomTrialItemCost(item productionBomCostItem, materialUnitC
 	if !ok {
 		return productionBomResolvedItemCost{}, false, "BOM组件成本单位无法换算"
 	}
-	amountPerOutputUnit, ok := productionBomItemCostPerOutputUnit(item, amount, bomYieldRate, outputQty)
+	amountPerOutputUnit, ok := productionBomItemCostPerOutputUnit(item, amount, outputQty)
 	if !ok {
 		return productionBomResolvedItemCost{}, false, "BOM组件成本无法按产出基准折算"
 	}
@@ -347,7 +344,7 @@ func productionBomItemCost(item productionBomCostItem, componentType string, uni
 		if lossRate < 0 || lossRate >= 1 {
 			return 0, false
 		}
-		return unitCost * item.RatioPct / 100 / (1 - lossRate), true
+		return unitCost * item.RatioPct / 100 * (1 + lossRate), true
 	case "g", "g_per_bag":
 		perKg, ok := productionBomCostPerKg(unitCost, costUnit)
 		if !ok || qty < 0 {
@@ -379,13 +376,13 @@ func productionBomItemCost(item productionBomCostItem, componentType string, uni
 	}
 }
 
-func productionBomItemCostPerOutputUnit(item productionBomCostItem, amount float64, yieldRate float64, outputQty float64) (float64, bool) {
-	if !finiteNonNegative(amount) || !finitePositiveRate(yieldRate) || outputQty <= 0 || math.IsNaN(outputQty) || math.IsInf(outputQty, 0) {
+func productionBomItemCostPerOutputUnit(item productionBomCostItem, amount float64, outputQty float64) (float64, bool) {
+	if !finiteNonNegative(amount) || outputQty <= 0 || math.IsNaN(outputQty) || math.IsInf(outputQty, 0) {
 		return 0, false
 	}
 	switch strings.ToLower(strings.TrimSpace(item.ConsumeUnit)) {
 	case "", "ratio_pct":
-		return amount / yieldRate, true
+		return amount, true
 	case "g_per_bag", "unit_per_bag", "unit_per_box":
 		return amount, true
 	default:
@@ -430,10 +427,6 @@ func normalizeProductionBomCostUnit(unit string) string {
 		return "unit"
 	}
 	return unit
-}
-
-func finitePositiveRate(value float64) bool {
-	return value > 0 && value <= 1 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func finiteNonNegative(value float64) bool {

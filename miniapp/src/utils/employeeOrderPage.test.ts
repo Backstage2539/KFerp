@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const pageSource = readFileSync(resolve('src/pages/employee-order-entry/employee-order-entry.vue'), 'utf8')
+const productPickerSource = readFileSync(resolve('src/components/ProductFamilyPickerSheet.vue'), 'utf8')
 const customerEditorSource = readFileSync(resolve('src/components/EmployeeCustomerEditor.vue'), 'utf8')
 const customerPageSource = readFileSync(resolve('src/pages/employee-customers/employee-customers.vue'), 'utf8')
 
@@ -23,7 +24,8 @@ describe('employee mini order entry page contract', () => {
   it('initializes the date before loading and exposes searchable customer and product layers', () => {
     expect(pageSource).toContain('order_date: shanghaiToday()')
     expect(pageSource).toContain('搜索客户名称 / 拼音 / 首字母')
-    expect(pageSource).toContain('商品 / 别名 / 拼音 / 编码 / 规格')
+    expect(pageSource).toContain('ProductFamilyPickerSheet')
+    expect(productPickerSource).toContain('商品 / 别名 / 拼音 / 编码 / 规格')
     expect(pageSource).toContain('if (!form.value.customer_id)')
   })
 

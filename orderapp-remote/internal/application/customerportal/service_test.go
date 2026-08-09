@@ -289,7 +289,7 @@ func TestPublishResaleBeanListBuildsCustomerSnapshotFromFactorySource(t *testing
 		context: CurrentContext{
 			CurrentCustomerID:   77,
 			CurrentCustomerName: "转售客户",
-			Capabilities:        []Capability{{Code: CapabilityBeanList, Enabled: true}},
+			Capabilities:        []Capability{{Code: CapabilityProductOrder, Enabled: true}, {Code: CapabilityBeanList, Enabled: true}},
 		},
 		resaleSource: BeanListSummary{
 			ID:        11,
@@ -376,7 +376,7 @@ func TestPublishResaleBeanListIgnoresLegacyItemPriceOverrides(t *testing.T) {
 	repo := &fakeRepository{
 		context: CurrentContext{
 			CurrentCustomerID: 77,
-			Capabilities:      []Capability{{Code: CapabilityBeanList, Enabled: true}},
+			Capabilities:      []Capability{{Code: CapabilityProductOrder, Enabled: true}, {Code: CapabilityBeanList, Enabled: true}},
 		},
 		resaleSource: BeanListSummary{
 			ID:        11,
@@ -420,7 +420,7 @@ func TestPublishResaleBeanListCopiedFromCustomerVersionKeepsFactoryPriceSource(t
 		context: CurrentContext{
 			CurrentCustomerID:   77,
 			CurrentCustomerName: "渠道客户",
-			Capabilities:        []Capability{{Code: CapabilityBeanList, Enabled: true}},
+			Capabilities:        []Capability{{Code: CapabilityProductOrder, Enabled: true}, {Code: CapabilityBeanList, Enabled: true}},
 		},
 		resaleEditor: ResaleBeanListEditor{
 			CopySourceType: "customer_resale",
@@ -488,12 +488,15 @@ func TestPublishResaleBeanListCopiedFromCustomerVersionKeepsFactoryPriceSource(t
 	}
 }
 
-func TestGetCustomerProductsUsesCurrentCustomerAndBeanListCapability(t *testing.T) {
+func TestCustomerProductWorkspaceRequiresProductOrderAndBeanListCapabilities(t *testing.T) {
 	repo := &fakeRepository{
 		context: CurrentContext{
 			CurrentCustomerID:   77,
 			CurrentCustomerName: "渠道客户",
-			Capabilities:        []Capability{{Code: CapabilityBeanList, Enabled: true}},
+			Capabilities: []Capability{
+				{Code: CapabilityProductOrder, Enabled: true},
+				{Code: CapabilityBeanList, Enabled: true},
+			},
 		},
 		customerProductsPage: CustomerProductsPage{
 			Products: []CustomerProductSummary{{ID: 501, Name: "客户商品", ListType: "green", ListTypeLabel: "生豆"}},
@@ -509,10 +512,78 @@ func TestGetCustomerProductsUsesCurrentCustomerAndBeanListCapability(t *testing.
 		t.Fatalf("page=%+v, want current customer context and customer products", page)
 	}
 
-	repo.context.Capabilities = []Capability{{Code: CapabilityBeanList, Enabled: false}}
-	_, err = svc.GetCustomerProducts(context.Background(), "mini-token")
-	if !errors.Is(err, ErrCapabilityNotEnabled) {
-		t.Fatalf("err=%v, want ErrCapabilityNotEnabled", err)
+	operations := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "bean list page", run: func() error {
+			_, err := svc.GetServicePage(context.Background(), "mini-token", "beanList", ServicePageFilter{})
+			return err
+		}},
+		{name: "bean list publication", run: func() error { _, err := svc.GetBeanListPublication(context.Background(), "mini-token", 11); return err }},
+		{name: "bean list pdf", run: func() error {
+			_, _, err := svc.GetBeanListPublicationPDF(context.Background(), "mini-token", 11, func(BeanListSummary) ([]byte, error) { return []byte("pdf"), nil })
+			return err
+		}},
+		{name: "bean list png", run: func() error {
+			_, _, err := svc.GetBeanListPublicationPNG(context.Background(), "mini-token", 11, func(BeanListSummary) ([]byte, error) { return []byte("png"), nil })
+			return err
+		}},
+		{name: "acknowledge bean list", run: func() error { return svc.AcknowledgeBeanListPublication(context.Background(), "mini-token", 11) }},
+		{name: "resale bean lists", run: func() error { _, err := svc.GetResaleBeanLists(context.Background(), "mini-token"); return err }},
+		{name: "list", run: func() error { _, err := svc.GetCustomerProducts(context.Background(), "mini-token"); return err }},
+		{name: "create category", run: func() error {
+			_, err := svc.CreateCustomerProductCategory(context.Background(), "mini-token", CustomerProductCategoryCommand{Name: "熟豆"})
+			return err
+		}},
+		{name: "update category", run: func() error {
+			_, err := svc.UpdateCustomerProductCategory(context.Background(), "mini-token", 31, CustomerProductCategoryCommand{Name: "精品熟豆"})
+			return err
+		}},
+		{name: "delete category", run: func() error { return svc.DeleteCustomerProductCategory(context.Background(), "mini-token", 31) }},
+		{name: "move category", run: func() error {
+			_, err := svc.MoveCustomerProductCategory(context.Background(), "mini-token", 31, CustomerProductCategoryMoveCommand{SortOrder: 20})
+			return err
+		}},
+		{name: "assign product", run: func() error {
+			_, err := svc.AssignCustomerProductCategory(context.Background(), "mini-token", 501, CustomerProductCategoryAssignmentCommand{CategoryID: 31})
+			return err
+		}},
+		{name: "resale editor", run: func() error {
+			_, err := svc.GetResaleBeanListEditor(context.Background(), "mini-token", 11)
+			return err
+		}},
+		{name: "save resale draft", run: func() error {
+			_, err := svc.SaveResaleBeanListDraft(context.Background(), "mini-token", ResaleBeanListCommand{SourcePublicationID: 11})
+			return err
+		}},
+		{name: "publish resale", run: func() error {
+			_, err := svc.PublishResaleBeanList(context.Background(), "mini-token", ResaleBeanListCommand{SourcePublicationID: 11})
+			return err
+		}},
+		{name: "resale pdf", run: func() error {
+			_, _, err := svc.GetResaleBeanListPublicationPDF(context.Background(), "mini-token", 11, func(BeanListSummary) ([]byte, error) { return []byte("pdf"), nil })
+			return err
+		}},
+		{name: "resale png", run: func() error {
+			_, _, err := svc.GetResaleBeanListPublicationPNG(context.Background(), "mini-token", 11, func(BeanListSummary) ([]byte, error) { return []byte("png"), nil })
+			return err
+		}},
+	}
+
+	for _, capabilities := range [][]Capability{
+		{{Code: CapabilityBeanList, Enabled: true}},
+		{{Code: CapabilityProductOrder, Enabled: true}},
+		{{Code: CapabilityBeanList, Enabled: false}, {Code: CapabilityProductOrder, Enabled: true}},
+	} {
+		repo.context.Capabilities = capabilities
+		for _, operation := range operations {
+			t.Run(operation.name, func(t *testing.T) {
+				if err := operation.run(); !errors.Is(err, ErrCapabilityNotEnabled) {
+					t.Fatalf("capabilities=%+v err=%v, want ErrCapabilityNotEnabled", capabilities, err)
+				}
+			})
+		}
 	}
 }
 
@@ -520,7 +591,7 @@ func TestPublishResaleBeanListRejectsUnauthorizedTemplate(t *testing.T) {
 	repo := &fakeRepository{
 		context: CurrentContext{
 			CurrentCustomerID: 77,
-			Capabilities:      []Capability{{Code: CapabilityBeanList, Enabled: true}},
+			Capabilities:      []Capability{{Code: CapabilityProductOrder, Enabled: true}, {Code: CapabilityBeanList, Enabled: true}},
 		},
 		resaleSource: BeanListSummary{
 			ID:        11,
@@ -1145,12 +1216,8 @@ func TestCreateProcessingRequestValidatesAndRequiresCapability(t *testing.T) {
 	}
 	svc := NewService(repo, fakeIdentityProvider{})
 	got, err := svc.CreateProcessingRequest(context.Background(), "mini-token", CreateProcessingRequestCommand{
-		InputMaterialID: 4,
-		InputQtyG:       30000,
-		TargetProductID: 5,
-		TargetSpecG:     454,
-		TargetQty:       50,
-		Note:            "  做成454g  ",
+		Items: []ProcessingRequestItemCommand{{ProductID: 5, SpecG: 454, Qty: 50}},
+		Note:  "  做成454g  ",
 	})
 	if err != nil {
 		t.Fatalf("CreateProcessingRequest() err=%v", err)
@@ -1997,11 +2064,7 @@ func validDirectShipBatchCommand() CreateDirectShipBatchCommand {
 
 func validProcessingRequestCommand() CreateProcessingRequestCommand {
 	return CreateProcessingRequestCommand{
-		InputMaterialID: 4,
-		InputQtyG:       30000,
-		TargetProductID: 5,
-		TargetSpecG:     454,
-		TargetQty:       50,
+		Items: []ProcessingRequestItemCommand{{ProductID: 5, SpecG: 454, Qty: 50}},
 	}
 }
 

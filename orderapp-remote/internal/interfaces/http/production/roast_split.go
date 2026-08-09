@@ -2,7 +2,6 @@ package production
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,23 +13,19 @@ type RoastSplitRow struct {
 	BatchKg     string
 	Batches     int64
 	TotalKg     string // 熟豆总需求
-	YieldPctStr string // 损耗比展示
+	YieldPctStr string // compatibility only; current plans always return 100%
 }
 
-func calcRoastSplits(rows []UnprodNeedRow, machines []RoastMachine, yieldRate float64) []RoastSplitRow {
-	if yieldRate <= 0 || yieldRate > 1 {
-		yieldRate = 0.8
-	}
+func calcRoastSplits(rows []UnprodNeedRow, machines []RoastMachine, _ float64) []RoastSplitRow {
 	out := make([]RoastSplitRow, 0)
 	for _, r := range rows {
 		if r.GapG <= 0 {
 			continue
 		}
-		// 烘焙建议按生豆计算：raw_g = ceil(finished_g / yieldRate)。
-		rawG := int64(math.Ceil(float64(r.GapG) / yieldRate))
+		rawG := r.GapG
 		pick, batches := pickMachineAndBatches(rawG, machines)
 		finishedG := r.GapG
-		yieldPct := fmt.Sprintf("%.0f%%", yieldRate*100)
+		yieldPct := "100%"
 		if pick.CapacityG <= 0 {
 			out = append(out, RoastSplitRow{Material: r.Product, Machine: "未匹配设备", BatchKg: "0", Batches: 0, TotalKg: formatKg(finishedG), YieldPctStr: yieldPct})
 			continue

@@ -32,6 +32,14 @@ const imageNeedShowEntrance = ref(false)
 const savedImageNeedShowEntrance = ref(false)
 
 const isEmployee = computed(() => session.accountType === 'employee')
+function hasCapability(code: string): boolean {
+  return session.capabilities.some((item) => item.code === code && item.enabled)
+}
+const canOpenFactoryProducts = computed(() => (
+  !isEmployee.value
+  && hasCapability('product_order')
+  && hasCapability('bean_list')
+))
 const canManageShareSettings = computed(() => (
   session.accountType === 'employee'
   && session.roles.includes('admin')
@@ -196,8 +204,8 @@ onShow(() => {
 
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
 
-      <button v-if="!isEmployee" class="secondary-button" @tap="openFactoryProducts">工厂商品表</button>
-      <button v-if="!isEmployee" class="secondary-button" @tap="openCustomerProducts">我的商品</button>
+      <button v-if="canOpenFactoryProducts" class="secondary-button" @tap="openFactoryProducts">工厂商品表</button>
+      <button v-if="canOpenFactoryProducts" class="secondary-button" @tap="openCustomerProducts">我的商品</button>
       <button class="secondary-button" @tap="clearAndLogin">切换用户</button>
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>
     </view>

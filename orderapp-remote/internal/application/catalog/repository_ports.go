@@ -41,7 +41,8 @@ type Repository interface {
 	SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error)
 	DeleteBusinessGroupItem(ctx context.Context, cmd DeleteBusinessGroupItemCommand) error
 	MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGroupItemCommand) (BusinessGroupItem, error)
-	EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error
+	GetBusinessGroupFeatureSelection(ctx context.Context, featureKey string) (BusinessGroupFeatureSelection, error)
+	SaveBusinessGroupFeatureSelection(ctx context.Context, cmd SaveBusinessGroupFeatureSelectionCommand) (BusinessGroupFeatureSelection, error)
 	ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error)
 	SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessGroupAssignment) (BusinessGroupAssignment, error)
 	DeleteBusinessGroupAssignment(ctx context.Context, cmd DeleteBusinessGroupAssignmentCommand) error

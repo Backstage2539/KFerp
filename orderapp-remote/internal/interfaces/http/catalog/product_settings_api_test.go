@@ -32,6 +32,9 @@ type productSettingsRepo struct {
 	productUnitTemplates                []catalogapp.ProductUnitTemplate
 	productPriceGroups                  []catalogapp.ProductPriceGroup
 	businessGroups                      []catalogapp.BusinessGroup
+	savedBusinessGroup                  catalogapp.BusinessGroup
+	featureSelection                    catalogapp.BusinessGroupFeatureSelection
+	savedFeatureSelection               catalogapp.SaveBusinessGroupFeatureSelectionCommand
 	deletedBusinessGroup                catalogapp.DeleteBusinessGroupCommand
 	savedBusinessGroupItem              catalogapp.BusinessGroupItem
 	deletedBusinessGroupItem            catalogapp.DeleteBusinessGroupItemCommand
@@ -322,14 +325,15 @@ func (r *productSettingsRepo) SaveProductProductionConfig(ctx context.Context, c
 	r.savedProductionConfig = cmd
 	r.productionConfigSaved = true
 	row := catalogapp.ProductProductionConfig{
-		ProductID:               cmd.ProductID,
-		ProductionBomID:         cmd.ProductionBomID,
-		ProductionBomVersionID:  cmd.ProductionBomVersionID,
-		ProcessRouteID:          cmd.ProcessRouteID,
-		IndustryFieldTemplateID: cmd.IndustryFieldTemplateID,
-		ExpectedLossRate:        cmd.ExpectedLossRate,
-		Note:                    cmd.Note,
-		Fields:                  cmd.Fields,
+		ProductID:                cmd.ProductID,
+		ProductionBomID:          cmd.ProductionBomID,
+		ProductionBomVersionID:   cmd.ProductionBomVersionID,
+		ProcessRouteID:           cmd.ProcessRouteID,
+		IndustryFieldTemplateID:  cmd.IndustryFieldTemplateID,
+		IndustryFieldTemplateIDs: cmd.IndustryFieldTemplateIDs,
+		ExpectedLossRate:         cmd.ExpectedLossRate,
+		Note:                     cmd.Note,
+		Fields:                   cmd.Fields,
 	}
 	r.productProductionConfigs = append(r.productProductionConfigs, row)
 	return row, nil
@@ -370,10 +374,39 @@ func (r *productSettingsRepo) ListBusinessGroups(ctx context.Context) ([]catalog
 }
 
 func (r *productSettingsRepo) SaveBusinessGroup(ctx context.Context, cmd catalogapp.BusinessGroup) (catalogapp.BusinessGroup, error) {
+	r.savedBusinessGroup = cmd
 	if cmd.ID == 0 {
 		cmd.ID = 61
 	}
 	return cmd, nil
+}
+
+func TestPR584BusinessGroupAPIIgnoresCachedTemplateOwnedUsageWrites(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	legacyReq := httptest.NewRequest(http.MethodPut, "/api/business-groups/61", strings.NewReader(`{"name":"商品分类模板","usages":[]}`))
+	legacyReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	legacyRec := httptest.NewRecorder()
+	e.ServeHTTP(legacyRec, legacyReq)
+	if legacyRec.Code != http.StatusOK {
+		t.Fatalf("legacy empty usages status=%d body=%s", legacyRec.Code, legacyRec.Body.String())
+	}
+	if repo.savedBusinessGroup.Usages != nil {
+		t.Fatalf("legacy empty usages=%#v, want no-op nil", repo.savedBusinessGroup.Usages)
+	}
+
+	clearReq := httptest.NewRequest(http.MethodPut, "/api/business-groups/61", strings.NewReader(`{"name":"商品分类模板","replace_usages":true,"usages":[]}`))
+	clearReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	clearRec := httptest.NewRecorder()
+	e.ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != http.StatusOK {
+		t.Fatalf("explicit clear usages status=%d body=%s", clearRec.Code, clearRec.Body.String())
+	}
+	if repo.savedBusinessGroup.ReplaceUsages || repo.savedBusinessGroup.Usages != nil {
+		t.Fatalf("cached template-owned clear must not overwrite feature selection: %+v", repo.savedBusinessGroup)
+	}
 }
 
 func (r *productSettingsRepo) DeleteBusinessGroup(ctx context.Context, cmd catalogapp.DeleteBusinessGroupCommand) error {
@@ -407,6 +440,71 @@ func (r *productSettingsRepo) EnsureBusinessGroupUsage(ctx context.Context, grou
 	r.ensuredBusinessGroupUsageKey = usageKey
 	r.ensuredBusinessGroupActor = actor
 	return nil
+}
+
+func (r *productSettingsRepo) GetBusinessGroupFeatureSelection(ctx context.Context, featureKey string) (catalogapp.BusinessGroupFeatureSelection, error) {
+	return r.featureSelection, nil
+}
+
+func (r *productSettingsRepo) SaveBusinessGroupFeatureSelection(ctx context.Context, cmd catalogapp.SaveBusinessGroupFeatureSelectionCommand) (catalogapp.BusinessGroupFeatureSelection, error) {
+	r.savedFeatureSelection = cmd
+	r.featureSelection = catalogapp.BusinessGroupFeatureSelection{FeatureKey: cmd.FeatureKey, GroupTemplateIDs: append([]int64(nil), cmd.GroupTemplateIDs...)}
+	return r.featureSelection, nil
+}
+
+func TestPR584BusinessGroupFeatureSelectionAPIUsesFeatureOwnedOrderedTemplates(t *testing.T) {
+	repo := &productSettingsRepo{featureSelection: catalogapp.BusinessGroupFeatureSelection{
+		FeatureKey:       catalogapp.BusinessGroupUsageProductCatalog,
+		GroupTemplateIDs: []int64{72, 71},
+	}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/business-group-feature-selections/product_catalog", nil)
+	getRec := httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK || !bytes.Contains(getRec.Body.Bytes(), []byte(`"group_template_ids":[72,71]`)) {
+		t.Fatalf("feature selection GET status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+
+	putReq := httptest.NewRequest(http.MethodPut, "/api/business-group-feature-selections/product_catalog", strings.NewReader(`{"group_template_ids":[71,72,71]}`))
+	putReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	putReq.Header.Set("X-Actor", "feature-owner")
+	putRec := httptest.NewRecorder()
+	e.ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("feature selection PUT status=%d body=%s", putRec.Code, putRec.Body.String())
+	}
+	if got, want := repo.savedFeatureSelection.GroupTemplateIDs, []int64{71, 72}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved ordered template ids=%v, want %v", got, want)
+	}
+	if repo.savedFeatureSelection.FeatureKey != catalogapp.BusinessGroupUsageProductCatalog {
+		t.Fatalf("saved feature key=%q", repo.savedFeatureSelection.FeatureKey)
+	}
+
+	clearReq := httptest.NewRequest(http.MethodPut, "/api/business-group-feature-selections/product_catalog", strings.NewReader(`{"group_template_ids":[]}`))
+	clearReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	clearRec := httptest.NewRecorder()
+	e.ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != http.StatusOK || repo.savedFeatureSelection.GroupTemplateIDs == nil || len(repo.savedFeatureSelection.GroupTemplateIDs) != 0 {
+		t.Fatalf("explicit clear status=%d saved=%#v body=%s", clearRec.Code, repo.savedFeatureSelection.GroupTemplateIDs, clearRec.Body.String())
+	}
+
+	for name, tc := range map[string][2]string{
+		"missing ids": {"/api/business-group-feature-selections/product_catalog", `{}`},
+		"null ids":    {"/api/business-group-feature-selections/product_catalog", `{"group_template_ids":null}`},
+		"price list":  {"/api/business-group-feature-selections/price_list", `{"group_template_ids":[71]}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPut, tc[0], strings.NewReader(tc[1]))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
 }
 
 func (r *productSettingsRepo) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
@@ -539,7 +637,7 @@ func TestBusinessGroupsAPIDeletesTemplate(t *testing.T) {
 	}
 }
 
-func TestBusinessGroupUsageAPIEnablesGenericGroupForProductionBOM(t *testing.T) {
+func TestPR584LegacyBusinessGroupUsageAPIRejectsTemplateOwnedMutation(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
@@ -548,11 +646,11 @@ func TestBusinessGroupUsageAPIEnablesGenericGroupForProductionBOM(t *testing.T) 
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("business group usage status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("legacy business group usage status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.ensuredBusinessGroupID != 72 || repo.ensuredBusinessGroupUsageKey != catalogapp.BusinessGroupUsageProductionBOM {
-		t.Fatalf("unexpected ensured business group usage id=%d key=%q", repo.ensuredBusinessGroupID, repo.ensuredBusinessGroupUsageKey)
+	if repo.ensuredBusinessGroupID != 0 {
+		t.Fatalf("legacy endpoint must not mutate feature selection: id=%d key=%q", repo.ensuredBusinessGroupID, repo.ensuredBusinessGroupUsageKey)
 	}
 }
 
@@ -1534,7 +1632,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"use_public_gradient_templates":true`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"template_state":"public_template"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"remark":"奶咖主推"`, `"yield_rate":0.82`} {
+	for _, want := range []string{`"categories"`, `"children"`, `"products"`, `"gradient_templates"`, `"customer_public_usages"`, `"use_public_sku":true`, `"use_public_categories":false`, `"use_public_gradient_templates":true`, `"gradient_template_id":9`, `"name":"工厂量单模板"`, `"display_unit":"kg"`, `"template_state":"public_template"`, `"number":1`, `"name":"咖啡豆"`, `"name":"意式拼配"`, `"name":"客户A分类"`, `"customer_id":3`, `"name":"曲奇拼配"`, `"remark":"奶咖主推"`, `"yield_rate":1`, `"expected_loss_rate":0`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -1937,7 +2035,7 @@ func TestProductSettingsAPICreatesGreenBeanProductWithBomBinding(t *testing.T) {
 	if repo.createdPublic.DefaultPrice != 0 || len(repo.createdPublic.Tiers) != 0 {
 		t.Fatalf("green bean create should not carry direct sale price fields, got default=%.2f tiers=%+v", repo.createdPublic.DefaultPrice, repo.createdPublic.Tiers)
 	}
-	if repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 0 {
+	if repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 1 {
 		t.Fatalf("green bean create should not require roasted defaults, got roast=%q yield=%.2f", repo.createdPublic.RoastLevel, repo.createdPublic.YieldRate)
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"product_kind":"green_bean"`)) {
@@ -2370,12 +2468,13 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 			ID: 91, Name: "旧SKU名", ProductKind: "roasted", RoastLevel: "中烘", Remark: "旧备注", YieldRate: 0.8,
 		}},
 		productProductionConfigs: []catalogapp.ProductProductionConfig{{
-			ProductID:               91,
-			ProductionBomID:         12,
-			ProductionBomVersionID:  1203,
-			ProcessRouteID:          5,
-			IndustryFieldTemplateID: 3001,
-			ExpectedLossRate:        0.18,
+			ProductID:                91,
+			ProductionBomID:          12,
+			ProductionBomVersionID:   1203,
+			ProcessRouteID:           5,
+			IndustryFieldTemplateID:  3001,
+			IndustryFieldTemplateIDs: []int64{3001},
+			ExpectedLossRate:         0.18,
 			Fields: []catalogapp.ProductProductionConfigField{{
 				FieldKey:         "roast_level",
 				TemplateFieldKey: "roast_level",
@@ -2398,7 +2497,7 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET product settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"product_production_configs"`, `"industry_field_template_id":3001`, `"template_field_key":"roast_level"`, `"required":true`, `"options_json":"[\"浅烘\",\"中烘\",\"深烘\"]"`} {
+	for _, want := range []string{`"product_production_configs"`, `"industry_field_template_id":3001`, `"industry_field_template_ids":[3001]`, `"template_field_key":"roast_level"`, `"required":true`, `"options_json":"[\"浅烘\",\"中烘\",\"深烘\"]"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
@@ -2430,7 +2529,8 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 		"production_bom_id":12,
 		"production_bom_version_id":1203,
 		"process_route_id":5,
-		"industry_field_template_id":3001,
+		"industry_field_template_id":-9999,
+		"industry_field_template_ids":[3002,3001,3002],
 		"expected_loss_rate":0.18,
 		"note":"深烘参数",
 		"fields":[{
@@ -2451,8 +2551,11 @@ func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrit
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product production config status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productionConfigSaved || repo.savedProductionConfig.IndustryFieldTemplateID != 3001 || len(repo.savedProductionConfig.Fields) != 1 {
+	if !repo.productionConfigSaved || repo.savedProductionConfig.IndustryFieldTemplateID != 3002 || !reflect.DeepEqual(repo.savedProductionConfig.IndustryFieldTemplateIDs, []int64{3002, 3001}) || len(repo.savedProductionConfig.Fields) != 1 {
 		t.Fatalf("saved production config=%+v saved=%v", repo.savedProductionConfig, repo.productionConfigSaved)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"industry_field_template_id":3002`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"industry_field_template_ids":[3002,3001]`)) {
+		t.Fatalf("response should expose ordered template ids and legacy first item: %s", rec.Body.String())
 	}
 	field := repo.savedProductionConfig.Fields[0]
 	if field.TemplateFieldKey != "roast_level" || !field.Required || field.OptionsJSON != `["浅烘","中烘","深烘"]` || field.FieldType != "select" {
@@ -2494,6 +2597,28 @@ func TestProductSettingsAPIClearsIndustryFieldsWithoutTemplate(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"fields":[]`)) {
 		t.Fatalf("response should expose empty fields: %s", rec.Body.String())
+	}
+}
+
+func TestPR584ProductProductionConfigAPIRejectsNullTemplateIDs(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/product-production-configs/91", bytes.NewBufferString(`{
+		"industry_field_template_id":3001,
+		"industry_field_template_ids":null,
+		"fields":[]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("industry_field_template_ids must be an array")) {
+		t.Fatalf("null industry_field_template_ids status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productionConfigSaved {
+		t.Fatal("null industry_field_template_ids must not reach repository")
 	}
 }
 
@@ -2933,7 +3058,7 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST public product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.publicCreated || repo.createdPublic.Name != "新公共拼配" || repo.createdPublic.RoastLevel != "中深烘" || repo.createdPublic.DefaultPrice != 88 || repo.createdPublic.RetailPrice227G != 88 || repo.createdPublic.YieldRate != 0.805 {
+	if !repo.publicCreated || repo.createdPublic.Name != "新公共拼配" || repo.createdPublic.RoastLevel != "中深烘" || repo.createdPublic.DefaultPrice != 88 || repo.createdPublic.RetailPrice227G != 88 || repo.createdPublic.YieldRate != 1 {
 		t.Fatalf("public product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
 	}
 	if repo.createdPublic.Remark != "奶咖主推" {
@@ -2999,7 +3124,7 @@ func TestProductSettingsAPICreatesInstantCoffeeProductWithoutRoastLevel(t *testi
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST instant coffee product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.publicCreated || repo.createdPublic.ProductKind != "instant_coffee" || repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 0 || repo.createdPublic.DefaultPrice != 39 {
+	if !repo.publicCreated || repo.createdPublic.ProductKind != "instant_coffee" || repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 1 || repo.createdPublic.DefaultPrice != 39 {
 		t.Fatalf("instant coffee product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
 	}
 	var payload struct {
@@ -3154,7 +3279,7 @@ func TestProductSettingsAPIRejectsExplicitZeroDripBagCreate(t *testing.T) {
 	}
 }
 
-func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
+func TestProductSettingsAPIIgnoresRetiredProductYieldRate(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", DefaultPrice: 99, RetailPrice100G: 22, RetailPrice200G: 43, RetailPrice227G: 48, RetailPrice250G: 52, YieldRate: 0.82}},
 	}
@@ -3168,7 +3293,7 @@ func TestProductSettingsAPIUpdatesProductYieldRate(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 0.835 || repo.updated.DefaultPrice != 99 || repo.updated.RetailPrice227G != 48 {
+	if !repo.productUpdated || repo.updated.ProductID != 7 || repo.updated.YieldRate != 1 || repo.updated.DefaultPrice != 99 || repo.updated.RetailPrice227G != 48 {
 		t.Fatalf("update command = %+v updated=%v", repo.updated, repo.productUpdated)
 	}
 }

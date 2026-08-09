@@ -25,7 +25,7 @@ type ProducePlanBomItem struct {
 }
 
 type ProducePlanParams struct {
-	YieldRate      float64 // e.g. 0.8
+	YieldRate      float64 // compatibility only; current plans use BOM material loss
 	DripExtraG     int64   // e.g. 100 (extra roast grams per plan if any drip exists)
 	DripBoxSpec    int64   // e.g. 5 or 10
 	EnableDripBox  bool
@@ -35,7 +35,7 @@ type ProducePlanParams struct {
 
 func defaultProducePlanParams() ProducePlanParams {
 	return ProducePlanParams{
-		YieldRate:     0.8,
+		YieldRate:     1,
 		DripExtraG:    100,
 		DripBoxSpec:   10,
 		EnableDripBox: true,
@@ -53,9 +53,6 @@ func instantMaterialsOnly(rows []MaterialNeed) []MaterialNeed {
 }
 
 func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []MaterialNeed {
-	if p.YieldRate <= 0 || p.YieldRate > 1.0 {
-		p.YieldRate = 0.8
-	}
 	if p.DripBoxSpec <= 0 {
 		p.DripBoxSpec = 10
 	}
@@ -73,9 +70,7 @@ func calcProducePlanMaterials(rows []UnprodNeedRow, p ProducePlanParams) []Mater
 	}
 
 	yieldRawG := func(finishedG int64) int64 {
-		// ceil(finished/yield)
-		r := float64(finishedG) / p.YieldRate
-		return int64(math.Ceil(r))
+		return finishedG
 	}
 	ceilDiv := func(a, b int64) int64 {
 		if b <= 0 {

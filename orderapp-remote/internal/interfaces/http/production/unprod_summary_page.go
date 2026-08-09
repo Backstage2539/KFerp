@@ -21,8 +21,8 @@ type RoastPlanMaterialRatio = productionapp.RoastPlanMaterialRatio
 func buildProducePlanDisplayRows(rows []UnprodNeedRow, yieldByProductID map[int64]float64, inputByKey map[string]int64) []ProducePlanDisplayRow {
 	out := make([]ProducePlanDisplayRow, 0, len(rows))
 	for _, r := range rows {
-		yieldRate := normalizeYieldRate(yieldByProductID[r.ProductID])
-		inputG := defaultProductionInputG(r.GapG, yieldRate)
+		yieldRate := 1.0
+		inputG := r.GapG
 		if v := inputByKey[producePlanKey(r.ProductID, r.SpecG)]; v > 0 {
 			inputG = v
 		}
@@ -41,8 +41,8 @@ func buildRoastPlanRows(rows []UnprodNeedRow, machines []RoastMachine, yieldByPr
 		if r.GapG <= 0 {
 			continue
 		}
-		yieldRate := normalizeYieldRate(yieldByProductID[r.ProductID])
-		rawG := defaultProductionInputG(r.GapG, yieldRate)
+		yieldRate := 1.0
+		rawG := r.GapG
 		machine, batches := pickMachineAndBatches(rawG, machines)
 		batchCount := int64(len(batches))
 		batchG := int64(0)

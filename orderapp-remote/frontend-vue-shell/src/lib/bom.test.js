@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   bomContextCustomerIDs,
+  normalizeProductionBomName,
   productionBomListName,
   productionBomLabel,
   productionBomVersionWarning,
@@ -145,18 +146,18 @@ test('BOM customer selector ignores customers that only have green bean SKUs', (
   assert.deepEqual([...bomContextCustomerIDs(products, bomRows)].sort((a, b) => a - b), [10, 12])
 })
 
-test('production BOM label shows BOM code name and bound version without source terminology', () => {
+test('production BOM label shows the normalized business name without code or version', () => {
   assert.equal(productionBomLabel({
     code: 'BOM-009',
     name: '独立配方',
     latest_version_no: 'V004',
-  }), 'BOM-009 独立配方 / V004')
+  }), '独立配方')
 
   assert.equal(productionBomLabel({
     production_bom_code: 'BOM-001',
-    production_bom_name: '精品拼配',
+    production_bom_name: 'BOM000643 精品拼配 生产 BOM / V003',
     production_bom_version_no: 'V003',
-  }), 'BOM-001 精品拼配 / V003')
+  }), '精品拼配')
 
   assert.equal(productionBomLabel({ bom_status: 'missing' }), '无生产 BOM')
   assert.equal(productionBomVersionWarning({
@@ -183,6 +184,22 @@ test('production BOM list name hides the code, generated suffix, and version', (
   }), 'ALO TOH#1')
 
   assert.equal(productionBomListName({
+    name: 'BOM000643 曲奇拼配 生产 BOM / V001',
+  }), '曲奇拼配')
+
+  assert.equal(productionBomListName({
+    name: 'BOM000643曲奇拼配 生产 BOM',
+  }), '曲奇拼配')
+
+  assert.equal(productionBomListName({
+    name: 'BOM-003262 PR442-SCENARIO Production BOM',
+  }), 'PR442-SCENARIO')
+
+  assert.equal(productionBomListName({
+    name: 'GoalE2E 咖啡熟豆 BOM',
+  }), 'GoalE2E 咖啡熟豆')
+
+  assert.equal(productionBomListName({
     name: '生产 BOM 校准配方',
   }), '生产 BOM 校准配方')
 
@@ -193,6 +210,18 @@ test('production BOM list name hides the code, generated suffix, and version', (
   assert.equal(productionBomListName({
     name: 'ALO TOH#1 生产 BOM 特殊属性副本',
   }), 'ALO TOH#1 特殊属性副本')
+
+  for (const value of [
+    'BOM-000659 ALO TOH#1 生产 BOM / V001',
+    'BOM000643 曲奇拼配 生产 BOM',
+    'PR442-SCENARIO Production BOM',
+    'GoalE2E 咖啡熟豆 BOM',
+    'ALO TOH#1 副本 副本',
+    '生产 BOM 校准配方',
+  ]) {
+    const normalized = normalizeProductionBomName(value)
+    assert.equal(normalizeProductionBomName(normalized), normalized)
+  }
 })
 
 test('BOM view can set the output product default BOM with the current published version', async () => {
@@ -223,7 +252,8 @@ test('BOM version settings expose material loss switch and ratio-only explanatio
   assert.match(source, /materialLossRatioOnlyConsumeUnitOptions/)
   assert.match(source, /不含原料损耗/)
   assert.match(source, /materialLossRateDisplay/)
-  assert.match(source, /1 \/ \(1 - 原料损耗比\)/)
+  assert.match(source, /配方比例 × \(1 \+ 原料损耗比\)/)
+  assert.doesNotMatch(source, /1 \/ \(1 - 原料损耗比\)/)
   assert.match(source, /material_loss_rate:\s*selectedVersionMaterialLossRate/)
   assert.doesNotMatch(itemFormBlock, /原料损耗比/)
   assert.doesNotMatch(itemFormBlock, /损耗比例 %/)
@@ -587,6 +617,11 @@ test('production BOM list is grouped by template tree without category filter ta
   assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
   assert.match(listBlock, /v-for="group in productionBomDisplayGroups"/)
+  assert.match(source, /groupRowsByBusinessGroupTemplates\(/)
+  assert.match(source, /skuGroupHiddenByCollapsedAncestor/)
+  assert.match(listBlock, /group\.is_template_group/)
+  assert.match(listBlock, /classification-template-row/)
+  assert.match(listBlock, /group\.template_total/)
   assert.doesNotMatch(listBlock, /bom-list-tabs-row/)
   assert.doesNotMatch(listBlock, /全部分类/)
   assert.doesNotMatch(listBlock, /@click="selectProductionBomGroupItem/)

@@ -129,15 +129,16 @@ type PriceSummary struct {
 }
 
 type BusinessGroup struct {
-	ID        int64                `json:"id"`
-	Actor     string               `json:"-"`
-	Name      string               `json:"name"`
-	Code      string               `json:"code"`
-	Remark    string               `json:"remark"`
-	Active    bool                 `json:"active"`
-	SortOrder int                  `json:"sort_order"`
-	Usages    []BusinessGroupUsage `json:"usages,omitempty"`
-	Items     []BusinessGroupItem  `json:"items,omitempty"`
+	ID            int64                `json:"id"`
+	Actor         string               `json:"-"`
+	Name          string               `json:"name"`
+	Code          string               `json:"code"`
+	Remark        string               `json:"remark"`
+	Active        bool                 `json:"active"`
+	SortOrder     int                  `json:"sort_order"`
+	ReplaceUsages bool                 `json:"replace_usages,omitempty"`
+	Usages        []BusinessGroupUsage `json:"usages,omitempty"`
+	Items         []BusinessGroupItem  `json:"items,omitempty"`
 }
 
 type BusinessGroupUsage struct {
@@ -146,6 +147,20 @@ type BusinessGroupUsage struct {
 	UsageKey   string `json:"usage_key"`
 	UsageLabel string `json:"usage_label"`
 	Active     bool   `json:"active"`
+}
+
+// BusinessGroupFeatureSelection is owned by a business feature (for example,
+// the product catalog), not by an individual group template. The order is
+// significant and is preserved when the feature renders multiple templates.
+type BusinessGroupFeatureSelection struct {
+	FeatureKey       string  `json:"feature_key"`
+	GroupTemplateIDs []int64 `json:"group_template_ids"`
+}
+
+type SaveBusinessGroupFeatureSelectionCommand struct {
+	Actor            string
+	FeatureKey       string
+	GroupTemplateIDs []int64
 }
 
 type BusinessGroupItem struct {
@@ -179,6 +194,7 @@ type BusinessGroupAssignment struct {
 
 const (
 	BusinessGroupUsageProductCatalog     = "product_catalog"
+	BusinessGroupUsageMaterialCatalog    = "material_catalog"
 	BusinessGroupUsageProductionBOM      = "production_bom"
 	BusinessGroupUsageWarehouseInventory = "warehouse_inventory"
 	BusinessGroupUsagePriceList          = "price_list"
@@ -480,14 +496,15 @@ type ProductProductionConfigField struct {
 }
 
 type ProductProductionConfig struct {
-	ProductID               int64                          `json:"product_id"`
-	ProductionBomID         int64                          `json:"production_bom_id"`
-	ProductionBomVersionID  int64                          `json:"production_bom_version_id"`
-	ProcessRouteID          int64                          `json:"process_route_id"`
-	IndustryFieldTemplateID int64                          `json:"industry_field_template_id"`
-	ExpectedLossRate        float64                        `json:"expected_loss_rate"`
-	Note                    string                         `json:"note"`
-	Fields                  []ProductProductionConfigField `json:"fields"`
+	ProductID                int64                          `json:"product_id"`
+	ProductionBomID          int64                          `json:"production_bom_id"`
+	ProductionBomVersionID   int64                          `json:"production_bom_version_id"`
+	ProcessRouteID           int64                          `json:"process_route_id"`
+	IndustryFieldTemplateID  int64                          `json:"industry_field_template_id"`
+	IndustryFieldTemplateIDs []int64                        `json:"industry_field_template_ids"`
+	ExpectedLossRate         float64                        `json:"expected_loss_rate"`
+	Note                     string                         `json:"note"`
+	Fields                   []ProductProductionConfigField `json:"fields"`
 }
 
 type ProductConfigTemplate struct {
@@ -1212,15 +1229,16 @@ type DeleteProductUnitTemplateCommand struct {
 }
 
 type SaveProductProductionConfigCommand struct {
-	Actor                   string
-	ProductID               int64
-	ProductionBomID         int64
-	ProductionBomVersionID  int64
-	ProcessRouteID          int64
-	IndustryFieldTemplateID int64
-	ExpectedLossRate        float64
-	Note                    string
-	Fields                  []ProductProductionConfigField
+	Actor                    string
+	ProductID                int64
+	ProductionBomID          int64
+	ProductionBomVersionID   int64
+	ProcessRouteID           int64
+	IndustryFieldTemplateID  int64
+	IndustryFieldTemplateIDs []int64
+	ExpectedLossRate         float64
+	Note                     string
+	Fields                   []ProductProductionConfigField
 }
 
 type DeriveProductConfigTemplateCommand struct {
@@ -1329,35 +1347,87 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) ListProducts(ctx context.Context) ([]Product, error) {
-	return s.repo.ListProducts(ctx)
+	rows, err := s.repo.ListProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		normalizeLegacyProductYield(&rows[i])
+	}
+	return rows, nil
 }
 
 func (s *Service) GetProduct(ctx context.Context, id int64) (*Product, error) {
-	return s.repo.GetProduct(ctx, id)
+	row, err := s.repo.GetProduct(ctx, id)
+	if err != nil || row == nil {
+		return row, err
+	}
+	normalizeLegacyProductYield(row)
+	return row, nil
 }
 
 func (s *Service) ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error) {
-	return s.repo.ListProductProductionConfigs(ctx)
+	rows, err := s.repo.ListProductProductionConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i].ExpectedLossRate = 0
+	}
+	return rows, nil
 }
 
 func (s *Service) GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error) {
 	if productID <= 0 {
 		return ProductProductionConfig{}, ValidationError{Message: "product_id required"}
 	}
-	return s.repo.GetProductProductionConfig(ctx, productID)
+	row, err := s.repo.GetProductProductionConfig(ctx, productID)
+	row.ExpectedLossRate = 0
+	return row, err
+}
+
+func normalizeLegacyProductYield(row *Product) {
+	if row == nil {
+		return
+	}
+	row.YieldRate = 1
+	row.ExpectedLossRate = 0
 }
 
 func (s *Service) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
 	if cmd.ProductID <= 0 {
 		return ProductProductionConfig{}, ValidationError{Message: "product_id required"}
 	}
-	if cmd.ExpectedLossRate < 0 || cmd.ExpectedLossRate >= 1 {
-		return ProductProductionConfig{}, ValidationError{Message: "expected_loss_rate must be [0,1)"}
+	cmd.ExpectedLossRate = 0
+	templateIDs := cmd.IndustryFieldTemplateIDs
+	if templateIDs == nil {
+		if cmd.IndustryFieldTemplateID < 0 {
+			return ProductProductionConfig{}, ValidationError{Message: "invalid industry_field_template_id"}
+		}
+		if cmd.IndustryFieldTemplateID > 0 {
+			templateIDs = []int64{cmd.IndustryFieldTemplateID}
+		} else {
+			templateIDs = []int64{}
+		}
 	}
-	if cmd.IndustryFieldTemplateID < 0 {
-		return ProductProductionConfig{}, ValidationError{Message: "invalid industry_field_template_id"}
+	normalizedTemplateIDs := make([]int64, 0, len(templateIDs))
+	seenTemplateIDs := make(map[int64]struct{}, len(templateIDs))
+	for _, templateID := range templateIDs {
+		if templateID <= 0 {
+			return ProductProductionConfig{}, ValidationError{Message: "invalid industry_field_template_ids"}
+		}
+		if _, exists := seenTemplateIDs[templateID]; exists {
+			continue
+		}
+		seenTemplateIDs[templateID] = struct{}{}
+		normalizedTemplateIDs = append(normalizedTemplateIDs, templateID)
 	}
-	if cmd.IndustryFieldTemplateID == 0 {
+	cmd.IndustryFieldTemplateIDs = normalizedTemplateIDs
+	cmd.IndustryFieldTemplateID = 0
+	if len(normalizedTemplateIDs) > 0 {
+		cmd.IndustryFieldTemplateID = normalizedTemplateIDs[0]
+	}
+	if len(normalizedTemplateIDs) == 0 {
 		cmd.Fields = []ProductProductionConfigField{}
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
@@ -1592,6 +1662,9 @@ func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int
 func normalizeProductSalesShape(productKind *string, greenBeanType *string, greenBeanBomProductID *int64, roastLevel *string, defaultPrice *float64, retailPrice100G *float64, retailPrice200G *float64, retailPrice227G *float64, retailPrice250G *float64, yieldRate *float64, tiers *[]PriceTier) error {
 	kind := catalogdomain.NormalizeProductKind(*productKind)
 	*productKind = kind
+	// Retain the legacy field in request/repository contracts, but current
+	// products always persist the neutral value. BOM material loss is authoritative.
+	*yieldRate = 1
 	if kind != catalogdomain.ProductKindGreenBean {
 		*greenBeanType = ""
 		*greenBeanBomProductID = 0
@@ -1605,21 +1678,9 @@ func normalizeProductSalesShape(productKind *string, greenBeanType *string, gree
 				normalizedRoast = "中烘"
 			}
 			*roastLevel = normalizedRoast
-			if *yieldRate <= 0 {
-				*yieldRate = catalogdomain.ResolveYieldRate(*roastLevel, 0.8)
-			}
-			if *yieldRate <= 0 || *yieldRate > 1 {
-				return ValidationError{Message: "invalid yield_rate"}
-			}
 			return nil
 		}
 		*roastLevel = ""
-		if *yieldRate <= 0 {
-			*yieldRate = 0
-		}
-		if *yieldRate > 1 {
-			return ValidationError{Message: "invalid yield_rate"}
-		}
 		return nil
 	}
 	*greenBeanType = normalizeGreenBeanType(*greenBeanType)
@@ -1632,7 +1693,7 @@ func normalizeProductSalesShape(productKind *string, greenBeanType *string, gree
 	*retailPrice200G = 0
 	*retailPrice227G = 0
 	*retailPrice250G = 0
-	*yieldRate = 0
+	*yieldRate = 1
 	if tiers != nil {
 		*tiers = nil
 	}
@@ -1662,6 +1723,12 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	productionConfigs, err := s.repo.ListProductProductionConfigs(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
+	}
+	for i := range products {
+		normalizeLegacyProductYield(&products[i])
+	}
+	for i := range productionConfigs {
+		productionConfigs[i].ExpectedLossRate = 0
 	}
 	classificationTemplates, err := s.repo.ListProductClassificationTemplates(ctx)
 	if err != nil {
@@ -1780,6 +1847,11 @@ func (s *Service) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bus
 	if cmd.ID == 0 {
 		cmd.Active = true
 	}
+	// Functional references are saved exclusively through
+	// SaveBusinessGroupFeatureSelection. Ignore stale template-owned payloads so
+	// a cached settings page cannot overwrite the feature's current selection.
+	cmd.ReplaceUsages = false
+	cmd.Usages = nil
 	return s.repo.SaveBusinessGroup(ctx, cmd)
 }
 
@@ -1834,22 +1906,65 @@ func (s *Service) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGro
 }
 
 func (s *Service) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
-	usageKey = strings.TrimSpace(usageKey)
-	actor = strings.TrimSpace(actor)
-	if groupID <= 0 || usageKey == "" {
-		return ValidationError{Message: "invalid business group usage"}
+	return ValidationError{Message: "business group feature selection must be saved by feature"}
+}
+
+func (s *Service) GetBusinessGroupFeatureSelection(ctx context.Context, featureKey string) (BusinessGroupFeatureSelection, error) {
+	featureKey = strings.ToLower(strings.TrimSpace(featureKey))
+	if !isSupportedBusinessGroupUsage(featureKey) {
+		return BusinessGroupFeatureSelection{}, ValidationError{Message: "invalid business group feature"}
 	}
+	selection, err := s.repo.GetBusinessGroupFeatureSelection(ctx, featureKey)
+	if err != nil {
+		return BusinessGroupFeatureSelection{}, err
+	}
+	selection.FeatureKey = featureKey
+	if selection.GroupTemplateIDs == nil {
+		selection.GroupTemplateIDs = []int64{}
+	}
+	return selection, nil
+}
+
+func (s *Service) SaveBusinessGroupFeatureSelection(ctx context.Context, cmd SaveBusinessGroupFeatureSelectionCommand) (BusinessGroupFeatureSelection, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.FeatureKey = strings.ToLower(strings.TrimSpace(cmd.FeatureKey))
+	if !isSupportedBusinessGroupUsage(cmd.FeatureKey) {
+		return BusinessGroupFeatureSelection{}, ValidationError{Message: "invalid business group feature"}
+	}
+	normalizedIDs := make([]int64, 0, len(cmd.GroupTemplateIDs))
+	seen := make(map[int64]struct{}, len(cmd.GroupTemplateIDs))
+	for _, groupID := range cmd.GroupTemplateIDs {
+		if groupID <= 0 {
+			return BusinessGroupFeatureSelection{}, ValidationError{Message: "invalid business group template"}
+		}
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		normalizedIDs = append(normalizedIDs, groupID)
+	}
+	cmd.GroupTemplateIDs = normalizedIDs
+	if cmd.GroupTemplateIDs == nil {
+		cmd.GroupTemplateIDs = []int64{}
+	}
+	return s.repo.SaveBusinessGroupFeatureSelection(ctx, cmd)
+}
+
+func isSupportedBusinessGroupUsage(usageKey string) bool {
 	switch usageKey {
-	case BusinessGroupUsageProductCatalog, BusinessGroupUsageProductionBOM, BusinessGroupUsageWarehouseInventory, BusinessGroupUsagePriceList:
+	case BusinessGroupUsageProductCatalog,
+		BusinessGroupUsageMaterialCatalog,
+		BusinessGroupUsageProductionBOM,
+		BusinessGroupUsageWarehouseInventory:
+		return true
 	default:
-		return ValidationError{Message: "invalid business group usage"}
+		return false
 	}
-	return s.repo.EnsureBusinessGroupUsage(ctx, groupID, usageKey, actor)
 }
 
 func (s *Service) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {
-	query.UsageKey = strings.TrimSpace(query.UsageKey)
-	query.ObjectKey = strings.TrimSpace(query.ObjectKey)
+	query.UsageKey = strings.ToLower(strings.TrimSpace(query.UsageKey))
+	query.ObjectKey = strings.ToLower(strings.TrimSpace(query.ObjectKey))
 	query.ObjectRef = strings.TrimSpace(query.ObjectRef)
 	if query.ObjectID < 0 || query.GroupID < 0 || query.GroupItemID < 0 {
 		return nil, ValidationError{Message: "invalid business group assignment query"}
@@ -1858,14 +1973,17 @@ func (s *Service) ListBusinessGroupAssignments(ctx context.Context, query Busine
 }
 
 func (s *Service) SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessGroupAssignment) (BusinessGroupAssignment, error) {
-	cmd.UsageKey = strings.TrimSpace(cmd.UsageKey)
-	cmd.ObjectKey = strings.TrimSpace(cmd.ObjectKey)
+	cmd.UsageKey = strings.ToLower(strings.TrimSpace(cmd.UsageKey))
+	cmd.ObjectKey = strings.ToLower(strings.TrimSpace(cmd.ObjectKey))
 	cmd.ObjectRef = strings.TrimSpace(cmd.ObjectRef)
 	if cmd.ID < 0 || cmd.GroupID <= 0 || cmd.GroupItemID <= 0 {
 		return BusinessGroupAssignment{}, ValidationError{Message: "invalid business group assignment"}
 	}
 	if cmd.UsageKey == "" || cmd.ObjectKey == "" {
 		return BusinessGroupAssignment{}, ValidationError{Message: "invalid business group assignment"}
+	}
+	if !isSupportedBusinessGroupUsage(cmd.UsageKey) {
+		return BusinessGroupAssignment{}, ValidationError{Message: "invalid business group usage"}
 	}
 	if cmd.ObjectID <= 0 && cmd.ObjectRef == "" {
 		return BusinessGroupAssignment{}, ValidationError{Message: "object required"}
@@ -2674,6 +2792,7 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 	}
 	requestedKind := strings.TrimSpace(cmd.ProductKind)
 	cmd.ProductKind = catalogdomain.NormalizeProductKind(cmd.ProductKind)
+	cmd.YieldRate = 1
 	var base *Product
 	var err error
 	requiresBaseProduct := cmd.CustomType != "custom_roast" && (requestedKind == "" || cmd.ProductKind != catalogdomain.ProductKindGreenBean)
@@ -2726,20 +2845,8 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 					cmd.RoastLevel = "中烘"
 				}
 			}
-			if cmd.YieldRate <= 0 && base != nil {
-				cmd.YieldRate = base.YieldRate
-			}
-			if cmd.YieldRate <= 0 {
-				cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
-			}
 		} else {
 			cmd.RoastLevel = ""
-			if cmd.YieldRate <= 0 {
-				cmd.YieldRate = 0
-			}
-		}
-		if cmd.YieldRate > 1 {
-			return Product{}, ValidationError{Message: "invalid yield_rate"}
 		}
 		cmd.GreenBeanType = ""
 		cmd.GreenBeanBomProductID = 0
@@ -4043,9 +4150,10 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
 	inventoryUnit, integerInventoryUnit := productInventoryUnitFields(p)
 	defaultSalesUnit, unitConversionJSON, salesUnitRulesJSON := productSalesUnitRuleFields(p, inventoryUnit)
+	p.YieldRate = 1
+	p.ExpectedLossRate = 0
 	if !catalogdomain.ProductKindSupportsBomParams(productKind) {
 		p.RoastLevel = ""
-		p.YieldRate = 0
 	}
 	return ProductSettingsProduct{
 		ID:                          p.ID,

@@ -37,6 +37,9 @@ type fakeRepo struct {
 	ruleBinding            CustomerProductRuleTemplateBindingCommand
 	configTemplate         SaveProductConfigTemplateCommand
 	productionConfig       SaveProductProductionConfigCommand
+	businessGroup          BusinessGroup
+	featureSelection       BusinessGroupFeatureSelection
+	savedFeatureSelection  SaveBusinessGroupFeatureSelectionCommand
 	deleteConfig           DeleteProductConfigTemplateCommand
 	priceGroup             SaveProductPriceGroupCommand
 	deleteGroup            DeleteBusinessGroupCommand
@@ -57,6 +60,9 @@ type fakeRepo struct {
 	tierPriceSchemes       []ProductTierPriceScheme
 	pricingRules           []ProductPricingRule
 	products               map[int64]Product
+	listedProducts         []Product
+	productionConfigRows   []ProductProductionConfig
+	productionConfigGet    ProductProductionConfig
 	publicUsages           []CustomerPublicUsage
 	deactivated            bool
 	usageSaved             bool
@@ -70,6 +76,9 @@ type fakeRepo struct {
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
+	if r.listedProducts != nil {
+		return r.listedProducts, nil
+	}
 	return []Product{{ID: 1, Name: "A"}}, nil
 }
 
@@ -133,25 +142,131 @@ func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory
 }
 
 func (r *fakeRepo) ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error) {
-	return nil, nil
+	return r.productionConfigRows, nil
 }
 
 func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error) {
+	if r.productionConfigGet.ProductID > 0 {
+		return r.productionConfigGet, nil
+	}
 	return ProductProductionConfig{ProductID: productID}, nil
 }
 
 func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
 	r.productionConfig = cmd
 	return ProductProductionConfig{
-		ProductID:               cmd.ProductID,
-		ProductionBomID:         cmd.ProductionBomID,
-		ProductionBomVersionID:  cmd.ProductionBomVersionID,
-		ProcessRouteID:          cmd.ProcessRouteID,
-		ExpectedLossRate:        cmd.ExpectedLossRate,
-		IndustryFieldTemplateID: cmd.IndustryFieldTemplateID,
-		Note:                    cmd.Note,
-		Fields:                  cmd.Fields,
+		ProductID:                cmd.ProductID,
+		ProductionBomID:          cmd.ProductionBomID,
+		ProductionBomVersionID:   cmd.ProductionBomVersionID,
+		ProcessRouteID:           cmd.ProcessRouteID,
+		ExpectedLossRate:         cmd.ExpectedLossRate,
+		IndustryFieldTemplateID:  cmd.IndustryFieldTemplateID,
+		IndustryFieldTemplateIDs: cmd.IndustryFieldTemplateIDs,
+		Note:                     cmd.Note,
+		Fields:                   cmd.Fields,
 	}, nil
+}
+
+func TestCurrentCatalogReadsNeutralizeLegacyOverallYieldAndLoss(t *testing.T) {
+	repo := &fakeRepo{
+		listedProducts:       []Product{{ID: 1, YieldRate: 0.8, ExpectedLossRate: 0.2}},
+		products:             map[int64]Product{1: {ID: 1, YieldRate: 0.8, ExpectedLossRate: 0.2}},
+		productionConfigRows: []ProductProductionConfig{{ProductID: 1, ExpectedLossRate: 0.2}},
+		productionConfigGet:  ProductProductionConfig{ProductID: 1, ExpectedLossRate: 0.2},
+	}
+	service := NewService(repo)
+
+	products, err := service.ListProducts(context.Background())
+	if err != nil || len(products) != 1 {
+		t.Fatalf("ListProducts() = %+v, %v", products, err)
+	}
+	if products[0].YieldRate != 1 || products[0].ExpectedLossRate != 0 {
+		t.Fatalf("ListProducts() must return neutral compatibility values: %+v", products[0])
+	}
+	product, err := service.GetProduct(context.Background(), 1)
+	if err != nil || product == nil {
+		t.Fatalf("GetProduct() = %+v, %v", product, err)
+	}
+	if product.YieldRate != 1 || product.ExpectedLossRate != 0 {
+		t.Fatalf("GetProduct() must return neutral compatibility values: %+v", product)
+	}
+	configs, err := service.ListProductProductionConfigs(context.Background())
+	if err != nil || len(configs) != 1 || configs[0].ExpectedLossRate != 0 {
+		t.Fatalf("ListProductProductionConfigs() must return zero compatibility loss: %+v, %v", configs, err)
+	}
+	config, err := service.GetProductProductionConfig(context.Background(), 1)
+	if err != nil || config.ExpectedLossRate != 0 {
+		t.Fatalf("GetProductProductionConfig() must return zero compatibility loss: %+v, %v", config, err)
+	}
+}
+
+func TestPR584SaveProductProductionConfigNormalizesOrderedIndustryTemplateIDs(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	result, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:                91,
+		IndustryFieldTemplateID:  -9999,
+		IndustryFieldTemplateIDs: []int64{3002, 3001, 3002},
+		Fields: []ProductProductionConfigField{{
+			FieldKey: " roast_level ",
+			Label:    " Roast level ",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []int64{3002, 3001}
+	if !reflect.DeepEqual(repo.productionConfig.IndustryFieldTemplateIDs, want) {
+		t.Fatalf("saved industry_field_template_ids=%v, want %v", repo.productionConfig.IndustryFieldTemplateIDs, want)
+	}
+	if repo.productionConfig.IndustryFieldTemplateID != 3002 {
+		t.Fatalf("saved legacy industry_field_template_id=%d, want first selected id", repo.productionConfig.IndustryFieldTemplateID)
+	}
+	if !reflect.DeepEqual(result.IndustryFieldTemplateIDs, want) || result.IndustryFieldTemplateID != 3002 {
+		t.Fatalf("result templates=%v legacy=%d, want %v and 3002", result.IndustryFieldTemplateIDs, result.IndustryFieldTemplateID, want)
+	}
+}
+
+func TestPR584SaveProductProductionConfigExplicitEmptyTemplateIDsClearFields(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:                91,
+		IndustryFieldTemplateID:  3001,
+		IndustryFieldTemplateIDs: []int64{},
+		Fields:                   []ProductProductionConfigField{{FieldKey: "roast_level"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.productionConfig.IndustryFieldTemplateID != 0 || len(repo.productionConfig.IndustryFieldTemplateIDs) != 0 {
+		t.Fatalf("saved templates=%v legacy=%d, want explicit clear", repo.productionConfig.IndustryFieldTemplateIDs, repo.productionConfig.IndustryFieldTemplateID)
+	}
+	if repo.productionConfig.Fields == nil || len(repo.productionConfig.Fields) != 0 {
+		t.Fatalf("saved fields=%v, want non-nil empty fields", repo.productionConfig.Fields)
+	}
+}
+
+func TestPR584SaveProductProductionConfigOmittedTemplateIDsFallsBackToLegacyScalar(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveProductProductionConfig(context.Background(), SaveProductProductionConfigCommand{
+		ProductID:               91,
+		IndustryFieldTemplateID: 3001,
+		Fields:                  []ProductProductionConfigField{{FieldKey: "roast_level"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := repo.productionConfig.IndustryFieldTemplateIDs, []int64{3001}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved industry_field_template_ids=%v, want legacy fallback %v", got, want)
+	}
+	if repo.productionConfig.IndustryFieldTemplateID != 3001 || len(repo.productionConfig.Fields) != 1 {
+		t.Fatalf("saved legacy config=%+v", repo.productionConfig)
+	}
 }
 
 func TestSaveProductProductionConfigClearsFieldsWithoutIndustryTemplate(t *testing.T) {
@@ -248,10 +363,120 @@ func (r *fakeRepo) ListBusinessGroups(ctx context.Context) ([]BusinessGroup, err
 }
 
 func (r *fakeRepo) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error) {
+	r.businessGroup = cmd
 	if cmd.ID == 0 {
 		cmd.ID = 61
 	}
 	return cmd, nil
+}
+
+func TestPR584SaveBusinessGroupIgnoresLegacyTemplateOwnedUsageWrites(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveBusinessGroup(context.Background(), BusinessGroup{
+		ID:   61,
+		Name: "商品分类模板",
+		Usages: []BusinessGroupUsage{
+			{UsageKey: " PRODUCT_CATALOG ", UsageLabel: " 商品档案 ", Active: true},
+			{UsageKey: BusinessGroupUsageMaterialCatalog, UsageLabel: "物料档案", Active: true},
+			{UsageKey: BusinessGroupUsageProductCatalog, UsageLabel: "重复", Active: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.businessGroup.Usages != nil || repo.businessGroup.ReplaceUsages {
+		t.Fatalf("cached template-owned usage payload must be ignored, got %+v", repo.businessGroup)
+	}
+
+	_, err = service.SaveBusinessGroup(context.Background(), BusinessGroup{ID: 61, Name: "商品分类模板", Usages: []BusinessGroupUsage{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.businessGroup.Usages != nil {
+		t.Fatalf("legacy empty usages=%#v, want nil no-op for cached clients", repo.businessGroup.Usages)
+	}
+
+	_, err = service.SaveBusinessGroup(context.Background(), BusinessGroup{ID: 61, Name: "商品分类模板", ReplaceUsages: true, Usages: []BusinessGroupUsage{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.businessGroup.Usages != nil || repo.businessGroup.ReplaceUsages {
+		t.Fatalf("cached explicit clear must not overwrite feature selection, got %+v", repo.businessGroup)
+	}
+}
+
+func TestPR584BusinessGroupFeatureSelectionIsOrderedFeatureOwnedAndRejectsPriceList(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+	repo.featureSelection = BusinessGroupFeatureSelection{
+		FeatureKey:       BusinessGroupUsageProductCatalog,
+		GroupTemplateIDs: []int64{72, 71},
+	}
+	selection, err := service.GetBusinessGroupFeatureSelection(context.Background(), " PRODUCT_CATALOG ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(selection.GroupTemplateIDs, []int64{72, 71}) {
+		t.Fatalf("ordered feature selection=%v", selection.GroupTemplateIDs)
+	}
+
+	selection, err = service.SaveBusinessGroupFeatureSelection(context.Background(), SaveBusinessGroupFeatureSelectionCommand{
+		Actor:            " tester ",
+		FeatureKey:       " PRODUCT_CATALOG ",
+		GroupTemplateIDs: []int64{72, 71, 72},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := repo.savedFeatureSelection, (SaveBusinessGroupFeatureSelectionCommand{
+		Actor:            "tester",
+		FeatureKey:       BusinessGroupUsageProductCatalog,
+		GroupTemplateIDs: []int64{72, 71},
+	}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved feature selection=%+v, want %+v", got, want)
+	}
+	if !reflect.DeepEqual(selection.GroupTemplateIDs, []int64{72, 71}) {
+		t.Fatalf("saved ordered feature selection=%v", selection.GroupTemplateIDs)
+	}
+
+	_, err = service.SaveBusinessGroupFeatureSelection(context.Background(), SaveBusinessGroupFeatureSelectionCommand{
+		FeatureKey:       BusinessGroupUsagePriceList,
+		GroupTemplateIDs: []int64{72},
+	})
+	if err == nil || !IsValidationError(err) {
+		t.Fatalf("price_list must not be an independent feature selection: %v", err)
+	}
+	if err := service.EnsureBusinessGroupUsage(context.Background(), 61, BusinessGroupUsageProductCatalog, "tester"); err == nil || !IsValidationError(err) {
+		t.Fatalf("legacy template-owned usage mutation must be rejected: %v", err)
+	}
+}
+
+func TestPR584BusinessGroupAssignmentNormalization(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	_, err := service.SaveBusinessGroupAssignment(context.Background(), BusinessGroupAssignment{
+		GroupID:     61,
+		GroupItemID: 62,
+		UsageKey:    " PRODUCT_CATALOG ",
+		ObjectKey:   " PRODUCT ",
+		ObjectID:    91,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.groupAssignment.UsageKey != BusinessGroupUsageProductCatalog || repo.groupAssignment.ObjectKey != "product" {
+		t.Fatalf("normalized assignment=%+v", repo.groupAssignment)
+	}
+
+	_, err = service.SaveBusinessGroupAssignment(context.Background(), BusinessGroupAssignment{
+		GroupID: 61, GroupItemID: 62, UsageKey: "unknown_usage", ObjectKey: "product", ObjectID: 91,
+	})
+	if err == nil || !IsValidationError(err) || err.Error() != "invalid business group usage" {
+		t.Fatalf("unsupported assignment usage err=%v", err)
+	}
 }
 
 func (r *fakeRepo) DeleteBusinessGroup(ctx context.Context, cmd DeleteBusinessGroupCommand) error {
@@ -276,6 +501,16 @@ func (r *fakeRepo) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGr
 
 func (r *fakeRepo) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
 	return nil
+}
+
+func (r *fakeRepo) GetBusinessGroupFeatureSelection(ctx context.Context, featureKey string) (BusinessGroupFeatureSelection, error) {
+	return r.featureSelection, nil
+}
+
+func (r *fakeRepo) SaveBusinessGroupFeatureSelection(ctx context.Context, cmd SaveBusinessGroupFeatureSelectionCommand) (BusinessGroupFeatureSelection, error) {
+	r.savedFeatureSelection = cmd
+	r.featureSelection = BusinessGroupFeatureSelection{FeatureKey: cmd.FeatureKey, GroupTemplateIDs: append([]int64(nil), cmd.GroupTemplateIDs...)}
+	return r.featureSelection, nil
 }
 
 func (r *fakeRepo) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {
@@ -1089,8 +1324,8 @@ func TestProductSettingsKeepsBomParamsOnNonGreenSKU(t *testing.T) {
 		t.Fatalf("settings products = %+v", settings.Products)
 	}
 	got := settings.Products[0]
-	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 0.96 {
-		t.Fatalf("instant coffee product settings = %+v, want roast/yield from SKU", got)
+	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 1 || got.ExpectedLossRate != 0 {
+		t.Fatalf("instant coffee product settings = %+v, want roast with retired yield fixed to 1/0", got)
 	}
 }
 
@@ -1133,8 +1368,51 @@ func TestCreateProductKeepsBomParamsOnInstantCoffee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProduct() err=%v", err)
 	}
-	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0.96 || repo.create.SpecialAttrsJSON == "{}" {
-		t.Fatalf("create command = %+v, want instant coffee yield and special attrs preserved without legacy roast", repo.create)
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 1 || repo.create.SpecialAttrsJSON == "{}" {
+		t.Fatalf("create command = %+v, want retired yield fixed to 1 and special attrs preserved without legacy roast", repo.create)
+	}
+}
+
+func TestCurrentProductWriteBoundariesIgnoreRetiredOverallYieldFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.CreateProduct(ctx, CreateProductCommand{
+		Name: "新建商品", ProductKind: "roasted", RoastLevel: "中烘", YieldRate: 0.8,
+	}); err != nil {
+		t.Fatalf("CreateProduct() error = %v", err)
+	}
+	if repo.create.YieldRate != 1 {
+		t.Fatalf("create yield_rate = %.4f, want fixed 1", repo.create.YieldRate)
+	}
+
+	if err := svc.UpdateProductBasics(ctx, UpdateProductBasicsCommand{
+		ProductID: 11, Name: "更新商品", ProductKind: "roasted", RoastLevel: "中烘", YieldRate: 0.7,
+	}); err != nil {
+		t.Fatalf("UpdateProductBasics() error = %v", err)
+	}
+	if repo.update.YieldRate != 1 {
+		t.Fatalf("update yield_rate = %.4f, want fixed 1", repo.update.YieldRate)
+	}
+
+	if _, err := svc.CreateCustomProduct(ctx, CreateCustomProductCommand{
+		CustomerID: 3, Name: "客户定制烘焙", ProductKind: "roasted", RoastLevel: "中烘", YieldRate: 0.6, CustomType: "custom_roast",
+	}); err != nil {
+		t.Fatalf("CreateCustomProduct() error = %v", err)
+	}
+	if repo.custom.YieldRate != 1 {
+		t.Fatalf("custom yield_rate = %.4f, want fixed 1", repo.custom.YieldRate)
+	}
+
+	got, err := svc.SaveProductProductionConfig(ctx, SaveProductProductionConfigCommand{
+		ProductID: 11, ExpectedLossRate: 0.2,
+	})
+	if err != nil {
+		t.Fatalf("SaveProductProductionConfig() error = %v", err)
+	}
+	if repo.productionConfig.ExpectedLossRate != 0 || got.ExpectedLossRate != 0 {
+		t.Fatalf("production config expected_loss_rate = command %.4f result %.4f, want fixed 0", repo.productionConfig.ExpectedLossRate, got.ExpectedLossRate)
 	}
 }
 
@@ -1583,7 +1861,7 @@ func TestCreateProductAcceptsInstantCoffeeWithDefaultBomParams(t *testing.T) {
 		t.Fatalf("CreateProduct(instant_coffee) err=%v", err)
 	}
 
-	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0 || repo.create.GreenBeanBomProductID != 0 {
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 1 || repo.create.GreenBeanBomProductID != 0 {
 		t.Fatalf("instant coffee product command = %+v", repo.create)
 	}
 }

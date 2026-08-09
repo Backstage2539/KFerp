@@ -269,6 +269,40 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 			return "设置 / 行业设置", "停用行业字段模板"
 		}
 		return "设置 / 行业设置", "维护行业字段模板"
+	case "product_production_config":
+		return "商品与配方 / 产品设置", "维护商品行业字段"
+	case "business_group":
+		return "设置 / 分组模板", "维护分组模板"
+	case "business_group_usage":
+		return "设置 / 分组模板", "维护功能引用"
+	case "business_group_feature_selection":
+		switch firstMetaText(auditMetaMap(meta), "feature_key") {
+		case "product_catalog":
+			return "商品与配方 / 商品档案", "保存分组模板选择"
+		case "material_catalog":
+			return "库存管理 / 物料档案", "保存分组模板选择"
+		case "production_bom":
+			return "商品与配方 / 生产BOM", "保存分组模板选择"
+		case "warehouse_inventory":
+			return "库存管理 / 库存中心", "保存分组模板选择"
+		default:
+			return "设置 / 分组模板", "保存分组模板选择"
+		}
+	case "business_group_assignment":
+		switch firstMetaText(auditMetaMap(meta), "usage_key") {
+		case "product_catalog":
+			return "商品与配方 / 产品设置", "维护商品分类"
+		case "material_catalog":
+			return "库存管理 / 物料档案", "维护物料分类"
+		case "production_bom":
+			return "商品与配方 / 生产BOM", "维护BOM分类"
+		case "warehouse_inventory":
+			return "库存管理 / 库存中心", "维护库存分类"
+		case "price_list":
+			return "订单销售 / 价格表", "维护价格表分类"
+		default:
+			return "设置 / 分组模板", "维护业务分类"
+		}
 	case "material":
 		return "库存管理 / 物料档案", "编辑物料档案"
 	case "customer", "customer_asset":
@@ -716,6 +750,12 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 		oldValue := ptrText(r.OldValue)
 		newValue := ptrText(r.NewValue)
 		return fmt.Sprintf("%s 在%s修改了%s 的%s：%s -> %s", actor, menuName, target, field, oldValue, newValue)
+	case "save_product_production_config", "save_business_group", "save_business_group_assignment":
+		return fmt.Sprintf("%s 在%s保存了%s", actor, menuName, auditTargetName(r, rawEntityType))
+	case "save_business_group_feature_selection":
+		return fmt.Sprintf("%s 在%s保存了%s", actor, menuName, auditTargetName(r, rawEntityType))
+	case "ensure_business_group_usage":
+		return fmt.Sprintf("%s 在%s启用了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "create":
 		if rawEntityType == "customer_external_user" {
 			return customerExternalUserCreateAuditSummary(r, actor, menuName)
@@ -868,6 +908,25 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(valueForField(r, "template"), firstMetaText(meta, "name", "product_id"))
 	case "industry_field_template":
 		return firstNonEmpty(valueForField(r, "template"), firstMetaText(meta, "name", "industry_key"))
+	case "product_production_config":
+		return firstMetaText(meta, "product_id")
+	case "business_group", "business_group_usage":
+		return firstMetaText(meta, "name", "group_id")
+	case "business_group_feature_selection":
+		switch firstMetaText(meta, "feature_key") {
+		case "product_catalog":
+			return "商品档案"
+		case "material_catalog":
+			return "物料档案"
+		case "production_bom":
+			return "生产BOM"
+		case "warehouse_inventory":
+			return "库存中心"
+		default:
+			return firstMetaText(meta, "feature_key")
+		}
+	case "business_group_assignment":
+		return firstMetaText(meta, "object_ref", "object_id", "group_item_id")
 	case "auth_account":
 		return firstMetaText(meta, "employee_id")
 	}
@@ -1051,6 +1110,16 @@ func labelEntityType(t string) string {
 		return "生产计划"
 	case "industry_field_template":
 		return "行业字段模板"
+	case "product_production_config":
+		return "商品行业字段配置"
+	case "business_group":
+		return "分组模板"
+	case "business_group_usage":
+		return "功能引用"
+	case "business_group_feature_selection":
+		return "功能分组模板选择"
+	case "business_group_assignment":
+		return "业务分类"
 	case "material":
 		return "物料"
 	case "customer":
@@ -1176,6 +1245,14 @@ func labelAction(a string) string {
 		return "启用/停用账号"
 	case "reset_password":
 		return "重置密码"
+	case "save_product_production_config", "save_business_group", "save_business_group_assignment":
+		return "保存"
+	case "save_business_group_feature_selection":
+		return "保存分组模板选择"
+	case "ensure_business_group_usage":
+		return "启用功能引用"
+	case "delete_business_group_assignment":
+		return "删除分类"
 	default:
 		return a
 	}
@@ -1199,6 +1276,16 @@ func labelField(f string) string {
 		return "订单"
 	case "price_tiers":
 		return "价格阶梯"
+	case "industry_field_template_ids":
+		return "行业字段模板"
+	case "usages":
+		return "功能引用"
+	case "usage_key":
+		return "功能"
+	case "group_item_id":
+		return "分类"
+	case "group_template_ids":
+		return "分组模板"
 	case "batch_id":
 		return "批次号"
 	case "deduct_status":

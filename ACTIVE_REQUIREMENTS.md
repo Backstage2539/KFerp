@@ -6,6 +6,114 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-585-BOM-SINGLE-MATERIAL-LOSS
+- Branch: codex/fix-cookie-bom-cost-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: implementation and automated verification complete; development deployment pending; Van manual acceptance todo
+- Scope: 删除当前 BOM 的整体产出率/整体预期损耗业务概念；未配置原料损耗时不放大，配置后唯一公式为 `净配方 × (1 + BOM原料损耗率)`，价格试算与新生产计划使用同一口径，历史工单、库存流水和价格快照不回算。生产 BOM 的当前名称统一去掉编号、`生产 BOM` 和版本号等结构性前后缀，只保留业务名。
+- DEV:
+  - DEV-585-SINGLE-LOSS-MATH：成本图、价格试算、计划投料和组件需求统一使用加耗公式，曲奇 1kg 的 BOM 物料成本为 `62.10元/kg`，冻结工序后标准制造成本为 `64.71元/kg`。
+  - DEV-585-REMOVE-OVERALL-YIELD：Vue/Vite BOM 与商品生产配置不再展示或提交整体产出率/整体预期损耗；当前业务 API 和计算不再读取旧 `yield_rate/expected_loss_rate` 放大结果。
+  - DEV-585-HISTORY-COMPATIBILITY：旧字段仅保留历史读取兼容，已冻结工单、历史库存流水、已发布价格表和订单快照不重算。
+  - DEV-585-BOM-NAME-NORMALIZATION：BOM 列表、详情及新建/修改/复制写入口幂等清洗 `BOM-000659`/`BOM000643`、`生产 BOM / V001` 等结构性前后缀；开发和生产现有名称通过业务 API 修复并保留状态。
+  - DEV-585-DOCS-ACCEPTANCE：同步生产、成本、商品物料手册、需求和验收证据。
+- Verifier:
+  - RED: 曲奇 `54×75% + 45×25%` 在 20% 原料损耗下当前按除法和旧 80% 产出率得到 `83.47`，而非唯一加耗口径；BOM 详情标签仍可拼出编号、后缀和版本。
+  - Unit/API: costing、production、BOM application/repository/API 定向测试及相关全量 Go 测试。
+  - Frontend/build: Vue BOM/商品配置源测试、全量前端测试和 Vite build。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-bom-single-material-loss.md`; deployment 后由 Van 人工验收。
+- Environment data: development 通过现有 API 清洗 128 条名称，production 清洗 149 条；两个环境残留均为 0，BOM 总数及启用/停用状态不变，操作日志分别新增 128/149 条。回滚映射分别位于 `/opt/stacks/erp/backups/bom-name-normalization-20260807T235317.json` 和 `/opt/stacks/erp-production/backups/bom-name-normalization-20260807T235348.json`。
+- Deployment: development only with the lightweight ERP path; production application deployment is explicitly out of scope.
+- Last update: 2026-08-08 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 因本机 awk 多行字符串兼容问题未写入；按脚本返回的 PR-585 手工登记。实际生产损耗报表可继续记录真实投入/产出，但不得作为 BOM 计划或标准成本的第二层配置参数。
+
+### PR-584-PRODUCT-MULTI-GROUP-TEMPLATES
+- Branch: codex/pr584-feature-owned-group-selection-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: corrected implementation and targeted GREEN complete; previous development delivery used the reversed ownership model and is being superseded; minimal development redeploy pending; PR in review; Van acceptance todo
+- Scope: 分组模板只维护模板与分类树，由商品档案多选自己使用的分组模板；商品档案按所选模板分类和收纳，商品价格表直接继承同一组模板作为商品类型；修复父级大类收起时子类仍保持展开的问题。
+- DEV:
+  - DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE：商品配置多模板引用、旧标量兼容、字段并集清理和原子审计。
+  - DEV-584-GROUP-USAGE-MULTI-REFERENCE：各功能页面维护自己选用的分组模板；分组模板页不再选择功能，功能选择原子保存并写操作日志。
+  - DEV-584-PRODUCT-GROUP-UNION-COLLAPSE：商品档案多选并合并展示全部已选模板、单一未分类、无选择平铺和父级折叠隐藏全部后代。
+  - DEV-584-PRICE-LIST-INHERIT-PRODUCT-GROUPS：商品价格表不维护独立分组引用，按商品档案所选模板生成一一对应的商品类型并忽略历史 `price_list` 引用。
+  - DEV-584-DOCS-ACCEPTANCE-DEPLOY：同步手册与验收证据，验证后合入 develop 并部署 development。
+- Verifier:
+  - RED correction contract: `go test ./internal/interfaces/http/support -run TestDev584ProductMultiGroupTemplatesDeliveryContracts -count=1` failed because `DEV-584-PRICE-LIST-INHERIT-PRODUCT-GROUPS` and corrected feature-owned documentation were absent.
+  - Unit/API: catalog application/repository/HTTP、costing 定向包、PostgreSQL 16.13 隔离库与场景脚本 GREEN。
+  - Frontend/build: corrected full frontend run 900/900；终审新增的同价目类型模板刷新回归定向 51/51 GREEN；合并前保留最小构建门禁。
+  - Manual: product archive、material/BOM/warehouse feature selection、group-template settings and inherited price-list types synchronized.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-product-multi-group-templates.md`; review P1/P2 findings closed. Van requested no browser/development business verification and will manually accept after deployment.
+- Deployment: previous implementation `eb553559` was merged as `bb6a3504` and deployed to development, but its template-owned “功能引用” model does not satisfy the corrected acceptance contract. Corrective branch merge and development redeploy are pending. `main`, production, the local miniapp export, WeChat upload/review/release remain untouched.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 原脏工作区不动；本次修正从 `origin/develop@f62f686f` 的独立工作区实施。权威关系改为功能侧有序选择：商品、物料、生产 BOM、仓库库存分别通过 `/api/business-group-feature-selections/{feature_key}` 读写；模板保存不得反向覆盖选择；商品价格表不得拥有独立 `price_list` 选择。旧单行业模板标量继续兼容。按 Van 2026-08-08 指示，只做 development 最轻量部署，不做浏览器或业务验证。
+
+### PR-583-RECIPIENT-COMPACT-ADDRESS-DIRECT-SHIP-PICKER
+- Branch: codex/pr583-recipient-directship-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: implementation and verification complete; merged to develop and ERP development deployed; DevTools and Van acceptance todo
+- Scope: 修复无分隔收货地址把整段误作姓名并清空地址的问题；一件代发商品明细改为与员工录单一致的“商品、规格、数量”常驻行和融合搜索/分类商品弹层。
+- DEV:
+  - DEV-583-COMPACT-RECIPIENT-PARSE：共享 `POST /api/customer-recipient/parse` 保守识别完整行政区地址末尾紧邻手机号的 2–4 字姓名；低置信度时保留地址并让姓名为空。
+  - DEV-583-SHARED-PRODUCT-PICKER：员工录单与一件代发共用商品族底部弹层，统一分类、名称、拼音、首字母、编码、SKU 与规格搜索。
+  - DEV-583-DIRECT-SHIP-LINES：一件代发初始和提交后保留空商品行，商品/规格/数量始终显示，默认规格和数量沿用员工录单，多行与有效行归并后提交。
+  - DEV-583-DOCS-ACCEPTANCE-DEPLOY：同步需求、验收、客户门户手册，完成验证、develop 合并、development ERP 部署和小程序开发版导入。
+- Verifier:
+  - Unit: shared recipient parser exact/compact/safety tests；direct ship row/default spec/payload helper tests。
+  - API: ERP、员工小程序和客户代发会话共用解析 API，结果一致且不回显原文；代发目录隔离与库存重验回归。
+  - Frontend/build: miniapp targeted/full tests、typecheck 与 development mp-weixin build GREEN；微信开发者工具交互验收待办。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`。
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-07-recipient-direct-ship-picker.md`；Van development 业务验收待办。
+- Deployment: feature merged to `develop` as `35cbe1a8`; the shared development deployment of `bb6a3504` included its ERP and server-built development miniapp sources. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260807231446-bb6a35041965`; rollback image `kferp-orderapp-rollback:development-20260807231446-bb6a35041965`. Local miniapp export was intentionally skipped, so DevTools import/preview remains pending; production/main/WeChat upload-review-release were not touched.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 原脏工作区不动；解析和商品选择本身只读，不新增日志类型，发货提交/取消继续使用现有审计。RED/GREEN、独立复审、全量 Go、miniapp 195 项、typecheck、development 构建、develop 合并和 ERP development 部署已完成；等待 DevTools 与 Van 验收。
+
+### PR-582-MINI-FULFILLMENT-LIST-INVENTORY-NAVIGATION
+- Branch: codex/mini-fulfillment-search-inventory-multiselect-20260807
+- Owner/session: Codex / 2026-08-07
+- Status: implementation RED/GREEN、integration and development delivery complete; PR in review; Van acceptance todo
+- Scope: 优化代加工客户小程序发货中心和我的库存：发货条目以目的地与收件人为主标题，支持包裹有效发货时间与客户/电话/目的地搜索；库存详情改为独立页面，列表支持商品搜索和多选后一次预填生产工单。
+- DEV:
+  - DEV-582-DIRECT-SHIP-LIST：发货中心按包裹有效发货时间提供当天、三天内、一周内、当月和自定义范围筛选；按收件客户/收件公司、收件人、电话和目的地服务端模糊搜索，并返回标准分页元数据。有效时间优先真实 `shipped_at`，历史/订单抽屉物流缺少该时间时兼容使用首条物流录入时间。
+  - DEV-582-INVENTORY-DETAIL：库存卡片进入独立详情页，使用微信原生导航栈返回；详情展示汇总与批次追溯并可添加生产工单。
+  - DEV-582-INVENTORY-MULTI-PREFILL：库存列表支持商品名称服务端搜索、分页和跨搜索/跨页多选且选中项不丢失；多项通过一次性内存上下文进入生产工单并分别填数量，未配置可用 BOM 的商品明确提示。
+  - DEV-582-DOCS-ACCEPTANCE-DEPLOY：同步需求、验收、客户门户/履约/库存手册，完成测试、开发构建、develop 合并与 development 部署。
+- Verifier:
+  - RED: 发货卡片仍显示 `DSR-*`，列表 API 无有效发货时间/关键词/分页参数；库存详情内嵌且生产预填只支持单项并可能重复消费。
+  - Unit/API: customer fulfillment 应用、HTTP、PostgreSQL筛选分页测试；miniapp 发货筛选、库存导航、多选和一次性预填测试。
+  - Frontend/build: miniapp targeted/full tests、typecheck、development mp-weixin build、页面清单与微信开发者工具交互验收。
+  - Manual: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_STOCK.md`。
+- Deployment: first development delivery used `origin/develop` commit `6fa32c00c344f0be3d3495fcf342f32bfc691b1f` with `./deploy_orderapp.sh development`; server source backup `/opt/stacks/erp/orderapp.backup.deploy-20260807175731-6fa32c00c344`, local miniapp backup `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260807180326-6fa32c00c344`. Development containers are healthy and `https://dev.qacoohee.com/app/login` returned HTTP 200. WeChat DevTools re-imported the fixed development directory `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; UI smoke covered shipment filters/search and the independent inventory list/detail flow. `main`, production and WeChat upload/review were not touched.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 每个包裹优先取最新非空 `order_shipment_orders.shipped_at`；历史/订单抽屉物流没有真实时间时取最早 `order_shipping_trackings.created_at` 作为兼容有效时间。任一包裹按 Asia/Shanghai 自然日命中即返回整张申请及全部包裹；启用时间筛选时无有效时间的记录不命中。新增筛选、导航和预填只读交互不新增操作日志类型；最终生产申请继续沿用既有审计写接口。
+
+### PR-581-MINI-CUSTOMER-FULFILLMENT-CLOSED-LOOP
+- Branch: codex/mini-customer-fulfillment-closed-loop-20260806
+- Owner/session: Codex / 2026-08-06
+- Status: implementation and independent review complete; merged to develop and deployed to development at `b6431f01`; API DEV-E2E and DevTools visual acceptance complete; awaiting Van business confirmation
+- Scope: 重构代加工客户小程序的一件代发、生产工单、客户库存、发货中心与费用中心；复用 ERP 地址解析、商品选择、生产 BOM、中央库存和真实工单链路，补齐工单费用模板与账单闭环，并部署开发环境。
+- DEV:
+  - DEV-581-DIRECT-SHIP：客户仓库存目录、多商品发货、FIFO/跨仓拆单、幂等预留及内部代发唯一写入。
+  - DEV-581-PROCESSING-WORK-ORDERS：多商品生产申请、BOM 物料预览、WIP/库存校验预留、客户目标仓与真实工单状态联动。
+  - DEV-581-CUSTOMER-INVENTORY：客户绑定成品仓中央库存列表、批次详情及库存到生产工单预填。
+  - DEV-581-PROCESSING-BILLING：版本化代加工费用模板、完工工单费用预览/账单快照和小程序账单详情。
+  - DEV-581-MINIAPP-UX：入口改名、发货中心、表单精简、共享商品选择、能力隐藏和账单/库存详情。
+  - DEV-581-DOCS-ACCEPTANCE-DEPLOY：需求、验收、客户门户/履约/生产/库存手册、开发测试数据、develop 合并和 development 部署。
+- Verifier:
+  - Command: `./scripts/verify_pr581_customer_closed_loop.sh` (targeted Go/API + full Vue tests/build + full miniapp tests/typecheck/development build/artifact manifest).
+  - Unit: full Go `go test ./...` GREEN；miniapp 173/173 GREEN；ERP Vue 881/881 GREEN。
+  - API: shared recipient parser、direct ship、processing、inventory、billing lifecycle and permissions GREEN；customerfulfillment/customerportal/production/sales 真实 PostgreSQL 回归 GREEN。
+  - Frontend/build: Vue/Vite build、miniapp typecheck、development mp-weixin build、13-page/52-file artifact manifest GREEN。
+  - Remote preflight: feature、schema upgrade-order、authentication 和 customer completion warehouse hotfix 均通过远端发布前检查；Go 测试、ERP Vue 881 项和 miniapp 173 项均 GREEN。
+  - Manual: customer portal、fulfillment、production、stock、finance、requirements and acceptance single-source docs synchronized.
+  - Review/acceptance: independent contract review found and closed billing menu/permission split; final review has no open P0/P1; eight new routes returned the expected authentication response and the shared recipient parser returned one JSON document; Codex API DEV-E2E and visual acceptance are complete, with Van business confirmation pending.
+- DEV-E2E: shared address parsing passed; cross-warehouse FIFO direct ship created two packages and passed idempotency/cancellation; production request `3` flowed through plan `86`, work orders `42`/`43` and process cards `65`/`66` to completion in the customer frozen warehouse, producing 4 units of 227g and 3 units of 454g (454g customer inventory total 5 after production); batch `FP-48` exposes production date/inbound time and legacy batches expose the history marker; bill `CPB-19-00000001` contains 2 work orders, 6 lines and total `91.00`, charges customer-owned materials at `0`, and passed idempotency; required operation logs have no gaps.
+- Deployment: feature `6d31cebc` merged to develop as `0f32b5e7`; legacy-schema startup order was corrected by hotfix `5772daa9` / merge `32dac811`, authentication compatibility by hotfix `633d1573` / merge `b6bf1670`, and omitted customer completion warehouse by hotfix `37def50a` / PR `#17` / merge `b6431f01`. Final `origin/develop@b6431f01` is deployed to development. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260807151012-b6431f013acf`; rollback image `kferp-orderapp-rollback:development-20260807151012-b6431f013acf`; application container is healthy.
+- DevTools: latest fixed development package contains all 52 manifest files; the project was reopened, showing 0 errors and 0 warnings. Home page, fulfillment center, production, inventory batch, bill detail and profile entry hiding passed visual inspection. No WeChat upload, review or release was performed.
+- Last update: 2026-08-07 Asia/Shanghai
+- Notes: 原脏工作区不动；实现从最新 origin/develop 的干净隔离分支进行。测试账号凭据不写入源码、文档或日志。Codex DEV-E2E 只通过正常 ERP/API 执行并已全部通过；测试数据 `DEV-E2E-PR581-20260807` 保留至 Van 确认后再清理。Van 业务确认仍待；`main`、production 和微信上传/审核均未操作。
+
 ### PR-580-CUSTOMER-PORTAL-EXTERNAL-USER-CAPABILITY-TEMPLATE
 - Branch: codex/miniapp-address-portal-fix-20260804
 - Owner/session: Codex / 2026-08-04

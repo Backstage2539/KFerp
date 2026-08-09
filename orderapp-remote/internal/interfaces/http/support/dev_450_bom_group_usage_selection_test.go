@@ -17,17 +17,19 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 			"REV-450-BOM-GROUP-USAGE-SELECTION",
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "business_group_routes.go"): {
-			`POST("/api/business-groups/:id/usages"`,
-			"ensureBusinessGroupUsageAPI",
+			`GET("/api/business-group-feature-selections/:feature_key"`,
+			`PUT("/api/business-group-feature-selections/:feature_key"`,
+			"saveBusinessGroupFeatureSelectionAPI",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
-			"EnsureBusinessGroupUsage",
+			"SaveBusinessGroupFeatureSelection",
+			"business group feature selection must be saved by feature",
 			"BusinessGroupUsageProductionBOM",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
-			"func (r Repository) EnsureBusinessGroupUsage",
-			"ensureBusinessGroupUsageForAssignmentTx",
-			"ensure_business_group_usage",
+			"func (r Repository) SaveBusinessGroupFeatureSelection",
+			"save_business_group_feature_selection",
+			"business_group_usages",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"selectedProductionBomTemplateID",
@@ -51,7 +53,6 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 		filepath.Join("docs", "acceptance", "2026-06-08-production-bom-group-usage-selection.md"): {
 			"PR-450",
 			"历史兼容",
-			"POST /api/business-groups/:id/usages",
 			"普通生产 BOM 页面不再暴露 `使用分组`",
 		},
 	} {
@@ -60,6 +61,16 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-450 marker %q", rel, want)
 			}
+		}
+	}
+	for _, rel := range []string{
+		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"),
+		filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"),
+		filepath.Join("frontend-vue-shell", "src", "views", "WarehouseInventoryView.vue"),
+	} {
+		src := string(readOrderAppFileForTest(t, rel))
+		if strings.Contains(src, "/usages") {
+			t.Fatalf("%s must not depend on the retired template-owned usage write", rel)
 		}
 	}
 }

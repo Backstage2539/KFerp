@@ -43,12 +43,12 @@ func TestMiniappAccountingBillsEvidenceExists(t *testing.T) {
 	} {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range []string{
-			"账期筛选",
-			"本周、本月、本年",
-			"订单号跳转订单页",
+			"费用中心",
+			"关联真实工单",
+			"不显示订单应收",
 		} {
 			if !strings.Contains(body, want) {
-				t.Fatalf("%s missing miniapp accounting bills manual marker %q", path, want)
+				t.Fatalf("%s missing replacement miniapp accounting bills manual marker %q", path, want)
 			}
 		}
 	}
@@ -56,31 +56,30 @@ func TestMiniappAccountingBillsEvidenceExists(t *testing.T) {
 
 func TestMiniappAccountingBillsSourceWiring(t *testing.T) {
 	for path, wants := range map[string][]string{
-		filepath.Join("internal", "application", "customerportal", "service.go"): {
-			"settlementAccountingSummary",
-			"应收总额",
-			"待结算金额",
-			"PaymentMethod",
+		filepath.Join("internal", "interfaces", "http", "customerportal", "mini_api.go"): {
+			"/api/mini/customer-bills",
+			"ListCustomerBills",
+			"GetCustomerBill",
 		},
-		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go"): {
-			"COALESCE(o.payment_method,'')",
-			"listCustomerOrders(ctx, query, limit, false)",
+		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "processing_bills.go"): {
+			"processing_billing_run_id>0",
+			"customer_id=$1",
+			"status IN ('confirmed','settled','paid','reversed')",
 		},
-		filepath.Join("..", "miniapp", "src", "utils", "orderFilters.ts"): {
-			"'week'",
-			"'year'",
+		filepath.Join("..", "miniapp", "src", "api", "customerPortal.ts"): {
+			"buildCustomerBillsPath",
+			"fetchCustomerBillDetail",
 		},
-		filepath.Join("..", "miniapp", "src", "pages", "service", "service.vue"): {
-			"账期筛选",
-			"openOrderFromBill",
-			"serviceKey !== 'settlement' && page?.orders?.length",
-			"paymentMethodText",
+		filepath.Join("..", "miniapp", "src", "components", "CustomerBillsPanel.vue"): {
+			"关联工单",
+			"费用项目",
+			"计费依据",
 		},
 	} {
 		body := string(readOrderAppFileForTest(t, path))
 		for _, want := range wants {
 			if !strings.Contains(body, want) {
-				t.Fatalf("%s missing miniapp accounting bills source marker %q", path, want)
+				t.Fatalf("%s missing replacement miniapp accounting bills source marker %q", path, want)
 			}
 		}
 	}

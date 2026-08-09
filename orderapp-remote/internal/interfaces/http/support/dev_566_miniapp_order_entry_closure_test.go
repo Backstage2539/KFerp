@@ -129,7 +129,7 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 	for _, marker := range []string{
 		"订单日期",
 		"搜索客户名称 / 拼音 / 首字母",
-		"商品 / 别名 / 拼音 / 编码 / 规格",
+		"ProductFamilyPickerSheet",
 		"选择客户后自动带入",
 		"重新登录",
 		"重试",
@@ -137,5 +137,12 @@ func TestDev566MiniappOrderEntryClosureContracts(t *testing.T) {
 		if !strings.Contains(string(miniPage), marker) {
 			t.Fatalf("miniapp order entry missing %q", marker)
 		}
+	}
+	productPicker, err := os.ReadFile(filepath.Join(miniappRoot, "src", "components", "ProductFamilyPickerSheet.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(productPicker), "商品 / 别名 / 拼音 / 编码 / 规格") {
+		t.Fatal("shared miniapp product picker missing searchable product contract")
 	}
 }

@@ -53,6 +53,40 @@ func TestProductionPlanCreateAllowsDefaultInputForSelectedRows(t *testing.T) {
 	}
 }
 
+func TestNewProductionPlanUsesBomMaterialLossAsOnlyInputAdjustment(t *testing.T) {
+	src, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	start := strings.Index(text, "func createProductionPlanItemForGroupTx")
+	end := strings.Index(text, "func linkProcessingRequestItemToPlanTx")
+	if start < 0 || end <= start {
+		t.Fatal("createProductionPlanItemForGroupTx source not found")
+	}
+	body := text[start:end]
+	for _, want := range []string{
+		"productionInputGFromBomMaterialLoss(group.NeedG, bomMaterialLossRate)",
+		"plannedFinishedInventoryAddition(group.SpecG, group.NeedG)",
+		"BomYieldRate:        1",
+		"processSnapshot.YieldRate = 1",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("new production plans must freeze target output and apply only BOM material loss; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"normalizedYield := 1 - bomMaterialLossRate",
+		"runningInventoryPlan(group.SpecG, group.NeedG, group.InputG",
+		"bomRoute.YieldRate",
+		"expected_loss_rate",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("new production plan must not derive input/output from legacy overall yield; found %q", forbidden)
+		}
+	}
+}
+
 func TestProductionPlanCreateSplitsOrderLevelDemandBeforeFilteringSelectedRows(t *testing.T) {
 	src, err := os.ReadFile("production_plan.go")
 	if err != nil {

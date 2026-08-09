@@ -23,7 +23,7 @@ func TestDev531SettingsEntryConsolidationContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"):                                          {"PR-531-SETTINGS-ENTRY-CONSOLIDATION"},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                      {"PR-531-SETTINGS-ENTRY-CONSOLIDATION"},
 		filepath.Join("docs", "OP_MANUAL_SETTINGS_AUDIT.md"):                              {"设置 / 公司设置", "代加工模板设置` 不再作为主菜单入口"},
-		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                     {"旧成本参数设置已移除"},
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                     {"过时的成本参数设置已移除"},
 		filepath.Join("docs", "acceptance", "2026-07-12-settings-entry-consolidation.md"): {"PR-531 设置入口归并验收"},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

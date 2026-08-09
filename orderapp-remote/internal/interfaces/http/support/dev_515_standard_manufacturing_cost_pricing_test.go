@@ -41,7 +41,7 @@ func TestDev515StandardManufacturingCostPricingContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"标准制造成本",
-			"价格计算模板只做加价率、税率和取整",
+			"损耗不在价格模板或试算抽屉重复配置",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"标准制造成本",

@@ -274,15 +274,7 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 	})
 
 	e.POST("/api/industry-calculators/preview", func(c echo.Context) error {
-		var req manufacturingapp.IndustryCalculatorPreviewCommand
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
-		}
-		row, err := svc.PreviewIndustryCalculator(c.Request().Context(), req)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, row)
+		return c.JSON(http.StatusGone, ErrorResponse{Error: "行业计算预览已停用；原料损耗只能在生产 BOM 版本中配置"})
 	})
 
 	e.GET("/api/process-templates", func(c echo.Context) error {

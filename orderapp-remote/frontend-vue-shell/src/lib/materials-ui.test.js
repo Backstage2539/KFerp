@@ -25,12 +25,14 @@ test('warehouse settings opens from selected warehouse while grouping is handled
 
 test('warehouse inventory uses shared business grouping helpers', () => {
   assert.match(warehouseSource, /businessGroupControlOptions/)
-  assert.match(warehouseSource, /preferredBusinessGroupTemplateID/)
-  assert.match(warehouseSource, /groupRowsByBusinessGroupTemplate/)
+  assert.match(warehouseSource, /businessGroupRowsForFeatureSelection/)
+  assert.match(warehouseSource, /businessGroupFeatureSelectionPayload/)
+  assert.match(warehouseSource, /business-group-feature-selections\/warehouse_inventory/)
+  assert.match(warehouseSource, /groupRowsByBusinessGroupTemplates\(/)
   assert.match(warehouseSource, /businessGroupMoveAssignmentPayload/)
-  assert.match(warehouseSource, /objectKey:\s*'warehouse'/)
-  assert.match(warehouseSource, /objectRef:\s*code/)
-  assert.match(warehouseSource, /preferredNameIncludes:\s*\['库存',\s*'仓库'\]/)
+  assert.match(warehouseSource, /objectKey:\s*'warehouse_inventory_item'/)
+  assert.match(warehouseSource, /inventoryItemObjectRef/)
+  assert.doesNotMatch(warehouseSource, /preferredBusinessGroupTemplateID/)
   assert.doesNotMatch(warehouseSource, /\[group\.name \|\| '库存分组', parentName, item\.name/)
   assert.doesNotMatch(warehouseSource, /仓库库存默认分组/)
   assert.doesNotMatch(warehouseSource, /businessGroupItemMoveOptions/)
@@ -42,17 +44,41 @@ test('warehouse inventory groups warehouses by template without ordinary custome
   const warehousePanel = template.match(/<aside class="panel warehouse-panel">[\s\S]*?<\/aside>/)?.[0] || template
 
   assert.match(warehouseSource, /BusinessGroupControls/)
-  assert.match(warehouseSource, /groupRowsByBusinessGroupTemplate/)
+  assert.match(warehouseSource, /groupRowsByBusinessGroupTemplates\(/)
   assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
-  assert.match(warehousePanel, /v-for="group in warehouseDisplayGroups"/)
-  assert.match(warehousePanel, /toggleWarehouseSelection/)
-  assert.match(warehousePanel, /:can-select-target="canSelectWarehouseMoveTarget"/)
+  assert.doesNotMatch(warehousePanel, /BusinessGroupControls/)
+  assert.doesNotMatch(warehousePanel, /v-for="group in warehouseDisplayGroups"/)
+  assert.doesNotMatch(warehousePanel, /toggleWarehouseSelection/)
+  assert.match(warehousePanel, /warehouse-flat-list/)
   assert.doesNotMatch(warehousePanel, /普通仓库/)
   assert.doesNotMatch(warehousePanel, /客户仓库/)
   assert.doesNotMatch(warehouseSource, /generalWarehouses/)
   assert.doesNotMatch(warehouseSource, /customerWarehouses/)
   assert.doesNotMatch(warehouseSource, /warehouseSections/)
+  assert.match(warehouseSource, /inventoryDisplayGroups/)
+  assert.match(warehouseSource, /toggleInventoryItemSelection/)
+  assert.match(warehouseSource, /canMoveSelectedInventoryItems/)
+})
+
+test('warehouse inventory script setup has no stale pre-rename grouping identifiers', () => {
+  const scriptSetup = warehouseSource.split('<script setup>')[1]?.split('</script>')[0] || ''
+  assert.ok(scriptSetup, 'expected a <script setup> block in WarehouseInventoryView.vue')
+
+  const staleIdentifiers = [
+    'selectedWarehouseGroupTemplateID',
+    'warehouseGroupItemOptions',
+    'selectedWarehouseMoveGroupItemID',
+    'selectedWarehouseKeys',
+    'collapsedWarehouseGroups',
+    'syncSelectedWarehouseGroupTemplate',
+  ]
+  for (const name of staleIdentifiers) {
+    assert.doesNotMatch(scriptSetup, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+
+  assert.match(scriptSetup, /watch\(selectedInventoryGroupTemplateID,/)
+  assert.match(scriptSetup, /watch\(inventoryGroupItemOptions,/)
 })
 
 test('group template page manages categories without business objects', () => {
@@ -107,7 +133,10 @@ test('materials archive classification uses shared group template controls', () 
 
   assert.match(materialsSource, /BusinessGroupControls/)
   assert.match(materialsSource, /businessGroupControlOptions/)
-  assert.match(materialsSource, /preferredBusinessGroupTemplateID/)
+  assert.match(materialsSource, /businessGroupRowsForFeatureSelection/)
+  assert.match(materialsSource, /businessGroupFeatureSelectionPayload/)
+  assert.match(materialsSource, /business-group-feature-selections\/material_catalog/)
+  assert.doesNotMatch(materialsSource, /preferredBusinessGroupTemplateID/)
   assert.match(materialsSource, /groupRowsByBusinessGroupTemplate/)
   assert.match(materialsSource, /businessGroupMoveAssignmentPayload/)
   assert.match(materialsSource, /material_catalog/)

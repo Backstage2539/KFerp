@@ -25,10 +25,12 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 			"restorePriceListGenerationDraftForActiveType",
 			"savePriceListGenerationDraftForActiveType",
 			"mode === 'pricing_rule' || mode === 'tier_template'",
-			"productCatalogBusinessGroupRowsForPriceList",
+			"selectedProductCatalogGroupTemplates",
+			"businessGroupRowsForFeatureSelection",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"businessGroupRowsForUsage(businessGroups.value, 'product_catalog')",
+			"businessGroupRowsForFeatureSelection(businessGroups.value, productGroupFeatureSelectionIDs.value)",
+			"apiGet('/api/business-group-feature-selections/product_catalog')",
 			"skuGroupPagination: skuGroupPagination.value",
 			"if (restoringProductSettingsDraft) return",
 		},
@@ -42,13 +44,15 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 			"assert.match(flatRowSource, /mode === 'pricing_rule' \\|\\| mode === 'tier_template'/)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "business-grouping.test.js"): {
-			"product catalog business group rows include generic templates without legacy usage bindings",
-			"product_catalog",
+			"feature-owned business group selection resolves templates in the selected order without template usages",
+			"feature-owned business group selection normalizes GET and PUT contracts",
+			"group_template_ids",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX",
 			"刷新后继续保留",
 			"熟豆-红岩拼配",
+			"PR-534 的“无用途绑定即通用候选”口径由本需求替代",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX",
@@ -71,6 +75,9 @@ func TestDev467PriceListGenerationPersistencePreviewGroupFixContracts(t *testing
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-467 marker %q", rel, want)
 			}
+		}
+		if rel == filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue") && strings.Contains(src, "businessGroupRowsForUsage(businessGroups.value, 'product_catalog')") {
+			t.Fatalf("%s should resolve product templates from the saved feature selection", rel)
 		}
 	}
 }

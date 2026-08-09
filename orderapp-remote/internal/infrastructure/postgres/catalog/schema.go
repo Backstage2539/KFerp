@@ -177,11 +177,13 @@ CREATE TABLE IF NOT EXISTS %[1]s.business_group_usages (
 	usage_key TEXT NOT NULL,
 	usage_label TEXT NOT NULL DEFAULT '',
 	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.business_group_usages ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 100;
 CREATE UNIQUE INDEX IF NOT EXISTS business_group_usages_group_key_uq
 ON %[1]s.business_group_usages(group_id, lower(usage_key))
 WHERE active=true;
@@ -543,6 +545,27 @@ CREATE INDEX IF NOT EXISTS product_production_configs_bom_idx
 ON %[1]s.product_production_configs(production_bom_id, production_bom_version_id);
 CREATE INDEX IF NOT EXISTS product_production_configs_process_route_idx
 ON %[1]s.product_production_configs(process_route_id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_industry_templates (
+	product_id BIGINT NOT NULL,
+	template_id BIGINT NOT NULL,
+	sort_order INT NOT NULL DEFAULT 1,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(product_id, template_id)
+);
+CREATE INDEX IF NOT EXISTS product_production_config_industry_templates_template_idx
+ON %[1]s.product_production_config_industry_templates(template_id, product_id);
+CREATE INDEX IF NOT EXISTS product_production_config_industry_templates_product_sort_idx
+ON %[1]s.product_production_config_industry_templates(product_id, sort_order, template_id);
+INSERT INTO %[1]s.product_production_config_industry_templates(
+	product_id, template_id, sort_order, created_by, updated_by
+)
+SELECT product_id, industry_field_template_id, 1, 'system-backfill', 'system-backfill'
+FROM %[1]s.product_production_configs
+WHERE COALESCE(industry_field_template_id,0) > 0
+ON CONFLICT (product_id, template_id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_fields (
 	id BIGSERIAL PRIMARY KEY,
 	product_id BIGINT NOT NULL,
@@ -1029,8 +1052,12 @@ target_group AS (
 ),
 usage_upsert AS (
 	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
-	SELECT id, 'product_catalog', '商品档案归组', true, 'system-pr442-migration', 'system-pr442-migration'
-	FROM target_group
+	SELECT tg.id, 'product_catalog', '商品档案归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group tg
+	WHERE NOT EXISTS (
+		SELECT 1 FROM %[1]s.business_group_usages existing
+		WHERE existing.group_id=tg.id AND lower(existing.usage_key)='product_catalog'
+	)
 	ON CONFLICT DO NOTHING
 	RETURNING id
 ),
@@ -1098,8 +1125,12 @@ target_group AS (
 ),
 usage_upsert AS (
 	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
-	SELECT id, 'production_bom', '生产 BOM 归组', true, 'system-pr442-migration', 'system-pr442-migration'
-	FROM target_group
+	SELECT tg.id, 'production_bom', '生产 BOM 归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group tg
+	WHERE NOT EXISTS (
+		SELECT 1 FROM %[1]s.business_group_usages existing
+		WHERE existing.group_id=tg.id AND lower(existing.usage_key)='production_bom'
+	)
 	ON CONFLICT DO NOTHING
 	RETURNING id
 ),
@@ -1165,8 +1196,12 @@ target_group AS (
 ),
 usage_upsert AS (
 	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
-	SELECT id, 'warehouse_inventory', '仓库库存视图仓库归组', true, 'system-pr442-migration', 'system-pr442-migration'
-	FROM target_group
+	SELECT tg.id, 'warehouse_inventory', '仓库库存视图仓库归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group tg
+	WHERE NOT EXISTS (
+		SELECT 1 FROM %[1]s.business_group_usages existing
+		WHERE existing.group_id=tg.id AND lower(existing.usage_key)='warehouse_inventory'
+	)
 	ON CONFLICT DO NOTHING
 	RETURNING id
 ),
@@ -1234,8 +1269,12 @@ target_group AS (
 ),
 usage_upsert AS (
 	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
-	SELECT id, 'material_catalog', '物料档案归组', true, 'system-pr513-migration', 'system-pr513-migration'
-	FROM target_group
+	SELECT tg.id, 'material_catalog', '物料档案归组', true, 'system-pr513-migration', 'system-pr513-migration'
+	FROM target_group tg
+	WHERE NOT EXISTS (
+		SELECT 1 FROM %[1]s.business_group_usages existing
+		WHERE existing.group_id=tg.id AND lower(existing.usage_key)='material_catalog'
+	)
 	ON CONFLICT DO NOTHING
 	RETURNING id
 ),
@@ -1323,11 +1362,10 @@ DELETE FROM %[1]s.product_production_config_fields f
 WHERE NOT EXISTS (
 	SELECT 1 FROM %[1]s.product_production_configs c WHERE c.product_id=f.product_id
 )
-OR EXISTS (
+OR NOT EXISTS (
 	SELECT 1
-	FROM %[1]s.product_production_configs c
-	WHERE c.product_id=f.product_id
-	  AND COALESCE(c.industry_field_template_id,0) <= 0
+	FROM %[1]s.product_production_config_industry_templates selected
+	WHERE selected.product_id=f.product_id
 );
 `, schema)); err != nil {
 		return err
@@ -1344,16 +1382,15 @@ OR EXISTS (
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
 DELETE FROM %[1]s.product_production_config_fields f
 WHERE EXISTS (
-	SELECT 1
-	FROM %[1]s.product_production_configs c
+	SELECT 1 FROM %[1]s.product_production_configs c
 	WHERE c.product_id=f.product_id
-	  AND COALESCE(c.industry_field_template_id,0) > 0
 	  AND NOT EXISTS (
 		SELECT 1
-		FROM %[1]s.industry_field_templates t
-		JOIN %[1]s.industry_field_definitions d ON d.template_id=t.id
-		WHERE t.id=c.industry_field_template_id
-		  AND btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))
+		FROM %[1]s.product_production_config_industry_templates selected
+		JOIN %[1]s.industry_field_templates t ON t.id=selected.template_id
+		JOIN %[1]s.industry_field_definitions d ON d.template_id=selected.template_id
+		WHERE selected.product_id=c.product_id
+		  AND lower(btrim(d.field_key))=lower(COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key)))
 	  )
 );
 `, schema))

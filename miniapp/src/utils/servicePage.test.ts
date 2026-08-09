@@ -19,6 +19,7 @@ describe('service page helpers', () => {
     expect(serviceCapability('orders')).toBe('product_order')
     expect(serviceCapability('processing')).toBe('processing')
     expect(serviceTitle('orders')).toBe('订单中心')
+    expect(serviceTitle('processing')).toBe('生产工单')
     expect(serviceTitle('settlement')).toBe('费用中心')
   })
 
@@ -38,31 +39,50 @@ describe('service page helpers', () => {
     expect(sections.map((section) => section.title)).toEqual(['我的订单', '费用明细'])
   })
 
-  it('labels settlement orders as bill rows', () => {
+  it('does not expose sales orders as fee-center bill rows', () => {
     const sections = visibleServiceSections({
       key: 'settlement',
       title: '结算中心',
       orders: [{ order_no: 'SO-YAN-BILL', grand_total: '4559.00' }],
+      settlement_batches: [{ settlement_no: 'SET-1', total_amount: '4559.00' }],
     })
 
-    expect(sections.map((section) => section.title)).toEqual(['订单账单'])
+    expect(sections.map((section) => section.title)).toEqual(['账单'])
   })
 
-  it('keeps settlement billing unfiltered by default so older unpaid orders stay in the summary', () => {
+  it('loads fee-center bills independently from sales-order filters', () => {
     const servicePage = readSource('src/pages/service/service.vue')
+    const billsPanel = readSource('src/components/CustomerBillsPanel.vue')
 
     expect(servicePage).toContain("serviceKey.value === 'settlement'")
-    expect(servicePage).toContain('buildOrderServiceFilters(orderSearch.value)')
-    expect(servicePage).toContain('账期筛选')
-    expect(servicePage).not.toContain('applyBillingDefaultPeriod')
+    expect(billsPanel).toContain('fetchCustomerBills')
+    expect(servicePage).not.toContain("serviceKey.value === 'settlement' ? buildOrderServiceFilters")
+    expect(servicePage).not.toContain('账期筛选')
   })
 
-  it('keeps service page form defaults behind serviceForms factories', () => {
+  it('only exposes the retained sections for direct ship and production work orders', () => {
+    expect(visibleServiceSections({
+      key: 'directShip',
+      title: '一件代发',
+      products: [{}],
+      orders: [{}],
+      direct_ship_batches: [{}],
+    })).toEqual([])
+
+    expect(visibleServiceSections({
+      key: 'processing',
+      title: '生产工单',
+      products: [{}],
+      orders: [{}],
+      inventory: [{}],
+      processing_requests: [{ request_no: 'PR-1' }],
+    })).toEqual([{ title: '生产工单', count: 1 }])
+  })
+
+  it('keeps the retained spot-order form defaults behind the serviceForms factory', () => {
     const servicePage = readSource('src/pages/service/service.vue')
 
     expect(servicePage).toContain('../../utils/serviceForms')
-    expect(servicePage).toContain('emptyDirectShipForm()')
-    expect(servicePage).toContain('emptyProcessingForm()')
     expect(servicePage).toContain('emptyFulfillmentForm()')
     expect(servicePage).toContain('emptyOrderSearch()')
     expect(servicePage).not.toContain("const directShipForm = ref({ source_name: '', total_rows: 0, note: '' })")

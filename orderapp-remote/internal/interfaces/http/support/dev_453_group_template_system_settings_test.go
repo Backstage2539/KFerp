@@ -52,8 +52,8 @@ func TestDev453GroupTemplateSystemSettingsContracts(t *testing.T) {
 			"/api/business-group-assignments",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WarehouseInventoryView.vue"): {
-			"selectedWarehouseGroupTemplateID",
-			"warehouseGroupItemOptions",
+			"selectedInventoryGroupTemplateID",
+			"inventoryGroupItemOptions",
 			"BusinessGroupControls",
 			"groupRowsByBusinessGroupTemplate",
 			"/api/business-group-assignments",

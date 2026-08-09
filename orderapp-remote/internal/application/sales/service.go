@@ -569,22 +569,28 @@ type AuditRow struct {
 }
 
 type OutsourceTemplate struct {
-	ID                int64   `json:"id"`
-	Name              string  `json:"name"`
-	IsDefault         bool    `json:"is_default"`
-	RoastUnitPrice    float64 `json:"roast_unit_price"`
-	BeanPackUnitPrice float64 `json:"bean_pack_unit_price"`
-	DripPackUnitPrice float64 `json:"drip_pack_unit_price"`
-	SCUnitPrice       float64 `json:"sc_unit_price"`
+	ID                   int64                   `json:"id"`
+	Name                 string                  `json:"name"`
+	IsDefault            bool                    `json:"is_default"`
+	RoastUnitPrice       float64                 `json:"roast_unit_price"`
+	BeanPackUnitPrice    float64                 `json:"bean_pack_unit_price"`
+	DripPackUnitPrice    float64                 `json:"drip_pack_unit_price"`
+	SCUnitPrice          float64                 `json:"sc_unit_price"`
+	CurrentVersionID     int64                   `json:"current_version_id"`
+	CurrentVersionNo     int                     `json:"current_version_no"`
+	CurrentVersionStatus string                  `json:"current_version_status"`
+	Rules                []OutsourceTemplateRule `json:"rules"`
 }
 
 type SaveOutsourceTemplateCommand struct {
-	Name              string  `json:"name"`
-	IsDefault         bool    `json:"is_default"`
-	RoastUnitPrice    float64 `json:"roast_unit_price"`
-	BeanPackUnitPrice float64 `json:"bean_pack_unit_price"`
-	DripPackUnitPrice float64 `json:"drip_pack_unit_price"`
-	SCUnitPrice       float64 `json:"sc_unit_price"`
+	Name              string                       `json:"name"`
+	IsDefault         bool                         `json:"is_default"`
+	RoastUnitPrice    float64                      `json:"roast_unit_price"`
+	BeanPackUnitPrice float64                      `json:"bean_pack_unit_price"`
+	DripPackUnitPrice float64                      `json:"drip_pack_unit_price"`
+	SCUnitPrice       float64                      `json:"sc_unit_price"`
+	Actor             string                       `json:"-"`
+	Rules             []OutsourceTemplateRuleInput `json:"rules"`
 }
 
 type TrackingPair struct {
@@ -1188,6 +1194,14 @@ type Repository interface {
 	OrderForm(ctx context.Context, editID int64) (OrderFormData, error)
 	ListOutsourceTemplates(ctx context.Context) ([]OutsourceTemplate, error)
 	SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error
+	ListProcessingBillingCustomerOptions(ctx context.Context) ([]ProcessingBillingCustomerOption, error)
+	ListProcessingBillingCandidates(ctx context.Context, customerID int64) ([]ProcessingBillingCandidate, error)
+	PreviewProcessingBilling(ctx context.Context, cmd PreviewProcessingBillingCommand) (ProcessingBillingPreview, error)
+	ConfirmProcessingBilling(ctx context.Context, cmd ConfirmProcessingBillingCommand) (ProcessingBillingConfirmation, error)
+	ListProcessingBillingRuns(ctx context.Context, query ProcessingBillingRunsQuery) ([]ProcessingBillingRun, error)
+	PayProcessingBilling(ctx context.Context, cmd PayProcessingBillingCommand) (ProcessingBillingLifecycleResult, error)
+	ReverseProcessingBilling(ctx context.Context, cmd ReverseProcessingBillingCommand) (ProcessingBillingLifecycleResult, error)
+	AdjustProcessingBilling(ctx context.Context, cmd AdjustProcessingBillingCommand) (ProcessingBillingLifecycleResult, error)
 	FillTrackingPairs(ctx context.Context, cmd FillTrackingPairsCommand) (FillTrackingResult, error)
 	SetShipMethod(ctx context.Context, cmd SetShipMethodCommand) error
 	LoadSenderProfile(ctx context.Context) (SenderProfile, error)
@@ -1484,11 +1498,32 @@ func (s *Service) ListOutsourceTemplates(ctx context.Context) ([]OutsourceTempla
 
 func (s *Service) SaveOutsourceTemplate(ctx context.Context, cmd SaveOutsourceTemplateCommand) error {
 	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	if cmd.Name == "" {
 		return fmt.Errorf("name required")
 	}
 	if cmd.RoastUnitPrice < 0 || cmd.BeanPackUnitPrice < 0 || cmd.DripPackUnitPrice < 0 || cmd.SCUnitPrice < 0 {
 		return fmt.Errorf("prices must be non-negative")
+	}
+	for i := range cmd.Rules {
+		cmd.Rules[i].FeeType = strings.TrimSpace(cmd.Rules[i].FeeType)
+		cmd.Rules[i].Name = strings.TrimSpace(cmd.Rules[i].Name)
+		cmd.Rules[i].Basis = strings.TrimSpace(cmd.Rules[i].Basis)
+		if cmd.Rules[i].Name == "" {
+			return fmt.Errorf("rule name required")
+		}
+		if !isSupportedProcessingBillingFeeType(cmd.Rules[i].FeeType) {
+			return fmt.Errorf("unsupported processing fee type: %s", cmd.Rules[i].FeeType)
+		}
+		if !IsSupportedProcessingBillingBasis(cmd.Rules[i].Basis) {
+			return fmt.Errorf("unsupported processing billing basis: %s", cmd.Rules[i].Basis)
+		}
+		if cmd.Rules[i].UnitPrice < 0 {
+			return fmt.Errorf("rule unit price must be non-negative")
+		}
+		if cmd.Rules[i].SortOrder <= 0 {
+			cmd.Rules[i].SortOrder = (i + 1) * 10
+		}
 	}
 	return s.repo.SaveOutsourceTemplate(ctx, cmd)
 }

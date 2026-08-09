@@ -12,10 +12,13 @@ import (
 	app "orderapp/internal/application/customerfulfillment"
 	customerportalapp "orderapp/internal/application/customerportal"
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
+	postgresbom "orderapp/internal/infrastructure/postgres/bom"
+	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
 	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
 	postgrescustomerportal "orderapp/internal/infrastructure/postgres/customerportal"
+	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -1754,6 +1757,7 @@ func TestOverviewIncludesCustomerPortalDirectShipOrders(t *testing.T) {
 	`, schema), customerID, employeeID); err != nil {
 		t.Fatalf("insert binding: %v", err)
 	}
+	seedCustomerFulfillmentWorkbenchProfile(t, pool, schema, customerID, "public_sku_direct_ship")
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
 		VALUES
@@ -1791,8 +1795,8 @@ func TestOverviewIncludesCustomerPortalDirectShipOrders(t *testing.T) {
 	if len(got.DirectShipOrders) != 1 {
 		t.Fatalf("direct ship orders = %#v, want one customer portal order", got.DirectShipOrders)
 	}
-	if strings.Join(got.Capabilities, ",") != "direct_ship,settlement" {
-		t.Fatalf("overview capabilities = %#v, want enabled direct_ship and settlement only", got.Capabilities)
+	if strings.Join(got.Capabilities, ",") != "product_order,direct_ship,settlement" {
+		t.Fatalf("overview capabilities = %#v, want capability-template product order, direct ship, and settlement", got.Capabilities)
 	}
 	order := got.DirectShipOrders[0]
 	if order.OrderNo != "CP-DS-20260512-0001" || order.ItemCount != 2 || order.Status != "未发货" {
@@ -1833,18 +1837,59 @@ func TestSubmitCustomerDirectShipOrderCreatesERPOrder(t *testing.T) {
 	`, schema), customerID); err != nil {
 		t.Fatalf("insert direct ship capability: %v", err)
 	}
+	var productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(
+			name, default_price, active, customer_id, visibility, custom_type, product_kind,
+			spec_label, net_content_qty, net_content_unit, unit_rule_override_json
+		)
+		VALUES(
+			'岩师傅冷萃豆', 82, true, $1, 'customer_only', 'public_sku_alias', 'roasted_bean',
+			'1000g', 1000, 'g', '{"default_sales_unit":"kg","inventory_unit":"kg","unit_conversion_json":{"kg":{"kg":1}}}'::jsonb
+		)
+		RETURNING id
+	`, schema), customerID).Scan(&productID); err != nil {
+		t.Fatalf("insert direct ship product: %v", err)
+	}
+	content := fmt.Sprintf(`{
+		"groups":[{
+			"items":[{
+				"productId":%d,
+				"name":"岩师傅冷萃豆",
+				"commercial_wholesale_tiers":[{
+					"label":"25kg+",
+					"source_price_record_id":902,
+					"spec_g":1000,
+					"min_qty":25,
+					"final_unit_price":82,
+					"price_unit":"kg",
+					"display_unit":"kg",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"kg":{"kg":1}}
+				}]
+			}]
+		}]
+	}`, productID)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
+		VALUES('commercial','V-AUDIT','published','customer',$1,'{}'::jsonb,$2::jsonb,'','test')
+	`, schema), fmt.Sprint(customerID), content); err != nil {
+		t.Fatalf("insert direct ship publication: %v", err)
+	}
 
 	got, err := repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
 		EmployeeID:      employeeID,
+		CustomerID:      customerID,
 		ReceiverName:    "刘祎泊",
 		ReceiverPhone:   "15302787466",
 		ReceiverAddress: "云南省昆明市西山区西坝新村30号C区",
 		ShippingAmount:  12,
 		Items: []app.SubmitCustomerDirectShipOrderItem{
-			{ProductID: 12, ProductName: "岩师傅冷萃豆", Spec: "100g", QuantityUnits: 2},
-			{ProductID: 12, ProductName: "岩师傅冷萃豆", Spec: "227g", QuantityUnits: 1},
+			{ProductID: productID, ProductName: "岩师傅冷萃豆", SpecG: 1000, QuantityUnits: 25},
+			{ProductID: productID, ProductName: "岩师傅冷萃豆", SpecG: 1000, QuantityUnits: 25},
 		},
-		Note: "客户门户代发",
+		Note:  "客户门户代发",
+		Actor: "认证客户操作人",
 	})
 	if err != nil {
 		t.Fatalf("SubmitCustomerDirectShipOrder: %v", err)
@@ -1887,6 +1932,74 @@ func TestSubmitCustomerDirectShipOrderCreatesERPOrder(t *testing.T) {
 	if totalAmount <= 0 || shippingAmount != 12 || grandTotal <= totalAmount {
 		t.Fatalf("order amounts total/shipping/grand = %.2f/%.2f/%.2f", totalAmount, shippingAmount, grandTotal)
 	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s.audit_logs
+		WHERE entity_type='customer_fulfillment_order' AND entity_id=$1
+	`, schema), orderID).Scan(&auditCount); err != nil {
+		t.Fatalf("count direct ship audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("direct ship audit count = %d, want exactly 1 per request", auditCount)
+	}
+	var auditActor, auditAction, auditOrderNo, auditImportOrderID, auditCustomerID, auditItemCount string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT actor,
+		       action,
+		       COALESCE(meta->>'order_no',''),
+		       COALESCE(meta->>'import_order_id',''),
+		       COALESCE(meta->>'customer_id',''),
+		       COALESCE(meta->>'item_count','')
+		FROM %s.audit_logs
+		WHERE entity_type='customer_fulfillment_order' AND entity_id=$1
+	`, schema), orderID).Scan(&auditActor, &auditAction, &auditOrderNo, &auditImportOrderID, &auditCustomerID, &auditItemCount); err != nil {
+		t.Fatalf("load direct ship audit: %v", err)
+	}
+	if auditActor != "认证客户操作人" || auditAction != "submit" || auditOrderNo != got.OrderNo || auditImportOrderID == "" || auditCustomerID != fmt.Sprintf("%d", customerID) || auditItemCount != "2" {
+		t.Fatalf("direct ship audit = actor:%q action:%q order:%q import:%q customer:%q items:%q", auditActor, auditAction, auditOrderNo, auditImportOrderID, auditCustomerID, auditItemCount)
+	}
+	var ordersBefore, importsBefore int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.orders WHERE customer_id=$1 AND portal_service_code='direct_ship'`, schema), customerID).Scan(&ordersBefore); err != nil {
+		t.Fatalf("count direct ship orders before audit failure: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.customer_direct_ship_import_orders WHERE customer_id=$1`, schema), customerID).Scan(&importsBefore); err != nil {
+		t.Fatalf("count direct ship imports before audit failure: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		ALTER TABLE %s.audit_logs
+		ADD CONSTRAINT reject_new_customer_fulfillment_order_audit
+		CHECK (entity_type <> 'customer_fulfillment_order') NOT VALID
+	`, schema)); err != nil {
+		t.Fatalf("install direct ship audit failure constraint: %v", err)
+	}
+	_, err = repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      employeeID,
+		CustomerID:      customerID,
+		ReceiverName:    "审计失败收件人",
+		ReceiverPhone:   "13800000000",
+		ReceiverAddress: "浙江杭州",
+		Items: []app.SubmitCustomerDirectShipOrderItem{
+			{ProductID: productID, ProductName: "岩师傅冷萃豆", SpecG: 1000, QuantityUnits: 25},
+		},
+		Actor: "审计失败操作人",
+	})
+	if err == nil {
+		t.Fatal("SubmitCustomerDirectShipOrder with rejected audit unexpectedly succeeded")
+	}
+	var ordersAfter, importsAfter, failedAuditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.orders WHERE customer_id=$1 AND portal_service_code='direct_ship'`, schema), customerID).Scan(&ordersAfter); err != nil {
+		t.Fatalf("count direct ship orders after audit failure: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.customer_direct_ship_import_orders WHERE customer_id=$1`, schema), customerID).Scan(&importsAfter); err != nil {
+		t.Fatalf("count direct ship imports after audit failure: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE actor='审计失败操作人'`, schema)).Scan(&failedAuditCount); err != nil {
+		t.Fatalf("count rejected direct ship audit: %v", err)
+	}
+	if ordersAfter != ordersBefore || importsAfter != importsBefore || failedAuditCount != 0 {
+		t.Fatalf("audit failure persisted partial rows: orders %d->%d imports %d->%d audits=%d", ordersBefore, ordersAfter, importsBefore, importsAfter, failedAuditCount)
+	}
 }
 
 func TestSubmitCustomerDirectShipOrderRejectsAliasWithoutPublishedPrice(t *testing.T) {
@@ -1909,12 +2022,17 @@ func TestSubmitCustomerDirectShipOrderRejectsAliasWithoutPublishedPrice(t *testi
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
-		VALUES($1,$2,'active');
-		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
-		VALUES($1,'direct_ship',true);
-	`, schema, schema), customerID, employeeID); err != nil {
-		t.Fatalf("insert binding/capability: %v", err)
+		VALUES($1,$2,'active')
+	`, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES($1,'direct_ship',true)
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert capability: %v", err)
+	}
+	seedCustomerFulfillmentWorkbenchProfile(t, pool, schema, customerID, "public_sku_direct_ship")
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.products(name, default_price, active, visibility, product_kind)
 		VALUES('无发布价商品档案', 0, true, 'public', 'roasted_bean')
@@ -1944,8 +2062,8 @@ func TestSubmitCustomerDirectShipOrderRejectsAliasWithoutPublishedPrice(t *testi
 			QuantityUnits: 1,
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "customer product price unpublished") {
-		t.Fatalf("SubmitCustomerDirectShipOrder err=%v, want unpublished customer product price", err)
+	if err == nil || !strings.Contains(err.Error(), "缺少商品价格表价格") {
+		t.Fatalf("SubmitCustomerDirectShipOrder err=%v, want missing published product price", err)
 	}
 	assertCustomerFulfillmentCount(t, pool, schema, "orders", "customer_id=$1 AND portal_service_code='direct_ship'", customerID, 0)
 }
@@ -2092,6 +2210,8 @@ func TestCustomerPortalSubmitRequiresBoundCustomerCapability(t *testing.T) {
 	`, schema), directCustomerID, processingCustomerID); err != nil {
 		t.Fatalf("insert capabilities: %v", err)
 	}
+	seedCustomerFulfillmentWorkbenchProfile(t, pool, schema, directCustomerID, "public_sku_direct_ship")
+	seedCustomerFulfillmentWorkbenchProfile(t, pool, schema, processingCustomerID, "test_processing_only")
 
 	_, err := repo.SubmitCustomerProcessingWorkOrder(ctx, app.SubmitCustomerProcessingWorkOrderCommand{
 		EmployeeID:         directEmployeeID,
@@ -2131,6 +2251,44 @@ func TestCustomerPortalDirectShipSubmitRepositoryWiresERPOrderCreation(t *testin
 		if !strings.Contains(src, want) {
 			t.Fatalf("repository.go missing customer portal direct ship ERP order marker %q", want)
 		}
+	}
+}
+
+func TestCustomerPortalDirectShipSubmitWritesOneTransactionalAuditPerRequest(t *testing.T) {
+	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
+	start := strings.Index(src, "func (r *Repository) SubmitCustomerDirectShipOrder")
+	if start < 0 {
+		t.Fatal("SubmitCustomerDirectShipOrder source start not found")
+	}
+	end := strings.Index(src[start:], "\ntype submittedDirectShipItem struct")
+	if end < 0 {
+		t.Fatal("SubmitCustomerDirectShipOrder source boundary not found")
+	}
+	body := src[start : start+end]
+	if got := strings.Count(body, "postgresinfra.AuditInsertTx("); got != 1 {
+		t.Fatalf("SubmitCustomerDirectShipOrder AuditInsertTx calls in source = %d, want one", got)
+	}
+	for _, want := range []string{
+		`"customer_fulfillment_order", &orderID, "submit"`,
+		`"customer_id":`,
+		`"import_order_id":`,
+		`"order_no":`,
+		`"item_count":`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("SubmitCustomerDirectShipOrder transactional audit missing %q", want)
+		}
+	}
+	if strings.Contains(body, "for _, item := range quotedItems {\n\t\tif item.ProductKind") {
+		t.Fatal("SubmitCustomerDirectShipOrder still writes per-item audit rows")
+	}
+	if !strings.Contains(body, "defer func() { _ = tx.Rollback(ctx) }()") {
+		t.Fatal("SubmitCustomerDirectShipOrder must retain rollback-on-error around order, import, and audit writes")
+	}
+	auditAt := strings.Index(body, "postgresinfra.AuditInsertTx(")
+	commitAt := strings.Index(body, "tx.Commit(ctx)")
+	if auditAt < 0 || commitAt < 0 || auditAt > commitAt {
+		t.Fatal("direct ship audit must be written before the transaction commits")
 	}
 }
 
@@ -3296,6 +3454,7 @@ func TestSubmitCustomerDirectShipOrderUsesKgTierPriceAsDisplayUnit(t *testing.T)
 	`, schema), customerID, employeeID); err != nil {
 		t.Fatalf("insert binding: %v", err)
 	}
+	seedCustomerFulfillmentWorkbenchProfile(t, pool, schema, customerID, "public_sku_direct_ship")
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
 		VALUES($1,'direct_ship',true)
@@ -3304,19 +3463,42 @@ func TestSubmitCustomerDirectShipOrderUsesKgTierPriceAsDisplayUnit(t *testing.T)
 	}
 	var productID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.products(name, default_price, active, customer_id, visibility, custom_type)
-		VALUES('岩师傅兰卡拼配', 180, true, $1, 'customer_only', 'public_sku_alias')
+		INSERT INTO %s.products(
+			name, default_price, active, customer_id, visibility, custom_type, product_kind,
+			spec_label, net_content_qty, net_content_unit, unit_rule_override_json
+		)
+		VALUES(
+			'岩师傅兰卡拼配', 180, true, $1, 'customer_only', 'public_sku_alias', 'roasted_bean',
+			'1kg', 1000, 'g', '{"default_sales_unit":"kg","inventory_unit":"kg","unit_conversion_json":{"kg":{"kg":1}}}'::jsonb
+		)
 		RETURNING id
 	`, schema), customerID).Scan(&productID); err != nil {
 		t.Fatalf("insert product: %v", err)
 	}
+	content := fmt.Sprintf(`{
+		"groups":[{
+			"items":[{
+				"productId":%d,
+				"name":"岩师傅兰卡拼配",
+				"commercial_wholesale_tiers":[{
+					"label":"25kg+",
+					"source_price_record_id":900,
+					"spec_g":1000,
+					"min_qty":25,
+					"final_unit_price":82,
+					"price_unit":"kg",
+					"display_unit":"kg",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"kg":{"kg":1}}
+				}]
+			}]
+		}]
+	}`, productID)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_price_tiers(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, price_per_lb, active)
-		VALUES
-			($1,1000,1,23,180,180*454.0/1000.0,true),
-			($1,1000,24,49,81.91,81.91*454.0/1000.0,true)
-	`, schema), productID); err != nil {
-		t.Fatalf("insert tiers: %v", err)
+		INSERT INTO %s.bean_list_publications(list_type,version_no,status,owner_type,owner_key,config_json,content_json,changelog,actor)
+		VALUES('commercial','V-KG-UNIT','published','customer',$1,'{}'::jsonb,$2::jsonb,'','test')
+	`, schema), fmt.Sprint(customerID), content); err != nil {
+		t.Fatalf("insert published kg price: %v", err)
 	}
 
 	got, err := repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
@@ -3372,17 +3554,28 @@ func TestSubmitCustomerDirectShipOrderUsesPublishedPriceSnapshot(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
-		VALUES($1,$2,'active');
-		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
-		VALUES($1,'direct_ship',true);
-	`, schema, schema), customerID, employeeID); err != nil {
-		t.Fatalf("insert binding/capability: %v", err)
+		VALUES($1,$2,'active')
+	`, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES($1,'direct_ship',true)
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert capability: %v", err)
+	}
+	seedCustomerFulfillmentWorkbenchProfile(t, pool, schema, customerID, "public_sku_direct_ship")
 
 	var productID, publicationID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.products(name, default_price, active, customer_id, visibility, custom_type, product_kind)
-		VALUES('岩师傅兰卡拼配快照', 180, true, $1, 'customer_only', 'public_sku_alias', 'roasted_bean')
+		INSERT INTO %s.products(
+			name, default_price, active, customer_id, visibility, custom_type, product_kind,
+			spec_label, net_content_qty, net_content_unit, unit_rule_override_json
+		)
+		VALUES(
+			'岩师傅兰卡拼配快照', 180, true, $1, 'customer_only', 'public_sku_alias', 'roasted_bean',
+			'1kg', 1000, 'g', '{"default_sales_unit":"kg","inventory_unit":"kg","unit_conversion_json":{"kg":{"kg":1}}}'::jsonb
+		)
 		RETURNING id
 	`, schema), customerID).Scan(&productID); err != nil {
 		t.Fatalf("insert product: %v", err)
@@ -3485,12 +3678,17 @@ func TestSubmitCustomerDirectShipOrderRejectsLegacyPriceFallbackWithoutSnapshot(
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
-		VALUES($1,$2,'active');
-		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
-		VALUES($1,'direct_ship',true);
-	`, schema, schema), customerID, employeeID); err != nil {
-		t.Fatalf("insert binding/capability: %v", err)
+		VALUES($1,$2,'active')
+	`, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding: %v", err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES($1,'direct_ship',true)
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert capability: %v", err)
+	}
+	seedCustomerFulfillmentWorkbenchProfile(t, pool, schema, customerID, "public_sku_direct_ship")
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.products(name, default_price, active, customer_id, visibility, custom_type, product_kind)
 		VALUES('旧阶梯不可兜底商品', 180, true, $1, 'customer_only', 'public_sku_alias', 'roasted_bean')
@@ -3655,6 +3853,35 @@ func TestCustomerFulfillmentPublishedPriceUnitTotals(t *testing.T) {
 	}
 }
 
+func seedCustomerFulfillmentWorkbenchProfile(t *testing.T, pool *pgxpool.Pool, schema string, customerID int64, templateKey string) {
+	t.Helper()
+	if templateKey == "test_processing_only" {
+		if _, err := pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s.customer_capability_templates(
+				template_key,label,erp_permissions,erp_view_keys,capabilities_json,active,updated_by
+			)
+			VALUES(
+				'test_processing_only','测试专用仅加工工作台',
+				'["customer_processing.read"]'::jsonb,
+				'["customerProcessingPortal"]'::jsonb,
+				'[{"code":"processing","label":"生产工单","enabled":true,"config":{}}]'::jsonb,
+				true,'test'
+			)
+			ON CONFLICT(template_key) DO NOTHING
+		`, schema)); err != nil {
+			t.Fatalf("seed processing-only capability template: %v", err)
+		}
+	}
+	if _, err := pool.Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_profiles(customer_id,status,enabled,capability_template_key)
+		VALUES($1,'active',true,$2)
+		ON CONFLICT(customer_id) DO UPDATE
+		SET status='active',enabled=true,capability_template_key=excluded.capability_template_key
+	`, schema), customerID, templateKey); err != nil {
+		t.Fatalf("seed customer workbench profile: %v", err)
+	}
+}
+
 func assertCustomerFulfillmentCount(t *testing.T, pool *pgxpool.Pool, schema, table, where string, customerID int64, want int) {
 	t.Helper()
 	args := []any{}
@@ -3704,6 +3931,15 @@ func newCustomerFulfillmentTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	}
 	if err := postgrescustomerportal.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customerportal.EnsureSchema: %v", err)
+	}
+	if err := postgresmaterials.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("materials.EnsureSchema: %v", err)
+	}
+	if err := postgresbom.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("bom.EnsureSchema: %v", err)
+	}
+	if err := postgrescatalog.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("catalog.EnsureSchema: %v", err)
 	}
 	if err := postgrescosting.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("costing.EnsureSchema: %v", err)

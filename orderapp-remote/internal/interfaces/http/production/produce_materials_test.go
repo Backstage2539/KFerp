@@ -51,12 +51,12 @@ func TestCalcProducePlanMaterials(t *testing.T) {
 	if got := m["挂耳-盒彩"].Qty; got != 2 { // ceil(12/10)=2
 		t.Fatalf("挂耳-盒彩 qty=%d want=2", got)
 	}
-	if got := m["咖啡豆(生豆/原豆)"].Qty; got != 627 {
-		t.Fatalf("咖啡豆(生豆/原豆) qty=%d want=627", got)
+	if got := m["咖啡豆(生豆/原豆)"].Qty; got != 501 {
+		t.Fatalf("咖啡豆(生豆/原豆) qty=%d want=501 without legacy yield inflation", got)
 	}
-	// Drip roast beans: finished gap = 1000 + 1 + 100 = 1101 => raw ceil(1101/0.8)=1377, plus extra 100g => 1477
-	if got := m["咖啡豆(烘焙)"].Qty; got != 1477 {
-		t.Fatalf("咖啡豆(烘焙) qty=%d want=1477", got)
+	// Current demand no longer uses an overall yield: 1000 + 1 + 100g target, plus 100g configured drip extra.
+	if got := m["咖啡豆(烘焙)"].Qty; got != 1201 {
+		t.Fatalf("咖啡豆(烘焙) qty=%d want=1201 without legacy yield inflation", got)
 	}
 }
 
@@ -101,11 +101,11 @@ func TestCalcNoBomProducePlanMaterialsSplitsRawBeansByProduct(t *testing.T) {
 		}
 	}
 
-	if got := m["Uraga乌拉嘎 生豆"].Qty; got != 284 {
-		t.Fatalf("Uraga乌拉嘎 生豆 qty=%d want=284", got)
+	if got := m["Uraga乌拉嘎 生豆"].Qty; got != 227 {
+		t.Fatalf("Uraga乌拉嘎 生豆 qty=%d want=227", got)
 	}
-	if got := m["小菠萝2.0 生豆"].Qty; got != 284 {
-		t.Fatalf("小菠萝2.0 生豆 qty=%d want=284", got)
+	if got := m["小菠萝2.0 生豆"].Qty; got != 227 {
+		t.Fatalf("小菠萝2.0 生豆 qty=%d want=227", got)
 	}
 	if _, ok := m["咖啡豆(生豆/原豆)"]; ok {
 		t.Fatalf("普通无BOM商品不应汇总到通用生豆行")
@@ -113,6 +113,17 @@ func TestCalcNoBomProducePlanMaterialsSplitsRawBeansByProduct(t *testing.T) {
 	if got := m["豆袋"].Qty; got != 2 {
 		t.Fatalf("豆袋 qty=%d want=2", got)
 	}
+}
+
+func TestCalcProducePlanMaterialsFromFinalInputsIgnoresLegacyYieldWhenInputIsMissing(t *testing.T) {
+	rows := []UnprodNeedRow{{ProductID: 1, Product: "曲奇拼配", SpecG: 1000, GapG: 1000}}
+	bomMap := map[int64][]bomNeedItem{
+		1: {{ProductID: 1, YieldRate: 0.25, MaterialName: "曲奇生豆", MaterialUnit: "g", RatioPct: 100}},
+	}
+
+	got := calcProducePlanMaterialsFromFinalInputs(rows, nil, bomMap, ProducePlanParams{YieldRate: 0.25})
+
+	assertMaterialQty(t, got, "曲奇生豆", "g", 1000)
 }
 
 func TestCalcProducePlanMaterialsFromFinalInputsUsesRoastInputForBomBeans(t *testing.T) {

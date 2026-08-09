@@ -2,10 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  businessGroupFeatureSelectionIDs,
+  businessGroupFeatureSelectionPayload,
+  businessGroupRowsForFeatureSelection,
   businessGroupRowsForUsage,
   businessGroupControlOptions,
   businessGroupMoveAssignmentPayload,
   groupRowsByBusinessGroupTemplate,
+  groupRowsByBusinessGroupTemplates,
   preferredBusinessGroupTemplateID,
 } from './business-grouping.js'
 
@@ -72,6 +76,88 @@ test('business group template rows prefer current template assignment over legac
   ])
 })
 
+test('multiple referenced business group templates form one non-duplicating product list and one unclassified group', () => {
+  const dripGroup = {
+    id: 10,
+    name: '商品挂耳模板',
+    active: true,
+    usages: [{ usage_key: 'product_catalog', active: true }],
+    items: [
+      { id: 100, group_id: 10, parent_id: 0, name: '挂耳咖啡', active: true, sort_order: 10 },
+      { id: 101, group_id: 10, parent_id: 100, name: '盒装挂耳', active: true, sort_order: 20 },
+    ],
+  }
+  const rows = [
+    { id: 1, name: '熟豆商品' },
+    { id: 2, name: '挂耳商品' },
+    { id: 3, name: '未分类商品' },
+  ]
+  const groups = groupRowsByBusinessGroupTemplates(rows, {
+    templates: [productGroup, dripGroup],
+    usageKey: 'product_catalog',
+    objectKey: 'product',
+    assignments: [
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 1, group_id: 9, group_item_id: 92 },
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 2, group_id: 10, group_item_id: 101 },
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 3, group_id: 8, group_item_id: 80 },
+    ],
+  })
+
+  assert.deepEqual(groups.map((group) => group.key), [
+    'business-template-9',
+    'business-group-9-90',
+    'business-group-9-92',
+    'business-group-9-91',
+    'business-template-10',
+    'business-group-10-100',
+    'business-group-10-101',
+    'business-group-unclassified',
+  ])
+  assert.deepEqual(
+    groups.filter((group) => group.is_template_group).map((group) => ({
+      key: group.key,
+      label: group.label,
+      template_total: group.template_total,
+      rows: group.rows.length,
+    })),
+    [
+      { key: 'business-template-9', label: '商品分组', template_total: 1, rows: 0 },
+      { key: 'business-template-10', label: '商品挂耳模板', template_total: 1, rows: 0 },
+    ],
+  )
+  assert.deepEqual(
+    groups.filter((group) => !group.is_template_group).map((group) => ({
+      key: group.key,
+      template: group.template_label,
+      count: group.rows.length,
+    })),
+    [
+      { key: 'business-group-9-90', template: '商品分组', count: 0 },
+      { key: 'business-group-9-92', template: '商品分组', count: 1 },
+      { key: 'business-group-9-91', template: '商品分组', count: 0 },
+      { key: 'business-group-10-100', template: '商品挂耳模板', count: 0 },
+      { key: 'business-group-10-101', template: '商品挂耳模板', count: 1 },
+      { key: 'business-group-unclassified', template: '', count: 1 },
+    ],
+  )
+  assert.deepEqual(groups.flatMap((group) => group.rows).map((row) => row.id).sort(), [1, 2, 3])
+
+  assert.deepEqual(groupRowsByBusinessGroupTemplates(rows, { templates: [] }), [{
+    key: 'all-products',
+    label: '全部商品',
+    path_label: '全部商品',
+    depth: 0,
+    parent_group_item_id: 0,
+    group_id: 0,
+    group_item_id: 0,
+    template_label: '',
+    rows,
+    all: true,
+    unclassified: false,
+    sort_order: 0,
+  }])
+})
+
 test('business group controls expose template and move options for any usage', () => {
   const options = businessGroupControlOptions([productGroup], {
     usageKey: 'production_bom',
@@ -111,18 +197,40 @@ test('preferred business group template keeps warehouse inventory on stock group
   }), 128)
 })
 
-test('product catalog business group rows include generic templates without legacy usage bindings', () => {
+test('legacy usage-filtered business group lookup still requires explicit active usages', () => {
   const rows = businessGroupRowsForUsage([
     { id: 6, name: '商品默认分组', code: 'default_product_catalog', active: true, sort_order: 10, usages: [{ usage_key: 'product_catalog', active: true }] },
     { id: 221, name: 'BOM分组', active: true, sort_order: 5, usages: [{ usage_key: 'production_bom', active: true }] },
     { id: 222, name: '通用分组模板', active: true, sort_order: 6, usages: [] },
     { id: 128, name: '商品分组', code: 'product_catalog', active: true, sort_order: 10, usages: [{ usage_key: 'product_catalog', active: true }] },
+    { id: 129, name: '商品挂耳模板', code: 'product_drip', active: true, sort_order: 11, usages: [{ usage_key: 'product_catalog', active: true }] },
+    { id: 130, name: '停用商品引用', active: true, sort_order: 12, usages: [{ usage_key: 'product_catalog', active: false }] },
   ], 'product_catalog')
 
   assert.deepEqual(rows.map((row) => ({ id: row.id, name: row.name })), [
-    { id: 222, name: '通用分组模板' },
     { id: 128, name: '商品分组' },
+    { id: 129, name: '商品挂耳模板' },
   ])
+})
+
+test('feature-owned business group selection resolves templates in the selected order without template usages', () => {
+  const rows = businessGroupRowsForFeatureSelection([
+    { id: 6, name: '商品默认分组', code: 'default_product_catalog', active: true, sort_order: 1 },
+    { id: 221, name: '咖啡豆分组', active: true, sort_order: 20, usages: [] },
+    { id: 222, name: '挂耳分组', active: true, sort_order: 10, usages: [{ usage_key: 'production_bom', active: true }] },
+    { id: 223, name: '停用分组', active: false, sort_order: 5 },
+  ], [222, 221, 222, 223, 999])
+
+  assert.deepEqual(rows.map((row) => row.id), [222, 221])
+})
+
+test('feature-owned business group selection normalizes GET and PUT contracts', () => {
+  assert.deepEqual(businessGroupFeatureSelectionIDs({ group_template_ids: [9, '10', 9, 0, -1] }), [9, 10])
+  assert.deepEqual(businessGroupFeatureSelectionIDs({ feature_key: 'product_catalog' }), [])
+  assert.deepEqual(businessGroupFeatureSelectionPayload(' product_catalog ', [10, '9', 10, 0]), {
+    feature_key: 'product_catalog',
+    group_template_ids: [10, 9],
+  })
 })
 
 test('business group move payload supports product BOM and warehouse object identities', () => {

@@ -6,7 +6,6 @@ import {
   buildFinishPanelModel,
   buildFinishPayload,
   formatActualYield,
-  markYieldDirty,
   productionFinishErrorDetail,
 } from './produce-running.js'
 
@@ -14,7 +13,7 @@ const row = {
   id: 9,
   spec_g: 454,
   input_g: 16000,
-  bom_yield_rate: 0.82,
+  bom_yield_rate: 0.5,
   plan_units: 28,
   plan_loose_g: 408,
 }
@@ -28,20 +27,23 @@ test('buildFinishInput initializes editable production values from generated pla
     consumed_input_g: 16000,
     partial: false,
     warehouse: 'finished_goods',
-    yield_dirty: false,
   })
   assert.equal(formatActualYield(row, input), '82.00%')
 })
 
-test('formatActualYield recalculates only after production quantities are edited', () => {
+test('formatActualYield always derives actual yield from entered production quantities', () => {
   const input = buildFinishInput(row)
   input.finished_units = 27
   input.finished_loose_g = 200
   input.consumed_input_g = 15000
 
-  assert.equal(formatActualYield(row, input), '82.00%')
-  markYieldDirty(input)
   assert.equal(formatActualYield(row, input), '83.05%')
+})
+
+test('formatActualYield does not fall back to legacy BOM expected yield when input is empty', () => {
+  const input = buildFinishInput({ ...row, input_g: 0 })
+
+  assert.equal(formatActualYield(row, input), '0.00%')
 })
 
 test('buildFinishPayload submits the same editable input and output values shown in the row', () => {
@@ -67,7 +69,7 @@ test('multi-spec running rows submit separate finished outputs and calculate com
     id: 21,
     spec_g: 0,
     input_g: 16600,
-    bom_yield_rate: 0.82,
+    bom_yield_rate: 0.5,
     outputs: [
       { spec_g: 454, plan_units: 24, plan_loose_g: 0 },
       { spec_g: 227, plan_units: 2, plan_loose_g: 0 },
@@ -79,9 +81,6 @@ test('multi-spec running rows submit separate finished outputs and calculate com
     { spec_g: 454, finished_units: 24, finished_loose_g: 0 },
     { spec_g: 227, finished_units: 2, finished_loose_g: 0 },
   ])
-  assert.equal(formatActualYield(mergedRow, input), '82.00%')
-
-  markYieldDirty(input)
   assert.equal(formatActualYield(mergedRow, input), '68.37%')
 
   input.outputs[1].finished_units = 3

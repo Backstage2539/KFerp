@@ -8,8 +8,6 @@ import (
 
 	bomapp "orderapp/internal/application/bom"
 	bomdomain "orderapp/internal/domain/bom"
-	catalogdomain "orderapp/internal/domain/catalog"
-	productiondomain "orderapp/internal/domain/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
@@ -194,15 +192,7 @@ func (r Repository) SyncProductYield(ctx context.Context, cmd bomapp.SyncProduct
 	if err := ensureBomEditable(ctx, r.pool, r.schema, cmd.ProductID); err != nil {
 		return err
 	}
-	var roastLevel string
-	if err := r.pool.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel); err != nil {
-		return fmt.Errorf("product not found")
-	}
-	yieldRate := cmd.ExpectedYieldRate
-	if yieldRate <= 0 {
-		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
-	}
-	yieldRate = productiondomain.NormalizeYieldRate(yieldRate)
+	yieldRate := 1.0
 	q := "INSERT INTO " + r.schema + ".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'active',now()) ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()"
 	_, err := r.pool.Exec(ctx, q, cmd.ProductID, yieldRate)
 	if err == nil {
@@ -210,7 +200,7 @@ func (r Repository) SyncProductYield(ctx context.Context, cmd bomapp.SyncProduct
 		if cmd.ExpectedLossRate != nil {
 			action = "save_expected_loss_rate"
 		}
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_bom", &cmd.ProductID, action, postgresinfra.StrPtr("expected_loss_rate"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", productiondomain.ExpectedLossRate(yieldRate))), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "status": "active", "yield_rate": yieldRate, "expected_loss_rate": productiondomain.ExpectedLossRate(yieldRate)})
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_bom", &cmd.ProductID, action, postgresinfra.StrPtr("expected_loss_rate"), nil, postgresinfra.StrPtr("0.0000"), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "status": "active", "yield_rate": yieldRate, "expected_loss_rate": 0})
 	}
 	return err
 }
@@ -225,15 +215,14 @@ func (r Repository) DeactivateBom(ctx context.Context, cmd bomapp.DeactivateBomC
 	if err := ensureBomEditable(ctx, tx, r.schema, cmd.ProductID); err != nil {
 		return err
 	}
-	var roastLevel string
 	var active bool
-	if err := tx.QueryRow(ctx, "SELECT COALESCE(roast_level,''), active FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel, &active); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT active FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&active); err != nil {
 		return fmt.Errorf("product not found")
 	}
 	if active {
 		return fmt.Errorf("商品仍为启用状态，需先停用商品后再失效 BOM")
 	}
-	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	yieldRate := 1.0
 	if _, err := tx.Exec(ctx, "INSERT INTO "+r.schema+".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'inactive',now()) ON CONFLICT (product_id) DO UPDATE SET status='inactive', updated_at=now()", cmd.ProductID, yieldRate); err != nil {
 		return err
 	}
@@ -367,10 +356,7 @@ func (r Repository) CreateVersion(ctx context.Context, cmd bomapp.CreateVersionC
 	if err := ensureBomEditable(ctx, tx, r.schema, cmd.ProductID); err != nil {
 		return bomapp.Version{}, err
 	}
-	var yieldRate float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(yield_rate,0.8) FROM %s.product_bom WHERE product_id=$1`, r.schema), cmd.ProductID).Scan(&yieldRate); err != nil {
-		yieldRate = 0.8
-	}
+	yieldRate := 1.0
 	var next int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(COUNT(*),0)+1 FROM %s.bom_versions WHERE product_id=$1`, r.schema), cmd.ProductID).Scan(&next); err != nil {
 		return bomapp.Version{}, err
@@ -419,8 +405,7 @@ func (r Repository) ActivateVersion(ctx context.Context, cmd bomapp.ActivateVers
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var productID int64
-	var yieldRate float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id,COALESCE(yield_rate,0.8) FROM %s.bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&productID, &yieldRate); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id FROM %s.bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&productID); err != nil {
 		return fmt.Errorf("bom version not found")
 	}
 	if err := ensureBomEditable(ctx, tx, r.schema, productID); err != nil {
@@ -436,7 +421,7 @@ func (r Repository) ActivateVersion(ctx context.Context, cmd bomapp.ActivateVers
 		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
 		VALUES($1,$2,'active',now())
 		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()
-	`, r.schema), productID, yieldRate); err != nil {
+	`, r.schema), productID, 1.0); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom_items WHERE product_id=$1`, r.schema), productID); err != nil {
@@ -1031,10 +1016,7 @@ func deriveOwnedBomTx(ctx context.Context, tx pgx.Tx, schema string, cmd bomapp.
 	if status == "" || status == "missing" {
 		status = "active"
 	}
-	yieldRate := summary.YieldRate
-	if yieldRate <= 0 {
-		yieldRate = resolveBomYieldRate(source.RoastLevel, 0)
-	}
+	yieldRate := 1.0
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
 		VALUES($1,$2,$3,now())
@@ -1171,11 +1153,8 @@ func bomOptionsToApp(opts []postgresinfra.Option) []bomapp.Option {
 	return out
 }
 
-func resolveBomYieldRate(roastLevel string, storedYieldRate float64) float64 {
-	if storedYieldRate > 0 && storedYieldRate <= 1 {
-		return productiondomain.NormalizeYieldRate(storedYieldRate)
-	}
-	return catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+func resolveBomYieldRate(_ string, _ float64) float64 {
+	return 1
 }
 
 func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCommand) (bomapp.Detail, error) {
@@ -1691,9 +1670,6 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 		return bomapp.ProductionBomSummary{}, err
 	}
 	yieldRate := 1.0
-	if cmd.ExpectedLossRate != nil {
-		yieldRate = productiondomain.NormalizeYieldRate(1 - *cmd.ExpectedLossRate)
-	}
 	var versionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, created_at, created_by)
@@ -1775,7 +1751,6 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	var sourceName string
 	var sourceOutputProductID int64
 	var sourceVersionID int64
-	var sourceYield float64
 	var sourceOutputQty float64
 	var sourceOutputUnit string
 	var sourceMaterialLossRate float64
@@ -1783,22 +1758,26 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	var sourceSpecialAttrsJSON string
 	var sourceProcessRouteID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT pb.name, COALESCE(pb.output_product_id,0), v.id, COALESCE(v.yield_rate,0.8)::float8, COALESCE(v.output_qty,1)::float8, COALESCE(NULLIF(v.output_unit,''),'unit'), COALESCE(v.material_loss_rate,0)::float8, COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}'), COALESCE(v.process_route_id,0)
+		SELECT pb.name, COALESCE(pb.output_product_id,0), v.id, COALESCE(v.output_qty,1)::float8, COALESCE(NULLIF(v.output_unit,''),'unit'), COALESCE(v.material_loss_rate,0)::float8, COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}'), COALESCE(v.process_route_id,0)
 		FROM %s.production_boms pb
 		JOIN LATERAL (
-			SELECT id, yield_rate, output_qty, output_unit, material_loss_rate, special_attrs_schema_json, special_attrs_json, process_route_id
+			SELECT id, output_qty, output_unit, material_loss_rate, special_attrs_schema_json, special_attrs_json, process_route_id
 			FROM %s.production_bom_versions
 			WHERE bom_id=pb.id AND status IN ('draft','published')
 			ORDER BY CASE WHEN status='draft' THEN 0 ELSE 1 END, published_at DESC NULLS LAST, created_at DESC, id DESC
 			LIMIT 1
 		) v ON true
 		WHERE pb.id=$1
-	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceOutputProductID, &sourceVersionID, &sourceYield, &sourceOutputQty, &sourceOutputUnit, &sourceMaterialLossRate, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON, &sourceProcessRouteID); err != nil {
+	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceOutputProductID, &sourceVersionID, &sourceOutputQty, &sourceOutputUnit, &sourceMaterialLossRate, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON, &sourceProcessRouteID); err != nil {
 		return bomapp.ProductionBomSummary{}, fmt.Errorf("source production BOM not found")
 	}
 	name := strings.TrimSpace(cmd.Name)
 	if name == "" {
-		name = sourceName + " 副本"
+		name = bomapp.NormalizeProductionBomName(sourceName)
+		if name == "" {
+			name = "未命名 BOM"
+		}
+		name += " 副本"
 	}
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var newBomID int64
@@ -1822,7 +1801,7 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, material_loss_rate, note, special_attrs_schema_json, special_attrs_json, process_route_id, created_at, created_by)
 		VALUES($1,'V001','draft',$2,$3,$4,$5,'复制来源 BOM',$6::jsonb,$7::jsonb,$8,now(),$9)
 		RETURNING id
-	`, r.schema), newBomID, sourceYield, sourceOutputQty, sourceOutputUnit, sourceMaterialLossRate, sourceSpecialAttrsSchemaJSON, sourceSpecialAttrsJSON, sourceProcessRouteID, strings.TrimSpace(cmd.Actor)).Scan(&newVersionID); err != nil {
+	`, r.schema), newBomID, 1.0, sourceOutputQty, sourceOutputUnit, sourceMaterialLossRate, sourceSpecialAttrsSchemaJSON, sourceSpecialAttrsJSON, sourceProcessRouteID, strings.TrimSpace(cmd.Actor)).Scan(&newVersionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -1903,7 +1882,7 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var sourceVersionID int64
-	var yieldRate float64
+	yieldRate := 1.0
 	var outputQty float64
 	var outputUnit string
 	var materialLossRate float64
@@ -1912,19 +1891,19 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	var sourceProcessRouteID int64
 	if cmd.SourceVersionID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0)
+			SELECT id, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0)
 			FROM %s.production_bom_versions
 			WHERE bom_id=$1 AND id=$2 AND status IN ('published','draft')
-		`, r.schema), cmd.BomID, cmd.SourceVersionID).Scan(&sourceVersionID, &yieldRate, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID); err != nil {
+		`, r.schema), cmd.BomID, cmd.SourceVersionID).Scan(&sourceVersionID, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID); err != nil {
 			return bomapp.ProductionBomVersion{}, fmt.Errorf("source production BOM version not found")
 		}
 	} else if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0)
+			SELECT id, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}'), COALESCE(process_route_id,0)
 			FROM %s.production_bom_versions
 			WHERE bom_id=$1 AND status='published'
 			ORDER BY published_at DESC NULLS LAST, id DESC
 			LIMIT 1
-		`, r.schema), cmd.BomID).Scan(&sourceVersionID, &yieldRate, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID); err != nil {
+		`, r.schema), cmd.BomID).Scan(&sourceVersionID, &outputQty, &outputUnit, &materialLossRate, &specialAttrsSchemaJSON, &specialAttrsJSON, &sourceProcessRouteID); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published production BOM version not found")
 	}
 	var next int64
@@ -1965,11 +1944,11 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var status string
-	var yieldRate float64
+	yieldRate := 1.0
 	var outputQty float64
 	var outputUnit string
 	var materialLossRate float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status, COALESCE(yield_rate,0.8)::float8, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8 FROM %s.production_bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&status, &yieldRate, &outputQty, &outputUnit, &materialLossRate); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(material_loss_rate,0)::float8 FROM %s.production_bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&status, &outputQty, &outputUnit, &materialLossRate); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("production BOM version not found")
 	}
 	if status != "draft" {
@@ -1980,9 +1959,6 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 		if materialLossRate < 0 || materialLossRate >= 1 {
 			return bomapp.ProductionBomVersion{}, fmt.Errorf("material_loss_rate must be >= 0 and < 1")
 		}
-	}
-	if cmd.ExpectedLossRate != nil {
-		yieldRate = productiondomain.NormalizeYieldRate(1 - *cmd.ExpectedLossRate)
 	}
 	if cmd.OutputQty > 0 {
 		outputQty = cmd.OutputQty

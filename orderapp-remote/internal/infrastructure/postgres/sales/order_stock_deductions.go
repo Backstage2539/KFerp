@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const salesOrderShipmentStockSource = "sales_order_shipment"
+const salesOrderShipmentStockSource = inventorydomain.ShipmentStockDeductionSource
 
 type orderStockDeductionAllocation struct {
 	ProductID   int64
@@ -154,6 +154,9 @@ func (r Repository) deductFinishedBatchAllocationTx(ctx context.Context, tx pgx.
 	if beforeG < alloc.AllocatedG {
 		return fmt.Errorf("finished stock batch insufficient: %s", alloc.BatchCode)
 	}
+	if err := r.deductTraceableFinishedInventoryAggregateTx(ctx, tx, alloc, warehouse); err != nil {
+		return err
+	}
 	afterG := beforeG - alloc.AllocatedG
 	afterUnits := afterG / alloc.SpecG
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -165,6 +168,42 @@ func (r Repository) deductFinishedBatchAllocationTx(ctx context.Context, tx pgx.
 		return err
 	}
 	return r.recordOrderStockDeductionTx(ctx, tx, orderID, alloc, itemName, warehouse, beforeG, -alloc.AllocatedG, afterG, beforeUnits, afterUnits-beforeUnits, afterUnits, actor)
+}
+
+func (r Repository) deductTraceableFinishedInventoryAggregateTx(ctx context.Context, tx pgx.Tx, alloc orderStockDeductionAllocation, warehouse string) error {
+	var beforeUnits, beforeLooseG int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g
+		FROM %s.finished_inventory
+		WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3
+		FOR UPDATE
+	`, r.schema), alloc.ProductID, alloc.SpecG, warehouse).Scan(&beforeUnits, &beforeLooseG)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("finished inventory not found: %s", alloc.BatchCode)
+		}
+		return err
+	}
+
+	afterQty, deductedG, gapG, err := inventorydomain.Deduct(
+		alloc.SpecG,
+		inventorydomain.Quantity{Units: beforeUnits, LooseG: beforeLooseG},
+		alloc.AllocatedG,
+	)
+	if err != nil {
+		return err
+	}
+	if gapG > 0 || deductedG != alloc.AllocatedG {
+		return fmt.Errorf("finished inventory insufficient: %s", alloc.BatchCode)
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.finished_inventory
+		SET onhand_units=$4,
+		    onhand_loose_g=$5,
+		    updated_at=now()
+		WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3
+	`, r.schema), alloc.ProductID, alloc.SpecG, warehouse, afterQty.Units, afterQty.LooseG)
+	return err
 }
 
 func (r Repository) deductLegacyFinishedInventoryAllocationTx(ctx context.Context, tx pgx.Tx, orderID int64, alloc orderStockDeductionAllocation, warehouse string, actor string) error {
@@ -329,6 +368,10 @@ func (r Repository) recordOrderStockDeductionTx(ctx context.Context, tx pgx.Tx, 
 	); err != nil {
 		return err
 	}
+	deductionSource := salesOrderShipmentStockSource
+	if alloc.BatchID > 0 {
+		deductionSource = inventorydomain.TraceableShipmentAggregateSyncSource
+	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.order_stock_deductions(
 			order_id,product_id,spec_g,batch_id,batch_code,deducted_g,
@@ -337,7 +380,7 @@ func (r Repository) recordOrderStockDeductionTx(ctx context.Context, tx pgx.Tx, 
 		ON CONFLICT(order_id,product_id,spec_g,batch_code) DO NOTHING
 	`, r.schema),
 		orderID, alloc.ProductID, alloc.SpecG, alloc.BatchID, alloc.BatchCode, alloc.AllocatedG,
-		salesOrderShipmentStockSource, orderID, actor,
+		deductionSource, orderID, actor,
 	)
 	return err
 }

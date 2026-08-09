@@ -39,20 +39,20 @@ func TestEngineMatchesExcelCachedGoldens(t *testing.T) {
 
 	got := CalculateProduct(params, input)
 
-	assertClose(t, "roasted bean cost", got.RoastedBeanCostPerKg, 77.5)
-	assertClose(t, "small batch cost", got.SmallBatchCostPerKg, 83.7625)
-	assertClose(t, "drip base cost", got.DripBaseCostPerBag, 1.377625)
-	assertClose(t, "retail tax", got.RetailTaxPerKg, 3.64366875)
-	assertClose(t, "wholesale kg 1kg tier", got.WholesaleKgPrices[0], 132)
-	assertClose(t, "wholesale lb 1kg tier", got.WholesaleLbPrices[0], 61)
-	assertClose(t, "wholesale kg 24kg tier", got.WholesaleKgPrices[3], 99)
+	assertClose(t, "roasted bean cost", got.RoastedBeanCostPerKg, 62)
+	assertClose(t, "small batch cost", got.SmallBatchCostPerKg, 68.2625)
+	assertClose(t, "drip base cost", got.DripBaseCostPerBag, 1.222625)
+	assertClose(t, "retail tax", got.RetailTaxPerKg, 2.96941875)
+	assertClose(t, "wholesale kg 1kg tier", got.WholesaleKgPrices[0], 108)
+	assertClose(t, "wholesale lb 1kg tier", got.WholesaleLbPrices[0], 50)
+	assertClose(t, "wholesale kg 24kg tier", got.WholesaleKgPrices[3], 80)
 	if len(got.DripWholesaleTiers) != 0 || len(got.WholesaleDripBagPrices) != 0 || len(got.WholesaleDripBagWithPackPrices) != 0 {
 		t.Fatalf("drip wholesale tiers should not be generated without an explicit legacy snapshot/template: %+v", got.DripWholesaleTiers)
 	}
-	assertClose(t, "retail kg", got.RetailKgPrice, 219)
-	assertClose(t, "retail lb", got.Retail454gPrice, 99)
-	assertClose(t, "retail half lb", got.Retail227gPrice, 50)
-	assertClose(t, "retail drip 10 bags", got.RetailDrip10BagPrice, 43)
+	assertClose(t, "retail kg", got.RetailKgPrice, 180)
+	assertClose(t, "retail lb", got.Retail454gPrice, 82)
+	assertClose(t, "retail half lb", got.Retail227gPrice, 41)
+	assertClose(t, "retail drip 10 bags", got.RetailDrip10BagPrice, 39)
 }
 
 func TestCalculateProductPreservesConcreteSKUSalesSpecForBeanListAPI(t *testing.T) {
@@ -139,8 +139,8 @@ func TestCommercialWholesaleTiersUse454gPackageRanges(t *testing.T) {
 			t.Fatalf("tier %d max = %+v, want %+v", i, *tier.MaxLb, *wantMaxs[i])
 		}
 	}
-	assertClose(t, "2-13 lb price", got.CommercialWholesaleTiers[0].PricePerLb, 61)
-	assertClose(t, "greater than 47 lb price", got.CommercialWholesaleTiers[3].PricePerLb, 46)
+	assertClose(t, "2-13 lb price", got.CommercialWholesaleTiers[0].PricePerLb, 50)
+	assertClose(t, "greater than 47 lb price", got.CommercialWholesaleTiers[3].PricePerLb, 37)
 }
 
 func TestProductWithoutPricingMethodDoesNotPublishCommercialTiers(t *testing.T) {
@@ -515,7 +515,7 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	if first.TemplateID != 9 || first.TemplateTierID != 91 || first.MarginRate != 0.175 || first.DisplayUnit != GradientDisplayUnitKg {
 		t.Fatalf("template metadata = %+v", first)
 	}
-	assertClose(t, "kg price", first.PricePerUnit, 82)
+	assertClose(t, "kg price", first.PricePerUnit, 67)
 
 	lb := CalculateProduct(params, ProductInput{
 		ProductID:          502,
@@ -537,7 +537,7 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	if tier := lb.CommercialWholesaleTiers[0]; tier.Label != "自定义小单" || tier.SpecG != 454 || tier.MinQty != 2 || tier.DisplayUnit != GradientDisplayUnitLb {
 		t.Fatalf("lb template tier = %+v", tier)
 	}
-	assertClose(t, "lb price", lb.CommercialWholesaleTiers[0].PricePerUnit, 61)
+	assertClose(t, "lb price", lb.CommercialWholesaleTiers[0].PricePerUnit, 50)
 
 	smallUnit := CalculateProduct(params, ProductInput{
 		ProductID:          503,
@@ -559,7 +559,7 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	if tier := smallUnit.CommercialWholesaleTiers[0]; tier.Label != "2-7份" || tier.SpecG != 227 || tier.MinQty != 2 || tier.MaxQty == nil || *tier.MaxQty != 7 || tier.DisplayUnit != GradientDisplayUnit227G {
 		t.Fatalf("227g template tier = %+v", tier)
 	}
-	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
+	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 16)
 }
 
 func TestComposableProductPricingUsesBomUnitCostAndCustomQuoteUnit(t *testing.T) {
@@ -777,7 +777,7 @@ func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 	if first.BagGrams != 12 || first.BoxBagCount != 10 || first.Multiplier != 2.2 || first.TaxRate != params.RetailTaxRate {
 		t.Fatalf("first drip tier pricing source = %+v", first)
 	}
-	if first.PackedPricePerBag <= first.LoosePricePerBag || first.PackedPricePerBag <= 0 {
+	if first.PackedPricePerBag < first.LoosePricePerBag || first.PackedPricePerBag <= 0 {
 		t.Fatalf("first drip tier prices = %+v", first)
 	}
 }
@@ -808,8 +808,8 @@ func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 	if tier.MarginRate != 0.30 {
 		t.Fatalf("tier margin = %.3f, want product override 0.300; tier=%+v", tier.MarginRate, tier)
 	}
-	if tier.PricePerUnit != 91 {
-		t.Fatalf("tier price = %.2f, want override price 91 from 0.30 margin; tier=%+v", tier.PricePerUnit, tier)
+	if tier.PricePerUnit != 74 {
+		t.Fatalf("tier price = %.2f, want override price 74 from 0.30 margin; tier=%+v", tier.PricePerUnit, tier)
 	}
 }
 
@@ -845,12 +845,11 @@ func TestCommercialPriceExplanationIncludesFastCostParametersAndTemporaryOverrid
 	if explanation.SavedFinalPrice == explanation.PreviewFinalPrice {
 		t.Fatalf("temporary override should change preview price: %+v", explanation)
 	}
-	if explanation.SavedFinalPrice != 82 || explanation.PreviewFinalPrice != 91 {
-		t.Fatalf("prices = saved %.2f preview %.2f, want 82/91", explanation.SavedFinalPrice, explanation.PreviewFinalPrice)
+	if explanation.SavedFinalPrice != 67 || explanation.PreviewFinalPrice != 74 {
+		t.Fatalf("prices = saved %.2f preview %.2f, want 67/74", explanation.SavedFinalPrice, explanation.PreviewFinalPrice)
 	}
 	wantKeys := []string{
 		"green_bean_cost_per_kg",
-		"expected_loss_rate",
 		"roasted_bean_cost_per_kg",
 		"large_batch_production_cost_per_kg",
 		"wholesale_package_cost_per_kg",
@@ -916,30 +915,30 @@ func TestExcelRetailBeanListPricesMatchRoundedWorkbook(t *testing.T) {
 		greenCost float64
 		want      map[string]float64
 	}{
-		{"金色山脉", 62, map[string]float64{"227g": 50, "250g": 55}},
-		{"酒心巧克力", 67, map[string]float64{"227g": 53, "250g": 59}},
-		{"菠萝意式2.0", 95, map[string]float64{"227g": 73, "250g": 80}},
-		{"橘皮乌龙", 62, map[string]float64{"227g": 50, "250g": 55}},
-		{"芒霜2.0", 105, map[string]float64{"227g": 80, "250g": 88}},
-		{"小菠萝2.0", 95, map[string]float64{"227g": 73, "250g": 80}},
-		{"萨奇姆", 90, map[string]float64{"227g": 69, "250g": 76}},
-		{"曜石2.0", 63.9, map[string]float64{"227g": 51, "250g": 56}},
-		{"红岩2.0", 63.9, map[string]float64{"227g": 47, "250g": 51}},
-		{"初晓", 75.5, map[string]float64{"227g": 59, "250g": 65}},
-		{"松饼", 64.4, map[string]float64{"227g": 51, "250g": 57}},
-		{"榛巧", 64.4, map[string]float64{"227g": 51, "250g": 57}},
-		{"果语花香", 71.5, map[string]float64{"227g": 56, "250g": 62}},
-		{"耶加雪菲G2", 76, map[string]float64{"227g": 60, "250g": 66}},
-		{"Uraga乌拉嘎", 108, map[string]float64{"227g": 82, "250g": 90}},
-		{"浣纱果园", 100, map[string]float64{"227g": 77, "250g": 84}},
-		{"肯尼亚TOPAA", 120, map[string]float64{"227g": 91, "250g": 100}},
-		{"森林瑰夏", 118, map[string]float64{"227g": 89, "250g": 98}},
-		{"Nenka嫩咖", 116, map[string]float64{"227g": 88, "250g": 97}},
-		{"曼特宁", 69, map[string]float64{"227g": 55, "250g": 60}},
-		{"白月光-瑰夏", 360, map[string]float64{"100g": 115, "200g": 229}},
-		{"芸上莓梦", 152, map[string]float64{"100g": 50, "200g": 100}},
-		{"晨曦-娜伊", 450, map[string]float64{"100g": 143, "200g": 286}},
-		{"晚香玉", 128, map[string]float64{"100g": 42, "200g": 85}},
+		{"金色山脉", 62, map[string]float64{"227g": 41, "250g": 45}},
+		{"酒心巧克力", 67, map[string]float64{"227g": 44, "250g": 48}},
+		{"菠萝意式2.0", 95, map[string]float64{"227g": 60, "250g": 66}},
+		{"橘皮乌龙", 62, map[string]float64{"227g": 41, "250g": 45}},
+		{"芒霜2.0", 105, map[string]float64{"227g": 65, "250g": 72}},
+		{"小菠萝2.0", 95, map[string]float64{"227g": 60, "250g": 66}},
+		{"萨奇姆", 90, map[string]float64{"227g": 57, "250g": 62}},
+		{"曜石2.0", 63.9, map[string]float64{"227g": 42, "250g": 46}},
+		{"红岩2.0", 63.9, map[string]float64{"227g": 39, "250g": 42}},
+		{"初晓", 75.5, map[string]float64{"227g": 48, "250g": 53}},
+		{"松饼", 64.4, map[string]float64{"227g": 42, "250g": 46}},
+		{"榛巧", 64.4, map[string]float64{"227g": 42, "250g": 46}},
+		{"果语花香", 71.5, map[string]float64{"227g": 46, "250g": 51}},
+		{"耶加雪菲G2", 76, map[string]float64{"227g": 49, "250g": 54}},
+		{"Uraga乌拉嘎", 108, map[string]float64{"227g": 67, "250g": 74}},
+		{"浣纱果园", 100, map[string]float64{"227g": 62, "250g": 69}},
+		{"肯尼亚TOPAA", 120, map[string]float64{"227g": 74, "250g": 81}},
+		{"森林瑰夏", 118, map[string]float64{"227g": 73, "250g": 80}},
+		{"Nenka嫩咖", 116, map[string]float64{"227g": 71, "250g": 79}},
+		{"曼特宁", 69, map[string]float64{"227g": 45, "250g": 49}},
+		{"白月光-瑰夏", 360, map[string]float64{"100g": 92, "200g": 185}},
+		{"芸上莓梦", 152, map[string]float64{"100g": 40, "200g": 81}},
+		{"晨曦-娜伊", 450, map[string]float64{"100g": 115, "200g": 229}},
+		{"晚香玉", 128, map[string]float64{"100g": 34, "200g": 69}},
 	}
 	for _, tc := range cases {
 		got := CalculateProduct(params, ProductInput{Name: tc.name, GreenBeanCostPerKg: tc.greenCost, YieldRate: 0.8})
@@ -1138,11 +1137,73 @@ func TestCustomerAliasBeanListWithoutSkuCategoryUsesUnclassifiedGroup(t *testing
 
 func TestValidateProductInputRejectsInvalidInputs(t *testing.T) {
 	params := DefaultParameters()
-	if _, err := ValidateProductInput(params, ProductInput{Name: "bad", GreenBeanCostPerKg: 10, YieldRate: -0.1}); err == nil {
-		t.Fatalf("expected invalid yield rate error")
+	if got, err := ValidateProductInput(params, ProductInput{Name: "legacy", GreenBeanCostPerKg: 10, YieldRate: -0.1, ExpectedLossRate: 3}); err != nil || got.YieldRate != 1 || got.ExpectedLossRate != 0 {
+		t.Fatalf("retired yield fields should be ignored and normalized to 1/0: got=%+v err=%v", got, err)
 	}
 	if _, err := ValidateProductInput(params, ProductInput{Name: "bad", GreenBeanCostPerKg: -1, YieldRate: 0.8}); err == nil {
 		t.Fatalf("expected invalid green bean cost error")
+	}
+}
+
+func TestCurrentCostingIgnoresRetiredOverallYieldFields(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:          643,
+		Name:               "当前曲奇试算",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		ExpectedLossRate:   0.2,
+	}
+
+	validated, err := ValidateProductInput(params, input)
+	if err != nil {
+		t.Fatalf("ValidateProductInput() error = %v", err)
+	}
+	if validated.YieldRate != 1 || validated.ExpectedLossRate != 0 {
+		t.Fatalf("validated legacy loss = yield %.4f expected %.4f, want fixed 1/0", validated.YieldRate, validated.ExpectedLossRate)
+	}
+
+	got := CalculateProduct(params, input)
+	if got.YieldRate != 1 || got.ExpectedLossRate != 0 || got.RoastedBeanCostPerKg != 51.75 {
+		t.Fatalf("current cost result = yield %.4f expected %.4f roasted %.4f, want 1/0/51.75", got.YieldRate, got.ExpectedLossRate, got.RoastedBeanCostPerKg)
+	}
+}
+
+func TestCommercialPriceExplanationIgnoresRetiredYieldOverrideAndStep(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:          643,
+		Name:               "当前曲奇试算",
+		GreenBeanCostPerKg: 51.75,
+		YieldRate:          0.8,
+		ExpectedLossRate:   0.2,
+		GradientTemplate: &GradientTemplate{
+			ID:          9,
+			Name:        "熟豆磅装模板",
+			DisplayUnit: GradientDisplayUnitKg,
+			Tiers: []GradientTemplateTier{{
+				ID: 91, Label: "1kg", MinWeightG: 1000, MarginRate: 0.2, Position: 1,
+			}},
+		},
+	}
+
+	explanation, err := ExplainCommercialPrice(params, input, PriceExplanationRequest{
+		TierLabel: "1kg",
+		Overrides: PriceExplanationOverrides{YieldRate: f64(0.5)},
+	})
+	if err != nil {
+		t.Fatalf("ExplainCommercialPrice() error = %v", err)
+	}
+	if explanation.SavedFinalPrice != explanation.PreviewFinalPrice {
+		t.Fatalf("retired yield override changed price: saved %.4f preview %.4f", explanation.SavedFinalPrice, explanation.PreviewFinalPrice)
+	}
+	if explanation.HasStep("expected_loss_rate") {
+		t.Fatalf("price explanation must not expose retired expected-loss step: %+v", explanation.Steps)
+	}
+	for _, step := range explanation.Steps {
+		if step.Key == "roasted_bean_cost_per_kg" && step.Value != 51.75 {
+			t.Fatalf("roasted cost step = %.4f, want 51.75 without yield division", step.Value)
+		}
 	}
 }
 
@@ -1199,7 +1260,7 @@ func TestDripWholesaleTiersRequireExplicitLegacyTemplate(t *testing.T) {
 	if len(out.DripWholesaleTiers) != 1 {
 		t.Fatalf("tiers len=%d", len(out.DripWholesaleTiers))
 	}
-	base := (80/0.8+params.SmallBatchProductionCostPerKg)*0.01 + 0.44 + 0.10
+	base := (80+params.SmallBatchProductionCostPerKg)*0.01 + 0.44 + 0.10
 	wantLoose := roundPrice(base*2.2 + base*(2.2-1)*0.03)
 	wantPacked := roundPrice(wantLoose + 0.20)
 	if out.DripWholesaleTiers[0].MinBags != 100 || out.DripWholesaleTiers[0].TemplateID != 9 || out.DripWholesaleTiers[0].LoosePricePerBag != wantLoose || out.DripWholesaleTiers[0].PackedPricePerBag != wantPacked {

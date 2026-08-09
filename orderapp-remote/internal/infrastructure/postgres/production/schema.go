@@ -140,9 +140,13 @@ CREATE TABLE IF NOT EXISTS %s.production_plan_items (
 	process_route_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	target_warehouse TEXT NOT NULL DEFAULT '',
+	processing_request_item_id BIGINT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS production_plan_items_plan_idx ON %s.production_plan_items(production_plan_id, id);
+-- Defer the %s.production_plan_items request-item index until legacy columns are added below.
 
 CREATE TABLE IF NOT EXISTS %s.production_plan_operation_splits (
 	id BIGSERIAL PRIMARY KEY,
@@ -207,6 +211,9 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb,
 	production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	target_warehouse TEXT NOT NULL DEFAULT '',
+	processing_request_item_id BIGINT NOT NULL DEFAULT 0,
 	planned_start_at TIMESTAMPTZ,
 	planned_end_at TIMESTAMPTZ,
 	shift_code TEXT NOT NULL DEFAULT '',
@@ -216,6 +223,7 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	work_center TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
+-- Defer the %s.work_orders request-item index until legacy columns are added below.
 CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0;
 
 CREATE TABLE IF NOT EXISTS %s.job_cards (
@@ -318,7 +326,7 @@ CREATE TABLE IF NOT EXISTS %s.work_center_capacity_calendar (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS work_center_capacity_calendar_uq ON %s.work_center_capacity_calendar(work_center, work_date, shift_code);
 CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_center_capacity_calendar(work_date, work_center);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
@@ -332,6 +340,10 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS planned_inventory_qty NUMERIC(18,9) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS sales_spec_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_inherited BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS target_warehouse TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS processing_request_item_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS production_plan_items_processing_request_idx ON %s.production_plan_items(processing_request_item_id) WHERE processing_request_item_id>0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders DROP CONSTRAINT IF EXISTS work_orders_running_item_id_key`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ALTER COLUMN running_item_id SET DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0`, schema),
@@ -355,6 +367,10 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS target_warehouse TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS processing_request_item_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS work_orders_processing_request_idx ON %s.work_orders(processing_request_item_id) WHERE processing_request_item_id>0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS planned_start_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS planned_end_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS shift_code TEXT NOT NULL DEFAULT ''`, schema),
@@ -520,7 +536,7 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		return err
 	}
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS input_g BIGINT NOT NULL DEFAULT 0`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_units BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_loose_g BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
@@ -540,7 +556,7 @@ func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		order_nos TEXT NOT NULL DEFAULT '',
 		planned_need_g BIGINT NOT NULL DEFAULT 0,
 		input_g BIGINT NOT NULL DEFAULT 0,
-		bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+		bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000,
 		finished_units BIGINT NOT NULL DEFAULT 0,
 		finished_loose_g BIGINT NOT NULL DEFAULT 0,
 		finished_total_g BIGINT NOT NULL DEFAULT 0,
@@ -559,6 +575,9 @@ func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema st
 	CREATE INDEX IF NOT EXISTS production_logs_finished_idx ON %s.production_logs(finished_at DESC, id DESC);
 	CREATE INDEX IF NOT EXISTS production_logs_product_idx ON %s.production_logs(product_id, finished_at DESC);`, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs ALTER COLUMN bom_yield_rate SET DEFAULT 1.0000`, schema)); err != nil {
 		return err
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs DROP CONSTRAINT IF EXISTS production_logs_running_item_id_key`, schema)); err != nil {

@@ -14,6 +14,25 @@ import (
 	catalogapp "orderapp/internal/application/catalog"
 )
 
+func TestFetchProductsUsesNeutralLegacyYieldProjection(t *testing.T) {
+	queryBytes, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := string(queryBytes)
+	for _, forbidden := range []string{
+		"CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0)",
+		"COALESCE(ppc.expected_loss_rate, GREATEST(0, 1 - COALESCE(pbv.yield_rate, b.yield_rate, 0.8)))",
+	} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("current product query must not derive overall yield/loss: %q", forbidden)
+		}
+	}
+	if !strings.Contains(query, "1::float8 AS neutral_yield_rate") || !strings.Contains(query, "0::float8 AS neutral_expected_loss_rate") {
+		t.Fatalf("current product query must project neutral compatibility yield/loss values")
+	}
+}
+
 func TestInsertIDAtPositionReordersWithoutDuplicatePositionTie(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -391,7 +410,7 @@ func TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit(t *testing.T) {
 		"func (r Repository) ListBusinessGroupAssignments",
 		"func (r Repository) SaveBusinessGroupAssignment",
 		"func (r Repository) DeleteBusinessGroupAssignment",
-		"ensureBusinessGroupUsageForAssignmentTx",
+		"business group is not referenced by active usage",
 		"object_ref",
 		"save_business_group_assignment",
 		"delete_business_group_assignment",
@@ -428,6 +447,40 @@ func TestBusinessGroupAssignmentsKeepOneCurrentAssignmentAcrossBootstrap(t *test
 	if strings.Contains(src, "ON %[1]s.business_group_assignments(group_id, lower(usage_key), lower(object_key), object_id, lower(object_ref));") {
 		t.Fatalf("business group assignment unique key must not include group_id; deploy bootstrap can otherwise recreate legacy default assignments beside user moves")
 	}
+}
+
+func TestLegacyBusinessGroupUsageMigrationsDoNotReactivateExplicitlyDisabledUsages(t *testing.T) {
+	catalogSchema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stockSchema, err := os.ReadFile("../stock/schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertHistoryGuard := func(name, src, usageKey string) {
+		t.Helper()
+		marker := "WHERE existing.group_id=tg.id AND lower(existing.usage_key)='" + usageKey + "'"
+		index := strings.Index(src, marker)
+		if index < 0 {
+			t.Fatalf("%s migration must check active and inactive usage history before initializing %s", name, usageKey)
+		}
+		start := index - 180
+		if start < 0 {
+			start = 0
+		}
+		guard := src[start : index+len(marker)]
+		if !strings.Contains(guard, "WHERE NOT EXISTS (") {
+			t.Fatalf("%s migration history check for %s must be inside WHERE NOT EXISTS", name, usageKey)
+		}
+		if strings.Contains(guard, "existing.active") {
+			t.Fatalf("%s migration must treat inactive %s rows as explicit unbind history", name, usageKey)
+		}
+	}
+	for _, usageKey := range []string{"product_catalog", "production_bom", "warehouse_inventory", "material_catalog"} {
+		assertHistoryGuard("catalog", string(catalogSchema), usageKey)
+	}
+	assertHistoryGuard("stock", string(stockSchema), "warehouse_inventory")
 }
 
 func TestMaterialClassificationMigratesToBusinessGroupAssignments(t *testing.T) {
@@ -696,6 +749,7 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 	for _, want := range []string{
 		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_configs",
 		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_fields",
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_industry_templates",
 		"expected_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0",
 		"process_route_id BIGINT NOT NULL DEFAULT 0",
 		"show_in_price_list BOOLEAN NOT NULL DEFAULT true",
@@ -706,7 +760,8 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 		`"product_production_config"`,
 		`"save_product_production_config"`,
 		"LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id",
-		"COALESCE(ppc.expected_loss_rate",
+		"1::float8 AS neutral_yield_rate",
+		"0::float8 AS neutral_expected_loss_rate",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("product production config implementation missing marker %q", want)
@@ -725,7 +780,7 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 	cleanup := catalogSourceFunctionForTest(t, schemaSource, "func cleanupProductProductionConfigIndustryFields")
 	for _, want := range []string{
 		"DELETE FROM %[1]s.product_production_config_fields",
-		"industry_field_template_id",
+		"product_production_config_industry_templates",
 		"industry_field_templates",
 		"industry_field_definitions",
 		"to_regclass",
@@ -734,12 +789,280 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 			t.Fatalf("product industry field cleanup missing %q", want)
 		}
 	}
-	const exactFieldKeyMatch = "btrim(d.field_key)=COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key))"
+	const exactFieldKeyMatch = "lower(btrim(d.field_key))=lower(COALESCE(NULLIF(btrim(f.template_field_key),''),btrim(f.field_key)))"
 	if !strings.Contains(cleanup, exactFieldKeyMatch) {
-		t.Fatalf("product industry field cleanup must use exact trimmed key match %q", exactFieldKeyMatch)
+		t.Fatalf("product industry field cleanup must follow the case-insensitive product field key uniqueness %q", exactFieldKeyMatch)
 	}
-	if strings.Contains(cleanup, "lower(btrim") {
-		t.Fatalf("product industry field cleanup must not match template keys case-insensitively")
+}
+
+func TestPR584ProductIndustryTemplatesAndBusinessGroupUsageRepositoryContracts(t *testing.T) {
+	schemaBytes, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schemaSource := string(schemaBytes)
+	repositorySource := string(repositoryBytes)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_industry_templates",
+		"PRIMARY KEY(product_id, template_id)",
+		"SELECT product_id, industry_field_template_id, 1, 'system-backfill', 'system-backfill'",
+		"ON CONFLICT (product_id, template_id) DO NOTHING",
+	} {
+		if !strings.Contains(schemaSource, want) {
+			t.Fatalf("PR-584 product industry template schema missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.business_group_usages ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 100",
+	} {
+		if !strings.Contains(schemaSource, want) {
+			t.Fatalf("PR-584 feature-owned group selection schema missing %q", want)
+		}
+	}
+	listGroups := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) ListBusinessGroups", "func (r Repository) SaveBusinessGroup")
+	if !strings.Contains(listGroups, "lower(btrim(usage_key))<>'price_list'") {
+		t.Fatal("historical price_list usages must not be exposed by business group reads")
+	}
+
+	normalize := catalogRepositoryFunctionForTest(t, repositorySource, "func normalizeProductProductionConfigFieldsAgainstTemplatesTx", "func (r Repository) ListProductClassificationTemplates")
+	for _, want := range []string{
+		"WHERE id=ANY($1::bigint[]) AND status='active'",
+		"ORDER BY id",
+		"FOR SHARE",
+		"ORDER BY array_position($1::bigint[], template_id), sort_order, id",
+		"if _, exists := defs[key]; exists",
+		"definitionOrder++",
+		"seenFields",
+	} {
+		if !strings.Contains(normalize, want) {
+			t.Fatalf("PR-584 ordered industry field union missing %q", want)
+		}
+	}
+	if strings.Contains(normalize, "ORDER BY array_position($1::bigint[], id)\n\t\tFOR SHARE") {
+		t.Fatal("template locks must use canonical id order rather than request order to avoid deadlocks")
+	}
+
+	saveConfig := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) SaveProductProductionConfig", "func normalizeIndustryFieldTemplateIDsForSave")
+	for _, want := range []string{
+		"oldTemplateIDs",
+		"DELETE FROM %s.product_production_config_industry_templates WHERE product_id=$1",
+		"industry_field_template_ids",
+		"postgresinfra.StrPtr(fmt.Sprint(oldTemplateIDs))",
+	} {
+		if !strings.Contains(saveConfig, want) {
+			t.Fatalf("PR-584 product config persistence/audit missing %q", want)
+		}
+	}
+
+	saveGroup := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) SaveBusinessGroup", "func (r Repository) DeleteBusinessGroup")
+	for _, forbidden := range []string{"cmd.Usages", "business_group_usages", `"usages"`} {
+		if strings.Contains(saveGroup, forbidden) {
+			t.Fatalf("template CRUD must not own feature selection; found %q", forbidden)
+		}
+	}
+
+	listSelection := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) GetBusinessGroupFeatureSelection", "func (r Repository) SaveBusinessGroupFeatureSelection")
+	for _, want := range []string{
+		"JOIN %s.business_groups bg ON bg.id=u.group_id AND bg.active=true",
+		"left(lower(btrim(bg.code)),8)<>'default_'",
+		"btrim(bg.name) NOT IN ('商品默认分组','生产 BOM 默认分组','仓库库存默认分组')",
+		"u.active=true",
+		"lower(u.usage_key)=lower($1)",
+		"lower(u.usage_key)<>'price_list'",
+		"ORDER BY u.sort_order, u.id",
+	} {
+		if !strings.Contains(listSelection, want) {
+			t.Fatalf("feature selection read contract missing %q", want)
+		}
+	}
+
+	saveSelection := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) SaveBusinessGroupFeatureSelection", "func (r Repository) ListBusinessGroupAssignments")
+	for _, want := range []string{
+		"WHERE id=ANY($1::bigint[]) AND active=true",
+		"ORDER BY id",
+		"FOR SHARE",
+		"protectedBusinessGroupTemplate(groupName, groupCode)",
+		"UPDATE %s.business_group_usages SET active=false",
+		"sort_order=$3",
+		"INSERT INTO %s.business_group_usages(group_id, usage_key, usage_label, active, sort_order, created_by, updated_by)",
+		`"save_business_group_feature_selection"`,
+		`"business_group_feature_selection"`,
+		`"group_template_ids"`,
+	} {
+		if !strings.Contains(saveSelection, want) {
+			t.Fatalf("feature selection atomic save/audit contract missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"DELETE FROM %s.business_groups", "DELETE FROM %s.business_group_items", "DELETE FROM %s.business_group_assignments"} {
+		if strings.Contains(saveSelection, forbidden) {
+			t.Fatalf("clearing a feature selection must not delete templates, categories, or assignments; found %q", forbidden)
+		}
+	}
+
+	saveAssignment := catalogRepositoryFunctionForTest(t, repositorySource, "func (r Repository) SaveBusinessGroupAssignment", "func (r Repository) DeleteBusinessGroupAssignment")
+	if strings.Contains(saveAssignment, "ensureBusinessGroupUsageForAssignmentTx") {
+		t.Fatal("assignment save must not implicitly create or reactivate a group usage")
+	}
+	for _, want := range []string{"active=true", "business group is not referenced by active usage"} {
+		if !strings.Contains(saveAssignment, want) {
+			t.Fatalf("assignment save must require an explicit active group usage; missing %q", want)
+		}
+	}
+}
+
+func TestPR584BusinessGroupFeatureSelectionPersistsAtomicallyWithoutDeletingGroupData(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog postgres tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_pr584_feature_group_selection_%d", time.Now().UnixNano())
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+CREATE SCHEMA %s;
+CREATE TABLE %s.business_groups (
+	id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', remark TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true, sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.business_group_items (
+	id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, parent_id BIGINT NOT NULL DEFAULT 0,
+	name TEXT NOT NULL, code TEXT NOT NULL DEFAULT '', remark TEXT NOT NULL DEFAULT '', active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.business_group_usages (
+	id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, usage_key TEXT NOT NULL, usage_label TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true, sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX business_group_usages_group_key_uq ON %s.business_group_usages(group_id, lower(usage_key)) WHERE active=true;
+CREATE TABLE %s.business_group_assignments (
+	id BIGSERIAL PRIMARY KEY, group_id BIGINT NOT NULL, group_item_id BIGINT NOT NULL DEFAULT 0,
+	usage_key TEXT NOT NULL, object_key TEXT NOT NULL, object_id BIGINT NOT NULL, object_ref TEXT NOT NULL DEFAULT '',
+	sort_order INT NOT NULL DEFAULT 100, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now(), actor TEXT NOT NULL DEFAULT '', entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT, action TEXT NOT NULL DEFAULT '', field TEXT, old_value TEXT, new_value TEXT, meta JSONB
+);`, schema, schema, schema, schema, schema, schema, schema)); err != nil {
+		t.Fatalf("create feature selection fixture: %v", err)
+	}
+
+	var coffeeID, dripID, inactiveID, defaultID, itemID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('咖啡豆模板','coffee',true,10) RETURNING id`, schema)).Scan(&coffeeID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('挂耳模板','drip',true,20) RETURNING id`, schema)).Scan(&dripID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('停用模板','inactive',false,30) RETURNING id`, schema)).Scan(&inactiveID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_groups(name,code,active,sort_order) VALUES ('商品默认分组','default_product_catalog',true,1) RETURNING id`, schema)).Scan(&defaultID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_items(group_id,name,code,active) VALUES ($1,'咖啡豆','bean',true) RETURNING id`, schema), coffeeID).Scan(&itemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_assignments(group_id,group_item_id,usage_key,object_key,object_id) VALUES ($1,$2,'product_catalog','product',901)`, schema), coffeeID, itemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_usages(group_id,usage_key,usage_label,active,sort_order) VALUES ($1,'price_list','商品价格表',true,1)`, schema), coffeeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_usages(group_id,usage_key,usage_label,active,sort_order) VALUES ($1,'product_catalog','商品档案',true,1)`, schema), defaultID); err != nil {
+		t.Fatal(err)
+	}
+
+	repository := NewRepository(pool, schema)
+	loaded, err := repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || len(loaded.GroupTemplateIDs) != 0 {
+		t.Fatalf("system default selection must be hidden, selection=%+v err=%v", loaded, err)
+	}
+	saved, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{dripID, coffeeID},
+	})
+	if err != nil {
+		t.Fatalf("save ordered feature selection: %v", err)
+	}
+	if !reflect.DeepEqual(saved.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("saved order=%v", saved.GroupTemplateIDs)
+	}
+	loaded, err = repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || !reflect.DeepEqual(loaded.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("loaded selection=%+v err=%v", loaded, err)
+	}
+
+	if _, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{inactiveID},
+	}); err == nil || !catalogapp.IsValidationError(err) {
+		t.Fatalf("inactive template must be rejected: %v", err)
+	}
+	loaded, err = repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || !reflect.DeepEqual(loaded.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("failed replacement must roll back, selection=%+v err=%v", loaded, err)
+	}
+	if _, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{defaultID},
+	}); err == nil || !catalogapp.IsValidationError(err) {
+		t.Fatalf("system default template must be rejected: %v", err)
+	}
+
+	if _, err := repository.SaveBusinessGroup(ctx, catalogapp.BusinessGroup{
+		ID: coffeeID, Actor: "cached-client", Name: "咖啡豆模板", Code: "coffee", Active: true, SortOrder: 10,
+		ReplaceUsages: true, Usages: []catalogapp.BusinessGroupUsage{},
+	}); err != nil {
+		t.Fatalf("cached template save: %v", err)
+	}
+	loaded, err = repository.GetBusinessGroupFeatureSelection(ctx, catalogapp.BusinessGroupUsageProductCatalog)
+	if err != nil || !reflect.DeepEqual(loaded.GroupTemplateIDs, []int64{dripID, coffeeID}) {
+		t.Fatalf("cached template payload overwrote feature selection=%+v err=%v", loaded, err)
+	}
+
+	cleared, err := repository.SaveBusinessGroupFeatureSelection(ctx, catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor: "pr584-test", FeatureKey: catalogapp.BusinessGroupUsageProductCatalog, GroupTemplateIDs: []int64{},
+	})
+	if err != nil || cleared.GroupTemplateIDs == nil || len(cleared.GroupTemplateIDs) != 0 {
+		t.Fatalf("clear selection=%+v err=%v", cleared, err)
+	}
+	var groupCount, itemCount, assignmentCount, auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+SELECT (SELECT count(*) FROM %s.business_groups),
+       (SELECT count(*) FROM %s.business_group_items),
+       (SELECT count(*) FROM %s.business_group_assignments),
+       (SELECT count(*) FROM %s.audit_logs WHERE action='save_business_group_feature_selection')
+`, schema, schema, schema, schema)).Scan(&groupCount, &itemCount, &assignmentCount, &auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if groupCount != 4 || itemCount != 1 || assignmentCount != 1 || auditCount != 2 {
+		t.Fatalf("clear deleted data or missed audit: groups=%d items=%d assignments=%d audits=%d", groupCount, itemCount, assignmentCount, auditCount)
+	}
+	groups, err := repository.ListBusinessGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range groups {
+		for _, usage := range group.Usages {
+			if strings.EqualFold(usage.UsageKey, catalogapp.BusinessGroupUsagePriceList) {
+				t.Fatalf("historical price_list usage leaked into read: %+v", usage)
+			}
+		}
 	}
 }
 
@@ -784,6 +1107,12 @@ CREATE TABLE %[1]s.product_production_config_fields (
 	field_key TEXT NOT NULL DEFAULT '',
 	template_field_key TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE %[1]s.product_production_config_industry_templates (
+	product_id BIGINT NOT NULL,
+	template_id BIGINT NOT NULL,
+	sort_order INT NOT NULL DEFAULT 1,
+	PRIMARY KEY(product_id, template_id)
+);
 CREATE TABLE %[1]s.industry_field_templates (
 	id BIGINT PRIMARY KEY
 );
@@ -800,6 +1129,12 @@ INSERT INTO %[1]s.product_production_configs(product_id, industry_field_template
 	(5,50),
 	(6,60),
 	(7,70);
+INSERT INTO %[1]s.product_production_config_industry_templates(product_id, template_id, sort_order) VALUES
+	(3,30,1),
+	(4,40,1),
+	(5,50,1),
+	(6,60,1),
+	(7,70,1);
 INSERT INTO %[1]s.industry_field_templates(id) VALUES (40),(50),(60),(70);
 INSERT INTO %[1]s.industry_field_definitions(id, template_id, field_key) VALUES
 	(501,50,'exact-key'),
@@ -819,11 +1154,11 @@ INSERT INTO %[1]s.product_production_config_fields(id, product_id, field_key, te
 	if err := cleanupProductProductionConfigIndustryFields(ctx, pool, schema); err != nil {
 		t.Fatalf("cleanupProductProductionConfigIndustryFields: %v", err)
 	}
-	assertProductProductionConfigFieldIDs(t, ctx, pool, schema, []int64{5, 7})
+	assertProductProductionConfigFieldIDs(t, ctx, pool, schema, []int64{5, 7, 8})
 	if err := cleanupProductProductionConfigIndustryFields(ctx, pool, schema); err != nil {
 		t.Fatalf("cleanupProductProductionConfigIndustryFields second run: %v", err)
 	}
-	assertProductProductionConfigFieldIDs(t, ctx, pool, schema, []int64{5, 7})
+	assertProductProductionConfigFieldIDs(t, ctx, pool, schema, []int64{5, 7, 8})
 
 	mustExec(fmt.Sprintf(`
 CREATE SCHEMA %[1]s;
@@ -837,7 +1172,14 @@ CREATE TABLE %[1]s.product_production_config_fields (
 	field_key TEXT NOT NULL DEFAULT '',
 	template_field_key TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE %[1]s.product_production_config_industry_templates (
+	product_id BIGINT NOT NULL,
+	template_id BIGINT NOT NULL,
+	sort_order INT NOT NULL DEFAULT 1,
+	PRIMARY KEY(product_id, template_id)
+);
 INSERT INTO %[1]s.product_production_configs(product_id, industry_field_template_id) VALUES (101,99),(102,0);
+INSERT INTO %[1]s.product_production_config_industry_templates(product_id, template_id, sort_order) VALUES (101,99,1);
 INSERT INTO %[1]s.product_production_config_fields(id, product_id, field_key, template_field_key) VALUES
 	(101,101,'first-boot-key','first-boot-key'),
 	(102,102,'template-zero-key','template-zero-key');
@@ -876,8 +1218,8 @@ func TestProductProductionConfigFieldsRequireIndustryTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fn := catalogRepositoryFunctionForTest(t, string(repository), "func normalizeProductProductionConfigFieldsAgainstTemplateTx", "func (r Repository) ListProductClassificationTemplates")
-	if !strings.Contains(fn, "if templateID <= 0 {\n\t\treturn []catalogapp.ProductProductionConfigField{}, nil\n\t}") {
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func normalizeProductProductionConfigFieldsAgainstTemplatesTx", "func (r Repository) ListProductClassificationTemplates")
+	if !strings.Contains(fn, "if len(templateIDs) == 0 {\n\t\treturn []catalogapp.ProductProductionConfigField{}, nil\n\t}") {
 		t.Fatalf("product production fields must be empty without an industry template")
 	}
 }
@@ -888,15 +1230,15 @@ func TestProductProductionConfigLocksIndustryTemplateBeforeReadingDefinitions(t 
 		t.Fatal(err)
 	}
 	src := string(repository)
-	save := catalogRepositoryFunctionForTest(t, src, "func (r Repository) SaveProductProductionConfig", "func normalizeProductProductionConfigFieldsAgainstTemplateTx")
-	normalizeCall := strings.Index(save, "normalizeProductProductionConfigFieldsAgainstTemplateTx")
+	save := catalogRepositoryFunctionForTest(t, src, "func (r Repository) SaveProductProductionConfig", "func normalizeIndustryFieldTemplateIDsForSave")
+	normalizeCall := strings.Index(save, "normalizeProductProductionConfigFieldsAgainstTemplatesTx")
 	configWrite := strings.Index(save, "INSERT INTO %s.product_production_configs")
 	if normalizeCall < 0 || configWrite < 0 || normalizeCall >= configWrite {
 		t.Fatal("SaveProductProductionConfig must normalize and lock the template before writing product config")
 	}
 
-	fn := catalogRepositoryFunctionForTest(t, src, "func normalizeProductProductionConfigFieldsAgainstTemplateTx", "func (r Repository) ListProductClassificationTemplates")
-	noTemplateReturn := strings.Index(fn, "if templateID <= 0")
+	fn := catalogRepositoryFunctionForTest(t, src, "func normalizeProductProductionConfigFieldsAgainstTemplatesTx", "func (r Repository) ListProductClassificationTemplates")
+	noTemplateReturn := strings.Index(fn, "if len(templateIDs) == 0")
 	templateLock := strings.Index(fn, "FROM %s.industry_field_templates")
 	definitionRead := strings.Index(fn, "FROM %s.industry_field_definitions")
 	if definitionRead < 0 {
@@ -915,11 +1257,11 @@ func TestProductProductionConfigLocksIndustryTemplateBeforeReadingDefinitions(t 
 		t.Fatal("product production config normalization must lock the template row before reading definitions")
 	}
 	lockSQL := fn[templateLock:definitionRead]
-	if !strings.Contains(lockSQL, "WHERE id=$1") {
-		t.Fatal("product production config normalization must lock only the referenced template")
+	if !strings.Contains(lockSQL, "WHERE id=ANY($1::bigint[])") {
+		t.Fatal("product production config normalization must lock only the referenced templates")
 	}
-	if strings.Contains(lockSQL, "status") {
-		t.Fatal("product production config normalization must also support referenced inactive templates")
+	if !strings.Contains(lockSQL, "status='active'") {
+		t.Fatal("product production config normalization must accept only active templates")
 	}
 }
 
@@ -972,7 +1314,7 @@ func TestNormalizeProductProductionConfigFieldsWaitsForTemplateUpdate(t *testing
 		t.Fatalf("begin template transaction: %v", err)
 	}
 	defer func() { _ = templateTx.Rollback(context.Background()) }()
-	if _, err := templateTx.Exec(ctx, fmt.Sprintf(`UPDATE %s.industry_field_templates SET name='after',status='inactive' WHERE id=10`, schema)); err != nil {
+	if _, err := templateTx.Exec(ctx, fmt.Sprintf(`UPDATE %s.industry_field_templates SET name='after' WHERE id=10`, schema)); err != nil {
 		t.Fatalf("lock template row for update: %v", err)
 	}
 	if _, err := templateTx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.industry_field_definitions WHERE template_id=10`, schema)); err != nil {
@@ -1004,7 +1346,7 @@ func TestNormalizeProductProductionConfigFieldsWaitsForTemplateUpdate(t *testing
 	defer cancel()
 	go func() {
 		close(started)
-		fields, err := normalizeProductProductionConfigFieldsAgainstTemplateTx(productCtx, productTx, schema, 10, []catalogapp.ProductProductionConfigField{{
+		fields, err := normalizeProductProductionConfigFieldsAgainstTemplatesTx(productCtx, productTx, schema, []int64{10}, []catalogapp.ProductProductionConfigField{{
 			FieldKey:         "old-key",
 			TemplateFieldKey: "old-key",
 			ValueText:        "legacy value",
@@ -1037,7 +1379,7 @@ func TestNormalizeProductProductionConfigFieldsWaitsForTemplateUpdate(t *testing
 	}
 	select {
 	case result := <-resultCh:
-		if result.err == nil || !strings.Contains(result.err.Error(), "field old-key is not defined by industry field template") {
+		if result.err == nil || !strings.Contains(result.err.Error(), "field old-key is not defined by selected industry field templates") {
 			t.Fatalf("product normalization after template commit err = %v, want old-key rejection", result.err)
 		}
 	case <-productCtx.Done():
@@ -1052,16 +1394,90 @@ func TestNormalizeProductProductionConfigFieldsWaitsForTemplateUpdate(t *testing
 		t.Fatalf("begin inactive template product transaction: %v", err)
 	}
 	defer func() { _ = inactiveTx.Rollback(context.Background()) }()
-	fields, err := normalizeProductProductionConfigFieldsAgainstTemplateTx(ctx, inactiveTx, schema, 10, []catalogapp.ProductProductionConfigField{{
+	if _, err := inactiveTx.Exec(ctx, fmt.Sprintf(`UPDATE %s.industry_field_templates SET status='inactive' WHERE id=10`, schema)); err != nil {
+		t.Fatalf("deactivate industry template: %v", err)
+	}
+	_, err = normalizeProductProductionConfigFieldsAgainstTemplatesTx(ctx, inactiveTx, schema, []int64{10}, []catalogapp.ProductProductionConfigField{{
 		FieldKey:         "new-key",
 		TemplateFieldKey: "new-key",
 		ValueText:        "current value",
 	}})
-	if err != nil {
-		t.Fatalf("normalize referenced inactive template field: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "industry field template not found") {
+		t.Fatalf("normalize referenced inactive template err=%v, want rejection", err)
 	}
-	if len(fields) != 1 || fields[0].FieldKey != "new-key" {
-		t.Fatalf("inactive template fields = %+v, want new-key", fields)
+}
+
+func TestPR584NormalizeProductProductionConfigFieldsUsesOrderedTemplateUnion(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog template-union tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_catalog_pr584_template_union_%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+	})
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE SCHEMA %[1]s;
+		CREATE TABLE %[1]s.industry_field_templates (
+			id BIGINT PRIMARY KEY,
+			status TEXT NOT NULL DEFAULT 'active'
+		);
+		CREATE TABLE %[1]s.industry_field_definitions (
+			id BIGINT PRIMARY KEY,
+			template_id BIGINT NOT NULL,
+			field_key TEXT NOT NULL DEFAULT '',
+			label TEXT NOT NULL DEFAULT '',
+			field_type TEXT NOT NULL DEFAULT 'text',
+			unit TEXT NOT NULL DEFAULT '',
+			required BOOLEAN NOT NULL DEFAULT false,
+			options_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+			sort_order INT NOT NULL DEFAULT 0
+		);
+		INSERT INTO %[1]s.industry_field_templates(id,status) VALUES (10,'active'),(20,'active');
+		INSERT INTO %[1]s.industry_field_definitions(id,template_id,field_key,label,field_type,unit,required,options_json,sort_order) VALUES
+			(1,10,'shared_key','Shared A','text','A',false,'[]',1),
+			(2,10,'a_only','A only','number','kg',true,'[]',2),
+			(3,20,'SHARED_KEY','Shared B','select','B',true,'["B1"]',1),
+			(4,20,'b_only','B only','boolean','',false,'[]',2);
+	`, schema)); err != nil {
+		t.Fatalf("create template union schema: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin template union transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	fields, err := normalizeProductProductionConfigFieldsAgainstTemplatesTx(ctx, tx, schema, []int64{20, 10}, []catalogapp.ProductProductionConfigField{
+		{FieldKey: "shared_key", ValueText: "kept"},
+		{FieldKey: "b_only", ValueBool: func() *bool { value := true; return &value }()},
+		{FieldKey: "a_only", ValueNumber: func() *float64 { value := 1.25; return &value }()},
+		{FieldKey: "SHARED_KEY", ValueText: "duplicate payload"},
+	})
+	if err != nil {
+		t.Fatalf("normalize ordered template union: %v", err)
+	}
+	if len(fields) != 3 {
+		t.Fatalf("normalized fields=%+v, want three unique keys", fields)
+	}
+	if fields[0].FieldKey != "SHARED_KEY" || fields[0].Label != "Shared B" || fields[0].FieldType != "select" || fields[0].SortOrder != 1 || fields[0].ValueText != "kept" {
+		t.Fatalf("first-wins shared field=%+v, want template 20 definition with preserved value", fields[0])
+	}
+	if fields[1].FieldKey != "b_only" || fields[1].SortOrder != 2 {
+		t.Fatalf("template 20 unique field=%+v", fields[1])
+	}
+	if fields[2].FieldKey != "a_only" || fields[2].SortOrder != 3 {
+		t.Fatalf("template 10 union field=%+v", fields[2])
 	}
 }
 

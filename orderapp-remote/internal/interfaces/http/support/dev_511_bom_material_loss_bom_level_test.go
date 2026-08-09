@@ -33,19 +33,19 @@ func TestDev511BomMaterialLossBomLevelContracts(t *testing.T) {
 			"PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL",
 			"40%",
 			"20%",
-			"0.5kg",
+			"0.48kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL",
-			"开启后组件消耗单位只能使用比例 %",
+			"实际原料需求 = 计划投料基准 × 配方比例 × (1 + 原料损耗比)",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL",
-			"损耗后需求量",
+			"净配方数量 × (1 + 原料损耗比)",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL",
-			"ratio / (1 - 原料损耗比)",
+			"PR-585-BOM-SINGLE-MATERIAL-LOSS",
+			"损耗后用量 = BOM组成 × (1 + 原料损耗比)",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-30-bom-material-loss-bom-level.md"): {
 			"PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL",

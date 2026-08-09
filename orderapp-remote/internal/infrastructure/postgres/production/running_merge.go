@@ -44,9 +44,12 @@ type startRunGroup struct {
 	OrderNos                 string
 	OperationTemplateID      int64
 	Outputs                  []ProduceRunOutputRow
+	CustomerID               int64
+	TargetWarehouse          string
+	ProcessingRequestItemID  int64
 }
 
-func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64) []startRunGroup {
+func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[string]int64) []startRunGroup {
 	type productGroup struct {
 		startRunGroup
 		orderNosSeen map[string]bool
@@ -69,6 +72,9 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 			group.InventoryQtyPerSalesUnit = need.InventoryQtyPerSalesUnit
 			group.InventoryUnit = strings.TrimSpace(need.InventoryUnit)
 			group.SalesSpecSnapshotJSON = strings.TrimSpace(need.SalesSpecSnapshotJSON)
+			group.CustomerID = need.CustomerID
+			group.TargetWarehouse = strings.TrimSpace(need.TargetWarehouse)
+			group.ProcessingRequestItemID = need.ProcessingRequestItemID
 			groupsBySnapshot[groupKey] = group
 			order = append(order, groupKey)
 		}
@@ -136,7 +142,7 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 			}
 		}
 		if group.InputG <= 0 {
-			group.InputG = defaultProductionInputG(group.NeedG, yieldByProductID[productID])
+			group.InputG = group.NeedG
 		}
 		out = append(out, group.startRunGroup)
 	}
@@ -151,11 +157,23 @@ func startNeedProductionSnapshotGroupKey(need productionapp.StartNeed) string {
 		SalesUnit:                strings.TrimSpace(need.SalesUnit),
 		InventoryUnit:            strings.TrimSpace(need.InventoryUnit),
 		InventoryQtyPerSalesUnit: need.InventoryQtyPerSalesUnit,
+		CustomerID:               need.CustomerID,
+		TargetWarehouse:          strings.TrimSpace(need.TargetWarehouse),
+		ProcessingRequestItemID:  need.ProcessingRequestItemID,
 	}
 	if raw := strings.TrimSpace(need.SalesSpecSnapshotJSON); raw != "" {
 		var frozen productionQuantitySnapshot
 		if json.Unmarshal([]byte(raw), &frozen) == nil {
 			snapshot.ConversionSource = frozen.ConversionSource
+			if frozen.CustomerID > 0 {
+				snapshot.CustomerID = frozen.CustomerID
+			}
+			if strings.TrimSpace(frozen.TargetWarehouse) != "" {
+				snapshot.TargetWarehouse = strings.TrimSpace(frozen.TargetWarehouse)
+			}
+			if frozen.ProcessingRequestItemID > 0 {
+				snapshot.ProcessingRequestItemID = frozen.ProcessingRequestItemID
+			}
 		}
 	}
 	return productionQuantitySnapshotGroupKey(snapshot)

@@ -63,6 +63,7 @@ export const menuGroups = [
     items: [
       { key: 'financeDashboard', label: '财务首页', title: '财务首页' },
       { key: 'financeExpenses', label: '费用管理', title: '费用管理' },
+      { key: 'processingBilling', label: '代加工账单', title: '代加工账单' },
       { key: 'financeClosing', label: '月度结账', title: '月度结账' },
       { key: 'financeReport', label: '经营报告', title: '月度经营报告' },
       { key: 'financeTaxLedger', label: '票税台账', title: '票税台账' },

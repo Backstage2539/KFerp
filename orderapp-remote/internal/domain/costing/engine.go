@@ -466,19 +466,10 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	if in.OperationCostPerUnit < 0 || in.OperationCostPerKg < 0 {
 		return in, fmt.Errorf("operation cost must be >= 0")
 	}
-	if in.ExpectedLossRate < 0 || in.ExpectedLossRate >= 1 {
-		return in, fmt.Errorf("expected_loss_rate must be [0,1)")
-	}
-	if in.ExpectedLossRate > 0 {
-		in.YieldRate = 1 - in.ExpectedLossRate
-	}
-	if in.YieldRate == 0 {
-		in.YieldRate = params.RoastYieldRate
-	}
-	if in.YieldRate <= 0 || in.YieldRate > 1 {
-		return in, fmt.Errorf("yield_rate must be (0,1]")
-	}
-	in.ExpectedLossRate = 1 - in.YieldRate
+	// Overall yield/loss fields remain accepted for legacy API compatibility,
+	// but current costing has one loss source: the selected production BOM.
+	in.YieldRate = 1
+	in.ExpectedLossRate = 0
 	if in.MarginRateOverride != nil && *in.MarginRateOverride < 0 {
 		return in, fmt.Errorf("margin_rate_override must be >= 0")
 	}
@@ -622,12 +613,14 @@ func effectiveSalesSpecFromInput(in ProductInput) *EffectiveSalesSpec {
 }
 
 func CalculateProduct(params Parameters, in ProductInput) ProductResult {
+	in.YieldRate = 1
+	in.ExpectedLossRate = 0
 	if strings.TrimSpace(in.ProductKind) == "green_bean" {
 		return calculateGreenBeanProduct(params, in)
 	}
 	in, _ = ValidateProductInput(params, in)
 	profileName := costingProfileName(in)
-	roasted := in.GreenBeanCostPerKg / in.YieldRate
+	roasted := in.GreenBeanCostPerKg
 	small := roasted + params.SmallBatchProductionCostPerKg
 	large := roasted + params.LargeBatchProductionCostPerKg
 	dripRatioKgPerBag := in.DripBagGrams / 1000.0
@@ -638,7 +631,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	retailTax := small * params.RetailBeanMarginRate * params.RetailTaxRate
 	retailSmall := small
 	if retailGreenCost, ok := excelRetailGreenCostOverride(profileName); ok {
-		retailSmall = retailGreenCost/in.YieldRate + params.SmallBatchProductionCostPerKg
+		retailSmall = retailGreenCost + params.SmallBatchProductionCostPerKg
 		retailTax = retailSmall * params.RetailBeanMarginRate * params.RetailTaxRate
 	}
 	commercialDisplay := commercialBeanListDisplay(profileName)
@@ -909,6 +902,8 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		Grade:                in.Grade,
 		Altitude:             in.Altitude,
 		BeanListNote:         in.BeanListNote,
+		YieldRate:            1,
+		ExpectedLossRate:     0,
 		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
 		BomCostPerUnit:       in.BomCostPerUnit,
 		OperationCostPerUnit: in.OperationCostPerUnit,
@@ -1226,15 +1221,11 @@ func buildDripWholesaleTiers(params Parameters, in ProductInput) []DripWholesale
 }
 
 func dripBaseCostPerBag(params Parameters, in ProductInput, bagGrams float64) float64 {
-	yield := in.YieldRate
-	if yield <= 0 {
-		yield = params.RoastYieldRate
-	}
 	ratio := bagGrams / 1000.0
 	if ratio <= 0 {
 		ratio = params.DripGreenRatioKgPerBag
 	}
-	roasted := in.GreenBeanCostPerKg / yield
+	roasted := in.GreenBeanCostPerKg
 	small := roasted + params.SmallBatchProductionCostPerKg
 	return small*ratio + params.DripProcessCostPerBag + params.DripExtraCostPerBag
 }
@@ -1951,11 +1942,7 @@ func buildComposableProductCommercialTiers(params Parameters, in ProductInput, t
 
 func commercialPriceForGradientTier(params Parameters, in ProductInput, displayUnit string, tier GradientTemplateTier, marginOverride *float64) commercialPriceParts {
 	greenCost := in.GreenBeanCostPerKg
-	yieldRate := in.YieldRate
-	if yieldRate <= 0 {
-		yieldRate = params.RoastYieldRate
-	}
-	roasted := greenCost / yieldRate
+	roasted := greenCost
 	productionCost := params.SmallBatchProductionCostPerKg
 	productionKey := "small_batch_production_cost_per_kg"
 	if tier.MinWeightG >= 10000 {
@@ -2022,9 +2009,6 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 	if req.Overrides.GreenBeanCostPerKg != nil {
 		previewInput.GreenBeanCostPerKg = *req.Overrides.GreenBeanCostPerKg
 	}
-	if req.Overrides.YieldRate != nil {
-		previewInput.YieldRate = *req.Overrides.YieldRate
-	}
 	previewMarginOverride := validated.MarginRateOverride
 	if req.Overrides.MarginRate != nil {
 		previewMarginOverride = req.Overrides.MarginRate
@@ -2050,8 +2034,7 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 		PreviewFinalPrice: preview.FinalPricePerUnit,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: previewInput.GreenBeanCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil},
-			{Key: "expected_loss_rate", Label: "预期损耗率", Source: "product_production_config", Value: 1 - previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
-			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: preview.RoastedCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil || req.Overrides.YieldRate != nil},
+			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: preview.RoastedCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil},
 			{Key: preview.ProductionKey, Label: "生产成本", Source: "cost_parameter", Value: preview.ProductionCostPerKg, Unit: "元/kg"},
 			{Key: "wholesale_package_cost_per_kg", Label: "批发包装成本", Source: "cost_parameter", Value: params.WholesalePackageCostPerKg, Unit: "元/kg"},
 			{Key: "product_loss_per_kg", Label: "产品损耗", Source: "cost_parameter", Value: params.ProductLossPerKg, Unit: "元/kg"},
@@ -2097,7 +2080,7 @@ func ExplainDripPrice(params Parameters, in ProductInput, req PriceExplanationRe
 	if boxBagCount <= 0 {
 		boxBagCount = 10
 	}
-	roasted := validated.GreenBeanCostPerKg / validated.YieldRate
+	roasted := validated.GreenBeanCostPerKg
 	small := roasted + params.SmallBatchProductionCostPerKg
 	base := dripBaseCostPerBag(params, validated, tier.BagGrams)
 	minBoxes := int64(math.Ceil(float64(tier.MinBags) / float64(boxBagCount)))
@@ -2118,7 +2101,6 @@ func ExplainDripPrice(params Parameters, in ProductInput, req PriceExplanationRe
 		PackedPricePerBox: packedBox,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: validated.GreenBeanCostPerKg, Unit: "元/kg"},
-			{Key: "expected_loss_rate", Label: "预期损耗率", Source: "product_production_config", Value: 1 - validated.YieldRate, Unit: "ratio"},
 			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: roasted, Unit: "元/kg"},
 			{Key: "small_batch_production_cost_per_kg", Label: "小批量生产成本", Source: "cost_parameter", Value: params.SmallBatchProductionCostPerKg, Unit: "元/kg"},
 			{Key: "bag_grams", Label: "单袋熟豆克重", Source: "product_or_template", Value: tier.BagGrams, Unit: "g"},
@@ -2426,7 +2408,7 @@ func cookieWholesaleMarginRates(params Parameters) []float64 {
 
 func defaultWholesaleTaxAddPerKgTiers(params Parameters, in ProductInput) []float64 {
 	rates := defaultWholesaleTaxMarginRates(params)
-	roasted := in.GreenBeanCostPerKg / in.YieldRate
+	roasted := in.GreenBeanCostPerKg
 	small := roasted + params.SmallBatchProductionCostPerKg
 	out := make([]float64, len(in.WholesaleKgMarginRates))
 	for i := range out {

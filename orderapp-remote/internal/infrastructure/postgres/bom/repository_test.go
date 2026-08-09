@@ -157,6 +157,50 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 	}
 }
 
+func TestCopiedProductionBomVersionNormalizesLegacyYieldToOne(t *testing.T) {
+	src := readRepositorySource(t)
+	start := strings.Index(src, "func (r Repository) CreateProductionBomVersion")
+	if start < 0 {
+		t.Fatal("CreateProductionBomVersion source block not found")
+	}
+	end := strings.Index(src[start:], "\nfunc (r Repository) UpdateProductionBomVersionDraft")
+	if end < 0 {
+		t.Fatal("CreateProductionBomVersion source block not found")
+	}
+	block := src[start : start+end]
+	if !strings.Contains(block, "yieldRate := 1.0") {
+		t.Fatal("copied production BOM versions must normalize legacy overall yield to 1")
+	}
+	if strings.Contains(block, "COALESCE(yield_rate") {
+		t.Fatal("copied production BOM versions must not inherit legacy yield_rate")
+	}
+}
+
+func TestCopiedProductionBomNormalizesLegacyYieldToOne(t *testing.T) {
+	src := readRepositorySource(t)
+	start := strings.Index(src, "func (r Repository) CopyProductionBom")
+	if start < 0 {
+		t.Fatal("CopyProductionBom source block not found")
+	}
+	end := strings.Index(src[start:], "\nfunc saveBusinessGroupAssignmentForProductionBomTx")
+	if end < 0 {
+		t.Fatal("CopyProductionBom source block not found")
+	}
+	block := src[start : start+end]
+	if strings.Contains(block, "sourceYield") || strings.Contains(block, "COALESCE(v.yield_rate") {
+		t.Fatal("copied production BOM must not inherit legacy yield_rate")
+	}
+	if !strings.Contains(block, "newBomID, 1.0, sourceOutputQty") {
+		t.Fatal("copied production BOM must initialize V001 yield_rate to 1")
+	}
+	if !strings.Contains(block, "sourceMaterialLossRate") {
+		t.Fatal("copied production BOM must preserve the configured material loss rate")
+	}
+	if !strings.Contains(block, "bomapp.NormalizeProductionBomName(sourceName)") {
+		t.Fatal("default copied production BOM name must use the normalized source business name")
+	}
+}
+
 func TestProductionBomLibraryBackfillDoesNotPublishOrBindEmptyLegacyShells(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
@@ -727,6 +771,32 @@ func TestProductionBomVersionSchemaDefaultsNewRowsToFullYield(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("new production BOM version schema must default to no hidden overall loss; missing %q", want)
+		}
+	}
+}
+
+func TestLegacyBomCompatibilityTablesDefaultNewRowsToFullYieldWithoutBackfill(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000",
+		"ALTER TABLE %s.product_bom ALTER COLUMN yield_rate SET DEFAULT 1.0000",
+		"ALTER TABLE %[1]s.bom_versions ALTER COLUMN yield_rate SET DEFAULT 1.0000",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("legacy BOM compatibility tables must use a neutral default for new rows; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000",
+		"UPDATE %s.product_bom SET yield_rate",
+		"UPDATE %[1]s.bom_versions SET yield_rate",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("legacy BOM compatibility defaults must be neutral without rewriting historical rows; found %q", forbidden)
 		}
 	}
 }

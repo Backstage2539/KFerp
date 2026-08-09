@@ -14,6 +14,12 @@ const customerFinanceScopeLimitedContextKey = "customer_finance_scope_limited"
 func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			if isProductCatalogFeatureSelectionReadRequest(c.Request().Method, c.Request().URL.Path) {
+				if err := authorizeProductCatalogFeatureSelectionRead(c, authz); err != nil {
+					return err
+				}
+				return next(c)
+			}
 			if isFulfillmentOrderListRequest(c.Request().Method, c.Request().URL.Path, c.QueryParam("scope")) {
 				if err := authorizeFulfillmentOrderList(c, authz); err != nil {
 					return err
@@ -42,6 +48,24 @@ func AuthorizationMiddleware(authz AuthzService) echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+func isProductCatalogFeatureSelectionReadRequest(method, path string) bool {
+	return method == http.MethodGet && strings.TrimSpace(path) == "/api/business-group-feature-selections/product_catalog"
+}
+
+func authorizeProductCatalogFeatureSelectionRead(c echo.Context, authz AuthzService) error {
+	actor, ok, err := CurrentActor(c, authz)
+	if err != nil {
+		return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": err.Error()})
+	}
+	if !ok {
+		return permissionJSONError(c, http.StatusUnauthorized, map[string]string{"error": "auth required"})
+	}
+	if actor.Can("products.read") || actor.Can("costing.read") {
+		return nil
+	}
+	return permissionJSONError(c, http.StatusForbidden, map[string]string{"error": "permission denied", "permission": "products.read or costing.read"})
 }
 
 func CustomerFulfillmentOrderScopeLimited(c echo.Context) bool {
@@ -166,6 +190,9 @@ func requiredPermissionForRequest(method, path string) string {
 	}
 	if strings.HasPrefix(path, "/api/settings/") || strings.HasPrefix(path, "/api/outsource/") {
 		return "settings.write"
+	}
+	if permission, ok := businessGroupFeatureSelectionPermission(method, path); ok {
+		return permission
 	}
 	if strings.HasPrefix(path, "/api/product-settings") {
 		if method == http.MethodGet {
@@ -320,6 +347,9 @@ func requiredPermissionForRequest(method, path string) string {
 	if strings.HasPrefix(path, "/api/finance/adjustments") {
 		return "finance.close"
 	}
+	if path == "/api/finance/customer-processing-billing/preview" {
+		return "finance.read"
+	}
 	if strings.HasPrefix(path, "/api/finance/") {
 		if method == http.MethodGet {
 			return "finance.read"
@@ -355,6 +385,37 @@ func requiredPermissionForRequest(method, path string) string {
 		return "production.run"
 	}
 	return ""
+}
+
+func businessGroupFeatureSelectionPermission(method, path string) (string, bool) {
+	const prefix = "/api/business-group-feature-selections/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	featureKey := strings.TrimSpace(strings.TrimPrefix(path, prefix))
+	if featureKey == "" || strings.Contains(featureKey, "/") {
+		return "", false
+	}
+	readPermission := ""
+	writePermission := ""
+	switch strings.ToLower(featureKey) {
+	case "product_catalog":
+		readPermission, writePermission = "products.read", "products.write"
+	case "material_catalog":
+		readPermission, writePermission = "materials.read", "materials.write"
+	case "production_bom":
+		readPermission, writePermission = "bom.read", "bom.write"
+	case "warehouse_inventory":
+		readPermission, writePermission = "stock.read", "stock.write"
+	default:
+		// The handler rejects unknown feature keys. Requiring settings.write here
+		// also keeps an unknown future key from becoming an unguarded write.
+		return "settings.write", true
+	}
+	if method == http.MethodGet {
+		return readPermission, true
+	}
+	return writePermission, true
 }
 
 func isCustomerExternalUserPath(path string) bool {

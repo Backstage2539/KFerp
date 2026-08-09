@@ -120,15 +120,17 @@ func TestCostingViewFollowsProductCatalogBusinessGroupTemplate(t *testing.T) {
 	for _, want := range []string{
 		"apiGet('/api/business-groups')",
 		"apiGet('/api/business-group-assignments?usage_key=product_catalog&object_key=product')",
+		"apiGet('/api/business-group-feature-selections/product_catalog')",
 		"groupRowsByBusinessGroupTemplate",
-		"selectedProductCatalogGroupTemplate",
+		"selectedProductCatalogGroupTemplates",
+		"businessGroupFeatureSelectionIDs",
+		"businessGroupRowsForFeatureSelection",
+		"buildProductCatalogTemplatePriceListTypeOptions",
 		"priceListProductBusinessGroups",
 		"priceListProductBusinessGroupAssignments",
 		"group_source: 'product_catalog'",
 		"business-group-unclassified",
 		"usageKey: 'product_catalog'",
-		"readFormDraft(productSettingsDraftKeyForPriceList())",
-		"selectedProductGroupTemplateID",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue must follow product catalog business group template; missing %q", want)
@@ -136,5 +138,14 @@ func TestCostingViewFollowsProductCatalogBusinessGroupTemplate(t *testing.T) {
 	}
 	if strings.Contains(src, "categoryCodeOfItem(item, listType) === category.code") {
 		t.Fatalf("CostingView.vue should not group price-list products by legacy classification category code")
+	}
+	for _, forbidden := range []string{
+		"readFormDraft(productSettingsDraftKeyForPriceList())",
+		"/api/business-group-feature-selections/price_list",
+		"usage_key=price_list&object_key=product",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("CostingView.vue must not own a superseded price-list grouping selection %q", forbidden)
+		}
 	}
 }

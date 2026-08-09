@@ -100,10 +100,6 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 		return data, nil
 	}
 
-	yieldMap, err := r.loadProductYieldRateMap(ctx)
-	if err != nil {
-		return data, err
-	}
 	bomSummaries, err := r.loadResolvedPlanBomSummaries(ctx, planRows)
 	if err != nil {
 		return data, err
@@ -153,9 +149,9 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 		}
 		materialPreviewRows = append(materialPreviewRows, row)
 	}
-	data.RoastPlans = buildRoastPlanRows(planRows, machines, yieldMap, theoreticalInputByKey)
+	data.RoastPlans = buildRoastPlanRows(planRows, machines, nil, theoreticalInputByKey)
 	data.MaterialRatios = buildRoastPlanMaterialRatios(materialPreviewRows, bomMap)
-	data.PlanRows = buildProducePlanDisplayRows(planRows, yieldMap, theoreticalInputByKey)
+	data.PlanRows = buildProducePlanDisplayRows(planRows, nil, theoreticalInputByKey)
 	for i := range data.PlanRows {
 		if i < len(bomSummaries) {
 			data.PlanRows[i].BomMaterialLossRate = bomSummaries[i].MaterialLossRate
@@ -904,7 +900,7 @@ func (r Repository) fetchDripPlanNeeds(ctx context.Context, from, to string, cus
 }
 
 func defaultPlanParams() planParams {
-	return planParams{YieldRate: 0.8, DripExtraG: 100, DripBoxSpec: 10, EnableDripBox: true}
+	return planParams{YieldRate: 1, DripExtraG: 100, DripBoxSpec: 10, EnableDripBox: true}
 }
 
 func isInstantCoffeePlanRow(row productionapp.UnprodNeedRow) bool {
@@ -916,7 +912,7 @@ func isInstantCoffeePlanRow(row productionapp.UnprodNeedRow) bool {
 }
 
 func yieldRateForPlanRow(row productionapp.UnprodNeedRow, yieldByProductID map[int64]float64) float64 {
-	return normalizeYieldRate(yieldByProductID[row.ProductID])
+	return 1
 }
 
 func noBomRawMaterialName(row productionapp.UnprodNeedRow) string {
@@ -930,68 +926,11 @@ func noBomRawMaterialName(row productionapp.UnprodNeedRow) string {
 	return rawName
 }
 
-func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]float64, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT p.id, COALESCE(p.roast_level,''),
-		       COALESCE(
-		           NULLIF(output_bv.yield_rate,0),
-		           CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END,
-		           NULLIF(b.yield_rate,0),
-		           CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END
-		       ),
-		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
-		FROM `+r.schema+`.products p
-		LEFT JOIN `+r.schema+`.product_production_configs ppc ON ppc.product_id=p.id
-		LEFT JOIN `+r.schema+`.product_production_bom_bindings pbb ON pbb.product_id=p.id
-		LEFT JOIN LATERAL (
-			SELECT latest.id AS bom_version_id
-			FROM `+r.schema+`.production_boms pbom
-			JOIN LATERAL (
-				SELECT v.id, v.published_at, v.created_at
-				FROM `+r.schema+`.production_bom_versions v
-				WHERE v.bom_id=pbom.id
-				  AND v.status='published'
-				  AND EXISTS (SELECT 1 FROM `+r.schema+`.production_bom_version_items item WHERE item.version_id=v.id)
-				ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
-				LIMIT 1
-			) latest ON true
-			WHERE pbom.output_product_id=p.id
-			  AND COALESCE(NULLIF(pbom.status,''),'active')='active'
-			ORDER BY CASE WHEN pbom.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0) THEN 0 ELSE 1 END,
-			         latest.published_at DESC NULLS LAST, latest.created_at DESC, latest.id DESC, pbom.id DESC
-			LIMIT 1
-		) output_bom ON true
-		LEFT JOIN `+r.schema+`.production_bom_versions output_bv ON output_bv.id=output_bom.bom_version_id
-		LEFT JOIN `+r.schema+`.product_bom_sources bs ON bs.product_id=p.id
-		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=CASE
-			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
-			ELSE p.id
-		END
-		WHERE p.active=true`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := map[int64]float64{}
-	for rows.Next() {
-		var productID int64
-		var roastLevel string
-		var yieldRate float64
-		var productKind string
-		if err := rows.Scan(&productID, &roastLevel, &yieldRate, &productKind); err != nil {
-			return nil, err
-		}
-		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
-	}
-	return out, rows.Err()
-}
-
 func buildProducePlanDisplayRows(rows []productionapp.UnprodNeedRow, yieldByProductID map[int64]float64, inputByKey map[string]int64) []productionapp.ProducePlanDisplayRow {
 	out := make([]productionapp.ProducePlanDisplayRow, 0, len(rows))
 	for _, r := range rows {
 		yieldRate := yieldRateForPlanRow(r, yieldByProductID)
-		inputG := defaultProductionInputG(r.GapG, yieldRate)
+		inputG := r.GapG
 		if v := inputByKey[producePlanDemandKey(r.ProductID, r.ParentProductID, r.SpecG, r.SalesSpecSnapshotJSON)]; v > 0 {
 			inputG = v
 		}
@@ -1066,10 +1005,8 @@ func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productio
 		}
 		yieldRate := yieldRateForPlanRow(r, yieldByProductID)
 		rawG := inputByKey[producePlanDemandKey(r.ProductID, r.ParentProductID, r.SpecG, r.SalesSpecSnapshotJSON)]
-		if rawG > 0 {
-			yieldRate = float64(r.GapG) / float64(rawG)
-		} else {
-			rawG = defaultProductionInputG(r.GapG, yieldRate)
+		if rawG <= 0 {
+			rawG = r.GapG
 		}
 		machine, batches := pickMachineAndBatches(rawG, machines)
 		batchCount := int64(len(batches))
@@ -1162,7 +1099,7 @@ func (r Repository) loadPlanBomItemsFromRows(ctx context.Context, rows []product
 			out[demandKey] = append(out[demandKey], planBomItem{
 				ProductID:          row.ProductID,
 				RoastLevel:         roastLevel,
-				YieldRate:          1 - summaries[i].MaterialLossRate,
+				YieldRate:          1,
 				MaterialID:         snapshot.MaterialID,
 				MaterialName:       snapshot.MaterialName,
 				MaterialUnit:       snapshot.Unit,
@@ -1203,7 +1140,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 	q := fmt.Sprintf(`
 		SELECT requested.product_id,
 		       COALESCE(p.roast_level,''),
-		       COALESCE(pbv.yield_rate, pb.yield_rate, 0),
+		       1::float8,
 		       COALESCE(bi.material_id,0),
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
@@ -1366,10 +1303,7 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 		}
 		return (a + b - 1) / b
 	}
-	fallbackYield := p.YieldRate
-	if fallbackYield <= 0 || fallbackYield > 1 {
-		fallbackYield = 0.8
-	}
+	fallbackYield := 1.0
 
 	for _, row := range rows {
 		if row.GapG <= 0 || row.SpecG <= 0 {
@@ -1382,12 +1316,8 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 			if len(items) == 0 && isInstantCoffeePlanRow(row) {
 				finalInputG = row.GapG
 			}
-			yield := fallbackYield
-			if len(items) > 0 && items[0].YieldRate > 0 && items[0].YieldRate <= 1 {
-				yield = items[0].YieldRate
-			}
 			if finalInputG <= 0 {
-				finalInputG = int64(math.Ceil(float64(row.GapG) / yield))
+				finalInputG = int64(math.Ceil(float64(row.GapG) / fallbackYield))
 			}
 		}
 		if len(items) == 0 {
@@ -1632,9 +1562,6 @@ func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams
 	if row.GapG <= 0 || row.SpecG <= 0 {
 		return nil
 	}
-	if p.YieldRate <= 0 || p.YieldRate > 1 {
-		p.YieldRate = 0.8
-	}
 	if p.DripBoxSpec <= 0 {
 		p.DripBoxSpec = 10
 	}
@@ -1654,7 +1581,7 @@ func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams
 	}
 	if strings.Contains(name, "挂耳") {
 		out := []productionapp.MaterialNeed{
-			{Name: "咖啡豆(烘焙)", Qty: int64(math.Ceil(float64(row.GapG) / p.YieldRate)), Unit: "g"},
+			{Name: "咖啡豆(烘焙)", Qty: row.GapG, Unit: "g"},
 			{Name: "挂耳-过滤袋", Qty: unitsMissing, Unit: "个"},
 			{Name: "挂耳-卷膜", Qty: unitsMissing, Unit: "个"},
 			{Name: "挂耳-封口贴", Qty: unitsMissing, Unit: "张"},
@@ -1669,7 +1596,7 @@ func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams
 	}
 	out := []productionapp.MaterialNeed{{
 		Name: noBomRawMaterialName(row),
-		Qty:  int64(math.Ceil(float64(row.GapG) / p.YieldRate)),
+		Qty:  row.GapG,
 		Unit: "g",
 	}}
 	bagName := "豆袋"
@@ -1682,17 +1609,14 @@ func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams
 	return out
 }
 
-func calcRoastSplits(rows []productionapp.UnprodNeedRow, machines []productionapp.RoastMachine, yieldRate float64) []productionapp.RoastSplitRow {
-	if yieldRate <= 0 || yieldRate > 1 {
-		yieldRate = 0.8
-	}
+func calcRoastSplits(rows []productionapp.UnprodNeedRow, machines []productionapp.RoastMachine, _ float64) []productionapp.RoastSplitRow {
 	out := make([]productionapp.RoastSplitRow, 0)
 	for _, row := range rows {
 		if row.GapG <= 0 {
 			continue
 		}
-		rowYieldRate := yieldRate
-		rawG := int64(math.Ceil(float64(row.GapG) / rowYieldRate))
+		rowYieldRate := 1.0
+		rawG := row.GapG
 		pick, batches := pickMachineAndBatches(rawG, machines)
 		yieldPct := fmt.Sprintf("%.0f%%", rowYieldRate*100)
 		if pick.CapacityG <= 0 {

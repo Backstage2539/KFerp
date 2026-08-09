@@ -155,6 +155,9 @@ type StartNeed struct {
 	SalesSpecSnapshotJSON    string
 	OrderNos                 string
 	OperationTemplateID      int64
+	CustomerID               int64
+	TargetWarehouse          string
+	ProcessingRequestItemID  int64
 }
 
 type StartResult struct {
@@ -437,6 +440,9 @@ type ProductionPlanItem struct {
 	ProcessSnapshotJSON          string  `json:"process_snapshot_json"`
 	ProductionConfigSnapshotJSON string  `json:"production_config_snapshot_json"`
 	CustomerProductSnapshotJSON  string  `json:"customer_product_snapshot_json"`
+	CustomerID                   int64   `json:"customer_id,omitempty"`
+	TargetWarehouse              string  `json:"target_warehouse,omitempty"`
+	ProcessingRequestItemID      int64   `json:"processing_request_item_id,omitempty"`
 }
 
 type ProductionPlanOperationSplit struct {
@@ -734,6 +740,9 @@ type WorkOrderRow struct {
 	Priority                 int     `json:"priority"`
 	SchedulingNote           string  `json:"scheduling_note"`
 	WorkCenter               string  `json:"work_center"`
+	CustomerID               int64   `json:"customer_id,omitempty"`
+	TargetWarehouse          string  `json:"target_warehouse,omitempty"`
+	ProcessingRequestItemID  int64   `json:"processing_request_item_id,omitempty"`
 }
 
 type JobCardQuery struct {
@@ -1942,9 +1951,6 @@ func (s *Service) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCo
 		return WorkOrderCompleteResult{}, fmt.Errorf("consumed_input_g must be >= 0")
 	}
 	cmd.Warehouse = strings.TrimSpace(cmd.Warehouse)
-	if cmd.Warehouse == "" {
-		cmd.Warehouse = stockdomain.WarehouseFinishedGoods
-	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {
 		return WorkOrderCompleteResult{}, fmt.Errorf("operator required")

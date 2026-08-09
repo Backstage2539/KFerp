@@ -172,7 +172,7 @@ func TestLoadProductInputsUsesDerivedSkuNetContentForTrialUnitConversion(t *test
 	}
 }
 
-func TestLoadProductInputsPrefersProductProductionConfigFields(t *testing.T) {
+func TestLoadProductInputsFixesRetiredOverallYieldFieldsForCurrentCosting(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -183,12 +183,22 @@ func TestLoadProductInputsPrefersProductProductionConfigFields(t *testing.T) {
 		"product_production_config_fields ppcf",
 		"production_config_attrs_json",
 		"production_config_attrs_schema_json",
-		"COALESCE(NULLIF(ppc.expected_loss_rate,0)",
-		"1 - COALESCE(NULLIF(ppc.expected_loss_rate,0)",
+		"0::float8 AS expected_loss_rate",
+		"1::float8 AS production_config_yield_rate",
+		"input.YieldRate = 1",
+		"input.ExpectedLossRate = 0",
 		"ppcf.show_in_price_list=true",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must prefer product production config before legacy fallback; missing %q", want)
+		}
+	}
+	for _, retired := range []string{
+		"input.ExpectedLossRate = 1 - fallbackYield",
+		"COALESCE(NULLIF(p.production_config_yield_rate,0), NULLIF(current_bv.yield_rate,0), NULLIF(b.yield_rate,0), $1)",
+	} {
+		if strings.Contains(src, retired) {
+			t.Fatalf("current costing inputs must ignore retired overall yield field %q", retired)
 		}
 	}
 }
@@ -204,7 +214,7 @@ func TestLoadProductInputsUsesCustomerAliasIndustryFieldOverridesWithoutClassifi
 		"customer_product_alias_industry_field_values",
 		"current_classification_template_id",
 		"current_classification_category_id",
-		"CASE WHEN $2 > 0 THEN NULLIF(alias_attrs.alias_attrs_json::text,'{}')",
+		"CASE WHEN $1 > 0 THEN NULLIF(alias_attrs.alias_attrs_json::text,'{}')",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must use alias industry overrides and qualified classification aliases; missing %q", want)
@@ -229,7 +239,7 @@ func TestLoadProductInputsUsesCustomerAliasRenameAsCustomerDisplayName(t *testin
 	src := string(b)
 	for _, want := range []string{
 		"COALESCE(NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name",
-		"CASE WHEN $2 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END",
+		"CASE WHEN $1 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("customer price lists must use alias rename before customer product name; missing %q", want)
@@ -378,6 +388,25 @@ func TestBeanListPublicationQueriesFallbackToLegacyListTypeRows(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("bean-list publication queries must fall back to legacy list_type rows; missing %q", want)
+		}
+	}
+}
+
+func TestBeanListPublicationQueriesIsolateClassificationTemplatesBeforeLegacyFallbacks(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"query.ClassificationTemplateID > 0",
+		"COALESCE(classification_template_id,0)=$2",
+		"COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=$2",
+		"COALESCE(classification_template_id,0)=0 AND COALESCE(product_type_category_id,0)=0 AND list_type=$5",
+		"CASE WHEN COALESCE(classification_template_id,0)=$2 THEN 0",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list publication queries must isolate classification templates before compatibility fallbacks; missing %q", want)
 		}
 	}
 }
@@ -916,7 +945,7 @@ func TestPricingRuleTrialUsesMaterialCostUnitInsteadOfInventoryUnit(t *testing.T
 	}
 }
 
-func TestPricingRuleTrialDetailsGrossRatioCostsByMaterialLossRate(t *testing.T) {
+func TestPricingRuleTrialDetailsAddMaterialLossToRecipeRatio(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -936,13 +965,16 @@ func TestPricingRuleTrialDetailsGrossRatioCostsByMaterialLossRate(t *testing.T) 
 		"COALESCE(bi.material_loss_rate,0)::float8",
 		"&row.MaterialLossRate",
 		"row.RecipeRatioPct = row.RatioPct",
-		"row.EffectiveRatioPct = row.RatioPct / (1 - row.MaterialLossRate)",
-		"row.RatioPct / (1 - row.MaterialLossRate)",
-		"THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
+		"row.EffectiveRatioPct = row.RatioPct * (1 + row.MaterialLossRate)",
+		"row.RatioPct * (1 + row.MaterialLossRate)",
+		"THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 * (1 + LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("pricing rule trial BOM detail material loss cost missing marker %q", want)
 		}
+	}
+	if strings.Contains(fn, "/ (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))") {
+		t.Fatal("pricing rule trial BOM detail must not use the retired divide-by-yield loss formula")
 	}
 }
 
@@ -1683,5 +1715,19 @@ func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
 	}
 	if strings.Contains(body, "SET status='withdrawn'") {
 		t.Fatalf("SaveBeanListDraft must not withdraw published rows")
+	}
+}
+
+func TestComponentCostResolutionWarningUsesBomMaterialLossVocabulary(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if !strings.Contains(src, "商品组件成本无法完整解析：请检查组件商品的已发布生产 BOM、物料价格、BOM 原料损耗和循环引用") {
+		t.Fatal("component cost warning must direct users to the sole BOM material-loss setting")
+	}
+	if strings.Contains(src, "物料价格、产出率和循环引用") {
+		t.Fatal("component cost warning must not expose the removed overall yield concept")
 	}
 }

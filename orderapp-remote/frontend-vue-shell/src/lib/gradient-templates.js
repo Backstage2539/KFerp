@@ -135,6 +135,7 @@ export function validateGradientTemplate(template = {}) {
 export function buildPriceExplanationRequest(item = {}, tier = {}, overrides = {}) {
   const normalizedOverrides = {}
   for (const [key, value] of Object.entries(overrides || {})) {
+    if (['yield_rate', 'yieldRate', 'expected_yield_rate', 'expectedYieldRate', 'expected_loss_rate', 'expectedLossRate'].includes(String(key || '').trim())) continue
     if (value === '' || value == null) continue
     const n = Number(value)
     if (Number.isFinite(n)) normalizedOverrides[key] = n
@@ -149,7 +150,6 @@ export function buildPriceExplanationRequest(item = {}, tier = {}, overrides = {
       custom_type: item.custom_type || '',
       product_category_id: Number(item.product_category_id || 0),
       green_bean_cost_per_kg: Number(item.green_bean_cost_per_kg || 0),
-      yield_rate: Number(item.yield_rate || 0),
       bom_status: item.bom_status || '',
       warnings: item.warnings || [],
       gradient_template: item.gradient_template || null,

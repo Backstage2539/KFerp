@@ -169,7 +169,7 @@ func TestIndustryFieldTemplateAPISavesTextAndSelectFields(t *testing.T) {
 	}
 }
 
-func TestIndustryCalculatorPreviewAPI(t *testing.T) {
+func TestIndustryCalculatorPreviewAPIReturnsGone(t *testing.T) {
 	repo := &apiRepo{}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
@@ -179,16 +179,13 @@ func TestIndustryCalculatorPreviewAPI(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusGone {
 		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	for _, want := range []string{
-		`"industry_key":"garment"`,
-		`"demand_output_g":45400`,
-		`"planned_input_g":49348`,
-		`"expected_loss_g":3948`,
-		`"operation_cost":90`,
-		`"lines"`,
+		`"error"`,
+		`行业计算预览已停用`,
+		`原料损耗只能在生产 BOM 版本中配置`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("calculator preview missing %s: %s", want, rec.Body.String())

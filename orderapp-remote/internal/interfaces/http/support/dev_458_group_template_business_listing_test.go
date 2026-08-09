@@ -34,7 +34,7 @@ func TestDev458GroupTemplateBusinessListingContracts(t *testing.T) {
 			"BusinessGroupControls",
 			"productBusinessGroupControls",
 			"groupRowsByBusinessGroupTemplate",
-			"v-for=\"group in displaySkuGroups\"",
+			"v-for=\"group in renderedDisplaySkuGroups\"",
 			"businessGroupMoveAssignmentPayload",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
@@ -46,11 +46,11 @@ func TestDev458GroupTemplateBusinessListingContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WarehouseInventoryView.vue"): {
 			"BusinessGroupControls",
-			"warehouseDisplayGroups",
-			"selectedWarehouseKeys",
-			"groupRowsByBusinessGroupTemplate",
+			"inventoryDisplayGroups",
+			"selectedInventoryItemKeys",
+			"groupRowsByBusinessGroupTemplates",
 			"businessGroupMoveAssignmentPayload",
-			"v-for=\"group in warehouseDisplayGroups\"",
+			"v-for=\"group in renderedInventoryGroups\"",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-458-GROUP-TEMPLATE-BUSINESS-LISTING",

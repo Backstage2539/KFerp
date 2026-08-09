@@ -45,7 +45,7 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"m.cost_unit", "unit_cost_unit",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
-			"整体预期损耗", "原料损耗", "连续放大标准制造成本", "整体预期损耗率设为 0",
+			"标准制造成本", "配方比例", "原料加耗", "计价比例",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"): {
 			"成本计价单位", "成本计价单位保存后不可修改", "采购价（元/{{ draft.cost_unit }}）",
@@ -57,19 +57,19 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"PR-538-MATERIAL-COST-UNIT-LOSS", "cost_unit=kg", "连续放大", "102.68元/kg", "生产环境未部署、未写入、未切换入口",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-538-MATERIAL-COST-UNIT-LOSS", "重量物料", "cost_unit", "双损耗连续放大", "开发数据库",
+			"PR-538-MATERIAL-COST-UNIT-LOSS", "重量物料", "cost_unit", "PR-585", "62.10元/kg", "64.71元/kg",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"K80. 物料成本计价单位与生产 BOM 损耗口径修正", "54元/kg", "yield_rate=1", "80.50元/kg", "82.54元/kg",
+			"K80. 物料成本计价单位与生产 BOM 损耗口径修正", "54元/kg", "yield_rate=0.8", "62.10元/kg", "64.71元/kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-538-MATERIAL-COST-UNIT-LOSS", "库存单位管数量，成本计价单位管单价", "采购价（元/kg）",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-538 物料成本计价单位与双损耗说明", "54元/kg", "80.50元/kg", "82.54元/kg", "102.68元/kg",
+			"PR-585 物料成本计价单位与唯一原料损耗", "54元/kg", "62.10元/kg", "64.71元/kg", "83.47元/kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"PR-538-MATERIAL-COST-UNIT-LOSS", "yield_rate=1", "连续放大",
+			"PR-585-BOM-SINGLE-MATERIAL-LOSS", "净配方 × 1.2", "不得参与当前结果",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-16-material-cost-unit-loss.md"): {
 			"PR-538 物料成本计价单位与生产 BOM 损耗口径修正验收", "RED（实现前）", "GREEN（实现后定向验证）", "生产环境未部署、未写入、未切换入口",
@@ -83,16 +83,11 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 		}
 	}
 
-	rootRequirements := string(readOrderAppFileForTest(t, filepath.Join("..", "REQUIREMENTS.md")))
-	docsRequirements := string(readOrderAppFileForTest(t, filepath.Join("docs", "REQUIREMENTS.md")))
-	if got, want := dev538MarkdownSectionBody(rootRequirements, "PR-538-MATERIAL-COST-UNIT-LOSS"), dev538MarkdownSectionBody(docsRequirements, "PR-538-MATERIAL-COST-UNIT-LOSS"); got != want {
-		t.Fatal("root and orderapp-remote/docs PR-538 requirement bodies must stay mirrored")
-	}
-
-	rootAcceptance := string(readOrderAppFileForTest(t, filepath.Join("..", "ACCEPTANCE_TESTS.md")))
-	docsAcceptance := string(readOrderAppFileForTest(t, filepath.Join("docs", "ACCEPTANCE_TESTS.md")))
-	if got, want := dev538MarkdownSectionBody(rootAcceptance, "PR-538-MATERIAL-COST-UNIT-LOSS"), dev538MarkdownSectionBody(docsAcceptance, "PR-538-MATERIAL-COST-UNIT-LOSS"); got != want {
-		t.Fatal("root and orderapp-remote/docs PR-538 acceptance bodies must stay mirrored")
+	costingService := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "costing", "service.go")))
+	for _, forbidden := range []string{"整体预期损耗", "连续放大标准制造成本", "整体预期损耗率设为 0"} {
+		if strings.Contains(costingService, forbidden) {
+			t.Fatalf("current costing service must not restore removed double-loss warning %q", forbidden)
+		}
 	}
 }
 

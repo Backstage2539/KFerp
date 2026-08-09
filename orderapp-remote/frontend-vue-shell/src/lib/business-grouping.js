@@ -38,11 +38,44 @@ export function businessGroupRowsForUsage(groups = [], usageKey = '') {
     .filter((group) => {
       if (!normalizedUsage) return true
       const usages = Array.isArray(group.usages) ? group.usages : []
-      const activeUsages = usages.filter((usage) => usage.active !== false)
-      return activeUsages.length === 0 || activeUsages.some((usage) => assignmentUsage(usage) === normalizedUsage)
+      return usages.some((usage) => usage.active !== false && assignmentUsage(usage) === normalizedUsage)
     })
     .slice()
     .sort((a, b) => toNumber(a.sort_order ?? a.sortOrder) - toNumber(b.sort_order ?? b.sortOrder) || toNumber(a.id) - toNumber(b.id))
+}
+
+function uniquePositiveIDs(values = []) {
+  const out = []
+  const seen = new Set()
+  for (const value of Array.isArray(values) ? values : []) {
+    const id = toNumber(value)
+    if (!(id > 0) || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+export function businessGroupFeatureSelectionIDs(selection = {}) {
+  return uniquePositiveIDs(selection?.group_template_ids)
+}
+
+export function businessGroupFeatureSelectionPayload(featureKey = '', groupTemplateIDs = []) {
+  return {
+    feature_key: normalizedText(featureKey),
+    group_template_ids: uniquePositiveIDs(groupTemplateIDs),
+  }
+}
+
+export function businessGroupRowsForFeatureSelection(groups = [], groupTemplateIDs = []) {
+  const groupsByID = new Map((Array.isArray(groups) ? groups : [])
+    .filter((group) => group?.active !== false)
+    .filter((group) => !isSystemDefaultBusinessGroup(group))
+    .filter((group) => toNumber(group?.id) > 0)
+    .map((group) => [toNumber(group.id), group]))
+  return uniquePositiveIDs(groupTemplateIDs)
+    .map((id) => groupsByID.get(id))
+    .filter(Boolean)
 }
 
 export function businessGroupControlOptions(groups = [], {
@@ -132,15 +165,12 @@ export function findBusinessGroupAssignmentForRow(row = {}, {
   preferredGroupID = 0,
 } = {}) {
   if (typeof rowAssignment === 'function') return rowAssignment(row) || null
-  const normalizedUsage = normalizedText(usageKey)
-  const normalizedObjectKey = normalizedText(objectKey)
-  const objectID = toNumber(objectIDForRow(row))
-  const objectRef = typeof objectRefForRow === 'function' ? normalizedText(objectRefForRow(row)) : ''
-  const matches = (Array.isArray(assignments) ? assignments : []).filter((assignment) => {
-    if (normalizedUsage && assignmentUsage(assignment) !== normalizedUsage) return false
-    if (normalizedObjectKey && assignmentObjectKey(assignment) !== normalizedObjectKey) return false
-    if (objectRef) return assignmentObjectRef(assignment) === objectRef
-    return objectID > 0 && assignmentObjectID(assignment) === objectID
+  const matches = matchingBusinessGroupAssignmentsForRow(row, {
+    assignments,
+    usageKey,
+    objectKey,
+    objectIDForRow,
+    objectRefForRow,
   })
   const preferredID = toNumber(preferredGroupID)
   if (preferredID > 0) {
@@ -148,6 +178,25 @@ export function findBusinessGroupAssignmentForRow(row = {}, {
     if (preferred) return preferred
   }
   return matches[0] || null
+}
+
+function matchingBusinessGroupAssignmentsForRow(row = {}, {
+  assignments = [],
+  usageKey = '',
+  objectKey = '',
+  objectIDForRow = (item = {}) => toNumber(item.id ?? item.product_id ?? item.productID),
+  objectRefForRow = null,
+} = {}) {
+  const normalizedUsage = normalizedText(usageKey)
+  const normalizedObjectKey = normalizedText(objectKey)
+  const objectID = toNumber(objectIDForRow(row))
+  const objectRef = typeof objectRefForRow === 'function' ? normalizedText(objectRefForRow(row)) : ''
+  return (Array.isArray(assignments) ? assignments : []).filter((assignment) => {
+    if (normalizedUsage && assignmentUsage(assignment) !== normalizedUsage) return false
+    if (normalizedObjectKey && assignmentObjectKey(assignment) !== normalizedObjectKey) return false
+    if (objectRef) return assignmentObjectRef(assignment) === objectRef
+    return objectID > 0 && assignmentObjectID(assignment) === objectID
+  })
 }
 
 export function groupRowsByBusinessGroupTemplate(rows = [], {
@@ -226,6 +275,133 @@ export function groupRowsByBusinessGroupTemplate(rows = [], {
       ? byItemID.get(assignmentItemID)
       : unclassified
     target.rows.push(row)
+  }
+
+  return includeUnclassified ? [...groups, unclassified] : groups
+}
+
+export function groupRowsByBusinessGroupTemplates(rows = [], {
+  templates = [],
+  assignments = [],
+  usageKey = '',
+  objectKey = '',
+  objectIDForRow = (row = {}) => toNumber(row.id ?? row.product_id ?? row.productID),
+  objectRefForRow = null,
+  rowAssignment = null,
+  allLabel = '全部商品',
+  unclassifiedLabel = '未分类',
+  includeUnclassified = true,
+} = {}) {
+  const sourceRows = Array.isArray(rows) ? rows : []
+  const activeTemplates = (Array.isArray(templates) ? templates : [])
+    .filter((template) => template?.active !== false)
+    .filter((template) => !isSystemDefaultBusinessGroup(template))
+    .filter((template) => toNumber(template?.id) > 0)
+
+  if (!activeTemplates.length) {
+    return [{
+      key: 'all-products',
+      label: allLabel,
+      path_label: allLabel,
+      depth: 0,
+      parent_group_item_id: 0,
+      group_id: 0,
+      group_item_id: 0,
+      template_label: '',
+      rows: sourceRows,
+      all: true,
+      unclassified: false,
+      sort_order: 0,
+    }]
+  }
+
+  const groups = []
+  const groupsByAssignmentKey = new Map()
+  const templateIDs = new Set()
+  const templateHeaders = []
+  for (const template of activeTemplates) {
+    const templateID = toNumber(template.id)
+    const templateLabel = businessGroupVisibleName(template) || normalizedText(template.name) || `分组模板 #${templateID}`
+    templateIDs.add(templateID)
+    const templateHeader = {
+      key: `business-template-${templateID}`,
+      label: templateLabel,
+      path_label: templateLabel,
+      depth: 0,
+      parent_group_item_id: 0,
+      group_id: templateID,
+      group_item_id: 0,
+      template_label: '',
+      rows: [],
+      all: false,
+      unclassified: false,
+      is_template_group: true,
+      template_total: 0,
+      sort_order: groups.length,
+    }
+    groups.push(templateHeader)
+    templateHeaders.push(templateHeader)
+    const moveOptions = businessGroupItemMoveOptions([template], usageKey, {
+      includeGroupName: false,
+      includeGroupsWithoutUsage: true,
+    })
+    for (const option of moveOptions) {
+      const groupItemID = toNumber(option.group_item_id)
+      const group = {
+        key: `business-group-${templateID}-${groupItemID}`,
+        label: option.title_label || option.path_label || option.label,
+        path_label: option.path_label || option.label,
+        depth: toNumber(option.depth),
+        parent_group_item_id: toNumber(option.parent_group_item_id),
+        group_id: templateID,
+        group_item_id: groupItemID,
+        template_label: templateLabel,
+        rows: [],
+        all: false,
+        unclassified: false,
+        sort_order: groups.length,
+      }
+      groups.push(group)
+      groupsByAssignmentKey.set(`${templateID}:${groupItemID}`, group)
+    }
+  }
+
+  const unclassified = {
+    key: 'business-group-unclassified',
+    label: unclassifiedLabel,
+    path_label: unclassifiedLabel,
+    depth: 0,
+    parent_group_item_id: 0,
+    group_id: 0,
+    group_item_id: 0,
+    template_label: '',
+    rows: [],
+    all: false,
+    unclassified: true,
+    sort_order: groups.length,
+  }
+
+  for (const row of sourceRows) {
+    const matches = typeof rowAssignment === 'function'
+      ? [rowAssignment(row)].filter(Boolean)
+      : matchingBusinessGroupAssignmentsForRow(row, {
+          assignments,
+          usageKey,
+          objectKey,
+          objectIDForRow,
+          objectRefForRow,
+        })
+    const assignment = matches.find((candidate) => templateIDs.has(toNumber(candidate?.group_id ?? candidate?.groupID))) || null
+    const assignmentKey = `${toNumber(assignment?.group_id ?? assignment?.groupID)}:${toNumber(assignment?.group_item_id ?? assignment?.groupItemID)}`
+    const target = groupsByAssignmentKey.get(assignmentKey) || unclassified
+    target.rows.push(row)
+  }
+
+  for (const templateHeader of templateHeaders) {
+    const templateID = toNumber(templateHeader.group_id)
+    templateHeader.template_total = groups
+      .filter((group) => !group.is_template_group && toNumber(group.group_id) === templateID)
+      .reduce((sum, group) => sum + (Array.isArray(group.rows) ? group.rows.length : 0), 0)
   }
 
   return includeUnclassified ? [...groups, unclassified] : groups

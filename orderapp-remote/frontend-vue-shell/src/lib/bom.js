@@ -175,25 +175,29 @@ export function bomContextCustomerIDs(products = [], bomRows = []) {
   return ids
 }
 
+export function normalizeProductionBomName(value = '') {
+  let name = String(value || '').trim()
+  name = name.replace(/^BOM-?\d+\s*/i, '')
+  name = name.replace(/\s*\/\s*V\d+\s*$/i, '')
+  name = name.replace(/\s+(?:生产\s*BOM|Production\s+BOM|BOM)((?:\s+(?:特殊属性)?副本)*)\s*$/i, '$1')
+  return name.trim()
+}
+
 export function productionBomLabel(row = {}) {
   const code = String(row.production_bom_code || row.productionBomCode || row.code || '').trim()
-  const name = String(row.production_bom_name || row.productionBomName || row.name || '').trim()
+  const rawName = String(row.production_bom_name || row.productionBomName || row.name || '').trim()
+  const name = normalizeProductionBomName(rawName)
   const version = String(row.production_bom_version_no || row.productionBomVersionNo || row.latest_bom_version_no || row.latestBomVersionNo || row.latest_version_no || row.latestVersionNo || '').trim()
   const status = String(row.bom_status || row.status || '').trim()
-  const title = [code, name].filter(Boolean).join(' ')
-  if (title && version) return `${title} / ${version}`
-  if (title) return `${title} / 未绑定版本`
-  if (version) return `生产 BOM / ${version}`
+  if (name) return name
   if (status === 'missing') return '无生产 BOM'
+  if (rawName || code || version || Number(row.production_bom_id || row.productionBomID || row.bom_id || row.id || 0) > 0) return '未命名 BOM'
   return '无生产 BOM'
 }
 
 export function productionBomListName(row = {}) {
-  let name = String(row.production_bom_name || row.productionBomName || row.name || '').trim()
-  name = name.replace(/^BOM-\d+\s+/i, '')
-  name = name.replace(/\s*\/\s*V\d+\s*$/i, '')
-  name = name.replace(/\s+生产\s*BOM(?=(?:\s+(?:特殊属性)?副本)*\s*$)/i, '')
-  return name.trim() || '未命名 BOM'
+  const name = normalizeProductionBomName(row.production_bom_name || row.productionBomName || row.name || '')
+  return name || '未命名 BOM'
 }
 
 export function productionBomVersionWarning(row = {}) {

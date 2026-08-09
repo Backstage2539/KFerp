@@ -371,13 +371,14 @@ type productConfigTemplateAPIRequest struct {
 }
 
 type productProductionConfigAPIRequest struct {
-	ProductionBomID         int64                                     `json:"production_bom_id"`
-	ProductionBomVersionID  int64                                     `json:"production_bom_version_id"`
-	ProcessRouteID          int64                                     `json:"process_route_id"`
-	IndustryFieldTemplateID int64                                     `json:"industry_field_template_id"`
-	ExpectedLossRate        float64                                   `json:"expected_loss_rate"`
-	Note                    string                                    `json:"note"`
-	Fields                  []catalogapp.ProductProductionConfigField `json:"fields"`
+	ProductionBomID          int64                                     `json:"production_bom_id"`
+	ProductionBomVersionID   int64                                     `json:"production_bom_version_id"`
+	ProcessRouteID           int64                                     `json:"process_route_id"`
+	IndustryFieldTemplateID  int64                                     `json:"industry_field_template_id"`
+	IndustryFieldTemplateIDs json.RawMessage                           `json:"industry_field_template_ids"`
+	ExpectedLossRate         float64                                   `json:"expected_loss_rate"`
+	Note                     string                                    `json:"note"`
+	Fields                   []catalogapp.ProductProductionConfigField `json:"fields"`
 }
 
 type productClassificationTemplateAPIRequest struct {
@@ -1018,6 +1019,9 @@ func (h productHandler) businessGroupsAPI(c echo.Context) error {
 	}
 	usageKey := strings.TrimSpace(c.QueryParam("usage_key"))
 	if usageKey != "" {
+		if strings.EqualFold(usageKey, catalogapp.BusinessGroupUsagePriceList) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "price_list follows product_catalog feature selection"})
+		}
 		filtered := make([]catalogapp.BusinessGroup, 0, len(rows))
 		for _, row := range rows {
 			if !row.Active {
@@ -1147,6 +1151,51 @@ func (h productHandler) ensureBusinessGroupUsageAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) businessGroupFeatureSelectionAPI(c echo.Context) error {
+	selection, err := h.catalog.GetBusinessGroupFeatureSelection(c.Request().Context(), c.Param("feature_key"))
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, selection)
+}
+
+func (h productHandler) saveBusinessGroupFeatureSelectionAPI(c echo.Context) error {
+	var req struct {
+		FeatureKey       string          `json:"feature_key"`
+		GroupTemplateIDs json.RawMessage `json:"group_template_ids"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	featureKey := strings.ToLower(strings.TrimSpace(c.Param("feature_key")))
+	if req.FeatureKey != "" && !strings.EqualFold(strings.TrimSpace(req.FeatureKey), featureKey) {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "feature_key mismatch"})
+	}
+	rawIDs := strings.TrimSpace(string(req.GroupTemplateIDs))
+	if rawIDs == "" || rawIDs == "null" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "group_template_ids required"})
+	}
+	var groupTemplateIDs []int64
+	if err := json.Unmarshal(req.GroupTemplateIDs, &groupTemplateIDs); err != nil || groupTemplateIDs == nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid group_template_ids"})
+	}
+	selection, err := h.catalog.SaveBusinessGroupFeatureSelection(c.Request().Context(), catalogapp.SaveBusinessGroupFeatureSelectionCommand{
+		Actor:            support.ActorOf(c),
+		FeatureKey:       featureKey,
+		GroupTemplateIDs: groupTemplateIDs,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, selection)
 }
 
 func (h productHandler) businessGroupAssignmentsAPI(c echo.Context) error {
@@ -1746,16 +1795,26 @@ func (h productHandler) saveProductProductionConfigAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
+	var industryFieldTemplateIDs []int64
+	if req.IndustryFieldTemplateIDs != nil {
+		if strings.TrimSpace(string(req.IndustryFieldTemplateIDs)) == "null" {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "industry_field_template_ids must be an array"})
+		}
+		if err := json.Unmarshal(req.IndustryFieldTemplateIDs, &industryFieldTemplateIDs); err != nil || industryFieldTemplateIDs == nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "industry_field_template_ids must be an array"})
+		}
+	}
 	row, err := h.catalog.SaveProductProductionConfig(c.Request().Context(), catalogapp.SaveProductProductionConfigCommand{
-		Actor:                   support.ActorOf(c),
-		ProductID:               productID,
-		ProductionBomID:         req.ProductionBomID,
-		ProductionBomVersionID:  req.ProductionBomVersionID,
-		ProcessRouteID:          req.ProcessRouteID,
-		IndustryFieldTemplateID: req.IndustryFieldTemplateID,
-		ExpectedLossRate:        req.ExpectedLossRate,
-		Note:                    req.Note,
-		Fields:                  req.Fields,
+		Actor:                    support.ActorOf(c),
+		ProductID:                productID,
+		ProductionBomID:          req.ProductionBomID,
+		ProductionBomVersionID:   req.ProductionBomVersionID,
+		ProcessRouteID:           req.ProcessRouteID,
+		IndustryFieldTemplateID:  req.IndustryFieldTemplateID,
+		IndustryFieldTemplateIDs: industryFieldTemplateIDs,
+		ExpectedLossRate:         req.ExpectedLossRate,
+		Note:                     req.Note,
+		Fields:                   req.Fields,
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {

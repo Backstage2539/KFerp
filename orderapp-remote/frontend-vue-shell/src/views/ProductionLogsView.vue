@@ -53,7 +53,6 @@
               <th>订单号</th>
               <th>计划成品(g)</th>
               <th>投料数(g)</th>
-              <th>BOM预期产出率</th>
               <th>完成件数</th>
               <th>散装余料(g)</th>
               <th>实际产出(g)</th>
@@ -77,7 +76,6 @@
               <td class="muted">{{ row.order_nos }}</td>
               <td>{{ row.planned_need_g }}</td>
               <td>{{ row.input_g }}</td>
-              <td>{{ percent(row.bom_yield_rate) }}</td>
               <td>{{ row.finished_units }}</td>
               <td>{{ row.finished_loose_g }}</td>
               <td>{{ row.finished_total_g }}</td>
@@ -91,7 +89,7 @@
               <td class="summary">{{ productionLogMaterialSummaryText(row.material_summary) }}</td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="20" class="muted">暂无生产日志</td>
+              <td colspan="19" class="muted">暂无生产日志</td>
             </tr>
           </tbody>
         </table>

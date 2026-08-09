@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	productionapp "orderapp/internal/application/production"
+	stockdomain "orderapp/internal/domain/stock"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 	"time"
@@ -376,7 +377,11 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	if wo.Status == "completed" {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order already completed")
 	}
-	if _, err := r.Finish(ctx, productionapp.FinishCommand{ID: wo.RunningItemID, FinishedUnits: cmd.FinishedUnits, FinishedLooseG: cmd.FinishedLooseG, HasFinishedInput: true, Warehouse: cmd.Warehouse, ConsumedInputG: cmd.ConsumedInputG, Operator: cmd.Operator}); err != nil {
+	completionWarehouse, err := completionWarehouseForWorkOrder(wo, cmd.Warehouse)
+	if err != nil {
+		return productionapp.WorkOrderCompleteResult{}, err
+	}
+	if _, err := r.Finish(ctx, productionapp.FinishCommand{ID: wo.RunningItemID, FinishedUnits: cmd.FinishedUnits, FinishedLooseG: cmd.FinishedLooseG, HasFinishedInput: true, Warehouse: completionWarehouse, ConsumedInputG: cmd.ConsumedInputG, Operator: cmd.Operator}); err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 
@@ -402,7 +407,7 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 			ItemType:    stockItemTypeFinishedProduct,
 			ItemName:    wo.ProductName,
 			SpecG:       wo.SpecG,
-			ToWarehouse: cmd.Warehouse,
+			ToWarehouse: completionWarehouse,
 			QtyG:        finishedG,
 			QtyUnits:    cmd.FinishedUnits,
 		}},
@@ -422,6 +427,24 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	return productionapp.WorkOrderCompleteResult{WorkOrder: updated, StockEntries: []productionapp.StockEntryRow{stockEntryRowFromDetail(entry)}, Cost: cost}, nil
+}
+
+func completionWarehouseForWorkOrder(wo productionapp.WorkOrderRow, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if wo.ProcessingRequestItemID <= 0 {
+		if requested == "" {
+			return stockdomain.WarehouseFinishedGoods, nil
+		}
+		return requested, nil
+	}
+	target := strings.TrimSpace(wo.TargetWarehouse)
+	if target == "" {
+		return "", fmt.Errorf("customer processing target warehouse missing")
+	}
+	if requested != "" && requested != target {
+		return "", fmt.Errorf("customer processing completion warehouse must be %s", target)
+	}
+	return target, nil
 }
 
 func validJobCardTransition(current, action string) bool {
@@ -464,35 +487,45 @@ func nextJobCardStatus(action string) string {
 
 func updateWorkOrderStatusFromJobCardsTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) error {
 	var current string
-	var total, completed, active int64
+	var total, completed, running, paused int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT wo.status,
 		       COUNT(jc.id)::bigint,
 		       COUNT(jc.id) FILTER (WHERE jc.status='completed')::bigint,
-		       COUNT(jc.id) FILTER (WHERE jc.status IN ('running','paused'))::bigint
+		       COUNT(jc.id) FILTER (WHERE jc.status='running')::bigint,
+		       COUNT(jc.id) FILTER (WHERE jc.status='paused')::bigint
 		FROM %s.work_orders wo
 		LEFT JOIN %s.job_cards jc ON jc.work_order_id=wo.id
 		WHERE wo.id=$1
 		GROUP BY wo.id
-	`, schema, schema), workOrderID).Scan(&current, &total, &completed, &active); err != nil {
+	`, schema, schema), workOrderID).Scan(&current, &total, &completed, &running, &paused); err != nil {
 		return err
 	}
 	if current == "completed" || current == "cancelled" {
 		return nil
 	}
-	next := current
-	if completed > 0 {
-		next = "partially_completed"
-	} else if active > 0 {
-		next = "running"
-	} else if total > 0 && current == "released" {
-		next = "released"
-	}
+	next := deriveWorkOrderStatusFromJobCardCounts(current, total, completed, running, paused)
 	if next == current {
 		return nil
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET status=$2 WHERE id=$1`, schema), workOrderID, next)
 	return err
+}
+
+func deriveWorkOrderStatusFromJobCardCounts(current string, total, completed, running, paused int64) string {
+	if completed > 0 {
+		return "partially_completed"
+	}
+	if running > 0 {
+		return "running"
+	}
+	if paused > 0 {
+		return "paused"
+	}
+	if total > 0 && current == "released" {
+		return "released"
+	}
+	return current
 }
 
 func loadJobCardRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (productionapp.JobCardRow, error) {
@@ -563,12 +596,13 @@ func loadWorkOrderExecutionRowTx(ctx context.Context, tx pgx.Tx, schema string, 
 		       COALESCE(actual_cost,0)::float8,to_char(created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(order_nos,''),COALESCE(bom_version_id,0),COALESCE(operation_template_id,0),COALESCE(process_template_id,0),COALESCE(process_template_name,''),
 		       COALESCE(process_snapshot_json,'{}'::jsonb)::text,COALESCE(operation_summary_json,'[]'::jsonb)::text,
+		       customer_id,target_warehouse,processing_request_item_id,
 		       COALESCE((SELECT SUM(reserved_g)::bigint FROM %s.work_order_material_reservations WHERE work_order_id=work_orders.id),0),
 		       COALESCE((SELECT SUM(consumed_g)::bigint FROM %s.work_order_material_reservations WHERE work_order_id=work_orders.id),0),
 		       COALESCE((SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g))::bigint FROM %s.work_order_material_reservations WHERE work_order_id=work_orders.id AND status='reserved'),0)
 		FROM %s.work_orders
 		WHERE id=$1
-	`, schema, schema, schema, schema), id).Scan(&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt, &row.OrderNos, &row.BomVersionID, &row.OperationTemplateID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG)
+	`, schema, schema, schema, schema), id).Scan(&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt, &row.OrderNos, &row.BomVersionID, &row.OperationTemplateID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG)
 	if err == pgx.ErrNoRows {
 		return productionapp.WorkOrderRow{}, fmt.Errorf("work order not found")
 	}

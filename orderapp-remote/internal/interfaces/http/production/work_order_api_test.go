@@ -1021,11 +1021,11 @@ func TestWorkOrderProducePathOwnsInventoryActionsAndDetail(t *testing.T) {
 		t.Fatalf("POST issue-materials status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.stockEntry)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/complete", strings.NewReader(`{"finished_units":2,"finished_loose_g":10,"consumed_input_g":600,"warehouse":"finished_goods","note":"完工入库"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/complete", strings.NewReader(`{"finished_units":2,"finished_loose_g":10,"consumed_input_g":600,"note":"完工入库"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || repo.completeWorkOrder.ID != 88 || repo.completeWorkOrder.FinishedUnits != 2 {
+	if rec.Code != http.StatusOK || repo.completeWorkOrder.ID != 88 || repo.completeWorkOrder.FinishedUnits != 2 || repo.completeWorkOrder.Warehouse != "" {
 		t.Fatalf("POST /api/produce/work-orders/88/complete status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.completeWorkOrder)
 	}
 

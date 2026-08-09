@@ -268,7 +268,6 @@ async function saveGroupTemplate() {
     remark: String(groupTemplateForm.remark || '').trim(),
     active: true,
     sort_order: Number(groupTemplateForm.sort_order || 100),
-    usages: [],
   }
   if (!payload.name) {
     error.value = '请填写模板名'

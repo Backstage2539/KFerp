@@ -45,7 +45,6 @@
                 <span>规格 {{ row.outputs?.length ? '多规格' : row.spec_g }}</span>
                 <span>需求 {{ row.need_g }}g</span>
                 <span>投料 {{ row.input_g }}g</span>
-                <span>预期产出率 {{ percent(row.bom_yield_rate) }}</span>
               </div>
             </td>
             <td>
@@ -77,26 +76,26 @@
       <div class="completion-grid">
         <label>
           <span>投料(g)</span>
-          <input v-model.number="activeCompletionInput.consumed_input_g" min="0" type="number" @input="markCompletionEdited" />
+          <input v-model.number="activeCompletionInput.consumed_input_g" min="0" type="number" />
         </label>
         <div v-if="activeCompletionInput.outputs?.length" class="multi-output-grid">
           <label v-for="output in activeCompletionInput.outputs" :key="output.spec_g">
             <span>{{ output.spec_g }}g 成品件数</span>
-            <input v-model.number="output.finished_units" min="0" type="number" @input="markCompletionEdited" />
+            <input v-model.number="output.finished_units" min="0" type="number" />
           </label>
           <label v-for="output in activeCompletionInput.outputs" :key="`${output.spec_g}-loose`">
             <span>{{ output.spec_g }}g 余料(g)</span>
-            <input v-model.number="output.finished_loose_g" min="0" type="number" @input="markCompletionEdited" />
+            <input v-model.number="output.finished_loose_g" min="0" type="number" />
           </label>
         </div>
         <template v-else>
           <label>
             <span>成品件数</span>
-            <input v-model.number="activeCompletionInput.finished_units" min="0" type="number" @input="markCompletionEdited" />
+            <input v-model.number="activeCompletionInput.finished_units" min="0" type="number" />
           </label>
           <label>
             <span>余料(g)</span>
-            <input v-model.number="activeCompletionInput.finished_loose_g" min="0" type="number" @input="markCompletionEdited" />
+            <input v-model.number="activeCompletionInput.finished_loose_g" min="0" type="number" />
           </label>
         </template>
         <label>
@@ -146,7 +145,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
 import { cancelRunningProduction, fetchRunningProduction, finishRunningProduction } from '../api/production.js'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
-import { buildFinishInput, buildFinishPanelModel, formatActualYield, markYieldDirty, productionFinishErrorDetail } from '../lib/produce-running'
+import { buildFinishInput, buildFinishPanelModel, formatActualYield, productionFinishErrorDetail } from '../lib/produce-running'
 import StockOperationsView from './StockOperationsView.vue'
 
 defineProps({
@@ -171,13 +170,9 @@ const finishErrorDetail = computed(() => productionFinishErrorDetail(error.value
 const isWipInsufficientError = computed(() => finishErrorDetail.value.actionKey === 'stockOperations')
 const activeCompletionInput = computed(() => completion.row ? (finishInputs[completion.row.id] || buildFinishInput(completion.row)) : buildFinishInput({}))
 
-function percent(v) {
-  return `${(Number(v || 0) * 100).toFixed(2)}%`
-}
-
 function rowSignature(row) {
   const outputSignature = (row.outputs || []).map((output) => `${output.spec_g}:${output.plan_units}:${output.plan_loose_g}`).join('|')
-  return [row.input_g, row.plan_units, row.plan_loose_g, row.bom_yield_rate, outputSignature].map((v) => String(v || 0)).join(':')
+  return [row.input_g, row.plan_units, row.plan_loose_g, outputSignature].map((v) => String(v || 0)).join(':')
 }
 
 function ensureInputs() {
@@ -194,10 +189,6 @@ function ensureInputs() {
       }
     }
   }
-}
-
-function markCompletionEdited() {
-  if (completion.row) markYieldDirty(finishInputs[completion.row.id])
 }
 
 function openStockDrawer() {

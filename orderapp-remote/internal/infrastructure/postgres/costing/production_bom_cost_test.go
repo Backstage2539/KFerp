@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestResolveProductionBomCostsIncludesProductComponentYieldAndOperations(t *testing.T) {
+func TestResolveProductionBomCostsIncludesProductComponentsAndOperationsWithoutLegacyYield(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		2: {
 			ProductID:            2,
@@ -53,11 +53,11 @@ func TestResolveProductionBomCostsIncludesProductComponentYieldAndOperations(t *
 	if !component.Resolved {
 		t.Fatal("component product BOM cost was not resolved")
 	}
-	if diff := math.Abs(component.InputCostPerOutputUnit - 100); diff > 1e-9 {
-		t.Fatalf("component input cost = %.4f, want 100 after 0.8 yield", component.InputCostPerOutputUnit)
+	if diff := math.Abs(component.InputCostPerOutputUnit - 80); diff > 1e-9 {
+		t.Fatalf("component input cost = %.4f, want 80 with legacy 0.8 yield ignored", component.InputCostPerOutputUnit)
 	}
-	if diff := math.Abs(component.TotalCostPerOutputUnit - 105); diff > 1e-9 {
-		t.Fatalf("component total cost = %.4f, want 105 including operation", component.TotalCostPerOutputUnit)
+	if diff := math.Abs(component.TotalCostPerOutputUnit - 85); diff > 1e-9 {
+		t.Fatalf("component total cost = %.4f, want 85 including operation", component.TotalCostPerOutputUnit)
 	}
 
 	parent := costs[1]
@@ -67,11 +67,11 @@ func TestResolveProductionBomCostsIncludesProductComponentYieldAndOperations(t *
 	if !parent.HasProductComponent {
 		t.Fatal("parent BOM should report its product component")
 	}
-	if diff := math.Abs(parent.InputCostPerOutputUnit - 1.45); diff > 1e-9 {
-		t.Fatalf("parent input cost = %.4f, want 1.45", parent.InputCostPerOutputUnit)
+	if diff := math.Abs(parent.InputCostPerOutputUnit - 1.25); diff > 1e-9 {
+		t.Fatalf("parent input cost = %.4f, want 1.25", parent.InputCostPerOutputUnit)
 	}
-	if diff := math.Abs(parent.TotalCostPerOutputUnit - 1.65); diff > 1e-9 {
-		t.Fatalf("parent total cost = %.4f, want 1.65 including parent operation", parent.TotalCostPerOutputUnit)
+	if diff := math.Abs(parent.TotalCostPerOutputUnit - 1.45); diff > 1e-9 {
+		t.Fatalf("parent total cost = %.4f, want 1.45 including parent operation", parent.TotalCostPerOutputUnit)
 	}
 }
 
@@ -96,11 +96,39 @@ func TestResolveProductionBomCostsAppliesHazelnutBlendMaterialLossOnce(t *testin
 	if !got.Resolved {
 		t.Fatalf("hazelnut blend BOM was not resolved: %+v", got)
 	}
-	if diff := math.Abs(got.InputCostPerOutputUnit - 80.5); diff > 1e-9 {
-		t.Fatalf("material cost = %.6f, want 80.50 with only 20%% material loss", got.InputCostPerOutputUnit)
+	if diff := math.Abs(got.InputCostPerOutputUnit - 77.28); diff > 1e-9 {
+		t.Fatalf("material cost = %.6f, want 77.28 with only 20%% material add-on", got.InputCostPerOutputUnit)
 	}
-	if diff := math.Abs(got.TotalCostPerOutputUnit - 82.54); diff > 1e-9 {
-		t.Fatalf("standard manufacturing cost = %.6f, want 82.54 including 2.04 operation", got.TotalCostPerOutputUnit)
+	if diff := math.Abs(got.TotalCostPerOutputUnit - 79.32); diff > 1e-9 {
+		t.Fatalf("standard manufacturing cost = %.6f, want 79.32 including 2.04 operation", got.TotalCostPerOutputUnit)
+	}
+}
+
+func TestResolveProductionBomCostsUsesCookieBomMaterialLossAsTheOnlyLoss(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		643: {
+			ProductID:            643,
+			VersionID:            1381,
+			YieldRate:            0.8, // legacy compatibility field: it must not amplify current BOM cost
+			OutputQty:            1,
+			OutputUnit:           "kg",
+			OperationCostPerUnit: 2.6067,
+			Items: []productionBomCostItem{
+				{ID: 1, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 75, MaterialLossRate: 0.2, UnitCost: 54, UnitCostUnit: "kg"},
+				{ID: 2, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 25, MaterialLossRate: 0.2, UnitCost: 45, UnitCostUnit: "kg"},
+			},
+		},
+	}
+
+	got := resolveProductionBomCosts(nodes)[643]
+	if !got.Resolved {
+		t.Fatalf("cookie blend BOM was not resolved: %+v", got)
+	}
+	if diff := math.Abs(got.InputCostPerOutputUnit - 62.10); diff > 1e-9 {
+		t.Fatalf("material cost = %.6f, want 62.10 = (54*75%% + 45*25%%) * (1 + 20%%)", got.InputCostPerOutputUnit)
+	}
+	if diff := math.Abs(got.TotalCostPerOutputUnit - 64.7067); diff > 1e-9 {
+		t.Fatalf("standard manufacturing cost = %.6f, want 64.7067 including 2.6067 operation", got.TotalCostPerOutputUnit)
 	}
 }
 
@@ -176,15 +204,15 @@ func TestResolveProductionBomTrialItemMatchesPriceListGraphContribution(t *testi
 		t.Fatalf("trial item failed: ok=%v warning=%q", ok, warning)
 	}
 	want := costs[1].ItemCosts[componentItem.ID]
-	if diff := math.Abs(trialItem.UnitCost - 105); diff > 1e-9 {
-		t.Fatalf("trial component unit cost = %.4f, want 105", trialItem.UnitCost)
+	if diff := math.Abs(trialItem.UnitCost - 85); diff > 1e-9 {
+		t.Fatalf("trial component unit cost = %.4f, want 85", trialItem.UnitCost)
 	}
 	if diff := math.Abs(trialItem.ContributionPerOutputUnit - want.ContributionPerOutputUnit); diff > 1e-9 {
 		t.Fatalf("trial contribution = %.6f, price-list graph contribution = %.6f", trialItem.ContributionPerOutputUnit, want.ContributionPerOutputUnit)
 	}
 }
 
-func TestResolveProductionBomCostsRejectsCyclesAndZeroYield(t *testing.T) {
+func TestResolveProductionBomCostsRejectsCyclesAndIgnoresLegacyZeroYield(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		1: {
 			ProductID:  1,
@@ -216,7 +244,7 @@ func TestResolveProductionBomCostsRejectsCyclesAndZeroYield(t *testing.T) {
 	}
 
 	costs := resolveProductionBomCosts(nodes)
-	for _, productID := range []int64{1, 2, 3} {
+	for _, productID := range []int64{1, 2} {
 		got := costs[productID]
 		if got.Resolved {
 			t.Fatalf("product %d unexpectedly resolved: %+v", productID, got)
@@ -224,6 +252,9 @@ func TestResolveProductionBomCostsRejectsCyclesAndZeroYield(t *testing.T) {
 		if math.IsNaN(got.TotalCostPerOutputUnit) || math.IsInf(got.TotalCostPerOutputUnit, 0) {
 			t.Fatalf("product %d returned invalid total cost: %+v", productID, got)
 		}
+	}
+	if got := costs[3]; !got.Resolved || got.TotalCostPerOutputUnit != 100 {
+		t.Fatalf("legacy zero yield must not invalidate current BOM cost: %+v", got)
 	}
 }
 

@@ -26,7 +26,7 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 	ddls := []string{
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.product_bom (
 			product_id BIGINT PRIMARY KEY,
-			yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+			yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000,
 			status TEXT NOT NULL DEFAULT 'active',
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`, schema),
@@ -60,6 +60,9 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		}
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.product_bom ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`, schema)); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.product_bom ALTER COLUMN yield_rate SET DEFAULT 1.0000`, schema)); err != nil {
 		return err
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_bom SET status='active' WHERE COALESCE(NULLIF(status,''),'')=''`, schema)); err != nil {
@@ -126,7 +129,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.bom_versions (
 	product_id BIGINT NOT NULL,
 	version_no TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'draft',
-	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1.0000,
 	note TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	activated_at TIMESTAMPTZ
@@ -136,6 +139,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS bom_versions_product_version_uq
 CREATE UNIQUE INDEX IF NOT EXISTS bom_versions_one_active_uq
 	ON %[1]s.bom_versions(product_id)
 	WHERE status='active';
+ALTER TABLE %[1]s.bom_versions ALTER COLUMN yield_rate SET DEFAULT 1.0000;
 
 CREATE TABLE IF NOT EXISTS %[1]s.bom_version_items (
 	id BIGSERIAL PRIMARY KEY,
