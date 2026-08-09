@@ -33,6 +33,7 @@ export function optionSearchText(option, label = '') {
     option?.Supplier,
     option?.batch_code,
     option?.sku_code,
+    option?.sku_search_text,
     option?.product_name,
     option?.item_name,
     option?.item_type,

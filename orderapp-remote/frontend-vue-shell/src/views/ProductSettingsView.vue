@@ -972,13 +972,41 @@
               <label class="wide-field">
                 <span>试算商品</span>
                 <SearchableSelect
+                  :key="`pricing-rule-trial-product-picker:${activePricingRuleTrialProductKindFilter}`"
                   v-model="pricingRuleTrialForm.product_id"
                   :options="pricingRuleTrialProductOptions"
                   :option-label="productOptionLabel"
                   :option-meta="productOptionMeta"
                   :option-value="optionNumericValue"
                   placeholder="选择商品档案"
-                  empty-text="暂无可试算商品" />
+                  empty-text="暂无可试算商品">
+                  <template #menu-header>
+                    <div
+                      v-if="pricingRuleTrialProductKindFilterOptions.length > 1"
+                      class="product-kind-filter"
+                      role="group"
+                      aria-label="商品分类">
+                      <button
+                        v-for="option in pricingRuleTrialProductKindFilterOptions"
+                        :key="option.value || 'all'"
+                        type="button"
+                        class="product-kind-filter-option"
+                        :class="{ active: activePricingRuleTrialProductKindFilter === option.value }"
+                        :aria-pressed="activePricingRuleTrialProductKindFilter === option.value"
+                        @mousedown.prevent
+                        @click.stop="setPricingRuleTrialProductKindFilter(option.value)">
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </template>
+                  <template #option="{ option }">
+                    <strong>
+                      {{ productOptionLabel(option) }}
+                      <span class="kind-badge" :class="productKindBadgeClass(option)">{{ productKindLabel(option) }}</span>
+                    </strong>
+                    <small v-if="productOptionMeta(option)">{{ productOptionMeta(option) }}</small>
+                  </template>
+                </SearchableSelect>
               </label>
               <label>
                 <span>试算BOM版本</span>
@@ -1897,6 +1925,7 @@ import {
   primaryCategoryOptions,
   pricingRuleTrialDefaultQuoteUnit,
   pricingRuleTrialQuoteUnitOptionsForProduct,
+  pricingRuleTrialMainProductOptions,
   productSkuRowsForParent,
   productArchiveRowsWithSkus,
   productionBomOptionLabel,
@@ -1917,6 +1946,7 @@ import {
   visibleSkuGroupRows,
   visibleNonDeletedRows,
 } from '../lib/product-settings'
+import { orderProductFamilyOptions, orderProductKindFilterOptions } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -1959,6 +1989,7 @@ const pricingRuleTrialDrawerOpen = ref(false)
 const pricingRuleTrialLoading = ref(false)
 const pricingRuleTrialRule = ref(null)
 const pricingRuleTrialForm = ref(defaultPricingRuleTrialForm())
+const activePricingRuleTrialProductKindFilter = ref('')
 const pricingRuleTrialResult = ref(null)
 const pricingRuleTrialActiveExplanation = ref('')
 const pricingRuleTrialError = ref('')
@@ -2241,11 +2272,18 @@ const activePricingRuleTrialOptions = computed(() => pricingRules.value
   .filter((rule) => rule && rule.active !== false && Number(rule.id || 0) > 0)
   .slice()
   .sort((a, b) => pricingRuleOptionLabel(a).localeCompare(pricingRuleOptionLabel(b))))
-const pricingRuleTrialProductOptions = computed(() => productRows.value
-  .filter((product) => product && product.active !== false)
+const pricingRuleTrialMainProducts = computed(() => pricingRuleTrialMainProductOptions(
+  products.value.filter(skuContextProductFilter),
+)
   .slice()
   .sort((a, b) => productOptionLabel(a).localeCompare(productOptionLabel(b))))
-const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialProductOptions.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)) || null)
+const pricingRuleTrialProductKindFilterOptions = computed(() => orderProductKindFilterOptions(pricingRuleTrialMainProducts.value))
+const pricingRuleTrialProductOptions = computed(() => orderProductFamilyOptions(
+  pricingRuleTrialMainProducts.value,
+  '',
+  activePricingRuleTrialProductKindFilter.value,
+))
+const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialMainProducts.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)) || null)
 const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.bom_version_options) ? pricingRuleTrialResult.value.bom_version_options : [])
 const pricingRuleTrialProcessRouteOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.process_route_options) ? pricingRuleTrialResult.value.process_route_options : [])
 const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
@@ -3815,10 +3853,25 @@ function openPricingRuleTrial(rule = null) {
   const normalized = rule && rule.active !== false ? defaultPricingRuleForm(JSON.parse(JSON.stringify(rule || {}))) : null
   pricingRuleTrialRule.value = normalized
   pricingRuleTrialForm.value = defaultPricingRuleTrialForm(normalized || {})
+  activePricingRuleTrialProductKindFilter.value = ''
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
   pricingRuleTrialDrawerOpen.value = true
+}
+
+function setPricingRuleTrialProductKindFilter(value) {
+  const next = String(value || '').trim()
+  activePricingRuleTrialProductKindFilter.value = next
+  const selected = selectedPricingRuleTrialProduct.value
+  if (!selected || !next || normalizedProductKind(selected) === next) return
+  pricingRuleTrialForm.value.product_id = 0
+  pricingRuleTrialForm.value.quote_unit = ''
+  pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.process_route_id = 0
+  pricingRuleTrialForm.value.operation_template_id = 0
+  pricingRuleTrialResult.value = null
+  pricingRuleTrialActiveExplanation.value = ''
 }
 
 function handlePricingRuleTrialRuleChange() {
@@ -7690,7 +7743,15 @@ watch(() => skuFilters.value.primaryCategory, () => {
 
 watch(() => pricingRuleTrialForm.value.product_id, () => {
   const product = selectedPricingRuleTrialProduct.value
-  if (!product) return
+  if (!product) {
+    pricingRuleTrialForm.value.quote_unit = ''
+    pricingRuleTrialForm.value.bom_version_id = 0
+    pricingRuleTrialForm.value.process_route_id = 0
+    pricingRuleTrialForm.value.operation_template_id = 0
+    pricingRuleTrialResult.value = null
+    pricingRuleTrialActiveExplanation.value = ''
+    return
+  }
   pricingRuleTrialForm.value.quote_unit = preferredPricingRuleTrialQuoteUnit(product)
   pricingRuleTrialForm.value.bom_version_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
@@ -7700,6 +7761,7 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
 })
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
+  activePricingRuleTrialProductKindFilter.value = ''
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.bom_version_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
@@ -7989,6 +8051,10 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
 .kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }
 .kind-instant { color: #6b3f16; background: #f5efe6; border: 1px solid #cba77d; }
+.product-kind-filter { position: sticky; top: -6px; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; margin: -6px -6px 4px; padding: 8px 6px 6px; border-bottom: 1px solid #edf0f5; background: #fff; }
+.product-kind-filter-option { min-height: 28px; padding: 4px 10px; border: 1px solid #d7dbe3; border-radius: 999px; background: #fff; color: #475467; font: inherit; font-size: 12px; line-height: 1.2; cursor: pointer; }
+.product-kind-filter-option:hover { background: #f3f6fb; }
+.product-kind-filter-option.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
 .margin-input { width: 150px; }
 .sku-name-input { min-width: 240px; }
 .sku-table .sku-name-input { min-width: 300px; }

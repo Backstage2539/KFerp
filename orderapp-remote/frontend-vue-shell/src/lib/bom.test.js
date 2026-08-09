@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as bomLib from './bom.js'
 import {
   bomContextCustomerIDs,
   normalizeProductionBomName,
@@ -15,6 +16,100 @@ import {
   filterProductionBomCatalog,
   bomProductOptionLabel,
 } from './bom.js'
+
+test('production BOM accordion paginates only the active top-level group and treats unclassified as a peer', () => {
+  assert.equal(
+    typeof bomLib.productionBomAccordionPageState,
+    'function',
+    'BOM list should own one accordion pagination helper',
+  )
+  const groups = [
+    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 12, rows: [] },
+    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
+    { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: Array.from({ length: 12 }, (_, index) => ({ id: index + 1 })) },
+    { key: 'business-template-10', label: '挂耳', group_id: 10, group_item_id: 0, is_template_group: true, template_total: 2, rows: [] },
+    { key: 'business-group-10-101', label: '盒装', group_id: 10, group_item_id: 101, parent_group_item_id: 0, rows: [{ id: 21 }, { id: 22 }] },
+    { key: 'business-group-unclassified', label: '未分类', group_id: 0, group_item_id: 0, unclassified: true, rows: [{ id: 31 }, { id: 32 }, { id: 33 }] },
+  ]
+
+  const first = bomLib.productionBomAccordionPageState?.(groups, { page: 1, pageSize: 10 }) || {}
+  assert.equal(first.expandedGroupKey, 'business-template-9')
+  assert.equal(first.total, 12)
+  assert.equal(first.needsPagination, true)
+  assert.deepEqual(first.visibleRows?.map((row) => row.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+  assert.deepEqual(first.groups?.map((group) => group.key), [
+    'business-template-9',
+    'business-group-9-90',
+    'business-group-9-91',
+    'business-template-10',
+    'business-group-unclassified',
+  ])
+
+  const second = bomLib.productionBomAccordionPageState?.(groups, {
+    expandedGroupKey: 'business-template-10',
+    page: 1,
+    pageSize: 10,
+  }) || {}
+  assert.equal(second.total, 2)
+  assert.deepEqual(second.visibleRows?.map((row) => row.id), [21, 22])
+  assert.equal(second.groups?.some((group) => group.key === 'business-group-9-91'), false)
+
+  const unclassified = bomLib.productionBomAccordionPageState?.(groups, {
+    expandedGroupKey: 'business-group-unclassified',
+    page: 1,
+    pageSize: 10,
+  }) || {}
+  assert.equal(unclassified.total, 3)
+  assert.deepEqual(unclassified.visibleRows?.map((row) => row.id), [31, 32, 33])
+})
+
+test('production BOM accordion excludes collapsed categories and keeps no-template lists paginated', () => {
+  const grouped = [
+    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 12, rows: [] },
+    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
+    { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: Array.from({ length: 12 }, (_, index) => ({ id: index + 1 })) },
+  ]
+  const collapsed = bomLib.productionBomAccordionPageState?.(grouped, {
+    expandedGroupKey: 'business-template-9',
+    collapsedCategoryKeys: ['business-group-9-91'],
+    page: 2,
+    pageSize: 10,
+  }) || {}
+  assert.equal(collapsed.total, 0)
+  assert.equal(collapsed.rawTotal, 12)
+  assert.equal(collapsed.page, 1)
+  assert.deepEqual(collapsed.visibleRows, [])
+  assert.equal(collapsed.groups?.some((group) => group.key === 'business-group-9-91'), true)
+
+  const flatRows = Array.from({ length: 25 }, (_, index) => ({ id: index + 1 }))
+  const flat = bomLib.productionBomAccordionPageState?.([
+    { key: 'all-products', label: '全部 BOM', group_id: 0, group_item_id: 0, all: true, rows: flatRows },
+  ], { page: 2, pageSize: 10 }) || {}
+  assert.equal(flat.expandedGroupKey, 'all-products')
+  assert.equal(flat.total, 25)
+  assert.equal(flat.page, 2)
+  assert.deepEqual(flat.visibleRows?.map((row) => row.id), [11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+  assert.deepEqual(flat.groups?.[0]?.rows?.map((row) => row.id), [11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+})
+
+test('production BOM accordion keeps empty templates compact and distinguishes collapsed content from true empty state', () => {
+  const groups = [
+    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 0, rows: [] },
+    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
+    { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: [] },
+    { key: 'business-template-10', label: '挂耳', group_id: 10, group_item_id: 0, is_template_group: true, template_total: 1, rows: [] },
+    { key: 'business-group-10-101', label: '盒装', group_id: 10, group_item_id: 101, parent_group_item_id: 0, rows: [{ id: 21 }] },
+  ]
+
+  const empty = bomLib.productionBomAccordionPageState(groups, {
+    expandedGroupKey: 'business-template-9',
+    page: 1,
+    pageSize: 10,
+  })
+  assert.equal(empty.rawTotal, 0)
+  assert.equal(empty.total, 0)
+  assert.deepEqual(empty.groups.map((group) => group.key), ['business-template-9', 'business-template-10'])
+})
 
 test('BOM context shows public and current-customer SKUs while hiding other customers and green beans', () => {
   const rows = [
@@ -655,13 +750,35 @@ test('production BOM group template config opens from a drawer like warehouse in
 test('production BOM grouping toolbar is a compact single row and the list window matches the detail panel height', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const style = source.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] || ''
 
-  // All grouping actions sit on one button-height row.
-  assert.match(source, /\.bom-business-group-controls\s*\{[^}]*display:\s*flex/)
-  assert.match(source, /\.bom-business-group-controls\s+label\s+span\s*\{[^}]*display:\s*inline/)
+  // All grouping actions sit on one row on wide screens and no more than two rows on narrow screens.
+  assert.match(style, /\.bom-business-group-controls\s*\{[^}]*display:\s*(?:flex|grid)/)
+  assert.match(style, /\.bom-business-group-controls\s+:deep\(label span\)\s*\{[^}]*display:\s*inline/)
   // List panel stretches to be at least as tall as the detail panel so group headers do not dominate the window.
   assert.match(source, /\.grid\s*\{[^}]*align-items:\s*stretch/)
   assert.match(source, /\.list-panel\s*\{[^}]*display:\s*flex/)
   assert.match(source, /\.bom-list-panel-scroll\s*\{[^}]*flex:/)
   assert.doesNotMatch(source, /bom-list-panel-scroll\s*\{[^}]*max-height:\s*min\(62vh/)
+  assert.equal(source.slice(source.lastIndexOf('</style>') + '</style>'.length).trim(), '', 'BOM styles must stay inside the scoped style block')
+})
+
+test('production BOM list removes the long description and uses one accordion-owned pagination control', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const listPanel = template.slice(
+    template.indexOf('<section class="panel list-panel">'),
+    template.indexOf('<section class="panel detail-panel">'),
+  )
+
+  assert.doesNotMatch(listPanel, /生产 BOM 是生产端主档案/)
+  assert.equal((listPanel.match(/<PaginationControls/g) || []).length, 1)
+  assert.match(source, /expandedProductionBomGroupKey/)
+  assert.match(source, /productionBomAccordionPageState/)
+  assert.match(source, /productionBomListState\.value\.visibleRows/)
+  assert.match(listPanel, /!productionBomListState\.rawTotal/)
+  assert.match(source, /function toggleProductionBomTopLevelGroup/)
+  assert.match(source, /productionBomListPage\.value = 1/)
+  assert.ok(listPanel.indexOf('</table>') < listPanel.indexOf('<PaginationControls'), 'single pagination should render after the grouped table')
 })

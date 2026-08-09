@@ -2636,6 +2636,46 @@ export function productArchiveRowsWithSkus(products = []) {
   })
 }
 
+export function pricingRuleTrialMainProductOptions(products = []) {
+  const source = Array.isArray(products) ? products : []
+  const seen = new Set()
+  const rows = []
+  for (const product of source) {
+    const productID = Number(product?.id || product?.product_id || 0)
+    if (!(productID > 0) || seen.has(productID)) continue
+    if (Number(product?.parent_product_id || product?.parentProductID || 0) !== 0) continue
+    if (product?.active === false || product?.active === 0) continue
+    const status = String(product?.status || product?.product_status || '').trim().toLowerCase()
+    if (['inactive', 'disabled', 'deprecated', 'archived'].includes(status)) continue
+    seen.add(productID)
+    rows.push(product)
+  }
+  const parentIDs = new Set(rows.map((product) => Number(product?.id || product?.product_id || 0)))
+  const childrenByParentID = new Map()
+  for (const product of source) {
+    const parentID = Number(product?.parent_product_id || product?.parentProductID || 0)
+    if (!(parentID > 0) || !parentIDs.has(parentID) || product?.active === false || product?.active === 0) continue
+    const status = String(product?.status || product?.product_status || '').trim().toLowerCase()
+    if (['inactive', 'disabled', 'deprecated', 'archived'].includes(status)) continue
+    if (!childrenByParentID.has(parentID)) childrenByParentID.set(parentID, [])
+    childrenByParentID.get(parentID).push(product)
+  }
+  return rows.map((product) => {
+    const productID = Number(product?.id || product?.product_id || 0)
+    const skuRows = childrenByParentID.get(productID) || []
+    return {
+      ...product,
+      sku_rows: skuRows,
+      sku_search_text: skuRows.map((row) => [
+        row?.name,
+        row?.sku_name,
+        row?.spec_label,
+        productCodeLabel(row),
+      ].filter(Boolean).join(' ')).join(' '),
+    }
+  })
+}
+
 export function resolveCreatedProductForConfig(result = {}, products = []) {
   const createdProduct = result?.product || result?.sku || result || {}
   const createdID = Number(createdProduct.id || createdProduct.product_id || 0)
