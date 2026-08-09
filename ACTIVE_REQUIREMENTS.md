@@ -9,18 +9,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-590-MINIAPP-BLANK-TRACKING-SUBMIT
 - Branch: codex/fix-miniapp-draft-submit-null-tracking-20260810
 - Owner/session: Codex / 2026-08-10
-- Status: doing；订单非空文本字段兼容修复与草稿事务/审计合同已实现，需求、验收和手册同步中，development + production 双环境交付待完成
+- Status: review；订单非空文本字段兼容修复与草稿事务/审计合同已实现并通过自动化门禁，已依次交付 development 与 production，等待 Van 人工重试保留的 production 草稿
 - Scope: 修复 production 员工小程序从服务器草稿正式提交订单时，空物流信息、备注和明细单位/规格被转换为 SQL `NULL` 并触发 `orders` / `order_items` 非空文本列约束的问题。`SaveOrder` 新建/完整更新与 `updateOrderHeader` 的 `ship_method`、`ship_tracking_no`、`notes`、`express_fee` 统一保存空字符串，订单明细 `unit` / `spec` 的空指针也规范化为空字符串；`VoidMany` 的空 `void_reason` 和行内更新清空 `notes` 同样不得写 SQL `NULL`。正式提交只有在订单、明细、草稿清理和原有操作日志同一事务完整提交成功后才清除员工草稿，任一失败继续保留草稿。操作日志沿用订单与 `employee_order_draft` 原合同，不新增日志类型。完成验证后依次交付 development 和 production；不修改小程序请求字段或微信端代码。
 - DEV:
   - DEV-590-ORDER-NOT-NULL-TEXT-COMPAT（done）：订单新建、完整更新、订单头更新、订单明细、批量失效和行内备注更新统一遵守数据库非空文本合同，空值写入空字符串，不再写 SQL `NULL`。
   - DEV-590-DRAFT-TRANSACTION-AUDIT-COMPAT（done）：正式订单与草稿清理继续处于同一事务，提交失败保留草稿；订单创建和草稿删除沿用既有操作日志合同。
-  - DEV-590-DUAL-ENVIRONMENT-DELIVERY（doing）：同步需求、验收、小程序员工 ERP 手册与支持合同；验证后按 develop/development → main/production 顺序交付双环境。
+  - DEV-590-DUAL-ENVIRONMENT-DELIVERY（done）：需求、验收、小程序员工 ERP 手册与支持合同已同步；验证后按 develop/development → main/production 顺序完成双环境交付。
 - Verifier:
   - Repository: `go test ./internal/infrastructure/postgres/sales -run 'TestOrderWritesKeepBlankNotNullTextFieldsNonNull|TestFormalOrderSaveClearsDraftInsideOrderTransaction' -count=1`。
   - Support: `go test ./internal/interfaces/http/support -run TestDev590MiniappBlankTrackingSubmitContracts -count=1`。
-  - Delivery gates: `scripts/verify_kferp.sh changed` 与 `deploy_orderapp.sh` 目标环境强制门禁；development、production 的提交、备份和回滚证据待补。
+  - Delivery gates: `scripts/verify_kferp.sh changed` 通过；development 与 production 均通过服务器 Vue 925/925、小程序 195/195、类型检查/构建、完整 Go、镜像内 Go、容器健康和外部登录 smoke。
 - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/acceptance/2026-08-10-miniapp-blank-tracking-submit.md`。
-- Deployment: pending。先从最新 `develop` 交付 development，再从最新 `main` 合入已验证 develop 并交付 production；两套环境串行，不以 development 成功替代 production 交付证据。后端修复不需要修改或发布微信小程序包。
+- Deployment: feature `fa173c24fd65fd76c12d824cfda2bda307d471d6` merged to `develop` as `062c9be73bc3f1a5376316ab4dd402dce581c05a` and deployed to development；source backup `/opt/stacks/erp/orderapp.backup.deploy-20260810011606-062c9be73bc3`，rollback image `kferp-orderapp-rollback:development-20260810011606-062c9be73bc3`，external smoke HTTP 200。已验证 develop 通过 production preflight 后合入 `main` as `91cda66ad15141dfca3746f65380d7ce264557d6` 并部署 production；source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260810013030-91cda66ad151`，rollback image `kferp-orderapp-rollback:production-20260810013030-91cda66ad151`，external smoke HTTP 200。两次部署均设置 `KFERP_SKIP_MINIAPP_EXPORT=1`，服务器仍完成小程序 production/development 构建验证，但未替换本机固定包，也未上传、提审或发布微信版本。未替 Van 重提 production 草稿，业务验收仍由 Van 完成。
 - Last update: 2026-08-10 Asia/Shanghai
 
 ### PR-589-PRICING-TRIAL-PRODUCT-SPECS
