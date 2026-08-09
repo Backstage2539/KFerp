@@ -9,20 +9,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-588-PRICING-TRIAL-PARENT-PICKER-BOM-ACCORDION
 - Branch: codex/price-trial-bom-list-compact-20260809
 - Owner/session: Codex / 2026-08-09
-- Status: implementation and automated safety gates complete; development deployment pending; Van manual acceptance todo
+- Status: implemented, verified, merged to develop and deployed to development; Van manual acceptance todo
 - Scope: 商品价格管理的价格试算只选择启用主商品，不单列销售规格子 SKU；商品候选按录单相同的全部/熟豆/挂耳/生豆/速溶咖啡点击方式过滤。生产 BOM 删除列表标题下重复描述，分组相关操作压缩为桌面一行、窄屏最多两行；模板与全局未分类采用单展开手风琴，分页只服务当前展开组的 BOM 行，无模板时平铺分页。
 - DEV:
   - DEV-588-TRIAL-PARENT-PRODUCTS（done）：价格试算只保留 active 且无父商品的主商品候选，子 SKU 搜索命中仍归并到主商品。
   - DEV-588-TRIAL-PRODUCT-KIND-FILTER（done）：价格试算商品选择复用录单的动态商品类型按钮、关键词组合过滤和点击选中交互。
   - DEV-588-BOM-COMPACT-GROUP-ACTIONS（done）：删除生产 BOM 列表描述，分组维护/移动/设置工具栏压缩到一行或最多两行。
   - DEV-588-BOM-SINGLE-EXPANDED-PAGINATION（done）：第一顶层组默认展开，模板与未分类互斥切换；分页只统计展开组 BOM，切组/状态/搜索回第一页。
-  - DEV-588-DOCS-DEVELOPMENT-DELIVERY（doing）：文档与支持合同已同步；待合入 develop 并最轻量部署 development，不做浏览器或业务验证。
+  - DEV-588-DOCS-DEVELOPMENT-DELIVERY（done）：文档与支持合同已同步；已合入 develop 并最轻量部署 development，不做浏览器或业务验证。
 - Verifier:
   - RED: product-settings/searchable-select 合同先因缺少主商品 helper、类型筛选插槽与交互失败；bom 合同先因旧描述、可多组展开且缺少当前组分页失败。
   - GREEN: frontend-vue-shell 全量测试 901/901 passed；PR-588 主商品/类型筛选与 BOM 手风琴分页定向测试通过。
   - Build safety: frontend-vue-shell Vite build passed；不做浏览器或 development 业务验证，由 Van 人工验收。
   - Contract: `TestDev588PricingTrialParentPickerBomAccordionContracts` 与 `TestDev588BomListRemovesVerboseDescription` GREEN。
-- Deployment: verified implementation is ready for feature-branch integration; development deployment pending. `main` and production out of scope.
+  - Deploy gates: 服务器 Vue 测试 922/922、小程序测试 195/195、类型检查/构建、完整 Go 测试与镜像内 Go 测试均通过。
+- Deployment: feature `f2f25a57` merged to `develop` as `7c96e62ef4e71d06c603ca5213a0937927ae56d8` and deployed to development with `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260809225406-7c96e62ef4e7`; rollback image `kferp-orderapp-rollback:development-20260809225406-7c96e62ef4e7`; built-in external smoke returned HTTP 200. Browser/API business acceptance was not run and remains with Van. `main` and production untouched.
 - Last update: 2026-08-09 Asia/Shanghai
 
 ### PR-587-PRICE-LIST-BOM-FIXES
