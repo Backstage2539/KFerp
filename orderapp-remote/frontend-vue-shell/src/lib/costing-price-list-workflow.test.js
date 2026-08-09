@@ -595,3 +595,23 @@ describe('costing price-list workflow helpers', () => {
     assert.doesNotMatch(previewTitle, /price-list-publish-guard/)
   })
 })
+
+  it('reverts a manual flat-row price override back to the system-calculated price', () => {
+    const adjustedRow = { row_key: 'r1', pricing_mode: 'pricing_rule', manual_adjusted: true, final_unit_price: 51, original_final_unit_price: 50 }
+    assert.equal(priceListWorkflow.canRevertPriceListFlatRow(adjustedRow), true)
+    assert.deepEqual(priceListWorkflow.revertPriceListFlatRowOverride({ r1: 51, r2: 9 }, 'r1'), { r2: 9 })
+    assert.deepEqual(priceListWorkflow.revertPriceListFlatRowOverride({ r1: 51 }, 'missing'), { r1: 51 })
+    // fixed_price rows have no system-calculated price to revert to
+    assert.equal(priceListWorkflow.canRevertPriceListFlatRow({ row_key: 'r2', pricing_mode: 'fixed_price', manual_adjusted: true }), false)
+    // non-adjusted rows offer no revert
+    assert.equal(priceListWorkflow.canRevertPriceListFlatRow({ row_key: 'r3', pricing_mode: 'pricing_rule', manual_adjusted: false, final_unit_price: 50, original_final_unit_price: 50 }), false)
+  })
+
+  it('price list flat rows expose a revert-manual-override action in the editor', () => {
+    const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+    const flatRowEditor = source.match(/<div v-if="priceListFlatRows\.length" class="pdf-picker flat-price-row-editor"[\s\S]*?<div class="pdf-preview-title">/)?.[0] || ''
+    assert.match(source, /function revertPriceListFlatRowPrice\(/)
+    assert.match(flatRowEditor, /canRevertPriceListFlatRow\(row\)/)
+    assert.match(flatRowEditor, /revertPriceListFlatRowPrice\(row\)/)
+    assert.match(flatRowEditor, /撤销人工修改/)
+  })

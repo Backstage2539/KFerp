@@ -543,9 +543,10 @@
             </label>
             <div>
               <span>{{ row.pricing_rule_version || (row.pricing_mode === 'fixed_price' ? '固定价' : '未选择 Pricing Rule') }}</span>
-              <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : (priceListFlatRowPricingTrialStatus(row) === 'loading' ? '价格计算中…' : (priceListFlatRowPricingTrialStatus(row) === 'error' ? '计算失败' : '自动计算')) }}</span>
-              <span>{{ priceListFlatRowUnitSummary(row) }}</span>
-            </div>
+             <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : (priceListFlatRowPricingTrialStatus(row) === 'loading' ? '价格计算中…' : (priceListFlatRowPricingTrialStatus(row) === 'error' ? '计算失败' : '自动计算')) }}</span>
+             <span>{{ priceListFlatRowUnitSummary(row) }}</span>
+              <button v-if="canRevertPriceListFlatRow(row)" class="secondary compact flat-row-revert" type="button" @click="revertPriceListFlatRowPrice(row)">撤销人工修改</button>
+           </div>
             <ul v-if="priceListFlatRowVisibleErrors(row).length" class="flat-price-row-error-list">
               <li v-for="msg in priceListFlatRowVisibleErrors(row)" :key="msg">{{ msg }}</li>
             </ul>
@@ -1115,12 +1116,14 @@ import {
 } from '../lib/product-settings'
 import {
   dedupePriceListFlatRows,
+  canRevertPriceListFlatRow,
   executePriceListPricingRuleTrialBatches,
   priceListFlatRowDisplayTitle,
   priceListFlatRowErrors,
   priceListFlatRowPriceUnitLabel,
   priceListFlatRowSpecDescription,
   priceListFlatRowsReady as arePriceListFlatRowsReady,
+  revertPriceListFlatRowOverride,
   priceListSalesSpecCountTierLabel,
   priceListPricingRuleTrialCacheForRetry,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
@@ -3257,6 +3260,13 @@ function setPriceListFlatRowPrice(row = {}, value) {
   if (Number.isFinite(numeric) && numeric > 0) next[key] = numeric
   else delete next[key]
   priceListFlatRowOverrides.value = next
+  savePriceListGenerationDraftForActiveType()
+}
+
+function revertPriceListFlatRowPrice(row = {}) {
+  const key = String(row.row_key || '')
+  if (!key) return
+  priceListFlatRowOverrides.value = revertPriceListFlatRowOverride(priceListFlatRowOverrides.value, key)
   savePriceListGenerationDraftForActiveType()
 }
 

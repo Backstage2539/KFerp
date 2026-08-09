@@ -580,7 +580,7 @@
     <div v-if="beanListDrawerOpen" class="drawer-mask" @click.self="closeBeanListDrawer">
       <aside class="drawer bean-list-drawer">
         <div class="drawer-head">
-          <h3>豆单选择</h3>
+          <h3>价格表选择</h3>
           <button class="secondary" type="button" @click="closeBeanListDrawer">关闭</button>
         </div>
         <p class="drawer-help">按商品分类选择已发布价格表。客户没有自定义版本时，系统使用同分类公共版本。</p>
@@ -597,7 +597,7 @@
                 {{ beanListVersionLabel(option) }}
               </option>
             </select>
-            <input v-else value="暂无已发布豆单" readonly />
+            <input v-else value="暂无已发布价格表" readonly />
             <small>{{ beanListDrawerHint(group) }}</small>
           </label>
         </div>
@@ -1226,7 +1226,7 @@ function syncOrderHeaderFromCustomer(customer = selectedCustomer.value, options 
 
 function beanListVersionLabel(item) {
   if (!item) return ''
-  const owner = item.is_customer_owned ? '客户豆单' : '公共豆单'
+  const owner = item.is_customer_owned ? '客户价格表' : '公共价格表'
   const version = item.version_no || item.label || `#${item.id}`
   const time = item.published_at ? ` · ${item.published_at}` : ''
   return `${owner} ${version}${time}`
@@ -1377,7 +1377,7 @@ function setBeanListVersion(groupKey, value) {
 
 function openBeanListDrawer() {
   if (!canOpenBeanListDrawer.value) {
-    raiseSaveError('暂无可选择的已发布豆单')
+    raiseSaveError('暂无可选择的已发布价格表')
     return
   }
   beanListDrawerOpen.value = true
@@ -1389,10 +1389,10 @@ function closeBeanListDrawer() {
 
 function beanListDrawerHint(group) {
   const rows = group?.options || []
-  if (!rows.length) return '没有可用的已发布豆单'
+  if (!rows.length) return '没有可用的已发布价格表'
   if (!group?.autoSelect && !selectedBeanListVersionOptionByGroup(group)) return '历史兼容价格表，默认不参与新订单；需要时可手工启用'
-  if (rows.some((item) => item.is_customer_owned)) return '可选择客户自定义豆单版本'
-  return '当前使用公共豆单'
+  if (rows.some((item) => item.is_customer_owned)) return '可选择客户自定义价格表版本'
+  return '当前使用公共价格表'
 }
 
 function syncBeanListVersionForCustomer(options = {}) {
