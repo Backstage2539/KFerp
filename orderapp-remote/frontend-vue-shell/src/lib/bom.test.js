@@ -651,3 +651,17 @@ test('production BOM group template config opens from a drawer like warehouse in
   // Saving the selection closes the drawer.
   assert.match(source, /productionBomGroupFeatureDrawerOpen\.value = false/)
 })
+
+test('production BOM grouping toolbar is a compact single row and the list window matches the detail panel height', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+
+  // All grouping actions sit on one button-height row.
+  assert.match(source, /\.bom-business-group-controls\s*\{[^}]*display:\s*flex/)
+  assert.match(source, /\.bom-business-group-controls\s+label\s+span\s*\{[^}]*display:\s*inline/)
+  // List panel stretches to be at least as tall as the detail panel so group headers do not dominate the window.
+  assert.match(source, /\.grid\s*\{[^}]*align-items:\s*stretch/)
+  assert.match(source, /\.list-panel\s*\{[^}]*display:\s*flex/)
+  assert.match(source, /\.bom-list-panel-scroll\s*\{[^}]*flex:/)
+  assert.doesNotMatch(source, /bom-list-panel-scroll\s*\{[^}]*max-height:\s*min\(62vh/)
+})

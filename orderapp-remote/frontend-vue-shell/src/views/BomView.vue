@@ -1712,7 +1712,9 @@ function outputProductLabel(row = {}) {
 .compact-title { margin-bottom: 4px; }
 h2 { margin: 0; font-size: 20px; }
 h3 { margin: 2px 0 4px; font-size: 18px; }
-.grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 14px; align-items: start; }
+.grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 14px; align-items: stretch; }
+.list-panel { display: flex; flex-direction: column; }
+.detail-panel { align-self: start; }
 label span, .summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; min-width: 180px; }
 input, select { height: 38px; }
@@ -1746,7 +1748,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .feature-group-empty { color: #666; border-style: dashed; }
 .bom-group-operation-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .bom-group-operation-row label { margin: 0; }
-.bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
+.bom-list-panel-scroll { flex: 1 1 auto; min-height: 440px; max-height: 84vh; overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
 .bom-record-form { align-items: flex-end; }
 .bom-group-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
@@ -1818,3 +1820,8 @@ tbody tr.active { background: #f3f7fb; }
 }
 </style>
 .bom-group-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bom-business-group-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; }
+.bom-business-group-controls label { display: inline-flex; align-items: center; gap: 4px; }
+.bom-business-group-controls label span { display: inline; margin: 0; color: #6b7280; font-size: 12px; white-space: nowrap; }
+.bom-business-group-controls select { width: auto; min-width: 130px; min-height: 0; height: 32px; padding: 4px 8px; font-size: 12px; }
+.bom-business-group-controls .muted.left { font-size: 12px; white-space: nowrap; }
