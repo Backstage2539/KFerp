@@ -5,7 +5,7 @@
 - 需求：`PR-589-PRICING-TRIAL-PRODUCT-SPECS`
 - 分支：`codex/pricing-trial-product-specs-20260810`
 - 环境：完成自动化与构建门禁后只合入 `develop` 并部署 development；`main` 和 production 不在范围内。
-- 验收方式：不做浏览器或 development 业务验证；部署后由 Van 人工验收。
+- 验收方式：自动化完成后由 Van 在 development 人工验收；Van 于 2026-08-10 确认验收完成。
 - 数据边界：价格试算和规格选择均为只读，不新增操作日志类型，不回算或修改已发布价格表、历史订单和历史价格快照。
 
 ## DEV 合同
@@ -47,15 +47,16 @@
 
 ## Van 人工验收
 
-- [ ] 选择具有多个规格的主商品，确认只显示本商品 active 且派生状态为空或 `active` 的具体 SKU，已停用、已移除、其他商品规格和全局单位不出现。
-- [ ] 确认同为“盒”的两个不同 SKU 分别显示，默认选中 `default_sku_id`；切换主商品后旧规格、BOM、路线和结果不残留。
-- [ ] 选择无有效子规格的历史商品，确认与价格表一致回退有效主商品自身；主商品也缺少有效销售单位时明确提示维护商品档案。
-- [ ] 对同一具体规格使用与商品价格表相同条件，核对报价单位、BOM/工序成本和最终单价一致；切换同单位兄弟 SKU 后结果不串用。
-- [ ] 确认仅浏览和试算不写操作日志，不改变已发布价格表、历史订单和历史价格快照。
+- [x] 选择具有多个规格的主商品，确认只显示本商品 active 且派生状态为空或 `active` 的具体 SKU，已停用、已移除、其他商品规格和全局单位不出现。
+- [x] 确认同为“盒”的两个不同 SKU 分别显示，默认选中 `default_sku_id`；切换主商品后旧规格、BOM、路线和结果不残留。
+- [x] 选择无有效子规格的历史商品，确认与价格表一致回退有效主商品自身；主商品也缺少有效销售单位时明确提示维护商品档案。
+- [x] 对同一具体规格使用与商品价格表相同条件，核对报价单位、BOM/工序成本和最终单价一致；切换同单位兄弟 SKU 后结果不串用。
+- [x] 确认仅浏览和试算不写操作日志，不改变已发布价格表、历史订单和历史价格快照。
+- 验收结论：Van accepted 2026-08-10。
 
 ## 交付状态
 
 - `DEV-589-TRIAL-SPEC-CANDIDATES`：done。
 - `DEV-589-CONCRETE-SKU-TRIAL`：done。
 - `DEV-589-DOCS-DEVELOPMENT-DELIVERY`：done，自动化、构建、合入和 development 部署已完成。
-- `REV-589-PRICING-TRIAL-PRODUCT-SPECS`：todo，Van 人工验收待办。
+- `REV-589-PRICING-TRIAL-PRODUCT-SPECS`：done，Van accepted 2026-08-10。
