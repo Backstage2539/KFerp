@@ -6,6 +6,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-587-PRICE-LIST-BOM-FIXES
+- Branch: codex/price-list-bom-fixes-20260809
+- Owner/session: Codex / 2026-08-09
+- Status: implementation + automated verification complete (1a/3/4); pending merge to develop + dev deploy; 1b/1c/2 root-caused, need Van decision/data
+- Scope: Van 2026-08-09 四项问题。(1a) 录单"选择价格表"抽屉标题与提示文案由"豆单"改为"价格表"。(3) 商品价格表平铺价格行新增"撤销人工修改"，删除人工覆盖价恢复系统计算价。(4) 生产 BOM 分组工具栏紧凑单行 + 列表窗口加高与详情齐平（沿用 fcccaffd）。(1b) 价格表类型按商品档案分类模板动态化、删除硬编码"咖啡熟豆"——动态分组基础设施已存在(beanListVersionGroupIdentity/buildClassificationPriceListTypeOptions)，但录单 syncBeanListVersionForCustomer 仍用硬编码 orderBeanListTypes，且"咖啡熟豆"非硬编码 UI 文案（仅测试分类名），需 Van 澄清具体所见选项。(1c) 生产新版本价格表发布后录单仍用旧版——前后端默认逻辑均取最新(is_default=group_rank=1)，public_fallback 按组给客户自定义版本优先；需生产数据确认(客户自定义优先 或 group_key/分类不匹配)。(2) 价格试算 50/磅 vs 价格表 51——两条路径用不同成本模型：ExplainCommercialPrice(梯度/生豆成本+参数) vs calculatePricingRuleTrial(完整 BOM+工艺路线+工位成本)，自然分叉，需产品决策对齐口径。
+- Verifier:
+  - Unit: node --test src/lib/costing-price-list-workflow.test.js src/lib/bom.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/order-entry.test.js src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js -> 97+151 GREEN
+  - Frontend/build: npm run build GREEN（仅既有 chunk-size warning）
+  - Manual: 价格表选择抽屉改名、平铺价格行撤销人工修改需同步 orderapp-remote/docs 手册（待 1b/1c 落定后一起更新）
+- Evidence: commit 245af582(1a+3) + fcccaffd(4); canRevertPriceListFlatRow/revertPriceListFlatRowOverride TDD RED->GREEN
+- Last update: 2026-08-09 Asia/Shanghai
+
 ### PR-586-BOM-GROUP-CONFIG-DRAWER
 - Branch: codex/bom-group-config-drawer-20260809
 - Owner/session: Codex / 2026-08-09
