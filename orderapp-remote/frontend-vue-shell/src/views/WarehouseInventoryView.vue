@@ -56,6 +56,7 @@
             v-model="selectedInventoryGroupTemplateID"
             v-model:move-model-value="selectedInventoryMoveGroupItemID"
             class="inventory-group-controls"
+            data-pr442-warehouse-business-groups
             :template-options="inventoryGroupTemplateOptions"
             :move-options="inventoryGroupItemOptions"
             :selected-template="selectedInventoryGroupTemplate"
