@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-588-PRICING-TRIAL-PARENT-PICKER-BOM-ACCORDION
+- Branch: codex/price-trial-bom-list-compact-20260809
+- Owner/session: Codex / 2026-08-09
+- Status: implementation and automated safety gates complete; development deployment pending; Van manual acceptance todo
+- Scope: 商品价格管理的价格试算只选择启用主商品，不单列销售规格子 SKU；商品候选按录单相同的全部/熟豆/挂耳/生豆/速溶咖啡点击方式过滤。生产 BOM 删除列表标题下重复描述，分组相关操作压缩为桌面一行、窄屏最多两行；模板与全局未分类采用单展开手风琴，分页只服务当前展开组的 BOM 行，无模板时平铺分页。
+- DEV:
+  - DEV-588-TRIAL-PARENT-PRODUCTS（done）：价格试算只保留 active 且无父商品的主商品候选，子 SKU 搜索命中仍归并到主商品。
+  - DEV-588-TRIAL-PRODUCT-KIND-FILTER（done）：价格试算商品选择复用录单的动态商品类型按钮、关键词组合过滤和点击选中交互。
+  - DEV-588-BOM-COMPACT-GROUP-ACTIONS（done）：删除生产 BOM 列表描述，分组维护/移动/设置工具栏压缩到一行或最多两行。
+  - DEV-588-BOM-SINGLE-EXPANDED-PAGINATION（done）：第一顶层组默认展开，模板与未分类互斥切换；分页只统计展开组 BOM，切组/状态/搜索回第一页。
+  - DEV-588-DOCS-DEVELOPMENT-DELIVERY（doing）：文档与支持合同已同步；待合入 develop 并最轻量部署 development，不做浏览器或业务验证。
+- Verifier:
+  - RED: product-settings/searchable-select 合同先因缺少主商品 helper、类型筛选插槽与交互失败；bom 合同先因旧描述、可多组展开且缺少当前组分页失败。
+  - GREEN: frontend-vue-shell 全量测试 901/901 passed；PR-588 主商品/类型筛选与 BOM 手风琴分页定向测试通过。
+  - Build safety: frontend-vue-shell Vite build passed；不做浏览器或 development 业务验证，由 Van 人工验收。
+  - Contract: `TestDev588PricingTrialParentPickerBomAccordionContracts` 与 `TestDev588BomListRemovesVerboseDescription` GREEN。
+- Deployment: verified implementation is ready for feature-branch integration; development deployment pending. `main` and production out of scope.
+- Last update: 2026-08-09 Asia/Shanghai
+
 ### PR-587-PRICE-LIST-BOM-FIXES
 - Branch: codex/price-list-bom-fixes-20260809
 - Owner/session: Codex / 2026-08-09
@@ -24,12 +43,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-586-BOM-GROUP-CONFIG-DRAWER
 - Branch: codex/bom-group-config-drawer-20260809
 - Owner/session: Codex / 2026-08-09
-- Status: implementation + automated verification complete; merged to develop, dev deploy pending
+- Status: implementation + automated verification complete; merged to develop and included in a later development deployment
 - Scope: 生产 BOM 分组模板配置改为与仓库库存一致的弹窗模式--不再把分组模板选择（checkbox+保存）平铺在列表顶部，改为点击"设置分组模板"打开抽屉选择；BusinessGroupControls 紧凑展示并在 extra-actions 放"设置分组模板"入口；未选模板时给出紧凑空状态+设置/维护按钮。低频操作收进抽屉，列表顶部占用更少空间。
 - Verifier:
   - Frontend: node --test src/lib/bom.test.js + feature-group-selection-ui.test.js; npm run build
   - Manual: orderapp-remote/docs BOM 分组手册同步"设置分组模板抽屉"交互
 - Evidence: bom.test.js 新增抽屉契约 RED->GREEN; 全量前端 908/908; build 通过; Go TestDev450/453/458 通过; 手册 OP_MANUAL_PRODUCTION.md 已更新; acceptance 2026-08-09-bom-group-config-drawer.md
+- Deployment: commit e46a2c84 is an ancestor of development commit 23ccd9b8 and was included when PR-587 was deployed to development on 2026-08-09; no separate PR-586 deployment is pending.
 - Last update: 2026-08-09 Asia/Shanghai
 
 ### PR-GROUP-TEMPLATE-THREE-PAGE-UNIFICATION

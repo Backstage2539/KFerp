@@ -69,3 +69,12 @@ test('workspace customer selector keeps clear and dropdown controls in separate 
   assert.match(searchableSelect, /padding:\s*7px\s+70px\s+7px\s+9px/)
   assert.match(app, /workspace-customer[\s\S]*select-control input[\s\S]*padding:\s*6px\s+70px\s+6px\s+8px/)
 })
+
+test('searchable select supports optional menu header and option slots without removing default rendering', () => {
+  const source = readFileSync(resolve(here, '../components/SearchableSelect.vue'), 'utf8')
+
+  assert.match(source, /<slot\s+name="menu-header"\s*\/>/)
+  assert.match(source, /<slot\s+name="option"[^>]*:option="option"[^>]*:label="labelOf\(option\)"[^>]*:meta="metaOf\(option\)"[^>]*>/)
+  assert.match(source, /<strong>\{\{ labelOf\(option\) \}\}<\/strong>/)
+  assert.match(source, /<small v-if="metaOf\(option\)">\{\{ metaOf\(option\) \}\}<\/small>/)
+})
