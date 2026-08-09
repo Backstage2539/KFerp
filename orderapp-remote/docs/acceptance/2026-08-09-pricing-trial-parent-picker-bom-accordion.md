@@ -51,6 +51,8 @@
 ## 交付状态
 
 - 代码实现、定向 GREEN、frontend-vue-shell 全量 `901/901`、Vite build 和 PR-588 支持合同：已完成。
-- 功能分支合入 `develop` 和 development 最轻量部署：待执行，本文尚未记录任何部署提交、备份或回滚证据。
+- 功能提交 `f2f25a57` 已通过合并提交 `7c96e62ef4e71d06c603ca5213a0937927ae56d8` 合入 `develop` 并部署到 development。
+- 部署命令：`KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`；服务器 Vue 测试 `922/922`、小程序测试 `195/195`、类型检查/构建、完整 Go 测试、镜像内 Go 测试和容器启动均通过；脚本自带外部探针返回 HTTP 200。
+- 部署备份：`/opt/stacks/erp/orderapp.backup.deploy-20260809225406-7c96e62ef4e7`；回滚镜像：`kferp-orderapp-rollback:development-20260809225406-7c96e62ef4e7`。
 - 浏览器和业务验收：按 Van 要求不执行，保留为上述人工验收项。
 - production：未操作。
