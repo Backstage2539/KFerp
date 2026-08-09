@@ -1333,6 +1333,17 @@ export function beanListVersionOptionGroups(options) {
   }))
 }
 
+export function filterBeanListVersionOptionsToCurrentTypes(options = [], currentTypes = []) {
+  const types = Array.isArray(currentTypes) ? currentTypes : []
+  if (!types.length) return options
+  if (types.some((type) => Number(type?.id || 0) === 0)) return options
+  const currentIDs = new Set(types.map((type) => Number(type?.id || 0)).filter((id) => id > 0))
+  return (Array.isArray(options) ? options : []).filter((item) => {
+    const tplID = Number(item?.classification_template_id ?? item?.classificationTemplateID ?? 0)
+    return tplID > 0 && currentIDs.has(tplID)
+  })
+}
+
 export function beanListVersionOptionForGroup(group = {}, selectedID = 0) {
   const rows = group?.options || []
   if (!rows.length) return null
