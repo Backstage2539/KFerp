@@ -31,87 +31,50 @@
     <div class="workspace">
       <aside class="panel warehouse-panel">
         <div class="panel-title">仓库</div>
-        <div v-if="!isCustomerInventoryContext" class="feature-group-selection" data-feature-key="warehouse_inventory">
-          <div class="feature-group-selection-copy">
-            <strong>仓库库存使用的分组模板</strong>
-            <small>可多选；保存后只有已选模板可用于仓库分类和移动。取消全部后按仓库平铺展示。</small>
-          </div>
-          <div class="feature-group-selection-options">
-            <label v-for="template in selectableWarehouseGroupTemplates" :key="template.id" class="feature-group-selection-option">
-              <input
-                v-model="warehouseGroupFeatureSelectionDraft"
-                type="checkbox"
-                :value="Number(template.id || 0)"
-                :disabled="warehouseGroupFeatureSelectionSaving || loading" />
-              <span>{{ template.label }}</span>
-            </label>
-            <span v-if="!selectableWarehouseGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
-          </div>
-          <div class="feature-group-selection-actions">
-            <button class="secondary" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading" @click="openWarehouseBusinessGroupManagement">维护分组模板</button>
-            <button class="primary" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading || !warehouseGroupFeatureSelectionHasChanges" @click="saveWarehouseGroupFeatureSelection">
-              {{ warehouseGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
-            </button>
-          </div>
-        </div>
-        <BusinessGroupControls
-          v-if="!isCustomerInventoryContext && warehouseSelectedBusinessGroups.length"
-          v-model="selectedWarehouseGroupTemplateID"
-          v-model:move-model-value="selectedWarehouseMoveGroupItemID"
-          class="warehouse-group-controls"
-          data-pr442-warehouse-business-groups
-          :template-options="warehouseGroupTemplateOptions"
-          :move-options="warehouseGroupItemOptions"
-          :selected-template="selectedWarehouseGroupTemplate"
-          :selected-count="selectedWarehouseRowsForMove.length"
-          :can-move="canMoveSelectedWarehouses"
-          :can-select-target="canSelectWarehouseMoveTarget"
-          :loading="loading"
-          template-label="分类与移动模板"
-          @manage="openWarehouseBusinessGroupManagement"
-          @move="moveSelectedWarehousesToGroup" />
-        <div v-else-if="!isCustomerInventoryContext" class="feature-group-empty">
-          <span>仓库库存尚未选择分组模板，当前平铺展示。</span>
-        </div>
         <button class="warehouse" :class="{ active: selectedWarehouse === '' }" type="button" @click="selectWarehouse('')">
           <strong>全部仓库</strong>
           <small>跨仓库汇总查询</small>
         </button>
-        <div class="warehouse-group-list">
-          <template v-for="group in warehouseDisplayGroups" :key="group.key">
-            <button
-              v-if="warehouseSelectedBusinessGroups.length"
-              class="warehouse-section-toggle"
-              type="button"
-              @click="toggleWarehouseGroup(group.key)">
-              <span>{{ group.label }}</span><b>{{ group.rows.length }}</b>
-            </button>
-            <template v-if="!isWarehouseGroupCollapsed(group.key)">
-              <p v-if="!group.rows.length" class="warehouse-empty-row">暂无仓库</p>
-              <div
-                v-for="row in group.rows"
-                :key="`${group.key}-${row.code}`"
-                :class="['warehouse-row', { flat: !warehouseSelectedBusinessGroups.length }]"
-                :style="businessGroupItemIndentStyle(group)">
-                <label v-if="warehouseSelectedBusinessGroups.length" class="warehouse-select">
-                  <input type="checkbox" :checked="isWarehouseSelected(row)" @change="toggleWarehouseSelection(row, $event.target.checked)" />
-                </label>
-                <button
-                  class="warehouse"
-                  :class="{ active: selectedWarehouse === row.code }"
-                  type="button"
-                  @click="selectWarehouse(row.code)">
-                  <strong>{{ row.name }}</strong>
-                  <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
-                  <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
-                </button>
-              </div>
-            </template>
-          </template>
+        <div class="warehouse-flat-list">
+          <button
+            v-for="row in warehouses"
+            :key="row.code"
+            class="warehouse"
+            :class="{ active: selectedWarehouse === row.code }"
+            type="button"
+            @click="selectWarehouse(row.code)">
+            <strong>{{ row.name }}</strong>
+            <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
+            <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
+          </button>
         </div>
       </aside>
 
       <section class="panel table-panel">
+        <div v-if="selectedWarehouse && !isCustomerInventoryContext && warehouseSelectedBusinessGroups.length" class="warehouse-inventory-group-toolbar">
+          <BusinessGroupControls
+            v-model="selectedInventoryGroupTemplateID"
+            v-model:move-model-value="selectedInventoryMoveGroupItemID"
+            class="inventory-group-controls"
+            :template-options="inventoryGroupTemplateOptions"
+            :move-options="inventoryGroupItemOptions"
+            :selected-template="selectedInventoryGroupTemplate"
+            :selected-count="selectedItemRowsForMove.length"
+            :can-move="canMoveSelectedInventoryItems"
+            :loading="loading"
+            template-label="移动目标模板"
+            @manage="openWarehouseBusinessGroupManagement"
+            @move="moveSelectedInventoryItemsToGroup">
+            <template #extra-actions>
+              <button class="secondary compact-action" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading" @click="openWarehouseGroupFeatureSelectionDrawer">设置分组模板</button>
+            </template>
+          </BusinessGroupControls>
+        </div>
+        <div v-else-if="selectedWarehouse && !isCustomerInventoryContext" class="warehouse-inventory-group-empty">
+          <span>仓内物品尚未选择分组模板，当前平铺展示。</span>
+          <button class="secondary compact-action" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading" @click="openWarehouseGroupFeatureSelectionDrawer">设置分组模板</button>
+          <button class="secondary compact-action" type="button" @click="openWarehouseBusinessGroupManagement">维护分组模板</button>
+        </div>
         <div class="summary">
           <div><span>当前仓库</span><strong>{{ currentWarehouseName }}</strong></div>
           <div><span>库存行</span><strong>{{ rows.length }}</strong></div>
@@ -127,6 +90,7 @@
           <table>
             <thead>
               <tr>
+                <th v-if="selectedWarehouse && !isCustomerInventoryContext && warehouseSelectedBusinessGroups.length" class="select-col"></th>
                 <th>仓库</th>
                 <th>类型</th>
                 <th>物品</th>
@@ -140,6 +104,63 @@
               </tr>
             </thead>
             <tbody>
+              <template v-if="selectedWarehouse && !isCustomerInventoryContext && warehouseSelectedBusinessGroups.length">
+                <template v-for="group in renderedInventoryGroups" :key="group.key">
+                  <tr
+                    v-if="group.is_template_group"
+                    class="classification-template-row"
+                    :class="{ 'classification-template-collapsed': isInventoryGroupCollapsed(group.key) }">
+                    <td :colspan="isCustomerInventoryContext ? 9 : 11">
+                      <button class="classification-group-toggle" type="button" @click="toggleInventoryGroup(group.key)">
+                        {{ isInventoryGroupCollapsed(group.key) ? '展开' : '收起' }}
+                      </button>
+                      <strong>{{ group.label }}</strong>
+                      <small>{{ group.template_total }} 个批次</small>
+                    </td>
+                  </tr>
+                  <template v-else>
+                  <tr
+                    v-if="!group.all"
+                    class="classification-group-row"
+                    :class="{ 'classification-subgroup-row': Number(group.depth || 0) > 0 }"
+                    :style="businessGroupHeaderIndentStyle(group)">
+                    <td :colspan="isCustomerInventoryContext ? 9 : 11">
+                      <button class="classification-group-toggle" type="button" @click="toggleInventoryGroup(group.key)">
+                        {{ isInventoryGroupCollapsed(group.key) ? '展开' : '收起' }}
+                      </button>
+                      <strong :title="group.path_label || group.label">{{ group.label }}</strong>
+                      <small>{{ group.rows.length }} 个批次</small>
+                    </td>
+                  </tr>
+                  <template v-if="!isInventoryGroupCollapsed(group.key)">
+                    <tr
+                      v-for="row in group.rows"
+                      :key="`${group.key}-${rowKey(row)}`"
+                      class="classification-item-row"
+                      :style="businessGroupItemIndentStyle(group)">
+                      <td class="select-col">
+                        <input
+                          type="checkbox"
+                          :checked="isInventoryItemSelected(row)"
+                          :disabled="loading"
+                          @change="toggleInventoryItemSelection(row, $event.target.checked)" />
+                      </td>
+                      <td>{{ row.warehouse_name || row.warehouse }}</td>
+                      <td><span class="pill">{{ typeLabel(row.item_type) }}</span></td>
+                      <td>{{ row.item_name }}</td>
+                      <td>{{ row.spec_g ? `${row.spec_g}g` : '-' }}</td>
+                      <td>{{ row.batch_code || '-' }}</td>
+                      <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
+                      <td>{{ inventoryQtyLabel(row) }}</td>
+                      <td>{{ money(row.unit_cost) }}</td>
+                      <td>{{ row.updated_at || '-' }}</td>
+                      <td v-if="!isCustomerInventoryContext"><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
+                    </tr>
+                  </template>
+                  </template>
+                </template>
+              </template>
+              <template v-else>
               <tr v-for="row in rows" :key="rowKey(row)">
                 <td>{{ row.warehouse_name || row.warehouse }}</td>
                 <td><span class="pill">{{ typeLabel(row.item_type) }}</span></td>
@@ -152,6 +173,7 @@
                 <td>{{ row.updated_at || '-' }}</td>
                 <td v-if="!isCustomerInventoryContext"><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
               </tr>
+              </template>
               <tr v-if="!rows.length"><td :colspan="isCustomerInventoryContext ? 9 : 10" class="muted">暂无库存</td></tr>
             </tbody>
           </table>
@@ -166,6 +188,37 @@
       </section>
     </div>
 
+    <div v-if="warehouseGroupFeatureDrawerOpen && !isCustomerInventoryContext" class="drawer-mask" @click.self="warehouseGroupFeatureDrawerOpen = false">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h3>仓内物品分组模板</h3>
+          <button class="secondary" type="button" @click="warehouseGroupFeatureDrawerOpen = false">关闭</button>
+        </div>
+        <div class="feature-group-selection" data-feature-key="warehouse_inventory">
+          <div class="feature-group-selection-copy">
+            <strong>当前仓库内物品使用的分组模板</strong>
+            <small>可多选；保存后只有已选模板可用于仓内分类和移动。模板在各仓库间共用，但每个仓库的归类结果独立。</small>
+          </div>
+          <div class="feature-group-selection-options">
+            <label v-for="template in selectableWarehouseGroupTemplates" :key="template.id" class="feature-group-selection-option">
+              <input
+                v-model="warehouseGroupFeatureSelectionDraft"
+                type="checkbox"
+                :value="Number(template.id || 0)"
+                :disabled="warehouseGroupFeatureSelectionSaving || loading" />
+              <span>{{ template.label }}</span>
+            </label>
+            <span v-if="!selectableWarehouseGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
+          </div>
+          <div class="feature-group-selection-actions">
+            <button class="secondary compact-action" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading" @click="openWarehouseBusinessGroupManagement">维护分组模板</button>
+            <button class="primary compact-action" type="button" :disabled="warehouseGroupFeatureSelectionSaving || loading || !warehouseGroupFeatureSelectionHasChanges" @click="saveWarehouseGroupFeatureSelection">
+              {{ warehouseGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
     <div v-if="warehouseSettingsDrawerOpen && !isCustomerInventoryContext" class="drawer-mask warehouse-settings-drawer" @click.self="warehouseSettingsDrawerOpen = false">
       <aside class="drawer">
         <div class="drawer-head">
@@ -329,12 +382,14 @@ import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
+  businessGroupHeaderIndentStyle,
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
   businessGroupRowsForFeatureSelection,
-  groupRowsByBusinessGroupTemplate,
+  groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
+import { skuGroupHiddenByCollapsedAncestor } from '../lib/product-settings'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -351,13 +406,15 @@ const rows = ref([])
 const q = ref('')
 const itemType = ref('')
 const selectedWarehouse = ref('')
-const selectedWarehouseGroupTemplateID = ref(0)
-const selectedWarehouseMoveGroupItemID = ref(0)
 const warehouseGroupFeatureSelectionTemplateIDs = ref([])
 const warehouseGroupFeatureSelectionDraft = ref([])
 const warehouseGroupFeatureSelectionSaving = ref(false)
-const selectedWarehouseKeys = ref([])
-const collapsedWarehouseGroups = ref([])
+const warehouseGroupFeatureDrawerOpen = ref(false)
+const selectedInventoryGroupTemplateID = ref(0)
+const selectedInventoryMoveGroupItemID = ref(0)
+const inventoryBusinessGroupAssignments = ref([])
+const selectedInventoryItemKeys = ref([])
+const collapsedInventoryGroups = ref([])
 const page = ref(1)
 const limit = ref(50)
 const total = ref(0)
@@ -419,35 +476,57 @@ const warehouseSelectedBusinessGroups = computed(() => businessGroupRowsForFeatu
   warehouseBusinessGroups.value,
   warehouseGroupFeatureSelectionTemplateIDs.value,
 ))
-const warehouseBusinessGroupControls = computed(() => businessGroupControlOptions(warehouseSelectedBusinessGroups.value, {
-  selectedTemplateID: selectedWarehouseGroupTemplateID.value,
+const inventoryBusinessGroupControls = computed(() => businessGroupControlOptions(warehouseSelectedBusinessGroups.value, {
+  selectedTemplateID: selectedInventoryGroupTemplateID.value,
   usageKey: 'warehouse_inventory',
 }))
-const warehouseGroupTemplateOptions = computed(() => warehouseBusinessGroupControls.value.templateOptions)
-const selectedWarehouseGroupTemplate = computed(() => warehouseBusinessGroupControls.value.selectedTemplate)
-const warehouseGroupItemOptions = computed(() => warehouseBusinessGroupControls.value.moveOptions)
-const warehouseDisplayGroups = computed(() => groupRowsByBusinessGroupTemplate(warehouses.value, {
-  template: selectedWarehouseGroupTemplate.value,
+const inventoryGroupTemplateOptions = computed(() => inventoryBusinessGroupControls.value.templateOptions)
+const selectedInventoryGroupTemplate = computed(() => inventoryBusinessGroupControls.value.selectedTemplate)
+const inventoryGroupItemOptions = computed(() => inventoryBusinessGroupControls.value.moveOptions)
+const selectedInventoryItemKeySet = computed(() => new Set(selectedInventoryItemKeys.value))
+function inventoryItemKey(row = {}) {
+  return `${row.item_type || ''}:${Number(row.item_id || 0)}:${Number(row.spec_g || 0)}`
+}
+function inventoryItemObjectRef(row = {}) {
+  return `${selectedWarehouse.value || ''}:${inventoryItemKey(row)}`
+}
+function inventoryItemAssignmentForRow(row = {}) {
+  const key = inventoryItemKey(row)
+  const a = inventoryBusinessGroupAssignments.value.find((a) => {
+    if (String(a.usage_key || a.usageKey || '').toLowerCase() !== 'warehouse_inventory') return false
+    if (String(a.object_key || a.objectKey || '').toLowerCase() !== 'warehouse_inventory_item') return false
+    return String(a.object_ref || a.objectRef || '') === inventoryItemObjectRef(row)
+  })
+  return a || null
+}
+const inventoryDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(rows.value, {
+  templates: warehouseSelectedBusinessGroups.value,
+  assignments: inventoryBusinessGroupAssignments.value,
   usageKey: 'warehouse_inventory',
-  objectKey: 'warehouse',
-  objectRefForRow: (row) => String(row.code || '').trim(),
-  rowAssignment: warehouseBusinessGroupAssignment,
+  objectKey: 'warehouse_inventory_item',
+  objectIDForRow: () => 0,
+  objectRefForRow: inventoryItemObjectRef,
+  rowAssignment: (row) => {
+    const a = inventoryItemAssignmentForRow(row)
+    return a ? { ...a, object_id: 0 } : null
+  },
 }))
-const selectedWarehouseRowsForMove = computed(() => {
-  const selected = new Set(selectedWarehouseKeys.value)
-  return warehouses.value.filter((row) => selected.has(warehouseRowKey(row)))
-})
-const canMoveSelectedWarehouses = computed(() => {
-  if (!selectedWarehouseGroupTemplate.value || !selectedWarehouseRowsForMove.value.length) return false
-  const targetGroupItemID = Number(selectedWarehouseMoveGroupItemID.value || 0)
-  const targetOption = targetGroupItemID > 0 ? warehouseGroupOptionByItemID(targetGroupItemID) : null
-  if (targetGroupItemID > 0 && !targetOption) return false
-  return selectedWarehouseRowsForMove.value.some((row) => {
-    if (!targetOption) return warehouseGroupID(row) > 0 || warehouseGroupItemID(row) > 0
-    return warehouseGroupID(row) !== Number(targetOption.group_id || 0) || warehouseGroupItemID(row) !== Number(targetOption.group_item_id || 0)
+const renderedInventoryGroups = computed(() => inventoryDisplayGroups.value.filter((group) => (
+  !skuGroupHiddenByCollapsedAncestor(inventoryDisplayGroups.value, group, collapsedInventoryGroups.value)
+)))
+const selectedItemRowsForMove = computed(() => {
+  const seen = new Set()
+  return rows.value.filter((row) => {
+    const key = inventoryItemKey(row)
+    if (!selectedInventoryItemKeySet.value.has(key)) return false
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
   })
 })
-const canSelectWarehouseMoveTarget = computed(() => Boolean(selectedWarehouseGroupTemplate.value && selectedWarehouseRowsForMove.value.length))
+const canMoveSelectedInventoryItems = computed(() => Boolean(
+  selectedWarehouse.value && warehouseSelectedBusinessGroups.value.length && selectedItemRowsForMove.value.length
+))
 
 function kindLabel(kind) {
   return {
@@ -496,63 +575,41 @@ function rowKey(row) {
   return `${row.warehouse}-${row.item_type}-${row.item_id}-${row.spec_g || 0}-${row.batch_id || row.batch_code || 'summary'}`
 }
 
-function warehouseRowKey(row = {}) {
-  return String(row.code || '').trim()
-}
-
-function warehouseGroupID(row = {}) {
-  return Number(row.business_group_id ?? row.group_id ?? 0) || 0
-}
-
-function warehouseGroupItemID(row = {}) {
-  return Number(row.group_item_id ?? row.business_group_item_id ?? 0) || 0
-}
-
-function warehouseBusinessGroupAssignment(row = {}) {
-  return {
-    usage_key: 'warehouse_inventory',
-    object_key: 'warehouse',
-    object_ref: warehouseRowKey(row),
-    group_id: warehouseGroupID(row),
-    group_item_id: warehouseGroupItemID(row),
-  }
-}
-
-function warehouseGroupOptionByItemID(groupItemID) {
+function inventoryGroupOptionByItemID(groupItemID) {
   const id = Number(groupItemID || 0)
-  return warehouseGroupItemOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
+  return inventoryGroupItemOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
 }
 
-function syncSelectedWarehouseGroupTemplate() {
-  const selectedID = Number(selectedWarehouseGroupTemplateID.value || 0)
+function syncSelectedInventoryGroupTemplate() {
+  const selectedID = Number(selectedInventoryGroupTemplateID.value || 0)
   if (warehouseSelectedBusinessGroups.value.some((group) => Number(group.id || 0) === selectedID)) return
-  selectedWarehouseGroupTemplateID.value = Number(warehouseSelectedBusinessGroups.value[0]?.id || 0)
+  selectedInventoryGroupTemplateID.value = Number(warehouseSelectedBusinessGroups.value[0]?.id || 0)
 }
 
-function isWarehouseGroupCollapsed(key) {
-  return collapsedWarehouseGroups.value.includes(String(key || ''))
+function isInventoryGroupCollapsed(key) {
+  return collapsedInventoryGroups.value.includes(String(key || ''))
 }
 
-function toggleWarehouseGroup(key) {
+function toggleInventoryGroup(key) {
   const groupKey = String(key || '')
   if (!groupKey) return
-  collapsedWarehouseGroups.value = isWarehouseGroupCollapsed(groupKey)
-    ? collapsedWarehouseGroups.value.filter((item) => item !== groupKey)
-    : [...collapsedWarehouseGroups.value, groupKey]
+  collapsedInventoryGroups.value = isInventoryGroupCollapsed(groupKey)
+    ? collapsedInventoryGroups.value.filter((item) => item !== groupKey)
+    : [...collapsedInventoryGroups.value, groupKey]
 }
 
-function isWarehouseSelected(row = {}) {
-  const key = warehouseRowKey(row)
-  return Boolean(key && selectedWarehouseKeys.value.includes(key))
+function isInventoryItemSelected(row = {}) {
+  const key = inventoryItemKey(row)
+  return Boolean(key && selectedInventoryItemKeySet.value.has(key))
 }
 
-function toggleWarehouseSelection(row = {}, checked = false) {
-  const key = warehouseRowKey(row)
-  if (!key) return
-  const next = new Set(selectedWarehouseKeys.value)
+function toggleInventoryItemSelection(row = {}, checked = false) {
+  const key = inventoryItemKey(row)
+  if (!key || !selectedWarehouse.value) return
+  const next = new Set(selectedInventoryItemKeys.value)
   if (checked) next.add(key)
   else next.delete(key)
-  selectedWarehouseKeys.value = [...next]
+  selectedInventoryItemKeys.value = [...next]
 }
 
 function selectWarehouse(code) {
@@ -589,7 +646,7 @@ async function loadWarehouseBusinessGroups() {
     warehouseBusinessGroups.value = []
     warehouseGroupFeatureSelectionTemplateIDs.value = []
     warehouseGroupFeatureSelectionDraft.value = []
-    selectedWarehouseGroupTemplateID.value = 0
+    selectedInventoryGroupTemplateID.value = 0
     return
   }
   const [groupData, selectionData] = await Promise.all([
@@ -599,7 +656,7 @@ async function loadWarehouseBusinessGroups() {
   warehouseBusinessGroups.value = Array.isArray(groupData?.rows) ? groupData.rows : (Array.isArray(groupData) ? groupData : [])
   warehouseGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(selectionData)
   warehouseGroupFeatureSelectionDraft.value = [...warehouseGroupFeatureSelectionTemplateIDs.value]
-  syncSelectedWarehouseGroupTemplate()
+  syncSelectedInventoryGroupTemplate()
 }
 
 async function loadCustomers() {
@@ -665,6 +722,11 @@ function openWarehouseBusinessGroupManagement() {
   }))
 }
 
+function openWarehouseGroupFeatureSelectionDrawer() {
+  warehouseGroupFeatureSelectionDraft.value = [...warehouseGroupFeatureSelectionTemplateIDs.value]
+  warehouseGroupFeatureDrawerOpen.value = true
+}
+
 async function saveWarehouseGroupFeatureSelection() {
   if (isCustomerInventoryContext.value) return
   const payload = businessGroupFeatureSelectionPayload('warehouse_inventory', warehouseGroupFeatureSelectionDraft.value)
@@ -681,7 +743,10 @@ async function saveWarehouseGroupFeatureSelection() {
     syncSelectedWarehouseGroupTemplate()
     selectedWarehouseMoveGroupItemID.value = 0
     selectedWarehouseKeys.value = []
-    collapsedWarehouseGroups.value = []
+    collapsedInventoryGroups.value = []
+    selectedInventoryItemKeys.value = []
+    syncSelectedInventoryGroupTemplate()
+    warehouseGroupFeatureDrawerOpen.value = false
     ok.value = payload.group_template_ids.length
       ? `仓库库存已选择 ${payload.group_template_ids.length} 个分组模板`
       : '仓库库存已改为平铺展示'
@@ -712,52 +777,69 @@ async function saveWarehouseCustomerBinding() {
   }
 }
 
-async function clearWarehouseBusinessGroupAssignment(warehouseCode) {
-  const code = String(warehouseCode || '').trim()
-  if (!code) return
+async function loadInventoryAssignments() {
+  if (!selectedWarehouse.value) {
+    inventoryBusinessGroupAssignments.value = []
+    return
+  }
   const url = new URL('/api/business-group-assignments', window.location.origin)
   url.searchParams.set('usage_key', 'warehouse_inventory')
-  url.searchParams.set('object_key', 'warehouse')
-  url.searchParams.set('object_ref', code)
+  url.searchParams.set('object_key', 'warehouse_inventory_item')
+  try {
+    const data = await apiGet(url)
+    const all = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : [])
+    const prefix = `${selectedWarehouse.value}:`
+    inventoryBusinessGroupAssignments.value = all.filter((row) => String(row.object_ref || row.objectRef || '').startsWith(prefix))
+  } catch {
+    inventoryBusinessGroupAssignments.value = []
+  }
+}
+
+async function clearInventoryItemAssignment(itemKey) {
+  if (!selectedWarehouse.value || !itemKey) return
+  const objectRef = `${selectedWarehouse.value}:${itemKey}`
+  const url = new URL('/api/business-group-assignments', window.location.origin)
+  url.searchParams.set('usage_key', 'warehouse_inventory')
+  url.searchParams.set('object_key', 'warehouse_inventory_item')
+  url.searchParams.set('object_ref', objectRef)
   const data = await apiGet(url)
   const assignments = Array.isArray(data?.rows) ? data.rows : []
   await Promise.all(assignments.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
 }
 
-async function moveSelectedWarehousesToGroup() {
-  const targetGroupItemID = Number(selectedWarehouseMoveGroupItemID.value || 0)
-  const targetOption = targetGroupItemID > 0 ? warehouseGroupOptionByItemID(targetGroupItemID) : null
+async function moveSelectedInventoryItemsToGroup() {
+  const targetGroupItemID = Number(selectedInventoryMoveGroupItemID.value || 0)
+  const targetOption = targetGroupItemID > 0 ? inventoryGroupOptionByItemID(targetGroupItemID) : null
+  if (!selectedWarehouse.value) return
   if (targetGroupItemID > 0 && !targetOption) return
-  const rowsToMove = selectedWarehouseRowsForMove.value.filter((row) => {
-    if (!targetOption) return warehouseGroupID(row) > 0 || warehouseGroupItemID(row) > 0
-    return warehouseGroupID(row) !== Number(targetOption.group_id || 0) || warehouseGroupItemID(row) !== Number(targetOption.group_item_id || 0)
-  })
-  if (!rowsToMove.length) return
+  const items = selectedItemRowsForMove.value
+  if (!items.length) return
   loading.value = true
   error.value = ''
   try {
-    for (const row of rowsToMove) {
-      const code = warehouseRowKey(row)
-      if (!code) continue
+    for (const item of items) {
+      const key = inventoryItemKey(item)
+      if (!key) continue
       if (!targetOption) {
-        await clearWarehouseBusinessGroupAssignment(code)
+        await clearInventoryItemAssignment(key)
         continue
       }
       await apiSend('/api/business-group-assignments', {
         body: businessGroupMoveAssignmentPayload({
           usageKey: 'warehouse_inventory',
-          objectKey: 'warehouse',
-          objectRef: code,
+          objectKey: 'warehouse_inventory_item',
+          objectRef: `${selectedWarehouse.value}:${key}`,
           option: targetOption,
           sortOrder: 100,
         }),
       })
     }
-    selectedWarehouseKeys.value = []
-    selectedWarehouseMoveGroupItemID.value = 0
-    await loadWarehouses()
+    selectedInventoryItemKeys.value = []
+    selectedInventoryMoveGroupItemID.value = 0
+    collapsedInventoryGroups.value = []
+    await loadInventoryAssignments()
   } catch (err) {
-    error.value = err.message || '移动仓库分类失败'
+    error.value = err.message || '移动物品分类失败'
   } finally {
     loading.value = false
   }
@@ -803,6 +885,11 @@ async function loadInventory() {
     page.value = pagination.page
     limit.value = pagination.pageSize
     total.value = pagination.total
+    if (selectedWarehouse.value && !isCustomerInventoryContext.value) {
+      await loadInventoryAssignments()
+    } else {
+      inventoryBusinessGroupAssignments.value = []
+    }
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {

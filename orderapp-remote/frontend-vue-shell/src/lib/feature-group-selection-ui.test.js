@@ -28,7 +28,7 @@ const featureViews = [
   {
     name: 'WarehouseInventoryView.vue',
     featureKey: 'warehouse_inventory',
-    title: '仓库库存使用的分组模板',
+    title: '当前仓库内物品使用的分组模板',
     draft: 'warehouseGroupFeatureSelectionDraft',
     selectedRows: 'warehouseSelectedBusinessGroups',
   },
@@ -50,7 +50,7 @@ for (const view of featureViews) {
     assert.match(source, /保存模板选择/)
     assert.match(source, new RegExp(`${view.selectedRows}[^]*businessGroupRowsForFeatureSelection`))
     assert.ok(source.includes(`businessGroupControlOptions(${view.selectedRows}`))
-    assert.ok(source.includes(`v-if="${view.selectedRows}.length"`))
+    assert.match(source, new RegExp(`v-if=["'][^"']*${view.selectedRows}\.length`))
     assert.match(source, /尚未选择分组模板，当前平铺展示/)
     assert.doesNotMatch(source, /preferredBusinessGroupTemplateID/)
 
