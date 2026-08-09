@@ -9,14 +9,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-587-PRICE-LIST-BOM-FIXES
 - Branch: codex/price-list-bom-fixes-20260809
 - Owner/session: Codex / 2026-08-09
-- Status: 1a/3/4 implemented, verified, merged to develop and deployed to development; 1b/1c/2 root-caused, need Van decision/data
+- Status: 1a/3/4 + 1b implemented, verified, merged to develop and deployed to development; 1c/2 root-caused, in progress
 - Scope: Van 2026-08-09 四项问题。(1a) 录单"选择价格表"抽屉标题与提示文案由"豆单"改为"价格表"。(3) 商品价格表平铺价格行新增"撤销人工修改"，删除人工覆盖价恢复系统计算价。(4) 生产 BOM 分组工具栏紧凑单行 + 列表窗口加高与详情齐平（沿用 fcccaffd）。(1b) 价格表类型按商品档案分类模板动态化、删除硬编码"咖啡熟豆"——动态分组基础设施已存在(beanListVersionGroupIdentity/buildClassificationPriceListTypeOptions)，但录单 syncBeanListVersionForCustomer 仍用硬编码 orderBeanListTypes，且"咖啡熟豆"非硬编码 UI 文案（仅测试分类名），需 Van 澄清具体所见选项。(1c) 生产新版本价格表发布后录单仍用旧版——前后端默认逻辑均取最新(is_default=group_rank=1)，public_fallback 按组给客户自定义版本优先；需生产数据确认(客户自定义优先 或 group_key/分类不匹配)。(2) 价格试算 50/磅 vs 价格表 51——两条路径用不同成本模型：ExplainCommercialPrice(梯度/生豆成本+参数) vs calculatePricingRuleTrial(完整 BOM+工艺路线+工位成本)，自然分叉，需产品决策对齐口径。
 - Verifier:
   - Unit: node --test src/lib/costing-price-list-workflow.test.js src/lib/bom.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/order-entry.test.js src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js -> 97+151 GREEN
   - Frontend/build: npm run build GREEN（仅既有 chunk-size warning）
   - Manual: 价格表选择抽屉改名、平铺价格行撤销人工修改需同步 orderapp-remote/docs 手册（待 1b/1c 落定后一起更新）
 - Evidence: commit 245af582(1a+3) + fcccaffd(4); canRevertPriceListFlatRow/revertPriceListFlatRowOverride TDD RED->GREEN
-- Deployment: ./deploy_orderapp.sh development -> origin/develop=cd8c8baba0c8a68922facb75a869c9b1db8e9f63 (2026-08-09); backup /opt/stacks/erp/orderapp.backup.deploy-20260809163322-cd8c8baba0c8; rollback kferp-orderapp-rollback:development-20260809163322-cd8c8baba0c8; smoke https://dev.qacoohee.com/app/login HTTP 200; dev_289 合约已跟进'价格表版本'改名
+- Evidence(1b): commit 72682319 on codex/order-price-list-type-filter-fix-20260809 -> merged 23ccd9b8; filterBeanListVersionOptionsToCurrentTypes 改用 publicationTypeIdentityForPriceListType 解析 classificationTemplateID(8e15+groupID) 匹配，修复旧实现用负哨兵 type.id 导致 .filter(id>0) 清空、抽屉隐藏全部价格表的回归；TDD RED(3 用例,真实负id类型)->GREEN(129/129); 真实 dev 数据验证: 录单抽屉仅 pub 108(咖啡豆,8e15+1532) 5 个历史遗留类型隐藏(customer 0/122 均只留 108); 商品仅曜石(80 族->1)
+- Deployment(1b): ./deploy_orderapp.sh development -> origin/develop=23ccd9b8a3acb81dddae72ac563c455da82e86ef (2026-08-09); backup /opt/stacks/erp/orderapp.backup.deploy-20260809190344-23ccd9b8a3ac; rollback kferp-orderapp-rollback:development-20260809190344-23ccd9b8a3ac; smoke https://dev.qacoohee.com/app/login HTTP 200; 部署源码 grep publicationTypeIdentityForPriceListType=2(导入+使用); erp_orderapp Up, erp_postgres healthy
+- Deployment(1a/3/4): origin/develop=cd8c8baba0c8a68922facb75a869c9b1db8e9f63; backup /opt/stacks/erp/orderapp.backup.deploy-20260809163322-cd8c8baba0c8; rollback kferp-orderapp-rollback:development-20260809163322-cd8c8baba0c8; dev_289 合约已跟进'价格表版本'改名
 - Last update: 2026-08-09 Asia/Shanghai
 
 ### PR-586-BOM-GROUP-CONFIG-DRAWER
