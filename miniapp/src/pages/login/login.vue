@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { useSessionStore } from '../../stores/session'
 import { customerEntryRoute } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
@@ -87,7 +88,7 @@ async function handlePasswordLogin() {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view class="page pull-up-brand-page" :class="themeClass">
     <EnvironmentBadge />
     <view class="hero">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -123,6 +124,8 @@ async function handlePasswordLogin() {
 
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
     </view>
+
+    <PullUpBrandFooter />
   </view>
 </template>
 

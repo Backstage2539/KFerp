@@ -37,6 +37,7 @@ import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vu
 import CustomerInventoryPanel from '../../components/CustomerInventoryPanel.vue'
 import CustomerProcessingPanel from '../../components/CustomerProcessingPanel.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
 import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
@@ -868,7 +869,7 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view class="page pull-up-brand-page pull-up-brand-page-with-tabbar" :class="themeClass">
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -1326,6 +1327,7 @@ onShow(() => {
       </template>
     </view>
 
+    <PullUpBrandFooter with-fixed-tabbar />
     <MainTabBar :current="mainTab" />
   </view>
 </template>

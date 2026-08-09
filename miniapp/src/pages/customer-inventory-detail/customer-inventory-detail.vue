@@ -8,6 +8,7 @@ import {
   type CustomerInventorySummary,
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
 
@@ -124,7 +125,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <view class="page">
+  <view class="page pull-up-brand-page">
     <EnvironmentBadge />
     <view v-if="loading" class="state-card"><text>库存详情加载中...</text></view>
     <view v-else-if="errorMessage" class="state-card error-card">
@@ -161,6 +162,8 @@ onBeforeUnmount(() => {
         <text v-if="!batches.length" class="empty">当前库存已变化，暂无可追溯批次</text>
       </view>
     </template>
+
+    <PullUpBrandFooter />
   </view>
 </template>
 

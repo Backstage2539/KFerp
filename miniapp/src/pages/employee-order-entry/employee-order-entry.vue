@@ -24,6 +24,7 @@ import {
 } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError, MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import {
   buildEmployeeOrderItemsPayload,
   createEmployeeOrderItem,
@@ -716,7 +717,7 @@ onLoad((options) => {
 </script>
 
 <template>
-  <view class="page">
+  <view class="page pull-up-brand-page">
     <EnvironmentBadge />
     <view class="panel">
       <view class="title-row">
@@ -876,6 +877,8 @@ onLoad((options) => {
       </view>
       </template>
     </view>
+
+    <PullUpBrandFooter />
 
     <view v-if="customerSelectorOpen && !isEditMode" class="overlay" @tap.self="closeCustomerSelector">
       <view class="select-sheet" @tap.stop>

@@ -58,10 +58,11 @@
               </td>
               <td><input v-model="row.active" type="checkbox" /></td>
               <td class="account-cell">
-                <label class="switch">
-                  <input type="checkbox" :checked="accountOf(row.id).login_enabled" @change="setEnabled(row.id, $event.target.checked)" />
+                <label class="switch" :title="isCurrentAccount(row.id) ? '当前账号不能关闭自己的登录' : ''">
+                  <input type="checkbox" :checked="accountOf(row.id).login_enabled" :disabled="isCurrentAccount(row.id)" @change="setEnabled(row.id, $event.target.checked)" />
                   {{ accountOf(row.id).login_enabled ? '可登录' : '已停用' }}
                 </label>
+                <div v-if="isCurrentAccount(row.id)" class="account-hint">当前账号不能关闭自己的登录</div>
                 <div class="password-row">
                   <input v-model.trim="passwordMap[String(row.id)]" type="password" :placeholder="passwordPlaceholder(row.id)" />
                   <button class="secondary" type="button" @click="savePassword(row.id)" :disabled="saving || !passwordMap[String(row.id)]">{{ passwordActionLabel(row.id) }}</button>
@@ -93,7 +94,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import { fetchEmployeeRoles, fetchInternalAuthAccounts, fetchRoles, resetEmployeePassword, saveEmployeeRoles, setAccountState } from '../api/auth'
+import { fetchCurrentActor, fetchEmployeeRoles, fetchInternalAuthAccounts, fetchRoles, resetEmployeePassword, saveEmployeeRoles, setAccountState } from '../api/auth'
 
 const props = defineProps({
   viewKey: { type: String, default: 'departments' },
@@ -107,6 +108,7 @@ const saving = ref(false)
 const error = ref('')
 const ok = ref(false)
 const roles = ref([])
+const currentEmployeeID = ref(0)
 const roleMap = reactive({})
 const accountMap = reactive({})
 const passwordMap = reactive({})
@@ -119,6 +121,10 @@ function selectedRoles(employeeId) {
 
 function accountOf(employeeId) {
   return accountMap[String(employeeId)] || { login_enabled: true, has_password: false }
+}
+
+function isCurrentAccount(employeeId) {
+  return currentEmployeeID.value > 0 && Number(employeeId) === currentEmployeeID.value
 }
 
 function passwordActionLabel(employeeId) {
@@ -149,13 +155,15 @@ async function load() {
     const deps = await apiGet('/api/company/departments')
     departments.value = deps
     if (!departmentMode.value) {
-      const [employeeRows, roleRes, assignmentRes, accountRes] = await Promise.all([
+      const [employeeRows, roleRes, assignmentRes, accountRes, actorRes] = await Promise.all([
         apiGet('/api/company/employees'),
         fetchRoles(),
         fetchEmployeeRoles(),
         fetchInternalAuthAccounts(),
+        fetchCurrentActor().catch(() => null),
       ])
       employees.value = Array.isArray(employeeRows) ? employeeRows : []
+      currentEmployeeID.value = Number(actorRes?.employee_id) || 0
       roles.value = (roleRes.roles || []).filter((role) => !String(role.code || '').startsWith('customer_'))
       for (const key of Object.keys(roleMap)) delete roleMap[key]
       const assignments = assignmentRes.assignments || {}
@@ -197,6 +205,11 @@ async function saveEmployee(row) {
 }
 
 async function setEnabled(employeeId, loginEnabled) {
+  if (isCurrentAccount(employeeId) && !loginEnabled) {
+    error.value = '当前账号不能关闭自己的登录'
+    ok.value = false
+    return
+  }
   saving.value = true
   error.value = ''
   ok.value = false
@@ -285,6 +298,8 @@ th { background: #fbfaf8; }
 .roles-cell { min-width: 280px; }
 .role { display: inline-flex; align-items: center; gap: 5px; margin: 0 12px 8px 0; white-space: nowrap; }
 .switch { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; white-space: nowrap; }
+.switch input:disabled { cursor: not-allowed; }
+.account-hint { color: #806b4f; font-size: 12px; margin: -3px 0 8px; }
 .password-row { display: grid; grid-template-columns: minmax(130px, 1fr) 88px; gap: 6px; }
 .password-row input { height: 34px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 6px 8px; }
 .action-cell { min-width: 100px; }

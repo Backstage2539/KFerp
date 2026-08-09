@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import {
   fetchEmployeeCustomers,
   type EmployeeCustomer,
@@ -124,7 +125,7 @@ onPullDownRefresh(reloadCustomers)
 </script>
 
 <template>
-  <view class="page">
+  <view class="page pull-up-brand-page">
     <EnvironmentBadge />
     <view class="head">
       <view>
@@ -174,6 +175,8 @@ onPullDownRefresh(reloadCustomers)
         加载更多客户
       </button>
     </view>
+
+    <PullUpBrandFooter />
 
     <EmployeeCustomerEditor
       :visible="editorOpen"

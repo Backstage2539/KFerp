@@ -16,6 +16,7 @@ openclaw_jj_ed25519.pub
 *.jpeg
 *.gif
 *.webp
+!miniapp/src/static/branding/kefan-wordmark-silver.png
 
 # openclaw memory
 memory/

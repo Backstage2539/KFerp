@@ -10,6 +10,7 @@ import {
 import { isAuthenticationExpiredRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { useSessionStore } from '../../stores/session'
 import {
   customerEntryRoute,
@@ -158,7 +159,10 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view
+    class="page pull-up-brand-page"
+    :class="[themeClass, { 'pull-up-brand-page-with-tabbar': !isEmployee }]"
+  >
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -210,6 +214,7 @@ onShow(() => {
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>
     </view>
 
+    <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" />
     <MainTabBar v-if="!isEmployee" current="mine" />
   </view>
 </template>

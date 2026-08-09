@@ -4,6 +4,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { fetchMe } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
@@ -60,7 +61,10 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view
+    class="page pull-up-brand-page"
+    :class="[themeClass, { 'pull-up-brand-page-with-tabbar': session.accountType !== 'employee' }]"
+  >
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -86,6 +90,7 @@ onShow(() => {
       <text>暂无可用服务</text>
     </view>
 
+    <PullUpBrandFooter :with-fixed-tabbar="session.accountType !== 'employee'" />
     <MainTabBar v-if="session.accountType !== 'employee'" current="home" />
   </view>
 </template>

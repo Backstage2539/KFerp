@@ -17,6 +17,7 @@ import {
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { useSessionStore } from '../../stores/session'
 import {
   buildResaleBeanListPublishPayload,
@@ -353,7 +354,7 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view class="page pull-up-brand-page pull-up-brand-page-with-tabbar" :class="themeClass">
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">我的价格表设置</text>
@@ -469,6 +470,7 @@ onShow(() => {
       </view>
     </view>
 
+    <PullUpBrandFooter with-fixed-tabbar />
     <MainTabBar current="mine" />
   </view>
 </template>

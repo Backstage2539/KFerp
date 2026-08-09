@@ -17,6 +17,7 @@ import {
 } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError, MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { useSessionStore } from '../../stores/session'
 import {
   employeeOrderDocumentAsset,
@@ -225,7 +226,7 @@ onShow(() => void loadDetail())
 </script>
 
 <template>
-  <view class="page">
+  <view class="page pull-up-brand-page">
     <EnvironmentBadge />
     <view v-if="loading" class="state-card"><text>订单详情加载中...</text></view>
     <view v-else-if="errorMessage" class="state-card error-card">
@@ -355,6 +356,8 @@ onShow(() => void loadDetail())
       </view>
 
     </template>
+
+    <PullUpBrandFooter />
   </view>
 </template>
 
