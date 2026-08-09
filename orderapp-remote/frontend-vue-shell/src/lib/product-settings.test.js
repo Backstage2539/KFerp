@@ -2,6 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
+import * as productSettings from './product-settings.js'
+import {
+  orderProductFamilyOptions,
+  orderProductKindFilterOptions,
+} from './order-entry.js'
+
 import {
   buildAssignCategoryPayload,
   buildCustomerProductRuleBindingPayload,
@@ -349,6 +355,37 @@ test('product archive rows keep sales-spec SKUs inside one parent product row', 
   assert.match(rows[0].sku_search_text, /100g袋装/)
   assert.match(rows[0].sku_search_text, /SKU-000005/)
   assert.deepEqual(filterSkuRows(rows, { query: '227g袋装' }).map((row) => row.id), [1])
+})
+
+test('pricing rule trial picker only exposes unique active parent products and reuses order product-kind filtering', () => {
+  const catalogProducts = [
+    { id: 100, name: '晨曦拼配', parent_product_id: 0, product_kind: 'roasted', active: true },
+    { id: 100, name: '晨曦拼配', parent_product_id: 0, product_kind: 'roasted', active: true },
+    { id: 101, name: '晨曦拼配 227g', parent_product_id: 100, product_kind: 'roasted', active: true },
+    { id: 200, name: '晨曦挂耳', parent_product_id: 0, product_kind: 'drip_bag', active: true },
+    { id: 201, name: '晨曦挂耳 10g', parent_product_id: 200, product_kind: 'drip_bag', active: true },
+    { id: 300, name: '失效生豆', parent_product_id: 0, product_kind: 'green_bean', active: false },
+    { id: 400, name: '在售生豆', parent_product_id: 0, product_kind: 'green_bean', active: true },
+    { id: 501, name: '孤立子规格', parent_product_id: 500, product_kind: 'instant_coffee', active: true },
+  ]
+
+  assert.equal(
+    typeof productSettings.pricingRuleTrialMainProductOptions,
+    'function',
+    'price trial should own an explicit parent-product candidate helper',
+  )
+  const candidates = productSettings.pricingRuleTrialMainProductOptions?.(catalogProducts) || []
+
+  assert.deepEqual(candidates.map((row) => row.id), [100, 200, 400])
+  assert.equal(candidates.some((row) => Number(row.parent_product_id || 0) > 0), false)
+  assert.deepEqual(filterSkuRows(candidates, { query: '227g' }).map((row) => row.id), [100])
+  assert.deepEqual(orderProductKindFilterOptions(candidates), [
+    { value: '', label: '全部' },
+    { value: 'roasted', label: '熟豆' },
+    { value: 'drip_bag', label: '挂耳' },
+    { value: 'green_bean', label: '生豆' },
+  ])
+  assert.deepEqual(orderProductFamilyOptions(candidates, '', 'drip_bag').map((row) => row.id), [200])
 })
 
 test('product archive page renders child SKUs inside the parent name cell instead of peer product rows', () => {
@@ -1733,6 +1770,27 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(source, /pricing-rule-trial-operator[\s\S]*\+/)
   assert.match(source, /pricing-rule-trial-operator[\s\S]*=/)
   assert.doesNotMatch(trialDrawer, /点击查看试算说明：BOM\+工序成本/)
+})
+
+test('pricing rule trial product picker mirrors the order-entry type filter interaction', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const trialDrawer = source.match(/<div v-if="pricingRuleTrialDrawerOpen"[\s\S]*?<div v-if="customerAliasCreateDrawerOpen"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.match(script, /pricingRuleTrialMainProductOptions/)
+  assert.match(script, /orderProductKindFilterOptions/)
+  assert.match(script, /orderProductFamilyOptions/)
+  assert.doesNotMatch(script, /const pricingRuleTrialProductOptions\s*=\s*computed\(\(\)\s*=>\s*productRows\.value/)
+
+  assert.match(trialDrawer, /<template\s+#menu-header>/)
+  assert.match(trialDrawer, /:key="`pricing-rule-trial-product-picker:\$\{activePricingRuleTrialProductKindFilter\}`"/)
+  assert.match(trialDrawer, /class="product-kind-filter"[^>]*aria-label="商品分类"/)
+  assert.match(trialDrawer, /v-for="option in pricingRuleTrialProductKindFilterOptions"/)
+  assert.match(trialDrawer, /class="product-kind-filter-option"/)
+  assert.match(trialDrawer, /:aria-pressed="activePricingRuleTrialProductKindFilter === option\.value"/)
+  assert.match(trialDrawer, /@click\.stop="setPricingRuleTrialProductKindFilter\(option\.value\)"/)
+  assert.match(trialDrawer, /<template\s+#option="\{ option \}">/)
+  assert.match(trialDrawer, /productKindBadgeClass\(option\)[\s\S]*productKindLabel\(option\)/)
 })
 
 test('product price list owns tier template drawer and three pricing modes', () => {

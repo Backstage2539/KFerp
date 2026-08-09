@@ -34,6 +34,7 @@
       >v</button>
     </div>
     <div v-if="open" :id="listboxId" class="select-menu" role="listbox">
+      <slot name="menu-header" />
       <button
         v-for="(option, index) in filteredOptions"
         :key="optionKey(option)"
@@ -44,8 +45,10 @@
         :aria-selected="isSelected(option)"
         @mousedown.prevent="choose(option)"
       >
-        <strong>{{ labelOf(option) }}</strong>
-        <small v-if="metaOf(option)">{{ metaOf(option) }}</small>
+        <slot name="option" :option="option" :label="labelOf(option)" :meta="metaOf(option)">
+          <strong>{{ labelOf(option) }}</strong>
+          <small v-if="metaOf(option)">{{ metaOf(option) }}</small>
+        </slot>
       </button>
       <div v-if="!filteredOptions.length" class="select-empty">{{ emptyText }}</div>
     </div>

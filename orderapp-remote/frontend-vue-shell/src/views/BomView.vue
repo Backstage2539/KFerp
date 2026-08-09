@@ -19,36 +19,8 @@
     <div class="grid">
       <section class="panel list-panel">
         <div class="panel-head bom-list-head" data-pr442-bom-business-groups>
-          <div>
-            <div class="panel-title compact-title">生产 BOM列表</div>
-            <p class="muted left">生产 BOM 是生产端主档案；选择分组模板后按大类、小类展示，归类保存到 /api/business-group-assignments。</p>
-          </div>
-        </div>
-        <div class="bom-list-actions-row">
+          <div class="panel-title compact-title">生产 BOM列表</div>
           <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
-        </div>
-        <div class="feature-group-selection" data-feature-key="production_bom">
-          <div class="feature-group-selection-copy">
-            <strong>生产 BOM 使用的分组模板</strong>
-            <small>可多选；保存后只有已选模板可用于 BOM 分类和移动。取消全部后按 BOM 平铺展示。</small>
-          </div>
-          <div class="feature-group-selection-options">
-            <label v-for="template in selectableProductionBomGroupTemplates" :key="template.id" class="feature-group-selection-option">
-              <input
-                v-model="productionBomGroupFeatureSelectionDraft"
-                type="checkbox"
-                :value="Number(template.id || 0)"
-                :disabled="productionBomGroupFeatureSelectionSaving || loading" />
-              <span>{{ template.label }}</span>
-            </label>
-            <span v-if="!selectableProductionBomGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
-          </div>
-          <div class="feature-group-selection-actions">
-            <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openBusinessGroupManagement">维护分组模板</button>
-            <button class="primary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading || !productionBomGroupFeatureSelectionHasChanges" @click="saveProductionBomFeatureSelection">
-              {{ productionBomGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
-            </button>
-          </div>
         </div>
         <BusinessGroupControls
           v-if="productionBomSelectedBusinessGroups.length"
@@ -64,9 +36,15 @@
           :loading="loading"
           template-label="分类与移动模板"
           @manage="openBusinessGroupManagement"
-          @move="moveSelectedProductBomsToGroup" />
-        <div v-else class="bom-list-toolbar feature-group-empty">
+          @move="moveSelectedProductBomsToGroup">
+          <template #extra-actions>
+            <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openProductionBomGroupFeatureSelectionDrawer">设置分组模板</button>
+          </template>
+        </BusinessGroupControls>
+        <div v-else class="bom-list-toolbar feature-group-empty bom-group-empty-actions">
           <span>生产 BOM 尚未选择分组模板，当前平铺展示。</span>
+          <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openProductionBomGroupFeatureSelectionDrawer">设置分组模板</button>
+          <button class="secondary compact-action" type="button" @click="openBusinessGroupManagement">维护分组模板</button>
         </div>
         <div class="bom-list-filters">
           <label>
@@ -86,7 +64,7 @@
           </button>
         </div>
         <div class="table-wrap bom-list-panel-scroll">
-          <table>
+          <table data-auto-pagination="off">
             <thead>
               <tr>
                 <th class="select-col"><input type="checkbox" :checked="isAllVisibleBomsSelected" :indeterminate.prop="isSomeVisibleBomsSelected" @change="toggleAllVisibleBoms" /></th>
@@ -102,20 +80,19 @@
               <template v-for="group in productionBomDisplayGroups" :key="group.key">
                 <template v-if="!isProductionBomGroupHiddenByAncestor(group)">
                 <tr
-                  v-if="group.is_template_group"
+                  v-if="isProductionBomTopLevelGroup(group) && !group.all"
                   class="classification-template-row bom-classification-template-row"
                   :class="{ 'classification-template-collapsed': isProductionBomGroupCollapsed(group.key) }">
                   <td colspan="7">
-                    <button class="classification-group-toggle" type="button" @click="toggleProductionBomGroup(group.key)">
+                    <button class="classification-group-toggle" type="button" @click="toggleProductionBomTopLevelGroup(group.key)">
                       {{ isProductionBomGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
                     <strong>{{ group.label }}</strong>
-                    <small>{{ group.template_total }} 个</small>
+                    <small>{{ group.is_template_group ? group.template_total : group.row_total }} 个</small>
                   </td>
                 </tr>
-                <template v-else>
                 <tr
-                  v-if="!group.all"
+                  v-if="!isProductionBomTopLevelGroup(group) && !group.all"
                   class="classification-group-row bom-classification-group-row"
                   :class="{ 'classification-subgroup-row': Number(group.depth || 0) > 0 }"
                   :style="businessGroupHeaderIndentStyle(group)">
@@ -124,7 +101,7 @@
                       {{ isProductionBomGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
                     <strong :title="group.path_label || group.label">{{ group.label }}</strong>
-                    <small>{{ group.rows.length }} 个</small>
+                    <small>{{ group.row_total }} 个</small>
                   </td>
                 </tr>
                 <template v-if="!isProductionBomGroupCollapsed(group.key)">
@@ -159,14 +136,22 @@
                   </tr>
                 </template>
                 </template>
-                </template>
               </template>
               <tr v-if="!productionBomRows.length">
                 <td colspan="7" class="muted">暂无配方档案</td>
               </tr>
+              <tr v-if="productionBomRows.length && productionBomListState.expandedGroupKey && !productionBomListState.rawTotal">
+                <td colspan="7" class="muted">当前展开分组暂无 BOM</td>
+              </tr>
             </tbody>
           </table>
         </div>
+        <PaginationControls
+          v-if="productionBomListState.expandedGroupKey && productionBomListState.total > 0"
+          v-model:page="productionBomListPage"
+          v-model:page-size="productionBomListPageSize"
+          :total="productionBomListState.total"
+          :disabled="loading" />
       </section>
 
       <section class="panel detail-panel">
@@ -404,6 +389,37 @@
       </section>
     </div>
 
+    <div v-if="productionBomGroupFeatureDrawerOpen" class="drawer-mask" @click.self="productionBomGroupFeatureDrawerOpen = false">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h3>生产 BOM 分组模板</h3>
+          <button class="secondary compact-action" type="button" @click="productionBomGroupFeatureDrawerOpen = false">关闭</button>
+        </div>
+        <div class="feature-group-selection" data-feature-key="production_bom">
+          <div class="feature-group-selection-copy">
+            <strong>生产 BOM 使用的分组模板</strong>
+            <small>可多选；保存后只有已选模板可用于 BOM 分类和移动。取消全部后按 BOM 平铺展示。</small>
+          </div>
+          <div class="feature-group-selection-options">
+            <label v-for="template in selectableProductionBomGroupTemplates" :key="template.id" class="feature-group-selection-option">
+              <input
+                v-model="productionBomGroupFeatureSelectionDraft"
+                type="checkbox"
+                :value="Number(template.id || 0)"
+                :disabled="productionBomGroupFeatureSelectionSaving || loading" />
+              <span>{{ template.label }}</span>
+            </label>
+            <span v-if="!selectableProductionBomGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
+          </div>
+          <div class="feature-group-selection-actions">
+            <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openBusinessGroupManagement">维护分组模板</button>
+            <button class="primary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading || !productionBomGroupFeatureSelectionHasChanges" @click="saveProductionBomFeatureSelection">
+              {{ productionBomGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
     <div v-if="bomDrawerOpen" class="drawer-mask" @click.self="closeBomDrawer">
       <aside class="drawer">
         <div class="drawer-head">
@@ -457,8 +473,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import BusinessGroupControls from '../components/BusinessGroupControls.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomVersionWarning } from '../lib/bom'
+import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomAccordionPageState, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomVersionWarning } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -500,8 +517,12 @@ const selectedProductionBomTemplateID = ref(0)
 const productionBomGroupFeatureSelectionTemplateIDs = ref([])
 const productionBomGroupFeatureSelectionDraft = ref([])
 const productionBomGroupFeatureSelectionSaving = ref(false)
+const productionBomGroupFeatureDrawerOpen = ref(false)
 const selectedBomRowKeys = ref([])
 const collapsedProductionBomGroups = ref([])
+const expandedProductionBomGroupKey = ref(null)
+const productionBomListPage = ref(1)
+const productionBomListPageSize = ref(10)
 const pendingProductionBomID = ref(0)
 const bomReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
 const bomReturnProductID = computed(() => Number(bomReturnNavigation.value?.params?.open_product_config_id || 0))
@@ -550,13 +571,20 @@ const productionBomRows = computed(() => {
     query: productionBomSearchQuery.value,
   })
 })
-const productionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(productionBomRows.value, {
+const fullProductionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(productionBomRows.value, {
   templates: productionBomSelectedBusinessGroups.value,
   usageKey: 'production_bom',
   objectKey: 'production_bom',
   objectIDForRow: (row) => Number(row.production_bom_id || row.id || 0),
   rowAssignment: productionBomBusinessGroupAssignment,
 }))
+const productionBomListState = computed(() => productionBomAccordionPageState(fullProductionBomDisplayGroups.value, {
+  expandedGroupKey: expandedProductionBomGroupKey.value,
+  collapsedCategoryKeys: collapsedProductionBomGroups.value,
+  page: productionBomListPage.value,
+  pageSize: productionBomListPageSize.value,
+}))
+const productionBomDisplayGroups = computed(() => productionBomListState.value.groups)
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const selectedBomOutputProduct = computed(() => productByID(bomForm.output_product_id))
 const outputUnitCode = computed(() => String(selectedBomOutputProduct.value?.inventory_unit || selectedProductionBomVersion.value?.output_unit || bomForm.output_unit || 'unit').trim() || 'unit')
@@ -663,7 +691,7 @@ const currentConsumeUnitOptions = computed(() => itemForm.component_type === 'pr
 const selectedVersionMaterialLossRate = computed(() => versionMaterialLossRateEnabled.value
   ? normalizedMaterialLossRateFromPercent(versionMaterialLossRatePct.value)
   : 0)
-const visibleMovableBomRows = computed(() => productionBomRows.value.filter(isMovableBomRow))
+const visibleMovableBomRows = computed(() => productionBomListState.value.visibleRows.filter(isMovableBomRow))
 const isAllVisibleBomsSelected = computed(() => {
   const keys = visibleMovableBomRows.value.map(bomRowKey)
   if (!keys.length) return false
@@ -740,8 +768,22 @@ function productionBomGroupOptionByItemID(groupItemID) {
   return productionBomMoveGroupOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
 }
 
+function isProductionBomTopLevelGroup(group = {}) {
+  return Boolean(group?.is_template_group || group?.unclassified || group?.all)
+}
+
+function productionBomGroupByKey(key) {
+  const groupKey = String(key || '')
+  return fullProductionBomDisplayGroups.value.find((group) => String(group?.key || '') === groupKey) || null
+}
+
 function isProductionBomGroupCollapsed(key) {
-  return collapsedProductionBomGroups.value.includes(String(key || ''))
+  const groupKey = String(key || '')
+  const group = productionBomGroupByKey(groupKey)
+  if (group && isProductionBomTopLevelGroup(group)) {
+    return productionBomListState.value.expandedGroupKey !== groupKey
+  }
+  return collapsedProductionBomGroups.value.includes(groupKey)
 }
 
 function isProductionBomGroupHiddenByAncestor(group) {
@@ -751,9 +793,22 @@ function isProductionBomGroupHiddenByAncestor(group) {
 function toggleProductionBomGroup(key) {
   const groupKey = String(key || '')
   if (!groupKey) return
+  const group = productionBomGroupByKey(groupKey)
+  if (group && isProductionBomTopLevelGroup(group)) {
+    toggleProductionBomTopLevelGroup(groupKey)
+    return
+  }
   collapsedProductionBomGroups.value = isProductionBomGroupCollapsed(groupKey)
     ? collapsedProductionBomGroups.value.filter((item) => item !== groupKey)
     : [...collapsedProductionBomGroups.value, groupKey]
+  productionBomListPage.value = 1
+}
+
+function toggleProductionBomTopLevelGroup(key) {
+  const groupKey = String(key || '')
+  if (!groupKey) return
+  expandedProductionBomGroupKey.value = productionBomListState.value.expandedGroupKey === groupKey ? '' : groupKey
+  productionBomListPage.value = 1
 }
 
 function productionBomBusinessGroupAssignment(row = {}) {
@@ -1417,6 +1472,11 @@ async function deleteItem(id) {
   })
 }
 
+function openProductionBomGroupFeatureSelectionDrawer() {
+  productionBomGroupFeatureSelectionDraft.value = [...productionBomGroupFeatureSelectionTemplateIDs.value]
+  productionBomGroupFeatureDrawerOpen.value = true
+}
+
 function openBusinessGroupManagement() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
@@ -1452,6 +1512,9 @@ async function saveProductionBomFeatureSelection() {
     selectedBomMoveGroupItemID.value = 0
     selectedBomRowKeys.value = []
     collapsedProductionBomGroups.value = []
+    expandedProductionBomGroupKey.value = null
+    productionBomListPage.value = 1
+    productionBomGroupFeatureDrawerOpen.value = false
     ok.value = payload.group_template_ids.length
       ? `生产 BOM 已选择 ${payload.group_template_ids.length} 个分组模板`
       : '生产 BOM 已改为平铺展示'
@@ -1659,6 +1722,23 @@ watch(selectedProductionBomTemplateID, () => {
 
 watch([productionBomStatusFilter, productionBomSearchQuery], () => {
   selectedBomRowKeys.value = []
+  productionBomListPage.value = 1
+})
+
+watch(() => productionBomListState.value.page, (page) => {
+  if (productionBomListPage.value !== page) productionBomListPage.value = page
+})
+
+watch(() => productionBomListState.value.expandedGroupKey, (groupKey) => {
+  if (expandedProductionBomGroupKey.value === null) {
+    expandedProductionBomGroupKey.value = groupKey
+    return
+  }
+  if (!expandedProductionBomGroupKey.value || expandedProductionBomGroupKey.value === groupKey) return
+  const currentStillExists = fullProductionBomDisplayGroups.value.some((group) => (
+    isProductionBomTopLevelGroup(group) && String(group.key || '') === expandedProductionBomGroupKey.value
+  ))
+  if (!currentStillExists) expandedProductionBomGroupKey.value = groupKey
 })
 
 watch(productionBomMoveGroupOptions, (options) => {
@@ -1691,7 +1771,9 @@ function outputProductLabel(row = {}) {
 .compact-title { margin-bottom: 4px; }
 h2 { margin: 0; font-size: 20px; }
 h3 { margin: 2px 0 4px; font-size: 18px; }
-.grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 14px; align-items: start; }
+.grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 14px; align-items: stretch; }
+.list-panel { display: flex; flex-direction: column; }
+.detail-panel { align-self: start; }
 label span, .summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; min-width: 180px; }
 input, select { height: 38px; }
@@ -1710,11 +1792,23 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bom-action-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .bom-search-field input { min-width: min(340px, 100%); }
 .bom-product-filter { min-width: min(280px, 100%); }
-.bom-list-head { align-items: flex-start; }
+.bom-list-head { align-items: center; }
 .bom-list-filters { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; padding-top: 10px; border-top: 1px solid #eee8df; }
 .bom-batch-deactivate-action { margin-left: auto; }
-.bom-list-actions-row { display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
 .bom-list-toolbar { display: grid; gap: 10px; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.bom-group-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bom-business-group-controls {
+  display: grid;
+  grid-template-columns: auto minmax(145px, 1fr) auto minmax(145px, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 8px;
+  overflow-x: auto;
+}
+.bom-business-group-controls :deep(label) { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.bom-business-group-controls :deep(label span) { display: inline; margin: 0; color: #6b7280; font-size: 12px; white-space: nowrap; }
+.bom-business-group-controls :deep(select) { width: 100%; min-width: 130px; min-height: 0; height: 32px; padding: 4px 8px; font-size: 12px; }
+.bom-business-group-controls :deep(.muted.left) { font-size: 12px; white-space: nowrap; }
 .feature-group-selection { display: grid; grid-template-columns: minmax(190px, .9fr) minmax(260px, 1.5fr) auto; gap: 10px; align-items: center; margin: 8px 0; padding: 10px; border: 1px solid #d9e2ec; border-radius: 8px; background: #f8fbff; }
 .feature-group-selection-copy { display: grid; gap: 3px; }
 .feature-group-selection-copy small { color: #607086; line-height: 1.4; }
@@ -1725,7 +1819,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .feature-group-empty { color: #666; border-style: dashed; }
 .bom-group-operation-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .bom-group-operation-row label { margin: 0; }
-.bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
+.bom-list-panel-scroll { flex: 1 1 auto; min-height: 440px; max-height: 84vh; overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
 .bom-record-form { align-items: flex-end; }
 .bom-group-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
@@ -1789,6 +1883,10 @@ tbody tr.active { background: #f3f7fb; }
 .drawer-mask { position: fixed; inset: 0; z-index: 80; background: rgba(20, 20, 20, .28); display: flex; justify-content: flex-end; }
 .drawer { width: min(560px, 100vw); height: 100%; background: #fff; box-shadow: -8px 0 28px rgba(0,0,0,.16); padding: 18px; overflow: auto; }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+@media (max-width: 1500px) {
+  .bom-business-group-controls { grid-template-columns: repeat(3, max-content); }
+  .bom-business-group-controls :deep(select) { width: auto; min-width: 150px; }
+}
 @media (max-width: 1100px) { .grid, .feature-group-selection { grid-template-columns: 1fr; } .feature-group-selection-actions { justify-content: flex-start; } }
 @media (max-width: 900px) {
   .page { padding: 12px; }

@@ -6,6 +6,66 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-588-PRICING-TRIAL-PARENT-PICKER-BOM-ACCORDION
+- Branch: codex/price-trial-bom-list-compact-20260809
+- Owner/session: Codex / 2026-08-09
+- Status: implemented, verified, merged to develop and deployed to development; Van manual acceptance todo
+- Scope: 商品价格管理的价格试算只选择启用主商品，不单列销售规格子 SKU；商品候选按录单相同的全部/熟豆/挂耳/生豆/速溶咖啡点击方式过滤。生产 BOM 删除列表标题下重复描述，分组相关操作压缩为桌面一行、窄屏最多两行；模板与全局未分类采用单展开手风琴，分页只服务当前展开组的 BOM 行，无模板时平铺分页。
+- DEV:
+  - DEV-588-TRIAL-PARENT-PRODUCTS（done）：价格试算只保留 active 且无父商品的主商品候选，子 SKU 搜索命中仍归并到主商品。
+  - DEV-588-TRIAL-PRODUCT-KIND-FILTER（done）：价格试算商品选择复用录单的动态商品类型按钮、关键词组合过滤和点击选中交互。
+  - DEV-588-BOM-COMPACT-GROUP-ACTIONS（done）：删除生产 BOM 列表描述，分组维护/移动/设置工具栏压缩到一行或最多两行。
+  - DEV-588-BOM-SINGLE-EXPANDED-PAGINATION（done）：第一顶层组默认展开，模板与未分类互斥切换；分页只统计展开组 BOM，切组/状态/搜索回第一页。
+  - DEV-588-DOCS-DEVELOPMENT-DELIVERY（done）：文档与支持合同已同步；已合入 develop 并最轻量部署 development，不做浏览器或业务验证。
+- Verifier:
+  - RED: product-settings/searchable-select 合同先因缺少主商品 helper、类型筛选插槽与交互失败；bom 合同先因旧描述、可多组展开且缺少当前组分页失败。
+  - GREEN: frontend-vue-shell 全量测试 901/901 passed；PR-588 主商品/类型筛选与 BOM 手风琴分页定向测试通过。
+  - Build safety: frontend-vue-shell Vite build passed；不做浏览器或 development 业务验证，由 Van 人工验收。
+  - Contract: `TestDev588PricingTrialParentPickerBomAccordionContracts` 与 `TestDev588BomListRemovesVerboseDescription` GREEN。
+  - Deploy gates: 服务器 Vue 测试 922/922、小程序测试 195/195、类型检查/构建、完整 Go 测试与镜像内 Go 测试均通过。
+- Deployment: feature `f2f25a57` merged to `develop` as `7c96e62ef4e71d06c603ca5213a0937927ae56d8` and deployed to development with `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260809225406-7c96e62ef4e7`; rollback image `kferp-orderapp-rollback:development-20260809225406-7c96e62ef4e7`; built-in external smoke returned HTTP 200. Browser/API business acceptance was not run and remains with Van. `main` and production untouched.
+- Last update: 2026-08-09 Asia/Shanghai
+
+### PR-587-PRICE-LIST-BOM-FIXES
+- Branch: codex/price-list-bom-fixes-20260809
+- Owner/session: Codex / 2026-08-09
+- Status: 1a/3/4 + 1b implemented, verified, merged to develop and deployed to development; 1c/2 root-caused, in progress
+- Scope: Van 2026-08-09 四项问题。(1a) 录单"选择价格表"抽屉标题与提示文案由"豆单"改为"价格表"。(3) 商品价格表平铺价格行新增"撤销人工修改"，删除人工覆盖价恢复系统计算价。(4) 生产 BOM 分组工具栏紧凑单行 + 列表窗口加高与详情齐平（沿用 fcccaffd）。(1b) 价格表类型按商品档案分类模板动态化、删除硬编码"咖啡熟豆"——动态分组基础设施已存在(beanListVersionGroupIdentity/buildClassificationPriceListTypeOptions)，但录单 syncBeanListVersionForCustomer 仍用硬编码 orderBeanListTypes，且"咖啡熟豆"非硬编码 UI 文案（仅测试分类名），需 Van 澄清具体所见选项。(1c) 生产新版本价格表发布后录单仍用旧版——前后端默认逻辑均取最新(is_default=group_rank=1)，public_fallback 按组给客户自定义版本优先；需生产数据确认(客户自定义优先 或 group_key/分类不匹配)。(2) 价格试算 50/磅 vs 价格表 51——两条路径用不同成本模型：ExplainCommercialPrice(梯度/生豆成本+参数) vs calculatePricingRuleTrial(完整 BOM+工艺路线+工位成本)，自然分叉，需产品决策对齐口径。
+- Verifier:
+  - Unit: node --test src/lib/costing-price-list-workflow.test.js src/lib/bom.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/order-entry.test.js src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js -> 97+151 GREEN
+  - Frontend/build: npm run build GREEN（仅既有 chunk-size warning）
+  - Manual: 价格表选择抽屉改名、平铺价格行撤销人工修改需同步 orderapp-remote/docs 手册（待 1b/1c 落定后一起更新）
+- Evidence: commit 245af582(1a+3) + fcccaffd(4); canRevertPriceListFlatRow/revertPriceListFlatRowOverride TDD RED->GREEN
+- Evidence(1b): commit 72682319 on codex/order-price-list-type-filter-fix-20260809 -> merged 23ccd9b8; filterBeanListVersionOptionsToCurrentTypes 改用 publicationTypeIdentityForPriceListType 解析 classificationTemplateID(8e15+groupID) 匹配，修复旧实现用负哨兵 type.id 导致 .filter(id>0) 清空、抽屉隐藏全部价格表的回归；TDD RED(3 用例,真实负id类型)->GREEN(129/129); 真实 dev 数据验证: 录单抽屉仅 pub 108(咖啡豆,8e15+1532) 5 个历史遗留类型隐藏(customer 0/122 均只留 108); 商品仅曜石(80 族->1)
+- Deployment(1b): ./deploy_orderapp.sh development -> origin/develop=23ccd9b8a3acb81dddae72ac563c455da82e86ef (2026-08-09); backup /opt/stacks/erp/orderapp.backup.deploy-20260809190344-23ccd9b8a3ac; rollback kferp-orderapp-rollback:development-20260809190344-23ccd9b8a3ac; smoke https://dev.qacoohee.com/app/login HTTP 200; 部署源码 grep publicationTypeIdentityForPriceListType=2(导入+使用); erp_orderapp Up, erp_postgres healthy
+- Deployment(1a/3/4): origin/develop=cd8c8baba0c8a68922facb75a869c9b1db8e9f63; backup /opt/stacks/erp/orderapp.backup.deploy-20260809163322-cd8c8baba0c8; rollback kferp-orderapp-rollback:development-20260809163322-cd8c8baba0c8; dev_289 合约已跟进'价格表版本'改名
+- Last update: 2026-08-09 Asia/Shanghai
+
+### PR-586-BOM-GROUP-CONFIG-DRAWER
+- Branch: codex/bom-group-config-drawer-20260809
+- Owner/session: Codex / 2026-08-09
+- Status: implementation + automated verification complete; merged to develop and included in a later development deployment
+- Scope: 生产 BOM 分组模板配置改为与仓库库存一致的弹窗模式--不再把分组模板选择（checkbox+保存）平铺在列表顶部，改为点击"设置分组模板"打开抽屉选择；BusinessGroupControls 紧凑展示并在 extra-actions 放"设置分组模板"入口；未选模板时给出紧凑空状态+设置/维护按钮。低频操作收进抽屉，列表顶部占用更少空间。
+- Verifier:
+  - Frontend: node --test src/lib/bom.test.js + feature-group-selection-ui.test.js; npm run build
+  - Manual: orderapp-remote/docs BOM 分组手册同步"设置分组模板抽屉"交互
+- Evidence: bom.test.js 新增抽屉契约 RED->GREEN; 全量前端 908/908; build 通过; Go TestDev450/453/458 通过; 手册 OP_MANUAL_PRODUCTION.md 已更新; acceptance 2026-08-09-bom-group-config-drawer.md
+- Deployment: commit e46a2c84 is an ancestor of development commit 23ccd9b8 and was included when PR-587 was deployed to development on 2026-08-09; no separate PR-586 deployment is pending.
+- Last update: 2026-08-09 Asia/Shanghai
+
+### PR-GROUP-TEMPLATE-THREE-PAGE-UNIFICATION
+- Branches: codex/group-template-parent-level (商品档案, merged), codex/bom-group-template-parent-level (BOM, merged), codex/warehouse-inside-grouping (仓库, merged)
+- Status: implemented, verified, merged to develop and deployed to development. All on develop=67afba8a.
+- Scope:
+  - 商品档案: 分组模板作为大类之上可展开收缩的父级大分组(template_label右侧标签→模板表头行+template_total)。
+  - 生产BOM: 与商品档案一致的三层分组(模板>大类>小类),单数分组→复数,折叠模板表头隐藏其下所有BOM。
+  - 仓库库存: 删除左侧仓库外分组,改为每个仓库内独立分组。选中仓库后顶部设置分组模板+移动到分组,库存表按模板>大类>小类三层展示,同一物品多批次归在同一组下。模板共用(feature_key=warehouse_inventory),每仓独立分配;object_key=warehouse_inventory_item,object_ref=warehouse:item_type:item_id:spec_g。
+- Verifier: 前端 885/885 通过; npm run build 通过; Go support+stock 包通过; 部署后 /app/vue-shell/?view=warehouseInventory 认证 200,JS bundle 含 warehouse_inventory_item 标记。
+- Deployment: ./deploy_orderapp.sh development → origin/develop=67afba8a18f4ea37be0ccb923b985d0a0807bc62; backup /opt/stacks/erp/orderapp.backup.deploy-20260809105048-67afba8a18f4; rollback kferp-orderapp-rollback:development-20260809105048-67afba8a18f4. erp_orderapp Up, erp_postgres healthy.
+- Workflow convention: 开发分支做完验证通过后,自动合入 develop 并部署到开发环境(用户 2026-08-09 确认)。
+- Last update: 2026-08-09 Asia/Shanghai
+
+
 ### PR-585-BOM-SINGLE-MATERIAL-LOSS
 - Branch: codex/fix-cookie-bom-cost-20260807
 - Owner/session: Codex / 2026-08-07
