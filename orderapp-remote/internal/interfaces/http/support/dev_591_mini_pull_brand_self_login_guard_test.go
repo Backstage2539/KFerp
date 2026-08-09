@@ -176,9 +176,8 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 	}
 
 	for rel, wants := range map[string][]string{
-		"REQUIREMENTS.md":        {"## 55.", "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"},
-		"ACCEPTANCE_TESTS.md":    {"### K55.", "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"},
-		"ACTIVE_REQUIREMENTS.md": {"PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", "Status: doing", "REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"},
+		"REQUIREMENTS.md":     {"## 55.", "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"},
+		"ACCEPTANCE_TESTS.md": {"### K55.", "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"},
 	} {
 		src, err := os.ReadFile(filepath.Join(repoRoot, rel))
 		if err != nil {
@@ -187,6 +186,22 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 		for _, want := range wants {
 			if !strings.Contains(string(src), want) {
 				t.Fatalf("root %s missing PR-591 marker %q", rel, want)
+			}
+		}
+	}
+	activePath := filepath.Join(repoRoot, "ACTIVE_REQUIREMENTS.md")
+	active, err := os.ReadFile(activePath)
+	if err != nil {
+		// The release Dockerfile deliberately copies only the two durable root
+		// governance documents into its isolated /src build context. Keep ACTIVE
+		// mandatory in a real checkout without making that Docker contract wider.
+		if !os.IsNotExist(err) || repoRoot != string(filepath.Separator) {
+			t.Fatal(err)
+		}
+	} else {
+		for _, want := range []string{"PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", "Status: doing", "REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD"} {
+			if !strings.Contains(string(active), want) {
+				t.Fatalf("root ACTIVE_REQUIREMENTS.md missing PR-591 marker %q", want)
 			}
 		}
 	}
