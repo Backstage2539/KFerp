@@ -347,6 +347,19 @@ function priceListFlatRowIsManualAdjusted(row = {}) {
   return Number.isFinite(finalPrice) && Number.isFinite(originalPrice) && Math.abs(finalPrice - originalPrice) > 0.005
 }
 
+export function canRevertPriceListFlatRow(row = {}) {
+  if (String(row?.pricing_mode || '').trim() === 'fixed_price') return false
+  return priceListFlatRowIsManualAdjusted(row)
+}
+
+export function revertPriceListFlatRowOverride(overrides = {}, rowKey = '') {
+  const key = String(rowKey || '')
+  if (!key || !(key in overrides)) return overrides
+  const next = { ...overrides }
+  delete next[key]
+  return next
+}
+
 function flatRowProductKey(row = {}) {
   const skuID = Number(row?.sku_id || row?.skuID || row?.skuId || 0)
   if (skuID > 0) return `sku:${skuID}`
