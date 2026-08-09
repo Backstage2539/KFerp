@@ -628,3 +628,26 @@ test('production BOM list is grouped by template tree without category filter ta
   assert.doesNotMatch(source, /productionBomUsedGroupOptions/)
   assert.doesNotMatch(source, /filterProductionBomCatalog\(productionBoms\.value,[\s\S]*groupItemID:/)
 })
+
+test('production BOM group template config opens from a drawer like warehouse inventory, not inline', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const listPanel = template.slice(
+    template.indexOf('<section class="panel list-panel">'),
+    template.indexOf('<section class="panel detail-panel">'),
+  )
+
+  // Template selection (checkboxes + save) lives in a drawer, not inline in the list panel.
+  assert.match(source, /productionBomGroupFeatureDrawerOpen/)
+  assert.match(source, /openProductionBomGroupFeatureSelectionDrawer/)
+  assert.doesNotMatch(listPanel, /data-feature-key="production_bom"/)
+  assert.match(source, /v-if="productionBomGroupFeatureDrawerOpen"[\s\S]*data-feature-key="production_bom"/)
+
+  // A compact "设置分组模板" entry is exposed in the controls extra-actions and the empty state.
+  assert.match(source, /<template #extra-actions>[\s\S]*设置分组模板/)
+  assert.match(source, /尚未选择分组模板，当前平铺展示[\s\S]*设置分组模板/)
+
+  // Saving the selection closes the drawer.
+  assert.match(source, /productionBomGroupFeatureDrawerOpen\.value = false/)
+})

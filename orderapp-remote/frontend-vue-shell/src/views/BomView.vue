@@ -27,29 +27,6 @@
         <div class="bom-list-actions-row">
           <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
         </div>
-        <div class="feature-group-selection" data-feature-key="production_bom">
-          <div class="feature-group-selection-copy">
-            <strong>生产 BOM 使用的分组模板</strong>
-            <small>可多选；保存后只有已选模板可用于 BOM 分类和移动。取消全部后按 BOM 平铺展示。</small>
-          </div>
-          <div class="feature-group-selection-options">
-            <label v-for="template in selectableProductionBomGroupTemplates" :key="template.id" class="feature-group-selection-option">
-              <input
-                v-model="productionBomGroupFeatureSelectionDraft"
-                type="checkbox"
-                :value="Number(template.id || 0)"
-                :disabled="productionBomGroupFeatureSelectionSaving || loading" />
-              <span>{{ template.label }}</span>
-            </label>
-            <span v-if="!selectableProductionBomGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
-          </div>
-          <div class="feature-group-selection-actions">
-            <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openBusinessGroupManagement">维护分组模板</button>
-            <button class="primary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading || !productionBomGroupFeatureSelectionHasChanges" @click="saveProductionBomFeatureSelection">
-              {{ productionBomGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
-            </button>
-          </div>
-        </div>
         <BusinessGroupControls
           v-if="productionBomSelectedBusinessGroups.length"
           v-model="selectedProductionBomTemplateID"
@@ -64,9 +41,15 @@
           :loading="loading"
           template-label="分类与移动模板"
           @manage="openBusinessGroupManagement"
-          @move="moveSelectedProductBomsToGroup" />
-        <div v-else class="bom-list-toolbar feature-group-empty">
+          @move="moveSelectedProductBomsToGroup">
+          <template #extra-actions>
+            <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openProductionBomGroupFeatureSelectionDrawer">设置分组模板</button>
+          </template>
+        </BusinessGroupControls>
+        <div v-else class="bom-list-toolbar feature-group-empty bom-group-empty-actions">
           <span>生产 BOM 尚未选择分组模板，当前平铺展示。</span>
+          <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openProductionBomGroupFeatureSelectionDrawer">设置分组模板</button>
+          <button class="secondary compact-action" type="button" @click="openBusinessGroupManagement">维护分组模板</button>
         </div>
         <div class="bom-list-filters">
           <label>
@@ -404,6 +387,37 @@
       </section>
     </div>
 
+    <div v-if="productionBomGroupFeatureDrawerOpen" class="drawer-mask" @click.self="productionBomGroupFeatureDrawerOpen = false">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h3>生产 BOM 分组模板</h3>
+          <button class="secondary compact-action" type="button" @click="productionBomGroupFeatureDrawerOpen = false">关闭</button>
+        </div>
+        <div class="feature-group-selection" data-feature-key="production_bom">
+          <div class="feature-group-selection-copy">
+            <strong>生产 BOM 使用的分组模板</strong>
+            <small>可多选；保存后只有已选模板可用于 BOM 分类和移动。取消全部后按 BOM 平铺展示。</small>
+          </div>
+          <div class="feature-group-selection-options">
+            <label v-for="template in selectableProductionBomGroupTemplates" :key="template.id" class="feature-group-selection-option">
+              <input
+                v-model="productionBomGroupFeatureSelectionDraft"
+                type="checkbox"
+                :value="Number(template.id || 0)"
+                :disabled="productionBomGroupFeatureSelectionSaving || loading" />
+              <span>{{ template.label }}</span>
+            </label>
+            <span v-if="!selectableProductionBomGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
+          </div>
+          <div class="feature-group-selection-actions">
+            <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openBusinessGroupManagement">维护分组模板</button>
+            <button class="primary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading || !productionBomGroupFeatureSelectionHasChanges" @click="saveProductionBomFeatureSelection">
+              {{ productionBomGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
     <div v-if="bomDrawerOpen" class="drawer-mask" @click.self="closeBomDrawer">
       <aside class="drawer">
         <div class="drawer-head">
@@ -500,6 +514,7 @@ const selectedProductionBomTemplateID = ref(0)
 const productionBomGroupFeatureSelectionTemplateIDs = ref([])
 const productionBomGroupFeatureSelectionDraft = ref([])
 const productionBomGroupFeatureSelectionSaving = ref(false)
+const productionBomGroupFeatureDrawerOpen = ref(false)
 const selectedBomRowKeys = ref([])
 const collapsedProductionBomGroups = ref([])
 const pendingProductionBomID = ref(0)
@@ -1417,6 +1432,11 @@ async function deleteItem(id) {
   })
 }
 
+function openProductionBomGroupFeatureSelectionDrawer() {
+  productionBomGroupFeatureSelectionDraft.value = [...productionBomGroupFeatureSelectionTemplateIDs.value]
+  productionBomGroupFeatureDrawerOpen.value = true
+}
+
 function openBusinessGroupManagement() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
@@ -1452,6 +1472,7 @@ async function saveProductionBomFeatureSelection() {
     selectedBomMoveGroupItemID.value = 0
     selectedBomRowKeys.value = []
     collapsedProductionBomGroups.value = []
+    productionBomGroupFeatureDrawerOpen.value = false
     ok.value = payload.group_template_ids.length
       ? `生产 BOM 已选择 ${payload.group_template_ids.length} 个分组模板`
       : '生产 BOM 已改为平铺展示'
@@ -1796,3 +1817,4 @@ tbody tr.active { background: #f3f7fb; }
   table { min-width: 620px; }
 }
 </style>
+.bom-group-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

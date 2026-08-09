@@ -6,6 +6,30 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-586-BOM-GROUP-CONFIG-DRAWER
+- Branch: codex/bom-group-config-drawer-20260809
+- Owner/session: Codex / 2026-08-09
+- Status: implementation + automated verification complete; merged to develop, dev deploy pending
+- Scope: 生产 BOM 分组模板配置改为与仓库库存一致的弹窗模式--不再把分组模板选择（checkbox+保存）平铺在列表顶部，改为点击"设置分组模板"打开抽屉选择；BusinessGroupControls 紧凑展示并在 extra-actions 放"设置分组模板"入口；未选模板时给出紧凑空状态+设置/维护按钮。低频操作收进抽屉，列表顶部占用更少空间。
+- Verifier:
+  - Frontend: node --test src/lib/bom.test.js + feature-group-selection-ui.test.js; npm run build
+  - Manual: orderapp-remote/docs BOM 分组手册同步"设置分组模板抽屉"交互
+- Evidence: bom.test.js 新增抽屉契约 RED->GREEN; 全量前端 908/908; build 通过; Go TestDev450/453/458 通过; 手册 OP_MANUAL_PRODUCTION.md 已更新; acceptance 2026-08-09-bom-group-config-drawer.md
+- Last update: 2026-08-09 Asia/Shanghai
+
+### PR-GROUP-TEMPLATE-THREE-PAGE-UNIFICATION
+- Branches: codex/group-template-parent-level (商品档案, merged), codex/bom-group-template-parent-level (BOM, merged), codex/warehouse-inside-grouping (仓库, merged)
+- Status: implemented, verified, merged to develop and deployed to development. All on develop=67afba8a.
+- Scope:
+  - 商品档案: 分组模板作为大类之上可展开收缩的父级大分组(template_label右侧标签→模板表头行+template_total)。
+  - 生产BOM: 与商品档案一致的三层分组(模板>大类>小类),单数分组→复数,折叠模板表头隐藏其下所有BOM。
+  - 仓库库存: 删除左侧仓库外分组,改为每个仓库内独立分组。选中仓库后顶部设置分组模板+移动到分组,库存表按模板>大类>小类三层展示,同一物品多批次归在同一组下。模板共用(feature_key=warehouse_inventory),每仓独立分配;object_key=warehouse_inventory_item,object_ref=warehouse:item_type:item_id:spec_g。
+- Verifier: 前端 885/885 通过; npm run build 通过; Go support+stock 包通过; 部署后 /app/vue-shell/?view=warehouseInventory 认证 200,JS bundle 含 warehouse_inventory_item 标记。
+- Deployment: ./deploy_orderapp.sh development → origin/develop=67afba8a18f4ea37be0ccb923b985d0a0807bc62; backup /opt/stacks/erp/orderapp.backup.deploy-20260809105048-67afba8a18f4; rollback kferp-orderapp-rollback:development-20260809105048-67afba8a18f4. erp_orderapp Up, erp_postgres healthy.
+- Workflow convention: 开发分支做完验证通过后,自动合入 develop 并部署到开发环境(用户 2026-08-09 确认)。
+- Last update: 2026-08-09 Asia/Shanghai
+
+
 ### PR-585-BOM-SINGLE-MATERIAL-LOSS
 - Branch: codex/fix-cookie-bom-cost-20260807
 - Owner/session: Codex / 2026-08-07
