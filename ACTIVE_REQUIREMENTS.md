@@ -9,35 +9,35 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-592-BOM-LOSS-GROSS-INPUT
 - Branch: codex/fix-chuxiao-bom-loss-denominator-20260810
 - Owner/session: Codex / 2026-08-10
-- Status: review; TDD implementation and automated verification complete; development release is part of this delivery; Van manual acceptance todo
+- Status: review; TDD implementation, automated verification and development deployment complete at `bae5c748fc08`; Van manual acceptance todo
 - Scope: BOM `material_loss_rate` 仍是当前业务唯一损耗来源，但含义按 Van 最新确认修正为“损耗占总投料比例”；成本、价格试算和新生产需求统一使用 `净用量 ÷ (1 - 损耗率)`。初晓哥伦比亚净配方25%、损耗19.5%、78元/kg时，损耗后用量31.0559%，折算成本24.22元。整体产出率与商品预期损耗继续中性化；历史冻结快照、价格表、订单、工单和库存流水不回算。
 - DEV:
-  - DEV-592-COSTING-GROSS-INPUT-LOSS：成本领域、SQL、价格试算明细和Vue展示统一分母公式。
-  - DEV-592-PRODUCTION-GROSS-INPUT-LOSS：新计划、组件需求、WIP、领料和工单统一分母公式；新快照写 `yield_denominator`，旧 additive/无标记快照冻结兼容。
-  - DEV-592-DOCS-DEVELOPMENT-DELIVERY：同步需求、验收、成本/生产/物料手册，验证后仅部署 development。
+  - DEV-592-COSTING-GROSS-INPUT-LOSS（done）：成本领域、SQL、价格试算明细和Vue展示统一分母公式。
+  - DEV-592-PRODUCTION-GROSS-INPUT-LOSS（done）：新计划、组件需求、WIP、领料和工单统一分母公式；新快照写 `yield_denominator`，旧 additive/无标记快照冻结兼容。
+  - DEV-592-DOCS-DEVELOPMENT-DELIVERY（done）：需求、验收、成本/生产/物料手册和自动门禁已完成，随 `develop@bae5c748fc08` 部署 development。
 - Verifier:
   - RED: 初晓哥伦比亚当前为 `25% × 1.195 × 78 = 23.3025元`；目标 `25% ÷ 0.805 × 78 = 24.2236元`。生产领域 6356g、18% 当前得到7501g，目标整克向上取整7752g。
   - Unit/build: costing、production、HTTP support、Vue定向与全量单元测试及Vite build。
-- Deployment: development only; deployment evidence is recorded in the final delivery report; no browser/API/business verification; main and production excluded.
+- Deployment: `develop@bae5c748fc0839560db3c7e1e8cb0101f0748f0e` 已部署 development；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810105436-bae5c748fc08`，回滚镜像 `kferp-orderapp-rollback:development-20260810105436-bae5c748fc08`，外部 smoke HTTP 200。未做浏览器/API/业务验证；main 与 production 未操作。
 - Last update: 2026-08-10 Asia/Shanghai
 
 ### PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD
 - Branch: codex/mini-pull-brand-elastic-reveal-20260810
 - Owner/session: Codex / 2026-08-10
-- Status: review；Van 第二轮 development 验收发现上拉展示后松手仍可停留在大块空白尾页。松手回弹互动实现已完成，自动门禁、合入与 development 部署进行中；PR 保持 review，REV 保持 todo
+- Status: review；Van 第二轮 development 验收发现上拉展示后松手仍可停留在大块空白尾页。松手回弹互动、自动门禁、合入与 development 部署均已完成；PR 保持 review，REV 保持 todo，等待 Van 真机验收
 - Scope: 小程序除瞬时启动路由外的 13 个实际业务页面，底标尾舱平时为零高度且不增加滚动区；只有在真实内容底部继续以竖直向上为主拉动时，才临时展开 `Drived By` 和透明银灰棵凡四字字标；`touchend` / `touchcancel` / `onHide` 后约 220ms 自动回弹隐藏，松手不能停留空白尾页。13 页使用普通冒泡触摸事件，不用 prevent/stop，不把全页改为 scroll-view。ERP 自停用防护保持不变。本轮验证后合入 `develop` 并部署 development；production 代码、微信上传、提审和发布不在范围。
 - DEV:
   - DEV-591-MINI-PULL-UP-BRAND（done）：13 个实际业务页面已接入 `usePullUpBrandGesture` 和四个普通冒泡触摸处理；底标尾舱休眠时 `max-height: 0`，只在真实底部上拉手势期间展开，松手、取消或离开页面后自动回弹隐藏。透明银灰“棵凡咖啡”使用 420×124、9,009 bytes PNG。
   - DEV-591-SELF-LOGIN-DISABLE-GUARD（done）：API 已拒绝当前员工停用自身；BasicAuth 仍可恢复任意内部员工，其他管理员仍可启停他人；员工维护已禁用当前行开关并提示原因，真实隔离 PostgreSQL 状态/审计测试、Vue 928/928 和构建通过。
-  - DEV-591-DOCS-DEVELOPMENT-DELIVERY（doing）：第二轮松手回弹需求、验收、三份相关手册、种子和支持合同已同步；自动门禁、合入和 development 部署待当前实现完成后执行。
+  - DEV-591-DOCS-DEVELOPMENT-DELIVERY（done）：第二轮松手回弹需求、验收、三份相关手册、种子和支持合同已同步；自动门禁、合入、development 部署和固定开发包同步均完成。
 - Verifier:
   - RED: `go test ./internal/interfaces/http/support -run TestDev591MiniPullBrandSelfLoginGuardContracts -count=1` 首次因缺少 PR-591 种子失败。
   - Miniapp: `miniapp/src/utils/pullUpBrandFooter.test.ts`、miniapp 全量测试、类型检查和 development 构建。
   - Second follow-up RED/GREEN: 定向合同先因缺少手势 reducer、13 页 `usePullUpBrandGesture` 接线和可收回尾舱失败；修正后定向 10/10、miniapp 全量 205/205、类型检查、development mp-weixin 构建、13 页编译 WXML、PR-591 support、后端全包和差异检查均通过。
   - Auth: account-state handler 定向测试、CompanyStaffView 定向测试、前端 build 和 PR-591 支持合同。
-  - Deploy gates: 上一版 development 基线已部署；当前松手回弹纠正版待自动门禁通过后合入、部署 development 并更新固定开发包。production 不操作。
+  - Deploy gates: 服务器 Vue 928/928、miniapp 205/205、类型检查、development 构建、Go 全包、镜像内 Go 全包和外部 smoke 全部通过；固定开发包已同步。production 不操作。
 - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/acceptance/2026-08-10-mini-pull-brand-self-login-guard.md`。
-- Deployment: 上一版 `develop@ca452a5379f0d4c7a197791edef61d4653898c6b` 已部署 development，对应备份、回滚镜像和固定开发包证据保留。第二轮松手回弹纠正版尚未合入或部署；完成后由主工作流补录新的 development 提交、备份、回滚、smoke 和固定包证据。production 代码不部署。
+- Deployment: `develop@bae5c748fc0839560db3c7e1e8cb0101f0748f0e` 已部署 development；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810105436-bae5c748fc08`，回滚镜像 `kferp-orderapp-rollback:development-20260810105436-bae5c748fc08`，外部 smoke HTTP 200。服务器小程序产物位于 `/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`；本机固定开发包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 已更新，旧包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810110039-bae5c748fc08`。微信上传、提审、发布及 production 代码部署均未执行。
 - Review: `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD` todo，等待 Van 在 development 人工验收上拉品牌显示与当前账号防自停用。
 - Last update: 2026-08-10 Asia/Shanghai
 

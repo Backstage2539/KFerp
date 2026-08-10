@@ -21,7 +21,7 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 		{table: "req_product", code: "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", status: "review", assignee: "VA"},
 		{table: "req_dev", code: "DEV-591-MINI-PULL-UP-BRAND", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-591-SELF-LOGIN-DISABLE-GUARD", status: "done", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-591-DOCS-DEVELOPMENT-DELIVERY", status: "doing", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-591-DOCS-DEVELOPMENT-DELIVERY", status: "done", assignee: "Codex"},
 		{table: "req_review", code: "REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", status: "todo", assignee: "VA"},
 	} {
 		requireDev591SeedRow(t, reqStore, row.table, row.code, row.status, row.assignee)

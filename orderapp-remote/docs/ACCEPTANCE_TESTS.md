@@ -1980,4 +1980,4 @@
 - [ ] 当前管理员在 ERP 员工维护页不能关闭当前登录账号自身，开关禁用并显示原因；直接调用账号启停 API 关闭自身返回 409 `cannot disable current account`，登录状态、当前会话和业务成功审计均不变化。
 - [ ] BasicAuth 运维恢复通道仍可恢复有效内部员工；管理员仍可启停其他员工，并可保持或恢复自己的启用状态。拒绝自停用不会影响其他账号维护、密码重置或权限管理。
 - [x] production 目标内部员工账号已通过现有账号启停 API 即时恢复，原有审计可追溯，需求与验收证据未记录账号、密码或其他个人信息。
-- [ ] 第二轮松手回弹实现完成后，须通过手势 reducer、13 页接线、透明资源、类型检查、development 构建和 PR-591 支持合同，再合入并部署 development。当前交付状态为 doing；微信上传、提审、发布和 production 代码部署不在本轮范围，`REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD` 保持 todo。
+- [x] 第二轮松手回弹已通过手势 reducer、13 页接线、透明资源、miniapp 205/205、类型检查、development 构建、Vue 928/928、Go 全包和 PR-591 支持合同；已合入并部署 `develop@bae5c748fc08`，固定开发包已同步，外部 smoke HTTP 200。微信上传、提审、发布和 production 代码部署未执行，`REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD` 保持 todo。

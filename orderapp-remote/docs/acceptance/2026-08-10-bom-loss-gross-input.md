@@ -24,5 +24,6 @@
 
 ## 部署范围
 
-- 仅合入和部署 development。
-- 不部署 main/production，不修改 BOM、物料价格、价格模板或历史业务数据。
+- 已随 `develop@bae5c748fc0839560db3c7e1e8cb0101f0748f0e` 部署 development。
+- 源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810105436-bae5c748fc08`；回滚镜像：`kferp-orderapp-rollback:development-20260810105436-bae5c748fc08`；外部 smoke HTTP 200。
+- 未做浏览器、API 或业务验收；不部署 main/production，不修改 BOM、物料价格、价格模板或历史业务数据。

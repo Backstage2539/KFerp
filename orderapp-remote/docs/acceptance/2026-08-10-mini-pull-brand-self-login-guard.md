@@ -57,20 +57,17 @@
 
 ## 交付状态
 
-- `DEV-591-MINI-PULL-UP-BRAND`：done；第二轮松手回弹实现已完成，等待当前自动门禁、合入和 development 部署闭环。
+- `DEV-591-MINI-PULL-UP-BRAND`：done；第二轮松手回弹实现、自动门禁、合入和 development 部署闭环均已完成。
 - `DEV-591-SELF-LOGIN-DISABLE-GUARD`：done；production 即时恢复和持久代码防护的 API、数据库状态/审计、Vue 测试与构建均已通过。
-- `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：doing；第二轮文档、种子和支持合同已同步，自动门禁、合入、development 部署和新固定开发包证据待补录。
+- `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：done；第二轮文档、种子和支持合同已同步，自动门禁、合入、development 部署和新固定开发包证据已补录。
 - `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`：todo，等待 Van 在 development 人工验收。
 
 ## Development 部署证据
 
-- 以下为上一版 development 基线证据；第二轮松手回弹纠正版尚未合入或部署。主工作流完成后要用新提交、备份、回滚、smoke 和固定包证据替换当前交付状态；production 代码不操作。
-
-- 纠正功能部署提交：`develop@ca452a5379f0d4c7a197791edef61d4653898c6b`。
-- 服务器源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810095952-ca452a5379f0`。
-- 回滚镜像：`kferp-orderapp-rollback:development-20260810095952-ca452a5379f0`。
+- 第二轮松手回弹部署提交：`develop@bae5c748fc0839560db3c7e1e8cb0101f0748f0e`。
+- 服务器源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810105436-bae5c748fc08`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20260810105436-bae5c748fc08`。
 - 服务器微信小程序构建产物：`/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`。
-- 本机固定开发包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；替换前备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810100607-ca452a5379f0`。
-- 外部健康检查：HTTP 200。开发包已同步到固定目录，但微信上传、提审和发布未执行；production 代码未部署。
-- 服务器与本机固定开发包中的透明字标 SHA-256 均为 `8cb4f61def4cbf8cc96f03aa584283f92ed3380b81138c29ca51e2ff651c91ab`，编译包 13 个实际页面各有一个普通屏幕外锚点。
-- 首次纠正部署因服务器根盘被 27.72GB 未使用 BuildKit 缓存写满而在 PostgreSQL 健康检查处失败；仅清理可重建构建缓存后释放约 25GB，数据库自动恢复、旧应用基线恢复 HTTP 200，随后同一提交完整重跑门禁并成功部署。未删除数据库卷、源码备份或业务文件，未修改数据库或业务数据。
+- 本机固定开发包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；替换前备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810110039-bae5c748fc08`。
+- 服务器门禁：Vue 928/928、miniapp 205/205、类型检查、development 构建、Go 全包、镜像内 Go 全包均通过；外部健康检查 HTTP 200。
+- 开发包已同步到固定目录，但微信上传、提审和发布未执行；production 代码未部署。Van 负责 iOS/Android 真机手感和业务验收。
