@@ -161,6 +161,10 @@ func TestComponentConsumptionQtyGrossesRatioMaterialLoss(t *testing.T) {
 	if fixed != 125 {
 		t.Fatalf("fixed quantity should ignore material loss, got %d", fixed)
 	}
+	packaging := componentConsumptionQtyWithMaterialLoss("个", 2, 0, "个", 1000, 1000, 0, 0, 1, "kg", 0.2)
+	if packaging != 2 {
+		t.Fatalf("global fixed packaging unit should ignore material loss and follow output basis, got %d", packaging)
+	}
 }
 
 func TestFrozenMaterialSnapshotKeepsHistoricalLossMathWhileNewSnapshotUsesYieldDenominator(t *testing.T) {

@@ -201,7 +201,7 @@ func componentConsumptionQtyWithOutputBasis(consumeUnit string, qtyPerUnit float
 		return int64(math.Ceil(float64(boxUnits) * qtyPerUnit))
 	case "g", "kg", "fixed_qty", "unit", "length", "area":
 		return fixedOutputBasisConsumptionQty(consumeUnit, qtyPerUnit, unit, outputG, packedUnits, outputQty, outputUnit)
-	default:
+	case "ratio_pct":
 		ratio := bomdomain.NormalizeRatioPct(ratioPct)
 		if ratio <= 0 {
 			return 0
@@ -213,6 +213,8 @@ func componentConsumptionQtyWithOutputBasis(consumeUnit string, qtyPerUnit float
 			return int64(math.Ceil(float64(rawG) * ratio / 100.0))
 		}
 		return int64(math.Ceil(float64(packedUnits) * ratio / 100.0))
+	default:
+		return fixedOutputBasisConsumptionQty(consumeUnit, qtyPerUnit, unit, outputG, packedUnits, outputQty, outputUnit)
 	}
 }
 

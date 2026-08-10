@@ -16,6 +16,7 @@ type apiFakeRepo struct {
 	deactivatedBomProductID                  int64
 	listRows                                 []bomapp.ListItem
 	productRows                              []bomapp.Option
+	materialRows                             []bomapp.Option
 	detail                                   bomapp.Detail
 	syncedYield                              bomapp.SyncProductYieldCommand
 	savedItem                                bomapp.SaveItemCommand
@@ -54,7 +55,7 @@ func (r *apiFakeRepo) Detail(context.Context, int64) (bomapp.Detail, error) {
 	return r.detail, nil
 }
 func (r *apiFakeRepo) Products(context.Context) ([]bomapp.Option, error)  { return r.productRows, nil }
-func (r *apiFakeRepo) Materials(context.Context) ([]bomapp.Option, error) { return nil, nil }
+func (r *apiFakeRepo) Materials(context.Context) ([]bomapp.Option, error) { return r.materialRows, nil }
 func (r *apiFakeRepo) BagSpecMappings(context.Context) ([]bomapp.BagSpecMapping, error) {
 	return nil, nil
 }

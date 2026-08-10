@@ -787,6 +787,32 @@ func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T)
 	}
 }
 
+func TestLoadProductInputsPricesCustomPackagingUnitFromMatchingMaterialCostUnit(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "bom_unit_cost AS (")
+	if start < 0 {
+		t.Fatal("bom_unit_cost CTE not found")
+	}
+	end := strings.Index(src[start:], "finished_component_cost AS (")
+	if end < 0 {
+		t.Fatal("bom_unit_cost CTE not found")
+	}
+	cte := src[start : start+end]
+	for _, want := range []string{
+		"NULLIF(m.cost_unit,'')",
+		"NULLIF(m.unit,'')",
+		"COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') NOT IN ('ratio_pct','g_per_bag')",
+	} {
+		if !strings.Contains(cte, want) {
+			t.Fatalf("custom packaging cost must use matching material unit; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsOperationTemplateCosts(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

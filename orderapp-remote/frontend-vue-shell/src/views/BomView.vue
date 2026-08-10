@@ -301,23 +301,41 @@
               </label>
               <div class="material-loss-control bom-version-loss-control">
                 <label class="checkbox-row compact-checkbox">
-                  <input v-model="versionMaterialLossRateEnabled" type="checkbox" :disabled="!canEditCurrentBomItems" @change="syncMaterialLossConsumeUnitConstraint" />
+                  <input v-model="versionMaterialLossRateEnabled" type="checkbox" :disabled="!canEditCurrentBomItems" @change="syncMaterialLossZoneFromVersion" />
                   <span>原料损耗比</span>
                 </label>
                 <label v-if="versionMaterialLossRateEnabled" class="material-loss-rate-field">
                   <span>损耗比例 %</span>
-                  <input v-model.number="versionMaterialLossRatePct" type="number" min="0" max="99.9999" step="0.01" :disabled="!canEditCurrentBomItems" @input="syncMaterialLossConsumeUnitConstraint" />
-                  <small>开启后组件消耗单位只能使用比例 %；如需固定数量或商品组件，请先关闭原料损耗比。</small>
+                  <input v-model.number="versionMaterialLossRatePct" type="number" min="0" max="99.9999" step="0.01" :disabled="!canEditCurrentBomItems" />
+                  <small>损耗只作用于物料的比例 % 行；固定用量包材和商品组件不参与损耗。</small>
                 </label>
               </div>
               <button class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems || loading" @click="saveProductionBomVersionMeta">保存版本设置</button>
+            </div>
+            <div v-if="versionMaterialLossRateEnabled" class="material-loss-zones" aria-label="BOM 物料损耗区域">
+              <button
+                class="material-loss-zone"
+                :class="{ active: selectedMaterialLossZone === 'loss' }"
+                type="button"
+                @click="selectMaterialLossZone('loss')">
+                <strong>损耗原料</strong>
+                <small>按比例 % 录入，应用当前原料损耗比</small>
+              </button>
+              <button
+                class="material-loss-zone"
+                :class="{ active: selectedMaterialLossZone === 'non_loss' }"
+                type="button"
+                @click="selectMaterialLossZone('non_loss')">
+                <strong>非损耗物料（含包材）</strong>
+                <small>按个、件、袋、盒等固定用量录入，不参与损耗</small>
+              </button>
             </div>
             <form class="inline-form" @submit.prevent="saveItem">
               <label>
                 <span>组件来源</span>
                 <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomItems" @change="syncComponentTypeDefaults">
                   <option value="material">物料</option>
-                  <option value="product" :disabled="versionMaterialLossRateEnabled">商品组件</option>
+                  <option value="product">商品组件</option>
                 </select>
               </label>
               <label>
@@ -371,13 +389,24 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="item in detailItems" :key="item.id">
-                    <td>{{ componentTypeLabel(item.component_type) }}</td>
-                    <td>{{ componentItemName(item) }}</td>
-                    <td>{{ itemQuantityDisplay(item) }}</td>
-                    <td><button class="text-button" type="button" :disabled="!canEditCurrentBomItems" @click="deleteItem(item.id)">删除</button></td>
-                  </tr>
-                  <tr v-if="!detailItems.length">
+                  <template v-for="section in detailItemSections" :key="section.key">
+                    <tr v-if="section.label" class="bom-material-zone-row">
+                      <td colspan="4">
+                        <strong>{{ section.label }}</strong>
+                        <small>{{ section.description }}</small>
+                      </td>
+                    </tr>
+                    <tr v-for="item in section.items" :key="`${section.key}-${item.id}`">
+                      <td>{{ componentTypeLabel(item.component_type) }}</td>
+                      <td>{{ componentItemName(item) }}</td>
+                      <td>{{ itemQuantityDisplay(item) }}</td>
+                      <td><button class="text-button" type="button" :disabled="!canEditCurrentBomItems" @click="deleteItem(item.id)">删除</button></td>
+                    </tr>
+                    <tr v-if="section.label && !section.items.length">
+                      <td colspan="4" class="muted">{{ section.emptyLabel }}</td>
+                    </tr>
+                  </template>
+                  <tr v-if="!versionMaterialLossRateEnabled && !detailItems.length">
                     <td colspan="4" class="muted">暂无组件</td>
                   </tr>
                 </tbody>
@@ -546,8 +575,35 @@ const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output
 const versionNote = ref('')
 const versionMaterialLossRateEnabled = ref(false)
 const versionMaterialLossRatePct = ref('')
+const selectedMaterialLossZone = ref('loss')
 
 const detailItems = computed(() => detail.value?.items || [])
+const detailItemSections = computed(() => {
+  if (!versionMaterialLossRateEnabled.value) {
+    return [{ key: 'all', label: '', description: '', emptyLabel: '暂无组件', items: detailItems.value }]
+  }
+  const lossItems = detailItems.value.filter((item) => (
+    (item?.component_type || 'material') === 'material'
+    && (item?.consume_unit || 'ratio_pct') === 'ratio_pct'
+  ))
+  const nonLossItems = detailItems.value.filter((item) => !lossItems.includes(item))
+  return [
+    {
+      key: 'loss',
+      label: '损耗原料',
+      description: '比例用量应用当前 BOM 原料损耗比',
+      emptyLabel: '暂无损耗原料',
+      items: lossItems,
+    },
+    {
+      key: 'non_loss',
+      label: '非损耗物料（含包材）',
+      description: '固定用量和商品组件不参与原料损耗',
+      emptyLabel: '暂无非损耗物料或包材',
+      items: nonLossItems,
+    },
+  ]
+})
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const selectableProductionBomGroupTemplates = computed(() => businessGroupControlOptions(productionBomBusinessGroups.value).templateOptions)
 const productionBomGroupFeatureSelectionHasChanges = computed(() => (
@@ -685,9 +741,18 @@ const unitDictionaryConsumeUnitOptions = computed(() => productUnitDefinitions.v
   })
   .filter(Boolean)
   .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''))))
-const currentConsumeUnitOptions = computed(() => itemForm.component_type === 'product'
-  ? (versionMaterialLossRateEnabled.value ? materialLossRatioOnlyConsumeUnitOptions : consumeUnitOptionsWithCurrent(false, itemForm.consume_unit))
-  : (versionMaterialLossRateEnabled.value ? materialLossRatioOnlyConsumeUnitOptions : consumeUnitOptionsWithCurrent(true, itemForm.consume_unit)))
+const currentConsumeUnitOptions = computed(() => {
+  if (versionMaterialLossRateEnabled.value && selectedMaterialLossZone.value === 'loss') {
+    return materialLossRatioOnlyConsumeUnitOptions
+  }
+  if (versionMaterialLossRateEnabled.value && selectedMaterialLossZone.value === 'non_loss') {
+    return componentInventoryConsumeUnitOptions(itemForm.consume_unit)
+  }
+  return consumeUnitOptionsWithCurrent(
+    itemForm.component_type !== 'product' && !versionMaterialLossRateEnabled.value,
+    itemForm.consume_unit,
+  )
+})
 const selectedVersionMaterialLossRate = computed(() => versionMaterialLossRateEnabled.value
   ? normalizedMaterialLossRateFromPercent(versionMaterialLossRatePct.value)
   : 0)
@@ -979,6 +1044,13 @@ function consumeUnitOptionsWithCurrent(includeRatio, currentUnit) {
   return options
 }
 
+function componentInventoryConsumeUnitOptions(currentUnit) {
+  const inventoryUnit = componentStockUnitCode.value
+  if (!inventoryUnit) return consumeUnitOptionsWithCurrent(false, currentUnit)
+  const configured = unitDictionaryConsumeUnitOptions.value.find((option) => option.value === inventoryUnit)
+  return [configured || { value: inventoryUnit, label: unitLabel(inventoryUnit) }]
+}
+
 function consumeUnitLabel(unit) {
   const value = String(unit || '').trim()
   if (value === ratioConsumeUnitOption.value) return ratioConsumeUnitOption.label
@@ -1012,16 +1084,28 @@ function syncVersionMaterialLossRateFromSelectedVersion() {
   const rate = normalizedMaterialLossRateFromValue(selectedProductionBomVersion.value?.material_loss_rate)
   versionMaterialLossRateEnabled.value = rate > 0
   versionMaterialLossRatePct.value = rate > 0 ? Number((rate * 100).toFixed(4)) : ''
-  syncMaterialLossConsumeUnitConstraint()
+  syncMaterialLossZoneFromVersion()
 }
 
-function syncMaterialLossConsumeUnitConstraint() {
+function syncMaterialLossZoneFromVersion() {
   if (!versionMaterialLossRateEnabled.value) return
-  itemForm.component_type = 'material'
-  itemForm.component_product_id = 0
-  itemForm.component_spec_g = 0
-  itemForm.consume_unit = 'ratio_pct'
-  itemForm.qty_per_unit = ''
+  selectedMaterialLossZone.value = itemForm.component_type === 'material' && itemForm.consume_unit === 'ratio_pct'
+    ? 'loss'
+    : 'non_loss'
+}
+
+function selectMaterialLossZone(zone) {
+  selectedMaterialLossZone.value = zone === 'non_loss' ? 'non_loss' : 'loss'
+  if (selectedMaterialLossZone.value === 'loss') {
+    itemForm.component_type = 'material'
+    itemForm.component_product_id = 0
+    itemForm.component_spec_g = 0
+    itemForm.consume_unit = 'ratio_pct'
+    itemForm.qty_per_unit = ''
+    return
+  }
+  itemForm.consume_unit = componentStockUnitCode.value || defaultDictionaryConsumeUnit()
+  itemForm.ratio_pct = ''
 }
 
 function materialLossRateDisplay(item = {}) {
@@ -1050,7 +1134,7 @@ function productionBomDraftItemFromItem(item = {}) {
 
 function productionBomDraftItemFromForm() {
   const componentType = itemForm.component_type === 'product' ? 'product' : 'material'
-  const consumeUnit = versionMaterialLossRateEnabled.value ? 'ratio_pct' : (itemForm.consume_unit || 'ratio_pct')
+  const consumeUnit = itemForm.consume_unit || 'ratio_pct'
   return {
     material_id: Number(itemForm.material_id || 0),
     component_type: componentType,
@@ -1202,22 +1286,20 @@ function closeBomDrawer() {
 }
 
 function syncComponentTypeDefaults() {
-  if (versionMaterialLossRateEnabled.value) {
-    itemForm.component_type = 'material'
-    itemForm.component_product_id = 0
-    itemForm.component_spec_g = 0
-    itemForm.consume_unit = 'ratio_pct'
-    itemForm.qty_per_unit = ''
-    return
-  }
   if (itemForm.component_type === 'product') {
     itemForm.material_id = 0
-    itemForm.consume_unit = defaultDictionaryConsumeUnit()
+    if (versionMaterialLossRateEnabled.value) selectedMaterialLossZone.value = 'non_loss'
+    itemForm.consume_unit = componentStockUnitCode.value || defaultDictionaryConsumeUnit()
     itemForm.ratio_pct = ''
     return
   }
   itemForm.component_product_id = 0
   itemForm.component_spec_g = 0
+  if (versionMaterialLossRateEnabled.value && selectedMaterialLossZone.value === 'non_loss') {
+    itemForm.consume_unit = componentStockUnitCode.value || defaultDictionaryConsumeUnit()
+    itemForm.ratio_pct = ''
+    return
+  }
   itemForm.consume_unit = 'ratio_pct'
   itemForm.qty_per_unit = ''
 }
@@ -1230,6 +1312,7 @@ function resetItemForm() {
   itemForm.consume_unit = 'ratio_pct'
   itemForm.qty_per_unit = ''
   itemForm.ratio_pct = ''
+  if (versionMaterialLossRateEnabled.value) selectedMaterialLossZone.value = 'loss'
 }
 
 function clearSelectedProductionBom() {
@@ -1748,6 +1831,12 @@ watch(productionBomMoveGroupOptions, (options) => {
   }
 })
 
+watch(componentStockUnitCode, (unit) => {
+  if (!versionMaterialLossRateEnabled.value || selectedMaterialLossZone.value !== 'non_loss' || !unit) return
+  itemForm.consume_unit = unit
+  itemForm.ratio_pct = ''
+})
+
 function outputProductLabel(row = {}) {
   const productID = Number(row.output_product_id || 0)
   const name = row.output_product_name || productByID(productID)?.name || ''
@@ -1858,6 +1947,14 @@ tbody tr.active { background: #f3f7fb; }
 .version-ratio-box span { display: block; color: #666; font-size: 12px; margin-bottom: 4px; }
 .version-ratio-box strong { font-size: 16px; }
 .material-loss-control { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.material-loss-zones { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px; margin: 12px 0 4px; }
+.material-loss-zone { height: auto; min-height: 70px; display: grid; gap: 5px; align-content: center; text-align: left; border-color: #d8d0c7; background: #fff; }
+.material-loss-zone strong, .material-loss-zone small { display: block; }
+.material-loss-zone small { color: #666; line-height: 1.35; }
+.material-loss-zone.active { border-color: #1f4f82; background: #eef6ff; box-shadow: inset 0 0 0 1px #1f4f82; }
+.bom-material-zone-row td { background: #f8f7f5; border-top: 1px solid #d8d0c7; }
+.bom-material-zone-row strong { margin-right: 10px; }
+.bom-material-zone-row small { color: #666; }
 .checkbox-row.compact-checkbox { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; margin: 0; }
 .checkbox-row.compact-checkbox input { min-width: 0; width: 16px; height: 16px; }
 .checkbox-row.compact-checkbox span { margin: 0; color: #333; font-size: 13px; font-weight: 700; }
@@ -1891,6 +1988,7 @@ tbody tr.active { background: #f3f7fb; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .attrs-grid { grid-template-columns: 1fr; }
+  .material-loss-zones { grid-template-columns: 1fr; }
   table { min-width: 620px; }
 }
 </style>

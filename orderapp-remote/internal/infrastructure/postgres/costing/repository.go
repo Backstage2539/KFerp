@@ -1548,6 +1548,9 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(mv.weighted_unit_cost, m.purchase_price, 0)
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box')
 			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), mv.weighted_unit_cost, 0)
+			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') NOT IN ('ratio_pct','g_per_bag')
+			          AND lower(btrim(COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'))) = lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), '')))
+			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), mv.weighted_unit_cost, 0)
 			         ELSE 0
 			       END),0) AS bom_cost_per_unit
 			FROM product_scope p

@@ -1966,20 +1966,6 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	if strings.TrimSpace(cmd.OutputUnit) != "" {
 		outputUnit = strings.TrimSpace(cmd.OutputUnit)
 	}
-	if materialLossRate > 0 && cmd.Items == nil {
-		var invalidCount int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT COUNT(*)
-			FROM %s.production_bom_version_items
-			WHERE version_id=$1
-			  AND COALESCE(consume_unit,'')<>'ratio_pct'
-		`, r.schema), cmd.VersionID).Scan(&invalidCount); err != nil {
-			return bomapp.ProductionBomVersion{}, err
-		}
-		if invalidCount > 0 {
-			return bomapp.ProductionBomVersion{}, fmt.Errorf("原料损耗比开启后，组件消耗单位只能使用比例 %%")
-		}
-	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_bom_versions
 		SET yield_rate=$2,
@@ -2001,9 +1987,6 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 			componentType := strings.TrimSpace(item.ComponentType)
 			if componentType == "" {
 				componentType = "material"
-			}
-			if materialLossRate > 0 && item.ConsumeUnit != "ratio_pct" {
-				return bomapp.ProductionBomVersion{}, fmt.Errorf("原料损耗比开启后，组件消耗单位只能使用比例 %%")
 			}
 			itemMaterialLossRate := 0.0
 			if materialLossRate > 0 && componentType == "material" && item.ConsumeUnit == "ratio_pct" {
@@ -2031,6 +2014,61 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	return r.productionBomVersionByID(ctx, cmd.VersionID)
 }
 
+func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.Context, versionID int64) error {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(component_type,''),'material'),
+		       COALESCE(material_id,0),
+		       COALESCE(component_product_id,0),
+		       COALESCE(consume_unit,'')
+		FROM %s.production_bom_version_items
+		WHERE version_id=$1
+	`, r.schema), versionID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	items := make([]bomapp.ProductionBomDraftItem, 0)
+	needMaterials := false
+	needProducts := false
+	for rows.Next() {
+		var item bomapp.ProductionBomDraftItem
+		if err := rows.Scan(&item.ComponentType, &item.MaterialID, &item.ComponentProductID, &item.ConsumeUnit); err != nil {
+			return err
+		}
+		items = append(items, item)
+		if !bomapp.ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
+			continue
+		}
+		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
+			needProducts = true
+		} else {
+			needMaterials = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	if !needMaterials && !needProducts {
+		return nil
+	}
+	var materials []bomapp.Option
+	var products []bomapp.Option
+	if needMaterials {
+		materials, err = r.Materials(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if needProducts {
+		products, err = r.Products(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	return bomapp.ValidateProductionBomDraftItemInventoryUnits(items, materials, products)
+}
+
 func (r Repository) ValidateProductionBomVersionForPublish(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
 	var bomID int64
 	var outputProductID int64
@@ -2053,6 +2091,9 @@ func (r Repository) ValidateProductionBomVersionForPublish(ctx context.Context, 
 	}
 	if itemCount <= 0 {
 		return fmt.Errorf("components required")
+	}
+	if err := r.validateProductionBomVersionItemInventoryUnits(ctx, cmd.VersionID); err != nil {
+		return err
 	}
 	var hasCycle bool
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`

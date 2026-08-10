@@ -317,6 +317,30 @@ func TestProductionBomVersionItemsKeepMaterialLossSnapshotForRuntimeConsumption(
 	}
 }
 
+func TestProductionBomDraftAllowsFixedPackagingAlongsideRatioMaterialLoss(t *testing.T) {
+	repository := readRepositorySource(t)
+	start := strings.Index(repository, "func (r Repository) UpdateProductionBomVersionDraft")
+	if start < 0 {
+		t.Fatal("missing UpdateProductionBomVersionDraft")
+	}
+	rest := repository[start:]
+	end := strings.Index(rest[1:], "\nfunc ")
+	if end >= 0 {
+		rest = rest[:end+1]
+	}
+	for _, forbidden := range []string{
+		"原料损耗比开启后，组件消耗单位只能使用比例",
+		"COALESCE(consume_unit,'')<>'ratio_pct'",
+	} {
+		if strings.Contains(rest, forbidden) {
+			t.Fatalf("BOM loss must not reject fixed packaging; found %q", forbidden)
+		}
+	}
+	if !strings.Contains(rest, `componentType == "material" && item.ConsumeUnit == "ratio_pct"`) {
+		t.Fatal("BOM loss snapshot must still apply only to ratio material rows")
+	}
+}
+
 func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
@@ -330,6 +354,8 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 		"OutputQty",
 		"OutputUnit",
 		"ValidateProductionBomVersionForPublish",
+		"validateProductionBomVersionItemInventoryUnits",
+		"ValidateProductionBomDraftItemInventoryUnits",
 		"output_product_id required",
 		"components required",
 		"cycle detected",
