@@ -96,6 +96,7 @@ type PricingRuleTrialCommand struct {
 	OperationTemplateID int64                     `json:"operation_template_id,omitempty"`
 	QuoteUnit           string                    `json:"quote_unit,omitempty"`
 	Overrides           PricingRuleTrialOverrides `json:"overrides,omitempty"`
+	allowDraftBom       bool
 }
 
 type PricingRuleTrialBatchRow struct {
@@ -638,6 +639,7 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
 	}
+	cmd.allowDraftBom = true
 	params, err := s.Parameters(ctx)
 	if err != nil {
 		return nil, err
@@ -902,6 +904,9 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 			selected = pricingRuleTrialDefaultBomVersionOption(options.BomVersions, input.BomVersionID)
 		}
 		if selected != nil {
+			if strings.EqualFold(strings.TrimSpace(selected.Status), "draft") && !cmd.allowDraftBom {
+				return input, options, fmt.Errorf("草稿 BOM 仅支持单次价格试算")
+			}
 			input.BomVersionID = selected.VersionID
 			input.BomVersionNo = selected.VersionNo
 			if input.ProcessRouteID <= 0 && selected.ProcessRouteID > 0 {
@@ -910,6 +915,8 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 			}
 			input.BomUsageMode = "production_bom_output"
 			switch strings.TrimSpace(selected.Status) {
+			case "draft":
+				input.BomStatus = "draft"
 			case "disabled", "inactive":
 				input.BomStatus = "disabled"
 			default:
@@ -1094,6 +1101,11 @@ func pricingRuleTrialDefaultBomVersionOption(options []PricingRuleTrialBomVersio
 			return &options[i]
 		}
 	}
+	for i := range options {
+		if strings.EqualFold(strings.TrimSpace(options[i].Status), "published") {
+			return &options[i]
+		}
+	}
 	if len(options) == 0 {
 		return nil
 	}
@@ -1190,6 +1202,8 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	warnings := append([]string{}, input.Warnings...)
 	bomStatus := strings.TrimSpace(input.BomStatus)
 	switch bomStatus {
+	case "draft":
+		warnings = appendUniqueString(warnings, "草稿 BOM，仅供试算；不会进入正式价格表或发布快照")
 	case "inactive", "disabled":
 		warnings = appendUniqueString(warnings, "BOM已失效：试算结果仅供参考")
 	case "missing":

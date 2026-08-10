@@ -6,11 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-594-PRICING-BOM-DEBUG-WORKFLOW
+- Branch: codex/pricing-bom-debug-workflow-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: implementation and automated verification complete; merge into develop pending
+- Scope: 价格计算模板试算计入 BOM 中无损耗固定用量物料；BOM 配方区改名为“有损耗的配方 / 无损耗的配方”；试算可跳转当前 BOM 配置并临时返回；试算临时参数可由用户主动更新到当前价格计算模板。
+- DEV:
+  - DEV-594-PRICING-FIXED-BOM-COST（done）：单次价格试算可显式选择含组件的 BOM 草稿，固定用量包材按离散库存数量和匹配成本单位进入 BOM 物料成本；批量价格计算与正式发布仍只使用已发布 BOM。
+  - DEV-594-PRICING-BOM-ROUNDTRIP（done）：价格试算与对应 BOM 配置支持前端内存中的一次性临时返回，刷新不持久化试算上下文。
+  - DEV-594-PRICING-RULE-UPDATE（done）：用户可主动把临时加价率、已填写的临时税率和其他成本更新到当前价格计算模板，复用既有保存接口与操作日志。
+  - DEV-594-BOM-LOSS-LABELS（done）：配方区域统一为“有损耗的配方 / 无损耗的配方”，底层损耗逻辑不变。
+- Verifier: costing application/repository/API/catalog packages GREEN；support full package GREEN；pricing/BOM targeted Vue 219/219 and frontend `src/lib` full suite GREEN；Vite build GREEN（397 modules，existing chunk warning only）。
+- Deployment: 不部署；验证后合入 develop。
+- Last update: 2026-08-10 Asia/Shanghai
+
 ### PR-593-BOM-LOSS-PACKAGING-UNITS
 - Branch: codex/bom-packaging-consumption-units-20260810
 - Owner/session: Codex / 2026-08-10
 - Status: review; implementation, automated verification and development delivery complete; Van manual acceptance todo
-- Scope: 开启 BOM 版本级原料损耗后，配方编辑明确分为“损耗原料”和“非损耗物料（含包材）”。比例原料继续应用唯一 BOM 损耗；包材、固定数量物料和商品组件按其档案库存单位使用个、件、袋、盒等固定用量且损耗为 0。两类组件可在同一 BOM 共存，不新增字段、不迁移历史数据。
+- Scope: 开启 BOM 版本级原料损耗后，配方编辑明确分为“有损耗的配方”和“无损耗的配方”。比例原料继续应用唯一 BOM 损耗；包材、固定数量物料和商品组件按其档案库存单位使用个、件、袋、盒等固定用量且损耗为 0。两类组件可在同一 BOM 共存，不新增字段、不迁移历史数据。
 - DEV:
   - DEV-593-BOM-MIXED-CONSUMPTION（done）：应用、仓储和生产需求保留与组件库存单位一致的非空单位代码为固定用量，BOM 损耗只写入物料比例行。
   - DEV-593-BOM-LOSS-ZONES（done）：Vue/Vite 在损耗开启时提供两个交互区域并按相同明细字段分区展示，非损耗区选中组件后锁定其库存单位。

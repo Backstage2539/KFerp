@@ -47,6 +47,7 @@ import {
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
   buildPricingRuleCopyPayload,
+  buildPricingRuleUpdateFromTrial,
   buildPricingRuleTrialPayload,
   applyPricingRuleTrialToPriceTableRow,
   priceTablePricingRuleTrialPayload,
@@ -114,6 +115,8 @@ import {
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
   selectedSkuRowIDsAfterVisibleToggle,
+  storePricingRuleTrialReturnState,
+  takePricingRuleTrialReturnState,
 } from './product-settings.js'
 
 const rows = [
@@ -771,6 +774,74 @@ test('pricing rules and tier templates are independent templates used by price l
       { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'sales_spec_count', pricing_rule_id: 20, position: 2, active: true, remark: '' },
     ],
   })
+})
+
+test('pricing trial updates only reusable template parameters', () => {
+  const rule = {
+    id: 5,
+    name: '熟豆24磅模板-正常-418',
+    code: 'RULE-418',
+    cost_source_mode: 'bom_current_cost',
+    margin_rate: 0.2,
+    tax_rate: 0.06,
+    rounding_mode: 'jiao',
+    formula_version: 'v2',
+    calculation_json: {
+      profit_method: 'markup',
+      tax_mode: 'tax_included',
+      minimum_margin_rate: 0.1,
+      trial_note: '保留说明',
+      other_costs: { '旧成本': 1 },
+    },
+    active: true,
+    remark: '保留备注',
+  }
+  const trial = {
+    margin_rate: '0.35',
+    tax_rate: '',
+    other_cost_rows: [{ key: '包装贴标', value: '1.25' }],
+    parent_product_id: 659,
+    product_id: 660,
+    customer_id: 12,
+    bom_version_id: 1797,
+    process_route_id: 8,
+    operation_template_id: 9,
+    quote_unit: 'kg',
+  }
+  const payload = buildPricingRuleUpdateFromTrial(rule, trial)
+  assert.equal(payload.margin_rate, 0.35)
+  assert.equal(payload.tax_rate, 0.06, 'blank trial tax keeps the template tax')
+  assert.deepEqual(payload.calculation_json.other_costs, { '包装贴标': 1.25 })
+  assert.equal(payload.calculation_json.tax_mode, 'tax_included')
+  assert.equal(payload.calculation_json.minimum_margin_rate, 0.1)
+  assert.equal(payload.calculation_json.trial_note, '保留说明')
+  assert.equal(payload.rounding_mode, 'jiao')
+  for (const forbidden of ['parent_product_id', 'product_id', 'customer_id', 'bom_version_id', 'process_route_id', 'operation_template_id', 'quote_unit']) {
+    assert.equal(Object.hasOwn(payload, forbidden), false, `${forbidden} must stay trial-only`)
+  }
+
+  const cleared = buildPricingRuleUpdateFromTrial(rule, {
+    ...trial,
+    tax_rate: 0,
+    other_cost_rows: [{ key: '', value: 0 }],
+  })
+  assert.equal(cleared.tax_rate, 0, 'an explicit zero clears template tax')
+  assert.deepEqual(cleared.calculation_json.other_costs, {}, 'blank rows clear template other costs')
+})
+
+test('pricing trial BOM return state is frontend-memory only and one-time', () => {
+  const snapshot = {
+    form: { pricing_rule_id: 5, product_id: 660, bom_version_id: 1797, margin_rate: 0.35 },
+    product_kind_filter: 'roasted',
+  }
+  const key = storePricingRuleTrialReturnState(snapshot)
+  assert.match(key, /^pricing-rule-trial-return:/)
+  snapshot.form.margin_rate = 9
+  assert.deepEqual(takePricingRuleTrialReturnState(key), {
+    form: { pricing_rule_id: 5, product_id: 660, bom_version_id: 1797, margin_rate: 0.35 },
+    product_kind_filter: 'roasted',
+  })
+  assert.equal(takePricingRuleTrialReturnState(key), null)
 })
 
 test('pricing rule payload normalizes compatible legacy or missing profit methods to markup', () => {
@@ -1772,6 +1843,15 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'pricingRuleTrialBomVersionOptions',
     'pricingRuleTrialProcessRouteOptions',
     'schedulePricingRuleTrial',
+    '草稿，仅供试算',
+    '配置BOM',
+    'navigatePricingRuleTrialBom',
+    '返回价格试算',
+    'pricing_rule_trial_return_key',
+    'restorePricingRuleTrialReturnState',
+    '更新参数到价格计算模板',
+    'updatePricingRuleFromTrial',
+    'buildPricingRuleUpdateFromTrial',
   ]) {
     assert.ok(source.includes(want), `missing pricing rule trial marker: ${want}`)
   }
@@ -1801,6 +1881,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(trialDrawer, /trialMoneyDisplay\(pricingRuleTrialBaseCostUnitCostValue\(row\), pricingRuleTrialBaseCostUnit\(row, pricingRuleTrialResult\)\)/)
   assert.match(trialDrawer, /trialMoneyDisplay\(row\.amount, row\.unit \|\| pricingRuleTrialResult\.quote_unit\)/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)
+  assert.match(trialDrawer, /试算BOM版本[\s\S]*@click="navigatePricingRuleTrialBom"[\s\S]*配置BOM/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.process_route_id"[\s\S]*pricingRuleTrialProcessRouteOptions/)
   assert.match(trialDrawer, /<span>试算商品<\/span>[\s\S]*v-model="pricingRuleTrialForm\.parent_product_id"/)
   assert.match(trialDrawer, /<span>销售规格<\/span>[\s\S]*<select v-model\.number="pricingRuleTrialForm\.product_id"[\s\S]*pricingRuleTrialSalesSpecOptions/)
@@ -1814,6 +1895,9 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(script, /if \(runID === pricingRuleTrialRunID\) \{[\s\S]*pricingRuleTrialResult\.value = result/)
   assert.doesNotMatch(pane, /@click="runPricingRuleTrial"/)
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
+  assert.match(script, /function navigatePricingRuleTrialBom\(\)[\s\S]*storePricingRuleTrialReturnState[\s\S]*key:\s*'bom'[\s\S]*production_bom_id[\s\S]*returnNavigation:[\s\S]*key:\s*'productPriceManagement'/)
+  assert.match(script, /async function updatePricingRuleFromTrial\(\)[\s\S]*window\.confirm[\s\S]*apiSend\(`\/api\/product-pricing-rules\/\$\{payload\.id\}`[\s\S]*method:\s*'PUT'/)
+  assert.match(trialDrawer, /class="drawer-footer pricing-rule-trial-footer"[\s\S]*@click="updatePricingRuleFromTrial"[\s\S]*更新参数到价格计算模板/)
   assert.match(script, /watch\(\(\) => pricingRuleTrialAutoRunSignature\.value/)
   assert.match(style, /\.pricing-rule-trial-drawer/)
   assert.match(style, /\.pricing-rule-trial-waterfall-card\.interactive/)

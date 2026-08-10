@@ -206,10 +206,20 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 	itemRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
-			       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
+			       SUM((CASE
+			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         THEN l.qty_g::numeric
+			         ELSE l.qty_units::numeric
+			       END) * COALESCE(b.unit_cost,0))
+			       / NULLIF(SUM(CASE
+			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         THEN l.qty_g::numeric
+			         ELSE l.qty_units::numeric
+			       END),0) AS weighted_unit_cost
 			FROM %[1]s.material_batch_locations l
 			JOIN %[1]s.material_batches b ON b.id=l.material_batch_id
-			WHERE l.qty_g > 0
+			JOIN %[1]s.materials m ON m.id=l.material_id
+			WHERE (l.qty_g > 0 OR l.qty_units > 0)
 			  AND b.status='active'
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			GROUP BY l.material_id

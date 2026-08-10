@@ -318,16 +318,14 @@
                 :class="{ active: selectedMaterialLossZone === 'loss' }"
                 type="button"
                 @click="selectMaterialLossZone('loss')">
-                <strong>损耗原料</strong>
-                <small>按比例 % 录入，应用当前原料损耗比</small>
+                <strong>有损耗的配方</strong>
               </button>
               <button
                 class="material-loss-zone"
                 :class="{ active: selectedMaterialLossZone === 'non_loss' }"
                 type="button"
                 @click="selectMaterialLossZone('non_loss')">
-                <strong>非损耗物料（含包材）</strong>
-                <small>按个、件、袋、盒等固定用量录入，不参与损耗</small>
+                <strong>无损耗的配方</strong>
               </button>
             </div>
             <form class="inline-form" @submit.prevent="saveItem">
@@ -590,16 +588,16 @@ const detailItemSections = computed(() => {
   return [
     {
       key: 'loss',
-      label: '损耗原料',
-      description: '比例用量应用当前 BOM 原料损耗比',
-      emptyLabel: '暂无损耗原料',
+      label: '有损耗的配方',
+      description: '',
+      emptyLabel: '暂无有损耗的配方',
       items: lossItems,
     },
     {
       key: 'non_loss',
-      label: '非损耗物料（含包材）',
-      description: '固定用量和商品组件不参与原料损耗',
-      emptyLabel: '暂无非损耗物料或包材',
+      label: '无损耗的配方',
+      description: '',
+      emptyLabel: '暂无无损耗的配方',
       items: nonLossItems,
     },
   ]

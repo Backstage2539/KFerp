@@ -898,12 +898,19 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 				LIMIT 1
 			) latest_nonempty_draft ON true
 			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
-			  AND v.status='published'
+			  AND v.status IN ('published','draft')
+			  AND (v.status <> 'draft' OR EXISTS (
+			    SELECT 1
+			    FROM %[1]s.production_bom_version_items draft_component
+			    WHERE draft_component.version_id=v.id
+			  ))
 		)
 		SELECT bom_id, bom_code, bom_name, version_id, version_no, status, process_route_id, process_route_name,
 		       component_count, latest_nonempty_draft_version_id, latest_nonempty_draft_version_no, is_default
 		FROM pricing_rule_trial_bom_versions
-		ORDER BY source_priority, is_default DESC, version_id DESC, bom_code, bom_name
+		ORDER BY source_priority, is_default DESC,
+		         CASE WHEN status='published' THEN 0 ELSE 1 END,
+		         version_id DESC, bom_code, bom_name
 	`, r.schema), input.ProductID)
 	if err != nil {
 		return out, err
@@ -1043,10 +1050,20 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
-			       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
+			       SUM((CASE
+			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         THEN l.qty_g::numeric
+			         ELSE l.qty_units::numeric
+			       END) * COALESCE(b.unit_cost,0))
+			       / NULLIF(SUM(CASE
+			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         THEN l.qty_g::numeric
+			         ELSE l.qty_units::numeric
+			       END),0) AS weighted_unit_cost
 			FROM %[1]s.material_batch_locations l
 			JOIN %[1]s.material_batches b ON b.id = l.material_batch_id
-			WHERE l.qty_g > 0
+			JOIN %[1]s.materials m ON m.id=l.material_id
+			WHERE (l.qty_g > 0 OR l.qty_units > 0)
 			  AND b.status='active'
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			GROUP BY l.material_id
@@ -1093,9 +1110,8 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
 			JOIN pricing_rule_trial_selected_products selected ON selected.product_id=pb.output_product_id
 			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
-			  AND v.status='published'
-			  AND (($1 > 0 AND pbi.version_id=$1)
-			    OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version)))
+			  AND (($1 > 0 AND pbi.version_id=$1 AND v.status IN ('published','draft'))
+			    OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version) AND v.status='published'))
 		)
 		SELECT bi.id,
 		       COALESCE(NULLIF(bi.component_type,''),'material') AS component_type,
@@ -1235,7 +1251,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			WHERE $1 > 0
 			  AND v.id=$1
 			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
-			  AND v.status='published'
+			  AND v.status IN ('published','draft')
 			UNION ALL
 			SELECT id FROM output_bom_version WHERE $1 <= 0
 		)
@@ -1371,10 +1387,20 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 	q := fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
-			       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
+			       SUM((CASE
+			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         THEN l.qty_g::numeric
+			         ELSE l.qty_units::numeric
+			       END) * COALESCE(b.unit_cost,0))
+			       / NULLIF(SUM(CASE
+			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         THEN l.qty_g::numeric
+			         ELSE l.qty_units::numeric
+			       END),0) AS weighted_unit_cost
 			FROM %[1]s.material_batch_locations l
 			JOIN %[1]s.material_batches b ON b.id = l.material_batch_id
-			WHERE l.qty_g > 0
+			JOIN %[1]s.materials m ON m.id=l.material_id
+			WHERE (l.qty_g > 0 OR l.qty_units > 0)
 			  AND b.status='active'
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			GROUP BY l.material_id
@@ -1545,12 +1571,12 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			SELECT p.id AS product_id,
 			       COALESCE(SUM(CASE
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'g_per_bag'
-			         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(mv.weighted_unit_cost, m.purchase_price, 0)
+			         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box')
-			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), mv.weighted_unit_cost, 0)
+			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') NOT IN ('ratio_pct','g_per_bag')
 			          AND lower(btrim(COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'))) = lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), '')))
-			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), mv.weighted_unit_cost, 0)
+			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
 			         ELSE 0
 			       END),0) AS bom_cost_per_unit
 			FROM product_scope p

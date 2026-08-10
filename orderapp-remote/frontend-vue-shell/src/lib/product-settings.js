@@ -525,6 +525,52 @@ export function buildPricingRuleCopyPayload(rule = {}, existingRules = []) {
   }
 }
 
+export function buildPricingRuleUpdateFromTrial(rule = {}, trialForm = {}) {
+  const base = buildPricingRulePayload(rule)
+  const next = {
+    ...base,
+    calculation_json: { ...(base.calculation_json || {}) },
+  }
+  const marginRate = optionalNumberFromForm(trialForm.margin_rate ?? trialForm.marginRate)
+  if (marginRate !== null) next.margin_rate = marginRate
+  const taxRate = optionalNumberFromForm(trialForm.tax_rate ?? trialForm.taxRate)
+  if (taxRate !== null) next.tax_rate = taxRate
+  const otherCostRows = trialForm.other_cost_rows ?? trialForm.otherCostRows
+  if (Array.isArray(otherCostRows)) {
+    next.other_cost_rows = otherCostRows.map((row) => ({ ...row }))
+  } else {
+    const otherCosts = trialForm.other_costs ?? trialForm.otherCosts
+    if (otherCosts && typeof otherCosts === 'object' && !Array.isArray(otherCosts)) {
+      next.other_costs = { ...otherCosts }
+    }
+  }
+  return buildPricingRulePayload(next)
+}
+
+let pricingRuleTrialReturnStateSequence = 0
+const pricingRuleTrialReturnStates = new Map()
+
+function clonePricingRuleTrialReturnState(state = {}) {
+  return JSON.parse(JSON.stringify(state || {}))
+}
+
+export function storePricingRuleTrialReturnState(state = {}) {
+  const key = `pricing-rule-trial-return:${++pricingRuleTrialReturnStateSequence}`
+  pricingRuleTrialReturnStates.set(key, clonePricingRuleTrialReturnState(state))
+  while (pricingRuleTrialReturnStates.size > 10) {
+    pricingRuleTrialReturnStates.delete(pricingRuleTrialReturnStates.keys().next().value)
+  }
+  return key
+}
+
+export function takePricingRuleTrialReturnState(key = '') {
+  const normalized = String(key || '').trim()
+  if (!normalized || !pricingRuleTrialReturnStates.has(normalized)) return null
+  const state = pricingRuleTrialReturnStates.get(normalized)
+  pricingRuleTrialReturnStates.delete(normalized)
+  return clonePricingRuleTrialReturnState(state)
+}
+
 function pricingRuleTrialUnitKey(value = '') {
   return String(value || '').trim().toLowerCase()
 }
