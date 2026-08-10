@@ -14,6 +14,11 @@ func TestDev596SemiFinishedPackagingBomContracts(t *testing.T) {
 			"IsValidBomKind",
 			"IsPackagingBomKind",
 		},
+		filepath.Join("internal", "domain", "catalog", "semi_finished.go"): {
+			"IsWeightInventoryUnit",
+			"ValidateSemiFinishedProduct",
+			"SemiFinishedValidationInput",
+		},
 		filepath.Join("internal", "application", "bom", "service.go"): {
 			"BomKind",
 			"OutputIsSemiFinished",
@@ -21,22 +26,37 @@ func TestDev596SemiFinishedPackagingBomContracts(t *testing.T) {
 			"packaging BOM items must use fixed quantity",
 			"packaging BOM items must be materials",
 		},
+		filepath.Join("internal", "application", "catalog", "service.go"): {
+			"IsSemiFinished",
+			"semi-finished product must reference a sales spec template",
+		},
 		filepath.Join("internal", "infrastructure", "postgres", "bom", "schema.go"): {
 			"bom_kind",
 			"output_is_semi_finished",
+		},
+		filepath.Join("internal", "infrastructure", "postgres", "catalog", "schema.go"): {
+			"is_semi_finished",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go"): {
 			"validatePackagingBomVersionItems",
 			"pb.bom_kind",
 			"pb.output_is_semi_finished",
 		},
+		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
+			"is_semi_finished",
+		},
 		filepath.Join("internal", "interfaces", "http", "bom", "bom_api.go"): {
 			"BomKind",
 			"OutputIsSemiFinished",
 		},
+		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
+			"IsSemiFinished",
+			"is_semi_finished",
+		},
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
 			"PR-596-SEMI-FINISHED-PACKAGING-BOM",
 			"DEV-596-BOM-KIND-EXTENSION",
+			"DEV-596-PRODUCT-SEMI-FINISHED",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

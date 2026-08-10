@@ -51,6 +51,7 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_config_template_id B
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_name TEXT NOT NULL DEFAULT '';
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_sales_unit TEXT NOT NULL DEFAULT '';
 	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS derived_spec_status TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS is_semi_finished BOOLEAN NOT NULL DEFAULT false;
 	UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
 UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL;
