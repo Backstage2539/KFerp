@@ -7,19 +7,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-596-INLINE-CATEGORY-LISTS
-- Branch: codex/pr596-delivery-evidence-20260810（feature `codex/inline-category-lists-20260810` merged at `cfc781df`）
+- Branch: codex/pr596-final-evidence-20260810（business code deployed from `8e0aa8bf`）
 - Owner/session: Codex / 2026-08-10
-- Status: review; implementation, automated verification, develop integration and first development deployment complete at `cfc781df`; rendered visual QA and final tracking patch pending
+- Status: review; code, icons, unit tests, builds, Go full suite, browser read-only QA and development delivery complete at `8e0aa8bf`; REV remains todo for Van acceptance
 - Scope: 物料档案、生产 BOM、商品档案和选中具体仓库且非客户库存上下文的仓内物品取消分类树与列表的左右分栏，把模板、分类标题和业务列表合并为一条内联层级；每个展开分类都重复自己的列表表头并维护互不影响的分类内分页。四页保留各自搜索、状态/类型过滤、对象身份和移动 API；点击名称通过临时右侧抽屉维护详情，生产 BOM 抽屉完整承载基础信息、版本、配方、工艺和损耗配置。
 - DEV:
   - DEV-596-SHARED-INLINE-GROUP-WORKSPACE（done）：共享内联分类、折叠/移动状态、父类直属对象不丢失及按 group key 独立分页。
   - DEV-596-MATERIAL-PRODUCT-LISTS（done）：物料、商品按分类重复表头和独立分页；名称打开原详情/配置抽屉。
   - DEV-596-BOM-SETTINGS-DRAWER（done）：BOM 内联分类列表与完整设置抽屉，移除常驻右侧详情。
   - DEV-596-WAREHOUSE-INVENTORY-LISTS（done）：保留外层仓库选择及精确 item/spec 归类，在具体仓库内拉齐筛选结果后只使用分类独立分页。
-  - DEV-596-DOCS-DEVELOPMENT-DELIVERY（in progress）：需求、验收和操作手册已同步，`cfc781df` 已首次部署 development；本交付跟踪补丁尚待收尾，production 不操作。
-- Verifier: RED contracts captured；frontend `src/lib` 943/943 GREEN；Vite production build GREEN（400 modules，existing chunk warning only）；`go test -count=1 ./...` GREEN；`scripts/verify_kferp.sh changed` GREEN；`git diff --check` GREEN；PR-596 交付跟踪 support 合同已完成 RED→GREEN，rendered visual QA pending.
-- Deployment: integration commit `cfc781df3e8cb540ec4d853bdd30ebf108caa26b` first development deployment complete；该检查点不等于视觉验收或最终交付补丁完成，production 未部署。
-- Review: REV-596-INLINE-CATEGORY-LISTS（todo）：等待 Van 在 development 完成四页 rendered visual QA。
+  - DEV-596-DOCS-DEVELOPMENT-DELIVERY（done）：需求、验收、操作手册、support 合同和设计 QA 已同步；最终业务代码 `8e0aa8bf` 已部署 development 且 HTTP 200，production 未部署。
+- Verifier: frontend server 964/964 GREEN；miniapp 205/205 GREEN；Vite production build GREEN；`go test -count=1 ./...` Go 全包 GREEN；support 全包 GREEN；图标与 `design-qa.md` GREEN；浏览器四页只读 QA 完成；`git diff --check` GREEN。
+- Deployment: `eac3d213` 曾在镜像内部测试阶段因 Docker 上下文根路径缺少 `ACTIVE_REQUIREMENTS.md` 失败，容器未替换；`8b1d187` 修复 Docker-safe support 合同，随后最终业务代码提交 `8e0aa8bfe86e26e4d0009603231752afb95d4ef2` 成功部署 development，HTTP 200；production 未部署。
+- Design QA: [`design-qa.md`](design-qa.md) 最终 `passed`，四页参考图、development 实现图、对比图及两轮问题分级均已留证。
+- Review: REV-596-INLINE-CATEGORY-LISTS（todo）：自动化与只读 QA 已完成，等待 Van 在 development 做最终业务验收。
 - Last update: 2026-08-10 Asia/Shanghai
 
 ### PR-594-PRICING-BOM-DEBUG-WORKFLOW
