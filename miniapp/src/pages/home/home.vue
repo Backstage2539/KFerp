@@ -4,11 +4,20 @@ import { onShow } from '@dcloudio/uni-app'
 import { fetchMe } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import { visibleHomeEntries } from '../../utils/capabilities'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const loading = ref(false)
 const errorMessage = ref('')
 
@@ -60,7 +69,14 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view
+    class="page pull-up-brand-page"
+    :class="[themeClass, { 'pull-up-brand-page-with-tabbar': session.accountType !== 'employee' }]"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -86,6 +102,12 @@ onShow(() => {
       <text>暂无可用服务</text>
     </view>
 
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter
+        :with-fixed-tabbar="session.accountType !== 'employee'"
+        :revealed="pullUpBrandRevealed"
+      />
+    </view>
     <MainTabBar v-if="session.accountType !== 'employee'" current="home" />
   </view>
 </template>

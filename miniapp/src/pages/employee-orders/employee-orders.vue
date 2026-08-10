@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchEmployeeOrders, type EmployeeOrder } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import {
   employeeOrderListQuery,
@@ -12,6 +14,13 @@ import {
 } from '../../utils/employeeOrderDetail'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const q = ref(employeeOrderListQuery())
 const rows = ref<EmployeeOrderNavigationRow<EmployeeOrder>[]>([])
 const loading = ref(false)
@@ -38,7 +47,13 @@ onShow(() => void load())
 </script>
 
 <template>
-  <view class="page">
+  <view
+    class="page pull-up-brand-page"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="search"><input v-model="q" placeholder="订单号 / 客户" confirm-type="search" @confirm="load" /><button @tap="load">查询</button></view>
     <text v-if="loading" class="state">加载中...</text>
@@ -60,6 +75,10 @@ onShow(() => void load())
       </template>
     </view>
     <text v-else class="state">没有找到订单</text>
+
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
+    </view>
   </view>
 </template>
 

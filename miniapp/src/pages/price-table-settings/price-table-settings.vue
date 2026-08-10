@@ -17,6 +17,8 @@ import {
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import {
   buildResaleBeanListPublishPayload,
@@ -48,6 +50,13 @@ type MiniInputEvent = {
 }
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const loading = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
@@ -353,7 +362,14 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view
+    class="page pull-up-brand-page pull-up-brand-page-with-tabbar"
+    :class="themeClass"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">我的价格表设置</text>
@@ -469,6 +485,9 @@ onShow(() => {
       </view>
     </view>
 
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter with-fixed-tabbar :revealed="pullUpBrandRevealed" />
+    </view>
     <MainTabBar current="mine" />
   </view>
 </template>

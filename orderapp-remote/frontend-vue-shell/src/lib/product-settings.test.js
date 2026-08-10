@@ -1754,7 +1754,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'cost_unit',
     'recipe_ratio_pct',
     'effective_ratio_pct',
-    'ratioPct / (1 + lossRate)',
+    'ratioPct * (1 - lossRate)',
     'pricingRuleTrialBaseCostRecipeUsage(row)',
     'pricingRuleTrialBaseCostLossRate(row)',
     'pricingRuleTrialBaseCostEffectiveUsage(row)',
@@ -1789,7 +1789,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'pricingRuleTrialHasYieldLoss',
     '当前商品损耗率',
     '损耗后成本',
-    'ratioPct * (1 - lossRate)',
+    'ratioPct / (1 + lossRate)',
   ]) {
     assert.equal(trialDrawer.includes(forbidden), false, `pricing rule trial drawer should not expose ${forbidden}`)
   }

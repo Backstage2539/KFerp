@@ -96,11 +96,11 @@ func TestResolveProductionBomCostsAppliesHazelnutBlendMaterialLossOnce(t *testin
 	if !got.Resolved {
 		t.Fatalf("hazelnut blend BOM was not resolved: %+v", got)
 	}
-	if diff := math.Abs(got.InputCostPerOutputUnit - 77.28); diff > 1e-9 {
-		t.Fatalf("material cost = %.6f, want 77.28 with only 20%% material add-on", got.InputCostPerOutputUnit)
+	if diff := math.Abs(got.InputCostPerOutputUnit - 80.50); diff > 1e-9 {
+		t.Fatalf("material cost = %.6f, want 80.50 with BOM loss treated as gross-input fraction", got.InputCostPerOutputUnit)
 	}
-	if diff := math.Abs(got.TotalCostPerOutputUnit - 79.32); diff > 1e-9 {
-		t.Fatalf("standard manufacturing cost = %.6f, want 79.32 including 2.04 operation", got.TotalCostPerOutputUnit)
+	if diff := math.Abs(got.TotalCostPerOutputUnit - 82.54); diff > 1e-9 {
+		t.Fatalf("standard manufacturing cost = %.6f, want 82.54 including 2.04 operation", got.TotalCostPerOutputUnit)
 	}
 }
 
@@ -124,11 +124,33 @@ func TestResolveProductionBomCostsUsesCookieBomMaterialLossAsTheOnlyLoss(t *test
 	if !got.Resolved {
 		t.Fatalf("cookie blend BOM was not resolved: %+v", got)
 	}
-	if diff := math.Abs(got.InputCostPerOutputUnit - 62.10); diff > 1e-9 {
-		t.Fatalf("material cost = %.6f, want 62.10 = (54*75%% + 45*25%%) * (1 + 20%%)", got.InputCostPerOutputUnit)
+	if diff := math.Abs(got.InputCostPerOutputUnit - 64.6875); diff > 1e-9 {
+		t.Fatalf("material cost = %.6f, want 64.6875 = (54*75%% + 45*25%%) / (1 - 20%%)", got.InputCostPerOutputUnit)
 	}
-	if diff := math.Abs(got.TotalCostPerOutputUnit - 64.7067); diff > 1e-9 {
-		t.Fatalf("standard manufacturing cost = %.6f, want 64.7067 including 2.6067 operation", got.TotalCostPerOutputUnit)
+	if diff := math.Abs(got.TotalCostPerOutputUnit - 67.2942); diff > 1e-9 {
+		t.Fatalf("standard manufacturing cost = %.6f, want 67.2942 including 2.6067 operation", got.TotalCostPerOutputUnit)
+	}
+}
+
+func TestResolveProductionBomCostsUsesChuxiaoLossAsGrossInputFraction(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		659: {
+			ProductID:  659,
+			VersionID:  1595,
+			YieldRate:  1,
+			OutputQty:  1,
+			OutputUnit: "kg",
+			Items: []productionBomCostItem{{
+				ID: 1, ComponentType: "material", ConsumeUnit: "ratio_pct",
+				RatioPct: 25, MaterialLossRate: 0.195, UnitCost: 78, UnitCostUnit: "kg",
+			}},
+		},
+	}
+
+	got := resolveProductionBomCosts(nodes)[659]
+	want := 0.25 / (1 - 0.195) * 78
+	if !got.Resolved || math.Abs(got.InputCostPerOutputUnit-want) > 1e-9 {
+		t.Fatalf("Colombia cost = %.6f, want %.6f = 25%% / 80.5%% * 78", got.InputCostPerOutputUnit, want)
 	}
 }
 

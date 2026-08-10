@@ -126,7 +126,7 @@ func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"BOM 版本设置中只维护一个 `原料损耗比`",
-			"净配方数量 × (1 + 原料损耗比)",
+			"净配方数量 ÷ (1 - 原料损耗率)",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"工序卡",

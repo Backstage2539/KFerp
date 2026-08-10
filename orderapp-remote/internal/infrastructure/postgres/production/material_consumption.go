@@ -61,8 +61,9 @@ type materialSnapshotRow struct {
 }
 
 const (
-	additiveMaterialLossCalculationMode = "additive"
-	legacyMaterialLossCalculationMode   = "legacy_fraction"
+	yieldDenominatorMaterialLossCalculationMode = "yield_denominator"
+	additiveMaterialLossCalculationMode         = "additive"
+	legacyMaterialLossCalculationMode           = "legacy_fraction"
 )
 
 func isWeightMaterialUnit(unit string) bool {
@@ -94,7 +95,7 @@ func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct fl
 func componentConsumptionQtyWithMaterialLoss(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, outputG int64, packedUnits int64, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) int64 {
 	return componentConsumptionQtyWithMaterialLossMode(
 		consumeUnit, qtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, boxUnits,
-		outputQty, outputUnit, materialLossRate, additiveMaterialLossCalculationMode,
+		outputQty, outputUnit, materialLossRate, yieldDenominatorMaterialLossCalculationMode,
 	)
 }
 
@@ -113,7 +114,7 @@ func componentConsumptionQtyWithMaterialLossMode(consumeUnit string, qtyPerUnit 
 func componentConsumptionWeightGramsWithMaterialLoss(consumeUnit string, qtyPerUnit, ratioPct float64, materialUnit string, rawG, outputG, packedUnits, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) int64 {
 	return componentConsumptionWeightGramsWithMaterialLossMode(
 		consumeUnit, qtyPerUnit, ratioPct, materialUnit, rawG, outputG, packedUnits, boxUnits,
-		outputQty, outputUnit, materialLossRate, additiveMaterialLossCalculationMode,
+		outputQty, outputUnit, materialLossRate, yieldDenominatorMaterialLossCalculationMode,
 	)
 }
 
@@ -172,19 +173,20 @@ func materialLossFactor(rate float64, mode string) float64 {
 	if rate <= 0 {
 		return 1
 	}
-	if strings.TrimSpace(mode) == legacyMaterialLossCalculationMode {
-		return 1 / (1 - rate)
+	if strings.TrimSpace(mode) == additiveMaterialLossCalculationMode {
+		return 1 + rate
 	}
-	return 1 + rate
+	return 1 / (1 - rate)
 }
 
-func materialSnapshotUsesAdditiveLoss(raw []byte) bool {
+func materialSnapshotUsesCurrentBomLoss(raw []byte) bool {
 	var rows []materialSnapshotRow
 	if json.Unmarshal(raw, &rows) != nil {
 		return false
 	}
 	for _, row := range rows {
-		if strings.TrimSpace(row.LossCalculationMode) == additiveMaterialLossCalculationMode {
+		mode := strings.TrimSpace(row.LossCalculationMode)
+		if mode == additiveMaterialLossCalculationMode || mode == yieldDenominatorMaterialLossCalculationMode {
 			return true
 		}
 	}
@@ -708,7 +710,7 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 			Unit:                need.Unit,
 			RatioPct:            need.RatioPct,
 			MaterialLossRate:    need.MaterialLossRate,
-			LossCalculationMode: additiveMaterialLossCalculationMode,
+			LossCalculationMode: yieldDenominatorMaterialLossCalculationMode,
 			Source:              source,
 			ComponentType:       need.ComponentType,
 			ComponentProductID:  need.ComponentProductID,
@@ -770,7 +772,7 @@ func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema
 		row.ConsumeUnit = normalizeBomConsumeUnit(row.ConsumeUnit)
 		row.RatioPct = bomdomain.NormalizeRatioPct(row.RatioPct)
 		row.MaterialLossRate = normalizeMaterialLossRate(row.MaterialLossRate)
-		row.LossCalculationMode = additiveMaterialLossCalculationMode
+		row.LossCalculationMode = yieldDenominatorMaterialLossCalculationMode
 		row.InputIncludesMaterialLoss = inputIncludesMaterialLoss && row.MaterialLossRate > 0
 		row.Source = "bom"
 		if row.ComponentType == "finished_product" {

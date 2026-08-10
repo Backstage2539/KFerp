@@ -2,11 +2,20 @@
 import { ref } from 'vue'
 import { loginWithPassword, loginWithPhoneVerify, type LoginResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import { customerEntryRoute } from '../../utils/customerSwitch'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const loading = ref(false)
 const errorMessage = ref('')
 const loginMode = ref<'quick' | 'password'>('quick')
@@ -87,7 +96,14 @@ async function handlePasswordLogin() {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view
+    class="page pull-up-brand-page"
+    :class="themeClass"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="hero">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -122,6 +138,10 @@ async function handlePasswordLogin() {
       </view>
 
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
+    </view>
+
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
   </view>
 </template>

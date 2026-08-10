@@ -810,3 +810,15 @@
 - `DEV-590-ORDER-NOT-NULL-TEXT-COMPAT`：production 员工小程序从服务器草稿正式提交订单时，可以不填写物流方式、物流单号、订单备注或快递费。`SaveOrder` 新建/完整更新与 `updateOrderHeader` 必须把空 `ship_method`、`ship_tracking_no`、`notes`、`express_fee` 绑定为数据库空字符串，订单明细空 `unit` / `spec` 指针也必须通过 `notNullTextPtr` 规范化为空字符串，不得转换成 SQL `NULL` 后违反 `orders` / `order_items` 非空文本列约束。`VoidMany` 的空 `void_reason` 以及订单行内更新清空 `notes` 同样必须保存为空字符串。非空文本、物流明细和操作语义继续按原规则保存；本需求不新增或修改小程序请求字段。
 - `DEV-590-DRAFT-TRANSACTION-AUDIT-COMPAT`：正式提交必须继续在同一数据库事务内完成订单头、订单明细、物流明细、当前员工草稿清理和原有操作日志。只有事务提交成功才清除草稿；订单写入、草稿清理、审计写入或最终提交任一步失败时全部回滚并保留草稿，不能留下半张订单或让员工丢失待提交内容。操作日志继续使用既有订单创建/更新与 `employee_order_draft` 删除合同，不新增日志类型，也不能把失败请求记录成成功提交或成功清草稿。
 - `DEV-590-DUAL-ENVIRONMENT-DELIVERY`：同步根目录与线上需求/验收、小程序员工 ERP 操作手册、PR/DEV 种子、支持合同和独立验收记录。完成销售仓储定向测试、支持合同、受影响范围验证和部署门禁后，先合入 `develop` 并部署 development，再从最新 `main` 合入已验证 develop、完成 production 预检并部署 production；双环境必须串行并分别记录提交、备份、回滚和健康检查证据。该修复只涉及 ERP 后端存储语义，不修改小程序源码，不自动上传、提审或发布微信版本。
+
+## 55. 小程序上拉品牌标识与当前账号防自停用（PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD）
+- `DEV-591-MINI-PULL-UP-BRAND`：小程序除 `pages/index/index` 瞬时启动路由外的 13 个实际业务页面，统一在页面内容之后接入上拉品牌组件。底标尾舱平时为零高度，不增加有效滚动区，正常浏览和刚到真实内容底部时都不显示标识；只有用户在真实底部继续做以竖直向上为主的拉动手势，才临时展开 `Drived By` 与棵凡四字字标。`touchend` / `touchcancel` / `onHide` 必须立即触发约 220ms 收回，松手后自动回弹隐藏，不得停留在可滚动的空白尾页。13 页使用普通冒泡的 `touchstart` / `touchmove` / `touchend` / `touchcancel` 事件，不使用 `prevent` / `stop`，不把整页改造为 `scroll-view`。字标使用透明背景、无原品牌红色、银灰单色和横向紧凑尺寸；组件保持正常文档流且不使用 `position: fixed` / `absolute` / `sticky`，不覆盖表单、列表、键盘、固定底栏或安全区。
+- `DEV-591-SELF-LOGIN-DISABLE-GUARD`：具备 `auth.manage` 的当前内部员工通过 `POST /api/auth/account-state` 关闭自己的登录时，后端必须返回 409 和 `cannot disable current account`，不得修改登录状态、失效当前会话或写入业务成功审计。BasicAuth 运维恢复通道没有员工身份，继续可以恢复任意有效内部员工；已登录管理员仍可启停其他内部员工，也允许保持或恢复自己的启用状态。员工维护页读取当前操作者，当前员工行的登录开关禁用并提示“当前账号不能关闭自己的登录”，其他员工开关保持可用；后端仍是最终权限和安全边界。
+- production 已使用既有账号启停 API 即时恢复本次受影响的目标内部员工账号，并确认原有审计动作存在；需求、验收或日志证据不得记录账号、密码或其他个人信息。该即时恢复不替代代码防护，拒绝请求只是不写业务成功审计，系统仍可按既有中间件保留 HTTP 失败请求记录。
+- `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：同步根目录与 `orderapp-remote/docs` 需求/验收、小程序员工 ERP、客户门户、设置审计手册、PR/DEV 种子、支持合同和独立验收记录。保留 support RED、后端/API、Vue/Vite、miniapp、透明资源和构建门禁后，将功能分支合入 `develop` 并部署 development。服务器部署、小程序固定开发包、微信开发者工具上传、审核、正式发布和 production 代码部署是独立检查点；本需求不自动上传、提审、发布微信版本，也不部署 production 代码。
+
+## 56. BOM 原料损耗按总投料损耗率反算（PR-592-BOM-LOSS-GROSS-INPUT）
+- `DEV-592-COSTING-GROSS-INPUT-LOSS`：BOM 版本级 `material_loss_rate` 是唯一损耗来源，含义为“损耗数量占总投料数量的比例”。比例物料的损耗后用量统一为 `净配方比例 ÷ (1 - 原料损耗率)`，折算成本为 `损耗后用量 × 物料成本单价`，不得再按 `净配方比例 × (1 + 原料损耗率)` 计算。初晓 1kg 中哥伦比亚净配方 25%、BOM 损耗 19.5%、单价 78元/kg 时，损耗后用量为 `25% ÷ 80.5% = 31.0559%`，折算成本为 `24.22元`。
+- `DEV-592-PRODUCTION-GROSS-INPUT-LOSS`：新生产计划、组件需求、WIP、领料和新工单使用同一反算公式，并按最小库存单位向上取整；例如 6356g、18% 损耗为 `ceil(6356 ÷ 0.82) = 7752g`。整体产出率和商品预期损耗继续保持中性兼容值，不形成第二层损耗。
+- 新计划和新工单快照使用 `loss_calculation_mode=yield_denominator`。无标记历史快照、已冻结 `additive` 快照、历史工单、库存流水、已发布价格表和订单不回算、不改写；本需求不修改 BOM 配方、损耗配置或物料价格数据。
+- `DEV-592-DOCS-DEVELOPMENT-DELIVERY`：同步需求、验收、成本/生产/物料手册、PR/DEV 种子和支持合同；完成后端、API、Vue/Vite 单元测试与构建后合入 `develop` 并仅部署 development。按 Van 要求不做浏览器、API 或业务验收，由 Van 人工验证；`main` 和 production 不操作。

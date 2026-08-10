@@ -42,6 +42,12 @@ type accountStateReq struct {
 	LoginEnabled bool  `json:"login_enabled"`
 }
 
+func rejectCurrentEmployeeSelfDisable(c echo.Context, req accountStateReq) bool {
+	return !req.LoginEnabled &&
+		currentEmployeeID(c) == req.EmployeeID &&
+		!isBasicAuthAdmin(c)
+}
+
 type accountTypeReq struct {
 	EmployeeID  int64  `json:"employee_id"`
 	AccountType string `json:"account_type"`
@@ -442,6 +448,9 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string, auth
 		var req accountStateReq
 		if err := c.Bind(&req); err != nil || req.EmployeeID <= 0 {
 			return c.JSON(400, map[string]string{"error": "invalid request"})
+		}
+		if rejectCurrentEmployeeSelfDisable(c, req) {
+			return c.JSON(http.StatusConflict, map[string]string{"error": "cannot disable current account"})
 		}
 		requestCtx := c.Request().Context()
 		tx, err := pool.Begin(requestCtx)

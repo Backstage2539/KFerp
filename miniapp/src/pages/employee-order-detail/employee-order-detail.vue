@@ -17,6 +17,8 @@ import {
 } from '../../api/customerPortal'
 import { isAuthenticationExpiredRequestError, MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import {
   employeeOrderDocumentAsset,
@@ -32,6 +34,13 @@ import {
 import { shareMiniappFileOutput } from '../../utils/fileOutput'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const orderID = ref(0)
 const order = ref<EmployeeOrderDetail>()
 const documents = ref<EmployeeOrderDocuments>({})
@@ -225,7 +234,13 @@ onShow(() => void loadDetail())
 </script>
 
 <template>
-  <view class="page">
+  <view
+    class="page pull-up-brand-page"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view v-if="loading" class="state-card"><text>订单详情加载中...</text></view>
     <view v-else-if="errorMessage" class="state-card error-card">
@@ -355,6 +370,10 @@ onShow(() => void loadDetail())
       </view>
 
     </template>
+
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
+    </view>
   </view>
 </template>
 

@@ -37,6 +37,8 @@ import CustomerDirectShipPanel from '../../components/CustomerDirectShipPanel.vu
 import CustomerInventoryPanel from '../../components/CustomerInventoryPanel.vue'
 import CustomerProcessingPanel from '../../components/CustomerProcessingPanel.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
 import { beanListCardRows, beanListDisplayStyle, beanListQualityLines, splitBeanListHighlight } from '../../utils/beanListDisplay'
@@ -76,6 +78,13 @@ type PickerOption<T = unknown> = {
 }
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const processingPrefill = useProcessingPrefillStore()
 const serviceKey = ref<ServiceKey>('beanList')
 const page = ref<ServicePageResponse | null>(null)
@@ -868,7 +877,14 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view
+    class="page pull-up-brand-page pull-up-brand-page-with-tabbar"
+    :class="themeClass"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -1326,6 +1342,9 @@ onShow(() => {
       </template>
     </view>
 
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter with-fixed-tabbar :revealed="pullUpBrandRevealed" />
+    </view>
     <MainTabBar :current="mainTab" />
   </view>
 </template>

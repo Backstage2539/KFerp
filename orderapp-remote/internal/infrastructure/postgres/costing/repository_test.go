@@ -945,7 +945,7 @@ func TestPricingRuleTrialUsesMaterialCostUnitInsteadOfInventoryUnit(t *testing.T
 	}
 }
 
-func TestPricingRuleTrialDetailsAddMaterialLossToRecipeRatio(t *testing.T) {
+func TestPricingRuleTrialDetailsGrossMaterialLossFromRecipeRatio(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -965,16 +965,16 @@ func TestPricingRuleTrialDetailsAddMaterialLossToRecipeRatio(t *testing.T) {
 		"COALESCE(bi.material_loss_rate,0)::float8",
 		"&row.MaterialLossRate",
 		"row.RecipeRatioPct = row.RatioPct",
-		"row.EffectiveRatioPct = row.RatioPct * (1 + row.MaterialLossRate)",
-		"row.RatioPct * (1 + row.MaterialLossRate)",
-		"THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 * (1 + LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
+		"row.EffectiveRatioPct = row.RatioPct / (1 - row.MaterialLossRate)",
+		"row.RatioPct / (1 - row.MaterialLossRate)",
+		"THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("pricing rule trial BOM detail material loss cost missing marker %q", want)
 		}
 	}
-	if strings.Contains(fn, "/ (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))") {
-		t.Fatal("pricing rule trial BOM detail must not use the retired divide-by-yield loss formula")
+	if strings.Contains(fn, "* (1 + LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))") {
+		t.Fatal("pricing rule trial BOM detail must not use additive material-loss math")
 	}
 }
 

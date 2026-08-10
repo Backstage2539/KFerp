@@ -113,8 +113,8 @@ func TestMaterialLossIsAppliedExactlyOnceToExactWeight(t *testing.T) {
 		1816, 1816, 4, 0,
 		1, "kg", 0.2,
 	)
-	if got != 2180 {
-		t.Fatalf("loss-adjusted weight=%dg, want ceil(1816g * 1.2) = 2180g", got)
+	if got != 2270 {
+		t.Fatalf("loss-adjusted weight=%dg, want 1816g / 0.8 = 2270g", got)
 	}
 }
 
@@ -150,8 +150,8 @@ func TestIsWeightMaterialUnit(t *testing.T) {
 
 func TestComponentConsumptionQtyGrossesRatioMaterialLoss(t *testing.T) {
 	got := componentConsumptionQtyWithMaterialLoss("ratio_pct", 0, 40, "g", 1000, 0, 0, 0, 0, "", 0.2)
-	if got != 480 {
-		t.Fatalf("ratio material loss quantity = %d, want 1000 * 40%% * 1.2 = 480g", got)
+	if got != 500 {
+		t.Fatalf("ratio material loss quantity = %d, want 1000 * 40%% / 0.8 = 500g", got)
 	}
 	withoutLoss := componentConsumptionQtyWithMaterialLoss("ratio_pct", 0, 40, "g", 1000, 0, 0, 0, 0, "", 0)
 	if withoutLoss != 400 {
@@ -163,7 +163,7 @@ func TestComponentConsumptionQtyGrossesRatioMaterialLoss(t *testing.T) {
 	}
 }
 
-func TestFrozenMaterialSnapshotKeepsLegacyLossMathWhileNewSnapshotUsesAdditiveLoss(t *testing.T) {
+func TestFrozenMaterialSnapshotKeepsHistoricalLossMathWhileNewSnapshotUsesYieldDenominator(t *testing.T) {
 	legacySnapshot := `[{
 		"material_id":9001,
 		"material_name":"历史生豆",
@@ -173,6 +173,16 @@ func TestFrozenMaterialSnapshotKeepsLegacyLossMathWhileNewSnapshotUsesAdditiveLo
 		"ratio_pct":100,
 		"material_loss_rate":0.2
 	}]`
+	additiveSnapshot := `[{
+		"material_id":9001,
+		"material_name":"历史加耗计划生豆",
+		"unit":"g",
+		"source":"bom",
+		"consume_unit":"ratio_pct",
+		"ratio_pct":100,
+		"material_loss_rate":0.2,
+		"loss_calculation_mode":"additive"
+	}]`
 	newSnapshot := `[{
 		"material_id":9001,
 		"material_name":"新计划生豆",
@@ -181,7 +191,7 @@ func TestFrozenMaterialSnapshotKeepsLegacyLossMathWhileNewSnapshotUsesAdditiveLo
 		"consume_unit":"ratio_pct",
 		"ratio_pct":100,
 		"material_loss_rate":0.2,
-		"loss_calculation_mode":"additive"
+		"loss_calculation_mode":"yield_denominator"
 	}]`
 
 	for _, tc := range []struct {
@@ -190,7 +200,8 @@ func TestFrozenMaterialSnapshotKeepsLegacyLossMathWhileNewSnapshotUsesAdditiveLo
 		wantG    int64
 	}{
 		{name: "legacy frozen snapshot", snapshot: legacySnapshot, wantG: 1250},
-		{name: "new additive snapshot", snapshot: newSnapshot, wantG: 1200},
+		{name: "frozen additive snapshot", snapshot: additiveSnapshot, wantG: 1200},
+		{name: "new yield denominator snapshot", snapshot: newSnapshot, wantG: 1250},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			needs, ok, err := materialSnapshotNeedsTx(ProduceRunRow{

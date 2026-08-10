@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import {
   fetchEmployeeCustomers,
   type EmployeeCustomer,
@@ -12,6 +14,13 @@ import { isAuthenticationExpiredRequestError } from '../../api/client'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const context = ref<EmployeeCustomersResponse>()
 const query = ref('')
 const loading = ref(false)
@@ -124,7 +133,13 @@ onPullDownRefresh(reloadCustomers)
 </script>
 
 <template>
-  <view class="page">
+  <view
+    class="page pull-up-brand-page"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="head">
       <view>
@@ -173,6 +188,10 @@ onPullDownRefresh(reloadCustomers)
       >
         加载更多客户
       </button>
+    </view>
+
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
 
     <EmployeeCustomerEditor

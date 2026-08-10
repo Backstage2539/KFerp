@@ -5,6 +5,8 @@ import { buildAPIURL } from '../../api/client'
 import { createMallOrder, fetchMallPage, type MallPageResponse } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
+import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import {
   addMallCartItem,
@@ -23,6 +25,13 @@ import {
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const page = ref<MallPageResponse | null>(null)
 const cart = ref<MallCartItem[]>([])
 const selectedUnits = ref<Record<number, string>>({})
@@ -126,7 +135,14 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page" :class="themeClass">
+  <view
+    class="page pull-up-brand-page pull-up-brand-page-with-tabbar"
+    :class="themeClass"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="header">
       <text class="eyebrow">{{ themeMeta.eyebrow }}</text>
@@ -203,6 +219,9 @@ onShow(() => {
       </view>
     </view>
 
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter with-fixed-tabbar :revealed="pullUpBrandRevealed" />
+    </view>
     <MainTabBar current="home" />
   </view>
 </template>

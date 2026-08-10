@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	authzapp "orderapp/internal/application/authz"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
@@ -244,6 +246,120 @@ func TestAdminAuthMaintenanceAndPreloadedSMSStillWorkForInternalEmployees(t *tes
 	}
 	if got := countERPLoginSessions(t, ctx, pool, schema, employeeID); got != 1 {
 		t.Errorf("preloaded SMS login sessions=%d, want 1", got)
+	}
+}
+
+func TestCurrentEmployeeSelfDisableGuardOnlyRejectsEmployeeSession(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentID      int64
+		targetID       int64
+		loginEnabled   bool
+		basicAuthAdmin bool
+		wantReject     bool
+	}{
+		{name: "current employee disables self", currentID: 41, targetID: 41, loginEnabled: false, wantReject: true},
+		{name: "current employee enables self", currentID: 41, targetID: 41, loginEnabled: true, wantReject: false},
+		{name: "current employee disables another employee", currentID: 41, targetID: 42, loginEnabled: false, wantReject: false},
+		{name: "basic auth admin remains recovery channel", currentID: 41, targetID: 41, loginEnabled: false, basicAuthAdmin: true, wantReject: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/api/auth/account-state", nil), httptest.NewRecorder())
+			ctx.Set("employee_id", tc.currentID)
+			if tc.basicAuthAdmin {
+				ctx.Set("basic_auth_admin", true)
+			}
+			got := rejectCurrentEmployeeSelfDisable(ctx, accountStateReq{
+				EmployeeID:   tc.targetID,
+				LoginEnabled: tc.loginEnabled,
+			})
+			if got != tc.wantReject {
+				t.Fatalf("rejectCurrentEmployeeSelfDisable()=%v, want %v", got, tc.wantReject)
+			}
+		})
+	}
+}
+
+func TestCurrentEmployeeSelfDisableReturnsConflictBeforeDatabaseAccess(t *testing.T) {
+	const employeeID int64 = 41
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", employeeID)
+			return next(c)
+		}
+	})
+	registerMobileAuthAPI(e, nil, "public", &fakeAuthzService{actor: authzapp.Actor{
+		Permissions: []string{"auth.manage"},
+	}})
+
+	rec := postMobileAuthJSON(t, e, "/api/auth/account-state", map[string]any{
+		"employee_id": employeeID, "login_enabled": false,
+	}, false)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s, want 409 before any database access", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"cannot disable current account"`) {
+		t.Fatalf("body=%s, want stable self-disable error", rec.Body.String())
+	}
+}
+
+func TestCurrentEmployeeCannotDisableOwnLoginOrWriteSuccessAudit(t *testing.T) {
+	pool, schema := newERPLoginGateTestDB(t)
+	ctx := context.Background()
+	employeeID := seedMobileAuthSecurityEmployee(t, ctx, pool, schema, "当前管理员", nextMobileAuthSecurityPhone(), AccountTypeInternalEmployee, true, false)
+	beforeState := readMobileAuthPasswordState(t, ctx, pool, schema, employeeID)
+	beforeAudit := countMobileAuthAuditRows(t, ctx, pool, schema, employeeID)
+
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", employeeID)
+			c.Set("actor", "当前管理员")
+			return next(c)
+		}
+	})
+	registerMobileAuthAPI(e, pool, schema, &fakeAuthzService{actor: authzapp.Actor{
+		Permissions: []string{"auth.manage"},
+	}})
+
+	rec := postMobileAuthJSON(t, e, "/api/auth/account-state", map[string]any{
+		"employee_id": employeeID, "login_enabled": false,
+	}, false)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"cannot disable current account"`) {
+		t.Fatalf("body=%s, want stable self-disable error", rec.Body.String())
+	}
+	if afterState := readMobileAuthPasswordState(t, ctx, pool, schema, employeeID); afterState != beforeState {
+		t.Errorf("self-disable changed password state: before=%+v after=%+v", beforeState, afterState)
+	}
+	if afterAudit := countMobileAuthAuditRows(t, ctx, pool, schema, employeeID); afterAudit != beforeAudit {
+		t.Errorf("rejected self-disable wrote success audit rows: before=%d after=%d", beforeAudit, afterAudit)
+	}
+}
+
+func TestBasicAuthAdminCanReenableDisabledEmployeeAfterSelfDisableGuard(t *testing.T) {
+	pool, schema := newERPLoginGateTestDB(t)
+	ctx := context.Background()
+	employeeID := seedMobileAuthSecurityEmployee(t, ctx, pool, schema, "待恢复员工", nextMobileAuthSecurityPhone(), AccountTypeInternalEmployee, true, true)
+	e := newMobileAuthSecurityEcho(pool, schema)
+
+	rec := postMobileAuthJSON(t, e, "/api/auth/account-state", map[string]any{
+		"employee_id": employeeID, "login_enabled": true,
+	}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want BasicAuth recovery 200", rec.Code, rec.Body.String())
+	}
+	if state := readMobileAuthPasswordState(t, ctx, pool, schema, employeeID); state.LoginDisabled {
+		t.Fatalf("BasicAuth recovery left login disabled: %+v", state)
+	}
+	if auditRows := countMobileAuthAuditRows(t, ctx, pool, schema, employeeID); auditRows != 1 {
+		t.Fatalf("BasicAuth recovery audit rows=%d, want 1", auditRows)
 	}
 }
 
