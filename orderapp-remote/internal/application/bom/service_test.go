@@ -733,3 +733,133 @@ func (r errorRepo) PublishProductionBomVersion(context.Context, PublishProductio
 func (r errorRepo) BindProductProductionBom(context.Context, BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
 	return ProductProductionBomBinding{}, r.err
 }
+
+func TestCreateProductionBomPackagingKindSkipsOutputProduct(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	row, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "227g规格包装BOM", BomKind: "spec_packaging"})
+	if err != nil {
+		t.Fatalf("CreateProductionBom spec_packaging: %v", err)
+	}
+	if row.OutputProductID != 0 {
+		t.Fatalf("packaging BOM output_product_id should be 0, got %d", row.OutputProductID)
+	}
+	if repo.createdProductionBomCommand.BomKind != "spec_packaging" {
+		t.Fatalf("BomKind not propagated: %s", repo.createdProductionBomCommand.BomKind)
+	}
+	if repo.createdProductionBomCommand.OutputUnit != "spec" {
+		t.Fatalf("packaging BOM default output_unit should be 'spec', got %s", repo.createdProductionBomCommand.OutputUnit)
+	}
+}
+
+func TestCreateProductionBomProductKindRequiresOutputProduct(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "测试", BomKind: "product"}); err == nil || !strings.Contains(err.Error(), "output_product_id required") {
+		t.Fatalf("expected output_product_id validation error, got %v", err)
+	}
+	if _, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "测试", BomKind: "product", OutputProductID: 88}); err != nil {
+		t.Fatalf("product BOM with output_product_id should succeed: %v", err)
+	}
+}
+
+func TestCreateProductionBomInvalidBomKind(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "测试", BomKind: "invalid_kind", OutputProductID: 1}); err == nil || !strings.Contains(err.Error(), "invalid bom_kind") {
+		t.Fatalf("expected invalid bom_kind error, got %v", err)
+	}
+}
+
+func TestCreateProductionBomDefaultBomKindIsProduct(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "测试", OutputProductID: 88})
+	if err != nil {
+		t.Fatalf("CreateProductionBom default kind: %v", err)
+	}
+	if repo.createdProductionBomCommand.BomKind != "product" {
+		t.Fatalf("default BomKind should be 'product', got %s", repo.createdProductionBomCommand.BomKind)
+	}
+}
+
+func TestUpdateProductionBomVersionDraftPackagingRejectsRatioPct(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID: 1,
+		BomKind:   "spec_packaging",
+		OutputQty: 1,
+		OutputUnit: "spec",
+		Items: []ProductionBomDraftItem{{
+			MaterialID:  10,
+			ComponentType: "material",
+			ConsumeUnit: "ratio_pct",
+			RatioPct:    50,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "packaging BOM items must use fixed quantity") {
+		t.Fatalf("expected packaging ratio_pct rejection, got %v", err)
+	}
+}
+
+func TestUpdateProductionBomVersionDraftPackagingRejectsProductComponent(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID: 1,
+		BomKind:   "spec_packaging",
+		OutputQty: 1,
+		OutputUnit: "spec",
+		Items: []ProductionBomDraftItem{{
+			ComponentType:      "product",
+			ComponentProductID: 77,
+			ConsumeUnit:        "unit_per_box",
+			QtyPerUnit:         1,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "packaging BOM items must be materials") {
+		t.Fatalf("expected packaging product component rejection, got %v", err)
+	}
+}
+
+func TestUpdateProductionBomVersionDraftPackagingZerosLossRate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	version, err := svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID: 1,
+		BomKind:   "spec_packaging",
+		OutputQty: 1,
+		OutputUnit: "spec",
+		Items: []ProductionBomDraftItem{{
+			MaterialID:      10,
+			ComponentType:   "material",
+			ConsumeUnit:     "unit_per_bag",
+			QtyPerUnit:      1,
+			MaterialLossRate: 0.05,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("packaging BOM fixed-qty material should succeed: %v", err)
+	}
+	if version.Status != "draft" {
+		t.Fatalf("version status should be draft, got %s", version.Status)
+	}
+	if repo.updatedProductionDraftCommand.Items[0].MaterialLossRate != 0 {
+		t.Fatalf("packaging BOM item loss rate should be zeroed, got %f", repo.updatedProductionDraftCommand.Items[0].MaterialLossRate)
+	}
+}

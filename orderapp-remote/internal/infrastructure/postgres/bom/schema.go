@@ -246,6 +246,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 );
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS group_category_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS bom_kind TEXT NOT NULL DEFAULT 'product';
+ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_is_semi_finished BOOLEAN NOT NULL DEFAULT false;
+UPDATE %[1]s.production_boms SET bom_kind='product' WHERE COALESCE(bom_kind,'')='';
 CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings (
 	product_id BIGINT PRIMARY KEY,
 	bom_id BIGINT NOT NULL,

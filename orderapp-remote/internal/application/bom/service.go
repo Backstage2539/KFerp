@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	bomdomain "orderapp/internal/domain/bom"
 )
 
 var (
@@ -156,6 +158,8 @@ type ProductionBomSummary struct {
 	ID                    int64   `json:"id"`
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
+	BomKind               string  `json:"bom_kind"`
+	OutputIsSemiFinished  bool    `json:"output_is_semi_finished"`
 	OutputProductID       int64   `json:"output_product_id"`
 	OutputProductName     string  `json:"output_product_name"`
 	OutputProductCode     string  `json:"output_product_code"`
@@ -296,19 +300,23 @@ type DeleteProductionBomGroupCategoryCommand struct {
 }
 
 type CreateProductionBomCommand struct {
-	Name             string   `json:"name"`
-	OutputProductID  int64    `json:"output_product_id"`
-	OutputQty        float64  `json:"output_qty"`
-	OutputUnit       string   `json:"output_unit"`
-	GroupID          int64    `json:"group_id"`
-	GroupCategoryID  int64    `json:"group_category_id"`
-	ExpectedLossRate *float64 `json:"expected_loss_rate,omitempty"`
-	Actor            string   `json:"actor"`
+	Name                 string   `json:"name"`
+	BomKind              string   `json:"bom_kind"`
+	OutputIsSemiFinished bool     `json:"output_is_semi_finished"`
+	OutputProductID      int64    `json:"output_product_id"`
+	OutputQty            float64  `json:"output_qty"`
+	OutputUnit           string   `json:"output_unit"`
+	GroupID              int64    `json:"group_id"`
+	GroupCategoryID      int64    `json:"group_category_id"`
+	ExpectedLossRate     *float64 `json:"expected_loss_rate,omitempty"`
+	Actor                string   `json:"actor"`
 }
 
 type UpdateProductionBomCommand struct {
 	ID                    int64  `json:"id"`
 	Name                  string `json:"name"`
+	BomKind               string `json:"bom_kind"`
+	OutputIsSemiFinished  bool   `json:"output_is_semi_finished"`
 	OutputProductID       int64  `json:"output_product_id"`
 	OutputUnit            string `json:"output_unit"`
 	GroupID               int64  `json:"group_id"`
@@ -347,6 +355,7 @@ type ProductionBomDraftItem struct {
 
 type UpdateProductionBomVersionDraftCommand struct {
 	VersionID              int64                    `json:"version_id"`
+	BomKind                string                   `json:"bom_kind"`
 	ExpectedLossRate       *float64                 `json:"expected_loss_rate,omitempty"`
 	MaterialLossRate       *float64                 `json:"material_loss_rate,omitempty"`
 	OutputQty              float64                  `json:"output_qty"`
@@ -837,18 +846,32 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	cmd.Name = NormalizeProductionBomName(cmd.Name)
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.BomKind = bomdomain.NormalizeBomKind(cmd.BomKind)
+	if !bomdomain.IsValidBomKind(cmd.BomKind) {
+		return ProductionBomSummary{}, fmt.Errorf("invalid bom_kind")
+	}
 	if cmd.Name == "" {
 		return ProductionBomSummary{}, fmt.Errorf("name required")
 	}
-	if cmd.OutputProductID <= 0 {
-		return ProductionBomSummary{}, fmt.Errorf("output_product_id required")
-	}
-	if cmd.OutputQty <= 0 {
-		cmd.OutputQty = 1
+	if bomdomain.IsPackagingBomKind(cmd.BomKind) {
+		cmd.OutputProductID = 0
+		if cmd.OutputQty <= 0 {
+			cmd.OutputQty = 1
+		}
+		if cmd.OutputUnit == "" {
+			cmd.OutputUnit = "spec"
+		}
+	} else {
+		if cmd.OutputProductID <= 0 {
+			return ProductionBomSummary{}, fmt.Errorf("output_product_id required")
+		}
+		if cmd.OutputQty <= 0 {
+			cmd.OutputQty = 1
+		}
+		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	}
 	legacyLossRate := 0.0
 	cmd.ExpectedLossRate = &legacyLossRate
-	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -902,6 +925,14 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Status = strings.TrimSpace(cmd.Status)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.BomKind != "" {
+		if !bomdomain.IsValidBomKind(cmd.BomKind) {
+			return ProductionBomSummary{}, fmt.Errorf("invalid bom_kind")
+		}
+		if bomdomain.IsPackagingBomKind(cmd.BomKind) {
+			cmd.OutputProductID = 0
+		}
+	}
 	if cmd.OutputProductID > 0 {
 		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	}
@@ -969,7 +1000,12 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 			if err != nil {
 				return ProductionBomVersion{}, err
 			}
-			if cmd.MaterialLossRate != nil {
+			if bomdomain.IsPackagingBomKind(cmd.BomKind) {
+				if err := validatePackagingBomDraftItem(item); err != nil {
+					return ProductionBomVersion{}, err
+				}
+				item.MaterialLossRate = 0
+			} else if cmd.MaterialLossRate != nil {
 				if versionMaterialLossRate > 0 && item.ComponentType == "material" && item.ConsumeUnit == "ratio_pct" {
 					item.MaterialLossRate = versionMaterialLossRate
 				} else {
@@ -1103,6 +1139,22 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 	item.ComponentType = componentType
 	item.ConsumeUnit = consumeUnit
 	return item, nil
+}
+
+func validatePackagingBomDraftItem(item ProductionBomDraftItem) error {
+	if item.ComponentType == "ratio_pct" {
+		return fmt.Errorf("packaging BOM items must use fixed quantity, not ratio_pct")
+	}
+	if item.ConsumeUnit == "ratio_pct" {
+		return fmt.Errorf("packaging BOM items must use fixed quantity, not ratio_pct")
+	}
+	if item.ComponentType == "product" {
+		return fmt.Errorf("packaging BOM items must be materials, not product components")
+	}
+	if item.MaterialLossRate != 0 {
+		return fmt.Errorf("packaging BOM items must not have material_loss_rate")
+	}
+	return nil
 }
 
 // ProductionBomConsumeUnitRequiresInventoryMatch reports whether a fixed BOM
