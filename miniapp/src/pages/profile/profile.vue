@@ -11,6 +11,7 @@ import { isAuthenticationExpiredRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import MainTabBar from '../../components/MainTabBar.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useSessionStore } from '../../stores/session'
 import {
   customerEntryRoute,
@@ -22,6 +23,13 @@ import {
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const loading = ref(false)
 const switching = ref(false)
 const errorMessage = ref('')
@@ -162,6 +170,10 @@ onShow(() => {
   <view
     class="page pull-up-brand-page"
     :class="[themeClass, { 'pull-up-brand-page-with-tabbar': !isEmployee }]"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
   >
     <EnvironmentBadge />
     <view class="header">
@@ -215,7 +227,7 @@ onShow(() => {
     </view>
 
     <view class="pull-up-brand-footer-anchor">
-      <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" />
+      <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" :revealed="pullUpBrandRevealed" />
     </view>
     <MainTabBar v-if="!isEmployee" current="mine" />
   </view>

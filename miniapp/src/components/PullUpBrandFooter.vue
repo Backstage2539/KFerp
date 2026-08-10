@@ -1,13 +1,24 @@
 <script setup lang="ts">
 withDefaults(defineProps<{
   withFixedTabbar?: boolean
+  revealed?: boolean
 }>(), {
   withFixedTabbar: false,
+  revealed: false,
 })
 </script>
 
 <template>
-  <view :class="['pull-up-brand-footer', { 'with-fixed-tabbar': withFixedTabbar }]">
+  <view
+    :class="[
+      'pull-up-brand-footer',
+      {
+        'with-fixed-tabbar': withFixedTabbar,
+        'is-revealed': revealed,
+      },
+    ]"
+    :aria-hidden="!revealed"
+  >
     <view class="pull-up-brand-reveal-spacer" aria-hidden="true" />
     <view class="pull-up-brand-signature">
       <text class="pull-up-brand-kicker">Drived By</text>
@@ -25,8 +36,24 @@ withDefaults(defineProps<{
 <style scoped>
 .pull-up-brand-footer {
   width: 100%;
+  max-height: 0;
+  overflow: hidden;
+  pointer-events: none;
   flex: 0 0 auto;
   box-sizing: border-box;
+  opacity: 0;
+  transition: max-height 220ms cubic-bezier(.22, .72, .2, 1), opacity 140ms ease-out;
+}
+
+.pull-up-brand-footer.is-revealed {
+  max-height: calc(162rpx + env(safe-area-inset-bottom));
+  max-height: calc(162rpx + constant(safe-area-inset-bottom));
+  opacity: 1;
+}
+
+.pull-up-brand-footer.with-fixed-tabbar.is-revealed {
+  max-height: calc(328rpx + env(safe-area-inset-bottom));
+  max-height: calc(328rpx + constant(safe-area-inset-bottom));
 }
 
 .pull-up-brand-reveal-spacer {

@@ -25,6 +25,7 @@ import {
 import { isAuthenticationExpiredRequestError, MiniRequestError } from '../../api/client'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import {
   buildEmployeeOrderItemsPayload,
   createEmployeeOrderItem,
@@ -53,6 +54,13 @@ import {
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const formData = ref<EmployeeOrderForm>()
 const customerContext = ref<EmployeeCustomersResponse>()
 const loading = ref(false)
@@ -717,7 +725,13 @@ onLoad((options) => {
 </script>
 
 <template>
-  <view class="page pull-up-brand-page">
+  <view
+    class="page pull-up-brand-page"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view class="panel">
       <view class="title-row">
@@ -879,7 +893,7 @@ onLoad((options) => {
     </view>
 
     <view class="pull-up-brand-footer-anchor">
-      <PullUpBrandFooter />
+      <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
 
     <view v-if="customerSelectorOpen && !isEditMode" class="overlay" @tap.self="closeCustomerSelector">

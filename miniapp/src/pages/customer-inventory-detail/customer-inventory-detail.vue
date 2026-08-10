@@ -9,10 +9,18 @@ import {
 } from '../../api/customerPortal'
 import EnvironmentBadge from '../../components/EnvironmentBadge.vue'
 import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
+import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
+const {
+  pullUpBrandRevealed,
+  handlePullUpBrandTouchStart,
+  handlePullUpBrandTouchMove,
+  handlePullUpBrandTouchEnd,
+  handlePullUpBrandTouchCancel,
+} = usePullUpBrandGesture()
 const processingPrefill = useProcessingPrefillStore()
 const productID = ref(0)
 const specG = ref(0)
@@ -125,7 +133,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <view class="page pull-up-brand-page">
+  <view
+    class="page pull-up-brand-page"
+    @touchstart="handlePullUpBrandTouchStart"
+    @touchmove="handlePullUpBrandTouchMove"
+    @touchend="handlePullUpBrandTouchEnd"
+    @touchcancel="handlePullUpBrandTouchCancel"
+  >
     <EnvironmentBadge />
     <view v-if="loading" class="state-card"><text>库存详情加载中...</text></view>
     <view v-else-if="errorMessage" class="state-card error-card">
@@ -164,7 +178,7 @@ onBeforeUnmount(() => {
     </template>
 
     <view class="pull-up-brand-footer-anchor">
-      <PullUpBrandFooter />
+      <PullUpBrandFooter :revealed="pullUpBrandRevealed" />
     </view>
   </view>
 </template>

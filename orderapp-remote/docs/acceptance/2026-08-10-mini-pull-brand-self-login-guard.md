@@ -3,17 +3,18 @@
 ## 范围
 
 - 需求：`PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`
-- 分支：`codex/mini-pull-brand-footer-hidden-20260810`
-- 目标一：小程序 13 个实际业务页面在正常浏览时不显示品牌标识，到达内容底部后继续向上拉才展示 `Drived By` 与透明银灰棵凡四字字标。
+- 分支：`codex/mini-pull-brand-elastic-reveal-20260810`
+- 目标一：小程序 13 个实际业务页面的品牌尾舱平时为零高度，只在真实内容底部继续上拉手势期间临时展示 `Drived By` 与透明银灰棵凡四字字标；松手后自动回弹隐藏，不能停留空白尾页。
 - 目标二：ERP 当前管理员不能关闭自己的登录；后端、前端共同防护，同时保留 BasicAuth 运维恢复通道和其他管理员维护他人的能力。
-- 边界：上拉品牌属于只读展示，不写业务数据或操作日志；production 仅完成目标账号即时恢复，不部署本需求代码；服务器部署、小程序固定包、微信开发者工具上传、审核和正式发布是独立检查点。
+- 边界：上拉品牌属于只读展示，不写业务数据或操作日志；第二轮纠正只待部署 development，production 代码不操作；服务器部署、小程序固定包、微信开发者工具上传、审核和正式发布是独立检查点。
 
 ## DEV 合同
 
 ### DEV-591-MINI-PULL-UP-BRAND
 
 - `pages/index/index` 是瞬时启动路由，不挂品牌组件；`pages.json` 其余 13 个实际业务页面统一接入 `PullUpBrandFooter`。
-- 组件位于正常文档流，不使用 fixed/absolute/sticky。13 页以普通 `pull-up-brand-footer-anchor` 承载底标，短页锚点从完整首屏之外开始，长页锚点排在全部普通内容之后；104rpx 保留区之后才展示签名。固定底栏页面使用 328rpx 总预留，无底栏页面使用 162rpx，并兼顾 `safe-area-inset-bottom`。
+- 13 页使用 `usePullUpBrandGesture` 和普通冒泡的 `touchstart` / `touchmove` / `touchend` / `touchcancel`，不用 prevent/stop，不把全页改造为 `scroll-view`。手势可在同一次拉动中先到达真实底部再继续拉起底标；横向移动或未到底不展开。
+- 组件位于正常文档流，不使用 fixed/absolute/sticky。静止时 `max-height: 0` 且不增加滚动区；只在真实底部上拉手势期间临时展开，固定底栏与无底栏页面分别兼顾底栏和安全区。`touchend` / `touchcancel` / `onHide` 立即清除显示状态，`max-height` 约 220ms 收回；松手后自动回弹隐藏，不能停留空白尾页。
 - `kefan-wordmark-silver.png` 使用透明背景和银灰单色，去除原图红色、底色和注册标记；“棵凡咖啡”由真实中文字体源码直接生成，避免图片生成模型改写“咖啡”笔画。最终 PNG 为 420×124、9,009 bytes。
 
 ### DEV-591-SELF-LOGIN-DISABLE-GUARD
@@ -35,6 +36,8 @@
 - Auth GREEN：当前员工自停用在数据库事务前返回 409；真实隔离 PostgreSQL 用例确认登录状态和业务审计均未改变，BasicAuth 恢复与管理员维护其他员工回归通过。Vue/Vite 全量为 928/928，构建通过。
 - 首轮人工 RED：development 中短页底标提前进入首屏，旧横向字标的“咖啡”笔画失真；新增合同在缺少普通锚点、完整首屏预留和可追溯正确中文字标时 3/3 失败。
 - Miniapp GREEN：13 个页面编译 WXML 各且仅一个普通锚点；字标为 420×124、9,009 bytes 的透明 PNG，源码固定为“棵凡咖啡”。32 个测试文件、198 项测试全部通过，类型检查和 development 微信小程序构建通过。
+- 第二轮人工 RED：development 中底标继续上拉后可见，但松手后仍停留在大块空白尾页；定向合同在缺少手势 reducer、13 页手势接线和可收回尾舱时失败。
+- 第二轮 GREEN：手势 reducer 与页面合同定向 10/10、miniapp 全量 33 个文件 205/205、类型检查和 development 微信小程序构建通过；13 个页面编译 WXML 均为一组普通 `bindtouchstart/move/end/cancel` 且没有 `catchtouchmove`。PR-591 support、后端全包、差异检查和独立代码终审均通过；此处只记录自动门禁，不提前标记为已部署。
 - Backend GREEN：`scripts/verify_kferp.sh backend` 全包通过，PR-591 定向 API/支持合同通过；`git diff --check` 与冲突标记检查通过。
 
 ## 生产即时恢复
@@ -45,7 +48,8 @@
 
 ## Van 验收
 
-- [ ] 在无固定底栏页面和有固定底栏页面分别正常浏览，品牌标识平时不可见；滚到底后继续向上拉，完整出现 `Drived By` 与银灰棵凡四字字标，且不遮挡内容或安全区。
+- [ ] 在无固定底栏页面和有固定底栏页面分别正常浏览，品牌标识平时不可见且没有额外空白滚动区；滚到真实底部后按住继续向上拉，完整出现 `Drived By` 与银灰棵凡四字字标，且不遮挡内容或安全区。
+- [ ] 手指保持向上拉动时标识可见；松手、触摸取消或离开页面后约 220ms 内自动回弹隐藏，不能留在标识或空白尾页。
 - [ ] 登录页、表单页、长列表和键盘弹起场景不会提前露出品牌；13 个实际业务页面样式一致，瞬时启动页不闪现品牌。
 - [ ] ERP 员工维护中，当前管理员的登录开关禁用并显示原因；其他员工登录开关可正常启停。
 - [ ] 直接请求关闭当前账号返回 409，当前会话仍有效且操作日志没有业务成功变更；BasicAuth 运维恢复和其他管理员维护他人仍可用。
@@ -53,12 +57,14 @@
 
 ## 交付状态
 
-- `DEV-591-MINI-PULL-UP-BRAND`：done；首轮人工 RED 已完成定位/字标纠正，自动测试、类型检查、development 构建及纠正版本部署均通过。
+- `DEV-591-MINI-PULL-UP-BRAND`：done；第二轮松手回弹实现已完成，等待当前自动门禁、合入和 development 部署闭环。
 - `DEV-591-SELF-LOGIN-DISABLE-GUARD`：done；production 即时恢复和持久代码防护的 API、数据库状态/审计、Vue 测试与构建均已通过。
-- `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：done；文档、种子和支持合同已同步，验证后的功能已合入并部署 development。
+- `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：doing；第二轮文档、种子和支持合同已同步，自动门禁、合入、development 部署和新固定开发包证据待补录。
 - `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`：todo，等待 Van 在 development 人工验收。
 
 ## Development 部署证据
+
+- 以下为上一版 development 基线证据；第二轮松手回弹纠正版尚未合入或部署。主工作流完成后要用新提交、备份、回滚、smoke 和固定包证据替换当前交付状态；production 代码不操作。
 
 - 纠正功能部署提交：`develop@ca452a5379f0d4c7a197791edef61d4653898c6b`。
 - 服务器源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810095952-ca452a5379f0`。

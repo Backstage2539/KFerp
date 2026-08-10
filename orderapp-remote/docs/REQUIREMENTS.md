@@ -1507,7 +1507,7 @@
 
 # PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD 小程序上拉品牌标识与当前账号防自停用（2026-08-10）
 
-- `DEV-591-MINI-PULL-UP-BRAND`：小程序除 `pages/index/index` 瞬时启动路由外的 13 个实际业务页面，统一在页面内容之后接入上拉品牌组件。正常浏览和刚到内容底部时不显示标识；用户滚到页面底部后继续向上拉，才显示 `Drived By` 与棵凡四字字标。字标使用透明背景、无原品牌红色、银灰单色和横向紧凑尺寸，压缩资源不得明显增加包体。组件必须保持正常文档流，不使用 `position: fixed`，不能覆盖表单、列表、键盘或固定底栏；固定底栏页面与无底栏页面分别预留合理高度并兼顾安全区。
+- `DEV-591-MINI-PULL-UP-BRAND`：小程序除 `pages/index/index` 瞬时启动路由外的 13 个实际业务页面，统一在页面内容之后接入上拉品牌组件。底标尾舱平时为零高度，不增加有效滚动区，正常浏览和刚到真实内容底部时都不显示标识；只有用户在真实底部继续做以竖直向上为主的拉动手势，才临时展开 `Drived By` 与棵凡四字字标。`touchend` / `touchcancel` / `onHide` 必须立即触发约 220ms 收回，松手后自动回弹隐藏，不得停留在可滚动的空白尾页。13 页使用普通冒泡的 `touchstart` / `touchmove` / `touchend` / `touchcancel` 事件，不使用 `prevent` / `stop`，不把整页改造为 `scroll-view`。字标使用透明背景、无原品牌红色、银灰单色和横向紧凑尺寸；组件保持正常文档流且不使用 `position: fixed` / `absolute` / `sticky`，不覆盖表单、列表、键盘、固定底栏或安全区。
 - `DEV-591-SELF-LOGIN-DISABLE-GUARD`：具备 `auth.manage` 的当前内部员工通过 `POST /api/auth/account-state` 关闭自己的登录时，后端必须返回 409 和 `cannot disable current account`，不得修改登录状态、失效当前会话或写入业务成功审计。BasicAuth 运维恢复通道没有员工身份，继续可以恢复任意有效内部员工；已登录管理员仍可启停其他内部员工，也允许保持或恢复自己的启用状态。员工维护页读取当前操作者，当前员工行的登录开关禁用并提示“当前账号不能关闭自己的登录”，其他员工开关保持可用；后端仍是最终权限和安全边界。
 - production 已使用既有账号启停 API 即时恢复本次受影响的目标内部员工账号，并确认原有审计动作存在；需求、验收或日志证据不得记录账号、密码或其他个人信息。该即时恢复不替代代码防护，拒绝请求只是不写业务成功审计，系统仍可按既有中间件保留 HTTP 失败请求记录。
 - `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：同步根目录与 `orderapp-remote/docs` 需求/验收、小程序员工 ERP、客户门户、设置审计手册、PR/DEV 种子、支持合同和独立验收记录。保留 support RED、后端/API、Vue/Vite、miniapp、透明资源和构建门禁后，将功能分支合入 `develop` 并部署 development。服务器部署、小程序固定开发包、微信开发者工具上传、审核、正式发布和 production 代码部署是独立检查点；本需求不自动上传、提审、发布微信版本，也不部署 production 代码。

@@ -21,7 +21,7 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 		{table: "req_product", code: "PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", status: "review", assignee: "VA"},
 		{table: "req_dev", code: "DEV-591-MINI-PULL-UP-BRAND", status: "done", assignee: "Codex"},
 		{table: "req_dev", code: "DEV-591-SELF-LOGIN-DISABLE-GUARD", status: "done", assignee: "Codex"},
-		{table: "req_dev", code: "DEV-591-DOCS-DEVELOPMENT-DELIVERY", status: "done", assignee: "Codex"},
+		{table: "req_dev", code: "DEV-591-DOCS-DEVELOPMENT-DELIVERY", status: "doing", assignee: "Codex"},
 		{table: "req_review", code: "REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD", status: "todo", assignee: "VA"},
 	} {
 		requireDev591SeedRow(t, reqStore, row.table, row.code, row.status, row.assignee)
@@ -41,9 +41,56 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 			t.Fatalf("PullUpBrandFooter.vue missing %q", want)
 		}
 	}
-	compactComponent := strings.ReplaceAll(strings.ReplaceAll(component, " ", ""), "\t", "")
-	if strings.Contains(compactComponent, "position:fixed") {
-		t.Fatal("pull-up brand footer must remain in document flow, not use position: fixed")
+	compactComponent := strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "").Replace(component)
+	for _, want := range []string{
+		"revealed?:boolean",
+		"'is-revealed':revealed",
+		":aria-hidden=\"!revealed\"",
+		"max-height:0",
+		".pull-up-brand-footer.is-revealed",
+		"transition:max-height220ms",
+	} {
+		if !strings.Contains(compactComponent, want) {
+			t.Fatalf("PullUpBrandFooter.vue missing elastic reveal contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{"position:fixed", "position:absolute", "position:sticky"} {
+		if strings.Contains(compactComponent, forbidden) {
+			t.Fatalf("pull-up brand footer must remain in document flow, found %q", forbidden)
+		}
+	}
+
+	appBytes, err := os.ReadFile(filepath.Join(miniappRoot, "App.vue"))
+	if err != nil {
+		t.Fatalf("read miniapp App.vue: %v", err)
+	}
+	app := string(appBytes)
+	compactApp := strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "").Replace(app)
+	for _, want := range []string{"box-sizing:border-box!important", "min-height:100vh!important"} {
+		if !strings.Contains(compactApp, want) {
+			t.Fatalf("miniapp App.vue missing zero-tail page contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{"100vh+", "box-sizing:content-box", ".pull-up-brand-page-with-tabbar"} {
+		if strings.Contains(compactApp, forbidden) {
+			t.Fatalf("miniapp App.vue must not reserve a persistent brand scroll range, found %q", forbidden)
+		}
+	}
+
+	gestureBytes, err := os.ReadFile(filepath.Join(miniappRoot, "composables", "usePullUpBrandGesture.ts"))
+	if err != nil {
+		t.Fatalf("read pull-up brand gesture composable: %v", err)
+	}
+	gestureReducerBytes, err := os.ReadFile(filepath.Join(miniappRoot, "utils", "pullUpBrandGesture.ts"))
+	if err != nil {
+		t.Fatalf("read pull-up brand gesture reducer: %v", err)
+	}
+	gestureSource := string(gestureBytes)
+	gestureReducer := string(gestureReducerBytes)
+	for _, want := range []string{"usePullUpBrandGesture", "isPageAtBottom", "onHide", "type: 'touch-end'", "type: 'touch-cancel'", "type: 'page-hide'"} {
+		if !strings.Contains(gestureSource+gestureReducer, want) {
+			t.Fatalf("pull-up brand gesture contract missing %q", want)
+		}
 	}
 
 	for _, page := range []string{
@@ -65,8 +112,35 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read miniapp page %s: %v", page, err)
 		}
-		if !strings.Contains(string(src), "<PullUpBrandFooter") {
+		pageSource := string(src)
+		if !strings.Contains(pageSource, "<PullUpBrandFooter") {
 			t.Fatalf("miniapp page %s must mount PullUpBrandFooter", page)
+		}
+		for _, want := range []string{
+			"usePullUpBrandGesture",
+			`@touchstart="handlePullUpBrandTouchStart"`,
+			`@touchmove="handlePullUpBrandTouchMove"`,
+			`@touchend="handlePullUpBrandTouchEnd"`,
+			`@touchcancel="handlePullUpBrandTouchCancel"`,
+			`:revealed="pullUpBrandRevealed"`,
+		} {
+			if !strings.Contains(pageSource, want) {
+				t.Fatalf("miniapp page %s missing elastic gesture wiring %q", page, want)
+			}
+		}
+		for _, forbidden := range []string{
+			"@touchstart.stop", "@touchstart.prevent",
+			"@touchmove.stop", "@touchmove.prevent",
+			"@touchend.stop", "@touchend.prevent",
+			"@touchcancel.stop", "@touchcancel.prevent",
+		} {
+			if strings.Contains(pageSource, forbidden) {
+				t.Fatalf("miniapp page %s must use bubbling touch events, found %q", page, forbidden)
+			}
+		}
+		rootPattern := regexp.MustCompile(`(?s)<template>\s*<view\b[^>]*\bpull-up-brand-page\b`)
+		if !rootPattern.MatchString(pageSource) {
+			t.Fatalf("miniapp page %s must keep the native page root instead of replacing the full page with scroll-view", page)
 		}
 	}
 	indexSrc, err := os.ReadFile(filepath.Join(miniappRoot, "pages", "index", "index.vue"))
@@ -140,14 +214,17 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 			"Drived By",
 			"继续向上拉",
 			"透明银灰",
+			"松手后自动回弹隐藏",
 		},
 		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"): {
 			"Drived By",
 			"继续向上拉",
+			"松手后自动回弹隐藏",
 		},
 		filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"): {
 			"Drived By",
 			"继续向上拉",
+			"松手后自动回弹隐藏",
 			"PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD",
 		},
 		filepath.Join("docs", "OP_MANUAL_SETTINGS_AUDIT.md"): {
@@ -157,6 +234,7 @@ func TestDev591MiniPullBrandSelfLoginGuardContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "acceptance", "2026-08-10-mini-pull-brand-self-login-guard.md"): {
 			"PR-591 小程序上拉品牌标识与当前账号防自停用验收记录",
+			"松手后自动回弹隐藏",
 			"生产即时恢复",
 			"现有账号启停 API",
 			"未记录账号、密码或其他个人信息",

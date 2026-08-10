@@ -7,22 +7,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD
-- Branch: codex/mini-pull-brand-footer-hidden-20260810
+- Branch: codex/mini-pull-brand-elastic-reveal-20260810
 - Owner/session: Codex / 2026-08-10
-- Status: review；Van 首轮 development 验收发现短页底标提前进入首屏且旧图片的“咖啡”字形失真；定位、字标修正、自动化与 development 纠正部署均已完成，等待 Van 复验
-- Scope: 小程序除瞬时启动路由外的 13 个实际业务页面，在页面正常底部不显示品牌标识，只有滚到页面底部后继续向上拉才展示 `Drived By` 和透明银灰棵凡四字字标；组件保持正常文档流，不使用 fixed 覆盖内容，并兼顾固定底栏和安全区。ERP 员工维护中，当前管理员不能关闭自己的登录开关，后端返回冲突且不写业务成功审计；BasicAuth 恢复通道及其他管理员启停其他内部员工继续有效。production 仅使用既有接口即时恢复目标账号，不记录账号、密码或其他个人信息；代码验证后合入 `develop` 并部署 development，微信上传、提审、发布以及 production 代码部署均为独立检查点。
+- Status: review；Van 第二轮 development 验收发现上拉展示后松手仍可停留在大块空白尾页。松手回弹互动实现已完成，自动门禁、合入与 development 部署进行中；PR 保持 review，REV 保持 todo
+- Scope: 小程序除瞬时启动路由外的 13 个实际业务页面，底标尾舱平时为零高度且不增加滚动区；只有在真实内容底部继续以竖直向上为主拉动时，才临时展开 `Drived By` 和透明银灰棵凡四字字标；`touchend` / `touchcancel` / `onHide` 后约 220ms 自动回弹隐藏，松手不能停留空白尾页。13 页使用普通冒泡触摸事件，不用 prevent/stop，不把全页改为 scroll-view。ERP 自停用防护保持不变。本轮验证后合入 `develop` 并部署 development；production 代码、微信上传、提审和发布不在范围。
 - DEV:
-  - DEV-591-MINI-PULL-UP-BRAND（done）：13 个实际业务页面以普通锚点承载正常流底标，短页完整位于首屏之外、长页位于全部内容之后；透明银灰“棵凡咖啡”使用真实中文字体生成的 420×124、9,009 bytes PNG，逐字清晰且不再使用失真生成图。小程序 198/198、类型检查和 development 构建通过。
+  - DEV-591-MINI-PULL-UP-BRAND（done）：13 个实际业务页面已接入 `usePullUpBrandGesture` 和四个普通冒泡触摸处理；底标尾舱休眠时 `max-height: 0`，只在真实底部上拉手势期间展开，松手、取消或离开页面后自动回弹隐藏。透明银灰“棵凡咖啡”使用 420×124、9,009 bytes PNG。
   - DEV-591-SELF-LOGIN-DISABLE-GUARD（done）：API 已拒绝当前员工停用自身；BasicAuth 仍可恢复任意内部员工，其他管理员仍可启停他人；员工维护已禁用当前行开关并提示原因，真实隔离 PostgreSQL 状态/审计测试、Vue 928/928 和构建通过。
-  - DEV-591-DOCS-DEVELOPMENT-DELIVERY（done）：需求、验收、小程序员工 ERP、客户门户、设置审计手册、种子和支持合同已同步；首轮功能和本次纠正均已合入 `develop`，纠正功能提交 `ca452a5379f0d4c7a197791edef61d4653898c6b` 已部署 development。
+  - DEV-591-DOCS-DEVELOPMENT-DELIVERY（doing）：第二轮松手回弹需求、验收、三份相关手册、种子和支持合同已同步；自动门禁、合入和 development 部署待当前实现完成后执行。
 - Verifier:
   - RED: `go test ./internal/interfaces/http/support -run TestDev591MiniPullBrandSelfLoginGuardContracts -count=1` 首次因缺少 PR-591 种子失败。
   - Miniapp: `miniapp/src/utils/pullUpBrandFooter.test.ts`、miniapp 全量测试、类型检查和 development 构建。
-  - Follow-up RED/GREEN: 新合同先因 13 页缺普通锚点、根布局仍为 64/230rpx 且缺少可追溯的正确中文字标失败；修正后定向 3/3、全量 198/198、类型检查、development mp-weixin 构建及 13 页编译 WXML 合同通过。
+  - Second follow-up RED/GREEN: 定向合同先因缺少手势 reducer、13 页 `usePullUpBrandGesture` 接线和可收回尾舱失败；修正后定向 10/10、miniapp 全量 205/205、类型检查、development mp-weixin 构建、13 页编译 WXML、PR-591 support、后端全包和差异检查均通过。
   - Auth: account-state handler 定向测试、CompanyStaffView 定向测试、前端 build 和 PR-591 支持合同。
-  - Deploy gates: development 服务器构建与部署成功，外部 smoke HTTP 200；开发小程序固定包已同步，微信上传、提审和发布未执行。
+  - Deploy gates: 上一版 development 基线已部署；当前松手回弹纠正版待自动门禁通过后合入、部署 development 并更新固定开发包。production 不操作。
 - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/acceptance/2026-08-10-mini-pull-brand-self-login-guard.md`。
-- Deployment: 纠正功能提交 `develop@ca452a5379f0d4c7a197791edef61d4653898c6b` 已部署 development；服务器源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810095952-ca452a5379f0`，回滚镜像 `kferp-orderapp-rollback:development-20260810095952-ca452a5379f0`，外部 smoke HTTP 200。本机固定开发包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 已原子更新，旧包备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810100607-ca452a5379f0`。首次纠正部署因服务器根盘被 27.72GB 未使用 BuildKit 缓存写满而在 PostgreSQL 健康检查处失败；只清理可重建缓存后释放约 25GB，数据库自动完成恢复，旧应用基线恢复健康，随后同一提交完整重跑门禁并部署成功，未修改数据库或业务数据。production 目标账号已通过既有账号启停 API 即时恢复并确认审计动作；production 代码部署、微信上传、提审和发布未执行。
+- Deployment: 上一版 `develop@ca452a5379f0d4c7a197791edef61d4653898c6b` 已部署 development，对应备份、回滚镜像和固定开发包证据保留。第二轮松手回弹纠正版尚未合入或部署；完成后由主工作流补录新的 development 提交、备份、回滚、smoke 和固定包证据。production 代码不部署。
 - Review: `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD` todo，等待 Van 在 development 人工验收上拉品牌显示与当前账号防自停用。
 - Last update: 2026-08-10 Asia/Shanghai
 
