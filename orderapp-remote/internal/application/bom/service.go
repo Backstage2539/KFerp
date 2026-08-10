@@ -980,6 +980,9 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 			}
 			cmd.Items[i] = item
 		}
+		if err := s.validateProductionBomDraftItemInventoryUnits(ctx, cmd.Items); err != nil {
+			return ProductionBomVersion{}, err
+		}
 	}
 	if strings.TrimSpace(cmd.SpecialAttrsSchemaJSON) != "" {
 		schemaJSON, err := normalizeJSONArrayText(cmd.SpecialAttrsSchemaJSON)
@@ -1100,6 +1103,74 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 	item.ComponentType = componentType
 	item.ConsumeUnit = consumeUnit
 	return item, nil
+}
+
+// ProductionBomConsumeUnitRequiresInventoryMatch reports whether a fixed BOM
+// unit is a configurable inventory unit rather than a legacy semantic unit.
+func ProductionBomConsumeUnitRequiresInventoryMatch(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box", "fixed_qty", "unit", "g", "kg", "length", "area":
+		return false
+	default:
+		return true
+	}
+}
+
+// ValidateProductionBomDraftItemInventoryUnits prevents fixed package units
+// from being interpreted as another inventory unit without a conversion rule.
+func ValidateProductionBomDraftItemInventoryUnits(items []ProductionBomDraftItem, materials []Option, products []Option) error {
+	materialUnits := make(map[int64]string, len(materials))
+	for _, row := range materials {
+		materialUnits[row.ID] = strings.TrimSpace(row.InventoryUnit)
+	}
+	productUnits := make(map[int64]string, len(products))
+	for _, row := range products {
+		productUnits[row.ID] = strings.TrimSpace(row.InventoryUnit)
+	}
+	for i, item := range items {
+		if !ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
+			continue
+		}
+		inventoryUnit := materialUnits[item.MaterialID]
+		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
+			inventoryUnit = productUnits[item.ComponentProductID]
+		}
+		if inventoryUnit == "" || !strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), inventoryUnit) {
+			return fmt.Errorf("item %d consume_unit must match component inventory_unit", i+1)
+		}
+	}
+	return nil
+}
+
+func (s *Service) validateProductionBomDraftItemInventoryUnits(ctx context.Context, items []ProductionBomDraftItem) error {
+	needMaterials := false
+	needProducts := false
+	for _, item := range items {
+		if !ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
+			continue
+		}
+		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
+			needProducts = true
+		} else {
+			needMaterials = true
+		}
+	}
+	var materials []Option
+	var products []Option
+	var err error
+	if needMaterials {
+		materials, err = s.repo.Materials(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if needProducts {
+		products, err = s.repo.Products(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	return ValidateProductionBomDraftItemInventoryUnits(items, materials, products)
 }
 
 func (s *Service) BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error) {

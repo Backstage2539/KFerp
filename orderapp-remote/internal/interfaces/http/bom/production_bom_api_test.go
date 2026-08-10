@@ -13,6 +13,10 @@ import (
 
 func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	repo := &apiFakeRepo{
+		materialRows: []bomapp.Option{
+			{ID: 7, Name: "拼配原料", InventoryUnit: "kg"},
+			{ID: 8, Name: "包装袋", InventoryUnit: "个"},
+		},
 		productionBomGroups: []bomapp.ProductionBomGroup{
 			{ID: 1, Name: "常用配方", Active: true, SortOrder: 10, Categories: []bomapp.ProductionBomGroupCategory{{ID: 31, GroupID: 1, Name: "浅烘", SortOrder: 10}}},
 			{ID: 2, Name: "停用分组", Active: false, SortOrder: 99},

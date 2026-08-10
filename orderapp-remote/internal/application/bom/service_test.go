@@ -15,6 +15,7 @@ type fakeRepo struct {
 	versionFor                    int64
 	listRows                      []ListItem
 	productRows                   []Option
+	materialRows                  []Option
 	createdProductionBomCommand   CreateProductionBomCommand
 	updatedProductionBomCommand   UpdateProductionBomCommand
 	copiedProductionBomCommand    CopyProductionBomCommand
@@ -30,7 +31,7 @@ func (r *fakeRepo) Detail(ctx context.Context, productID int64) (Detail, error) 
 	return Detail{}, nil
 }
 func (r *fakeRepo) Products(ctx context.Context) ([]Option, error)  { return r.productRows, nil }
-func (r *fakeRepo) Materials(ctx context.Context) ([]Option, error) { return nil, nil }
+func (r *fakeRepo) Materials(ctx context.Context) ([]Option, error) { return r.materialRows, nil }
 func (r *fakeRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error) {
 	return nil, nil
 }
@@ -479,7 +480,10 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 }
 
 func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossOnlyToRatioMaterials(t *testing.T) {
-	repo := &fakeRepo{}
+	repo := &fakeRepo{materialRows: []Option{
+		{ID: 7, Name: "拼配原料", InventoryUnit: "kg"},
+		{ID: 8, Name: "包装袋", InventoryUnit: "个"},
+	}}
 	svc := NewService(repo)
 	ctx := context.Background()
 	lossRate := 0.2
@@ -541,6 +545,22 @@ func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossOnlyToRatioMaterials
 	}
 	if items[1].ConsumeUnit != "个" || items[1].QtyPerUnit != 2 {
 		t.Fatalf("fixed packaging unit was not preserved: %+v", items[1])
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:        103,
+		OutputQty:        1,
+		OutputUnit:       "kg",
+		MaterialLossRate: &lossRate,
+		Items: []ProductionBomDraftItem{{
+			ComponentType: "material",
+			MaterialID:    8,
+			ConsumeUnit:   "盒",
+			QtyPerUnit:    1,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "consume_unit must match component inventory_unit") {
+		t.Fatalf("mismatched packaging unit must be rejected, got %v", err)
 	}
 
 	invalidLossRate := 1.0

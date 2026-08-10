@@ -745,6 +745,9 @@ const currentConsumeUnitOptions = computed(() => {
   if (versionMaterialLossRateEnabled.value && selectedMaterialLossZone.value === 'loss') {
     return materialLossRatioOnlyConsumeUnitOptions
   }
+  if (versionMaterialLossRateEnabled.value && selectedMaterialLossZone.value === 'non_loss') {
+    return componentInventoryConsumeUnitOptions(itemForm.consume_unit)
+  }
   return consumeUnitOptionsWithCurrent(
     itemForm.component_type !== 'product' && !versionMaterialLossRateEnabled.value,
     itemForm.consume_unit,
@@ -1039,6 +1042,13 @@ function consumeUnitOptionsWithCurrent(includeRatio, currentUnit) {
   }
   if (!options.length) options.push({ value: 'unit', label: 'unit' })
   return options
+}
+
+function componentInventoryConsumeUnitOptions(currentUnit) {
+  const inventoryUnit = componentStockUnitCode.value
+  if (!inventoryUnit) return consumeUnitOptionsWithCurrent(false, currentUnit)
+  const configured = unitDictionaryConsumeUnitOptions.value.find((option) => option.value === inventoryUnit)
+  return [configured || { value: inventoryUnit, label: unitLabel(inventoryUnit) }]
 }
 
 function consumeUnitLabel(unit) {

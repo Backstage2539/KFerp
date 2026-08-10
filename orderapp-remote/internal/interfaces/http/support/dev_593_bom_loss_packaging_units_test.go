@@ -12,6 +12,7 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 			"PR-593-BOM-LOSS-PACKAGING-UNITS",
 			"DEV-593-BOM-MIXED-CONSUMPTION",
 			"DEV-593-BOM-LOSS-ZONES",
+			"DEV-593-BOM-PACKAGING-COST",
 			"REV-593-BOM-LOSS-PACKAGING-UNITS",
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
@@ -29,6 +30,7 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"selectedMaterialLossZone",
+			"componentInventoryConsumeUnitOptions",
 			"损耗原料",
 			"非损耗物料（含包材）",
 			"损耗只作用于物料的比例 % 行",
@@ -39,6 +41,13 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-593 marker %q", rel, want)
 			}
+		}
+	}
+
+	costingSource := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go")))
+	for _, want := range []string{"NULLIF(m.cost_unit,'')", "NULLIF(m.unit,'')", "NOT IN ('ratio_pct','g_per_bag')"} {
+		if !strings.Contains(costingSource, want) {
+			t.Fatalf("costing repository missing fixed packaging cost marker %q", want)
 		}
 	}
 

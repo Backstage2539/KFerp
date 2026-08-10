@@ -354,6 +354,8 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 		"OutputQty",
 		"OutputUnit",
 		"ValidateProductionBomVersionForPublish",
+		"validateProductionBomVersionItemInventoryUnits",
+		"ValidateProductionBomDraftItemInventoryUnits",
 		"output_product_id required",
 		"components required",
 		"cycle detected",

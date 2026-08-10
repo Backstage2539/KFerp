@@ -353,6 +353,7 @@ test('BOM version settings separate loss materials from fixed packaging without 
   assert.match(source, /selectedMaterialLossZone/)
   assert.match(source, /selectMaterialLossZone/)
   assert.match(source, /detailItemSections/)
+  assert.match(source, /componentInventoryConsumeUnitOptions/)
   assert.doesNotMatch(source, /<option value="product" :disabled="versionMaterialLossRateEnabled">/)
   assert.doesNotMatch(source, /versionMaterialLossRateEnabled\.value \? 'ratio_pct'/)
   assert.match(source, /不含原料损耗/)
