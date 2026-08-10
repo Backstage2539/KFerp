@@ -43,7 +43,7 @@ func TestDev595UnifiedCategoryMoveInteractionDeliveryContracts(t *testing.T) {
 			"全部分类和模板标题不能作为移动目标",
 			"成功后清空勾选",
 			"失败后保留勾选和移动模式",
-			"不部署",
+			"部署 development",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION",
@@ -62,9 +62,10 @@ func TestDev595UnifiedCategoryMoveInteractionDeliveryContracts(t *testing.T) {
 			"PR-595 四列表统一分类移动交互验收记录",
 			"## RED 证据",
 			"## GREEN 证据",
+			"## 合并与开发部署证据",
 			"## 未执行事项",
-			"未部署",
-			"未合并 `develop`",
+			"8c182a4cbf86a05a0bf55cae06fea34fbbc88c5f",
+			"未部署 production",
 			"Van 业务验收待办",
 		},
 	} {

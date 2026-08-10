@@ -126,7 +126,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION
 - Branch: codex/four-list-category-move-20260810
 - Owner/session: Codex / 2026-08-10
-- Status: implemented and automated verification complete on the feature branch; rebased onto `origin/develop` `aa22bf9b`, ready for merge; not merged or deployed
+- Status: development deployed; automated verification complete; awaiting Van acceptance
 - Scope: 物料档案、生产 BOM、商品档案和选中具体仓库且非客户上下文的仓库内部列表统一采用“移动到分类”状态交互：勾选对象后点击按钮，右侧列表置灰；左侧分类树提示选择目标、自动展开并可滚动；点击允许的分类立即移动且不二次确认；完成或取消后恢复此前展开节点、当前分类和滚动位置。四页继续保留各自既有搜索、筛选、分组层级和分页语义；无模板时左树仅显示 `全部分类`、右侧平铺、移动禁用且底部设置入口保留。
 - DEV:
   - DEV-595-SHARED-MOVE-STATE：抽取或复用可测试的移动状态与分类树快照/恢复逻辑，覆盖进入、目标选择、成功、失败和取消。
@@ -135,14 +135,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-595-WAREHOUSE-INVENTORY：适配选中仓库内物品列表，使用 `warehouse_inventory_item` 与精确 `<warehouse code>:<item_type>:<item_id>:<spec_g>` identity；warehouse code 仅作命名空间。分类只过滤 stock API 当前服务端页，不发送 `group_id/group_item_id`，保持 `total/page/limit`；全部仓库/客户上下文仅分类层面平铺且不可移动，既有 WIP/追溯不变，PR-442/458 查询只作历史兼容。
   - DEV-595-DOCS-ACCEPTANCE：同步单一来源操作手册、需求种子和自动化验收证据。
 - Verifier:
-  - Unit: frontend-vue-shell 全量 `node --test src/lib/*.test.js` 925/925 GREEN；Go support 全包与 materials HTTP 包 GREEN
-  - API: 复用现有业务分组 assignment API 与审计写入契约；仅在契约缺口时补 handler 测试
-  - Frontend/build: `scripts/verify_kferp.sh frontend-build` GREEN（Vite 400 modules）
+  - Unit: 最新 `origin/develop` 基线下 frontend-vue-shell 全量 946/946 GREEN，合并树定向 260/260 GREEN；`scripts/verify_kferp.sh backend` Go 全包 GREEN
+  - API: Go HTTP/support 全包 GREEN；开发环境只读需求 API HTTP 200 并可见 PR-595，未执行业务数据写入或浏览器业务流
+  - Frontend/build: 本地及服务器 Vite build GREEN（400 modules）；服务器 miniapp 205/205、typecheck、development mp-weixin build GREEN
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`
   - Review/acceptance: 自动化证据写入 `orderapp-remote/docs/acceptance/2026-08-10-unified-category-move-interaction.md`; 页面业务验收由 Van 后续执行
-- Deployment: explicitly out of scope; do not merge develop or deploy in this task
-- Last update: 2026-08-10 Asia/Shanghai
-- Notes: 功能最初基于 `develop` `fb4aea5c` 使用草案编号 PR-588；同步后 `origin/develop` 已由 PR-588～594 占用。重放到 `aa22bf9b` 后以 `scripts/reserve_req_id.sh` 确认并改用下一可用编号 PR-595，未改写上游历史需求。
+- Deployment: feature `8c32c89e6a381d3493f31604cbb0d497d9a7b830` pushed and merged to `develop` as `8c182a4cbf86a05a0bf55cae06fea34fbbc88c5f`；development 已部署该提交。备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810154836-8c182a4cbf86`，回滚镜像 `kferp-orderapp-rollback:development-20260810154836-8c182a4cbf86`；`erp_orderapp` 运行中且 restart count 0，开发登录 HTTP 200、认证应用 HTTP 303、需求 API HTTP 200 并可见 PR-595、近期 error 0。production、`main` 未操作，浏览器/业务人工验收仍由 Van 执行。
+- Last update: 2026-08-10 15:56 Asia/Shanghai
+- Notes: 功能最初基于 `develop` `fb4aea5c` 使用草案编号 PR-588；同步后 `origin/develop` 已由 PR-588～594 占用。重放到最新 `origin/develop` `99239638` 后以 `scripts/reserve_req_id.sh` 确认并改用下一可用编号 PR-595，未改写上游历史需求。原任务要求不合并/不部署，Van 在 2026-08-10 后续明确要求合并 `develop` 并部署 development，当前记录按该最新指令闭环。
 
 ### PR-587-PRICE-LIST-BOM-FIXES
 - Branch: codex/price-list-bom-fixes-20260809

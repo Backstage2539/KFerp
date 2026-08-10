@@ -3,7 +3,7 @@
 日期：2026-08-10
 
 分支：`codex/four-list-category-move-20260810`
-范围：物料档案、生产 BOM、商品档案、选中仓库的仓内物品列表。只实现、自动化验证并提交当前功能分支；不部署、不合并 `develop`。
+范围：物料档案、生产 BOM、商品档案、选中仓库的仓内物品列表。先在独立功能分支实现和自动化验证；Van 后续明确要求合并 `develop` 并部署 development。
 
 ## 验收口径
 
@@ -24,21 +24,28 @@
 
 - 公共分类树、分类过滤、移动快照/恢复及多模板先序排列测试通过。
 - 四页接线测试通过；物料、BOM、商品和仓库原有受影响源契约已更新到 `BusinessGroupWorkspace`、即时目标与失败重试语义。
-- frontend-vue-shell 全量 `node --test src/lib/*.test.js`：925/925 通过。
-- `go test ./internal/interfaces/http/support -count=1` 与 `go test ./internal/interfaces/http/materials -count=1`：通过。
+- 最新 `origin/develop` 基线下 frontend-vue-shell 全量测试：946/946 通过；合并树定向测试：260/260 通过。
+- `scripts/verify_kferp.sh backend`、Go support/materials 及服务器镜像内 `go test ./...`：通过。
 - `scripts/verify_kferp.sh frontend-build`：Vite production build 通过，400 个 modules 完成转换；仅保留既有大 chunk 提示。
-- `git diff --check`：通过。功能分支已重放到 `origin/develop` `aa22bf9b`，PR-588～594 为上游既有需求，本功能改用仓库确认的下一编号 PR-595。
+- `git diff --check`：通过。功能分支已重放到 `origin/develop` `99239638`，PR-588～594 为上游既有需求，本功能改用仓库确认的下一编号 PR-595。
 
 ## 自动化检查范围
 
 - Vue：`src/lib/business-group-move.test.js`、`unified-category-move-ui.test.js`、`business-grouping.test.js`、`materials-ui.test.js`、`bom.test.js`、`product-settings.test.js`、`feature-group-selection-ui.test.js`，以及全量 `src/lib/*.test.js`。
 - Go 支持契约：`TestDev595UnifiedCategoryMoveInteractionDeliveryContracts` 及受影响的历史分组页面契约。
 - 构建：`scripts/verify_kferp.sh frontend-build`。
-- 不执行浏览器/API 业务流或 development 人工验收；由 Van 后续按页面验收清单执行。
+- 不执行浏览器或 API 业务写入流；部署后仅执行只读状态、登录、需求标记和源码标记 smoke。页面人工验收由 Van 后续按清单执行。
+
+## 合并与开发部署证据
+
+- 功能分支 `codex/four-list-category-move-20260810` 已推送，提交 `8c32c89e6a381d3493f31604cbb0d497d9a7b830`。
+- 合并提交 `8c182a4cbf86a05a0bf55cae06fea34fbbc88c5f` 已推入 `origin/develop`，部署脚本从与远端一致的干净 `develop` 执行。
+- `./deploy_orderapp.sh` 完成服务器 Vue 946/946、小程序 205/205、typecheck、development mp-weixin build、Go 全包、镜像内 Go 全包和应用镜像构建。
+- 开发环境备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810154836-8c182a4cbf86`；回滚镜像：`kferp-orderapp-rollback:development-20260810154836-8c182a4cbf86`。
+- `erp_orderapp` 运行且 restart count 0；开发登录 HTTP 200、认证应用 HTTP 303、需求 API HTTP 200 并可见 `PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION`，服务器源码包含 `BusinessGroupWorkspace`，近期 error 计数 0。
 
 ## 未执行事项
 
-- 未部署 development 或 production。
-- 未合并 `develop`，只准备当前功能分支供后续合并。
+- 未部署 production，未修改 `main`。
 - 未执行浏览器手工验收、业务数据移动或线上写入。
 - Van 业务验收待办。

@@ -1033,4 +1033,4 @@
 - [ ] 移动成功后清空勾选、刷新归类并退出移动模式；失败后保留勾选和移动模式，可直接重试；取消和成功都恢复进入前的浏览分类、树展开状态和滚动位置。
 - [ ] 物料名称/编码/批次与状态、BOM 状态和名称/编号、商品名称/类型/备注与状态及分类内分页均保持原语义。仓库继续用 `q/warehouse/item_type/customer_id/page/limit` 请求 stock API，分类仅过滤当前服务端页 `rows`，不发送 `group_id/group_item_id`，`total/page/limit` 不随分类改变。
 - [ ] 仓库外层选择保持不变；选中具体仓库且非客户库存上下文时显示分类工作区。写入对象为 `warehouse_inventory_item` 和精确 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>`；warehouse code 仅是命名空间前缀，归类身份是物品/规格，同一身份多批次只移动一次，移到未分类只删除该精确 assignment。全部仓库和客户库存上下文仅在分类层面平铺且不可勾选移动，既有 WIP/追溯能力不变。
-- [ ] 相关单元测试、支持契约和前端构建通过；本任务只提交当前功能分支并准备合入 `develop`，不部署，未合并 `develop`，Van 业务验收待办。
+- [x] 最新 `develop` 基线的 Go 全包、前端 946/946、合并树定向 260/260、Vite build、服务器 Vue/小程序/Go/镜像构建和只读 smoke 通过；功能已合入 `develop` 并部署 development，production 与 `main` 未操作，Van 页面业务验收待办。

@@ -1527,4 +1527,4 @@
 - 点击目标分类后立即移动，不再显示目标模板/目标分类下拉，也不二次确认。成功后清空勾选并退出；失败后保留勾选和移动模式供重试；成功或取消均恢复进入移动前的浏览分类、展开节点和树滚动位置。
 - 分类浏览必须发生在各页面现有过滤结果之后，保留各页面自己的搜索、状态、类型、仓库和分页语义：物料保留名称/编码/批次和状态；生产 BOM 保留状态及名称/编号；商品保留名称/类型/备注和状态及分类内分页。仓库先按现有 `q/warehouse/item_type/customer_id/page/limit` 取得 stock API 当前服务端页，再仅在该页 `rows` 上做客户端分类过滤；不发送 `group_id/group_item_id`，服务端 `total/page/limit` 等分页口径不随分类改变。
 - 商品、物料、BOM 沿用 `product_catalog/product`、`material_catalog/material`、`production_bom/production_bom`。PR-588 取代 PR-458 的仓库 code 当前归类口径：选中具体仓库且非客户库存上下文时显示分类工作区，使用 `warehouse_inventory/warehouse_inventory_item` 和精确 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>`；warehouse code 只作为仓库命名空间前缀，实际归类身份是仓内物品/规格，同一身份的多个批次只移动一次。全部仓库和客户库存上下文仅在分类层面保持平铺且不可勾选或移动，既有 WIP、追溯等上下文能力不变。既有 assignment API、操作日志、库存数量、成本、批次和追溯不变。
-- 本任务只在功能分支实现、运行单元测试和前端构建并形成合并准备；不合并 `develop`，不部署 development 或 production，页面业务验收由 Van 后续执行。
+- 本功能先在独立功能分支完成单元测试和前端构建；经 Van 后续明确要求，合入 `develop` 并部署 development。production、`main` 不操作，页面业务验收仍由 Van 后续执行。
