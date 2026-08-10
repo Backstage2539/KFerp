@@ -4,6 +4,7 @@ import {
   buildBusinessGroupAssignmentPayload,
   isSystemDefaultBusinessGroup,
 } from './product-settings.js'
+import { clampPage, normalizePageSize, slicePageRows } from './pagination.js'
 
 function toNumber(value) {
   const n = Number(value || 0)
@@ -627,6 +628,94 @@ export function restoreBusinessGroupMoveState(state = {}) {
     scrollTop: Math.max(0, Number(snapshot.scrollTop || 0)),
     snapshot: null,
   }
+}
+
+export function businessGroupInlineListState(groups = [], paginationByGroup = {}, options = {}) {
+  const sourceGroups = Array.isArray(groups) ? groups : []
+  const sourcePagination = paginationByGroup && typeof paginationByGroup === 'object'
+    ? paginationByGroup
+    : {}
+  const defaultPageSize = normalizePageSize(options.defaultPageSize)
+  const pagination = {}
+  const visibleRows = []
+  let total = 0
+
+  const paginatedGroups = sourceGroups.map((group, index) => {
+    const key = normalizedText(group?.key) || `business-group-inline-${index}`
+    if (group?.is_template_group) {
+      return {
+        ...group,
+        key,
+        rows: [],
+        total: Math.max(0, toNumber(group?.template_total)),
+        page: 1,
+        pageSize: defaultPageSize,
+        needsPagination: false,
+      }
+    }
+    const sourceRows = Array.isArray(group?.rows) ? group.rows : []
+    const requested = sourcePagination[key] || {}
+    const pageSize = normalizePageSize(requested.pageSize || defaultPageSize)
+    const page = clampPage(requested.page, sourceRows.length, pageSize)
+    const rows = slicePageRows(sourceRows, { page, pageSize })
+    pagination[key] = { page, pageSize }
+    visibleRows.push(...rows)
+    total += sourceRows.length
+    return {
+      ...group,
+      key,
+      total: sourceRows.length,
+      page,
+      pageSize,
+      needsPagination: sourceRows.length > pageSize,
+      rows,
+    }
+  })
+
+  return { groups: paginatedGroups, pagination, visibleRows, total }
+}
+
+export function businessGroupHiddenByCollapsedAncestor(groups = [], group = {}, collapsedGroupKeys = []) {
+  const source = Array.isArray(groups) ? groups : []
+  const collapsed = new Set((Array.isArray(collapsedGroupKeys) ? collapsedGroupKeys : [])
+    .map(normalizedText)
+    .filter(Boolean))
+  const groupID = toNumber(group?.group_id)
+  if (!collapsed.size || !(groupID > 0)) return false
+  if (!group?.is_template_group) {
+    const templateHeader = source.find((candidate) => (
+      candidate?.is_template_group && toNumber(candidate?.group_id) === groupID
+    ))
+    if (templateHeader && collapsed.has(normalizedText(templateHeader.key))) return true
+  }
+  let parentItemID = toNumber(group?.parent_group_item_id)
+  const byItemID = new Map(source
+    .filter((candidate) => toNumber(candidate?.group_id) === groupID && toNumber(candidate?.group_item_id) > 0)
+    .map((candidate) => [toNumber(candidate.group_item_id), candidate]))
+  const visited = new Set()
+  while (parentItemID > 0 && !visited.has(parentItemID)) {
+    visited.add(parentItemID)
+    const parent = byItemID.get(parentItemID)
+    if (!parent) break
+    if (collapsed.has(normalizedText(parent.key))) return true
+    parentItemID = toNumber(parent.parent_group_item_id)
+  }
+  return false
+}
+
+export function businessGroupVisibleRows(groups = [], collapsedGroupKeys = []) {
+  const source = Array.isArray(groups) ? groups : []
+  const collapsed = new Set((Array.isArray(collapsedGroupKeys) ? collapsedGroupKeys : [])
+    .map(normalizedText)
+    .filter(Boolean))
+  return source.flatMap((group) => (
+    group?.is_template_group
+      || collapsed.has(normalizedText(group?.key))
+      || businessGroupHiddenByCollapsedAncestor(source, group, collapsedGroupKeys)
+      || !Array.isArray(group?.rows)
+      ? []
+      : group.rows
+  ))
 }
 
 export function businessGroupHeaderIndentStyle(group = {}) {

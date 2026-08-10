@@ -16,7 +16,7 @@ func TestProductSettingsBasicProductRowsExposeBomEntry(t *testing.T) {
 	if rowStart < 0 {
 		t.Fatalf("product SKU list table rows not found")
 	}
-	rowEnd := strings.Index(src[rowStart:], `<tr v-if="!displaySkuRows.length"`)
+	rowEnd := strings.Index(src[rowStart:], `<tr v-if="!group.rows.length"`)
 	if rowEnd < 0 {
 		t.Fatalf("product SKU list empty row not found")
 	}

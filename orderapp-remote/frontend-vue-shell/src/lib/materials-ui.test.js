@@ -16,7 +16,7 @@ test('warehouse settings opens from selected warehouse while grouping is handled
 
   assert.doesNotMatch(warehouseSource, /:disabled="!selectedWarehouse \|\| !isExternalWarehouse"/)
   assert.match(warehouseSource, /openWarehouseSettingsDrawer/)
-  assert.match(warehouseSource, /BusinessGroupWorkspace/)
+  assert.match(warehouseSource, /BusinessGroupInlineWorkspace/)
   assert.doesNotMatch(componentSource, /选择分组模板|目标分类|<select/)
   assert.match(componentSource, /移动到分类/)
   assert.match(warehouseSource, /\/api\/business-group-assignments/)
@@ -43,7 +43,7 @@ test('warehouse inventory groups warehouses by template without ordinary custome
   const template = warehouseSource.split('<script setup>')[0] || warehouseSource
   const warehousePanel = template.match(/<aside class="panel warehouse-panel">[\s\S]*?<\/aside>/)?.[0] || template
 
-  assert.match(warehouseSource, /BusinessGroupWorkspace/)
+  assert.match(warehouseSource, /BusinessGroupInlineWorkspace/)
   assert.match(warehouseSource, /groupRowsByBusinessGroupTemplates\(/)
   assert.doesNotMatch(componentSource, /选择分组模板|目标分类|<select/)
   assert.match(componentSource, /移动到分类/)
@@ -77,7 +77,7 @@ test('warehouse inventory script setup has no stale pre-rename grouping identifi
     assert.doesNotMatch(scriptSetup, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 
-  assert.match(scriptSetup, /const selectedInventoryCategoryKey\s*=\s*ref\('business-group-all'\)/)
+  assert.match(scriptSetup, /const collapsedInventoryGroupKeys\s*=\s*ref\(\[\]\)/)
   assert.match(scriptSetup, /const inventoryCategoryMoveActive\s*=\s*ref\(false\)/)
   assert.match(scriptSetup, /handleInventoryCategoryMoveTarget/)
 })
@@ -103,7 +103,7 @@ test('group template page manages categories without business objects', () => {
 
 test('materials view uses group template classification and editable material records', () => {
   for (const expected of [
-    'BusinessGroupWorkspace',
+    'BusinessGroupInlineWorkspace',
     '新建物料',
     '批量失效',
     'saveMaterial',
@@ -127,12 +127,13 @@ test('materials view uses group template classification and editable material re
   }
 })
 
-test('materials archive classification uses the shared category workspace without a target dropdown', () => {
+test('materials archive classification uses the shared inline category list without a target dropdown', () => {
   const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
   const listPanelStart = materialsSource.indexOf('<section class="panel material-list-panel">')
   const listPanelSource = materialsSource.slice(listPanelStart)
 
-  assert.match(materialsSource, /BusinessGroupWorkspace/)
+  assert.match(materialsSource, /BusinessGroupInlineWorkspace/)
+  assert.doesNotMatch(materialsSource, /<BusinessGroupWorkspace/)
   assert.doesNotMatch(materialsSource, /<BusinessGroupControls/)
   assert.match(materialsSource, /businessGroupControlOptions/)
   assert.match(materialsSource, /businessGroupRowsForFeatureSelection/)
@@ -141,17 +142,17 @@ test('materials archive classification uses the shared category workspace withou
   assert.doesNotMatch(materialsSource, /preferredBusinessGroupTemplateID/)
   assert.match(materialsSource, /groupRowsByBusinessGroupTemplates\(/)
   assert.doesNotMatch(materialsSource, /groupRowsByBusinessGroupTemplate\(/)
-  assert.match(materialsSource, /businessGroupGroupsForCategorySelection/)
+  assert.match(materialsSource, /businessGroupInlineListState/)
   assert.match(materialsSource, /businessGroupMoveAssignmentPayload/)
   assert.match(materialsSource, /MATERIAL_CATALOG_USAGE\s*=\s*'material_catalog'/)
   assert.match(materialsSource, /MATERIAL_OBJECT_KEY\s*=\s*'material'/)
   assert.match(materialsSource, /objectKey:\s*MATERIAL_OBJECT_KEY/)
   assert.match(materialsSource, /\/api\/business-group-assignments/)
-  assert.match(materialsSource, /v-model="selectedMaterialCategoryKey"/)
+  assert.match(materialsSource, /v-model:collapsed-keys="collapsedMaterialCategoryKeys"/)
   assert.match(materialsSource, /:move-active="materialCategoryMoveActive"/)
   assert.match(materialsSource, /@target="handleMaterialCategoryMoveTarget"/)
   assert.match(materialsSource, /:disabled="loading \|\| materialCategoryMoveActive">刷新/)
-  assert.match(materialsSource, /watch\(selectedMaterialCategoryKey, pruneMaterialSelectionToVisibleCategory\)/)
+  assert.doesNotMatch(materialsSource, /selectedMaterialCategoryKey|pruneMaterialSelectionToVisibleCategory|visibleMaterialDisplayGroups/)
   assert.doesNotMatch(componentSource, /选择分组模板|目标分类|<select/)
   assert.match(componentSource, /移动到分类/)
   assert.doesNotMatch(listPanelSource, /v-model:move-model-value|selectedMaterialMoveGroupItemID/)
@@ -163,12 +164,25 @@ test('materials archive classification uses the shared category workspace withou
 test('materials archive aligns every selected template into the category workspace', () => {
   assert.match(materialsSource, /const materialCatalogBusinessGroups = computed\(\(\) => businessGroupRowsForFeatureSelection\(/)
   assert.match(materialsSource, /templates:\s*materialCatalogBusinessGroups\.value/)
-  assert.match(materialsSource, /:groups="materialDisplayGroups"/)
-  assert.match(materialsSource, /v-for="section in visibleMaterialDisplayGroups"/)
+  assert.match(materialsSource, /:groups="paginatedMaterialGroups"/)
+  assert.match(materialsSource, /#group="\{ group \}"/)
   assert.match(materialsSource, /openMaterialGroupFeatureSelectionDrawer/)
   assert.match(materialsSource, /materialGroupFeatureDrawerOpen/)
   assert.match(materialsSource, /设置分组模板/)
-  assert.doesNotMatch(materialsSource, /renderedMaterialDisplayGroups|skuGroupHiddenByCollapsedAncestor/)
+  assert.doesNotMatch(materialsSource, /businessGroupGroupsForCategorySelection|skuGroupHiddenByCollapsedAncestor/)
+})
+
+test('materials inline categories repeat the table header and paginate every category independently', () => {
+  assert.match(materialsSource, /const materialGroupPagination\s*=\s*ref\(\{\}\)/)
+  assert.match(materialsSource, /businessGroupInlineListState\(\s*materialDisplayGroups\.value,\s*materialGroupPagination\.value/)
+  assert.match(materialsSource, /const paginatedMaterialGroups = computed/)
+  assert.match(materialsSource, /<template #group="\{ group \}">[\s\S]*<thead>[\s\S]*<\/thead>/)
+  assert.match(materialsSource, /<table class="materials-table" data-auto-pagination="off">/)
+  assert.match(materialsSource, /<PaginationControls[\s\S]*:page="group\.page"[\s\S]*:page-size="group\.pageSize"[\s\S]*:total="group\.total"/)
+  assert.match(materialsSource, /@change="handleMaterialGroupPaginationChange\(group\.key, \$event\)"/)
+  assert.match(materialsSource, /function handleMaterialGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
+  assert.match(materialsSource, /toggleMaterialRows\(group\.rows\)/)
+  assert.match(materialsSource, /areRowsSelected\(group\.rows\)/)
 })
 
 test('materials category target executes immediately and only clears move state after success', () => {
@@ -212,14 +226,13 @@ test('materials list owns filters, selection and batch deprecate layout', () => 
   assert.match(materialsSource, /class="material-list-toolbar"/)
   assert.match(materialsSource, /deprecateSelectedMaterials/)
   assert.match(materialsSource, /全选物料/)
-  assert.match(materialsSource, /allSelected/)
-  assert.match(materialsSource, /toggle-all/)
+  assert.match(materialsSource, /toggleMaterialRows\(group\.rows\)/)
   assert.match(materialsSource, /table-layout:\s*fixed/)
   assert.match(materialsSource, /min-width:\s*660px/)
   assert.match(materialsSource, /overflow-x:\s*auto/)
   assert.match(materialsSource, /col\.name-col\)\s*\{\s*width:\s*130px;\s*\}/)
   assert.match(materialsSource, /\.materials-table th:nth-child\(2\)\),\s*\.table-wrap :deep\(\.materials-table td:nth-child\(2\)\)\s*\{\s*width:\s*130px;\s*max-width:\s*130px;/)
-  assert.match(materialsSource, /\.material-name-cell strong\)\s*\{[^}]*overflow-wrap:\s*anywhere/)
+  assert.match(materialsSource, /\.material-name-button\s*\{[^}]*overflow-wrap:\s*anywhere/)
   assert.match(materialsSource, /td small\)\s*\{[^}]*max-width:\s*120px/)
   assert.doesNotMatch(materialsSource, /col\.name-col\)\s*\{\s*width:\s*390px;\s*\}/)
 
@@ -227,29 +240,31 @@ test('materials list owns filters, selection and batch deprecate layout', () => 
   const compactHeadEnd = materialsSource.indexOf('<div class="materials-layout">')
   const compactHeadSource = materialsSource.slice(compactHeadStart, compactHeadEnd)
   assert.doesNotMatch(compactHeadSource, /v-model\.trim="q"/)
-  assert.doesNotMatch(compactHeadSource, /v-model="activeFilter"/)
+  assert.doesNotMatch(compactHeadSource, /v-model="filters\.active"/)
 
   const listPanelStart = materialsSource.indexOf('<section class="panel material-list-panel">')
   const listPanelSource = materialsSource.slice(listPanelStart)
-  assert.match(listPanelSource, /v-model\.trim="q" placeholder="名称\/编码\/批次号" @keyup\.enter="loadMaterials"/)
-  assert.match(listPanelSource, /v-model="activeFilter" @change="loadMaterials"/)
+  assert.match(listPanelSource, /v-model\.trim="q" placeholder="名称\/编码\/批次号" @keyup\.enter="applyMaterialFilters"/)
+  assert.match(listPanelSource, /v-model="filters\.active" @change="applyMaterialFilters"/)
   assert.match(listPanelSource, /<option value="active">启用<\/option>/)
   assert.match(listPanelSource, /<option value="inactive">失效<\/option>/)
   assert.match(listPanelSource, /<option value="all">全部<\/option>/)
   assert.match(listPanelSource, /@click="deprecateSelectedMaterials"/)
-  assert.match(materialsSource, /const activeFilter\s*=\s*ref\('active'\)/)
+  assert.match(materialsSource, /const filters\s*=\s*reactive\(\{\s*active:\s*'active'/)
   assert.match(materialsSource, /url\.searchParams\.set\('limit', '500'\)/)
-  assert.match(materialsSource, /url\.searchParams\.set\('active', activeFilter\.value\)/)
+  assert.match(materialsSource, /url\.searchParams\.set\('active', filters\.active\)/)
   assert.match(materialsSource, /if \(q\.value\) url\.searchParams\.set\('q', q\.value\)/)
 })
 
-test('materials list and detail panels shrink without horizontal overlap', () => {
-  assert.match(materialsSource, /\.materials-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.95fr\)\s+minmax\(360px,\s*1\.05fr\)/)
-  assert.match(materialsSource, /\.material-list-panel,\s*\.material-detail-panel\s*\{[^}]*min-width:\s*0/)
-  assert.match(materialsSource, /\.material-section-list,\s*\.material-section\s*\{[^}]*min-width:\s*0/)
+test('materials list is full width and material names open the detail drawer', () => {
+  assert.match(materialsSource, /\.materials-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+  assert.match(materialsSource, /\.material-list-panel\s*\{[^}]*min-width:\s*0/)
   assert.match(materialsSource, /\.table-wrap\s*\{[^}]*max-width:\s*100%[^}]*overflow-x:\s*auto/)
   assert.match(materialsSource, /\.form-grid\s*\{[^}]*repeat\(auto-fit,\s*minmax\(180px,\s*1fr\)\)/)
-  assert.doesNotMatch(materialsSource, /grid-template-columns:\s*minmax\(480px/)
+  assert.match(materialsSource, /data-material-detail-drawer/)
+  assert.match(materialsSource, /class="material-name-button"[\s\S]*@click\.stop="selectMaterial\(row\)"/)
+  assert.match(materialsSource, /materialDetailDrawerOpen\.value\s*=\s*true/)
+  assert.doesNotMatch(materialsSource, /material-detail-panel|onClick:\s*\(\)\s*=>\s*emit\('select'/)
 })
 
 test('materials and stock adjustments use single material quantity from material unit', () => {

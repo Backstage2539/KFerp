@@ -28,10 +28,12 @@ func TestDev389BomVersionSpecialAttrsRequirementSeeds(t *testing.T) {
 func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"BusinessGroupWorkspace",
-			"selectedProductionBomCategoryKey",
+			"BusinessGroupInlineWorkspace",
+			"collapsedProductionBomGroups",
 			"productionBomCategoryMoveActive",
 			`@target="handleProductionBomCategoryMoveTarget"`,
+			"handleProductionBomGroupPaginationChange",
+			"data-bom-settings-drawer",
 			"openBusinessGroupManagement",
 			"groupRowsByBusinessGroupTemplates",
 			"apiGet('/api/business-groups')",
