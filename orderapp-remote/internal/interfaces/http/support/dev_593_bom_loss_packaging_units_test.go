@@ -24,6 +24,10 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 			"PR-593-BOM-LOSS-PACKAGING-UNITS",
 			"固定用量包材",
 		},
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
+			"PR-593-BOM-LOSS-PACKAGING-UNITS",
+			"固定用量包材",
+		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"损耗原料",
 			"非损耗物料（含包材）",
