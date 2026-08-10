@@ -947,7 +947,7 @@
           <section class="drawer-section pricing-rule-trial-summary">
             <div>
               <strong>{{ pricingRuleTrialRule?.name || pricingRuleTrialRule?.code || '未命名模板' }}</strong>
-              <small>{{ pricingRuleTrialRule ? '启用模板，本次只读试算' : '请先选择启用的价格计算模板' }}</small>
+              <small>{{ pricingRuleTrialRule ? '启用模板，可将调试参数更新回当前模板' : '请先选择启用的价格计算模板' }}</small>
             </div>
             <div class="pricing-rule-trial-rule-grid">
               <span>基础成本：{{ pricingRuleCostSourceLabel(pricingRuleTrialRule?.cost_source_mode) }}</span>
@@ -1008,15 +1008,18 @@
                   </template>
                 </SearchableSelect>
               </label>
-              <label>
-                <span>试算BOM版本</span>
-                <select v-model.number="pricingRuleTrialForm.bom_version_id" :disabled="!pricingRuleTrialBomVersionOptions.length">
-                  <option :value="0">按默认版本</option>
-                  <option v-for="option in pricingRuleTrialBomVersionOptions" :key="option.version_id" :value="Number(option.version_id || 0)">
-                    {{ pricingRuleTrialBomVersionOptionLabel(option) }}
-                  </option>
-                </select>
-              </label>
+              <div class="pricing-rule-trial-bom-field">
+                <label>
+                  <span>试算BOM版本</span>
+                  <select v-model.number="pricingRuleTrialForm.bom_version_id" :disabled="!pricingRuleTrialBomVersionOptions.length">
+                    <option :value="0">按默认版本</option>
+                    <option v-for="option in pricingRuleTrialBomVersionOptions" :key="option.version_id" :value="Number(option.version_id || 0)">
+                      {{ pricingRuleTrialBomVersionOptionLabel(option) }}
+                    </option>
+                  </select>
+                </label>
+                <button class="secondary compact-action" type="button" :disabled="!selectedPricingRuleTrialBomVersion?.bom_id" @click="navigatePricingRuleTrialBom">配置BOM</button>
+              </div>
               <label>
                 <span>工艺路线</span>
                 <select v-model.number="pricingRuleTrialForm.process_route_id" :disabled="!pricingRuleTrialProcessRouteOptions.length">
@@ -1342,6 +1345,13 @@
               </table>
             </div>
           </section>
+        </div>
+        <div class="drawer-footer pricing-rule-trial-footer">
+          <div>
+            <strong v-if="pricingRuleTrialUpdateMessage" class="pricing-rule-trial-update-message">{{ pricingRuleTrialUpdateMessage }}</strong>
+            <small>只更新加价率、已填写税率和其他成本；商品、BOM、路线与销售规格不写入模板。</small>
+          </div>
+          <button class="primary" type="button" :disabled="productPriceSaving || !pricingRuleTrialForm.pricing_rule_id" @click="updatePricingRuleFromTrial">更新参数到价格计算模板</button>
         </div>
       </aside>
     </div>
@@ -1884,6 +1894,7 @@ import {
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
   buildPricingRuleCopyPayload,
+  buildPricingRuleUpdateFromTrial,
   buildPricingRuleTrialPayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
@@ -1939,6 +1950,8 @@ import {
   salesSpecRowsFromTemplate,
   secondaryCategoryOptions,
   selectedSkuRowIDsAfterVisibleToggle,
+  storePricingRuleTrialReturnState,
+  takePricingRuleTrialReturnState,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
   skuGroupTableState,
@@ -1953,6 +1966,7 @@ import {
 } from '../lib/product-settings'
 import { orderProductFamilyOptions, orderProductKindFilterOptions } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
+import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -1998,8 +2012,10 @@ const activePricingRuleTrialProductKindFilter = ref('')
 const pricingRuleTrialResult = ref(null)
 const pricingRuleTrialActiveExplanation = ref('')
 const pricingRuleTrialError = ref('')
+const pricingRuleTrialUpdateMessage = ref('')
 let pricingRuleTrialAutoRunTimer = null
 let pricingRuleTrialRunID = 0
+let restoringPricingRuleTrialReturnState = false
 let pricingRuleEditorReturnFocus = null
 const customerPublicUsages = ref([])
 const customerProductAliases = ref([])
@@ -2298,6 +2314,10 @@ const selectedPricingRuleTrialProductSpec = computed(() => pricingRuleTrialSales
   Number(product?.sku_id || product?.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)
 )) || null)
 const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.bom_version_options) ? pricingRuleTrialResult.value.bom_version_options : [])
+const selectedPricingRuleTrialBomVersion = computed(() => {
+  const versionID = Number(pricingRuleTrialForm.value.bom_version_id || pricingRuleTrialResult.value?.bom_version_id || 0)
+  return pricingRuleTrialBomVersionOptions.value.find((option) => Number(option?.version_id || 0) === versionID) || null
+})
 const pricingRuleTrialProcessRouteOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.process_route_options) ? pricingRuleTrialResult.value.process_route_options : [])
 const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
 const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
@@ -3865,6 +3885,7 @@ function openPricingRuleTrial(rule = null) {
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
   pricingRuleTrialDrawerOpen.value = true
 }
 
@@ -3899,6 +3920,7 @@ function handlePricingRuleTrialRuleChange() {
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
 }
 
 function closePricingRuleTrial() {
@@ -3913,6 +3935,7 @@ function closePricingRuleTrial() {
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
 }
 
 function openPricingRuleTrialExplanation(kind) {
@@ -3964,7 +3987,32 @@ function pricingRuleTrialBomVersionOptionLabel(option = {}) {
   const name = String(option.bom_name || '').trim()
   const version = String(option.version_no || '').trim()
   const defaultText = option.is_default ? ' 默认' : ''
-  return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}`.trim() || `BOM版本 #${option.version_id || ''}`
+  const statusText = String(option.status || '').trim().toLowerCase() === 'draft' ? ' 草稿，仅供试算' : ''
+  return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}${statusText}`.trim() || `BOM版本 #${option.version_id || ''}`
+}
+
+function navigatePricingRuleTrialBom() {
+  const option = selectedPricingRuleTrialBomVersion.value
+  const bomID = Number(option?.bom_id || 0)
+  if (!bomID) {
+    pricingRuleTrialError.value = '当前试算版本缺少可配置的 BOM'
+    return
+  }
+  const returnKey = storePricingRuleTrialReturnState({
+    form: pricingRuleTrialForm.value,
+    product_kind_filter: activePricingRuleTrialProductKindFilter.value,
+  })
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'bom',
+      params: { production_bom_id: bomID },
+      returnNavigation: {
+        key: 'productPriceManagement',
+        label: '返回价格试算',
+        params: { pricing_rule_trial_return_key: returnKey },
+      },
+    },
+  }))
 }
 
 function pricingRuleTrialProcessRouteOptionLabel(option = {}) {
@@ -3978,6 +4026,7 @@ function pricingRuleTrialOperationTemplateOptionLabel(option = {}) {
 }
 
 function schedulePricingRuleTrial() {
+  if (restoringPricingRuleTrialReturnState) return
   pricingRuleTrialRunID++
   pricingRuleTrialLoading.value = false
   if (pricingRuleTrialAutoRunTimer) {
@@ -4033,6 +4082,36 @@ async function runPricingRuleTrial() {
     }
   } finally {
     if (runID === pricingRuleTrialRunID) pricingRuleTrialLoading.value = false
+  }
+}
+
+async function updatePricingRuleFromTrial() {
+  const ruleID = Number(pricingRuleTrialForm.value.pricing_rule_id || 0)
+  const rule = activePricingRuleTrialOptionByID(ruleID) || pricingRuleTrialRule.value
+  if (!rule || ruleID <= 0) {
+    pricingRuleTrialError.value = '请选择价格计算模板'
+    return
+  }
+  const confirmed = typeof window === 'undefined' || window.confirm('确认将本次试算的临时加价率、已填写临时税率和其他成本更新到价格计算模板？商品、BOM、工艺路线和销售规格不会写入模板，已发布价格表不会自动重算。')
+  if (!confirmed) return
+  const payload = buildPricingRuleUpdateFromTrial(rule, pricingRuleTrialForm.value)
+  productPriceSaving.value = true
+  pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
+  try {
+    const result = await apiSend(`/api/product-pricing-rules/${payload.id}`, { method: 'PUT', body: payload })
+    const row = defaultPricingRuleForm(result.rule || payload)
+    pricingRules.value = [
+      row,
+      ...pricingRules.value.filter((item) => Number(item.id || 0) !== Number(row.id || 0)),
+    ]
+    pricingRuleTrialRule.value = defaultPricingRuleForm(JSON.parse(JSON.stringify(row)))
+    pricingRuleTrialUpdateMessage.value = '价格计算模板参数已更新；当前试算上下文已保留'
+    schedulePricingRuleTrial()
+  } catch (err) {
+    pricingRuleTrialError.value = err.message || '更新价格计算模板失败'
+  } finally {
+    productPriceSaving.value = false
   }
 }
 
@@ -7754,6 +7833,7 @@ watch(() => skuFilters.value.primaryCategory, () => {
 })
 
 watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
+  if (restoringPricingRuleTrialReturnState) return
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
@@ -7766,6 +7846,7 @@ watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
 })
 
 watch(() => pricingRuleTrialForm.value.product_id, () => {
+  if (restoringPricingRuleTrialReturnState) return
   const product = selectedPricingRuleTrialProductSpec.value
   pricingRuleTrialForm.value.quote_unit = product ? pricingRuleTrialProductSpecUnit(product) : ''
   pricingRuleTrialForm.value.bom_version_id = 0
@@ -7776,6 +7857,7 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
 })
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
+  if (restoringPricingRuleTrialReturnState) return
   activePricingRuleTrialProductKindFilter.value = ''
   pricingRuleTrialForm.value.parent_product_id = 0
   pricingRuleTrialForm.value.product_id = 0
@@ -7795,6 +7877,7 @@ watch(pricingRuleTrialProductKindFilterOptions, (options) => {
 })
 
 watch(pricingRuleTrialMainProducts, (products) => {
+  if (restoringPricingRuleTrialReturnState) return
   const selectedParentID = Number(pricingRuleTrialForm.value.parent_product_id || 0)
   if (selectedParentID > 0 && !(products || []).some((product) => Number(product?.id || 0) === selectedParentID)) {
     pricingRuleTrialForm.value.parent_product_id = 0
@@ -7802,6 +7885,7 @@ watch(pricingRuleTrialMainProducts, (products) => {
 })
 
 watch(() => pricingRuleTrialAutoRunSignature.value, () => {
+  if (restoringPricingRuleTrialReturnState) return
   schedulePricingRuleTrial()
 })
 
@@ -7823,12 +7907,55 @@ watch(selectedProductGroupTemplateID, () => {
 })
 
 async function applyProductSettingsViewParams(params = {}) {
+  if (await restorePricingRuleTrialReturnState(params)) return
   const productID = Number(params.open_product_config_id || params.return_product_id || 0)
   if (!productID) return
   const row = products.value.find((product) => Number(product.id || 0) === productID)
   if (row) {
     await openProductProductionConfig(row)
   }
+}
+
+function clearPricingRuleTrialReturnKeyFromURL() {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('pricing_rule_trial_return_key')
+  replaceHistoryURL(url)
+}
+
+async function restorePricingRuleTrialReturnState(params = {}) {
+  const returnKey = String(params.pricing_rule_trial_return_key || '').trim()
+  if (!returnKey) return false
+  const state = takePricingRuleTrialReturnState(returnKey)
+  clearPricingRuleTrialReturnKeyFromURL()
+  if (!state?.form) return false
+  const formState = state.form || {}
+  const rule = activePricingRuleTrialOptionByID(formState.pricing_rule_id)
+  if (!rule) {
+    pricingRuleTrialError.value = '原价格计算模板已不可用，请重新选择'
+    return false
+  }
+  restoringPricingRuleTrialReturnState = true
+  try {
+    pricingRuleTrialRule.value = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule)))
+    pricingRuleTrialForm.value = {
+      ...defaultPricingRuleTrialForm(pricingRuleTrialRule.value),
+      ...formState,
+      other_cost_rows: Array.isArray(formState.other_cost_rows)
+        ? formState.other_cost_rows.map((row) => ({ ...row }))
+        : [defaultPricingRuleTrialOtherCostRow()],
+    }
+    activePricingRuleTrialProductKindFilter.value = String(state.product_kind_filter || '')
+    pricingRuleTrialResult.value = null
+    pricingRuleTrialActiveExplanation.value = ''
+    pricingRuleTrialError.value = ''
+    pricingRuleTrialUpdateMessage.value = ''
+    pricingRuleTrialDrawerOpen.value = true
+    await nextTick()
+  } finally {
+    restoringPricingRuleTrialReturnState = false
+  }
+  schedulePricingRuleTrial()
+  return true
 }
 
 watch(() => props.viewParams, (params) => {
@@ -8163,13 +8290,19 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .child-sku-row.inactive { background: #fbfaf8; opacity: .78; }
 .child-sku-row div { min-width: 0; display: grid; gap: 2px; }
 .child-sku-row strong, .child-sku-row small { overflow-wrap: anywhere; }
-.pricing-rule-trial-drawer { width: min(940px, 96vw); }
+.pricing-rule-trial-drawer { width: min(940px, 96vw); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+.pricing-rule-trial-drawer > .drawer-body { overflow: auto; padding-right: 2px; }
 .pricing-rule-trial-summary { display: grid; gap: 10px; }
 .pricing-rule-trial-summary strong { display: block; margin-bottom: 3px; }
 .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .pricing-rule-trial-rule-grid span, .pricing-rule-trial-source span { min-width: 0; border: 1px solid #eee8df; border-radius: 6px; background: #fff; padding: 7px 8px; color: #4f453b; font-size: 12px; overflow-wrap: anywhere; }
 .pricing-rule-trial-form-section { display: grid; gap: 12px; }
 .pricing-rule-trial-grid .wide-field { grid-column: 1 / -1; }
+.pricing-rule-trial-bom-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.pricing-rule-trial-bom-field label { min-width: 0; }
+.pricing-rule-trial-footer > div { display: grid; gap: 3px; }
+.pricing-rule-trial-footer small { color: #666; line-height: 1.4; }
+.pricing-rule-trial-update-message { color: #1f6a3f; }
 .pricing-rule-trial-result { display: grid; gap: 12px; }
 .pricing-rule-trial-waterfall { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
 .pricing-rule-trial-waterfall-card { min-width: 118px; flex: 1 1 132px; border: 1px solid #e2dacd; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 4px; align-content: start; }
@@ -8284,6 +8417,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td { opacity: 0.4; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
+	  .pricing-rule-trial-bom-field { grid-template-columns: 1fr; }
   .page { padding: 12px; }
 	  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .pricing-rule-other-cost-row, .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .sales-spec-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
   .product-section-tabs-legacy { width: 100%; }

@@ -17,8 +17,8 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-593-BOM-LOSS-PACKAGING-UNITS",
-			"损耗原料",
-			"非损耗物料（含包材）",
+			"有损耗的配方",
+			"无损耗的配方",
 		},
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"): {
 			"PR-593-BOM-LOSS-PACKAGING-UNITS",
@@ -29,14 +29,14 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 			"固定用量包材",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"损耗原料",
-			"非损耗物料（含包材）",
+			"有损耗的配方",
+			"无损耗的配方",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"selectedMaterialLossZone",
 			"componentInventoryConsumeUnitOptions",
-			"损耗原料",
-			"非损耗物料（含包材）",
+			"有损耗的配方",
+			"无损耗的配方",
 			"损耗只作用于物料的比例 % 行",
 		},
 	} {

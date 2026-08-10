@@ -1446,6 +1446,72 @@ func TestPricingRuleTrialUsesSelectedOutputBomVersionAndOperationTemplate(t *tes
 	}
 }
 
+func draftBomPricingRuleTrialRepo() *fakeRepo {
+	return &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:     659,
+			Name:          "初晓",
+			InventoryUnit: "kg",
+			QuoteUnit:     "kg",
+			BomVersionID:  1575,
+			BomVersionNo:  "V004",
+			BomUsageMode:  "production_bom_output",
+			BomStatus:     "active",
+		}},
+		productionOptions: PricingRuleTrialProductionOptions{BomVersions: []PricingRuleTrialBomVersionOption{
+			{BomID: 8338, BomCode: "BOM-000659", BomName: "初晓", VersionID: 1575, VersionNo: "V004", Status: "published", IsDefault: true, ComponentCount: 3},
+			{BomID: 8338, BomCode: "BOM-000659", BomName: "初晓", VersionID: 1797, VersionNo: "V005", Status: "draft", ComponentCount: 4},
+		}},
+		costDetailsByBom: map[int64][]PricingRuleTrialBaseCostDetail{
+			1797: {
+				{Key: "material:1", Type: "material", Name: "有损耗的配方", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 62, AmountPerKg: 62, Unit: "kg"},
+				{Key: "material:70", Type: "material", Name: "条装包材", ConsumeUnit: "条", Quantity: 1, UnitCost: 0.72, CostUnitCost: 0.72, CostUnit: "条", AmountPerKg: 0.72, Unit: "kg"},
+			},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			418: {ID: 418, Name: "熟豆24磅模板-正常-418", CostSourceMode: "bom_current_cost", MarginRate: 0.2, RoundingMode: "cent", Active: true, CalculationJSON: map[string]any{"profit_method": "markup", "tax_mode": "none"}},
+		},
+	}
+}
+
+func TestInteractivePricingRuleTrialCanUseDraftBomWithFixedPackaging(t *testing.T) {
+	repo := draftBomPricingRuleTrialRepo()
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 418,
+		ProductID:     659,
+		BomVersionID:  1797,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.BomVersionID != 1797 || got.BomVersionNo != "V005" || got.BomStatus != "draft" {
+		t.Fatalf("draft BOM selection = id:%d version:%q status:%q", got.BomVersionID, got.BomVersionNo, got.BomStatus)
+	}
+	if math.Abs(got.BomCostTotal-62.72) > 1e-9 {
+		t.Fatalf("draft BOM material cost = %.4f, want 62.72 including fixed packaging", got.BomCostTotal)
+	}
+	if !strings.Contains(strings.Join(got.Warnings, " | "), "草稿 BOM，仅供试算") {
+		t.Fatalf("draft trial warning missing: %+v", got.Warnings)
+	}
+}
+
+func TestPricingRuleTrialBatchRejectsExplicitDraftBom(t *testing.T) {
+	repo := draftBomPricingRuleTrialRepo()
+	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{{
+		PricingRuleID: 418,
+		ProductID:     659,
+		BomVersionID:  1797,
+		QuoteUnit:     "kg",
+	}})
+	if err != nil {
+		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
+	}
+	if len(rows) != 1 || rows[0].Result != nil || !strings.Contains(rows[0].Error, "草稿 BOM 仅支持单次价格试算") {
+		t.Fatalf("batch draft result = %+v", rows)
+	}
+}
+
 func TestPricingRuleTrialUsesSelectedProcessRouteBeforeLegacyOperationTemplate(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
