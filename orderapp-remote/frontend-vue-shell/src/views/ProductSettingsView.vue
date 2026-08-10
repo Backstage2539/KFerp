@@ -10,7 +10,7 @@
           <h2>{{ productSectionTitle }}</h2>
           <p>商品档案维护商品族信息、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；库存单位来自销售规格模板，商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
-        <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
+        <button class="secondary" type="button" @click="loadAll" :disabled="loading || productCategoryMoveActive">刷新</button>
       </div>
     </section>
 
@@ -148,30 +148,23 @@
           </button>
         </div>
         <div v-show="!productsCollapsed">
-          <BusinessGroupControls
-            v-if="productCatalogBusinessGroups.length"
-            v-model="selectedProductGroupTemplateID"
-            v-model:move-model-value="selectedProductBusinessGroupItemID"
-            class="classification-view-toolbar product-business-group-controls"
-            data-pr442-product-group-assignments
-            data-pr442-business-group-items-api="/api/business-group-items"
-            :template-options="productBusinessGroupControls.templateOptions"
-            :move-options="productBusinessGroupItemOptions"
-            :selected-template="selectedProductGroupTemplate"
+          <BusinessGroupWorkspace
+            v-model="selectedProductBusinessGroupCategoryKey"
+            :groups="fullDisplaySkuGroups"
+            :move-active="productCategoryMoveActive"
             :selected-count="selectedProductIds.length"
             :can-move="canMoveSelectedProductsToBusinessGroup"
             :loading="loading"
-            template-label="移动目标模板"
+            count-unit="款"
+            data-pr442-product-group-assignments
+            data-pr442-business-group-items-api="/api/business-group-items"
             @manage="openProductBusinessGroupManagement"
-            @move="saveSelectedProductBusinessGroupAssignment">
-            <template #extra-actions>
-              <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
-            </template>
-          </BusinessGroupControls>
-          <div v-else class="classification-view-toolbar product-business-group-empty">
+            @configure="openProductGroupTemplateDrawer"
+            @move="productCategoryMoveActive = true"
+            @cancel="productCategoryMoveActive = false"
+            @target="handleProductCategoryMoveTarget">
+          <div v-if="!productCatalogBusinessGroups.length" class="classification-view-toolbar product-business-group-empty">
             <span>商品档案尚未选择分组模板，当前按全部商品平铺展示。</span>
-            <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
-            <button class="secondary compact-action" type="button" @click="openProductBusinessGroupManagement">维护分组模板</button>
           </div>
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters product-filter-row">
@@ -327,6 +320,7 @@
             </tbody>
           </table>
           </div>
+          </BusinessGroupWorkspace>
         </div>
       </div>
         </div>
@@ -1845,13 +1839,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import BusinessGroupControls from '../components/BusinessGroupControls.vue'
+import BusinessGroupWorkspace from '../components/BusinessGroupWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
   businessGroupControlOptions,
+  businessGroupGroupsForCategorySelection,
   businessGroupRowsForFeatureSelection,
   businessGroupItemIndentStyle,
   businessGroupHeaderIndentStyle,
@@ -2112,8 +2107,9 @@ const selectedProductClassificationMoveID = ref(0)
 const selectedAliasClassificationMoveID = ref(0)
 const selectedProductClassificationCategoryID = ref(0)
 const selectedAliasClassificationCategoryID = ref(0)
-const selectedProductBusinessGroupItemID = ref(0)
 const selectedProductGroupTemplateID = ref(0)
+const selectedProductBusinessGroupCategoryKey = ref('business-group-all')
+const productCategoryMoveActive = ref(false)
 const productGroupFeatureSelectionSaving = ref(false)
 const productGroupTemplateDrawerOpen = ref(false)
 const collapsedProductClassificationGroups = ref([])
@@ -2500,7 +2496,11 @@ const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplates(fi
   objectKey: 'product',
   objectIDForRow: (row) => Number(row.id || 0),
 }))
-const groupedSkuTableState = computed(() => skuGroupTableState(fullDisplaySkuGroups.value, skuGroupPagination.value, {
+const selectedDisplaySkuGroups = computed(() => businessGroupGroupsForCategorySelection(
+  fullDisplaySkuGroups.value,
+  selectedProductBusinessGroupCategoryKey.value,
+))
+const groupedSkuTableState = computed(() => skuGroupTableState(selectedDisplaySkuGroups.value, skuGroupPagination.value, {
   defaultPageSize: DEFAULT_SKU_GROUP_PAGE_SIZE,
 }))
 const displaySkuGroups = computed(() => groupedSkuTableState.value.groups)
@@ -2590,8 +2590,7 @@ const productBusinessGroupControls = computed(() => businessGroupControlOptions(
   usageKey: 'product_catalog',
 }))
 const selectedProductGroupTemplate = computed(() => productBusinessGroupControls.value.selectedTemplate)
-const productBusinessGroupItemOptions = computed(() => productBusinessGroupControls.value.moveOptions)
-const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(selectedProductGroupTemplate.value && selectedProductIds.value.length))
+const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -3478,7 +3477,7 @@ function decorateCustomerProductRuleOverride(row) {
   }
 }
 
-async function loadAll() {
+async function loadAll({ strict = false } = {}) {
   loading.value = true
   error.value = ''
   try {
@@ -3536,6 +3535,7 @@ async function loadAll() {
     pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
+    if (strict) throw err
   } finally {
     loading.value = false
   }
@@ -6490,7 +6490,8 @@ async function saveProductGroupFeatureSelection() {
     if (!productCatalogBusinessGroupRows().some((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0))) {
       selectedProductGroupTemplateID.value = Number(productCatalogBusinessGroupRows()[0]?.id || 0)
     }
-    selectedProductBusinessGroupItemID.value = 0
+    selectedProductBusinessGroupCategoryKey.value = 'business-group-all'
+    productCategoryMoveActive.value = false
     ok.value = payload.group_template_ids.length
       ? `商品档案已选择 ${payload.group_template_ids.length} 个分组模板`
       : '商品档案已改为平铺展示'
@@ -6501,11 +6502,14 @@ async function saveProductGroupFeatureSelection() {
   }
 }
 
-async function saveSelectedProductBusinessGroupAssignment() {
-  const targetGroupItemID = Number(selectedProductBusinessGroupItemID.value || 0)
-  const option = targetGroupItemID > 0 ? productBusinessGroupItemOptions.value.find((row) => Number(row.group_item_id || 0) === targetGroupItemID) : null
-  if (targetGroupItemID > 0 && !option) return
-  if (!selectedProductGroupTemplate.value || !selectedProductIds.value.length) return
+async function saveSelectedProductBusinessGroupAssignment(target = {}) {
+  const unclassified = Boolean(target?.unclassified)
+  const option = unclassified ? null : {
+    group_id: Number(target?.group_id || 0),
+    group_item_id: Number(target?.group_item_id || 0),
+  }
+  if (!unclassified && (!(option.group_id > 0) || !(option.group_item_id > 0))) return false
+  if (!productCatalogBusinessGroups.value.length || !selectedProductIds.value.length) return false
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -6525,15 +6529,22 @@ async function saveSelectedProductBusinessGroupAssignment() {
         }),
       })
     }
-    ok.value = `已移动 ${selectedProductIds.value.length} 个商品到分类`
+    const movedCount = selectedProductIds.value.length
+    await loadAll({ strict: true })
     selectedProductIds.value = []
-    selectedProductBusinessGroupItemID.value = 0
-    await loadAll()
+    ok.value = `已移动 ${movedCount} 个商品到分类`
+    return true
   } catch (err) {
     error.value = err.message || '移动商品分类失败'
+    return false
   } finally {
     loading.value = false
   }
+}
+
+async function handleProductCategoryMoveTarget(target) {
+  const moved = await saveSelectedProductBusinessGroupAssignment(target)
+  if (moved) productCategoryMoveActive.value = false
 }
 
 async function saveSelectedProductUnitTemplate() {
@@ -7901,7 +7912,6 @@ watch(displaySkuRows, (rows) => {
 })
 
 watch(selectedProductGroupTemplateID, () => {
-  selectedProductBusinessGroupItemID.value = 0
   if (restoringProductSettingsDraft) return
   saveProductSettingsDraft()
 })

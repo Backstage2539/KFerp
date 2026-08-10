@@ -4268,7 +4268,7 @@ test('product pages group product archive and template configuration into separa
   assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
-  assert.match(template, /class="classification-view-toolbar product-business-group-controls"/)
+  assert.match(template, /<BusinessGroupWorkspace[\s\S]*v-model="selectedProductBusinessGroupCategoryKey"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
@@ -4329,17 +4329,20 @@ test('product management exposes customer product names without direct BOM editi
   assert.doesNotMatch(source, /migration-candidates/)
 })
 
-test('SKU settings keeps only the product creation drawer while classification templates drive product tabs', () => {
+test('SKU settings keeps only the product creation drawer while business groups drive the category workspace', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
   const productArchiveWorkspace = template.match(/<div v-show="currentSettingsSection === 'master'"[\s\S]*?<div v-show="currentSettingsSection === 'templates'"/)?.[0] || template
 
   for (const expected of [
-    'productClassificationTabs',
+    'BusinessGroupWorkspace',
+    'selectedProductBusinessGroupCategoryKey',
+    'productCategoryMoveActive',
+    'handleProductCategoryMoveTarget',
     'renderedDisplaySkuGroups',
-    '增加分类',
     '移动到分类',
     'classification-group-row',
     'product-editor-drawer',
@@ -4380,7 +4383,7 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(script, /const skuTableKey = computed\(\(\) => `\$\{skuDisplayKey\.value\}:table`\)/)
   assert.match(script, /const fullDisplaySkuGroups = computed\(\(\) => groupRowsByBusinessGroupTemplates\(filteredSkuRows\.value, \{/)
   assert.match(script, /templates: productCatalogBusinessGroups\.value/)
-  assert.match(script, /const groupedSkuTableState = computed\(\(\) => skuGroupTableState\(fullDisplaySkuGroups\.value, skuGroupPagination\.value, \{/)
+  assert.match(script, /const groupedSkuTableState = computed\(\(\) => skuGroupTableState\(selectedDisplaySkuGroups\.value, skuGroupPagination\.value, \{/)
   assert.match(script, /const displaySkuGroups = computed\(\(\) => groupedSkuTableState\.value\.groups\)/)
   assert.match(script, /const renderedDisplaySkuGroups = computed[\s\S]*skuGroupHiddenByCollapsedAncestor/)
   assert.match(script, /const displaySkuRows = computed\(\(\) => groupedSkuTableState\.value\.visibleRows\)/)
@@ -4394,7 +4397,8 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(script, /function handleSkuGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
   assert.match(script, /function resetSkuGroupPages\(\) \{\s+if \(restoringProductSettingsDraft\) return/)
   assert.match(script, /watch\(skuFilters, resetSkuGroupPages, \{ deep: true \}\)/)
-  assert.match(script, /watch\(selectedProductGroupTemplateID, \(\) => \{\s+selectedProductBusinessGroupItemID\.value = 0\s+if \(restoringProductSettingsDraft\) return\s+saveProductSettingsDraft\(\)/)
+  assert.match(script, /const selectedDisplaySkuGroups = computed\(\(\) => businessGroupGroupsForCategorySelection\(/)
+  assert.match(script, /async function handleProductCategoryMoveTarget\(target\)/)
   assert.match(script, /skuGroupPagination: skuGroupPagination\.value/)
   assert.match(script, /watch\(displaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
   assert.doesNotMatch(script, /watch\(visibleDisplaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
@@ -4405,7 +4409,7 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(script, /await nextTick\(\)\s+syncVisibleSkuTableState\(\)\s+restoringProductSettingsDraft = false/)
   assert.doesNotMatch(script, /const skuTable = computed/)
   assert.doesNotMatch(source, /debug_sku_table|__kferpSkuTableDebug|skuTableDebugAttr|data-sku-debug|data-top-|data-sku-instance/)
-  assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
+  assert.match(workspaceSource, /\.business-group-tree-scroll\s*\{[^}]*overflow-y:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })
 
@@ -4416,7 +4420,7 @@ test('legacy SKU category management is not rendered as the product archive clas
   assert.doesNotMatch(template, /<Teleport\s+to="#sku-category-management-target"/)
   assert.doesNotMatch(template, /id="sku-category-management-target"/)
   assert.doesNotMatch(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
-  assert.match(template, /class="classification-view-toolbar product-business-group-controls"/)
+  assert.match(template, /<BusinessGroupWorkspace[\s\S]*v-model="selectedProductBusinessGroupCategoryKey"/)
   assert.match(template, /class="classification-view-toolbar alias-classification-tabs"/)
 })
 
@@ -4442,6 +4446,7 @@ test('legacy classification template editors are not rendered in product setting
 test('product list moves selected rows through business group assignments while alias classification stays legacy-compatible', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
@@ -4452,15 +4457,16 @@ test('product list moves selected rows through business group assignments while 
     '/api/business-group-assignments',
     "usage_key: 'product_catalog'",
     "object_key: 'product'",
-    'productBusinessGroupItemOptions',
-    'BusinessGroupControls',
+    'selectedProductBusinessGroupCategoryKey',
+    'BusinessGroupWorkspace',
+    'handleProductCategoryMoveTarget',
     'businessGroupMoveAssignmentPayload',
     'groupRowsByBusinessGroupTemplates',
   ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
-  assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
+  assert.match(workspaceSource, /请选择要移动到的分类/)
 
   for (const expected of [
     'saveSelectedAliasClassificationAssignment',
@@ -4475,9 +4481,10 @@ test('product list moves selected rows through business group assignments while 
     assert.ok(source.includes(expected), `missing alias legacy classification marker: ${expected}`)
   }
 
-  const productToolbar = template.match(/<BusinessGroupControls[\s\S]*?\/>/)?.[0] || ''
+  const productToolbar = template.match(/<BusinessGroupWorkspace[\s\S]*?>/)?.[0] || ''
   assert.match(productToolbar, /data-pr442-product-group-assignments/)
-  assert.match(productToolbar, /@move="saveSelectedProductBusinessGroupAssignment"/)
+  assert.match(productToolbar, /@target="handleProductCategoryMoveTarget"/)
+  assert.match(productToolbar, /@move="productCategoryMoveActive = true"/)
   assert.doesNotMatch(productToolbar, /分组集 \/ 父组 \/ 子组/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
@@ -4539,6 +4546,7 @@ test('classification group rows support collapse and indentation in product and 
 test('product archive uses business groups while customer alias keeps legacy page-level classification tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
@@ -4555,11 +4563,11 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(source, /groupRowsByBusinessGroupTemplates/)
   assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
   assert.match(template, /data-pr442-product-group-assignments/)
-  assert.match(template, /BusinessGroupControls/)
-  assert.match(componentSource, /选择分组模板/)
+  assert.match(template, /BusinessGroupWorkspace/)
   assert.match(componentSource, /移动到分类/)
+  assert.match(workspaceSource, /前往分组模板/)
   assert.doesNotMatch(script, /function productClassificationLabel/)
-  assert.doesNotMatch(template.match(/<BusinessGroupControls[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类/)
+  assert.doesNotMatch(template.match(/<BusinessGroupWorkspace[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类/)
 
   assert.match(source, /aliasClassificationTemplateUsages/)
   assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/customer-aliases'\)/)
@@ -4570,14 +4578,15 @@ test('product archive uses business groups while customer alias keeps legacy pag
 
 test('SKU table groups rows by every referenced business group template without product type columns', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
     'sku-table-wrap',
     'class="sku-table"',
-    'classification-view-toolbar',
-    'product-business-group-controls',
+    'BusinessGroupWorkspace',
+    'selectedProductBusinessGroupCategoryKey',
     'classification-group-row',
     'sku-name-cell',
     'action-cell',
@@ -4591,13 +4600,14 @@ test('SKU table groups rows by every referenced business group template without 
   assert.match(template, /class="classification-template-row"/)
   assert.match(template, /\{\{ group\.template_total \}\} 款/)
   assert.doesNotMatch(template, /class="classification-template-label"/)
-  assert.match(template, /v-if="productCatalogBusinessGroups\.length"/)
+  assert.match(template, /v-if="!productCatalogBusinessGroups\.length"/)
   assert.match(template, /商品档案尚未选择分组模板，当前按全部商品平铺展示/)
-  assert.match(template, /设置分组模板/)
+  assert.match(workspaceSource, /设置分组模板/)
   assert.match(template, /productGroupTemplateDrawerOpen/)
   assert.match(template, /toggleProductGroupTemplate/)
   assert.match(template, /saveAndCloseProductGroupTemplateDrawer/)
-  assert.match(template, /template-label="移动目标模板"/)
+  assert.match(template, /:groups="fullDisplaySkuGroups"/)
+  assert.match(template, /@target="handleProductCategoryMoveTarget"/)
   assert.match(template, /classification-group-toggle/)
   assert.match(style, /\.sku-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s)
   assert.match(style, /\.sku-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*1600px;/s)
@@ -5014,8 +5024,9 @@ test('product archive displays and saves the ordered union of selected industry 
 test('product settings uses product business groups instead of product classification page controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const productToolbar = template.match(/<BusinessGroupControls[\s\S]*?\/>/)?.[0] || ''
+  const productToolbar = template.match(/<BusinessGroupWorkspace[\s\S]*?>/)?.[0] || ''
   const groupManagementWorkspace = template.match(/<div v-show="currentSettingsSection === 'category-management'"[\s\S]*?<div v-show="currentSettingsSection === 'master'"/)?.[0] || ''
 
   for (const expected of [
@@ -5025,19 +5036,22 @@ test('product settings uses product business groups instead of product classific
     'productGroupFeatureSelectionDraft',
     'saveProductGroupFeatureSelection',
     'productCatalogBusinessGroups',
-    'productBusinessGroupItemOptions',
-    'selectedProductBusinessGroupItemID',
+    'selectedProductBusinessGroupCategoryKey',
+    'productCategoryMoveActive',
+    'handleProductCategoryMoveTarget',
     'saveSelectedProductBusinessGroupAssignment',
-    'BusinessGroupControls',
+    'BusinessGroupWorkspace',
+    'businessGroupGroupsForCategorySelection',
     'groupRowsByBusinessGroupTemplates',
     'businessGroupMoveAssignmentPayload',
     'data-pr442-product-group-assignments',
 	  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
-  assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
-  assert.match(productToolbar, /@move="saveSelectedProductBusinessGroupAssignment"/)
+  assert.match(workspaceSource, /请选择要移动到的分类/)
+  assert.match(productToolbar, /@target="handleProductCategoryMoveTarget"/)
+  assert.match(productToolbar, /@move="productCategoryMoveActive = true"/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.equal(groupManagementWorkspace, '')
@@ -5304,17 +5318,18 @@ test('assign category payload carries customer context for public template deriv
 test('product archive grouping is template-driven without category tabs or category column', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupWorkspace.vue', import.meta.url), 'utf8')
   const productArchiveBlock = source.slice(
     source.indexOf('data-section-mode="productMaster"'),
     source.indexOf('aria-label="客户商品分类模板视图"'),
   )
 
-  assert.match(source, /BusinessGroupControls/)
+  assert.match(source, /BusinessGroupWorkspace/)
   assert.match(source, /groupRowsByBusinessGroupTemplates/)
-  assert.match(source, /设置分组模板/)
+  assert.match(workspaceSource, /设置分组模板/)
   assert.match(source, /saveAndCloseProductGroupTemplateDrawer/)
-  assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
+  assert.match(workspaceSource, /分类结构/)
   assert.doesNotMatch(productArchiveBlock, /<div v-if="selectedProductGroupTemplate" class="classification-tabs">/)
   assert.doesNotMatch(productArchiveBlock, /<button[^>]*class="classification-tab"/)
   assert.doesNotMatch(productArchiveBlock, /<th>分类<\/th>/)

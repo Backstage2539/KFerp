@@ -24,8 +24,11 @@ func TestDev436BomUnitDeletionPolishRequirementSeeds(t *testing.T) {
 func TestDev436BomUnitDeletionPolishSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"BusinessGroupControls",
-			"groupRowsByBusinessGroupTemplate",
+			"BusinessGroupWorkspace",
+			"selectedProductionBomCategoryKey",
+			"productionBomCategoryMoveActive",
+			`@target="handleProductionBomCategoryMoveTarget"`,
+			"groupRowsByBusinessGroupTemplates",
 			"businessGroupMoveAssignmentPayload",
 			"outputProductOptions = computed(() => products.value.filter(isProductionBomOutputProductCandidate)",
 		},

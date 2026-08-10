@@ -16,10 +16,17 @@ func TestDev534ProductGenericGroupTemplateOptionsContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"/api/business-group-feature-selections/product_catalog",
 			"businessGroupRowsForFeatureSelection(businessGroups.value, productGroupFeatureSelectionIDs.value)",
-			"BusinessGroupControls",
+			"BusinessGroupWorkspace",
+			"selectedProductBusinessGroupCategoryKey",
+			"productCategoryMoveActive",
+			`@target="handleProductCategoryMoveTarget"`,
+			`@configure="openProductGroupTemplateDrawer"`,
+			"selectableProductGroupTemplates",
 		},
-		filepath.Join("frontend-vue-shell", "src", "components", "BusinessGroupControls.vue"): {
-			"选择分组模板",
+		filepath.Join("frontend-vue-shell", "src", "components", "BusinessGroupWorkspace.vue"): {
+			"data-business-group-workspace",
+			"emit('target'",
+			"configureLabel",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "GroupTemplatesView.vue"): {
 			"模板只定义分组结构，不在这里维护业务对象",

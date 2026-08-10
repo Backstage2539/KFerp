@@ -8,7 +8,7 @@
       <div class="panel-head">
         <h2>生产 BOM（制造主档）</h2>
         <div class="panel-actions">
-          <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
+          <button class="secondary" type="button" @click="loadAll" :disabled="loading || productionBomCategoryMoveActive">刷新</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -20,138 +20,131 @@
       <section class="panel list-panel">
         <div class="panel-head bom-list-head" data-pr442-bom-business-groups>
           <div class="panel-title compact-title">生产 BOM列表</div>
-          <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
         </div>
-        <BusinessGroupControls
-          v-if="productionBomSelectedBusinessGroups.length"
-          v-model="selectedProductionBomTemplateID"
-          v-model:move-model-value="selectedBomMoveGroupItemID"
-          class="bom-list-toolbar bom-business-group-controls"
-          :template-options="productionBomTemplateOptions"
-          :move-options="productionBomMoveGroupOptions"
-          :selected-template="selectedProductionBomTemplate"
+        <BusinessGroupWorkspace
+          v-model="selectedProductionBomCategoryKey"
+          class="bom-business-group-workspace"
+          :groups="fullProductionBomDisplayGroups"
+          :move-active="productionBomCategoryMoveActive"
           :selected-count="selectedBomRecordsForMove.length"
-          :can-move="canMoveSelectedBoms"
-          :can-select-target="canSelectBomMoveTarget"
-          :loading="loading"
-          template-label="分类与移动模板"
+          :can-move="canBeginProductionBomCategoryMove"
+          :loading="loading || productionBomGroupFeatureSelectionSaving"
+          count-unit="个 BOM"
+          @move="beginProductionBomCategoryMove"
+          @cancel="cancelProductionBomCategoryMove"
+          @target="handleProductionBomCategoryMoveTarget"
           @manage="openBusinessGroupManagement"
-          @move="moveSelectedProductBomsToGroup">
-          <template #extra-actions>
-            <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openProductionBomGroupFeatureSelectionDrawer">设置分组模板</button>
+          @configure="openProductionBomGroupFeatureSelectionDrawer">
+          <template #toolbar-extra>
+            <button class="primary compact-action" type="button" :disabled="loading || productionBomCategoryMoveActive" @click="openNewProductionBomRecord">新建生产 BOM</button>
           </template>
-        </BusinessGroupControls>
-        <div v-else class="bom-list-toolbar feature-group-empty bom-group-empty-actions">
-          <span>生产 BOM 尚未选择分组模板，当前平铺展示。</span>
-          <button class="secondary compact-action" type="button" :disabled="productionBomGroupFeatureSelectionSaving || loading" @click="openProductionBomGroupFeatureSelectionDrawer">设置分组模板</button>
-          <button class="secondary compact-action" type="button" @click="openBusinessGroupManagement">维护分组模板</button>
-        </div>
-        <div class="bom-list-filters">
-          <label>
-            <span>状态</span>
-            <select v-model="productionBomStatusFilter">
-              <option value="active">启用</option>
-              <option value="inactive">已失效</option>
-              <option value="all">全部</option>
-            </select>
-          </label>
-          <label class="bom-search-field">
-            <span>搜索 BOM</span>
-            <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称或编号搜索" />
-          </label>
-          <button class="secondary compact-action danger-outline bom-batch-deactivate-action" type="button" :disabled="!canDeactivateSelectedBoms || loading" @click="deactivateSelectedProductionBoms">
-            批量失效
-          </button>
-        </div>
-        <div class="table-wrap bom-list-panel-scroll">
-          <table data-auto-pagination="off">
-            <thead>
-              <tr>
-                <th class="select-col"><input type="checkbox" :checked="isAllVisibleBomsSelected" :indeterminate.prop="isSomeVisibleBomsSelected" @change="toggleAllVisibleBoms" /></th>
-                <th>BOM名称</th>
-                <th>状态</th>
-                <th>组件数</th>
-                <th>产出商品</th>
-                <th>更新时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="group in productionBomDisplayGroups" :key="group.key">
-                <template v-if="!isProductionBomGroupHiddenByAncestor(group)">
-                <tr
-                  v-if="isProductionBomTopLevelGroup(group) && !group.all"
-                  class="classification-template-row bom-classification-template-row"
-                  :class="{ 'classification-template-collapsed': isProductionBomGroupCollapsed(group.key) }">
-                  <td colspan="7">
-                    <button class="classification-group-toggle" type="button" @click="toggleProductionBomTopLevelGroup(group.key)">
-                      {{ isProductionBomGroupCollapsed(group.key) ? '展开' : '收起' }}
-                    </button>
-                    <strong>{{ group.label }}</strong>
-                    <small>{{ group.is_template_group ? group.template_total : group.row_total }} 个</small>
-                  </td>
+          <div class="bom-list-filters">
+            <label>
+              <span>状态</span>
+              <select v-model="productionBomStatusFilter">
+                <option value="active">启用</option>
+                <option value="inactive">已失效</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label class="bom-search-field">
+              <span>搜索 BOM</span>
+              <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称或编号搜索" />
+            </label>
+            <button class="secondary compact-action danger-outline bom-batch-deactivate-action" type="button" :disabled="!canDeactivateSelectedBoms || loading" @click="deactivateSelectedProductionBoms">
+              批量失效
+            </button>
+          </div>
+          <div class="table-wrap bom-list-panel-scroll">
+            <table data-auto-pagination="off">
+              <thead>
+                <tr>
+                  <th class="select-col"><input type="checkbox" :checked="isAllVisibleBomsSelected" :indeterminate.prop="isSomeVisibleBomsSelected" @change="toggleAllVisibleBoms" /></th>
+                  <th>BOM名称</th>
+                  <th>状态</th>
+                  <th>组件数</th>
+                  <th>产出商品</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
                 </tr>
-                <tr
-                  v-if="!isProductionBomTopLevelGroup(group) && !group.all"
-                  class="classification-group-row bom-classification-group-row"
-                  :class="{ 'classification-subgroup-row': Number(group.depth || 0) > 0 }"
-                  :style="businessGroupHeaderIndentStyle(group)">
-                  <td colspan="7">
-                    <button class="classification-group-toggle" type="button" @click="toggleProductionBomGroup(group.key)">
-                      {{ isProductionBomGroupCollapsed(group.key) ? '展开' : '收起' }}
-                    </button>
-                    <strong :title="group.path_label || group.label">{{ group.label }}</strong>
-                    <small>{{ group.row_total }} 个</small>
-                  </td>
+              </thead>
+              <tbody>
+                <template v-for="group in productionBomDisplayGroups" :key="group.key">
+                  <template v-if="!isProductionBomGroupHiddenByAncestor(group)">
+                    <tr
+                      v-if="isProductionBomTopLevelGroup(group) && !group.all"
+                      class="classification-template-row bom-classification-template-row"
+                      :class="{ 'classification-template-collapsed': isProductionBomGroupCollapsed(group.key) }">
+                      <td colspan="7">
+                        <button class="classification-group-toggle" type="button" @click="toggleProductionBomTopLevelGroup(group.key)">
+                          {{ isProductionBomGroupCollapsed(group.key) ? '展开' : '收起' }}
+                        </button>
+                        <strong>{{ group.label }}</strong>
+                        <small>{{ group.is_template_group ? group.template_total : group.row_total }} 个</small>
+                      </td>
+                    </tr>
+                    <tr
+                      v-if="!isProductionBomTopLevelGroup(group) && !group.all"
+                      class="classification-group-row bom-classification-group-row"
+                      :class="{ 'classification-subgroup-row': Number(group.depth || 0) > 0 }"
+                      :style="businessGroupHeaderIndentStyle(group)">
+                      <td colspan="7">
+                        <button class="classification-group-toggle" type="button" @click="toggleProductionBomGroup(group.key)">
+                          {{ isProductionBomGroupCollapsed(group.key) ? '展开' : '收起' }}
+                        </button>
+                        <strong :title="group.path_label || group.label">{{ group.label }}</strong>
+                        <small>{{ group.row_total }} 个</small>
+                      </td>
+                    </tr>
+                    <template v-if="!isProductionBomGroupCollapsed(group.key)">
+                      <tr
+                        v-for="row in group.rows"
+                        :key="`${group.key}-${bomRowKey(row)}`"
+                        :class="['classification-item-row', { active: bomRowKey(row) === activeBomRowKey }]"
+                        :style="businessGroupItemIndentStyle(group)"
+                        @click="selectBomRow(row)">
+                        <td class="select-col">
+                          <input
+                            v-model="selectedBomRowKeys"
+                            type="checkbox"
+                            :value="bomRowKey(row)"
+                            :disabled="productionBomCategoryMoveActive || !isMovableBomRow(row)"
+                            @click.stop />
+                        </td>
+                        <td>
+                          <button class="text-button bom-name-button" type="button" :disabled="productionBomCategoryMoveActive" @click.stop="openBomRowPrimary(row)">
+                            {{ productionBomListName(row) }}
+                          </button>
+                          <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
+                        </td>
+                        <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
+                        <td>{{ row.item_count || row.material_count || 0 }}</td>
+                        <td>{{ row.output_product_name || '-' }}</td>
+                        <td>{{ row.updated_at }}</td>
+                        <td>
+                          <button class="text-button" type="button" :disabled="productionBomCategoryMoveActive || !Number(row.production_bom_id || row.id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
+                          <button class="text-button danger-text" type="button" :disabled="productionBomCategoryMoveActive || !Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
+                        </td>
+                      </tr>
+                    </template>
+                  </template>
+                </template>
+                <tr v-if="!productionBomRows.length">
+                  <td colspan="7" class="muted">暂无配方档案</td>
                 </tr>
-                <template v-if="!isProductionBomGroupCollapsed(group.key)">
-                  <tr
-                    v-for="row in group.rows"
-                    :key="`${group.key}-${bomRowKey(row)}`"
-                    :class="['classification-item-row', { active: bomRowKey(row) === activeBomRowKey }]"
-                    :style="businessGroupItemIndentStyle(group)"
-                    @click="selectBomRow(row)">
-                    <td class="select-col">
-                      <input
-                        v-model="selectedBomRowKeys"
-                        type="checkbox"
-                        :value="bomRowKey(row)"
-                        :disabled="!isMovableBomRow(row)"
-                        @click.stop />
-                    </td>
-                    <td>
-                      <button class="text-button bom-name-button" type="button" @click.stop="openBomRowPrimary(row)">
-                        {{ productionBomListName(row) }}
-                      </button>
-                      <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
-                    </td>
-                    <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
-                    <td>{{ row.item_count || row.material_count || 0 }}</td>
-                    <td>{{ row.output_product_name || '-' }}</td>
-                    <td>{{ row.updated_at }}</td>
-                    <td>
-                      <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || row.id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
-                      <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
-                    </td>
-                  </tr>
-                </template>
-                </template>
-              </template>
-              <tr v-if="!productionBomRows.length">
-                <td colspan="7" class="muted">暂无配方档案</td>
-              </tr>
-              <tr v-if="productionBomRows.length && productionBomListState.expandedGroupKey && !productionBomListState.rawTotal">
-                <td colspan="7" class="muted">当前展开分组暂无 BOM</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <PaginationControls
-          v-if="productionBomListState.expandedGroupKey && productionBomListState.total > 0"
-          v-model:page="productionBomListPage"
-          v-model:page-size="productionBomListPageSize"
-          :total="productionBomListState.total"
-          :disabled="loading" />
+                <tr v-if="productionBomRows.length && productionBomListState.expandedGroupKey && !productionBomListState.rawTotal">
+                  <td colspan="7" class="muted">当前分类暂无 BOM</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <PaginationControls
+            v-if="productionBomListState.expandedGroupKey && productionBomListState.total > 0"
+            v-model:page="productionBomListPage"
+            v-model:page-size="productionBomListPageSize"
+            :total="productionBomListState.total"
+            :disabled="loading || productionBomCategoryMoveActive" />
+        </BusinessGroupWorkspace>
       </section>
 
       <section class="panel detail-panel">
@@ -499,7 +492,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import BusinessGroupControls from '../components/BusinessGroupControls.vue'
+import BusinessGroupWorkspace from '../components/BusinessGroupWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomAccordionPageState, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomVersionWarning } from '../lib/bom'
@@ -507,6 +500,7 @@ import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
+  businessGroupGroupsForCategorySelection,
   businessGroupHeaderIndentStyle,
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
@@ -539,8 +533,8 @@ const selectedProductionBomRecord = ref(null)
 const detail = ref(null)
 const selectedProductId = ref(0)
 const selectedProductionBomVersionID = ref(0)
-const selectedBomMoveGroupItemID = ref(0)
-const selectedProductionBomTemplateID = ref(0)
+const selectedProductionBomCategoryKey = ref('business-group-all')
+const productionBomCategoryMoveActive = ref(false)
 const productionBomGroupFeatureSelectionTemplateIDs = ref([])
 const productionBomGroupFeatureSelectionDraft = ref([])
 const productionBomGroupFeatureSelectionSaving = ref(false)
@@ -612,18 +606,16 @@ const productionBomSelectedBusinessGroups = computed(() => businessGroupRowsForF
   productionBomBusinessGroups.value,
   productionBomGroupFeatureSelectionTemplateIDs.value,
 ))
-const productionBomBusinessGroupControls = computed(() => businessGroupControlOptions(productionBomSelectedBusinessGroups.value, {
-  selectedTemplateID: selectedProductionBomTemplateID.value,
-  usageKey: 'production_bom',
-}))
-const productionBomTemplateOptions = computed(() => productionBomBusinessGroupControls.value.templateOptions)
-const selectedProductionBomTemplate = computed(() => productionBomBusinessGroupControls.value.selectedTemplate)
-const productionBomMoveGroupOptions = computed(() => productionBomBusinessGroupControls.value.moveOptions)
-const productionBomRows = computed(() => {
-  return filterProductionBomCatalog(productionBoms.value, {
+
+function filterProductionBomRows(rows = []) {
+  return filterProductionBomCatalog(rows, {
     status: productionBomStatusFilter.value,
     query: productionBomSearchQuery.value,
   })
+}
+
+const productionBomRows = computed(() => {
+  return filterProductionBomRows(productionBoms.value)
 })
 const fullProductionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(productionBomRows.value, {
   templates: productionBomSelectedBusinessGroups.value,
@@ -632,13 +624,28 @@ const fullProductionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTe
   objectIDForRow: (row) => Number(row.production_bom_id || row.id || 0),
   rowAssignment: productionBomBusinessGroupAssignment,
 }))
-const productionBomListState = computed(() => productionBomAccordionPageState(fullProductionBomDisplayGroups.value, {
+const productionBomCategoryVisibleGroups = computed(() => {
+  const groups = businessGroupGroupsForCategorySelection(
+    fullProductionBomDisplayGroups.value,
+    selectedProductionBomCategoryKey.value,
+  )
+  if (groups.some(isProductionBomTopLevelGroup)) return groups
+  const groupID = Number(groups.find((group) => Number(group?.group_id || 0) > 0)?.group_id || 0)
+  const template = fullProductionBomDisplayGroups.value.find((group) => (
+    group?.is_template_group && Number(group?.group_id || 0) === groupID
+  ))
+  if (!template) return groups
+  const templateTotal = groups.reduce((sum, group) => sum + (Array.isArray(group?.rows) ? group.rows.length : 0), 0)
+  return [{ ...template, template_total: templateTotal }, ...groups]
+})
+const productionBomListState = computed(() => productionBomAccordionPageState(productionBomCategoryVisibleGroups.value, {
   expandedGroupKey: expandedProductionBomGroupKey.value,
   collapsedCategoryKeys: collapsedProductionBomGroups.value,
   page: productionBomListPage.value,
   pageSize: productionBomListPageSize.value,
 }))
 const productionBomDisplayGroups = computed(() => productionBomListState.value.groups)
+const productionBomCategoryVisibleRows = computed(() => productionBomListState.value.visibleRows)
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const selectedBomOutputProduct = computed(() => productByID(bomForm.output_product_id))
 const outputUnitCode = computed(() => String(selectedBomOutputProduct.value?.inventory_unit || selectedProductionBomVersion.value?.output_unit || bomForm.output_unit || 'unit').trim() || 'unit')
@@ -754,7 +761,7 @@ const currentConsumeUnitOptions = computed(() => {
 const selectedVersionMaterialLossRate = computed(() => versionMaterialLossRateEnabled.value
   ? normalizedMaterialLossRateFromPercent(versionMaterialLossRatePct.value)
   : 0)
-const visibleMovableBomRows = computed(() => productionBomListState.value.visibleRows.filter(isMovableBomRow))
+const visibleMovableBomRows = computed(() => productionBomCategoryVisibleRows.value.filter(isMovableBomRow))
 const isAllVisibleBomsSelected = computed(() => {
   const keys = visibleMovableBomRows.value.map(bomRowKey)
   if (!keys.length) return false
@@ -770,7 +777,7 @@ const isSomeVisibleBomsSelected = computed(() => {
 })
 const selectedBomRows = computed(() => {
   const selected = new Set(selectedBomRowKeys.value)
-  return productionBoms.value.filter((row) => selected.has(bomRowKey(row)) && isMovableBomRow(row))
+  return productionBomCategoryVisibleRows.value.filter((row) => selected.has(bomRowKey(row)) && isMovableBomRow(row))
 })
 const selectedBomRecordsForMove = computed(() => {
   const byBomID = new Map()
@@ -780,7 +787,9 @@ const selectedBomRecordsForMove = computed(() => {
   }
   return [...byBomID.values()]
 })
-const canSelectBomMoveTarget = computed(() => selectedBomRecordsForMove.value.length > 0)
+const canBeginProductionBomCategoryMove = computed(() => Boolean(
+  productionBomSelectedBusinessGroups.value.length && selectedBomRecordsForMove.value.length,
+))
 const selectedActiveBomRecordsForDeactivate = computed(() => {
   const byBomID = new Map()
   for (const row of selectedBomRows.value) {
@@ -788,16 +797,6 @@ const selectedActiveBomRecordsForDeactivate = computed(() => {
     if (record.id > 0 && record.status !== 'inactive' && !byBomID.has(record.id)) byBomID.set(record.id, record)
   }
   return [...byBomID.values()]
-})
-const canMoveSelectedBoms = computed(() => {
-  if (!selectedProductionBomTemplate.value || !selectedBomRecordsForMove.value.length) return false
-  const targetGroupItemID = Number(selectedBomMoveGroupItemID.value || 0)
-  const targetOption = targetGroupItemID > 0 ? productionBomGroupOptionByItemID(targetGroupItemID) : null
-  if (targetGroupItemID > 0 && !targetOption) return false
-  return selectedBomRecordsForMove.value.some((bom) => {
-    if (!targetOption) return productionBomGroupID(bom) > 0 || productionBomGroupItemID(bom) > 0
-    return productionBomGroupID(bom) !== Number(targetOption.group_id || 0) || productionBomGroupItemID(bom) !== Number(targetOption.group_item_id || 0)
-  })
 })
 const canDeactivateSelectedBoms = computed(() => selectedActiveBomRecordsForDeactivate.value.length > 0)
 
@@ -826,18 +825,13 @@ function productionBomGroupItemID(row = {}) {
   return Number(row.group_item_id ?? row.business_group_item_id ?? row.group_category_id ?? row.production_bom_group_category_id ?? 0) || 0
 }
 
-function productionBomGroupOptionByItemID(groupItemID) {
-  const id = Number(groupItemID || 0)
-  return productionBomMoveGroupOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
-}
-
 function isProductionBomTopLevelGroup(group = {}) {
   return Boolean(group?.is_template_group || group?.unclassified || group?.all)
 }
 
 function productionBomGroupByKey(key) {
   const groupKey = String(key || '')
-  return fullProductionBomDisplayGroups.value.find((group) => String(group?.key || '') === groupKey) || null
+  return productionBomCategoryVisibleGroups.value.find((group) => String(group?.key || '') === groupKey) || null
 }
 
 function isProductionBomGroupCollapsed(key) {
@@ -1372,7 +1366,7 @@ async function loadProductUnitDefinitions() {
   return Array.isArray(rows) ? rows : []
 }
 
-async function loadAll() {
+async function loadAll({ strict = false } = {}) {
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -1394,7 +1388,6 @@ async function loadAll() {
     productionBomBusinessGroups.value = Array.isArray(productionGroupData?.rows) ? productionGroupData.rows : (Array.isArray(productionGroupData) ? productionGroupData : [])
     productionBomGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(productionGroupSelectionData)
     productionBomGroupFeatureSelectionDraft.value = [...productionBomGroupFeatureSelectionTemplateIDs.value]
-    syncSelectedProductionBomGroupTemplate()
     productionBoms.value = (productionBomData.rows || productionBomData || []).map(normalizeProductionBomRecord)
     if (pendingProductionBomID.value > 0) {
       const pendingID = pendingProductionBomID.value
@@ -1410,6 +1403,7 @@ async function loadAll() {
     }
   } catch (err) {
     error.value = err.message || '加载失败'
+    if (strict) throw err
   } finally {
     loading.value = false
   }
@@ -1571,12 +1565,6 @@ function openBusinessGroupManagement() {
   }))
 }
 
-function syncSelectedProductionBomGroupTemplate() {
-  const selectedID = Number(selectedProductionBomTemplateID.value || 0)
-  if (productionBomSelectedBusinessGroups.value.some((group) => Number(group.id || 0) === selectedID)) return
-  selectedProductionBomTemplateID.value = Number(productionBomSelectedBusinessGroups.value[0]?.id || 0)
-}
-
 async function saveProductionBomFeatureSelection() {
   const payload = businessGroupFeatureSelectionPayload('production_bom', productionBomGroupFeatureSelectionDraft.value)
   productionBomGroupFeatureSelectionSaving.value = true
@@ -1589,8 +1577,8 @@ async function saveProductionBomFeatureSelection() {
     })
     productionBomGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(result)
     productionBomGroupFeatureSelectionDraft.value = [...productionBomGroupFeatureSelectionTemplateIDs.value]
-    syncSelectedProductionBomGroupTemplate()
-    selectedBomMoveGroupItemID.value = 0
+    selectedProductionBomCategoryKey.value = 'business-group-all'
+    productionBomCategoryMoveActive.value = false
     selectedBomRowKeys.value = []
     collapsedProductionBomGroups.value = []
     expandedProductionBomGroupKey.value = null
@@ -1618,15 +1606,43 @@ async function clearProductionBomBusinessGroupAssignment(bomID) {
   await Promise.all(rows.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
 }
 
-async function moveSelectedProductBomsToGroup() {
-  const targetGroupItemID = Number(selectedBomMoveGroupItemID.value || 0)
-  const targetOption = targetGroupItemID > 0 ? productionBomGroupOptionByItemID(targetGroupItemID) : null
-  if (targetGroupItemID > 0 && !targetOption) return
+function beginProductionBomCategoryMove() {
+  if (!canBeginProductionBomCategoryMove.value || loading.value) return
+  error.value = ''
+  ok.value = ''
+  productionBomCategoryMoveActive.value = true
+}
+
+function cancelProductionBomCategoryMove() {
+  if (loading.value) return
+  productionBomCategoryMoveActive.value = false
+}
+
+async function handleProductionBomCategoryMoveTarget(target) {
+  if (!productionBomCategoryMoveActive.value || loading.value) return
+  const completed = await moveSelectedProductBomsToGroup(target)
+  if (completed) productionBomCategoryMoveActive.value = false
+}
+
+async function moveSelectedProductBomsToGroup(target = {}) {
+  const targetGroupID = Number(target?.group_id || 0)
+  const targetGroupItemID = Number(target?.group_item_id || 0)
+  const moveToUnclassified = Boolean(target?.unclassified)
+  const targetOption = moveToUnclassified
+    ? null
+    : { group_id: targetGroupID, group_item_id: targetGroupItemID }
+  if (!moveToUnclassified && (!(targetGroupID > 0) || !(targetGroupItemID > 0))) return false
   const records = selectedBomRecordsForMove.value.filter((bom) => {
     if (!targetOption) return productionBomGroupID(bom) > 0 || productionBomGroupItemID(bom) > 0
     return productionBomGroupID(bom) !== Number(targetOption.group_id || 0) || productionBomGroupItemID(bom) !== Number(targetOption.group_item_id || 0)
   })
-  if (!records.length) return
+  if (!records.length) {
+    error.value = selectedBomRecordsForMove.value.length
+      ? '所选 BOM 已在该分类，请选择其他分类'
+      : '请先勾选生产 BOM'
+    return false
+  }
+  let completed = false
   await mutate(async () => {
     for (const bom of records) {
       if (!targetOption) {
@@ -1643,10 +1659,12 @@ async function moveSelectedProductBomsToGroup() {
         }),
       })
     }
-    ok.value = `已移动 ${records.length} 个 BOM`
+    await loadAll({ strict: true })
     selectedBomRowKeys.value = []
-    await loadAll()
+    ok.value = `已移动 ${records.length} 个 BOM`
+    completed = true
   })
+  return completed
 }
 
 async function deactivateProductionBomRecords(records, successText) {
@@ -1795,10 +1813,11 @@ onMounted(async () => {
 
 onBeforeUnmount(saveBomFormDraft)
 
-watch(selectedProductionBomTemplateID, () => {
-  selectedBomMoveGroupItemID.value = 0
+watch(selectedProductionBomCategoryKey, () => {
   selectedBomRowKeys.value = []
   collapsedProductionBomGroups.value = []
+  expandedProductionBomGroupKey.value = null
+  productionBomListPage.value = 1
 })
 
 watch([productionBomStatusFilter, productionBomSearchQuery], () => {
@@ -1816,17 +1835,10 @@ watch(() => productionBomListState.value.expandedGroupKey, (groupKey) => {
     return
   }
   if (!expandedProductionBomGroupKey.value || expandedProductionBomGroupKey.value === groupKey) return
-  const currentStillExists = fullProductionBomDisplayGroups.value.some((group) => (
+  const currentStillExists = productionBomCategoryVisibleGroups.value.some((group) => (
     isProductionBomTopLevelGroup(group) && String(group.key || '') === expandedProductionBomGroupKey.value
   ))
   if (!currentStillExists) expandedProductionBomGroupKey.value = groupKey
-})
-
-watch(productionBomMoveGroupOptions, (options) => {
-  const selected = Number(selectedBomMoveGroupItemID.value || 0)
-  if (selected > 0 && !options.some((option) => Number(option.group_item_id || 0) === selected)) {
-    selectedBomMoveGroupItemID.value = 0
-  }
 })
 
 watch(componentStockUnitCode, (unit) => {
@@ -1858,8 +1870,9 @@ function outputProductLabel(row = {}) {
 .compact-title { margin-bottom: 4px; }
 h2 { margin: 0; font-size: 20px; }
 h3 { margin: 2px 0 4px; font-size: 18px; }
-.grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 14px; align-items: stretch; }
+.grid { display: grid; grid-template-columns: minmax(620px, 1.45fr) minmax(420px, .85fr); gap: 14px; align-items: stretch; }
 .list-panel { display: flex; flex-direction: column; }
+.bom-business-group-workspace { flex: 1 1 auto; min-height: 0; }
 .detail-panel { align-self: start; }
 label span, .summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; min-width: 180px; }
@@ -1876,26 +1889,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger-text { color: #9d2626; margin-left: 10px; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
 .text-button + .text-button { margin-left: 10px; }
-.bom-action-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .bom-search-field input { min-width: min(340px, 100%); }
 .bom-product-filter { min-width: min(280px, 100%); }
-.bom-list-head { align-items: center; }
+.bom-list-head { align-items: flex-start; }
 .bom-list-filters { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; padding-top: 10px; border-top: 1px solid #eee8df; }
 .bom-batch-deactivate-action { margin-left: auto; }
-.bom-list-toolbar { display: grid; gap: 10px; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
-.bom-group-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.bom-business-group-controls {
-  display: grid;
-  grid-template-columns: auto minmax(145px, 1fr) auto minmax(145px, 1fr) auto auto;
-  align-items: center;
-  gap: 6px 8px;
-  padding: 6px 8px;
-  overflow-x: auto;
-}
-.bom-business-group-controls :deep(label) { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
-.bom-business-group-controls :deep(label span) { display: inline; margin: 0; color: #6b7280; font-size: 12px; white-space: nowrap; }
-.bom-business-group-controls :deep(select) { width: 100%; min-width: 130px; min-height: 0; height: 32px; padding: 4px 8px; font-size: 12px; }
-.bom-business-group-controls :deep(.muted.left) { font-size: 12px; white-space: nowrap; }
 .feature-group-selection { display: grid; grid-template-columns: minmax(190px, .9fr) minmax(260px, 1.5fr) auto; gap: 10px; align-items: center; margin: 8px 0; padding: 10px; border: 1px solid #d9e2ec; border-radius: 8px; background: #f8fbff; }
 .feature-group-selection-copy { display: grid; gap: 3px; }
 .feature-group-selection-copy small { color: #607086; line-height: 1.4; }
@@ -1903,14 +1901,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .feature-group-selection-actions { justify-content: flex-end; }
 .feature-group-selection-option { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .feature-group-selection-option input { width: auto; min-width: 0; height: auto; }
-.feature-group-empty { color: #666; border-style: dashed; }
-.bom-group-operation-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
-.bom-group-operation-row label { margin: 0; }
 .bom-list-panel-scroll { flex: 1 1 auto; min-height: 440px; max-height: 84vh; overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
 .bom-record-form { align-items: flex-end; }
-.bom-group-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
-.bom-group-strip > span { color: #666; font-size: 12px; font-weight: 700; }
 .bom-focus-filter { align-self: stretch; display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 640px; border-collapse: collapse; }
@@ -1929,7 +1922,6 @@ tbody tr.active { background: #f3f7fb; }
 .classification-template-collapsed td { border-bottom: 2px solid #d3c6b0; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
 .classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }
-.category-toggle { font-size: 12px; }
 .summary { align-items: stretch; margin-bottom: 12px; }
 .summary div { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 9px; }
 .summary strong { font-size: 16px; }
@@ -1978,10 +1970,6 @@ tbody tr.active { background: #f3f7fb; }
 .drawer-mask { position: fixed; inset: 0; z-index: 80; background: rgba(20, 20, 20, .28); display: flex; justify-content: flex-end; }
 .drawer { width: min(560px, 100vw); height: 100%; background: #fff; box-shadow: -8px 0 28px rgba(0,0,0,.16); padding: 18px; overflow: auto; }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
-@media (max-width: 1500px) {
-  .bom-business-group-controls { grid-template-columns: repeat(3, max-content); }
-  .bom-business-group-controls :deep(select) { width: auto; min-width: 150px; }
-}
 @media (max-width: 1100px) { .grid, .feature-group-selection { grid-template-columns: 1fr; } .feature-group-selection-actions { justify-content: flex-start; } }
 @media (max-width: 900px) {
   .page { padding: 12px; }

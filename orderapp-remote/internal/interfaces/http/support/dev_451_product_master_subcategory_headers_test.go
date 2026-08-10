@@ -31,8 +31,11 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"--classification-item-indent",
 			"classification-item-row",
 			"path_label",
-			"productBusinessGroupItemOptions",
-			"BusinessGroupControls",
+			"BusinessGroupWorkspace",
+			"selectedProductBusinessGroupCategoryKey",
+			"productCategoryMoveActive",
+			`@target="handleProductCategoryMoveTarget"`,
+			"businessGroupGroupsForCategorySelection",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.test.js"): {
 			"商品-咖啡熟豆 / 意式拼配豆",
@@ -44,9 +47,9 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS",
-			"父组和子组都可以成为分类标题",
-			"商品行跟随所在父组/子组缩进",
-			"可把商品移动到具体小类",
+			"模板、父组和子组按层级缩进",
+			"完整父/子路径通过面包屑表达",
+			"直接在左树点击大类、小类或未分类立即移动",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS",
@@ -55,9 +58,9 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"移动商品到子类后列表在子类标题下显示",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"空大类和空小类也显示",
-			"商品表格不再显示独立 `分类` 列",
-			"移动目标可选 `未分类`、大类或小类",
+			"左侧常驻分类结构",
+			"空分类和统一 `未分类` 都保留",
+			"直接点击左树中的大类、小类或未分类即完成移动",
 			"移动会覆盖旧归类",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-product-master-subcategory-headers.md"): {

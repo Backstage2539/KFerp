@@ -6,7 +6,7 @@
           <h2>物料档案</h2>
           <p>按分类维护原料、包材和其他物料；单位来自全局单位字典，库存数量通过库存补录或库存调整修正。</p>
         </div>
-        <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
+        <button class="secondary" type="button" @click="loadAll" :disabled="loading || materialCategoryMoveActive">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
@@ -15,81 +15,69 @@
     <div class="materials-layout">
       <section class="panel material-list-panel">
         <div class="panel-title">物料列表</div>
-        <div class="material-list-toolbar">
-          <label>
-            <span>搜索</span>
-            <input v-model.trim="q" placeholder="名称/编码/批次号" @keyup.enter="loadMaterials" />
-          </label>
-          <label>
-            <span>状态</span>
-            <select v-model="activeFilter" @change="loadMaterials">
-              <option value="active">启用</option>
-              <option value="inactive">失效</option>
-              <option value="all">全部</option>
-            </select>
-          </label>
-          <button class="primary" type="button" @click="loadMaterials" :disabled="loading">查询</button>
-          <span class="spacer"></span>
-          <button class="primary" type="button" @click="createMaterial">新建物料</button>
-          <button class="danger" type="button" @click="deprecateSelectedMaterials" :disabled="!selectedMaterialIDs.length || loading">批量失效</button>
-        </div>
-
-        <BusinessGroupControls
-          v-if="materialCatalogBusinessGroups.length"
-          v-model="selectedMaterialGroupTemplateID"
-          v-model:move-model-value="selectedMaterialMoveGroupItemID"
-          class="classification-view-toolbar material-business-group-controls"
+        <BusinessGroupWorkspace
+          v-model="selectedMaterialCategoryKey"
           data-pr513-material-business-groups
-          :template-options="materialGroupTemplateOptions"
-          :move-options="materialGroupItemOptions"
-          :selected-template="selectedMaterialGroupTemplate"
+          :groups="materialDisplayGroups"
+          :move-active="materialCategoryMoveActive"
           :selected-count="selectedMaterialRowsForMove.length"
           :can-move="canMoveSelectedMaterialsToBusinessGroup"
-          :can-select-target="canSelectMaterialMoveTarget"
           :loading="loading"
-          template-label="分类与移动模板"
+          count-unit="个"
+          all-label="全部物料"
+          manage-label="前往分组模板"
+          configure-label="设置分组模板"
+          @move="startMaterialCategoryMove"
+          @cancel="cancelMaterialCategoryMove"
+          @target="handleMaterialCategoryMoveTarget"
           @manage="openMaterialBusinessGroupManagement"
-          @move="moveSelectedMaterialsToGroup">
-          <template #extra-actions>
-            <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="openMaterialGroupFeatureSelectionDrawer">设置分组模板</button>
-          </template>
-        </BusinessGroupControls>
-        <div v-else class="classification-view-toolbar feature-group-empty material-group-empty-actions">
-          <span>物料档案尚未选择分组模板，当前平铺展示。</span>
-          <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="openMaterialGroupFeatureSelectionDrawer">设置分组模板</button>
-          <button class="secondary compact-action" type="button" @click="openMaterialBusinessGroupManagement">维护分组模板</button>
-        </div>
-
-        <div v-if="materialCatalogBusinessGroups.length" class="material-section-list">
-          <div
-            v-for="group in renderedMaterialDisplayGroups"
-            :key="group.key"
-            :class="['material-section', { 'material-template-section': group.is_template_group, 'material-subgroup-section': Number(group.depth || 0) > 0 }]">
-            <button class="section-toggle" type="button" @click="toggleSection(group.key)">
-              <strong :style="businessGroupHeaderIndentStyle(group)" :title="group.path_label || group.label">{{ group.label }}</strong>
-              <span>{{ group.is_template_group ? group.template_total : group.rows.length }} 个</span>
-            </button>
-            <MaterialRowsTable
-              v-if="!group.is_template_group && !collapsedSections[group.key]"
-              :rows="group.rows"
-              :row-style="businessGroupItemIndentStyle(group)"
-              :selected="selected"
-              :selected-ids="selectedMaterialIDs"
-              :all-selected="areRowsSelected(group.rows)"
-              @toggle="toggleMaterialSelection"
-              @toggle-all="toggleMaterialRows(group.rows)"
-              @select="(row) => selectMaterial(row)" />
+          @configure="openMaterialGroupFeatureSelectionDrawer">
+          <div class="material-list-toolbar">
+            <label>
+              <span>搜索</span>
+              <input v-model.trim="q" placeholder="名称/编码/批次号" @keyup.enter="loadMaterials" />
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="activeFilter" @change="loadMaterials">
+                <option value="active">启用</option>
+                <option value="inactive">失效</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <button class="primary" type="button" @click="loadMaterials" :disabled="loading">查询</button>
+            <span class="spacer"></span>
+            <button class="primary" type="button" @click="createMaterial">新建物料</button>
+            <button class="danger" type="button" @click="deprecateSelectedMaterials" :disabled="!selectedMaterialIDs.length || loading">批量失效</button>
           </div>
-        </div>
-        <MaterialRowsTable
-          v-else
-          :rows="rows"
-          :selected="selected"
-          :selected-ids="selectedMaterialIDs"
-          :all-selected="areRowsSelected(rows)"
-          @toggle="toggleMaterialSelection"
-          @toggle-all="toggleMaterialRows(rows)"
-          @select="(row) => selectMaterial(row)" />
+          <div class="material-section-list">
+            <div
+              v-for="section in visibleMaterialDisplayGroups"
+              :key="section.key"
+              :class="['material-section', { 'material-template-section': section.is_template_group }]">
+              <div
+                v-if="section.is_template_group"
+                class="material-section-heading material-template-heading"
+                :title="section.path_label || section.label">
+                <strong>{{ section.label }}</strong><span>{{ section.template_total || 0 }} 个</span>
+              </div>
+              <template v-else>
+                <div class="material-section-heading" :title="section.path_label || section.label">
+                  <strong>{{ section.label }}</strong><span>{{ section.rows.length }} 个</span>
+                </div>
+                <MaterialRowsTable
+                  :rows="section.rows"
+                  :row-style="businessGroupItemIndentStyle(section)"
+                  :selected="selected"
+                  :selected-ids="selectedMaterialIDs"
+                  :all-selected="areRowsSelected(section.rows)"
+                  @toggle="toggleMaterialSelection"
+                  @toggle-all="toggleMaterialRows(section.rows)"
+                  @select="(row) => selectMaterial(row)" />
+              </template>
+            </div>
+          </div>
+        </BusinessGroupWorkspace>
       </section>
 
       <section class="panel material-detail-panel">
@@ -173,15 +161,18 @@
     </div>
 
     <div v-if="materialGroupFeatureDrawerOpen" class="drawer-mask" @click.self="materialGroupFeatureDrawerOpen = false">
-      <aside class="drawer">
+      <aside class="drawer material-group-feature-drawer" aria-label="物料档案分组模板设置">
         <div class="drawer-head">
-          <h3>物料档案分组模板</h3>
+          <div>
+            <h3>物料档案分组模板</h3>
+            <p>选择物料档案用于浏览和移动归类的分组模板。</p>
+          </div>
           <button class="secondary compact-action" type="button" @click="materialGroupFeatureDrawerOpen = false">关闭</button>
         </div>
         <div class="feature-group-selection" data-feature-key="material_catalog">
           <div class="feature-group-selection-copy">
             <strong>物料档案使用的分组模板</strong>
-            <small>可多选；保存后列表同时展示全部已选模板，移动归类时再选择目标模板。取消全部后按物料平铺展示。</small>
+            <small>可多选；保存后左侧分类结构会合并展示全部已选模板。取消全部后按物料平铺展示。</small>
           </div>
           <div class="feature-group-selection-options">
             <label v-for="template in selectableMaterialGroupTemplates" :key="template.id" class="feature-group-selection-option">
@@ -195,7 +186,7 @@
             <span v-if="!selectableMaterialGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
           </div>
           <div class="feature-group-selection-actions">
-            <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="openMaterialBusinessGroupManagement">维护分组模板</button>
+            <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="materialGroupFeatureDrawerOpen = false">取消</button>
             <button class="primary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading || !materialGroupFeatureSelectionHasChanges" @click="saveMaterialGroupFeatureSelection">
               {{ materialGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
             </button>
@@ -232,18 +223,17 @@
 <script setup>
 import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import BusinessGroupControls from '../components/BusinessGroupControls.vue'
+import BusinessGroupWorkspace from '../components/BusinessGroupWorkspace.vue'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
-  businessGroupHeaderIndentStyle,
+  businessGroupGroupsForCategorySelection,
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
   businessGroupRowsForFeatureSelection,
   groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
-import { skuGroupHiddenByCollapsedAncestor } from '../lib/product-settings'
 
 const MATERIAL_CATALOG_USAGE = 'material_catalog'
 const MATERIAL_OBJECT_KEY = 'material'
@@ -320,13 +310,12 @@ const selected = ref(null)
 const draft = ref(null)
 const draftMode = ref(false)
 const selectedMaterialIDs = ref([])
-const selectedMaterialGroupTemplateID = ref(0)
-const selectedMaterialMoveGroupItemID = ref(0)
+const selectedMaterialCategoryKey = ref('business-group-all')
+const materialCategoryMoveActive = ref(false)
 const materialGroupFeatureSelectionTemplateIDs = ref([])
 const materialGroupFeatureSelectionDraft = ref([])
 const materialGroupFeatureSelectionSaving = ref(false)
 const materialGroupFeatureDrawerOpen = ref(false)
-const collapsedSections = ref({})
 const stockBackfill = ref({ open: false, target_qty: 0, reason: '' })
 
 const activeIndustryTemplates = computed(() => industryFieldTemplates.value.filter((tpl) => !tpl.deactivated_at && tpl.active !== false))
@@ -339,13 +328,6 @@ const materialCatalogBusinessGroups = computed(() => businessGroupRowsForFeature
   materialBusinessGroups.value,
   materialGroupFeatureSelectionTemplateIDs.value,
 ))
-const materialBusinessGroupControls = computed(() => businessGroupControlOptions(materialCatalogBusinessGroups.value, {
-  selectedTemplateID: selectedMaterialGroupTemplateID.value,
-  usageKey: MATERIAL_CATALOG_USAGE,
-}))
-const materialGroupTemplateOptions = computed(() => materialBusinessGroupControls.value.templateOptions)
-const selectedMaterialGroupTemplate = computed(() => materialBusinessGroupControls.value.selectedTemplate)
-const materialGroupItemOptions = computed(() => materialBusinessGroupControls.value.moveOptions)
 const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(rows.value, {
   templates: materialCatalogBusinessGroups.value,
   assignments: materialBusinessGroupAssignments.value,
@@ -354,24 +336,17 @@ const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(r
   objectIDForRow: (row) => Number(row.id || 0),
   allLabel: '全部物料',
 }))
-const renderedMaterialDisplayGroups = computed(() => materialDisplayGroups.value.filter((group) => (
-  !skuGroupHiddenByCollapsedAncestor(materialDisplayGroups.value, group, Object.keys(collapsedSections.value).filter((key) => collapsedSections.value[key]))
-)))
+const visibleMaterialDisplayGroups = computed(() => businessGroupGroupsForCategorySelection(
+  materialDisplayGroups.value,
+  selectedMaterialCategoryKey.value,
+))
 const selectedMaterialRowsForMove = computed(() => {
   const selectedIds = new Set(selectedMaterialIDs.value.map((id) => Number(id || 0)).filter(Boolean))
   return rows.value.filter((row) => selectedIds.has(Number(row.id || 0)))
 })
-const canMoveSelectedMaterialsToBusinessGroup = computed(() => {
-  if (!selectedMaterialGroupTemplate.value || !selectedMaterialRowsForMove.value.length) return false
-  const targetGroupItemID = Number(selectedMaterialMoveGroupItemID.value || 0)
-  const targetOption = targetGroupItemID > 0 ? materialGroupOptionByItemID(targetGroupItemID) : null
-  if (targetGroupItemID > 0 && !targetOption) return false
-  return selectedMaterialRowsForMove.value.some((row) => {
-    if (!targetOption) return materialBusinessGroupID(row) > 0 || materialBusinessGroupItemID(row) > 0
-    return materialBusinessGroupID(row) !== Number(targetOption.group_id || 0) || materialBusinessGroupItemID(row) !== Number(targetOption.group_item_id || 0)
-  })
-})
-const canSelectMaterialMoveTarget = computed(() => Boolean(selectedMaterialGroupTemplate.value && selectedMaterialRowsForMove.value.length))
+const canMoveSelectedMaterialsToBusinessGroup = computed(() => Boolean(
+  materialCatalogBusinessGroups.value.length && selectedMaterialRowsForMove.value.length,
+))
 const unitOptions = computed(() => {
   const rows = productUnitDefinitions.value.filter((row) => row.active !== false)
   if (rows.length) return rows
@@ -501,7 +476,6 @@ async function loadMaterialBusinessGroupConfiguration() {
   materialBusinessGroups.value = Array.isArray(groupData?.rows) ? groupData.rows : (Array.isArray(groupData) ? groupData : [])
   materialGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(selectionData)
   materialGroupFeatureSelectionDraft.value = [...materialGroupFeatureSelectionTemplateIDs.value]
-  syncSelectedMaterialGroupTemplate()
 }
 
 async function loadMaterialBusinessGroupAssignments() {
@@ -583,8 +557,16 @@ function toggleMaterialRows(sourceRows) {
   selectedMaterialIDs.value = Array.from(next)
 }
 
-function toggleSection(key) {
-  collapsedSections.value = { ...collapsedSections.value, [key]: !collapsedSections.value[key] }
+function pruneMaterialSelectionToVisibleCategory() {
+  if (materialCategoryMoveActive.value) return
+  const visibleIDs = new Set()
+  for (const group of visibleMaterialDisplayGroups.value) {
+    for (const row of Array.isArray(group?.rows) ? group.rows : []) {
+      const id = Number(row?.id || 0)
+      if (id > 0) visibleIDs.add(id)
+    }
+  }
+  selectedMaterialIDs.value = selectedMaterialIDs.value.filter((id) => visibleIDs.has(Number(id || 0)))
 }
 
 function materialBusinessGroupAssignment(row = {}) {
@@ -604,17 +586,6 @@ function materialBusinessGroupItemID(row = {}) {
   return Number(materialBusinessGroupAssignment(row)?.group_item_id || 0)
 }
 
-function materialGroupOptionByItemID(groupItemID) {
-  const id = Number(groupItemID || 0)
-  return materialGroupItemOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
-}
-
-function syncSelectedMaterialGroupTemplate() {
-  const selectedID = Number(selectedMaterialGroupTemplateID.value || 0)
-  if (materialCatalogBusinessGroups.value.some((group) => Number(group.id || 0) === selectedID)) return
-  selectedMaterialGroupTemplateID.value = Number(materialCatalogBusinessGroups.value[0]?.id || 0)
-}
-
 function openMaterialGroupFeatureSelectionDrawer() {
   materialGroupFeatureSelectionDraft.value = [...materialGroupFeatureSelectionTemplateIDs.value]
   materialGroupFeatureDrawerOpen.value = true
@@ -632,9 +603,8 @@ async function saveMaterialGroupFeatureSelection() {
     })
     materialGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(result)
     materialGroupFeatureSelectionDraft.value = [...materialGroupFeatureSelectionTemplateIDs.value]
-    syncSelectedMaterialGroupTemplate()
-    selectedMaterialMoveGroupItemID.value = 0
-    collapsedSections.value = {}
+    selectedMaterialCategoryKey.value = 'business-group-all'
+    materialCategoryMoveActive.value = false
     materialGroupFeatureDrawerOpen.value = false
     ok.value = payload.group_template_ids.length
       ? `物料档案已选择 ${payload.group_template_ids.length} 个分组模板`
@@ -658,19 +628,41 @@ async function clearMaterialBusinessGroupAssignment(materialID) {
   await Promise.all(rows.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
 }
 
-async function moveSelectedMaterialsToGroup() {
-  const targetGroupItemID = Number(selectedMaterialMoveGroupItemID.value || 0)
-  const targetOption = targetGroupItemID > 0 ? materialGroupOptionByItemID(targetGroupItemID) : null
-  if (targetGroupItemID > 0 && !targetOption) return
+function startMaterialCategoryMove() {
+  if (!canMoveSelectedMaterialsToBusinessGroup.value || loading.value) return
+  error.value = ''
+  ok.value = ''
+  materialCategoryMoveActive.value = true
+}
+
+function cancelMaterialCategoryMove() {
+  materialCategoryMoveActive.value = false
+}
+
+async function handleMaterialCategoryMoveTarget(target = {}) {
+  if (!materialCategoryMoveActive.value || loading.value) return false
+  const targetGroupID = Number(target.group_id || 0)
+  const targetGroupItemID = Number(target.group_item_id || 0)
+  const targetIsUnclassified = Boolean(target.unclassified)
+  if (!targetIsUnclassified && (!(targetGroupID > 0) || !(targetGroupItemID > 0))) return false
+  const targetOption = targetIsUnclassified ? null : {
+    group_id: targetGroupID,
+    group_item_id: targetGroupItemID,
+  }
   const materialsToMove = selectedMaterialRowsForMove.value.filter((row) => {
     if (!targetOption) return materialBusinessGroupID(row) > 0 || materialBusinessGroupItemID(row) > 0
     return materialBusinessGroupID(row) !== Number(targetOption.group_id || 0) || materialBusinessGroupItemID(row) !== Number(targetOption.group_item_id || 0)
   })
   if (!materialsToMove.length) {
-    error.value = '请先勾选物料'
-    return
+    error.value = selectedMaterialRowsForMove.value.length
+      ? '所选物料已在该分类，请选择其他分类'
+      : '请先勾选物料'
+    return false
   }
-  await mutate(async () => {
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
     for (const row of materialsToMove) {
       if (!targetOption) {
         await clearMaterialBusinessGroupAssignment(row.id)
@@ -686,11 +678,17 @@ async function moveSelectedMaterialsToGroup() {
         }),
       })
     }
+    await loadMaterialBusinessGroupAssignments()
     ok.value = `已移动 ${materialsToMove.length} 个物料到分类`
     selectedMaterialIDs.value = []
-    selectedMaterialMoveGroupItemID.value = 0
-    await loadMaterialBusinessGroupAssignments()
-  })
+    materialCategoryMoveActive.value = false
+    return true
+  } catch (err) {
+    error.value = err.message || '移动物料分类失败，请重试'
+    return false
+  } finally {
+    loading.value = false
+  }
 }
 
 function openMaterialBusinessGroupManagement() {
@@ -885,21 +883,12 @@ function defaultFieldValue(field) {
   }
 }
 
-watch(selectedMaterialGroupTemplateID, () => {
-  selectedMaterialMoveGroupItemID.value = 0
-})
-
-watch(materialGroupItemOptions, (options) => {
-  const selected = Number(selectedMaterialMoveGroupItemID.value || 0)
-  if (selected > 0 && !options.some((option) => Number(option.group_item_id || 0) === selected)) {
-    selectedMaterialMoveGroupItemID.value = 0
-  }
-})
-
 watch(() => draft.value?.unit, (unit) => {
   if (!draft.value || materialCostUnitLocked.value) return
   draft.value.cost_unit = defaultMaterialCostUnit(unit)
 })
+
+watch(selectedMaterialCategoryKey, pruneMaterialSelectionToVisibleCategory)
 
 onMounted(() => {
   q.value = new URL(window.location.href).searchParams.get('q') || ''
@@ -924,8 +913,6 @@ onMounted(() => {
 .material-list-toolbar label { min-width: 150px; }
 .material-list-toolbar label:first-child { flex: 1 1 220px; }
 .material-list-toolbar label:nth-child(2) { flex: 0 0 130px; }
-.section-toggle { background: #1f1f1f; color: #fff; }
-.material-business-group-controls { margin-bottom: 12px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
 .feature-group-selection { display: grid; grid-template-columns: minmax(190px, .9fr) minmax(260px, 1.5fr) auto; gap: 10px; align-items: center; margin-bottom: 12px; padding: 10px; border: 1px solid #d9e2ec; border-radius: 8px; background: #f8fbff; }
 .feature-group-selection-copy { display: grid; gap: 3px; }
 .feature-group-selection-copy small { color: #607086; line-height: 1.4; }
@@ -934,16 +921,13 @@ onMounted(() => {
 .feature-group-selection-option { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .feature-group-selection-option input { width: auto; min-height: 0; }
 .feature-group-empty { margin-bottom: 12px; padding: 10px; border: 1px dashed #d6d3d1; border-radius: 8px; color: #666; }
-.material-group-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.material-group-empty-actions span { margin-right: auto; }
 .material-section-list { display: grid; gap: 10px; }
 .material-section-list, .material-section { min-width: 0; }
 .material-template-section { margin-top: 4px; }
-.material-template-section .section-toggle { background: #ece3d6; color: #2f2820; border: 1px solid #d3c6b0; }
-.material-subgroup-section .section-toggle { background: #454545; }
 .left { text-align: left; }
-.section-toggle { width: 100%; justify-content: space-between; border: 0; display: flex; }
-.section-toggle strong { padding-left: var(--classification-group-indent, 0); }
+.material-section-heading { min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; background: #1f1f1f; color: #fff; }
+.material-template-heading { background: #334155; }
+.material-template-section + .material-section { margin-top: -4px; }
 .table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: visible; }
 .table-wrap :deep(table) { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 660px; }
 .table-wrap :deep(col.select-col) { width: 48px; }
@@ -986,13 +970,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
-.modal-mask { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.28); }
-.drawer-mask { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: flex-end; background: rgba(0,0,0,.28); }
-.drawer { width: min(520px, 100%); height: 100%; overflow: auto; border-left: 1px solid #d8d0c7; background: #fff; padding: 16px; box-shadow: -18px 0 50px rgba(0,0,0,.16); }
-.drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+.drawer-mask { position: fixed; inset: 0; z-index: 80; display: flex; justify-content: flex-end; background: rgba(0,0,0,.28); }
+.drawer { width: min(560px, 100vw); height: 100%; overflow: auto; border-left: 1px solid #d8d0c7; background: #fff; padding: 18px; box-shadow: -8px 0 28px rgba(0,0,0,.16); }
+.drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
-.drawer .feature-group-selection { grid-template-columns: 1fr; }
-.drawer .feature-group-selection-actions { justify-content: flex-start; }
+.drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
+.material-group-feature-drawer .feature-group-selection { grid-template-columns: 1fr; align-items: stretch; }
+.material-group-feature-drawer .feature-group-selection-options { display: grid; gap: 8px; }
+.material-group-feature-drawer .feature-group-selection-actions { justify-content: flex-end; padding-top: 8px; border-top: 1px solid #d9e2ec; }
+.modal-mask { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.28); }
 .modal-panel { width: min(640px, 100%); max-height: calc(100vh - 36px); overflow: auto; border-radius: 8px; background: #fff; border: 1px solid #d8d0c7; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
 .modal-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
 .modal-head h3 { margin: 0; font-size: 18px; }
