@@ -189,7 +189,18 @@ func ensureBagSpecMappingTable(ctx context.Context, pool *pgxpool.Pool, schema s
 		material_id BIGINT NOT NULL,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	)`, schema)
-	_, err := pool.Exec(ctx, q)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	q2 := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s.unit_template_spec_packaging_bom (
+		unit_template_id BIGINT NOT NULL,
+		spec_key TEXT NOT NULL,
+		packaging_bom_id BIGINT NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_by TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (unit_template_id, spec_key)
+	)`, schema)
+	_, err := pool.Exec(ctx, q2)
 	return err
 }
 

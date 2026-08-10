@@ -437,6 +437,30 @@ type DeleteBagSpecMappingCommand struct {
 	Actor string `json:"actor"`
 }
 
+type SpecPackagingBomRef struct {
+	UnitTemplateID          int64  `json:"unit_template_id"`
+	SpecKey                 string `json:"spec_key"`
+	PackagingBomID          int64  `json:"packaging_bom_id"`
+	PackagingBomName        string `json:"packaging_bom_name"`
+	PackagingBomCode        string `json:"packaging_bom_code"`
+	PublishedVersionID      int64  `json:"published_version_id"`
+	PublishedVersionNo      string `json:"published_version_no"`
+	IsValid                 bool   `json:"is_valid"`
+}
+
+type SaveSpecPackagingBomRefCommand struct {
+	UnitTemplateID int64  `json:"unit_template_id"`
+	SpecKey        string `json:"spec_key"`
+	PackagingBomID int64  `json:"packaging_bom_id"`
+	Actor          string `json:"actor"`
+}
+
+type DeleteSpecPackagingBomRefCommand struct {
+	UnitTemplateID int64  `json:"unit_template_id"`
+	SpecKey        string `json:"spec_key"`
+	Actor          string `json:"actor"`
+}
+
 type Repository interface {
 	List(ctx context.Context) ([]ListItem, error)
 	Detail(ctx context.Context, productID int64) (Detail, error)
@@ -473,6 +497,9 @@ type Repository interface {
 	ValidateProductionBomVersionForPublish(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	PublishProductionBomVersion(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error)
+	ListSpecPackagingBomRefs(ctx context.Context, unitTemplateID int64) ([]SpecPackagingBomRef, error)
+	SaveSpecPackagingBomRef(ctx context.Context, cmd SaveSpecPackagingBomRefCommand) error
+	DeleteSpecPackagingBomRef(ctx context.Context, cmd DeleteSpecPackagingBomRefCommand) error
 }
 
 type Service struct {
@@ -1089,6 +1116,40 @@ func (s *Service) PublishProductionBomVersion(ctx context.Context, cmd PublishPr
 		return err
 	}
 	return s.repo.PublishProductionBomVersion(ctx, cmd)
+}
+
+func (s *Service) ListSpecPackagingBomRefs(ctx context.Context, unitTemplateID int64) ([]SpecPackagingBomRef, error) {
+	if unitTemplateID <= 0 {
+		return nil, fmt.Errorf("unit_template_id required")
+	}
+	return s.repo.ListSpecPackagingBomRefs(ctx, unitTemplateID)
+}
+
+func (s *Service) SaveSpecPackagingBomRef(ctx context.Context, cmd SaveSpecPackagingBomRefCommand) error {
+	if cmd.UnitTemplateID <= 0 {
+		return fmt.Errorf("unit_template_id required")
+	}
+	cmd.SpecKey = strings.TrimSpace(cmd.SpecKey)
+	if cmd.SpecKey == "" {
+		return fmt.Errorf("spec_key required")
+	}
+	if cmd.PackagingBomID <= 0 {
+		return fmt.Errorf("packaging_bom_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.SaveSpecPackagingBomRef(ctx, cmd)
+}
+
+func (s *Service) DeleteSpecPackagingBomRef(ctx context.Context, cmd DeleteSpecPackagingBomRefCommand) error {
+	if cmd.UnitTemplateID <= 0 {
+		return fmt.Errorf("unit_template_id required")
+	}
+	cmd.SpecKey = strings.TrimSpace(cmd.SpecKey)
+	if cmd.SpecKey == "" {
+		return fmt.Errorf("spec_key required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.DeleteSpecPackagingBomRef(ctx, cmd)
 }
 
 func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBomDraftItem, error) {

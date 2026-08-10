@@ -212,6 +212,15 @@ func (r *apiFakeRepo) BindProductProductionBom(_ context.Context, cmd bomapp.Bin
 	r.boundProductBom = cmd
 	return r.productBomBinding, nil
 }
+func (r *apiFakeRepo) ListSpecPackagingBomRefs(context.Context, int64) ([]bomapp.SpecPackagingBomRef, error) {
+	return nil, nil
+}
+func (r *apiFakeRepo) SaveSpecPackagingBomRef(context.Context, bomapp.SaveSpecPackagingBomRefCommand) error {
+	return nil
+}
+func (r *apiFakeRepo) DeleteSpecPackagingBomRef(context.Context, bomapp.DeleteSpecPackagingBomRefCommand) error {
+	return nil
+}
 
 func TestBomDeleteAPIInvalidatesCurrentBom(t *testing.T) {
 	repo := &apiFakeRepo{}

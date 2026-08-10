@@ -165,6 +165,15 @@ func (r *fakeRepo) PublishProductionBomVersion(context.Context, PublishProductio
 func (r *fakeRepo) BindProductProductionBom(context.Context, BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
 	return ProductProductionBomBinding{}, nil
 }
+func (r *fakeRepo) ListSpecPackagingBomRefs(context.Context, int64) ([]SpecPackagingBomRef, error) {
+	return nil, nil
+}
+func (r *fakeRepo) SaveSpecPackagingBomRef(context.Context, SaveSpecPackagingBomRefCommand) error {
+	return nil
+}
+func (r *fakeRepo) DeleteSpecPackagingBomRef(context.Context, DeleteSpecPackagingBomRefCommand) error {
+	return nil
+}
 
 func TestServiceValidatesSaveItem(t *testing.T) {
 	repo := &fakeRepo{}
@@ -732,6 +741,15 @@ func (r errorRepo) PublishProductionBomVersion(context.Context, PublishProductio
 }
 func (r errorRepo) BindProductProductionBom(context.Context, BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
 	return ProductProductionBomBinding{}, r.err
+}
+func (r errorRepo) ListSpecPackagingBomRefs(context.Context, int64) ([]SpecPackagingBomRef, error) {
+	return nil, r.err
+}
+func (r errorRepo) SaveSpecPackagingBomRef(context.Context, SaveSpecPackagingBomRefCommand) error {
+	return r.err
+}
+func (r errorRepo) DeleteSpecPackagingBomRef(context.Context, DeleteSpecPackagingBomRefCommand) error {
+	return r.err
 }
 
 func TestCreateProductionBomPackagingKindSkipsOutputProduct(t *testing.T) {

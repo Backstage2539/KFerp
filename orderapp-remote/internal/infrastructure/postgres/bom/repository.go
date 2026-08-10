@@ -3188,3 +3188,57 @@ ON CONFLICT DO NOTHING;
 	}
 	return tx.Commit(ctx)
 }
+
+func (r Repository) ListSpecPackagingBomRefs(ctx context.Context, unitTemplateID int64) ([]bomapp.SpecPackagingBomRef, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT m.unit_template_id,
+		       m.spec_key,
+		       m.packaging_bom_id,
+		       COALESCE(pb.name,''),
+		       COALESCE(pb.code,''),
+		       COALESCE(v.id,0),
+		       COALESCE(v.version_no,''),
+		       COALESCE(v.id,0) > 0 AND pb.status='active' AND COALESCE(NULLIF(pb.bom_kind,''),'product')='spec_packaging'
+		FROM %[1]s.unit_template_spec_packaging_bom m
+		LEFT JOIN %[1]s.production_boms pb ON pb.id=m.packaging_bom_id
+		LEFT JOIN LATERAL (
+			SELECT id, version_no
+			FROM %[1]s.production_bom_versions pv
+			WHERE pv.bom_id=pb.id AND pv.status='published'
+			  AND EXISTS (SELECT 1 FROM %[1]s.production_bom_version_items i WHERE i.version_id=pv.id)
+			ORDER BY pv.published_at DESC NULLS LAST, pv.id DESC
+			LIMIT 1
+		) v ON true
+		WHERE m.unit_template_id=$1
+		ORDER BY m.spec_key
+	`, r.schema), unitTemplateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]bomapp.SpecPackagingBomRef, 0)
+	for rows.Next() {
+		var ref bomapp.SpecPackagingBomRef
+		if err := rows.Scan(&ref.UnitTemplateID, &ref.SpecKey, &ref.PackagingBomID, &ref.PackagingBomName, &ref.PackagingBomCode, &ref.PublishedVersionID, &ref.PublishedVersionNo, &ref.IsValid); err != nil {
+			return nil, err
+		}
+		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveSpecPackagingBomRef(ctx context.Context, cmd bomapp.SaveSpecPackagingBomRefCommand) error {
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.unit_template_spec_packaging_bom(unit_template_id, spec_key, packaging_bom_id, updated_at, updated_by)
+		VALUES($1,$2,$3,now(),$4)
+		ON CONFLICT (unit_template_id, spec_key) DO UPDATE SET packaging_bom_id=excluded.packaging_bom_id, updated_at=now(), updated_by=excluded.updated_by
+	`, r.schema), cmd.UnitTemplateID, cmd.SpecKey, cmd.PackagingBomID, cmd.Actor)
+	return err
+}
+
+func (r Repository) DeleteSpecPackagingBomRef(ctx context.Context, cmd bomapp.DeleteSpecPackagingBomRefCommand) error {
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s.unit_template_spec_packaging_bom WHERE unit_template_id=$1 AND spec_key=$2
+	`, r.schema), cmd.UnitTemplateID, cmd.SpecKey)
+	return err
+}

@@ -421,6 +421,64 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return setDefaultProductionBomAPI(c, bomSvc)
 	})
 
+	e.GET("/api/unit-templates/:id/spec-packaging-bom-refs", func(c echo.Context) error {
+		unitTemplateID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || unitTemplateID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid unit_template_id"})
+		}
+		refs, err := bomSvc.ListSpecPackagingBomRefs(c.Request().Context(), unitTemplateID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, refs)
+	})
+
+	e.PUT("/api/unit-templates/:id/spec-packaging-bom-refs", func(c echo.Context) error {
+		unitTemplateID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || unitTemplateID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid unit_template_id"})
+		}
+		var req struct {
+			SpecKey        string `json:"spec_key"`
+			PackagingBomID int64  `json:"packaging_bom_id"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if err := bomSvc.SaveSpecPackagingBomRef(c.Request().Context(), bomapp.SaveSpecPackagingBomRefCommand{
+			UnitTemplateID: unitTemplateID,
+			SpecKey:        req.SpecKey,
+			PackagingBomID: req.PackagingBomID,
+			Actor:          support.ActorOf(c),
+		}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		refs, err := bomSvc.ListSpecPackagingBomRefs(c.Request().Context(), unitTemplateID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, refs)
+	})
+
+	e.DELETE("/api/unit-templates/:id/spec-packaging-bom-refs/:specKey", func(c echo.Context) error {
+		unitTemplateID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || unitTemplateID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid unit_template_id"})
+		}
+		specKey := c.Param("specKey")
+		if specKey == "" {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "spec_key required"})
+		}
+		if err := bomSvc.DeleteSpecPackagingBomRef(c.Request().Context(), bomapp.DeleteSpecPackagingBomRefCommand{
+			UnitTemplateID: unitTemplateID,
+			SpecKey:        specKey,
+			Actor:          support.ActorOf(c),
+		}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]bool{"ok": true})
+	})
+
 	e.GET("/api/bom/list", func(c echo.Context) error {
 		rows, err := bomSvc.List(c.Request().Context())
 		if err != nil {
