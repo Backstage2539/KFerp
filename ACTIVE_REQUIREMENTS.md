@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-594-PRICING-BOM-DEBUG-WORKFLOW
 - Branch: codex/pricing-bom-debug-workflow-20260810
 - Owner/session: Codex / 2026-08-10
-- Status: implementation and automated verification complete; merge into develop pending
+- Status: implementation and automated verification complete; merged into develop; not deployed per user request
 - Scope: 价格计算模板试算计入 BOM 中无损耗固定用量物料；BOM 配方区改名为“有损耗的配方 / 无损耗的配方”；试算可跳转当前 BOM 配置并临时返回；试算临时参数可由用户主动更新到当前价格计算模板。
 - DEV:
   - DEV-594-PRICING-FIXED-BOM-COST（done）：单次价格试算可显式选择含组件的 BOM 草稿，固定用量包材按离散库存数量和匹配成本单位进入 BOM 物料成本；批量价格计算与正式发布仍只使用已发布 BOM。
@@ -17,7 +17,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-594-PRICING-RULE-UPDATE（done）：用户可主动把临时加价率、已填写的临时税率和其他成本更新到当前价格计算模板，复用既有保存接口与操作日志。
   - DEV-594-BOM-LOSS-LABELS（done）：配方区域统一为“有损耗的配方 / 无损耗的配方”，底层损耗逻辑不变。
 - Verifier: costing application/repository/API/catalog packages GREEN；support full package GREEN；pricing/BOM targeted Vue 219/219 and frontend `src/lib` full suite GREEN；Vite build GREEN（397 modules，existing chunk warning only）。
-- Deployment: 不部署；验证后合入 develop。
+- Deployment: 已合入 develop；按用户要求不部署，不做浏览器、API 业务流或人工验证。
 - Last update: 2026-08-10 Asia/Shanghai
 
 ### PR-593-BOM-LOSS-PACKAGING-UNITS
