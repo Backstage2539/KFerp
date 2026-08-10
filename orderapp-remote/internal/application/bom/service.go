@@ -970,9 +970,6 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 				return ProductionBomVersion{}, err
 			}
 			if cmd.MaterialLossRate != nil {
-				if versionMaterialLossRate > 0 && item.ConsumeUnit != "ratio_pct" {
-					return ProductionBomVersion{}, fmt.Errorf("原料损耗比开启后，组件消耗单位只能使用比例 %%")
-				}
 				if versionMaterialLossRate > 0 && item.ComponentType == "material" && item.ConsumeUnit == "ratio_pct" {
 					item.MaterialLossRate = versionMaterialLossRate
 				} else {
@@ -1074,9 +1071,7 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 			consumeUnit = "ratio_pct"
 		}
 	}
-	switch consumeUnit {
-	case "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box", "fixed_qty", "unit", "g", "kg", "length", "area":
-	default:
+	if len(consumeUnit) > 64 {
 		return item, fmt.Errorf("invalid consume_unit")
 	}
 	switch componentType {

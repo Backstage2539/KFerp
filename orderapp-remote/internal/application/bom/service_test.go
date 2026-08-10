@@ -478,7 +478,7 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 	}
 }
 
-func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossAndRequiresRatioUnits(t *testing.T) {
+func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossOnlyToRatioMaterials(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 	ctx := context.Background()
@@ -517,15 +517,30 @@ func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossAndRequiresRatioUnit
 		OutputQty:        1,
 		OutputUnit:       "kg",
 		MaterialLossRate: &lossRate,
-		Items: []ProductionBomDraftItem{{
-			ComponentType: "material",
-			MaterialID:    8,
-			ConsumeUnit:   "kg",
-			QtyPerUnit:    1,
-		}},
+		Items: []ProductionBomDraftItem{
+			{
+				ComponentType: "material",
+				MaterialID:    7,
+				ConsumeUnit:   "ratio_pct",
+				RatioPct:      40,
+			},
+			{
+				ComponentType: "material",
+				MaterialID:    8,
+				ConsumeUnit:   "个",
+				QtyPerUnit:    2,
+			},
+		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "原料损耗比开启后，组件消耗单位只能使用比例 %") {
-		t.Fatalf("expected BOM-level material loss ratio consume-unit error, got %v", err)
+	if err != nil {
+		t.Fatalf("ratio ingredients and fixed packaging must coexist with BOM loss: %v", err)
+	}
+	items = repo.updatedProductionDraftCommand.Items
+	if len(items) != 2 || items[0].MaterialLossRate != 0.2 || items[1].MaterialLossRate != 0 {
+		t.Fatalf("mixed material loss assignment = %+v, want loss only on ratio material", items)
+	}
+	if items[1].ConsumeUnit != "个" || items[1].QtyPerUnit != 2 {
+		t.Fatalf("fixed packaging unit was not preserved: %+v", items[1])
 	}
 
 	invalidLossRate := 1.0

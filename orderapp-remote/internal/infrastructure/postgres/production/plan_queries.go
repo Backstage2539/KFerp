@@ -1550,12 +1550,11 @@ func normalizeBomComponentType(value string) string {
 }
 
 func normalizeBomConsumeUnit(value string) string {
-	switch strings.TrimSpace(value) {
-	case "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box", "fixed_qty", "unit", "g", "kg", "length", "area":
-		return strings.TrimSpace(value)
-	default:
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return "ratio_pct"
 	}
+	return value
 }
 
 func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams) []productionapp.MaterialNeed {

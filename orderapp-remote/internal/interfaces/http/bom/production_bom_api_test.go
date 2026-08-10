@@ -104,7 +104,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"BOM-000659 精品拼配改名 生产 BOM / V003","group_id":1,"group_category_id":0,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/copy", body: `{"name":"BOM000643 精品拼配-包装改版 生产 BOM / V001","group_id":1}`, want: []string{`"code":"BOM-002"`, `"name":"精品拼配-包装改版"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/versions", body: `{"note":"新版配方"}`, want: []string{`"version_no":"V004"`, `"status":"draft"`}},
-		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"expected_loss_rate":0.18,"output_qty":1,"output_unit":"盒","process_route_id":77,"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[{"component_type":"product","component_product_id":77,"consume_unit":"unit_per_box","qty_per_unit":10}]}`, want: []string{`"status":"draft"`, `"output_unit":"盒"`, `"process_route_id":77`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
+		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"material_loss_rate":0.2,"output_qty":1,"output_unit":"盒","process_route_id":77,"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[{"component_type":"material","material_id":7,"consume_unit":"ratio_pct","ratio_pct":40},{"component_type":"material","material_id":8,"consume_unit":"个","qty_per_unit":2}]}`, want: []string{`"status":"draft"`, `"output_unit":"盒"`, `"process_route_id":77`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
 		{method: http.MethodPost, path: "/api/production-bom-versions/103/publish", want: []string{`"ok":true`}},
 		{method: http.MethodPut, path: "/api/products/7/production-bom-binding", body: `{"default_production_bom_id":11}`, want: []string{`"product_id":7`, `"production_bom_id":11`, `"latest_bom_version_no":"V003"`}},
 	} {
@@ -129,6 +129,12 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	}
 	if repo.publishedProductionVersionID != 103 {
 		t.Fatalf("published version id = %d, want 103", repo.publishedProductionVersionID)
+	}
+	if repo.updatedProductionDraftCommand.MaterialLossRate == nil || *repo.updatedProductionDraftCommand.MaterialLossRate != 0.2 {
+		t.Fatalf("draft material loss = %v, want 0.2", repo.updatedProductionDraftCommand.MaterialLossRate)
+	}
+	if items := repo.updatedProductionDraftCommand.Items; len(items) != 2 || items[0].MaterialLossRate != 0.2 || items[1].ConsumeUnit != "个" || items[1].QtyPerUnit != 2 || items[1].MaterialLossRate != 0 {
+		t.Fatalf("mixed ratio material and fixed packaging draft = %+v", items)
 	}
 	if repo.updatedProductionBomGroup.ID != 0 || repo.movedProductionBomGroup.ID != 0 || repo.deletedProductionBomGroupID != 0 {
 		t.Fatalf("legacy production BOM group writes should not reach repo: update=%+v move=%+v delete=%d", repo.updatedProductionBomGroup, repo.movedProductionBomGroup, repo.deletedProductionBomGroupID)
@@ -168,9 +174,6 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	}
 	if repo.updatedProductionDraftCommand.ExpectedLossRate == nil || *repo.updatedProductionDraftCommand.ExpectedLossRate != 0 {
 		t.Fatalf("legacy draft loss must normalize to zero: %+v", repo.updatedProductionDraftCommand)
-	}
-	if len(repo.updatedProductionDraftCommand.Items) != 1 || repo.updatedProductionDraftCommand.Items[0].ComponentType != "product" {
-		t.Fatalf("draft product component command = %+v", repo.updatedProductionDraftCommand)
 	}
 }
 

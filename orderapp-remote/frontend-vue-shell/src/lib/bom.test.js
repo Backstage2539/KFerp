@@ -336,7 +336,7 @@ test('BOM view can set the output product default BOM with the current published
   assert.doesNotMatch(source, /production_bom_version_id:\s*selectedProductionBomVersionID/)
 })
 
-test('BOM version settings expose material loss switch and ratio-only explanation', async () => {
+test('BOM version settings separate loss materials from fixed packaging without changing item storage', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -346,9 +346,15 @@ test('BOM version settings expose material loss switch and ratio-only explanatio
   assert.match(source, /损耗比例 %/)
   assert.match(source, /material_loss_rate/)
   assert.match(source, /versionMaterialLossRateEnabled/)
-  assert.match(source, /开启后组件消耗单位只能使用比例 %/)
+  assert.match(source, /损耗只作用于物料的比例 % 行/)
   assert.match(source, /selectedVersionMaterialLossRate/)
-  assert.match(source, /materialLossRatioOnlyConsumeUnitOptions/)
+  assert.match(source, /损耗原料/)
+  assert.match(source, /非损耗物料（含包材）/)
+  assert.match(source, /selectedMaterialLossZone/)
+  assert.match(source, /selectMaterialLossZone/)
+  assert.match(source, /detailItemSections/)
+  assert.doesNotMatch(source, /<option value="product" :disabled="versionMaterialLossRateEnabled">/)
+  assert.doesNotMatch(source, /versionMaterialLossRateEnabled\.value \? 'ratio_pct'/)
   assert.match(source, /不含原料损耗/)
   assert.match(source, /materialLossRateDisplay/)
   assert.match(source, /配方比例 ÷ \(1 - 原料损耗率\)/)

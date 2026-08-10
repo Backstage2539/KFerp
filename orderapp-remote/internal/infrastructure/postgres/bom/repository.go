@@ -1966,20 +1966,6 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	if strings.TrimSpace(cmd.OutputUnit) != "" {
 		outputUnit = strings.TrimSpace(cmd.OutputUnit)
 	}
-	if materialLossRate > 0 && cmd.Items == nil {
-		var invalidCount int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT COUNT(*)
-			FROM %s.production_bom_version_items
-			WHERE version_id=$1
-			  AND COALESCE(consume_unit,'')<>'ratio_pct'
-		`, r.schema), cmd.VersionID).Scan(&invalidCount); err != nil {
-			return bomapp.ProductionBomVersion{}, err
-		}
-		if invalidCount > 0 {
-			return bomapp.ProductionBomVersion{}, fmt.Errorf("原料损耗比开启后，组件消耗单位只能使用比例 %%")
-		}
-	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_bom_versions
 		SET yield_rate=$2,
@@ -2001,9 +1987,6 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 			componentType := strings.TrimSpace(item.ComponentType)
 			if componentType == "" {
 				componentType = "material"
-			}
-			if materialLossRate > 0 && item.ConsumeUnit != "ratio_pct" {
-				return bomapp.ProductionBomVersion{}, fmt.Errorf("原料损耗比开启后，组件消耗单位只能使用比例 %%")
 			}
 			itemMaterialLossRate := 0.0
 			if materialLossRate > 0 && componentType == "material" && item.ConsumeUnit == "ratio_pct" {

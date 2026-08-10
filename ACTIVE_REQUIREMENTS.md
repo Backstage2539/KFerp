@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-593-BOM-LOSS-PACKAGING-UNITS
+- Branch: codex/bom-packaging-consumption-units-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: implementation and targeted RED-GREEN verification complete; development integration/deployment pending
+- Scope: 开启 BOM 版本级原料损耗后，配方编辑明确分为“损耗原料”和“非损耗物料（含包材）”。比例原料继续应用唯一 BOM 损耗；包材、固定数量物料和商品组件使用全局单位字典中的个、件、袋、盒等固定用量且损耗为 0。两类组件可在同一 BOM 共存，不新增字段、不迁移历史数据。
+- DEV:
+  - DEV-593-BOM-MIXED-CONSUMPTION（done）：应用、仓储和生产需求保留任意非空全局单位代码为固定用量，BOM 损耗只写入物料比例行。
+  - DEV-593-BOM-LOSS-ZONES（done）：Vue/Vite 在损耗开启时提供两个交互区域并按相同明细字段分区展示，非损耗区选中组件后默认其库存单位。
+  - DEV-593-DOCS-DEVELOPMENT-DELIVERY（in progress）：需求、验收、生产/物料手册和自动合同已同步；待合入并仅部署 development。
+- Verifier: application BOM 混合行、BOM PostgreSQL 仓储合同、生产固定包材需求、HTTP draft API、Vue BOM 定向测试和 PR-593 support 合同。
+- Deployment: pending；production 不在范围，人工验收由 Van 完成。
+- Last update: 2026-08-10 Asia/Shanghai
+
 ### PR-592-BOM-LOSS-GROSS-INPUT
 - Branch: codex/fix-chuxiao-bom-loss-denominator-20260810
 - Owner/session: Codex / 2026-08-10
