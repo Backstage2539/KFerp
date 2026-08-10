@@ -24,8 +24,13 @@ test('shared inline business group workspace replaces the permanent left categor
   assert.match(inlineWorkspace, /group_id: Number\(group\.group_id/)
   assert.match(inlineWorkspace, /group_item_id: Number\(group\.group_item_id/)
   assert.match(inlineWorkspace, /unclassified: Boolean\(group\.unclassified\)/)
+  assert.match(inlineWorkspace, /IconChevronDown/)
+  assert.match(inlineWorkspace, /IconChevronRight/)
+  assert.match(inlineWorkspace, /IconFolderOff/)
+  assert.match(inlineWorkspace, /from '@tabler\/icons-vue'/)
   assert.doesNotMatch(inlineWorkspace, /<aside/)
   assert.doesNotMatch(inlineWorkspace, /business-group-category-tree/)
+  assert.doesNotMatch(inlineWorkspace, /isCollapsed\(group\.key\) \? '\+' : '−'/)
 })
 
 for (const [label, viewSource] of [

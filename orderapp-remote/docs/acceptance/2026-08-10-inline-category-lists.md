@@ -2,7 +2,9 @@
 
 日期：2026-08-10
 
-分支：`codex/inline-category-lists-20260810`
+功能分支：`codex/inline-category-lists-20260810`
+
+交付跟踪分支：`codex/pr596-delivery-evidence-20260810`
 
 范围：物料档案、生产 BOM、商品档案，以及选中具体仓库且非客户库存上下文的仓内物品列表。
 
@@ -38,7 +40,27 @@
 - 共享内联工作区合同覆盖：模板/分类层级、空分类、父分类直接行、统一未分类、无模板平铺、折叠、移动目标、成功/失败/取消和每分类独立分页。
 - 四页接线合同覆盖：不再引用 PR-595 的内层分类工作区状态；保留各页原筛选、表头、行选择、名称抽屉及 feature selection 语义。
 - 仓库专属合同覆盖：外层仓库选择器；具体仓库以 `limit=500` 起始并按 `total` 补齐全部 `q/warehouse/item_type` 过滤结果、只显示分类独立分页；全部仓库/客户库存继续原服务端分页；精确 `warehouse_inventory_item` object reference，以及 WIP/追溯抽屉保留。
-- 最终整合验证：frontend `src/lib` 全量单元测试 943/943 通过；Vite production build 通过（400 modules，只有既有 chunk-size warning）；`go test -count=1 ./...` 全包通过；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。提交 SHA、合并、development 部署和 smoke 状态在完成后由主任务继续回填。
+- 最终整合验证：frontend `src/lib` 全量单元测试 943/943 通过；Vite production build 通过（400 modules，只有既有 chunk-size warning）；`go test -count=1 ./...` 全包通过；`scripts/verify_kferp.sh changed` 与 `git diff --check` 通过。功能分支已通过整合提交 `cfc781df3e8cb540ec4d853bdd30ebf108caa26b` 合入最新 develop 基线并完成 development 首次部署；本次交付跟踪合同仍按 RED→GREEN 单独留证。
+
+## RED 证据
+
+- 先新增 `TestDev596InlineCategoryListsDeliveryContracts`，再运行 `go test ./internal/interfaces/http/support -run TestDev596InlineCategoryListsDeliveryContracts -count=1`。
+- RED 如期出现：`req_store.go missing one-line req_product seed PR-596-INLINE-CATEGORY-LISTS with status review and assignee VA`；当时 PR-596 的产品、5 个 DEV、REV 种子及 deployment/visual-QA 跟踪尚未进入自动合同。
+
+## GREEN 证据
+
+- 补齐 PR/DEV/REV 种子、ACTIVE 状态和本验收记录后，运行同一定向命令得到 `ok orderapp/internal/interfaces/http/support 0.840s`，PR-596 交付合同 GREEN。
+
+## development 首次部署证据
+
+- 功能提交 `0e4de35ad220bc9c594e3fc717678bd431e452b4` 已通过 merge commit `cfc781df3e8cb540ec4d853bdd30ebf108caa26b` 整合到最新 develop 基线；development 首次部署已完成。
+- 该检查点证明首次 development 代码交付已发生，不替代四页 rendered visual QA，也不表示本交付跟踪补丁已经提交。
+
+## 待完成事项
+
+- 视觉 QA 待完成：在 development 对物料、BOM、商品、具体仓库四页的层级、重复表头、独立分页、名称抽屉和移动模式做 rendered design QA。
+- 最终跟踪补丁待收尾：当前 `DEV-596-DOCS-DEVELOPMENT-DELIVERY` 保持 doing，待本合同 GREEN、补丁提交及主任务最终记录后再关闭。
+- `REV-596-INLINE-CATEGORY-LISTS` 保持 todo，等待 Van 验收；production 未部署。
 
 ## 人工验收清单
 
@@ -51,4 +73,4 @@
 
 ## 非证据项
 
-- 本记录不代表已执行浏览器业务写入验收，不代表已合并 `develop`，也不代表 development 或 production 已部署；这些检查点必须由主任务按最终实际结果单独记录。
+- 本记录不代表已执行浏览器业务写入验收或 rendered visual QA；development 首次部署不等于 Van 最终验收。production 未部署。
