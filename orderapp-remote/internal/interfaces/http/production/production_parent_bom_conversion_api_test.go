@@ -280,14 +280,14 @@ func TestProductionPlanAPIAppliesInheritedPublishedBomLossOnce(t *testing.T) {
 	if item.BomVersionID != 55704 || item.BomSourceProductID != 644 || !item.BomInherited {
 		t.Fatalf("production plan did not freeze inherited published V004: %+v", item)
 	}
-	if item.PlannedOutputG != 6356 || item.PlannedG != 7501 {
-		t.Fatalf("production plan quantities=%+v, want output 6356g and additive 18%% loss input 7501g", item)
+	if item.PlannedOutputG != 6356 || item.PlannedG != 7752 {
+		t.Fatalf("production plan quantities=%+v, want output 6356g and 18%% gross-input loss demand 7752g", item)
 	}
 	if len(plan.MaterialSummary) != 1 {
 		t.Fatalf("material summary=%+v, want one row", plan.MaterialSummary)
 	}
 	material := plan.MaterialSummary[0]
-	if material.Name != "如目达摩生豆" || material.Unit != "g" || material.Qty != 7501 || material.ExactQty != 7501 {
+	if material.Name != "如目达摩生豆" || material.Unit != "g" || material.Qty != 7752 || material.ExactQty != 7752 {
 		t.Fatalf("material summary=%+v, want loss applied once rather than old yield plus line loss", material)
 	}
 }

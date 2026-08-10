@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-592-BOM-LOSS-GROSS-INPUT
+- Branch: codex/fix-chuxiao-bom-loss-denominator-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: review; TDD implementation and automated verification complete; development release is part of this delivery; Van manual acceptance todo
+- Scope: BOM `material_loss_rate` 仍是当前业务唯一损耗来源，但含义按 Van 最新确认修正为“损耗占总投料比例”；成本、价格试算和新生产需求统一使用 `净用量 ÷ (1 - 损耗率)`。初晓哥伦比亚净配方25%、损耗19.5%、78元/kg时，损耗后用量31.0559%，折算成本24.22元。整体产出率与商品预期损耗继续中性化；历史冻结快照、价格表、订单、工单和库存流水不回算。
+- DEV:
+  - DEV-592-COSTING-GROSS-INPUT-LOSS：成本领域、SQL、价格试算明细和Vue展示统一分母公式。
+  - DEV-592-PRODUCTION-GROSS-INPUT-LOSS：新计划、组件需求、WIP、领料和工单统一分母公式；新快照写 `yield_denominator`，旧 additive/无标记快照冻结兼容。
+  - DEV-592-DOCS-DEVELOPMENT-DELIVERY：同步需求、验收、成本/生产/物料手册，验证后仅部署 development。
+- Verifier:
+  - RED: 初晓哥伦比亚当前为 `25% × 1.195 × 78 = 23.3025元`；目标 `25% ÷ 0.805 × 78 = 24.2236元`。生产领域 6356g、18% 当前得到7501g，目标整克向上取整7752g。
+  - Unit/build: costing、production、HTTP support、Vue定向与全量单元测试及Vite build。
+- Deployment: development only; deployment evidence is recorded in the final delivery report; no browser/API/business verification; main and production excluded.
+- Last update: 2026-08-10 Asia/Shanghai
+
 ### PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD
 - Branch: codex/mini-pull-brand-footer-hidden-20260810
 - Owner/session: Codex / 2026-08-10
@@ -123,10 +138,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-585-BOM-SINGLE-MATERIAL-LOSS
 - Branch: codex/fix-cookie-bom-cost-20260807
 - Owner/session: Codex / 2026-08-07
-- Status: implementation and automated verification complete; development deployment pending; Van manual acceptance todo
-- Scope: 删除当前 BOM 的整体产出率/整体预期损耗业务概念；未配置原料损耗时不放大，配置后唯一公式为 `净配方 × (1 + BOM原料损耗率)`，价格试算与新生产计划使用同一口径，历史工单、库存流水和价格快照不回算。生产 BOM 的当前名称统一去掉编号、`生产 BOM` 和版本号等结构性前后缀，只保留业务名。
+- Status: superseded by PR-592 for loss math; BOM naming and removal of overall yield remain complete
+- Scope: 删除当前 BOM 的整体产出率/整体预期损耗业务概念；生产 BOM 的当前名称统一去掉编号、`生产 BOM` 和版本号等结构性前后缀，只保留业务名。PR-585 当时采用的加法损耗公式已由 PR-592 更正为 `净配方 ÷ (1 - BOM原料损耗率)`；历史工单、库存流水和价格快照不回算。
 - DEV:
-  - DEV-585-SINGLE-LOSS-MATH：成本图、价格试算、计划投料和组件需求统一使用加耗公式，曲奇 1kg 的 BOM 物料成本为 `62.10元/kg`，冻结工序后标准制造成本为 `64.71元/kg`。
+  - DEV-585-SINGLE-LOSS-MATH：历史交付的加法损耗公式已由 PR-592 替代；当前曲奇 1kg 的 BOM 物料成本为 `64.6875元/kg`，冻结工序后标准制造成本为 `67.2942元/kg`。
   - DEV-585-REMOVE-OVERALL-YIELD：Vue/Vite BOM 与商品生产配置不再展示或提交整体产出率/整体预期损耗；当前业务 API 和计算不再读取旧 `yield_rate/expected_loss_rate` 放大结果。
   - DEV-585-HISTORY-COMPATIBILITY：旧字段仅保留历史读取兼容，已冻结工单、历史库存流水、已发布价格表和订单快照不重算。
   - DEV-585-BOM-NAME-NORMALIZATION：BOM 列表、详情及新建/修改/复制写入口幂等清洗 `BOM-000659`/`BOM000643`、`生产 BOM / V001` 等结构性前后缀；开发和生产现有名称通过业务 API 修复并保留状态。

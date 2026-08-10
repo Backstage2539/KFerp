@@ -1669,20 +1669,17 @@ func pricingRuleTrialBaseCostDetailPreserveComposition(row *PricingRuleTrialBase
 	}
 	lossRate := row.MaterialLossRate
 	if row.EffectiveRatioPct == 0 {
-		row.EffectiveRatioPct = row.RatioPct
+		if row.RecipeRatioPct > 0 && lossRate > 0 && lossRate < 1 {
+			row.EffectiveRatioPct = row.RecipeRatioPct / (1 - lossRate)
+		} else {
+			row.EffectiveRatioPct = row.RatioPct
+		}
 	}
 	if row.RecipeRatioPct == 0 {
 		if lossRate > 0 && lossRate < 1 && row.EffectiveRatioPct > 0 {
-			row.RecipeRatioPct = row.EffectiveRatioPct / (1 + lossRate)
+			row.RecipeRatioPct = row.EffectiveRatioPct * (1 - lossRate)
 		} else {
 			row.RecipeRatioPct = row.EffectiveRatioPct
-		}
-	}
-	if row.EffectiveRatioPct == 0 && row.RecipeRatioPct > 0 {
-		if lossRate > 0 && lossRate < 1 {
-			row.EffectiveRatioPct = row.RecipeRatioPct * (1 + lossRate)
-		} else {
-			row.EffectiveRatioPct = row.RecipeRatioPct
 		}
 	}
 }
@@ -1744,7 +1741,7 @@ func pricingRuleTrialBaseCostDetailDescription(row PricingRuleTrialBaseCostDetai
 		if row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
 			recipeRatio := row.RecipeRatioPct
 			if recipeRatio == 0 {
-				recipeRatio = row.RatioPct / (1 + row.MaterialLossRate)
+				recipeRatio = row.RatioPct * (1 - row.MaterialLossRate)
 			}
 			effectiveRatio := row.EffectiveRatioPct
 			if effectiveRatio == 0 {

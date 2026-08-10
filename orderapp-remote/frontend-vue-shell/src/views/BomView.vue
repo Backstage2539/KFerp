@@ -1027,8 +1027,8 @@ function syncMaterialLossConsumeUnitConstraint() {
 function materialLossRateDisplay(item = {}) {
   const lossRate = normalizedMaterialLossRateFromValue(item.material_loss_rate)
   if (!lossRate || (item.component_type !== 'material') || ((item.consume_unit || 'ratio_pct') !== 'ratio_pct')) return ''
-  const effectiveRatio = Number(item.ratio_pct || 0) * (1 + lossRate)
-  return `原料损耗 ${ratio(lossRate * 100)}，折算有效比例 ${ratio(effectiveRatio)}（配方比例 × (1 + 原料损耗比)）`
+  const effectiveRatio = Number(item.ratio_pct || 0) / (1 - lossRate)
+  return `原料损耗 ${ratio(lossRate * 100)}，损耗后用量占比 ${ratio(effectiveRatio)}（配方比例 ÷ (1 - 原料损耗率)）`
 }
 
 function productionBomDraftItemFromItem(item = {}) {

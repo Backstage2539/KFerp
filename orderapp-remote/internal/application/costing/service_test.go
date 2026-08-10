@@ -2099,6 +2099,25 @@ func TestPricingRuleTrialPreservesMaterialCompositionAndCostUnitWhenQuoteUnitCha
 	}
 }
 
+func TestPricingRuleTrialCompositionUsesBomLossAsGrossInputFraction(t *testing.T) {
+	wantEffective := 25.0 / (1 - 0.195)
+	fromRecipe := PricingRuleTrialBaseCostDetail{
+		ConsumeUnit: "ratio_pct", RecipeRatioPct: 25, RatioPct: 25, MaterialLossRate: 0.195,
+	}
+	pricingRuleTrialBaseCostDetailPreserveComposition(&fromRecipe)
+	if math.Abs(fromRecipe.EffectiveRatioPct-wantEffective) > 1e-9 {
+		t.Fatalf("effective ratio = %.9f, want %.9f = 25 / 0.805", fromRecipe.EffectiveRatioPct, wantEffective)
+	}
+
+	fromEffective := PricingRuleTrialBaseCostDetail{
+		ConsumeUnit: "ratio_pct", RatioPct: wantEffective, MaterialLossRate: 0.195,
+	}
+	pricingRuleTrialBaseCostDetailPreserveComposition(&fromEffective)
+	if math.Abs(fromEffective.RecipeRatioPct-25) > 1e-9 {
+		t.Fatalf("recipe ratio = %.9f, want 25 = effective ratio * 0.805", fromEffective.RecipeRatioPct)
+	}
+}
+
 func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
