@@ -4201,7 +4201,7 @@ function pricingRuleTrialBaseCostRecipeUsage(row = {}) {
   const explicitRecipeRatio = Number(row.recipe_ratio_pct)
   const ratioPct = Number(row.ratio_pct || 0)
   const lossRate = Number(row.material_loss_rate || 0)
-  const fallbackRecipeRatio = lossRate > 0 && lossRate < 1 ? ratioPct / (1 + lossRate) : ratioPct
+  const fallbackRecipeRatio = lossRate > 0 && lossRate < 1 ? ratioPct * (1 - lossRate) : ratioPct
   const recipeRatio = Number.isFinite(explicitRecipeRatio) && explicitRecipeRatio > 0 ? explicitRecipeRatio : fallbackRecipeRatio
   return recipeRatio > 0 ? `原比例 ${percentDisplay(recipeRatio / 100)}` : '-'
 }

@@ -10,14 +10,17 @@ func TestDefaultInputGramsUsesYieldRate(t *testing.T) {
 }
 
 func TestPlannedInputGramsFromMaterialLossUsesBomLossOnce(t *testing.T) {
-	if got := PlannedInputGramsFromMaterialLoss(14*454, 0.18); got != 7501 {
-		t.Fatalf("PlannedInputGramsFromMaterialLoss() = %d, want ceil(6356 * 1.18) = 7501", got)
+	if got := PlannedInputGramsFromMaterialLoss(14*454, 0.18); got != 7752 {
+		t.Fatalf("PlannedInputGramsFromMaterialLoss() = %d, want ceil(6356 / 0.82) = 7752", got)
 	}
 	if got := PlannedInputGramsFromMaterialLoss(14*454, 0); got != 6356 {
 		t.Fatalf("zero-loss planned input = %d, want 6356", got)
 	}
-	if got := PlannedInputGramsFromMaterialLoss(1000, 0.2); got != 1200 {
-		t.Fatalf("20%% loss planned input = %d, want 1000 * 1.2 = 1200", got)
+	if got := PlannedInputGramsFromMaterialLoss(1000, 0.2); got != 1250 {
+		t.Fatalf("20%% loss planned input = %d, want 1000 / 0.8 = 1250", got)
+	}
+	if got := PlannedInputGramsFromMaterialLoss(1000, 0.195); got != 1243 {
+		t.Fatalf("19.5%% loss planned input = %d, want ceil(1000 / 0.805) = 1243", got)
 	}
 }
 

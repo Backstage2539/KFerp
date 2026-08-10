@@ -57,19 +57,19 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"PR-538-MATERIAL-COST-UNIT-LOSS", "cost_unit=kg", "连续放大", "102.68元/kg", "生产环境未部署、未写入、未切换入口",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-538-MATERIAL-COST-UNIT-LOSS", "重量物料", "cost_unit", "PR-585", "62.10元/kg", "64.71元/kg",
+			"PR-538-MATERIAL-COST-UNIT-LOSS", "重量物料", "cost_unit", "PR-592", "64.6875元/kg", "67.2942元/kg",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"K80. 物料成本计价单位与生产 BOM 损耗口径修正", "54元/kg", "yield_rate=0.8", "62.10元/kg", "64.71元/kg",
+			"K80. 物料成本计价单位与生产 BOM 损耗口径修正", "54元/kg", "yield_rate=0.8", "64.6875元/kg", "67.2942元/kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-538-MATERIAL-COST-UNIT-LOSS", "库存单位管数量，成本计价单位管单价", "采购价（元/kg）",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-585 物料成本计价单位与唯一原料损耗", "54元/kg", "62.10元/kg", "64.71元/kg", "83.47元/kg",
+			"PR-592-BOM-LOSS-GROSS-INPUT", "54元/kg", "64.6875元/kg", "67.2942元/kg", "83.47元/kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"PR-585-BOM-SINGLE-MATERIAL-LOSS", "净配方 × 1.2", "不得参与当前结果",
+			"PR-592-BOM-LOSS-GROSS-INPUT", "÷ (1 - 原料损耗率)", "唯一配置损耗",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-16-material-cost-unit-loss.md"): {
 			"PR-538 物料成本计价单位与生产 BOM 损耗口径修正验收", "RED（实现前）", "GREEN（实现后定向验证）", "生产环境未部署、未写入、未切换入口",

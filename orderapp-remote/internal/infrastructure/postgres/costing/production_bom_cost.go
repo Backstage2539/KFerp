@@ -344,7 +344,7 @@ func productionBomItemCost(item productionBomCostItem, componentType string, uni
 		if lossRate < 0 || lossRate >= 1 {
 			return 0, false
 		}
-		return unitCost * item.RatioPct / 100 * (1 + lossRate), true
+		return unitCost * item.RatioPct / 100 / (1 - lossRate), true
 	case "g", "g_per_bag":
 		perKg, ok := productionBomCostPerKg(unitCost, costUnit)
 		if !ok || qty < 0 {

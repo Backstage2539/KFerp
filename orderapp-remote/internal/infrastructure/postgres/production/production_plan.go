@@ -2130,7 +2130,7 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 		plannedOutputG = wo.PlannedG
 	}
 	plan := runningInventoryPlan(wo.SpecG, plannedOutputG, wo.PlannedG, yieldRate)
-	if materialSnapshotUsesAdditiveLoss(materialSnapshot) {
+	if materialSnapshotUsesCurrentBomLoss(materialSnapshot) {
 		plan = plannedFinishedInventoryAddition(wo.SpecG, plannedOutputG)
 		yieldRate = 1
 	}

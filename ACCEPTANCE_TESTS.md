@@ -1012,3 +1012,9 @@
 - [ ] BasicAuth 运维恢复通道仍可恢复有效内部员工；管理员仍可启停其他员工，并可保持或恢复自己的启用状态。拒绝自停用不会影响其他账号维护、密码重置或权限管理。
 - [x] production 目标内部员工账号已通过现有账号启停 API 即时恢复，原有审计可追溯，需求与验收证据未记录账号、密码或其他个人信息。
 - [ ] 第二轮松手回弹实现完成后，须通过手势 reducer、13 页接线、透明资源、类型检查、development 构建和 PR-591 支持合同，再合入并部署 development。当前交付状态为 doing；微信上传、提审、发布和 production 代码部署不在本轮范围，`REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD` 保持 todo。
+
+### K56. BOM 原料损耗按总投料损耗率反算（PR-592-BOM-LOSS-GROSS-INPUT）
+- [ ] 初晓 1kg 使用当前有效 BOM 和“熟豆24磅模板-正常-418”试算时，哥伦比亚行显示 BOM组成 25%、原料损耗 19.5%、损耗后用量 31.0559%，单价 78元/kg，折算成本四舍五入为 24.22元。
+- [ ] BOM 物料成本、价格试算、新生产计划、组件需求、WIP、领料和新工单均只读取 BOM `material_loss_rate`，公式统一为 `净用量 ÷ (1 - 原料损耗率)`；0 损耗等于净用量，整体产出率、商品预期损耗和价格模板损耗不得再次放大。
+- [ ] 新冻结物料快照写入 `loss_calculation_mode=yield_denominator`；历史无标记快照和已冻结 `loss_calculation_mode=additive` 快照保持各自原数值和原算法，历史价格表、订单、工单和库存流水不回算。
+- [ ] 后端成本/生产定向与全量单元测试、前端定向/全量测试和 Vite build 通过后合入并部署 development；不做浏览器、API 或业务验证，由 Van 人工验收，production 不部署。
