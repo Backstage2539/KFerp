@@ -53,17 +53,18 @@
 
 ## 交付状态
 
-- `DEV-591-MINI-PULL-UP-BRAND`：done；首轮人工 RED 已完成定位/字标纠正，自动测试、类型检查和 development 构建通过，纠正版本 development 部署 pending。
+- `DEV-591-MINI-PULL-UP-BRAND`：done；首轮人工 RED 已完成定位/字标纠正，自动测试、类型检查、development 构建及纠正版本部署均通过。
 - `DEV-591-SELF-LOGIN-DISABLE-GUARD`：done；production 即时恢复和持久代码防护的 API、数据库状态/审计、Vue 测试与构建均已通过。
 - `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：done；文档、种子和支持合同已同步，验证后的功能已合入并部署 development。
 - `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`：todo，等待 Van 在 development 人工验收。
 
 ## Development 部署证据
 
-- 部署提交：`develop@d4e144b0f0709f8dfa7a88e0c3c85ef4028905b8`。
-- 服务器源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810023729-d4e144b0f070`。
-- 回滚镜像：`kferp-orderapp-rollback:development-20260810023729-d4e144b0f070`。
+- 纠正功能部署提交：`develop@ca452a5379f0d4c7a197791edef61d4653898c6b`。
+- 服务器源码备份：`/opt/stacks/erp/orderapp.backup.deploy-20260810095952-ca452a5379f0`。
+- 回滚镜像：`kferp-orderapp-rollback:development-20260810095952-ca452a5379f0`。
 - 服务器微信小程序构建产物：`/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`。
-- 本机固定开发包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；替换前备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810024324-d4e144b0f070`。
+- 本机固定开发包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；替换前备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810100607-ca452a5379f0`。
 - 外部健康检查：HTTP 200。开发包已同步到固定目录，但微信上传、提审和发布未执行；production 代码未部署。
-- 上述部署证据对应首轮不合格功能包；本次“完整藏到屏幕外 + 正确棵凡咖啡字标”纠正版本尚待重新部署并补充新的备份/回滚证据。
+- 服务器与本机固定开发包中的透明字标 SHA-256 均为 `8cb4f61def4cbf8cc96f03aa584283f92ed3380b81138c29ca51e2ff651c91ab`，编译包 13 个实际页面各有一个普通屏幕外锚点。
+- 首次纠正部署因服务器根盘被 27.72GB 未使用 BuildKit 缓存写满而在 PostgreSQL 健康检查处失败；仅清理可重建构建缓存后释放约 25GB，数据库自动恢复、旧应用基线恢复 HTTP 200，随后同一提交完整重跑门禁并成功部署。未删除数据库卷、源码备份或业务文件，未修改数据库或业务数据。
