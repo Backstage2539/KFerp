@@ -90,7 +90,9 @@ onShow(() => {
       <text>暂无可用服务</text>
     </view>
 
-    <PullUpBrandFooter :with-fixed-tabbar="session.accountType !== 'employee'" />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter :with-fixed-tabbar="session.accountType !== 'employee'" />
+    </view>
     <MainTabBar v-if="session.accountType !== 'employee'" current="home" />
   </view>
 </template>

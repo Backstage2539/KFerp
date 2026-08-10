@@ -163,7 +163,9 @@ onBeforeUnmount(() => {
       </view>
     </template>
 
-    <PullUpBrandFooter />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter />
+    </view>
   </view>
 </template>
 

@@ -62,7 +62,9 @@ onShow(() => void load())
     </view>
     <text v-else class="state">没有找到订单</text>
 
-    <PullUpBrandFooter />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter />
+    </view>
   </view>
 </template>
 

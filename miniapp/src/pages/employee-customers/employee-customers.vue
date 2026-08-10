@@ -176,7 +176,9 @@ onPullDownRefresh(reloadCustomers)
       </button>
     </view>
 
-    <PullUpBrandFooter />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter />
+    </view>
 
     <EmployeeCustomerEditor
       :visible="editorOpen"

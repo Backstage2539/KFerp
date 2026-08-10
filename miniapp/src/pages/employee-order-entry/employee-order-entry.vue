@@ -878,7 +878,9 @@ onLoad((options) => {
       </template>
     </view>
 
-    <PullUpBrandFooter />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter />
+    </view>
 
     <view v-if="customerSelectorOpen && !isEditMode" class="overlay" @tap.self="closeCustomerSelector">
       <view class="select-sheet" @tap.stop>

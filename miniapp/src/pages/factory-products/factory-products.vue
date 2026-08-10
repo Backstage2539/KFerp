@@ -145,7 +145,9 @@ onShow(() => {
       <view v-if="!factory_price_table_groups.length" class="empty">暂无工厂商品表。</view>
     </view>
 
-    <PullUpBrandFooter with-fixed-tabbar />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter with-fixed-tabbar />
+    </view>
     <MainTabBar current="mine" />
   </view>
 </template>

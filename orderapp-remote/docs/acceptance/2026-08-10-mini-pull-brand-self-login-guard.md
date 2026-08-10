@@ -3,7 +3,7 @@
 ## 范围
 
 - 需求：`PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`
-- 分支：`codex/mini-pull-brand-self-login-guard-20260810`
+- 分支：`codex/mini-pull-brand-footer-hidden-20260810`
 - 目标一：小程序 13 个实际业务页面在正常浏览时不显示品牌标识，到达内容底部后继续向上拉才展示 `Drived By` 与透明银灰棵凡四字字标。
 - 目标二：ERP 当前管理员不能关闭自己的登录；后端、前端共同防护，同时保留 BasicAuth 运维恢复通道和其他管理员维护他人的能力。
 - 边界：上拉品牌属于只读展示，不写业务数据或操作日志；production 仅完成目标账号即时恢复，不部署本需求代码；服务器部署、小程序固定包、微信开发者工具上传、审核和正式发布是独立检查点。
@@ -13,8 +13,8 @@
 ### DEV-591-MINI-PULL-UP-BRAND
 
 - `pages/index/index` 是瞬时启动路由，不挂品牌组件；`pages.json` 其余 13 个实际业务页面统一接入 `PullUpBrandFooter`。
-- 组件位于正常文档流，不使用 fixed。正常浏览和刚到内容底部不显示；继续向上拉时，保留区之后展示 `Drived By` 和横向棵凡四字字标。固定底栏页面增加对应底栏预留，无底栏页面使用较小预留，并兼顾 `safe-area-inset-bottom`。
-- `kefan-wordmark-silver.png` 使用透明背景和银灰单色，去除原图红色、底色和注册标记；资源压缩并保持合理的横向宽高，不明显增加微信包体。
+- 组件位于正常文档流，不使用 fixed/absolute/sticky。13 页以普通 `pull-up-brand-footer-anchor` 承载底标，短页锚点从完整首屏之外开始，长页锚点排在全部普通内容之后；104rpx 保留区之后才展示签名。固定底栏页面使用 328rpx 总预留，无底栏页面使用 162rpx，并兼顾 `safe-area-inset-bottom`。
+- `kefan-wordmark-silver.png` 使用透明背景和银灰单色，去除原图红色、底色和注册标记；“棵凡咖啡”由真实中文字体源码直接生成，避免图片生成模型改写“咖啡”笔画。最终 PNG 为 420×124、9,009 bytes。
 
 ### DEV-591-SELF-LOGIN-DISABLE-GUARD
 
@@ -33,7 +33,8 @@
 - Support RED：`go test ./internal/interfaces/http/support -run TestDev591MiniPullBrandSelfLoginGuardContracts -count=1` 首次在 `req_store.go missing one-line req_product seed PR-591...` 失败。
 - Support GREEN：PR/DEV/REV 种子、两套需求验收、三份业务手册、客户履约手册入口、独立验收记录、13 页面接线、透明压缩资源、后端和员工维护防护全部满足合同。
 - Auth GREEN：当前员工自停用在数据库事务前返回 409；真实隔离 PostgreSQL 用例确认登录状态和业务审计均未改变，BasicAuth 恢复与管理员维护其他员工回归通过。Vue/Vite 全量为 928/928，构建通过。
-- Miniapp GREEN：字标为 420×124、10,377 bytes 的透明 PNG；32 个测试文件、198 项测试全部通过，类型检查和 development 微信小程序构建通过。
+- 首轮人工 RED：development 中短页底标提前进入首屏，旧横向字标的“咖啡”笔画失真；新增合同在缺少普通锚点、完整首屏预留和可追溯正确中文字标时 3/3 失败。
+- Miniapp GREEN：13 个页面编译 WXML 各且仅一个普通锚点；字标为 420×124、9,009 bytes 的透明 PNG，源码固定为“棵凡咖啡”。32 个测试文件、198 项测试全部通过，类型检查和 development 微信小程序构建通过。
 - Backend GREEN：`scripts/verify_kferp.sh backend` 全包通过，PR-591 定向 API/支持合同通过；`git diff --check` 与冲突标记检查通过。
 
 ## 生产即时恢复
@@ -52,7 +53,7 @@
 
 ## 交付状态
 
-- `DEV-591-MINI-PULL-UP-BRAND`：done；自动测试、类型检查、development 构建与部署通过，等待 Van 手工检查上拉手感。
+- `DEV-591-MINI-PULL-UP-BRAND`：done；首轮人工 RED 已完成定位/字标纠正，自动测试、类型检查和 development 构建通过，纠正版本 development 部署 pending。
 - `DEV-591-SELF-LOGIN-DISABLE-GUARD`：done；production 即时恢复和持久代码防护的 API、数据库状态/审计、Vue 测试与构建均已通过。
 - `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：done；文档、种子和支持合同已同步，验证后的功能已合入并部署 development。
 - `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`：todo，等待 Van 在 development 人工验收。
@@ -65,3 +66,4 @@
 - 服务器微信小程序构建产物：`/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`。
 - 本机固定开发包：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`；替换前备份：`/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810024324-d4e144b0f070`。
 - 外部健康检查：HTTP 200。开发包已同步到固定目录，但微信上传、提审和发布未执行；production 代码未部署。
+- 上述部署证据对应首轮不合格功能包；本次“完整藏到屏幕外 + 正确棵凡咖啡字标”纠正版本尚待重新部署并补充新的备份/回滚证据。

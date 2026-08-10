@@ -17,18 +17,23 @@ button {
 }
 
 .pull-up-brand-page {
-  min-height: calc(100vh + 64rpx + constant(safe-area-inset-bottom)) !important;
-  min-height: calc(100vh + 64rpx + env(safe-area-inset-bottom)) !important;
+  box-sizing: content-box !important;
+  min-height: calc(100vh + 162rpx + constant(safe-area-inset-bottom)) !important;
+  min-height: calc(100vh + 162rpx + env(safe-area-inset-bottom)) !important;
   display: flex;
   flex-direction: column;
 }
 
 .pull-up-brand-page-with-tabbar {
-  min-height: calc(100vh + 230rpx + constant(safe-area-inset-bottom)) !important;
-  min-height: calc(100vh + 230rpx + env(safe-area-inset-bottom)) !important;
+  min-height: calc(100vh + 328rpx + constant(safe-area-inset-bottom)) !important;
+  min-height: calc(100vh + 328rpx + env(safe-area-inset-bottom)) !important;
 }
 
-.pull-up-brand-page > .pull-up-brand-footer {
+.pull-up-brand-page > .pull-up-brand-footer-anchor {
+  width: 100%;
+  flex: 0 0 auto;
+  order: 999;
   margin-top: auto;
+  box-sizing: border-box;
 }
 </style>

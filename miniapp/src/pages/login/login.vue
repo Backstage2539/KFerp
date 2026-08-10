@@ -125,7 +125,9 @@ async function handlePasswordLogin() {
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
     </view>
 
-    <PullUpBrandFooter />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter />
+    </view>
   </view>
 </template>
 

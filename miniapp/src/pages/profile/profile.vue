@@ -214,7 +214,9 @@ onShow(() => {
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>
     </view>
 
-    <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter :with-fixed-tabbar="!isEmployee" />
+    </view>
     <MainTabBar v-if="!isEmployee" current="mine" />
   </view>
 </template>

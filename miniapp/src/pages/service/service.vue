@@ -1327,7 +1327,9 @@ onShow(() => {
       </template>
     </view>
 
-    <PullUpBrandFooter with-fixed-tabbar />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter with-fixed-tabbar />
+    </view>
     <MainTabBar :current="mainTab" />
   </view>
 </template>

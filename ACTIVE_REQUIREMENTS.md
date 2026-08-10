@@ -7,21 +7,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD
-- Branch: codex/mini-pull-brand-self-login-guard-20260810
+- Branch: codex/mini-pull-brand-footer-hidden-20260810
 - Owner/session: Codex / 2026-08-10
-- Status: review；功能、自动化和 development 部署已完成，production 目标内部员工账号也已通过既有账号启停 API 恢复并留下原有审计，等待 Van 人工验收小程序上拉品牌与当前账号防自停用
+- Status: review；Van 首轮 development 验收发现短页底标提前进入首屏且旧图片的“咖啡”字形失真；定位/字标修正与自动化已完成，等待重新部署 development 后由 Van 复验
 - Scope: 小程序除瞬时启动路由外的 13 个实际业务页面，在页面正常底部不显示品牌标识，只有滚到页面底部后继续向上拉才展示 `Drived By` 和透明银灰棵凡四字字标；组件保持正常文档流，不使用 fixed 覆盖内容，并兼顾固定底栏和安全区。ERP 员工维护中，当前管理员不能关闭自己的登录开关，后端返回冲突且不写业务成功审计；BasicAuth 恢复通道及其他管理员启停其他内部员工继续有效。production 仅使用既有接口即时恢复目标账号，不记录账号、密码或其他个人信息；代码验证后合入 `develop` 并部署 development，微信上传、提审、发布以及 production 代码部署均为独立检查点。
 - DEV:
-  - DEV-591-MINI-PULL-UP-BRAND（done）：透明银灰棵凡四字字标已压缩为 420×124、约 10 KB 的透明 PNG；正常文档流上拉组件已接入 13 个实际业务页面，瞬时启动页不接入，小程序 198/198、类型检查和 development 构建通过。
+  - DEV-591-MINI-PULL-UP-BRAND（done）：13 个实际业务页面以普通锚点承载正常流底标，短页完整位于首屏之外、长页位于全部内容之后；透明银灰“棵凡咖啡”使用真实中文字体生成的 420×124、9,009 bytes PNG，逐字清晰且不再使用失真生成图。小程序 198/198、类型检查和 development 构建通过。
   - DEV-591-SELF-LOGIN-DISABLE-GUARD（done）：API 已拒绝当前员工停用自身；BasicAuth 仍可恢复任意内部员工，其他管理员仍可启停他人；员工维护已禁用当前行开关并提示原因，真实隔离 PostgreSQL 状态/审计测试、Vue 928/928 和构建通过。
   - DEV-591-DOCS-DEVELOPMENT-DELIVERY（done）：需求、验收、小程序员工 ERP、客户门户、设置审计手册、种子和支持合同已同步；验证后的功能已合入 `develop@d4e144b0f0709f8dfa7a88e0c3c85ef4028905b8` 并部署 development。
 - Verifier:
   - RED: `go test ./internal/interfaces/http/support -run TestDev591MiniPullBrandSelfLoginGuardContracts -count=1` 首次因缺少 PR-591 种子失败。
   - Miniapp: `miniapp/src/utils/pullUpBrandFooter.test.ts`、miniapp 全量测试、类型检查和 development 构建。
+  - Follow-up RED/GREEN: 新合同先因 13 页缺普通锚点、根布局仍为 64/230rpx 且缺少可追溯的正确中文字标失败；修正后定向 3/3、全量 198/198、类型检查、development mp-weixin 构建及 13 页编译 WXML 合同通过。
   - Auth: account-state handler 定向测试、CompanyStaffView 定向测试、前端 build 和 PR-591 支持合同。
   - Deploy gates: development 服务器构建与部署成功，外部 smoke HTTP 200；开发小程序固定包已同步，微信上传、提审和发布未执行。
 - Manual: `orderapp-remote/docs/OP_MANUAL_MINIAPP_EMPLOYEE_ERP.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/acceptance/2026-08-10-mini-pull-brand-self-login-guard.md`。
-- Deployment: `develop@d4e144b0f0709f8dfa7a88e0c3c85ef4028905b8` 已部署 development；服务器源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810023729-d4e144b0f070`，回滚镜像 `kferp-orderapp-rollback:development-20260810023729-d4e144b0f070`，服务器小程序产物 `/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`，本机固定开发包 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`，替换前备份 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev.backup-20260810024324-d4e144b0f070`，外部 smoke HTTP 200。production 目标账号已通过既有账号启停 API 即时恢复并确认审计动作；production 代码部署、微信上传、提审和发布未执行。
+- Deployment: `develop@d4e144b0f0709f8dfa7a88e0c3c85ef4028905b8` 的首轮功能包已部署 development，但 Van 验收确认底标位置和“咖啡”字形不合格；本次纠正分支重新部署 pending。首轮服务器源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810023729-d4e144b0f070`，回滚镜像 `kferp-orderapp-rollback:development-20260810023729-d4e144b0f070`。production 目标账号已通过既有账号启停 API 即时恢复并确认审计动作；production 代码部署、微信上传、提审和发布未执行。
 - Review: `REV-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD` todo，等待 Van 在 development 人工验收上拉品牌显示与当前账号防自停用。
 - Last update: 2026-08-10 Asia/Shanghai
 

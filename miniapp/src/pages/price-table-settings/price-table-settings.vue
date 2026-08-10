@@ -470,7 +470,9 @@ onShow(() => {
       </view>
     </view>
 
-    <PullUpBrandFooter with-fixed-tabbar />
+    <view class="pull-up-brand-footer-anchor">
+      <PullUpBrandFooter with-fixed-tabbar />
+    </view>
     <MainTabBar current="mine" />
   </view>
 </template>
