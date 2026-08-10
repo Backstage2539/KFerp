@@ -98,7 +98,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/ProductSettingsView.vue",
-			want: []string{"skuFilters", "skuGroupTableState", "displaySkuRows", "skuGroupPagination", "data-auto-pagination=\"off\"", "PaginationControls", "被哪些 BOM 使用", "行业字段"},
+			want: []string{"skuFilters", "businessGroupInlineListState", "displaySkuRows", "skuGroupPagination", "data-auto-pagination=\"off\"", "PaginationControls", "被哪些 BOM 使用", "行业字段"},
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/OrderEntryView.vue",

@@ -11,7 +11,7 @@ const productSettingsSource = readFileSync(resolve(here, '../views/ProductSettin
 const costingSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
 const beanListPdfSource = readFileSync(resolve(here, './bean-list-pdf.js'), 'utf8')
 const businessGroupControlsSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
-const businessGroupWorkspaceSource = readFileSync(resolve(here, '../components/BusinessGroupWorkspace.vue'), 'utf8')
+const businessGroupWorkspaceSource = readFileSync(resolve(here, '../components/BusinessGroupInlineWorkspace.vue'), 'utf8')
 
 function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
@@ -72,16 +72,17 @@ test('SKU settings exposes customer context initialization with product archive 
 
 test('product grouping uses the category workspace while customer alias keeps legacy classification selects', () => {
   const toolbarStart = productSettingsSource.indexOf('data-pr442-product-group-assignments')
-  const toolbarEnd = productSettingsSource.indexOf('<div class="table-wrap sku-table-wrap">')
+  const toolbarEnd = productSettingsSource.indexOf('<template #group="{ group }">')
   assert.notEqual(toolbarStart, -1)
   assert.notEqual(toolbarEnd, -1)
   const toolbar = productSettingsSource.slice(toolbarStart, toolbarEnd)
   assert.match(toolbar, /data-pr442-product-group-assignments/)
-  assert.match(productSettingsSource, /BusinessGroupWorkspace/)
+  assert.match(productSettingsSource, /BusinessGroupInlineWorkspace/)
   assert.match(businessGroupWorkspaceSource, /请选择要移动到的分类/)
   assert.match(businessGroupControlsSource, /移动到分类/)
   assert.doesNotMatch(businessGroupControlsSource, /<select/)
-  assert.match(productSettingsSource, /selectedProductBusinessGroupCategoryKey/)
+  assert.match(productSettingsSource, /collapsedProductClassificationGroups/)
+  assert.doesNotMatch(productSettingsSource, /selectedProductBusinessGroupCategoryKey/)
   assert.match(productSettingsSource, /productCategoryMoveActive/)
   assert.doesNotMatch(toolbar, /分组集 \/ 父组 \/ 子组/)
   assert.match(toolbar, /@move="productCategoryMoveActive = true"/)

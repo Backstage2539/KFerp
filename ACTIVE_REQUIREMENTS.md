@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-596-INLINE-CATEGORY-LISTS
+- Branch: codex/inline-category-lists-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: implementation and automated verification complete; rendered design QA, develop integration and development deployment in progress
+- Scope: 物料档案、生产 BOM、商品档案和选中具体仓库且非客户库存上下文的仓内物品取消分类树与列表的左右分栏，把模板、分类标题和业务列表合并为一条内联层级；每个展开分类都重复自己的列表表头并维护互不影响的分类内分页。四页保留各自搜索、状态/类型过滤、对象身份和移动 API；点击名称通过临时右侧抽屉维护详情，生产 BOM 抽屉完整承载基础信息、版本、配方、工艺和损耗配置。
+- DEV:
+  - DEV-596-SHARED-INLINE-GROUP-WORKSPACE（done）：共享内联分类、折叠/移动状态、父类直属对象不丢失及按 group key 独立分页。
+  - DEV-596-MATERIAL-PRODUCT-LISTS（done）：物料、商品按分类重复表头和独立分页；名称打开原详情/配置抽屉。
+  - DEV-596-BOM-SETTINGS-DRAWER（done）：BOM 内联分类列表与完整设置抽屉，移除常驻右侧详情。
+  - DEV-596-WAREHOUSE-INVENTORY-LISTS（done）：保留外层仓库选择及精确 item/spec 归类，在具体仓库内拉齐筛选结果后只使用分类独立分页。
+  - DEV-596-DOCS-DEVELOPMENT-DELIVERY（in progress）：需求、验收和操作手册已同步；等待合入 develop、development 部署与 smoke，production 不操作。
+- Verifier: RED contracts captured；frontend `src/lib` 943/943 GREEN；Vite production build GREEN（400 modules，existing chunk warning only）；`go test -count=1 ./...` GREEN；`scripts/verify_kferp.sh changed` GREEN；`git diff --check` GREEN；rendered design QA and development deploy gates pending.
+- Deployment: owner is this workflow; merge/deploy pending verified feature branch and latest origin/develop sync.
+- Last update: 2026-08-10 Asia/Shanghai
+
 ### PR-594-PRICING-BOM-DEBUG-WORKFLOW
 - Branch: codex/pricing-bom-debug-workflow-20260810
 - Owner/session: Codex / 2026-08-10
