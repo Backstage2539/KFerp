@@ -103,6 +103,15 @@ func TestDev596InlineCategoryListsDeliveryContracts(t *testing.T) {
 		}
 	}
 
+	deployScript, err := os.ReadFile(filepath.Join(repoRoot, "deploy_orderapp.sh"))
+	if err != nil {
+		if !os.IsNotExist(err) || repoRoot != string(filepath.Separator) {
+			t.Fatal(err)
+		}
+	} else if !strings.Contains(string(deployScript), "  design-qa.md \\") {
+		t.Fatal("deploy_orderapp.sh must archive design-qa.md for the server-side PR-596 delivery contract")
+	}
+
 	designQAPath := filepath.Join(repoRoot, "design-qa.md")
 	designQA, err := os.ReadFile(designQAPath)
 	if err != nil {
