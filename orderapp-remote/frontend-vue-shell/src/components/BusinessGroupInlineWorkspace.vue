@@ -49,7 +49,8 @@
             :disabled="loading || moveActive"
             :aria-label="`${isCollapsed(group.key) ? '展开' : '收起'}${group.label}`"
             @click.stop="toggleGroup(group.key)">
-            {{ isCollapsed(group.key) ? '+' : '−' }}
+            <IconChevronRight v-if="isCollapsed(group.key)" :size="17" :stroke-width="1.8" aria-hidden="true" />
+            <IconChevronDown v-else :size="17" :stroke-width="1.8" aria-hidden="true" />
           </button>
           <button
             class="business-group-inline-label"
@@ -57,7 +58,11 @@
             :disabled="loading || (moveActive && !isTargetable(group))"
             :title="group.path_label || group.label"
             @click="activateGroup(group)">
-            <strong>{{ groupLabel(group) }}</strong>
+            <span class="business-group-inline-name">
+              <IconFolderOff v-if="group.unclassified" :size="18" :stroke-width="1.7" aria-hidden="true" />
+              <IconFolder v-else :size="18" :stroke-width="1.7" aria-hidden="true" />
+              <strong>{{ groupLabel(group) }}</strong>
+            </span>
             <small>{{ groupCount(group) }} {{ countUnit }}</small>
           </button>
         </header>
@@ -81,6 +86,7 @@
 </template>
 
 <script setup>
+import { IconChevronDown, IconChevronRight, IconFolder, IconFolderOff } from '@tabler/icons-vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import BusinessGroupControls from './BusinessGroupControls.vue'
 import { businessGroupHiddenByCollapsedAncestor } from '../lib/business-grouping.js'
@@ -212,6 +218,8 @@ watch(() => props.moveActive, async (active, previous) => {
 .business-group-inline-heading.disabled { opacity: .52; }
 .business-group-inline-toggle { width: 30px; min-height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #315b82; font-size: 18px; }
 .business-group-inline-label { min-width: 0; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px 6px 4px; border: 0; background: transparent; color: inherit; text-align: left; }
+.business-group-inline-name { min-width: 0; display: inline-flex; align-items: center; gap: 7px; }
+.business-group-inline-name svg { flex: 0 0 auto; color: #526b84; }
 .business-group-inline-label strong { min-width: 0; overflow-wrap: anywhere; }
 .business-group-inline-label small { flex: 0 0 auto; color: #64748b; font-weight: 400; white-space: nowrap; }
 .business-group-inline-body { min-width: 0; padding: 0 12px 12px; background: #fff; }
