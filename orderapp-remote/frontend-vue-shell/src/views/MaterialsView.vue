@@ -34,30 +34,6 @@
           <button class="danger" type="button" @click="deprecateSelectedMaterials" :disabled="!selectedMaterialIDs.length || loading">批量失效</button>
         </div>
 
-        <div class="feature-group-selection" data-feature-key="material_catalog">
-          <div class="feature-group-selection-copy">
-            <strong>物料档案使用的分组模板</strong>
-            <small>可多选；保存后只有已选模板可用于物料分类和移动。取消全部后按物料平铺展示。</small>
-          </div>
-          <div class="feature-group-selection-options">
-            <label v-for="template in selectableMaterialGroupTemplates" :key="template.id" class="feature-group-selection-option">
-              <input
-                v-model="materialGroupFeatureSelectionDraft"
-                type="checkbox"
-                :value="Number(template.id || 0)"
-                :disabled="materialGroupFeatureSelectionSaving || loading" />
-              <span>{{ template.label }}</span>
-            </label>
-            <span v-if="!selectableMaterialGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
-          </div>
-          <div class="feature-group-selection-actions">
-            <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="openMaterialBusinessGroupManagement">维护分组模板</button>
-            <button class="primary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading || !materialGroupFeatureSelectionHasChanges" @click="saveMaterialGroupFeatureSelection">
-              {{ materialGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
-            </button>
-          </div>
-        </div>
-
         <BusinessGroupControls
           v-if="materialCatalogBusinessGroups.length"
           v-model="selectedMaterialGroupTemplateID"
@@ -73,25 +49,35 @@
           :loading="loading"
           template-label="分类与移动模板"
           @manage="openMaterialBusinessGroupManagement"
-          @move="moveSelectedMaterialsToGroup" />
-        <div v-else class="classification-view-toolbar feature-group-empty">
+          @move="moveSelectedMaterialsToGroup">
+          <template #extra-actions>
+            <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="openMaterialGroupFeatureSelectionDrawer">设置分组模板</button>
+          </template>
+        </BusinessGroupControls>
+        <div v-else class="classification-view-toolbar feature-group-empty material-group-empty-actions">
           <span>物料档案尚未选择分组模板，当前平铺展示。</span>
+          <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="openMaterialGroupFeatureSelectionDrawer">设置分组模板</button>
+          <button class="secondary compact-action" type="button" @click="openMaterialBusinessGroupManagement">维护分组模板</button>
         </div>
 
         <div v-if="materialCatalogBusinessGroups.length" class="material-section-list">
-          <div v-for="section in materialDisplayGroups" :key="section.key" class="material-section">
-            <button class="section-toggle" type="button" @click="toggleSection(section.key)">
-              <strong :style="businessGroupHeaderIndentStyle(section)" :title="section.path_label || section.label">{{ section.label }}</strong><span>{{ section.rows.length }} 个</span>
+          <div
+            v-for="group in renderedMaterialDisplayGroups"
+            :key="group.key"
+            :class="['material-section', { 'material-template-section': group.is_template_group, 'material-subgroup-section': Number(group.depth || 0) > 0 }]">
+            <button class="section-toggle" type="button" @click="toggleSection(group.key)">
+              <strong :style="businessGroupHeaderIndentStyle(group)" :title="group.path_label || group.label">{{ group.label }}</strong>
+              <span>{{ group.is_template_group ? group.template_total : group.rows.length }} 个</span>
             </button>
             <MaterialRowsTable
-              v-if="!collapsedSections[section.key]"
-              :rows="section.rows"
-              :row-style="businessGroupItemIndentStyle(section)"
+              v-if="!group.is_template_group && !collapsedSections[group.key]"
+              :rows="group.rows"
+              :row-style="businessGroupItemIndentStyle(group)"
               :selected="selected"
               :selected-ids="selectedMaterialIDs"
-              :all-selected="areRowsSelected(section.rows)"
+              :all-selected="areRowsSelected(group.rows)"
               @toggle="toggleMaterialSelection"
-              @toggle-all="toggleMaterialRows(section.rows)"
+              @toggle-all="toggleMaterialRows(group.rows)"
               @select="(row) => selectMaterial(row)" />
           </div>
         </div>
@@ -186,6 +172,38 @@
       </section>
     </div>
 
+    <div v-if="materialGroupFeatureDrawerOpen" class="drawer-mask" @click.self="materialGroupFeatureDrawerOpen = false">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h3>物料档案分组模板</h3>
+          <button class="secondary compact-action" type="button" @click="materialGroupFeatureDrawerOpen = false">关闭</button>
+        </div>
+        <div class="feature-group-selection" data-feature-key="material_catalog">
+          <div class="feature-group-selection-copy">
+            <strong>物料档案使用的分组模板</strong>
+            <small>可多选；保存后列表同时展示全部已选模板，移动归类时再选择目标模板。取消全部后按物料平铺展示。</small>
+          </div>
+          <div class="feature-group-selection-options">
+            <label v-for="template in selectableMaterialGroupTemplates" :key="template.id" class="feature-group-selection-option">
+              <input
+                v-model="materialGroupFeatureSelectionDraft"
+                type="checkbox"
+                :value="Number(template.id || 0)"
+                :disabled="materialGroupFeatureSelectionSaving || loading" />
+              <span>{{ template.label }}</span>
+            </label>
+            <span v-if="!selectableMaterialGroupTemplates.length" class="muted left">暂无可选分组模板，请先维护模板。</span>
+          </div>
+          <div class="feature-group-selection-actions">
+            <button class="secondary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading" @click="openMaterialBusinessGroupManagement">维护分组模板</button>
+            <button class="primary compact-action" type="button" :disabled="materialGroupFeatureSelectionSaving || loading || !materialGroupFeatureSelectionHasChanges" @click="saveMaterialGroupFeatureSelection">
+              {{ materialGroupFeatureSelectionSaving ? '保存中' : '保存模板选择' }}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
     <div v-if="stockBackfill.open" class="modal-mask" @click.self="closeStockBackfill">
       <section class="modal-panel">
         <div class="modal-head">
@@ -223,8 +241,9 @@ import {
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
   businessGroupRowsForFeatureSelection,
-  groupRowsByBusinessGroupTemplate,
+  groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
+import { skuGroupHiddenByCollapsedAncestor } from '../lib/product-settings'
 
 const MATERIAL_CATALOG_USAGE = 'material_catalog'
 const MATERIAL_OBJECT_KEY = 'material'
@@ -306,6 +325,7 @@ const selectedMaterialMoveGroupItemID = ref(0)
 const materialGroupFeatureSelectionTemplateIDs = ref([])
 const materialGroupFeatureSelectionDraft = ref([])
 const materialGroupFeatureSelectionSaving = ref(false)
+const materialGroupFeatureDrawerOpen = ref(false)
 const collapsedSections = ref({})
 const stockBackfill = ref({ open: false, target_qty: 0, reason: '' })
 
@@ -326,13 +346,17 @@ const materialBusinessGroupControls = computed(() => businessGroupControlOptions
 const materialGroupTemplateOptions = computed(() => materialBusinessGroupControls.value.templateOptions)
 const selectedMaterialGroupTemplate = computed(() => materialBusinessGroupControls.value.selectedTemplate)
 const materialGroupItemOptions = computed(() => materialBusinessGroupControls.value.moveOptions)
-const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplate(rows.value, {
-  template: selectedMaterialGroupTemplate.value,
+const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(rows.value, {
+  templates: materialCatalogBusinessGroups.value,
   assignments: materialBusinessGroupAssignments.value,
   usageKey: MATERIAL_CATALOG_USAGE,
   objectKey: MATERIAL_OBJECT_KEY,
   objectIDForRow: (row) => Number(row.id || 0),
+  allLabel: '全部物料',
 }))
+const renderedMaterialDisplayGroups = computed(() => materialDisplayGroups.value.filter((group) => (
+  !skuGroupHiddenByCollapsedAncestor(materialDisplayGroups.value, group, Object.keys(collapsedSections.value).filter((key) => collapsedSections.value[key]))
+)))
 const selectedMaterialRowsForMove = computed(() => {
   const selectedIds = new Set(selectedMaterialIDs.value.map((id) => Number(id || 0)).filter(Boolean))
   return rows.value.filter((row) => selectedIds.has(Number(row.id || 0)))
@@ -591,6 +615,11 @@ function syncSelectedMaterialGroupTemplate() {
   selectedMaterialGroupTemplateID.value = Number(materialCatalogBusinessGroups.value[0]?.id || 0)
 }
 
+function openMaterialGroupFeatureSelectionDrawer() {
+  materialGroupFeatureSelectionDraft.value = [...materialGroupFeatureSelectionTemplateIDs.value]
+  materialGroupFeatureDrawerOpen.value = true
+}
+
 async function saveMaterialGroupFeatureSelection() {
   const payload = businessGroupFeatureSelectionPayload(MATERIAL_CATALOG_USAGE, materialGroupFeatureSelectionDraft.value)
   materialGroupFeatureSelectionSaving.value = true
@@ -606,6 +635,7 @@ async function saveMaterialGroupFeatureSelection() {
     syncSelectedMaterialGroupTemplate()
     selectedMaterialMoveGroupItemID.value = 0
     collapsedSections.value = {}
+    materialGroupFeatureDrawerOpen.value = false
     ok.value = payload.group_template_ids.length
       ? `物料档案已选择 ${payload.group_template_ids.length} 个分组模板`
       : '物料档案已改为平铺展示'
@@ -857,7 +887,6 @@ function defaultFieldValue(field) {
 
 watch(selectedMaterialGroupTemplateID, () => {
   selectedMaterialMoveGroupItemID.value = 0
-  collapsedSections.value = {}
 })
 
 watch(materialGroupItemOptions, (options) => {
@@ -905,8 +934,13 @@ onMounted(() => {
 .feature-group-selection-option { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .feature-group-selection-option input { width: auto; min-height: 0; }
 .feature-group-empty { margin-bottom: 12px; padding: 10px; border: 1px dashed #d6d3d1; border-radius: 8px; color: #666; }
+.material-group-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.material-group-empty-actions span { margin-right: auto; }
 .material-section-list { display: grid; gap: 10px; }
 .material-section-list, .material-section { min-width: 0; }
+.material-template-section { margin-top: 4px; }
+.material-template-section .section-toggle { background: #ece3d6; color: #2f2820; border: 1px solid #d3c6b0; }
+.material-subgroup-section .section-toggle { background: #454545; }
 .left { text-align: left; }
 .section-toggle { width: 100%; justify-content: space-between; border: 0; display: flex; }
 .section-toggle strong { padding-left: var(--classification-group-indent, 0); }
@@ -953,6 +987,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 .modal-mask { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.28); }
+.drawer-mask { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: flex-end; background: rgba(0,0,0,.28); }
+.drawer { width: min(520px, 100%); height: 100%; overflow: auto; border-left: 1px solid #d8d0c7; background: #fff; padding: 16px; box-shadow: -18px 0 50px rgba(0,0,0,.16); }
+.drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+.drawer-head h3 { margin: 0; font-size: 18px; }
+.drawer .feature-group-selection { grid-template-columns: 1fr; }
+.drawer .feature-group-selection-actions { justify-content: flex-start; }
 .modal-panel { width: min(640px, 100%); max-height: calc(100vh - 36px); overflow: auto; border-radius: 8px; background: #fff; border: 1px solid #d8d0c7; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
 .modal-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
 .modal-head h3 { margin: 0; font-size: 18px; }

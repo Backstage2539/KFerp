@@ -24,7 +24,9 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"material_catalog",
 		"MATERIAL_OBJECT_KEY = 'material'",
 		"/api/business-group-assignments",
-		"groupRowsByBusinessGroupTemplate",
+		"groupRowsByBusinessGroupTemplates(",
+		"skuGroupHiddenByCollapsedAncestor",
+		"renderedMaterialDisplayGroups",
 		"industry_field_template_id",
 		"materialIndustryFields",
 	} {
@@ -44,6 +46,7 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"移动到小分类",
 		"/api/material-classification-groups",
 		"/api/material-classification-assignments",
+		"groupRowsByBusinessGroupTemplate(",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialsView.vue still contains old material marker %q", forbidden)

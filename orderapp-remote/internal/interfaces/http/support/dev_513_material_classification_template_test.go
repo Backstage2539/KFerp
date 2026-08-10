@@ -14,7 +14,8 @@ func TestDev513MaterialClassificationTemplateContracts(t *testing.T) {
 			"material_catalog",
 			"MATERIAL_OBJECT_KEY = 'material'",
 			"/api/business-group-assignments",
-			"groupRowsByBusinessGroupTemplate",
+			"groupRowsByBusinessGroupTemplates",
+			"skuGroupHiddenByCollapsedAncestor",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "schema.go"): {
 			"migrateMaterialClassificationsToBusinessGroups",
