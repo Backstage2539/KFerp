@@ -252,15 +252,15 @@ test('business group move payload supports product BOM and warehouse object iden
 
   assert.deepEqual(businessGroupMoveAssignmentPayload({
     usageKey: 'warehouse_inventory',
-    objectKey: 'warehouse',
-    objectRef: ' finished_goods ',
+    objectKey: 'warehouse_inventory_item',
+    objectRef: ' finished_goods:finished_product:88:250 ',
     option: { group_id: 9, group_item_id: 91 },
   }), {
     id: 0,
     usage_key: 'warehouse_inventory',
-    object_key: 'warehouse',
+    object_key: 'warehouse_inventory_item',
     object_id: 0,
-    object_ref: 'finished_goods',
+    object_ref: 'finished_goods:finished_product:88:250',
     group_id: 9,
     group_item_id: 91,
     sort_order: 100,

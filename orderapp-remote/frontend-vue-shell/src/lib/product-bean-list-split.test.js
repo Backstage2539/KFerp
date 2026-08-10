@@ -11,6 +11,7 @@ const productSettingsSource = readFileSync(resolve(here, '../views/ProductSettin
 const costingSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
 const beanListPdfSource = readFileSync(resolve(here, './bean-list-pdf.js'), 'utf8')
 const businessGroupControlsSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
+const businessGroupWorkspaceSource = readFileSync(resolve(here, '../components/BusinessGroupWorkspace.vue'), 'utf8')
 
 function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
@@ -69,19 +70,22 @@ test('SKU settings exposes customer context initialization with product archive 
   assert.doesNotMatch(productSettingsSource, /<form v-else class="custom-product-form product-drawer-form" @submit\.prevent="createCustomProduct">/)
 })
 
-test('product grouping uses business group select while customer alias keeps legacy classification selects', () => {
+test('product grouping uses the category workspace while customer alias keeps legacy classification selects', () => {
   const toolbarStart = productSettingsSource.indexOf('data-pr442-product-group-assignments')
   const toolbarEnd = productSettingsSource.indexOf('<div class="table-wrap sku-table-wrap">')
   assert.notEqual(toolbarStart, -1)
   assert.notEqual(toolbarEnd, -1)
   const toolbar = productSettingsSource.slice(toolbarStart, toolbarEnd)
   assert.match(toolbar, /data-pr442-product-group-assignments/)
-  assert.match(productSettingsSource, /BusinessGroupControls/)
-  assert.match(businessGroupControlsSource, /选择分组模板/)
+  assert.match(productSettingsSource, /BusinessGroupWorkspace/)
+  assert.match(businessGroupWorkspaceSource, /请选择要移动到的分类/)
   assert.match(businessGroupControlsSource, /移动到分类/)
-  assert.match(productSettingsSource, /selectedProductGroupTemplateID/)
+  assert.doesNotMatch(businessGroupControlsSource, /<select/)
+  assert.match(productSettingsSource, /selectedProductBusinessGroupCategoryKey/)
+  assert.match(productSettingsSource, /productCategoryMoveActive/)
   assert.doesNotMatch(toolbar, /分组集 \/ 父组 \/ 子组/)
-  assert.match(toolbar, /@move="saveSelectedProductBusinessGroupAssignment"/)
+  assert.match(toolbar, /@move="productCategoryMoveActive = true"/)
+  assert.match(toolbar, /@target="handleProductCategoryMoveTarget"/)
   assert.doesNotMatch(toolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(toolbar, /placeholder="移动到分类"/)
   assert.match(productSettingsSource, /alias-classification-selects/)

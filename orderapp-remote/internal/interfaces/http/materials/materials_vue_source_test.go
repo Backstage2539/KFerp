@@ -20,13 +20,16 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"selectMaterial(row)",
 		"deprecateSelectedMaterials",
 		"新建物料",
-		"BusinessGroupControls",
+		"BusinessGroupWorkspace",
+		"selectedMaterialCategoryKey",
+		"materialCategoryMoveActive",
+		`@target="handleMaterialCategoryMoveTarget"`,
 		"material_catalog",
 		"MATERIAL_OBJECT_KEY = 'material'",
 		"/api/business-group-assignments",
 		"groupRowsByBusinessGroupTemplates(",
-		"skuGroupHiddenByCollapsedAncestor",
-		"renderedMaterialDisplayGroups",
+		"businessGroupGroupsForCategorySelection",
+		"visibleMaterialDisplayGroups",
 		"industry_field_template_id",
 		"materialIndustryFields",
 	} {
@@ -47,6 +50,11 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"/api/material-classification-groups",
 		"/api/material-classification-assignments",
 		"groupRowsByBusinessGroupTemplate(",
+		"BusinessGroupControls",
+		"selectedMaterialGroupTemplateID",
+		"selectedMaterialMoveGroupItemID",
+		"skuGroupHiddenByCollapsedAncestor",
+		"renderedMaterialDisplayGroups",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialsView.vue still contains old material marker %q", forbidden)

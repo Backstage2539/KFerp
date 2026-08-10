@@ -123,6 +123,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: feature `f2f25a57` merged to `develop` as `7c96e62ef4e71d06c603ca5213a0937927ae56d8` and deployed to development with `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260809225406-7c96e62ef4e7`; rollback image `kferp-orderapp-rollback:development-20260809225406-7c96e62ef4e7`; built-in external smoke returned HTTP 200. Browser/API business acceptance was not run and remains with Van. `main` and production untouched.
 - Last update: 2026-08-09 Asia/Shanghai
 
+### PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION
+- Branch: codex/four-list-category-move-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: implemented and automated verification complete on the feature branch; rebased onto `origin/develop` `aa22bf9b`, ready for merge; not merged or deployed
+- Scope: 物料档案、生产 BOM、商品档案和选中具体仓库且非客户上下文的仓库内部列表统一采用“移动到分类”状态交互：勾选对象后点击按钮，右侧列表置灰；左侧分类树提示选择目标、自动展开并可滚动；点击允许的分类立即移动且不二次确认；完成或取消后恢复此前展开节点、当前分类和滚动位置。四页继续保留各自既有搜索、筛选、分组层级和分页语义；无模板时左树仅显示 `全部分类`、右侧平铺、移动禁用且底部设置入口保留。
+- DEV:
+  - DEV-595-SHARED-MOVE-STATE：抽取或复用可测试的移动状态与分类树快照/恢复逻辑，覆盖进入、目标选择、成功、失败和取消。
+  - DEV-595-MATERIAL-ARCHIVE：适配物料档案分类树与现有物料搜索筛选。
+  - DEV-595-PRODUCT-BOM：适配商品档案与生产 BOM，并保留各自分组内分页及 BOM 搜索筛选。
+  - DEV-595-WAREHOUSE-INVENTORY：适配选中仓库内物品列表，使用 `warehouse_inventory_item` 与精确 `<warehouse code>:<item_type>:<item_id>:<spec_g>` identity；warehouse code 仅作命名空间。分类只过滤 stock API 当前服务端页，不发送 `group_id/group_item_id`，保持 `total/page/limit`；全部仓库/客户上下文仅分类层面平铺且不可移动，既有 WIP/追溯不变，PR-442/458 查询只作历史兼容。
+  - DEV-595-DOCS-ACCEPTANCE：同步单一来源操作手册、需求种子和自动化验收证据。
+- Verifier:
+  - Unit: frontend-vue-shell 全量 `node --test src/lib/*.test.js` 925/925 GREEN；Go support 全包与 materials HTTP 包 GREEN
+  - API: 复用现有业务分组 assignment API 与审计写入契约；仅在契约缺口时补 handler 测试
+  - Frontend/build: `scripts/verify_kferp.sh frontend-build` GREEN（Vite 400 modules）
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`
+  - Review/acceptance: 自动化证据写入 `orderapp-remote/docs/acceptance/2026-08-10-unified-category-move-interaction.md`; 页面业务验收由 Van 后续执行
+- Deployment: explicitly out of scope; do not merge develop or deploy in this task
+- Last update: 2026-08-10 Asia/Shanghai
+- Notes: 功能最初基于 `develop` `fb4aea5c` 使用草案编号 PR-588；同步后 `origin/develop` 已由 PR-588～594 占用。重放到 `aa22bf9b` 后以 `scripts/reserve_req_id.sh` 确认并改用下一可用编号 PR-595，未改写上游历史需求。
+
 ### PR-587-PRICE-LIST-BOM-FIXES
 - Branch: codex/price-list-bom-fixes-20260809
 - Owner/session: Codex / 2026-08-09

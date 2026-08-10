@@ -42,7 +42,7 @@ func TestDev588PricingTrialParentPickerBomAccordionContracts(t *testing.T) {
 			"productionBomAccordionPageState",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"BusinessGroupControls",
+			"BusinessGroupWorkspace",
 			"productionBomDisplayGroups",
 			"expandedProductionBomGroupKey",
 			"productionBomListPage",

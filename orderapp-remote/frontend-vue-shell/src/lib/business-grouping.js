@@ -428,6 +428,207 @@ export function businessGroupMoveAssignmentPayload({
   })
 }
 
+function businessGroupDisplayRowCount(group = {}) {
+  if (Object.prototype.hasOwnProperty.call(group, 'total')) {
+    const total = Number(group.total)
+    if (Number.isFinite(total) && total >= 0) return total
+  }
+  return Array.isArray(group.rows) ? group.rows.length : 0
+}
+
+export function businessGroupCategoryTreeNodes(groups = [], {
+  allLabel = '全部分类',
+} = {}) {
+  const source = Array.isArray(groups) ? groups : []
+  const flatListCount = source
+    .filter((group) => Boolean(group?.all))
+    .reduce((sum, group) => sum + businessGroupDisplayRowCount(group), 0)
+  const nodes = [{
+    key: 'business-group-all',
+    label: normalizedText(allLabel) || '全部分类',
+    path_label: normalizedText(allLabel) || '全部分类',
+    kind: 'all',
+    group_id: 0,
+    group_item_id: 0,
+    parent_group_item_id: 0,
+    parent_key: '',
+    tree_depth: 0,
+    direct_count: flatListCount,
+    count: 0,
+    targetable: false,
+    expandable: false,
+    child_keys: [],
+  }]
+  const templateKeys = new Map()
+  const categoryKeys = new Map()
+
+  for (const group of source) {
+    if (!group?.is_template_group) continue
+    const groupID = toNumber(group.group_id)
+    if (!(groupID > 0)) continue
+    const key = normalizedText(group.key) || `business-template-${groupID}`
+    templateKeys.set(groupID, key)
+    nodes.push({
+      ...group,
+      key,
+      kind: 'template',
+      group_id: groupID,
+      group_item_id: 0,
+      parent_group_item_id: 0,
+      parent_key: 'business-group-all',
+      tree_depth: 1,
+      direct_count: 0,
+      count: 0,
+      targetable: false,
+      expandable: false,
+      child_keys: [],
+    })
+  }
+
+  for (const group of source) {
+    if (group?.is_template_group || group?.all || group?.unclassified) continue
+    const groupID = toNumber(group?.group_id)
+    const groupItemID = toNumber(group?.group_item_id)
+    if (!(groupItemID > 0)) continue
+    const key = normalizedText(group.key) || `business-group-${groupID}-${groupItemID}`
+    categoryKeys.set(`${groupID}:${groupItemID}`, key)
+  }
+
+  for (const group of source) {
+    if (group?.is_template_group || group?.all) continue
+    const unclassified = Boolean(group?.unclassified)
+    const groupID = toNumber(group?.group_id)
+    const groupItemID = toNumber(group?.group_item_id)
+    if (!unclassified && !(groupItemID > 0)) continue
+    const parentItemID = toNumber(group?.parent_group_item_id)
+    const key = normalizedText(group.key) || (unclassified
+      ? 'business-group-unclassified'
+      : `business-group-${groupID}-${groupItemID}`)
+    const parentKey = unclassified
+      ? 'business-group-all'
+      : (categoryKeys.get(`${groupID}:${parentItemID}`) || templateKeys.get(groupID) || 'business-group-all')
+    nodes.push({
+      ...group,
+      key,
+      kind: unclassified ? 'unclassified' : 'category',
+      group_id: groupID,
+      group_item_id: groupItemID,
+      parent_group_item_id: parentItemID,
+      parent_key: parentKey,
+      tree_depth: unclassified ? 1 : Math.max(1, toNumber(group.depth) + (templateKeys.has(groupID) ? 2 : 1)),
+      direct_count: businessGroupDisplayRowCount(group),
+      count: 0,
+      targetable: true,
+      expandable: false,
+      child_keys: [],
+    })
+  }
+
+  const byKey = new Map(nodes.map((node) => [node.key, node]))
+  for (const node of nodes) {
+    if (!node.parent_key) continue
+    const parent = byKey.get(node.parent_key)
+    if (parent) parent.child_keys.push(node.key)
+  }
+  for (const node of nodes) node.expandable = node.child_keys.length > 0
+
+  const countFor = (node, visiting = new Set()) => {
+    if (!node || visiting.has(node.key)) return 0
+    const nextVisiting = new Set(visiting)
+    nextVisiting.add(node.key)
+    const total = toNumber(node.direct_count) + node.child_keys.reduce((sum, key) => sum + countFor(byKey.get(key), nextVisiting), 0)
+    node.count = total
+    return total
+  }
+  for (const node of nodes) countFor(node)
+
+  const ordered = []
+  const emitted = new Set()
+  const appendPreorder = (node) => {
+    if (!node || emitted.has(node.key)) return
+    emitted.add(node.key)
+    ordered.push(node)
+    for (const childKey of node.child_keys) appendPreorder(byKey.get(childKey))
+  }
+  appendPreorder(nodes[0])
+  for (const node of nodes) appendPreorder(node)
+  return ordered
+}
+
+export function businessGroupCategoryBreadcrumb(nodes = [], selectedKey = 'business-group-all') {
+  const source = Array.isArray(nodes) ? nodes : []
+  const byKey = new Map(source.map((node) => [node.key, node]))
+  let current = byKey.get(normalizedText(selectedKey)) || byKey.get('business-group-all') || source[0] || null
+  const labels = []
+  const visited = new Set()
+  while (current && !visited.has(current.key)) {
+    visited.add(current.key)
+    labels.unshift(normalizedText(current.label) || normalizedText(current.path_label) || current.key)
+    current = current.parent_key ? byKey.get(current.parent_key) : null
+  }
+  return labels.filter(Boolean).join(' / ')
+}
+
+export function businessGroupGroupsForCategorySelection(groups = [], selectedKey = 'business-group-all') {
+  const source = Array.isArray(groups) ? groups : []
+  const normalizedKey = normalizedText(selectedKey)
+  if (!normalizedKey || normalizedKey === 'business-group-all') return source
+  const selected = source.find((group) => normalizedText(group?.key) === normalizedKey)
+  if (!selected) return source
+  if (selected.unclassified) return source.filter((group) => Boolean(group?.unclassified))
+  const selectedGroupID = toNumber(selected.group_id)
+  if (selected.is_template_group) {
+    return source.filter((group) => toNumber(group?.group_id) === selectedGroupID && !group?.unclassified)
+  }
+  const selectedItemID = toNumber(selected.group_item_id)
+  if (!(selectedItemID > 0)) return source
+  const descendantIDs = new Set([selectedItemID])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const group of source) {
+      if (toNumber(group?.group_id) !== selectedGroupID) continue
+      const itemID = toNumber(group?.group_item_id)
+      const parentID = toNumber(group?.parent_group_item_id)
+      if (!(itemID > 0) || !descendantIDs.has(parentID) || descendantIDs.has(itemID)) continue
+      descendantIDs.add(itemID)
+      changed = true
+    }
+  }
+  return source.filter((group) => (
+    toNumber(group?.group_id) === selectedGroupID
+    && descendantIDs.has(toNumber(group?.group_item_id))
+    && !group?.is_template_group
+  ))
+}
+
+export function beginBusinessGroupMoveState(state = {}, nodes = []) {
+  const expandedKeys = Array.from(new Set((Array.isArray(state.expandedKeys) ? state.expandedKeys : []).map(normalizedText).filter(Boolean)))
+  const snapshot = {
+    expandedKeys,
+    selectedKey: normalizedText(state.selectedKey) || 'business-group-all',
+    scrollTop: Math.max(0, Number(state.scrollTop || 0)),
+  }
+  return {
+    active: true,
+    expandedKeys: (Array.isArray(nodes) ? nodes : []).filter((node) => node?.expandable).map((node) => node.key),
+    selectedKey: snapshot.selectedKey,
+    scrollTop: 0,
+    snapshot,
+  }
+}
+
+export function restoreBusinessGroupMoveState(state = {}) {
+  const snapshot = state?.snapshot || {}
+  return {
+    active: false,
+    expandedKeys: Array.from(new Set((Array.isArray(snapshot.expandedKeys) ? snapshot.expandedKeys : []).map(normalizedText).filter(Boolean))),
+    selectedKey: normalizedText(snapshot.selectedKey) || 'business-group-all',
+    scrollTop: Math.max(0, Number(snapshot.scrollTop || 0)),
+    snapshot: null,
+  }
+}
+
 export function businessGroupHeaderIndentStyle(group = {}) {
   return { '--classification-group-indent': `${16 + toNumber(group.depth) * 24}px` }
 }
