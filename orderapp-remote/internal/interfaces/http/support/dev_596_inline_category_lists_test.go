@@ -39,18 +39,24 @@ func TestDev596InlineCategoryListsDeliveryContracts(t *testing.T) {
 	repoRoot := filepath.Dir(findAncestorForTest(t, "go.mod"))
 	active, err := os.ReadFile(filepath.Join(repoRoot, "ACTIVE_REQUIREMENTS.md"))
 	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"### PR-596-INLINE-CATEGORY-LISTS",
-		"Branch: codex/pr596-delivery-evidence-20260810",
-		"first development deployment complete at `cfc781df`",
-		"rendered visual QA and final tracking patch pending",
-		"DEV-596-DOCS-DEVELOPMENT-DELIVERY（in progress）",
-		"REV-596-INLINE-CATEGORY-LISTS（todo）",
-	} {
-		if !strings.Contains(string(active), want) {
-			t.Fatalf("ACTIVE_REQUIREMENTS.md missing PR-596 delivery marker %q", want)
+		// The release Dockerfile deliberately copies only durable root
+		// governance documents into its isolated /src build context. Keep ACTIVE
+		// mandatory in a real checkout without widening that Docker contract.
+		if !os.IsNotExist(err) || repoRoot != string(filepath.Separator) {
+			t.Fatal(err)
+		}
+	} else {
+		for _, want := range []string{
+			"### PR-596-INLINE-CATEGORY-LISTS",
+			"Branch: codex/pr596-delivery-evidence-20260810",
+			"first development deployment complete at `cfc781df`",
+			"rendered visual QA and final tracking patch pending",
+			"DEV-596-DOCS-DEVELOPMENT-DELIVERY（in progress）",
+			"REV-596-INLINE-CATEGORY-LISTS（todo）",
+		} {
+			if !strings.Contains(string(active), want) {
+				t.Fatalf("ACTIVE_REQUIREMENTS.md missing PR-596 delivery marker %q", want)
+			}
 		}
 	}
 
