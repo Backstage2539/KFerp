@@ -19,12 +19,18 @@ func TestDev596SemiFinishedPackagingBomContracts(t *testing.T) {
 			"ValidateSemiFinishedProduct",
 			"SemiFinishedValidationInput",
 		},
+		filepath.Join("internal", "domain", "catalog", "semi_finished_validity.go"): {
+			"CheckSemiFinishedPackagingValidity",
+			"SemiFinishedPackagingResult",
+		},
 		filepath.Join("internal", "application", "bom", "service.go"): {
 			"BomKind",
 			"OutputIsSemiFinished",
 			"validatePackagingBomDraftItem",
 			"packaging BOM items must use fixed quantity",
 			"packaging BOM items must be materials",
+			"semi_finished_packaging_required",
+			"CheckSemiFinishedPackagingValidity",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"IsSemiFinished",

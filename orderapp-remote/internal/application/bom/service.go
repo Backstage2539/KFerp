@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	bomdomain "orderapp/internal/domain/bom"
+	catalogdomain "orderapp/internal/domain/catalog"
 )
 
 var (
@@ -1150,6 +1151,52 @@ func (s *Service) DeleteSpecPackagingBomRef(ctx context.Context, cmd DeleteSpecP
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	return s.repo.DeleteSpecPackagingBomRef(ctx, cmd)
+}
+
+type SemiFinishedPackagingError struct {
+	MissingSpecs []string `json:"missing_specs"`
+}
+
+func (e SemiFinishedPackagingError) Error() string {
+	return "semi_finished_packaging_required"
+}
+
+func (e SemiFinishedPackagingError) Code() string {
+	return "semi_finished_packaging_required"
+}
+
+type SpecValidityInput struct {
+	SpecKey string
+	Active  bool
+}
+
+func (s *Service) CheckSemiFinishedPackagingValidity(ctx context.Context, unitTemplateID int64, activeSpecs []SpecValidityInput) (SemiFinishedPackagingError, bool) {
+	if unitTemplateID <= 0 || len(activeSpecs) == 0 {
+		return SemiFinishedPackagingError{}, true
+	}
+	refs, err := s.repo.ListSpecPackagingBomRefs(ctx, unitTemplateID)
+	if err != nil {
+		return SemiFinishedPackagingError{}, false
+	}
+	specsForCheck := make([]catalogdomain.SalesSpecForPackagingCheck, 0, len(activeSpecs))
+	for _, spec := range activeSpecs {
+		specsForCheck = append(specsForCheck, catalogdomain.SalesSpecForPackagingCheck{
+			SpecKey: spec.SpecKey,
+			Active:  spec.Active,
+		})
+	}
+	refsForCheck := make([]catalogdomain.PackagingBomRefForCheck, 0, len(refs))
+	for _, ref := range refs {
+		refsForCheck = append(refsForCheck, catalogdomain.PackagingBomRefForCheck{
+			SpecKey: ref.SpecKey,
+			IsValid: ref.IsValid,
+		})
+	}
+	result := catalogdomain.CheckSemiFinishedPackagingValidity(specsForCheck, refsForCheck)
+	if result.Valid {
+		return SemiFinishedPackagingError{}, true
+	}
+	return SemiFinishedPackagingError{MissingSpecs: result.MissingSpecs}, false
 }
 
 func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBomDraftItem, error) {

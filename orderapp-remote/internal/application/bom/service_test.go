@@ -175,6 +175,56 @@ func (r *fakeRepo) DeleteSpecPackagingBomRef(context.Context, DeleteSpecPackagin
 	return nil
 }
 
+type fakeSpecRefRepo struct {
+	fakeRepo
+	specRefs []SpecPackagingBomRef
+}
+
+func (r *fakeSpecRefRepo) ListSpecPackagingBomRefs(context.Context, int64) ([]SpecPackagingBomRef, error) {
+	return r.specRefs, nil
+}
+
+func TestCheckSemiFinishedPackagingValidityMissingSpecs(t *testing.T) {
+	repo := &fakeSpecRefRepo{specRefs: []SpecPackagingBomRef{
+		{SpecKey: "bag-227g", IsValid: true},
+		{SpecKey: "bag-454g", IsValid: true},
+	}}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	err, valid := svc.CheckSemiFinishedPackagingValidity(ctx, 1, []SpecValidityInput{
+		{SpecKey: "bag-227g", Active: true},
+		{SpecKey: "bag-454g", Active: true},
+		{SpecKey: "bag-2500g", Active: true},
+	})
+	if valid {
+		t.Fatalf("should be invalid when bag-2500g lacks packaging BOM")
+	}
+	if err.Code() != "semi_finished_packaging_required" {
+		t.Fatalf("error code = %s, want semi_finished_packaging_required", err.Code())
+	}
+	if len(err.MissingSpecs) != 1 || err.MissingSpecs[0] != "bag-2500g" {
+		t.Fatalf("missing specs = %v, want [bag-2500g]", err.MissingSpecs)
+	}
+}
+
+func TestCheckSemiFinishedPackagingValidityAllPresent(t *testing.T) {
+	repo := &fakeSpecRefRepo{specRefs: []SpecPackagingBomRef{
+		{SpecKey: "bag-227g", IsValid: true},
+		{SpecKey: "bag-454g", IsValid: true},
+	}}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, valid := svc.CheckSemiFinishedPackagingValidity(ctx, 1, []SpecValidityInput{
+		{SpecKey: "bag-227g", Active: true},
+		{SpecKey: "bag-454g", Active: true},
+	})
+	if !valid {
+		t.Fatalf("should be valid when all active specs have valid packaging BOM")
+	}
+}
+
 func TestServiceValidatesSaveItem(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
