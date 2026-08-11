@@ -82,10 +82,26 @@ func TestDev596SemiFinishedPackagingBomContracts(t *testing.T) {
 			"IsSemiFinished",
 			"is_semi_finished",
 		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "bom.js"): {
+			"BOM_KIND_PRODUCT",
+			"BOM_KIND_SPEC_PACKAGING",
+			"normalizeBomKind",
+			"isPackagingBomKind",
+			"isSemiFinishedProduct",
+			"semiFinishedPackagingRequiredError",
+			"specPackagingBomRefKey",
+		},
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
 			"PR-596-SEMI-FINISHED-PACKAGING-BOM",
 			"DEV-596-BOM-KIND-EXTENSION",
 			"DEV-596-PRODUCT-SEMI-FINISHED",
+			"DEV-596-SPEC-PACKAGING-REF",
+			"DEV-596-VALIDITY-CHECK",
+			"DEV-596-WORK-ORDER-DEPENDENCY",
+			"DEV-596-TWO-STAGE-PLANNING",
+			"DEV-596-COST-CALCULATION",
+			"DEV-596-FRONTEND",
+			"DEV-596-AUDIT-COMPAT",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

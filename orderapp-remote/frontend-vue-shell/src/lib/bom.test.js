@@ -862,3 +862,38 @@ test('production BOM list renders expanded unclassified rows and opts out of the
   assert.match(groupLoop, /<template v-if="!isProductionBomGroupCollapsed\(group\.key\)">[\s\S]*v-for="row in group\.rows"/)
   assert.doesNotMatch(groupLoop, /<template v-else>[\s\S]*v-for="row in group\.rows"/)
 })
+
+test('BOM kind constants distinguish product and spec_packaging', () => {
+  assert.equal(bomLib.BOM_KIND_PRODUCT, 'product')
+  assert.equal(bomLib.BOM_KIND_SPEC_PACKAGING, 'spec_packaging')
+  assert.equal(bomLib.normalizeBomKind(''), 'product')
+  assert.equal(bomLib.normalizeBomKind('spec_packaging'), 'spec_packaging')
+  assert.equal(bomLib.normalizeBomKind('product'), 'product')
+  assert.equal(bomLib.isPackagingBomKind('spec_packaging'), true)
+  assert.equal(bomLib.isPackagingBomKind('product'), false)
+  assert.equal(bomLib.isPackagingBomKind(''), false)
+})
+
+test('isSemiFinishedProduct reads is_semi_finished flag', () => {
+  assert.equal(bomLib.isSemiFinishedProduct({ is_semi_finished: true }), true)
+  assert.equal(bomLib.isSemiFinishedProduct({ is_semi_finished: false }), false)
+  assert.equal(bomLib.isSemiFinishedProduct({}), false)
+  assert.equal(bomLib.isSemiFinishedProduct(null), false)
+})
+
+test('semiFinishedPackagingRequiredError builds structured error with missing specs', () => {
+  const err = bomLib.semiFinishedPackagingRequiredError(['bag-227g', 'bag-454g'])
+  assert.equal(err.code, 'semi_finished_packaging_required')
+  assert.deepEqual(err.missing_specs, ['bag-227g', 'bag-454g'])
+  assert.match(err.message, /bag-227g/)
+  assert.match(err.message, /bag-454g/)
+
+  const empty = bomLib.semiFinishedPackagingRequiredError([])
+  assert.equal(empty.code, 'semi_finished_packaging_required')
+  assert.deepEqual(empty.missing_specs, [])
+})
+
+test('specPackagingBomRefKey builds composite key from template id and spec key', () => {
+  assert.equal(bomLib.specPackagingBomRefKey(5, 'bag-227g'), '5:bag-227g')
+  assert.equal(bomLib.specPackagingBomRefKey(0, ''), '0:')
+})

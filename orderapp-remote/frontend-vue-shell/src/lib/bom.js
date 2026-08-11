@@ -347,6 +347,35 @@ export function productionBomVersionWarning(row = {}) {
   return `当前引用 ${current}，最新 ${latest}`
 }
 
+export const BOM_KIND_PRODUCT = 'product'
+export const BOM_KIND_SPEC_PACKAGING = 'spec_packaging'
+
+export function normalizeBomKind(kind) {
+  const value = String(kind || '').trim()
+  if (value === BOM_KIND_SPEC_PACKAGING) return BOM_KIND_SPEC_PACKAGING
+  return BOM_KIND_PRODUCT
+}
+
+export function isPackagingBomKind(kind) {
+  return normalizeBomKind(kind) === BOM_KIND_SPEC_PACKAGING
+}
+
+export function isSemiFinishedProduct(product = {}) {
+  return Boolean(product?.is_semi_finished)
+}
+
+export function semiFinishedPackagingRequiredError(missingSpecs = []) {
+  return {
+    code: 'semi_finished_packaging_required',
+    missing_specs: Array.isArray(missingSpecs) ? missingSpecs : [],
+    message: '半成品规格需要进行包装：' + (Array.isArray(missingSpecs) ? missingSpecs.join('、') : ''),
+  }
+}
+
+export function specPackagingBomRefKey(unitTemplateId, specKey) {
+  return `${unitTemplateId}:${specKey}`
+}
+
 export function bomSourceLabel(row = {}) {
   return productionBomLabel(row)
 }
