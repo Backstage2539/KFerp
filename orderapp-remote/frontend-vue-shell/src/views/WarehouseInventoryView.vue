@@ -63,76 +63,82 @@
             </button>
           </div>
         </div>
-        <BusinessGroupWorkspace
+        <BusinessGroupInlineWorkspace
           v-if="inventoryCategoryWorkspaceEnabled"
-          v-model="selectedInventoryCategoryKey"
+          v-model:collapsed-keys="collapsedInventoryGroupKeys"
           data-pr442-warehouse-business-groups
-          :groups="inventoryDisplayGroups"
+          :groups="pagedInventoryDisplayGroups"
           :move-active="inventoryCategoryMoveActive"
           :selected-count="selectedItemRowsForMove.length"
           :can-move="canMoveSelectedInventoryItems"
           :loading="loading"
           count-unit="个批次"
+          all-label="全部分类"
           @move="beginInventoryCategoryMove"
           @cancel="cancelInventoryCategoryMove"
           @target="handleInventoryCategoryMoveTarget"
           @manage="openWarehouseBusinessGroupManagement"
           @configure="openWarehouseGroupFeatureSelectionDrawer">
-          <div v-if="!warehouseSelectedBusinessGroups.length" class="warehouse-inventory-group-empty">
-            <span>仓内物品尚未选择分组模板，当前按全部物品平铺展示；可从左侧底部设置分组模板。</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="select-col"></th>
-                  <th>仓库</th>
-                  <th>类型</th>
-                  <th>物品</th>
-                  <th>规格</th>
-                  <th>批次</th>
-                  <th>质检</th>
-                  <th>库存数量</th>
-                  <th>单位成本</th>
-                  <th>更新</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in renderedInventoryRows" :key="rowKey(row)" class="classification-item-row">
-                  <td class="select-col">
-                    <input
-                      type="checkbox"
-                      :checked="isInventoryItemSelected(row)"
-                      :disabled="loading"
-                      @change="toggleInventoryItemSelection(row, $event.target.checked)" />
-                  </td>
-                  <td>{{ row.warehouse_name || row.warehouse }}</td>
-                  <td><span class="pill">{{ typeLabel(row.item_type) }}</span></td>
-                  <td>{{ row.item_name }}</td>
-                  <td>{{ row.spec_g ? `${row.spec_g}g` : '-' }}</td>
-                  <td>{{ row.batch_code || '-' }}</td>
-                  <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
-                  <td>{{ inventoryQtyLabel(row) }}</td>
-                  <td>{{ money(row.unit_cost) }}</td>
-                  <td>{{ row.updated_at || '-' }}</td>
-                  <td><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
-                </tr>
-                <tr v-if="!renderedInventoryRows.length"><td colspan="11" class="muted">当前分类暂无库存</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <PaginationControls
-            :page="page"
-            :page-size="limit"
-            :total="total"
-            :disabled="loading"
-            @change="handleInventoryPaginationChange"
-          />
-        </BusinessGroupWorkspace>
+          <template #filters>
+            <div v-if="!warehouseSelectedBusinessGroups.length" class="warehouse-inventory-group-empty">
+              <span>仓内物品尚未选择分组模板，当前按全部物品平铺展示；可从列表底部设置分组模板。</span>
+            </div>
+          </template>
+          <template #group="{ group }">
+            <div class="table-wrap inventory-group-table-wrap">
+              <table data-auto-pagination="off">
+                <thead>
+                  <tr>
+                    <th class="select-col"></th>
+                    <th>仓库</th>
+                    <th>类型</th>
+                    <th>物品</th>
+                    <th>规格</th>
+                    <th>批次</th>
+                    <th>质检</th>
+                    <th>库存数量</th>
+                    <th>单位成本</th>
+                    <th>更新</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in group.rows" :key="`${group.key}-${rowKey(row)}`" class="classification-item-row">
+                    <td class="select-col">
+                      <input
+                        type="checkbox"
+                        :checked="isInventoryItemSelected(row)"
+                        :disabled="loading || inventoryCategoryMoveActive"
+                        @change="toggleInventoryItemSelection(row, $event.target.checked)" />
+                    </td>
+                    <td>{{ row.warehouse_name || row.warehouse }}</td>
+                    <td><span class="pill">{{ typeLabel(row.item_type) }}</span></td>
+                    <td>{{ row.item_name }}</td>
+                    <td>{{ row.spec_g ? `${row.spec_g}g` : '-' }}</td>
+                    <td>{{ row.batch_code || '-' }}</td>
+                    <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
+                    <td>{{ inventoryQtyLabel(row) }}</td>
+                    <td>{{ money(row.unit_cost) }}</td>
+                    <td>{{ row.updated_at || '-' }}</td>
+                    <td><button class="link" type="button" :disabled="inventoryCategoryMoveActive" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
+                  </tr>
+                  <tr v-if="!group.rows.length"><td colspan="11" class="muted">当前分类暂无库存</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <PaginationControls
+              v-if="group.needsPagination"
+              :page="group.page"
+              :page-size="group.pageSize"
+              :total="group.total"
+              :disabled="loading || inventoryCategoryMoveActive"
+              @change="handleInventoryGroupPaginationChange(group.key, $event)"
+            />
+          </template>
+        </BusinessGroupInlineWorkspace>
         <template v-else>
           <div class="table-wrap">
-            <table>
+            <table data-auto-pagination="off">
               <thead>
                 <tr>
                   <th>仓库</th>
@@ -164,14 +170,15 @@
               </tbody>
             </table>
           </div>
-          <PaginationControls
-            :page="page"
-            :page-size="limit"
-            :total="total"
-            :disabled="loading"
-            @change="handleInventoryPaginationChange"
-          />
         </template>
+        <PaginationControls
+          v-if="!inventoryCategoryWorkspaceEnabled"
+          :page="page"
+          :page-size="limit"
+          :total="total"
+          :disabled="loading || inventoryCategoryMoveActive"
+          @change="handleInventoryPaginationChange"
+        />
       </section>
     </div>
 
@@ -363,15 +370,16 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import BusinessGroupWorkspace from '../components/BusinessGroupWorkspace.vue'
+import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
-  businessGroupGroupsForCategorySelection,
+  businessGroupInlineListState,
   businessGroupMoveAssignmentPayload,
   businessGroupRowsForFeatureSelection,
+  businessGroupVisibleRows,
   groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
@@ -384,6 +392,9 @@ const props = defineProps({
   customerContextLabel: { type: String, default: '' },
 })
 
+const DEFAULT_INVENTORY_GROUP_PAGE_SIZE = 10
+const GROUPED_INVENTORY_FETCH_LIMIT = 500
+
 const warehouses = ref([])
 const warehouseBusinessGroups = ref([])
 const customerOptions = ref([])
@@ -395,7 +406,8 @@ const warehouseGroupFeatureSelectionTemplateIDs = ref([])
 const warehouseGroupFeatureSelectionDraft = ref([])
 const warehouseGroupFeatureSelectionSaving = ref(false)
 const warehouseGroupFeatureDrawerOpen = ref(false)
-const selectedInventoryCategoryKey = ref('business-group-all')
+const collapsedInventoryGroupKeys = ref([])
+const inventoryGroupPagination = ref({})
 const inventoryCategoryMoveActive = ref(false)
 const inventoryBusinessGroupAssignments = ref([])
 const selectedInventoryItemKeys = ref([])
@@ -492,27 +504,19 @@ const inventoryDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(
     return a ? { ...a, object_id: 0 } : null
   },
 }))
-const renderedInventoryGroups = computed(() => businessGroupGroupsForCategorySelection(
+const inventoryInlineListState = computed(() => businessGroupInlineListState(
   inventoryDisplayGroups.value,
-  selectedInventoryCategoryKey.value,
+  inventoryGroupPagination.value,
+  { defaultPageSize: DEFAULT_INVENTORY_GROUP_PAGE_SIZE },
 ))
-const renderedInventoryRows = computed(() => {
-  const seen = new Set()
-  const result = []
-  for (const group of renderedInventoryGroups.value) {
-    if (group?.is_template_group) continue
-    for (const row of Array.isArray(group?.rows) ? group.rows : []) {
-      const key = rowKey(row)
-      if (seen.has(key)) continue
-      seen.add(key)
-      result.push(row)
-    }
-  }
-  return result
-})
+const pagedInventoryDisplayGroups = computed(() => inventoryInlineListState.value.groups)
+const visibleInventoryRows = computed(() => businessGroupVisibleRows(
+  pagedInventoryDisplayGroups.value,
+  collapsedInventoryGroupKeys.value,
+))
 const selectedItemRowsForMove = computed(() => {
   const seen = new Set()
-  return rows.value.filter((row) => {
+  return visibleInventoryRows.value.filter((row) => {
     const key = inventoryItemKey(row)
     if (!selectedInventoryItemKeySet.value.has(key)) return false
     if (seen.has(key)) return false
@@ -525,6 +529,13 @@ const canMoveSelectedInventoryItems = computed(() => Boolean(
   && warehouseSelectedBusinessGroups.value.length
   && selectedItemRowsForMove.value.length
 ))
+
+function syncInventoryGroupPaginationState() {
+  const normalized = inventoryInlineListState.value.pagination
+  if (JSON.stringify(normalized) !== JSON.stringify(inventoryGroupPagination.value)) {
+    inventoryGroupPagination.value = normalized
+  }
+}
 
 function kindLabel(kind) {
   return {
@@ -587,15 +598,10 @@ function toggleInventoryItemSelection(row = {}, checked = false) {
   selectedInventoryItemKeys.value = [...next]
 }
 
-function pruneInventorySelectionToVisibleCategory() {
-  if (inventoryCategoryMoveActive.value) return
-  const visibleKeys = new Set(renderedInventoryRows.value.map((row) => inventoryItemKey(row)).filter(Boolean))
-  selectedInventoryItemKeys.value = selectedInventoryItemKeys.value.filter((key) => visibleKeys.has(key))
-}
-
 function selectWarehouse(code) {
   inventoryCategoryMoveActive.value = false
-  selectedInventoryCategoryKey.value = 'business-group-all'
+  collapsedInventoryGroupKeys.value = []
+  inventoryGroupPagination.value = {}
   selectedInventoryItemKeys.value = []
   selectedWarehouse.value = code
   syncWarehouseBinding()
@@ -609,7 +615,8 @@ function applyViewParams(params = {}) {
   const changed = nextWarehouse !== selectedWarehouse.value || nextItemType !== itemType.value
   if (changed) {
     inventoryCategoryMoveActive.value = false
-    selectedInventoryCategoryKey.value = 'business-group-all'
+    collapsedInventoryGroupKeys.value = []
+    inventoryGroupPagination.value = {}
     selectedInventoryItemKeys.value = []
   }
   selectedWarehouse.value = nextWarehouse
@@ -635,7 +642,8 @@ async function loadWarehouseBusinessGroups() {
     warehouseBusinessGroups.value = []
     warehouseGroupFeatureSelectionTemplateIDs.value = []
     warehouseGroupFeatureSelectionDraft.value = []
-    selectedInventoryCategoryKey.value = 'business-group-all'
+    collapsedInventoryGroupKeys.value = []
+    inventoryGroupPagination.value = {}
     inventoryCategoryMoveActive.value = false
     selectedInventoryItemKeys.value = []
     return
@@ -730,7 +738,8 @@ async function saveWarehouseGroupFeatureSelection() {
     })
     warehouseGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(result)
     warehouseGroupFeatureSelectionDraft.value = [...warehouseGroupFeatureSelectionTemplateIDs.value]
-    selectedInventoryCategoryKey.value = 'business-group-all'
+    collapsedInventoryGroupKeys.value = []
+    inventoryGroupPagination.value = {}
     inventoryCategoryMoveActive.value = false
     selectedInventoryItemKeys.value = []
     warehouseGroupFeatureDrawerOpen.value = false
@@ -870,26 +879,46 @@ async function saveWarehouseSettings() {
   }
 }
 
+function inventoryRequestURL(requestPage, requestLimit) {
+  const url = new URL('/api/stock/warehouse-inventory', window.location.origin)
+  if (q.value) url.searchParams.set('q', q.value)
+  if (selectedWarehouse.value) url.searchParams.set('warehouse', selectedWarehouse.value)
+  if (itemType.value) url.searchParams.set('item_type', itemType.value)
+  if (isCustomerInventoryContext.value) url.searchParams.set('customer_id', String(contextCustomerID.value))
+  url.searchParams.set('page', String(Math.max(1, Number(requestPage || 1))))
+  url.searchParams.set('limit', String(Math.max(1, Number(requestLimit || limit.value))))
+  return url
+}
+
+async function loadGroupedInventoryRows() {
+  const first = await apiGet(inventoryRequestURL(1, GROUPED_INVENTORY_FETCH_LIMIT))
+  const firstRows = Array.isArray(first?.rows) ? first.rows : []
+  const resultTotal = Math.max(firstRows.length, Number(first?.total || 0))
+  const totalPages = Math.max(1, Number(first?.total_pages || Math.ceil(resultTotal / GROUPED_INVENTORY_FETCH_LIMIT)))
+  const remaining = totalPages > 1
+    ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => (
+        apiGet(inventoryRequestURL(index + 2, GROUPED_INVENTORY_FETCH_LIMIT))
+      )))
+    : []
+  rows.value = [firstRows, ...remaining.map((data) => (Array.isArray(data?.rows) ? data.rows : []))].flat()
+  page.value = 1
+  total.value = resultTotal
+}
+
 async function loadInventory() {
   loading.value = true
   error.value = ''
   try {
-    const url = new URL('/api/stock/warehouse-inventory', window.location.origin)
-    if (q.value) url.searchParams.set('q', q.value)
-    if (selectedWarehouse.value) url.searchParams.set('warehouse', selectedWarehouse.value)
-    if (itemType.value) url.searchParams.set('item_type', itemType.value)
-    if (isCustomerInventoryContext.value) url.searchParams.set('customer_id', String(contextCustomerID.value))
-    url.searchParams.set('page', String(page.value))
-    url.searchParams.set('limit', String(limit.value))
-    const data = await apiGet(url)
-    const pagination = paginationFromApi(data)
-    rows.value = data.rows || []
-    page.value = pagination.page
-    limit.value = pagination.pageSize
-    total.value = pagination.total
-    if (selectedWarehouse.value && !isCustomerInventoryContext.value) {
+    if (inventoryCategoryWorkspaceEnabled.value) {
+      await loadGroupedInventoryRows()
       await loadInventoryAssignments()
     } else {
+      const data = await apiGet(inventoryRequestURL(page.value, limit.value))
+      const pagination = paginationFromApi(data)
+      rows.value = data.rows || []
+      page.value = pagination.page
+      limit.value = pagination.pageSize
+      total.value = pagination.total
       inventoryBusinessGroupAssignments.value = []
     }
   } catch (err) {
@@ -900,8 +929,21 @@ async function loadInventory() {
 }
 
 async function loadInventoryPage(nextPage) {
+  inventoryGroupPagination.value = {}
   page.value = Math.max(1, Number(nextPage || 1))
   await loadInventory()
+}
+
+function handleInventoryGroupPaginationChange(groupKey, { page: nextPage, pageSize }) {
+  const key = String(groupKey || '')
+  if (!key) return
+  inventoryGroupPagination.value = {
+    ...inventoryGroupPagination.value,
+    [key]: {
+      page: Math.max(1, Number(nextPage || 1)),
+      pageSize: normalizePageSize(pageSize || DEFAULT_INVENTORY_GROUP_PAGE_SIZE),
+    },
+  }
 }
 
 function handleInventoryPaginationChange({ page: nextPage, pageSize }) {
@@ -997,7 +1039,7 @@ async function loadAll() {
 }
 
 watch(() => props.viewParams, (params) => applyViewParams(params), { deep: true, immediate: true })
-watch(selectedInventoryCategoryKey, pruneInventorySelectionToVisibleCategory)
+watch(inventoryDisplayGroups, syncInventoryGroupPaginationState, { deep: true, immediate: true })
 watch(() => props.customerContextId, () => {
   if (isCustomerInventoryContext.value) {
     traceDrawerOpen.value = false

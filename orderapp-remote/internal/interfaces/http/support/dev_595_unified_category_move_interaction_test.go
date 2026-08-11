@@ -46,14 +46,14 @@ func TestDev595UnifiedCategoryMoveInteractionDeliveryContracts(t *testing.T) {
 			"部署 development",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION",
+			"PR-595 取代 PR-458 的仓库 code 归类口径",
 			"物料档案",
 			"商品档案",
 			"仓内物品",
 			"移动到分类",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION",
+			"PR-595 的内层“左侧分类树 + 右侧列表”",
 			"生产 BOM",
 			"移动到分类",
 			"按 BOM 名称或编号搜索",

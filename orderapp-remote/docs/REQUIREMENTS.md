@@ -22,13 +22,13 @@
 - PR-535-REMOVE-OBSOLETE-COST-PARAMETERS：删除过时的成本参数设置。商品价格管理只保留价格计算模板；商品价格表/成本核算删除参数设置按钮和快捷抽屉；旧 `costingSettings` 页面、共享成本参数组件及前端 helper 删除。历史参数数据和后台兼容 API 暂不做破坏性删除。
 - PR-528 保留的组件边界：分组模板与系统设置仍是两个独立 Vue 页面；PR-530 只在业务设置中组合分组模板组件，不把分组状态或 API 合回系统设置。
 - PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：分组模板的大类和小类不提供启用/停用，统一使用删除。删除小类时物理删除该小类；删除大类时递归物理删除该大类及其全部小类。删除前先把所有引用受影响分类的当前业务归类改为该模板的 `未分类`（`group_item_id=0`），覆盖商品、生产 BOM、仓库、物料及其他使用通用归类关系的功能；不得删除业务对象或回改价格表、订单、BOM、工单等历史快照。删除必须写操作日志。
-- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-513-MATERIAL-CLASSIFICATION-TEMPLATE / PR-584-PRODUCT-MULTI-GROUP-TEMPLATES / PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION：商品档案、物料档案、生产 BOM、仓库库存页面各自选择使用的 `分组模板`。共享分类工作区始终保留；未选择模板时左树仅显示 `全部分类`，右侧平铺、`移动到分类` 禁用，底部设置入口仍可用。选择模板后才增加模板/大类/小类/未分类节点和可移动目标，移动直接覆盖该使用场景下的旧归类并写入 `business_group_assignments`。可配置的功能键为 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；商品价格表继承 `product_catalog`，`price_list` 只可作为历史快照来源标记，不得成为独立模板选择键。
-- PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION：商品档案、物料档案、生产 BOM、仓库库存必须共用 `business-grouping` helper 和 `BusinessGroupWorkspace`（内部复用 `BusinessGroupControls`），不得各写一套分类树、未分类分组、移动状态和 payload。所选模板下的空大类和空小类也必须显示，其他模板、系统默认迁移模板或已删除分类留下的归类都按 `未分类` 展示。
+- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-513-MATERIAL-CLASSIFICATION-TEMPLATE / PR-584-PRODUCT-MULTI-GROUP-TEMPLATES / PR-596-INLINE-CATEGORY-LISTS：商品档案、物料档案、生产 BOM、仓库库存页面各自选择使用的 `分组模板`。四页取消内层左树/右表分栏，所选模板、大类、小类/后代分类、`未分类` 和业务表在列表中按层级内联；未选择模板时只显示 `全部分类` 平铺区、`移动到分类` 禁用，底部设置入口仍可用。移动直接覆盖该使用场景下的旧归类并写入 `business_group_assignments`。可配置的功能键为 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；商品价格表继承 `product_catalog`，`price_list` 只可作为历史快照来源标记，不得成为独立模板选择键。
+- PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-596-INLINE-CATEGORY-LISTS：商品档案、物料档案、生产 BOM、仓库库存必须共用 `business-grouping` helper 和 `BusinessGroupInlineWorkspace`（内部复用统一移动控制），不得各写一套内联分类、未分类分组、折叠/独立分页状态和移动 payload。所选模板下的空大类和空小类也必须显示，其他模板、系统默认迁移模板或已删除分类留下的归类都按 `未分类` 展示。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION / PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：`business_groups / business_group_items` 继续作为分组模板和分类项，`business_group_assignments` 作为对象归类关系；不新增第三套表。用户触发的归类新增、修改、移除都必须写操作日志。
-- PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION：商品档案按所选商品分组模板完整分类树展示分类结果；模板、父组和子组按层级缩进，完整父/子路径通过面包屑表达。商品档案不再显示旧分类过滤 Tab，表格不再显示独立 `分类` 列。勾选商品并点击 `移动到分类` 后，直接在左树点击大类、小类或未分类立即移动，不再使用目标下拉或确认框。
+- PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-596-INLINE-CATEGORY-LISTS：商品档案按所选商品分组模板在列表内完整展示模板、父组、子组和业务表，层级缩进表达完整路径；不再显示内层分类树、旧分类过滤 Tab或独立 `分类` 列。每个含商品的分类重复表头并独立分页。勾选商品并点击 `移动到分类` 后，直接点击大类、小类/后代分类或未分类标题立即移动，不再使用目标下拉或确认框；点击商品名称仍打开既有 `商品档案配置` 抽屉。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：生产 BOM 取消 `使用分组`；所有可用分组模板都可直接选择。生产 BOM 保存、复制、移动只写 `business_group_assignments`，不得再写 `production_boms.group_id/group_category_id`；`production_bom_groups` 和 `production_bom_group_categories` 普通写 API 下线为只读兼容。生产 BOM 不再显示 `全部分类 / 未分类 / 分类项` 分类过滤 Tab，列表按所选模板完整大类/小类树整理，空分类也显示，表格不得再单独展示“分组”列。
-- PR-458 的仓库 code 归类是历史口径，已由 PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION 取代。当前外层仓库列表继续用于选择仓库；选中具体仓库且非客户库存上下文时，右侧仓内物品显示共享分类工作区，并按 `warehouse_inventory_item` 和 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>` 归类。warehouse code 仅作为仓库命名空间前缀，实际归类身份是物品/规格，同一身份的多个批次共享归类。全部仓库和客户库存上下文仅在分类层面平铺且不可勾选移动，既有 WIP/追溯等上下文能力不变；分类不改变库存数量、批次、成本或追溯。
-- PR-513-MATERIAL-CLASSIFICATION-TEMPLATE / PR-584-PRODUCT-MULTI-GROUP-TEMPLATES / PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION：物料档案分类必须使用系统 `分组模板`，交互参考其他三个共享分类工作区。左树一次展示全部已选模板及其分类，不通过目标模板选择器切换或过滤列表。物料页不再本地新增大类/小类，也不再调用 `material_classification_*` 写接口；用户勾选物料并点击 `移动到分类` 后，直接点击左树中的大类、小类或未分类，写入 `business_group_assignments`，其中 `usage_key=material_catalog`、`object_key=material`、`object_id=materials.id`。旧 `material_classification_groups / material_classification_group_categories / material_classification_assignments` 仅做迁移兼容，启动时迁移为 `物料档案默认分组`，旧大类/小类和物料归属不得上线后丢失。
+- PR-458 的仓库 code 归类是历史口径，现行身份合同由 PR-595 保留、PR-596 继续复用。当前外层仓库列表继续用于选择仓库；选中具体仓库且非客户库存上下文时，右侧仓内物品按内联模板/分类展示，并按 `warehouse_inventory_item` 和 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>` 归类。warehouse code 仅作为仓库命名空间前缀，实际归类身份是物品/规格，同一身份的多个批次共享归类。具体仓库先用 `limit=500` 拉取并按 `total` 补齐当前 `q/warehouse/item_type` 的全部结果，再只显示分类独立分页，不显示全局服务端分页。全部仓库和客户库存上下文继续按原服务端分页平铺且不可勾选移动，既有 WIP/追溯等上下文能力不变；分类不改变库存数量、批次、成本或追溯。
+- PR-513-MATERIAL-CLASSIFICATION-TEMPLATE / PR-584-PRODUCT-MULTI-GROUP-TEMPLATES / PR-596-INLINE-CATEGORY-LISTS：物料档案分类必须使用系统 `分组模板`，交互参考其他三个共享分类工作区。列表内一次展示全部已选模板及其分类，不通过目标模板选择器切换或过滤列表；每个有物料的分类重复表头并独立分页，点击物料名称打开详情抽屉。物料页不再本地新增大类/小类，也不再调用 `material_classification_*` 写接口；用户勾选物料并点击 `移动到分类` 后，直接点击大类、小类/后代分类或未分类标题，写入 `business_group_assignments`，其中 `usage_key=material_catalog`、`object_key=material`、`object_id=materials.id`。旧 `material_classification_groups / material_classification_group_categories / material_classification_assignments` 仅做迁移兼容，启动时迁移为 `物料档案默认分组`，旧大类/小类和物料归属不得上线后丢失。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；客户/价格表生成时如覆盖分组，只固化到该价格表版本快照，记录 `group_id/group_item_id/parent_group_item_id/group_source`，不得回写商品档案分类。
 - PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP：商品档案页面当前选择的 `商品分组` 会通过页面草稿传递给商品价格表。进入商品价格表时优先使用该商品分组模板读取 `product_catalog/product` 归类，生成选品分类、未分类分组和平铺价格行 `group_source=product_catalog` 快照；其他模板、已删除分类或未归类商品统一进入 `未分类`。
 - PR-463-PRICE-LIST-PRODUCT-CATALOG-USAGE-CLEANUP：商品价格表顶部商品类型优先使用商品档案 `product_catalog` 分组模板的顶层大类生成，子类归组商品必须跟随父类入口可见。例如商品归在 `咖啡熟豆 / 意式拼配豆` 下，即使旧商品分类仍是 `熟豆 / 默认熟豆`，也必须出现在商品价格表的 `咖啡熟豆` 类型和 `意式拼配豆` 选品分类中。商品价格表版本列表固定查询 `factory_supply`，不展示用途筛选、用途列或“工厂供货价格表 / 客户转售价格表”用途标签；`customer_resale` 继续作为后台和小程序客户转售分享用途，不进入 ERP 录单默认价格版本。
@@ -834,7 +834,7 @@
 
 ## 42. 生产 BOM 与单位删除补齐（PR-436-BOM-UNIT-DELETION-POLISH）
 - 生产 BOM 页面必须支持删除自定义大组和组内小分类。删除大组时，该组下 BOM 回到全局 `未分类`；删除组内小分类时，该分类下 BOM 回到当前大组的组内 `未分类`；删除动作不得删除 BOM、产出商品、版本、组件、成本、生产计划或工单。
-- PR-588 后生产 BOM 批量移动不再显示 `目标分类` 选择器；勾选 BOM 并点击 `移动到分类` 后，直接点击左树中的 `未分类`、大类或小类即立即移动。
+- PR-596 后生产 BOM 批量移动不显示 `目标分类` 选择器；勾选 BOM 并点击 `移动到分类` 后，直接点击列表内的 `未分类`、大类、小类或后代分类标题即立即移动。
 - BOM 新建和编辑时选择产出商品只能显示启用商品；失效商品不出现在产出商品选择器或商品组件新候选中。历史 BOM 已引用的失效商品继续按历史记录展示，不因本次过滤被删除。
 - 单位模板支持删除。删除单位模板必须走后端 DELETE API，软失效模板并写操作日志；历史商品配置、历史价格表、订单、BOM、工单和成本快照不回改。
 - 全局单位字典支持删除。删除基础单位必须走后端 DELETE API，软失效单位并写操作日志；已引用该单位的历史单位模板和业务单据不回改，新建/编辑候选不再显示已删除单位。
@@ -1478,8 +1478,8 @@
 # PR-584-PRODUCT-MULTI-GROUP-TEMPLATES 商品行业字段与功能自选分组模板（2026-08-07）
 
 - `DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE`：商品档案配置可同时引用多份启用中的行业字段模板。读写接口新增有序 `industry_field_template_ids`，旧 `industry_field_template_id` 继续作为首个模板的兼容字段；旧单模板数据自动补入多模板引用，不丢字段值。页面按所选模板顺序合并字段定义；同名 `field_key` 只展示一项并以前序模板定义为准，已有值继续保留。取消某模板只移除不再被任何已选模板定义的当前字段；取消全部模板后不显示也不保存行业字段。模板引用、字段值与商品配置在同一事务保存，并在商品配置操作日志中记录完整模板 ID 列表。
-- `DEV-584-GROUP-USAGE-MULTI-REFERENCE`：分组模板只维护模板与分类树，不在模板编辑区选择功能。由各功能页面多选自己使用的分组模板：商品档案、物料档案、生产 BOM、仓库库存分别通过 `/api/business-group-feature-selections/{feature_key}` 有序读写 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；只有已选模板才增加模板/分类节点和移动目标。物料档案与其他三页一致，一次在左树展示全部已选模板，不通过目标模板下拉切换或过滤列表。PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION 后空数组仍保留共享分类工作区，左树仅显示 `全部分类`、右侧平铺、移动禁用且底部设置入口保留。保存必须校验模板 active、去重、原子替换并写操作日志；空数组不删除模板、业务对象、既有归类关系或历史快照。模板资料保存以及历史模板侧 `usages` / `replace_usages` 请求不得反向覆盖功能选择。PR-534 的“无用途绑定即通用候选”口径由本需求替代。
-- `DEV-584-PRODUCT-GROUP-UNION-COLLAPSE`：商品档案页面提供分组模板多选，并同时展示全部已选 `product_catalog` 模板的分类树。每个商品按唯一当前归类只出现一次；每份模板的空大类、小类仍显示，未归到任一当前已选模板的商品统一进入一个全局 `未分类`。PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION 后移动区改为常驻左树即时选择目标；没有选择任何模板时左树只显示全部分类、右侧按普通列表展示且移动按钮禁用，底部设置入口保留。收起任一大类时必须隐藏它的全部小类标题和商品行，但保留小类自身折叠状态、分页和勾选状态；重新展开大类后恢复原状态。
+- `DEV-584-GROUP-USAGE-MULTI-REFERENCE`：分组模板只维护模板与分类树，不在模板编辑区选择功能。由各功能页面多选自己使用的分组模板：商品档案、物料档案、生产 BOM、仓库库存分别通过 `/api/business-group-feature-selections/{feature_key}` 有序读写 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；只有已选模板才增加模板/分类节点和移动目标。PR-596-INLINE-CATEGORY-LISTS 后四页在列表内一次展示全部已选模板和分类，不通过目标模板下拉切换或过滤列表；空数组时只显示 `全部分类` 平铺区、移动禁用且底部设置入口保留。保存必须校验模板 active、去重、原子替换并写操作日志；空数组不删除模板、业务对象、既有归类关系或历史快照。模板资料保存以及历史模板侧 `usages` / `replace_usages` 请求不得反向覆盖功能选择。PR-534 的“无用途绑定即通用候选”口径由本需求替代。
+- `DEV-584-PRODUCT-GROUP-UNION-COLLAPSE`：商品档案页面提供分组模板多选，并同时内联展示全部已选 `product_catalog` 模板及分类。每个商品按唯一当前归类只出现一次；每份模板的空大类、小类仍显示，未归到任一当前已选模板的商品统一进入一个全局 `未分类`。移动模式下直接点击可移动分类标题选择目标；没有选择任何模板时只显示全部分类平铺区且移动按钮禁用，底部设置入口保留。收起任一大类时必须隐藏它的全部小类标题和商品行，但保留小类自身折叠状态、独立分页和勾选状态；重新展开大类后恢复原状态。
 - `DEV-584-PRICE-LIST-INHERIT-PRODUCT-GROUPS`：商品价格表不得维护独立 `price_list` 分组模板引用，而是继承商品档案选择的分组模板。每个当前已选且 active 的模板对应一种商品类型，顺序与商品档案选择一致；例如商品档案选择“商品-咖啡豆”和“商品-挂耳”，价格表只出现咖啡豆、挂耳两种模板类型。历史 `price_list` 引用必须忽略，不能产生额外商品类型；取消商品档案选择只影响后续价格表编辑和预览，已发布价格表快照不回改。
 - `DEV-584-DOCS-ACCEPTANCE-DEPLOY`：同步商品档案、分组模板、设置审计手册、需求、验收、PR/DEV 和独立证据；完成 Go 单元/API/PostgreSQL、Vue 定向与完整测试及 Vite 构建后合入最新 `develop` 并部署 development。`main` 和 production 不在本需求范围内。
 
@@ -1520,7 +1520,7 @@
 - production 已使用既有账号启停 API 即时恢复本次受影响的目标内部员工账号，并确认原有审计动作存在；需求、验收或日志证据不得记录账号、密码或其他个人信息。该即时恢复不替代代码防护，拒绝请求只是不写业务成功审计，系统仍可按既有中间件保留 HTTP 失败请求记录。
 - `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：同步根目录与 `orderapp-remote/docs` 需求/验收、小程序员工 ERP、客户门户、设置审计手册、PR/DEV 种子、支持合同和独立验收记录。保留 support RED、后端/API、Vue/Vite、miniapp、透明资源和构建门禁后，将功能分支合入 `develop` 并部署 development。服务器部署、小程序固定开发包、微信开发者工具上传、审核、正式发布和 production 代码部署是独立检查点；本需求不自动上传、提审、发布微信版本，也不部署 production 代码。
 
-# PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION 四列表统一分类移动交互（2026-08-10）
+# PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION 四列表统一分类移动交互（2026-08-10，历史 UI）
 
 - 物料档案、生产 BOM、商品档案和选中具体仓库且非客户库存上下文的仓内物品统一显示常驻左侧分类结构，层级为“全部分类 → 模板 → 大类 → 小类/后代分类”，并显示当前过滤结果数量、折叠状态和独立滚动区；底部固定提供 `前往分组模板` 和 `设置分组模板`。未选择任何模板时工作区仍显示，左树仅有 `全部分类`，右侧平铺且移动禁用，底部设置入口保留。
 - 右侧保留当前分类面包屑、独立 `移动到分类` 按钮和原业务列表。勾选对象后进入移动模式，右侧列表及其查询、分页和行操作置灰；左树提示 `请选择要移动到的分类` 并展开全部分支。全部分类和模板标题只用于浏览，不能作为目标；大类、小类/后代分类和未分类可作为目标。
@@ -1528,3 +1528,14 @@
 - 分类浏览必须发生在各页面现有过滤结果之后，保留各页面自己的搜索、状态、类型、仓库和分页语义：物料保留名称/编码/批次和状态；生产 BOM 保留状态及名称/编号；商品保留名称/类型/备注和状态及分类内分页。仓库先按现有 `q/warehouse/item_type/customer_id/page/limit` 取得 stock API 当前服务端页，再仅在该页 `rows` 上做客户端分类过滤；不发送 `group_id/group_item_id`，服务端 `total/page/limit` 等分页口径不随分类改变。
 - 商品、物料、BOM 沿用 `product_catalog/product`、`material_catalog/material`、`production_bom/production_bom`。PR-588 取代 PR-458 的仓库 code 当前归类口径：选中具体仓库且非客户库存上下文时显示分类工作区，使用 `warehouse_inventory/warehouse_inventory_item` 和精确 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>`；warehouse code 只作为仓库命名空间前缀，实际归类身份是仓内物品/规格，同一身份的多个批次只移动一次。全部仓库和客户库存上下文仅在分类层面保持平铺且不可勾选或移动，既有 WIP、追溯等上下文能力不变。既有 assignment API、操作日志、库存数量、成本、批次和追溯不变。
 - 本功能先在独立功能分支完成单元测试和前端构建；经 Van 后续明确要求，合入 `develop` 并部署 development。production、`main` 不操作，页面业务验收仍由 Van 后续执行。
+
+> 本节的左树/右表布局、树内目标位置，以及仓库“只分类当前服务端页并保留全局分页”的口径由 PR-596 覆盖；功能模板选择、即时移动、归类身份、assignment API、操作日志和各页独立筛选条件继续有效。
+
+# PR-596-INLINE-CATEGORY-LISTS 四列表分类与业务列表内联（2026-08-10）
+
+- `DEV-596-INLINE-CATEGORY-WORKSPACE`：物料档案、生产 BOM、商品档案及具体仓库的仓内物品取消 PR-588/PR-595 的内层“左侧分类树 + 右侧业务表”分栏。所选模板、父分类、后代分类、`未分类` 与业务列表按层级直接内联；分类可独立收起，父分类自身直接归属的对象不得因存在子分类而丢失。未选择模板时只显示一个 `全部分类` 平铺区，移动禁用，底部 `前往分组模板` 和 `设置分组模板` 入口仍保留。
+- `DEV-596-CATEGORY-TABLE-PAGINATION`：每个展开且含业务对象的分类都重复该页面原有表头，并使用该分类自己的页码和每页条数；一个分类翻页或改每页条数不得改变其他分类。分类标题数量按该页独立筛选后的完整对象数统计，分类收起再展开保留其页码；搜索、状态、模板选择或相应业务上下文变化时按页面既有规则重置。模板标题和 `全部分类` 只组织内容，不成为移动目标。
+- `DEV-596-LIST-DRAWERS-FILTERS`：物料档案继续保留名称/编码/批次搜索和启用状态过滤，点击物料名称打开物料详情抽屉；生产 BOM 继续保留状态及名称/编号搜索，点击 BOM 名称打开包含主档、版本与配方的完整设置抽屉。商品档案继续保留名称/类型/备注、状态及父商品/规格语义，点击商品名称沿用既有 `商品档案配置` 抽屉。四页不再用永久右侧详情栏挤压内联列表。
+- `DEV-596-INLINE-MOVE-TARGET`：勾选对象并点击 `移动到分类` 后，列表行、筛选、分类内分页和行操作置灰不可用，分类标题成为即时目标；直接点击大类、小类/后代分类或 `未分类` 后调用既有 assignment API，不显示目标模板/分类下拉且不二次确认。成功后清空勾选并退出，失败保留勾选和移动模式供重试，取消恢复正常浏览；`全部分类` 和模板标题不可作为目标。
+- `DEV-596-WAREHOUSE-FULL-RESULT-PAGINATION`：仓库页保留外层仓库选择器。选中具体仓库且非客户库存上下文时，右侧仓内库存使用内联分类；先按当前 `q/warehouse/item_type` 请求 stock API 的第 1 页并使用 `limit=500`，若 `total` 超出已取回行数则继续补齐后续页，直到取得该过滤条件下全部结果，再在完整结果上做分类和每分类独立分页。具体仓库界面不显示全局服务端分页，也不得发送 `group_id/group_item_id`，因此分页只服务当前分类。全部仓库和客户库存上下文继续按原 `q/warehouse/item_type/customer_id/page/limit` 服务端分页平铺，且不可勾选移动；WIP、追溯及既有设置抽屉不变。
+- `DEV-596-IDENTITY-API-COMPAT`：PR-596 覆盖 PR-588/PR-595 的列表布局、目标入口和仓库客户端加载/分页编排，不改变功能模板选择、归类身份、stock/assignment API 参数合同或审计。商品、物料、BOM 继续使用 `product_catalog/product`、`material_catalog/material`、`production_bom/production_bom`；仓库继续使用 `warehouse_inventory/warehouse_inventory_item` 和精确 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>`。warehouse code 仅是命名空间，物品/规格才是 identity，同一 identity 的多个批次共享归类；移到未分类只清除该精确 assignment。PR-442/PR-458 的仓库 code 与 `group_id/group_item_id` 查询只保留历史兼容。

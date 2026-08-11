@@ -148,9 +148,9 @@
           </button>
         </div>
         <div v-show="!productsCollapsed">
-          <BusinessGroupWorkspace
-            v-model="selectedProductBusinessGroupCategoryKey"
-            :groups="fullDisplaySkuGroups"
+          <BusinessGroupInlineWorkspace
+            v-model:collapsed-keys="collapsedProductClassificationGroups"
+            :groups="displaySkuGroups"
             :move-active="productCategoryMoveActive"
             :selected-count="selectedProductIds.length"
             :can-move="canMoveSelectedProductsToBusinessGroup"
@@ -163,164 +163,138 @@
             @move="productCategoryMoveActive = true"
             @cancel="productCategoryMoveActive = false"
             @target="handleProductCategoryMoveTarget">
-          <div v-if="!productCatalogBusinessGroups.length" class="classification-view-toolbar product-business-group-empty">
-            <span>商品档案尚未选择分组模板，当前按全部商品平铺展示。</span>
-          </div>
-          <div class="table-wrap sku-table-wrap">
-          <div class="sku-filters product-filter-row">
-            <label>
-              <span>搜索</span>
-              <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
-            </label>
-            <label>
-              <span>状态</span>
-              <select v-model="skuFilters.active">
-                <option value="all">全部</option>
-                <option value="active">有效</option>
-                <option value="inactive">已失效</option>
-              </select>
-            </label>
-            <div class="filter-actions sku-list-actions">
-              <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
-              <select v-model.number="batchProductUnitTemplateID" class="compact-select" :disabled="!selectedProductIds.length || loading">
-                <option :value="0">选择销售规格模板</option>
-                <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
-                  {{ productUnitTemplateSummary(unitTemplate) }}
-                </option>
-              </select>
-              <button class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
-                设置销售规格模板
-              </button>
-              <button class="secondary compact-action" type="button" @click="openProductUnitTemplateManagement">
-                维护销售规格模板
-              </button>
-              <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
-                失效商品
-              </button>
-            </div>
-          </div>
-          <table :key="skuTableKey" class="sku-table" data-auto-pagination="off">
-            <thead>
-              <tr>
-                <th class="select-col">
-                  <input type="checkbox" :checked="allProductRowsSelected" :disabled="!editableDisplaySkuRows.length" @change="toggleAllProductRows($event.target.checked)" />
-                </th>
-                <th class="sku-name-cell">商品名</th>
-                <th>商品编号</th>
-                <th>行业字段</th>
-                <th>归属</th>
-                <th class="action-cell">新增动作</th>
-                <th>库存单位</th>
-                <th>整数库存</th>
-                <th>价格摘要</th>
-                <th>商品状态</th>
-                <th>处理</th>
-                <th class="remark-cell">备注</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="group in renderedDisplaySkuGroups" :key="group.key">
-                <tr
-                  v-if="group.is_template_group"
-                  class="classification-template-row"
-                  :class="{ 'classification-template-collapsed': isProductClassificationGroupCollapsed(group.key) }">
-                  <td :colspan="12">
-                    <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
-                      {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
-                    </button>
-                    <strong>{{ group.label }}</strong>
-                    <small>{{ group.template_total }} 款</small>
-                  </td>
-                </tr>
-                <template v-if="!group.is_template_group">
-                <tr
-                  v-if="!group.all"
-                  :class="['classification-group-row', { 'classification-subgroup-row': Number(group.depth || 0) > 0 }]"
-                  :style="classificationGroupIndentStyle(group)">
-                    <td :colspan="12">
-                    <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
-                      {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
-                    </button>
-                    <strong :title="group.path_label || group.label">{{ group.label }}</strong>
-                    <small>{{ group.total }} 款</small>
-                  </td>
-                </tr>
-                <template v-if="!isProductClassificationGroupCollapsed(group.key)">
-              <template v-for="row in group.rows" :key="`${group.key}-${row.id}`">
-                <tr
-                  :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']"
-                  :style="classificationItemIndentStyle(group)">
-                  <td class="select-col">
-                    <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
-                  </td>
-                  <td class="sku-name-cell">
-                    <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
-                    <details v-if="row.sku_rows?.length" class="product-spec-skus">
-                      <summary>{{ row.sku_rows.length }} 个规格 SKU</summary>
-                      <div class="product-spec-sku-list">
-                        <button
-                          v-for="sku in row.sku_rows"
-                          :key="`product-spec-sku-${sku.id}`"
-                          class="product-spec-sku-item"
-                          type="button"
-                          :disabled="sku.active === false"
-                          @click.stop="openProductProductionConfig(sku)">
-                          <span>{{ sku.sku_name || sku.spec_label || sku.name }}</span>
-                          <small>{{ productCodeLabel(sku) }}</small>
-                        </button>
-                      </div>
-                    </details>
-                  </td>
-                  <td>{{ productCodeLabel(row) }}</td>
-                  <td class="industry-field-cell">
-                    <span>{{ industryFieldSummary(productionConfigPriceListFields(row)) }}</span>
-                    <button class="text-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">设置</button>
-                  </td>
-                  <td>{{ productOwnerLabel(row) }}</td>
-                  <td class="action-cell">
-                    <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
-                  </td>
-                  <td>{{ productInventoryUnitLabel(row) }}</td>
-                  <td>{{ productIntegerInventoryLabel(row) }}</td>
-                  <td class="price-summary-cell">{{ productPriceSummaryLabel(row) }}</td>
-                  <td>
-                    <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
-                  </td>
-                  <td>
-                    <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
-                  </td>
-                  <td>
-                    <textarea
-                      class="remark-input"
-                      v-model.trim="row.remark"
-                      rows="2"
-                      :disabled="!canEditSkuRow(row) || row.active === false"
-                      @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
-                  </td>
-                </tr>
-              </template>
-                  <tr v-if="group.needsPagination" class="classification-pagination-row">
-                    <td :colspan="12">
-                      <PaginationControls
-                        :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
-                        :page="group.page"
-                        :page-size="group.pageSize"
-                        :total="group.total"
-                        :disabled="loading"
-                        @change="handleSkuGroupPaginationChange(group.key, $event)"
-                      />
-                    </td>
-                  </tr>
-                </template>
-                </template>
-              </template>
-              <tr v-if="!displaySkuRows.length">
-                <td :colspan="12" class="muted">暂无商品档案</td>
-              </tr>
-            </tbody>
-          </table>
-          </div>
-          </BusinessGroupWorkspace>
+            <template #filters>
+              <div v-if="!productCatalogBusinessGroups.length" class="classification-view-toolbar product-business-group-empty">
+                <span>商品档案尚未选择分组模板，当前按全部商品平铺展示。</span>
+              </div>
+              <div class="sku-filters product-filter-row">
+                <label>
+                  <span>搜索</span>
+                  <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
+                </label>
+                <label>
+                  <span>状态</span>
+                  <select v-model="skuFilters.active">
+                    <option value="all">全部</option>
+                    <option value="active">有效</option>
+                    <option value="inactive">已失效</option>
+                  </select>
+                </label>
+                <div class="filter-actions sku-list-actions">
+                  <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+                  <select v-model.number="batchProductUnitTemplateID" class="compact-select" :disabled="!selectedProductIds.length || loading">
+                    <option :value="0">选择销售规格模板</option>
+                    <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
+                      {{ productUnitTemplateSummary(unitTemplate) }}
+                    </option>
+                  </select>
+                  <button class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
+                    设置销售规格模板
+                  </button>
+                  <button class="secondary compact-action" type="button" @click="openProductUnitTemplateManagement">
+                    维护销售规格模板
+                  </button>
+                  <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
+                    失效商品
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <template #group="{ group }">
+              <div class="table-wrap sku-table-wrap product-inline-group-table">
+                <table :key="`${skuTableKey}:${group.key}`" class="sku-table" data-auto-pagination="off">
+                  <thead>
+                    <tr>
+                      <th class="select-col">
+                        <input
+                          type="checkbox"
+                          :checked="areProductGroupRowsSelected(group)"
+                          :disabled="!editableProductGroupRows(group).length"
+                          @change="toggleProductGroupRows(group, $event.target.checked)" />
+                      </th>
+                      <th class="sku-name-cell">商品名</th>
+                      <th>商品编号</th>
+                      <th>行业字段</th>
+                      <th>归属</th>
+                      <th class="action-cell">新增动作</th>
+                      <th>库存单位</th>
+                      <th>整数库存</th>
+                      <th>价格摘要</th>
+                      <th>商品状态</th>
+                      <th>处理</th>
+                      <th class="remark-cell">备注</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template v-for="row in group.rows" :key="`${group.key}-${row.id}`">
+                      <tr :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']">
+                        <td class="select-col">
+                          <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
+                        </td>
+                        <td class="sku-name-cell">
+                          <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
+                          <details v-if="row.sku_rows?.length" class="product-spec-skus">
+                            <summary>{{ row.sku_rows.length }} 个规格 SKU</summary>
+                            <div class="product-spec-sku-list">
+                              <button
+                                v-for="sku in row.sku_rows"
+                                :key="`product-spec-sku-${sku.id}`"
+                                class="product-spec-sku-item"
+                                type="button"
+                                :disabled="sku.active === false"
+                                @click.stop="openProductProductionConfig(sku)">
+                                <span>{{ sku.sku_name || sku.spec_label || sku.name }}</span>
+                                <small>{{ productCodeLabel(sku) }}</small>
+                              </button>
+                            </div>
+                          </details>
+                        </td>
+                        <td>{{ productCodeLabel(row) }}</td>
+                        <td class="industry-field-cell">
+                          <span>{{ industryFieldSummary(productionConfigPriceListFields(row)) }}</span>
+                          <button class="text-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">设置</button>
+                        </td>
+                        <td>{{ productOwnerLabel(row) }}</td>
+                        <td class="action-cell">
+                          <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
+                        </td>
+                        <td>{{ productInventoryUnitLabel(row) }}</td>
+                        <td>{{ productIntegerInventoryLabel(row) }}</td>
+                        <td class="price-summary-cell">{{ productPriceSummaryLabel(row) }}</td>
+                        <td>
+                          <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
+                        </td>
+                        <td>
+                          <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
+                        </td>
+                        <td>
+                          <textarea
+                            class="remark-input"
+                            v-model.trim="row.remark"
+                            rows="2"
+                            :disabled="!canEditSkuRow(row) || row.active === false"
+                            @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr v-if="!group.rows.length">
+                      <td :colspan="12" class="muted">当前分类暂无商品档案</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <PaginationControls
+                  v-if="group.needsPagination"
+                  :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
+                  :page="group.page"
+                  :page-size="group.pageSize"
+                  :total="group.total"
+                  :disabled="loading || productCategoryMoveActive"
+                  @change="handleProductGroupPaginationChange(group.key, $event)"
+                />
+              </div>
+            </template>
+          </BusinessGroupInlineWorkspace>
         </div>
       </div>
         </div>
@@ -1839,18 +1813,17 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import BusinessGroupWorkspace from '../components/BusinessGroupWorkspace.vue'
+import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
   businessGroupControlOptions,
-  businessGroupGroupsForCategorySelection,
+  businessGroupInlineListState,
   businessGroupRowsForFeatureSelection,
-  businessGroupItemIndentStyle,
-  businessGroupHeaderIndentStyle,
   businessGroupMoveAssignmentPayload,
+  businessGroupVisibleRows,
   groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
@@ -1949,14 +1922,11 @@ import {
   takePricingRuleTrialReturnState,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
-  skuGroupTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
-  skuGroupHiddenByCollapsedAncestor,
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
-  visibleSkuGroupRows,
   visibleNonDeletedRows,
 } from '../lib/product-settings'
 import { orderProductFamilyOptions, orderProductKindFilterOptions } from '../lib/order-entry'
@@ -2108,7 +2078,6 @@ const selectedAliasClassificationMoveID = ref(0)
 const selectedProductClassificationCategoryID = ref(0)
 const selectedAliasClassificationCategoryID = ref(0)
 const selectedProductGroupTemplateID = ref(0)
-const selectedProductBusinessGroupCategoryKey = ref('business-group-all')
 const productCategoryMoveActive = ref(false)
 const productGroupFeatureSelectionSaving = ref(false)
 const productGroupTemplateDrawerOpen = ref(false)
@@ -2496,21 +2465,12 @@ const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplates(fi
   objectKey: 'product',
   objectIDForRow: (row) => Number(row.id || 0),
 }))
-const selectedDisplaySkuGroups = computed(() => businessGroupGroupsForCategorySelection(
-  fullDisplaySkuGroups.value,
-  selectedProductBusinessGroupCategoryKey.value,
-))
-const groupedSkuTableState = computed(() => skuGroupTableState(selectedDisplaySkuGroups.value, skuGroupPagination.value, {
+const productInlineGroupState = computed(() => businessGroupInlineListState(fullDisplaySkuGroups.value, skuGroupPagination.value, {
   defaultPageSize: DEFAULT_SKU_GROUP_PAGE_SIZE,
 }))
-const displaySkuGroups = computed(() => groupedSkuTableState.value.groups)
-const renderedDisplaySkuGroups = computed(() => displaySkuGroups.value.filter((group) => (
-  !skuGroupHiddenByCollapsedAncestor(displaySkuGroups.value, group, collapsedProductClassificationGroups.value)
-)))
-const displaySkuRows = computed(() => groupedSkuTableState.value.visibleRows)
-const visibleDisplaySkuRows = computed(() => visibleSkuGroupRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
-const editableDisplaySkuRows = computed(() => visibleDisplaySkuRows.value.filter(canEditSkuRow))
-const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
+const displaySkuGroups = computed(() => productInlineGroupState.value.groups)
+const displaySkuRows = computed(() => productInlineGroupState.value.visibleRows)
+const visibleDisplaySkuRows = computed(() => businessGroupVisibleRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
 const allAliasRowsSelected = computed(() => visibleCustomerProductAliases.value.length > 0 && visibleCustomerProductAliases.value.every((row) => row.active === false || selectedAliasIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
   .filter((template) => template.active !== false)
@@ -2676,7 +2636,7 @@ function syncVisibleSkuTableState() {
 }
 
 function syncSkuGroupPaginationState() {
-  const normalizedPagination = groupedSkuTableState.value.pagination
+  const normalizedPagination = productInlineGroupState.value.pagination
   if (JSON.stringify(normalizedPagination) !== JSON.stringify(skuGroupPagination.value)) {
     skuGroupPagination.value = normalizedPagination
   }
@@ -2764,26 +2724,6 @@ function defaultChildSkuForm(product = {}) {
     unit_template_id: Number(product?.unit_template_id || defaultProductUnitTemplateID() || 0),
     active: true,
   }
-}
-
-function isProductClassificationGroupCollapsed(key) {
-  return collapsedProductClassificationGroups.value.includes(String(key || ''))
-}
-
-function toggleProductClassificationGroup(key) {
-  const groupKey = String(key || '')
-  if (!groupKey) return
-  collapsedProductClassificationGroups.value = isProductClassificationGroupCollapsed(groupKey)
-    ? collapsedProductClassificationGroups.value.filter((item) => item !== groupKey)
-    : [...collapsedProductClassificationGroups.value, groupKey]
-}
-
-function classificationGroupIndentStyle(group = {}) {
-  return businessGroupHeaderIndentStyle(group)
-}
-
-function classificationItemIndentStyle(group = {}) {
-  return businessGroupItemIndentStyle(group)
 }
 
 function isAliasClassificationGroupCollapsed(key) {
@@ -3532,7 +3472,7 @@ async function loadAll({ strict = false } = {}) {
     syncSelectedAliasCustomer()
     applyWorkspaceCustomerContext()
     syncVisibleSkuTableState()
-    pruneSelectedProducts(displaySkuRows.value)
+    pruneSelectedProducts(filteredSkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
     if (strict) throw err
@@ -5731,15 +5671,24 @@ function toggleProductSelection(row, checked) {
     : current.filter((item) => item !== id)
 }
 
-function toggleAllProductRows(checked) {
+function editableProductGroupRows(group = {}) {
+  return (Array.isArray(group?.rows) ? group.rows : []).filter(canEditSkuRow)
+}
+
+function areProductGroupRowsSelected(group = {}) {
+  const rows = editableProductGroupRows(group)
+  return rows.length > 0 && rows.every((row) => selectedProductIds.value.includes(Number(row.id || 0)))
+}
+
+function toggleProductGroupRows(group, checked) {
   selectedProductIds.value = selectedSkuRowIDsAfterVisibleToggle(
     selectedProductIds.value,
-    editableDisplaySkuRows.value,
+    editableProductGroupRows(group),
     checked,
   )
 }
 
-function handleSkuGroupPaginationChange(groupKey, { page, pageSize }) {
+function handleProductGroupPaginationChange(groupKey, { page, pageSize }) {
   const key = String(groupKey || '')
   if (!key) return
   skuGroupPagination.value = {
@@ -6490,7 +6439,6 @@ async function saveProductGroupFeatureSelection() {
     if (!productCatalogBusinessGroupRows().some((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0))) {
       selectedProductGroupTemplateID.value = Number(productCatalogBusinessGroupRows()[0]?.id || 0)
     }
-    selectedProductBusinessGroupCategoryKey.value = 'business-group-all'
     productCategoryMoveActive.value = false
     ok.value = payload.group_template_ids.length
       ? `商品档案已选择 ${payload.group_template_ids.length} 个分组模板`
@@ -7783,7 +7731,7 @@ async function copyProductArchive(row) {
 
 watch(selectedCustomerSkuCustomerID, (customerID) => {
   if (restoringProductSettingsDraft) {
-    pruneSelectedProducts(displaySkuRows.value)
+    pruneSelectedProducts(filteredSkuRows.value)
     return
   }
   skuForm.value = defaultSkuForm()
@@ -7796,7 +7744,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
   if (Number(customerID || 0) > 0) {
     selectedAliasCustomerID.value = Number(customerID || 0)
   }
-  pruneSelectedProducts(displaySkuRows.value)
+  pruneSelectedProducts(filteredSkuRows.value)
   notifyWorkspaceCustomerChanged(customerID)
 })
 
@@ -7907,7 +7855,7 @@ watch(currentSkuSourceRows, () => {
   }
 }, { deep: true })
 
-watch(displaySkuRows, (rows) => {
+watch(filteredSkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
