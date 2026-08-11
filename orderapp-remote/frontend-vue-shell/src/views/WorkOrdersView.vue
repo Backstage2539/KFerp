@@ -25,6 +25,8 @@
           <tr>
             <th>工单</th>
             <th>批次</th>
+            <th>产出对象</th>
+            <th>上游依赖</th>
             <th>商品</th>
             <th>规格</th>
             <th>计划数量</th>
@@ -44,6 +46,11 @@
           <tr v-for="row in rows" :key="row.id">
             <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'summary')">{{ row.work_order_no }}</button><small>{{ row.order_nos || '-' }}</small></td>
             <td>{{ row.batch_id }}</td>
+            <td class="summary"><strong>{{ formatWorkOrderTypedOutput(row) }}</strong><small>{{ row.target_warehouse ? `目标仓库 ${row.target_warehouse}` : '-' }}</small></td>
+            <td class="summary">
+              <span :class="['status', workOrderHasUpstreamBlocker(row) ? 'warning' : 'success']">{{ workOrderHasUpstreamBlocker(row) ? '等待上游' : '依赖就绪' }}</span>
+              <small>{{ workOrderUpstreamBlockerLabel(row) }}</small>
+            </td>
             <td>{{ row.product_name }}</td>
             <td>{{ row.spec_g }}g</td>
             <td>
@@ -84,10 +91,11 @@
             <td class="row-actions">
               <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">执行枢纽</button>
               <button class="secondary compact" v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
+              <button class="secondary compact danger-text" v-if="canCancelWorkOrder(row)" type="button" @click="cancelWorkOrder(row)">取消工单</button>
               <button class="secondary compact" @click="printWorkOrder(row)">打印</button>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="15" class="muted">暂无工单</td></tr>
+          <tr v-if="!rows.length"><td colspan="17" class="muted">暂无工单</td></tr>
         </tbody>
       </table>
     </section>
@@ -228,10 +236,15 @@ import {
 } from '../lib/workstation-capacity-costing'
 import {
   buildWorkOrderOperationSplitPayload,
+  canCancelWorkOrder,
   canEditWorkOrderSplits,
+  formatWorkOrderTypedOutput,
   formatWorkOrderPlannedOutput,
+  workOrderHasUpstreamBlocker,
   workOrderOperationSplitsEndpoint,
+  workOrderCancelEndpoint,
   workOrderStatusOptions,
+  workOrderUpstreamBlockerLabel,
 } from '../lib/work-orders'
 
 const props = defineProps({
@@ -623,6 +636,20 @@ function openExecutionHub(row, focus = 'summary') {
   const id = Number(row?.id || row?.work_order_id || props.viewParams?.work_order_id || 0)
   if (!id) return
   executionHub.value = { open: true, workOrderId: id, focus }
+}
+
+async function cancelWorkOrder(row) {
+  const endpoint = workOrderCancelEndpoint(row)
+  if (!canCancelWorkOrder(row) || !endpoint) return
+  const workOrderNo = String(row?.work_order_no || `#${Number(row?.id || 0)}`)
+  if (!window.confirm(`确认取消未开工工单 ${workOrderNo}？取消后该工单将不能再开始生产。`)) return
+  error.value = ''
+  try {
+    await apiSend(workOrderCancelEndpoint(row), { body: {} })
+    await load()
+  } catch (err) {
+    error.value = err.message || '取消工单失败'
+  }
 }
 
 async function saveWorkOrderOperationSplits() {

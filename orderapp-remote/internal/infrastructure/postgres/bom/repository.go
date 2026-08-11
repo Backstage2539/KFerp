@@ -9,6 +9,7 @@ import (
 	bomapp "orderapp/internal/application/bom"
 	bomdomain "orderapp/internal/domain/bom"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	postgresbomgraph "orderapp/internal/infrastructure/postgres/bomgraph"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -117,7 +118,11 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 }
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0),
+	return listProductionBomProductOptions(ctx, r.pool, r.schema, nil)
+}
+
+func listProductionBomProductOptions(ctx context.Context, q bomQueryer, schema string, productIDs []int64) ([]bomapp.Option, error) {
+	rows, err := q.Query(ctx, fmt.Sprintf(`SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0),
 		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') END AS inventory_unit,
 		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN parent_units.parent_product_inventory_unit_explicit ELSE COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL END AS inventory_unit_explicit,
 		COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10),
@@ -146,7 +151,8 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 		LEFT JOIN %[1]s.product_unit_templates category_unit_template ON category_unit_template.id=COALESCE(category_config.unit_template_id,0) AND category_unit_template.deleted_at IS NULL
 		WHERE p.active=true
 		  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
-		ORDER BY p.name`, r.schema))
+		  AND ($1::bigint[] IS NULL OR p.id=ANY($1))
+		ORDER BY p.name`, schema), productIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +170,11 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 }
 
 func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
-	rows, err := r.pool.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg') FROM "+r.schema+".materials ORDER BY name")
+	return listProductionBomMaterialOptions(ctx, r.pool, r.schema, nil)
+}
+
+func listProductionBomMaterialOptions(ctx context.Context, q bomQueryer, schema string, materialIDs []int64) ([]bomapp.Option, error) {
+	rows, err := q.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg') FROM "+schema+".materials WHERE ($1::bigint[] IS NULL OR id=ANY($1)) ORDER BY name", materialIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1562,10 +1572,41 @@ func (r Repository) DeleteProductionBomGroupCategory(ctx context.Context, cmd bo
 }
 
 func (r Repository) ListProductionBoms(ctx context.Context) ([]bomapp.ProductionBomSummary, error) {
+	return r.ListProductionBomsFiltered(ctx, bomapp.ProductionBomFilter{})
+}
+
+func (r Repository) ListProductionBomsFiltered(ctx context.Context, filter bomapp.ProductionBomFilter) ([]bomapp.ProductionBomSummary, error) {
 	if err := repairLegacyProductionBomBindings(ctx, r.pool, r.schema); err != nil {
 		return nil, err
 	}
-	rows, err := r.pool.Query(ctx, productionBomSummarySQL(r.schema, "1=1")+" ORDER BY COALESCE(bga.sort_order,100), pb.name, pb.id")
+	where := []string{"1=1"}
+	args := []any{}
+	addArg := func(value any) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	outputType := strings.ToLower(strings.TrimSpace(filter.OutputType))
+	if outputType != "" {
+		where = append(where, "pb.output_type="+addArg(outputType))
+	}
+	if filter.OutputID > 0 {
+		where = append(where, "CASE WHEN pb.output_type='material' THEN pb.output_material_id ELSE pb.output_product_id END="+addArg(filter.OutputID))
+	}
+	componentType := strings.ToLower(strings.TrimSpace(filter.ComponentType))
+	if componentType == "finished_product" {
+		componentType = "product"
+	}
+	if componentType != "" || filter.ComponentID > 0 {
+		componentWhere := []string{"i.version_id IN (SELECT id FROM " + r.schema + ".production_bom_versions WHERE bom_id=pb.id AND status IN ('draft','published'))"}
+		if componentType != "" {
+			componentWhere = append(componentWhere, "CASE WHEN i.component_type IN ('product','finished_product') THEN 'product' ELSE 'material' END="+addArg(componentType))
+		}
+		if filter.ComponentID > 0 {
+			componentWhere = append(componentWhere, "CASE WHEN i.component_type IN ('product','finished_product') THEN i.component_product_id ELSE i.material_id END="+addArg(filter.ComponentID))
+		}
+		where = append(where, "EXISTS(SELECT 1 FROM "+r.schema+".production_bom_version_items i WHERE "+strings.Join(componentWhere, " AND ")+")")
+	}
+	rows, err := r.pool.Query(ctx, productionBomSummarySQL(r.schema, strings.Join(where, " AND "))+" ORDER BY COALESCE(bga.sort_order,100), pb.name, pb.id", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1659,10 +1700,10 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var bomID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, output_product_id, status, created_by, updated_by)
-		VALUES($1,$2,$3,'active',$4,$4)
+		INSERT INTO %s.production_boms(code, name, output_type, output_product_id, output_material_id, status, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$6)
 		RETURNING id
-	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), cmd.OutputProductID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
+	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), cmd.OutputType, cmd.OutputProductID, cmd.OutputMaterialID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", bomID)
@@ -1678,7 +1719,7 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	`, r.schema), bomID, yieldRate, cmd.OutputQty, strings.TrimSpace(cmd.OutputUnit), strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_product_id": cmd.OutputProductID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_type": cmd.OutputType, "output_id": cmd.OutputID, "output_product_id": cmd.OutputProductID, "output_material_id": cmd.OutputMaterialID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), bomID, groupID, groupCategoryID); err != nil {
@@ -1702,13 +1743,36 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 	if status == "" {
 		status = "active"
 	}
+	if cmd.UpdateOutputBinding {
+		var currentOutputType string
+		var currentOutputProductID int64
+		var currentOutputMaterialID int64
+		var hasPublished bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(NULLIF(output_type,''),'product'),
+			       COALESCE(output_product_id,0),
+			       COALESCE(output_material_id,0),
+			       EXISTS(SELECT 1 FROM %s.production_bom_versions v WHERE v.bom_id=production_boms.id AND v.status='published')
+			FROM %s.production_boms
+			WHERE id=$1
+			FOR UPDATE
+		`, r.schema, r.schema), cmd.ID).Scan(&currentOutputType, &currentOutputProductID, &currentOutputMaterialID, &hasPublished); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		identityChanged := currentOutputType != cmd.OutputType || currentOutputProductID != cmd.OutputProductID || currentOutputMaterialID != cmd.OutputMaterialID
+		if identityChanged && hasPublished {
+			return bomapp.ProductionBomSummary{}, fmt.Errorf("published production BOM output identity is immutable")
+		}
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_boms
 		SET name=COALESCE(NULLIF($2,''), name),
-		    output_product_id=COALESCE(NULLIF($3,0), output_product_id),
-		    status=$4, updated_at=now(), updated_by=$5
+		    output_type=CASE WHEN $3 THEN $4 ELSE output_type END,
+		    output_product_id=CASE WHEN $3 THEN $5 ELSE output_product_id END,
+		    output_material_id=CASE WHEN $3 THEN $6 ELSE output_material_id END,
+		    status=$7, updated_at=now(), updated_by=$8
 		WHERE id=$1
-	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.OutputProductID, status, strings.TrimSpace(cmd.Actor)); err != nil {
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.UpdateOutputBinding, cmd.OutputType, cmd.OutputProductID, cmd.OutputMaterialID, status, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	outputUnit := strings.TrimSpace(cmd.OutputUnit)
@@ -1721,7 +1785,7 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 			return bomapp.ProductionBomSummary{}, err
 		}
 	}
-	auditMeta := postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "status": status, "output_product_id": cmd.OutputProductID, "output_unit": outputUnit}
+	auditMeta := postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "status": status, "output_type": cmd.OutputType, "output_id": cmd.OutputID, "output_product_id": cmd.OutputProductID, "output_material_id": cmd.OutputMaterialID, "output_unit": outputUnit}
 	if cmd.UpdateGroupAssignment {
 		auditMeta["group_id"] = groupID
 		auditMeta["group_category_id"] = groupCategoryID
@@ -1749,7 +1813,9 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	groupID := cmd.GroupID
 	groupCategoryID := cmd.GroupCategoryID
 	var sourceName string
+	var sourceOutputType string
 	var sourceOutputProductID int64
+	var sourceOutputMaterialID int64
 	var sourceVersionID int64
 	var sourceOutputQty float64
 	var sourceOutputUnit string
@@ -1758,7 +1824,7 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	var sourceSpecialAttrsJSON string
 	var sourceProcessRouteID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT pb.name, COALESCE(pb.output_product_id,0), v.id, COALESCE(v.output_qty,1)::float8, COALESCE(NULLIF(v.output_unit,''),'unit'), COALESCE(v.material_loss_rate,0)::float8, COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}'), COALESCE(v.process_route_id,0)
+		SELECT pb.name, COALESCE(NULLIF(pb.output_type,''),'product'), COALESCE(pb.output_product_id,0), COALESCE(pb.output_material_id,0), v.id, COALESCE(v.output_qty,1)::float8, COALESCE(NULLIF(v.output_unit,''),'unit'), COALESCE(v.material_loss_rate,0)::float8, COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}'), COALESCE(v.process_route_id,0)
 		FROM %s.production_boms pb
 		JOIN LATERAL (
 			SELECT id, output_qty, output_unit, material_loss_rate, special_attrs_schema_json, special_attrs_json, process_route_id
@@ -1768,7 +1834,7 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 			LIMIT 1
 		) v ON true
 		WHERE pb.id=$1
-	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceOutputProductID, &sourceVersionID, &sourceOutputQty, &sourceOutputUnit, &sourceMaterialLossRate, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON, &sourceProcessRouteID); err != nil {
+	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceOutputType, &sourceOutputProductID, &sourceOutputMaterialID, &sourceVersionID, &sourceOutputQty, &sourceOutputUnit, &sourceMaterialLossRate, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON, &sourceProcessRouteID); err != nil {
 		return bomapp.ProductionBomSummary{}, fmt.Errorf("source production BOM not found")
 	}
 	name := strings.TrimSpace(cmd.Name)
@@ -1781,15 +1847,19 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	}
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var newBomID int64
+	outputType := sourceOutputType
 	outputProductID := sourceOutputProductID
-	if cmd.OutputProductID > 0 {
+	outputMaterialID := sourceOutputMaterialID
+	if cmd.OutputType != "" {
+		outputType = cmd.OutputType
 		outputProductID = cmd.OutputProductID
+		outputMaterialID = cmd.OutputMaterialID
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, output_product_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
-		VALUES($1,$2,$3,'active',$4,$5,$6,$6)
+		INSERT INTO %s.production_boms(code, name, output_type, output_product_id, output_material_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$8)
 		RETURNING id
-	`, r.schema), tempCode, name, outputProductID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
+	`, r.schema), tempCode, name, outputType, outputProductID, outputMaterialID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", newBomID)
@@ -1813,7 +1883,7 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	`, r.schema, r.schema), newVersionID, sourceVersionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &newBomID, "copy_production_bom", postgresinfra.StrPtr("source_bom_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ID)), postgresinfra.StrPtr(fmt.Sprintf("%d", newBomID)), postgresinfra.AuditMeta{"source_bom_id": cmd.ID, "source_bom_version_id": sourceVersionID, "target_bom_id": newBomID, "target_bom_version_id": newVersionID, "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &newBomID, "copy_production_bom", postgresinfra.StrPtr("source_bom_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ID)), postgresinfra.StrPtr(fmt.Sprintf("%d", newBomID)), postgresinfra.AuditMeta{"source_bom_id": cmd.ID, "source_bom_version_id": sourceVersionID, "target_bom_id": newBomID, "target_bom_version_id": newVersionID, "output_type": outputType, "output_product_id": outputProductID, "output_material_id": outputMaterialID, "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), newBomID, groupID, groupCategoryID); err != nil {
@@ -2014,8 +2084,8 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	return r.productionBomVersionByID(ctx, cmd.VersionID)
 }
 
-func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.Context, versionID int64) error {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.Context, q bomQueryer, versionID int64) error {
+	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(component_type,''),'material'),
 		       COALESCE(material_id,0),
 		       COALESCE(component_product_id,0),
@@ -2030,6 +2100,8 @@ func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.C
 	items := make([]bomapp.ProductionBomDraftItem, 0)
 	needMaterials := false
 	needProducts := false
+	materialIDs := make([]int64, 0)
+	productIDs := make([]int64, 0)
 	for rows.Next() {
 		var item bomapp.ProductionBomDraftItem
 		if err := rows.Scan(&item.ComponentType, &item.MaterialID, &item.ComponentProductID, &item.ConsumeUnit); err != nil {
@@ -2041,8 +2113,10 @@ func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.C
 		}
 		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
 			needProducts = true
+			productIDs = append(productIDs, item.ComponentProductID)
 		} else {
 			needMaterials = true
+			materialIDs = append(materialIDs, item.MaterialID)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -2055,13 +2129,13 @@ func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.C
 	var materials []bomapp.Option
 	var products []bomapp.Option
 	if needMaterials {
-		materials, err = r.Materials(ctx)
+		materials, err = listProductionBomMaterialOptions(ctx, q, r.schema, materialIDs)
 		if err != nil {
 			return err
 		}
 	}
 	if needProducts {
-		products, err = r.Products(ctx)
+		products, err = listProductionBomProductOptions(ctx, q, r.schema, productIDs)
 		if err != nil {
 			return err
 		}
@@ -2070,89 +2144,161 @@ func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.C
 }
 
 func (r Repository) ValidateProductionBomVersionForPublish(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
+	return r.validateProductionBomVersionForPublish(ctx, r.pool, cmd)
+}
+
+func (r Repository) validateProductionBomVersionForPublish(ctx context.Context, q bomQueryer, cmd bomapp.PublishProductionBomVersionCommand) error {
 	var bomID int64
+	var outputType string
 	var outputProductID int64
+	var outputMaterialID int64
+	var outputUnit string
 	var itemCount int64
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT v.bom_id,
+		       COALESCE(NULLIF(pb.output_type,''),'product'),
 		       COALESCE(pb.output_product_id,0),
+		       COALESCE(pb.output_material_id,0),
+		       COALESCE(NULLIF(v.output_unit,''),'unit'),
 		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items i WHERE i.version_id=v.id),0)
 		FROM %s.production_bom_versions v
 		JOIN %s.production_boms pb ON pb.id=v.bom_id
 		WHERE v.id=$1 AND v.status='draft'
-	`, r.schema, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &outputProductID, &itemCount); err != nil {
+	`, r.schema, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &outputType, &outputProductID, &outputMaterialID, &outputUnit, &itemCount); err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("production BOM version not found")
 		}
 		return err
 	}
-	if outputProductID <= 0 {
+	outputID := outputProductID
+	if outputType == "material" {
+		outputID = outputMaterialID
+	}
+	if outputType == "product" && outputProductID <= 0 {
 		return fmt.Errorf("output_product_id required")
+	}
+	if outputType == "material" && outputMaterialID <= 0 {
+		return fmt.Errorf("output_material_id required")
+	}
+	if (outputType != "product" && outputType != "material") || outputID <= 0 || (outputType == "product" && outputMaterialID > 0) || (outputType == "material" && outputProductID > 0) {
+		return fmt.Errorf("invalid production BOM output binding")
 	}
 	if itemCount <= 0 {
 		return fmt.Errorf("components required")
 	}
-	if err := r.validateProductionBomVersionItemInventoryUnits(ctx, cmd.VersionID); err != nil {
+	if err := validateProductionBomComponentsForPublish(ctx, q, r.schema, cmd.VersionID); err != nil {
 		return err
 	}
-	var hasCycle bool
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		WITH RECURSIVE selected_versions AS (
-			SELECT pb.id AS bom_id,
-			       pb.output_product_id,
-			       v.id AS version_id
-			FROM %[1]s.production_boms pb
-			JOIN LATERAL (
-				SELECT id, status, published_at, created_at
-				FROM %[1]s.production_bom_versions pv
-				WHERE pv.bom_id=pb.id
-				  AND pv.status IN ('draft','published')
-				ORDER BY CASE WHEN pv.id=$1 THEN 0 WHEN pv.status='published' THEN 1 ELSE 2 END,
-				         pv.published_at DESC NULLS LAST,
-				         pv.created_at DESC,
-				         pv.id DESC
-				LIMIT 1
-			) v ON true
-			WHERE pb.output_product_id > 0
-		),
-		edges AS (
-			SELECT sv.output_product_id AS parent_product_id,
-			       i.component_product_id AS component_product_id
-			FROM selected_versions sv
-			JOIN %[1]s.production_bom_version_items i ON i.version_id=sv.version_id
-			WHERE i.component_type IN ('product','finished_product')
-			  AND i.component_product_id > 0
-		),
-		walk(product_id, path) AS (
-			SELECT $2::bigint, ARRAY[$2::bigint]
-			UNION ALL
-			SELECT e.component_product_id, walk.path || e.component_product_id
-			FROM walk
-			JOIN edges e ON e.parent_product_id=walk.product_id
-			WHERE NOT e.component_product_id = ANY(walk.path)
-		)
+	if err := r.validateProductionBomVersionItemInventoryUnits(ctx, q, cmd.VersionID); err != nil {
+		return err
+	}
+	if err := r.validateProductionBomOutputTarget(ctx, q, outputType, outputID, outputUnit); err != nil {
+		return err
+	}
+	var hasSelfReference bool
+	if err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT EXISTS(
 			SELECT 1
-			FROM walk
-			JOIN edges e ON e.parent_product_id=walk.product_id
-			WHERE e.component_product_id=$2
+			FROM %s.production_bom_version_items i
+			WHERE i.version_id=$1
+			  AND CASE WHEN i.component_type IN ('product','finished_product') THEN 'product' ELSE 'material' END=$2
+			  AND CASE WHEN i.component_type IN ('product','finished_product') THEN i.component_product_id ELSE i.material_id END=$3
 		)
-	`, r.schema), cmd.VersionID, outputProductID).Scan(&hasCycle); err != nil {
+	`, r.schema), cmd.VersionID, outputType, outputID).Scan(&hasSelfReference); err != nil {
 		return err
 	}
-	if hasCycle {
-		return fmt.Errorf("cycle detected")
+	if hasSelfReference {
+		return fmt.Errorf("typed self-reference detected")
 	}
-	if err := validateProductionBomRouteStandardCostCapacity(ctx, r.pool, r.schema, cmd.VersionID); err != nil {
+	if err := validateProductionBomDefaultGraphCandidate(ctx, q, r.schema, cmd.VersionID); err != nil {
+		return err
+	}
+	if err := validateProductionBomRouteStandardCostCapacity(ctx, q, r.schema, cmd.VersionID); err != nil {
 		return err
 	}
 	_ = bomID
 	return nil
 }
 
-func validateProductionBomRouteStandardCostCapacity(ctx context.Context, pool *pgxpool.Pool, schema string, versionID int64) error {
+func validateProductionBomDefaultGraphCandidate(ctx context.Context, q bomQueryer, schema string, candidateVersionID int64) error {
+	return postgresbomgraph.ValidateCandidate(ctx, q, schema, candidateVersionID)
+}
+
+func validateProductionBomComponentsForPublish(ctx context.Context, q bomQueryer, schema string, versionID int64) error {
+	var componentType string
+	var componentID int64
+	var exists bool
+	var active bool
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT invalid.component_type, invalid.component_id, invalid.target_exists, invalid.target_active
+		FROM (
+			SELECT i.id,
+			       CASE WHEN i.component_type IN ('product','finished_product') THEN 'product' ELSE 'material' END AS component_type,
+			       CASE WHEN i.component_type IN ('product','finished_product') THEN COALESCE(i.component_product_id,0) ELSE COALESCE(i.material_id,0) END AS component_id,
+			       CASE WHEN i.component_type IN ('product','finished_product') THEN p.id IS NOT NULL ELSE m.id IS NOT NULL END AS target_exists,
+			       CASE WHEN i.component_type IN ('product','finished_product') THEN COALESCE(p.active,false) ELSE m.id IS NOT NULL AND m.deprecated_at IS NULL END AS target_active
+			FROM %[1]s.production_bom_version_items i
+			LEFT JOIN %[1]s.materials m ON i.component_type NOT IN ('product','finished_product') AND m.id=i.material_id
+			LEFT JOIN %[1]s.products p ON i.component_type IN ('product','finished_product') AND p.id=i.component_product_id
+			WHERE i.version_id=$1
+		) invalid
+		WHERE NOT invalid.target_exists OR NOT invalid.target_active
+		ORDER BY invalid.id
+		LIMIT 1
+	`, schema), versionID).Scan(&componentType, &componentID, &exists, &active)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("component %s not found: %d", componentType, componentID)
+	}
+	if !active {
+		return fmt.Errorf("component %s is inactive: %d", componentType, componentID)
+	}
+	return nil
+}
+
+func (r Repository) validateProductionBomOutputTarget(ctx context.Context, q bomQueryer, outputType string, outputID int64, outputUnit string) error {
+	outputUnit = strings.TrimSpace(outputUnit)
+	if outputType == "material" {
+		var inventoryUnit string
+		var active bool
+		if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(unit,''),'unit'), deprecated_at IS NULL FROM %s.materials WHERE id=$1`, r.schema), outputID).Scan(&inventoryUnit, &active); err != nil {
+			if err == pgx.ErrNoRows {
+				return fmt.Errorf("output material not found")
+			}
+			return err
+		}
+		if !active {
+			return fmt.Errorf("output material is inactive")
+		}
+		if strings.TrimSpace(inventoryUnit) != outputUnit {
+			return fmt.Errorf("output_unit must match output material inventory unit")
+		}
+		return nil
+	}
+	products, err := listProductionBomProductOptions(ctx, q, r.schema, []int64{outputID})
+	if err != nil {
+		return err
+	}
+	for _, product := range products {
+		if product.ID != outputID {
+			continue
+		}
+		if strings.TrimSpace(product.InventoryUnit) != outputUnit {
+			return fmt.Errorf("output_unit must match output product inventory unit")
+		}
+		return nil
+	}
+	return fmt.Errorf("output product not found or inactive")
+}
+
+func validateProductionBomRouteStandardCostCapacity(ctx context.Context, q bomQueryer, schema string, versionID int64) error {
 	var processRouteID int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(process_route_id,0)
 		FROM %s.production_bom_versions
 		WHERE id=$1
@@ -2163,7 +2309,7 @@ func validateProductionBomRouteStandardCostCapacity(ctx context.Context, pool *p
 		return nil
 	}
 	var missingCount int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM %s.process_route_operations
 		WHERE route_id=$1 AND COALESCE(standard_cost_capacity_id,0)<=0
@@ -2174,7 +2320,7 @@ func validateProductionBomRouteStandardCostCapacity(ctx context.Context, pool *p
 		return fmt.Errorf("工艺路线工序缺少标准成本产能档")
 	}
 	var invalidCount int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id AND c.status='active'
@@ -2192,13 +2338,115 @@ func validateProductionBomRouteStandardCostCapacity(ctx context.Context, pool *p
 }
 
 func (r Repository) PublishProductionBomVersion(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
+	return r.ValidateAndPublishProductionBomVersion(ctx, cmd)
+}
+
+func (r Repository) ValidateAndPublishProductionBomVersion(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockProductionBomDefaultGraphTx(ctx, tx, r.schema); err != nil {
+		return err
+	}
+	var lockedVersionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.id
+		FROM %s.production_bom_versions v
+		JOIN %s.production_boms pb ON pb.id=v.bom_id
+		WHERE v.id=$1 AND v.status='draft'
+		FOR UPDATE OF v, pb
+	`, r.schema, r.schema), cmd.VersionID).Scan(&lockedVersionID); err != nil {
+		return fmt.Errorf("production BOM version not found")
+	}
+	if err := lockProductionBomPublishTargetsTx(ctx, tx, r.schema, lockedVersionID); err != nil {
+		return err
+	}
+	if err := r.validateProductionBomVersionForPublish(ctx, tx, cmd); err != nil {
+		return err
+	}
+	if err := r.publishProductionBomVersionTx(ctx, tx, cmd); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func lockProductionBomDefaultGraphTx(ctx context.Context, tx pgx.Tx, schema string) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, schema+":production-bom-default-graph")
+	return err
+}
+
+func lockProductionBomPublishTargetsTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) error {
+	lockRows := func(query string) error {
+		rows, err := tx.Query(ctx, query, versionID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+		}
+		return rows.Err()
+	}
+	if err := lockRows(fmt.Sprintf(`
+		WITH target_ids AS (
+			SELECT pb.output_material_id AS id
+			FROM %[1]s.production_bom_versions v
+			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			WHERE v.id=$1 AND pb.output_type='material' AND pb.output_material_id>0
+			UNION
+			SELECT i.material_id
+			FROM %[1]s.production_bom_version_items i
+			WHERE i.version_id=$1
+			  AND i.component_type NOT IN ('product','finished_product')
+			  AND i.material_id>0
+		)
+		SELECT m.id
+		FROM %[1]s.materials m
+		JOIN target_ids target ON target.id=m.id
+		ORDER BY m.id
+		FOR UPDATE OF m
+	`, schema)); err != nil {
+		return err
+	}
+	return lockRows(fmt.Sprintf(`
+		WITH target_ids AS (
+			SELECT pb.output_product_id AS id
+			FROM %[1]s.production_bom_versions v
+			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			WHERE v.id=$1 AND COALESCE(NULLIF(pb.output_type,''),'product')='product' AND pb.output_product_id>0
+			UNION
+			SELECT i.component_product_id
+			FROM %[1]s.production_bom_version_items i
+			WHERE i.version_id=$1
+			  AND i.component_type IN ('product','finished_product')
+			  AND i.component_product_id>0
+		)
+		SELECT p.id
+		FROM %[1]s.products p
+		JOIN target_ids target ON target.id=p.id
+		ORDER BY p.id
+		FOR UPDATE OF p
+	`, schema))
+}
+
+func (r Repository) publishProductionBomVersionTx(ctx context.Context, tx pgx.Tx, cmd bomapp.PublishProductionBomVersionCommand) error {
 	var bomID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id FROM %s.production_bom_versions WHERE id=$1 AND status='draft' FOR UPDATE`, r.schema), cmd.VersionID).Scan(&bomID); err != nil {
+	var outputType string
+	var outputID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.bom_id,
+		       COALESCE(NULLIF(pb.output_type,''),'product'),
+		       CASE WHEN pb.output_type='material' THEN pb.output_material_id ELSE pb.output_product_id END
+		FROM %s.production_bom_versions v
+		JOIN %s.production_boms pb ON pb.id=v.bom_id
+		WHERE v.id=$1 AND v.status='draft'
+		FOR UPDATE OF v, pb
+	`, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &outputType, &outputID); err != nil {
 		return fmt.Errorf("production BOM version not found")
 	}
 	snapshotCount, err := refreshProductionBomVersionOperationCostSnapshotsTx(ctx, tx, r.schema, cmd.VersionID)
@@ -2219,16 +2467,42 @@ func (r Repository) PublishProductionBomVersion(ctx context.Context, cmd bomapp.
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.product_production_configs
-		SET production_bom_version_id=0, updated_at=now(), updated_by=$2
-		WHERE production_bom_id=$1
-	`, r.schema), bomID, strings.TrimSpace(cmd.Actor)); err != nil {
+		UPDATE %s.production_bom_output_bindings
+		SET bom_version_id=$1, updated_at=now(), updated_by=$3
+		WHERE bom_id=$2
+	`, r.schema), cmd.VersionID, bomID, strings.TrimSpace(cmd.Actor)); err != nil {
 		return err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "publish_production_bom_version", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{"bom_id": bomID, "version_id": cmd.VersionID, "operation_cost_snapshot_count": snapshotCount}); err != nil {
+	if outputType == "material" {
+		var inserted bool
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.production_bom_output_bindings(output_type, output_id, bom_id, bom_version_id, is_default, updated_at, updated_by)
+			VALUES('material',$1,$2,$3,true,now(),$4)
+			ON CONFLICT(output_type, output_id) DO NOTHING
+			RETURNING true
+		`, r.schema), outputID, bomID, cmd.VersionID, strings.TrimSpace(cmd.Actor)).Scan(&inserted)
+		if err != nil && err != pgx.ErrNoRows {
+			return err
+		}
+		if inserted {
+			if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "material", &outputID, "set_default_production_bom", postgresinfra.StrPtr("default_production_bom_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", bomID)), postgresinfra.AuditMeta{"output_type": outputType, "output_id": outputID, "production_bom_id": bomID, "production_bom_version_id": cmd.VersionID, "automatic": true, "reason": "first_published_material_bom"}); err != nil {
+				return err
+			}
+		}
+	}
+	if outputType == "product" {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.product_production_configs
+			SET production_bom_version_id=0, updated_at=now(), updated_by=$2
+			WHERE production_bom_id=$1
+		`, r.schema), bomID, strings.TrimSpace(cmd.Actor)); err != nil {
+			return err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_version", &cmd.VersionID, "publish_production_bom_version", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{"bom_id": bomID, "version_id": cmd.VersionID, "output_type": outputType, "output_id": outputID, "operation_cost_snapshot_count": snapshotCount}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) (int, error) {
@@ -2446,6 +2720,9 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 		return bomapp.ProductProductionBomBinding{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockProductionBomDefaultGraphTx(ctx, tx, r.schema); err != nil {
+		return bomapp.ProductProductionBomBinding{}, err
+	}
 	var latestVersionID int64
 	var versionNo string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -2459,6 +2736,7 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 			LIMIT 1
 		) v ON true
 		WHERE pb.id=$1
+		  AND COALESCE(NULLIF(pb.output_type,''),'product')='product'
 		  AND pb.output_product_id=$2
 		  AND (pb.status='active' OR COALESCE(NULLIF(pb.status,''),'active')='active')
 	`, r.schema, r.schema), cmd.BomID, cmd.ProductID).Scan(&latestVersionID, &versionNo); err != nil {
@@ -2466,6 +2744,9 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 	}
 	if cmd.BomVersionID > 0 && cmd.BomVersionID != latestVersionID {
 		return bomapp.ProductProductionBomBinding{}, fmt.Errorf("default production BOM always uses latest published version")
+	}
+	if err := validateProductionBomDefaultGraphCandidate(ctx, tx, r.schema, latestVersionID); err != nil {
+		return bomapp.ProductProductionBomBinding{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_production_configs(
@@ -2495,6 +2776,18 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 	`, r.schema), cmd.ProductID, cmd.BomID, latestVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductProductionBomBinding{}, err
 	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_bom_output_bindings(output_type, output_id, bom_id, bom_version_id, is_default, updated_at, updated_by)
+		VALUES('product',$1,$2,$3,true,now(),$4)
+		ON CONFLICT(output_type, output_id) DO UPDATE SET
+			bom_id=excluded.bom_id,
+			bom_version_id=excluded.bom_version_id,
+			is_default=true,
+			updated_at=now(),
+			updated_by=excluded.updated_by
+	`, r.schema), cmd.ProductID, cmd.BomID, latestVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
+		return bomapp.ProductProductionBomBinding{}, err
+	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &cmd.ProductID, "set_default_production_bom", postgresinfra.StrPtr("default_production_bom_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.BomID)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "production_bom_id": cmd.BomID, "production_bom_version_id": latestVersionID, "production_bom_version_no": versionNo}); err != nil {
 		return bomapp.ProductProductionBomBinding{}, err
 	}
@@ -2511,14 +2804,119 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 	return binding, nil
 }
 
+func (r Repository) ResolveDefaultPublishedOutputBom(ctx context.Context, outputType string, outputID int64) (bomapp.ProductionBomOutputBinding, error) {
+	outputType = strings.ToLower(strings.TrimSpace(outputType))
+	if (outputType != "product" && outputType != "material") || outputID <= 0 {
+		return bomapp.ProductionBomOutputBinding{}, fmt.Errorf("invalid output binding")
+	}
+	var row bomapp.ProductionBomOutputBinding
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT ob.output_type, ob.output_id, ob.bom_id, ob.bom_version_id, ob.is_default
+		FROM %[1]s.production_bom_output_bindings ob
+		JOIN %[1]s.production_boms pb ON pb.id=ob.bom_id
+		JOIN %[1]s.production_bom_versions v ON v.id=ob.bom_version_id AND v.bom_id=pb.id
+		LEFT JOIN %[1]s.materials om ON ob.output_type='material' AND om.id=ob.output_id
+		LEFT JOIN %[1]s.products op ON ob.output_type='product' AND op.id=ob.output_id
+		WHERE ob.output_type=$1
+		  AND ob.output_id=$2
+		  AND ob.is_default=true
+		  AND pb.output_type=ob.output_type
+		  AND CASE WHEN pb.output_type='material' THEN pb.output_material_id ELSE pb.output_product_id END=ob.output_id
+		  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+		  AND v.status='published'
+		  AND ((ob.output_type='material' AND om.id IS NOT NULL AND om.deprecated_at IS NULL)
+		       OR (ob.output_type='product' AND op.id IS NOT NULL AND COALESCE(op.active,true)=true))
+	`, r.schema), outputType, outputID).Scan(&row.OutputType, &row.OutputID, &row.BomID, &row.BomVersionID, &row.IsDefault); err != nil {
+		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	return row, nil
+}
+
+func (r Repository) BindProductionBomOutput(ctx context.Context, cmd bomapp.BindProductionBomOutputCommand) (bomapp.ProductionBomOutputBinding, error) {
+	outputType := strings.ToLower(strings.TrimSpace(cmd.OutputType))
+	if (outputType != "product" && outputType != "material") || cmd.OutputID <= 0 || cmd.BomID <= 0 {
+		return bomapp.ProductionBomOutputBinding{}, fmt.Errorf("invalid output binding")
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockProductionBomDefaultGraphTx(ctx, tx, r.schema); err != nil {
+		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	var latestVersionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.id
+		FROM %[1]s.production_boms pb
+		JOIN LATERAL (
+			SELECT id
+			FROM %[1]s.production_bom_versions
+			WHERE bom_id=pb.id AND status='published'
+			ORDER BY published_at DESC NULLS LAST, created_at DESC, id DESC
+			LIMIT 1
+		) v ON true
+		WHERE pb.id=$1
+		  AND pb.output_type=$2
+		  AND CASE WHEN pb.output_type='material' THEN pb.output_material_id ELSE pb.output_product_id END=$3
+		  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+		FOR UPDATE OF pb
+	`, r.schema), cmd.BomID, outputType, cmd.OutputID).Scan(&latestVersionID); err != nil {
+		return bomapp.ProductionBomOutputBinding{}, fmt.Errorf("published production BOM version not found")
+	}
+	if cmd.BomVersionID > 0 && cmd.BomVersionID != latestVersionID {
+		return bomapp.ProductionBomOutputBinding{}, fmt.Errorf("default production BOM always uses latest published version")
+	}
+	if err := validateProductionBomDefaultGraphCandidate(ctx, tx, r.schema, latestVersionID); err != nil {
+		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_bom_output_bindings(output_type, output_id, bom_id, bom_version_id, is_default, updated_at, updated_by)
+		VALUES($1,$2,$3,$4,true,now(),$5)
+		ON CONFLICT(output_type, output_id) DO UPDATE SET
+			bom_id=excluded.bom_id,
+			bom_version_id=excluded.bom_version_id,
+			is_default=true,
+			updated_at=now(),
+			updated_by=excluded.updated_by
+	`, r.schema), outputType, cmd.OutputID, cmd.BomID, latestVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
+		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	if outputType == "product" {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_production_bom_bindings(product_id, bom_id, bom_version_id, bound_at, bound_by)
+			VALUES($1,$2,$3,now(),$4)
+			ON CONFLICT(product_id) DO UPDATE SET bom_id=excluded.bom_id, bom_version_id=excluded.bom_version_id, bound_at=now(), bound_by=excluded.bound_by
+		`, r.schema), cmd.OutputID, cmd.BomID, latestVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
+			return bomapp.ProductionBomOutputBinding{}, err
+		}
+	}
+	entityType := outputType
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, entityType, &cmd.OutputID, "set_default_production_bom", postgresinfra.StrPtr("default_production_bom_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.BomID)), postgresinfra.AuditMeta{"output_type": outputType, "output_id": cmd.OutputID, "production_bom_id": cmd.BomID, "production_bom_version_id": latestVersionID}); err != nil {
+		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.ProductionBomOutputBinding{}, err
+	}
+	return bomapp.ProductionBomOutputBinding{OutputType: outputType, OutputID: cmd.OutputID, BomID: cmd.BomID, BomVersionID: latestVersionID, IsDefault: true}, nil
+}
+
 func productionBomSummarySQL(schema, where string) string {
 	return fmt.Sprintf(`
 		SELECT pb.id,
 		       COALESCE(pb.code,''),
 		       COALESCE(pb.name,''),
+		       COALESCE(NULLIF(pb.output_type,''),'product'),
+		       CASE WHEN pb.output_type='material' THEN COALESCE(pb.output_material_id,0) ELSE COALESCE(pb.output_product_id,0) END,
+		       CASE WHEN pb.output_type='material' THEN COALESCE(om.name,'') ELSE COALESCE(op.name,'') END,
+		       CASE WHEN pb.output_type='material' THEN COALESCE(om.code,'') ELSE CASE WHEN COALESCE(pb.output_product_id,0)>0 THEN 'SKU-' || lpad(pb.output_product_id::text,6,'0') ELSE '' END END,
+		       COALESCE(NULLIF(latest.output_unit,''),'unit'),
 		       COALESCE(pb.output_product_id,0),
 		       COALESCE(op.name,''),
 		       CASE WHEN COALESCE(pb.output_product_id,0)>0 THEN 'SKU-' || lpad(pb.output_product_id::text,6,'0') ELSE '' END,
+		       COALESCE(pb.output_material_id,0),
+		       COALESCE(om.name,''),
+		       COALESCE(om.code,''),
 		       COALESCE(bga.group_id,0),
 		       COALESCE(bg.name,''),
 		       COALESCE(bga.group_item_id,0),
@@ -2533,17 +2931,18 @@ func productionBomSummarySQL(schema, where string) string {
 			       COALESCE(latest.yield_rate,0)::float8,
 		       COALESCE((
 		           SELECT COUNT(*)
-		           FROM %[1]s.product_production_bom_bindings b
+		           FROM %[1]s.production_bom_output_bindings b
 		           WHERE b.bom_id=pb.id
 		       ),0),
 		       COALESCE(to_char(pb.updated_at,'YYYY-MM-DD HH24:MI'),'-')
 		FROM %[1]s.production_boms pb
 		LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
+		LEFT JOIN %[1]s.materials om ON om.id=pb.output_material_id
 		LEFT JOIN %[1]s.business_group_assignments bga ON bga.object_id=pb.id AND lower(bga.usage_key)='production_bom' AND lower(bga.object_key)='production_bom'
 		LEFT JOIN %[1]s.business_groups bg ON bg.id=bga.group_id
 		LEFT JOIN %[1]s.business_group_items item ON item.id=bga.group_item_id
 			LEFT JOIN LATERAL (
-				SELECT id, version_no, status, yield_rate
+				SELECT id, version_no, status, yield_rate, output_unit
 			FROM %[1]s.production_bom_versions v
 			WHERE v.bom_id=pb.id AND v.status IN ('draft','published')
 			ORDER BY CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
@@ -2571,9 +2970,17 @@ func scanProductionBomSummaries(rows pgx.Rows) ([]bomapp.ProductionBomSummary, e
 			&row.ID,
 			&row.Code,
 			&row.Name,
+			&row.OutputType,
+			&row.OutputID,
+			&row.OutputName,
+			&row.OutputCode,
+			&row.OutputUnit,
 			&row.OutputProductID,
 			&row.OutputProductName,
 			&row.OutputProductCode,
+			&row.OutputMaterialID,
+			&row.OutputMaterialName,
+			&row.OutputMaterialCode,
 			&row.BusinessGroupID,
 			&row.BusinessGroupName,
 			&row.GroupItemID,
@@ -2981,6 +3388,9 @@ func repairLegacyProductionBomBindings(ctx context.Context, pool *pgxpool.Pool, 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockProductionBomDefaultGraphTx(ctx, tx, schema); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, schema+":pr403-legacy-bom-binding-repair"); err != nil {
 		return err
 	}
@@ -3130,6 +3540,26 @@ ON CONFLICT DO NOTHING;
 `, schema)
 	if _, err := tx.Exec(ctx, q); err != nil {
 		return err
+	}
+	var hasTypedOutputBindings bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+`.production_bom_output_bindings`).Scan(&hasTypedOutputBindings); err != nil {
+		return err
+	}
+	if hasTypedOutputBindings {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %[1]s.production_bom_output_bindings(output_type, output_id, bom_id, bom_version_id, is_default, updated_at, updated_by)
+			SELECT 'product', b.product_id, b.bom_id, b.bom_version_id, true, now(), 'system-pr403-legacy-binding-repair'
+			FROM %[1]s.product_production_bom_bindings b
+			JOIN %[1]s.production_boms pb ON pb.id=b.bom_id
+			  AND COALESCE(NULLIF(pb.output_type,''),'product')='product'
+			  AND pb.output_product_id=b.product_id
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			JOIN %[1]s.production_bom_versions v ON v.id=b.bom_version_id AND v.bom_id=b.bom_id AND v.status='published'
+			WHERE b.product_id>0
+			ON CONFLICT(output_type, output_id) DO NOTHING
+		`, schema)); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

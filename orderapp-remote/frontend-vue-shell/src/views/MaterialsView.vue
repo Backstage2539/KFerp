@@ -1,5 +1,9 @@
 <template>
   <div class="page">
+    <div v-if="materialReturnNavigation" class="material-return-banner">
+      <button class="secondary" type="button" @click="returnToMaterialSource">{{ materialReturnLabel }}</button>
+      <span>完成物料档案查看后可返回来源操作。</span>
+    </div>
     <section class="panel compact-head">
       <div class="panel-head">
         <div>
@@ -46,6 +50,14 @@
                   <option value="all">全部</option>
                 </select>
               </label>
+              <label>
+                <span>半成品标识</span>
+                <select v-model="filters.semiFinished" @change="applySemiFinishedFilter">
+                  <option value="all">全部</option>
+                  <option value="semi_finished">半成品</option>
+                  <option value="non_semi_finished">非半成品</option>
+                </select>
+              </label>
               <button class="primary" type="button" @click="applyMaterialFilters" :disabled="loading">查询</button>
               <span class="spacer"></span>
               <button class="primary" type="button" @click="createMaterial">新建物料</button>
@@ -61,6 +73,7 @@
                   <col class="name-col" />
                   <col class="unit-col" />
                   <col class="stock-col" />
+                  <col class="manufacture-col" />
                   <col class="status-col" />
                 </colgroup>
                 <thead>
@@ -77,6 +90,7 @@
                     <th>物料名称</th>
                     <th>单位</th>
                     <th>库存数量</th>
+                    <th>制造属性</th>
                     <th>状态</th>
                   </tr>
                 </thead>
@@ -99,9 +113,13 @@
                     </td>
                     <td>{{ unitDisplay(row.unit) }}</td>
                     <td>{{ stockQty(row) }} {{ unitDisplay(row.unit) }}</td>
+                    <td>
+                      <span v-if="row.is_semi_finished" class="pill">半成品标识</span>
+                      <small>{{ row.can_manufacture ? '可制造' : '无默认发布 BOM' }}</small>
+                    </td>
                     <td><span :class="row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill'">{{ row.deprecated_at ? '失效' : '启用' }}</span></td>
                   </tr>
-                  <tr v-if="!group.rows.length"><td colspan="5" class="muted">暂无物料</td></tr>
+                  <tr v-if="!group.rows.length"><td colspan="6" class="muted">暂无物料</td></tr>
                 </tbody>
               </table>
             </div>
@@ -154,8 +172,34 @@
               </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
               <label><span>采购价（元/{{ draft.cost_unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
+              <label class="boolean-field">
+                <span>是否半成品</span>
+                <input v-model="draft.is_semi_finished" type="checkbox" />
+                <small>仅用于业务标识与筛选；不授予或撤销制造能力。</small>
+              </label>
+              <label>
+                <span>可制造能力（只读）</span>
+                <input :value="draft.can_manufacture ? '可制造' : '不可制造'" disabled data-field="can_manufacture" />
+                <small>can_manufacture 只由该物料是否存在默认且已发布的产出 BOM 计算。</small>
+              </label>
               <label><span>更新时间</span><input :value="draft.updated_at || '-'" disabled /></label>
             </div>
+          </section>
+
+          <section v-if="!draftMode" class="form-section material-bom-links">
+            <div class="section-title">制造 BOM 关联</div>
+            <p class="muted left">任意有效物料都可以作为普通 BOM 的产出对象；半成品勾选不参与校验。</p>
+            <div class="bom-link-group">
+              <strong>产出该物料的 BOM</strong>
+              <button v-for="bom in producedByBoms" :key="`produced-${bom.id}`" class="secondary subtle" type="button" @click="openMaterialBom(bom)">{{ materialBomLabel(bom) }}</button>
+              <span v-if="!materialBomReferencesLoading && !producedByBoms.length" class="muted left">暂无</span>
+            </div>
+            <div class="bom-link-group">
+              <strong>使用该物料的 BOM</strong>
+              <button v-for="bom in usedByBoms" :key="`used-${bom.id}`" class="secondary subtle" type="button" @click="openMaterialBom(bom)">{{ materialBomLabel(bom) }}</button>
+              <span v-if="!materialBomReferencesLoading && !usedByBoms.length" class="muted left">暂无</span>
+            </div>
+            <span v-if="materialBomReferencesLoading" class="muted left">正在加载 BOM 关联...</span>
           </section>
 
           <section class="form-section">
@@ -274,6 +318,10 @@ import {
 } from '../lib/business-grouping'
 import { normalizePageSize } from '../lib/pagination'
 
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
+
 const MATERIAL_CATALOG_USAGE = 'material_catalog'
 const MATERIAL_OBJECT_KEY = 'material'
 
@@ -283,7 +331,7 @@ const materialBusinessGroupAssignments = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
 const q = ref('')
-const filters = reactive({ active: 'active' })
+const filters = reactive({ active: 'active', semiFinished: 'all' })
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -300,6 +348,11 @@ const materialGroupFeatureSelectionSaving = ref(false)
 const materialGroupFeatureDrawerOpen = ref(false)
 const materialDetailDrawerOpen = ref(false)
 const stockBackfill = ref({ open: false, target_qty: 0, reason: '' })
+const producedByBoms = ref([])
+const usedByBoms = ref([])
+const materialBomReferencesLoading = ref(false)
+const materialReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
+const materialReturnLabel = computed(() => String(materialReturnNavigation.value?.label || '返回来源操作'))
 
 const activeIndustryTemplates = computed(() => industryFieldTemplates.value.filter((tpl) => !tpl.deactivated_at && tpl.active !== false))
 const selectableMaterialGroupTemplates = computed(() => businessGroupControlOptions(materialBusinessGroups.value).templateOptions)
@@ -311,7 +364,12 @@ const materialCatalogBusinessGroups = computed(() => businessGroupRowsForFeature
   materialBusinessGroups.value,
   materialGroupFeatureSelectionTemplateIDs.value,
 ))
-const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(rows.value, {
+const filteredMaterialRows = computed(() => {
+  if (filters.semiFinished === 'semi_finished') return rows.value.filter((row) => row.is_semi_finished)
+  if (filters.semiFinished === 'non_semi_finished') return rows.value.filter((row) => !row.is_semi_finished)
+  return rows.value
+})
+const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(filteredMaterialRows.value, {
   templates: materialCatalogBusinessGroups.value,
   assignments: materialBusinessGroupAssignments.value,
   usageKey: MATERIAL_CATALOG_USAGE,
@@ -359,6 +417,8 @@ function normalizeRow(row) {
     code: row.Code ?? row.code ?? '',
     name: row.Name ?? row.name ?? '',
     kind: row.Kind ?? row.kind ?? 'other',
+    is_semi_finished: Boolean(row.IsSemiFinished ?? row.is_semi_finished ?? false),
+    can_manufacture: Boolean(row.CanManufacture ?? row.can_manufacture ?? false),
     unit,
     cost_unit: row.CostUnit ?? row.cost_unit ?? defaultMaterialCostUnit(unit),
     batch_no: row.BatchNo ?? row.batch_no ?? '',
@@ -418,6 +478,8 @@ function blankDraft() {
     code: nextMaterialCode(),
     name: '',
     kind: 'other',
+    is_semi_finished: false,
+    can_manufacture: false,
     unit,
     cost_unit: defaultMaterialCostUnit(unit),
     batch_no: '',
@@ -506,6 +568,12 @@ function applyMaterialFilters() {
   return loadMaterials({ resetPagination: true })
 }
 
+function applySemiFinishedFilter() {
+  const visibleIDs = new Set(filteredMaterialRows.value.map((row) => Number(row.id || 0)).filter(Boolean))
+  selectedMaterialIDs.value = selectedMaterialIDs.value.filter((id) => visibleIDs.has(Number(id || 0)))
+  resetMaterialGroupPages()
+}
+
 function createMaterial() {
   selected.value = null
   draft.value = blankDraft()
@@ -521,6 +589,7 @@ function selectMaterial(row, options = {}) {
   draftMode.value = false
   closeStockBackfill()
   if (options.openDrawer !== false) materialDetailDrawerOpen.value = true
+  loadMaterialBomReferences(row.id)
   if (!options.quiet) {
     error.value = ''
     ok.value = ''
@@ -530,6 +599,71 @@ function selectMaterial(row, options = {}) {
 function closeMaterialDetailDrawer() {
   materialDetailDrawerOpen.value = false
   closeStockBackfill()
+}
+
+function normalizeMaterialBomReference(row = {}) {
+  return {
+    ...row,
+    id: Number(row.production_bom_id || row.bom_id || row.id || 0),
+    name: row.production_bom_name || row.bom_name || row.name || '',
+    code: row.production_bom_code || row.bom_code || row.code || '',
+  }
+}
+
+async function loadMaterialBomReferences(materialID) {
+  const id = Number(materialID || 0)
+  producedByBoms.value = []
+  usedByBoms.value = []
+  if (!id) return
+  materialBomReferencesLoading.value = true
+  try {
+    const [produced, used] = await Promise.all([
+      apiGet(`/api/production-boms?status=all&output_type=material&output_id=${id}`),
+      apiGet(`/api/production-boms?status=all&component_type=material&component_id=${id}`),
+    ])
+    producedByBoms.value = (produced?.rows || produced || []).map(normalizeMaterialBomReference)
+    usedByBoms.value = (used?.rows || used || []).map(normalizeMaterialBomReference)
+  } catch (err) {
+    error.value = err.message || '加载物料 BOM 关联失败'
+  } finally {
+    materialBomReferencesLoading.value = false
+  }
+}
+
+function materialBomLabel(row = {}) {
+  return [row.code, row.name].filter(Boolean).join(' · ') || `BOM #${Number(row.id || 0)}`
+}
+
+function openMaterialBom(row = {}) {
+  const bomID = Number(row.id || row.production_bom_id || 0)
+  const materialID = Number(selected.value?.id || draft.value?.id || 0)
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'productionConfig',
+      params: bomID > 0 ? { tab: 'bom', production_bom_id: bomID } : { tab: 'bom' },
+      returnNavigation: {
+        key: 'materials',
+        label: `返回物料档案：${draft.value?.name || selected.value?.name || ''}`,
+        params: materialID > 0 ? { open_material_id: materialID } : {},
+        source_label: `生产 BOM：${materialBomLabel(row)}`,
+      },
+    },
+  }))
+}
+
+function returnToMaterialSource() {
+  const navigation = materialReturnNavigation.value
+  if (!navigation) return
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: { key: String(navigation.key || 'productionConfig'), params: navigation.params || {} },
+  }))
+}
+
+function openMaterialFromViewParams(params = props.viewParams) {
+  const id = Number(params?.open_material_id || 0)
+  if (!id) return
+  const row = rows.value.find((item) => Number(item.id || 0) === id)
+  if (row) selectMaterial(row, { quiet: true })
 }
 
 function toggleMaterialSelection(id) {
@@ -733,6 +867,7 @@ function payloadFromDraft() {
     code: draft.value.code,
     name: draft.value.name,
     kind: draft.value.kind || 'other',
+    is_semi_finished: Boolean(draft.value.is_semi_finished),
     unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     cost_unit: draftMode.value ? draft.value.cost_unit : (selected.value?.cost_unit || draft.value.cost_unit),
     batch_no: draft.value.batch_no,
@@ -912,10 +1047,12 @@ watch(() => draft.value?.unit, (unit) => {
 })
 
 watch(materialDisplayGroups, syncMaterialGroupPaginationState, { deep: true, immediate: true })
+watch(() => props.viewParams?.open_material_id, () => openMaterialFromViewParams(), { flush: 'post' })
 
-onMounted(() => {
+onMounted(async () => {
   q.value = new URL(window.location.href).searchParams.get('q') || ''
-  loadAll()
+  await loadAll()
+  openMaterialFromViewParams()
 })
 </script>
 
@@ -932,6 +1069,7 @@ onMounted(() => {
 .spacer { flex: 1 1 auto; }
 .materials-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
 .material-list-panel { min-width: 0; }
+.material-return-banner { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px; border: 1px solid #d9e2ec; border-radius: 8px; background: #f8fbff; }
 .material-list-toolbar { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee8df; }
 .material-list-toolbar label { min-width: 150px; }
 .material-list-toolbar label:first-child { flex: 1 1 220px; }
@@ -980,6 +1118,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger { border-color: #b23b3b; background: #fff; color: #9b2020; }
 .subtle { min-height: 32px; }
 .form-actions { justify-content: flex-end; }
+.boolean-field input[type="checkbox"] { width: auto; min-height: 0; }
+.bom-link-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .muted { color: #666; text-align: center; }
 .empty { padding: 22px; border: 1px dashed #d8d0c7; border-radius: 8px; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }

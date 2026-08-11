@@ -76,7 +76,47 @@ function firstPresent(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== '')
 }
 
+export function productionBomOutputIdentity(row = {}) {
+  const explicitType = String(row.output_type || row.outputType || '').trim().toLowerCase()
+  const type = explicitType === 'material' || (!explicitType && Number(row.output_material_id || row.outputMaterialID || 0) > 0)
+    ? 'material'
+    : 'product'
+  const typedID = type === 'material'
+    ? Number(row.output_material_id || row.outputMaterialID || 0)
+    : Number(row.output_product_id || row.outputProductID || row.product_id || 0)
+  const genericID = Number(row.output_id || row.outputID || 0)
+  return {
+    type,
+    id: genericID > 0 ? genericID : typedID,
+    name: String(type === 'material'
+      ? (row.output_material_name || row.outputMaterialName || row.output_name || row.outputName || '')
+      : (row.output_product_name || row.outputProductName || row.output_name || row.outputName || row.product_name || '')).trim(),
+    code: String(type === 'material'
+      ? (row.output_material_code || row.outputMaterialCode || row.output_code || row.outputCode || '')
+      : (row.output_product_code || row.outputProductCode || row.output_code || row.outputCode || row.product_code || '')).trim(),
+    unit: String(row.output_unit || row.outputUnit || '').trim(),
+  }
+}
+
+export function productionBomOutputPayload(row = {}) {
+  const identity = productionBomOutputIdentity(row)
+  return {
+    output_type: identity.type,
+    output_id: identity.id,
+    output_product_id: identity.type === 'product' ? identity.id : 0,
+    output_material_id: identity.type === 'material' ? identity.id : 0,
+  }
+}
+
+export function productionBomOutputLabel(row = {}) {
+  const identity = productionBomOutputIdentity(row)
+  const typeLabel = identity.type === 'material' ? '物料' : '商品'
+  const name = identity.name || identity.code || (identity.id > 0 ? `#${identity.id}` : '未设置')
+  return `${typeLabel} · ${name}`
+}
+
 export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
+  const output = productionBomOutputIdentity({ ...fallback, ...detail })
   const bomID = Number(firstPresent(detail.id, detail.production_bom_id, fallback.production_bom_id, fallback.id, 0))
   const versionID = Number(firstPresent(detail.latest_version_id, detail.latest_bom_version_id, fallback.production_bom_version_id, fallback.latest_version_id, 0))
   const versionNo = String(firstPresent(detail.latest_version_no, detail.latest_bom_version_no, fallback.production_bom_version_no, fallback.latest_version_no, fallback.latest_bom_version_no, '')).trim()
@@ -88,9 +128,16 @@ export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
   }, 0)
 
   return {
-    product_id: Number(firstPresent(detail.output_product_id, fallback.output_product_id, 0)),
-    product: detail.output_product_name || fallback.output_product_name || '未设置产出商品',
-    product_name: detail.output_product_name || fallback.output_product_name || '未设置产出商品',
+    product_id: output.type === 'product' ? output.id : 0,
+    product: output.name || '未设置产出对象',
+    product_name: output.name || '未设置产出对象',
+    output_type: output.type,
+    output_id: output.id,
+    output_name: output.name,
+    output_code: output.code,
+    output_material_id: output.type === 'material' ? output.id : 0,
+    output_material_name: output.type === 'material' ? output.name : '',
+    output_material_code: output.type === 'material' ? output.code : '',
     output_product_id: Number(firstPresent(detail.output_product_id, fallback.output_product_id, 0)),
     output_product_name: detail.output_product_name || fallback.output_product_name || '',
     output_product_code: detail.output_product_code || fallback.output_product_code || '',
@@ -151,6 +198,10 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
       row.name,
       row.output_product_name,
       row.output_product_code,
+      row.output_material_name,
+      row.output_material_code,
+      row.output_name,
+      row.output_code,
       row.production_bom_code,
       row.production_bom_name,
       row.group_name,

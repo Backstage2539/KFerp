@@ -48,6 +48,9 @@ func (r Repository) UpdateStockDocumentDraft(ctx context.Context, id int64, cmd 
 	if err := r.resolveStockDocumentWorkOrderContextTx(ctx, tx, &cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if err := r.validateTypedManufactureCommandTx(ctx, tx, cmd); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.stock_entries
 		SET entry_type=$2,purpose=$3,is_return=$4,work_order_id=$5,job_card_id=$6,running_item_id=$7,
@@ -150,6 +153,15 @@ func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor str
 	detail, err := r.loadStockDocumentDetailTx(ctx, tx, id)
 	if err != nil {
 		return stockapp.StockDocumentDetail{}, err
+	}
+	if detail.Purpose == stockapp.PurposeManufacture && detail.WorkOrderID > 0 {
+		output, hasTypedOutput, err := r.loadTypedStockManufactureOutputTx(ctx, tx, detail.WorkOrderID)
+		if err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
+		if err := validateTypedManufactureCancellationRoute(detail.Purpose, detail.WorkOrderID, hasTypedOutput, output.OutputType); err != nil {
+			return stockapp.StockDocumentDetail{}, err
+		}
 	}
 	for i := len(detail.Items) - 1; i >= 0; i-- {
 		if err := r.reverseStockDocumentItemTx(ctx, tx, detail, detail.Items[i], actor); err != nil {
@@ -307,6 +319,9 @@ func (r Repository) createStockDocumentDraftTx(ctx context.Context, tx pgx.Tx, c
 	if err := r.resolveStockDocumentWorkOrderContextTx(ctx, tx, &cmd); err != nil {
 		return stockapp.StockDocumentDetail{}, err
 	}
+	if err := r.validateTypedManufactureCommandTx(ctx, tx, cmd); err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_entries(
@@ -362,6 +377,116 @@ func (r Repository) resolveStockDocumentWorkOrderContextTx(ctx context.Context, 
 	}
 	if cmd.SourceID <= 0 {
 		cmd.SourceID = cmd.WorkOrderID
+	}
+	return nil
+}
+
+type typedStockManufactureOutput struct {
+	OutputType       string
+	OutputProductID  int64
+	OutputMaterialID int64
+	SpecG            int64
+	OutputUnit       string
+	TargetWarehouse  string
+}
+
+func (r Repository) validateTypedManufactureCommandTx(ctx context.Context, tx pgx.Tx, cmd stockapp.StockDocumentCommand) error {
+	if cmd.Purpose != stockapp.PurposeManufacture || cmd.WorkOrderID <= 0 {
+		return nil
+	}
+	output, typed, err := r.loadTypedStockManufactureOutputTx(ctx, tx, cmd.WorkOrderID)
+	if err != nil || !typed {
+		return err
+	}
+	return validateTypedStockManufactureCommand(
+		cmd, output.OutputType, output.OutputProductID, output.OutputMaterialID,
+		output.SpecG, output.OutputUnit, output.TargetWarehouse,
+	)
+}
+
+func (r Repository) loadTypedStockManufactureOutputTx(ctx context.Context, tx pgx.Tx, workOrderID int64) (typedStockManufactureOutput, bool, error) {
+	hasTypedOutput, err := stockSchemaColumnExistsTx(ctx, tx, r.schema, "work_orders", "output_type")
+	if err != nil || !hasTypedOutput {
+		return typedStockManufactureOutput{}, false, err
+	}
+	var output typedStockManufactureOutput
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT lower(COALESCE(NULLIF(output_type,''),'product')),
+		       COALESCE(output_product_id,0),COALESCE(output_material_id,0),
+		       COALESCE(spec_g,0),COALESCE(output_unit,''),COALESCE(target_warehouse,'')
+		FROM %s.work_orders WHERE id=$1
+	`, r.schema), workOrderID).Scan(
+		&output.OutputType, &output.OutputProductID, &output.OutputMaterialID,
+		&output.SpecG, &output.OutputUnit, &output.TargetWarehouse,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return typedStockManufactureOutput{}, true, fmt.Errorf("work order not found")
+		}
+		return typedStockManufactureOutput{}, true, err
+	}
+	if output.OutputType == "material" {
+		if output.OutputMaterialID <= 0 {
+			return typedStockManufactureOutput{}, true, fmt.Errorf("work order material output identity missing")
+		}
+		if strings.TrimSpace(output.TargetWarehouse) == "" {
+			output.TargetWarehouse = "wip"
+		}
+	} else {
+		output.OutputType = "product"
+		if output.OutputProductID <= 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(product_id,0) FROM %s.work_orders WHERE id=$1`, r.schema), workOrderID).Scan(&output.OutputProductID); err != nil {
+				return typedStockManufactureOutput{}, true, err
+			}
+		}
+		if strings.TrimSpace(output.TargetWarehouse) == "" {
+			output.TargetWarehouse = "finished_goods"
+		}
+	}
+	return output, true, nil
+}
+
+func validateTypedStockManufactureCommand(
+	cmd stockapp.StockDocumentCommand,
+	outputType string,
+	outputProductID, outputMaterialID, specG int64,
+	outputUnit, targetWarehouse string,
+) error {
+	if cmd.Purpose != stockapp.PurposeManufacture {
+		return nil
+	}
+	if len(cmd.Items) != 1 {
+		return fmt.Errorf("manufacture stock document must contain exactly one frozen output item")
+	}
+	item := cmd.Items[0]
+	outputType = strings.ToLower(strings.TrimSpace(outputType))
+	if outputType == "material" {
+		if item.ItemType != itemTypeMaterial || item.MaterialID != outputMaterialID || item.ProductID != 0 {
+			return fmt.Errorf("manufacture output identity must match frozen material output")
+		}
+		if strings.TrimSpace(item.InventoryUnit) == "" || !sameInventoryUnit(item.InventoryUnit, outputUnit) {
+			return fmt.Errorf("manufacture output inventory unit must match frozen work order output unit")
+		}
+		if stockWeightUnitGrams(outputUnit) > 0 {
+			if item.QtyG <= 0 || item.QtyUnits != 0 {
+				return fmt.Errorf("manufacture material output must use one weight quantity in its frozen inventory unit")
+			}
+		} else if item.QtyUnits <= 0 || item.QtyG != 0 {
+			return fmt.Errorf("manufacture material output must use one count quantity in its frozen inventory unit")
+		}
+	} else {
+		if item.ItemType != itemTypeFinishedProduct || item.ProductID != outputProductID || item.MaterialID != 0 {
+			return fmt.Errorf("manufacture output identity must match frozen product output")
+		}
+		if specG > 0 && item.SpecG != specG {
+			return fmt.Errorf("manufacture output identity must match frozen product specification")
+		}
+	}
+	if strings.TrimSpace(item.FromWarehouse) != "" {
+		return fmt.Errorf("manufacture output source warehouse must remain empty")
+	}
+	if strings.TrimSpace(item.ToWarehouse) != strings.TrimSpace(targetWarehouse) {
+		return fmt.Errorf("manufacture target warehouse must match frozen work order target warehouse: %s", targetWarehouse)
 	}
 	return nil
 }
@@ -523,8 +648,39 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 		return fmt.Errorf("stock document purpose cannot be linked to work order")
 	}
 	expectedItemType := itemTypeMaterial
+	var manufactureOutput typedStockManufactureOutput
+	hasTypedManufactureOutput := false
 	if detail.Purpose == stockapp.PurposeManufacture {
-		expectedItemType = itemTypeFinishedProduct
+		loadedOutput, typedOutput, loadErr := r.loadTypedStockManufactureOutputTx(ctx, tx, detail.WorkOrderID)
+		if loadErr != nil {
+			return loadErr
+		}
+		manufactureOutput, hasTypedManufactureOutput = loadedOutput, typedOutput
+		if hasTypedManufactureOutput {
+			cmd := stockapp.StockDocumentCommand{Purpose: detail.Purpose, WorkOrderID: detail.WorkOrderID}
+			cmd.Items = make([]stockapp.StockDocumentItemCommand, 0, len(detail.Items))
+			for _, item := range detail.Items {
+				cmd.Items = append(cmd.Items, stockapp.StockDocumentItemCommand{
+					MaterialID: item.MaterialID, ProductID: item.ProductID, ItemType: item.ItemType,
+					SpecG: item.SpecG, InventoryUnit: item.InventoryUnit,
+					FromWarehouse: item.FromWarehouse, ToWarehouse: item.ToWarehouse,
+					QtyG: item.QtyG, QtyUnits: item.QtyUnits,
+				})
+			}
+			if err := validateTypedStockManufactureCommand(
+				cmd, manufactureOutput.OutputType, manufactureOutput.OutputProductID, manufactureOutput.OutputMaterialID,
+				manufactureOutput.SpecG, manufactureOutput.OutputUnit, manufactureOutput.TargetWarehouse,
+			); err != nil {
+				return err
+			}
+			if manufactureOutput.OutputType == "material" {
+				expectedItemType = itemTypeMaterial
+			} else {
+				expectedItemType = itemTypeFinishedProduct
+			}
+		} else {
+			expectedItemType = itemTypeFinishedProduct
+		}
 	}
 	for index, item := range detail.Items {
 		if item.ItemType != expectedItemType {
@@ -579,6 +735,9 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 		}
 		if remainingG > 0 || remainingUnits > 0 {
 			return fmt.Errorf("work order still has unconsumed or unreturned material")
+		}
+		if err := validateTypedManufactureSubmissionRoute(detail.Purpose, hasTypedManufactureOutput, manufactureOutput.OutputType); err != nil {
+			return err
 		}
 	}
 	frozenRequirements, err := stockFrozenMaterialRequirements(materialSnapshot, plannedG, plannedOutputG, plannedUnits)
@@ -683,6 +842,20 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 		}
 	}
 	return nil
+}
+
+func validateTypedManufactureSubmissionRoute(purpose string, hasTypedOutput bool, outputType string) error {
+	if purpose != stockapp.PurposeManufacture || !hasTypedOutput {
+		return nil
+	}
+	return fmt.Errorf("%s output manufacture must be posted through typed work order completion", strings.TrimSpace(outputType))
+}
+
+func validateTypedManufactureCancellationRoute(purpose string, workOrderID int64, hasTypedOutput bool, outputType string) error {
+	if purpose != stockapp.PurposeManufacture || workOrderID <= 0 || !hasTypedOutput {
+		return nil
+	}
+	return fmt.Errorf("已绑定工单的 %s 产出完成单不能直接取消；请走生产冲销或更正流程", strings.TrimSpace(outputType))
 }
 
 func stockReservationMaterialRequirementTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, materialID int64) (stockFrozenMaterialRequirement, bool, error) {

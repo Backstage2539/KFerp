@@ -310,6 +310,7 @@ function usesSingleQuantity(item = {}) {
     'material_transfer_for_manufacture',
     'material_return_from_manufacture',
     'material_consumption_for_manufacture',
+    'manufacture',
   ].includes(form.purpose_key)
 }
 

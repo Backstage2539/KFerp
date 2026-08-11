@@ -230,7 +230,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 	id BIGSERIAL PRIMARY KEY,
 	code TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
+	output_type TEXT NOT NULL DEFAULT 'product',
 	output_product_id BIGINT NOT NULL DEFAULT 0,
+	output_material_id BIGINT NOT NULL DEFAULT 0,
 	group_id BIGINT NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'active',
 	source_bom_id BIGINT NOT NULL DEFAULT 0,
@@ -245,7 +247,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 	updated_by TEXT NOT NULL DEFAULT ''
 );
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS group_category_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_type TEXT NOT NULL DEFAULT 'product';
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_material_id BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings (
 	product_id BIGINT PRIMARY KEY,
 	bom_id BIGINT NOT NULL,
@@ -258,6 +262,28 @@ UPDATE %[1]s.production_boms pb
 SET output_product_id=b.product_id
 FROM %[1]s.product_production_bom_bindings b
 WHERE pb.id=b.bom_id AND pb.output_product_id=0 AND b.product_id > 0;
+UPDATE %[1]s.production_boms
+SET output_type=CASE WHEN output_material_id>0 AND output_product_id=0 THEN 'material' ELSE 'product' END
+WHERE COALESCE(NULLIF(output_type,''),'')='' OR output_type NOT IN ('product','material');
+DO $production_bom_output_binding_constraint$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid=c.conrelid
+		JOIN pg_namespace n ON n.oid=t.relnamespace
+		WHERE n.nspname='%[1]s'
+		  AND t.relname='production_boms'
+		  AND c.conname='production_boms_output_binding_check'
+	) THEN
+		ALTER TABLE %[1]s.production_boms ADD CONSTRAINT production_boms_output_binding_check CHECK (
+			(output_type='product' AND output_product_id>0 AND output_material_id=0)
+			OR (output_type='material' AND output_material_id>0 AND output_product_id=0)
+		) NOT VALID;
+	END IF;
+END
+$production_bom_output_binding_constraint$;
+ALTER TABLE %[1]s.production_boms VALIDATE CONSTRAINT production_boms_output_binding_check;
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_code_uq
 	ON %[1]s.production_boms(code);
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_legacy_product_uq
@@ -269,6 +295,8 @@ CREATE INDEX IF NOT EXISTS production_boms_group_category_idx
 	ON %[1]s.production_boms(group_id, group_category_id, status);
 CREATE INDEX IF NOT EXISTS production_boms_output_product_idx
 	ON %[1]s.production_boms(output_product_id, status);
+CREATE INDEX IF NOT EXISTS production_boms_output_material_idx
+	ON %[1]s.production_boms(output_material_id, status);
 
 UPDATE %[1]s.production_boms
 SET group_id=0, group_category_id=0
@@ -383,11 +411,29 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings (
 );
 CREATE INDEX IF NOT EXISTS product_production_bom_bindings_bom_idx
 	ON %[1]s.product_production_bom_bindings(bom_id, bom_version_id);
+
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_output_bindings (
+	output_type TEXT NOT NULL,
+	output_id BIGINT NOT NULL,
+	bom_id BIGINT NOT NULL,
+	bom_version_id BIGINT NOT NULL,
+	is_default BOOLEAN NOT NULL DEFAULT true,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(output_type, output_id),
+	CHECK(output_type IN ('product','material')),
+	CHECK(output_id>0)
+);
+CREATE INDEX IF NOT EXISTS production_bom_output_bindings_bom_idx
+	ON %[1]s.production_bom_output_bindings(bom_id, bom_version_id);
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
 	if err := backfillProductionBomLibrary(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := backfillProductionBomOutputBindings(ctx, pool, schema); err != nil {
 		return err
 	}
 	if err := resetInvalidProductionBomGroupCategories(ctx, pool, schema); err != nil {
@@ -400,6 +446,24 @@ CREATE INDEX IF NOT EXISTS product_production_bom_bindings_bom_idx
 		return err
 	}
 	return backfillProductionBomVersionSpecialAttrs(ctx, pool, schema)
+}
+
+func backfillProductionBomOutputBindings(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+INSERT INTO %[1]s.production_bom_output_bindings(output_type, output_id, bom_id, bom_version_id, is_default, updated_at, updated_by)
+SELECT 'product', b.product_id, b.bom_id, b.bom_version_id, true, COALESCE(b.bound_at,now()), COALESCE(b.bound_by,'')
+FROM %[1]s.product_production_bom_bindings b
+JOIN %[1]s.production_boms pb ON pb.id=b.bom_id
+JOIN %[1]s.production_bom_versions v ON v.id=b.bom_version_id AND v.bom_id=pb.id
+WHERE b.product_id>0 AND pb.output_type='product' AND pb.output_product_id=b.product_id
+ON CONFLICT(output_type, output_id) DO UPDATE SET
+	bom_id=excluded.bom_id,
+	bom_version_id=excluded.bom_version_id,
+	is_default=true,
+	updated_at=excluded.updated_at,
+	updated_by=excluded.updated_by;
+`, schema))
+	return err
 }
 
 func archiveNonLatestPublishedProductionBomVersions(ctx context.Context, pool *pgxpool.Pool, schema string) error {

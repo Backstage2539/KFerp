@@ -31,7 +31,7 @@ func TestDefaultViewPermissionsCoverVueShellMenuKeys(t *testing.T) {
 	for _, key := range []string{
 		"order", "orders", "orderSalesManual", "orderInvoice", "salesOrder", "deliveryNote", "contracts", "customers",
 		"producePlan", "productionFlow", "productionConfig", "productionAcceptance", "produceRunning", "workOrders", "jobCards", "qualityInspections", "produceLogs", "productionCosts", "productionManual",
-		"warehouseInventory", "stockOperations", "stockOutboundLogs", "inventoryMaterialsManual", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
+		"warehouseInventory", "stockOperations", "stockOutboundLogs", "inventoryMaterialsManual", "stockManual", "materials", "materialReceipts", "materialBatches", "wipMaterials", "stockLedger", "stockBatches", "stockAdjustments", "inventory", "allocationLogs",
 		"productSettings", "mallSettings", "bom", "products", "costing", "costingManual",
 		"costingSettings", "machines", "companyProfile", "salesOrderSettings", "senderSettings", "outsourceSettings", "processingBilling", "uiSettings", "customerCapabilityTemplates", "customerPortalSettings", "customerPortalManual", "customerFulfillment", "customerFulfillmentManual", "settingsAuditManual",
 		"departments", "employees", "audit",

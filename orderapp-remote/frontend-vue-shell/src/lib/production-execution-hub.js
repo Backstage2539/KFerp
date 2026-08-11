@@ -78,6 +78,7 @@ function hubWorkOrder(hub = {}) {
   return {
     id: positiveInt(row.id || row.work_order_id),
     work_order_no: row.work_order_no || '',
+    status: String(row.status || '').trim(),
     running_item_id: positiveInt(row.running_item_id),
     batch_id: row.batch_id || '',
   }
@@ -113,11 +114,19 @@ function stockActionParams(hub = {}, extra = {}) {
 export function buildExecutionHubActions(hub = {}) {
   const wo = hubWorkOrder(hub)
   const readiness = hub.readiness || {}
-  const startBlocked = readiness.can_start === false
+  const header = executionHubHeader(hub)
+  const dependencyBlocked = Boolean(
+    header.has_unfinished_dependencies
+    || header.upstream_blocked
+    || executionHubUpstreamBlockers(hub).length,
+  )
+  const startBlocked = readiness.can_start === false || dependencyBlocked
   const startReason = startBlocked
-    ? (readiness.blocking_reasons || []).map((row) => row?.label).find(Boolean) || '当前状态不可开始生产'
+    ? String(header.dependency_blocking_reason || header.upstream_blocking_reason || '').trim()
+      || (readiness.blocking_reasons || []).map((row) => row?.label).find(Boolean)
+      || (dependencyBlocked ? '等待上游工单完工后再开始生产' : '当前状态不可开始生产')
     : ''
-  return [
+  const actions = [
     {
       key: 'startProduction',
       label: '开始生产',
@@ -137,6 +146,18 @@ export function buildExecutionHubActions(hub = {}) {
     { key: 'openCost', label: '成本', action_type: 'navigate', view: 'productionCosts', params: actionParams(hub) },
     { key: 'openLogs', label: '日志', action_type: 'navigate', view: 'produceLogs', params: actionParams(hub) },
   ]
+  if (wo.id > 0 && wo.status === 'released' && wo.running_item_id <= 0) {
+    actions.push({
+      key: 'cancelWorkOrder',
+      label: '取消工单',
+      action_type: 'command',
+      endpoint: `/api/produce/work-orders/${wo.id}/cancel`,
+      params: actionParams(hub),
+      disabled: false,
+      reason: '',
+    })
+  }
+  return actions
 }
 
 export function executionHubTimelineFilters() {
@@ -160,6 +181,31 @@ export function readinessBadgeTone(readiness = {}) {
   if (readiness.severity === 'warning') return 'warning'
   if (readiness.can_start || readiness.can_complete || readiness.severity === 'ready') return 'success'
   return 'neutral'
+}
+
+function executionHubHeader(hub = {}) {
+  return hub.header || hub.work_order || hub
+}
+
+export function executionHubOutputLabel(hub = {}) {
+  const row = executionHubHeader(hub)
+  const type = String(row.output_type || '').trim().toLowerCase() === 'material' || (!row.output_type && Number(row.output_material_id || 0) > 0)
+    ? 'material'
+    : 'product'
+  const typeLabel = type === 'material' ? '物料' : '商品'
+  const id = Number(row.output_id || (type === 'material' ? row.output_material_id : row.output_product_id || row.product_id) || 0)
+  const name = String(row.output_name || (type === 'material' ? row.output_material_name : row.output_product_name || row.product_name) || '').trim() || (id > 0 ? `#${id}` : '-')
+  const qty = Number(row.output_qty ?? row.planned_output_qty ?? row.planned_inventory_qty ?? 0)
+  const unit = String(row.output_unit || row.inventory_unit || '').trim()
+  return `${typeLabel} · ${name}${qty > 0 ? ` · ${qty.toLocaleString('zh-CN', { maximumFractionDigits: 3 })} ${unit}`.trimEnd() : ''}`
+}
+
+export function executionHubUpstreamBlockers(hub = {}) {
+  const row = executionHubHeader(hub)
+  const rows = hub.upstream_blockers || hub.upstream_dependencies || row.upstream_blockers || row.upstream_dependencies || row.blocked_by_work_orders || []
+  if (Array.isArray(rows) && rows.length) return rows
+  const ids = hub.upstream_work_order_ids || row.upstream_work_order_ids || []
+  return Array.isArray(ids) ? ids.map((id) => ({ work_order_id: Number(id || 0) })) : []
 }
 
 export function executionHubCommandErrorMessage(error, action = {}) {

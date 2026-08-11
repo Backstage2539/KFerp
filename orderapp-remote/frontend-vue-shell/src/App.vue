@@ -376,6 +376,7 @@ const internalViews = {
   stockBatches: StockBatchesView,
   stockOutboundLogs: StockOutboundLogsView,
   inventoryMaterialsManual: OperationManualView,
+  stockManual: OperationManualView,
   processTemplates: ProcessTemplatesView,
   manufacturingOperations: ManufacturingOperationsView,
   manufacturingWorkstations: ManufacturingWorkstationsView,

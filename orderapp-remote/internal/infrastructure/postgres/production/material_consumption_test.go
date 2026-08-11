@@ -819,6 +819,51 @@ VALUES (2,0,'finished_goods',0,200);
 			t.Fatalf("audit meta %s missing %q", meta, want)
 		}
 	}
+
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,roast_level) VALUES (3,'计数中间品','');
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES (3,0,'finished_goods',5,0);
+	`, schema, schema)); err != nil {
+		t.Fatal(err)
+	}
+	countTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	countRun := ProduceRunRow{ID: 10, BatchID: "BATCH-COUNTED", ProductID: 1, Product: "蓝山挂耳", SpecG: 10, NeedG: 10, InputG: 10, PlanUnits: 1}
+	countNeed := materialConsumptionNeed{
+		MaterialID: 3, MaterialName: "计数中间品", Unit: "unit", Source: "finished_product",
+		ComponentType: "finished_product", ComponentProductID: 3, ComponentSpecG: 0,
+		ConsumeUnit: "unit_per_bag", Qty: 3, DeductUnits: 3,
+	}
+	if err := deductMaterialNeedsForRunningItemTx(ctx, countTx, schema, countRun, []materialConsumptionNeed{countNeed}, "测试员"); err != nil {
+		_ = countTx.Rollback(ctx)
+		t.Fatalf("deduct count-only finished product: %v", err)
+	}
+	if err := countTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var remainingUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=3 AND spec_g=0 AND warehouse='finished_goods'
+	`, schema)).Scan(&remainingUnits); err != nil {
+		t.Fatal(err)
+	}
+	if remainingUnits != 2 {
+		t.Fatalf("count-only finished inventory remaining units=%d, want 2", remainingUnits)
+	}
+	var countChangeUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT qty_change_units FROM %s.stock_ledger_entries
+		WHERE source_doc_id=10 AND item_type='finished_product'
+	`, schema)).Scan(&countChangeUnits); err != nil {
+		t.Fatal(err)
+	}
+	if countChangeUnits != -3 {
+		t.Fatalf("count-only finished ledger units=%d, want -3", countChangeUnits)
+	}
 }
 
 func newProductionTestDB(t *testing.T) (*pgxpool.Pool, string) {

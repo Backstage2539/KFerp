@@ -1,10 +1,14 @@
 package materials
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestNormalizeMaterialInputRejectsInvalidValues(t *testing.T) {
@@ -83,6 +87,89 @@ func TestMaterialCostUnitIsLockedAfterCreate(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Fatalf("material cost unit lock missing marker %q", want)
 		}
+	}
+}
+
+func TestMaterialInventoryUnitChangeCannotCrossCostDimensions(t *testing.T) {
+	old := materialRow{Unit: "g", CostUnit: "kg"}
+	next, err := normalizeMaterialInput(materialInput{Code: "bean-to-piece", Name: "错误跨维度", Unit: "个"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := assertMaterialCostUnitReadOnly(old, next, "", true); err == nil || !strings.Contains(err.Error(), "成本计价单位") {
+		t.Fatalf("cross-dimension inventory unit change error = %v, want fail-closed cost-unit error", err)
+	}
+
+	weight, err := normalizeMaterialInput(materialInput{Code: "bean-g-to-kg", Name: "重量单位换算", Unit: "kg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := assertMaterialCostUnitReadOnly(old, weight, "", true); err != nil {
+		t.Fatalf("same-dimension g-to-kg change should preserve kg cost unit: %v", err)
+	}
+}
+
+func TestMaterialInventoryUnitChangePreservesCostUnitPostgres(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("pr598_material_unit_%d_%d", os.Getpid(), time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.audit_logs(
+			id BIGSERIAL PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now(), actor TEXT NOT NULL DEFAULT '',
+			entity_type TEXT NOT NULL DEFAULT '', entity_id BIGINT, action TEXT NOT NULL DEFAULT '', field TEXT,
+			old_value TEXT, new_value TEXT, meta JSONB
+		)
+	`, schema)); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	var materialID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.materials(code,name,kind,unit,cost_unit,batch_no)
+		VALUES('UNIT-LOCK-1','单位保护物料','bean','g','kg','20260812') RETURNING id
+	`, schema)).Scan(&materialID); err != nil {
+		t.Fatal(err)
+	}
+	base := materialInput{Code: "UNIT-LOCK-1", Name: "单位保护物料", Kind: "bean", BatchNo: "20260812"}
+	crossDimension := base
+	crossDimension.Unit = "个"
+	if _, err := updateMaterialInline(ctx, pool, schema, "pr598-test", materialID, crossDimension); err == nil || !strings.Contains(err.Error(), "成本计价单位") {
+		t.Fatalf("cross-dimension update error = %v", err)
+	}
+	var unit, costUnit string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT unit,cost_unit FROM %s.materials WHERE id=$1`, schema), materialID).Scan(&unit, &costUnit); err != nil {
+		t.Fatal(err)
+	}
+	if unit != "g" || costUnit != "kg" {
+		t.Fatalf("failed update changed unit/cost_unit to %s/%s, want g/kg", unit, costUnit)
+	}
+	weightChange := base
+	weightChange.Unit = "kg"
+	if _, err := updateMaterialInline(ctx, pool, schema, "pr598-test", materialID, weightChange); err != nil {
+		t.Fatalf("same-dimension g-to-kg update: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT unit,cost_unit FROM %s.materials WHERE id=$1`, schema), materialID).Scan(&unit, &costUnit); err != nil {
+		t.Fatal(err)
+	}
+	if unit != "kg" || costUnit != "kg" {
+		t.Fatalf("weight update unit/cost_unit = %s/%s, want kg/kg", unit, costUnit)
 	}
 }
 

@@ -1047,6 +1047,10 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetailsBatch(ctx context.Context
 func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput, resolvedBomCosts map[int64]productionBomResolvedCost) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
 	out := make([]appcosting.PricingRuleTrialBaseCostDetail, 0)
 	var err error
+	resolvedParentCost, hasResolvedParentCost := productionBomCostForProduct(resolvedBomCosts, input.ProductID, input.ParentProductID)
+	if input.BomVersionID > 0 && resolvedParentCost.VersionID != input.BomVersionID {
+		hasResolvedParentCost = false
+	}
 	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
@@ -1166,16 +1170,21 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		if err := bomRows.Scan(&id, &componentType, &componentProductID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
 			return nil, err
 		}
-		resolvedItemCost, ok, warning := resolveProductionBomTrialItemCost(productionBomCostItem{
-			ID:                 id,
-			ComponentType:      componentType,
-			ComponentProductID: componentProductID,
-			ComponentSpecG:     componentSpecG,
-			ConsumeUnit:        row.ConsumeUnit,
-			QtyPerUnit:         row.Quantity,
-			RatioPct:           row.RatioPct,
-			MaterialLossRate:   row.MaterialLossRate,
-		}, row.UnitCost, unitCostUnit, bomYieldRate, bomOutputQty, bomOutputUnit, resolvedBomCosts)
+		resolvedItemCost, resolvedFromGraph := resolvedParentCost.ItemCosts[id]
+		ok := hasResolvedParentCost && resolvedParentCost.Resolved && resolvedFromGraph && resolvedItemCost.CostUnit != ""
+		warning := ""
+		if !ok {
+			resolvedItemCost, ok, warning = resolveProductionBomTrialItemCost(productionBomCostItem{
+				ID:                 id,
+				ComponentType:      componentType,
+				ComponentProductID: componentProductID,
+				ComponentSpecG:     componentSpecG,
+				ConsumeUnit:        row.ConsumeUnit,
+				QtyPerUnit:         row.Quantity,
+				RatioPct:           row.RatioPct,
+				MaterialLossRate:   row.MaterialLossRate,
+			}, row.UnitCost, unitCostUnit, bomYieldRate, bomOutputQty, bomOutputUnit, resolvedBomCosts)
+		}
 		if ok {
 			if massFactor := productionBomCostMassKgFactor(bomOutputUnit); massFactor > 0 {
 				row.AmountPerKg = resolvedItemCost.ContributionPerOutputUnit / massFactor
@@ -2239,14 +2248,14 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 	}
 	for i := range out {
 		resolvedCost, ok := productionBomCostForProduct(resolvedBomCosts, out[i].ProductID, out[i].ParentProductID)
-		if !ok || !resolvedCost.HasProductComponent || productionBomCostMassKgFactor(resolvedCost.OutputUnit) > 0 {
+		if !ok || (!resolvedCost.HasProductComponent && !resolvedCost.HasManufacturedMaterialComponent) || productionBomCostMassKgFactor(resolvedCost.OutputUnit) > 0 {
 			continue
 		}
 		if !resolvedCost.Resolved {
 			out[i].BomCostPerUnit = 0
 			out[i].OperationCostPerUnit = 0
 			out[i].OperationCostPerKg = 0
-			out[i].Warnings = append(out[i].Warnings, "商品组件成本无法完整解析：请检查组件商品的已发布生产 BOM、物料价格、BOM 原料损耗和循环引用")
+			out[i].Warnings = append(out[i].Warnings, "递归组件成本无法完整解析：请检查组件商品或物料的默认已发布生产 BOM、物料价格、BOM 原料损耗和循环引用")
 			continue
 		}
 		out[i].BomCostPerUnit = resolvedCost.InputCostPerOutputUnit

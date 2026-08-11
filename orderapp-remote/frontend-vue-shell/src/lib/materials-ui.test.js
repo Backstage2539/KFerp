@@ -317,3 +317,45 @@ test('material receipt, stock adjustment and purchase prices use material cost u
   assert.match(stockAdjustmentsSource, /isSelectedMaterialWeight/)
   assert.match(stockAdjustmentsSource, /批次成本调整当前只支持重量物料/)
 })
+
+test('materials expose semi-finished intent, derived manufacturing capability, and BOM round-trip navigation', () => {
+  const template = materialsSource.split('<script setup>')[0] || materialsSource
+
+  assert.match(template, /v-model="draft\.is_semi_finished"/)
+  assert.match(template, /是否半成品/)
+  assert.match(template, /can_manufacture/)
+  assert.match(template, /可制造能力/)
+  assert.match(template, /产出该物料的 BOM/)
+  assert.match(template, /使用该物料的 BOM/)
+  assert.match(materialsSource, /producedByBoms/)
+  assert.match(materialsSource, /usedByBoms/)
+  assert.match(materialsSource, /output_type=material/)
+  assert.match(materialsSource, /component_type=material/)
+  assert.match(materialsSource, /function openMaterialBom/)
+  assert.match(materialsSource, /kferp:navigate-view/)
+  assert.match(materialsSource, /returnNavigation/)
+  assert.match(materialsSource, /open_material_id/)
+  assert.match(materialsSource, /materialReturnNavigation/)
+  assert.match(materialsSource, /returnToMaterialSource/)
+  assert.match(materialsSource, /is_semi_finished:\s*Boolean\(draft\.value\.is_semi_finished\)/)
+})
+
+test('materials locally filter the loaded page by semi-finished marker without changing manufacturing capability', () => {
+  const template = materialsSource.split('<script setup>')[0] || materialsSource
+
+  assert.match(template, /<span>半成品标识<\/span>[\s\S]*v-model="filters\.semiFinished"/)
+  assert.match(template, /<option value="all">全部<\/option>/)
+  assert.match(template, /<option value="semi_finished">半成品<\/option>/)
+  assert.match(template, /<option value="non_semi_finished">非半成品<\/option>/)
+  assert.match(template, /v-model="filters\.semiFinished" @change="applySemiFinishedFilter"/)
+  assert.match(materialsSource, /const filters\s*=\s*reactive\(\{\s*active:\s*'active',\s*semiFinished:\s*'all'\s*\}\)/)
+  assert.match(materialsSource, /const filteredMaterialRows = computed\(\(\) => \{[\s\S]*filters\.semiFinished === 'semi_finished'[\s\S]*row\.is_semi_finished[\s\S]*filters\.semiFinished === 'non_semi_finished'[\s\S]*!row\.is_semi_finished/)
+  assert.match(materialsSource, /groupRowsByBusinessGroupTemplates\(filteredMaterialRows\.value,/)
+  assert.match(materialsSource, /function applySemiFinishedFilter\(\)\s*\{[\s\S]*resetMaterialGroupPages\(\)/)
+
+  const loadMaterialsStart = materialsSource.indexOf('async function loadMaterials(')
+  const loadMaterialsEnd = materialsSource.indexOf('\nfunction applyMaterialFilters()', loadMaterialsStart)
+  const loadMaterialsSource = materialsSource.slice(loadMaterialsStart, loadMaterialsEnd)
+  assert.doesNotMatch(loadMaterialsSource, /semi_finished|semiFinished/)
+  assert.match(materialsSource, /is_semi_finished:\s*Boolean\(row\.IsSemiFinished \?\? row\.is_semi_finished \?\? false\),\s*\n\s*can_manufacture:\s*Boolean\(row\.CanManufacture \?\? row\.can_manufacture \?\? false\)/)
+})

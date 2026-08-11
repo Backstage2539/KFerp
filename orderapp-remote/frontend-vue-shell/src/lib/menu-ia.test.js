@@ -26,6 +26,7 @@ test('warehouse inventory and legacy stock views resolve to the inventory group'
   assert.equal(groupForView(menuGroups, 'warehouseInventory')?.id, 'inventory')
   assert.equal(groupForView(menuGroups, 'stockOperations')?.id, 'inventory')
   assert.equal(groupForView(menuGroups, 'stockOutboundLogs')?.id, 'inventory')
+  assert.equal(groupForView(menuGroups, 'stockManual')?.id, 'inventory')
 })
 
 test('expanded menu groups persist and keep current group open', () => {
@@ -129,6 +130,7 @@ test('operation manuals live inside their functional menu groups', () => {
     ['orderSalesManual', 'sales'],
     ['productionManual', 'production'],
     ['inventoryMaterialsManual', 'inventory'],
+    ['stockManual', 'inventory'],
     ['costingManual', 'product'],
     ['greenBeanSalesManual', 'product'],
     ['settingsAuditManual', 'settings'],
@@ -216,6 +218,7 @@ test('remaining ERP click-matrix targets reference real Vue shell views', () => 
     'produceLogs',
     'productionCosts',
     'stockOperations',
+    'stockManual',
     'stockOutboundLogs',
     'purchase',
     'materials',

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	materialsapp "orderapp/internal/application/materials"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,6 +24,8 @@ type materialRow struct {
 	Code                       string
 	Name                       string
 	Kind                       string
+	IsSemiFinished             bool
+	CanManufacture             bool
 	Unit                       string
 	CostUnit                   string
 	BatchNo                    string
@@ -50,6 +53,8 @@ type materialInput struct {
 	Code                    string
 	Name                    string
 	Kind                    string
+	IsSemiFinished          bool
+	IsSemiFinishedSet       bool
 	Unit                    string
 	CostUnit                string
 	BatchNo                 string
@@ -182,8 +187,12 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 	args = append(args, limit)
 	limitArg := argn
 
+	canManufactureSQL, err := materialCanManufactureSQL(ctx, pool, schema)
+	if err != nil {
+		return nil, err
+	}
 	sql := fmt.Sprintf(`
-		SELECT m.id, m.code, m.name, m.kind, m.unit, m.cost_unit,
+		SELECT m.id, m.code, m.name, m.kind, COALESCE(m.is_semi_finished,false), %s, m.unit, m.cost_unit,
 		       COALESCE(m.batch_no, ''),
 		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
 		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
@@ -206,7 +215,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 		%s
 		ORDER BY COALESCE(g.sort_order,999999), COALESCE(gc.sort_order,999999), m.name, m.id DESC
 		LIMIT $%d
-	`, schema, schema, schema, schema, schema, schema, where, limitArg)
+	`, canManufactureSQL, schema, schema, schema, schema, schema, schema, where, limitArg)
 	rows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
@@ -218,7 +227,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 		var r materialRow
 		var profile beanProfileInput
 		var packProfile packProfileInput
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.CostUnit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.IndustryFieldTemplateID, &r.ClassificationGroupID, &r.ClassificationGroupName, &r.ClassificationCategoryID, &r.ClassificationCategoryName, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &packProfile.SizeSpec, &packProfile.Dimensions, &packProfile.Material, &packProfile.Capacity, &packProfile.Color, &packProfile.Note, &r.UpdatedAt, &r.DeprecatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.IsSemiFinished, &r.CanManufacture, &r.Unit, &r.CostUnit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.IndustryFieldTemplateID, &r.ClassificationGroupID, &r.ClassificationGroupName, &r.ClassificationCategoryID, &r.ClassificationCategoryName, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &packProfile.SizeSpec, &packProfile.Dimensions, &packProfile.Material, &packProfile.Capacity, &packProfile.Color, &packProfile.Note, &r.UpdatedAt, &r.DeprecatedAt); err != nil {
 			return nil, err
 		}
 		r.Kind = normalizeMaterialKind(r.Kind)
@@ -239,6 +248,32 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 		return nil, err
 	}
 	return out, nil
+}
+
+func materialCanManufactureSQL(ctx context.Context, pool *pgxpool.Pool, schema string) (string, error) {
+	for _, table := range []string{"production_boms", "production_bom_versions", "production_bom_output_bindings"} {
+		var exists bool
+		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return "false", nil
+		}
+	}
+	return fmt.Sprintf(`EXISTS (
+		SELECT 1
+		FROM %[1]s.production_bom_output_bindings ob
+		JOIN %[1]s.production_boms pb ON pb.id=ob.bom_id
+		JOIN %[1]s.production_bom_versions v ON v.id=ob.bom_version_id AND v.bom_id=pb.id
+		WHERE ob.output_type='material'
+		  AND ob.output_id=m.id
+		  AND ob.is_default=true
+		  AND pb.output_type='material'
+		  AND pb.output_material_id=m.id
+		  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+		  AND v.status='published'
+		  AND m.deprecated_at IS NULL
+	)`, schema), nil
 }
 
 func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor string, id int64, in materialInput) (materialRow, error) {
@@ -265,7 +300,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var old materialRow
-	qOld := fmt.Sprintf(`SELECT m.id, m.code, m.name, m.kind, m.unit, m.cost_unit,
+	qOld := fmt.Sprintf(`SELECT m.id, m.code, m.name, m.kind, COALESCE(m.is_semi_finished,false), m.unit, m.cost_unit,
 		       COALESCE(m.batch_no, ''),
 		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
 		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
@@ -284,7 +319,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		FOR UPDATE OF m`, schema, schema, schema)
 	var oldProfile beanProfileInput
 	var oldPackProfile packProfileInput
-	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.CostUnit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &old.IndustryFieldTemplateID, &oldProfile.Origin, &oldProfile.ProcessingStation, &oldProfile.Variety, &oldProfile.ProcessMethod, &oldProfile.Grade, &oldProfile.Altitude, &oldProfile.Flavor, &oldProfile.BeanListNote, &oldPackProfile.SizeSpec, &oldPackProfile.Dimensions, &oldPackProfile.Material, &oldPackProfile.Capacity, &oldPackProfile.Color, &oldPackProfile.Note, &old.UpdatedAt, &old.DeprecatedAt); err != nil {
+	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.IsSemiFinished, &old.Unit, &old.CostUnit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &old.IndustryFieldTemplateID, &oldProfile.Origin, &oldProfile.ProcessingStation, &oldProfile.Variety, &oldProfile.ProcessMethod, &oldProfile.Grade, &oldProfile.Altitude, &oldProfile.Flavor, &oldProfile.BeanListNote, &oldPackProfile.SizeSpec, &oldPackProfile.Dimensions, &oldPackProfile.Material, &oldPackProfile.Capacity, &oldPackProfile.Color, &oldPackProfile.Note, &old.UpdatedAt, &old.DeprecatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return materialRow{}, fmt.Errorf("not found")
 		}
@@ -301,11 +336,22 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, fmt.Errorf("material deprecated")
 	}
 	old.IndustryFields = loadMaterialIndustryFieldsForTx(ctx, tx, schema, id)
-	if err := assertMaterialInventoryUnitReadOnly(old, next, requestedInventoryUnit); err != nil {
-		return materialRow{}, err
+	if !next.IsSemiFinishedSet {
+		next.IsSemiFinished = old.IsSemiFinished
 	}
-	next.Unit = old.Unit
-	if err := assertMaterialCostUnitReadOnly(old, next, requestedCostUnit); err != nil {
+	unitChanged := materialInventoryUnitChanged(old, next, requestedInventoryUnit)
+	if unitChanged {
+		inUse, err := materialInventoryUnitInUseTx(ctx, tx, schema, old)
+		if err != nil {
+			return materialRow{}, fmt.Errorf("库存单位使用情况无法确认，拒绝修改: %w", err)
+		}
+		if err := assertMaterialInventoryUnitReadOnly(old, next, requestedInventoryUnit, inUse); err != nil {
+			return materialRow{}, err
+		}
+	} else {
+		next.Unit = old.Unit
+	}
+	if err := assertMaterialCostUnitReadOnly(old, next, requestedCostUnit, unitChanged); err != nil {
 		return materialRow{}, err
 	}
 	next.CostUnit = old.CostUnit
@@ -317,19 +363,20 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 			code=$2,
 			name=$3,
 			kind=$4,
-			unit=$5,
-			cost_unit=$6,
-			batch_no=$7,
-			purchase_price=$8,
-			sale_price=$9,
-			onhand_g=$10,
-			onhand_units=$11,
-			min_level_g=$12,
-			min_level_units=$13,
-			industry_field_template_id=$14,
+			is_semi_finished=$5,
+			unit=$6,
+			cost_unit=$7,
+			batch_no=$8,
+			purchase_price=$9,
+			sale_price=$10,
+			onhand_g=$11,
+			onhand_units=$12,
+			min_level_g=$13,
+			min_level_units=$14,
+			industry_field_template_id=$15,
 			updated_at=now()
 		WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.CostUnit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID); err != nil {
+	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.IsSemiFinished, next.Unit, next.CostUnit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID); err != nil {
 		return materialRow{}, err
 	}
 	if err := writeBeanProfileTx(ctx, tx, schema, id, next); err != nil {
@@ -375,13 +422,13 @@ func createMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	q := fmt.Sprintf(`INSERT INTO %s.materials(
-			code, name, kind, unit, cost_unit, batch_no, purchase_price, sale_price,
+			code, name, kind, is_semi_finished, unit, cost_unit, batch_no, purchase_price, sale_price,
 			onhand_g, onhand_units, min_level_g, min_level_units, industry_field_template_id, updated_at
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
 		RETURNING id`, schema)
 	var id int64
-	if err := tx.QueryRow(ctx, q, next.Code, next.Name, next.Kind, next.Unit, next.CostUnit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, q, next.Code, next.Name, next.Kind, next.IsSemiFinished, next.Unit, next.CostUnit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID).Scan(&id); err != nil {
 		return materialRow{}, err
 	}
 	if err := writeBeanProfileTx(ctx, tx, schema, id, next); err != nil {
@@ -623,9 +670,9 @@ func assertMaterialStockFieldsReadOnly(old materialRow, next materialInput) erro
 	return nil
 }
 
-func assertMaterialInventoryUnitReadOnly(old materialRow, next materialInput, requestedInventoryUnit string) error {
+func materialInventoryUnitChanged(old materialRow, next materialInput, requestedInventoryUnit string) bool {
 	if strings.TrimSpace(requestedInventoryUnit) == "" {
-		return nil
+		return false
 	}
 	oldUnit := strings.TrimSpace(old.Unit)
 	if oldUnit == "" {
@@ -635,22 +682,115 @@ func assertMaterialInventoryUnitReadOnly(old materialRow, next materialInput, re
 	if nextUnit == "" {
 		nextUnit = oldUnit
 	}
-	if oldUnit != nextUnit {
+	return oldUnit != nextUnit
+}
+
+func assertMaterialInventoryUnitReadOnly(old materialRow, next materialInput, requestedInventoryUnit string, inUse bool) error {
+	if materialInventoryUnitChanged(old, next, requestedInventoryUnit) && inUse {
 		return fmt.Errorf("库存单位保存后不能修改；如需调整，请新建物料档案")
 	}
 	return nil
 }
 
-func assertMaterialCostUnitReadOnly(old materialRow, next materialInput, requestedCostUnit string) error {
-	requestedCostUnit = normalizeMaterialCostUnit(requestedCostUnit)
-	if requestedCostUnit == "" {
-		return nil
+func materialInventoryUnitInUseTx(ctx context.Context, tx pgx.Tx, schema string, old materialRow) (bool, error) {
+	if old.OnhandG != 0 || old.OnhandUnits != 0 {
+		return true, nil
 	}
+	checks := []struct {
+		tables []string
+		query  string
+	}{
+		{[]string{"material_batch_locations"}, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.material_batch_locations WHERE material_id=$1 AND (qty_g<>0 OR qty_units<>0))`, schema)},
+		{[]string{"material_batches"}, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.material_batches WHERE material_id=$1 AND (remaining_g<>0 OR remaining_units<>0))`, schema)},
+		{[]string{"production_boms", "production_bom_versions", "production_bom_version_items"}, fmt.Sprintf(`SELECT EXISTS(
+			SELECT 1 FROM %[1]s.production_boms pb JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
+			WHERE v.status='published' AND pb.output_type='material' AND pb.output_material_id=$1
+			UNION ALL
+			SELECT 1 FROM %[1]s.production_bom_version_items i JOIN %[1]s.production_bom_versions v ON v.id=i.version_id
+			WHERE v.status='published' AND COALESCE(NULLIF(i.component_type,''),'material')='material' AND i.material_id=$1
+		)`, schema)},
+		{[]string{"work_order_material_reservations", "work_orders"}, fmt.Sprintf(`SELECT EXISTS(
+			SELECT 1 FROM %[1]s.work_order_material_reservations r
+			JOIN %[1]s.work_orders wo ON wo.id=r.work_order_id
+			WHERE r.material_id=$1 AND lower(COALESCE(wo.status,'')) NOT IN ('completed','cancelled','canceled','closed')
+		)`, schema)},
+	}
+	for _, check := range checks {
+		allExist := true
+		for _, table := range check.tables {
+			var exists bool
+			if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists); err != nil {
+				return false, err
+			}
+			if !exists {
+				allExist = false
+				break
+			}
+		}
+		if !allExist {
+			continue
+		}
+		var used bool
+		if err := tx.QueryRow(ctx, check.query, old.ID).Scan(&used); err != nil {
+			return false, err
+		}
+		if used {
+			return true, nil
+		}
+	}
+	workOrderOutputColumns := []string{"output_type", "output_material_id", "status"}
+	workOrderOutputAvailable := true
+	for _, column := range workOrderOutputColumns {
+		exists, err := materialSchemaColumnExistsTx(ctx, tx, schema, "work_orders", column)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			workOrderOutputAvailable = false
+			break
+		}
+	}
+	if workOrderOutputAvailable {
+		var used bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM %s.work_orders
+				WHERE output_type='material'
+				  AND output_material_id=$1
+				  AND lower(COALESCE(status,'')) NOT IN ('completed','cancelled','canceled','closed')
+			)
+		`, schema), old.ID).Scan(&used); err != nil {
+			return false, err
+		}
+		if used {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func materialSchemaColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table, column string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+		)
+	`, schema, table, column).Scan(&exists)
+	return exists, err
+}
+
+func assertMaterialCostUnitReadOnly(old materialRow, next materialInput, requestedCostUnit string, inventoryUnitChanged bool) error {
+	requestedCostUnit = normalizeMaterialCostUnit(requestedCostUnit)
 	oldCostUnit := normalizeMaterialCostUnit(old.CostUnit)
 	if oldCostUnit == "" {
 		oldCostUnit = normalizeMaterialCostUnit(next.CostUnit)
 	}
-	if oldCostUnit != requestedCostUnit {
+	if requestedCostUnit != "" && oldCostUnit != requestedCostUnit {
+		return fmt.Errorf("成本计价单位保存后不能修改；如需调整，请新建物料档案")
+	}
+	if inventoryUnitChanged && oldCostUnit != normalizeMaterialCostUnit(next.CostUnit) {
 		return fmt.Errorf("成本计价单位保存后不能修改；如需调整，请新建物料档案")
 	}
 	return nil
@@ -679,6 +819,7 @@ func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, ol
 		{"code", old.Code, next.Code},
 		{"name", old.Name, next.Name},
 		{"kind", old.Kind, next.Kind},
+		{"is_semi_finished", fmt.Sprintf("%t", old.IsSemiFinished), fmt.Sprintf("%t", next.IsSemiFinished)},
 		{"unit", old.Unit, next.Unit},
 		{"cost_unit", old.CostUnit, next.CostUnit},
 		{"batch_no", old.BatchNo, next.BatchNo},
@@ -720,6 +861,9 @@ func logMaterialCreateTx(ctx context.Context, tx pgx.Tx, schema, actor string, i
 	q := fmt.Sprintf(`INSERT INTO %s.audit_logs(actor, entity_type, entity_id, action, field, old_value, new_value, meta)
 		VALUES($1,'material',$2,'create','material','',$3,jsonb_build_object('material_id',$2::bigint,'code',$4::text))`, schema)
 	if _, err := tx.Exec(ctx, q, actor, id, next.Name, next.Code); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "material", &id, "create", postgresinfra.StrPtr("is_semi_finished"), postgresinfra.StrPtr(""), postgresinfra.StrPtr(fmt.Sprintf("%t", next.IsSemiFinished)), postgresinfra.AuditMeta{"material_id": id, "code": next.Code}); err != nil {
 		return err
 	}
 	costUnitQ := fmt.Sprintf(`INSERT INTO %s.audit_logs(actor, entity_type, entity_id, action, field, old_value, new_value, meta)
@@ -1267,6 +1411,8 @@ func materialToApp(row materialRow) materialsapp.Material {
 		Code:                       row.Code,
 		Name:                       row.Name,
 		Kind:                       row.Kind,
+		IsSemiFinished:             row.IsSemiFinished,
+		CanManufacture:             row.CanManufacture,
 		Unit:                       row.Unit,
 		CostUnit:                   row.CostUnit,
 		BatchNo:                    row.BatchNo,
@@ -1296,6 +1442,8 @@ func materialInputFromApp(in materialsapp.MaterialInput) materialInput {
 		Code:                    in.Code,
 		Name:                    in.Name,
 		Kind:                    in.Kind,
+		IsSemiFinished:          in.IsSemiFinished,
+		IsSemiFinishedSet:       in.IsSemiFinishedSet,
 		Unit:                    in.Unit,
 		CostUnit:                in.CostUnit,
 		BatchNo:                 in.BatchNo,

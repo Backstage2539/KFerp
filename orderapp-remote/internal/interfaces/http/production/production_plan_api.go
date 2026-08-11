@@ -31,6 +31,10 @@ type productionPlanCancelRequest struct {
 	Note string `json:"note"`
 }
 
+type productionPlanItemTargetWarehouseRequest struct {
+	TargetWarehouse string `json:"target_warehouse"`
+}
+
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.GET("/api/production-plans", func(c echo.Context) error {
 		rows, err := productionSvc.ListProductionPlans(c.Request().Context(), productionapp.ProductionPlanQuery{
@@ -92,6 +96,28 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, plan)
+	})
+	e.PATCH("/api/production-plans/:id/items/:item_id/target-warehouse", func(c echo.Context) error {
+		planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || planID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_id"})
+		}
+		itemID, err := strconv.ParseInt(c.Param("item_id"), 10, 64)
+		if err != nil || itemID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_item_id"})
+		}
+		var req productionPlanItemTargetWarehouseRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		item, err := productionSvc.UpdateProductionPlanItemTargetWarehouse(c.Request().Context(), productionapp.UpdateProductionPlanItemTargetWarehouseCommand{
+			ProductionPlanID: planID, ProductionPlanItemID: itemID,
+			TargetWarehouse: req.TargetWarehouse, Operator: support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, item)
 	})
 	e.GET("/api/production-plans/:id/operation-splits", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)

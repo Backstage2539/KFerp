@@ -25,11 +25,13 @@ type jobCardActualsRequest struct {
 }
 
 type workOrderCompleteRequest struct {
-	FinishedUnits  int64  `json:"finished_units"`
-	FinishedLooseG int64  `json:"finished_loose_g"`
-	ConsumedInputG int64  `json:"consumed_input_g"`
-	Warehouse      string `json:"warehouse"`
-	Note           string `json:"note"`
+	FinishedUnits    int64  `json:"finished_units"`
+	FinishedLooseG   int64  `json:"finished_loose_g"`
+	FinishedQtyG     int64  `json:"finished_qty_g"`
+	FinishedQtyUnits int64  `json:"finished_qty_units"`
+	ConsumedInputG   int64  `json:"consumed_input_g"`
+	Warehouse        string `json:"warehouse"`
+	Note             string `json:"note"`
 }
 
 type workOrderIssueMaterialsRequest struct {
@@ -158,13 +160,15 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service, st
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		res, err := productionSvc.CompleteWorkOrder(c.Request().Context(), productionapp.WorkOrderCompleteCommand{
-			ID:             id,
-			FinishedUnits:  req.FinishedUnits,
-			FinishedLooseG: req.FinishedLooseG,
-			ConsumedInputG: req.ConsumedInputG,
-			Warehouse:      req.Warehouse,
-			Operator:       support.ActorOf(c),
-			Note:           req.Note,
+			ID:               id,
+			FinishedUnits:    req.FinishedUnits,
+			FinishedLooseG:   req.FinishedLooseG,
+			FinishedQtyG:     req.FinishedQtyG,
+			FinishedQtyUnits: req.FinishedQtyUnits,
+			ConsumedInputG:   req.ConsumedInputG,
+			Warehouse:        req.Warehouse,
+			Operator:         support.ActorOf(c),
+			Note:             req.Note,
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

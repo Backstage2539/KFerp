@@ -86,6 +86,7 @@ type customerProcessingBatchAllocation struct {
 type customerProcessingFinishedBatchAvailability struct {
 	StockBatchID   int64
 	BatchCode      string
+	Warehouse      string
 	AvailableG     int64
 	AvailableUnits int64
 }
@@ -93,6 +94,7 @@ type customerProcessingFinishedBatchAvailability struct {
 type customerProcessingFinishedBatchAllocation struct {
 	StockBatchID  int64
 	BatchCode     string
+	Warehouse     string
 	QtyG          int64
 	QtyUnits      int64
 	ReservationID int64
@@ -126,7 +128,8 @@ func allocateCustomerProcessingFinishedBatches(rows []customerProcessingFinished
 			continue
 		}
 		out = append(out, customerProcessingFinishedBatchAllocation{
-			StockBatchID: row.StockBatchID, BatchCode: row.BatchCode, QtyG: qtyG, QtyUnits: qtyUnits,
+			StockBatchID: row.StockBatchID, BatchCode: row.BatchCode, Warehouse: row.Warehouse,
+			QtyG: qtyG, QtyUnits: qtyUnits,
 		})
 		remainingG -= qtyG
 		remainingUnits -= qtyUnits
@@ -161,6 +164,10 @@ func allocateCustomerProcessingBatches(rows []customerProcessingBatchAvailabilit
 }
 
 func loadCustomerProcessingReservationsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) ([]customerProcessingMaterialReservation, error) {
+	hasReservations, err := schemaColumnExistsTx(ctx, tx, schema, "customer_processing_material_reservations", "id")
+	if err != nil || !hasReservations {
+		return nil, err
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id,request_id,request_item_id,customer_id,material_id,component_type,component_product_id,
 		       component_spec_g,required_g,required_units,reserved_g,reserved_units,
@@ -855,10 +862,14 @@ func customerProcessingBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schem
 }
 
 func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, materialID, deductG, deductUnits int64) ([]customerProcessingBatchAllocation, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
+	hasGenericBindings, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "id")
+	if err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf(`
 		SELECT b.id,b.batch_code,
-		       GREATEST(0,l.qty_g-COALESCE(bound.reserved_g,0))::bigint,
-		       GREATEST(0,l.qty_units-COALESCE(bound.reserved_units,0))::bigint,
+		       GREATEST(0,l.qty_g-COALESCE(bound.reserved_g,0)-COALESCE(generic_bound.reserved_g,0))::bigint,
+		       GREATEST(0,l.qty_units-COALESCE(bound.reserved_units,0)-COALESCE(generic_bound.reserved_units,0))::bigint,
 		       COALESCE(EXTRACT(EPOCH FROM b.received_at)::bigint,b.id)
 		FROM %s.material_batch_locations l
 		JOIN %s.material_batches b ON b.id=l.material_batch_id
@@ -868,13 +879,27 @@ func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema str
 			FROM %s.customer_processing_material_reservations r
 			WHERE r.material_batch_id=b.id AND r.status='reserved'
 		) bound ON true
+		%s
 		WHERE l.material_id=$1 AND l.warehouse=$2
 		  AND (l.qty_g>0 OR l.qty_units>0)
 		  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.received_at,b.id
 		FOR UPDATE OF l,b
-	`, schema, schema, schema), materialID, stockdomain.WarehouseWIP)
+	`, schema, schema, schema, "%s")
+	genericJoin := `LEFT JOIN LATERAL (SELECT 0::bigint AS reserved_g,0::bigint AS reserved_units) generic_bound ON true`
+	if hasGenericBindings {
+		genericJoin = fmt.Sprintf(`
+			LEFT JOIN LATERAL (
+				SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint AS reserved_g,
+				       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units)),0)::bigint AS reserved_units
+				FROM %s.work_order_material_reservation_batches r
+				WHERE r.material_batch_id=b.id AND r.status='reserved'
+			) generic_bound ON true
+		`, schema)
+	}
+	query = fmt.Sprintf(query, genericJoin)
+	rows, err := tx.Query(ctx, query, materialID, stockdomain.WarehouseWIP)
 	if err != nil {
 		return nil, err
 	}
@@ -890,6 +915,12 @@ func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema str
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if len(available) == 0 {
+		legacyAggregateOnly, err := materialBatchFallbackAllowedTx(ctx, tx, schema, materialID)
+		if err != nil || legacyAggregateOnly {
+			return nil, err
+		}
+	}
 	allocations, err := allocateCustomerProcessingBatches(available, deductG, deductUnits)
 	if err != nil {
 		return nil, err
@@ -902,15 +933,226 @@ func unreservedWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema str
 	return allocations, nil
 }
 
+// workOrderBoundBatchConsumptionsTx consumes the concrete production batches
+// assigned by completed upstream work orders before falling back to ordinary
+// unbound FIFO stock. It returns the unfilled remainder because the same
+// reservation may also be covered by pre-existing WIP inventory.
+func workOrderBoundBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID, materialID, deductG, deductUnits int64) ([]customerProcessingBatchAllocation, int64, int64, error) {
+	hasBindings, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "id")
+	if err != nil || !hasBindings {
+		return nil, deductG, deductUnits, err
+	}
+	var workOrderID int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE running_item_id=$1`, schema), runningItemID).Scan(&workOrderID)
+	if err == pgx.ErrNoRows {
+		return nil, deductG, deductUnits, nil
+	}
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	type boundBatch struct {
+		id, batchID                                 int64
+		batchCode                                   string
+		reservedG, consumedG, returnedG             int64
+		reservedUnits, consumedUnits, returnedUnits int64
+		wipG, wipUnits                              int64
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT binding.id,binding.material_batch_id,binding.batch_code,
+		       binding.reserved_g,binding.consumed_g,binding.returned_g,
+		       binding.reserved_units,binding.consumed_units,binding.returned_units,
+		       location.qty_g,location.qty_units
+		FROM %s.work_order_material_reservation_batches binding
+		JOIN %s.material_batch_locations location
+		  ON location.material_batch_id=binding.material_batch_id AND location.warehouse=$3
+		JOIN %s.material_batches batch ON batch.id=binding.material_batch_id
+		WHERE binding.work_order_id=$1 AND binding.material_id=$2 AND binding.status='reserved'
+		  AND batch.status='active' AND COALESCE(batch.quality_status,'unchecked') NOT IN ('hold','reject')
+		ORDER BY binding.id
+		FOR UPDATE OF binding,location,batch
+	`, schema, schema, schema), workOrderID, materialID, stockdomain.WarehouseWIP)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	bound := make([]boundBatch, 0)
+	for rows.Next() {
+		var row boundBatch
+		if err := rows.Scan(&row.id, &row.batchID, &row.batchCode,
+			&row.reservedG, &row.consumedG, &row.returnedG,
+			&row.reservedUnits, &row.consumedUnits, &row.returnedUnits,
+			&row.wipG, &row.wipUnits); err != nil {
+			rows.Close()
+			return nil, 0, 0, err
+		}
+		bound = append(bound, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, 0, 0, err
+	}
+	rows.Close()
+	remainingG, remainingUnits := nonnegativeQuantity(deductG), nonnegativeQuantity(deductUnits)
+	allocations := make([]customerProcessingBatchAllocation, 0, len(bound))
+	for _, row := range bound {
+		if remainingG <= 0 && remainingUnits <= 0 {
+			break
+		}
+		availableG := minInt64(nonnegativeQuantity(row.reservedG-row.consumedG-row.returnedG), row.wipG)
+		availableUnits := minInt64(nonnegativeQuantity(row.reservedUnits-row.consumedUnits-row.returnedUnits), row.wipUnits)
+		allocation := customerProcessingBatchAllocation{
+			BatchID: row.batchID, BatchCode: row.batchCode,
+			QtyG: minInt64(remainingG, availableG), QtyUnits: minInt64(remainingUnits, availableUnits),
+		}
+		if allocation.QtyG <= 0 && allocation.QtyUnits <= 0 {
+			continue
+		}
+		if err := consumeMaterialBatchAllocationTx(ctx, tx, schema, allocation); err != nil {
+			return nil, 0, 0, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.work_order_material_reservation_batches
+			SET consumed_g=consumed_g+$2,consumed_units=consumed_units+$3,
+			    status=CASE
+			      WHEN consumed_g+$2+returned_g>=reserved_g AND consumed_units+$3+returned_units>=reserved_units THEN 'consumed'
+			      ELSE status
+			    END,
+			    updated_at=now()
+			WHERE id=$1 AND status='reserved'
+		`, schema), row.id, allocation.QtyG, allocation.QtyUnits); err != nil {
+			return nil, 0, 0, err
+		}
+		allocations = append(allocations, allocation)
+		remainingG -= allocation.QtyG
+		remainingUnits -= allocation.QtyUnits
+	}
+	return allocations, remainingG, remainingUnits, nil
+}
+
 // materialBatchConsumptionsForRunningItemTx protects every active customer
 // reservation. Customer processing work orders may consume only their own
 // bound batches; ordinary work orders may consume only the unreserved balance.
 func materialBatchConsumptionsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID, materialID, deductG, deductUnits int64) ([]customerProcessingBatchAllocation, error) {
-	allocations, owned, err := customerProcessingBatchConsumptionsTx(ctx, tx, schema, runningItemID, materialID, deductG, deductUnits)
-	if err != nil || owned {
-		return allocations, err
+	hasOwnershipReservations, err := schemaColumnExistsTx(ctx, tx, schema, "customer_processing_material_reservations", "id")
+	if err != nil {
+		return nil, err
 	}
-	return unreservedWIPBatchConsumptionsTx(ctx, tx, schema, materialID, deductG, deductUnits)
+	if hasOwnershipReservations {
+		allocations, owned, err := customerProcessingBatchConsumptionsTx(ctx, tx, schema, runningItemID, materialID, deductG, deductUnits)
+		if err != nil || owned {
+			return allocations, err
+		}
+	}
+	bound, remainingG, remainingUnits, err := workOrderBoundBatchConsumptionsTx(ctx, tx, schema, runningItemID, materialID, deductG, deductUnits)
+	if err != nil || (remainingG <= 0 && remainingUnits <= 0) {
+		return bound, err
+	}
+	var unbound []customerProcessingBatchAllocation
+	if hasOwnershipReservations {
+		unbound, err = unreservedWIPBatchConsumptionsTx(ctx, tx, schema, materialID, remainingG, remainingUnits)
+	} else {
+		unbound, err = ordinaryWIPBatchConsumptionsTx(ctx, tx, schema, materialID, remainingG, remainingUnits)
+	}
+	return append(bound, unbound...), err
+}
+
+func ordinaryWIPBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, materialID, deductG, deductUnits int64) ([]customerProcessingBatchAllocation, error) {
+	hasGenericBindings, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "id")
+	if err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf(`
+		SELECT b.id,b.batch_code,l.qty_g,l.qty_units,
+		       COALESCE(EXTRACT(EPOCH FROM b.received_at)::bigint,b.id)
+		FROM %s.material_batch_locations l
+		JOIN %s.material_batches b ON b.id=l.material_batch_id
+		WHERE l.material_id=$1 AND l.warehouse=$2
+		  AND (l.qty_g>0 OR l.qty_units>0)
+		  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
+		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+		ORDER BY b.received_at,b.id
+		FOR UPDATE OF l,b
+	`, schema, schema)
+	if hasGenericBindings {
+		query = fmt.Sprintf(`
+			SELECT b.id,b.batch_code,
+			       GREATEST(0,l.qty_g-COALESCE(bound.reserved_g,0))::bigint,
+			       GREATEST(0,l.qty_units-COALESCE(bound.reserved_units,0))::bigint,
+			       COALESCE(EXTRACT(EPOCH FROM b.received_at)::bigint,b.id)
+			FROM %s.material_batch_locations l
+			JOIN %s.material_batches b ON b.id=l.material_batch_id
+			LEFT JOIN LATERAL (
+				SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint AS reserved_g,
+				       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units)),0)::bigint AS reserved_units
+				FROM %s.work_order_material_reservation_batches r
+				WHERE r.material_batch_id=b.id AND r.status='reserved'
+			) bound ON true
+			WHERE l.material_id=$1 AND l.warehouse=$2
+			  AND (l.qty_g>0 OR l.qty_units>0)
+			  AND b.status='active' AND (b.remaining_g>0 OR b.remaining_units>0)
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			ORDER BY b.received_at,b.id
+			FOR UPDATE OF l,b
+		`, schema, schema, schema)
+	}
+	rows, err := tx.Query(ctx, query, materialID, stockdomain.WarehouseWIP)
+	if err != nil {
+		return nil, err
+	}
+	available := make([]customerProcessingBatchAvailability, 0)
+	for rows.Next() {
+		var row customerProcessingBatchAvailability
+		if err := rows.Scan(&row.BatchID, &row.BatchCode, &row.AvailableG, &row.AvailableUnits, &row.ReceivedOrder); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		available = append(available, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if len(available) == 0 {
+		legacyAggregateOnly, err := materialBatchFallbackAllowedTx(ctx, tx, schema, materialID)
+		if err != nil || legacyAggregateOnly {
+			return nil, err
+		}
+	}
+	allocations, err := allocateCustomerProcessingBatches(available, deductG, deductUnits)
+	if err != nil {
+		return nil, err
+	}
+	for _, allocation := range allocations {
+		if err := consumeMaterialBatchAllocationTx(ctx, tx, schema, allocation); err != nil {
+			return nil, err
+		}
+	}
+	return allocations, nil
+}
+
+// Historical production rows may predate concrete material batches and keep
+// only the aggregate material balance. Preserve that read/write compatibility,
+// while still rejecting a real batch that exists but is quality-blocked.
+func materialBatchFallbackAllowedTx(ctx context.Context, tx pgx.Tx, schema string, materialID int64) (bool, error) {
+	var concreteCount, qualityBlockedCount int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)::bigint,
+		       COUNT(*) FILTER (WHERE COALESCE(batch.quality_status,'unchecked') IN ('hold','reject'))::bigint
+		FROM %s.material_batch_locations location
+		JOIN %s.material_batches batch ON batch.id=location.material_batch_id
+		WHERE location.material_id=$1 AND location.warehouse=$2
+		  AND (location.qty_g>0 OR location.qty_units>0)
+		  AND (batch.remaining_g>0 OR batch.remaining_units>0)
+	`, schema, schema), materialID, stockdomain.WarehouseWIP).Scan(&concreteCount, &qualityBlockedCount); err != nil {
+		return false, err
+	}
+	if concreteCount == 0 {
+		return true, nil
+	}
+	if qualityBlockedCount == concreteCount {
+		return false, fmt.Errorf("WIP stock blocked by quality status: material %d", materialID)
+	}
+	return false, nil
 }
 
 func consumeFinishedStockBatchAllocationTx(ctx context.Context, tx pgx.Tx, schema string, allocation customerProcessingFinishedBatchAllocation) error {
@@ -1008,7 +1250,8 @@ func customerProcessingFinishedBatchConsumptionsTx(ctx context.Context, tx pgx.T
 		}
 		allocation := customerProcessingFinishedBatchAllocation{
 			StockBatchID: reservation.stockBatchID, BatchCode: reservation.batchCode,
-			QtyG: qtyG, QtyUnits: qtyUnits, ReservationID: reservation.id,
+			Warehouse: stockdomain.WarehouseWIP,
+			QtyG:      qtyG, QtyUnits: qtyUnits, ReservationID: reservation.id,
 		}
 		if err := consumeFinishedStockBatchAllocationTx(ctx, tx, schema, allocation); err != nil {
 			return nil, true, err
@@ -1025,10 +1268,27 @@ func customerProcessingFinishedBatchConsumptionsTx(ctx context.Context, tx pgx.T
 
 func unreservedFinishedBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schema string, productID, specG, deductG, deductUnits int64) ([]customerProcessingFinishedBatchAllocation, error) {
 	deductG, deductUnits = normalizeCustomerProcessingFinishedQuantity(specG, deductG, deductUnits)
+	hasGenericReservations, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "component_type")
+	if err != nil {
+		return nil, err
+	}
+	genericJoin := ""
+	genericReservedG, genericReservedUnits := "0", "0"
+	if hasGenericReservations {
+		genericJoin = fmt.Sprintf(`
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(GREATEST(0,rb.reserved_g-rb.consumed_g-rb.returned_g)),0)::bigint AS reserved_g,
+			       COALESCE(SUM(GREATEST(0,rb.reserved_units-rb.consumed_units-rb.returned_units)),0)::bigint AS reserved_units
+			FROM %s.work_order_material_reservation_batches rb
+			JOIN %s.work_order_material_reservations r ON r.id=rb.reservation_id AND r.status='reserved'
+			WHERE rb.stock_batch_id=b.id AND rb.component_type='product' AND rb.status='reserved'
+		) generic_bound ON true`, schema, schema)
+		genericReservedG, genericReservedUnits = "COALESCE(generic_bound.reserved_g,0)", "COALESCE(generic_bound.reserved_units,0)"
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT b.id,b.batch_code,
-		       GREATEST(0,b.remaining_g-COALESCE(bound.reserved_g,0))::bigint,
-		       GREATEST(0,b.remaining_units-COALESCE(bound.reserved_units,0))::bigint
+		SELECT b.id,b.batch_code,COALESCE(location.warehouse,$3),
+		       GREATEST(0,b.remaining_g-COALESCE(bound.reserved_g,0)-%s)::bigint,
+		       GREATEST(0,b.remaining_units-COALESCE(bound.reserved_units,0)-%s)::bigint
 		FROM %s.stock_batches b
 		LEFT JOIN LATERAL (
 			SELECT l.warehouse FROM %s.stock_ledger_entries l
@@ -1042,13 +1302,14 @@ func unreservedFinishedBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schem
 			FROM %s.customer_processing_material_reservations r
 			WHERE r.finished_stock_batch_id=b.id AND r.status='reserved'
 		) bound ON true
+		%s
 		WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.spec_g=$2
 		  AND COALESCE(location.warehouse,$3)=$3
 		  AND (b.remaining_g>0 OR b.remaining_units>0)
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.created_at,b.id
 		FOR UPDATE OF b
-	`, schema, schema, schema), productID, specG, stockdomain.WarehouseFinishedGoods)
+	`, genericReservedG, genericReservedUnits, schema, schema, schema, genericJoin), productID, specG, stockdomain.WarehouseFinishedGoods)
 	if err != nil {
 		return nil, err
 	}
@@ -1056,7 +1317,7 @@ func unreservedFinishedBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schem
 	available := make([]customerProcessingFinishedBatchAvailability, 0)
 	for rows.Next() {
 		var row customerProcessingFinishedBatchAvailability
-		if err := rows.Scan(&row.StockBatchID, &row.BatchCode, &row.AvailableG, &row.AvailableUnits); err != nil {
+		if err := rows.Scan(&row.StockBatchID, &row.BatchCode, &row.Warehouse, &row.AvailableG, &row.AvailableUnits); err != nil {
 			return nil, err
 		}
 		row.AvailableG, row.AvailableUnits = normalizeCustomerProcessingFinishedQuantity(specG, row.AvailableG, row.AvailableUnits)
@@ -1089,6 +1350,16 @@ func finishedBatchConsumptionsForRunningItemTx(ctx context.Context, tx pgx.Tx, s
 	hasReservations, err := schemaColumnExistsTx(ctx, tx, schema, "customer_processing_material_reservations", "id")
 	if err != nil {
 		return nil, err
+	}
+	hasTypedWorkReservations, err := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "component_type")
+	if err != nil {
+		return nil, err
+	}
+	if hasWorkOrders && hasTypedWorkReservations {
+		allocations, owned, err := consumeTypedFinishedProductReservationBatchesTx(ctx, tx, schema, runningItemID, productID, specG, deductG, deductUnits)
+		if err != nil || owned {
+			return allocations, err
+		}
 	}
 	if hasWorkOrders && hasReservations {
 		allocations, owned, err := customerProcessingFinishedBatchConsumptionsTx(ctx, tx, schema, runningItemID, productID, specG, deductG, deductUnits)
