@@ -28,6 +28,14 @@ func TestDev596SemiFinishedPackagingBomContracts(t *testing.T) {
 			"ProductionStagePackaging",
 			"WorkOrderDependencySemiToPackaging",
 		},
+		filepath.Join("internal", "domain", "production", "two_stage_planning.go"): {
+			"CalculateSemiFinishedDemand",
+			"DetermineTwoStagePlan",
+		},
+		filepath.Join("internal", "domain", "production", "spec_cost.go"): {
+			"CalculateSpecStandardCost",
+			"SpecStandardCostInput",
+		},
 		filepath.Join("internal", "infrastructure", "postgres", "stock", "schema.go"): {
 			"semi_finished",
 		},
