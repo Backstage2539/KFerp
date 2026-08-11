@@ -23,6 +23,21 @@ func TestDev596SemiFinishedPackagingBomContracts(t *testing.T) {
 			"CheckSemiFinishedPackagingValidity",
 			"SemiFinishedPackagingResult",
 		},
+		filepath.Join("internal", "domain", "production", "two_stage.go"): {
+			"ProductionStageSemiFinished",
+			"ProductionStagePackaging",
+			"WorkOrderDependencySemiToPackaging",
+		},
+		filepath.Join("internal", "infrastructure", "postgres", "stock", "schema.go"): {
+			"semi_finished",
+		},
+		filepath.Join("internal", "infrastructure", "postgres", "production", "schema.go"): {
+			"work_order_dependencies",
+			"production_stage",
+			"source_warehouse",
+			"packaging_bom_version_id",
+			"semi_finished_demand_qty",
+		},
 		filepath.Join("internal", "application", "bom", "service.go"): {
 			"BomKind",
 			"OutputIsSemiFinished",
