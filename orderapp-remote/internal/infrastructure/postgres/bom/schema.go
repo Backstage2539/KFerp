@@ -265,25 +265,6 @@ WHERE pb.id=b.bom_id AND pb.output_product_id=0 AND b.product_id > 0;
 UPDATE %[1]s.production_boms
 SET output_type=CASE WHEN output_material_id>0 AND output_product_id=0 THEN 'material' ELSE 'product' END
 WHERE COALESCE(NULLIF(output_type,''),'')='' OR output_type NOT IN ('product','material');
-DO $production_bom_output_binding_constraint$
-BEGIN
-	IF NOT EXISTS (
-		SELECT 1
-		FROM pg_constraint c
-		JOIN pg_class t ON t.oid=c.conrelid
-		JOIN pg_namespace n ON n.oid=t.relnamespace
-		WHERE n.nspname='%[1]s'
-		  AND t.relname='production_boms'
-		  AND c.conname='production_boms_output_binding_check'
-	) THEN
-		ALTER TABLE %[1]s.production_boms ADD CONSTRAINT production_boms_output_binding_check CHECK (
-			(output_type='product' AND output_product_id>0 AND output_material_id=0)
-			OR (output_type='material' AND output_material_id>0 AND output_product_id=0)
-		) NOT VALID;
-	END IF;
-END
-$production_bom_output_binding_constraint$;
-ALTER TABLE %[1]s.production_boms VALIDATE CONSTRAINT production_boms_output_binding_check;
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_code_uq
 	ON %[1]s.production_boms(code);
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_legacy_product_uq
@@ -445,7 +426,90 @@ CREATE INDEX IF NOT EXISTS production_bom_output_bindings_bom_idx
 	if err := archiveNonLatestPublishedProductionBomVersions(ctx, pool, schema); err != nil {
 		return err
 	}
-	return backfillProductionBomVersionSpecialAttrs(ctx, pool, schema)
+	if err := backfillProductionBomVersionSpecialAttrs(ctx, pool, schema); err != nil {
+		return err
+	}
+	return validateProductionBomOutputBindingConstraint(ctx, pool, schema)
+}
+
+func validateProductionBomOutputBindingConstraint(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`LOCK TABLE %[1]s.production_boms IN SHARE ROW EXCLUSIVE MODE`, schema)); err != nil {
+		return err
+	}
+	var preservedLegacyOrphanCount, unsupportedInvalidCount int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+WITH classified AS (
+	SELECT
+		NOT (
+			(output_type='product' AND output_product_id>0 AND output_material_id=0)
+			OR (output_type='material' AND output_material_id>0 AND output_product_id=0)
+		) AS invalid,
+		status='inactive'
+			AND output_type='product'
+			AND output_product_id=0
+			AND output_material_id=0
+			AND legacy_product_id=0
+			AND NOT EXISTS (
+				SELECT 1 FROM %[1]s.product_production_bom_bindings legacy_binding
+				WHERE legacy_binding.bom_id=production_boms.id
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM %[1]s.production_bom_output_bindings typed_binding
+				WHERE typed_binding.bom_id=production_boms.id
+			) AS preserved_legacy_orphan
+	FROM %[1]s.production_boms
+)
+SELECT
+	COUNT(*) FILTER (WHERE invalid AND preserved_legacy_orphan),
+	COUNT(*) FILTER (WHERE invalid AND NOT preserved_legacy_orphan)
+FROM classified
+`, schema)).Scan(&preservedLegacyOrphanCount, &unsupportedInvalidCount); err != nil {
+		return err
+	}
+	if unsupportedInvalidCount > 0 {
+		return fmt.Errorf("production_boms contains %d unsupported typed-output row(s)", unsupportedInvalidCount)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+DO $production_bom_output_binding_constraint$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid=c.conrelid
+		JOIN pg_namespace n ON n.oid=t.relnamespace
+		WHERE n.nspname='%[1]s'
+		  AND t.relname='production_boms'
+		  AND c.conname='production_boms_output_binding_check'
+	) THEN
+		ALTER TABLE %[1]s.production_boms ADD CONSTRAINT production_boms_output_binding_check CHECK (
+			(output_type='product' AND output_product_id>0 AND output_material_id=0)
+			OR (output_type='material' AND output_material_id>0 AND output_product_id=0)
+		) NOT VALID;
+	END IF;
+END
+$production_bom_output_binding_constraint$;
+`, schema)); err != nil {
+		return err
+	}
+	if preservedLegacyOrphanCount > 0 {
+		// NOT VALID still enforces the typed-output XOR contract for every new
+		// insert or update. Preserve only inactive historical rows with no output
+		// identity or binding; once repaired, a later EnsureSchema run validates
+		// the same constraint without recreating it.
+		return tx.Commit(ctx)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+ALTER TABLE %[1]s.production_boms
+	VALIDATE CONSTRAINT production_boms_output_binding_check
+`, schema)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func backfillProductionBomOutputBindings(ctx context.Context, pool *pgxpool.Pool, schema string) error {
