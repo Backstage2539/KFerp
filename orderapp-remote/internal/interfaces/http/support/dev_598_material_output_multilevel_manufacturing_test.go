@@ -127,6 +127,13 @@ func TestDev598MaterialOutputMultilevelManufacturingContracts(t *testing.T) {
 	} {
 		src, err := os.ReadFile(filepath.Join(repoRoot, rel))
 		if err != nil {
+			// The release Dockerfile intentionally copies only the durable root
+			// governance documents into the isolated build context. Keep ACTIVE
+			// mandatory in a real checkout while allowing that established image
+			// safety gate to run without widening the release artifact contract.
+			if rel == "ACTIVE_REQUIREMENTS.md" && os.IsNotExist(err) && repoRoot == string(filepath.Separator) {
+				continue
+			}
 			t.Fatal(err)
 		}
 		for _, want := range wants {
