@@ -719,6 +719,127 @@ func newPR598BomBindingTestDB(t *testing.T) (context.Context, *pgxpool.Pool, str
 	return ctx, pool, schema
 }
 
+func TestPR598LegacyOrphanBomKeepsOutputConstraintPendingUntilRepaired(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	schema := fmt.Sprintf("pr598_legacy_orphan_%d_%d", os.Getpid(), time.Now().UnixNano())
+	mustPR598SQL(t, ctx, pool, "CREATE SCHEMA "+schema)
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+	if err := postgresmaterials.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+
+	// This is the production_boms shape deployed before PR-598. Historical
+	// rows with no legacy product or default binding cannot be assigned a typed
+	// output without a business decision, so the migration must preserve them.
+	mustPR598SQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %[1]s.production_boms (
+			id BIGSERIAL PRIMARY KEY,
+			code TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
+			output_product_id BIGINT NOT NULL DEFAULT 0,
+			group_id BIGINT NOT NULL DEFAULT 0,
+			group_category_id BIGINT NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'active',
+			source_bom_id BIGINT NOT NULL DEFAULT 0,
+			source_bom_version_id BIGINT NOT NULL DEFAULT 0,
+			source_product_id BIGINT NOT NULL DEFAULT 0,
+			source_product_code_snapshot TEXT NOT NULL DEFAULT '',
+			source_product_name_snapshot TEXT NOT NULL DEFAULT '',
+			legacy_product_id BIGINT NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT '',
+			updated_by TEXT NOT NULL DEFAULT ''
+		);
+		INSERT INTO %[1]s.production_boms(code,name,status)
+		VALUES('LEGACY-ORPHAN','历史待识别 BOM','inactive');
+	`, schema))
+
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema must preserve an unmapped legacy BOM: %v", err)
+	}
+	var constraintOID int64
+	var validated bool
+	if err := pool.QueryRow(ctx, `
+		SELECT c.oid::bigint,c.convalidated
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid=c.conrelid
+		JOIN pg_namespace n ON n.oid=t.relnamespace
+		WHERE n.nspname=$1 AND t.relname='production_boms' AND c.conname='production_boms_output_binding_check'
+	`, schema).Scan(&constraintOID, &validated); err != nil {
+		t.Fatal(err)
+	}
+	if validated {
+		t.Fatal("typed output constraint must remain pending while a legacy orphan exists")
+	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("repeated EnsureSchema must preserve an unmapped legacy BOM: %v", err)
+	}
+	var repeatedConstraintOID int64
+	if err := pool.QueryRow(ctx, `
+		SELECT c.oid::bigint,c.convalidated
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid=c.conrelid
+		JOIN pg_namespace n ON n.oid=t.relnamespace
+		WHERE n.nspname=$1 AND t.relname='production_boms' AND c.conname='production_boms_output_binding_check'
+	`, schema).Scan(&repeatedConstraintOID, &validated); err != nil {
+		t.Fatal(err)
+	}
+	if repeatedConstraintOID != constraintOID || validated {
+		t.Fatalf("pending constraint changed across EnsureSchema: oid %d -> %d, validated=%v", constraintOID, repeatedConstraintOID, validated)
+	}
+	var legacyStatus, legacyOutputType string
+	var legacyOutputProductID, legacyOutputMaterialID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT status,output_type,output_product_id,output_material_id
+		FROM %s.production_boms
+		WHERE code='LEGACY-ORPHAN'
+	`, schema)).Scan(&legacyStatus, &legacyOutputType, &legacyOutputProductID, &legacyOutputMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	if legacyStatus != "inactive" || legacyOutputType != "product" || legacyOutputProductID != 0 || legacyOutputMaterialID != 0 {
+		t.Fatalf("legacy orphan was rewritten: status=%s output=%s:%d/%d", legacyStatus, legacyOutputType, legacyOutputProductID, legacyOutputMaterialID)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_boms(code,name,output_type,output_product_id,output_material_id)
+		VALUES('NEW-INVALID','invalid','product',0,0)
+	`, schema)); err == nil {
+		t.Fatal("NOT VALID constraint must still reject new untyped BOM writes")
+	}
+	mustPR598SQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %s.production_boms
+		SET output_type='product', output_product_id=42, output_material_id=0
+		WHERE code='LEGACY-ORPHAN'
+	`, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema after legacy output repair: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT c.convalidated
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid=c.conrelid
+		JOIN pg_namespace n ON n.oid=t.relnamespace
+		WHERE n.nspname=$1 AND t.relname='production_boms' AND c.conname='production_boms_output_binding_check'
+	`, schema).Scan(&validated); err != nil {
+		t.Fatal(err)
+	}
+	if !validated {
+		t.Fatal("typed output constraint must validate after all legacy rows are repaired")
+	}
+}
+
 func assertPR598DefaultBindingIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema, outputType string, outputID, wantBomID, wantVersionID int64) {
 	t.Helper()
 	var bomID, versionID int64
