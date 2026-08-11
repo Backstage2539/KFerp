@@ -7,7 +7,10 @@ import {
   businessGroupRowsForFeatureSelection,
   businessGroupRowsForUsage,
   businessGroupControlOptions,
+  businessGroupHiddenByCollapsedAncestor,
+  businessGroupInlineListState,
   businessGroupMoveAssignmentPayload,
+  businessGroupVisibleRows,
   groupRowsByBusinessGroupTemplate,
   groupRowsByBusinessGroupTemplates,
   preferredBusinessGroupTemplateID,
@@ -265,4 +268,65 @@ test('business group move payload supports product BOM and warehouse object iden
     group_item_id: 91,
     sort_order: 100,
   })
+})
+
+test('inline business group lists paginate every category independently without losing direct parent rows', () => {
+  const rows = Array.from({ length: 47 }, (_, index) => ({ id: index + 1 }))
+  const groups = [
+    { key: 'business-template-9', is_template_group: true, group_id: 9, rows: [], template_total: 42 },
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: rows.slice(0, 23) },
+    { key: 'business-group-9-91', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: rows.slice(23, 35) },
+    { key: 'business-group-9-92', group_id: 9, group_item_id: 92, parent_group_item_id: 90, rows: [] },
+    { key: 'business-group-unclassified', unclassified: true, rows: rows.slice(35) },
+  ]
+
+  const state = businessGroupInlineListState(groups, {
+    'business-group-9-90': { page: 2, pageSize: 10 },
+    'business-group-9-91': { page: 1, pageSize: 20 },
+    'business-group-unclassified': { page: 9, pageSize: 10 },
+  })
+
+  const byKey = new Map(state.groups.map((group) => [group.key, group]))
+  assert.deepEqual(byKey.get('business-group-9-90').rows.map((row) => row.id), rows.slice(10, 20).map((row) => row.id))
+  assert.equal(byKey.get('business-group-9-90').total, 23)
+  assert.equal(byKey.get('business-group-9-90').page, 2)
+  assert.equal(byKey.get('business-group-9-91').page, 1)
+  assert.equal(byKey.get('business-group-9-91').pageSize, 20)
+  assert.deepEqual(byKey.get('business-group-9-91').rows.map((row) => row.id), rows.slice(23, 35).map((row) => row.id))
+  assert.equal(byKey.get('business-group-unclassified').page, 2)
+  assert.deepEqual(byKey.get('business-group-9-92').rows, [])
+  assert.equal(state.total, 47)
+  assert.deepEqual(state.pagination['business-group-9-90'], { page: 2, pageSize: 10 })
+  assert.deepEqual(state.pagination['business-group-9-91'], { page: 1, pageSize: 20 })
+})
+
+test('inline business group visibility hides collapsed descendants and bodies but preserves their pagination state', () => {
+  const groups = businessGroupInlineListState([
+    { key: 'business-template-9', is_template_group: true, group_id: 9, rows: [] },
+    { key: 'business-group-9-90', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 1 }] },
+    { key: 'business-group-9-91', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: [{ id: 2 }] },
+    { key: 'business-group-unclassified', unclassified: true, rows: [{ id: 3 }] },
+  ], {
+    'business-group-9-91': { page: 1, pageSize: 20 },
+  }).groups
+
+  assert.equal(businessGroupHiddenByCollapsedAncestor(groups, groups[2], ['business-group-9-90']), true)
+  assert.equal(businessGroupHiddenByCollapsedAncestor(groups, groups[3], ['business-group-9-90']), false)
+  assert.deepEqual(businessGroupVisibleRows(groups, ['business-group-9-90']).map((row) => row.id), [3])
+  assert.equal(groups[2].pageSize, 20)
+})
+
+test('inline business group lists keep the no-template all-products group pageable', () => {
+  const groups = groupRowsByBusinessGroupTemplates(
+    Array.from({ length: 12 }, (_, index) => ({ id: index + 1 })),
+    { templates: [], allLabel: '全部物料' },
+  )
+  const state = businessGroupInlineListState(groups, {
+    'all-products': { page: 2, pageSize: 10 },
+  })
+
+  assert.equal(state.groups.length, 1)
+  assert.equal(state.groups[0].all, true)
+  assert.equal(state.groups[0].label, '全部物料')
+  assert.deepEqual(state.groups[0].rows.map((row) => row.id), [11, 12])
 })

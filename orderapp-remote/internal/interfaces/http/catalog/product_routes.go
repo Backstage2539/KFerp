@@ -112,6 +112,7 @@ const (
 type productUpdateAPIRequest struct {
 	Name                        *string                   `json:"name"`
 	ProductKind                 string                    `json:"product_kind"`
+	IsSemiFinished              *bool                     `json:"is_semi_finished"`
 	Remark                      *string                   `json:"remark"`
 	GreenBeanType               string                    `json:"green_bean_type"`
 	GreenBeanBomProductID       int64                     `json:"green_bean_bom_product_id"`
@@ -146,6 +147,7 @@ type productCreateAPIRequest struct {
 	Name                     string                    `json:"name"`
 	Remark                   string                    `json:"remark"`
 	ProductKind              string                    `json:"product_kind"`
+	IsSemiFinished           bool                      `json:"is_semi_finished"`
 	GreenBeanType            string                    `json:"green_bean_type"`
 	GreenBeanBomProductID    int64                     `json:"green_bean_bom_product_id"`
 	RoastLevel               *string                   `json:"roast_level"`
@@ -633,6 +635,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		Remark:                      remark,
 		RoastLevel:                  roastLevel,
 		ProductKind:                 productKind,
+		IsSemiFinished:              req.IsSemiFinished,
 		GreenBeanType:               greenBeanType,
 		GreenBeanBomProductID:       greenBeanBomProductID,
 		DefaultPrice:                defaultPrice,
@@ -835,6 +838,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		Remark:                   req.Remark,
 		RoastLevel:               roastLevel,
 		ProductKind:              productKind,
+		IsSemiFinished:           req.IsSemiFinished,
 		GreenBeanType:            req.GreenBeanType,
 		GreenBeanBomProductID:    req.GreenBeanBomProductID,
 		DripBagGrams:             dripBagGrams,

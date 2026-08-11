@@ -45,6 +45,7 @@ type Product struct {
 	Name                        string
 	Remark                      string
 	ProductKind                 string
+	IsSemiFinished              bool
 	GreenBeanType               string
 	GreenBeanBomProductID       int64
 	RoastLevel                  string
@@ -727,6 +728,7 @@ type UpdateProductBasicsCommand struct {
 	ProductID                   int64
 	Name                        string
 	ProductKind                 string
+	IsSemiFinished              *bool
 	Remark                      string
 	GreenBeanType               string
 	GreenBeanBomProductID       int64
@@ -763,6 +765,7 @@ type CreateProductCommand struct {
 	Name                     string
 	Remark                   string
 	ProductKind              string
+	IsSemiFinished           bool
 	GreenBeanType            string
 	GreenBeanBomProductID    int64
 	RoastLevel               string
@@ -1495,6 +1498,11 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	if cmd.UnitTemplateID < 0 {
 		return ValidationError{Message: "invalid unit_template_id"}
 	}
+	if cmd.IsSemiFinished != nil && *cmd.IsSemiFinished {
+		if cmd.UnitTemplateID <= 0 {
+			return ValidationError{Message: "semi-finished product must reference a sales spec template"}
+		}
+	}
 	cmd.MarginRateOverride = nil
 	cmd.GradientTemplateIDOverride = 0
 	cmd.OperationTemplateIDOverride = 0
@@ -1579,6 +1587,9 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	}
 	if cmd.UnitTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid unit_template_id"}
+	}
+	if cmd.IsSemiFinished && cmd.UnitTemplateID <= 0 {
+		return Product{}, ValidationError{Message: "semi-finished product must reference a sales spec template"}
 	}
 	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
 	if err != nil {

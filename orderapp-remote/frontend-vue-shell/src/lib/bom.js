@@ -1,141 +1,3 @@
-import { clampPage, normalizePageSize } from './pagination.js'
-
-function productionBomTopLevelGroup(group = {}) {
-  return Boolean(group?.is_template_group || group?.unclassified || group?.all)
-}
-
-function productionBomTemplateRootKeyByID(groups = []) {
-  return new Map((Array.isArray(groups) ? groups : [])
-    .filter((group) => group?.is_template_group && Number(group?.group_id || 0) > 0)
-    .map((group) => [Number(group.group_id || 0), String(group.key || '')]))
-}
-
-function productionBomRootKey(group = {}, templateRootKeyByID = new Map()) {
-  if (productionBomTopLevelGroup(group)) return String(group?.key || '')
-  return templateRootKeyByID.get(Number(group?.group_id || 0)) || ''
-}
-
-function productionBomCategoryHiddenByCollapse(group = {}, groups = [], collapsed = new Set(), includeSelf = true) {
-  if (includeSelf && collapsed.has(String(group?.key || ''))) return true
-  const groupID = Number(group?.group_id || 0)
-  let parentID = Number(group?.parent_group_item_id || 0)
-  if (!(groupID > 0) || !(parentID > 0)) return false
-  const byItemID = new Map((Array.isArray(groups) ? groups : [])
-    .filter((candidate) => Number(candidate?.group_id || 0) === groupID && Number(candidate?.group_item_id || 0) > 0)
-    .map((candidate) => [Number(candidate.group_item_id || 0), candidate]))
-  const seen = new Set()
-  while (parentID > 0 && !seen.has(parentID)) {
-    seen.add(parentID)
-    const parent = byItemID.get(parentID)
-    if (!parent) return false
-    if (collapsed.has(String(parent.key || ''))) return true
-    parentID = Number(parent.parent_group_item_id || 0)
-  }
-  return false
-}
-
-function productionBomCategoryAncestors(group = {}, groups = []) {
-  const groupID = Number(group?.group_id || 0)
-  let parentID = Number(group?.parent_group_item_id || 0)
-  if (!(groupID > 0) || !(parentID > 0)) return []
-  const byItemID = new Map((Array.isArray(groups) ? groups : [])
-    .filter((candidate) => Number(candidate?.group_id || 0) === groupID && Number(candidate?.group_item_id || 0) > 0)
-    .map((candidate) => [Number(candidate.group_item_id || 0), candidate]))
-  const ancestors = []
-  const seen = new Set()
-  while (parentID > 0 && !seen.has(parentID)) {
-    seen.add(parentID)
-    const parent = byItemID.get(parentID)
-    if (!parent) break
-    ancestors.push(parent)
-    parentID = Number(parent.parent_group_item_id || 0)
-  }
-  return ancestors
-}
-
-export function productionBomAccordionPageState(flatGroups = [], {
-  expandedGroupKey = null,
-  collapsedCategoryKeys = [],
-  page = 1,
-  pageSize = 10,
-} = {}) {
-  const sourceGroups = Array.isArray(flatGroups) ? flatGroups : []
-  const templateRootKeyByID = productionBomTemplateRootKeyByID(sourceGroups)
-  const roots = sourceGroups.filter(productionBomTopLevelGroup)
-  const rootKeys = new Set(roots.map((group) => String(group.key || '')).filter(Boolean))
-  const onlyFlatRoot = roots.length === 1 && roots[0]?.all
-  const requestedKey = expandedGroupKey === null || typeof expandedGroupKey === 'undefined'
-    ? String(roots[0]?.key || '')
-    : String(expandedGroupKey || '')
-  const resolvedExpandedGroupKey = onlyFlatRoot
-    ? String(roots[0]?.key || '')
-    : (requestedKey === '' || rootKeys.has(requestedKey) ? requestedKey : String(roots[0]?.key || ''))
-  const normalizedSize = normalizePageSize(pageSize)
-  const collapsed = new Set((Array.isArray(collapsedCategoryKeys) ? collapsedCategoryKeys : []).map((key) => String(key || '')))
-  const activeSectionGroups = sourceGroups.filter((group) => (
-    productionBomRootKey(group, templateRootKeyByID) === resolvedExpandedGroupKey
-  ))
-  const activeRoot = roots.find((group) => String(group.key || '') === resolvedExpandedGroupKey) || null
-  const activeRowGroups = activeRoot?.is_template_group
-    ? activeSectionGroups.filter((group) => !group?.is_template_group)
-    : activeRoot ? [activeRoot] : []
-  const rawTotal = activeRowGroups.reduce((sum, group) => sum + (Array.isArray(group?.rows) ? group.rows.length : 0), 0)
-  const entries = []
-  for (const group of activeRowGroups) {
-    if (!productionBomTopLevelGroup(group) && productionBomCategoryHiddenByCollapse(group, activeRowGroups, collapsed, true)) continue
-    for (const row of Array.isArray(group?.rows) ? group.rows : []) {
-      entries.push({ groupKey: String(group.key || ''), row })
-    }
-  }
-  const total = entries.length
-  const normalizedPage = clampPage(page, total, normalizedSize)
-  const start = (normalizedPage - 1) * normalizedSize
-  const pageEntries = entries.slice(start, start + normalizedSize)
-  const pageRowsByGroupKey = new Map()
-  for (const entry of pageEntries) {
-    if (!pageRowsByGroupKey.has(entry.groupKey)) pageRowsByGroupKey.set(entry.groupKey, [])
-    pageRowsByGroupKey.get(entry.groupKey).push(entry.row)
-  }
-
-  const requiredCategoryKeys = new Set(pageEntries.map((entry) => entry.groupKey))
-  for (const group of activeRowGroups) {
-    const key = String(group?.key || '')
-    const isVisibleCollapsedHeader = collapsed.has(key)
-      && !productionBomCategoryHiddenByCollapse(group, activeRowGroups, collapsed, false)
-    if (isVisibleCollapsedHeader) requiredCategoryKeys.add(key)
-    if (!requiredCategoryKeys.has(key)) continue
-    for (const ancestor of productionBomCategoryAncestors(group, activeRowGroups)) {
-      requiredCategoryKeys.add(String(ancestor.key || ''))
-    }
-  }
-  const groups = []
-  for (const group of sourceGroups) {
-    const rootKey = productionBomRootKey(group, templateRootKeyByID)
-    const isRoot = productionBomTopLevelGroup(group)
-    if (!isRoot && rootKey !== resolvedExpandedGroupKey) continue
-    if (!isRoot && !requiredCategoryKeys.has(String(group.key || ''))) continue
-    const rows = rootKey === resolvedExpandedGroupKey
-      ? (pageRowsByGroupKey.get(String(group.key || '')) || [])
-      : []
-    groups.push({
-      ...group,
-      rows,
-      row_total: Array.isArray(group?.rows) ? group.rows.length : 0,
-    })
-  }
-
-  return {
-    expandedGroupKey: resolvedExpandedGroupKey,
-    groups,
-    visibleRows: pageEntries.map((entry) => entry.row),
-    rawTotal,
-    total,
-    page: normalizedPage,
-    pageSize: normalizedSize,
-    needsPagination: total > normalizedSize,
-  }
-}
-
 export function normalizedBomProductKind(row = {}) {
   const kind = String(row.product_kind || row.productKind || '').trim().toLowerCase()
   return kind || 'roasted_bean'
@@ -345,6 +207,35 @@ export function productionBomVersionWarning(row = {}) {
   const isLatest = rawLatest === true || rawLatest === 'true' || rawLatest === 1
   if (!current || !latest || isLatest || current === latest) return ''
   return `当前引用 ${current}，最新 ${latest}`
+}
+
+export const BOM_KIND_PRODUCT = 'product'
+export const BOM_KIND_SPEC_PACKAGING = 'spec_packaging'
+
+export function normalizeBomKind(kind) {
+  const value = String(kind || '').trim()
+  if (value === BOM_KIND_SPEC_PACKAGING) return BOM_KIND_SPEC_PACKAGING
+  return BOM_KIND_PRODUCT
+}
+
+export function isPackagingBomKind(kind) {
+  return normalizeBomKind(kind) === BOM_KIND_SPEC_PACKAGING
+}
+
+export function isSemiFinishedProduct(product = {}) {
+  return Boolean(product?.is_semi_finished)
+}
+
+export function semiFinishedPackagingRequiredError(missingSpecs = []) {
+  return {
+    code: 'semi_finished_packaging_required',
+    missing_specs: Array.isArray(missingSpecs) ? missingSpecs : [],
+    message: '半成品规格需要进行包装：' + (Array.isArray(missingSpecs) ? missingSpecs.join('、') : ''),
+  }
+}
+
+export function specPackagingBomRefKey(unitTemplateId, specKey) {
+  return `${unitTemplateId}:${specKey}`
 }
 
 export function bomSourceLabel(row = {}) {

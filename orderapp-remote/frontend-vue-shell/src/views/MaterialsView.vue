@@ -15,10 +15,10 @@
     <div class="materials-layout">
       <section class="panel material-list-panel">
         <div class="panel-title">物料列表</div>
-        <BusinessGroupWorkspace
-          v-model="selectedMaterialCategoryKey"
+        <BusinessGroupInlineWorkspace
+          v-model:collapsed-keys="collapsedMaterialCategoryKeys"
           data-pr513-material-business-groups
-          :groups="materialDisplayGroups"
+          :groups="paginatedMaterialGroups"
           :move-active="materialCategoryMoveActive"
           :selected-count="selectedMaterialRowsForMove.length"
           :can-move="canMoveSelectedMaterialsToBusinessGroup"
@@ -32,68 +32,105 @@
           @target="handleMaterialCategoryMoveTarget"
           @manage="openMaterialBusinessGroupManagement"
           @configure="openMaterialGroupFeatureSelectionDrawer">
-          <div class="material-list-toolbar">
-            <label>
-              <span>搜索</span>
-              <input v-model.trim="q" placeholder="名称/编码/批次号" @keyup.enter="loadMaterials" />
-            </label>
-            <label>
-              <span>状态</span>
-              <select v-model="activeFilter" @change="loadMaterials">
-                <option value="active">启用</option>
-                <option value="inactive">失效</option>
-                <option value="all">全部</option>
-              </select>
-            </label>
-            <button class="primary" type="button" @click="loadMaterials" :disabled="loading">查询</button>
-            <span class="spacer"></span>
-            <button class="primary" type="button" @click="createMaterial">新建物料</button>
-            <button class="danger" type="button" @click="deprecateSelectedMaterials" :disabled="!selectedMaterialIDs.length || loading">批量失效</button>
-          </div>
-          <div class="material-section-list">
-            <div
-              v-for="section in visibleMaterialDisplayGroups"
-              :key="section.key"
-              :class="['material-section', { 'material-template-section': section.is_template_group }]">
-              <div
-                v-if="section.is_template_group"
-                class="material-section-heading material-template-heading"
-                :title="section.path_label || section.label">
-                <strong>{{ section.label }}</strong><span>{{ section.template_total || 0 }} 个</span>
-              </div>
-              <template v-else>
-                <div class="material-section-heading" :title="section.path_label || section.label">
-                  <strong>{{ section.label }}</strong><span>{{ section.rows.length }} 个</span>
-                </div>
-                <MaterialRowsTable
-                  :rows="section.rows"
-                  :row-style="businessGroupItemIndentStyle(section)"
-                  :selected="selected"
-                  :selected-ids="selectedMaterialIDs"
-                  :all-selected="areRowsSelected(section.rows)"
-                  @toggle="toggleMaterialSelection"
-                  @toggle-all="toggleMaterialRows(section.rows)"
-                  @select="(row) => selectMaterial(row)" />
-              </template>
+          <template #filters>
+            <div class="material-list-toolbar">
+              <label>
+                <span>搜索</span>
+                <input v-model.trim="q" placeholder="名称/编码/批次号" @keyup.enter="applyMaterialFilters" />
+              </label>
+              <label>
+                <span>状态</span>
+                <select v-model="filters.active" @change="applyMaterialFilters">
+                  <option value="active">启用</option>
+                  <option value="inactive">失效</option>
+                  <option value="all">全部</option>
+                </select>
+              </label>
+              <button class="primary" type="button" @click="applyMaterialFilters" :disabled="loading">查询</button>
+              <span class="spacer"></span>
+              <button class="primary" type="button" @click="createMaterial">新建物料</button>
+              <button class="danger" type="button" @click="deprecateSelectedMaterials" :disabled="!selectedMaterialIDs.length || loading">批量失效</button>
             </div>
-          </div>
-        </BusinessGroupWorkspace>
-      </section>
+          </template>
 
-      <section class="panel material-detail-panel">
-        <div class="detail-head">
+          <template #group="{ group }">
+            <div class="table-wrap">
+              <table class="materials-table" data-auto-pagination="off">
+                <colgroup>
+                  <col class="select-col" />
+                  <col class="name-col" />
+                  <col class="unit-col" />
+                  <col class="stock-col" />
+                  <col class="status-col" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        title="全选物料"
+                        aria-label="全选物料"
+                        :checked="areRowsSelected(group.rows)"
+                        :disabled="!group.rows.length || loading || materialCategoryMoveActive"
+                        @change="toggleMaterialRows(group.rows)" />
+                    </th>
+                    <th>物料名称</th>
+                    <th>单位</th>
+                    <th>库存数量</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in group.rows"
+                    :key="row.id"
+                    :class="{ active: selected?.id === row.id }"
+                    :style="businessGroupItemIndentStyle(group)">
+                    <td>
+                      <input
+                        type="checkbox"
+                        :checked="selectedMaterialIDs.includes(row.id)"
+                        :disabled="loading || materialCategoryMoveActive"
+                        @change="toggleMaterialSelection(row.id)" />
+                    </td>
+                    <td class="material-name-cell">
+                      <button class="material-name-button" type="button" :disabled="loading || materialCategoryMoveActive" @click.stop="selectMaterial(row)">{{ row.name }}</button>
+                      <small>{{ row.code || '-' }}</small>
+                    </td>
+                    <td>{{ unitDisplay(row.unit) }}</td>
+                    <td>{{ stockQty(row) }} {{ unitDisplay(row.unit) }}</td>
+                    <td><span :class="row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill'">{{ row.deprecated_at ? '失效' : '启用' }}</span></td>
+                  </tr>
+                  <tr v-if="!group.rows.length"><td colspan="5" class="muted">暂无物料</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <PaginationControls
+              :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
+              :page="group.page"
+              :page-size="group.pageSize"
+              :total="group.total"
+              :disabled="loading || materialCategoryMoveActive"
+              @change="handleMaterialGroupPaginationChange(group.key, $event)" />
+          </template>
+        </BusinessGroupInlineWorkspace>
+      </section>
+    </div>
+
+    <div v-if="materialDetailDrawerOpen && draft" class="drawer-mask material-detail-drawer-mask" @click.self="closeMaterialDetailDrawer">
+      <aside class="drawer material-detail-drawer" data-material-detail-drawer aria-label="物料详情">
+        <div class="drawer-head">
           <div>
-            <div class="panel-title">物料详情</div>
-            <p v-if="selected || draftMode">新建、编辑、失效和分类移动都会写操作日志。</p>
+            <h3>{{ draftMode ? '新建物料' : '物料详情' }}</h3>
+            <p>新建、编辑、失效和分类移动都会写操作日志。</p>
           </div>
-          <div class="actions" v-if="selected || draftMode">
+          <div class="actions">
             <button v-if="!draftMode" class="secondary" type="button" @click="openStockBackfill" :disabled="loading">库存补录</button>
+            <button class="secondary" type="button" @click="closeMaterialDetailDrawer" :disabled="loading">关闭</button>
           </div>
         </div>
 
-        <div v-if="!draft" class="empty muted">请选择左侧物料，或点击“新建物料”。</div>
-
-        <form v-else class="detail-form" @submit.prevent="saveMaterial">
+        <form class="detail-form" @submit.prevent="saveMaterial">
           <section class="form-section">
             <div class="section-title">基础信息</div>
             <div class="form-grid">
@@ -157,7 +194,7 @@
             <button class="primary" type="submit" :disabled="loading">{{ draftMode ? '保存新物料' : '保存物料' }}</button>
           </div>
         </form>
-      </section>
+      </aside>
     </div>
 
     <div v-if="materialGroupFeatureDrawerOpen" class="drawer-mask" @click.self="materialGroupFeatureDrawerOpen = false">
@@ -172,7 +209,7 @@
         <div class="feature-group-selection" data-feature-key="material_catalog">
           <div class="feature-group-selection-copy">
             <strong>物料档案使用的分组模板</strong>
-            <small>可多选；保存后左侧分类结构会合并展示全部已选模板。取消全部后按物料平铺展示。</small>
+            <small>可多选；保存后列表会按全部已选模板合并展示分类层级。取消全部后按物料平铺展示。</small>
           </div>
           <div class="feature-group-selection-options">
             <label v-for="template in selectableMaterialGroupTemplates" :key="template.id" class="feature-group-selection-option">
@@ -195,7 +232,7 @@
       </aside>
     </div>
 
-    <div v-if="stockBackfill.open" class="modal-mask" @click.self="closeStockBackfill">
+    <div v-if="stockBackfill.open" class="modal-mask stock-backfill-mask" @click.self="closeStockBackfill">
       <section class="modal-panel">
         <div class="modal-head">
           <div>
@@ -221,80 +258,24 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import BusinessGroupWorkspace from '../components/BusinessGroupWorkspace.vue'
+import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
-  businessGroupGroupsForCategorySelection,
+  businessGroupInlineListState,
   businessGroupItemIndentStyle,
   businessGroupMoveAssignmentPayload,
   businessGroupRowsForFeatureSelection,
   groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
+import { normalizePageSize } from '../lib/pagination'
 
 const MATERIAL_CATALOG_USAGE = 'material_catalog'
 const MATERIAL_OBJECT_KEY = 'material'
-
-const MaterialRowsTable = defineComponent({
-  props: {
-    rows: { type: Array, default: () => [] },
-    selected: { type: Object, default: null },
-    selectedIds: { type: Array, default: () => [] },
-    allSelected: { type: Boolean, default: false },
-    rowStyle: { type: Object, default: () => ({}) },
-  },
-  emits: ['toggle', 'toggle-all', 'select'],
-  setup(props, { emit }) {
-    return () => h('div', { class: 'table-wrap' }, [
-      h('table', { class: 'materials-table' }, [
-        h('colgroup', [
-          h('col', { class: 'select-col' }),
-          h('col', { class: 'name-col' }),
-          h('col', { class: 'unit-col' }),
-          h('col', { class: 'stock-col' }),
-          h('col', { class: 'status-col' }),
-        ]),
-        h('thead', [h('tr', [
-          h('th', [h('input', {
-            type: 'checkbox',
-            title: '全选物料',
-            'aria-label': '全选物料',
-            checked: props.allSelected,
-            disabled: !props.rows.length,
-            onClick: (event) => event.stopPropagation(),
-            onChange: () => emit('toggle-all'),
-          })]),
-          h('th', '物料名称'),
-          h('th', '单位'),
-          h('th', '库存数量'),
-          h('th', '状态'),
-        ])]),
-        h('tbody', props.rows.length
-          ? props.rows.map((row) => h('tr', {
-              key: row.id,
-              class: { active: props.selected?.id === row.id },
-              style: props.rowStyle,
-              onClick: () => emit('select', row),
-            }, [
-              h('td', [h('input', {
-                type: 'checkbox',
-                checked: props.selectedIds.includes(row.id),
-                onClick: (event) => event.stopPropagation(),
-                onChange: () => emit('toggle', row.id),
-              })]),
-              h('td', { class: 'material-name-cell' }, [h('strong', row.name), h('small', row.code || '-')]),
-              h('td', unitDisplay(row.unit)),
-              h('td', `${stockQty(row)} ${unitDisplay(row.unit)}`),
-              h('td', [h('span', { class: row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill' }, row.deprecated_at ? '失效' : '启用')]),
-            ]))
-          : [h('tr', [h('td', { colspan: 5, class: 'muted' }, '暂无物料')])]),
-      ]),
-    ])
-  },
-})
 
 const rows = ref([])
 const materialBusinessGroups = ref([])
@@ -302,7 +283,7 @@ const materialBusinessGroupAssignments = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
 const q = ref('')
-const activeFilter = ref('active')
+const filters = reactive({ active: 'active' })
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -310,12 +291,14 @@ const selected = ref(null)
 const draft = ref(null)
 const draftMode = ref(false)
 const selectedMaterialIDs = ref([])
-const selectedMaterialCategoryKey = ref('business-group-all')
+const collapsedMaterialCategoryKeys = ref([])
+const materialGroupPagination = ref({})
 const materialCategoryMoveActive = ref(false)
 const materialGroupFeatureSelectionTemplateIDs = ref([])
 const materialGroupFeatureSelectionDraft = ref([])
 const materialGroupFeatureSelectionSaving = ref(false)
 const materialGroupFeatureDrawerOpen = ref(false)
+const materialDetailDrawerOpen = ref(false)
 const stockBackfill = ref({ open: false, target_qty: 0, reason: '' })
 
 const activeIndustryTemplates = computed(() => industryFieldTemplates.value.filter((tpl) => !tpl.deactivated_at && tpl.active !== false))
@@ -336,10 +319,12 @@ const materialDisplayGroups = computed(() => groupRowsByBusinessGroupTemplates(r
   objectIDForRow: (row) => Number(row.id || 0),
   allLabel: '全部物料',
 }))
-const visibleMaterialDisplayGroups = computed(() => businessGroupGroupsForCategorySelection(
+const materialInlineListState = computed(() => businessGroupInlineListState(
   materialDisplayGroups.value,
-  selectedMaterialCategoryKey.value,
+  materialGroupPagination.value,
+  { defaultPageSize: 10 },
 ))
+const paginatedMaterialGroups = computed(() => materialInlineListState.value.groups)
 const selectedMaterialRowsForMove = computed(() => {
   const selectedIds = new Set(selectedMaterialIDs.value.map((id) => Number(id || 0)).filter(Boolean))
   return rows.value.filter((row) => selectedIds.has(Number(row.id || 0)))
@@ -486,21 +471,30 @@ async function loadMaterialBusinessGroupAssignments() {
   materialBusinessGroupAssignments.value = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.assignments) ? data.assignments : [])
 }
 
-async function loadMaterials() {
+async function loadMaterials({ resetPagination = false } = {}) {
   loading.value = true
   error.value = ''
   try {
     const url = new URL('/api/materials', window.location.origin)
     url.searchParams.set('limit', '500')
-    url.searchParams.set('active', activeFilter.value)
+    url.searchParams.set('active', filters.active)
     if (q.value) url.searchParams.set('q', q.value)
     const data = await apiGet(`${url.pathname}${url.search}`)
     rows.value = (data.rows || []).map(normalizeRow)
     selectedMaterialIDs.value = selectedMaterialIDs.value.filter((id) => rows.value.some((row) => row.id === id))
     if (selected.value?.id) {
       const next = rows.value.find((row) => row.id === selected.value.id)
-      if (next) selectMaterial(next, { quiet: true })
+      if (next) {
+        selectMaterial(next, { quiet: true, openDrawer: materialDetailDrawerOpen.value })
+      } else {
+        selected.value = null
+        draft.value = null
+        draftMode.value = false
+        materialDetailDrawerOpen.value = false
+        closeStockBackfill()
+      }
     }
+    if (resetPagination) resetMaterialGroupPages()
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -508,10 +502,15 @@ async function loadMaterials() {
   }
 }
 
+function applyMaterialFilters() {
+  return loadMaterials({ resetPagination: true })
+}
+
 function createMaterial() {
   selected.value = null
   draft.value = blankDraft()
   draftMode.value = true
+  materialDetailDrawerOpen.value = true
   error.value = ''
   ok.value = ''
 }
@@ -521,10 +520,16 @@ function selectMaterial(row, options = {}) {
   draft.value = cloneDraft(row)
   draftMode.value = false
   closeStockBackfill()
+  if (options.openDrawer !== false) materialDetailDrawerOpen.value = true
   if (!options.quiet) {
     error.value = ''
     ok.value = ''
   }
+}
+
+function closeMaterialDetailDrawer() {
+  materialDetailDrawerOpen.value = false
+  closeStockBackfill()
 }
 
 function toggleMaterialSelection(id) {
@@ -557,16 +562,32 @@ function toggleMaterialRows(sourceRows) {
   selectedMaterialIDs.value = Array.from(next)
 }
 
-function pruneMaterialSelectionToVisibleCategory() {
-  if (materialCategoryMoveActive.value) return
-  const visibleIDs = new Set()
-  for (const group of visibleMaterialDisplayGroups.value) {
-    for (const row of Array.isArray(group?.rows) ? group.rows : []) {
-      const id = Number(row?.id || 0)
-      if (id > 0) visibleIDs.add(id)
-    }
+function syncMaterialGroupPaginationState() {
+  const normalized = materialInlineListState.value.pagination
+  if (JSON.stringify(normalized) !== JSON.stringify(materialGroupPagination.value)) {
+    materialGroupPagination.value = normalized
   }
-  selectedMaterialIDs.value = selectedMaterialIDs.value.filter((id) => visibleIDs.has(Number(id || 0)))
+}
+
+function resetMaterialGroupPages() {
+  materialGroupPagination.value = Object.fromEntries(
+    Object.entries(materialInlineListState.value.pagination).map(([key, value]) => [key, {
+      page: 1,
+      pageSize: normalizePageSize(value?.pageSize || 10),
+    }]),
+  )
+}
+
+function handleMaterialGroupPaginationChange(groupKey, { page, pageSize }) {
+  const key = String(groupKey || '')
+  if (!key) return
+  materialGroupPagination.value = {
+    ...materialGroupPagination.value,
+    [key]: {
+      page: Number(page || 1),
+      pageSize: normalizePageSize(pageSize || 10),
+    },
+  }
 }
 
 function materialBusinessGroupAssignment(row = {}) {
@@ -603,7 +624,8 @@ async function saveMaterialGroupFeatureSelection() {
     })
     materialGroupFeatureSelectionTemplateIDs.value = businessGroupFeatureSelectionIDs(result)
     materialGroupFeatureSelectionDraft.value = [...materialGroupFeatureSelectionTemplateIDs.value]
-    selectedMaterialCategoryKey.value = 'business-group-all'
+    collapsedMaterialCategoryKeys.value = []
+    materialGroupPagination.value = {}
     materialCategoryMoveActive.value = false
     materialGroupFeatureDrawerOpen.value = false
     ok.value = payload.group_template_ids.length
@@ -795,6 +817,7 @@ async function deprecateSelectedMaterials() {
       selected.value = null
       draft.value = null
       draftMode.value = false
+      materialDetailDrawerOpen.value = false
     }
     await loadMaterials()
   })
@@ -888,7 +911,7 @@ watch(() => draft.value?.unit, (unit) => {
   draft.value.cost_unit = defaultMaterialCostUnit(unit)
 })
 
-watch(selectedMaterialCategoryKey, pruneMaterialSelectionToVisibleCategory)
+watch(materialDisplayGroups, syncMaterialGroupPaginationState, { deep: true, immediate: true })
 
 onMounted(() => {
   q.value = new URL(window.location.href).searchParams.get('q') || ''
@@ -901,14 +924,14 @@ onMounted(() => {
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .compact-head { padding: 12px 14px; }
-.panel-head, .filters, .material-list-toolbar, .detail-head, .actions, .form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head, .filters, .material-list-toolbar, .actions, .form-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; margin-bottom: 10px; }
 .panel-head h2 { margin: 0; font-size: 20px; }
-.panel-head p, .detail-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
+.panel-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
 .panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
 .spacer { flex: 1 1 auto; }
-.materials-layout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(360px, 1.05fr); gap: 14px; align-items: start; }
-.material-list-panel, .material-detail-panel { min-width: 0; }
+.materials-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+.material-list-panel { min-width: 0; }
 .material-list-toolbar { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee8df; }
 .material-list-toolbar label { min-width: 150px; }
 .material-list-toolbar label:first-child { flex: 1 1 220px; }
@@ -921,13 +944,7 @@ onMounted(() => {
 .feature-group-selection-option { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .feature-group-selection-option input { width: auto; min-height: 0; }
 .feature-group-empty { margin-bottom: 12px; padding: 10px; border: 1px dashed #d6d3d1; border-radius: 8px; color: #666; }
-.material-section-list { display: grid; gap: 10px; }
-.material-section-list, .material-section { min-width: 0; }
-.material-template-section { margin-top: 4px; }
 .left { text-align: left; }
-.material-section-heading { min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; background: #1f1f1f; color: #fff; }
-.material-template-heading { background: #334155; }
-.material-template-section + .material-section { margin-top: -4px; }
 .table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: visible; }
 .table-wrap :deep(table) { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 660px; }
 .table-wrap :deep(col.select-col) { width: 48px; }
@@ -940,15 +957,12 @@ onMounted(() => {
 .table-wrap :deep(.materials-table th), .table-wrap :deep(.materials-table td) { white-space: nowrap; }
 .table-wrap :deep(.materials-table th:nth-child(2)), .table-wrap :deep(.materials-table td:nth-child(2)) { width: 130px; max-width: 130px; }
 .table-wrap :deep(.materials-table td:nth-child(2)) { padding-left: var(--classification-item-indent, 8px); }
-.table-wrap :deep(.material-name-cell strong) { white-space: normal; line-height: 1.35; overflow-wrap: anywhere; }
-.material-list-panel :deep(tbody tr) { cursor: pointer; }
 .table-wrap :deep(tbody tr.active) { background: #f3f7fb; }
 .table-wrap :deep(td strong), .table-wrap :deep(td small) { display: block; }
 .table-wrap :deep(td small) { color: #666; margin-top: 4px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-wrap :deep(.pill) { display: inline-flex; min-height: 24px; align-items: center; border: 1px solid #d8d0c7; border-radius: 999px; padding: 2px 8px; background: #fbfaf8; font-size: 12px; }
 .table-wrap :deep(.ok-pill) { border-color: #cce7d2; background: #effaf2; color: #1f6a3f; }
 .table-wrap :deep(.muted-pill) { color: #777; }
-.detail-head { justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
 .detail-form { display: grid; gap: 12px; }
 .form-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; }
 .section-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
@@ -960,6 +974,7 @@ textarea { resize: vertical; line-height: 1.45; }
 .wide { grid-column: 1 / -1; }
 button { min-height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; background: #fff; }
 button:disabled { cursor: not-allowed; opacity: .55; }
+.material-name-button { width: 100%; min-height: 0; display: block; border: 0; padding: 0; background: transparent; color: #1f1f1f; font-weight: 700; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .danger { border-color: #b23b3b; background: #fff; color: #9b2020; }
@@ -975,14 +990,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
+.material-detail-drawer { width: min(760px, 100vw); }
 .material-group-feature-drawer .feature-group-selection { grid-template-columns: 1fr; align-items: stretch; }
 .material-group-feature-drawer .feature-group-selection-options { display: grid; gap: 8px; }
 .material-group-feature-drawer .feature-group-selection-actions { justify-content: flex-end; padding-top: 8px; border-top: 1px solid #d9e2ec; }
 .modal-mask { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.28); }
+.stock-backfill-mask { z-index: 90; }
 .modal-panel { width: min(640px, 100%); max-height: calc(100vh - 36px); overflow: auto; border-radius: 8px; background: #fff; border: 1px solid #d8d0c7; padding: 16px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
 .modal-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
 .modal-head h3 { margin: 0; font-size: 18px; }
 .modal-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
-@media (max-width: 1100px) { .materials-layout, .feature-group-selection { grid-template-columns: 1fr; } .feature-group-selection-actions { justify-content: flex-start; } }
+@media (max-width: 1100px) { .feature-group-selection { grid-template-columns: 1fr; } .feature-group-selection-actions { justify-content: flex-start; } }
 @media (max-width: 760px) { .page { padding: 12px; } .form-grid { grid-template-columns: 1fr; } .wide { grid-column: span 1; } }
 </style>

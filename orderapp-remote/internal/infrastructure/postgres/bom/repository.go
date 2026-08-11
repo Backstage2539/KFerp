@@ -1658,11 +1658,15 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	groupCategoryID := cmd.GroupCategoryID
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var bomID int64
+	bomKind := strings.TrimSpace(cmd.BomKind)
+	if bomKind == "" {
+		bomKind = "product"
+	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, output_product_id, status, created_by, updated_by)
-		VALUES($1,$2,$3,'active',$4,$4)
+		INSERT INTO %s.production_boms(code, name, bom_kind, output_is_semi_finished, output_product_id, status, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$6)
 		RETURNING id
-	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), cmd.OutputProductID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
+	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), bomKind, cmd.OutputIsSemiFinished, cmd.OutputProductID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", bomID)
@@ -1702,13 +1706,17 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 	if status == "" {
 		status = "active"
 	}
+	bomKind := strings.TrimSpace(cmd.BomKind)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_boms
 		SET name=COALESCE(NULLIF($2,''), name),
 		    output_product_id=COALESCE(NULLIF($3,0), output_product_id),
-		    status=$4, updated_at=now(), updated_by=$5
+		    output_is_semi_finished=COALESCE($4, output_is_semi_finished),
+		    status=$5,
+		    bom_kind=COALESCE(NULLIF($6,''), bom_kind),
+		    updated_at=now(), updated_by=$7
 		WHERE id=$1
-	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.OutputProductID, status, strings.TrimSpace(cmd.Actor)); err != nil {
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.OutputProductID, cmd.OutputIsSemiFinished, status, bomKind, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	outputUnit := strings.TrimSpace(cmd.OutputUnit)
@@ -2072,19 +2080,33 @@ func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.C
 func (r Repository) ValidateProductionBomVersionForPublish(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
 	var bomID int64
 	var outputProductID int64
+	var bomKind string
 	var itemCount int64
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT v.bom_id,
 		       COALESCE(pb.output_product_id,0),
+		       COALESCE(NULLIF(pb.bom_kind,''),'product'),
 		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items i WHERE i.version_id=v.id),0)
 		FROM %s.production_bom_versions v
 		JOIN %s.production_boms pb ON pb.id=v.bom_id
 		WHERE v.id=$1 AND v.status='draft'
-	`, r.schema, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &outputProductID, &itemCount); err != nil {
+	`, r.schema, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &outputProductID, &bomKind, &itemCount); err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("production BOM version not found")
 		}
 		return err
+	}
+	if bomKind == bomdomain.BomKindSpecPackaging {
+		if itemCount <= 0 {
+			return fmt.Errorf("components required")
+		}
+		if err := r.validatePackagingBomVersionItems(ctx, cmd.VersionID); err != nil {
+			return err
+		}
+		if err := validateProductionBomRouteStandardCostCapacity(ctx, r.pool, r.schema, cmd.VersionID); err != nil {
+			return err
+		}
+		return nil
 	}
 	if outputProductID <= 0 {
 		return fmt.Errorf("output_product_id required")
@@ -2148,6 +2170,35 @@ func (r Repository) ValidateProductionBomVersionForPublish(ctx context.Context, 
 	}
 	_ = bomID
 	return nil
+}
+
+func (r Repository) validatePackagingBomVersionItems(ctx context.Context, versionID int64) error {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(consume_unit,''),'ratio_pct'), COALESCE(component_type,'material'), COALESCE(material_loss_rate,0)::float8
+		FROM %s.production_bom_version_items
+		WHERE version_id=$1
+	`, r.schema), versionID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var consumeUnit, componentType string
+		var lossRate float64
+		if err := rows.Scan(&consumeUnit, &componentType, &lossRate); err != nil {
+			return err
+		}
+		if consumeUnit == "ratio_pct" {
+			return fmt.Errorf("packaging BOM items must use fixed quantity, not ratio_pct")
+		}
+		if componentType == "product" {
+			return fmt.Errorf("packaging BOM items must be materials, not product components")
+		}
+		if lossRate != 0 {
+			return fmt.Errorf("packaging BOM items must not have material_loss_rate")
+		}
+	}
+	return rows.Err()
 }
 
 func validateProductionBomRouteStandardCostCapacity(ctx context.Context, pool *pgxpool.Pool, schema string, versionID int64) error {
@@ -2516,6 +2567,8 @@ func productionBomSummarySQL(schema, where string) string {
 		SELECT pb.id,
 		       COALESCE(pb.code,''),
 		       COALESCE(pb.name,''),
+		       COALESCE(NULLIF(pb.bom_kind,''),'product'),
+		       COALESCE(pb.output_is_semi_finished,false),
 		       COALESCE(pb.output_product_id,0),
 		       COALESCE(op.name,''),
 		       CASE WHEN COALESCE(pb.output_product_id,0)>0 THEN 'SKU-' || lpad(pb.output_product_id::text,6,'0') ELSE '' END,
@@ -2571,6 +2624,8 @@ func scanProductionBomSummaries(rows pgx.Rows) ([]bomapp.ProductionBomSummary, e
 			&row.ID,
 			&row.Code,
 			&row.Name,
+			&row.BomKind,
+			&row.OutputIsSemiFinished,
 			&row.OutputProductID,
 			&row.OutputProductName,
 			&row.OutputProductCode,
@@ -3132,4 +3187,58 @@ ON CONFLICT DO NOTHING;
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (r Repository) ListSpecPackagingBomRefs(ctx context.Context, unitTemplateID int64) ([]bomapp.SpecPackagingBomRef, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT m.unit_template_id,
+		       m.spec_key,
+		       m.packaging_bom_id,
+		       COALESCE(pb.name,''),
+		       COALESCE(pb.code,''),
+		       COALESCE(v.id,0),
+		       COALESCE(v.version_no,''),
+		       COALESCE(v.id,0) > 0 AND pb.status='active' AND COALESCE(NULLIF(pb.bom_kind,''),'product')='spec_packaging'
+		FROM %[1]s.unit_template_spec_packaging_bom m
+		LEFT JOIN %[1]s.production_boms pb ON pb.id=m.packaging_bom_id
+		LEFT JOIN LATERAL (
+			SELECT id, version_no
+			FROM %[1]s.production_bom_versions pv
+			WHERE pv.bom_id=pb.id AND pv.status='published'
+			  AND EXISTS (SELECT 1 FROM %[1]s.production_bom_version_items i WHERE i.version_id=pv.id)
+			ORDER BY pv.published_at DESC NULLS LAST, pv.id DESC
+			LIMIT 1
+		) v ON true
+		WHERE m.unit_template_id=$1
+		ORDER BY m.spec_key
+	`, r.schema), unitTemplateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]bomapp.SpecPackagingBomRef, 0)
+	for rows.Next() {
+		var ref bomapp.SpecPackagingBomRef
+		if err := rows.Scan(&ref.UnitTemplateID, &ref.SpecKey, &ref.PackagingBomID, &ref.PackagingBomName, &ref.PackagingBomCode, &ref.PublishedVersionID, &ref.PublishedVersionNo, &ref.IsValid); err != nil {
+			return nil, err
+		}
+		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveSpecPackagingBomRef(ctx context.Context, cmd bomapp.SaveSpecPackagingBomRefCommand) error {
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.unit_template_spec_packaging_bom(unit_template_id, spec_key, packaging_bom_id, updated_at, updated_by)
+		VALUES($1,$2,$3,now(),$4)
+		ON CONFLICT (unit_template_id, spec_key) DO UPDATE SET packaging_bom_id=excluded.packaging_bom_id, updated_at=now(), updated_by=excluded.updated_by
+	`, r.schema), cmd.UnitTemplateID, cmd.SpecKey, cmd.PackagingBomID, cmd.Actor)
+	return err
+}
+
+func (r Repository) DeleteSpecPackagingBomRef(ctx context.Context, cmd bomapp.DeleteSpecPackagingBomRefCommand) error {
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s.unit_template_spec_packaging_bom WHERE unit_template_id=$1 AND spec_key=$2
+	`, r.schema), cmd.UnitTemplateID, cmd.SpecKey)
+	return err
 }
