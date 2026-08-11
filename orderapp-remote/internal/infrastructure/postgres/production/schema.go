@@ -336,7 +336,7 @@ CREATE TABLE IF NOT EXISTS %s.work_center_capacity_calendar (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS work_center_capacity_calendar_uq ON %s.work_center_capacity_calendar(work_center, work_date, shift_code);
 CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_center_capacity_calendar(work_date, work_center);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
