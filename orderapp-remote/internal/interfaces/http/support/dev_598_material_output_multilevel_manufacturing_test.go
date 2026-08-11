@@ -49,8 +49,15 @@ func TestDev598MaterialOutputMultilevelManufacturingContracts(t *testing.T) {
 		"default switch cycle and legacy repair GREEN",
 		"direct product complete/partial/multi/cancel GREEN",
 		"audit atomic rollback and cancel Note GREEN",
-		"merge/deploy pending",
-		"browser/manual acceptance not run",
+		"rollback PR #22 69908dd7",
+		"feature PR #23 merge 629436ad",
+		"first development deploy constraint failed and auto-rolled back",
+		"read-only audit 4 inactive identityless orphan rows",
+		"bugfix PR #24 merge 11cc8231",
+		"development deployed 11cc8231",
+		"development HTTP 200",
+		"remote gates frontend 983/983 miniapp 205/205 Go full image GREEN",
+		"manual browser acceptance pending",
 		"production environment out of scope",
 	} {
 		if !strings.Contains(reqStore, want) {
@@ -89,7 +96,9 @@ func TestDev598MaterialOutputMultilevelManufacturingContracts(t *testing.T) {
 			"PR-598", "## RED 证据", "## GREEN 证据", "find 全量 983 / 983", "Vite 2.08s", "production HTTP 真实 PostgreSQL 全包 86.736s",
 			"BOM / material / catalog / costing / stock 真实 PostgreSQL", "默认切换循环", "旧库 repair",
 			"direct product complete / partial / multi / cancel", "最终审计原子回滚", "取消 Note",
-			"浏览器人工验收未执行", "合并与 development 部署均未执行", "production 环境不在自动验收范围内",
+			"rollback PR #22 / 69908dd7", "feature PR #23 / 629436ad", "首次 development 部署因约束失败并自动回滚",
+			"只读审计确认 4 条 inactive 无身份孤儿", "bugfix PR #24 / 11cc8231", "development 已部署 11cc8231", "HTTP 200",
+			"远端门禁 frontend 983 / 983、小程序 205 / 205、Go 全量与镜像", "手工浏览器验收仍 pending", "production 环境不在范围内",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -122,7 +131,9 @@ func TestDev598MaterialOutputMultilevelManufacturingContracts(t *testing.T) {
 			"find 全量 983/983", "Vite 2.08s", "production HTTP 真实 PostgreSQL 全包 86.736s",
 			"BOM / material / catalog / costing / stock 真实 PostgreSQL GREEN", "默认切换循环 / 旧库 repair GREEN",
 			"direct product complete / partial / multi / cancel GREEN", "最终审计原子回滚 / 取消 Note GREEN",
-			"Merge/deploy: pending", "浏览器 / 人工业务验收未执行", "production 环境不在自动验收范围内",
+			"rollback PR #22 / 69908dd7", "feature PR #23 / 629436ad", "首次 development 部署因约束失败并自动回滚",
+			"只读审计确认 4 条 inactive 无身份孤儿", "bugfix PR #24 / 11cc8231", "development 已部署 11cc8231", "HTTP 200",
+			"远端门禁 frontend 983/983、小程序 205/205、Go 全量与镜像 GREEN", "手工浏览器验收仍 pending", "production 环境不在范围内",
 		},
 	} {
 		src, err := os.ReadFile(filepath.Join(repoRoot, rel))
