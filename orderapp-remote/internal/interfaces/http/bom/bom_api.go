@@ -72,26 +72,22 @@ type moveProductionBomGroupRequest struct {
 }
 
 type createProductionBomRequest struct {
-	Name                 string   `json:"name"`
-	BomKind              string   `json:"bom_kind"`
-	OutputIsSemiFinished bool     `json:"output_is_semi_finished"`
-	OutputProductID      int64    `json:"output_product_id"`
-	OutputQty            float64  `json:"output_qty"`
-	OutputUnit           string   `json:"output_unit"`
-	GroupID              int64    `json:"group_id"`
-	GroupCategoryID      int64    `json:"group_category_id"`
-	ExpectedLossRate     *float64 `json:"expected_loss_rate"`
+	Name             string   `json:"name"`
+	OutputProductID  int64    `json:"output_product_id"`
+	OutputQty        float64  `json:"output_qty"`
+	OutputUnit       string   `json:"output_unit"`
+	GroupID          int64    `json:"group_id"`
+	GroupCategoryID  int64    `json:"group_category_id"`
+	ExpectedLossRate *float64 `json:"expected_loss_rate"`
 }
 
 type updateProductionBomRequest struct {
-	Name                 string `json:"name"`
-	BomKind              string `json:"bom_kind"`
-	OutputIsSemiFinished bool   `json:"output_is_semi_finished"`
-	OutputProductID      int64  `json:"output_product_id"`
-	OutputUnit           string `json:"output_unit"`
-	GroupID              *int64 `json:"group_id"`
-	GroupCategoryID      *int64 `json:"group_category_id"`
-	Status               string `json:"status"`
+	Name            string `json:"name"`
+	OutputProductID int64  `json:"output_product_id"`
+	OutputUnit      string `json:"output_unit"`
+	GroupID         *int64 `json:"group_id"`
+	GroupCategoryID *int64 `json:"group_category_id"`
+	Status          string `json:"status"`
 }
 
 type copyProductionBomRequest struct {
@@ -107,7 +103,6 @@ type createProductionBomVersionRequest struct {
 }
 
 type updateProductionBomVersionDraftRequest struct {
-	BomKind                string                          `json:"bom_kind"`
 	ExpectedLossRate       *float64                        `json:"expected_loss_rate"`
 	MaterialLossRate       *float64                        `json:"material_loss_rate"`
 	OutputQty              float64                         `json:"output_qty"`
@@ -306,7 +301,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, BomKind: req.BomKind, OutputIsSemiFinished: req.OutputIsSemiFinished, OutputProductID: req.OutputProductID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputProductID: req.OutputProductID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -338,7 +333,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		cmd := bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, BomKind: req.BomKind, OutputIsSemiFinished: req.OutputIsSemiFinished, OutputProductID: req.OutputProductID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c)}
+		cmd := bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c)}
 		if req.GroupID != nil {
 			cmd.GroupID = *req.GroupID
 			cmd.UpdateGroupAssignment = true
@@ -395,7 +390,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, BomKind: req.BomKind, ExpectedLossRate: req.ExpectedLossRate, MaterialLossRate: req.MaterialLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
+		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, ExpectedLossRate: req.ExpectedLossRate, MaterialLossRate: req.MaterialLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -419,64 +414,6 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 
 	e.PUT("/api/products/:id/production-bom-binding", func(c echo.Context) error {
 		return setDefaultProductionBomAPI(c, bomSvc)
-	})
-
-	e.GET("/api/unit-templates/:id/spec-packaging-bom-refs", func(c echo.Context) error {
-		unitTemplateID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil || unitTemplateID <= 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid unit_template_id"})
-		}
-		refs, err := bomSvc.ListSpecPackagingBomRefs(c.Request().Context(), unitTemplateID)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, refs)
-	})
-
-	e.PUT("/api/unit-templates/:id/spec-packaging-bom-refs", func(c echo.Context) error {
-		unitTemplateID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil || unitTemplateID <= 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid unit_template_id"})
-		}
-		var req struct {
-			SpecKey        string `json:"spec_key"`
-			PackagingBomID int64  `json:"packaging_bom_id"`
-		}
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
-		}
-		if err := bomSvc.SaveSpecPackagingBomRef(c.Request().Context(), bomapp.SaveSpecPackagingBomRefCommand{
-			UnitTemplateID: unitTemplateID,
-			SpecKey:        req.SpecKey,
-			PackagingBomID: req.PackagingBomID,
-			Actor:          support.ActorOf(c),
-		}); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		refs, err := bomSvc.ListSpecPackagingBomRefs(c.Request().Context(), unitTemplateID)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, refs)
-	})
-
-	e.DELETE("/api/unit-templates/:id/spec-packaging-bom-refs/:specKey", func(c echo.Context) error {
-		unitTemplateID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil || unitTemplateID <= 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid unit_template_id"})
-		}
-		specKey := c.Param("specKey")
-		if specKey == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "spec_key required"})
-		}
-		if err := bomSvc.DeleteSpecPackagingBomRef(c.Request().Context(), bomapp.DeleteSpecPackagingBomRefCommand{
-			UnitTemplateID: unitTemplateID,
-			SpecKey:        specKey,
-			Actor:          support.ActorOf(c),
-		}); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]bool{"ok": true})
 	})
 
 	e.GET("/api/bom/list", func(c echo.Context) error {

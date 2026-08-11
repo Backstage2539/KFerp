@@ -226,16 +226,6 @@ CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, crea
 -- Defer the %s.work_orders request-item index until legacy columns are added below.
 CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0;
 
-CREATE TABLE IF NOT EXISTS %s.work_order_dependencies (
-	work_order_id BIGINT NOT NULL,
-	depends_on_work_order_id BIGINT NOT NULL,
-	dependency_type TEXT NOT NULL DEFAULT 'semi_finished_to_packaging',
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	PRIMARY KEY (work_order_id, depends_on_work_order_id)
-);
-CREATE INDEX IF NOT EXISTS work_order_dependencies_depends_on_idx ON %s.work_order_dependencies(depends_on_work_order_id);
-CREATE INDEX IF NOT EXISTS work_order_dependencies_work_order_idx ON %s.work_order_dependencies(work_order_id);
-
 CREATE TABLE IF NOT EXISTS %s.job_cards (
 	id BIGSERIAL PRIMARY KEY,
 	work_order_id BIGINT NOT NULL,
@@ -336,7 +326,7 @@ CREATE TABLE IF NOT EXISTS %s.work_center_capacity_calendar (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS work_center_capacity_calendar_uq ON %s.work_center_capacity_calendar(work_center, work_date, shift_code);
 CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_center_capacity_calendar(work_date, work_center);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
@@ -388,11 +378,6 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS scheduling_note TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS work_center TEXT NOT NULL DEFAULT ''`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS production_stage TEXT NOT NULL DEFAULT ''`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS source_warehouse TEXT NOT NULL DEFAULT ''`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS packaging_bom_version_id BIGINT NOT NULL DEFAULT 0`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS semi_finished_demand_qty NUMERIC(18,6) NOT NULL DEFAULT 0`, schema),
-		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS semi_finished_demand_unit TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ADD COLUMN IF NOT EXISTS cost_method TEXT NOT NULL DEFAULT 'time'`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_operation_splits ADD COLUMN IF NOT EXISTS piece_rate NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS sequence_no INT NOT NULL DEFAULT 1`, schema),

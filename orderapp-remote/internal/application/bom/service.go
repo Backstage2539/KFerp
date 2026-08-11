@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	bomdomain "orderapp/internal/domain/bom"
-	catalogdomain "orderapp/internal/domain/catalog"
 )
 
 var (
@@ -159,8 +156,6 @@ type ProductionBomSummary struct {
 	ID                    int64   `json:"id"`
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
-	BomKind               string  `json:"bom_kind"`
-	OutputIsSemiFinished  bool    `json:"output_is_semi_finished"`
 	OutputProductID       int64   `json:"output_product_id"`
 	OutputProductName     string  `json:"output_product_name"`
 	OutputProductCode     string  `json:"output_product_code"`
@@ -301,23 +296,19 @@ type DeleteProductionBomGroupCategoryCommand struct {
 }
 
 type CreateProductionBomCommand struct {
-	Name                 string   `json:"name"`
-	BomKind              string   `json:"bom_kind"`
-	OutputIsSemiFinished bool     `json:"output_is_semi_finished"`
-	OutputProductID      int64    `json:"output_product_id"`
-	OutputQty            float64  `json:"output_qty"`
-	OutputUnit           string   `json:"output_unit"`
-	GroupID              int64    `json:"group_id"`
-	GroupCategoryID      int64    `json:"group_category_id"`
-	ExpectedLossRate     *float64 `json:"expected_loss_rate,omitempty"`
-	Actor                string   `json:"actor"`
+	Name             string   `json:"name"`
+	OutputProductID  int64    `json:"output_product_id"`
+	OutputQty        float64  `json:"output_qty"`
+	OutputUnit       string   `json:"output_unit"`
+	GroupID          int64    `json:"group_id"`
+	GroupCategoryID  int64    `json:"group_category_id"`
+	ExpectedLossRate *float64 `json:"expected_loss_rate,omitempty"`
+	Actor            string   `json:"actor"`
 }
 
 type UpdateProductionBomCommand struct {
 	ID                    int64  `json:"id"`
 	Name                  string `json:"name"`
-	BomKind               string `json:"bom_kind"`
-	OutputIsSemiFinished  bool   `json:"output_is_semi_finished"`
 	OutputProductID       int64  `json:"output_product_id"`
 	OutputUnit            string `json:"output_unit"`
 	GroupID               int64  `json:"group_id"`
@@ -356,7 +347,6 @@ type ProductionBomDraftItem struct {
 
 type UpdateProductionBomVersionDraftCommand struct {
 	VersionID              int64                    `json:"version_id"`
-	BomKind                string                   `json:"bom_kind"`
 	ExpectedLossRate       *float64                 `json:"expected_loss_rate,omitempty"`
 	MaterialLossRate       *float64                 `json:"material_loss_rate,omitempty"`
 	OutputQty              float64                  `json:"output_qty"`
@@ -438,30 +428,6 @@ type DeleteBagSpecMappingCommand struct {
 	Actor string `json:"actor"`
 }
 
-type SpecPackagingBomRef struct {
-	UnitTemplateID          int64  `json:"unit_template_id"`
-	SpecKey                 string `json:"spec_key"`
-	PackagingBomID          int64  `json:"packaging_bom_id"`
-	PackagingBomName        string `json:"packaging_bom_name"`
-	PackagingBomCode        string `json:"packaging_bom_code"`
-	PublishedVersionID      int64  `json:"published_version_id"`
-	PublishedVersionNo      string `json:"published_version_no"`
-	IsValid                 bool   `json:"is_valid"`
-}
-
-type SaveSpecPackagingBomRefCommand struct {
-	UnitTemplateID int64  `json:"unit_template_id"`
-	SpecKey        string `json:"spec_key"`
-	PackagingBomID int64  `json:"packaging_bom_id"`
-	Actor          string `json:"actor"`
-}
-
-type DeleteSpecPackagingBomRefCommand struct {
-	UnitTemplateID int64  `json:"unit_template_id"`
-	SpecKey        string `json:"spec_key"`
-	Actor          string `json:"actor"`
-}
-
 type Repository interface {
 	List(ctx context.Context) ([]ListItem, error)
 	Detail(ctx context.Context, productID int64) (Detail, error)
@@ -498,9 +464,6 @@ type Repository interface {
 	ValidateProductionBomVersionForPublish(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	PublishProductionBomVersion(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error)
-	ListSpecPackagingBomRefs(ctx context.Context, unitTemplateID int64) ([]SpecPackagingBomRef, error)
-	SaveSpecPackagingBomRef(ctx context.Context, cmd SaveSpecPackagingBomRefCommand) error
-	DeleteSpecPackagingBomRef(ctx context.Context, cmd DeleteSpecPackagingBomRefCommand) error
 }
 
 type Service struct {
@@ -874,32 +837,18 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	cmd.Name = NormalizeProductionBomName(cmd.Name)
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	cmd.BomKind = bomdomain.NormalizeBomKind(cmd.BomKind)
-	if !bomdomain.IsValidBomKind(cmd.BomKind) {
-		return ProductionBomSummary{}, fmt.Errorf("invalid bom_kind")
-	}
 	if cmd.Name == "" {
 		return ProductionBomSummary{}, fmt.Errorf("name required")
 	}
-	if bomdomain.IsPackagingBomKind(cmd.BomKind) {
-		cmd.OutputProductID = 0
-		if cmd.OutputQty <= 0 {
-			cmd.OutputQty = 1
-		}
-		if cmd.OutputUnit == "" {
-			cmd.OutputUnit = "spec"
-		}
-	} else {
-		if cmd.OutputProductID <= 0 {
-			return ProductionBomSummary{}, fmt.Errorf("output_product_id required")
-		}
-		if cmd.OutputQty <= 0 {
-			cmd.OutputQty = 1
-		}
-		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
+	if cmd.OutputProductID <= 0 {
+		return ProductionBomSummary{}, fmt.Errorf("output_product_id required")
+	}
+	if cmd.OutputQty <= 0 {
+		cmd.OutputQty = 1
 	}
 	legacyLossRate := 0.0
 	cmd.ExpectedLossRate = &legacyLossRate
+	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -953,14 +902,6 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Status = strings.TrimSpace(cmd.Status)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	if cmd.BomKind != "" {
-		if !bomdomain.IsValidBomKind(cmd.BomKind) {
-			return ProductionBomSummary{}, fmt.Errorf("invalid bom_kind")
-		}
-		if bomdomain.IsPackagingBomKind(cmd.BomKind) {
-			cmd.OutputProductID = 0
-		}
-	}
 	if cmd.OutputProductID > 0 {
 		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	}
@@ -1028,12 +969,7 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 			if err != nil {
 				return ProductionBomVersion{}, err
 			}
-			if bomdomain.IsPackagingBomKind(cmd.BomKind) {
-				if err := validatePackagingBomDraftItem(item); err != nil {
-					return ProductionBomVersion{}, err
-				}
-				item.MaterialLossRate = 0
-			} else if cmd.MaterialLossRate != nil {
+			if cmd.MaterialLossRate != nil {
 				if versionMaterialLossRate > 0 && item.ComponentType == "material" && item.ConsumeUnit == "ratio_pct" {
 					item.MaterialLossRate = versionMaterialLossRate
 				} else {
@@ -1119,86 +1055,6 @@ func (s *Service) PublishProductionBomVersion(ctx context.Context, cmd PublishPr
 	return s.repo.PublishProductionBomVersion(ctx, cmd)
 }
 
-func (s *Service) ListSpecPackagingBomRefs(ctx context.Context, unitTemplateID int64) ([]SpecPackagingBomRef, error) {
-	if unitTemplateID <= 0 {
-		return nil, fmt.Errorf("unit_template_id required")
-	}
-	return s.repo.ListSpecPackagingBomRefs(ctx, unitTemplateID)
-}
-
-func (s *Service) SaveSpecPackagingBomRef(ctx context.Context, cmd SaveSpecPackagingBomRefCommand) error {
-	if cmd.UnitTemplateID <= 0 {
-		return fmt.Errorf("unit_template_id required")
-	}
-	cmd.SpecKey = strings.TrimSpace(cmd.SpecKey)
-	if cmd.SpecKey == "" {
-		return fmt.Errorf("spec_key required")
-	}
-	if cmd.PackagingBomID <= 0 {
-		return fmt.Errorf("packaging_bom_id required")
-	}
-	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	return s.repo.SaveSpecPackagingBomRef(ctx, cmd)
-}
-
-func (s *Service) DeleteSpecPackagingBomRef(ctx context.Context, cmd DeleteSpecPackagingBomRefCommand) error {
-	if cmd.UnitTemplateID <= 0 {
-		return fmt.Errorf("unit_template_id required")
-	}
-	cmd.SpecKey = strings.TrimSpace(cmd.SpecKey)
-	if cmd.SpecKey == "" {
-		return fmt.Errorf("spec_key required")
-	}
-	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	return s.repo.DeleteSpecPackagingBomRef(ctx, cmd)
-}
-
-type SemiFinishedPackagingError struct {
-	MissingSpecs []string `json:"missing_specs"`
-}
-
-func (e SemiFinishedPackagingError) Error() string {
-	return "semi_finished_packaging_required"
-}
-
-func (e SemiFinishedPackagingError) Code() string {
-	return "semi_finished_packaging_required"
-}
-
-type SpecValidityInput struct {
-	SpecKey string
-	Active  bool
-}
-
-func (s *Service) CheckSemiFinishedPackagingValidity(ctx context.Context, unitTemplateID int64, activeSpecs []SpecValidityInput) (SemiFinishedPackagingError, bool) {
-	if unitTemplateID <= 0 || len(activeSpecs) == 0 {
-		return SemiFinishedPackagingError{}, true
-	}
-	refs, err := s.repo.ListSpecPackagingBomRefs(ctx, unitTemplateID)
-	if err != nil {
-		return SemiFinishedPackagingError{}, false
-	}
-	specsForCheck := make([]catalogdomain.SalesSpecForPackagingCheck, 0, len(activeSpecs))
-	for _, spec := range activeSpecs {
-		specsForCheck = append(specsForCheck, catalogdomain.SalesSpecForPackagingCheck{
-			SpecKey: spec.SpecKey,
-			Active:  spec.Active,
-		})
-	}
-	refsForCheck := make([]catalogdomain.PackagingBomRefForCheck, 0, len(refs))
-	for _, ref := range refs {
-		refsForCheck = append(refsForCheck, catalogdomain.PackagingBomRefForCheck{
-			SpecKey: ref.SpecKey,
-			IsValid: ref.IsValid,
-		})
-	}
-	result := catalogdomain.CheckSemiFinishedPackagingValidity(specsForCheck, refsForCheck)
-	if result.Valid {
-		return SemiFinishedPackagingError{}, true
-	}
-	return SemiFinishedPackagingError{MissingSpecs: result.MissingSpecs}, false
-}
-
 func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBomDraftItem, error) {
 	componentType := strings.TrimSpace(item.ComponentType)
 	if componentType == "" {
@@ -1247,22 +1103,6 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 	item.ComponentType = componentType
 	item.ConsumeUnit = consumeUnit
 	return item, nil
-}
-
-func validatePackagingBomDraftItem(item ProductionBomDraftItem) error {
-	if item.ComponentType == "ratio_pct" {
-		return fmt.Errorf("packaging BOM items must use fixed quantity, not ratio_pct")
-	}
-	if item.ConsumeUnit == "ratio_pct" {
-		return fmt.Errorf("packaging BOM items must use fixed quantity, not ratio_pct")
-	}
-	if item.ComponentType == "product" {
-		return fmt.Errorf("packaging BOM items must be materials, not product components")
-	}
-	if item.MaterialLossRate != 0 {
-		return fmt.Errorf("packaging BOM items must not have material_loss_rate")
-	}
-	return nil
 }
 
 // ProductionBomConsumeUnitRequiresInventoryMatch reports whether a fixed BOM

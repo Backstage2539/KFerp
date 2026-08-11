@@ -368,7 +368,6 @@ VALUES
 	('raw_materials','原料仓','raw','',10,true,true,'未领用的生豆、辅料，生产领料前保存在这里'),
 	('packaging','包材仓','packaging','',20,true,true,'袋子、盒子、标签等包材库存'),
 	('wip','WIP在制仓','wip','',30,true,true,'已领到生产现场但尚未消耗的共享在制库存'),
-	('semi_finished','半成品仓','semi_finished','',35,true,true,'半成品工单完工入库，待包装工单领用的散装半成品库存'),
 	('finished_goods','成品仓','finished','',40,true,true,'生产完成并可销售/发货的成品库存'),
 	('finished_shop','门店成品仓','finished','finished_goods',45,false,true,'门店、展会或临时销售点的成品库存'),
 	('loss','损耗/报废仓','loss','',50,false,true,'盘点损耗、报废或异常消耗的记录位置')
