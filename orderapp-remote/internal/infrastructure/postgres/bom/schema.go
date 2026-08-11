@@ -433,7 +433,48 @@ CREATE INDEX IF NOT EXISTS production_bom_output_bindings_bom_idx
 }
 
 func validateProductionBomOutputBindingConstraint(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`LOCK TABLE %[1]s.production_boms IN SHARE ROW EXCLUSIVE MODE`, schema)); err != nil {
+		return err
+	}
+	var preservedLegacyOrphanCount, unsupportedInvalidCount int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+WITH classified AS (
+	SELECT
+		NOT (
+			(output_type='product' AND output_product_id>0 AND output_material_id=0)
+			OR (output_type='material' AND output_material_id>0 AND output_product_id=0)
+		) AS invalid,
+		status='inactive'
+			AND output_type='product'
+			AND output_product_id=0
+			AND output_material_id=0
+			AND legacy_product_id=0
+			AND NOT EXISTS (
+				SELECT 1 FROM %[1]s.product_production_bom_bindings legacy_binding
+				WHERE legacy_binding.bom_id=production_boms.id
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM %[1]s.production_bom_output_bindings typed_binding
+				WHERE typed_binding.bom_id=production_boms.id
+			) AS preserved_legacy_orphan
+	FROM %[1]s.production_boms
+)
+SELECT
+	COUNT(*) FILTER (WHERE invalid AND preserved_legacy_orphan),
+	COUNT(*) FILTER (WHERE invalid AND NOT preserved_legacy_orphan)
+FROM classified
+`, schema)).Scan(&preservedLegacyOrphanCount, &unsupportedInvalidCount); err != nil {
+		return err
+	}
+	if unsupportedInvalidCount > 0 {
+		return fmt.Errorf("production_boms contains %d unsupported typed-output row(s)", unsupportedInvalidCount)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 DO $production_bom_output_binding_constraint$
 BEGIN
 	IF NOT EXISTS (
@@ -455,31 +496,20 @@ $production_bom_output_binding_constraint$;
 `, schema)); err != nil {
 		return err
 	}
-	var hasUnmappedLegacyRows bool
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-SELECT EXISTS (
-	SELECT 1
-	FROM %[1]s.production_boms
-	WHERE NOT (
-		(output_type='product' AND output_product_id>0 AND output_material_id=0)
-		OR (output_type='material' AND output_material_id>0 AND output_product_id=0)
-	)
-)
-`, schema)).Scan(&hasUnmappedLegacyRows); err != nil {
-		return err
-	}
-	if hasUnmappedLegacyRows {
+	if preservedLegacyOrphanCount > 0 {
 		// NOT VALID still enforces the typed-output XOR contract for every new
-		// insert or update. Preserve historical rows whose output cannot be
-		// inferred safely; once they are repaired, a later EnsureSchema run will
-		// validate the same constraint without recreating it.
-		return nil
+		// insert or update. Preserve only inactive historical rows with no output
+		// identity or binding; once repaired, a later EnsureSchema run validates
+		// the same constraint without recreating it.
+		return tx.Commit(ctx)
 	}
-	_, err := pool.Exec(ctx, fmt.Sprintf(`
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 ALTER TABLE %[1]s.production_boms
 	VALIDATE CONSTRAINT production_boms_output_binding_check
-`, schema))
-	return err
+`, schema)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func backfillProductionBomOutputBindings(ctx context.Context, pool *pgxpool.Pool, schema string) error {
