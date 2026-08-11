@@ -97,7 +97,43 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid stock_entry_id"})
 		}
-		detail, err := stockSvc.SubmitStockDocument(c.Request().Context(), id, support.ActorOf(c))
+		detail, err := stockSvc.GetStockDocument(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		if detail.Status == "submitted" {
+			return c.JSON(http.StatusOK, detail)
+		}
+		if detail.Purpose == stockapp.PurposeManufacture && detail.WorkOrderID > 0 {
+			workOrderDetail, err := productionSvc.GetWorkOrderDetail(c.Request().Context(), detail.WorkOrderID)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			}
+			if len(detail.Items) != 1 {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "manufacture stock document must contain exactly one frozen output item"})
+			}
+			item := detail.Items[0]
+			complete := productionapp.WorkOrderCompleteCommand{
+				ID: detail.WorkOrderID, StockDocumentID: detail.ID,
+				Warehouse: item.ToWarehouse, Operator: support.ActorOf(c), Note: detail.Note,
+			}
+			if strings.EqualFold(strings.TrimSpace(workOrderDetail.WorkOrder.OutputType), "material") {
+				complete.FinishedQtyG = item.QtyG
+				complete.FinishedQtyUnits = item.QtyUnits
+			} else {
+				complete.FinishedUnits = item.QtyUnits
+				complete.FinishedLooseG = item.QtyG
+			}
+			if _, err := productionSvc.CompleteWorkOrder(c.Request().Context(), complete); err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			}
+			detail, err = stockSvc.GetStockDocument(c.Request().Context(), id)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			}
+			return c.JSON(http.StatusOK, detail)
+		}
+		detail, err = stockSvc.SubmitStockDocument(c.Request().Context(), id, support.ActorOf(c))
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}

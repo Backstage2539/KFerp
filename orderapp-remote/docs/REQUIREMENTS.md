@@ -1539,3 +1539,21 @@
 - `DEV-596-INLINE-MOVE-TARGET`：勾选对象并点击 `移动到分类` 后，列表行、筛选、分类内分页和行操作置灰不可用，分类标题成为即时目标；直接点击大类、小类/后代分类或 `未分类` 后调用既有 assignment API，不显示目标模板/分类下拉且不二次确认。成功后清空勾选并退出，失败保留勾选和移动模式供重试，取消恢复正常浏览；`全部分类` 和模板标题不可作为目标。
 - `DEV-596-WAREHOUSE-FULL-RESULT-PAGINATION`：仓库页保留外层仓库选择器。选中具体仓库且非客户库存上下文时，右侧仓内库存使用内联分类；先按当前 `q/warehouse/item_type` 请求 stock API 的第 1 页并使用 `limit=500`，若 `total` 超出已取回行数则继续补齐后续页，直到取得该过滤条件下全部结果，再在完整结果上做分类和每分类独立分页。具体仓库界面不显示全局服务端分页，也不得发送 `group_id/group_item_id`，因此分页只服务当前分类。全部仓库和客户库存上下文继续按原 `q/warehouse/item_type/customer_id/page/limit` 服务端分页平铺，且不可勾选移动；WIP、追溯及既有设置抽屉不变。
 - `DEV-596-IDENTITY-API-COMPAT`：PR-596 覆盖 PR-588/PR-595 的列表布局、目标入口和仓库客户端加载/分页编排，不改变功能模板选择、归类身份、stock/assignment API 参数合同或审计。商品、物料、BOM 继续使用 `product_catalog/product`、`material_catalog/material`、`production_bom/production_bom`；仓库继续使用 `warehouse_inventory/warehouse_inventory_item` 和精确 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>`。warehouse code 仅是命名空间，物品/规格才是 identity，同一 identity 的多个批次共享归类；移到未分类只清除该精确 assignment。PR-442/PR-458 的仓库 code 与 `group_id/group_item_id` 查询只保留历史兼容。
+
+# PR-597-SEMI-FINISHED-PACKAGING-BOM（已撤回）
+
+- 提交 `d1f5d12f` 的熟豆与规格包装特殊阶段模型已经撤回；分组模板改进提交 `4626c937` 保留。
+- `bom_kind`、`spec_packaging_bom_id`、`semi_finished_packaging_required`、商品级 `is_semi_finished` 和固定阶段展开算法只作为历史记录，不再是当前产品合同，也不得重新种入需求追踪。
+- 本节由 `PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING` 的统一普通 BOM 模型替代。
+
+# PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING 从物料到 BOM 到生产（2026-08-11）
+
+- `DEV-598-MATERIAL-SEMI-FINISHED-CAPABILITY`：物料 `is_semi_finished` 仅是业务标识、筛选和展示属性；物料列表提供全部 / 半成品 / 非半成品本页筛选；`can_manufacture` 只由默认已发布产出 BOM 计算。勾选或取消半成品不得授予、撤销制造能力，也不得限制 BOM 或排产。
+- `DEV-598-TYPED-BOM-OUTPUT`：普通生产 BOM 统一使用 `output_type=product|material` 和对应 `output_id`；任意有效物料都可作为产出对象，不要求 `is_semi_finished=true`。旧商品 BOM 继续兼容 `output_product_id`。
+- `DEV-598-BOM-GRAPH-DEFAULTS-VALIDATION`：商品和物料分别维护一个默认已发布生产 BOM；发布校验产出对象、组件、单位、用量和依赖图，拒绝草稿默认、跨对象默认及循环。
+- `DEV-598-MULTILEVEL-NET-REQUIREMENTS`：计划按 BOM 图递归展开任意层级，展示总需求、库存覆盖、净缺口、计划动作和上游依赖；库存只覆盖一次，共享需求合并后再供应。`100 × 227g = 22.7kg` 且已有 `10kg` 时仅计划 `12.7kg` 缺口。
+- `DEV-598-WORKORDER-DEPENDENCIES`：按计划图生成工单依赖，下游开工前检查未完成上游，并返回阻断原因和上游工单编号；旧无依赖商品工单保持兼容。
+- `DEV-598-MATERIAL-MANUFACTURE-STOCK`：物料工单按实际合格数量进入目标仓库和批次；取消、失败、重复提交不得重复入库、预留或消耗。
+- `DEV-598-RECURSIVE-COSTING`：成本按各层冻结 BOM 递归汇总物料、损耗和工序，循环被拒绝，历史业务快照不回算。
+- `DEV-598-VUE-MANUFACTURING-WORKFLOW`：Vue/Vite 串联物料档案、生产 BOM、生产计划、工单与执行；草稿计划行可从正式仓库列表选择并保存目标仓库，提交后只读冻结；已提交且全部关联工单未开工的计划可整体取消，未开工工单也可从工单列表或执行枢纽取消并刷新。计划关联工单显示类型化产出对象；跨页使用 `kferp:navigate-view` / `returnNavigation`，库存菜单提供库存作业手册入口。
+- `DEV-598-AUDIT-COMPAT-DOCS-DELIVERY`：默认 BOM、计划提交、工单状态和完工入库沿用操作日志；同步需求、验收、四本手册、PR/DEV/REV 和独立验收记录。自动化验证完成前不部署，浏览器业务验收由 Van 后续执行，production 不在范围内。

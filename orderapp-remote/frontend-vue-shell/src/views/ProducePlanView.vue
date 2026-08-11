@@ -235,6 +235,37 @@
                   </table>
                 </div>
               </div>
+              <div v-if="computedManufacturingPlanRows.length">
+                <div class="section-title">多层制造需求与上游依赖</div>
+                <div class="table-wrap drag-scroll-wrap" aria-label="多层制造需求横向滚动表格">
+                  <table class="manufacturing-dependency-table">
+                    <thead>
+                      <tr>
+                        <th>层级</th>
+                        <th>对象类型</th>
+                        <th>产出/组件对象</th>
+                        <th>总需求</th>
+                        <th>库存覆盖</th>
+                        <th>净缺口</th>
+                        <th>补足方式</th>
+                        <th>上游依赖</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="node in computedManufacturingPlanRows" :key="node.key" :class="{ 'blocking-node': node.blocking }">
+                        <td>{{ node.depth }}</td>
+                        <td>{{ node.type_label }}</td>
+                        <td :style="{ paddingLeft: `${8 + node.depth * 18}px` }"><strong>{{ node.name }}</strong><small v-if="node.bom_version_id">BOM版本 #{{ node.bom_version_id }}</small></td>
+                        <td>{{ manufacturingQtyText(node.required_qty, node.unit) }}</td>
+                        <td>{{ manufacturingQtyText(node.stock_covered_qty, node.unit) }}</td>
+                        <td><strong>{{ manufacturingQtyText(node.shortage_qty, node.unit) }}</strong></td>
+                        <td>{{ node.action_label }}<small v-if="node.blocking" class="blocking-reason">缺少可用默认 BOM 或采购条件</small></td>
+                        <td>{{ node.dependency_label }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
             <div v-else-if="hasSelectedRows && !previewLoading" class="muted empty-state">已选择商品，等待计划预览。</div>
             <div class="actions current-plan-actions">
@@ -402,6 +433,7 @@
             <span :class="['status', `status-${productionPlanStatusTone(productionPlanDetail.status)}`]">{{ productionPlanStatusLabel(productionPlanDetail.status) }}</span>
             <button v-if="productionPlanSelectable(productionPlanDetail)" class="secondary compact" type="button" @click="openProductionPlanSplitDrawer(productionPlanDetail)">编辑拆分</button>
             <button v-if="productionPlanSelectable(productionPlanDetail)" class="danger compact" type="button" @click="cancelProductionPlanDraft(productionPlanDetail, 'detail')" :disabled="saving || loading">撤销草稿</button>
+            <button v-if="productionPlanCanCancelSubmitted(productionPlanDetail)" class="danger compact" type="button" @click="cancelSubmittedProductionPlan(productionPlanDetail, 'detail')" :disabled="saving || loading">取消计划</button>
             <button class="secondary compact" type="button" @click="closeProductionPlanDetail">关闭</button>
           </div>
         </div>
@@ -427,7 +459,8 @@
               <table class="detail-table">
                 <thead>
                   <tr>
-                    <th>商品</th>
+                    <th>产出对象</th>
+                    <th>目标仓库</th>
                     <th>来源订单</th>
                     <th>规格/单位</th>
                     <th>生产缺口</th>
@@ -439,7 +472,17 @@
                 </thead>
                 <tbody>
                   <tr v-for="item in productionPlanDetail.items || []" :key="item.id">
-                    <td>{{ item.product_name || '-' }}</td>
+                    <td>{{ formatWorkOrderTypedOutput(item) }}</td>
+                    <td class="target-warehouse-cell">
+                      <div v-if="productionPlanSelectable(productionPlanDetail)" class="target-warehouse-editor">
+                        <select v-model="item.target_warehouse" :disabled="targetWarehouseSavingItemID === Number(item.id || 0)">
+                          <option value="">选择目标仓库</option>
+                          <option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}（{{ warehouse.code }}）</option>
+                        </select>
+                        <button class="secondary compact" type="button" @click="saveProductionPlanItemTargetWarehouse(item)" :disabled="targetWarehouseSavingItemID === Number(item.id || 0) || !item.target_warehouse">保存</button>
+                      </div>
+                      <span v-else>{{ targetWarehouseLabel(item.target_warehouse) }}</span>
+                    </td>
                     <td class="muted">{{ item.order_nos || '-' }}</td>
                     <td>{{ planItemSpecLabel(item) }}</td>
                     <td>{{ productionPlanLegacyGramLabel(item.gap_g) }}</td>
@@ -449,7 +492,7 @@
                     <td>{{ planItemRouteSummary(item) }}</td>
                   </tr>
                   <tr v-if="!(productionPlanDetail.items || []).length">
-                    <td colspan="8" class="muted">暂无计划行</td>
+                    <td colspan="9" class="muted">暂无计划行</td>
                   </tr>
                 </tbody>
               </table>
@@ -477,6 +520,38 @@
                   </tr>
                   <tr v-if="!(productionPlanDetail.material_summary || []).length">
                     <td colspan="4" class="muted">暂无物料需求汇总</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section v-if="productionPlanDetailManufacturingRows.length" class="detail-section">
+            <div class="section-title">递归产出、库存覆盖与上游依赖</div>
+            <div class="table-wrap drag-scroll-wrap" aria-label="生产计划递归产出横向滚动表格">
+              <table class="detail-table manufacturing-dependency-table">
+                <thead>
+                  <tr>
+                    <th>层级</th>
+                    <th>对象类型</th>
+                    <th>产出/缺口对象</th>
+                    <th>总需求</th>
+                    <th>库存覆盖</th>
+                    <th>净缺口</th>
+                    <th>补足方式</th>
+                    <th>上游依赖</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="node in productionPlanDetailManufacturingRows" :key="`detail-${node.key}`" :class="{ 'blocking-node': node.blocking }">
+                    <td>{{ node.depth }}</td>
+                    <td>{{ node.type_label }}</td>
+                    <td :style="{ paddingLeft: `${8 + node.depth * 18}px` }"><strong>{{ node.name }}</strong><small v-if="node.bom_version_id">BOM版本 #{{ node.bom_version_id }}</small></td>
+                    <td>{{ manufacturingQtyText(node.required_qty, node.unit) }}</td>
+                    <td>{{ manufacturingQtyText(node.stock_covered_qty, node.unit) }}</td>
+                    <td><strong>{{ manufacturingQtyText(node.shortage_qty, node.unit) }}</strong></td>
+                    <td>{{ node.action_label }}</td>
+                    <td>{{ node.dependency_label }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -522,7 +597,7 @@
                 <thead>
                   <tr>
                     <th>工单号</th>
-                    <th>商品</th>
+                    <th>产出对象</th>
                     <th>计划投料</th>
                     <th>计划产出</th>
                     <th>状态</th>
@@ -532,7 +607,7 @@
                 <tbody>
                   <tr v-for="wo in productionPlanDetail.related_work_orders || []" :key="wo.id">
                     <td>{{ wo.work_order_no }}</td>
-                    <td>{{ wo.product_name || '-' }}</td>
+                    <td>{{ formatWorkOrderTypedOutput(wo) }}</td>
                     <td>{{ wo.planned_g || 0 }}</td>
                     <td>{{ wo.planned_output_g || 0 }}</td>
                     <td>{{ workOrderStatusLabel(wo.status) }}</td>
@@ -712,6 +787,7 @@ import {
   buildProductionPlanCreatePayload,
   buildProductionPlanListQuery,
   buildProductionPlanOperationSplitPayload,
+  buildProductionPlanItemTargetWarehousePayload,
   buildProductionPlanSelection,
   buildProductionDemandSelection,
   buildProductionDemandSummaryQuery,
@@ -735,9 +811,11 @@ import {
   productionPlanBatchSubmitEndpoint,
   productionPlanCancelEndpoint,
   productionPlanCancelTargetsCurrentPlan,
+  productionPlanCanCancelSubmitted,
   productionPlanDetailEndpoint,
   productionPlanOperationSplitsEndpoint,
   productionPlanOperationSplitsPreviewEndpoint,
+  productionPlanItemTargetWarehouseEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
   productionPlanBomSummary,
@@ -749,8 +827,10 @@ import {
   productionPlanStatusTone,
   operationSplitPreviewStatusLabel,
   operationSplitPreviewStatusTone,
+  manufacturingPlanRows,
   producePlanKey,
 } from '../lib/produce-plan'
+import { formatWorkOrderTypedOutput } from '../lib/work-orders'
 import { replaceHistoryURL } from '../lib/url-state'
 import {
   normalizeCapacityCostMethod,
@@ -775,8 +855,11 @@ const stockTip = ref('')
 const rows = ref([])
 const planRows = ref([])
 const initialMaterials = ref([])
+const manufacturingPlan = ref({ nodes: [], edges: [] })
 const productionPlans = ref([])
 const currentPlan = ref(null)
+const warehouses = ref([])
+const targetWarehouseSavingItemID = ref(0)
 const workstationCapacities = ref([])
 const operationSplits = ref([])
 const productionPlanDetail = ref(null)
@@ -856,6 +939,8 @@ function isProductionDemandSelected(row) {
 const planReady = computed(() => planRows.value.length > 0 || (currentPlan.value?.items || []).length > 0)
 const computedPlanRows = computed(() => planRows.value || [])
 const computedMaterials = computed(() => initialMaterials.value || [])
+const computedManufacturingPlanRows = computed(() => manufacturingPlanRows(manufacturingPlan.value))
+const productionPlanDetailManufacturingRows = computed(() => manufacturingPlanRows(productionPlanDetail.value || {}))
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
 const stockInsufficientRows = computed(() => rows.value.filter((row) => String(row.blocking_reason || '').trim() || Number(row.gap_g || 0) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
 const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && Number(row.gap_g || 0) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
@@ -953,6 +1038,7 @@ function applyUnproducedData(data, plan) {
   stockTip.value = data.stock_tip || ''
   planRows.value = data.plan_rows || []
   initialMaterials.value = data.materials || []
+  manufacturingPlan.value = data.manufacturing_plan || data.multilevel_plan || { nodes: data.manufacturing_nodes || [], edges: data.manufacturing_edges || [] }
   if (plan && data.error) previewError.value = data.error
   if (data.selected) {
     Object.keys(selected).forEach((key) => delete selected[key])
@@ -989,6 +1075,7 @@ async function loadSelectedPlanPreview() {
   if (!keys.length) {
     planRows.value = []
     initialMaterials.value = []
+    manufacturingPlan.value = { nodes: [], edges: [] }
     updateUrl(false)
     return
   }
@@ -1002,6 +1089,7 @@ async function loadSelectedPlanPreview() {
     if (requestID !== previewRequestSeq) return
     planRows.value = []
     initialMaterials.value = []
+    manufacturingPlan.value = { nodes: [], edges: [] }
     previewError.value = err.message || '生成计划预览失败'
   } finally {
     if (requestID === previewRequestSeq) previewLoading.value = false
@@ -1023,6 +1111,50 @@ async function loadProductionPlans() {
     pruneProductionPlanSelections()
   } catch (err) {
     error.value = err.message || '加载生产计划失败'
+  }
+}
+
+async function loadWarehouses() {
+  try {
+    const data = await apiGet('/api/stock/warehouses')
+    warehouses.value = (data.rows || []).filter((row) => row.active !== false && String(row.code || '').trim())
+  } catch (_) {
+    warehouses.value = [
+      { code: 'finished_goods', name: '成品仓' },
+      { code: 'wip', name: 'WIP在制仓' },
+    ]
+  }
+}
+
+function targetWarehouseLabel(code) {
+  const value = String(code || '').trim()
+  if (!value) return '-'
+  const warehouse = warehouses.value.find((row) => String(row.code || '').trim() === value)
+  return warehouse ? `${warehouse.name}（${value}）` : value
+}
+
+async function saveProductionPlanItemTargetWarehouse(item) {
+  const endpoint = productionPlanItemTargetWarehouseEndpoint(productionPlanDetail.value, item)
+  const payload = buildProductionPlanItemTargetWarehousePayload(item?.target_warehouse)
+  if (!endpoint || !payload.target_warehouse || !productionPlanSelectable(productionPlanDetail.value)) return
+  const itemID = Number(item?.id || 0)
+  targetWarehouseSavingItemID.value = itemID
+  productionPlanDetailError.value = ''
+  try {
+    const updated = await apiSend(endpoint, { method: 'PATCH', body: payload })
+    const mergeUpdatedItem = (row) => Number(row?.id || 0) === itemID ? { ...row, ...updated } : row
+    productionPlanDetail.value = {
+      ...productionPlanDetail.value,
+      items: (productionPlanDetail.value?.items || []).map(mergeUpdatedItem),
+    }
+    if (Number(currentPlan.value?.id || 0) === Number(productionPlanDetail.value?.id || 0)) {
+      currentPlan.value = { ...currentPlan.value, items: (currentPlan.value?.items || []).map(mergeUpdatedItem) }
+    }
+    notice.value = `计划行目标仓库已保存为 ${targetWarehouseLabel(updated?.target_warehouse || payload.target_warehouse)}。提交计划后将冻结。`
+  } catch (err) {
+    productionPlanDetailError.value = err.message || '保存计划行目标仓库失败'
+  } finally {
+    targetWarehouseSavingItemID.value = 0
   }
 }
 
@@ -1484,6 +1616,11 @@ function materialTypeLabel(item) {
   return type || '-'
 }
 
+function manufacturingQtyText(value, unit = '') {
+  const qtyValue = Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 3 })
+  return `${qtyValue} ${String(unit || '').trim()}`.trim()
+}
+
 function workOrderStatusLabel(status) {
   const map = {
     draft: '草稿',
@@ -1695,6 +1832,7 @@ async function createProductionPlan() {
     }
     const payload = buildProductionPlanCreatePayload(filters, keys)
     currentPlan.value = await apiSend('/api/production-plans', { body: payload })
+    if ((currentPlan.value?.items || []).length || (currentPlan.value?.supply_gaps || []).length) manufacturingPlan.value = currentPlan.value
     await loadProductionPlans()
     await openCurrentPlanSplitDrawer()
   } catch (err) {
@@ -1714,6 +1852,7 @@ async function submitCurrentProductionPlan() {
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) currentPlan.value = firstSuccess.plan
+    if ((currentPlan.value?.items || []).length || (currentPlan.value?.supply_gaps || []).length) manufacturingPlan.value = currentPlan.value
     postSubmitActions.value = buildProductionPlanNextActions(result)
     await loadProductionPlans()
     if (Array.isArray(result.failed) && result.failed.length) {
@@ -1735,6 +1874,7 @@ async function submitSelectedProductionPlans() {
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     currentPlan.value = firstSuccess?.plan || currentPlan.value
+    if ((currentPlan.value?.items || []).length || (currentPlan.value?.supply_gaps || []).length) manufacturingPlan.value = currentPlan.value
     postSubmitActions.value = buildProductionPlanNextActions(result)
     replaceSelectedProductionPlans({})
     await loadProductionPlans()
@@ -1806,6 +1946,35 @@ async function cancelProductionPlanDraft(plan, source = 'list') {
   }
 }
 
+async function cancelSubmittedProductionPlan(plan, source = 'detail') {
+  if (!productionPlanCanCancelSubmitted(plan) || !productionPlanCancelEndpoint(plan)) return
+  const planNo = String(plan?.plan_no || `#${Number(plan?.id || 0)}`)
+  if (!window.confirm(`确认取消已提交生产计划 ${planNo}？所有未开工工单会一并取消，预留库存将释放。`)) return
+  saving.value = true
+  notice.value = ''
+  if (source === 'detail') productionPlanDetailError.value = ''
+  else error.value = ''
+  try {
+    await apiSend(productionPlanCancelEndpoint(plan), { body: {} })
+    const cancelledID = Number(plan?.id || 0)
+    delete selectedProductionPlans[String(cancelledID)]
+    if (Number(currentPlan.value?.id || 0) === cancelledID) {
+      currentPlan.value = null
+      operationSplits.value = []
+      postSubmitActions.value = []
+    }
+    if (Number(productionPlanDetail.value?.id || 0) === cancelledID) closeProductionPlanDetail()
+    notice.value = `已提交生产计划 ${planNo} 已取消，未开工工单和库存预留已释放。`
+    await Promise.all([load(false), loadProductionPlans()])
+  } catch (err) {
+    const message = err.message || '取消已提交生产计划失败'
+    if (source === 'detail') productionPlanDetailError.value = message
+    else error.value = message
+  } finally {
+    saving.value = false
+  }
+}
+
 function openShipReadyOrders() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: { key: 'orders', params: { ship_ready: '1' } },
@@ -1827,6 +1996,7 @@ onMounted(async () => {
   await load(url.searchParams.get('plan') === '1')
   await loadWorkstationCapacities()
   await loadProductionPlans()
+  await loadWarehouses()
 })
 
 watch(() => [props.viewParams?.customer_id, props.customerContextId], async () => {

@@ -12,6 +12,7 @@ import {
   workOrderStartEndpoint,
   workOrderStatusOptions,
 } from './work-orders.js'
+import * as workOrders from './work-orders.js'
 
 test('work orders display frozen route operations from process snapshot when no job-card summary exists', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
@@ -248,6 +249,20 @@ test('workOrderStartEndpoint uses formal work order start API', () => {
   assert.equal(workOrderStartEndpoint({ id: 0 }), '')
 })
 
+test('released unstarted work orders expose the formal cancel action and refresh the list', () => {
+  assert.equal(workOrders.canCancelWorkOrder({ id: 41, status: 'released', running_item_id: 0 }), true)
+  assert.equal(workOrders.canCancelWorkOrder({ id: 42, status: 'running', running_item_id: 99 }), false)
+  assert.equal(workOrders.canCancelWorkOrder({ id: 43, status: 'released', running_item_id: 99 }), false)
+  assert.equal(workOrders.workOrderCancelEndpoint({ id: 41 }), '/api/produce/work-orders/41/cancel')
+  assert.equal(workOrders.workOrderCancelEndpoint({ id: 0 }), '')
+
+  const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  assert.match(source, /v-if="canCancelWorkOrder\(row\)"/)
+  assert.match(source, /@click="cancelWorkOrder\(row\)"/)
+  assert.match(source, /apiSend\(workOrderCancelEndpoint\(row\), \{ body: \{\} \}\)/)
+  assert.match(source, /await load\(\)/)
+})
+
 test('work order planned output falls back to planned grams and spec when packed counts are absent', () => {
   assert.deepEqual(workOrderPlannedOutput({ planned_g: 55706, spec_g: 454 }), {
     units: 122,
@@ -291,4 +306,26 @@ test('WorkOrdersView exposes capacity split editor drawer', () => {
   ]) {
     assert.match(autoSplitSource, new RegExp(frozenOutputField))
   }
+})
+
+test('work order typed output and upstream blockers are readable for material manufacturing', () => {
+  const row = {
+    output_type: 'material', output_material_id: 27, output_name: '烘焙熟豆', output_qty: 12.7, output_unit: 'kg',
+    upstream_blockers: [{ work_order_no: 'WO-000121', output_name: '咖啡生豆', status: 'running' }],
+  }
+  assert.deepEqual(workOrders.workOrderOutputIdentity(row), {
+    type: 'material', id: 27, name: '烘焙熟豆', qty: 12.7, unit: 'kg',
+  })
+  assert.equal(workOrders.formatWorkOrderTypedOutput(row), '物料 · 烘焙熟豆 · 12.7 kg')
+  assert.equal(workOrders.workOrderHasUpstreamBlocker(row), true)
+  assert.equal(workOrders.workOrderUpstreamBlockerLabel(row), '等待 WO-000121 · 咖啡生豆')
+})
+
+test('work order list shows typed outputs and upstream dependency blockers', () => {
+  const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  assert.match(source, /<th>产出对象<\/th>/)
+  assert.match(source, /formatWorkOrderTypedOutput\(row\)/)
+  assert.match(source, /<th>上游依赖<\/th>/)
+  assert.match(source, /workOrderUpstreamBlockerLabel\(row\)/)
+  assert.match(source, /workOrderHasUpstreamBlocker\(row\)/)
 })

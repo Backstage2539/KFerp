@@ -346,8 +346,12 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	graphValidator, err := os.ReadFile("../bomgraph/default_graph.go")
+	if err != nil {
+		t.Fatal(err)
+	}
 	repository := readRepositorySource(t)
-	combined := string(schema) + "\n" + repository
+	combined := string(schema) + "\n" + repository + "\n" + string(graphValidator)
 	for _, want := range []string{
 		"OutputProductID",
 		"OutputProductName",

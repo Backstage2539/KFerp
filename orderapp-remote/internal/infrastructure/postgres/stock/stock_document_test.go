@@ -47,6 +47,59 @@ func TestStockFrozenMaterialRequirementsHonorConsumeUnitConversion(t *testing.T)
 	}
 }
 
+func TestValidateTypedStockManufactureCommandFreezesProductOutput(t *testing.T) {
+	base := stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeManufacture,
+		Items: []stockapp.StockDocumentItemCommand{{
+			ProductID: 9, ItemType: "finished_product", SpecG: 1000,
+			ToWarehouse: "finished_shop", QtyUnits: 5,
+		}},
+	}
+	if err := validateTypedStockManufactureCommand(base, "product", 9, 0, 1000, "件", "finished_shop"); err != nil {
+		t.Fatalf("valid frozen product output: %v", err)
+	}
+	wrongIdentity := base
+	wrongIdentity.Items = append([]stockapp.StockDocumentItemCommand(nil), base.Items...)
+	wrongIdentity.Items[0].ProductID = 10
+	if err := validateTypedStockManufactureCommand(wrongIdentity, "product", 9, 0, 1000, "件", "finished_shop"); err == nil || !strings.Contains(err.Error(), "output identity") {
+		t.Fatalf("product identity error=%v", err)
+	}
+	wrongWarehouse := base
+	wrongWarehouse.Items = append([]stockapp.StockDocumentItemCommand(nil), base.Items...)
+	wrongWarehouse.Items[0].ToWarehouse = "finished_goods"
+	if err := validateTypedStockManufactureCommand(wrongWarehouse, "product", 9, 0, 1000, "件", "finished_shop"); err == nil || !strings.Contains(err.Error(), "target warehouse") {
+		t.Fatalf("product warehouse error=%v", err)
+	}
+}
+
+func TestTypedManufactureSubmissionRouteFailsClosedForLegacyPosting(t *testing.T) {
+	for _, outputType := range []string{"product", "material"} {
+		if err := validateTypedManufactureSubmissionRoute(stockapp.PurposeManufacture, true, outputType); err == nil || !strings.Contains(err.Error(), "typed work order completion") {
+			t.Fatalf("typed %s legacy submit error=%v", outputType, err)
+		}
+	}
+	if err := validateTypedManufactureSubmissionRoute(stockapp.PurposeManufacture, false, "product"); err != nil {
+		t.Fatalf("legacy schema manufacture compatibility: %v", err)
+	}
+	if err := validateTypedManufactureSubmissionRoute(stockapp.PurposeMaterialReceipt, true, "material"); err != nil {
+		t.Fatalf("non-manufacture typed document: %v", err)
+	}
+}
+
+func TestTypedManufactureCancellationRouteFailsClosedForLegacyReversal(t *testing.T) {
+	for _, outputType := range []string{"product", "material"} {
+		if err := validateTypedManufactureCancellationRoute(stockapp.PurposeManufacture, 88, true, outputType); err == nil || !strings.Contains(err.Error(), "生产冲销") {
+			t.Fatalf("typed %s legacy cancel error=%v", outputType, err)
+		}
+	}
+	if err := validateTypedManufactureCancellationRoute(stockapp.PurposeManufacture, 88, false, "product"); err != nil {
+		t.Fatalf("legacy schema manufacture cancellation compatibility: %v", err)
+	}
+	if err := validateTypedManufactureCancellationRoute(stockapp.PurposeManufacture, 0, true, "product"); err != nil {
+		t.Fatalf("unbound stock document cancellation: %v", err)
+	}
+}
+
 func TestEnsureUnifiedStockDocumentTablesAddsColumnsBeforeDependentIndex(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()
@@ -1009,6 +1062,88 @@ func TestWorkOrderStockDocumentRejectsPurposeItemTypeMismatch(t *testing.T) {
 				t.Fatalf("submit mismatch error = %v, want item type rejection", err)
 			}
 		})
+	}
+}
+
+func TestTypedProductManufactureDraftFreezesOutputIdentityAndTargetWarehouse(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %s.work_orders ADD COLUMN output_type TEXT NOT NULL DEFAULT 'product';
+		ALTER TABLE %s.work_orders ADD COLUMN output_product_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %s.work_orders ADD COLUMN output_material_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %s.work_orders ADD COLUMN output_name TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %s.work_orders ADD COLUMN output_qty NUMERIC(18,9) NOT NULL DEFAULT 0;
+		ALTER TABLE %s.work_orders ADD COLUMN output_unit TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %s.work_orders ADD COLUMN target_warehouse TEXT NOT NULL DEFAULT '';
+		INSERT INTO %s.products(id,name) VALUES(10,'错误商品');
+		UPDATE %s.work_orders
+		SET output_type='product',output_product_id=9,output_name='测试熟豆',output_qty=5,output_unit='件',target_warehouse='finished_shop'
+		WHERE id=88;
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	for _, tt := range []struct {
+		name string
+		item stockapp.StockDocumentItemCommand
+		want string
+	}{
+		{
+			name: "output identity",
+			item: stockapp.StockDocumentItemCommand{ProductID: 10, ItemType: "finished_product", SpecG: 1000, ToWarehouse: "finished_shop", QtyUnits: 5},
+			want: "output identity",
+		},
+		{
+			name: "target warehouse",
+			item: stockapp.StockDocumentItemCommand{ProductID: 9, ItemType: "finished_product", SpecG: 1000, ToWarehouse: "finished_goods", QtyUnits: 5},
+			want: "target warehouse",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.CreateStockDocumentDraft(ctx, stockapp.StockDocumentCommand{
+				Purpose: stockapp.PurposeManufacture, WorkOrderID: 88, Operator: "jj",
+				Items: []stockapp.StockDocumentItemCommand{tt.item},
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("typed product tamper error=%v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTypedManufactureLegacySubmitAndCancelFailClosed(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.work_orders ADD COLUMN output_type TEXT NOT NULL DEFAULT 'product';
+		ALTER TABLE %[1]s.work_orders ADD COLUMN output_product_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.work_orders ADD COLUMN output_material_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.work_orders ADD COLUMN output_name TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %[1]s.work_orders ADD COLUMN output_qty NUMERIC(18,9) NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.work_orders ADD COLUMN output_unit TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %[1]s.work_orders ADD COLUMN target_warehouse TEXT NOT NULL DEFAULT '';
+		UPDATE %[1]s.work_orders
+		SET output_type='product',output_product_id=9,output_name='测试熟豆',output_qty=5,output_unit='件',target_warehouse='finished_goods'
+		WHERE id=88;
+		UPDATE %[1]s.work_order_material_reservations SET consumed_g=reserved_g WHERE work_order_id=88;
+	`, schema))
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	cmd := stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeManufacture, WorkOrderID: 88, Operator: "jj",
+		Items: []stockapp.StockDocumentItemCommand{{
+			ProductID: 9, ItemType: "finished_product", SpecG: 1000,
+			ToWarehouse: "finished_goods", QtyUnits: 5,
+		}},
+	}
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, cmd); err == nil || !strings.Contains(err.Error(), "typed work order completion") {
+		t.Fatalf("typed CreateAndSubmit bypass error=%v", err)
+	}
+	draft, err := svc.CreateStockDocumentDraft(ctx, cmd)
+	if err != nil {
+		t.Fatalf("create typed completion draft: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`UPDATE %s.stock_entries SET status='submitted' WHERE id=%d`, schema, draft.ID))
+	if _, err := svc.CancelStockDocument(ctx, draft.ID, "jj"); err == nil || !strings.Contains(err.Error(), "生产冲销") {
+		t.Fatalf("typed completion legacy cancel error=%v", err)
 	}
 }
 

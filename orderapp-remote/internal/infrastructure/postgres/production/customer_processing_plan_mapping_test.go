@@ -116,6 +116,13 @@ func TestCustomerProcessingCompletionWarehouseIsFixed(t *testing.T) {
 	if got, err := completionWarehouseForWorkOrder(productionapp.WorkOrderRow{}, ""); err != nil || got != "finished_goods" {
 		t.Fatalf("ordinary completion warehouse=%q err=%v, want finished_goods", got, err)
 	}
+	ordinaryFrozen := productionapp.WorkOrderRow{TargetWarehouse: "finished_shop"}
+	if got, err := completionWarehouseForWorkOrder(ordinaryFrozen, ""); err != nil || got != "finished_shop" {
+		t.Fatalf("ordinary frozen completion warehouse=%q err=%v, want finished_shop", got, err)
+	}
+	if _, err := completionWarehouseForWorkOrder(ordinaryFrozen, "finished_goods"); err == nil {
+		t.Fatal("ordinary completion must reject a warehouse different from the frozen target")
+	}
 }
 
 func TestDerivedWorkOrderStatusIncludesPaused(t *testing.T) {

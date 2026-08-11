@@ -1,6 +1,9 @@
 package materials
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 type BeanProfile struct {
 	Origin            string `json:"origin"`
@@ -27,6 +30,8 @@ type Material struct {
 	Code                       string                       `json:"code"`
 	Name                       string                       `json:"name"`
 	Kind                       string                       `json:"kind"`
+	IsSemiFinished             bool                         `json:"is_semi_finished"`
+	CanManufacture             bool                         `json:"can_manufacture"`
 	Unit                       string                       `json:"unit"`
 	CostUnit                   string                       `json:"cost_unit"`
 	BatchNo                    string                       `json:"batch_no"`
@@ -54,6 +59,8 @@ type MaterialInput struct {
 	Code                    string                       `json:"code"`
 	Name                    string                       `json:"name"`
 	Kind                    string                       `json:"kind"`
+	IsSemiFinished          bool                         `json:"is_semi_finished"`
+	IsSemiFinishedSet       bool                         `json:"-"`
 	Unit                    string                       `json:"unit"`
 	CostUnit                string                       `json:"cost_unit"`
 	BatchNo                 string                       `json:"batch_no"`
@@ -68,6 +75,23 @@ type MaterialInput struct {
 	IndustryFields          []MaterialIndustryFieldValue `json:"industry_fields"`
 	BeanProfile             *BeanProfile                 `json:"bean_profile,omitempty"`
 	PackProfile             *PackProfile                 `json:"pack_profile,omitempty"`
+}
+
+func (in *MaterialInput) UnmarshalJSON(data []byte) error {
+	type materialInputAlias MaterialInput
+	var payload struct {
+		*materialInputAlias
+		IsSemiFinished *bool `json:"is_semi_finished"`
+	}
+	payload.materialInputAlias = (*materialInputAlias)(in)
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	if payload.IsSemiFinished != nil {
+		in.IsSemiFinished = *payload.IsSemiFinished
+		in.IsSemiFinishedSet = true
+	}
+	return nil
 }
 
 type MaterialIndustryFieldValue struct {

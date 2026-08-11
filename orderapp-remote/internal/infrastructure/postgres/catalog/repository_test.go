@@ -795,6 +795,30 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndCleansIndustryFields(
 	}
 }
 
+func TestPR598SaveProductProductionConfigDualWritesUnifiedOutputBinding(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) SaveProductProductionConfig", "func normalizeIndustryFieldTemplateIDsForSave")
+	for _, want := range []string{
+		"production_bom_output_bindings",
+		"output_type, output_id, bom_id, bom_version_id",
+		"'product'",
+		"postgresbomgraph.ValidateCandidate",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("SaveProductProductionConfig must dual-write unified output binding; missing %q", want)
+		}
+	}
+	graphLock := strings.Index(body, ":production-bom-default-graph")
+	graphValidation := strings.Index(body, "postgresbomgraph.ValidateCandidate")
+	legacyBindingWrite := strings.Index(body, "INSERT INTO %s.product_production_bom_bindings")
+	if graphLock < 0 || graphValidation <= graphLock || legacyBindingWrite <= graphValidation {
+		t.Fatal("SaveProductProductionConfig must lock and validate the candidate default graph before either binding write")
+	}
+}
+
 func TestPR584ProductIndustryTemplatesAndBusinessGroupUsageRepositoryContracts(t *testing.T) {
 	schemaBytes, err := os.ReadFile("schema.go")
 	if err != nil {

@@ -279,14 +279,14 @@ test('production BOM list name hides the code, generated suffix, and version', (
   }
 })
 
-test('BOM view can set the output product default BOM with the current published version', async () => {
+test('BOM view can set the typed output default BOM while preserving the product endpoint', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /设为产出商品默认 BOM/)
+  assert.match(source, /设为产出对象默认 BOM/)
   assert.match(source, /currentProductionBomDefaultVersion/)
   assert.match(source, /setCurrentProductionBomAsDefault/)
-  assert.match(source, /\/api\/products\/\$\{productID\}\/default-production-bom/)
+  assert.match(source, /\/api\/products\/\$\{outputID\}\/default-production-bom/)
   assert.match(source, /default_production_bom_id:\s*bomID/)
   assert.doesNotMatch(source, /production_bom_version_id:\s*versionID/)
   assert.doesNotMatch(source, /production_bom_version_id:\s*selectedProductionBomVersionID/)
@@ -812,4 +812,46 @@ test('production BOM selection and all-select only use expanded category current
   assert.match(source, /watch\(\[productionBomVisibleRows, productionBomCategoryMoveActive\][\s\S]*if \(productionBomCategoryMoveActive\.value\) return[\s\S]*visibleKeys/)
   assert.match(source, /businessGroupVisibleRows/)
   assert.doesNotMatch(listPanel, /@click="selectBomRow\(row\)"/)
+})
+
+test('production BOM output identity supports material and product while preserving legacy product rows', () => {
+  assert.deepEqual(bomLib.productionBomOutputIdentity({
+    output_type: 'material', output_id: 27, output_material_id: 27,
+    output_material_name: '烘焙熟豆', output_material_code: 'MAT-000027', output_unit: 'kg',
+  }), { type: 'material', id: 27, name: '烘焙熟豆', code: 'MAT-000027', unit: 'kg' })
+  assert.deepEqual(bomLib.productionBomOutputIdentity({
+    output_product_id: 88, output_product_name: '227g 咖啡豆', output_product_code: 'SKU-000088',
+  }), { type: 'product', id: 88, name: '227g 咖啡豆', code: 'SKU-000088', unit: '' })
+  assert.deepEqual(bomLib.productionBomOutputPayload({ output_type: 'material', output_id: 27 }), {
+    output_type: 'material', output_id: 27, output_product_id: 0, output_material_id: 27,
+  })
+  assert.deepEqual(bomLib.productionBomOutputPayload({ output_product_id: 88 }), {
+    output_type: 'product', output_id: 88, output_product_id: 88, output_material_id: 0,
+  })
+  assert.equal(bomLib.productionBomOutputLabel({ output_type: 'material', output_material_id: 27, output_material_name: '烘焙熟豆' }), '物料 · 烘焙熟豆')
+  assert.equal(bomLib.productionBomOutputLabel({ output_product_id: 88, output_product_name: '227g 咖啡豆' }), '商品 · 227g 咖啡豆')
+})
+
+test('BOM view edits one ordinary typed output contract and keeps PR596 inline grouping', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
+
+  assert.match(form, /v-model="bomForm\.output_type"/)
+  assert.match(form, /<option value="product">商品<\/option>/)
+  assert.match(form, /<option value="material">物料<\/option>/)
+  assert.match(form, /outputTargetOptions/)
+  assert.match(source, /output_material_id/)
+  assert.match(source, /productionBomOutputPayload/)
+  assert.match(source, /productionBomOutputLabel/)
+  assert.match(template, /<th>产出对象<\/th>/)
+  assert.match(template, /设为产出对象默认 BOM/)
+  assert.match(source, /setCurrentProductionBomAsDefault/)
+  assert.match(source, /\/api\/materials\/\$\{outputID\}\/default-production-bom/)
+  assert.match(source, /\/api\/products\/\$\{outputID\}\/default-production-bom/)
+  assert.match(source, /BusinessGroupInlineWorkspace[\s\S]*productionBomDisplayGroups/)
+  for (const forbidden of ['bom_kind', 'spec_packaging_bom_id', 'semi_finished_packaging_required']) {
+    assert.doesNotMatch(source, new RegExp(forbidden))
+  }
 })

@@ -191,6 +191,54 @@ func createStockEntryRecordTx(ctx context.Context, tx pgx.Tx, schema string, cmd
 	return loadStockEntryDetailTx(ctx, tx, schema, entryID)
 }
 
+func createProductCompletionStockEntryTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	workOrderID int64,
+	run ProduceRunRow,
+	warehouse string,
+	finished InvQty,
+	finishedTotalG int64,
+	actualCost float64,
+	operator string,
+	note string,
+) (productionapp.StockEntryDetail, error) {
+	var linked bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1 FROM %s.work_orders
+			WHERE id=$1 AND running_item_id=$2
+		)
+	`, schema), workOrderID, run.ID).Scan(&linked); err != nil {
+		return productionapp.StockEntryDetail{}, err
+	}
+	if !linked {
+		return productionapp.StockEntryDetail{}, fmt.Errorf("work order does not match running item")
+	}
+	unitCost := float64(0)
+	if finishedTotalG > 0 {
+		unitCost = actualCost / (float64(finishedTotalG) / 1000)
+	} else if finished.Units > 0 {
+		unitCost = actualCost / float64(finished.Units)
+	}
+	return createStockEntryRecordTx(ctx, tx, schema, productionapp.StockEntryCommand{
+		EntryType:     "finished_receipt",
+		WorkOrderID:   workOrderID,
+		RunningItemID: run.ID,
+		SourceType:    "work_order_complete",
+		SourceID:      workOrderID,
+		Operator:      operator,
+		Note:          note,
+		Items: []productionapp.StockEntryItemCommand{{
+			ProductID: run.ProductID, ItemType: stockItemTypeFinishedProduct,
+			ItemName: run.Product, SpecG: run.SpecG, ToWarehouse: warehouse,
+			QtyG: finishedTotalG, QtyUnits: finished.Units,
+			BatchCode: finishedProductionBatchCode(run.ID), UnitCost: unitCost,
+		}},
+	}, false)
+}
+
 func insertStockEntryLedgerTx(ctx context.Context, tx pgx.Tx, schema string, entryID int64, entryNo string, cmd productionapp.StockEntryCommand, item productionapp.StockEntryItemCommand) error {
 	itemID := item.MaterialID
 	if item.ProductID > 0 {
@@ -377,11 +425,19 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 	if wo.Status == "completed" {
 		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("work order already completed")
 	}
+	if wo.OutputType == "material" {
+		return r.completeMaterialOutputWorkOrder(ctx, wo, cmd)
+	}
 	completionWarehouse, err := completionWarehouseForWorkOrder(wo, cmd.Warehouse)
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
-	if _, err := r.Finish(ctx, productionapp.FinishCommand{ID: wo.RunningItemID, FinishedUnits: cmd.FinishedUnits, FinishedLooseG: cmd.FinishedLooseG, HasFinishedInput: true, Warehouse: completionWarehouse, ConsumedInputG: cmd.ConsumedInputG, Operator: cmd.Operator}); err != nil {
+	finished, err := r.Finish(ctx, productionapp.FinishCommand{
+		ID: wo.RunningItemID, WorkOrderID: wo.ID, StockDocumentID: cmd.StockDocumentID,
+		FinishedUnits: cmd.FinishedUnits, FinishedLooseG: cmd.FinishedLooseG, HasFinishedInput: true,
+		Warehouse: completionWarehouse, ConsumedInputG: cmd.ConsumedInputG, Operator: cmd.Operator, Note: cmd.Note,
+	})
+	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 
@@ -390,28 +446,14 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	finishedG := cmd.FinishedLooseG
-	if wo.SpecG > 0 {
-		finishedG += cmd.FinishedUnits * wo.SpecG
+	stockEntryID := cmd.StockDocumentID
+	if stockEntryID <= 0 {
+		stockEntryID = finished.StockEntryID
 	}
-	entry, err := createStockEntryRecordTx(ctx, tx, r.schema, productionapp.StockEntryCommand{
-		EntryType:     "finished_receipt",
-		WorkOrderID:   wo.ID,
-		RunningItemID: wo.RunningItemID,
-		SourceType:    "work_order_complete",
-		SourceID:      wo.ID,
-		Operator:      cmd.Operator,
-		Note:          cmd.Note,
-		Items: []productionapp.StockEntryItemCommand{{
-			ProductID:   wo.ProductID,
-			ItemType:    stockItemTypeFinishedProduct,
-			ItemName:    wo.ProductName,
-			SpecG:       wo.SpecG,
-			ToWarehouse: completionWarehouse,
-			QtyG:        finishedG,
-			QtyUnits:    cmd.FinishedUnits,
-		}},
-	}, false)
+	if stockEntryID <= 0 {
+		return productionapp.WorkOrderCompleteResult{}, fmt.Errorf("finished receipt was not created")
+	}
+	entry, err := loadStockEntryDetailTx(ctx, tx, r.schema, stockEntryID)
 	if err != nil {
 		return productionapp.WorkOrderCompleteResult{}, err
 	}
@@ -431,18 +473,15 @@ func (r Repository) CompleteWorkOrder(ctx context.Context, cmd productionapp.Wor
 
 func completionWarehouseForWorkOrder(wo productionapp.WorkOrderRow, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
-	if wo.ProcessingRequestItemID <= 0 {
-		if requested == "" {
-			return stockdomain.WarehouseFinishedGoods, nil
-		}
-		return requested, nil
-	}
 	target := strings.TrimSpace(wo.TargetWarehouse)
 	if target == "" {
-		return "", fmt.Errorf("customer processing target warehouse missing")
+		if wo.ProcessingRequestItemID > 0 {
+			return "", fmt.Errorf("customer processing target warehouse missing")
+		}
+		target = stockdomain.WarehouseFinishedGoods
 	}
 	if requested != "" && requested != target {
-		return "", fmt.Errorf("customer processing completion warehouse must be %s", target)
+		return "", fmt.Errorf("production completion warehouse must match frozen work order target warehouse: %s", target)
 	}
 	return target, nil
 }
@@ -592,7 +631,9 @@ func (r Repository) workOrderCompletionPrecheck(ctx context.Context, workOrderID
 func loadWorkOrderExecutionRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (productionapp.WorkOrderRow, error) {
 	var row productionapp.WorkOrderRow
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id,work_order_no,running_item_id,production_plan_id,production_plan_item_id,batch_id,product_id,product_name,spec_g,planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),status,
+		SELECT id,work_order_no,running_item_id,production_plan_id,production_plan_item_id,batch_id,
+		       COALESCE(NULLIF(output_type,''),'product'),output_product_id,output_material_id,output_name,output_qty::float8,output_unit,
+		       product_id,product_name,spec_g,planned_g,COALESCE(NULLIF(planned_output_g,0),planned_g),status,
 		       COALESCE(actual_cost,0)::float8,to_char(created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(order_nos,''),COALESCE(bom_version_id,0),COALESCE(operation_template_id,0),COALESCE(process_template_id,0),COALESCE(process_template_name,''),
 		       COALESCE(process_snapshot_json,'{}'::jsonb)::text,COALESCE(operation_summary_json,'[]'::jsonb)::text,
@@ -602,7 +643,9 @@ func loadWorkOrderExecutionRowTx(ctx context.Context, tx pgx.Tx, schema string, 
 		       COALESCE((SELECT SUM(GREATEST(0,reserved_g-consumed_g-returned_g))::bigint FROM %s.work_order_material_reservations WHERE work_order_id=work_orders.id AND status='reserved'),0)
 		FROM %s.work_orders
 		WHERE id=$1
-	`, schema, schema, schema, schema), id).Scan(&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt, &row.OrderNos, &row.BomVersionID, &row.OperationTemplateID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG)
+	`, schema, schema, schema, schema), id).Scan(&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID,
+		&row.OutputType, &row.OutputProductID, &row.OutputMaterialID, &row.OutputName, &row.OutputQty, &row.OutputUnit,
+		&row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt, &row.OrderNos, &row.BomVersionID, &row.OperationTemplateID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &row.CustomerID, &row.TargetWarehouse, &row.ProcessingRequestItemID, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG)
 	if err == pgx.ErrNoRows {
 		return productionapp.WorkOrderRow{}, fmt.Errorf("work order not found")
 	}

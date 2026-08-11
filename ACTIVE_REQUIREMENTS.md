@@ -6,6 +6,39 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING
+- Branch: codex/pr598-material-output-multilevel-manufacturing
+- Owner/session: Codex / 2026-08-11
+- Status: automated frontend / build / support and production PostgreSQL verification GREEN; rollback merged to `develop@137c74ca`; PR-598 merge / deploy pending
+- Scope: 物料档案增加仅用于标识、筛选和展示的半成品属性；`can_manufacture` 只由默认已发布产出 BOM 计算。普通生产 BOM 统一支持产出任意有效物料或商品；生产计划按库存净缺口递归展开任意层 BOM，提交后生成依赖工单，物料工单完工进入目标仓库和可追溯批次。
+- DEV:
+  - DEV-598-MATERIAL-SEMI-FINISHED-CAPABILITY（done，targeted GREEN）：半成品只作业务标识；可制造能力只读且来自默认已发布产出 BOM。
+  - DEV-598-TYPED-BOM-OUTPUT（done，targeted GREEN）：普通 BOM typed 产出支持商品或任意有效物料并兼容旧商品合同。
+  - DEV-598-BOM-GRAPH-DEFAULTS-VALIDATION（done，PostgreSQL / integrated GREEN）：商品 / 物料默认已发布 BOM、发布校验和循环防护。
+  - DEV-598-MULTILEVEL-NET-REQUIREMENTS（done，targeted GREEN）：递归总需求、库存覆盖、净缺口、需求合并和计划冻结。
+  - DEV-598-WORKORDER-DEPENDENCIES（done，targeted GREEN）：工单依赖、上游阻断原因 / 编号和放行。
+  - DEV-598-MATERIAL-MANUFACTURE-STOCK（done，PostgreSQL / integrated GREEN）：物料完工数量、目标仓库、批次与幂等库存；商品 / 物料 typed StockOperations 统一走工单完成链。
+  - DEV-598-RECURSIVE-COSTING（done，PostgreSQL / integrated GREEN）：各层冻结 BOM 递归成本与历史兼容。
+  - DEV-598-VUE-MANUFACTURING-WORKFLOW（done，targeted GREEN）：物料、BOM、计划、工单、执行和库存手册 Vue 工作流。
+  - DEV-598-AUDIT-COMPAT-DOCS-DELIVERY（done，targeted GREEN）：操作日志 / 旧商品兼容、需求验收、四本手册、PR/DEV/REV 和独立验收记录。
+- Verifier:
+  - RED frontend：定向 142 项中 130 通过、12 失败；缺失 typed 产出、物料能力 / 往返、递归图、上游阻断和库存手册入口。
+  - RED support：`TestDev598MaterialOutputMultilevelManufacturingContracts` 因 PR-598 seed / 文档合同缺失失败。
+  - GREEN frontend/docs：7 个定向文件 143/143；`scripts/verify_kferp.sh all` 使用 `find` 发现的 frontend 全量 983/983；PR-598 support contract GREEN；Vite 2.08s GREEN（仅既有 chunk warning）；`git diff --check` GREEN。
+  - API fallback RED/GREEN：production 当前 typed `items[] + supply_gaps[]` fallback 首跑 51/53，实施后 `produce-plan.test.js` 53/53；计划详情无需等待 `manufacturing_plan` 即可展示递归产出 / 缺口，补充 Vite build 与 diff-check GREEN。
+  - GREEN full verifier：`scripts/verify_kferp.sh all` exit 0，Go 全包、frontend find 全量 983/983 与 Vite 2.08s 全绿。
+  - GREEN production：真实 PostgreSQL 下 domain / application / repository 分别 0.236s / 0.471s / 1.825s；production HTTP 真实 PostgreSQL 全包 86.736s。
+  - BOM / material / catalog / costing / stock 真实 PostgreSQL GREEN：五包分别 2.829s / 2.930s / 2.041s / 1.348s / 8.092s。
+  - 默认切换循环 / 旧库 repair GREEN：`TestPR598DefaultBindingSwitchRejectsTypedGraphCyclesPostgres` 与 `TestRepairLegacyProductionBomBindingsPostgresOnce` 通过。
+  - direct product complete / partial / multi / cancel GREEN：直接商品完工原子入库、部分与多规格完成、活动 typed 工单取消及 reservation / WIP / demand 一致性测试通过。
+  - 最终审计原子回滚 / 取消 Note GREEN：最终入库或 running audit 失败时库存、预留、先前审计全部回滚；取消原因同时写入两个原子审计。
+  - Core: 100 × 227g SKU、10kg 可用熟豆时预留一次并仅生成 12.7kg 上游缺口。
+- Merge/deploy: pending；仅 rollback PR #22 已合入，PR-598 尚未合并、推送或部署 development。
+- Acceptance boundary: 浏览器 / 人工业务验收未执行，明确不属于本轮自动验收；production 环境不在自动验收范围内且未部署。
+- Review: REV-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING（todo，Van development acceptance）。
+- Last update: 2026-08-12 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串报错；按用户锁定编号手工登记 PR-598。PR-597 已由回退提交 `69908dd7` 替代，代码树恢复到 `4626c937`。
+
 ### PR-596-INLINE-CATEGORY-LISTS
 - Branch: codex/pr596-final-evidence-20260810（business code deployed from `8e0aa8bf`）
 - Owner/session: Codex / 2026-08-10

@@ -72,8 +72,8 @@ func TestPricingRuleTrialProductionOptionsPostgresEmptyPublishedWithDraft(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(options.BomVersions) != 1 {
-		t.Fatalf("BOM versions = %+v, want only the published version", options.BomVersions)
+	if len(options.BomVersions) != 2 {
+		t.Fatalf("BOM versions = %+v, want the published default and the non-empty draft", options.BomVersions)
 	}
 	got := options.BomVersions[0]
 	if got.VersionID != 228 || got.VersionNo != "V001" || got.ComponentCount != 0 || !got.IsDefault {
@@ -81,5 +81,9 @@ func TestPricingRuleTrialProductionOptionsPostgresEmptyPublishedWithDraft(t *tes
 	}
 	if got.LatestNonEmptyDraftVersionID != 231 || got.LatestNonEmptyDraftVersionNo != "V002" {
 		t.Fatalf("draft diagnostic metadata = %+v", got)
+	}
+	draft := options.BomVersions[1]
+	if draft.VersionID != 231 || draft.VersionNo != "V002" || draft.Status != "draft" || draft.ComponentCount != 1 || draft.IsDefault {
+		t.Fatalf("draft option = %+v", draft)
 	}
 }

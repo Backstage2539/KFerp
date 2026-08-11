@@ -338,7 +338,7 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 			COALESCE(d.target_qty,0)::float8,
 			COALESCE(d.customer_id,0),
 			COALESCE(d.target_warehouse,''),
-			COALESCE(d.request_item_id,0)
+			COALESCE(NULLIF(to_jsonb(d)->>'request_item_id','')::bigint,0)
 		FROM %s.customer_processing_production_demands d
 		JOIN %s.products p ON p.id=d.product_id
 		LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)

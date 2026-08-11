@@ -934,6 +934,54 @@ test('ProducePlanView opens an ERPNext-style production plan detail drawer from 
   assert.doesNotMatch(source, /submitPlanRow\(plan\)/)
 })
 
+test('draft production plan items choose and freeze a target warehouse through the typed item endpoint', () => {
+  assert.equal(
+    producePlan.productionPlanItemTargetWarehouseEndpoint({ id: 41 }, { id: 73 }),
+    '/api/production-plans/41/items/73/target-warehouse',
+  )
+  assert.equal(producePlan.productionPlanItemTargetWarehouseEndpoint({ id: 0 }, { id: 73 }), '')
+  assert.deepEqual(producePlan.buildProductionPlanItemTargetWarehousePayload(' wip '), { target_warehouse: 'wip' })
+
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /apiGet\('\/api\/stock\/warehouses'\)/)
+  assert.match(source, /v-model="item\.target_warehouse"/)
+  assert.match(source, /saveProductionPlanItemTargetWarehouse\(item\)/)
+  assert.match(source, /productionPlanItemTargetWarehouseEndpoint\(productionPlanDetail\.value, item\)/)
+  assert.match(source, /method:\s*'PATCH'/)
+  assert.match(source, /v-if="productionPlanSelectable\(productionPlanDetail\)"[\s\S]*v-else[\s\S]*targetWarehouseLabel\(item\.target_warehouse\)/)
+})
+
+test('submitted production plan cancellation is offered only while every related work order is unstarted', () => {
+  assert.equal(producePlan.productionPlanCanCancelSubmitted({
+    id: 41,
+    status: 'submitted',
+    related_work_orders: [
+      { id: 71, status: 'released', running_item_id: 0 },
+      { id: 72, status: 'released' },
+    ],
+  }), true)
+  assert.equal(producePlan.productionPlanCanCancelSubmitted({
+    id: 41,
+    status: 'submitted',
+    related_work_orders: [{ id: 71, status: 'running', running_item_id: 88 }],
+  }), false)
+  assert.equal(producePlan.productionPlanCanCancelSubmitted({ id: 41, status: 'submitted', related_work_orders: [] }), false)
+  assert.equal(producePlan.productionPlanCanCancelSubmitted({ id: 41, status: 'draft', related_work_orders: [{ id: 71, status: 'released' }] }), false)
+
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /productionPlanCanCancelSubmitted\(productionPlanDetail\)/)
+  assert.match(source, /@click="cancelSubmittedProductionPlan\(productionPlanDetail, 'detail'\)"/)
+  assert.match(source, /确认取消已提交生产计划/)
+  assert.match(source, /apiSend\(productionPlanCancelEndpoint\(plan\), \{ body: \{\} \}\)/)
+})
+
+test('production plan related work orders render the typed output identity', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /<th>产出对象<\/th>/)
+  assert.match(source, /formatWorkOrderTypedOutput\(wo\)/)
+  assert.match(source, /productionPlanDetail\.related_work_orders/)
+})
+
 test('ProducePlanView no longer consumes roasting capacity suggestions in the main flow', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
@@ -958,4 +1006,116 @@ test('ProducePlanView does not leave selected rows with a disabled no-op create 
 
   assert.doesNotMatch(source, /:disabled="saving \|\| !planReady"/)
   assert.match(source, /if \(!planReady\.value\) \{[\s\S]*await loadSelectedPlanPreview\(\)/)
+})
+
+test('multi-level manufacturing plan rows expose typed recursive demand, stock coverage, net shortage and dependencies', () => {
+  const payload = {
+    nodes: [
+      { item: { type: 'product', id: 88, name: '227g 咖啡豆', unit: 'unit' }, required_qty: 100, stock_covered_qty: 0, shortage_qty: 100, action: 'manufacture', bom_version_id: 501 },
+      { item: { type: 'material', id: 27, name: '烘焙熟豆', unit: 'kg' }, required_qty: 22.7, stock_covered_qty: 10, shortage_qty: 12.7, action: 'manufacture', bom_version_id: 502 },
+      { item: { type: 'material', id: 11, name: '咖啡生豆', unit: 'kg' }, required_qty: 14.4, stock_covered_qty: 0, shortage_qty: 14.4, action: 'purchase', blocking: true },
+    ],
+    edges: [
+      { consumer_key: 'product:88', supplier_key: 'material:27', required_qty: 22.7 },
+      { consumer_key: 'material:27', supplier_key: 'material:11', required_qty: 14.4 },
+    ],
+  }
+
+  const rows = producePlan.manufacturingPlanRows(payload)
+  assert.deepEqual(rows.map((row) => [row.key, row.depth]), [
+    ['product:88', 0], ['material:27', 1], ['material:11', 2],
+  ])
+  assert.equal(rows[1].type_label, '物料')
+  assert.equal(rows[1].required_qty, 22.7)
+  assert.equal(rows[1].stock_covered_qty, 10)
+  assert.equal(rows[1].shortage_qty, 12.7)
+  assert.equal(rows[1].dependency_label, '供给 商品 · 227g 咖啡豆')
+  assert.equal(rows[2].action_label, '采购/补料')
+  assert.equal(rows[2].blocking, true)
+})
+
+test('multi-level manufacturing plan preserves real backend flat typed node identities', () => {
+  const rows = producePlan.manufacturingPlanRows({
+    manufacturing_plan: {
+      nodes: [
+        { key: 'product:1', output_type: 'product', output_product_id: 1, output_material_id: 0, output_name: '227g 咖啡豆', output_unit: '件', required_qty: 100, stock_covered_qty: 0, shortage_qty: 100, action: 'manufacture', depth: 0 },
+        { key: 'material:10', output_type: 'material', output_product_id: 0, output_material_id: 10, output_name: '烘焙熟豆', output_unit: 'kg', required_qty: 22.7, stock_covered_qty: 10, shortage_qty: 12.7, action: 'manufacture', depth: 1 },
+        { key: 'material:30', output_type: 'material', output_product_id: 0, output_material_id: 30, output_name: '咖啡生豆', output_unit: 'kg', required_qty: 14.4, stock_covered_qty: 0, shortage_qty: 14.4, action: 'purchase', depth: 2, blocking: true },
+        { key: 'material:20', output_type: 'material', output_product_id: 0, output_material_id: 20, output_name: '包装袋', output_unit: '件', required_qty: 100, stock_covered_qty: 40, shortage_qty: 60, action: 'purchase', depth: 2, blocking: true },
+      ],
+      edges: [
+        { consumer_key: 'product:1', supplier_key: 'material:10', required_qty: 22.7 },
+        { consumer_key: 'material:10', supplier_key: 'material:30', required_qty: 14.4 },
+        { consumer_key: 'material:10', supplier_key: 'material:20', required_qty: 100 },
+      ],
+    },
+  })
+
+  assert.deepEqual(rows.map((row) => [row.key, row.depth, row.name]), [
+    ['product:1', 0, '227g 咖啡豆'],
+    ['material:10', 1, '烘焙熟豆'],
+    ['material:30', 2, '咖啡生豆'],
+    ['material:20', 2, '包装袋'],
+  ])
+  assert.equal(rows[1].dependency_label, '供给 商品 · 227g 咖啡豆')
+  assert.equal(rows[2].dependency_label, '供给 物料 · 烘焙熟豆')
+  assert.equal(rows[3].dependency_label, '供给 物料 · 烘焙熟豆')
+})
+
+test('multi-level manufacturing graph uses backend depth and lists every shared-node consumer', () => {
+  const rows = producePlan.manufacturingPlanRows({
+    manufacturing_plan: {
+      nodes: [
+        { key: 'product:1', output_type: 'product', output_product_id: 1, output_name: '零售成品', output_unit: '件', required_qty: 10, depth: 0, action: 'manufacture' },
+        { key: 'material:30', output_type: 'material', output_material_id: 30, output_name: '拼配熟豆', output_unit: 'kg', required_qty: 5, depth: 1, action: 'manufacture' },
+        { key: 'material:10', output_type: 'material', output_material_id: 10, output_name: '共享基底', output_unit: 'kg', required_qty: 6, depth: 1, action: 'manufacture' },
+      ],
+      edges: [
+        { consumer_key: 'product:1', supplier_key: 'material:30' },
+        { consumer_key: 'material:30', supplier_key: 'material:10' },
+        { consumer_key: 'product:1', supplier_key: 'material:10' },
+      ],
+    },
+  })
+
+  const shared = rows.find((row) => row.key === 'material:10')
+  assert.equal(shared.depth, 1)
+  assert.equal(shared.dependency_label, '供给 物料 · 拼配熟豆；商品 · 零售成品')
+})
+
+test('multi-level manufacturing plan falls back to persisted plan items and supply gaps', () => {
+  const rows = producePlan.manufacturingPlanRows({
+    items: [
+      { id: 501, output_type: 'product', output_product_id: 88, output_name: '227g 咖啡豆', output_qty: 22.7, output_unit: 'kg', bom_version_id: 701 },
+      { id: 502, output_type: 'material', output_material_id: 27, output_name: '烘焙熟豆', output_qty: 12.7, output_unit: 'kg', bom_version_id: 702 },
+    ],
+    supply_gaps: [
+      { id: 9, production_plan_item_id: 502, item_type: 'material', item_id: 11, item_name: '咖啡生豆', required_g: 14400, reason: 'no_default_material_bom', status: 'open' },
+    ],
+  })
+
+  assert.deepEqual(rows.map((row) => [row.key, row.depth]), [
+    ['product:88', 0], ['material:27', 1], ['gap:material:11:9', 2],
+  ])
+  assert.deepEqual(rows.map((row) => [row.name, row.required_qty, row.unit]), [
+    ['227g 咖啡豆', 22.7, 'kg'], ['烘焙熟豆', 12.7, 'kg'], ['咖啡生豆', 14400, 'g'],
+  ])
+  assert.equal(rows[1].action_label, '安排生产')
+  assert.equal(rows[1].dependency_label, '供给计划内商品')
+  assert.equal(rows[2].action_label, '采购/补料')
+  assert.equal(rows[2].dependency_label, '阻断 物料 · 烘焙熟豆')
+  assert.equal(rows[2].blocking, true)
+})
+
+test('production plan view renders the typed manufacturing dependency graph without fixed-stage wording', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+  assert.match(source, /manufacturing-dependency-table/)
+  assert.match(source, /computedManufacturingPlanRows/)
+  assert.match(source, /对象类型/)
+  assert.match(source, /库存覆盖/)
+  assert.match(source, /净缺口/)
+  assert.match(source, /上游依赖/)
+  assert.match(source, /manufacturing_plan/)
+  assert.match(source, /productionPlanDetailManufacturingRows/)
+  assert.doesNotMatch(source, /两段式/)
 })

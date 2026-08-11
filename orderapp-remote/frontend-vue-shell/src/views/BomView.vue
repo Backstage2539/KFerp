@@ -13,7 +13,7 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
-      <p class="muted left">生产 BOM 声明产出商品、产出数量和组件清单；商品档案只做库存、销售和反查。</p>
+      <p class="muted left">普通生产 BOM 统一声明产出对象（商品或物料）、产出数量和组件清单；制造阶段由所选 BOM 决定。</p>
     </section>
 
     <div v-if="bomDrawerOpen" class="drawer-mask" @click.self="closeBomDrawer">
@@ -21,7 +21,7 @@
         <div class="drawer-head">
           <div>
             <h3>{{ bomFormTitle }}</h3>
-            <p class="muted left">声明产出商品，并在同一设置抽屉中维护版本、配方、工艺和损耗。</p>
+            <p class="muted left">声明商品或物料产出，并在同一设置抽屉中维护版本、配方、工艺和损耗。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeBomDrawer">关闭</button>
         </div>
@@ -31,15 +31,22 @@
             <input v-model.trim="bomForm.name" placeholder="例如 精品拼配" />
           </label>
           <label>
-            <span>产出商品</span>
+            <span>产出对象类型</span>
+            <select v-model="bomForm.output_type" :disabled="bomForm.mode === 'edit' && !canEditBomFormOutputBasis" @change="syncBomOutputType">
+              <option value="product">商品</option>
+              <option value="material">物料</option>
+            </select>
+          </label>
+          <label>
+            <span>产出对象</span>
             <SearchableSelect
-              v-model="bomForm.output_product_id"
-              :options="outputProductOptions"
-              :option-label="optionLabel"
-              :option-meta="optionMeta"
+              v-model="bomForm.output_id"
+              :options="outputTargetOptions"
+              :option-label="outputTargetOptionLabel"
+              :option-meta="outputTargetOptionMeta"
               :option-value="optionNumericValue"
-              placeholder="选择产出商品"
-              empty-text="没有可用商品档案" />
+              :placeholder="bomForm.output_type === 'material' ? '选择产出物料' : '选择产出商品'"
+              :empty-text="bomForm.output_type === 'material' ? '没有可用物料档案' : '没有可用商品档案'" />
           </label>
           <label>
             <span>产出数量</span>
@@ -58,7 +65,7 @@
               <option value="inactive">已失效</option>
             </select>
           </label>
-          <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_product_id || 0)">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
+          <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0)">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
         </form>
         <div id="bom-settings-detail-target" class="bom-settings-detail-target" aria-label="BOM 明细、BOM版本、配方明细"></div>
       </aside>
@@ -121,7 +128,7 @@
                       <th>BOM名称</th>
                       <th>状态</th>
                       <th>组件数</th>
-                      <th>产出商品</th>
+                      <th>产出对象</th>
                       <th>更新时间</th>
                       <th>操作</th>
                     </tr>
@@ -147,7 +154,7 @@
                       </td>
                       <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
                       <td>{{ row.item_count || row.material_count || 0 }}</td>
-                      <td>{{ row.output_product_name || '-' }}</td>
+                      <td>{{ productionBomOutputLabel(row) }}</td>
                       <td>{{ row.updated_at }}</td>
                       <td>
                         <button class="text-button" type="button" :disabled="productionBomCategoryMoveActive || !Number(row.production_bom_id || row.id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
@@ -177,7 +184,7 @@
         <div class="panel-title">BOM 明细</div>
         <div v-if="detail" class="summary">
           <div><span>生产 BOM</span><strong>{{ currentProductionBomLabel }}</strong></div>
-          <div><span>产出商品</span><strong>{{ outputProductLabel(detail) }}</strong></div>
+          <div><span>产出对象</span><strong>{{ productionBomOutputLabel(detail) }}</strong></div>
           <div><span>产出数量</span><strong>{{ currentOutputBasisLabel }}</strong></div>
           <div v-if="outputUnitMismatchWarning"><span>单位提示</span><strong class="warn">{{ outputUnitMismatchWarning }}</strong></div>
           <div><span>多层展开</span><strong>{{ usedByBoms.length ? `${usedByBoms.length} 个上层 BOM` : '可作为库存件' }}</strong></div>
@@ -186,7 +193,7 @@
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
         </div>
         <div v-if="detail" class="linked-processes bom-default-actions">
-          <button class="secondary compact-action" type="button" :disabled="!canSetCurrentBomAsDefault || loading" @click="setCurrentProductionBomAsDefault">设为产出商品默认 BOM</button>
+          <button class="secondary compact-action" type="button" :disabled="!canSetCurrentBomAsDefault || loading" @click="setCurrentProductionBomAsDefault">设为产出对象默认 BOM</button>
           <span class="status-pill readonly">使用版本 {{ currentProductionBomDefaultVersion?.version_no || '-' }}</span>
         </div>
         <div v-if="detail && referencedProducts.length" class="linked-processes referenced-products">
@@ -203,7 +210,7 @@
           <div class="section-title-row">
             <div>
               <h3>被哪些 BOM 使用</h3>
-              <p class="muted left">这些上层 BOM 会把当前产出商品当作商品组件消耗。</p>
+              <p class="muted left">这些上层 BOM 会把当前产出对象作为组件消耗。</p>
             </div>
           </div>
           <div class="table-wrap compact">
@@ -211,14 +218,14 @@
               <thead>
                 <tr>
                   <th>上层 BOM</th>
-                  <th>产出商品</th>
+                  <th>上层产出对象</th>
                   <th>组件用量</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in usedByBoms" :key="`${row.bom_id}:${row.bom_version_id}:${row.consume_unit}`">
                   <td>{{ row.bom_code }} {{ row.bom_name }}<small>{{ row.bom_version_no }}</small></td>
-                  <td>{{ row.output_product_name || '-' }}</td>
+                  <td>{{ productionBomOutputLabel(row) }}</td>
                   <td>{{ qty(row.qty_per_unit) }} {{ consumeUnitLabel(row.consume_unit) }}</td>
                 </tr>
               </tbody>
@@ -370,7 +377,7 @@
                 <SearchableSelect
                   v-else
                   v-model="itemForm.material_id"
-                  :options="materials"
+                  :options="materialComponentOptions"
                   :option-label="optionLabel"
                   :option-value="optionNumericValue"
                   placeholder="选择物料"
@@ -476,7 +483,7 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomVersionWarning } from '../lib/bom'
+import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -540,7 +547,7 @@ const itemForm = reactive({
   qty_per_unit: '',
   ratio_pct: '',
 })
-const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_product_id: 0, output_qty: 1, output_unit: 'unit', status: 'active' })
+const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_type: 'product', output_id: 0, output_product_id: 0, output_material_id: 0, output_qty: 1, output_unit: 'unit', status: 'active' })
 const versionNote = ref('')
 const versionMaterialLossRateEnabled = ref(false)
 const versionMaterialLossRatePct = ref('')
@@ -612,8 +619,8 @@ const productionBomVisibleRows = computed(() => businessGroupVisibleRows(
   collapsedProductionBomGroups.value,
 ))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
-const selectedBomOutputProduct = computed(() => productByID(bomForm.output_product_id))
-const outputUnitCode = computed(() => String(selectedBomOutputProduct.value?.inventory_unit || selectedProductionBomVersion.value?.output_unit || bomForm.output_unit || 'unit').trim() || 'unit')
+const selectedBomOutput = computed(() => bomForm.output_type === 'material' ? materialByID(bomForm.output_id) : productByID(bomForm.output_id))
+const outputUnitCode = computed(() => String(selectedBomOutput.value?.inventory_unit || selectedBomOutput.value?.unit || selectedProductionBomVersion.value?.output_unit || bomForm.output_unit || 'unit').trim() || 'unit')
 const outputUnitDisplay = computed(() => unitLabel(outputUnitCode.value))
 const rawReferencedProducts = computed(() => detail.value?.referenced_products || productionBomDetail.value?.referenced_products || [])
 const referencedProducts = computed(() => {
@@ -639,17 +646,19 @@ const referencedProductsLabel = computed(() => {
 const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedProductionBomRecord.value?.production_bom_id || selectedProductionBomRecord.value?.id || 0))
+const currentOutputIdentity = computed(() => productionBomOutputIdentity(detail.value || productionBomDetail.value || selectedProductionBomRecord.value || {}))
 const currentOutputProductID = computed(() => Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || selectedProductionBomRecord.value?.output_product_id || 0))
 const currentOutputBasisLabel = computed(() => `${qty(selectedProductionBomVersion.value?.output_qty || 1)} ${selectedProductionBomVersion.value?.output_unit || 'unit'}`)
-const currentOutputProduct = computed(() => productByID(bomDrawerOpen.value && Number(bomForm.output_product_id || 0) > 0 ? bomForm.output_product_id : currentOutputProductID.value))
+const currentOutputProduct = computed(() => currentOutputIdentity.value.type === 'product' ? productByID(currentOutputIdentity.value.id || currentOutputProductID.value) : null)
 const outputUnitSourceHint = computed(() => {
-  const product = selectedBomOutputProduct.value || currentOutputProduct.value
+  if (bomForm.output_type === 'material') return '来源：物料档案库存单位'
+  const product = selectedBomOutput.value || currentOutputProduct.value
   const suffix = product && !productHasExplicitInventoryUnit(product) ? '；请先到销售规格模板设置库存单位' : ''
   return `来源：销售规格模板库存单位${suffix}`
 })
 const outputUnitMismatchWarning = computed(() => {
   const versionUnit = String(selectedProductionBomVersion.value?.output_unit || '').trim()
-  const productUnit = String(currentOutputProduct.value?.inventory_unit || selectedBomOutputProduct.value?.inventory_unit || '').trim()
+  const productUnit = String(currentOutputProduct.value?.inventory_unit || (bomForm.output_type === 'product' ? selectedBomOutput.value?.inventory_unit : '') || '').trim()
   if (!versionUnit || !productUnit || versionUnit === productUnit) return ''
   return `当前版本产出单位为 ${unitLabel(versionUnit)}，销售规格模板库存单位为 ${unitLabel(productUnit)}；历史版本不会自动回改`
 })
@@ -686,10 +695,13 @@ const canEditCurrentBomProduct = computed(() => {
 const selectedProductionBomDraftVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0) && version.status === 'draft') || null)
 const canEditCurrentBomItems = computed(() => canEditCurrentBomProduct.value && Number(selectedProductionBomDraftVersion.value?.id || 0) > 0)
 const canCopyCurrentVersionAsDraft = computed(() => canEditCurrentBomProduct.value && currentProductionBomID.value > 0 && selectedProductionBomVersion.value?.status === 'published')
-const canSetCurrentBomAsDefault = computed(() => currentProductionBomID.value > 0 && currentOutputProductID.value > 0 && Number(currentProductionBomDefaultVersion.value?.id || 0) > 0)
+const canSetCurrentBomAsDefault = computed(() => currentProductionBomID.value > 0 && currentOutputIdentity.value.id > 0 && Number(currentProductionBomDefaultVersion.value?.id || 0) > 0)
 const canEditBomFormOutputBasis = computed(() => bomForm.mode !== 'edit' || canEditCurrentBomItems.value)
 const outputProductOptions = computed(() => products.value.filter(isProductionBomOutputProductCandidate))
+const outputMaterialOptions = computed(() => materials.value.filter((row) => !isInactiveMarker(row.active) && !isInactiveMarker(row.status) && !row.deprecated_at))
+const outputTargetOptions = computed(() => bomForm.output_type === 'material' ? outputMaterialOptions.value : outputProductOptions.value)
 const productComponentOptions = computed(() => products.value.filter(isBomProductCandidate).filter((product) => Number(product.id || 0) !== Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || 0)))
+const materialComponentOptions = computed(() => materials.value.filter((material) => !(currentOutputIdentity.value.type === 'material' && Number(material.id || 0) === currentOutputIdentity.value.id)))
 const selectedComponent = computed(() => itemForm.component_type === 'product'
   ? productByID(itemForm.component_product_id)
   : materials.value.find((material) => Number(material.id || 0) === Number(itemForm.material_id || 0)))
@@ -877,6 +889,22 @@ function optionMeta(option) {
   return parts.join(' / ')
 }
 
+function outputTargetOptionLabel(option) {
+  if (bomForm.output_type === 'material') {
+    const code = String(option?.code || '').trim()
+    const name = String(option?.name || '').trim()
+    return [code, name].filter(Boolean).join(' ') || `物料 #${Number(option?.id || 0)}`
+  }
+  return bomProductOptionLabel(option)
+}
+
+function outputTargetOptionMeta(option) {
+  if (bomForm.output_type === 'material') {
+    return ['物料档案', option?.unit ? `库存 ${unitLabel(option.unit)}` : '', option?.is_semi_finished ? '半成品标识' : ''].filter(Boolean).join(' / ')
+  }
+  return optionMeta(option)
+}
+
 function optionNumericValue(option) {
   return Number(option?.id || 0)
 }
@@ -931,7 +959,21 @@ function normalizeBomProduct(product) {
   }
 }
 
+function normalizeBomMaterial(material = {}) {
+  return {
+    ...material,
+    id: Number(material.id || 0),
+    code: String(material.code || '').trim(),
+    name: String(material.name || '').trim(),
+    unit: String(material.unit || material.inventory_unit || '').trim(),
+    inventory_unit: String(material.inventory_unit || material.unit || '').trim(),
+    is_semi_finished: Boolean(material.is_semi_finished),
+    can_manufacture: Boolean(material.can_manufacture),
+  }
+}
+
 function normalizeProductionBomRecord(row = {}) {
+  const output = productionBomOutputIdentity(row)
   const groupID = Number(row.business_group_id ?? row.group_id ?? row.production_bom_group_id ?? 0) || 0
   const groupItemID = Number(row.group_item_id ?? row.business_group_item_id ?? row.group_category_id ?? row.production_bom_group_category_id ?? 0) || 0
   return {
@@ -941,6 +983,14 @@ function normalizeProductionBomRecord(row = {}) {
     output_product_id: Number(row.output_product_id || 0),
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
+    output_type: output.type,
+    output_id: output.id,
+    output_name: output.name,
+    output_code: output.code,
+    output_unit: output.unit,
+    output_material_id: output.type === 'material' ? output.id : 0,
+    output_material_name: output.type === 'material' ? output.name : '',
+    output_material_code: output.type === 'material' ? output.code : '',
     business_group_id: groupID,
     business_group_name: row.business_group_name || row.group_name || row.production_bom_group_name || '',
     group_id: groupID,
@@ -962,6 +1012,11 @@ function normalizeProductionBomRecord(row = {}) {
 function productByID(productId) {
   const id = Number(productId || 0)
   return products.value.find((product) => Number(product.id || 0) === id) || null
+}
+
+function materialByID(materialID) {
+  const id = Number(materialID || 0)
+  return materials.value.find((material) => Number(material.id || 0) === id) || null
 }
 
 function productHasExplicitInventoryUnit(product = {}) {
@@ -1136,6 +1191,7 @@ function productionBomVersionStatusLabel(status) {
 }
 
 function bomRecordFromRow(row = {}) {
+  const output = productionBomOutputIdentity(row)
   const groupID = productionBomGroupID(row)
   const groupItemID = productionBomGroupItemID(row)
   return {
@@ -1145,6 +1201,14 @@ function bomRecordFromRow(row = {}) {
     output_product_id: Number(row.output_product_id || 0),
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
+    output_type: output.type,
+    output_id: output.id,
+    output_name: output.name,
+    output_code: output.code,
+    output_unit: output.unit,
+    output_material_id: output.type === 'material' ? output.id : 0,
+    output_material_name: output.type === 'material' ? output.name : '',
+    output_material_code: output.type === 'material' ? output.code : '',
     business_group_id: groupID,
     business_group_name: row.business_group_name || row.production_bom_group_name || row.group_name || '',
     group_id: groupID,
@@ -1195,7 +1259,10 @@ function resetBomForm() {
   bomForm.source_id = 0
   bomForm.mode = 'create'
   bomForm.name = ''
+  bomForm.output_type = 'product'
+  bomForm.output_id = 0
   bomForm.output_product_id = 0
+  bomForm.output_material_id = 0
   bomForm.output_qty = 1
   bomForm.output_unit = 'unit'
   bomForm.status = 'active'
@@ -1213,7 +1280,10 @@ async function openEditProductionBomRecord(bom) {
   bomForm.mode = 'edit'
   bomForm.id = record.id
   bomForm.name = record.name || ''
+  bomForm.output_type = record.output_type || 'product'
+  bomForm.output_id = Number(record.output_id || record.output_product_id || record.output_material_id || 0)
   bomForm.output_product_id = Number(record.output_product_id || 0)
+  bomForm.output_material_id = Number(record.output_material_id || 0)
   bomForm.status = record.status === 'inactive' ? 'inactive' : 'active'
   bomDrawerOpen.value = true
   if (record.id > 0 && Number(currentProductionBomID.value || 0) !== record.id) {
@@ -1228,11 +1298,22 @@ function copyProductionBomRecord(bom) {
   bomForm.mode = 'copy'
   bomForm.source_id = Number(bom?.id || 0)
   bomForm.name = `${bom?.name || '生产 BOM'} 副本`
+  const output = productionBomOutputIdentity(bom || {})
+  bomForm.output_type = output.type
+  bomForm.output_id = output.id
   bomForm.output_product_id = Number(bom?.output_product_id || 0)
+  bomForm.output_material_id = Number(bom?.output_material_id || 0)
   bomForm.output_qty = Number(selectedProductionBomVersion.value?.output_qty || 1)
   bomForm.output_unit = selectedProductionBomVersion.value?.output_unit || 'unit'
   bomForm.status = 'active'
   bomDrawerOpen.value = true
+}
+
+function syncBomOutputType() {
+  bomForm.output_id = 0
+  bomForm.output_product_id = 0
+  bomForm.output_material_id = 0
+  bomForm.output_unit = bomForm.output_type === 'material' ? 'kg' : defaultDictionaryConsumeUnit()
 }
 
 function closeBomDrawer() {
@@ -1346,7 +1427,7 @@ async function loadAll({ strict = false } = {}) {
     ])
 
     products.value = (productData || []).map(normalizeBomProduct)
-    materials.value = materialData || []
+    materials.value = (materialData || []).map(normalizeBomMaterial)
     productUnitDefinitions.value = unitData || []
     processRoutes.value = processRouteData?.rows || processRouteData || []
     productionBomBusinessGroups.value = Array.isArray(productionGroupData?.rows) ? productionGroupData.rows : (Array.isArray(productionGroupData) ? productionGroupData : [])
@@ -1653,11 +1734,12 @@ async function deactivateSelectedProductionBoms() {
 
 async function saveProductionBomRecord() {
   const name = String(bomForm.name || '').trim()
-  const outputProductID = Number(bomForm.output_product_id || 0)
-  if (!name || outputProductID <= 0) return
+  const outputID = Number(bomForm.output_id || 0)
+  if (!name || outputID <= 0) return
+  const binding = productionBomOutputPayload({ output_type: bomForm.output_type, output_id: outputID })
   const payload = {
     name,
-    output_product_id: outputProductID,
+    ...binding,
     output_qty: Number(bomForm.output_qty || 1),
     output_unit: outputUnitCode.value,
     status: bomForm.status === 'inactive' ? 'inactive' : 'active',
@@ -1673,11 +1755,11 @@ async function saveProductionBomRecord() {
 	    }
 	    ok.value = '已保存生产 BOM'
 	  } else if (bomForm.mode === 'copy') {
-      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, { body: { name: payload.name, output_product_id: payload.output_product_id } })
+	      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, { body: { name: payload.name, ...binding } })
       ok.value = '已复制生产 BOM'
       pendingProductionBomID.value = Number(copied?.id || 0)
     } else {
-      const created = await apiSend('/api/production-boms', { body: { name: payload.name, output_product_id: payload.output_product_id, output_qty: payload.output_qty, output_unit: payload.output_unit } })
+      const created = await apiSend('/api/production-boms', { body: { name: payload.name, ...binding, output_qty: payload.output_qty, output_unit: payload.output_unit } })
       ok.value = '已新建生产 BOM'
       pendingProductionBomID.value = Number(created?.id || 0)
     }
@@ -1730,22 +1812,26 @@ async function activateVersion(id) {
 }
 
 async function setCurrentProductionBomAsDefault() {
-  const productID = currentOutputProductID.value
+  const output = currentOutputIdentity.value
+  const outputID = output.id
   const bomID = currentProductionBomID.value
   const version = currentProductionBomDefaultVersion.value
   const versionID = Number(version?.id || 0)
-  if (!productID || !bomID || !versionID) {
+  if (!outputID || !bomID || !versionID) {
     error.value = '当前生产 BOM 没有可用的发布版本'
     return
   }
   await mutate(async () => {
-    await apiSend(`/api/products/${productID}/default-production-bom`, {
+    const endpoint = output.type === 'material'
+      ? `/api/materials/${outputID}/default-production-bom`
+      : `/api/products/${outputID}/default-production-bom`
+    await apiSend(endpoint, {
       method: 'PUT',
       body: {
         default_production_bom_id: bomID,
       },
     })
-    ok.value = `已设为产出商品默认 BOM：${version?.version_no || versionID}`
+    ok.value = `已设为产出对象默认 BOM：${version?.version_no || versionID}`
     await loadAll()
     await loadProductionBomDetailForVersion(bomID, versionID)
   })

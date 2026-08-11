@@ -15,7 +15,7 @@ type fakeRepo struct {
 
 func (r *fakeRepo) List(ctx context.Context, cmd ListCommand) ([]Material, error) {
 	r.list = cmd
-	return []Material{{ID: 3, Code: "BAG-227", Name: "227g豆袋"}}, nil
+	return []Material{{ID: 3, Code: "BAG-227", Name: "227g豆袋", IsSemiFinished: true, CanManufacture: true}}, nil
 }
 
 func (r *fakeRepo) Update(ctx context.Context, cmd UpdateCommand) (Material, error) {
@@ -67,7 +67,7 @@ func TestServiceOwnsMaterialUseCases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Code != "BAG-227" || repo.list.Limit != 50 {
+	if len(rows) != 1 || rows[0].Code != "BAG-227" || !rows[0].IsSemiFinished || !rows[0].CanManufacture || repo.list.Limit != 50 {
 		t.Fatalf("List() rows=%+v repo=%+v", rows, repo.list)
 	}
 
@@ -93,5 +93,24 @@ func TestServiceOwnsMaterialUseCases(t *testing.T) {
 	}
 	if deprecated.DeprecatedAt == "" || repo.deprecate.ID != 3 {
 		t.Fatalf("Deprecate() row=%+v repo=%+v", deprecated, repo.deprecate)
+	}
+}
+
+func TestServicePreservesSemiFinishedWrites(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, CreateCommand{Actor: "测试员", Input: MaterialInput{Code: "WIP-001", Name: "湿豆", IsSemiFinished: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if !repo.create.Input.IsSemiFinished {
+		t.Fatalf("Create() lost is_semi_finished: %+v", repo.create)
+	}
+	if _, err := svc.Update(ctx, UpdateCommand{Actor: "测试员", ID: 4, Input: MaterialInput{Code: "WIP-001", Name: "湿豆", IsSemiFinished: false}}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.update.Input.IsSemiFinished {
+		t.Fatalf("Update() lost explicit false is_semi_finished: %+v", repo.update)
 	}
 }

@@ -206,3 +206,51 @@ func TestProductionBomUpdateDoesNotTouchGroupAssignmentWhenGroupFieldsOmitted(t 
 		t.Fatalf("omitted group fields must not update business group assignment: %+v", repo.updatedProductionBomCommand)
 	}
 }
+
+func TestProductionBomAPIUsesUnifiedMaterialOutputAndFilters(t *testing.T) {
+	repo := &apiFakeRepo{
+		materialRows: []bomapp.Option{{ID: 95, Name: "湿豆", InventoryUnit: "kg"}},
+		productionBomRows: []bomapp.ProductionBomSummary{{
+			ID: 21, Code: "BOM-021", Name: "湿豆配方", OutputType: "material", OutputID: 95,
+			OutputName: "湿豆", OutputCode: "WIP-095", OutputUnit: "kg", OutputMaterialID: 95, OutputMaterialName: "湿豆", OutputMaterialCode: "WIP-095",
+		}},
+		createdProductionBom: bomapp.ProductionBomSummary{
+			ID: 22, Code: "BOM-022", Name: "湿豆新配方", OutputType: "material", OutputID: 95,
+			OutputName: "湿豆", OutputCode: "WIP-095", OutputUnit: "kg", OutputMaterialID: 95, OutputMaterialName: "湿豆", OutputMaterialCode: "WIP-095",
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/production-boms?output_type=material&output_id=95&component_type=product&component_id=88", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"output_type":"material"`) || !strings.Contains(rec.Body.String(), `"output_material_id":95`) {
+		t.Fatalf("filtered list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productionBomFilter != (bomapp.ProductionBomFilter{OutputType: "material", OutputID: 95, ComponentType: "product", ComponentID: 88}) {
+		t.Fatalf("filter = %+v", repo.productionBomFilter)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/production-boms", strings.NewReader(`{"name":"湿豆新配方","output_type":"material","output_material_id":95,"output_qty":1,"output_unit":"g"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create material BOM status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createdProductionBomCommand.OutputType != "material" || repo.createdProductionBomCommand.OutputID != 95 || repo.createdProductionBomCommand.OutputMaterialID != 95 || repo.createdProductionBomCommand.OutputProductID != 0 || repo.createdProductionBomCommand.OutputUnit != "kg" {
+		t.Fatalf("create command = %+v", repo.createdProductionBomCommand)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/materials/95/default-production-bom", strings.NewReader(`{"production_bom_id":22}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"is_default":true`) {
+		t.Fatalf("bind material default status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.boundProductionBomOutput.OutputType != "material" || repo.boundProductionBomOutput.OutputID != 95 || repo.boundProductionBomOutput.BomID != 22 {
+		t.Fatalf("bound output command = %+v", repo.boundProductionBomOutput)
+	}
+}

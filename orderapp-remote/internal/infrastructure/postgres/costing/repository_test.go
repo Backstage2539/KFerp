@@ -1816,7 +1816,7 @@ func TestComponentCostResolutionWarningUsesBomMaterialLossVocabulary(t *testing.
 		t.Fatal(err)
 	}
 	src := string(b)
-	if !strings.Contains(src, "商品组件成本无法完整解析：请检查组件商品的已发布生产 BOM、物料价格、BOM 原料损耗和循环引用") {
+	if !strings.Contains(src, "递归组件成本无法完整解析：请检查组件商品或物料的默认已发布生产 BOM、物料价格、BOM 原料损耗和循环引用") {
 		t.Fatal("component cost warning must direct users to the sole BOM material-loss setting")
 	}
 	if strings.Contains(src, "物料价格、产出率和循环引用") {

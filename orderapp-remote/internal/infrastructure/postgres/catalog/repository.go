@@ -10,6 +10,7 @@ import (
 	catalogapp "orderapp/internal/application/catalog"
 	catalogdomain "orderapp/internal/domain/catalog"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
+	postgresbomgraph "orderapp/internal/infrastructure/postgres/bomgraph"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1354,6 +1355,14 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 		return catalogapp.ProductProductionConfig{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, r.schema+":production-bom-default-graph"); err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	if cmd.ProductionBomID > 0 && cmd.ProductionBomVersionID > 0 {
+		if err := postgresbomgraph.ValidateCandidate(ctx, tx, r.schema, cmd.ProductionBomVersionID); err != nil {
+			return catalogapp.ProductProductionConfig{}, err
+		}
+	}
 	cmd.IndustryFieldTemplateIDs = normalizeIndustryFieldTemplateIDsForSave(cmd.IndustryFieldTemplateIDs, cmd.IndustryFieldTemplateID)
 	cmd.IndustryFieldTemplateID = 0
 	if len(cmd.IndustryFieldTemplateIDs) > 0 {
@@ -1396,6 +1405,28 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 				bound_by=excluded.bound_by
 		`, r.schema), cmd.ProductID, cmd.ProductionBomID, cmd.ProductionBomVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
 			return catalogapp.ProductProductionConfig{}, err
+		}
+		tag, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.production_bom_output_bindings(output_type, output_id, bom_id, bom_version_id, is_default, updated_at, updated_by)
+			SELECT 'product',$1,pb.id,v.id,true,now(),$4
+			FROM %s.production_boms pb
+			JOIN %s.production_bom_versions v ON v.id=$3 AND v.bom_id=pb.id AND v.status='published'
+			WHERE pb.id=$2
+			  AND COALESCE(NULLIF(pb.output_type,''),'product')='product'
+			  AND pb.output_product_id=$1
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			ON CONFLICT(output_type, output_id) DO UPDATE SET
+				bom_id=excluded.bom_id,
+				bom_version_id=excluded.bom_version_id,
+				is_default=true,
+				updated_at=now(),
+				updated_by=excluded.updated_by
+		`, r.schema, r.schema, r.schema), cmd.ProductID, cmd.ProductionBomID, cmd.ProductionBomVersionID, strings.TrimSpace(cmd.Actor))
+		if err != nil {
+			return catalogapp.ProductProductionConfig{}, err
+		}
+		if tag.RowsAffected() != 1 {
+			return catalogapp.ProductProductionConfig{}, fmt.Errorf("published production BOM output binding not found")
 		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_production_config_industry_templates WHERE product_id=$1`, r.schema), cmd.ProductID); err != nil {

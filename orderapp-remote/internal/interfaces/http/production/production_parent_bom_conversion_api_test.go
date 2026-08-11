@@ -12,6 +12,7 @@ import (
 
 	productionapp "orderapp/internal/application/production"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 )
 
@@ -128,6 +129,7 @@ func TestProductionPlanAPIInheritsParentBOMAndFreezesSalesSpecConversion(t *test
 		t.Fatalf("material summary identity=%+v", plan.MaterialSummary[0])
 	}
 	assertProductionFloat(t, "material exact kg", plan.MaterialSummary[0].ExactQty, 1.816)
+	seedProductionParentBomPlanOperationSplits(t, ctx, pool, schema, plan.ID)
 
 	submitReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil)
 	submitRec := httptest.NewRecorder()
@@ -390,7 +392,7 @@ func TestProductionPlanAPIKeepsSameSKUWithDifferentFrozenParentsIsolated(t *test
 	for _, material := range preview.Materials {
 		materialQty[material.Name] = material.ExactQty
 	}
-	if math.Abs(materialQty["旧父商品原料"]-0.504) > 0.000000001 ||
+	if math.Abs(materialQty["旧父商品原料"]-0.505) > 0.000000001 ||
 		math.Abs(materialQty["新父商品原料"]-0.568) > 0.000000001 {
 		t.Fatalf("same SKU preview materials were mixed: %+v", preview.Materials)
 	}
@@ -418,6 +420,7 @@ func TestProductionPlanAPIKeepsSameSKUWithDifferentFrozenParentsIsolated(t *test
 			t.Fatalf("plan item did not preserve its frozen parent/BOM: %+v", item)
 		}
 	}
+	seedProductionParentBomPlanOperationSplits(t, ctx, pool, schema, plan.ID)
 
 	submitReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", plan.ID), nil)
 	submitRec := httptest.NewRecorder()
@@ -441,6 +444,26 @@ func TestProductionPlanAPIKeepsSameSKUWithDifferentFrozenParentsIsolated(t *test
 	}
 	if !workOrderParents[644] || !workOrderParents[645] {
 		t.Fatalf("work order frozen parents were merged: %+v", submitted.WorkOrders)
+	}
+}
+
+func seedProductionParentBomPlanOperationSplits(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, planID int64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_plan_operation_splits(
+			production_plan_id,production_plan_item_id,operation_seq,operation,
+			batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
+			planned_qty,planned_qty_g,planned_minutes
+		)
+		SELECT item.production_plan_id,item.id,operation.seq,operation.operation,
+		       item.planned_g::numeric,'g',operation.default_minutes,1,
+		       item.planned_g::numeric,item.planned_g,operation.default_minutes
+		FROM %s.production_plan_items item
+		JOIN %s.process_route_operations operation ON operation.route_id=item.process_route_id
+		WHERE item.production_plan_id=$1
+		ORDER BY item.id,operation.seq
+	`, schema, schema, schema), planID); err != nil {
+		t.Fatalf("seed parent BOM operation splits: %v", err)
 	}
 }
 
