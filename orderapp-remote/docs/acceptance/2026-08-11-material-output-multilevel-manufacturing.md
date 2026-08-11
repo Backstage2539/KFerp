@@ -31,6 +31,16 @@
 - direct product complete / partial / multi / cancel：`TestProductWorkOrderCompleteWithoutStockDocumentCreatesOneAtomicReceipt`、`TestProduceRunningPartialFinishAuditFailureRollsBackAllChanges`、`TestProduceFinishAPIMultiSpecFinalAuditFailureRollsBackAllOutputs`、`TestActiveTypedWorkOrderCancelPersistsNoteInBothAtomicAudits` 与 `TestPausedAndPartiallyCompletedCancelKeepsRunningReservationWIPAndDemandConsistent` 均通过。
 - 最终审计原子回滚与取消 Note：`TestProductWorkOrderCompleteWithoutStockDocumentRollsBackReceiptAndFinalAuditFailures`、`TestActiveTypedWorkOrderCancelFinalRunningAuditFailureRollsBackReservationsAndPriorAudit` 通过；完工或取消的最终审计失败时，入库、预留、running 状态和先前审计同事务回滚，成功取消时 Note 同时进入两个原子审计。
 
+## 合并与 development 交付证据
+
+- rollback PR #22 / 69908dd7：撤回 PR-597 两段式半成品 / 规格包装 BOM；合并提交 `137c74ca` 的结果树保留 PR-596 分组模板改进。
+- feature PR #23 / 629436ad：PR-598 typed-output 多级制造合入 `develop`。
+- 首次 development 部署因约束失败并自动回滚；失败镜像未替换既有运行版本。
+- 只读审计确认 4 条 inactive 无身份孤儿；审计没有写入业务数据，定位为无法映射商品或物料产出身份的历史 BOM 行。
+- bugfix PR #24 / 11cc8231：保留无法映射的 legacy BOM 行并继续兼容旧库，修复合入 `develop`。
+- development 已部署 11cc8231；应用运行，外部登录页 smoke HTTP 200。
+- 远端门禁 frontend 983 / 983、小程序 205 / 205、Go 全量与镜像均通过。该门禁和 HTTP 200 是发布健康证据，不替代页面业务验收。
+
 ## 核心自动化验收矩阵
 
 | 合同 | 自动化锚点 | 预期 |
@@ -46,12 +56,12 @@
 
 ## Van 业务验收
 
-- 浏览器人工验收未执行；页面检查和 Van 的真实业务验收明确不属于本轮自动验收。
+- 手工浏览器验收仍 pending；页面检查和 Van 的真实业务验收明确不属于自动验收。
 - 建议后续在 development 依次核对：物料标识 → 建立物料产出 BOM → 发布并设默认 → 商品计划查看递归净缺口 → 提交依赖工单 → 上游物料入库 → 下游解锁。
 - `REV-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING` 保持 `todo`，由 Van 在 development 完成业务验收后关闭。
 
 ## 交付边界
 
-- 合并与 development 部署均未执行，状态保持 pending。
-- production 环境不在自动验收范围内，未部署、未写入、未做业务验证。
-- 本工作未提交、未推送、未执行浏览器或人工业务验收。
+- feature 与兼容修复已经 PR #23 / PR #24 合入，development 最终部署提交为 `11cc8231`。
+- production 环境不在范围内，未部署、未写入、未做业务验证。
+- 手工浏览器和人工业务验收未执行；`REV-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING` 继续保持 `todo`。

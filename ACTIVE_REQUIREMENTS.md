@@ -7,9 +7,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING
-- Branch: codex/pr598-material-output-multilevel-manufacturing
+- Branch: codex/pr598-delivery-evidence-20260812（feature source: codex/pr598-material-output-multilevel-manufacturing）
 - Owner/session: Codex / 2026-08-11
-- Status: automated frontend / build / support and production PostgreSQL verification GREEN; rollback merged to `develop@137c74ca`; PR-598 merge / deploy pending
+- Status: feature 与兼容修复均已合入，development 已部署 `11cc8231` 且 HTTP 200；自动化与远端门禁 GREEN；手工浏览器验收 pending
 - Scope: 物料档案增加仅用于标识、筛选和展示的半成品属性；`can_manufacture` 只由默认已发布产出 BOM 计算。普通生产 BOM 统一支持产出任意有效物料或商品；生产计划按库存净缺口递归展开任意层 BOM，提交后生成依赖工单，物料工单完工进入目标仓库和可追溯批次。
 - DEV:
   - DEV-598-MATERIAL-SEMI-FINISHED-CAPABILITY（done，targeted GREEN）：半成品只作业务标识；可制造能力只读且来自默认已发布产出 BOM。
@@ -20,7 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-598-MATERIAL-MANUFACTURE-STOCK（done，PostgreSQL / integrated GREEN）：物料完工数量、目标仓库、批次与幂等库存；商品 / 物料 typed StockOperations 统一走工单完成链。
   - DEV-598-RECURSIVE-COSTING（done，PostgreSQL / integrated GREEN）：各层冻结 BOM 递归成本与历史兼容。
   - DEV-598-VUE-MANUFACTURING-WORKFLOW（done，targeted GREEN）：物料、BOM、计划、工单、执行和库存手册 Vue 工作流。
-  - DEV-598-AUDIT-COMPAT-DOCS-DELIVERY（done，targeted GREEN）：操作日志 / 旧商品兼容、需求验收、四本手册、PR/DEV/REV 和独立验收记录。
+  - DEV-598-AUDIT-COMPAT-DOCS-DELIVERY（done，development delivered）：操作日志 / 旧商品兼容、需求验收、四本手册、PR/DEV/REV、独立验收记录与最终交付证据。
 - Verifier:
   - RED frontend：定向 142 项中 130 通过、12 失败；缺失 typed 产出、物料能力 / 往返、递归图、上游阻断和库存手册入口。
   - RED support：`TestDev598MaterialOutputMultilevelManufacturingContracts` 因 PR-598 seed / 文档合同缺失失败。
@@ -33,11 +33,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - direct product complete / partial / multi / cancel GREEN：直接商品完工原子入库、部分与多规格完成、活动 typed 工单取消及 reservation / WIP / demand 一致性测试通过。
   - 最终审计原子回滚 / 取消 Note GREEN：最终入库或 running audit 失败时库存、预留、先前审计全部回滚；取消原因同时写入两个原子审计。
   - Core: 100 × 227g SKU、10kg 可用熟豆时预留一次并仅生成 12.7kg 上游缺口。
-- Merge/deploy: pending；仅 rollback PR #22 已合入，PR-598 尚未合并、推送或部署 development。
-- Acceptance boundary: 浏览器 / 人工业务验收未执行，明确不属于本轮自动验收；production 环境不在自动验收范围内且未部署。
+- Delivery chain:
+  - rollback PR #22 / 69908dd7：撤回 PR-597 两段式方案；merge `137c74ca` 保留 PR-596 分组模板改进。
+  - feature PR #23 / 629436ad：PR-598 typed-output 多级制造合入 `develop`。
+  - 首次 development 部署因约束失败并自动回滚，失败镜像未成为运行版本。
+  - 只读审计确认 4 条 inactive 无身份孤儿；审计过程未写业务数据，兼容修复保留这些无法映射的历史 BOM 行。
+  - bugfix PR #24 / 11cc8231：旧 BOM 无法映射行兼容修复合入 `develop`。
+  - development 已部署 11cc8231，外部登录页 smoke HTTP 200。
+  - 远端门禁 frontend 983/983、小程序 205/205、Go 全量与镜像 GREEN。
+- Acceptance boundary: 手工浏览器验收仍 pending，`REV-598` 保持 todo；production 环境不在范围内且未部署。
 - Review: REV-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING（todo，Van development acceptance）。
 - Last update: 2026-08-12 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串报错；按用户锁定编号手工登记 PR-598。PR-597 已由回退提交 `69908dd7` 替代，代码树恢复到 `4626c937`。
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串报错；按用户锁定编号手工登记 PR-598。PR-597 由 `69908dd7` 回退后，PR-598 与后续 legacy 兼容修复分别通过 PR #23、PR #24 交付；HTTP 200 和远端门禁只证明 development 发布健康，不代替 Van 的页面业务验收。
 
 ### PR-596-INLINE-CATEGORY-LISTS
 - Branch: codex/pr596-final-evidence-20260810（business code deployed from `8e0aa8bf`）
