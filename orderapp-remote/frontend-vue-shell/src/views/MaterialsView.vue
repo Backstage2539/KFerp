@@ -162,13 +162,11 @@
                 <small v-if="materialInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
               <label>
-                <span>成本计价单位</span>
-                <select v-model="draft.cost_unit" :disabled="materialCostUnitLocked">
-                  <option v-for="unit in costUnitOptions" :key="unit.code" :value="unit.code">{{ unit.label || unit.name || unit.code }}</option>
-                </select>
-                <small v-if="isMaterialWeightUnit(draft.unit)">重量物料统一按 kg 计价；采购价和 BOM 试算均按元/kg。</small>
-                <small v-else>非重量物料的成本计价单位与库存单位一致。</small>
-                <small v-if="materialCostUnitLocked">成本计价单位保存后不可修改；如需调整，请新建物料档案。</small>
+                <span>采购价与成本单价单位</span>
+                <input :value="unitDisplay(draft.cost_unit)" disabled data-field="cost_unit" />
+                <small v-if="isMaterialWeightUnit(draft.unit)">用于采购价、批次单位成本和 BOM 成本试算，不用于库存数量；重量物料固定按元/kg。</small>
+                <small v-else>用于采购价、批次单位成本和 BOM 成本试算，不用于库存数量；当前与库存单位一致。</small>
+                <small v-if="materialCostUnitLocked">采购价与成本单价单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
               <label><span>采购价（元/{{ draft.cost_unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
@@ -177,20 +175,15 @@
                 <input v-model="draft.is_semi_finished" type="checkbox" />
                 <small>仅用于业务标识与筛选；不授予或撤销制造能力。</small>
               </label>
-              <label>
-                <span>可制造能力（只读）</span>
-                <input :value="draft.can_manufacture ? '可制造' : '不可制造'" disabled data-field="can_manufacture" />
-                <small>can_manufacture 只由该物料是否存在默认且已发布的产出 BOM 计算。</small>
-              </label>
               <label><span>更新时间</span><input :value="draft.updated_at || '-'" disabled /></label>
             </div>
           </section>
 
           <section v-if="!draftMode" class="form-section material-bom-links">
             <div class="section-title">制造 BOM 关联</div>
-            <p class="muted left">任意有效物料都可以作为普通 BOM 的产出对象；半成品勾选不参与校验。</p>
             <div class="bom-link-group">
               <strong>产出该物料的 BOM</strong>
+              <span class="manufacturing-status" :class="draft.can_manufacture ? 'manufacturing-status-ready' : 'manufacturing-status-missing'">{{ draft.can_manufacture ? '可制造（已有默认发布 BOM）' : '不可制造（无默认发布 BOM）' }}</span>
               <button v-for="bom in producedByBoms" :key="`produced-${bom.id}`" class="secondary subtle" type="button" @click="openMaterialBom(bom)">{{ materialBomLabel(bom) }}</button>
               <span v-if="!materialBomReferencesLoading && !producedByBoms.length" class="muted left">暂无</span>
             </div>
@@ -398,11 +391,6 @@ const unitOptions = computed(() => {
     { code: 'kg', name: 'kg', label: 'kg' },
     { code: 'unit', name: '个', label: '个' },
   ]
-})
-const costUnitOptions = computed(() => {
-  const code = defaultMaterialCostUnit(draft.value?.unit || '')
-  const configured = unitOptions.value.find((unit) => unit.code === code)
-  return [configured || { code, name: code, label: code }]
 })
 const selectedIndustryTemplate = computed(() => activeIndustryTemplates.value.find((tpl) => tpl.id === Number(draft.value?.industry_field_template_id || 0)) || null)
 const selectedIndustryTemplateFields = computed(() => (selectedIndustryTemplate.value?.fields || []).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)))
@@ -1120,6 +1108,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .form-actions { justify-content: flex-end; }
 .boolean-field input[type="checkbox"] { width: auto; min-height: 0; }
 .bom-link-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.manufacturing-status { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid #d8d0c7; border-radius: 999px; padding: 3px 9px; font-size: 12px; }
+.manufacturing-status-ready { border-color: #cce7d2; background: #effaf2; color: #1f6a3f; }
+.manufacturing-status-missing { background: #f6f4f1; color: #666; }
 .muted { color: #666; text-align: center; }
 .empty { padding: 22px; border: 1px dashed #d8d0c7; border-radius: 8px; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
