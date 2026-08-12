@@ -10,11 +10,19 @@ func TestDev513MaterialClassificationTemplateContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"): {
 			"data-pr513-material-business-groups",
-			"BusinessGroupControls",
+			"BusinessGroupInlineWorkspace",
+			"collapsedMaterialCategoryKeys",
+			"materialCategoryMoveActive",
+			`@target="handleMaterialCategoryMoveTarget"`,
+			"handleMaterialGroupPaginationChange",
+			`#group="{ group }"`,
+			"<thead>",
+			"data-material-detail-drawer",
 			"material_catalog",
 			"MATERIAL_OBJECT_KEY = 'material'",
 			"/api/business-group-assignments",
-			"groupRowsByBusinessGroupTemplate",
+			"businessGroupInlineListState",
+			"groupRowsByBusinessGroupTemplates",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "schema.go"): {
 			"migrateMaterialClassificationsToBusinessGroups",

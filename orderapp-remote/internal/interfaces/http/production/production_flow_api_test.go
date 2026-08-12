@@ -117,11 +117,11 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 	if inputG != 600 {
 		t.Fatalf("running item input_g = %d, want 600", inputG)
 	}
-	if math.Abs(bomYieldRate-0.82) > 0.0001 {
-		t.Fatalf("running item bom_yield_rate = %.4f, want 0.8200", bomYieldRate)
+	if math.Abs(bomYieldRate-1) > 0.0001 {
+		t.Fatalf("running item bom_yield_rate = %.4f, want compatibility value 1", bomYieldRate)
 	}
-	if plannedUnits != 2 || plannedLooseG != 38 {
-		t.Fatalf("planned inventory = %d units + %dg, want 2 units + 38g", plannedUnits, plannedLooseG)
+	if plannedUnits != 2 || plannedLooseG != 0 {
+		t.Fatalf("planned inventory = %d units + %dg, want demand-based 2 units + 0g", plannedUnits, plannedLooseG)
 	}
 	if status != "running" {
 		t.Fatalf("running item status = %q, want running", status)
@@ -380,6 +380,64 @@ func TestProduceFinishAPIMultiSpecRunCompletesAllLinkedOrders(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestProduceFinishAPIMultiSpecFinalAuditFailureRollsBackAllOutputs(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'多规格审计回滚',50,true);
+		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
+			(10,'RAW-MULTI-AUDIT','多规格生豆','bean','g',30000,0,54,0),
+			(11,'BAG-454-AUDIT','454g袋','pack','个',0,30,1,0),
+			(12,'BAG-227-AUDIT','227g袋','pack','个',0,10,1,0);
+		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
+		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (454,11),(227,12);
+		INSERT INTO %s.produce_running_items(
+			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+		) VALUES (1,'BATCH-MULTI-AUDIT',1,'多规格审计回滚',0,11350,'','running','测试员',now(),16600,0.8200,0,0);
+		INSERT INTO %s.produce_running_outputs(
+			running_item_id,product_id,product_name,spec_g,need_g,order_nos,planned_units,planned_loose_g
+		) VALUES
+			(1,1,'多规格审计回滚',454,10896,'',24,0),
+			(1,1,'多规格审计回滚',227,454,'',2,0);
+		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status)
+		VALUES ('WO-MULTI-AUDIT',1,'BATCH-MULTI-AUDIT',1,'多规格审计回滚',0,16600,'running');
+		CREATE FUNCTION %s.reject_multi_finish_audit() RETURNS trigger AS $body$
+		BEGIN
+			IF NEW.entity_type='produce_running' AND NEW.action='finish' THEN
+				RAISE EXCEPTION 'forced multi finish audit failure';
+			END IF;
+			RETURN NEW;
+		END
+		$body$ LANGUAGE plpgsql;
+		CREATE TRIGGER reject_multi_finish_audit BEFORE INSERT ON %s.audit_logs
+		FOR EACH ROW EXECUTE FUNCTION %s.reject_multi_finish_audit();
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-MULTI-AUDIT", "多规格生豆", 30_000)
+
+	app := newProductionFlowTestEcho(pool, schema)
+	rec := serveMultilevelProductionJSON(t, app, http.MethodPost, "/api/produce/running/finish", map[string]any{
+		"id": 1, "warehouse": "finished_goods", "consumed_input_g": 16_600,
+		"outputs": []map[string]any{
+			{"spec_g": 454, "finished_units": 24, "finished_loose_g": 0},
+			{"spec_g": 227, "finished_units": 2, "finished_loose_g": 0},
+		},
+	})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "forced multi finish audit failure") {
+		t.Fatalf("multi finish audit failure status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "id=1 AND status='running'", 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", "running_item_id=1 AND status='running'", 1)
+	assertProductionFlowCount(t, pool, schema, "produce_running_outputs", "running_item_id=1 AND finished_units=0 AND finished_loose_g=0", 2)
+	assertProductionFlowCount(t, pool, schema, "finished_inventory", "product_id=1", 0)
+	assertProductionFlowCount(t, pool, schema, "stock_batches", "source_doc_type='production_run' AND source_doc_id=1", 0)
+	assertProductionFlowCount(t, pool, schema, "materials", "id=10 AND onhand_g=30000", 1)
+	assertProductionFlowCount(t, pool, schema, "materials", "id=11 AND onhand_units=30", 1)
+	assertProductionFlowCount(t, pool, schema, "materials", "id=12 AND onhand_units=10", 1)
+	assertProductionFlowCount(t, pool, schema, "audit_logs", "(entity_type='work_order' AND action='complete') OR (entity_type='produce_running' AND action='finish')", 0)
 }
 
 func TestProduceFinishAPIRejectsPartialForMultiSpecRunWithoutWritingArtifacts(t *testing.T) {
@@ -1161,8 +1219,8 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 	if inputG != 2000 {
 		t.Fatalf("running item input_g = %d, want 2000", inputG)
 	}
-	if plannedUnits != 1 || plannedLooseG != 600 {
-		t.Fatalf("running item plan = %d units + %dg, want 1 unit + 600g", plannedUnits, plannedLooseG)
+	if plannedUnits != 1 || plannedLooseG != 0 {
+		t.Fatalf("running item plan = %d units + %dg, want demand-based 1 unit + 0g", plannedUnits, plannedLooseG)
 	}
 }
 
@@ -1234,6 +1292,7 @@ func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testi
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", "product_id=1 AND planned_g=600", 1)
 	assertNoProductionWorkOpened(t, ctx, pool, schema)
 	assertProductionFlowCount(t, pool, schema, "production_logs", "1=1", 0)
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 
 	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
 	if err != nil {
@@ -1339,6 +1398,7 @@ func TestHistoricalWorkOrderStartUsesReservationRequirementsWhenMaterialSnapshot
 	if err != nil {
 		t.Fatalf("CreateProductionPlan: %v", err)
 	}
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
 	if err != nil {
 		t.Fatalf("SubmitProductionPlan: %v", err)
@@ -1400,6 +1460,7 @@ func TestReleasedWorkOrderIssueMakesWIPReadyThenStarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProductionPlan: %v", err)
 	}
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 	submitted, err := productionRepo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
 	if err != nil {
 		t.Fatalf("SubmitProductionPlan: %v", err)
@@ -1564,6 +1625,7 @@ func TestProductionPlanDraftCancelAPIRejectsNonDraftAndDownstreamWork(t *testing
 		if err != nil {
 			t.Fatalf("CreateProductionPlan: %v", err)
 		}
+		seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 		if _, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"}); err != nil {
 			t.Fatalf("SubmitProductionPlan: %v", err)
 		}
@@ -2243,6 +2305,27 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 			process_route_id=excluded.process_route_id,
 			expected_loss_rate=excluded.expected_loss_rate;
 		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+}
+
+func seedProductionPlanLifecycleOperationSplits(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string, plan productionapp.ProductionPlanDetail) {
+	t.Helper()
+	if len(plan.Items) != 1 {
+		t.Fatalf("production plan items = %+v, want one lifecycle item", plan.Items)
+	}
+	plannedG := plan.Items[0].PlannedG
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_plan_operation_splits(
+			production_plan_id,production_plan_item_id,operation_seq,operation,
+			batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
+			planned_qty,planned_qty_g,planned_minutes
+		)
+		SELECT $1,$2,op.seq,op.operation,$3::numeric,'g',op.default_minutes,1,$3::numeric,$3::bigint,op.default_minutes
+		FROM %s.process_route_operations op
+		WHERE op.route_id=30
+		ORDER BY op.seq
+	`, schema, schema), plan.ID, plan.Items[0].ID, plannedG); err != nil {
+		t.Fatalf("seed lifecycle operation splits: %v", err)
+	}
 }
 
 func mustExecProductionFlowTestSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {

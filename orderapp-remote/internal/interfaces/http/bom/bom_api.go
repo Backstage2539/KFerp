@@ -73,7 +73,10 @@ type moveProductionBomGroupRequest struct {
 
 type createProductionBomRequest struct {
 	Name             string   `json:"name"`
+	OutputType       string   `json:"output_type"`
+	OutputID         int64    `json:"output_id"`
 	OutputProductID  int64    `json:"output_product_id"`
+	OutputMaterialID int64    `json:"output_material_id"`
 	OutputQty        float64  `json:"output_qty"`
 	OutputUnit       string   `json:"output_unit"`
 	GroupID          int64    `json:"group_id"`
@@ -82,19 +85,25 @@ type createProductionBomRequest struct {
 }
 
 type updateProductionBomRequest struct {
-	Name            string `json:"name"`
-	OutputProductID int64  `json:"output_product_id"`
-	OutputUnit      string `json:"output_unit"`
-	GroupID         *int64 `json:"group_id"`
-	GroupCategoryID *int64 `json:"group_category_id"`
-	Status          string `json:"status"`
+	Name             string `json:"name"`
+	OutputType       string `json:"output_type"`
+	OutputID         int64  `json:"output_id"`
+	OutputProductID  int64  `json:"output_product_id"`
+	OutputMaterialID int64  `json:"output_material_id"`
+	OutputUnit       string `json:"output_unit"`
+	GroupID          *int64 `json:"group_id"`
+	GroupCategoryID  *int64 `json:"group_category_id"`
+	Status           string `json:"status"`
 }
 
 type copyProductionBomRequest struct {
-	Name            string `json:"name"`
-	OutputProductID int64  `json:"output_product_id"`
-	GroupID         int64  `json:"group_id"`
-	GroupCategoryID int64  `json:"group_category_id"`
+	Name             string `json:"name"`
+	OutputType       string `json:"output_type"`
+	OutputID         int64  `json:"output_id"`
+	OutputProductID  int64  `json:"output_product_id"`
+	OutputMaterialID int64  `json:"output_material_id"`
+	GroupID          int64  `json:"group_id"`
+	GroupCategoryID  int64  `json:"group_category_id"`
 }
 
 type createProductionBomVersionRequest struct {
@@ -157,6 +166,22 @@ func setDefaultProductionBomAPI(c echo.Context, bomSvc *bomapp.Service) error {
 	}
 	bomID, versionID := req.normalized()
 	row, err := bomSvc.BindProductProductionBom(c.Request().Context(), bomapp.BindProductProductionBomCommand{ProductID: productID, BomID: bomID, BomVersionID: versionID, DefaultProductionBomID: req.DefaultProductionBomID, Actor: support.ActorOf(c)})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+	}
+	return c.JSON(http.StatusOK, row)
+}
+
+func setDefaultProductionBomOutputAPI(c echo.Context, bomSvc *bomapp.Service, outputType string, outputID int64) error {
+	if outputID <= 0 {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid output_id"})
+	}
+	var req bindProductProductionBomRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+	}
+	bomID, versionID := req.normalized()
+	row, err := bomSvc.BindProductionBomOutput(c.Request().Context(), bomapp.BindProductionBomOutputCommand{OutputType: outputType, OutputID: outputID, BomID: bomID, BomVersionID: versionID, Actor: support.ActorOf(c)})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
@@ -277,7 +302,14 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.GET("/api/production-boms", func(c echo.Context) error {
-		rows, err := bomSvc.ListProductionBoms(c.Request().Context())
+		outputID, _ := strconv.ParseInt(c.QueryParam("output_id"), 10, 64)
+		componentID, _ := strconv.ParseInt(c.QueryParam("component_id"), 10, 64)
+		rows, err := bomSvc.ListProductionBoms(c.Request().Context(), bomapp.ProductionBomFilter{
+			OutputType:    c.QueryParam("output_type"),
+			OutputID:      outputID,
+			ComponentType: c.QueryParam("component_type"),
+			ComponentID:   componentID,
+		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
@@ -301,7 +333,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputProductID: req.OutputProductID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -333,7 +365,8 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		cmd := bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c)}
+		cmd := bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputType: req.OutputType, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c)}
+		cmd.UpdateOutputBinding = req.OutputType != "" || req.OutputID > 0 || req.OutputProductID > 0 || req.OutputMaterialID > 0
 		if req.GroupID != nil {
 			cmd.GroupID = *req.GroupID
 			cmd.UpdateGroupAssignment = true
@@ -358,7 +391,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, OutputType: req.OutputType, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -414,6 +447,22 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 
 	e.PUT("/api/products/:id/production-bom-binding", func(c echo.Context) error {
 		return setDefaultProductionBomAPI(c, bomSvc)
+	})
+
+	e.PUT("/api/materials/:id/default-production-bom", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid output_id"})
+		}
+		return setDefaultProductionBomOutputAPI(c, bomSvc, "material", id)
+	})
+
+	e.PUT("/api/production-bom-outputs/:type/:id/default-production-bom", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid output_id"})
+		}
+		return setDefaultProductionBomOutputAPI(c, bomSvc, c.Param("type"), id)
 	})
 
 	e.GET("/api/bom/list", func(c echo.Context) error {

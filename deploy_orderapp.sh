@@ -174,6 +174,7 @@ git archive --format=tar HEAD -- \
   REQUIREMENTS.md \
   ACCEPTANCE_TESTS.md \
   ACTIVE_REQUIREMENTS.md \
+  design-qa.md \
   HOW_TO_WORKFLOW.md \
   DEPLOYMENT.md \
   deploy_orderapp.sh \

@@ -156,9 +156,17 @@ type ProductionBomSummary struct {
 	ID                    int64   `json:"id"`
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
+	OutputType            string  `json:"output_type"`
+	OutputID              int64   `json:"output_id"`
+	OutputName            string  `json:"output_name"`
+	OutputCode            string  `json:"output_code"`
+	OutputUnit            string  `json:"output_unit"`
 	OutputProductID       int64   `json:"output_product_id"`
 	OutputProductName     string  `json:"output_product_name"`
 	OutputProductCode     string  `json:"output_product_code"`
+	OutputMaterialID      int64   `json:"output_material_id"`
+	OutputMaterialName    string  `json:"output_material_name"`
+	OutputMaterialCode    string  `json:"output_material_code"`
 	BusinessGroupID       int64   `json:"business_group_id"`
 	BusinessGroupName     string  `json:"business_group_name"`
 	GroupItemID           int64   `json:"group_item_id"`
@@ -297,7 +305,10 @@ type DeleteProductionBomGroupCategoryCommand struct {
 
 type CreateProductionBomCommand struct {
 	Name             string   `json:"name"`
+	OutputType       string   `json:"output_type"`
+	OutputID         int64    `json:"output_id"`
 	OutputProductID  int64    `json:"output_product_id"`
+	OutputMaterialID int64    `json:"output_material_id"`
 	OutputQty        float64  `json:"output_qty"`
 	OutputUnit       string   `json:"output_unit"`
 	GroupID          int64    `json:"group_id"`
@@ -309,7 +320,11 @@ type CreateProductionBomCommand struct {
 type UpdateProductionBomCommand struct {
 	ID                    int64  `json:"id"`
 	Name                  string `json:"name"`
+	OutputType            string `json:"output_type"`
+	OutputID              int64  `json:"output_id"`
 	OutputProductID       int64  `json:"output_product_id"`
+	OutputMaterialID      int64  `json:"output_material_id"`
+	UpdateOutputBinding   bool   `json:"-"`
 	OutputUnit            string `json:"output_unit"`
 	GroupID               int64  `json:"group_id"`
 	GroupCategoryID       int64  `json:"group_category_id"`
@@ -319,12 +334,30 @@ type UpdateProductionBomCommand struct {
 }
 
 type CopyProductionBomCommand struct {
-	ID              int64  `json:"id"`
-	Name            string `json:"name"`
-	OutputProductID int64  `json:"output_product_id"`
-	GroupID         int64  `json:"group_id"`
-	GroupCategoryID int64  `json:"group_category_id"`
-	Actor           string `json:"actor"`
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	OutputType       string `json:"output_type"`
+	OutputID         int64  `json:"output_id"`
+	OutputProductID  int64  `json:"output_product_id"`
+	OutputMaterialID int64  `json:"output_material_id"`
+	GroupID          int64  `json:"group_id"`
+	GroupCategoryID  int64  `json:"group_category_id"`
+	Actor            string `json:"actor"`
+}
+
+type ProductionBomFilter struct {
+	OutputType    string `json:"output_type"`
+	OutputID      int64  `json:"output_id"`
+	ComponentType string `json:"component_type"`
+	ComponentID   int64  `json:"component_id"`
+}
+
+type ProductionBomOutputBinding struct {
+	OutputType   string `json:"output_type"`
+	OutputID     int64  `json:"output_id"`
+	BomID        int64  `json:"production_bom_id"`
+	BomVersionID int64  `json:"production_bom_version_id"`
+	IsDefault    bool   `json:"is_default"`
 }
 
 type CreateProductionBomVersionCommand struct {
@@ -369,6 +402,14 @@ type BindProductProductionBomCommand struct {
 	BomVersionID           int64  `json:"bom_version_id"`
 	DefaultProductionBomID int64  `json:"default_production_bom_id"`
 	Actor                  string `json:"actor"`
+}
+
+type BindProductionBomOutputCommand struct {
+	OutputType   string `json:"output_type"`
+	OutputID     int64  `json:"output_id"`
+	BomID        int64  `json:"bom_id"`
+	BomVersionID int64  `json:"bom_version_id"`
+	Actor        string `json:"actor"`
 }
 
 type CreateVersionCommand struct {
@@ -798,8 +839,20 @@ func (s *Service) DeleteProductionBomGroupCategory(ctx context.Context, cmd Dele
 	return s.repo.DeleteProductionBomGroupCategory(ctx, cmd)
 }
 
-func (s *Service) ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error) {
-	rows, err := s.repo.ListProductionBoms(ctx)
+func (s *Service) ListProductionBoms(ctx context.Context, filters ...ProductionBomFilter) ([]ProductionBomSummary, error) {
+	filter := ProductionBomFilter{}
+	if len(filters) > 0 {
+		filter = normalizeProductionBomFilter(filters[0])
+	}
+	var rows []ProductionBomSummary
+	var err error
+	if filtered, ok := s.repo.(interface {
+		ListProductionBomsFiltered(context.Context, ProductionBomFilter) ([]ProductionBomSummary, error)
+	}); ok && (filter.OutputType != "" || filter.OutputID > 0 || filter.ComponentType != "" || filter.ComponentID > 0) {
+		rows, err = filtered.ListProductionBomsFiltered(ctx, filter)
+	} else {
+		rows, err = s.repo.ListProductionBoms(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -840,15 +893,15 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if cmd.Name == "" {
 		return ProductionBomSummary{}, fmt.Errorf("name required")
 	}
-	if cmd.OutputProductID <= 0 {
-		return ProductionBomSummary{}, fmt.Errorf("output_product_id required")
+	if err := normalizeProductionBomOutputBinding(&cmd.OutputType, &cmd.OutputID, &cmd.OutputProductID, &cmd.OutputMaterialID, true); err != nil {
+		return ProductionBomSummary{}, err
 	}
 	if cmd.OutputQty <= 0 {
 		cmd.OutputQty = 1
 	}
 	legacyLossRate := 0.0
 	cmd.ExpectedLossRate = &legacyLossRate
-	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
+	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputType, cmd.OutputID, cmd.OutputUnit)
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -858,15 +911,21 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	return row, nil
 }
 
-func (s *Service) deriveProductionBomOutputUnit(ctx context.Context, outputProductID int64, fallback string) string {
+func (s *Service) deriveProductionBomOutputUnit(ctx context.Context, outputType string, outputID int64, fallback string) string {
 	fallback = strings.TrimSpace(fallback)
-	if outputProductID <= 0 {
+	if outputID <= 0 {
 		if fallback != "" {
 			return fallback
 		}
 		return "unit"
 	}
-	rows, err := s.repo.Products(ctx)
+	var rows []Option
+	var err error
+	if outputType == "material" {
+		rows, err = s.repo.Materials(ctx)
+	} else {
+		rows, err = s.repo.Products(ctx)
+	}
 	if err != nil {
 		if fallback != "" {
 			return fallback
@@ -874,7 +933,7 @@ func (s *Service) deriveProductionBomOutputUnit(ctx context.Context, outputProdu
 		return "unit"
 	}
 	for _, row := range rows {
-		if row.ID == outputProductID {
+		if row.ID == outputID {
 			return outputProductInventoryUnit(row, fallback)
 		}
 	}
@@ -902,8 +961,12 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Status = strings.TrimSpace(cmd.Status)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	if cmd.OutputProductID > 0 {
-		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
+	if cmd.UpdateOutputBinding || cmd.OutputType != "" || cmd.OutputID > 0 || cmd.OutputProductID > 0 || cmd.OutputMaterialID > 0 {
+		if err := normalizeProductionBomOutputBinding(&cmd.OutputType, &cmd.OutputID, &cmd.OutputProductID, &cmd.OutputMaterialID, true); err != nil {
+			return ProductionBomSummary{}, err
+		}
+		cmd.UpdateOutputBinding = true
+		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputType, cmd.OutputID, cmd.OutputUnit)
 	}
 	row, err := s.repo.UpdateProductionBom(ctx, cmd)
 	if err != nil {
@@ -920,6 +983,11 @@ func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCo
 	}
 	cmd.Name = NormalizeProductionBomName(cmd.Name)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.OutputType != "" || cmd.OutputID > 0 || cmd.OutputProductID > 0 || cmd.OutputMaterialID > 0 {
+		if err := normalizeProductionBomOutputBinding(&cmd.OutputType, &cmd.OutputID, &cmd.OutputProductID, &cmd.OutputMaterialID, true); err != nil {
+			return ProductionBomSummary{}, err
+		}
+	}
 	row, err := s.repo.CopyProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -927,6 +995,65 @@ func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCo
 	normalizeProductionBomSummaryGroups(&row)
 	enrichProductionBomSummaryYield(&row)
 	return row, nil
+}
+
+func normalizeProductionBomFilter(filter ProductionBomFilter) ProductionBomFilter {
+	filter.OutputType = strings.ToLower(strings.TrimSpace(filter.OutputType))
+	filter.ComponentType = strings.ToLower(strings.TrimSpace(filter.ComponentType))
+	if filter.ComponentType == "finished_product" {
+		filter.ComponentType = "product"
+	}
+	return filter
+}
+
+func normalizeProductionBomOutputBinding(outputType *string, outputID, outputProductID, outputMaterialID *int64, legacyProductDefault bool) error {
+	typ := strings.ToLower(strings.TrimSpace(*outputType))
+	if typ == "" && legacyProductDefault {
+		typ = "product"
+	}
+	if typ != "product" && typ != "material" {
+		return fmt.Errorf("output_type must be product or material")
+	}
+	genericID := *outputID
+	productID := *outputProductID
+	materialID := *outputMaterialID
+	if genericID > 0 {
+		if typ == "product" {
+			if productID > 0 && productID != genericID {
+				return fmt.Errorf("output_id conflicts with output_product_id")
+			}
+			productID = genericID
+		} else {
+			if materialID > 0 && materialID != genericID {
+				return fmt.Errorf("output_id conflicts with output_material_id")
+			}
+			materialID = genericID
+		}
+	}
+	if typ == "product" {
+		if productID <= 0 {
+			return fmt.Errorf("output_product_id required")
+		}
+		if materialID > 0 {
+			return fmt.Errorf("output_product_id and output_material_id are mutually exclusive")
+		}
+		genericID = productID
+		materialID = 0
+	} else {
+		if materialID <= 0 {
+			return fmt.Errorf("output_material_id required")
+		}
+		if productID > 0 {
+			return fmt.Errorf("output_product_id and output_material_id are mutually exclusive")
+		}
+		genericID = materialID
+		productID = 0
+	}
+	*outputType = typ
+	*outputID = genericID
+	*outputProductID = productID
+	*outputMaterialID = materialID
+	return nil
 }
 
 func (s *Service) CreateProductionBomVersion(ctx context.Context, cmd CreateProductionBomVersionCommand) (ProductionBomVersion, error) {
@@ -970,9 +1097,6 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 				return ProductionBomVersion{}, err
 			}
 			if cmd.MaterialLossRate != nil {
-				if versionMaterialLossRate > 0 && item.ConsumeUnit != "ratio_pct" {
-					return ProductionBomVersion{}, fmt.Errorf("原料损耗比开启后，组件消耗单位只能使用比例 %%")
-				}
 				if versionMaterialLossRate > 0 && item.ComponentType == "material" && item.ConsumeUnit == "ratio_pct" {
 					item.MaterialLossRate = versionMaterialLossRate
 				} else {
@@ -982,6 +1106,9 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 				item.MaterialLossRate = 0
 			}
 			cmd.Items[i] = item
+		}
+		if err := s.validateProductionBomDraftItemInventoryUnits(ctx, cmd.Items); err != nil {
+			return ProductionBomVersion{}, err
 		}
 	}
 	if strings.TrimSpace(cmd.SpecialAttrsSchemaJSON) != "" {
@@ -1049,6 +1176,11 @@ func (s *Service) PublishProductionBomVersion(ctx context.Context, cmd PublishPr
 		return fmt.Errorf("version_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if atomicRepo, ok := s.repo.(interface {
+		ValidateAndPublishProductionBomVersion(context.Context, PublishProductionBomVersionCommand) error
+	}); ok {
+		return atomicRepo.ValidateAndPublishProductionBomVersion(ctx, cmd)
+	}
 	if err := s.repo.ValidateProductionBomVersionForPublish(ctx, cmd); err != nil {
 		return err
 	}
@@ -1074,9 +1206,7 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 			consumeUnit = "ratio_pct"
 		}
 	}
-	switch consumeUnit {
-	case "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box", "fixed_qty", "unit", "g", "kg", "length", "area":
-	default:
+	if len(consumeUnit) > 64 {
 		return item, fmt.Errorf("invalid consume_unit")
 	}
 	switch componentType {
@@ -1107,6 +1237,74 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 	return item, nil
 }
 
+// ProductionBomConsumeUnitRequiresInventoryMatch reports whether a fixed BOM
+// unit is a configurable inventory unit rather than a legacy semantic unit.
+func ProductionBomConsumeUnitRequiresInventoryMatch(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box", "fixed_qty", "unit", "g", "kg", "length", "area":
+		return false
+	default:
+		return true
+	}
+}
+
+// ValidateProductionBomDraftItemInventoryUnits prevents fixed package units
+// from being interpreted as another inventory unit without a conversion rule.
+func ValidateProductionBomDraftItemInventoryUnits(items []ProductionBomDraftItem, materials []Option, products []Option) error {
+	materialUnits := make(map[int64]string, len(materials))
+	for _, row := range materials {
+		materialUnits[row.ID] = strings.TrimSpace(row.InventoryUnit)
+	}
+	productUnits := make(map[int64]string, len(products))
+	for _, row := range products {
+		productUnits[row.ID] = strings.TrimSpace(row.InventoryUnit)
+	}
+	for i, item := range items {
+		if !ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
+			continue
+		}
+		inventoryUnit := materialUnits[item.MaterialID]
+		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
+			inventoryUnit = productUnits[item.ComponentProductID]
+		}
+		if inventoryUnit == "" || !strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), inventoryUnit) {
+			return fmt.Errorf("item %d consume_unit must match component inventory_unit", i+1)
+		}
+	}
+	return nil
+}
+
+func (s *Service) validateProductionBomDraftItemInventoryUnits(ctx context.Context, items []ProductionBomDraftItem) error {
+	needMaterials := false
+	needProducts := false
+	for _, item := range items {
+		if !ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
+			continue
+		}
+		if item.ComponentType == "product" || item.ComponentType == "finished_product" {
+			needProducts = true
+		} else {
+			needMaterials = true
+		}
+	}
+	var materials []Option
+	var products []Option
+	var err error
+	if needMaterials {
+		materials, err = s.repo.Materials(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if needProducts {
+		products, err = s.repo.Products(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	return ValidateProductionBomDraftItemInventoryUnits(items, materials, products)
+}
+
 func (s *Service) BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
 	if cmd.ProductID <= 0 {
 		return ProductProductionBomBinding{}, fmt.Errorf("product_id required")
@@ -1119,6 +1317,34 @@ func (s *Service) BindProductProductionBom(ctx context.Context, cmd BindProductP
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	return s.repo.BindProductProductionBom(ctx, cmd)
+}
+
+func (s *Service) BindProductionBomOutput(ctx context.Context, cmd BindProductionBomOutputCommand) (ProductionBomOutputBinding, error) {
+	cmd.OutputType = strings.ToLower(strings.TrimSpace(cmd.OutputType))
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.OutputType != "product" && cmd.OutputType != "material" {
+		return ProductionBomOutputBinding{}, fmt.Errorf("output_type must be product or material")
+	}
+	if cmd.OutputID <= 0 {
+		return ProductionBomOutputBinding{}, fmt.Errorf("output_id required")
+	}
+	if cmd.BomID <= 0 {
+		return ProductionBomOutputBinding{}, fmt.Errorf("bom_id required")
+	}
+	if cmd.OutputType == "product" {
+		binding, err := s.BindProductProductionBom(ctx, BindProductProductionBomCommand{ProductID: cmd.OutputID, BomID: cmd.BomID, BomVersionID: cmd.BomVersionID, Actor: cmd.Actor})
+		if err != nil {
+			return ProductionBomOutputBinding{}, err
+		}
+		return ProductionBomOutputBinding{OutputType: "product", OutputID: cmd.OutputID, BomID: binding.BomID, BomVersionID: binding.BomVersionID, IsDefault: true}, nil
+	}
+	binder, ok := s.repo.(interface {
+		BindProductionBomOutput(context.Context, BindProductionBomOutputCommand) (ProductionBomOutputBinding, error)
+	})
+	if !ok {
+		return ProductionBomOutputBinding{}, fmt.Errorf("production BOM output binding unsupported")
+	}
+	return binder.BindProductionBomOutput(ctx, cmd)
 }
 
 type SetBomSourceCommand struct {

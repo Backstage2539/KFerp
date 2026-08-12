@@ -265,6 +265,9 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 	if err != nil {
 		return productionapp.StartResult{}, err
 	}
+	if err := ensureWIPStockForStartGroupsTx(ctx, tx, r.schema, groups, legacyPlanItemIDs); err != nil {
+		return productionapp.StartResult{}, err
+	}
 	for _, group := range groups {
 		if group.NeedG <= 0 {
 			continue
@@ -397,6 +400,60 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		return productionapp.StartResult{}, err
 	}
 	return productionapp.StartResult{BatchID: batchID}, nil
+}
+
+func ensureWIPStockForStartGroupsTx(ctx context.Context, tx pgx.Tx, schema string, groups []startRunGroup, planItemIDs map[string]int64) error {
+	allNeeds := make([]materialConsumptionNeed, 0)
+	for _, group := range groups {
+		if group.NeedG <= 0 {
+			continue
+		}
+		inputG := group.InputG
+		materialSnapshot := []byte("[]")
+		if planItemID := planItemIDs[startRunGroupKey(group)]; planItemID > 0 {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT planned_g,COALESCE(component_snapshot_json,'[]'::jsonb)::text
+				FROM %s.production_plan_items
+				WHERE id=$1
+			`, schema), planItemID).Scan(&inputG, &materialSnapshot); err != nil {
+				return err
+			}
+		}
+		plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
+		run := ProduceRunRow{
+			Product:             group.ProductName,
+			ProductID:           group.ProductID,
+			SpecG:               group.SpecG,
+			NeedG:               group.NeedG,
+			InputG:              inputG,
+			BomYieldRate:        1,
+			PlanUnits:           plan.Units,
+			PlanLooseG:          plan.LooseG,
+			OperationTemplateID: group.OperationTemplateID,
+			Outputs:             group.Outputs,
+		}
+		if group.SpecG > 0 {
+			if strings.TrimSpace(string(materialSnapshot)) == "" || strings.TrimSpace(string(materialSnapshot)) == "[]" {
+				var err error
+				materialSnapshot, err = buildMaterialSnapshotForRunningItemTx(ctx, tx, schema, run)
+				if err != nil {
+					return err
+				}
+			}
+			needs, err := runningItemWorkOrderMaterialNeedsTx(ctx, tx, schema, 0, run, materialSnapshot)
+			if err != nil {
+				return err
+			}
+			allNeeds = append(allNeeds, needs...)
+			continue
+		}
+		needs, err := materialNeedsForRunOutputsTx(ctx, tx, schema, run, group.Outputs)
+		if err != nil {
+			return err
+		}
+		allNeeds = append(allNeeds, needs...)
+	}
+	return ensureWIPStockForNeedsTx(ctx, tx, schema, allNeeds)
 }
 
 func startNeedRefs(needs []productionapp.StartNeed) []string {

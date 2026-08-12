@@ -122,6 +122,13 @@ func TestRepairLegacyProductionBomBindingsPostgresOnce(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
+	var typedOutputBindingsMissing bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NULL`, schema+`.production_bom_output_bindings`).Scan(&typedOutputBindingsMissing); err != nil {
+		t.Fatal(err)
+	}
+	if !typedOutputBindingsMissing {
+		t.Fatal("legacy fixture must not contain production_bom_output_bindings")
+	}
 
 	if err := repairLegacyProductionBomBindings(ctx, pool, schema); err != nil {
 		t.Fatal(err)

@@ -64,14 +64,14 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		`"materials"`,
 		`"plan_rows"`,
 		`"final_input_g":2000`,
-		`"qty":938`,
-		`"qty":313`,
+		`"qty":750`,
+		`"qty":250`,
 		`"wip_g":100`,
 		`"available_g":100`,
 		`"raw_g":400`,
 		`"wip_transfer_suggestion_g":400`,
-		`"shortage_g":438`,
-		`"purchase_suggestion_g":438`,
+		`"shortage_g":250`,
+		`"purchase_suggestion_g":250`,
 		`"bom_summary_error":"product BOM not configured: 曲奇拼配"`,
 	} {
 		if !strings.Contains(body, needle) {

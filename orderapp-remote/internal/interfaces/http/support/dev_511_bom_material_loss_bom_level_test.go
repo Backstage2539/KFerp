@@ -23,7 +23,7 @@ func TestDev511BomMaterialLossBomLevelContracts(t *testing.T) {
 		},
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"): {
 			"PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL",
-			"开启后组件消耗单位只能使用比例 %",
+			"固定用量包材",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL",

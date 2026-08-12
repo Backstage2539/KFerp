@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as bomLib from './bom.js'
+import { businessGroupInlineListState, businessGroupVisibleRows } from './business-grouping.js'
 import {
   bomContextCustomerIDs,
   normalizeProductionBomName,
@@ -17,102 +18,53 @@ import {
   bomProductOptionLabel,
 } from './bom.js'
 
-test('production BOM accordion paginates only the active top-level group and treats unclassified as a peer', () => {
-  assert.equal(
-    typeof bomLib.productionBomAccordionPageState,
-    'function',
-    'BOM list should own one accordion pagination helper',
-  )
+test('production BOM inline categories paginate every category independently and keep parent direct rows', () => {
+  assert.equal(typeof bomLib.productionBomAccordionPageState, 'undefined')
   const groups = [
-    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 12, rows: [] },
-    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
+    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 14, rows: [] },
+    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 31 }, { id: 32 }] },
     { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: Array.from({ length: 12 }, (_, index) => ({ id: index + 1 })) },
     { key: 'business-template-10', label: '挂耳', group_id: 10, group_item_id: 0, is_template_group: true, template_total: 2, rows: [] },
     { key: 'business-group-10-101', label: '盒装', group_id: 10, group_item_id: 101, parent_group_item_id: 0, rows: [{ id: 21 }, { id: 22 }] },
-    { key: 'business-group-unclassified', label: '未分类', group_id: 0, group_item_id: 0, unclassified: true, rows: Array.from({ length: 96 }, (_, index) => ({ id: index + 101 })) },
+    { key: 'business-group-unclassified', label: '未分类', group_id: 0, group_item_id: 0, unclassified: true, rows: Array.from({ length: 25 }, (_, index) => ({ id: index + 101 })) },
   ]
 
-  const first = bomLib.productionBomAccordionPageState?.(groups, { page: 1, pageSize: 10 }) || {}
-  assert.equal(first.expandedGroupKey, 'business-template-9')
-  assert.equal(first.total, 12)
-  assert.equal(first.needsPagination, true)
-  assert.deepEqual(first.visibleRows?.map((row) => row.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-  assert.deepEqual(first.groups?.map((group) => group.key), [
-    'business-template-9',
-    'business-group-9-90',
-    'business-group-9-91',
-    'business-template-10',
-    'business-group-unclassified',
-  ])
-
-  const second = bomLib.productionBomAccordionPageState?.(groups, {
-    expandedGroupKey: 'business-template-10',
-    page: 1,
-    pageSize: 10,
-  }) || {}
-  assert.equal(second.total, 2)
-  assert.deepEqual(second.visibleRows?.map((row) => row.id), [21, 22])
-  assert.equal(second.groups?.some((group) => group.key === 'business-group-9-91'), false)
-
-  const unclassified = bomLib.productionBomAccordionPageState?.(groups, {
-    expandedGroupKey: 'business-group-unclassified',
-    page: 1,
-    pageSize: 10,
-  }) || {}
-  assert.equal(unclassified.total, 96)
-  assert.deepEqual(unclassified.visibleRows?.map((row) => row.id), [101, 102, 103, 104, 105, 106, 107, 108, 109, 110])
-  assert.deepEqual(
-    unclassified.groups?.find((group) => group.unclassified)?.rows?.map((row) => row.id),
-    [101, 102, 103, 104, 105, 106, 107, 108, 109, 110],
-  )
-})
-
-test('production BOM accordion excludes collapsed categories and keeps no-template lists paginated', () => {
-  const grouped = [
-    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 12, rows: [] },
-    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
-    { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: Array.from({ length: 12 }, (_, index) => ({ id: index + 1 })) },
-  ]
-  const collapsed = bomLib.productionBomAccordionPageState?.(grouped, {
-    expandedGroupKey: 'business-template-9',
-    collapsedCategoryKeys: ['business-group-9-91'],
-    page: 2,
-    pageSize: 10,
-  }) || {}
-  assert.equal(collapsed.total, 0)
-  assert.equal(collapsed.rawTotal, 12)
-  assert.equal(collapsed.page, 1)
-  assert.deepEqual(collapsed.visibleRows, [])
-  assert.equal(collapsed.groups?.some((group) => group.key === 'business-group-9-91'), true)
-
-  const flatRows = Array.from({ length: 25 }, (_, index) => ({ id: index + 1 }))
-  const flat = bomLib.productionBomAccordionPageState?.([
-    { key: 'all-products', label: '全部 BOM', group_id: 0, group_item_id: 0, all: true, rows: flatRows },
-  ], { page: 2, pageSize: 10 }) || {}
-  assert.equal(flat.expandedGroupKey, 'all-products')
-  assert.equal(flat.total, 25)
-  assert.equal(flat.page, 2)
-  assert.deepEqual(flat.visibleRows?.map((row) => row.id), [11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
-  assert.deepEqual(flat.groups?.[0]?.rows?.map((row) => row.id), [11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
-})
-
-test('production BOM accordion keeps empty templates compact and distinguishes collapsed content from true empty state', () => {
-  const groups = [
-    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 0, rows: [] },
-    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [] },
-    { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: [] },
-    { key: 'business-template-10', label: '挂耳', group_id: 10, group_item_id: 0, is_template_group: true, template_total: 1, rows: [] },
-    { key: 'business-group-10-101', label: '盒装', group_id: 10, group_item_id: 101, parent_group_item_id: 0, rows: [{ id: 21 }] },
-  ]
-
-  const empty = bomLib.productionBomAccordionPageState(groups, {
-    expandedGroupKey: 'business-template-9',
-    page: 1,
-    pageSize: 10,
+  const state = businessGroupInlineListState(groups, {
+    'business-group-9-91': { page: 2, pageSize: 10 },
+    'business-group-10-101': { page: 1, pageSize: 10 },
+    'business-group-unclassified': { page: 3, pageSize: 10 },
   })
-  assert.equal(empty.rawTotal, 0)
-  assert.equal(empty.total, 0)
-  assert.deepEqual(empty.groups.map((group) => group.key), ['business-template-9', 'business-template-10'])
+  const byKey = new Map(state.groups.map((group) => [group.key, group]))
+  assert.deepEqual(byKey.get('business-group-9-90').rows.map((row) => row.id), [31, 32], 'parent-assigned BOMs must not disappear')
+  assert.deepEqual(byKey.get('business-group-9-91').rows.map((row) => row.id), [11, 12])
+  assert.deepEqual(byKey.get('business-group-10-101').rows.map((row) => row.id), [21, 22])
+  assert.deepEqual(byKey.get('business-group-unclassified').rows.map((row) => row.id), [121, 122, 123, 124, 125])
+  assert.equal(byKey.get('business-group-9-91').total, 12)
+  assert.equal(byKey.get('business-group-unclassified').page, 3)
+  assert.deepEqual(state.pagination['business-group-9-90'], { page: 1, pageSize: 10 })
+})
+
+test('production BOM inline categories hide collapsed descendants from selection without changing their pages', () => {
+  const grouped = [
+    { key: 'business-template-9', label: '咖啡豆', group_id: 9, group_item_id: 0, is_template_group: true, template_total: 3, rows: [] },
+    { key: 'business-group-9-90', label: '熟豆', group_id: 9, group_item_id: 90, parent_group_item_id: 0, rows: [{ id: 30 }] },
+    { key: 'business-group-9-91', label: '拼配', group_id: 9, group_item_id: 91, parent_group_item_id: 90, rows: [{ id: 31 }, { id: 32 }] },
+    { key: 'business-group-unclassified', label: '未分类', group_id: 0, group_item_id: 0, unclassified: true, rows: [{ id: 40 }] },
+  ]
+  const state = businessGroupInlineListState(grouped, { 'business-group-9-91': { page: 1, pageSize: 10 } })
+  assert.deepEqual(businessGroupVisibleRows(state.groups, []).map((row) => row.id), [30, 31, 32, 40])
+  assert.deepEqual(businessGroupVisibleRows(state.groups, ['business-group-9-90']).map((row) => row.id), [40])
+  assert.deepEqual(state.pagination['business-group-9-91'], { page: 1, pageSize: 10 })
+})
+
+test('production BOM inline categories keep no-template flat lists independently paginated', () => {
+  const rows = Array.from({ length: 25 }, (_, index) => ({ id: index + 1 }))
+  const state = businessGroupInlineListState([
+    { key: 'all-products', label: '全部 BOM', group_id: 0, group_item_id: 0, all: true, rows },
+  ], { 'all-products': { page: 2, pageSize: 10 } })
+  assert.equal(state.groups[0].total, 25)
+  assert.equal(state.groups[0].page, 2)
+  assert.deepEqual(state.groups[0].rows.map((row) => row.id), [11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
 })
 
 test('BOM context shows public and current-customer SKUs while hiding other customers and green beans', () => {
@@ -169,21 +121,25 @@ test('BOM output selector includes active green beans while finished-product com
 
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
-  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
-  const componentTemplate = componentSource.split('<script setup>')[0] || componentSource
-  const toolbar = source.match(/<BusinessGroupControls[\s\S]*?\/>/)?.[0] || ''
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
+  const controlsSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspace = source.match(/<BusinessGroupInlineWorkspace[\s\S]*?<\/BusinessGroupInlineWorkspace>/)?.[0] || ''
 
-  assert.match(toolbar, /@move="moveSelectedProductBomsToGroup"/)
-  assert.match(componentSource, /移动到分类/)
-  assert.match(componentSource, /目标分类/)
-  assert.ok(componentTemplate.indexOf('{{ moveLabel }}') < componentTemplate.indexOf('目标分类'), '移动到分类 button should be left of 目标分类')
+  assert.match(workspace, /@move="beginProductionBomCategoryMove"/)
+  assert.match(workspace, /@target="handleProductionBomCategoryMoveTarget"/)
+  assert.match(workspace, /:move-active="productionBomCategoryMoveActive"/)
+  assert.match(controlsSource, /移动到分类/)
+  assert.doesNotMatch(controlsSource, /目标分类|<select/)
+  assert.match(workspaceSource, /请选择要移动到的分类/)
+  assert.match(workspaceSource, /emit\('target'/)
 	assert.match(source, /outputProductOptions = computed\(\(\) => products\.value\.filter\(isProductionBomOutputProductCandidate\)/)
 	assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
-  assert.match(componentSource, /前往分组模板/)
+  assert.match(workspaceSource, /前往分组模板/)
+  assert.match(workspaceSource, /设置分组模板/)
   assert.match(source, /\/api\/business-group-assignments/)
   assert.match(source, /businessGroupMoveAssignmentPayload/)
   assert.match(source, /businessGroupControlOptions/)
-  assert.doesNotMatch(toolbar, /组内分类|新增小分类|移动到小分类|目标小分类/)
+  assert.doesNotMatch(workspace, /组内分类|新增小分类|移动到小分类|目标小分类/)
   assert.doesNotMatch(source, /groupDrawerOpen/)
   assert.doesNotMatch(source, /groupCategoryDrawerOpen/)
   assert.match(source, /isSystemDefaultBusinessGroup/)
@@ -323,20 +279,20 @@ test('production BOM list name hides the code, generated suffix, and version', (
   }
 })
 
-test('BOM view can set the output product default BOM with the current published version', async () => {
+test('BOM view can set the typed output default BOM while preserving the product endpoint', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /设为产出商品默认 BOM/)
+  assert.match(source, /设为产出对象默认 BOM/)
   assert.match(source, /currentProductionBomDefaultVersion/)
   assert.match(source, /setCurrentProductionBomAsDefault/)
-  assert.match(source, /\/api\/products\/\$\{productID\}\/default-production-bom/)
+  assert.match(source, /\/api\/products\/\$\{outputID\}\/default-production-bom/)
   assert.match(source, /default_production_bom_id:\s*bomID/)
   assert.doesNotMatch(source, /production_bom_version_id:\s*versionID/)
   assert.doesNotMatch(source, /production_bom_version_id:\s*selectedProductionBomVersionID/)
 })
 
-test('BOM version settings expose material loss switch and ratio-only explanation', async () => {
+test('BOM version settings separate loss materials from fixed packaging without changing item storage', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -346,9 +302,18 @@ test('BOM version settings expose material loss switch and ratio-only explanatio
   assert.match(source, /损耗比例 %/)
   assert.match(source, /material_loss_rate/)
   assert.match(source, /versionMaterialLossRateEnabled/)
-  assert.match(source, /开启后组件消耗单位只能使用比例 %/)
+  assert.match(source, /损耗只作用于物料的比例 % 行/)
   assert.match(source, /selectedVersionMaterialLossRate/)
-  assert.match(source, /materialLossRatioOnlyConsumeUnitOptions/)
+  assert.match(source, /有损耗的配方/)
+  assert.match(source, /无损耗的配方/)
+  assert.doesNotMatch(source, /比例用量应用当前 BOM 原料损耗比/)
+  assert.doesNotMatch(source, /固定用量和商品组件不参与原料损耗/)
+  assert.match(source, /selectedMaterialLossZone/)
+  assert.match(source, /selectMaterialLossZone/)
+  assert.match(source, /detailItemSections/)
+  assert.match(source, /componentInventoryConsumeUnitOptions/)
+  assert.doesNotMatch(source, /<option value="product" :disabled="versionMaterialLossRateEnabled">/)
+  assert.doesNotMatch(source, /versionMaterialLossRateEnabled\.value \? 'ratio_pct'/)
   assert.match(source, /不含原料损耗/)
   assert.match(source, /materialLossRateDisplay/)
   assert.match(source, /配方比例 ÷ \(1 - 原料损耗率\)/)
@@ -377,7 +342,8 @@ test('BOM version editor exposes process route selector and route labels', async
 test('BOM view exposes grouped manufacturing BOM library and no longer edits product-bound production config fields', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
-  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
+  const controlsSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
   assert.match(source, /生产 BOM（制造主档）/)
@@ -394,13 +360,15 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.doesNotMatch(source, /searchParams\.get\('return_product_id'\)/)
   assert.match(appSource, /transientReturnNavigation/)
   assert.match(appSource, /returnNavigation/)
-  assert.match(source, /BusinessGroupControls/)
+  assert.match(source, /BusinessGroupInlineWorkspace/)
+  assert.doesNotMatch(source, /<BusinessGroupWorkspace/)
   assert.match(source, /productionBomDisplayGroups/)
-  assert.match(componentSource, /前往分组模板/)
-  assert.match(componentSource, /移动到分类/)
+  assert.match(workspaceSource, /前往分组模板/)
+  assert.match(workspaceSource, /设置分组模板/)
+  assert.match(controlsSource, /移动到分类/)
   assert.match(source, /key:\s*'groupTemplates'/)
   assert.match(source, /returnNavigation/)
-  assert.match(source, /bom-list-toolbar/)
+  assert.match(source, /bom-business-group-inline-workspace/)
   assert.doesNotMatch(source, /bom-list-tabs-row/)
   assert.match(source, /bom-list-filters/)
   assert.match(source, /bom-list-panel-scroll/)
@@ -412,7 +380,7 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.match(source, /openBomRowPrimary/)
   assert.match(source, /@click\.stop="openBomRowPrimary\(row\)"/)
   assert.match(source, /productionBomDetailAsRecipeDetail/)
-  assert.match(source, /await selectUnboundProductionBom\(row\)/)
+  assert.match(source, /await selectUnboundProductionBom\(record\)/)
   assert.match(source, /openReferencedProductConfig/)
   assert.match(source, /产出商品/)
   assert.match(source, /返回BOM编辑/)
@@ -421,7 +389,7 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.match(source, /open_product_config_id/)
   assert.match(source, /当前引用/)
   assert.match(source, /删除/)
-  assert.match(componentSource, /前往分组模板/)
+  assert.match(workspaceSource, /business-group-inline-footer/)
   assert.doesNotMatch(source, /openEditProductionBomRecord\(bomRecordFromRow\(row\)\)\s*await selectUnboundProductionBom\(row\)/)
   assert.doesNotMatch(source, /失效当前 BOM/)
   assert.doesNotMatch(source, /async function deleteBom/)
@@ -453,9 +421,11 @@ test('BOM detail keeps version recipe editing without global bag-spec mapping pa
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const detailPanel = template.match(/<section class="panel detail-panel"[\s\S]*?<\/section>/)?.[0] || ''
-  const versionPanel = template.match(/<div v-if="detail" class="detail-subpanel bom-version-panel"[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || ''
+  const detailPanel = template.match(/<section class="bom-settings-detail">[\s\S]*?<\/section>\s*<\/Teleport>/)?.[0] || ''
+  const versionPanel = detailPanel.match(/<div v-if="detail" class="detail-subpanel bom-version-panel"[\s\S]*/)?.[0] || ''
 
+  assert.match(template, /data-bom-settings-drawer/)
+  assert.doesNotMatch(template, /class="panel detail-panel"/)
   assert.match(detailPanel, /BOM版本/)
   assert.match(detailPanel, /复制为新版草稿/)
   assert.match(detailPanel, /已发布版本只读，复制为新版草稿后编辑/)
@@ -497,9 +467,15 @@ test('production BOM name opens the settings drawer and list no longer shows edi
   assert.doesNotMatch(tableBlock, /\{\{ productionBomLabel\(row\) \}\}/)
   assert.doesNotMatch(tableBlock, />编辑<\/button>/)
   assert.match(source, /async function openBomRowPrimary\(row\)[\s\S]*openEditProductionBomRecord\(bomRecordFromRow\(row\)\)/)
+  assert.match(template, /data-bom-settings-drawer/)
+  assert.match(template, /<Teleport v-if="bomDrawerOpen && bomForm\.mode === 'edit'"[\s\S]*BOM 明细[\s\S]*BOM版本[\s\S]*配方明细/)
+  assert.doesNotMatch(template, /class="panel detail-panel"|@click="selectBomRow\(row\)"/)
+  assert.match(source, /if \(pendingProductionBomID\.value > 0\)[\s\S]*await openEditProductionBomRecord\(pendingRecord\)/)
+  assert.match(source, /pendingProductionBomID\.value = Number\(copied\?\.id \|\| 0\)/)
+  assert.match(source, /pendingProductionBomID\.value = Number\(created\?\.id \|\| 0\)/)
 })
 
-test('production BOM list supports status filters name search group tabs and inactive copy actions', async () => {
+test('production BOM list preserves status and name search before inline category grouping and inactive copy actions', async () => {
   const rows = [
     { id: 1, code: 'BOM-001', name: '精品拼配', latest_version_no: 'V001', status: 'active', group_id: 2, group_item_id: 21 },
     { id: 2, code: 'BOM-002', name: '旧版深烘', status: 'inactive', group_id: 2, group_item_id: 21 },
@@ -519,21 +495,24 @@ test('production BOM list supports status filters name search group tabs and ina
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const toolbarStart = template.indexOf('<BusinessGroupControls')
+  const workspaceStart = template.indexOf('<BusinessGroupInlineWorkspace')
   const filtersStart = template.indexOf('<div class="bom-list-filters"')
   const tableStart = template.indexOf('<div class="table-wrap bom-list-panel-scroll"')
-  assert.notEqual(toolbarStart, -1)
+  assert.notEqual(workspaceStart, -1)
   assert.notEqual(filtersStart, -1)
   assert.notEqual(tableStart, -1)
-  const toolbar = template.slice(toolbarStart, filtersStart)
+  const workspaceHead = template.slice(workspaceStart, filtersStart)
   const listFilters = template.slice(filtersStart, tableStart)
   const tableBlock = template.slice(tableStart, template.indexOf('</table>', tableStart))
   const bomRecordForm = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
   for (const marker of [
-    'bom-list-toolbar',
+    'BusinessGroupInlineWorkspace',
+    'bom-business-group-inline-workspace',
     'bom-list-panel-scroll',
-    'productionBomStatusFilter',
+    'filters.status',
     'productionBomSearchQuery',
+    'filterProductionBomRows',
+    'productionBomVisibleRows',
     '新建生产 BOM',
     'BOM版本',
     '复制',
@@ -562,12 +541,22 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(source, /outputUnitMismatchWarning/)
   assert.match(source, /历史版本不会自动回改/)
   assert.doesNotMatch(bomRecordForm, /v-if="bomForm\.mode !== 'edit'"/)
-  assert.ok(toolbarStart < filtersStart, 'group controls should render above list filters')
+  assert.ok(workspaceStart < filtersStart, 'classification workspace should render above and around list filters')
   assert.match(source, /新建生产 BOM/)
-  assert.match(toolbar, /:move-options="productionBomMoveGroupOptions"/)
-  assert.match(toolbar, /@manage="openBusinessGroupManagement"/)
-  assert.match(toolbar, /@move="moveSelectedProductBomsToGroup"/)
+  assert.match(workspaceHead, /:groups="productionBomDisplayGroups"/)
+  assert.match(workspaceHead, /:move-active="productionBomCategoryMoveActive"/)
+  assert.match(workspaceHead, /@move="beginProductionBomCategoryMove"/)
+  assert.match(workspaceHead, /@target="handleProductionBomCategoryMoveTarget"/)
+  assert.match(workspaceHead, /@manage="openBusinessGroupManagement"/)
+  assert.match(workspaceHead, /@configure="openProductionBomGroupFeatureSelectionDrawer"/)
   assert.match(source, /productionBomDisplayGroups/)
+  assert.match(source, /function filterProductionBomRows\(rows = \[\]\)[\s\S]*filterProductionBomCatalog\(rows,\s*\{[\s\S]*status:\s*filters\.status,[\s\S]*query:\s*productionBomSearchQuery\.value/)
+  assert.match(source, /businessGroupInlineListState\(\s*fullProductionBomDisplayGroups\.value,\s*productionBomPaginationByGroup\.value/)
+  assert.match(source, /businessGroupVisibleRows\(\s*productionBomDisplayGroups\.value,\s*collapsedProductionBomGroups\.value/)
+  assert.match(source, /visibleMovableBomRows = computed\(\(\) => productionBomVisibleRows\.value\.filter\(isMovableBomRow\)\)/)
+  assert.match(template, /#group="\{ group \}"/)
+  assert.match(tableBlock, /v-for="row in group\.rows"/)
+  assert.doesNotMatch(source, /businessGroupGroupsForCategorySelection|selectedProductionBomCategoryKey|productionBomAccordionPageState/)
   assert.doesNotMatch(source, /productionBomUsedGroupOptions/)
   assert.doesNotMatch(source, /selectedProductionBomGroupItemID/)
   assert.doesNotMatch(tableBlock, /<th>分组<\/th>/)
@@ -591,7 +580,7 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.notEqual(headStart, -1)
   assert.notEqual(headEnd, -1)
   const listHead = source.slice(headStart, headEnd)
-  assert.match(listHead, /productionBomStatusFilter/)
+  assert.match(listHead, /filters\.status/)
   assert.match(listHead, /productionBomSearchQuery/)
   assert.match(listHead, /deactivateSelectedProductionBoms/)
   assert.match(source, /createVersion/)
@@ -612,38 +601,48 @@ test('production BOM list supports status filters name search group tabs and ina
 test('production BOM uses generic business group assignment instead of its own group logic', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
-  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
+  const controlsSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
+  const handlerStart = source.indexOf('async function handleProductionBomCategoryMoveTarget')
   const moveStart = source.indexOf('async function moveSelectedProductBomsToGroup')
   const moveEnd = source.indexOf('async function deactivateProductionBomRecords', moveStart)
   const saveStart = source.indexOf('async function saveProductionBomRecord')
   const saveEnd = source.indexOf('async function deactivateProductionBomRecord', saveStart)
   const moveSource = source.slice(moveStart, moveEnd)
+  const handlerSource = source.slice(handlerStart, moveStart)
   const saveSource = source.slice(saveStart, saveEnd)
-  const toolbarStart = template.indexOf('<BusinessGroupControls')
+  const workspaceStart = template.indexOf('<BusinessGroupInlineWorkspace')
   const filtersStart = template.indexOf('<div class="bom-list-filters"')
-  assert.notEqual(toolbarStart, -1)
+  assert.notEqual(workspaceStart, -1)
   assert.notEqual(filtersStart, -1)
-  const toolbar = template.slice(toolbarStart, filtersStart)
+  const workspace = template.slice(workspaceStart, filtersStart)
 
   for (const marker of [
     '/api/business-group-assignments',
     'businessGroupMoveAssignmentPayload',
     'businessGroupControlOptions',
     'groupRowsByBusinessGroupTemplate',
-    'productionBomMoveGroupOptions',
+    'businessGroupInlineListState',
+    'businessGroupVisibleRows',
     'productionBomDisplayGroups',
-    'selectedProductionBomTemplateID',
+    'productionBomPaginationByGroup',
+    'productionBomCategoryMoveActive',
+    'handleProductionBomCategoryMoveTarget',
     "usage_key: 'production_bom'",
     "object_key: 'production_bom'",
     'openBusinessGroupManagement',
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
-  assert.match(componentSource, /选择分组模板/)
-  assert.match(componentSource, /移动到分类/)
-  assert.match(toolbar, /:move-options="productionBomMoveGroupOptions"/)
+  assert.match(workspaceSource, /请选择要移动到的分类/)
+  assert.match(workspaceSource, /emit\('target'/)
+  assert.match(controlsSource, /移动到分类/)
+  assert.doesNotMatch(controlsSource, /目标分类|<select/)
+  assert.match(workspace, /:groups="productionBomDisplayGroups"/)
+  assert.match(workspace, /@target="handleProductionBomCategoryMoveTarget"/)
   assert.doesNotMatch(source, /productionBomUsedGroupOptions/)
+  assert.doesNotMatch(source, /businessGroupGroupsForCategorySelection|selectedProductionBomCategoryKey|productionBomAccordionPageState/)
   assert.doesNotMatch(source, /productionBomUsedGroupItemIDs/)
   assert.doesNotMatch(source, /businessGroupItemMoveOptions/)
   assert.doesNotMatch(source, /selectedProductionBomUseGroupID/)
@@ -669,61 +668,75 @@ test('production BOM uses generic business group assignment instead of its own g
   }
   assert.notEqual(moveStart, -1)
   assert.notEqual(moveEnd, -1)
+  assert.notEqual(handlerStart, -1)
   assert.notEqual(saveStart, -1)
   assert.notEqual(saveEnd, -1)
   assert.match(moveSource, /apiSend\('\/api\/business-group-assignments'/)
+  assert.match(moveSource, /clearProductionBomBusinessGroupAssignment\(bom\.id\)/)
+  assert.match(moveSource, /selectedBomRowKeys\.value = \[\]/)
+  assert.match(moveSource, /completed = true/)
+  assert.match(handlerSource, /const completed = await moveSelectedProductBomsToGroup\(target\)/)
+  assert.match(handlerSource, /if \(completed\) productionBomCategoryMoveActive\.value = false/)
+  assert.doesNotMatch(handlerSource, /finally[\s\S]*productionBomCategoryMoveActive\.value = false/)
+  assert.doesNotMatch(moveSource, /window\.confirm/)
   assert.doesNotMatch(moveSource, /\/api\/production-boms\/\$\{bom\.id\}/)
   assert.doesNotMatch(saveSource, /group_id:/)
   assert.doesNotMatch(saveSource, /group_category_id:/)
   assert.doesNotMatch(source, /\/api\/production-bom-groups\/\$\{groupID\}\/categories/)
   assert.doesNotMatch(source, /\/api\/production-bom-group-categories\/\$\{categoryForm\.id\}/)
-  assert.doesNotMatch(source, /全部分类/)
+  assert.match(workspaceSource, /allLabel:\s*\{\s*type:\s*String,\s*default:\s*'全部分类'/)
   assert.doesNotMatch(source, /bom-list-tabs-row/)
   assert.match(source, /version\.status === 'published'/)
   assert.match(source, /copyVersionAsDraft/)
   assert.match(source, /loadProductionBomDetailForVersion\(currentProductionBomID\.value,\s*versionID\)/)
 })
 
-test('production BOM move target stays selectable after selecting a BOM row', async () => {
+test('production BOM move mode starts from selected rows and exits only after a successful immediate target', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
-  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
+  const controlsSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const toolbarStart = template.indexOf('<BusinessGroupControls')
+  const workspaceStart = template.indexOf('<BusinessGroupInlineWorkspace')
   const filtersStart = template.indexOf('<div class="bom-list-filters"')
-  const toolbar = template.slice(toolbarStart, filtersStart)
+  const workspace = template.slice(workspaceStart, filtersStart)
 
-  assert.match(toolbar, /:can-move="canMoveSelectedBoms"/)
-  assert.match(toolbar, /:can-select-target="canSelectBomMoveTarget"/)
-  assert.match(source, /const canSelectBomMoveTarget = computed\(\(\) => selectedBomRecordsForMove\.value\.length > 0\)/)
-  assert.match(componentSource, /canSelectTargetEffective/)
-  assert.match(componentSource, /:disabled="!canSelectTargetEffective \|\| loading"/)
-  assert.match(componentSource, /:disabled="!canMove \|\| loading"/)
+  assert.match(workspace, /:can-move="canBeginProductionBomCategoryMove"/)
+  assert.match(workspace, /:move-active="productionBomCategoryMoveActive"/)
+  assert.match(workspace, /@move="beginProductionBomCategoryMove"/)
+  assert.match(workspace, /@cancel="cancelProductionBomCategoryMove"/)
+  assert.match(workspace, /@target="handleProductionBomCategoryMoveTarget"/)
+  assert.match(source, /const canBeginProductionBomCategoryMove = computed\(\(\) => Boolean\([\s\S]*productionBomSelectedBusinessGroups\.value\.length && selectedBomRecordsForMove\.value\.length/)
+  assert.match(source, /function beginProductionBomCategoryMove\(\)[\s\S]*productionBomCategoryMoveActive\.value = true/)
+  assert.match(source, /async function handleProductionBomCategoryMoveTarget\(target\)[\s\S]*const completed = await moveSelectedProductBomsToGroup\(target\)[\s\S]*if \(completed\) productionBomCategoryMoveActive\.value = false/)
+  assert.match(workspaceSource, /请选择要移动到的分类/)
+  assert.match(workspaceSource, /emit\('target'/)
+  assert.match(controlsSource, /:disabled="loading \|\| \(!moveActive && !canMove\)"/)
+  assert.doesNotMatch(controlsSource, /目标分类|<select/)
 })
 
-test('production BOM list is grouped by template tree without category filter tabs', async () => {
+test('production BOM list renders all filtered categories inline with group-keyed pagination', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
-  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const listBlock = template.slice(
-    template.indexOf('<section class="panel list-panel">'),
-    template.indexOf('<aside class="panel detail-panel">'),
-  )
+  const listBlock = template.match(/<section class="panel list-panel">[\s\S]*?<\/BusinessGroupInlineWorkspace>\s*<\/section>/)?.[0] || ''
 
-  assert.match(source, /BusinessGroupControls/)
+  assert.match(source, /BusinessGroupInlineWorkspace/)
+  assert.doesNotMatch(source, /<BusinessGroupWorkspace/)
   assert.match(source, /groupRowsByBusinessGroupTemplate/)
-  assert.match(componentSource, /选择分组模板/)
-  assert.match(componentSource, /移动到分类/)
-  assert.match(listBlock, /v-for="group in productionBomDisplayGroups"/)
+  assert.match(listBlock, /v-model:collapsed-keys="collapsedProductionBomGroups"/)
+  assert.match(listBlock, /:groups="productionBomDisplayGroups"/)
+  assert.match(listBlock, /#group="\{ group \}"/)
+  assert.match(listBlock, /v-for="row in group\.rows"/)
   assert.match(source, /groupRowsByBusinessGroupTemplates\(/)
-  assert.match(source, /skuGroupHiddenByCollapsedAncestor/)
-  assert.match(listBlock, /group\.is_template_group/)
-  assert.match(listBlock, /classification-template-row/)
-  assert.match(listBlock, /group\.template_total/)
+  assert.match(source, /businessGroupInlineListState\(\s*fullProductionBomDisplayGroups\.value,\s*productionBomPaginationByGroup\.value/)
+  assert.match(source, /businessGroupVisibleRows\(\s*productionBomDisplayGroups\.value,\s*collapsedProductionBomGroups\.value/)
+  assert.match(listBlock, /<thead>[\s\S]*BOM名称/)
+  assert.match(listBlock, /<PaginationControls[\s\S]*@change="handleProductionBomGroupPaginationChange\(group\.key, \$event\)"/)
+  assert.match(source, /function productionBomGroupShowsTable\(group = \{\}\)[\s\S]*parent_group_item_id/)
+  assert.match(source, /function handleProductionBomGroupPaginationChange\(groupKey, \{ page, pageSize \} = \{\}\)/)
+  assert.doesNotMatch(source, /selectedProductionBomCategoryKey|productionBomAccordionPageState|expandedProductionBomGroupKey|productionBomListPage/)
   assert.doesNotMatch(listBlock, /bom-list-tabs-row/)
-  assert.doesNotMatch(listBlock, /全部分类/)
-  assert.doesNotMatch(listBlock, /@click="selectProductionBomGroupItem/)
   assert.doesNotMatch(source, /productionBomUsedGroupOptions/)
   assert.doesNotMatch(source, /filterProductionBomCatalog\(productionBoms\.value,[\s\S]*groupItemID:/)
 })
@@ -731,11 +744,9 @@ test('production BOM list is grouped by template tree without category filter ta
 test('production BOM group template config opens from a drawer like warehouse inventory, not inline', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const listPanel = template.slice(
-    template.indexOf('<section class="panel list-panel">'),
-    template.indexOf('<section class="panel detail-panel">'),
-  )
+  const listPanel = template.match(/<section class="panel list-panel">[\s\S]*?<\/BusinessGroupInlineWorkspace>\s*<\/section>/)?.[0] || ''
 
   // Template selection (checkboxes + save) lives in a drawer, not inline in the list panel.
   assert.match(source, /productionBomGroupFeatureDrawerOpen/)
@@ -743,65 +754,104 @@ test('production BOM group template config opens from a drawer like warehouse in
   assert.doesNotMatch(listPanel, /data-feature-key="production_bom"/)
   assert.match(source, /v-if="productionBomGroupFeatureDrawerOpen"[\s\S]*data-feature-key="production_bom"/)
 
-  // A compact "设置分组模板" entry is exposed in the controls extra-actions and the empty state.
-  assert.match(source, /<template #extra-actions>[\s\S]*设置分组模板/)
-  assert.match(source, /尚未选择分组模板，当前平铺展示[\s\S]*设置分组模板/)
+  // Both template actions stay in the shared inline workspace footer.
+  assert.match(source, /<BusinessGroupInlineWorkspace[\s\S]*@manage="openBusinessGroupManagement"[\s\S]*@configure="openProductionBomGroupFeatureSelectionDrawer"/)
+  assert.match(workspaceSource, /business-group-inline-footer/)
+  assert.match(workspaceSource, /前往分组模板/)
+  assert.match(workspaceSource, /设置分组模板/)
+  assert.doesNotMatch(listPanel, /尚未选择分组模板，当前平铺展示/)
 
   // Saving the selection closes the drawer.
   assert.match(source, /productionBomGroupFeatureDrawerOpen\.value = false/)
 })
 
-test('production BOM grouping toolbar is a compact single row and the list window matches the detail panel height', async () => {
+test('production BOM inline workspace restores browse state around immediate movement and keeps the list full width', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
-  const style = source.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] || ''
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
 
-  // All grouping actions sit on one row on wide screens and no more than two rows on narrow screens.
-  assert.match(style, /\.bom-business-group-controls\s*\{[^}]*display:\s*(?:flex|grid)/)
-  assert.match(style, /\.bom-business-group-controls\s+:deep\(label span\)\s*\{[^}]*display:\s*inline/)
-  // List panel stretches to be at least as tall as the detail panel so group headers do not dominate the window.
+  assert.match(workspaceSource, /moveSnapshot\.value = \{[\s\S]*collapsedKeys:[\s\S]*scrollTop:/)
+  assert.match(workspaceSource, /emit\('update:collapsedKeys', \[\]\)/)
+  assert.match(workspaceSource, /workspaceScroll\.value\.scrollTop = snapshot\.scrollTop/)
+  assert.match(workspaceSource, /business-group-inline-disabled[^}]*pointer-events:\s*none/)
   assert.match(source, /\.grid\s*\{[^}]*align-items:\s*stretch/)
+  assert.match(source, /\.grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/)
   assert.match(source, /\.list-panel\s*\{[^}]*display:\s*flex/)
-  assert.match(source, /\.bom-list-panel-scroll\s*\{[^}]*flex:/)
-  assert.doesNotMatch(source, /bom-list-panel-scroll\s*\{[^}]*max-height:\s*min\(62vh/)
+  assert.match(source, /\.bom-business-group-inline-workspace\s*\{[^}]*flex:/)
+  assert.doesNotMatch(source, /class="panel detail-panel"/)
   assert.equal(source.slice(source.lastIndexOf('</style>') + '</style>'.length).trim(), '', 'BOM styles must stay inside the scoped style block')
 })
 
-test('production BOM list removes the long description and uses one accordion-owned pagination control', async () => {
+test('production BOM repeats the table header and owns one pager per rendered category', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const listPanel = template.slice(
-    template.indexOf('<section class="panel list-panel">'),
-    template.indexOf('<section class="panel detail-panel">'),
-  )
+  const listPanel = template.match(/<section class="panel list-panel">[\s\S]*?<\/BusinessGroupInlineWorkspace>\s*<\/section>/)?.[0] || ''
 
   assert.doesNotMatch(listPanel, /生产 BOM 是生产端主档案/)
   assert.equal((listPanel.match(/<PaginationControls/g) || []).length, 1)
-  assert.match(source, /expandedProductionBomGroupKey/)
-  assert.match(source, /productionBomAccordionPageState/)
-  assert.match(source, /productionBomListState\.value\.visibleRows/)
-  assert.match(listPanel, /!productionBomListState\.rawTotal/)
-  assert.match(source, /function toggleProductionBomTopLevelGroup/)
-  assert.match(source, /productionBomListPage\.value = 1/)
-  assert.ok(listPanel.indexOf('</table>') < listPanel.indexOf('<PaginationControls'), 'single pagination should render after the grouped table')
+  assert.match(listPanel, /#group="\{ group \}"[\s\S]*<table[\s\S]*<thead>[\s\S]*v-for="row in group\.rows"[\s\S]*<PaginationControls/)
+  assert.match(listPanel, /:page="group\.page"/)
+  assert.match(listPanel, /:page-size="group\.pageSize"/)
+  assert.match(listPanel, /:total="group\.total"/)
+  assert.match(source, /productionBomPaginationByGroup/)
+  assert.match(source, /resetProductionBomGroupPages/)
+  assert.doesNotMatch(source, /productionBomAccordionPageState|expandedProductionBomGroupKey|productionBomListState/)
 })
 
-test('production BOM list renders expanded unclassified rows and opts out of the global table paginator', async () => {
+test('production BOM selection and all-select only use expanded category current-page rows', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const listPanel = template.slice(
-    template.indexOf('<section class="panel list-panel">'),
-    template.indexOf('<section class="panel detail-panel">'),
-  )
-  const groupLoop = listPanel.slice(
-    listPanel.indexOf('<template v-for="group in productionBomDisplayGroups"'),
-    listPanel.indexOf('<tr v-if="!productionBomRows.length"'),
-  )
+  const listPanel = template.match(/<section class="panel list-panel">[\s\S]*?<\/BusinessGroupInlineWorkspace>\s*<\/section>/)?.[0] || ''
 
   assert.match(listPanel, /<table[^>]*data-auto-pagination="off"/)
-  assert.match(groupLoop, /v-if="!isProductionBomTopLevelGroup\(group\) && !group\.all"/)
-  assert.match(groupLoop, /<template v-if="!isProductionBomGroupCollapsed\(group\.key\)">[\s\S]*v-for="row in group\.rows"/)
-  assert.doesNotMatch(groupLoop, /<template v-else>[\s\S]*v-for="row in group\.rows"/)
+  assert.match(listPanel, /:checked="isAllVisibleBomsSelected\(group\)"/)
+  assert.match(listPanel, /@change="toggleAllVisibleBoms\(\$event, group\.rows\)"/)
+  assert.match(source, /selectedBomRows = computed\(\(\) => \{[\s\S]*productionBomVisibleRows\.value\.filter/)
+  assert.match(source, /watch\(\[productionBomVisibleRows, productionBomCategoryMoveActive\][\s\S]*if \(productionBomCategoryMoveActive\.value\) return[\s\S]*visibleKeys/)
+  assert.match(source, /businessGroupVisibleRows/)
+  assert.doesNotMatch(listPanel, /@click="selectBomRow\(row\)"/)
+})
+
+test('production BOM output identity supports material and product while preserving legacy product rows', () => {
+  assert.deepEqual(bomLib.productionBomOutputIdentity({
+    output_type: 'material', output_id: 27, output_material_id: 27,
+    output_material_name: '烘焙熟豆', output_material_code: 'MAT-000027', output_unit: 'kg',
+  }), { type: 'material', id: 27, name: '烘焙熟豆', code: 'MAT-000027', unit: 'kg' })
+  assert.deepEqual(bomLib.productionBomOutputIdentity({
+    output_product_id: 88, output_product_name: '227g 咖啡豆', output_product_code: 'SKU-000088',
+  }), { type: 'product', id: 88, name: '227g 咖啡豆', code: 'SKU-000088', unit: '' })
+  assert.deepEqual(bomLib.productionBomOutputPayload({ output_type: 'material', output_id: 27 }), {
+    output_type: 'material', output_id: 27, output_product_id: 0, output_material_id: 27,
+  })
+  assert.deepEqual(bomLib.productionBomOutputPayload({ output_product_id: 88 }), {
+    output_type: 'product', output_id: 88, output_product_id: 88, output_material_id: 0,
+  })
+  assert.equal(bomLib.productionBomOutputLabel({ output_type: 'material', output_material_id: 27, output_material_name: '烘焙熟豆' }), '物料 · 烘焙熟豆')
+  assert.equal(bomLib.productionBomOutputLabel({ output_product_id: 88, output_product_name: '227g 咖啡豆' }), '商品 · 227g 咖啡豆')
+})
+
+test('BOM view edits one ordinary typed output contract and keeps PR596 inline grouping', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
+
+  assert.match(form, /v-model="bomForm\.output_type"/)
+  assert.match(form, /<option value="product">商品<\/option>/)
+  assert.match(form, /<option value="material">物料<\/option>/)
+  assert.match(form, /outputTargetOptions/)
+  assert.match(source, /output_material_id/)
+  assert.match(source, /productionBomOutputPayload/)
+  assert.match(source, /productionBomOutputLabel/)
+  assert.match(template, /<th>产出对象<\/th>/)
+  assert.match(template, /设为产出对象默认 BOM/)
+  assert.match(source, /setCurrentProductionBomAsDefault/)
+  assert.match(source, /\/api\/materials\/\$\{outputID\}\/default-production-bom/)
+  assert.match(source, /\/api\/products\/\$\{outputID\}\/default-production-bom/)
+  assert.match(source, /BusinessGroupInlineWorkspace[\s\S]*productionBomDisplayGroups/)
+  for (const forbidden of ['bom_kind', 'spec_packaging_bom_id', 'semi_finished_packaging_required']) {
+    assert.doesNotMatch(source, new RegExp(forbidden))
+  }
 })

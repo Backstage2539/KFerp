@@ -15,7 +15,7 @@ func TestBomViewUsesVueMaterialOptions(t *testing.T) {
 
 	required := []string{
 		"apiGet('/api/bom/materials')",
-		`:options="materials"`,
+		`:options="materialComponentOptions"`,
 		"@submit.prevent=\"saveItem\"",
 		"/api/product-settings/units",
 		"选择物料",

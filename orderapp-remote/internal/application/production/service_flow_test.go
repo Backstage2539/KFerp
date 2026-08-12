@@ -1303,6 +1303,60 @@ func TestWorkOrderStockDocumentPreviewOpensOnlyTheRequestedDraft(t *testing.T) {
 	}
 }
 
+func TestWorkOrderStockDocumentPreviewUsesTypedOutputAndFrozenTargetWarehouse(t *testing.T) {
+	tests := []struct {
+		name          string
+		workOrder     WorkOrderRow
+		wantItemType  string
+		wantMaterial  int64
+		wantProduct   int64
+		wantQtyG      int64
+		wantQtyUnits  int64
+		wantUnit      string
+		wantWarehouse string
+	}{
+		{
+			name: "material output",
+			workOrder: WorkOrderRow{
+				ID: 88, WorkOrderNo: "WO-MATERIAL-001", Status: "running", RunningItemID: 99,
+				OutputType: "material", OutputMaterialID: 10, OutputName: "烘焙熟豆",
+				OutputQty: 12.7, OutputUnit: "kg", TargetWarehouse: "wip",
+			},
+			wantItemType: "material", wantMaterial: 10, wantQtyG: 12_700,
+			wantUnit: "kg", wantWarehouse: "wip",
+		},
+		{
+			name: "product output with non-default warehouse",
+			workOrder: WorkOrderRow{
+				ID: 89, WorkOrderNo: "WO-PRODUCT-001", Status: "running", RunningItemID: 100,
+				OutputType: "product", OutputProductID: 20, OutputName: "门店咖啡豆",
+				ProductID: 20, ProductName: "门店咖啡豆", SpecG: 227,
+				PlannedUnits: 100, TargetWarehouse: "finished_shop",
+			},
+			wantItemType: "finished_product", wantProduct: 20, wantQtyUnits: 100,
+			wantWarehouse: "finished_shop",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeFlowRepo{workOrders: []WorkOrderRow{tt.workOrder}}
+			preview, err := NewService(repo).PreviewWorkOrderStockDocument(context.Background(), StockDocumentPreviewCommand{ID: tt.workOrder.ID, Action: "finish"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(preview.Document.Items) != 1 {
+				t.Fatalf("preview items=%+v, want one typed output", preview.Document.Items)
+			}
+			item := preview.Document.Items[0]
+			if item.ItemType != tt.wantItemType || item.MaterialID != tt.wantMaterial || item.ProductID != tt.wantProduct ||
+				item.QtyG != tt.wantQtyG || item.QtyUnits != tt.wantQtyUnits || item.InventoryUnit != tt.wantUnit ||
+				item.ToWarehouse != tt.wantWarehouse {
+				t.Fatalf("typed finish preview item=%+v", item)
+			}
+		})
+	}
+}
+
 func TestWorkOrderStockDocumentPreviewPreservesDraftItemsWithoutCurrentWIPShortage(t *testing.T) {
 	repo := &fakeFlowRepo{
 		workOrders: []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PR560-001", Status: "released"}},

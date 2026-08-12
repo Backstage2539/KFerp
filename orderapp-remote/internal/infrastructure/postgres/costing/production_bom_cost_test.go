@@ -75,6 +75,112 @@ func TestResolveProductionBomCostsIncludesProductComponentsAndOperationsWithoutL
 	}
 }
 
+func TestResolveTypedProductionBomCostsUsesManufacturedMaterialRecursively(t *testing.T) {
+	nodes := map[string]productionBomCostNode{
+		"material:20": {
+			OutputType:           "material",
+			OutputID:             20,
+			VersionID:            202,
+			OutputQty:            1,
+			OutputUnit:           "kg",
+			OperationCostPerUnit: 5,
+			Items: []productionBomCostItem{{
+				ID:                  2001,
+				ComponentType:       "material",
+				ComponentMaterialID: 10,
+				ConsumeUnit:         "kg",
+				QtyPerUnit:          1.25,
+				UnitCost:            78,
+				UnitCostUnit:        "kg",
+			}},
+		},
+		"product:30": {
+			OutputType:           "product",
+			OutputID:             30,
+			VersionID:            303,
+			OutputQty:            1,
+			OutputUnit:           "袋",
+			OperationCostPerUnit: 1,
+			Items: []productionBomCostItem{
+				{
+					ID:                  3001,
+					ComponentType:       "material",
+					ComponentMaterialID: 20,
+					ConsumeUnit:         "g_per_bag",
+					QtyPerUnit:          227,
+					// This purchase price must be ignored because material:20 has
+					// a default published manufacturing BOM.
+					UnitCost:     999,
+					UnitCostUnit: "kg",
+				},
+				{
+					ID:                  3002,
+					ComponentType:       "material",
+					ComponentMaterialID: 21,
+					ConsumeUnit:         "unit_per_bag",
+					QtyPerUnit:          1,
+					UnitCost:            0.5,
+					UnitCostUnit:        "个",
+				},
+			},
+		},
+	}
+
+	resolved := resolveTypedProductionBomCosts(nodes)
+	roasted := resolved["material:20"]
+	if !roasted.Resolved || math.Abs(roasted.TotalCostPerOutputUnit-102.5) > 1e-9 {
+		t.Fatalf("manufactured material cost = %+v, want 102.5/kg", roasted)
+	}
+	finished := resolved["product:30"]
+	want := 227.0/1000*102.5 + 0.5 + 1
+	if !finished.Resolved || math.Abs(finished.TotalCostPerOutputUnit-want) > 1e-9 {
+		t.Fatalf("finished SKU cost = %+v, want %.6f", finished, want)
+	}
+	if !finished.HasManufacturedMaterialComponent {
+		t.Fatal("finished SKU must report recursive manufactured-material costing")
+	}
+	if item := finished.ItemCosts[3001]; math.Abs(item.UnitCost-102.5) > 1e-9 || item.CostUnit != "kg" {
+		t.Fatalf("finished roasted component snapshot = %+v, want recursive 102.5/kg", item)
+	}
+}
+
+func TestResolveTypedProductionBomCostsConvertsManufacturedRatioCostAcrossMassUnits(t *testing.T) {
+	nodes := map[string]productionBomCostNode{
+		"material:20": {
+			OutputType:           "material",
+			OutputID:             20,
+			VersionID:            202,
+			OutputQty:            1,
+			OutputUnit:           "g",
+			OperationCostPerUnit: 0.1,
+		},
+		"material:30": {
+			OutputType: "material",
+			OutputID:   30,
+			VersionID:  303,
+			OutputQty:  1,
+			OutputUnit: "kg",
+			Items: []productionBomCostItem{{
+				ID:                  3001,
+				ComponentType:       "material",
+				ComponentMaterialID: 20,
+				ConsumeUnit:         "ratio_pct",
+				RatioPct:            100,
+			}},
+		},
+	}
+
+	resolved := resolveTypedProductionBomCosts(nodes)
+	child := resolved["material:20"]
+	if !child.Resolved || math.Abs(child.TotalCostPerOutputUnit-0.1) > 1e-9 || child.OutputUnit != "g" {
+		t.Fatalf("child cost = %+v, want 0.1/g", child)
+	}
+	parent := resolved["material:30"]
+	if !parent.Resolved || math.Abs(parent.TotalCostPerOutputUnit-100) > 1e-9 {
+		t.Fatalf("parent ratio cost = %+v, want 100/kg after g-to-kg conversion", parent)
+	}
+}
+
 func TestResolveProductionBomCostsAppliesHazelnutBlendMaterialLossOnce(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		658: {
@@ -360,11 +466,13 @@ func TestCostingRepositorySharesResolvedProductionBomCostsBetweenPriceListAndTri
 	}
 	resolverSource := string(resolverBytes)
 	for _, want := range []string{
-		"product_production_configs",
-		"product_production_bom_bindings",
-		"v.status='published'",
+		"production_bom_output_bindings",
+		"output_type",
+		"output_material_id",
+		"version.status='published'",
 		"production_bom_version_operation_costs",
 		"material_batch_locations",
+		"material_id",
 		"component_type",
 		"finished_product",
 	} {

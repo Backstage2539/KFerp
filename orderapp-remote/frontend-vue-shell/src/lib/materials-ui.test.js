@@ -16,8 +16,8 @@ test('warehouse settings opens from selected warehouse while grouping is handled
 
   assert.doesNotMatch(warehouseSource, /:disabled="!selectedWarehouse \|\| !isExternalWarehouse"/)
   assert.match(warehouseSource, /openWarehouseSettingsDrawer/)
-  assert.match(warehouseSource, /BusinessGroupControls/)
-  assert.match(componentSource, /选择分组模板/)
+  assert.match(warehouseSource, /BusinessGroupInlineWorkspace/)
+  assert.doesNotMatch(componentSource, /选择分组模板|目标分类|<select/)
   assert.match(componentSource, /移动到分类/)
   assert.match(warehouseSource, /\/api\/business-group-assignments/)
   assert.doesNotMatch(warehouseSource, /warehouseGroupForm/)
@@ -43,11 +43,11 @@ test('warehouse inventory groups warehouses by template without ordinary custome
   const template = warehouseSource.split('<script setup>')[0] || warehouseSource
   const warehousePanel = template.match(/<aside class="panel warehouse-panel">[\s\S]*?<\/aside>/)?.[0] || template
 
-  assert.match(warehouseSource, /BusinessGroupControls/)
+  assert.match(warehouseSource, /BusinessGroupInlineWorkspace/)
   assert.match(warehouseSource, /groupRowsByBusinessGroupTemplates\(/)
-  assert.match(componentSource, /选择分组模板/)
+  assert.doesNotMatch(componentSource, /选择分组模板|目标分类|<select/)
   assert.match(componentSource, /移动到分类/)
-  assert.doesNotMatch(warehousePanel, /BusinessGroupControls/)
+  assert.doesNotMatch(warehousePanel, /BusinessGroupWorkspace/)
   assert.doesNotMatch(warehousePanel, /v-for="group in warehouseDisplayGroups"/)
   assert.doesNotMatch(warehousePanel, /toggleWarehouseSelection/)
   assert.match(warehousePanel, /warehouse-flat-list/)
@@ -77,8 +77,9 @@ test('warehouse inventory script setup has no stale pre-rename grouping identifi
     assert.doesNotMatch(scriptSetup, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 
-  assert.match(scriptSetup, /watch\(selectedInventoryGroupTemplateID,/)
-  assert.match(scriptSetup, /watch\(inventoryGroupItemOptions,/)
+  assert.match(scriptSetup, /const collapsedInventoryGroupKeys\s*=\s*ref\(\[\]\)/)
+  assert.match(scriptSetup, /const inventoryCategoryMoveActive\s*=\s*ref\(false\)/)
+  assert.match(scriptSetup, /handleInventoryCategoryMoveTarget/)
 })
 
 test('group template page manages categories without business objects', () => {
@@ -102,7 +103,7 @@ test('group template page manages categories without business objects', () => {
 
 test('materials view uses group template classification and editable material records', () => {
   for (const expected of [
-    'BusinessGroupControls',
+    'BusinessGroupInlineWorkspace',
     '新建物料',
     '批量失效',
     'saveMaterial',
@@ -126,42 +127,112 @@ test('materials view uses group template classification and editable material re
   }
 })
 
-test('materials archive classification uses shared group template controls', () => {
+test('materials archive classification uses the shared inline category list without a target dropdown', () => {
   const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
   const listPanelStart = materialsSource.indexOf('<section class="panel material-list-panel">')
   const listPanelSource = materialsSource.slice(listPanelStart)
 
-  assert.match(materialsSource, /BusinessGroupControls/)
+  assert.match(materialsSource, /BusinessGroupInlineWorkspace/)
+  assert.doesNotMatch(materialsSource, /<BusinessGroupWorkspace/)
+  assert.doesNotMatch(materialsSource, /<BusinessGroupControls/)
   assert.match(materialsSource, /businessGroupControlOptions/)
   assert.match(materialsSource, /businessGroupRowsForFeatureSelection/)
   assert.match(materialsSource, /businessGroupFeatureSelectionPayload/)
   assert.match(materialsSource, /business-group-feature-selections\/material_catalog/)
   assert.doesNotMatch(materialsSource, /preferredBusinessGroupTemplateID/)
-  assert.match(materialsSource, /groupRowsByBusinessGroupTemplate/)
+  assert.match(materialsSource, /groupRowsByBusinessGroupTemplates\(/)
+  assert.doesNotMatch(materialsSource, /groupRowsByBusinessGroupTemplate\(/)
+  assert.match(materialsSource, /businessGroupInlineListState/)
   assert.match(materialsSource, /businessGroupMoveAssignmentPayload/)
-  assert.match(materialsSource, /material_catalog/)
+  assert.match(materialsSource, /MATERIAL_CATALOG_USAGE\s*=\s*'material_catalog'/)
   assert.match(materialsSource, /MATERIAL_OBJECT_KEY\s*=\s*'material'/)
   assert.match(materialsSource, /objectKey:\s*MATERIAL_OBJECT_KEY/)
   assert.match(materialsSource, /\/api\/business-group-assignments/)
-  assert.match(componentSource, /选择分组模板/)
+  assert.match(materialsSource, /v-model:collapsed-keys="collapsedMaterialCategoryKeys"/)
+  assert.match(materialsSource, /:move-active="materialCategoryMoveActive"/)
+  assert.match(materialsSource, /@target="handleMaterialCategoryMoveTarget"/)
+  assert.match(materialsSource, /:disabled="loading \|\| materialCategoryMoveActive">刷新/)
+  assert.doesNotMatch(materialsSource, /selectedMaterialCategoryKey|pruneMaterialSelectionToVisibleCategory|visibleMaterialDisplayGroups/)
+  assert.doesNotMatch(componentSource, /选择分组模板|目标分类|<select/)
   assert.match(componentSource, /移动到分类/)
+  assert.doesNotMatch(listPanelSource, /v-model:move-model-value|selectedMaterialMoveGroupItemID/)
   assert.doesNotMatch(listPanelSource, /增加分类|新增小分类|移动到小分类/)
   assert.doesNotMatch(materialsSource, /\/api\/material-classification-groups/)
   assert.doesNotMatch(materialsSource, /\/api\/material-classification-assignments/)
+})
+
+test('materials archive aligns every selected template into the category workspace', () => {
+  assert.match(materialsSource, /const materialCatalogBusinessGroups = computed\(\(\) => businessGroupRowsForFeatureSelection\(/)
+  assert.match(materialsSource, /templates:\s*materialCatalogBusinessGroups\.value/)
+  assert.match(materialsSource, /:groups="paginatedMaterialGroups"/)
+  assert.match(materialsSource, /#group="\{ group \}"/)
+  assert.match(materialsSource, /openMaterialGroupFeatureSelectionDrawer/)
+  assert.match(materialsSource, /materialGroupFeatureDrawerOpen/)
+  assert.match(materialsSource, /设置分组模板/)
+  assert.doesNotMatch(materialsSource, /businessGroupGroupsForCategorySelection|skuGroupHiddenByCollapsedAncestor/)
+})
+
+test('materials inline categories repeat the table header and paginate every category independently', () => {
+  assert.match(materialsSource, /const materialGroupPagination\s*=\s*ref\(\{\}\)/)
+  assert.match(materialsSource, /businessGroupInlineListState\(\s*materialDisplayGroups\.value,\s*materialGroupPagination\.value/)
+  assert.match(materialsSource, /const paginatedMaterialGroups = computed/)
+  assert.match(materialsSource, /<template #group="\{ group \}">[\s\S]*<thead>[\s\S]*<\/thead>/)
+  assert.match(materialsSource, /<table class="materials-table" data-auto-pagination="off">/)
+  assert.match(materialsSource, /<PaginationControls[\s\S]*:page="group\.page"[\s\S]*:page-size="group\.pageSize"[\s\S]*:total="group\.total"/)
+  assert.match(materialsSource, /@change="handleMaterialGroupPaginationChange\(group\.key, \$event\)"/)
+  assert.match(materialsSource, /function handleMaterialGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
+  assert.match(materialsSource, /toggleMaterialRows\(group\.rows\)/)
+  assert.match(materialsSource, /areRowsSelected\(group\.rows\)/)
+})
+
+test('materials category target executes immediately and only clears move state after success', () => {
+  const handlerStart = materialsSource.indexOf('async function handleMaterialCategoryMoveTarget(target = {})')
+  const handlerEnd = materialsSource.indexOf('\nfunction openMaterialBusinessGroupManagement', handlerStart)
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, 'expected material category target handler')
+
+  const handlerSource = materialsSource.slice(handlerStart, handlerEnd)
+  const catchStart = handlerSource.indexOf('} catch (err) {')
+  const finallyStart = handlerSource.indexOf('} finally {', catchStart)
+  assert.ok(catchStart > 0 && finallyStart > catchStart, 'expected retry-preserving error handling')
+  const successSource = handlerSource.slice(0, catchStart)
+  const failureSource = handlerSource.slice(catchStart, finallyStart)
+
+  assert.match(handlerSource, /materialCategoryMoveActive\.value/)
+  assert.match(handlerSource, /target\.group_id/)
+  assert.match(handlerSource, /target\.group_item_id/)
+  assert.match(handlerSource, /target\.unclassified/)
+  assert.match(handlerSource, /clearMaterialBusinessGroupAssignment/)
+  assert.match(handlerSource, /await apiSend\('\/api\/business-group-assignments'/)
+  assert.match(handlerSource, /businessGroupMoveAssignmentPayload\(/)
+  assert.match(successSource, /return true/)
+
+  const clearSelectionIndex = successSource.indexOf('selectedMaterialIDs.value = []')
+  const finishMoveIndex = successSource.indexOf('materialCategoryMoveActive.value = false')
+  const refreshAssignmentsIndex = successSource.indexOf('await loadMaterialBusinessGroupAssignments()')
+  const successMessageIndex = successSource.indexOf('ok.value = `已移动')
+  assert.ok(refreshAssignmentsIndex > 0, 'successful move refreshes assignments')
+  assert.ok(successMessageIndex > refreshAssignmentsIndex, 'success is announced only after assignment refresh succeeds')
+  assert.ok(clearSelectionIndex > 0, 'successful move clears checked materials')
+  assert.ok(finishMoveIndex > clearSelectionIndex, 'move mode ends only after checked materials are cleared')
+
+  assert.match(failureSource, /移动物料分类失败，请重试/)
+  assert.match(failureSource, /return false/)
+  assert.doesNotMatch(failureSource, /selectedMaterialIDs\.value\s*=\s*\[\]/)
+  assert.doesNotMatch(failureSource, /materialCategoryMoveActive\.value\s*=\s*false/)
+  assert.doesNotMatch(failureSource, /loadMaterialBusinessGroupAssignments/, 'failed refresh keeps the pre-move assignment snapshot for a retry')
 })
 
 test('materials list owns filters, selection and batch deprecate layout', () => {
   assert.match(materialsSource, /class="material-list-toolbar"/)
   assert.match(materialsSource, /deprecateSelectedMaterials/)
   assert.match(materialsSource, /全选物料/)
-  assert.match(materialsSource, /allSelected/)
-  assert.match(materialsSource, /toggle-all/)
+  assert.match(materialsSource, /toggleMaterialRows\(group\.rows\)/)
   assert.match(materialsSource, /table-layout:\s*fixed/)
   assert.match(materialsSource, /min-width:\s*660px/)
   assert.match(materialsSource, /overflow-x:\s*auto/)
   assert.match(materialsSource, /col\.name-col\)\s*\{\s*width:\s*130px;\s*\}/)
   assert.match(materialsSource, /\.materials-table th:nth-child\(2\)\),\s*\.table-wrap :deep\(\.materials-table td:nth-child\(2\)\)\s*\{\s*width:\s*130px;\s*max-width:\s*130px;/)
-  assert.match(materialsSource, /\.material-name-cell strong\)\s*\{[^}]*overflow-wrap:\s*anywhere/)
+  assert.match(materialsSource, /\.material-name-button\s*\{[^}]*overflow-wrap:\s*anywhere/)
   assert.match(materialsSource, /td small\)\s*\{[^}]*max-width:\s*120px/)
   assert.doesNotMatch(materialsSource, /col\.name-col\)\s*\{\s*width:\s*390px;\s*\}/)
 
@@ -169,22 +240,31 @@ test('materials list owns filters, selection and batch deprecate layout', () => 
   const compactHeadEnd = materialsSource.indexOf('<div class="materials-layout">')
   const compactHeadSource = materialsSource.slice(compactHeadStart, compactHeadEnd)
   assert.doesNotMatch(compactHeadSource, /v-model\.trim="q"/)
-  assert.doesNotMatch(compactHeadSource, /v-model="activeFilter"/)
+  assert.doesNotMatch(compactHeadSource, /v-model="filters\.active"/)
 
   const listPanelStart = materialsSource.indexOf('<section class="panel material-list-panel">')
   const listPanelSource = materialsSource.slice(listPanelStart)
-  assert.match(listPanelSource, /v-model\.trim="q"/)
-  assert.match(listPanelSource, /v-model="activeFilter"/)
+  assert.match(listPanelSource, /v-model\.trim="q" placeholder="名称\/编码\/批次号" @keyup\.enter="applyMaterialFilters"/)
+  assert.match(listPanelSource, /v-model="filters\.active" @change="applyMaterialFilters"/)
+  assert.match(listPanelSource, /<option value="active">启用<\/option>/)
+  assert.match(listPanelSource, /<option value="inactive">失效<\/option>/)
+  assert.match(listPanelSource, /<option value="all">全部<\/option>/)
   assert.match(listPanelSource, /@click="deprecateSelectedMaterials"/)
+  assert.match(materialsSource, /const filters\s*=\s*reactive\(\{\s*active:\s*'active'/)
+  assert.match(materialsSource, /url\.searchParams\.set\('limit', '500'\)/)
+  assert.match(materialsSource, /url\.searchParams\.set\('active', filters\.active\)/)
+  assert.match(materialsSource, /if \(q\.value\) url\.searchParams\.set\('q', q\.value\)/)
 })
 
-test('materials list and detail panels shrink without horizontal overlap', () => {
-  assert.match(materialsSource, /\.materials-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*\.95fr\)\s+minmax\(360px,\s*1\.05fr\)/)
-  assert.match(materialsSource, /\.material-list-panel,\s*\.material-detail-panel\s*\{[^}]*min-width:\s*0/)
-  assert.match(materialsSource, /\.material-section-list,\s*\.material-section\s*\{[^}]*min-width:\s*0/)
+test('materials list is full width and material names open the detail drawer', () => {
+  assert.match(materialsSource, /\.materials-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+  assert.match(materialsSource, /\.material-list-panel\s*\{[^}]*min-width:\s*0/)
   assert.match(materialsSource, /\.table-wrap\s*\{[^}]*max-width:\s*100%[^}]*overflow-x:\s*auto/)
   assert.match(materialsSource, /\.form-grid\s*\{[^}]*repeat\(auto-fit,\s*minmax\(180px,\s*1fr\)\)/)
-  assert.doesNotMatch(materialsSource, /grid-template-columns:\s*minmax\(480px/)
+  assert.match(materialsSource, /data-material-detail-drawer/)
+  assert.match(materialsSource, /class="material-name-button"[\s\S]*@click\.stop="selectMaterial\(row\)"/)
+  assert.match(materialsSource, /materialDetailDrawerOpen\.value\s*=\s*true/)
+  assert.doesNotMatch(materialsSource, /material-detail-panel|onClick:\s*\(\)\s*=>\s*emit\('select'/)
 })
 
 test('materials and stock adjustments use single material quantity from material unit', () => {
@@ -210,10 +290,12 @@ test('existing material inventory unit is locked after create', () => {
 })
 
 test('materials archive separates inventory unit from locked cost unit', () => {
-  assert.match(materialsSource, /成本计价单位/)
+  assert.match(materialsSource, /采购价与成本单价单位/)
   assert.match(materialsSource, /materialCostUnitLocked/)
-  assert.match(materialsSource, /:disabled="materialCostUnitLocked"/)
-  assert.match(materialsSource, /重量物料统一按 kg 计价/)
+  assert.match(materialsSource, /data-field="cost_unit"/)
+  assert.match(materialsSource, /用于采购价、批次单位成本和 BOM 成本试算/)
+  assert.match(materialsSource, /不用于库存数量/)
+  assert.match(materialsSource, /重量物料固定按元\/kg/)
   assert.match(materialsSource, /采购价（元\/\{\{\s*draft\.cost_unit\s*\}\}）/)
   assert.match(materialsSource, /cost_unit:/)
   assert.match(materialsSource, /cost_unit:\s*draftMode\.value\s*\?\s*draft\.value\.cost_unit\s*:\s*\(selected\.value\?\.cost_unit\s*\|\|\s*draft\.value\.cost_unit\)/)
@@ -236,4 +318,48 @@ test('material receipt, stock adjustment and purchase prices use material cost u
   assert.match(purchaseSource, /当前采购单按克记录数量，仅支持重量物料/)
   assert.match(stockAdjustmentsSource, /isSelectedMaterialWeight/)
   assert.match(stockAdjustmentsSource, /批次成本调整当前只支持重量物料/)
+})
+
+test('materials keep derived manufacturing status beside output BOM links without duplicate technical hints', () => {
+  const template = materialsSource.split('<script setup>')[0] || materialsSource
+
+  assert.match(template, /v-model="draft\.is_semi_finished"/)
+  assert.match(template, /是否半成品/)
+  assert.match(template, /can_manufacture/)
+  assert.match(template, /产出该物料的 BOM/)
+  assert.match(template, /使用该物料的 BOM/)
+  assert.match(template, /draft\.can_manufacture\s*\?\s*'可制造（已有默认发布 BOM）'\s*:\s*'不可制造（无默认发布 BOM）'/)
+  assert.doesNotMatch(template, /可制造能力（只读）|data-field="can_manufacture"/)
+  assert.doesNotMatch(template, /任意有效物料都可以作为普通 BOM 的产出对象；半成品勾选不参与校验。/)
+  assert.match(materialsSource, /producedByBoms/)
+  assert.match(materialsSource, /usedByBoms/)
+  assert.match(materialsSource, /output_type=material/)
+  assert.match(materialsSource, /component_type=material/)
+  assert.match(materialsSource, /function openMaterialBom/)
+  assert.match(materialsSource, /kferp:navigate-view/)
+  assert.match(materialsSource, /returnNavigation/)
+  assert.match(materialsSource, /open_material_id/)
+  assert.match(materialsSource, /materialReturnNavigation/)
+  assert.match(materialsSource, /returnToMaterialSource/)
+  assert.match(materialsSource, /is_semi_finished:\s*Boolean\(draft\.value\.is_semi_finished\)/)
+})
+
+test('materials locally filter the loaded page by semi-finished marker without changing manufacturing capability', () => {
+  const template = materialsSource.split('<script setup>')[0] || materialsSource
+
+  assert.match(template, /<span>半成品标识<\/span>[\s\S]*v-model="filters\.semiFinished"/)
+  assert.match(template, /<option value="all">全部<\/option>/)
+  assert.match(template, /<option value="semi_finished">半成品<\/option>/)
+  assert.match(template, /<option value="non_semi_finished">非半成品<\/option>/)
+  assert.match(template, /v-model="filters\.semiFinished" @change="applySemiFinishedFilter"/)
+  assert.match(materialsSource, /const filters\s*=\s*reactive\(\{\s*active:\s*'active',\s*semiFinished:\s*'all'\s*\}\)/)
+  assert.match(materialsSource, /const filteredMaterialRows = computed\(\(\) => \{[\s\S]*filters\.semiFinished === 'semi_finished'[\s\S]*row\.is_semi_finished[\s\S]*filters\.semiFinished === 'non_semi_finished'[\s\S]*!row\.is_semi_finished/)
+  assert.match(materialsSource, /groupRowsByBusinessGroupTemplates\(filteredMaterialRows\.value,/)
+  assert.match(materialsSource, /function applySemiFinishedFilter\(\)\s*\{[\s\S]*resetMaterialGroupPages\(\)/)
+
+  const loadMaterialsStart = materialsSource.indexOf('async function loadMaterials(')
+  const loadMaterialsEnd = materialsSource.indexOf('\nfunction applyMaterialFilters()', loadMaterialsStart)
+  const loadMaterialsSource = materialsSource.slice(loadMaterialsStart, loadMaterialsEnd)
+  assert.doesNotMatch(loadMaterialsSource, /semi_finished|semiFinished/)
+  assert.match(materialsSource, /is_semi_finished:\s*Boolean\(row\.IsSemiFinished \?\? row\.is_semi_finished \?\? false\),\s*\n\s*can_manufacture:\s*Boolean\(row\.CanManufacture \?\? row\.can_manufacture \?\? false\)/)
 })

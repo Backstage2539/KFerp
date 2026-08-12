@@ -1464,6 +1464,8 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.production_plan_id,wo.production_plan_item_id,
+		       COALESCE(NULLIF(wo.output_type,''),'product'),wo.output_product_id,wo.output_material_id,
+		       COALESCE(NULLIF(wo.output_name,''),wo.product_name),wo.output_qty::float8,wo.output_unit,
 		       wo.batch_id,wo.product_id,wo.parent_product_id,wo.bom_source_product_id,wo.product_name,wo.spec_g,
 		       wo.sales_spec_count::float8,wo.inventory_qty_per_sales_unit::float8,wo.inventory_unit,
 		       wo.planned_inventory_qty::float8,COALESCE(wo.sales_spec_snapshot_json,'{}'::jsonb)::text,wo.bom_inherited,
@@ -1574,13 +1576,13 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := make([]productionapp.WorkOrderRow, 0)
 	for rows.Next() {
 		var row productionapp.WorkOrderRow
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
 			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID,
+			&row.OutputType, &row.OutputProductID, &row.OutputMaterialID, &row.OutputName, &row.OutputQty, &row.OutputUnit,
 			&row.BatchID, &row.ProductID, &row.ParentProductID, &row.BomSourceProductID, &row.ProductName, &row.SpecG,
 			&row.SalesSpecCount, &row.InventoryQtyPerSalesUnit, &row.InventoryUnit, &row.PlannedInventoryQty,
 			&row.SalesSpecSnapshotJSON, &row.BomInherited,
@@ -1620,7 +1622,70 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		row.SuggestedBatchPlan = formatWorkOrderBatchPlan(batches, row.SuggestedInputG)
 		out = append(out, row)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for index := range out {
+		dependencies, err := loadWorkOrderDependencies(ctx, r.pool, r.schema, out[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		decorateWorkOrderDependencies(&out[index], dependencies)
+	}
+	return out, nil
+}
+
+type workOrderDependencyQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func loadWorkOrderDependencies(ctx context.Context, queryer workOrderDependencyQuerier, schema string, workOrderID int64) ([]productionapp.WorkOrderDependencyRow, error) {
+	rows, err := queryer.Query(ctx, fmt.Sprintf(`
+		SELECT dependency.work_order_id,dependency.depends_on_work_order_id,upstream.work_order_no,
+		       COALESCE(NULLIF(upstream.output_type,''),'product'),upstream.output_product_id,upstream.output_material_id,
+		       COALESCE(NULLIF(upstream.output_name,''),upstream.product_name),upstream.output_qty::float8,upstream.output_unit,
+		       dependency.material_id,dependency.required_g,dependency.required_units,upstream.status
+		FROM %s.work_order_dependencies dependency
+		JOIN %s.work_orders upstream ON upstream.id=dependency.depends_on_work_order_id
+		WHERE dependency.work_order_id=$1
+		ORDER BY dependency.id
+	`, schema, schema), workOrderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]productionapp.WorkOrderDependencyRow, 0)
+	for rows.Next() {
+		var row productionapp.WorkOrderDependencyRow
+		if err := rows.Scan(
+			&row.WorkOrderID, &row.DependsOnWorkOrderID, &row.DependsOnWorkOrderNo,
+			&row.OutputType, &row.OutputProductID, &row.OutputMaterialID,
+			&row.OutputName, &row.OutputQty, &row.OutputUnit,
+			&row.MaterialID, &row.RequiredG, &row.RequiredUnits, &row.Status,
+		); err != nil {
+			return nil, err
+		}
+		row.Completed = row.Status == "completed"
+		out = append(out, row)
+	}
 	return out, rows.Err()
+}
+
+func decorateWorkOrderDependencies(row *productionapp.WorkOrderRow, dependencies []productionapp.WorkOrderDependencyRow) {
+	row.UpstreamDependencies = dependencies
+	row.UpstreamWorkOrderIDs = make([]int64, 0, len(dependencies))
+	for _, dependency := range dependencies {
+		row.UpstreamWorkOrderIDs = append(row.UpstreamWorkOrderIDs, dependency.DependsOnWorkOrderID)
+		if !dependency.Completed {
+			row.UpstreamBlocked = true
+		}
+	}
+	row.HasUnfinishedDependencies = row.UpstreamBlocked
+	if row.UpstreamBlocked {
+		row.DependencyBlockingReason = "上游依赖工单尚未完成"
+	}
 }
 
 func formatMaterialSnapshotSummary(raw string) string {
@@ -1875,7 +1940,7 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 		return productionapp.WorkOrderRow{}, fmt.Errorf("work order already completed")
 	}
 	if shouldDelegateFullWorkOrderCancel(status, runningItemID, runningItemStatus) {
-		if err := r.Cancel(ctx, productionapp.CancelCommand{ID: runningItemID, Operator: cmd.Operator}); err != nil {
+		if err := r.Cancel(ctx, productionapp.CancelCommand{ID: runningItemID, Operator: cmd.Operator, Note: cmd.Note}); err != nil {
 			return productionapp.WorkOrderRow{}, err
 		}
 		tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -1927,6 +1992,8 @@ func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkO
 		if err := releaseMaterialReservationsForRunningItemTx(ctx, tx, r.schema, runningItemID); err != nil {
 			return productionapp.WorkOrderRow{}, err
 		}
+	} else if err := releaseMaterialReservationsForWorkOrderTx(ctx, tx, r.schema, cmd.ID); err != nil {
+		return productionapp.WorkOrderRow{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &cmd.ID, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(status), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"note": cmd.Note, "running_item_id": runningItemID}); err != nil {
 		return productionapp.WorkOrderRow{}, err
@@ -1969,12 +2036,18 @@ func cancelCustomerProcessingWorkOrderTx(ctx context.Context, tx pgx.Tx, schema 
 	`, schema), workOrderID); err != nil {
 		return 0, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.processing_job_request_items
-		SET status='cancelled',updated_at=now()
-		WHERE linked_work_order_id=$1
-	`, schema), workOrderID); err != nil {
+	hasRequestItems, err := schemaColumnExistsTx(ctx, tx, schema, "processing_job_request_items", "id")
+	if err != nil {
 		return 0, err
+	}
+	if hasRequestItems {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.processing_job_request_items
+			SET status='cancelled',updated_at=now()
+			WHERE linked_work_order_id=$1
+		`, schema), workOrderID); err != nil {
+			return 0, err
+		}
 	}
 	return released, nil
 }

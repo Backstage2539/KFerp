@@ -47,6 +47,7 @@ import {
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
   buildPricingRuleCopyPayload,
+  buildPricingRuleUpdateFromTrial,
   buildPricingRuleTrialPayload,
   applyPricingRuleTrialToPriceTableRow,
   priceTablePricingRuleTrialPayload,
@@ -114,6 +115,8 @@ import {
   salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
   selectedSkuRowIDsAfterVisibleToggle,
+  storePricingRuleTrialReturnState,
+  takePricingRuleTrialReturnState,
 } from './product-settings.js'
 
 const rows = [
@@ -771,6 +774,74 @@ test('pricing rules and tier templates are independent templates used by price l
       { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'sales_spec_count', pricing_rule_id: 20, position: 2, active: true, remark: '' },
     ],
   })
+})
+
+test('pricing trial updates only reusable template parameters', () => {
+  const rule = {
+    id: 5,
+    name: '熟豆24磅模板-正常-418',
+    code: 'RULE-418',
+    cost_source_mode: 'bom_current_cost',
+    margin_rate: 0.2,
+    tax_rate: 0.06,
+    rounding_mode: 'jiao',
+    formula_version: 'v2',
+    calculation_json: {
+      profit_method: 'markup',
+      tax_mode: 'tax_included',
+      minimum_margin_rate: 0.1,
+      trial_note: '保留说明',
+      other_costs: { '旧成本': 1 },
+    },
+    active: true,
+    remark: '保留备注',
+  }
+  const trial = {
+    margin_rate: '0.35',
+    tax_rate: '',
+    other_cost_rows: [{ key: '包装贴标', value: '1.25' }],
+    parent_product_id: 659,
+    product_id: 660,
+    customer_id: 12,
+    bom_version_id: 1797,
+    process_route_id: 8,
+    operation_template_id: 9,
+    quote_unit: 'kg',
+  }
+  const payload = buildPricingRuleUpdateFromTrial(rule, trial)
+  assert.equal(payload.margin_rate, 0.35)
+  assert.equal(payload.tax_rate, 0.06, 'blank trial tax keeps the template tax')
+  assert.deepEqual(payload.calculation_json.other_costs, { '包装贴标': 1.25 })
+  assert.equal(payload.calculation_json.tax_mode, 'tax_included')
+  assert.equal(payload.calculation_json.minimum_margin_rate, 0.1)
+  assert.equal(payload.calculation_json.trial_note, '保留说明')
+  assert.equal(payload.rounding_mode, 'jiao')
+  for (const forbidden of ['parent_product_id', 'product_id', 'customer_id', 'bom_version_id', 'process_route_id', 'operation_template_id', 'quote_unit']) {
+    assert.equal(Object.hasOwn(payload, forbidden), false, `${forbidden} must stay trial-only`)
+  }
+
+  const cleared = buildPricingRuleUpdateFromTrial(rule, {
+    ...trial,
+    tax_rate: 0,
+    other_cost_rows: [{ key: '', value: 0 }],
+  })
+  assert.equal(cleared.tax_rate, 0, 'an explicit zero clears template tax')
+  assert.deepEqual(cleared.calculation_json.other_costs, {}, 'blank rows clear template other costs')
+})
+
+test('pricing trial BOM return state is frontend-memory only and one-time', () => {
+  const snapshot = {
+    form: { pricing_rule_id: 5, product_id: 660, bom_version_id: 1797, margin_rate: 0.35 },
+    product_kind_filter: 'roasted',
+  }
+  const key = storePricingRuleTrialReturnState(snapshot)
+  assert.match(key, /^pricing-rule-trial-return:/)
+  snapshot.form.margin_rate = 9
+  assert.deepEqual(takePricingRuleTrialReturnState(key), {
+    form: { pricing_rule_id: 5, product_id: 660, bom_version_id: 1797, margin_rate: 0.35 },
+    product_kind_filter: 'roasted',
+  })
+  assert.equal(takePricingRuleTrialReturnState(key), null)
 })
 
 test('pricing rule payload normalizes compatible legacy or missing profit methods to markup', () => {
@@ -1772,6 +1843,15 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'pricingRuleTrialBomVersionOptions',
     'pricingRuleTrialProcessRouteOptions',
     'schedulePricingRuleTrial',
+    '草稿，仅供试算',
+    '配置BOM',
+    'navigatePricingRuleTrialBom',
+    '返回价格试算',
+    'pricing_rule_trial_return_key',
+    'restorePricingRuleTrialReturnState',
+    '更新参数到价格计算模板',
+    'updatePricingRuleFromTrial',
+    'buildPricingRuleUpdateFromTrial',
   ]) {
     assert.ok(source.includes(want), `missing pricing rule trial marker: ${want}`)
   }
@@ -1801,6 +1881,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(trialDrawer, /trialMoneyDisplay\(pricingRuleTrialBaseCostUnitCostValue\(row\), pricingRuleTrialBaseCostUnit\(row, pricingRuleTrialResult\)\)/)
   assert.match(trialDrawer, /trialMoneyDisplay\(row\.amount, row\.unit \|\| pricingRuleTrialResult\.quote_unit\)/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)
+  assert.match(trialDrawer, /试算BOM版本[\s\S]*@click="navigatePricingRuleTrialBom"[\s\S]*配置BOM/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.process_route_id"[\s\S]*pricingRuleTrialProcessRouteOptions/)
   assert.match(trialDrawer, /<span>试算商品<\/span>[\s\S]*v-model="pricingRuleTrialForm\.parent_product_id"/)
   assert.match(trialDrawer, /<span>销售规格<\/span>[\s\S]*<select v-model\.number="pricingRuleTrialForm\.product_id"[\s\S]*pricingRuleTrialSalesSpecOptions/)
@@ -1814,6 +1895,9 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(script, /if \(runID === pricingRuleTrialRunID\) \{[\s\S]*pricingRuleTrialResult\.value = result/)
   assert.doesNotMatch(pane, /@click="runPricingRuleTrial"/)
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
+  assert.match(script, /function navigatePricingRuleTrialBom\(\)[\s\S]*storePricingRuleTrialReturnState[\s\S]*key:\s*'bom'[\s\S]*production_bom_id[\s\S]*returnNavigation:[\s\S]*key:\s*'productPriceManagement'/)
+  assert.match(script, /async function updatePricingRuleFromTrial\(\)[\s\S]*window\.confirm[\s\S]*apiSend\(`\/api\/product-pricing-rules\/\$\{payload\.id\}`[\s\S]*method:\s*'PUT'/)
+  assert.match(trialDrawer, /class="drawer-footer pricing-rule-trial-footer"[\s\S]*@click="updatePricingRuleFromTrial"[\s\S]*更新参数到价格计算模板/)
   assert.match(script, /watch\(\(\) => pricingRuleTrialAutoRunSignature\.value/)
   assert.match(style, /\.pricing-rule-trial-drawer/)
   assert.match(style, /\.pricing-rule-trial-waterfall-card\.interactive/)
@@ -4075,7 +4159,7 @@ test('SKU settings removes public SKU references from the customer SKU list and 
 test('product archive list uses the product name as the only production config entry', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const skuTable = template.match(/<table :key="skuTableKey"[\s\S]*?<\/table>/)?.[0] || template
+  const skuTable = template.match(/<table[^>]*class="sku-table"[\s\S]*?<\/table>/)?.[0] || template
 
   assert.match(template, /生产 BOM/)
   assert.match(template, /class="[^"]*sku-name-button[^"]*"[\s\S]*@click="openProductProductionConfig\(row\)"/)
@@ -4184,7 +4268,7 @@ test('product pages group product archive and template configuration into separa
   assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
-  assert.match(template, /class="classification-view-toolbar product-business-group-controls"/)
+  assert.match(template, /<BusinessGroupInlineWorkspace[\s\S]*v-model:collapsed-keys="collapsedProductClassificationGroups"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
@@ -4245,19 +4329,21 @@ test('product management exposes customer product names without direct BOM editi
   assert.doesNotMatch(source, /migration-candidates/)
 })
 
-test('SKU settings keeps only the product creation drawer while classification templates drive product tabs', () => {
+test('SKU settings keeps only the product creation drawer while business groups drive the category workspace', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
   const productArchiveWorkspace = template.match(/<div v-show="currentSettingsSection === 'master'"[\s\S]*?<div v-show="currentSettingsSection === 'templates'"/)?.[0] || template
 
   for (const expected of [
-    'productClassificationTabs',
-    'renderedDisplaySkuGroups',
-    '增加分类',
-    '移动到分类',
-    'classification-group-row',
+    'BusinessGroupInlineWorkspace',
+    'collapsedProductClassificationGroups',
+    'productCategoryMoveActive',
+    'handleProductCategoryMoveTarget',
+    'businessGroupInlineListState',
+    'handleProductGroupPaginationChange',
     'product-editor-drawer',
     'openProductDrawer',
     '创建新商品档案',
@@ -4276,12 +4362,11 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.doesNotMatch(productArchiveWorkspace, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
   assert.doesNotMatch(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
-  assert.match(template, /<table :key="skuTableKey" class="sku-table"/)
-  assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
-  assert.match(template, /\{\{ group\.total \}\} 款/)
+  assert.match(template, /<BusinessGroupInlineWorkspace[\s\S]*:groups="displaySkuGroups"/)
+  assert.match(template, /#group="\{ group \}"[\s\S]*<table[^>]*class="sku-table"[\s\S]*<thead>/)
   assert.match(template, /v-for="row in group\.rows"/)
-  assert.match(template, /group\.needsPagination[\s\S]*<PaginationControls[\s\S]*handleSkuGroupPaginationChange\(group\.key, \$event\)/)
-  assert.match(template, /v-if="!displaySkuRows\.length"/)
+  assert.match(template, /<PaginationControls[\s\S]*group\.needsPagination[\s\S]*handleProductGroupPaginationChange\(group\.key, \$event\)/)
+  assert.match(template, /当前分类暂无商品档案/)
   assert.doesNotMatch(productArchiveWorkspace, /:key="skuPaginationKey"/)
   assert.doesNotMatch(productArchiveWorkspace, /:total="skuDisplayTotal"/)
   assert.match(script, /const customerID = skuContextCustomerID\.value\s+return sortRowsForCustomerSkuPriority\(/)
@@ -4296,32 +4381,30 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(script, /const skuTableKey = computed\(\(\) => `\$\{skuDisplayKey\.value\}:table`\)/)
   assert.match(script, /const fullDisplaySkuGroups = computed\(\(\) => groupRowsByBusinessGroupTemplates\(filteredSkuRows\.value, \{/)
   assert.match(script, /templates: productCatalogBusinessGroups\.value/)
-  assert.match(script, /const groupedSkuTableState = computed\(\(\) => skuGroupTableState\(fullDisplaySkuGroups\.value, skuGroupPagination\.value, \{/)
-  assert.match(script, /const displaySkuGroups = computed\(\(\) => groupedSkuTableState\.value\.groups\)/)
-  assert.match(script, /const renderedDisplaySkuGroups = computed[\s\S]*skuGroupHiddenByCollapsedAncestor/)
-  assert.match(script, /const displaySkuRows = computed\(\(\) => groupedSkuTableState\.value\.visibleRows\)/)
-  assert.match(script, /const visibleDisplaySkuRows = computed\(\(\) => visibleSkuGroupRows\(displaySkuGroups\.value, collapsedProductClassificationGroups\.value\)\)/)
-  assert.match(script, /const editableDisplaySkuRows = computed\(\(\) => visibleDisplaySkuRows\.value\.filter\(canEditSkuRow\)\)/)
+  assert.match(script, /const productInlineGroupState = computed\(\(\) => businessGroupInlineListState\(fullDisplaySkuGroups\.value, skuGroupPagination\.value, \{/)
+  assert.match(script, /const displaySkuGroups = computed\(\(\) => productInlineGroupState\.value\.groups\)/)
+  assert.match(script, /const visibleDisplaySkuRows = computed\(\(\) => businessGroupVisibleRows\(displaySkuGroups\.value, collapsedProductClassificationGroups\.value\)\)/)
   assert.match(script, /const skuPrimaryCategoryOptions = computed\(\(\) => primaryCategoryOptions\(currentSkuSourceRows\.value\)\)/)
   assert.match(script, /const skuSecondaryCategoryOptions = computed\(\(\) => secondaryCategoryOptions\(currentSkuSourceRows\.value, normalizedSkuFilters\.value\.primaryCategory\)\)/)
   assert.doesNotMatch(script, /const skuRenderRows = computed/)
   assert.doesNotMatch(script, /const skuRenderTotal = computed/)
   assert.match(script, /function syncVisibleSkuTableState\(\)/)
-  assert.match(script, /function handleSkuGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
+  assert.match(script, /function handleProductGroupPaginationChange\(groupKey, \{ page, pageSize \}\)/)
   assert.match(script, /function resetSkuGroupPages\(\) \{\s+if \(restoringProductSettingsDraft\) return/)
   assert.match(script, /watch\(skuFilters, resetSkuGroupPages, \{ deep: true \}\)/)
-  assert.match(script, /watch\(selectedProductGroupTemplateID, \(\) => \{\s+selectedProductBusinessGroupItemID\.value = 0\s+if \(restoringProductSettingsDraft\) return\s+saveProductSettingsDraft\(\)/)
+  assert.doesNotMatch(script, /selectedProductBusinessGroupCategoryKey|businessGroupGroupsForCategorySelection/)
+  assert.match(script, /async function handleProductCategoryMoveTarget\(target\)/)
   assert.match(script, /skuGroupPagination: skuGroupPagination\.value/)
-  assert.match(script, /watch\(displaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
-  assert.doesNotMatch(script, /watch\(visibleDisplaySkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
-  assert.match(script, /function toggleAllProductRows\(checked\) \{\s+selectedProductIds\.value = selectedSkuRowIDsAfterVisibleToggle\(/)
+  assert.match(script, /watch\(filteredSkuRows, \(rows\) => \{\s+pruneSelectedProducts\(rows\)/)
+  assert.match(script, /function toggleProductGroupRows\(group, checked\) \{\s+selectedProductIds\.value = selectedSkuRowIDsAfterVisibleToggle\(/)
   assert.doesNotMatch(script, /displaySkuRows\.value = pageState\.rows|const pageState = sliceVisibleSkuRows/)
   assert.match(script, /watch\(\[\s*publicSkuRows,\s*customerSkuRows,\s*skuFilters,\s*selectedCustomerSkuCustomerID,\s*\], syncVisibleSkuTableState, \{ deep: true, immediate: true \}\)/)
-  assert.match(script, /applyWorkspaceCustomerContext\(\)\s+syncVisibleSkuTableState\(\)\s+pruneSelectedProducts\(displaySkuRows\.value\)/)
+  assert.match(script, /applyWorkspaceCustomerContext\(\)\s+syncVisibleSkuTableState\(\)\s+pruneSelectedProducts\(filteredSkuRows\.value\)/)
   assert.match(script, /await nextTick\(\)\s+syncVisibleSkuTableState\(\)\s+restoringProductSettingsDraft = false/)
   assert.doesNotMatch(script, /const skuTable = computed/)
   assert.doesNotMatch(source, /debug_sku_table|__kferpSkuTableDebug|skuTableDebugAttr|data-sku-debug|data-top-|data-sku-instance/)
-  assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
+  assert.match(workspaceSource, /data-business-group-inline-workspace/)
+  assert.doesNotMatch(workspaceSource, /business-group-category-tree/)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })
 
@@ -4332,7 +4415,7 @@ test('legacy SKU category management is not rendered as the product archive clas
   assert.doesNotMatch(template, /<Teleport\s+to="#sku-category-management-target"/)
   assert.doesNotMatch(template, /id="sku-category-management-target"/)
   assert.doesNotMatch(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
-  assert.match(template, /class="classification-view-toolbar product-business-group-controls"/)
+  assert.match(template, /<BusinessGroupInlineWorkspace[\s\S]*v-model:collapsed-keys="collapsedProductClassificationGroups"/)
   assert.match(template, /class="classification-view-toolbar alias-classification-tabs"/)
 })
 
@@ -4358,6 +4441,7 @@ test('legacy classification template editors are not rendered in product setting
 test('product list moves selected rows through business group assignments while alias classification stays legacy-compatible', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
@@ -4368,15 +4452,16 @@ test('product list moves selected rows through business group assignments while 
     '/api/business-group-assignments',
     "usage_key: 'product_catalog'",
     "object_key: 'product'",
-    'productBusinessGroupItemOptions',
-    'BusinessGroupControls',
+    'collapsedProductClassificationGroups',
+    'BusinessGroupInlineWorkspace',
+    'handleProductCategoryMoveTarget',
     'businessGroupMoveAssignmentPayload',
     'groupRowsByBusinessGroupTemplates',
   ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
-  assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
+  assert.match(workspaceSource, /请选择要移动到的分类/)
 
   for (const expected of [
     'saveSelectedAliasClassificationAssignment',
@@ -4391,9 +4476,10 @@ test('product list moves selected rows through business group assignments while 
     assert.ok(source.includes(expected), `missing alias legacy classification marker: ${expected}`)
   }
 
-  const productToolbar = template.match(/<BusinessGroupControls[\s\S]*?\/>/)?.[0] || ''
+  const productToolbar = template.match(/<BusinessGroupInlineWorkspace[\s\S]*?>/)?.[0] || ''
   assert.match(productToolbar, /data-pr442-product-group-assignments/)
-  assert.match(productToolbar, /@move="saveSelectedProductBusinessGroupAssignment"/)
+  assert.match(productToolbar, /@target="handleProductCategoryMoveTarget"/)
+  assert.match(productToolbar, /@move="productCategoryMoveActive = true"/)
   assert.doesNotMatch(productToolbar, /分组集 \/ 父组 \/ 子组/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
@@ -4408,53 +4494,40 @@ test('product list moves selected rows through business group assignments while 
   assert.doesNotMatch(template, /classification-action-card/)
   assert.match(template, /product-filter-row[\s\S]*openProductDrawer[\s\S]*deactivateProducts/)
   assert.match(template, /alias-filter-row[\s\S]*openCustomerAliasCreateDrawer[\s\S]*batchDisableCustomerProductAliases/)
-  assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
+  assert.match(template, /#group="\{ group \}"[\s\S]*v-for="row in group\.rows"/)
   assert.match(template, /v-for="group in visibleCustomerAliasGroups"/)
-  assert.match(style, /\.classification-group-row\s+td\s*\{/)
+  assert.match(workspaceSource, /business-group-inline-heading/)
 })
 
 test('classification group rows support collapse and indentation in product and alias lists', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const helperSource = fs.readFileSync(new URL('./business-grouping.js', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
-    'toggleProductClassificationGroup',
+    'collapsedProductClassificationGroups',
+    'BusinessGroupInlineWorkspace',
     'toggleAliasClassificationGroup',
-    'isProductClassificationGroupCollapsed',
     'isAliasClassificationGroupCollapsed',
-    'classificationGroupIndentStyle',
-    'classification-subgroup-row',
-    '--classification-group-indent',
     'classification-item-row',
-    'classification-group-toggle',
   ]) {
     assert.ok(source.includes(expected), `missing classification group marker: ${expected}`)
   }
 
-  assert.match(template, /isProductClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
-  assert.match(template, /:class="\['classification-group-row', \{ 'classification-subgroup-row': Number\(group\.depth \|\| 0\) > 0 \}\]"/)
-  assert.match(template, /:style="classificationGroupIndentStyle\(group\)"/)
-  assert.match(template, /<strong\s+:title="group\.path_label \|\| group\.label">\{\{ group\.label \}\}<\/strong>/)
-  assert.match(template, /<tr\s+:class="\[\{ 'inactive-sku': row\.active === false, 'sku-highlight': row\.id === highlightedSkuId \}, 'classification-item-row'\]"\s+:style="classificationItemIndentStyle\(group\)"/)
+  assert.match(template, /<BusinessGroupInlineWorkspace[\s\S]*v-model:collapsed-keys="collapsedProductClassificationGroups"/)
+  assert.match(template, /#group="\{ group \}"[\s\S]*class="sku-table"/)
+  assert.match(workspaceSource, /--business-group-inline-depth/)
+  assert.match(workspaceSource, /businessGroupHiddenByCollapsedAncestor/)
+  assert.match(workspaceSource, /@click\.stop="toggleGroup\(group\.key\)"/)
   assert.match(template, /isAliasClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
-  assert.match(script, /function classificationGroupIndentStyle\(group = \{\}\)/)
-  assert.match(script, /function classificationItemIndentStyle\(group = \{\}\)/)
-  assert.match(script, /businessGroupHeaderIndentStyle\(group\)/)
-  assert.match(script, /businessGroupItemIndentStyle\(group\)/)
-  assert.ok(helperSource.includes('toNumber(group.depth) * 24'), 'missing shared classification group depth indent calculation')
-  assert.ok(helperSource.includes("'--classification-group-indent'"), 'missing shared classification group indent variable')
-  assert.match(style, /\.classification-item-row\s+td:first-child \+ td\s*\{[^}]*padding-left:\s*var\(--classification-item-indent,\s*18px\);/s)
-  assert.match(style, /\.classification-group-row\s+td\s*\{[^}]*padding-left:\s*var\(--classification-group-indent,\s*16px\);/s)
-  assert.match(style, /\.classification-subgroup-row\s+td\s*\{/)
   assert.match(style, /\.classification-tab\.active\s*\{/)
 })
 
 test('product archive uses business groups while customer alias keeps legacy page-level classification tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
@@ -4471,11 +4544,11 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(source, /groupRowsByBusinessGroupTemplates/)
   assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
   assert.match(template, /data-pr442-product-group-assignments/)
-  assert.match(template, /BusinessGroupControls/)
-  assert.match(componentSource, /选择分组模板/)
+  assert.match(template, /BusinessGroupInlineWorkspace/)
   assert.match(componentSource, /移动到分类/)
+  assert.match(workspaceSource, /前往分组模板/)
   assert.doesNotMatch(script, /function productClassificationLabel/)
-  assert.doesNotMatch(template.match(/<BusinessGroupControls[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类/)
+  assert.doesNotMatch(template.match(/<BusinessGroupInlineWorkspace[\s\S]*?<div class="table-wrap sku-table-wrap product-inline-group-table">/)?.[0] || '', /增加分类/)
 
   assert.match(source, /aliasClassificationTemplateUsages/)
   assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/customer-aliases'\)/)
@@ -4486,15 +4559,16 @@ test('product archive uses business groups while customer alias keeps legacy pag
 
 test('SKU table groups rows by every referenced business group template without product type columns', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
     'sku-table-wrap',
     'class="sku-table"',
-    'classification-view-toolbar',
-    'product-business-group-controls',
-    'classification-group-row',
+    'BusinessGroupInlineWorkspace',
+    'collapsedProductClassificationGroups',
+    'product-inline-group-table',
     'sku-name-cell',
     'action-cell',
   ]) {
@@ -4502,19 +4576,19 @@ test('SKU table groups rows by every referenced business group template without 
   }
   assert.doesNotMatch(template, /<th class="sku-col-product-type">产品类型<\/th>/)
   assert.doesNotMatch(template, /<th class="sku-col-product-subtype">产品子类型<\/th>/)
-  assert.match(template, /v-for="group in renderedDisplaySkuGroups"/)
-  assert.match(template, /group\.is_template_group/)
-  assert.match(template, /class="classification-template-row"/)
-  assert.match(template, /\{\{ group\.template_total \}\} 款/)
+  assert.match(template, /#group="\{ group \}"[\s\S]*<table[^>]*class="sku-table"[\s\S]*<thead>/)
+  assert.match(template, /v-for="row in group\.rows"/)
+  assert.match(template, /handleProductGroupPaginationChange\(group\.key, \$event\)/)
   assert.doesNotMatch(template, /class="classification-template-label"/)
-  assert.match(template, /v-if="productCatalogBusinessGroups\.length"/)
+  assert.match(template, /v-if="!productCatalogBusinessGroups\.length"/)
   assert.match(template, /商品档案尚未选择分组模板，当前按全部商品平铺展示/)
-  assert.match(template, /设置分组模板/)
+  assert.match(workspaceSource, /设置分组模板/)
   assert.match(template, /productGroupTemplateDrawerOpen/)
   assert.match(template, /toggleProductGroupTemplate/)
   assert.match(template, /saveAndCloseProductGroupTemplateDrawer/)
-  assert.match(template, /template-label="移动目标模板"/)
-  assert.match(template, /classification-group-toggle/)
+  assert.match(template, /:groups="displaySkuGroups"/)
+  assert.match(template, /@target="handleProductCategoryMoveTarget"/)
+  assert.match(workspaceSource, /business-group-inline-toggle/)
   assert.match(style, /\.sku-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s)
   assert.match(style, /\.sku-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*1600px;/s)
   assert.match(style, /\.sku-table th,\s*\.sku-table td\s*\{[^}]*white-space:\s*nowrap;/s)
@@ -4930,8 +5004,9 @@ test('product archive displays and saves the ordered union of selected industry 
 test('product settings uses product business groups instead of product classification page controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const productToolbar = template.match(/<BusinessGroupControls[\s\S]*?\/>/)?.[0] || ''
+  const productToolbar = template.match(/<BusinessGroupInlineWorkspace[\s\S]*?>/)?.[0] || ''
   const groupManagementWorkspace = template.match(/<div v-show="currentSettingsSection === 'category-management'"[\s\S]*?<div v-show="currentSettingsSection === 'master'"/)?.[0] || ''
 
   for (const expected of [
@@ -4941,19 +5016,22 @@ test('product settings uses product business groups instead of product classific
     'productGroupFeatureSelectionDraft',
     'saveProductGroupFeatureSelection',
     'productCatalogBusinessGroups',
-    'productBusinessGroupItemOptions',
-    'selectedProductBusinessGroupItemID',
+    'collapsedProductClassificationGroups',
+    'productCategoryMoveActive',
+    'handleProductCategoryMoveTarget',
     'saveSelectedProductBusinessGroupAssignment',
-    'BusinessGroupControls',
+    'BusinessGroupInlineWorkspace',
+    'businessGroupInlineListState',
     'groupRowsByBusinessGroupTemplates',
     'businessGroupMoveAssignmentPayload',
     'data-pr442-product-group-assignments',
 	  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
-  assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
-  assert.match(productToolbar, /@move="saveSelectedProductBusinessGroupAssignment"/)
+  assert.match(workspaceSource, /请选择要移动到的分类/)
+  assert.match(productToolbar, /@target="handleProductCategoryMoveTarget"/)
+  assert.match(productToolbar, /@move="productCategoryMoveActive = true"/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.equal(groupManagementWorkspace, '')
@@ -5220,17 +5298,19 @@ test('assign category payload carries customer context for public template deriv
 test('product archive grouping is template-driven without category tabs or category column', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const workspaceSource = fs.readFileSync(new URL('../components/BusinessGroupInlineWorkspace.vue', import.meta.url), 'utf8')
   const productArchiveBlock = source.slice(
     source.indexOf('data-section-mode="productMaster"'),
     source.indexOf('aria-label="客户商品分类模板视图"'),
   )
 
-  assert.match(source, /BusinessGroupControls/)
+  assert.match(source, /BusinessGroupInlineWorkspace/)
   assert.match(source, /groupRowsByBusinessGroupTemplates/)
-  assert.match(source, /设置分组模板/)
+  assert.match(workspaceSource, /设置分组模板/)
   assert.match(source, /saveAndCloseProductGroupTemplateDrawer/)
-  assert.match(componentSource, /选择分组模板/)
   assert.match(componentSource, /移动到分类/)
+  assert.match(workspaceSource, /business-group-inline-sections/)
+  assert.doesNotMatch(workspaceSource, /business-group-category-tree/)
   assert.doesNotMatch(productArchiveBlock, /<div v-if="selectedProductGroupTemplate" class="classification-tabs">/)
   assert.doesNotMatch(productArchiveBlock, /<button[^>]*class="classification-tab"/)
   assert.doesNotMatch(productArchiveBlock, /<th>分类<\/th>/)

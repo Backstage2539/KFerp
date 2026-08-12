@@ -16,15 +16,22 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 	for _, want := range []string{
 		"materials-layout",
 		"material-list-panel",
-		"material-detail-panel",
+		"data-material-detail-drawer",
+		"material-name-button",
 		"selectMaterial(row)",
 		"deprecateSelectedMaterials",
 		"新建物料",
-		"BusinessGroupControls",
+		"BusinessGroupInlineWorkspace",
+		"collapsedMaterialCategoryKeys",
+		"materialCategoryMoveActive",
+		`@target="handleMaterialCategoryMoveTarget"`,
 		"material_catalog",
 		"MATERIAL_OBJECT_KEY = 'material'",
 		"/api/business-group-assignments",
-		"groupRowsByBusinessGroupTemplate",
+		"groupRowsByBusinessGroupTemplates(",
+		"businessGroupInlineListState",
+		"paginatedMaterialGroups",
+		"handleMaterialGroupPaginationChange",
 		"industry_field_template_id",
 		"materialIndustryFields",
 	} {
@@ -44,6 +51,17 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"移动到小分类",
 		"/api/material-classification-groups",
 		"/api/material-classification-assignments",
+		"groupRowsByBusinessGroupTemplate(",
+		"BusinessGroupControls",
+		"BusinessGroupWorkspace",
+		"selectedMaterialCategoryKey",
+		"businessGroupGroupsForCategorySelection",
+		"visibleMaterialDisplayGroups",
+		"material-detail-panel",
+		"selectedMaterialGroupTemplateID",
+		"selectedMaterialMoveGroupItemID",
+		"skuGroupHiddenByCollapsedAncestor",
+		"renderedMaterialDisplayGroups",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialsView.vue still contains old material marker %q", forbidden)
@@ -61,6 +79,9 @@ func TestMaterialsViewListLayoutSupportsBulkSelection(t *testing.T) {
 		"material-list-toolbar",
 		"全选物料",
 		"toggleMaterialRows",
+		"group.rows",
+		"PaginationControls",
+		`data-auto-pagination="off"`,
 		"deprecateSelectedMaterials",
 		"批量失效",
 		"table-layout: fixed",
@@ -87,7 +108,7 @@ func TestMaterialsViewListLayoutSupportsBulkSelection(t *testing.T) {
 		t.Fatalf("MaterialsView.vue missing expected compact/list layout markers")
 	}
 	compact := src[compactStart:layoutStart]
-	for _, forbidden := range []string{`v-model.trim="q"`, `v-model="activeFilter"`} {
+	for _, forbidden := range []string{`v-model.trim="q"`, `v-model="filters.active"`} {
 		if strings.Contains(compact, forbidden) {
 			t.Fatalf("compact head still contains material list filter %q", forbidden)
 		}

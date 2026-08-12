@@ -699,8 +699,211 @@ export function productionPlanCancelEndpoint(plan) {
   return `/api/production-plans/${id}/cancel`
 }
 
+export function productionPlanItemTargetWarehouseEndpoint(plan, item) {
+  const planID = Number(plan?.id || 0)
+  const itemID = Number(item?.id || item?.production_plan_item_id || 0)
+  if (planID <= 0 || itemID <= 0) return ''
+  return `/api/production-plans/${planID}/items/${itemID}/target-warehouse`
+}
+
+export function buildProductionPlanItemTargetWarehousePayload(targetWarehouse) {
+  return { target_warehouse: String(targetWarehouse || '').trim() }
+}
+
+export function productionPlanCanCancelSubmitted(plan) {
+  if (Number(plan?.id || 0) <= 0 || String(plan?.status || '').trim() !== 'submitted') return false
+  const workOrders = Array.isArray(plan?.related_work_orders) ? plan.related_work_orders : []
+  if (!workOrders.length) return false
+  return workOrders.every((row) => {
+    const status = String(row?.status || '').trim()
+    return ['released', 'cancelled'].includes(status) && Number(row?.running_item_id || 0) <= 0
+  })
+}
+
 export function productionPlanCancelTargetsCurrentPlan(cancelledPlan, currentPlan) {
   const cancelledID = Number(cancelledPlan?.id || 0)
   const currentID = Number(currentPlan?.id || 0)
   return cancelledID > 0 && cancelledID === currentID
+}
+
+function manufacturingOutputType(item = {}) {
+  return String(item.type || item.output_type || item.item_type || '').trim().toLowerCase() === 'material' ? 'material' : 'product'
+}
+
+function manufacturingOutputID(item = {}, type = manufacturingOutputType(item)) {
+  const typedID = type === 'material'
+    ? item.output_material_id || item.material_id
+    : item.output_product_id || item.product_id
+  return Number(typedID || item.output_id || item.id || item.item_id || 0)
+}
+
+function manufacturingOutputName(item = {}) {
+  return String(item.name || item.output_name || item.item_name || '').trim()
+}
+
+function manufacturingNodeKey(item = {}) {
+  const explicitKey = String(item.key || item.node_key || '').trim()
+  if (explicitKey) return explicitKey
+  const type = manufacturingOutputType(item)
+  return `${type}:${manufacturingOutputID(item, type)}`
+}
+
+function manufacturingItemLabel(item = {}) {
+  const type = manufacturingOutputType(item)
+  const typeLabel = type === 'material' ? '物料' : '商品'
+  const name = manufacturingOutputName(item) || `#${manufacturingOutputID(item, type)}`
+  return `${typeLabel} · ${name}`
+}
+
+function manufacturingActionLabel(action = '') {
+  return ({ inventory: '库存覆盖', manufacture: '安排生产', purchase: '采购/补料' })[String(action || '').trim().toLowerCase()] || '待处理'
+}
+
+function manufacturingPlanFallbackRows(plan = {}) {
+  const items = Array.isArray(plan.items) ? plan.items : []
+  const gaps = Array.isArray(plan.supply_gaps) ? plan.supply_gaps : []
+  if (!items.length && !gaps.length) return []
+
+  const itemByPlanID = new Map()
+  const itemRows = items.map((item, index) => {
+    const type = String(item.output_type || '').trim().toLowerCase() === 'material' || (!item.output_type && Number(item.output_material_id || 0) > 0)
+      ? 'material'
+      : 'product'
+    const output = {
+      type,
+      id: Number(item.output_id || (type === 'material' ? item.output_material_id : item.output_product_id || item.product_id) || 0),
+      name: String(item.output_name || (type === 'material' ? item.output_material_name : item.product_name) || '').trim(),
+      unit: String(item.output_unit || item.inventory_unit || '').trim(),
+    }
+    const required = Number(item.required_qty ?? item.total_required_qty ?? item.output_qty ?? item.planned_inventory_qty ?? 0)
+    const covered = Number(item.stock_covered_qty ?? item.inventory_covered_qty ?? 0)
+    const shortage = Number(item.shortage_qty ?? item.net_shortage_qty ?? item.output_qty ?? Math.max(0, required - covered))
+    const explicitDepth = Number(item.depth ?? item.dependency_depth)
+    const depth = Number.isFinite(explicitDepth) && explicitDepth >= 0 ? explicitDepth : (type === 'material' ? 1 : 0)
+    const consumerPlanItemID = Number(item.consumer_plan_item_id || item.downstream_plan_item_id || item.parent_plan_item_id || 0)
+    const row = {
+      ...item,
+      key: manufacturingNodeKey(output),
+      plan_item_id: Number(item.id || item.production_plan_item_id || 0),
+      consumer_plan_item_id: consumerPlanItemID,
+      depth,
+      type,
+      type_label: type === 'material' ? '物料' : '商品',
+      name: output.name || (output.id > 0 ? `#${output.id}` : `计划行 #${Number(item.id || index + 1)}`),
+      unit: output.unit,
+      required_qty: required,
+      stock_covered_qty: covered,
+      shortage_qty: shortage,
+      action_label: manufacturingActionLabel(item.action || 'manufacture'),
+      blocking: Boolean(item.blocking),
+      dependency_label: type === 'material' ? '供给计划内商品' : '最终产出',
+      _index: index,
+      _output: output,
+    }
+    if (row.plan_item_id > 0) itemByPlanID.set(row.plan_item_id, row)
+    return row
+  })
+
+  for (const row of itemRows) {
+    const consumer = itemByPlanID.get(row.consumer_plan_item_id)
+    if (!consumer) continue
+    row.depth = Math.max(row.depth, consumer.depth + 1)
+    row.dependency_label = `供给 ${manufacturingItemLabel(consumer._output)}`
+  }
+
+  const gapRows = gaps.map((gap, index) => {
+    const type = String(gap.item_type || gap.component_type || '').trim().toLowerCase() === 'product' ? 'product' : 'material'
+    const id = Number(gap.item_id || gap.material_id || gap.product_id || 0)
+    const consumer = itemByPlanID.get(Number(gap.production_plan_item_id || gap.consumer_plan_item_id || 0))
+    const requiredG = Number(gap.required_g || 0)
+    const requiredUnits = Number(gap.required_units || 0)
+    const required = requiredG > 0 ? requiredG : requiredUnits
+    const status = String(gap.status || '').trim().toLowerCase()
+    return {
+      ...gap,
+      key: `gap:${type}:${id}:${Number(gap.id || index + 1)}`,
+      depth: consumer ? consumer.depth + 1 : 1,
+      type,
+      type_label: type === 'material' ? '物料' : '商品',
+      name: String(gap.item_name || gap.material_name || gap.product_name || '').trim() || (id > 0 ? `#${id}` : '待补足对象'),
+      unit: requiredG > 0 ? 'g' : (requiredUnits > 0 ? '件' : String(gap.unit || '').trim()),
+      required_qty: required,
+      stock_covered_qty: 0,
+      shortage_qty: required,
+      action_label: manufacturingActionLabel('purchase'),
+      blocking: !['resolved', 'completed', 'closed'].includes(status),
+      dependency_label: consumer ? `阻断 ${manufacturingItemLabel(consumer._output)}` : '待补足上游供应',
+      _index: items.length + index,
+    }
+  })
+
+  return [...itemRows, ...gapRows]
+    .sort((a, b) => a.depth - b.depth || a._index - b._index)
+    .map(({ _index, _output, ...row }) => row)
+}
+
+export function manufacturingPlanRows(payload = {}) {
+  const plan = payload.manufacturing_plan || payload.multilevel_plan || payload
+  const nodes = Array.isArray(plan.nodes) ? plan.nodes : []
+  const edges = Array.isArray(plan.edges) ? plan.edges : []
+  if (!nodes.length) {
+    return manufacturingPlanFallbackRows({
+      ...payload,
+      ...plan,
+      items: plan.items || payload.items || [],
+      supply_gaps: plan.supply_gaps || payload.supply_gaps || [],
+    })
+  }
+  const byKey = new Map(nodes.map((node) => {
+    const item = node.item || node.output || node
+    return [manufacturingNodeKey(item), { node, item }]
+  }))
+  const suppliersByConsumer = new Map()
+  const consumersBySupplier = new Map()
+  for (const edge of edges) {
+    const consumer = String(edge.consumer_key || edge.consumerKey || '').trim()
+    const supplier = String(edge.supplier_key || edge.supplierKey || '').trim()
+    if (!consumer || !supplier) continue
+    if (!suppliersByConsumer.has(consumer)) suppliersByConsumer.set(consumer, [])
+    suppliersByConsumer.get(consumer).push(supplier)
+    if (!consumersBySupplier.has(supplier)) consumersBySupplier.set(supplier, [])
+    consumersBySupplier.get(supplier).push(consumer)
+  }
+  const roots = [...byKey.keys()].filter((key) => !(consumersBySupplier.get(key) || []).length)
+  const ordered = []
+  const seen = new Set()
+  const visit = (key, depth) => {
+    if (!byKey.has(key) || seen.has(key)) return
+    seen.add(key)
+    ordered.push({ key, depth })
+    for (const supplier of suppliersByConsumer.get(key) || []) visit(supplier, depth + 1)
+  }
+  for (const key of roots) visit(key, 0)
+  for (const key of byKey.keys()) visit(key, 0)
+  return ordered.map(({ key, depth }) => {
+    const { node, item } = byKey.get(key)
+    const consumers = [...new Set(consumersBySupplier.get(key) || [])]
+      .map((consumerKey) => byKey.get(consumerKey)?.item)
+      .filter(Boolean)
+    const backendDepth = Number(node.depth)
+    const displayDepth = Number.isFinite(backendDepth) && backendDepth >= 0 ? backendDepth : depth
+    const type = key.startsWith('material:') ? 'material' : 'product'
+    return {
+      ...node,
+      key,
+      depth: displayDepth,
+      type,
+      type_label: type === 'material' ? '物料' : '商品',
+      name: manufacturingOutputName(item) || `#${manufacturingOutputID(item, type)}`,
+      unit: String(item.unit || node.output_unit || '').trim(),
+      required_qty: Number(node.required_qty || 0),
+      stock_covered_qty: Number(node.stock_covered_qty || 0),
+      shortage_qty: Number(node.shortage_qty || 0),
+      action_label: manufacturingActionLabel(node.action),
+      blocking: Boolean(node.blocking),
+      dependency_label: consumers.length
+        ? `供给 ${consumers.map((consumer) => manufacturingItemLabel(consumer)).join('；')}`
+        : '最终产出',
+    }
+  })
 }

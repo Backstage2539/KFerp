@@ -42,7 +42,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		"alias-filter-row",
 		"product-classification-selects",
 		"alias-classification-selects",
-		"v-for=\"group in renderedDisplaySkuGroups\"",
+		`#group="{ group }"`,
 		"v-for=\"group in visibleCustomerAliasGroups\"",
 	} {
 		if !strings.Contains(view, want) {
