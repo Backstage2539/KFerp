@@ -290,10 +290,12 @@ test('existing material inventory unit is locked after create', () => {
 })
 
 test('materials archive separates inventory unit from locked cost unit', () => {
-  assert.match(materialsSource, /成本计价单位/)
+  assert.match(materialsSource, /采购价与成本单价单位/)
   assert.match(materialsSource, /materialCostUnitLocked/)
-  assert.match(materialsSource, /:disabled="materialCostUnitLocked"/)
-  assert.match(materialsSource, /重量物料统一按 kg 计价/)
+  assert.match(materialsSource, /data-field="cost_unit"/)
+  assert.match(materialsSource, /用于采购价、批次单位成本和 BOM 成本试算/)
+  assert.match(materialsSource, /不用于库存数量/)
+  assert.match(materialsSource, /重量物料固定按元\/kg/)
   assert.match(materialsSource, /采购价（元\/\{\{\s*draft\.cost_unit\s*\}\}）/)
   assert.match(materialsSource, /cost_unit:/)
   assert.match(materialsSource, /cost_unit:\s*draftMode\.value\s*\?\s*draft\.value\.cost_unit\s*:\s*\(selected\.value\?\.cost_unit\s*\|\|\s*draft\.value\.cost_unit\)/)
@@ -318,15 +320,17 @@ test('material receipt, stock adjustment and purchase prices use material cost u
   assert.match(stockAdjustmentsSource, /批次成本调整当前只支持重量物料/)
 })
 
-test('materials expose semi-finished intent, derived manufacturing capability, and BOM round-trip navigation', () => {
+test('materials keep derived manufacturing status beside output BOM links without duplicate technical hints', () => {
   const template = materialsSource.split('<script setup>')[0] || materialsSource
 
   assert.match(template, /v-model="draft\.is_semi_finished"/)
   assert.match(template, /是否半成品/)
   assert.match(template, /can_manufacture/)
-  assert.match(template, /可制造能力/)
   assert.match(template, /产出该物料的 BOM/)
   assert.match(template, /使用该物料的 BOM/)
+  assert.match(template, /draft\.can_manufacture\s*\?\s*'可制造（已有默认发布 BOM）'\s*:\s*'不可制造（无默认发布 BOM）'/)
+  assert.doesNotMatch(template, /可制造能力（只读）|data-field="can_manufacture"/)
+  assert.doesNotMatch(template, /任意有效物料都可以作为普通 BOM 的产出对象；半成品勾选不参与校验。/)
   assert.match(materialsSource, /producedByBoms/)
   assert.match(materialsSource, /usedByBoms/)
   assert.match(materialsSource, /output_type=material/)
