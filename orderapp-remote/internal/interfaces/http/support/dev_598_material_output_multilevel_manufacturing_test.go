@@ -87,7 +87,7 @@ func TestDev598MaterialOutputMultilevelManufacturingContracts(t *testing.T) {
 		filepath.Join("internal", "infrastructure", "postgres", "authz", "schema.go"): {`"stockManual":`, `"stock.read"`},
 		filepath.Join("docs", "REQUIREMENTS.md"):                                      {"PR-597", "已撤回", "PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING", "is_semi_finished", "can_manufacture"},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                  {"PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING", "任意有效物料", "库存覆盖", "净缺口"},
-		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"):                     {"PR-598", "是否半成品", "可制造能力", "产出该物料的 BOM"},
+		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"):                     {"PR-598", "是否半成品", "制造状态", "默认且已发布", "产出该物料的 BOM"},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"):                              {"PR-598", "产出对象", "递归", "上游依赖"},
 		filepath.Join("docs", "OP_MANUAL_STOCK.md"):                                   {"PR-598", "物料工单", "目标仓库", "批次"},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"):                                 {"PR-598", "递归成本", "各层 BOM"},

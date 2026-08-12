@@ -48,7 +48,7 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"标准制造成本", "配方比例", "原料加耗", "计价比例",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"): {
-			"成本计价单位", "成本计价单位保存后不可修改", "采购价（元/{{ draft.cost_unit }}）",
+			"采购价与成本单价单位", "采购价与成本单价单位保存后不可修改", "不用于库存数量", "采购价（元/{{ draft.cost_unit }}）",
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-538-MATERIAL-COST-UNIT-LOSS", "成本计价单位", "yield_rate=1", "80.50元/kg", "82.54元/kg", "生产环境禁止部署",
@@ -63,7 +63,7 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"K80. 物料成本计价单位与生产 BOM 损耗口径修正", "54元/kg", "yield_rate=0.8", "64.6875元/kg", "67.2942元/kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"PR-538-MATERIAL-COST-UNIT-LOSS", "库存单位管数量，成本计价单位管单价", "采购价（元/kg）",
+			"PR-538-MATERIAL-COST-UNIT-LOSS", "库存单位管数量，采购价与成本单价单位管单价", "采购价（元/kg）",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-592-BOM-LOSS-GROSS-INPUT", "54元/kg", "64.6875元/kg", "67.2942元/kg", "83.47元/kg",
