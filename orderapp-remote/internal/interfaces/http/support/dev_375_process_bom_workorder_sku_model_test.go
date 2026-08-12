@@ -46,7 +46,12 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"生产 BOM（制造主档）",
-			"BusinessGroupControls",
+			"BusinessGroupInlineWorkspace",
+			"collapsedProductionBomGroups",
+			"productionBomCategoryMoveActive",
+			`@target="handleProductionBomCategoryMoveTarget"`,
+			"handleProductionBomGroupPaginationChange",
+			"data-bom-settings-drawer",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue"): {
 			"工艺路线",

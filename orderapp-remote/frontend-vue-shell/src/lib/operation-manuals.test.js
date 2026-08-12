@@ -13,6 +13,7 @@ test('operation manual view keys map to deployed OP_MANUAL docs', () => {
       orderSalesManual: 'OP_MANUAL_ORDER_SALES.md',
       productionManual: 'OP_MANUAL_PRODUCTION.md',
       inventoryMaterialsManual: 'OP_MANUAL_INVENTORY_MATERIALS.md',
+      stockManual: 'OP_MANUAL_STOCK.md',
       costingManual: 'OP_MANUAL_COSTING.md',
       greenBeanSalesManual: 'OP_MANUAL_GREEN_BEAN_SALES.md',
       financeManual: 'OP_MANUAL_FINANCE.md',

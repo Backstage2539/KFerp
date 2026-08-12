@@ -172,6 +172,8 @@ type StartExecutionCommand struct {
 
 type FinishCommand struct {
 	ID               int64
+	WorkOrderID      int64
+	StockDocumentID  int64
 	FinishedUnits    int64
 	FinishedLooseG   int64
 	HasFinishedInput bool
@@ -179,6 +181,7 @@ type FinishCommand struct {
 	Partial          bool
 	ConsumedInputG   int64
 	Operator         string
+	Note             string
 	Outputs          []FinishOutputCommand
 }
 
@@ -191,6 +194,7 @@ type FinishResult struct {
 	RunningItemID  int64           `json:"running_item_id"`
 	Completed      bool            `json:"completed"`
 	FinishedOrders []FinishedOrder `json:"finished_orders,omitempty"`
+	StockEntryID   int64           `json:"-"`
 }
 
 type FinishOutputCommand struct {
@@ -202,6 +206,7 @@ type FinishOutputCommand struct {
 type CancelCommand struct {
 	ID       int64
 	Operator string
+	Note     string
 }
 
 type RoastMachine struct {
@@ -417,6 +422,12 @@ type ProductionPlanRow struct {
 type ProductionPlanItem struct {
 	ID                           int64   `json:"id"`
 	PlanID                       int64   `json:"plan_id"`
+	OutputType                   string  `json:"output_type"`
+	OutputProductID              int64   `json:"output_product_id"`
+	OutputMaterialID             int64   `json:"output_material_id"`
+	OutputName                   string  `json:"output_name"`
+	OutputQty                    float64 `json:"output_qty"`
+	OutputUnit                   string  `json:"output_unit"`
 	ProductID                    int64   `json:"product_id"`
 	ParentProductID              int64   `json:"parent_product_id"`
 	BomSourceProductID           int64   `json:"bom_source_product_id"`
@@ -541,23 +552,94 @@ type ProductionPlanDetail struct {
 	Items             []ProductionPlanItem             `json:"items"`
 	OperationSplits   []ProductionPlanOperationSplit   `json:"operation_splits"`
 	MaterialSummary   []MaterialNeed                   `json:"material_summary"`
+	SupplyGaps        []ProductionPlanSupplyGap        `json:"supply_gaps"`
+	ManufacturingPlan ProductionManufacturingPlan      `json:"manufacturing_plan"`
 	RelatedWorkOrders []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
 	JobCardCount      int64                            `json:"job_card_count"`
 }
 
-type ProductionPlanRelatedWorkOrder struct {
+type ProductionManufacturingPlan struct {
+	Nodes    []ProductionManufacturingPlanNode `json:"nodes"`
+	Edges    []ProductionManufacturingPlanEdge `json:"edges"`
+	Blocking bool                              `json:"blocking"`
+}
+
+type ProductionManufacturingPlanNode struct {
+	Key               string  `json:"key"`
+	PlanItemID        int64   `json:"plan_item_id"`
+	ParentPlanItemID  int64   `json:"parent_plan_item_id"`
+	OutputType        string  `json:"output_type"`
+	OutputProductID   int64   `json:"output_product_id"`
+	OutputMaterialID  int64   `json:"output_material_id"`
+	OutputName        string  `json:"output_name"`
+	OutputUnit        string  `json:"output_unit"`
+	RequiredQty       float64 `json:"required_qty"`
+	StockCoveredQty   float64 `json:"stock_covered_qty"`
+	ShortageQty       float64 `json:"shortage_qty"`
+	RequiredG         int64   `json:"required_g"`
+	RequiredUnits     int64   `json:"required_units"`
+	StockCoveredG     int64   `json:"stock_covered_g"`
+	StockCoveredUnits int64   `json:"stock_covered_units"`
+	ShortageG         int64   `json:"shortage_g"`
+	ShortageUnits     int64   `json:"shortage_units"`
+	Action            string  `json:"action"`
+	Blocking          bool    `json:"blocking"`
+	Depth             int     `json:"depth"`
+	BOMVersionID      int64   `json:"bom_version_id"`
+	TargetWarehouse   string  `json:"target_warehouse"`
+}
+
+type ProductionManufacturingPlanEdge struct {
+	ConsumerKey        string  `json:"consumer_key"`
+	SupplierKey        string  `json:"supplier_key"`
+	ConsumerPlanItemID int64   `json:"consumer_plan_item_id"`
+	SupplierPlanItemID int64   `json:"supplier_plan_item_id"`
+	RequiredQty        float64 `json:"required_qty"`
+	RequiredG          int64   `json:"required_g"`
+	RequiredUnits      int64   `json:"required_units"`
+}
+
+type ProductionPlanSupplyGap struct {
 	ID                   int64  `json:"id"`
-	WorkOrderNo          string `json:"work_order_no"`
 	ProductionPlanID     int64  `json:"production_plan_id"`
 	ProductionPlanItemID int64  `json:"production_plan_item_id"`
-	ProductName          string `json:"product_name"`
-	SpecG                int64  `json:"spec_g"`
-	PlannedG             int64  `json:"planned_g"`
-	PlannedOutputG       int64  `json:"planned_output_g"`
+	ItemType             string `json:"item_type"`
+	ItemID               int64  `json:"item_id"`
+	ItemName             string `json:"item_name"`
+	RequiredG            int64  `json:"required_g"`
+	RequiredUnits        int64  `json:"required_units"`
+	Reason               string `json:"reason"`
 	Status               string `json:"status"`
-	CreatedAt            string `json:"created_at"`
-	CompletedAt          string `json:"completed_at"`
-	JobCardCount         int64  `json:"job_card_count"`
+}
+
+type UpdateProductionPlanItemTargetWarehouseCommand struct {
+	ProductionPlanID     int64
+	ProductionPlanItemID int64
+	TargetWarehouse      string
+	Operator             string
+}
+
+type ProductionPlanRelatedWorkOrder struct {
+	ID                   int64   `json:"id"`
+	WorkOrderNo          string  `json:"work_order_no"`
+	RunningItemID        int64   `json:"running_item_id"`
+	ProductionPlanID     int64   `json:"production_plan_id"`
+	ProductionPlanItemID int64   `json:"production_plan_item_id"`
+	OutputType           string  `json:"output_type"`
+	OutputProductID      int64   `json:"output_product_id"`
+	OutputMaterialID     int64   `json:"output_material_id"`
+	OutputName           string  `json:"output_name"`
+	OutputQty            float64 `json:"output_qty"`
+	OutputUnit           string  `json:"output_unit"`
+	TargetWarehouse      string  `json:"target_warehouse"`
+	ProductName          string  `json:"product_name"`
+	SpecG                int64   `json:"spec_g"`
+	PlannedG             int64   `json:"planned_g"`
+	PlannedOutputG       int64   `json:"planned_output_g"`
+	Status               string  `json:"status"`
+	CreatedAt            string  `json:"created_at"`
+	CompletedAt          string  `json:"completed_at"`
+	JobCardCount         int64   `json:"job_card_count"`
 }
 
 type SubmitProductionPlanCommand struct {
@@ -606,13 +688,16 @@ type WorkOrderStartResult struct {
 }
 
 type WorkOrderCompleteCommand struct {
-	ID             int64
-	FinishedUnits  int64
-	FinishedLooseG int64
-	ConsumedInputG int64
-	Warehouse      string
-	Operator       string
-	Note           string
+	ID               int64
+	StockDocumentID  int64
+	FinishedUnits    int64
+	FinishedLooseG   int64
+	FinishedQtyG     int64
+	FinishedQtyUnits int64
+	ConsumedInputG   int64
+	Warehouse        string
+	Operator         string
+	Note             string
 }
 
 type WorkOrderCompleteResult struct {
@@ -686,63 +771,91 @@ type WorkOrderQuery struct {
 	Limit  int
 }
 
+type WorkOrderDependencyRow struct {
+	WorkOrderID          int64   `json:"work_order_id"`
+	DependsOnWorkOrderID int64   `json:"depends_on_work_order_id"`
+	DependsOnWorkOrderNo string  `json:"depends_on_work_order_no"`
+	OutputType           string  `json:"output_type"`
+	OutputProductID      int64   `json:"output_product_id"`
+	OutputMaterialID     int64   `json:"output_material_id"`
+	OutputName           string  `json:"output_name"`
+	OutputQty            float64 `json:"output_qty"`
+	OutputUnit           string  `json:"output_unit"`
+	MaterialID           int64   `json:"material_id"`
+	RequiredG            int64   `json:"required_g"`
+	RequiredUnits        int64   `json:"required_units"`
+	Status               string  `json:"status"`
+	Completed            bool    `json:"completed"`
+}
+
 type WorkOrderRow struct {
-	ID                       int64   `json:"id"`
-	WorkOrderNo              string  `json:"work_order_no"`
-	RunningItemID            int64   `json:"running_item_id"`
-	ProductionPlanID         int64   `json:"production_plan_id"`
-	ProductionPlanItemID     int64   `json:"production_plan_item_id"`
-	BatchID                  string  `json:"batch_id"`
-	ProductID                int64   `json:"product_id"`
-	ParentProductID          int64   `json:"parent_product_id"`
-	BomSourceProductID       int64   `json:"bom_source_product_id"`
-	BomSource                string  `json:"bom_source"`
-	BomInherited             bool    `json:"bom_inherited"`
-	ProductName              string  `json:"product_name"`
-	SpecG                    int64   `json:"spec_g"`
-	SalesSpecCount           float64 `json:"sales_spec_count"`
-	InventoryQtyPerSalesUnit float64 `json:"inventory_qty_per_sales_unit"`
-	InventoryUnit            string  `json:"inventory_unit"`
-	PlannedInventoryQty      float64 `json:"planned_inventory_qty"`
-	SalesSpecSnapshotJSON    string  `json:"sales_spec_snapshot_json"`
-	PlannedG                 int64   `json:"planned_g"`
-	PlannedOutputG           int64   `json:"planned_output_g"`
-	Status                   string  `json:"status"`
-	ActualCost               float64 `json:"actual_cost"`
-	CreatedAt                string  `json:"created_at"`
-	CompletedAt              string  `json:"completed_at"`
-	RoastLevel               string  `json:"roast_level"`
-	YieldRate                float64 `json:"yield_rate"`
-	ExpectedYieldRate        float64 `json:"expected_yield_rate"`
-	ExpectedLossRate         float64 `json:"expected_loss_rate"`
-	SuggestedInputG          int64   `json:"suggested_input_g"`
-	SuggestedMachine         string  `json:"suggested_machine"`
-	SuggestedBatchCount      int64   `json:"suggested_batch_count"`
-	SuggestedBatchG          int64   `json:"suggested_batch_g"`
-	SuggestedBatchPlan       string  `json:"suggested_batch_plan"`
-	PlannedUnits             int64   `json:"planned_units"`
-	PlannedLooseG            int64   `json:"planned_loose_g"`
-	MaterialSummary          string  `json:"material_summary"`
-	OrderNos                 string  `json:"order_nos"`
-	WIPReservedG             int64   `json:"wip_reserved_g"`
-	WIPConsumedG             int64   `json:"wip_consumed_g"`
-	WIPRemainingReservedG    int64   `json:"remaining_reserved_g"`
-	BomVersionID             int64   `json:"bom_version_id"`
-	OperationTemplateID      int64   `json:"operation_template_id"`
-	ProcessTemplateID        int64   `json:"process_template_id"`
-	ProcessTemplateName      string  `json:"process_template_name"`
-	ProcessSnapshotJSON      string  `json:"process_snapshot_json"`
-	OperationSummaryJSON     string  `json:"operation_summary_json"`
-	PlannedStartAt           string  `json:"planned_start_at"`
-	PlannedEndAt             string  `json:"planned_end_at"`
-	ShiftCode                string  `json:"shift_code"`
-	AssignedTo               string  `json:"assigned_to"`
-	Priority                 int     `json:"priority"`
-	SchedulingNote           string  `json:"scheduling_note"`
-	WorkCenter               string  `json:"work_center"`
-	CustomerID               int64   `json:"customer_id,omitempty"`
-	TargetWarehouse          string  `json:"target_warehouse,omitempty"`
-	ProcessingRequestItemID  int64   `json:"processing_request_item_id,omitempty"`
+	ID                        int64                    `json:"id"`
+	WorkOrderNo               string                   `json:"work_order_no"`
+	RunningItemID             int64                    `json:"running_item_id"`
+	ProductionPlanID          int64                    `json:"production_plan_id"`
+	ProductionPlanItemID      int64                    `json:"production_plan_item_id"`
+	OutputType                string                   `json:"output_type"`
+	OutputProductID           int64                    `json:"output_product_id"`
+	OutputMaterialID          int64                    `json:"output_material_id"`
+	OutputName                string                   `json:"output_name"`
+	OutputQty                 float64                  `json:"output_qty"`
+	OutputUnit                string                   `json:"output_unit"`
+	HasUnfinishedDependencies bool                     `json:"has_unfinished_dependencies"`
+	DependencyBlockingReason  string                   `json:"dependency_blocking_reason,omitempty"`
+	UpstreamWorkOrderIDs      []int64                  `json:"upstream_work_order_ids,omitempty"`
+	UpstreamBlocked           bool                     `json:"upstream_blocked"`
+	UpstreamDependencies      []WorkOrderDependencyRow `json:"upstream_dependencies"`
+	BatchID                   string                   `json:"batch_id"`
+	ProductID                 int64                    `json:"product_id"`
+	ParentProductID           int64                    `json:"parent_product_id"`
+	BomSourceProductID        int64                    `json:"bom_source_product_id"`
+	BomSource                 string                   `json:"bom_source"`
+	BomInherited              bool                     `json:"bom_inherited"`
+	ProductName               string                   `json:"product_name"`
+	SpecG                     int64                    `json:"spec_g"`
+	SalesSpecCount            float64                  `json:"sales_spec_count"`
+	InventoryQtyPerSalesUnit  float64                  `json:"inventory_qty_per_sales_unit"`
+	InventoryUnit             string                   `json:"inventory_unit"`
+	PlannedInventoryQty       float64                  `json:"planned_inventory_qty"`
+	SalesSpecSnapshotJSON     string                   `json:"sales_spec_snapshot_json"`
+	PlannedG                  int64                    `json:"planned_g"`
+	PlannedOutputG            int64                    `json:"planned_output_g"`
+	Status                    string                   `json:"status"`
+	ActualCost                float64                  `json:"actual_cost"`
+	CreatedAt                 string                   `json:"created_at"`
+	CompletedAt               string                   `json:"completed_at"`
+	RoastLevel                string                   `json:"roast_level"`
+	YieldRate                 float64                  `json:"yield_rate"`
+	ExpectedYieldRate         float64                  `json:"expected_yield_rate"`
+	ExpectedLossRate          float64                  `json:"expected_loss_rate"`
+	SuggestedInputG           int64                    `json:"suggested_input_g"`
+	SuggestedMachine          string                   `json:"suggested_machine"`
+	SuggestedBatchCount       int64                    `json:"suggested_batch_count"`
+	SuggestedBatchG           int64                    `json:"suggested_batch_g"`
+	SuggestedBatchPlan        string                   `json:"suggested_batch_plan"`
+	PlannedUnits              int64                    `json:"planned_units"`
+	PlannedLooseG             int64                    `json:"planned_loose_g"`
+	MaterialSummary           string                   `json:"material_summary"`
+	OrderNos                  string                   `json:"order_nos"`
+	WIPReservedG              int64                    `json:"wip_reserved_g"`
+	WIPConsumedG              int64                    `json:"wip_consumed_g"`
+	WIPRemainingReservedG     int64                    `json:"remaining_reserved_g"`
+	BomVersionID              int64                    `json:"bom_version_id"`
+	OperationTemplateID       int64                    `json:"operation_template_id"`
+	ProcessTemplateID         int64                    `json:"process_template_id"`
+	ProcessTemplateName       string                   `json:"process_template_name"`
+	ProcessSnapshotJSON       string                   `json:"process_snapshot_json"`
+	OperationSummaryJSON      string                   `json:"operation_summary_json"`
+	PlannedStartAt            string                   `json:"planned_start_at"`
+	PlannedEndAt              string                   `json:"planned_end_at"`
+	ShiftCode                 string                   `json:"shift_code"`
+	AssignedTo                string                   `json:"assigned_to"`
+	Priority                  int                      `json:"priority"`
+	SchedulingNote            string                   `json:"scheduling_note"`
+	WorkCenter                string                   `json:"work_center"`
+	CustomerID                int64                    `json:"customer_id,omitempty"`
+	TargetWarehouse           string                   `json:"target_warehouse,omitempty"`
+	ProcessingRequestItemID   int64                    `json:"processing_request_item_id,omitempty"`
 }
 
 type JobCardQuery struct {
@@ -1629,6 +1742,13 @@ type workOrderStockDraftRepository interface {
 	GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string, stockDocumentID int64) (*StockEntryCommand, error)
 }
 
+// productionPlanTargetWarehouseRepository is optional so focused adapters and
+// existing application fakes remain source-compatible. PostgreSQL implements
+// the draft-only, audited warehouse freeze used by the production-plan API.
+type productionPlanTargetWarehouseRepository interface {
+	UpdateProductionPlanItemTargetWarehouse(ctx context.Context, cmd UpdateProductionPlanItemTargetWarehouseCommand) (ProductionPlanItem, error)
+}
+
 type Service struct {
 	repo Repository
 }
@@ -1779,6 +1899,25 @@ func (s *Service) GetProductionPlan(ctx context.Context, id int64) (ProductionPl
 		return ProductionPlanDetail{}, fmt.Errorf("production_plan_id required")
 	}
 	return s.repo.GetProductionPlan(ctx, id)
+}
+
+func (s *Service) UpdateProductionPlanItemTargetWarehouse(ctx context.Context, cmd UpdateProductionPlanItemTargetWarehouseCommand) (ProductionPlanItem, error) {
+	if cmd.ProductionPlanID <= 0 {
+		return ProductionPlanItem{}, fmt.Errorf("production_plan_id required")
+	}
+	if cmd.ProductionPlanItemID <= 0 {
+		return ProductionPlanItem{}, fmt.Errorf("production_plan_item_id required")
+	}
+	cmd.TargetWarehouse = strings.TrimSpace(cmd.TargetWarehouse)
+	if cmd.TargetWarehouse == "" {
+		return ProductionPlanItem{}, fmt.Errorf("target_warehouse required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	repo, ok := s.repo.(productionPlanTargetWarehouseRepository)
+	if !ok {
+		return ProductionPlanItem{}, fmt.Errorf("production plan target warehouse update not supported")
+	}
+	return repo.UpdateProductionPlanItemTargetWarehouse(ctx, cmd)
 }
 
 func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
@@ -1944,7 +2083,7 @@ func (s *Service) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCo
 	if cmd.ID <= 0 {
 		return WorkOrderCompleteResult{}, fmt.Errorf("work_order_id required")
 	}
-	if cmd.FinishedUnits <= 0 && cmd.FinishedLooseG <= 0 {
+	if cmd.FinishedUnits <= 0 && cmd.FinishedLooseG <= 0 && cmd.FinishedQtyG <= 0 && cmd.FinishedQtyUnits <= 0 {
 		return WorkOrderCompleteResult{}, fmt.Errorf("finished output required")
 	}
 	if cmd.ConsumedInputG < 0 {
@@ -2071,20 +2210,53 @@ func (s *Service) PreviewWorkOrderStockDocument(ctx context.Context, cmd StockDo
 		document.Note = "完工入库"
 	}
 	if cmd.Action == "finish" {
-		qtyG := detail.WorkOrder.PlannedLooseG
-		qtyUnits := detail.WorkOrder.PlannedUnits
-		if qtyUnits <= 0 && qtyG <= 0 {
-			qtyG = detail.WorkOrder.PlannedOutputG
+		workOrder := detail.WorkOrder
+		outputType := strings.ToLower(strings.TrimSpace(workOrder.OutputType))
+		if outputType == "material" {
+			qtyG, qtyUnits := canonicalManufacturingOutputQuantity(workOrder.OutputQty, workOrder.OutputUnit)
+			warehouse := strings.TrimSpace(workOrder.TargetWarehouse)
+			if warehouse == "" {
+				warehouse = stockdomain.WarehouseWIP
+			}
+			quantityBasis := "count"
+			if qtyG > 0 {
+				quantityBasis = "weight"
+			}
+			document.Items = []StockEntryItemCommand{{
+				MaterialID:    workOrder.OutputMaterialID,
+				ItemType:      "material",
+				ItemName:      firstNonEmptyString(workOrder.OutputName, workOrder.ProductName),
+				InventoryUnit: strings.TrimSpace(workOrder.OutputUnit),
+				QuantityBasis: quantityBasis,
+				DefaultQty:    workOrder.OutputQty,
+				ToWarehouse:   warehouse,
+				QtyG:          qtyG,
+				QtyUnits:      qtyUnits,
+			}}
+		} else {
+			qtyG := workOrder.PlannedLooseG
+			qtyUnits := workOrder.PlannedUnits
+			if qtyUnits <= 0 && qtyG <= 0 {
+				qtyG = workOrder.PlannedOutputG
+			}
+			warehouse := strings.TrimSpace(workOrder.TargetWarehouse)
+			if warehouse == "" {
+				warehouse = stockdomain.WarehouseFinishedGoods
+			}
+			productID := workOrder.OutputProductID
+			if productID <= 0 {
+				productID = workOrder.ProductID
+			}
+			document.Items = []StockEntryItemCommand{{
+				ProductID:   productID,
+				ItemType:    "finished_product",
+				ItemName:    firstNonEmptyString(workOrder.OutputName, workOrder.ProductName),
+				SpecG:       workOrder.SpecG,
+				ToWarehouse: warehouse,
+				QtyG:        qtyG,
+				QtyUnits:    qtyUnits,
+			}}
 		}
-		document.Items = []StockEntryItemCommand{{
-			ProductID:   detail.WorkOrder.ProductID,
-			ItemType:    "finished_product",
-			ItemName:    detail.WorkOrder.ProductName,
-			SpecG:       detail.WorkOrder.SpecG,
-			ToWarehouse: stockdomain.WarehouseFinishedGoods,
-			QtyG:        qtyG,
-			QtyUnits:    qtyUnits,
-		}}
 	} else {
 		wipByMaterial := workOrderWIPBalances(detail.LedgerEntries)
 		consumedByMaterial := workOrderMaterialConsumptionBalances(detail.LedgerEntries)
@@ -2260,6 +2432,27 @@ func inventoryQuantityToGrams(value float64, unit string) int64 {
 		factor = 453.59237
 	}
 	return int64(math.Ceil(value * factor))
+}
+
+func canonicalManufacturingOutputQuantity(value float64, unit string) (int64, int64) {
+	if value <= 0 {
+		return 0, 0
+	}
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "g", "克", "kg", "千克", "公斤", "lb", "磅":
+		return inventoryQuantityToGrams(value, unit), 0
+	default:
+		return 0, int64(math.Ceil(value))
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func inventoryQuantityFromGrams(value int64, unit string) float64 {

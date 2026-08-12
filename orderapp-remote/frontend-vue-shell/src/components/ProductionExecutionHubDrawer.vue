@@ -16,9 +16,23 @@
         <div v-if="error" class="error">{{ error }}</div>
         <section class="summary-grid">
           <div><span>工单状态</span><strong>{{ header.status || '-' }}</strong></div>
+          <div><span>产出对象</span><strong>{{ typedOutputLabel }}</strong><small>{{ header.target_warehouse ? `目标仓库 ${header.target_warehouse}` : '-' }}</small></div>
           <div><span>BOM / 路线</span><strong>{{ hub.bom_summary || '-' }}</strong><small>{{ hub.route_summary || '-' }}</small></div>
           <div><span>负责人 / 工位</span><strong>{{ assignment.assigned_to || readiness.next_handler || '-' }}</strong><small>{{ assignment.work_center || '未分配工位' }}</small></div>
           <div><span>成本</span><strong>{{ money(hub.cost_summary?.total_cost) }}</strong></div>
+        </section>
+
+        <section v-if="upstreamBlocked || upstreamBlockers.length" class="readiness-panel danger dependency-blockers">
+          <div>
+            <div class="section-title">上游依赖</div>
+            <p>{{ upstreamBlockerReason }}</p>
+          </div>
+          <div class="reason-list">
+            <article v-for="blocker in upstreamBlockers" :key="blocker.work_order_id || blocker.work_order_no">
+              <strong>{{ blocker.work_order_no || `工单 #${blocker.work_order_id || blocker.id || '-'}` }}</strong>
+              <span>{{ blocker.output_name || blocker.product_name || blocker.material_name || blocker.status || '尚未完成' }}</span>
+            </article>
+          </div>
         </section>
 
         <section class="readiness-panel" :class="readinessTone">
@@ -131,7 +145,9 @@ import {
   buildExecutionHubActions,
   buildExecutionHubFocus,
   executionHubCommandErrorMessage,
+  executionHubOutputLabel,
   executionHubTimelineFilters,
+  executionHubUpstreamBlockers,
   filterExecutionHubTimeline,
   readinessBadgeTone,
 } from '../lib/production-execution-hub'
@@ -159,6 +175,10 @@ const assignment = computed(() => hub.value.workstation_assignment || {})
 const readiness = computed(() => hub.value.readiness || {})
 const wipStatus = computed(() => hub.value.wip_status || {})
 const qualityStatus = computed(() => hub.value.quality_status || {})
+const typedOutputLabel = computed(() => executionHubOutputLabel({ ...hub.value, header: header.value }))
+const upstreamBlockers = computed(() => executionHubUpstreamBlockers({ ...hub.value, header: header.value }))
+const upstreamBlocked = computed(() => Boolean(header.value.has_unfinished_dependencies || header.value.upstream_blocked || upstreamBlockers.value.length))
+const upstreamBlockerReason = computed(() => String(header.value.dependency_blocking_reason || header.value.upstream_blocking_reason || '等待上游工单完工后再开始生产'))
 const readinessTone = computed(() => readinessBadgeTone(readiness.value))
 const readinessText = computed(() => {
   if (readiness.value.blocking_reasons?.length) return readiness.value.blocking_reasons.map((row) => row.label).join(' / ')
@@ -169,7 +189,9 @@ const readinessText = computed(() => {
 const focusState = computed(() => buildExecutionHubFocus({ ...(props.viewParams || {}), focus: props.focus }))
 const fallbackActions = computed(() => buildExecutionHubActions({ ...hub.value, work_order: header.value, job_cards: detail.value.job_cards }))
 const contextActions = computed(() => {
-  const actions = hub.value.context_actions?.length ? hub.value.context_actions : fallbackActions.value
+  const fallbackCancelAction = fallbackActions.value.find((action) => action.key === 'cancelWorkOrder')
+  const actions = [...(hub.value.context_actions?.length ? hub.value.context_actions : fallbackActions.value)]
+  if (fallbackCancelAction && !actions.some((action) => action.key === 'cancelWorkOrder')) actions.push(fallbackCancelAction)
   return actions.map((action) => {
     const fallback = fallbackActions.value.find((row) => row.key === action.key) || {}
     let params = action.params || {}
@@ -225,6 +247,7 @@ function navigate(action) {
 async function runAction(action) {
   if (!action || action.disabled || actionBusyKey.value) return
   if (action.action_type === 'command') {
+    if (action.key === 'cancelWorkOrder' && !window.confirm('确认取消未开工工单？取消后该工单将不能再开始生产。')) return
     if (!action.endpoint) {
       error.value = `${action.label || '操作'}缺少执行地址，请刷新后重试`
       return

@@ -231,6 +231,154 @@ func TestMaterialsAPIUpdateRejectsInventoryUnitChange(t *testing.T) {
 	}
 }
 
+func TestMaterialsAPISemiFinishedCanManufactureAndUnusedUnitChange(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	for _, statement := range []string{
+		fmt.Sprintf(`CREATE TABLE %s.production_boms(id BIGSERIAL PRIMARY KEY, output_type TEXT NOT NULL, output_product_id BIGINT NOT NULL DEFAULT 0, output_material_id BIGINT NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.production_bom_versions(id BIGSERIAL PRIMARY KEY, bom_id BIGINT NOT NULL, status TEXT NOT NULL DEFAULT 'draft')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.production_bom_output_bindings(output_type TEXT NOT NULL, output_id BIGINT NOT NULL, bom_id BIGINT NOT NULL, bom_version_id BIGINT NOT NULL, is_default BOOLEAN NOT NULL DEFAULT true, PRIMARY KEY(output_type,output_id))`, schema),
+	} {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "api-test")
+			return next(c)
+		}
+	})
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
+
+	createBody := []byte(`{"code":"wip-api-1","name":"湿豆","kind":"bean","unit":"g","cost_unit":"kg","is_semi_finished":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/materials", bytes.NewReader(createBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create semi-finished status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var created materialsapp.Material
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if !created.IsSemiFinished || created.CanManufacture {
+		t.Fatalf("created material = %+v, want semi-finished and not yet manufacturable", created)
+	}
+
+	updateBody := []byte(`{"code":"wip-api-1","name":"湿豆","kind":"bean","unit":"kg","cost_unit":"kg","is_semi_finished":true}`)
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", created.ID), bytes.NewReader(updateBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unused material unit change status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var bomID, versionID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_boms(output_type,output_material_id) VALUES('material',$1) RETURNING id`, schema), created.ID).Scan(&bomID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,status) VALUES($1,'published') RETURNING id`, schema), bomID).Scan(&versionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default) VALUES('material',$1,$2,$3,true)`, schema), created.ID, bomID, versionID); err != nil {
+		t.Fatal(err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/materials?q=wip-api-1", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"can_manufacture":true`) || !strings.Contains(rec.Body.String(), `"is_semi_finished":true`) {
+		t.Fatalf("material list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Older full-row clients may omit the new flag; omission preserves it while
+	// an explicit false remains a real write.
+	omittedFlagBody := []byte(`{"code":"wip-api-1","name":"湿豆旧客户端改名","kind":"bean","unit":"kg","cost_unit":"kg"}`)
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", created.ID), bytes.NewReader(omittedFlagBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"is_semi_finished":true`) {
+		t.Fatalf("omitted semi-finished flag status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	explicitFalseBody := []byte(`{"code":"wip-api-1","name":"湿豆旧客户端改名","kind":"bean","unit":"kg","cost_unit":"kg","is_semi_finished":false}`)
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", created.ID), bytes.NewReader(explicitFalseBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"is_semi_finished":false`) || !strings.Contains(rec.Body.String(), `"can_manufacture":true`) {
+		t.Fatalf("explicit false semi-finished flag status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMaterialsAPIUnitChangeFailsClosedForPublishedBomAndOpenWorkOrder(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	for _, statement := range []string{
+		fmt.Sprintf(`CREATE TABLE %s.production_boms(id BIGSERIAL PRIMARY KEY, output_type TEXT NOT NULL, output_product_id BIGINT NOT NULL DEFAULT 0, output_material_id BIGINT NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.production_bom_versions(id BIGSERIAL PRIMARY KEY, bom_id BIGINT NOT NULL, status TEXT NOT NULL DEFAULT 'draft')`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.production_bom_version_items(id BIGSERIAL PRIMARY KEY, version_id BIGINT NOT NULL, component_type TEXT NOT NULL DEFAULT 'material', material_id BIGINT NOT NULL DEFAULT 0, component_product_id BIGINT NOT NULL DEFAULT 0)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.work_orders(id BIGSERIAL PRIMARY KEY, status TEXT NOT NULL DEFAULT 'running', output_type TEXT NOT NULL DEFAULT 'product', output_material_id BIGINT NOT NULL DEFAULT 0)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.work_order_material_reservations(id BIGSERIAL PRIMARY KEY, work_order_id BIGINT NOT NULL, material_id BIGINT NOT NULL)`, schema),
+	} {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var publishedMaterialID, reservedMaterialID, outputWorkOrderMaterialID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,cost_unit) VALUES('LOCK-BOM','发布配方物料','bean','g','kg') RETURNING id`, schema)).Scan(&publishedMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,cost_unit) VALUES('LOCK-WO','开放工单物料','bean','g','kg') RETURNING id`, schema)).Scan(&reservedMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,cost_unit) VALUES('LOCK-WO-OUT','开放产出工单物料','bean','g','kg') RETURNING id`, schema)).Scan(&outputWorkOrderMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	var bomID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_boms(output_type,output_material_id) VALUES('material',$1) RETURNING id`, schema), publishedMaterialID).Scan(&bomID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,status) VALUES($1,'published')`, schema), bomID); err != nil {
+		t.Fatal(err)
+	}
+	var workOrderID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.work_orders(status) VALUES('running') RETURNING id`, schema)).Scan(&workOrderID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.work_order_material_reservations(work_order_id,material_id) VALUES($1,$2)`, schema), workOrderID, reservedMaterialID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.work_orders(status,output_type,output_material_id) VALUES('running','material',$1)`, schema), outputWorkOrderMaterialID); err != nil {
+		t.Fatal(err)
+	}
+
+	e := echo.New()
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
+	for _, tc := range []struct {
+		id   int64
+		code string
+		name string
+	}{
+		{publishedMaterialID, "LOCK-BOM", "发布配方物料"},
+		{reservedMaterialID, "LOCK-WO", "开放工单物料"},
+		{outputWorkOrderMaterialID, "LOCK-WO-OUT", "开放产出工单物料"},
+	} {
+		body, _ := json.Marshal(materialsapp.MaterialInput{Code: tc.code, Name: tc.name, Kind: "bean", Unit: "kg", CostUnit: "kg"})
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", tc.id), bytes.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "库存单位保存后不能修改") {
+			t.Fatalf("material %s unit change status=%d body=%s", tc.code, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestMaterialsAPIUpdateAllowsOmittedInventoryUnit(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

@@ -10,7 +10,7 @@
           <h2>{{ productSectionTitle }}</h2>
           <p>商品档案维护商品族信息、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；库存单位来自销售规格模板，商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
-        <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
+        <button class="secondary" type="button" @click="loadAll" :disabled="loading || productCategoryMoveActive">刷新</button>
       </div>
     </section>
 
@@ -148,185 +148,153 @@
           </button>
         </div>
         <div v-show="!productsCollapsed">
-          <BusinessGroupControls
-            v-if="productCatalogBusinessGroups.length"
-            v-model="selectedProductGroupTemplateID"
-            v-model:move-model-value="selectedProductBusinessGroupItemID"
-            class="classification-view-toolbar product-business-group-controls"
-            data-pr442-product-group-assignments
-            data-pr442-business-group-items-api="/api/business-group-items"
-            :template-options="productBusinessGroupControls.templateOptions"
-            :move-options="productBusinessGroupItemOptions"
-            :selected-template="selectedProductGroupTemplate"
+          <BusinessGroupInlineWorkspace
+            v-model:collapsed-keys="collapsedProductClassificationGroups"
+            :groups="displaySkuGroups"
+            :move-active="productCategoryMoveActive"
             :selected-count="selectedProductIds.length"
             :can-move="canMoveSelectedProductsToBusinessGroup"
             :loading="loading"
-            template-label="移动目标模板"
+            count-unit="款"
+            data-pr442-product-group-assignments
+            data-pr442-business-group-items-api="/api/business-group-items"
             @manage="openProductBusinessGroupManagement"
-            @move="saveSelectedProductBusinessGroupAssignment">
-            <template #extra-actions>
-              <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
+            @configure="openProductGroupTemplateDrawer"
+            @move="productCategoryMoveActive = true"
+            @cancel="productCategoryMoveActive = false"
+            @target="handleProductCategoryMoveTarget">
+            <template #filters>
+              <div v-if="!productCatalogBusinessGroups.length" class="classification-view-toolbar product-business-group-empty">
+                <span>商品档案尚未选择分组模板，当前按全部商品平铺展示。</span>
+              </div>
+              <div class="sku-filters product-filter-row">
+                <label>
+                  <span>搜索</span>
+                  <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
+                </label>
+                <label>
+                  <span>状态</span>
+                  <select v-model="skuFilters.active">
+                    <option value="all">全部</option>
+                    <option value="active">有效</option>
+                    <option value="inactive">已失效</option>
+                  </select>
+                </label>
+                <div class="filter-actions sku-list-actions">
+                  <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+                  <select v-model.number="batchProductUnitTemplateID" class="compact-select" :disabled="!selectedProductIds.length || loading">
+                    <option :value="0">选择销售规格模板</option>
+                    <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
+                      {{ productUnitTemplateSummary(unitTemplate) }}
+                    </option>
+                  </select>
+                  <button class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
+                    设置销售规格模板
+                  </button>
+                  <button class="secondary compact-action" type="button" @click="openProductUnitTemplateManagement">
+                    维护销售规格模板
+                  </button>
+                  <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
+                    失效商品
+                  </button>
+                </div>
+              </div>
             </template>
-          </BusinessGroupControls>
-          <div v-else class="classification-view-toolbar product-business-group-empty">
-            <span>商品档案尚未选择分组模板，当前按全部商品平铺展示。</span>
-            <button class="secondary compact-action" type="button" :disabled="productGroupFeatureSelectionSaving || loading" @click="openProductGroupTemplateDrawer">设置分组模板</button>
-            <button class="secondary compact-action" type="button" @click="openProductBusinessGroupManagement">维护分组模板</button>
-          </div>
-          <div class="table-wrap sku-table-wrap">
-          <div class="sku-filters product-filter-row">
-            <label>
-              <span>搜索</span>
-              <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
-            </label>
-            <label>
-              <span>状态</span>
-              <select v-model="skuFilters.active">
-                <option value="all">全部</option>
-                <option value="active">有效</option>
-                <option value="inactive">已失效</option>
-              </select>
-            </label>
-            <div class="filter-actions sku-list-actions">
-              <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
-              <select v-model.number="batchProductUnitTemplateID" class="compact-select" :disabled="!selectedProductIds.length || loading">
-                <option :value="0">选择销售规格模板</option>
-                <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
-                  {{ productUnitTemplateSummary(unitTemplate) }}
-                </option>
-              </select>
-              <button class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
-                设置销售规格模板
-              </button>
-              <button class="secondary compact-action" type="button" @click="openProductUnitTemplateManagement">
-                维护销售规格模板
-              </button>
-              <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
-                失效商品
-              </button>
-            </div>
-          </div>
-          <table :key="skuTableKey" class="sku-table" data-auto-pagination="off">
-            <thead>
-              <tr>
-                <th class="select-col">
-                  <input type="checkbox" :checked="allProductRowsSelected" :disabled="!editableDisplaySkuRows.length" @change="toggleAllProductRows($event.target.checked)" />
-                </th>
-                <th class="sku-name-cell">商品名</th>
-                <th>商品编号</th>
-                <th>行业字段</th>
-                <th>归属</th>
-                <th class="action-cell">新增动作</th>
-                <th>库存单位</th>
-                <th>整数库存</th>
-                <th>价格摘要</th>
-                <th>商品状态</th>
-                <th>处理</th>
-                <th class="remark-cell">备注</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="group in renderedDisplaySkuGroups" :key="group.key">
-                <tr
-                  v-if="group.is_template_group"
-                  class="classification-template-row"
-                  :class="{ 'classification-template-collapsed': isProductClassificationGroupCollapsed(group.key) }">
-                  <td :colspan="12">
-                    <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
-                      {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
-                    </button>
-                    <strong>{{ group.label }}</strong>
-                    <small>{{ group.template_total }} 款</small>
-                  </td>
-                </tr>
-                <template v-if="!group.is_template_group">
-                <tr
-                  v-if="!group.all"
-                  :class="['classification-group-row', { 'classification-subgroup-row': Number(group.depth || 0) > 0 }]"
-                  :style="classificationGroupIndentStyle(group)">
-                    <td :colspan="12">
-                    <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
-                      {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
-                    </button>
-                    <strong :title="group.path_label || group.label">{{ group.label }}</strong>
-                    <small>{{ group.total }} 款</small>
-                  </td>
-                </tr>
-                <template v-if="!isProductClassificationGroupCollapsed(group.key)">
-              <template v-for="row in group.rows" :key="`${group.key}-${row.id}`">
-                <tr
-                  :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']"
-                  :style="classificationItemIndentStyle(group)">
-                  <td class="select-col">
-                    <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
-                  </td>
-                  <td class="sku-name-cell">
-                    <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
-                    <details v-if="row.sku_rows?.length" class="product-spec-skus">
-                      <summary>{{ row.sku_rows.length }} 个规格 SKU</summary>
-                      <div class="product-spec-sku-list">
-                        <button
-                          v-for="sku in row.sku_rows"
-                          :key="`product-spec-sku-${sku.id}`"
-                          class="product-spec-sku-item"
-                          type="button"
-                          :disabled="sku.active === false"
-                          @click.stop="openProductProductionConfig(sku)">
-                          <span>{{ sku.sku_name || sku.spec_label || sku.name }}</span>
-                          <small>{{ productCodeLabel(sku) }}</small>
-                        </button>
-                      </div>
-                    </details>
-                  </td>
-                  <td>{{ productCodeLabel(row) }}</td>
-                  <td class="industry-field-cell">
-                    <span>{{ industryFieldSummary(productionConfigPriceListFields(row)) }}</span>
-                    <button class="text-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">设置</button>
-                  </td>
-                  <td>{{ productOwnerLabel(row) }}</td>
-                  <td class="action-cell">
-                    <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
-                  </td>
-                  <td>{{ productInventoryUnitLabel(row) }}</td>
-                  <td>{{ productIntegerInventoryLabel(row) }}</td>
-                  <td class="price-summary-cell">{{ productPriceSummaryLabel(row) }}</td>
-                  <td>
-                    <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
-                  </td>
-                  <td>
-                    <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
-                  </td>
-                  <td>
-                    <textarea
-                      class="remark-input"
-                      v-model.trim="row.remark"
-                      rows="2"
-                      :disabled="!canEditSkuRow(row) || row.active === false"
-                      @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
-                  </td>
-                </tr>
-              </template>
-                  <tr v-if="group.needsPagination" class="classification-pagination-row">
-                    <td :colspan="12">
-                      <PaginationControls
-                        :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
-                        :page="group.page"
-                        :page-size="group.pageSize"
-                        :total="group.total"
-                        :disabled="loading"
-                        @change="handleSkuGroupPaginationChange(group.key, $event)"
-                      />
-                    </td>
-                  </tr>
-                </template>
-                </template>
-              </template>
-              <tr v-if="!displaySkuRows.length">
-                <td :colspan="12" class="muted">暂无商品档案</td>
-              </tr>
-            </tbody>
-          </table>
-          </div>
+
+            <template #group="{ group }">
+              <div class="table-wrap sku-table-wrap product-inline-group-table">
+                <table :key="`${skuTableKey}:${group.key}`" class="sku-table" data-auto-pagination="off">
+                  <thead>
+                    <tr>
+                      <th class="select-col">
+                        <input
+                          type="checkbox"
+                          :checked="areProductGroupRowsSelected(group)"
+                          :disabled="!editableProductGroupRows(group).length"
+                          @change="toggleProductGroupRows(group, $event.target.checked)" />
+                      </th>
+                      <th class="sku-name-cell">商品名</th>
+                      <th>商品编号</th>
+                      <th>行业字段</th>
+                      <th>归属</th>
+                      <th class="action-cell">新增动作</th>
+                      <th>库存单位</th>
+                      <th>整数库存</th>
+                      <th>价格摘要</th>
+                      <th>商品状态</th>
+                      <th>处理</th>
+                      <th class="remark-cell">备注</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template v-for="row in group.rows" :key="`${group.key}-${row.id}`">
+                      <tr :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']">
+                        <td class="select-col">
+                          <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
+                        </td>
+                        <td class="sku-name-cell">
+                          <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
+                          <details v-if="row.sku_rows?.length" class="product-spec-skus">
+                            <summary>{{ row.sku_rows.length }} 个规格 SKU</summary>
+                            <div class="product-spec-sku-list">
+                              <button
+                                v-for="sku in row.sku_rows"
+                                :key="`product-spec-sku-${sku.id}`"
+                                class="product-spec-sku-item"
+                                type="button"
+                                :disabled="sku.active === false"
+                                @click.stop="openProductProductionConfig(sku)">
+                                <span>{{ sku.sku_name || sku.spec_label || sku.name }}</span>
+                                <small>{{ productCodeLabel(sku) }}</small>
+                              </button>
+                            </div>
+                          </details>
+                        </td>
+                        <td>{{ productCodeLabel(row) }}</td>
+                        <td class="industry-field-cell">
+                          <span>{{ industryFieldSummary(productionConfigPriceListFields(row)) }}</span>
+                          <button class="text-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">设置</button>
+                        </td>
+                        <td>{{ productOwnerLabel(row) }}</td>
+                        <td class="action-cell">
+                          <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
+                        </td>
+                        <td>{{ productInventoryUnitLabel(row) }}</td>
+                        <td>{{ productIntegerInventoryLabel(row) }}</td>
+                        <td class="price-summary-cell">{{ productPriceSummaryLabel(row) }}</td>
+                        <td>
+                          <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
+                        </td>
+                        <td>
+                          <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
+                        </td>
+                        <td>
+                          <textarea
+                            class="remark-input"
+                            v-model.trim="row.remark"
+                            rows="2"
+                            :disabled="!canEditSkuRow(row) || row.active === false"
+                            @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr v-if="!group.rows.length">
+                      <td :colspan="12" class="muted">当前分类暂无商品档案</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <PaginationControls
+                  v-if="group.needsPagination"
+                  :key="`${group.key}-pagination-${group.pageSize}-${group.total}`"
+                  :page="group.page"
+                  :page-size="group.pageSize"
+                  :total="group.total"
+                  :disabled="loading || productCategoryMoveActive"
+                  @change="handleProductGroupPaginationChange(group.key, $event)"
+                />
+              </div>
+            </template>
+          </BusinessGroupInlineWorkspace>
         </div>
       </div>
         </div>
@@ -947,7 +915,7 @@
           <section class="drawer-section pricing-rule-trial-summary">
             <div>
               <strong>{{ pricingRuleTrialRule?.name || pricingRuleTrialRule?.code || '未命名模板' }}</strong>
-              <small>{{ pricingRuleTrialRule ? '启用模板，本次只读试算' : '请先选择启用的价格计算模板' }}</small>
+              <small>{{ pricingRuleTrialRule ? '启用模板，可将调试参数更新回当前模板' : '请先选择启用的价格计算模板' }}</small>
             </div>
             <div class="pricing-rule-trial-rule-grid">
               <span>基础成本：{{ pricingRuleCostSourceLabel(pricingRuleTrialRule?.cost_source_mode) }}</span>
@@ -1008,15 +976,18 @@
                   </template>
                 </SearchableSelect>
               </label>
-              <label>
-                <span>试算BOM版本</span>
-                <select v-model.number="pricingRuleTrialForm.bom_version_id" :disabled="!pricingRuleTrialBomVersionOptions.length">
-                  <option :value="0">按默认版本</option>
-                  <option v-for="option in pricingRuleTrialBomVersionOptions" :key="option.version_id" :value="Number(option.version_id || 0)">
-                    {{ pricingRuleTrialBomVersionOptionLabel(option) }}
-                  </option>
-                </select>
-              </label>
+              <div class="pricing-rule-trial-bom-field">
+                <label>
+                  <span>试算BOM版本</span>
+                  <select v-model.number="pricingRuleTrialForm.bom_version_id" :disabled="!pricingRuleTrialBomVersionOptions.length">
+                    <option :value="0">按默认版本</option>
+                    <option v-for="option in pricingRuleTrialBomVersionOptions" :key="option.version_id" :value="Number(option.version_id || 0)">
+                      {{ pricingRuleTrialBomVersionOptionLabel(option) }}
+                    </option>
+                  </select>
+                </label>
+                <button class="secondary compact-action" type="button" :disabled="!selectedPricingRuleTrialBomVersion?.bom_id" @click="navigatePricingRuleTrialBom">配置BOM</button>
+              </div>
               <label>
                 <span>工艺路线</span>
                 <select v-model.number="pricingRuleTrialForm.process_route_id" :disabled="!pricingRuleTrialProcessRouteOptions.length">
@@ -1342,6 +1313,13 @@
               </table>
             </div>
           </section>
+        </div>
+        <div class="drawer-footer pricing-rule-trial-footer">
+          <div>
+            <strong v-if="pricingRuleTrialUpdateMessage" class="pricing-rule-trial-update-message">{{ pricingRuleTrialUpdateMessage }}</strong>
+            <small>只更新加价率、已填写税率和其他成本；商品、BOM、路线与销售规格不写入模板。</small>
+          </div>
+          <button class="primary" type="button" :disabled="productPriceSaving || !pricingRuleTrialForm.pricing_rule_id" @click="updatePricingRuleFromTrial">更新参数到价格计算模板</button>
         </div>
       </aside>
     </div>
@@ -1835,17 +1813,17 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import BusinessGroupControls from '../components/BusinessGroupControls.vue'
+import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupFeatureSelectionIDs,
   businessGroupFeatureSelectionPayload,
   businessGroupControlOptions,
+  businessGroupInlineListState,
   businessGroupRowsForFeatureSelection,
-  businessGroupItemIndentStyle,
-  businessGroupHeaderIndentStyle,
   businessGroupMoveAssignmentPayload,
+  businessGroupVisibleRows,
   groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
@@ -1884,6 +1862,7 @@ import {
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
   buildPricingRuleCopyPayload,
+  buildPricingRuleUpdateFromTrial,
   buildPricingRuleTrialPayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
@@ -1939,20 +1918,20 @@ import {
   salesSpecRowsFromTemplate,
   secondaryCategoryOptions,
   selectedSkuRowIDsAfterVisibleToggle,
+  storePricingRuleTrialReturnState,
+  takePricingRuleTrialReturnState,
   productSubtypeCategoryOptionsForType,
   specialAttrValuesFromJSON,
-  skuGroupTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
-  skuGroupHiddenByCollapsedAncestor,
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
-  visibleSkuGroupRows,
   visibleNonDeletedRows,
 } from '../lib/product-settings'
 import { orderProductFamilyOptions, orderProductKindFilterOptions } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
+import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -1998,8 +1977,10 @@ const activePricingRuleTrialProductKindFilter = ref('')
 const pricingRuleTrialResult = ref(null)
 const pricingRuleTrialActiveExplanation = ref('')
 const pricingRuleTrialError = ref('')
+const pricingRuleTrialUpdateMessage = ref('')
 let pricingRuleTrialAutoRunTimer = null
 let pricingRuleTrialRunID = 0
+let restoringPricingRuleTrialReturnState = false
 let pricingRuleEditorReturnFocus = null
 const customerPublicUsages = ref([])
 const customerProductAliases = ref([])
@@ -2096,8 +2077,8 @@ const selectedProductClassificationMoveID = ref(0)
 const selectedAliasClassificationMoveID = ref(0)
 const selectedProductClassificationCategoryID = ref(0)
 const selectedAliasClassificationCategoryID = ref(0)
-const selectedProductBusinessGroupItemID = ref(0)
 const selectedProductGroupTemplateID = ref(0)
+const productCategoryMoveActive = ref(false)
 const productGroupFeatureSelectionSaving = ref(false)
 const productGroupTemplateDrawerOpen = ref(false)
 const collapsedProductClassificationGroups = ref([])
@@ -2298,6 +2279,10 @@ const selectedPricingRuleTrialProductSpec = computed(() => pricingRuleTrialSales
   Number(product?.sku_id || product?.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)
 )) || null)
 const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.bom_version_options) ? pricingRuleTrialResult.value.bom_version_options : [])
+const selectedPricingRuleTrialBomVersion = computed(() => {
+  const versionID = Number(pricingRuleTrialForm.value.bom_version_id || pricingRuleTrialResult.value?.bom_version_id || 0)
+  return pricingRuleTrialBomVersionOptions.value.find((option) => Number(option?.version_id || 0) === versionID) || null
+})
 const pricingRuleTrialProcessRouteOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.process_route_options) ? pricingRuleTrialResult.value.process_route_options : [])
 const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
 const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
@@ -2480,17 +2465,12 @@ const fullDisplaySkuGroups = computed(() => groupRowsByBusinessGroupTemplates(fi
   objectKey: 'product',
   objectIDForRow: (row) => Number(row.id || 0),
 }))
-const groupedSkuTableState = computed(() => skuGroupTableState(fullDisplaySkuGroups.value, skuGroupPagination.value, {
+const productInlineGroupState = computed(() => businessGroupInlineListState(fullDisplaySkuGroups.value, skuGroupPagination.value, {
   defaultPageSize: DEFAULT_SKU_GROUP_PAGE_SIZE,
 }))
-const displaySkuGroups = computed(() => groupedSkuTableState.value.groups)
-const renderedDisplaySkuGroups = computed(() => displaySkuGroups.value.filter((group) => (
-  !skuGroupHiddenByCollapsedAncestor(displaySkuGroups.value, group, collapsedProductClassificationGroups.value)
-)))
-const displaySkuRows = computed(() => groupedSkuTableState.value.visibleRows)
-const visibleDisplaySkuRows = computed(() => visibleSkuGroupRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
-const editableDisplaySkuRows = computed(() => visibleDisplaySkuRows.value.filter(canEditSkuRow))
-const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
+const displaySkuGroups = computed(() => productInlineGroupState.value.groups)
+const displaySkuRows = computed(() => productInlineGroupState.value.visibleRows)
+const visibleDisplaySkuRows = computed(() => businessGroupVisibleRows(displaySkuGroups.value, collapsedProductClassificationGroups.value))
 const allAliasRowsSelected = computed(() => visibleCustomerProductAliases.value.length > 0 && visibleCustomerProductAliases.value.every((row) => row.active === false || selectedAliasIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
   .filter((template) => template.active !== false)
@@ -2570,8 +2550,7 @@ const productBusinessGroupControls = computed(() => businessGroupControlOptions(
   usageKey: 'product_catalog',
 }))
 const selectedProductGroupTemplate = computed(() => productBusinessGroupControls.value.selectedTemplate)
-const productBusinessGroupItemOptions = computed(() => productBusinessGroupControls.value.moveOptions)
-const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(selectedProductGroupTemplate.value && selectedProductIds.value.length))
+const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -2657,7 +2636,7 @@ function syncVisibleSkuTableState() {
 }
 
 function syncSkuGroupPaginationState() {
-  const normalizedPagination = groupedSkuTableState.value.pagination
+  const normalizedPagination = productInlineGroupState.value.pagination
   if (JSON.stringify(normalizedPagination) !== JSON.stringify(skuGroupPagination.value)) {
     skuGroupPagination.value = normalizedPagination
   }
@@ -2745,26 +2724,6 @@ function defaultChildSkuForm(product = {}) {
     unit_template_id: Number(product?.unit_template_id || defaultProductUnitTemplateID() || 0),
     active: true,
   }
-}
-
-function isProductClassificationGroupCollapsed(key) {
-  return collapsedProductClassificationGroups.value.includes(String(key || ''))
-}
-
-function toggleProductClassificationGroup(key) {
-  const groupKey = String(key || '')
-  if (!groupKey) return
-  collapsedProductClassificationGroups.value = isProductClassificationGroupCollapsed(groupKey)
-    ? collapsedProductClassificationGroups.value.filter((item) => item !== groupKey)
-    : [...collapsedProductClassificationGroups.value, groupKey]
-}
-
-function classificationGroupIndentStyle(group = {}) {
-  return businessGroupHeaderIndentStyle(group)
-}
-
-function classificationItemIndentStyle(group = {}) {
-  return businessGroupItemIndentStyle(group)
 }
 
 function isAliasClassificationGroupCollapsed(key) {
@@ -3458,7 +3417,7 @@ function decorateCustomerProductRuleOverride(row) {
   }
 }
 
-async function loadAll() {
+async function loadAll({ strict = false } = {}) {
   loading.value = true
   error.value = ''
   try {
@@ -3513,9 +3472,10 @@ async function loadAll() {
     syncSelectedAliasCustomer()
     applyWorkspaceCustomerContext()
     syncVisibleSkuTableState()
-    pruneSelectedProducts(displaySkuRows.value)
+    pruneSelectedProducts(filteredSkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
+    if (strict) throw err
   } finally {
     loading.value = false
   }
@@ -3865,6 +3825,7 @@ function openPricingRuleTrial(rule = null) {
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
   pricingRuleTrialDrawerOpen.value = true
 }
 
@@ -3899,6 +3860,7 @@ function handlePricingRuleTrialRuleChange() {
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
 }
 
 function closePricingRuleTrial() {
@@ -3913,6 +3875,7 @@ function closePricingRuleTrial() {
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
 }
 
 function openPricingRuleTrialExplanation(kind) {
@@ -3964,7 +3927,32 @@ function pricingRuleTrialBomVersionOptionLabel(option = {}) {
   const name = String(option.bom_name || '').trim()
   const version = String(option.version_no || '').trim()
   const defaultText = option.is_default ? ' 默认' : ''
-  return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}`.trim() || `BOM版本 #${option.version_id || ''}`
+  const statusText = String(option.status || '').trim().toLowerCase() === 'draft' ? ' 草稿，仅供试算' : ''
+  return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}${statusText}`.trim() || `BOM版本 #${option.version_id || ''}`
+}
+
+function navigatePricingRuleTrialBom() {
+  const option = selectedPricingRuleTrialBomVersion.value
+  const bomID = Number(option?.bom_id || 0)
+  if (!bomID) {
+    pricingRuleTrialError.value = '当前试算版本缺少可配置的 BOM'
+    return
+  }
+  const returnKey = storePricingRuleTrialReturnState({
+    form: pricingRuleTrialForm.value,
+    product_kind_filter: activePricingRuleTrialProductKindFilter.value,
+  })
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'bom',
+      params: { production_bom_id: bomID },
+      returnNavigation: {
+        key: 'productPriceManagement',
+        label: '返回价格试算',
+        params: { pricing_rule_trial_return_key: returnKey },
+      },
+    },
+  }))
 }
 
 function pricingRuleTrialProcessRouteOptionLabel(option = {}) {
@@ -3978,6 +3966,7 @@ function pricingRuleTrialOperationTemplateOptionLabel(option = {}) {
 }
 
 function schedulePricingRuleTrial() {
+  if (restoringPricingRuleTrialReturnState) return
   pricingRuleTrialRunID++
   pricingRuleTrialLoading.value = false
   if (pricingRuleTrialAutoRunTimer) {
@@ -4033,6 +4022,36 @@ async function runPricingRuleTrial() {
     }
   } finally {
     if (runID === pricingRuleTrialRunID) pricingRuleTrialLoading.value = false
+  }
+}
+
+async function updatePricingRuleFromTrial() {
+  const ruleID = Number(pricingRuleTrialForm.value.pricing_rule_id || 0)
+  const rule = activePricingRuleTrialOptionByID(ruleID) || pricingRuleTrialRule.value
+  if (!rule || ruleID <= 0) {
+    pricingRuleTrialError.value = '请选择价格计算模板'
+    return
+  }
+  const confirmed = typeof window === 'undefined' || window.confirm('确认将本次试算的临时加价率、已填写临时税率和其他成本更新到价格计算模板？商品、BOM、工艺路线和销售规格不会写入模板，已发布价格表不会自动重算。')
+  if (!confirmed) return
+  const payload = buildPricingRuleUpdateFromTrial(rule, pricingRuleTrialForm.value)
+  productPriceSaving.value = true
+  pricingRuleTrialError.value = ''
+  pricingRuleTrialUpdateMessage.value = ''
+  try {
+    const result = await apiSend(`/api/product-pricing-rules/${payload.id}`, { method: 'PUT', body: payload })
+    const row = defaultPricingRuleForm(result.rule || payload)
+    pricingRules.value = [
+      row,
+      ...pricingRules.value.filter((item) => Number(item.id || 0) !== Number(row.id || 0)),
+    ]
+    pricingRuleTrialRule.value = defaultPricingRuleForm(JSON.parse(JSON.stringify(row)))
+    pricingRuleTrialUpdateMessage.value = '价格计算模板参数已更新；当前试算上下文已保留'
+    schedulePricingRuleTrial()
+  } catch (err) {
+    pricingRuleTrialError.value = err.message || '更新价格计算模板失败'
+  } finally {
+    productPriceSaving.value = false
   }
 }
 
@@ -5652,15 +5671,24 @@ function toggleProductSelection(row, checked) {
     : current.filter((item) => item !== id)
 }
 
-function toggleAllProductRows(checked) {
+function editableProductGroupRows(group = {}) {
+  return (Array.isArray(group?.rows) ? group.rows : []).filter(canEditSkuRow)
+}
+
+function areProductGroupRowsSelected(group = {}) {
+  const rows = editableProductGroupRows(group)
+  return rows.length > 0 && rows.every((row) => selectedProductIds.value.includes(Number(row.id || 0)))
+}
+
+function toggleProductGroupRows(group, checked) {
   selectedProductIds.value = selectedSkuRowIDsAfterVisibleToggle(
     selectedProductIds.value,
-    editableDisplaySkuRows.value,
+    editableProductGroupRows(group),
     checked,
   )
 }
 
-function handleSkuGroupPaginationChange(groupKey, { page, pageSize }) {
+function handleProductGroupPaginationChange(groupKey, { page, pageSize }) {
   const key = String(groupKey || '')
   if (!key) return
   skuGroupPagination.value = {
@@ -6411,7 +6439,7 @@ async function saveProductGroupFeatureSelection() {
     if (!productCatalogBusinessGroupRows().some((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0))) {
       selectedProductGroupTemplateID.value = Number(productCatalogBusinessGroupRows()[0]?.id || 0)
     }
-    selectedProductBusinessGroupItemID.value = 0
+    productCategoryMoveActive.value = false
     ok.value = payload.group_template_ids.length
       ? `商品档案已选择 ${payload.group_template_ids.length} 个分组模板`
       : '商品档案已改为平铺展示'
@@ -6422,11 +6450,14 @@ async function saveProductGroupFeatureSelection() {
   }
 }
 
-async function saveSelectedProductBusinessGroupAssignment() {
-  const targetGroupItemID = Number(selectedProductBusinessGroupItemID.value || 0)
-  const option = targetGroupItemID > 0 ? productBusinessGroupItemOptions.value.find((row) => Number(row.group_item_id || 0) === targetGroupItemID) : null
-  if (targetGroupItemID > 0 && !option) return
-  if (!selectedProductGroupTemplate.value || !selectedProductIds.value.length) return
+async function saveSelectedProductBusinessGroupAssignment(target = {}) {
+  const unclassified = Boolean(target?.unclassified)
+  const option = unclassified ? null : {
+    group_id: Number(target?.group_id || 0),
+    group_item_id: Number(target?.group_item_id || 0),
+  }
+  if (!unclassified && (!(option.group_id > 0) || !(option.group_item_id > 0))) return false
+  if (!productCatalogBusinessGroups.value.length || !selectedProductIds.value.length) return false
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -6446,15 +6477,22 @@ async function saveSelectedProductBusinessGroupAssignment() {
         }),
       })
     }
-    ok.value = `已移动 ${selectedProductIds.value.length} 个商品到分类`
+    const movedCount = selectedProductIds.value.length
+    await loadAll({ strict: true })
     selectedProductIds.value = []
-    selectedProductBusinessGroupItemID.value = 0
-    await loadAll()
+    ok.value = `已移动 ${movedCount} 个商品到分类`
+    return true
   } catch (err) {
     error.value = err.message || '移动商品分类失败'
+    return false
   } finally {
     loading.value = false
   }
+}
+
+async function handleProductCategoryMoveTarget(target) {
+  const moved = await saveSelectedProductBusinessGroupAssignment(target)
+  if (moved) productCategoryMoveActive.value = false
 }
 
 async function saveSelectedProductUnitTemplate() {
@@ -7693,7 +7731,7 @@ async function copyProductArchive(row) {
 
 watch(selectedCustomerSkuCustomerID, (customerID) => {
   if (restoringProductSettingsDraft) {
-    pruneSelectedProducts(displaySkuRows.value)
+    pruneSelectedProducts(filteredSkuRows.value)
     return
   }
   skuForm.value = defaultSkuForm()
@@ -7706,7 +7744,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
   if (Number(customerID || 0) > 0) {
     selectedAliasCustomerID.value = Number(customerID || 0)
   }
-  pruneSelectedProducts(displaySkuRows.value)
+  pruneSelectedProducts(filteredSkuRows.value)
   notifyWorkspaceCustomerChanged(customerID)
 })
 
@@ -7754,6 +7792,7 @@ watch(() => skuFilters.value.primaryCategory, () => {
 })
 
 watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
+  if (restoringPricingRuleTrialReturnState) return
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
@@ -7766,6 +7805,7 @@ watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
 })
 
 watch(() => pricingRuleTrialForm.value.product_id, () => {
+  if (restoringPricingRuleTrialReturnState) return
   const product = selectedPricingRuleTrialProductSpec.value
   pricingRuleTrialForm.value.quote_unit = product ? pricingRuleTrialProductSpecUnit(product) : ''
   pricingRuleTrialForm.value.bom_version_id = 0
@@ -7776,6 +7816,7 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
 })
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
+  if (restoringPricingRuleTrialReturnState) return
   activePricingRuleTrialProductKindFilter.value = ''
   pricingRuleTrialForm.value.parent_product_id = 0
   pricingRuleTrialForm.value.product_id = 0
@@ -7795,6 +7836,7 @@ watch(pricingRuleTrialProductKindFilterOptions, (options) => {
 })
 
 watch(pricingRuleTrialMainProducts, (products) => {
+  if (restoringPricingRuleTrialReturnState) return
   const selectedParentID = Number(pricingRuleTrialForm.value.parent_product_id || 0)
   if (selectedParentID > 0 && !(products || []).some((product) => Number(product?.id || 0) === selectedParentID)) {
     pricingRuleTrialForm.value.parent_product_id = 0
@@ -7802,6 +7844,7 @@ watch(pricingRuleTrialMainProducts, (products) => {
 })
 
 watch(() => pricingRuleTrialAutoRunSignature.value, () => {
+  if (restoringPricingRuleTrialReturnState) return
   schedulePricingRuleTrial()
 })
 
@@ -7812,23 +7855,65 @@ watch(currentSkuSourceRows, () => {
   }
 }, { deep: true })
 
-watch(displaySkuRows, (rows) => {
+watch(filteredSkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
 watch(selectedProductGroupTemplateID, () => {
-  selectedProductBusinessGroupItemID.value = 0
   if (restoringProductSettingsDraft) return
   saveProductSettingsDraft()
 })
 
 async function applyProductSettingsViewParams(params = {}) {
+  if (await restorePricingRuleTrialReturnState(params)) return
   const productID = Number(params.open_product_config_id || params.return_product_id || 0)
   if (!productID) return
   const row = products.value.find((product) => Number(product.id || 0) === productID)
   if (row) {
     await openProductProductionConfig(row)
   }
+}
+
+function clearPricingRuleTrialReturnKeyFromURL() {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('pricing_rule_trial_return_key')
+  replaceHistoryURL(url)
+}
+
+async function restorePricingRuleTrialReturnState(params = {}) {
+  const returnKey = String(params.pricing_rule_trial_return_key || '').trim()
+  if (!returnKey) return false
+  const state = takePricingRuleTrialReturnState(returnKey)
+  clearPricingRuleTrialReturnKeyFromURL()
+  if (!state?.form) return false
+  const formState = state.form || {}
+  const rule = activePricingRuleTrialOptionByID(formState.pricing_rule_id)
+  if (!rule) {
+    pricingRuleTrialError.value = '原价格计算模板已不可用，请重新选择'
+    return false
+  }
+  restoringPricingRuleTrialReturnState = true
+  try {
+    pricingRuleTrialRule.value = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule)))
+    pricingRuleTrialForm.value = {
+      ...defaultPricingRuleTrialForm(pricingRuleTrialRule.value),
+      ...formState,
+      other_cost_rows: Array.isArray(formState.other_cost_rows)
+        ? formState.other_cost_rows.map((row) => ({ ...row }))
+        : [defaultPricingRuleTrialOtherCostRow()],
+    }
+    activePricingRuleTrialProductKindFilter.value = String(state.product_kind_filter || '')
+    pricingRuleTrialResult.value = null
+    pricingRuleTrialActiveExplanation.value = ''
+    pricingRuleTrialError.value = ''
+    pricingRuleTrialUpdateMessage.value = ''
+    pricingRuleTrialDrawerOpen.value = true
+    await nextTick()
+  } finally {
+    restoringPricingRuleTrialReturnState = false
+  }
+  schedulePricingRuleTrial()
+  return true
 }
 
 watch(() => props.viewParams, (params) => {
@@ -8163,13 +8248,19 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .child-sku-row.inactive { background: #fbfaf8; opacity: .78; }
 .child-sku-row div { min-width: 0; display: grid; gap: 2px; }
 .child-sku-row strong, .child-sku-row small { overflow-wrap: anywhere; }
-.pricing-rule-trial-drawer { width: min(940px, 96vw); }
+.pricing-rule-trial-drawer { width: min(940px, 96vw); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+.pricing-rule-trial-drawer > .drawer-body { overflow: auto; padding-right: 2px; }
 .pricing-rule-trial-summary { display: grid; gap: 10px; }
 .pricing-rule-trial-summary strong { display: block; margin-bottom: 3px; }
 .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .pricing-rule-trial-rule-grid span, .pricing-rule-trial-source span { min-width: 0; border: 1px solid #eee8df; border-radius: 6px; background: #fff; padding: 7px 8px; color: #4f453b; font-size: 12px; overflow-wrap: anywhere; }
 .pricing-rule-trial-form-section { display: grid; gap: 12px; }
 .pricing-rule-trial-grid .wide-field { grid-column: 1 / -1; }
+.pricing-rule-trial-bom-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.pricing-rule-trial-bom-field label { min-width: 0; }
+.pricing-rule-trial-footer > div { display: grid; gap: 3px; }
+.pricing-rule-trial-footer small { color: #666; line-height: 1.4; }
+.pricing-rule-trial-update-message { color: #1f6a3f; }
 .pricing-rule-trial-result { display: grid; gap: 12px; }
 .pricing-rule-trial-waterfall { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
 .pricing-rule-trial-waterfall-card { min-width: 118px; flex: 1 1 132px; border: 1px solid #e2dacd; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 4px; align-content: start; }
@@ -8284,6 +8375,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td { opacity: 0.4; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
+	  .pricing-rule-trial-bom-field { grid-template-columns: 1fr; }
   .page { padding: 12px; }
 	  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .pricing-rule-other-cost-row, .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .sales-spec-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
   .product-section-tabs-legacy { width: 100%; }

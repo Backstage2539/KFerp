@@ -16,6 +16,7 @@ type apiFakeRepo struct {
 	deactivatedBomProductID                  int64
 	listRows                                 []bomapp.ListItem
 	productRows                              []bomapp.Option
+	materialRows                             []bomapp.Option
 	detail                                   bomapp.Detail
 	syncedYield                              bomapp.SyncProductYieldCommand
 	savedItem                                bomapp.SaveItemCommand
@@ -47,6 +48,8 @@ type apiFakeRepo struct {
 	productBomBinding                        bomapp.ProductProductionBomBinding
 	boundProductBom                          bomapp.BindProductProductionBomCommand
 	publishedProductionVersionID             int64
+	productionBomFilter                      bomapp.ProductionBomFilter
+	boundProductionBomOutput                 bomapp.BindProductionBomOutputCommand
 }
 
 func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return r.listRows, nil }
@@ -54,7 +57,7 @@ func (r *apiFakeRepo) Detail(context.Context, int64) (bomapp.Detail, error) {
 	return r.detail, nil
 }
 func (r *apiFakeRepo) Products(context.Context) ([]bomapp.Option, error)  { return r.productRows, nil }
-func (r *apiFakeRepo) Materials(context.Context) ([]bomapp.Option, error) { return nil, nil }
+func (r *apiFakeRepo) Materials(context.Context) ([]bomapp.Option, error) { return r.materialRows, nil }
 func (r *apiFakeRepo) BagSpecMappings(context.Context) ([]bomapp.BagSpecMapping, error) {
 	return nil, nil
 }
@@ -156,6 +159,11 @@ func (r *apiFakeRepo) ListProductionBoms(context.Context) ([]bomapp.ProductionBo
 	return r.productionBomRows, nil
 }
 
+func (r *apiFakeRepo) ListProductionBomsFiltered(_ context.Context, filter bomapp.ProductionBomFilter) ([]bomapp.ProductionBomSummary, error) {
+	r.productionBomFilter = filter
+	return r.productionBomRows, nil
+}
+
 func (r *apiFakeRepo) GetProductionBomDetail(context.Context, int64, int64) (bomapp.ProductionBomDetail, error) {
 	return r.productionBomDetail, nil
 }
@@ -210,6 +218,11 @@ func (r *apiFakeRepo) PublishProductionBomVersion(_ context.Context, cmd bomapp.
 func (r *apiFakeRepo) BindProductProductionBom(_ context.Context, cmd bomapp.BindProductProductionBomCommand) (bomapp.ProductProductionBomBinding, error) {
 	r.boundProductBom = cmd
 	return r.productBomBinding, nil
+}
+
+func (r *apiFakeRepo) BindProductionBomOutput(_ context.Context, cmd bomapp.BindProductionBomOutputCommand) (bomapp.ProductionBomOutputBinding, error) {
+	r.boundProductionBomOutput = cmd
+	return bomapp.ProductionBomOutputBinding{OutputType: cmd.OutputType, OutputID: cmd.OutputID, BomID: cmd.BomID, BomVersionID: 501, IsDefault: true}, nil
 }
 
 func TestBomDeleteAPIInvalidatesCurrentBom(t *testing.T) {

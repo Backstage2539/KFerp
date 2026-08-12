@@ -6,6 +6,91 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING
+- Branch: codex/pr598-delivery-evidence-20260812（feature source: codex/pr598-material-output-multilevel-manufacturing）
+- Owner/session: Codex / 2026-08-11
+- Status: feature 与兼容修复均已合入，development 已部署 `11cc8231` 且 HTTP 200；自动化与远端门禁 GREEN；手工浏览器验收 pending
+- Scope: 物料档案增加仅用于标识、筛选和展示的半成品属性；`can_manufacture` 只由默认已发布产出 BOM 计算。普通生产 BOM 统一支持产出任意有效物料或商品；生产计划按库存净缺口递归展开任意层 BOM，提交后生成依赖工单，物料工单完工进入目标仓库和可追溯批次。
+- DEV:
+  - DEV-598-MATERIAL-SEMI-FINISHED-CAPABILITY（done，targeted GREEN）：半成品只作业务标识；可制造能力只读且来自默认已发布产出 BOM。
+  - DEV-598-TYPED-BOM-OUTPUT（done，targeted GREEN）：普通 BOM typed 产出支持商品或任意有效物料并兼容旧商品合同。
+  - DEV-598-BOM-GRAPH-DEFAULTS-VALIDATION（done，PostgreSQL / integrated GREEN）：商品 / 物料默认已发布 BOM、发布校验和循环防护。
+  - DEV-598-MULTILEVEL-NET-REQUIREMENTS（done，targeted GREEN）：递归总需求、库存覆盖、净缺口、需求合并和计划冻结。
+  - DEV-598-WORKORDER-DEPENDENCIES（done，targeted GREEN）：工单依赖、上游阻断原因 / 编号和放行。
+  - DEV-598-MATERIAL-MANUFACTURE-STOCK（done，PostgreSQL / integrated GREEN）：物料完工数量、目标仓库、批次与幂等库存；商品 / 物料 typed StockOperations 统一走工单完成链。
+  - DEV-598-RECURSIVE-COSTING（done，PostgreSQL / integrated GREEN）：各层冻结 BOM 递归成本与历史兼容。
+  - DEV-598-VUE-MANUFACTURING-WORKFLOW（done，targeted GREEN）：物料、BOM、计划、工单、执行和库存手册 Vue 工作流。
+  - DEV-598-AUDIT-COMPAT-DOCS-DELIVERY（done，development delivered）：操作日志 / 旧商品兼容、需求验收、四本手册、PR/DEV/REV、独立验收记录与最终交付证据。
+- Verifier:
+  - RED frontend：定向 142 项中 130 通过、12 失败；缺失 typed 产出、物料能力 / 往返、递归图、上游阻断和库存手册入口。
+  - RED support：`TestDev598MaterialOutputMultilevelManufacturingContracts` 因 PR-598 seed / 文档合同缺失失败。
+  - GREEN frontend/docs：7 个定向文件 143/143；`scripts/verify_kferp.sh all` 使用 `find` 发现的 frontend 全量 983/983；PR-598 support contract GREEN；Vite 2.08s GREEN（仅既有 chunk warning）；`git diff --check` GREEN。
+  - API fallback RED/GREEN：production 当前 typed `items[] + supply_gaps[]` fallback 首跑 51/53，实施后 `produce-plan.test.js` 53/53；计划详情无需等待 `manufacturing_plan` 即可展示递归产出 / 缺口，补充 Vite build 与 diff-check GREEN。
+  - GREEN full verifier：`scripts/verify_kferp.sh all` exit 0，Go 全包、frontend find 全量 983/983 与 Vite 2.08s 全绿。
+  - GREEN production：真实 PostgreSQL 下 domain / application / repository 分别 0.236s / 0.471s / 1.825s；production HTTP 真实 PostgreSQL 全包 86.736s。
+  - BOM / material / catalog / costing / stock 真实 PostgreSQL GREEN：五包分别 2.829s / 2.930s / 2.041s / 1.348s / 8.092s。
+  - 默认切换循环 / 旧库 repair GREEN：`TestPR598DefaultBindingSwitchRejectsTypedGraphCyclesPostgres` 与 `TestRepairLegacyProductionBomBindingsPostgresOnce` 通过。
+  - direct product complete / partial / multi / cancel GREEN：直接商品完工原子入库、部分与多规格完成、活动 typed 工单取消及 reservation / WIP / demand 一致性测试通过。
+  - 最终审计原子回滚 / 取消 Note GREEN：最终入库或 running audit 失败时库存、预留、先前审计全部回滚；取消原因同时写入两个原子审计。
+  - Core: 100 × 227g SKU、10kg 可用熟豆时预留一次并仅生成 12.7kg 上游缺口。
+- Delivery chain:
+  - rollback PR #22 / 69908dd7：撤回 PR-597 两段式方案；merge `137c74ca` 保留 PR-596 分组模板改进。
+  - feature PR #23 / 629436ad：PR-598 typed-output 多级制造合入 `develop`。
+  - 首次 development 部署因约束失败并自动回滚，失败镜像未成为运行版本。
+  - 只读审计确认 4 条 inactive 无身份孤儿；审计过程未写业务数据，兼容修复保留这些无法映射的历史 BOM 行。
+  - bugfix PR #24 / 11cc8231：旧 BOM 无法映射行兼容修复合入 `develop`。
+  - development 已部署 11cc8231，外部登录页 smoke HTTP 200。
+  - 远端门禁 frontend 983/983、小程序 205/205、Go 全量与镜像 GREEN。
+- Acceptance boundary: 手工浏览器验收仍 pending，`REV-598` 保持 todo；production 环境不在范围内且未部署。
+- Review: REV-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING（todo，Van development acceptance）。
+- Last update: 2026-08-12 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串报错；按用户锁定编号手工登记 PR-598。PR-597 由 `69908dd7` 回退后，PR-598 与后续 legacy 兼容修复分别通过 PR #23、PR #24 交付；HTTP 200 和远端门禁只证明 development 发布健康，不代替 Van 的页面业务验收。
+
+### PR-596-INLINE-CATEGORY-LISTS
+- Branch: codex/pr596-final-evidence-20260810（business code deployed from `8e0aa8bf`）
+- Owner/session: Codex / 2026-08-10
+- Status: review; code, icons, unit tests, builds, Go full suite, browser read-only QA and development delivery complete at `8e0aa8bf`; REV remains todo for Van acceptance
+- Scope: 物料档案、生产 BOM、商品档案和选中具体仓库且非客户库存上下文的仓内物品取消分类树与列表的左右分栏，把模板、分类标题和业务列表合并为一条内联层级；每个展开分类都重复自己的列表表头并维护互不影响的分类内分页。四页保留各自搜索、状态/类型过滤、对象身份和移动 API；点击名称通过临时右侧抽屉维护详情，生产 BOM 抽屉完整承载基础信息、版本、配方、工艺和损耗配置。
+- DEV:
+  - DEV-596-SHARED-INLINE-GROUP-WORKSPACE（done）：共享内联分类、折叠/移动状态、父类直属对象不丢失及按 group key 独立分页。
+  - DEV-596-MATERIAL-PRODUCT-LISTS（done）：物料、商品按分类重复表头和独立分页；名称打开原详情/配置抽屉。
+  - DEV-596-BOM-SETTINGS-DRAWER（done）：BOM 内联分类列表与完整设置抽屉，移除常驻右侧详情。
+  - DEV-596-WAREHOUSE-INVENTORY-LISTS（done）：保留外层仓库选择及精确 item/spec 归类，在具体仓库内拉齐筛选结果后只使用分类独立分页。
+  - DEV-596-DOCS-DEVELOPMENT-DELIVERY（done）：需求、验收、操作手册、support 合同和设计 QA 已同步；最终业务代码 `8e0aa8bf` 已部署 development 且 HTTP 200，production 未部署。
+- Verifier: frontend server 964/964 GREEN；miniapp 205/205 GREEN；Vite production build GREEN；`go test -count=1 ./...` Go 全包 GREEN；support 全包 GREEN；图标与 `design-qa.md` GREEN；浏览器四页只读 QA 完成；`git diff --check` GREEN。
+- Deployment: `eac3d213` 曾在镜像内部测试阶段因 Docker 上下文根路径缺少 `ACTIVE_REQUIREMENTS.md` 失败，容器未替换；`8b1d187` 修复 Docker-safe support 合同，随后最终业务代码提交 `8e0aa8bfe86e26e4d0009603231752afb95d4ef2` 成功部署 development，HTTP 200；production 未部署。
+- Design QA: [`design-qa.md`](design-qa.md) 最终 `passed`，四页参考图、development 实现图、对比图及两轮问题分级均已留证。
+- Review: REV-596-INLINE-CATEGORY-LISTS（todo）：自动化与只读 QA 已完成，等待 Van 在 development 做最终业务验收。
+- Last update: 2026-08-10 Asia/Shanghai
+
+### PR-594-PRICING-BOM-DEBUG-WORKFLOW
+- Branch: codex/pricing-bom-debug-workflow-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: development deployed; automated verification complete; awaiting Van acceptance
+- Scope: 价格计算模板试算计入 BOM 中无损耗固定用量物料；BOM 配方区改名为“有损耗的配方 / 无损耗的配方”；试算可跳转当前 BOM 配置并临时返回；试算临时参数可由用户主动更新到当前价格计算模板。
+- DEV:
+  - DEV-594-PRICING-FIXED-BOM-COST（done）：单次价格试算可显式选择含组件的 BOM 草稿，固定用量包材按离散库存数量和匹配成本单位进入 BOM 物料成本；批量价格计算与正式发布仍只使用已发布 BOM。
+  - DEV-594-PRICING-BOM-ROUNDTRIP（done）：价格试算与对应 BOM 配置支持前端内存中的一次性临时返回，刷新不持久化试算上下文。
+  - DEV-594-PRICING-RULE-UPDATE（done）：用户可主动把临时加价率、已填写的临时税率和其他成本更新到当前价格计算模板，复用既有保存接口与操作日志。
+  - DEV-594-BOM-LOSS-LABELS（done）：配方区域统一为“有损耗的配方 / 无损耗的配方”，底层损耗逻辑不变。
+- Verifier: costing application/repository/API/catalog packages GREEN；support full package GREEN；pricing/BOM targeted Vue 219/219 and frontend `src/lib` full suite GREEN；Vite build GREEN（397 modules，existing chunk warning only）。
+- Deployment: development 已部署 `aa22bf9bf772968117684080e9a0fe8bbe8e3352`；备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810145325-aa22bf9bf772`，回滚镜像 `kferp-orderapp-rollback:development-20260810145325-aa22bf9bf772`；`erp_orderapp` 运行中，外部登录页 HTTP 200，需求 API 可见 PR-594；未做浏览器、API 业务流或人工验证，production 未操作。
+- Last update: 2026-08-10 Asia/Shanghai
+
+### PR-593-BOM-LOSS-PACKAGING-UNITS
+- Branch: codex/bom-packaging-consumption-units-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: review; implementation, automated verification and development delivery complete; Van manual acceptance todo
+- Scope: 开启 BOM 版本级原料损耗后，配方编辑明确分为“有损耗的配方”和“无损耗的配方”。比例原料继续应用唯一 BOM 损耗；包材、固定数量物料和商品组件按其档案库存单位使用个、件、袋、盒等固定用量且损耗为 0。两类组件可在同一 BOM 共存，不新增字段、不迁移历史数据。
+- DEV:
+  - DEV-593-BOM-MIXED-CONSUMPTION（done）：应用、仓储和生产需求保留与组件库存单位一致的非空单位代码为固定用量，BOM 损耗只写入物料比例行。
+  - DEV-593-BOM-LOSS-ZONES（done）：Vue/Vite 在损耗开启时提供两个交互区域并按相同明细字段分区展示，非损耗区选中组件后锁定其库存单位。
+  - DEV-593-BOM-PACKAGING-COST（done）：个、件、袋、盒等包材固定用量按匹配的物料成本单位计入 BOM 单位成本和标准制造成本。
+  - DEV-593-DOCS-DEVELOPMENT-DELIVERY（done）：需求、验收、生产/物料手册和自动合同已同步，并仅交付 development。
+- Verifier: application BOM 混合行、BOM PostgreSQL 仓储合同、生产固定包材需求、HTTP draft API、Vue BOM 定向测试和 PR-593 support 合同。
+- Deployment: development 通过轻量部署脚本交付；production 不在范围，人工验收由 Van 完成。
+- Last update: 2026-08-10 Asia/Shanghai
+
 ### PR-592-BOM-LOSS-GROSS-INPUT
 - Branch: codex/fix-chuxiao-bom-loss-denominator-20260810
 - Owner/session: Codex / 2026-08-10
@@ -94,6 +179,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Deploy gates: 服务器 Vue 测试 922/922、小程序测试 195/195、类型检查/构建、完整 Go 测试与镜像内 Go 测试均通过。
 - Deployment: feature `f2f25a57` merged to `develop` as `7c96e62ef4e71d06c603ca5213a0937927ae56d8` and deployed to development with `KFERP_SKIP_MINIAPP_EXPORT=1 ./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260809225406-7c96e62ef4e7`; rollback image `kferp-orderapp-rollback:development-20260809225406-7c96e62ef4e7`; built-in external smoke returned HTTP 200. Browser/API business acceptance was not run and remains with Van. `main` and production untouched.
 - Last update: 2026-08-09 Asia/Shanghai
+
+### PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION
+- Branch: codex/four-list-category-move-20260810
+- Owner/session: Codex / 2026-08-10
+- Status: development deployed; automated verification complete; awaiting Van acceptance
+- Scope: 物料档案、生产 BOM、商品档案和选中具体仓库且非客户上下文的仓库内部列表统一采用“移动到分类”状态交互：勾选对象后点击按钮，右侧列表置灰；左侧分类树提示选择目标、自动展开并可滚动；点击允许的分类立即移动且不二次确认；完成或取消后恢复此前展开节点、当前分类和滚动位置。四页继续保留各自既有搜索、筛选、分组层级和分页语义；无模板时左树仅显示 `全部分类`、右侧平铺、移动禁用且底部设置入口保留。
+- DEV:
+  - DEV-595-SHARED-MOVE-STATE：抽取或复用可测试的移动状态与分类树快照/恢复逻辑，覆盖进入、目标选择、成功、失败和取消。
+  - DEV-595-MATERIAL-ARCHIVE：适配物料档案分类树与现有物料搜索筛选。
+  - DEV-595-PRODUCT-BOM：适配商品档案与生产 BOM，并保留各自分组内分页及 BOM 搜索筛选。
+  - DEV-595-WAREHOUSE-INVENTORY：适配选中仓库内物品列表，使用 `warehouse_inventory_item` 与精确 `<warehouse code>:<item_type>:<item_id>:<spec_g>` identity；warehouse code 仅作命名空间。分类只过滤 stock API 当前服务端页，不发送 `group_id/group_item_id`，保持 `total/page/limit`；全部仓库/客户上下文仅分类层面平铺且不可移动，既有 WIP/追溯不变，PR-442/458 查询只作历史兼容。
+  - DEV-595-DOCS-ACCEPTANCE：同步单一来源操作手册、需求种子和自动化验收证据。
+- Verifier:
+  - Unit: 最新 `origin/develop` 基线下 frontend-vue-shell 全量 946/946 GREEN，合并树定向 260/260 GREEN；`scripts/verify_kferp.sh backend` Go 全包 GREEN
+  - API: Go HTTP/support 全包 GREEN；开发环境只读需求 API HTTP 200 并可见 PR-595，未执行业务数据写入或浏览器业务流
+  - Frontend/build: 本地及服务器 Vite build GREEN（400 modules）；服务器 miniapp 205/205、typecheck、development mp-weixin build GREEN
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`
+  - Review/acceptance: 自动化证据写入 `orderapp-remote/docs/acceptance/2026-08-10-unified-category-move-interaction.md`; 页面业务验收由 Van 后续执行
+- Deployment: feature `8c32c89e6a381d3493f31604cbb0d497d9a7b830` pushed and merged to `develop` as `8c182a4cbf86a05a0bf55cae06fea34fbbc88c5f`；development 已部署该提交。备份 `/opt/stacks/erp/orderapp.backup.deploy-20260810154836-8c182a4cbf86`，回滚镜像 `kferp-orderapp-rollback:development-20260810154836-8c182a4cbf86`；`erp_orderapp` 运行中且 restart count 0，开发登录 HTTP 200、认证应用 HTTP 303、需求 API HTTP 200 并可见 PR-595、近期 error 0。production、`main` 未操作，浏览器/业务人工验收仍由 Van 执行。
+- Last update: 2026-08-10 15:56 Asia/Shanghai
+- Notes: 功能最初基于 `develop` `fb4aea5c` 使用草案编号 PR-588；同步后 `origin/develop` 已由 PR-588～594 占用。重放到最新 `origin/develop` `99239638` 后以 `scripts/reserve_req_id.sh` 确认并改用下一可用编号 PR-595，未改写上游历史需求。原任务要求不合并/不部署，Van 在 2026-08-10 后续明确要求合并 `develop` 并部署 development，当前记录按该最新指令闭环。
 
 ### PR-587-PRICE-LIST-BOM-FIXES
 - Branch: codex/price-list-bom-fixes-20260809

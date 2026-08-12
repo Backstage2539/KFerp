@@ -38,16 +38,19 @@ func TestDev588PricingTrialParentPickerBomAccordionContracts(t *testing.T) {
 			`#menu-header`,
 			`aria-label="商品分类"`,
 		},
-		filepath.Join("frontend-vue-shell", "src", "lib", "bom.js"): {
-			"productionBomAccordionPageState",
+		filepath.Join("frontend-vue-shell", "src", "lib", "business-grouping.js"): {
+			"businessGroupInlineListState",
+			"businessGroupVisibleRows",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"BusinessGroupControls",
+			"BusinessGroupInlineWorkspace",
 			"productionBomDisplayGroups",
-			"expandedProductionBomGroupKey",
-			"productionBomListPage",
-			"productionBomListPageSize",
-			"productionBomListState",
+			"collapsedProductionBomGroups",
+			"productionBomPaginationByGroup",
+			"handleProductionBomGroupPaginationChange",
+			`#group="{ group }"`,
+			"<thead>",
+			"data-bom-settings-drawer",
 			"PaginationControls",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
@@ -65,8 +68,9 @@ func TestDev588PricingTrialParentPickerBomAccordionContracts(t *testing.T) {
 			"全部 / 熟豆 / 挂耳 / 生豆 / 速溶咖啡",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"初始只展开第一顶层分组",
-			"页码和每页条数只服务当前展开组的 BOM 行",
+			"PR-588 的单展开手风琴",
+			"均为历史 UI，现行由 PR-596-INLINE-CATEGORY-LISTS 覆盖",
+			"每个展开且含 BOM 的分类重复完整表头并有自己的分页",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-588",

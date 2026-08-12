@@ -42,6 +42,7 @@ export const menuGroups = [
       { key: 'stockOperations', label: '库存作业', title: '库存作业' },
       { key: 'stockOutboundLogs', label: '出库日志', title: '出库日志' },
       { key: 'inventoryMaterialsManual', label: '库存物料手册', title: '库存物料手册' },
+      { key: 'stockManual', label: '库存作业手册', title: '库存作业手册' },
       { key: 'purchase', label: '采购入库', title: '采购入库' },
       { key: 'materials', label: '物料档案', title: '物料档案' },
     ],

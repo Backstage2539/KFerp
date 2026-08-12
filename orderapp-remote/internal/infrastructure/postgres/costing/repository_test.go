@@ -787,6 +787,71 @@ func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T)
 	}
 }
 
+func TestLoadProductInputsPricesCustomPackagingUnitFromMatchingMaterialCostUnit(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "bom_unit_cost AS (")
+	if start < 0 {
+		t.Fatal("bom_unit_cost CTE not found")
+	}
+	end := strings.Index(src[start:], "finished_component_cost AS (")
+	if end < 0 {
+		t.Fatal("bom_unit_cost CTE not found")
+	}
+	cte := src[start : start+end]
+	for _, want := range []string{
+		"NULLIF(m.cost_unit,'')",
+		"NULLIF(m.unit,'')",
+		"COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') NOT IN ('ratio_pct','g_per_bag')",
+	} {
+		if !strings.Contains(cte, want) {
+			t.Fatalf("custom packaging cost must use matching material unit; missing %q", want)
+		}
+	}
+}
+
+func TestMaterialValuationIncludesDiscretePackageInventory(t *testing.T) {
+	files := []string{"repository.go", "production_bom_cost.go"}
+	valuationCount := 0
+	for _, name := range files {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(b)
+		for offset := 0; ; {
+			start := strings.Index(src[offset:], "material_valuation AS (")
+			if start < 0 {
+				break
+			}
+			start += offset
+			end := strings.Index(src[start:], "GROUP BY l.material_id")
+			if end < 0 {
+				t.Fatalf("%s material_valuation CTE has no group boundary", name)
+			}
+			block := src[start : start+end]
+			for _, want := range []string{
+				"l.qty_units",
+				"(l.qty_g > 0 OR l.qty_units > 0)",
+				"m.cost_unit",
+				"m.unit",
+			} {
+				if !strings.Contains(block, want) {
+					t.Fatalf("%s material valuation must price discrete package inventory; missing %q", name, want)
+				}
+			}
+			valuationCount++
+			offset = start + end + len("GROUP BY l.material_id")
+		}
+	}
+	if valuationCount != 3 {
+		t.Fatalf("material valuation CTE count = %d, want 3", valuationCount)
+	}
+}
+
 func TestLoadProductInputsReadsOperationTemplateCosts(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -882,11 +947,38 @@ func TestPricingRuleTrialDetailsValidateExplicitVersionAgainstCurrentProduct(t *
 	fn := src[fnStart : fnStart+fnEnd]
 	for _, want := range []string{
 		"JOIN pricing_rule_trial_selected_products selected ON selected.product_id=pb.output_product_id",
-		"AND v.status='published'",
+		"AND v.status IN ('published','draft')",
 		"AND v.id=$1",
 	} {
 		if !strings.Contains(fn, want) {
-			t.Fatalf("pricing rule trial explicit BOM version must belong to the current product and be published; missing %q", want)
+			t.Fatalf("pricing rule trial explicit BOM version must belong to the current product and be trial-eligible; missing %q", want)
+		}
+	}
+}
+
+func TestPricingRuleTrialProductionOptionsIncludeNonEmptyDraftForInteractiveTrial(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) LoadPricingRuleTrialProductionOptions")
+	if start < 0 {
+		t.Fatal("cannot locate pricing rule trial production options loader")
+	}
+	end := strings.Index(src[start:], "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if end < 0 {
+		t.Fatal("cannot locate pricing rule trial production options loader")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{
+		"v.status IN ('published','draft')",
+		"v.status <> 'draft' OR EXISTS",
+		"draft_component.version_id=v.id",
+		"COALESCE(v.status,'published') AS status",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("interactive pricing trial must expose non-empty draft BOM versions; missing %q", want)
 		}
 	}
 }
@@ -1724,7 +1816,7 @@ func TestComponentCostResolutionWarningUsesBomMaterialLossVocabulary(t *testing.
 		t.Fatal(err)
 	}
 	src := string(b)
-	if !strings.Contains(src, "商品组件成本无法完整解析：请检查组件商品的已发布生产 BOM、物料价格、BOM 原料损耗和循环引用") {
+	if !strings.Contains(src, "递归组件成本无法完整解析：请检查组件商品或物料的默认已发布生产 BOM、物料价格、BOM 原料损耗和循环引用") {
 		t.Fatal("component cost warning must direct users to the sole BOM material-loss setting")
 	}
 	if strings.Contains(src, "物料价格、产出率和循环引用") {

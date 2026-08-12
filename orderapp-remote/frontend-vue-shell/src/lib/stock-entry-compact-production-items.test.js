@@ -86,3 +86,12 @@ test('regular stock documents keep the existing card form', () => {
   assert.match(source, /<span>供应商<\/span>/)
   assert.match(source, /<span>单位成本<\/span>/)
 })
+
+test('bound material manufacture keeps typed identity and frozen warehouse read-only with one inventory-unit quantity', () => {
+  assert.match(source, /form\.purpose_key === 'manufacture'/)
+  assert.match(source, /item\.item_type === 'material'/)
+  assert.match(source, /usesSingleQuantity\(item\)/)
+  assert.match(source, /:disabled="!isDraft \|\| isBoundProductionDocument"/)
+  assert.match(source, /v-model\.number="item\.quantity"/)
+  assert.match(source, /item\.inventory_unit \|\| '-'/)
+})

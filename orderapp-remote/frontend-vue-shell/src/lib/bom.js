@@ -1,141 +1,3 @@
-import { clampPage, normalizePageSize } from './pagination.js'
-
-function productionBomTopLevelGroup(group = {}) {
-  return Boolean(group?.is_template_group || group?.unclassified || group?.all)
-}
-
-function productionBomTemplateRootKeyByID(groups = []) {
-  return new Map((Array.isArray(groups) ? groups : [])
-    .filter((group) => group?.is_template_group && Number(group?.group_id || 0) > 0)
-    .map((group) => [Number(group.group_id || 0), String(group.key || '')]))
-}
-
-function productionBomRootKey(group = {}, templateRootKeyByID = new Map()) {
-  if (productionBomTopLevelGroup(group)) return String(group?.key || '')
-  return templateRootKeyByID.get(Number(group?.group_id || 0)) || ''
-}
-
-function productionBomCategoryHiddenByCollapse(group = {}, groups = [], collapsed = new Set(), includeSelf = true) {
-  if (includeSelf && collapsed.has(String(group?.key || ''))) return true
-  const groupID = Number(group?.group_id || 0)
-  let parentID = Number(group?.parent_group_item_id || 0)
-  if (!(groupID > 0) || !(parentID > 0)) return false
-  const byItemID = new Map((Array.isArray(groups) ? groups : [])
-    .filter((candidate) => Number(candidate?.group_id || 0) === groupID && Number(candidate?.group_item_id || 0) > 0)
-    .map((candidate) => [Number(candidate.group_item_id || 0), candidate]))
-  const seen = new Set()
-  while (parentID > 0 && !seen.has(parentID)) {
-    seen.add(parentID)
-    const parent = byItemID.get(parentID)
-    if (!parent) return false
-    if (collapsed.has(String(parent.key || ''))) return true
-    parentID = Number(parent.parent_group_item_id || 0)
-  }
-  return false
-}
-
-function productionBomCategoryAncestors(group = {}, groups = []) {
-  const groupID = Number(group?.group_id || 0)
-  let parentID = Number(group?.parent_group_item_id || 0)
-  if (!(groupID > 0) || !(parentID > 0)) return []
-  const byItemID = new Map((Array.isArray(groups) ? groups : [])
-    .filter((candidate) => Number(candidate?.group_id || 0) === groupID && Number(candidate?.group_item_id || 0) > 0)
-    .map((candidate) => [Number(candidate.group_item_id || 0), candidate]))
-  const ancestors = []
-  const seen = new Set()
-  while (parentID > 0 && !seen.has(parentID)) {
-    seen.add(parentID)
-    const parent = byItemID.get(parentID)
-    if (!parent) break
-    ancestors.push(parent)
-    parentID = Number(parent.parent_group_item_id || 0)
-  }
-  return ancestors
-}
-
-export function productionBomAccordionPageState(flatGroups = [], {
-  expandedGroupKey = null,
-  collapsedCategoryKeys = [],
-  page = 1,
-  pageSize = 10,
-} = {}) {
-  const sourceGroups = Array.isArray(flatGroups) ? flatGroups : []
-  const templateRootKeyByID = productionBomTemplateRootKeyByID(sourceGroups)
-  const roots = sourceGroups.filter(productionBomTopLevelGroup)
-  const rootKeys = new Set(roots.map((group) => String(group.key || '')).filter(Boolean))
-  const onlyFlatRoot = roots.length === 1 && roots[0]?.all
-  const requestedKey = expandedGroupKey === null || typeof expandedGroupKey === 'undefined'
-    ? String(roots[0]?.key || '')
-    : String(expandedGroupKey || '')
-  const resolvedExpandedGroupKey = onlyFlatRoot
-    ? String(roots[0]?.key || '')
-    : (requestedKey === '' || rootKeys.has(requestedKey) ? requestedKey : String(roots[0]?.key || ''))
-  const normalizedSize = normalizePageSize(pageSize)
-  const collapsed = new Set((Array.isArray(collapsedCategoryKeys) ? collapsedCategoryKeys : []).map((key) => String(key || '')))
-  const activeSectionGroups = sourceGroups.filter((group) => (
-    productionBomRootKey(group, templateRootKeyByID) === resolvedExpandedGroupKey
-  ))
-  const activeRoot = roots.find((group) => String(group.key || '') === resolvedExpandedGroupKey) || null
-  const activeRowGroups = activeRoot?.is_template_group
-    ? activeSectionGroups.filter((group) => !group?.is_template_group)
-    : activeRoot ? [activeRoot] : []
-  const rawTotal = activeRowGroups.reduce((sum, group) => sum + (Array.isArray(group?.rows) ? group.rows.length : 0), 0)
-  const entries = []
-  for (const group of activeRowGroups) {
-    if (!productionBomTopLevelGroup(group) && productionBomCategoryHiddenByCollapse(group, activeRowGroups, collapsed, true)) continue
-    for (const row of Array.isArray(group?.rows) ? group.rows : []) {
-      entries.push({ groupKey: String(group.key || ''), row })
-    }
-  }
-  const total = entries.length
-  const normalizedPage = clampPage(page, total, normalizedSize)
-  const start = (normalizedPage - 1) * normalizedSize
-  const pageEntries = entries.slice(start, start + normalizedSize)
-  const pageRowsByGroupKey = new Map()
-  for (const entry of pageEntries) {
-    if (!pageRowsByGroupKey.has(entry.groupKey)) pageRowsByGroupKey.set(entry.groupKey, [])
-    pageRowsByGroupKey.get(entry.groupKey).push(entry.row)
-  }
-
-  const requiredCategoryKeys = new Set(pageEntries.map((entry) => entry.groupKey))
-  for (const group of activeRowGroups) {
-    const key = String(group?.key || '')
-    const isVisibleCollapsedHeader = collapsed.has(key)
-      && !productionBomCategoryHiddenByCollapse(group, activeRowGroups, collapsed, false)
-    if (isVisibleCollapsedHeader) requiredCategoryKeys.add(key)
-    if (!requiredCategoryKeys.has(key)) continue
-    for (const ancestor of productionBomCategoryAncestors(group, activeRowGroups)) {
-      requiredCategoryKeys.add(String(ancestor.key || ''))
-    }
-  }
-  const groups = []
-  for (const group of sourceGroups) {
-    const rootKey = productionBomRootKey(group, templateRootKeyByID)
-    const isRoot = productionBomTopLevelGroup(group)
-    if (!isRoot && rootKey !== resolvedExpandedGroupKey) continue
-    if (!isRoot && !requiredCategoryKeys.has(String(group.key || ''))) continue
-    const rows = rootKey === resolvedExpandedGroupKey
-      ? (pageRowsByGroupKey.get(String(group.key || '')) || [])
-      : []
-    groups.push({
-      ...group,
-      rows,
-      row_total: Array.isArray(group?.rows) ? group.rows.length : 0,
-    })
-  }
-
-  return {
-    expandedGroupKey: resolvedExpandedGroupKey,
-    groups,
-    visibleRows: pageEntries.map((entry) => entry.row),
-    rawTotal,
-    total,
-    page: normalizedPage,
-    pageSize: normalizedSize,
-    needsPagination: total > normalizedSize,
-  }
-}
-
 export function normalizedBomProductKind(row = {}) {
   const kind = String(row.product_kind || row.productKind || '').trim().toLowerCase()
   return kind || 'roasted_bean'
@@ -214,7 +76,47 @@ function firstPresent(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== '')
 }
 
+export function productionBomOutputIdentity(row = {}) {
+  const explicitType = String(row.output_type || row.outputType || '').trim().toLowerCase()
+  const type = explicitType === 'material' || (!explicitType && Number(row.output_material_id || row.outputMaterialID || 0) > 0)
+    ? 'material'
+    : 'product'
+  const typedID = type === 'material'
+    ? Number(row.output_material_id || row.outputMaterialID || 0)
+    : Number(row.output_product_id || row.outputProductID || row.product_id || 0)
+  const genericID = Number(row.output_id || row.outputID || 0)
+  return {
+    type,
+    id: genericID > 0 ? genericID : typedID,
+    name: String(type === 'material'
+      ? (row.output_material_name || row.outputMaterialName || row.output_name || row.outputName || '')
+      : (row.output_product_name || row.outputProductName || row.output_name || row.outputName || row.product_name || '')).trim(),
+    code: String(type === 'material'
+      ? (row.output_material_code || row.outputMaterialCode || row.output_code || row.outputCode || '')
+      : (row.output_product_code || row.outputProductCode || row.output_code || row.outputCode || row.product_code || '')).trim(),
+    unit: String(row.output_unit || row.outputUnit || '').trim(),
+  }
+}
+
+export function productionBomOutputPayload(row = {}) {
+  const identity = productionBomOutputIdentity(row)
+  return {
+    output_type: identity.type,
+    output_id: identity.id,
+    output_product_id: identity.type === 'product' ? identity.id : 0,
+    output_material_id: identity.type === 'material' ? identity.id : 0,
+  }
+}
+
+export function productionBomOutputLabel(row = {}) {
+  const identity = productionBomOutputIdentity(row)
+  const typeLabel = identity.type === 'material' ? '物料' : '商品'
+  const name = identity.name || identity.code || (identity.id > 0 ? `#${identity.id}` : '未设置')
+  return `${typeLabel} · ${name}`
+}
+
 export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
+  const output = productionBomOutputIdentity({ ...fallback, ...detail })
   const bomID = Number(firstPresent(detail.id, detail.production_bom_id, fallback.production_bom_id, fallback.id, 0))
   const versionID = Number(firstPresent(detail.latest_version_id, detail.latest_bom_version_id, fallback.production_bom_version_id, fallback.latest_version_id, 0))
   const versionNo = String(firstPresent(detail.latest_version_no, detail.latest_bom_version_no, fallback.production_bom_version_no, fallback.latest_version_no, fallback.latest_bom_version_no, '')).trim()
@@ -226,9 +128,16 @@ export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
   }, 0)
 
   return {
-    product_id: Number(firstPresent(detail.output_product_id, fallback.output_product_id, 0)),
-    product: detail.output_product_name || fallback.output_product_name || '未设置产出商品',
-    product_name: detail.output_product_name || fallback.output_product_name || '未设置产出商品',
+    product_id: output.type === 'product' ? output.id : 0,
+    product: output.name || '未设置产出对象',
+    product_name: output.name || '未设置产出对象',
+    output_type: output.type,
+    output_id: output.id,
+    output_name: output.name,
+    output_code: output.code,
+    output_material_id: output.type === 'material' ? output.id : 0,
+    output_material_name: output.type === 'material' ? output.name : '',
+    output_material_code: output.type === 'material' ? output.code : '',
     output_product_id: Number(firstPresent(detail.output_product_id, fallback.output_product_id, 0)),
     output_product_name: detail.output_product_name || fallback.output_product_name || '',
     output_product_code: detail.output_product_code || fallback.output_product_code || '',
@@ -289,6 +198,10 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
       row.name,
       row.output_product_name,
       row.output_product_code,
+      row.output_material_name,
+      row.output_material_code,
+      row.output_name,
+      row.output_code,
       row.production_bom_code,
       row.production_bom_name,
       row.group_name,

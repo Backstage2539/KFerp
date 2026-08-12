@@ -135,7 +135,8 @@ CREATE TABLE %[1]s.finished_allocation_logs(
 	id BIGSERIAL PRIMARY KEY,batch_id TEXT,product_id BIGINT,spec_g BIGINT,deducted_g BIGINT
 );
 CREATE TABLE %[1]s.work_orders(
-	id BIGINT PRIMARY KEY,running_item_id BIGINT,status TEXT,processing_request_item_id BIGINT,completed_at TIMESTAMPTZ
+	id BIGINT PRIMARY KEY,running_item_id BIGINT,status TEXT,processing_request_item_id BIGINT,completed_at TIMESTAMPTZ,
+	output_type TEXT NOT NULL DEFAULT 'product',output_material_id BIGINT NOT NULL DEFAULT 0
 );
 CREATE TABLE %[1]s.job_cards(
 	id BIGINT PRIMARY KEY,work_order_id BIGINT,status TEXT,completed_at TIMESTAMPTZ,operator TEXT
@@ -196,7 +197,11 @@ INSERT INTO %[1]s.produce_running_items(
 ) VALUES
 	(90,'RUN-PAUSED','目标产品',700,454,454,500,0.9,1,0,'','tester',now(),'[]',0,'paused'),
 	(91,'RUN-PARTIAL','目标产品',700,454,454,500,0.9,1,0,'','tester',now(),'[]',0,'partially_completed');
-INSERT INTO %[1]s.work_orders VALUES(190,90,'paused',290,NULL),(191,91,'partially_completed',291,NULL);
+INSERT INTO %[1]s.work_orders(
+	id,running_item_id,status,processing_request_item_id,completed_at,output_type,output_material_id
+) VALUES
+	(190,90,'paused',290,NULL,'material',7),
+	(191,91,'partially_completed',291,NULL,'material',7);
 INSERT INTO %[1]s.job_cards VALUES(390,190,'paused',NULL,''),(391,191,'running',NULL,'');
 INSERT INTO %[1]s.material_batches(id,batch_code,material_id,remaining_g,quality_status) VALUES
 	(490,'MAT-PAUSED',7,500,'pass'),(491,'MAT-PARTIAL',7,500,'pass');
@@ -245,6 +250,68 @@ INSERT INTO %[1]s.customer_processing_material_reservations(
 			t.Fatalf("cancel %d consistency = run:%s wo:%s request:%s demand:%s reservation:%s returned:%d wip:%d source:%d",
 				tc.runningID, runningStatus, workOrderStatus, requestStatus, demandStatus, reservationStatus, returnedG, wipG, sourceG)
 		}
+		var cancelAuditCount int
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COUNT(*)
+			FROM %s.audit_logs
+			WHERE action='cancel'
+			  AND ((entity_type='produce_running' AND entity_id=$1)
+			       OR (entity_type='work_order' AND entity_id=$2))
+		`, schema), tc.runningID, tc.workOrderID).Scan(&cancelAuditCount); err != nil {
+			t.Fatal(err)
+		}
+		if cancelAuditCount != 2 {
+			t.Fatalf("cancel %d audit count = %d, want atomic produce_running + work_order audit", tc.runningID, cancelAuditCount)
+		}
+	}
+
+	mustExecProductionSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.produce_running_items(
+			id,batch_id,product_name,product_id,spec_g,need_g,input_g,bom_yield_rate,planned_units,planned_loose_g,
+			order_nos,started_by,started_at,material_snapshot,operation_template_id,status
+		) VALUES(92,'RUN-AUDIT-ROLLBACK','待回滚半成品',0,0,500,500,1,0,500,'','tester',now(),'[]',0,'running');
+		INSERT INTO %[1]s.work_orders(
+			id,running_item_id,status,processing_request_item_id,completed_at,output_type,output_material_id
+		) VALUES(192,92,'running',0,NULL,'material',7);
+		INSERT INTO %[1]s.job_cards VALUES(392,192,'running',NULL,'');
+		INSERT INTO %[1]s.work_order_material_reservations(
+			running_item_id,status,reserved_g,consumed_g,returned_g,reserved_units,consumed_units,returned_units,updated_at
+		) VALUES(92,'reserved',500,0,0,0,0,0,now());
+		CREATE OR REPLACE FUNCTION %[1]s.reject_running_cancel_audit() RETURNS trigger AS $audit$
+		BEGIN
+			IF NEW.action='cancel' AND NEW.entity_type='produce_running' THEN
+				RAISE EXCEPTION 'forced cancel audit failure';
+			END IF;
+			RETURN NEW;
+		END
+		$audit$ LANGUAGE plpgsql;
+		CREATE TRIGGER reject_running_cancel_audit
+		BEFORE INSERT ON %[1]s.audit_logs
+		FOR EACH ROW EXECUTE FUNCTION %[1]s.reject_running_cancel_audit();
+	`, schema))
+	if err := repo.Cancel(ctx, productionapp.CancelCommand{ID: 92, Operator: "tester"}); err == nil || !strings.Contains(err.Error(), "forced cancel audit failure") {
+		t.Fatalf("cancel audit failure = %v, want transaction error", err)
+	}
+	var runningStatus, workOrderStatus, jobCardStatus, reservationStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT run.status,wo.status,jc.status,res.status
+		FROM %[1]s.produce_running_items run
+		JOIN %[1]s.work_orders wo ON wo.running_item_id=run.id
+		JOIN %[1]s.job_cards jc ON jc.work_order_id=wo.id
+		JOIN %[1]s.work_order_material_reservations res ON res.running_item_id=run.id
+		WHERE run.id=92
+	`, schema)).Scan(&runningStatus, &workOrderStatus, &jobCardStatus, &reservationStatus); err != nil {
+		t.Fatal(err)
+	}
+	if runningStatus != "running" || workOrderStatus != "running" || jobCardStatus != "running" || reservationStatus != "reserved" {
+		t.Fatalf("audit failure did not roll back cancellation: run=%s wo=%s job=%s reservation=%s", runningStatus, workOrderStatus, jobCardStatus, reservationStatus)
+	}
+	var cancelAuditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE action='cancel'`, schema)).Scan(&cancelAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if cancelAuditCount != 4 {
+		t.Fatalf("final running audit failure left prior audit rows: count=%d, want two successful cancel pairs only", cancelAuditCount)
 	}
 }
 

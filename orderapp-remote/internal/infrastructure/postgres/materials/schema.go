@@ -14,6 +14,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		code TEXT NOT NULL UNIQUE,
 		name TEXT NOT NULL,
 		kind TEXT NOT NULL DEFAULT 'other',
+		is_semi_finished BOOLEAN NOT NULL DEFAULT false,
 		unit TEXT NOT NULL DEFAULT 'g',
 		cost_unit TEXT NOT NULL DEFAULT 'kg',
 		batch_no TEXT NOT NULL DEFAULT '',
@@ -35,6 +36,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS batch_no TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ NULL`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS industry_field_template_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS is_semi_finished BOOLEAN NOT NULL DEFAULT false`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS cost_unit TEXT`,
 		`UPDATE %[1]s.materials
 		 SET cost_unit=CASE

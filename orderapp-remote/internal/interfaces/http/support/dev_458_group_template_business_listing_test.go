@@ -26,52 +26,82 @@ func TestDev458GroupTemplateBusinessListingContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "BusinessGroupControls.vue"): {
 			"data-business-group-controls",
-			"选择分组模板",
-			"目标分类",
+			"moveActive",
+			"breadcrumb",
 			"移动到分类",
 		},
+		filepath.Join("frontend-vue-shell", "src", "components", "BusinessGroupInlineWorkspace.vue"): {
+			"data-business-group-inline-workspace",
+			"请选择要移动到的分类",
+			"点击分类标题立即移动，不再二次确认",
+			"emit('target'",
+			"business-group-inline-disabled",
+			"moveSnapshot",
+		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"BusinessGroupControls",
+			"BusinessGroupInlineWorkspace",
+			"collapsedProductClassificationGroups",
+			"productCategoryMoveActive",
+			`@target="handleProductCategoryMoveTarget"`,
 			"productBusinessGroupControls",
-			"groupRowsByBusinessGroupTemplate",
-			"v-for=\"group in renderedDisplaySkuGroups\"",
+			"groupRowsByBusinessGroupTemplates",
+			`#group="{ group }"`,
+			"handleProductGroupPaginationChange",
+			"<thead>",
 			"businessGroupMoveAssignmentPayload",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"BusinessGroupControls",
+			"BusinessGroupInlineWorkspace",
+			"collapsedProductionBomGroups",
+			"productionBomCategoryMoveActive",
+			`@target="handleProductionBomCategoryMoveTarget"`,
 			"productionBomDisplayGroups",
-			"groupRowsByBusinessGroupTemplate",
+			"groupRowsByBusinessGroupTemplates",
 			"businessGroupMoveAssignmentPayload",
-			"v-for=\"group in productionBomDisplayGroups\"",
+			`#group="{ group }"`,
+			"handleProductionBomGroupPaginationChange",
+			"data-bom-settings-drawer",
+			"<thead>",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WarehouseInventoryView.vue"): {
-			"BusinessGroupControls",
+			"BusinessGroupInlineWorkspace",
+			"collapsedInventoryGroupKeys",
+			"inventoryCategoryMoveActive",
+			`@target="handleInventoryCategoryMoveTarget"`,
 			"inventoryDisplayGroups",
 			"selectedInventoryItemKeys",
 			"groupRowsByBusinessGroupTemplates",
 			"businessGroupMoveAssignmentPayload",
-			"v-for=\"group in renderedInventoryGroups\"",
+			`#group="{ group }"`,
+			`v-for="row in group.rows"`,
+			"handleInventoryGroupPaginationChange",
+			"<thead>",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-458-GROUP-TEMPLATE-BUSINESS-LISTING",
 			"business-grouping",
-			"BusinessGroupControls",
+			"BusinessGroupInlineWorkspace",
 			"空大类和空小类也必须显示",
-			"商品表格不再显示独立 `分类` 列",
-			"仓库库存页面不再使用 `普通仓库`、`客户仓库` 固定分段",
+			"独立 `分类` 列",
+			"PR-458 的仓库 code 归类是历史口径",
+			"warehouse_inventory_item",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-458-GROUP-TEMPLATE-BUSINESS-LISTING",
 			"商品档案不出现分类过滤 Tab",
 			"生产 BOM 页面不出现 `使用分组`，也不出现 `全部分类 / 未分类 / 分类项` 过滤 Tab",
-			"仓库库存不出现 `普通仓库`、`客户仓库` 固定分段",
-			"三处页面都引用共享 `BusinessGroupControls` 和 `business-grouping` helper",
+			"PR-458 历史仓库 code 归类已由 PR-595 的 identity 合同取代",
+			"仓内物品/规格",
+			"四处页面都引用共享 `BusinessGroupInlineWorkspace` 和 `business-grouping` helper",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-458-GROUP-TEMPLATE-BUSINESS-LISTING",
-			"商品档案不再显示分类过滤 Tab",
+			"商品档案归类使用 `product_catalog`",
+			"取消内层“左侧分类树 + 右侧业务表”分栏",
 			"生产 BOM 页面不再维护自己的大组",
-			"页面不再固定分成 `普通仓库` / `客户仓库`",
+			"外层仓库列表保持不变",
+			"全部仓库和客户库存上下文仍按原 `q/warehouse/item_type/customer_id/page/limit` 服务端分页平铺且不可勾选移动",
+			"既有 WIP/追溯和设置抽屉不变",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"空分类也显示，不再提供分类过滤 Tab",
@@ -93,6 +123,13 @@ func TestDev458GroupTemplateBusinessListingContracts(t *testing.T) {
 }
 
 func TestDev458BusinessPagesDoNotExposeRetiredGroupingUI(t *testing.T) {
+	controls := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "components", "BusinessGroupControls.vue")))
+	for _, forbidden := range []string{"选择分组模板", "目标分类", "<select"} {
+		if strings.Contains(controls, forbidden) {
+			t.Fatalf("shared grouping controls must not expose the retired target dropdown marker %q", forbidden)
+		}
+	}
+
 	product := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, forbidden := range []string{"product-classification-tabs", "<th>分类</th>"} {
 		if strings.Contains(product, forbidden) {

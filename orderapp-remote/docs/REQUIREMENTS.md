@@ -22,13 +22,13 @@
 - PR-535-REMOVE-OBSOLETE-COST-PARAMETERS：删除过时的成本参数设置。商品价格管理只保留价格计算模板；商品价格表/成本核算删除参数设置按钮和快捷抽屉；旧 `costingSettings` 页面、共享成本参数组件及前端 helper 删除。历史参数数据和后台兼容 API 暂不做破坏性删除。
 - PR-528 保留的组件边界：分组模板与系统设置仍是两个独立 Vue 页面；PR-530 只在业务设置中组合分组模板组件，不把分组状态或 API 合回系统设置。
 - PR-529-GROUP-TEMPLATE-CATEGORY-DELETE：分组模板的大类和小类不提供启用/停用，统一使用删除。删除小类时物理删除该小类；删除大类时递归物理删除该大类及其全部小类。删除前先把所有引用受影响分类的当前业务归类改为该模板的 `未分类`（`group_item_id=0`），覆盖商品、生产 BOM、仓库、物料及其他使用通用归类关系的功能；不得删除业务对象或回改价格表、订单、BOM、工单等历史快照。删除必须写操作日志。
-- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-513-MATERIAL-CLASSIFICATION-TEMPLATE / PR-584-PRODUCT-MULTI-GROUP-TEMPLATES：商品档案、物料档案、生产 BOM、仓库库存页面必须先选择自己使用的 `分组模板`，选择后才显示业务列表分类整理和 `移动到分类`。移动目标支持 `未分类`、大类和小类，移动直接覆盖该使用场景下的旧归类并写入 `business_group_assignments`。可配置的功能键为 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；商品价格表继承 `product_catalog`，`price_list` 只可作为历史快照来源标记，不得成为独立模板选择键。
-- PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存必须共用 `business-grouping` helper 和 `BusinessGroupControls`，不得三处各写一套模板选择、分类树、未分类分组、移动 payload 和缩进逻辑。所选模板下的空大类和空小类也必须显示，其他模板、系统默认迁移模板或已删除分类留下的归类都按 `未分类` 展示。
+- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-513-MATERIAL-CLASSIFICATION-TEMPLATE / PR-584-PRODUCT-MULTI-GROUP-TEMPLATES / PR-596-INLINE-CATEGORY-LISTS：商品档案、物料档案、生产 BOM、仓库库存页面各自选择使用的 `分组模板`。四页取消内层左树/右表分栏，所选模板、大类、小类/后代分类、`未分类` 和业务表在列表中按层级内联；未选择模板时只显示 `全部分类` 平铺区、`移动到分类` 禁用，底部设置入口仍可用。移动直接覆盖该使用场景下的旧归类并写入 `business_group_assignments`。可配置的功能键为 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；商品价格表继承 `product_catalog`，`price_list` 只可作为历史快照来源标记，不得成为独立模板选择键。
+- PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-596-INLINE-CATEGORY-LISTS：商品档案、物料档案、生产 BOM、仓库库存必须共用 `business-grouping` helper 和 `BusinessGroupInlineWorkspace`（内部复用统一移动控制），不得各写一套内联分类、未分类分组、折叠/独立分页状态和移动 payload。所选模板下的空大类和空小类也必须显示，其他模板、系统默认迁移模板或已删除分类留下的归类都按 `未分类` 展示。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION / PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：`business_groups / business_group_items` 继续作为分组模板和分类项，`business_group_assignments` 作为对象归类关系；不新增第三套表。用户触发的归类新增、修改、移除都必须写操作日志。
-- PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案按所选商品分组模板完整分类树展示分类结果；父组和子组都可以成为分类标题，子组标题缩进显示，标题只显示子组名，完整父/子路径作为上下文；商品行跟随所在父组/子组缩进。商品档案不再显示分类过滤 Tab，商品表格不再显示独立 `分类` 列；分类归属只通过分组标题表达。`移动到分类` 下拉必须列出大类和小类，可把商品移动到具体小类，普通标签不带模板名称前缀。
+- PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING / PR-596-INLINE-CATEGORY-LISTS：商品档案按所选商品分组模板在列表内完整展示模板、父组、子组和业务表，层级缩进表达完整路径；不再显示内层分类树、旧分类过滤 Tab或独立 `分类` 列。每个含商品的分类重复表头并独立分页。勾选商品并点击 `移动到分类` 后，直接点击大类、小类/后代分类或未分类标题立即移动，不再使用目标下拉或确认框；点击商品名称仍打开既有 `商品档案配置` 抽屉。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE / PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：生产 BOM 取消 `使用分组`；所有可用分组模板都可直接选择。生产 BOM 保存、复制、移动只写 `business_group_assignments`，不得再写 `production_boms.group_id/group_category_id`；`production_bom_groups` 和 `production_bom_group_categories` 普通写 API 下线为只读兼容。生产 BOM 不再显示 `全部分类 / 未分类 / 分类项` 分类过滤 Tab，列表按所选模板完整大类/小类树整理，空分类也显示，表格不得再单独展示“分组”列。
-- PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：仓库库存分组对象是仓库，不是库存批次、库存行、商品或物料。仓库库存页选择库存分组模板后，左侧仓库列表按模板大类/小类和 `未分类` 整理，仓库行可勾选后用同一套 `移动到分类` 批量移动；对象引用使用仓库 code，不改变库存数量、批次、成本或追溯。仓库库存页面不再使用 `普通仓库`、`客户仓库` 固定分段；仓库类型和客户绑定只作为行内/抽屉信息保留，客户可见仓库视图后续单独设计。
-- PR-513-MATERIAL-CLASSIFICATION-TEMPLATE：物料档案分类必须使用系统 `分组模板`，交互参考商品档案。物料页不再本地新增大类/小类，也不再调用 `material_classification_*` 写接口；用户在物料列表勾选物料后选择模板下的大类或小类并点击 `移动到分类`，写入 `business_group_assignments`，其中 `usage_key=material_catalog`、`object_key=material`、`object_id=materials.id`。旧 `material_classification_groups / material_classification_group_categories / material_classification_assignments` 仅做迁移兼容，启动时迁移为 `物料档案默认分组`，旧大类/小类和物料归属不得上线后丢失。
+- PR-458 的仓库 code 归类是历史口径，现行身份合同由 PR-595 保留、PR-596 继续复用。当前外层仓库列表继续用于选择仓库；选中具体仓库且非客户库存上下文时，右侧仓内物品按内联模板/分类展示，并按 `warehouse_inventory_item` 和 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>` 归类。warehouse code 仅作为仓库命名空间前缀，实际归类身份是物品/规格，同一身份的多个批次共享归类。具体仓库先用 `limit=500` 拉取并按 `total` 补齐当前 `q/warehouse/item_type` 的全部结果，再只显示分类独立分页，不显示全局服务端分页。全部仓库和客户库存上下文继续按原服务端分页平铺且不可勾选移动，既有 WIP/追溯等上下文能力不变；分类不改变库存数量、批次、成本或追溯。
+- PR-513-MATERIAL-CLASSIFICATION-TEMPLATE / PR-584-PRODUCT-MULTI-GROUP-TEMPLATES / PR-596-INLINE-CATEGORY-LISTS：物料档案分类必须使用系统 `分组模板`，交互参考其他三个共享分类工作区。列表内一次展示全部已选模板及其分类，不通过目标模板选择器切换或过滤列表；每个有物料的分类重复表头并独立分页，点击物料名称打开详情抽屉。物料页不再本地新增大类/小类，也不再调用 `material_classification_*` 写接口；用户勾选物料并点击 `移动到分类` 后，直接点击大类、小类/后代分类或未分类标题，写入 `business_group_assignments`，其中 `usage_key=material_catalog`、`object_key=material`、`object_id=materials.id`。旧 `material_classification_groups / material_classification_group_categories / material_classification_assignments` 仅做迁移兼容，启动时迁移为 `物料档案默认分组`，旧大类/小类和物料归属不得上线后丢失。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；客户/价格表生成时如覆盖分组，只固化到该价格表版本快照，记录 `group_id/group_item_id/parent_group_item_id/group_source`，不得回写商品档案分类。
 - PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP：商品档案页面当前选择的 `商品分组` 会通过页面草稿传递给商品价格表。进入商品价格表时优先使用该商品分组模板读取 `product_catalog/product` 归类，生成选品分类、未分类分组和平铺价格行 `group_source=product_catalog` 快照；其他模板、已删除分类或未归类商品统一进入 `未分类`。
 - PR-463-PRICE-LIST-PRODUCT-CATALOG-USAGE-CLEANUP：商品价格表顶部商品类型优先使用商品档案 `product_catalog` 分组模板的顶层大类生成，子类归组商品必须跟随父类入口可见。例如商品归在 `咖啡熟豆 / 意式拼配豆` 下，即使旧商品分类仍是 `熟豆 / 默认熟豆`，也必须出现在商品价格表的 `咖啡熟豆` 类型和 `意式拼配豆` 选品分类中。商品价格表版本列表固定查询 `factory_supply`，不展示用途筛选、用途列或“工厂供货价格表 / 客户转售价格表”用途标签；`customer_resale` 继续作为后台和小程序客户转售分享用途，不进入 ERP 录单默认价格版本。
@@ -40,7 +40,7 @@
 - PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE：商品价格表的 `发布价格表` 在不可发布状态下不能静默无反馈。点击时必须校验是否存在可发布预览、版本号、客户归属、BOM已失效以及平铺价格行的计价模式、模板/固定价、价格单位、库存换算和成本来源快照；空预览、缺版本号、缺客户或价格行不完整时在按钮附近和页面错误提示中显示阻断原因。BOM已失效不得在页面顶部用汇总 banner 提示，必须在具体商品行下提示到商品档案重新选择可用 BOM，并提供商品档案跳转；失效 BOM 不能重新启用，如需沿用旧结构，先在生产 BOM 复制成新 BOM 后再选择。
 - PR-506-PRICE-LIST-SPEC-DEFAULT-ROW-ERRORS：商品价格表平铺价格行必须显示具体子 SKU / 销售规格，例如行标题 `熟豆-白巧坚果拼配（227g袋装）`，价格输入框单位位置显示 `/227g` 这类规格标签，不能只显示模糊的 `/袋`。如果价格行缺计价模式、阶梯档位、价格计算模板、最终价、价格单位、库存换算、分组快照或成本来源快照，错误必须显示在对应平铺价格行，不再用顶部通用短句让用户自己找问题。销售规格模板必须支持设置默认规格；保存模板时默认销售单位和历史 `quote_unit/order_unit` 兼容字段使用选中的规格名称，未显式选择时才回到第一条有效规格。
 - PR-507-PRICING-RULE-TRIAL-RESOLVABLE-UOM：商品价格管理的价格计算模板试算选择商品后，`销售单位` 候选只能来自当前商品可解析的单位换算。库存单位可 1:1 使用，标准重量单位在可换算时可选；销售规格、派生 SKU 或包装单位必须来自 `unit_conversion_json`、销售规格净含量或等价有效单位规则。没有换算的 `袋/盒/条` 不得出现在候选中，API 传入不可解析销售单位时必须返回明确错误，不得静默按 `kg` 试算。
-- PR-508-BOM-MATERIAL-LOSS-RATIO / PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL：生产 BOM 的 `原料损耗比` 是 BOM 版本级配置，保存到 `production_bom_versions.material_loss_rate`。开启后组件消耗单位只能使用 `比例 %`；商品组件、固定数量物料和其他单位行不得保存该字段。`合计比例` 只统计配方净比例，不包含原料损耗；历史 BOM、历史工单、历史库存流水和已发布价格快照不回改。PR-585 起当前计算公式由下条唯一口径替代，旧除法公式只属于历史冻结证据。
+- PR-508-BOM-MATERIAL-LOSS-RATIO / PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL / PR-593-BOM-LOSS-PACKAGING-UNITS / PR-594-PRICING-BOM-DEBUG-WORKFLOW：生产 BOM 的 `原料损耗比` 是 BOM 版本级配置，保存到 `production_bom_versions.material_loss_rate`。开启后“有损耗的配方”使用 `比例 %` 并应用当前 BOM 原料损耗，“无损耗的配方”按组件档案库存单位录入固定用量且不参与损耗，不允许无换算地改成其他全局单位，两类组件可在同一 BOM 共存；商品组件、固定数量物料和其他单位行不得保存该损耗字段。固定包材成本按匹配的物料成本单位计入 BOM 单位成本。`合计比例` 只统计配方净比例，不包含原料损耗；历史 BOM、历史工单、历史库存流水和已发布价格快照不回改。
 - PR-585-BOM-SINGLE-MATERIAL-LOSS / PR-592-BOM-LOSS-GROSS-INPUT：BOM 当前业务只允许一个损耗来源，即 BOM 版本级 `原料损耗比`。未配置时原料需求等于净配方；配置后按 `净配方 ÷ (1 - 原料损耗率)` 反算总投料需求及材料成本。BOM/商品配置不再展示或提交整体产出率、整体预期损耗，旧 `yield_rate/expected_loss_rate` 不得再次放大当前标准成本或新生产需求。曲奇 1kg、75%×54元/kg + 25%×45元/kg、原料损耗20%时，BOM物料成本为 `64.6875元/kg`；加冻结工序 `2.6067元/kg` 后标准制造成本为 `67.2942元/kg`。生产 BOM 的当前名称与新建、修改、复制写入口统一清除 `BOM-000659`/`BOM000643` 这类编号前缀及尾部 `生产 BOM / V001`、`生产 BOM`、`Production BOM` 或单独 `BOM`，只保留非空业务名；编号和版本仍作为独立字段保留并可搜索，不拼入名称展示。旧字段和历史名称可为数据库兼容保留，历史工单、库存流水、订单和已发布价格快照不回算；真实生产的实际投入、实际产出和实际损耗报表继续按冻结/实绩记录，但不形成第二个 BOM 配置参数。
 - PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW：ERP 必须能用浏览器和 API 打通原料 -> 商品 / SKU -> 下单 -> 生产主链路。原料建档/入库生成批次、库存和流水；商品档案、销售规格模板和生产 BOM 能形成可下单、可生产的子 SKU；订单保存后库存不足需求进入生产计划；生产计划提交生成生产工单和工序卡，工单通过 WIP、Stock Entry 和完工入库形成成品/半成品批次、生产日志、成本和库存追溯；原料入库、订单保存、生产计划/工单/库存作业等用户触发写入必须能在操作日志或对应业务日志中查到。
 - PR-510-PRICING-RULE-TRIAL-WATERFALL-EXPLANATIONS：商品价格管理的价格试算结果区中，`BOM+工序成本`、`其他成本`、`加价增加` 三张瀑布卡片可点击打开 `试算说明`。BOM 说明展示每个物料/工序的用量、单位成本和金额；其他成本说明展示 `other_cost_details`、来源和设置位置，写清 `价格计算模板编辑抽屉「其他成本」` 与 `本次试算抽屉「其他成本」` 临时值优先；加价说明展示 `profit_explanation`、加价率、参数来源和 `成本 × (1 + 加价率)` 公式，写清 `价格计算模板编辑抽屉「加价率」` 与 `本次试算抽屉「临时加价率」` 覆盖关系；实际毛利率只作为结果和预警。说明只读，不改变公式、单位换算、Pricing Rule、商品价格表、发布快照或订单。
@@ -834,7 +834,7 @@
 
 ## 42. 生产 BOM 与单位删除补齐（PR-436-BOM-UNIT-DELETION-POLISH）
 - 生产 BOM 页面必须支持删除自定义大组和组内小分类。删除大组时，该组下 BOM 回到全局 `未分类`；删除组内小分类时，该分类下 BOM 回到当前大组的组内 `未分类`；删除动作不得删除 BOM、产出商品、版本、组件、成本、生产计划或工单。
-- 生产 BOM 页面批量移动控件中，选择 `分组模板` 后 `移动到分类` 按钮必须放在 `目标分类` 选择器左侧；目标分类包含 `未分类`、大类和小类。
+- PR-596 后生产 BOM 批量移动不显示 `目标分类` 选择器；勾选 BOM 并点击 `移动到分类` 后，直接点击列表内的 `未分类`、大类、小类或后代分类标题即立即移动。
 - BOM 新建和编辑时选择产出商品只能显示启用商品；失效商品不出现在产出商品选择器或商品组件新候选中。历史 BOM 已引用的失效商品继续按历史记录展示，不因本次过滤被删除。
 - 单位模板支持删除。删除单位模板必须走后端 DELETE API，软失效模板并写操作日志；历史商品配置、历史价格表、订单、BOM、工单和成本快照不回改。
 - 全局单位字典支持删除。删除基础单位必须走后端 DELETE API，软失效单位并写操作日志；已引用该单位的历史单位模板和业务单据不回改，新建/编辑候选不再显示已删除单位。
@@ -954,7 +954,7 @@
 
 ## 56.1 生产 BOM 原料损耗比（PR-508-BOM-MATERIAL-LOSS-RATIO / PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL）
 - 生产 BOM 版本持久化 `material_loss_rate` 到 `production_bom_versions.material_loss_rate`，前端输入 `20%` 时 API 存储 `0.2`；允许范围为 `0 <= material_loss_rate < 1`。
-- BOM 版本设置区维护 `原料损耗比` 开关和 `损耗比例 %`。开启后组件消耗单位只能使用 `比例 %`；固定数量物料或商品组件需要先关闭原料损耗比。
+- PR-593-BOM-LOSS-PACKAGING-UNITS / PR-594-PRICING-BOM-DEBUG-WORKFLOW：BOM 版本设置区维护 `原料损耗比` 开关和 `损耗比例 %`。开启后编辑区显示“有损耗的配方”和“无损耗的配方”：前者只使用 `比例 %` 并应用当前 BOM 原料损耗，后者使用组件档案中个、件、袋、盒等库存单位固定用量且不参与损耗；固定数量物料或商品组件无需关闭原料损耗比。
 - 只有 `component_type=material` 且 `consume_unit=ratio_pct` 的组件会应用版本级 `material_loss_rate`。商品组件、固定数量物料或其他单位组件即使前端传入该字段，后端保存时也必须归零。
 - BOM 草稿保存、发布版本、复制版本、legacy backfill 和 BOM 详情 API 都必须保留或补默认该字段；`production_bom_version_items.material_loss_rate` 继续作为生产、成本和历史快照的运行明细字段，历史快照缺少该字段时按 0 读取。
 - PR-592 后，生产计划物料快照、工单冻结组件快照、开始生产扣料、WIP 占用和完工消耗统一使用 `ratio_pct ÷ (1 - material_loss_rate)` 反推总投料需求。示例：生产基准 `1kg`、原料净比例 `40%`、原料损耗 `20%`，需求为 `1 × 0.4 ÷ 0.8 = 0.5kg`。
@@ -1478,8 +1478,8 @@
 # PR-584-PRODUCT-MULTI-GROUP-TEMPLATES 商品行业字段与功能自选分组模板（2026-08-07）
 
 - `DEV-584-INDUSTRY-FIELD-MULTI-TEMPLATE`：商品档案配置可同时引用多份启用中的行业字段模板。读写接口新增有序 `industry_field_template_ids`，旧 `industry_field_template_id` 继续作为首个模板的兼容字段；旧单模板数据自动补入多模板引用，不丢字段值。页面按所选模板顺序合并字段定义；同名 `field_key` 只展示一项并以前序模板定义为准，已有值继续保留。取消某模板只移除不再被任何已选模板定义的当前字段；取消全部模板后不显示也不保存行业字段。模板引用、字段值与商品配置在同一事务保存，并在商品配置操作日志中记录完整模板 ID 列表。
-- `DEV-584-GROUP-USAGE-MULTI-REFERENCE`：分组模板只维护模板与分类树，不在模板编辑区选择功能。由各功能页面多选自己使用的分组模板：商品档案、物料档案、生产 BOM、仓库库存分别通过 `/api/business-group-feature-selections/{feature_key}` 有序读写 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；只有已选模板才能进入对应分类和移动入口。保存必须校验模板 active、去重、原子替换并写操作日志；空数组表示取消全部选择且不删除模板、业务对象、既有归类关系或历史快照。模板资料保存以及历史模板侧 `usages` / `replace_usages` 请求不得反向覆盖功能选择。PR-534 的“无用途绑定即通用候选”口径由本需求替代。
-- `DEV-584-PRODUCT-GROUP-UNION-COLLAPSE`：商品档案页面提供分组模板多选，并同时展示全部已选 `product_catalog` 模板的分类树。每个商品按唯一当前归类只出现一次；每份模板的空大类、小类仍显示，未归到任一当前已选模板的商品统一进入一个全局 `未分类`。移动区保留“目标分组模板 → 目标分类”，移动到另一模板继续覆盖当前商品归类并沿用现有操作日志。没有选择任何模板时商品档案按普通平铺列表展示，不显示分类标题、收起按钮或移动归类控件。收起任一大类时必须隐藏它的全部小类标题和商品行，但保留小类自身折叠状态、分页和勾选状态；重新展开大类后恢复原状态。
+- `DEV-584-GROUP-USAGE-MULTI-REFERENCE`：分组模板只维护模板与分类树，不在模板编辑区选择功能。由各功能页面多选自己使用的分组模板：商品档案、物料档案、生产 BOM、仓库库存分别通过 `/api/business-group-feature-selections/{feature_key}` 有序读写 `product_catalog`、`material_catalog`、`production_bom`、`warehouse_inventory`；只有已选模板才增加模板/分类节点和移动目标。PR-596-INLINE-CATEGORY-LISTS 后四页在列表内一次展示全部已选模板和分类，不通过目标模板下拉切换或过滤列表；空数组时只显示 `全部分类` 平铺区、移动禁用且底部设置入口保留。保存必须校验模板 active、去重、原子替换并写操作日志；空数组不删除模板、业务对象、既有归类关系或历史快照。模板资料保存以及历史模板侧 `usages` / `replace_usages` 请求不得反向覆盖功能选择。PR-534 的“无用途绑定即通用候选”口径由本需求替代。
+- `DEV-584-PRODUCT-GROUP-UNION-COLLAPSE`：商品档案页面提供分组模板多选，并同时内联展示全部已选 `product_catalog` 模板及分类。每个商品按唯一当前归类只出现一次；每份模板的空大类、小类仍显示，未归到任一当前已选模板的商品统一进入一个全局 `未分类`。移动模式下直接点击可移动分类标题选择目标；没有选择任何模板时只显示全部分类平铺区且移动按钮禁用，底部设置入口保留。收起任一大类时必须隐藏它的全部小类标题和商品行，但保留小类自身折叠状态、独立分页和勾选状态；重新展开大类后恢复原状态。
 - `DEV-584-PRICE-LIST-INHERIT-PRODUCT-GROUPS`：商品价格表不得维护独立 `price_list` 分组模板引用，而是继承商品档案选择的分组模板。每个当前已选且 active 的模板对应一种商品类型，顺序与商品档案选择一致；例如商品档案选择“商品-咖啡豆”和“商品-挂耳”，价格表只出现咖啡豆、挂耳两种模板类型。历史 `price_list` 引用必须忽略，不能产生额外商品类型；取消商品档案选择只影响后续价格表编辑和预览，已发布价格表快照不回改。
 - `DEV-584-DOCS-ACCEPTANCE-DEPLOY`：同步商品档案、分组模板、设置审计手册、需求、验收、PR/DEV 和独立证据；完成 Go 单元/API/PostgreSQL、Vue 定向与完整测试及 Vite 构建后合入最新 `develop` 并部署 development。`main` 和 production 不在本需求范围内。
 
@@ -1499,6 +1499,14 @@
 - `DEV-589-DOCS-DEVELOPMENT-DELIVERY`：同步根目录与线上需求/验收、成本操作手册、PR/DEV 种子、支持合同和独立验收记录；保留定向 TDD RED/GREEN、costing API、Vue/Vite 测试与构建门禁后合入 `develop` 并部署 development。按 Van 要求不做浏览器或业务验证，由 Van 在 development 人工验收；`main` 和 production 不操作。
 - 验收结论：Van 于 2026-08-10 确认上个问题验证完成，`PR-589-PRICING-TRIAL-PRODUCT-SPECS` 与 `REV-589-PRICING-TRIAL-PRODUCT-SPECS` 关闭为 done。
 
+# PR-594-PRICING-BOM-DEBUG-WORKFLOW 价格试算与 BOM 调试闭环（2026-08-10）
+
+- `DEV-594-PRICING-FIXED-BOM-COST`：单次价格试算可显式选择当前产出商品下有组件的 BOM 草稿，选项标记“草稿，仅供试算”；草稿内比例原料、固定用量包材和商品组件都进入本次 BOM 物料成本。非重量包材的当前库存成本按 `qty_units` 加权并按匹配的库存/成本单位解析，不因 `qty_g=0` 归零。默认选择、批量价格计算、商品价格表生成和正式发布仍只使用已发布 BOM，草稿不得进入正式价格快照。
+- `DEV-594-PRICING-BOM-ROUNDTRIP`：试算 BOM 选择器旁提供 `配置BOM`，生产 BOM 页面提供 `返回价格试算`。往返上下文只存在当前前端内存，通过一次性令牌恢复模板、商品、具体销售规格、客户、BOM、路线、工序模板和临时参数；刷新、离开或消费令牌后丢失，不把业务内容写入 URL、数据库或操作日志。
+- `DEV-594-PRICING-RULE-UPDATE`：试算抽屉底部提供 `更新参数到价格计算模板`。用户确认后只回写临时加价率、已填写的临时税率和其他成本，商品、客户、销售规格、BOM、路线、工序模板和报价单位不写入通用模板。保存复用既有价格计算模板接口及 `save_product_pricing_rule` 操作日志；已发布价格表、订单和历史快照不自动重算。
+- `DEV-594-BOM-LOSS-LABELS`：BOM 编辑区把两个区域统一命名为“有损耗的配方”和“无损耗的配方”，去掉旧区域说明。底层逻辑不变：前者仍是应用当前 BOM 原料损耗的比例物料，后者仍是损耗为 0 的固定用量物料、包材和商品组件。
+- 完成定向 RED/GREEN、相关 Go/Vue 单元测试、支持合同和 Vite 构建后合入 `develop`。按用户要求不部署、不做浏览器、API 业务流或人工验证；`main` 和 production 不操作。
+
 # PR-590-MINIAPP-BLANK-TRACKING-SUBMIT 订单非空文本字段兼容与小程序草稿提交安全（2026-08-10）
 
 - `DEV-590-ORDER-NOT-NULL-TEXT-COMPAT`：production 员工小程序从服务器草稿正式提交订单时，可以不填写物流方式、物流单号、订单备注或快递费。`SaveOrder` 新建/完整更新与 `updateOrderHeader` 必须把空 `ship_method`、`ship_tracking_no`、`notes`、`express_fee` 绑定为数据库空字符串，订单明细空 `unit` / `spec` 指针也必须通过 `notNullTextPtr` 规范化为空字符串，不得转换成 SQL `NULL` 后违反 `orders` / `order_items` 非空文本列约束。`VoidMany` 的空 `void_reason` 以及订单行内更新清空 `notes` 同样必须保存为空字符串。非空文本、物流明细和操作语义继续按原规则保存；本需求不新增或修改小程序请求字段。
@@ -1511,3 +1519,41 @@
 - `DEV-591-SELF-LOGIN-DISABLE-GUARD`：具备 `auth.manage` 的当前内部员工通过 `POST /api/auth/account-state` 关闭自己的登录时，后端必须返回 409 和 `cannot disable current account`，不得修改登录状态、失效当前会话或写入业务成功审计。BasicAuth 运维恢复通道没有员工身份，继续可以恢复任意有效内部员工；已登录管理员仍可启停其他内部员工，也允许保持或恢复自己的启用状态。员工维护页读取当前操作者，当前员工行的登录开关禁用并提示“当前账号不能关闭自己的登录”，其他员工开关保持可用；后端仍是最终权限和安全边界。
 - production 已使用既有账号启停 API 即时恢复本次受影响的目标内部员工账号，并确认原有审计动作存在；需求、验收或日志证据不得记录账号、密码或其他个人信息。该即时恢复不替代代码防护，拒绝请求只是不写业务成功审计，系统仍可按既有中间件保留 HTTP 失败请求记录。
 - `DEV-591-DOCS-DEVELOPMENT-DELIVERY`：同步根目录与 `orderapp-remote/docs` 需求/验收、小程序员工 ERP、客户门户、设置审计手册、PR/DEV 种子、支持合同和独立验收记录。保留 support RED、后端/API、Vue/Vite、miniapp、透明资源和构建门禁后，将功能分支合入 `develop` 并部署 development。服务器部署、小程序固定开发包、微信开发者工具上传、审核、正式发布和 production 代码部署是独立检查点；本需求不自动上传、提审、发布微信版本，也不部署 production 代码。
+
+# PR-595-UNIFIED-CATEGORY-MOVE-INTERACTION 四列表统一分类移动交互（2026-08-10，历史 UI）
+
+- 物料档案、生产 BOM、商品档案和选中具体仓库且非客户库存上下文的仓内物品统一显示常驻左侧分类结构，层级为“全部分类 → 模板 → 大类 → 小类/后代分类”，并显示当前过滤结果数量、折叠状态和独立滚动区；底部固定提供 `前往分组模板` 和 `设置分组模板`。未选择任何模板时工作区仍显示，左树仅有 `全部分类`，右侧平铺且移动禁用，底部设置入口保留。
+- 右侧保留当前分类面包屑、独立 `移动到分类` 按钮和原业务列表。勾选对象后进入移动模式，右侧列表及其查询、分页和行操作置灰；左树提示 `请选择要移动到的分类` 并展开全部分支。全部分类和模板标题只用于浏览，不能作为目标；大类、小类/后代分类和未分类可作为目标。
+- 点击目标分类后立即移动，不再显示目标模板/目标分类下拉，也不二次确认。成功后清空勾选并退出；失败后保留勾选和移动模式供重试；成功或取消均恢复进入移动前的浏览分类、展开节点和树滚动位置。
+- 分类浏览必须发生在各页面现有过滤结果之后，保留各页面自己的搜索、状态、类型、仓库和分页语义：物料保留名称/编码/批次和状态；生产 BOM 保留状态及名称/编号；商品保留名称/类型/备注和状态及分类内分页。仓库先按现有 `q/warehouse/item_type/customer_id/page/limit` 取得 stock API 当前服务端页，再仅在该页 `rows` 上做客户端分类过滤；不发送 `group_id/group_item_id`，服务端 `total/page/limit` 等分页口径不随分类改变。
+- 商品、物料、BOM 沿用 `product_catalog/product`、`material_catalog/material`、`production_bom/production_bom`。PR-588 取代 PR-458 的仓库 code 当前归类口径：选中具体仓库且非客户库存上下文时显示分类工作区，使用 `warehouse_inventory/warehouse_inventory_item` 和精确 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>`；warehouse code 只作为仓库命名空间前缀，实际归类身份是仓内物品/规格，同一身份的多个批次只移动一次。全部仓库和客户库存上下文仅在分类层面保持平铺且不可勾选或移动，既有 WIP、追溯等上下文能力不变。既有 assignment API、操作日志、库存数量、成本、批次和追溯不变。
+- 本功能先在独立功能分支完成单元测试和前端构建；经 Van 后续明确要求，合入 `develop` 并部署 development。production、`main` 不操作，页面业务验收仍由 Van 后续执行。
+
+> 本节的左树/右表布局、树内目标位置，以及仓库“只分类当前服务端页并保留全局分页”的口径由 PR-596 覆盖；功能模板选择、即时移动、归类身份、assignment API、操作日志和各页独立筛选条件继续有效。
+
+# PR-596-INLINE-CATEGORY-LISTS 四列表分类与业务列表内联（2026-08-10）
+
+- `DEV-596-INLINE-CATEGORY-WORKSPACE`：物料档案、生产 BOM、商品档案及具体仓库的仓内物品取消 PR-588/PR-595 的内层“左侧分类树 + 右侧业务表”分栏。所选模板、父分类、后代分类、`未分类` 与业务列表按层级直接内联；分类可独立收起，父分类自身直接归属的对象不得因存在子分类而丢失。未选择模板时只显示一个 `全部分类` 平铺区，移动禁用，底部 `前往分组模板` 和 `设置分组模板` 入口仍保留。
+- `DEV-596-CATEGORY-TABLE-PAGINATION`：每个展开且含业务对象的分类都重复该页面原有表头，并使用该分类自己的页码和每页条数；一个分类翻页或改每页条数不得改变其他分类。分类标题数量按该页独立筛选后的完整对象数统计，分类收起再展开保留其页码；搜索、状态、模板选择或相应业务上下文变化时按页面既有规则重置。模板标题和 `全部分类` 只组织内容，不成为移动目标。
+- `DEV-596-LIST-DRAWERS-FILTERS`：物料档案继续保留名称/编码/批次搜索和启用状态过滤，点击物料名称打开物料详情抽屉；生产 BOM 继续保留状态及名称/编号搜索，点击 BOM 名称打开包含主档、版本与配方的完整设置抽屉。商品档案继续保留名称/类型/备注、状态及父商品/规格语义，点击商品名称沿用既有 `商品档案配置` 抽屉。四页不再用永久右侧详情栏挤压内联列表。
+- `DEV-596-INLINE-MOVE-TARGET`：勾选对象并点击 `移动到分类` 后，列表行、筛选、分类内分页和行操作置灰不可用，分类标题成为即时目标；直接点击大类、小类/后代分类或 `未分类` 后调用既有 assignment API，不显示目标模板/分类下拉且不二次确认。成功后清空勾选并退出，失败保留勾选和移动模式供重试，取消恢复正常浏览；`全部分类` 和模板标题不可作为目标。
+- `DEV-596-WAREHOUSE-FULL-RESULT-PAGINATION`：仓库页保留外层仓库选择器。选中具体仓库且非客户库存上下文时，右侧仓内库存使用内联分类；先按当前 `q/warehouse/item_type` 请求 stock API 的第 1 页并使用 `limit=500`，若 `total` 超出已取回行数则继续补齐后续页，直到取得该过滤条件下全部结果，再在完整结果上做分类和每分类独立分页。具体仓库界面不显示全局服务端分页，也不得发送 `group_id/group_item_id`，因此分页只服务当前分类。全部仓库和客户库存上下文继续按原 `q/warehouse/item_type/customer_id/page/limit` 服务端分页平铺，且不可勾选移动；WIP、追溯及既有设置抽屉不变。
+- `DEV-596-IDENTITY-API-COMPAT`：PR-596 覆盖 PR-588/PR-595 的列表布局、目标入口和仓库客户端加载/分页编排，不改变功能模板选择、归类身份、stock/assignment API 参数合同或审计。商品、物料、BOM 继续使用 `product_catalog/product`、`material_catalog/material`、`production_bom/production_bom`；仓库继续使用 `warehouse_inventory/warehouse_inventory_item` 和精确 `object_ref=<warehouse code>:<item_type>:<item_id>:<spec_g>`。warehouse code 仅是命名空间，物品/规格才是 identity，同一 identity 的多个批次共享归类；移到未分类只清除该精确 assignment。PR-442/PR-458 的仓库 code 与 `group_id/group_item_id` 查询只保留历史兼容。
+
+# PR-597-SEMI-FINISHED-PACKAGING-BOM（已撤回）
+
+- 提交 `d1f5d12f` 的熟豆与规格包装特殊阶段模型已经撤回；分组模板改进提交 `4626c937` 保留。
+- `bom_kind`、`spec_packaging_bom_id`、`semi_finished_packaging_required`、商品级 `is_semi_finished` 和固定阶段展开算法只作为历史记录，不再是当前产品合同，也不得重新种入需求追踪。
+- 本节由 `PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING` 的统一普通 BOM 模型替代。
+
+# PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING 从物料到 BOM 到生产（2026-08-11）
+
+- `DEV-598-MATERIAL-SEMI-FINISHED-CAPABILITY`：物料 `is_semi_finished` 仅是业务标识、筛选和展示属性；物料列表提供全部 / 半成品 / 非半成品本页筛选；`can_manufacture` 只由默认已发布产出 BOM 计算。勾选或取消半成品不得授予、撤销制造能力，也不得限制 BOM 或排产。
+- `DEV-598-TYPED-BOM-OUTPUT`：普通生产 BOM 统一使用 `output_type=product|material` 和对应 `output_id`；任意有效物料都可作为产出对象，不要求 `is_semi_finished=true`。旧商品 BOM 继续兼容 `output_product_id`。
+- `DEV-598-BOM-GRAPH-DEFAULTS-VALIDATION`：商品和物料分别维护一个默认已发布生产 BOM；发布校验产出对象、组件、单位、用量和依赖图，拒绝草稿默认、跨对象默认及循环。
+- `DEV-598-MULTILEVEL-NET-REQUIREMENTS`：计划按 BOM 图递归展开任意层级，展示总需求、库存覆盖、净缺口、计划动作和上游依赖；库存只覆盖一次，共享需求合并后再供应。`100 × 227g = 22.7kg` 且已有 `10kg` 时仅计划 `12.7kg` 缺口。
+- `DEV-598-WORKORDER-DEPENDENCIES`：按计划图生成工单依赖，下游开工前检查未完成上游，并返回阻断原因和上游工单编号；旧无依赖商品工单保持兼容。
+- `DEV-598-MATERIAL-MANUFACTURE-STOCK`：物料工单按实际合格数量进入目标仓库和批次；取消、失败、重复提交不得重复入库、预留或消耗。
+- `DEV-598-RECURSIVE-COSTING`：成本按各层冻结 BOM 递归汇总物料、损耗和工序，循环被拒绝，历史业务快照不回算。
+- `DEV-598-VUE-MANUFACTURING-WORKFLOW`：Vue/Vite 串联物料档案、生产 BOM、生产计划、工单与执行；草稿计划行可从正式仓库列表选择并保存目标仓库，提交后只读冻结；已提交且全部关联工单未开工的计划可整体取消，未开工工单也可从工单列表或执行枢纽取消并刷新。计划关联工单显示类型化产出对象；跨页使用 `kferp:navigate-view` / `returnNavigation`，库存菜单提供库存作业手册入口。
+- `DEV-598-AUDIT-COMPAT-DOCS-DELIVERY`：默认 BOM、计划提交、工单状态和完工入库沿用操作日志；同步需求、验收、四本手册、PR/DEV/REV 和独立验收记录。自动化验证完成前不部署，浏览器业务验收由 Van 后续执行，production 不在范围内。

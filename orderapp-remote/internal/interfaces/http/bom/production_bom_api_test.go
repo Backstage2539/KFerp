@@ -13,6 +13,10 @@ import (
 
 func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	repo := &apiFakeRepo{
+		materialRows: []bomapp.Option{
+			{ID: 7, Name: "拼配原料", InventoryUnit: "kg"},
+			{ID: 8, Name: "包装袋", InventoryUnit: "个"},
+		},
 		productionBomGroups: []bomapp.ProductionBomGroup{
 			{ID: 1, Name: "常用配方", Active: true, SortOrder: 10, Categories: []bomapp.ProductionBomGroupCategory{{ID: 31, GroupID: 1, Name: "浅烘", SortOrder: 10}}},
 			{ID: 2, Name: "停用分组", Active: false, SortOrder: 99},
@@ -104,7 +108,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"BOM-000659 精品拼配改名 生产 BOM / V003","group_id":1,"group_category_id":0,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/copy", body: `{"name":"BOM000643 精品拼配-包装改版 生产 BOM / V001","group_id":1}`, want: []string{`"code":"BOM-002"`, `"name":"精品拼配-包装改版"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/versions", body: `{"note":"新版配方"}`, want: []string{`"version_no":"V004"`, `"status":"draft"`}},
-		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"expected_loss_rate":0.18,"output_qty":1,"output_unit":"盒","process_route_id":77,"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[{"component_type":"product","component_product_id":77,"consume_unit":"unit_per_box","qty_per_unit":10}]}`, want: []string{`"status":"draft"`, `"output_unit":"盒"`, `"process_route_id":77`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
+		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"material_loss_rate":0.2,"output_qty":1,"output_unit":"盒","process_route_id":77,"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[{"component_type":"material","material_id":7,"consume_unit":"ratio_pct","ratio_pct":40},{"component_type":"material","material_id":8,"consume_unit":"个","qty_per_unit":2}]}`, want: []string{`"status":"draft"`, `"output_unit":"盒"`, `"process_route_id":77`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
 		{method: http.MethodPost, path: "/api/production-bom-versions/103/publish", want: []string{`"ok":true`}},
 		{method: http.MethodPut, path: "/api/products/7/production-bom-binding", body: `{"default_production_bom_id":11}`, want: []string{`"product_id":7`, `"production_bom_id":11`, `"latest_bom_version_no":"V003"`}},
 	} {
@@ -129,6 +133,12 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	}
 	if repo.publishedProductionVersionID != 103 {
 		t.Fatalf("published version id = %d, want 103", repo.publishedProductionVersionID)
+	}
+	if repo.updatedProductionDraftCommand.MaterialLossRate == nil || *repo.updatedProductionDraftCommand.MaterialLossRate != 0.2 {
+		t.Fatalf("draft material loss = %v, want 0.2", repo.updatedProductionDraftCommand.MaterialLossRate)
+	}
+	if items := repo.updatedProductionDraftCommand.Items; len(items) != 2 || items[0].MaterialLossRate != 0.2 || items[1].ConsumeUnit != "个" || items[1].QtyPerUnit != 2 || items[1].MaterialLossRate != 0 {
+		t.Fatalf("mixed ratio material and fixed packaging draft = %+v", items)
 	}
 	if repo.updatedProductionBomGroup.ID != 0 || repo.movedProductionBomGroup.ID != 0 || repo.deletedProductionBomGroupID != 0 {
 		t.Fatalf("legacy production BOM group writes should not reach repo: update=%+v move=%+v delete=%d", repo.updatedProductionBomGroup, repo.movedProductionBomGroup, repo.deletedProductionBomGroupID)
@@ -169,9 +179,6 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	if repo.updatedProductionDraftCommand.ExpectedLossRate == nil || *repo.updatedProductionDraftCommand.ExpectedLossRate != 0 {
 		t.Fatalf("legacy draft loss must normalize to zero: %+v", repo.updatedProductionDraftCommand)
 	}
-	if len(repo.updatedProductionDraftCommand.Items) != 1 || repo.updatedProductionDraftCommand.Items[0].ComponentType != "product" {
-		t.Fatalf("draft product component command = %+v", repo.updatedProductionDraftCommand)
-	}
 }
 
 func TestProductionBomUpdateDoesNotTouchGroupAssignmentWhenGroupFieldsOmitted(t *testing.T) {
@@ -197,5 +204,53 @@ func TestProductionBomUpdateDoesNotTouchGroupAssignmentWhenGroupFieldsOmitted(t 
 	}
 	if repo.updatedProductionBomCommand.UpdateGroupAssignment {
 		t.Fatalf("omitted group fields must not update business group assignment: %+v", repo.updatedProductionBomCommand)
+	}
+}
+
+func TestProductionBomAPIUsesUnifiedMaterialOutputAndFilters(t *testing.T) {
+	repo := &apiFakeRepo{
+		materialRows: []bomapp.Option{{ID: 95, Name: "湿豆", InventoryUnit: "kg"}},
+		productionBomRows: []bomapp.ProductionBomSummary{{
+			ID: 21, Code: "BOM-021", Name: "湿豆配方", OutputType: "material", OutputID: 95,
+			OutputName: "湿豆", OutputCode: "WIP-095", OutputUnit: "kg", OutputMaterialID: 95, OutputMaterialName: "湿豆", OutputMaterialCode: "WIP-095",
+		}},
+		createdProductionBom: bomapp.ProductionBomSummary{
+			ID: 22, Code: "BOM-022", Name: "湿豆新配方", OutputType: "material", OutputID: 95,
+			OutputName: "湿豆", OutputCode: "WIP-095", OutputUnit: "kg", OutputMaterialID: 95, OutputMaterialName: "湿豆", OutputMaterialCode: "WIP-095",
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/production-boms?output_type=material&output_id=95&component_type=product&component_id=88", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"output_type":"material"`) || !strings.Contains(rec.Body.String(), `"output_material_id":95`) {
+		t.Fatalf("filtered list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productionBomFilter != (bomapp.ProductionBomFilter{OutputType: "material", OutputID: 95, ComponentType: "product", ComponentID: 88}) {
+		t.Fatalf("filter = %+v", repo.productionBomFilter)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/production-boms", strings.NewReader(`{"name":"湿豆新配方","output_type":"material","output_material_id":95,"output_qty":1,"output_unit":"g"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create material BOM status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createdProductionBomCommand.OutputType != "material" || repo.createdProductionBomCommand.OutputID != 95 || repo.createdProductionBomCommand.OutputMaterialID != 95 || repo.createdProductionBomCommand.OutputProductID != 0 || repo.createdProductionBomCommand.OutputUnit != "kg" {
+		t.Fatalf("create command = %+v", repo.createdProductionBomCommand)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/materials/95/default-production-bom", strings.NewReader(`{"production_bom_id":22}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"is_default":true`) {
+		t.Fatalf("bind material default status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.boundProductionBomOutput.OutputType != "material" || repo.boundProductionBomOutput.OutputID != 95 || repo.boundProductionBomOutput.BomID != 22 {
+		t.Fatalf("bound output command = %+v", repo.boundProductionBomOutput)
 	}
 }

@@ -17,6 +17,13 @@ import (
 type ProduceRunRow struct {
 	ID                  int64
 	BatchID             string
+	OutputType          string
+	OutputProductID     int64
+	OutputMaterialID    int64
+	OutputName          string
+	OutputQty           float64
+	OutputUnit          string
+	TargetWarehouse     string
 	Product             string
 	ProductID           int64
 	SpecG               int64
@@ -91,6 +98,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return productionapp.FinishResult{}, err
 	}
 	if len(outputs) > 0 {
+		if cmd.StockDocumentID > 0 {
+			return productionapp.FinishResult{}, fmt.Errorf("bound stock document does not support combined multi-spec output")
+		}
 		return repo.finishRunningOutputs(ctx, tx, r, outputs, cmd)
 	}
 
@@ -140,6 +150,9 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return productionapp.FinishResult{}, err
 	}
 	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
+		return productionapp.FinishResult{}, err
+	}
+	if err := allocateFinishedProductOutputToDownstreamReservationsTx(ctx, tx, schema, r.ID, r.ProductID, r.SpecG, finishedTotal, add.Units); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	consumeRun := r
@@ -201,10 +214,12 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET planned_g=$2 WHERE running_item_id=$1`, schema), id, remainingInputG); err != nil {
 				return productionapp.FinishResult{}, err
 			}
+			if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "partial_finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "remaining_need_g": remainingNeedG, "remaining_input_g": remainingInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield}); err != nil {
+				return productionapp.FinishResult{}, err
+			}
 			if err := tx.Commit(ctx); err != nil {
 				return productionapp.FinishResult{}, err
 			}
-			postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "partial_finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "remaining_need_g": remainingNeedG, "remaining_input_g": remainingInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
 			return productionapp.FinishResult{RunningItemID: id}, nil
 		}
 	}
@@ -216,13 +231,34 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
+	stockEntryID := cmd.StockDocumentID
+	if cmd.StockDocumentID > 0 {
+		if err := finalizeProductOutputStockDocumentTx(
+			ctx, tx, schema,
+			cmd.StockDocumentID, r.ID, r.ProductID, r.SpecG,
+			r.Product, warehouse,
+			add.Units, add.LooseG, finishedTotal,
+			finishedProductionBatchCode(r.ID), operator, cmd.Note, actualCost,
+		); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+	} else if cmd.WorkOrderID > 0 {
+		entry, err := createProductCompletionStockEntryTx(
+			ctx, tx, schema, cmd.WorkOrderID, r, warehouse, add, finishedTotal,
+			actualCost, operator, cmd.Note,
+		)
+		if err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		stockEntryID = entry.ID
+	}
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if _, err := completeCustomerProcessingReservationsForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, consumedInputG, finishedTotal, operator); err != nil {
+	if err := completeProductWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, cmd.WorkOrderID, actualCost, consumedInputG, finishedTotal, operator, cmd.Note); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, finishedAt); err != nil {
@@ -241,11 +277,13 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 			finishedOrders = append(finishedOrders, order)
 		}
 	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield}); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": id, "product_id": r.ProductID, "spec_g": r.SpecG, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_units": add.Units, "finished_loose_g": add.LooseG, "finished_total_g": finishedTotal, "actual_yield_rate": actualYield})
-	return productionapp.FinishResult{RunningItemID: id, Completed: true, FinishedOrders: finishedOrders}, nil
+	return productionapp.FinishResult{RunningItemID: id, Completed: true, FinishedOrders: finishedOrders, StockEntryID: stockEntryID}, nil
 }
 
 func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r ProduceRunRow, outputs []ProduceRunOutputRow, cmd productionapp.FinishCommand) (productionapp.FinishResult, error) {
@@ -308,6 +346,9 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		if err := recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, schema, finishedProductionBatchCodeForSpec(r.ID, output.SpecG), outputRun, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
 			return productionapp.FinishResult{}, err
 		}
+		if err := allocateFinishedProductOutputToDownstreamReservationsTx(ctx, tx, schema, r.ID, output.ProductID, output.SpecG, finishedTotal, add.Units); err != nil {
+			return productionapp.FinishResult{}, err
+		}
 		inventoryBySpec[output.SpecG] = outputInventoryLog{
 			unitsBefore: unitsBefore,
 			looseBefore: looseBefore,
@@ -365,7 +406,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	if _, err := completeCustomerProcessingReservationsForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, consumedInputG, totalFinishedG, operator); err != nil {
+	if err := completeProductWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, cmd.WorkOrderID, actualCost, consumedInputG, totalFinishedG, operator, cmd.Note); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), r.ID, operator, finishedAt); err != nil {
@@ -384,11 +425,65 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 			finishedOrders = append(finishedOrders, order)
 		}
 	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &r.ID, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": r.ID, "product_id": r.ProductID, "spec_g": 0, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_total_g": totalFinishedG, "actual_yield_rate": actualYield}); err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &r.ID, "finish", postgresinfra.StrPtr("material_consumption"), nil, postgresinfra.StrPtr("deducted"), postgresinfra.AuditMeta{"running_item_id": r.ID, "product_id": r.ProductID, "spec_g": 0, "need_g": r.NeedG, "input_g": consumedInputG, "bom_yield_rate": r.BomYieldRate, "finished_total_g": totalFinishedG, "actual_yield_rate": actualYield})
 	return productionapp.FinishResult{RunningItemID: r.ID, Completed: true, FinishedOrders: finishedOrders}, nil
+}
+
+func completeProductWorkOrderForRunningItemTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	runningItemID int64,
+	expectedWorkOrderID int64,
+	actualCost float64,
+	actualInputQty int64,
+	actualOutputQty int64,
+	operator string,
+	note string,
+) error {
+	var workOrderID int64
+	var status, outputType string
+	var outputProductID, outputMaterialID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,status,COALESCE(NULLIF(output_type,''),'product'),
+		       COALESCE(output_product_id,product_id),COALESCE(output_material_id,0)
+		FROM %s.work_orders
+		WHERE running_item_id=$1
+		FOR UPDATE
+	`, schema), runningItemID).Scan(&workOrderID, &status, &outputType, &outputProductID, &outputMaterialID)
+	if err != nil {
+		if err == pgx.ErrNoRows && expectedWorkOrderID <= 0 {
+			return completeWorkOrderForRunningItemTx(ctx, tx, schema, runningItemID, actualCost, actualInputQty, actualOutputQty, operator)
+		}
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("work order not found for running item")
+		}
+		return err
+	}
+	if expectedWorkOrderID > 0 && workOrderID != expectedWorkOrderID {
+		return fmt.Errorf("work order does not match running item")
+	}
+	if outputType == "material" {
+		return fmt.Errorf("product output work order required")
+	}
+	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, runningItemID, actualCost, actualInputQty, actualOutputQty, operator); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(
+		ctx, tx, schema, operator, "work_order", &workOrderID, "complete",
+		postgresinfra.StrPtr("status"), postgresinfra.StrPtr(status), postgresinfra.StrPtr("completed"),
+		postgresinfra.AuditMeta{
+			"running_item_id": runningItemID, "output_type": outputType,
+			"output_product_id": outputProductID, "output_material_id": outputMaterialID,
+			"actual_input_qty": actualInputQty, "actual_output_qty": actualOutputQty,
+			"actual_cost": actualCost, "note": note,
+		},
+	)
 }
 
 func normalizeFinishedOutputs(outputs []ProduceRunOutputRow, commands []productionapp.FinishOutputCommand) ([]ProduceRunOutputRow, int64, error) {
@@ -501,19 +596,38 @@ func finishWarehouseForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	return warehouse, nil
 }
 
-func resolveRequestedFinishWarehouse(requested, customerTarget string) (string, error) {
+func resolveRequestedFinishWarehouse(requested, frozenTarget string) (string, error) {
 	requested = strings.TrimSpace(requested)
-	customerTarget = strings.TrimSpace(customerTarget)
-	if customerTarget == "" {
+	frozenTarget = strings.TrimSpace(frozenTarget)
+	if frozenTarget == "" {
 		return requested, nil
 	}
-	if requested != "" && requested != customerTarget {
-		return "", fmt.Errorf("customer processing completion warehouse is fixed to %s", customerTarget)
+	if requested != "" && requested != frozenTarget {
+		return "", fmt.Errorf("production completion warehouse is fixed to %s", frozenTarget)
 	}
-	return customerTarget, nil
+	return frozenTarget, nil
 }
 
 func processingDemandTargetWarehouseForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) (string, error) {
+	warehouses := make([]string, 0, 2)
+	hasFrozenTarget, err := schemaColumnExistsTx(ctx, tx, schema, "produce_running_items", "target_warehouse")
+	if err != nil {
+		return "", err
+	}
+	if hasFrozenTarget {
+		var warehouse string
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(target_warehouse,'')
+			FROM %s.produce_running_items
+			WHERE id=$1
+		`, schema), runningItemID).Scan(&warehouse)
+		if err != nil && err != pgx.ErrNoRows {
+			return "", err
+		}
+		if warehouse = strings.TrimSpace(warehouse); warehouse != "" {
+			warehouses = append(warehouses, warehouse)
+		}
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT COALESCE(target_warehouse,'')
 		FROM %s.customer_processing_production_demands
@@ -525,7 +639,6 @@ func processingDemandTargetWarehouseForRunningItemTx(ctx context.Context, tx pgx
 	}
 	defer rows.Close()
 
-	warehouses := make([]string, 0, 1)
 	for rows.Next() {
 		var warehouse string
 		if err := rows.Scan(&warehouse); err != nil {
@@ -540,25 +653,42 @@ func processingDemandTargetWarehouseForRunningItemTx(ctx context.Context, tx pgx
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	if len(warehouses) > 1 {
-		return "", fmt.Errorf("customer processing running item has multiple target warehouses")
+	unique := map[string]bool{}
+	for _, warehouse := range warehouses {
+		unique[warehouse] = true
 	}
-	if len(warehouses) == 0 {
+	if len(unique) > 1 {
+		return "", fmt.Errorf("production running item has multiple target warehouses")
+	}
+	if len(unique) == 0 {
 		return "", nil
 	}
-	return warehouses[0], nil
+	for warehouse := range unique {
+		return warehouse, nil
+	}
+	return "", nil
 }
 
 func markProcessingDemandsDoneTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) error {
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.processing_job_request_items i
-		SET status='completed',updated_at=now()
-		FROM %s.customer_processing_production_demands d
-		WHERE d.request_item_id=i.id AND d.linked_running_item_id=$1
-	`, schema, schema), runningItemID); err != nil {
+	hasRequestItems, err := schemaColumnExistsTx(ctx, tx, schema, "processing_job_request_items", "id")
+	if err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
+	hasRequestItemLink, err := schemaColumnExistsTx(ctx, tx, schema, "customer_processing_production_demands", "request_item_id")
+	if err != nil {
+		return err
+	}
+	if hasRequestItems && hasRequestItemLink {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.processing_job_request_items i
+			SET status='completed',updated_at=now()
+			FROM %s.customer_processing_production_demands d
+			WHERE d.request_item_id=i.id AND d.linked_running_item_id=$1
+		`, schema, schema), runningItemID); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.customer_processing_production_demands
 		SET status='done',
 		    updated_at=now()
@@ -583,13 +713,23 @@ func markProcessingDemandsCancelledTx(ctx context.Context, tx pgx.Tx, schema str
 			return 0, err
 		}
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.processing_job_request_items i
-		SET status='cancelled',updated_at=now()
-		FROM %s.customer_processing_production_demands d
-		WHERE d.request_item_id=i.id AND d.linked_running_item_id=$1
-	`, schema, schema), runningItemID); err != nil {
+	hasRequestItems, err := schemaColumnExistsTx(ctx, tx, schema, "processing_job_request_items", "id")
+	if err != nil {
 		return 0, err
+	}
+	hasRequestItemLink, err := schemaColumnExistsTx(ctx, tx, schema, "customer_processing_production_demands", "request_item_id")
+	if err != nil {
+		return 0, err
+	}
+	if hasRequestItems && hasRequestItemLink {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.processing_job_request_items i
+			SET status='cancelled',updated_at=now()
+			FROM %s.customer_processing_production_demands d
+			WHERE d.request_item_id=i.id AND d.linked_running_item_id=$1
+		`, schema, schema), runningItemID); err != nil {
+			return 0, err
+		}
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.customer_processing_production_demands
@@ -612,7 +752,8 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	defer tx.Rollback(ctx)
 
 	var r ProduceRunRow
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status IN ('running','paused','partially_completed') FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
+	var runningStatus string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0),status FROM %s.produce_running_items WHERE id=$1 AND status IN ('running','paused','partially_completed') FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID, &runningStatus); err != nil {
 		return err
 	}
 	outputs, err := loadRunningOutputsForUpdateTx(ctx, tx, schema, r.ID)
@@ -627,8 +768,20 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='cancelled',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, cancelledAt); err != nil {
 		return err
 	}
+	var workOrderID int64
+	var workOrderStatus string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,status FROM %s.work_orders WHERE running_item_id=$1 FOR UPDATE
+	`, schema), r.ID).Scan(&workOrderID, &workOrderStatus); err != nil && err != pgx.ErrNoRows {
+		return err
+	}
 	if err := cancelWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return err
+	}
+	if workOrderID > 0 {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "work_order", &workOrderID, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(workOrderStatus), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"running_item_id": r.ID, "note": cmd.Note}); err != nil {
+			return err
+		}
 	}
 	releasedProcessingReservations, err := markProcessingDemandsCancelledTx(ctx, tx, schema, r.ID, operator)
 	if err != nil {
@@ -640,10 +793,12 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 		}
 	}
 	_ = releasedProcessingReservations // reservation settlement is audited atomically by the helper
+	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(runningStatus), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG, "note": cmd.Note}); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	postgresinfra.AuditInsert(ctx, repo.pool, schema, operator, "produce_running", &id, "cancel", postgresinfra.StrPtr("finished_allocation"), postgresinfra.StrPtr(fmt.Sprintf("%d", restoredG)), postgresinfra.StrPtr("restored"), postgresinfra.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG})
 	return nil
 }
 

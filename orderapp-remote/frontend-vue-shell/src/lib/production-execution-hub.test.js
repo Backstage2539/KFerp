@@ -16,6 +16,7 @@ import {
   stockDocumentPositiveItems,
   stockQuantityUsesCount,
 } from './production-execution-hub.js'
+import * as executionHub from './production-execution-hub.js'
 
 test('execution hub actions carry production context to work order, WIP, job card, quality, costs and logs pages', () => {
   const hub = {
@@ -47,6 +48,29 @@ test('execution hub actions carry production context to work order, WIP, job car
     ['openCost', '成本', 'navigate', '', 'productionCosts', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
     ['openLogs', '日志', 'navigate', '', 'produceLogs', { work_order_id: 88, job_card_id: 91, running_item_id: 99, batch_id: 'BATCH-WO-88' }],
   ])
+})
+
+test('execution hub offers in-place cancellation only for released unstarted work orders', () => {
+  const cancellable = buildExecutionHubActions({
+    work_order: { id: 88, work_order_no: 'WO-00088', status: 'released', running_item_id: 0 },
+  }).find((action) => action.key === 'cancelWorkOrder')
+  assert.deepEqual(cancellable, {
+    key: 'cancelWorkOrder',
+    label: '取消工单',
+    action_type: 'command',
+    endpoint: '/api/produce/work-orders/88/cancel',
+    params: { work_order_id: 88 },
+    disabled: false,
+    reason: '',
+  })
+  assert.equal(buildExecutionHubActions({
+    work_order: { id: 88, status: 'running', running_item_id: 99 },
+  }).some((action) => action.key === 'cancelWorkOrder'), false)
+
+  const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+  assert.match(drawerSource, /fallbackCancelAction/)
+  assert.match(drawerSource, /action\.key === 'cancelWorkOrder'/)
+  assert.match(drawerSource, /确认取消未开工工单/)
 })
 
 test('execution hub runs command actions in place and refreshes without navigating away', () => {
@@ -232,4 +256,36 @@ test('production stock document drafts map to the matching work-order preview ac
   assert.equal(productionStockDocumentPreviewAction({ purpose: 'material_consumption_for_manufacture' }), 'consume')
   assert.equal(productionStockDocumentPreviewAction({ purpose: 'manufacture' }), 'finish')
   assert.equal(productionStockDocumentPreviewAction({ purpose: 'material_receipt' }), '')
+})
+
+test('execution hub exposes typed output and upstream blocker contracts', () => {
+  const hub = {
+    header: {
+      output_type: 'material', output_material_id: 27, output_name: '烘焙熟豆', output_qty: 12.7, output_unit: 'kg',
+      upstream_blockers: [{ work_order_no: 'WO-000121', output_name: '咖啡生豆', status: 'running' }],
+    },
+  }
+  assert.equal(executionHub.executionHubOutputLabel(hub), '物料 · 烘焙熟豆 · 12.7 kg')
+  assert.deepEqual(executionHub.executionHubUpstreamBlockers(hub).map((row) => row.work_order_no), ['WO-000121'])
+
+  const drawerSource = fs.readFileSync(new URL('../components/ProductionExecutionHubDrawer.vue', import.meta.url), 'utf8')
+  assert.match(drawerSource, /产出对象/)
+  assert.match(drawerSource, /executionHubOutputLabel/)
+  assert.match(drawerSource, /上游依赖/)
+  assert.match(drawerSource, /executionHubUpstreamBlockers/)
+})
+
+test('execution hub start action honors backend unfinished dependency fields even when readiness is stale', () => {
+  const start = buildExecutionHubActions({
+    header: {
+      id: 27,
+      has_unfinished_dependencies: true,
+      dependency_blocking_reason: '上游物料工单尚未完成',
+      upstream_work_order_ids: [121],
+    },
+    readiness: { can_start: true },
+  }).find((action) => action.key === 'startProduction')
+
+  assert.equal(start?.disabled, true)
+  assert.equal(start?.reason, '上游物料工单尚未完成')
 })

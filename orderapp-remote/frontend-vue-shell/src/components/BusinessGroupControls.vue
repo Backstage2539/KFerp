@@ -1,53 +1,37 @@
 <template>
   <div class="business-group-controls" data-business-group-controls>
-    <button class="secondary compact-action" type="button" @click="$emit('manage')">{{ manageLabel }}</button>
-    <label>
-      <span>{{ templateLabel }}</span>
-      <select :value="Number(modelValue || 0)" @change="$emit('update:modelValue', Number($event.target.value || 0))">
-        <option :value="0">选择分组模板</option>
-        <option v-for="option in templateOptions" :key="option.id" :value="Number(option.id || 0)">
-          {{ option.label }}
-        </option>
-      </select>
-    </label>
-    <template v-if="selectedTemplate">
-      <button class="secondary compact-action" type="button" :disabled="!canMove || loading" @click="$emit('move')">
-        {{ moveLabel }}
+    <nav class="business-group-breadcrumb" aria-label="当前分类">{{ breadcrumb || '全部分类' }}</nav>
+    <div class="business-group-control-actions">
+      <button
+        :class="moveActive ? 'secondary compact-action' : 'primary compact-action'"
+        type="button"
+        :disabled="loading || (!moveActive && !canMove)"
+        @click="$emit(moveActive ? 'cancel' : 'move')">
+        {{ moveActive ? '取消移动' : moveLabel }}
       </button>
-      <label>
-        <span>目标分类</span>
-        <select :value="Number(moveModelValue || 0)" :disabled="!canSelectTargetEffective || loading" @change="$emit('update:moveModelValue', Number($event.target.value || 0))">
-          <option :value="0">未分类</option>
-          <option v-for="option in moveOptions" :key="option.key || option.id" :value="Number(option.group_item_id || 0)">
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
-     <span class="muted left">已选 {{ selectedCount }} 个可移动对象</span>
-   </template>
-    <slot name="extra-actions" />
- </div>
+      <span class="muted left">已选 {{ selectedCount }} 个可移动对象</span>
+      <slot name="extra-actions" />
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-
-const props = defineProps({
-  modelValue: { type: Number, default: 0 },
-  moveModelValue: { type: Number, default: 0 },
-  templateOptions: { type: Array, default: () => [] },
-  moveOptions: { type: Array, default: () => [] },
-  selectedTemplate: { type: Object, default: null },
+defineProps({
+  breadcrumb: { type: String, default: '全部分类' },
   selectedCount: { type: Number, default: 0 },
   canMove: { type: Boolean, default: false },
-  canSelectTarget: { type: Boolean, default: null },
+  moveActive: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
-  templateLabel: { type: String, default: '选择分组模板' },
-  manageLabel: { type: String, default: '前往分组模板' },
   moveLabel: { type: String, default: '移动到分类' },
 })
 
-const canSelectTargetEffective = computed(() => props.canSelectTarget === null ? props.canMove : props.canSelectTarget)
-
-defineEmits(['update:modelValue', 'update:moveModelValue', 'manage', 'move'])
+defineEmits(['move', 'cancel'])
 </script>
+
+<style scoped>
+.business-group-controls { display: grid; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
+.business-group-breadcrumb { color: #475569; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.business-group-control-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.muted { color: #64748b; }
+.left { text-align: left; }
+</style>

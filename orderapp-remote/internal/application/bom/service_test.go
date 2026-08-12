@@ -15,6 +15,7 @@ type fakeRepo struct {
 	versionFor                    int64
 	listRows                      []ListItem
 	productRows                   []Option
+	materialRows                  []Option
 	createdProductionBomCommand   CreateProductionBomCommand
 	updatedProductionBomCommand   UpdateProductionBomCommand
 	copiedProductionBomCommand    CopyProductionBomCommand
@@ -23,6 +24,19 @@ type fakeRepo struct {
 	usageProductID                int64
 	usageRows                     []ProductionBomUsedByBom
 	syncedYield                   SyncProductYieldCommand
+	productionBomFilter           ProductionBomFilter
+	boundOutput                   BindProductionBomOutputCommand
+}
+
+type atomicPublishRepo struct {
+	fakeRepo
+	atomicCalls int
+	atomicErr   error
+}
+
+func (r *atomicPublishRepo) ValidateAndPublishProductionBomVersion(_ context.Context, _ PublishProductionBomVersionCommand) error {
+	r.atomicCalls++
+	return r.atomicErr
 }
 
 func (r *fakeRepo) List(ctx context.Context) ([]ListItem, error) { return r.listRows, nil }
@@ -30,7 +44,7 @@ func (r *fakeRepo) Detail(ctx context.Context, productID int64) (Detail, error) 
 	return Detail{}, nil
 }
 func (r *fakeRepo) Products(ctx context.Context) ([]Option, error)  { return r.productRows, nil }
-func (r *fakeRepo) Materials(ctx context.Context) ([]Option, error) { return nil, nil }
+func (r *fakeRepo) Materials(ctx context.Context) ([]Option, error) { return r.materialRows, nil }
 func (r *fakeRepo) BagSpecMappings(ctx context.Context) ([]BagSpecMapping, error) {
 	return nil, nil
 }
@@ -129,6 +143,10 @@ func (r *fakeRepo) DeleteProductionBomGroupCategory(context.Context, DeleteProdu
 func (r *fakeRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
 	return nil, nil
 }
+func (r *fakeRepo) ListProductionBomsFiltered(_ context.Context, filter ProductionBomFilter) ([]ProductionBomSummary, error) {
+	r.productionBomFilter = filter
+	return []ProductionBomSummary{{ID: 21, OutputType: filter.OutputType, OutputID: filter.OutputID}}, nil
+}
 func (r *fakeRepo) GetProductionBomDetail(context.Context, int64, int64) (ProductionBomDetail, error) {
 	return ProductionBomDetail{}, nil
 }
@@ -138,7 +156,7 @@ func (r *fakeRepo) ListProductionBomUsageByProduct(_ context.Context, productID 
 }
 func (r *fakeRepo) CreateProductionBom(_ context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error) {
 	r.createdProductionBomCommand = cmd
-	return ProductionBomSummary{ID: 11, Name: cmd.Name, OutputProductID: cmd.OutputProductID}, nil
+	return ProductionBomSummary{ID: 11, Name: cmd.Name, OutputType: cmd.OutputType, OutputID: cmd.OutputID, OutputProductID: cmd.OutputProductID, OutputMaterialID: cmd.OutputMaterialID}, nil
 }
 func (r *fakeRepo) UpdateProductionBom(_ context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error) {
 	r.updatedProductionBomCommand = cmd
@@ -163,6 +181,10 @@ func (r *fakeRepo) PublishProductionBomVersion(context.Context, PublishProductio
 }
 func (r *fakeRepo) BindProductProductionBom(context.Context, BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
 	return ProductProductionBomBinding{}, nil
+}
+func (r *fakeRepo) BindProductionBomOutput(_ context.Context, cmd BindProductionBomOutputCommand) (ProductionBomOutputBinding, error) {
+	r.boundOutput = cmd
+	return ProductionBomOutputBinding{OutputType: cmd.OutputType, OutputID: cmd.OutputID, BomID: cmd.BomID, BomVersionID: 501, IsDefault: true}, nil
 }
 
 func TestServiceValidatesSaveItem(t *testing.T) {
@@ -412,6 +434,76 @@ func TestCreateProductionBomRequiresOutputProduct(t *testing.T) {
 	}
 }
 
+func TestCreateProductionBomSupportsTypedMaterialOutputAndLegacyProductDefault(t *testing.T) {
+	repo := &fakeRepo{
+		productRows:  []Option{{ID: 88, Name: "盒装", InventoryUnit: "盒"}},
+		materialRows: []Option{{ID: 95, Name: "烘焙豆", InventoryUnit: "kg"}},
+	}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	material, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{
+		Name: "烘焙豆", OutputType: "material", OutputMaterialID: 95, OutputQty: 1, OutputUnit: "g",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionBom material output: %v", err)
+	}
+	if material.OutputType != "material" || material.OutputID != 95 || material.OutputMaterialID != 95 {
+		t.Fatalf("material output = %+v", material)
+	}
+	if repo.createdProductionBomCommand.OutputUnit != "kg" {
+		t.Fatalf("material output unit = %q, want kg", repo.createdProductionBomCommand.OutputUnit)
+	}
+
+	legacy, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "盒装", OutputProductID: 88, OutputQty: 1})
+	if err != nil {
+		t.Fatalf("CreateProductionBom legacy product: %v", err)
+	}
+	if legacy.OutputType != "product" || legacy.OutputID != 88 || repo.createdProductionBomCommand.OutputUnit != "盒" {
+		t.Fatalf("legacy product output = %+v command=%+v", legacy, repo.createdProductionBomCommand)
+	}
+
+	for _, cmd := range []CreateProductionBomCommand{
+		{Name: "无产出", OutputType: "material"},
+		{Name: "双产出", OutputType: "material", OutputMaterialID: 95, OutputProductID: 88},
+		{Name: "类型错配", OutputType: "product", OutputMaterialID: 95},
+	} {
+		if _, err := svc.CreateProductionBom(ctx, cmd); err == nil {
+			t.Fatalf("CreateProductionBom(%+v) should reject invalid output binding", cmd)
+		}
+	}
+}
+
+func TestListProductionBomsPassesUnifiedOutputAndComponentFilters(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	filter := ProductionBomFilter{OutputType: "material", OutputID: 95, ComponentType: "product", ComponentID: 88}
+	rows, err := svc.ListProductionBoms(context.Background(), filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || repo.productionBomFilter != filter {
+		t.Fatalf("ListProductionBoms() rows=%+v filter=%+v", rows, repo.productionBomFilter)
+	}
+}
+
+func TestBindProductionBomOutputSupportsAuditableMaterialDefaultSwitch(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	row, err := svc.BindProductionBomOutput(context.Background(), BindProductionBomOutputCommand{
+		OutputType: " material ", OutputID: 95, BomID: 21, Actor: "测试员",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.OutputType != "material" || row.OutputID != 95 || row.BomID != 21 || !row.IsDefault {
+		t.Fatalf("binding = %+v", row)
+	}
+	if repo.boundOutput.OutputType != "material" || repo.boundOutput.Actor != "测试员" {
+		t.Fatalf("binding command = %+v", repo.boundOutput)
+	}
+}
+
 func TestCreateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing.T) {
 	repo := &fakeRepo{productRows: []Option{{ID: 88, Name: "10条速溶盒装", ProductKind: "instant_coffee", InventoryUnit: "盒"}}}
 	svc := NewService(repo)
@@ -478,8 +570,11 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 	}
 }
 
-func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossAndRequiresRatioUnits(t *testing.T) {
-	repo := &fakeRepo{}
+func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossOnlyToRatioMaterials(t *testing.T) {
+	repo := &fakeRepo{materialRows: []Option{
+		{ID: 7, Name: "拼配原料", InventoryUnit: "kg"},
+		{ID: 8, Name: "包装袋", InventoryUnit: "个"},
+	}}
 	svc := NewService(repo)
 	ctx := context.Background()
 	lossRate := 0.2
@@ -517,15 +612,46 @@ func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossAndRequiresRatioUnit
 		OutputQty:        1,
 		OutputUnit:       "kg",
 		MaterialLossRate: &lossRate,
+		Items: []ProductionBomDraftItem{
+			{
+				ComponentType: "material",
+				MaterialID:    7,
+				ConsumeUnit:   "ratio_pct",
+				RatioPct:      40,
+			},
+			{
+				ComponentType: "material",
+				MaterialID:    8,
+				ConsumeUnit:   "个",
+				QtyPerUnit:    2,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ratio ingredients and fixed packaging must coexist with BOM loss: %v", err)
+	}
+	items = repo.updatedProductionDraftCommand.Items
+	if len(items) != 2 || items[0].MaterialLossRate != 0.2 || items[1].MaterialLossRate != 0 {
+		t.Fatalf("mixed material loss assignment = %+v, want loss only on ratio material", items)
+	}
+	if items[1].ConsumeUnit != "个" || items[1].QtyPerUnit != 2 {
+		t.Fatalf("fixed packaging unit was not preserved: %+v", items[1])
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:        103,
+		OutputQty:        1,
+		OutputUnit:       "kg",
+		MaterialLossRate: &lossRate,
 		Items: []ProductionBomDraftItem{{
 			ComponentType: "material",
 			MaterialID:    8,
-			ConsumeUnit:   "kg",
+			ConsumeUnit:   "盒",
 			QtyPerUnit:    1,
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "原料损耗比开启后，组件消耗单位只能使用比例 %") {
-		t.Fatalf("expected BOM-level material loss ratio consume-unit error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "consume_unit must match component inventory_unit") {
+		t.Fatalf("mismatched packaging unit must be rejected, got %v", err)
 	}
 
 	invalidLossRate := 1.0
@@ -577,6 +703,17 @@ func TestPublishProductionBomVersionRunsOutputComponentAndCycleValidation(t *tes
 	err := svc.PublishProductionBomVersion(context.Background(), PublishProductionBomVersionCommand{VersionID: 103})
 	if err == nil || !strings.Contains(err.Error(), "cycle detected") {
 		t.Fatalf("expected publish validation error, got %v", err)
+	}
+}
+
+func TestPublishProductionBomVersionUsesAtomicRepositoryCapability(t *testing.T) {
+	repo := &atomicPublishRepo{}
+	svc := NewService(repo)
+	if err := svc.PublishProductionBomVersion(context.Background(), PublishProductionBomVersionCommand{VersionID: 103}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.atomicCalls != 1 {
+		t.Fatalf("atomic publish calls = %d, want 1", repo.atomicCalls)
 	}
 }
 
