@@ -200,14 +200,10 @@ func workOrderReservationNeedsTx(ctx context.Context, tx pgx.Tx, schema string, 
 }
 
 func productionInventoryQuantity(qtyG int64, unit string) float64 {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return float64(qtyG) / 1000
-	case "lb", "磅":
-		return float64(qtyG) / 453.59237
-	default:
-		return float64(qtyG)
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return float64(qtyG) / factor
 	}
+	return float64(qtyG)
 }
 
 func (r Repository) GetWorkOrderStockDocumentDraft(ctx context.Context, workOrderID int64, action string, stockDocumentID int64) (*productionapp.StockEntryCommand, error) {

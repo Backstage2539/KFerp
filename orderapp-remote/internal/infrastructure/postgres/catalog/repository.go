@@ -3717,8 +3717,16 @@ func (r Repository) SaveProductUnitDefinition(ctx context.Context, cmd catalogap
 	if cmd.Active != nil {
 		active = *cmd.Active
 	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductUnitDefinition{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := assertProductUnitWeightReclassificationAllowedTx(ctx, tx, r.schema, cmd.Code, cmd.UnitType); err != nil {
+		return catalogapp.ProductUnitDefinition{}, err
+	}
 	var row catalogapp.ProductUnitDefinition
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_unit_definitions(code,name,unit_type,allow_decimal,active)
 		VALUES($1,$2,$3,$4,$5)
 		ON CONFLICT (code) DO UPDATE
@@ -3732,8 +3740,54 @@ func (r Repository) SaveProductUnitDefinition(ctx context.Context, cmd catalogap
 	`, r.schema), cmd.Code, cmd.Name, cmd.UnitType, cmd.AllowDecimal, active).Scan(&row.Code, &row.Name, &row.UnitType, &row.AllowDecimal, &row.Active); err != nil {
 		return catalogapp.ProductUnitDefinition{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_unit_definition", nil, "upsert", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(row.Code), postgresinfra.AuditMeta{"unit_type": row.UnitType, "allow_decimal": row.AllowDecimal, "active": row.Active})
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_unit_definition", nil, "upsert", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(row.Code), postgresinfra.AuditMeta{"unit_type": row.UnitType, "allow_decimal": row.AllowDecimal, "active": row.Active}); err != nil {
+		return catalogapp.ProductUnitDefinition{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.ProductUnitDefinition{}, err
+	}
 	return row, nil
+}
+
+func assertProductUnitWeightReclassificationAllowedTx(ctx context.Context, tx pgx.Tx, schema, code, unitType string) error {
+	if strings.EqualFold(strings.TrimSpace(code), "kg") || !productUnitDefinitionWeightType(unitType) {
+		return nil
+	}
+	var materialsTableExists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".materials").Scan(&materialsTableExists); err != nil {
+		return err
+	}
+	if !materialsTableExists {
+		return nil
+	}
+	var lockedCode string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT code
+		FROM %s.product_unit_definitions
+		WHERE code=$1
+		FOR UPDATE
+	`, schema), strings.TrimSpace(code)).Scan(&lockedCode); err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	var referenced bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.materials
+			WHERE lower(btrim(unit))=lower(btrim($1))
+		)
+	`, schema), strings.TrimSpace(code)).Scan(&referenced); err != nil {
+		return err
+	}
+	if referenced {
+		return fmt.Errorf("单位 %q 已被物料档案引用，非 kg 单位不能重分类为重量单位", strings.TrimSpace(code))
+	}
+	return nil
+}
+
+func productUnitDefinitionWeightType(unitType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(unitType))
+	return normalized == "weight" || normalized == "重量"
 }
 
 func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.SaveProductUnitTemplateCommand) (catalogapp.ProductUnitTemplate, error) {

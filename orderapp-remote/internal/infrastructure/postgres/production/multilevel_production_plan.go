@@ -525,32 +525,20 @@ func finishedProductAvailableForPlanningTx(ctx context.Context, tx pgx.Tx, schem
 }
 
 func manufacturingQtyFromCanonical(qtyG, qtyUnits int64, unit string) float64 {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return float64(qtyG) / 1000
-	case "lb", "磅":
-		return float64(qtyG) / 453.59237
-	case "g", "克":
-		return float64(qtyG)
-	default:
-		return float64(qtyUnits)
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return float64(qtyG) / factor
 	}
+	return float64(qtyUnits)
 }
 
 func canonicalFromManufacturingQty(qty float64, unit string) (int64, int64) {
 	if qty <= 0 {
 		return 0, 0
 	}
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return int64(math.Ceil(qty * 1000)), 0
-	case "lb", "磅":
-		return int64(math.Ceil(qty * 453.59237)), 0
-	case "g", "克":
-		return int64(math.Ceil(qty)), 0
-	default:
-		return 0, int64(math.Ceil(qty))
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return int64(math.Ceil(qty * factor)), 0
 	}
+	return 0, int64(math.Ceil(qty))
 }
 
 func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx.Tx, schema string) (map[string]manufacturingOutputBOMPlanBasis, []productiondomain.ManufacturingBOM, map[string]int64, error) {
@@ -670,16 +658,10 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 }
 
 func canonicalOutputBasis(qty float64, unit string) (int64, int64) {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return int64(math.Ceil(qty * 1000)), 0
-	case "lb", "磅":
-		return int64(math.Ceil(qty * 453.59237)), 0
-	case "g", "克":
-		return int64(math.Ceil(qty)), 0
-	default:
-		return 0, int64(math.Ceil(qty))
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return int64(math.Ceil(qty * factor)), 0
 	}
+	return 0, int64(math.Ceil(qty))
 }
 
 func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, basis manufacturingOutputBOMPlanBasis, outputQty float64, roots []productionapp.ProductionPlanItem) (productionapp.ProductionPlanItem, error) {

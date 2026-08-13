@@ -20,9 +20,9 @@
         <form class="box" @submit.prevent="createOrder">
           <h3>采购单</h3>
           <label><span>供应商</span><select v-model.number="orderForm.supplier_id" required><option :value="0">请选择</option><option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
-          <label><span>物料</span><select v-model.number="orderForm.material_id" required><option :value="0">请选择</option><option v-for="m in purchasableMaterials" :key="m.id" :value="m.id">{{ m.name }} · {{ m.purchase_price || 0 }}元/{{ materialCostUnit(m.id) }}</option></select></label>
+          <label><span>物料</span><select v-model.number="orderForm.material_id" required><option :value="0">请选择</option><option v-for="m in purchasableMaterials" :key="m.id" :value="m.id">{{ m.name }} · {{ m.purchase_price || 0 }}元/{{ materialUnit(m.id) }}</option></select></label>
           <label><span>数量(g)</span><input v-model.number="orderForm.qty_g" type="number" min="1" required /></label>
-          <label><span>单价（元/{{ selectedPurchaseMaterialCostUnit }}）</span><input v-model.number="orderForm.unit_cost" type="number" min="0" step="0.0001" /></label>
+          <label><span>单价（元/{{ selectedPurchaseMaterialUnit }}）</span><input v-model.number="orderForm.unit_cost" type="number" min="0" step="0.0001" /></label>
           <label><span>备注</span><input v-model.trim="orderForm.note" /></label>
           <small class="form-help">当前采购单按克记录数量，仅支持重量物料；件、袋、盒等物料请使用原料入库按库存单位录入。</small>
           <button class="primary" type="submit" :disabled="saving || !isSelectedPurchaseMaterialWeight">创建采购单</button>
@@ -41,7 +41,7 @@
               <td>{{ row.supplier_name || supplierName(row.supplier_id) }}</td>
               <td>{{ row.material_name || materialName(row.material_id) }}</td>
               <td>{{ row.qty_g }}</td>
-              <td>{{ row.unit_cost }} 元/{{ materialCostUnit(row.material_id) }}</td>
+              <td>{{ row.unit_cost }} 元/{{ materialUnit(row.material_id) }}</td>
               <td>{{ row.status }}</td>
               <td><button class="secondary" type="button" @click="receiveOrder(row)" :disabled="saving || row.status === 'received' || !isMaterialWeightByID(row.material_id)" :title="isMaterialWeightByID(row.material_id) ? '' : '旧采购单接口只支持重量物料，请改用原料入库'">收货入库</button></td>
             </tr>
@@ -63,7 +63,7 @@
               <td>{{ row.supplier_name }}</td>
               <td>{{ row.material_name || materialName(row.material_id) }}</td>
               <td>{{ row.qty_g }}</td>
-              <td>{{ row.unit_cost }} 元/{{ materialCostUnit(row.material_id) }}</td>
+              <td>{{ row.unit_cost }} 元/{{ materialUnit(row.material_id) }}</td>
               <td>{{ row.stock_batch_code }}</td>
               <td>{{ row.created_at }}</td>
             </tr>
@@ -91,7 +91,7 @@ const receipts = ref([])
 const supplierForm = reactive({ name: '', contact: '', phone: '', address: '' })
 const orderForm = reactive({ supplier_id: 0, material_id: 0, qty_g: 0, unit_cost: 0, note: '' })
 const purchasableMaterials = computed(() => materials.value.filter((material) => isMaterialWeight(material)))
-const selectedPurchaseMaterialCostUnit = computed(() => materialCostUnit(orderForm.material_id))
+const selectedPurchaseMaterialUnit = computed(() => materialUnit(orderForm.material_id))
 const isSelectedPurchaseMaterialWeight = computed(() => isMaterialWeightByID(orderForm.material_id))
 
 function supplierName(id) {
@@ -102,13 +102,10 @@ function materialName(id) {
   return materials.value.find((row) => Number(row.id) === Number(id))?.name || ''
 }
 
-function materialCostUnit(id) {
+function materialUnit(id) {
   const material = materials.value.find((row) => Number(row.id) === Number(id))
-  const costUnit = String(material?.cost_unit || material?.CostUnit || '').trim()
-  if (costUnit) return costUnit
   const inventoryUnit = String(material?.unit || material?.Unit || '').trim()
-  if (!inventoryUnit) return '成本计价单位'
-  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit.toLowerCase()) ? 'kg' : inventoryUnit
+  return inventoryUnit || '库存单位'
 }
 
 function isMaterialWeight(material) {

@@ -282,6 +282,8 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	}
 	requestedInventoryUnit := strings.TrimSpace(in.Unit)
 	requestedCostUnit := strings.TrimSpace(in.CostUnit)
+	// cost_unit is a compatibility field. Updates validate an explicitly supplied
+	// value against the effective inventory unit after the current row is loaded.
 	in.CostUnit = ""
 	next, err := normalizeMaterialInput(in)
 	if err != nil {
@@ -348,13 +350,16 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		if err := assertMaterialInventoryUnitReadOnly(old, next, requestedInventoryUnit, inUse); err != nil {
 			return materialRow{}, err
 		}
+		if err := validateMaterialInventoryUnitDefinitionTx(ctx, tx, schema, next.Unit); err != nil {
+			return materialRow{}, err
+		}
 	} else {
 		next.Unit = old.Unit
 	}
-	if err := assertMaterialCostUnitReadOnly(old, next, requestedCostUnit, unitChanged); err != nil {
+	if err := assertMaterialCostUnitMatchesInventoryUnit(requestedCostUnit, next.Unit); err != nil {
 		return materialRow{}, err
 	}
-	next.CostUnit = old.CostUnit
+	next.CostUnit = next.Unit
 	if err := assertMaterialStockFieldsReadOnly(old, next); err != nil {
 		return materialRow{}, err
 	}
@@ -420,6 +425,9 @@ func createMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := validateMaterialInventoryUnitDefinitionTx(ctx, tx, schema, next.Unit); err != nil {
+		return materialRow{}, err
+	}
 
 	q := fmt.Sprintf(`INSERT INTO %s.materials(
 			code, name, kind, is_semi_finished, unit, cost_unit, batch_no, purchase_price, sale_price,
@@ -507,7 +515,7 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	in.Code = strings.TrimSpace(in.Code)
 	in.Name = strings.TrimSpace(in.Name)
 	in.Kind = strings.TrimSpace(in.Kind)
-	in.Unit = strings.TrimSpace(in.Unit)
+	in.Unit = normalizeMaterialInventoryUnit(in.Unit)
 	in.CostUnit = normalizeMaterialCostUnit(in.CostUnit)
 	in.BatchNo = strings.TrimSpace(in.BatchNo)
 	if in.Profile != nil {
@@ -527,23 +535,15 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	}
 	in.Kind = normalizeMaterialKind(in.Kind)
 	if in.Unit == "" {
-		in.Unit = "g"
+		in.Unit = "kg"
 	}
-	if isMaterialWeightUnit(in.Unit) {
-		if in.CostUnit == "" {
-			in.CostUnit = "kg"
-		}
-		if in.CostUnit != "kg" {
-			return materialInput{}, fmt.Errorf("重量物料成本计价单位必须为 kg")
-		}
-	} else {
-		if in.CostUnit == "" {
-			in.CostUnit = in.Unit
-		}
-		if in.CostUnit != in.Unit {
-			return materialInput{}, fmt.Errorf("非重量物料成本计价单位必须与库存单位一致")
-		}
+	if isMaterialWeightUnit(in.Unit) && in.Unit != "kg" {
+		return materialInput{}, fmt.Errorf("重量物料库存单位统一使用 kg；BOM 用量可使用 g 并自动换算")
 	}
+	if err := assertMaterialCostUnitMatchesInventoryUnit(in.CostUnit, in.Unit); err != nil {
+		return materialInput{}, err
+	}
+	in.CostUnit = in.Unit
 	if in.MinLevelQty > 0 && in.MinLevelG == 0 && in.MinLevelUnits == 0 {
 		in.MinLevelG, in.MinLevelUnits = quantityToLegacy(in.Unit, in.MinLevelQty)
 	}
@@ -612,22 +612,69 @@ func normalizeMaterialKind(kind string) string {
 }
 
 func normalizeMaterialCostUnit(unit string) string {
+	return normalizeMaterialInventoryUnit(unit)
+}
+
+func normalizeMaterialInventoryUnit(unit string) string {
 	unit = strings.TrimSpace(unit)
 	switch strings.ToLower(unit) {
-	case "kg", "千克":
+	case "kg", "kgs", "kilogram", "kilograms", "千克", "公斤":
 		return "kg"
+	case "g", "gram", "grams", "克":
+		return "g"
+	case "lb", "lbs", "pound", "pounds", "磅":
+		return "lb"
+	case "oz", "ounce", "ounces", "盎司":
+		return "oz"
 	default:
 		return unit
 	}
 }
 
 func isMaterialWeightUnit(unit string) bool {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "g", "kg", "lb", "oz", "克", "千克":
+	switch normalizeMaterialInventoryUnit(unit) {
+	case "g", "kg", "lb", "oz":
 		return true
 	default:
 		return false
 	}
+}
+
+func isMaterialWeightUnitType(unitType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(unitType))
+	return normalized == "weight" || normalized == "重量"
+}
+
+func validateMaterialInventoryUnitDefinitionTx(ctx context.Context, tx pgx.Tx, schema, unit string) error {
+	var tableExists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".product_unit_definitions").Scan(&tableExists); err != nil {
+		return err
+	}
+	if !tableExists {
+		return nil
+	}
+
+	unit = normalizeMaterialInventoryUnit(unit)
+	var unitType string
+	var active bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT unit_type, active
+		FROM %s.product_unit_definitions
+		WHERE code=$1
+		FOR SHARE
+	`, schema), unit).Scan(&unitType, &active); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("库存单位必须来自已启用的全局单位字典")
+		}
+		return err
+	}
+	if !active {
+		return fmt.Errorf("库存单位必须来自已启用的全局单位字典")
+	}
+	if isMaterialWeightUnitType(unitType) && unit != "kg" {
+		return fmt.Errorf("重量物料库存单位统一使用 kg；BOM 用量可使用 g 并自动换算")
+	}
+	return nil
 }
 
 func materialQtyForUnit(unit string, qtyG, qtyUnits int64) float64 {
@@ -781,17 +828,11 @@ func materialSchemaColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table,
 	return exists, err
 }
 
-func assertMaterialCostUnitReadOnly(old materialRow, next materialInput, requestedCostUnit string, inventoryUnitChanged bool) error {
+func assertMaterialCostUnitMatchesInventoryUnit(requestedCostUnit, inventoryUnit string) error {
 	requestedCostUnit = normalizeMaterialCostUnit(requestedCostUnit)
-	oldCostUnit := normalizeMaterialCostUnit(old.CostUnit)
-	if oldCostUnit == "" {
-		oldCostUnit = normalizeMaterialCostUnit(next.CostUnit)
-	}
-	if requestedCostUnit != "" && oldCostUnit != requestedCostUnit {
-		return fmt.Errorf("成本计价单位保存后不能修改；如需调整，请新建物料档案")
-	}
-	if inventoryUnitChanged && oldCostUnit != normalizeMaterialCostUnit(next.CostUnit) {
-		return fmt.Errorf("成本计价单位保存后不能修改；如需调整，请新建物料档案")
+	inventoryUnit = normalizeMaterialInventoryUnit(inventoryUnit)
+	if requestedCostUnit != "" && requestedCostUnit != inventoryUnit {
+		return fmt.Errorf("采购价与成本单价单位必须与库存单位一致")
 	}
 	return nil
 }

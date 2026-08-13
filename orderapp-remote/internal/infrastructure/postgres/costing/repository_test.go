@@ -787,7 +787,7 @@ func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T)
 	}
 }
 
-func TestLoadProductInputsPricesCustomPackagingUnitFromMatchingMaterialCostUnit(t *testing.T) {
+func TestLoadProductInputsPricesCustomPackagingUnitFromMatchingInventoryUnit(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -803,13 +803,15 @@ func TestLoadProductInputsPricesCustomPackagingUnitFromMatchingMaterialCostUnit(
 	}
 	cte := src[start : start+end]
 	for _, want := range []string{
-		"NULLIF(m.cost_unit,'')",
 		"NULLIF(m.unit,'')",
 		"COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') NOT IN ('ratio_pct','g_per_bag')",
 	} {
 		if !strings.Contains(cte, want) {
 			t.Fatalf("custom packaging cost must use matching material unit; missing %q", want)
 		}
+	}
+	if strings.Contains(cte, "m.cost_unit") {
+		t.Fatal("custom packaging cost must not depend on an independent material cost unit")
 	}
 }
 
@@ -836,12 +838,14 @@ func TestMaterialValuationIncludesDiscretePackageInventory(t *testing.T) {
 			for _, want := range []string{
 				"l.qty_units",
 				"(l.qty_g > 0 OR l.qty_units > 0)",
-				"m.cost_unit",
 				"m.unit",
 			} {
 				if !strings.Contains(block, want) {
 					t.Fatalf("%s material valuation must price discrete package inventory; missing %q", name, want)
 				}
+			}
+			if strings.Contains(block, "m.cost_unit") {
+				t.Fatalf("%s material valuation must not depend on an independent cost unit", name)
 			}
 			valuationCount++
 			offset = start + end + len("GROUP BY l.material_id")
@@ -1017,7 +1021,7 @@ func TestPricingRuleTrialDetailsConvertGramBomItemsToKgCost(t *testing.T) {
 	}
 }
 
-func TestPricingRuleTrialUsesMaterialCostUnitInsteadOfInventoryUnit(t *testing.T) {
+func TestPricingRuleTrialUsesMaterialInventoryUnitAsPurchasePriceUnit(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -1029,11 +1033,11 @@ func TestPricingRuleTrialUsesMaterialCostUnitInsteadOfInventoryUnit(t *testing.T
 		t.Fatal("cannot locate pricing rule trial base cost loader")
 	}
 	fn := src[fnStart : fnStart+fnEnd]
-	if !strings.Contains(fn, "COALESCE(NULLIF(m.cost_unit,''),'kg') AS unit_cost_unit") {
-		t.Fatal("pricing rule trial must expose material cost_unit as unit_cost_unit")
+	if !strings.Contains(fn, "COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit") {
+		t.Fatal("pricing rule trial must expose material inventory unit as purchase-price unit")
 	}
-	if strings.Contains(fn, "COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit") {
-		t.Fatal("pricing rule trial must not use inventory unit as cost unit")
+	if strings.Contains(fn, "COALESCE(NULLIF(m.cost_unit,''),'kg') AS unit_cost_unit") {
+		t.Fatal("pricing rule trial must not use an independent material cost unit")
 	}
 }
 

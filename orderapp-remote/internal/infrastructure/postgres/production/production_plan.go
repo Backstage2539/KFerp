@@ -238,13 +238,10 @@ func validateProductionDemandInventoryUnitAgainstBomOutput(group startRunGroup, 
 }
 
 func normalizeProductionPlanQuantityDimension(unit string) (string, string) {
+	if productionWeightUnitGrams(unit) > 0 {
+		return strings.ToLower(strings.TrimSpace(unit)), "weight"
+	}
 	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "g", "克":
-		return "g", "weight"
-	case "kg", "千克", "公斤":
-		return "kg", "weight"
-	case "lb", "磅":
-		return "lb", "weight"
 	case "unit", "units", "pc", "pcs", "件", "个":
 		return "unit", "count"
 	default:
@@ -1218,11 +1215,10 @@ func plannedCapacitySplitQtyG(qty float64, unit string, specG ...int64) int64 {
 }
 
 func plannedCapacitySplitQtyProjection(qty float64, unit string, itemSpecG int64, salesSpecCount float64, targetG int64) int64 {
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return int64(math.Round(qty * factor))
+	}
 	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return int64(math.Round(qty * 1000))
-	case "g", "克":
-		return int64(math.Round(qty))
 	case "件", "个", "袋", "盒", "包", "条", "unit", "units", "pc", "pcs", "piece", "pieces":
 		if salesSpecCount > 0 && targetG > 0 {
 			return int64(math.Round(qty * float64(targetG) / salesSpecCount))
@@ -1237,9 +1233,10 @@ func plannedCapacitySplitQtyProjection(qty float64, unit string, itemSpecG int64
 }
 
 func productionCapacityUnitKind(unit string) string {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤", "g", "克":
+	if productionWeightUnitGrams(unit) > 0 {
 		return "weight"
+	}
+	switch strings.ToLower(strings.TrimSpace(unit)) {
 	case "件", "个", "袋", "盒", "包", "条", "unit", "units", "pc", "pcs", "piece", "pieces":
 		return "count"
 	default:

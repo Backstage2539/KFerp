@@ -1478,8 +1478,8 @@ func componentDemandQty(item planBomItem, inputG, bagUnits, boxUnits int64, unit
 		if ratioPct <= 0 {
 			return 0
 		}
-		if strings.EqualFold(unit, "kg") || unit == "千克" {
-			return int64(math.Ceil((float64(inputG) * ratioPct / 100.0) / 1000.0))
+		if factor := productionWeightUnitGrams(unit); factor > 0 {
+			return int64(math.Ceil((float64(inputG) * ratioPct / 100.0) / factor))
 		}
 		return int64(math.Ceil(float64(inputG) * ratioPct / 100.0))
 	}

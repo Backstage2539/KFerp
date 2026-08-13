@@ -179,7 +179,7 @@ func TestVueMaterialReceiptUsesInventoryUnitQuantity(t *testing.T) {
 		"unit_code",
 		"qty",
 		"selectedMaterialUnitLabel",
-		"/api/product-settings",
+		":value=\"selectedMaterialUnitLabel\" readonly",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("MaterialReceiptsView.vue missing inventory unit receipt marker %q", want)
@@ -189,6 +189,9 @@ func TestVueMaterialReceiptUsesInventoryUnitQuantity(t *testing.T) {
 		"数量(g)",
 		"form.qty_g",
 		"qty_g",
+		"/api/product-settings",
+		"form.unit_code",
+		"<select v-model=\"form.unit_code\"",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialReceiptsView.vue still exposes legacy gram-only receipt marker %q", forbidden)

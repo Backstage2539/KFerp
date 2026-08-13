@@ -159,17 +159,11 @@
                 <select v-model="draft.unit" :disabled="materialInventoryUnitLocked">
                   <option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.label || unit.name || unit.code }}</option>
                 </select>
+                <small>重量物料库存统一使用 kg；BOM 配方仍可按 g 录入并自动换算。采购价、批次单位成本和 BOM 成本试算均按库存单位计价。</small>
                 <small v-if="materialInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
-              <label>
-                <span>采购价与成本单价单位</span>
-                <input :value="unitDisplay(draft.cost_unit)" disabled data-field="cost_unit" />
-                <small v-if="isMaterialWeightUnit(draft.unit)">用于采购价、批次单位成本和 BOM 成本试算，不用于库存数量；重量物料固定按元/kg。</small>
-                <small v-else>用于采购价、批次单位成本和 BOM 成本试算，不用于库存数量；当前与库存单位一致。</small>
-                <small v-if="materialCostUnitLocked">采购价与成本单价单位保存后不可修改；如需调整，请新建物料档案。</small>
-              </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
-              <label><span>采购价（元/{{ draft.cost_unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
+              <label><span>采购价（元/{{ draft.unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
               <label class="boolean-field">
                 <span>是否半成品</span>
                 <input v-model="draft.is_semi_finished" type="checkbox" />
@@ -383,14 +377,35 @@ const selectedMaterialRowsForMove = computed(() => {
 const canMoveSelectedMaterialsToBusinessGroup = computed(() => Boolean(
   materialCatalogBusinessGroups.value.length && selectedMaterialRowsForMove.value.length,
 ))
+const MATERIAL_WEIGHT_UNIT_CODES = new Set([
+  'g', 'gram', 'grams', '克',
+  'kg', 'kgs', 'kilogram', 'kilograms', '千克', '公斤',
+  'lb', 'lbs', 'pound', 'pounds', '磅',
+  'oz', 'ounce', 'ounces', '盎司',
+])
+
+function normalizeMaterialUnitCode(unitCode) {
+  return String(unitCode || '').trim().toLowerCase()
+}
+
+function isMaterialWeightUnitType(unitType) {
+  const normalized = String(unitType || '').trim().toLowerCase()
+  return normalized === 'weight' || normalized === '重量'
+}
+
+function isCanonicalMaterialInventoryUnit(unitCode, unitType) {
+  const normalized = normalizeMaterialUnitCode(unitCode)
+  return normalized === 'kg' || (!isMaterialWeightUnitType(unitType) && !MATERIAL_WEIGHT_UNIT_CODES.has(normalized))
+}
+
 const unitOptions = computed(() => {
-  const rows = productUnitDefinitions.value.filter((row) => row.active !== false)
-  if (rows.length) return rows
-  return [
-    { code: 'g', name: 'g', label: 'g' },
-    { code: 'kg', name: 'kg', label: 'kg' },
-    { code: 'unit', name: '个', label: '个' },
-  ]
+  const rows = productUnitDefinitions.value
+    .filter((row) => row.active !== false)
+    .filter((row) => isCanonicalMaterialInventoryUnit(row.code, row.unit_type))
+  const kgSource = rows.find((row) => normalizeMaterialUnitCode(row.code) === 'kg')
+  const kg = kgSource ? { ...kgSource, code: 'kg' } : { code: 'kg', name: 'kg', label: 'kg', active: true }
+  const nonWeightRows = rows.filter((row) => normalizeMaterialUnitCode(row.code) !== 'kg')
+  return [kg, ...nonWeightRows]
 })
 const selectedIndustryTemplate = computed(() => activeIndustryTemplates.value.find((tpl) => tpl.id === Number(draft.value?.industry_field_template_id || 0)) || null)
 const selectedIndustryTemplateFields = computed(() => (selectedIndustryTemplate.value?.fields || []).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)))
@@ -408,7 +423,7 @@ function normalizeRow(row) {
     is_semi_finished: Boolean(row.IsSemiFinished ?? row.is_semi_finished ?? false),
     can_manufacture: Boolean(row.CanManufacture ?? row.can_manufacture ?? false),
     unit,
-    cost_unit: row.CostUnit ?? row.cost_unit ?? defaultMaterialCostUnit(unit),
+    cost_unit: unit,
     batch_no: row.BatchNo ?? row.batch_no ?? '',
     purchase_price: Number(row.PurchasePrice ?? row.purchase_price ?? 0),
     onhand_g: Number(row.OnhandG ?? row.onhand_g ?? 0),
@@ -451,6 +466,7 @@ function normalizeUnit(row) {
     code: row.code ?? row.Code ?? '',
     name: row.name ?? row.Name ?? row.code ?? row.Code ?? '',
     label: row.name ?? row.Name ?? row.code ?? row.Code ?? '',
+    unit_type: row.unit_type ?? row.UnitType ?? 'other',
     active: row.active ?? row.Active ?? true,
   }
 }
@@ -460,7 +476,7 @@ function cloneDraft(row) {
 }
 
 function blankDraft() {
-  const unit = unitOptions.value[0]?.code || 'g'
+  const unit = unitOptions.value.find((row) => normalizeMaterialUnitCode(row.code) === 'kg')?.code || 'kg'
   return {
     id: 0,
     code: nextMaterialCode(),
@@ -469,7 +485,7 @@ function blankDraft() {
     is_semi_finished: false,
     can_manufacture: false,
     unit,
-    cost_unit: defaultMaterialCostUnit(unit),
+    cost_unit: unit,
     batch_no: '',
     purchase_price: 0,
     onhand_g: 0,
@@ -847,7 +863,6 @@ function openMaterialBusinessGroupManagement() {
   }))
 }
 const materialInventoryUnitLocked = computed(() => Boolean(!draftMode.value && selected.value?.id))
-const materialCostUnitLocked = computed(() => Boolean(!draftMode.value && selected.value?.id))
 
 function payloadFromDraft() {
   const sourceStock = draftMode.value ? { onhand_g: 0, onhand_units: 0 } : (selected.value || draft.value)
@@ -857,7 +872,7 @@ function payloadFromDraft() {
     kind: draft.value.kind || 'other',
     is_semi_finished: Boolean(draft.value.is_semi_finished),
     unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
-    cost_unit: draftMode.value ? draft.value.cost_unit : (selected.value?.cost_unit || draft.value.cost_unit),
+    cost_unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     batch_no: draft.value.batch_no,
     purchase_price: Number(draft.value.purchase_price || 0),
     onhand_g: Number(sourceStock.onhand_g || 0),
@@ -976,15 +991,6 @@ function unitDisplay(unitCode) {
   return row?.name || unitCode || '-'
 }
 
-function isMaterialWeightUnit(unitCode) {
-  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(String(unitCode || '').trim().toLowerCase())
-}
-
-function defaultMaterialCostUnit(inventoryUnit) {
-  const unit = String(inventoryUnit || '').trim() || 'g'
-  return isMaterialWeightUnit(unit) ? 'kg' : unit
-}
-
 function normalizeFieldType(value) {
   return ['select', 'dropdown', 'option'].includes(String(value)) ? 'select' : 'text'
 }
@@ -1028,11 +1034,6 @@ function defaultFieldValue(field) {
     return ''
   }
 }
-
-watch(() => draft.value?.unit, (unit) => {
-  if (!draft.value || materialCostUnitLocked.value) return
-  draft.value.cost_unit = defaultMaterialCostUnit(unit)
-})
 
 watch(materialDisplayGroups, syncMaterialGroupPaginationState, { deep: true, immediate: true })
 watch(() => props.viewParams?.open_material_id, () => openMaterialFromViewParams(), { flush: 'post' })

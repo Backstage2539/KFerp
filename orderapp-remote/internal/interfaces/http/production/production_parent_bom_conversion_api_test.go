@@ -47,8 +47,8 @@ func TestProductionPlanAPIInheritsParentBOMAndFreezesSalesSpecConversion(t *test
 		-- new parent's unit rules or BOM.
 		UPDATE %[1]s.products SET parent_product_id=645 WHERE id=789;
 
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-		VALUES (9001,'RAW-PR553','如目达摩生豆','bean','kg',0,0,54,0);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (9001,'RAW-PR553','如目达摩生豆','bean','kg','kg',0,0,54,0);
 		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes)
 		VALUES (55301,'如目达摩标准烘焙','active','标准烘焙机',20);
 		INSERT INTO %[1]s.process_route_operations(
@@ -220,8 +220,8 @@ func TestProductionPlanAPIInheritsParentBOMAndFreezesSalesSpecConversion(t *test
 			55302,1,'计件商品',2,'件','件','不可解析',790,0,0,
 			'{"production_quantity_snapshot":{"sku_id":790,"parent_product_id":646,"spec_label":"1件","sales_unit":"件","inventory_unit":"件","inventory_qty_per_sales_unit":1,"conversion_source":"published_inventory_conversion"}}'::jsonb
 		);
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-		VALUES (9002,'COUNT-PR553','计件组件','packaging','个',0,0,1,0);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (9002,'COUNT-PR553','计件组件','packaging','个','个',0,0,1,0);
 		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes)
 		VALUES (55302,'计件路线','active','计件工位',5);
 		INSERT INTO %[1]s.process_route_operations(
@@ -289,7 +289,7 @@ func TestProductionPlanAPIAppliesInheritedPublishedBomLossOnce(t *testing.T) {
 		t.Fatalf("material summary=%+v, want one row", plan.MaterialSummary)
 	}
 	material := plan.MaterialSummary[0]
-	if material.Name != "如目达摩生豆" || material.Unit != "g" || material.Qty != 7752 || material.ExactQty != 7752 {
+	if material.Name != "如目达摩生豆" || material.Unit != "kg" || material.Qty != 8 || math.Abs(material.ExactQty-7.752) > 0.000000001 {
 		t.Fatalf("material summary=%+v, want loss applied once rather than old yield plus line loss", material)
 	}
 }
@@ -317,9 +317,9 @@ func TestProductionPlanAPIKeepsSameSKUWithDifferentFrozenParentsIsolated(t *test
 			(55312,1,'如目达摩',1,'454g','454g','454g',789,0,0,
 			 '{"production_quantity_snapshot":{"sku_id":789,"parent_product_id":645,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published"}}'::jsonb);
 
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
-			(9011,'RAW-A','旧父商品原料','bean','kg',0,0,54,0),
-			(9012,'RAW-B','新父商品原料','bean','kg',0,0,54,0);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
+			(9011,'RAW-A','旧父商品原料','bean','kg','kg',0,0,54,0),
+			(9012,'RAW-B','新父商品原料','bean','kg','kg',0,0,54,0);
 		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes) VALUES
 			(55311,'旧父商品路线','active','标准烘焙机',20),
 			(55312,'新父商品路线','active','标准烘焙机',20);

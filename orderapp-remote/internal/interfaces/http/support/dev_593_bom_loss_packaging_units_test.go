@@ -49,10 +49,13 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 	}
 
 	costingSource := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go")))
-	for _, want := range []string{"NULLIF(m.cost_unit,'')", "NULLIF(m.unit,'')", "NOT IN ('ratio_pct','g_per_bag')"} {
+	for _, want := range []string{"NULLIF(m.unit,'')", "NOT IN ('ratio_pct','g_per_bag')"} {
 		if !strings.Contains(costingSource, want) {
 			t.Fatalf("costing repository missing fixed packaging cost marker %q", want)
 		}
+	}
+	if strings.Contains(costingSource, "m.cost_unit") {
+		t.Fatal("PR-599 supersedes cost_unit-first costing; fixed packaging must use the unified material inventory unit")
 	}
 
 	for _, rel := range []string{

@@ -784,14 +784,18 @@ func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialRe
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var materialName string
+	var materialName, materialUnit string
 	var beforeG, beforeUnits int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,''),onhand_g,onhand_units FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.MaterialID).Scan(&materialName, &beforeG, &beforeUnits); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,''),COALESCE(unit,''),onhand_g,onhand_units FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.MaterialID).Scan(&materialName, &materialUnit, &beforeG, &beforeUnits); err != nil {
 		if err == pgx.ErrNoRows {
 			return stockapp.MaterialReceiptResult{}, fmt.Errorf("material not found")
 		}
 		return stockapp.MaterialReceiptResult{}, err
 	}
+	if err := validateMaterialReceiptUnitAndQuantity(materialName, materialUnit, cmd.UnitCode, cmd.QtyG, cmd.QtyUnits); err != nil {
+		return stockapp.MaterialReceiptResult{}, err
+	}
+	cmd.UnitCode = materialUnit
 	afterG := beforeG + cmd.QtyG
 	afterUnits := beforeUnits + cmd.QtyUnits
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, r.schema), cmd.MaterialID, afterG, afterUnits); err != nil {
@@ -1388,13 +1392,25 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,''),onhand_g,onhand_units,COALESCE(unit,'') FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.ItemID).Scan(&name, &beforeG, &beforeUnits, &materialUnit); err != nil {
 			return "", 0, 0, 0, 0, err
 		}
+		unitCode := strings.TrimSpace(cmd.UnitCode)
+		if strings.TrimSpace(materialUnit) == "" {
+			return "", 0, 0, 0, 0, fmt.Errorf("物料“%s”的库存单位为空，请先完善物料档案", name)
+		}
+		if unitCode != "" && !sameInventoryUnit(unitCode, materialUnit) {
+			return "", 0, 0, 0, 0, fmt.Errorf("物料“%s”的盘点库存单位必须与物料档案一致：%s", name, materialUnit)
+		}
+		if unitCode == "" {
+			unitCode = materialUnit
+		}
 		targetG, targetUnits := cmd.TargetG, cmd.TargetUnits
 		if cmd.HasTargetQty {
-			unitCode := strings.TrimSpace(cmd.UnitCode)
-			if unitCode == "" {
-				unitCode = materialUnit
-			}
 			targetG, targetUnits = r.materialTargetQtyToLegacyTx(ctx, tx, unitCode, cmd.TargetQty)
+		} else if stockWeightUnitGrams(materialUnit) > 0 {
+			if targetUnits != 0 {
+				return "", 0, 0, 0, 0, fmt.Errorf("物料“%s”按重量计量，请填写重量数量", name)
+			}
+		} else if targetG != 0 {
+			return "", 0, 0, 0, 0, fmt.Errorf("物料“%s”按计数计量，请填写计数数量", name)
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, r.schema), cmd.ItemID, targetG, targetUnits); err != nil {
 			return "", 0, 0, 0, 0, err
@@ -1447,25 +1463,14 @@ func isWeightUnit(unitCode, unitType string) bool {
 	case "weight", "重量":
 		return true
 	}
-	switch strings.ToLower(strings.TrimSpace(unitCode)) {
-	case "g", "kg", "lb", "oz", "克", "千克":
-		return true
-	default:
-		return false
-	}
+	return stockWeightUnitGrams(unitCode) > 0
 }
 
 func weightQtyToGrams(unitCode string, qty float64) float64 {
-	switch strings.ToLower(strings.TrimSpace(unitCode)) {
-	case "kg", "千克":
-		return qty * 1000
-	case "lb":
-		return qty * 453.59237
-	case "oz":
-		return qty * 28.349523125
-	default:
-		return qty
+	if factor := stockWeightUnitGrams(unitCode); factor > 0 {
+		return qty * factor
 	}
+	return qty
 }
 
 func (r Repository) ensureWarehouseExistsTx(ctx context.Context, tx pgx.Tx, warehouse string) error {
