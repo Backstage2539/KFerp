@@ -45,7 +45,7 @@
             empty-text="当前物料没有可用批次"
           />
         </label>
-        <label v-if="isMaterialCostAdjustment"><span>目标成本（元/{{ selectedMaterialCostUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /><small>批次成本调整当前只支持重量物料。</small></label>
+        <label v-if="isMaterialCostAdjustment"><span>目标成本（元/{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /><small>批次成本调整当前只支持重量物料。</small></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" /></label>
         <label v-if="!isMaterialCostAdjustment">
           <span>仓库</span>
@@ -56,7 +56,7 @@
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>目标数量（{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.001" v-model.number="form.target_qty" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>目标散装g</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>成品目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
-        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本（元/{{ selectedMaterialCostUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本（元/{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
         <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="实物盘点差异 / 批次成本更正" /></label>
         <button class="primary" type="button" @click="submit" :disabled="saving || (isMaterialCostAdjustment && !isSelectedMaterialWeight)">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
       </div>
@@ -88,7 +88,6 @@ const currentOptions = computed(() => form.item_type === 'material'
   : products.value)
 const selectedMaterial = computed(() => materials.value.find((row) => Number(row.id || row.ID || 0) === Number(form.item_id || 0)) || null)
 const selectedMaterialUnitLabel = computed(() => selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '库存单位')
-const selectedMaterialCostUnitLabel = computed(() => materialCostUnit(selectedMaterial.value))
 const isSelectedMaterialWeight = computed(() => isMaterialWeight(selectedMaterial.value))
 const warehouseOptions = computed(() => {
   const kind = form.item_type === 'finished_product' ? 'finished' : ''
@@ -105,15 +104,7 @@ function itemLabel(row) {
 function batchLabel(row) {
   if (!row) return ''
   const kg = Number(row.remaining_g || 0) / 1000
-  return `${row.batch_code} · 剩余${kg.toFixed(3)}kg · ${Number(row.unit_cost || 0).toFixed(2)}元/${selectedMaterialCostUnitLabel.value}`
-}
-
-function materialCostUnit(material) {
-  const costUnit = String(material?.cost_unit || material?.CostUnit || '').trim()
-  if (costUnit) return costUnit
-  const inventoryUnit = String(material?.unit || material?.Unit || '').trim()
-  if (!inventoryUnit) return '成本计价单位'
-  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit.toLowerCase()) ? 'kg' : inventoryUnit
+  return `${row.batch_code} · 剩余${kg.toFixed(3)}kg · ${Number(row.unit_cost || 0).toFixed(2)}元/${selectedMaterialUnitLabel.value}`
 }
 
 function isMaterialWeight(material) {

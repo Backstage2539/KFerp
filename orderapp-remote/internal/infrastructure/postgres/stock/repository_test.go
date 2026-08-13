@@ -127,6 +127,150 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',3
 	}
 }
 
+func TestLegacyReceiveMaterialValidatesInventoryUnitAndQuantityDimension(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.materials (
+	id BIGINT PRIMARY KEY,code TEXT NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'bean',
+	unit TEXT NOT NULL DEFAULT 'kg',purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,onhand_g BIGINT NOT NULL DEFAULT 0,
+	onhand_units BIGINT NOT NULL DEFAULT 0,min_level_g BIGINT NOT NULL DEFAULT 0,
+	min_level_units BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.products (id BIGINT PRIMARY KEY,name TEXT NOT NULL);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(product_id,spec_g)
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,actor TEXT NOT NULL DEFAULT '',entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,action TEXT NOT NULL DEFAULT '',field TEXT,old_value TEXT,new_value TEXT,
+	meta JSONB,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO %s.materials(id,code,name,unit) VALUES
+	(30,'RAW-KG','千克原料','kg'),(31,'BAG-UNIT','计数包材','袋');
+`, schema, schema, schema, schema, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	repo := NewRepository(pool, schema)
+
+	if _, err := repo.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
+		MaterialID: 30, QtyG: 1000, UnitCost: 288, Operator: "legacy-purchase",
+	}); err != nil {
+		t.Fatalf("legacy empty unit_code compatibility: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		cmd  stockapp.MaterialReceiptCommand
+		want string
+	}{
+		{"kg plus g rejected", stockapp.MaterialReceiptCommand{MaterialID: 30, UnitCode: "g", QtyG: 1000, UnitCost: 288}, "库存单位必须与物料档案一致"},
+		{"bag plus box rejected", stockapp.MaterialReceiptCommand{MaterialID: 31, UnitCode: "盒", QtyUnits: 1, UnitCost: 2}, "库存单位必须与物料档案一致"},
+		{"kg with count rejected", stockapp.MaterialReceiptCommand{MaterialID: 30, UnitCode: "kg", QtyUnits: 1, UnitCost: 288}, "重量数量"},
+		{"bag with weight rejected", stockapp.MaterialReceiptCommand{MaterialID: 31, UnitCode: "袋", QtyG: 1000, UnitCost: 2}, "计数数量"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := repo.ReceiveMaterial(ctx, tc.cmd); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ReceiveMaterial error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestMaterialQuantityAdjustmentUsesLockedMaterialInventoryUnit(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,unit) VALUES
+			(32,'ADJ-KG','盘点千克原料','kg'),
+			(33,'ADJ-BAG','盘点计数包材','袋'),
+			(34,'ADJ-KG-LEGACY','旧接口千克原料','kg'),
+			(35,'ADJ-BAG-LEGACY','旧接口计数包材','袋');
+	`, schema))
+
+	for _, tc := range []struct {
+		name       string
+		cmd        stockapp.StockAdjustmentCommand
+		materialID int64
+	}{
+		{
+			name: "kg plus g rejected",
+			cmd: stockapp.StockAdjustmentCommand{
+				ItemType: "material", ItemID: 32, Warehouse: "raw_materials",
+				HasTargetQty: true, TargetQty: 1, UnitCode: "g", Reason: "盘点", Operator: "jj",
+			},
+			materialID: 32,
+		},
+		{
+			name: "bag plus box rejected",
+			cmd: stockapp.StockAdjustmentCommand{
+				ItemType: "material", ItemID: 33, Warehouse: "raw_materials",
+				HasTargetQty: true, TargetQty: 2, UnitCode: "盒", Reason: "盘点", Operator: "jj",
+			},
+			materialID: 33,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := repo.CreateAdjustment(ctx, tc.cmd); err == nil || !strings.Contains(err.Error(), "库存单位必须与物料档案一致") {
+				t.Fatalf("CreateAdjustment error = %v, want master unit mismatch", err)
+			}
+			var onhandG, onhandUnits int64
+			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1`, schema), tc.materialID).Scan(&onhandG, &onhandUnits); err != nil {
+				t.Fatal(err)
+			}
+			if onhandG != 0 || onhandUnits != 0 {
+				t.Fatalf("failed adjustment changed stock to %dg/%d units", onhandG, onhandUnits)
+			}
+		})
+	}
+
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 32, Warehouse: "raw_materials",
+		HasTargetQty: true, TargetQty: 2.5, Reason: "盘点", Operator: "jj",
+	}); err != nil {
+		t.Fatalf("empty unit_code falls back to kg master: %v", err)
+	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 33, Warehouse: "raw_materials",
+		HasTargetQty: true, TargetQty: 4, Reason: "盘点", Operator: "jj",
+	}); err != nil {
+		t.Fatalf("empty unit_code falls back to count master: %v", err)
+	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 34, Warehouse: "raw_materials",
+		TargetG: 1500, Reason: "旧接口盘点", Operator: "legacy",
+	}); err != nil {
+		t.Fatalf("legacy target_g compatibility: %v", err)
+	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 35, Warehouse: "raw_materials",
+		TargetUnits: 6, Reason: "旧接口盘点", Operator: "legacy",
+	}); err != nil {
+		t.Fatalf("legacy target_units compatibility: %v", err)
+	}
+	for _, want := range []struct {
+		id       int64
+		qtyG     int64
+		qtyUnits int64
+	}{{32, 2500, 0}, {33, 0, 4}, {34, 1500, 0}, {35, 0, 6}} {
+		var qtyG, qtyUnits int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1`, schema), want.id).Scan(&qtyG, &qtyUnits); err != nil {
+			t.Fatal(err)
+		}
+		if qtyG != want.qtyG || qtyUnits != want.qtyUnits {
+			t.Fatalf("material %d stock = %dg/%d units, want %dg/%d units", want.id, qtyG, qtyUnits, want.qtyG, want.qtyUnits)
+		}
+	}
+}
+
 func TestReceiveMaterialStoresNonWeightInventoryUnits(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()

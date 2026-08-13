@@ -82,8 +82,8 @@ func TestProduceStartHandlerPersistsInputG(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'橘皮乌龙',2,'袋','227g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-			VALUES (10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-001','卡蒂姆水洗','bean','kg','kg',1000,0,54,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
@@ -164,8 +164,8 @@ func TestProduceStartAPIMergesSameConcreteSKUOrdersAndKeepsAllOrderNos(t *testin
 				(1,1,'Uraga乌拉嘎',24,'袋','454g',1,50,1200),
 				(2,1,'Uraga乌拉嘎',2,'袋','454g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-			VALUES (10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-URAGA','乌拉嘎生豆','bean','kg','kg',30000,0,54,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status)
 			VALUES (10,'MB-URAGA',10,'乌拉嘎生豆',30000,30000,54,'active','pass');
@@ -241,10 +241,10 @@ func TestProduceStartAPIReturnsAggregatedWIPShortagesAcrossSelectedProducts(t *t
 			(1,1,'拼配A',3,'袋','227g',1,50,150),
 			(2,1,'拼配B',3,'袋','227g',2,60,180);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200),(2,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-WIP-A','不足生豆A','bean','g',1000,0,54,0),
-			(11,'RAW-WIP-B','不足生豆B','bean','g',1000,0,55,0);
+			(10,'RAW-WIP-A','不足生豆A','bean','kg','kg',1000,0,54,0),
+			(11,'RAW-WIP-B','不足生豆B','bean','kg','kg',1000,0,55,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES
 			(1,10,100.0000),
 			(2,11,100.0000);
@@ -291,11 +291,11 @@ func TestProduceFinishAPIMultiSpecRunCompletesAllLinkedOrders(t *testing.T) {
 			(1,'SO-MERGE-454','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1)),
 			(2,'SO-MERGE-227','2026-05-01',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-URAGA','乌拉嘎生豆','bean','g',30000,0,54,0),
-			(11,'BAG-454','454g豆袋','pack','个',0,30,1,0),
-			(12,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+			(10,'RAW-URAGA','乌拉嘎生豆','bean','kg','kg',30000,0,54,0),
+			(11,'BAG-454','454g豆袋','pack','个','个',0,30,1,0),
+			(12,'BAG-227','227g豆袋','pack','个','个',0,10,1,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (454,11),(227,12);
 		INSERT INTO %s.material_batches(id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status)
@@ -388,10 +388,10 @@ func TestProduceFinishAPIMultiSpecFinalAuditFailureRollsBackAllOutputs(t *testin
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'多规格审计回滚',50,true);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
-			(10,'RAW-MULTI-AUDIT','多规格生豆','bean','g',30000,0,54,0),
-			(11,'BAG-454-AUDIT','454g袋','pack','个',0,30,1,0),
-			(12,'BAG-227-AUDIT','227g袋','pack','个',0,10,1,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
+			(10,'RAW-MULTI-AUDIT','多规格生豆','bean','kg','kg',30000,0,54,0),
+			(11,'BAG-454-AUDIT','454g袋','pack','个','个',0,30,1,0),
+			(12,'BAG-227-AUDIT','227g袋','pack','个','个',0,10,1,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (454,11),(227,12);
 		INSERT INTO %s.produce_running_items(
@@ -529,10 +529,10 @@ func TestProduceFinishAPIKeepsOrderInProductionWhenOtherItemsRemainUnproduced(t 
 			(1,1,'半产状态A',2,'袋','227g',1,50,100),
 			(1,2,'半产状态B',1,'袋','454g',2,60,60);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200),(2,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-PARTIAL-A','半产A生豆','bean','g',1000,0,54,0),
-			(11,'RAW-PARTIAL-B','半产B生豆','bean','g',1000,0,54,0);
+			(10,'RAW-PARTIAL-A','半产A生豆','bean','kg','kg',1000,0,54,0),
+			(11,'RAW-PARTIAL-B','半产B生豆','bean','kg','kg',1000,0,54,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000),(2,11,100.0000);
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-PARTIAL-A", "半产A生豆", 1000)
@@ -596,19 +596,23 @@ func TestProduceFinishHandlerWritesProductionLog(t *testing.T) {
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-TEST-FINISH','2026-04-25',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0),
-			(11,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+			(10,'RAW-001','卡蒂姆水洗','bean','kg','kg',1000,0,54,0),
+			(11,'BAG-227','227g豆袋','pack','个','个',0,10,1,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
 		INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g) VALUES (1,227,1,0);
 		INSERT INTO %s.produce_running_items(
 			id,batch_id,product_id,product_name,spec_g,need_g,order_nos,status,
-			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g
+			started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot
 		) VALUES (
 			1,'BATCH-TEST-001',1,'橘皮乌龙',227,454,'SO-TEST-FINISH','running',
-			'测试员',now(),600,0.8200,2,0
+			'测试员',now(),600,0.8200,2,0,
+			'[
+				{"material_id":10,"material_name":"卡蒂姆水洗","unit":"g","source":"bom","consume_unit":"ratio_pct","ratio_pct":100},
+				{"material_id":11,"material_name":"227g豆袋","unit":"个","source":"packaging","consume_unit":"unit_per_bag","qty_per_unit":1}
+			]'::jsonb
 		);
 		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-RAW-001", "卡蒂姆水洗", 1000)
@@ -732,10 +736,10 @@ func TestProduceFinishAPIUsesEditedInputForFullCompletion(t *testing.T) {
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-EDITED-INPUT','2026-05-02',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0),
-			(11,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+			(10,'RAW-001','卡蒂姆水洗','bean','kg','kg',1000,0,54,0),
+			(11,'BAG-227','227g豆袋','pack','个','个',0,10,1,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
 		INSERT INTO %s.produce_running_items(
@@ -804,10 +808,10 @@ func TestProduceFinishAPIRejectsOutputGreaterThanConsumedInputWithoutWritingArti
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-OUTPUT-GT-INPUT','2026-05-14',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-OUTPUT-GT-INPUT','异常产出生豆','bean','g',1000,0,54,0),
-			(11,'BAG-227-OUTPUT-GT-INPUT','227g异常袋','pack','个',0,10,1,0);
+			(10,'RAW-OUTPUT-GT-INPUT','异常产出生豆','bean','kg','kg',1000,0,54,0),
+			(11,'BAG-227-OUTPUT-GT-INPUT','227g异常袋','pack','个','个',0,10,1,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
 		INSERT INTO %s.produce_running_items(
@@ -882,10 +886,10 @@ func TestProduceFinishAPIRejectsHeldWIPBatchWithoutWritingFinishArtifacts(t *tes
 		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
 			(1,'SO-HELD-WIP-FINISH','2026-05-14',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-HOLD','冻结 WIP 生豆','bean','g',1000,0,54,0),
-			(11,'BAG-227-HOLD','227g豆袋','pack','个',0,10,1,0);
+			(10,'RAW-HOLD','冻结 WIP 生豆','bean','kg','kg',1000,0,54,0),
+			(11,'BAG-227-HOLD','227g豆袋','pack','个','个',0,10,1,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
 		INSERT INTO %s.produce_running_items(
@@ -961,10 +965,10 @@ func TestProduceFinishHandlerWritesStockLedgerAndFinishedBatch(t *testing.T) {
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'橘皮乌龙',50,true);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-001','卡蒂姆水洗','bean','g',1000,0,54,0),
-			(11,'BAG-227','227g豆袋','pack','个',0,10,1,0);
+			(10,'RAW-001','卡蒂姆水洗','bean','kg','kg',1000,0,54,0),
+			(11,'BAG-227','227g豆袋','pack','个','个',0,10,1,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		INSERT INTO %s.packaging_spec_material_map(spec_g,material_id) VALUES (227,11);
 		INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g) VALUES (1,227,1,20);
@@ -1076,10 +1080,10 @@ func TestProduceStartFreezesMaterialSnapshotForFinishAndWorkOrder(t *testing.T) 
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'橘皮乌龙',2,'袋','227g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8200);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 			VALUES
-			(10,'RAW-A','孟连水洗5T批次','bean','g',1000,0,54,0),
-			(12,'RAW-B','后改B批次','bean','g',1000,0,60,0);
+			(10,'RAW-A','孟连水洗5T批次','bean','kg','kg',1000,0,54,0),
+			(12,'RAW-B','后改B批次','bean','kg','kg',1000,0,60,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-SNAPSHOT-A", "孟连水洗5T批次", 1000)
@@ -1189,8 +1193,8 @@ func TestProduceStartAPIUsesSubmittedInputG(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-			VALUES (10,'RAW-COOKIE','曲奇拼配生豆','bean','g',3000,0,54,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-COOKIE','曲奇拼配生豆','bean','kg','kg',3000,0,54,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 		`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-COOKIE", "曲奇拼配生豆", 3000)
@@ -1239,8 +1243,8 @@ func TestProduceStartRepositoryRejectsStaleNeedAlreadyRunning(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'重复开始豆',2,'袋','227g',1,50,100);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-			VALUES (10,'RAW-DUP','重复开始生豆','bean','g',3000,0,54,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-DUP','重复开始生豆','bean','kg','kg',3000,0,54,0);
 		INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct) VALUES (1,10,100.0000);
 	`, schema, schema, schema, schema, schema, schema, schema, schema))
 	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-DUP-START", "重复开始生豆", 3000)
@@ -1409,8 +1413,8 @@ func TestHistoricalWorkOrderStartUsesReservationRequirementsWhenMaterialSnapshot
 	workOrder := submitted.WorkOrders[0]
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-		VALUES (11,'RAW-HIST','历史预约生豆','bean','g',600,0,60,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (11,'RAW-HIST','历史预约生豆','bean','kg','kg',600,0,60,0);
 		UPDATE %s.work_orders SET material_snapshot='[]'::jsonb WHERE id=%d;
 		INSERT INTO %s.work_order_material_reservations(
 			work_order_id,running_item_id,material_id,material_name,unit,
@@ -1469,6 +1473,36 @@ func TestReleasedWorkOrderIssueMakesWIPReadyThenStarts(t *testing.T) {
 		t.Fatalf("submitted work orders = %+v, want one", submitted.WorkOrders)
 	}
 	workOrder := submitted.WorkOrders[0]
+	// Simulate a work order frozen before the material master was normalized
+	// from g to kg. Historical snapshots and reservations must remain g while
+	// all inventory movements continue to use canonical grams.
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %[1]s.production_plan_items
+		SET component_snapshot_json=(
+			SELECT COALESCE(jsonb_agg(jsonb_set(elem,'{unit}','"g"'::jsonb)),'[]'::jsonb)
+			FROM jsonb_array_elements(component_snapshot_json) elem
+		)
+		WHERE production_plan_id=%[2]d;
+		UPDATE %[1]s.work_orders
+		SET material_snapshot=(
+			SELECT COALESCE(jsonb_agg(jsonb_set(elem,'{unit}','"g"'::jsonb)),'[]'::jsonb)
+			FROM jsonb_array_elements(material_snapshot) elem
+		)
+		WHERE id=%[3]d;
+		UPDATE %[1]s.work_order_material_reservations SET unit='g' WHERE work_order_id=%[3]d;
+		INSERT INTO %[1]s.work_order_material_reservations(
+			work_order_id,running_item_id,material_id,material_name,unit,
+			required_g,required_units,reserved_g,reserved_units,status
+		)
+		SELECT %[3]d,0,10,'卡蒂姆水洗','g',600,0,0,0,'reserved'
+		WHERE NOT EXISTS(
+			SELECT 1 FROM %[1]s.work_order_material_reservations
+			WHERE work_order_id=%[3]d AND material_id=10
+		);
+	`, schema, plan.ID, workOrder.ID))
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", fmt.Sprintf(
+		"work_order_id=%d AND unit='g' AND required_g=600 AND status='reserved'", workOrder.ID,
+	), 1)
 	before, err := productionRepo.GetWorkOrderWIPCoverage(ctx, workOrder.ID)
 	if err != nil {
 		t.Fatalf("coverage before issue: %v", err)
@@ -1481,7 +1515,7 @@ func TestReleasedWorkOrderIssueMakesWIPReadyThenStarts(t *testing.T) {
 	if _, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
 		Purpose: stockapp.PurposeMaterialReceipt, Operator: "仓库员",
 		Items: []stockapp.StockDocumentItemCommand{{
-			MaterialID: 10, ItemType: "material", InventoryUnit: "g", QtyG: 600, UnitCost: 54,
+			MaterialID: 10, ItemType: "material", InventoryUnit: "kg", QtyG: 600, UnitCost: 54,
 		}},
 	}); err != nil {
 		t.Fatalf("material receipt: %v", err)
@@ -1489,7 +1523,7 @@ func TestReleasedWorkOrderIssueMakesWIPReadyThenStarts(t *testing.T) {
 	issue, err := stockService.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
 		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: workOrder.ID, Operator: "仓库员",
 		Items: []stockapp.StockDocumentItemCommand{{
-			MaterialID: 10, ItemType: "material", InventoryUnit: "g", QtyG: 600,
+			MaterialID: 10, ItemType: "material", InventoryUnit: "kg", QtyG: 600,
 		}},
 	})
 	if err != nil {
@@ -1753,8 +1787,8 @@ func TestProduceStartAPIDefaultsMissingInputFromPlanWithoutBlockingWork(t *testi
 			INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 			VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
 			INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
-			INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-			VALUES (10,'RAW-NOINPUT','缺省投料生豆','bean','g',3000,0,54,0);
+			INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-NOINPUT','缺省投料生豆','bean','kg','kg',3000,0,54,0);
 			INSERT INTO %s.product_bom_items(product_id,material_id,ratio_pct)
 			VALUES (1,10,100.0000);
 		`, schema, schema, schema, schema, schema, schema, schema, schema))
@@ -1833,8 +1867,8 @@ func TestProduceWIPReservationAdjustAPIExcludesHeldWIPFromReturnedAvailability(t
 	ctx := context.Background()
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-			VALUES (10,'RAW-WIP-QUALITY','WIP质量隔离生豆','bean','g',1500,0,54,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+			VALUES (10,'RAW-WIP-QUALITY','WIP质量隔离生豆','bean','kg','kg',1500,0,54,0);
 		INSERT INTO %s.work_orders(
 			id,work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status
 		) VALUES
@@ -2279,8 +2313,8 @@ func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pg
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'计划拼配',2,'袋','227g',1,50,100);
 
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-		VALUES (10,'RAW-PLAN','计划生豆','bean','g',1000,0,54,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (10,'RAW-PLAN','计划生豆','bean','kg','kg',1000,0,54,0);
 		INSERT INTO %s.production_boms(id,code,name,output_product_id,status)
 		VALUES (100,'PBOM-PLAN','计划拼配 BOM',1,'active');
 		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,published_at)

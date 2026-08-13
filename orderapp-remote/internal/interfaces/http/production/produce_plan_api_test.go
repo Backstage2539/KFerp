@@ -31,10 +31,10 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'曲奇拼配',1,'袋','1000g',1,50,50);
 		INSERT INTO %s.product_bom(product_id,yield_rate) VALUES (1,0.8000);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 		VALUES
-			(10,'RAW-A','豆子A','bean','g',0,0,10,0),
-			(11,'RAW-B','豆子B','bean','g',0,0,10,0);
+			(10,'RAW-A','豆子A','bean','kg','kg',0,0,10,0),
+			(11,'RAW-B','豆子B','bean','kg','kg',0,0,10,0);
 		INSERT INTO %s.material_batches(
 			id,batch_code,material_id,material_name,received_g,remaining_g,unit_cost,status,quality_status
 		) VALUES
@@ -64,8 +64,8 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 		`"materials"`,
 		`"plan_rows"`,
 		`"final_input_g":2000`,
-		`"qty":750`,
-		`"qty":250`,
+		`"qty":0.75`,
+		`"qty":0.25`,
 		`"wip_g":100`,
 		`"available_g":100`,
 		`"raw_g":400`,
@@ -107,9 +107,9 @@ func TestProducePlanSummaryAPIUsesLatestDefaultProductionBomMaterials(t *testing
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal response: %v\n%s", err, rec.Body.String())
 	}
-	assertAPIPlanMaterial(t, payload.Materials, "哥伦比亚EP", 228, "g")
-	assertAPIPlanMaterial(t, payload.Materials, "孟连水洗A", 568, "g")
-	assertAPIPlanMaterial(t, payload.Materials, "生豆-巴布亚之光-石光", 342, "g")
+	assertAPIPlanMaterial(t, payload.Materials, "哥伦比亚EP", 0.228, "kg")
+	assertAPIPlanMaterial(t, payload.Materials, "孟连水洗A", 0.568, "kg")
+	assertAPIPlanMaterial(t, payload.Materials, "生豆-巴布亚之光-石光", 0.342, "kg")
 	if len(payload.RoastPlans) == 0 {
 		t.Fatalf("roast_plans empty: %s", rec.Body.String())
 	}
@@ -163,9 +163,9 @@ func TestProductionPlanAPIDetailKeepsLatestDefaultProductionBomMaterialSnapshot(
 			t.Fatalf("material snapshot missing %s: %+v", want, snapshotRows)
 		}
 	}
-	assertAPIPlanMaterial(t, detail.MaterialSummary, "哥伦比亚EP", 228, "g")
-	assertAPIPlanMaterial(t, detail.MaterialSummary, "孟连水洗A", 568, "g")
-	assertAPIPlanMaterial(t, detail.MaterialSummary, "生豆-巴布亚之光-石光", 342, "g")
+	assertAPIPlanMaterial(t, detail.MaterialSummary, "哥伦比亚EP", 0.228, "kg")
+	assertAPIPlanMaterial(t, detail.MaterialSummary, "孟连水洗A", 0.568, "kg")
+	assertAPIPlanMaterial(t, detail.MaterialSummary, "生豆-巴布亚之光-石光", 0.342, "kg")
 }
 
 func TestParseUnprodSummaryQueryIncludesDemandStatusFilter(t *testing.T) {
@@ -201,11 +201,11 @@ func seedThreeBeanProductionBomDemand(t *testing.T, ctx context.Context, pool *p
 		VALUES (556,'白巧坚果生产路线','active','测试烘焙机',20);
 		INSERT INTO %[1]s.process_route_operations(route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss)
 		VALUES (556,1,'烘焙','烘焙工位','测试烘焙机',20,true);
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 		VALUES
-			(5561,'RAW-COLOMBIA','哥伦比亚EP','bean','g',0,0,10,0),
-			(5562,'RAW-MENGLIAN','孟连水洗A','bean','g',0,0,10,0),
-			(5563,'RAW-PAPUA','生豆-巴布亚之光-石光','bean','g',0,0,10,0);
+			(5561,'RAW-COLOMBIA','哥伦比亚EP','bean','kg','kg',0,0,10,0),
+			(5562,'RAW-MENGLIAN','孟连水洗A','bean','kg','kg',0,0,10,0),
+			(5563,'RAW-PAPUA','生豆-巴布亚之光-石光','bean','kg','kg',0,0,10,0);
 		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status,updated_at)
 		VALUES (556,'BOM-000556','熟豆-白巧坚果拼配 BOM',556,'active','2026-06-01 00:00:00+00');
 		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,process_route_id,created_at,published_at)
@@ -230,12 +230,12 @@ func seedThreeBeanProductionBomDemand(t *testing.T, ctx context.Context, pool *p
 	`, schema))
 }
 
-func assertAPIPlanMaterial(t *testing.T, rows []productionapp.MaterialNeed, name string, qty int64, unit string) {
+func assertAPIPlanMaterial(t *testing.T, rows []productionapp.MaterialNeed, name string, exactQty float64, unit string) {
 	t.Helper()
 	for _, row := range rows {
 		if row.Name == name {
-			if row.Qty != qty || row.Unit != unit {
-				t.Fatalf("material %s = %+v, want qty=%d unit=%s", name, row, qty, unit)
+			if math.Abs(row.ExactQty-exactQty) > 0.000000001 || row.Qty != int64(math.Ceil(exactQty)) || row.Unit != unit {
+				t.Fatalf("material %s = %+v, want exact_qty=%v unit=%s", name, row, exactQty, unit)
 			}
 			return
 		}
@@ -401,8 +401,8 @@ func TestProducePlanSummaryAPIReturnsConfiguredBomMaterialLossRate(t *testing.T)
 		VALUES (1,'SO-BOM-LOSS-001','2026-07-27',false,(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理' LIMIT 1));
 		INSERT INTO %[1]s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'损耗摘要测试商品',1,'件','1000g',2,50,50);
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-		VALUES (10,'RAW-BOM-LOSS','损耗测试原料','bean','kg',0,0,10,0);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (10,'RAW-BOM-LOSS','损耗测试原料','bean','kg','kg',0,0,10,0);
 		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
 		VALUES (1,'BOM-LOSS-001','损耗摘要测试 BOM',1,'active');
 		INSERT INTO %[1]s.process_routes(id,name,status)
@@ -484,8 +484,8 @@ func TestProducePlanSummaryAPIUsesInheritedPublishedBomLossOnceWithoutMachineRou
 			break
 		}
 	}
-	if material == nil || material.Unit != "g" || material.Qty != 7752 || material.ExactQty != 7752 {
-		t.Fatalf("material demand = %+v in %+v, want 7752g with BOM loss applied as gross-input fraction exactly once", material, payload.Materials)
+	if material == nil || material.Unit != "kg" || material.Qty != 8 || math.Abs(material.ExactQty-7.752) > 0.000000001 {
+		t.Fatalf("material demand = %+v in %+v, want 7.752kg with BOM loss applied as gross-input fraction exactly once", material, payload.Materials)
 	}
 }
 
@@ -541,7 +541,7 @@ func TestProducePlanSummaryAPIIgnoresInProductionSiblingDemandForParentBomMateri
 			break
 		}
 	}
-	if material == nil || material.Unit != "g" || material.Qty != 7752 || material.ExactQty != 7752 {
+	if material == nil || material.Unit != "kg" || material.Qty != 8 || math.Abs(material.ExactQty-7.752) > 0.000000001 {
 		t.Fatalf("material plan must exclude the old in-production demand: material=%+v all=%+v", material, payload.Materials)
 	}
 
@@ -593,11 +593,11 @@ func TestProducePlanSummaryAPIPreviewsNoLossParentBomMaterialsWhenRouteMissing(t
 			55802,1,'初晓',14,'454g','454g','454g',765,0,0,
 			'{"production_quantity_snapshot":{"sku_id":765,"parent_product_id":619,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published_inventory_conversion"}}'::jsonb
 		);
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 		VALUES
-			(55821,'RAW-PR558-A','初晓原料A','bean','g',0,0,54,0),
-			(55822,'RAW-PR558-B','初晓原料B','bean','g',0,0,78,0),
-			(55823,'RAW-PR558-C','初晓原料C','bean','g',0,0,82,0);
+			(55821,'RAW-PR558-A','初晓原料A','bean','kg','kg',0,0,54,0),
+			(55822,'RAW-PR558-B','初晓原料B','bean','kg','kg',0,0,78,0),
+			(55823,'RAW-PR558-C','初晓原料C','bean','kg','kg',0,0,82,0);
 		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
 		VALUES (55802,'BOM-000619','初晓 生产 BOM',619,'active');
 		INSERT INTO %[1]s.production_bom_versions(
@@ -655,8 +655,8 @@ func TestProducePlanSummaryAPIPreviewsNoLossParentBomMaterialsWhenRouteMissing(t
 			t.Fatalf("preview must not fall back to fabricated no-BOM material: %+v", payload.Materials)
 		}
 	}
-	if len(materialNames) != 3 || math.Abs(exactTotal-6356) > 0.000000001 {
-		t.Fatalf("no-loss BOM materials=%+v exact_total=%v, want three BOM materials totaling 6356g", payload.Materials, exactTotal)
+	if len(materialNames) != 3 || math.Abs(exactTotal-6.356) > 0.000000001 {
+		t.Fatalf("no-loss BOM materials=%+v exact_total=%v, want three BOM materials totaling 6.356kg", payload.Materials, exactTotal)
 	}
 
 	createReq := httptest.NewRequest(
@@ -694,11 +694,11 @@ func TestProducePlanSummaryAPIDoesNotReplaceInvalidFormalBomWithAnotherRecipe(t 
 			55901,1,'显式草稿 BOM 商品',1,'454g','454g','454g',55901,0,0,
 			'{"production_quantity_snapshot":{"sku_id":55901,"parent_product_id":55901,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published_inventory_conversion"}}'::jsonb
 		);
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 		VALUES
-			(55911,'RAW-PR558-PUBLISHED','禁止替代的已发布配方','bean','g',0,0,54,0),
-			(55912,'RAW-PR558-DRAFT','显式草稿配方','bean','g',0,0,54,0),
-			(55913,'RAW-PR558-LEGACY','禁止替代的旧版配方','bean','g',0,0,54,0);
+			(55911,'RAW-PR558-PUBLISHED','禁止替代的已发布配方','bean','kg','kg',0,0,54,0),
+			(55912,'RAW-PR558-DRAFT','显式草稿配方','bean','kg','kg',0,0,54,0),
+			(55913,'RAW-PR558-LEGACY','禁止替代的旧版配方','bean','kg','kg',0,0,54,0);
 		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes)
 		VALUES (55901,'测试路线','active','测试设备',10);
 		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status)
@@ -760,8 +760,8 @@ func seedRumuParentBomLossDemand(t *testing.T, ctx context.Context, pool *pgxpoo
 			55701,1,'如目达摩',14,'454g','454g','454g',789,0,0,
 			'{"production_quantity_snapshot":{"sku_id":789,"parent_product_id":644,"spec_label":"454g","sales_unit":"454g","inventory_unit":"kg","inventory_qty_per_sales_unit":0.454,"conversion_source":"published_inventory_conversion"}}'::jsonb
 		);
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-		VALUES (55701,'RAW-PR557-RUMU','如目达摩生豆','bean','g',0,0,54,0);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (55701,'RAW-PR557-RUMU','如目达摩生豆','bean','kg','kg',0,0,54,0);
 		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes)
 		VALUES (55701,'如目达摩标准烘焙','active','智烘',20);
 		INSERT INTO %[1]s.process_route_operations(
@@ -987,10 +987,10 @@ func TestProducePlanSummaryAPIDripBagBoxCreatesDripDemandAndUpstreamShortage(t *
 			(1,0,0,'finished_product',2,0,'g_per_bag',10),
 			(1,21,0,'material',0,0,'unit_per_bag',1),
 			(1,22,0,'material',0,0,'unit_per_box',1);
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
 		VALUES
-			(21,'FILTER','挂耳滤袋','pack','个',0,100,1,0),
-			(22,'DRIP-BOX','挂耳盒','pack','个',0,10,1,0);
+			(21,'FILTER','挂耳滤袋','pack','个','个',0,100,1,0),
+			(22,'DRIP-BOX','挂耳盒','pack','个','个',0,10,1,0);
 		INSERT INTO %s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
 		VALUES ('样机',1000,'1000',100,true);
 		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))

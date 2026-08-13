@@ -1055,12 +1055,12 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		WITH material_valuation AS (
 			SELECT l.material_id,
 			       SUM((CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END) * COALESCE(b.unit_cost,0))
 			       / NULLIF(SUM(CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END),0) AS weighted_unit_cost
@@ -1127,7 +1127,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(bi.ratio_pct,0)::float8,
 		       COALESCE(bi.material_loss_rate,0)::float8,
 		       COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)::float8 AS unit_cost,
-		       COALESCE(NULLIF(m.cost_unit,''),'kg') AS unit_cost_unit,
+		       COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit,
 		       COALESCE(bi.bom_yield_rate,0)::float8 AS bom_yield_rate,
 		       COALESCE(NULLIF(bi.bom_output_qty,0),1)::float8 AS bom_output_qty,
 		       COALESCE(NULLIF(bi.bom_output_unit,''),'unit') AS bom_output_unit,
@@ -1397,12 +1397,12 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		WITH material_valuation AS (
 			SELECT l.material_id,
 			       SUM((CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END) * COALESCE(b.unit_cost,0))
 			       / NULLIF(SUM(CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END),0) AS weighted_unit_cost
@@ -1584,7 +1584,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box')
 			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') NOT IN ('ratio_pct','g_per_bag')
-			          AND lower(btrim(COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'))) = lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), '')))
+			          AND lower(btrim(COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'))) = lower(btrim(COALESCE(NULLIF(m.unit,''), '')))
 			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
 			         ELSE 0
 			       END),0) AS bom_cost_per_unit

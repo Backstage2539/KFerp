@@ -436,6 +436,51 @@ func TestResolveProductionBomCostsNormalizesFixedItemsByOutputBasis(t *testing.T
 	}
 }
 
+func TestResolveProductionBomCostsConvertsGramConsumptionFromKgInventoryPrice(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		1: {
+			ProductID:  1,
+			VersionID:  101,
+			YieldRate:  1,
+			OutputQty:  1,
+			OutputUnit: "个",
+			Items: []productionBomCostItem{{
+				ID:            1001,
+				ComponentType: "material",
+				ConsumeUnit:   "g",
+				QtyPerUnit:    227,
+				UnitCost:      288,
+				UnitCostUnit:  "kg",
+			}},
+		},
+	}
+
+	got := resolveProductionBomCosts(nodes)[1]
+	if !got.Resolved {
+		t.Fatalf("227g component cost was not resolved: %+v", got)
+	}
+	if diff := math.Abs(got.InputCostPerOutputUnit - 65.376); diff > 1e-9 {
+		t.Fatalf("227g at 288 yuan/kg = %.6f, want 65.376", got.InputCostPerOutputUnit)
+	}
+	if item := got.ItemCosts[1001]; math.Abs(item.ContributionPerOutputUnit-65.376) > 1e-9 || item.CostUnit != "kg" {
+		t.Fatalf("resolved item = %+v, want 65.376 yuan with inventory unit kg", item)
+	}
+}
+
+func TestProductionBomCostReadsPurchasePriceInMaterialInventoryUnit(t *testing.T) {
+	b, err := os.ReadFile("production_bom_cost.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if !strings.Contains(src, "COALESCE(NULLIF(m.unit,''), 'kg') AS unit_cost_unit") {
+		t.Fatal("production BOM costing must expose the material inventory unit as purchase-price unit")
+	}
+	if strings.Contains(src, "COALESCE(NULLIF(m.cost_unit,''), 'kg') AS unit_cost_unit") {
+		t.Fatal("production BOM costing must not use an independent material cost unit")
+	}
+}
+
 func TestCostingRepositorySharesResolvedProductionBomCostsBetweenPriceListAndTrial(t *testing.T) {
 	repositoryBytes, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -132,17 +132,18 @@ func ceilPlannedBatchCountForQty(plannedG int64, plannedPieceQty float64, batchS
 		}
 	}
 	plannedQty := float64(plannedG)
-	switch strings.ToLower(strings.TrimSpace(batchSizeUnit)) {
-	case "kg", "千克", "公斤":
-		plannedQty = plannedQty / 1000
-	case "g", "克":
-	case "件", "个", "袋", "盒", "包", "条", "unit", "units", "pc", "pcs", "piece", "pieces":
-		if plannedPieceQty <= 0 {
-			return 0
+	if factor := productionWeightUnitGrams(batchSizeUnit); factor > 0 {
+		plannedQty /= factor
+	} else {
+		switch strings.ToLower(strings.TrimSpace(batchSizeUnit)) {
+		case "件", "个", "袋", "盒", "包", "条", "unit", "units", "pc", "pcs", "piece", "pieces":
+			if plannedPieceQty <= 0 {
+				return 0
+			}
+			plannedQty = plannedPieceQty
+		default:
+			plannedQty = plannedQty / 1000
 		}
-		plannedQty = plannedPieceQty
-	default:
-		plannedQty = plannedQty / 1000
 	}
 	return int(math.Ceil(plannedQty / batchSizeQty))
 }

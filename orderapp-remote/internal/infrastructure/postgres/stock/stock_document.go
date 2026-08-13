@@ -464,7 +464,7 @@ func validateTypedStockManufactureCommand(
 		if item.ItemType != itemTypeMaterial || item.MaterialID != outputMaterialID || item.ProductID != 0 {
 			return fmt.Errorf("manufacture output identity must match frozen material output")
 		}
-		if strings.TrimSpace(item.InventoryUnit) == "" || !sameInventoryUnit(item.InventoryUnit, outputUnit) {
+		if strings.TrimSpace(item.InventoryUnit) == "" || !sameFrozenInventoryDimension(item.InventoryUnit, outputUnit) {
 			return fmt.Errorf("manufacture output inventory unit must match frozen work order output unit")
 		}
 		if stockWeightUnitGrams(outputUnit) > 0 {
@@ -784,7 +784,7 @@ func (r Repository) validateStockDocumentWorkOrderTx(ctx context.Context, tx pgx
 			validated.requirement = requirement
 		}
 		requirement := validated.requirement
-		if item.InventoryUnit != "" && requirement.InventoryUnit != "" && !sameInventoryUnit(item.InventoryUnit, requirement.InventoryUnit) {
+		if item.InventoryUnit != "" && requirement.InventoryUnit != "" && !sameFrozenInventoryDimension(item.InventoryUnit, requirement.InventoryUnit) {
 			return fmt.Errorf("material inventory unit does not match frozen work order requirement")
 		}
 		if requirement.RequiredG > 0 && requirement.RequiredUnits <= 0 && item.QtyUnits > 0 {
@@ -988,26 +988,23 @@ func stockFrozenMaterialRequirements(raw string, plannedG, plannedOutputG, plann
 				outputQty = 1
 			}
 			outputFactor := float64(plannedOutputG)
-			switch strings.ToLower(strings.TrimSpace(row.OutputUnit)) {
-			case "kg", "千克", "公斤":
-				outputFactor /= 1000
-			case "lb", "磅":
-				outputFactor /= 453.59237
+			if outputWeightFactor := stockWeightUnitGrams(row.OutputUnit); outputWeightFactor > 0 {
+				outputFactor /= outputWeightFactor
 			}
 			outputFactor /= outputQty
 			if weightFactor > 0 {
 				grams := row.QtyPerUnit * outputFactor * weightFactor
-				switch consumeUnit {
-				case "g":
-					grams = row.QtyPerUnit * outputFactor
-				case "kg":
-					grams = row.QtyPerUnit * outputFactor * 1000
-				case "g_per_bag":
-					grams = row.QtyPerUnit * float64(plannedUnits)
-				case "unit_per_bag":
-					grams = row.QtyPerUnit * float64(plannedUnits) * weightFactor
-				case "unit_per_box":
-					grams = 0
+				if consumeWeightFactor := stockWeightUnitGrams(consumeUnit); consumeWeightFactor > 0 {
+					grams = row.QtyPerUnit * outputFactor * consumeWeightFactor
+				} else {
+					switch consumeUnit {
+					case "g_per_bag":
+						grams = row.QtyPerUnit * float64(plannedUnits)
+					case "unit_per_bag":
+						grams = row.QtyPerUnit * float64(plannedUnits) * weightFactor
+					case "unit_per_box":
+						grams = 0
+					}
 				}
 				requiredG = int64(math.Ceil(grams))
 			} else {
@@ -1032,12 +1029,14 @@ func stockFrozenMaterialRequirements(raw string, plannedG, plannedOutputG, plann
 
 func stockWeightUnitGrams(unit string) float64 {
 	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "g", "克":
+	case "g", "gram", "grams", "克":
 		return 1
-	case "kg", "千克", "公斤":
+	case "kg", "kilogram", "kilograms", "千克", "公斤":
 		return 1000
-	case "lb", "磅":
+	case "lb", "lbs", "pound", "pounds", "磅":
 		return 453.59237
+	case "oz", "ounce", "ounces", "盎司":
+		return 28.349523125
 	default:
 		return 0
 	}
@@ -1101,7 +1100,12 @@ func sameInventoryUnit(a, b string) bool {
 	if a == b {
 		return true
 	}
-	aliases := map[string]string{"克": "g", "千克": "kg", "公斤": "kg", "磅": "lb"}
+	aliases := map[string]string{
+		"gram": "g", "grams": "g", "克": "g",
+		"kilogram": "kg", "kilograms": "kg", "千克": "kg", "公斤": "kg",
+		"lbs": "lb", "pound": "lb", "pounds": "lb", "磅": "lb",
+		"ounce": "oz", "ounces": "oz", "盎司": "oz",
+	}
 	if alias := aliases[a]; alias != "" {
 		a = alias
 	}
@@ -1109,6 +1113,38 @@ func sameInventoryUnit(a, b string) bool {
 		b = alias
 	}
 	return a == b
+}
+
+func sameFrozenInventoryDimension(currentUnit, frozenUnit string) bool {
+	if sameInventoryUnit(currentUnit, frozenUnit) {
+		return true
+	}
+	// Historical work orders freeze the unit text that was current when they
+	// were released. Weight quantities themselves are frozen and posted in
+	// canonical grams, so g/kg/lb labels remain execution-compatible without
+	// rewriting either the work order snapshot or its reservation.
+	return stockWeightUnitGrams(currentUnit) > 0 && stockWeightUnitGrams(frozenUnit) > 0
+}
+
+func validateMaterialReceiptUnitAndQuantity(materialName, materialUnit, explicitUnit string, qtyG, qtyUnits int64) error {
+	materialUnit = strings.TrimSpace(materialUnit)
+	explicitUnit = strings.TrimSpace(explicitUnit)
+	if materialUnit == "" {
+		return fmt.Errorf("物料“%s”的库存单位为空，请先完善物料档案", materialName)
+	}
+	if explicitUnit != "" && !sameInventoryUnit(explicitUnit, materialUnit) {
+		return fmt.Errorf("物料“%s”的入库库存单位必须与物料档案一致：%s", materialName, materialUnit)
+	}
+	if stockWeightUnitGrams(materialUnit) > 0 {
+		if qtyG <= 0 || qtyUnits != 0 {
+			return fmt.Errorf("物料“%s”按重量计量，请填写重量数量", materialName)
+		}
+		return nil
+	}
+	if qtyUnits <= 0 || qtyG != 0 {
+		return fmt.Errorf("物料“%s”按计数计量，请填写计数数量", materialName)
+	}
+	return nil
 }
 
 func eligibleWIPBalanceForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, materialID int64) (int64, int64, int64, int64, error) {
@@ -1205,6 +1241,9 @@ func (r Repository) postMaterialReceiptItemTx(ctx context.Context, tx pgx.Tx, de
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("material not found")
 		}
+		return err
+	}
+	if err := validateMaterialReceiptUnitAndQuantity(materialName, unit, item.InventoryUnit, item.QtyG, item.QtyUnits); err != nil {
 		return err
 	}
 	beforeG, beforeUnits, err := materialWarehouseBalanceTx(ctx, tx, r.schema, item.MaterialID, item.ToWarehouse)

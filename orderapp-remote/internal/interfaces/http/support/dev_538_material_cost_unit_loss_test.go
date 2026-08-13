@@ -31,9 +31,10 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 		filepath.Join("internal", "infrastructure", "postgres", "materials", "schema.go"): {
 			"cost_unit TEXT NOT NULL DEFAULT 'kg'",
 			"ALTER COLUMN cost_unit SET DEFAULT 'kg'",
+			"materials_unit_cost_unit_match",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "materials", "repository.go"): {
-			"assertMaterialCostUnitReadOnly", "成本计价单位", "cost_unit",
+			"assertMaterialCostUnitMatchesInventoryUnit", "采购价与成本单价单位必须与库存单位一致", "cost_unit",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go"): {
 			"yieldRate := 1.0",
@@ -42,28 +43,28 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"production_bom_versions ALTER COLUMN yield_rate SET DEFAULT 1.0000",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
-			"m.cost_unit", "unit_cost_unit",
+			"m.unit", "unit_cost_unit",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"标准制造成本", "配方比例", "原料加耗", "计价比例",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"): {
-			"采购价与成本单价单位", "采购价与成本单价单位保存后不可修改", "不用于库存数量", "采购价（元/{{ draft.cost_unit }}）",
+			"重量物料库存统一使用 kg", "采购价、批次单位成本和 BOM 成本试算均按库存单位计价", "采购价（元/{{ draft.unit }}）", "cost_unit: draftMode.value ? draft.value.unit",
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
-			"PR-538-MATERIAL-COST-UNIT-LOSS", "成本计价单位", "yield_rate=1", "80.50元/kg", "82.54元/kg", "生产环境禁止部署",
+			"PR-538-MATERIAL-COST-UNIT-LOSS", "PR-599", "cost_unit", "始终等于 `unit`", "yield_rate=1", "80.50元/kg", "82.54元/kg",
 		},
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"): {
-			"PR-538-MATERIAL-COST-UNIT-LOSS", "cost_unit=kg", "连续放大", "102.68元/kg", "生产环境未部署、未写入、未切换入口",
+			"PR-538-MATERIAL-COST-UNIT-LOSS", "PR-599", "g/kg → kg/kg", "102.68元/kg",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-538-MATERIAL-COST-UNIT-LOSS", "重量物料", "cost_unit", "PR-592", "64.6875元/kg", "67.2942元/kg",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"K80. 物料成本计价单位与生产 BOM 损耗口径修正", "54元/kg", "yield_rate=0.8", "64.6875元/kg", "67.2942元/kg",
+			"K80. 物料成本计价单位与生产 BOM 损耗口径修正", "PR-599", "g/kg → kg/kg", "yield_rate=0.8", "64.6875元/kg", "67.2942元/kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"PR-538-MATERIAL-COST-UNIT-LOSS", "库存单位管数量，采购价与成本单价单位管单价", "采购价（元/kg）",
+			"PR-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION", "采购价单位就是库存单位", "重量物料主档只能选择 `kg`", "cost_unit",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-592-BOM-LOSS-GROSS-INPUT", "54元/kg", "64.6875元/kg", "67.2942元/kg", "83.47元/kg",
@@ -72,7 +73,7 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"PR-592-BOM-LOSS-GROSS-INPUT", "÷ (1 - 原料损耗率)", "唯一配置损耗",
 		},
 		filepath.Join("docs", "acceptance", "2026-07-16-material-cost-unit-loss.md"): {
-			"PR-538 物料成本计价单位与生产 BOM 损耗口径修正验收", "RED（实现前）", "GREEN（实现后定向验证）", "生产环境未部署、未写入、未切换入口",
+			"PR-538 物料成本计价单位与生产 BOM 损耗口径修正验收", "历史证据说明", "PR-599", "RED（实现前）", "GREEN（实现后定向验证）", "生产环境未部署、未写入、未切换入口",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -81,6 +82,17 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 				t.Fatalf("%s missing PR-538 marker %q", rel, want)
 			}
 		}
+	}
+
+	materialsView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue")))
+	for _, forbidden := range []string{"data-field=\"cost_unit\"", "采购价与成本单价单位保存后不可修改", "采购价（元/{{ draft.cost_unit }}）"} {
+		if strings.Contains(materialsView, forbidden) {
+			t.Fatalf("PR-538 historical contract must not restore superseded two-unit UI marker %q", forbidden)
+		}
+	}
+	costingRepository := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go")))
+	if strings.Contains(costingRepository, "m.cost_unit") {
+		t.Fatal("current costing must read the unified material inventory unit instead of the compatibility cost_unit field")
 	}
 
 	costingService := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "costing", "service.go")))

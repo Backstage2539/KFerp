@@ -67,25 +67,17 @@ const (
 )
 
 func isWeightMaterialUnit(unit string) bool {
-	unit = strings.ToLower(strings.TrimSpace(unit))
-	return unit == "g" || unit == "kg" || unit == "lb" || unit == "克" || unit == "千克" || unit == "公斤" || unit == "磅"
+	return productionWeightUnitGrams(unit) > 0
 }
 
 func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits int64) {
 	if qty <= 0 {
 		return 0, 0
 	}
-	unit = strings.ToLower(strings.TrimSpace(unit))
-	switch unit {
-	case "kg", "千克":
-		return qty * 1000, 0
-	case "lb", "磅":
-		return int64(math.Ceil(float64(qty) * 453.59237)), 0
-	case "g", "克":
-		return qty, 0
-	default:
-		return 0, qty
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return int64(math.Ceil(float64(qty) * factor)), 0
 	}
+	return 0, qty
 }
 
 func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, packedUnits int64, boxUnits int64) int64 {
@@ -118,6 +110,26 @@ func componentConsumptionWeightGramsWithMaterialLoss(consumeUnit string, qtyPerU
 	)
 }
 
+func componentMaterialConsumptionQuantitiesWithLoss(consumeUnit string, qtyPerUnit, ratioPct float64, materialUnit string, rawG, outputG, packedUnits, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64) (qty int64, qtyDecimal float64, deductG int64, deductUnits int64) {
+	qty = componentConsumptionQtyWithMaterialLoss(
+		consumeUnit, qtyPerUnit, ratioPct, materialUnit, rawG, outputG,
+		packedUnits, boxUnits, outputQty, outputUnit, materialLossRate,
+	)
+	if !isWeightMaterialUnit(materialUnit) {
+		deductG, deductUnits = materialNeedToDeduct(materialUnit, qty)
+		return
+	}
+	// Stock movements use canonical grams. Keep the fractional master-unit
+	// quantity for display, but never round it before calculating inventory.
+	deductG = componentConsumptionWeightGramsWithMaterialLoss(
+		consumeUnit, qtyPerUnit, ratioPct, materialUnit, rawG, outputG,
+		packedUnits, boxUnits, outputQty, outputUnit, materialLossRate,
+	)
+	qtyDecimal = float64(deductG) / productionWeightUnitGrams(materialUnit)
+	qty = int64(math.Ceil(qtyDecimal))
+	return
+}
+
 func componentConsumptionWeightGramsWithMaterialLossMode(consumeUnit string, qtyPerUnit, ratioPct float64, materialUnit string, rawG, outputG, packedUnits, boxUnits int64, outputQty float64, outputUnit string, materialLossRate float64, lossCalculationMode string) int64 {
 	normalized := normalizeBomConsumeUnit(consumeUnit)
 	if normalized == "ratio_pct" {
@@ -131,10 +143,8 @@ func componentConsumptionWeightGramsWithMaterialLossMode(consumeUnit string, qty
 	outputFactor := bomOutputBasisFactor(outputG, packedUnits, outputQty, outputUnit)
 	var grams float64
 	switch normalized {
-	case "g":
-		grams = qtyPerUnit * outputFactor
-	case "kg":
-		grams = qtyPerUnit * outputFactor * 1000
+	case "g", "gram", "grams", "克", "kg", "kilogram", "kilograms", "千克", "公斤", "lb", "lbs", "pound", "pounds", "磅", "oz", "ounce", "ounces", "盎司":
+		grams = qtyPerUnit * outputFactor * productionWeightUnitGrams(normalized)
 	case "g_per_bag":
 		grams = float64(packedUnits) * qtyPerUnit
 	case "unit_per_bag":
@@ -152,12 +162,16 @@ func componentConsumptionWeightGramsWithMaterialLossMode(consumeUnit string, qty
 
 func productionWeightUnitGrams(unit string) float64 {
 	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return 1000
-	case "lb", "磅":
-		return 453.59237
-	default:
+	case "g", "gram", "grams", "克":
 		return 1
+	case "kg", "kilogram", "kilograms", "千克", "公斤":
+		return 1000
+	case "lb", "lbs", "pound", "pounds", "磅":
+		return 453.59237
+	case "oz", "ounce", "ounces", "盎司":
+		return 28.349523125
+	default:
+		return 0
 	}
 }
 
@@ -207,10 +221,7 @@ func componentConsumptionQtyWithOutputBasis(consumeUnit string, qtyPerUnit float
 			return 0
 		}
 		if isWeightMaterialUnit(unit) {
-			if strings.EqualFold(unit, "kg") || unit == "千克" {
-				return int64(math.Ceil((float64(rawG) * ratio / 100.0) / 1000.0))
-			}
-			return int64(math.Ceil(float64(rawG) * ratio / 100.0))
+			return int64(math.Ceil((float64(rawG) * ratio / 100.0) / productionWeightUnitGrams(unit)))
 		}
 		return int64(math.Ceil(float64(packedUnits) * ratio / 100.0))
 	default:
@@ -224,14 +235,9 @@ func fixedOutputBasisConsumptionQty(consumeUnit string, qtyPerUnit float64, unit
 	}
 	factor := bomOutputBasisFactor(outputG, packedUnits, outputQty, outputUnit)
 	qty := qtyPerUnit * factor
-	switch normalizeBomConsumeUnit(consumeUnit) {
-	case "g":
-		if strings.EqualFold(unit, "kg") || unit == "千克" {
-			qty = qty / 1000.0
-		}
-	case "kg":
-		if strings.EqualFold(unit, "g") || unit == "克" {
-			qty = qty * 1000.0
+	if consumeFactor := productionWeightUnitGrams(normalizeBomConsumeUnit(consumeUnit)); consumeFactor > 0 {
+		if materialFactor := productionWeightUnitGrams(unit); materialFactor > 0 {
+			qty = qty * consumeFactor / materialFactor
 		}
 	}
 	return int64(math.Ceil(qty))
@@ -241,20 +247,8 @@ func bomOutputBasisFactor(outputG int64, packedUnits int64, outputQty float64, o
 	if outputQty <= 0 {
 		outputQty = 1
 	}
-	outputUnit = strings.ToLower(strings.TrimSpace(outputUnit))
-	switch outputUnit {
-	case "g", "克":
-		if outputG > 0 {
-			return float64(outputG) / outputQty
-		}
-	case "kg", "千克":
-		if outputG > 0 {
-			return float64(outputG) / (outputQty * 1000.0)
-		}
-	case "lb", "磅":
-		if outputG > 0 {
-			return float64(outputG) / (outputQty * 453.59237)
-		}
+	if factor := productionWeightUnitGrams(outputUnit); factor > 0 && outputG > 0 {
+		return float64(outputG) / (outputQty * factor)
 	}
 	if packedUnits > 0 {
 		return float64(packedUnits) / outputQty
@@ -414,20 +408,26 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		if outputG <= 0 {
 			outputG = r.NeedG
 		}
-		qty := componentConsumptionQtyWithMaterialLoss(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, outputG, packedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate)
-		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		qty, qtyDecimal, deductG, deductUnits := int64(0), float64(0), int64(0), int64(0)
 		source := "bom"
 		componentType := bi.componentType
 		if componentType == "finished_product" {
+			qty = componentConsumptionQtyWithMaterialLoss(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, outputG, packedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate)
 			source = "finished_product"
 			deductG = qty
 			deductUnits = 0
+		} else {
+			qty, qtyDecimal, deductG, deductUnits = componentMaterialConsumptionQuantitiesWithLoss(
+				bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, outputG,
+				packedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate,
+			)
 		}
 		needs = append(needs, materialConsumptionNeed{
 			MaterialID:         bi.materialID,
 			MaterialName:       strings.TrimSpace(bi.name),
 			Unit:               unit,
 			Qty:                qty,
+			QtyDecimal:         qtyDecimal,
 			DeductG:            deductG,
 			DeductUnits:        deductUnits,
 			RatioPct:           bi.ratio,
@@ -615,20 +615,26 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		if bi.consumeUnit == "unit_per_box" {
 			boxUnits = ceilDiv64(totalPackedUnits, bi.dripBoxBagCount)
 		}
-		qty := componentConsumptionQtyWithMaterialLoss(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalOutputG, totalPackedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate)
-		deductG, deductUnits := materialNeedToDeduct(unit, qty)
+		qty, qtyDecimal, deductG, deductUnits := int64(0), float64(0), int64(0), int64(0)
 		source := "bom"
 		componentType := bi.componentType
 		if componentType == "finished_product" {
+			qty = componentConsumptionQtyWithMaterialLoss(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalOutputG, totalPackedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate)
 			source = "finished_product"
 			deductG = qty
 			deductUnits = 0
+		} else {
+			qty, qtyDecimal, deductG, deductUnits = componentMaterialConsumptionQuantitiesWithLoss(
+				bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalOutputG,
+				totalPackedUnits, boxUnits, bi.outputQty, bi.outputUnit, bi.materialLossRate,
+			)
 		}
 		needs = append(needs, materialConsumptionNeed{
 			MaterialID:         bi.materialID,
 			MaterialName:       strings.TrimSpace(bi.name),
 			Unit:               unit,
 			Qty:                qty,
+			QtyDecimal:         qtyDecimal,
 			DeductG:            deductG,
 			DeductUnits:        deductUnits,
 			RatioPct:           bi.ratio,

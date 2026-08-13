@@ -607,7 +607,7 @@ func convertProductionQuantity(qty float64, fromUnit, toUnit string) float64 {
 	if from == to {
 		return qty
 	}
-	toGrams := map[string]float64{"g": 1, "kg": 1000, "lb": 453.59237}
+	toGrams := map[string]float64{"g": 1, "kg": 1000, "lb": 453.59237, "oz": 28.349523125}
 	fromFactor, fromOK := toGrams[from]
 	toFactor, toOK := toGrams[to]
 	if !fromOK || !toOK {
@@ -624,6 +624,8 @@ func normalizeProductionQuantityUnit(unit string) string {
 		return "kg"
 	case "lb", "lbs", "pound", "pounds", "磅":
 		return "lb"
+	case "oz", "ounce", "ounces", "盎司":
+		return "oz"
 	default:
 		return strings.ToLower(strings.TrimSpace(unit))
 	}
