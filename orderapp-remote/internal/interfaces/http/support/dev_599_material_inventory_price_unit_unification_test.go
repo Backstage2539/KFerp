@@ -82,7 +82,7 @@ func TestDev599MaterialInventoryPriceUnitUnificationContracts(t *testing.T) {
 			"历史证据说明", "PR-599", "重量物料主档统一 kg",
 		},
 		filepath.Join("docs", "acceptance", "2026-08-14-material-inventory-price-unit-unification.md"): {
-			"PR-599", "## RED 证据", "## GREEN 证据", "真实 PostgreSQL", "development", "production",
+			"PR-599", "## RED 证据", "## GREEN 证据", "真实 PostgreSQL", "development deployed `3c632d86`", "production",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -105,7 +105,7 @@ func TestDev599MaterialInventoryPriceUnitUnificationContracts(t *testing.T) {
 			"PR-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION", "DEV-599-MATERIAL-UNIT-INVARIANT",
 			"DEV-599-LEGACY-WEIGHT-MIGRATION", "DEV-599-BOM-COST-CONVERSION",
 			"DEV-599-VUE-DOCS-DEVELOPMENT-DELIVERY", "REV-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION",
-			"main", "production", "不操作",
+			"development deployed `3c632d86`", "main", "production", "不操作",
 		},
 	} {
 		src, err := os.ReadFile(filepath.Join(repoRoot, rel))

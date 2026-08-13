@@ -28,7 +28,7 @@
 - frontend 全量：`node --test src/lib/*.test.js` 为 963 / 963；`scripts/verify_kferp.sh frontend-tests` 的完整发现集为 984 / 984；Vite 构建 6589 modules、2.15s 通过，仅保留既有大 chunk 提示。
 - 材料、成本、库存与正式 HTTP/API 的真实 PostgreSQL 全包通过；覆盖 `kg/kg` API、操作日志、迁移原子回滚与幂等、`materials_unit_cost_unit_match` 约束、自定义 t/吨 重量拒绝、袋等计件允许、原料入库/库存调整错单位与错数量维度整单回滚。
 - `227g → 0.227kg → 65.376元` 成本回归通过；生产仓储与 HTTP 真实 PostgreSQL 全包通过。kg 主档下 `600g/700g` 需求分别保留 `0.6/0.7kg` 精度，不再向上取整为 `1kg`；运行中或部分完成的历史 g 冻结工单/预约可继续领料、消耗和完工，冻结快照不改。
-- `scripts/verify_kferp.sh all` 通过，Go、Vue、Vite 和支持合同均为 GREEN。development 远端预检、数据库备份/恢复验证和部署仍待执行。
+- `scripts/verify_kferp.sh all` 通过，Go、Vue、Vite 和支持合同均为 GREEN。远端 preflight 与正式 development 构建再次通过 Vue 984/984、miniapp 205/205、typecheck、Go 全量、Vite/miniapp/Docker 构建。
 
 ## 真实 PostgreSQL 验收边界
 
@@ -39,6 +39,12 @@
 
 ## development 交付与 production 边界
 
-- 本需求最终只允许合入 `develop` 并部署 development。
+- feature `0be4c32d` 已正常合入 `develop`，development deployed `3c632d86`。
+- 部署前备份 `/opt/stacks/erp/backups/pr599-pre-unit-unification-20260813T191702Z-698413d9.dump`（13,854,860 bytes）已通过 `pg_restore --list` 和临时数据库完整恢复验证；临时恢复库验证后删除。
+- 发布源备份为 `/opt/stacks/erp/orderapp.backup.deploy-20260814031805-3c632d86b53c`，回滚镜像为 `kferp-orderapp-rollback:development-20260814031805-3c632d86b53c`。
+- 发布后 `erp_orderapp`、PostgreSQL 和文档转换容器均 running，restart=0，PostgreSQL healthy；开发登录页和物料页 HTTP 200，近 10 分钟迁移/panic/fatal 错误标记为 0。
+- 只读数据库核对：物料单位分布为 kg/kg 59、个/个 6、条/条 3，单位不一致 0；`materials_unit_cost_unit_match` 恰有一个且 validated。备份恢复库与部署后库的物料非单位字段、物料批次、BOM 版本/明细、工单指纹全部一致。
+- 固定开发小程序目录 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev` 的 RELEASE_INFO 为 `3c632d86` / development / `https://dev.qacoohee.com/app`，56 文件清单验证通过；本次没有上传微信体验版或正式版。
 - 不合入 `main`，不部署 production，不修改 production 业务数据。
+- 发布后核对 `main` 仍为 `53cee821`，production 未操作。
 - HTTP 200、自动化门禁和部署成功只证明发布健康，不代替 Van 的页面业务验收。
