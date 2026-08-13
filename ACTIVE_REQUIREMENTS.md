@@ -7,25 +7,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION
-- Branch: codex/material-unit-unification-20260814
+- Branch: codex/pr599-development-evidence-20260814（feature: codex/material-unit-unification-20260814）
 - Owner/session: Codex / 2026-08-14
-- Status: review；实现与本地/真实 PostgreSQL 自动验证 GREEN，独立集成审查、合入 `develop` 与 development 部署待完成
+- Status: development deployed `3c632d86`；本地、真实 PostgreSQL、远端构建、迁移与发布健康验证 GREEN；Van 页面验收 pending
 - Scope: 物料档案只保留一个库存单位，并由同一单位解释采购价、批次单位成本和 BOM 成本试算中的物料单价；重量物料主档只允许 kg，g/lb/oz 仅保留为 BOM 等业务用量换算。兼容字段 `cost_unit` 继续读写但必须与 `unit` 相同。历史 `unit=g/lb/... + cost_unit=kg` 重量物料升级为 `kg/kg`，规范克库存余额仍保留同一重量，既有批次成本、已发布 BOM、工单、价格表和订单快照不改写。BOM 仍可用 `227g` 等用量，经单位换算后扣减 `0.227kg` 并按元/kg计价。
 - DEV:
   - DEV-599-MATERIAL-UNIT-INVARIANT（done，PostgreSQL/API GREEN）：物料 API 新建、更新与兼容响应保证 `cost_unit=unit`；重量主档仅 kg，自定义重量单位也被拒绝；单位锁定和操作日志合同保持。
   - DEV-599-LEGACY-WEIGHT-MIGRATION（done，PostgreSQL GREEN）：历史重量物料在锁表单一事务内幂等迁移到 `kg/kg`，未知不一致整体回滚；不改规范克库存、批次成本与冻结业务快照，历史 g/lb/oz 冻结执行继续兼容。
   - DEV-599-BOM-COST-CONVERSION（done，PostgreSQL/production GREEN）：BOM 用量单位继续独立换算，`227g × 288元/kg = 65.376元`；`600g/700g` 精确扣减，不向上取整为 1kg。
-  - DEV-599-VUE-DOCS-DEVELOPMENT-DELIVERY（doing，local GREEN）：物料档案删除独立成本单位字段，采购价标签跟随库存单位；原料入库与库存调整锁主档单位；需求、验收、手册与支持合同已同步，待正常合入并仅部署 development。
+  - DEV-599-VUE-DOCS-DEVELOPMENT-DELIVERY（done，development delivered）：物料档案删除独立成本单位字段，采购价标签跟随库存单位；原料入库与库存调整锁主档单位；需求、验收、手册与支持合同已同步并部署 development。
 - Verifier:
   - RED frontend：`node --test src/lib/materials-ui.test.js` 为 17/18，通过项外仅新“库存单位也是采购/成本单位”合同失败。
   - RED support：`TestDev599MaterialInventoryPriceUnitUnificationContracts` 因 PR-599 种子尚未登记失败；PR-538 / PR-561 / PR-593 陈旧合同随后准确暴露被新口径替代的守卫。
   - GREEN frontend/support：`materials-ui.test.js` 19/19；frontend `src/lib` 963/963；完整发现集 984/984；Vite 6589 modules / 2.15s；PR-538 / 561 / 593 / 599 定向与 support 全包 GREEN。
   - GREEN backend/PostgreSQL：materials、costing、stock、production 的 domain/application/repository/HTTP 真实 PostgreSQL 套件通过；production HTTP 70.269s。覆盖原子迁移、自定义重量、审计、227g 成本、600/700g 精确扣减、入库/调整单位锁和历史冻结执行兼容。
   - GREEN full gate：`scripts/verify_kferp.sh all` 通过；`git diff --check` 通过。
-- Deployment: 本需求完成自动化门禁后合入 `develop` 并部署 development；`main` 与 production 明确不操作。
+- Deployment: feature `0be4c32d` 已正常合入 `develop@3c632d86` 并部署 development；备份 `/opt/stacks/erp/backups/pr599-pre-unit-unification-20260813T191702Z-698413d9.dump` 已完成恢复验证。`erp_orderapp` running/restart=0，开发登录与物料页 HTTP 200；59 条重量物料为 kg/kg、单位不一致 0、约束 validated，部署前后业务字段/批次/BOM/工单指纹一致。`main@53cee821` 与 production 未操作。
 - Review: REV-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION（todo，Van development acceptance）。
 - Last update: 2026-08-14 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串报错；按下一可用编号手工登记 PR-599。
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串报错；按下一可用编号手工登记 PR-599。远端 preflight 与 deployment 均通过 Vue 984/984、miniapp 205/205、typecheck、Go 全量、Vite/miniapp/Docker 构建；固定开发小程序产物同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`。自动化/发布健康不代替 Van 页面业务验收。
 
 ### PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING
 - Branch: codex/pr598-delivery-evidence-20260812（feature source: codex/pr598-material-output-multilevel-manufacturing）
