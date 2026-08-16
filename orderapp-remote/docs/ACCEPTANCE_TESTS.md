@@ -1369,7 +1369,7 @@
 
 ### K64. 生产 BOM 原料损耗比（PR-508-BOM-MATERIAL-LOSS-RATIO / PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL）
 - [ ] PR-511-BOM-MATERIAL-LOSS-BOM-LEVEL：生产 BOM 版本设置区可打开 `原料损耗比` 并填写 `损耗比例 %`；关闭时版本 `material_loss_rate` 为 0。
-- [ ] PR-600 已取代 PR-593-BOM-LOSS-PACKAGING-UNITS / PR-594-PRICING-BOM-DEBUG-WORKFLOW 的双区域口径：页面只显示一个组件列表；开启损耗后全部组件必须是物料比例，关闭损耗后配方只能全比例或全固定，固定模式的包材按自身库存单位计入标准制造成本。
+- [ ] PR-600 已取代 PR-593-BOM-LOSS-PACKAGING-UNITS / PR-594-PRICING-BOM-DEBUG-WORKFLOW 的双区域口径：页面只显示一个组件列表；开启损耗后全部组件必须是物料比例，关闭损耗后配方只能全比例或全固定，固定用量包材按自身库存单位计入标准制造成本。
 - [ ] 保存 `ratio_pct=40`、版本 `material_loss_rate=0.2` 后，BOM 详情 API 和页面明细能展示该字段；复制和发布 BOM 版本后该字段保留。
 - [ ] 商品组件、固定数量物料或其他消耗单位传入 `material_loss_rate` 时，后端归零，页面不在组件行展示损耗输入。
 - [ ] 生产计划、工单冻结、WIP 占用、生产扣料和完工消耗统一使用损耗后总投料需求量；`1kg × 40% ÷ (1 - 20%) = 0.5kg`。
