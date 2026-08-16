@@ -3,8 +3,10 @@ package materials
 import (
 	"context"
 	"fmt"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -47,6 +49,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureMaterialUnitCostUnitConstraint(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureSemiFinishedPurchasePriceConstraint(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureBeanProfileSchema(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -86,6 +91,253 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_id BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_code TEXT NOT NULL DEFAULT ''`, schema))
 	return nil
+}
+
+func ensureSemiFinishedPurchasePriceConstraint(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`LOCK TABLE %s.materials IN SHARE ROW EXCLUSIVE MODE`, schema)); err != nil {
+		return err
+	}
+
+	type legacyPrice struct {
+		id    int64
+		price float64
+	}
+	legacy := make([]legacyPrice, 0)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id,purchase_price::float8
+		FROM %s.materials
+		WHERE COALESCE(is_semi_finished,false)=true AND purchase_price<>0
+		ORDER BY id
+	`, schema))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var row legacyPrice
+		if err := rows.Scan(&row.id, &row.price); err != nil {
+			rows.Close()
+			return err
+		}
+		legacy = append(legacy, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(legacy) > 0 {
+		materialIDs := make([]int64, 0, len(legacy))
+		for _, row := range legacy {
+			materialIDs = append(materialIDs, row.id)
+		}
+		if err := lockSemiFinishedInboundTablesTx(ctx, tx, schema); err != nil {
+			return err
+		}
+		if err := assertNoUnfinishedSemiFinishedInboundTx(ctx, tx, schema, materialIDs); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.materials
+			SET purchase_price=0,updated_at=now()
+			WHERE COALESCE(is_semi_finished,false)=true AND purchase_price<>0
+		`, schema)); err != nil {
+			return err
+		}
+	}
+
+	var auditTableExists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".audit_logs").Scan(&auditTableExists); err != nil {
+		return err
+	}
+	if auditTableExists {
+		for _, row := range legacy {
+			if err := postgresinfra.AuditInsertTx(
+				ctx, tx, schema, "system:migration", "material", &row.id, "normalize",
+				postgresinfra.StrPtr("purchase_price"), postgresinfra.StrPtr(fmt.Sprintf("%.2f", row.price)), postgresinfra.StrPtr("0.00"),
+				postgresinfra.AuditMeta{"reason": "semi_finished_manufacture_only"},
+			); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+DO $materials_semi_finished_purchase_price_constraint$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid=c.conrelid
+		JOIN pg_namespace n ON n.oid=t.relnamespace
+		WHERE n.nspname='%[1]s'
+		  AND t.relname='materials'
+		  AND c.conname='materials_semi_finished_purchase_price_zero'
+	) THEN
+		ALTER TABLE %[1]s.materials
+			ADD CONSTRAINT materials_semi_finished_purchase_price_zero
+			CHECK (NOT COALESCE(is_semi_finished,false) OR purchase_price=0) NOT VALID;
+	END IF;
+END
+$materials_semi_finished_purchase_price_constraint$;
+ALTER TABLE %[1]s.materials VALIDATE CONSTRAINT materials_semi_finished_purchase_price_zero;
+`, schema)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func materialManufactureOnlyLockKey(schema string, materialID int64) string {
+	return fmt.Sprintf("%s:material-manufacture-only:%d", strings.TrimSpace(schema), materialID)
+}
+
+func lockSemiFinishedInboundTablesTx(ctx context.Context, tx pgx.Tx, schema string) error {
+	for _, table := range []string{"purchase_orders", "purchase_receipts", "stock_entries", "stock_entry_items"} {
+		exists, err := materialTableExistsTx(ctx, tx, schema, table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`LOCK TABLE %s.%s IN SHARE ROW EXCLUSIVE MODE`, schema, table)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func assertNoUnfinishedSemiFinishedInboundTx(ctx context.Context, tx pgx.Tx, schema string, materialIDs []int64) error {
+	if len(materialIDs) == 0 {
+		return nil
+	}
+
+	if exists, err := materialTableExistsTx(ctx, tx, schema, "purchase_orders"); err != nil {
+		return err
+	} else if exists {
+		if err := requireMaterialColumnsTx(ctx, tx, schema, "purchase_orders", "material_id", "status"); err != nil {
+			return err
+		}
+		var blocked bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM %s.purchase_orders
+				WHERE material_id=ANY($1::bigint[])
+				  AND lower(btrim(COALESCE(status,''))) NOT IN ('received','completed','cancelled','canceled','closed')
+			)
+		`, schema), materialIDs).Scan(&blocked); err != nil {
+			return err
+		}
+		if blocked {
+			return fmt.Errorf("存在未完成采购单，拒绝将物料切换为半成品或清零历史采购价")
+		}
+	}
+
+	if exists, err := materialTableExistsTx(ctx, tx, schema, "purchase_receipts"); err != nil {
+		return err
+	} else if exists {
+		if err := requireMaterialColumnsTx(ctx, tx, schema, "purchase_receipts", "material_id"); err != nil {
+			return err
+		}
+		hasStatus, err := materialColumnExistsTx(ctx, tx, schema, "purchase_receipts", "status")
+		if err != nil {
+			return err
+		}
+		hasStockReceiptID, err := materialColumnExistsTx(ctx, tx, schema, "purchase_receipts", "stock_receipt_id")
+		if err != nil {
+			return err
+		}
+		condition := "true"
+		switch {
+		case hasStatus:
+			condition = "lower(btrim(COALESCE(status,''))) NOT IN ('received','submitted','completed','cancelled','canceled','closed')"
+		case hasStockReceiptID:
+			condition = "COALESCE(stock_receipt_id,0)<=0"
+		}
+		var blocked bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM %s.purchase_receipts
+				WHERE material_id=ANY($1::bigint[]) AND (%s)
+			)
+		`, schema, condition), materialIDs).Scan(&blocked); err != nil {
+			return err
+		}
+		if blocked {
+			return fmt.Errorf("存在未完成采购收货，拒绝将物料切换为半成品或清零历史采购价")
+		}
+	}
+
+	stockEntriesExist, err := materialTableExistsTx(ctx, tx, schema, "stock_entries")
+	if err != nil {
+		return err
+	}
+	stockItemsExist, err := materialTableExistsTx(ctx, tx, schema, "stock_entry_items")
+	if err != nil {
+		return err
+	}
+	if stockEntriesExist != stockItemsExist {
+		return fmt.Errorf("普通物料入库表结构不完整，无法确认是否存在未完成入库，拒绝继续")
+	}
+	if stockEntriesExist {
+		if err := requireMaterialColumnsTx(ctx, tx, schema, "stock_entries", "id", "purpose", "status"); err != nil {
+			return err
+		}
+		if err := requireMaterialColumnsTx(ctx, tx, schema, "stock_entry_items", "stock_entry_id", "material_id", "item_type"); err != nil {
+			return err
+		}
+		var blocked bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1
+				FROM %[1]s.stock_entries se
+				JOIN %[1]s.stock_entry_items si ON si.stock_entry_id=se.id
+				WHERE si.material_id=ANY($1::bigint[])
+				  AND lower(btrim(COALESCE(si.item_type,'')))='material'
+				  AND lower(btrim(COALESCE(se.purpose,'')))='material_receipt'
+				  AND lower(btrim(COALESCE(se.status,''))) NOT IN ('submitted','cancelled','canceled')
+			)
+		`, schema), materialIDs).Scan(&blocked); err != nil {
+			return err
+		}
+		if blocked {
+			return fmt.Errorf("存在未完成普通物料入库，拒绝将物料切换为半成品或清零历史采购价")
+		}
+	}
+	return nil
+}
+
+func requireMaterialColumnsTx(ctx context.Context, tx pgx.Tx, schema, table string, columns ...string) error {
+	for _, column := range columns {
+		exists, err := materialColumnExistsTx(ctx, tx, schema, table, column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("%s.%s 缺少 %s 列，无法确认未完成业务数据，拒绝继续", schema, table, column)
+		}
+	}
+	return nil
+}
+
+func materialTableExistsTx(ctx context.Context, tx pgx.Tx, schema, table string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+"."+table).Scan(&exists)
+	return exists, err
+}
+
+func materialColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table, column string) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+		)
+	`, schema, table, column).Scan(&exists)
+	return exists, err
 }
 
 func ensureMaterialUnitCostUnitConstraint(ctx context.Context, pool *pgxpool.Pool, schema string) error {

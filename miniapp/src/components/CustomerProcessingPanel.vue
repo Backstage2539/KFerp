@@ -30,8 +30,18 @@ const props = withDefaults(defineProps<{
   customerId: number
   prefillProductId?: number
   prefillSpecG?: number
+  prefillBomSpecId?: number
+  prefillBomVariantId?: number
+  prefillInventoryUnit?: string
   prefillItems?: ProcessingPrefillItem[]
-}>(), { prefillProductId: 0, prefillSpecG: 0, prefillItems: () => [] })
+}>(), {
+  prefillProductId: 0,
+  prefillSpecG: 0,
+  prefillBomSpecId: 0,
+  prefillBomVariantId: 0,
+  prefillInventoryUnit: '',
+  prefillItems: () => [],
+})
 
 const emit = defineEmits<{ prefillConsumed: [] }>()
 type DraftLine = ProcessingPrefillDraftLine
@@ -78,7 +88,10 @@ function applyPrefill() {
       ? props.prefillItems
       : (props.prefillProductId > 0 ? [{
           product_id: props.prefillProductId,
+          bom_spec_id: props.prefillBomSpecId,
+          bom_variant_id: props.prefillBomVariantId,
           spec_g: props.prefillSpecG,
+          inventory_unit: props.prefillInventoryUnit,
           product_name: `商品 ${props.prefillProductId}`,
         }] : []),
   )
@@ -95,15 +108,28 @@ function applyPrefill() {
 }
 
 function addProduct(value: { family: EmployeeOrderProductFamily; spec: EmployeeOrderProductSpec }) {
-  const productID = Number(value.spec.sku_id || value.spec.product_id || 0)
-  const specG = productSpecWeightG(value.spec)
-  const existing = lines.value.find((item) => item.product_id === productID && item.spec_g === specG)
+  const bomSpecID = Number(value.spec.bom_spec_id || 0)
+  const bomVariantID = Number(value.spec.bom_variant_id || 0)
+  const canonical = bomSpecID > 0 || bomVariantID > 0
+  const productID = canonical
+    ? Number(value.family.parent_product_id || value.spec.product_id || 0)
+    : Number(value.spec.sku_id || value.spec.product_id || 0)
+  const specG = canonical ? 0 : productSpecWeightG(value.spec)
+  const existing = lines.value.find((item) => (
+    item.product_id === productID
+    && Number(item.bom_spec_id || 0) === bomSpecID
+    && Number(item.bom_variant_id || 0) === bomVariantID
+    && item.spec_g === specG
+  ))
   if (existing) existing.qty += 1
   else lines.value.push({
     product_id: productID,
+    bom_spec_id: canonical ? bomSpecID : undefined,
+    bom_variant_id: canonical ? bomVariantID : undefined,
     product_name: value.spec.sku_name || value.family.customer_product_display_name || value.family.name,
     spec_g: specG,
     spec_label: productSpecLabel(value.spec),
+    inventory_unit: canonical ? String(value.spec.inventory_unit || '').trim() : undefined,
     qty: 1,
   })
   schedulePreview()
@@ -125,9 +151,42 @@ function schedulePreview() {
 
 function payload() {
   return {
-    items: mergeProcessingTargetLines(lines.value.map(({ product_id, spec_g, qty }) => ({ product_id, spec_g, qty: Number(qty || 0) }))),
+    items: mergeProcessingTargetLines(lines.value.map(({
+      product_id,
+      bom_spec_id,
+      bom_variant_id,
+      inventory_unit,
+      spec_g,
+      qty,
+    }) => ({
+      product_id,
+      bom_spec_id,
+      bom_variant_id,
+      inventory_unit,
+      spec_g,
+      qty: Number(qty || 0),
+    }))),
     note: note.value.trim(),
   }
+}
+
+function targetSpecLabel(item: {
+  bom_spec_id?: number
+  spec_name?: string
+  bom_spec_name?: string
+  spec_label?: string
+  inventory_unit?: string
+  spec_g?: number
+}): string {
+  if (Number(item.bom_spec_id || 0) > 0) {
+    return String(item.spec_name || item.bom_spec_name || item.spec_label || '').trim() || '当前 BOM 规格'
+  }
+  return String(item.spec_label || '').trim() || `${Number(item.spec_g || 0)}g`
+}
+
+function targetQtyLabel(item: { qty?: number; inventory_unit?: string; bom_spec_id?: number }): string {
+  const unit = Number(item.bom_spec_id || 0) > 0 ? String(item.inventory_unit || '').trim() : '件'
+  return `${Number(item.qty || 0)} ${unit || '件'}`
 }
 
 async function runPreview() {
@@ -181,7 +240,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
       <text class="hint">只选择目标 SKU、规格和数量；系统按当前有效 BOM 自动汇总物料需求。</text>
       <text v-if="prefillWarning" class="warning">{{ prefillWarning }}</text>
       <CustomerProductSelector :families="catalog.product_families" :customer-id="customerId" @select="addProduct" />
-      <view v-for="(line, index) in lines" :key="`${line.product_id}:${line.spec_g}`" class="line">
+      <view v-for="(line, index) in lines" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`" class="line">
         <view class="line-copy"><text class="line-name">{{ line.product_name }}</text><text class="hint">{{ line.spec_label }}</text></view>
         <input v-model.number="line.qty" class="qty" type="number" @input="schedulePreview" />
         <button class="remove" @tap="removeLine(index)">删除</button>
@@ -192,8 +251,8 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
       <view v-if="preview" class="preview">
         <text class="subtitle">目标商品</text>
         <view v-for="item in preview.items" :key="item.line_no" class="preview-row">
-          <text>{{ item.product_name }} · {{ item.spec_g }}g · {{ item.qty }} 件</text>
-          <text class="hint">BOM {{ item.bom_version_no || '未配置' }}{{ item.bom_inherited ? '（继承父商品）' : '' }} · 最大可生产 {{ item.max_producible_qty }} 件</text>
+          <text>{{ item.product_name }} · {{ targetSpecLabel(item) }} · {{ targetQtyLabel(item) }}</text>
+          <text class="hint">BOM {{ item.bom_version_no || '未配置' }}{{ item.bom_inherited ? '（继承父商品）' : '' }} · 最大可生产 {{ item.max_producible_qty }} {{ item.inventory_unit || '件' }}</text>
         </view>
         <text class="subtitle">汇总物料</text>
         <view v-for="item in preview.materials" :key="`${item.material_id}:${item.component_type}`" class="preview-row" :class="{ shortage: item.shortage_g > 0 || item.shortage_units > 0 }">
@@ -212,7 +271,7 @@ onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer) })
         <view class="request-head"><text class="line-name">{{ item.request_no }}</text><text class="status">{{ productionStatusLabel(item.status) }}</text></view>
         <text class="hint">{{ item.created_at }}</text>
         <view v-for="target in item.items || []" :key="target.id || target.line_no" class="preview-row">
-          <text>{{ target.product_name }} · {{ target.spec_g }}g · {{ target.qty }} 件</text>
+          <text>{{ target.product_name }} · {{ targetSpecLabel(target) }} · {{ targetQtyLabel(target) }}</text>
           <text class="hint">{{ productionStatusLabel(target.status) }}{{ target.work_order_no ? ` · ${target.work_order_no}` : '' }}</text>
         </view>
       </view>

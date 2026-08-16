@@ -17,12 +17,16 @@ var (
 )
 
 type MiniDirectShipItemCommand struct {
-	ProductID   int64  `json:"product_id"`
-	ProductName string `json:"product_name,omitempty"`
-	SKUCode     string `json:"sku_code,omitempty"`
-	SpecLabel   string `json:"spec_label,omitempty"`
-	SpecG       int64  `json:"spec_g"`
-	Qty         int64  `json:"qty"`
+	ProductID     int64  `json:"product_id"`
+	BomSpecID     int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64  `json:"bom_variant_id,omitempty"`
+	BomSpecKey    string `json:"bom_spec_key,omitempty"`
+	ProductName   string `json:"product_name,omitempty"`
+	SKUCode       string `json:"sku_code,omitempty"`
+	SpecLabel     string `json:"spec_label,omitempty"`
+	InventoryUnit string `json:"inventory_unit,omitempty"`
+	SpecG         int64  `json:"spec_g"`
+	Qty           int64  `json:"qty"`
 }
 
 type MiniDirectShipCommand struct {
@@ -66,6 +70,8 @@ type MiniDirectShipPreviewWarehouse struct {
 
 type MiniDirectShipShortage struct {
 	ProductID    int64 `json:"product_id"`
+	BomSpecID    int64 `json:"bom_spec_id,omitempty"`
+	BomVariantID int64 `json:"bom_variant_id,omitempty"`
 	SpecG        int64 `json:"spec_g"`
 	Qty          int64 `json:"qty"`
 	AvailableQty int64 `json:"available_qty"`
@@ -135,6 +141,12 @@ type MiniDirectShipListResult struct {
 
 type CustomerInventorySummary struct {
 	ProductID       int64    `json:"product_id"`
+	BomSpecID       int64    `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64    `json:"bom_variant_id,omitempty"`
+	BomSpecKey      string   `json:"bom_spec_key,omitempty"`
+	BomSpecName     string   `json:"bom_spec_name,omitempty"`
+	InventoryUnit   string   `json:"inventory_unit,omitempty"`
+	IsDefaultSpec   bool     `json:"is_default_spec,omitempty"`
 	ProductName     string   `json:"product_name"`
 	ParentProductID int64    `json:"parent_product_id,omitempty"`
 	SKUCode         string   `json:"sku_code,omitempty"`
@@ -166,6 +178,11 @@ type CustomerInventoryBatch struct {
 	BatchID                         int64  `json:"batch_id"`
 	BatchNo                         string `json:"batch_no"`
 	ProductID                       int64  `json:"product_id"`
+	BomSpecID                       int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID                    int64  `json:"bom_variant_id,omitempty"`
+	BomSpecKey                      string `json:"bom_spec_key,omitempty"`
+	BomSpecName                     string `json:"bom_spec_name,omitempty"`
+	InventoryUnit                   string `json:"inventory_unit,omitempty"`
 	ProductName                     string `json:"product_name"`
 	SKUCode                         string `json:"sku_code,omitempty"`
 	SpecG                           int64  `json:"spec_g"`
@@ -176,6 +193,14 @@ type CustomerInventoryBatch struct {
 	ReservedQty                     int64  `json:"reserved_qty"`
 	QualityStatus                   string `json:"quality_status"`
 	HistoricalWithoutProductionDate bool   `json:"historical_without_production_date,omitempty"`
+}
+
+type CustomerInventoryBatchQuery struct {
+	CustomerID   int64
+	ProductID    int64
+	BomSpecID    int64
+	BomVariantID int64
+	SpecG        int64
 }
 
 // MiniDirectShipRepository is kept separate from the legacy fulfillment
@@ -189,7 +214,7 @@ type MiniDirectShipRepository interface {
 	GetMiniDirectShipRequest(context.Context, int64, int64) (MiniDirectShipRequest, error)
 	CancelMiniDirectShipRequest(context.Context, int64, int64, string) (MiniDirectShipRequest, error)
 	ListCustomerCentralInventory(context.Context, int64) ([]CustomerInventorySummary, error)
-	ListCustomerCentralInventoryBatches(context.Context, int64, int64, int64) ([]CustomerInventoryBatch, error)
+	ListCustomerCentralInventoryBatches(context.Context, CustomerInventoryBatchQuery) ([]CustomerInventoryBatch, error)
 }
 
 func (s *Service) miniDirectShipRepository() (MiniDirectShipRepository, error) {
@@ -393,18 +418,27 @@ func normalizedCustomerInventorySearch(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), ""))
 }
 
-func (s *Service) ListCustomerCentralInventoryBatches(ctx context.Context, customerID, productID, specG int64) ([]CustomerInventoryBatch, error) {
-	if customerID <= 0 || productID <= 0 {
+func (s *Service) ListCustomerCentralInventoryBatches(ctx context.Context, query CustomerInventoryBatchQuery) ([]CustomerInventoryBatch, error) {
+	if query.CustomerID <= 0 || query.ProductID <= 0 {
 		return nil, fmt.Errorf("customer and product required")
 	}
-	if specG < 0 {
+	if query.BomSpecID < 0 || query.BomVariantID < 0 || query.SpecG < 0 {
 		return nil, fmt.Errorf("spec invalid")
+	}
+	canonical := query.BomSpecID > 0 || query.BomVariantID > 0
+	if canonical {
+		if query.BomSpecID <= 0 || query.SpecG > 0 {
+			return nil, fmt.Errorf("bom spec invalid")
+		}
+		query.SpecG = 0
+	} else if query.SpecG <= 0 {
+		return nil, fmt.Errorf("spec required")
 	}
 	repo, err := s.miniDirectShipRepository()
 	if err != nil {
 		return nil, err
 	}
-	return repo.ListCustomerCentralInventoryBatches(ctx, customerID, productID, specG)
+	return repo.ListCustomerCentralInventoryBatches(ctx, query)
 }
 
 func normalizeMiniDirectShipCommand(cmd MiniDirectShipCommand, requireIdempotency bool) (MiniDirectShipCommand, error) {
@@ -454,7 +488,15 @@ func normalizeMiniDirectShipItems(items []MiniDirectShipItemCommand) ([]MiniDire
 		if item.ProductID <= 0 {
 			return nil, fmt.Errorf("product required")
 		}
-		if item.SpecG <= 0 {
+		canonicalBOMSpec := item.BomSpecID > 0 || item.BomVariantID > 0
+		if canonicalBOMSpec {
+			if item.BomSpecID <= 0 {
+				return nil, fmt.Errorf("bom_spec_id required")
+			}
+			if item.SpecG > 0 {
+				return nil, fmt.Errorf("canonical BOM spec must not use spec_g")
+			}
+		} else if item.SpecG <= 0 {
 			return nil, fmt.Errorf("spec required")
 		}
 		if item.Qty <= 0 {
@@ -465,8 +507,19 @@ func normalizeMiniDirectShipItems(items []MiniDirectShipItemCommand) ([]MiniDire
 		item.ProductName = ""
 		item.SKUCode = ""
 		item.SpecLabel = ""
-		key := fmt.Sprintf("%d:%d", item.ProductID, item.SpecG)
+		item.BomSpecKey = strings.TrimSpace(item.BomSpecKey)
+		item.InventoryUnit = strings.TrimSpace(item.InventoryUnit)
+		key := fmt.Sprintf("%d:legacy:%d", item.ProductID, item.SpecG)
+		if canonicalBOMSpec {
+			key = fmt.Sprintf("%d:bom_spec:%d", item.ProductID, item.BomSpecID)
+		}
 		if idx, ok := byKey[key]; ok {
+			if canonicalBOMSpec && out[idx].BomVariantID > 0 && item.BomVariantID > 0 && out[idx].BomVariantID != item.BomVariantID {
+				return nil, fmt.Errorf("bom_variant_id mismatch for BOM spec")
+			}
+			if canonicalBOMSpec && out[idx].BomVariantID == 0 {
+				out[idx].BomVariantID = item.BomVariantID
+			}
 			out[idx].Qty += item.Qty
 			continue
 		}

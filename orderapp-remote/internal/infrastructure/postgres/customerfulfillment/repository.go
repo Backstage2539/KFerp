@@ -519,6 +519,11 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 		itemPayload := map[string]any{
 			"submitted_by_employee_id":               cmd.EmployeeID,
 			"product_id":                             item.ProductID,
+			"bom_spec_id":                            item.BomSpecID,
+			"bom_variant_id":                         item.BomVariantID,
+			"bom_spec_key":                           item.BomSpecKey,
+			"bom_spec_name":                          item.BomSpecName,
+			"inventory_unit":                         item.InventoryUnit,
 			"customer_product_alias_id":              item.CustomerProductAliasID,
 			"customer_product_display_name_snapshot": item.CustomerProductDisplayNameSnapshot,
 			"customer_item_code_snapshot":            item.CustomerItemCodeSnapshot,
@@ -546,11 +551,11 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 			"note":                                   item.Note,
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.customer_direct_ship_import_order_items(
-				import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
-			)
-			VALUES($1,0,$2,$3,$4,$5,$6,$7::jsonb)
-		`, r.schema), importOrderID, customerID, idx+1, item.ProductName, item.Spec, item.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
+				INSERT INTO %s.customer_direct_ship_import_order_items(
+					import_order_id, batch_id, customer_id, line_no, product_id,bom_spec_id,bom_variant_id,product_title, spec, quantity_units, payload
+				)
+				VALUES($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+			`, r.schema), importOrderID, customerID, idx+1, item.ProductID, item.BomSpecID, item.BomVariantID, item.ProductName, item.Spec, item.QuantityUnits, mustPayloadJSON(itemPayload)); err != nil {
 			return app.DirectShipOrderSummary{}, err
 		}
 	}
@@ -562,6 +567,9 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	for _, item := range quotedItems {
 		auditItems = append(auditItems, map[string]any{
 			"product_id":     item.ProductID,
+			"bom_spec_id":    item.BomSpecID,
+			"bom_variant_id": item.BomVariantID,
+			"inventory_unit": item.InventoryUnit,
 			"sales_unit":     item.SalesUnit,
 			"qty":            item.QuantityUnits,
 			"unit_bag_count": item.UnitBagCount,
@@ -596,6 +604,11 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 
 type submittedDirectShipItem struct {
 	ProductID                          int64
+	BomSpecID                          int64
+	BomVariantID                       int64
+	BomSpecKey                         string
+	BomSpecName                        string
+	InventoryUnit                      string
 	CustomerProductAliasID             int64
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
@@ -613,6 +626,11 @@ type submittedDirectShipItem struct {
 
 type submittedDirectShipQuotedItem struct {
 	ProductID                          int64
+	BomSpecID                          int64
+	BomVariantID                       int64
+	BomSpecKey                         string
+	BomSpecName                        string
+	InventoryUnit                      string
 	CustomerProductAliasID             int64
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
@@ -644,6 +662,11 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 	for _, item := range cmd.Items {
 		out = append(out, submittedDirectShipItem{
 			ProductID:                          item.ProductID,
+			BomSpecID:                          item.BomSpecID,
+			BomVariantID:                       item.BomVariantID,
+			BomSpecKey:                         strings.TrimSpace(item.BomSpecKey),
+			BomSpecName:                        strings.TrimSpace(item.BomSpecName),
+			InventoryUnit:                      strings.TrimSpace(item.InventoryUnit),
 			CustomerProductAliasID:             item.CustomerProductAliasID,
 			CustomerProductDisplayNameSnapshot: strings.TrimSpace(item.CustomerProductDisplayNameSnapshot),
 			CustomerItemCodeSnapshot:           strings.TrimSpace(item.CustomerItemCodeSnapshot),
@@ -733,11 +756,16 @@ func (r *Repository) validateCustomerProductAliasForDirectShipTx(ctx context.Con
 }
 
 func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.Tx, customerID int64, item submittedDirectShipItem) (submittedDirectShipQuotedItem, error) {
+	bomSpecIdentity, err := resolveCustomerFulfillmentBOMSpecIdentityTx(ctx, tx, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID)
+	if err != nil {
+		return submittedDirectShipQuotedItem{}, err
+	}
+	canonicalBOMSpec := bomSpecIdentity.BomSpecID > 0
 	specG := item.SpecG
-	if specG <= 0 {
+	if specG <= 0 && !canonicalBOMSpec {
 		specG = parseSubmittedDirectShipSpecG(item.Spec)
 	}
-	if specG <= 0 {
+	if specG <= 0 && !canonicalBOMSpec {
 		specG = 454
 	}
 	if item.QuantityUnits <= 0 {
@@ -765,7 +793,22 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		return submittedDirectShipQuotedItem{}, err
 	}
 	productKind = catalogdomain.NormalizeProductKind(productKind)
+	if canonicalBOMSpec {
+		item.BomSpecID = bomSpecIdentity.BomSpecID
+		item.BomVariantID = bomSpecIdentity.BomVariantID
+		item.BomSpecKey = bomSpecIdentity.BomSpecKey
+		item.BomSpecName = bomSpecIdentity.BomSpecName
+		item.InventoryUnit = bomSpecIdentity.InventoryUnit
+		dbProductName = bomSpecIdentity.ProductName
+		productKind = catalogdomain.NormalizeProductKind(bomSpecIdentity.ProductKind)
+		item.ProductCodeSnapshot = bomSpecIdentity.SpecCode
+		item.ProductNameSnapshot = bomSpecIdentity.ProductName
+		specG = 0
+	}
 	productName := item.ProductName
+	if canonicalBOMSpec {
+		productName = strings.TrimSpace(bomSpecIdentity.ProductName + " " + bomSpecIdentity.BomSpecName)
+	}
 	if aliasSnapshot.CustomerProductAliasID > 0 {
 		item.CustomerProductAliasID = aliasSnapshot.CustomerProductAliasID
 		item.CustomerProductDisplayNameSnapshot = aliasSnapshot.CustomerProductDisplayNameSnapshot
@@ -784,10 +827,15 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		item.ProductNameSnapshot = strings.TrimSpace(dbProductName)
 	}
 	specText := item.Spec
-	if specText == "" {
+	if canonicalBOMSpec {
+		specText = bomSpecIdentity.BomSpecName
+	} else if specText == "" {
 		specText = fmt.Sprintf("%dg", specG)
 	}
 	salesUnit := strings.TrimSpace(item.SalesUnit)
+	if canonicalBOMSpec {
+		salesUnit = bomSpecIdentity.InventoryUnit
+	}
 	unitBagCount := 0.0
 	unitBeanG := 0.0
 	matchedPriceQty := 0.0
@@ -795,7 +843,7 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	priceSourceSnapshot := ""
 	var beanListUsage orderbeans.Usage
 	var unitPrice, baseLineTotal float64
-	if productKind == catalogdomain.ProductKindDripBag {
+	if productKind == catalogdomain.ProductKindDripBag && !canonicalBOMSpec {
 		if err := r.ensureDripProductHasActiveBOMTx(ctx, tx, item.ProductID); err != nil {
 			return submittedDirectShipQuotedItem{}, err
 		}
@@ -817,43 +865,88 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 			specText = customerFulfillmentDripSpecText(salesUnit, dripBagGrams, dripBoxBagCount)
 		}
 	}
-	usage, pricing, err := r.customerFulfillmentPublishedPricingTx(ctx, tx, customerID, item.ProductID, productKind, specG, item.QuantityUnits, salesUnit, int64(math.Round(unitBagCount)))
-	if err != nil {
-		return submittedDirectShipQuotedItem{}, err
+	pricingProductID := item.ProductID
+	pricingSpecG := specG
+	pricingSalesUnit := salesUnit
+	var usage orderbeans.Usage
+	var pricing orderbeans.PublishedPricing
+	if canonicalBOMSpec {
+		listType := orderbeans.ListTypeForProductKind(productKind, false)
+		usage, err = orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, item.ProductID, listType, 0)
+		if err != nil {
+			return submittedDirectShipQuotedItem{}, err
+		}
+		if usage.PublicationID > 0 {
+			pricing, err = orderbeans.ResolvePublishedPricingForPublicationWithBOMSpec(
+				ctx, tx, r.schema, customerID, item.ProductID, listType, usage.PublicationID,
+				bomSpecIdentity.BomSpecID, bomSpecIdentity.BomVariantID, item.QuantityUnits,
+			)
+			if err != nil {
+				return submittedDirectShipQuotedItem{}, err
+			}
+		}
+		if pricing.UnitPrice <= 0 && bomSpecIdentity.LegacyPricingProductID > 0 && bomSpecIdentity.LegacySpecG > 0 {
+			pricingProductID = bomSpecIdentity.LegacyPricingProductID
+			pricingSpecG = bomSpecIdentity.LegacySpecG
+			pricingSalesUnit = bomSpecIdentity.LegacySalesUnit
+			usage, pricing, err = r.customerFulfillmentPublishedPricingTx(ctx, tx, customerID, pricingProductID, productKind, pricingSpecG, item.QuantityUnits, pricingSalesUnit, int64(math.Round(unitBagCount)))
+			if err != nil {
+				return submittedDirectShipQuotedItem{}, err
+			}
+		}
+		if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
+			return submittedDirectShipQuotedItem{}, fmt.Errorf(customerFulfillmentMissingPublishedPriceMessage(listType))
+		}
+	} else {
+		usage, pricing, err = r.customerFulfillmentPublishedPricingTx(ctx, tx, customerID, pricingProductID, productKind, pricingSpecG, item.QuantityUnits, pricingSalesUnit, int64(math.Round(unitBagCount)))
+		if err != nil {
+			return submittedDirectShipQuotedItem{}, err
+		}
 	}
 	beanListUsage = usage
 	unitPrice = pricing.UnitPrice
-	if productKind == catalogdomain.ProductKindDripBag {
+	if canonicalBOMSpec {
+		baseLineTotal = pricing.UnitPrice * float64(item.QuantityUnits)
+		matchedPriceQty = float64(item.QuantityUnits)
+	} else if productKind == catalogdomain.ProductKindDripBag {
 		baseLineTotal = pricing.UnitPrice * float64(item.QuantityUnits)
 		matchedPriceQty = float64(item.QuantityUnits)
 	} else {
 		baseLineTotal = customerFulfillmentLineTotalFromPriceUnit(pricing.UnitPrice, specG, item.QuantityUnits, pricing.UnitG)
 	}
-	_, publishedSpec, err := orderbeans.ResolvePublishedProductSpecForPublication(
-		ctx,
-		tx,
-		r.schema,
-		customerID,
-		item.ProductID,
-		orderbeans.ListTypeForProductKind(productKind, false),
-		beanListUsage.PublicationID,
-	)
-	if err != nil {
-		return submittedDirectShipQuotedItem{}, err
-	}
-	publishedSpec, err = orderbeans.ResolveOrderProductionProductSpec(ctx, tx, r.schema, item.ProductID, publishedSpec)
-	if err != nil {
-		return submittedDirectShipQuotedItem{}, err
+	var publishedSpec orderbeans.PublishedProductSpec
+	if !canonicalBOMSpec {
+		_, publishedSpec, err = orderbeans.ResolvePublishedProductSpecForPublication(
+			ctx,
+			tx,
+			r.schema,
+			customerID,
+			pricingProductID,
+			orderbeans.ListTypeForProductKind(productKind, false),
+			beanListUsage.PublicationID,
+		)
+		if err != nil {
+			return submittedDirectShipQuotedItem{}, err
+		}
+		publishedSpec, err = orderbeans.ResolveOrderProductionProductSpec(ctx, tx, r.schema, pricingProductID, publishedSpec)
+		if err != nil {
+			return submittedDirectShipQuotedItem{}, err
+		}
 	}
 	priceSourceSnapshot, err = customerFulfillmentPublishedPriceSourceSnapshot(
 		orderbeans.ListTypeForProductKind(productKind, false),
 		beanListUsage,
-		item.ProductID,
+		pricingProductID,
 		pricing,
 		publishedSpec,
 	)
 	if err != nil {
 		return submittedDirectShipQuotedItem{}, err
+	}
+	if canonicalBOMSpec {
+		priceSourceSnapshot = customerFulfillmentBOMSpecPriceSource(priceSourceSnapshot, bomSpecIdentity)
+		unitBagCount = 0
+		unitBeanG = 0
 	}
 	if err := requireCustomerAliasDirectShipPrice(aliasSnapshot, unitPrice); err != nil {
 		return submittedDirectShipQuotedItem{}, err
@@ -866,6 +959,11 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	discountAmount, lineTotal := submittedDirectShipLineDiscount(baseLineTotal, discountType, discountValue)
 	return submittedDirectShipQuotedItem{
 		ProductID:                          item.ProductID,
+		BomSpecID:                          item.BomSpecID,
+		BomVariantID:                       item.BomVariantID,
+		BomSpecKey:                         item.BomSpecKey,
+		BomSpecName:                        item.BomSpecName,
+		InventoryUnit:                      item.InventoryUnit,
 		CustomerProductAliasID:             item.CustomerProductAliasID,
 		CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 		CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
@@ -1107,6 +1205,9 @@ func customerFulfillmentDisplayUnit(salesUnit string) string {
 	case "box":
 		return "盒"
 	default:
+		if unit := strings.TrimSpace(salesUnit); unit != "" {
+			return unit
+		}
 		return "件"
 	}
 }
@@ -1590,13 +1691,13 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 	for _, item := range items {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_items(
-				order_id,line_no,product_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,product_code_snapshot,product_name_snapshot,item_name,qty,unit,spec,unit_price,
+				order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,product_code_snapshot,product_name_snapshot,item_name,qty,unit,spec,unit_price,
 				line_total_before_discount,discount_type,discount_value,discount_amount,line_total,
 				product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,
 				bean_list_publication_id,bean_list_version_no
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,NULLIF($25,0),$26)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.customerProductAliasID, item.customerProductDisplayNameSnapshot, item.customerItemCodeSnapshot, item.productCodeSnapshot, item.productNameSnapshot, item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb,NULLIF($27,0),$28)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.bomSpecID, item.bomVariantID, item.customerProductAliasID, item.customerProductDisplayNameSnapshot, item.customerItemCodeSnapshot, item.productCodeSnapshot, item.productNameSnapshot, item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
 			return err
 		}
 	}
@@ -1606,6 +1707,8 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 type submittedDirectShipERPItemSeed struct {
 	lineNo                             int
 	productID                          int64
+	bomSpecID                          int64
+	bomVariantID                       int64
 	customerProductAliasID             int64
 	customerProductDisplayNameSnapshot string
 	customerItemCodeSnapshot           string
@@ -1639,7 +1742,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT line_no, product_title, spec, quantity_units, payload
+		SELECT line_no, product_id,bom_spec_id,bom_variant_id,product_title, spec, quantity_units, payload
 		FROM %s.customer_direct_ship_import_order_items
 		WHERE import_order_id=$1
 		ORDER BY line_no, id
@@ -1652,10 +1755,11 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 	for rows.Next() {
 		lineNo++
 		var rowLineNo int
+		var rowProductID, rowBomSpecID, rowBomVariantID int64
 		var productTitle, spec string
 		var quantity int64
 		var payloadJSON []byte
-		if err := rows.Scan(&rowLineNo, &productTitle, &spec, &quantity, &payloadJSON); err != nil {
+		if err := rows.Scan(&rowLineNo, &rowProductID, &rowBomSpecID, &rowBomVariantID, &productTitle, &spec, &quantity, &payloadJSON); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -1664,6 +1768,17 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			_ = json.Unmarshal(payloadJSON, &payload)
 		}
 		productID := payloadInt64(payload, "product_id")
+		if rowProductID > 0 {
+			productID = rowProductID
+		}
+		bomSpecID := payloadInt64(payload, "bom_spec_id")
+		if rowBomSpecID > 0 {
+			bomSpecID = rowBomSpecID
+		}
+		bomVariantID := payloadInt64(payload, "bom_variant_id")
+		if rowBomVariantID > 0 {
+			bomVariantID = rowBomVariantID
+		}
 		customerProductAliasID := payloadInt64(payload, "customer_product_alias_id")
 		customerProductDisplayNameSnapshot := payloadString(payload, "customer_product_display_name_snapshot")
 		customerItemCodeSnapshot := payloadString(payload, "customer_item_code_snapshot")
@@ -1712,6 +1827,8 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		items = append(items, submittedDirectShipERPItemSeed{
 			lineNo:                             rowLineNo,
 			productID:                          productID,
+			bomSpecID:                          bomSpecID,
+			bomVariantID:                       bomVariantID,
 			customerProductAliasID:             customerProductAliasID,
 			customerProductDisplayNameSnapshot: customerProductDisplayNameSnapshot,
 			customerItemCodeSnapshot:           customerItemCodeSnapshot,
@@ -1744,6 +1861,8 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		specG := parseSubmittedDirectShipSpecG(items[idx].spec)
 		quoted, quoteOK, quoteErr := r.quoteSubmittedDirectShipItemForERPRebuildTx(ctx, tx, customerID, submittedDirectShipItem{
 			ProductID:                          items[idx].productID,
+			BomSpecID:                          items[idx].bomSpecID,
+			BomVariantID:                       items[idx].bomVariantID,
 			CustomerProductAliasID:             items[idx].customerProductAliasID,
 			CustomerProductDisplayNameSnapshot: items[idx].customerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot:           items[idx].customerItemCodeSnapshot,
@@ -2662,7 +2781,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 			out[i].Tiers = tiersByProduct[out[i].ProductID]
 		}
 	}
-	return out, nil
+	return r.replaceCutoverCustomerSKUOptions(ctx, customerID, out)
 }
 
 func (r *Repository) listProductTierOptions(ctx context.Context, customerID int64, options []app.CustomerSKUOption) (map[int64][]app.CustomerSKUPriceTier, error) {
@@ -2731,9 +2850,12 @@ type customerFulfillmentPublishedContent struct {
 	Groups []struct {
 		Items []json.RawMessage `json:"items"`
 	} `json:"groups"`
+	PriceRows []json.RawMessage `json:"price_rows"`
 }
 
 type customerFulfillmentPublishedTier struct {
+	BomSpecID           int64    `json:"bom_spec_id"`
+	BomVariantID        int64    `json:"bom_variant_id"`
 	SourcePriceRecordID int64    `json:"source_price_record_id"`
 	SpecG               int64    `json:"spec_g"`
 	MinQty              float64  `json:"min_qty"`
@@ -2767,8 +2889,18 @@ func customerFulfillmentPriceTiersFromPublication(publicationID int64, listType 
 			if _, ok := productSet[productID]; !ok {
 				continue
 			}
+			var itemFields map[string]json.RawMessage
+			_ = json.Unmarshal(item, &itemFields)
+			itemBomSpecID := customerFulfillmentPublishedInt64Field(itemFields, "bom_spec_id")
+			itemBomVariantID := customerFulfillmentPublishedInt64Field(itemFields, "bom_variant_id")
 			tiers := customerFulfillmentPublishedItemTiers(item, listType)
 			for _, tier := range tiers {
+				if tier.BomSpecID == 0 {
+					tier.BomSpecID = itemBomSpecID
+				}
+				if tier.BomVariantID == 0 {
+					tier.BomVariantID = itemBomVariantID
+				}
 				option := customerFulfillmentPublishedTierOption(publicationID, listType, tier)
 				if option.UnitPrice <= 0 {
 					continue
@@ -2777,7 +2909,29 @@ func customerFulfillmentPriceTiersFromPublication(publicationID int64, listType 
 			}
 		}
 	}
+	for _, row := range parsed.PriceRows {
+		productID := customerFulfillmentPublishedItemProductID(row)
+		if _, ok := productSet[productID]; productID <= 0 || !ok {
+			continue
+		}
+		var tier customerFulfillmentPublishedTier
+		if json.Unmarshal(row, &tier) != nil {
+			continue
+		}
+		option := customerFulfillmentPublishedTierOption(publicationID, listType, tier)
+		if option.UnitPrice > 0 {
+			out[productID] = append(out[productID], option)
+		}
+	}
 	return out
+}
+
+func customerFulfillmentPublishedInt64Field(fields map[string]json.RawMessage, key string) int64 {
+	var value int64
+	if data, ok := fields[key]; ok {
+		_ = json.Unmarshal(data, &value)
+	}
+	return value
 }
 
 func customerFulfillmentPublishedItemProductID(raw json.RawMessage) int64 {
@@ -2854,6 +3008,8 @@ func customerFulfillmentPublishedTierOption(publicationID int64, listType string
 	}
 	return app.CustomerSKUPriceTier{
 		ID:           id,
+		BomSpecID:    tier.BomSpecID,
+		BomVariantID: tier.BomVariantID,
 		ProductKind:  productKind,
 		SalesUnit:    strings.TrimSpace(tier.SalesUnit),
 		SpecG:        specG,

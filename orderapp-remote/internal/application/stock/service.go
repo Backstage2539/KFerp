@@ -26,6 +26,8 @@ type LedgerRow struct {
 	ItemID          int64  `json:"item_id"`
 	ItemName        string `json:"item_name"`
 	SpecG           int64  `json:"spec_g"`
+	BomSpecID       int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64  `json:"bom_variant_id,omitempty"`
 	Warehouse       string `json:"warehouse"`
 	SourceDocType   string `json:"source_doc_type"`
 	SourceDocID     int64  `json:"source_doc_id"`
@@ -65,6 +67,8 @@ type BatchRow struct {
 	ItemID         int64   `json:"item_id"`
 	ItemName       string  `json:"item_name"`
 	SpecG          int64   `json:"spec_g"`
+	BomSpecID      int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID   int64   `json:"bom_variant_id,omitempty"`
 	SourceDocType  string  `json:"source_doc_type"`
 	SourceDocID    int64   `json:"source_doc_id"`
 	SourceBatchID  string  `json:"source_batch_id"`
@@ -206,6 +210,10 @@ type WarehouseInventoryRow struct {
 	ItemID        int64   `json:"item_id"`
 	ItemName      string  `json:"item_name"`
 	SpecG         int64   `json:"spec_g"`
+	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
+	BomSpecName   string  `json:"bom_spec_name,omitempty"`
+	InventoryUnit string  `json:"inventory_unit,omitempty"`
 	BatchID       int64   `json:"batch_id"`
 	BatchCode     string  `json:"batch_code"`
 	QtyG          int64   `json:"qty_g"`
@@ -274,6 +282,8 @@ type TraceFinishedBatch struct {
 	ProductID      int64  `json:"product_id"`
 	ProductName    string `json:"product_name"`
 	SpecG          int64  `json:"spec_g"`
+	BomSpecID      int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID   int64  `json:"bom_variant_id,omitempty"`
 	Warehouse      string `json:"warehouse"`
 	QtyG           int64  `json:"qty_g"`
 	QtyUnits       int64  `json:"qty_units"`
@@ -363,6 +373,9 @@ type MaterialTransferResult struct {
 type FinishedProductTransferCommand struct {
 	ProductID      int64
 	SpecG          int64
+	BomSpecID      int64
+	BomVariantID   int64
+	UnitCode       string
 	FromWarehouse  string
 	ToWarehouse    string
 	QtyUnits       int64
@@ -373,10 +386,14 @@ type FinishedProductTransferCommand struct {
 }
 
 type FinishedProductTransferResult struct {
-	TransferID int64  `json:"transfer_id"`
-	TransferNo string `json:"transfer_no"`
-	EntryID    int64  `json:"entry_id,omitempty"`
-	EntryNo    string `json:"entry_no,omitempty"`
+	TransferID   int64  `json:"transfer_id"`
+	TransferNo   string `json:"transfer_no"`
+	EntryID      int64  `json:"entry_id,omitempty"`
+	EntryNo      string `json:"entry_no,omitempty"`
+	ProductID    int64  `json:"product_id"`
+	SpecG        int64  `json:"spec_g,omitempty"`
+	BomSpecID    int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID int64  `json:"bom_variant_id,omitempty"`
 }
 
 type MaterialReceiptCommand struct {
@@ -420,6 +437,8 @@ type StockDocumentItemCommand struct {
 	ItemType                  string  `json:"item_type"`
 	ItemName                  string  `json:"item_name"`
 	SpecG                     int64   `json:"spec_g"`
+	BomSpecID                 int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID              int64   `json:"bom_variant_id,omitempty"`
 	InventoryUnit             string  `json:"inventory_unit"`
 	FromWarehouse             string  `json:"from_warehouse"`
 	ToWarehouse               string  `json:"to_warehouse"`
@@ -475,6 +494,8 @@ type StockDocumentItemRow struct {
 	ItemType                  string                         `json:"item_type"`
 	ItemName                  string                         `json:"item_name"`
 	SpecG                     int64                          `json:"spec_g"`
+	BomSpecID                 int64                          `json:"bom_spec_id,omitempty"`
+	BomVariantID              int64                          `json:"bom_variant_id,omitempty"`
 	InventoryUnit             string                         `json:"inventory_unit"`
 	FromWarehouse             string                         `json:"from_warehouse"`
 	ToWarehouse               string                         `json:"to_warehouse"`
@@ -535,6 +556,8 @@ type StockAdjustmentCommand struct {
 	ItemType        string
 	ItemID          int64
 	SpecG           int64
+	BomSpecID       int64
+	BomVariantID    int64
 	Warehouse       string
 	TargetG         int64
 	TargetUnits     int64
@@ -549,6 +572,10 @@ type StockAdjustmentCommand struct {
 
 type StockAdjustmentResult struct {
 	AdjustmentID int64 `json:"adjustment_id"`
+	ProductID    int64 `json:"product_id,omitempty"`
+	SpecG        int64 `json:"spec_g,omitempty"`
+	BomSpecID    int64 `json:"bom_spec_id,omitempty"`
+	BomVariantID int64 `json:"bom_variant_id,omitempty"`
 }
 
 type BindWarehouseCustomerCommand struct {
@@ -747,8 +774,14 @@ func normalizeStockDocumentCommand(cmd StockDocumentCommand) (StockDocumentComma
 		if item.ItemType == itemTypeFinishedProduct && item.ProductID <= 0 {
 			return StockDocumentCommand{}, fmt.Errorf("item %d product_id required", i+1)
 		}
-		if item.ItemType == itemTypeFinishedProduct && item.SpecG <= 0 {
-			return StockDocumentCommand{}, fmt.Errorf("item %d spec_g required", i+1)
+		if item.ItemType == itemTypeFinishedProduct {
+			if item.BomSpecID > 0 {
+				if item.SpecG != 0 {
+					return StockDocumentCommand{}, fmt.Errorf("item %d spec_g must be zero for BOM specification", i+1)
+				}
+			} else if item.SpecG <= 0 {
+				return StockDocumentCommand{}, fmt.Errorf("item %d spec_g or bom_spec_id required", i+1)
+			}
 		}
 		if item.ItemType != itemTypeMaterial && item.ItemType != itemTypeFinishedProduct {
 			return StockDocumentCommand{}, fmt.Errorf("item %d invalid item_type", i+1)
@@ -1090,13 +1123,20 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 	if cmd.ProductID <= 0 {
 		return FinishedProductTransferResult{}, fmt.Errorf("product required")
 	}
-	if cmd.SpecG <= 0 {
-		return FinishedProductTransferResult{}, fmt.Errorf("spec_g required")
+	if cmd.BomSpecID > 0 {
+		if cmd.SpecG != 0 {
+			return FinishedProductTransferResult{}, fmt.Errorf("spec_g must be zero for BOM specification")
+		}
+		if cmd.QtyLooseG != 0 {
+			return FinishedProductTransferResult{}, fmt.Errorf("qty_loose_g is not supported for BOM specification")
+		}
+	} else if cmd.SpecG <= 0 {
+		return FinishedProductTransferResult{}, fmt.Errorf("spec_g or bom_spec_id required")
 	}
 	if cmd.QtyUnits < 0 || cmd.QtyLooseG < 0 {
 		return FinishedProductTransferResult{}, fmt.Errorf("negative qty")
 	}
-	if cmd.QtyLooseG >= cmd.SpecG {
+	if cmd.BomSpecID == 0 && cmd.QtyLooseG >= cmd.SpecG {
 		cmd.QtyUnits += cmd.QtyLooseG / cmd.SpecG
 		cmd.QtyLooseG = cmd.QtyLooseG % cmd.SpecG
 	}
@@ -1115,6 +1155,7 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 		return FinishedProductTransferResult{}, fmt.Errorf("from/to warehouse must differ")
 	}
 	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
 	if cmd.Operator == "" {
@@ -1130,6 +1171,9 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 				ProductID:     cmd.ProductID,
 				ItemType:      itemTypeFinishedProduct,
 				SpecG:         cmd.SpecG,
+				BomSpecID:     cmd.BomSpecID,
+				BomVariantID:  cmd.BomVariantID,
+				InventoryUnit: cmd.UnitCode,
 				FromWarehouse: cmd.FromWarehouse,
 				ToWarehouse:   cmd.ToWarehouse,
 				QtyG:          cmd.QtyLooseG,
@@ -1139,9 +1183,26 @@ func (s *Service) TransferFinishedProduct(ctx context.Context, cmd FinishedProdu
 		if err != nil {
 			return FinishedProductTransferResult{}, err
 		}
-		return FinishedProductTransferResult{TransferID: detail.ID, TransferNo: detail.EntryNo, EntryID: detail.ID, EntryNo: detail.EntryNo}, nil
+		result := FinishedProductTransferResult{TransferID: detail.ID, TransferNo: detail.EntryNo, EntryID: detail.ID, EntryNo: detail.EntryNo, ProductID: cmd.ProductID, SpecG: cmd.SpecG, BomSpecID: cmd.BomSpecID, BomVariantID: cmd.BomVariantID}
+		if len(detail.Items) > 0 {
+			result.BomSpecID = detail.Items[0].BomSpecID
+			result.BomVariantID = detail.Items[0].BomVariantID
+		}
+		return result, nil
 	}
-	return s.repo.TransferFinishedProduct(ctx, cmd)
+	result, err := s.repo.TransferFinishedProduct(ctx, cmd)
+	if err != nil {
+		return FinishedProductTransferResult{}, err
+	}
+	result.ProductID = cmd.ProductID
+	result.SpecG = cmd.SpecG
+	if result.BomSpecID == 0 {
+		result.BomSpecID = cmd.BomSpecID
+	}
+	if result.BomVariantID == 0 {
+		result.BomVariantID = cmd.BomVariantID
+	}
+	return result, nil
 }
 
 func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error) {
@@ -1172,8 +1233,17 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 	if cmd.ItemType == "finished_product" && cmd.Warehouse == "" {
 		cmd.Warehouse = stockdomain.WarehouseFinishedGoods
 	}
-	if cmd.ItemType == "finished_product" && cmd.SpecG <= 0 {
-		return StockAdjustmentResult{}, fmt.Errorf("spec_g required")
+	if cmd.ItemType == "finished_product" {
+		if cmd.BomSpecID > 0 {
+			if cmd.SpecG != 0 {
+				return StockAdjustmentResult{}, fmt.Errorf("spec_g must be zero for BOM specification")
+			}
+			if cmd.TargetG != 0 {
+				return StockAdjustmentResult{}, fmt.Errorf("target_g is not supported for BOM specification")
+			}
+		} else if cmd.SpecG <= 0 {
+			return StockAdjustmentResult{}, fmt.Errorf("spec_g or bom_spec_id required")
+		}
 	}
 	if cmd.TargetG < 0 || cmd.TargetUnits < 0 || (cmd.HasTargetQty && cmd.TargetQty < 0) {
 		return StockAdjustmentResult{}, fmt.Errorf("negative qty")
@@ -1192,7 +1262,21 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 			return StockAdjustmentResult{}, fmt.Errorf("material_batch_id required")
 		}
 	}
-	return s.repo.CreateAdjustment(ctx, cmd)
+	result, err := s.repo.CreateAdjustment(ctx, cmd)
+	if err != nil {
+		return StockAdjustmentResult{}, err
+	}
+	if cmd.ItemType == "finished_product" {
+		result.ProductID = cmd.ItemID
+		result.SpecG = cmd.SpecG
+		if result.BomSpecID == 0 {
+			result.BomSpecID = cmd.BomSpecID
+		}
+		if result.BomVariantID == 0 {
+			result.BomVariantID = cmd.BomVariantID
+		}
+	}
+	return result, nil
 }
 
 func normalizeStockItemType(v string) string {

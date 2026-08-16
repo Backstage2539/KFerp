@@ -40,7 +40,8 @@ func TestDev130ProductionMergeOrderSourceWiring(t *testing.T) {
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "production", "schema.go"): {
 			"produce_running_outputs",
-			"UNIQUE(running_item_id, product_id, spec_g)",
+			"UNIQUE(running_item_id, product_id, bom_spec_id, spec_g)",
+			"produce_running_outputs_identity_uq",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "production", "running_repository.go"): {
 			"finishRunningOutputs",

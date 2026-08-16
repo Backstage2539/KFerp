@@ -50,6 +50,17 @@ describe('customer fulfillment helpers', () => {
     ])
   })
 
+  it('merges cutover targets by parent product and complete BOM specification identity without deriving weight', () => {
+    expect(mergeProcessingTargetLines([
+      { product_id: 550, bom_spec_id: 91, bom_variant_id: 191, inventory_unit: '袋', spec_g: 227, qty: 1 },
+      { product_id: 550, bom_spec_id: 91, bom_variant_id: 191, inventory_unit: '袋', spec_g: 454, qty: 2 },
+      { product_id: 550, bom_spec_id: 92, bom_variant_id: 192, inventory_unit: '盒', spec_g: 0, qty: 1 },
+    ])).toEqual([
+      { product_id: 550, bom_spec_id: 91, bom_variant_id: 191, inventory_unit: '袋', spec_g: 0, qty: 3 },
+      { product_id: 550, bom_spec_id: 92, bom_variant_id: 192, inventory_unit: '盒', spec_g: 0, qty: 1 },
+    ])
+  })
+
   it('blocks production submission when any aggregated BOM material has a shortage', () => {
     expect(productionSubmissionBlockReason({
       complete: true,

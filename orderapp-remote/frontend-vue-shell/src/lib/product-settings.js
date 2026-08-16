@@ -2511,18 +2511,6 @@ export function buildProductCreatePayload(form = {}) {
 		product_kind: kind,
 		remark: String(form.remark || '').trim(),
 	}
-	const unitTemplateID = normalizedProductUnitTemplateID(form)
-	const shouldSaveUnitOverride = productUnitOverrideShouldSave(form)
-	if (Object.prototype.hasOwnProperty.call(form, 'unit_template_id')) {
-		payload.unit_template_id = unitTemplateID
-	}
-	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
-		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
-	}
-	if ((shouldSaveUnitOverride || unitTemplateID <= 0) && Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
-		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
-	}
-  if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
 	if (kind === 'green_bean') return payload
 	return payload
 }

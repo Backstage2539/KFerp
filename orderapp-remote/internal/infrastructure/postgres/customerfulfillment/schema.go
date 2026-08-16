@@ -250,6 +250,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_import_order_items (
 	batch_id BIGINT NOT NULL DEFAULT 0,
 	customer_id BIGINT NOT NULL REFERENCES %[1]s.customers(id) ON DELETE CASCADE,
 	line_no INTEGER NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	product_title TEXT NOT NULL DEFAULT '',
 	spec TEXT NOT NULL DEFAULT '',
 	quantity_units BIGINT NOT NULL DEFAULT 0,
@@ -332,15 +335,18 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_items (
 	request_id BIGINT NOT NULL REFERENCES %[1]s.customer_direct_ship_requests(id) ON DELETE CASCADE,
 	line_no INTEGER NOT NULL DEFAULT 0,
 	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_key TEXT NOT NULL DEFAULT '',
 	product_name TEXT NOT NULL DEFAULT '',
 	sku_code TEXT NOT NULL DEFAULT '',
 	spec_label TEXT NOT NULL DEFAULT '',
+	inventory_unit TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	qty BIGINT NOT NULL DEFAULT 0,
 	snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	UNIQUE(request_id, line_no),
-	UNIQUE(request_id, product_id, spec_g)
+	UNIQUE(request_id, line_no)
 );
 
 CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_orders (
@@ -364,11 +370,14 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_direct_ship_request_allocations (
 	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
 	order_item_id BIGINT NOT NULL REFERENCES %[1]s.order_items(id) ON DELETE CASCADE,
 	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	warehouse_code TEXT NOT NULL DEFAULT '',
 	batch_id BIGINT NOT NULL DEFAULT 0,
 	batch_code TEXT NOT NULL DEFAULT '',
 	allocated_qty BIGINT NOT NULL DEFAULT 0,
+	allocated_units BIGINT NOT NULL DEFAULT 0,
 	allocated_g BIGINT NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'reserved',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -379,22 +388,36 @@ CREATE INDEX IF NOT EXISTS customer_direct_ship_request_alloc_batch_idx
 	ON %[1]s.customer_direct_ship_request_allocations(batch_id, warehouse_code, status);
 
 ALTER TABLE %[1]s.customer_direct_ship_request_items ADD COLUMN IF NOT EXISTS spec_label TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.customer_direct_ship_request_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_direct_ship_request_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_direct_ship_request_items ADD COLUMN IF NOT EXISTS bom_spec_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.customer_direct_ship_request_items ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.customer_direct_ship_request_allocations ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_direct_ship_request_allocations ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_direct_ship_request_allocations ADD COLUMN IF NOT EXISTS allocated_units BIGINT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS %[1]s.order_stock_batch_allocations (
 	id BIGSERIAL PRIMARY KEY,
 	order_id BIGINT NOT NULL REFERENCES %[1]s.orders(id) ON DELETE CASCADE,
 	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	need_g BIGINT NOT NULL DEFAULT 0,
 	batch_id BIGINT NOT NULL DEFAULT 0,
 	batch_code TEXT NOT NULL DEFAULT '',
 	allocated_g BIGINT NOT NULL DEFAULT 0,
+	allocated_units BIGINT NOT NULL DEFAULT 0,
 	operator TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS order_item_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS request_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS need_units BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.order_stock_batch_allocations ADD COLUMN IF NOT EXISTS allocated_units BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS customer_direct_ship_order_stock_request_idx
 	ON %[1]s.order_stock_batch_allocations(request_id, order_id);
 `, schema)
@@ -403,7 +426,15 @@ CREATE INDEX IF NOT EXISTS customer_direct_ship_order_stock_request_idx
 		return err
 	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS product_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_import_order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.customer_direct_ship_request_items DROP CONSTRAINT IF EXISTS customer_direct_ship_request_items_request_id_product_id_spec_g_key`, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_legacy_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,spec_g) WHERE bom_spec_id=0`, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS customer_direct_ship_request_items_bom_spec_identity_uq ON %s.customer_direct_ship_request_items(request_id,product_id,bom_spec_id) WHERE bom_spec_id>0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS customer_product_alias_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS customer_product_display_name_snapshot TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS customer_item_code_snapshot TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS product_code_snapshot TEXT NOT NULL DEFAULT ''`, schema),

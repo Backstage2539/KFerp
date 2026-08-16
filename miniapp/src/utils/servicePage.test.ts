@@ -142,4 +142,40 @@ describe('service page helpers', () => {
       note: '周末前发',
     })
   })
+
+  it('builds cutover product-order payload with parent and BOM specification identity one to one', () => {
+    const payload = buildFulfillmentOrderPayload('product_order', {
+      recipient_name: '张三',
+      recipient_phone: '13800138000',
+      recipient_address: '上海市',
+      recipient_company: '',
+      product_id: 10,
+      product_name: '初晓 · 227g袋',
+      bom_spec_id: 101,
+      bom_variant_id: 1001,
+      inventory_unit: '袋',
+      spec_g: 0,
+      qty: 2,
+      sales_unit: '',
+      unit_bag_count: 0,
+      unit_bean_g: 0,
+      note: 'BOM规格现货',
+    })
+
+    expect(payload).toEqual({
+      service_code: 'product_order',
+      recipient_name: '张三',
+      recipient_phone: '13800138000',
+      recipient_address: '上海市',
+      recipient_company: '',
+      product_id: 10,
+      product_name: '初晓 · 227g袋',
+      bom_spec_id: 101,
+      bom_variant_id: 1001,
+      inventory_unit: '袋',
+      spec_g: 0,
+      qty: 2,
+      note: 'BOM规格现货',
+    })
+  })
 })

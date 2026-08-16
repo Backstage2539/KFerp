@@ -39,6 +39,9 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	if data.Products, err = r.fetchOrderProducts(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
+	if data.ProductBOMSpecOptions, err = r.fetchOrderBOMSpecOptions(ctx); err != nil {
+		return salesapp.OrderFormData{}, err
+	}
 	if data.Employees, err = r.fetchOrderEmployees(ctx); err != nil {
 		return salesapp.OrderFormData{}, err
 	}
@@ -64,10 +67,180 @@ func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.Order
 	return data, nil
 }
 
+func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.ProductBOMSpecOption, error) {
+	for _, relation := range []string{
+		"product_bom_spec_migrations",
+		"legacy_child_sku_bom_spec_mappings",
+		"production_bom_output_bindings",
+		"production_bom_versions",
+		"production_bom_specs",
+		"production_bom_version_variants",
+	} {
+		var exists bool
+		if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", r.schema, relation)).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if !exists {
+			return []salesapp.ProductBOMSpecOption{}, nil
+		}
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT binding.output_id,
+		       COALESCE(mapping.legacy_child_product_id,0),
+		       binding.bom_id,
+		       version.id,
+		       COALESCE(version.version_no,''),
+		       spec.id,
+		       variant.id,
+		       COALESCE(spec.code,''),
+		       COALESCE(spec.barcode,''),
+		       spec.spec_key,
+		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
+		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit),
+		       migration.state,
+		       variant.is_default,
+		       variant.sort_order,
+		       CASE WHEN migration.state='cutover' THEN binding.output_id ELSE COALESCE(mapping.legacy_child_product_id,0) END,
+		       CASE WHEN migration.state='cutover' THEN spec.id ELSE 0 END,
+		       CASE WHEN migration.state='cutover' THEN variant.id ELSE 0 END,
+		       COALESCE(legacy.customer_id,0),
+		       COALESCE(NULLIF(legacy.product_kind,''),NULLIF(parent.product_kind,''),'roasted_bean')
+		FROM %[1]s.production_bom_output_bindings binding
+		JOIN %[1]s.product_bom_spec_migrations migration
+		  ON migration.product_id=binding.output_id
+		JOIN %[1]s.products parent
+		  ON parent.id=binding.output_id AND parent.active=true
+		JOIN %[1]s.production_bom_versions version
+		  ON version.id=binding.bom_version_id
+		 AND version.bom_id=binding.bom_id
+		 AND version.status='published'
+		JOIN %[1]s.production_bom_specs spec
+		  ON spec.bom_id=binding.bom_id
+		JOIN %[1]s.production_bom_version_variants variant
+		  ON variant.version_id=version.id
+		 AND variant.bom_spec_id=spec.id
+		LEFT JOIN LATERAL (
+			SELECT candidate.legacy_child_product_id
+			FROM %[1]s.legacy_child_sku_bom_spec_mappings candidate
+			WHERE candidate.parent_product_id=binding.output_id
+			  AND candidate.bom_spec_id=spec.id
+			ORDER BY candidate.legacy_child_product_id
+			LIMIT 1
+		) mapping ON true
+		LEFT JOIN %[1]s.products legacy
+		  ON legacy.id=mapping.legacy_child_product_id
+		WHERE migration.state IN ('preparing','ready','cutover')
+		  AND binding.output_type='product'
+		  AND binding.is_default=true
+		ORDER BY parent.name,variant.sort_order,spec.spec_key,spec.id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	options := make([]salesapp.ProductBOMSpecOption, 0)
+	legacyProducts := make([]salesapp.ProductOption, 0)
+	for rows.Next() {
+		var option salesapp.ProductBOMSpecOption
+		var customerID int64
+		var productKind string
+		if err := rows.Scan(
+			&option.ParentProductID,
+			&option.LegacyChildProductID,
+			&option.BomID,
+			&option.BomVersionID,
+			&option.BomVersionNo,
+			&option.BomSpecID,
+			&option.BomVariantID,
+			&option.SpecCode,
+			&option.Barcode,
+			&option.SpecKey,
+			&option.SpecName,
+			&option.InventoryUnit,
+			&option.MigrationState,
+			&option.IsDefault,
+			&option.SortOrder,
+			&option.WriteProductID,
+			&option.WriteBomSpecID,
+			&option.WriteBomVariantID,
+			&customerID,
+			&productKind,
+		); err != nil {
+			return nil, err
+		}
+		option.Published = true
+		options = append(options, option)
+		legacyProducts = append(legacyProducts, salesapp.ProductOption{
+			ID:              option.LegacyChildProductID,
+			SKUID:           option.LegacyChildProductID,
+			ParentProductID: option.ParentProductID,
+			CustomerID:      customerID,
+			ProductKind:     productKind,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	commercial, err := r.fetchCommercialOrderPublicationTiers(ctx, legacyProducts)
+	if err != nil {
+		return nil, err
+	}
+	applyCommercialOrderPublicationTiers(legacyProducts, commercial)
+	drip, err := r.fetchDripOrderPublicationTiers(ctx, legacyProducts)
+	if err != nil {
+		return nil, err
+	}
+	applyHistoricalDripOrderPublicationTiers(legacyProducts, drip)
+	retail, err := r.fetchRetailOrderPublicationTiers(ctx, legacyProducts)
+	if err != nil {
+		return nil, err
+	}
+	applyRetailOrderPublicationTiers(legacyProducts, retail)
+	green, err := r.fetchGreenBeanOrderPublicationTiers(ctx, legacyProducts)
+	if err != nil {
+		return nil, err
+	}
+	applyGreenBeanOrderPublicationTiers(legacyProducts, green)
+	for idx := range options {
+		if idx >= len(legacyProducts) {
+			break
+		}
+		options[idx].Tiers = append([]salesapp.ProductTierOption(nil), legacyProducts[idx].Tiers...)
+		for tierIdx := range options[idx].Tiers {
+			tier := &options[idx].Tiers[tierIdx]
+			tier.ParentProductID = options[idx].ParentProductID
+			tier.BomSpecID = options[idx].BomSpecID
+			tier.BomVariantID = options[idx].BomVariantID
+			if tier.EffectiveSalesSpec == nil {
+				tier.EffectiveSalesSpec = map[string]any{}
+			}
+			tier.EffectiveSalesSpec["parent_product_id"] = options[idx].ParentProductID
+			tier.EffectiveSalesSpec["bom_spec_id"] = options[idx].BomSpecID
+			tier.EffectiveSalesSpec["bom_variant_id"] = options[idx].BomVariantID
+			if options[idx].MigrationState == "cutover" {
+				tier.PriceSourceJSON = withOrderBOMSpecPriceSourceJSON(tier.PriceSourceJSON, orderBOMSpecIdentity{
+					ProductID:              options[idx].ParentProductID,
+					BomSpecID:              options[idx].BomSpecID,
+					BomVariantID:           options[idx].BomVariantID,
+					BomSpecKey:             options[idx].SpecKey,
+					BomSpecName:            options[idx].SpecName,
+					InventoryUnit:          options[idx].InventoryUnit,
+					LegacyPricingProductID: options[idx].LegacyChildProductID,
+				})
+			}
+		}
+	}
+	return options, nil
+}
+
 func orderEditItemsQuery(schema string) string {
 	return fmt.Sprintf(`
 			SELECT oi.id, oi.line_no,
 				COALESCE(oi.product_id,0),
+				COALESCE(oi.bom_spec_id,0),
+				COALESCE(oi.bom_variant_id,0),
+				CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN COALESCE(oi.price_source_json->>'bom_spec_key','') ELSE '' END,
+				CASE WHEN COALESCE(oi.bom_spec_id,0)>0 THEN COALESCE(NULLIF(oi.price_source_json->>'bom_spec_name',''),oi.spec,'') ELSE '' END,
 				COALESCE(NULLIF(oi.customer_product_display_name_snapshot,''), NULLIF(oi.item_name,''), p.name, ''),
 				COALESCE(oi.customer_product_alias_id,0),
 				COALESCE(oi.customer_product_display_name_snapshot,''),
@@ -1963,7 +2136,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount, unitBeanG, matchedPriceQty float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.PriceOverride, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.BomSpecID, &it.BomVariantID, &it.BomSpecKey, &it.BomSpecName, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.PriceOverride, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

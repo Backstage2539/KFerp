@@ -165,14 +165,21 @@
               <SearchableSelect
                 v-if="isDraft && !isBoundProductionDocument"
                 :model-value="selectedObjectID(item)"
-                :options="item.item_type === 'material' ? materials : products"
+                :options="item.item_type === 'material' ? stockEntryMaterialOptions : products"
                 :option-label="itemOptionLabel"
                 placeholder="输入名称 / 编号"
                 @update:model-value="selectItemObject(item, $event)"
               />
               <input v-else :value="item.item_name || '-'" disabled />
             </label>
-            <label v-if="item.item_type === 'finished_product'"><span>规格(g)</span><input v-model.number="item.spec_g" type="number" min="1" :disabled="!isDraft" /></label>
+            <label v-if="item.item_type === 'finished_product' && itemUsesBomSpecs(item)">
+              <span>BOM 规格</span>
+              <select v-model.number="item.bom_spec_id" :disabled="!isDraft" @change="selectItemBomSpec(item)">
+                <option :value="0">请选择</option>
+                <option v-for="spec in itemBomSpecs(item)" :key="spec.bom_spec_id" :value="spec.bom_spec_id">{{ spec.name }}（{{ spec.unit }}）</option>
+              </select>
+            </label>
+            <label v-else-if="item.item_type === 'finished_product'"><span>规格(g)</span><input v-model.number="item.spec_g" type="number" min="1" :disabled="!isDraft" /></label>
             <label><span>出库仓</span><select v-model="item.from_warehouse" :disabled="!isDraft || isBoundProductionDocument"><option value="">无</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
             <label><span>入库仓</span><select v-model="item.to_warehouse" :disabled="!isDraft || isBoundProductionDocument"><option value="">无</option><option v-for="warehouse in warehouses" :key="warehouse.code" :value="warehouse.code">{{ warehouse.name }}</option></select></label>
             <label v-if="usesSingleQuantity(item)">
@@ -211,8 +218,15 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import { isSemiFinishedMaterial, selectableStockEntryMaterials } from '../lib/material-receipts'
 import { stockEntryEndpoint, stockEntryTypeLabel, stockEntryTypeOptions } from '../lib/manufacturing-execution'
 import { inventoryUnitWeightInGrams, productionStockDocumentPreviewAction, stockCanonicalQuantity, stockDocumentPositiveItems, stockQuantityUsesCount } from '../lib/production-execution-hub'
+import {
+  buildProductSpecWriteIdentity,
+  isProductBomSpecCutover,
+  normalizeProductBomSpecs,
+  visibleRowsForProductSpecMigration,
+} from '../lib/product-spec-cutover'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -236,6 +250,7 @@ const form = reactive(emptyDocument())
 
 const isDraft = computed(() => !form.id || form.status === 'draft')
 const isReceipt = computed(() => form.purpose_key === 'material_receipt')
+const stockEntryMaterialOptions = computed(() => selectableStockEntryMaterials(materials.value, form.purpose_key))
 const isBoundProductionDocument = computed(() => Number(form.work_order_id || 0) > 0)
 const showsWIPIssueSuggestion = computed(() => (
   isBoundProductionDocument.value && form.purpose_key === 'material_transfer_for_manufacture'
@@ -259,6 +274,7 @@ const productionQuantityLabel = computed(() => {
 function emptyItem() {
   return {
     local_key: ++localKey, material_id: 0, product_id: 0, item_type: 'material', item_name: '',
+    migration_state: 'legacy', bom_spec_id: 0, bom_variant_id: 0,
     spec_g: 0, inventory_unit: '', from_warehouse: 'raw_materials', to_warehouse: 'wip',
     quantity: 0, quantity_basis: '', canonical_qty_per_unit: 0,
     required_qty: 0, remaining_qty: null, remembered_qty: 0, default_qty: 0,
@@ -360,20 +376,45 @@ function selectedObjectID(item) {
   return Number(item.item_type === 'material' ? item.material_id : item.product_id) || 0
 }
 
+function selectedItemProduct(item) {
+  return products.value.find((row) => Number(row.id || row.product_id || 0) === Number(item.product_id || 0)) || null
+}
+
+function itemUsesBomSpecs(item) {
+  return item?.migration_state === 'cutover' || isProductBomSpecCutover(selectedItemProduct(item) || {})
+}
+
+function itemBomSpecs(item) {
+  return normalizeProductBomSpecs(selectedItemProduct(item) || item || {})
+}
+
+function selectItemBomSpec(item) {
+  const selected = itemBomSpecs(item).find((row) => Number(row.bom_spec_id) === Number(item.bom_spec_id))
+  item.bom_variant_id = Number(selected?.bom_variant_id || 0)
+  item.inventory_unit = String(selected?.unit || item.inventory_unit || '')
+}
+
 function selectItemObject(item, id) {
   const value = Number(id || 0)
   const options = item.item_type === 'material' ? materials.value : products.value
   const selected = options.find((row) => Number(row.id || 0) === value)
   item.material_id = item.item_type === 'material' ? value : 0
   item.product_id = item.item_type === 'finished_product' ? value : 0
+  item.migration_state = item.item_type === 'finished_product' && isProductBomSpecCutover(selected || {}) ? 'cutover' : 'legacy'
+  item.bom_spec_id = Number(normalizeProductBomSpecs(selected || {}).find((row) => row.is_default)?.bom_spec_id || normalizeProductBomSpecs(selected || {})[0]?.bom_spec_id || 0)
+  item.bom_variant_id = 0
   item.item_name = selected?.name || selected?.Name || ''
   item.inventory_unit = selected?.unit || selected?.inventory_unit || ''
   if (item.item_type === 'finished_product') item.spec_g = Number(selected?.spec_g || item.spec_g || 0)
+  if (item.migration_state === 'cutover') selectItemBomSpec(item)
 }
 
 function resetItemObject(item) {
   item.material_id = 0
   item.product_id = 0
+  item.migration_state = 'legacy'
+  item.bom_spec_id = 0
+  item.bom_variant_id = 0
   item.item_name = ''
   item.spec_g = item.item_type === 'finished_product' ? 454 : 0
 }
@@ -435,8 +476,15 @@ function requestBody() {
     return_source: form.return_source || '',
     note: form.note || '',
     items: requestItems.map(({ item, quantity }) => {
+      const identity = buildProductSpecWriteIdentity({ ...item, parent_product_id: item.product_id, qty: Number(item.quantity || quantity.qty_units || quantity.qty_g || 0), unit: item.inventory_unit })
       return {
-        material_id: Number(item.material_id || 0), product_id: Number(item.product_id || 0),
+        material_id: Number(item.material_id || 0), product_id: item.item_type === 'finished_product' ? Number(identity.product_id || 0) : 0,
+        ...(item.item_type === 'finished_product' && itemUsesBomSpecs(item) ? {
+          bom_spec_id: Number(identity.bom_spec_id || 0),
+          bom_variant_id: Number(identity.bom_variant_id || 0),
+          qty: Number(identity.qty || 0),
+          unit: String(identity.unit || item.inventory_unit || ''),
+        } : {}),
         item_type: item.item_type, item_name: item.item_name || '', spec_g: Number(item.spec_g || 0),
         inventory_unit: item.inventory_unit || '', quantity_basis: item.quantity_basis || '',
         from_warehouse: item.from_warehouse || '', to_warehouse: item.to_warehouse || '',
@@ -556,7 +604,7 @@ async function loadOptions() {
       apiGet('/api/materials?limit=500'), apiGet('/api/products'), apiGet('/api/stock/warehouses'),
     ])
     materials.value = materialData.rows || []
-    products.value = productData.rows || productData.products || []
+    products.value = visibleRowsForProductSpecMigration(productData.rows || productData.products || [])
     warehouses.value = warehouseData.rows || []
   } catch (err) {
     error.value = err.message || '基础资料加载失败'
@@ -601,6 +649,13 @@ function openWipInventory() {
 }
 
 watch(() => props.viewParams, (params) => applyViewParams(params || {}), { deep: true })
+watch(() => form.purpose_key, (purpose) => {
+  if (purpose !== 'material_receipt') return
+  for (const item of form.items) {
+    const selectedMaterial = materials.value.find((row) => Number(row.id || 0) === Number(item.material_id || 0))
+    if (isSemiFinishedMaterial(selectedMaterial)) resetItemObject(item)
+  }
+})
 onMounted(async () => {
   await Promise.all([load(), loadOptions()])
   await applyViewParams(props.viewParams || {})

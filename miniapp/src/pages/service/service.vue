@@ -112,6 +112,9 @@ const defaultShipStatusOptions = ['未发货', '待发货', '已发货']
 const fulfillmentForm = ref(emptyFulfillmentForm())
 const prefillProductID = ref(0)
 const prefillSpecG = ref(0)
+const prefillBomSpecID = ref(0)
+const prefillBomVariantID = ref(0)
+const prefillInventoryUnit = ref('')
 const processingPrefillItems = ref<ProcessingPrefillItem[]>([])
 
 const isProcessingCustomer = computed(() => session.capabilities.some((item) => item.code === 'processing' && item.enabled))
@@ -178,12 +181,24 @@ const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', d
 const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
 const fulfillmentProductOptions = computed(() => productPickerOptions(page.value?.products || []))
 const fulfillmentProductLabels = computed(() => pickerLabels(fulfillmentProductOptions.value, '暂无可选商品'))
-const selectedFulfillmentProductLabel = computed(() => selectedPickerLabel(fulfillmentProductOptions.value, fulfillmentForm.value.product_id, '选择发货商品'))
-const selectedFulfillmentProduct = computed(() => fulfillmentProductOptions.value.find((item) => item.value === fulfillmentForm.value.product_id)?.data || null)
+const selectedFulfillmentProduct = computed(() => fulfillmentProductOptions.value.find((item) => {
+  if (fulfillmentForm.value.bom_spec_id > 0) return item.data.bom_spec_id === fulfillmentForm.value.bom_spec_id
+  return item.value === fulfillmentForm.value.product_id && !item.data.bom_spec_id
+})?.data || null)
+const selectedFulfillmentProductLabel = computed(() => {
+  const selected = selectedFulfillmentProduct.value
+  if (!selected) return '选择发货商品'
+  return selected.bom_spec_id
+    ? `${selected.name} · ${selected.spec_name || 'BOM规格'} / ${selected.inventory_unit || '单位未配置'}`
+    : selectedPickerLabel(fulfillmentProductOptions.value, selected.id, '选择发货商品')
+})
 const fulfillmentSalesUnitPickerOptions = computed(() => fulfillmentSalesUnitOptions(selectedFulfillmentProduct.value))
 const fulfillmentSalesUnitLabels = computed(() => pickerLabels(fulfillmentSalesUnitPickerOptions.value, '暂无可选单位'))
 const selectedFulfillmentSalesUnitLabel = computed(() => fulfillmentUnitOption(selectedFulfillmentProduct.value, fulfillmentForm.value.sales_unit)?.label || '选择销售单位')
-const fulfillmentQuantityPlaceholder = computed(() => fulfillmentUnitOption(selectedFulfillmentProduct.value, fulfillmentForm.value.sales_unit)?.quantity_label || '件数')
+const fulfillmentQuantityPlaceholder = computed(() => {
+  if (selectedFulfillmentProduct.value?.bom_spec_id) return `${selectedFulfillmentProduct.value.inventory_unit || '规格'}数`
+  return fulfillmentUnitOption(selectedFulfillmentProduct.value, fulfillmentForm.value.sales_unit)?.quantity_label || '件数'
+})
 
 async function loadPage() {
   if (!session.token) {
@@ -288,6 +303,9 @@ function clearProcessingPrefill() {
   processingPrefillItems.value = []
   prefillProductID.value = 0
   prefillSpecG.value = 0
+  prefillBomSpecID.value = 0
+  prefillBomVariantID.value = 0
+  prefillInventoryUnit.value = ''
 }
 
 async function applyOrderFilters() {
@@ -753,7 +771,9 @@ function pickerOptionAt<T>(options: PickerOption<T>[], event: { detail?: { value
 
 function productPickerOptions(products: ProductSummary[]): PickerOption<ProductSummary>[] {
   return products.map((item) => ({
-    label: `${productKindLabel(item)} / ${item.name} / 已发布价格表`,
+    label: item.bom_spec_id
+      ? `${productKindLabel(item)} / ${item.name} · ${item.spec_name || 'BOM规格'} / ${item.inventory_unit || '单位未配置'}`
+      : `${productKindLabel(item)} / ${item.name} / 已发布价格表`,
     value: item.id,
     data: item,
   }))
@@ -764,6 +784,20 @@ function setFulfillmentProduct(event: { detail?: { value?: number | string } }) 
   if (!option) return
   fulfillmentForm.value.product_id = option.value
   fulfillmentForm.value.product_name = option.data.name
+  if (option.data.bom_spec_id) {
+    fulfillmentForm.value.bom_spec_id = option.data.bom_spec_id
+    fulfillmentForm.value.bom_variant_id = option.data.bom_variant_id || 0
+    fulfillmentForm.value.inventory_unit = option.data.inventory_unit || ''
+    fulfillmentForm.value.product_name = `${option.data.name} · ${option.data.spec_name || 'BOM规格'}`
+    fulfillmentForm.value.spec_g = 0
+    fulfillmentForm.value.sales_unit = ''
+    fulfillmentForm.value.unit_bag_count = 0
+    fulfillmentForm.value.unit_bean_g = 0
+    return
+  }
+  fulfillmentForm.value.bom_spec_id = 0
+  fulfillmentForm.value.bom_variant_id = 0
+  fulfillmentForm.value.inventory_unit = ''
   const unit = fulfillmentUnitOption(option.data)
   if (unit) {
     applyFulfillmentSalesUnit(unit.sales_unit)
@@ -792,7 +826,10 @@ function applyFulfillmentSalesUnit(salesUnit: string) {
 
 async function submitFulfillmentOrder() {
   const payload = buildFulfillmentOrderPayload('product_order', fulfillmentForm.value)
-  if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address || !payload.product_id || !payload.spec_g || !payload.qty) {
+  const hasProductIdentity = payload.bom_spec_id && payload.bom_variant_id && payload.inventory_unit
+    ? true
+    : payload.spec_g > 0
+  if (!payload.recipient_name || !payload.recipient_phone || !payload.recipient_address || !payload.product_id || !hasProductIdentity || !payload.qty) {
     errorMessage.value = '请填写完整发货订单'
     return
   }
@@ -861,6 +898,9 @@ onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
   prefillProductID.value = Number(query?.product_id || 0)
   prefillSpecG.value = Number(query?.spec_g || 0)
+  prefillBomSpecID.value = Number(query?.bom_spec_id || 0)
+  prefillBomVariantID.value = Number(query?.bom_variant_id || 0)
+  prefillInventoryUnit.value = decodeURIComponent(String(query?.inventory_unit || ''))
   processingPrefillItems.value = serviceKey.value === 'processing'
     ? processingPrefill.consume(session.currentCustomerID)
     : []
@@ -921,6 +961,9 @@ onShow(() => {
         :customer-id="session.currentCustomerID"
         :prefill-product-id="prefillProductID"
         :prefill-spec-g="prefillSpecG"
+        :prefill-bom-spec-id="prefillBomSpecID"
+        :prefill-bom-variant-id="prefillBomVariantID"
+        :prefill-inventory-unit="prefillInventoryUnit"
         :prefill-items="processingPrefillItems"
         @prefill-consumed="clearProcessingPrefill"
       />
@@ -953,7 +996,10 @@ onShow(() => {
         <picker v-if="fulfillmentSalesUnitPickerOptions.length" mode="selector" :range="fulfillmentSalesUnitLabels" @change="setFulfillmentSalesUnit">
           <view class="picker-field">{{ selectedFulfillmentSalesUnitLabel }}</view>
         </picker>
-        <input v-model.number="fulfillmentForm.spec_g" class="input" type="number" placeholder="规格克重" />
+        <view v-if="fulfillmentForm.bom_spec_id" class="picker-field">
+          {{ selectedFulfillmentProduct?.spec_name || 'BOM规格' }} / {{ fulfillmentForm.inventory_unit }}
+        </view>
+        <input v-else v-model.number="fulfillmentForm.spec_g" class="input" type="number" placeholder="规格克重" />
         <input v-model.number="fulfillmentForm.qty" class="input" type="number" :placeholder="fulfillmentQuantityPlaceholder" />
         <textarea v-model="fulfillmentForm.note" class="textarea" placeholder="订单备注" />
         <button class="primary" :disabled="submitting" @tap="submitFulfillmentOrder">提交订单</button>

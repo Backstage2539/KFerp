@@ -9,19 +9,37 @@ import (
 )
 
 type ProductOption struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID             int64               `json:"id"`
+	Name           string              `json:"name"`
+	MigrationState string              `json:"migration_state,omitempty"`
+	BOMSpecs       []ProductSpecOption `json:"bom_specs,omitempty"`
+}
+
+type ProductSpecOption struct {
+	BomSpecID    int64  `json:"bom_spec_id"`
+	BomVariantID int64  `json:"bom_variant_id"`
+	SpecKey      string `json:"spec_key"`
+	Name         string `json:"name"`
+	Unit         string `json:"unit"`
+	IsDefault    bool   `json:"is_default"`
+	SortOrder    int    `json:"sort_order"`
 }
 
 type FinishedInventoryRow struct {
-	ProductID int64  `json:"product_id"`
-	Product   string `json:"product"`
-	SpecG     int64  `json:"spec_g"`
-	Warehouse string `json:"warehouse"`
-	Units     int64  `json:"units"`
-	LooseG    int64  `json:"loose_g"`
-	UpdatedAt string `json:"updated_at"`
-	TotalG    int64  `json:"total_g"`
+	ProductID      int64  `json:"product_id"`
+	Product        string `json:"product"`
+	SpecG          int64  `json:"spec_g"`
+	BomSpecID      int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID   int64  `json:"bom_variant_id,omitempty"`
+	SpecKey        string `json:"spec_key,omitempty"`
+	SpecName       string `json:"spec_name,omitempty"`
+	InventoryUnit  string `json:"inventory_unit,omitempty"`
+	MigrationState string `json:"migration_state,omitempty"`
+	Warehouse      string `json:"warehouse"`
+	Units          int64  `json:"units"`
+	LooseG         int64  `json:"loose_g"`
+	UpdatedAt      string `json:"updated_at"`
+	TotalG         int64  `json:"total_g"`
 }
 
 type FinishedInventoryQuery struct {
@@ -72,12 +90,15 @@ type AllocationLogResult struct {
 }
 
 type AdjustFinishedInventoryCommand struct {
-	ProductID int64
-	SpecG     int64
-	Warehouse string
-	Units     int64
-	LooseG    int64
-	Operator  string
+	ProductID    int64
+	SpecG        int64
+	BomSpecID    int64
+	BomVariantID int64
+	UnitCode     string
+	Warehouse    string
+	Units        int64
+	LooseG       int64
+	Operator     string
 }
 
 type Repository interface {
@@ -120,19 +141,29 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 	if cmd.ProductID <= 0 {
 		return fmt.Errorf("product required")
 	}
-	if cmd.SpecG <= 0 {
-		return fmt.Errorf("spec_g required")
+	if cmd.BomSpecID > 0 {
+		if cmd.SpecG != 0 {
+			return fmt.Errorf("spec_g must be zero for BOM specification")
+		}
+		if cmd.LooseG != 0 {
+			return fmt.Errorf("loose_g is not supported for BOM specification")
+		}
+	} else if cmd.SpecG <= 0 {
+		return fmt.Errorf("spec_g or bom_spec_id required")
 	}
 	if cmd.Units < 0 || cmd.LooseG < 0 {
 		return fmt.Errorf("negative qty")
 	}
-	qty, err := inventorydomain.Normalize(cmd.SpecG, inventorydomain.Quantity{Units: cmd.Units, LooseG: cmd.LooseG})
-	if err != nil {
-		return err
+	if cmd.BomSpecID == 0 {
+		qty, err := inventorydomain.Normalize(cmd.SpecG, inventorydomain.Quantity{Units: cmd.Units, LooseG: cmd.LooseG})
+		if err != nil {
+			return err
+		}
+		cmd.Units = qty.Units
+		cmd.LooseG = qty.LooseG
 	}
-	cmd.Units = qty.Units
-	cmd.LooseG = qty.LooseG
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
 	if cmd.Operator == "" {
 		cmd.Operator = "inventory"
 	}

@@ -674,6 +674,11 @@ func newPR598BomBindingTestDB(t *testing.T) (context.Context, *pgxpool.Pool, str
 		t.Fatal(err)
 	}
 	mustPR598SQL(t, ctx, pool, fmt.Sprintf(`
+		CREATE TABLE %[1]s.product_bom_spec_migrations(
+			product_id BIGINT PRIMARY KEY,
+			state TEXT NOT NULL,
+			legacy_catalog_product BOOLEAN NOT NULL DEFAULT true
+		);
 		CREATE TABLE %[1]s.product_production_configs(
 			product_id BIGINT PRIMARY KEY,
 			production_bom_id BIGINT NOT NULL DEFAULT 0,

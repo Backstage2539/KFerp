@@ -83,7 +83,8 @@ func TestOrderStockShipmentDeductionRepositoryWiringExists(t *testing.T) {
 		"salesOrderShipmentStockSource",
 		"INSERT INTO %s.stock_ledger_entries",
 		"INSERT INTO %s.order_stock_deductions",
-		"ON CONFLICT(order_id,product_id,spec_g,batch_code) DO NOTHING",
+		"ON CONFLICT(order_id,product_id,bom_spec_id,batch_code) DO NOTHING",
+		"deducted_units",
 	} {
 		if !strings.Contains(deductions, want) {
 			t.Fatalf("order_stock_deductions.go missing deduction/idempotency marker %q", want)

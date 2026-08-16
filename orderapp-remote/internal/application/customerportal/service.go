@@ -527,7 +527,14 @@ func beanListPricesSignature(prices []BeanListPriceSummary) string {
 
 type ProductSummary struct {
 	ID                 int64               `json:"id"`
+	BomSpecID          int64               `json:"bom_spec_id,omitempty"`
+	BomVariantID       int64               `json:"bom_variant_id,omitempty"`
 	Name               string              `json:"name"`
+	SpecName           string              `json:"spec_name,omitempty"`
+	InventoryUnit      string              `json:"inventory_unit,omitempty"`
+	MigrationState     string              `json:"migration_state,omitempty"`
+	IsDefault          bool                `json:"is_default,omitempty"`
+	SortOrder          int                 `json:"sort_order,omitempty"`
 	RoastLevel         string              `json:"roast_level"`
 	ProductKind        string              `json:"product_kind,omitempty"`
 	SalesUnits         []string            `json:"sales_units,omitempty"`
@@ -555,7 +562,11 @@ type UnitPriceGradient struct {
 type MallProduct struct {
 	ID              int64    `json:"id"`
 	ProductID       int64    `json:"product_id"`
+	BomSpecID       int64    `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64    `json:"bom_variant_id,omitempty"`
 	ProductName     string   `json:"product_name"`
+	SpecName        string   `json:"spec_name,omitempty"`
+	InventoryUnit   string   `json:"inventory_unit,omitempty"`
 	ProductKind     string   `json:"product_kind,omitempty"`
 	SalesUnits      []string `json:"sales_units,omitempty"`
 	Title           string   `json:"title"`
@@ -574,10 +585,15 @@ type MallProduct struct {
 }
 
 type MallProductOption struct {
-	ID           int64   `json:"id"`
-	Name         string  `json:"name"`
-	ProductKind  string  `json:"product_kind"`
-	DefaultPrice float64 `json:"default_price"`
+	ID            int64   `json:"id"`
+	ProductID     int64   `json:"product_id,omitempty"`
+	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
+	Name          string  `json:"name"`
+	SpecName      string  `json:"spec_name,omitempty"`
+	InventoryUnit string  `json:"inventory_unit,omitempty"`
+	ProductKind   string  `json:"product_kind"`
+	DefaultPrice  float64 `json:"default_price"`
 }
 
 type MallPage struct {
@@ -589,18 +605,20 @@ type MallPage struct {
 }
 
 type SaveMallProductCommand struct {
-	ID          int64
-	ProductID   int64
-	Title       string
-	Subtitle    string
-	Description string
-	ImageURL    string
-	SpecG       int64
-	UnitPrice   float64
-	TemplateKey string
-	Status      string
-	SortOrder   int
-	Actor       string
+	ID           int64
+	ProductID    int64
+	BomSpecID    int64
+	BomVariantID int64
+	Title        string
+	Subtitle     string
+	Description  string
+	ImageURL     string
+	SpecG        int64
+	UnitPrice    float64
+	TemplateKey  string
+	Status       string
+	SortOrder    int
+	Actor        string
 }
 
 type UpdateMallProductImageCommand struct {
@@ -611,6 +629,9 @@ type UpdateMallProductImageCommand struct {
 
 type MallOrderItemCommand struct {
 	MallProductID int64   `json:"mall_product_id"`
+	ProductID     int64   `json:"product_id,omitempty"`
+	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
 	Qty           int64   `json:"qty"`
 	SalesUnit     string  `json:"sales_unit"`
 	UnitBagCount  int64   `json:"unit_bag_count"`
@@ -710,7 +731,11 @@ type ProcessingRequestItem struct {
 	LineNo               int                         `json:"line_no"`
 	ProductID            int64                       `json:"product_id"`
 	ParentProductID      int64                       `json:"parent_product_id"`
+	BomSpecID            int64                       `json:"bom_spec_id,omitempty"`
+	BomVariantID         int64                       `json:"bom_variant_id,omitempty"`
 	ProductName          string                      `json:"product_name"`
+	SpecName             string                      `json:"spec_name,omitempty"`
+	InventoryUnit        string                      `json:"inventory_unit,omitempty"`
 	SpecG                int64                       `json:"spec_g"`
 	Qty                  int64                       `json:"qty"`
 	NeedG                int64                       `json:"need_g"`
@@ -867,9 +892,25 @@ type CreateProcessingRequestCommand struct {
 }
 
 type ProcessingRequestItemCommand struct {
-	ProductID int64 `json:"product_id"`
-	SpecG     int64 `json:"spec_g"`
-	Qty       int64 `json:"qty"`
+	ProductID    int64 `json:"product_id"`
+	BomSpecID    int64 `json:"bom_spec_id,omitempty"`
+	BomVariantID int64 `json:"bom_variant_id,omitempty"`
+	SpecG        int64 `json:"spec_g"`
+	Qty          int64 `json:"qty"`
+}
+
+// ProcessingCatalogTarget is the authoritative selectable output identity for
+// customer processing. Legacy products keep spec_g; cutover products use the
+// parent product and the current default-published BOM specification.
+type ProcessingCatalogTarget struct {
+	ProductID     int64  `json:"product_id"`
+	BomSpecID     int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64  `json:"bom_variant_id,omitempty"`
+	SpecG         int64  `json:"spec_g,omitempty"`
+	SpecName      string `json:"spec_name,omitempty"`
+	InventoryUnit string `json:"inventory_unit,omitempty"`
+	IsDefault     bool   `json:"is_default,omitempty"`
+	SortOrder     int    `json:"sort_order,omitempty"`
 }
 
 type CreateFulfillmentOrderCommand struct {
@@ -881,6 +922,9 @@ type CreateFulfillmentOrderCommand struct {
 	RecipientAddress    string
 	RecipientCompany    string
 	ProductID           int64
+	BomSpecID           int64
+	BomVariantID        int64
+	InventoryUnit       string
 	ProductName         string
 	SpecG               int64
 	SalesUnit           string
@@ -1114,6 +1158,10 @@ type processingCatalogRepository interface {
 	FilterProcessingCatalogProductIDs(context.Context, int64, []int64) ([]int64, error)
 }
 
+type processingBOMSpecCatalogRepository interface {
+	ListProcessingCatalogTargets(context.Context, int64, []int64) ([]ProcessingCatalogTarget, error)
+}
+
 func NewService(repo Repository, identity IdentityProvider) *Service {
 	return &Service{repo: repo, identity: identity}
 }
@@ -1287,7 +1335,12 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	}
 	filter = normalizeServicePageFilter(filter)
 	limit := 20
-	if serviceKeyContainsOrders(def.key) {
+	if def.key == ServiceKeyProductOrder {
+		// The spot-order picker has no pagination. A BOM specification group can
+		// contain many variants, so the service page must return the complete
+		// practical catalog instead of reusing the order-history page size.
+		limit = 500
+	} else if serviceKeyContainsOrders(def.key) {
 		limit = 50
 	} else if def.key == ServiceKeySettlement {
 		limit = 200
@@ -2518,7 +2571,11 @@ func (s *Service) SaveMallProduct(ctx context.Context, cmd SaveMallProductComman
 	if cmd.Title == "" {
 		return MallProduct{}, fmt.Errorf("title required")
 	}
-	if cmd.SpecG <= 0 {
+	canonical := cmd.BomSpecID > 0 || cmd.BomVariantID > 0
+	if canonical && cmd.BomSpecID <= 0 {
+		return MallProduct{}, fmt.Errorf("bom_spec_id required")
+	}
+	if !canonical && cmd.SpecG <= 0 {
 		return MallProduct{}, fmt.Errorf("spec required")
 	}
 	if cmd.UnitPrice < 0 {
@@ -2722,6 +2779,27 @@ func (s *Service) FilterProcessingCatalogProductIDs(ctx context.Context, token s
 	return repo.FilterProcessingCatalogProductIDs(ctx, current.CurrentCustomerID, unique)
 }
 
+func (s *Service) ListProcessingCatalogTargets(ctx context.Context, token string, productIDs []int64) ([]ProcessingCatalogTarget, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityProcessing)
+	if err != nil {
+		return nil, err
+	}
+	unique := make([]int64, 0, len(productIDs))
+	seen := make(map[int64]bool, len(productIDs))
+	for _, productID := range productIDs {
+		if productID <= 0 || seen[productID] {
+			continue
+		}
+		seen[productID] = true
+		unique = append(unique, productID)
+	}
+	repo, ok := s.repo.(processingBOMSpecCatalogRepository)
+	if !ok {
+		return nil, fmt.Errorf("processing catalog unavailable")
+	}
+	return repo.ListProcessingCatalogTargets(ctx, current.CurrentCustomerID, unique)
+}
+
 func normalizeProcessingRequestItems(items []ProcessingRequestItemCommand) ([]ProcessingRequestItemCommand, error) {
 	if len(items) == 0 {
 		return nil, fmt.Errorf("items required")
@@ -2732,14 +2810,26 @@ func normalizeProcessingRequestItems(items []ProcessingRequestItemCommand) ([]Pr
 		if item.ProductID <= 0 {
 			return nil, fmt.Errorf("target_product required")
 		}
-		if item.SpecG <= 0 {
+		canonical := item.BomSpecID > 0 || item.BomVariantID > 0
+		if canonical {
+			if item.BomSpecID <= 0 {
+				return nil, fmt.Errorf("bom_spec_id required")
+			}
+			item.SpecG = 0
+		} else if item.SpecG <= 0 {
 			return nil, fmt.Errorf("target_spec required")
 		}
 		if item.Qty <= 0 {
 			return nil, fmt.Errorf("target_qty required")
 		}
-		key := fmt.Sprintf("%d:%d", item.ProductID, item.SpecG)
+		key := fmt.Sprintf("%d:%d:%d", item.ProductID, item.BomSpecID, item.SpecG)
 		if pos, ok := byKey[key]; ok {
+			if out[pos].BomVariantID > 0 && item.BomVariantID > 0 && out[pos].BomVariantID != item.BomVariantID {
+				return nil, fmt.Errorf("bom_variant_id mismatch for BOM spec")
+			}
+			if out[pos].BomVariantID == 0 {
+				out[pos].BomVariantID = item.BomVariantID
+			}
 			if item.Qty > math.MaxInt64-out[pos].Qty {
 				return nil, fmt.Errorf("target_qty invalid")
 			}
@@ -2769,6 +2859,7 @@ func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd 
 	cmd.RecipientAddress = strings.TrimSpace(cmd.RecipientAddress)
 	cmd.RecipientCompany = strings.TrimSpace(cmd.RecipientCompany)
 	cmd.ProductName = strings.TrimSpace(cmd.ProductName)
+	cmd.InventoryUnit = strings.TrimSpace(cmd.InventoryUnit)
 	cmd.SalesUnit = normalizePortalSalesUnit(cmd.SalesUnit)
 	cmd.ShippingAmount = 0
 	cmd.UnitPrice = 0
@@ -2785,7 +2876,18 @@ func (s *Service) CreateFulfillmentOrder(ctx context.Context, token string, cmd 
 	if cmd.ProductID <= 0 {
 		return FulfillmentOrder{}, fmt.Errorf("product required")
 	}
-	if cmd.SpecG <= 0 {
+	canonicalSpec := cmd.BomSpecID > 0 || cmd.BomVariantID > 0
+	if canonicalSpec {
+		if cmd.BomSpecID <= 0 {
+			return FulfillmentOrder{}, fmt.Errorf("bom_spec_id required")
+		}
+		if cmd.InventoryUnit == "" {
+			return FulfillmentOrder{}, fmt.Errorf("inventory_unit required")
+		}
+		if cmd.SpecG != 0 {
+			return FulfillmentOrder{}, fmt.Errorf("BOM spec product must not use spec_g conversion")
+		}
+	} else if cmd.SpecG <= 0 {
 		return FulfillmentOrder{}, fmt.Errorf("spec required")
 	}
 	if cmd.Qty <= 0 {
@@ -2959,7 +3061,9 @@ func normalizeMallProductCommand(cmd SaveMallProductCommand) SaveMallProductComm
 	cmd.Description = strings.TrimSpace(cmd.Description)
 	cmd.ImageURL = strings.TrimSpace(cmd.ImageURL)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	if cmd.SpecG <= 0 {
+	if cmd.BomSpecID > 0 || cmd.BomVariantID > 0 {
+		cmd.SpecG = 0
+	} else if cmd.SpecG <= 0 {
 		cmd.SpecG = 454
 	}
 	cmd.TemplateKey = NormalizeMallTemplateKey(cmd.TemplateKey)
@@ -2972,7 +3076,11 @@ func normalizeMallProduct(row MallProduct) MallProduct {
 	row.Subtitle = strings.Join(strings.Fields(strings.TrimSpace(row.Subtitle)), " ")
 	row.Description = strings.TrimSpace(row.Description)
 	row.ImageURL = strings.TrimSpace(row.ImageURL)
-	if row.SpecG <= 0 {
+	row.SpecName = strings.Join(strings.Fields(strings.TrimSpace(row.SpecName)), " ")
+	row.InventoryUnit = strings.TrimSpace(row.InventoryUnit)
+	if row.BomSpecID > 0 || row.BomVariantID > 0 {
+		row.SpecG = 0
+	} else if row.SpecG <= 0 {
 		row.SpecG = 454
 	}
 	row.TemplateKey = NormalizeMallTemplateKey(row.TemplateKey)

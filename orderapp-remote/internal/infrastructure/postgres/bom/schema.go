@@ -19,7 +19,325 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureProductionBomLibraryTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureProductionBomSpecGroupTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	return ensureBagSpecMappingTable(ctx, pool, schema)
+}
+
+func ensureProductionBomSpecGroupTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	ddl := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_spec_templates (
+	id BIGSERIAL PRIMARY KEY,
+	code TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_spec_templates_code_uq
+	ON %[1]s.production_bom_spec_templates(code);
+
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_spec_template_versions (
+	id BIGSERIAL PRIMARY KEY,
+	template_id BIGINT NOT NULL,
+	version_no TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'draft',
+	note TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	published_at TIMESTAMPTZ,
+	created_by TEXT NOT NULL DEFAULT '',
+	published_by TEXT NOT NULL DEFAULT '',
+	UNIQUE(template_id, version_no)
+);
+CREATE INDEX IF NOT EXISTS production_bom_spec_template_versions_template_idx
+	ON %[1]s.production_bom_spec_template_versions(template_id, status, id);
+
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_spec_template_variants (
+	id BIGSERIAL PRIMARY KEY,
+	version_id BIGINT NOT NULL,
+	spec_key TEXT NOT NULL,
+	name TEXT NOT NULL,
+	inventory_unit TEXT NOT NULL,
+	is_default BOOLEAN NOT NULL DEFAULT false,
+	sort_order INTEGER NOT NULL DEFAULT 100,
+	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	process_route_id BIGINT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(version_id, spec_key)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_spec_template_variants_default_uq
+	ON %[1]s.production_bom_spec_template_variants(version_id) WHERE is_default=true;
+
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_spec_template_variant_items (
+	id BIGSERIAL PRIMARY KEY,
+	variant_id BIGINT NOT NULL,
+	is_main_input BOOLEAN NOT NULL DEFAULT false,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	component_type TEXT NOT NULL DEFAULT 'material',
+	component_product_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	component_spec_g BIGINT NOT NULL DEFAULT 0,
+	consume_unit TEXT NOT NULL DEFAULT 'ratio_pct',
+	qty_per_unit NUMERIC(14,6) NOT NULL DEFAULT 0,
+	ratio_pct NUMERIC(10,4) NOT NULL DEFAULT 0,
+	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	sort_order INTEGER NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS production_bom_spec_template_variant_items_variant_idx
+	ON %[1]s.production_bom_spec_template_variant_items(variant_id, sort_order, id);
+ALTER TABLE %[1]s.production_bom_spec_template_variant_items
+	ADD COLUMN IF NOT EXISTS component_bom_spec_id BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_specs (
+	id BIGSERIAL PRIMARY KEY,
+	bom_id BIGINT NOT NULL,
+	code TEXT NOT NULL DEFAULT '',
+	barcode TEXT NOT NULL DEFAULT '',
+	spec_key TEXT NOT NULL,
+	name TEXT NOT NULL,
+	inventory_unit TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+ALTER TABLE %[1]s.production_bom_specs
+	ADD COLUMN IF NOT EXISTS barcode TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_specs_code_uq
+	ON %[1]s.production_bom_specs(code);
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_specs_barcode_uq
+	ON %[1]s.production_bom_specs(lower(barcode)) WHERE btrim(barcode)<>'';
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_specs_bom_key_uq
+	ON %[1]s.production_bom_specs(bom_id, lower(spec_key));
+
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_variants (
+	id BIGSERIAL PRIMARY KEY,
+	version_id BIGINT NOT NULL,
+	bom_spec_id BIGINT NOT NULL,
+	spec_name_snapshot TEXT NOT NULL,
+	inventory_unit TEXT NOT NULL,
+	is_default BOOLEAN NOT NULL DEFAULT false,
+	sort_order INTEGER NOT NULL DEFAULT 100,
+	material_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	process_route_id BIGINT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	UNIQUE(version_id, bom_spec_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_version_variants_default_uq
+	ON %[1]s.production_bom_version_variants(version_id) WHERE is_default=true;
+CREATE INDEX IF NOT EXISTS production_bom_version_variants_version_idx
+	ON %[1]s.production_bom_version_variants(version_id, sort_order, id);
+
+ALTER TABLE %[1]s.production_bom_version_items
+	ADD COLUMN IF NOT EXISTS variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_version_items
+	ADD COLUMN IF NOT EXISTS component_bom_spec_id BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS production_bom_version_items_component_spec_idx
+	ON %[1]s.production_bom_version_items(component_bom_spec_id)
+	WHERE component_bom_spec_id>0;
+CREATE INDEX IF NOT EXISTS production_bom_version_items_variant_idx
+	ON %[1]s.production_bom_version_items(variant_id, id);
+ALTER TABLE %[1]s.production_bom_versions
+	ADD COLUMN IF NOT EXISTS source_spec_template_version_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_bom_versions
+	ADD COLUMN IF NOT EXISTS main_input_material_id BIGINT NOT NULL DEFAULT 0;
+	`, schema)
+	if _, err := pool.Exec(ctx, ddl); err != nil {
+		return err
+	}
+	if err := ensureProductionBomSpecTemplatePublishedGuard(ctx, pool, schema); err != nil {
+		return err
+	}
+	// The legacy product table predates the BOM-owned specification identity.
+	// Add the two historical SKU identifiers here as well, because BOM schema is
+	// initialized before catalog schema on a fresh installation.
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+ALTER TABLE IF EXISTS %[1]s.products ADD COLUMN IF NOT EXISTS sku_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE IF EXISTS %[1]s.products ADD COLUMN IF NOT EXISTS barcode TEXT NOT NULL DEFAULT '';
+`, schema)); err != nil {
+		return err
+	}
+	return ensureProductionBomSpecGlobalIdentityGuards(ctx, pool, schema)
+}
+
+func ensureProductionBomSpecTemplatePublishedGuard(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`LOCK TABLE %s.production_bom_spec_template_versions IN SHARE ROW EXCLUSIVE MODE`, schema)); err != nil {
+		return err
+	}
+	var hasDuplicatePublished bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.production_bom_spec_template_versions
+			WHERE status='published'
+			GROUP BY template_id
+			HAVING COUNT(*)>1
+		)
+	`, schema)).Scan(&hasDuplicatePublished); err != nil {
+		return err
+	}
+	if hasDuplicatePublished {
+		return fmt.Errorf("multiple published specification template versions exist for one template; repair before schema migration")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		CREATE UNIQUE INDEX IF NOT EXISTS production_bom_spec_template_versions_one_published_uq
+		ON %s.production_bom_spec_template_versions(template_id)
+		WHERE status='published'
+	`, schema)); err != nil {
+		return err
+	}
+	var validUniqueIndex bool
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(i.indisunique AND i.indisvalid AND i.indpred IS NOT NULL,false)
+		FROM pg_class idx
+		JOIN pg_namespace n ON n.oid=idx.relnamespace
+		JOIN pg_index i ON i.indexrelid=idx.oid
+		WHERE n.nspname=$1 AND idx.relname='production_bom_spec_template_versions_one_published_uq'
+	`, schema).Scan(&validUniqueIndex); err != nil {
+		return err
+	}
+	if !validUniqueIndex {
+		return fmt.Errorf("published specification template version unique guard is missing or invalid")
+	}
+	return tx.Commit(ctx)
+}
+
+// ensureProductionBomSpecGlobalIdentityGuards keeps the new, immutable BOM
+// specification code/barcode namespace separate from historical child-SKU
+// identifiers.  The migration intentionally leaves old child rows intact for
+// snapshots, so a cross-table database guard is required; per-table unique
+// indexes alone still allow a new scan code to resolve to two identities.
+func ensureProductionBomSpecGlobalIdentityGuards(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var hasProducts bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".products").Scan(&hasProducts); err != nil {
+		return err
+	}
+	if !hasProducts {
+		// Isolated legacy-schema repair tests may initialize BOM tables before a
+		// product catalog exists. The next normal schema pass installs the guard.
+		return nil
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		LOCK TABLE %s.products, %s.production_bom_specs IN SHARE ROW EXCLUSIVE MODE
+	`, schema, schema)); err != nil {
+		return err
+	}
+	var hasExistingConflict bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %[1]s.products product
+			JOIN %[1]s.production_bom_specs spec
+			  ON lower(btrim(product.sku_code))=lower(btrim(spec.code))
+			WHERE btrim(COALESCE(product.sku_code,''))<>''
+			  AND btrim(COALESCE(spec.code,''))<>''
+		) OR EXISTS(
+			SELECT 1
+			FROM %[1]s.products product
+			JOIN %[1]s.production_bom_specs spec
+			  ON lower(btrim(product.barcode))=lower(btrim(spec.barcode))
+			WHERE btrim(COALESCE(product.barcode,''))<>''
+			  AND btrim(COALESCE(spec.barcode,''))<>''
+		)
+	`, schema)).Scan(&hasExistingConflict); err != nil {
+		return err
+	}
+	if hasExistingConflict {
+		return fmt.Errorf("existing legacy SKU code/barcode conflicts with BOM specification identity; repair before schema migration")
+	}
+	stmt := fmt.Sprintf(`
+CREATE OR REPLACE FUNCTION %[1]s.validate_bom_spec_global_identifier()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+	new_code TEXT;
+	new_barcode TEXT;
+BEGIN
+		IF TG_TABLE_NAME='production_bom_specs' THEN
+			new_code := btrim(COALESCE(to_jsonb(NEW)->>'code',''));
+			new_barcode := btrim(COALESCE(to_jsonb(NEW)->>'barcode',''));
+			IF new_code<>'' THEN
+				PERFORM pg_advisory_xact_lock(
+					hashtext(TG_TABLE_SCHEMA || ':bom_spec_global_identifier:code'),
+					hashtext(lower(new_code))
+				);
+				IF EXISTS (
+					SELECT 1 FROM %[1]s.products p
+					WHERE lower(btrim(COALESCE(p.sku_code,'')))=lower(new_code)
+				) THEN
+					RAISE EXCEPTION 'bom_spec_code_conflicts_legacy_sku: %%', new_code USING ERRCODE='unique_violation';
+				END IF;
+			END IF;
+			IF new_barcode<>'' THEN
+				PERFORM pg_advisory_xact_lock(
+					hashtext(TG_TABLE_SCHEMA || ':bom_spec_global_identifier:barcode'),
+					hashtext(lower(new_barcode))
+				);
+				IF EXISTS (
+					SELECT 1 FROM %[1]s.products p
+					WHERE lower(btrim(COALESCE(p.barcode,'')))=lower(new_barcode)
+				) THEN
+					RAISE EXCEPTION 'bom_spec_barcode_conflicts_legacy_sku: %%', new_barcode USING ERRCODE='unique_violation';
+				END IF;
+			END IF;
+			RETURN NEW;
+		END IF;
+
+		new_code := btrim(COALESCE(to_jsonb(NEW)->>'sku_code',''));
+		new_barcode := btrim(COALESCE(to_jsonb(NEW)->>'barcode',''));
+		IF new_code<>'' THEN
+			PERFORM pg_advisory_xact_lock(
+				hashtext(TG_TABLE_SCHEMA || ':bom_spec_global_identifier:code'),
+				hashtext(lower(new_code))
+			);
+			IF EXISTS (
+				SELECT 1 FROM %[1]s.production_bom_specs spec
+				WHERE lower(btrim(COALESCE(spec.code,'')))=lower(new_code)
+			) THEN
+				RAISE EXCEPTION 'legacy_sku_code_conflicts_bom_spec: %%', new_code USING ERRCODE='unique_violation';
+			END IF;
+		END IF;
+		IF new_barcode<>'' THEN
+			PERFORM pg_advisory_xact_lock(
+				hashtext(TG_TABLE_SCHEMA || ':bom_spec_global_identifier:barcode'),
+				hashtext(lower(new_barcode))
+			);
+			IF EXISTS (
+				SELECT 1 FROM %[1]s.production_bom_specs spec
+				WHERE lower(btrim(COALESCE(spec.barcode,'')))=lower(new_barcode)
+			) THEN
+				RAISE EXCEPTION 'legacy_sku_barcode_conflicts_bom_spec: %%', new_barcode USING ERRCODE='unique_violation';
+			END IF;
+		END IF;
+	RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS production_bom_specs_global_identifier_guard ON %[1]s.production_bom_specs;
+CREATE TRIGGER production_bom_specs_global_identifier_guard
+	BEFORE INSERT OR UPDATE OF code,barcode ON %[1]s.production_bom_specs
+	FOR EACH ROW EXECUTE FUNCTION %[1]s.validate_bom_spec_global_identifier();
+DROP TRIGGER IF EXISTS products_global_bom_spec_identifier_guard ON %[1]s.products;
+CREATE TRIGGER products_global_bom_spec_identifier_guard
+	BEFORE INSERT OR UPDATE OF sku_code,barcode ON %[1]s.products
+	FOR EACH ROW EXECUTE FUNCTION %[1]s.validate_bom_spec_global_identifier();
+	`, schema)
+	if _, err := tx.Exec(ctx, stmt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {

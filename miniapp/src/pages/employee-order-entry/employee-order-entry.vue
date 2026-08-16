@@ -167,7 +167,9 @@ function specLabelsForItem(item: EmployeeOrderDraftItem): string[] {
 function selectedSpecIndexForItem(item: EmployeeOrderDraftItem): number {
   const family = familyForItem(item)
   return Math.max(0, family?.specs.findIndex(
-    (spec) => Number(spec.product_id || spec.sku_id) === Number(item.product_id),
+    (spec) => item.migration_state === 'cutover'
+      ? Number(spec.bom_spec_id || 0) === Number(item.bom_spec_id || 0)
+      : Number(spec.product_id || spec.sku_id) === Number(item.product_id),
   ) ?? 0)
 }
 
@@ -599,6 +601,10 @@ function validateOrder(): boolean {
     if (blank) continue
     if (!item.product_id || !item.spec_label) {
       uni.showToast({ title: `第${index + 1}行请选择商品和规格`, icon: 'none' })
+      return false
+    }
+    if (item.migration_state === 'cutover' && Number(item.bom_spec_id || 0) <= 0) {
+      uni.showToast({ title: `第${index + 1}行请选择 BOM 规格`, icon: 'none' })
       return false
     }
     if (item.validation_error) {

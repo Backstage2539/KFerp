@@ -226,6 +226,11 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		QuantityUnits   int64  `json:"quantity_units"`
 		Items           []struct {
 			ProductID                          int64  `json:"product_id"`
+			BomSpecID                          int64  `json:"bom_spec_id"`
+			BomVariantID                       int64  `json:"bom_variant_id"`
+			BomSpecKey                         string `json:"bom_spec_key"`
+			BomSpecName                        string `json:"bom_spec_name"`
+			InventoryUnit                      string `json:"inventory_unit"`
 			CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
 			CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
 			CustomerItemCodeSnapshot           string `json:"customer_item_code_snapshot"`
@@ -247,6 +252,11 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 	for _, item := range req.Items {
 		items = append(items, app.SubmitCustomerDirectShipOrderItem{
 			ProductID:                          item.ProductID,
+			BomSpecID:                          item.BomSpecID,
+			BomVariantID:                       item.BomVariantID,
+			BomSpecKey:                         item.BomSpecKey,
+			BomSpecName:                        item.BomSpecName,
+			InventoryUnit:                      item.InventoryUnit,
 			CustomerProductAliasID:             item.CustomerProductAliasID,
 			CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
@@ -363,6 +373,11 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 		QuantityUnits   int64   `json:"quantity_units"`
 		Items           []struct {
 			ProductID                          int64   `json:"product_id"`
+			BomSpecID                          int64   `json:"bom_spec_id"`
+			BomVariantID                       int64   `json:"bom_variant_id"`
+			BomSpecKey                         string  `json:"bom_spec_key"`
+			BomSpecName                        string  `json:"bom_spec_name"`
+			InventoryUnit                      string  `json:"inventory_unit"`
 			CustomerProductAliasID             int64   `json:"customer_product_alias_id"`
 			CustomerProductDisplayNameSnapshot string  `json:"customer_product_display_name_snapshot"`
 			CustomerItemCodeSnapshot           string  `json:"customer_item_code_snapshot"`
@@ -386,6 +401,11 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 	for _, item := range req.Items {
 		items = append(items, app.SubmitCustomerDirectShipOrderItem{
 			ProductID:                          item.ProductID,
+			BomSpecID:                          item.BomSpecID,
+			BomVariantID:                       item.BomVariantID,
+			BomSpecKey:                         item.BomSpecKey,
+			BomSpecName:                        item.BomSpecName,
+			InventoryUnit:                      item.InventoryUnit,
 			CustomerProductAliasID:             item.CustomerProductAliasID,
 			CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,

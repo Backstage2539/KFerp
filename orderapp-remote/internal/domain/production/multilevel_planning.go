@@ -13,13 +13,18 @@ const (
 )
 
 type ManufacturingItemRef struct {
-	Type string `json:"type"`
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
-	Unit string `json:"unit"`
+	Type         string `json:"type"`
+	ID           int64  `json:"id"`
+	BomSpecID    int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID int64  `json:"bom_variant_id,omitempty"`
+	Name         string `json:"name"`
+	Unit         string `json:"unit"`
 }
 
 func (r ManufacturingItemRef) Key() string {
+	if strings.EqualFold(strings.TrimSpace(r.Type), "product") && r.BomSpecID > 0 {
+		return fmt.Sprintf("product:%d:bom_spec:%d", r.ID, r.BomSpecID)
+	}
 	return fmt.Sprintf("%s:%d", strings.ToLower(strings.TrimSpace(r.Type)), r.ID)
 }
 

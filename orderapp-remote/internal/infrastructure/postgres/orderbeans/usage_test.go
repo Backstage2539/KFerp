@@ -967,3 +967,29 @@ func TestListTypeForProductKindUsesGreenBeanList(t *testing.T) {
 		t.Fatalf("retail roasted list type = %q, want %q", got, ListTypeRetail)
 	}
 }
+
+func TestPublishedPricingMatchesStableBOMSpecAcrossVersionsWithoutWeightConversion(t *testing.T) {
+	raw := []byte(`{
+		"price_rows":[
+			{"product_id":10,"bom_spec_id":101,"bom_variant_id":1001,"min_qty":1,"final_unit_price":68,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count"},
+			{"product_id":10,"bom_spec_id":102,"bom_variant_id":1002,"min_qty":1,"final_unit_price":88,"price_unit":"盒","inventory_unit":"盒","quantity_basis":"sales_spec_count"}
+		]
+	}`)
+	pricing, ok := publishedPricingFromContentForBOMSpec(raw, 10, 101, 2001, 2, ListTypeCommercial)
+	if !ok || pricing.UnitPrice != 68 || pricing.PriceUnit != "袋" || pricing.InventoryUnit != "袋" || pricing.QuantityBasis != "sales_spec_count" {
+		t.Fatalf("BOM spec pricing=%+v/%v", pricing, ok)
+	}
+	if _, ok := publishedPricingFromContentForBOMSpec(raw, 10, 103, 1001, 2, ListTypeCommercial); ok {
+		t.Fatal("a different stable BOM spec must not match")
+	}
+	grouped := []byte(`{
+		"groups":[{"items":[{
+			"product_id":10,"bom_spec_id":101,"bom_variant_id":1001,
+			"commercial_wholesale_tiers":[{"min_qty":1,"final_unit_price":72,"price_unit":"袋","inventory_unit":"袋","quantity_basis":"sales_spec_count"}]
+		}]}]
+	}`)
+	pricing, ok = publishedPricingFromContentForBOMSpec(grouped, 10, 101, 2001, 2, ListTypeCommercial)
+	if !ok || pricing.UnitPrice != 72 {
+		t.Fatalf("grouped stable BOM spec pricing=%+v/%v", pricing, ok)
+	}
+}

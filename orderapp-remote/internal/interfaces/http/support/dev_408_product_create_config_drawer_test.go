@@ -28,7 +28,8 @@ func TestDev408ProductCreateConfigDrawerSourceMarkers(t *testing.T) {
 			"createdProduct.id",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"const result = await apiSend('/api/product-settings/skus'",
+			"const result = await apiSend('/api/product-settings/products'",
+			"body: buildProductCreatePayload(skuForm.value)",
 			"await loadAll()",
 			"await openProductProductionConfig(createdProductForConfig)",
 		},

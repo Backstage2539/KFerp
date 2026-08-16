@@ -292,7 +292,7 @@ test('BOM view can set the typed output default BOM while preserving the product
   assert.doesNotMatch(source, /production_bom_version_id:\s*selectedProductionBomVersionID/)
 })
 
-test('BOM version settings separate loss materials from fixed packaging without changing item storage', async () => {
+test('BOM version settings use one recipe list and one consume mode per variant', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -302,18 +302,17 @@ test('BOM version settings separate loss materials from fixed packaging without 
   assert.match(source, /损耗比例 %/)
   assert.match(source, /material_loss_rate/)
   assert.match(source, /versionMaterialLossRateEnabled/)
-  assert.match(source, /损耗只作用于物料的比例 % 行/)
+  assert.match(source, /开启损耗后，所有组件必须是物料并使用比例 %/)
   assert.match(source, /selectedVersionMaterialLossRate/)
-  assert.match(source, /有损耗的配方/)
-  assert.match(source, /无损耗的配方/)
-  assert.doesNotMatch(source, /比例用量应用当前 BOM 原料损耗比/)
-  assert.doesNotMatch(source, /固定用量和商品组件不参与原料损耗/)
-  assert.match(source, /selectedMaterialLossZone/)
-  assert.match(source, /selectMaterialLossZone/)
-  assert.match(source, /detailItemSections/)
+  assert.doesNotMatch(source, /有损耗的配方/)
+  assert.doesNotMatch(source, /无损耗的配方/)
+  assert.doesNotMatch(source, /selectedMaterialLossZone/)
+  assert.doesNotMatch(source, /selectMaterialLossZone/)
+  assert.doesNotMatch(source, /detailItemSections/)
+  assert.match(source, /recipeConsumeMode/)
+  assert.match(source, /同一配方不能混合使用比例 % 和固定用量/)
   assert.match(source, /componentInventoryConsumeUnitOptions/)
-  assert.doesNotMatch(source, /<option value="product" :disabled="versionMaterialLossRateEnabled">/)
-  assert.doesNotMatch(source, /versionMaterialLossRateEnabled\.value \? 'ratio_pct'/)
+  assert.match(source, /itemForm\.component_type === 'product'/)
   assert.match(source, /不含原料损耗/)
   assert.match(source, /materialLossRateDisplay/)
   assert.match(source, /配方比例 ÷ \(1 - 原料损耗率\)/)
@@ -324,14 +323,68 @@ test('BOM version settings separate loss materials from fixed packaging without 
   assert.doesNotMatch(source, /itemForm\.material_loss_rate_enabled/)
 })
 
+test('BOM drawer exposes copied spec groups and uses a responsive aligned header grid', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const searchable = fs.readFileSync(new URL('../components/SearchableSelect.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
+
+  assert.match(form, /BOM 规格模板/)
+  assert.match(form, /主投入物料/)
+  assert.match(source, /规格组/)
+  assert.match(source, /variants/)
+  assert.match(source, /规格编码（自动）/)
+  assert.match(source, /新条码（可选）/)
+  assert.match(source, /规格一经发布，库存单位不可修改/)
+  assert.match(source, /barcode:\s*String\(variant\.barcode/)
+  assert.match(source, /grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/)
+  assert.match(source, /@media \(max-width: 900px\)[\s\S]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+  assert.match(source, /@media \(max-width: 600px\)[\s\S]*grid-template-columns:\s*1fr/)
+  assert.match(searchable, /box-sizing:\s*border-box/)
+})
+
+test('product BOM draft can add, remove, and reapply a published specification template', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const specGroup = template.match(/<div[^>]*class="bom-spec-group-panel">[\s\S]*?<div class="version-recipe-panel">/)?.[0] || ''
+
+  assert.match(specGroup, /添加规格/)
+  assert.match(specGroup, /删除该规格/)
+  assert.match(specGroup, /重新套用已发布模板/)
+  assert.match(specGroup, /主投入物料/)
+  assert.match(source, /function addProductionBomDraftVariant/)
+  assert.match(source, /function removeProductionBomDraftVariant/)
+  assert.match(source, /async function reapplyProductionBomSpecTemplate/)
+  assert.match(source, /\/api\/production-bom-versions\/\$\{draftVersionID\}\/spec-template/)
+  assert.match(source, /spec_template_version_id:/)
+  assert.match(source, /main_input_material_id:/)
+})
+
+test('creating or copying a product BOM always submits the selected published template and main input', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
+
+  assert.match(form, /bomForm\.mode !== 'edit'/)
+  assert.match(form, /bomForm\.spec_template_version_id/)
+  assert.match(form, /bomForm\.main_input_material_id/)
+  assert.match(source, /spec_template_version_id:\s*Number\(bomForm\.spec_template_version_id/)
+  assert.match(source, /main_input_material_id:\s*Number\(bomForm\.main_input_material_id/)
+  assert.match(source, /bomForm\.mode !== 'edit'\s*&&\s*\(!Number\(bomForm\.spec_template_version_id/)
+})
+
 test('BOM version editor exposes process route selector and route labels', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /工艺路线/)
   assert.match(source, /processRoutes/)
-  assert.match(source, /selectedProductionBomVersion\.process_route_id/)
+  assert.match(source, /currentRecipeTarget\.process_route_id/)
   assert.match(source, /process_route_id:\s*Number\(selectedProductionBomVersion\.value\?\.process_route_id/)
+  assert.match(source, /process_route_id:\s*Number\(variant\.process_route_id/)
   assert.match(source, /process_route_name/)
   assert.match(source, /is_latest_usable/)
   assert.match(source, /\/api\/process-routes\?status=active/)
@@ -535,9 +588,10 @@ test('production BOM list preserves status and name search before inline categor
   assert.match(listFilters, /批量失效/)
   assert.match(bomRecordForm, /产出数量/)
   assert.match(bomRecordForm, /产出单位/)
-  assert.match(bomRecordForm, /来源：销售规格模板库存单位/)
+  assert.match(bomRecordForm, /BOM 规格模板/)
+  assert.match(bomRecordForm, /主投入物料/)
   assert.match(source, /inventory_unit_explicit/)
-  assert.match(source, /请先到销售规格模板设置库存单位/)
+  assert.doesNotMatch(source, /请先到销售规格模板设置库存单位/)
   assert.match(source, /outputUnitMismatchWarning/)
   assert.match(source, /历史版本不会自动回改/)
   assert.doesNotMatch(bomRecordForm, /v-if="bomForm\.mode !== 'edit'"/)
@@ -854,4 +908,41 @@ test('BOM view edits one ordinary typed output contract and keeps PR596 inline g
   for (const forbidden of ['bom_kind', 'spec_packaging_bom_id', 'semi_finished_packaging_required']) {
     assert.doesNotMatch(source, new RegExp(forbidden))
   }
+})
+
+test('BOM product components select an explicit published BOM specification', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.match(template, /商品 BOM 规格/)
+  assert.match(template, /v-model\.number="itemForm\.component_bom_spec_id"/)
+  assert.match(source, /\/api\/products\/\$\{id\}\/bom-spec-options/)
+  assert.match(source, /component_bom_spec_id:\s*Number\(itemForm\.component_bom_spec_id/)
+  assert.match(source, /商品组件必须选择明确的已发布 BOM 规格/)
+  assert.match(source, /selectedComponentBomSpec\.value\?\.inventory_unit/)
+})
+
+test('BOM specification template variants edit material and published product-spec components independently', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const templateEditor = template.match(/<div v-if="selectedSpecTemplateVersion" class="spec-template-version-editor">[\s\S]*?<p v-if="!templateDraftVariants\.length"/)?.[0] || ''
+
+  assert.match(templateEditor, /v-model="item\.component_type"/)
+  assert.match(templateEditor, /<option value="material">物料<\/option>/)
+  assert.match(templateEditor, /<option value="product"[^>]*>商品规格组件<\/option>/)
+  assert.match(templateEditor, /v-model="item\.component_product_id"/)
+  assert.match(templateEditor, /v-model\.number="item\.component_bom_spec_id"/)
+  assert.match(templateEditor, /item\.component_bom_spec_options/)
+  assert.match(source, /loadTemplateComponentProductSpecs\(variantIndex,\s*itemIndex/)
+  assert.match(source, /\/api\/products\/\$\{id\}\/bom-spec-options/)
+  assert.match(source, /templateVariantRecipeMode\(variant\)/)
+  assert.match(source, /templateVariantItemConsumeUnitOptions\(variant,\s*item\)/)
+  assert.match(source, /templateVariantItemInventoryUnit\(item\)/)
+  assert.match(source, /component_type:\s*componentType/)
+  assert.match(source, /component_product_id:\s*componentType === 'product'/)
+  assert.match(source, /component_bom_spec_id:\s*componentType === 'product'/)
+  assert.match(source, /商品规格组件只能使用固定用量/)
+  assert.match(source, /物料固定用量必须使用该物料的库存单位/)
 })

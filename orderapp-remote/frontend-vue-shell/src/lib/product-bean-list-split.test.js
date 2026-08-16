@@ -45,11 +45,11 @@ test('product archive no longer embeds the product bean-list workspace', () => {
   assert.doesNotMatch(productSettingsSource, /豆单和价格试算会按当前归属切换/)
 })
 
-test('SKU settings exposes customer context initialization with product archive creation in a drawer', () => {
+test('product settings exposes customer context initialization with PR-600 product creation in a drawer', () => {
   for (const expected of [
     '/api/customer-fulfillment/customers?limit=200',
     'customerSkuCustomerOptions(customerData)',
-    'buildSkuCreatePayload',
+    'buildProductCreatePayload',
     '/api/product-settings/products/${row.id}/copy',
     'buildCustomerPublicUsagePayload',
     '/api/product-settings/customer-public-usage',

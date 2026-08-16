@@ -59,10 +59,12 @@ type ListItem struct {
 
 type Item struct {
 	ID                   int64   `json:"id"`
+	BomVariantID         int64   `json:"bom_variant_id"`
 	MaterialID           int64   `json:"material_id"`
 	MaterialName         string  `json:"material_name"`
 	ComponentType        string  `json:"component_type"`
 	ComponentProductID   int64   `json:"component_product_id"`
+	ComponentBomSpecID   int64   `json:"component_bom_spec_id"`
 	ComponentProductName string  `json:"component_product_name"`
 	ComponentSpecG       int64   `json:"component_spec_g"`
 	ConsumeUnit          string  `json:"consume_unit"`
@@ -192,6 +194,7 @@ type ProductionBomDetail struct {
 	ProductionBomSummary
 	Versions           []ProductionBomVersion           `json:"versions"`
 	Items              []Item                           `json:"items"`
+	Variants           []ProductionBomVersionVariant    `json:"variants"`
 	ReferencedProducts []ProductionBomReferencedProduct `json:"referenced_products"`
 	UsedByBoms         []ProductionBomUsedByBom         `json:"used_by_boms"`
 }
@@ -244,6 +247,85 @@ type ProductionBomVersion struct {
 	PublishedAt            string  `json:"published_at"`
 	IsLatest               bool    `json:"is_latest"`
 	IsLatestUsable         bool    `json:"is_latest_usable"`
+}
+
+type ProductionBomSpecTemplate struct {
+	ID        int64                              `json:"id"`
+	Code      string                             `json:"code"`
+	Name      string                             `json:"name"`
+	Active    bool                               `json:"active"`
+	CreatedAt string                             `json:"created_at"`
+	UpdatedAt string                             `json:"updated_at"`
+	Versions  []ProductionBomSpecTemplateVersion `json:"versions,omitempty"`
+	Variants  []ProductionBomSpecTemplateVariant `json:"variants,omitempty"`
+}
+
+type ProductionBomSpecTemplateVersion struct {
+	ID           int64  `json:"id"`
+	TemplateID   int64  `json:"template_id"`
+	VersionNo    string `json:"version_no"`
+	Status       string `json:"status"`
+	Note         string `json:"note"`
+	VariantCount int    `json:"variant_count"`
+	CreatedAt    string `json:"created_at"`
+	PublishedAt  string `json:"published_at"`
+}
+
+type ProductionBomSpecTemplateVariant struct {
+	ID               int64                                       `json:"id"`
+	SpecKey          string                                      `json:"spec_key"`
+	Name             string                                      `json:"name"`
+	InventoryUnit    string                                      `json:"inventory_unit"`
+	IsDefault        bool                                        `json:"is_default"`
+	SortOrder        int                                         `json:"sort_order"`
+	MaterialLossRate float64                                     `json:"material_loss_rate"`
+	ProcessRouteID   int64                                       `json:"process_route_id"`
+	Items            []ProductionBomSpecTemplateVariantDraftItem `json:"items"`
+}
+
+type ProductionBomSpecTemplateVariantDraftItem struct {
+	ProductionBomDraftItem
+	IsMainInput bool `json:"is_main_input"`
+	SortOrder   int  `json:"sort_order"`
+}
+
+type ProductionBomSpec struct {
+	ID            int64  `json:"bom_spec_id"`
+	BomID         int64  `json:"bom_id"`
+	Code          string `json:"code"`
+	Barcode       string `json:"barcode"`
+	SpecKey       string `json:"spec_key"`
+	Name          string `json:"name"`
+	InventoryUnit string `json:"inventory_unit"`
+}
+
+type ProductionBomVersionVariant struct {
+	ID               int64   `json:"bom_variant_id"`
+	BomSpecID        int64   `json:"bom_spec_id"`
+	Code             string  `json:"code"`
+	Barcode          string  `json:"barcode"`
+	SpecKey          string  `json:"spec_key"`
+	Name             string  `json:"name"`
+	InventoryUnit    string  `json:"inventory_unit"`
+	IsDefault        bool    `json:"is_default"`
+	SortOrder        int     `json:"sort_order"`
+	MaterialLossRate float64 `json:"material_loss_rate"`
+	ProcessRouteID   int64   `json:"process_route_id"`
+	Items            []Item  `json:"items"`
+}
+
+type ProductionBomDraftVariant struct {
+	BomVariantID     int64                    `json:"bom_variant_id"`
+	BomSpecID        int64                    `json:"bom_spec_id"`
+	Barcode          string                   `json:"barcode"`
+	SpecKey          string                   `json:"spec_key"`
+	Name             string                   `json:"name"`
+	InventoryUnit    string                   `json:"inventory_unit"`
+	IsDefault        bool                     `json:"is_default"`
+	SortOrder        int                      `json:"sort_order"`
+	MaterialLossRate float64                  `json:"material_loss_rate"`
+	ProcessRouteID   int64                    `json:"process_route_id"`
+	Items            []ProductionBomDraftItem `json:"items"`
 }
 
 type ProductProductionBomBinding struct {
@@ -304,17 +386,19 @@ type DeleteProductionBomGroupCategoryCommand struct {
 }
 
 type CreateProductionBomCommand struct {
-	Name             string   `json:"name"`
-	OutputType       string   `json:"output_type"`
-	OutputID         int64    `json:"output_id"`
-	OutputProductID  int64    `json:"output_product_id"`
-	OutputMaterialID int64    `json:"output_material_id"`
-	OutputQty        float64  `json:"output_qty"`
-	OutputUnit       string   `json:"output_unit"`
-	GroupID          int64    `json:"group_id"`
-	GroupCategoryID  int64    `json:"group_category_id"`
-	ExpectedLossRate *float64 `json:"expected_loss_rate,omitempty"`
-	Actor            string   `json:"actor"`
+	Name                  string   `json:"name"`
+	OutputType            string   `json:"output_type"`
+	OutputID              int64    `json:"output_id"`
+	OutputProductID       int64    `json:"output_product_id"`
+	OutputMaterialID      int64    `json:"output_material_id"`
+	OutputQty             float64  `json:"output_qty"`
+	OutputUnit            string   `json:"output_unit"`
+	GroupID               int64    `json:"group_id"`
+	GroupCategoryID       int64    `json:"group_category_id"`
+	ExpectedLossRate      *float64 `json:"expected_loss_rate,omitempty"`
+	SpecTemplateVersionID int64    `json:"spec_template_version_id"`
+	MainInputMaterialID   int64    `json:"main_input_material_id"`
+	Actor                 string   `json:"actor"`
 }
 
 type UpdateProductionBomCommand struct {
@@ -334,15 +418,17 @@ type UpdateProductionBomCommand struct {
 }
 
 type CopyProductionBomCommand struct {
-	ID               int64  `json:"id"`
-	Name             string `json:"name"`
-	OutputType       string `json:"output_type"`
-	OutputID         int64  `json:"output_id"`
-	OutputProductID  int64  `json:"output_product_id"`
-	OutputMaterialID int64  `json:"output_material_id"`
-	GroupID          int64  `json:"group_id"`
-	GroupCategoryID  int64  `json:"group_category_id"`
-	Actor            string `json:"actor"`
+	ID                    int64  `json:"id"`
+	Name                  string `json:"name"`
+	OutputType            string `json:"output_type"`
+	OutputID              int64  `json:"output_id"`
+	OutputProductID       int64  `json:"output_product_id"`
+	OutputMaterialID      int64  `json:"output_material_id"`
+	GroupID               int64  `json:"group_id"`
+	GroupCategoryID       int64  `json:"group_category_id"`
+	SpecTemplateVersionID int64  `json:"spec_template_version_id"`
+	MainInputMaterialID   int64  `json:"main_input_material_id"`
+	Actor                 string `json:"actor"`
 }
 
 type ProductionBomFilter struct {
@@ -368,9 +454,11 @@ type CreateProductionBomVersionCommand struct {
 }
 
 type ProductionBomDraftItem struct {
+	BomVariantID       int64   `json:"bom_variant_id"`
 	MaterialID         int64   `json:"material_id"`
 	ComponentType      string  `json:"component_type"`
 	ComponentProductID int64   `json:"component_product_id"`
+	ComponentBomSpecID int64   `json:"component_bom_spec_id"`
 	ComponentSpecG     int64   `json:"component_spec_g"`
 	ConsumeUnit        string  `json:"consume_unit"`
 	QtyPerUnit         float64 `json:"qty_per_unit"`
@@ -379,16 +467,47 @@ type ProductionBomDraftItem struct {
 }
 
 type UpdateProductionBomVersionDraftCommand struct {
-	VersionID              int64                    `json:"version_id"`
-	ExpectedLossRate       *float64                 `json:"expected_loss_rate,omitempty"`
-	MaterialLossRate       *float64                 `json:"material_loss_rate,omitempty"`
-	OutputQty              float64                  `json:"output_qty"`
-	OutputUnit             string                   `json:"output_unit"`
-	ProcessRouteID         int64                    `json:"process_route_id"`
-	Items                  []ProductionBomDraftItem `json:"items"`
-	SpecialAttrsSchemaJSON string                   `json:"special_attrs_schema_json"`
-	SpecialAttrsJSON       string                   `json:"special_attrs_json"`
-	Actor                  string                   `json:"actor"`
+	VersionID              int64                       `json:"version_id"`
+	ExpectedLossRate       *float64                    `json:"expected_loss_rate,omitempty"`
+	MaterialLossRate       *float64                    `json:"material_loss_rate,omitempty"`
+	OutputQty              float64                     `json:"output_qty"`
+	OutputUnit             string                      `json:"output_unit"`
+	ProcessRouteID         int64                       `json:"process_route_id"`
+	Items                  []ProductionBomDraftItem    `json:"items"`
+	Variants               []ProductionBomDraftVariant `json:"variants"`
+	SpecialAttrsSchemaJSON string                      `json:"special_attrs_schema_json"`
+	SpecialAttrsJSON       string                      `json:"special_attrs_json"`
+	Actor                  string                      `json:"actor"`
+}
+
+type CreateProductionBomSpecTemplateCommand struct {
+	Name  string `json:"name"`
+	Actor string `json:"actor"`
+}
+
+type CreateProductionBomSpecTemplateVersionCommand struct {
+	TemplateID      int64  `json:"template_id"`
+	SourceVersionID int64  `json:"source_version_id"`
+	Note            string `json:"note"`
+	Actor           string `json:"actor"`
+}
+
+type UpdateProductionBomSpecTemplateVersionDraftCommand struct {
+	VersionID int64                              `json:"version_id"`
+	Variants  []ProductionBomSpecTemplateVariant `json:"variants"`
+	Actor     string                             `json:"actor"`
+}
+
+type PublishProductionBomSpecTemplateVersionCommand struct {
+	VersionID int64  `json:"version_id"`
+	Actor     string `json:"actor"`
+}
+
+type ReapplyProductionBomSpecTemplateVersionCommand struct {
+	VersionID             int64  `json:"version_id"`
+	SpecTemplateVersionID int64  `json:"spec_template_version_id"`
+	MainInputMaterialID   int64  `json:"main_input_material_id"`
+	Actor                 string `json:"actor"`
 }
 
 type PublishProductionBomVersionCommand struct {
@@ -507,12 +626,176 @@ type Repository interface {
 	BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error)
 }
 
+// ProductionBomSpecRepository is additive so legacy adapters and focused test
+// doubles keep supporting material BOMs without implementing specification
+// template behavior.
+type ProductionBomSpecRepository interface {
+	ListProductionBomSpecTemplates(ctx context.Context) ([]ProductionBomSpecTemplate, error)
+	GetProductionBomSpecTemplate(ctx context.Context, id int64, versionID int64) (ProductionBomSpecTemplate, error)
+	CreateProductionBomSpecTemplate(ctx context.Context, cmd CreateProductionBomSpecTemplateCommand) (ProductionBomSpecTemplate, error)
+	CreateProductionBomSpecTemplateVersion(ctx context.Context, cmd CreateProductionBomSpecTemplateVersionCommand) (ProductionBomSpecTemplateVersion, error)
+	UpdateProductionBomSpecTemplateVersionDraft(ctx context.Context, cmd UpdateProductionBomSpecTemplateVersionDraftCommand) (ProductionBomSpecTemplateVersion, error)
+	PublishProductionBomSpecTemplateVersion(ctx context.Context, cmd PublishProductionBomSpecTemplateVersionCommand) error
+}
+
+// ProductionBomSpecDraftRepository is additive so legacy test doubles and
+// material-only adapters remain valid while product BOM drafts can atomically
+// replace their copied specification group from a published template.
+type ProductionBomSpecDraftRepository interface {
+	ReapplyProductionBomSpecTemplateVersion(ctx context.Context, cmd ReapplyProductionBomSpecTemplateVersionCommand) (ProductionBomVersion, error)
+}
+
+// ProductionBomSpecInventoryUnitRepository lets the application return an
+// immediate unit error for an explicitly selected component specification.
+// The PostgreSQL repository repeats this validation under transaction locks.
+type ProductionBomSpecInventoryUnitRepository interface {
+	ProductionBomSpecInventoryUnits(ctx context.Context, specIDs []int64) (map[int64]string, error)
+}
+
 type Service struct {
 	repo Repository
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) productionBomSpecRepo() (ProductionBomSpecRepository, error) {
+	repo, ok := s.repo.(ProductionBomSpecRepository)
+	if !ok {
+		return nil, fmt.Errorf("production BOM specification templates are unavailable")
+	}
+	return repo, nil
+}
+
+func (s *Service) ListProductionBomSpecTemplates(ctx context.Context) ([]ProductionBomSpecTemplate, error) {
+	repo, err := s.productionBomSpecRepo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.ListProductionBomSpecTemplates(ctx)
+}
+
+func (s *Service) GetProductionBomSpecTemplate(ctx context.Context, id int64, versionID int64) (ProductionBomSpecTemplate, error) {
+	if id <= 0 {
+		return ProductionBomSpecTemplate{}, fmt.Errorf("spec_template_id required")
+	}
+	repo, err := s.productionBomSpecRepo()
+	if err != nil {
+		return ProductionBomSpecTemplate{}, err
+	}
+	return repo.GetProductionBomSpecTemplate(ctx, id, versionID)
+}
+
+func (s *Service) CreateProductionBomSpecTemplate(ctx context.Context, cmd CreateProductionBomSpecTemplateCommand) (ProductionBomSpecTemplate, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Name == "" {
+		return ProductionBomSpecTemplate{}, fmt.Errorf("name required")
+	}
+	repo, err := s.productionBomSpecRepo()
+	if err != nil {
+		return ProductionBomSpecTemplate{}, err
+	}
+	return repo.CreateProductionBomSpecTemplate(ctx, cmd)
+}
+
+func (s *Service) CreateProductionBomSpecTemplateVersion(ctx context.Context, cmd CreateProductionBomSpecTemplateVersionCommand) (ProductionBomSpecTemplateVersion, error) {
+	if cmd.TemplateID <= 0 {
+		return ProductionBomSpecTemplateVersion{}, fmt.Errorf("spec_template_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	repo, err := s.productionBomSpecRepo()
+	if err != nil {
+		return ProductionBomSpecTemplateVersion{}, err
+	}
+	return repo.CreateProductionBomSpecTemplateVersion(ctx, cmd)
+}
+
+func (s *Service) UpdateProductionBomSpecTemplateVersionDraft(ctx context.Context, cmd UpdateProductionBomSpecTemplateVersionDraftCommand) (ProductionBomSpecTemplateVersion, error) {
+	if cmd.VersionID <= 0 {
+		return ProductionBomSpecTemplateVersion{}, fmt.Errorf("spec_template_version_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if err := normalizeProductionBomSpecTemplateVariants(cmd.Variants); err != nil {
+		return ProductionBomSpecTemplateVersion{}, err
+	}
+	for _, variant := range cmd.Variants {
+		items := make([]ProductionBomDraftItem, 0, len(variant.Items))
+		for _, item := range variant.Items {
+			if !item.IsMainInput {
+				items = append(items, item.ProductionBomDraftItem)
+			}
+		}
+		if err := s.validateProductionBomDraftItemInventoryUnits(ctx, items); err != nil {
+			return ProductionBomSpecTemplateVersion{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+		}
+	}
+	repo, err := s.productionBomSpecRepo()
+	if err != nil {
+		return ProductionBomSpecTemplateVersion{}, err
+	}
+	return repo.UpdateProductionBomSpecTemplateVersionDraft(ctx, cmd)
+}
+
+func (s *Service) PublishProductionBomSpecTemplateVersion(ctx context.Context, cmd PublishProductionBomSpecTemplateVersionCommand) error {
+	if cmd.VersionID <= 0 {
+		return fmt.Errorf("spec_template_version_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	repo, err := s.productionBomSpecRepo()
+	if err != nil {
+		return err
+	}
+	return repo.PublishProductionBomSpecTemplateVersion(ctx, cmd)
+}
+
+func normalizeProductionBomSpecTemplateVariants(variants []ProductionBomSpecTemplateVariant) error {
+	seen := make(map[string]struct{}, len(variants))
+	defaultCount := 0
+	for i := range variants {
+		variant := &variants[i]
+		variant.SpecKey = strings.TrimSpace(variant.SpecKey)
+		variant.Name = strings.TrimSpace(variant.Name)
+		variant.InventoryUnit = strings.TrimSpace(variant.InventoryUnit)
+		if variant.SpecKey == "" || variant.Name == "" || variant.InventoryUnit == "" {
+			return fmt.Errorf("variant spec_key, name and inventory_unit are required")
+		}
+		key := strings.ToLower(variant.SpecKey)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("duplicate variant spec_key")
+		}
+		seen[key] = struct{}{}
+		if variant.IsDefault {
+			defaultCount++
+			if defaultCount > 1 {
+				return fmt.Errorf("only one default specification is allowed")
+			}
+		}
+		for itemIndex := range variant.Items {
+			draftItem := variant.Items[itemIndex].ProductionBomDraftItem
+			placeholder := variant.Items[itemIndex].IsMainInput && draftItem.MaterialID == 0
+			if placeholder {
+				draftItem.MaterialID = 1
+			}
+			item, err := normalizeProductionBomDraftItem(draftItem)
+			if err != nil {
+				return fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+			}
+			if placeholder {
+				item.MaterialID = 0
+			}
+			variant.Items[itemIndex].ProductionBomDraftItem = item
+		}
+		items := make([]ProductionBomDraftItem, len(variant.Items))
+		for itemIndex := range variant.Items {
+			items[itemIndex] = variant.Items[itemIndex].ProductionBomDraftItem
+		}
+		if err := ValidateProductionBomRecipeMode(variant.MaterialLossRate, items); err != nil {
+			return fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) List(ctx context.Context) ([]ListItem, error) {
@@ -896,6 +1179,14 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if err := normalizeProductionBomOutputBinding(&cmd.OutputType, &cmd.OutputID, &cmd.OutputProductID, &cmd.OutputMaterialID, true); err != nil {
 		return ProductionBomSummary{}, err
 	}
+	if cmd.SpecTemplateVersionID > 0 {
+		if cmd.OutputType != "product" {
+			return ProductionBomSummary{}, fmt.Errorf("specification template requires product output")
+		}
+		if cmd.MainInputMaterialID <= 0 {
+			return ProductionBomSummary{}, fmt.Errorf("main_input_material_id required")
+		}
+	}
 	if cmd.OutputQty <= 0 {
 		cmd.OutputQty = 1
 	}
@@ -988,12 +1279,43 @@ func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCo
 			return ProductionBomSummary{}, err
 		}
 	}
+	if cmd.SpecTemplateVersionID > 0 {
+		if cmd.OutputType == "material" {
+			return ProductionBomSummary{}, fmt.Errorf("specification template requires product output")
+		}
+		if cmd.MainInputMaterialID <= 0 {
+			return ProductionBomSummary{}, fmt.Errorf("main_input_material_id required")
+		}
+	}
 	row, err := s.repo.CopyProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
 	}
 	normalizeProductionBomSummaryGroups(&row)
 	enrichProductionBomSummaryYield(&row)
+	return row, nil
+}
+
+func (s *Service) ReapplyProductionBomSpecTemplateVersion(ctx context.Context, cmd ReapplyProductionBomSpecTemplateVersionCommand) (ProductionBomVersion, error) {
+	if cmd.VersionID <= 0 {
+		return ProductionBomVersion{}, fmt.Errorf("version_id required")
+	}
+	if cmd.SpecTemplateVersionID <= 0 {
+		return ProductionBomVersion{}, fmt.Errorf("spec_template_version_id required")
+	}
+	if cmd.MainInputMaterialID <= 0 {
+		return ProductionBomVersion{}, fmt.Errorf("main_input_material_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	repo, ok := s.repo.(ProductionBomSpecDraftRepository)
+	if !ok {
+		return ProductionBomVersion{}, fmt.Errorf("production BOM specification draft replacement is unavailable")
+	}
+	row, err := repo.ReapplyProductionBomSpecTemplateVersion(ctx, cmd)
+	if err != nil {
+		return ProductionBomVersion{}, err
+	}
+	enrichProductionBomVersionYield(&row)
 	return row, nil
 }
 
@@ -1107,8 +1429,62 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 			}
 			cmd.Items[i] = item
 		}
+		if err := ValidateProductionBomRecipeMode(versionMaterialLossRate, cmd.Items); err != nil {
+			return ProductionBomVersion{}, err
+		}
 		if err := s.validateProductionBomDraftItemInventoryUnits(ctx, cmd.Items); err != nil {
 			return ProductionBomVersion{}, err
+		}
+	}
+	if cmd.Variants != nil {
+		seen := make(map[string]struct{}, len(cmd.Variants))
+		defaultCount := 0
+		for variantIndex := range cmd.Variants {
+			variant := &cmd.Variants[variantIndex]
+			variant.SpecKey = strings.TrimSpace(variant.SpecKey)
+			variant.Name = strings.TrimSpace(variant.Name)
+			variant.Barcode = strings.TrimSpace(variant.Barcode)
+			variant.InventoryUnit = strings.TrimSpace(variant.InventoryUnit)
+			if len(variant.Barcode) > 128 {
+				return ProductionBomVersion{}, fmt.Errorf("variant %s: barcode is too long", variant.SpecKey)
+			}
+			if variant.SpecKey == "" || variant.Name == "" || variant.InventoryUnit == "" {
+				return ProductionBomVersion{}, fmt.Errorf("variant spec_key, name and inventory_unit are required")
+			}
+			key := strings.ToLower(variant.SpecKey)
+			if _, ok := seen[key]; ok {
+				return ProductionBomVersion{}, fmt.Errorf("duplicate variant spec_key")
+			}
+			seen[key] = struct{}{}
+			if variant.IsDefault {
+				defaultCount++
+				if defaultCount > 1 {
+					return ProductionBomVersion{}, fmt.Errorf("only one default specification is allowed")
+				}
+			}
+			if variant.MaterialLossRate < 0 || variant.MaterialLossRate >= 1 {
+				return ProductionBomVersion{}, fmt.Errorf("variant %s: material_loss_rate must be >= 0 and < 1", variant.SpecKey)
+			}
+			for itemIndex := range variant.Items {
+				item, err := normalizeProductionBomDraftItem(variant.Items[itemIndex])
+				if err != nil {
+					return ProductionBomVersion{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+				}
+				if item.ComponentType == "product" && item.ComponentBomSpecID <= 0 {
+					return ProductionBomVersion{}, fmt.Errorf("variant %s: product component requires component_bom_spec_id", variant.SpecKey)
+				}
+				item.BomVariantID = variant.BomVariantID
+				if variant.MaterialLossRate > 0 {
+					item.MaterialLossRate = variant.MaterialLossRate
+				}
+				variant.Items[itemIndex] = item
+			}
+			if err := ValidateProductionBomRecipeMode(variant.MaterialLossRate, variant.Items); err != nil {
+				return ProductionBomVersion{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+			}
+			if err := s.validateProductionBomDraftItemInventoryUnits(ctx, variant.Items); err != nil {
+				return ProductionBomVersion{}, fmt.Errorf("variant %s: %w", variant.SpecKey, err)
+			}
 		}
 	}
 	if strings.TrimSpace(cmd.SpecialAttrsSchemaJSON) != "" {
@@ -1131,6 +1507,33 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 	}
 	enrichProductionBomVersionYield(&row)
 	return row, nil
+}
+
+// ValidateProductionBomRecipeMode keeps a recipe in exactly one quantity mode.
+// Loss recipes are expressed entirely as material ratios so that loss is
+// applied once to the recipe. Non-loss recipes may be all ratios or all fixed
+// quantities, but the two modes must never be mixed.
+func ValidateProductionBomRecipeMode(materialLossRate float64, items []ProductionBomDraftItem) error {
+	hasRatio := false
+	hasFixed := false
+	for _, item := range items {
+		isRatio := strings.TrimSpace(item.ConsumeUnit) == "ratio_pct"
+		if materialLossRate > 0 {
+			if item.ComponentType != "material" || !isRatio {
+				return fmt.Errorf("material_loss_rate requires all components to use material ratio_pct")
+			}
+			continue
+		}
+		if isRatio {
+			hasRatio = true
+		} else {
+			hasFixed = true
+		}
+	}
+	if hasRatio && hasFixed {
+		return fmt.Errorf("ratio and fixed consume units cannot be mixed")
+	}
+	return nil
 }
 
 func normalizeJSONArrayText(input string) (string, error) {
@@ -1211,6 +1614,9 @@ func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBom
 	}
 	switch componentType {
 	case "material":
+		if item.ComponentBomSpecID > 0 {
+			return item, fmt.Errorf("component_bom_spec_id requires product component")
+		}
 		if item.MaterialID <= 0 {
 			return item, fmt.Errorf("material_id required")
 		}
@@ -1260,6 +1666,11 @@ func ValidateProductionBomDraftItemInventoryUnits(items []ProductionBomDraftItem
 		productUnits[row.ID] = strings.TrimSpace(row.InventoryUnit)
 	}
 	for i, item := range items {
+		if (item.ComponentType == "product" || item.ComponentType == "finished_product") && item.ComponentBomSpecID > 0 {
+			// An explicit BOM specification owns its inventory unit. The service
+			// resolves it separately instead of comparing against the parent product.
+			continue
+		}
 		if !ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
 			continue
 		}
@@ -1277,7 +1688,12 @@ func ValidateProductionBomDraftItemInventoryUnits(items []ProductionBomDraftItem
 func (s *Service) validateProductionBomDraftItemInventoryUnits(ctx context.Context, items []ProductionBomDraftItem) error {
 	needMaterials := false
 	needProducts := false
+	specIDs := make([]int64, 0)
 	for _, item := range items {
+		if (item.ComponentType == "product" || item.ComponentType == "finished_product") && item.ComponentBomSpecID > 0 {
+			specIDs = append(specIDs, item.ComponentBomSpecID)
+			continue
+		}
 		if !ProductionBomConsumeUnitRequiresInventoryMatch(item.ConsumeUnit) {
 			continue
 		}
@@ -1290,6 +1706,26 @@ func (s *Service) validateProductionBomDraftItemInventoryUnits(ctx context.Conte
 	var materials []Option
 	var products []Option
 	var err error
+	if len(specIDs) > 0 {
+		if specRepo, ok := s.repo.(ProductionBomSpecInventoryUnitRepository); ok {
+			specUnits, err := specRepo.ProductionBomSpecInventoryUnits(ctx, specIDs)
+			if err != nil {
+				return err
+			}
+			for index, item := range items {
+				if item.ComponentBomSpecID <= 0 {
+					continue
+				}
+				specUnit, found := specUnits[item.ComponentBomSpecID]
+				if !found {
+					continue
+				}
+				if !strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), strings.TrimSpace(specUnit)) {
+					return fmt.Errorf("item %d consume_unit must match component BOM specification inventory_unit %s", index+1, specUnit)
+				}
+			}
+		}
+	}
 	if needMaterials {
 		materials, err = s.repo.Materials(ctx)
 		if err != nil {

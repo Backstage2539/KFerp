@@ -24,8 +24,7 @@ func TestDev594PricingBomDebugWorkflowContracts(t *testing.T) {
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"): {
 			"PR-594-PRICING-BOM-DEBUG-WORKFLOW",
 			"配置BOM",
-			"有损耗的配方",
-			"无损耗的配方",
+			"PR-600",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-594-PRICING-BOM-DEBUG-WORKFLOW",
@@ -34,8 +33,9 @@ func TestDev594PricingBomDebugWorkflowContracts(t *testing.T) {
 			"更新参数到价格计算模板",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"有损耗的配方",
-			"无损耗的配方",
+			"每个配方只允许一种模式",
+			"比例模式",
+			"固定模式",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -86,12 +86,14 @@ func TestDev594PricingBomDebugWorkflowContracts(t *testing.T) {
 	}
 
 	bomSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue")))
-	for _, want := range []string{"有损耗的配方", "无损耗的配方"} {
+	for _, want := range []string{"recipeConsumeMode", "同一配方不能混合使用比例 % 和固定用量"} {
 		if !strings.Contains(bomSource, want) {
-			t.Fatalf("BomView.vue missing renamed recipe zone %q", want)
+			t.Fatalf("BomView.vue missing PR-600 recipe-mode marker %q", want)
 		}
 	}
 	for _, obsolete := range []string{
+		"有损耗的配方",
+		"无损耗的配方",
 		"比例用量应用当前 BOM 原料损耗比",
 		"固定用量和商品组件不参与原料损耗",
 	} {

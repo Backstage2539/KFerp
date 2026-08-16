@@ -169,7 +169,7 @@ onShow(() => {
           <view v-else class="product-image empty-image"></view>
           <view class="product-body">
             <text class="product-title">{{ product.title }}</text>
-            <text class="product-subtitle">{{ product.subtitle || `${product.spec_g}g` }}</text>
+            <text class="product-subtitle">{{ product.subtitle || mallProductUnitLabel(product) }}</text>
             <picker v-if="product.product_kind === 'drip_bag' && product.sales_units.length > 1" mode="selector" :range="mallSalesUnitLabels(product)" @change="setMallSalesUnit(product, $event)">
               <view class="unit-picker">{{ selectedMallProduct(product).unit_label || mallProductUnitLabel(product) }}</view>
             </picker>

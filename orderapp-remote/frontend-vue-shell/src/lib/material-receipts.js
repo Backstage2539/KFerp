@@ -2,6 +2,10 @@ function materialKind(row) {
   return String(row?.kind || row?.Kind || '').trim().toLowerCase()
 }
 
+export function isSemiFinishedMaterial(row) {
+  return Boolean(row?.is_semi_finished ?? row?.IsSemiFinished ?? false)
+}
+
 function normalizeSearchText(value) {
   return String(value || '').trim().toLowerCase()
 }
@@ -23,7 +27,12 @@ function materialSearchText(row) {
 }
 
 export function selectableReceiptMaterials(rows) {
-  return (rows || []).filter((row) => materialKind(row) !== 'pack')
+  return (rows || []).filter((row) => materialKind(row) !== 'pack' && !isSemiFinishedMaterial(row))
+}
+
+export function selectableStockEntryMaterials(rows, purpose) {
+  if (String(purpose || '').trim() !== 'material_receipt') return rows || []
+  return (rows || []).filter((row) => !isSemiFinishedMaterial(row))
 }
 
 export function filterReceiptMaterials(rows, query) {

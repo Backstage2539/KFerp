@@ -16,23 +16,25 @@ import (
 )
 
 type miniCustomerFulfillmentFake struct {
-	calls            int
-	catalogQuery     customerfulfillmentapp.MiniDirectShipCatalogQuery
-	previewCmd       customerfulfillmentapp.MiniDirectShipCommand
-	submitCmd        customerfulfillmentapp.MiniDirectShipCommand
-	listQuery        customerfulfillmentapp.MiniDirectShipListQuery
-	listResult       customerfulfillmentapp.MiniDirectShipListResult
-	listErr          error
-	detailCustomerID int64
-	detailRequestID  int64
-	cancelCustomerID int64
-	cancelRequestID  int64
-	cancelActor      string
-	inventoryQuery   customerfulfillmentapp.CustomerInventoryListQuery
-	inventoryResult  customerfulfillmentapp.CustomerInventoryListResult
-	batchCustomerID  int64
-	batchProductID   int64
-	batchSpecG       int64
+	calls             int
+	catalogQuery      customerfulfillmentapp.MiniDirectShipCatalogQuery
+	previewCmd        customerfulfillmentapp.MiniDirectShipCommand
+	submitCmd         customerfulfillmentapp.MiniDirectShipCommand
+	listQuery         customerfulfillmentapp.MiniDirectShipListQuery
+	listResult        customerfulfillmentapp.MiniDirectShipListResult
+	listErr           error
+	detailCustomerID  int64
+	detailRequestID   int64
+	cancelCustomerID  int64
+	cancelRequestID   int64
+	cancelActor       string
+	inventoryQuery    customerfulfillmentapp.CustomerInventoryListQuery
+	inventoryResult   customerfulfillmentapp.CustomerInventoryListResult
+	batchCustomerID   int64
+	batchProductID    int64
+	batchBomSpecID    int64
+	batchBomVariantID int64
+	batchSpecG        int64
 }
 
 func (f *miniCustomerFulfillmentFake) MiniDirectShipCatalog(_ context.Context, query customerfulfillmentapp.MiniDirectShipCatalogQuery) (customerfulfillmentapp.MiniDirectShipCatalog, error) {
@@ -95,10 +97,11 @@ func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventory(_ context.Con
 	}, nil
 }
 
-func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventoryBatches(_ context.Context, customerID, productID, specG int64) ([]customerfulfillmentapp.CustomerInventoryBatch, error) {
+func (f *miniCustomerFulfillmentFake) ListCustomerCentralInventoryBatches(_ context.Context, query customerfulfillmentapp.CustomerInventoryBatchQuery) ([]customerfulfillmentapp.CustomerInventoryBatch, error) {
 	f.calls++
-	f.batchCustomerID, f.batchProductID, f.batchSpecG = customerID, productID, specG
-	return []customerfulfillmentapp.CustomerInventoryBatch{{BatchID: 9, ProductID: productID, SpecG: specG}}, nil
+	f.batchCustomerID, f.batchProductID = query.CustomerID, query.ProductID
+	f.batchBomSpecID, f.batchBomVariantID, f.batchSpecG = query.BomSpecID, query.BomVariantID, query.SpecG
+	return []customerfulfillmentapp.CustomerInventoryBatch{{BatchID: 9, ProductID: query.ProductID, BomSpecID: query.BomSpecID, BomVariantID: query.BomVariantID, SpecG: query.SpecG}}, nil
 }
 
 func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing.T) {
@@ -132,6 +135,37 @@ func TestMiniDirectShipSubmitBindsCurrentCustomerAndIdempotencyHeader(t *testing
 	var body customerfulfillmentapp.MiniDirectShipRequest
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.ID != 71 {
 		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
+	}
+}
+
+func TestMiniDirectShipSubmitForwardsCanonicalBOMSpecIdentity(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, EmployeeID: 19, CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityDirectShip, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/direct-ship/requests", strings.NewReader(`{
+		"recipient_name":"张三","recipient_phone":"13800138000","detail_address":"咖啡路 8 号",
+		"items":[{"product_id":911,"bom_spec_id":801,"bom_variant_id":901,"inventory_unit":"袋","qty":2}]
+	}`))
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	req.Header.Set("Idempotency-Key", "mini-ds-bom-spec")
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(fulfillment.submitCmd.Items) != 1 {
+		t.Fatalf("items=%#v", fulfillment.submitCmd.Items)
+	}
+	got := fulfillment.submitCmd.Items[0]
+	if got.ProductID != 911 || got.BomSpecID != 801 || got.BomVariantID != 901 || got.SpecG != 0 || got.InventoryUnit != "袋" {
+		t.Fatalf("canonical item=%#v", got)
 	}
 }
 
@@ -255,6 +289,28 @@ func TestMiniCustomerInventoryBindsTokenCustomerFiltersPaginationAndLegacyMode(t
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || legacy.inventoryQuery.CustomerID != 9 || !legacy.inventoryQuery.LegacyAll {
 		t.Fatalf("legacy status=%d query=%#v body=%s", rec.Code, legacy.inventoryQuery, rec.Body.String())
+	}
+}
+
+func TestMiniCustomerInventoryBatchesPassesCanonicalBOMSpecIdentity(t *testing.T) {
+	fulfillment := &miniCustomerFulfillmentFake{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{
+		CustomerPortal: fakeService{me: customerportalapp.CurrentContext{
+			MiniUserID: 17, CurrentCustomerID: 9,
+			Capabilities: []customerportalapp.Capability{{Code: customerportalapp.CapabilityProcessing, Enabled: true}},
+		}},
+		CustomerFulfillment: fulfillment,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/customer-inventory/550/batches?bom_spec_id=91&bom_variant_id=191", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if fulfillment.batchCustomerID != 9 || fulfillment.batchProductID != 550 || fulfillment.batchBomSpecID != 91 || fulfillment.batchBomVariantID != 191 || fulfillment.batchSpecG != 0 {
+		t.Fatalf("canonical batch identity customer/product/spec/variant/spec_g = %d/%d/%d/%d/%d", fulfillment.batchCustomerID, fulfillment.batchProductID, fulfillment.batchBomSpecID, fulfillment.batchBomVariantID, fulfillment.batchSpecG)
 	}
 }
 

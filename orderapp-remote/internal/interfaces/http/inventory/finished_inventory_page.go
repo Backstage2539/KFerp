@@ -11,8 +11,10 @@ import (
 )
 
 type productAPIOption struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID             int64                            `json:"id"`
+	Name           string                           `json:"name"`
+	MigrationState string                           `json:"migration_state,omitempty"`
+	BOMSpecs       []inventoryapp.ProductSpecOption `json:"bom_specs,omitempty"`
 }
 
 func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Service) {
@@ -41,7 +43,7 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 		totalPages := finishedInventoryPageCount(result.Total, limit)
 		options := make([]productAPIOption, 0, len(result.Products))
 		for _, p := range result.Products {
-			options = append(options, productAPIOption{ID: p.ID, Name: p.Name})
+			options = append(options, productAPIOption{ID: p.ID, Name: p.Name, MigrationState: p.MigrationState, BOMSpecs: p.BOMSpecs})
 		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"rows":        result.Rows,
@@ -56,22 +58,28 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 	})
 	e.POST("/api/products/inventory", func(c echo.Context) error {
 		var req struct {
-			ProductID int64  `json:"product_id"`
-			SpecG     int64  `json:"spec_g"`
-			Warehouse string `json:"warehouse"`
-			Units     int64  `json:"units"`
-			LooseG    int64  `json:"loose_g"`
+			ProductID    int64  `json:"product_id"`
+			SpecG        int64  `json:"spec_g"`
+			BomSpecID    int64  `json:"bom_spec_id"`
+			BomVariantID int64  `json:"bom_variant_id"`
+			UnitCode     string `json:"unit_code"`
+			Warehouse    string `json:"warehouse"`
+			Units        int64  `json:"units"`
+			LooseG       int64  `json:"loose_g"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 		}
 		if err := inventorySvc.AdjustFinished(c.Request().Context(), inventoryapp.AdjustFinishedInventoryCommand{
-			ProductID: req.ProductID,
-			SpecG:     req.SpecG,
-			Warehouse: req.Warehouse,
-			Units:     req.Units,
-			LooseG:    req.LooseG,
-			Operator:  support.ActorOf(c),
+			ProductID:    req.ProductID,
+			SpecG:        req.SpecG,
+			BomSpecID:    req.BomSpecID,
+			BomVariantID: req.BomVariantID,
+			UnitCode:     req.UnitCode,
+			Warehouse:    req.Warehouse,
+			Units:        req.Units,
+			LooseG:       req.LooseG,
+			Operator:     support.ActorOf(c),
 		}); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}

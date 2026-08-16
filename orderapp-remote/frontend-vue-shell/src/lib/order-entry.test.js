@@ -546,7 +546,7 @@ test('OrderEntryView uses parent product families and concrete published SKU spe
   const source = orderEntryViewSource()
 
   assert.match(source, /const productFamilies = ref\(\[\]\)/)
-  assert.match(source, /normalizeOrderProductFamilies\(data\.product_families \|\| \[\], products\.value\)/)
+  assert.match(source, /normalizeOrderProductFamilies\([\s\S]*?data\.product_families \|\| \[\],[\s\S]*?products\.value,[\s\S]*?data\.product_bom_spec_options \|\| \[\],[\s\S]*?\)/)
   assert.match(source, /orderProductFamilyOptions\(/)
   assert.doesNotMatch(source, /scopedLegacyProducts/)
   assert.match(source, /:key="productOptionKey\(product\)"/)
@@ -1697,6 +1697,28 @@ test('订单价格表分组不合并同分类的商用和零售发布', () => {
     ['classification:9:commercial', 'commercial', [11]],
     ['classification:9:retail', 'retail', [22]],
   ])
+})
+
+test('stored cutover order resolves its priced BOM spec by bom_spec_id instead of parent product_id', () => {
+  const family = normalizeOrderProductFamilies([{
+    parent_product_id: 700,
+    parent_product_name: '规格商品',
+    migration_state: 'cutover',
+    bom_specs: [
+      { bom_spec_id: 91, bom_variant_id: 191, spec_label: '227g 袋', inventory_unit: '袋', is_default_sku: true, tiers: [{ publication_id: 99, unit_price: 48 }] },
+      { bom_spec_id: 92, bom_variant_id: 192, spec_label: '454g 袋', inventory_unit: '袋', tiers: [{ publication_id: 99, unit_price: 88 }] },
+    ],
+  }], [])[0]
+
+  const selected = orderEntry.orderFamilySpecForStoredItem(family, {
+    product_id: 700,
+    parent_product_id: 700,
+    bom_spec_id: 92,
+    bom_variant_id: 192,
+  }, 99)
+
+  assert.equal(selected?.bom_spec_id, 92)
+  assert.equal(selected?.bom_variant_id, 192)
 })
 
 test('beanListVersionOptionsForCustomer keeps public fallback versions for the selected customer', () => {

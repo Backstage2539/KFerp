@@ -125,6 +125,32 @@ func ResolvePublishedPricingForPublicationWithUnit(ctx context.Context, q rowQue
 	return price, nil
 }
 
+// ResolvePublishedPricingForPublicationWithBOMSpec resolves a cutover product
+// price by its immutable BOM specification identity. Quantity is interpreted
+// directly in the specification inventory unit; no legacy spec_g conversion is
+// applied.
+func ResolvePublishedPricingForPublicationWithBOMSpec(ctx context.Context, q rowQuerier, schema string, customerID, productID int64, listType string, requestedPublicationID, bomSpecID, bomVariantID, qty int64) (PublishedPricing, error) {
+	if bomSpecID <= 0 || bomVariantID <= 0 || qty <= 0 {
+		return PublishedPricing{}, nil
+	}
+	usage, err := ResolveUsageForPublication(ctx, q, schema, customerID, productID, listType, requestedPublicationID)
+	if err != nil || usage.PublicationID <= 0 {
+		return PublishedPricing{}, err
+	}
+	var raw []byte
+	if err := q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(content_json, '{}'::jsonb) FROM %s.bean_list_publications WHERE id=$1`, schema), usage.PublicationID).Scan(&raw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isMissingBeanListSchema(err) {
+			return PublishedPricing{}, nil
+		}
+		return PublishedPricing{}, err
+	}
+	pricing, ok := publishedPricingFromContentForBOMSpec(raw, productID, bomSpecID, bomVariantID, qty, listType)
+	if !ok {
+		return PublishedPricing{}, nil
+	}
+	return pricing, nil
+}
+
 // ResolvePublishedProductSpecForPublication resolves the effective price-list
 // publication and inspects its frozen concrete-SKU identity. It intentionally
 // keeps legacy publications compatible by returning ConcretePublication=false.
@@ -591,6 +617,8 @@ func publishedJSONFloat64Field(fields map[string]json.RawMessage, key string) fl
 type publishedPriceTier struct {
 	SKUID                   int64           `json:"sku_id"`
 	ParentProductID         int64           `json:"parent_product_id"`
+	BomSpecID               int64           `json:"bom_spec_id"`
+	BomVariantID            int64           `json:"bom_variant_id"`
 	Label                   string          `json:"label"`
 	TierLabel               string          `json:"tier_label"`
 	SourcePriceRecordID     int64           `json:"source_price_record_id"`
@@ -620,6 +648,72 @@ type publishedPriceTier struct {
 	QuantityBasis           string          `json:"quantity_basis"`
 	TierQuantityUnit        string          `json:"tier_quantity_unit"`
 	EffectiveSalesSpec      json.RawMessage `json:"effective_sales_spec"`
+}
+
+func publishedPricingFromContentForBOMSpec(raw []byte, productID, bomSpecID, bomVariantID, qty int64, listType string) (PublishedPricing, bool) {
+	if productID <= 0 || bomSpecID <= 0 || bomVariantID <= 0 || qty <= 0 || len(raw) == 0 {
+		return PublishedPricing{}, false
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return PublishedPricing{}, false
+	}
+	var flatRows []json.RawMessage
+	_ = json.Unmarshal(root["price_rows"], &flatRows)
+	flat := make([]publishedPriceTier, 0)
+	for _, rowRaw := range flatRows {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(rowRaw, &fields) != nil || publishedFlatPriceRowProductID(fields) != productID {
+			continue
+		}
+		if publishedJSONInt64Field(fields, "bom_spec_id") != bomSpecID {
+			continue
+		}
+		var tier publishedPriceTier
+		if json.Unmarshal(rowRaw, &tier) == nil {
+			flat = append(flat, tier)
+		}
+	}
+	if tier, ok := matchPublishedPriceTier(flat, 0, qty); ok {
+		pricing := publishedTierPricing(tier, 0)
+		return pricing, pricing.UnitPrice > 0
+	}
+
+	var content publishedBeanListContent
+	if json.Unmarshal(raw, &content) != nil {
+		return PublishedPricing{}, false
+	}
+	for _, group := range content.Groups {
+		for _, itemRaw := range group.Items {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(itemRaw, &fields) != nil || publishedBeanListItemProductID(fields) != productID {
+				continue
+			}
+			itemSpecID := publishedJSONInt64Field(fields, "bom_spec_id")
+			itemVariantID := publishedJSONInt64Field(fields, "bom_variant_id")
+			if itemSpecID != bomSpecID {
+				continue
+			}
+			tiers := publishedItemTiers(itemRaw, listType)
+			matching := make([]publishedPriceTier, 0, len(tiers))
+			for _, tier := range tiers {
+				if tier.BomSpecID == 0 {
+					tier.BomSpecID = itemSpecID
+				}
+				if tier.BomVariantID == 0 {
+					tier.BomVariantID = itemVariantID
+				}
+				if tier.BomSpecID == bomSpecID {
+					matching = append(matching, tier)
+				}
+			}
+			if tier, ok := matchPublishedPriceTier(matching, 0, qty); ok {
+				pricing := publishedTierPricing(tier, 0)
+				return pricing, pricing.UnitPrice > 0
+			}
+		}
+	}
+	return PublishedPricing{}, false
 }
 
 func publishedUnitPriceFromContent(raw []byte, productID int64, specG int64, qty int64) (float64, bool) {

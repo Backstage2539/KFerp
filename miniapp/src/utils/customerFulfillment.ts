@@ -7,6 +7,9 @@ import {
 
 export type ProcessingTargetLine = {
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  inventory_unit?: string
   spec_g: number
   qty: number
 }
@@ -40,13 +43,28 @@ export function mergeProcessingTargetLines(lines: ProcessingTargetLine[] = []): 
   const merged = new Map<string, ProcessingTargetLine>()
   for (const line of lines) {
     const productID = Number(line.product_id || 0)
+    const bomSpecID = Number(line.bom_spec_id || 0)
+    const bomVariantID = Number(line.bom_variant_id || 0)
     const specG = Number(line.spec_g || 0)
     const qty = Number(line.qty || 0)
     if (productID <= 0 || qty <= 0) continue
-    const key = `${productID}:${specG}`
+    const canonical = bomSpecID > 0 || bomVariantID > 0
+    if (canonical && (bomSpecID <= 0 || bomVariantID <= 0)) continue
+    const key = canonical
+      ? `${productID}:bom_spec:${bomSpecID}:${bomVariantID}`
+      : `${productID}:legacy:${specG}`
     const current = merged.get(key)
     if (current) current.qty += qty
-    else merged.set(key, { product_id: productID, spec_g: specG, qty })
+    else if (canonical) {
+      merged.set(key, {
+        product_id: productID,
+        bom_spec_id: bomSpecID,
+        bom_variant_id: bomVariantID,
+        inventory_unit: String(line.inventory_unit || '').trim() || undefined,
+        spec_g: 0,
+        qty,
+      })
+    } else merged.set(key, { product_id: productID, spec_g: specG, qty })
   }
   return Array.from(merged.values())
 }

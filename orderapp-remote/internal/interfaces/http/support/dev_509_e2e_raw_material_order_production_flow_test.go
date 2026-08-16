@@ -32,7 +32,7 @@ func TestDev509E2ERawMaterialOrderProductionFlowContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-509-E2E-RAW-MATERIAL-ORDER-PRODUCTION-FLOW",
 			"原料",
-			"商品 / SKU",
+			"商品规格",
 			"生产",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {

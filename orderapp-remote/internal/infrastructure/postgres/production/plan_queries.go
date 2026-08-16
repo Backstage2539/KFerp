@@ -184,6 +184,9 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 		out = append(out, productionapp.UnprodNeedRow{
 			ProductID:                row.ProductID,
 			ParentProductID:          row.ParentProductID,
+			BomSpecID:                row.BomSpecID,
+			BomVariantID:             row.BomVariantID,
+			SelectionKey:             row.SelectionKey,
 			Product:                  row.Product,
 			OrderNos:                 row.OrderNos,
 			SpecLabel:                row.SpecLabel,

@@ -1023,6 +1023,142 @@ func manualConcreteOrderPriceSourceJSON(selection concreteOrderPublicationSelect
 	return string(buf)
 }
 
+type orderBOMSpecIdentity struct {
+	ProductID              int64
+	BomSpecID              int64
+	BomVariantID           int64
+	BomSpecKey             string
+	BomSpecName            string
+	InventoryUnit          string
+	LegacyPricingProductID int64
+	LegacySpecG            int64
+	LegacySalesUnit        string
+	ProductName            string
+	ProductCode            string
+	ProductKind            string
+}
+
+func resolveOrderBOMSpecIdentityTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, bomVariantID int64) (orderBOMSpecIdentity, error) {
+	if productID <= 0 || !relationExistsTx(ctx, tx, fmt.Sprintf("%s.product_bom_spec_migrations", schema)) || !relationExistsTx(ctx, tx, fmt.Sprintf("%s.legacy_child_sku_bom_spec_mappings", schema)) {
+		return orderBOMSpecIdentity{}, nil
+	}
+	var cutoverParentID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT mapping.parent_product_id
+		FROM %s.legacy_child_sku_bom_spec_mappings mapping
+		JOIN %s.product_bom_spec_migrations migration
+		  ON migration.product_id=mapping.parent_product_id AND migration.state='cutover'
+		WHERE mapping.legacy_child_product_id=$1
+	`, schema, schema), productID).Scan(&cutoverParentID)
+	if err == nil {
+		return orderBOMSpecIdentity{}, fmt.Errorf("legacy child SKU write rejected after BOM spec cutover; use parent product %d + bom_spec_id", cutoverParentID)
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return orderBOMSpecIdentity{}, err
+	}
+
+	var state string
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1 FOR SHARE`, schema), productID).Scan(&state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if bomSpecID > 0 || bomVariantID > 0 {
+			return orderBOMSpecIdentity{}, fmt.Errorf("BOM spec identity is not enabled for product %d", productID)
+		}
+		return orderBOMSpecIdentity{}, nil
+	}
+	if err != nil {
+		return orderBOMSpecIdentity{}, err
+	}
+	if state != "cutover" {
+		if bomSpecID > 0 || bomVariantID > 0 {
+			return orderBOMSpecIdentity{}, fmt.Errorf("BOM spec identity is not ready for product %d", productID)
+		}
+		return orderBOMSpecIdentity{}, nil
+	}
+	if bomSpecID <= 0 {
+		return orderBOMSpecIdentity{}, fmt.Errorf("bom_spec_id required after BOM spec cutover")
+	}
+
+	var identity orderBOMSpecIdentity
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT parent.id,
+		       spec.id,
+		       variant.id,
+		       spec.spec_key,
+		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name),
+		       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),''),
+		       COALESCE(mapping.legacy_child_product_id,0),
+		       COALESCE(mapping.legacy_spec_g,0),
+		       COALESCE(mapping.legacy_sales_unit,''),
+		       parent.name,
+		       COALESCE(NULLIF(parent.sku_code,''),'SKU-' || parent.id::text),
+		       COALESCE(NULLIF(parent.product_kind,''),'roasted_bean')
+		FROM %[1]s.product_bom_spec_migrations migration
+		JOIN %[1]s.products parent ON parent.id=migration.product_id AND parent.active=true
+		JOIN %[1]s.production_bom_output_bindings binding
+		  ON binding.output_type='product' AND binding.output_id=parent.id AND binding.is_default=true
+		JOIN %[1]s.production_bom_versions version
+		  ON version.id=binding.bom_version_id AND version.bom_id=binding.bom_id AND version.status='published'
+		JOIN %[1]s.production_bom_specs spec
+		  ON spec.id=$2 AND spec.bom_id=binding.bom_id
+		JOIN %[1]s.production_bom_version_variants variant
+		  ON variant.version_id=version.id AND variant.bom_spec_id=spec.id
+		LEFT JOIN %[1]s.legacy_child_sku_bom_spec_mappings mapping
+		  ON mapping.parent_product_id=parent.id AND mapping.bom_spec_id=spec.id
+		WHERE migration.product_id=$1 AND migration.state='cutover'
+		  AND ($3::bigint=0 OR variant.id=$3)
+		ORDER BY variant.is_default DESC,variant.sort_order,variant.id
+		LIMIT 1
+	`, schema), productID, bomSpecID, bomVariantID).Scan(
+		&identity.ProductID,
+		&identity.BomSpecID,
+		&identity.BomVariantID,
+		&identity.BomSpecKey,
+		&identity.BomSpecName,
+		&identity.InventoryUnit,
+		&identity.LegacyPricingProductID,
+		&identity.LegacySpecG,
+		&identity.LegacySalesUnit,
+		&identity.ProductName,
+		&identity.ProductCode,
+		&identity.ProductKind,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return orderBOMSpecIdentity{}, fmt.Errorf("BOM spec is not published for product")
+	}
+	return identity, err
+}
+
+func withOrderBOMSpecPriceSourceJSON(raw string, identity orderBOMSpecIdentity) string {
+	source := map[string]any{}
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &source)
+	}
+	if source == nil {
+		source = map[string]any{}
+	}
+	if _, ok := source["source"]; !ok {
+		source["source"] = "manual"
+	}
+	source["product_id"] = identity.ProductID
+	source["parent_product_id"] = identity.ProductID
+	source["bom_spec_id"] = identity.BomSpecID
+	source["bom_variant_id"] = identity.BomVariantID
+	source["bom_spec_key"] = identity.BomSpecKey
+	source["bom_spec_name"] = identity.BomSpecName
+	source["inventory_unit"] = identity.InventoryUnit
+	source["quantity_basis"] = "sales_spec_count"
+	delete(source, "sku_id")
+	delete(source, "spec_g")
+	if identity.LegacyPricingProductID > 0 {
+		source["legacy_pricing_product_id"] = identity.LegacyPricingProductID
+	}
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
 func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
 	od := cmd.OrderDate
 	if od.IsZero() {
@@ -1040,6 +1176,15 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		itemID                             int64
 		productID                          *int64
 		submittedParentProductID           int64
+		bomSpecID                          int64
+		bomVariantID                       int64
+		bomSpecKey                         string
+		bomSpecName                        string
+		bomInventoryUnit                   string
+		legacyPricingProductID             int64
+		legacyPricingSpecG                 int64
+		legacyPricingSalesUnit             string
+		canonicalBOMSpec                   bool
 		customerProductAliasID             int64
 		customerProductDisplayNameSnapshot string
 		customerItemCodeSnapshot           string
@@ -1082,6 +1227,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			itemID:                             src.ItemID,
 			productID:                          src.ProductID,
 			submittedParentProductID:           src.ParentProductID,
+			bomSpecID:                          src.BomSpecID,
+			bomVariantID:                       src.BomVariantID,
 			customerProductAliasID:             src.CustomerProductAliasID,
 			customerProductDisplayNameSnapshot: strings.TrimSpace(src.CustomerProductDisplayNameSnapshot),
 			customerItemCodeSnapshot:           strings.TrimSpace(src.CustomerItemCodeSnapshot),
@@ -1220,6 +1367,50 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 	applyOrderCustomerProfileDefaults(&cmd, customerProfile)
+	for idx := range items {
+		if items[idx].productID == nil || *items[idx].productID <= 0 {
+			continue
+		}
+		identity, identityErr := resolveOrderBOMSpecIdentityTx(
+			ctx,
+			tx,
+			r.schema,
+			*items[idx].productID,
+			items[idx].bomSpecID,
+			items[idx].bomVariantID,
+		)
+		if identityErr != nil {
+			return salesapp.SaveOrderResult{}, identityErr
+		}
+		if identity.BomSpecID <= 0 {
+			continue
+		}
+		items[idx].canonicalBOMSpec = true
+		items[idx].submittedParentProductID = identity.ProductID
+		items[idx].bomSpecID = identity.BomSpecID
+		items[idx].bomVariantID = identity.BomVariantID
+		items[idx].bomSpecKey = identity.BomSpecKey
+		items[idx].bomSpecName = identity.BomSpecName
+		items[idx].bomInventoryUnit = identity.InventoryUnit
+		items[idx].legacyPricingProductID = identity.LegacyPricingProductID
+		items[idx].legacyPricingSpecG = identity.LegacySpecG
+		items[idx].legacyPricingSalesUnit = identity.LegacySalesUnit
+		items[idx].quantityBasis = "sales_spec_count"
+		items[idx].specG = 0
+		items[idx].unitBeanG = 0
+		items[idx].unitBagCount = 0
+		items[idx].salesUnit = normalizeOrderItemSalesUnit(identity.InventoryUnit)
+		unit := identity.InventoryUnit
+		items[idx].unit = &unit
+		spec := identity.BomSpecName
+		items[idx].spec = &spec
+		items[idx].productKind = normalizeOrderItemProductKind(identity.ProductKind)
+		items[idx].productNameSnapshot = identity.ProductName
+		items[idx].productCodeSnapshot = identity.ProductCode
+		if items[idx].name == "" {
+			items[idx].name = identity.ProductName + " " + identity.BomSpecName
+		}
+	}
 
 	retailOrder := false
 	if cmd.OrderTypeID > 0 {
@@ -1237,6 +1428,20 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}, retailOrder)
 		items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue, discountUnits)
 	}
+	canonicalPriceSource := func(idx int, raw string) string {
+		if !items[idx].canonicalBOMSpec || items[idx].productID == nil {
+			return raw
+		}
+		return withOrderBOMSpecPriceSourceJSON(raw, orderBOMSpecIdentity{
+			ProductID:              *items[idx].productID,
+			BomSpecID:              items[idx].bomSpecID,
+			BomVariantID:           items[idx].bomVariantID,
+			BomSpecKey:             items[idx].bomSpecKey,
+			BomSpecName:            items[idx].bomSpecName,
+			InventoryUnit:          items[idx].bomInventoryUnit,
+			LegacyPricingProductID: items[idx].legacyPricingProductID,
+		})
+	}
 	for idx := range items {
 		items[idx].productKind = "roasted"
 		if items[idx].productID != nil && *items[idx].productID > 0 {
@@ -1250,7 +1455,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	itemDiscountAmt := 0.0
 	orderWeightG := int64(0)
 	for idx := range items {
-		if items[idx].productID != nil {
+		if items[idx].productID != nil && !items[idx].canonicalBOMSpec {
 			productKind, unitBeanG, unitBagCount := loadOrderProductUnitDefaultsTx(ctx, tx, r.schema, *items[idx].productID)
 			if items[idx].productKind == "" && productKind != "" {
 				items[idx].productKind = productKind
@@ -1279,7 +1484,18 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].productKind = "roasted_bean"
 		}
 		selection := concreteOrderPublicationSelection{}
-		if items[idx].productID != nil && *items[idx].productID > 0 {
+		pricingProductID := int64(0)
+		pricingSpecG := items[idx].specG
+		pricingSalesUnit := items[idx].salesUnit
+		if items[idx].productID != nil {
+			pricingProductID = *items[idx].productID
+		}
+		if items[idx].canonicalBOMSpec {
+			pricingProductID = items[idx].legacyPricingProductID
+			pricingSpecG = items[idx].legacyPricingSpecG
+			pricingSalesUnit = items[idx].legacyPricingSalesUnit
+		}
+		if items[idx].productID != nil && *items[idx].productID > 0 && !items[idx].canonicalBOMSpec {
 			if items[idx].submittedParentProductID > 0 {
 				identity, identityErr := loadConcreteOrderProductIdentityTx(ctx, tx, r.schema, *items[idx].productID)
 				if identityErr != nil {
@@ -1359,7 +1575,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				items[idx].brandNameSnapshot = aliasSnapshot.BrandName
 			}
 			items[idx].matchedPriceQty = float64(items[idx].units)
-		} else if items[idx].productID != nil && items[idx].specG <= 0 {
+		} else if items[idx].productID != nil && items[idx].specG <= 0 && !items[idx].canonicalBOMSpec {
 			return salesapp.SaveOrderResult{}, fmt.Errorf("at least one item required")
 		}
 		itemWeightG := orderItemWeightG(items[idx].productKind, items[idx].salesUnit, items[idx].unitBeanG, items[idx].unitBagCount, items[idx].specG, items[idx].units)
@@ -1377,16 +1593,30 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				units:         items[idx].units,
 			}
 			lineTotal := orderManualPriceLineTotal(*items[idx].manualPrice, discountItem, retailOrder)
-			if selection.Strict {
+			if items[idx].canonicalBOMSpec {
+				items[idx].matchedPriceQty = float64(items[idx].units)
+				identity := orderBOMSpecIdentity{
+					ProductID:              *items[idx].productID,
+					BomSpecID:              items[idx].bomSpecID,
+					BomVariantID:           items[idx].bomVariantID,
+					BomSpecKey:             items[idx].bomSpecKey,
+					BomSpecName:            items[idx].bomSpecName,
+					InventoryUnit:          items[idx].bomInventoryUnit,
+					LegacyPricingProductID: items[idx].legacyPricingProductID,
+				}
+				items[idx].priceSourceJSON = withOrderBOMSpecPriceSourceJSON(`{"source":"manual"}`, identity)
+			} else if selection.Strict {
 				items[idx].matchedPriceQty = float64(items[idx].units)
 				items[idx].priceSourceJSON = manualConcreteOrderPriceSourceJSON(selection, *items[idx].productID)
 			} else {
 				items[idx].matchedPriceQty = float64(items[idx].units)
 				items[idx].priceSourceJSON = `{"source":"manual"}`
 			}
-			items[idx].priceSourceJSON, err = orderbeans.AttachProductionQuantitySnapshot(items[idx].priceSourceJSON, selection.Spec)
-			if err != nil {
-				return salesapp.SaveOrderResult{}, err
+			if !items[idx].canonicalBOMSpec {
+				items[idx].priceSourceJSON, err = orderbeans.AttachProductionQuantitySnapshot(items[idx].priceSourceJSON, selection.Spec)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
 			}
 			items[idx].baseLineTotal = lineTotal
 			applyItemDiscount(idx)
@@ -1395,11 +1625,23 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
-		} else if items[idx].productKind == "drip_bag" && items[idx].productID != nil {
+		} else if items[idx].canonicalBOMSpec && items[idx].productID != nil {
+			listType := orderbeans.ListTypeCommercial
+			if retailOrder {
+				listType = orderbeans.ListTypeRetail
+			} else if items[idx].productKind == "green_bean" {
+				listType = orderbeans.ListTypeGreen
+			}
+			candidates := []orderBeanListCandidate{{
+				ListType:               listType,
+				RequestedPublicationID: orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, listType),
+			}}
+			if items[idx].productKind == "drip_bag" {
+				candidates = dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType, retailOrder)
+			}
 			var usage orderbeans.Usage
 			var pricing orderbeans.PublishedPricing
-			var priceListType string
-			for _, candidate := range dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType, retailOrder) {
+			for _, candidate := range candidates {
 				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, candidate.RequestedPublicationID)
 				if err != nil {
 					return salesapp.SaveOrderResult{}, err
@@ -1407,7 +1649,63 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				if resolvedUsage.PublicationID <= 0 {
 					continue
 				}
-				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType, resolvedUsage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
+				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithBOMSpec(
+					ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, candidate.ListType,
+					resolvedUsage.PublicationID, items[idx].bomSpecID, items[idx].bomVariantID, items[idx].units,
+				)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				if resolvedPricing.UnitPrice <= 0 && items[idx].legacyPricingProductID > 0 {
+					resolvedPricing, err = orderbeans.ResolvePublishedPricingForPublicationWithUnit(
+						ctx, tx, r.schema, cmd.CustomerID, items[idx].legacyPricingProductID, candidate.ListType,
+						resolvedUsage.PublicationID, items[idx].legacyPricingSpecG, items[idx].units,
+						items[idx].legacyPricingSalesUnit, items[idx].unitBagCount,
+					)
+					if err != nil {
+						return salesapp.SaveOrderResult{}, err
+					}
+				}
+				if resolvedPricing.UnitPrice <= 0 {
+					continue
+				}
+				usage = resolvedUsage
+				pricing = resolvedPricing
+				listType = candidate.ListType
+				break
+			}
+			if usage.PublicationID <= 0 || pricing.UnitPrice <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
+			}
+			items[idx].tierID = nil
+			items[idx].unitPrice = pricing.UnitPrice
+			items[idx].quantityBasis = firstNonEmpty(strings.TrimSpace(pricing.QuantityBasis), "sales_spec_count")
+			items[idx].baseLineTotal = pricing.UnitPrice * float64(items[idx].units)
+			applyItemDiscount(idx)
+			items[idx].matchedPriceQty = float64(items[idx].units)
+			items[idx].priceListType = listType
+			items[idx].itemBeanListPublicationID = usage.PublicationID
+			items[idx].itemBeanListVersionNo = usage.VersionNo
+			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(listType, usage, *items[idx].productID, pricing))
+			totalAmt += items[idx].baseLineTotal
+			itemDiscountAmt += items[idx].discountAmount
+			continue
+		} else if items[idx].productKind == "drip_bag" && items[idx].productID != nil {
+			if pricingProductID <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("BOM spec has no compatible published price identity")
+			}
+			var usage orderbeans.Usage
+			var pricing orderbeans.PublishedPricing
+			var priceListType string
+			for _, candidate := range dripOrderBeanListCandidates(cmd, items[idx].itemBeanListPublicationID, items[idx].priceListType, retailOrder) {
+				resolvedUsage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, candidate.ListType, candidate.RequestedPublicationID)
+				if err != nil {
+					return salesapp.SaveOrderResult{}, err
+				}
+				if resolvedUsage.PublicationID <= 0 {
+					continue
+				}
+				resolvedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, candidate.ListType, resolvedUsage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
 				if err != nil {
 					return salesapp.SaveOrderResult{}, err
 				}
@@ -1431,20 +1729,23 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].priceListType = priceListType
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(priceListType, usage, *items[idx].productID, pricing, selection.Spec)
+			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(priceListType, usage, *items[idx].productID, pricing, selection.Spec))
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if retailOrder && items[idx].productID != nil {
+			if pricingProductID <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("BOM spec has no compatible published price identity")
+			}
 			requestedPublicationID := orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, orderbeans.ListTypeRetail)
-			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeRetail, requestedPublicationID)
+			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeRetail, requestedPublicationID)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
 			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeRetail, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
+			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeRetail, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
@@ -1454,18 +1755,21 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].tierID = nil
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
-			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, items[idx].specG, items[idx].units)
+			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, pricingSpecG, items[idx].units)
 			applyItemDiscount(idx)
 			items[idx].priceListType = orderbeans.ListTypeRetail
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeRetail, usage, *items[idx].productID, pricing, selection.Spec)
+			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(orderbeans.ListTypeRetail, usage, *items[idx].productID, pricing, selection.Spec))
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].productID != nil && items[idx].productKind == "green_bean" {
+			if pricingProductID <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("BOM spec has no compatible published price identity")
+			}
 			requestedPublicationID := orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, orderbeans.ListTypeGreen)
-			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, requestedPublicationID)
+			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeGreen, requestedPublicationID)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
@@ -1473,7 +1777,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
 			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
+			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeGreen, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
@@ -1485,24 +1789,27 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].priceListType = orderbeans.ListTypeGreen
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing, selection.Spec)
+			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing, selection.Spec))
 			if items[idx].baseLineTotal <= 0 || strings.TrimSpace(pricing.QuantityBasis) == "sales_spec_count" {
-				items[idx].baseLineTotal = publishedPricingLineTotal(pricing, items[idx].specG, items[idx].units)
+				items[idx].baseLineTotal = publishedPricingLineTotal(pricing, pricingSpecG, items[idx].units)
 			}
 			applyItemDiscount(idx)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
 		} else if items[idx].productID != nil {
+			if pricingProductID <= 0 {
+				return salesapp.SaveOrderResult{}, fmt.Errorf("BOM spec has no compatible published price identity")
+			}
 			requestedPublicationID := orderItemBeanListPublicationID(cmd, items[idx].itemBeanListPublicationID, orderbeans.ListTypeCommercial)
-			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeCommercial, requestedPublicationID)
+			usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeCommercial, requestedPublicationID)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少商品价格表价格")
 			}
-			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeCommercial, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
+			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, pricingProductID, orderbeans.ListTypeCommercial, usage.PublicationID, pricingSpecG, items[idx].units, pricingSalesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
@@ -1512,12 +1819,12 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			items[idx].tierID = nil
 			items[idx].unitPrice = pricing.UnitPrice
 			items[idx].quantityBasis = strings.TrimSpace(pricing.QuantityBasis)
-			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, items[idx].specG, items[idx].units)
+			items[idx].baseLineTotal = publishedPricingLineTotal(pricing, pricingSpecG, items[idx].units)
 			applyItemDiscount(idx)
 			items[idx].priceListType = orderbeans.ListTypeCommercial
 			items[idx].itemBeanListPublicationID = usage.PublicationID
 			items[idx].itemBeanListVersionNo = usage.VersionNo
-			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing, selection.Spec)
+			items[idx].priceSourceJSON = canonicalPriceSource(idx, beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing, selection.Spec))
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -1638,8 +1945,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		}
 	}
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,0),$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30::jsonb)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,bom_spec_id,bom_variant_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULLIF($15,0),$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb)`, r.schema)
 
 	if editID > 0 {
 		if !cmd.PreserveFulfillmentSnapshot {
@@ -1896,7 +2203,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				}
 			}
 		}
-		usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, productID, itemListType, itemPublicationID)
+		usageProductID := productID
+		if it.canonicalBOMSpec && it.legacyPricingProductID > 0 {
+			usageProductID = it.legacyPricingProductID
+		}
+		usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, cmd.CustomerID, usageProductID, itemListType, itemPublicationID)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -1914,22 +2225,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.customerProductAliasID, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.bomSpecID, it.bomVariantID, it.customerProductAliasID, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, notNullTextPtr(it.unit), notNullTextPtr(it.spec), it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
 
 	stockItems := make([]orderStockItem, 0, len(items))
 	for _, it := range items {
-		if it.productID == nil || *it.productID <= 0 || it.specG <= 0 || it.units <= 0 {
+		if it.productID == nil || *it.productID <= 0 || it.units <= 0 || (it.bomSpecID <= 0 && it.specG <= 0) {
 			continue
 		}
+		needG := orderItemWeightG(it.productKind, it.salesUnit, it.unitBeanG, it.unitBagCount, it.specG, it.units)
+		if it.bomSpecID > 0 {
+			needG = 0
+		}
 		stockItems = append(stockItems, orderStockItem{
-			ProductID:   *it.productID,
-			ProductName: it.name,
-			SpecG:       it.specG,
-			Units:       it.units,
-			NeedG:       orderItemWeightG(it.productKind, it.salesUnit, it.unitBeanG, it.unitBagCount, it.specG, it.units),
+			ProductID:    *it.productID,
+			BomSpecID:    it.bomSpecID,
+			BomVariantID: it.bomVariantID,
+			ProductName:  it.name,
+			SpecG:        it.specG,
+			Units:        it.units,
+			NeedG:        needG,
 		})
 	}
 	stockDecision := strings.TrimSpace(cmd.StockBatchDecision)

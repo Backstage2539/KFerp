@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_plan_item_dependencies (
 	material_id BIGINT NOT NULL DEFAULT 0,
 	component_type TEXT NOT NULL DEFAULT 'material',
 	component_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	component_spec_g BIGINT NOT NULL DEFAULT 0,
 	required_g BIGINT NOT NULL DEFAULT 0,
 	required_units BIGINT NOT NULL DEFAULT 0,
@@ -65,6 +67,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_plan_item_dependencies (
 );
 ALTER TABLE %[1]s.production_plan_item_dependencies ADD COLUMN IF NOT EXISTS component_type TEXT NOT NULL DEFAULT 'material';
 ALTER TABLE %[1]s.production_plan_item_dependencies ADD COLUMN IF NOT EXISTS component_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_plan_item_dependencies ADD COLUMN IF NOT EXISTS component_bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_plan_item_dependencies ADD COLUMN IF NOT EXISTS component_bom_variant_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_plan_item_dependencies ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.production_plan_item_dependencies
 SET component_type='material',component_id=material_id,component_spec_g=0
@@ -80,8 +84,9 @@ BEGIN
 		EXECUTE format('ALTER TABLE %[1]s.production_plan_item_dependencies DROP CONSTRAINT %%I',old_uq.conname);
 	END LOOP;
 END $$;
-CREATE UNIQUE INDEX IF NOT EXISTS production_plan_item_dependencies_typed_uq
-	ON %[1]s.production_plan_item_dependencies(production_plan_item_id,depends_on_plan_item_id,component_type,component_id,component_spec_g);
+DROP INDEX IF EXISTS %[1]s.production_plan_item_dependencies_typed_uq;
+CREATE UNIQUE INDEX production_plan_item_dependencies_typed_uq
+	ON %[1]s.production_plan_item_dependencies(production_plan_item_id,depends_on_plan_item_id,component_type,component_id,component_bom_spec_id,component_spec_g);
 CREATE INDEX IF NOT EXISTS production_plan_item_dependencies_plan_idx
 	ON %[1]s.production_plan_item_dependencies(production_plan_id, production_plan_item_id);
 
@@ -109,6 +114,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.work_order_dependencies (
 	material_id BIGINT NOT NULL DEFAULT 0,
 	component_type TEXT NOT NULL DEFAULT 'material',
 	component_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	component_spec_g BIGINT NOT NULL DEFAULT 0,
 	required_g BIGINT NOT NULL DEFAULT 0,
 	required_units BIGINT NOT NULL DEFAULT 0,
@@ -116,6 +123,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.work_order_dependencies (
 );
 ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS component_type TEXT NOT NULL DEFAULT 'material';
 ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS component_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS component_bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS component_bom_variant_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_dependencies ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.work_order_dependencies
 SET component_type='material',component_id=material_id,component_spec_g=0
@@ -131,8 +140,9 @@ BEGIN
 		EXECUTE format('ALTER TABLE %[1]s.work_order_dependencies DROP CONSTRAINT %%I',old_uq.conname);
 	END LOOP;
 END $$;
-CREATE UNIQUE INDEX IF NOT EXISTS work_order_dependencies_typed_uq
-	ON %[1]s.work_order_dependencies(work_order_id,depends_on_work_order_id,component_type,component_id,component_spec_g);
+DROP INDEX IF EXISTS %[1]s.work_order_dependencies_typed_uq;
+CREATE UNIQUE INDEX work_order_dependencies_typed_uq
+	ON %[1]s.work_order_dependencies(work_order_id,depends_on_work_order_id,component_type,component_id,component_bom_spec_id,component_spec_g);
 CREATE INDEX IF NOT EXISTS work_order_dependencies_work_order_idx
 	ON %[1]s.work_order_dependencies(work_order_id, depends_on_work_order_id);
 CREATE INDEX IF NOT EXISTS work_order_dependencies_upstream_idx
@@ -145,6 +155,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.work_order_material_reservation_batches (
 	material_id BIGINT NOT NULL,
 	component_type TEXT NOT NULL DEFAULT 'material',
 	component_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	component_bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	component_spec_g BIGINT NOT NULL DEFAULT 0,
 	material_batch_id BIGINT NOT NULL DEFAULT 0,
 	stock_batch_id BIGINT NOT NULL DEFAULT 0,
@@ -162,14 +174,19 @@ CREATE TABLE IF NOT EXISTS %[1]s.work_order_material_reservation_batches (
 );
 ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_type TEXT NOT NULL DEFAULT 'material';
 ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_bom_variant_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.work_order_material_reservations
 SET component_type='material',component_id=material_id,component_spec_g=0
 WHERE component_id=0 AND material_id>0;
-CREATE INDEX IF NOT EXISTS work_order_material_reservations_component_idx
-	ON %[1]s.work_order_material_reservations(component_type,component_id,component_spec_g,status);
+DROP INDEX IF EXISTS %[1]s.work_order_material_reservations_component_idx;
+CREATE INDEX work_order_material_reservations_component_idx
+	ON %[1]s.work_order_material_reservations(component_type,component_id,component_bom_spec_id,component_spec_g,status);
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS component_type TEXT NOT NULL DEFAULT 'material';
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS component_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS component_bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS component_bom_variant_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS stock_batch_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.work_order_material_reservation_batches ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT '';
@@ -184,6 +201,7 @@ SET warehouse=COALESCE(NULLIF((
 	JOIN %[1]s.stock_ledger_entries ledger
 	  ON ledger.item_type='finished_product'
 	 AND ledger.item_id=batch.item_id
+	 AND ledger.bom_spec_id=batch.bom_spec_id
 	 AND ledger.spec_g=batch.spec_g
 	 AND (ledger.source_batch_code=batch.batch_code OR ledger.source_batch_id=batch.batch_code)
 	WHERE batch.id=binding.stock_batch_id
@@ -202,9 +220,10 @@ BEGIN
 		EXECUTE format('ALTER TABLE %[1]s.work_order_material_reservation_batches DROP CONSTRAINT %%I',old_uq.conname);
 	END LOOP;
 END $$;
-CREATE UNIQUE INDEX IF NOT EXISTS work_order_material_reservation_batches_typed_uq
+DROP INDEX IF EXISTS %[1]s.work_order_material_reservation_batches_typed_uq;
+CREATE UNIQUE INDEX work_order_material_reservation_batches_typed_uq
 	ON %[1]s.work_order_material_reservation_batches(
-		reservation_id,component_type,component_id,component_spec_g,material_batch_id,stock_batch_id
+		reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id
 	);
 CREATE INDEX IF NOT EXISTS work_order_material_reservation_batches_work_order_idx
 	ON %[1]s.work_order_material_reservation_batches(work_order_id, material_id, status);

@@ -200,6 +200,18 @@ func requiredPermissionForRequest(method, path string) string {
 		}
 		return "products.write"
 	}
+	// The collection aliases are kept for clients rolling over to the
+	// parent-product + BOM-spec identity.  Unlike the canonical /api/products
+	// routes, their prefix does not otherwise reach the product permission
+	// branch below, so classify them explicitly before route registration can
+	// expose a state-changing cutover without products.write.
+	if strings.HasPrefix(path, "/api/product-bom-spec-migrations") ||
+		path == "/api/product-business-identities/resolve" {
+		if method == http.MethodGet {
+			return "products.read"
+		}
+		return "products.write"
+	}
 	if strings.HasPrefix(path, "/api/production-bom") ||
 		(strings.HasPrefix(path, "/api/products/") &&
 			(strings.HasSuffix(path, "/default-production-bom") || strings.HasSuffix(path, "/production-bom-binding"))) {

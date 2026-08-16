@@ -156,8 +156,30 @@ function specLabelsForLine(line: DirectShipDraftLine): string[] {
 function selectedSpecIndexForLine(line: DirectShipDraftLine): number {
   const family = familyForLine(line)
   return Math.max(0, family?.specs.findIndex(
-    (spec) => Number(spec.sku_id || spec.product_id || 0) === Number(line.product_id || 0),
+    (spec) => Number(line.bom_spec_id || 0) > 0
+      ? Number(spec.bom_spec_id || 0) === Number(line.bom_spec_id)
+        && Number(spec.bom_variant_id || 0) === Number(line.bom_variant_id)
+      : Number(spec.sku_id || spec.product_id || 0) === Number(line.product_id || 0),
   ) ?? 0)
+}
+
+function directShipItemSpecLabel(item: {
+  bom_spec_id?: number
+  spec_name?: string
+  bom_spec_name?: string
+  spec_label?: string
+  inventory_unit?: string
+  spec_g?: number
+}): string {
+  if (Number(item.bom_spec_id || 0) > 0) {
+    return String(item.spec_name || item.bom_spec_name || item.spec_label || '').trim() || '当前 BOM 规格'
+  }
+  return String(item.spec_label || '').trim() || `${Number(item.spec_g || 0)}g`
+}
+
+function directShipItemQtyLabel(item: { qty?: number; bom_spec_id?: number; inventory_unit?: string }): string {
+  const unit = Number(item.bom_spec_id || 0) > 0 ? String(item.inventory_unit || '').trim() : '件'
+  return `${Number(item.qty || 0)} ${unit || '件'}`
 }
 
 function openProductSelector(lineKey: string) {
@@ -407,7 +429,7 @@ onMounted(() => { void load() })
         <view class="request-head"><text class="line-name">{{ directShipRequestTitle(item) }}</text><text class="status">{{ directShipStatusLabel(item.status) }}</text></view>
         <text v-if="item.recipient_company" class="muted">收件客户/公司：{{ item.recipient_company }}</text>
         <text class="muted">{{ item.recipient_phone }} · {{ item.province }}{{ item.city }}{{ item.district }}{{ item.detail_address }}</text>
-        <text v-for="line in item.items || []" :key="`${line.product_id}:${line.spec_g}`" class="muted">{{ line.product_name || `商品 ${line.product_id}` }}{{ line.sku_code ? `（${line.sku_code}）` : '' }} · {{ line.spec_label || `${line.spec_g}g` }} · {{ line.qty }} 件</text>
+        <text v-for="line in item.items || []" :key="`${line.product_id}:${line.bom_spec_id || 0}:${line.bom_variant_id || 0}:${line.spec_g}`" class="muted">{{ line.product_name || `商品 ${line.product_id}` }}{{ line.sku_code ? `（${line.sku_code}）` : '' }} · {{ directShipItemSpecLabel(line) }} · {{ directShipItemQtyLabel(line) }}</text>
         <view v-for="pkg in item.packages || []" :key="pkg.id" class="package">
           <text>{{ pkg.order_no }} · {{ pkg.warehouse }} · {{ directShipStatusLabel(pkg.status) }}</text>
           <text v-if="pkg.shipped_at" class="muted">发货时间：{{ pkg.shipped_at }}</text>

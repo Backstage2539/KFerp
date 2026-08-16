@@ -4,6 +4,7 @@ import {
   customerInventorySelectionItems,
   customerInventoryDetailPath,
   customerInventoryItemKey,
+  matchesCustomerInventoryIdentity,
   normalizeProcessingPrefillItems,
   resolveProcessingPrefillLines,
   toggleCustomerInventorySelection,
@@ -90,5 +91,68 @@ describe('customer inventory helpers', () => {
     expect(result.unavailable).toEqual([
       { product_id: 999, spec_g: 1000, product_name: '旧库存商品', sku_code: 'SKU-000911' },
     ])
+  })
+
+  it('preserves a cutover inventory BOM specification through selection, detail routing and processing prefill', () => {
+    const canonical = {
+      product_id: 550,
+      parent_product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      bom_spec_name: '227g袋',
+      inventory_unit: '袋',
+      product_name: '乌拉嘎',
+      sku_code: 'BSP-227',
+      spec_g: 0,
+      available_qty: 4,
+      reserved_qty: 0,
+      total_qty: 4,
+      warehouses: ['客户成品仓 A'],
+    }
+    const families: EmployeeOrderProductFamily[] = [{
+      parent_product_id: 550,
+      name: '乌拉嘎',
+      migration_state: 'cutover',
+      default_bom_spec_id: 91,
+      specs: [{
+        product_id: 550,
+        migration_state: 'cutover',
+        bom_spec_id: 91,
+        bom_variant_id: 191,
+        spec_name: '227g袋',
+        spec_label: '227g袋',
+        inventory_unit: '袋',
+        is_default: true,
+      }],
+    }]
+
+    expect(customerInventoryItemKey(canonical)).toBe('550:bom_spec:91')
+    expect(customerInventoryDetailPath(canonical)).toBe(
+      '/pages/customer-inventory-detail/customer-inventory-detail?product_id=550&bom_spec_id=91&bom_variant_id=191&inventory_unit=%E8%A2%8B',
+    )
+    expect(normalizeProcessingPrefillItems([canonical, canonical])).toEqual([{
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      spec_g: 0,
+      spec_name: '227g袋',
+      inventory_unit: '袋',
+      product_name: '乌拉嘎',
+      sku_code: 'BSP-227',
+    }])
+    expect(resolveProcessingPrefillLines([canonical], families).lines).toEqual([{
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      product_name: '乌拉嘎',
+      spec_g: 0,
+      spec_label: '227g袋',
+      inventory_unit: '袋',
+      qty: 0,
+    }])
+
+    expect(customerInventoryItemKey({ ...canonical, bom_variant_id: 192 })).toBe('550:bom_spec:91')
+    expect(matchesCustomerInventoryIdentity({ ...canonical, bom_variant_id: 192 }, canonical)).toBe(true)
+    expect(matchesCustomerInventoryIdentity({ ...canonical, bom_spec_id: 92, bom_variant_id: 192 }, canonical)).toBe(false)
   })
 })

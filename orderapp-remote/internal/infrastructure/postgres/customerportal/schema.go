@@ -204,7 +204,11 @@ CREATE TABLE IF NOT EXISTS %s.customer_processing_production_demands (
 	request_no TEXT NOT NULL DEFAULT '',
 	customer_id BIGINT NOT NULL REFERENCES %s.customers(id) ON DELETE CASCADE,
 	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	product_name TEXT NOT NULL DEFAULT '',
+	spec_name TEXT NOT NULL DEFAULT '',
+	inventory_unit TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	target_qty BIGINT NOT NULL DEFAULT 0,
 	need_g BIGINT NOT NULL DEFAULT 0,
@@ -277,6 +281,10 @@ CREATE INDEX IF NOT EXISTS customer_settlement_batches_customer_status_idx
 CREATE TABLE IF NOT EXISTS %s.mall_products (
 	id BIGSERIAL PRIMARY KEY,
 	product_id BIGINT NOT NULL REFERENCES %s.products(id) ON DELETE RESTRICT,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
+	spec_name TEXT NOT NULL DEFAULT '',
+	inventory_unit TEXT NOT NULL DEFAULT '',
 	title TEXT NOT NULL DEFAULT '',
 	subtitle TEXT NOT NULL DEFAULT '',
 	description TEXT NOT NULL DEFAULT '',
@@ -292,6 +300,12 @@ CREATE TABLE IF NOT EXISTS %s.mall_products (
 );
 CREATE INDEX IF NOT EXISTS mall_products_status_sort_idx
 	ON %s.mall_products(status, sort_order, id);
+ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS spec_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.mall_products ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE IF EXISTS %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
 `, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
@@ -305,7 +319,11 @@ CREATE TABLE IF NOT EXISTS %[1]s.processing_job_request_items (
 	line_no INTEGER NOT NULL DEFAULT 1,
 	product_id BIGINT NOT NULL DEFAULT 0,
 	parent_product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	product_name TEXT NOT NULL DEFAULT '',
+	spec_name TEXT NOT NULL DEFAULT '',
+	inventory_unit TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	target_qty BIGINT NOT NULL DEFAULT 0,
 	need_g BIGINT NOT NULL DEFAULT 0,
@@ -335,6 +353,22 @@ ALTER TABLE %[1]s.customer_processing_production_demands
 	ADD COLUMN IF NOT EXISTS production_plan_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.customer_processing_production_demands
 	ADD COLUMN IF NOT EXISTS production_plan_item_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_processing_production_demands
+	ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_processing_production_demands
+	ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_processing_production_demands
+	ADD COLUMN IF NOT EXISTS spec_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.customer_processing_production_demands
+	ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.processing_job_request_items
+	ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.processing_job_request_items
+	ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.processing_job_request_items
+	ADD COLUMN IF NOT EXISTS spec_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.processing_job_request_items
+	ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT '';
 
 INSERT INTO %[1]s.processing_job_request_items(
 	request_id,line_no,product_id,product_name,spec_g,target_qty,need_g,target_warehouse,

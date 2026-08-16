@@ -1129,6 +1129,7 @@ import {
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+import { productSpecSelectionsForWrite, visibleRowsForProductSpecMigration } from '../lib/product-spec-cutover'
 import {
   PRICE_LIST_PAGE_PREFERENCES_KEY,
   readPriceListPagePreferences,
@@ -4220,7 +4221,7 @@ async function loadBeanList() {
       loadPriceListProductBusinessGroups(),
     ])
     parameters.value = data.parameters
-    items.value = Array.isArray(data.items) ? data.items : []
+    items.value = visibleRowsForProductSpecMigration(Array.isArray(data.items) ? data.items : [])
     syncSelectedProductTypeCategoryFromOptions()
     initializePdfDefaults()
     restorePriceListGenerationDraftForActiveType()
@@ -4650,7 +4651,7 @@ function beanListPublicationPayload() {
       ...pdfTheme.value,
       product_catalog_group_template_id: Number(selectedProductCatalogGroupTemplate.value?.id || 0),
       selectedProductIDs: pdfSelectedProductIDs.value,
-      product_spec_selections: pdfProductSpecSelections.value,
+      product_spec_selections: productSpecSelectionsForWrite(pdfProductSpecSelections.value),
       showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
       visibleCategoryCodes: pdfVisibleCategoryCodes.value,
       customizers: pdfCustomizers.value,

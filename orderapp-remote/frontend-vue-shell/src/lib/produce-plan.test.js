@@ -156,6 +156,27 @@ test('production demand status helpers only allow unplanned shortage rows to be 
   })
 })
 
+test('BOM-spec production demand uses its inventory quantity and unit instead of grams', () => {
+  const row = {
+    bom_spec_id: 91,
+    inventory_unit: '袋',
+    need_inventory_qty: 100,
+    available_inventory_qty: 40,
+    gap_inventory_qty: 60,
+    need_g: 0,
+    inv_g: 0,
+    gap_g: 0,
+    demand_status: 'unplanned',
+  }
+
+  assert.equal(producePlan.productionDemandGapQuantity(row), 60)
+  assert.equal(producePlan.productionDemandQuantityLabel(row, 'need'), '100 袋')
+  assert.equal(producePlan.productionDemandQuantityLabel(row, 'available'), '40 袋')
+  assert.equal(producePlan.productionDemandQuantityLabel(row, 'gap'), '60 袋')
+  assert.equal(productionDemandSelectable(row), true)
+  assert.equal(producePlan.productionDemandQuantityLabel({ need_g: 227 }, 'need'), '227g')
+})
+
 test('production demand summary query carries demand status filters and selected plan preview keys', () => {
   assert.equal(
     buildProductionDemandSummaryQuery({

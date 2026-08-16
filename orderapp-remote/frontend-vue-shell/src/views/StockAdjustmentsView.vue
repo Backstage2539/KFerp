@@ -46,7 +46,15 @@
           />
         </label>
         <label v-if="isMaterialCostAdjustment"><span>目标成本（元/{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /><small>批次成本调整当前只支持重量物料。</small></label>
-        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product' && selectedProductUsesBOMSpecs">
+          <span>BOM 规格</span>
+          <select v-model.number="form.bom_spec_id">
+            <option v-for="row in selectedProductBOMSpecs" :key="row.bom_spec_id" :value="row.bom_spec_id">
+              {{ row.name }}（{{ row.unit }}）
+            </option>
+          </select>
+        </label>
+        <label v-else-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" /></label>
         <label v-if="!isMaterialCostAdjustment">
           <span>仓库</span>
           <select v-model="form.warehouse">
@@ -54,8 +62,8 @@
           </select>
         </label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>目标数量（{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.001" v-model.number="form.target_qty" /></label>
-        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>目标散装g</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
-        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>成品目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product' && !selectedProductUsesBOMSpecs"><span>目标散装g</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>{{ selectedProductUsesBOMSpecs ? `目标数量（${selectedProductBOMSpec?.unit || '规格单位'}）` : '成品目标件数' }}</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本（元/{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
         <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="实物盘点差异 / 批次成本更正" /></label>
         <button class="primary" type="button" @click="submit" :disabled="saving || (isMaterialCostAdjustment && !isSelectedMaterialWeight)">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
@@ -68,6 +76,13 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import {
+  buildFinishedAdjustmentPayload,
+  currentBOMSpecs,
+  defaultBOMSpecID,
+  selectedBOMSpec,
+  usesCurrentBOMSpecs,
+} from '../lib/stock-bom-spec'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -81,12 +96,16 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
-const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item_id: 0, spec_g: 0, warehouse: 'raw_materials', target_qty: 0, target_g: 0, target_units: 0, material_batch_id: 0, target_unit_cost: 0, reason: '' })
+const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item_id: 0, bom_spec_id: 0, spec_g: 0, warehouse: 'raw_materials', target_qty: 0, target_g: 0, target_units: 0, material_batch_id: 0, target_unit_cost: 0, reason: '' })
 const isMaterialCostAdjustment = computed(() => form.adjustment_type === 'material_cost')
 const currentOptions = computed(() => form.item_type === 'material'
   ? (isMaterialCostAdjustment.value ? materials.value.filter((material) => isMaterialWeight(material)) : materials.value)
   : products.value)
 const selectedMaterial = computed(() => materials.value.find((row) => Number(row.id || row.ID || 0) === Number(form.item_id || 0)) || null)
+const selectedProduct = computed(() => products.value.find((row) => Number(row.id || row.product_id || 0) === Number(form.item_id || 0)) || null)
+const selectedProductUsesBOMSpecs = computed(() => form.item_type === 'finished_product' && usesCurrentBOMSpecs(selectedProduct.value || {}))
+const selectedProductBOMSpecs = computed(() => currentBOMSpecs(selectedProduct.value || {}))
+const selectedProductBOMSpec = computed(() => selectedBOMSpec(selectedProduct.value || {}, form.bom_spec_id))
 const selectedMaterialUnitLabel = computed(() => selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '库存单位')
 const isSelectedMaterialWeight = computed(() => isMaterialWeight(selectedMaterial.value))
 const warehouseOptions = computed(() => {
@@ -116,10 +135,11 @@ async function loadOptions() {
   loading.value = true
   error.value = ''
   try {
-    const [mat, prod, wh] = await Promise.all([apiGet('/api/materials?limit=500'), apiGet('/api/products'), apiGet('/api/stock/warehouses')])
+    const [mat, prod, wh] = await Promise.all([apiGet('/api/materials?limit=500'), apiGet('/api/products/inventory?limit=200'), apiGet('/api/stock/warehouses')])
     materials.value = mat.rows || []
     products.value = prod.rows || prod.products || []
     warehouses.value = wh.rows || []
+    onFinishedProductChange()
   } catch (err) { error.value = err.message || '加载失败' } finally { loading.value = false }
 }
 
@@ -164,17 +184,8 @@ async function submit() {
       unit_code: selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '',
       target_unit_cost: Number(form.target_unit_cost || 0),
       reason: form.reason,
-    } : {
-      adjustment_type: 'quantity',
-      item_type: form.item_type,
-      item_id: form.item_id,
-      spec_g: form.spec_g,
-      warehouse: form.warehouse,
-      target_g: form.target_g,
-      target_units: form.target_units,
-      target_unit_cost: form.item_type === 'material' ? Number(form.target_unit_cost || 0) : 0,
-      reason: form.reason,
-    }
+    } : buildFinishedAdjustmentPayload(form, selectedProduct.value || {})
+    if (form.item_type === 'finished_product' && selectedProductUsesBOMSpecs.value && !selectedProductBOMSpec.value) throw new Error('请选择当前默认 BOM 的规格')
     const data = await apiSend('/api/stock/adjustments', { body })
     ok.value = data.adjustment_id
   } catch (err) { error.value = err.message || '提交失败' } finally { saving.value = false }
@@ -184,6 +195,7 @@ watch(() => form.item_type, () => {
   form.item_id = 0
   form.warehouse = form.item_type === 'finished_product' ? 'finished_goods' : 'raw_materials'
   form.target_qty = 0
+  form.bom_spec_id = 0
   form.material_batch_id = 0
   materialBatches.value = []
 })
@@ -203,7 +215,22 @@ watch(() => form.adjustment_type, () => {
   loadMaterialBatches()
 })
 
-watch(() => form.item_id, loadMaterialBatches)
+function onFinishedProductChange() {
+  if (form.item_type !== 'finished_product') {
+    form.bom_spec_id = 0
+    return
+  }
+  const selectedStillExists = selectedProductBOMSpecs.value.some((row) => Number(row.bom_spec_id) === Number(form.bom_spec_id))
+  form.bom_spec_id = selectedProductUsesBOMSpecs.value
+    ? (selectedStillExists ? Number(form.bom_spec_id) : defaultBOMSpecID(selectedProduct.value || {}))
+    : 0
+  if (selectedProductUsesBOMSpecs.value) form.target_g = 0
+}
+
+watch(() => form.item_id, () => {
+  loadMaterialBatches()
+  onFinishedProductChange()
+})
 
 onMounted(loadOptions)
 </script>

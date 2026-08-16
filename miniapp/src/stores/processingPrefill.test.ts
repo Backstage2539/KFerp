@@ -35,4 +35,28 @@ describe('processing prefill handoff store', () => {
     expect(store.consume(0)).toEqual([])
     expect(store.items).toEqual([])
   })
+
+  it('keeps cutover BOM specification identity intact when staging inventory selections', () => {
+    const store = useProcessingPrefillStore()
+    store.stage(19, [{
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      spec_g: 0,
+      spec_name: '227g袋',
+      inventory_unit: '袋',
+      product_name: '乌拉嘎',
+    }])
+
+    expect(store.consume(19)).toEqual([{
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      spec_g: 0,
+      spec_name: '227g袋',
+      inventory_unit: '袋',
+      product_name: '乌拉嘎',
+      sku_code: undefined,
+    }])
+  })
 })
