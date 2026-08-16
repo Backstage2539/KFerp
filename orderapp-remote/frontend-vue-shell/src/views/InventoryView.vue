@@ -18,14 +18,21 @@
       <div class="form-grid">
         <label>
           <span>商品</span>
-          <select v-model.number="form.product_id">
+          <select v-model.number="form.product_id" @change="onProductChange">
             <option :value="0">请选择</option>
             <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
           </select>
         </label>
-        <label><span>规格(g)</span><input v-model.number="form.spec_g" type="number" min="1" /></label>
-        <label><span>件数</span><input v-model.number="form.units" type="number" min="0" /></label>
-        <label><span>散装(g)</span><input v-model.number="form.loose_g" type="number" min="0" /></label>
+        <label v-if="selectedProductUsesBomSpecs">
+          <span>BOM 规格</span>
+          <select v-model.number="form.bom_spec_id" @change="onBomSpecChange">
+            <option :value="0">请选择</option>
+            <option v-for="spec in selectedProductBomSpecs" :key="spec.bom_spec_id" :value="spec.bom_spec_id">{{ spec.name }}（{{ spec.unit }}）</option>
+          </select>
+        </label>
+        <label v-else><span>规格(g)</span><input v-model.number="form.spec_g" type="number" min="1" /></label>
+        <label><span>{{ selectedProductUsesBomSpecs ? `库存数量（${form.unit || '件'}）` : '件数' }}</span><input v-model.number="form.units" type="number" min="0" /></label>
+        <label v-if="!selectedProductUsesBomSpecs"><span>散装(g)</span><input v-model.number="form.loose_g" type="number" min="0" /></label>
         <button class="primary" type="button" @click="save" :disabled="saving">保存</button>
       </div>
     </section>
@@ -33,17 +40,15 @@
     <section class="panel">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>商品</th><th>规格(g)</th><th>件数</th><th>散装(g)</th><th>合计(g)</th><th>更新时间</th></tr></thead>
+          <thead><tr><th>商品</th><th>规格</th><th>库存数量</th><th>更新时间</th></tr></thead>
           <tbody>
-            <tr v-for="row in rows" :key="`${row.product_id}-${row.spec_g}`">
+            <tr v-for="row in rows" :key="`${row.product_id}-${row.bom_spec_id || row.spec_g}`">
               <td>{{ row.product }}</td>
-              <td>{{ row.spec_g }}</td>
-              <td>{{ row.units }}</td>
-              <td>{{ row.loose_g }}</td>
-              <td>{{ row.total_g }}</td>
+              <td>{{ row.spec_name || row.spec_label || row.spec_g }}</td>
+              <td>{{ finishedInventoryRowQuantity(row) }}</td>
               <td>{{ row.updated_at }}</td>
             </tr>
-            <tr v-if="!rows.length"><td colspan="6" class="muted">暂无库存</td></tr>
+            <tr v-if="!rows.length"><td colspan="4" class="muted">暂无库存</td></tr>
           </tbody>
         </table>
       </div>
@@ -59,10 +64,16 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
+import {
+  isProductBomSpecCutover,
+  normalizeProductBomSpecs,
+  visibleRowsForProductSpecMigration,
+} from '../lib/product-spec-cutover'
+import { buildFinishedInventoryAdjustmentPayload, finishedInventoryRowQuantity } from '../lib/finished-inventory'
 
 const rows = ref([])
 const products = ref([])
@@ -74,7 +85,22 @@ const ok = ref(false)
 const page = ref(1)
 const limit = ref(50)
 const total = ref(0)
-const form = reactive({ product_id: 0, spec_g: 227, units: 0, loose_g: 0 })
+const form = reactive({ product_id: 0, migration_state: 'legacy', bom_spec_id: 0, bom_variant_id: 0, unit: '件', spec_g: 227, units: 0, loose_g: 0 })
+const selectedProduct = computed(() => products.value.find((row) => Number(row.id || row.product_id || 0) === Number(form.product_id || 0)) || null)
+const selectedProductUsesBomSpecs = computed(() => isProductBomSpecCutover(selectedProduct.value || {}))
+const selectedProductBomSpecs = computed(() => normalizeProductBomSpecs(selectedProduct.value || {}))
+
+function onProductChange() {
+  form.migration_state = selectedProductUsesBomSpecs.value ? 'cutover' : 'legacy'
+  form.bom_spec_id = Number(selectedProductBomSpecs.value.find((row) => row.is_default)?.bom_spec_id || selectedProductBomSpecs.value[0]?.bom_spec_id || 0)
+  onBomSpecChange()
+}
+
+function onBomSpecChange() {
+  const selected = selectedProductBomSpecs.value.find((row) => Number(row.bom_spec_id) === Number(form.bom_spec_id))
+  form.bom_variant_id = Number(selected?.bom_variant_id || 0)
+  form.unit = String(selected?.unit || '件')
+}
 
 async function loadPage(nextPage) {
   page.value = Math.max(1, Number(nextPage || 1))
@@ -96,8 +122,8 @@ async function load() {
     url.searchParams.set('limit', String(limit.value))
     const data = await apiGet(url)
     const pagination = paginationFromApi(data)
-    rows.value = data.rows || []
-    products.value = data.products || []
+    rows.value = visibleRowsForProductSpecMigration(data.rows || [])
+    products.value = visibleRowsForProductSpecMigration(data.products || [])
     page.value = pagination.page
     limit.value = pagination.pageSize
     total.value = pagination.total
@@ -113,7 +139,9 @@ async function save() {
   error.value = ''
   ok.value = false
   try {
-    await apiSend('/api/products/inventory', { body: form })
+    await apiSend('/api/products/inventory', {
+      body: buildFinishedInventoryAdjustmentPayload(form),
+    })
     ok.value = true
     await load()
   } catch (err) {

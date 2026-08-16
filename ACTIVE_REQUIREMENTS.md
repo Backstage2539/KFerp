@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
+- Branch: codex/pr600-bom-spec-groups
+- Owner/session: Codex / 2026-08-17
+- Status: final stable-tree automated verification and independent release gate GREEN; develop merge and development deployment pending
+- Scope: 统一 BOM 配方消耗模式；半成品改为制造专供；商品规格从派生子 SKU 迁到 BOM 专属规格组，并按商品逐个切换新业务身份。
+- DEV:
+  - DEV-600-BOM-RECIPE-MODE（done，Vue/application/PostgreSQL GREEN）：单一组件列表、比例/固定模式互斥、发布校验与历史版本兼容。
+  - DEV-600-SEMI-FINISHED-MANUFACTURE-ONLY（done，PostgreSQL/API GREEN）：采购价归零、采购/入库阻断、递归成本、并发串行化与操作日志。
+  - DEV-600-BOM-SPEC-TEMPLATE-GROUP（done，PostgreSQL/API/Vue GREEN）：版本化规格模板、主投入占位符、BOM 专属规格和整组原子发布。
+  - DEV-600-BOM-SPEC-BUSINESS-IDENTITY（done，cross-module PostgreSQL/Vue/miniapp GREEN）：价格、订单、库存、生产、履约与小程序改用父商品 + BOM 规格。
+  - DEV-600-PER-PRODUCT-MIGRATION（done，PostgreSQL/API GREEN）：旧子 SKU 映射、手工配方重建工作台、迁移门禁与逐商品切换。
+  - DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY（todo，merge/deploy pending）：BOM 布局、商品/物料工作流、手册、验收已同步，待合入 `develop` 并仅部署 development。
+- Verifier:
+  - Final stable-tree GREEN：`scripts/verify_kferp.sh all` exit 0；Go 全量 GREEN；Vue 1013/1013；Vite 6594 modules / 2.04s；miniapp 217/217、typecheck 与 development mp-weixin build GREEN；`git diff --check` GREEN。
+  - Final real PostgreSQL GREEN：app bootstrap、BOM、catalog、materials、purchase、stock、inventory、production、productspecmigration、costing、sales、customerportal 与 customerfulfillment 关键仓储/API 套件串行通过；production HTTP 73.778s，customerportal 39.645s，customerfulfillment 34.437s。覆盖十规格原子发布、跨版本冻结执行、逐商品迁移、半成品入库门禁、规格库存隔离及 100 袋精确耗用。
+  - Manual：需求、验收及 BOM/物料/成本/订单/库存/生产/客户履约/客户门户/员工小程序手册已同步。
+  - Review/acceptance：独立最终只读发布门禁为 0 P0 / 0 P1，P2 无新增；Van development 人工验收保持 pending。
+- Deployment: development only after verified feature merge; main/production out of scope and untouched
+- Last update: 2026-08-17 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串失败；`scripts/reserve_req_id.sh` 已确认下一可用编号为 PR-600，按既有流程手工登记。
+
 ### PR-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION
 - Branch: codex/pr599-development-evidence-20260814（feature: codex/material-unit-unification-20260814）
 - Owner/session: Codex / 2026-08-14

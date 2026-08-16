@@ -114,7 +114,10 @@
                     <td>{{ row.warehouse_name || row.warehouse }}</td>
                     <td><span class="pill">{{ typeLabel(row.item_type) }}</span></td>
                     <td>{{ row.item_name }}</td>
-                    <td>{{ row.spec_g ? `${row.spec_g}g` : '-' }}</td>
+                    <td>
+                      <strong>{{ inventorySpecLabel(row) }}</strong>
+                      <small v-if="inventoryUnitLabel(row)">库存单位：{{ inventoryUnitLabel(row) }}</small>
+                    </td>
                     <td>{{ row.batch_code || '-' }}</td>
                     <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
                     <td>{{ inventoryQtyLabel(row) }}</td>
@@ -158,7 +161,10 @@
                   <td>{{ row.warehouse_name || row.warehouse }}</td>
                   <td><span class="pill">{{ typeLabel(row.item_type) }}</span></td>
                   <td>{{ row.item_name }}</td>
-                  <td>{{ row.spec_g ? `${row.spec_g}g` : '-' }}</td>
+                  <td>
+                    <strong>{{ inventorySpecLabel(row) }}</strong>
+                    <small v-if="inventoryUnitLabel(row)">库存单位：{{ inventoryUnitLabel(row) }}</small>
+                  </td>
                   <td>{{ row.batch_code || '-' }}</td>
                   <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
                   <td>{{ inventoryQtyLabel(row) }}</td>
@@ -383,6 +389,14 @@ import {
   groupRowsByBusinessGroupTemplates,
 } from '../lib/business-grouping'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
+import { visibleRowsForProductSpecMigration } from '../lib/product-spec-cutover'
+import {
+  warehouseInventoryItemKey,
+  warehouseInventoryQuantityLabel,
+  warehouseInventoryRowKey,
+  warehouseInventorySpecLabel,
+  warehouseInventoryUnitLabel,
+} from '../lib/warehouse-inventory-spec-identity'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -452,12 +466,13 @@ const selectedBindCustomerName = computed(() => {
 })
 const totalG = computed(() => rows.value.reduce((sum, row) => sum + Number(row.qty_g || 0), 0))
 function inventoryQtyLabel(row) {
-  const qtyG = Number(row?.qty_g || 0)
-  const qtyUnits = Number(row?.qty_units || 0)
-  if (qtyUnits && qtyG) return `${qtyUnits.toLocaleString('zh-CN')} 件 / ${qtyG.toLocaleString('zh-CN')}g`
-  if (qtyUnits) return `${qtyUnits.toLocaleString('zh-CN')} ${row?.item_type === 'finished_product' ? '件' : '库存单位'}`
-  if (qtyG) return `${qtyG.toLocaleString('zh-CN')}g`
-  return '-'
+  return warehouseInventoryQuantityLabel(row)
+}
+function inventorySpecLabel(row) {
+  return warehouseInventorySpecLabel(row)
+}
+function inventoryUnitLabel(row) {
+  return warehouseInventoryUnitLabel(row)
 }
 function traceMaterialBatchQtyLabel(row) {
   if (!row) return '-'
@@ -478,7 +493,7 @@ const inventoryCategoryWorkspaceEnabled = computed(() => Boolean(
 ))
 const selectedInventoryItemKeySet = computed(() => new Set(selectedInventoryItemKeys.value))
 function inventoryItemKey(row = {}) {
-  return `${row.item_type || ''}:${Number(row.item_id || 0)}:${Number(row.spec_g || 0)}`
+  return warehouseInventoryItemKey(row)
 }
 function inventoryItemObjectRef(row = {}) {
   return `${selectedWarehouse.value || ''}:${inventoryItemKey(row)}`
@@ -581,7 +596,7 @@ function customerOptionLabel(customer) {
 }
 
 function rowKey(row) {
-  return `${row.warehouse}-${row.item_type}-${row.item_id}-${row.spec_g || 0}-${row.batch_id || row.batch_code || 'summary'}`
+  return warehouseInventoryRowKey(row)
 }
 
 function isInventoryItemSelected(row = {}) {
@@ -900,7 +915,8 @@ async function loadGroupedInventoryRows() {
         apiGet(inventoryRequestURL(index + 2, GROUPED_INVENTORY_FETCH_LIMIT))
       )))
     : []
-  rows.value = [firstRows, ...remaining.map((data) => (Array.isArray(data?.rows) ? data.rows : []))].flat()
+  const allRows = [firstRows, ...remaining.map((data) => (Array.isArray(data?.rows) ? data.rows : []))].flat()
+  rows.value = visibleRowsForProductSpecMigration(allRows)
   page.value = 1
   total.value = resultTotal
 }
@@ -915,7 +931,7 @@ async function loadInventory() {
     } else {
       const data = await apiGet(inventoryRequestURL(page.value, limit.value))
       const pagination = paginationFromApi(data)
-      rows.value = data.rows || []
+      rows.value = visibleRowsForProductSpecMigration(data.rows || [])
       page.value = pagination.page
       limit.value = pagination.pageSize
       total.value = pagination.total

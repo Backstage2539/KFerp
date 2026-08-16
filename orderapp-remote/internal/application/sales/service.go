@@ -73,6 +73,8 @@ type OrderItemCommand struct {
 	ItemID                             int64
 	ProductID                          *int64
 	ParentProductID                    int64
+	BomSpecID                          int64
+	BomVariantID                       int64
 	CustomerProductAliasID             int64
 	CustomerProductDisplayNameSnapshot string
 	CustomerItemCodeSnapshot           string
@@ -143,30 +145,38 @@ type OrderStockBatchPreviewCommand struct {
 }
 
 type OrderStockBatchAllocation struct {
-	BatchID    int64  `json:"batch_id"`
-	BatchCode  string `json:"batch_code"`
-	AvailableG int64  `json:"available_g"`
-	AllocatedG int64  `json:"allocated_g"`
-	CreatedAt  string `json:"created_at"`
+	BatchID        int64  `json:"batch_id"`
+	BatchCode      string `json:"batch_code"`
+	BomVariantID   int64  `json:"bom_variant_id,omitempty"`
+	AvailableG     int64  `json:"available_g"`
+	AvailableUnits int64  `json:"available_units"`
+	AllocatedG     int64  `json:"allocated_g"`
+	AllocatedUnits int64  `json:"allocated_units"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type OrderStockBatchPreviewLine struct {
-	ProductID   int64                       `json:"product_id"`
-	ProductName string                      `json:"product_name"`
-	SpecG       int64                       `json:"spec_g"`
-	NeedUnits   int64                       `json:"need_units"`
-	NeedG       int64                       `json:"need_g"`
-	AvailableG  int64                       `json:"available_g"`
-	Sufficient  bool                        `json:"sufficient"`
-	Allocations []OrderStockBatchAllocation `json:"allocations"`
+	ProductID      int64                       `json:"product_id"`
+	BomSpecID      int64                       `json:"bom_spec_id,omitempty"`
+	BomVariantID   int64                       `json:"bom_variant_id,omitempty"`
+	ProductName    string                      `json:"product_name"`
+	SpecG          int64                       `json:"spec_g"`
+	NeedUnits      int64                       `json:"need_units"`
+	NeedG          int64                       `json:"need_g"`
+	AvailableUnits int64                       `json:"available_units"`
+	AvailableG     int64                       `json:"available_g"`
+	Sufficient     bool                        `json:"sufficient"`
+	Allocations    []OrderStockBatchAllocation `json:"allocations"`
 }
 
 type OrderStockBatchPreview struct {
-	Sufficient      bool                         `json:"sufficient"`
-	HasBatchChoices bool                         `json:"has_batch_choices"`
-	TotalNeedG      int64                        `json:"total_need_g"`
-	TotalAvailableG int64                        `json:"total_available_g"`
-	Lines           []OrderStockBatchPreviewLine `json:"lines"`
+	Sufficient          bool                         `json:"sufficient"`
+	HasBatchChoices     bool                         `json:"has_batch_choices"`
+	TotalNeedUnits      int64                        `json:"total_need_units"`
+	TotalNeedG          int64                        `json:"total_need_g"`
+	TotalAvailableUnits int64                        `json:"total_available_units"`
+	TotalAvailableG     int64                        `json:"total_available_g"`
+	Lines               []OrderStockBatchPreviewLine `json:"lines"`
 }
 
 type OrderShippingExportData struct {
@@ -313,6 +323,35 @@ type ProductTierOption struct {
 	PublicationID        int64          `json:"publication_id,omitempty"`
 	PublicationVersionNo string         `json:"publication_version_no,omitempty"`
 	ListType             string         `json:"list_type,omitempty"`
+	ParentProductID      int64          `json:"parent_product_id,omitempty"`
+	BomSpecID            int64          `json:"bom_spec_id,omitempty"`
+	BomVariantID         int64          `json:"bom_variant_id,omitempty"`
+}
+
+// ProductBOMSpecOption keeps the legacy child SKU only as a compatibility
+// lookup key. New writes use WriteProductID + WriteBomSpecID and never overload
+// a product id with a BOM spec id.
+type ProductBOMSpecOption struct {
+	ParentProductID      int64               `json:"parent_product_id"`
+	LegacyChildProductID int64               `json:"legacy_child_product_id,omitempty"`
+	BomID                int64               `json:"bom_id"`
+	BomVersionID         int64               `json:"bom_version_id"`
+	BomVersionNo         string              `json:"bom_version_no"`
+	BomSpecID            int64               `json:"bom_spec_id"`
+	BomVariantID         int64               `json:"bom_variant_id,omitempty"`
+	SpecCode             string              `json:"spec_code"`
+	Barcode              string              `json:"barcode,omitempty"`
+	SpecKey              string              `json:"spec_key"`
+	SpecName             string              `json:"spec_name"`
+	InventoryUnit        string              `json:"inventory_unit"`
+	Published            bool                `json:"published"`
+	IsDefault            bool                `json:"is_default"`
+	SortOrder            int                 `json:"sort_order"`
+	MigrationState       string              `json:"migration_state"`
+	WriteProductID       int64               `json:"write_product_id"`
+	WriteBomSpecID       int64               `json:"write_bom_spec_id,omitempty"`
+	WriteBomVariantID    int64               `json:"write_bom_variant_id,omitempty"`
+	Tiers                []ProductTierOption `json:"tiers,omitempty"`
 }
 
 type ProductOption struct {
@@ -405,6 +444,7 @@ type OrderFormData struct {
 	PayStatuses            []Option
 	OrderTypes             []Option
 	Products               []ProductOption
+	ProductBOMSpecOptions  []ProductBOMSpecOption
 	Employees              []EmployeeOption
 	LogisticsCompanies     []LogisticsCompany
 	BeanListVersionOptions []BeanListVersionOption
@@ -417,6 +457,10 @@ type OrderEditItem struct {
 	ItemID                             int64
 	LineNo                             int
 	ProductID                          int64
+	BomSpecID                          int64
+	BomVariantID                       int64
+	BomSpecKey                         string
+	BomSpecName                        string
 	Product                            string
 	CustomerProductAliasID             int64
 	CustomerProductDisplayNameSnapshot string
@@ -1344,7 +1388,7 @@ func (s *Service) PreviewOrderStockBatches(ctx context.Context, cmd OrderStockBa
 		if item.ProductID == nil {
 			return OrderStockBatchPreview{}, fmt.Errorf("product required")
 		}
-		if item.SpecG <= 0 {
+		if item.BomSpecID <= 0 && item.SpecG <= 0 {
 			return OrderStockBatchPreview{}, fmt.Errorf("spec required")
 		}
 		if item.Units <= 0 {
@@ -1379,7 +1423,10 @@ func validateSaveOrderCommand(cmd SaveOrderCommand) error {
 		if item.ProductID == nil {
 			return fmt.Errorf("product required")
 		}
-		if isDripBagOrderItemKind(item.ProductKind) {
+		if item.BomSpecID > 0 {
+			// The repository validates and freezes the published BOM spec identity.
+			// Legacy gram/package fields are not authoritative after cutover.
+		} else if isDripBagOrderItemKind(item.ProductKind) {
 			if item.UnitBeanG <= 0 && item.SpecG <= 0 {
 				return fmt.Errorf("unit_bean_g required")
 			}

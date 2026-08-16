@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	productionapp "orderapp/internal/application/production"
 	"sort"
 	"strings"
@@ -16,6 +17,8 @@ type ProduceRunOutputRow struct {
 	ID             int64
 	RunningItemID  int64
 	ProductID      int64
+	BomSpecID      int64
+	BomVariantID   int64
 	Product        string
 	SpecG          int64
 	NeedG          int64
@@ -29,6 +32,8 @@ type ProduceRunOutputRow struct {
 type startRunGroup struct {
 	ProductID                int64
 	ParentProductID          int64
+	BomSpecID                int64
+	BomVariantID             int64
 	ProductName              string
 	SpecLabel                string
 	SalesUnit                string
@@ -66,6 +71,8 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 			group = &productGroup{orderNosSeen: map[string]bool{}}
 			group.ProductID = need.ProductID
 			group.ParentProductID = need.ParentProductID
+			group.BomSpecID = need.BomSpecID
+			group.BomVariantID = need.BomVariantID
 			group.ProductName = strings.TrimSpace(need.ProductName)
 			group.SpecLabel = strings.TrimSpace(need.SpecLabel)
 			group.SalesUnit = strings.TrimSpace(need.SalesUnit)
@@ -93,7 +100,7 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 		group.NeedG += need.GapG
 		group.SalesSpecCount += need.SalesSpecCount
 		group.PlannedInventoryQty += need.PlannedInventoryQty
-		if input := inputByKey[producePlanKey(need.ProductID, need.SpecG)]; input > 0 {
+		if input := inputByKey[productionDemandSelectionKey(need.ProductID, need.BomSpecID, need.SpecG)]; input > 0 {
 			group.InputG += input
 			group.ManualInput = true
 		}
@@ -109,14 +116,20 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 			}
 		}
 		plan := plannedFinishedInventoryAddition(need.SpecG, need.GapG)
+		if need.BomSpecID > 0 {
+			plan.Units = int64(math.Ceil(need.PlannedInventoryQty))
+			plan.LooseG = 0
+		}
 		group.Outputs = append(group.Outputs, ProduceRunOutputRow{
-			ProductID:  need.ProductID,
-			Product:    strings.TrimSpace(need.ProductName),
-			SpecG:      need.SpecG,
-			NeedG:      need.GapG,
-			OrderNos:   strings.TrimSpace(need.OrderNos),
-			PlanUnits:  plan.Units,
-			PlanLooseG: plan.LooseG,
+			ProductID:    need.ProductID,
+			BomSpecID:    need.BomSpecID,
+			BomVariantID: need.BomVariantID,
+			Product:      strings.TrimSpace(need.ProductName),
+			SpecG:        need.SpecG,
+			NeedG:        need.GapG,
+			OrderNos:     strings.TrimSpace(need.OrderNos),
+			PlanUnits:    plan.Units,
+			PlanLooseG:   plan.LooseG,
 		})
 	}
 	out := make([]startRunGroup, 0, len(order))
@@ -153,6 +166,8 @@ func startNeedProductionSnapshotGroupKey(need productionapp.StartNeed) string {
 	snapshot := productionQuantitySnapshot{
 		SKUID:                    need.ProductID,
 		ParentProductID:          need.ParentProductID,
+		BomSpecID:                need.BomSpecID,
+		BomVariantID:             need.BomVariantID,
 		SpecLabel:                strings.TrimSpace(need.SpecLabel),
 		SalesUnit:                strings.TrimSpace(need.SalesUnit),
 		InventoryUnit:            strings.TrimSpace(need.InventoryUnit),
@@ -207,13 +222,25 @@ func attachRunningOutputs(ctx context.Context, pool *pgxpool.Pool, schema string
 		ids = append(ids, rows[i].ID)
 		index[rows[i].ID] = i
 	}
+	identitySelect := "0::bigint,0::bigint"
+	hasBomSpec, err := productionDemandColumnExists(ctx, pool, schema, "produce_running_outputs", "bom_spec_id")
+	if err != nil {
+		return err
+	}
+	hasBomVariant, err := productionDemandColumnExists(ctx, pool, schema, "produce_running_outputs", "bom_variant_id")
+	if err != nil {
+		return err
+	}
+	if hasBomSpec && hasBomVariant {
+		identitySelect = "bom_spec_id,bom_variant_id"
+	}
 	dbRows, err := pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,running_item_id,product_id,COALESCE(product_name,''),spec_g,need_g,order_nos,
+		SELECT id,running_item_id,product_id,%s,COALESCE(product_name,''),spec_g,need_g,order_nos,
 		       planned_units,planned_loose_g,finished_units,finished_loose_g
 		FROM %s.produce_running_outputs
 		WHERE running_item_id = ANY($1)
 		ORDER BY running_item_id,spec_g DESC,id
-	`, schema), ids)
+	`, identitySelect, schema), ids)
 	if err != nil {
 		if strings.Contains(err.Error(), "produce_running_outputs") {
 			return nil
@@ -223,7 +250,7 @@ func attachRunningOutputs(ctx context.Context, pool *pgxpool.Pool, schema string
 	defer dbRows.Close()
 	for dbRows.Next() {
 		var output ProduceRunOutputRow
-		if err := dbRows.Scan(&output.ID, &output.RunningItemID, &output.ProductID, &output.Product, &output.SpecG, &output.NeedG, &output.OrderNos, &output.PlanUnits, &output.PlanLooseG, &output.FinishedUnits, &output.FinishedLooseG); err != nil {
+		if err := dbRows.Scan(&output.ID, &output.RunningItemID, &output.ProductID, &output.BomSpecID, &output.BomVariantID, &output.Product, &output.SpecG, &output.NeedG, &output.OrderNos, &output.PlanUnits, &output.PlanLooseG, &output.FinishedUnits, &output.FinishedLooseG); err != nil {
 			return err
 		}
 		i, ok := index[output.RunningItemID]
@@ -237,19 +264,20 @@ func attachRunningOutputs(ctx context.Context, pool *pgxpool.Pool, schema string
 
 func insertRunningOutputsTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, outputs []ProduceRunOutputRow) error {
 	for _, output := range outputs {
-		if output.SpecG <= 0 || output.NeedG <= 0 {
+		if (output.BomSpecID <= 0 && output.SpecG <= 0) || (output.NeedG <= 0 && output.PlanUnits <= 0) {
 			continue
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.produce_running_outputs(
-				running_item_id,product_id,product_name,spec_g,need_g,order_nos,planned_units,planned_loose_g
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-			ON CONFLICT (running_item_id,product_id,spec_g) DO UPDATE SET
+				running_item_id,product_id,bom_spec_id,bom_variant_id,product_name,spec_g,need_g,order_nos,planned_units,planned_loose_g
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			ON CONFLICT (running_item_id,product_id,bom_spec_id,spec_g) DO UPDATE SET
+				bom_variant_id=excluded.bom_variant_id,
 				need_g=excluded.need_g,
 				order_nos=excluded.order_nos,
 				planned_units=excluded.planned_units,
 				planned_loose_g=excluded.planned_loose_g
-		`, schema), runningItemID, output.ProductID, output.Product, output.SpecG, output.NeedG, output.OrderNos, output.PlanUnits, output.PlanLooseG); err != nil {
+		`, schema), runningItemID, output.ProductID, output.BomSpecID, output.BomVariantID, output.Product, output.SpecG, output.NeedG, output.OrderNos, output.PlanUnits, output.PlanLooseG); err != nil {
 			return err
 		}
 	}
@@ -257,14 +285,26 @@ func insertRunningOutputsTx(ctx context.Context, tx pgx.Tx, schema string, runni
 }
 
 func loadRunningOutputsForUpdateTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64) ([]ProduceRunOutputRow, error) {
+	identitySelect := "0::bigint,0::bigint"
+	hasBomSpec, err := schemaColumnExistsTx(ctx, tx, schema, "produce_running_outputs", "bom_spec_id")
+	if err != nil {
+		return nil, err
+	}
+	hasBomVariant, err := schemaColumnExistsTx(ctx, tx, schema, "produce_running_outputs", "bom_variant_id")
+	if err != nil {
+		return nil, err
+	}
+	if hasBomSpec && hasBomVariant {
+		identitySelect = "bom_spec_id,bom_variant_id"
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT id,running_item_id,product_id,COALESCE(product_name,''),spec_g,need_g,order_nos,
+		SELECT id,running_item_id,product_id,%s,COALESCE(product_name,''),spec_g,need_g,order_nos,
 		       planned_units,planned_loose_g,finished_units,finished_loose_g
 		FROM %s.produce_running_outputs
 		WHERE running_item_id=$1
 		ORDER BY spec_g DESC,id
 		FOR UPDATE
-	`, schema), runningItemID)
+	`, identitySelect, schema), runningItemID)
 	if err != nil {
 		if strings.Contains(err.Error(), "produce_running_outputs") {
 			return nil, nil
@@ -275,7 +315,7 @@ func loadRunningOutputsForUpdateTx(ctx context.Context, tx pgx.Tx, schema string
 	out := make([]ProduceRunOutputRow, 0)
 	for rows.Next() {
 		var output ProduceRunOutputRow
-		if err := rows.Scan(&output.ID, &output.RunningItemID, &output.ProductID, &output.Product, &output.SpecG, &output.NeedG, &output.OrderNos, &output.PlanUnits, &output.PlanLooseG, &output.FinishedUnits, &output.FinishedLooseG); err != nil {
+		if err := rows.Scan(&output.ID, &output.RunningItemID, &output.ProductID, &output.BomSpecID, &output.BomVariantID, &output.Product, &output.SpecG, &output.NeedG, &output.OrderNos, &output.PlanUnits, &output.PlanLooseG, &output.FinishedUnits, &output.FinishedLooseG); err != nil {
 			return nil, err
 		}
 		out = append(out, output)

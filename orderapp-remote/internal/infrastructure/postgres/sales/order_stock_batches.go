@@ -13,19 +13,23 @@ import (
 )
 
 type orderStockItem struct {
-	ProductID   int64
-	ProductName string
-	SpecG       int64
-	Units       int64
-	NeedG       int64
+	ProductID    int64
+	BomSpecID    int64
+	BomVariantID int64
+	ProductName  string
+	SpecG        int64
+	Units        int64
+	NeedG        int64
 }
 
 type orderStockBatchRow struct {
-	BatchID     int64
-	BatchCode   string
-	ProductName string
-	AvailableG  int64
-	CreatedAt   string
+	BatchID        int64
+	BatchCode      string
+	BomVariantID   int64
+	ProductName    string
+	AvailableG     int64
+	AvailableUnits int64
+	CreatedAt      string
 }
 
 const legacyFinishedInventoryCreatedAt = "库存余额"
@@ -43,13 +47,18 @@ func orderStockItemsFromCommands(commands []salesapp.OrderItemCommand) []orderSt
 	byKey := map[string]int{}
 	out := make([]orderStockItem, 0)
 	for _, cmd := range commands {
-		if cmd.ProductID == nil || *cmd.ProductID <= 0 || cmd.SpecG <= 0 || cmd.Units <= 0 {
+		if cmd.ProductID == nil || *cmd.ProductID <= 0 || cmd.Units <= 0 || (cmd.BomSpecID <= 0 && cmd.SpecG <= 0) {
 			continue
 		}
-		key := fmt.Sprintf("%d-%d", *cmd.ProductID, cmd.SpecG)
+		key := orderStockItemKey(*cmd.ProductID, cmd.BomSpecID, cmd.SpecG)
 		if idx, ok := byKey[key]; ok {
 			out[idx].Units += cmd.Units
-			out[idx].NeedG += cmd.Units * cmd.SpecG
+			if cmd.BomSpecID <= 0 {
+				out[idx].NeedG += cmd.Units * cmd.SpecG
+			}
+			if out[idx].BomVariantID <= 0 {
+				out[idx].BomVariantID = cmd.BomVariantID
+			}
 			if out[idx].ProductName == "" {
 				out[idx].ProductName = strings.TrimSpace(cmd.Name)
 			}
@@ -57,55 +66,70 @@ func orderStockItemsFromCommands(commands []salesapp.OrderItemCommand) []orderSt
 		}
 		byKey[key] = len(out)
 		out = append(out, orderStockItem{
-			ProductID:   *cmd.ProductID,
-			ProductName: strings.TrimSpace(cmd.Name),
-			SpecG:       cmd.SpecG,
-			Units:       cmd.Units,
-			NeedG:       cmd.Units * cmd.SpecG,
+			ProductID:    *cmd.ProductID,
+			BomSpecID:    cmd.BomSpecID,
+			BomVariantID: cmd.BomVariantID,
+			ProductName:  strings.TrimSpace(cmd.Name),
+			SpecG:        cmd.SpecG,
+			Units:        cmd.Units,
+			NeedG:        legacyOrderStockNeedG(cmd.BomSpecID, cmd.SpecG, cmd.Units),
 		})
 	}
 	return out
+}
+
+func legacyOrderStockNeedG(bomSpecID, specG, units int64) int64 {
+	if bomSpecID > 0 {
+		return 0
+	}
+	return specG * units
+}
+
+func orderStockItemKey(productID, bomSpecID, specG int64) string {
+	if bomSpecID > 0 {
+		return fmt.Sprintf("%d-bom-%d", productID, bomSpecID)
+	}
+	return fmt.Sprintf("%d-legacy-%d", productID, specG)
 }
 
 func (r Repository) previewOrderStockBatches(ctx context.Context, q stockBatchQueryer, items []orderStockItem, excludeOrderID int64, lock bool) (salesapp.OrderStockBatchPreview, error) {
 	items = aggregateOrderStockItems(items)
 	preview := salesapp.OrderStockBatchPreview{Sufficient: len(items) > 0}
 	for _, item := range items {
-		batches, err := r.loadOrderStockBatchAvailability(ctx, q, item.ProductID, item.SpecG, excludeOrderID, lock)
+		batches, err := r.loadOrderStockBatchAvailability(ctx, q, item, excludeOrderID, lock)
 		if err != nil {
 			return salesapp.OrderStockBatchPreview{}, err
 		}
-		legacyBatches, err := r.loadLegacyFinishedInventoryAvailability(ctx, q, item.ProductID, item.SpecG, excludeOrderID, sumOrderStockBatchAvailableG(batches), lock)
+		aggregateBatches, err := r.loadFinishedInventoryAggregateAvailability(ctx, q, item, excludeOrderID, batches, lock)
 		if err != nil {
 			return salesapp.OrderStockBatchPreview{}, err
 		}
-		batches = append(batches, legacyBatches...)
-		available := int64(0)
-		availability := make([]stockdomain.BatchAvailability, 0, len(batches))
+		batches = append(batches, aggregateBatches...)
+		availableG := int64(0)
+		availableUnits := int64(0)
 		productName := strings.TrimSpace(item.ProductName)
 		for _, batch := range batches {
 			if productName == "" {
 				productName = strings.TrimSpace(batch.ProductName)
 			}
-			available += batch.AvailableG
-			availability = append(availability, stockdomain.BatchAvailability{
-				BatchID:    batch.BatchID,
-				BatchCode:  batch.BatchCode,
-				AvailableG: batch.AvailableG,
-			})
+			availableG += batch.AvailableG
+			availableUnits += batch.AvailableUnits
 		}
-		allocations, allocErr := stockdomain.AllocateFIFO(availability, item.NeedG)
+		allocations, allocErr := allocateOrderStockFIFO(item, batches)
 		line := salesapp.OrderStockBatchPreviewLine{
-			ProductID:   item.ProductID,
-			ProductName: productName,
-			SpecG:       item.SpecG,
-			NeedUnits:   item.Units,
-			NeedG:       item.NeedG,
-			AvailableG:  available,
-			Sufficient:  allocErr == nil,
+			ProductID:      item.ProductID,
+			BomSpecID:      item.BomSpecID,
+			BomVariantID:   item.BomVariantID,
+			ProductName:    productName,
+			SpecG:          item.SpecG,
+			NeedUnits:      item.Units,
+			NeedG:          item.NeedG,
+			AvailableUnits: availableUnits,
+			AvailableG:     availableG,
+			Sufficient:     allocErr == nil,
 		}
 		if allocErr == nil {
-			line.Allocations = orderStockAllocationsForPreview(allocations, batches)
+			line.Allocations = allocations
 		}
 		if !line.Sufficient {
 			preview.Sufficient = false
@@ -113,8 +137,10 @@ func (r Repository) previewOrderStockBatches(ctx context.Context, q stockBatchQu
 		if len(line.Allocations) > 0 {
 			preview.HasBatchChoices = true
 		}
+		preview.TotalNeedUnits += item.Units
 		preview.TotalNeedG += item.NeedG
-		preview.TotalAvailableG += available
+		preview.TotalAvailableUnits += availableUnits
+		preview.TotalAvailableG += availableG
 		preview.Lines = append(preview.Lines, line)
 	}
 	return preview, nil
@@ -124,16 +150,23 @@ func aggregateOrderStockItems(items []orderStockItem) []orderStockItem {
 	byKey := map[string]int{}
 	out := make([]orderStockItem, 0, len(items))
 	for _, item := range items {
-		if item.ProductID <= 0 || item.SpecG <= 0 || item.Units <= 0 {
+		if item.ProductID <= 0 || item.Units <= 0 || (item.BomSpecID <= 0 && item.SpecG <= 0) {
 			continue
 		}
-		if item.NeedG <= 0 {
+		if item.BomSpecID <= 0 && item.NeedG <= 0 {
 			item.NeedG = item.Units * item.SpecG
 		}
-		key := fmt.Sprintf("%d-%d", item.ProductID, item.SpecG)
+		if item.BomSpecID > 0 {
+			item.SpecG = 0
+			item.NeedG = 0
+		}
+		key := orderStockItemKey(item.ProductID, item.BomSpecID, item.SpecG)
 		if idx, ok := byKey[key]; ok {
 			out[idx].Units += item.Units
 			out[idx].NeedG += item.NeedG
+			if out[idx].BomVariantID <= 0 {
+				out[idx].BomVariantID = item.BomVariantID
+			}
 			if out[idx].ProductName == "" {
 				out[idx].ProductName = item.ProductName
 			}
@@ -145,6 +178,51 @@ func aggregateOrderStockItems(items []orderStockItem) []orderStockItem {
 	return out
 }
 
+func allocateOrderStockFIFO(item orderStockItem, batches []orderStockBatchRow) ([]salesapp.OrderStockBatchAllocation, error) {
+	if item.BomSpecID > 0 {
+		remaining := item.Units
+		out := make([]salesapp.OrderStockBatchAllocation, 0, len(batches))
+		for _, batch := range batches {
+			if remaining <= 0 {
+				break
+			}
+			allocated := batch.AvailableUnits
+			if allocated > remaining {
+				allocated = remaining
+			}
+			if allocated <= 0 {
+				continue
+			}
+			out = append(out, salesapp.OrderStockBatchAllocation{
+				BatchID:        batch.BatchID,
+				BatchCode:      batch.BatchCode,
+				BomVariantID:   batch.BomVariantID,
+				AvailableUnits: batch.AvailableUnits,
+				AllocatedUnits: allocated,
+				CreatedAt:      batch.CreatedAt,
+			})
+			remaining -= allocated
+		}
+		if remaining > 0 {
+			return nil, fmt.Errorf("finished stock batch insufficient")
+		}
+		return out, nil
+	}
+	availability := make([]stockdomain.BatchAvailability, 0, len(batches))
+	for _, batch := range batches {
+		availability = append(availability, stockdomain.BatchAvailability{
+			BatchID:    batch.BatchID,
+			BatchCode:  batch.BatchCode,
+			AvailableG: batch.AvailableG,
+		})
+	}
+	allocations, err := stockdomain.AllocateFIFO(availability, item.NeedG)
+	if err != nil {
+		return nil, err
+	}
+	return orderStockAllocationsForPreview(allocations, batches), nil
+}
+
 func orderStockAllocationsForPreview(allocations []stockdomain.BatchAllocation, batches []orderStockBatchRow) []salesapp.OrderStockBatchAllocation {
 	batchByID := map[int64]orderStockBatchRow{}
 	for _, batch := range batches {
@@ -154,24 +232,88 @@ func orderStockAllocationsForPreview(allocations []stockdomain.BatchAllocation, 
 	for _, alloc := range allocations {
 		batch := batchByID[alloc.BatchID]
 		out = append(out, salesapp.OrderStockBatchAllocation{
-			BatchID:    alloc.BatchID,
-			BatchCode:  alloc.BatchCode,
-			AvailableG: batch.AvailableG,
-			AllocatedG: alloc.QtyG,
-			CreatedAt:  batch.CreatedAt,
+			BatchID:        alloc.BatchID,
+			BatchCode:      alloc.BatchCode,
+			BomVariantID:   batch.BomVariantID,
+			AvailableG:     batch.AvailableG,
+			AvailableUnits: batch.AvailableUnits,
+			AllocatedG:     alloc.QtyG,
+			CreatedAt:      batch.CreatedAt,
 		})
 	}
 	return out
 }
 
-func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stockBatchQueryer, productID, specG, excludeOrderID int64, lock bool) ([]orderStockBatchRow, error) {
+func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stockBatchQueryer, item orderStockItem, excludeOrderID int64, lock bool) ([]orderStockBatchRow, error) {
 	lockClause := ""
 	if lock {
 		lockClause = " FOR UPDATE OF b"
 	}
+	if item.BomSpecID > 0 {
+		sql := fmt.Sprintf(`
+			SELECT b.id,
+			       b.batch_code,
+			       COALESCE(b.bom_variant_id,0),
+			       COALESCE(NULLIF(p.name,''), NULLIF(b.item_name,''), '') AS product_name,
+			       GREATEST(0, COALESCE(b.remaining_units,0) - COALESCE(reserved.reserved_units,0))::bigint AS available_units,
+			       to_char(b.created_at,'YYYY-MM-DD HH24:MI') AS created_at
+			FROM %s.stock_batches b
+			LEFT JOIN %s.products p ON p.id=b.item_id
+			LEFT JOIN LATERAL (
+				SELECT COALESCE(SUM(a.allocated_units),0)::bigint AS reserved_units
+				FROM %s.order_stock_batch_allocations a
+				WHERE a.batch_code=b.batch_code
+				  AND a.product_id=b.item_id
+				  AND a.bom_spec_id=b.bom_spec_id
+				  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM %s.order_stock_deductions d
+					WHERE d.order_id=a.order_id
+					  AND d.product_id=a.product_id
+					  AND d.bom_spec_id=a.bom_spec_id
+					  AND d.batch_code=a.batch_code
+				  )
+			) reserved ON true
+			LEFT JOIN LATERAL (
+				SELECT l.warehouse
+				FROM %s.stock_ledger_entries l
+				WHERE l.source_batch_code=b.batch_code
+				  AND l.item_type=b.item_type
+				  AND l.item_id=b.item_id
+				  AND l.bom_spec_id=b.bom_spec_id
+				ORDER BY l.id DESC
+				LIMIT 1
+			) last_ledger ON true
+			WHERE b.item_type='finished_product'
+			  AND b.item_id=$1
+			  AND b.bom_spec_id=$2
+			  AND COALESCE(b.remaining_units,0) > 0
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			  AND COALESCE(last_ledger.warehouse,'finished_goods') = 'finished_goods'
+			ORDER BY b.created_at, b.id%s
+		`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
+		rows, err := q.Query(ctx, sql, item.ProductID, item.BomSpecID, excludeOrderID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := make([]orderStockBatchRow, 0)
+		for rows.Next() {
+			var row orderStockBatchRow
+			if err := rows.Scan(&row.BatchID, &row.BatchCode, &row.BomVariantID, &row.ProductName, &row.AvailableUnits, &row.CreatedAt); err != nil {
+				return nil, err
+			}
+			if row.AvailableUnits > 0 {
+				out = append(out, row)
+			}
+		}
+		return out, rows.Err()
+	}
 	sql := fmt.Sprintf(`
 		SELECT b.id,
 		       b.batch_code,
+		       COALESCE(b.bom_variant_id,0),
 		       COALESCE(NULLIF(p.name,''), NULLIF(b.item_name,''), '') AS product_name,
 		       GREATEST(0, COALESCE(b.remaining_g,0) - COALESCE(reserved.reserved_g,0))::bigint AS available_g,
 		       to_char(b.created_at,'YYYY-MM-DD HH24:MI') AS created_at
@@ -182,6 +324,7 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 			FROM %s.order_stock_batch_allocations a
 			WHERE a.batch_code=b.batch_code
 			  AND a.product_id=b.item_id
+			  AND a.bom_spec_id=0
 			  AND a.spec_g=b.spec_g
 			  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
 			  AND NOT EXISTS (
@@ -189,6 +332,7 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 				FROM %s.order_stock_deductions d
 				WHERE d.order_id=a.order_id
 				  AND d.product_id=a.product_id
+				  AND d.bom_spec_id=0
 				  AND d.spec_g=a.spec_g
 				  AND d.batch_code=a.batch_code
 			  )
@@ -199,19 +343,21 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 			WHERE l.source_batch_code=b.batch_code
 			  AND l.item_type=b.item_type
 			  AND l.item_id=b.item_id
+			  AND l.bom_spec_id=0
 			  AND l.spec_g=b.spec_g
 			ORDER BY l.id DESC
 			LIMIT 1
 		) last_ledger ON true
 		WHERE b.item_type='finished_product'
 		  AND b.item_id=$1
+		  AND b.bom_spec_id=0
 		  AND b.spec_g=$2
 		  AND COALESCE(b.remaining_g,0) > 0
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		  AND COALESCE(last_ledger.warehouse,'finished_goods') = 'finished_goods'
 		ORDER BY b.created_at, b.id%s
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause)
-	rows, err := q.Query(ctx, sql, productID, specG, excludeOrderID)
+	rows, err := q.Query(ctx, sql, item.ProductID, item.SpecG, excludeOrderID)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +365,7 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 	out := make([]orderStockBatchRow, 0)
 	for rows.Next() {
 		var row orderStockBatchRow
-		if err := rows.Scan(&row.BatchID, &row.BatchCode, &row.ProductName, &row.AvailableG, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.BatchID, &row.BatchCode, &row.BomVariantID, &row.ProductName, &row.AvailableG, &row.CreatedAt); err != nil {
 			return nil, err
 		}
 		if row.AvailableG > 0 {
@@ -229,23 +375,19 @@ func (r Repository) loadOrderStockBatchAvailability(ctx context.Context, q stock
 	return out, rows.Err()
 }
 
-func sumOrderStockBatchAvailableG(batches []orderStockBatchRow) int64 {
-	total := int64(0)
-	for _, batch := range batches {
-		total += batch.AvailableG
-	}
-	return total
-}
-
 func legacyFinishedInventoryBatchCode(productID, specG int64) string {
 	return fmt.Sprintf("LEGACY-FP-%d-%d", productID, specG)
 }
 
-func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context, q stockBatchQueryer, productID, specG, excludeOrderID, realBatchAvailableG int64, lock bool) ([]orderStockBatchRow, error) {
-	if productID <= 0 || specG <= 0 {
+func bomSpecFinishedInventoryBatchCode(productID, bomSpecID int64) string {
+	return fmt.Sprintf("BOM-SPEC-FP-%d-%d", productID, bomSpecID)
+}
+
+func (r Repository) loadFinishedInventoryAggregateAvailability(ctx context.Context, q stockBatchQueryer, item orderStockItem, excludeOrderID int64, batches []orderStockBatchRow, lock bool) ([]orderStockBatchRow, error) {
+	if item.ProductID <= 0 || (item.BomSpecID <= 0 && item.SpecG <= 0) {
 		return nil, nil
 	}
-	hasBatchRows, err := r.hasAnyFinishedStockBatchRows(ctx, q, productID, specG)
+	hasBatchRows, err := r.hasAnyFinishedStockBatchRows(ctx, q, item)
 	if err != nil {
 		return nil, err
 	}
@@ -256,6 +398,72 @@ func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context,
 	lockClause := ""
 	if lock {
 		lockClause = " FOR UPDATE OF fi"
+	}
+	if item.BomSpecID > 0 {
+		sql := fmt.Sprintf(`
+			SELECT COALESCE(fi.onhand_units,0)::bigint,
+			       COALESCE(fi.bom_variant_id,0)::bigint,
+			       COALESCE(NULLIF(p.name,''), '') AS product_name,
+			       COALESCE(reserved.reserved_units,0)::bigint AS reserved_units
+			FROM %s.finished_inventory fi
+			LEFT JOIN %s.products p ON p.id=fi.product_id
+			LEFT JOIN LATERAL (
+				SELECT COALESCE(SUM(a.allocated_units),0)::bigint AS reserved_units
+				FROM %s.order_stock_batch_allocations a
+				WHERE a.product_id=$1
+				  AND a.bom_spec_id=$2
+				  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM %s.order_stock_deductions d
+					WHERE d.order_id=a.order_id
+					  AND d.product_id=a.product_id
+					  AND d.bom_spec_id=a.bom_spec_id
+					  AND d.batch_code=a.batch_code
+				  )
+			) reserved ON true
+			WHERE fi.product_id=$1
+			  AND fi.bom_spec_id=$2
+			  AND fi.spec_g=0
+			  AND fi.warehouse='finished_goods'%s
+		`, r.schema, r.schema, r.schema, r.schema, lockClause)
+		rows, err := q.Query(ctx, sql, item.ProductID, item.BomSpecID, excludeOrderID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var inventoryUnits, reservedUnits, bomVariantID int64
+		productName := ""
+		for rows.Next() {
+			var rowInventoryUnits, rowReservedUnits, rowVariantID int64
+			var rowProductName string
+			if err := rows.Scan(&rowInventoryUnits, &rowVariantID, &rowProductName, &rowReservedUnits); err != nil {
+				return nil, err
+			}
+			inventoryUnits += rowInventoryUnits
+			reservedUnits = rowReservedUnits
+			if bomVariantID <= 0 {
+				bomVariantID = rowVariantID
+			}
+			if productName == "" {
+				productName = rowProductName
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		availableUnits := inventoryUnits - reservedUnits
+		if availableUnits <= 0 {
+			return nil, nil
+		}
+		return []orderStockBatchRow{{
+			BatchID:        0,
+			BatchCode:      bomSpecFinishedInventoryBatchCode(item.ProductID, item.BomSpecID),
+			BomVariantID:   bomVariantID,
+			ProductName:    productName,
+			AvailableUnits: availableUnits,
+			CreatedAt:      legacyFinishedInventoryCreatedAt,
+		}}, nil
 	}
 	sql := fmt.Sprintf(`
 		SELECT COALESCE(fi.onhand_units,0)::bigint,
@@ -268,6 +476,7 @@ func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context,
 			SELECT COALESCE(SUM(a.allocated_g),0)::bigint AS reserved_g
 			FROM %s.order_stock_batch_allocations a
 			WHERE a.product_id=$1
+			  AND a.bom_spec_id=0
 			  AND a.spec_g=$2
 			  AND ($3::bigint <= 0 OR a.order_id <> $3::bigint)
 			  AND NOT EXISTS (
@@ -275,15 +484,17 @@ func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context,
 				FROM %s.order_stock_deductions d
 				WHERE d.order_id=a.order_id
 				  AND d.product_id=a.product_id
+				  AND d.bom_spec_id=0
 				  AND d.spec_g=a.spec_g
 				  AND d.batch_code=a.batch_code
 			  )
 		) reserved ON true
 		WHERE fi.product_id=$1
+		  AND fi.bom_spec_id=0
 		  AND fi.spec_g=$2
 		  AND fi.warehouse='finished_goods'%s
 	`, r.schema, r.schema, r.schema, r.schema, lockClause)
-	rows, err := q.Query(ctx, sql, productID, specG, excludeOrderID)
+	rows, err := q.Query(ctx, sql, item.ProductID, item.SpecG, excludeOrderID)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +509,7 @@ func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context,
 		if err := rows.Scan(&units, &looseG, &rowProductName, &rowReservedG); err != nil {
 			return nil, err
 		}
-		inventoryG += units*specG + looseG
+		inventoryG += units*item.SpecG + looseG
 		reservedG = rowReservedG
 		if productName == "" {
 			productName = rowProductName
@@ -307,29 +518,34 @@ func (r Repository) loadLegacyFinishedInventoryAvailability(ctx context.Context,
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	availableG := inventoryG - reservedG - realBatchAvailableG
+	availableG := inventoryG - reservedG
 	if availableG <= 0 {
 		return nil, nil
 	}
 	return []orderStockBatchRow{{
 		BatchID:     0,
-		BatchCode:   legacyFinishedInventoryBatchCode(productID, specG),
+		BatchCode:   legacyFinishedInventoryBatchCode(item.ProductID, item.SpecG),
 		ProductName: productName,
 		AvailableG:  availableG,
 		CreatedAt:   legacyFinishedInventoryCreatedAt,
 	}}, nil
 }
 
-func (r Repository) hasAnyFinishedStockBatchRows(ctx context.Context, q stockBatchQueryer, productID, specG int64) (bool, error) {
+func (r Repository) hasAnyFinishedStockBatchRows(ctx context.Context, q stockBatchQueryer, item orderStockItem) (bool, error) {
+	identityClause := "bom_spec_id=$2 AND COALESCE(remaining_units,0)>0"
+	identityValue := item.BomSpecID
+	if item.BomSpecID <= 0 {
+		identityClause = "bom_spec_id=0 AND spec_g=$2 AND COALESCE(remaining_g,0)>0"
+		identityValue = item.SpecG
+	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
 		SELECT 1
 		FROM %s.stock_batches
 		WHERE item_type='finished_product'
 		  AND item_id=$1
-		  AND spec_g=$2
-		  AND COALESCE(remaining_g,0) > 0
+		  AND %s
 		LIMIT 1
-	`, r.schema), productID, specG)
+	`, r.schema, identityClause), item.ProductID, identityValue)
 	if err != nil {
 		return false, err
 	}
@@ -371,9 +587,14 @@ func (r Repository) applyOrderStockDecisionTx(ctx context.Context, tx pgx.Tx, or
 		for _, line := range preview.Lines {
 			for _, alloc := range line.Allocations {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
-					INSERT INTO %s.order_stock_batch_allocations(order_id,product_id,spec_g,need_g,batch_id,batch_code,allocated_g,operator)
-					VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-				`, r.schema), orderID, line.ProductID, line.SpecG, line.NeedG, alloc.BatchID, alloc.BatchCode, alloc.AllocatedG, actor); err != nil {
+					INSERT INTO %s.order_stock_batch_allocations(
+						order_id,product_id,bom_spec_id,bom_variant_id,spec_g,
+						need_g,need_units,batch_id,batch_code,allocated_g,allocated_units,operator
+					) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+				`, r.schema),
+					orderID, line.ProductID, line.BomSpecID, line.BomVariantID, line.SpecG,
+					line.NeedG, line.NeedUnits, alloc.BatchID, alloc.BatchCode, alloc.AllocatedG, alloc.AllocatedUnits, actor,
+				); err != nil {
 					return err
 				}
 			}

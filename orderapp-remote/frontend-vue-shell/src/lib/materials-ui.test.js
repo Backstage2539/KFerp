@@ -10,6 +10,7 @@ const materialReceiptsSource = readFileSync(resolve(here, '../views/MaterialRece
 const warehouseSource = readFileSync(resolve(here, '../views/WarehouseInventoryView.vue'), 'utf8')
 const stockAdjustmentsSource = readFileSync(resolve(here, '../views/StockAdjustmentsView.vue'), 'utf8')
 const purchaseSource = readFileSync(resolve(here, '../views/PurchaseView.vue'), 'utf8')
+const stockEntriesSource = readFileSync(resolve(here, '../views/StockEntriesView.vue'), 'utf8')
 
 test('warehouse settings opens from selected warehouse while grouping is handled by shared controls', () => {
   const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
@@ -358,6 +359,22 @@ test('materials keep derived manufacturing status beside output BOM links withou
   assert.match(materialsSource, /materialReturnNavigation/)
   assert.match(materialsSource, /returnToMaterialSource/)
   assert.match(materialsSource, /is_semi_finished:\s*Boolean\(draft\.value\.is_semi_finished\)/)
+})
+
+test('semi-finished material is manufacture-only in material, purchase, receipt, and stock-entry forms', () => {
+  const materialsTemplate = materialsSource.split('<script setup>')[0] || materialsSource
+
+  assert.match(materialsTemplate, /<label\s+v-if="!draft\.is_semi_finished"><span>采购价/)
+  assert.match(materialsSource, /watch\(\(\)\s*=>\s*draft\.value\?\.is_semi_finished,[\s\S]*draft\.value\.purchase_price\s*=\s*0/)
+  assert.match(materialsSource, /purchase_price:\s*draft\.value\.is_semi_finished\s*\?\s*0\s*:\s*Number\(draft\.value\.purchase_price\s*\|\|\s*0\)/)
+
+  assert.match(purchaseSource, /isSemiFinishedMaterial/)
+  assert.match(purchaseSource, /const purchasableMaterials = computed\(\(\) => materials\.value\.filter\(\(material\) => isMaterialWeight\(material\) && !isSemiFinishedMaterial\(material\)\)\)/)
+  assert.match(purchaseSource, /isPurchasableMaterialByID/)
+
+  assert.match(stockEntriesSource, /selectableStockEntryMaterials/)
+  assert.match(stockEntriesSource, /const stockEntryMaterialOptions = computed\(\(\) => selectableStockEntryMaterials\(materials\.value, form\.purpose_key\)\)/)
+  assert.match(stockEntriesSource, /:options="item\.item_type === 'material' \? stockEntryMaterialOptions : products"/)
 })
 
 test('materials locally filter the loaded page by semi-finished marker without changing manufacturing capability', () => {

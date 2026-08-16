@@ -44,6 +44,9 @@ export type FulfillmentOrderForm = {
   recipient_address: string
   recipient_company?: string
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  inventory_unit?: string
   product_name?: string
   spec_g: number
   qty: number
@@ -119,6 +122,7 @@ export function orderSectionTitle(key: ServiceKey): string {
 }
 
 export function fulfillmentSalesUnitOptions(product?: FulfillmentProductLike | null): FulfillmentSalesUnitOption[] {
+	if (positiveInteger(product?.bom_spec_id)) return []
   if (product?.product_kind !== 'drip_bag') return []
   const bagGrams = positiveNumber(product.drip_bag_grams) || 10
   const boxBagCount = positiveInteger(product.drip_box_bag_count) || 10
@@ -160,6 +164,16 @@ export function buildFulfillmentOrderPayload(
     qty: Number(form.qty) || 0,
     note: String(form.note || ''),
   }
+	const bomSpecID = positiveInteger(form.bom_spec_id)
+	const bomVariantID = positiveInteger(form.bom_variant_id)
+	const inventoryUnit = String(form.inventory_unit || '').trim()
+	if (bomSpecID || bomVariantID) {
+		payload.bom_spec_id = bomSpecID
+		payload.bom_variant_id = bomVariantID
+		payload.inventory_unit = inventoryUnit
+		payload.spec_g = 0
+		return payload
+	}
   const salesUnit = normalizeSalesUnit(form.sales_unit)
   if (salesUnit) {
     payload.sales_unit = salesUnit

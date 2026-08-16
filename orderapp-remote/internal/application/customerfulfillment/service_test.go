@@ -210,6 +210,35 @@ func TestServiceSubmitCustomerDirectShipOrderRequiresRecipientAndItem(t *testing
 	}
 }
 
+func TestServiceSubmitCustomerDirectShipOrderAcceptsCanonicalBOMSpecIdentity(t *testing.T) {
+	repo := &fakeCustomerFulfillmentRepository{}
+	svc := NewService(repo)
+
+	_, err := svc.SubmitCustomerDirectShipOrder(context.Background(), SubmitCustomerDirectShipOrderCommand{
+		CustomerID:      9,
+		ReceiverName:    "张三",
+		ReceiverPhone:   "13800138000",
+		ReceiverAddress: "咖啡路 8 号",
+		Items: []SubmitCustomerDirectShipOrderItem{{
+			ProductID:     301,
+			BomSpecID:     401,
+			Spec:          "227g袋",
+			SalesUnit:     "袋",
+			QuantityUnits: 2,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SubmitCustomerDirectShipOrder canonical identity: %v", err)
+	}
+	if len(repo.customerDirectShipCmd.Items) != 1 {
+		t.Fatalf("items=%#v", repo.customerDirectShipCmd.Items)
+	}
+	got := repo.customerDirectShipCmd.Items[0]
+	if got.ProductID != 301 || got.BomSpecID != 401 || got.BomVariantID != 0 || got.SpecG != 0 || got.SalesUnit != "袋" {
+		t.Fatalf("canonical identity=%#v", got)
+	}
+}
+
 func TestServiceSubmitInternalCustomerWorkOrderAcceptsExplicitCustomerWithoutBinding(t *testing.T) {
 	repo := &fakeCustomerFulfillmentRepository{
 		customerProcessingResult: ProcessingOrderSummary{WorkOrderNo: "CP-20260509-0007", Status: "submitted", ProductName: "誉观山冷萃豆", QuantityG: 5000, Units: 50},

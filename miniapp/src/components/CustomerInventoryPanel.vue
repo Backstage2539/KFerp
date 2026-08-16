@@ -34,6 +34,13 @@ let loadVersion = 0
 
 const selectedItems = computed(() => customerInventorySelectionItems(selectedByKey.value))
 
+function inventorySpecLabel(item: CustomerInventorySummary): string {
+  if (Number(item.bom_spec_id || 0) > 0) {
+    return [String(item.bom_spec_name || '').trim(), String(item.inventory_unit || '').trim()].filter(Boolean).join(' · ')
+  }
+  return `${Number(item.spec_g || 0)}g`
+}
+
 async function load() {
   const version = ++loadVersion
   loading.value = true
@@ -175,7 +182,7 @@ onBeforeUnmount(() => {
           <checkbox class="selection" :checked="isSelected(item)" color="#2b2118" @tap.stop="toggleSelection(item)" />
           <view class="inventory-copy">
             <view class="head"><text class="name">{{ item.product_name }}</text><text class="available">可用 {{ item.available_qty }}</text></view>
-            <text class="hint">{{ item.sku_code || `SKU ${item.product_id}` }} · 规格 {{ item.spec_g }}g · 预留 {{ item.reserved_qty }}</text>
+            <text class="hint">{{ item.sku_code || `商品 ${item.product_id}` }} · 规格 {{ inventorySpecLabel(item) }} · 预留 {{ item.reserved_qty }}</text>
             <text class="hint">{{ item.warehouses.join('、') }}</text>
             <text class="detail-hint">查看库存详情 ›</text>
           </view>

@@ -45,8 +45,9 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 		for _, need := range aggregateManufacturingConsumptionNeeds(needs) {
 			itemNeeds = append(itemNeeds, itemNeed{itemID: item.ID, need: need})
 			componentType, componentID, componentSpecG := manufacturingNeedIdentity(need)
+			componentBomSpecID, _ := manufacturingNeedBOMSpecIdentity(need)
 			if componentType == "product" {
-				productSet[manufacturingReservationKey(componentType, componentID, componentSpecG)] = need
+				productSet[manufacturingReservationIdentityKey(componentType, componentID, componentBomSpecID, componentSpecG)] = need
 			} else {
 				materialSet[componentID] = true
 			}
@@ -77,11 +78,12 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 	sort.Strings(productKeys)
 	for _, key := range productKeys {
 		_, productID, specG := manufacturingNeedIdentity(productSet[key])
+		bomSpecID, _ := manufacturingNeedBOMSpecIdentity(productSet[key])
 		rows, err := tx.Query(ctx, fmt.Sprintf(`
 			SELECT id FROM %s.stock_batches
-			WHERE item_type='finished_product' AND item_id=$1 AND spec_g=$2
+			WHERE item_type='finished_product' AND item_id=$1 AND bom_spec_id=$2 AND spec_g=$3
 			ORDER BY id FOR UPDATE
-		`, schema), productID, specG)
+		`, schema), productID, bomSpecID, specG)
 		if err != nil {
 			return err
 		}
@@ -98,12 +100,13 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 	var availabilityErr error
 	for _, row := range itemNeeds {
 		componentType, componentID, componentSpecG := manufacturingNeedIdentity(row.need)
-		key := manufacturingReservationKey(componentType, componentID, componentSpecG)
+		componentBomSpecID, _ := manufacturingNeedBOMSpecIdentity(row.need)
+		key := manufacturingReservationIdentityKey(componentType, componentID, componentBomSpecID, componentSpecG)
 		if _, exists := availableG[key]; exists {
 			continue
 		}
 		if componentType == "product" {
-			availableG[key], availableUnits[key], availabilityErr = finishedProductAvailableForPlanningTx(ctx, tx, schema, componentID, componentSpecG, 0)
+			availableG[key], availableUnits[key], availabilityErr = finishedProductAvailableForPlanningIdentityTx(ctx, tx, schema, componentID, componentBomSpecID, componentSpecG, 0)
 		} else {
 			coverage, coverageErr := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, 0, []materialConsumptionNeed{row.need})
 			availabilityErr = coverageErr
@@ -118,24 +121,24 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 	type dependencyQty struct{ g, units int64 }
 	dependencyByItemComponent := map[string]dependencyQty{}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT production_plan_item_id,component_type,component_id,component_spec_g,
+		SELECT production_plan_item_id,component_type,component_id,component_bom_spec_id,component_spec_g,
 		       SUM(required_g)::bigint,SUM(required_units)::bigint
 		FROM %s.production_plan_item_dependencies
 		WHERE production_plan_id=$1
-		GROUP BY production_plan_item_id,component_type,component_id,component_spec_g
+		GROUP BY production_plan_item_id,component_type,component_id,component_bom_spec_id,component_spec_g
 	`, schema), planID)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
-		var itemID, componentID, componentSpecG int64
+		var itemID, componentID, componentBomSpecID, componentSpecG int64
 		var componentType string
 		var qty dependencyQty
-		if err := rows.Scan(&itemID, &componentType, &componentID, &componentSpecG, &qty.g, &qty.units); err != nil {
+		if err := rows.Scan(&itemID, &componentType, &componentID, &componentBomSpecID, &componentSpecG, &qty.g, &qty.units); err != nil {
 			rows.Close()
 			return err
 		}
-		dependencyByItemComponent[fmt.Sprintf("%d:%s", itemID, manufacturingReservationKey(componentType, componentID, componentSpecG))] = qty
+		dependencyByItemComponent[fmt.Sprintf("%d:%s", itemID, manufacturingReservationIdentityKey(componentType, componentID, componentBomSpecID, componentSpecG))] = qty
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -145,7 +148,8 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 	for _, row := range itemNeeds {
 		need := row.need
 		componentType, componentID, componentSpecG := manufacturingNeedIdentity(need)
-		key := manufacturingReservationKey(componentType, componentID, componentSpecG)
+		componentBomSpecID, _ := manufacturingNeedBOMSpecIdentity(need)
+		key := manufacturingReservationIdentityKey(componentType, componentID, componentBomSpecID, componentSpecG)
 		requiredG, requiredUnits := manufacturingNeedCanonicalQuantities(need)
 		shortageG := nonnegativeQuantity(requiredG - availableG[key])
 		availableG[key] = nonnegativeQuantity(availableG[key] - (requiredG - shortageG))
@@ -162,7 +166,8 @@ func validateProductionPlanAvailabilityAtSubmitTx(ctx context.Context, tx pgx.Tx
 func createWorkOrderDependenciesForProductionPlanTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, workOrderByPlanItem map[int64]int64) (int64, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT production_plan_item_id,depends_on_plan_item_id,material_id,
-		       component_type,component_id,component_spec_g,required_g,required_units
+		       component_type,component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,
+		       required_g,required_units
 		FROM %s.production_plan_item_dependencies
 		WHERE production_plan_id=$1
 		ORDER BY id
@@ -171,13 +176,18 @@ func createWorkOrderDependenciesForProductionPlanTx(ctx context.Context, tx pgx.
 		return 0, err
 	}
 	type dependency struct {
-		itemID, upstreamItemID, materialID, componentID, componentSpecG, requiredG, requiredUnits int64
-		componentType                                                                             string
+		itemID, upstreamItemID, materialID, componentID, componentBomSpecID, componentBomVariantID int64
+		componentSpecG, requiredG, requiredUnits                                                   int64
+		componentType                                                                              string
 	}
 	dependencies := make([]dependency, 0)
 	for rows.Next() {
 		var row dependency
-		if err := rows.Scan(&row.itemID, &row.upstreamItemID, &row.materialID, &row.componentType, &row.componentID, &row.componentSpecG, &row.requiredG, &row.requiredUnits); err != nil {
+		if err := rows.Scan(
+			&row.itemID, &row.upstreamItemID, &row.materialID, &row.componentType, &row.componentID,
+			&row.componentBomSpecID, &row.componentBomVariantID, &row.componentSpecG,
+			&row.requiredG, &row.requiredUnits,
+		); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -197,12 +207,15 @@ func createWorkOrderDependenciesForProductionPlanTx(ctx context.Context, tx pgx.
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.work_order_dependencies(
-				work_order_id,depends_on_work_order_id,material_id,component_type,component_id,component_spec_g,
+				work_order_id,depends_on_work_order_id,material_id,component_type,component_id,
+				component_bom_spec_id,component_bom_variant_id,component_spec_g,
 				required_g,required_units,created_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
-			ON CONFLICT(work_order_id,depends_on_work_order_id,component_type,component_id,component_spec_g) DO UPDATE SET
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
+			ON CONFLICT(work_order_id,depends_on_work_order_id,component_type,component_id,component_bom_spec_id,component_spec_g) DO UPDATE SET
+				component_bom_variant_id=excluded.component_bom_variant_id,
 				required_g=excluded.required_g,required_units=excluded.required_units
-		`, schema), workOrderID, upstreamWorkOrderID, row.materialID, row.componentType, row.componentID, row.componentSpecG, row.requiredG, row.requiredUnits); err != nil {
+		`, schema), workOrderID, upstreamWorkOrderID, row.materialID, row.componentType, row.componentID,
+			row.componentBomSpecID, row.componentBomVariantID, row.componentSpecG, row.requiredG, row.requiredUnits); err != nil {
 			return 0, err
 		}
 		count++
@@ -211,7 +224,11 @@ func createWorkOrderDependenciesForProductionPlanTx(ctx context.Context, tx pgx.
 }
 
 func manufacturingReservationKey(componentType string, componentID, componentSpecG int64) string {
-	return fmt.Sprintf("%s:%d:%d", strings.ToLower(strings.TrimSpace(componentType)), componentID, componentSpecG)
+	return manufacturingReservationIdentityKey(componentType, componentID, 0, componentSpecG)
+}
+
+func manufacturingReservationIdentityKey(componentType string, componentID, componentBomSpecID, componentSpecG int64) string {
+	return fmt.Sprintf("%s:%d:%d:%d", strings.ToLower(strings.TrimSpace(componentType)), componentID, componentBomSpecID, componentSpecG)
 }
 
 func attachTypedProductReservationsToRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID, runningItemID int64) error {
@@ -227,7 +244,12 @@ func attachTypedProductReservationsToRunningItemTx(ctx context.Context, tx pgx.T
 	return err
 }
 
-func bindFinishedProductReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema string, reservationID, workOrderID, productID, specG, reserveG, reserveUnits int64) error {
+func bindFinishedProductReservationBatchesTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	reservationID, workOrderID, productID, bomSpecID, bomVariantID, specG, reserveG, reserveUnits int64,
+) error {
 	reserveG, reserveUnits = normalizeCustomerProcessingFinishedQuantity(specG, reserveG, reserveUnits)
 	if reservationID <= 0 || workOrderID <= 0 || productID <= 0 || (reserveG <= 0 && reserveUnits <= 0) {
 		return nil
@@ -253,7 +275,8 @@ func bindFinishedProductReservationBatchesTx(ctx context.Context, tx pgx.Tx, sch
 		FROM %s.stock_batches b
 		LEFT JOIN LATERAL (
 			SELECT l.warehouse FROM %s.stock_ledger_entries l
-			WHERE l.item_type='finished_product' AND l.item_id=b.item_id AND l.spec_g=b.spec_g
+			WHERE l.item_type='finished_product' AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
 			  AND (l.source_batch_code=b.batch_code OR l.source_batch_id=b.batch_code)
 			ORDER BY l.id DESC LIMIT 1
 		) location ON true
@@ -264,14 +287,14 @@ func bindFinishedProductReservationBatchesTx(ctx context.Context, tx pgx.Tx, sch
 			FROM %s.work_order_material_reservation_batches rb
 			JOIN %s.work_order_material_reservations r ON r.id=rb.reservation_id AND r.status='reserved'
 			WHERE rb.stock_batch_id=b.id AND rb.component_type='product' AND rb.status='reserved'
-			  AND rb.reservation_id<>$3
+			  AND rb.reservation_id<>$4
 		) work_reserved ON true
-		WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.spec_g=$2
+		WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		  AND (b.remaining_g>0 OR b.remaining_units>0)
 		ORDER BY b.created_at,b.id
 		FOR UPDATE OF b
-	`, schema, schema, customerJoin, schema, schema), productID, specG, reservationID)
+	`, schema, schema, customerJoin, schema, schema), productID, bomSpecID, specG, reservationID)
 	if err != nil {
 		return err
 	}
@@ -309,15 +332,18 @@ func bindFinishedProductReservationBatchesTx(ctx context.Context, tx pgx.Tx, sch
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.work_order_material_reservation_batches(
-				reservation_id,work_order_id,material_id,component_type,component_id,component_spec_g,
+				reservation_id,work_order_id,material_id,component_type,component_id,
+				component_bom_spec_id,component_bom_variant_id,component_spec_g,
 				material_batch_id,stock_batch_id,batch_code,warehouse,reserved_g,reserved_units,status,created_at,updated_at
-			) VALUES($1,$2,0,'product',$3,$4,0,$5,$6,$7,$8,$9,'reserved',now(),now())
-			ON CONFLICT(reservation_id,component_type,component_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
+			) VALUES($1,$2,0,'product',$3,$4,$5,$6,0,$7,$8,$9,$10,$11,'reserved',now(),now())
+			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
+				component_bom_variant_id=excluded.component_bom_variant_id,
 				reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,
 				reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,
 				warehouse=excluded.warehouse,
 				status='reserved',updated_at=now()
-		`, schema), reservationID, workOrderID, productID, specG, batch.id, batch.code, batch.warehouse, addG, addUnits); err != nil {
+		`, schema), reservationID, workOrderID, productID, bomSpecID, bomVariantID, specG,
+			batch.id, batch.code, batch.warehouse, addG, addUnits); err != nil {
 			return err
 		}
 		remainingG -= addG
@@ -332,7 +358,12 @@ func bindFinishedProductReservationBatchesTx(ctx context.Context, tx pgx.Tx, sch
 	return nil
 }
 
-func allocateFinishedProductOutputToDownstreamReservationsTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID, productID, specG, producedG, producedUnits int64) error {
+func allocateFinishedProductOutputToDownstreamReservationsTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	runningItemID, productID, bomSpecID, bomVariantID, specG, producedG, producedUnits int64,
+) error {
 	producedG, producedUnits = normalizeCustomerProcessingFinishedQuantity(specG, producedG, producedUnits)
 	if runningItemID <= 0 || productID <= 0 || (producedG <= 0 && producedUnits <= 0) {
 		return nil
@@ -345,18 +376,19 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(ctx context.Context
 		FROM %s.work_orders wo
 		JOIN %s.stock_batches b
 		  ON b.source_doc_type='production_run' AND b.source_doc_id=wo.running_item_id
-		 AND b.item_type='finished_product' AND b.item_id=$2 AND b.spec_g=$3
+		 AND b.item_type='finished_product' AND b.item_id=$2 AND b.bom_spec_id=$3 AND b.spec_g=$4
 		LEFT JOIN LATERAL (
 			SELECT ledger.warehouse
 			FROM %s.stock_ledger_entries ledger
-			WHERE ledger.item_type='finished_product' AND ledger.item_id=b.item_id AND ledger.spec_g=b.spec_g
+			WHERE ledger.item_type='finished_product' AND ledger.item_id=b.item_id
+			  AND ledger.bom_spec_id=b.bom_spec_id AND ledger.spec_g=b.spec_g
 			  AND (ledger.source_batch_code=b.batch_code OR ledger.source_batch_id=b.batch_code)
 			ORDER BY ledger.id DESC LIMIT 1
 		) location ON true
 		WHERE wo.running_item_id=$1
 		ORDER BY b.id DESC LIMIT 1
 		FOR UPDATE OF b
-	`, schema, schema, schema), runningItemID, productID, specG).Scan(&upstreamWorkOrderID, &stockBatchID, &batchCode, &warehouse)
+	`, schema, schema, schema), runningItemID, productID, bomSpecID, specG).Scan(&upstreamWorkOrderID, &stockBatchID, &batchCode, &warehouse)
 	if err == pgx.ErrNoRows {
 		return nil
 	}
@@ -371,13 +403,15 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(ctx context.Context
 		  ON reservation.work_order_id=dependency.work_order_id
 		 AND reservation.component_type=dependency.component_type
 		 AND reservation.component_id=dependency.component_id
+		 AND reservation.component_bom_spec_id=dependency.component_bom_spec_id
 		 AND reservation.component_spec_g=dependency.component_spec_g
 		 AND reservation.status='reserved'
 		WHERE dependency.depends_on_work_order_id=$1
-		  AND dependency.component_type='product' AND dependency.component_id=$2 AND dependency.component_spec_g=$3
+		  AND dependency.component_type='product' AND dependency.component_id=$2
+		  AND dependency.component_bom_spec_id=$3 AND dependency.component_spec_g=$4
 		ORDER BY dependency.work_order_id,reservation.id
 		FOR UPDATE OF reservation
-	`, schema, schema), upstreamWorkOrderID, productID, specG)
+	`, schema, schema), upstreamWorkOrderID, productID, bomSpecID, specG)
 	if err != nil {
 		return err
 	}
@@ -418,15 +452,18 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(ctx context.Context
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.work_order_material_reservation_batches(
-				reservation_id,work_order_id,material_id,component_type,component_id,component_spec_g,
+				reservation_id,work_order_id,material_id,component_type,component_id,
+				component_bom_spec_id,component_bom_variant_id,component_spec_g,
 				material_batch_id,stock_batch_id,batch_code,warehouse,reserved_g,reserved_units,status,created_at,updated_at
-			) VALUES($1,$2,0,'product',$3,$4,0,$5,$6,$7,$8,$9,'reserved',now(),now())
-			ON CONFLICT(reservation_id,component_type,component_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
+			) VALUES($1,$2,0,'product',$3,$4,$5,$6,0,$7,$8,$9,$10,$11,'reserved',now(),now())
+			ON CONFLICT(reservation_id,component_type,component_id,component_bom_spec_id,component_spec_g,material_batch_id,stock_batch_id) DO UPDATE SET
+				component_bom_variant_id=excluded.component_bom_variant_id,
 				reserved_g=work_order_material_reservation_batches.reserved_g+excluded.reserved_g,
 				reserved_units=work_order_material_reservation_batches.reserved_units+excluded.reserved_units,
 				warehouse=excluded.warehouse,
 				status='reserved',updated_at=now()
-		`, schema), row.id, row.workOrderID, productID, specG, stockBatchID, batchCode, warehouse, addG, batchUnits); err != nil {
+		`, schema), row.id, row.workOrderID, productID, bomSpecID, bomVariantID, specG,
+			stockBatchID, batchCode, warehouse, addG, batchUnits); err != nil {
 			return err
 		}
 		remainingG -= addG
@@ -438,7 +475,12 @@ func allocateFinishedProductOutputToDownstreamReservationsTx(ctx context.Context
 	return nil
 }
 
-func consumeTypedFinishedProductReservationBatchesTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID, productID, specG, deductG, deductUnits int64) ([]customerProcessingFinishedBatchAllocation, bool, error) {
+func consumeTypedFinishedProductReservationBatchesTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	runningItemID, productID, bomSpecID, bomVariantID, specG, deductG, deductUnits int64,
+) ([]customerProcessingFinishedBatchAllocation, bool, error) {
 	deductG, deductUnits = normalizeCustomerProcessingFinishedQuantity(specG, deductG, deductUnits)
 	if runningItemID <= 0 || productID <= 0 || (deductG <= 0 && deductUnits <= 0) {
 		return nil, false, nil
@@ -448,11 +490,12 @@ func consumeTypedFinishedProductReservationBatchesTx(ctx context.Context, tx pgx
 		SELECT r.id,r.work_order_id
 		FROM %s.work_order_material_reservations r
 		JOIN %s.work_orders wo ON wo.id=r.work_order_id AND wo.running_item_id=$1
-		WHERE r.component_type='product' AND r.component_id=$2 AND r.component_spec_g=$3
+		WHERE r.component_type='product' AND r.component_id=$2
+		  AND r.component_bom_spec_id=$3 AND r.component_spec_g=$4
 		  AND r.status='reserved'
 		ORDER BY r.id LIMIT 1
 		FOR UPDATE OF r
-	`, schema, schema), runningItemID, productID, specG).Scan(&reservationID, &workOrderID)
+	`, schema, schema), runningItemID, productID, bomSpecID, specG).Scan(&reservationID, &workOrderID)
 	if err == pgx.ErrNoRows {
 		return nil, false, nil
 	}
@@ -470,16 +513,19 @@ func consumeTypedFinishedProductReservationBatchesTx(ctx context.Context, tx pgx
 		LEFT JOIN LATERAL (
 			SELECT ledger.warehouse
 			FROM %s.stock_ledger_entries ledger
-			WHERE ledger.item_type='finished_product' AND ledger.item_id=b.item_id AND ledger.spec_g=b.spec_g
+			WHERE ledger.item_type='finished_product' AND ledger.item_id=b.item_id
+			  AND ledger.bom_spec_id=b.bom_spec_id AND ledger.spec_g=b.spec_g
 			  AND (ledger.source_batch_code=b.batch_code OR ledger.source_batch_id=b.batch_code)
 			ORDER BY ledger.id DESC LIMIT 1
 		) location ON true
-		WHERE rb.reservation_id=$1 AND rb.component_type='product' AND rb.component_id=$2 AND rb.component_spec_g=$3
+		WHERE rb.reservation_id=$1 AND rb.component_type='product' AND rb.component_id=$2
+		  AND rb.component_bom_spec_id=$3 AND rb.component_spec_g=$4
 		  AND rb.status='reserved' AND b.item_type='finished_product'
+		  AND b.item_id=$2 AND b.bom_spec_id=$3 AND b.spec_g=$4
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 		ORDER BY b.created_at,b.id
 		FOR UPDATE OF rb,b
-	`, schema, schema, schema), reservationID, productID, specG)
+	`, schema, schema, schema), reservationID, productID, bomSpecID, specG)
 	if err != nil {
 		return nil, true, err
 	}
@@ -553,6 +599,7 @@ func consumeTypedFinishedProductReservationBatchesTx(ctx context.Context, tx pgx
 	`, schema), reservationID, consumedG, consumedUnits); err != nil {
 		return nil, true, err
 	}
+	_ = bomVariantID
 	_ = workOrderID
 	return allocations, true, nil
 }
@@ -604,10 +651,11 @@ func createMultilevelWorkOrderReservationsTx(ctx context.Context, tx pgx.Tx, sch
 		needs = aggregateManufacturingConsumptionNeeds(needs)
 		for _, need := range needs {
 			componentType, componentID, componentSpecG := manufacturingNeedIdentity(need)
+			componentBomSpecID, componentBomVariantID := manufacturingNeedBOMSpecIdentity(need)
 			requiredG, requiredUnits := manufacturingNeedCanonicalQuantities(need)
 			availableG, availableUnits := int64(0), int64(0)
 			if componentType == "product" {
-				availableG, availableUnits, err = finishedProductAvailableForPlanningTx(ctx, tx, schema, componentID, componentSpecG, workOrderID)
+				availableG, availableUnits, err = finishedProductAvailableForPlanningIdentityTx(ctx, tx, schema, componentID, componentBomSpecID, componentSpecG, workOrderID)
 			} else {
 				coverage, coverageErr := workOrderWIPCoverageForNeedsTx(ctx, tx, schema, workOrderID, []materialConsumptionNeed{need})
 				err = coverageErr
@@ -627,15 +675,21 @@ func createMultilevelWorkOrderReservationsTx(ctx context.Context, tx pgx.Tx, sch
 			var reservationID int64
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`
 				INSERT INTO %s.work_order_material_reservations(
-					work_order_id,running_item_id,material_id,material_name,unit,component_type,component_id,component_spec_g,
+					work_order_id,running_item_id,material_id,material_name,unit,component_type,component_id,
+					component_bom_spec_id,component_bom_variant_id,component_spec_g,
 					required_g,required_units,reserved_g,reserved_units,status,created_at,updated_at
-				) VALUES($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'reserved',now(),now())
+				) VALUES($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'reserved',now(),now())
 				RETURNING id
-			`, schema), workOrderID, materialID, need.MaterialName, strings.TrimSpace(need.Unit), componentType, componentID, componentSpecG, requiredG, requiredUnits, reservedG, reservedUnits).Scan(&reservationID); err != nil {
+			`, schema), workOrderID, materialID, need.MaterialName, strings.TrimSpace(need.Unit), componentType, componentID,
+				componentBomSpecID, componentBomVariantID, componentSpecG,
+				requiredG, requiredUnits, reservedG, reservedUnits).Scan(&reservationID); err != nil {
 				return err
 			}
 			if componentType == "product" {
-				if err := bindFinishedProductReservationBatchesTx(ctx, tx, schema, reservationID, workOrderID, componentID, componentSpecG, reservedG, reservedUnits); err != nil {
+				if err := bindFinishedProductReservationBatchesTx(
+					ctx, tx, schema, reservationID, workOrderID, componentID,
+					componentBomSpecID, componentBomVariantID, componentSpecG, reservedG, reservedUnits,
+				); err != nil {
 					return err
 				}
 			}

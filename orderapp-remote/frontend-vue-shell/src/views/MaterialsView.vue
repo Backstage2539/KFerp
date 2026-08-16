@@ -163,11 +163,11 @@
                 <small v-if="materialInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
-              <label><span>采购价（元/{{ draft.unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
+              <label v-if="!draft.is_semi_finished"><span>采购价（元/{{ draft.unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
               <label class="boolean-field">
                 <span>是否半成品</span>
                 <input v-model="draft.is_semi_finished" type="checkbox" />
-                <small>仅用于业务标识与筛选；不授予或撤销制造能力。</small>
+                <small>半成品只允许通过生产入库；勾选后采购价自动清零，且不再出现在采购和普通入库候选中。</small>
               </label>
               <label><span>更新时间</span><input :value="draft.updated_at || '-'" disabled /></label>
             </div>
@@ -874,7 +874,7 @@ function payloadFromDraft() {
     unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     cost_unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     batch_no: draft.value.batch_no,
-    purchase_price: Number(draft.value.purchase_price || 0),
+    purchase_price: draft.value.is_semi_finished ? 0 : Number(draft.value.purchase_price || 0),
     onhand_g: Number(sourceStock.onhand_g || 0),
     onhand_units: Number(sourceStock.onhand_units || 0),
     min_level_qty: Number(draft.value.min_level_qty || 0),
@@ -1036,6 +1036,9 @@ function defaultFieldValue(field) {
 }
 
 watch(materialDisplayGroups, syncMaterialGroupPaginationState, { deep: true, immediate: true })
+watch(() => draft.value?.is_semi_finished, (isSemiFinished) => {
+  if (isSemiFinished && draft.value) draft.value.purchase_price = 0
+})
 watch(() => props.viewParams?.open_material_id, () => openMaterialFromViewParams(), { flush: 'post' })
 
 onMounted(async () => {

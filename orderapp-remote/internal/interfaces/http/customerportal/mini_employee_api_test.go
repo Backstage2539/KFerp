@@ -988,6 +988,143 @@ func TestMiniEmployeeOrderFormKeepsOnlyCurrentDefaultPublishedCatalog(t *testing
 	}
 }
 
+func TestMiniEmployeeOrderFormUsesCutoverBOMSpecsAndHidesLegacyChildren(t *testing.T) {
+	e := echo.New()
+	sales := &miniEmployeeSalesFake{orderFormResult: &salesapp.OrderFormData{
+		Today:     "2026-08-17",
+		Customers: []salesapp.CustomerOption{{ID: 8, Name: "客户A"}},
+		Products: []salesapp.ProductOption{
+			{ID: 10, SKUID: 10, ParentProductID: 10, ParentProductName: "商品A", Name: "商品A", ProductKind: "roasted_bean", Visibility: "public"},
+			{ID: 11, SKUID: 11, ParentProductID: 10, ParentProductName: "商品A", Name: "商品A 227g", SKUName: "旧227g", SpecLabel: "227g", ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{ID: 11, PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68}}},
+			{ID: 12, SKUID: 12, ParentProductID: 10, ParentProductName: "商品A", Name: "商品A 454g", SKUName: "旧454g", SpecLabel: "454g", ProductKind: "roasted_bean", Visibility: "public", Tiers: []salesapp.ProductTierOption{{ID: 12, PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 98}}},
+		},
+		ProductBOMSpecOptions: []salesapp.ProductBOMSpecOption{
+			{
+				ParentProductID: 10, LegacyChildProductID: 11, BomID: 100, BomSpecID: 101, BomVariantID: 1001,
+				SpecCode: "BOM-SPEC-000101", Barcode: "6900000000101", SpecKey: "bag-227", SpecName: "227g袋", InventoryUnit: "袋", Published: true, IsDefault: true, SortOrder: 1, MigrationState: "cutover",
+				WriteProductID: 10, WriteBomSpecID: 101, WriteBomVariantID: 1001,
+				Tiers: []salesapp.ProductTierOption{{ID: 11, PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, ParentProductID: 10, BomSpecID: 101, BomVariantID: 1001}},
+			},
+			{
+				ParentProductID: 10, BomID: 100, BomSpecID: 102, BomVariantID: 1002,
+				SpecCode: "BOM-SPEC-000102", Barcode: "6900000000102", SpecKey: "gift-2", SpecName: "双袋礼盒", InventoryUnit: "盒", Published: true, SortOrder: 2, MigrationState: "cutover",
+				WriteProductID: 10, WriteBomSpecID: 102, WriteBomVariantID: 1002,
+				Tiers: []salesapp.ProductTierOption{{ID: 22, PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 138, ParentProductID: 10, BomSpecID: 102, BomVariantID: 1002}},
+			},
+		},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+		CustomerPublicUsages:   []salesapp.CustomerPublicUsageOption{{CustomerID: 8, UsePublicSKU: true}},
+	}}
+	registerMiniEmployeeAPI(e, employeePortalService(), sales)
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/employee/order-form?customer_id=8", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Products []salesapp.ProductOption `json:"products"`
+		Families []struct {
+			ParentProductID int64  `json:"parent_product_id"`
+			MigrationState  string `json:"migration_state"`
+			Specs           []struct {
+				ProductID     int64                        `json:"product_id"`
+				BomSpecID     int64                        `json:"bom_spec_id"`
+				BomVariantID  int64                        `json:"bom_variant_id"`
+				SpecCode      string                       `json:"spec_code"`
+				Barcode       string                       `json:"barcode"`
+				SpecKey       string                       `json:"spec_key"`
+				SpecLabel     string                       `json:"spec_label"`
+				InventoryUnit string                       `json:"inventory_unit"`
+				Tiers         []salesapp.ProductTierOption `json:"tiers"`
+			} `json:"specs"`
+		} `json:"product_families"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Products) != 0 {
+		t.Fatalf("cutover legacy products leaked: %+v", response.Products)
+	}
+	if len(response.Families) != 1 || response.Families[0].ParentProductID != 10 || response.Families[0].MigrationState != "cutover" {
+		t.Fatalf("families=%+v body=%s", response.Families, rec.Body.String())
+	}
+	if len(response.Families[0].Specs) != 2 {
+		t.Fatalf("specs=%+v body=%s", response.Families[0].Specs, rec.Body.String())
+	}
+	first, second := response.Families[0].Specs[0], response.Families[0].Specs[1]
+	if first.ProductID != 10 || first.BomSpecID != 101 || first.BomVariantID != 1001 || first.SpecCode != "BOM-SPEC-000101" || first.Barcode != "6900000000101" || first.SpecKey != "bag-227" || first.InventoryUnit != "袋" || len(first.Tiers) != 1 || first.Tiers[0].UnitPrice != 68 {
+		t.Fatalf("first spec=%+v", first)
+	}
+	if second.ProductID != 10 || second.BomSpecID != 102 || second.BomVariantID != 1002 || second.SpecKey != "gift-2" || second.SpecLabel != "双袋礼盒" || second.InventoryUnit != "盒" || len(second.Tiers) != 1 || second.Tiers[0].UnitPrice != 138 {
+		t.Fatalf("new unmapped spec=%+v", second)
+	}
+}
+
+func TestMiniEmployeePrepareCurrentCatalogAcceptsCutoverParentAndBOMSpec(t *testing.T) {
+	parentID := int64(10)
+	form := salesapp.OrderFormData{
+		Customers: []salesapp.CustomerOption{{ID: 8}},
+		Products: []salesapp.ProductOption{
+			{ID: 10, ParentProductID: 10, CustomerID: 8, Name: "初晓", ProductKind: "roasted_bean"},
+			{ID: 11, SKUID: 11, ParentProductID: 10, CustomerID: 8, Name: "初晓旧规格", ProductKind: "roasted_bean"},
+		},
+		ProductBOMSpecOptions: []salesapp.ProductBOMSpecOption{{
+			ParentProductID: 10, BomID: 100, BomVersionID: 1000, BomSpecID: 101, BomVariantID: 1001,
+			SpecCode: "BOM-SPEC-000101", SpecKey: "bag-227", SpecName: "227g袋", InventoryUnit: "袋",
+			Published: true, IsDefault: true, MigrationState: "cutover", WriteProductID: 10, WriteBomSpecID: 101, WriteBomVariantID: 1001,
+			Tiers: []salesapp.ProductTierOption{{PublicationID: 901, PublicationVersionNo: "V9.1", ListType: "commercial", UnitPrice: 68, PriceSourceJSON: `{"source":"price_list"}`}},
+		}},
+		BeanListVersionOptions: []salesapp.BeanListVersionOption{{CustomerID: 8, ListType: "commercial", ID: 901, VersionNo: "V9.1", IsDefault: true}},
+	}
+	cmd := salesapp.SaveOrderCommand{CustomerID: 8, Items: []salesapp.OrderItemCommand{{
+		ProductID: &parentID, ParentProductID: 10, BomSpecID: 101, BomVariantID: 1001,
+		Units: 2, Unit: "袋", SalesUnit: "袋", BeanListPublicationID: 901, BeanListVersionNo: "V9.1",
+	}}}
+
+	message, err := miniEmployeePrepareCurrentCatalogFromForm(form, &cmd)
+	if err != nil || message != "" {
+		t.Fatalf("prepare cutover current catalog message=%q err=%v", message, err)
+	}
+	item := cmd.Items[0]
+	if item.ProductID == nil || *item.ProductID != 10 || item.ParentProductID != 10 || item.BomSpecID != 101 || item.BomVariantID != 1001 {
+		t.Fatalf("prepared cutover identity = %+v", item)
+	}
+	if item.SpecG != 0 || item.Unit != "袋" || item.SalesUnit != "袋" || item.ProductKind != "roasted_bean" || item.PriceSourceJSON == "" {
+		t.Fatalf("prepared direct specification pricing = %+v", item)
+	}
+}
+
+func TestMiniEmployeeSaveOrderCommandKeepsBOMSpecIdentity(t *testing.T) {
+	cmd, err := miniEmployeeSaveOrderCommand(miniEmployeeOrderRequest{
+		OrderDate:  "2026-08-17",
+		CustomerID: 8,
+		Items: []miniEmployeeOrderItemRequest{{
+			ProductID: 10, ParentProductID: 10, BomSpecID: 101, BomVariantID: 1001,
+			Qty: 2, Unit: "袋", SalesUnit: "袋",
+		}},
+	}, "employee:7", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmd.Items) != 1 || cmd.Items[0].BomSpecID != 101 || cmd.Items[0].BomVariantID != 1001 {
+		t.Fatalf("mini order command lost BOM spec identity: %+v", cmd.Items)
+	}
+}
+
+func TestMiniEmployeeOrderDetailReturnsFrozenBOMSpecIdentity(t *testing.T) {
+	detail := miniEmployeeOrderDetail(salesapp.OrderRow{ID: 42}, salesapp.OrderFormData{EditData: &salesapp.OrderEditData{
+		ID: 42,
+		Items: []salesapp.OrderEditItem{{
+			ItemID: 1, ProductID: 10, BomSpecID: 101, BomVariantID: 1001, BomSpecKey: "bag-227", BomSpecName: "227g袋", Unit: "袋",
+		}},
+	}})
+	if len(detail.Items) != 1 || detail.Items[0].ParentProductID != 10 || detail.Items[0].BomSpecID != 101 || detail.Items[0].BomVariantID != 1001 || detail.Items[0].BomSpecName != "227g袋" {
+		t.Fatalf("mini detail BOM spec identity = %+v", detail.Items)
+	}
+}
+
 func TestMiniEmployeeProductFamiliesFallBackToParentAndSKUFields(t *testing.T) {
 	families := salesapp.BuildOrderProductFamilies([]salesapp.ProductOption{
 		{ID: 550, ParentProductID: 550, ParentProductName: "乌拉嘎", Name: "乌拉嘎"},

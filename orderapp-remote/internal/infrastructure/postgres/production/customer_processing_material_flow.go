@@ -357,15 +357,8 @@ func splitCustomerProcessingFinishedBatchForIssueTx(ctx context.Context, tx pgx.
 }
 
 func finishedInventoryForUpdateTx(ctx context.Context, tx pgx.Tx, schema string, productID, specG int64, warehouse string) (InvQty, error) {
-	var qty InvQty
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory
-		WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE
-	`, schema), productID, specG, warehouse).Scan(&qty.Units, &qty.LooseG)
-	if err == pgx.ErrNoRows {
-		return InvQty{}, nil
-	}
-	return qty, err
+	units, looseG, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, productID, 0, specG, warehouse)
+	return InvQty{Units: units, LooseG: looseG}, err
 }
 
 func moveCustomerProcessingFinishedBatchTx(ctx context.Context, tx pgx.Tx, schema string, reservation customerProcessingMaterialReservation, allocation customerProcessingFinishedBatchAllocation, fromWarehouse, toWarehouse string, sourceID int64, operator, sourceType string) error {
@@ -400,20 +393,10 @@ func moveCustomerProcessingFinishedBatchTx(ctx context.Context, tx pgx.Tx, schem
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
-		VALUES($1,$2,$3,$4,$5,now())
-		ON CONFLICT(product_id,spec_g,warehouse) DO UPDATE SET
-			onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()
-	`, schema), productID, specG, fromWarehouse, afterFromUnits, afterFromLoose); err != nil {
+	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, productID, 0, 0, specG, fromWarehouse, afterFromUnits, afterFromLoose); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
-		VALUES($1,$2,$3,$4,$5,now())
-		ON CONFLICT(product_id,spec_g,warehouse) DO UPDATE SET
-			onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()
-	`, schema), productID, specG, toWarehouse, afterTo.Units, afterTo.LooseG); err != nil {
+	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, productID, 0, 0, specG, toWarehouse, afterTo.Units, afterTo.LooseG); err != nil {
 		return err
 	}
 	itemName := ""
@@ -1338,7 +1321,12 @@ func unreservedFinishedBatchConsumptionsTx(ctx context.Context, tx pgx.Tx, schem
 	return allocations, nil
 }
 
-func finishedBatchConsumptionsForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID, productID, specG, deductG, deductUnits int64) ([]customerProcessingFinishedBatchAllocation, error) {
+func finishedBatchConsumptionsForRunningItemTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	runningItemID, productID, bomSpecID, bomVariantID, specG, deductG, deductUnits int64,
+) ([]customerProcessingFinishedBatchAllocation, error) {
 	hasStockBatches, err := schemaColumnExistsTx(ctx, tx, schema, "stock_batches", "id")
 	if err != nil || !hasStockBatches {
 		return nil, err
@@ -1356,10 +1344,15 @@ func finishedBatchConsumptionsForRunningItemTx(ctx context.Context, tx pgx.Tx, s
 		return nil, err
 	}
 	if hasWorkOrders && hasTypedWorkReservations {
-		allocations, owned, err := consumeTypedFinishedProductReservationBatchesTx(ctx, tx, schema, runningItemID, productID, specG, deductG, deductUnits)
+		allocations, owned, err := consumeTypedFinishedProductReservationBatchesTx(
+			ctx, tx, schema, runningItemID, productID, bomSpecID, bomVariantID, specG, deductG, deductUnits,
+		)
 		if err != nil || owned {
 			return allocations, err
 		}
+	}
+	if bomSpecID > 0 {
+		return nil, fmt.Errorf("BOM specification finished-product reservation unavailable: product %d spec %d", productID, bomSpecID)
 	}
 	if hasWorkOrders && hasReservations {
 		allocations, owned, err := customerProcessingFinishedBatchConsumptionsTx(ctx, tx, schema, runningItemID, productID, specG, deductG, deductUnits)

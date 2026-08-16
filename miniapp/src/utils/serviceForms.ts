@@ -30,6 +30,9 @@ export type FulfillmentForm = {
   recipient_address: string
   recipient_company: string
   product_id: number
+  bom_spec_id: number
+  bom_variant_id: number
+  inventory_unit: string
   product_name: string
   spec_g: number
   qty: number
@@ -65,6 +68,9 @@ export function emptyFulfillmentForm(): FulfillmentForm {
     recipient_address: '',
     recipient_company: '',
     product_id: 0,
+    bom_spec_id: 0,
+    bom_variant_id: 0,
+    inventory_unit: '',
     product_name: '',
     spec_g: 454,
     qty: 1,

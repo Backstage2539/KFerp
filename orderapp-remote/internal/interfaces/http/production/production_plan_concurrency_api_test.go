@@ -67,6 +67,7 @@ func TestProductionPlanSubmitAndDraftCancelAreSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProductionPlan: %v", err)
 	}
+	seedProductionPlanLifecycleOperationSplits(t, ctx, pool, schema, plan)
 
 	app := newProductionFlowTestEcho(pool, schema)
 	type transitionResult struct {

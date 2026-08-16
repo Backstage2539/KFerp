@@ -300,6 +300,9 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, materialManufactureOnlyLockKey(schema, id)); err != nil {
+		return materialRow{}, err
+	}
 
 	var old materialRow
 	qOld := fmt.Sprintf(`SELECT m.id, m.code, m.name, m.kind, COALESCE(m.is_semi_finished,false), m.unit, m.cost_unit,
@@ -340,6 +343,14 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	old.IndustryFields = loadMaterialIndustryFieldsForTx(ctx, tx, schema, id)
 	if !next.IsSemiFinishedSet {
 		next.IsSemiFinished = old.IsSemiFinished
+	}
+	if err := assertSemiFinishedPurchasePrice(next.IsSemiFinished, next.PurchasePrice); err != nil {
+		return materialRow{}, err
+	}
+	if !old.IsSemiFinished && next.IsSemiFinished {
+		if err := assertNoUnfinishedSemiFinishedInboundTx(ctx, tx, schema, []int64{id}); err != nil {
+			return materialRow{}, err
+		}
 	}
 	unitChanged := materialInventoryUnitChanged(old, next, requestedInventoryUnit)
 	if unitChanged {
@@ -573,10 +584,20 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	if in.PurchasePrice < 0 || in.SalePrice < 0 || math.IsNaN(in.PurchasePrice) || math.IsNaN(in.SalePrice) || math.IsInf(in.PurchasePrice, 0) || math.IsInf(in.SalePrice, 0) {
 		return materialInput{}, fmt.Errorf("negative price")
 	}
+	if err := assertSemiFinishedPurchasePrice(in.IsSemiFinished, in.PurchasePrice); err != nil {
+		return materialInput{}, err
+	}
 	if in.OnhandG < 0 || in.OnhandUnits < 0 || in.MinLevelG < 0 || in.MinLevelUnits < 0 {
 		return materialInput{}, fmt.Errorf("negative qty")
 	}
 	return in, nil
+}
+
+func assertSemiFinishedPurchasePrice(isSemiFinished bool, purchasePrice float64) error {
+	if isSemiFinished && purchasePrice != 0 {
+		return fmt.Errorf("半成品只能通过生产入库，采购价必须为 0")
+	}
+	return nil
 }
 
 func normalizeMaterialIndustryFields(fields []materialIndustryFieldInput) []materialIndustryFieldInput {

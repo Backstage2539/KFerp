@@ -123,6 +123,8 @@ CREATE TABLE IF NOT EXISTS %s.production_plan_items (
 	production_plan_id BIGINT NOT NULL,
 	product_id BIGINT NOT NULL DEFAULT 0,
 	parent_product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	bom_source_product_id BIGINT NOT NULL DEFAULT 0,
 	product_name TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,
@@ -189,6 +191,8 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	batch_id TEXT NOT NULL DEFAULT '',
 	product_id BIGINT NOT NULL DEFAULT 0,
 	parent_product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	bom_source_product_id BIGINT NOT NULL DEFAULT 0,
 	product_name TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,
@@ -336,6 +340,8 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.production_plans ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS bom_source_product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS sales_spec_count NUMERIC(18,6) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.production_plan_items ADD COLUMN IF NOT EXISTS inventory_qty_per_sales_unit NUMERIC(18,9) NOT NULL DEFAULT 0`, schema),
@@ -350,6 +356,8 @@ CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_c
 		fmt.Sprintf(`ALTER TABLE %s.work_orders DROP CONSTRAINT IF EXISTS work_orders_running_item_id_key`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ALTER COLUMN running_item_id SET DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_source_product_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS sales_spec_count NUMERIC(18,6) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS inventory_qty_per_sales_unit NUMERIC(18,9) NOT NULL DEFAULT 0`, schema),
@@ -456,6 +464,8 @@ CREATE TABLE IF NOT EXISTS %s.stock_entry_items (
 	stock_entry_id BIGINT NOT NULL,
 	material_id BIGINT NOT NULL DEFAULT 0,
 	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	item_type TEXT NOT NULL DEFAULT '',
 	item_name TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,
@@ -491,6 +501,8 @@ CREATE INDEX IF NOT EXISTS stock_entry_items_entry_idx ON %s.stock_entry_items(s
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS supplier TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS crop_season TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`, schema),
@@ -508,6 +520,8 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		id BIGSERIAL PRIMARY KEY,
 		batch_id TEXT NOT NULL,
 		product_id BIGINT NOT NULL,
+		bom_spec_id BIGINT NOT NULL DEFAULT 0,
+		bom_variant_id BIGINT NOT NULL DEFAULT 0,
 		product_name TEXT NOT NULL DEFAULT '',
 		spec_g BIGINT NOT NULL,
 		need_g BIGINT NOT NULL,
@@ -523,6 +537,8 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		id BIGSERIAL PRIMARY KEY,
 		running_item_id BIGINT NOT NULL REFERENCES %s.produce_running_items(id) ON DELETE CASCADE,
 		product_id BIGINT NOT NULL DEFAULT 0,
+		bom_spec_id BIGINT NOT NULL DEFAULT 0,
+		bom_variant_id BIGINT NOT NULL DEFAULT 0,
 		product_name TEXT NOT NULL DEFAULT '',
 		spec_g BIGINT NOT NULL DEFAULT 0,
 		need_g BIGINT NOT NULL DEFAULT 0,
@@ -532,18 +548,31 @@ func ensureProductionRunTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		finished_units BIGINT NOT NULL DEFAULT 0,
 		finished_loose_g BIGINT NOT NULL DEFAULT 0,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		UNIQUE(running_item_id, product_id, spec_g)
+		UNIQUE(running_item_id, product_id, bom_spec_id, spec_g)
 	);
 	CREATE INDEX IF NOT EXISTS produce_running_outputs_running_idx ON %s.produce_running_outputs(running_item_id, spec_g);`, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS input_g BIGINT NOT NULL DEFAULT 0`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_units BIGINT NOT NULL DEFAULT 0`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_loose_g BIGINT NOT NULL DEFAULT 0`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
-	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0`, schema))
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS input_g BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 1`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_units BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS planned_loose_g BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_outputs ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_outputs ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.produce_running_outputs DROP CONSTRAINT IF EXISTS produce_running_outputs_running_item_id_product_id_spec_g_key`, schema),
+		fmt.Sprintf(`DROP INDEX IF EXISTS %s.produce_running_outputs_identity_uq`, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX produce_running_outputs_identity_uq ON %s.produce_running_outputs(running_item_id,product_id,bom_spec_id,spec_g)`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -554,6 +583,8 @@ func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		completion_no BIGINT NOT NULL DEFAULT 1,
 		batch_id TEXT NOT NULL DEFAULT '',
 		product_id BIGINT NOT NULL DEFAULT 0,
+		bom_spec_id BIGINT NOT NULL DEFAULT 0,
+		bom_variant_id BIGINT NOT NULL DEFAULT 0,
 		product_name TEXT NOT NULL DEFAULT '',
 		spec_g BIGINT NOT NULL DEFAULT 0,
 		order_nos TEXT NOT NULL DEFAULT '',
@@ -587,6 +618,12 @@ func ensureProductionLogTable(ctx context.Context, pool *pgxpool.Pool, schema st
 		return err
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs ADD COLUMN IF NOT EXISTS completion_no BIGINT NOT NULL DEFAULT 1`, schema)); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0`, schema)); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.production_logs ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0`, schema)); err != nil {
 		return err
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS production_logs_running_completion_idx ON %s.production_logs(running_item_id, completion_no)`, schema))

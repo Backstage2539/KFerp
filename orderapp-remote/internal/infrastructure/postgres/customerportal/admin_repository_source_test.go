@@ -113,7 +113,7 @@ func TestCustomerPortalAdminRepositoryPersistsMallProducts(t *testing.T) {
 		"SaveMallProduct",
 		"UpdateMallProductImage",
 		"mall_products",
-		"product_options",
+		"listMallProductOptions",
 		"NormalizeMallTemplateKey",
 		"NormalizeMallProductStatus",
 		"ON CONFLICT(id) DO UPDATE",

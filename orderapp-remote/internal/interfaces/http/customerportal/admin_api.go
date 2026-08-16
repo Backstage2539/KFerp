@@ -58,17 +58,19 @@ type copyCapabilityTemplateRequest struct {
 }
 
 type mallProductRequest struct {
-	ID          int64   `json:"id"`
-	ProductID   int64   `json:"product_id"`
-	Title       string  `json:"title"`
-	Subtitle    string  `json:"subtitle"`
-	Description string  `json:"description"`
-	ImageURL    string  `json:"image_url"`
-	SpecG       int64   `json:"spec_g"`
-	UnitPrice   float64 `json:"unit_price"`
-	TemplateKey string  `json:"template_key"`
-	Status      string  `json:"status"`
-	SortOrder   int     `json:"sort_order"`
+	ID           int64   `json:"id"`
+	ProductID    int64   `json:"product_id"`
+	BomSpecID    int64   `json:"bom_spec_id"`
+	BomVariantID int64   `json:"bom_variant_id"`
+	Title        string  `json:"title"`
+	Subtitle     string  `json:"subtitle"`
+	Description  string  `json:"description"`
+	ImageURL     string  `json:"image_url"`
+	SpecG        int64   `json:"spec_g"`
+	UnitPrice    float64 `json:"unit_price"`
+	TemplateKey  string  `json:"template_key"`
+	Status       string  `json:"status"`
+	SortOrder    int     `json:"sort_order"`
 }
 
 const maxMallProductImageUploadBytes = 8 << 20
@@ -336,18 +338,20 @@ func saveMallProduct(c echo.Context, svc Service, id int64) error {
 		req.ID = id
 	}
 	row, err := svc.SaveMallProduct(c.Request().Context(), customerportalapp.SaveMallProductCommand{
-		ID:          req.ID,
-		ProductID:   req.ProductID,
-		Title:       req.Title,
-		Subtitle:    req.Subtitle,
-		Description: req.Description,
-		ImageURL:    req.ImageURL,
-		SpecG:       req.SpecG,
-		UnitPrice:   req.UnitPrice,
-		TemplateKey: req.TemplateKey,
-		Status:      req.Status,
-		SortOrder:   req.SortOrder,
-		Actor:       support.ActorOf(c),
+		ID:           req.ID,
+		ProductID:    req.ProductID,
+		BomSpecID:    req.BomSpecID,
+		BomVariantID: req.BomVariantID,
+		Title:        req.Title,
+		Subtitle:     req.Subtitle,
+		Description:  req.Description,
+		ImageURL:     req.ImageURL,
+		SpecG:        req.SpecG,
+		UnitPrice:    req.UnitPrice,
+		TemplateKey:  req.TemplateKey,
+		Status:       req.Status,
+		SortOrder:    req.SortOrder,
+		Actor:        support.ActorOf(c),
 	})
 	if err != nil {
 		return portalAdminError(c, err)

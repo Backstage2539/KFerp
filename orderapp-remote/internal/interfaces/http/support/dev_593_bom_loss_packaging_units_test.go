@@ -17,8 +17,8 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-593-BOM-LOSS-PACKAGING-UNITS",
-			"有损耗的配方",
-			"无损耗的配方",
+			"PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED",
+			"PR-600 取代 PR-593/594 的双区域与同配方混用口径",
 		},
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"): {
 			"PR-593-BOM-LOSS-PACKAGING-UNITS",
@@ -26,18 +26,17 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-593-BOM-LOSS-PACKAGING-UNITS",
-			"固定用量包材",
+			"PR-600",
+			"页面只显示一个组件列表",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"有损耗的配方",
-			"无损耗的配方",
+			"每个配方只允许一种模式",
+			"固定模式可录入 `0.227kg 熟豆 + 1个袋子`",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"selectedMaterialLossZone",
-			"componentInventoryConsumeUnitOptions",
-			"有损耗的配方",
-			"无损耗的配方",
-			"损耗只作用于物料的比例 % 行",
+			"recipeConsumeMode",
+			"同一配方不能混合使用比例 % 和固定用量",
+			"原料损耗比开启后，所有组件消耗单位必须为比例 %",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -58,14 +57,20 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 		t.Fatal("PR-599 supersedes cost_unit-first costing; fixed packaging must use the unified material inventory unit")
 	}
 
-	for _, rel := range []string{
-		filepath.Join("internal", "application", "bom", "service.go"),
-		filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go"),
-		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"),
-	} {
-		src := string(readOrderAppFileForTest(t, rel))
-		if strings.Contains(src, "原料损耗比开启后，组件消耗单位只能使用比例") || strings.Contains(src, "开启后组件消耗单位只能使用比例") {
-			t.Fatalf("%s still enforces the obsolete ratio-only BOM restriction", rel)
+	serviceSource := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "bom", "service.go")))
+	for _, want := range []string{"ValidateProductionBomRecipeMode", "ratio and fixed consume units cannot be mixed", "material_loss_rate requires all components to use material ratio_pct"} {
+		if !strings.Contains(serviceSource, want) {
+			t.Fatalf("bom service missing PR-600 recipe-mode validation %q", want)
+		}
+	}
+	repositorySource := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go")))
+	if !strings.Contains(repositorySource, "ValidateProductionBomRecipeMode") {
+		t.Fatal("bom repository publish/save path missing PR-600 recipe-mode validation")
+	}
+	bomSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue")))
+	for _, obsolete := range []string{"selectedMaterialLossZone", "有损耗的配方", "无损耗的配方"} {
+		if strings.Contains(bomSource, obsolete) {
+			t.Fatalf("BomView.vue restored superseded PR-593 recipe zone %q", obsolete)
 		}
 	}
 }

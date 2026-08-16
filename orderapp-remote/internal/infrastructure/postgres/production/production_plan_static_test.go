@@ -204,9 +204,10 @@ func TestProductionPlanResolvesOneBomVersionForMaterialsAndRoute(t *testing.T) {
 	}
 	combined := string(planSrc) + "\n" + string(materialSrc)
 	for _, want := range []string{
-		"resolveProductionBomForDemandProductTx",
-		"buildMaterialSnapshotForBomVersionTx",
+		"resolveProductionBomForDemandProductSpecTx",
+		"buildMaterialSnapshotForBomVersionVariantTx",
 		"bomRoute.BomVersionID",
+		"group.BomVariantID",
 		"BomInherited",
 		"BomSourceProductID",
 	} {

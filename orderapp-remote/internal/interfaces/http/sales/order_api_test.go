@@ -3949,6 +3949,7 @@ func TestOrderAPISaveWithStockBatchDecisionMarksInventoryReadyAndStoresBatchChoi
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
+	seedOrderAPITestConcreteUnitConversion(t, ctx, pool, schema)
 	seedOrderAPIFinishedBatches(t, ctx, pool, schema)
 
 	e := newOrderAPITestEcho(pool, schema)
@@ -4007,6 +4008,7 @@ func TestOrderAPISaveWithLegacyFinishedInventoryDecisionMarksReadyAndShipReady(t
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
+	seedOrderAPITestConcreteUnitConversion(t, ctx, pool, schema)
 	seedOrderAPILegacyFinishedInventory(t, ctx, pool, schema)
 
 	e := newOrderAPITestEcho(pool, schema)
@@ -5416,6 +5418,19 @@ func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	`, schema))
 }
 
+func seedOrderAPITestConcreteUnitConversion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		UPDATE %[1]s.products
+		SET unit_rule_override_json=jsonb_build_object(
+			'default_sales_unit','件',
+			'inventory_unit','件',
+			'unit_conversion_json',jsonb_build_object('件',jsonb_build_object('件',1))::text
+		)
+		WHERE id=7;
+	`, schema))
+}
+
 func seedOrderAPIResponsibleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
@@ -5438,7 +5453,9 @@ func seedOrderAPIFinishedBatches(t *testing.T, ctx context.Context, pool *pgxpoo
 		VALUES
 			('finished_product',7,'橘皮乌龙',454,'finished_goods','production_run',501,'FP-OLD-454','PB-OLD',0,908,908,0,2,2,'烘焙员','2026-05-01 08:00:00+08'),
 			('finished_product',7,'橘皮乌龙',454,'finished_goods','production_run',502,'FP-NEW-454','PB-NEW',908,908,1816,2,2,4,'烘焙员','2026-05-02 08:00:00+08');
-	`, schema, schema))
+		INSERT INTO %s.finished_inventory(product_id,bom_spec_id,bom_variant_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES (7,0,0,454,'finished_goods',4,0);
+	`, schema, schema, schema))
 }
 
 func seedOrderAPILegacyFinishedInventory(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
@@ -5465,6 +5482,7 @@ func orderAPITestDDL(schema string) string {
 		quote_unit TEXT NOT NULL DEFAULT '',
 		order_unit TEXT NOT NULL DEFAULT '',
 		unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		sales_specs_json JSONB NOT NULL DEFAULT '[]'::jsonb,
 		integer_unit BOOLEAN NOT NULL DEFAULT false,
 		active BOOLEAN NOT NULL DEFAULT true,
 		deleted_at TIMESTAMPTZ
@@ -5473,6 +5491,12 @@ func orderAPITestDDL(schema string) string {
 		id BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL DEFAULT '',
 		inventory_unit TEXT NOT NULL DEFAULT '',
+		quote_unit TEXT NOT NULL DEFAULT '',
+		order_unit TEXT NOT NULL DEFAULT '',
+		unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		integer_unit BOOLEAN NOT NULL DEFAULT false,
+		unit_template_id BIGINT NOT NULL DEFAULT 0,
+		special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb,
 		active BOOLEAN NOT NULL DEFAULT true
 	);
 	CREATE TABLE %s.logistics_companies (
@@ -5560,6 +5584,8 @@ CREATE TABLE %s.stock_batches (
 	item_type TEXT NOT NULL,
 	item_id BIGINT NOT NULL DEFAULT 0,
 	item_name TEXT NOT NULL DEFAULT '',
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	source_doc_type TEXT NOT NULL DEFAULT '',
 	source_doc_id BIGINT NOT NULL DEFAULT 0,
@@ -5578,6 +5604,8 @@ CREATE TABLE %s.stock_ledger_entries (
 	item_type TEXT NOT NULL,
 	item_id BIGINT NOT NULL DEFAULT 0,
 	item_name TEXT NOT NULL DEFAULT '',
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	warehouse TEXT NOT NULL DEFAULT 'finished_goods',
 	source_doc_type TEXT NOT NULL DEFAULT '',
@@ -5595,12 +5623,14 @@ CREATE TABLE %s.stock_ledger_entries (
 );
 CREATE TABLE %s.finished_inventory (
 	product_id BIGINT NOT NULL,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL,
 	warehouse TEXT NOT NULL DEFAULT 'finished_goods',
 	onhand_units BIGINT NOT NULL DEFAULT 0,
 	onhand_loose_g BIGINT NOT NULL DEFAULT 0,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	PRIMARY KEY(product_id, spec_g, warehouse)
+	PRIMARY KEY(product_id, bom_spec_id, spec_g, warehouse)
 );
 CREATE TABLE %s.products (
 	id BIGSERIAL PRIMARY KEY,
@@ -5628,13 +5658,18 @@ CREATE TABLE %s.products (
 		unit_template_id BIGINT NOT NULL DEFAULT 0,
 		product_config_template_id BIGINT NOT NULL DEFAULT 0,
 		auto_derived_sku BOOLEAN NOT NULL DEFAULT false,
+		derived_unit_template_id BIGINT NOT NULL DEFAULT 0,
+		derived_spec_key TEXT NOT NULL DEFAULT '',
+		derived_spec_name TEXT NOT NULL DEFAULT '',
 		derived_sales_unit TEXT NOT NULL DEFAULT '',
 		derived_spec_status TEXT NOT NULL DEFAULT 'active',
 		sku_name TEXT NOT NULL DEFAULT '',
 		sku_code TEXT NOT NULL DEFAULT '',
+		barcode TEXT NOT NULL DEFAULT '',
 		spec_label TEXT NOT NULL DEFAULT '',
 		net_content_qty NUMERIC NOT NULL DEFAULT 0,
 		net_content_unit TEXT NOT NULL DEFAULT '',
+		is_default_sku BOOLEAN NOT NULL DEFAULT false,
 		default_sku_id BIGINT NOT NULL DEFAULT 0
 	);
 CREATE TABLE %s.product_categories (
@@ -5663,6 +5698,8 @@ CREATE TABLE %s.customer_product_aliases (
 CREATE TABLE %s.product_price_tiers (
 	id BIGSERIAL PRIMARY KEY,
 	product_id BIGINT,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g INTEGER NOT NULL DEFAULT 454,
 	min_qty_units NUMERIC,
 	max_qty_units NUMERIC,
@@ -5766,6 +5803,8 @@ CREATE TABLE %s.order_items (
 	order_id BIGINT,
 	line_no INTEGER,
 	product_id BIGINT,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	customer_product_alias_id BIGINT NOT NULL DEFAULT 0,
 	customer_product_display_name_snapshot TEXT NOT NULL DEFAULT '',
 	customer_item_code_snapshot TEXT NOT NULL DEFAULT '',
@@ -5804,11 +5843,15 @@ CREATE TABLE %s.order_stock_batch_allocations (
 	id BIGSERIAL PRIMARY KEY,
 	order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
 	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	need_g BIGINT NOT NULL DEFAULT 0,
+	need_units BIGINT NOT NULL DEFAULT 0,
 	batch_id BIGINT NOT NULL DEFAULT 0,
 	batch_code TEXT NOT NULL DEFAULT '',
 	allocated_g BIGINT NOT NULL DEFAULT 0,
+	allocated_units BIGINT NOT NULL DEFAULT 0,
 	operator TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -5816,15 +5859,18 @@ CREATE TABLE %s.order_stock_deductions (
 	id BIGSERIAL PRIMARY KEY,
 	order_id BIGINT NOT NULL REFERENCES %s.orders(id) ON DELETE CASCADE,
 	product_id BIGINT NOT NULL DEFAULT 0,
+	bom_spec_id BIGINT NOT NULL DEFAULT 0,
+	bom_variant_id BIGINT NOT NULL DEFAULT 0,
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	batch_id BIGINT NOT NULL DEFAULT 0,
 	batch_code TEXT NOT NULL DEFAULT '',
 	deducted_g BIGINT NOT NULL DEFAULT 0,
+	deducted_units BIGINT NOT NULL DEFAULT 0,
 	source_doc_type TEXT NOT NULL DEFAULT '',
 	source_doc_id BIGINT NOT NULL DEFAULT 0,
 	operator TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	UNIQUE(order_id, product_id, spec_g, batch_code)
+	UNIQUE(order_id, product_id, bom_spec_id, batch_code)
 );
 CREATE TABLE %s.sales_order_assets (
 	id BIGSERIAL PRIMARY KEY,
@@ -5930,6 +5976,12 @@ CREATE TABLE %[1]s.product_production_config_fields (
 	options_json JSONB NOT NULL DEFAULT '[]'::jsonb,
 	show_in_price_list BOOLEAN NOT NULL DEFAULT true,
 	sort_order INT NOT NULL DEFAULT 0
+);
+CREATE TABLE %[1]s.product_production_config_industry_templates (
+	product_id BIGINT NOT NULL,
+	template_id BIGINT NOT NULL,
+	sort_order INT NOT NULL DEFAULT 0,
+	PRIMARY KEY(product_id,template_id)
 );
 	`, schema)
 }

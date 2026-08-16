@@ -35,8 +35,8 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 	productSettings := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"商品档案",
-		"/api/product-settings/skus",
-		"buildSkuCreatePayload",
+		"/api/product-settings/products",
+		"buildProductCreatePayload",
 		"批量添加商品档案",
 		"saveCustomerAliasBatch",
 		"/api/customer-product-aliases/batch",
@@ -68,7 +68,7 @@ func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 		`@submit.prevent="createSku"`,
 		"skuForm.name",
 		"skuForm.remark",
-		"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
+		"buildProductCreatePayload(skuForm.value)",
 	} {
 		if !strings.Contains(productSettings, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU create wiring %q", want)

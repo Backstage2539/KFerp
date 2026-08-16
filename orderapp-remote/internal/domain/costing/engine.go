@@ -72,6 +72,14 @@ type ProductInput struct {
 	NetContentUnit             string                    `json:"net_content_unit,omitempty"`
 	IsDefaultSKU               bool                      `json:"is_default_sku,omitempty"`
 	DefaultSKUID               int64                     `json:"default_sku_id,omitempty"`
+	BomSpecID                  int64                     `json:"bom_spec_id,omitempty"`
+	BomVariantID               int64                     `json:"bom_variant_id,omitempty"`
+	DefaultBOMSpecID           int64                     `json:"default_bom_spec_id,omitempty"`
+	MigrationState             string                    `json:"migration_state,omitempty"`
+	SpecCode                   string                    `json:"spec_code,omitempty"`
+	SpecBarcode                string                    `json:"spec_barcode,omitempty"`
+	SpecSortOrder              int                       `json:"spec_sort_order,omitempty"`
+	SpecPublished              bool                      `json:"spec_published,omitempty"`
 	ProductCode                string                    `json:"product_code,omitempty"`
 	ProductName                string                    `json:"product_name,omitempty"`
 	Name                       string                    `json:"name"`
@@ -345,6 +353,10 @@ type ProductResult struct {
 	NetContentUnit                 string                    `json:"net_content_unit,omitempty"`
 	IsDefaultSKU                   bool                      `json:"is_default_sku,omitempty"`
 	DefaultSKUID                   int64                     `json:"default_sku_id,omitempty"`
+	BomSpecID                      int64                     `json:"bom_spec_id,omitempty"`
+	BomVariantID                   int64                     `json:"bom_variant_id,omitempty"`
+	DefaultBOMSpecID               int64                     `json:"default_bom_spec_id,omitempty"`
+	MigrationState                 string                    `json:"migration_state,omitempty"`
 	EffectiveSalesSpec             *EffectiveSalesSpec       `json:"effective_sales_spec,omitempty"`
 	ProductCode                    string                    `json:"product_code,omitempty"`
 	ProductName                    string                    `json:"product_name,omitempty"`
@@ -669,6 +681,10 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		NetContentUnit:             in.NetContentUnit,
 		IsDefaultSKU:               in.IsDefaultSKU,
 		DefaultSKUID:               in.DefaultSKUID,
+		BomSpecID:                  in.BomSpecID,
+		BomVariantID:               in.BomVariantID,
+		DefaultBOMSpecID:           in.DefaultBOMSpecID,
+		MigrationState:             in.MigrationState,
 		EffectiveSalesSpec:         effectiveSalesSpecFromInput(in),
 		ProductCode:                in.ProductCode,
 		ProductName:                in.ProductName,
@@ -844,6 +860,10 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		NetContentUnit:             in.NetContentUnit,
 		IsDefaultSKU:               in.IsDefaultSKU,
 		DefaultSKUID:               in.DefaultSKUID,
+		BomSpecID:                  in.BomSpecID,
+		BomVariantID:               in.BomVariantID,
+		DefaultBOMSpecID:           in.DefaultBOMSpecID,
+		MigrationState:             in.MigrationState,
 		EffectiveSalesSpec:         effectiveSalesSpecFromInput(in),
 		ProductCode:                in.ProductCode,
 		ProductName:                in.ProductName,

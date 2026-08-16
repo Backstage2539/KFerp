@@ -143,6 +143,11 @@ type SubmitCustomerDirectShipOrderCommand struct {
 
 type SubmitCustomerDirectShipOrderItem struct {
 	ProductID                          int64   `json:"product_id"`
+	BomSpecID                          int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID                       int64   `json:"bom_variant_id,omitempty"`
+	BomSpecKey                         string  `json:"bom_spec_key,omitempty"`
+	BomSpecName                        string  `json:"bom_spec_name,omitempty"`
+	InventoryUnit                      string  `json:"inventory_unit,omitempty"`
 	CustomerProductAliasID             int64   `json:"customer_product_alias_id,omitempty"`
 	CustomerProductDisplayNameSnapshot string  `json:"customer_product_display_name_snapshot,omitempty"`
 	CustomerItemCodeSnapshot           string  `json:"customer_item_code_snapshot,omitempty"`
@@ -229,6 +234,12 @@ type CustomerFulfillmentOptions struct {
 
 type CustomerSKUOption struct {
 	ProductID                  int64                  `json:"product_id"`
+	BomSpecID                  int64                  `json:"bom_spec_id,omitempty"`
+	BomVariantID               int64                  `json:"bom_variant_id,omitempty"`
+	BomSpecKey                 string                 `json:"bom_spec_key,omitempty"`
+	BomSpecName                string                 `json:"bom_spec_name,omitempty"`
+	InventoryUnit              string                 `json:"inventory_unit,omitempty"`
+	MigrationState             string                 `json:"migration_state,omitempty"`
 	CustomerProductAliasID     int64                  `json:"customer_product_alias_id,omitempty"`
 	CustomerProductDisplayName string                 `json:"customer_product_display_name,omitempty"`
 	CustomerItemCode           string                 `json:"customer_item_code,omitempty"`
@@ -251,6 +262,8 @@ type CustomerSKUOption struct {
 
 type CustomerSKUPriceTier struct {
 	ID           int64    `json:"id"`
+	BomSpecID    int64    `json:"bom_spec_id,omitempty"`
+	BomVariantID int64    `json:"bom_variant_id,omitempty"`
 	ProductKind  string   `json:"product_kind,omitempty"`
 	SalesUnit    string   `json:"sales_unit,omitempty"`
 	SpecG        int64    `json:"spec_g,omitempty"`
@@ -594,6 +607,9 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 	for i := range cmd.Items {
 		cmd.Items[i].ProductName = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].ProductName)), " ")
 		cmd.Items[i].Spec = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].Spec)), " ")
+		cmd.Items[i].BomSpecKey = strings.TrimSpace(cmd.Items[i].BomSpecKey)
+		cmd.Items[i].BomSpecName = strings.Join(strings.Fields(strings.TrimSpace(cmd.Items[i].BomSpecName)), " ")
+		cmd.Items[i].InventoryUnit = strings.TrimSpace(cmd.Items[i].InventoryUnit)
 		cmd.Items[i].SalesUnit = normalizeCustomerFulfillmentSalesUnit(cmd.Items[i].SalesUnit)
 		cmd.Items[i].DiscountType = strings.TrimSpace(strings.ToLower(cmd.Items[i].DiscountType))
 		if cmd.Items[i].DiscountValue < 0 {
@@ -629,12 +645,22 @@ func (s *Service) SubmitCustomerDirectShipOrder(ctx context.Context, cmd SubmitC
 		if item.ProductID <= 0 && item.ProductName == "" {
 			return DirectShipOrderSummary{}, fmt.Errorf("product required")
 		}
-		specG := item.SpecG
-		if specG <= 0 {
-			specG = parseCustomerFulfillmentSpecG(item.Spec)
-		}
-		if specG <= 0 {
-			return DirectShipOrderSummary{}, fmt.Errorf("spec required")
+		canonicalBOMSpec := item.BomSpecID > 0 || item.BomVariantID > 0
+		if canonicalBOMSpec {
+			if item.BomSpecID <= 0 {
+				return DirectShipOrderSummary{}, fmt.Errorf("bom_spec_id required")
+			}
+			if item.SpecG > 0 {
+				return DirectShipOrderSummary{}, fmt.Errorf("canonical BOM spec must not use spec_g")
+			}
+		} else {
+			specG := item.SpecG
+			if specG <= 0 {
+				specG = parseCustomerFulfillmentSpecG(item.Spec)
+			}
+			if specG <= 0 {
+				return DirectShipOrderSummary{}, fmt.Errorf("spec required")
+			}
 		}
 		if item.QuantityUnits <= 0 {
 			return DirectShipOrderSummary{}, fmt.Errorf("quantity required")

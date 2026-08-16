@@ -8,9 +8,11 @@ import (
 	"strings"
 
 	catalogapp "orderapp/internal/application/catalog"
+	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	catalogdomain "orderapp/internal/domain/catalog"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	postgresbomgraph "orderapp/internal/infrastructure/postgres/bomgraph"
+	postgresproductspecmigration "orderapp/internal/infrastructure/postgres/productspecmigration"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -307,6 +309,10 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	migrationState, err := postgresproductspecmigration.LockParentMigrationStateTx(ctx, tx, r.schema, cmd.ProductID)
+	if err != nil {
+		return err
+	}
 	var oldUnitRuleOverrideJSON string
 	var oldUnitTemplateID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -316,6 +322,9 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		FOR UPDATE
 	`, r.schema), cmd.ProductID).Scan(&oldUnitRuleOverrideJSON, &oldUnitTemplateID); err != nil {
 		return err
+	}
+	if migrationState == productspecmigrationapp.StateCutover && oldUnitTemplateID != cmd.UnitTemplateID {
+		return catalogapp.ValidationError{Message: "商品已切换到 BOM 规格，销售规格模板不能修改；请在 BOM 中维护规格"}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
@@ -439,6 +448,11 @@ func (r Repository) DeactivateProducts(ctx context.Context, cmd catalogapp.Deact
 }
 
 func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProductCommand) (catalogapp.Product, error) {
+	// New parent products use BOM specifications as their only sellable and
+	// inventory-unit authority. Legacy templates remain editable only on
+	// pre-cutover products through UpdateProductBasics.
+	cmd.UnitTemplateID = 0
+	cmd.UnitRuleOverrideJSON = "{}"
 	productKind := catalogdomain.NormalizeProductKind(cmd.ProductKind)
 	roastLevel := catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
 	greenBeanType := strings.TrimSpace(cmd.GreenBeanType)
@@ -483,6 +497,9 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
+	if err := postgresproductspecmigration.PrepareNewProductTx(ctx, tx, r.schema, productID, cmd.Actor); err != nil {
+		return catalogapp.Product{}, err
+	}
 
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate > 0 {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -519,9 +536,6 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"sales_unit_rules":        unitAudit.SalesUnitRulesJSON,
 		"unit_template_id":        cmd.UnitTemplateID,
 	}); err != nil {
-		return catalogapp.Product{}, err
-	}
-	if err := syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -651,6 +665,9 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 		return catalogapp.Product{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := assertLegacyProductSpecWritesEnabledTx(ctx, tx, r.schema); err != nil {
+		return catalogapp.Product{}, err
+	}
 
 	if cmd.CustomerID > 0 {
 		if err := ensureCustomerExistsTx(ctx, tx, r.schema, cmd.CustomerID); err != nil {
@@ -660,6 +677,13 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 	categoryID := int64(0)
 	productKind := catalogdomain.ProductKindRoasted
 	if cmd.ParentProductID > 0 {
+		migrationState, err := postgresproductspecmigration.LockParentMigrationStateTx(ctx, tx, r.schema, cmd.ParentProductID)
+		if err != nil {
+			return catalogapp.Product{}, err
+		}
+		if migrationState == productspecmigrationapp.StateCutover {
+			return catalogapp.Product{}, catalogapp.ValidationError{Message: "商品已切换到 BOM 规格，不能再新建旧子 SKU"}
+		}
 		var parentCustomerID, parentCategoryID, parentUnitTemplateID int64
 		var parentProductKind string
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -979,6 +1003,13 @@ func syncDerivedSKUsForTemplateTx(ctx context.Context, tx pgx.Tx, schema string,
 
 func syncDerivedSKUsForParentTx(ctx context.Context, tx pgx.Tx, schema string, actor string, parentID int64) error {
 	if parentID <= 0 {
+		return nil
+	}
+	migrationState, err := postgresproductspecmigration.LockParentMigrationStateTx(ctx, tx, schema, parentID)
+	if err != nil {
+		return err
+	}
+	if migrationState == productspecmigrationapp.StateCutover {
 		return nil
 	}
 	var parent derivedSKUParent
@@ -1360,6 +1391,9 @@ func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalog
 	}
 	if cmd.ProductionBomID > 0 && cmd.ProductionBomVersionID > 0 {
 		if err := postgresbomgraph.ValidateCandidate(ctx, tx, r.schema, cmd.ProductionBomVersionID); err != nil {
+			return catalogapp.ProductProductionConfig{}, err
+		}
+		if err := postgresproductspecmigration.GuardDefaultProductBOMSwitchTx(ctx, tx, r.schema, cmd.ProductID, cmd.ProductionBomID, cmd.ProductionBomVersionID); err != nil {
 			return catalogapp.ProductProductionConfig{}, err
 		}
 	}
@@ -3722,6 +3756,9 @@ func (r Repository) SaveProductUnitDefinition(ctx context.Context, cmd catalogap
 		return catalogapp.ProductUnitDefinition{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := assertProductUnitBOMReferenceMutationAllowedTx(ctx, tx, r.schema, cmd.Code, cmd.UnitType, active); err != nil {
+		return catalogapp.ProductUnitDefinition{}, err
+	}
 	if err := assertProductUnitWeightReclassificationAllowedTx(ctx, tx, r.schema, cmd.Code, cmd.UnitType); err != nil {
 		return catalogapp.ProductUnitDefinition{}, err
 	}
@@ -3747,6 +3784,89 @@ func (r Repository) SaveProductUnitDefinition(ctx context.Context, cmd catalogap
 		return catalogapp.ProductUnitDefinition{}, err
 	}
 	return row, nil
+}
+
+func assertProductUnitBOMReferenceMutationAllowedTx(ctx context.Context, tx pgx.Tx, schema, code, nextUnitType string, nextActive bool) error {
+	code = strings.TrimSpace(code)
+	var currentUnitType string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT unit_type
+		FROM %s.product_unit_definitions
+		WHERE code=$1
+		FOR UPDATE
+	`, schema), code).Scan(&currentUnitType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	reclassified := strings.TrimSpace(nextUnitType) != "" && !strings.EqualFold(strings.TrimSpace(currentUnitType), strings.TrimSpace(nextUnitType))
+	if nextActive && !reclassified {
+		return nil
+	}
+
+	templateTablesExist, err := catalogRelationsExistTx(ctx, tx, schema,
+		"production_bom_spec_template_versions",
+		"production_bom_spec_template_variants",
+	)
+	if err != nil {
+		return err
+	}
+	if templateTablesExist {
+		var referenced bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1
+				FROM %s.production_bom_spec_template_variants variant
+				WHERE lower(btrim(variant.inventory_unit))=lower(btrim($1))
+			)
+		`, schema), code).Scan(&referenced); err != nil {
+			return err
+		}
+		if referenced {
+			return fmt.Errorf("unit %q is referenced by a BOM specification template and cannot be deactivated or reclassified", code)
+		}
+	}
+
+	bomTablesExist, err := catalogRelationsExistTx(ctx, tx, schema,
+		"production_bom_versions",
+		"production_bom_version_variants",
+	)
+	if err != nil {
+		return err
+	}
+	if bomTablesExist {
+		var referenced bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1
+				FROM %s.production_bom_version_variants variant
+				JOIN %s.production_bom_versions version ON version.id=variant.version_id
+				WHERE lower(btrim(variant.inventory_unit))=lower(btrim($1))
+				  AND lower(version.status) IN ('published','archived')
+			)
+		`, schema, schema), code).Scan(&referenced); err != nil {
+			return err
+		}
+		if referenced {
+			return fmt.Errorf("unit %q is referenced by a published or archived BOM specification and cannot be deactivated or reclassified", code)
+		}
+	}
+	return nil
+}
+
+func catalogRelationsExistTx(ctx context.Context, tx pgx.Tx, schema string, tables ...string) (bool, error) {
+	for _, table := range tables {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", schema, table)).Scan(&exists); err != nil {
+			return false, err
+		}
+		if !exists {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func assertProductUnitWeightReclassificationAllowedTx(ctx context.Context, tx pgx.Tx, schema, code, unitType string) error {
@@ -3790,6 +3910,17 @@ func productUnitDefinitionWeightType(unitType string) bool {
 	return normalized == "weight" || normalized == "重量"
 }
 
+func assertLegacyProductSpecWritesEnabledTx(ctx context.Context, tx pgx.Tx, schema string) error {
+	retired, err := postgresproductspecmigration.LegacySpecWritesRetiredTx(ctx, tx, schema)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return catalogapp.ValidationError{Message: "全部启用商品已切换到 BOM 规格，旧商品规格写入已停用；请在 BOM 中维护规格"}
+	}
+	return nil
+}
+
 func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.SaveProductUnitTemplateCommand) (catalogapp.ProductUnitTemplate, error) {
 	active := true
 	if cmd.Active != nil {
@@ -3805,6 +3936,9 @@ func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.
 		return catalogapp.ProductUnitTemplate{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := assertLegacyProductSpecWritesEnabledTx(ctx, tx, r.schema); err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
 	var id int64
 	if cmd.ID > 0 {
 		inventoryUnit, err := assertProductUnitTemplateInventoryUnitUnchanged(ctx, tx, r.schema, cmd.ID, cmd.InventoryUnit)
@@ -3876,6 +4010,9 @@ func (r Repository) DeleteProductUnitDefinition(ctx context.Context, cmd catalog
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := assertProductUnitBOMReferenceMutationAllowedTx(ctx, tx, r.schema, cmd.Code, "", false); err != nil {
+		return err
+	}
 	var code, name, unitType string
 	var allowDecimal, active bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -3898,6 +4035,9 @@ func (r Repository) DeleteProductUnitTemplate(ctx context.Context, cmd catalogap
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := assertLegacyProductSpecWritesEnabledTx(ctx, tx, r.schema); err != nil {
+		return err
+	}
 	var row catalogapp.ProductUnitTemplate
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.product_unit_templates

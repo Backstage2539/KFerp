@@ -53,6 +53,8 @@ type CreateOrderRequest struct {
 	ProductID                          []string `form:"product_id[]"`
 	ParentProductID                    []string `form:"parent_product_id[]"`
 	ItemParentProductID                []string `form:"item_parent_product_id[]"`
+	BomSpecID                          []string `form:"bom_spec_id[]"`
+	BomVariantID                       []string `form:"bom_variant_id[]"`
 	CustomerProductAliasID             []string `form:"customer_product_alias_id[]"`
 	CustomerProductDisplayNameSnapshot []string `form:"customer_product_display_name_snapshot[]"`
 	CustomerItemCodeSnapshot           []string `form:"customer_item_code_snapshot[]"`

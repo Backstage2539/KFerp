@@ -5,6 +5,10 @@ export type MallTemplateKey = 'hero' | 'compact' | 'wide'
 export type MallProduct = {
   id: number
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  spec_name?: string
+  inventory_unit?: string
   title: string
   subtitle: string
   description: string
@@ -29,6 +33,11 @@ export type MallProduct = {
 
 export type MallCartItem = {
   mall_product_id: number
+  product_id?: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  spec_name?: string
+  inventory_unit?: string
   title: string
   product_kind?: string
   unit_price: number
@@ -53,6 +62,9 @@ export type MallOrderPayload = {
   note?: string
   items: Array<{
     mall_product_id: number
+    product_id?: number
+    bom_spec_id?: number
+    bom_variant_id?: number
     qty: number
     sales_unit?: SalesUnit
     unit_bag_count?: number
@@ -65,25 +77,34 @@ export function normalizeMallTemplateKey(value: unknown): MallTemplateKey {
 }
 
 export function normalizeMallProduct(row: Record<string, unknown> = {}): MallProduct {
+  const bomSpecID = positiveInteger(row.bom_spec_id)
+  const bomVariantID = positiveInteger(row.bom_variant_id)
+  const canonical = bomSpecID > 0 || bomVariantID > 0
   const productKind = normalizeProductKind(row.product_kind)
-  const salesUnits = normalizeSalesUnits(row.sales_units, productKind)
+  const salesUnits = canonical ? [] : normalizeSalesUnits(row.sales_units, productKind)
   const dripBagGrams = positiveNumber(row.drip_bag_grams) || 10
   const dripBoxBagCount = positiveInteger(row.drip_box_bag_count) || 10
   const requestedSalesUnit = normalizeSalesUnit(row.sales_unit)
-  const salesUnit = productKind === 'drip_bag' ? (requestedSalesUnit && salesUnits.includes(requestedSalesUnit) ? requestedSalesUnit : salesUnits[0]) : undefined
-  const priceSalesUnit = productKind === 'drip_bag' ? normalizePriceSalesUnit(row, salesUnits) : undefined
-  const baseUnitPrice = productKind === 'drip_bag' ? dripMallPrice(row) : Number(row.unit_price || 0)
+  const salesUnit = !canonical && productKind === 'drip_bag' ? (requestedSalesUnit && salesUnits.includes(requestedSalesUnit) ? requestedSalesUnit : salesUnits[0]) : undefined
+  const priceSalesUnit = !canonical && productKind === 'drip_bag' ? normalizePriceSalesUnit(row, salesUnits) : undefined
+  const baseUnitPrice = canonical
+    ? Number(row.unit_price || row.mall_price || 0)
+    : productKind === 'drip_bag' ? dripMallPrice(row) : Number(row.unit_price || 0)
   const unitBagCount = salesUnit === 'box' ? dripBoxBagCount : salesUnit === 'bag' ? 1 : undefined
   const unitBeanG = salesUnit ? dripBagGrams : undefined
-  const unitPrice = productKind === 'drip_bag' ? mallUnitPriceForSalesUnit(baseUnitPrice, priceSalesUnit, salesUnit, dripBoxBagCount) : baseUnitPrice
+  const unitPrice = !canonical && productKind === 'drip_bag' ? mallUnitPriceForSalesUnit(baseUnitPrice, priceSalesUnit, salesUnit, dripBoxBagCount) : baseUnitPrice
   return {
     id: Number(row.id || 0),
     product_id: Number(row.product_id || 0),
+    bom_spec_id: bomSpecID || undefined,
+    bom_variant_id: bomVariantID || undefined,
+    spec_name: String(row.spec_name || '').trim() || undefined,
+    inventory_unit: String(row.inventory_unit || '').trim() || undefined,
     title: String(row.title || '').trim() || '商品',
     subtitle: String(row.subtitle || '').trim(),
     description: String(row.description || '').trim(),
     image_url: String(row.image_url || '').trim(),
-    spec_g: Number(row.spec_g || 0) > 0 ? Number(row.spec_g) : 454,
+    spec_g: canonical ? 0 : Number(row.spec_g || 0) > 0 ? Number(row.spec_g) : 454,
     unit_price: unitPrice,
     mall_price: unitPrice || undefined,
     template_key: normalizeMallTemplateKey(row.template_key),
@@ -92,13 +113,13 @@ export function normalizeMallProduct(row: Record<string, unknown> = {}): MallPro
     product_kind: productKind,
     sales_units: salesUnits,
     sales_unit: salesUnit,
-    unit_label: salesUnit ? salesUnitLabel(salesUnit, dripBagGrams, dripBoxBagCount) : undefined,
+    unit_label: canonical ? String(row.inventory_unit || '').trim() || undefined : salesUnit ? salesUnitLabel(salesUnit, dripBagGrams, dripBoxBagCount) : undefined,
     unit_bag_count: unitBagCount,
     unit_bean_g: unitBeanG,
-    base_unit_price: productKind === 'drip_bag' ? baseUnitPrice : undefined,
+    base_unit_price: !canonical && productKind === 'drip_bag' ? baseUnitPrice : undefined,
     price_sales_unit: priceSalesUnit,
-    drip_bag_grams: productKind === 'drip_bag' ? dripBagGrams : undefined,
-    drip_box_bag_count: productKind === 'drip_bag' ? dripBoxBagCount : undefined,
+    drip_bag_grams: !canonical && productKind === 'drip_bag' ? dripBagGrams : undefined,
+    drip_box_bag_count: !canonical && productKind === 'drip_bag' ? dripBoxBagCount : undefined,
   }
 }
 
@@ -144,7 +165,11 @@ export function buildMallOrderPayload(form: MallRecipientForm, cart: MallCartIte
           mall_product_id: item.mall_product_id,
           qty: Math.floor(item.qty),
         }
-        if (item.sales_unit) {
+        if (isCanonicalMallIdentity(item)) {
+          row.product_id = Number(item.product_id || 0)
+          row.bom_spec_id = Number(item.bom_spec_id || 0)
+          row.bom_variant_id = Number(item.bom_variant_id || 0)
+        } else if (item.sales_unit) {
           row.sales_unit = item.sales_unit
           row.unit_bag_count = positiveInteger(item.unit_bag_count) || (item.sales_unit === 'box' ? 10 : 1)
           row.unit_bean_g = positiveNumber(item.unit_bean_g) || 10
@@ -158,7 +183,10 @@ export function buildMallOrderPayload(form: MallRecipientForm, cart: MallCartIte
 }
 
 export function visibleMallProducts(rows: unknown[] = []): MallProduct[] {
-  return rows.map((row) => normalizeMallProduct(asRecord(row))).filter((product) => product.unit_price > 0)
+  return rows.map((row) => normalizeMallProduct(asRecord(row))).filter((product) => (
+    product.unit_price > 0
+    && (!hasCanonicalMallIdentity(product) || isCanonicalMallIdentity(product))
+  ))
 }
 
 export function mallProductKindLabel(product: Partial<MallProduct | MallCartItem>): string {
@@ -168,6 +196,9 @@ export function mallProductKindLabel(product: Partial<MallProduct | MallCartItem
 }
 
 export function mallProductUnitLabel(product: MallProduct): string {
+  if (isCanonicalMallIdentity(product)) {
+    return [String(product.spec_name || '').trim(), String(product.inventory_unit || '').trim()].filter(Boolean).join(' · ')
+  }
   if (product.product_kind !== 'drip_bag') return `${product.spec_g}g`
   const bagGrams = positiveNumber(product.drip_bag_grams) || positiveNumber(product.unit_bean_g) || 10
   const boxBagCount = positiveInteger(product.drip_box_bag_count) || positiveInteger(product.unit_bag_count) || 10
@@ -175,6 +206,7 @@ export function mallProductUnitLabel(product: MallProduct): string {
 }
 
 export function mallProductForSalesUnit(product: MallProduct, salesUnit?: SalesUnit | string): MallProduct {
+  if (isCanonicalMallIdentity(product)) return product
   if (product.product_kind !== 'drip_bag') return product
   const unit = normalizeSalesUnit(salesUnit)
   if (!unit || !product.sales_units.includes(unit)) return product
@@ -205,6 +237,16 @@ function mallCartItemFromProduct(product: MallProduct, qty: number): MallCartIte
     unit_price: product.unit_price,
     qty,
   }
+  if (isCanonicalMallIdentity(product)) {
+    item.product_id = product.product_id
+    item.bom_spec_id = product.bom_spec_id
+    item.bom_variant_id = product.bom_variant_id
+    item.spec_name = product.spec_name
+    item.inventory_unit = product.inventory_unit
+    item.unit_label = mallProductUnitLabel(product)
+    item.product_kind = product.product_kind
+    return item
+  }
   if (product.product_kind !== 'drip_bag') {
     item.product_kind = product.product_kind
   }
@@ -215,6 +257,16 @@ function mallCartItemFromProduct(product: MallProduct, qty: number): MallCartIte
     item.unit_bean_g = positiveNumber(product.unit_bean_g) || positiveNumber(product.drip_bag_grams) || 10
   }
   return item
+}
+
+function hasCanonicalMallIdentity(value: Partial<MallProduct | MallCartItem>): boolean {
+  return Number(value.bom_spec_id || 0) > 0 || Number(value.bom_variant_id || 0) > 0
+}
+
+function isCanonicalMallIdentity(value: Partial<MallProduct | MallCartItem>): boolean {
+  return Number(value.product_id || 0) > 0
+    && Number(value.bom_spec_id || 0) > 0
+    && Number(value.bom_variant_id || 0) > 0
 }
 
 function normalizeProductKind(value: unknown): ProductKind {

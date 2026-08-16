@@ -51,18 +51,27 @@ describe('customer inventory miniapp pages', () => {
     expect(detail).toContain('当前库存已变化，请返回库存列表刷新')
     expect(detail).toContain('batches.value = []')
     expect(detail).toContain('v-if="summary"')
+    expect(detail).toContain("query?.bom_spec_id")
+    expect(detail).toContain("query?.bom_variant_id")
+    expect(detail).toContain('bom_spec_id: bomSpecID.value')
+    expect(detail).toContain('bom_variant_id: bomVariantID.value')
+    expect(detail).toContain('inventory_unit: inventoryUnit.value')
     expect(detail).toContain("uni.navigateTo({")
     expect(detail).not.toContain('uni.redirectTo')
     expect(detail).not.toContain('uni.reLaunch')
   })
 
-  it('consumes multi-SKU prefills once and preserves the legacy single-SKU query', () => {
+  it('consumes multi-spec prefills once and preserves both canonical and legacy single-item queries', () => {
     const service = source('src/pages/service/service.vue')
     const processing = source('src/components/CustomerProcessingPanel.vue')
 
     expect(service).toContain('processingPrefill.consume')
     expect(service).toContain("query?.product_id")
     expect(service).toContain("query?.spec_g")
+    expect(service).toContain("query?.bom_spec_id")
+    expect(service).toContain("query?.bom_variant_id")
+    expect(service).toContain(':prefill-bom-spec-id="prefillBomSpecID"')
+    expect(service).toContain(':prefill-bom-variant-id="prefillBomVariantID"')
     expect(service).toContain(':prefill-items="processingPrefillItems"')
     expect(service).toContain('@prefill-consumed="clearProcessingPrefill"')
     expect(processing).toContain('resolveProcessingPrefillLines')

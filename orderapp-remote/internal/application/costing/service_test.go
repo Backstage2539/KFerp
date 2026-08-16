@@ -39,6 +39,7 @@ type fakeRepo struct {
 	defaultTaxRate        PricingRuleTrialDefaultTaxRate
 	productUnitRules      map[int64]ProductSalesUnitRule
 	productSpecIdentities map[int64]ProductSpecIdentity
+	productBOMSpecs       map[string]ProductBOMSpecIdentity
 	productDefaultUnits   map[int64]string
 	customerUnitRules     map[int64]ProductSalesUnitRule
 	lastCustomerAliasID   int64
@@ -262,6 +263,14 @@ func (r *fakeRepo) ResolveProductSpecIdentity(_ context.Context, productID int64
 	identity, ok := r.productSpecIdentities[productID]
 	if !ok {
 		return ProductSpecIdentity{}, ErrProductSpecIdentityNotFound
+	}
+	return identity, nil
+}
+
+func (r *fakeRepo) ResolveProductBOMSpecIdentity(_ context.Context, parentProductID, bomSpecID, bomVariantID int64) (ProductBOMSpecIdentity, error) {
+	identity, ok := r.productBOMSpecs[beanListBOMSpecIdentityKey(parentProductID, bomSpecID, bomVariantID)]
+	if !ok {
+		return ProductBOMSpecIdentity{}, ErrProductBOMSpecIdentityNotFound
 	}
 	return identity, nil
 }
@@ -3624,6 +3633,85 @@ func TestBeanListProductSpecSelectionsAcceptValidMultipleTiersAndKeepLegacyPaylo
 		Content:  map[string]any{"price_rows": []any{map[string]any{"product_id": float64(550)}}},
 	}); err != nil {
 		t.Fatalf("legacy draft without product_spec_selections must remain compatible: %v", err)
+	}
+}
+
+func TestBeanListDraftKeepsCutoverBOMSpecIdentityAndUsesSpecificationUnitDirectly(t *testing.T) {
+	identity := ProductBOMSpecIdentity{
+		ParentProductID:   600,
+		ParentProductName: "初晓",
+		BomID:             90,
+		BomVersionID:      901,
+		BomSpecID:         701,
+		BomVariantID:      702,
+		SpecKey:           "bag-227",
+		SpecName:          "227g袋",
+		InventoryUnit:     "袋",
+		MigrationState:    "cutover",
+		Active:            true,
+		Published:         true,
+		IsDefault:         true,
+	}
+	repo := &fakeRepo{productBOMSpecs: map[string]ProductBOMSpecIdentity{
+		beanListBOMSpecIdentityKey(600, 701, 702): identity,
+	}}
+	command := PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V6.0.0",
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id": float64(600),
+			"bom_spec_id":       float64(701),
+			"bom_variant_id":    float64(702),
+			"migration_state":   "cutover",
+			"selection_source":  "product_default",
+		}}},
+		Content: map[string]any{
+			"groups": []any{map[string]any{"items": []any{map[string]any{
+				"product_id":        float64(600),
+				"sku_id":            float64(701),
+				"parent_product_id": float64(600),
+				"bom_spec_id":       float64(701),
+				"bom_variant_id":    float64(702),
+				"name":              "初晓 227g袋",
+			}}}},
+			"price_rows": []any{map[string]any{
+				"product_id":        float64(600),
+				"parent_product_id": float64(600),
+				"bom_spec_id":       float64(701),
+				"bom_variant_id":    float64(702),
+				"final_unit_price":  float64(68),
+				"fixed_unit_price":  float64(68),
+				"pricing_mode":      "fixed_price",
+				"price_unit":        "袋",
+				"migration_state":   "cutover",
+			}},
+		},
+	}
+
+	if _, err := NewService(repo).SaveBeanListDraft(context.Background(), command); err != nil {
+		t.Fatalf("SaveBeanListDraft() cutover BOM spec error = %v", err)
+	}
+	row := repo.draftBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if row["sku_id"] != nil {
+		t.Fatalf("cutover row must not manufacture a legacy sku_id: %#v", row["sku_id"])
+	}
+	item := repo.draftBeanList.Content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	if item["sku_id"] != nil || item["product_id"] != float64(600) || item["bom_spec_id"] != float64(701) {
+		t.Fatalf("cutover group item retained fake child SKU identity: %#v", item)
+	}
+	if row["bom_spec_id"] != float64(701) || row["bom_variant_id"] != float64(702) {
+		t.Fatalf("BOM spec identity = (%#v,%#v)", row["bom_spec_id"], row["bom_variant_id"])
+	}
+	if row["price_unit"] != "袋" || row["inventory_unit"] != "袋" || row["quantity_basis"] != "sales_spec_count" {
+		t.Fatalf("direct specification-unit snapshot = %#v", row)
+	}
+	conversion, ok := row["inventory_conversion_json"].(map[string]any)
+	if !ok || numberValue(conversion["袋"].(map[string]any)["袋"]) != 1 {
+		t.Fatalf("identity inventory conversion = %#v", row["inventory_conversion_json"])
+	}
+	spec, ok := row["effective_sales_spec"].(map[string]any)
+	if !ok || spec["bom_spec_id"] != float64(701) || spec["bom_variant_id"] != float64(702) || spec["spec_name"] != "227g袋" {
+		t.Fatalf("effective BOM sales specification = %#v", row["effective_sales_spec"])
 	}
 }
 

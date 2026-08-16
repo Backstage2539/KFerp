@@ -24,7 +24,7 @@ func TestDev313CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
 	productSettings := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		`@submit.prevent="createSku"`,
-		"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
+		"buildProductCreatePayload(skuForm.value)",
 	} {
 		if !strings.Contains(productSettings, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU create wiring %q", want)

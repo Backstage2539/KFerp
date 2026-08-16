@@ -655,6 +655,7 @@ import {
   orderFamilySpecProduct,
   orderFamilyHydratedSpecRowPatch,
   orderFamilySpecRowPatch,
+  orderFamilySpecForStoredItem,
   orderFamilySpecsForPublication,
   orderLegacyProductForPublication,
   orderProductPublicationMode,
@@ -2265,8 +2266,7 @@ function applyEditData(data) {
     if (!hasConcreteSpecIdentity) return hydrated
 
     const publicationID = Number(item.bean_list_publication_id || 0)
-    const pricedSpec = orderFamilySpecsForPublication(family || {}, publicationID)
-      .find((entry) => Number(entry.sku_id || 0) === Number(item.product_id || 0))
+    const pricedSpec = orderFamilySpecForStoredItem(family || {}, item, publicationID)
     if (family) {
       assignProductFamilyHeader(hydrated, family)
     } else {
@@ -2412,7 +2412,11 @@ async function load() {
     payStatuses.value = data.pay_statuses || []
     orderTypes.value = data.order_types || []
     products.value = data.products || []
-    productFamilies.value = normalizeOrderProductFamilies(data.product_families || [], products.value)
+    productFamilies.value = normalizeOrderProductFamilies(
+      data.product_families || [],
+      products.value,
+      data.product_bom_spec_options || [],
+    )
     employees.value = data.employees || []
     logisticsCompanies.value = data.logistics_companies || []
     beanListVersionOptions.value = data.bean_list_version_options || []

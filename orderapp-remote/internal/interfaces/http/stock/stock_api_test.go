@@ -43,6 +43,7 @@ func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stocka
 	return stockapp.WarehouseInventoryResult{Rows: []stockapp.WarehouseInventoryRow{
 		{Warehouse: "raw_materials", WarehouseName: "原料仓", ItemType: "material", ItemID: 1, ItemName: "水洗豆", BatchCode: "MB-0000000002", QtyG: 1200, QualityStatus: "pass"},
 		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 9, ItemName: "橘皮乌龙", SpecG: 454, BatchCode: "FP-0000000042", QtyG: 908, QtyUnits: 2, QualityStatus: "reject"},
+		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 10, ItemName: "规格商品", BomSpecID: 91, BomVariantID: 191, BomSpecName: "227g袋", InventoryUnit: "袋", QtyUnits: 12, QualityStatus: "pass"},
 	}}, nil
 }
 func (f *fakeStockRepo) ListOutboundLogs(ctx context.Context, query stockapp.OutboundLogQuery) (stockapp.OutboundLogResult, error) {
@@ -200,6 +201,11 @@ func TestStockAPIRoutes(t *testing.T) {
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"quality_status":"reject"`)) {
 		t.Fatalf("GET warehouse inventory missing quality status: %s", rec.Body.String())
 	}
+	for _, want := range []string{`"bom_spec_id":91`, `"bom_variant_id":191`, `"bom_spec_name":"227g袋"`, `"inventory_unit":"袋"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("GET warehouse inventory missing canonical BOM specification field %s: %s", want, rec.Body.String())
+		}
+	}
 	if repo.inventoryQuery.CustomerID != 149 {
 		t.Fatalf("warehouse inventory customer_id = %d, want 149", repo.inventoryQuery.CustomerID)
 	}
@@ -325,6 +331,34 @@ func TestStockAdjustmentsAPIRecordsFinishedWarehouse(t *testing.T) {
 	}
 	if repo.adjustment.ItemType != "finished_product" || repo.adjustment.ItemID != 9 || repo.adjustment.SpecG != 454 || repo.adjustment.Warehouse != "finished_shop" || repo.adjustment.TargetUnits != 3 || repo.adjustment.TargetG != 20 {
 		t.Fatalf("finished adjustment command = %+v", repo.adjustment)
+	}
+}
+
+func TestStockFinishedWritesKeepBOMSpecIdentityWithoutLegacySpecG(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/finished-transfers", bytes.NewBufferString(`{"product_id":9,"bom_spec_id":91,"bom_variant_id":191,"from_warehouse":"finished_goods","to_warehouse":"finished_shop","qty_units":2,"note":"BOM规格转仓"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST BOM spec transfer status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.finishedTransfer.ProductID != 9 || repo.finishedTransfer.BomSpecID != 91 || repo.finishedTransfer.BomVariantID != 191 || repo.finishedTransfer.SpecG != 0 || repo.finishedTransfer.QtyUnits != 2 {
+		t.Fatalf("BOM spec transfer command=%+v", repo.finishedTransfer)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/adjustments", bytes.NewBufferString(`{"item_type":"finished_product","item_id":9,"bom_spec_id":91,"bom_variant_id":191,"warehouse":"finished_shop","target_units":7,"reason":"BOM规格盘点"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST BOM spec adjustment status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.adjustment.ItemID != 9 || repo.adjustment.BomSpecID != 91 || repo.adjustment.BomVariantID != 191 || repo.adjustment.SpecG != 0 || repo.adjustment.TargetUnits != 7 {
+		t.Fatalf("BOM spec adjustment command=%+v", repo.adjustment)
 	}
 }
 

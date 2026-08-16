@@ -63,21 +63,10 @@ func allocateUnproducedRows(ctx context.Context, pool *pgxpool.Pool, schema stri
 
 	for _, n := range needs {
 		// lock inventory row if exists; otherwise treat as 0
-		var units, loose int64
-		row := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT onhand_units, onhand_loose_g
-			FROM %s.finished_inventory
-			WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
-			FOR UPDATE
-		`, schema), n.ProductID, n.SpecG)
-		scanErr := row.Scan(&units, &loose)
-		if scanErr != nil {
-			if scanErr == pgx.ErrNoRows {
-				units, loose = 0, 0
-			} else {
-				err = scanErr
-				return "", nil, false, err
-			}
+		units, loose, loadErr := finishedInventoryQtyIdentityTx(ctx, tx, schema, n.ProductID, n.BomSpecID, n.SpecG, "finished_goods")
+		if loadErr != nil {
+			err = loadErr
+			return "", nil, false, err
 		}
 
 		remain, deductedG, gapG, derr := invDeduct(n.SpecG, InvQty{Units: units, LooseG: loose}, n.NeedG)
@@ -87,12 +76,7 @@ func allocateUnproducedRows(ctx context.Context, pool *pgxpool.Pool, schema stri
 		}
 
 		// upsert inventory with remain (ensure row exists)
-		_, err = tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
-			VALUES($1,$2,'finished_goods',$3,$4,now())
-			ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
-			SET onhand_units=excluded.onhand_units, onhand_loose_g=excluded.onhand_loose_g, updated_at=now()
-		`, schema), n.ProductID, n.SpecG, remain.Units, remain.LooseG)
+		err = upsertFinishedInventoryIdentityTx(ctx, tx, schema, n.ProductID, n.BomSpecID, n.BomVariantID, n.SpecG, "finished_goods", remain.Units, remain.LooseG)
 		if err != nil {
 			return "", nil, false, err
 		}

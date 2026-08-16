@@ -62,6 +62,7 @@ type orderFormAPIResponse struct {
 	OrderTypes             []apiOption                           `json:"order_types"`
 	Products               []map[string]any                      `json:"products"`
 	ProductFamilies        []map[string]any                      `json:"product_families"`
+	ProductBOMSpecOptions  []salesapp.ProductBOMSpecOption       `json:"product_bom_spec_options"`
 	Logistics              []salesapp.LogisticsCompany           `json:"logistics_companies"`
 	BeanListVersionOptions []salesapp.BeanListVersionOption      `json:"bean_list_version_options"`
 	CustomerPublicUsages   []salesapp.CustomerPublicUsageOption  `json:"customer_public_usages"`
@@ -116,6 +117,8 @@ type orderSaveAPIRequest struct {
 	ProductID                          []string `json:"product_id"`
 	ParentProductID                    []string `json:"parent_product_id"`
 	ItemParentProductID                []string `json:"item_parent_product_id"`
+	BomSpecID                          []string `json:"bom_spec_id"`
+	BomVariantID                       []string `json:"bom_variant_id"`
 	CustomerProductAliasID             []string `json:"customer_product_alias_id"`
 	CustomerProductDisplayNameSnapshot []string `json:"customer_product_display_name_snapshot"`
 	CustomerItemCodeSnapshot           []string `json:"customer_item_code_snapshot"`
@@ -264,6 +267,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		OrderTypes:             apiOptions(data.OrderTypes),
 		Products:               apiProducts(data.Products),
 		ProductFamilies:        apiProductFamilies(data.Products),
+		ProductBOMSpecOptions:  data.ProductBOMSpecOptions,
 		Logistics:              data.LogisticsCompanies,
 		BeanListVersionOptions: data.BeanListVersionOptions,
 		CustomerPublicUsages:   data.CustomerPublicUsages,
@@ -301,10 +305,11 @@ func (h orderAPIHandler) detail(c echo.Context) error {
 		}
 	}
 	return c.JSON(http.StatusOK, orderFormAPIResponse{
-		Today:    data.EditData.OrderDate,
-		EditMode: true,
-		EditID:   id,
-		EditData: editDataForAPI(data.EditData),
+		Today:                 data.EditData.OrderDate,
+		ProductBOMSpecOptions: data.ProductBOMSpecOptions,
+		EditMode:              true,
+		EditID:                id,
+		EditData:              editDataForAPI(data.EditData),
 	})
 }
 
@@ -579,6 +584,8 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ProductID:                          r.ProductID,
 		ParentProductID:                    r.ParentProductID,
 		ItemParentProductID:                r.ItemParentProductID,
+		BomSpecID:                          r.BomSpecID,
+		BomVariantID:                       r.BomVariantID,
 		CustomerProductAliasID:             r.CustomerProductAliasID,
 		CustomerProductDisplayNameSnapshot: r.CustomerProductDisplayNameSnapshot,
 		CustomerItemCodeSnapshot:           r.CustomerItemCodeSnapshot,
@@ -729,6 +736,9 @@ func apiProductTier(t ProductTierOption) map[string]any {
 		"publication_version_no": t.PublicationVersionNo,
 		"version_no":             t.PublicationVersionNo,
 		"list_type":              t.ListType,
+		"parent_product_id":      t.ParentProductID,
+		"bom_spec_id":            t.BomSpecID,
+		"bom_variant_id":         t.BomVariantID,
 	}
 	if t.QuantityBasis != "" {
 		tier["quantity_basis"] = t.QuantityBasis
@@ -948,6 +958,10 @@ func orderTraceBool(value any) bool {
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
 		ProductID                          int64  `json:"product_id"`
+		BomSpecID                          int64  `json:"bom_spec_id,omitempty"`
+		BomVariantID                       int64  `json:"bom_variant_id,omitempty"`
+		BomSpecKey                         string `json:"bom_spec_key,omitempty"`
+		BomSpecName                        string `json:"bom_spec_name,omitempty"`
 		ProductName                        string `json:"product_name"`
 		CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
 		CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
@@ -986,6 +1000,10 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		}
 		items = append(items, editItem{
 			ProductID:                          it.ProductID,
+			BomSpecID:                          it.BomSpecID,
+			BomVariantID:                       it.BomVariantID,
+			BomSpecKey:                         it.BomSpecKey,
+			BomSpecName:                        it.BomSpecName,
 			ProductName:                        it.Product,
 			CustomerProductAliasID:             it.CustomerProductAliasID,
 			CustomerProductDisplayNameSnapshot: it.CustomerProductDisplayNameSnapshot,

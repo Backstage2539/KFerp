@@ -43,7 +43,7 @@
               <td>{{ row.qty_g }}</td>
               <td>{{ row.unit_cost }} 元/{{ materialUnit(row.material_id) }}</td>
               <td>{{ row.status }}</td>
-              <td><button class="secondary" type="button" @click="receiveOrder(row)" :disabled="saving || row.status === 'received' || !isMaterialWeightByID(row.material_id)" :title="isMaterialWeightByID(row.material_id) ? '' : '旧采购单接口只支持重量物料，请改用原料入库'">收货入库</button></td>
+              <td><button class="secondary" type="button" @click="receiveOrder(row)" :disabled="saving || row.status === 'received' || !isPurchasableMaterialByID(row.material_id)" :title="isPurchasableMaterialByID(row.material_id) ? '' : '半成品只能生产入库；其他非重量物料请改用原料入库'">收货入库</button></td>
             </tr>
             <tr v-if="!orders.length"><td colspan="7" class="muted">暂无采购单</td></tr>
           </tbody>
@@ -78,6 +78,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { isSemiFinishedMaterial } from '../lib/material-receipts'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -90,9 +91,9 @@ const receipts = ref([])
 
 const supplierForm = reactive({ name: '', contact: '', phone: '', address: '' })
 const orderForm = reactive({ supplier_id: 0, material_id: 0, qty_g: 0, unit_cost: 0, note: '' })
-const purchasableMaterials = computed(() => materials.value.filter((material) => isMaterialWeight(material)))
+const purchasableMaterials = computed(() => materials.value.filter((material) => isMaterialWeight(material) && !isSemiFinishedMaterial(material)))
 const selectedPurchaseMaterialUnit = computed(() => materialUnit(orderForm.material_id))
-const isSelectedPurchaseMaterialWeight = computed(() => isMaterialWeightByID(orderForm.material_id))
+const isSelectedPurchaseMaterialWeight = computed(() => isPurchasableMaterialByID(orderForm.material_id))
 
 function supplierName(id) {
   return suppliers.value.find((row) => Number(row.id) === Number(id))?.name || ''
@@ -113,8 +114,9 @@ function isMaterialWeight(material) {
   return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit)
 }
 
-function isMaterialWeightByID(id) {
-  return isMaterialWeight(materials.value.find((row) => Number(row.id) === Number(id)))
+function isPurchasableMaterialByID(id) {
+  const material = materials.value.find((row) => Number(row.id) === Number(id))
+  return isMaterialWeight(material) && !isSemiFinishedMaterial(material)
 }
 
 async function loadAll() {
@@ -159,7 +161,7 @@ async function saveSupplier() {
 
 async function createOrder() {
   if (!isSelectedPurchaseMaterialWeight.value) {
-    error.value = '采购单当前按克记录数量，只能选择重量物料；其他物料请使用原料入库。'
+    error.value = '半成品只能通过生产入库；采购单当前仅支持其他重量物料。'
     return
   }
   saving.value = true
@@ -181,8 +183,8 @@ async function createOrder() {
 }
 
 async function receiveOrder(row) {
-  if (!isMaterialWeightByID(row.material_id)) {
-    error.value = '旧采购单收货接口只支持重量物料；请使用原料入库按库存单位录入。'
+  if (!isPurchasableMaterialByID(row.material_id)) {
+    error.value = '半成品只能通过生产入库；其他非重量物料请使用原料入库按库存单位录入。'
     return
   }
   saving.value = true

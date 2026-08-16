@@ -26,6 +26,8 @@ type ProduceRunRow struct {
 	TargetWarehouse     string
 	Product             string
 	ProductID           int64
+	BomSpecID           int64
+	BomVariantID        int64
 	SpecG               int64
 	NeedG               int64
 	InputG              int64
@@ -42,7 +44,7 @@ type ProduceRunRow struct {
 }
 
 func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProduceRunRow, error) {
-	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE status='running' ORDER BY started_at DESC,id DESC`, schema))
+	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,bom_spec_id,bom_variant_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE status='running' ORDER BY started_at DESC,id DESC`, schema))
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +52,7 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 	out := make([]ProduceRunRow, 0)
 	for rows.Next() {
 		var r ProduceRunRow
-		if err := rows.Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
+		if err := rows.Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.BomSpecID, &r.BomVariantID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 			return nil, err
 		}
 		r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
@@ -58,7 +60,10 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 			r.InputG = defaultProductionInputG(r.NeedG, r.BomYieldRate)
 		}
 		plan := runningInventoryPlan(r.SpecG, r.NeedG, r.InputG, r.BomYieldRate)
-		if materialSnapshotUsesCurrentBomLoss([]byte(r.MaterialSnapshot)) {
+		if r.BomSpecID > 0 {
+			plan = InvQty{Units: r.PlanUnits}
+		}
+		if r.BomSpecID == 0 && materialSnapshotUsesCurrentBomLoss([]byte(r.MaterialSnapshot)) {
 			plan = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
 			r.BomYieldRate = 1
 		}
@@ -86,7 +91,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	defer tx.Rollback(ctx)
 
 	var r ProduceRunRow
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,bom_spec_id,bom_variant_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.BomSpecID, &r.BomVariantID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
@@ -104,20 +109,25 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 		return repo.finishRunningOutputs(ctx, tx, r, outputs, cmd)
 	}
 
-	var unitsBefore, looseBefore int64
 	warehouse, err := finishWarehouseForRunningItemTx(ctx, tx, schema, r.ID, cmd.Warehouse)
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, schema), r.ProductID, r.SpecG, warehouse).Scan(&unitsBefore, &looseBefore)
+	unitsBefore, looseBefore, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.SpecG, warehouse)
+	if err != nil {
+		return productionapp.FinishResult{}, err
+	}
 	cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
 	add := runningInventoryPlan(r.SpecG, r.NeedG, r.InputG, r.BomYieldRate)
-	if materialSnapshotUsesCurrentBomLoss([]byte(r.MaterialSnapshot)) {
+	if r.BomSpecID > 0 {
+		add = InvQty{Units: r.PlanUnits}
+	}
+	if r.BomSpecID == 0 && materialSnapshotUsesCurrentBomLoss([]byte(r.MaterialSnapshot)) {
 		add = plannedFinishedInventoryAddition(r.SpecG, r.NeedG)
 		r.BomYieldRate = 1
 	}
 	if cmd.HasFinishedInput {
-		add, err = normalizeFinishedInventoryAddition(r.SpecG, cmd.FinishedUnits, cmd.FinishedLooseG)
+		add, err = normalizeFinishedRunAddition(r, cmd.FinishedUnits, cmd.FinishedLooseG)
 		if err != nil {
 			return productionapp.FinishResult{}, err
 		}
@@ -130,29 +140,41 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	consumedInputG, partial, err := resolveFinishConsumedInput(r, cmd, finishedTotal)
-	if err != nil {
-		return productionapp.FinishResult{}, err
-	}
-	if err := validateFinishedOutputWithinConsumedInput(finishedTotal, consumedInputG); err != nil {
-		return productionapp.FinishResult{}, err
-	}
-	actualYield, err := actualYieldRate(r.SpecG, add.Units, add.LooseG, consumedInputG)
-	if err != nil {
-		return productionapp.FinishResult{}, err
+	consumedInputG, partial := int64(0), false
+	actualYield := float64(1)
+	if r.BomSpecID > 0 {
+		consumedInputG = maxInt64(0, cmd.ConsumedInputG)
+		if r.PlanUnits > 0 {
+			actualYield = math.Round((float64(add.Units)/float64(r.PlanUnits))*10000) / 10000
+		}
+	} else {
+		consumedInputG, partial, err = resolveFinishConsumedInput(r, cmd, finishedTotal)
+		if err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		if err := validateFinishedOutputWithinConsumedInput(finishedTotal, consumedInputG); err != nil {
+			return productionapp.FinishResult{}, err
+		}
+		actualYield, err = actualYieldRate(r.SpecG, add.Units, add.LooseG, consumedInputG)
+		if err != nil {
+			return productionapp.FinishResult{}, err
+		}
 	}
 	nowQty := InvQty{Units: cur.Units + add.Units, LooseG: cur.LooseG + add.LooseG}
-	norm, err := invNormalize(r.SpecG, nowQty)
+	norm, err := normalizeFinishedRunAddition(r, nowQty.Units, nowQty.LooseG)
 	if err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), r.ProductID, r.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
+	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if err := recordFinishedProductStockMovementTx(ctx, tx, schema, r, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := allocateFinishedProductOutputToDownstreamReservationsTx(ctx, tx, schema, r.ID, r.ProductID, r.SpecG, finishedTotal, add.Units); err != nil {
+	if err := allocateFinishedProductOutputToDownstreamReservationsTx(
+		ctx, tx, schema, r.ID, r.ProductID, r.BomSpecID, r.BomVariantID,
+		r.SpecG, finishedTotal, add.Units,
+	); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	consumeRun := r
@@ -176,16 +198,16 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	finishedAt := time.Now()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_logs(
-			running_item_id,completion_no,batch_id,product_id,product_name,spec_g,order_nos,
+			running_item_id,completion_no,batch_id,product_id,bom_spec_id,bom_variant_id,product_name,spec_g,order_nos,
 			planned_need_g,input_g,bom_yield_rate,
 			finished_units,finished_loose_g,finished_total_g,actual_yield_rate,
 			started_by,started_at,finished_by,finished_at,
 			inventory_units_before,inventory_loose_g_before,
 			inventory_units_after,inventory_loose_g_after,
 			material_summary,created_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,now())
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,now())
 	`, schema),
-		r.ID, completionNo, r.BatchID, r.ProductID, r.Product, r.SpecG, r.OrderNos,
+		r.ID, completionNo, r.BatchID, r.ProductID, r.BomSpecID, r.BomVariantID, r.Product, r.SpecG, r.OrderNos,
 		r.NeedG, consumedInputG, r.BomYieldRate,
 		add.Units, add.LooseG, finishedTotal, actualYield,
 		r.StartedBy, r.StartedAtTime, operator, finishedAt,
@@ -258,7 +280,11 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if _, err := completeCustomerProcessingReservationsForRunningItemTx(ctx, tx, schema, r.ID, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := completeProductWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, cmd.WorkOrderID, actualCost, consumedInputG, finishedTotal, operator, cmd.Note); err != nil {
+	actualOutputQty := finishedTotal
+	if r.BomSpecID > 0 {
+		actualOutputQty = add.Units
+	}
+	if err := completeProductWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, cmd.WorkOrderID, actualCost, consumedInputG, actualOutputQty, operator, cmd.Note); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, finishedAt); err != nil {
@@ -325,8 +351,10 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	inventoryBySpec := map[int64]outputInventoryLog{}
 
 	for _, output := range finishedOutputs {
-		var unitsBefore, looseBefore int64
-		_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3 FOR UPDATE`, schema), output.ProductID, output.SpecG, warehouse).Scan(&unitsBefore, &looseBefore)
+		unitsBefore, looseBefore, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.SpecG, warehouse)
+		if err != nil {
+			return productionapp.FinishResult{}, err
+		}
 		cur := InvQty{Units: unitsBefore, LooseG: looseBefore}
 		add := InvQty{Units: output.FinishedUnits, LooseG: output.FinishedLooseG}
 		norm, err := invNormalize(output.SpecG, InvQty{Units: cur.Units + add.Units, LooseG: cur.LooseG + add.LooseG})
@@ -334,11 +362,13 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 			return productionapp.FinishResult{}, err
 		}
 		finishedTotal := finishedTotalG(output.SpecG, add.Units, add.LooseG)
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), output.ProductID, output.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
+		if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, warehouse, norm.Units, norm.LooseG); err != nil {
 			return productionapp.FinishResult{}, err
 		}
 		outputRun := r
 		outputRun.ProductID = output.ProductID
+		outputRun.BomSpecID = output.BomSpecID
+		outputRun.BomVariantID = output.BomVariantID
 		outputRun.Product = firstNonEmpty(output.Product, r.Product)
 		outputRun.SpecG = output.SpecG
 		outputRun.NeedG = output.NeedG
@@ -346,7 +376,10 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 		if err := recordFinishedProductStockMovementWithBatchCodeTx(ctx, tx, schema, finishedProductionBatchCodeForSpec(r.ID, output.SpecG), outputRun, cur, add, norm, finishedTotal, warehouse, operator); err != nil {
 			return productionapp.FinishResult{}, err
 		}
-		if err := allocateFinishedProductOutputToDownstreamReservationsTx(ctx, tx, schema, r.ID, output.ProductID, output.SpecG, finishedTotal, add.Units); err != nil {
+		if err := allocateFinishedProductOutputToDownstreamReservationsTx(
+			ctx, tx, schema, r.ID, output.ProductID, output.BomSpecID, output.BomVariantID,
+			output.SpecG, finishedTotal, add.Units,
+		); err != nil {
 			return productionapp.FinishResult{}, err
 		}
 		inventoryBySpec[output.SpecG] = outputInventoryLog{
@@ -529,6 +562,19 @@ func validateFinishedOutputWithinConsumedInput(finishedTotalG, consumedInputG in
 		return fmt.Errorf("finished output cannot exceed consumed input")
 	}
 	return nil
+}
+
+func normalizeFinishedRunAddition(run ProduceRunRow, units, looseG int64) (InvQty, error) {
+	if run.BomSpecID <= 0 {
+		return normalizeFinishedInventoryAddition(run.SpecG, units, looseG)
+	}
+	if units < 0 || looseG < 0 {
+		return InvQty{}, fmt.Errorf("完成件数和散装余量不能为负数")
+	}
+	if looseG != 0 {
+		return InvQty{}, fmt.Errorf("BOM 规格库存不支持散装余量")
+	}
+	return InvQty{Units: units}, nil
 }
 
 func resolveFinishConsumedInput(r ProduceRunRow, cmd productionapp.FinishCommand, finishedTotal int64) (int64, bool, error) {
@@ -753,7 +799,19 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 
 	var r ProduceRunRow
 	var runningStatus string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0),status FROM %s.produce_running_items WHERE id=$1 AND status IN ('running','paused','partially_completed') FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID, &runningStatus); err != nil {
+	identitySelect := "0::bigint,0::bigint"
+	hasBomSpec, err := schemaColumnExistsTx(ctx, tx, schema, "produce_running_items", "bom_spec_id")
+	if err != nil {
+		return err
+	}
+	hasBomVariant, err := schemaColumnExistsTx(ctx, tx, schema, "produce_running_items", "bom_variant_id")
+	if err != nil {
+		return err
+	}
+	if hasBomSpec && hasBomVariant {
+		identitySelect = "bom_spec_id,bom_variant_id"
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,%s,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0),status FROM %s.produce_running_items WHERE id=$1 AND status IN ('running','paused','partially_completed') FOR UPDATE`, identitySelect, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.BomSpecID, &r.BomVariantID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID, &runningStatus); err != nil {
 		return err
 	}
 	outputs, err := loadRunningOutputsForUpdateTx(ctx, tx, schema, r.ID)
@@ -793,7 +851,7 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 		}
 	}
 	_ = releasedProcessingReservations // reservation settlement is audited atomically by the helper
-	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(runningStatus), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "spec_g": r.SpecG, "restored_g": restoredG, "note": cmd.Note}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "produce_running", &id, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(runningStatus), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"running_item_id": id, "batch_id": r.BatchID, "product_id": r.ProductID, "bom_spec_id": r.BomSpecID, "bom_variant_id": r.BomVariantID, "spec_g": r.SpecG, "restored_g": restoredG, "note": cmd.Note}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -817,13 +875,15 @@ func restoreRunningAllocationTx(ctx context.Context, tx pgx.Tx, schema string, r
 	if deductedG <= 0 {
 		return 0, nil
 	}
-	var units, loose int64
-	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units,onhand_loose_g FROM %s.finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods' FOR UPDATE`, schema), r.ProductID, r.SpecG).Scan(&units, &loose)
+	units, loose, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.SpecG, "finished_goods")
+	if err != nil {
+		return 0, err
+	}
 	norm, err := restoreAllocatedInventory(r.SpecG, InvQty{Units: units, LooseG: loose}, deductedG)
 	if err != nil {
 		return 0, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at) VALUES($1,$2,'finished_goods',$3,$4,now()) ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()`, schema), r.ProductID, r.SpecG, norm.Units, norm.LooseG); err != nil {
+	if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, r.ProductID, r.BomSpecID, r.BomVariantID, r.SpecG, "finished_goods", norm.Units, norm.LooseG); err != nil {
 		return 0, err
 	}
 	return deductedG, nil
@@ -832,7 +892,7 @@ func restoreRunningAllocationTx(ctx context.Context, tx pgx.Tx, schema string, r
 func restoreRunningOutputAllocationsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, outputs []ProduceRunOutputRow) (int64, error) {
 	totalRestoredG := int64(0)
 	for _, output := range outputs {
-		if output.ProductID <= 0 || output.SpecG <= 0 {
+		if output.ProductID <= 0 || (output.BomSpecID <= 0 && output.SpecG <= 0) {
 			continue
 		}
 		var deductedG int64
@@ -852,23 +912,15 @@ func restoreRunningOutputAllocationsTx(ctx context.Context, tx pgx.Tx, schema st
 		if deductedG <= 0 {
 			continue
 		}
-		var units, loose int64
-		_ = tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT onhand_units,onhand_loose_g
-			FROM %s.finished_inventory
-			WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
-			FOR UPDATE
-		`, schema), output.ProductID, output.SpecG).Scan(&units, &loose)
+		units, loose, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.SpecG, "finished_goods")
+		if err != nil {
+			return 0, err
+		}
 		norm, err := restoreAllocatedInventory(output.SpecG, InvQty{Units: units, LooseG: loose}, deductedG)
 		if err != nil {
 			return 0, err
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
-			VALUES($1,$2,'finished_goods',$3,$4,now())
-			ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
-			SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g,updated_at=now()
-		`, schema), output.ProductID, output.SpecG, norm.Units, norm.LooseG); err != nil {
+		if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, output.ProductID, output.BomSpecID, output.BomVariantID, output.SpecG, "finished_goods", norm.Units, norm.LooseG); err != nil {
 			return 0, err
 		}
 		totalRestoredG += deductedG

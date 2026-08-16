@@ -1004,9 +1004,10 @@ func TestPricingRuleTrialDetailsConvertGramBomItemsToKgCost(t *testing.T) {
 	fn := src[fnStart : fnStart+fnEnd]
 	for _, want := range []string{
 		"WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='g'",
-		"THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)",
+		"THEN COALESCE(bi.qty_per_unit,0) / 1000.0 *",
 		"WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='kg'",
-		"THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)",
+		"THEN COALESCE(bi.qty_per_unit,0) *",
+		"CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) END",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("pricing rule trial BOM detail cost must convert generic g/kg quantities with kg material cost; missing %q", want)
@@ -1063,7 +1064,7 @@ func TestPricingRuleTrialDetailsGrossMaterialLossFromRecipeRatio(t *testing.T) {
 		"row.RecipeRatioPct = row.RatioPct",
 		"row.EffectiveRatioPct = row.RatioPct / (1 - row.MaterialLossRate)",
 		"row.RatioPct / (1 - row.MaterialLossRate)",
-		"THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
+		"COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("pricing rule trial BOM detail material loss cost missing marker %q", want)
@@ -1143,7 +1144,7 @@ func TestPricingRuleTrialProductionOptionsExposePublishedComponentCountAndLatest
 	}
 }
 
-func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *testing.T) {
+func TestPricingRuleTrialDetailsUsesVariantRouteCostOnlyForBOMSpecifications(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -1161,14 +1162,18 @@ func TestPricingRuleTrialDetailsDoNotUseProcessRoutePlannedOperationCost(t *test
 	if !strings.Contains(fn, "input.ProcessRouteID") {
 		t.Fatalf("pricing rule trial details must still respect selected process route boundary")
 	}
-	for _, forbidden := range []string{
+	for _, want := range []string{
+		"input.BomVariantID > 0",
+		"production_bom_version_variants",
+		"process_route_operations",
 		"planned_operation_cost",
-		"工艺路线计划工序成本",
-		"process_route:%d",
 	} {
-		if strings.Contains(fn, forbidden) {
-			t.Fatalf("pricing rule trial details must not read route template operation cost; found %q", forbidden)
+		if !strings.Contains(fn, want) {
+			t.Fatalf("BOM specification pricing trial must use its own selected route cost; missing %q", want)
 		}
+	}
+	if !strings.Contains(fn, "production_bom_version_operation_costs") {
+		t.Fatal("legacy single-recipe pricing trial must retain frozen BOM operation cost snapshots")
 	}
 }
 
@@ -1825,5 +1830,59 @@ func TestComponentCostResolutionWarningUsesBomMaterialLossVocabulary(t *testing.
 	}
 	if strings.Contains(src, "物料价格、产出率和循环引用") {
 		t.Fatal("component cost warning must not expose the removed overall yield concept")
+	}
+}
+
+func TestApplyCutoverProductBOMSpecsHidesLegacyChildrenAndKeepsUnmappedSpecsDistinct(t *testing.T) {
+	inputs := []domain.ProductInput{
+		{ProductID: 600, EffectiveParentProductID: 600, Name: "初晓", ProductName: "初晓", InventoryUnit: "kg", QuoteUnit: "kg"},
+		{ProductID: 601, SKUID: 601, ParentProductID: 600, EffectiveParentProductID: 600, Name: "初晓旧227g", ProductName: "初晓"},
+	}
+	specs := []cutoverProductBOMSpec{
+		{ParentProductID: 600, BomID: 90, BomVersionID: 901, BomVersionNo: "V001", BomSpecID: 701, BomVariantID: 1701, SpecCode: "BOM-SPEC-000701", Barcode: "6900000000701", SpecKey: "bag-a", SpecName: "同名袋", InventoryUnit: "袋", IsDefault: true, SortOrder: 10},
+		// No legacy mapping exists for this specification. The costing catalog
+		// must still expose it as its own parent+spec price identity.
+		{ParentProductID: 600, BomID: 90, BomVersionID: 901, BomVersionNo: "V001", BomSpecID: 702, BomVariantID: 1702, SpecCode: "BOM-SPEC-000702", Barcode: "6900000000702", SpecKey: "bag-b", SpecName: "同名袋", InventoryUnit: "袋", SortOrder: 20},
+	}
+
+	got := applyCutoverProductBOMSpecs(inputs, specs)
+	if len(got) != 2 {
+		t.Fatalf("cutover costing candidates = %+v", got)
+	}
+	if got[0].ProductID != 600 || got[1].ProductID != 600 || got[0].SKUID != 0 || got[1].SKUID != 0 {
+		t.Fatalf("legacy child SKU leaked into cutover candidates: %+v", got)
+	}
+	if got[0].BomSpecID != 701 || got[1].BomSpecID != 702 || got[0].BomVariantID == got[1].BomVariantID {
+		t.Fatalf("same-name BOM specs were not isolated: %+v", got)
+	}
+	if got[1].SpecCode != "BOM-SPEC-000702" || got[1].SKUCode != "BOM-SPEC-000702" || got[1].SpecBarcode != "6900000000702" || got[1].Barcode != "6900000000702" || got[1].InventoryUnit != "袋" || got[1].QuoteUnit != "袋" || got[1].OrderUnit != "袋" {
+		t.Fatalf("unmapped BOM spec catalog row = %+v", got[1])
+	}
+	if got[0].MigrationState != "cutover" || got[0].DefaultBOMSpecID != 701 || !got[0].SpecPublished {
+		t.Fatalf("cutover/default publication metadata = %+v", got[0])
+	}
+}
+
+func TestApplyResolvedProductionBomCostsMapsEachCutoverSpecificationToItsOwnCost(t *testing.T) {
+	inputs := []domain.ProductInput{
+		{ProductID: 600, ParentProductID: 600, BomVersionID: 901, BomSpecID: 701, BomCostPerUnit: 999, OperationCostPerUnit: 99},
+		{ProductID: 600, ParentProductID: 600, BomVersionID: 901, BomSpecID: 702, BomCostPerUnit: 999, OperationCostPerUnit: 99},
+		{ProductID: 600, ParentProductID: 600, BomVersionID: 901, BomSpecID: 703, BomCostPerUnit: 999, OperationCostPerUnit: 99},
+	}
+	costs := map[int64]productionBomResolvedCost{
+		productionBomSpecCostMapKey(701): {VersionID: 901, Resolved: true, InputCostPerOutputUnit: 23.2, OperationCostPerOutputUnit: 0.3},
+		productionBomSpecCostMapKey(702): {VersionID: 901, Resolved: true, InputCostPerOutputUnit: 45.9, OperationCostPerOutputUnit: 0.7},
+		productionBomSpecCostMapKey(703): {VersionID: 901, Resolved: false},
+	}
+
+	got := applyResolvedProductionBomCosts(inputs, costs)
+	if got[0].BomCostPerUnit != 23.2 || got[0].OperationCostPerUnit != 0.3 {
+		t.Fatalf("first specification cost = %+v", got[0])
+	}
+	if got[1].BomCostPerUnit != 45.9 || got[1].OperationCostPerUnit != 0.7 {
+		t.Fatalf("second specification cost = %+v", got[1])
+	}
+	if got[2].BomCostPerUnit != 0 || got[2].OperationCostPerUnit != 0 || len(got[2].Warnings) == 0 {
+		t.Fatalf("unresolved specification must fail closed without inherited parent cost: %+v", got[2])
 	}
 }

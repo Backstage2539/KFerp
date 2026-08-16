@@ -32,17 +32,44 @@ func TestMiniDirectShipEffectiveShipmentTimeFallsBackWhenPendingShipmentHasNoTim
 	}
 }
 
+func TestMiniDirectShipIdempotencyUsesStableBOMSpecIdentityAcrossVersions(t *testing.T) {
+	base := app.MiniDirectShipCommand{
+		RecipientName: "张三", RecipientPhone: "13800138000", DetailAddress: "咖啡路 8 号",
+		Items: []app.MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, BomVariantID: 901, Qty: 2}},
+	}
+	first, err := miniDirectShipRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.Items[0].BomVariantID = 902
+	second, err := miniDirectShipRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("same stable BOM spec changed idempotency hash across variants: %s != %s", first, second)
+	}
+	base.Items[0].BomSpecID = 802
+	differentSpec, err := miniDirectShipRequestHash(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if differentSpec == first {
+		t.Fatal("different stable BOM specs must not share an idempotency hash")
+	}
+}
+
 func TestMiniDirectShipCatalogExcludesPublicOtherCustomerFrozenAndReservedStock(t *testing.T) {
 	pool, schema := newMiniDirectShipTestDB(t)
 	ctx := context.Background()
 	seedMiniDirectShipStock(t, pool, schema)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.warehouses(code,name,kind,sort_order,active,customer_id)
-		VALUES('DEV-E2E-PUBLIC','公共成品仓','finished',9,true,NULL)
-		ON CONFLICT (code) DO UPDATE SET customer_id=NULL,kind='finished',active=true;
+		VALUES('DEV-E2E-PUBLIC','公共成品仓','finished',9,true,0)
+		ON CONFLICT (code) DO UPDATE SET customer_id=0,kind='finished',active=true;
 		INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 		VALUES(911,1000,'DEV-E2E-PUBLIC',50,0)
-		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=50,onhand_loose_g=0;
+		ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO UPDATE SET onhand_units=50,onhand_loose_g=0;
 		UPDATE %[1]s.finished_inventory SET onhand_units=onhand_units+5
 		WHERE product_id=911 AND spec_g=1000 AND warehouse='DEV-E2E-A1';
 		INSERT INTO %[1]s.stock_batches(
@@ -161,7 +188,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	if len(inventory) != 1 || inventory[0].TotalQty != 4 || inventory[0].ReservedQty != 3 || inventory[0].AvailableQty != 1 || len(inventory[0].Warehouses) != 2 {
 		t.Fatalf("reserved central inventory = %#v", inventory)
 	}
-	batches, err := repo.ListCustomerCentralInventoryBatches(ctx, 501, 911, 1000)
+	batches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 501, ProductID: 911, SpecG: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +378,7 @@ func TestMiniDirectShipClosedLoopFIFOIsolationIdempotencyAndCancellation(t *test
 	if previewAfterShipment.CanSubmit || len(previewAfterShipment.Shortages) != 1 || previewAfterShipment.Shortages[0].AvailableQty != 0 {
 		t.Fatalf("post-shipment preview = %#v; shipped stock must not return", previewAfterShipment)
 	}
-	postShipmentBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, 501, 911, 1000)
+	postShipmentBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 501, ProductID: 911, SpecG: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +401,7 @@ func TestMiniDirectShipLegacyShipmentNormalizesLooseInventoryAndDeductsOnce(t *t
 		ON CONFLICT (code) DO UPDATE SET customer_id=excluded.customer_id,kind=excluded.kind,active=true;
 		INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 		VALUES(921,1000,'DEV-E2E-L1',0,2000)
-		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
+		ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO UPDATE
 		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
 	`, schema)); err != nil {
 		t.Fatal(err)
@@ -466,7 +493,7 @@ func TestMiniDirectShipLegacyShipmentNormalizesLooseInventoryAndDeductsOnce(t *t
 	if !legacyPreview.CanSubmit || len(legacyPreview.Shortages) != 0 {
 		t.Fatalf("legacy preview after shipment = %#v", legacyPreview)
 	}
-	legacyBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, 601, 921, 1000)
+	legacyBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 601, ProductID: 921, SpecG: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +516,7 @@ func TestMiniDirectShipMixedTraceableAndLegacyStockSurvivesSyncedShipment(t *tes
 		ON CONFLICT (code) DO UPDATE SET customer_id=excluded.customer_id,kind=excluded.kind,active=true;
 		INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 		VALUES(931,1000,'DEV-E2E-M1',1,2000)
-		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
+		ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO UPDATE
 		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
 		INSERT INTO %[1]s.produce_running_items(id,batch_id,product_id,product_name,spec_g,need_g,status,started_at,finished_at)
 		VALUES(2101,'DEV-E2E-MIX-P1',931,'DEV-E2E 混合库存商品 1kg',1000,2000,'done','2026-08-04 08:00+08','2026-08-04 10:00+08');
@@ -509,7 +536,7 @@ func TestMiniDirectShipMixedTraceableAndLegacyStockSurvivesSyncedShipment(t *tes
 	if len(before) != 1 || before[0].TotalQty != 3 || before[0].AvailableQty != 3 {
 		t.Fatalf("mixed inventory before shipment = %#v, want traceable 2 + legacy 1", before)
 	}
-	beforeBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, 602, 931, 1000)
+	beforeBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 602, ProductID: 931, SpecG: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +599,7 @@ func TestMiniDirectShipMixedTraceableAndLegacyStockSurvivesSyncedShipment(t *tes
 	if !preview.CanSubmit || len(preview.Shortages) != 0 {
 		t.Fatalf("mixed preview after shipment = %#v, remaining traceable+legacy must both be available", preview)
 	}
-	afterBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, 602, 931, 1000)
+	afterBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 602, ProductID: 931, SpecG: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,7 +632,7 @@ func TestMiniDirectShipHistoricalUnsyncedMixedStockAndCompatibleWarehouseKinds(t
 			(941,1000,'DEV-E2E-HIST-WIP',10,0),
 			(941,1000,'DEV-E2E-HIST-PACK',10,0),
 			(941,1000,'DEV-E2E-HIST-LOSS',10,0)
-		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
+		ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO UPDATE
 		SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
 		INSERT INTO %[1]s.stock_batches(id,batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,qty_g,qty_units,remaining_g,remaining_units,quality_status,created_at)
 		VALUES
@@ -691,7 +718,7 @@ func TestMiniDirectShipHistoricalUnsyncedMixedStockAndCompatibleWarehouseKinds(t
 	if shortage.CanSubmit || len(shortage.Shortages) != 1 || shortage.Shortages[0].AvailableQty != 2 {
 		t.Fatalf("historical mixed shortage = %#v", shortage)
 	}
-	batches, err := repo.ListCustomerCentralInventoryBatches(ctx, 603, 941, 1000)
+	batches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 603, ProductID: 941, SpecG: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +735,7 @@ func TestMiniDirectShipHistoricalUnsyncedMixedStockAndCompatibleWarehouseKinds(t
 	if pureTracePreview.CanSubmit || len(pureTracePreview.Shortages) != 1 || pureTracePreview.Shortages[0].AvailableQty != 0 {
 		t.Fatalf("historical depleted traceable preview = %#v", pureTracePreview)
 	}
-	pureTraceBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, 603, 942, 1000)
+	pureTraceBatches, err := repo.ListCustomerCentralInventoryBatches(ctx, app.CustomerInventoryBatchQuery{CustomerID: 603, ProductID: 942, SpecG: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1035,7 +1062,7 @@ func seedMiniDirectShipStock(t *testing.T, pool *pgxpool.Pool, schema string) {
 		ON CONFLICT (code) DO UPDATE SET customer_id=excluded.customer_id,kind=excluded.kind,active=true;
 		INSERT INTO %[1]s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g) VALUES
 			(911,1000,'DEV-E2E-A1',1,1000),(911,1000,'DEV-E2E-A2',2,0),(911,1000,'DEV-E2E-B1',100,0)
-		ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
+		ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO UPDATE SET onhand_units=excluded.onhand_units,onhand_loose_g=excluded.onhand_loose_g;
 		INSERT INTO %[1]s.produce_running_items(id,batch_id,product_id,product_name,spec_g,need_g,status,started_at,finished_at) VALUES
 			(2001,'DEV-E2E-P1',911,'DEV-E2E 萨其姆 1kg',1000,2000,'done','2026-08-01 08:00+08','2026-08-01 10:00+08'),
 			(2002,'DEV-E2E-P2',911,'DEV-E2E 萨其姆 1kg',1000,2000,'done','2026-08-02 08:00+08','2026-08-02 10:00+08'),

@@ -320,7 +320,10 @@ func (s fakeService) SaveMallProduct(_ context.Context, cmd customerportalapp.Sa
 	if s.mallSaveCmd != nil {
 		*s.mallSaveCmd = cmd
 	}
-	return customerportalapp.MallProduct{ID: 12, ProductID: cmd.ProductID, Title: cmd.Title, SpecG: cmd.SpecG, UnitPrice: cmd.UnitPrice, TemplateKey: cmd.TemplateKey, Status: cmd.Status}, nil
+	return customerportalapp.MallProduct{
+		ID: 12, ProductID: cmd.ProductID, BomSpecID: cmd.BomSpecID, BomVariantID: cmd.BomVariantID,
+		Title: cmd.Title, SpecG: cmd.SpecG, UnitPrice: cmd.UnitPrice, TemplateKey: cmd.TemplateKey, Status: cmd.Status,
+	}, nil
 }
 
 func (s fakeService) UpdateMallProductImage(_ context.Context, cmd customerportalapp.UpdateMallProductImageCommand) (customerportalapp.MallProduct, error) {
@@ -1572,6 +1575,65 @@ func TestMallAdminAndMiniAPIs(t *testing.T) {
 	}
 }
 
+func TestMallBOMSpecIdentityFlowsThroughAdminCatalogAndOrderPayload(t *testing.T) {
+	var saveCmd customerportalapp.SaveMallProductCommand
+	var orderCmd customerportalapp.CreateMallOrderCommand
+	canonical := customerportalapp.MallProduct{
+		ID: 11, ProductID: 10, BomSpecID: 101, BomVariantID: 1001,
+		ProductName: "商品A", SpecName: "227g袋", InventoryUnit: "袋", Title: "商品A 227g袋",
+		UnitPrice: 68, Status: customerportalapp.MallProductStatusPublished,
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		mallSaveCmd: &saveCmd, mallOrderCmd: &orderCmd,
+		mallRows: []customerportalapp.MallProduct{canonical},
+		mallOptions: []customerportalapp.MallProductOption{{
+			ID: 101, ProductID: 10, BomSpecID: 101, BomVariantID: 1001,
+			Name: "商品A · 227g袋", SpecName: "227g袋", InventoryUnit: "袋",
+		}},
+		mallPage:  customerportalapp.MallPage{Products: []customerportalapp.MallProduct{canonical}},
+		mallOrder: customerportalapp.FulfillmentOrder{OrderID: 99, OrderNo: "SO-99", PortalServiceCode: customerportalapp.PortalServiceMall},
+	}})
+
+	adminList := httptest.NewRequest(http.MethodGet, "/api/customer-portal/admin/mall-products", nil)
+	adminListRec := httptest.NewRecorder()
+	e.ServeHTTP(adminListRec, adminList)
+	if adminListRec.Code != http.StatusOK || !strings.Contains(adminListRec.Body.String(), `"product_id":10`) || !strings.Contains(adminListRec.Body.String(), `"bom_spec_id":101`) || !strings.Contains(adminListRec.Body.String(), `"bom_variant_id":1001`) || !strings.Contains(adminListRec.Body.String(), `"inventory_unit":"袋"`) {
+		t.Fatalf("admin list status=%d body=%s", adminListRec.Code, adminListRec.Body.String())
+	}
+
+	adminSave := httptest.NewRequest(http.MethodPost, "/api/customer-portal/admin/mall-products", strings.NewReader(`{"product_id":10,"bom_spec_id":101,"bom_variant_id":1001,"title":"商品A 227g袋","unit_price":68,"status":"published"}`))
+	adminSave.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	adminSaveRec := httptest.NewRecorder()
+	e.ServeHTTP(adminSaveRec, adminSave)
+	if adminSaveRec.Code != http.StatusOK || !strings.Contains(adminSaveRec.Body.String(), `"bom_spec_id":101`) {
+		t.Fatalf("admin save status=%d body=%s", adminSaveRec.Code, adminSaveRec.Body.String())
+	}
+	if saveCmd.ProductID != 10 || saveCmd.BomSpecID != 101 || saveCmd.BomVariantID != 1001 || saveCmd.SpecG != 0 {
+		t.Fatalf("admin save command=%+v", saveCmd)
+	}
+
+	mallReq := httptest.NewRequest(http.MethodGet, "/api/mini/mall", nil)
+	mallReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	mallRec := httptest.NewRecorder()
+	e.ServeHTTP(mallRec, mallReq)
+	if mallRec.Code != http.StatusOK || !strings.Contains(mallRec.Body.String(), `"product_id":10`) || !strings.Contains(mallRec.Body.String(), `"bom_spec_id":101`) || !strings.Contains(mallRec.Body.String(), `"inventory_unit":"袋"`) {
+		t.Fatalf("mall catalog status=%d body=%s", mallRec.Code, mallRec.Body.String())
+	}
+
+	orderReq := httptest.NewRequest(http.MethodPost, "/api/mini/mall/orders", strings.NewReader(`{"recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","items":[{"mall_product_id":11,"product_id":10,"bom_spec_id":101,"bom_variant_id":1001,"qty":2}]}`))
+	orderReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	orderReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	orderRec := httptest.NewRecorder()
+	e.ServeHTTP(orderRec, orderReq)
+	if orderRec.Code != http.StatusOK {
+		t.Fatalf("mall order status=%d body=%s", orderRec.Code, orderRec.Body.String())
+	}
+	if len(orderCmd.Items) != 1 || orderCmd.Items[0].ProductID != 10 || orderCmd.Items[0].BomSpecID != 101 || orderCmd.Items[0].BomVariantID != 1001 || orderCmd.Items[0].Qty != 2 {
+		t.Fatalf("mall order command=%+v", orderCmd)
+	}
+}
+
 func TestMallAdminImageUploadStoresAndServesPublicAsset(t *testing.T) {
 	var imageCmd customerportalapp.UpdateMallProductImageCommand
 	e := echo.New()
@@ -1877,6 +1939,28 @@ func TestMiniFulfillmentOrderAPIForwardsDripSalesUnit(t *testing.T) {
 	}
 	if cmd.SalesUnit != "box" {
 		t.Fatalf("service command SalesUnit=%q, want box", cmd.SalesUnit)
+	}
+}
+
+func TestMiniFulfillmentOrderAPIForwardsCanonicalBOMSpecIdentity(t *testing.T) {
+	var cmd customerportalapp.CreateFulfillmentOrderCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		fulfillment:    customerportalapp.FulfillmentOrder{OrderID: 10, OrderNo: "SO-BOM-SPEC", PortalServiceCode: customerportalapp.PortalServiceProductOrder, SourceWarehouse: "finished_goods"},
+		fulfillmentCmd: &cmd,
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mini/fulfillment-orders", strings.NewReader(`{"service_code":"product_order","recipient_name":"张三","recipient_phone":"13800138000","recipient_address":"上海市","product_id":10,"bom_spec_id":101,"bom_variant_id":1001,"inventory_unit":"袋","qty":2}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if cmd.ProductID != 10 || cmd.BomSpecID != 101 || cmd.BomVariantID != 1001 || cmd.InventoryUnit != "袋" || cmd.SpecG != 0 || cmd.Qty != 2 {
+		t.Fatalf("canonical fulfillment command=%+v", cmd)
 	}
 }
 

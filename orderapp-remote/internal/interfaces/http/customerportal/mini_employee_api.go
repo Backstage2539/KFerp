@@ -118,6 +118,12 @@ type miniEmployeeOrderItemDetailDTO struct {
 	ItemID                             int64  `json:"item_id"`
 	LineNo                             int    `json:"line_no"`
 	ProductID                          int64  `json:"product_id"`
+	ParentProductID                    int64  `json:"parent_product_id,omitempty"`
+	MigrationState                     string `json:"migration_state,omitempty"`
+	BomSpecID                          int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID                       int64  `json:"bom_variant_id,omitempty"`
+	BomSpecKey                         string `json:"bom_spec_key,omitempty"`
+	BomSpecName                        string `json:"bom_spec_name,omitempty"`
 	ProductName                        string `json:"product_name"`
 	CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
 	CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
@@ -208,6 +214,8 @@ type miniEmployeeOrderItemRequest struct {
 	ItemID                 int64   `json:"item_id"`
 	ProductID              int64   `json:"product_id"`
 	ParentProductID        int64   `json:"parent_product_id"`
+	BomSpecID              int64   `json:"bom_spec_id"`
+	BomVariantID           int64   `json:"bom_variant_id"`
 	CustomerProductAliasID int64   `json:"customer_product_alias_id"`
 	BeanListPublicationID  int64   `json:"bean_list_publication_id"`
 	BeanListVersionNo      string  `json:"bean_list_version_no"`
@@ -315,15 +323,15 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 				"can_maintain":              canMaintain,
 			})
 		}
-		products := []salesapp.ProductOption{}
+		catalog := miniEmployeeOrderCatalogResult{Products: []salesapp.ProductOption{}, Families: []map[string]any{}, BOMSpecOptions: []salesapp.ProductBOMSpecOption{}}
 		if customerID > 0 {
-			products = salesapp.FilterOrderProductsForDefaultPublications(form.Products, customerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
+			catalog = miniEmployeeOrderCatalog(form, customerID, retailOrder)
 		}
-		families := salesapp.BuildOrderProductFamilies(products)
 		return c.JSON(http.StatusOK, map[string]any{
 			"today": form.Today, "customers": customers, "sources": form.Sources,
 			"order_types": form.OrderTypes, "pay_statuses": form.PayStatuses,
-			"ship_statuses": form.ShipStatuses, "products": products, "product_families": families,
+			"ship_statuses": form.ShipStatuses, "products": catalog.Products, "product_families": catalog.Families,
+			"product_bom_spec_options": catalog.BOMSpecOptions,
 		})
 	})
 
@@ -584,6 +592,7 @@ func miniEmployeeSaveOrderCommand(req miniEmployeeOrderRequest, actor string, ed
 		command := salesapp.OrderItemCommand{
 			ItemID:    item.ItemID,
 			ProductID: &productID, ParentProductID: item.ParentProductID,
+			BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID,
 			CustomerProductAliasID: item.CustomerProductAliasID,
 			BeanListPublicationID:  item.BeanListPublicationID,
 			BeanListVersionNo:      strings.TrimSpace(item.BeanListVersionNo),
@@ -654,10 +663,42 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 	}
 	retailOrder := miniEmployeeUsesRetailCatalog(form, customer, cmd.OrderTypeID)
 	products := salesapp.FilterOrderProductsForDefaultPublications(form.Products, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
+	cutoverOptions := make([]salesapp.ProductBOMSpecOption, 0)
+	for _, option := range form.ProductBOMSpecOptions {
+		if option.MigrationState == "cutover" && option.Published && option.ParentProductID > 0 && option.BomSpecID > 0 && option.BomVariantID > 0 {
+			cutoverOptions = append(cutoverOptions, option)
+		}
+	}
+	cutoverProducts, cutoverOptionBySpec := miniEmployeeBOMSpecFilterProducts(form.Products, cutoverOptions)
+	cutoverProducts = salesapp.FilterOrderProductsForDefaultPublications(cutoverProducts, cmd.CustomerID, form.BeanListVersionOptions, form.CustomerPublicUsages, retailOrder)
 	for index := range cmd.Items {
 		item := &cmd.Items[index]
 		if item.ProductID == nil || *item.ProductID <= 0 {
 			return "请选择该客户当前价格表中的商品规格", nil
+		}
+		if item.BomSpecID > 0 || item.BomVariantID > 0 {
+			option, optionFound := cutoverOptionBySpec[item.BomSpecID]
+			product, productFound := miniEmployeeCurrentBOMSpecCatalogProduct(cutoverProducts, *item.ProductID, item.BomSpecID, item.BomVariantID, item.CustomerProductAliasID)
+			if !optionFound || !productFound || option.ParentProductID != *item.ProductID || option.BomVariantID != item.BomVariantID {
+				return "所选商品或BOM规格不在该客户当前价格表中，请重新选择", nil
+			}
+			tier, found := miniEmployeeCurrentCatalogTier(product.Tiers, item.BeanListPublicationID, item.BeanListVersionNo, item.PriceSourceJSON)
+			if !found {
+				return "所选商品或BOM规格不在该客户当前价格表中，请重新选择", nil
+			}
+			item.ParentProductID = option.ParentProductID
+			item.BomSpecID = option.BomSpecID
+			item.BomVariantID = option.BomVariantID
+			item.CustomerProductAliasID = product.CustomerProductAliasID
+			item.BeanListPublicationID = tier.PublicationID
+			item.BeanListVersionNo = tier.PublicationVersionNo
+			item.PriceSourceJSON = tier.PriceSourceJSON
+			item.ProductKind = product.ProductKind
+			item.ProductCodeSnapshot = option.SpecCode
+			item.SpecG = 0
+			item.Unit = option.InventoryUnit
+			item.SalesUnit = option.InventoryUnit
+			continue
 		}
 		product, found := miniEmployeeCurrentCatalogProduct(products, *item.ProductID, item.CustomerProductAliasID)
 		if !found {
@@ -681,6 +722,43 @@ func miniEmployeePrepareCurrentCatalogFromForm(form salesapp.OrderFormData, cmd 
 		item.ProductKind = product.ProductKind
 	}
 	return "", nil
+}
+
+func miniEmployeeCurrentBOMSpecCatalogProduct(products []salesapp.ProductOption, parentProductID, bomSpecID, bomVariantID, aliasID int64) (salesapp.ProductOption, bool) {
+	var fallback *salesapp.ProductOption
+	for index := range products {
+		product := products[index]
+		if product.ID != parentProductID || product.SKUID != bomSpecID {
+			continue
+		}
+		variantMatches := false
+		for _, tier := range product.Tiers {
+			if tier.BomVariantID == bomVariantID {
+				variantMatches = true
+				break
+			}
+		}
+		if !variantMatches {
+			continue
+		}
+		if aliasID > 0 {
+			if product.CustomerProductAliasID == aliasID {
+				return product, true
+			}
+			continue
+		}
+		if product.CustomerProductAliasID == 0 {
+			return product, true
+		}
+		if fallback == nil {
+			copyProduct := product
+			fallback = &copyProduct
+		}
+	}
+	if aliasID <= 0 && fallback != nil {
+		return *fallback, true
+	}
+	return salesapp.ProductOption{}, false
 }
 
 func miniEmployeeCatalogParentProductID(product salesapp.ProductOption) int64 {
@@ -918,6 +996,11 @@ func miniEmployeeOrderItemIdentityMatches(command salesapp.OrderItemCommand, exi
 	}
 	if command.CustomerProductAliasID > 0 || existing.CustomerProductAliasID > 0 {
 		if command.CustomerProductAliasID != existing.CustomerProductAliasID {
+			return false
+		}
+	}
+	if command.BomSpecID > 0 || existing.BomSpecID > 0 {
+		if command.BomSpecID != existing.BomSpecID || command.BomVariantID != existing.BomVariantID {
 			return false
 		}
 	}
@@ -1266,6 +1349,8 @@ func miniEmployeeOrderDetail(row salesapp.OrderRow, form salesapp.OrderFormData)
 		}
 		items = append(items, miniEmployeeOrderItemDetailDTO{
 			ItemID: item.ItemID, LineNo: item.LineNo, ProductID: item.ProductID, ProductName: item.Product,
+			ParentProductID: item.ProductID, MigrationState: map[bool]string{true: "cutover", false: "legacy"}[item.BomSpecID > 0],
+			BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, BomSpecKey: item.BomSpecKey, BomSpecName: item.BomSpecName,
 			CustomerProductAliasID: item.CustomerProductAliasID, CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
 			CustomerItemCodeSnapshot: item.CustomerItemCodeSnapshot, BrandNameSnapshot: item.BrandNameSnapshot,
 			ProductCodeSnapshot: item.ProductCodeSnapshot, ProductNameSnapshot: item.ProductNameSnapshot, Note: item.Note,

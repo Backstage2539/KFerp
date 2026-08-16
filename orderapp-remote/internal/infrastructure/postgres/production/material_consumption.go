@@ -14,23 +14,25 @@ import (
 )
 
 type materialConsumptionNeed struct {
-	MaterialID         int64
-	MaterialName       string
-	Unit               string
-	Qty                int64
-	QtyDecimal         float64
-	DeductG            int64
-	DeductUnits        int64
-	RatioPct           float64
-	MaterialLossRate   float64
-	Source             string
-	ComponentType      string
-	ComponentProductID int64
-	ComponentSpecG     int64
-	ConsumeUnit        string
-	QtyPerUnit         float64
-	OutputQty          float64
-	OutputUnit         string
+	MaterialID            int64
+	MaterialName          string
+	Unit                  string
+	Qty                   int64
+	QtyDecimal            float64
+	DeductG               int64
+	DeductUnits           int64
+	RatioPct              float64
+	MaterialLossRate      float64
+	Source                string
+	ComponentType         string
+	ComponentProductID    int64
+	ComponentBomSpecID    int64
+	ComponentBomVariantID int64
+	ComponentSpecG        int64
+	ConsumeUnit           string
+	QtyPerUnit            float64
+	OutputQty             float64
+	OutputUnit            string
 }
 
 type materialConsumptionSummaryItem struct {
@@ -53,6 +55,8 @@ type materialSnapshotRow struct {
 	Source                    string  `json:"source"`
 	ComponentType             string  `json:"component_type,omitempty"`
 	ComponentProductID        int64   `json:"component_product_id,omitempty"`
+	ComponentBomSpecID        int64   `json:"component_bom_spec_id,omitempty"`
+	ComponentBomVariantID     int64   `json:"component_bom_variant_id,omitempty"`
 	ComponentSpecG            int64   `json:"component_spec_g,omitempty"`
 	ConsumeUnit               string  `json:"consume_unit,omitempty"`
 	QtyPerUnit                float64 `json:"qty_per_unit,omitempty"`
@@ -713,20 +717,22 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 			source = "bom"
 		}
 		rows = append(rows, materialSnapshotRow{
-			MaterialID:          need.MaterialID,
-			MaterialName:        need.MaterialName,
-			Unit:                need.Unit,
-			RatioPct:            need.RatioPct,
-			MaterialLossRate:    need.MaterialLossRate,
-			LossCalculationMode: yieldDenominatorMaterialLossCalculationMode,
-			Source:              source,
-			ComponentType:       need.ComponentType,
-			ComponentProductID:  need.ComponentProductID,
-			ComponentSpecG:      need.ComponentSpecG,
-			ConsumeUnit:         need.ConsumeUnit,
-			QtyPerUnit:          need.QtyPerUnit,
-			OutputQty:           need.OutputQty,
-			OutputUnit:          need.OutputUnit,
+			MaterialID:            need.MaterialID,
+			MaterialName:          need.MaterialName,
+			Unit:                  need.Unit,
+			RatioPct:              need.RatioPct,
+			MaterialLossRate:      need.MaterialLossRate,
+			LossCalculationMode:   yieldDenominatorMaterialLossCalculationMode,
+			Source:                source,
+			ComponentType:         need.ComponentType,
+			ComponentProductID:    need.ComponentProductID,
+			ComponentBomSpecID:    need.ComponentBomSpecID,
+			ComponentBomVariantID: need.ComponentBomVariantID,
+			ComponentSpecG:        need.ComponentSpecG,
+			ConsumeUnit:           need.ConsumeUnit,
+			QtyPerUnit:            need.QtyPerUnit,
+			OutputQty:             need.OutputQty,
+			OutputUnit:            need.OutputUnit,
 		})
 	}
 	if len(rows) == 0 {
@@ -736,6 +742,10 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 }
 
 func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, bomVersionID int64, inputIncludesMaterialLoss bool) ([]byte, error) {
+	return buildMaterialSnapshotForBomVersionVariantTx(ctx, tx, schema, r, bomVersionID, 0, inputIncludesMaterialLoss)
+}
+
+func buildMaterialSnapshotForBomVersionVariantTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, bomVersionID, bomVariantID int64, inputIncludesMaterialLoss bool) ([]byte, error) {
 	if bomVersionID <= 0 {
 		return nil, fmt.Errorf("production BOM version required: %s", r.Product)
 	}
@@ -749,18 +759,38 @@ func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema
 			COALESCE(NULLIF(i.component_type,''),'material'),
 			COALESCE(i.component_product_id,0),
 			COALESCE(cp.name,''),
+			COALESCE(i.component_bom_spec_id,0),
+			COALESCE(component_identity.bom_variant_id,0),
+			COALESCE(component_identity.spec_name,''),
+			COALESCE(component_identity.inventory_unit,''),
 			COALESCE(i.component_spec_g,0),
 			COALESCE(NULLIF(i.consume_unit,''),'ratio_pct'),
 			COALESCE(i.qty_per_unit,0)::float8,
-			COALESCE(NULLIF(v.output_qty,0),1)::float8,
-			COALESCE(NULLIF(v.output_unit,''),'unit')
+			CASE WHEN $2::bigint>0 THEN 1::float8 ELSE COALESCE(NULLIF(v.output_qty,0),1)::float8 END,
+			CASE WHEN $2::bigint>0 THEN COALESCE(NULLIF(variant.inventory_unit,''),'unit') ELSE COALESCE(NULLIF(v.output_unit,''),'unit') END
 		FROM %s.production_bom_version_items i
 		JOIN %s.production_bom_versions v ON v.id=i.version_id
+		LEFT JOIN %s.production_bom_version_variants variant ON variant.id=i.variant_id AND variant.version_id=i.version_id
 		LEFT JOIN %s.materials m ON m.id=i.material_id
 		LEFT JOIN %s.products cp ON cp.id=i.component_product_id
-		WHERE i.version_id=$1
+		LEFT JOIN LATERAL (
+			SELECT spec.id AS bom_spec_id,component_variant.id AS bom_variant_id,
+			       COALESCE(NULLIF(component_variant.spec_name_snapshot,''),spec.name) AS spec_name,
+			       COALESCE(NULLIF(component_variant.inventory_unit,''),spec.inventory_unit) AS inventory_unit
+			FROM %s.production_bom_specs spec
+			JOIN %s.production_bom_output_bindings component_binding
+			  ON component_binding.output_type='product' AND component_binding.output_id=i.component_product_id
+			 AND component_binding.is_default=true AND component_binding.bom_id=spec.bom_id
+			JOIN %s.production_bom_versions component_version
+			  ON component_version.id=component_binding.bom_version_id AND component_version.status='published'
+			JOIN %s.production_bom_version_variants component_variant
+			  ON component_variant.version_id=component_version.id AND component_variant.bom_spec_id=spec.id
+			WHERE spec.id=i.component_bom_spec_id
+			LIMIT 1
+		) component_identity ON COALESCE(i.component_bom_spec_id,0)>0
+		WHERE i.version_id=$1 AND ($2::bigint=0 OR i.variant_id=$2)
 		ORDER BY i.id
-	`, schema, schema, schema, schema), bomVersionID)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema), bomVersionID, bomVariantID)
 	if err != nil {
 		return nil, err
 	}
@@ -768,10 +798,11 @@ func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema
 	snapshot := make([]materialSnapshotRow, 0)
 	for rows.Next() {
 		var row materialSnapshotRow
-		var componentProductName string
+		var componentProductName, componentSpecName, componentInventoryUnit string
 		if err := rows.Scan(
 			&row.MaterialID, &row.MaterialName, &row.Unit, &row.RatioPct, &row.MaterialLossRate,
-			&row.ComponentType, &row.ComponentProductID, &componentProductName, &row.ComponentSpecG,
+			&row.ComponentType, &row.ComponentProductID, &componentProductName,
+			&row.ComponentBomSpecID, &row.ComponentBomVariantID, &componentSpecName, &componentInventoryUnit, &row.ComponentSpecG,
 			&row.ConsumeUnit, &row.QtyPerUnit, &row.OutputQty, &row.OutputUnit,
 		); err != nil {
 			return nil, err
@@ -787,9 +818,16 @@ func buildMaterialSnapshotForBomVersionTx(ctx context.Context, tx pgx.Tx, schema
 			if row.ComponentProductID <= 0 || row.QtyPerUnit <= 0 {
 				return nil, fmt.Errorf("production BOM version has invalid finished-product component: %s", r.Product)
 			}
+			if row.ComponentBomSpecID > 0 && (row.ComponentBomVariantID <= 0 || strings.TrimSpace(componentInventoryUnit) == "") {
+				return nil, fmt.Errorf("production BOM version has unavailable finished-product BOM specification component: %s", r.Product)
+			}
 			row.MaterialID = row.ComponentProductID
-			row.MaterialName = firstNonEmpty(componentProductName, fmt.Sprintf("finished product %d", row.ComponentProductID))
-			row.Unit = "g"
+			row.MaterialName = firstNonEmpty(strings.TrimSpace(componentProductName+" "+componentSpecName), componentProductName, fmt.Sprintf("finished product %d", row.ComponentProductID))
+			if row.ComponentBomSpecID > 0 {
+				row.Unit = componentInventoryUnit
+			} else {
+				row.Unit = "g"
+			}
 			row.Source = "finished_product"
 		} else if row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" || (row.RatioPct <= 0 && row.QtyPerUnit <= 0) {
 			return nil, fmt.Errorf("production BOM version has invalid material line: %s", r.Product)
@@ -882,27 +920,34 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			deductG, deductUnits = materialNeedToDeduct(unit, qty)
 		}
 		if source == "finished_product" {
-			deductG = qty
-			deductUnits = 0
+			if row.ComponentBomSpecID > 0 {
+				deductG = 0
+				deductUnits = qty
+			} else {
+				deductG = qty
+				deductUnits = 0
+			}
 		}
 		needs = append(needs, materialConsumptionNeed{
-			MaterialID:         row.MaterialID,
-			MaterialName:       strings.TrimSpace(row.MaterialName),
-			Unit:               unit,
-			Qty:                qty,
-			QtyDecimal:         qtyDecimal,
-			DeductG:            deductG,
-			DeductUnits:        deductUnits,
-			RatioPct:           row.RatioPct,
-			MaterialLossRate:   materialLossRate,
-			Source:             source,
-			ComponentType:      row.ComponentType,
-			ComponentProductID: row.ComponentProductID,
-			ComponentSpecG:     row.ComponentSpecG,
-			ConsumeUnit:        row.ConsumeUnit,
-			QtyPerUnit:         row.QtyPerUnit,
-			OutputQty:          row.OutputQty,
-			OutputUnit:         row.OutputUnit,
+			MaterialID:            row.MaterialID,
+			MaterialName:          strings.TrimSpace(row.MaterialName),
+			Unit:                  unit,
+			Qty:                   qty,
+			QtyDecimal:            qtyDecimal,
+			DeductG:               deductG,
+			DeductUnits:           deductUnits,
+			RatioPct:              row.RatioPct,
+			MaterialLossRate:      materialLossRate,
+			Source:                source,
+			ComponentType:         row.ComponentType,
+			ComponentProductID:    row.ComponentProductID,
+			ComponentBomSpecID:    row.ComponentBomSpecID,
+			ComponentBomVariantID: row.ComponentBomVariantID,
+			ComponentSpecG:        row.ComponentSpecG,
+			ConsumeUnit:           row.ConsumeUnit,
+			QtyPerUnit:            row.QtyPerUnit,
+			OutputQty:             row.OutputQty,
+			OutputUnit:            row.OutputUnit,
 		})
 	}
 	return needs, true, nil
@@ -1296,7 +1341,10 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 		return nil
 	}
 	specG := need.ComponentSpecG
-	batchAllocations, err := finishedBatchConsumptionsForRunningItemTx(ctx, tx, schema, r.ID, productID, specG, need.DeductG, need.DeductUnits)
+	batchAllocations, err := finishedBatchConsumptionsForRunningItemTx(
+		ctx, tx, schema, r.ID, productID, need.ComponentBomSpecID, need.ComponentBomVariantID,
+		specG, need.DeductG, need.DeductUnits,
+	)
 	if err != nil {
 		return err
 	}
@@ -1318,15 +1366,9 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 		allocation.Warehouse = warehouse
 		allocation.QtyG, allocation.QtyUnits = normalizeCustomerProcessingFinishedQuantity(specG, allocation.QtyG, allocation.QtyUnits)
 
-		var beforeUnits, beforeLooseG int64
-		err = tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT onhand_units,onhand_loose_g
-			FROM %s.finished_inventory
-			WHERE product_id=$1 AND spec_g=$2 AND warehouse=$3
-			FOR UPDATE
-		`, schema), productID, specG, warehouse).Scan(&beforeUnits, &beforeLooseG)
-		if err != nil && err != pgx.ErrNoRows {
-			return err
+		beforeUnits, beforeLooseG, loadErr := finishedInventoryQtyIdentityTx(ctx, tx, schema, productID, need.ComponentBomSpecID, specG, warehouse)
+		if loadErr != nil {
+			return loadErr
 		}
 		beforeG := finishedComponentTotalG(specG, beforeUnits, beforeLooseG)
 		if beforeG < allocation.QtyG || beforeUnits < allocation.QtyUnits {
@@ -1343,14 +1385,10 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 			}
 		}
 		afterG := finishedComponentTotalG(specG, afterUnits, afterLooseG)
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
-			VALUES($1,$2,$3,$4,$5,now())
-			ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
-			SET onhand_units=excluded.onhand_units,
-			    onhand_loose_g=excluded.onhand_loose_g,
-			    updated_at=now()
-		`, schema), productID, specG, warehouse, afterUnits, afterLooseG); err != nil {
+		if err := upsertFinishedInventoryIdentityTx(
+			ctx, tx, schema, productID, need.ComponentBomSpecID, need.ComponentBomVariantID,
+			specG, warehouse, afterUnits, afterLooseG,
+		); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -1367,8 +1405,9 @@ func deductFinishedProductComponentForRunningItemTx(ctx context.Context, tx pgx.
 		); err != nil {
 			return err
 		}
-		if err := insertStockLedgerEntryTx(ctx, tx, schema,
-			stockItemTypeFinishedProduct, productID, need.MaterialName, specG, warehouse,
+		if err := insertStockLedgerEntryWithBomSpecTx(ctx, tx, schema,
+			stockItemTypeFinishedProduct, productID, need.MaterialName,
+			need.ComponentBomSpecID, need.ComponentBomVariantID, specG, warehouse,
 			stockSourceProductionRun, r.ID, allocation.BatchCode, r.BatchID,
 			stockLedgerQty{
 				BeforeG:     beforeG,
@@ -1470,27 +1509,30 @@ func deductFinishedComponentQty(specG, units, looseG, deductG int64) (int64, int
 }
 
 func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materialConsumptionNeed {
-	byMaterial := map[int64]materialConsumptionNeed{}
-	order := make([]int64, 0, len(needs))
+	byMaterial := map[string]materialConsumptionNeed{}
+	order := make([]string, 0, len(needs))
 	for _, need := range needs {
 		if need.MaterialID <= 0 {
 			continue
 		}
-		row, ok := byMaterial[need.MaterialID]
+		key := fmt.Sprintf("%s:%d:%d:%d", normalizeBomComponentType(need.ComponentType), need.MaterialID, need.ComponentBomSpecID, need.ComponentSpecG)
+		row, ok := byMaterial[key]
 		if !ok {
 			row = materialConsumptionNeed{
-				MaterialID:         need.MaterialID,
-				MaterialName:       need.MaterialName,
-				Unit:               need.Unit,
-				RatioPct:           need.RatioPct,
-				Source:             need.Source,
-				ComponentType:      need.ComponentType,
-				ComponentProductID: need.ComponentProductID,
-				ComponentSpecG:     need.ComponentSpecG,
-				ConsumeUnit:        need.ConsumeUnit,
-				QtyPerUnit:         need.QtyPerUnit,
+				MaterialID:            need.MaterialID,
+				MaterialName:          need.MaterialName,
+				Unit:                  need.Unit,
+				RatioPct:              need.RatioPct,
+				Source:                need.Source,
+				ComponentType:         need.ComponentType,
+				ComponentProductID:    need.ComponentProductID,
+				ComponentBomSpecID:    need.ComponentBomSpecID,
+				ComponentBomVariantID: need.ComponentBomVariantID,
+				ComponentSpecG:        need.ComponentSpecG,
+				ConsumeUnit:           need.ConsumeUnit,
+				QtyPerUnit:            need.QtyPerUnit,
 			}
-			order = append(order, need.MaterialID)
+			order = append(order, key)
 		}
 		if row.MaterialName == "" {
 			row.MaterialName = need.MaterialName
@@ -1502,11 +1544,11 @@ func aggregateMaterialConsumptionNeeds(needs []materialConsumptionNeed) []materi
 		row.QtyDecimal += need.QtyDecimal
 		row.DeductG += need.DeductG
 		row.DeductUnits += need.DeductUnits
-		byMaterial[need.MaterialID] = row
+		byMaterial[key] = row
 	}
 	out := make([]materialConsumptionNeed, 0, len(order))
-	for _, materialID := range order {
-		out = append(out, byMaterial[materialID])
+	for _, key := range order {
+		out = append(out, byMaterial[key])
 	}
 	return out
 }

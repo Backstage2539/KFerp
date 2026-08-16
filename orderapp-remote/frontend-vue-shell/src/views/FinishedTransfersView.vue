@@ -21,7 +21,15 @@
             empty-text="没有匹配成品"
           />
         </label>
-        <label><span>规格(g)</span><input v-model.number="form.spec_g" type="number" min="1" step="1" /></label>
+        <label v-if="selectedProductUsesBOMSpecs">
+          <span>BOM 规格</span>
+          <select v-model.number="form.bom_spec_id">
+            <option v-for="row in selectedProductBOMSpecs" :key="row.bom_spec_id" :value="row.bom_spec_id">
+              {{ row.name }}（{{ row.unit }}）
+            </option>
+          </select>
+        </label>
+        <label v-else><span>规格(g)</span><input v-model.number="form.spec_g" type="number" min="1" step="1" /></label>
         <label>
           <span>出库仓</span>
           <select v-model="form.from_warehouse">
@@ -34,8 +42,8 @@
             <option v-for="row in finishedWarehouses" :key="row.code" :value="row.code">{{ row.name }}</option>
           </select>
         </label>
-        <label><span>件数</span><input v-model.number="form.qty_units" type="number" min="0" step="1" /></label>
-        <label><span>散装(g)</span><input v-model.number="form.qty_loose_g" type="number" min="0" step="1" /></label>
+        <label><span>{{ selectedProductUsesBOMSpecs ? `数量（${selectedProductBOMSpec?.unit || '规格单位'}）` : '件数' }}</span><input v-model.number="form.qty_units" type="number" min="0" step="1" /></label>
+        <label v-if="!selectedProductUsesBOMSpecs"><span>散装(g)</span><input v-model.number="form.qty_loose_g" type="number" min="0" step="1" /></label>
         <label class="span-3"><span>备注</span><input v-model.trim="form.note" placeholder="门店备货/展会备货/仓库整理" /></label>
         <button class="primary" type="button" @click="submit" :disabled="saving">提交转仓</button>
       </div>
@@ -44,9 +52,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import {
+  buildFinishedTransferPayload,
+  currentBOMSpecs,
+  defaultBOMSpecID,
+  selectedBOMSpec,
+  usesCurrentBOMSpecs,
+} from '../lib/stock-bom-spec'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -60,6 +75,7 @@ const error = ref('')
 const ok = ref('')
 const form = reactive({
   product_id: 0,
+  bom_spec_id: 0,
   spec_g: 454,
   from_warehouse: 'finished_goods',
   to_warehouse: 'finished_shop',
@@ -72,6 +88,10 @@ const finishedWarehouses = computed(() => {
   const rows = warehouses.value.filter((row) => row.kind === 'finished')
   return rows.length ? rows : [{ code: 'finished_goods', name: '成品仓' }]
 })
+const selectedProduct = computed(() => products.value.find((row) => Number(row.id || row.product_id || 0) === Number(form.product_id || 0)) || null)
+const selectedProductUsesBOMSpecs = computed(() => usesCurrentBOMSpecs(selectedProduct.value || {}))
+const selectedProductBOMSpecs = computed(() => currentBOMSpecs(selectedProduct.value || {}))
+const selectedProductBOMSpec = computed(() => selectedBOMSpec(selectedProduct.value || {}, form.bom_spec_id))
 
 function productLabel(row) {
   const name = String(row?.name || row?.Name || '').trim()
@@ -83,9 +103,10 @@ async function loadOptions() {
   loading.value = true
   error.value = ''
   try {
-    const [prod, wh] = await Promise.all([apiGet('/api/products'), apiGet('/api/stock/warehouses')])
+    const [prod, wh] = await Promise.all([apiGet('/api/products/inventory?limit=200'), apiGet('/api/stock/warehouses')])
     products.value = prod.rows || prod.products || []
     warehouses.value = wh.rows || []
+    onProductChange()
     if (!finishedWarehouses.value.some((row) => row.code === form.from_warehouse)) {
       form.from_warehouse = finishedWarehouses.value[0]?.code || 'finished_goods'
     }
@@ -104,7 +125,9 @@ async function submit() {
   error.value = ''
   ok.value = ''
   try {
-    const data = await apiSend('/api/stock/finished-transfers', { body: form })
+    if (selectedProductUsesBOMSpecs.value && !selectedProductBOMSpec.value) throw new Error('请选择当前默认 BOM 的规格')
+    const body = buildFinishedTransferPayload(form, selectedProduct.value || {})
+    const data = await apiSend('/api/stock/finished-transfers', { body })
     ok.value = data.transfer_no || data.transfer_id
   } catch (err) {
     error.value = err.message || '提交失败'
@@ -112,6 +135,16 @@ async function submit() {
     saving.value = false
   }
 }
+
+function onProductChange() {
+  const selectedStillExists = selectedProductBOMSpecs.value.some((row) => Number(row.bom_spec_id) === Number(form.bom_spec_id))
+  form.bom_spec_id = selectedProductUsesBOMSpecs.value
+    ? (selectedStillExists ? Number(form.bom_spec_id) : defaultBOMSpecID(selectedProduct.value || {}))
+    : 0
+  if (selectedProductUsesBOMSpecs.value) form.qty_loose_g = 0
+}
+
+watch(() => form.product_id, onProductChange)
 
 onMounted(loadOptions)
 </script>

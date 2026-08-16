@@ -61,6 +61,9 @@ type fulfillmentOrderRequest struct {
 	RecipientAddress string  `json:"recipient_address"`
 	RecipientCompany string  `json:"recipient_company"`
 	ProductID        int64   `json:"product_id"`
+	BomSpecID        int64   `json:"bom_spec_id"`
+	BomVariantID     int64   `json:"bom_variant_id"`
+	InventoryUnit    string  `json:"inventory_unit"`
 	ProductName      string  `json:"product_name"`
 	SpecG            int64   `json:"spec_g"`
 	SalesUnit        string  `json:"sales_unit"`
@@ -763,6 +766,9 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 			RecipientAddress:  req.RecipientAddress,
 			RecipientCompany:  req.RecipientCompany,
 			ProductID:         req.ProductID,
+			BomSpecID:         req.BomSpecID,
+			BomVariantID:      req.BomVariantID,
+			InventoryUnit:     req.InventoryUnit,
 			ProductName:       req.ProductName,
 			SpecG:             req.SpecG,
 			SalesUnit:         req.SalesUnit,
@@ -1037,6 +1043,10 @@ func isMiniValidationError(err error) bool {
 		message := err.Error()
 		return strings.Contains(message, "product BOM not configured") ||
 			strings.Contains(message, "production BOM") ||
+			strings.Contains(message, "BOM spec") ||
+			strings.Contains(message, "bom_spec_id") ||
+			strings.Contains(message, "bom_variant_id") ||
+			strings.Contains(message, "legacy child SKU") ||
 			strings.Contains(message, "customer warehouse binding required") ||
 			strings.Contains(message, "最新可用 BOM 版本未配置工艺路线")
 	}

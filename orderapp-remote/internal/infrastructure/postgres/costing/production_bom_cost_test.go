@@ -340,6 +340,29 @@ func TestResolveProductionBomTrialItemMatchesPriceListGraphContribution(t *testi
 	}
 }
 
+func TestResolveProductionBomTrialItemUsesExplicitComponentSpecificationWithoutParentFallback(t *testing.T) {
+	item := productionBomCostItem{
+		ComponentType:      "product",
+		ComponentProductID: 600,
+		ComponentBomSpecID: 702,
+		ConsumeUnit:        "unit",
+		QtyPerUnit:         1,
+	}
+	costs := map[int64]productionBomResolvedCost{
+		600:                              {Resolved: true, TotalCostPerOutputUnit: 999, OutputUnit: "袋"},
+		productionBomSpecCostMapKey(702): {Resolved: true, TotalCostPerOutputUnit: 23.5, OutputUnit: "袋"},
+	}
+	got, ok, warning := resolveProductionBomTrialItemCost(item, 0, "", 1, 1, "袋", costs)
+	if !ok || warning != "" || math.Abs(got.UnitCost-23.5) > 1e-9 {
+		t.Fatalf("explicit component specification cost = %+v ok=%v warning=%q", got, ok, warning)
+	}
+
+	item.ComponentBomSpecID = 703
+	if _, ok, _ := resolveProductionBomTrialItemCost(item, 0, "", 1, 1, "袋", costs); ok {
+		t.Fatal("missing explicit specification must fail instead of falling back to the parent product cost")
+	}
+}
+
 func TestResolveProductionBomCostsRejectsCyclesAndIgnoresLegacyZeroYield(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		1: {

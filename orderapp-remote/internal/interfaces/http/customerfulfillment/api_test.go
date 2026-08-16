@@ -679,6 +679,37 @@ func TestCustomerPortalDirectShipSubmitAPIForwardsDripSalesUnit(t *testing.T) {
 	}
 }
 
+func TestCustomerPortalDirectShipSubmitAPIForwardsCanonicalBOMSpecIdentity(t *testing.T) {
+	svc := &fakeCustomerFulfillmentService{
+		customerDirectShipResult: app.DirectShipOrderSummary{OrderID: 98, OrderNo: "CDS-20260817-0001", Status: "submitted", ItemCount: 1},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(23))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
+
+	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","items":[{"product_id":88,"bom_spec_id":801,"bom_variant_id":901,"spec":"227g袋","sales_unit":"袋","quantity_units":3}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/direct-ship-orders", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("canonical direct ship status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(svc.customerDirectShipCmd.Items) != 1 {
+		t.Fatalf("items=%#v", svc.customerDirectShipCmd.Items)
+	}
+	got := svc.customerDirectShipCmd.Items[0]
+	if got.ProductID != 88 || got.BomSpecID != 801 || got.BomVariantID != 901 || got.SpecG != 0 || got.SalesUnit != "袋" {
+		t.Fatalf("canonical item=%#v", got)
+	}
+}
+
 func TestCustomerPortalDirectShipSubmitAPIAcceptsMultiLineItems(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		customerDirectShipResult: app.DirectShipOrderSummary{OrderID: 108, OrderNo: "CDS-20260508-0108", Status: "submitted", ItemCount: 2},

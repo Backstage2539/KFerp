@@ -190,7 +190,8 @@ func resolveCurrentProductionProductSpec(ctx context.Context, q rowQuerier, sche
 		           NULLIF(product_unit_template.quote_unit,''),
 		           NULLIF(p.derived_sales_unit,''),
 		           NULLIF(p.spec_label,''),
-		           NULLIF(p.sku_name,'')
+		           NULLIF(p.sku_name,''),
+		           ''
 		         )
 		       END,
 		       CASE WHEN COALESCE(p.parent_product_id,0)>0
@@ -215,7 +216,8 @@ func resolveCurrentProductionProductSpec(ctx context.Context, q rowQuerier, sche
 		         NULLIF(product_unit_template.inventory_unit,''),
 		         NULLIF(product_config.inventory_unit,''),
 		         NULLIF(product_category.inventory_unit,''),
-		         NULLIF(parent_category_self.inventory_unit,'')
+		         NULLIF(parent_category_self.inventory_unit,''),
+		         ''
 		       ) END,
 		       COALESCE(
 		         NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),

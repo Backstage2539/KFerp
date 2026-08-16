@@ -273,30 +273,15 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			continue
 		}
 		for _, output := range group.Outputs {
-			var units, loose int64
-			row := tx.QueryRow(ctx, fmt.Sprintf(`
-				SELECT onhand_units, onhand_loose_g
-				FROM %s.finished_inventory
-				WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
-				FOR UPDATE
-			`, r.schema), output.ProductID, output.SpecG)
-			if scanErr := row.Scan(&units, &loose); scanErr != nil {
-				if scanErr == pgx.ErrNoRows {
-					units, loose = 0, 0
-				} else {
-					return productionapp.StartResult{}, scanErr
-				}
+			units, loose, err := finishedInventoryQtyIdentityTx(ctx, tx, r.schema, output.ProductID, 0, output.SpecG, "finished_goods")
+			if err != nil {
+				return productionapp.StartResult{}, err
 			}
 			remain, deductedG, gapG, err := invDeduct(output.SpecG, InvQty{Units: units, LooseG: loose}, output.NeedG)
 			if err != nil {
 				return productionapp.StartResult{}, err
 			}
-			if _, err := tx.Exec(ctx, fmt.Sprintf(`
-				INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
-				VALUES($1,$2,'finished_goods',$3,$4,now())
-				ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
-				SET onhand_units=excluded.onhand_units, onhand_loose_g=excluded.onhand_loose_g, updated_at=now()
-			`, r.schema), output.ProductID, output.SpecG, remain.Units, remain.LooseG); err != nil {
+			if err := upsertFinishedInventoryIdentityTx(ctx, tx, r.schema, output.ProductID, 0, 0, output.SpecG, "finished_goods", remain.Units, remain.LooseG); err != nil {
 				return productionapp.StartResult{}, err
 			}
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`

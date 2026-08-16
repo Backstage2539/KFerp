@@ -53,3 +53,29 @@ func TestServiceRejectsInvalidFinishedInventoryAdjustment(t *testing.T) {
 		t.Fatal("expected negative quantity to fail")
 	}
 }
+
+func TestServiceKeepsBOMSpecFinishedInventoryAsWholeSpecificationUnits(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if err := svc.AdjustFinished(context.Background(), AdjustFinishedInventoryCommand{
+		ProductID: 7, BomSpecID: 91, BomVariantID: 191, Units: 12, Operator: " tester ",
+	}); err != nil {
+		t.Fatalf("AdjustFinished BOM spec: %v", err)
+	}
+	if repo.adjust.ProductID != 7 || repo.adjust.BomSpecID != 91 || repo.adjust.BomVariantID != 191 || repo.adjust.SpecG != 0 || repo.adjust.Units != 12 || repo.adjust.LooseG != 0 {
+		t.Fatalf("adjust=%+v", repo.adjust)
+	}
+}
+
+func TestServiceAllowsRepositoryToResolveCurrentBOMVariant(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if err := svc.AdjustFinished(context.Background(), AdjustFinishedInventoryCommand{
+		ProductID: 7, BomSpecID: 91, Units: 12, Operator: " tester ",
+	}); err != nil {
+		t.Fatalf("AdjustFinished without client variant: %v", err)
+	}
+	if repo.adjust.BomSpecID != 91 || repo.adjust.BomVariantID != 0 || repo.adjust.SpecG != 0 || repo.adjust.Units != 12 {
+		t.Fatalf("adjust=%+v, want repository-resolved variant placeholder", repo.adjust)
+	}
+}
