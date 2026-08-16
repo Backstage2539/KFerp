@@ -42,13 +42,17 @@
 
 ## Development 交付
 
-- Feature branch：`codex/pr600-bom-spec-groups`（自动化验证与独立发布门禁完成，待提交/推送）。
-- `develop` merge：待执行。
-- development deployment / backup / HTTP smoke：待执行。
+- Feature branches：`codex/pr600-bom-spec-groups@8a33c695` 与最终表单对齐修复 `codex/pr600-bom-alignment-release-fix@3839b332`；自动化验证、独立发布门禁和远端 development 预检均完成。
+- `develop` merge：已完成；功能发布合并提交 `c80a46ea`。
+- development deployment：已完成；发布内容包含 `develop@c80a46ea`，固定开发小程序包已同步。
+- Backup：`/opt/stacks/erp/backups/pr600-pre-bom-spec-groups-20260816T222807Z-2309674f.dump` 已在临时库完整恢复并核对聚合签名。
+- HTTP / browser smoke：development 登录、BOM 页面和规格模板接口通过；桌面与窄屏几何验收由本次发布记录覆盖。
 - 商品自动 cutover：禁止。
 - `main` / production：不操作。
 
 ## Van 人工验收
+
+状态：pending。以下项目保留给 Van 在 development 环境人工确认，自动门禁与浏览器只读检查不替代业务验收。
 
 - [ ] 在 BOM 页面建立十规格模板，复制到商品 BOM 并逐规格核对配方。
 - [ ] 检查损耗比例与固定用量互斥提示。
