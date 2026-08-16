@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
 - Branch: codex/pr600-bom-spec-groups
 - Owner/session: Codex / 2026-08-17
-- Status: final stable-tree automated verification and independent release gate GREEN; develop merge and development deployment pending
+- Status: final stable-tree automated verification and independent release gate GREEN；功能发布已合入 `develop@c80a46ea` 并交付 development；Van 人工验收 pending
 - Scope: 统一 BOM 配方消耗模式；半成品改为制造专供；商品规格从派生子 SKU 迁到 BOM 专属规格组，并按商品逐个切换新业务身份。
 - DEV:
   - DEV-600-BOM-RECIPE-MODE（done，Vue/application/PostgreSQL GREEN）：单一组件列表、比例/固定模式互斥、发布校验与历史版本兼容。
@@ -17,13 +17,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-600-BOM-SPEC-TEMPLATE-GROUP（done，PostgreSQL/API/Vue GREEN）：版本化规格模板、主投入占位符、BOM 专属规格和整组原子发布。
   - DEV-600-BOM-SPEC-BUSINESS-IDENTITY（done，cross-module PostgreSQL/Vue/miniapp GREEN）：价格、订单、库存、生产、履约与小程序改用父商品 + BOM 规格。
   - DEV-600-PER-PRODUCT-MIGRATION（done，PostgreSQL/API GREEN）：旧子 SKU 映射、手工配方重建工作台、迁移门禁与逐商品切换。
-  - DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY（todo，merge/deploy pending）：BOM 布局、商品/物料工作流、手册、验收已同步，待合入 `develop` 并仅部署 development。
+  - DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY（done，development delivered）：BOM 布局、商品/物料工作流、手册和验收已同步；最终对齐修复 `3839b332` 经远端全门禁后合入功能发布 `develop@c80a46ea`，仅交付 development。
 - Verifier:
   - Final stable-tree GREEN：`scripts/verify_kferp.sh all` exit 0；Go 全量 GREEN；Vue 1013/1013；Vite 6594 modules / 2.04s；miniapp 217/217、typecheck 与 development mp-weixin build GREEN；`git diff --check` GREEN。
   - Final real PostgreSQL GREEN：app bootstrap、BOM、catalog、materials、purchase、stock、inventory、production、productspecmigration、costing、sales、customerportal 与 customerfulfillment 关键仓储/API 套件串行通过；production HTTP 73.778s，customerportal 39.645s，customerfulfillment 34.437s。覆盖十规格原子发布、跨版本冻结执行、逐商品迁移、半成品入库门禁、规格库存隔离及 100 袋精确耗用。
   - Manual：需求、验收及 BOM/物料/成本/订单/库存/生产/客户履约/客户门户/员工小程序手册已同步。
   - Review/acceptance：独立最终只读发布门禁为 0 P0 / 0 P1，P2 无新增；Van development 人工验收保持 pending。
-- Deployment: development only after verified feature merge; main/production out of scope and untouched
+- Deployment: 包含 PR-600 与 BOM 表单对齐修复的功能发布 `develop@c80a46ea` 已交付 development；固定开发小程序包同步；`main@53cee821` 与 production 未操作。部署前数据库快照 `/opt/stacks/erp/backups/pr600-pre-bom-spec-groups-20260816T222807Z-2309674f.dump` 已完成临时库恢复校验；部署不自动 cutover 任何商品。
 - Last update: 2026-08-17 Asia/Shanghai
 - Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串失败；`scripts/reserve_req_id.sh` 已确认下一可用编号为 PR-600，按既有流程手工登记。
 

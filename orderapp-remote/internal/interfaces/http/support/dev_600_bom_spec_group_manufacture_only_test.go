@@ -18,7 +18,7 @@ func TestDev600BomSpecGroupManufactureOnlyContracts(t *testing.T) {
 		{"req_dev", "DEV-600-BOM-SPEC-TEMPLATE-GROUP", "done", "Codex"},
 		{"req_dev", "DEV-600-BOM-SPEC-BUSINESS-IDENTITY", "done", "Codex"},
 		{"req_dev", "DEV-600-PER-PRODUCT-MIGRATION", "done", "Codex"},
-		{"req_dev", "DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY", "todo", "Codex"},
+		{"req_dev", "DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY", "done", "Codex"},
 		{"req_review", "REV-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED", "todo", "VA"},
 	} {
 		requireDev600SeedRow(t, reqStore, row.table, row.code, row.status, row.assignee)
@@ -38,7 +38,7 @@ func TestDev600BomSpecGroupManufactureOnlyContracts(t *testing.T) {
 			"PR-600", "半成品只能由生产获得", "采购价为 0",
 		},
 		filepath.Join("docs", "acceptance", "2026-08-17-bom-spec-group-manufacture-only.md"): {
-			"PR-600", "## RED 证据", "## GREEN 证据", "development only",
+			"PR-600", "## RED 证据", "## GREEN 证据", "development only", "c80a46ea", "Van 人工验收",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
