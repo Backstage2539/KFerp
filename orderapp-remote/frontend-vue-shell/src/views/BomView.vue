@@ -85,7 +85,10 @@
               <option value="inactive">已失效</option>
             </select>
           </label>
-          <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
+          <div class="bom-record-form-action">
+            <span class="bom-record-form-action-spacer" aria-hidden="true">操作</span>
+            <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
+          </div>
         </form>
         <div id="bom-settings-detail-target" class="bom-settings-detail-target" aria-label="BOM 明细、BOM版本、配方明细"></div>
       </aside>
@@ -2926,12 +2929,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .feature-group-selection-option input { width: auto; min-width: 0; height: auto; }
 .bom-list-panel-scroll { min-width: 0; min-height: 0; overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
-.bom-record-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: 12px; }
+.bom-record-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; gap: 12px; }
 .bom-record-form > label { min-width: 0; }
 .bom-record-form > label > input,
 .bom-record-form > label > select { width: 100%; min-width: 0; }
 .bom-record-form > label > small { display: block; margin-top: 5px; line-height: 1.35; }
-.bom-record-form > button { align-self: end; justify-self: start; }
+.bom-record-form-action { min-width: 0; }
+.bom-record-form-action-spacer { display: block; margin-bottom: 5px; color: #666; font-size: 12px; visibility: hidden; }
+.bom-record-form-action > button { justify-self: start; }
 .bom-focus-filter { align-self: stretch; display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 640px; border-collapse: collapse; }
@@ -3034,7 +3039,8 @@ tbody tr.active { background: #f3f7fb; }
 }
 @media (max-width: 600px) {
   .bom-record-form { grid-template-columns: 1fr; }
-  .bom-record-form > button { width: 100%; justify-self: stretch; }
+  .bom-record-form-action-spacer { display: none; }
+  .bom-record-form-action > button { width: 100%; }
   .spec-variant-grid, .spec-component-row, .bom-spec-identity-form, .bom-spec-template-reapply-form { grid-template-columns: 1fr; }
   .bom-spec-template-reapply-form > button { width: 100%; justify-self: stretch; }
 }

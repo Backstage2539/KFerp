@@ -339,8 +339,11 @@ test('BOM drawer exposes copied spec groups and uses a responsive aligned header
   assert.match(source, /规格一经发布，库存单位不可修改/)
   assert.match(source, /barcode:\s*String\(variant\.barcode/)
   assert.match(source, /grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/)
+  assert.match(source, /\.bom-record-form\s*\{[^}]*align-items:\s*start/)
+  assert.match(form, /class="bom-record-form-action"[\s\S]*class="bom-record-form-action-spacer"[\s\S]*保存 BOM/)
+  assert.match(source, /\.bom-record-form-action-spacer\s*\{[^}]*visibility:\s*hidden/)
   assert.match(source, /@media \(max-width: 900px\)[\s\S]*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
-  assert.match(source, /@media \(max-width: 600px\)[\s\S]*grid-template-columns:\s*1fr/)
+  assert.match(source, /@media \(max-width: 600px\)[\s\S]*grid-template-columns:\s*1fr[\s\S]*\.bom-record-form-action-spacer\s*\{\s*display:\s*none/)
   assert.match(searchable, /box-sizing:\s*border-box/)
 })
 
