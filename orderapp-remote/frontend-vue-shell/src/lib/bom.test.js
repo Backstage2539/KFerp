@@ -298,28 +298,24 @@ test('BOM version settings use one recipe list and one consume mode per variant'
   const template = source.split('<script setup>')[0] || source
   const itemFormBlock = template.match(/<form class="inline-form" @submit\.prevent="saveItem"[\s\S]*?<\/form>/)?.[0] || ''
 
-  assert.match(source, /原料损耗比/)
-  assert.match(source, /损耗比例 %/)
-  assert.match(source, /material_loss_rate/)
-  assert.match(source, /versionMaterialLossRateEnabled/)
-  assert.match(source, /开启损耗后，所有组件必须是物料并使用比例 %/)
-  assert.match(source, /selectedVersionMaterialLossRate/)
+  assert.doesNotMatch(source, /原料损耗比/)
+  assert.doesNotMatch(source, /损耗比例 %/)
+  assert.doesNotMatch(source, /versionMaterialLossRateEnabled/)
+  assert.doesNotMatch(source, /versionMaterialLossRatePct/)
+  assert.doesNotMatch(source, /handleVersionMaterialLossToggle/)
+  assert.doesNotMatch(source, /开启损耗后，所有组件必须是物料并使用比例 %/)
   assert.doesNotMatch(source, /有损耗的配方/)
   assert.doesNotMatch(source, /无损耗的配方/)
   assert.doesNotMatch(source, /selectedMaterialLossZone/)
   assert.doesNotMatch(source, /selectMaterialLossZone/)
   assert.doesNotMatch(source, /detailItemSections/)
   assert.match(source, /recipeConsumeMode/)
-  assert.match(source, /同一配方不能混合使用比例 % 和固定用量/)
   assert.match(source, /componentInventoryConsumeUnitOptions/)
   assert.match(source, /itemForm\.component_type === 'product'/)
-  assert.match(source, /不含原料损耗/)
   assert.match(source, /materialLossRateDisplay/)
   assert.match(source, /配方比例 ÷ \(1 - 原料损耗率\)/)
   assert.doesNotMatch(source, /配方比例 × \(1 \+ 原料损耗比\)/)
-  assert.match(source, /material_loss_rate:\s*selectedVersionMaterialLossRate/)
-  assert.doesNotMatch(itemFormBlock, /原料损耗比/)
-  assert.doesNotMatch(itemFormBlock, /损耗比例 %/)
+  assert.doesNotMatch(itemFormBlock, /损耗比例/)
   assert.doesNotMatch(source, /itemForm\.material_loss_rate_enabled/)
 })
 
@@ -331,9 +327,11 @@ test('BOM drawer exposes copied spec groups and uses a responsive aligned header
   const form = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
 
   assert.match(form, /BOM 规格模板/)
-  assert.match(form, /主投入物料/)
+  assert.match(form, /规格主体物料/)
+  assert.doesNotMatch(form, /主投入物料/)
   assert.match(source, /规格组/)
   assert.match(source, /variants/)
+  assert.doesNotMatch(source, /稳定规格键/)
   assert.match(source, /规格编码（自动）/)
   assert.match(source, /新条码（可选）/)
   assert.match(source, /规格一经发布，库存单位不可修改/)
@@ -347,6 +345,16 @@ test('BOM drawer exposes copied spec groups and uses a responsive aligned header
   assert.match(searchable, /box-sizing:\s*border-box/)
 })
 
+test('spec template and BOM spec group forms align selectors with hidden spacers', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /\.bom-spec-template-reapply-form\s*\{[^}]*align-items:\s*start/)
+  assert.match(source, /\.bom-spec-identity-form\s*\{[^}]*align-items:\s*start/)
+  assert.match(source, /\.reapply-action-spacer\s*\{[^}]*visibility:\s*hidden/)
+  assert.match(source, /\.identity-action-spacer\s*\{[^}]*visibility:\s*hidden/)
+})
+
 test('product BOM draft can add, remove, and reapply a published specification template', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
@@ -356,7 +364,8 @@ test('product BOM draft can add, remove, and reapply a published specification t
   assert.match(specGroup, /添加规格/)
   assert.match(specGroup, /删除该规格/)
   assert.match(specGroup, /重新套用已发布模板/)
-  assert.match(specGroup, /主投入物料/)
+  assert.doesNotMatch(specGroup, /主投入物料/)
+  assert.match(specGroup, /规格主体物料/)
   assert.match(source, /function addProductionBomDraftVariant/)
   assert.match(source, /function removeProductionBomDraftVariant/)
   assert.match(source, /async function reapplyProductionBomSpecTemplate/)
@@ -592,7 +601,7 @@ test('production BOM list preserves status and name search before inline categor
   assert.match(bomRecordForm, /产出数量/)
   assert.match(bomRecordForm, /产出单位/)
   assert.match(bomRecordForm, /BOM 规格模板/)
-  assert.match(bomRecordForm, /主投入物料/)
+  assert.match(bomRecordForm, /规格主体物料/)
   assert.match(source, /inventory_unit_explicit/)
   assert.doesNotMatch(source, /请先到销售规格模板设置库存单位/)
   assert.match(source, /outputUnitMismatchWarning/)
@@ -948,4 +957,53 @@ test('BOM specification template variants edit material and published product-sp
   assert.match(source, /component_bom_spec_id:\s*componentType === 'product'/)
   assert.match(source, /商品规格组件只能使用固定用量/)
   assert.match(source, /物料固定用量必须使用该物料的库存单位/)
+})
+
+test('material option labels never fabricate SKU- prefixes for materials', async () => {
+  assert.equal(bomLib.materialOptionLabel({ id: 123, name: '鲜豆', product_code: 'WL-0001' }), 'WL-0001 鲜豆')
+  assert.equal(bomLib.materialOptionLabel({ id: 123, name: '鲜豆', code: 'WL-0001' }), 'WL-0001 鲜豆')
+  assert.equal(bomLib.materialOptionLabel({ id: 123, name: '鲜豆' }), '鲜豆')
+  assert.equal(bomLib.materialOptionLabel({ id: 123 }), '物料 #123')
+  assert.doesNotMatch(bomLib.materialOptionLabel({ id: 123, name: '鲜豆' }), /SKU-/)
+
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /materialOptionLabel,/)
+  const materialSelectors = source.match(/:options="materialComponentOptions"[^>]*:option-label="optionLabel"/g) || []
+  assert.equal(materialSelectors.length, 0, 'material selectors must not use product optionLabel')
+  assert.match(source, /:options="materialComponentOptions"[^>]*:option-label="materialOptionLabel"|:option-label="materialOptionLabel"[^>]*:options="materialComponentOptions"/)
+})
+
+test('spec keys are generated internally as spec-N and hidden from editing UI', async () => {
+  assert.equal(bomLib.nextSpecKey([]), 'spec-1')
+  assert.equal(bomLib.nextSpecKey(['spec-1']), 'spec-2')
+  assert.equal(bomLib.nextSpecKey(['spec-1', 'spec-3']), 'spec-4')
+  assert.equal(bomLib.nextSpecKey(['spec-2', 'bag-227g']), 'spec-3')
+  assert.equal(bomLib.nextSpecKey(['spec-10']), 'spec-11')
+
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.doesNotMatch(template, /稳定规格键/)
+  assert.doesNotMatch(template, /placeholder="bag-227g"/)
+  assert.doesNotMatch(template, /placeholder="例如 bag-227g"/)
+  assert.match(source, /function nextSpecKey|nextSpecKey,/)
+  assert.match(source, /spec_key:\s*nextSpecKey/)
+  assert.doesNotMatch(source, /请填写每个规格的规格键、名称和库存单位/)
+})
+
+test('spec variant card uses compact default checkbox and 规格用量 naming', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const card = template.match(/<article v-for="\(variant, variantIndex\) in templateDraftVariants"[\s\S]*?<div class="spec-variant-components">/)?.[0] || ''
+
+  assert.match(card, /规格用量/)
+  assert.doesNotMatch(card, /主投入用量/)
+  assert.doesNotMatch(card, /损耗比例/)
+  assert.match(card, /<label class="checkbox-row compact-checkbox"[^>]*>\s*<input v-model="variant\.is_default" type="checkbox"/)
+  assert.match(source, /\.spec-variant-grid \.checkbox-row input\s*\{[^}]*width:\s*16px/)
+  assert.match(source, /规格用量和包材均在本规格内维护|规格用量/)
 })

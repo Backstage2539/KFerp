@@ -175,7 +175,7 @@ func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
 }
 
 func listProductionBomMaterialOptions(ctx context.Context, q bomQueryer, schema string, materialIDs []int64) ([]bomapp.Option, error) {
-	rows, err := q.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg') FROM "+schema+".materials WHERE ($1::bigint[] IS NULL OR id=ANY($1)) ORDER BY name", materialIDs)
+	rows, err := q.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg'), COALESCE(NULLIF(code,''),'') FROM "+schema+".materials WHERE ($1::bigint[] IS NULL OR id=ANY($1)) ORDER BY name", materialIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func listProductionBomMaterialOptions(ctx context.Context, q bomQueryer, schema 
 	out := make([]bomapp.Option, 0)
 	for rows.Next() {
 		var opt bomapp.Option
-		if err := rows.Scan(&opt.ID, &opt.Name, &opt.InventoryUnit); err != nil {
+		if err := rows.Scan(&opt.ID, &opt.Name, &opt.InventoryUnit, &opt.ProductCode); err != nil {
 			return nil, err
 		}
 		out = append(out, opt)

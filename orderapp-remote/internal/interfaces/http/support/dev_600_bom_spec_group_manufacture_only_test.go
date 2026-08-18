@@ -55,7 +55,7 @@ func TestDev600BomSpecGroupManufactureOnlyContracts(t *testing.T) {
 			t.Fatalf("BomView.vue retains superseded loss-zone marker %q", forbidden)
 		}
 	}
-	for _, want := range []string{"BOM 规格模板", "规格组", "主投入物料"} {
+	for _, want := range []string{"BOM 规格模板", "规格组", "规格主体物料"} {
 		if !strings.Contains(bomView, want) {
 			t.Fatalf("BomView.vue missing PR-600 marker %q", want)
 		}

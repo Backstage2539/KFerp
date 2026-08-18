@@ -59,7 +59,7 @@
             <small>{{ outputUnitSourceHint }}</small>
             <small v-if="outputUnitMismatchWarning" class="warn">{{ outputUnitMismatchWarning }}</small>
           </label>
-          <label v-if="bomForm.output_type === 'product' && bomForm.mode !== 'edit'">
+          <label v-if="bomForm.output_type === 'product' && bomForm.mode !== 'edit'" class="bom-spec-template-field">
             <span>BOM 规格模板</span>
             <select v-model.number="bomForm.spec_template_version_id">
               <option :value="0">选择已发布模板版本</option>
@@ -68,15 +68,15 @@
             <small>创建时复制为 BOM 专属规格组；后续模板修改不影响本 BOM。</small>
           </label>
           <label v-if="bomForm.output_type === 'product' && bomForm.mode !== 'edit'">
-            <span>主投入物料</span>
+            <span>规格主体物料</span>
             <SearchableSelect
               v-model="bomForm.main_input_material_id"
               :options="materialComponentOptions"
-              :option-label="optionLabel"
+              :option-label="materialOptionLabel"
               :option-value="optionNumericValue"
-              placeholder="选择规格模板的主投入物料"
+              placeholder="选择规格主体物料"
               empty-text="没有匹配物料" />
-            <small>模板中的主投入占位符会复制为该物料；每个规格仍可继续编辑完整配方。</small>
+            <small>模板中的规格用量占位符会复制为该物料；每个规格仍可继续编辑完整配方。</small>
           </label>
           <label v-if="bomForm.mode === 'edit'">
             <span>状态</span>
@@ -145,7 +145,7 @@
               <div class="section-title-row">
                 <div>
                   <h3>规格配方（{{ templateDraftVariants.length }} 个）</h3>
-                  <p class="muted left">每个规格固定产出 1 × 该规格库存单位；主投入用量和包材均在本规格内维护。</p>
+                  <p class="muted left">每个规格固定产出 1 × 该规格库存单位；规格用量和包材均在本规格内维护。</p>
                 </div>
                 <div class="inline-actions">
                   <button v-if="selectedSpecTemplateVersion.status === 'draft'" class="secondary" type="button" @click="addTemplateVariant">添加规格</button>
@@ -155,14 +155,12 @@
               </div>
               <article v-for="(variant, variantIndex) in templateDraftVariants" :key="variant.local_key || variant.spec_key || variantIndex" class="spec-variant-card">
                 <div class="spec-variant-grid">
-                  <label><span>稳定规格键</span><input v-model.trim="variant.spec_key" :disabled="selectedSpecTemplateVersion.status !== 'draft'" placeholder="bag-227g" /></label>
                   <label><span>规格名称</span><input v-model.trim="variant.name" :disabled="selectedSpecTemplateVersion.status !== 'draft'" placeholder="227g 袋装" /></label>
                   <label><span>库存单位</span><select v-model="variant.inventory_unit" :disabled="selectedSpecTemplateVersion.status !== 'draft'"><option value="">请选择</option><option v-for="unit in activeUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option></select></label>
                   <label><span>排序</span><input v-model.number="variant.sort_order" type="number" min="1" :disabled="selectedSpecTemplateVersion.status !== 'draft'" /></label>
-                  <label class="checkbox-row"><input v-model="variant.is_default" type="checkbox" :disabled="selectedSpecTemplateVersion.status !== 'draft'" @change="setTemplateDefaultVariant(variantIndex)" /><span>默认规格</span></label>
+                  <label class="checkbox-row compact-checkbox"><input v-model="variant.is_default" type="checkbox" :disabled="selectedSpecTemplateVersion.status !== 'draft'" @change="setTemplateDefaultVariant(variantIndex)" /><span>默认规格</span></label>
                   <label><span>工艺路线</span><select v-model.number="variant.process_route_id" :disabled="selectedSpecTemplateVersion.status !== 'draft'"><option :value="0">未配置</option><option v-for="route in processRoutes" :key="route.id" :value="route.id">{{ route.name }}</option></select></label>
-                  <label><span>损耗比例 %</span><input v-model.number="variant.material_loss_rate_pct" type="number" min="0" max="99.9999" step="0.01" :disabled="selectedSpecTemplateVersion.status !== 'draft'" @change="syncTemplateVariantLossMode(variantIndex)" /></label>
-                  <label><span>主投入用量</span><input v-model.number="variant.main_input_qty" type="number" min="0.001" step="0.001" :disabled="selectedSpecTemplateVersion.status !== 'draft'" /></label>
+                  <label><span>规格用量</span><input v-model.number="variant.main_input_qty" type="number" min="0.001" step="0.001" :disabled="selectedSpecTemplateVersion.status !== 'draft'" /></label>
                 </div>
                 <div class="spec-variant-components">
                   <strong>包材与其他组件</strong>
@@ -189,7 +187,7 @@
                       v-else
                       v-model="item.material_id"
                       :options="materialComponentOptions"
-                      :option-label="optionLabel"
+                      :option-label="materialOptionLabel"
                       :option-value="optionNumericValue"
                       placeholder="选择物料"
                       empty-text="没有匹配物料"
@@ -474,19 +472,23 @@
                   <option :value="0">选择已发布模板版本</option>
                   <option v-for="row in specTemplateVersionOptions" :key="row.version_id" :value="row.version_id">{{ row.label }}</option>
                 </select>
-                <small>会用模板整组替换当前草稿；同规格键且单位未变时继续沿用原规格身份。</small>
+                <small>会用模板整组替换当前草稿；同规格且单位未变时继续沿用原规格身份。</small>
               </label>
               <label>
-                <span>主投入物料</span>
+                <span>规格主体物料</span>
                 <SearchableSelect
                   v-model="reapplyMainInputMaterialID"
                   :options="materialComponentOptions"
-                  :option-label="optionLabel"
+                  :option-label="materialOptionLabel"
                   :option-value="optionNumericValue"
-                  placeholder="选择模板主投入物料"
+                  placeholder="选择规格主体物料"
                   empty-text="没有匹配物料" />
+                <small>模板中的规格用量占位符会复制为该物料。</small>
               </label>
-              <button class="secondary" type="button" :disabled="loading || !Number(reapplySpecTemplateVersionID || 0) || !Number(reapplyMainInputMaterialID || 0)" @click="reapplyProductionBomSpecTemplate">重新套用模板</button>
+              <div class="reapply-action-cell">
+                <span class="reapply-action-spacer" aria-hidden="true">操作</span>
+                <button class="secondary" type="button" :disabled="loading || !Number(reapplySpecTemplateVersionID || 0) || !Number(reapplyMainInputMaterialID || 0)" @click="reapplyProductionBomSpecTemplate">重新套用模板</button>
+              </div>
             </div>
             <div class="bom-variant-tabs">
               <button
@@ -502,11 +504,6 @@
               <label>
                 <span>规格编码（自动）</span>
                 <input :value="selectedBomVariant.code || '保存后生成'" disabled />
-              </label>
-              <label>
-                <span>稳定规格键</span>
-                <input v-model.trim="selectedBomVariant.spec_key" :disabled="!canEditCurrentBomItems || Number(selectedBomVariant.bom_spec_id || 0) > 0" placeholder="例如 bag-227g" />
-                <small v-if="Number(selectedBomVariant.bom_spec_id || 0) > 0">已生成规格身份后不可修改；如需新身份，请新增规格。</small>
               </label>
               <label>
                 <span>规格名称</span>
@@ -528,8 +525,11 @@
                 <span>排序</span>
                 <input v-model.number="selectedBomVariant.sort_order" type="number" min="0" step="1" :disabled="!canEditCurrentBomItems" />
               </label>
-              <button v-if="!selectedBomVariant.is_default" class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems" @click="makeSelectedBomVariantDefault">设为默认规格</button>
-              <span v-else class="status-pill readonly">默认规格</span>
+              <div class="identity-action-cell">
+                <span class="identity-action-spacer" aria-hidden="true">操作</span>
+                <button v-if="!selectedBomVariant.is_default" class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems" @click="makeSelectedBomVariantDefault">设为默认规格</button>
+                <span v-else class="status-pill readonly">默认规格</span>
+              </div>
             </div>
           </div>
           <div class="version-recipe-panel">
@@ -555,28 +555,18 @@
                 </select>
                 <small>{{ currentRecipeTarget?.process_route_name || '未配置路线' }}<template v-if="selectedProductionBomVersion?.is_latest_usable"> · 最新可用</template></small>
               </label>
-              <div class="material-loss-control bom-version-loss-control">
-                <label class="checkbox-row compact-checkbox">
-                  <input v-model="versionMaterialLossRateEnabled" type="checkbox" :disabled="!canEditCurrentBomItems" @change="handleVersionMaterialLossToggle" />
-                  <span>原料损耗比</span>
-                </label>
-                <label v-if="versionMaterialLossRateEnabled" class="material-loss-rate-field">
-                  <span>损耗比例 %</span>
-                  <input v-model.number="versionMaterialLossRatePct" type="number" min="0" max="99.9999" step="0.01" :disabled="!canEditCurrentBomItems" />
-                  <small>开启损耗后，所有组件必须是物料并使用比例 %；损耗比例必须大于 0。</small>
-                </label>
-              </div>
+              <p v-if="materialLossRateDisplay" class="muted left legacy-loss-display">{{ materialLossRateDisplay }}</p>
               <button class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems || loading" @click="saveProductionBomVersionMeta">保存版本设置</button>
             </div>
             <p :class="['recipe-mode-hint', { warn: recipeConsumeMode === 'mixed_legacy' }]">
-              配方模式：{{ recipeConsumeModeLabel }}。同一配方不能混合使用比例 % 和固定用量。
+              配方模式：{{ recipeConsumeModeLabel }}。新配方使用固定用量；历史比例配方保持只读兼容。
             </p>
             <form class="inline-form" @submit.prevent="saveItem">
               <label>
                 <span>组件来源</span>
                 <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomItems" @change="syncComponentTypeDefaults">
                   <option value="material">物料</option>
-                  <option value="product" :disabled="versionMaterialLossRateEnabled || recipeConsumeMode === 'ratio'">商品规格组件</option>
+                  <option value="product" :disabled="recipeConsumeMode === 'ratio'">商品规格组件</option>
                 </select>
               </label>
               <label>
@@ -596,7 +586,7 @@
                   v-else
                   v-model="itemForm.material_id"
                   :options="materialComponentOptions"
-                  :option-label="optionLabel"
+                  :option-label="materialOptionLabel"
                   :option-value="optionNumericValue"
                   placeholder="选择物料"
                   empty-text="没有匹配物料"
@@ -700,7 +690,7 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning } from '../lib/bom'
+import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -778,8 +768,6 @@ const itemForm = reactive({
 })
 const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_type: 'product', output_id: 0, output_product_id: 0, output_material_id: 0, output_qty: 1, output_unit: 'unit', spec_template_version_id: 0, main_input_material_id: 0, status: 'active' })
 const versionNote = ref('')
-const versionMaterialLossRateEnabled = ref(false)
-const versionMaterialLossRatePct = ref('')
 
 const bomVariants = computed(() => Array.isArray(productionBomDetail.value?.variants) ? productionBomDetail.value.variants : [])
 const selectedBomVariant = computed(() => bomVariants.value.find((variant) => Number(variant.bom_variant_id || variant.id || 0) === Number(selectedBomVariantID.value || 0)) || bomVariants.value[0] || null)
@@ -961,7 +949,7 @@ const unitDictionaryConsumeUnitOptions = computed(() => productUnitDefinitions.v
   .filter(Boolean)
   .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''))))
 const currentConsumeUnitOptions = computed(() => {
-  if (versionMaterialLossRateEnabled.value || recipeConsumeMode.value === 'ratio') {
+  if (recipeConsumeMode.value === 'ratio') {
     return materialLossRatioOnlyConsumeUnitOptions
   }
   if (recipeConsumeMode.value === 'fixed' || itemForm.component_type === 'product') {
@@ -972,9 +960,7 @@ const currentConsumeUnitOptions = computed(() => {
     itemForm.consume_unit,
   )
 })
-const selectedVersionMaterialLossRate = computed(() => versionMaterialLossRateEnabled.value
-  ? normalizedMaterialLossRateFromPercent(versionMaterialLossRatePct.value)
-  : 0)
+const selectedVersionMaterialLossRate = computed(() => normalizedMaterialLossRateFromValue(currentRecipeTarget.value?.material_loss_rate))
 const visibleMovableBomRows = computed(() => productionBomVisibleRows.value.filter(isMovableBomRow))
 const selectedBomRows = computed(() => {
   const selected = new Set(selectedBomRowKeys.value)
@@ -1200,7 +1186,7 @@ function normalizeBomMaterial(material = {}) {
   return {
     ...material,
     id: Number(material.id || 0),
-    code: String(material.code || '').trim(),
+    code: String(material.product_code || material.code || '').trim(),
     name: String(material.name || '').trim(),
     unit: String(material.unit || material.inventory_unit || '').trim(),
     inventory_unit: String(material.inventory_unit || material.unit || '').trim(),
@@ -1362,16 +1348,9 @@ function normalizedMaterialLossRateFromPercent(value) {
   return normalizedMaterialLossRateFromValue(Number(value || 0) / 100)
 }
 
-function syncVersionMaterialLossRateFromSelectedVersion() {
-  const rate = normalizedMaterialLossRateFromValue(currentRecipeTarget.value?.material_loss_rate)
-  versionMaterialLossRateEnabled.value = rate > 0
-  versionMaterialLossRatePct.value = rate > 0 ? Number((rate * 100).toFixed(4)) : ''
-  syncItemFormToRecipeMode()
-}
-
 function selectBomVariant(variant = {}) {
   selectedBomVariantID.value = Number(variant.bom_variant_id || variant.id || 0)
-  syncVersionMaterialLossRateFromSelectedVersion()
+  syncItemFormToRecipeMode()
   resetItemForm()
 }
 
@@ -1406,12 +1385,12 @@ function validateRecipeMode(items = [], lossRate = 0) {
       (item?.component_type || 'material') !== 'material'
       || String(item?.consume_unit || '') !== 'ratio_pct'
     ))
-    if (invalid) throw new Error('原料损耗比开启后，所有组件消耗单位必须为比例 %')
+    if (invalid) throw new Error('历史比例配方中所有组件消耗单位必须为比例 %')
   }
 }
 
 function syncItemFormToRecipeMode() {
-  if (versionMaterialLossRateEnabled.value || recipeConsumeMode.value === 'ratio') {
+  if (recipeConsumeMode.value === 'ratio') {
     itemForm.component_type = 'material'
     itemForm.component_product_id = 0
     itemForm.component_bom_spec_id = 0
@@ -1425,22 +1404,6 @@ function syncItemFormToRecipeMode() {
     itemForm.consume_unit = componentStockUnitCode.value || defaultDictionaryConsumeUnit()
     itemForm.ratio_pct = ''
   }
-}
-
-function handleVersionMaterialLossToggle() {
-  if (!versionMaterialLossRateEnabled.value) {
-    versionMaterialLossRatePct.value = ''
-    syncItemFormToRecipeMode()
-    return
-  }
-  if (recipeConsumeMode.value === 'fixed' || recipeConsumeMode.value === 'mixed_legacy') {
-    versionMaterialLossRateEnabled.value = false
-    versionMaterialLossRatePct.value = ''
-    error.value = '已有固定用量组件，不能开启原料损耗比；请先删除固定组件或拆分 BOM'
-    return
-  }
-  if (!(Number(versionMaterialLossRatePct.value || 0) > 0)) versionMaterialLossRatePct.value = 1
-  syncItemFormToRecipeMode()
 }
 
 function materialLossRateDisplay(item = {}) {
@@ -1464,16 +1427,15 @@ function productionBomDraftItemFromItem(item = {}) {
     consume_unit: consumeUnit,
     qty_per_unit: Number(item.qty_per_unit || 0),
     ratio_pct: Number(item.ratio_pct || 0),
-    material_loss_rate: versionMaterialLossRateEnabled.value && componentType === 'material' && consumeUnit === 'ratio_pct'
-      ? selectedVersionMaterialLossRate.value
+    material_loss_rate: componentType === 'material' && consumeUnit === 'ratio_pct'
+      ? normalizedMaterialLossRateFromValue(item.material_loss_rate)
       : 0,
   }
 }
 
 function productionBomDraftVariantFromVariant(variant = {}, overrideItems = null) {
   const variantID = Number(variant.bom_variant_id || variant.id || 0)
-  const isSelected = variantID !== 0 && variantID === Number(selectedBomVariant.value?.bom_variant_id || selectedBomVariant.value?.id || 0)
-  const lossRate = isSelected ? selectedVersionMaterialLossRate.value : normalizedMaterialLossRateFromValue(variant.material_loss_rate)
+  const lossRate = normalizedMaterialLossRateFromValue(variant.material_loss_rate)
   const items = (overrideItems || variant.items || []).map((item) => {
     const payload = productionBomDraftItemFromItem(item)
     payload.material_loss_rate = lossRate > 0 && payload.component_type === 'material' && payload.consume_unit === 'ratio_pct'
@@ -1486,7 +1448,7 @@ function productionBomDraftVariantFromVariant(variant = {}, overrideItems = null
     bom_variant_id: variantID,
     bom_spec_id: Number(variant.bom_spec_id || 0),
     barcode: String(variant.barcode || '').trim(),
-    spec_key: String(variant.spec_key || '').trim(),
+    spec_key: String(variant.spec_key || '').trim() || nextSpecKey(bomVariants.value.map((row) => String(row.spec_key || '').trim()).filter(Boolean)),
     name: String(variant.name || variant.spec_name || '').trim(),
     inventory_unit: String(variant.inventory_unit || '').trim(),
     is_default: variant.is_default === true,
@@ -1512,9 +1474,13 @@ function validatedProductionBomDraftVariantPayloads(variants = bomVariants.value
   if (!Array.isArray(variants) || !variants.length) throw new Error('商品 BOM 规格组至少需要一个规格')
   const keys = new Set()
   let defaultCount = 0
+  for (const variant of variants) {
+    if (!String(variant.spec_key || '').trim()) variant.spec_key = nextSpecKey([...keys])
+    keys.add(String(variant.spec_key).trim().toLowerCase())
+  }
   const payloads = variants.map((variant) => {
     const payload = productionBomDraftVariantFromVariant(variant)
-    if (!payload.spec_key || !payload.name || !payload.inventory_unit) throw new Error('请填写每个规格的规格键、名称和库存单位')
+    if (!payload.name || !payload.inventory_unit) throw new Error('请填写每个规格的名称和库存单位')
     const normalizedKey = payload.spec_key.toLowerCase()
     if (keys.has(normalizedKey)) throw new Error(`规格键重复：${payload.spec_key}`)
     keys.add(normalizedKey)
@@ -1534,7 +1500,7 @@ function addProductionBomDraftVariant() {
     bom_spec_id: 0,
     local_key: `bom-variant-new-${Date.now()}-${Math.abs(localID)}`,
     code: '',
-    spec_key: '',
+    spec_key: nextSpecKey(bomVariants.value.map((variant) => String(variant.spec_key || '').trim()).filter(Boolean)),
     name: '',
     barcode: '',
     inventory_unit: inventoryUnit,
@@ -1594,7 +1560,7 @@ async function reapplyProductionBomSpecTemplate() {
   const specTemplateVersionID = Number(reapplySpecTemplateVersionID.value || 0)
   const mainInputMaterialID = Number(reapplyMainInputMaterialID.value || 0)
   if (!draftVersionID || !specTemplateVersionID || !mainInputMaterialID) {
-    error.value = '请选择已发布规格模板版本和主投入物料'
+    error.value = '请选择已发布规格模板版本和规格主体物料'
     return
   }
   await mutate(async () => {
@@ -1608,7 +1574,7 @@ async function reapplyProductionBomSpecTemplate() {
     reapplyMainInputMaterialID.value = 0
     selectedBomVariantID.value = 0
     await loadProductionBomDetailForVersion(currentProductionBomID.value, draftVersionID)
-    ok.value = '已重新套用规格模板；同规格键且单位未变的规格身份已保留'
+    ok.value = '已重新套用规格模板；同规格且单位未变的规格身份已保留'
   })
 }
 
@@ -1624,7 +1590,7 @@ function productionBomDraftItemFromForm() {
     consume_unit: consumeUnit,
     qty_per_unit: Number(itemForm.qty_per_unit || 0),
     ratio_pct: Number(itemForm.ratio_pct || 0),
-    material_loss_rate: versionMaterialLossRateEnabled.value && componentType === 'material' && consumeUnit === 'ratio_pct'
+    material_loss_rate: recipeConsumeMode.value === 'ratio' && componentType === 'material' && consumeUnit === 'ratio_pct'
       ? selectedVersionMaterialLossRate.value
       : 0,
   }
@@ -1634,7 +1600,6 @@ async function saveProductionBomDraftItems(items, basis = {}) {
   const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || 0)
   if (!draftVersionID) throw new Error('请先复制为新版草稿后再编辑配方明细')
   const lossRate = selectedVersionMaterialLossRate.value
-  if (versionMaterialLossRateEnabled.value && !(lossRate > 0)) throw new Error('开启原料损耗比后，损耗比例必须大于 0')
   validateRecipeMode(items, lossRate)
   const body = bomVariants.value.length
     ? {
@@ -1723,9 +1688,7 @@ async function selectProductionBomVersion(version, options = {}) {
 function syncSelectedProductionBomVersion() {
   if (!versions.value.length) {
     selectedProductionBomVersionID.value = 0
-    versionMaterialLossRateEnabled.value = false
-    versionMaterialLossRatePct.value = ''
-    return
+        return
   }
   const existing = versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0))
   const selected = existing || versions.value.find((version) => version.status === 'draft') || versions.value.find((version) => version.is_latest) || versions.value[0]
@@ -1807,7 +1770,7 @@ function closeBomDrawer() {
 
 function syncComponentTypeDefaults() {
   if (itemForm.component_type === 'product') {
-    if (versionMaterialLossRateEnabled.value || recipeConsumeMode.value === 'ratio') {
+    if (recipeConsumeMode.value === 'ratio') {
       itemForm.component_type = 'material'
       itemForm.component_product_id = 0
       itemForm.consume_unit = 'ratio_pct'
@@ -1853,9 +1816,7 @@ function clearSelectedProductionBom() {
   versions.value = []
   selectedProductionBomVersionID.value = 0
   selectedBomVariantID.value = 0
-  versionMaterialLossRateEnabled.value = false
-  versionMaterialLossRatePct.value = ''
-  updateUrl()
+    updateUrl()
 }
 
 function updateUrl() {
@@ -2159,23 +2120,6 @@ function syncTemplateVariantItemComponentType(variantIndex, itemIndex) {
   else item.consume_unit = ''
 }
 
-function syncTemplateVariantLossMode(variantIndex) {
-  const variant = templateDraftVariants.value[variantIndex]
-  if (!variant) return
-  const lossEnabled = normalizedMaterialLossRateFromPercent(variant.material_loss_rate_pct) > 0
-  if (!lossEnabled) {
-    applyTemplateVariantRecipeMode(variant, templateVariantExplicitRecipeMode(variant.items))
-    return
-  }
-  const incompatible = (variant.items || []).some((item) => item.component_type === 'product' || (item.consume_unit && item.consume_unit !== 'ratio_pct'))
-  if (incompatible) {
-    variant.material_loss_rate_pct = 0
-    error.value = '已有商品规格组件或固定用量组件，不能开启损耗比例'
-    return
-  }
-  applyTemplateVariantRecipeMode(variant, 'ratio')
-}
-
 function templateVariantDraftFromAPI(variant = {}, index = 0) {
   const allItems = Array.isArray(variant.items) ? variant.items : []
   const mainItem = allItems.find((item) => item.is_main_input === true) || {}
@@ -2235,7 +2179,7 @@ function templateVariantPayload(variant = {}) {
   }
   validateRecipeMode([mainItem, ...otherItems], lossRate)
   return {
-    spec_key: String(variant.spec_key || '').trim(),
+    spec_key: String(variant.spec_key || '').trim() || nextSpecKey(templateDraftVariants.value.map((row) => String(row.spec_key || '').trim()).filter(Boolean)),
     name: String(variant.name || '').trim(),
     inventory_unit: String(variant.inventory_unit || '').trim(),
     is_default: variant.is_default === true,
@@ -2310,7 +2254,8 @@ async function createSpecTemplateDraft() {
 }
 
 function addTemplateVariant() {
-  templateDraftVariants.value.push(templateVariantDraftFromAPI({ sort_order: templateDraftVariants.value.length + 1, main_input_qty: 1 }, templateDraftVariants.value.length))
+  const specKey = nextSpecKey(templateDraftVariants.value.map((variant) => String(variant.spec_key || '').trim()).filter(Boolean))
+  templateDraftVariants.value.push(templateVariantDraftFromAPI({ sort_order: templateDraftVariants.value.length + 1, main_input_qty: 1, spec_key: specKey }, templateDraftVariants.value.length))
 }
 
 function removeTemplateVariant(index) {
@@ -2353,9 +2298,13 @@ function validatedTemplateVariantPayloads() {
   if (!templateDraftVariants.value.length) throw new Error('BOM 规格模板至少需要一个规格')
   const keys = new Set()
   let defaultCount = 0
+  for (const variant of templateDraftVariants.value) {
+    if (!String(variant.spec_key || '').trim()) variant.spec_key = nextSpecKey([...keys])
+    keys.add(String(variant.spec_key).trim())
+  }
   const variants = templateDraftVariants.value.map((variant) => {
     const payload = templateVariantPayload(variant)
-    if (!payload.spec_key || !payload.name || !payload.inventory_unit) throw new Error('请填写每个规格的规格键、名称和库存单位')
+    if (!payload.name || !payload.inventory_unit) throw new Error('请填写每个规格的名称和库存单位')
     if (keys.has(payload.spec_key)) throw new Error(`规格键重复：${payload.spec_key}`)
     keys.add(payload.spec_key)
     if (payload.is_default) defaultCount += 1
@@ -2441,9 +2390,7 @@ async function loadProductionBomVersions(bomID) {
     productionBomDetail.value = null
     versions.value = []
     selectedProductionBomVersionID.value = 0
-    versionMaterialLossRateEnabled.value = false
-    versionMaterialLossRatePct.value = ''
-    return
+        return
   }
   productionBomDetail.value = await apiGet(`/api/production-boms/${id}`)
   versions.value = productionBomDetail.value?.versions || []
@@ -2512,9 +2459,7 @@ async function selectUnboundProductionBom(row) {
     productionBomDetail.value = null
     versions.value = []
     selectedProductionBomVersionID.value = 0
-    versionMaterialLossRateEnabled.value = false
-    versionMaterialLossRatePct.value = ''
-    error.value = err.message || '加载生产 BOM 配方失败'
+        error.value = err.message || '加载生产 BOM 配方失败'
   } finally {
     updateUrl()
   }
@@ -2869,7 +2814,7 @@ watch([productionBomVisibleRows, productionBomCategoryMoveActive], () => {
 })
 
 watch(componentStockUnitCode, (unit) => {
-  if (!unit || versionMaterialLossRateEnabled.value || recipeConsumeMode.value === 'ratio') return
+  if (!unit || recipeConsumeMode.value === 'ratio') return
   itemForm.consume_unit = unit
   itemForm.ratio_pct = ''
 })
@@ -2934,6 +2879,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bom-record-form > label > input,
 .bom-record-form > label > select { width: 100%; min-width: 0; }
 .bom-record-form > label > small { display: block; margin-top: 5px; line-height: 1.35; }
+.bom-record-form > .bom-spec-template-field { grid-column: 1; }
 .bom-record-form-action { min-width: 0; }
 .bom-record-form-action-spacer { display: block; margin-bottom: 5px; color: #666; font-size: 12px; visibility: hidden; }
 .bom-record-form-action > button { justify-self: start; }
@@ -3004,19 +2950,24 @@ tbody tr.active { background: #f3f7fb; }
 .spec-template-list-row.active { border-color: #1f4f82; background: #eef6ff; }
 .spec-template-detail { min-width: 0; }
 .version-row-list, .bom-variant-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
-.bom-spec-identity-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: end; margin: 10px 0 14px; padding: 12px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; }
+.bom-spec-identity-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: start; margin: 10px 0 14px; padding: 12px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; }
 .bom-spec-identity-form label { min-width: 0; }
 .bom-spec-identity-form input, .bom-spec-identity-form select { width: 100%; min-width: 0; }
 .bom-spec-identity-form small { display: block; margin-top: 4px; line-height: 1.35; }
+.identity-action-spacer { display: block; margin-bottom: 5px; color: #666; font-size: 12px; visibility: hidden; }
+.legacy-loss-display { margin: 0; align-self: center; }
 .spec-template-version-editor, .bom-spec-group-panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 12px; margin: 12px 0; }
-.bom-spec-template-reapply-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 10px; align-items: end; padding: 10px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; }
+.bom-spec-template-reapply-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 10px; align-items: start; padding: 10px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; }
 .bom-spec-template-reapply-form label { min-width: 0; }
 .bom-spec-template-reapply-form select { width: 100%; min-width: 0; }
 .bom-spec-template-reapply-form small { display: block; margin-top: 4px; line-height: 1.35; }
+.reapply-action-spacer { display: block; margin-bottom: 5px; color: #666; font-size: 12px; visibility: hidden; }
 .spec-variant-card { border: 1px solid #d8d0c7; border-radius: 8px; background: #fff; padding: 12px; margin: 10px 0; }
 .spec-variant-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: end; }
 .spec-variant-grid label { min-width: 0; }
 .spec-variant-grid input, .spec-variant-grid select { width: 100%; min-width: 0; }
+.spec-variant-grid .checkbox-row input { width: 16px; height: 16px; min-width: 0; padding: 0; flex: 0 0 auto; }
+.spec-variant-grid .checkbox-row span { flex: 1; }
 .spec-variant-components { display: grid; gap: 8px; margin: 12px 0; padding-top: 10px; border-top: 1px solid #eee8df; }
 .spec-component-row { display: grid; grid-template-columns: minmax(120px, .55fr) minmax(200px, 1.25fr) minmax(160px, 1fr) minmax(130px, .75fr) minmax(110px, .55fr) auto; gap: 8px; align-items: center; }
 .spec-component-row select, .spec-component-row input { width: 100%; min-width: 0; }

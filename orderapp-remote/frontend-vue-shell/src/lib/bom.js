@@ -33,6 +33,26 @@ export function bomProductOptionLabel(row = {}) {
   return `${code} ${name}`
 }
 
+export function materialOptionLabel(row = {}) {
+  const name = String(row.name || row.material_name || row.materialName || '').trim()
+  const code = String(row.product_code || row.productCode || row.code || '').trim()
+  if (!name) return code || `物料 #${Number(row.material_id || row.id || 0)}`
+  if (!code || name.toLowerCase().includes(code.toLowerCase())) return name
+  return `${code} ${name}`
+}
+
+export function nextSpecKey(existingKeys = []) {
+  let max = 0
+  for (const raw of existingKeys) {
+    const match = /^spec-(\d+)$/.exec(String(raw || '').trim().toLowerCase())
+    if (match) {
+      const n = Number(match[1])
+      if (Number.isFinite(n) && n > max) max = n
+    }
+  }
+  return `spec-${max + 1}`
+}
+
 export function bomRowCustomerID(row = {}) {
   return Number(row.customer_id ?? row.customerID ?? 0)
 }
