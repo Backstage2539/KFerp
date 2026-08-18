@@ -280,6 +280,7 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 	variantAware := hasVariants && hasSpecs && hasItemVariant && hasComponentBomSpec
 	variantOutputKeys := map[int64]string{}
 	versionHasVariants := map[int64]bool{}
+	versionDefaultSpecKeys := map[int64]string{}
 	if variantAware {
 		hasRouteOperations, err := r.costingRelationExists(ctx, "process_route_operations")
 		if err != nil {
@@ -295,6 +296,7 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 			       variant.bom_spec_id,
 			       COALESCE(NULLIF(variant.inventory_unit,''),'unit'),
 			       COALESCE(variant.material_loss_rate,0)::float8,
+			       COALESCE(variant.is_default,false),
 			       %s AS operation_cost_per_unit
 			FROM %s.production_bom_version_variants variant
 			WHERE variant.version_id=ANY($1)
@@ -307,7 +309,8 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 			var variantID, versionID, bomSpecID int64
 			var inventoryUnit string
 			var materialLossRate, operationCost float64
-			if err := variantRows.Scan(&variantID, &versionID, &bomSpecID, &inventoryUnit, &materialLossRate, &operationCost); err != nil {
+			var isDefaultSpec bool
+			if err := variantRows.Scan(&variantID, &versionID, &bomSpecID, &inventoryUnit, &materialLossRate, &isDefaultSpec, &operationCost); err != nil {
 				variantRows.Close()
 				return nil, err
 			}
@@ -332,6 +335,9 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 			}
 			variantOutputKeys[variantID] = key
 			versionHasVariants[versionID] = true
+			if isDefaultSpec && bomSpecID > 0 {
+				versionDefaultSpecKeys[versionID] = key
+			}
 		}
 		if err := variantRows.Err(); err != nil {
 			variantRows.Close()
@@ -456,6 +462,23 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 			productCosts[productionBomSpecCostMapKey(node.BomSpecID)] = all[key]
 		}
 	}
+	// Variant-only versions drop their product:<id> node; expose the default
+	// specification cost under the product key so legacy callers (pricing
+	// trial, production cost) without a BomSpecID still resolve through the
+	// default specification instead of falling back to per-item trial costs.
+	for versionID, key := range versionDefaultSpecKeys {
+		if !versionHasVariants[versionID] {
+			continue
+		}
+		node, ok := nodes[key]
+		if !ok || node.ProductID <= 0 {
+			continue
+		}
+		if _, exists := productCosts[node.ProductID]; exists {
+			continue
+		}
+		productCosts[node.ProductID] = all[key]
+	}
 	return productCosts, nil
 }
 
@@ -529,7 +552,10 @@ func resolveProductionBomTrialItemCost(item productionBomCostItem, materialUnitC
 	}
 	amount, ok := productionBomItemCost(item, componentType, unitCost, costUnit, bomOutputUnit)
 	if !ok {
-		return productionBomResolvedItemCost{}, false, "BOM组件成本单位无法换算"
+		if unitCost <= 0 {
+			return productionBomResolvedItemCost{}, false, "BOM组件单价为 0：请维护物料采购价；半成品物料需绑定默认已发布的制造 BOM"
+		}
+		return productionBomResolvedItemCost{}, false, fmt.Sprintf("BOM组件成本单位无法换算：消耗单位 %s 与成本单位 %s 不匹配", strings.TrimSpace(item.ConsumeUnit), strings.TrimSpace(costUnit))
 	}
 	amountPerOutputUnit, ok := productionBomItemCostPerOutputUnit(item, amount, outputQty)
 	if !ok {
