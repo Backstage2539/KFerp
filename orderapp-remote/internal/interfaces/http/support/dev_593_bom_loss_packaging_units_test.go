@@ -36,7 +36,7 @@ func TestDev593BomLossPackagingUnitsContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"recipeConsumeMode",
 			"同一配方不能混合使用比例 % 和固定用量",
-			"原料损耗比开启后，所有组件消耗单位必须为比例 %",
+			"历史比例配方中所有组件消耗单位必须为比例 %",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
