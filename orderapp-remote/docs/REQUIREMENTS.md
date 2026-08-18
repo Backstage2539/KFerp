@@ -1574,3 +1574,8 @@
 - `DEV-600-BOM-SPEC-BUSINESS-IDENTITY`：新商品业务使用父商品 + BOM 专属规格身份，不再使用子 SKU 或 spec_g 计算，也不做商品销售规格换算。每个规格产出 1 个自身库存单位；同 BOM 同键同单位复用身份，不同 BOM 相互隔离。默认 BOM 决定价格、录单和新库存可见规格，存在旧业务占用时拒绝切换。该口径替代 PR-505 的“销售规格模板派生子 SKU 作为规格权威”和 PR-553 的“子 SKU / 父 BOM 规格换算作为新生产权威”；两者只保留给尚未 cutover 的 legacy 商品与历史冻结单据。
 - `DEV-600-PER-PRODUCT-MIGRATION`：按商品逐商品切换，迁移状态为 legacy/preparing/ready/cutover。工具只导入规格元数据与历史配置对照，配方必须人工重建；旧库存、预留、未完成订单、生产和履约未清零时拒绝切换。旧子 SKU 只作历史墓碑，历史快照不改写。
 - `DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY`：商品页只读展示默认 BOM 规格并跳转 BOM；价格、订单、库存、生产、履约和小程序对 cutover 商品使用新规格身份，legacy 商品继续兼容。所有写入审计；验证后仅交付 development，不自动切换商品，main/production 不操作。
+
+# PR-602-PRICING-TRIAL-DEFAULT-SPEC-FALLBACK 价格试算默认规格回退与报错细分（2026-08-18）
+
+- `DEV-602-DEFAULT-SPEC-ALIAS`：带规格组的 BOM 版本在成本图中以默认规格的解析结果作为商品键的回退（`versionDefaultSpecKeys` 别名）。未携带 BomSpecID 的价格试算、生产成本等旧调用方按默认规格解析，不再因规格组删除 `product:<id>` 节点而整体退回逐行兜底。显式携带 BomSpecID 的调用不受影响；半成品 fail-closed 守卫不变。
+- `DEV-602-SPECIFIC-ERROR-REASONS`：试算 BOM 行成本解析失败时返回具体原因——零单价（物料未维护采购价/半成品未绑定默认已发布制造 BOM）与单位不匹配（指名消耗单位与成本单位）——替换误导性的统一"BOM组件成本单位无法换算"。
