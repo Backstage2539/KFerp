@@ -53,6 +53,26 @@ export function nextSpecKey(existingKeys = []) {
   return `spec-${max + 1}`
 }
 
+export function assignVariantSpecKeys(variants = []) {
+  const rows = Array.isArray(variants) ? variants : []
+  const existing = new Set()
+  for (const variant of rows) {
+    const key = String(variant?.spec_key || '').trim()
+    if (!key) continue
+    const normalized = key.toLowerCase()
+    if (existing.has(normalized)) throw new Error(`规格键重复：${key}`)
+    existing.add(normalized)
+  }
+  for (const variant of rows) {
+    if (!String(variant?.spec_key || '').trim()) {
+      const generated = nextSpecKey([...existing])
+      variant.spec_key = generated
+      existing.add(generated.toLowerCase())
+    }
+  }
+  return rows
+}
+
 export function bomRowCustomerID(row = {}) {
   return Number(row.customer_id ?? row.customerID ?? 0)
 }

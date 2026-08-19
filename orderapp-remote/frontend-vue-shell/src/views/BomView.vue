@@ -690,7 +690,7 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning } from '../lib/bom'
+import { assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -1472,18 +1472,11 @@ function makeSelectedBomVariantDefault() {
 
 function validatedProductionBomDraftVariantPayloads(variants = bomVariants.value) {
   if (!Array.isArray(variants) || !variants.length) throw new Error('商品 BOM 规格组至少需要一个规格')
-  const keys = new Set()
+  assignVariantSpecKeys(variants)
   let defaultCount = 0
-  for (const variant of variants) {
-    if (!String(variant.spec_key || '').trim()) variant.spec_key = nextSpecKey([...keys])
-    keys.add(String(variant.spec_key).trim().toLowerCase())
-  }
   const payloads = variants.map((variant) => {
     const payload = productionBomDraftVariantFromVariant(variant)
     if (!payload.name || !payload.inventory_unit) throw new Error('请填写每个规格的名称和库存单位')
-    const normalizedKey = payload.spec_key.toLowerCase()
-    if (keys.has(normalizedKey)) throw new Error(`规格键重复：${payload.spec_key}`)
-    keys.add(normalizedKey)
     if (payload.is_default) defaultCount += 1
     return payload
   })
@@ -2296,17 +2289,11 @@ function removeTemplateVariantItem(variantIndex, itemIndex) {
 
 function validatedTemplateVariantPayloads() {
   if (!templateDraftVariants.value.length) throw new Error('BOM 规格模板至少需要一个规格')
-  const keys = new Set()
+  assignVariantSpecKeys(templateDraftVariants.value)
   let defaultCount = 0
-  for (const variant of templateDraftVariants.value) {
-    if (!String(variant.spec_key || '').trim()) variant.spec_key = nextSpecKey([...keys])
-    keys.add(String(variant.spec_key).trim())
-  }
   const variants = templateDraftVariants.value.map((variant) => {
     const payload = templateVariantPayload(variant)
     if (!payload.name || !payload.inventory_unit) throw new Error('请填写每个规格的名称和库存单位')
-    if (keys.has(payload.spec_key)) throw new Error(`规格键重复：${payload.spec_key}`)
-    keys.add(payload.spec_key)
     if (payload.is_default) defaultCount += 1
     return payload
   })

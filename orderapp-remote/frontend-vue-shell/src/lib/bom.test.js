@@ -1019,3 +1019,22 @@ test('BomView keeps no dangling references to removed loss-rate helpers', async 
   const syncCalls = (script.match(/syncItemFormToRecipeMode\(\)/g) || []).length
   assert.ok(syncCalls >= 4, `version/variant switches must call syncItemFormToRecipeMode, found ${syncCalls}`)
 })
+
+test('assignVariantSpecKeys fills missing keys and only rejects real duplicates', () => {
+  const variants = [
+    { spec_key: 'bag-227', name: 'a' },
+    { spec_key: '', name: 'b' },
+    { spec_key: 'spec-1', name: 'c' },
+  ]
+  bomLib.assignVariantSpecKeys(variants)
+  assert.equal(variants[0].spec_key, 'bag-227')
+  assert.equal(variants[1].spec_key, 'spec-2')
+  assert.equal(variants[2].spec_key, 'spec-1')
+
+  const fresh = [{ spec_key: '' }, { spec_key: '' }]
+  bomLib.assignVariantSpecKeys(fresh)
+  assert.equal(fresh[0].spec_key, 'spec-1')
+  assert.equal(fresh[1].spec_key, 'spec-2')
+
+  assert.throws(() => bomLib.assignVariantSpecKeys([{ spec_key: 'bag-227' }, { spec_key: 'BAG-227' }]), /规格键重复/)
+})
