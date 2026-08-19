@@ -1007,3 +1007,15 @@ test('spec variant card uses compact default checkbox and 规格用量 naming', 
   assert.match(source, /\.spec-variant-grid \.checkbox-row input\s*\{[^}]*width:\s*16px/)
   assert.match(source, /规格用量和包材均在本规格内维护|规格用量/)
 })
+
+test('BomView keeps no dangling references to removed loss-rate helpers', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1] || source
+
+  for (const retired of ['syncVersionMaterialLossRateFromSelectedVersion', 'handleVersionMaterialLossToggle', 'versionMaterialLossRateEnabled', 'versionMaterialLossRatePct']) {
+    assert.ok(!script.includes(retired), `script must not reference removed helper ${retired}`)
+  }
+  const syncCalls = (script.match(/syncItemFormToRecipeMode\(\)/g) || []).length
+  assert.ok(syncCalls >= 4, `version/variant switches must call syncItemFormToRecipeMode, found ${syncCalls}`)
+})

@@ -1679,7 +1679,7 @@ function toggleAllVisibleBoms(event, rows = []) {
 async function selectProductionBomVersion(version, options = {}) {
   const versionID = Number(version?.id || version || 0)
   selectedProductionBomVersionID.value = versionID
-  syncVersionMaterialLossRateFromSelectedVersion()
+  syncItemFormToRecipeMode()
   if (options.reload && currentProductionBomID.value > 0 && versionID > 0) {
     await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
   }
@@ -1693,7 +1693,7 @@ function syncSelectedProductionBomVersion() {
   const existing = versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0))
   const selected = existing || versions.value.find((version) => version.status === 'draft') || versions.value.find((version) => version.is_latest) || versions.value[0]
   selectedProductionBomVersionID.value = Number(selected?.id || 0)
-  syncVersionMaterialLossRateFromSelectedVersion()
+  syncItemFormToRecipeMode()
 }
 
 function resetBomForm() {
@@ -2406,7 +2406,7 @@ async function loadProductionBomDetailForVersion(bomID, versionID = 0, fallbackR
   syncSelectedBomVariant()
   if (Number(versionID || 0) > 0) {
     selectedProductionBomVersionID.value = Number(versionID || 0)
-    syncVersionMaterialLossRateFromSelectedVersion()
+    syncItemFormToRecipeMode()
   }
   else syncSelectedProductionBomVersion()
   const row = fallbackRow || selectedProductionBomRecord.value || {}
