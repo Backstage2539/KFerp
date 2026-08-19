@@ -4517,3 +4517,30 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - FOLLOW-UP 2 RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `setBeanListPublicationStatusInCache` was missing.
   - FOLLOW-UP 2 GREEN frontend/build: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 28/28; targeted frontend with product/work-order tests passed 160/160; support/API contracts passed; `npm run build`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-price-list-archive-warning-fallback.md`.
+
+### PR-601-BOM-SPEC-UI-POLISH BOM 规格模板 UI 打磨（2026-08-18）
+- Branch: codex/bom-spec-ui-polish-20260817
+- Owner/session: Codex
+- Status: review（待 Van 在 development 人工验收）
+- Scope: 稳定规格键隐藏改内部 spec-N 生成；默认规格复选框缩小；损耗比例删除只支持用量；主投入用量改名规格用量、主投入物料改名规格主体物料；物料名去 SKU- 前缀（前端 label + 后端补 materials.code）；规格组选择器与自动回填表单对齐。
+- Verifier:
+  - Frontend: `node --test src/lib/*.test.js` 997/996 全绿（bom.test.js 含 PR-601 新合同 4 项）
+  - Backend: `go test ./...` 74 包全绿；TestDev601BomSpecUiPolishContracts / TestDev601MaterialOptionLabelNeverFabricatesSkuPrefix
+  - Build: `vite build` ✓
+  - Manual: docs/OP_MANUAL_PRODUCTION.md（PR-600 章节同步 PR-601 口径）
+- Deployment: development 5ff4c16f7b1dc5704fe175cfd33303659be028e7；smoke 200；backup /opt/stacks/erp/orderapp.backup.deploy-20260818225614-5ff4c16f7b1d；rollback kferp-orderapp-rollback:development-20260818225614-5ff4c16f7b1d
+- Last update: 2026-08-18
+- Notes: 历史比例配方与损耗只读兼容；ratio_pct/material_loss_rate 列与成本逻辑零改动；PR-593/594/600 旧合同标记同步更新。
+
+### PR-602-PRICING-TRIAL-DEFAULT-SPEC-FALLBACK 价格试算默认规格回退（2026-08-18）
+- Branch: codex/pricing-trial-unit-cost-bug-20260818
+- Owner/session: Codex
+- Status: review（待 Van 验收；需先维护"孟连水洗5T批次"成本）
+- Scope: 带规格组 BOM 版本的默认规格成本以商品键暴露（versionDefaultSpecKeys 别名），无 spec 上下文的价格试算按默认规格解析；试算报错细分零单价与单位不匹配具体原因。
+- Verifier:
+  - RED->GREEN: TestResolvedBomCostsExposeDefaultSpecificationAsProductFallbackPostgres / TestResolveProductionBomTrialItemCostReportsSpecificReasons
+  - Backend: costing 包真实 PG 95/95 全绿（含 PR-600 半成品 fail-closed 守卫）；`go test ./...` 无新增失败
+  - Manual: docs/OP_MANUAL_COSTING.md PR-602 章节
+- Deployment: development 5ff4c16f7b1dc5704fe175cfd33303659be028e7（与 PR-601 同批）
+- Last update: 2026-08-18
+- Notes: 根因=初晓(619)默认版本 V007 带规格组删 product 节点 + 半成品物料(71)兜底零价。数据缺口：材料 1"孟连水洗5T批次"采购价与批次成本均为 0，Van 维护后初晓试算即可按默认规格算出（0.227kg 半成品 + 1 袋 0.72 元）。
