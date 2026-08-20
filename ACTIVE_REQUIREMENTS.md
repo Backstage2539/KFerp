@@ -4544,3 +4544,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development 5ff4c16f7b1dc5704fe175cfd33303659be028e7（与 PR-601 同批）
 - Last update: 2026-08-18
 - Notes: 根因=初晓(619)默认版本 V007 带规格组删 product 节点 + 半成品物料(71)兜底零价。数据缺口：材料 1"孟连水洗5T批次"采购价与批次成本均为 0，Van 维护后初晓试算即可按默认规格算出（0.227kg 半成品 + 1 袋 0.72 元）。
+
+### PR-603-PRODUCT-BOM-SPEC-SIMPLIFICATION 商品规格归一BOM（2026-08-20）
+- Branch: codex/product-bom-spec-simplification-20260819
+- Owner/session: Codex
+- Status: review（待 Van 在 development 人工验收）
+- Scope: 1) 商品档案移除规格模板选择与逐规格SKU维护，常驻展示默认制造BOM规格组；2) 物料产出BOM恢复原料损耗配置（商品规格组保持纯固定用量）；3) BOM产出商品->物料时清空草稿规格组并可平铺发布。
+- Verifier:
+  - Frontend: `node --test src/lib/*.test.js` 1000/1000 全绿（bom.test.js 45 项含 PR-603 新合同 3 项；product-settings 194 项；product-spec-cutover 合同更新）
+  - Backend: `go test ./...` 全部通过；真实 PostgreSQL TestUpdateProductionBomToMaterialOutputClearsDraftSpecGroupPostgres RED->GREEN；bom/costing 包全绿
+  - Build: `vite build` ✓
+  - Manual: OP_MANUAL_PRODUCTION.md / OP_MANUAL_INVENTORY_MATERIALS.md 同步 PR-603 口径
+- Deployment: development 4bb09752eb2d814b51609359eba7d1d81b64502b；smoke 200；rollback kferp-orderapp-rollback:development-20260820152737-4bb09752eb2d
+- Last update: 2026-08-20
+- Notes: 顺带修复 PR-601 悬空 materialLossRateDisplay 渲染函数源码 bug；旧商品销售规格模板面板保留迁移期（菜单"单位模板"）；已发布 BOM 产出身份守卫不变。
