@@ -1586,3 +1586,9 @@
 
 - `DEV-602-DEFAULT-SPEC-ALIAS`：带规格组的 BOM 版本在成本图中以默认规格的解析结果作为商品键的回退（`versionDefaultSpecKeys` 别名）。未携带 BomSpecID 的价格试算、生产成本等旧调用方按默认规格解析，不再因规格组删除 `product:<id>` 节点而整体退回逐行兜底。显式携带 BomSpecID 的调用不受影响；半成品 fail-closed 守卫不变。
 - `DEV-602-SPECIFIC-ERROR-REASONS`：试算 BOM 行成本解析失败时返回具体原因——零单价（物料未维护采购价/半成品未绑定默认已发布制造 BOM）与单位不匹配（指名消耗单位与成本单位）——替换误导性的统一"BOM组件成本单位无法换算"。
+
+# PR-603-PRODUCT-BOM-SPEC-SIMPLIFICATION 商品规格归一BOM与物料损耗恢复（2026-08-19）
+
+- `DEV-603-PRODUCT-REFERENCES-BOM-SPECS`：商品档案不再选择销售规格模板：移除商品列表批量模板设置与维护入口、商品配置模板的引用模板下拉（校验与 payload 保留原值冻结传递）、配置抽屉的模板下拉与派生 SKU 明细/默认规格按钮；配置抽屉常驻展示默认制造 BOM 的规格组（只读，含"尚未绑定默认制造 BOM"空态提示与跳转）。旧商品销售规格模板面板保留为迁移期维护面（菜单"单位模板"入口）。
+- `DEV-603-MATERIAL-LOSS-RESTORE`：物料产出 BOM 恢复原料损耗配置：`原料损耗比`开关与`损耗比例 %`输入仅在产出类型为物料时展示（isMaterialOutputBom 范围），开启损耗强制比例模式、消耗单位锁定`比例 %`、损耗写回版本级 material_loss_rate；商品规格组保持 PR-601 的纯固定用量编辑。
+- `DEV-603-MATERIAL-CONVERSION-CLEARS-SPEC-GROUP`：BOM 产出身份从商品改为物料（仅未发布 BOM 允许）时，后端 UpdateProductionBom 事务内清空草稿版本的规格组（变体行+变体明细，规格身份保留并写 remove_from_draft 审计）；前端保存时同步发送空 variants 清理本地状态并提示"规格组将随保存一起删除"；转换后可保存平铺配方并正常发布。

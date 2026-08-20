@@ -195,7 +195,9 @@ test('product settings renders cutover BOM specs read-only and routes editing to
   assert.match(source, /window\.confirm\('确认切换到默认已发布 BOM 的规格组/)
   assert.match(source, /不会自动切换商品/)
   assert.match(source, /旧商品销售规格模板（迁移期）/)
-  assert.match(source, /selectedLegacyProductUnitTemplateTargets/)
+  assert.doesNotMatch(source, /selectedLegacyProductUnitTemplateTargets/)
+  assert.doesNotMatch(source, /v-if="productProductionConfigUsesBomSpecs" class="sales-spec-template-detail bom-spec-readonly-panel"/)
+  assert.match(source, /productProductionBomSpecsSummary/)
 })
 
 test('cutover identity is wired through price, inventory, stock-entry, and production pages', () => {

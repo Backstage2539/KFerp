@@ -1768,6 +1768,7 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 		status = "active"
 	}
 	requiresTargetSpecGroup := false
+	identityChangedToMaterial := false
 	if cmd.UpdateOutputBinding && cmd.OutputType == "product" {
 		requiresTargetSpecGroup, err = productBOMRequiresSpecGroupTx(ctx, tx, r.schema, cmd.OutputProductID)
 		if err != nil {
@@ -1799,6 +1800,7 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 				return bomapp.ProductionBomSummary{}, err
 			}
 		}
+		identityChangedToMaterial = identityChanged && cmd.OutputType == "material"
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_boms
@@ -1810,6 +1812,31 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 		WHERE id=$1
 	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.UpdateOutputBinding, cmd.OutputType, cmd.OutputProductID, cmd.OutputMaterialID, status, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductionBomSummary{}, err
+	}
+	if identityChangedToMaterial {
+		draftRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.production_bom_versions WHERE bom_id=$1 AND status='draft'`, r.schema), cmd.ID)
+		if err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		draftVersionIDs := make([]int64, 0)
+		for draftRows.Next() {
+			var versionID int64
+			if err := draftRows.Scan(&versionID); err != nil {
+				draftRows.Close()
+				return bomapp.ProductionBomSummary{}, err
+			}
+			draftVersionIDs = append(draftVersionIDs, versionID)
+		}
+		if err := draftRows.Err(); err != nil {
+			draftRows.Close()
+			return bomapp.ProductionBomSummary{}, err
+		}
+		draftRows.Close()
+		for _, versionID := range draftVersionIDs {
+			if err := saveProductionBomDraftVariantsTx(ctx, tx, r.schema, cmd.ID, versionID, nil, strings.TrimSpace(cmd.Actor)); err != nil {
+				return bomapp.ProductionBomSummary{}, fmt.Errorf("clear draft spec group for material output: %w", err)
+			}
+		}
 	}
 	outputUnit := strings.TrimSpace(cmd.OutputUnit)
 	if outputUnit != "" {

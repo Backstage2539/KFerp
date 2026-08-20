@@ -39,13 +39,23 @@ func TestDev601BomSpecUiPolishContracts(t *testing.T) {
 
 	bomView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue")))
 	template := strings.Split(bomView, "<script setup>")[0]
-	for _, banned := range []string{"稳定规格键", "主投入用量", "损耗比例 %", "原料损耗比"} {
-		if strings.Contains(template, banned) {
-			t.Fatalf("BomView template still exposes retired control %q", banned)
+	// PR-601 retired these controls from spec-template cards and product spec groups;
+	// PR-603 later restored the loss control for material-output BOMs only, so the
+	// template-level bans are scoped to the spec-template card and identity form.
+	specCard := template
+	if idx := strings.Index(template, "spec-variant-card"); idx >= 0 {
+		specCard = template[idx:]
+		if end := strings.Index(specCard, "spec-variant-components"); end >= 0 {
+			specCard = specCard[:end]
 		}
 	}
-	if strings.Contains(bomView, "versionMaterialLossRateEnabled") {
-		t.Fatal("version loss-rate toggle state must be removed")
+	for _, banned := range []string{"稳定规格键", "主投入用量", "损耗比例"} {
+		if strings.Contains(specCard, banned) {
+			t.Fatalf("spec template card still exposes retired control %q", banned)
+		}
+	}
+	if !strings.Contains(bomView, "isMaterialOutputBom") {
+		t.Fatal("PR-603 requires material-output loss controls to be scoped via isMaterialOutputBom")
 	}
 }
 
