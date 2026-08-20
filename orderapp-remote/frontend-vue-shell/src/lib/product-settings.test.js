@@ -329,11 +329,11 @@ test('product SKU rows project the parent default_sku_id onto one concrete child
   assert.equal(rows.find((row) => row.sku_id === 102)?.is_default_sku, true)
 })
 
-test('product archive configuration exposes an audited default sales spec action', () => {
+test('product archive configuration drops the per-spec default SKU action', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  assert.match(source, /设为默认规格/)
+  assert.doesNotMatch(source, /设为默认规格/)
+  assert.doesNotMatch(source, /setDefaultProductSalesSpec/)
   assert.match(source, /默认规格/)
-  assert.match(source, /\/api\/product-settings\/products\/\$\{parentProductID\}\/default-sku/)
 })
 
 test('product archive rows keep sales-spec SKUs inside one parent product row', () => {
@@ -2900,13 +2900,13 @@ test('new product drawer delegates specs to BOM while legacy config edits retain
   assert.doesNotMatch(createForm, /skuForm\.unit_template_id/)
   assert.doesNotMatch(createForm, /<span>销售规格模板<\/span>/)
   assert.doesNotMatch(createForm, /销售规格模板明细/)
-  for (const marker of [
+  for (const removed of [
     '销售规格模板',
     'productProductionConfigForm.unit_template_id',
     '库存单位：来自销售规格模板',
     '销售规格模板明细',
   ]) {
-    assert.match(baseSection, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.doesNotMatch(baseSection, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `config base section must not contain ${removed}`)
   }
   for (const removed of [
     '不引用单位模板',
@@ -2933,65 +2933,54 @@ test('new product drawer delegates specs to BOM while legacy config edits retain
   assert.doesNotMatch(createBlock, /请选择销售规格模板/)
 })
 
-test('product archive config drawer keeps sales spec details compact and hides history by default', () => {
+test('product archive config drawer shows BOM specs directly without per-spec SKU maintenance', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
-  assert.match(configDrawer, /销售规格模板明细/)
-  assert.match(configDrawer, /显示历史规格/)
-  assert.match(configDrawer, /历史 SKU 保留用于历史单据，不参与新建业务/)
-  assert.match(configDrawer, /productProductionVisibleSalesSpecRows/)
-  assert.match(configDrawer, /salesSpecConversionLabel\(row, productUnitTemplateInventoryUnit\(productProductionConfigForm\.unit_template_id\)\)/)
-  assert.match(configDrawer, /SKU 编号/)
-  assert.match(configDrawer, /derivedSkuCodeLabel\(row\)/)
-  assert.doesNotMatch(configDrawer, /销售规格 \/ SKU/)
-  assert.doesNotMatch(configDrawer, /商品档案维护商品族/)
-  assert.doesNotMatch(configDrawer, /class="drawer-section child-sku-section"/)
-  assert.doesNotMatch(configDrawer, /<small>销售规格：\{\{/)
-  assert.doesNotMatch(configDrawer, /继承父 SKU/)
-  assert.doesNotMatch(configDrawer, />父 SKU</)
-  assert.match(configDrawer, /derived_spec_status/)
-  assert.doesNotMatch(configDrawer, /childSkuForm\.sku_name/)
-  assert.doesNotMatch(configDrawer, /createChildSkuForProduct/)
-  assert.doesNotMatch(configDrawer, /class="child-sku-form"/)
+  assert.match(configDrawer, /BOM 规格（只读）/)
+  assert.match(configDrawer, /bom-spec-readonly-panel/)
+  assert.match(configDrawer, /到 BOM 维护规格/)
+  assert.match(configDrawer, /productProductionBomSpecs/)
+  assert.doesNotMatch(configDrawer, /销售规格模板明细/)
+  assert.doesNotMatch(configDrawer, /显示历史规格/)
+  assert.doesNotMatch(configDrawer, /SKU 编号/)
+  assert.doesNotMatch(configDrawer, /derivedSkuCodeLabel\(row\)/)
+  assert.doesNotMatch(configDrawer, /设为默认规格/)
+  assert.doesNotMatch(configDrawer, /setDefaultProductSalesSpec/)
+  assert.doesNotMatch(configDrawer, /v-if="productProductionConfigUsesBomSpecs" class="sales-spec-template-detail bom-spec-readonly-panel"/)
+  assert.match(source, /尚未绑定默认制造 BOM|暂无可用规格/)
 })
 
-test('product archive derived SKU rows reuse template net content for conversion labels', () => {
+test('product archive drops per-spec SKU row maintenance from the config drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const derivedRowsBlock = source.match(/const productProductionDerivedSkuRows = computed\([\s\S]*?const productProductionSalesSpecRows/)?.[0] || ''
 
-  assert.match(derivedRowsBlock, /productUnitTemplateSalesSpecRows\(productProductionConfigForm\.value\.unit_template_id\)/)
-  assert.match(derivedRowsBlock, /net_content_qty:\s*row\.net_content_qty \|\| spec\.net_content_qty/)
-  assert.match(derivedRowsBlock, /net_content_unit:\s*row\.net_content_unit \|\| spec\.net_content_unit/)
-  assert.match(derivedRowsBlock, /sales_unit:\s*row\.derived_sales_unit \|\| spec\.sales_unit/)
-  assert.match(derivedRowsBlock, /productProductionRemovedSkuRows/)
-  assert.match(derivedRowsBlock, /template_removed/)
-  assert.match(source, /showProductProductionHistoricalSpecs/)
+  for (const retired of ['productProductionDerivedSkuRows', 'productProductionSalesSpecRows', 'productProductionVisibleSalesSpecRows', 'showProductProductionHistoricalSpecs', 'setDefaultProductSalesSpec', 'createChildSkuForProduct', 'childSkuForm']) {
+    assert.ok(!source.includes(retired), `config drawer must not keep retired SKU helper ${retired}`)
+  }
 })
 
 test('sales spec template controls remain only for legacy product configuration', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
-  const productListToolbar = source.match(/<div class="sku-list-actions"[\s\S]*?<\/div>/)?.[0] || source
+  const productListToolbar = source.match(/<div class="filter-actions sku-list-actions"[\s\S]*?<\/div>/)?.[0] || ''
 
   assert.doesNotMatch(createForm, /skuForm\.unit_template_id/)
   assert.doesNotMatch(createForm, /<span>销售规格模板<\/span>/)
   assert.match(createForm, /商品档案不再维护销售规格模板或派生子 SKU/)
 
-  for (const marker of [
+  for (const removed of [
     '销售规格模板',
     'productProductionConfigForm.unit_template_id',
     '库存单位：来自销售规格模板',
   ]) {
-    assert.match(configDrawer, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.doesNotMatch(configDrawer, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `config drawer must not contain ${removed}`)
   }
 
-  assert.match(productListToolbar, /设置销售规格模板/)
-  assert.match(productListToolbar, /维护销售规格模板/)
-  assert.match(productListToolbar, /openProductUnitTemplateManagement/)
-  assert.match(source, /key: 'productUnitTemplates'/)
-  assert.match(source, /label: '返回商品档案'/)
+  assert.doesNotMatch(productListToolbar, /设置销售规格模板/)
+  assert.doesNotMatch(productListToolbar, /维护销售规格模板/)
+  assert.doesNotMatch(productListToolbar, /openProductUnitTemplateManagement/)
+  assert.doesNotMatch(productListToolbar, /batchProductUnitTemplateID/)
 })
 
 test('customer product rule payloads carry template items, overrides, and bindings', () => {
@@ -3895,7 +3884,7 @@ test('product config template page no longer contains product category managemen
   const configPageBlock = template.match(/productConfigTemplates[\s\S]*?<\/section>/)?.[0] || template
 
   assert.match(source, /商品配置模板/)
-  assert.match(configPageBlock, /销售规格模板/)
+  assert.doesNotMatch(configPageBlock, /productConfigTemplateForm\.unit_template_id/)
   assert.match(configPageBlock, /价格表生成规则/)
   assert.match(configPageBlock, /productConfigTemplateNeedsGradientTemplate\(productConfigTemplateForm\)[\s\S]*阶梯价模板/)
   assert.doesNotMatch(configPageBlock, /<label>\s*<span>阶梯价模板<\/span>\s*<select v-model\.number="productConfigTemplateForm\.gradient_template_id"/)
@@ -4008,7 +3997,8 @@ test('SKU creation uses one unified product archive form without legacy classifi
   const productDrawer = source.match(/<aside class="settings-drawer product-editor-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
   assert.match(source, /@submit\.prevent="createSku"/)
-  assert.match(script, /apiSend\('\/api\/product-settings\/skus'/)
+  assert.match(script, /apiSend\('\/api\/product-settings\/products'/)
+  assert.doesNotMatch(script, /\/api\/product-settings\/skus/)
   assert.doesNotMatch(productDrawer, /产品类别/)
   assert.doesNotMatch(productDrawer, /产品子类型/)
   assert.doesNotMatch(productDrawer, /productTypeCategoryOptions/)
@@ -4069,8 +4059,6 @@ test('SKU settings exposes product subtype default unit configuration controls',
     'saveProductConfigTemplate',
     'deriveProductConfigTemplateForCustomer',
     '/api/product-settings/product-config-templates',
-    '销售规格模板',
-    'productConfigTemplateForm.unit_template_id',
     'productUnitTemplateSummary',
     'buildProductConfigTemplatePayload',
   ]) {
@@ -4112,9 +4100,7 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
 
   for (const expected of [
     '商品配置',
-    '销售规格模板会影响商品价格表规格行',
-    '录单默认销售规格和后续派生子 SKU',
-    '已发布价格表和历史订单不会被回改',
+    '配置模板不再单独引用规格模板',
     'unit-impact-help',
     'repeat(auto-fit, minmax',
     'min-width: 0',
@@ -4713,7 +4699,6 @@ test('SKU settings separates global unit templates into a peer configuration tab
     'productUnitDefinitions',
     'productUnitTemplates',
     'saveProductUnitTemplate',
-    'productConfigTemplateForm.unit_template_id',
     '这里维护库存单位和销售规格换算',
     '/api/product-settings/unit-templates',
   ]) {

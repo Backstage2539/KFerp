@@ -182,18 +182,6 @@
                 </label>
                 <div class="filter-actions sku-list-actions">
                   <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
-                  <select v-model.number="batchProductUnitTemplateID" class="compact-select" :disabled="!selectedLegacyProductUnitTemplateTargets.length || loading">
-                    <option :value="0">选择旧商品销售规格模板</option>
-                    <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
-                      {{ productUnitTemplateSummary(unitTemplate) }}
-                    </option>
-                  </select>
-                  <button class="secondary compact-action" type="button" :disabled="!selectedLegacyProductUnitTemplateTargets.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
-                    设置销售规格模板（旧商品）
-                  </button>
-                  <button class="secondary compact-action" type="button" @click="openProductUnitTemplateManagement">
-                    维护销售规格模板（旧商品）
-                  </button>
                   <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
                     失效商品
                   </button>
@@ -705,16 +693,8 @@
               </label>
             </div>
             <div class="rule-config-block">
-              <div class="field-group-title">销售规格模板</div>
-              <label>
-                <span>引用模板</span>
-                <select v-model.number="productConfigTemplateForm.unit_template_id" :disabled="!canEditCurrentProductConfigTemplate">
-                  <option value="0">请选择销售规格模板</option>
-                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="unitTemplate.id">{{ productUnitTemplateSummary(unitTemplate) }}</option>
-                </select>
-              </label>
-              <small>{{ productUnitTemplateSummary(selectedProductConfigUnitTemplate) }}</small>
-              <small class="unit-impact-help">销售规格模板会影响商品价格表规格行、录单默认销售规格和后续派生子 SKU；已发布价格表和历史订单不会被回改。</small>
+              <div class="field-group-title">销售规格</div>
+              <small class="unit-impact-help">商品规格统一由默认制造 BOM 的规格组提供；配置模板不再单独引用规格模板。</small>
             </div>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
@@ -1535,52 +1515,17 @@
                 <span>备注</span>
                 <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
               </label>
-              <label v-if="!productProductionConfigUsesBomSpecs" class="wide-field">
-                <span>销售规格模板</span>
-                <select v-model.number="productProductionConfigForm.unit_template_id" @change="applyProductConfigUnitTemplateDefaults(productProductionConfigForm)">
-                  <option :value="0" disabled>请选择销售规格模板</option>
-                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
-                    {{ productUnitTemplateSummary(unitTemplate) }}
-                  </option>
-                </select>
-                <small>库存单位：来自销售规格模板 {{ productUnitTemplateInventoryLabel(productProductionConfigForm.unit_template_id, 'kg') }}；默认销售规格：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
+              <label class="wide-field">
+                <span>商品规格</span>
+                <input :value="productProductionBomSpecsSummary" disabled />
+                <small>规格统一来自默认制造 BOM 的规格组，到 BOM 维护；商品档案不再单独选择规格模板。</small>
               </label>
             </div>
-            <div v-if="!productProductionConfigUsesBomSpecs && (productProductionSalesSpecRows.length || productProductionRemovedSkuRows.length)" class="sales-spec-template-detail">
-              <div class="sales-spec-template-detail-head">
-                <strong>销售规格模板明细</strong>
-                <label v-if="productProductionRemovedSkuRows.length" class="checkline compact-checkline sales-spec-history-toggle">
-                  <input type="checkbox" v-model="showProductProductionHistoricalSpecs" />
-                  <span>显示历史规格</span>
-                </label>
-              </div>
-              <article v-for="row in productProductionVisibleSalesSpecRows" :key="`config-sales-spec-${row.spec_key || row.derived_spec_key || row.id}`" :class="['child-sku-row', 'compact-derived-sku-row', { inactive: row.derived_spec_status === 'template_removed' }]">
-                <div>
-                  <strong>{{ row.spec_name }}</strong>
-                  <small>{{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(productProductionConfigForm.unit_template_id)) }}</small>
-                  <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
-                  <small v-if="row.derived_spec_status === 'template_removed'" class="muted">历史 SKU 保留用于历史单据，不参与新建业务</small>
-                </div>
-                <div class="sales-spec-default-actions">
-                  <span v-if="productSalesSpecIsDefault(row)" class="template-meta-chip default-spec-chip">默认规格</span>
-                  <button
-                    v-else-if="productSalesSpecCanSetDefault(row)"
-                    class="secondary compact-action"
-                    type="button"
-                    :disabled="defaultSkuSavingID === productSalesSpecSkuID(row)"
-                    @click="setDefaultProductSalesSpec(row)">
-                    {{ defaultSkuSavingID === productSalesSpecSkuID(row) ? '设置中' : '设为默认规格' }}
-                  </button>
-                  <span v-if="row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' || row.active === false" :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
-                </div>
-              </article>
-              <p v-if="!productProductionVisibleSalesSpecRows.length" class="muted">当前模板没有可用规格；打开“显示历史规格”可查看历史保留 SKU。</p>
-            </div>
-            <div v-if="productProductionConfigUsesBomSpecs" class="sales-spec-template-detail bom-spec-readonly-panel">
+            <div class="sales-spec-template-detail bom-spec-readonly-panel">
               <div class="sales-spec-template-detail-head">
                 <div>
                   <strong>BOM 规格（只读）</strong>
-                  <small>该商品已切换为“父商品 + BOM 规格”身份；规格、单位和配方统一在默认 BOM 维护。</small>
+                  <small>规格、单位和配方统一在默认制造 BOM 的规格组维护；商品档案直接引用并展示。</small>
                 </div>
                 <button class="secondary compact-action" type="button" @click="navigateProductBom(productProductionDefaultBomUsageRow || {})">到 BOM 维护规格</button>
               </div>
@@ -1593,7 +1538,7 @@
                 </div>
                 <span v-if="row.is_default" class="template-meta-chip default-spec-chip">默认规格</span>
               </article>
-              <p v-if="!productProductionBomSpecs.length" class="muted">默认已发布 BOM 暂无可用规格，请到 BOM 检查规格组和发布版本。</p>
+              <p v-if="!productProductionBomSpecs.length" class="muted">{{ productProductionDefaultBomUsageRow ? '默认 BOM 暂无可用规格，请到 BOM 检查规格组和发布版本。' : '该商品尚未绑定默认制造 BOM；请到 生产配置 -> 生产 BOM 创建规格组并设为默认 BOM。' }}</p>
             </div>
           </section>
 
@@ -1945,7 +1890,6 @@ import {
   productArchiveRowsWithSkus,
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
-  salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
   secondaryCategoryOptions,
   selectedSkuRowIDsAfterVisibleToggle,
@@ -1964,7 +1908,6 @@ import { orderProductFamilyOptions, orderProductKindFilterOptions } from '../lib
 import { normalizePageSize } from '../lib/pagination'
 import {
   isProductBomSpecCutover,
-  legacyProductTemplateWriteTargets,
   normalizeProductBomSpecs,
   productSpecMigrationState,
   visibleRowsForProductSpecMigration,
@@ -2105,7 +2048,6 @@ const secondaryDeleteModeFor = ref(0)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedAliasCustomerID = ref(0)
 const selectedProductIds = ref([])
-const batchProductUnitTemplateID = ref(0)
 const selectedAliasIds = ref([])
 const selectedAliasBatchProductIds = ref([])
 const activeProductClassificationTab = ref('all')
@@ -2150,10 +2092,6 @@ const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
 const productSpecMigrationSaving = ref(false)
-const showProductProductionHistoricalSpecs = ref(false)
-const childSkuForm = ref(defaultChildSkuForm())
-const childSkuSaving = ref(false)
-const defaultSkuSavingID = ref(0)
 const aliasIndustryFieldDrawerOpen = ref(false)
 const aliasIndustryFieldSaving = ref(false)
 const aliasIndustryFieldAlias = ref(null)
@@ -2193,53 +2131,6 @@ const productProductionConfigParentProduct = computed(() => {
   return products.value.find((product) => Number(product.id || 0) === parentID) || productProductionConfigProduct.value || {}
 })
 const productProductionConfigSkuRows = computed(() => productSkuRowsForParent(products.value, productProductionConfigParentProductID.value))
-const productProductionDerivedSkuRows = computed(() => {
-  const specs = productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
-  const specsByKey = new Map(specs.map((spec) => [String(spec.spec_key || '').trim(), spec]))
-  return productProductionConfigSkuRows.value
-    .filter((row) => {
-      if (!row) return false
-      if (row.auto_derived_sku === true || row.autoDerivedSKU === true) return true
-      if (String(row.derived_spec_key || row.derivedSpecKey || '').trim()) return true
-      if (Number(row.derived_unit_template_id || row.derivedUnitTemplateID || 0) > 0) return true
-      return false
-    })
-    .map((row) => {
-      const specKey = String(row.derived_spec_key || row.derivedSpecKey || '').trim()
-      const spec = specsByKey.get(specKey) || {}
-      if (!spec.spec_key) return row
-      return {
-        ...spec,
-        ...row,
-        spec_key: specKey || spec.spec_key,
-        sales_unit: row.derived_sales_unit || spec.sales_unit,
-        net_content_qty: row.net_content_qty || spec.net_content_qty,
-        net_content_unit: row.net_content_unit || spec.net_content_unit,
-      }
-    })
-})
-const productProductionRemovedSkuRows = computed(() => productProductionDerivedSkuRows.value
-  .filter((row) => String(row?.derived_spec_status || row?.derivedSpecStatus || '').trim() === 'template_removed')
-  .map((row) => ({
-    ...row,
-    spec_key: String(row.derived_spec_key || row.derivedSpecKey || row.spec_key || row.id || '').trim(),
-    spec_name: String(row.derived_spec_name || row.derivedSpecName || row.spec_name || row.sku_name || row.name || '历史规格').trim(),
-    sales_unit: String(row.derived_sales_unit || row.derivedSalesUnit || row.sales_unit || row.default_sales_unit || row.spec_name || '历史规格').trim(),
-    derived_sku_id: Number(row.sku_id || row.id || row.derived_sku_id || 0),
-    derived_sku_code: derivedSkuCodeLabel(row),
-    derived_spec_status: 'template_removed',
-  })))
-const productProductionSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
-  .map((row) => {
-    const derived = productProductionDerivedSkuRows.value.find((sku) => String(sku.derived_spec_key || '') === String(row.spec_key || ''))
-    return derived ? { ...row, derived_sku_id: Number(derived.sku_id || derived.id || 0), derived_sku_code: derivedSkuCodeLabel(derived), derived_spec_status: derived.derived_spec_status || row.derived_spec_status } : row
-  }))
-const productProductionVisibleSalesSpecRows = computed(() => {
-  if (!showProductProductionHistoricalSpecs.value) return productProductionSalesSpecRows.value
-  const currentKeys = new Set(productProductionSalesSpecRows.value.map((row) => String(row.spec_key || '').trim()).filter(Boolean))
-  const historyRows = productProductionRemovedSkuRows.value.filter((row) => !currentKeys.has(String(row.spec_key || '').trim()))
-  return [...productProductionSalesSpecRows.value, ...historyRows]
-})
 const productProductionConfigVersionOptions = computed(() => (selectedProductProductionConfigBomDetail.value?.versions || [])
   .filter((version) => version.status === 'published')
   .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
@@ -2464,10 +2355,15 @@ const productProductionDefaultBomUsageRow = computed(() => productProductionConf
   || productProductionConfigProduceBomRows.value.find((row) => bomUsageBomID(row) === Number(productProductionConfigForm.value.production_bom_id || 0))
   || null)
 const productProductionBomSpecs = computed(() => {
-  if (!productProductionConfigUsesBomSpecs.value) return []
   const bomID = bomUsageBomID(productProductionDefaultBomUsageRow.value || {})
     || Number(productProductionConfigForm.value.production_bom_id || 0)
   return normalizeProductBomSpecs(productionBomDetails.value[String(bomID)] || {})
+})
+const productProductionBomSpecsSummary = computed(() => {
+  const specs = productProductionBomSpecs.value
+  if (!specs.length) return productProductionDefaultBomUsageRow.value ? '默认 BOM 暂无可用规格' : '尚未绑定默认制造 BOM'
+  const names = specs.map((row) => `${row.name || row.code || `规格 #${row.bom_spec_id}`}${row.is_default ? '（默认）' : ''}`)
+  return names.length > 3 ? `${names.slice(0, 3).join('、')} 等 ${names.length} 个规格` : names.join('、')
 })
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
   id: Number(category.id || 0),
@@ -2613,7 +2509,6 @@ const productBusinessGroupControls = computed(() => businessGroupControlOptions(
 }))
 const selectedProductGroupTemplate = computed(() => productBusinessGroupControls.value.selectedTemplate)
 const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(productCatalogBusinessGroups.value.length && selectedProductIds.value.length))
-const selectedLegacyProductUnitTemplateTargets = computed(() => legacyProductTemplateWriteTargets(products.value, selectedProductIds.value))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -2643,7 +2538,6 @@ const visibleCustomerAliasGroups = computed(() => {
     onlyAssigned: true,
   })
 })
-const selectedProductConfigUnitTemplate = computed(() => findProductUnitTemplate(productConfigTemplateForm.value.unit_template_id))
 const activeProductConfigTemplates = computed(() => productConfigTemplatesForContext.value.filter((template) => template.active !== false))
 const customerProductRuleTemplatesForContext = computed(() => customerProductRuleTemplates.value
   .filter((template) => Number(template.customer_id || 0) === 0 || Number(template.customer_id || 0) === skuContextCustomerID.value)
@@ -2774,19 +2668,6 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
   return buildProductProductionConfigForm(config, product, industryFieldTemplatesForConfig(config))
-}
-
-function defaultChildSkuForm(product = {}) {
-  return {
-    sku_name: '',
-    sku_code: '',
-    barcode: '',
-    spec_label: '',
-    net_content_qty: 0,
-    net_content_unit: 'g',
-    unit_template_id: Number(product?.unit_template_id || defaultProductUnitTemplateID() || 0),
-    active: true,
-  }
 }
 
 function isAliasClassificationGroupCollapsed(key) {
@@ -3710,7 +3591,6 @@ function startProductConfigTemplateEdit(template) {
 
 function validateProductConfigTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写商品配置名称'
-  if (Number(payload.unit_template_id || 0) <= 0) return '请选择销售规格模板'
   const rule = parseJSONSafe(payload.price_list_rule_json)
   if (rule.pricing_mode === 'fixed_unit_price' && !(Number(rule.fixed_unit_price) > 0)) return '固定单价模式必须填写固定单价'
   if (rule.pricing_mode === 'cost_plus' && !Object.prototype.hasOwnProperty.call(rule, 'cost_plus_rate')) return '成本加成模式必须填写加成比例'
@@ -4860,57 +4740,6 @@ function salesSpecNetContentLabel(row = {}) {
   return `${qty}${unit}`
 }
 
-function derivedSkuCodeLabel(row = {}) {
-  const code = String(row.derived_sku_code || row.derivedSKUCode || row.sku_code || row.skuCode || '').trim()
-  if (code) return code
-  const id = Number(row.sku_id || row.id || row.derived_sku_id || 0)
-  return id > 0 ? `SKU-${String(id).padStart(6, '0')}` : '保存后生成'
-}
-
-function productSalesSpecSkuID(row = {}) {
-  return Number(row.derived_sku_id || row.sku_id || row.id || 0)
-}
-
-function productSalesSpecIsDefault(row = {}) {
-  const defaultSKUID = Number(
-    productProductionConfigParentProduct.value?.default_sku_id
-      || productProductionConfigParentProduct.value?.effective_default_sku_id
-      || 0,
-  )
-  const skuID = productSalesSpecSkuID(row)
-  if (defaultSKUID > 0) return skuID === defaultSKUID
-  return row.is_default_sku === true || row.isDefaultSKU === true
-}
-
-function productSalesSpecCanSetDefault(row = {}) {
-  const status = String(row.derived_spec_status || row.derivedSpecStatus || '').trim()
-  return productSalesSpecSkuID(row) > 0
-    && row.active !== false
-    && status !== 'template_removed'
-    && status !== 'template_disabled'
-}
-
-async function setDefaultProductSalesSpec(row = {}) {
-  const parentProductID = productProductionConfigParentProductID.value
-  const skuID = productSalesSpecSkuID(row)
-  if (!parentProductID || !skuID || !productSalesSpecCanSetDefault(row)) return
-  defaultSkuSavingID.value = skuID
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(`/api/product-settings/products/${parentProductID}/default-sku`, {
-      method: 'PUT',
-      body: { sku_id: skuID },
-    })
-    await loadAll()
-    ok.value = `默认规格已设置为 ${String(row.spec_name || row.sku_name || row.name || skuID).trim()}`
-  } catch (err) {
-    error.value = err.message || '设置默认规格失败'
-  } finally {
-    defaultSkuSavingID.value = 0
-  }
-}
-
 function derivedSpecStatusLabel(status = '') {
   return {
     active: '已派生',
@@ -5566,23 +5395,6 @@ function productUnitTemplateSummary(idOrTemplate) {
   return `${template.name || '销售规格模板'} · 默认 ${defaultLabel} · 规格 ${activeCount}`
 }
 
-function productUnitTemplateInventoryLabel(idOrTemplate, fallback = 'kg') {
-  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
-  return productUnitName(template?.inventory_unit || fallback || 'kg')
-}
-
-function productUnitTemplateInventoryUnit(idOrTemplate, fallback = 'kg') {
-  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
-  return String(template?.inventory_unit || fallback || 'kg').trim() || 'kg'
-}
-
-function productUnitTemplateSalesLabel(idOrTemplate, fallback = 'kg') {
-  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
-  const specs = salesSpecRowsFromTemplate(template || {})
-  const defaultSpec = specs.find((row) => row.default) || specs[0]
-  return defaultSpec ? (defaultSpec.spec_name || '默认规格') : productUnitName(fallback || 'kg')
-}
-
 function productUnitTemplateConversionRows(template) {
   if (!template) return []
   const inventoryUnit = template.inventory_unit || 'kg'
@@ -5608,16 +5420,6 @@ function applyProductUnitTemplateToForm(form) {
 }
 
 function applySkuUnitTemplateDefaults(form) {
-  if (!form) return
-  if (!Number(form.unit_template_id || 0)) {
-    form.unit_rule_override_enabled = false
-    return
-  }
-  form.unit_rule_override_enabled = false
-  applyProductUnitTemplateToForm(form)
-}
-
-function applyProductConfigUnitTemplateDefaults(form) {
   if (!form) return
   if (!Number(form.unit_template_id || 0)) {
     form.unit_rule_override_enabled = false
@@ -6383,10 +6185,8 @@ async function openProductProductionConfig(row) {
   const industryFieldTemplatesAvailableAtOpen = industryFieldTemplatesForConfig(config).length === industryFieldTemplateIDs.length
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(config, row)
-  showProductProductionHistoricalSpecs.value = false
   const parentID = Number(row?.parent_product_id || row?.parentProductID || row?.id || 0)
   const parentProduct = products.value.find((product) => Number(product.id || 0) === parentID) || row || {}
-  childSkuForm.value = defaultChildSkuForm(parentProduct)
   if (Number(productProductionConfigForm.value.unit_template_id || 0) > 0 && !productProductionConfigForm.value.unit_rule_override_enabled) {
     applyProductUnitTemplateToForm(productProductionConfigForm.value)
   }
@@ -6412,7 +6212,7 @@ async function openProductProductionConfig(row) {
     if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     await ensureProductBomUsage(productID)
     if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
-    if (productProductionConfigUsesBomSpecs.value) {
+    {
       const defaultBomID = bomUsageBomID(productProductionDefaultBomUsageRow.value || {})
         || Number(productProductionConfigForm.value.production_bom_id || 0)
       if (defaultBomID > 0) await ensureProductionBomDetail(defaultBomID)
@@ -6457,7 +6257,6 @@ function closeProductProductionConfigDrawer() {
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()
-  showProductProductionHistoricalSpecs.value = false
 }
 
 async function refreshClassificationTemplates() {
@@ -6664,51 +6463,6 @@ async function handleProductCategoryMoveTarget(target) {
   if (moved) productCategoryMoveActive.value = false
 }
 
-async function saveSelectedProductUnitTemplate() {
-  const unitTemplateID = Number(batchProductUnitTemplateID.value || 0)
-  const selectedTargets = selectedLegacyProductUnitTemplateTargets.value
-  if (!selectedTargets.length) {
-    error.value = selectedProductIds.value.length
-      ? '已切换商品的规格由 BOM 维护，不能再设置旧销售规格模板'
-      : '请先勾选尚未切换到 BOM 规格的商品档案'
-    return
-  }
-  if (!unitTemplateID || !findProductUnitTemplate(unitTemplateID)) {
-    error.value = '请选择销售规格模板'
-    return
-  }
-  const selectedIDs = selectedTargets.map((row) => Number(row.id || 0)).filter(Boolean)
-  const skippedCount = selectedProductIds.value.length - selectedIDs.length
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    for (const productID of selectedIDs) {
-      const product = products.value.find((row) => Number(row.id || 0) === productID)
-      if (!product || !canEditSkuRow(product)) continue
-      await apiSend(`/api/products/${productID}`, {
-        method: 'PUT',
-        body: buildProductBasicsPayload({
-          ...product,
-          unit_template_id: unitTemplateID,
-          unit_rule_override_enabled: false,
-          unit_rule_override_json: product.unit_rule_override_json || '{}',
-        }),
-      })
-    }
-    ok.value = skippedCount > 0
-      ? `已为 ${selectedIDs.length} 个旧商品设置销售规格模板；跳过 ${skippedCount} 个已切换商品`
-      : `已为 ${selectedIDs.length} 个旧商品设置销售规格模板`
-    selectedProductIds.value = []
-    batchProductUnitTemplateID.value = 0
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '设置销售规格模板失败'
-  } finally {
-    loading.value = false
-  }
-}
-
 async function clearProductBusinessGroupAssignment(productID) {
   const id = Number(productID || 0)
   if (!id) return
@@ -6725,18 +6479,6 @@ function openProductBusinessGroupManagement() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
       key: 'groupTemplates',
-      returnNavigation: {
-        key: 'productMaster',
-        label: '返回商品档案',
-      },
-    },
-  }))
-}
-
-function openProductUnitTemplateManagement() {
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
-    detail: {
-      key: 'productUnitTemplates',
       returnNavigation: {
         key: 'productMaster',
         label: '返回商品档案',
@@ -6823,10 +6565,6 @@ async function saveProductProductionConfig() {
     error.value = '请选择商品档案'
     return
   }
-  if (!productProductionConfigUsesBomSpecs.value && !Number(productProductionConfigForm.value.unit_template_id || 0)) {
-    error.value = '请选择销售规格模板'
-    return
-  }
   const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(productProductionConfigForm.value)
   const fields = productProductionConfigFieldsFromTemplates(
     productProductionConfigForm.value.fields || [],
@@ -6896,44 +6634,6 @@ async function createSku() {
     error.value = err.message || '创建商品档案失败'
   } finally {
     skuSaving.value = false
-  }
-}
-
-async function createChildSkuForProduct() {
-  const parentProductID = productProductionConfigParentProductID.value
-  if (!parentProductID) {
-    error.value = '请选择父商品'
-    return
-  }
-  const skuName = String(childSkuForm.value.sku_name || '').trim()
-  if (!skuName) {
-    error.value = '请填写 SKU 名称'
-    return
-  }
-  if (!Number(childSkuForm.value.unit_template_id || 0)) {
-    error.value = '请选择销售规格模板'
-    return
-  }
-  const parentProduct = productProductionConfigParentProduct.value || {}
-  const parentName = String(parentProduct.name || productProductionConfigForm.value.name || '').trim()
-  childSkuSaving.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend('/api/product-settings/skus', {
-      body: buildChildSkuCreatePayload(parentProductID, {
-        ...childSkuForm.value,
-        customer_id: Number(parentProduct.customer_id || 0),
-        name: `${parentName} ${skuName}`.trim(),
-      }),
-    })
-    ok.value = '子 SKU 已创建'
-    childSkuForm.value = defaultChildSkuForm(parentProduct)
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '创建子 SKU 失败'
-  } finally {
-    childSkuSaving.value = false
   }
 }
 

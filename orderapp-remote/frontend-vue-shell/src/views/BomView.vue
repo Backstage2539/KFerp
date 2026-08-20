@@ -555,7 +555,17 @@
                 </select>
                 <small>{{ currentRecipeTarget?.process_route_name || '未配置路线' }}<template v-if="selectedProductionBomVersion?.is_latest_usable"> · 最新可用</template></small>
               </label>
-              <p v-if="materialLossRateDisplay" class="muted left legacy-loss-display">{{ materialLossRateDisplay }}</p>
+              <div v-if="isMaterialOutputBom" class="material-loss-control bom-version-loss-control">
+                <label class="checkbox-row compact-checkbox">
+                  <input v-model="versionMaterialLossRateEnabled" type="checkbox" :disabled="!canEditCurrentBomItems" @change="handleVersionMaterialLossToggle" />
+                  <span>原料损耗比</span>
+                </label>
+                <label v-if="versionMaterialLossRateEnabled" class="material-loss-rate-field">
+                  <span>损耗比例 %</span>
+                  <input v-model.number="versionMaterialLossRatePct" type="number" min="0" max="99.9999" step="0.01" :disabled="!canEditCurrentBomItems" />
+                  <small>开启损耗后，所有组件必须是物料并使用比例 %；损耗比例必须大于 0。</small>
+                </label>
+              </div>
               <button class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems || loading" @click="saveProductionBomVersionMeta">保存版本设置</button>
             </div>
             <p :class="['recipe-mode-hint', { warn: recipeConsumeMode === 'mixed_legacy' }]">
@@ -949,7 +959,7 @@ const unitDictionaryConsumeUnitOptions = computed(() => productUnitDefinitions.v
   .filter(Boolean)
   .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''))))
 const currentConsumeUnitOptions = computed(() => {
-  if (recipeConsumeMode.value === 'ratio') {
+  if (versionMaterialLossRateEnabled.value || recipeConsumeMode.value === 'ratio') {
     return materialLossRatioOnlyConsumeUnitOptions
   }
   if (recipeConsumeMode.value === 'fixed' || itemForm.component_type === 'product') {
@@ -960,7 +970,14 @@ const currentConsumeUnitOptions = computed(() => {
     itemForm.consume_unit,
   )
 })
-const selectedVersionMaterialLossRate = computed(() => normalizedMaterialLossRateFromValue(currentRecipeTarget.value?.material_loss_rate))
+const isMaterialOutputBom = computed(() => currentOutputIdentity.value?.type === 'material')
+const versionMaterialLossRateEnabled = ref(false)
+const versionMaterialLossRatePct = ref('')
+const selectedVersionMaterialLossRate = computed(() => {
+  if (versionMaterialLossRateEnabled.value) return normalizedMaterialLossRateFromPercent(versionMaterialLossRatePct.value)
+  if (isMaterialOutputBom.value) return 0
+  return normalizedMaterialLossRateFromValue(currentRecipeTarget.value?.material_loss_rate)
+})
 const visibleMovableBomRows = computed(() => productionBomVisibleRows.value.filter(isMovableBomRow))
 const selectedBomRows = computed(() => {
   const selected = new Set(selectedBomRowKeys.value)
@@ -1348,9 +1365,18 @@ function normalizedMaterialLossRateFromPercent(value) {
   return normalizedMaterialLossRateFromValue(Number(value || 0) / 100)
 }
 
+function syncVersionMaterialLossRateFromSelectedVersion() {
+  const rate = isMaterialOutputBom.value
+    ? normalizedMaterialLossRateFromValue(currentRecipeTarget.value?.material_loss_rate)
+    : 0
+  versionMaterialLossRateEnabled.value = rate > 0
+  versionMaterialLossRatePct.value = rate > 0 ? Number((rate * 100).toFixed(4)) : ''
+  syncItemFormToRecipeMode()
+}
+
 function selectBomVariant(variant = {}) {
   selectedBomVariantID.value = Number(variant.bom_variant_id || variant.id || 0)
-  syncItemFormToRecipeMode()
+  syncVersionMaterialLossRateFromSelectedVersion()
   resetItemForm()
 }
 
@@ -1390,7 +1416,7 @@ function validateRecipeMode(items = [], lossRate = 0) {
 }
 
 function syncItemFormToRecipeMode() {
-  if (recipeConsumeMode.value === 'ratio') {
+  if (versionMaterialLossRateEnabled.value || recipeConsumeMode.value === 'ratio') {
     itemForm.component_type = 'material'
     itemForm.component_product_id = 0
     itemForm.component_bom_spec_id = 0
@@ -1404,6 +1430,22 @@ function syncItemFormToRecipeMode() {
     itemForm.consume_unit = componentStockUnitCode.value || defaultDictionaryConsumeUnit()
     itemForm.ratio_pct = ''
   }
+}
+
+function handleVersionMaterialLossToggle() {
+  if (!versionMaterialLossRateEnabled.value) {
+    versionMaterialLossRatePct.value = ''
+    syncItemFormToRecipeMode()
+    return
+  }
+  if (recipeConsumeMode.value === 'fixed' || recipeConsumeMode.value === 'mixed_legacy') {
+    versionMaterialLossRateEnabled.value = false
+    versionMaterialLossRatePct.value = ''
+    error.value = '已有固定用量组件，不能开启原料损耗比；请先删除固定组件或拆分 BOM'
+    return
+  }
+  if (!(Number(versionMaterialLossRatePct.value || 0) > 0)) versionMaterialLossRatePct.value = 1
+  syncItemFormToRecipeMode()
 }
 
 function materialLossRateDisplay(item = {}) {
@@ -1583,7 +1625,7 @@ function productionBomDraftItemFromForm() {
     consume_unit: consumeUnit,
     qty_per_unit: Number(itemForm.qty_per_unit || 0),
     ratio_pct: Number(itemForm.ratio_pct || 0),
-    material_loss_rate: recipeConsumeMode.value === 'ratio' && componentType === 'material' && consumeUnit === 'ratio_pct'
+    material_loss_rate: versionMaterialLossRateEnabled.value && componentType === 'material' && consumeUnit === 'ratio_pct'
       ? selectedVersionMaterialLossRate.value
       : 0,
   }
@@ -1593,6 +1635,7 @@ async function saveProductionBomDraftItems(items, basis = {}) {
   const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || 0)
   if (!draftVersionID) throw new Error('请先复制为新版草稿后再编辑配方明细')
   const lossRate = selectedVersionMaterialLossRate.value
+  if (versionMaterialLossRateEnabled.value && !(lossRate > 0)) throw new Error('开启原料损耗比后，损耗比例必须大于 0')
   validateRecipeMode(items, lossRate)
   const body = bomVariants.value.length
     ? {
@@ -1672,7 +1715,7 @@ function toggleAllVisibleBoms(event, rows = []) {
 async function selectProductionBomVersion(version, options = {}) {
   const versionID = Number(version?.id || version || 0)
   selectedProductionBomVersionID.value = versionID
-  syncItemFormToRecipeMode()
+  syncVersionMaterialLossRateFromSelectedVersion()
   if (options.reload && currentProductionBomID.value > 0 && versionID > 0) {
     await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
   }
@@ -1686,7 +1729,7 @@ function syncSelectedProductionBomVersion() {
   const existing = versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0))
   const selected = existing || versions.value.find((version) => version.status === 'draft') || versions.value.find((version) => version.is_latest) || versions.value[0]
   selectedProductionBomVersionID.value = Number(selected?.id || 0)
-  syncItemFormToRecipeMode()
+  syncVersionMaterialLossRateFromSelectedVersion()
 }
 
 function resetBomForm() {
@@ -1753,6 +1796,9 @@ function syncBomOutputType() {
   bomForm.output_unit = bomForm.output_type === 'material' ? 'kg' : defaultDictionaryConsumeUnit()
   bomForm.spec_template_version_id = 0
   bomForm.main_input_material_id = 0
+  if (bomForm.mode === 'edit' && bomForm.output_type === 'material' && currentOutputIdentity.value?.type === 'product' && bomVariants.value.length > 0) {
+    error.value = '改为物料产出后，本 BOM 的规格组将随保存一起删除'
+  }
 }
 
 function closeBomDrawer() {
@@ -2393,7 +2439,7 @@ async function loadProductionBomDetailForVersion(bomID, versionID = 0, fallbackR
   syncSelectedBomVariant()
   if (Number(versionID || 0) > 0) {
     selectedProductionBomVersionID.value = Number(versionID || 0)
-    syncItemFormToRecipeMode()
+    syncVersionMaterialLossRateFromSelectedVersion()
   }
   else syncSelectedProductionBomVersion()
   const row = fallbackRow || selectedProductionBomRecord.value || {}
@@ -2663,8 +2709,15 @@ async function saveProductionBomRecord() {
   }
 	await mutate(async () => {
 	  if (bomForm.mode === 'edit') {
+	    const outputChangedToMaterial = binding.output_type === 'material' && currentOutputIdentity.value?.type === 'product'
 	    await apiSend(`/api/production-boms/${bomForm.id}`, { method: 'PUT', body: payload })
-	    if (canEditCurrentBomItems.value) {
+	    if (outputChangedToMaterial && Number(selectedProductionBomDraftVersion.value?.id || 0) > 0) {
+	      await apiSend(`/api/production-bom-versions/${selectedProductionBomDraftVersion.value.id}/draft`, {
+	        method: 'PUT',
+	        body: { variants: [] },
+	      })
+	      productionBomDetail.value = { ...productionBomDetail.value, variants: [] }
+	    } else if (canEditCurrentBomItems.value) {
 	      await saveProductionBomDraftItems(detailItems.value.map(productionBomDraftItemFromItem), {
 	        output_qty: payload.output_qty,
 	        output_unit: payload.output_unit,

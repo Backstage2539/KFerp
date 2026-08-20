@@ -298,12 +298,11 @@ test('BOM version settings use one recipe list and one consume mode per variant'
   const template = source.split('<script setup>')[0] || source
   const itemFormBlock = template.match(/<form class="inline-form" @submit\.prevent="saveItem"[\s\S]*?<\/form>/)?.[0] || ''
 
-  assert.doesNotMatch(source, /原料损耗比/)
-  assert.doesNotMatch(source, /损耗比例 %/)
-  assert.doesNotMatch(source, /versionMaterialLossRateEnabled/)
-  assert.doesNotMatch(source, /versionMaterialLossRatePct/)
-  assert.doesNotMatch(source, /handleVersionMaterialLossToggle/)
-  assert.doesNotMatch(source, /开启损耗后，所有组件必须是物料并使用比例 %/)
+  assert.match(source, /原料损耗比/)
+  assert.match(source, /损耗比例 %/)
+  assert.match(source, /versionMaterialLossRateEnabled/)
+  assert.match(source, /handleVersionMaterialLossToggle/)
+  assert.match(source, /v-if="isMaterialOutputBom"[\s\S]{0,400}?原料损耗比/)
   assert.doesNotMatch(source, /有损耗的配方/)
   assert.doesNotMatch(source, /无损耗的配方/)
   assert.doesNotMatch(source, /selectedMaterialLossZone/)
@@ -1008,16 +1007,17 @@ test('spec variant card uses compact default checkbox and 规格用量 naming', 
   assert.match(source, /规格用量和包材均在本规格内维护|规格用量/)
 })
 
-test('BomView keeps no dangling references to removed loss-rate helpers', async () => {
+test('BomView loss-rate helpers stay wired to material output only', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1] || source
 
-  for (const retired of ['syncVersionMaterialLossRateFromSelectedVersion', 'handleVersionMaterialLossToggle', 'versionMaterialLossRateEnabled', 'versionMaterialLossRatePct']) {
-    assert.ok(!script.includes(retired), `script must not reference removed helper ${retired}`)
+  for (const required of ['syncVersionMaterialLossRateFromSelectedVersion', 'handleVersionMaterialLossToggle', 'versionMaterialLossRateEnabled', 'isMaterialOutputBom']) {
+    assert.ok(script.includes(required), `script must define ${required}`)
   }
-  const syncCalls = (script.match(/syncItemFormToRecipeMode\(\)/g) || []).length
-  assert.ok(syncCalls >= 4, `version/variant switches must call syncItemFormToRecipeMode, found ${syncCalls}`)
+  const syncCalls = (script.match(/syncVersionMaterialLossRateFromSelectedVersion\(\)/g) || []).length
+  assert.ok(syncCalls >= 3, `version/variant switches must sync loss state, found ${syncCalls}`)
+  assert.match(script, /const isMaterialOutputBom = computed/)
 })
 
 test('assignVariantSpecKeys fills missing keys and only rejects real duplicates', () => {
@@ -1037,4 +1037,32 @@ test('assignVariantSpecKeys fills missing keys and only rejects real duplicates'
   assert.equal(fresh[1].spec_key, 'spec-2')
 
   assert.throws(() => bomLib.assignVariantSpecKeys([{ spec_key: 'bag-227' }, { spec_key: 'BAG-227' }]), /规格键重复/)
+})
+
+
+test('material-output BOMs restore loss configuration while product spec groups keep fixed-only editing', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  const lossControl = template.match(/<div v-if="isMaterialOutputBom" class="material-loss-control[\s\S]*?<\/div>\s*<\/div>/)?.[0] || ''
+  assert.match(lossControl, /原料损耗比/)
+  assert.match(lossControl, /损耗比例 %/)
+  assert.match(lossControl, /v-model="versionMaterialLossRateEnabled"/)
+  assert.match(lossControl, /@change="handleVersionMaterialLossToggle"/)
+  const templateCard = template.match(/<article v-for="\(variant, variantIndex\) in templateDraftVariants"[\s\S]*?<div class="spec-variant-components">/)?.[0] || ''
+  assert.doesNotMatch(templateCard, /损耗比例/, 'spec template cards stay fixed-qty only')
+  assert.doesNotMatch(template, /materialLossRateDisplay\}\}/, 'no dangling function-source rendering')
+})
+
+test('switching BOM output to material clears the spec group and saves a flat recipe', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1] || source
+
+  assert.match(script, /outputChangedToMaterial/)
+  assert.match(script, /variants:\s*\[\]/)
+  assert.match(script, /saveProductionBomDraftItems\(\[\],|outputChangedToMaterial[\s\S]{0,200}skip|return$/m)
+  const hint = source.match(/改为物料产出[\s\S]{0,60}/)?.[0] || ''
+  assert.match(hint, /规格组|规格模板/)
 })
