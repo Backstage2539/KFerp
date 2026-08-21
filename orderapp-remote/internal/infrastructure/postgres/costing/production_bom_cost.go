@@ -370,9 +370,9 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 		       binding.output_id,
 		       CASE WHEN lower(COALESCE(NULLIF(binding.output_type,''),'product'))='product' THEN binding.output_id ELSE 0 END AS product_id,
 		       bom.id AS bom_id,
-		       %s AS bom_name,
+		       %[2]s AS bom_name,
 		       version.id AS version_id,
-		       %s AS version_no,
+		       %[3]s AS version_no,
 		       COALESCE(version.yield_rate,0)::float8 AS yield_rate,
 		       COALESCE(NULLIF(version.output_qty,0),1)::float8 AS output_qty,
 		       COALESCE(NULLIF(version.output_unit,''),'unit') AS output_unit,
@@ -393,7 +393,7 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 		 AND (NULLIF(oc.operation_cost_unit,'') IS NULL OR lower(oc.operation_cost_unit)=lower(version.output_unit))
 		WHERE binding.is_default=true
 		  AND COALESCE(NULLIF(bom.status,''),'active')='active'
-		GROUP BY binding.output_type, binding.output_id, bom.id, version.id, version.yield_rate, version.output_qty, version.output_unit%s%s
+		GROUP BY binding.output_type, binding.output_id, bom.id, version.id, version.yield_rate, version.output_qty, version.output_unit%[4]s%[5]s
 		ORDER BY output_type, binding.output_id
 	`, r.schema, bomNameExpr, versionNoExpr, bomNameGroup, versionNoGroup))
 	if err != nil {
@@ -544,7 +544,7 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 			GROUP BY l.material_id
 		)
 		SELECT i.version_id,
-		       %s
+		       %[2]s
 		       i.id,
 		       COALESCE(NULLIF(i.component_type,''),'material') AS component_type,
 		       COALESCE(i.material_id,0),

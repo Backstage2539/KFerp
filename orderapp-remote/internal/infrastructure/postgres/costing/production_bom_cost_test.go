@@ -537,6 +537,27 @@ func TestProductionBomCostReadsPurchasePriceInMaterialInventoryUnit(t *testing.T
 	}
 }
 
+func TestProductionBomCostSQLKeepsDynamicFormatArgumentsAligned(t *testing.T) {
+	b, err := os.ReadFile("production_bom_cost.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"%[2]s AS bom_name",
+		"%[3]s AS version_no",
+		"version.output_unit%[4]s%[5]s",
+		"SELECT i.version_id,\n\t\t       %[2]s",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("production BOM cost SQL missing aligned format argument %q", want)
+		}
+	}
+	if strings.Contains(src, "version.output_unit%s%s") {
+		t.Fatal("production BOM cost SQL must not reuse the schema format argument for dynamic clauses")
+	}
+}
+
 func TestCostingRepositorySharesResolvedProductionBomCostsBetweenPriceListAndTrial(t *testing.T) {
 	repositoryBytes, err := os.ReadFile("repository.go")
 	if err != nil {
