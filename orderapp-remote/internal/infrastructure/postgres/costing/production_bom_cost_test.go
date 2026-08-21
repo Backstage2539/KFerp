@@ -462,6 +462,34 @@ func TestResolveProductionBomCostsKeepsPartialCostAndAllMissingComponents(t *tes
 	}
 }
 
+func TestResolveTypedProductionBomCostsKeepsVariantSpecificRecursivePaths(t *testing.T) {
+	nodes := map[string]productionBomCostNode{
+		"material:71": {
+			OutputType: "material", OutputID: 71, VersionID: 1833, BomID: 18306, BomName: "初晓烘焙", VersionNo: "V001", OutputUnit: "kg",
+			Items: []productionBomCostItem{{ID: 448, ComponentMaterialID: 1, ComponentName: "孟连水洗5T批次", ConsumeUnit: "ratio_pct", RatioPct: 15, UnitCost: 0, UnitCostUnit: "kg"}},
+		},
+		"product_spec:3": {
+			OutputType: "product_spec", OutputID: 3, ProductID: 1063, VersionID: 1848, BomID: 18587, BomName: "初晓拼配-商品", VersionNo: "V001", OutputUnit: "袋",
+			Items: []productionBomCostItem{{ID: 551, ComponentMaterialID: 71, ComponentIsSemi: true, ComponentName: "初晓", ConsumeUnit: "kg", QtyPerUnit: 0.227, UnitCost: 0, UnitCostUnit: "kg"}},
+		},
+		"product_spec:4": {
+			OutputType: "product_spec", OutputID: 4, ProductID: 1063, VersionID: 1848, BomID: 18587, BomName: "初晓拼配-商品", VersionNo: "V001", OutputUnit: "袋",
+			Items: []productionBomCostItem{{ID: 553, ComponentMaterialID: 71, ComponentIsSemi: true, ComponentName: "初晓", ConsumeUnit: "kg", QtyPerUnit: 0.454, UnitCost: 0, UnitCostUnit: "kg"}},
+		},
+	}
+
+	resolved := resolveTypedProductionBomCosts(nodes)
+	for _, specID := range []int64{3, 4} {
+		issues := resolved[productionBomCostOutputKey("product_spec", specID)].UnresolvedIssues
+		if len(issues) != 1 || len(issues[0].Path) != 2 {
+			t.Fatalf("spec %d issue path = %+v, want parent and material BOM nodes", specID, issues)
+		}
+		if issues[0].Path[0].OutputID != specID || issues[0].Path[1].OutputID != 71 {
+			t.Fatalf("spec %d issue path crossed variants: %+v", specID, issues[0].Path)
+		}
+	}
+}
+
 func TestResolveProductionBomCostsNormalizesFixedItemsByOutputBasis(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		1: {

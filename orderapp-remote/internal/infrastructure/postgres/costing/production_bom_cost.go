@@ -149,6 +149,36 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 			Path:                  append([]appcosting.PricingRuleTrialCostPathNode(nil), path...),
 		}
 	}
+	pathNodeEqual := func(left, right appcosting.PricingRuleTrialCostPathNode) bool {
+		return left.OutputType == right.OutputType && left.OutputID == right.OutputID && left.VersionID == right.VersionID
+	}
+	trimPathToNode := func(path []appcosting.PricingRuleTrialCostPathNode, node appcosting.PricingRuleTrialCostPathNode) []appcosting.PricingRuleTrialCostPathNode {
+		for index, candidate := range path {
+			if pathNodeEqual(candidate, node) {
+				return append([]appcosting.PricingRuleTrialCostPathNode(nil), path[index:]...)
+			}
+		}
+		return []appcosting.PricingRuleTrialCostPathNode{node}
+	}
+	prependPath := func(prefix, suffix []appcosting.PricingRuleTrialCostPathNode) []appcosting.PricingRuleTrialCostPathNode {
+		if len(prefix) == 0 {
+			return append([]appcosting.PricingRuleTrialCostPathNode(nil), suffix...)
+		}
+		if len(suffix) >= len(prefix) {
+			matches := true
+			for index := range prefix {
+				if !pathNodeEqual(prefix[index], suffix[index]) {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				return append([]appcosting.PricingRuleTrialCostPathNode(nil), suffix...)
+			}
+		}
+		path := append([]appcosting.PricingRuleTrialCostPathNode(nil), prefix...)
+		return append(path, suffix...)
+	}
 
 	var resolve func(string, []appcosting.PricingRuleTrialCostPathNode) productionBomResolvedCost
 	resolve = func(key string, path []appcosting.PricingRuleTrialCostPathNode) productionBomResolvedCost {
@@ -156,6 +186,7 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 			return resolved[key]
 		}
 		node, ok := nodes[key]
+		nodePath := []appcosting.PricingRuleTrialCostPathNode{pathNode(node)}
 		if state[key] == 1 {
 			result := productionBomResolvedCost{OutputType: node.OutputType, OutputID: node.OutputID, ProductID: node.ProductID, BomID: node.BomID, BomName: node.BomName, VersionID: node.VersionID, VersionNo: node.VersionNo, BomSpecID: node.BomSpecID, BomVariantID: node.VariantID, OutputName: node.OutputName, CostStatus: "incomplete"}
 			result.UnresolvedIssues = []appcosting.PricingRuleTrialCostIssue{{
@@ -171,7 +202,7 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 				RootOutputType: node.OutputType,
 				RootOutputID:   node.OutputID,
 				RootProductID:  node.ProductID,
-				Path:           append([]appcosting.PricingRuleTrialCostPathNode(nil), path...),
+				Path:           nodePath,
 			}}
 			return result
 		}
@@ -195,7 +226,7 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 				RootOutputType: node.OutputType,
 				RootOutputID:   outputID,
 				RootProductID:  node.ProductID,
-				Path:           append([]appcosting.PricingRuleTrialCostPathNode(nil), path...),
+				Path:           nodePath,
 			}}
 			resolved[key] = result
 			state[key] = 2
@@ -221,12 +252,12 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 		outputQty, outputQtyOK := normalizedProductionBomOutputQty(node.OutputQty)
 		inputCost := 0.0
 		valid := outputQtyOK && finiteNonNegative(node.OperationCostPerUnit)
-		currentPath := append(append([]appcosting.PricingRuleTrialCostPathNode(nil), path...), pathNode(node))
+		currentPath := append(append([]appcosting.PricingRuleTrialCostPathNode(nil), path...), nodePath...)
 		if !outputQtyOK {
-			result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, productionBomCostItem{}, "invalid_output_qty", "BOM产出数量必须大于 0", currentPath))
+			result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, productionBomCostItem{}, "invalid_output_qty", "BOM产出数量必须大于 0", nodePath))
 		}
 		if !finiteNonNegative(node.OperationCostPerUnit) {
-			result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, productionBomCostItem{}, "invalid_operation_cost", "BOM工序成本无效", currentPath))
+			result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, productionBomCostItem{}, "invalid_operation_cost", "BOM工序成本无效", nodePath))
 		}
 		for _, item := range node.Items {
 			if normalizeProductionBomComponentType(item.ComponentType) == "product" {
@@ -256,12 +287,10 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 				if !component.Resolved {
 					valid = false
 					if len(component.UnresolvedIssues) == 0 {
-						result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, "component_cost_unresolved", "组件商品没有可用且可完整解析的已发布生产 BOM 成本", currentPath))
+						result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, "component_cost_unresolved", "组件商品没有可用且可完整解析的已发布生产 BOM 成本", nodePath))
 					} else {
 						for _, issue := range component.UnresolvedIssues {
-							if len(issue.Path) == 0 {
-								issue.Path = append([]appcosting.PricingRuleTrialCostPathNode(nil), currentPath...)
-							}
+							issue.Path = prependPath(currentPath, trimPathToNode(issue.Path, pathNodeForResolvedCost(component)))
 							issue.RootOutputType = node.OutputType
 							issue.RootOutputID = node.OutputID
 							issue.RootProductID = node.ProductID
@@ -286,13 +315,13 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 				if unitCost <= 0 {
 					code, reason = "zero_component_cost", "BOM组件单价为 0：请维护物料采购价；半成品物料需绑定默认已发布的制造 BOM"
 				}
-				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, code, reason, currentPath))
+				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, code, reason, nodePath))
 				continue
 			}
 			amountPerOutputUnit, ok := productionBomItemCostPerOutputUnit(item, amount, outputQty)
 			if !ok {
 				valid = false
-				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, "component_cost_unresolved", "BOM组件成本无法按产出基准折算", currentPath))
+				result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, item, "component_cost_unresolved", "BOM组件成本无法按产出基准折算", nodePath))
 				continue
 			}
 			inputCost += amountPerOutputUnit
@@ -315,7 +344,12 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 				result.CostStatus = "complete"
 			}
 		}
-		resolved[key] = result
+		cached := result
+		cached.UnresolvedIssues = append([]appcosting.PricingRuleTrialCostIssue(nil), result.UnresolvedIssues...)
+		for index := range cached.UnresolvedIssues {
+			cached.UnresolvedIssues[index].Path = trimPathToNode(cached.UnresolvedIssues[index].Path, nodePath[0])
+		}
+		resolved[key] = cached
 		state[key] = 2
 		return result
 	}
@@ -328,6 +362,19 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 
 func productionBomCostOutputKey(outputType string, outputID int64) string {
 	return fmt.Sprintf("%s:%d", normalizeProductionBomCostOutputType(outputType), outputID)
+}
+
+func pathNodeForResolvedCost(cost productionBomResolvedCost) appcosting.PricingRuleTrialCostPathNode {
+	return appcosting.PricingRuleTrialCostPathNode{
+		OutputType: cost.OutputType,
+		OutputID:   cost.OutputID,
+		ProductID:  cost.ProductID,
+		BomID:      cost.BomID,
+		BomName:    cost.BomName,
+		VersionID:  cost.VersionID,
+		VersionNo:  cost.VersionNo,
+		OutputName: cost.OutputName,
+	}
 }
 
 func normalizeProductionBomCostOutputType(value string) string {

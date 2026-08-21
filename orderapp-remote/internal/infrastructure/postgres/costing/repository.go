@@ -1357,26 +1357,28 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			row.CostUnitCost = resolvedItemCost.UnitCost
 			row.CostUnit = resolvedItemCost.CostUnit
 		} else {
-			issues = append(issues, appcosting.PricingRuleTrialCostIssue{
-				Code:                  "zero_component_cost",
-				Reason:                warning,
-				ComponentType:         componentType,
-				ComponentID:           id,
-				ComponentMaterialID:   componentMaterialID,
-				ComponentProductID:    componentProductID,
-				ComponentBomSpecID:    componentBomSpecID,
-				ComponentName:         strings.TrimSpace(row.Name),
-				IsSemiFinished:        componentIsSemi,
-				ConsumeUnit:           row.ConsumeUnit,
-				CostUnit:              unitCostUnit,
-				Quantity:              row.Quantity,
-				UnitCost:              row.UnitCost,
-				PurchasePrice:         purchasePrice,
-				WeightedBatchUnitCost: weightedBatchUnitCost,
-				UnitCostSnapshot:      unitCostSnapshot,
-				RootProductID:         input.ProductID,
-				VersionID:             input.BomVersionID,
-			})
+			if !(hasResolvedParentCost && len(resolvedParentCost.UnresolvedIssues) > 0 && (componentIsSemi || componentType == "product" || componentType == "finished_product")) {
+				issues = append(issues, appcosting.PricingRuleTrialCostIssue{
+					Code:                  "zero_component_cost",
+					Reason:                warning,
+					ComponentType:         componentType,
+					ComponentID:           id,
+					ComponentMaterialID:   componentMaterialID,
+					ComponentProductID:    componentProductID,
+					ComponentBomSpecID:    componentBomSpecID,
+					ComponentName:         strings.TrimSpace(row.Name),
+					IsSemiFinished:        componentIsSemi,
+					ConsumeUnit:           row.ConsumeUnit,
+					CostUnit:              unitCostUnit,
+					Quantity:              row.Quantity,
+					UnitCost:              row.UnitCost,
+					PurchasePrice:         purchasePrice,
+					WeightedBatchUnitCost: weightedBatchUnitCost,
+					UnitCostSnapshot:      unitCostSnapshot,
+					RootProductID:         input.ProductID,
+					VersionID:             input.BomVersionID,
+				})
+			}
 			bomID := row.BomID
 			if bomID <= 0 {
 				bomID = resolvedParentCost.BomID
@@ -1388,7 +1390,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 				row.Type = "component_product"
 			}
 			row.Key = fmt.Sprintf("%s:%d", row.Type, id)
-			row.Unit = firstNonEmptyString(bomOutputUnit, unitCostUnit, input.InventoryUnit)
+			row.Unit = firstNonEmptyString(unitCostUnit, input.InventoryUnit, bomOutputUnit)
 			out = append(out, row)
 			continue
 		}
