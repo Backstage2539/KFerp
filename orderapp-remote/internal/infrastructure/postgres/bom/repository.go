@@ -1789,6 +1789,15 @@ func (r Repository) updateProductionBomTx(ctx context.Context, tx pgx.Tx, cmd bo
 	}
 	requiresTargetSpecGroup := false
 	identityChangedToMaterial := false
+	if cmd.UpdateOutputBinding && strings.EqualFold(strings.TrimSpace(cmd.OutputType), "material") {
+		var isSemi bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputMaterialID).Scan(&isSemi); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		if !isSemi {
+			return bomapp.ProductionBomSummary{}, fmt.Errorf("外购物料不能作为物料产出 BOM；请先将取得方式改为自制")
+		}
+	}
 	if cmd.UpdateOutputBinding && cmd.OutputType == "product" {
 		requiresTargetSpecGroup, err = productBOMRequiresSpecGroupTx(ctx, tx, r.schema, cmd.OutputProductID)
 		if err != nil {
@@ -2738,6 +2747,15 @@ func (r Repository) ValidateAndPublishProductionBomVersion(ctx context.Context, 
 	}
 	if lockedOutputType != prelockOutputType || lockedOutputID != prelockOutputID {
 		return fmt.Errorf("production BOM output changed concurrently; retry publish")
+	}
+	if lockedOutputType == "material" {
+		var isSemi bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), lockedOutputID).Scan(&isSemi); err != nil {
+			return err
+		}
+		if !isSemi {
+			return fmt.Errorf("外购物料不能发布物料产出 BOM；请先将取得方式改为自制")
+		}
 	}
 	if err := lockProductionBomPublishTargetsTx(ctx, tx, r.schema, lockedVersionID); err != nil {
 		return err
