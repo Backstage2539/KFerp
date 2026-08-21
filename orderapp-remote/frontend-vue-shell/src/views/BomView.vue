@@ -26,6 +26,7 @@
           </div>
           <button class="secondary compact-action" type="button" @click="closeBomDrawer">关闭</button>
         </div>
+        <!-- compatibility: bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id) || !Number(bomForm.main_input_material_id)) -->
         <form class="inline-form bom-record-form" @submit.prevent="saveProductionBomRecord">
           <label>
             <span>BOM名称</span>
@@ -88,8 +89,7 @@
           </label>
           <div class="bom-record-form-action">
             <span class="bom-record-form-action-spacer" aria-hidden="true">操作</span>
-            <!-- compatibility: bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id) || !Number(bomForm.main_input_material_id)) -->
-            <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && !bomVariants.length && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM 草稿' }}</button>
+            <button v-if="['create', 'copy'].includes(bomForm.mode)" class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && !bomVariants.length && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM 草稿' }}</button>
           </div>
         </form>
         <div id="bom-settings-detail-target" class="bom-settings-detail-target" aria-label="BOM 明细、BOM版本、配方明细"></div>
