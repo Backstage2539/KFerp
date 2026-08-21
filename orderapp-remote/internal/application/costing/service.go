@@ -116,6 +116,8 @@ type PricingRuleTrialCommand struct {
 	ProductID           int64                     `json:"product_id"`
 	CustomerID          int64                     `json:"customer_id,omitempty"`
 	BomVersionID        int64                     `json:"bom_version_id,omitempty"`
+	BomSpecID           int64                     `json:"bom_spec_id,omitempty"`
+	BomVariantID        int64                     `json:"bom_variant_id,omitempty"`
 	ProcessRouteID      int64                     `json:"process_route_id,omitempty"`
 	OperationTemplateID int64                     `json:"operation_template_id,omitempty"`
 	QuoteUnit           string                    `json:"quote_unit,omitempty"`
@@ -124,9 +126,12 @@ type PricingRuleTrialCommand struct {
 }
 
 type PricingRuleTrialBatchRow struct {
-	Index  int                     `json:"index"`
-	Result *PricingRuleTrialResult `json:"result,omitempty"`
-	Error  string                  `json:"error,omitempty"`
+	Index                int                         `json:"index"`
+	Result               *PricingRuleTrialResult     `json:"result,omitempty"`
+	Error                string                      `json:"error,omitempty"`
+	CostStatus           string                      `json:"cost_status,omitempty"`
+	PartialCost          float64                     `json:"partial_cost,omitempty"`
+	UnresolvedComponents []PricingRuleTrialCostIssue `json:"unresolved_components,omitempty"`
 }
 
 type PricingRuleTrialOverrides struct {
@@ -175,10 +180,96 @@ type PricingRuleTrialOperationTemplateOption struct {
 const pricingRuleTrialStandardManufacturingCostSource = "standard_manufacturing_cost" // cost_source = standard_manufacturing_cost
 
 type PricingRuleTrialBomSnapshot struct {
-	VersionID int64  `json:"version_id,omitempty"`
-	VersionNo string `json:"version_no,omitempty"`
-	UsageMode string `json:"usage_mode,omitempty"`
-	Status    string `json:"status,omitempty"`
+	BomID        int64  `json:"bom_id,omitempty"`
+	BomName      string `json:"bom_name,omitempty"`
+	VersionID    int64  `json:"version_id,omitempty"`
+	VersionNo    string `json:"version_no,omitempty"`
+	BomSpecID    int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID int64  `json:"bom_variant_id,omitempty"`
+	UsageMode    string `json:"usage_mode,omitempty"`
+	Status       string `json:"status,omitempty"`
+}
+
+// PricingRuleTrialCostPathNode identifies one BOM/output node in a recursive
+// cost-resolution path. It is intentionally returned to the client so a
+// missing component can be located without guessing which BOM was selected.
+type PricingRuleTrialCostPathNode struct {
+	OutputType string `json:"output_type,omitempty"`
+	OutputID   int64  `json:"output_id,omitempty"`
+	ProductID  int64  `json:"product_id,omitempty"`
+	BomID      int64  `json:"bom_id,omitempty"`
+	BomName    string `json:"bom_name,omitempty"`
+	VersionID  int64  `json:"version_id,omitempty"`
+	VersionNo  string `json:"version_no,omitempty"`
+	OutputName string `json:"output_name,omitempty"`
+}
+
+// PricingRuleTrialCostIssue describes one unresolved required component.
+// Numeric cost fields are diagnostic only; they must never be used to publish
+// a price while CostStatus is incomplete.
+type PricingRuleTrialCostIssue struct {
+	Code                  string                         `json:"code,omitempty"`
+	Reason                string                         `json:"reason"`
+	ComponentType         string                         `json:"component_type,omitempty"`
+	ComponentID           int64                          `json:"component_id,omitempty"`
+	ComponentMaterialID   int64                          `json:"component_material_id,omitempty"`
+	ComponentProductID    int64                          `json:"component_product_id,omitempty"`
+	ComponentBomSpecID    int64                          `json:"component_bom_spec_id,omitempty"`
+	ComponentName         string                         `json:"component_name,omitempty"`
+	ComponentMaterialName string                         `json:"component_material_name,omitempty"`
+	ComponentProductName  string                         `json:"component_product_name,omitempty"`
+	IsSemiFinished        bool                           `json:"is_semi_finished,omitempty"`
+	ConsumeUnit           string                         `json:"consume_unit,omitempty"`
+	CostUnit              string                         `json:"cost_unit,omitempty"`
+	Quantity              float64                        `json:"quantity,omitempty"`
+	UnitCost              float64                        `json:"unit_cost,omitempty"`
+	PurchasePrice         float64                        `json:"purchase_price,omitempty"`
+	WeightedBatchUnitCost float64                        `json:"weighted_batch_unit_cost,omitempty"`
+	UnitCostSnapshot      float64                        `json:"unit_cost_snapshot,omitempty"`
+	RootOutputType        string                         `json:"root_output_type,omitempty"`
+	RootOutputID          int64                          `json:"root_output_id,omitempty"`
+	RootProductID         int64                          `json:"root_product_id,omitempty"`
+	BomID                 int64                          `json:"bom_id,omitempty"`
+	BomName               string                         `json:"bom_name,omitempty"`
+	VersionID             int64                          `json:"version_id,omitempty"`
+	VersionNo             string                         `json:"version_no,omitempty"`
+	BomSpecID             int64                          `json:"bom_spec_id,omitempty"`
+	BomVariantID          int64                          `json:"bom_variant_id,omitempty"`
+	Path                  []PricingRuleTrialCostPathNode `json:"path,omitempty"`
+}
+
+// PricingRuleTrialCostIncompleteError is returned when one or more required
+// BOM components cannot be costed. PartialCost is for diagnosis only.
+type PricingRuleTrialCostIncompleteError struct {
+	ProductID       int64                            `json:"product_id,omitempty"`
+	BomID           int64                            `json:"bom_id,omitempty"`
+	BomName         string                           `json:"bom_name,omitempty"`
+	BomVersionID    int64                            `json:"bom_version_id,omitempty"`
+	BomVersionNo    string                           `json:"bom_version_no,omitempty"`
+	BomSpecID       int64                            `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64                            `json:"bom_variant_id,omitempty"`
+	PartialCost     float64                          `json:"partial_cost,omitempty"`
+	Issues          []PricingRuleTrialCostIssue      `json:"unresolved_components,omitempty"`
+	BaseCostDetails []PricingRuleTrialBaseCostDetail `json:"-"`
+}
+
+func (e *PricingRuleTrialCostIncompleteError) Error() string {
+	if e == nil {
+		return "BOM成本不完整"
+	}
+	location := ""
+	if e.BomID > 0 || e.BomVersionNo != "" {
+		location = fmt.Sprintf(" BOM %d / %s", e.BomID, firstNonEmptyString(e.BomVersionNo, fmt.Sprintf("version-%d", e.BomVersionID)))
+	}
+	if len(e.Issues) == 0 {
+		return fmt.Sprintf("BOM成本不完整%s：已解析部分成本 %.4f", location, e.PartialCost)
+	}
+	parts := make([]string, 0, len(e.Issues))
+	for _, issue := range e.Issues {
+		name := firstNonEmptyString(issue.ComponentName, issue.ComponentMaterialName, issue.ComponentProductName, "BOM组件")
+		parts = append(parts, fmt.Sprintf("%s（%s）：%s", name, firstNonEmptyString(issue.ComponentType, "component"), issue.Reason))
+	}
+	return fmt.Sprintf("BOM成本不完整%s：已解析部分成本 %.4f；缺失组件：%s", location, e.PartialCost, strings.Join(parts, "；"))
 }
 
 type PricingRuleTrialProcessRouteSnapshot struct {
@@ -218,6 +309,8 @@ type PricingRuleTrialResult struct {
 	InventoryUnit                 string                                    `json:"inventory_unit"`
 	BomVersionID                  int64                                     `json:"bom_version_id,omitempty"`
 	BomVersionNo                  string                                    `json:"bom_version_no,omitempty"`
+	BomSpecID                     int64                                     `json:"bom_spec_id,omitempty"`
+	BomVariantID                  int64                                     `json:"bom_variant_id,omitempty"`
 	BomVersionOptions             []PricingRuleTrialBomVersionOption        `json:"bom_version_options,omitempty"`
 	ProcessRouteID                int64                                     `json:"process_route_id,omitempty"`
 	ProcessRouteName              string                                    `json:"process_route_name,omitempty"`
@@ -227,6 +320,9 @@ type PricingRuleTrialResult struct {
 	OperationTemplateOptions      []PricingRuleTrialOperationTemplateOption `json:"operation_template_options,omitempty"`
 	BomUsageMode                  string                                    `json:"bom_usage_mode,omitempty"`
 	BomStatus                     string                                    `json:"bom_status,omitempty"`
+	CostStatus                    string                                    `json:"cost_status"`
+	PartialCost                   float64                                   `json:"partial_cost,omitempty"`
+	UnresolvedComponents          []PricingRuleTrialCostIssue               `json:"unresolved_components,omitempty"`
 	BaseCost                      float64                                   `json:"base_cost"`
 	BomCostTotal                  float64                                   `json:"bom_cost_total"`
 	OperationCostTotal            float64                                   `json:"operation_cost_total"`
@@ -254,7 +350,7 @@ type PricingRuleTrialResult struct {
 	FinalBeforeRounding           float64                                   `json:"final_before_rounding"`
 	RoundingAdjustment            float64                                   `json:"rounding_adjustment"`
 	RoundingRuleSource            string                                    `json:"rounding_rule_source,omitempty"`
-	FinalUnitPrice                float64                                   `json:"final_unit_price"`
+	FinalUnitPrice                float64                                   `json:"final_unit_price,omitempty"`
 	GrossMarginRate               float64                                   `json:"gross_margin_rate"`
 	MinimumMarginRate             float64                                   `json:"minimum_margin_rate"`
 	FormulaExpression             string                                    `json:"formula_expression,omitempty"`
@@ -716,6 +812,10 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if detailRepo, ok := s.repo.(pricingRuleTrialBaseCostDetailRepository); ok {
 		baseCostDetails, err = detailRepo.LoadPricingRuleTrialBaseCostDetails(ctx, input)
 		if err != nil {
+			var incomplete *PricingRuleTrialCostIncompleteError
+			if errors.As(err, &incomplete) {
+				return pricingRuleTrialIncompleteResult(rule, input, cmd, productionOptions, incomplete), nil
+			}
 			return nil, err
 		}
 	}
@@ -735,6 +835,61 @@ type preparedPricingRuleTrial struct {
 	rule              ProductPricingRule
 	input             domain.ProductInput
 	productionOptions PricingRuleTrialProductionOptions
+}
+
+func pricingRuleTrialIncompleteResult(rule ProductPricingRule, input domain.ProductInput, cmd PricingRuleTrialCommand, options PricingRuleTrialProductionOptions, incomplete *PricingRuleTrialCostIncompleteError) *PricingRuleTrialResult {
+	if incomplete == nil {
+		incomplete = &PricingRuleTrialCostIncompleteError{}
+	}
+	productName := firstNonEmptyString(strings.TrimSpace(input.Name), strings.TrimSpace(input.ProductName))
+	processRouteName := pricingRuleTrialProcessRouteName(options.ProcessRoutes, input.ProcessRouteID, input.ProcessRouteName)
+	return &PricingRuleTrialResult{
+		PricingRuleID:            rule.ID,
+		PricingRuleName:          firstNonEmptyString(rule.Name, rule.Code),
+		FormulaVersion:           firstNonEmptyString(rule.FormulaVersion, "v1"),
+		ProductID:                input.ProductID,
+		ProductName:              productName,
+		QuoteUnit:                pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit),
+		InventoryUnit:            strings.TrimSpace(input.InventoryUnit),
+		BomVersionID:             input.BomVersionID,
+		BomVersionNo:             input.BomVersionNo,
+		BomSpecID:                input.BomSpecID,
+		BomVariantID:             input.BomVariantID,
+		BomVersionOptions:        options.BomVersions,
+		ProcessRouteID:           input.ProcessRouteID,
+		ProcessRouteName:         processRouteName,
+		ProcessRouteOptions:      options.ProcessRoutes,
+		OperationTemplateID:      input.OperationTemplateID,
+		OperationTemplateName:    pricingRuleTrialOperationTemplateName(options.OperationTemplates, input.OperationTemplateID),
+		OperationTemplateOptions: options.OperationTemplates,
+		BomUsageMode:             input.BomUsageMode,
+		BomStatus:                input.BomStatus,
+		CostStatus:               "incomplete",
+		PartialCost:              incomplete.PartialCost,
+		UnresolvedComponents:     incomplete.Issues,
+		BomSnapshot: PricingRuleTrialBomSnapshot{
+			BomID:        incomplete.BomID,
+			BomName:      incomplete.BomName,
+			VersionID:    firstNonZeroInt64(incomplete.BomVersionID, input.BomVersionID),
+			VersionNo:    firstNonEmptyString(incomplete.BomVersionNo, input.BomVersionNo),
+			BomSpecID:    firstNonZeroInt64(incomplete.BomSpecID, input.BomSpecID),
+			BomVariantID: firstNonZeroInt64(incomplete.BomVariantID, input.BomVariantID),
+			UsageMode:    input.BomUsageMode,
+			Status:       input.BomStatus,
+		},
+		ProcessRouteSnapshot: PricingRuleTrialProcessRouteSnapshot{ID: input.ProcessRouteID, Name: processRouteName},
+		BaseCostDetails:      incomplete.BaseCostDetails,
+		Warnings:             []string{"成本不完整，仅显示已解析部分成本；禁止生成或发布正式价格"},
+	}
+}
+
+func firstNonZeroInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingRuleTrialCommand) ([]PricingRuleTrialBatchRow, error) {
@@ -870,6 +1025,14 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 
 	for i, item := range prepared {
 		if detailErrors[i] != nil {
+			var incomplete *PricingRuleTrialCostIncompleteError
+			if errors.As(detailErrors[i], &incomplete) {
+				rows[item.index].Result = pricingRuleTrialIncompleteResult(item.rule, item.input, item.command, item.productionOptions, incomplete)
+				rows[item.index].CostStatus = "incomplete"
+				rows[item.index].PartialCost = incomplete.PartialCost
+				rows[item.index].UnresolvedComponents = incomplete.Issues
+				continue
+			}
 			rows[item.index].Error = detailErrors[i].Error()
 			continue
 		}
@@ -920,6 +1083,12 @@ func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params doma
 }
 
 func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd PricingRuleTrialCommand, options PricingRuleTrialProductionOptions) (domain.ProductInput, PricingRuleTrialProductionOptions, error) {
+	if cmd.BomSpecID > 0 {
+		input.BomSpecID = cmd.BomSpecID
+	}
+	if cmd.BomVariantID > 0 {
+		input.BomVariantID = cmd.BomVariantID
+	}
 	options = pricingRuleTrialNormalizeProductionOptions(input, options)
 	if len(options.BomVersions) > 0 {
 		var selected *PricingRuleTrialBomVersionOption
@@ -1400,6 +1569,8 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		InventoryUnit:                 strings.TrimSpace(input.InventoryUnit),
 		BomVersionID:                  input.BomVersionID,
 		BomVersionNo:                  input.BomVersionNo,
+		BomSpecID:                     input.BomSpecID,
+		BomVariantID:                  input.BomVariantID,
 		BomVersionOptions:             productionOptions.BomVersions,
 		ProcessRouteID:                input.ProcessRouteID,
 		ProcessRouteName:              processRouteName,
@@ -1409,6 +1580,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		OperationTemplateOptions:      productionOptions.OperationTemplates,
 		BomUsageMode:                  input.BomUsageMode,
 		BomStatus:                     input.BomStatus,
+		CostStatus:                    "complete",
 		BaseCost:                      pricingRuleTrialResultAmount(formulaMode, baseCost),
 		BomCostTotal:                  pricingRuleTrialResultAmount(formulaMode, bomCostTotal),
 		OperationCostTotal:            pricingRuleTrialResultAmount(formulaMode, operationCostTotal),
@@ -1416,7 +1588,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		OperationUnitCost:             operationUnitCost,
 		StandardManufacturingUnitCost: standardManufacturingUnitCost,
 		CostSource:                    baseSource,
-		BomSnapshot:                   PricingRuleTrialBomSnapshot{VersionID: input.BomVersionID, VersionNo: input.BomVersionNo, UsageMode: input.BomUsageMode, Status: input.BomStatus},
+		BomSnapshot:                   PricingRuleTrialBomSnapshot{VersionID: input.BomVersionID, VersionNo: input.BomVersionNo, BomSpecID: input.BomSpecID, BomVariantID: input.BomVariantID, UsageMode: input.BomUsageMode, Status: input.BomStatus},
 		ProcessRouteSnapshot:          PricingRuleTrialProcessRouteSnapshot{ID: input.ProcessRouteID, Name: processRouteName},
 		WorkstationCostSnapshot:       pricingRuleTrialWorkstationCostSnapshot(baseCostDetails, materialUnitCost, operationUnitCost, standardManufacturingUnitCost, quoteUnit),
 		BaseCostDetails:               baseCostDetails,

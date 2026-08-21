@@ -1030,6 +1030,18 @@
           </section>
 
           <section v-if="pricingRuleTrialResult" class="drawer-section pricing-rule-trial-result">
+            <div v-if="pricingRuleTrialResult.cost_status === 'incomplete'" class="pricing-rule-trial-warnings">
+              <strong>成本不完整，不能生成或发布正式价格</strong>
+              <p>已解析部分成本：{{ trialMoneyDisplay(pricingRuleTrialResult.partial_cost, pricingRuleTrialResult.quote_unit) }}</p>
+              <ul>
+                <li v-for="(issue, index) in pricingRuleTrialResult.unresolved_components || []" :key="`${issue.component_id || issue.component_name || 'component'}-${index}`">
+                  {{ issue.component_name || issue.component_material_name || issue.component_product_name || 'BOM组件' }}
+                  <span v-if="issue.bom_id">（BOM {{ issue.bom_id }}<template v-if="issue.version_no"> / {{ issue.version_no }}</template>）</span>
+                  ：{{ issue.reason || '成本无法解析' }}
+                  <small v-if="issue.path?.length">路径：{{ issue.path.map((node) => node.bom_id ? `BOM ${node.bom_id}/${node.version_no || node.version_id}` : (node.output_name || node.output_id)).join(' → ') }}</small>
+                </li>
+              </ul>
+            </div>
             <div class="pricing-rule-trial-waterfall">
               <button
                 :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'base_cost', warning: pricingRuleTrialBaseCostMissing(pricingRuleTrialResult) }]"
@@ -2222,6 +2234,8 @@ const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   product_id: pricingRuleTrialForm.value.product_id,
   customer_id: pricingRuleTrialForm.value.customer_id,
   bom_version_id: pricingRuleTrialForm.value.bom_version_id,
+  bom_spec_id: pricingRuleTrialForm.value.bom_spec_id,
+  bom_variant_id: pricingRuleTrialForm.value.bom_variant_id,
   process_route_id: pricingRuleTrialForm.value.process_route_id,
   operation_template_id: pricingRuleTrialForm.value.operation_template_id,
   quote_unit: pricingRuleTrialForm.value.quote_unit,
@@ -2960,6 +2974,8 @@ function defaultPricingRuleTrialForm(rule = {}) {
     product_id: 0,
     customer_id: 0,
     bom_version_id: 0,
+    bom_spec_id: 0,
+    bom_variant_id: 0,
     process_route_id: 0,
     operation_template_id: 0,
     quote_unit: '',
@@ -3781,6 +3797,8 @@ function setPricingRuleTrialProductKindFilter(value) {
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_spec_id = 0
+  pricingRuleTrialForm.value.bom_variant_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
@@ -3797,6 +3815,8 @@ function handlePricingRuleTrialRuleChange() {
   next.customer_id = Number(previous.customer_id || 0)
   next.quote_unit = String(previous.quote_unit || '')
   next.bom_version_id = 0
+  next.bom_spec_id = Number(previous.bom_spec_id || 0) || 0
+  next.bom_variant_id = Number(previous.bom_variant_id || 0) || 0
   next.process_route_id = 0
   next.operation_template_id = 0
   pricingRuleTrialForm.value = next
@@ -3842,6 +3862,8 @@ function removePricingRuleTrialOtherCostRow(index) {
 
 function syncPricingRuleTrialProductionSelections(result = {}) {
   if (!result || Number(result.product_id || 0) !== Number(pricingRuleTrialForm.value.product_id || 0)) return
+  if (Number(result.bom_spec_id || 0) > 0) pricingRuleTrialForm.value.bom_spec_id = Number(result.bom_spec_id)
+  if (Number(result.bom_variant_id || 0) > 0) pricingRuleTrialForm.value.bom_variant_id = Number(result.bom_variant_id)
   const bomOptions = Array.isArray(result.bom_version_options) ? result.bom_version_options : []
   const selectedBomID = Number(result.bom_version_id || 0)
   if (selectedBomID > 0 && !Number(pricingRuleTrialForm.value.bom_version_id || 0)) {
@@ -7667,6 +7689,8 @@ watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_spec_id = 0
+  pricingRuleTrialForm.value.bom_variant_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
@@ -7679,6 +7703,8 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
   if (restoringPricingRuleTrialReturnState) return
   const product = selectedPricingRuleTrialProductSpec.value
   pricingRuleTrialForm.value.quote_unit = product ? pricingRuleTrialProductSpecUnit(product) : ''
+  pricingRuleTrialForm.value.bom_spec_id = Number(product?.bom_spec_id ?? product?.bomSpecID ?? product?.default_bom_spec_id ?? product?.defaultBOMSpecID ?? 0) || 0
+  pricingRuleTrialForm.value.bom_variant_id = Number(product?.bom_variant_id ?? product?.bomVariantID ?? 0) || 0
   pricingRuleTrialForm.value.bom_version_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
@@ -7692,6 +7718,8 @@ watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialForm.value.parent_product_id = 0
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_spec_id = 0
+  pricingRuleTrialForm.value.bom_variant_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialForm.value.quote_unit = ''

@@ -1351,8 +1351,8 @@ const priceListLegacyPricingBlockedReason = computed(() => {
 })
 const priceListPricingRuleTrialRequests = computed(() => currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
 const priceListPricingRuleTrialFailedCount = computed(() => priceListFlatRows.value.filter((row) => (
-  priceListFlatRowPricingTrialStatus(row) === 'error'
-  && priceListFlatRowVisibleErrors(row).some((message) => message.includes('价格计算失败'))
+  ['error', 'incomplete'].includes(priceListFlatRowPricingTrialStatus(row))
+  && priceListFlatRowVisibleErrors(row).some((message) => message.includes('价格计算失败') || message.includes('BOM成本不完整'))
 )).length)
 
 function currentPriceListPricingRuleTrialRequests(sourceRows = []) {
@@ -2966,6 +2966,8 @@ function priceListFlatRowFromSource({
   const row = {
     row_key: rowKey,
     product_id: productID,
+    bom_spec_id: Number(item?.bom_spec_id ?? item?.bomSpecID ?? item?.default_bom_spec_id ?? item?.defaultBOMSpecID ?? 0) || 0,
+    bom_variant_id: Number(item?.bom_variant_id ?? item?.bomVariantID ?? 0) || 0,
     sku_id: skuID,
     parent_product_id: parentProductID,
     sku_snapshot: skuSnapshot,
@@ -3019,7 +3021,7 @@ function priceListFlatRowFromSource({
 
 function priceListPricingRuleTrialResultForRow(row = {}) {
   const cached = priceListPricingRuleTrialCacheEntryForRow(row)
-  return cached?.status === 'success' ? cached.result : null
+  return ['success', 'incomplete'].includes(cached?.status) ? cached.result : null
 }
 
 function priceListPricingRuleTrialCacheEntryForRow(row = {}) {
@@ -3034,7 +3036,20 @@ function priceListFlatRowPricingTrialStatus(row = {}) {
 }
 
 function priceListFlatRowPricingTrialError(row = {}) {
-  return String(priceListPricingRuleTrialCacheEntryForRow(row)?.error || '').trim()
+  const cached = priceListPricingRuleTrialCacheEntryForRow(row)
+  const explicit = String(cached?.error || '').trim()
+  if (explicit) return explicit
+  const result = cached?.result || {}
+  const issues = Array.isArray(result.unresolved_components ?? result.unresolvedComponents)
+    ? (result.unresolved_components ?? result.unresolvedComponents)
+    : []
+  return issues.map((issue) => {
+    const name = String(issue?.component_name ?? issue?.componentName ?? issue?.component_material_name ?? issue?.componentMaterialName ?? issue?.component_product_name ?? issue?.componentProductName ?? 'BOM组件').trim()
+    const bomID = Number(issue?.bom_id ?? issue?.bomID ?? 0) || 0
+    const versionNo = String(issue?.version_no ?? issue?.versionNo ?? '').trim()
+    const bom = bomID > 0 ? ` BOM ${bomID}${versionNo ? `/${versionNo}` : ''}` : ''
+    return `${name}${bom}：${String(issue?.reason || '').trim()}`
+  }).filter(Boolean).join('；')
 }
 
 function priceListFlatRowVisibleErrors(row = {}) {
@@ -3204,6 +3219,8 @@ function costSourceSnapshotForPriceRow(item = {}, tier = {}, pricingRule = null,
     pricing_rule_calculation: pricingRuleCalculationSnapshot(pricingRule),
     bom_version_id: Number(item.bom_version_id_snapshot || item.bom_version_id || item.bomVersionID || 0),
     bom_version_no: item.bom_version_no_snapshot || item.bom_version_no || item.bomVersionNo || '',
+    bom_spec_id: Number(item.bom_spec_id || item.bomSpecID || item.default_bom_spec_id || item.defaultBOMSpecID || 0),
+    bom_variant_id: Number(item.bom_variant_id || item.bomVariantID || 0),
     bom_usage_mode: item.bom_usage_mode_snapshot || item.bom_usage_mode || item.bomUsageMode || '',
     process_route_name: item.process_route_name || item.processRouteName || item.operation_template_name || item.operationTemplateName || '',
     tier_label: tier.label || '',

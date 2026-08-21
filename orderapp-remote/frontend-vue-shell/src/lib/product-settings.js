@@ -762,7 +762,7 @@ export function buildPricingRuleTrialPayload(form = {}) {
   const otherCosts = pricingRuleTrialOtherCostMapFromForm(form)
   if (Object.keys(otherCosts).length) overrides.other_costs = otherCosts
 
-  return {
+  const payload = {
     pricing_rule_id: Number(form.pricing_rule_id ?? form.pricingRuleID ?? form.rule_id ?? form.ruleID ?? 0) || 0,
     product_id: Number(form.product_id ?? form.productID ?? 0) || 0,
     customer_id: Number(form.customer_id ?? form.customerID ?? 0) || 0,
@@ -772,6 +772,11 @@ export function buildPricingRuleTrialPayload(form = {}) {
     quote_unit: String(form.quote_unit ?? form.quoteUnit ?? '').trim(),
     overrides,
   }
+  const bomSpecID = Number(form.bom_spec_id ?? form.bomSpecID ?? 0) || 0
+  const bomVariantID = Number(form.bom_variant_id ?? form.bomVariantID ?? 0) || 0
+  if (bomSpecID > 0) payload.bom_spec_id = bomSpecID
+  if (bomVariantID > 0) payload.bom_variant_id = bomVariantID
+  return payload
 }
 
 export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
@@ -808,6 +813,8 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
     product_id: productID,
     customer_id: Number(options.customerID ?? options.customer_id ?? row.customer_id ?? row.customerID ?? 0) || 0,
     bom_version_id: Number(row.bom_version_id ?? row.bomVersionID ?? costSource.bom_version_id ?? costSource.bomVersionID ?? 0) || 0,
+    bom_spec_id: Number(row.bom_spec_id ?? row.bomSpecID ?? costSource.bom_spec_id ?? costSource.bomSpecID ?? 0) || 0,
+    bom_variant_id: Number(row.bom_variant_id ?? row.bomVariantID ?? costSource.bom_variant_id ?? costSource.bomVariantID ?? 0) || 0,
     process_route_id: Number(row.process_route_id ?? row.processRouteID ?? costSource.process_route_id ?? costSource.processRouteID ?? 0) || 0,
     operation_template_id: Number(row.operation_template_id ?? row.operationTemplateID ?? costSource.operation_template_id ?? costSource.operationTemplateID ?? 0) || 0,
     quote_unit: quoteUnit,
@@ -821,6 +828,8 @@ export function priceTablePricingRuleTrialCacheKey(payload = {}) {
     Number(payload.product_id || 0),
     Number(payload.customer_id || 0),
     Number(payload.bom_version_id || 0),
+    Number(payload.bom_spec_id || 0),
+    Number(payload.bom_variant_id || 0),
     Number(payload.process_route_id || 0),
     Number(payload.operation_template_id || 0),
     String(payload.quote_unit || '').trim(),
@@ -830,6 +839,32 @@ export function priceTablePricingRuleTrialCacheKey(payload = {}) {
 export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
   const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
   if (!['pricing_rule', 'tier_template'].includes(pricingMode)) return row
+  const trialCostStatus = String(trial.cost_status ?? trial.costStatus ?? '').trim().toLowerCase()
+  if (trialCostStatus === 'incomplete' || trialCostStatus === 'error') {
+    const sourceSnapshot = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
+    return {
+      ...row,
+      final_unit_price: 0,
+      original_final_unit_price: 0,
+      cost_status: trialCostStatus,
+      unresolved_components: Array.isArray(trial.unresolved_components ?? trial.unresolvedComponents)
+        ? (trial.unresolved_components ?? trial.unresolvedComponents)
+        : [],
+      partial_cost: Number(trial.partial_cost ?? trial.partialCost ?? 0) || 0,
+      cost_source_snapshot: {
+        ...sourceSnapshot,
+        bom_version_id: Number(trial.bom_version_id ?? trial.bomVersionID ?? sourceSnapshot.bom_version_id ?? 0) || 0,
+        bom_version_no: String(trial.bom_version_no ?? trial.bomVersionNo ?? sourceSnapshot.bom_version_no ?? '').trim(),
+        bom_spec_id: Number(trial.bom_spec_id ?? trial.bomSpecID ?? sourceSnapshot.bom_spec_id ?? 0) || 0,
+        bom_variant_id: Number(trial.bom_variant_id ?? trial.bomVariantID ?? sourceSnapshot.bom_variant_id ?? 0) || 0,
+        pricing_rule_trial_cost_status: trialCostStatus,
+        pricing_rule_trial_partial_cost: Number(trial.partial_cost ?? trial.partialCost ?? 0) || 0,
+        pricing_rule_trial_unresolved_components: Array.isArray(trial.unresolved_components ?? trial.unresolvedComponents)
+          ? (trial.unresolved_components ?? trial.unresolvedComponents)
+          : [],
+      },
+    }
+  }
   const trialPrice = normalizePositiveNumber(trial.final_unit_price ?? trial.finalUnitPrice)
   if (trialPrice <= 0) return row
   const rowRuleID = Number(row.pricing_rule_id ?? row.pricingRuleID ?? 0) || 0
@@ -871,6 +906,8 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
       ...sourceSnapshot,
       bom_version_id: Number(trial.bom_version_id ?? trial.bomVersionID ?? sourceSnapshot.bom_version_id ?? 0) || 0,
       bom_version_no: String(trial.bom_version_no ?? trial.bomVersionNo ?? sourceSnapshot.bom_version_no ?? '').trim(),
+      bom_spec_id: Number(trial.bom_spec_id ?? trial.bomSpecID ?? sourceSnapshot.bom_spec_id ?? 0) || 0,
+      bom_variant_id: Number(trial.bom_variant_id ?? trial.bomVariantID ?? sourceSnapshot.bom_variant_id ?? 0) || 0,
       process_route_id: Number(trial.process_route_id ?? trial.processRouteID ?? sourceSnapshot.process_route_id ?? 0) || 0,
       process_route_name: String(trial.process_route_name ?? trial.processRouteName ?? sourceSnapshot.process_route_name ?? '').trim(),
       operation_template_id: Number(trial.operation_template_id ?? trial.operationTemplateID ?? sourceSnapshot.operation_template_id ?? 0) || 0,
@@ -880,6 +917,11 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
       pricing_rule_trial_base_cost: Number(trial.base_cost ?? trial.baseCost ?? 0) || 0,
       pricing_rule_trial_warnings: trialWarnings,
       pricing_rule_trial_base_cost_details: trialBaseCostDetails,
+      pricing_rule_trial_cost_status: String(trial.cost_status ?? trial.costStatus ?? 'complete').trim(),
+      pricing_rule_trial_partial_cost: Number(trial.partial_cost ?? trial.partialCost ?? 0) || 0,
+      pricing_rule_trial_unresolved_components: Array.isArray(trial.unresolved_components ?? trial.unresolvedComponents)
+        ? (trial.unresolved_components ?? trial.unresolvedComponents)
+        : [],
     },
   }
 }

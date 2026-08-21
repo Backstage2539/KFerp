@@ -429,6 +429,39 @@ func TestResolveProductionBomCostsRejectsMissingPositiveComponentCost(t *testing
 	}
 }
 
+func TestResolveProductionBomCostsKeepsPartialCostAndAllMissingComponents(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		1: {
+			ProductID: 1, VersionID: 101, BomID: 9001, BomName: "初晓制造 BOM", VersionNo: "V001",
+			OutputQty: 1, OutputUnit: "kg",
+			Items: []productionBomCostItem{
+				{ID: 1001, ComponentType: "material", ComponentName: "已维护原料", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 10, UnitCostUnit: "kg"},
+				{ID: 1002, ComponentType: "material", ComponentName: "孟连水洗5T批次", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, UnitCostUnit: "kg"},
+				{ID: 1003, ComponentType: "material", ComponentName: "另一个缺口", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, UnitCostUnit: "kg"},
+			},
+		},
+	}
+
+	got := resolveProductionBomCosts(nodes)[1]
+	if got.Resolved || got.CostStatus != "incomplete" {
+		t.Fatalf("BOM with missing components must be incomplete: %+v", got)
+	}
+	if math.Abs(got.PartialTotalCostPerOutputUnit-10) > 1e-9 {
+		t.Fatalf("partial cost = %.4f, want 10", got.PartialTotalCostPerOutputUnit)
+	}
+	if len(got.ItemCosts) != 1 {
+		t.Fatalf("valid item contribution was discarded: %+v", got.ItemCosts)
+	}
+	if len(got.UnresolvedIssues) != 2 {
+		t.Fatalf("all missing components must be returned: %+v", got.UnresolvedIssues)
+	}
+	for _, issue := range got.UnresolvedIssues {
+		if issue.BomID != 9001 || issue.VersionNo != "V001" || len(issue.Path) != 1 {
+			t.Fatalf("issue lost BOM context/path: %+v", issue)
+		}
+	}
+}
+
 func TestResolveProductionBomCostsNormalizesFixedItemsByOutputBasis(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		1: {

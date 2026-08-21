@@ -1117,10 +1117,17 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetailsBatch(ctx context.Context
 
 func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput, resolvedBomCosts map[int64]productionBomResolvedCost) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
 	out := make([]appcosting.PricingRuleTrialBaseCostDetail, 0)
+	issues := make([]appcosting.PricingRuleTrialCostIssue, 0)
 	var err error
 	resolvedParentCost, hasResolvedParentCost := productionBomCostForProduct(resolvedBomCosts, input.ProductID, input.ParentProductID, input.BomSpecID)
 	if input.BomVersionID > 0 && resolvedParentCost.VersionID != input.BomVersionID {
 		hasResolvedParentCost = false
+	}
+	if hasResolvedParentCost && len(resolvedParentCost.UnresolvedIssues) > 0 {
+		issues = append(issues, resolvedParentCost.UnresolvedIssues...)
+	}
+	finish := func() ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
+		return finishPricingRuleTrialBaseCostDetails(out, input, resolvedParentCost, issues)
 	}
 	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
@@ -1196,6 +1203,8 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		)
 		SELECT bi.id,
 		       COALESCE(NULLIF(bi.component_type,''),'material') AS component_type,
+		       COALESCE(bi.material_id,0) AS material_id,
+		       COALESCE(m.is_semi_finished,false) AS is_semi_finished,
 		       COALESCE(bi.component_product_id,0) AS component_product_id,
 		       COALESCE(bi.component_bom_spec_id,0) AS component_bom_spec_id,
 		       COALESCE(bi.component_spec_g,0) AS component_spec_g,
@@ -1209,6 +1218,9 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(bi.bom_yield_rate,0)::float8 AS bom_yield_rate,
 		       COALESCE(NULLIF(bi.bom_output_qty,0),1)::float8 AS bom_output_qty,
 		       COALESCE(NULLIF(bi.bom_output_unit,''),'unit') AS bom_output_unit,
+		       COALESCE(m.purchase_price,0)::float8 AS purchase_price,
+		       COALESCE(mv.weighted_unit_cost,0)::float8 AS weighted_batch_unit_cost,
+		       COALESCE(bi.unit_cost_snapshot,0)::float8 AS unit_cost_snapshot,
 		       CASE
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='ratio_pct'
 		         THEN (CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) END) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))
@@ -1239,6 +1251,8 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
 		var componentType string
+		var componentMaterialID int64
+		var componentIsSemi bool
 		var componentProductID int64
 		var componentBomSpecID int64
 		var componentSpecG int64
@@ -1246,23 +1260,30 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var bomYieldRate float64
 		var bomOutputQty float64
 		var bomOutputUnit string
-		if err := bomRows.Scan(&id, &componentType, &componentProductID, &componentBomSpecID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
+		var purchasePrice, weightedBatchUnitCost, unitCostSnapshot float64
+		if err := bomRows.Scan(&id, &componentType, &componentMaterialID, &componentIsSemi, &componentProductID, &componentBomSpecID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &purchasePrice, &weightedBatchUnitCost, &unitCostSnapshot, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
 			return nil, err
 		}
 		resolvedItemCost, resolvedFromGraph := resolvedParentCost.ItemCosts[id]
-		ok := hasResolvedParentCost && resolvedParentCost.Resolved && resolvedFromGraph && resolvedItemCost.CostUnit != ""
+		ok := hasResolvedParentCost && resolvedFromGraph && resolvedItemCost.CostUnit != ""
 		warning := ""
 		if !ok {
 			resolvedItemCost, ok, warning = resolveProductionBomTrialItemCost(productionBomCostItem{
-				ID:                 id,
-				ComponentType:      componentType,
-				ComponentProductID: componentProductID,
-				ComponentBomSpecID: componentBomSpecID,
-				ComponentSpecG:     componentSpecG,
-				ConsumeUnit:        row.ConsumeUnit,
-				QtyPerUnit:         row.Quantity,
-				RatioPct:           row.RatioPct,
-				MaterialLossRate:   row.MaterialLossRate,
+				ID:                    id,
+				ComponentType:         componentType,
+				ComponentMaterialID:   componentMaterialID,
+				ComponentIsSemi:       componentIsSemi,
+				ComponentProductID:    componentProductID,
+				ComponentBomSpecID:    componentBomSpecID,
+				ComponentSpecG:        componentSpecG,
+				ConsumeUnit:           row.ConsumeUnit,
+				QtyPerUnit:            row.Quantity,
+				RatioPct:              row.RatioPct,
+				MaterialLossRate:      row.MaterialLossRate,
+				ComponentName:         row.Name,
+				PurchasePrice:         purchasePrice,
+				WeightedBatchUnitCost: weightedBatchUnitCost,
+				UnitCostSnapshot:      unitCostSnapshot,
 			}, row.UnitCost, unitCostUnit, bomYieldRate, bomOutputQty, bomOutputUnit, resolvedBomCosts)
 		}
 		if ok {
@@ -1279,7 +1300,27 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			row.CostUnitCost = resolvedItemCost.UnitCost
 			row.CostUnit = resolvedItemCost.CostUnit
 		} else {
-			return nil, fmt.Errorf("BOM项目 %s 成本无法解析：%s", strings.TrimSpace(row.Name), warning)
+			issues = append(issues, appcosting.PricingRuleTrialCostIssue{
+				Code:                  "zero_component_cost",
+				Reason:                warning,
+				ComponentType:         componentType,
+				ComponentID:           id,
+				ComponentMaterialID:   componentMaterialID,
+				ComponentProductID:    componentProductID,
+				ComponentBomSpecID:    componentBomSpecID,
+				ComponentName:         strings.TrimSpace(row.Name),
+				IsSemiFinished:        componentIsSemi,
+				ConsumeUnit:           row.ConsumeUnit,
+				CostUnit:              unitCostUnit,
+				Quantity:              row.Quantity,
+				UnitCost:              row.UnitCost,
+				PurchasePrice:         purchasePrice,
+				WeightedBatchUnitCost: weightedBatchUnitCost,
+				UnitCostSnapshot:      unitCostSnapshot,
+				RootProductID:         input.ProductID,
+				VersionID:             input.BomVersionID,
+			})
+			continue
 		}
 		if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" && row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
 			row.RecipeRatioPct = row.RatioPct
@@ -1457,7 +1498,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		})
 	}
 	if input.ProcessRouteID > 0 || operationSnapshotCount > 0 {
-		return out, nil
+		return finish()
 	}
 	if input.OperationTemplateID <= 0 {
 		return out, nil
@@ -1496,7 +1537,78 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	if err := legacyOpRows.Err(); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return finish()
+}
+
+func finishPricingRuleTrialBaseCostDetails(out []appcosting.PricingRuleTrialBaseCostDetail, input domain.ProductInput, resolved productionBomResolvedCost, issues []appcosting.PricingRuleTrialCostIssue) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
+	if len(issues) == 0 {
+		return out, nil
+	}
+	partialCost := resolved.PartialTotalCostPerOutputUnit
+	if !finiteNonNegative(partialCost) || partialCost <= 0 {
+		for _, detail := range out {
+			if detail.Type == "operation" {
+				partialCost += detail.AmountPerKg
+				if detail.AmountPerKg == 0 {
+					partialCost += detail.AmountPerUnit
+				}
+				continue
+			}
+			partialCost += detail.AmountPerKg
+			if detail.AmountPerKg == 0 {
+				partialCost += detail.AmountPerUnit
+			}
+		}
+	}
+	if !finiteNonNegative(partialCost) {
+		partialCost = 0
+	}
+	unique := make([]appcosting.PricingRuleTrialCostIssue, 0, len(issues))
+	seen := map[string]struct{}{}
+	for _, issue := range issues {
+		if issue.ComponentID == 0 && issue.Reason == "" {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%d:%d:%s", issue.Code, issue.ComponentID, issue.ComponentMaterialID, issue.ComponentProductID, issue.Reason)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if issue.RootProductID == 0 {
+			issue.RootProductID = input.ProductID
+		}
+		if issue.VersionID == 0 {
+			issue.VersionID = resolved.VersionID
+		}
+		if issue.BomID == 0 {
+			issue.BomID = resolved.BomID
+		}
+		if issue.BomName == "" {
+			issue.BomName = resolved.BomName
+		}
+		if issue.VersionNo == "" {
+			issue.VersionNo = resolved.VersionNo
+		}
+		if issue.BomSpecID == 0 {
+			issue.BomSpecID = input.BomSpecID
+		}
+		if issue.BomVariantID == 0 {
+			issue.BomVariantID = input.BomVariantID
+		}
+		unique = append(unique, issue)
+	}
+	return out, &appcosting.PricingRuleTrialCostIncompleteError{
+		ProductID:       input.ProductID,
+		BomID:           resolved.BomID,
+		BomName:         resolved.BomName,
+		BomVersionID:    resolved.VersionID,
+		BomVersionNo:    resolved.VersionNo,
+		BomSpecID:       input.BomSpecID,
+		BomVariantID:    input.BomVariantID,
+		PartialCost:     partialCost,
+		Issues:          unique,
+		BaseCostDetails: out,
+	}
 }
 
 func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
