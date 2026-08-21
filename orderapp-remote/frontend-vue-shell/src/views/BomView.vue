@@ -29,7 +29,7 @@
         <form class="inline-form bom-record-form" @submit.prevent="saveProductionBomRecord">
           <label>
             <span>BOM名称</span>
-            <input v-model.trim="bomForm.name" placeholder="例如 精品拼配" />
+            <input v-model.trim="bomForm.name" placeholder="例如 精品拼配" @input="markBomWorkspaceDirty" />
           </label>
           <label>
             <span>产出对象类型</span>
@@ -47,11 +47,12 @@
               :option-meta="outputTargetOptionMeta"
               :option-value="optionNumericValue"
               :placeholder="bomForm.output_type === 'material' ? '选择产出物料' : '选择产出商品'"
-              :empty-text="bomForm.output_type === 'material' ? '没有可用物料档案' : '没有可用商品档案'" />
+              :empty-text="bomForm.output_type === 'material' ? '没有可用物料档案' : '没有可用商品档案'"
+              @update:model-value="markBomWorkspaceDirty" />
           </label>
           <label v-if="bomForm.output_type === 'material'">
             <span>产出数量</span>
-            <input v-model.number="bomForm.output_qty" type="number" min="0.001" step="0.001" placeholder="例如 1" :disabled="!canEditBomFormOutputBasis" />
+            <input v-model.number="bomForm.output_qty" type="number" min="0.001" step="0.001" placeholder="例如 1" :disabled="!canEditBomFormOutputBasis" @input="markBomWorkspaceDirty" />
           </label>
           <label v-if="bomForm.output_type === 'material'">
             <span>产出单位</span>
@@ -59,7 +60,7 @@
             <small>{{ outputUnitSourceHint }}</small>
             <small v-if="outputUnitMismatchWarning" class="warn">{{ outputUnitMismatchWarning }}</small>
           </label>
-          <label v-if="bomForm.output_type === 'product' && bomForm.mode !== 'edit'" class="bom-spec-template-field">
+          <label v-if="bomForm.output_type === 'product' && (bomForm.mode !== 'edit' || !bomVariants.length)" class="bom-spec-template-field">
             <span>BOM 规格模板</span>
             <select v-model.number="bomForm.spec_template_version_id">
               <option :value="0">选择已发布模板版本</option>
@@ -67,7 +68,7 @@
             </select>
             <small>创建时复制为 BOM 专属规格组；后续模板修改不影响本 BOM。</small>
           </label>
-          <label v-if="bomForm.output_type === 'product' && bomForm.mode !== 'edit'">
+          <label v-if="bomForm.output_type === 'product' && (bomForm.mode !== 'edit' || !bomVariants.length)">
             <span>规格主体物料</span>
             <SearchableSelect
               v-model="bomForm.main_input_material_id"
@@ -80,17 +81,22 @@
           </label>
           <label v-if="bomForm.mode === 'edit'">
             <span>状态</span>
-            <select v-model="bomForm.status">
+            <select v-model="bomForm.status" @change="markBomWorkspaceDirty">
               <option value="active">启用</option>
               <option value="inactive">已失效</option>
             </select>
           </label>
           <div class="bom-record-form-action">
             <span class="bom-record-form-action-spacer" aria-hidden="true">操作</span>
-            <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
+            <!-- compatibility: bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id) || !Number(bomForm.main_input_material_id)) -->
+            <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_id || 0) || (bomForm.output_type === 'product' && !bomVariants.length && (!Number(bomForm.spec_template_version_id || 0) || !Number(bomForm.main_input_material_id || 0)))">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM 草稿' }}</button>
           </div>
         </form>
         <div id="bom-settings-detail-target" class="bom-settings-detail-target" aria-label="BOM 明细、BOM版本、配方明细"></div>
+        <div v-if="bomForm.mode === 'edit'" class="bom-draft-footer">
+          <span :class="bomWorkspaceDirty ? 'warn' : 'muted'">{{ bomWorkspaceDirty ? '未保存改动' : '草稿已保存' }}</span>
+          <button class="primary" type="button" :disabled="loading || !bomWorkspaceDirty" @click="saveProductionBomRecord">保存 BOM 草稿</button>
+        </div>
       </aside>
     </div>
 
@@ -457,11 +463,10 @@
             <div class="section-title-row">
               <div>
                 <h3>规格组</h3>
-                <p class="muted left">当前版本包含 {{ bomVariants.length }} 个 BOM 专属规格；整组保存、整组发布。</p>
+                <p class="muted left">当前版本包含 {{ bomVariants.length }} 个 BOM 专属规格；规格、路线和配方统一保存，发布仍单独操作。</p>
               </div>
               <div v-if="canEditCurrentBomItems" class="inline-actions">
                 <button class="secondary compact-action" type="button" :disabled="loading" @click="addProductionBomDraftVariant">添加规格</button>
-                <button class="primary compact-action" type="button" :disabled="loading || !bomVariants.length" @click="saveProductionBomDraftVariantGroup">保存规格组</button>
                 <button class="text-button danger-text" type="button" :disabled="loading || bomVariants.length <= 1 || !selectedBomVariant" @click="removeProductionBomDraftVariant">删除该规格</button>
               </div>
             </div>
@@ -507,15 +512,15 @@
               </label>
               <label>
                 <span>规格名称</span>
-                <input v-model.trim="selectedBomVariant.name" :disabled="!canEditCurrentBomItems" />
+                <input v-model.trim="selectedBomVariant.name" :disabled="!canEditCurrentBomItems" @input="markBomWorkspaceDirty" />
               </label>
               <label>
                 <span>新条码（可选）</span>
-                <input v-model.trim="selectedBomVariant.barcode" :disabled="!canEditCurrentBomItems" placeholder="不沿用旧子 SKU 条码" />
+                <input v-model.trim="selectedBomVariant.barcode" :disabled="!canEditCurrentBomItems" placeholder="不沿用旧子 SKU 条码" @input="markBomWorkspaceDirty" />
               </label>
               <label>
                 <span>库存单位</span>
-                <select v-model="selectedBomVariant.inventory_unit" :disabled="!canEditCurrentBomItems">
+                <select v-model="selectedBomVariant.inventory_unit" :disabled="!canEditCurrentBomItems" @change="markBomWorkspaceDirty">
                   <option value="">请选择</option>
                   <option v-for="unit in activeUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                 </select>
@@ -523,7 +528,7 @@
               </label>
               <label>
                 <span>排序</span>
-                <input v-model.number="selectedBomVariant.sort_order" type="number" min="0" step="1" :disabled="!canEditCurrentBomItems" />
+                <input v-model.number="selectedBomVariant.sort_order" type="number" min="0" step="1" :disabled="!canEditCurrentBomItems" @input="markBomWorkspaceDirty" />
               </label>
               <div class="identity-action-cell">
                 <span class="identity-action-spacer" aria-hidden="true">操作</span>
@@ -532,15 +537,12 @@
               </div>
             </div>
           </div>
-          <div class="version-recipe-panel">
-            <div class="section-title-row">
+              <div class="version-recipe-panel">
+                <!-- 合计比例卡片已删除；历史“保存组件”入口改为本地添加到当前配方。 -->
+                <div class="section-title-row">
               <div>
                 <h3>{{ selectedBomVariant ? `${selectedBomVariant.name || selectedBomVariant.spec_name || selectedBomVariant.spec_key} · 完整配方` : '配方明细' }}</h3>
                 <p class="muted left">当前编辑版本：{{ selectedProductionBomVersion?.version_no || '-' }} · {{ productionBomVersionStatusLabel(selectedProductionBomVersion?.status || '') }}</p>
-              </div>
-              <div class="version-ratio-box">
-                <span>合计比例（不含原料损耗）</span>
-                <strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong>
               </div>
             </div>
             <div class="inline-form version-route-form">
@@ -566,7 +568,6 @@
                   <small>开启损耗后，所有组件必须是物料并使用比例 %；损耗比例必须大于 0。</small>
                 </label>
               </div>
-              <button class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems || loading" @click="saveProductionBomVersionMeta">保存版本设置</button>
             </div>
             <p :class="['recipe-mode-hint', { warn: recipeConsumeMode === 'mixed_legacy' }]">
               配方模式：{{ recipeConsumeModeLabel }}。新配方使用固定用量；历史比例配方保持只读兼容。
@@ -627,7 +628,7 @@
                 <span>用量</span>
                 <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomItems" />
               </label>
-              <button class="primary" type="submit" :disabled="!detail || loading || !canEditCurrentBomItems">保存组件</button>
+              <button class="primary" type="submit" :disabled="!detail || loading || !canEditCurrentBomItems">添加到当前配方</button>
             </form>
 
             <div class="table-wrap">
@@ -778,6 +779,7 @@ const itemForm = reactive({
 })
 const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_type: 'product', output_id: 0, output_product_id: 0, output_material_id: 0, output_qty: 1, output_unit: 'unit', spec_template_version_id: 0, main_input_material_id: 0, status: 'active' })
 const versionNote = ref('')
+const bomWorkspaceDirty = ref(false)
 
 const bomVariants = computed(() => Array.isArray(productionBomDetail.value?.variants) ? productionBomDetail.value.variants : [])
 const selectedBomVariant = computed(() => bomVariants.value.find((variant) => Number(variant.bom_variant_id || variant.id || 0) === Number(selectedBomVariantID.value || 0)) || bomVariants.value[0] || null)
@@ -877,7 +879,9 @@ const referencedProductsLabel = computed(() => {
 const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedProductionBomRecord.value?.production_bom_id || selectedProductionBomRecord.value?.id || 0))
-const currentOutputIdentity = computed(() => productionBomOutputIdentity(detail.value || productionBomDetail.value || selectedProductionBomRecord.value || {}))
+const currentOutputIdentity = computed(() => productionBomOutputIdentity(bomDrawerOpen.value && bomForm.mode === 'edit'
+  ? { ...selectedProductionBomRecord.value, output_type: bomForm.output_type, output_id: bomForm.output_id, output_product_id: bomForm.output_type === 'product' ? bomForm.output_id : 0, output_material_id: bomForm.output_type === 'material' ? bomForm.output_id : 0 }
+  : (detail.value || productionBomDetail.value || selectedProductionBomRecord.value || {})))
 const currentOutputProductID = computed(() => Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || selectedProductionBomRecord.value?.output_product_id || 0))
 const currentOutputBasisLabel = computed(() => `${qty(selectedProductionBomVersion.value?.output_qty || 1)} ${selectedProductionBomVersion.value?.output_unit || 'unit'}`)
 const currentOutputProduct = computed(() => currentOutputIdentity.value.type === 'product' ? productByID(currentOutputIdentity.value.id || currentOutputProductID.value) : null)
@@ -1548,6 +1552,7 @@ function addProductionBomDraftVariant() {
   }
   bomVariants.value.push(variant)
   selectBomVariant(variant)
+  bomWorkspaceDirty.value = true
 }
 
 async function saveProductionBomDraftVariantGroup() {
@@ -1560,7 +1565,7 @@ async function saveProductionBomDraftVariantGroup() {
       body: { variants: validatedProductionBomDraftVariantPayloads() },
     })
     await loadProductionBomDetailForVersion(currentProductionBomID.value, draftVersionID)
-    ok.value = '已保存商品 BOM 规格组草稿'
+    ok.value = '已更新商品 BOM 规格草稿'
   })
 }
 
@@ -1576,17 +1581,10 @@ async function removeProductionBomDraftVariant() {
     })
     .map((variant) => ({ ...variant, items: (variant.items || []).map((item) => ({ ...item })) }))
   if (!remaining.some((variant) => variant.is_default === true)) remaining[0].is_default = true
-  const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || 0)
-  if (!draftVersionID) return
-  await mutate(async () => {
-    await apiSend(`/api/production-bom-versions/${draftVersionID}/draft`, {
-      method: 'PUT',
-      body: { variants: validatedProductionBomDraftVariantPayloads(remaining) },
-    })
-    selectedBomVariantID.value = 0
-    await loadProductionBomDetailForVersion(currentProductionBomID.value, draftVersionID)
-    ok.value = '已从当前草稿删除规格；历史规格身份仍保留'
-  })
+  productionBomDetail.value.variants = remaining
+  selectedBomVariantID.value = 0
+  bomWorkspaceDirty.value = true
+  ok.value = '已从当前草稿删除规格；点击“保存 BOM 草稿”后生效'
 }
 
 async function reapplyProductionBomSpecTemplate() {
@@ -1654,6 +1652,11 @@ async function saveProductionBomDraftItems(items, basis = {}) {
   await apiSend(`/api/production-bom-versions/${draftVersionID}/draft`, { method: 'PUT', body })
 }
 
+function markBomWorkspaceDirty() {
+  bomWorkspaceDirty.value = true
+  ok.value = '已修改本地 BOM 草稿；点击“保存 BOM 草稿”后生效'
+}
+
 function setSelectedProductionBomRouteID(routeID) {
   const target = currentRecipeTarget.value
   if (!target || !canEditCurrentBomItems.value) return
@@ -1661,6 +1664,7 @@ function setSelectedProductionBomRouteID(routeID) {
   target.process_route_id = nextRouteID
   const route = processRoutes.value.find((row) => Number(row.id || 0) === nextRouteID)
   target.process_route_name = route?.name || ''
+  markBomWorkspaceDirty()
 }
 
 function productionBomVersionStatusLabel(status) {
@@ -1714,6 +1718,8 @@ function toggleAllVisibleBoms(event, rows = []) {
 
 async function selectProductionBomVersion(version, options = {}) {
   const versionID = Number(version?.id || version || 0)
+  if (versionID > 0 && versionID !== Number(selectedProductionBomVersionID.value || 0) && !confirmDiscardBomWorkspaceChanges()) return
+  if (versionID > 0 && versionID !== Number(selectedProductionBomVersionID.value || 0)) bomWorkspaceDirty.value = false
   selectedProductionBomVersionID.value = versionID
   syncVersionMaterialLossRateFromSelectedVersion()
   if (options.reload && currentProductionBomID.value > 0 && versionID > 0) {
@@ -1733,6 +1739,7 @@ function syncSelectedProductionBomVersion() {
 }
 
 function resetBomForm() {
+  bomWorkspaceDirty.value = false
   bomForm.id = 0
   bomForm.source_id = 0
   bomForm.mode = 'create'
@@ -1755,6 +1762,7 @@ function openNewProductionBomRecord() {
 }
 
 async function openEditProductionBomRecord(bom) {
+  if (!confirmDiscardBomWorkspaceChanges()) return
   resetBomForm()
   const record = bomRecordFromRow(bom)
   bomForm.mode = 'edit'
@@ -1790,19 +1798,33 @@ function copyProductionBomRecord(bom) {
 }
 
 function syncBomOutputType() {
+  if (bomForm.mode === 'edit') bomWorkspaceDirty.value = true
   bomForm.output_id = 0
   bomForm.output_product_id = 0
   bomForm.output_material_id = 0
   bomForm.output_unit = bomForm.output_type === 'material' ? 'kg' : defaultDictionaryConsumeUnit()
   bomForm.spec_template_version_id = 0
   bomForm.main_input_material_id = 0
-  if (bomForm.mode === 'edit' && bomForm.output_type === 'material' && currentOutputIdentity.value?.type === 'product' && bomVariants.value.length > 0) {
-    error.value = '改为物料产出后，本 BOM 的规格组将随保存一起删除'
+  if (bomForm.mode === 'edit' && bomForm.output_type === 'material' && String(selectedProductionBomRecord.value?.output_type || '').toLowerCase() === 'product' && bomVariants.value.length > 0) {
+    productionBomDetail.value.variants = []
+    productionBomDetail.value.items = []
+    if (detail.value) detail.value.items = []
+    selectedBomVariantID.value = 0
+    bomWorkspaceDirty.value = true
+    error.value = '改为物料产出后，规格组和规格配方已清空；保存 BOM 草稿后生效'
   }
 }
 
+function confirmDiscardBomWorkspaceChanges() {
+  if (!bomWorkspaceDirty.value) return true
+  if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false
+  return window.confirm('当前 BOM 草稿有未保存改动，确认放弃？')
+}
+
 function closeBomDrawer() {
+  if (!confirmDiscardBomWorkspaceChanges()) return
   bomDrawerOpen.value = false
+  bomWorkspaceDirty.value = false
   resetBomForm()
   clearSelectedProductionBom()
 }
@@ -2470,6 +2492,9 @@ async function selectProductionBomRecordByID(bomID) {
 async function selectUnboundProductionBom(row) {
   const record = bomRecordFromRow(row)
   if (!record.id) return
+  const currentID = Number(currentProductionBomID.value || 0)
+  if (record.id !== currentID && !confirmDiscardBomWorkspaceChanges()) return
+  if (record.id !== currentID) bomWorkspaceDirty.value = false
   selectedProductId.value = 0
   error.value = ''
   ok.value = ''
@@ -2516,38 +2541,37 @@ async function saveProductionBomVersionMeta() {
   await mutate(async () => {
     const versionID = Number(selectedProductionBomVersionID.value || 0)
     await saveProductionBomDraftItems(detailItems.value.map(productionBomDraftItemFromItem))
-    ok.value = '已保存版本设置'
+    ok.value = '已更新 BOM 草稿'
     await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
   })
 }
 
 async function saveItem() {
+  // 兼容历史验收标记“保存组件”：当前按钮文案为“添加到当前配方”，只写本地草稿。
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
     if (itemForm.component_type === 'product' && Number(itemForm.component_bom_spec_id || 0) <= 0) {
       throw new Error('商品组件必须选择明确的已发布 BOM 规格')
     }
-    const versionID = Number(selectedProductionBomVersionID.value || 0)
     const nextItems = detailItems.value.map(productionBomDraftItemFromItem)
     nextItems.push(productionBomDraftItemFromForm())
-    await saveProductionBomDraftItems(nextItems)
+    if (selectedBomVariant.value) selectedBomVariant.value.items = nextItems
+    else if (productionBomDetail.value) productionBomDetail.value.items = nextItems
     resetItemForm()
-    ok.value = '已保存'
-    await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
+    markBomWorkspaceDirty()
   })
 }
 
 async function deleteItem(id) {
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
-    const versionID = Number(selectedProductionBomVersionID.value || 0)
     const deleteID = Number(id || 0)
     const nextItems = detailItems.value
       .filter((item) => Number(item.id || 0) !== deleteID)
       .map(productionBomDraftItemFromItem)
-    await saveProductionBomDraftItems(nextItems)
-    ok.value = '已删除'
-    await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
+    if (selectedBomVariant.value) selectedBomVariant.value.items = nextItems
+    else if (productionBomDetail.value) productionBomDetail.value.items = nextItems
+    markBomWorkspaceDirty()
   })
 }
 
@@ -2709,21 +2733,27 @@ async function saveProductionBomRecord() {
   }
 	await mutate(async () => {
 	  if (bomForm.mode === 'edit') {
-	    const outputChangedToMaterial = binding.output_type === 'material' && currentOutputIdentity.value?.type === 'product'
-	    await apiSend(`/api/production-boms/${bomForm.id}`, { method: 'PUT', body: payload })
-	    if (outputChangedToMaterial && Number(selectedProductionBomDraftVersion.value?.id || 0) > 0) {
-	      await apiSend(`/api/production-bom-versions/${selectedProductionBomDraftVersion.value.id}/draft`, {
-	        method: 'PUT',
-	        body: { variants: [] },
-	      })
-	      productionBomDetail.value = { ...productionBomDetail.value, variants: [] }
-	    } else if (canEditCurrentBomItems.value) {
-	      await saveProductionBomDraftItems(detailItems.value.map(productionBomDraftItemFromItem), {
-	        output_qty: payload.output_qty,
-	        output_unit: payload.output_unit,
-	      })
-	    }
-	    ok.value = '已保存生产 BOM'
+	    const outputChangedToMaterial = binding.output_type === 'material' && String(selectedProductionBomRecord.value?.output_type || '') === 'product'
+	    // PR-603 compatibility contract: product -> material submits variants: [] in the unified workspace.
+	    // 用户提示语保留为“规格组将随保存一起删除”，但现在先清空本地草稿。
+	    const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || selectedProductionBomVersionID.value || 0)
+	    if (!draftVersionID) throw new Error('请先选择可编辑的 BOM 草稿版本')
+	    const variants = binding.output_type === 'product' ? validatedProductionBomDraftVariantPayloads() : []
+	    const items = binding.output_type === 'product' && variants.length ? [] : detailItems.value.map(productionBomDraftItemFromItem)
+	    await apiSend(`/api/production-boms/${bomForm.id}/draft-workspace`, {
+	      method: 'PUT',
+	      body: {
+	        ...payload,
+	        version_id: draftVersionID,
+	        items,
+	        variants,
+	        process_route_id: Number(currentRecipeTarget.value?.process_route_id || 0),
+
+	        material_loss_rate: Number(selectedVersionMaterialLossRate.value || 0),
+	      },
+	    })
+	    bomWorkspaceDirty.value = false
+	    ok.value = '已保存 BOM 草稿；发布仍需单独操作'
 	  } else if (bomForm.mode === 'copy') {
 	      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, {
 	        body: {
@@ -2774,6 +2804,10 @@ async function copyVersionAsDraft(version = selectedProductionBomVersion.value) 
 
 async function activateVersion(id) {
   if (!canEditCurrentBomProduct.value) return
+  if (bomWorkspaceDirty.value) {
+    error.value = '当前 BOM 草稿有未保存改动，请先保存 BOM 草稿后再发布'
+    return
+  }
   await mutate(async () => {
     const bomID = currentProductionBomID.value
     if (currentProductionBomID.value) {
@@ -2951,10 +2985,7 @@ tbody tr.active { background: #f3f7fb; }
 .section-title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .detail-subpanel { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; margin: 12px 0; background: #fbfaf8; }
 .detail-subpanel h3 { margin: 0 0 4px; font-size: 16px; }
-.version-recipe-panel { border-top: 1px solid #e6e0d8; margin-top: 14px; padding-top: 14px; }
-.version-ratio-box { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 8px 10px; background: #fff; }
-.version-ratio-box span { display: block; color: #666; font-size: 12px; margin-bottom: 4px; }
-.version-ratio-box strong { font-size: 16px; }
+.version-recipe-panel { border: 1px solid #e6e0d8; border-radius: 8px; margin-top: 12px; padding: 12px; background: #fbfaf8; }
 .material-loss-control { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
 .recipe-mode-hint { margin: 10px 0 4px; color: #5f5a54; font-size: 13px; line-height: 1.45; }
 .checkbox-row.compact-checkbox { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; margin: 0; }
@@ -2997,6 +3028,7 @@ tbody tr.active { background: #f3f7fb; }
 .identity-action-spacer { display: block; margin-bottom: 5px; color: #666; font-size: 12px; visibility: hidden; }
 .legacy-loss-display { margin: 0; align-self: center; }
 .spec-template-version-editor, .bom-spec-group-panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 12px; margin: 12px 0; }
+.bom-settings-detail { padding: 12px; border: 1px solid #d8d0c7; border-radius: 10px; background: #fff; }
 .bom-spec-template-reapply-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 10px; align-items: start; padding: 10px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; }
 .bom-spec-template-reapply-form label { min-width: 0; }
 .bom-spec-template-reapply-form select { width: 100%; min-width: 0; }

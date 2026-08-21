@@ -31,6 +31,7 @@ type Material struct {
 	Name                       string                       `json:"name"`
 	Kind                       string                       `json:"kind"`
 	IsSemiFinished             bool                         `json:"is_semi_finished"`
+	SupplyMode                 string                       `json:"supply_mode"`
 	CanManufacture             bool                         `json:"can_manufacture"`
 	Unit                       string                       `json:"unit"`
 	CostUnit                   string                       `json:"cost_unit"`
@@ -61,6 +62,7 @@ type MaterialInput struct {
 	Kind                    string                       `json:"kind"`
 	IsSemiFinished          bool                         `json:"is_semi_finished"`
 	IsSemiFinishedSet       bool                         `json:"-"`
+	SupplyMode              string                       `json:"supply_mode,omitempty"`
 	Unit                    string                       `json:"unit"`
 	CostUnit                string                       `json:"cost_unit"`
 	BatchNo                 string                       `json:"batch_no"`
@@ -81,7 +83,8 @@ func (in *MaterialInput) UnmarshalJSON(data []byte) error {
 	type materialInputAlias MaterialInput
 	var payload struct {
 		*materialInputAlias
-		IsSemiFinished *bool `json:"is_semi_finished"`
+		IsSemiFinished *bool   `json:"is_semi_finished"`
+		SupplyMode     *string `json:"supply_mode"`
 	}
 	payload.materialInputAlias = (*materialInputAlias)(in)
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -90,6 +93,9 @@ func (in *MaterialInput) UnmarshalJSON(data []byte) error {
 	if payload.IsSemiFinished != nil {
 		in.IsSemiFinished = *payload.IsSemiFinished
 		in.IsSemiFinishedSet = true
+	}
+	if payload.SupplyMode != nil {
+		in.SupplyMode = *payload.SupplyMode
 	}
 	return nil
 }

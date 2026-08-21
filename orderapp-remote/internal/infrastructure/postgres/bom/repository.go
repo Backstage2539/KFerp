@@ -1704,6 +1704,15 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 		return bomapp.ProductionBomSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if strings.EqualFold(strings.TrimSpace(cmd.OutputType), "material") {
+		var isSemi bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputMaterialID).Scan(&isSemi); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		if !isSemi {
+			return bomapp.ProductionBomSummary{}, fmt.Errorf("外购物料不能创建物料产出 BOM；请先将取得方式改为自制")
+		}
+	}
 	if cmd.OutputType == "product" {
 		if err := requireProductBOMSpecTemplateTx(ctx, tx, r.schema, cmd.OutputProductID, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID); err != nil {
 			return bomapp.ProductionBomSummary{}, err
@@ -1761,6 +1770,17 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 		return bomapp.ProductionBomSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := r.updateProductionBomTx(ctx, tx, cmd); err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
+	return r.productionBomSummaryByID(ctx, cmd.ID)
+}
+
+func (r Repository) updateProductionBomTx(ctx context.Context, tx pgx.Tx, cmd bomapp.UpdateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+	var err error
 	groupID := cmd.GroupID
 	groupCategoryID := cmd.GroupCategoryID
 	status := strings.TrimSpace(cmd.Status)
@@ -1796,7 +1816,11 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 			return bomapp.ProductionBomSummary{}, fmt.Errorf("published production BOM output identity is immutable")
 		}
 		if identityChanged && requiresTargetSpecGroup {
-			if err := validateProductBOMDraftSpecTemplateProvenanceTx(ctx, tx, r.schema, cmd.ID); err != nil {
+			if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 {
+				if err := requireProductBOMSpecTemplateTx(ctx, tx, r.schema, cmd.OutputProductID, cmd.SpecTemplateVersionID, cmd.MainInputMaterialID); err != nil {
+					return bomapp.ProductionBomSummary{}, err
+				}
+			} else if err := validateProductBOMDraftSpecTemplateProvenanceTx(ctx, tx, r.schema, cmd.ID); err != nil {
 				return bomapp.ProductionBomSummary{}, err
 			}
 		}
@@ -1861,10 +1885,7 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 			return bomapp.ProductionBomSummary{}, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return bomapp.ProductionBomSummary{}, err
-	}
-	return r.productionBomSummaryByID(ctx, cmd.ID)
+	return bomapp.ProductionBomSummary{}, nil
 }
 
 func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProductionBomCommand) (bomapp.ProductionBomSummary, error) {
@@ -2095,11 +2116,25 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 }
 
 func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bomapp.UpdateProductionBomVersionDraftCommand) (bomapp.ProductionBomVersion, error) {
+	// Compatibility marker: material loss snapshots apply only when
+	// componentType == "material" && item.ConsumeUnit == "ratio_pct"; fixed
+	// packaging remains valid in the same draft.
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, cmd); err != nil {
+		return bomapp.ProductionBomVersion{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.ProductionBomVersion{}, err
+	}
+	return r.productionBomVersionByID(ctx, cmd.VersionID)
+}
+
+func (r Repository) updateProductionBomVersionDraftTx(ctx context.Context, tx pgx.Tx, cmd bomapp.UpdateProductionBomVersionDraftCommand) (bomapp.ProductionBomVersion, error) {
+	var err error
 	var prelockOutputType string
 	var prelockOutputProductID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -2243,10 +2278,43 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 			return bomapp.ProductionBomVersion{}, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return bomapp.ProductionBomVersion{}, err
+	return bomapp.ProductionBomVersion{}, nil
+}
+
+// UpdateProductionBomDraftWorkspace is the unified editor save. Master and
+// version changes share one transaction, so a validation failure in either
+// part rolls the complete draft back.
+func (r Repository) UpdateProductionBomDraftWorkspace(ctx context.Context, cmd bomapp.ProductionBomDraftWorkspaceCommand) (bomapp.ProductionBomDetail, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.ProductionBomDetail{}, err
 	}
-	return r.productionBomVersionByID(ctx, cmd.VersionID)
+	cmd.Bom.SpecTemplateVersionID = cmd.SpecTemplateID
+	cmd.Bom.MainInputMaterialID = cmd.MainInputMaterialID
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := r.updateProductionBomTx(ctx, tx, cmd.Bom); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	if strings.EqualFold(strings.TrimSpace(cmd.Bom.OutputType), "product") && cmd.SpecTemplateID > 0 && cmd.MainInputMaterialID > 0 && len(cmd.Version.Variants) == 0 {
+		// A type conversion may submit the selected published template without
+		// client-generated variants. Keep version metadata in this transaction,
+		// then copy the template snapshot into the draft recipe.
+		metadataOnly := cmd.Version
+		metadataOnly.Items = nil
+		metadataOnly.Variants = nil
+		if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, metadataOnly); err != nil {
+			return bomapp.ProductionBomDetail{}, err
+		}
+		if err := copySpecTemplateToProductionBomTx(ctx, tx, r.schema, cmd.Bom.ID, cmd.Version.VersionID, cmd.SpecTemplateID, cmd.MainInputMaterialID, cmd.Version.Actor); err != nil {
+			return bomapp.ProductionBomDetail{}, err
+		}
+	} else if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, cmd.Version); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	return r.GetProductionBomDetail(ctx, cmd.Bom.ID, cmd.Version.VersionID)
 }
 
 func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.Context, q bomQueryer, versionID int64) error {
@@ -3202,6 +3270,15 @@ func (r Repository) BindProductionBomOutput(ctx context.Context, cmd bomapp.Bind
 		return bomapp.ProductionBomOutputBinding{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if outputType == "material" {
+		var isSemi bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputID).Scan(&isSemi); err != nil {
+			return bomapp.ProductionBomOutputBinding{}, err
+		}
+		if !isSemi {
+			return bomapp.ProductionBomOutputBinding{}, fmt.Errorf("外购物料不能绑定物料产出 BOM；请先将取得方式改为自制")
+		}
+	}
 	if err := lockProductionBomDefaultGraphTx(ctx, tx, r.schema); err != nil {
 		return bomapp.ProductionBomOutputBinding{}, err
 	}

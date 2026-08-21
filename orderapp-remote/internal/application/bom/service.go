@@ -415,6 +415,8 @@ type UpdateProductionBomCommand struct {
 	UpdateGroupAssignment bool   `json:"-"`
 	Status                string `json:"status"`
 	Actor                 string `json:"actor"`
+	SpecTemplateVersionID int64  `json:"spec_template_version_id,omitempty"`
+	MainInputMaterialID   int64  `json:"main_input_material_id,omitempty"`
 }
 
 type CopyProductionBomCommand struct {
@@ -478,6 +480,16 @@ type UpdateProductionBomVersionDraftCommand struct {
 	SpecialAttrsSchemaJSON string                      `json:"special_attrs_schema_json"`
 	SpecialAttrsJSON       string                      `json:"special_attrs_json"`
 	Actor                  string                      `json:"actor"`
+}
+
+// ProductionBomDraftWorkspaceCommand is the single-save contract used by the
+// editor. The repository applies the master identity and the selected draft
+// version together; legacy section endpoints remain available for old clients.
+type ProductionBomDraftWorkspaceCommand struct {
+	Bom                 UpdateProductionBomCommand
+	Version             UpdateProductionBomVersionDraftCommand
+	SpecTemplateID      int64 `json:"spec_template_version_id,omitempty"`
+	MainInputMaterialID int64 `json:"main_input_material_id,omitempty"`
 }
 
 type CreateProductionBomSpecTemplateCommand struct {
@@ -624,6 +636,10 @@ type Repository interface {
 	ValidateProductionBomVersionForPublish(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	PublishProductionBomVersion(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error)
+}
+
+type ProductionBomDraftWorkspaceRepository interface {
+	UpdateProductionBomDraftWorkspace(ctx context.Context, cmd ProductionBomDraftWorkspaceCommand) (ProductionBomDetail, error)
 }
 
 // ProductionBomSpecRepository is additive so legacy adapters and focused test
@@ -1507,6 +1523,19 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 	}
 	enrichProductionBomVersionYield(&row)
 	return row, nil
+}
+
+func (s *Service) UpdateProductionBomDraftWorkspace(ctx context.Context, cmd ProductionBomDraftWorkspaceCommand) (ProductionBomDetail, error) {
+	workspaceRepo, ok := s.repo.(ProductionBomDraftWorkspaceRepository)
+	if !ok {
+		return ProductionBomDetail{}, fmt.Errorf("BOM 草稿工作区保存不可用")
+	}
+	if cmd.Bom.ID <= 0 || cmd.Version.VersionID <= 0 {
+		return ProductionBomDetail{}, fmt.Errorf("bom_id and version_id required")
+	}
+	cmd.Bom.Actor = strings.TrimSpace(cmd.Bom.Actor)
+	cmd.Version.Actor = cmd.Bom.Actor
+	return workspaceRepo.UpdateProductionBomDraftWorkspace(ctx, cmd)
 }
 
 // ValidateProductionBomRecipeMode keeps a recipe in exactly one quantity mode.

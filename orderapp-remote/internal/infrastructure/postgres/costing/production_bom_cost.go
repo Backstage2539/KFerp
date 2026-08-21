@@ -388,9 +388,9 @@ func normalizeProductionBomCostOutputType(value string) string {
 	}
 }
 
-func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int64]productionBomResolvedCost, error) {
+func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (map[string]productionBomResolvedCost, error) {
 	if r.pool == nil {
-		return map[int64]productionBomResolvedCost{}, nil
+		return map[string]productionBomResolvedCost{}, nil
 	}
 	hasBomName, err := r.costingColumnExists(ctx, "production_boms", "name")
 	if err != nil {
@@ -466,7 +466,7 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 	}
 	rows.Close()
 	if len(versionIDs) == 0 {
-		return map[int64]productionBomResolvedCost{}, nil
+		return map[string]productionBomResolvedCost{}, nil
 	}
 
 	// A PR-600 product BOM version owns one independently costed output node per
@@ -675,21 +675,6 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 	}
 	itemRows.Close()
 	all := resolveTypedProductionBomCosts(nodes)
-	productCosts := make(map[int64]productionBomResolvedCost)
-	for key, node := range nodes {
-		switch normalizeProductionBomCostOutputType(node.OutputType) {
-		case "product":
-			if node.OutputID <= 0 {
-				continue
-			}
-			productCosts[node.OutputID] = all[key]
-		case "product_spec":
-			if node.BomSpecID <= 0 {
-				continue
-			}
-			productCosts[productionBomSpecCostMapKey(node.BomSpecID)] = all[key]
-		}
-	}
 	// Variant-only versions drop their product:<id> node; expose the default
 	// specification cost under the product key so legacy callers (pricing
 	// trial, production cost) without a BomSpecID still resolve through the
@@ -702,10 +687,37 @@ func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int
 		if !ok || node.ProductID <= 0 {
 			continue
 		}
-		if _, exists := productCosts[node.ProductID]; exists {
+		if _, exists := all[productionBomCostOutputKey("product", node.ProductID)]; exists {
 			continue
 		}
-		productCosts[node.ProductID] = all[key]
+		aliasKey := productionBomCostOutputKey("product", node.ProductID)
+		all[aliasKey] = all[key]
+	}
+	return all, nil
+}
+
+func (r Repository) loadResolvedProductionBomCosts(ctx context.Context) (map[int64]productionBomResolvedCost, error) {
+	all, err := r.loadResolvedProductionBomCostsTyped(ctx)
+	if err != nil {
+		return nil, err
+	}
+	productCosts := make(map[int64]productionBomResolvedCost)
+	for key, cost := range all {
+		nodeType := normalizeProductionBomCostOutputType(cost.OutputType)
+		switch nodeType {
+		case "product":
+			if cost.OutputID > 0 {
+				productCosts[cost.OutputID] = cost
+			}
+		case "product_spec":
+			if cost.BomSpecID > 0 {
+				productCosts[productionBomSpecCostMapKey(cost.BomSpecID)] = cost
+			}
+		case "material":
+			// Material nodes are intentionally not exposed through the legacy
+			// product-key map; material-cost trial reads the typed graph.
+		}
+		_ = key
 	}
 	return productCosts, nil
 }

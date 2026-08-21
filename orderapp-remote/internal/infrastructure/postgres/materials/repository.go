@@ -25,6 +25,7 @@ type materialRow struct {
 	Name                       string
 	Kind                       string
 	IsSemiFinished             bool
+	SupplyMode                 string
 	CanManufacture             bool
 	Unit                       string
 	CostUnit                   string
@@ -55,6 +56,7 @@ type materialInput struct {
 	Kind                    string
 	IsSemiFinished          bool
 	IsSemiFinishedSet       bool
+	SupplyMode              string
 	Unit                    string
 	CostUnit                string
 	BatchNo                 string
@@ -231,6 +233,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 			return nil, err
 		}
 		r.Kind = normalizeMaterialKind(r.Kind)
+		r.SupplyMode = materialSupplyMode(r.IsSemiFinished)
 		r.StockQty = materialQtyForUnit(r.Unit, r.OnhandG, r.OnhandUnits)
 		r.MinLevelQty = materialQtyForUnit(r.Unit, r.MinLevelG, r.MinLevelUnits)
 		if r.Kind == "bean" || !profile.empty() {
@@ -331,6 +334,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 	old.Kind = normalizeMaterialKind(old.Kind)
+	old.SupplyMode = materialSupplyMode(old.IsSemiFinished)
 	if old.Kind == "bean" || !oldProfile.empty() {
 		old.Profile = &oldProfile
 	}
@@ -343,6 +347,24 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	old.IndustryFields = loadMaterialIndustryFieldsForTx(ctx, tx, schema, id)
 	if !next.IsSemiFinishedSet {
 		next.IsSemiFinished = old.IsSemiFinished
+	}
+	if mode := strings.ToLower(strings.TrimSpace(next.SupplyMode)); mode != "" {
+		switch mode {
+		case "purchase":
+			next.IsSemiFinished = false
+			next.IsSemiFinishedSet = true
+		case "manufacture":
+			next.IsSemiFinished = true
+			next.IsSemiFinishedSet = true
+		default:
+			return materialRow{}, fmt.Errorf("取得方式必须为 purchase 或 manufacture")
+		}
+	}
+	if old.IsSemiFinished && !next.IsSemiFinished {
+		var linked int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_boms pb WHERE pb.output_type='material' AND pb.output_material_id=$1 AND COALESCE(NULLIF(pb.status,''),'active')='active'`, schema), id).Scan(&linked); err == nil && linked > 0 {
+			return materialRow{}, fmt.Errorf("该物料仍有关联制造 BOM，请先处理 BOM 后再切换为外购")
+		}
 	}
 	if err := assertSemiFinishedPurchasePrice(next.IsSemiFinished, next.PurchasePrice); err != nil {
 		return materialRow{}, err
@@ -523,6 +545,19 @@ func getMaterialByID(ctx context.Context, pool *pgxpool.Pool, schema string, id 
 }
 
 func normalizeMaterialInput(in materialInput) (materialInput, error) {
+	if mode := strings.ToLower(strings.TrimSpace(in.SupplyMode)); mode != "" {
+		switch mode {
+		case "purchase":
+			in.IsSemiFinished = false
+			in.IsSemiFinishedSet = true
+		case "manufacture":
+			in.IsSemiFinished = true
+			in.IsSemiFinishedSet = true
+		default:
+			return materialInput{}, fmt.Errorf("取得方式必须为 purchase 或 manufacture")
+		}
+		in.SupplyMode = mode
+	}
 	in.Code = strings.TrimSpace(in.Code)
 	in.Name = strings.TrimSpace(in.Name)
 	in.Kind = strings.TrimSpace(in.Kind)
@@ -598,6 +633,13 @@ func assertSemiFinishedPurchasePrice(isSemiFinished bool, purchasePrice float64)
 		return fmt.Errorf("半成品只能通过生产入库，采购价必须为 0")
 	}
 	return nil
+}
+
+func materialSupplyMode(isSemiFinished bool) string {
+	if isSemiFinished {
+		return "manufacture"
+	}
+	return "purchase"
 }
 
 func normalizeMaterialIndustryFields(fields []materialIndustryFieldInput) []materialIndustryFieldInput {
@@ -882,6 +924,7 @@ func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, ol
 		{"name", old.Name, next.Name},
 		{"kind", old.Kind, next.Kind},
 		{"is_semi_finished", fmt.Sprintf("%t", old.IsSemiFinished), fmt.Sprintf("%t", next.IsSemiFinished)},
+		{"supply_mode", materialSupplyMode(old.IsSemiFinished), materialSupplyMode(next.IsSemiFinished)},
 		{"unit", old.Unit, next.Unit},
 		{"cost_unit", old.CostUnit, next.CostUnit},
 		{"batch_no", old.BatchNo, next.BatchNo},
@@ -1474,6 +1517,7 @@ func materialToApp(row materialRow) materialsapp.Material {
 		Name:                       row.Name,
 		Kind:                       row.Kind,
 		IsSemiFinished:             row.IsSemiFinished,
+		SupplyMode:                 materialSupplyMode(row.IsSemiFinished),
 		CanManufacture:             row.CanManufacture,
 		Unit:                       row.Unit,
 		CostUnit:                   row.CostUnit,
@@ -1506,6 +1550,7 @@ func materialInputFromApp(in materialsapp.MaterialInput) materialInput {
 		Kind:                    in.Kind,
 		IsSemiFinished:          in.IsSemiFinished,
 		IsSemiFinishedSet:       in.IsSemiFinishedSet,
+		SupplyMode:              in.SupplyMode,
 		Unit:                    in.Unit,
 		CostUnit:                in.CostUnit,
 		BatchNo:                 in.BatchNo,

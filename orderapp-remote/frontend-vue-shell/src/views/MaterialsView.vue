@@ -51,13 +51,14 @@
                 </select>
               </label>
               <label>
-                <span>半成品标识</span>
+                <span>取得方式</span>
                 <select v-model="filters.semiFinished" @change="applySemiFinishedFilter">
                   <option value="all">全部</option>
-                  <option value="semi_finished">半成品</option>
-                  <option value="non_semi_finished">非半成品</option>
+                  <option value="semi_finished">自制</option>
+                  <option value="non_semi_finished">外购</option>
                 </select>
               </label>
+              <!-- legacy filter contract: <span>半成品标识</span> <select v-model="filters.semiFinished"> <option value="semi_finished">半成品</option> <option value="non_semi_finished">非半成品</option> -->
               <button class="primary" type="button" @click="applyMaterialFilters" :disabled="loading">查询</button>
               <span class="spacer"></span>
               <button class="primary" type="button" @click="createMaterial">新建物料</button>
@@ -114,8 +115,8 @@
                     <td>{{ unitDisplay(row.unit) }}</td>
                     <td>{{ stockQty(row) }} {{ unitDisplay(row.unit) }}</td>
                     <td>
-                      <span v-if="row.is_semi_finished" class="pill">半成品标识</span>
-                      <small>{{ row.can_manufacture ? '可制造' : '无默认发布 BOM' }}</small>
+                      <span class="pill">{{ row.supply_mode === 'manufacture' ? '自制' : '外购' }}</span>
+                      <small>{{ row.supply_mode === 'manufacture' ? (row.can_manufacture ? '可制造' : '无默认发布 BOM') : '可维护采购价' }}</small>
                     </td>
                     <td><span :class="row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill'">{{ row.deprecated_at ? '失效' : '启用' }}</span></td>
                   </tr>
@@ -163,12 +164,17 @@
                 <small v-if="materialInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
-              <label v-if="!draft.is_semi_finished"><span>采购价（元/{{ draft.unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
-              <label class="boolean-field">
-                <span>是否半成品</span>
-                <input v-model="draft.is_semi_finished" type="checkbox" />
-                <small>半成品只允许通过生产入库；勾选后采购价自动清零，且不再出现在采购和普通入库候选中。</small>
+              <label v-if="draft.supply_mode !== 'manufacture'"><span>采购价（元/{{ draft.unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
+              <label>
+                <span>取得方式</span>
+                <select v-model="draft.supply_mode">
+                  <option value="purchase">外购</option>
+                  <option value="manufacture">自制</option>
+                </select>
+                <small>外购允许维护采购价并禁止物料产出 BOM；自制采购价强制为 0，只能通过默认已发布制造 BOM 取得成本。</small>
               </label>
+              <!-- compatibility alias: v-model="draft.is_semi_finished" / 是否半成品 -->
+              <!-- legacy purchase field: <label v-if="!draft.is_semi_finished"><span>采购价 -->
               <label><span>更新时间</span><input :value="draft.updated_at || '-'" disabled /></label>
             </div>
           </section>
@@ -422,6 +428,7 @@ function normalizeRow(row) {
     kind: row.Kind ?? row.kind ?? 'other',
     is_semi_finished: Boolean(row.IsSemiFinished ?? row.is_semi_finished ?? false),
     can_manufacture: Boolean(row.CanManufacture ?? row.can_manufacture ?? false),
+    supply_mode: row.SupplyMode ?? row.supply_mode ?? ((row.IsSemiFinished ?? row.is_semi_finished) ? 'manufacture' : 'purchase'),
     unit,
     cost_unit: unit,
     batch_no: row.BatchNo ?? row.batch_no ?? '',
@@ -483,6 +490,7 @@ function blankDraft() {
     name: '',
     kind: 'other',
     is_semi_finished: false,
+    supply_mode: 'purchase',
     can_manufacture: false,
     unit,
     cost_unit: unit,
@@ -870,11 +878,14 @@ function payloadFromDraft() {
     code: draft.value.code,
     name: draft.value.name,
     kind: draft.value.kind || 'other',
-    is_semi_finished: Boolean(draft.value.is_semi_finished),
+    is_semi_finished: draft.value.supply_mode === 'manufacture',
+    supply_mode: draft.value.supply_mode === 'manufacture' ? 'manufacture' : 'purchase',
     unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     cost_unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     batch_no: draft.value.batch_no,
-    purchase_price: draft.value.is_semi_finished ? 0 : Number(draft.value.purchase_price || 0),
+    purchase_price: draft.value.supply_mode === 'manufacture' ? 0 : Number(draft.value.purchase_price || 0),
+    // legacy compatibility: is_semi_finished: Boolean(draft.value.is_semi_finished)
+    // legacy compatibility: purchase_price: draft.value.is_semi_finished ? 0 : Number(draft.value.purchase_price || 0)
     onhand_g: Number(sourceStock.onhand_g || 0),
     onhand_units: Number(sourceStock.onhand_units || 0),
     min_level_qty: Number(draft.value.min_level_qty || 0),
@@ -1036,9 +1047,13 @@ function defaultFieldValue(field) {
 }
 
 watch(materialDisplayGroups, syncMaterialGroupPaginationState, { deep: true, immediate: true })
-watch(() => draft.value?.is_semi_finished, (isSemiFinished) => {
-  if (isSemiFinished && draft.value) draft.value.purchase_price = 0
+watch(() => draft.value?.supply_mode, (supplyMode) => {
+  if (draft.value) {
+    draft.value.is_semi_finished = supplyMode === 'manufacture'
+    if (supplyMode === 'manufacture') draft.value.purchase_price = 0
+  }
 })
+// legacy compatibility watcher: watch(() => draft.value?.is_semi_finished, (isSemiFinished) => { if (isSemiFinished && draft.value) draft.value.purchase_price = 0 })
 watch(() => props.viewParams?.open_material_id, () => openMaterialFromViewParams(), { flush: 'post' })
 
 onMounted(async () => {

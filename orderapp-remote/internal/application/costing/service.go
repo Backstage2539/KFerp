@@ -125,6 +125,46 @@ type PricingRuleTrialCommand struct {
 	allowDraftBom       bool
 }
 
+// MaterialCostTrialCommand deliberately has no pricing-rule or selling-price
+// fields. Material costing is diagnostic/standard-cost only and can never
+// produce a publishable sales price.
+type MaterialCostTrialCommand struct {
+	MaterialID   int64 `json:"material_id"`
+	BomVersionID int64 `json:"bom_version_id,omitempty"`
+}
+
+type MaterialCostTrialOption struct {
+	BomID     int64  `json:"bom_id"`
+	BomName   string `json:"bom_name,omitempty"`
+	VersionID int64  `json:"version_id"`
+	VersionNo string `json:"version_no,omitempty"`
+	Status    string `json:"status,omitempty"`
+	IsDefault bool   `json:"is_default"`
+}
+
+type MaterialCostTrialOptions struct {
+	MaterialID  int64                     `json:"material_id"`
+	SupplyMode  string                    `json:"supply_mode"`
+	BomVersions []MaterialCostTrialOption `json:"bom_versions,omitempty"`
+}
+
+type MaterialCostTrialResult struct {
+	MaterialID           int64                       `json:"material_id"`
+	MaterialCode         string                      `json:"material_code,omitempty"`
+	MaterialName         string                      `json:"material_name,omitempty"`
+	SupplyMode           string                      `json:"supply_mode"`
+	CostStatus           string                      `json:"cost_status"`
+	UnitCost             float64                     `json:"unit_cost,omitempty"`
+	PartialCost          float64                     `json:"partial_cost,omitempty"`
+	CostUnit             string                      `json:"cost_unit,omitempty"`
+	CostSource           string                      `json:"cost_source,omitempty"`
+	BomSnapshot          PricingRuleTrialBomSnapshot `json:"bom_snapshot,omitempty"`
+	InputCost            float64                     `json:"input_cost,omitempty"`
+	OperationCost        float64                     `json:"operation_cost,omitempty"`
+	UnresolvedComponents []PricingRuleTrialCostIssue `json:"unresolved_components,omitempty"`
+	FinalUnitPrice       *float64                    `json:"final_unit_price,omitempty"`
+}
+
 type PricingRuleTrialBatchRow struct {
 	Index                int                         `json:"index"`
 	Result               *PricingRuleTrialResult     `json:"result,omitempty"`
@@ -668,6 +708,11 @@ type pricingRuleTrialProductionOptionRepository interface {
 	LoadPricingRuleTrialProductionOptions(ctx context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error)
 }
 
+type materialCostTrialRepository interface {
+	LoadMaterialCostTrialOptions(ctx context.Context, materialID int64) (MaterialCostTrialOptions, error)
+	LoadMaterialCostTrial(ctx context.Context, cmd MaterialCostTrialCommand) (MaterialCostTrialResult, error)
+}
+
 type pricingRuleTrialDefaultTaxRateRepository interface {
 	LoadPricingRuleTrialDefaultTaxRate(ctx context.Context) (PricingRuleTrialDefaultTaxRate, error)
 }
@@ -678,6 +723,36 @@ type Service struct {
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) MaterialCostTrialOptions(ctx context.Context, materialID int64) (MaterialCostTrialOptions, error) {
+	if materialID <= 0 {
+		return MaterialCostTrialOptions{}, fmt.Errorf("material_id required")
+	}
+	repo, ok := s.repo.(materialCostTrialRepository)
+	if !ok {
+		return MaterialCostTrialOptions{}, fmt.Errorf("material cost trial repository unavailable")
+	}
+	return repo.LoadMaterialCostTrialOptions(ctx, materialID)
+}
+
+func (s *Service) MaterialCostTrial(ctx context.Context, cmd MaterialCostTrialCommand) (MaterialCostTrialResult, error) {
+	if cmd.MaterialID <= 0 {
+		return MaterialCostTrialResult{}, fmt.Errorf("material_id required")
+	}
+	repo, ok := s.repo.(materialCostTrialRepository)
+	if !ok {
+		return MaterialCostTrialResult{}, fmt.Errorf("material cost trial repository unavailable")
+	}
+	result, err := repo.LoadMaterialCostTrial(ctx, cmd)
+	if err != nil {
+		return MaterialCostTrialResult{}, err
+	}
+	// A material trial is never a pricing-rule trial. Keep this guard next to
+	// the service boundary so future repository implementations cannot expose a
+	// stale or inferred final selling price.
+	result.FinalUnitPrice = nil
+	return result, nil
 }
 
 func (s *Service) Parameters(ctx context.Context) (domain.Parameters, error) {

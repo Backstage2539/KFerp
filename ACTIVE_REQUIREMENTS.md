@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-604-MATERIAL-COST-BOM-EDITOR
+- Branch: codex/bom-cost-diagnostics-20260821
+- Owner/session: Codex / 2026-08-21
+- Status: in progress
+- Scope: 物料成本试算、物料取得方式互斥、BOM 本地草稿一次保存、商品配方组件与编辑体验整改。
+- DEV:
+  - DEV-604-MATERIAL-SUPPLY-MODE
+  - DEV-604-MATERIAL-COST-TRIAL
+  - DEV-604-BOM-DRAFT-WORKSPACE
+  - DEV-604-BOM-EDITOR-UX
+- Verifier:
+  - Unit: pending
+  - API: pending
+  - Frontend/build: pending
+  - Manual: Van development acceptance
+  - Review/acceptance: pending
+- Deployment: development only; main/production out of scope
+- Last update: 2026-08-21 Asia/Shanghai
+- Notes: compatibility mapping reuses is_semi_finished; no database column migration planned.
+
 ### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
 - Branch: codex/pr600-bom-spec-groups
 - Owner/session: Codex / 2026-08-17

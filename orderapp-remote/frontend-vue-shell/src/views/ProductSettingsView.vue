@@ -886,13 +886,17 @@
       <aside class="settings-drawer pricing-rule-trial-drawer" aria-label="价格计算模板试算">
         <div class="drawer-head">
           <div>
-            <h3>价格计算模板试算</h3>
+            <h3>{{ pricingRuleTrialMode === 'material' ? '物料成本试算' : '商品价格试算' }}</h3>
             <p>{{ pricingRuleTrialRule?.name || pricingRuleTrialRule?.code || '价格计算模板' }} · {{ pricingRuleTrialRule?.formula_version || 'v1' }}</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closePricingRuleTrial">关闭</button>
         </div>
         <div class="drawer-body">
-          <section class="drawer-section pricing-rule-trial-summary">
+          <div class="pricing-rule-trial-mode-switch" role="tablist" aria-label="试算类型">
+            <button type="button" :class="{ active: pricingRuleTrialMode === 'product' }" @click="setPricingRuleTrialMode('product')">商品价格试算</button>
+            <button type="button" :class="{ active: pricingRuleTrialMode === 'material' }" @click="setPricingRuleTrialMode('material')">物料成本试算</button>
+          </div>
+          <section v-if="pricingRuleTrialMode === 'product'" class="drawer-section pricing-rule-trial-summary">
             <div>
               <strong>{{ pricingRuleTrialRule?.name || pricingRuleTrialRule?.code || '未命名模板' }}</strong>
               <small>{{ pricingRuleTrialRule ? '启用模板，可将调试参数更新回当前模板' : '请先选择启用的价格计算模板' }}</small>
@@ -905,6 +909,7 @@
             </div>
           </section>
 
+          <template v-if="pricingRuleTrialMode === 'product'">
           <section class="drawer-section pricing-rule-trial-form-section">
             <div class="template-editor-grid pricing-rule-trial-grid">
               <label class="wide-field">
@@ -956,6 +961,7 @@
                   </template>
                 </SearchableSelect>
               </label>
+              <div class="pricing-rule-trial-bom-selection-grid">
               <div class="pricing-rule-trial-bom-field">
                 <label>
                   <span>试算BOM版本</span>
@@ -978,6 +984,7 @@
                 </select>
                 <small class="muted">规格会同时锁定 BOM 规格身份和对应配方变体。</small>
               </label>
+              </div>
               <label>
                 <span>工艺路线</span>
                 <select v-model.number="pricingRuleTrialForm.process_route_id" :disabled="!pricingRuleTrialProcessRouteOptions.length">
@@ -1318,8 +1325,49 @@
               </table>
             </div>
           </section>
+          </template>
+          <section v-else class="drawer-section material-cost-trial-section">
+            <div class="material-cost-trial-grid">
+              <label>
+                <span>试算物料</span>
+                <SearchableSelect
+                  v-model="pricingRuleTrialMaterialID"
+                  :options="pricingRuleTrialMaterialOptions"
+                  :option-label="materialTrialOptionLabel"
+                  :option-value="optionNumericValue"
+                  placeholder="选择物料档案"
+                  empty-text="暂无可试算物料" />
+              </label>
+              <label>
+                <span>试算 BOM 版本</span>
+                <select v-model.number="pricingRuleTrialMaterialBomVersionID" :disabled="!pricingRuleTrialMaterialBomOptions.length">
+                  <option :value="0">按默认已发布版本</option>
+                  <option v-for="option in pricingRuleTrialMaterialBomOptions" :key="option.version_id" :value="Number(option.version_id || 0)">{{ option.bom_name }} / {{ option.version_no }} · {{ option.status }}</option>
+                </select>
+                <small class="muted">自制物料只按制造 BOM 递归成本；草稿版本仅用于诊断。</small>
+              </label>
+            </div>
+            <div v-if="pricingRuleTrialMaterialError" class="error">{{ pricingRuleTrialMaterialError }}</div>
+            <div v-if="pricingRuleTrialMaterialResult" class="material-cost-trial-result">
+              <div class="pricing-rule-trial-warnings" :class="{ 'complete-cost': pricingRuleTrialMaterialResult.cost_status === 'complete' }">
+                <strong>{{ pricingRuleTrialMaterialResult.cost_status === 'complete' ? '成本完整' : '成本不完整，不能生成或发布价格' }}</strong>
+                <p>已解析部分成本：{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.partial_cost, pricingRuleTrialMaterialResult.cost_unit) }}</p>
+                <p v-if="pricingRuleTrialMaterialResult.cost_source">成本来源：{{ pricingRuleTrialMaterialResult.cost_source }}</p>
+                <p v-if="pricingRuleTrialMaterialResult.bom_snapshot?.bom_id">BOM：{{ pricingRuleTrialMaterialResult.bom_snapshot.bom_id }} / {{ pricingRuleTrialMaterialResult.bom_snapshot.version_no || pricingRuleTrialMaterialResult.bom_snapshot.version_id }}</p>
+                <ul>
+                  <li v-for="(issue, index) in pricingRuleTrialMaterialResult.unresolved_components || []" :key="`${issue.component_id || issue.component_name || 'component'}-${index}`">
+                    {{ issue.component_name || issue.component_material_name || 'BOM组件' }}：{{ issue.reason || '成本无法解析' }}
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="form-actions">
+              <span v-if="pricingRuleTrialMaterialLoading" class="muted">试算中...</span>
+              <button class="secondary" type="button" @click="closePricingRuleTrial">关闭</button>
+            </div>
+          </section>
         </div>
-        <div class="drawer-footer pricing-rule-trial-footer">
+        <div v-if="pricingRuleTrialMode === 'product'" class="drawer-footer pricing-rule-trial-footer">
           <div>
             <strong v-if="pricingRuleTrialUpdateMessage" class="pricing-rule-trial-update-message">{{ pricingRuleTrialUpdateMessage }}</strong>
             <small>只更新加价率、已填写税率和其他成本；商品、BOM、路线与销售规格不写入模板。</small>
@@ -1955,6 +2003,7 @@ let restoringProductSettingsDraft = false
 
 const categories = ref([])
 const products = ref([])
+const materials = ref([])
 const gradientTemplates = ref([])
 const productConfigTemplates = ref([])
 const productClassificationTemplates = ref([])
@@ -1976,6 +2025,7 @@ const priceTierTemplates = ref([])
 const pricingRuleEditorDrawerOpen = ref(false)
 const pricingRuleEditorDrawer = ref(null)
 const pricingRuleTrialDrawerOpen = ref(false)
+const pricingRuleTrialMode = ref('product')
 const pricingRuleTrialLoading = ref(false)
 const pricingRuleTrialRule = ref(null)
 const pricingRuleTrialForm = ref(defaultPricingRuleTrialForm())
@@ -1984,6 +2034,12 @@ const pricingRuleTrialResult = ref(null)
 const pricingRuleTrialActiveExplanation = ref('')
 const pricingRuleTrialError = ref('')
 const pricingRuleTrialUpdateMessage = ref('')
+const pricingRuleTrialMaterialID = ref(0)
+const pricingRuleTrialMaterialBomVersionID = ref(0)
+const pricingRuleTrialMaterialBomOptions = ref([])
+const pricingRuleTrialMaterialResult = ref(null)
+const pricingRuleTrialMaterialLoading = ref(false)
+const pricingRuleTrialMaterialError = ref('')
 let pricingRuleTrialAutoRunTimer = null
 let pricingRuleTrialRunID = 0
 let restoringPricingRuleTrialReturnState = false
@@ -2225,6 +2281,10 @@ const pricingRuleTrialProductOptions = computed(() => orderProductFamilyOptions(
   '',
   activePricingRuleTrialProductKindFilter.value,
 ))
+const pricingRuleTrialMaterialOptions = computed(() => materials.value.filter((material) => !material.deprecated_at).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))))
+function materialTrialOptionLabel(material = {}) {
+  return `${material.code || ''} ${material.name || ''}`.trim() || `物料 #${material.id || ''}`
+}
 const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialMainProducts.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.parent_product_id || 0)) || null)
 const pricingRuleTrialSalesSpecOptions = computed(() => pricingRuleTrialProductSpecOptions(
   pricingRuleTrialCatalogProducts.value,
@@ -2260,6 +2320,9 @@ const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   margin_rate: pricingRuleTrialForm.value.margin_rate,
   tax_rate: pricingRuleTrialForm.value.tax_rate,
   other_cost_rows: pricingRuleTrialForm.value.other_cost_rows,
+  material_mode: pricingRuleTrialMode.value,
+  material_id: pricingRuleTrialMaterialID.value,
+  material_bom_version_id: pricingRuleTrialMaterialBomVersionID.value,
 }))
 
 const contextCategorizedProductIDs = computed(() => {
@@ -3399,7 +3462,7 @@ async function loadAll({ strict = false } = {}) {
   loading.value = true
   error.value = ''
   try {
-    const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData, productGroupSelectionData] = await Promise.all([
+    const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData, productGroupSelectionData, materialData] = await Promise.all([
       apiGet('/api/product-settings'),
       apiGet('/api/customer-fulfillment/customers?limit=200'),
       apiGet('/api/customer-product-aliases?active=all'),
@@ -3407,9 +3470,18 @@ async function loadAll({ strict = false } = {}) {
       apiGet('/api/product-classification-template-usages/products'),
       apiGet('/api/product-classification-template-usages/customer-aliases'),
       apiGet('/api/business-group-feature-selections/product_catalog'),
+      apiGet('/api/materials?active=active&limit=500'),
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
+    materials.value = (materialData?.rows || []).map((row) => ({
+      id: Number(row.id || row.ID || 0),
+      code: row.code || row.Code || '',
+      name: row.name || row.Name || '',
+      unit: row.unit || row.Unit || 'kg',
+      supply_mode: row.supply_mode || (row.is_semi_finished ? 'manufacture' : 'purchase'),
+      deprecated_at: row.deprecated_at || row.DeprecatedAt || '',
+    }))
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
     productClassificationTemplates.value = (data.product_classification_templates || []).map(decorateProductClassificationTemplate)
@@ -3803,7 +3875,28 @@ function openPricingRuleTrial(rule = null) {
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
   pricingRuleTrialUpdateMessage.value = ''
+  pricingRuleTrialMode.value = 'product'
+  pricingRuleTrialMaterialID.value = 0
+  pricingRuleTrialMaterialBomVersionID.value = 0
+  pricingRuleTrialMaterialBomOptions.value = []
+  pricingRuleTrialMaterialResult.value = null
+  pricingRuleTrialMaterialError.value = ''
   pricingRuleTrialDrawerOpen.value = true
+}
+
+function setPricingRuleTrialMode(mode) {
+  const next = mode === 'material' ? 'material' : 'product'
+  if (pricingRuleTrialMode.value === next) return
+  pricingRuleTrialMode.value = next
+  pricingRuleTrialResult.value = null
+  pricingRuleTrialMaterialResult.value = null
+  pricingRuleTrialError.value = ''
+  pricingRuleTrialMaterialError.value = ''
+  if (next === 'material') {
+    pricingRuleTrialForm.value.parent_product_id = 0
+    pricingRuleTrialForm.value.product_id = 0
+    pricingRuleTrialForm.value.quote_unit = ''
+  }
 }
 
 function setPricingRuleTrialProductKindFilter(value) {
@@ -3857,6 +3950,37 @@ function closePricingRuleTrial() {
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
   pricingRuleTrialUpdateMessage.value = ''
+  pricingRuleTrialMaterialResult.value = null
+  pricingRuleTrialMaterialError.value = ''
+}
+
+async function runMaterialCostTrial() {
+  const materialID = Number(pricingRuleTrialMaterialID.value || 0)
+  if (!materialID) {
+    pricingRuleTrialMaterialResult.value = null
+    pricingRuleTrialMaterialBomOptions.value = []
+    return
+  }
+  const runID = ++pricingRuleTrialRunID
+  pricingRuleTrialMaterialLoading.value = true
+  pricingRuleTrialMaterialError.value = ''
+  try {
+    const options = await apiGet(`/api/costing/material-cost-trial-options?material_id=${materialID}`)
+    if (runID !== pricingRuleTrialRunID) return
+    pricingRuleTrialMaterialBomOptions.value = options?.bom_versions || []
+    const result = await apiSend('/api/costing/material-cost-trial', {
+      method: 'POST',
+      body: { material_id: materialID, bom_version_id: Number(pricingRuleTrialMaterialBomVersionID.value || 0) || 0 },
+    })
+    if (runID === pricingRuleTrialRunID) pricingRuleTrialMaterialResult.value = result
+  } catch (err) {
+    if (runID === pricingRuleTrialRunID) {
+      pricingRuleTrialMaterialResult.value = null
+      pricingRuleTrialMaterialError.value = err.message || '物料成本试算失败'
+    }
+  } finally {
+    if (runID === pricingRuleTrialRunID) pricingRuleTrialMaterialLoading.value = false
+  }
 }
 
 function openPricingRuleTrialExplanation(kind) {
@@ -3972,6 +4096,13 @@ function schedulePricingRuleTrial() {
     pricingRuleTrialAutoRunTimer = null
   }
   if (!pricingRuleTrialDrawerOpen.value) return
+  if (pricingRuleTrialMode.value === 'material') {
+    pricingRuleTrialAutoRunTimer = setTimeout(() => {
+      pricingRuleTrialAutoRunTimer = null
+      runMaterialCostTrial()
+    }, 150)
+    return
+  }
   const payload = buildPricingRuleTrialPayload(pricingRuleTrialForm.value)
   if (!payload.pricing_rule_id || !payload.product_id || !String(payload.quote_unit || '').trim()) {
     pricingRuleTrialResult.value = null
@@ -3985,6 +4116,10 @@ function schedulePricingRuleTrial() {
 }
 
 async function runPricingRuleTrial() {
+  if (pricingRuleTrialMode.value === 'material') {
+    await runMaterialCostTrial()
+    return
+  }
   const payload = buildPricingRuleTrialPayload(pricingRuleTrialForm.value)
   if (!payload.pricing_rule_id) {
     pricingRuleTrialError.value = '请选择价格计算模板'
@@ -7767,6 +7902,15 @@ watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialActiveExplanation.value = ''
 })
 
+watch(pricingRuleTrialMaterialID, () => {
+  pricingRuleTrialMaterialBomVersionID.value = 0
+  pricingRuleTrialMaterialResult.value = null
+  schedulePricingRuleTrial()
+})
+watch(pricingRuleTrialMaterialBomVersionID, () => {
+  if (pricingRuleTrialMode.value === 'material') schedulePricingRuleTrial()
+})
+
 watch(pricingRuleTrialProductKindFilterOptions, (options) => {
   const selected = String(activePricingRuleTrialProductKindFilter.value || '').trim()
   if (selected && !(options || []).some((option) => option.value === selected)) {
@@ -8195,6 +8339,14 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-rule-grid span, .pricing-rule-trial-source span { min-width: 0; border: 1px solid #eee8df; border-radius: 6px; background: #fff; padding: 7px 8px; color: #4f453b; font-size: 12px; overflow-wrap: anywhere; }
 .pricing-rule-trial-form-section { display: grid; gap: 12px; }
 .pricing-rule-trial-grid .wide-field { grid-column: 1 / -1; }
+.pricing-rule-trial-bom-selection-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.pricing-rule-trial-bom-selection-grid > label, .pricing-rule-trial-bom-selection-grid > .pricing-rule-trial-bom-field { min-width: 0; }
+.pricing-rule-trial-mode-switch { display: flex; gap: 8px; margin: 0 0 12px; border-bottom: 1px solid #e8e2da; }
+.pricing-rule-trial-mode-switch button { border: 0; background: transparent; padding: 8px 12px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; }
+.pricing-rule-trial-mode-switch button.active { color: #171717; font-weight: 700; border-bottom-color: #171717; }
+.material-cost-trial-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.material-cost-trial-result { margin-top: 14px; }
+.complete-cost { border-color: #b9dec8; background: #f3fbf6; }
 .pricing-rule-trial-bom-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
 .pricing-rule-trial-bom-field label { min-width: 0; }
 .pricing-rule-trial-footer > div { display: grid; gap: 3px; }
@@ -8321,6 +8473,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td { opacity: 0.4; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
+  .material-cost-trial-grid { grid-template-columns: 1fr; }
+  .pricing-rule-trial-bom-selection-grid { grid-template-columns: 1fr; }
 	  .pricing-rule-trial-bom-field { grid-template-columns: 1fr; }
   .page { padding: 12px; }
 	  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .pricing-rule-other-cost-row, .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .sales-spec-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }

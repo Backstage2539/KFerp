@@ -127,6 +127,29 @@ type updateProductionBomVersionDraftRequest struct {
 	SpecialAttrsJSON       string                             `json:"special_attrs_json"`
 }
 
+type draftWorkspaceRequest struct {
+	Name                   string                             `json:"name"`
+	OutputType             string                             `json:"output_type"`
+	OutputID               int64                              `json:"output_id"`
+	OutputProductID        int64                              `json:"output_product_id"`
+	OutputMaterialID       int64                              `json:"output_material_id"`
+	OutputUnit             string                             `json:"output_unit"`
+	GroupID                *int64                             `json:"group_id"`
+	GroupCategoryID        *int64                             `json:"group_category_id"`
+	Status                 string                             `json:"status"`
+	VersionID              int64                              `json:"version_id"`
+	ExpectedLossRate       *float64                           `json:"expected_loss_rate"`
+	MaterialLossRate       *float64                           `json:"material_loss_rate"`
+	OutputQty              float64                            `json:"output_qty"`
+	ProcessRouteID         int64                              `json:"process_route_id"`
+	Items                  []bomapp.ProductionBomDraftItem    `json:"items"`
+	Variants               []bomapp.ProductionBomDraftVariant `json:"variants"`
+	SpecialAttrsSchemaJSON string                             `json:"special_attrs_schema_json"`
+	SpecialAttrsJSON       string                             `json:"special_attrs_json"`
+	SpecTemplateVersionID  int64                              `json:"spec_template_version_id"`
+	MainInputMaterialID    int64                              `json:"main_input_material_id"`
+}
+
 type reapplyProductionBomSpecTemplateVersionRequest struct {
 	SpecTemplateVersionID int64 `json:"spec_template_version_id"`
 	MainInputMaterialID   int64 `json:"main_input_material_id"`
@@ -478,6 +501,33 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 			cmd.UpdateGroupAssignment = true
 		}
 		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), cmd)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.PUT("/api/production-boms/:id/draft-workspace", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid bom_id"})
+		}
+		var req draftWorkspaceRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		cmd := bomapp.ProductionBomDraftWorkspaceCommand{
+			Bom:            bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputType: req.OutputType, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c), UpdateOutputBinding: req.OutputType != "" || req.OutputID > 0 || req.OutputProductID > 0 || req.OutputMaterialID > 0, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID},
+			Version:        bomapp.UpdateProductionBomVersionDraftCommand{VersionID: req.VersionID, ExpectedLossRate: req.ExpectedLossRate, MaterialLossRate: req.MaterialLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, Variants: req.Variants, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)},
+			SpecTemplateID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID,
+		}
+		if req.GroupID != nil {
+			cmd.Bom.GroupID, cmd.Bom.UpdateGroupAssignment = *req.GroupID, true
+		}
+		if req.GroupCategoryID != nil {
+			cmd.Bom.GroupCategoryID, cmd.Bom.UpdateGroupAssignment = *req.GroupCategoryID, true
+		}
+		row, err := bomSvc.UpdateProductionBomDraftWorkspace(c.Request().Context(), cmd)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}

@@ -1592,3 +1592,10 @@
 - `DEV-603-PRODUCT-REFERENCES-BOM-SPECS`：商品档案不再选择销售规格模板：移除商品列表批量模板设置与维护入口、商品配置模板的引用模板下拉（校验与 payload 保留原值冻结传递）、配置抽屉的模板下拉与派生 SKU 明细/默认规格按钮；配置抽屉常驻展示默认制造 BOM 的规格组（只读，含"尚未绑定默认制造 BOM"空态提示与跳转）。旧商品销售规格模板面板保留为迁移期维护面（菜单"单位模板"入口）。
 - `DEV-603-MATERIAL-LOSS-RESTORE`：物料产出 BOM 恢复原料损耗配置：`原料损耗比`开关与`损耗比例 %`输入仅在产出类型为物料时展示（isMaterialOutputBom 范围），开启损耗强制比例模式、消耗单位锁定`比例 %`、损耗写回版本级 material_loss_rate；商品规格组保持 PR-601 的纯固定用量编辑。
 - `DEV-603-MATERIAL-CONVERSION-CLEARS-SPEC-GROUP`：BOM 产出身份从商品改为物料（仅未发布 BOM 允许）时，后端 UpdateProductionBom 事务内清空草稿版本的规格组（变体行+变体明细，规格身份保留并写 remove_from_draft 审计）；前端保存时同步发送空 variants 清理本地状态并提示"规格组将随保存一起删除"；转换后可保存平铺配方并正常发布。
+
+# PR-604-MATERIAL-COST-BOM-EDITOR 物料成本试算与 BOM 编辑体验整改（2026-08-21）
+
+- `DEV-604-MATERIAL-SUPPLY-MODE`：物料 API 返回 `supply_mode=purchase|manufacture`，由既有 `is_semi_finished` 兼容映射；来源互斥，采购物料不能创建或绑定物料产出 BOM，自制物料采购价强制为 0，来源切换写审计并在仍有关联制造 BOM 时阻断。
+- `DEV-604-MATERIAL-COST-TRIAL`：新增物料成本试算选项与试算接口。外购物料按有效批次加权成本再回退采购价；自制物料只按默认已发布制造 BOM 递归；返回完整/不完整状态、部分成本、BOM 快照和全部缺口，永不返回最终售价或写入价格表。
+- `DEV-604-BOM-DRAFT-WORKSPACE`：新增 `PUT /api/production-boms/:id/draft-workspace` 统一提交 BOM 主档与草稿版本；前端组件、规格和路线修改先保留在本地草稿，发布前必须无未保存改动。
+- `DEV-604-BOM-EDITOR-UX`：试算抽屉支持商品价格/物料成本双模式；物料模式隐藏售价参数；BOM 规格与配方使用同一明细容器，删除合计比例卡片，组件来源明确区分物料和已有商品规格，产出类型转换即时清理不兼容草稿配置。
