@@ -117,7 +117,7 @@ func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, input 
 }
 
 func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error) {
-	if len(r.productionOptions.BomVersions) > 0 || len(r.productionOptions.ProcessRoutes) > 0 || len(r.productionOptions.OperationTemplates) > 0 {
+	if len(r.productionOptions.BomVersions) > 0 || len(r.productionOptions.BomSpecs) > 0 || len(r.productionOptions.ProcessRoutes) > 0 || len(r.productionOptions.OperationTemplates) > 0 {
 		return r.productionOptions, nil
 	}
 	if input.BomVersionID > 0 && strings.TrimSpace(input.BomStatus) != "missing" && strings.TrimSpace(input.BomUsageMode) != "legacy_product_summary" {
@@ -1452,6 +1452,21 @@ func TestPricingRuleTrialUsesSelectedOutputBomVersionAndOperationTemplate(t *tes
 	}
 	if len(got.BomVersionOptions) != 2 || !got.BomVersionOptions[1].IsDefault || len(got.OperationTemplateOptions) != 2 {
 		t.Fatalf("options missing = %+v / %+v", got.BomVersionOptions, got.OperationTemplateOptions)
+	}
+}
+
+func TestPricingRuleTrialApplyBOMSpecSelectionDefaultsAndHonorsVariant(t *testing.T) {
+	options := PricingRuleTrialProductionOptions{BomSpecs: []PricingRuleTrialBomSpecOption{
+		{VersionID: 1848, BomSpecID: 3, BomVariantID: 28, SpecName: "227g", IsDefault: true},
+		{VersionID: 1848, BomSpecID: 4, BomVariantID: 29, SpecName: "454g"},
+	}}
+	got := pricingRuleTrialApplyBOMSpecSelection(domain.ProductInput{BomVersionID: 1848}, options)
+	if got.BomSpecID != 3 || got.BomVariantID != 28 {
+		t.Fatalf("default BOM spec = %+v, want 227g/variant 28", got)
+	}
+	got = pricingRuleTrialApplyBOMSpecSelection(domain.ProductInput{BomVersionID: 1848, BomVariantID: 29}, options)
+	if got.BomSpecID != 4 || got.BomVariantID != 29 {
+		t.Fatalf("explicit BOM variant = %+v, want 454g/variant 29", got)
 	}
 }
 

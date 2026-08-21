@@ -145,9 +145,22 @@ type PricingRuleTrialOverrides struct {
 
 type PricingRuleTrialProductionOptions struct {
 	BomVersions        []PricingRuleTrialBomVersionOption        `json:"bom_versions,omitempty"`
+	BomSpecs           []PricingRuleTrialBomSpecOption           `json:"bom_specs,omitempty"`
 	ProcessRoutes      []PricingRuleTrialProcessRouteOption      `json:"process_routes,omitempty"`
 	OperationTemplates []PricingRuleTrialOperationTemplateOption `json:"operation_templates,omitempty"`
 	loaded             bool
+}
+
+type PricingRuleTrialBomSpecOption struct {
+	BomID         int64  `json:"bom_id"`
+	VersionID     int64  `json:"version_id"`
+	BomSpecID     int64  `json:"bom_spec_id"`
+	BomVariantID  int64  `json:"bom_variant_id"`
+	SpecKey       string `json:"spec_key,omitempty"`
+	SpecName      string `json:"spec_name,omitempty"`
+	InventoryUnit string `json:"inventory_unit,omitempty"`
+	IsDefault     bool   `json:"is_default"`
+	SortOrder     int    `json:"sort_order"`
 }
 
 type PricingRuleTrialBomVersionOption struct {
@@ -312,6 +325,7 @@ type PricingRuleTrialResult struct {
 	BomSpecID                     int64                                     `json:"bom_spec_id,omitempty"`
 	BomVariantID                  int64                                     `json:"bom_variant_id,omitempty"`
 	BomVersionOptions             []PricingRuleTrialBomVersionOption        `json:"bom_version_options,omitempty"`
+	BomSpecOptions                []PricingRuleTrialBomSpecOption           `json:"bom_spec_options,omitempty"`
 	ProcessRouteID                int64                                     `json:"process_route_id,omitempty"`
 	ProcessRouteName              string                                    `json:"process_route_name,omitempty"`
 	ProcessRouteOptions           []PricingRuleTrialProcessRouteOption      `json:"process_route_options,omitempty"`
@@ -364,6 +378,13 @@ type PricingRuleTrialBaseCostDetail struct {
 	Type                    string  `json:"type"`
 	TypeLabel               string  `json:"type_label"`
 	Name                    string  `json:"name"`
+	ComponentID             int64   `json:"component_id,omitempty"`
+	BomID                   int64   `json:"bom_id,omitempty"`
+	BomName                 string  `json:"bom_name,omitempty"`
+	BomVersionID            int64   `json:"bom_version_id,omitempty"`
+	BomVersionNo            string  `json:"bom_version_no,omitempty"`
+	BomSpecID               int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID            int64   `json:"bom_variant_id,omitempty"`
 	ConsumeUnit             string  `json:"consume_unit,omitempty"`
 	Quantity                float64 `json:"quantity,omitempty"`
 	RatioPct                float64 `json:"ratio_pct,omitempty"`
@@ -856,6 +877,7 @@ func pricingRuleTrialIncompleteResult(rule ProductPricingRule, input domain.Prod
 		BomSpecID:                input.BomSpecID,
 		BomVariantID:             input.BomVariantID,
 		BomVersionOptions:        options.BomVersions,
+		BomSpecOptions:           options.BomSpecs,
 		ProcessRouteID:           input.ProcessRouteID,
 		ProcessRouteName:         processRouteName,
 		ProcessRouteOptions:      options.ProcessRoutes,
@@ -1133,6 +1155,7 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 		input.BomVersionNo = ""
 		input.BomUsageMode = "production_bom_output"
 	}
+	input = pricingRuleTrialApplyBOMSpecSelection(input, options)
 
 	if len(options.ProcessRoutes) > 0 {
 		var selected *PricingRuleTrialProcessRouteOption
@@ -1182,6 +1205,50 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 		input.OperationTemplateID = cmd.OperationTemplateID
 	}
 	return input, options, nil
+}
+
+func pricingRuleTrialApplyBOMSpecSelection(input domain.ProductInput, options PricingRuleTrialProductionOptions) domain.ProductInput {
+	if len(options.BomSpecs) == 0 {
+		return input
+	}
+	versionID := input.BomVersionID
+	selected := make([]PricingRuleTrialBomSpecOption, 0, len(options.BomSpecs))
+	for _, option := range options.BomSpecs {
+		if versionID <= 0 || option.VersionID == versionID {
+			selected = append(selected, option)
+		}
+	}
+	if len(selected) == 0 {
+		return input
+	}
+	if input.BomVariantID > 0 {
+		for _, option := range selected {
+			if option.BomVariantID == input.BomVariantID {
+				input.BomSpecID = option.BomSpecID
+				return input
+			}
+		}
+		return input
+	}
+	if input.BomSpecID > 0 {
+		for _, option := range selected {
+			if option.BomSpecID == input.BomSpecID {
+				input.BomVariantID = option.BomVariantID
+				return input
+			}
+		}
+		return input
+	}
+	for _, option := range selected {
+		if option.IsDefault {
+			input.BomSpecID = option.BomSpecID
+			input.BomVariantID = option.BomVariantID
+			return input
+		}
+	}
+	input.BomSpecID = selected[0].BomSpecID
+	input.BomVariantID = selected[0].BomVariantID
+	return input
 }
 
 func pricingRuleTrialNormalizeProductionOptions(input domain.ProductInput, options PricingRuleTrialProductionOptions) PricingRuleTrialProductionOptions {
@@ -1572,6 +1639,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		BomSpecID:                     input.BomSpecID,
 		BomVariantID:                  input.BomVariantID,
 		BomVersionOptions:             productionOptions.BomVersions,
+		BomSpecOptions:                productionOptions.BomSpecs,
 		ProcessRouteID:                input.ProcessRouteID,
 		ProcessRouteName:              processRouteName,
 		ProcessRouteOptions:           productionOptions.ProcessRoutes,

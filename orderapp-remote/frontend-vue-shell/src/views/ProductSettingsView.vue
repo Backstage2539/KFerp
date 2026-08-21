@@ -968,6 +968,16 @@
                 </label>
                 <button class="secondary compact-action" type="button" :disabled="!selectedPricingRuleTrialBomVersion?.bom_id" @click="navigatePricingRuleTrialBom">配置BOM</button>
               </div>
+              <label v-if="pricingRuleTrialBomSpecOptions.length">
+                <span>BOM规格</span>
+                <select v-model.number="pricingRuleTrialForm.bom_variant_id">
+                  <option :value="0">按默认规格</option>
+                  <option v-for="option in pricingRuleTrialBomSpecOptions" :key="option.bom_variant_id" :value="Number(option.bom_variant_id || 0)">
+                    {{ pricingRuleTrialBomSpecOptionLabel(option) }}
+                  </option>
+                </select>
+                <small class="muted">规格会同时锁定 BOM 规格身份和对应配方变体。</small>
+              </label>
               <label>
                 <span>工艺路线</span>
                 <select v-model.number="pricingRuleTrialForm.process_route_id" :disabled="!pricingRuleTrialProcessRouteOptions.length">
@@ -1116,6 +1126,7 @@
                         <td>
                           <span>{{ row.name || '-' }}</span>
                           <small v-if="row.description">{{ row.description }}</small>
+                          <small v-if="row.warning" class="error">{{ row.warning }}</small>
                         </td>
                         <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
                         <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
@@ -1189,6 +1200,7 @@
             </div>
             <div class="pricing-rule-trial-result-meta">
               <span>BOM版本：{{ pricingRuleTrialResult.bom_version_no || pricingRuleTrialResult.bom_version_id || '-' }}</span>
+              <span>BOM规格：{{ pricingRuleTrialBomSpecDisplay(pricingRuleTrialResult) }}</span>
               <span>工艺路线：{{ pricingRuleTrialResult.process_route_name || pricingRuleTrialResult.process_route_id || '-' }}</span>
               <span>毛利率：{{ percentDisplay(pricingRuleTrialResult.gross_margin_rate) }}</span>
             </div>
@@ -1231,6 +1243,7 @@
                         <td>
                           <span>{{ row.name || '-' }}</span>
                           <small v-if="row.description">{{ row.description }}</small>
+                          <small v-if="row.warning" class="error">{{ row.warning }}</small>
                         </td>
                         <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
                         <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
@@ -2224,6 +2237,11 @@ const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRu
 const selectedPricingRuleTrialBomVersion = computed(() => {
   const versionID = Number(pricingRuleTrialForm.value.bom_version_id || pricingRuleTrialResult.value?.bom_version_id || 0)
   return pricingRuleTrialBomVersionOptions.value.find((option) => Number(option?.version_id || 0) === versionID) || null
+})
+const pricingRuleTrialBomSpecOptions = computed(() => {
+  const options = Array.isArray(pricingRuleTrialResult.value?.bom_spec_options) ? pricingRuleTrialResult.value.bom_spec_options : []
+  const versionID = Number(pricingRuleTrialForm.value.bom_version_id || pricingRuleTrialResult.value?.bom_version_id || 0)
+  return options.filter((option) => versionID <= 0 || Number(option?.version_id || 0) === versionID)
 })
 const pricingRuleTrialProcessRouteOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.process_route_options) ? pricingRuleTrialResult.value.process_route_options : [])
 const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
@@ -3894,6 +3912,21 @@ function pricingRuleTrialBomVersionOptionLabel(option = {}) {
   const defaultText = option.is_default ? ' 默认' : ''
   const statusText = String(option.status || '').trim().toLowerCase() === 'draft' ? ' 草稿，仅供试算' : ''
   return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}${statusText}`.trim() || `BOM版本 #${option.version_id || ''}`
+}
+
+function pricingRuleTrialBomSpecOptionLabel(option = {}) {
+  const name = String(option?.spec_name || option?.spec_key || `规格 #${option?.bom_spec_id || ''}`).trim()
+  const unit = String(option?.inventory_unit || '').trim()
+  const suffix = option?.is_default ? '（默认）' : ''
+  return `${name}${unit ? ` · ${unit}` : ''}${suffix}`
+}
+
+function pricingRuleTrialBomSpecDisplay(result = {}) {
+  const options = Array.isArray(result?.bom_spec_options) ? result.bom_spec_options : []
+  const option = options.find((row) => Number(row?.bom_variant_id || 0) === Number(result?.bom_variant_id || 0))
+    || options.find((row) => Number(row?.bom_spec_id || 0) === Number(result?.bom_spec_id || 0))
+  if (option) return `${pricingRuleTrialBomSpecOptionLabel(option)}（${option.bom_spec_id}/${option.bom_variant_id}）`
+  return result?.bom_spec_id || result?.bom_variant_id || '-'
 }
 
 function navigatePricingRuleTrialBom() {
@@ -7710,6 +7743,13 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
+})
+
+watch(() => pricingRuleTrialForm.value.bom_variant_id, (variantID) => {
+  const option = pricingRuleTrialBomSpecOptions.value.find((row) => Number(row?.bom_variant_id || 0) === Number(variantID || 0))
+  if (option && Number(option.bom_spec_id || 0) > 0) {
+    pricingRuleTrialForm.value.bom_spec_id = Number(option.bom_spec_id)
+  }
 })
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {

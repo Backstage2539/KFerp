@@ -1010,6 +1010,56 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 	if err := bomRows.Err(); err != nil {
 		return out, err
 	}
+	versionIDs := make([]int64, 0, len(out.BomVersions))
+	for _, version := range out.BomVersions {
+		if version.VersionID > 0 {
+			versionIDs = append(versionIDs, version.VersionID)
+		}
+	}
+	if len(versionIDs) > 0 {
+		hasSpecs, err := r.costingRelationExists(ctx, "production_bom_specs")
+		if err != nil {
+			return out, err
+		}
+		hasVariants, err := r.costingRelationExists(ctx, "production_bom_version_variants")
+		if err != nil {
+			return out, err
+		}
+		if hasSpecs && hasVariants {
+			specRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+				SELECT v.bom_id,
+				       v.id,
+				       spec.id,
+				       variant.id,
+				       COALESCE(spec.spec_key,''),
+				       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+				       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),'unit'),
+				       COALESCE(variant.is_default,false),
+				       COALESCE(variant.sort_order,0)
+				FROM %[1]s.production_bom_version_variants variant
+				JOIN %[1]s.production_bom_versions v ON v.id=variant.version_id
+				JOIN %[1]s.production_bom_specs spec ON spec.id=variant.bom_spec_id AND spec.bom_id=v.bom_id
+				WHERE v.id=ANY($1)
+				ORDER BY v.id, variant.is_default DESC, variant.sort_order, variant.id
+			`, r.schema), versionIDs)
+			if err != nil {
+				return out, err
+			}
+			for specRows.Next() {
+				var row appcosting.PricingRuleTrialBomSpecOption
+				if err := specRows.Scan(&row.BomID, &row.VersionID, &row.BomSpecID, &row.BomVariantID, &row.SpecKey, &row.SpecName, &row.InventoryUnit, &row.IsDefault, &row.SortOrder); err != nil {
+					specRows.Close()
+					return out, err
+				}
+				out.BomSpecs = append(out.BomSpecs, row)
+			}
+			if err := specRows.Err(); err != nil {
+				specRows.Close()
+				return out, err
+			}
+			specRows.Close()
+		}
+	}
 
 	defaultProcessRouteID := input.ProcessRouteID
 	for _, row := range out.BomVersions {
@@ -1264,6 +1314,13 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		if err := bomRows.Scan(&id, &componentType, &componentMaterialID, &componentIsSemi, &componentProductID, &componentBomSpecID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &purchasePrice, &weightedBatchUnitCost, &unitCostSnapshot, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
 			return nil, err
 		}
+		row.ComponentID = id
+		row.BomID = resolvedParentCost.BomID
+		row.BomName = resolvedParentCost.BomName
+		row.BomVersionID = resolvedParentCost.VersionID
+		row.BomVersionNo = resolvedParentCost.VersionNo
+		row.BomSpecID = input.BomSpecID
+		row.BomVariantID = input.BomVariantID
 		resolvedItemCost, resolvedFromGraph := resolvedParentCost.ItemCosts[id]
 		ok := hasResolvedParentCost && resolvedFromGraph && resolvedItemCost.CostUnit != ""
 		warning := ""
@@ -1320,6 +1377,19 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 				RootProductID:         input.ProductID,
 				VersionID:             input.BomVersionID,
 			})
+			bomID := row.BomID
+			if bomID <= 0 {
+				bomID = resolvedParentCost.BomID
+			}
+			row.Warning = warning
+			row.Description = fmt.Sprintf("BOM %d / %s", bomID, firstNonEmptyString(row.BomVersionNo, resolvedParentCost.VersionNo, fmt.Sprintf("version-%d", input.BomVersionID)))
+			row.Type = "material"
+			if componentType == "product" || componentType == "finished_product" {
+				row.Type = "component_product"
+			}
+			row.Key = fmt.Sprintf("%s:%d", row.Type, id)
+			row.Unit = firstNonEmptyString(bomOutputUnit, unitCostUnit, input.InventoryUnit)
+			out = append(out, row)
 			continue
 		}
 		if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" && row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
