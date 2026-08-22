@@ -21,9 +21,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Unit/API: targeted and full Go repository suite GREEN
   - Frontend/build: 1022/1022 frontend tests and Vite 6594-module build GREEN (existing chunk-size warning only)
   - `scripts/verify_kferp.sh all`: GREEN; `git diff --check`: GREEN
+  - Server release gates: Vue 1022/1022, miniapp 217/217 + typecheck + mp-weixin build, Go full suite, Docker image build GREEN
   - Manual: Van development acceptance
   - Review/acceptance: pending
-- Deployment: development only; main/production out of scope
+- Deployment: development deployed `32883533876fd78ad197eff5021d1cd828dd353d` via `./deploy_orderapp.sh development`; previous source backup `/opt/stacks/erp/orderapp.backup.deploy-20260822114127-32883533876f`; rollback image `kferp-orderapp-rollback:development-20260822114127-32883533876f`; `erp_orderapp` running, external `https://dev.qacoohee.com/app/login` HTTP 200, `/app/` redirects 303 as configured, authenticated requirement API contains PR-604. Miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
 - Last update: 2026-08-22 Asia/Shanghai
 - Notes: compatibility mapping reuses is_semi_finished; no database column migration planned.
 
