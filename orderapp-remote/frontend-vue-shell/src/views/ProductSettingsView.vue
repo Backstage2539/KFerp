@@ -1338,27 +1338,119 @@
                   placeholder="选择物料档案"
                   empty-text="暂无可试算物料" />
               </label>
-              <label>
-                <span>试算 BOM 版本</span>
-                <select v-model.number="pricingRuleTrialMaterialBomVersionID" :disabled="!pricingRuleTrialMaterialBomOptions.length">
-                  <option :value="0">按默认已发布版本</option>
-                  <option v-for="option in pricingRuleTrialMaterialBomOptions" :key="option.version_id" :value="Number(option.version_id || 0)">{{ option.bom_name }} / {{ option.version_no }} · {{ option.status }}</option>
-                </select>
-                <small class="muted">自制物料只按制造 BOM 递归成本；草稿版本仅用于诊断。</small>
-              </label>
+              <div class="pricing-rule-trial-bom-field">
+                <label>
+                  <span>试算 BOM 版本</span>
+                  <select v-model.number="pricingRuleTrialMaterialBomVersionID" :disabled="!pricingRuleTrialMaterialBomOptions.length">
+                    <option :value="0">按默认已发布版本</option>
+                    <option v-for="option in pricingRuleTrialMaterialBomOptions" :key="option.version_id" :value="Number(option.version_id || 0)">{{ option.bom_name }} / {{ option.version_no }} · {{ option.status }}<template v-if="option.is_default"> · 默认</template></option>
+                  </select>
+                  <small class="muted">自制物料按所选制造 BOM 递归成本；草稿版本仅用于诊断。</small>
+                </label>
+                <button class="secondary compact-action" type="button" :disabled="!selectedPricingRuleTrialMaterialBomOption?.bom_id" @click="navigateMaterialCostTrialBom">配置 BOM</button>
+              </div>
             </div>
             <div v-if="pricingRuleTrialMaterialError" class="error">{{ pricingRuleTrialMaterialError }}</div>
-            <div v-if="pricingRuleTrialMaterialResult" class="material-cost-trial-result">
-              <div class="pricing-rule-trial-warnings" :class="{ 'complete-cost': pricingRuleTrialMaterialResult.cost_status === 'complete' }">
-                <strong>{{ pricingRuleTrialMaterialResult.cost_status === 'complete' ? '成本完整' : '成本不完整，不能生成或发布价格' }}</strong>
+              <div v-if="pricingRuleTrialMaterialResult" class="material-cost-trial-result">
+              <div class="pricing-rule-trial-warnings" :class="{ 'complete-cost': pricingRuleTrialMaterialResult.cost_status === 'complete' && pricingRuleTrialMaterialResult.bom_status !== 'draft' }">
+                <strong>{{ pricingRuleTrialMaterialResult.cost_status === 'complete' && pricingRuleTrialMaterialResult.bom_status !== 'draft' ? '成本完整' : pricingRuleTrialMaterialResult.bom_status === 'draft' ? '草稿 BOM 仅可诊断，不能生成或发布价格' : '成本不完整，不能生成或发布价格' }}</strong>
                 <p>已解析部分成本：{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.partial_cost, pricingRuleTrialMaterialResult.cost_unit) }}</p>
-                <p v-if="pricingRuleTrialMaterialResult.cost_source">成本来源：{{ pricingRuleTrialMaterialResult.cost_source }}</p>
-                <p v-if="pricingRuleTrialMaterialResult.bom_snapshot?.bom_id">BOM：{{ pricingRuleTrialMaterialResult.bom_snapshot.bom_id }} / {{ pricingRuleTrialMaterialResult.bom_snapshot.version_no || pricingRuleTrialMaterialResult.bom_snapshot.version_id }}</p>
+                <p v-if="pricingRuleTrialMaterialResult.cost_source">成本来源：{{ pricingRuleTrialSourceDisplay(pricingRuleTrialMaterialResult.cost_source) }}</p>
+                <p v-if="pricingRuleTrialMaterialResult.bom_snapshot?.bom_id">BOM：{{ pricingRuleTrialMaterialResult.bom_snapshot.bom_id }} / {{ pricingRuleTrialMaterialResult.bom_snapshot.version_no || pricingRuleTrialMaterialResult.bom_snapshot.version_id }} · {{ pricingRuleTrialMaterialResult.bom_snapshot.status || '未知状态' }}</p>
                 <ul>
                   <li v-for="(issue, index) in pricingRuleTrialMaterialResult.unresolved_components || []" :key="`${issue.component_id || issue.component_name || 'component'}-${index}`">
                     {{ issue.component_name || issue.component_material_name || 'BOM组件' }}：{{ issue.reason || '成本无法解析' }}
                   </li>
                 </ul>
+              </div>
+              <div class="pricing-rule-trial-waterfall material-cost-trial-waterfall">
+                <div class="pricing-rule-trial-waterfall-card">
+                  <small>物料成本</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.material_unit_cost ?? pricingRuleTrialMaterialResult.input_cost, pricingRuleTrialMaterialResult.cost_unit) }}</strong>
+                  <em>{{ pricingRuleTrialSourceDisplay(pricingRuleTrialMaterialResult.cost_source) }}</em>
+                </div>
+                <span class="pricing-rule-trial-operator">+</span>
+                <div class="pricing-rule-trial-waterfall-card">
+                  <small>标准工序成本</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.operation_unit_cost ?? pricingRuleTrialMaterialResult.operation_cost, pricingRuleTrialMaterialResult.cost_unit) }}</strong>
+                  <em>来自 BOM 工序成本快照</em>
+                </div>
+                <span class="pricing-rule-trial-operator equals">=</span>
+                <div class="pricing-rule-trial-waterfall-card final">
+                  <small>标准制造成本</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.standard_manufacturing_unit_cost ?? pricingRuleTrialMaterialResult.partial_cost, pricingRuleTrialMaterialResult.cost_unit) }}</strong>
+                  <em>仅成本诊断，不生成售价</em>
+                </div>
+              </div>
+              <div class="pricing-rule-trial-result-meta">
+                <span>物料：{{ pricingRuleTrialMaterialResult.material_name || pricingRuleTrialMaterialResult.material_code || '-' }}</span>
+                <span>BOM版本：{{ pricingRuleTrialMaterialResult.bom_version_no || pricingRuleTrialMaterialResult.bom_version_id || '-' }}</span>
+                <span>成本完整性：{{ pricingRuleTrialMaterialResult.bom_status === 'draft' ? '草稿诊断' : pricingRuleTrialMaterialResult.cost_status === 'complete' ? '完整' : '不完整' }}</span>
+              </div>
+              <div class="pricing-rule-trial-formula material-cost-trial-formula">
+                <strong>计算公式</strong>
+                <p v-if="pricingRuleTrialMaterialResult.formula_expression" class="pricing-rule-trial-formula-main">{{ pricingRuleTrialMaterialResult.formula_expression }}</p>
+                <ol v-if="pricingRuleTrialMaterialResult.formula_expression_lines?.length">
+                  <li v-for="line in pricingRuleTrialMaterialResult.formula_expression_lines" :key="line">{{ line }}</li>
+                </ol>
+              </div>
+              <div class="pricing-rule-trial-base-detail">
+                <div class="field-group-head">
+                  <strong>标准制造成本明细</strong>
+                  <small>物料成本 {{ trialMoneyDisplay(pricingRuleTrialMaterialResult.material_unit_cost ?? pricingRuleTrialMaterialResult.input_cost, pricingRuleTrialMaterialResult.cost_unit) }}；标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialMaterialResult.operation_unit_cost ?? pricingRuleTrialMaterialResult.operation_cost, pricingRuleTrialMaterialResult.cost_unit) }}</small>
+                </div>
+                <div class="pricing-rule-trial-detail-group">
+                  <strong>物料成本明细</strong>
+                  <div class="table-wrap compact-table-wrap">
+                    <table>
+                      <thead><tr><th>类型</th><th>名称</th><th>BOM组成</th><th>原料损耗</th><th>损耗后用量</th><th>成本来源</th><th>成本单价</th><th>折算成本</th></tr></thead>
+                      <tbody>
+                        <tr v-for="row in pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'material')" :key="row.key || row.name">
+                          <td>{{ row.type_label || pricingRuleTrialBaseCostTypeLabel(row.type) }}</td>
+                          <td><span>{{ row.name || '-' }}</span><small v-if="row.description">{{ row.description }}</small><small v-if="row.warning" class="error">{{ row.warning }}</small></td>
+                          <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
+                          <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
+                          <td>{{ pricingRuleTrialBaseCostEffectiveUsage(row) }}</td>
+                          <td>{{ pricingRuleTrialSourceDisplay(row.cost_source) }}</td>
+                          <td>{{ trialMoneyDisplay(pricingRuleTrialBaseCostUnitCostValue(row), row.cost_unit || row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                          <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                        </tr>
+                        <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'material').length"><td colspan="8" class="muted">暂无物料成本明细。</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="pricing-rule-trial-detail-group">
+                  <strong>标准工序成本明细</strong>
+                  <div class="table-wrap compact-table-wrap">
+                    <table>
+                      <thead><tr><th>工序</th><th>工作中心</th><th>产能档</th><th>成本来源</th><th>计费口径</th><th>成本单价</th><th>折算成本</th></tr></thead>
+                      <tbody>
+                        <tr v-for="row in pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'operation')" :key="row.key || row.name">
+                          <td>{{ row.name || '-' }}</td><td>{{ row.workstation_name || '-' }}</td><td>{{ row.capacity_name || '-' }}</td>
+                          <td>{{ pricingRuleTrialSourceDisplay(row.cost_source || row.capacity_selection_source) }}</td>
+                          <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
+                          <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                          <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                        </tr>
+                        <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'operation').length"><td colspan="7" class="muted">暂无标准工序成本明细。</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group-head">
+                <strong>公式步骤</strong>
+                <small>物料试算只展示标准成本，不会写入价格表或发布售价。</small>
+              </div>
+              <div class="table-wrap compact-table-wrap">
+                <table>
+                  <thead><tr><th>步骤</th><th>说明</th><th>数值</th></tr></thead>
+                  <tbody>
+                    <tr v-for="step in pricingRuleTrialMaterialResult.steps || []" :key="step.key"><td>{{ step.label || step.key }}</td><td>{{ pricingRuleTrialStepSourceDisplay(step) }}</td><td>{{ pricingRuleTrialStepDisplay(step) }}</td></tr>
+                    <tr v-if="!pricingRuleTrialMaterialResult.steps?.length"><td colspan="3" class="muted">暂无公式步骤。</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
             <div class="form-actions">
@@ -2285,6 +2377,13 @@ const pricingRuleTrialMaterialOptions = computed(() => materials.value.filter((m
 function materialTrialOptionLabel(material = {}) {
   return `${material.code || ''} ${material.name || ''}`.trim() || `物料 #${material.id || ''}`
 }
+const selectedPricingRuleTrialMaterialBomOption = computed(() => {
+  const selectedID = Number(pricingRuleTrialMaterialBomVersionID.value || pricingRuleTrialMaterialResult.value?.bom_version_id || 0)
+  const options = Array.isArray(pricingRuleTrialMaterialBomOptions.value) ? pricingRuleTrialMaterialBomOptions.value : []
+  return options.find((option) => Number(option?.version_id || 0) === selectedID)
+    || options.find((option) => option?.is_default)
+    || null
+})
 const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialMainProducts.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.parent_product_id || 0)) || null)
 const pricingRuleTrialSalesSpecOptions = computed(() => pricingRuleTrialProductSpecOptions(
   pricingRuleTrialCatalogProducts.value,
@@ -4077,6 +4176,34 @@ function navigatePricingRuleTrialBom() {
   }))
 }
 
+function navigateMaterialCostTrialBom() {
+  const option = selectedPricingRuleTrialMaterialBomOption.value
+  const result = pricingRuleTrialMaterialResult.value || {}
+  const bomID = Number(option?.bom_id || result?.bom_snapshot?.bom_id || 0)
+  if (!bomID) {
+    pricingRuleTrialMaterialError.value = '当前试算版本缺少可配置的 BOM'
+    return
+  }
+  const returnKey = storePricingRuleTrialReturnState({
+    form: pricingRuleTrialForm.value,
+    product_kind_filter: activePricingRuleTrialProductKindFilter.value,
+    material_mode: 'material',
+    material_id: Number(pricingRuleTrialMaterialID.value || 0),
+    material_bom_version_id: Number(pricingRuleTrialMaterialBomVersionID.value || result?.bom_version_id || 0),
+  })
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'bom',
+      params: { production_bom_id: bomID },
+      returnNavigation: {
+        key: 'productPriceManagement',
+        label: '返回物料成本试算',
+        params: { pricing_rule_trial_return_key: returnKey },
+      },
+    },
+  }))
+}
+
 function pricingRuleTrialProcessRouteOptionLabel(option = {}) {
   const name = String(option.name || '').trim() || `工艺路线 #${option.id || ''}`
   return option.is_default ? `${name} 默认` : name
@@ -4271,6 +4398,13 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     operation_master: '工序列表（历史）',
     override: '本次临时录入',
     product_bom: '当前商品 BOM',
+    manufacturing_bom: '制造 BOM 递归成本',
+    manufacturing_bom_draft_diagnostic: '制造 BOM 草稿诊断',
+    weighted_batch_cost: '有效批次加权成本',
+    purchase_price: '物料采购价',
+    unit_cost_snapshot: 'BOM 成本快照',
+    missing_purchase_or_batch_cost: '缺少批次成本和采购价',
+    missing_cost: '缺少组件成本',
     default: '系统默认',
   }
   if (sourceMap[source]) return sourceMap[source]
@@ -7986,6 +8120,16 @@ async function restorePricingRuleTrialReturnState(params = {}) {
         : [defaultPricingRuleTrialOtherCostRow()],
     }
     activePricingRuleTrialProductKindFilter.value = String(state.product_kind_filter || '')
+    if (state.material_mode === 'material') {
+      pricingRuleTrialMode.value = 'material'
+      pricingRuleTrialMaterialID.value = Number(state.material_id || 0)
+      pricingRuleTrialMaterialBomVersionID.value = Number(state.material_bom_version_id || 0)
+      pricingRuleTrialMaterialBomOptions.value = []
+      pricingRuleTrialMaterialResult.value = null
+      pricingRuleTrialMaterialError.value = ''
+    } else {
+      pricingRuleTrialMode.value = 'product'
+    }
     pricingRuleTrialResult.value = null
     pricingRuleTrialActiveExplanation.value = ''
     pricingRuleTrialError.value = ''

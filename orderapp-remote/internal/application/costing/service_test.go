@@ -51,6 +51,69 @@ type fakeRepo struct {
 	batchDetailErrors     map[int64]error
 }
 
+type materialCostTrialRepo struct {
+	fakeRepo
+	options MaterialCostTrialOptions
+	result  MaterialCostTrialResult
+	last    MaterialCostTrialCommand
+}
+
+func (r *materialCostTrialRepo) LoadMaterialCostTrialOptions(context.Context, int64) (MaterialCostTrialOptions, error) {
+	return r.options, nil
+}
+
+func (r *materialCostTrialRepo) LoadMaterialCostTrial(_ context.Context, cmd MaterialCostTrialCommand) (MaterialCostTrialResult, error) {
+	r.last = cmd
+	return r.result, nil
+}
+
+func TestMaterialCostTrialPreservesManufacturingDetailsAndNeverReturnsPrice(t *testing.T) {
+	repo := &materialCostTrialRepo{
+		options: MaterialCostTrialOptions{
+			MaterialID: 42,
+			SupplyMode: "manufacture",
+			BomVersions: []MaterialCostTrialOption{{
+				BomID: 1001, VersionID: 1002, VersionNo: "V002", Status: "draft",
+			}},
+		},
+		result: MaterialCostTrialResult{
+			MaterialID:  42,
+			SupplyMode:  "manufacture",
+			CostStatus:  "complete",
+			UnitCost:    63.5,
+			PartialCost: 63.5,
+			CostUnit:    "kg",
+			BomSnapshot: PricingRuleTrialBomSnapshot{BomID: 1001, VersionID: 1002, VersionNo: "V002", Status: "draft"},
+			BaseCostDetails: []PricingRuleTrialBaseCostDetail{{
+				Type: "material", TypeLabel: "物料", Name: "咖啡豆", CostSource: "weighted_batch_cost", Amount: 58.5, Unit: "kg",
+			}},
+			FormulaExpression:      "标准制造成本 = 物料成本 58.5/kg + 标准工序成本 5/kg = 63.5/kg",
+			FormulaExpressionLines: []string{"物料成本 = 58.5/kg", "标准工序成本 = 5/kg", "标准制造成本 = 63.5/kg"},
+			FinalUnitPrice:         func() *float64 { value := 99.0; return &value }(),
+		},
+	}
+	svc := NewService(repo)
+
+	options, err := svc.MaterialCostTrialOptions(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("options error = %v", err)
+	}
+	if len(options.BomVersions) != 1 || options.BomVersions[0].VersionID != 1002 {
+		t.Fatalf("BOM options = %+v", options.BomVersions)
+	}
+
+	result, err := svc.MaterialCostTrial(context.Background(), MaterialCostTrialCommand{MaterialID: 42, BomVersionID: 1002})
+	if err != nil {
+		t.Fatalf("trial error = %v", err)
+	}
+	if repo.last.BomVersionID != 1002 || len(result.BaseCostDetails) != 1 || result.FormulaExpression == "" || len(result.FormulaExpressionLines) != 3 {
+		t.Fatalf("material trial details not preserved: command=%+v result=%+v", repo.last, result)
+	}
+	if result.FinalUnitPrice != nil {
+		t.Fatalf("material trial must never return final_unit_price: %+v", result.FinalUnitPrice)
+	}
+}
+
 type priceTierTemplateUnitRuleRepo struct {
 	*fakeRepo
 	templateUnitRules map[int64]PriceTierTemplateUnitRule

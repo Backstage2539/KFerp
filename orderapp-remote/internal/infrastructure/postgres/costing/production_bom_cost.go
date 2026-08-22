@@ -46,6 +46,7 @@ type productionBomCostNode struct {
 	BomID                int64
 	BomName              string
 	VersionNo            string
+	Status               string
 	OutputName           string
 	Items                []productionBomCostItem
 }
@@ -65,6 +66,7 @@ type productionBomResolvedCost struct {
 	BomName                           string
 	VersionID                         int64
 	VersionNo                         string
+	BomStatus                         string
 	BomSpecID                         int64
 	BomVariantID                      int64
 	OutputName                        string
@@ -81,6 +83,7 @@ type productionBomResolvedCost struct {
 	PartialOperationCostPerOutputUnit float64
 	PartialTotalCostPerOutputUnit     float64
 	UnresolvedIssues                  []appcosting.PricingRuleTrialCostIssue
+	BaseCostDetails                   []appcosting.PricingRuleTrialBaseCostDetail
 }
 
 func resolveProductionBomCosts(nodes map[int64]productionBomCostNode) map[int64]productionBomResolvedCost {
@@ -188,7 +191,7 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 		node, ok := nodes[key]
 		nodePath := []appcosting.PricingRuleTrialCostPathNode{pathNode(node)}
 		if state[key] == 1 {
-			result := productionBomResolvedCost{OutputType: node.OutputType, OutputID: node.OutputID, ProductID: node.ProductID, BomID: node.BomID, BomName: node.BomName, VersionID: node.VersionID, VersionNo: node.VersionNo, BomSpecID: node.BomSpecID, BomVariantID: node.VariantID, OutputName: node.OutputName, CostStatus: "incomplete"}
+			result := productionBomResolvedCost{OutputType: node.OutputType, OutputID: node.OutputID, ProductID: node.ProductID, BomID: node.BomID, BomName: node.BomName, VersionID: node.VersionID, VersionNo: node.VersionNo, BomStatus: node.Status, BomSpecID: node.BomSpecID, BomVariantID: node.VariantID, OutputName: node.OutputName, CostStatus: "incomplete"}
 			result.UnresolvedIssues = []appcosting.PricingRuleTrialCostIssue{{
 				Code:           "bom_cycle",
 				Reason:         "检测到 BOM 递归循环，无法解析组件成本",
@@ -212,7 +215,7 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 			outputID = node.ProductID
 		}
 		if !ok || outputID <= 0 || node.VersionID <= 0 {
-			result := productionBomResolvedCost{OutputType: node.OutputType, OutputID: outputID, ProductID: node.ProductID, BomID: node.BomID, BomName: node.BomName, VersionID: node.VersionID, VersionNo: node.VersionNo, BomSpecID: node.BomSpecID, BomVariantID: node.VariantID, OutputName: node.OutputName, OutputUnit: normalizeProductionBomCostUnit(node.OutputUnit), CostStatus: "incomplete"}
+			result := productionBomResolvedCost{OutputType: node.OutputType, OutputID: outputID, ProductID: node.ProductID, BomID: node.BomID, BomName: node.BomName, VersionID: node.VersionID, VersionNo: node.VersionNo, BomStatus: node.Status, BomSpecID: node.BomSpecID, BomVariantID: node.VariantID, OutputName: node.OutputName, OutputUnit: normalizeProductionBomCostUnit(node.OutputUnit), CostStatus: "incomplete"}
 			result.UnresolvedIssues = []appcosting.PricingRuleTrialCostIssue{{
 				Code:           "bom_not_found",
 				Reason:         "组件没有可用的已发布制造 BOM",
@@ -242,6 +245,7 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 			BomName:      node.BomName,
 			VersionID:    node.VersionID,
 			VersionNo:    node.VersionNo,
+			BomStatus:    node.Status,
 			BomSpecID:    node.BomSpecID,
 			BomVariantID: node.VariantID,
 			OutputName:   node.OutputName,
@@ -344,6 +348,7 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 				result.CostStatus = "complete"
 			}
 		}
+		result.BaseCostDetails = productionBomCostDetails(node, result)
 		cached := result
 		cached.UnresolvedIssues = append([]appcosting.PricingRuleTrialCostIssue(nil), result.UnresolvedIssues...)
 		for index := range cached.UnresolvedIssues {
@@ -358,6 +363,112 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 		resolve(key, nil)
 	}
 	return resolved
+}
+
+func productionBomCostDetails(node productionBomCostNode, result productionBomResolvedCost) []appcosting.PricingRuleTrialBaseCostDetail {
+	details := make([]appcosting.PricingRuleTrialBaseCostDetail, 0, len(node.Items))
+	for _, item := range node.Items {
+		componentType := normalizeProductionBomComponentType(item.ComponentType)
+		rowType := "material"
+		rowLabel := "物料"
+		if componentType == "product" {
+			rowType = "component_product"
+			rowLabel = "成品组件"
+		}
+		name := strings.TrimSpace(item.ComponentName)
+		if name == "" {
+			name = strings.TrimSpace(item.ComponentMaterialName)
+		}
+		if name == "" {
+			name = strings.TrimSpace(item.ComponentProductName)
+		}
+		if name == "" {
+			name = "BOM组件"
+		}
+		row := appcosting.PricingRuleTrialBaseCostDetail{
+			Key:              fmt.Sprintf("%s:%d", rowType, item.ID),
+			Type:             rowType,
+			TypeLabel:        rowLabel,
+			Name:             name,
+			ComponentID:      item.ID,
+			BomID:            node.BomID,
+			BomName:          node.BomName,
+			BomVersionID:     node.VersionID,
+			BomVersionNo:     node.VersionNo,
+			BomSpecID:        node.BomSpecID,
+			BomVariantID:     node.VariantID,
+			ConsumeUnit:      item.ConsumeUnit,
+			Quantity:         item.QtyPerUnit,
+			RatioPct:         item.RatioPct,
+			MaterialLossRate: item.MaterialLossRate,
+			UnitCost:         item.UnitCost,
+			CostUnitCost:     item.UnitCost,
+			CostUnit:         item.UnitCostUnit,
+			Unit:             firstNonEmptyString(node.OutputUnit, item.UnitCostUnit, "kg"),
+		}
+		if strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), "ratio_pct") {
+			row.RecipeRatioPct = item.RatioPct
+			row.EffectiveRatioPct = item.RatioPct
+			if item.MaterialLossRate > 0 && item.MaterialLossRate < 1 {
+				row.EffectiveRatioPct = item.RatioPct / (1 - item.MaterialLossRate)
+				row.RatioPct = row.EffectiveRatioPct
+			}
+		}
+		resolvedItem, ok := result.ItemCosts[item.ID]
+		if ok {
+			row.UnitCost = resolvedItem.UnitCost
+			row.CostUnitCost = resolvedItem.UnitCost
+			row.CostUnit = resolvedItem.CostUnit
+			row.Amount = resolvedItem.ContributionPerOutputUnit
+			row.CostSource = "manufacturing_bom"
+			row.Description = fmt.Sprintf("递归制造 BOM %d / %s 的标准成本", node.BomID, firstNonEmptyString(node.VersionNo, fmt.Sprintf("version-%d", node.VersionID)))
+			if componentType == "material" && item.ComponentMaterialID > 0 && !item.ComponentIsSemi {
+				row.CostSource = productionBomDirectCostSource(item)
+				row.Description = productionBomDirectCostDescription(item)
+			}
+		} else {
+			row.CostSource = productionBomDirectCostSource(item)
+			row.Description = productionBomDirectCostDescription(item)
+			for _, issue := range result.UnresolvedIssues {
+				if issue.ComponentID == item.ID {
+					row.Warning = issue.Reason
+					break
+				}
+			}
+			if row.Warning == "" && componentType == "product" && len(result.UnresolvedIssues) > 0 {
+				row.Warning = "递归制造 BOM 成本不完整，请查看缺口路径"
+			}
+		}
+		details = append(details, row)
+	}
+	return details
+}
+
+func productionBomDirectCostSource(item productionBomCostItem) string {
+	switch {
+	case item.WeightedBatchUnitCost > 0:
+		return "weighted_batch_cost"
+	case item.PurchasePrice > 0:
+		return "purchase_price"
+	case item.UnitCostSnapshot > 0:
+		return "unit_cost_snapshot"
+	default:
+		return "missing_cost"
+	}
+}
+
+func productionBomDirectCostDescription(item productionBomCostItem) string {
+	source := productionBomDirectCostSource(item)
+	switch source {
+	case "weighted_batch_cost":
+		return fmt.Sprintf("有效批次加权成本 %.4f/%s", item.WeightedBatchUnitCost, firstNonEmptyString(item.UnitCostUnit, "库存单位"))
+	case "purchase_price":
+		return fmt.Sprintf("采购价 %.4f/%s", item.PurchasePrice, firstNonEmptyString(item.UnitCostUnit, "库存单位"))
+	case "unit_cost_snapshot":
+		return fmt.Sprintf("BOM 成本快照 %.4f/%s", item.UnitCostSnapshot, firstNonEmptyString(item.UnitCostUnit, "库存单位"))
+	default:
+		return "未找到有效批次成本、采购价或 BOM 成本快照"
+	}
 }
 
 func productionBomCostOutputKey(outputType string, outputID int64) string {
@@ -389,6 +500,14 @@ func normalizeProductionBomCostOutputType(value string) string {
 }
 
 func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (map[string]productionBomResolvedCost, error) {
+	return r.loadResolvedProductionBomCostsTypedWithSelection(ctx, "", 0, 0)
+}
+
+func (r Repository) loadResolvedProductionBomCostsTypedForMaterial(ctx context.Context, materialID, versionID int64) (map[string]productionBomResolvedCost, error) {
+	return r.loadResolvedProductionBomCostsTypedWithSelection(ctx, "material", materialID, versionID)
+}
+
+func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context.Context, selectedOutputType string, selectedOutputID, selectedVersionID int64) (map[string]productionBomResolvedCost, error) {
 	if r.pool == nil {
 		return map[string]productionBomResolvedCost{}, nil
 	}
@@ -413,6 +532,27 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 		versionNoGroup = ", version.version_no"
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH root_bindings AS (
+			SELECT lower(COALESCE(NULLIF(binding.output_type,''),'product')) AS output_type,
+			       binding.output_id,
+			       binding.bom_id,
+			       binding.bom_version_id,
+			       binding.is_default
+			FROM %[1]s.production_bom_output_bindings binding
+			WHERE binding.is_default=true
+			UNION ALL
+			SELECT lower(COALESCE(NULLIF(bom.output_type,''),'product')) AS output_type,
+			       CASE WHEN lower(COALESCE(NULLIF(bom.output_type,''),'product'))='material' THEN bom.output_material_id ELSE bom.output_product_id END AS output_id,
+			       bom.id AS bom_id,
+			       version.id AS bom_version_id,
+			       false AS is_default
+			FROM %[1]s.production_boms bom
+			JOIN %[1]s.production_bom_versions version ON version.bom_id=bom.id
+			WHERE $1='material'
+			  AND lower(COALESCE(NULLIF(bom.output_type,''),'product'))='material'
+			  AND bom.output_material_id=$2
+			  AND version.id=$3
+		)
 		SELECT lower(COALESCE(NULLIF(binding.output_type,''),'product')) AS output_type,
 		       binding.output_id,
 		       CASE WHEN lower(COALESCE(NULLIF(binding.output_type,''),'product'))='product' THEN binding.output_id ELSE 0 END AS product_id,
@@ -420,11 +560,12 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 		       %[2]s AS bom_name,
 		       version.id AS version_id,
 		       %[3]s AS version_no,
+		       version.status,
 		       COALESCE(version.yield_rate,0)::float8 AS yield_rate,
 		       COALESCE(NULLIF(version.output_qty,0),1)::float8 AS output_qty,
 		       COALESCE(NULLIF(version.output_unit,''),'unit') AS output_unit,
 		       COALESCE(SUM(oc.operation_unit_cost),0)::float8 AS operation_cost_per_unit
-		FROM %[1]s.production_bom_output_bindings binding
+		FROM root_bindings binding
 		JOIN %[1]s.production_boms bom
 		  ON bom.id=binding.bom_id
 		 AND lower(COALESCE(NULLIF(bom.output_type,''),'product'))=lower(COALESCE(NULLIF(binding.output_type,''),'product'))
@@ -433,16 +574,15 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 		JOIN %[1]s.production_bom_versions version
 		  ON version.id=binding.bom_version_id
 		 AND version.bom_id=bom.id
-		 AND version.status='published'
+			AND (version.status='published' OR binding.is_default=false)
 		LEFT JOIN %[1]s.production_bom_version_operation_costs oc
 		  ON oc.version_id=version.id
 		 AND COALESCE(NULLIF(oc.cost_method,''),'time')='time'
 		 AND (NULLIF(oc.operation_cost_unit,'') IS NULL OR lower(oc.operation_cost_unit)=lower(version.output_unit))
-		WHERE binding.is_default=true
-		  AND COALESCE(NULLIF(bom.status,''),'active')='active'
-		GROUP BY binding.output_type, binding.output_id, bom.id, version.id, version.yield_rate, version.output_qty, version.output_unit%[4]s%[5]s
-		ORDER BY output_type, binding.output_id
-	`, r.schema, bomNameExpr, versionNoExpr, bomNameGroup, versionNoGroup))
+		WHERE COALESCE(NULLIF(bom.status,''),'active')='active'
+		GROUP BY binding.output_type, binding.output_id, binding.is_default, bom.id, version.id, version.status, version.yield_rate, version.output_qty, version.output_unit%[4]s%[5]s
+		ORDER BY output_type, binding.output_id, binding.is_default DESC, version.id DESC
+	`, r.schema, bomNameExpr, versionNoExpr, bomNameGroup, versionNoGroup), selectedOutputType, selectedOutputID, selectedVersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +591,7 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 	versionIDs := make([]int64, 0)
 	for rows.Next() {
 		var node productionBomCostNode
-		if err := rows.Scan(&node.OutputType, &node.OutputID, &node.ProductID, &node.BomID, &node.BomName, &node.VersionID, &node.VersionNo, &node.YieldRate, &node.OutputQty, &node.OutputUnit, &node.OperationCostPerUnit); err != nil {
+		if err := rows.Scan(&node.OutputType, &node.OutputID, &node.ProductID, &node.BomID, &node.BomName, &node.VersionID, &node.VersionNo, &node.Status, &node.YieldRate, &node.OutputQty, &node.OutputUnit, &node.OperationCostPerUnit); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -547,6 +687,7 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 				BomID:                parent.BomID,
 				BomName:              parent.BomName,
 				VersionNo:            parent.VersionNo,
+				Status:               parent.Status,
 				OutputName:           parent.OutputName,
 			}
 			variantOutputKeys[variantID] = key
@@ -598,6 +739,7 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 		       COALESCE(m.is_semi_finished,false),
 		       COALESCE(i.component_product_id,0),
 		       COALESCE(NULLIF(m.name,''),'') AS component_material_name,
+		       COALESCE(NULLIF(cp.name,''),'') AS component_product_name,
 		       COALESCE(i.component_spec_g,0),
 		       COALESCE(NULLIF(i.consume_unit,''),'ratio_pct') AS consume_unit,
 		       COALESCE(i.qty_per_unit,0)::float8,
@@ -615,6 +757,7 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 		       COALESCE(i.unit_cost_snapshot,0)::float8 AS unit_cost_snapshot
 		FROM %[1]s.production_bom_version_items i
 		LEFT JOIN %[1]s.materials m ON m.id=i.material_id
+		LEFT JOIN %[1]s.products cp ON cp.id=i.component_product_id
 		LEFT JOIN material_valuation mv ON mv.material_id=i.material_id
 		WHERE i.version_id=ANY($1)
 		ORDER BY i.version_id, i.id
@@ -635,6 +778,7 @@ func (r Repository) loadResolvedProductionBomCostsTyped(ctx context.Context) (ma
 			&item.ComponentIsSemi,
 			&item.ComponentProductID,
 			&item.ComponentMaterialName,
+			&item.ComponentProductName,
 			&item.ComponentSpecG,
 			&item.ConsumeUnit,
 			&item.QtyPerUnit,

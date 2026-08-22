@@ -1917,6 +1917,39 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.doesNotMatch(trialDrawer, /点击查看试算说明：BOM\+工序成本/)
 })
 
+test('material cost trial exposes manufacturing details, formulas, BOM selection and configuration navigation', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const trialDrawer = source.match(/<div v-if="pricingRuleTrialDrawerOpen"[\s\S]*?<div v-if="customerAliasCreateDrawerOpen"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const want of [
+    '物料成本试算',
+    '/api/costing/material-cost-trial-options',
+    '/api/costing/material-cost-trial',
+    '试算 BOM 版本',
+    '物料成本明细',
+    '标准工序成本明细',
+    '标准制造成本',
+    '成本来源',
+    '计算公式',
+    '公式步骤',
+    'base_cost_details',
+    'formula_expression_lines',
+    'navigateMaterialCostTrialBom',
+    '配置 BOM',
+  ]) {
+    assert.ok(source.includes(want), `missing material cost trial marker: ${want}`)
+  }
+  assert.match(trialDrawer, /v-model.number="pricingRuleTrialMaterialBomVersionID"[\s\S]*@click="navigateMaterialCostTrialBom"/)
+  assert.equal(trialDrawer.includes("pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'material')"), true)
+  assert.equal(trialDrawer.includes('pricingRuleTrialMaterialResult.formula_expression'), true)
+  assert.equal(trialDrawer.includes('pricingRuleTrialMaterialResult.formula_expression_lines'), true)
+  assert.equal(script.includes('function navigateMaterialCostTrialBom()'), true)
+  assert.equal(script.includes('production_bom_id: bomID'), true)
+  assert.equal(script.includes("key: 'productPriceManagement'"), true)
+  assert.equal(script.includes("label: '返回物料成本试算'"), true)
+})
+
 test('pricing rule trial product picker mirrors the order-entry type filter interaction', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const trialDrawer = source.match(/<div v-if="pricingRuleTrialDrawerOpen"[\s\S]*?<div v-if="customerAliasCreateDrawerOpen"/)?.[0] || ''

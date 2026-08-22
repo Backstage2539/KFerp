@@ -14,16 +14,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - DEV:
   - DEV-604-MATERIAL-SUPPLY-MODE
   - DEV-604-MATERIAL-COST-TRIAL
+  - DEV-604-MATERIAL-COST-DETAILS
   - DEV-604-BOM-DRAFT-WORKSPACE
   - DEV-604-BOM-EDITOR-UX
 - Verifier:
-  - Unit: pending
-  - API: pending
-  - Frontend/build: pending
+  - Unit/API: targeted and full Go repository suite GREEN
+  - Frontend/build: 1022/1022 frontend tests and Vite 6594-module build GREEN (existing chunk-size warning only)
+  - `scripts/verify_kferp.sh all`: GREEN; `git diff --check`: GREEN
   - Manual: Van development acceptance
   - Review/acceptance: pending
 - Deployment: development only; main/production out of scope
-- Last update: 2026-08-21 Asia/Shanghai
+- Last update: 2026-08-22 Asia/Shanghai
 - Notes: compatibility mapping reuses is_semi_finished; no database column migration planned.
 
 ### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED

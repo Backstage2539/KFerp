@@ -149,20 +149,34 @@ type MaterialCostTrialOptions struct {
 }
 
 type MaterialCostTrialResult struct {
-	MaterialID           int64                       `json:"material_id"`
-	MaterialCode         string                      `json:"material_code,omitempty"`
-	MaterialName         string                      `json:"material_name,omitempty"`
-	SupplyMode           string                      `json:"supply_mode"`
-	CostStatus           string                      `json:"cost_status"`
-	UnitCost             float64                     `json:"unit_cost,omitempty"`
-	PartialCost          float64                     `json:"partial_cost,omitempty"`
-	CostUnit             string                      `json:"cost_unit,omitempty"`
-	CostSource           string                      `json:"cost_source,omitempty"`
-	BomSnapshot          PricingRuleTrialBomSnapshot `json:"bom_snapshot,omitempty"`
-	InputCost            float64                     `json:"input_cost,omitempty"`
-	OperationCost        float64                     `json:"operation_cost,omitempty"`
-	UnresolvedComponents []PricingRuleTrialCostIssue `json:"unresolved_components,omitempty"`
-	FinalUnitPrice       *float64                    `json:"final_unit_price,omitempty"`
+	MaterialID                    int64                                   `json:"material_id"`
+	MaterialCode                  string                                  `json:"material_code,omitempty"`
+	MaterialName                  string                                  `json:"material_name,omitempty"`
+	SupplyMode                    string                                  `json:"supply_mode"`
+	CostStatus                    string                                  `json:"cost_status"`
+	UnitCost                      float64                                 `json:"unit_cost,omitempty"`
+	PartialCost                   float64                                 `json:"partial_cost,omitempty"`
+	CostUnit                      string                                  `json:"cost_unit,omitempty"`
+	CostSource                    string                                  `json:"cost_source,omitempty"`
+	BomSnapshot                   PricingRuleTrialBomSnapshot             `json:"bom_snapshot,omitempty"`
+	BomVersionID                  int64                                   `json:"bom_version_id,omitempty"`
+	BomVersionNo                  string                                  `json:"bom_version_no,omitempty"`
+	BomStatus                     string                                  `json:"bom_status,omitempty"`
+	BomUsageMode                  string                                  `json:"bom_usage_mode,omitempty"`
+	InputCost                     float64                                 `json:"input_cost,omitempty"`
+	OperationCost                 float64                                 `json:"operation_cost,omitempty"`
+	BomCostTotal                  float64                                 `json:"bom_cost_total,omitempty"`
+	OperationCostTotal            float64                                 `json:"operation_cost_total,omitempty"`
+	MaterialUnitCost              float64                                 `json:"material_unit_cost,omitempty"`
+	OperationUnitCost             float64                                 `json:"operation_unit_cost,omitempty"`
+	StandardManufacturingUnitCost float64                                 `json:"standard_manufacturing_unit_cost,omitempty"`
+	WorkstationCostSnapshot       PricingRuleTrialWorkstationCostSnapshot `json:"workstation_cost_snapshot,omitempty"`
+	BaseCostDetails               []PricingRuleTrialBaseCostDetail        `json:"base_cost_details,omitempty"`
+	FormulaExpression             string                                  `json:"formula_expression,omitempty"`
+	FormulaExpressionLines        []string                                `json:"formula_expression_lines,omitempty"`
+	Steps                         []domain.PriceExplanationStep           `json:"steps,omitempty"`
+	UnresolvedComponents          []PricingRuleTrialCostIssue             `json:"unresolved_components,omitempty"`
+	FinalUnitPrice                *float64                                `json:"final_unit_price,omitempty"`
 }
 
 type PricingRuleTrialBatchRow struct {
@@ -434,6 +448,7 @@ type PricingRuleTrialBaseCostDetail struct {
 	UnitCost                float64 `json:"unit_cost,omitempty"`
 	CostUnitCost            float64 `json:"cost_unit_cost,omitempty"`
 	CostUnit                string  `json:"cost_unit,omitempty"`
+	CostSource              string  `json:"cost_source,omitempty"`
 	Amount                  float64 `json:"amount"`
 	Unit                    string  `json:"unit"`
 	Description             string  `json:"description,omitempty"`
