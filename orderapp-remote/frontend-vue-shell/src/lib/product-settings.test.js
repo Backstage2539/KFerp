@@ -1615,6 +1615,36 @@ test('price table BOM-spec trial payload uses the parent product identity', () =
   assert.equal(payload.bom_variant_id, 191)
 })
 
+test('price table BOM-spec trial applies the parent-product result to the row', () => {
+  const got = applyPricingRuleTrialToPriceTableRow({
+    row_key: '1063:bom-spec:91:191:pricing-rule',
+    product_id: 91,
+    parent_product_id: 1063,
+    bom_spec_id: 91,
+    bom_variant_id: 191,
+    product_name: '初晓-商品',
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 40,
+    price_unit: '袋',
+    inventory_unit: 'kg',
+    inventory_conversion_json: {},
+    final_unit_price: 0,
+    original_final_unit_price: 0,
+    cost_source_snapshot: {},
+  }, {
+    pricing_rule_id: 40,
+    product_id: 1063,
+    bom_spec_id: 91,
+    bom_variant_id: 191,
+    quote_unit: '袋',
+    inventory_unit: 'kg',
+    final_unit_price: 54,
+  })
+
+  assert.equal(got.final_unit_price, 54)
+  assert.equal(got.original_final_unit_price, 54)
+})
+
 test('price table pricing-rule preview keeps a manually adjusted final price while refreshing its automatic baseline', () => {
   const got = applyPricingRuleTrialToPriceTableRow({
     product_id: 550,
