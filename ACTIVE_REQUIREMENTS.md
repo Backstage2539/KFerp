@@ -37,6 +37,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: Van development acceptance
 - Deployment: development deployed with `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823131942-0ef19e12093d`; rollback image `kferp-orderapp-rollback:development-20260823131942-0ef19e12093d`; external login smoke HTTP 200; `erp_orderapp`/`erp_docconvert` running and PostgreSQL healthy; miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
 
+### PR-604-PRICE-TRIAL-RESULT-APPLICATION
+- Branch: codex/pr604-price-trial-apply-bom-result-20260823
+- Owner/session: Codex / 2026-08-23
+- Status: development deployed `37caf135ea0092e2a249554a19b176d2a8f4b17d`; Van acceptance pending
+- Scope: apply pricing-rule trial results to BOM-spec price-list rows by matching the parent product identity while preserving ordinary product-row matching.
+- Verifier: targeted RED→GREEN for BOM-spec trial result application; remote Vue 1026/1026 across 4 suites, Vite 6594 modules, miniapp 217/217 + typecheck + mp-weixin build, and Go full suite GREEN; `git diff --check` GREEN.
+- Manual: Van development acceptance
+- Deployment: development deployed with `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823133716-37caf135ea00`; rollback image `kferp-orderapp-rollback:development-20260823133716-37caf135ea00`; external login smoke HTTP 200; `erp_orderapp`/`erp_docconvert` running and PostgreSQL healthy; miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
+
 ### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
 - Branch: codex/pr600-bom-spec-groups
 - Owner/session: Codex / 2026-08-17
