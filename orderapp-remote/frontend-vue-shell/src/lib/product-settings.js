@@ -794,7 +794,20 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
     row.pricing_rule_id,
     row.pricingRuleID,
   ].map(normalizePositiveNumber).find((value) => value > 0) || 0
+  const bomSpecID = [
+    row.bom_spec_id,
+    row.bomSpecID,
+    row.default_bom_spec_id,
+    row.defaultBOMSpecID,
+  ].map(normalizePositiveNumber).find((value) => value > 0) || 0
+  const parentProductID = [
+    row.parent_product_id,
+    row.parentProductID,
+    row.effective_parent_product_id,
+    row.effectiveParentProductID,
+  ].map(normalizePositiveNumber).find((value) => value > 0) || 0
   const productID = [
+    ...(bomSpecID > 0 && parentProductID > 0 ? [parentProductID] : []),
     row.product_id,
     row.productID,
     row.productId,
@@ -819,7 +832,7 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
     customer_id: Number(options.customerID ?? options.customer_id ?? row.customer_id ?? row.customerID ?? 0) || 0,
     bom_id: Number(row.bom_id ?? row.bomID ?? costSource.bom_id ?? costSource.bomID ?? 0) || 0,
     bom_version_id: Number(row.bom_version_id ?? row.bomVersionID ?? costSource.bom_version_id ?? costSource.bomVersionID ?? 0) || 0,
-    bom_spec_id: Number(row.bom_spec_id ?? row.bomSpecID ?? costSource.bom_spec_id ?? costSource.bomSpecID ?? 0) || 0,
+    bom_spec_id: bomSpecID || Number(costSource.bom_spec_id ?? costSource.bomSpecID ?? 0) || 0,
     bom_variant_id: Number(row.bom_variant_id ?? row.bomVariantID ?? costSource.bom_variant_id ?? costSource.bomVariantID ?? 0) || 0,
     process_route_id: Number(row.process_route_id ?? row.processRouteID ?? costSource.process_route_id ?? costSource.processRouteID ?? 0) || 0,
     operation_template_id: Number(row.operation_template_id ?? row.operationTemplateID ?? costSource.operation_template_id ?? costSource.operationTemplateID ?? 0) || 0,
