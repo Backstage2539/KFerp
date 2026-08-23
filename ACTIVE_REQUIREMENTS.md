@@ -7,7 +7,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-604-MATERIAL-COST-BOM-EDITOR
-- Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop); follow-up `codex/pr604-price-preview-20260823`
+- Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop); follow-ups `codex/pr604-price-preview-20260823`, current `codex/pr604-price-trial-product-not-found-20260823`
 - Owner/session: Codex / 2026-08-21
 - Status: development deployed `4e610d981467697f19ff82ee5ee91c8e5e02f496`; Van acceptance pending
 - Scope: 物料成本试算、物料取得方式互斥、BOM 本地草稿一次保存、商品配方组件与编辑体验整改。
@@ -27,6 +27,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: development deployed `4e610d981467697f19ff82ee5ee91c8e5e02f496` via `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823124932-4e610d981467`; rollback image `kferp-orderapp-rollback:development-20260823124932-4e610d981467`; `erp_orderapp` running, PostgreSQL healthy, unauthenticated requirement API HTTP 401, authenticated `https://dev.qacoohee.com/app/login` HTTP 200, `/app/` HTTP 303 as configured, and authenticated requirement API HTTP 200 contains PR-604. Miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
 - Last update: 2026-08-23 Asia/Shanghai
 - Notes: compatibility mapping reuses is_semi_finished; no database column migration planned. Follow-up fixes price preview filtering by matching parent product, SKU, and BOM specification IDs; development acceptance is pending with Van.
+
+### PR-604-PRICE-TRIAL-PRODUCT-IDENTITY
+- Branch: codex/pr604-price-trial-product-not-found-20260823
+- Owner/session: Codex / 2026-08-23
+- Status: implementation complete; development deployment pending
+- Scope: price-list pricing-rule trial must submit the parent product ID together with the selected BOM/version/spec/variant identity; preserve that identity through the PDF preview projection.
+- Verifier: targeted frontend RED→GREEN for BOM-spec trial payload and PDF projection; `git diff --check` GREEN. Full release gates run by development deployment.
+- Manual: Van development acceptance
+- Deployment: pending; development only, main/production out of scope.
 
 ### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
 - Branch: codex/pr600-bom-spec-groups

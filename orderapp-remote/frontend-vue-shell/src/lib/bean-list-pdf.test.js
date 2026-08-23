@@ -600,6 +600,16 @@ test('PDF bean-list preview keeps BOM-spec selections when all specs share the p
 
   assert.equal(groups.length, 1)
   assert.deepEqual(groups[0].items.map((item) => item.sku_id), [901, 902, 903])
+  assert.deepEqual(groups[0].items.map((item) => ({
+    product_id: item.product_id,
+    parent_product_id: item.parent_product_id,
+    bom_spec_id: item.bom_spec_id,
+    bom_variant_id: item.bom_variant_id,
+  })), [
+    { product_id: 1063, parent_product_id: 1063, bom_spec_id: 901, bom_variant_id: 1901 },
+    { product_id: 1063, parent_product_id: 1063, bom_spec_id: 902, bom_variant_id: 1902 },
+    { product_id: 1063, parent_product_id: 1063, bom_spec_id: 903, bom_variant_id: 1903 },
+  ])
 })
 
 test('PDF bean-list helper preserves product spec and unit fields from picker rows', () => {

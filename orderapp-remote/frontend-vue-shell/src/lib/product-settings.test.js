@@ -1591,6 +1591,30 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'bom_operation_snapshot')
 })
 
+test('price table BOM-spec trial payload uses the parent product identity', () => {
+  const payload = priceTablePricingRuleTrialPayload({
+    row_key: '1063:bom-spec:91:191:pricing-rule',
+    product_id: 91,
+    parent_product_id: 1063,
+    sku_id: 91,
+    bom_id: 18587,
+    bom_version_id: 4,
+    bom_spec_id: 91,
+    bom_variant_id: 191,
+    product_name: '初晓-商品',
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 40,
+    price_unit: '袋',
+    inventory_unit: 'kg',
+  }, { customerID: 0 })
+
+  assert.equal(payload.product_id, 1063)
+  assert.equal(payload.bom_id, 18587)
+  assert.equal(payload.bom_version_id, 4)
+  assert.equal(payload.bom_spec_id, 91)
+  assert.equal(payload.bom_variant_id, 191)
+})
+
 test('price table pricing-rule preview keeps a manually adjusted final price while refreshing its automatic baseline', () => {
   const got = applyPricingRuleTrialToPriceTableRow({
     product_id: 550,
