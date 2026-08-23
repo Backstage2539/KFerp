@@ -7,9 +7,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-604-MATERIAL-COST-BOM-EDITOR
-- Branch: codex/bom-cost-diagnostics-20260821
+- Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop)
 - Owner/session: Codex / 2026-08-21
-- Status: in progress
+- Status: development deployed bfc00c5024cbcaae813af0b4398781498cec765e; Van acceptance pending
 - Scope: 物料成本试算、物料取得方式互斥、BOM 本地草稿一次保存、商品配方组件与编辑体验整改。
 - DEV:
   - DEV-604-MATERIAL-SUPPLY-MODE
@@ -19,13 +19,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-604-BOM-EDITOR-UX
 - Verifier:
   - Unit/API: targeted and full Go repository suite GREEN
-  - Frontend/build: 1022/1022 frontend tests and Vite 6594-module build GREEN (existing chunk-size warning only)
+- Frontend/build: 1023/1023 frontend tests and Vite 6594-module build GREEN (existing chunk-size warning only)
   - `scripts/verify_kferp.sh all`: GREEN; `git diff --check`: GREEN
-  - Server release gates: Vue 1022/1022, miniapp 217/217 + typecheck + mp-weixin build, Go full suite, Docker image build GREEN
+- Server release gates: Vue 1023/1023, miniapp 217/217 + typecheck + mp-weixin build, Go full suite, Docker image build GREEN
   - Manual: Van development acceptance
   - Review/acceptance: pending
-- Deployment: development deployed `32883533876fd78ad197eff5021d1cd828dd353d` via `./deploy_orderapp.sh development`; previous source backup `/opt/stacks/erp/orderapp.backup.deploy-20260822114127-32883533876f`; rollback image `kferp-orderapp-rollback:development-20260822114127-32883533876f`; `erp_orderapp` running, external `https://dev.qacoohee.com/app/login` HTTP 200, `/app/` redirects 303 as configured, authenticated requirement API contains PR-604. Miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
-- Last update: 2026-08-22 Asia/Shanghai
+- Deployment: development deployed `bfc00c5024cbcaae813af0b4398781498cec765e` via `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823100515-bfc00c5024cb`; rollback image `kferp-orderapp-rollback:development-20260823100515-bfc00c5024cb`; `erp_orderapp` running, unauthenticated requirement API HTTP 401, authenticated `https://dev.qacoohee.com/app/login` HTTP 200, `/app/` HTTP 303 as configured, authenticated requirement API HTTP 200 contains PR-604, and feature source markers are present. Miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
+- Last update: 2026-08-23 Asia/Shanghai
 - Notes: compatibility mapping reuses is_semi_finished; no database column migration planned.
 
 ### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
