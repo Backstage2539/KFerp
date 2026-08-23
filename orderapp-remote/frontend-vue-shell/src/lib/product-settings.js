@@ -762,9 +762,14 @@ export function buildPricingRuleTrialPayload(form = {}) {
   const otherCosts = pricingRuleTrialOtherCostMapFromForm(form)
   if (Object.keys(otherCosts).length) overrides.other_costs = otherCosts
 
+  const bomSpecID = Number(form.bom_spec_id ?? form.bomSpecID ?? 0) || 0
+  const bomVariantID = Number(form.bom_variant_id ?? form.bomVariantID ?? 0) || 0
+  const parentProductID = Number(form.parent_product_id ?? form.parentProductID ?? 0) || 0
   const payload = {
     pricing_rule_id: Number(form.pricing_rule_id ?? form.pricingRuleID ?? form.rule_id ?? form.ruleID ?? 0) || 0,
-    product_id: Number(form.product_id ?? form.productID ?? 0) || 0,
+    product_id: bomSpecID > 0 && parentProductID > 0
+      ? parentProductID
+      : (Number(form.product_id ?? form.productID ?? 0) || 0),
     customer_id: Number(form.customer_id ?? form.customerID ?? 0) || 0,
     bom_version_id: Number(form.bom_version_id ?? form.bomVersionID ?? 0) || 0,
     process_route_id: Number(form.process_route_id ?? form.processRouteID ?? 0) || 0,
@@ -772,8 +777,8 @@ export function buildPricingRuleTrialPayload(form = {}) {
     quote_unit: String(form.quote_unit ?? form.quoteUnit ?? '').trim(),
     overrides,
   }
-  const bomSpecID = Number(form.bom_spec_id ?? form.bomSpecID ?? 0) || 0
-  const bomVariantID = Number(form.bom_variant_id ?? form.bomVariantID ?? 0) || 0
+  const bomID = Number(form.bom_id ?? form.bomID ?? 0) || 0
+  if (bomID > 0) payload.bom_id = bomID
   if (bomSpecID > 0) payload.bom_spec_id = bomSpecID
   if (bomVariantID > 0) payload.bom_variant_id = bomVariantID
   return payload
@@ -812,6 +817,7 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
     pricing_rule_id: pricingRuleID,
     product_id: productID,
     customer_id: Number(options.customerID ?? options.customer_id ?? row.customer_id ?? row.customerID ?? 0) || 0,
+    bom_id: Number(row.bom_id ?? row.bomID ?? costSource.bom_id ?? costSource.bomID ?? 0) || 0,
     bom_version_id: Number(row.bom_version_id ?? row.bomVersionID ?? costSource.bom_version_id ?? costSource.bomVersionID ?? 0) || 0,
     bom_spec_id: Number(row.bom_spec_id ?? row.bomSpecID ?? costSource.bom_spec_id ?? costSource.bomSpecID ?? 0) || 0,
     bom_variant_id: Number(row.bom_variant_id ?? row.bomVariantID ?? costSource.bom_variant_id ?? costSource.bomVariantID ?? 0) || 0,
@@ -827,6 +833,7 @@ export function priceTablePricingRuleTrialCacheKey(payload = {}) {
     Number(payload.pricing_rule_id || 0),
     Number(payload.product_id || 0),
     Number(payload.customer_id || 0),
+    Number(payload.bom_id || 0),
     Number(payload.bom_version_id || 0),
     Number(payload.bom_spec_id || 0),
     Number(payload.bom_variant_id || 0),
@@ -2744,6 +2751,44 @@ export function pricingRuleTrialProductSpecOptions(products = [], parentProductI
   const source = Array.isArray(products) ? products : []
   const parentID = Number(parentProductID || 0)
   if (!(parentID > 0)) return []
+
+  const parent = source.find((row) => Number(row?.id || row?.product_id || 0) === parentID) || {}
+  const authoritative = parent?.bom_spec_authoritative === true
+    || parent?.legacy_catalog_product === false
+    || String(parent?.migration_state || parent?.migrationState || '').trim().toLowerCase() === 'cutover'
+  const bomSpecs = Array.isArray(parent?.bom_specs) ? parent.bom_specs : []
+  if (authoritative && bomSpecs.length) {
+    return bomSpecs
+      .map((spec) => {
+        const specID = Number(spec?.bom_spec_id || spec?.bomSpecID || 0)
+        const variantID = Number(spec?.bom_variant_id || spec?.bomVariantID || 0)
+        const unit = String(spec?.inventory_unit || spec?.unit || '').trim()
+        const name = String(spec?.spec_name || spec?.name || spec?.spec_key || '').trim()
+        return {
+          ...parent,
+          ...spec,
+          id: specID,
+          product_id: parentID,
+          sku_id: specID,
+          parent_product_id: parentID,
+          effective_parent_product_id: parentID,
+          bom_id: Number(spec?.bom_id || spec?.bomID || 0),
+          bom_version_id: Number(spec?.bom_version_id || spec?.bomVersionID || 0),
+          bom_spec_id: specID,
+          bom_variant_id: variantID,
+          sku_name: name,
+          spec_label: name,
+          derived_sales_unit: unit,
+          default_sales_unit: unit,
+          inventory_unit: unit,
+          is_default_sku: spec?.is_default === true || spec?.isDefault === true,
+          migration_state: parent?.migration_state || parent?.migrationState || 'preparing',
+          spec_identity_mode: 'bom_spec',
+          bom_spec_authoritative: true,
+        }
+      })
+      .filter((row) => Number(row.bom_spec_id || 0) > 0 && Number(row.bom_variant_id || 0) > 0 && row.sku_name)
+  }
 
   const rows = productSkuRowsForParent(source, parentID)
   const concreteSpecs = rows.filter((row) => {

@@ -116,6 +116,27 @@ type Product struct {
 	OrderUsageCount             int
 	Tiers                       []PriceTier
 	PriceSummary                PriceSummary
+	SpecIdentityMode            string
+	BomSpecAuthoritative        bool
+	MigrationState              string
+	LegacyCatalogProduct        bool
+	BOMSpecs                    []BOMSpecOption
+}
+
+type BOMSpecOption struct {
+	ProductID     int64
+	BomID         int64
+	BomVersionID  int64
+	BomVersionNo  string
+	BomSpecID     int64
+	BomVariantID  int64
+	SpecCode      string
+	Barcode       string
+	SpecKey       string
+	SpecName      string
+	InventoryUnit string
+	IsDefault     bool
+	SortOrder     int
 }
 
 type PriceSummary struct {

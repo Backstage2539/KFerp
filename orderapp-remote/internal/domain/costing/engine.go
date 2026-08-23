@@ -76,6 +76,8 @@ type ProductInput struct {
 	BomVariantID               int64                     `json:"bom_variant_id,omitempty"`
 	DefaultBOMSpecID           int64                     `json:"default_bom_spec_id,omitempty"`
 	MigrationState             string                    `json:"migration_state,omitempty"`
+	SpecIdentityMode           string                    `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative       bool                      `json:"bom_spec_authoritative,omitempty"`
 	SpecCode                   string                    `json:"spec_code,omitempty"`
 	SpecBarcode                string                    `json:"spec_barcode,omitempty"`
 	SpecSortOrder              int                       `json:"spec_sort_order,omitempty"`
@@ -94,6 +96,7 @@ type ProductInput struct {
 	ClassificationCategoryID   int64                     `json:"classification_category_id,omitempty"`
 	ClassificationCategoryName string                    `json:"classification_category_name,omitempty"`
 	BomVersionID               int64                     `json:"bom_version_id,omitempty"`
+	BomID                      int64                     `json:"bom_id,omitempty"`
 	BomVersionNo               string                    `json:"bom_version_no,omitempty"`
 	BomUsageMode               string                    `json:"bom_usage_mode,omitempty"`
 	ProductKind                string                    `json:"product_kind,omitempty"`
@@ -357,6 +360,8 @@ type ProductResult struct {
 	BomVariantID                   int64                     `json:"bom_variant_id,omitempty"`
 	DefaultBOMSpecID               int64                     `json:"default_bom_spec_id,omitempty"`
 	MigrationState                 string                    `json:"migration_state,omitempty"`
+	SpecIdentityMode               string                    `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative           bool                      `json:"bom_spec_authoritative,omitempty"`
 	EffectiveSalesSpec             *EffectiveSalesSpec       `json:"effective_sales_spec,omitempty"`
 	ProductCode                    string                    `json:"product_code,omitempty"`
 	ProductName                    string                    `json:"product_name,omitempty"`
@@ -372,6 +377,7 @@ type ProductResult struct {
 	ClassificationCategoryID       int64                     `json:"classification_category_id,omitempty"`
 	ClassificationCategoryName     string                    `json:"classification_category_name,omitempty"`
 	BomVersionID                   int64                     `json:"bom_version_id,omitempty"`
+	BomID                          int64                     `json:"bom_id,omitempty"`
 	BomVersionNo                   string                    `json:"bom_version_no,omitempty"`
 	BomUsageMode                   string                    `json:"bom_usage_mode,omitempty"`
 	ProductKind                    string                    `json:"product_kind,omitempty"`
@@ -685,6 +691,8 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		BomVariantID:               in.BomVariantID,
 		DefaultBOMSpecID:           in.DefaultBOMSpecID,
 		MigrationState:             in.MigrationState,
+		SpecIdentityMode:           in.SpecIdentityMode,
+		BomSpecAuthoritative:       in.BomSpecAuthoritative,
 		EffectiveSalesSpec:         effectiveSalesSpecFromInput(in),
 		ProductCode:                in.ProductCode,
 		ProductName:                in.ProductName,
@@ -700,6 +708,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		ClassificationCategoryID:   in.ClassificationCategoryID,
 		ClassificationCategoryName: in.ClassificationCategoryName,
 		BomVersionID:               in.BomVersionID,
+		BomID:                      in.BomID,
 		BomVersionNo:               in.BomVersionNo,
 		BomUsageMode:               in.BomUsageMode,
 		ProductKind:                in.ProductKind,
@@ -864,6 +873,8 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		BomVariantID:               in.BomVariantID,
 		DefaultBOMSpecID:           in.DefaultBOMSpecID,
 		MigrationState:             in.MigrationState,
+		SpecIdentityMode:           in.SpecIdentityMode,
+		BomSpecAuthoritative:       in.BomSpecAuthoritative,
 		EffectiveSalesSpec:         effectiveSalesSpecFromInput(in),
 		ProductCode:                in.ProductCode,
 		ProductName:                in.ProductName,
@@ -879,6 +890,7 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		ClassificationCategoryID:   in.ClassificationCategoryID,
 		ClassificationCategoryName: in.ClassificationCategoryName,
 		BomVersionID:               in.BomVersionID,
+		BomID:                      in.BomID,
 		BomVersionNo:               in.BomVersionNo,
 		BomUsageMode:               in.BomUsageMode,
 		ProductKind:                "green_bean",

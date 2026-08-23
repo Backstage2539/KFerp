@@ -75,14 +75,18 @@ type LegacyMapping struct {
 }
 
 type ProductMigration struct {
-	ProductID  int64           `json:"product_id"`
-	State      MigrationState  `json:"state"`
-	Readiness  Readiness       `json:"readiness"`
-	Mappings   []LegacyMapping `json:"mappings"`
-	PreparedAt *time.Time      `json:"prepared_at,omitempty"`
-	ReadyAt    *time.Time      `json:"ready_at,omitempty"`
-	CutoverAt  *time.Time      `json:"cutover_at,omitempty"`
-	UpdatedAt  time.Time       `json:"updated_at,omitempty"`
+	ProductID            int64           `json:"product_id"`
+	State                MigrationState  `json:"state"`
+	MigrationState       MigrationState  `json:"migration_state"`
+	LegacyCatalogProduct bool            `json:"legacy_catalog_product"`
+	SpecIdentityMode     string          `json:"spec_identity_mode"`
+	BomSpecAuthoritative bool            `json:"bom_spec_authoritative"`
+	Readiness            Readiness       `json:"readiness"`
+	Mappings             []LegacyMapping `json:"mappings"`
+	PreparedAt           *time.Time      `json:"prepared_at,omitempty"`
+	ReadyAt              *time.Time      `json:"ready_at,omitempty"`
+	CutoverAt            *time.Time      `json:"cutover_at,omitempty"`
+	UpdatedAt            time.Time       `json:"updated_at,omitempty"`
 }
 
 type PrepareCommand struct {
@@ -110,13 +114,26 @@ type ResolveIdentityCommand struct {
 }
 
 type BusinessIdentity struct {
-	ProductID        int64          `json:"product_id"`
-	BomSpecID        *int64         `json:"bom_spec_id,omitempty"`
-	BomVariantID     *int64         `json:"bom_variant_id,omitempty"`
-	LegacyProductID  *int64         `json:"legacy_product_id,omitempty"`
-	LegacySpecG      int64          `json:"legacy_spec_g,omitempty"`
-	MigrationState   MigrationState `json:"migration_state"`
-	LegacyCompatible bool           `json:"legacy_compatible"`
+	ProductID            int64          `json:"product_id"`
+	BomSpecID            *int64         `json:"bom_spec_id,omitempty"`
+	BomVariantID         *int64         `json:"bom_variant_id,omitempty"`
+	LegacyProductID      *int64         `json:"legacy_product_id,omitempty"`
+	LegacySpecG          int64          `json:"legacy_spec_g,omitempty"`
+	MigrationState       MigrationState `json:"migration_state"`
+	SpecIdentityMode     string         `json:"spec_identity_mode"`
+	BomSpecAuthoritative bool           `json:"bom_spec_authoritative"`
+	LegacyCompatible     bool           `json:"legacy_compatible"`
+}
+
+func IsBOMSpecAuthoritative(state MigrationState, legacyCatalogProduct bool) bool {
+	return state == StateCutover || !legacyCatalogProduct
+}
+
+func SpecIdentityMode(state MigrationState, legacyCatalogProduct bool) string {
+	if IsBOMSpecAuthoritative(state, legacyCatalogProduct) {
+		return "bom_spec"
+	}
+	return "legacy_sku"
 }
 
 // ProductSpecOption is the compatibility contract consumed by catalog,
@@ -139,6 +156,8 @@ type ProductSpecOption struct {
 	IsDefault            bool           `json:"is_default"`
 	SortOrder            int            `json:"sort_order"`
 	MigrationState       MigrationState `json:"migration_state"`
+	SpecIdentityMode     string         `json:"spec_identity_mode"`
+	BomSpecAuthoritative bool           `json:"bom_spec_authoritative"`
 	WriteProductID       int64          `json:"write_product_id"`
 	WriteBomSpecID       int64          `json:"write_bom_spec_id,omitempty"`
 	WriteBomVariantID    int64          `json:"write_bom_variant_id,omitempty"`

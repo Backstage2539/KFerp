@@ -19,6 +19,9 @@ export function productSpecMigrationState(value = {}) {
 }
 
 export function isProductBomSpecCutover(value = {}) {
+  if (value?.bom_spec_authoritative === true || value?.bomSpecAuthoritative === true) return true
+  const legacyCatalogProduct = value?.legacy_catalog_product ?? value?.legacyCatalogProduct
+  if (legacyCatalogProduct === false || legacyCatalogProduct === 0 || String(legacyCatalogProduct).toLowerCase() === 'false') return true
   return productSpecMigrationState(value) === 'cutover'
 }
 
@@ -53,20 +56,15 @@ function isLegacyDerivedSKU(row = {}) {
 
 export function visibleRowsForProductSpecMigration(rows = [], migrationByProductID = {}) {
   const source = Array.isArray(rows) ? rows : []
-  const stateFor = (id, row = {}) => productSpecMigrationState(
-    migrationByProductID?.[String(id)]
-      ?? migrationByProductID?.[id]
-      ?? row,
-  )
   const cutoverParents = new Set()
   for (const row of source) {
     const id = productID(row)
-    if (id > 0 && stateFor(id, row) === 'cutover') cutoverParents.add(id)
+    if (id > 0 && isProductBomSpecCutover(migrationByProductID?.[String(id)] ?? migrationByProductID?.[id] ?? row)) cutoverParents.add(id)
   }
   return source.filter((row) => {
     if (!isLegacyDerivedSKU(row)) return true
     const parentID = legacyParentProductID(row)
-    return parentID <= 0 || (!cutoverParents.has(parentID) && stateFor(parentID) !== 'cutover')
+    return parentID <= 0 || (!cutoverParents.has(parentID) && !isProductBomSpecCutover(migrationByProductID?.[String(parentID)] ?? migrationByProductID?.[parentID] ?? row))
   })
 }
 
@@ -75,16 +73,22 @@ export function normalizeProductBomSpecs(value = {}) {
     ? value
     : (value?.variants ?? value?.bom_specs ?? value?.bomSpecs ?? value?.specs ?? [])
   return (Array.isArray(rows) ? rows : [])
-    .map((row) => ({
-      bom_spec_id: positiveID(row?.bom_spec_id, row?.bomSpecID, row?.spec_id, row?.id),
-      bom_variant_id: positiveID(row?.bom_variant_id, row?.bomVariantID, row?.variant_id),
-      code: String(row?.spec_code ?? row?.code ?? '').trim(),
-      barcode: String(row?.barcode ?? '').trim(),
-      name: String(row?.name ?? row?.spec_name_snapshot ?? row?.spec_name ?? row?.label ?? '').trim(),
-      unit: String(row?.inventory_unit ?? row?.output_unit ?? row?.unit ?? '').trim(),
-      is_default: row?.is_default === true || row?.isDefault === true,
-      sort_order: Number(row?.sort_order ?? row?.sortOrder ?? 0) || 0,
-    }))
+    .map((row) => {
+      const bomID = positiveID(row?.bom_id, row?.bomID)
+      const bomVersionID = positiveID(row?.bom_version_id, row?.bomVersionID)
+      return {
+        ...(bomID > 0 ? { bom_id: bomID } : {}),
+        ...(bomVersionID > 0 ? { bom_version_id: bomVersionID } : {}),
+        bom_spec_id: positiveID(row?.bom_spec_id, row?.bomSpecID, row?.spec_id, row?.id),
+        bom_variant_id: positiveID(row?.bom_variant_id, row?.bomVariantID, row?.variant_id),
+        code: String(row?.spec_code ?? row?.code ?? '').trim(),
+        barcode: String(row?.barcode ?? '').trim(),
+        name: String(row?.name ?? row?.spec_name_snapshot ?? row?.spec_name ?? row?.label ?? '').trim(),
+        unit: String(row?.inventory_unit ?? row?.output_unit ?? row?.unit ?? '').trim(),
+        is_default: row?.is_default === true || row?.isDefault === true,
+        sort_order: Number(row?.sort_order ?? row?.sortOrder ?? 0) || 0,
+      }
+    })
     .filter((row) => row.bom_spec_id > 0)
     .sort((a, b) => a.sort_order - b.sort_order || a.bom_spec_id - b.bom_spec_id)
 }
@@ -119,7 +123,12 @@ export function productSpecSelectionsForWrite(rows = []) {
       parent_product_id: positiveID(row?.parent_product_id, row?.parentProductID, row?.product_id),
       bom_spec_id: bomSpecID,
       bom_variant_id: positiveID(row?.bom_variant_id, row?.bomVariantID),
-      migration_state: 'cutover',
+      ...(positiveID(row?.bom_id, row?.bomID) > 0 ? { bom_id: positiveID(row?.bom_id, row?.bomID) } : {}),
+      ...(positiveID(row?.bom_version_id, row?.bomVersionID) > 0 ? { bom_version_id: positiveID(row?.bom_version_id, row?.bomVersionID) } : {}),
+      migration_state: productSpecMigrationState(row),
+      ...((positiveID(row?.bom_id, row?.bomID) > 0 || positiveID(row?.bom_version_id, row?.bomVersionID) > 0 || row?.bom_spec_authoritative === true || row?.bomSpecAuthoritative === true)
+        ? { spec_identity_mode: 'bom_spec', bom_spec_authoritative: true }
+        : {}),
     }
     delete next.sku_id
     delete next.default_sku_id_at_selection

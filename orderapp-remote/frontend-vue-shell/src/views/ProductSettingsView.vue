@@ -222,8 +222,21 @@
                         </td>
                         <td class="sku-name-cell">
                           <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
-                          <details v-if="row.sku_rows?.length" class="product-spec-skus">
-                            <summary>{{ row.sku_rows.length }} 个规格 SKU</summary>
+                          <div v-if="row.bom_specs?.length" class="product-bom-specs">
+                            <span class="product-bom-spec-label">BOM 规格</span>
+                            <button
+                              v-for="spec in row.bom_specs"
+                              :key="`product-bom-spec-${row.id}-${spec.bom_spec_id}-${spec.bom_variant_id}`"
+                              class="product-bom-spec-item"
+                              type="button"
+                              :disabled="row.active === false"
+                              @click.stop="openProductProductionConfig(row)">
+                              {{ spec.spec_name || spec.spec_key || `规格 #${spec.bom_spec_id}` }} / {{ spec.inventory_unit || '-' }}<small v-if="spec.is_default">默认</small>
+                            </button>
+                          </div>
+                          <small v-else-if="row.bom_spec_authoritative" class="muted">无可报价 BOM 规格</small>
+                          <details v-else-if="row.sku_rows?.length" class="product-spec-skus">
+                            <summary>{{ row.sku_rows.length }} 个历史规格</summary>
                             <div class="product-spec-sku-list">
                               <button
                                 v-for="sku in row.sku_rows"
@@ -8005,9 +8018,10 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
   if (restoringPricingRuleTrialReturnState) return
   const product = selectedPricingRuleTrialProductSpec.value
   pricingRuleTrialForm.value.quote_unit = product ? pricingRuleTrialProductSpecUnit(product) : ''
+  pricingRuleTrialForm.value.bom_id = Number(product?.bom_id ?? product?.bomID ?? 0) || 0
   pricingRuleTrialForm.value.bom_spec_id = Number(product?.bom_spec_id ?? product?.bomSpecID ?? product?.default_bom_spec_id ?? product?.defaultBOMSpecID ?? 0) || 0
   pricingRuleTrialForm.value.bom_variant_id = Number(product?.bom_variant_id ?? product?.bomVariantID ?? 0) || 0
-  pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_version_id = Number(product?.bom_version_id ?? product?.bomVersionID ?? 0) || 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
@@ -8431,6 +8445,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .product-spec-sku-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 4px 8px; border: 1px solid #eadfce; border-radius: 7px; background: #fffaf2; color: #4d3927; text-align: left; }
 .product-spec-sku-item small { color: var(--muted); }
 .product-spec-sku-item:disabled { opacity: 0.5; cursor: not-allowed; }
+.product-bom-specs { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 6px; }
+.product-bom-spec-label { color: var(--muted); font-size: 12px; }
+.product-bom-spec-item { padding: 3px 8px; border: 1px solid #cfe0f4; border-radius: 999px; background: #f5f9ff; color: #24527a; font: inherit; font-size: 12px; cursor: pointer; }
+.product-bom-spec-item small { margin-left: 4px; color: #8a5a24; }
+.product-bom-spec-item:disabled { opacity: 0.5; cursor: not-allowed; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }

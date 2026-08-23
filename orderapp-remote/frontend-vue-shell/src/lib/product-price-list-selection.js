@@ -1,4 +1,4 @@
-import { isProductBomSpecCutover } from './product-spec-cutover.js'
+import { isProductBomSpecCutover, productSpecMigrationState } from './product-spec-cutover.js'
 
 export function priceListVisibleCategoryRows(categoryRows = []) {
   const rows = normalizeCategoryRows(categoryRows)
@@ -66,6 +66,29 @@ export function buildPriceListProductFamilies(items = []) {
     const selectableEntries = childEntries.length
       ? childEntries
       : entries.filter(({ item }) => isSelectableSpec(item))
+    const bomSpecAuthoritative = entries.some(({ item }) => (
+      item?.bom_spec_authoritative === true || item?.bomSpecAuthoritative === true
+    ))
+    const hasSelectableBOMSpec = selectableEntries.some(({ item }) => numberField(item?.bom_spec_id ?? item?.bomSpecID) > 0)
+    if (bomSpecAuthoritative && !hasSelectableBOMSpec) {
+      return {
+        ...parentItem,
+        product_id: parentProductID,
+        sku_id: parentProductID,
+        parent_product_id: parentProductID,
+        effective_parent_product_id: parentProductID,
+        name: priceListParentDisplayName(parentItem, priceListParentCatalogName(parentItem)),
+        parent_product_name: priceListParentDisplayName(parentItem, priceListParentCatalogName(parentItem)),
+        product_key: `product:${parentProductID}`,
+        default_sku_id: 0,
+        spec_identity_mode: 'bom_spec',
+        bom_spec_authoritative: true,
+        parent_item: parentItem,
+        sku_options: [],
+        no_quoteable_bom_specs: true,
+        __price_list_product_family: true,
+      }
+    }
     const explicitDefaultSkuID = firstPositiveNumber(
       parentItem?.default_bom_spec_id,
       parentItem?.defaultBomSpecID,
@@ -100,9 +123,14 @@ export function buildPriceListProductFamilies(items = []) {
         ...item,
         sku_id: skuID,
         ...(numberField(item?.bom_spec_id ?? item?.bomSpecID) > 0 ? {
+          ...(numberField(item?.bom_id ?? item?.bomID) > 0 ? { bom_id: numberField(item?.bom_id ?? item?.bomID) } : {}),
+          ...(numberField(item?.bom_version_id ?? item?.bomVersionID) > 0 ? { bom_version_id: numberField(item?.bom_version_id ?? item?.bomVersionID) } : {}),
           bom_spec_id: numberField(item?.bom_spec_id ?? item?.bomSpecID),
           bom_variant_id: numberField(item?.bom_variant_id ?? item?.bomVariantID),
-          migration_state: 'cutover',
+          migration_state: productSpecMigrationState(item),
+          ...((numberField(item?.bom_id ?? item?.bomID) > 0 || numberField(item?.bom_version_id ?? item?.bomVersionID) > 0 || item?.bom_spec_authoritative === true || item?.bomSpecAuthoritative === true)
+            ? { spec_identity_mode: 'bom_spec', bom_spec_authoritative: true }
+            : {}),
         } : {}),
         parent_product_id: parentProductID,
         effective_parent_product_id: parentProductID,
@@ -122,7 +150,10 @@ export function buildPriceListProductFamilies(items = []) {
       default_sku_id: defaultSkuID,
       ...(numberField(matchingDefaultEntry?.item?.bom_spec_id ?? matchingDefaultEntry?.item?.bomSpecID) > 0 ? {
         default_bom_spec_id: numberField(matchingDefaultEntry?.item?.bom_spec_id ?? matchingDefaultEntry?.item?.bomSpecID),
-        migration_state: 'cutover',
+        migration_state: productSpecMigrationState(matchingDefaultEntry?.item),
+        ...((numberField(matchingDefaultEntry?.item?.bom_id ?? matchingDefaultEntry?.item?.bomID) > 0 || numberField(matchingDefaultEntry?.item?.bom_version_id ?? matchingDefaultEntry?.item?.bomVersionID) > 0 || matchingDefaultEntry?.item?.bom_spec_authoritative === true || matchingDefaultEntry?.item?.bomSpecAuthoritative === true)
+          ? { spec_identity_mode: 'bom_spec', bom_spec_authoritative: true }
+          : {}),
       } : {}),
       parent_item: parentItem,
       sku_options: skuOptions,
@@ -175,9 +206,14 @@ export function defaultPriceListProductSpecSelections(families = []) {
       sku_id: defaultSkuID,
       ...(numberField(defaultSpec?.bom_spec_id ?? defaultSpec?.bomSpecID) > 0 ? {
         product_id: parentProductID,
+        ...(numberField(defaultSpec?.bom_id ?? defaultSpec?.bomID) > 0 ? { bom_id: numberField(defaultSpec?.bom_id ?? defaultSpec?.bomID) } : {}),
+        ...(numberField(defaultSpec?.bom_version_id ?? defaultSpec?.bomVersionID) > 0 ? { bom_version_id: numberField(defaultSpec?.bom_version_id ?? defaultSpec?.bomVersionID) } : {}),
         bom_spec_id: numberField(defaultSpec?.bom_spec_id ?? defaultSpec?.bomSpecID),
         bom_variant_id: numberField(defaultSpec?.bom_variant_id ?? defaultSpec?.bomVariantID),
-        migration_state: 'cutover',
+        migration_state: productSpecMigrationState(defaultSpec),
+        ...((numberField(defaultSpec?.bom_id ?? defaultSpec?.bomID) > 0 || numberField(defaultSpec?.bom_version_id ?? defaultSpec?.bomVersionID) > 0 || defaultSpec?.bom_spec_authoritative === true || defaultSpec?.bomSpecAuthoritative === true)
+          ? { spec_identity_mode: 'bom_spec', bom_spec_authoritative: true }
+          : {}),
       } : {}),
       selection_source: 'product_default',
       default_sku_id_at_selection: defaultSkuID,
@@ -223,9 +259,15 @@ export function normalizePriceListProductSpecSelections(selections = [], familie
     const selectedSpec = (family.sku_options || []).find((spec) => priceListSkuID(spec) === skuID) || {}
     if (numberField(selectedSpec?.bom_spec_id ?? selectedSpec?.bomSpecID) > 0) {
       row.product_id = parentProductID
+      if (numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID) > 0) row.bom_id = numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID)
+      if (numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID) > 0) row.bom_version_id = numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID)
       row.bom_spec_id = numberField(selectedSpec?.bom_spec_id ?? selectedSpec?.bomSpecID)
       row.bom_variant_id = numberField(selectedSpec?.bom_variant_id ?? selectedSpec?.bomVariantID)
-      row.migration_state = 'cutover'
+      row.migration_state = productSpecMigrationState(selectedSpec)
+      if (numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID) > 0 || numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID) > 0 || selectedSpec?.bom_spec_authoritative === true || selectedSpec?.bomSpecAuthoritative === true) {
+        row.spec_identity_mode = 'bom_spec'
+        row.bom_spec_authoritative = true
+      }
     }
     if (!validSkuIDs.has(skuID)) {
       row.selection_issue = 'invalid_spec'
@@ -314,9 +356,14 @@ export function togglePriceListProductSpecSelection(selections = [], family = {}
     sku_id: normalizedSkuID,
     ...(numberField(selectedSpec?.bom_spec_id ?? selectedSpec?.bomSpecID) > 0 ? {
       product_id: parentProductID,
+      ...(numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID) > 0 ? { bom_id: numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID) } : {}),
+      ...(numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID) > 0 ? { bom_version_id: numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID) } : {}),
       bom_spec_id: numberField(selectedSpec?.bom_spec_id ?? selectedSpec?.bomSpecID),
       bom_variant_id: numberField(selectedSpec?.bom_variant_id ?? selectedSpec?.bomVariantID),
-      migration_state: 'cutover',
+      migration_state: productSpecMigrationState(selectedSpec),
+      ...((numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID) > 0 || numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID) > 0 || selectedSpec?.bom_spec_authoritative === true || selectedSpec?.bomSpecAuthoritative === true)
+        ? { spec_identity_mode: 'bom_spec', bom_spec_authoritative: true }
+        : {}),
     } : {}),
     selection_source: 'explicit',
     default_sku_id_at_selection: defaultSkuID,

@@ -169,6 +169,9 @@ func (r Repository) ListProducts(ctx context.Context) ([]catalogapp.Product, err
 	if err != nil {
 		return nil, err
 	}
+	if err := attachProductBOMSpecProjection(ctx, r.pool, r.schema, ps); err != nil {
+		return nil, err
+	}
 	out := catalogProductsFromOptions(ps)
 	if err := r.attachProductGroupSummaries(ctx, out); err != nil {
 		return nil, err
@@ -184,6 +187,11 @@ func (r Repository) GetProduct(ctx context.Context, id int64) (*catalogapp.Produ
 	if err != nil || p == nil {
 		return nil, err
 	}
+	projected := []postgresinfra.ProductOption{*p}
+	if err := attachProductBOMSpecProjection(ctx, r.pool, r.schema, projected); err != nil {
+		return nil, err
+	}
+	*p = projected[0]
 	out := catalogProductFromOption(*p)
 	rows := []catalogapp.Product{out}
 	if err := r.attachProductGroupSummaries(ctx, rows); err != nil {
@@ -7479,12 +7487,40 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, SKUID: p.SKUID, ParentProductID: p.ParentProductID, EffectiveParentProductID: p.EffectiveParentProductID, SKUName: p.SKUName, SKUCode: p.SKUCode, Barcode: p.Barcode, SpecLabel: p.SpecLabel, NetContentQty: p.NetContentQty, NetContentUnit: p.NetContentUnit, IsDefaultSKU: p.IsDefaultSKU, DefaultSKUID: p.DefaultSKUID, EffectiveDefaultSKUID: p.EffectiveDefaultSKUID, DefaultSpecLabel: p.DefaultSpecLabel, AutoDerivedSKU: p.AutoDerivedSKU, DerivedUnitTemplateID: p.DerivedUnitTemplateID, DerivedSpecKey: p.DerivedSpecKey, DerivedSpecName: p.DerivedSpecName, DerivedSalesUnit: p.DerivedSalesUnit, DerivedSpecStatus: p.DerivedSpecStatus, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
+	out := catalogapp.Product{ID: p.ID, SKUID: p.SKUID, ParentProductID: p.ParentProductID, EffectiveParentProductID: p.EffectiveParentProductID, SKUName: p.SKUName, SKUCode: p.SKUCode, Barcode: p.Barcode, SpecLabel: p.SpecLabel, NetContentQty: p.NetContentQty, NetContentUnit: p.NetContentUnit, IsDefaultSKU: p.IsDefaultSKU, DefaultSKUID: p.DefaultSKUID, EffectiveDefaultSKUID: p.EffectiveDefaultSKUID, DefaultSpecLabel: p.DefaultSpecLabel, AutoDerivedSKU: p.AutoDerivedSKU, DerivedUnitTemplateID: p.DerivedUnitTemplateID, DerivedSpecKey: p.DerivedSpecKey, DerivedSpecName: p.DerivedSpecName, DerivedSalesUnit: p.DerivedSalesUnit, DerivedSpecStatus: p.DerivedSpecStatus, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount, SpecIdentityMode: p.SpecIdentityMode, BomSpecAuthoritative: p.BomSpecAuthoritative, MigrationState: p.MigrationState, LegacyCatalogProduct: p.LegacyCatalogProduct}
+	out.BOMSpecs = make([]catalogapp.BOMSpecOption, 0, len(p.BOMSpecs))
+	for _, spec := range p.BOMSpecs {
+		out.BOMSpecs = append(out.BOMSpecs, catalogapp.BOMSpecOption{ProductID: spec.ProductID, BomID: spec.BomID, BomVersionID: spec.BomVersionID, BomVersionNo: spec.BomVersionNo, BomSpecID: spec.BomSpecID, BomVariantID: spec.BomVariantID, SpecCode: spec.SpecCode, Barcode: spec.Barcode, SpecKey: spec.SpecKey, SpecName: spec.SpecName, InventoryUnit: spec.InventoryUnit, IsDefault: spec.IsDefault, SortOrder: spec.SortOrder})
+	}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})
 	}
 	return out
+}
+
+func attachProductBOMSpecProjection(ctx context.Context, pool *pgxpool.Pool, schema string, products []postgresinfra.ProductOption) error {
+	identities, err := postgresinfra.FetchProductSpecIdentities(ctx, pool, schema)
+	if err != nil {
+		return err
+	}
+	specsByProduct, err := postgresinfra.FetchProductBOMSpecs(ctx, pool, schema)
+	if err != nil {
+		return err
+	}
+	for i := range products {
+		parentID := products[i].ID
+		if products[i].ParentProductID > 0 {
+			parentID = products[i].ParentProductID
+		}
+		identity := identities[parentID]
+		products[i].MigrationState = identity.State
+		products[i].LegacyCatalogProduct = identity.LegacyCatalogProduct
+		products[i].BomSpecAuthoritative = identity.BomSpecAuthoritative
+		products[i].SpecIdentityMode = identity.SpecIdentityMode
+		products[i].BOMSpecs = append([]postgresinfra.BOMSpecOption(nil), specsByProduct[parentID]...)
+	}
+	return nil
 }
 
 func catalogProductsFromOptions(products []postgresinfra.ProductOption) []catalogapp.Product {

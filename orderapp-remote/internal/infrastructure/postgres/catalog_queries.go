@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	catalogdomain "orderapp/internal/domain/catalog"
 	salesdomain "orderapp/internal/domain/sales"
@@ -111,6 +112,27 @@ type ProductOption struct {
 	OrderUsageCount             int
 	RetailSpecs                 []int64
 	Tiers                       []ProductTierOption
+	SpecIdentityMode            string
+	BomSpecAuthoritative        bool
+	MigrationState              string
+	LegacyCatalogProduct        bool
+	BOMSpecs                    []BOMSpecOption
+}
+
+type BOMSpecOption struct {
+	ProductID     int64
+	BomID         int64
+	BomVersionID  int64
+	BomVersionNo  string
+	BomSpecID     int64
+	BomVariantID  int64
+	SpecCode      string
+	Barcode       string
+	SpecKey       string
+	SpecName      string
+	InventoryUnit string
+	IsDefault     bool
+	SortOrder     int
 }
 
 func FetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]Option, error) {
@@ -396,4 +418,91 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		out[i].Tiers = tierMap[out[i].ID]
 	}
 	return out, nil
+}
+
+type ProductSpecIdentityOption struct {
+	State                string
+	LegacyCatalogProduct bool
+	BomSpecAuthoritative bool
+	SpecIdentityMode     string
+}
+
+func FetchProductSpecIdentities(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64]ProductSpecIdentityOption, error) {
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT p.id,
+		       COALESCE(migration.state,'legacy'),
+		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)
+		FROM %s.products p
+		LEFT JOIN %s.product_bom_spec_migrations migration ON migration.product_id=p.id
+	`, schema, schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]ProductSpecIdentityOption)
+	for rows.Next() {
+		var id int64
+		var state string
+		var legacyCatalogProduct bool
+		if err := rows.Scan(&id, &state, &legacyCatalogProduct); err != nil {
+			return nil, err
+		}
+		authoritative := strings.EqualFold(strings.TrimSpace(state), "cutover") || !legacyCatalogProduct
+		mode := "legacy_sku"
+		if authoritative {
+			mode = "bom_spec"
+		}
+		out[id] = ProductSpecIdentityOption{
+			State: state, LegacyCatalogProduct: legacyCatalogProduct,
+			BomSpecAuthoritative: authoritative, SpecIdentityMode: mode,
+		}
+	}
+	return out, rows.Err()
+}
+
+func FetchProductBOMSpecs(ctx context.Context, pool *pgxpool.Pool, schema string) (map[int64][]BOMSpecOption, error) {
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT binding.output_id,
+		       binding.bom_id,
+		       version.id,
+		       COALESCE(version.version_no,''),
+		       spec.id,
+		       variant.id,
+		       COALESCE(spec.code,''),
+		       COALESCE(spec.barcode,''),
+		       COALESCE(spec.spec_key,''),
+		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
+		       COALESCE(variant.is_default,false),
+		       COALESCE(variant.sort_order,0)
+		FROM %s.production_bom_output_bindings binding
+		JOIN %s.products parent_product
+		  ON parent_product.id=binding.output_id
+		 AND COALESCE(parent_product.parent_product_id,0)=0
+		 AND parent_product.active=true
+		JOIN %s.production_bom_versions version
+		  ON version.id=binding.bom_version_id
+		 AND version.bom_id=binding.bom_id
+		 AND version.status='published'
+		JOIN %s.production_bom_specs spec ON spec.bom_id=binding.bom_id
+		JOIN %s.production_bom_version_variants variant
+		  ON variant.version_id=version.id
+		 AND variant.bom_spec_id=spec.id
+		WHERE binding.output_type='product'
+		  AND binding.is_default=true
+		ORDER BY binding.output_id,variant.sort_order,spec.spec_key,spec.id,variant.id
+	`, schema, schema, schema, schema, schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64][]BOMSpecOption)
+	for rows.Next() {
+		var row BOMSpecOption
+		if err := rows.Scan(&row.ProductID, &row.BomID, &row.BomVersionID, &row.BomVersionNo, &row.BomSpecID, &row.BomVariantID, &row.SpecCode, &row.Barcode, &row.SpecKey, &row.SpecName, &row.InventoryUnit, &row.IsDefault, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		out[row.ProductID] = append(out[row.ProductID], row)
+	}
+	return out, rows.Err()
 }

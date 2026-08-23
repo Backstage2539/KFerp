@@ -356,7 +356,7 @@
             >
               <div class="product-picker-row-head">
                 <label class="check-line">
-                  <input type="checkbox" :checked="isPdfProductSelected(priceListParentProductID(row))" @change="togglePdfProduct(row, $event.target.checked)" />
+                  <input type="checkbox" :disabled="row.no_quoteable_bom_specs" :checked="isPdfProductSelected(priceListParentProductID(row))" @change="togglePdfProduct(row, $event.target.checked)" />
                   <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
                 </label>
                 <div v-if="isPdfProductSelected(priceListParentProductID(row))" class="product-compact-status">
@@ -417,6 +417,9 @@
                   </div>
                 </div>
               </div>
+              <p v-if="row.no_quoteable_bom_specs" class="product-spec-selection-warning">
+                无可报价 BOM 规格
+              </p>
               <div v-if="productSpecSelectionIssueForFamily(row)" class="product-spec-selection-warning">
                 <strong>{{ productSpecSelectionIssueForFamily(row).message }}</strong>
                 <div class="product-spec-selection-warning-actions">

@@ -1315,11 +1315,14 @@ function consumeUnitLabel(unit) {
 
 function componentItemName(item) {
   if (item?.component_type === 'product' || item?.component_type === 'finished_product') {
-    const productName = item.component_product_name || `商品 #${item.component_product_id}`
-    const specName = item.component_bom_spec_name || item.component_spec_name || ''
+    const product = productByID(item.component_product_id)
+    const productName = product?.name || product?.product_name || item.component_product_name || `商品 #${item.component_product_id}`
+    const spec = (item.component_bom_spec_options || []).find((row) => Number(row.bom_spec_id || row.id || 0) === Number(item.component_bom_spec_id || 0))
+    const specName = spec?.name || spec?.spec_name || item.component_bom_spec_name || item.component_spec_name || ''
     return specName ? `${productName} · ${specName}` : productName
   }
-  return item?.material_name || `物料 #${item?.material_id || 0}`
+  const material = materialByID(item?.material_id)
+  return material?.name || material?.material_name || item?.material_name || `物料 #${item?.material_id || 0}`
 }
 
 function componentBomSpecOptionLabel(spec = {}) {
@@ -1461,12 +1464,15 @@ function materialLossRateDisplay(item = {}) {
   return `原料损耗 ${ratio(lossRate * 100)}，损耗后用量占比 ${ratio(effectiveRatio)}（配方比例 ÷ (1 - 原料损耗率)）`
 }
 
-function productionBomDraftItemFromItem(item = {}) {
+function productionBomDraftItemFromItem(item = {}, index = 0) {
   const componentType = (item.component_type === 'product' || item.component_type === 'finished_product') ? 'product' : 'material'
   const consumeUnit = item.consume_unit || 'ratio_pct'
+  const product = productByID(item.component_product_id)
+  const material = materialByID(item.material_id)
+  const spec = (item.component_bom_spec_options || []).find((row) => Number(row.bom_spec_id || row.id || 0) === Number(item.component_bom_spec_id || 0))
   return {
     id: Number(item.id || 0),
-    local_key: productionBomDraftItemKey(item),
+    local_key: String(item.local_key || '').trim() || productionBomDraftItemKey({ ...item, local_key: `bom-item-draft-${index}` }),
     bom_variant_id: Number(item.bom_variant_id || 0),
     material_id: Number(item.material_id || 0),
     component_type: componentType,
@@ -1476,17 +1482,32 @@ function productionBomDraftItemFromItem(item = {}) {
     consume_unit: consumeUnit,
     qty_per_unit: Number(item.qty_per_unit || 0),
     ratio_pct: Number(item.ratio_pct || 0),
+    material_name: material?.name || material?.material_name || item.material_name || '',
+    component_product_name: product?.name || product?.product_name || item.component_product_name || '',
+    component_bom_spec_name: spec?.name || spec?.spec_name || item.component_bom_spec_name || item.component_spec_name || '',
+    consume_unit_label: consumeUnitLabel(consumeUnit),
     material_loss_rate: componentType === 'material' && consumeUnit === 'ratio_pct'
       ? normalizedMaterialLossRateFromValue(item.material_loss_rate)
       : 0,
   }
 }
 
-function productionBomDraftVariantFromVariant(variant = {}, overrideItems = null) {
+function productionBomDraftItemPayloadFromItem(item = {}, index = 0) {
+  const pageItem = productionBomDraftItemFromItem(item, index)
+  const payload = { ...pageItem }
+  delete payload.material_name
+  delete payload.component_product_name
+  delete payload.component_bom_spec_name
+  delete payload.consume_unit_label
+  delete payload.local_key
+  return payload
+}
+
+function productionBomDraftVariantPayloadFromVariant(variant = {}, overrideItems = null) {
   const variantID = Number(variant.bom_variant_id || variant.id || 0)
   const lossRate = normalizedMaterialLossRateFromValue(variant.material_loss_rate)
-  const items = (overrideItems || variant.items || []).map((item) => {
-    const payload = productionBomDraftItemFromItem(item)
+  const items = (overrideItems || variant.items || []).map((item, index) => {
+    const payload = productionBomDraftItemPayloadFromItem(item, index)
     payload.material_loss_rate = lossRate > 0 && payload.component_type === 'material' && payload.consume_unit === 'ratio_pct'
       ? lossRate
       : 0
@@ -1524,7 +1545,7 @@ function validatedProductionBomDraftVariantPayloads(variants = bomVariants.value
   assignVariantSpecKeys(variants)
   let defaultCount = 0
   const payloads = variants.map((variant) => {
-    const payload = productionBomDraftVariantFromVariant(variant)
+    const payload = productionBomDraftVariantPayloadFromVariant(variant)
     if (!payload.name || !payload.inventory_unit) throw new Error('请填写每个规格的名称和库存单位')
     if (payload.is_default) defaultCount += 1
     return payload
@@ -1617,6 +1638,9 @@ async function reapplyProductionBomSpecTemplate() {
 function productionBomDraftItemFromForm() {
   const componentType = itemForm.component_type === 'product' ? 'product' : 'material'
   const consumeUnit = itemForm.consume_unit || 'ratio_pct'
+  const selectedProduct = componentType === 'product' ? productByID(itemForm.component_product_id) : null
+  const selectedMaterial = componentType === 'material' ? materialByID(itemForm.material_id) : null
+  const selectedSpec = componentType === 'product' ? selectedComponentBomSpec.value : null
   return {
     local_key: `bom-item-new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     material_id: Number(itemForm.material_id || 0),
@@ -1627,6 +1651,10 @@ function productionBomDraftItemFromForm() {
     consume_unit: consumeUnit,
     qty_per_unit: Number(itemForm.qty_per_unit || 0),
     ratio_pct: Number(itemForm.ratio_pct || 0),
+    material_name: selectedMaterial?.name || selectedMaterial?.material_name || '',
+    component_product_name: selectedProduct?.name || selectedProduct?.product_name || '',
+    component_bom_spec_name: selectedSpec?.name || selectedSpec?.spec_name || selectedSpec?.spec_key || '',
+    consume_unit_label: consumeUnitLabel(consumeUnit),
     material_loss_rate: versionMaterialLossRateEnabled.value && componentType === 'material' && consumeUnit === 'ratio_pct'
       ? selectedVersionMaterialLossRate.value
       : 0,
@@ -1641,7 +1669,7 @@ async function saveProductionBomDraftItems(items, basis = {}) {
   validateRecipeMode(items, lossRate)
   const body = bomVariants.value.length
     ? {
-        variants: bomVariants.value.map((variant) => productionBomDraftVariantFromVariant(
+        variants: bomVariants.value.map((variant) => productionBomDraftVariantPayloadFromVariant(
           variant,
           Number(variant.bom_variant_id || variant.id || 0) === Number(selectedBomVariant.value?.bom_variant_id || selectedBomVariant.value?.id || 0) ? items : null,
         )),
@@ -2550,7 +2578,7 @@ async function saveProductionBomVersionMeta() {
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
     const versionID = Number(selectedProductionBomVersionID.value || 0)
-    await saveProductionBomDraftItems(detailItems.value.map(productionBomDraftItemFromItem))
+    await saveProductionBomDraftItems(detailItems.value.map(productionBomDraftItemPayloadFromItem))
     ok.value = '已更新 BOM 草稿'
     await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
   })
@@ -2575,7 +2603,7 @@ async function saveItem() {
 async function deleteItem(itemKey) {
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
-    const nextItems = removeProductionBomDraftItem(detailItems.value, itemKey).map(productionBomDraftItemFromItem)
+    const nextItems = removeProductionBomDraftItem(detailItems.value, itemKey)
     if (selectedBomVariant.value) selectedBomVariant.value.items = nextItems
     else if (productionBomDetail.value) productionBomDetail.value.items = nextItems
     markBomWorkspaceDirty()
@@ -2745,7 +2773,7 @@ async function saveProductionBomRecord() {
 	    const isProductOutput = binding.output_type === 'product'
 	    const workspaceRecipe = isProductOutput
 	      ? { variants: validatedProductionBomDraftVariantPayloads() }
-	      : { items: detailItems.value.map(productionBomDraftItemFromItem) }
+	      : { items: detailItems.value.map(productionBomDraftItemPayloadFromItem) }
 	    await apiSend(`/api/production-boms/${bomForm.id}/draft-workspace`, {
 	      method: 'PUT',
 	      body: {

@@ -87,22 +87,24 @@ type ProductSpecIdentity struct {
 // SKU identity: price, order and inventory records stay anchored to the parent
 // product plus the immutable BOM specification identity.
 type ProductBOMSpecIdentity struct {
-	ParentProductID   int64
-	ParentProductName string
-	BomID             int64
-	BomVersionID      int64
-	BomSpecID         int64
-	BomVariantID      int64
-	SpecCode          string
-	Barcode           string
-	SpecKey           string
-	SpecName          string
-	InventoryUnit     string
-	MigrationState    string
-	Active            bool
-	Published         bool
-	IsDefault         bool
-	SortOrder         int
+	ParentProductID      int64
+	ParentProductName    string
+	BomID                int64
+	BomVersionID         int64
+	BomSpecID            int64
+	BomVariantID         int64
+	SpecCode             string
+	Barcode              string
+	SpecKey              string
+	SpecName             string
+	InventoryUnit        string
+	MigrationState       string
+	SpecIdentityMode     string
+	BomSpecAuthoritative bool
+	Active               bool
+	Published            bool
+	IsDefault            bool
+	SortOrder            int
 }
 
 type PriceTierTemplateUnitRule struct {
@@ -115,6 +117,7 @@ type PricingRuleTrialCommand struct {
 	PricingRuleID       int64                     `json:"pricing_rule_id"`
 	ProductID           int64                     `json:"product_id"`
 	CustomerID          int64                     `json:"customer_id,omitempty"`
+	BomID               int64                     `json:"bom_id,omitempty"`
 	BomVersionID        int64                     `json:"bom_version_id,omitempty"`
 	BomSpecID           int64                     `json:"bom_spec_id,omitempty"`
 	BomVariantID        int64                     `json:"bom_variant_id,omitempty"`
@@ -913,6 +916,9 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	input, productionOptions, err = pricingRuleTrialApplyProductionSelection(input, cmd, productionOptions)
 	if err != nil {
 		return nil, err
+	}
+	if cmd.BomID > 0 && input.BomID > 0 && cmd.BomID != input.BomID {
+		return nil, fmt.Errorf("BOM 不属于所选商品的当前默认已发布版本")
 	}
 	quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit)
 	if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
@@ -3396,8 +3402,8 @@ func validateResolvedProductBOMSpecIdentity(identity ProductBOMSpecIdentity, par
 	if !identity.Active {
 		return fmt.Errorf("商品 BOM 规格所属父商品已停用")
 	}
-	if !identity.Published || strings.TrimSpace(identity.MigrationState) != "cutover" {
-		return fmt.Errorf("商品 BOM 规格尚未切换到当前默认已发布 BOM")
+	if !identity.Published || !identity.BomSpecAuthoritative {
+		return fmt.Errorf("商品 BOM 规格尚未成为当前商品的规格权威")
 	}
 	if strings.TrimSpace(identity.SpecKey) == "" || strings.TrimSpace(identity.SpecName) == "" || strings.TrimSpace(identity.InventoryUnit) == "" {
 		return fmt.Errorf("商品 BOM 规格缺少规格键、名称或库存单位")
@@ -3412,9 +3418,12 @@ func applyProductBOMSpecUnitSnapshot(row map[string]any, identity ProductBOMSpec
 	unit := strings.TrimSpace(identity.InventoryUnit)
 	row["product_id"] = float64(identity.ParentProductID)
 	row["parent_product_id"] = float64(identity.ParentProductID)
+	row["bom_id"] = float64(identity.BomID)
 	row["bom_spec_id"] = float64(identity.BomSpecID)
 	row["bom_variant_id"] = float64(identity.BomVariantID)
-	row["migration_state"] = "cutover"
+	row["migration_state"] = strings.TrimSpace(identity.MigrationState)
+	row["spec_identity_mode"] = strings.TrimSpace(identity.SpecIdentityMode)
+	row["bom_spec_authoritative"] = identity.BomSpecAuthoritative
 	delete(row, "sku_id")
 	row["price_unit"] = priceUnit
 	row["inventory_unit"] = unit
@@ -3424,6 +3433,7 @@ func applyProductBOMSpecUnitSnapshot(row map[string]any, identity ProductBOMSpec
 	row["effective_sales_spec"] = map[string]any{
 		"product_id":                float64(identity.ParentProductID),
 		"parent_product_id":         float64(identity.ParentProductID),
+		"bom_id":                    float64(identity.BomID),
 		"bom_spec_id":               float64(identity.BomSpecID),
 		"bom_variant_id":            float64(identity.BomVariantID),
 		"spec_code":                 strings.TrimSpace(identity.SpecCode),
@@ -3436,18 +3446,20 @@ func applyProductBOMSpecUnitSnapshot(row map[string]any, identity ProductBOMSpec
 		"inventory_conversion_json": map[string]any{unit: map[string]any{unit: float64(1)}},
 	}
 	row["bom_spec_snapshot"] = map[string]any{
-		"bom_id":          float64(identity.BomID),
-		"bom_version_id":  float64(identity.BomVersionID),
-		"bom_spec_id":     float64(identity.BomSpecID),
-		"bom_variant_id":  float64(identity.BomVariantID),
-		"spec_code":       strings.TrimSpace(identity.SpecCode),
-		"barcode":         strings.TrimSpace(identity.Barcode),
-		"spec_key":        strings.TrimSpace(identity.SpecKey),
-		"spec_name":       strings.TrimSpace(identity.SpecName),
-		"inventory_unit":  unit,
-		"is_default":      identity.IsDefault,
-		"sort_order":      identity.SortOrder,
-		"migration_state": "cutover",
+		"bom_id":                 float64(identity.BomID),
+		"bom_version_id":         float64(identity.BomVersionID),
+		"bom_spec_id":            float64(identity.BomSpecID),
+		"bom_variant_id":         float64(identity.BomVariantID),
+		"spec_code":              strings.TrimSpace(identity.SpecCode),
+		"barcode":                strings.TrimSpace(identity.Barcode),
+		"spec_key":               strings.TrimSpace(identity.SpecKey),
+		"spec_name":              strings.TrimSpace(identity.SpecName),
+		"inventory_unit":         unit,
+		"is_default":             identity.IsDefault,
+		"sort_order":             identity.SortOrder,
+		"migration_state":        strings.TrimSpace(identity.MigrationState),
+		"spec_identity_mode":     strings.TrimSpace(identity.SpecIdentityMode),
+		"bom_spec_authoritative": identity.BomSpecAuthoritative,
 	}
 }
 
@@ -3660,6 +3672,8 @@ func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListComm
 type beanListProductSpecSelection struct {
 	ParentProductID         int64
 	SKUID                   int64
+	BomID                   int64
+	BomVersionID            int64
 	BomSpecID               int64
 	BomVariantID            int64
 	MigrationState          string
@@ -3909,8 +3923,14 @@ func beanListConcreteSpecSKUID(row map[string]any) int64 {
 	return skuID
 }
 
-func beanListBOMSpecIdentityKey(parentProductID, bomSpecID, bomVariantID int64) string {
-	return fmt.Sprintf("%d:bom:%d:%d", parentProductID, bomSpecID, bomVariantID)
+func beanListBOMSpecIdentityKey(parentProductID int64, identity ...int64) string {
+	if len(identity) >= 4 {
+		return fmt.Sprintf("%d:bom:%d:%d:%d:%d", parentProductID, identity[0], identity[1], identity[2], identity[3])
+	}
+	if len(identity) >= 2 {
+		return fmt.Sprintf("%d:bom:%d:%d", parentProductID, identity[0], identity[1])
+	}
+	return ""
 }
 
 func normalizeBeanListSalesSpecCountTierLabel(row map[string]any) (string, bool) {
@@ -4081,6 +4101,8 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 		selection := beanListProductSpecSelection{
 			ParentProductID:         int64(numberValue(selectionMap["parent_product_id"])),
 			SKUID:                   int64(numberValue(selectionMap["sku_id"])),
+			BomID:                   int64(numberValue(selectionMap["bom_id"])),
+			BomVersionID:            int64(numberValue(selectionMap["bom_version_id"])),
 			BomSpecID:               int64(numberValue(selectionMap["bom_spec_id"])),
 			BomVariantID:            int64(numberValue(selectionMap["bom_variant_id"])),
 			MigrationState:          strings.TrimSpace(stringValue(selectionMap["migration_state"])),
@@ -4093,9 +4115,6 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 		if selection.BomSpecID > 0 || selection.BomVariantID > 0 {
 			if selection.ParentProductID <= 0 || selection.BomSpecID <= 0 || selection.BomVariantID <= 0 {
 				return fmt.Errorf("商品规格选择无效：第%d项缺少父商品、BOM规格或BOM规格版本身份", idx+1)
-			}
-			if selection.MigrationState != "cutover" {
-				return fmt.Errorf("商品规格选择无效：第%d项 BOM规格仅允许用于已切换商品", idx+1)
 			}
 			if !hasBOMSpecResolver {
 				return fmt.Errorf("商品规格选择校验不可用：服务缺少当前默认已发布 BOM 规格身份校验能力")
@@ -4110,7 +4129,16 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			if err := validateResolvedProductBOMSpecIdentity(identity, selection.ParentProductID, selection.BomSpecID, selection.BomVariantID); err != nil {
 				return fmt.Errorf("商品规格选择无效：第%d项：%w", idx+1, err)
 			}
+			if selection.BomID > 0 && selection.BomID != identity.BomID {
+				return fmt.Errorf("商品规格选择无效：第%d项 BOM 不属于当前默认已发布版本", idx+1)
+			}
+			if selection.BomVersionID > 0 && selection.BomVersionID != identity.BomVersionID {
+				return fmt.Errorf("商品规格选择无效：第%d项 BOM 版本不属于当前默认已发布版本", idx+1)
+			}
 			key := beanListBOMSpecIdentityKey(selection.ParentProductID, selection.BomSpecID, selection.BomVariantID)
+			if selection.BomID > 0 || selection.BomVersionID > 0 {
+				key = beanListBOMSpecIdentityKey(selection.ParentProductID, selection.BomID, selection.BomVersionID, selection.BomSpecID, selection.BomVariantID)
+			}
 			if _, duplicate := selections[key]; duplicate {
 				return fmt.Errorf("商品规格选择无效：第%d项重复选择 BOM规格 %d", idx+1, selection.BomSpecID)
 			}
@@ -4276,8 +4304,13 @@ func beanListProductSpecSelectionKeyForRow(parentProductID int64, row map[string
 	}
 	if bomSpecID := int64(numberValue(row["bom_spec_id"])); bomSpecID > 0 {
 		bomVariantID := int64(numberValue(row["bom_variant_id"]))
+		bomID := int64(numberValue(row["bom_id"]))
+		bomVersionID := int64(numberValue(row["bom_version_id"]))
 		if bomVariantID <= 0 {
 			return "", fmt.Sprintf("BOM规格 %d", bomSpecID)
+		}
+		if bomID > 0 || bomVersionID > 0 {
+			return beanListBOMSpecIdentityKey(parentProductID, bomID, bomVersionID, bomSpecID, bomVariantID), fmt.Sprintf("BOM规格 %d", bomSpecID)
 		}
 		return beanListBOMSpecIdentityKey(parentProductID, bomSpecID, bomVariantID), fmt.Sprintf("BOM规格 %d", bomSpecID)
 	}

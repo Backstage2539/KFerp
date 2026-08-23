@@ -450,7 +450,7 @@ test('product archive page renders child SKUs inside the parent name cell instea
   assert.match(source, /productArchiveRowsWithSkus\(publicSkuRowsRaw\.value\)/)
   assert.match(template, /class="product-spec-skus"/)
   assert.match(template, /v-for="sku in row\.sku_rows"/)
-  assert.match(template, /\{\{ row\.sku_rows\.length \}\} 个规格 SKU/)
+  assert.match(template, /\{\{ row\.sku_rows\.length \}\} 个历史规格/)
 })
 
 test('customer product alias payload binds a customer-facing name to one product record', () => {
