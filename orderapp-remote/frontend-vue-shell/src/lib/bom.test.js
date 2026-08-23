@@ -1078,7 +1078,7 @@ test('switching BOM output to material clears the spec group and saves a flat re
   assert.match(script, /function syncBomOutputType\(\)/)
   assert.match(script, /productionBomDetail\.value\.variants\s*=\s*\[\]/)
   assert.match(script, /isProductOutput\s*\?\s*\{\s*variants:/)
-  assert.match(script, /:\s*\{\s*items:\s*detailItems\.value\.map\(productionBomDraftItemFromItem\)/)
+  assert.match(script, /:\s*\{\s*items:\s*detailItems\.value\.map\(productionBomDraftItemPayloadFromItem\)/)
   assert.doesNotMatch(script, /body:\s*\{[\s\S]{0,500}items:[\s\S]{0,500}variants:/)
   const hint = source.match(/改为物料产出[\s\S]{0,60}/)?.[0] || ''
   assert.match(hint, /规格组|规格模板/)
