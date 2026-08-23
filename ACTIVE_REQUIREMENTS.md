@@ -20,8 +20,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - Unit/API: targeted and full Go repository suite GREEN
 - Frontend/build: prior 1023/1023 frontend tests; follow-up targeted BOM-spec preview RED→GREEN, local full frontend 1024/1024, server full frontend 1024/1024, and Vite 6594-module build GREEN (existing chunk-size warning only)
-  - `scripts/verify_kferp.sh all`: GREEN; `git diff --check`: GREEN
-- Server release gates: Vue 1023/1023, miniapp 217/217 + typecheck + mp-weixin build, Go full suite, Docker image build GREEN
+- `scripts/verify_kferp.sh changed`: GREEN; `git diff --check`: GREEN
+- Server release gates: Vue 1024/1024, miniapp 217/217 + typecheck + mp-weixin build, Go full suite, Docker image build GREEN
   - Manual: Van development acceptance
   - Review/acceptance: pending
 - Deployment: development deployed `4e610d981467697f19ff82ee5ee91c8e5e02f496` via `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823124932-4e610d981467`; rollback image `kferp-orderapp-rollback:development-20260823124932-4e610d981467`; `erp_orderapp` running, PostgreSQL healthy, unauthenticated requirement API HTTP 401, authenticated `https://dev.qacoohee.com/app/login` HTTP 200, `/app/` HTTP 303 as configured, and authenticated requirement API HTTP 200 contains PR-604. Miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
