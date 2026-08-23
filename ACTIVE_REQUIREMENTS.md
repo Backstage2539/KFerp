@@ -31,11 +31,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-604-PRICE-TRIAL-PRODUCT-IDENTITY
 - Branch: codex/pr604-price-trial-product-not-found-20260823
 - Owner/session: Codex / 2026-08-23
-- Status: implementation complete; development deployment pending
+- Status: development deployed `0ef19e12093dfe1586c5388170ae364203176bac`; Van acceptance pending
 - Scope: price-list pricing-rule trial must submit the parent product ID together with the selected BOM/version/spec/variant identity; preserve that identity through the PDF preview projection.
-- Verifier: targeted frontend RED→GREEN for BOM-spec trial payload and PDF projection; `git diff --check` GREEN. Full release gates run by development deployment.
+- Verifier: targeted frontend RED→GREEN for BOM-spec trial payload and PDF projection; local related frontend 286/286 GREEN; remote Vue 1025/1025, Vite 6594 modules, miniapp 217/217 + typecheck + mp-weixin build, and Go full suite GREEN; `git diff --check` GREEN.
 - Manual: Van development acceptance
-- Deployment: pending; development only, main/production out of scope.
+- Deployment: development deployed with `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823131942-0ef19e12093d`; rollback image `kferp-orderapp-rollback:development-20260823131942-0ef19e12093d`; external login smoke HTTP 200; `erp_orderapp`/`erp_docconvert` running and PostgreSQL healthy; miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
 
 ### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
 - Branch: codex/pr600-bom-spec-groups
