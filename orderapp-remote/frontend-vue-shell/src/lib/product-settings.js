@@ -856,6 +856,35 @@ export function priceTablePricingRuleTrialCacheKey(payload = {}) {
   ].join(':')
 }
 
+function priceTableTrialProductID(row = {}) {
+  const bomSpecID = [
+    row.bom_spec_id,
+    row.bomSpecID,
+    row.default_bom_spec_id,
+    row.defaultBOMSpecID,
+  ].map(normalizePositiveNumber).find((value) => value > 0) || 0
+  const productCandidates = bomSpecID > 0
+    ? [
+        row.parent_product_id,
+        row.parentProductID,
+        row.effective_parent_product_id,
+        row.effectiveParentProductID,
+        row.product_id,
+        row.productID,
+        row.productId,
+        row.product_key,
+        row.productKey,
+      ]
+    : [
+        row.product_id,
+        row.productID,
+        row.productId,
+        row.product_key,
+        row.productKey,
+      ]
+  return productCandidates.map(normalizePositiveNumber).find((value) => value > 0) || 0
+}
+
 export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
   const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
   if (!['pricing_rule', 'tier_template'].includes(pricingMode)) return row
@@ -890,7 +919,7 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
   const rowRuleID = Number(row.pricing_rule_id ?? row.pricingRuleID ?? 0) || 0
   const trialRuleID = Number(trial.pricing_rule_id ?? trial.pricingRuleID ?? rowRuleID) || 0
   if (rowRuleID > 0 && trialRuleID > 0 && rowRuleID !== trialRuleID) return row
-  const rowProductID = Number(row.product_id ?? row.productID ?? row.productId ?? 0) || 0
+  const rowProductID = priceTableTrialProductID(row)
   const trialProductID = Number(trial.product_id ?? trial.productID ?? trial.productId ?? rowProductID) || 0
   if (rowProductID > 0 && trialProductID > 0 && rowProductID !== trialProductID) return row
   const priceUnit = String(trial.quote_unit ?? trial.quoteUnit ?? row.price_unit ?? row.priceUnit ?? '').trim() || 'kg'
