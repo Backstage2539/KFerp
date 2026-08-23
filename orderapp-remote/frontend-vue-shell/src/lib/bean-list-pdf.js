@@ -153,7 +153,7 @@ export function buildBeanListPdfGroups(items = [], listType = 'commercial', opti
   const customizers = options.customizers && typeof options.customizers === 'object' ? options.customizers : {}
   const sourceRows = items
     .filter((item) => item?.[metaKey]?.code)
-    .filter((item) => !hasProductFilter || selectedIDs.has(productIDOf(item)))
+    .filter((item) => !hasProductFilter || itemSelectionIDs(item).some((id) => selectedIDs.has(id)))
     .filter((item) => !hasCategoryFilter || visibleCategoryCodes.has(firstCodePart(item[metaKey].code)))
     .slice()
     .sort((a, b) => compareBeanCodes(a[metaKey].code, b[metaKey].code))
@@ -206,7 +206,7 @@ export function buildBeanListPdfGroupsFromCategoryRows(categoryRows = [], listTy
       const sourceItems = Array.isArray(row?.items) ? row.items : (Array.isArray(row?.rows) ? row.rows : [])
       const items = sourceItems
         .filter((item) => item?.[metaKey]?.code)
-        .filter((item) => !hasProductFilter || selectedIDs.has(productIDOf(item)))
+        .filter((item) => !hasProductFilter || itemSelectionIDs(item).some((id) => selectedIDs.has(id)))
       return {
         categoryCode,
         categoryLabel,
@@ -1113,6 +1113,20 @@ function copyCustomizers(value, validProductIDs) {
 
 function productIDOf(item) {
   return String(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? item?.name ?? '')
+}
+
+function itemSelectionIDs(item = {}) {
+  return [...new Set([
+    item?.product_id,
+    item?.productID,
+    item?.productId,
+    item?.sku_id,
+    item?.skuID,
+    item?.skuId,
+    item?.bom_spec_id,
+    item?.bomSpecID,
+    productIDOf(item),
+  ].map((value) => String(value ?? '').trim()).filter(Boolean))]
 }
 
 function copyGreenPriceOverrides(value) {
