@@ -300,6 +300,20 @@ export function productionBomVersionWarning(row = {}) {
   return `当前引用 ${current}，最新 ${latest}`
 }
 
+export function productionBomDraftItemKey(item = {}, index = 0) {
+  const localKey = String(item.local_key || '').trim()
+  if (localKey) return localKey
+  const id = Number(item.id || 0)
+  if (id > 0) return `bom-item:${id}`
+  return `bom-item:index:${index}`
+}
+
+export function removeProductionBomDraftItem(items = [], targetKey = '') {
+  const key = String(targetKey || '').trim()
+  if (!key) return Array.isArray(items) ? [...items] : []
+  return (Array.isArray(items) ? items : []).filter((item, index) => productionBomDraftItemKey(item, index) !== key)
+}
+
 export function bomSourceLabel(row = {}) {
   return productionBomLabel(row)
 }

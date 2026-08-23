@@ -1195,11 +1195,18 @@ func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params doma
 }
 
 func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd PricingRuleTrialCommand, options PricingRuleTrialProductionOptions) (domain.ProductInput, PricingRuleTrialProductionOptions, error) {
+	explicitBomSpecSelection := cmd.BomSpecID > 0 || cmd.BomVariantID > 0
 	if cmd.BomSpecID > 0 {
 		input.BomSpecID = cmd.BomSpecID
+		if cmd.BomVariantID <= 0 {
+			input.BomVariantID = 0
+		}
 	}
 	if cmd.BomVariantID > 0 {
 		input.BomVariantID = cmd.BomVariantID
+		if cmd.BomSpecID <= 0 {
+			input.BomSpecID = 0
+		}
 	}
 	options = pricingRuleTrialNormalizeProductionOptions(input, options)
 	if len(options.BomVersions) > 0 {
@@ -1245,7 +1252,23 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 		input.BomVersionNo = ""
 		input.BomUsageMode = "production_bom_output"
 	}
-	input = pricingRuleTrialApplyBOMSpecSelection(input, options)
+	if len(options.BomSpecs) == 0 && explicitBomSpecSelection {
+		return input, options, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
+	}
+	// Product inputs created before BOM-owned specifications may still carry a
+	// legacy spec identity. Without an explicit request, let the selected BOM
+	// version choose its default (or keep the historical sales-unit path when
+	// the version has no specs) instead of treating that legacy identity as a
+	// cross-version selection.
+	if !explicitBomSpecSelection {
+		input.BomSpecID = 0
+		input.BomVariantID = 0
+	}
+	var selectionErr error
+	input, selectionErr = pricingRuleTrialApplyBOMSpecSelection(input, options)
+	if selectionErr != nil {
+		return input, options, selectionErr
+	}
 
 	if len(options.ProcessRoutes) > 0 {
 		var selected *PricingRuleTrialProcessRouteOption
@@ -1297,9 +1320,9 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 	return input, options, nil
 }
 
-func pricingRuleTrialApplyBOMSpecSelection(input domain.ProductInput, options PricingRuleTrialProductionOptions) domain.ProductInput {
+func pricingRuleTrialApplyBOMSpecSelection(input domain.ProductInput, options PricingRuleTrialProductionOptions) (domain.ProductInput, error) {
 	if len(options.BomSpecs) == 0 {
-		return input
+		return input, nil
 	}
 	versionID := input.BomVersionID
 	selected := make([]PricingRuleTrialBomSpecOption, 0, len(options.BomSpecs))
@@ -1309,36 +1332,59 @@ func pricingRuleTrialApplyBOMSpecSelection(input domain.ProductInput, options Pr
 		}
 	}
 	if len(selected) == 0 {
-		return input
+		return input, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
 	}
+	var selectedOption *PricingRuleTrialBomSpecOption
 	if input.BomVariantID > 0 {
-		for _, option := range selected {
+		for index := range selected {
+			option := &selected[index]
 			if option.BomVariantID == input.BomVariantID {
 				input.BomSpecID = option.BomSpecID
-				return input
+				selectedOption = option
+				break
 			}
 		}
-		return input
+		if selectedOption == nil {
+			return input, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
+		}
 	}
-	if input.BomSpecID > 0 {
-		for _, option := range selected {
+	if selectedOption == nil && input.BomSpecID > 0 {
+		for index := range selected {
+			option := &selected[index]
 			if option.BomSpecID == input.BomSpecID {
 				input.BomVariantID = option.BomVariantID
-				return input
+				selectedOption = option
+				break
 			}
 		}
-		return input
-	}
-	for _, option := range selected {
-		if option.IsDefault {
-			input.BomSpecID = option.BomSpecID
-			input.BomVariantID = option.BomVariantID
-			return input
+		if selectedOption == nil {
+			return input, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
 		}
 	}
-	input.BomSpecID = selected[0].BomSpecID
-	input.BomVariantID = selected[0].BomVariantID
-	return input
+	if selectedOption == nil {
+		for index := range selected {
+			if selected[index].IsDefault {
+				selectedOption = &selected[index]
+				break
+			}
+		}
+	}
+	if selectedOption == nil {
+		selectedOption = &selected[0]
+	}
+	input.BomSpecID = selectedOption.BomSpecID
+	input.BomVariantID = selectedOption.BomVariantID
+	unit := strings.TrimSpace(selectedOption.InventoryUnit)
+	if unit == "" {
+		return input, fmt.Errorf("BOM规格缺少库存单位，无法试算")
+	}
+	// A BOM-owned product specification is the finished-goods identity. Its
+	// inventory unit, rather than a legacy child-SKU sales unit, is authoritative
+	// for the cost and price-trial context.
+	input.InventoryUnit = unit
+	input.QuoteUnit = unit
+	input.OrderUnit = unit
+	return input, nil
 }
 
 func pricingRuleTrialNormalizeProductionOptions(input domain.ProductInput, options PricingRuleTrialProductionOptions) PricingRuleTrialProductionOptions {
@@ -1508,6 +1554,14 @@ func pricingRuleTrialOperationTemplateName(options []PricingRuleTrialOperationTe
 }
 
 func pricingRuleTrialResolvedQuoteUnit(input domain.ProductInput, requested string) string {
+	// Once a BOM-owned specification is selected, its inventory unit is the
+	// finished-goods pricing identity. Ignore a stale legacy quote_unit (for
+	// example kg) so a 454袋 variant is never presented as a per-kg result.
+	if input.BomSpecID > 0 && input.BomVariantID > 0 {
+		if bomUnit := strings.TrimSpace(input.InventoryUnit); bomUnit != "" {
+			return bomUnit
+		}
+	}
 	quoteUnit := strings.TrimSpace(requested)
 	if quoteUnit == "" {
 		quoteUnit = strings.TrimSpace(input.QuoteUnit)

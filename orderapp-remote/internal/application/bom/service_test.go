@@ -3,6 +3,7 @@ package bom
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -26,6 +27,21 @@ type fakeRepo struct {
 	syncedYield                   SyncProductYieldCommand
 	productionBomFilter           ProductionBomFilter
 	boundOutput                   BindProductionBomOutputCommand
+}
+
+func TestNormalizeProductionBomDraftWorkspaceRecipePayloadByOutputType(t *testing.T) {
+	items := []ProductionBomDraftItem{{MaterialID: 1}}
+	variants := []ProductionBomDraftVariant{{SpecKey: "bag-454"}}
+
+	materialItems, materialVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("material", items, variants)
+	if !reflect.DeepEqual(materialItems, items) || materialVariants != nil {
+		t.Fatalf("material payload = items %+v variants %+v, want items preserved and variants nil", materialItems, materialVariants)
+	}
+
+	productItems, productVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("product", items, variants)
+	if productItems != nil || !reflect.DeepEqual(productVariants, variants) {
+		t.Fatalf("product payload = items %+v variants %+v, want items nil and variants preserved", productItems, productVariants)
+	}
 }
 
 type atomicPublishRepo struct {

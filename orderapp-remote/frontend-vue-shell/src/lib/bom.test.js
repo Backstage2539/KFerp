@@ -13,10 +13,25 @@ import {
   isBomProductCandidate,
   isProductionBomOutputProductCandidate,
   productionBomDetailAsRecipeDetail,
+  productionBomDraftItemKey,
+  removeProductionBomDraftItem,
   sortBomContextProducts,
   filterProductionBomCatalog,
   bomProductOptionLabel,
 } from './bom.js'
+
+test('production BOM draft item deletion keeps persisted and unsaved rows independent', () => {
+  const rows = [
+    { id: 101, material_id: 1 },
+    { id: 0, local_key: 'draft-item-new-1', material_id: 2 },
+    { id: 0, local_key: 'draft-item-new-2', material_id: 3 },
+  ]
+  assert.equal(productionBomDraftItemKey(rows[0], 0), 'bom-item:101')
+  assert.equal(productionBomDraftItemKey(rows[1], 1), 'draft-item-new-1')
+  assert.deepEqual(removeProductionBomDraftItem(rows, 'bom-item:101').map((row) => row.material_id), [2, 3])
+  assert.deepEqual(removeProductionBomDraftItem(rows, 'draft-item-new-1').map((row) => row.material_id), [1, 3])
+  assert.deepEqual(removeProductionBomDraftItem(rows, 'draft-item-new-2').map((row) => row.material_id), [1, 2])
+})
 
 test('production BOM inline categories paginate every category independently and keep parent direct rows', () => {
   assert.equal(typeof bomLib.productionBomAccordionPageState, 'undefined')
@@ -1060,9 +1075,11 @@ test('switching BOM output to material clears the spec group and saves a flat re
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1] || source
 
-  assert.match(script, /outputChangedToMaterial/)
-  assert.match(script, /variants:\s*\[\]/)
-  assert.match(script, /saveProductionBomDraftItems\(\[\],|outputChangedToMaterial[\s\S]{0,200}skip|return$/m)
+  assert.match(script, /function syncBomOutputType\(\)/)
+  assert.match(script, /productionBomDetail\.value\.variants\s*=\s*\[\]/)
+  assert.match(script, /isProductOutput\s*\?\s*\{\s*variants:/)
+  assert.match(script, /:\s*\{\s*items:\s*detailItems\.value\.map\(productionBomDraftItemFromItem\)/)
+  assert.doesNotMatch(script, /body:\s*\{[\s\S]{0,500}items:[\s\S]{0,500}variants:/)
   const hint = source.match(/改为物料产出[\s\S]{0,60}/)?.[0] || ''
   assert.match(hint, /规格组|规格模板/)
 })

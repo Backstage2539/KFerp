@@ -43,6 +43,8 @@ type apiFakeRepo struct {
 	createdProductionVersion                 bomapp.ProductionBomVersion
 	updatedProductionDraft                   bomapp.ProductionBomVersion
 	updatedProductionDraftCommand            bomapp.UpdateProductionBomVersionDraftCommand
+	workspaceDetail                          bomapp.ProductionBomDetail
+	workspaceCommand                         bomapp.ProductionBomDraftWorkspaceCommand
 	reappliedProductionDraft                 bomapp.ProductionBomVersion
 	reappliedProductionDraftCommand          bomapp.ReapplyProductionBomSpecTemplateVersionCommand
 	productionBomUsageProductID              int64
@@ -206,6 +208,14 @@ func (r *apiFakeRepo) UpdateProductionBomVersionDraft(_ context.Context, cmd bom
 		return r.updatedProductionDraft, nil
 	}
 	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft", OutputQty: cmd.OutputQty, OutputUnit: cmd.OutputUnit, ProcessRouteID: cmd.ProcessRouteID, SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
+}
+
+func (r *apiFakeRepo) UpdateProductionBomDraftWorkspace(_ context.Context, cmd bomapp.ProductionBomDraftWorkspaceCommand) (bomapp.ProductionBomDetail, error) {
+	r.workspaceCommand = cmd
+	if r.workspaceDetail.ID > 0 {
+		return r.workspaceDetail, nil
+	}
+	return bomapp.ProductionBomDetail{ProductionBomSummary: bomapp.ProductionBomSummary{ID: cmd.Bom.ID, OutputType: cmd.Bom.OutputType, OutputID: cmd.Bom.OutputID}}, nil
 }
 
 func (r *apiFakeRepo) ReapplyProductionBomSpecTemplateVersion(_ context.Context, cmd bomapp.ReapplyProductionBomSpecTemplateVersionCommand) (bomapp.ProductionBomVersion, error) {

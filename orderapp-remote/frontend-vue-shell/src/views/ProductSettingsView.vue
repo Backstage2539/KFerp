@@ -8018,6 +8018,31 @@ watch(() => pricingRuleTrialForm.value.bom_variant_id, (variantID) => {
   const option = pricingRuleTrialBomSpecOptions.value.find((row) => Number(row?.bom_variant_id || 0) === Number(variantID || 0))
   if (option && Number(option.bom_spec_id || 0) > 0) {
     pricingRuleTrialForm.value.bom_spec_id = Number(option.bom_spec_id)
+    const inventoryUnit = String(option.inventory_unit || '').trim()
+    if (inventoryUnit) pricingRuleTrialForm.value.quote_unit = inventoryUnit
+    const resultVariantID = Number(pricingRuleTrialResult.value?.bom_variant_id || 0)
+    if (resultVariantID > 0 && resultVariantID !== Number(variantID || 0)) {
+      pricingRuleTrialResult.value = null
+      pricingRuleTrialActiveExplanation.value = ''
+    }
+  }
+})
+
+watch(() => pricingRuleTrialForm.value.bom_version_id, (versionID) => {
+  if (restoringPricingRuleTrialReturnState) return
+  const selectedVersionID = Number(versionID || 0)
+  const resultVersionID = Number(pricingRuleTrialResult.value?.bom_version_id || 0)
+  const selectedVariantID = Number(pricingRuleTrialForm.value.bom_variant_id || 0)
+  const availableVariants = pricingRuleTrialBomSpecOptions.value.filter((option) => (
+    selectedVersionID <= 0 || Number(option?.version_id || 0) === selectedVersionID
+  ))
+  if (selectedVariantID > 0 && !availableVariants.some((option) => Number(option?.bom_variant_id || 0) === selectedVariantID)) {
+    pricingRuleTrialForm.value.bom_variant_id = 0
+    pricingRuleTrialForm.value.bom_spec_id = 0
+  }
+  if (resultVersionID > 0 && resultVersionID !== selectedVersionID) {
+    pricingRuleTrialResult.value = null
+    pricingRuleTrialActiveExplanation.value = ''
   }
 })
 

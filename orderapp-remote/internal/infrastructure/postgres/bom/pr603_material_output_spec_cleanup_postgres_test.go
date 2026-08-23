@@ -73,11 +73,72 @@ func TestUpdateProductionBomToMaterialOutputClearsDraftSpecGroupPostgres(t *test
 		VersionID: draftVersionID,
 		OutputQty: 1, OutputUnit: "kg",
 		Items: []bomapp.ProductionBomDraftItem{{ComponentType: "material", MaterialID: componentMaterialID, ConsumeUnit: "kg", QtyPerUnit: 1}},
-		Actor:      "pr603-owner",
+		Actor: "pr603-owner",
 	}); err != nil {
 		t.Fatalf("flat recipe save after conversion: %v", err)
 	}
 	if err := repo.PublishProductionBomVersion(ctx, bomapp.PublishProductionBomVersionCommand{VersionID: draftVersionID, Actor: "pr603-owner"}); err != nil {
 		t.Fatalf("publish after conversion must succeed, got %v", err)
+	}
+}
+
+func TestProductionBomDraftWorkspaceReplacesMaterialItemsIncludingEmptyListPostgres(t *testing.T) {
+	ctx, pool, schema := newPR600BomMaintenanceTestDB(t)
+	var outputMaterialID, firstComponentID, secondComponentID int64
+	for _, row := range []struct {
+		code   string
+		name   string
+		target *int64
+	}{
+		{code: "PR604-OUT", name: "PR604 物料产出", target: &outputMaterialID},
+		{code: "PR604-COMP-1", name: "PR604 组件一", target: &firstComponentID},
+		{code: "PR604-COMP-2", name: "PR604 组件二", target: &secondComponentID},
+	} {
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.materials(code,name,kind,unit,cost_unit,purchase_price)
+			VALUES($1,$2,'bean','kg','kg',10) RETURNING id
+		`, schema), row.code, row.name).Scan(row.target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := NewRepository(pool, schema)
+	created, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{
+		Name: "PR604 物料产出 BOM", OutputType: "material", OutputID: outputMaterialID, OutputMaterialID: outputMaterialID,
+		OutputQty: 1, OutputUnit: "kg", Actor: "pr604-owner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := func(items []bomapp.ProductionBomDraftItem, variants []bomapp.ProductionBomDraftVariant) {
+		t.Helper()
+		_, saveErr := repo.UpdateProductionBomDraftWorkspace(ctx, bomapp.ProductionBomDraftWorkspaceCommand{
+			Bom:     bomapp.UpdateProductionBomCommand{ID: created.ID, Name: "PR604 物料产出 BOM", OutputType: "material", OutputID: outputMaterialID, OutputMaterialID: outputMaterialID, OutputUnit: "kg", Status: "active", UpdateOutputBinding: true, Actor: "pr604-owner"},
+			Version: bomapp.UpdateProductionBomVersionDraftCommand{VersionID: created.LatestVersionID, OutputQty: 1, OutputUnit: "kg", Items: items, Variants: variants, Actor: "pr604-owner"},
+		})
+		if saveErr != nil {
+			t.Fatal(saveErr)
+		}
+	}
+
+	workspace([]bomapp.ProductionBomDraftItem{
+		{ComponentType: "material", MaterialID: firstComponentID, ConsumeUnit: "kg", QtyPerUnit: 0.4},
+		{ComponentType: "material", MaterialID: secondComponentID, ConsumeUnit: "kg", QtyPerUnit: 0.6},
+	}, []bomapp.ProductionBomDraftVariant{{SpecKey: "legacy-ignored", Name: "不应写入", InventoryUnit: "袋", IsDefault: true}})
+	var itemCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_bom_version_items WHERE version_id=$1 AND variant_id=0`, schema), created.LatestVersionID).Scan(&itemCount); err != nil {
+		t.Fatal(err)
+	}
+	if itemCount != 2 {
+		t.Fatalf("workspace material items after replacement = %d, want 2", itemCount)
+	}
+
+	// An explicit empty JSON array is a real replacement, not an omitted field.
+	workspace([]bomapp.ProductionBomDraftItem{}, []bomapp.ProductionBomDraftVariant{{SpecKey: "legacy-ignored-again", Name: "不应写入", InventoryUnit: "袋", IsDefault: true}})
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_bom_version_items WHERE version_id=$1`, schema), created.LatestVersionID).Scan(&itemCount); err != nil {
+		t.Fatal(err)
+	}
+	if itemCount != 0 {
+		t.Fatalf("workspace empty material items must clear persisted rows, got %d", itemCount)
 	}
 }

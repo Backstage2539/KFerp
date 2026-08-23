@@ -247,6 +247,42 @@ func TestProductionBomDraftAPIUsesSelectedComponentSpecInventoryUnit(t *testing.
 	}
 }
 
+func TestProductionBomDraftWorkspaceAPINormalizesRecipeBranchByOutputType(t *testing.T) {
+	repo := &apiFakeRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/production-boms/11/draft-workspace", strings.NewReader(`{
+		"name":"物料草稿","output_type":"material","output_id":95,"version_id":103,
+		"items":[{"component_type":"material","material_id":7,"consume_unit":"kg","qty_per_unit":1}],
+		"variants":[{"spec_key":"ignored","name":"不应传入物料分支","inventory_unit":"袋","is_default":true}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("draft workspace status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.workspaceCommand.Version.Items) != 1 || repo.workspaceCommand.Version.Variants != nil {
+		t.Fatalf("material workspace recipe branch = items=%+v variants=%#v", repo.workspaceCommand.Version.Items, repo.workspaceCommand.Version.Variants)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/production-boms/11/draft-workspace", strings.NewReader(`{
+		"name":"商品草稿","output_type":"product","output_id":7,"version_id":103,
+		"items":[{"component_type":"material","material_id":7,"consume_unit":"kg","qty_per_unit":1}],
+		"variants":[{"spec_key":"spec-1","name":"227g","inventory_unit":"袋","is_default":true}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("product draft workspace status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.workspaceCommand.Version.Items != nil || len(repo.workspaceCommand.Version.Variants) != 1 {
+		t.Fatalf("product workspace recipe branch = items=%#v variants=%+v", repo.workspaceCommand.Version.Items, repo.workspaceCommand.Version.Variants)
+	}
+}
+
 func TestProductionBomUpdateDoesNotTouchGroupAssignmentWhenGroupFieldsOmitted(t *testing.T) {
 	repo := &apiFakeRepo{
 		updatedProductionBom: bomapp.ProductionBomSummary{

@@ -1033,7 +1033,7 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 				       variant.id,
 				       COALESCE(spec.spec_key,''),
 				       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
-				       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),'unit'),
+			       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),''),
 				       COALESCE(variant.is_default,false),
 				       COALESCE(variant.sort_order,0)
 				FROM %[1]s.production_bom_version_variants variant
@@ -1239,7 +1239,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			       pbi.unit_cost_snapshot::float8,
 			       COALESCE(v.yield_rate,0)::float8 AS bom_yield_rate,
 			       CASE WHEN $3 > 0 THEN 1 ELSE COALESCE(NULLIF(v.output_qty,0),1) END::float8 AS bom_output_qty,
-			       CASE WHEN $3 > 0 THEN COALESCE(NULLIF(variant.inventory_unit,''),'unit') ELSE COALESCE(NULLIF(v.output_unit,''),'unit') END AS bom_output_unit
+			       CASE WHEN $3 > 0 THEN COALESCE(NULLIF(variant.inventory_unit,''),'') ELSE COALESCE(NULLIF(v.output_unit,''),'unit') END AS bom_output_unit
 			FROM %[1]s.production_bom_version_items pbi
 			JOIN %[1]s.production_bom_versions v ON v.id=pbi.version_id
 			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
@@ -1267,7 +1267,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		       COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit,
 		       COALESCE(bi.bom_yield_rate,0)::float8 AS bom_yield_rate,
 		       COALESCE(NULLIF(bi.bom_output_qty,0),1)::float8 AS bom_output_qty,
-		       COALESCE(NULLIF(bi.bom_output_unit,''),'unit') AS bom_output_unit,
+		       COALESCE(NULLIF(bi.bom_output_unit,''), CASE WHEN $3 > 0 THEN '' ELSE 'unit' END) AS bom_output_unit,
 		       COALESCE(m.purchase_price,0)::float8 AS purchase_price,
 		       COALESCE(mv.weighted_unit_cost,0)::float8 AS weighted_batch_unit_cost,
 		       COALESCE(bi.unit_cost_snapshot,0)::float8 AS unit_cost_snapshot,
@@ -1491,7 +1491,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			       COALESCE(operation.piece_rate,0)::float8 AS piece_rate,
 			       COALESCE(operation.batch_size_unit,'') AS rate_unit,
 			       COALESCE(operation.planned_operation_cost,0)::float8,
-			       COALESCE(NULLIF(variant.inventory_unit,''),'unit') AS operation_cost_unit
+			       COALESCE(NULLIF(variant.inventory_unit,''),'') AS operation_cost_unit
 			FROM %[1]s.production_bom_version_variants variant
 			JOIN %[1]s.process_route_operations operation
 			  ON operation.route_id=variant.process_route_id

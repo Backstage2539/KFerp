@@ -2179,6 +2179,7 @@ func (r Repository) updateProductionBomVersionDraftTx(ctx context.Context, tx pg
 	`, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &status, &outputType, &outputProductID, &outputQty, &outputUnit, &materialLossRate); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("production BOM version not found")
 	}
+	cmd.Items, cmd.Variants = bomapp.NormalizeProductionBomDraftWorkspaceRecipePayload(outputType, cmd.Items, cmd.Variants)
 	if status != "draft" {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published production BOM version is read-only")
 	}

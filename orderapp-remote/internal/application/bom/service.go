@@ -492,6 +492,23 @@ type ProductionBomDraftWorkspaceCommand struct {
 	MainInputMaterialID int64 `json:"main_input_material_id,omitempty"`
 }
 
+// NormalizeProductionBomDraftWorkspaceRecipePayload makes the workspace
+// recipe a discriminated union. Empty slices are meaningful: an empty items
+// slice clears a material-output draft recipe, while an empty variants slice is
+// validated as an invalid product-output recipe. The opposite collection must
+// be nil so legacy clients that sent both fields cannot suppress the active
+// recipe branch accidentally.
+func NormalizeProductionBomDraftWorkspaceRecipePayload(outputType string, items []ProductionBomDraftItem, variants []ProductionBomDraftVariant) ([]ProductionBomDraftItem, []ProductionBomDraftVariant) {
+	switch strings.ToLower(strings.TrimSpace(outputType)) {
+	case "material":
+		return items, nil
+	case "product":
+		return nil, variants
+	default:
+		return items, variants
+	}
+}
+
 type CreateProductionBomSpecTemplateCommand struct {
 	Name  string `json:"name"`
 	Actor string `json:"actor"`
@@ -1533,6 +1550,7 @@ func (s *Service) UpdateProductionBomDraftWorkspace(ctx context.Context, cmd Pro
 	if cmd.Bom.ID <= 0 || cmd.Version.VersionID <= 0 {
 		return ProductionBomDetail{}, fmt.Errorf("bom_id and version_id required")
 	}
+	cmd.Version.Items, cmd.Version.Variants = NormalizeProductionBomDraftWorkspaceRecipePayload(cmd.Bom.OutputType, cmd.Version.Items, cmd.Version.Variants)
 	cmd.Bom.Actor = strings.TrimSpace(cmd.Bom.Actor)
 	cmd.Version.Actor = cmd.Bom.Actor
 	return workspaceRepo.UpdateProductionBomDraftWorkspace(ctx, cmd)

@@ -642,11 +642,11 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="item in detailItems" :key="item.id">
+                  <tr v-for="(item, itemIndex) in detailItems" :key="productionBomDraftItemKey(item, itemIndex)">
                     <td>{{ componentTypeLabel(item.component_type) }}</td>
                     <td>{{ componentItemName(item) }}</td>
                     <td>{{ itemQuantityDisplay(item) }}</td>
-                    <td><button class="text-button" type="button" :disabled="!canEditCurrentBomItems" @click="deleteItem(item.id)">删除</button></td>
+                    <td><button class="text-button" type="button" :disabled="!canEditCurrentBomItems" @click="deleteItem(productionBomDraftItemKey(item, itemIndex))">删除</button></td>
                   </tr>
                   <tr v-if="!detailItems.length">
                     <td colspan="4" class="muted">暂无组件</td>
@@ -701,7 +701,7 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning } from '../lib/bom'
+import { assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomDraftItemKey, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning, removeProductionBomDraftItem } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -784,7 +784,9 @@ const bomWorkspaceDirty = ref(false)
 const bomVariants = computed(() => Array.isArray(productionBomDetail.value?.variants) ? productionBomDetail.value.variants : [])
 const selectedBomVariant = computed(() => bomVariants.value.find((variant) => Number(variant.bom_variant_id || variant.id || 0) === Number(selectedBomVariantID.value || 0)) || bomVariants.value[0] || null)
 const currentRecipeTarget = computed(() => selectedBomVariant.value || selectedProductionBomVersion.value)
-const detailItems = computed(() => selectedBomVariant.value?.items || detail.value?.items || [])
+// productionBomDetail is the editable draft workspace; detail is only a
+// projected/read-only compatibility view and must not own recipe mutations.
+const detailItems = computed(() => selectedBomVariant.value?.items || productionBomDetail.value?.items || [])
 const activeUnitDefinitions = computed(() => productUnitDefinitions.value.filter((unit) => unit.active !== false))
 const selectedSpecTemplateVersion = computed(() => (selectedSpecTemplateDetail.value?.versions || []).find((version) => Number(version.id || 0) === Number(selectedSpecTemplateVersionID.value || 0)) || null)
 const specTemplateVersionOptions = computed(() => {
@@ -1464,6 +1466,7 @@ function productionBomDraftItemFromItem(item = {}) {
   const consumeUnit = item.consume_unit || 'ratio_pct'
   return {
     id: Number(item.id || 0),
+    local_key: productionBomDraftItemKey(item),
     bom_variant_id: Number(item.bom_variant_id || 0),
     material_id: Number(item.material_id || 0),
     component_type: componentType,
@@ -1615,6 +1618,7 @@ function productionBomDraftItemFromForm() {
   const componentType = itemForm.component_type === 'product' ? 'product' : 'material'
   const consumeUnit = itemForm.consume_unit || 'ratio_pct'
   return {
+    local_key: `bom-item-new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     material_id: Number(itemForm.material_id || 0),
     component_type: componentType,
     component_product_id: Number(itemForm.component_product_id || 0),
@@ -1799,13 +1803,19 @@ function copyProductionBomRecord(bom) {
 
 function syncBomOutputType() {
   if (bomForm.mode === 'edit') bomWorkspaceDirty.value = true
+  const outputChangedToMaterial = bomForm.mode === 'edit'
+    && bomForm.output_type === 'material'
+    && String(selectedProductionBomRecord.value?.output_type || '').toLowerCase() === 'product'
   bomForm.output_id = 0
   bomForm.output_product_id = 0
   bomForm.output_material_id = 0
   bomForm.output_unit = bomForm.output_type === 'material' ? 'kg' : defaultDictionaryConsumeUnit()
   bomForm.spec_template_version_id = 0
   bomForm.main_input_material_id = 0
-  if (bomForm.mode === 'edit' && bomForm.output_type === 'material' && String(selectedProductionBomRecord.value?.output_type || '').toLowerCase() === 'product' && bomVariants.value.length > 0) {
+  if (outputChangedToMaterial && bomVariants.value.length > 0) {
+    // The old client used variants: [] as the cleanup marker. Keep the
+    // 规格组将随保存一起删除；the unified save payload is now mutually
+    // exclusive and sends only items for material output.
     productionBomDetail.value.variants = []
     productionBomDetail.value.items = []
     if (detail.value) detail.value.items = []
@@ -2562,13 +2572,10 @@ async function saveItem() {
   })
 }
 
-async function deleteItem(id) {
+async function deleteItem(itemKey) {
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
-    const deleteID = Number(id || 0)
-    const nextItems = detailItems.value
-      .filter((item) => Number(item.id || 0) !== deleteID)
-      .map(productionBomDraftItemFromItem)
+    const nextItems = removeProductionBomDraftItem(detailItems.value, itemKey).map(productionBomDraftItemFromItem)
     if (selectedBomVariant.value) selectedBomVariant.value.items = nextItems
     else if (productionBomDetail.value) productionBomDetail.value.items = nextItems
     markBomWorkspaceDirty()
@@ -2733,22 +2740,19 @@ async function saveProductionBomRecord() {
   }
 	await mutate(async () => {
 	  if (bomForm.mode === 'edit') {
-	    const outputChangedToMaterial = binding.output_type === 'material' && String(selectedProductionBomRecord.value?.output_type || '') === 'product'
-	    // PR-603 compatibility contract: product -> material submits variants: [] in the unified workspace.
-	    // 用户提示语保留为“规格组将随保存一起删除”，但现在先清空本地草稿。
 	    const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || selectedProductionBomVersionID.value || 0)
 	    if (!draftVersionID) throw new Error('请先选择可编辑的 BOM 草稿版本')
-	    const variants = binding.output_type === 'product' ? validatedProductionBomDraftVariantPayloads() : []
-	    const items = binding.output_type === 'product' && variants.length ? [] : detailItems.value.map(productionBomDraftItemFromItem)
+	    const isProductOutput = binding.output_type === 'product'
+	    const workspaceRecipe = isProductOutput
+	      ? { variants: validatedProductionBomDraftVariantPayloads() }
+	      : { items: detailItems.value.map(productionBomDraftItemFromItem) }
 	    await apiSend(`/api/production-boms/${bomForm.id}/draft-workspace`, {
 	      method: 'PUT',
 	      body: {
 	        ...payload,
+	        ...workspaceRecipe,
 	        version_id: draftVersionID,
-	        items,
-	        variants,
 	        process_route_id: Number(currentRecipeTarget.value?.process_route_id || 0),
-
 	        material_loss_rate: Number(selectedVersionMaterialLossRate.value || 0),
 	      },
 	    })
