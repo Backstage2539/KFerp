@@ -3402,7 +3402,8 @@ func validateResolvedProductBOMSpecIdentity(identity ProductBOMSpecIdentity, par
 	if !identity.Active {
 		return fmt.Errorf("商品 BOM 规格所属父商品已停用")
 	}
-	if !identity.Published || !identity.BomSpecAuthoritative {
+	bomSpecAuthoritative := identity.BomSpecAuthoritative || strings.EqualFold(strings.TrimSpace(identity.MigrationState), "cutover")
+	if !identity.Published || !bomSpecAuthoritative {
 		return fmt.Errorf("商品 BOM 规格尚未成为当前商品的规格权威")
 	}
 	if strings.TrimSpace(identity.SpecKey) == "" || strings.TrimSpace(identity.SpecName) == "" || strings.TrimSpace(identity.InventoryUnit) == "" {

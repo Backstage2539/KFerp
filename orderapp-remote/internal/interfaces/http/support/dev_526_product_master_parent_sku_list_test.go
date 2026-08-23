@@ -15,7 +15,7 @@ func TestDev526ProductMasterParentSkuListContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"product-spec-skus",
 			"v-for=\"sku in row.sku_rows\"",
-			"个规格 SKU",
+			"个历史规格",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"列表只把父商品作为商品行",

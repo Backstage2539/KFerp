@@ -2814,6 +2814,10 @@ func applyCutoverProductBOMSpecs(inputs []domain.ProductInput, specs []cutoverPr
 			base := baseByScope[scopeKey]
 			for _, spec := range specsByParent[parentID] {
 				row := base
+				migrationState := strings.TrimSpace(spec.MigrationState)
+				if migrationState == "" {
+					migrationState = "cutover"
+				}
 				row.ProductID = parentID
 				row.SKUID = 0
 				row.ParentProductID = parentID
@@ -2822,9 +2826,9 @@ func applyCutoverProductBOMSpecs(inputs []domain.ProductInput, specs []cutoverPr
 				row.BomVariantID = spec.BomVariantID
 				row.BomID = spec.BomID
 				row.DefaultBOMSpecID = defaultByParent[parentID]
-				row.MigrationState = strings.TrimSpace(spec.MigrationState)
+				row.MigrationState = migrationState
 				row.SpecIdentityMode = "bom_spec"
-				row.BomSpecAuthoritative = spec.BomSpecAuthoritative
+				row.BomSpecAuthoritative = spec.BomSpecAuthoritative || migrationState == "cutover"
 				row.SpecCode = strings.TrimSpace(spec.SpecCode)
 				row.SpecBarcode = strings.TrimSpace(spec.Barcode)
 				row.SKUCode = row.SpecCode
