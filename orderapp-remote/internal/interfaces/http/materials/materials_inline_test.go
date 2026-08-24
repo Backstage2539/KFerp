@@ -86,7 +86,7 @@ func TestMaterialsAPIUpdateAllowsBaseFieldsAndWritesAudit(t *testing.T) {
 		Name:          "测试物料改名",
 		Kind:          "bean",
 		Unit:          "kg",
-		PurchasePrice: 12,
+		PurchasePrice: 10,
 		SalePrice:     20,
 		OnhandG:       1000,
 		OnhandUnits:   0,
@@ -107,15 +107,24 @@ func TestMaterialsAPIUpdateAllowsBaseFieldsAndWritesAudit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Name != "测试物料改名" || updated.Unit != "kg" || updated.CostUnit != "kg" || updated.PurchasePrice != 12 {
+	if updated.Name != "测试物料改名" || updated.Unit != "kg" || updated.CostUnit != "kg" || updated.PurchasePrice != 10 {
 		t.Fatalf("updated material = %+v", updated)
 	}
 	var count int
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='material' AND entity_id=$1 AND action='update' AND field IN ('name','purchase_price')`, schema), id).Scan(&count); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='material' AND entity_id=$1 AND action='update' AND field='name'`, schema), id).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count < 2 {
-		t.Fatalf("audit update count = %d, want at least 2", count)
+	if count != 1 {
+		t.Fatalf("name audit update count = %d, want 1", count)
+	}
+
+	body = bytes.Replace(body, []byte(`"purchase_price":10`), []byte(`"purchase_price":12`), 1)
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/materials/%d", id), bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "采购入库或盘点调整") {
+		t.Fatalf("direct purchase price update status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -136,7 +145,7 @@ func TestMaterialsAPIUnifiesInventoryPurchaseAndCostUnit(t *testing.T) {
 		Name:          "统一单位物料",
 		Kind:          "bean",
 		Unit:          "kg",
-		PurchasePrice: 288,
+		PurchasePrice: 0,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +161,7 @@ func TestMaterialsAPIUnifiesInventoryPurchaseAndCostUnit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if created.Unit != "kg" || created.CostUnit != created.Unit || created.PurchasePrice != 288 {
+	if created.Unit != "kg" || created.CostUnit != created.Unit || created.PurchasePrice != 0 {
 		t.Fatalf("created material = %+v, want inventory/purchase/cost unit kg", created)
 	}
 	var auditCount int
@@ -179,31 +188,13 @@ func TestMaterialsAPIUnifiesInventoryPurchaseAndCostUnit(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/materials/:id status = %d body=%s, want unified-unit price update", rec.Code, rec.Body.String())
-	}
-	var updated materialsapp.Material
-	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
-		t.Fatal(err)
-	}
-	if updated.Unit != "kg" || updated.CostUnit != updated.Unit || updated.PurchasePrice != 300 {
-		t.Fatalf("updated material = %+v, want inventory/purchase/cost unit kg", updated)
-	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM %s.audit_logs
-		WHERE entity_type='material' AND entity_id=$1
-		  AND action='update' AND field='purchase_price'
-		  AND old_value='288.00' AND new_value='300.00'`, schema), created.ID).Scan(&auditCount); err != nil {
-		t.Fatal(err)
-	}
-	if auditCount != 1 {
-		t.Fatalf("purchase-price update audit count = %d, want 1", auditCount)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "采购入库或盘点调整") {
+		t.Fatalf("POST /api/materials/:id status = %d body=%s, want readonly price rejection", rec.Code, rec.Body.String())
 	}
 
 	for _, invalidBody := range []string{
-		`{"code":"m-api-mismatched-unit","name":"错误单位物料","kind":"bean","unit":"g","cost_unit":"kg","purchase_price":288}`,
-		`{"code":"m-api-gram-price","name":"克计价物料","kind":"bean","unit":"g","cost_unit":"g","purchase_price":0.288}`,
+		`{"code":"m-api-mismatched-unit","name":"错误单位物料","kind":"bean","unit":"g","cost_unit":"kg","purchase_price":0}`,
+		`{"code":"m-api-gram-price","name":"克计价物料","kind":"bean","unit":"g","cost_unit":"g","purchase_price":0}`,
 	} {
 		req = httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(invalidBody))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -244,7 +235,7 @@ func TestMaterialsAPIRejectsCustomWeightDefinitionAndAllowsCustomPackage(t *test
 	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
-		`{"code":"m-api-custom-ton","name":"自定义吨物料","kind":"bean","unit":"t","cost_unit":"t","purchase_price":288}`,
+		`{"code":"m-api-custom-ton","name":"自定义吨物料","kind":"bean","unit":"t","cost_unit":"t","purchase_price":0}`,
 	))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -254,7 +245,7 @@ func TestMaterialsAPIRejectsCustomWeightDefinitionAndAllowsCustomPackage(t *test
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
-		`{"code":"m-api-custom-bag","name":"自定义袋物料","kind":"pack","unit":"袋","cost_unit":"袋","purchase_price":2}`,
+		`{"code":"m-api-custom-bag","name":"自定义袋物料","kind":"pack","unit":"袋","cost_unit":"袋","purchase_price":0}`,
 	))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -482,7 +473,7 @@ func TestMaterialsAPIUpdateAllowsOmittedInventoryUnit(t *testing.T) {
 		"name":            "旧客户端物料改名",
 		"kind":            "bean",
 		"batch_no":        "20260427",
-		"purchase_price":  11,
+		"purchase_price":  10,
 		"sale_price":      20,
 		"onhand_g":        1000,
 		"onhand_units":    0,
@@ -503,7 +494,7 @@ func TestMaterialsAPIUpdateAllowsOmittedInventoryUnit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Unit != "kg" || updated.CostUnit != "kg" || updated.Name != "旧客户端物料改名" || updated.PurchasePrice != 11 {
+	if updated.Unit != "kg" || updated.CostUnit != "kg" || updated.Name != "旧客户端物料改名" || updated.PurchasePrice != 10 {
 		t.Fatalf("updated material = %+v, want inventory and cost unit kg preserved with base edits", updated)
 	}
 }
@@ -665,7 +656,7 @@ func TestMaterialsAPICreateCopyDeprecateAndPackProfile(t *testing.T) {
 		Kind:          "pack",
 		Unit:          "个",
 		BatchNo:       "20260428",
-		PurchasePrice: 1.5,
+		PurchasePrice: 0,
 		SalePrice:     2.8,
 		OnhandUnits:   100,
 		MinLevelUnits: 20,

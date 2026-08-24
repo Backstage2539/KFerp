@@ -15,6 +15,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: `./deploy_orderapp.sh production`; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260824110316-5e4c8ebde14f`; rollback image `kferp-orderapp-rollback:production-20260824110316-5e4c8ebde14f`; `erp_prod_orderapp` running/restart 0, PostgreSQL healthy, production login HTTP 200, unauthenticated `/app/` HTTP 401.
 - Miniapp: development package commit `37caf135ea0092e2a249554a19b176d2a8f4b17d` targets `https://dev.qacoohee.com/app`; production package commit `5e4c8ebde14fb4c5bb480f9d0c9257da883c4b65` targets `https://erp.qacoohee.com/app`. Packages are generated only; WeChat upload/review/publication remains separate.
 - Manual: Van production and miniapp acceptance pending.
+### PR-605-MATERIAL-STOCK-COST-CONVERGENCE
+- Branch: codex/pr605-material-stock-cost-20260824
+- Owner/session: Codex / 2026-08-24
+- Status: automated verification and remote release gates GREEN; development deployed `776d8d1f`; Van acceptance pending
+- Scope: 修复物料档案复选框与行业字段展示；库存作业展示来源仓实时余额；盘点调整按仓库和批次执行并支持重量/离散单位；采购收货成为正式采购成本唯一过账入口，普通原料入库退役；历史单据与库存流水保持只读兼容。
+- DEV:
+  - DEV-605-MATERIAL-ARCHIVE-READONLY-COST（done，local GREEN）：物料列表标准复选框、独立行业字段列、最近采购入库价只读及直接改价门禁。
+  - DEV-605-WAREHOUSE-BALANCE-ADJUSTMENT（done，local GREEN）：批量仓库余额、库存动作实时库存、单仓盘点、FIFO 批次分配与离散成本调整。
+  - DEV-605-PURCHASE-RECEIPT-POSTING（done，local GREEN）：采购统一库存单位、收货确认、原子过账、普通原料入库退役与操作日志。
+-  - DEV-605-DOCS-DEVELOPMENT-DELIVERY（done，development delivered）：需求、验收、物料/库存/采购手册、PR/DEV/REV、远端 preflight 与 development 交付证据已完成。
+- Verifier: RED evidence captured；targeted Vue 28/28 GREEN；Go `./...` GREEN；frontend 1030/1030 GREEN；`scripts/verify_kferp.sh all` exit 0；Vite 6594 modules GREEN（existing chunk warning only）；real PostgreSQL purchase 2.422s、stock 18.149s、materials 1.840s GREEN；最终 `a392d3bf` feature preflight 与合并树 `776d8d1f` release gates GREEN（miniapp 217/217）。
+- Manual: Van development business acceptance after delivery.
+- Deployment: `develop@776d8d1fddc48edd26e2a64fe59dffc1718e38f8` 已部署 development；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260824134103-776d8d1fddc4`，回滚镜像 `kferp-orderapp-rollback:development-20260824134103-776d8d1fddc4`，外部登录页 HTTP 200；固定开发小程序包已同步。`main` 和 production 未操作。
+- Last update: 2026-08-24 Asia/Shanghai
 
 ### PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER
 - Branch: `codex/bom-material-output-replacement-20260824`; isolated production release `codex/release-main-pr606-bom-cutover-20260824`

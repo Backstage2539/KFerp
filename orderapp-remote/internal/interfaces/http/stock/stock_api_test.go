@@ -46,6 +46,12 @@ func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stocka
 		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 10, ItemName: "规格商品", BomSpecID: 91, BomVariantID: 191, BomSpecName: "227g袋", InventoryUnit: "袋", QtyUnits: 12, QualityStatus: "pass"},
 	}}, nil
 }
+func (f *fakeStockRepo) ListMaterialBalances(ctx context.Context, query stockapp.MaterialBalanceQuery) ([]stockapp.MaterialBalanceRow, error) {
+	return []stockapp.MaterialBalanceRow{{
+		MaterialID: 1, Warehouse: query.Warehouse, UnitCode: "kg",
+		BookG: 12000, AvailableG: 10000, FrozenG: 2000,
+	}}, nil
+}
 func (f *fakeStockRepo) ListOutboundLogs(ctx context.Context, query stockapp.OutboundLogQuery) (stockapp.OutboundLogResult, error) {
 	f.outboundQuery = query
 	return stockapp.OutboundLogResult{Rows: []stockapp.OutboundLogRow{{
@@ -126,42 +132,22 @@ func TestStockAPIRoutes(t *testing.T) {
 		t.Fatalf("ledger body missing row: %s", rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty_g":1200,"unit_cost":42.5,"crop_season":"2025/26","origin":"云南保山","producer_flavor_description":"李子、红糖"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty_g":1200,"unit_cost":42.5}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST receipt status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if repo.received.MaterialID != 1 || repo.received.QtyG != 1200 {
-		t.Fatalf("received command = %+v", repo.received)
-	}
-	if repo.received.CropSeason != "2025/26" ||
-		repo.received.Origin != "云南保山" ||
-		repo.received.ProducerFlavorDescription != "李子、红糖" {
-		t.Fatalf("received metadata = %+v", repo.received)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("采购入库")) {
+		t.Fatalf("POST retired receipt status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty":60,"unit_code":"kg","unit_cost":42.5}`))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/material-balances?warehouse=raw_materials&material_ids=1", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST receipt qty/unit_code status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if repo.received.QtyG != 60000 {
-		t.Fatalf("received QtyG = %d, want 60000 from 60 kg", repo.received.QtyG)
-	}
-
-	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty":12,"unit_code":"box","unit_cost":1.5}`))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST receipt non-weight qty/unit_code status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if repo.received.QtyG != 0 || repo.received.QtyUnits != 12 {
-		t.Fatalf("received non-weight qty = %dg/%d units, want 0g/12 units", repo.received.QtyG, repo.received.QtyUnits)
+	if rec.Code != http.StatusOK ||
+		!bytes.Contains(rec.Body.Bytes(), []byte(`"book_qty":12`)) ||
+		!bytes.Contains(rec.Body.Bytes(), []byte(`"available_qty":10`)) ||
+		!bytes.Contains(rec.Body.Bytes(), []byte(`"frozen_qty":2`)) {
+		t.Fatalf("GET material balances status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouses", nil)
@@ -272,6 +258,22 @@ func TestStockAPIRoutes(t *testing.T) {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("material trace response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestPR605DirectMaterialReceiptIsRejected(t *testing.T) {
+	repo := &fakeStockRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Stock: stockapp.NewService(repo)})
+	req := httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty_g":1200,"unit_cost":42.5}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("采购入库")) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.received.MaterialID != 0 {
+		t.Fatalf("direct material receipt reached stock service: %+v", repo.received)
 	}
 }
 

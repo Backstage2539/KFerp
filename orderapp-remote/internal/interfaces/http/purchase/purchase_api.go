@@ -45,22 +45,30 @@ func registerPurchaseAPI(e *echo.Echo, purchaseSvc *purchaseapp.Service) {
 	})
 	e.POST("/api/purchase/orders", func(c echo.Context) error {
 		var req struct {
-			SupplierID int64   `json:"supplier_id"`
-			MaterialID int64   `json:"material_id"`
-			QtyG       int64   `json:"qty_g"`
-			UnitCost   float64 `json:"unit_cost"`
-			Note       string  `json:"note"`
+			SupplierID      int64   `json:"supplier_id"`
+			MaterialID      int64   `json:"material_id"`
+			QtyG            int64   `json:"qty_g"`
+			Qty             float64 `json:"qty"`
+			UnitCode        string  `json:"unit_code"`
+			QtyUnits        int64   `json:"qty_units"`
+			TargetWarehouse string  `json:"target_warehouse"`
+			UnitCost        float64 `json:"unit_cost"`
+			Note            string  `json:"note"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "bad request"})
 		}
 		row, err := purchaseSvc.CreatePurchaseOrder(c.Request().Context(), purchaseapp.CreatePurchaseOrderCommand{
-			SupplierID: req.SupplierID,
-			MaterialID: req.MaterialID,
-			QtyG:       req.QtyG,
-			UnitCost:   req.UnitCost,
-			Note:       req.Note,
-			Operator:   support.ActorOf(c),
+			SupplierID:      req.SupplierID,
+			MaterialID:      req.MaterialID,
+			QtyG:            req.QtyG,
+			Qty:             req.Qty,
+			UnitCode:        req.UnitCode,
+			QtyUnits:        req.QtyUnits,
+			TargetWarehouse: req.TargetWarehouse,
+			UnitCost:        req.UnitCost,
+			Note:            req.Note,
+			Operator:        support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -81,6 +89,10 @@ func registerPurchaseAPI(e *echo.Echo, purchaseSvc *purchaseapp.Service) {
 			SupplierName    string  `json:"supplier_name"`
 			MaterialID      int64   `json:"material_id"`
 			QtyG            int64   `json:"qty_g"`
+			Qty             float64 `json:"qty"`
+			UnitCode        string  `json:"unit_code"`
+			QtyUnits        int64   `json:"qty_units"`
+			TargetWarehouse string  `json:"target_warehouse"`
 			UnitCost        float64 `json:"unit_cost"`
 			Note            string  `json:"note"`
 		}
@@ -93,6 +105,10 @@ func registerPurchaseAPI(e *echo.Echo, purchaseSvc *purchaseapp.Service) {
 			SupplierName:    req.SupplierName,
 			MaterialID:      req.MaterialID,
 			QtyG:            req.QtyG,
+			Qty:             req.Qty,
+			UnitCode:        req.UnitCode,
+			QtyUnits:        req.QtyUnits,
+			TargetWarehouse: req.TargetWarehouse,
 			UnitCost:        req.UnitCost,
 			Note:            req.Note,
 			Operator:        support.ActorOf(c),

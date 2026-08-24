@@ -196,10 +196,19 @@ func setupSemiFinishedAtomicityDB(t *testing.T) (*pgxpool.Pool, string) {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.warehouses(
+			code TEXT PRIMARY KEY,name TEXT NOT NULL DEFAULT '',kind TEXT NOT NULL DEFAULT '',
+			parent_code TEXT NOT NULL DEFAULT '',sort_order INTEGER NOT NULL DEFAULT 0,
+			is_default BOOLEAN NOT NULL DEFAULT false,active BOOLEAN NOT NULL DEFAULT true,
+			description TEXT NOT NULL DEFAULT '',customer_id BIGINT NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		INSERT INTO %s.warehouses(code,name,kind,is_default) VALUES
+			('raw_materials','原料仓','raw',true),('packaging','包材仓','packaging',true);
 		INSERT INTO %s.purchase_suppliers(id,name) VALUES(1,'测试供应商');
 		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,purchase_price)
 		VALUES(1,'MAT-1','待切换半成品','bean','kg','kg',288)
-	`, schema, schema)); err != nil {
+	`, schema, schema, schema, schema)); err != nil {
 		t.Fatal(err)
 	}
 	return pool, schema

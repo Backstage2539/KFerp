@@ -74,6 +74,7 @@
                   <col class="name-col" />
                   <col class="unit-col" />
                   <col class="stock-col" />
+                  <col class="industry-col" />
                   <col class="manufacture-col" />
                   <col class="status-col" />
                 </colgroup>
@@ -81,6 +82,7 @@
                   <tr>
                     <th>
                       <input
+                        class="material-row-checkbox"
                         type="checkbox"
                         title="全选物料"
                         aria-label="全选物料"
@@ -91,6 +93,7 @@
                     <th>物料名称</th>
                     <th>单位</th>
                     <th>库存数量</th>
+                    <th>行业字段</th>
                     <th>制造属性</th>
                     <th>状态</th>
                   </tr>
@@ -103,6 +106,7 @@
                     :style="businessGroupItemIndentStyle(group)">
                     <td>
                       <input
+                        class="material-row-checkbox"
                         type="checkbox"
                         :checked="selectedMaterialIDs.includes(row.id)"
                         :disabled="loading || materialCategoryMoveActive"
@@ -114,13 +118,14 @@
                     </td>
                     <td>{{ unitDisplay(row.unit) }}</td>
                     <td>{{ stockQty(row) }} {{ unitDisplay(row.unit) }}</td>
+                    <td class="industry-fields-cell" :title="industryFieldSummary(row)">{{ industryFieldSummary(row) }}</td>
                     <td>
                       <span class="pill">{{ row.supply_mode === 'manufacture' ? '自制' : '外购' }}</span>
-                      <small>{{ row.supply_mode === 'manufacture' ? (row.can_manufacture ? '可制造' : '无默认发布 BOM') : '可维护采购价' }}</small>
+                      <small>{{ row.supply_mode === 'manufacture' ? (row.can_manufacture ? '可制造' : '无默认发布 BOM') : '采购入库取得成本' }}</small>
                     </td>
                     <td><span :class="row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill'">{{ row.deprecated_at ? '失效' : '启用' }}</span></td>
                   </tr>
-                  <tr v-if="!group.rows.length"><td colspan="6" class="muted">暂无物料</td></tr>
+                  <tr v-if="!group.rows.length"><td colspan="7" class="muted">暂无物料</td></tr>
                 </tbody>
               </table>
             </div>
@@ -144,7 +149,7 @@
             <p>新建、编辑、失效和分类移动都会写操作日志。</p>
           </div>
           <div class="actions">
-            <button v-if="!draftMode" class="secondary" type="button" @click="openStockBackfill" :disabled="loading">库存补录</button>
+            <button v-if="!draftMode" class="secondary" type="button" @click="openStockBackfill" :disabled="loading">盘点调整</button>
             <button class="secondary" type="button" @click="closeMaterialDetailDrawer" :disabled="loading">关闭</button>
           </div>
         </div>
@@ -164,14 +169,18 @@
                 <small v-if="materialInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
-              <label v-if="draft.supply_mode !== 'manufacture'"><span>采购价（元/{{ draft.unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
+              <label v-if="!draftMode && draft.supply_mode !== 'manufacture'">
+                <span>最近采购入库价（元/{{ draft.unit }}）</span>
+                <output class="readonly-cost-value">{{ Number(draft.purchase_price || 0).toFixed(4) }}</output>
+                <small>该价格只读；请前往采购入库或盘点调整维护成本。</small>
+              </label>
               <label>
                 <span>取得方式</span>
                 <select v-model="draft.supply_mode">
                   <option value="purchase">外购</option>
                   <option value="manufacture">自制</option>
                 </select>
-                <small>外购允许维护采购价并禁止物料产出 BOM；自制采购价强制为 0，只能通过默认已发布制造 BOM 取得成本。</small>
+                <small>外购物料的最近采购价由采购收货更新；自制物料采购价由系统强制为 0，只能通过默认已发布制造 BOM 取得成本。</small>
               </label>
               <!-- compatibility alias: v-model="draft.is_semi_finished" / 是否半成品 -->
               <!-- legacy purchase field: <label v-if="!draft.is_semi_finished"><span>采购价 -->
@@ -466,6 +475,14 @@ function normalizeTemplate(row) {
       sort_order: Number(field.SortOrder ?? field.sort_order ?? 100),
     })).filter((field) => field.field_key),
   }
+}
+
+function industryFieldSummary(row = {}) {
+  const values = Array.isArray(row.industry_fields) ? row.industry_fields : []
+  const nonEmpty = values
+    .map((field) => ({ key: String(field.field_key || '').trim(), value: String(field.value_text || '').trim() }))
+    .filter((field) => field.key && field.value)
+  return nonEmpty.length ? nonEmpty.map((field) => `${field.key}：${field.value}`).join('；') : '-'
 }
 
 function normalizeUnit(row) {
@@ -883,9 +900,8 @@ function payloadFromDraft() {
     unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     cost_unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     batch_no: draft.value.batch_no,
-    purchase_price: draft.value.supply_mode === 'manufacture' ? 0 : Number(draft.value.purchase_price || 0),
+    // purchase_price is server-owned and is intentionally omitted from material archive writes.
     // legacy compatibility: is_semi_finished: Boolean(draft.value.is_semi_finished)
-    // legacy compatibility: purchase_price: draft.value.is_semi_finished ? 0 : Number(draft.value.purchase_price || 0)
     onhand_g: Number(sourceStock.onhand_g || 0),
     onhand_units: Number(sourceStock.onhand_units || 0),
     min_level_qty: Number(draft.value.min_level_qty || 0),
@@ -1100,6 +1116,9 @@ onMounted(async () => {
 .table-wrap :deep(th), .table-wrap :deep(td) { border-bottom: 1px solid #eee8df; padding: 10px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 .table-wrap :deep(th) { background: #fbfaf8; position: sticky; top: 0; }
 .table-wrap :deep(.materials-table th), .table-wrap :deep(.materials-table td) { white-space: nowrap; }
+.material-row-checkbox { width: 18px; height: 18px; min-height: 18px; padding: 0; }
+.industry-fields-cell { white-space: normal !important; overflow-wrap: anywhere; line-height: 1.45; }
+.readonly-cost-value { display:flex; align-items:center; width:100%; min-height:38px; border:1px solid #d1d5db; border-radius:6px; background:#f9fafb; padding:7px 9px; color:#374151; }
 .table-wrap :deep(.materials-table th:nth-child(2)), .table-wrap :deep(.materials-table td:nth-child(2)) { width: 130px; max-width: 130px; }
 .table-wrap :deep(.materials-table td:nth-child(2)) { padding-left: var(--classification-item-indent, 8px); }
 .table-wrap :deep(tbody tr.active) { background: #f3f7fb; }

@@ -14,9 +14,8 @@ func TestVueShellRedirectsLegacyStockWritersToUnifiedStockOperations(t *testing.
 	}
 	src := string(app)
 	for _, want := range []string{
-		"materialReceipts: 'stockOperations'",
+		"materialReceipts: 'purchase'",
 		"wipMaterials: 'stockOperations'",
-		"requestedViewParam === 'materialReceipts'",
 		"requestedViewParam === 'wipMaterials'",
 	} {
 		if !strings.Contains(src, want) {
