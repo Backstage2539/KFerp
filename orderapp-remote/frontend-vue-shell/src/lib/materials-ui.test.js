@@ -297,7 +297,9 @@ test('materials archive uses inventory unit as the only purchase and cost price 
   assert.doesNotMatch(materialsSource, /defaultMaterialCostUnit/)
   assert.match(materialsSource, /重量物料库存统一使用 kg；BOM 配方仍可按 g 录入并自动换算/)
   assert.match(materialsSource, /采购价、批次单位成本和 BOM 成本试算均按库存单位计价/)
-  assert.match(materialsSource, /采购价（元\/\{\{\s*draft\.unit\s*\}\}）/)
+  assert.match(materialsSource, /最近采购入库价（元\/\{\{\s*draft\.unit\s*\}\}）/)
+  assert.match(materialsSource, /该价格只读；请前往采购入库或盘点调整维护成本/)
+  assert.doesNotMatch(materialsSource, /v-model\.number="draft\.purchase_price"/)
   assert.match(materialsSource, /cost_unit:\s*draftMode\.value\s*\?\s*draft\.value\.unit\s*:\s*\(selected\.value\?\.unit\s*\|\|\s*draft\.value\.unit\)/)
   assert.match(materialsSource, /unit_type:\s*row\.unit_type\s*\?\?\s*row\.UnitType\s*\?\?\s*'other'/)
   assert.match(materialsSource, /function isMaterialWeightUnitType\(unitType\)/)
@@ -324,9 +326,11 @@ test('material receipt, stock adjustment and purchase prices use the inventory u
   assert.match(purchaseSource, /materialUnit\(row\.material_id\)/)
   assert.doesNotMatch(purchaseSource, /CostUnit|cost_unit|materialCostUnit|selectedPurchaseMaterialCostUnit/)
   assert.match(purchaseSource, /purchasableMaterials/)
-  assert.match(purchaseSource, /当前采购单按克记录数量，仅支持重量物料/)
-  assert.match(stockAdjustmentsSource, /isSelectedMaterialWeight/)
-  assert.match(stockAdjustmentsSource, /批次成本调整当前只支持重量物料/)
+  assert.match(purchaseSource, /kg、袋、件、盒等物料均按物料档案库存单位采购/)
+  assert.match(purchaseSource, /收货确认/)
+  assert.match(purchaseSource, /最终单价/)
+  assert.doesNotMatch(stockAdjustmentsSource, /isSelectedMaterialWeight/)
+  assert.match(stockAdjustmentsSource, /重量及袋、件、盒等离散物料均按批次剩余库存计算价值变化/)
 })
 
 test('material receipt freezes unit to the selected material master', () => {
@@ -364,12 +368,12 @@ test('materials keep derived manufacturing status beside output BOM links withou
 test('semi-finished material is manufacture-only in material, purchase, receipt, and stock-entry forms', () => {
   const materialsTemplate = materialsSource.split('<script setup>')[0] || materialsSource
 
-  assert.match(materialsTemplate, /<label\s+v-if="!draft\.is_semi_finished"><span>采购价/)
-  assert.match(materialsSource, /watch\(\(\)\s*=>\s*draft\.value\?\.is_semi_finished,[\s\S]*draft\.value\.purchase_price\s*=\s*0/)
-  assert.match(materialsSource, /purchase_price:\s*draft\.value\.is_semi_finished\s*\?\s*0\s*:\s*Number\(draft\.value\.purchase_price\s*\|\|\s*0\)/)
+  assert.match(materialsTemplate, /v-if="!draftMode && draft\.supply_mode !== 'manufacture'"/)
+  assert.match(materialsSource, /if \(supplyMode === 'manufacture'\) draft\.value\.purchase_price = 0/)
+  assert.match(materialsSource, /purchase_price is server-owned and is intentionally omitted/)
 
   assert.match(purchaseSource, /isSemiFinishedMaterial/)
-  assert.match(purchaseSource, /const purchasableMaterials = computed\(\(\) => materials\.value\.filter\(\(material\) => isMaterialWeight\(material\) && !isSemiFinishedMaterial\(material\)\)\)/)
+  assert.match(purchaseSource, /const purchasableMaterials = computed\(\(\) => materials\.value\.filter\(\(material\) => !isSemiFinishedMaterial\(material\)\)\)/)
   assert.match(purchaseSource, /isPurchasableMaterialByID/)
 
   assert.match(stockEntriesSource, /selectableStockEntryMaterials/)

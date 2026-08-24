@@ -27,7 +27,7 @@ func TestMaterialsAPIAutoZeroesSemiFinishedPriceAndAuditsTogglePostgres(t *testi
 	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
 
 	create := httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
-		`{"code":"WIP-API","name":"半成品切换测试","kind":"bean","unit":"kg","purchase_price":288}`,
+		`{"code":"WIP-API","name":"半成品切换测试","kind":"bean","unit":"kg","purchase_price":0}`,
 	))
 	create.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	created := httptest.NewRecorder()
@@ -37,6 +37,9 @@ func TestMaterialsAPIAutoZeroesSemiFinishedPriceAndAuditsTogglePostgres(t *testi
 	}
 	var id int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.materials WHERE code='WIP-API'`, schema)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET purchase_price=288 WHERE id=$1`, schema), id); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,18 +76,18 @@ func TestMaterialsAPIAutoZeroesSemiFinishedPriceAndAuditsTogglePostgres(t *testi
 		`{"code":"WIP-API","name":"半成品切换测试","kind":"bean","unit":"kg","is_semi_finished":true,"purchase_price":288}`,
 	))
 	explicitNonZero.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	explicitRejected := httptest.NewRecorder()
-	e.ServeHTTP(explicitRejected, explicitNonZero)
-	if explicitRejected.Code != http.StatusBadRequest || !strings.Contains(explicitRejected.Body.String(), "半成品只能通过生产入库") {
-		t.Fatalf("explicit non-zero semi-finished price status=%d body=%s", explicitRejected.Code, explicitRejected.Body.String())
+	explicitAccepted := httptest.NewRecorder()
+	e.ServeHTTP(explicitAccepted, explicitNonZero)
+	if explicitAccepted.Code != http.StatusOK || !strings.Contains(explicitAccepted.Body.String(), `"purchase_price":0`) {
+		t.Fatalf("explicit same legacy price semi-finished status=%d body=%s", explicitAccepted.Code, explicitAccepted.Body.String())
 	}
 	var isSemiFinished bool
 	var purchasePrice float64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT is_semi_finished,purchase_price::float8 FROM %s.materials WHERE id=$1`, schema), id).Scan(&isSemiFinished, &purchasePrice); err != nil {
 		t.Fatal(err)
 	}
-	if isSemiFinished || purchasePrice != 288 {
-		t.Fatalf("rejected explicit non-zero update changed material semi/price=%t/%.2f", isSemiFinished, purchasePrice)
+	if !isSemiFinished || purchasePrice != 0 {
+		t.Fatalf("semi-finished update did not force zero price=%t/%.2f", isSemiFinished, purchasePrice)
 	}
 
 	invalid := httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(
@@ -93,7 +96,7 @@ func TestMaterialsAPIAutoZeroesSemiFinishedPriceAndAuditsTogglePostgres(t *testi
 	invalid.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rejected := httptest.NewRecorder()
 	e.ServeHTTP(rejected, invalid)
-	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "半成品只能通过生产入库") {
+	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "采购入库或盘点调整") {
 		t.Fatalf("invalid semi-finished price status=%d body=%s", rejected.Code, rejected.Body.String())
 	}
 }

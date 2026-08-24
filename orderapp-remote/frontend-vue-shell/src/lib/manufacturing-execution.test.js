@@ -49,7 +49,6 @@ test('manufacturing execution helpers expose phase2 endpoints and status labels'
   assert.equal(workOrderStatusLabel('completed'), '已完成')
 
   assert.deepEqual(stockEntryTypeOptions().map((item) => item.value), [
-    'material_receipt',
     'material_issue',
     'material_transfer',
     'material_transfer_for_manufacture',
@@ -118,5 +117,5 @@ test('phase2 Vue pages keep work-order and job-card lists read-only while retain
       assert.ok(stockOperations.includes(want), `StockOperationsView.vue missing ${want}`)
     }
   }
-  assert.deepEqual(stockEntryTypeOptions().map((item) => item.label), ['原料入库', '物料发出 / 报废', '库存转仓', '生产领料', '退回未用原料', '记录生产消耗', '完工入库'])
+  assert.deepEqual(stockEntryTypeOptions().map((item) => item.label), ['物料发出 / 报废', '库存转仓', '生产领料', '退回未用原料', '记录生产消耗', '完工入库'])
 })

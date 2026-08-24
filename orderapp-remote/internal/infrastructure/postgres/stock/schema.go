@@ -611,9 +611,22 @@ CREATE TABLE IF NOT EXISTS %s.stock_adjustment_items (
 	qty_change_units BIGINT NOT NULL DEFAULT 0,
 	qty_after_units BIGINT NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS %s.stock_adjustment_batch_allocations (
+	id BIGSERIAL PRIMARY KEY,
+	adjustment_id BIGINT NOT NULL,
+	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	warehouse TEXT NOT NULL DEFAULT '',
+	qty_change_g BIGINT NOT NULL DEFAULT 0,
+	qty_change_units BIGINT NOT NULL DEFAULT 0,
+	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE INDEX IF NOT EXISTS stock_adjustments_item_idx
 	ON %s.stock_adjustments(item_type, item_id, created_at DESC);
-`, schema, schema, schema)
+CREATE INDEX IF NOT EXISTS stock_adjustment_batch_allocations_adjustment_idx
+	ON %s.stock_adjustment_batch_allocations(adjustment_id, id);
+`, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}

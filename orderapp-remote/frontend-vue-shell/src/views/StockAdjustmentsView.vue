@@ -45,7 +45,7 @@
             empty-text="当前物料没有可用批次"
           />
         </label>
-        <label v-if="isMaterialCostAdjustment"><span>目标成本（元/{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /><small>批次成本调整当前只支持重量物料。</small></label>
+        <label v-if="isMaterialCostAdjustment"><span>目标成本（元/{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /><small>重量及袋、件、盒等离散物料均按批次剩余库存计算价值变化。</small></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product' && selectedProductUsesBOMSpecs">
           <span>BOM 规格</span>
           <select v-model.number="form.bom_spec_id">
@@ -61,12 +61,17 @@
             <option v-for="row in warehouseOptions" :key="row.code" :value="row.code">{{ row.name }}</option>
           </select>
         </label>
-        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>目标数量（{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.001" v-model.number="form.target_qty" /></label>
+        <div v-if="!isMaterialCostAdjustment && form.item_type === 'material' && selectedMaterial" class="balance-card span-2">
+          <strong>当前仓库账面库存：{{ materialBalance.book_qty }} {{ selectedMaterialUnitLabel }}</strong>
+          <span>可用库存：{{ materialBalance.available_qty }} {{ selectedMaterialUnitLabel }}</span>
+          <span v-if="Number(materialBalance.frozen_qty || 0) > 0">冻结库存：{{ materialBalance.frozen_qty }} {{ selectedMaterialUnitLabel }}</span>
+        </div>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>目标数量（{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" :step="selectedMaterialUsesCount ? 1 : 0.001" v-model.number="form.target_qty" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product' && !selectedProductUsesBOMSpecs"><span>目标散装g</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>{{ selectedProductUsesBOMSpecs ? `目标数量（${selectedProductBOMSpec?.unit || '规格单位'}）` : '成品目标件数' }}</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本（元/{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
         <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="实物盘点差异 / 批次成本更正" /></label>
-        <button class="primary" type="button" @click="submit" :disabled="saving || (isMaterialCostAdjustment && !isSelectedMaterialWeight)">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
+        <button class="primary" type="button" @click="submit" :disabled="saving">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
       </div>
     </section>
   </div>
@@ -76,6 +81,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import { inventoryUnitWeightInGrams } from '../lib/production-execution-hub'
 import {
   buildFinishedAdjustmentPayload,
   currentBOMSpecs,
@@ -92,6 +98,8 @@ const materials = ref([])
 const products = ref([])
 const warehouses = ref([])
 const materialBatches = ref([])
+const materialBalance = ref({ book_qty: 0, available_qty: 0, frozen_qty: 0 })
+let materialBalanceRequest = 0
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -99,7 +107,7 @@ const ok = ref('')
 const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item_id: 0, bom_spec_id: 0, spec_g: 0, warehouse: 'raw_materials', target_qty: 0, target_g: 0, target_units: 0, material_batch_id: 0, target_unit_cost: 0, reason: '' })
 const isMaterialCostAdjustment = computed(() => form.adjustment_type === 'material_cost')
 const currentOptions = computed(() => form.item_type === 'material'
-  ? (isMaterialCostAdjustment.value ? materials.value.filter((material) => isMaterialWeight(material)) : materials.value)
+  ? materials.value
   : products.value)
 const selectedMaterial = computed(() => materials.value.find((row) => Number(row.id || row.ID || 0) === Number(form.item_id || 0)) || null)
 const selectedProduct = computed(() => products.value.find((row) => Number(row.id || row.product_id || 0) === Number(form.item_id || 0)) || null)
@@ -107,10 +115,10 @@ const selectedProductUsesBOMSpecs = computed(() => form.item_type === 'finished_
 const selectedProductBOMSpecs = computed(() => currentBOMSpecs(selectedProduct.value || {}))
 const selectedProductBOMSpec = computed(() => selectedBOMSpec(selectedProduct.value || {}, form.bom_spec_id))
 const selectedMaterialUnitLabel = computed(() => selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '库存单位')
-const isSelectedMaterialWeight = computed(() => isMaterialWeight(selectedMaterial.value))
+const selectedMaterialUsesCount = computed(() => inventoryUnitWeightInGrams(selectedMaterialUnitLabel.value) <= 0)
 const warehouseOptions = computed(() => {
   const kind = form.item_type === 'finished_product' ? 'finished' : ''
-  const rows = warehouses.value.filter((row) => !kind || row.kind === kind)
+  const rows = warehouses.value.filter((row) => kind ? row.kind === kind : row.kind !== 'finished')
   return rows.length ? rows : [{ code: form.item_type === 'finished_product' ? 'finished_goods' : 'raw_materials', name: form.item_type === 'finished_product' ? '成品仓' : '原料仓' }]
 })
 
@@ -122,13 +130,10 @@ function itemLabel(row) {
 
 function batchLabel(row) {
   if (!row) return ''
-  const kg = Number(row.remaining_g || 0) / 1000
-  return `${row.batch_code} · 剩余${kg.toFixed(3)}kg · ${Number(row.unit_cost || 0).toFixed(2)}元/${selectedMaterialUnitLabel.value}`
-}
-
-function isMaterialWeight(material) {
-  const inventoryUnit = String(material?.unit || material?.Unit || '').trim().toLowerCase()
-  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(inventoryUnit)
+  const remaining = Number(row.remaining_units || 0) > 0
+    ? `${Number(row.remaining_units || 0)}${selectedMaterialUnitLabel.value}`
+    : `${(Number(row.remaining_g || 0) / 1000).toFixed(3)}kg`
+  return `${row.batch_code} · 剩余${remaining} · ${Number(row.unit_cost || 0).toFixed(2)}元/${selectedMaterialUnitLabel.value}`
 }
 
 async function loadOptions() {
@@ -146,7 +151,7 @@ async function loadOptions() {
 async function loadMaterialBatches() {
   materialBatches.value = []
   form.material_batch_id = 0
-  if (!isMaterialCostAdjustment.value || !form.item_id || !isSelectedMaterialWeight.value) return
+  if (!isMaterialCostAdjustment.value || !form.item_id) return
   try {
     const url = new URL('/api/stock/material-batches', window.location.origin)
     url.searchParams.set('material_id', String(form.item_id))
@@ -159,11 +164,31 @@ async function loadMaterialBatches() {
   }
 }
 
-async function submit() {
-  if (isMaterialCostAdjustment.value && !isSelectedMaterialWeight.value) {
-    error.value = '批次成本调整当前只支持重量物料；件、袋、盒等离散物料请通过数量补录或原料入库处理。'
-    return
+async function loadMaterialBalances() {
+  const request = ++materialBalanceRequest
+  const materialID = Number(form.item_id || 0)
+  const warehouse = String(form.warehouse || '')
+  materialBalance.value = { book_qty: 0, available_qty: 0, frozen_qty: 0 }
+  if (isMaterialCostAdjustment.value || form.item_type !== 'material' || !materialID || !warehouse) return
+  try {
+    const url = new URL('/api/stock/material-balances', window.location.origin)
+    url.searchParams.set('warehouse', warehouse)
+    url.searchParams.set('material_ids', String(materialID))
+    const data = await apiGet(url)
+    if (request !== materialBalanceRequest || Number(form.item_id || 0) !== materialID || String(form.warehouse || '') !== warehouse) return
+    materialBalance.value = data.rows?.[0] || materialBalance.value
+    initializeMaterialTargetFromBalance()
+  } catch (err) {
+    if (request !== materialBalanceRequest) return
+    error.value = err.message || '加载当前仓库库存失败'
   }
+}
+
+function initializeMaterialTargetFromBalance() {
+  form.target_qty = Number(materialBalance.value.book_qty || 0)
+}
+
+async function submit() {
   saving.value = true
   error.value = ''
   ok.value = ''
@@ -188,6 +213,7 @@ async function submit() {
     if (form.item_type === 'finished_product' && selectedProductUsesBOMSpecs.value && !selectedProductBOMSpec.value) throw new Error('请选择当前默认 BOM 的规格')
     const data = await apiSend('/api/stock/adjustments', { body })
     ok.value = data.adjustment_id
+    await Promise.all([loadMaterialBalances(), loadMaterialBatches()])
   } catch (err) { error.value = err.message || '提交失败' } finally { saving.value = false }
 }
 
@@ -204,7 +230,7 @@ watch(() => form.adjustment_type, () => {
   materialBatches.value = []
   form.material_batch_id = 0
   if (isMaterialCostAdjustment.value) {
-    const keepMaterialID = form.item_type === 'material' && isSelectedMaterialWeight.value ? form.item_id : 0
+    const keepMaterialID = form.item_type === 'material' ? form.item_id : 0
     form.item_type = 'material'
     form.item_id = keepMaterialID
     form.spec_g = 0
@@ -213,6 +239,7 @@ watch(() => form.adjustment_type, () => {
     form.target_units = 0
   }
   loadMaterialBatches()
+  loadMaterialBalances()
 })
 
 function onFinishedProductChange() {
@@ -229,8 +256,11 @@ function onFinishedProductChange() {
 
 watch(() => form.item_id, () => {
   loadMaterialBatches()
+  loadMaterialBalances()
   onFinishedProductChange()
 })
+
+watch(() => form.warehouse, loadMaterialBalances)
 
 onMounted(loadOptions)
 </script>
@@ -245,6 +275,7 @@ onMounted(loadOptions)
 .operation-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; align-items:end; }
 .span-2 { grid-column:span 2; }
 .span-3 { grid-column:span 3; }
+.balance-card { display:flex; flex-wrap:wrap; gap:8px 18px; min-height:38px; align-items:center; padding:8px 10px; border:1px solid #bfdbfe; border-radius:6px; background:#eff6ff; font-size:13px; }
 label { min-width:0; position:relative; }
 label span { display:block; color:#666; font-size:12px; margin-bottom:5px; }
 label small { display:block; color:#6b7280; font-size:12px; line-height:1.4; margin-top:4px; }

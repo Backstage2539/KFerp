@@ -61,6 +61,7 @@ type materialInput struct {
 	CostUnit                string
 	BatchNo                 string
 	PurchasePrice           float64
+	PurchasePriceSet        bool
 	SalePrice               float64
 	OnhandG                 int64
 	OnhandUnits             int64
@@ -345,6 +346,12 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, fmt.Errorf("material deprecated")
 	}
 	old.IndustryFields = loadMaterialIndustryFieldsForTx(ctx, tx, schema, id)
+	if !next.PurchasePriceSet && next.PurchasePrice == 0 {
+		next.PurchasePrice = old.PurchasePrice
+		next.PurchasePriceSet = false
+	} else {
+		next.PurchasePriceSet = true
+	}
 	if !next.IsSemiFinishedSet {
 		next.IsSemiFinished = old.IsSemiFinished
 	}
@@ -365,6 +372,11 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_boms pb WHERE pb.output_type='material' AND pb.output_material_id=$1 AND COALESCE(NULLIF(pb.status,''),'active')='active'`, schema), id).Scan(&linked); err == nil && linked > 0 {
 			return materialRow{}, fmt.Errorf("该物料仍有关联制造 BOM，请先处理 BOM 后再切换为外购")
 		}
+	}
+	if next.IsSemiFinished {
+		next.PurchasePrice = 0
+	} else if next.PurchasePriceSet && math.Abs(next.PurchasePrice-old.PurchasePrice) > 0.000001 {
+		return materialRow{}, fmt.Errorf("物料采购价为只读字段，请在采购入库或盘点调整中维护成本")
 	}
 	if err := assertSemiFinishedPurchasePrice(next.IsSemiFinished, next.PurchasePrice); err != nil {
 		return materialRow{}, err
@@ -1555,6 +1567,7 @@ func materialInputFromApp(in materialsapp.MaterialInput) materialInput {
 		CostUnit:                in.CostUnit,
 		BatchNo:                 in.BatchNo,
 		PurchasePrice:           in.PurchasePrice,
+		PurchasePriceSet:        in.PurchasePriceSet,
 		SalePrice:               in.SalePrice,
 		OnhandG:                 in.OnhandG,
 		OnhandUnits:             in.OnhandUnits,
