@@ -25,6 +25,7 @@
 - 正式生产第二次锁定预览仍为 `state=ready`、31/30/1/31/26/5 且依赖为 0。随后创建并验证 `/opt/stacks/erp-production/backups/pr606-pre-cutover-20260824143425.dump`（2,256,127 bytes / 1,955 archive items / SHA-256 `81c881dee5bef781fa484962ad8748f5a58eae41eaf3848eb42913dad5d27642`），再以单事务应用。
 - 生产应用后验收：31 个目标物料、31 个替代 BOM、26 个 published/default/`can_manufacture=true`、5 个空配方 draft，31 个源 BOM 全部 inactive，旧商品默认/产出/生产配置绑定均为 0；初晓为 `0.195 + 50→62.11/15→18.63/20→24.84/15→18.63`，曜石2.0 来源为 published V006，榛巧与白巧坚果均符合锁定值，42/67 引用为 0。
 - 相同生产迁移第二次运行返回 `already applied; no changes written`；最终预览为 `state=applied`。操作日志包含 30 个物料创建、1 个初晓物料更新、31 个替代草稿创建、26 个发布、26 个默认 BOM 绑定、31 个源 BOM 失效、31 个商品制造绑定清理及唯一 1 条整批 apply 审计。
+- 验收记录版本重启后，旧 PR-403 兼容修复曾把 24 个仍有旧配方的商品重新绑定到已失效源 BOM。真实 PostgreSQL 回归测试先复现 `intentionally-inactive` 商品错误得到 1 条绑定；修复后兼容逻辑只选择 active 目标 BOM，测试转绿，故意失效的切换源不会在后续启动时复绑。
 
 ## 生产数据门禁
 

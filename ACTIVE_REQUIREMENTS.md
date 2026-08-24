@@ -35,6 +35,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Production data: locked preview was `ready` with zero unfinished dependencies; verified custom-format backup `/opt/stacks/erp-production/backups/pr606-pre-cutover-20260824143425.dump` (2,256,127 bytes, 1,955 restore-list items, SHA-256 `81c881dee5bef781fa484962ad8748f5a58eae41eaf3848eb42913dad5d27642`) preceded the single-transaction apply. Final state is 31 valid semi-finished materials/replacement BOMs, 26 published defaults/can-manufacture and 5 empty drafts; all 31 source BOMs are inactive and old product bindings/configs are zero. Reapply wrote no changes and the apply audit count remains one.
 - Last update: 2026-08-24 Asia/Shanghai
 - Notes: 保持统一 BOM 模型；已发布 BOM 的产出身份不可原位修改，改为创建替代草稿并保留源 BOM/版本追溯。已停用旧组件 42/67 锁定映射到启用同业务物料 7/27，不恢复失效档案。生产服务器根盘恢复后切换前可用空间 9.4GB，数据库、当前运行镜像、回滚镜像及业务备份均保留。
+- Restart guard: production acceptance-record restart exposed 24 legacy product bindings recreated by the PR-403 compatibility repair. A real-PostgreSQL RED/GREEN now requires legacy repair targets to be active, so intentionally inactive cutover source BOMs cannot be rebound; production reconciliation and restart verification are part of final acceptance.
 
 ### PR-604-MATERIAL-COST-BOM-EDITOR
 - Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop); follow-ups `codex/pr604-price-preview-20260823`, current `codex/pr604-price-trial-product-not-found-20260823`
