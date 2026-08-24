@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-607-PRODUCT-BOM-PACKAGING
+- Branch: `codex/pr607-product-bom-packaging`
+- Owner/session: Codex / 2026-08-25
+- Status: implementation, targeted/full automated verification and restored-production-clone acceptance GREEN; development, production release and production data cutover pending
+- Scope: 基于 PR-606 的 31 组半成品建立同名商品分装 BOM；复制“标准咖啡熟豆规格80g-2.5kg”V001 的 7 个规格，以对应半成品为主料并保留包装物料。26 个发布并设商品默认 BOM，5 个保留待补草稿。
+- DEV:
+  - DEV-607-PRODUCT-BOM-MIGRATION（done，targeted/full/clone GREEN）
+  - DEV-607-STARTUP-BINDING-PROTECTION（done，source/real-PostgreSQL/clone GREEN）
+  - DEV-607-DOCS-RELEASE-ACCEPTANCE（docs done，release evidence pending）
+- Verifier: targeted RED captured；targeted Go/support GREEN；restored-production-clone preview/apply/idempotency/two startup backfills/rollback/dependency abort GREEN；`scripts/verify_kferp.sh all` GREEN（Go 全量、Vue 1033/1033、Vite 6594 modules）。
+- Deployment: 第一阶段 `develop` 到 `main` 的生产代码发布已完成于 `main@c627260b`，未改业务数据；PR-607 独立发布尚未开始。
+- Last update: 2026-08-25 Asia/Shanghai
+
 ### PR-605-MATERIAL-STOCK-COST-CONVERGENCE
 - Branch: codex/pr605-material-stock-cost-20260824
 - Owner/session: Codex / 2026-08-24

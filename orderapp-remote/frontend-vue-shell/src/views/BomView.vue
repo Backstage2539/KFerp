@@ -15,6 +15,7 @@
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
       <p class="muted left">普通生产 BOM 统一声明产出对象（商品或物料）、产出数量和组件清单；制造阶段由所选 BOM 决定。</p>
+      <p class="muted left" data-product-packaging-bom-help>咖啡豆采用两级 BOM：半成品 BOM 负责烘焙并产出 kg 物料，商品 BOM 负责按规格消耗对应半成品和包装物料。</p>
     </section>
 
     <div v-if="bomDrawerOpen" class="drawer-mask" @click.self="closeBomDrawer">
