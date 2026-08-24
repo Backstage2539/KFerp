@@ -656,6 +656,7 @@ func TestProductionBomBackfillPreservesExplicitItemBackedHistoricalVersion(t *te
 	}
 	for _, want := range []string{
 		"CASE WHEN tr.locks_bom_version THEN locked.id ELSE latest.id END",
+		"COALESCE(NULLIF(pbom.status,''),'active')='active'",
 		"locked.legacy_bom_version_id=tr.source_bom_version_id",
 		"locked.bom_id=pbom.id",
 		"tr.locks_bom_version",
