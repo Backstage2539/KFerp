@@ -30,8 +30,11 @@ func TestDev592BomLossGrossInputContracts(t *testing.T) {
 			"return 1 / (1 - rate)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"Number(item.ratio_pct || 0) / (1 - lossRate)",
+			"materialLossAdjustedRatioPct",
 			"配方比例 ÷ (1 - 原料损耗率)",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "bom.js"): {
+			"ratioPct / (1 - rate)",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-592-BOM-LOSS-GROSS-INPUT",

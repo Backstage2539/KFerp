@@ -1035,6 +1035,35 @@ test('BomView loss-rate helpers stay wired to material output only', async () =>
   assert.match(script, /const isMaterialOutputBom = computed/)
 })
 
+test('material loss changes recalculate every existing ratio component immediately', () => {
+  const rows = [50, 15, 20, 15].map((ratio_pct, index) => ({
+    id: index + 1,
+    component_type: 'material',
+    consume_unit: 'ratio_pct',
+    ratio_pct,
+    material_loss_rate: index === 0 ? 0.01 : 0,
+  }))
+  const updated = bomLib.applyVersionMaterialLossRate(rows, 0.195)
+  assert.deepEqual(updated.map((row) => row.material_loss_rate), [0.195, 0.195, 0.195, 0.195])
+  assert.deepEqual(updated.map((row) => Number(bomLib.materialLossAdjustedRatioPct(row).toFixed(2))), [62.11, 18.63, 24.84, 18.63])
+  assert.deepEqual(rows.map((row) => row.material_loss_rate), [0.01, 0, 0, 0], 'helper must not mutate the saved snapshot')
+})
+
+test('BOM drawer keeps save feedback visible and routes immutable published output to replacement draft', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const drawer = template.match(/<aside class="drawer bom-settings-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+  assert.match(drawer, /data-bom-workspace-feedback/)
+  assert.match(drawer, /v-if="error"/)
+  assert.match(drawer, /v-if="ok"/)
+  assert.match(source, /@input="handleVersionMaterialLossRateInput"/)
+  assert.match(source, /published_output_identity_immutable/)
+  assert.match(source, /\/replacement-draft/)
+  assert.match(source, /bomWorkspaceSaveFailed/)
+  assert.match(source, /当前 BOM 草稿保存失败/)
+})
+
 test('assignVariantSpecKeys fills missing keys and only rejects real duplicates', () => {
   const variants = [
     { spec_key: 'bag-227', name: 'a' },

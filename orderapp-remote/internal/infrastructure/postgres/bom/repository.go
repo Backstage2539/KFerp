@@ -1789,21 +1789,6 @@ func (r Repository) updateProductionBomTx(ctx context.Context, tx pgx.Tx, cmd bo
 	}
 	requiresTargetSpecGroup := false
 	identityChangedToMaterial := false
-	if cmd.UpdateOutputBinding && strings.EqualFold(strings.TrimSpace(cmd.OutputType), "material") {
-		var isSemi bool
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputMaterialID).Scan(&isSemi); err != nil {
-			return bomapp.ProductionBomSummary{}, err
-		}
-		if !isSemi {
-			return bomapp.ProductionBomSummary{}, fmt.Errorf("外购物料不能作为物料产出 BOM；请先将取得方式改为自制")
-		}
-	}
-	if cmd.UpdateOutputBinding && cmd.OutputType == "product" {
-		requiresTargetSpecGroup, err = productBOMRequiresSpecGroupTx(ctx, tx, r.schema, cmd.OutputProductID)
-		if err != nil {
-			return bomapp.ProductionBomSummary{}, err
-		}
-	}
 	if cmd.UpdateOutputBinding {
 		var currentOutputType string
 		var currentOutputProductID int64
@@ -1822,7 +1807,22 @@ func (r Repository) updateProductionBomTx(ctx context.Context, tx pgx.Tx, cmd bo
 		}
 		identityChanged := currentOutputType != cmd.OutputType || currentOutputProductID != cmd.OutputProductID || currentOutputMaterialID != cmd.OutputMaterialID
 		if identityChanged && hasPublished {
-			return bomapp.ProductionBomSummary{}, fmt.Errorf("published production BOM output identity is immutable")
+			return bomapp.ProductionBomSummary{}, bomapp.ErrPublishedOutputIdentityImmutable
+		}
+		if strings.EqualFold(strings.TrimSpace(cmd.OutputType), "material") {
+			var isSemi bool
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputMaterialID).Scan(&isSemi); err != nil {
+				return bomapp.ProductionBomSummary{}, err
+			}
+			if !isSemi {
+				return bomapp.ProductionBomSummary{}, fmt.Errorf("外购物料不能作为物料产出 BOM；请先将取得方式改为自制")
+			}
+		}
+		if cmd.OutputType == "product" {
+			requiresTargetSpecGroup, err = productBOMRequiresSpecGroupTx(ctx, tx, r.schema, cmd.OutputProductID)
+			if err != nil {
+				return bomapp.ProductionBomSummary{}, err
+			}
 		}
 		if identityChanged && requiresTargetSpecGroup {
 			if cmd.SpecTemplateVersionID > 0 || cmd.MainInputMaterialID > 0 {
@@ -2325,6 +2325,107 @@ func (r Repository) UpdateProductionBomDraftWorkspace(ctx context.Context, cmd b
 		return bomapp.ProductionBomDetail{}, err
 	}
 	return r.GetProductionBomDetail(ctx, cmd.Bom.ID, cmd.Version.VersionID)
+}
+
+// CreateProductionBomReplacementDraft writes a new BOM master and V001 draft
+// without mutating the source master or any historical source version.
+func (r Repository) CreateProductionBomReplacementDraft(ctx context.Context, cmd bomapp.CreateProductionBomReplacementDraftCommand) (bomapp.ProductionBomDetail, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, cmd.SourceBomID); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	var sourceStatus string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT version.status
+		FROM %s.production_bom_versions version
+		JOIN %s.production_boms bom ON bom.id=version.bom_id
+		WHERE bom.id=$1 AND version.id=$2 AND version.status='published'
+		FOR UPDATE OF bom,version
+	`, r.schema, r.schema), cmd.SourceBomID, cmd.SourceVersionID).Scan(&sourceStatus); err != nil {
+		return bomapp.ProductionBomDetail{}, fmt.Errorf("published source production BOM version not found")
+	}
+	workspace := cmd.Workspace
+	actor := strings.TrimSpace(workspace.Bom.Actor)
+	if workspace.Bom.OutputType == "material" {
+		var selfMade bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(is_semi_finished,false)
+			FROM %s.materials
+			WHERE id=$1 AND deprecated_at IS NULL
+			FOR UPDATE
+		`, r.schema), workspace.Bom.OutputMaterialID).Scan(&selfMade); err != nil {
+			return bomapp.ProductionBomDetail{}, fmt.Errorf("output material not found")
+		}
+		if !selfMade {
+			return bomapp.ProductionBomDetail{}, fmt.Errorf("外购物料不能作为物料产出 BOM；请先将取得方式改为自制")
+		}
+	}
+	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
+	var newBomID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_boms(code,name,output_type,output_product_id,output_material_id,status,source_bom_id,source_bom_version_id,created_by,updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$8)
+		RETURNING id
+	`, r.schema), tempCode, workspace.Bom.Name, workspace.Bom.OutputType, workspace.Bom.OutputProductID, workspace.Bom.OutputMaterialID, cmd.SourceBomID, cmd.SourceVersionID, actor).Scan(&newBomID); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_boms SET code=$1 WHERE id=$2`, r.schema), fmt.Sprintf("BOM-%06d", newBomID), newBomID); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	attrsSchema := strings.TrimSpace(workspace.Version.SpecialAttrsSchemaJSON)
+	if attrsSchema == "" {
+		attrsSchema = "[]"
+	}
+	attrs := strings.TrimSpace(workspace.Version.SpecialAttrsJSON)
+	if attrs == "" {
+		attrs = "{}"
+	}
+	lossRate := 0.0
+	if workspace.Version.MaterialLossRate != nil {
+		lossRate = *workspace.Version.MaterialLossRate
+	}
+	var newVersionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_bom_versions(bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,note,special_attrs_schema_json,special_attrs_json,process_route_id,source_spec_template_version_id,main_input_material_id,created_at,created_by)
+		VALUES($1,'V001','draft',1,$2,$3,$4,'替代来源 BOM',$5::jsonb,$6::jsonb,$7,$8,$9,now(),$10)
+		RETURNING id
+	`, r.schema), newBomID, workspace.Version.OutputQty, workspace.Version.OutputUnit, lossRate, attrsSchema, attrs, workspace.Version.ProcessRouteID, workspace.SpecTemplateID, workspace.MainInputMaterialID, actor).Scan(&newVersionID); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	workspace.Bom.ID = newBomID
+	workspace.Version.VersionID = newVersionID
+	if _, err := r.updateProductionBomVersionDraftTx(ctx, tx, workspace.Version); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	groupID := workspace.Bom.GroupID
+	groupItemID := workspace.Bom.GroupCategoryID
+	if !workspace.Bom.UpdateGroupAssignment {
+		_ = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(group_id,0),COALESCE(group_item_id,0)
+			FROM %s.business_group_assignments
+			WHERE lower(usage_key)='production_bom' AND lower(object_key)='production_bom' AND object_id=$1 AND object_ref=''
+			ORDER BY id DESC LIMIT 1
+		`, r.schema), cmd.SourceBomID).Scan(&groupID, &groupItemID)
+	}
+	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, actor, newBomID, groupID, groupItemID); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "production_bom", &newBomID, "create_replacement_draft", postgresinfra.StrPtr("source_bom_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.SourceBomID)), postgresinfra.StrPtr(fmt.Sprintf("%d", newBomID)), postgresinfra.AuditMeta{
+		"source_bom_id": cmd.SourceBomID, "source_bom_version_id": cmd.SourceVersionID, "source_version_status": sourceStatus,
+		"target_bom_id": newBomID, "target_bom_version_id": newVersionID, "output_type": workspace.Bom.OutputType,
+		"output_product_id": workspace.Bom.OutputProductID, "output_material_id": workspace.Bom.OutputMaterialID,
+		"group_id": groupID, "group_category_id": groupItemID,
+	}); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	return r.GetProductionBomDetail(ctx, newBomID, newVersionID)
 }
 
 func (r Repository) validateProductionBomVersionItemInventoryUnits(ctx context.Context, q bomQueryer, versionID int64) error {

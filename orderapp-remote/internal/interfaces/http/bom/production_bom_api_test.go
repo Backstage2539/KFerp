@@ -283,6 +283,50 @@ func TestProductionBomDraftWorkspaceAPINormalizesRecipeBranchByOutputType(t *tes
 	}
 }
 
+func TestProductionBomDraftWorkspaceReturnsStablePublishedIdentityConflict(t *testing.T) {
+	repo := &apiFakeRepo{workspaceErr: bomapp.ErrPublishedOutputIdentityImmutable}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+	req := httptest.NewRequest(http.MethodPut, "/api/production-boms/11/draft-workspace", strings.NewReader(`{
+		"name":"初晓","output_type":"material","output_id":95,"version_id":103,
+		"output_qty":1,"output_unit":"kg","items":[]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("draft identity conflict status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"published_output_identity_immutable"`) {
+		t.Fatalf("draft identity conflict body=%s", rec.Body.String())
+	}
+}
+
+func TestProductionBomReplacementDraftAPIAcceptsFullWorkspace(t *testing.T) {
+	repo := &apiFakeRepo{materialRows: []bomapp.Option{{ID: 95, Name: "初晓-半成品", InventoryUnit: "kg"}}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+	req := httptest.NewRequest(http.MethodPost, "/api/production-boms/11/replacement-draft", strings.NewReader(`{
+		"source_version_id":102,"name":"初晓","output_type":"material","output_id":95,
+		"output_qty":1,"output_unit":"lb","material_loss_rate":0.195,
+		"group_id":165,"group_category_id":885,
+		"items":[{"component_type":"material","material_id":56,"consume_unit":"ratio_pct","ratio_pct":50}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("replacement draft status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := repo.replacementCommand
+	if got.SourceBomID != 11 || got.SourceVersionID != 102 || got.Workspace.Bom.OutputMaterialID != 95 || got.Workspace.Version.OutputUnit != "kg" {
+		t.Fatalf("replacement command = %+v", got)
+	}
+	if !strings.Contains(rec.Body.String(), `"latest_version_status":"draft"`) {
+		t.Fatalf("replacement response body=%s", rec.Body.String())
+	}
+}
+
 func TestProductionBomUpdateDoesNotTouchGroupAssignmentWhenGroupFieldsOmitted(t *testing.T) {
 	repo := &apiFakeRepo{
 		updatedProductionBom: bomapp.ProductionBomSummary{

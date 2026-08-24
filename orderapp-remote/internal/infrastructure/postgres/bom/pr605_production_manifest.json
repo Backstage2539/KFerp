@@ -1,0 +1,43 @@
+{
+  "manifest_id": "pr605-roasted-bean-semi-finished-2026-08-24",
+  "production_group_id": 165,
+  "material_group_id": 4,
+  "material_group_item_id": 1100,
+  "component_material_replacements": [
+    {"source_material_id":42,"source_name":"曼特宁DP","target_material_id":7,"target_name":"生豆：曼特宁DP"},
+    {"source_material_id":67,"source_name":"森林瑰夏日晒","target_material_id":27,"target_name":"生豆：森林瑰夏日晒"}
+  ],
+  "entries": [
+    {"source_bom_id":24,"source_name":"榛巧拼配","source_product_id":456,"group_item_id":890,"source_version_id":102,"source_version_no":"V003","source_version_status":"published","source_recipe_hash":"d24353aa019a1437b34627099b0ea59c","publish":true,"recipe_override":"scale-fixed-lb-to-kg"},
+    {"source_bom_id":28,"source_name":"曜石2.0","source_product_id":58,"group_item_id":890,"source_version_id":254,"source_version_no":"V006","source_version_status":"published","source_recipe_hash":"0a930678d86ea7a15255ff35152f503b","publish":true},
+    {"source_bom_id":72,"source_name":"白巧坚果","source_product_id":345,"group_item_id":890,"source_version_id":100,"source_version_no":"V004","source_version_status":"published","source_recipe_hash":"220b964a377379b06f4a432241c9db2f","publish":true},
+    {"source_bom_id":100,"source_name":"白月光瑰夏","source_product_id":72,"group_item_id":889,"source_version_id":191,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"924f05bd420db9b85c1ac73d90fdff5d","publish":true},
+    {"source_bom_id":101,"source_name":"初晓","source_product_id":7,"group_item_id":891,"source_version_id":260,"source_version_no":"V005","source_version_status":"published","source_recipe_hash":"303fd80f4b88e48d55ed1c89793ca1aa","publish":true,"existing_material_id":106,"recipe_override":"initial-screenshot"},
+    {"source_bom_id":102,"source_name":"果语花香","source_product_id":42,"group_item_id":890,"source_version_id":185,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"e157109b016875159a97d859b4ff1da6","publish":true},
+    {"source_bom_id":104,"source_name":"红酒日晒","source_product_id":552,"group_item_id":887,"source_version_id":176,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"892d0d58c0a62bea8b8b6f477d072a9e","publish":true},
+    {"source_bom_id":105,"source_name":"果皮茶","source_product_id":69,"group_item_id":887,"source_version_id":128,"source_version_no":"V001","source_version_status":"published","source_recipe_hash":"675f3999c0a69afecaf49c491f1d8cdd","publish":false},
+    {"source_bom_id":106,"source_name":"红岩","source_product_id":39,"group_item_id":890,"source_version_id":257,"source_version_no":"V003","source_version_status":"published","source_recipe_hash":"5e9b7e137a8fe8bc1fb36637f73810a0","publish":true},
+    {"source_bom_id":107,"source_name":"洪都拉斯瑰夏","source_product_id":71,"group_item_id":889,"source_version_id":189,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"924f05bd420db9b85c1ac73d90fdff5d","publish":true},
+    {"source_bom_id":108,"source_name":"花魁","source_product_id":40,"group_item_id":888,"source_version_id":201,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"8a295a79046e2abefb70eb4320891432","publish":true},
+    {"source_bom_id":109,"source_name":"浣纱果园","source_product_id":38,"group_item_id":888,"source_version_id":192,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"f05ec0a7029d10f32ee9a334ac6e97bf","publish":true},
+    {"source_bom_id":117,"source_name":"橘皮乌龙","source_product_id":46,"group_item_id":887,"source_version_id":188,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"8a50574a0af917ed15b0fefaa2de813e","publish":true},
+    {"source_bom_id":118,"source_name":"墨昙","source_product_id":75,"group_item_id":890,"source_version_id":113,"source_version_no":"V001","source_version_status":"published","source_recipe_hash":"675f3999c0a69afecaf49c491f1d8cdd","publish":false},
+    {"source_bom_id":119,"source_name":"嫩咖","source_product_id":51,"group_item_id":888,"source_version_id":175,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"3e1b590dfb187ab1b93712fd6cb8f29e","publish":true},
+    {"source_bom_id":120,"source_name":"曲奇","source_product_id":52,"group_item_id":890,"source_version_id":227,"source_version_no":"V003","source_version_status":"published","source_recipe_hash":"d47fe704dbe38b6361f4ab3cd4d40e51","publish":true},
+    {"source_bom_id":121,"source_name":"如目达摩","source_product_id":50,"group_item_id":888,"source_version_id":221,"source_version_no":"V004","source_version_status":"published","source_recipe_hash":"aca92ae729826ba2d7b791704dc33f40","publish":true},
+    {"source_bom_id":123,"source_name":"曼特宁","source_product_id":53,"group_item_id":889,"source_version_id":181,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"10f8fca67411384cc689054c6be54973","publish":true},
+    {"source_bom_id":124,"source_name":"芒霜","source_product_id":54,"group_item_id":887,"source_version_id":194,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"1e4a30b35808670cf41f0eb3d2b327a9","publish":true},
+    {"source_bom_id":126,"source_name":"松饼","source_product_id":59,"group_item_id":890,"source_version_id":183,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"a4a5858e52de6caacc0a9f991d7da7a7","publish":true},
+    {"source_bom_id":127,"source_name":"乌拉嘎","source_product_id":67,"group_item_id":888,"source_version_id":164,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"28e8beea10eddc08a745e52c540a6dfe","publish":true},
+    {"source_bom_id":128,"source_name":"小菠萝","source_product_id":57,"group_item_id":887,"source_version_id":178,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"6b6ea3f4aa169c11f29bba248bef74c6","publish":true},
+    {"source_bom_id":131,"source_name":"森林瑰夏日晒","source_product_id":60,"group_item_id":888,"source_version_id":186,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"95add376e52a5e53ba7d6b41a7c33425","publish":true},
+    {"source_bom_id":132,"source_name":"森林瑰夏水洗","source_product_id":70,"group_item_id":888,"source_version_id":187,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"9272035ebc634d37302c64db7e2be29a","publish":true},
+    {"source_bom_id":134,"source_name":"耶加雪菲","source_product_id":63,"group_item_id":888,"source_version_id":197,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"8f79bd0905996ed32a9eb82571fa0e96","publish":true},
+    {"source_bom_id":135,"source_name":"耶加雪菲G1","source_product_id":64,"group_item_id":888,"source_version_id":196,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"51633d93d71ec714345909f9231ae162","publish":true},
+    {"source_bom_id":136,"source_name":"耶加雪菲G2","source_product_id":65,"group_item_id":888,"source_version_id":198,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"8f79bd0905996ed32a9eb82571fa0e96","publish":true},
+    {"source_bom_id":137,"source_name":"云上莓梦","source_product_id":68,"group_item_id":888,"source_version_id":165,"source_version_no":"V002","source_version_status":"published","source_recipe_hash":"664ff50784e1190900681e69c2724758","publish":true},
+    {"source_bom_id":145,"source_name":"晨曦·娜依","source_product_id":862,"group_item_id":889,"source_version_id":229,"source_version_no":"V001","source_version_status":"published","source_recipe_hash":"675f3999c0a69afecaf49c491f1d8cdd","publish":false},
+    {"source_bom_id":160,"source_name":"巴布亚新几内亚","source_product_id":913,"group_item_id":889,"source_version_id":237,"source_version_no":"V001","source_version_status":"draft","source_recipe_hash":"675f3999c0a69afecaf49c491f1d8cdd","publish":false},
+    {"source_bom_id":161,"source_name":"萨琪姆水洗","source_product_id":55,"group_item_id":887,"source_version_id":238,"source_version_no":"V001","source_version_status":"draft","source_recipe_hash":"675f3999c0a69afecaf49c491f1d8cdd","publish":false}
+  ]
+}
