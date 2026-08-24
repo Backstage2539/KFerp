@@ -186,6 +186,32 @@ type MaterialBatchLocationResult struct {
 	TotalPages int                        `json:"total_pages"`
 }
 
+type MaterialBalanceQuery struct {
+	Warehouse   string
+	MaterialIDs []int64
+}
+
+type MaterialBalanceRow struct {
+	MaterialID     int64   `json:"material_id"`
+	MaterialName   string  `json:"material_name"`
+	Warehouse      string  `json:"warehouse"`
+	WarehouseName  string  `json:"warehouse_name"`
+	UnitCode       string  `json:"unit_code"`
+	BookQty        float64 `json:"book_qty"`
+	AvailableQty   float64 `json:"available_qty"`
+	FrozenQty      float64 `json:"frozen_qty"`
+	BookG          int64   `json:"book_g"`
+	AvailableG     int64   `json:"available_g"`
+	FrozenG        int64   `json:"frozen_g"`
+	BookUnits      int64   `json:"book_units"`
+	AvailableUnits int64   `json:"available_units"`
+	FrozenUnits    int64   `json:"frozen_units"`
+}
+
+type MaterialBalanceRepository interface {
+	ListMaterialBalances(ctx context.Context, query MaterialBalanceQuery) ([]MaterialBalanceRow, error)
+}
+
 type WarehouseInventoryQuery struct {
 	Q           string
 	Warehouse   string
@@ -409,6 +435,7 @@ type MaterialReceiptCommand struct {
 	ProducerFlavorDescription string
 	Note                      string
 	Operator                  string
+	TargetWarehouse           string
 }
 
 type MaterialReceiptResult struct {
@@ -936,6 +963,48 @@ func (s *Service) ListWarehouseInventory(ctx context.Context, query WarehouseInv
 	return s.repo.ListWarehouseInventory(ctx, query)
 }
 
+func (s *Service) ListMaterialBalances(ctx context.Context, query MaterialBalanceQuery) ([]MaterialBalanceRow, error) {
+	query.Warehouse = normalizeWarehouse(query.Warehouse)
+	if query.Warehouse == "" {
+		return nil, fmt.Errorf("warehouse required")
+	}
+	ids := make([]int64, 0, len(query.MaterialIDs))
+	seen := map[int64]bool{}
+	for _, id := range query.MaterialIDs {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return []MaterialBalanceRow{}, nil
+	}
+	repo, ok := s.repo.(MaterialBalanceRepository)
+	if !ok {
+		return nil, fmt.Errorf("material balance repository unavailable")
+	}
+	rows, err := repo.ListMaterialBalances(ctx, MaterialBalanceQuery{Warehouse: query.Warehouse, MaterialIDs: ids})
+	if err != nil {
+		return nil, err
+	}
+	for index := range rows {
+		factor := 0.0
+		if isReceiptWeightUnit(rows[index].UnitCode) {
+			factor = receiptWeightQtyToGrams(1, rows[index].UnitCode)
+		}
+		if factor > 0 {
+			rows[index].BookQty = float64(rows[index].BookG) / factor
+			rows[index].AvailableQty = float64(rows[index].AvailableG) / factor
+			rows[index].FrozenQty = float64(rows[index].FrozenG) / factor
+		} else {
+			rows[index].BookQty = float64(rows[index].BookUnits)
+			rows[index].AvailableQty = float64(rows[index].AvailableUnits)
+			rows[index].FrozenQty = float64(rows[index].FrozenUnits)
+		}
+	}
+	return rows, nil
+}
+
 func (s *Service) ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error) {
 	query.Q = strings.TrimSpace(query.Q)
 	query.From = strings.TrimSpace(query.From)
@@ -992,6 +1061,10 @@ func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComman
 	cmd.ProducerFlavorDescription = strings.TrimSpace(cmd.ProducerFlavorDescription)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.TargetWarehouse = normalizeWarehouse(cmd.TargetWarehouse)
+	if cmd.TargetWarehouse == "" {
+		cmd.TargetWarehouse = stockdomain.WarehouseRawMaterials
+	}
 	if cmd.Operator == "" {
 		cmd.Operator = "stock"
 	}
@@ -1004,7 +1077,7 @@ func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComman
 				MaterialID:                cmd.MaterialID,
 				ItemType:                  itemTypeMaterial,
 				InventoryUnit:             cmd.UnitCode,
-				ToWarehouse:               stockdomain.WarehouseRawMaterials,
+				ToWarehouse:               cmd.TargetWarehouse,
 				QtyG:                      cmd.QtyG,
 				QtyUnits:                  cmd.QtyUnits,
 				UnitCost:                  cmd.UnitCost,

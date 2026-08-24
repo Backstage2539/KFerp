@@ -5,6 +5,7 @@ import (
 	"net/url"
 	stockapp "orderapp/internal/application/stock"
 	support "orderapp/internal/interfaces/http/support"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -22,7 +23,7 @@ func registerStockPages(e *echo.Echo) {
 		{"/stock/ledger", "stockLedger"},
 		{"/stock/batches", "stockBatches"},
 		{"/stock/wip", "stockOperations&tab=stockEntries&action=issue"},
-		{"/stock/material-receipts", "stockOperations&tab=stockEntries&action=receipt"},
+		{"/stock/material-receipts", "purchase"},
 		{"/stock/material-batches", "materialBatches"},
 		{"/stock/adjustments", "stockOperations&tab=adjustments"},
 		{"/stock/outbound-logs", "stockOutboundLogs"},
@@ -105,6 +106,23 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.GET("/api/stock/material-balances", func(c echo.Context) error {
+		ids := make([]int64, 0)
+		for _, raw := range strings.Split(c.QueryParam("material_ids"), ",") {
+			id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+			if err == nil && id > 0 {
+				ids = append(ids, id)
+			}
+		}
+		rows, err := stockSvc.ListMaterialBalances(c.Request().Context(), stockapp.MaterialBalanceQuery{
+			Warehouse: strings.TrimSpace(c.QueryParam("warehouse")), MaterialIDs: ids,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	})
@@ -202,6 +220,8 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 	})
 
 	e.POST("/api/stock/material-receipts", func(c echo.Context) error {
+		return c.JSON(http.StatusBadRequest, errorResponse{Error: "普通原料入库已停用，请前往采购入库创建采购单并确认收货"})
+		/* Historical endpoint payload retained below as a source compatibility reference.
 		var req struct {
 			MaterialID                int64   `json:"material_id"`
 			Supplier                  string  `json:"supplier"`
@@ -233,7 +253,7 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
 		}
-		return c.JSON(http.StatusOK, result)
+		return c.JSON(http.StatusOK, result) */
 	})
 
 	e.POST("/api/stock/adjustments", func(c echo.Context) error {

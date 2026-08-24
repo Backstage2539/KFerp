@@ -26,7 +26,7 @@ type stockEntryRequest struct {
 	Items          []stockapp.StockDocumentItemCommand `json:"items"`
 }
 
-// Accepted purpose values include material_receipt, material_issue, material_transfer,
+// Accepted new-write purpose values include material_issue, material_transfer,
 // material_transfer_for_manufacture, material_return_from_manufacture,
 // material_consumption_for_manufacture, manufacture, and the legacy finished_transfer alias.
 // Inventory reconciliation remains a separate stock-adjustment workflow.
@@ -57,6 +57,9 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 			Items:          req.Items,
 		}, nil
 	}
+	isRetiredMaterialReceipt := func(cmd stockapp.StockDocumentCommand) bool {
+		return strings.TrimSpace(cmd.Purpose) == stockapp.PurposeMaterialReceipt || strings.TrimSpace(cmd.EntryType) == stockapp.PurposeMaterialReceipt
+	}
 	createStockDocument := func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -64,6 +67,9 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 		cmd, err := bindStockDocumentCommand(c)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if isRetiredMaterialReceipt(cmd) {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "普通原料入库已停用，请前往采购入库重建"})
 		}
 		detail, err := stockSvc.CreateStockDocumentDraft(c.Request().Context(), cmd)
 		if err != nil {
@@ -82,6 +88,9 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 		cmd, err := bindStockDocumentCommand(c)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if isRetiredMaterialReceipt(cmd) {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "历史原料入库草稿不能继续编辑，请前往采购入库重建"})
 		}
 		detail, err := stockSvc.UpdateStockDocumentDraft(c.Request().Context(), id, cmd)
 		if err != nil {
@@ -103,6 +112,9 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 		}
 		if detail.Status == "submitted" {
 			return c.JSON(http.StatusOK, detail)
+		}
+		if detail.Purpose == stockapp.PurposeMaterialReceipt {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "历史原料入库草稿不能继续提交，请前往采购入库重建"})
 		}
 		if detail.Purpose == stockapp.PurposeManufacture && detail.WorkOrderID > 0 {
 			workOrderDetail, err := productionSvc.GetWorkOrderDetail(c.Request().Context(), detail.WorkOrderID)
@@ -147,7 +159,14 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid stock_entry_id"})
 		}
-		detail, err := stockSvc.CancelStockDocument(c.Request().Context(), id, support.ActorOf(c))
+		detail, err := stockSvc.GetStockDocument(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		if detail.Purpose == stockapp.PurposeMaterialReceipt {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "历史原料入库单据只读，不能取消"})
+		}
+		detail, err = stockSvc.CancelStockDocument(c.Request().Context(), id, support.ActorOf(c))
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -187,6 +206,9 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service, s
 			cmd, err := bindStockDocumentCommand(c)
 			if err != nil {
 				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+			}
+			if isRetiredMaterialReceipt(cmd) {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "普通原料入库已停用，请前往采购入库重建"})
 			}
 			detail, err := stockSvc.CreateAndSubmitStockDocument(c.Request().Context(), cmd)
 			if err != nil {

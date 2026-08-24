@@ -133,6 +133,20 @@ func (r Repository) CreateAndSubmitStockDocument(ctx context.Context, cmd stocka
 	return detail, nil
 }
 
+// CreateAndSubmitStockDocumentTx lets another bounded business transaction,
+// such as purchase receiving, reuse the canonical Stock Entry posting path.
+// The caller owns commit and rollback.
+func (r Repository) CreateAndSubmitStockDocumentTx(ctx context.Context, tx pgx.Tx, cmd stockapp.StockDocumentCommand) (stockapp.StockDocumentDetail, error) {
+	draft, err := r.createStockDocumentDraftTx(ctx, tx, cmd)
+	if err != nil {
+		return stockapp.StockDocumentDetail{}, err
+	}
+	if draft.Status == "submitted" {
+		return draft, nil
+	}
+	return r.submitStockDocumentTx(ctx, tx, draft.ID, cmd.Operator)
+}
+
 func (r Repository) CancelStockDocument(ctx context.Context, id int64, actor string) (stockapp.StockDocumentDetail, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

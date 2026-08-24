@@ -289,7 +289,7 @@ const content = ref(null)
 const notificationStack = ref(null)
 const viewAliases = {
   userPermissions: 'employees',
-  materialReceipts: 'stockOperations',
+  materialReceipts: 'purchase',
   wipMaterials: 'stockOperations',
   stockAdjustments: 'stockOperations',
   bom: 'productionConfig',
@@ -477,10 +477,6 @@ function readViewParams() {
   for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_order_id', 'work_order_no', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab', 'action', 'return_source', 'production_bom_id', 'bom_id']) {
     const value = params.get(key)
     if (value) out[key] = value
-  }
-  if (requestedViewParam === 'materialReceipts') {
-    out.tab ||= 'stockEntries'
-    out.action ||= 'receipt'
   }
   if (requestedViewParam === 'wipMaterials') {
     out.tab ||= 'stockEntries'
