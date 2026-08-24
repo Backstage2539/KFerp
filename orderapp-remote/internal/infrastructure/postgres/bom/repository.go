@@ -3980,6 +3980,14 @@ WITH missing_legacy_bindings AS (
 	LEFT JOIN %[1]s.product_production_bom_bindings existing_binding ON existing_binding.product_id=p.id
 	WHERE COALESCE(p.active,true)=true
 	  AND existing_binding.product_id IS NULL
+	  AND NOT EXISTS (
+	    SELECT 1
+	    FROM %[1]s.production_boms explicit_bom
+	    WHERE explicit_bom.output_type='product'
+	      AND explicit_bom.output_product_id=p.id
+	      AND COALESCE(NULLIF(explicit_bom.status,''),'active')='active'
+	      AND COALESCE(explicit_bom.legacy_product_id,0)=0
+	  )
 	  AND (
 	    EXISTS (SELECT 1 FROM %[1]s.product_bom_items bi WHERE bi.product_id=p.id)
 	    OR EXISTS (

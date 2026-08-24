@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func TestRepairLegacyProductionBomBindingsPostgresOnce(t *testing.T) {
 		t.Skip("set KF_RUN_POSTGRES_INTEGRATION=1 to run against a disposable PostgreSQL schema")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, "")
+	pool, err := pgxpool.New(ctx, strings.TrimSpace(os.Getenv("DATABASE_URL")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +61,11 @@ func TestRepairLegacyProductionBomBindingsPostgresOnce(t *testing.T) {
 			id BIGSERIAL PRIMARY KEY,
 			code TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
+			output_type TEXT NOT NULL DEFAULT 'product',
 			output_product_id BIGINT NOT NULL,
 			group_id BIGINT NOT NULL DEFAULT 0,
 			status TEXT NOT NULL DEFAULT 'active',
-			legacy_product_id BIGINT NOT NULL UNIQUE,
+			legacy_product_id BIGINT NOT NULL DEFAULT 0,
 			created_by TEXT NOT NULL DEFAULT '',
 			updated_by TEXT NOT NULL DEFAULT ''
 		)`,
@@ -165,6 +167,25 @@ func TestRepairLegacyProductionBomBindingsPostgresOnce(t *testing.T) {
 	assertCounts(2, 0, 0, 0, 0, 0)
 	assertCounts(3, 1, 1, 1, 1, 0)
 	assertCounts(5, 1, 1, 1, 0, 0)
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO `+schema+`.products(id,name) VALUES (6,'explicit-draft');
+		INSERT INTO `+schema+`.product_bom(product_id,yield_rate) VALUES (6,1);
+		INSERT INTO `+schema+`.product_bom_items(product_id,material_id,ratio_pct,unit_cost_snapshot) VALUES (6,99,100,80);
+		INSERT INTO `+schema+`.production_boms(code,name,output_type,output_product_id,legacy_product_id,status) VALUES ('BOM-000006','explicit product draft','product',6,0,'active');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := repairLegacyProductionBomBindings(ctx, pool, schema); err != nil {
+		t.Fatal(err)
+	}
+	var explicitBOMs, explicitBindings int
+	if err := pool.QueryRow(ctx, `SELECT (SELECT COUNT(*) FROM `+schema+`.production_boms WHERE output_type='product' AND output_product_id=6),(SELECT COUNT(*) FROM `+schema+`.product_production_bom_bindings WHERE product_id=6)`).Scan(&explicitBOMs, &explicitBindings); err != nil {
+		t.Fatal(err)
+	}
+	if explicitBOMs != 1 || explicitBindings != 0 {
+		t.Fatalf("explicit draft restart repair counts boms=%d bindings=%d want 1/0", explicitBOMs, explicitBindings)
+	}
 
 	if err := repairLegacyProductionBomBindings(ctx, pool, schema); err != nil {
 		t.Fatal(err)
