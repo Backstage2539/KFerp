@@ -111,14 +111,14 @@ func TestRepairLegacyProductionBomBindingsPostgresOnce(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO `+schema+`.products(id,name) VALUES (1,'item-backed'),(2,'empty-shell'),(3,'existing-published');
-		INSERT INTO `+schema+`.product_bom(product_id,yield_rate) VALUES (1,1),(2,1);
-		INSERT INTO `+schema+`.product_bom_items(product_id,material_id,ratio_pct,unit_cost_snapshot) VALUES (1,95,100,54);
-		INSERT INTO `+schema+`.production_boms(code,name,output_product_id,legacy_product_id) VALUES ('BOM-000003','existing',3,3);
+		INSERT INTO `+schema+`.products(id,name) VALUES (1,'item-backed'),(2,'empty-shell'),(3,'existing-published'),(5,'intentionally-inactive');
+		INSERT INTO `+schema+`.product_bom(product_id,yield_rate) VALUES (1,1),(2,1),(5,1);
+		INSERT INTO `+schema+`.product_bom_items(product_id,material_id,ratio_pct,unit_cost_snapshot) VALUES (1,95,100,54),(5,98,100,70);
+		INSERT INTO `+schema+`.production_boms(code,name,output_product_id,legacy_product_id,status) VALUES ('BOM-000003','existing',3,3,'active'),('BOM-000005','cut-over source',5,5,'inactive');
 		INSERT INTO `+schema+`.production_bom_versions(bom_id,version_no,status,legacy_product_id,published_at)
-		SELECT id,'V001','published',3,now() FROM `+schema+`.production_boms WHERE legacy_product_id=3;
+		SELECT id,'V001','published',legacy_product_id,now() FROM `+schema+`.production_boms WHERE legacy_product_id IN (3,5);
 		INSERT INTO `+schema+`.production_bom_version_items(version_id,material_id,ratio_pct,unit_cost_snapshot)
-		SELECT id,96,100,60 FROM `+schema+`.production_bom_versions WHERE legacy_product_id=3;
+		SELECT id,CASE WHEN legacy_product_id=3 THEN 96 ELSE 98 END,100,CASE WHEN legacy_product_id=3 THEN 60 ELSE 70 END FROM `+schema+`.production_bom_versions WHERE legacy_product_id IN (3,5);
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +164,7 @@ func TestRepairLegacyProductionBomBindingsPostgresOnce(t *testing.T) {
 	assertCounts(1, 1, 1, 1, 1, 0)
 	assertCounts(2, 0, 0, 0, 0, 0)
 	assertCounts(3, 1, 1, 1, 1, 0)
+	assertCounts(5, 1, 1, 1, 0, 0)
 
 	if err := repairLegacyProductionBomBindings(ctx, pool, schema); err != nil {
 		t.Fatal(err)

@@ -4002,6 +4002,7 @@ inserted_boms AS (
 	       'system-pr403-legacy-binding-repair',
 	       'system-pr403-legacy-binding-repair'
 	FROM missing_legacy_bindings
+	WHERE status<>'inactive'
 	ON CONFLICT DO NOTHING
 	RETURNING id, legacy_product_id
 ),
@@ -4012,6 +4013,7 @@ target_boms AS (
 	       mlb.updated_at
 	FROM missing_legacy_bindings mlb
 	JOIN %[1]s.production_boms pbom ON pbom.legacy_product_id=mlb.product_id
+	  AND COALESCE(NULLIF(pbom.status,''),'active')='active'
 	UNION ALL
 	SELECT inserted.id AS bom_id,
 	       mlb.product_id,
