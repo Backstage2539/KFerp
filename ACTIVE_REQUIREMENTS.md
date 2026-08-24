@@ -17,16 +17,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: Van production and miniapp acceptance pending.
 
 ### PR-607-PRODUCT-BOM-PACKAGING
-- Branch: `codex/pr607-product-bom-packaging`
+- Branch: `codex/pr607-product-bom-packaging`; production release `codex/release-main-pr607-product-packaging-20260825`; evidence `codex/pr607-production-evidence`
 - Owner/session: Codex / 2026-08-25
-- Status: implementation, targeted/full automated verification, restored-production-clone acceptance and development delivery GREEN; production release and production data cutover pending
+- Status: implementation, development/production release, verified backup, single-transaction production cutover, restart and automated production acceptance complete; Van page acceptance pending
 - Scope: 基于 PR-606 的 31 组半成品建立同名商品分装 BOM；复制“标准咖啡熟豆规格80g-2.5kg”V001 的 7 个规格，以对应半成品为主料并保留包装物料。26 个发布并设商品默认 BOM，5 个保留待补草稿。
 - DEV:
   - DEV-607-PRODUCT-BOM-MIGRATION（done，targeted/full/clone GREEN）
   - DEV-607-STARTUP-BINDING-PROTECTION（done，source/real-PostgreSQL/clone GREEN）
-  - DEV-607-DOCS-RELEASE-ACCEPTANCE（docs done，development delivered，production evidence pending）
-- Verifier: targeted RED captured；targeted Go/support GREEN；restored-production-clone preview/apply/idempotency/two startup backfills/rollback/dependency abort GREEN；`scripts/verify_kferp.sh all` GREEN（Go 全量、Vue 1033/1033、Vite 6594 modules）。
-- Deployment: 第一阶段 `develop` 到 `main` 的生产代码发布已完成于 `main@c627260b`，未改业务数据；PR-607 已部署 development `develop@12787fb48f32dbd1ec81561f49a4929bcc0dbe8e`，源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260825003648-12787fb48f32`，回滚镜像 `kferp-orderapp-rollback:development-20260825003648-12787fb48f32`，登录页 HTTP 200；生产发布与数据切换待执行。
+  - DEV-607-DOCS-RELEASE-ACCEPTANCE（done，development/production/data evidence GREEN）
+- Verifier: targeted RED captured；targeted Go/support GREEN；restored-production-clone preview/apply/idempotency/two startup backfills/rollback/dependency abort GREEN；`scripts/verify_kferp.sh all` GREEN（Go 全量、Vue 1033/1033、Vite 6594 modules）；development/production remote preflight and release gates GREEN。
+- Deployment: 第一阶段最新 `develop` 已单独发布 `main@c627260b` 且未改业务数据。PR-607 已部署 development `12787fb48f32dbd1ec81561f49a4929bcc0dbe8e`（源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260825003648-12787fb48f32`，回滚镜像 `kferp-orderapp-rollback:development-20260825003648-12787fb48f32`）；经 PR #41 发布 production `7c8dec3a05e0124f588d7d69fa763d4dffd68a93`（源码备份 `/opt/stacks/erp-production/orderapp.backup.deploy-20260825005556-7c8dec3a05e0`，回滚镜像 `kferp-orderapp-rollback:production-20260825005556-7c8dec3a05e0`）。两环境登录 HTTP 200，生产 PostgreSQL healthy、受保护 API 未认证 401。
+- Production data: 最终锁定 preview 为 `ready`、依赖 0；正式 custom-format 备份 `/opt/stacks/erp-production/backups/pr607-pre-cutover-20260825010308.dump` 为 2,284,242 bytes / 1,963 restore items / SHA-256 `e33efcac11ca7daf99ffb66e405375afe9ad39c660c9411673c4201bcfcbcacc`，已恢复到临时库并读取 201 个原有生产 BOM 后清理。单事务 apply 后为 31 个启用商品 BOM、217 规格、434 组件、26 发布默认、5 待补草稿；31 个商品名与 BOM 名一致并使用 31 个唯一半成品主料，原 31 个商品产出 BOM 全部保持失效。分类单品 22 / 拼配 9；操作日志为建 BOM 31、发布 26、设默认 26、重新启用 11、改名 3、apply 1。重启后 preview 仍为 applied，两次重复 apply 均无新写入。
 - Last update: 2026-08-25 Asia/Shanghai
 
 ### PR-605-MATERIAL-STOCK-COST-CONVERGENCE
