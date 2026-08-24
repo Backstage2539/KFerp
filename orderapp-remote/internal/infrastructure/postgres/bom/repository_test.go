@@ -587,6 +587,20 @@ func TestProductionBomBackfillRepairsLegacyItemsWithoutBindings(t *testing.T) {
 	}
 }
 
+func TestProductionBomLegacyBindingRepairSkipsExplicitProductBomDraft(t *testing.T) {
+	repository := readRepositorySource(t)
+	start := strings.Index(repository, "func repairLegacyProductionBomBindings")
+	if start == -1 { t.Fatal("repairLegacyProductionBomBindings not found") }
+	repair := repository[start:]
+	for _, want := range []string{
+		"NOT EXISTS (",
+		"explicit_bom.output_product_id=p.id",
+		"COALESCE(explicit_bom.legacy_product_id,0)=0",
+	} {
+		if !strings.Contains(repair, want) { t.Fatalf("explicit product BOM restart protection missing %q", want) }
+	}
+}
+
 func TestProductionBomLegacyBindingRepairRequiresItemBackedSource(t *testing.T) {
 	repository := readRepositorySource(t)
 	start := strings.Index(repository, "func repairLegacyProductionBomBindings")
