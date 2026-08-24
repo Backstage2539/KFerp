@@ -16,16 +16,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Miniapp: development package commit `37caf135ea0092e2a249554a19b176d2a8f4b17d` targets `https://dev.qacoohee.com/app`; production package commit `5e4c8ebde14fb4c5bb480f9d0c9257da883c4b65` targets `https://erp.qacoohee.com/app`. Packages are generated only; WeChat upload/review/publication remains separate.
 - Manual: Van production and miniapp acceptance pending.
 
-### PR-605-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER
+### PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER
 - Branch: codex/bom-material-output-replacement-20260824
 - Owner/session: Codex / 2026-08-24
 - Status: implementation and restored-production-clone verification complete; production data unchanged
 - Scope: 修复生产 BOM 草稿保存反馈、统一草稿标准化和损耗实时重算；新增保留历史的替代草稿；将“烘焙豆-半成品”31 个源 BOM 切换为物料产出 BOM。
 - DEV:
-  - DEV-605-BOM-DRAFT-EDITOR-RELIABILITY
-  - DEV-605-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT
-  - DEV-605-SEMI-FINISHED-CUTOVER-MIGRATION
-  - DEV-605-DOCS-RELEASE-ACCEPTANCE
+  - DEV-606-BOM-DRAFT-EDITOR-RELIABILITY
+  - DEV-606-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT
+  - DEV-606-SEMI-FINISHED-CUTOVER-MIGRATION
+  - DEV-606-DOCS-RELEASE-ACCEPTANCE
 - Verifier:
   - Unit/API: targeted RED/GREEN and full Go suite GREEN
   - Frontend/build: targeted GREEN, Vue 1029/1029 and Vite 6594-module build GREEN

@@ -26,7 +26,7 @@ func main() {
 	if databaseURL == "" {
 		fatal(fmt.Errorf("DATABASE_URL is required"))
 	}
-	manifest, err := postgresbom.LoadPR605ProductionManifest()
+	manifest, err := postgresbom.LoadPR606ProductionManifest()
 	if err != nil {
 		fatal(err)
 	}
@@ -41,14 +41,14 @@ func main() {
 	}
 	defer pool.Close()
 	repo := postgresbom.NewRepository(pool, schema)
-	var result postgresbom.PR605CutoverSummary
+	var result postgresbom.PR606CutoverSummary
 	switch normalizedMode {
 	case "preview":
-		result, err = repo.PreviewPR605Cutover(ctx)
+		result, err = repo.PreviewPR606Cutover(ctx)
 	case "apply":
-		result, err = repo.ApplyPR605Cutover(ctx, *actor)
+		result, err = repo.ApplyPR606Cutover(ctx, *actor)
 	case "rollback":
-		result, err = repo.RollbackPR605Cutover(ctx, *actor)
+		result, err = repo.RollbackPR606Cutover(ctx, *actor)
 	default:
 		err = fmt.Errorf("--mode must be preview, apply, or rollback")
 	}

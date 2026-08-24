@@ -14,28 +14,28 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-//go:embed pr605_production_manifest.json
-var pr605ProductionManifestJSON []byte
+//go:embed pr606_production_manifest.json
+var pr606ProductionManifestJSON []byte
 
-const pr605CutoverLockKey = "pr605-roasted-bean-semi-finished-cutover"
+const pr606CutoverLockKey = "pr606-roasted-bean-semi-finished-cutover"
 
-type PR605CutoverManifest struct {
+type PR606CutoverManifest struct {
 	ManifestID                    string                              `json:"manifest_id"`
 	ProductionGroupID             int64                               `json:"production_group_id"`
 	MaterialGroupID               int64                               `json:"material_group_id"`
 	MaterialGroupItemID           int64                               `json:"material_group_item_id"`
-	ComponentMaterialReplacements []PR605ComponentMaterialReplacement `json:"component_material_replacements"`
-	Entries                       []PR605CutoverManifestEntry         `json:"entries"`
+	ComponentMaterialReplacements []PR606ComponentMaterialReplacement `json:"component_material_replacements"`
+	Entries                       []PR606CutoverManifestEntry         `json:"entries"`
 }
 
-type PR605ComponentMaterialReplacement struct {
+type PR606ComponentMaterialReplacement struct {
 	SourceMaterialID int64  `json:"source_material_id"`
 	SourceName       string `json:"source_name"`
 	TargetMaterialID int64  `json:"target_material_id"`
 	TargetName       string `json:"target_name"`
 }
 
-type PR605CutoverManifestEntry struct {
+type PR606CutoverManifestEntry struct {
 	SourceBomID         int64  `json:"source_bom_id"`
 	SourceName          string `json:"source_name"`
 	SourceProductID     int64  `json:"source_product_id"`
@@ -49,7 +49,7 @@ type PR605CutoverManifestEntry struct {
 	RecipeOverride      string `json:"recipe_override,omitempty"`
 }
 
-type PR605CutoverEntryResult struct {
+type PR606CutoverEntryResult struct {
 	SourceBomID          int64  `json:"source_bom_id"`
 	SourceName           string `json:"source_name"`
 	SourceVersionID      int64  `json:"source_version_id"`
@@ -60,7 +60,7 @@ type PR605CutoverEntryResult struct {
 	Status               string `json:"status"`
 }
 
-type PR605CutoverSummary struct {
+type PR606CutoverSummary struct {
 	ManifestID          string                    `json:"manifest_id"`
 	Mode                string                    `json:"mode"`
 	State               string                    `json:"state"`
@@ -71,17 +71,17 @@ type PR605CutoverSummary struct {
 	PublishedCount      int                       `json:"published_count"`
 	DraftCount          int                       `json:"draft_count"`
 	DependencyCount     int                       `json:"dependency_count"`
-	Entries             []PR605CutoverEntryResult `json:"entries,omitempty"`
+	Entries             []PR606CutoverEntryResult `json:"entries,omitempty"`
 	Message             string                    `json:"message,omitempty"`
 }
 
-type pr605ProductBinding struct {
+type pr606ProductBinding struct {
 	ProductID int64 `json:"product_id"`
 	BomID     int64 `json:"bom_id"`
 	VersionID int64 `json:"version_id"`
 }
 
-type pr605OutputBinding struct {
+type pr606OutputBinding struct {
 	OutputType string `json:"output_type"`
 	OutputID   int64  `json:"output_id"`
 	BomID      int64  `json:"bom_id"`
@@ -89,49 +89,49 @@ type pr605OutputBinding struct {
 	IsDefault  bool   `json:"is_default"`
 }
 
-type pr605ProductConfig struct {
+type pr606ProductConfig struct {
 	ProductID int64 `json:"product_id"`
 	BomID     int64 `json:"bom_id"`
 	VersionID int64 `json:"version_id"`
 }
 
-type pr605MaterialAssignment struct {
+type pr606MaterialAssignment struct {
 	GroupID     int64 `json:"group_id"`
 	GroupItemID int64 `json:"group_item_id"`
 }
 
-type pr605RollbackSnapshot struct {
-	ProductBindings            []pr605ProductBinding     `json:"product_bindings"`
-	OutputBindings             []pr605OutputBinding      `json:"output_bindings"`
-	ProductConfigs             []pr605ProductConfig      `json:"product_configs"`
-	InitialMaterialAssignments []pr605MaterialAssignment `json:"initial_material_assignments"`
+type pr606RollbackSnapshot struct {
+	ProductBindings            []pr606ProductBinding     `json:"product_bindings"`
+	OutputBindings             []pr606OutputBinding      `json:"output_bindings"`
+	ProductConfigs             []pr606ProductConfig      `json:"product_configs"`
+	InitialMaterialAssignments []pr606MaterialAssignment `json:"initial_material_assignments"`
 }
 
-func LoadPR605ProductionManifest() (PR605CutoverManifest, error) {
-	var manifest PR605CutoverManifest
-	if err := json.Unmarshal(pr605ProductionManifestJSON, &manifest); err != nil {
+func LoadPR606ProductionManifest() (PR606CutoverManifest, error) {
+	var manifest PR606CutoverManifest
+	if err := json.Unmarshal(pr606ProductionManifestJSON, &manifest); err != nil {
 		return manifest, err
 	}
-	if err := validatePR605Manifest(manifest); err != nil {
+	if err := validatePR606Manifest(manifest); err != nil {
 		return manifest, err
 	}
 	return manifest, nil
 }
 
-func validatePR605Manifest(manifest PR605CutoverManifest) error {
+func validatePR606Manifest(manifest PR606CutoverManifest) error {
 	if strings.TrimSpace(manifest.ManifestID) == "" || manifest.ProductionGroupID <= 0 || manifest.MaterialGroupID <= 0 || manifest.MaterialGroupItemID <= 0 {
-		return fmt.Errorf("invalid PR-605 manifest header")
+		return fmt.Errorf("invalid PR-606 manifest header")
 	}
 	if len(manifest.Entries) != 31 {
-		return fmt.Errorf("PR-605 manifest requires 31 entries, got %d", len(manifest.Entries))
+		return fmt.Errorf("PR-606 manifest requires 31 entries, got %d", len(manifest.Entries))
 	}
 	if len(manifest.ComponentMaterialReplacements) != 2 {
-		return fmt.Errorf("PR-605 manifest requires 2 canonical component material replacements")
+		return fmt.Errorf("PR-606 manifest requires 2 canonical component material replacements")
 	}
 	seenReplacementSource := map[int64]bool{}
 	for _, replacement := range manifest.ComponentMaterialReplacements {
 		if replacement.SourceMaterialID <= 0 || replacement.TargetMaterialID <= 0 || replacement.SourceMaterialID == replacement.TargetMaterialID || strings.TrimSpace(replacement.SourceName) == "" || strings.TrimSpace(replacement.TargetName) == "" || seenReplacementSource[replacement.SourceMaterialID] {
-			return fmt.Errorf("invalid PR-605 component material replacement %+v", replacement)
+			return fmt.Errorf("invalid PR-606 component material replacement %+v", replacement)
 		}
 		seenReplacementSource[replacement.SourceMaterialID] = true
 	}
@@ -143,10 +143,10 @@ func validatePR605Manifest(manifest PR605CutoverManifest) error {
 	for _, entry := range manifest.Entries {
 		name := strings.TrimSpace(entry.SourceName)
 		if entry.SourceBomID <= 0 || entry.SourceProductID <= 0 || entry.SourceVersionID <= 0 || name == "" || entry.GroupItemID <= 0 || entry.SourceRecipeHash == "" {
-			return fmt.Errorf("invalid PR-605 manifest entry %+v", entry)
+			return fmt.Errorf("invalid PR-606 manifest entry %+v", entry)
 		}
 		if seenBOM[entry.SourceBomID] || seenName[name] {
-			return fmt.Errorf("duplicate PR-605 source BOM %d or name %s", entry.SourceBomID, name)
+			return fmt.Errorf("duplicate PR-606 source BOM %d or name %s", entry.SourceBomID, name)
 		}
 		seenBOM[entry.SourceBomID], seenName[name] = true, true
 		if entry.Publish {
@@ -159,40 +159,40 @@ func validatePR605Manifest(manifest PR605CutoverManifest) error {
 		}
 	}
 	if published != 26 || drafts != 5 || reused != 1 {
-		return fmt.Errorf("PR-605 manifest counts must be 26 published, 5 draft, 1 reused; got %d/%d/%d", published, drafts, reused)
+		return fmt.Errorf("PR-606 manifest counts must be 26 published, 5 draft, 1 reused; got %d/%d/%d", published, drafts, reused)
 	}
 	return nil
 }
 
-func (r Repository) PreviewPR605Cutover(ctx context.Context) (PR605CutoverSummary, error) {
-	manifest, err := LoadPR605ProductionManifest()
+func (r Repository) PreviewPR606Cutover(ctx context.Context) (PR606CutoverSummary, error) {
+	manifest, err := LoadPR606ProductionManifest()
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	return r.inspectPR605Cutover(ctx, tx, manifest, false)
+	return r.inspectPR606Cutover(ctx, tx, manifest, false)
 }
 
-func (r Repository) ApplyPR605Cutover(ctx context.Context, actor string) (PR605CutoverSummary, error) {
-	manifest, err := LoadPR605ProductionManifest()
+func (r Repository) ApplyPR606Cutover(ctx context.Context, actor string) (PR606CutoverSummary, error) {
+	manifest, err := LoadPR606ProductionManifest()
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, r.schema+":"+pr605CutoverLockKey); err != nil {
-		return PR605CutoverSummary{}, err
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, r.schema+":"+pr606CutoverLockKey); err != nil {
+		return PR606CutoverSummary{}, err
 	}
-	preview, err := r.inspectPR605Cutover(ctx, tx, manifest, true)
+	preview, err := r.inspectPR606Cutover(ctx, tx, manifest, true)
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	if preview.State == "applied" {
 		preview.Mode = "apply"
@@ -201,45 +201,45 @@ func (r Repository) ApplyPR605Cutover(ctx context.Context, actor string) (PR605C
 	}
 	actor = strings.TrimSpace(actor)
 	if actor == "" {
-		actor = "system-pr605-cutover"
+		actor = "system-pr606-cutover"
 	}
-	snapshot, err := r.capturePR605RollbackSnapshot(ctx, tx, manifest)
+	snapshot, err := r.capturePR606RollbackSnapshot(ctx, tx, manifest)
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	result := preview
 	result.Mode, result.State, result.Entries = "apply", "applied", nil
 	for _, entry := range manifest.Entries {
-		row, err := r.applyPR605Entry(ctx, tx, manifest, entry, actor)
+		row, err := r.applyPR606Entry(ctx, tx, manifest, entry, actor)
 		if err != nil {
-			return PR605CutoverSummary{}, fmt.Errorf("%s: %w", entry.SourceName, err)
+			return PR606CutoverSummary{}, fmt.Errorf("%s: %w", entry.SourceName, err)
 		}
 		result.Entries = append(result.Entries, row)
 	}
-	if err := r.cutOverPR605SourceBindings(ctx, tx, manifest, actor); err != nil {
-		return PR605CutoverSummary{}, err
+	if err := r.cutOverPR606SourceBindings(ctx, tx, manifest, actor); err != nil {
+		return PR606CutoverSummary{}, err
 	}
 	snapshotJSON, err := json.Marshal(snapshot)
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "bom_semi_finished_cutover", nil, "apply", postgresinfra.StrPtr("manifest_id"), nil, postgresinfra.StrPtr(manifest.ManifestID), postgresinfra.AuditMeta{
 		"manifest_id": manifest.ManifestID, "source_count": 31, "new_material_count": 30, "reused_material_count": 1,
 		"replacement_bom_count": 31, "published_count": 26, "draft_count": 5, "rollback_snapshot": json.RawMessage(snapshotJSON),
 	}); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	result.NewMaterialCount, result.ReusedMaterialCount, result.ReplacementBomCount = 30, 1, 31
 	result.PublishedCount, result.DraftCount = 26, 5
-	result.Message = "PR-605 cutover applied in one transaction"
+	result.Message = "PR-606 cutover applied in one transaction"
 	return result, nil
 }
 
-func (r Repository) inspectPR605Cutover(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest, lock bool) (PR605CutoverSummary, error) {
-	summary := PR605CutoverSummary{ManifestID: manifest.ManifestID, Mode: "preview", SourceCount: len(manifest.Entries), PublishedCount: 26, DraftCount: 5}
+func (r Repository) inspectPR606Cutover(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest, lock bool) (PR606CutoverSummary, error) {
+	summary := PR606CutoverSummary{ManifestID: manifest.ManifestID, Mode: "preview", SourceCount: len(manifest.Entries), PublishedCount: 26, DraftCount: 5}
 	sourceIDs := make([]int64, 0, len(manifest.Entries))
 	for _, entry := range manifest.Entries {
 		sourceIDs = append(sourceIDs, entry.SourceBomID)
@@ -252,16 +252,16 @@ func (r Repository) inspectPR605Cutover(ctx context.Context, tx pgx.Tx, manifest
 		return summary, err
 	}
 	if replacementCount == len(manifest.Entries) && inactiveSourceCount == len(manifest.Entries) {
-		if err := r.validatePR605AppliedState(ctx, tx, manifest, &summary); err != nil {
+		if err := r.validatePR606AppliedState(ctx, tx, manifest, &summary); err != nil {
 			return summary, err
 		}
 		summary.State = "applied"
 		return summary, nil
 	}
 	if replacementCount != 0 || inactiveSourceCount != 0 {
-		return summary, fmt.Errorf("PR-605 partial state detected: replacements=%d inactive_sources=%d; aborting", replacementCount, inactiveSourceCount)
+		return summary, fmt.Errorf("PR-606 partial state detected: replacements=%d inactive_sources=%d; aborting", replacementCount, inactiveSourceCount)
 	}
-	if err := r.validatePR605PendingState(ctx, tx, manifest, lock, &summary); err != nil {
+	if err := r.validatePR606PendingState(ctx, tx, manifest, lock, &summary); err != nil {
 		return summary, err
 	}
 	summary.State = "ready"
@@ -270,7 +270,7 @@ func (r Repository) inspectPR605Cutover(ctx context.Context, tx pgx.Tx, manifest
 	return summary, nil
 }
 
-func (r Repository) validatePR605PendingState(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest, lock bool, summary *PR605CutoverSummary) error {
+func (r Repository) validatePR606PendingState(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest, lock bool, summary *PR606CutoverSummary) error {
 	lockSuffix := ""
 	if lock {
 		lockSuffix = " FOR UPDATE OF pb,v"
@@ -334,21 +334,21 @@ func (r Repository) validatePR605PendingState(ctx context.Context, tx pgx.Tx, ma
 			return fmt.Errorf("draft-only source %s unexpectedly has %d components", entry.SourceName, itemCount)
 		}
 	}
-	if err := r.validatePR605MaterialTargets(ctx, tx, manifest, lock); err != nil {
+	if err := r.validatePR606MaterialTargets(ctx, tx, manifest, lock); err != nil {
 		return err
 	}
-	dependencyCount, err := r.countPR605OpenDependencies(ctx, tx, manifest)
+	dependencyCount, err := r.countPR606OpenDependencies(ctx, tx, manifest)
 	if err != nil {
 		return err
 	}
 	summary.DependencyCount = dependencyCount
 	if dependencyCount != 0 {
-		return fmt.Errorf("PR-605 source versions gained %d unfinished production references; aborting", dependencyCount)
+		return fmt.Errorf("PR-606 source versions gained %d unfinished production references; aborting", dependencyCount)
 	}
 	return nil
 }
 
-func (r Repository) validatePR605MaterialTargets(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest, lock bool) error {
+func (r Repository) validatePR606MaterialTargets(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest, lock bool) error {
 	var validCategory bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT EXISTS(
@@ -400,7 +400,7 @@ func (r Repository) validatePR605MaterialTargets(ctx context.Context, tx pgx.Tx,
 			continue
 		}
 		var count int
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.materials WHERE (name=$1 OR code=$2) AND deprecated_at IS NULL`, r.schema), name, fmt.Sprintf("PR605-SOURCE-%d", entry.SourceBomID)).Scan(&count); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.materials WHERE (name=$1 OR code=$2) AND deprecated_at IS NULL`, r.schema), name, fmt.Sprintf("PR606-SOURCE-%d", entry.SourceBomID)).Scan(&count); err != nil {
 			return err
 		}
 		if count != 0 {
@@ -416,7 +416,7 @@ func (r Repository) validatePR605MaterialTargets(ctx context.Context, tx pgx.Tx,
 	return nil
 }
 
-func (r Repository) countPR605OpenDependencies(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest) (int, error) {
+func (r Repository) countPR606OpenDependencies(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest) (int, error) {
 	versionIDs := make([]int64, 0, len(manifest.Entries))
 	for _, entry := range manifest.Entries {
 		versionIDs = append(versionIDs, entry.SourceVersionID)
@@ -435,8 +435,8 @@ func (r Repository) countPR605OpenDependencies(ctx context.Context, tx pgx.Tx, m
 	return planCount + workOrderCount, nil
 }
 
-func (r Repository) validatePR605AppliedState(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest, summary *PR605CutoverSummary) error {
-	results := make([]PR605CutoverEntryResult, 0, len(manifest.Entries))
+func (r Repository) validatePR606AppliedState(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest, summary *PR606CutoverSummary) error {
+	results := make([]PR606CutoverEntryResult, 0, len(manifest.Entries))
 	newMaterials, reused, published, drafts := 0, 0, 0, 0
 	for _, entry := range manifest.Entries {
 		var bomID, versionID, materialID int64
@@ -475,10 +475,10 @@ func (r Repository) validatePR605AppliedState(ctx context.Context, tx pgx.Tx, ma
 				return fmt.Errorf("default material BOM binding drift for %s", entry.SourceName)
 			}
 		}
-		results = append(results, PR605CutoverEntryResult{SourceBomID: entry.SourceBomID, SourceName: entry.SourceName, SourceVersionID: entry.SourceVersionID, MaterialID: materialID, MaterialCode: materialCode, ReplacementBomID: bomID, ReplacementVersionID: versionID, Status: versionStatus})
+		results = append(results, PR606CutoverEntryResult{SourceBomID: entry.SourceBomID, SourceName: entry.SourceName, SourceVersionID: entry.SourceVersionID, MaterialID: materialID, MaterialCode: materialCode, ReplacementBomID: bomID, ReplacementVersionID: versionID, Status: versionStatus})
 	}
 	var staleBindings, staleConfigs int
-	sourceBOMIDs, productIDs := pr605IDs(manifest)
+	sourceBOMIDs, productIDs := pr606IDs(manifest)
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT (SELECT COUNT(*) FROM %s.product_production_bom_bindings WHERE bom_id=ANY($1) OR product_id=ANY($2)) + (SELECT COUNT(*) FROM %s.production_bom_output_bindings WHERE output_type='product' AND (bom_id=ANY($1) OR output_id=ANY($2)))`, r.schema, r.schema), sourceBOMIDs, productIDs).Scan(&staleBindings); err != nil {
 		return err
 	}
@@ -493,7 +493,7 @@ func (r Repository) validatePR605AppliedState(ctx context.Context, tx pgx.Tx, ma
 	return nil
 }
 
-func pr605IDs(manifest PR605CutoverManifest) ([]int64, []int64) {
+func pr606IDs(manifest PR606CutoverManifest) ([]int64, []int64) {
 	bomIDs := make([]int64, 0, len(manifest.Entries))
 	productIDs := make([]int64, 0, len(manifest.Entries))
 	for _, entry := range manifest.Entries {
@@ -503,7 +503,7 @@ func pr605IDs(manifest PR605CutoverManifest) ([]int64, []int64) {
 	return bomIDs, productIDs
 }
 
-func pr605FixedScale(outputQty float64, outputUnit string) float64 {
+func pr606FixedScale(outputQty float64, outputUnit string) float64 {
 	if outputQty <= 0 {
 		return 0
 	}
@@ -519,15 +519,15 @@ func pr605FixedScale(outputQty float64, outputUnit string) float64 {
 	}
 }
 
-func (r Repository) capturePR605RollbackSnapshot(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest) (pr605RollbackSnapshot, error) {
-	var snapshot pr605RollbackSnapshot
-	bomIDs, productIDs := pr605IDs(manifest)
+func (r Repository) capturePR606RollbackSnapshot(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest) (pr606RollbackSnapshot, error) {
+	var snapshot pr606RollbackSnapshot
+	bomIDs, productIDs := pr606IDs(manifest)
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT product_id,bom_id,bom_version_id FROM %s.product_production_bom_bindings WHERE bom_id=ANY($1) OR product_id=ANY($2) ORDER BY product_id`, r.schema), bomIDs, productIDs)
 	if err != nil {
 		return snapshot, err
 	}
 	for rows.Next() {
-		var row pr605ProductBinding
+		var row pr606ProductBinding
 		if err := rows.Scan(&row.ProductID, &row.BomID, &row.VersionID); err != nil {
 			rows.Close()
 			return snapshot, err
@@ -544,7 +544,7 @@ func (r Repository) capturePR605RollbackSnapshot(ctx context.Context, tx pgx.Tx,
 		return snapshot, err
 	}
 	for rows.Next() {
-		var row pr605OutputBinding
+		var row pr606OutputBinding
 		if err := rows.Scan(&row.OutputType, &row.OutputID, &row.BomID, &row.VersionID, &row.IsDefault); err != nil {
 			rows.Close()
 			return snapshot, err
@@ -561,7 +561,7 @@ func (r Repository) capturePR605RollbackSnapshot(ctx context.Context, tx pgx.Tx,
 		return snapshot, err
 	}
 	for rows.Next() {
-		var row pr605ProductConfig
+		var row pr606ProductConfig
 		if err := rows.Scan(&row.ProductID, &row.BomID, &row.VersionID); err != nil {
 			rows.Close()
 			return snapshot, err
@@ -578,7 +578,7 @@ func (r Repository) capturePR605RollbackSnapshot(ctx context.Context, tx pgx.Tx,
 		return snapshot, err
 	}
 	for rows.Next() {
-		var row pr605MaterialAssignment
+		var row pr606MaterialAssignment
 		if err := rows.Scan(&row.GroupID, &row.GroupItemID); err != nil {
 			rows.Close()
 			return snapshot, err
@@ -593,61 +593,61 @@ func (r Repository) capturePR605RollbackSnapshot(ctx context.Context, tx pgx.Tx,
 	return snapshot, nil
 }
 
-func (r Repository) applyPR605Entry(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest, entry PR605CutoverManifestEntry, actor string) (PR605CutoverEntryResult, error) {
+func (r Repository) applyPR606Entry(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest, entry PR606CutoverManifestEntry, actor string) (PR606CutoverEntryResult, error) {
 	materialID := entry.ExistingMaterialID
 	materialName := entry.SourceName + "-半成品"
 	if materialID > 0 {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET name=$2,kind='other',is_semi_finished=true,unit='kg',cost_unit='kg',purchase_price=0,updated_at=now() WHERE id=$1 AND deprecated_at IS NULL`, r.schema), materialID, materialName); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "material", &materialID, "update_for_bom_cutover", postgresinfra.StrPtr("is_semi_finished"), nil, postgresinfra.StrPtr("true"), postgresinfra.AuditMeta{"manifest_id": manifest.ManifestID, "source_bom_id": entry.SourceBomID, "material_name": materialName}); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 	} else {
-		tempCode := fmt.Sprintf("PR605-SOURCE-%d", entry.SourceBomID)
+		tempCode := fmt.Sprintf("PR606-SOURCE-%d", entry.SourceBomID)
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,is_semi_finished,unit,cost_unit,purchase_price,sale_price,updated_at) VALUES($1,$2,'other',true,'kg','kg',0,0,now()) RETURNING id`, r.schema), tempCode, materialName).Scan(&materialID); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 		code := fmt.Sprintf("MAT-%06d", materialID)
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET code=$1 WHERE id=$2`, r.schema), code, materialID); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "material", &materialID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"manifest_id": manifest.ManifestID, "source_bom_id": entry.SourceBomID, "name": materialName, "supply_mode": "manufacture", "unit": "kg", "cost_unit": "kg", "purchase_price": 0}); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 	}
-	if err := r.savePR605MaterialAssignment(ctx, tx, manifest, materialID, actor); err != nil {
-		return PR605CutoverEntryResult{}, err
+	if err := r.savePR606MaterialAssignment(ctx, tx, manifest, materialID, actor); err != nil {
+		return PR606CutoverEntryResult{}, err
 	}
 	var lossRate, sourceOutputQty float64
 	var sourceOutputUnit, attrsSchema, attrs string
 	var processRouteID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(material_loss_rate,0)::float8,COALESCE(output_qty,1)::float8,COALESCE(NULLIF(output_unit,''),'kg'),COALESCE(special_attrs_schema_json::text,'[]'),COALESCE(special_attrs_json::text,'{}'),COALESCE(process_route_id,0) FROM %s.production_bom_versions WHERE id=$1 AND bom_id=$2`, r.schema), entry.SourceVersionID, entry.SourceBomID).Scan(&lossRate, &sourceOutputQty, &sourceOutputUnit, &attrsSchema, &attrs, &processRouteID); err != nil {
-		return PR605CutoverEntryResult{}, err
+		return PR606CutoverEntryResult{}, err
 	}
 	if entry.RecipeOverride == "initial-screenshot" {
 		lossRate = 0.195
 	}
 	var newBomID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_boms(code,name,output_type,output_product_id,output_material_id,status,source_bom_id,source_bom_version_id,created_by,updated_by) VALUES($1,$2,'material',0,$3,'active',$4,$5,$6,$6) RETURNING id`, r.schema), fmt.Sprintf("PENDING-%d", entry.SourceBomID), entry.SourceName, materialID, entry.SourceBomID, entry.SourceVersionID, actor).Scan(&newBomID); err != nil {
-		return PR605CutoverEntryResult{}, err
+		return PR606CutoverEntryResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_boms SET code=$1 WHERE id=$2`, r.schema), fmt.Sprintf("BOM-%06d", newBomID), newBomID); err != nil {
-		return PR605CutoverEntryResult{}, err
+		return PR606CutoverEntryResult{}, err
 	}
 	var newVersionID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,note,special_attrs_schema_json,special_attrs_json,process_route_id,created_at,created_by) VALUES($1,'V001','draft',1,1,'kg',$2,'PR-605 半成品替代草稿',$3::jsonb,$4::jsonb,$5,now(),$6) RETURNING id`, r.schema), newBomID, lossRate, attrsSchema, attrs, processRouteID, actor).Scan(&newVersionID); err != nil {
-		return PR605CutoverEntryResult{}, err
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_versions(bom_id,version_no,status,yield_rate,output_qty,output_unit,material_loss_rate,note,special_attrs_schema_json,special_attrs_json,process_route_id,created_at,created_by) VALUES($1,'V001','draft',1,1,'kg',$2,'PR-606 半成品替代草稿',$3::jsonb,$4::jsonb,$5,now(),$6) RETURNING id`, r.schema), newBomID, lossRate, attrsSchema, attrs, processRouteID, actor).Scan(&newVersionID); err != nil {
+		return PR606CutoverEntryResult{}, err
 	}
 	if entry.RecipeOverride == "initial-screenshot" {
-		for _, item := range pr605InitialRecipe() {
+		for _, item := range pr606InitialRecipe() {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,consume_unit,ratio_pct,material_loss_rate,unit_cost_snapshot) VALUES($1,$2,'material','ratio_pct',$3,$4,COALESCE((SELECT purchase_price FROM %s.materials WHERE id=$2),0))`, r.schema, r.schema), newVersionID, item.id, item.ratio, lossRate); err != nil {
-				return PR605CutoverEntryResult{}, err
+				return PR606CutoverEntryResult{}, err
 			}
 		}
 	} else {
-		scale := pr605FixedScale(sourceOutputQty, sourceOutputUnit)
-		replacementSources, replacementTargets := pr605ComponentMaterialReplacementIDs(manifest)
+		scale := pr606FixedScale(sourceOutputQty, sourceOutputUnit)
+		replacementSources, replacementTargets := pr606ComponentMaterialReplacementIDs(manifest)
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,component_product_id,component_bom_spec_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,material_loss_rate,unit_cost_snapshot)
 			SELECT $1,COALESCE(replacement.target_id,i.material_id),i.component_type,i.component_product_id,i.component_bom_spec_id,i.component_spec_g,i.consume_unit,
@@ -658,46 +658,46 @@ func (r Repository) applyPR605Entry(ctx context.Context, tx pgx.Tx, manifest PR6
 			WHERE i.version_id=$2 AND COALESCE(i.variant_id,0)=0
 			ORDER BY i.id
 		`, r.schema, r.schema), newVersionID, entry.SourceVersionID, scale, lossRate, replacementSources, replacementTargets); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 	}
 	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, actor, newBomID, manifest.ProductionGroupID, entry.GroupItemID); err != nil {
-		return PR605CutoverEntryResult{}, err
+		return PR606CutoverEntryResult{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "production_bom", &newBomID, "create_replacement_draft", postgresinfra.StrPtr("source_bom_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", entry.SourceBomID)), postgresinfra.StrPtr(fmt.Sprintf("%d", newBomID)), postgresinfra.AuditMeta{"manifest_id": manifest.ManifestID, "source_bom_id": entry.SourceBomID, "source_bom_version_id": entry.SourceVersionID, "target_bom_version_id": newVersionID, "output_type": "material", "output_material_id": materialID}); err != nil {
-		return PR605CutoverEntryResult{}, err
+		return PR606CutoverEntryResult{}, err
 	}
 	status := "draft"
 	if entry.Publish {
 		cmd := bomapp.PublishProductionBomVersionCommand{VersionID: newVersionID, Actor: actor}
 		if err := lockProductionBomPublishTargetsTx(ctx, tx, r.schema, newVersionID); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 		if err := r.validateProductionBomVersionForPublish(ctx, tx, cmd); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 		if err := r.publishProductionBomVersionTx(ctx, tx, cmd); err != nil {
-			return PR605CutoverEntryResult{}, err
+			return PR606CutoverEntryResult{}, err
 		}
 		status = "published"
 	}
 	var materialCode string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT code FROM %s.materials WHERE id=$1`, r.schema), materialID).Scan(&materialCode); err != nil {
-		return PR605CutoverEntryResult{}, err
+		return PR606CutoverEntryResult{}, err
 	}
-	return PR605CutoverEntryResult{SourceBomID: entry.SourceBomID, SourceName: entry.SourceName, SourceVersionID: entry.SourceVersionID, MaterialID: materialID, MaterialCode: materialCode, ReplacementBomID: newBomID, ReplacementVersionID: newVersionID, Status: status}, nil
+	return PR606CutoverEntryResult{SourceBomID: entry.SourceBomID, SourceName: entry.SourceName, SourceVersionID: entry.SourceVersionID, MaterialID: materialID, MaterialCode: materialCode, ReplacementBomID: newBomID, ReplacementVersionID: newVersionID, Status: status}, nil
 }
 
-type pr605InitialRecipeItem struct {
+type pr606InitialRecipeItem struct {
 	id    int64
 	ratio float64
 }
 
-func pr605InitialRecipe() []pr605InitialRecipeItem {
-	return []pr605InitialRecipeItem{{56, 50}, {85, 15}, {10, 20}, {47, 15}}
+func pr606InitialRecipe() []pr606InitialRecipeItem {
+	return []pr606InitialRecipeItem{{56, 50}, {85, 15}, {10, 20}, {47, 15}}
 }
 
-func pr605ComponentMaterialReplacementIDs(manifest PR605CutoverManifest) ([]int64, []int64) {
+func pr606ComponentMaterialReplacementIDs(manifest PR606CutoverManifest) ([]int64, []int64) {
 	sources := make([]int64, 0, len(manifest.ComponentMaterialReplacements))
 	targets := make([]int64, 0, len(manifest.ComponentMaterialReplacements))
 	for _, replacement := range manifest.ComponentMaterialReplacements {
@@ -707,7 +707,7 @@ func pr605ComponentMaterialReplacementIDs(manifest PR605CutoverManifest) ([]int6
 	return sources, targets
 }
 
-func (r Repository) savePR605MaterialAssignment(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest, materialID int64, actor string) error {
+func (r Repository) savePR606MaterialAssignment(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest, materialID int64, actor string) error {
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE lower(usage_key)='material_catalog' AND lower(object_key)='material' AND object_id=$1 AND object_ref=''`, r.schema), materialID); err != nil {
 		return err
 	}
@@ -718,8 +718,8 @@ func (r Repository) savePR605MaterialAssignment(ctx context.Context, tx pgx.Tx, 
 	return postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "business_group_assignment", &assignmentID, "save_business_group_assignment", postgresinfra.StrPtr("material_catalog"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", manifest.MaterialGroupItemID)), postgresinfra.AuditMeta{"manifest_id": manifest.ManifestID, "material_id": materialID, "group_id": manifest.MaterialGroupID, "group_item_id": manifest.MaterialGroupItemID, "usage_key": "material_catalog", "object_key": "material"})
 }
 
-func (r Repository) cutOverPR605SourceBindings(ctx context.Context, tx pgx.Tx, manifest PR605CutoverManifest, actor string) error {
-	bomIDs, productIDs := pr605IDs(manifest)
+func (r Repository) cutOverPR606SourceBindings(ctx context.Context, tx pgx.Tx, manifest PR606CutoverManifest, actor string) error {
+	bomIDs, productIDs := pr606IDs(manifest)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_production_bom_bindings WHERE bom_id=ANY($1) OR product_id=ANY($2)`, r.schema), bomIDs, productIDs); err != nil {
 		return err
 	}
@@ -744,100 +744,100 @@ func (r Repository) cutOverPR605SourceBindings(ctx context.Context, tx pgx.Tx, m
 	return nil
 }
 
-func (r Repository) RollbackPR605Cutover(ctx context.Context, actor string) (PR605CutoverSummary, error) {
-	manifest, err := LoadPR605ProductionManifest()
+func (r Repository) RollbackPR606Cutover(ctx context.Context, actor string) (PR606CutoverSummary, error) {
+	manifest, err := LoadPR606ProductionManifest()
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, r.schema+":"+pr605CutoverLockKey); err != nil {
-		return PR605CutoverSummary{}, err
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, r.schema+":"+pr606CutoverLockKey); err != nil {
+		return PR606CutoverSummary{}, err
 	}
-	bomIDs, _ := pr605IDs(manifest)
+	bomIDs, _ := pr606IDs(manifest)
 	var activeSources, inactiveReplacements int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_boms WHERE id=ANY($1) AND status='active'`, r.schema), bomIDs).Scan(&activeSources); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_boms WHERE source_bom_id=ANY($1) AND output_type='material' AND status='inactive'`, r.schema), bomIDs).Scan(&inactiveReplacements); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	if activeSources == 31 && inactiveReplacements == 31 {
-		return PR605CutoverSummary{ManifestID: manifest.ManifestID, Mode: "rollback", State: "rolled_back", SourceCount: 31, ReplacementBomCount: 31, Message: "already rolled back; no changes written"}, nil
+		return PR606CutoverSummary{ManifestID: manifest.ManifestID, Mode: "rollback", State: "rolled_back", SourceCount: 31, ReplacementBomCount: 31, Message: "already rolled back; no changes written"}, nil
 	}
-	preview, err := r.inspectPR605Cutover(ctx, tx, manifest, true)
+	preview, err := r.inspectPR606Cutover(ctx, tx, manifest, true)
 	if err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	if preview.State != "applied" {
-		return PR605CutoverSummary{}, fmt.Errorf("PR-605 rollback requires fully applied state")
+		return PR606CutoverSummary{}, fmt.Errorf("PR-606 rollback requires fully applied state")
 	}
 	var snapshotJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT meta->'rollback_snapshot' FROM %s.audit_logs WHERE entity_type='bom_semi_finished_cutover' AND action='apply' AND meta->>'manifest_id'=$1 ORDER BY id DESC LIMIT 1`, r.schema), manifest.ManifestID).Scan(&snapshotJSON); err != nil {
-		return PR605CutoverSummary{}, fmt.Errorf("rollback snapshot not found: %w", err)
+		return PR606CutoverSummary{}, fmt.Errorf("rollback snapshot not found: %w", err)
 	}
-	var snapshot pr605RollbackSnapshot
+	var snapshot pr606RollbackSnapshot
 	if err := json.Unmarshal(snapshotJSON, &snapshot); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	actor = strings.TrimSpace(actor)
 	if actor == "" {
-		actor = "system-pr605-rollback"
+		actor = "system-pr606-rollback"
 	}
 	for _, entry := range manifest.Entries {
 		var replacementBomID, materialID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,output_material_id FROM %s.production_boms WHERE source_bom_id=$1 AND source_bom_version_id=$2 AND output_type='material' FOR UPDATE`, r.schema), entry.SourceBomID, entry.SourceVersionID).Scan(&replacementBomID, &materialID); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_boms SET status='inactive',updated_at=now(),updated_by=$2 WHERE id=$1`, r.schema), replacementBomID, actor); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_output_bindings WHERE output_type='material' AND output_id=$1 AND bom_id=$2`, r.schema), materialID, replacementBomID); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 		if entry.ExistingMaterialID == 0 {
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET deprecated_at=COALESCE(deprecated_at,now()),updated_at=now() WHERE id=$1`, r.schema), materialID); err != nil {
-				return PR605CutoverSummary{}, err
+				return PR606CutoverSummary{}, err
 			}
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.production_boms SET status='active',updated_at=now(),updated_by=$2 WHERE id=$1`, r.schema), entry.SourceBomID, actor); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "production_bom", &replacementBomID, "deactivate_replacement_on_rollback", postgresinfra.StrPtr("status"), postgresinfra.StrPtr("active"), postgresinfra.StrPtr("inactive"), postgresinfra.AuditMeta{"manifest_id": manifest.ManifestID, "source_bom_id": entry.SourceBomID, "material_id": materialID}); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE lower(usage_key)='material_catalog' AND lower(object_key)='material' AND object_id=106 AND object_ref=''`, r.schema)); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	for _, assignment := range snapshot.InitialMaterialAssignments {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.business_group_assignments(group_id,group_item_id,usage_key,object_key,object_id,object_ref,sort_order,created_by,updated_by) VALUES($1,$2,'material_catalog','material',106,'',100,$3,$3)`, r.schema), assignment.GroupID, assignment.GroupItemID, actor); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 	}
 	for _, row := range snapshot.ProductBindings {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_at,bound_by) VALUES($1,$2,$3,now(),$4) ON CONFLICT(product_id) DO UPDATE SET bom_id=excluded.bom_id,bom_version_id=excluded.bom_version_id,bound_at=excluded.bound_at,bound_by=excluded.bound_by`, r.schema), row.ProductID, row.BomID, row.VersionID, actor); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 	}
 	for _, row := range snapshot.OutputBindings {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default,updated_at,updated_by) VALUES($1,$2,$3,$4,$5,now(),$6) ON CONFLICT(output_type,output_id) DO UPDATE SET bom_id=excluded.bom_id,bom_version_id=excluded.bom_version_id,is_default=excluded.is_default,updated_at=excluded.updated_at,updated_by=excluded.updated_by`, r.schema), row.OutputType, row.OutputID, row.BomID, row.VersionID, row.IsDefault, actor); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 	}
 	for _, row := range snapshot.ProductConfigs {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_production_configs SET production_bom_id=$2,production_bom_version_id=$3,updated_at=now(),updated_by=$4 WHERE product_id=$1`, r.schema), row.ProductID, row.BomID, row.VersionID, actor); err != nil {
-			return PR605CutoverSummary{}, err
+			return PR606CutoverSummary{}, err
 		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "bom_semi_finished_cutover", nil, "rollback", postgresinfra.StrPtr("manifest_id"), postgresinfra.StrPtr(manifest.ManifestID), postgresinfra.StrPtr(manifest.ManifestID), postgresinfra.AuditMeta{"manifest_id": manifest.ManifestID, "source_count": 31, "replacement_bom_count": 31, "new_materials_deprecated": 30}); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return PR605CutoverSummary{}, err
+		return PR606CutoverSummary{}, err
 	}
-	return PR605CutoverSummary{ManifestID: manifest.ManifestID, Mode: "rollback", State: "rolled_back", SourceCount: 31, NewMaterialCount: 30, ReusedMaterialCount: 1, ReplacementBomCount: 31, PublishedCount: 26, DraftCount: 5, Message: "PR-605 rollback applied without deleting history"}, nil
+	return PR606CutoverSummary{ManifestID: manifest.ManifestID, Mode: "rollback", State: "rolled_back", SourceCount: 31, NewMaterialCount: 30, ReusedMaterialCount: 1, ReplacementBomCount: 31, PublishedCount: 26, DraftCount: 5, Message: "PR-606 rollback applied without deleting history"}, nil
 }

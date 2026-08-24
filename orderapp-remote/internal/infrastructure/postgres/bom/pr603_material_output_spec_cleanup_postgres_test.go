@@ -147,18 +147,18 @@ func TestProductionBomDraftWorkspaceReplacesMaterialItemsIncludingEmptyListPostg
 
 func TestReplacementDraftKeepsPublishedSourceAndRollsBackAtomicallyPostgres(t *testing.T) {
 	ctx, pool, schema := newPR600BomMaintenanceTestDB(t)
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.products(id,name,active) VALUES(9901,'PR605 源商品',true)`, schema)); err != nil {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.products(id,name,active) VALUES(9901,'PR606 源商品',true)`, schema)); err != nil {
 		t.Fatal(err)
 	}
 	var componentID, outputMaterialID int64
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,is_semi_finished,unit,cost_unit,purchase_price) VALUES('PR605-COMP','PR605 组件','bean',false,'kg','kg',20) RETURNING id`, schema)).Scan(&componentID); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,is_semi_finished,unit,cost_unit,purchase_price) VALUES('PR606-COMP','PR606 组件','bean',false,'kg','kg',20) RETURNING id`, schema)).Scan(&componentID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,is_semi_finished,unit,cost_unit,purchase_price) VALUES('PR605-OUT','PR605 半成品', 'other',true,'kg','kg',0) RETURNING id`, schema)).Scan(&outputMaterialID); err != nil {
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,is_semi_finished,unit,cost_unit,purchase_price) VALUES('PR606-OUT','PR606 半成品', 'other',true,'kg','kg',0) RETURNING id`, schema)).Scan(&outputMaterialID); err != nil {
 		t.Fatal(err)
 	}
 	repo := NewRepository(pool, schema)
-	source, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{Name: "PR605 源 BOM", OutputType: "product", OutputID: 9901, OutputProductID: 9901, OutputQty: 1, OutputUnit: "kg", Actor: "pr605-test"})
+	source, err := repo.CreateProductionBom(ctx, bomapp.CreateProductionBomCommand{Name: "PR606 源 BOM", OutputType: "product", OutputID: 9901, OutputProductID: 9901, OutputQty: 1, OutputUnit: "kg", Actor: "pr606-test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,8 +172,8 @@ func TestReplacementDraftKeepsPublishedSourceAndRollsBackAtomicallyPostgres(t *t
 	command := bomapp.CreateProductionBomReplacementDraftCommand{
 		SourceBomID: source.ID, SourceVersionID: source.LatestVersionID,
 		Workspace: bomapp.ProductionBomDraftWorkspaceCommand{
-			Bom:     bomapp.UpdateProductionBomCommand{Name: "PR605 替代 BOM", OutputType: "material", OutputID: outputMaterialID, OutputMaterialID: outputMaterialID, OutputUnit: "kg", Status: "active", Actor: "pr605-test", UpdateOutputBinding: true},
-			Version: bomapp.UpdateProductionBomVersionDraftCommand{OutputQty: 1, OutputUnit: "kg", MaterialLossRate: &loss, Items: []bomapp.ProductionBomDraftItem{{ComponentType: "material", MaterialID: componentID, ConsumeUnit: "ratio_pct", RatioPct: 100, MaterialLossRate: loss}}, Actor: "pr605-test"},
+			Bom:     bomapp.UpdateProductionBomCommand{Name: "PR606 替代 BOM", OutputType: "material", OutputID: outputMaterialID, OutputMaterialID: outputMaterialID, OutputUnit: "kg", Status: "active", Actor: "pr606-test", UpdateOutputBinding: true},
+			Version: bomapp.UpdateProductionBomVersionDraftCommand{OutputQty: 1, OutputUnit: "kg", MaterialLossRate: &loss, Items: []bomapp.ProductionBomDraftItem{{ComponentType: "material", MaterialID: componentID, ConsumeUnit: "ratio_pct", RatioPct: 100, MaterialLossRate: loss}}, Actor: "pr606-test"},
 		},
 	}
 	replacement, err := repo.CreateProductionBomReplacementDraft(ctx, command)
@@ -188,8 +188,8 @@ func TestReplacementDraftKeepsPublishedSourceAndRollsBackAtomicallyPostgres(t *t
 		t.Fatalf("source mutated to output=%s version=%s", sourceOutputType, sourceVersionStatus)
 	}
 	if _, err := repo.UpdateProductionBom(ctx, bomapp.UpdateProductionBomCommand{
-		ID: source.ID, Name: "PR605 源 BOM", OutputType: "material", OutputID: 999999, OutputMaterialID: 999999,
-		UpdateOutputBinding: true, OutputUnit: "kg", Actor: "pr605-test",
+		ID: source.ID, Name: "PR606 源 BOM", OutputType: "material", OutputID: 999999, OutputMaterialID: 999999,
+		UpdateOutputBinding: true, OutputUnit: "kg", Actor: "pr606-test",
 	}); !errors.Is(err, bomapp.ErrPublishedOutputIdentityImmutable) {
 		t.Fatalf("published identity guard must run before target validation, got %v", err)
 	}

@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-func TestPR605ProductionManifestLocksCountsAndSpecialSources(t *testing.T) {
-	manifest, err := LoadPR605ProductionManifest()
+func TestPR606ProductionManifestLocksCountsAndSpecialSources(t *testing.T) {
+	manifest, err := LoadPR606ProductionManifest()
 	if err != nil {
 		t.Fatal(err)
 	}
 	published, drafts, newMaterials := 0, 0, 0
-	byName := map[string]PR605CutoverManifestEntry{}
+	byName := map[string]PR606CutoverManifestEntry{}
 	for _, entry := range manifest.Entries {
 		byName[entry.SourceName] = entry
 		if entry.Publish {
@@ -26,7 +26,7 @@ func TestPR605ProductionManifestLocksCountsAndSpecialSources(t *testing.T) {
 	if len(manifest.Entries) != 31 || published != 26 || drafts != 5 || newMaterials != 30 {
 		t.Fatalf("manifest counts=%d/%d/%d/%d want 31/26/5/30", len(manifest.Entries), published, drafts, newMaterials)
 	}
-	sources, targets := pr605ComponentMaterialReplacementIDs(manifest)
+	sources, targets := pr606ComponentMaterialReplacementIDs(manifest)
 	if len(sources) != 2 || sources[0] != 42 || targets[0] != 7 || sources[1] != 67 || targets[1] != 27 {
 		t.Fatalf("component replacements=%v -> %v", sources, targets)
 	}
@@ -46,8 +46,8 @@ func TestPR605ProductionManifestLocksCountsAndSpecialSources(t *testing.T) {
 	}
 }
 
-func TestPR605PoundFixedRecipeScalesToOneKilogram(t *testing.T) {
-	scale := pr605FixedScale(1, "磅")
+func TestPR606PoundFixedRecipeScalesToOneKilogram(t *testing.T) {
+	scale := pr606FixedScale(1, "磅")
 	want := []float64{249.122356, 249.122356, 749.571691}
 	for index, grams := range []float64{113, 113, 340} {
 		got := grams * scale
@@ -57,8 +57,8 @@ func TestPR605PoundFixedRecipeScalesToOneKilogram(t *testing.T) {
 	}
 }
 
-func TestPR605InitialRecipeMatchesApprovedScreenshot(t *testing.T) {
-	got := pr605InitialRecipe()
+func TestPR606InitialRecipeMatchesApprovedScreenshot(t *testing.T) {
+	got := pr606InitialRecipe()
 	wantIDs := []int64{56, 85, 10, 47}
 	wantRatios := []float64{50, 15, 20, 15}
 	if len(got) != 4 {
