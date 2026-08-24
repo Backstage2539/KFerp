@@ -160,12 +160,13 @@ func ensurePR605PurchaseStockSchema(t *testing.T, ctx context.Context, pool *pgx
 	t.Helper()
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		CREATE TABLE %s.products(id BIGINT PRIMARY KEY,name TEXT NOT NULL);
+		CREATE TABLE %s.work_orders(id BIGINT PRIMARY KEY,work_order_no TEXT NOT NULL DEFAULT '');
 		CREATE TABLE %s.finished_inventory(
 			product_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,onhand_units BIGINT NOT NULL DEFAULT 0,
 			onhand_loose_g BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			PRIMARY KEY(product_id,spec_g)
 		);
-	`, schema, schema)); err != nil {
+	`, schema, schema, schema)); err != nil {
 		t.Fatal(err)
 	}
 	if err := stockrepo.EnsureSchema(ctx, pool, schema); err != nil {
