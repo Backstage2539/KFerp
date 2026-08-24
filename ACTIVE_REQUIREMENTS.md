@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### RELEASE-20260824-PR604-PRODUCTION
+- Branch: `codex/release-main-pr604-20260824`; evidence branch `codex/release-main-pr604-evidence-20260824`
+- Owner/session: Codex / 2026-08-24
+- Status: `develop@4fc0b364` merged without conflicts into `main`; production deployed `5e4c8ebde14fb4c5bb480f9d0c9257da883c4b65`.
+- Scope: promote the current verified development line, including PR-604 BOM-spec pricing fixes, to the formal production ERP and produce separate development/production mp-weixin packages.
+- Verifier: production preflight and deployment gates GREEN; Vue 1026/1026 across 4 suites, Vite 6594 modules, miniapp 217/217 + typecheck + production mp-weixin build, Go full suite, isolated/pre-release Docker builds and 56-file miniapp manifests GREEN.
+- Deployment: `./deploy_orderapp.sh production`; source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260824110316-5e4c8ebde14f`; rollback image `kferp-orderapp-rollback:production-20260824110316-5e4c8ebde14f`; `erp_prod_orderapp` running/restart 0, PostgreSQL healthy, production login HTTP 200, unauthenticated `/app/` HTTP 401.
+- Miniapp: development package commit `37caf135ea0092e2a249554a19b176d2a8f4b17d` targets `https://dev.qacoohee.com/app`; production package commit `5e4c8ebde14fb4c5bb480f9d0c9257da883c4b65` targets `https://erp.qacoohee.com/app`. Packages are generated only; WeChat upload/review/publication remains separate.
+- Manual: Van production and miniapp acceptance pending.
+
 ### PR-604-MATERIAL-COST-BOM-EDITOR
 - Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop); follow-ups `codex/pr604-price-preview-20260823`, current `codex/pr604-price-trial-product-not-found-20260823`
 - Owner/session: Codex / 2026-08-21
