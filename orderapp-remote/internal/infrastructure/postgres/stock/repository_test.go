@@ -1330,7 +1330,7 @@ CREATE TABLE %s.materials (
 	code TEXT NOT NULL,
 	name TEXT NOT NULL,
 	kind TEXT NOT NULL DEFAULT 'bean',
-	unit TEXT NOT NULL DEFAULT 'g',
+	unit TEXT NOT NULL DEFAULT 'kg',
 	purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 	sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 	onhand_g BIGINT NOT NULL DEFAULT 0,
