@@ -59,7 +59,6 @@ export function workOrderStatusLabel(status) {
 
 export function stockEntryTypeOptions() {
   return [
-    { value: 'material_receipt', label: '原料入库' },
     { value: 'material_issue', label: '物料发出 / 报废' },
     { value: 'material_transfer', label: '库存转仓' },
     { value: 'material_transfer_for_manufacture', label: '生产领料' },

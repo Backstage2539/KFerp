@@ -1600,3 +1600,11 @@
 - `DEV-604-MATERIAL-COST-DETAILS`：物料成本试算复用商品价格试算的标准制造成本明细、工序成本快照、成本来源和公式/步骤字段；明细带出每个组件所属 BOM、版本/规格、用量、损耗后用量、成本单价和折算金额。试算抽屉支持选择 BOM 版本，并可跳转 BOM 配置后带回当前物料和版本上下文。
 - `DEV-604-BOM-DRAFT-WORKSPACE`：新增 `PUT /api/production-boms/:id/draft-workspace` 统一提交 BOM 主档与草稿版本；前端组件、规格和路线修改先保留在本地草稿，发布前必须无未保存改动。
 - `DEV-604-BOM-EDITOR-UX`：试算抽屉支持商品价格/物料成本双模式；物料模式隐藏售价参数；BOM 规格与配方使用同一明细容器，删除合计比例卡片，组件来源明确区分物料和已有商品规格，产出类型转换即时清理不兼容草稿配置。
+
+# PR-605-MATERIAL-STOCK-COST-CONVERGENCE 物料档案、仓库盘点与成本入口收敛（2026-08-24）
+
+- `DEV-605-MATERIAL-ARCHIVE-READONLY-COST`：物料内联列表复选框固定为 18px，并新增独立“行业字段”列，按非空 `字段：值` 汇总。物料新建和编辑不再维护采购价；`purchase_price` 继续作为只读“最近采购入库价”返回。新建只接受省略或 0，编辑省略时保留、旧客户端回传相同值兼容，任何不同值均拒绝并提示前往采购入库或盘点调整；切换自制仍由系统强制清零。
+- `DEV-605-WAREHOUSE-BALANCE-ADJUSTMENT`：新增 `GET /api/stock/material-balances` 批量返回所选仓库的账面、可用和冻结余额。转仓、发出、生产领料、退料和生产消耗在物料与来源仓变化、恢复草稿时重新读取当前余额。物料盘点以所选仓库当前数量初始化目标数量，增量建立调整批次，减量按该仓 FIFO 扣减仓位和批次并保存 `stock_adjustment_batch_allocations`；完成后由全部仓位重新汇总物料总库存，不再以单仓目标覆盖全局。重量和袋、件、盒等离散批次均可调整成本，价值变化按批次剩余重量或剩余件数计算。
+- `DEV-605-PURCHASE-RECEIPT-POSTING`：采购单仅保存预计数量、库存单位、预计单价和预计仓库，不改变正式成本。确认收货时录入实际数量、最终单价和目标非成品仓；支持 `qty/unit_code/qty_units/target_warehouse`，保留历史 `qty_g` 重量兼容。包材默认包材仓，其他外购物料默认原料仓。库存单据、批次、仓位、流水、采购收货、采购单状态、最近采购价和操作日志在同一数据库事务提交，任一步失败全部回滚。
+- `DEV-605-LEGACY-RECEIPT-COMPAT`：普通原料入库不再作为新库存单据目的，旧页面跳转采购入库；外部普通原料入库和 `material_receipt` 新建/编辑/提交均拒绝。历史已提交或取消原料入库单只读，旧草稿提示到采购入库重建。历史采购、收货、批次、库存流水和订单不回算；新增采购单位/数量/仓库字段只为历史重量记录提供 `kg/raw_materials` 兼容投影。
+- `DEV-605-DOCS-DEVELOPMENT-DELIVERY`：同步物料与库存手册、采购收货说明、验收记录、PR/DEV/REV 和自动合同。完成 Go/Vue/Vite、真实 PostgreSQL、统一验证器及 development preflight 后合入 `develop` 并仅部署 development；`main` 与 production 不操作，业务验收由 Van 执行。

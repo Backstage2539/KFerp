@@ -38,7 +38,7 @@ func TestDev599MaterialInventoryPriceUnitUnificationContracts(t *testing.T) {
 	for _, want := range []string{
 		"重量物料库存统一使用 kg；BOM 配方仍可按 g 录入并自动换算",
 		"采购价、批次单位成本和 BOM 成本试算均按库存单位计价",
-		"采购价（元/{{ draft.unit }}）",
+		"最近采购入库价（元/{{ draft.unit }}）",
 		"cost_unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit)",
 		"isCanonicalMaterialInventoryUnit",
 	} {

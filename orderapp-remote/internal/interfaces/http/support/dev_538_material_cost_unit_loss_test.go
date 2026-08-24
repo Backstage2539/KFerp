@@ -49,7 +49,7 @@ func TestDev538MaterialCostUnitLossContracts(t *testing.T) {
 			"标准制造成本", "配方比例", "原料加耗", "计价比例",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"): {
-			"重量物料库存统一使用 kg", "采购价、批次单位成本和 BOM 成本试算均按库存单位计价", "采购价（元/{{ draft.unit }}）", "cost_unit: draftMode.value ? draft.value.unit",
+			"重量物料库存统一使用 kg", "采购价、批次单位成本和 BOM 成本试算均按库存单位计价", "最近采购入库价（元/{{ draft.unit }}）", "cost_unit: draftMode.value ? draft.value.unit",
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-538-MATERIAL-COST-UNIT-LOSS", "PR-599", "cost_unit", "始终等于 `unit`", "yield_rate=1", "80.50元/kg", "82.54元/kg",

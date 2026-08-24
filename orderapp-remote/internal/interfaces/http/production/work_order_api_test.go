@@ -769,6 +769,21 @@ func TestUnifiedStockDocumentHTTPLifecycleKeepsDraftUnpostedAndIsIdempotent(t *t
 		}
 	})
 	registerStockEntryAPI(e, productionapp.NewService(productionRepo), stockapp.NewService(stockRepo))
+	for _, retiredBody := range []string{
+		`{"purpose":"material_receipt","items":[{"material_id":10,"item_type":"material","qty_g":1000}]}`,
+		`{"entry_type":"material_receipt","items":[{"material_id":10,"item_type":"material","qty_g":1000}]}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/stock-documents", strings.NewReader(retiredBody))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "采购入库") {
+			t.Fatalf("retired material receipt status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	if stockRepo.createCount != 0 {
+		t.Fatalf("retired material receipt created %d drafts", stockRepo.createCount)
+	}
 
 	body := `{
 		"purpose":"material_transfer_for_manufacture",

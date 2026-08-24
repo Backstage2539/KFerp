@@ -60,13 +60,13 @@ func TestInventoryMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/purchase/suppliers",
 			"/api/purchase/orders",
 			"/api/purchase/receipts",
-			"收货入库",
+			"确认收货",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"): {
 			"/api/materials",
 			"openStockBackfill",
 			"/api/stock/adjustments",
-			"库存补录",
+			"盘点调整",
 		},
 	}
 
