@@ -12,12 +12,12 @@ func TestDev605ProductionBomSemiFinishedCutoverContracts(t *testing.T) {
 	for _, row := range []struct {
 		table, code, status, assignee string
 	}{
-		{"req_product", "PR-605-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "doing", "Codex"},
-		{"req_dev", "DEV-605-BOM-DRAFT-EDITOR-RELIABILITY", "doing", "Codex"},
-		{"req_dev", "DEV-605-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT", "doing", "Codex"},
-		{"req_dev", "DEV-605-SEMI-FINISHED-CUTOVER-MIGRATION", "doing", "Codex"},
-		{"req_dev", "DEV-605-DOCS-RELEASE-ACCEPTANCE", "doing", "Codex"},
-		{"req_review", "REV-605-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "todo", "VA"},
+		{"req_product", "PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "doing", "Codex"},
+		{"req_dev", "DEV-606-BOM-DRAFT-EDITOR-RELIABILITY", "doing", "Codex"},
+		{"req_dev", "DEV-606-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT", "doing", "Codex"},
+		{"req_dev", "DEV-606-SEMI-FINISHED-CUTOVER-MIGRATION", "doing", "Codex"},
+		{"req_dev", "DEV-606-DOCS-RELEASE-ACCEPTANCE", "doing", "Codex"},
+		{"req_review", "REV-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "todo", "VA"},
 	} {
 		pattern := regexp.MustCompile(`(?m)^[\t ]*\{table: "` + regexp.QuoteMeta(row.table) + `"[^\n]*code: "` + regexp.QuoteMeta(row.code) + `"[^\n]*status: "` + regexp.QuoteMeta(row.status) + `"[^\n]*assignee: "` + regexp.QuoteMeta(row.assignee) + `"[^\n]*\},[\t ]*$`)
 		if !pattern.MatchString(reqStore) {
@@ -26,10 +26,10 @@ func TestDev605ProductionBomSemiFinishedCutoverContracts(t *testing.T) {
 	}
 
 	for rel, wants := range map[string][]string{
-		filepath.Join("docs", "REQUIREMENTS.md"):                                                  {"PR-605-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "published_output_identity_immutable", "31 个启用 BOM"},
-		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                              {"PR-605-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "62.11%/18.63%/24.84%/18.63%", "26 个完整配方"},
-		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"):                                          {"PR-605 已发布 BOM 替代草稿与损耗编辑", "保存失败", "替代 BOM/V001"},
-		filepath.Join("docs", "acceptance", "2026-08-24-production-bom-semi-finished-cutover.md"): {"PR-605", "## RED 证据", "## GREEN 证据", "生产数据"},
+		filepath.Join("docs", "REQUIREMENTS.md"):                                                  {"PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "published_output_identity_immutable", "31 个启用 BOM"},
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"):                                              {"PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "62.11%/18.63%/24.84%/18.63%", "26 个完整配方"},
+		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"):                                          {"PR-606 已发布 BOM 替代草稿与损耗编辑", "保存失败", "替代 BOM/V001"},
+		filepath.Join("docs", "acceptance", "2026-08-24-production-bom-semi-finished-cutover.md"): {"PR-606", "## RED 证据", "## GREEN 证据", "生产数据"},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range wants {
@@ -42,7 +42,7 @@ func TestDev605ProductionBomSemiFinishedCutoverContracts(t *testing.T) {
 	bomView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue")))
 	for _, want := range []string{"data-bom-workspace-feedback", "bomWorkspaceSaveFailed", "replacement-draft", "handleVersionMaterialLossRateInput"} {
 		if !strings.Contains(bomView, want) {
-			t.Fatalf("BomView missing PR-605 marker %q", want)
+			t.Fatalf("BomView missing PR-606 marker %q", want)
 		}
 	}
 }

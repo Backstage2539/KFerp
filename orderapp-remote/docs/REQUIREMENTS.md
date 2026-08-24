@@ -1609,9 +1609,9 @@
 - `DEV-605-LEGACY-RECEIPT-COMPAT`：普通原料入库不再作为新库存单据目的，旧页面跳转采购入库；外部普通原料入库和 `material_receipt` 新建/编辑/提交均拒绝。历史已提交或取消原料入库单只读，旧草稿提示到采购入库重建。历史采购、收货、批次、库存流水和订单不回算；新增采购单位/数量/仓库字段只为历史重量记录提供 `kg/raw_materials` 兼容投影。
 - `DEV-605-DOCS-DEVELOPMENT-DELIVERY`：同步物料与库存手册、采购收货说明、验收记录、PR/DEV/REV 和自动合同。完成 Go/Vue/Vite、真实 PostgreSQL、统一验证器及 development preflight 后合入 `develop` 并仅部署 development；`main` 与 production 不操作，业务验收由 Van 执行。
 
-# PR-605-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER 生产 BOM 半成品化与编辑缺陷修复（2026-08-24）
+# PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER 生产 BOM 半成品化与编辑缺陷修复（2026-08-24）
 
-- `DEV-605-BOM-DRAFT-EDITOR-RELIABILITY`：BOM 抽屉内常驻显示保存、发布结果；保存失败保留抽屉和本地草稿，且在重新保存成功前禁止发布。统一草稿接口复用版本服务的单位、组件、配方模式和损耗校验；版本损耗率覆盖全部有效物料比例组件。损耗输入变化立即标记未保存并重算现有行的损耗后用量占比。
-- `DEV-605-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT`：已发布 BOM 的产出身份不可原位修改，旧写接口返回 HTTP 409 与稳定错误码 `published_output_identity_immutable`。前端改走 `POST /api/production-boms/:id/replacement-draft`，用完整草稿和来源版本事务创建新 BOM/V001；复用 `source_bom_id`、`source_bom_version_id`，源 BOM 与全部历史版本不变。
-- `DEV-605-SEMI-FINISHED-CUTOVER-MIGRATION`：锁定生产“烘焙豆-半成品”31 个启用 BOM，创建 30 个 kg/kg 自制半成品物料并复用 `MAT-000106 初晓-半成品`；创建 31 个同名物料产出替代 BOM。26 个完整配方发布并设为物料默认 BOM，5 个空配方只保留草稿；已停用的旧生豆组件 42/67 分别映射到同业务物料的启用档案 7/27，不恢复失效档案。旧商品产出 BOM 仅在整批成功后失效并解除当前绑定，历史数据不删除。
-- `DEV-605-DOCS-RELEASE-ACCEPTANCE`：切换工具使用数据库锁、锁定清单、来源版本和配方指纹、未完生产依赖门禁及单事务应用；执行顺序为预览、完整备份、应用、只读验收。重复应用幂等；补偿回滚恢复旧绑定、失效新 BOM 并弃用本次新物料，不删除审计和历史。
+- `DEV-606-BOM-DRAFT-EDITOR-RELIABILITY`：BOM 抽屉内常驻显示保存、发布结果；保存失败保留抽屉和本地草稿，且在重新保存成功前禁止发布。统一草稿接口复用版本服务的单位、组件、配方模式和损耗校验；版本损耗率覆盖全部有效物料比例组件。损耗输入变化立即标记未保存并重算现有行的损耗后用量占比。
+- `DEV-606-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT`：已发布 BOM 的产出身份不可原位修改，旧写接口返回 HTTP 409 与稳定错误码 `published_output_identity_immutable`。前端改走 `POST /api/production-boms/:id/replacement-draft`，用完整草稿和来源版本事务创建新 BOM/V001；复用 `source_bom_id`、`source_bom_version_id`，源 BOM 与全部历史版本不变。
+- `DEV-606-SEMI-FINISHED-CUTOVER-MIGRATION`：锁定生产“烘焙豆-半成品”31 个启用 BOM，创建 30 个 kg/kg 自制半成品物料并复用 `MAT-000106 初晓-半成品`；创建 31 个同名物料产出替代 BOM。26 个完整配方发布并设为物料默认 BOM，5 个空配方只保留草稿；已停用的旧生豆组件 42/67 分别映射到同业务物料的启用档案 7/27，不恢复失效档案。旧商品产出 BOM 仅在整批成功后失效并解除当前绑定，历史数据不删除。
+- `DEV-606-DOCS-RELEASE-ACCEPTANCE`：切换工具使用数据库锁、锁定清单、来源版本和配方指纹、未完生产依赖门禁及单事务应用；执行顺序为预览、完整备份、应用、只读验收。重复应用幂等；补偿回滚恢复旧绑定、失效新 BOM 并弃用本次新物料，不删除审计和历史。
