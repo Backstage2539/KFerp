@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-605-MATERIAL-STOCK-COST-CONVERGENCE
+- Branch: codex/pr605-material-stock-cost-20260824
+- Owner/session: Codex / 2026-08-24
+- Status: local implementation and full verifier GREEN; remote preflight and development delivery pending; Van acceptance pending
+- Scope: 修复物料档案复选框与行业字段展示；库存作业展示来源仓实时余额；盘点调整按仓库和批次执行并支持重量/离散单位；采购收货成为正式采购成本唯一过账入口，普通原料入库退役；历史单据与库存流水保持只读兼容。
+- DEV:
+  - DEV-605-MATERIAL-ARCHIVE-READONLY-COST（done，local GREEN）：物料列表标准复选框、独立行业字段列、最近采购入库价只读及直接改价门禁。
+  - DEV-605-WAREHOUSE-BALANCE-ADJUSTMENT（done，local GREEN）：批量仓库余额、库存动作实时库存、单仓盘点、FIFO 批次分配与离散成本调整。
+  - DEV-605-PURCHASE-RECEIPT-POSTING（done，local GREEN）：采购统一库存单位、收货确认、原子过账、普通原料入库退役与操作日志。
+  - DEV-605-DOCS-DEVELOPMENT-DELIVERY（in progress）：需求、验收、物料/库存/采购手册、PR/DEV/REV 已完成；远端 preflight 与 development 交付待执行。
+- Verifier: RED evidence captured；targeted Vue 28/28 GREEN；Go `./...` GREEN；frontend 1030/1030 GREEN；`scripts/verify_kferp.sh all` exit 0；Vite 6594 modules GREEN（existing chunk warning only）；real PostgreSQL purchase 2.422s、stock 18.149s、materials 1.840s GREEN；feature preflight first pass GREEN，latest evidence commit preflight and development deploy pending.
+- Manual: Van development business acceptance after delivery.
+- Deployment: development only after verified feature branch is merged into latest `develop`; `main` and production explicitly out of scope.
+- Last update: 2026-08-24 Asia/Shanghai
+
 ### PR-604-MATERIAL-COST-BOM-EDITOR
 - Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop); follow-ups `codex/pr604-price-preview-20260823`, current `codex/pr604-price-trial-product-not-found-20260823`
 - Owner/session: Codex / 2026-08-21

@@ -234,6 +234,12 @@ func TestMaterialQuantityAdjustmentUsesLockedMaterialInventoryUnit(t *testing.T)
 			}
 		})
 	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 33, Warehouse: "raw_materials",
+		HasTargetQty: true, TargetQty: 1.5, UnitCode: "袋", Reason: "盘点", Operator: "jj",
+	}); err == nil || !strings.Contains(err.Error(), "必须为整数") {
+		t.Fatalf("fractional discrete adjustment error=%v", err)
+	}
 
 	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
 		ItemType: "material", ItemID: 32, Warehouse: "raw_materials",
@@ -272,6 +278,131 @@ func TestMaterialQuantityAdjustmentUsesLockedMaterialInventoryUnit(t *testing.T)
 			t.Fatalf("material %d stock = %dg/%d units, want %dg/%d units", want.id, qtyG, qtyUnits, want.qtyG, want.qtyUnits)
 		}
 	}
+}
+
+func TestPR605MaterialAdjustmentUsesSelectedWarehouseAndDiscreteBatchQuantity(t *testing.T) {
+	t.Run("weight adjustment preserves other warehouses", func(t *testing.T) {
+		pool, schema := setupUnifiedStockDocumentTest(t)
+		ctx := context.Background()
+		repo := NewRepository(pool, schema)
+		svc := stockapp.NewService(repo)
+		mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+			INSERT INTO %s.materials(id,code,name,kind,unit,purchase_price)
+			VALUES(40,'PR605-KG','多仓原料','bean','kg',40)
+		`, schema))
+
+		if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+			Purpose: stockapp.PurposeMaterialReceipt, Operator: "purchase",
+			Items: []stockapp.StockDocumentItemCommand{{
+				ItemType: "material", MaterialID: 40, InventoryUnit: "kg",
+				ToWarehouse: "raw_materials", QtyG: 10000, UnitCost: 40,
+			}},
+		}); err != nil {
+			t.Fatalf("receive material: %v", err)
+		}
+		if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+			Purpose: stockapp.PurposeMaterialTransfer, Operator: "stock",
+			Items: []stockapp.StockDocumentItemCommand{{
+				ItemType: "material", MaterialID: 40, InventoryUnit: "kg",
+				FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 4000,
+			}},
+		}); err != nil {
+			t.Fatalf("transfer material: %v", err)
+		}
+		adjustment, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+			ItemType: "material", ItemID: 40, Warehouse: "raw_materials",
+			HasTargetQty: true, TargetQty: 5, UnitCode: "kg", Reason: "原料仓盘点", Operator: "counter",
+		})
+		if err != nil {
+			t.Fatalf("adjust raw warehouse: %v", err)
+		}
+
+		var rawG, wipG, globalG, allocatedG int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT
+				COALESCE(SUM(qty_g) FILTER (WHERE warehouse='raw_materials'),0)::bigint,
+				COALESCE(SUM(qty_g) FILTER (WHERE warehouse='wip'),0)::bigint
+			FROM %s.material_batch_locations WHERE material_id=40
+		`, schema)).Scan(&rawG, &wipG); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g FROM %s.materials WHERE id=40`, schema)).Scan(&globalG); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(qty_change_g),0)::bigint
+			FROM %s.stock_adjustment_batch_allocations WHERE adjustment_id=$1 AND warehouse='raw_materials'
+		`, schema), adjustment.AdjustmentID).Scan(&allocatedG); err != nil {
+			t.Fatal(err)
+		}
+		if rawG != 5000 || wipG != 4000 || globalG != 9000 || allocatedG != -1000 {
+			t.Fatalf("raw/wip/global/allocation=%d/%d/%d/%d, want 5000/4000/9000/-1000", rawG, wipG, globalG, allocatedG)
+		}
+		balances, err := svc.ListMaterialBalances(ctx, stockapp.MaterialBalanceQuery{Warehouse: "raw_materials", MaterialIDs: []int64{40}})
+		if err != nil || len(balances) != 1 || balances[0].BookQty != 5 {
+			t.Fatalf("raw material balance=%+v err=%v, want 5kg", balances, err)
+		}
+	})
+
+	t.Run("discrete packaging adjustment and cost use remaining units", func(t *testing.T) {
+		pool, schema := setupUnifiedStockDocumentTest(t)
+		ctx := context.Background()
+		repo := NewRepository(pool, schema)
+		svc := stockapp.NewService(repo)
+		mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+			INSERT INTO %s.materials(id,code,name,kind,unit,purchase_price)
+			VALUES(41,'PR605-BAG','离散包材','pack','袋',2)
+		`, schema))
+
+		receipt, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+			Purpose: stockapp.PurposeMaterialReceipt, Operator: "purchase",
+			Items: []stockapp.StockDocumentItemCommand{{
+				ItemType: "material", MaterialID: 41, InventoryUnit: "袋",
+				ToWarehouse: "packaging", QtyUnits: 10, UnitCost: 2,
+			}},
+		})
+		if err != nil {
+			t.Fatalf("receive packaging material: %v", err)
+		}
+		if len(receipt.Items) != 1 || len(receipt.Items[0].Allocations) != 1 {
+			t.Fatalf("receipt allocations=%+v", receipt.Items)
+		}
+		batchID := receipt.Items[0].Allocations[0].MaterialBatchID
+		adjustment, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+			ItemType: "material", ItemID: 41, Warehouse: "packaging",
+			HasTargetQty: true, TargetQty: 6, UnitCode: "袋", Reason: "包材仓盘点", Operator: "counter",
+		})
+		if err != nil {
+			t.Fatalf("adjust packaging warehouse: %v", err)
+		}
+		if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+			AdjustmentType: "material_cost", ItemType: "material", ItemID: 41, MaterialBatchID: batchID,
+			TargetUnitCost: 3, Reason: "盘点确认单价", Operator: "counter",
+		}); err != nil {
+			t.Fatalf("adjust discrete batch cost: %v", err)
+		}
+
+		var locationUnits, remainingUnits, globalUnits, allocatedUnits int64
+		var valueChange float64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_units),0)::bigint FROM %s.material_batch_locations WHERE material_id=41 AND warehouse='packaging'`, schema)).Scan(&locationUnits); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_units FROM %s.material_batches WHERE id=$1`, schema), batchID).Scan(&remainingUnits); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.materials WHERE id=41`, schema)).Scan(&globalUnits); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(qty_change_units),0)::bigint FROM %s.stock_adjustment_batch_allocations WHERE adjustment_id=$1`, schema), adjustment.AdjustmentID).Scan(&allocatedUnits); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT value_change::float8 FROM %s.stock_adjustments WHERE material_batch_id=$1 AND adjustment_type='material_cost' ORDER BY id DESC LIMIT 1`, schema), batchID).Scan(&valueChange); err != nil {
+			t.Fatal(err)
+		}
+		if locationUnits != 6 || remainingUnits != 6 || globalUnits != 6 || allocatedUnits != -4 || valueChange != 6 {
+			t.Fatalf("location/remaining/global/allocation/value=%d/%d/%d/%d/%.2f, want 6/6/6/-4/6", locationUnits, remainingUnits, globalUnits, allocatedUnits, valueChange)
+		}
+	})
 }
 
 func TestReceiveMaterialStoresNonWeightInventoryUnits(t *testing.T) {
@@ -1199,7 +1330,7 @@ CREATE TABLE %s.materials (
 	code TEXT NOT NULL,
 	name TEXT NOT NULL,
 	kind TEXT NOT NULL DEFAULT 'bean',
-	unit TEXT NOT NULL DEFAULT 'g',
+	unit TEXT NOT NULL DEFAULT 'kg',
 	purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 	sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
 	onhand_g BIGINT NOT NULL DEFAULT 0,

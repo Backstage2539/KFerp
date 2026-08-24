@@ -3,6 +3,7 @@ package materials
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 type BeanProfile struct {
@@ -67,6 +68,7 @@ type MaterialInput struct {
 	CostUnit                string                       `json:"cost_unit"`
 	BatchNo                 string                       `json:"batch_no"`
 	PurchasePrice           float64                      `json:"purchase_price"`
+	PurchasePriceSet        bool                         `json:"-"`
 	SalePrice               float64                      `json:"sale_price"`
 	OnhandG                 int64                        `json:"onhand_g"`
 	OnhandUnits             int64                        `json:"onhand_units"`
@@ -83,8 +85,9 @@ func (in *MaterialInput) UnmarshalJSON(data []byte) error {
 	type materialInputAlias MaterialInput
 	var payload struct {
 		*materialInputAlias
-		IsSemiFinished *bool   `json:"is_semi_finished"`
-		SupplyMode     *string `json:"supply_mode"`
+		IsSemiFinished *bool    `json:"is_semi_finished"`
+		SupplyMode     *string  `json:"supply_mode"`
+		PurchasePrice  *float64 `json:"purchase_price"`
 	}
 	payload.materialInputAlias = (*materialInputAlias)(in)
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -96,6 +99,10 @@ func (in *MaterialInput) UnmarshalJSON(data []byte) error {
 	}
 	if payload.SupplyMode != nil {
 		in.SupplyMode = *payload.SupplyMode
+	}
+	if payload.PurchasePrice != nil {
+		in.PurchasePrice = *payload.PurchasePrice
+		in.PurchasePriceSet = true
 	}
 	return nil
 }
@@ -200,6 +207,9 @@ func (s *Service) List(ctx context.Context, cmd ListCommand) ([]Material, error)
 }
 
 func (s *Service) Create(ctx context.Context, cmd CreateCommand) (Material, error) {
+	if cmd.Input.PurchasePrice != 0 {
+		return Material{}, fmt.Errorf("新建物料不能设置采购价，请在采购入库或盘点调整中维护成本")
+	}
 	return s.repo.Create(ctx, cmd)
 }
 
