@@ -2172,6 +2172,169 @@ func TestProductUnitTemplateInventoryUnitIsLockedAfterCreate(t *testing.T) {
 	}
 }
 
+func TestSaveProductUnitDefinitionRejectsReferencedNonKGWeightReclassificationPostgres(t *testing.T) {
+	pool, schema := newProductUnitDefinitionGuardTestDB(t)
+	ctx := context.Background()
+	repository := NewRepository(pool, schema)
+	active := true
+
+	for _, tc := range []struct {
+		code     string
+		unitType string
+	}{
+		{code: "袋", unitType: "weight"},
+		{code: "箱", unitType: "重量"},
+	} {
+		_, err := repository.SaveProductUnitDefinition(ctx, catalogapp.SaveProductUnitDefinitionCommand{
+			Actor: "pr599-test", Code: tc.code, Name: tc.code + "重分类", UnitType: tc.unitType, AllowDecimal: false, Active: &active,
+		})
+		if err == nil || !strings.Contains(err.Error(), "物料档案") || !strings.Contains(err.Error(), "非 kg") {
+			t.Fatalf("referenced unit %s -> %s error = %v", tc.code, tc.unitType, err)
+		}
+	}
+
+	var name, unitType string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT name,unit_type FROM %s.product_unit_definitions WHERE code='袋'`, schema)).Scan(&name, &unitType); err != nil {
+		t.Fatal(err)
+	}
+	if name != "袋" || unitType != "package" {
+		t.Fatalf("rejected reclassification changed definition to %s/%s", name, unitType)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='product_unit_definition'`, schema)).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 0 {
+		t.Fatalf("rejected reclassification wrote %d audit rows", auditCount)
+	}
+
+	allowed := []catalogapp.SaveProductUnitDefinitionCommand{
+		{Actor: "pr599-test", Code: "袋", Name: "包装袋", UnitType: "package", AllowDecimal: false, Active: &active},
+		{Actor: "pr599-test", Code: "kg", Name: "千克", UnitType: "weight", AllowDecimal: true, Active: &active},
+		{Actor: "pr599-test", Code: "t", Name: "吨", UnitType: "weight", AllowDecimal: true, Active: &active},
+	}
+	for _, cmd := range allowed {
+		if _, err := repository.SaveProductUnitDefinition(ctx, cmd); err != nil {
+			t.Fatalf("allowed unit save %s/%s: %v", cmd.Code, cmd.UnitType, err)
+		}
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='product_unit_definition' AND action='upsert'`, schema)).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != len(allowed) {
+		t.Fatalf("allowed saves audit count = %d, want %d", auditCount, len(allowed))
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT unit_type FROM %s.product_unit_definitions WHERE code='t'`, schema)).Scan(&unitType); err != nil {
+		t.Fatal(err)
+	}
+	if unitType != "weight" {
+		t.Fatalf("unreferenced custom unit type = %q, want weight", unitType)
+	}
+}
+
+func TestSaveProductUnitDefinitionWaitsForConcurrentMaterialReferenceBeforeReclassification(t *testing.T) {
+	pool, schema := newProductUnitDefinitionGuardTestDB(t)
+	ctx := context.Background()
+	repository := NewRepository(pool, schema)
+	materialTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = materialTx.Rollback(ctx) }()
+	var lockedCode string
+	if err := materialTx.QueryRow(ctx, fmt.Sprintf(`SELECT code FROM %s.product_unit_definitions WHERE code='包' FOR SHARE`, schema)).Scan(&lockedCode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := materialTx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,unit) VALUES('CONCURRENT-PACK','包')`, schema)); err != nil {
+		t.Fatal(err)
+	}
+
+	type saveResult struct {
+		err error
+	}
+	resultCh := make(chan saveResult, 1)
+	go func() {
+		active := true
+		_, err := repository.SaveProductUnitDefinition(context.Background(), catalogapp.SaveProductUnitDefinitionCommand{
+			Actor: "pr599-concurrency", Code: "包", Name: "包", UnitType: "weight", AllowDecimal: false, Active: &active,
+		})
+		resultCh <- saveResult{err: err}
+	}()
+
+	select {
+	case result := <-resultCh:
+		_ = materialTx.Rollback(ctx)
+		t.Fatalf("reclassification returned before concurrent material committed: %v", result.err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := materialTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-resultCh:
+		if result.err == nil || !strings.Contains(result.err.Error(), "非 kg") {
+			t.Fatalf("reclassification after concurrent reference error = %v", result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reclassification did not finish after concurrent material committed")
+	}
+	var unitType string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT unit_type FROM %s.product_unit_definitions WHERE code='包'`, schema)).Scan(&unitType); err != nil {
+		t.Fatal(err)
+	}
+	if unitType != "package" {
+		t.Fatalf("concurrent rejected reclassification changed type to %q", unitType)
+	}
+}
+
+func newProductUnitDefinitionGuardTestDB(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	dsn := strings.TrimSpace(os.Getenv("ORDERAPP_TEST_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("ORDERAPP_TEST_DATABASE_URL or DATABASE_URL is required for catalog postgres tests")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	schema := fmt.Sprintf("test_catalog_unit_guard_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatalf("create unit guard schema: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE") })
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s.product_unit_definitions(
+			code TEXT PRIMARY KEY, name TEXT NOT NULL, unit_type TEXT NOT NULL DEFAULT 'other',
+			allow_decimal BOOLEAN NOT NULL DEFAULT true, active BOOLEAN NOT NULL DEFAULT true,
+			deleted_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		);
+		CREATE TABLE %[1]s.materials(
+			id BIGSERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, unit TEXT NOT NULL
+		);
+		CREATE TABLE %[1]s.audit_logs(
+			id BIGSERIAL PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now(), actor TEXT NOT NULL DEFAULT '',
+			entity_type TEXT NOT NULL DEFAULT '', entity_id BIGINT, action TEXT NOT NULL DEFAULT '', field TEXT,
+			old_value TEXT, new_value TEXT, meta JSONB
+		);
+		INSERT INTO %[1]s.product_unit_definitions(code,name,unit_type,allow_decimal,active) VALUES
+			('kg','kg','weight',true,true),
+			('袋','袋','package',false,true),
+			('包','包','package',false,true),
+			('箱','箱','package',false,true),
+			('t','t','other',true,true);
+		INSERT INTO %[1]s.materials(code,unit) VALUES
+			('MASTER-KG','kg'), ('MASTER-BAG','袋'), ('MASTER-BOX','箱');
+	`, schema)); err != nil {
+		t.Fatalf("create unit guard fixture: %v", err)
+	}
+	return pool, schema
+}
+
 func TestTemplateDeletesUseDeletedStateAndHideFromLists(t *testing.T) {
 	schemaBytes, err := os.ReadFile("schema.go")
 	if err != nil {

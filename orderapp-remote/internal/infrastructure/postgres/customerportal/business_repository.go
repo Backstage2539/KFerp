@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,10 @@ func (r Repository) LoadServicePage(ctx context.Context, query customerportalapp
 	limit := query.Limit
 	defaultLimit := 20
 	maxLimit := 50
+	if query.Key == customerportalapp.ServiceKeyProductOrder {
+		defaultLimit = 500
+		maxLimit = 500
+	}
 	if query.Key == customerportalapp.ServiceKeySettlement {
 		defaultLimit = 200
 		maxLimit = 200
@@ -100,7 +105,8 @@ func (r Repository) LoadMallPage(ctx context.Context, customerID int64) (custome
 	page.CurrentCustomerID = customerID
 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		SELECT m.id,m.product_id,m.bom_spec_id,m.bom_variant_id,COALESCE(p.name,''),m.spec_name,m.inventory_unit,
+		       COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
 		       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
 		       COALESCE(p.drip_bag_grams,10)::float8,
 		       COALESCE(p.drip_box_bag_count,10),
@@ -118,11 +124,27 @@ func (r Repository) LoadMallPage(ctx context.Context, customerID int64) (custome
 	defer rows.Close()
 	for rows.Next() {
 		var row customerportalapp.MallProduct
-		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.Title, &row.Subtitle, &row.Description, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.ProductName, &row.SpecName, &row.InventoryUnit,
+			&row.Title, &row.Subtitle, &row.Description, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
 			return customerportalapp.MallPage{}, err
 		}
+		identity, err := r.resolveMallOutputIdentity(ctx, r.pool, row.ProductID, row.BomSpecID, 0)
+		if err != nil {
+			if errors.Is(err, errMallBOMSpecIdentity) {
+				continue
+			}
+			return customerportalapp.MallPage{}, err
+		}
+		if identity.Canonical {
+			row.ProductID = identity.ProductID
+			row.BomSpecID = identity.BomSpecID
+			row.BomVariantID = identity.BomVariantID
+			row.SpecName = identity.SpecName
+			row.InventoryUnit = identity.InventoryUnit
+			row.SpecG = 0
+		}
 		row.ProductKind = catalogdomain.NormalizeProductKind(row.ProductKind)
-		if row.ProductKind == catalogdomain.ProductKindDripBag {
+		if !identity.Canonical && row.ProductKind == catalogdomain.ProductKindDripBag {
 			row.SalesUnits = []string{"bag", "box"}
 			row.MallPrice = row.UnitPrice
 		}
@@ -1644,6 +1666,24 @@ func formatBeanListPrice(price float64, unit string) string {
 }
 
 func (r Repository) listProducts(ctx context.Context, customerID int64, limit int) ([]customerportalapp.ProductSummary, error) {
+	legacyPredicate := ""
+	if portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)) {
+		legacyPredicate += fmt.Sprintf(`
+			AND NOT EXISTS (
+				SELECT 1 FROM %s.product_bom_spec_migrations migration
+				WHERE migration.product_id=products.id AND migration.state='cutover'
+			)
+		`, r.schema)
+		if portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.legacy_child_sku_bom_spec_mappings", r.schema)) {
+			legacyPredicate += fmt.Sprintf(`
+				AND NOT EXISTS (
+					SELECT 1 FROM %[1]s.legacy_child_sku_bom_spec_mappings mapping
+					JOIN %[1]s.product_bom_spec_migrations migration ON migration.product_id=mapping.parent_product_id
+					WHERE mapping.legacy_child_product_id=products.id AND migration.state='cutover'
+				)
+			`, r.schema)
+		}
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, name, roast_level,
 		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
@@ -1656,10 +1696,10 @@ func (r Repository) listProducts(ctx context.Context, customerID int64, limit in
 		       to_char(COALESCE(retail_price_250g,0), 'FM999999990.00')
 		FROM %s.products
 		WHERE active=true
-		  AND %s
+		  AND %s %s
 		ORDER BY name, id
 		LIMIT $1
-	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), limit, customerID)
+	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2"), legacyPredicate), limit, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -1678,6 +1718,31 @@ func (r Repository) listProducts(ctx context.Context, customerID int64, limit in
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	canonical, err := r.listProductOrderBOMSpecOptions(ctx, customerID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, canonical...)
+	sort.SliceStable(out, func(i, j int) bool {
+		leftName := strings.TrimSpace(out[i].Name)
+		rightName := strings.TrimSpace(out[j].Name)
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		if out[i].ID != out[j].ID {
+			return out[i].ID < out[j].ID
+		}
+		if out[i].SortOrder != out[j].SortOrder {
+			return out[i].SortOrder < out[j].SortOrder
+		}
+		if out[i].SpecName != out[j].SpecName {
+			return out[i].SpecName < out[j].SpecName
+		}
+		return out[i].BomSpecID < out[j].BomSpecID
+	})
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	gradients, err := r.portalUnitPriceGradients(ctx, customerID, productSummaryIDs(out))
 	if err != nil {
@@ -2239,7 +2304,11 @@ func (r Repository) ensureProcessingTargetProductTx(ctx context.Context, tx pgx.
 type mallOrderLine struct {
 	MallProductID   int64
 	ProductID       int64
+	BomSpecID       int64
+	BomVariantID    int64
 	Title           string
+	SpecName        string
+	InventoryUnit   string
 	SpecG           int64
 	UnitPrice       float64
 	ProductKind     string
@@ -2259,6 +2328,24 @@ type portalMallLinePricing struct {
 }
 
 func portalMallLinePricingFor(line mallOrderLine, item customerportalapp.MallOrderItemCommand) (portalMallLinePricing, error) {
+	if line.BomSpecID > 0 {
+		unit := strings.TrimSpace(line.InventoryUnit)
+		if line.BomVariantID <= 0 || unit == "" || strings.TrimSpace(line.SpecName) == "" {
+			return portalMallLinePricing{}, mallBOMSpecIdentityError("BOM spec snapshot is incomplete")
+		}
+		return portalMallLinePricing{
+			SalesUnit:    unit,
+			DisplayUnit:  unit,
+			SpecText:     strings.TrimSpace(line.SpecName),
+			UnitBagCount: 1,
+			UnitPrice:    line.UnitPrice,
+			LineTotal:    line.UnitPrice * float64(item.Qty),
+			PriceSource: portalPriceSourceSnapshot(
+				"mall_price", line.ProductKind, unit, line.UnitPrice, float64(item.Qty), line.UnitPrice,
+				line.UnitPrice*float64(item.Qty), 1,
+			),
+		}, nil
+	}
 	pricing := portalMallLinePricing{
 		DisplayUnit: "件",
 		SpecText:    fmt.Sprintf("%dg", line.SpecG),
@@ -2322,7 +2409,8 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 		ids = append(ids, item.MallProductID)
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(NULLIF(m.title,''), p.name, ''), m.spec_g, m.unit_price,
+		SELECT m.id,m.product_id,m.bom_spec_id,m.bom_variant_id,COALESCE(NULLIF(m.title,''),p.name,''),
+		       m.spec_name,m.inventory_unit,m.spec_g,m.unit_price,
 		       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
 		       COALESCE(p.drip_bag_grams,10)::float8,
 		       COALESCE(p.drip_box_bag_count,10)
@@ -2334,27 +2422,47 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 	if err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
-	linesByMallProduct := map[int64]mallOrderLine{}
+	lines := make([]mallOrderLine, 0, len(cmd.Items))
 	for rows.Next() {
 		var line mallOrderLine
-		if err := rows.Scan(&line.MallProductID, &line.ProductID, &line.Title, &line.SpecG, &line.UnitPrice, &line.ProductKind, &line.DripBagGrams, &line.DripBoxBagCount); err != nil {
+		if err := rows.Scan(&line.MallProductID, &line.ProductID, &line.BomSpecID, &line.BomVariantID, &line.Title,
+			&line.SpecName, &line.InventoryUnit, &line.SpecG, &line.UnitPrice, &line.ProductKind, &line.DripBagGrams, &line.DripBoxBagCount); err != nil {
 			rows.Close()
 			return customerportalapp.FulfillmentOrder{}, err
 		}
-		line.ProductKind = catalogdomain.NormalizeProductKind(line.ProductKind)
-		linesByMallProduct[line.MallProductID] = line
+		lines = append(lines, line)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	rows.Close()
+	linesByMallProduct := make(map[int64]mallOrderLine, len(lines))
+	for _, line := range lines {
+		identity, err := r.resolveMallOutputIdentity(ctx, tx, line.ProductID, line.BomSpecID, 0)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		if identity.Canonical {
+			line.ProductID = identity.ProductID
+			line.BomSpecID = identity.BomSpecID
+			line.BomVariantID = identity.BomVariantID
+			line.SpecName = identity.SpecName
+			line.InventoryUnit = identity.InventoryUnit
+			line.SpecG = 0
+		}
+		line.ProductKind = catalogdomain.NormalizeProductKind(line.ProductKind)
+		linesByMallProduct[line.MallProductID] = line
+	}
 
 	totalAmount := 0.0
 	for _, item := range cmd.Items {
 		line, ok := linesByMallProduct[item.MallProductID]
 		if !ok {
 			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("mall product unavailable")
+		}
+		if err := validateMallOrderItemIdentity(line, item); err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
 		}
 		pricing, err := portalMallLinePricingFor(line, item)
 		if err != nil {
@@ -2419,23 +2527,32 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 		if err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
-		currentSpec, err := orderbeans.ResolveCurrentOrderProductionProductSpec(
-			ctx,
-			tx,
-			r.schema,
-			line.ProductID,
-		)
-		if err != nil {
-			return customerportalapp.FulfillmentOrder{}, err
-		}
-		priceSourceSnapshot, err := orderbeans.AttachProductionQuantitySnapshot(pricing.PriceSource, currentSpec)
-		if err != nil {
-			return customerportalapp.FulfillmentOrder{}, err
+		priceSourceSnapshot := pricing.PriceSource
+		if line.BomSpecID <= 0 {
+			currentSpec, err := orderbeans.ResolveCurrentOrderProductionProductSpec(
+				ctx,
+				tx,
+				r.schema,
+				line.ProductID,
+			)
+			if err != nil {
+				return customerportalapp.FulfillmentOrder{}, err
+			}
+			priceSourceSnapshot, err = orderbeans.AttachProductionQuantitySnapshot(pricing.PriceSource, currentSpec)
+			if err != nil {
+				return customerportalapp.FulfillmentOrder{}, err
+			}
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id,line_no,product_id,product_kind,bean_list_publication_id,bean_list_version_no,item_name,qty,unit,spec,unit_price,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-			VALUES($1,$2,$3,$4,NULLIF($5,0),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)
-		`, r.schema), orderID, i+1, line.ProductID, line.ProductKind, int64(0), "", line.Title, item.Qty, pricing.DisplayUnit, pricing.SpecText, pricing.UnitPrice, pricing.LineTotal, pricing.SalesUnit, pricing.UnitBagCount, pricing.UnitBeanG, item.Qty, priceSourceSnapshot); err != nil {
+			INSERT INTO %s.order_items(
+				order_id,line_no,product_id,bom_spec_id,bom_variant_id,product_kind,
+				bean_list_publication_id,bean_list_version_no,item_name,qty,unit,spec,unit_price,line_total,
+				sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json
+			)
+			VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)
+		`, r.schema), orderID, i+1, line.ProductID, line.BomSpecID, line.BomVariantID, line.ProductKind, int64(0), "", line.Title,
+			item.Qty, pricing.DisplayUnit, pricing.SpecText, pricing.UnitPrice, pricing.LineTotal, pricing.SalesUnit,
+			pricing.UnitBagCount, pricing.UnitBeanG, item.Qty, priceSourceSnapshot); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
 		if line.ProductKind == catalogdomain.ProductKindDripBag {
@@ -2452,7 +2569,11 @@ func (r Repository) CreateMallOrder(ctx context.Context, cmd customerportalapp.C
 			}
 		}
 	}
-	_ = cmd.CreatedByMiniUserID
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, portalMiniActor(cmd.CreatedByMiniUserID), "customer_portal_order", &orderID, "mall submit", nil, nil, postgresinfra.StrPtr(orderNo), postgresinfra.AuditMeta{
+		"customer_id": cmd.CustomerID, "item_count": len(cmd.Items), "total": totalAmount,
+	}); err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
@@ -2507,6 +2628,14 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	}
 	productKind = catalogdomain.NormalizeProductKind(productKind)
 	productName = firstNonEmpty(strings.TrimSpace(cmd.ProductName), productName)
+	outputIdentity, err := r.resolveProductOrderIdentityTx(ctx, tx, cmd.CustomerID, cmd)
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	if outputIdentity.Canonical {
+		productName = strings.TrimSpace(outputIdentity.ProductName)
+		productKind = catalogdomain.NormalizeProductKind(outputIdentity.ProductKind)
+	}
 	salesUnit := strings.TrimSpace(cmd.SalesUnit)
 	unitBagCount := 0.0
 	unitBeanG := 0.0
@@ -2517,7 +2646,26 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	var unitPrice, totalAmount float64
 	var usage orderbeans.Usage
 	var pricing orderbeans.PublishedPricing
-	if productKind == catalogdomain.ProductKindDripBag {
+	if outputIdentity.Canonical {
+		salesUnit = outputIdentity.InventoryUnit
+		specText = outputIdentity.SpecName
+		matchedPriceQty = float64(cmd.Qty)
+		usage, pricing, err = r.portalPublishedBOMSpecPricingTx(
+			ctx, tx, cmd.CustomerID, outputIdentity.ProductID, productKind,
+			outputIdentity.BomSpecID, outputIdentity.BomVariantID, cmd.Qty,
+		)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		unitPrice = pricing.UnitPrice
+		totalAmount = unitPrice * float64(cmd.Qty)
+		priceSourceSnapshot, err = portalPublishedBOMSpecPriceSourceSnapshot(
+			orderbeans.ListTypeForProductKind(productKind, false), usage, outputIdentity, pricing, cmd.Qty,
+		)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+	} else if productKind == catalogdomain.ProductKindDripBag {
 		if err := r.ensurePortalDripProductHasActiveBOMTx(ctx, tx, cmd.ProductID); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
@@ -2534,40 +2682,47 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		unitBeanG = dripBagGrams
 		specText = portalDripSpecText(salesUnit, dripBagGrams, dripBoxBagCount)
 	}
-	usage, pricing, err = r.portalPublishedPricingTx(ctx, tx, cmd.CustomerID, cmd.ProductID, productKind, cmd.SpecG, cmd.Qty, salesUnit, int64(math.Round(unitBagCount)))
-	if err != nil {
-		return customerportalapp.FulfillmentOrder{}, err
-	}
-	unitPrice = pricing.UnitPrice
-	if productKind == catalogdomain.ProductKindDripBag {
-		totalAmount = pricing.UnitPrice * float64(cmd.Qty)
-		matchedPriceQty = float64(cmd.Qty)
-	} else {
-		totalAmount = portalLineTotalFromPriceUnit(pricing.UnitPrice, cmd.SpecG, cmd.Qty, pricing.UnitG)
+	if !outputIdentity.Canonical {
+		usage, pricing, err = r.portalPublishedPricingTx(ctx, tx, cmd.CustomerID, cmd.ProductID, productKind, cmd.SpecG, cmd.Qty, salesUnit, int64(math.Round(unitBagCount)))
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		unitPrice = pricing.UnitPrice
+		if productKind == catalogdomain.ProductKindDripBag {
+			totalAmount = pricing.UnitPrice * float64(cmd.Qty)
+			matchedPriceQty = float64(cmd.Qty)
+		} else {
+			totalAmount = portalLineTotalFromPriceUnit(pricing.UnitPrice, cmd.SpecG, cmd.Qty, pricing.UnitG)
+		}
 	}
 	orderLineUnit := strings.TrimSpace(pricing.PriceUnit)
+	if outputIdentity.Canonical {
+		orderLineUnit = outputIdentity.InventoryUnit
+	}
 	if orderLineUnit == "" {
 		orderLineUnit = portalDisplayUnit(salesUnit)
 	}
-	_, publishedSpec, err := orderbeans.ResolvePublishedProductSpecForPublication(
-		ctx,
-		tx,
-		r.schema,
-		cmd.CustomerID,
-		cmd.ProductID,
-		orderbeans.ListTypeForProductKind(productKind, false),
-		usage.PublicationID,
-	)
-	if err != nil {
-		return customerportalapp.FulfillmentOrder{}, err
-	}
-	publishedSpec, err = orderbeans.ResolveOrderProductionProductSpec(ctx, tx, r.schema, cmd.ProductID, publishedSpec)
-	if err != nil {
-		return customerportalapp.FulfillmentOrder{}, err
-	}
-	priceSourceSnapshot, err = portalPublishedPriceSourceSnapshot(orderbeans.ListTypeForProductKind(productKind, false), usage, cmd.ProductID, pricing, publishedSpec)
-	if err != nil {
-		return customerportalapp.FulfillmentOrder{}, err
+	if !outputIdentity.Canonical {
+		_, publishedSpec, err := orderbeans.ResolvePublishedProductSpecForPublication(
+			ctx,
+			tx,
+			r.schema,
+			cmd.CustomerID,
+			cmd.ProductID,
+			orderbeans.ListTypeForProductKind(productKind, false),
+			usage.PublicationID,
+		)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		publishedSpec, err = orderbeans.ResolveOrderProductionProductSpec(ctx, tx, r.schema, cmd.ProductID, publishedSpec)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+		priceSourceSnapshot, err = portalPublishedPriceSourceSnapshot(orderbeans.ListTypeForProductKind(productKind, false), usage, cmd.ProductID, pricing, publishedSpec)
+		if err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
 	}
 	shippingAmount := cmd.ShippingAmount
 	if shippingAmount < 0 {
@@ -2621,12 +2776,24 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,bean_list_publication_id,bean_list_version_no)
-			VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,NULLIF($15,0),$16)
-	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, orderLineUnit, specText, unitPrice, totalAmount, productKind, salesUnit, unitBagCount, unitBeanG, matchedPriceQty, priceSourceSnapshot, usage.PublicationID, usage.VersionNo); err != nil {
+			INSERT INTO %s.order_items(order_id,line_no,product_id,bom_spec_id,bom_variant_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,bean_list_publication_id,bean_list_version_no)
+			VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,NULLIF($17,0),$18)
+	`, r.schema), orderID, cmd.ProductID, outputIdentity.BomSpecID, outputIdentity.BomVariantID, productName, cmd.Qty, orderLineUnit, specText, unitPrice, totalAmount, productKind, salesUnit, unitBagCount, unitBeanG, matchedPriceQty, priceSourceSnapshot, usage.PublicationID, usage.VersionNo); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
-	if productKind == catalogdomain.ProductKindDripBag {
+	if outputIdentity.Canonical {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, portalMiniActor(cmd.CreatedByMiniUserID), "customer_portal_order", &orderID, "miniapp fulfillment BOM spec submit", nil, nil, nil, postgresinfra.AuditMeta{
+			"product_id":     outputIdentity.ProductID,
+			"bom_spec_id":    outputIdentity.BomSpecID,
+			"bom_variant_id": outputIdentity.BomVariantID,
+			"inventory_unit": outputIdentity.InventoryUnit,
+			"qty":            cmd.Qty,
+			"price_source":   priceSourceName,
+			"total":          totalAmount,
+		}); err != nil {
+			return customerportalapp.FulfillmentOrder{}, err
+		}
+	} else if productKind == catalogdomain.ProductKindDripBag {
 		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, portalMiniActor(cmd.CreatedByMiniUserID), "customer_portal_order", &orderID, "miniapp fulfillment drip submit", nil, nil, nil, postgresinfra.AuditMeta{
 			"product_id":     cmd.ProductID,
 			"sales_unit":     salesUnit,
@@ -2728,6 +2895,55 @@ func (r Repository) portalPublishedPricingTx(ctx context.Context, tx pgx.Tx, cus
 		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, fmt.Errorf(portalMissingPublishedPriceMessage(listType))
 	}
 	return usage, pricing, nil
+}
+
+func (r Repository) portalPublishedBOMSpecPricingTx(ctx context.Context, tx pgx.Tx, customerID, productID int64, productKind string, bomSpecID, bomVariantID, qty int64) (orderbeans.Usage, orderbeans.PublishedPricing, error) {
+	listType := orderbeans.ListTypeForProductKind(productKind, false)
+	usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, productID, listType, 0)
+	if err != nil {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
+	}
+	if usage.PublicationID <= 0 {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, fmt.Errorf(portalMissingPublishedPriceMessage(listType))
+	}
+	pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithBOMSpec(
+		ctx, tx, r.schema, customerID, productID, listType, usage.PublicationID, bomSpecID, bomVariantID, qty,
+	)
+	if err != nil {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
+	}
+	if pricing.UnitPrice <= 0 {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, fmt.Errorf(portalMissingPublishedPriceMessage(listType))
+	}
+	return usage, pricing, nil
+}
+
+func portalPublishedBOMSpecPriceSourceSnapshot(listType string, usage orderbeans.Usage, identity portalProductOrderIdentity, pricing orderbeans.PublishedPricing, qty int64) (string, error) {
+	payload := map[string]any{
+		"source":                    "published_price_snapshot",
+		"price_source":              "published_price_snapshot",
+		"list_type":                 strings.TrimSpace(listType),
+		"publication_id":            usage.PublicationID,
+		"version_no":                strings.TrimSpace(usage.VersionNo),
+		"product_id":                identity.ProductID,
+		"bom_spec_id":               identity.BomSpecID,
+		"bom_variant_id":            identity.BomVariantID,
+		"spec_name":                 identity.SpecName,
+		"inventory_unit":            identity.InventoryUnit,
+		"qty":                       qty,
+		"unit_price":                pricing.UnitPrice,
+		"price_unit":                identity.InventoryUnit,
+		"quantity_basis":            "sales_spec_count",
+		"source_price_record_id":    pricing.SourcePriceRecordID,
+		"pricing_rule_version":      strings.TrimSpace(pricing.PricingRuleVersion),
+		"manual_adjusted":           pricing.ManualAdjusted,
+		"cost_source_snapshot_json": strings.TrimSpace(pricing.CostSourceSnapshotJSON),
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 func portalMissingPublishedPriceMessage(listType string) string {

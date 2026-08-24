@@ -571,6 +571,47 @@ test('PDF bean-list helper can follow explicit picker category rows', () => {
   assert.deepEqual(groups[0].items.map((item) => item.code), ['1.1', '1.2'])
 })
 
+test('PDF bean-list preview keeps BOM-spec selections when all specs share the parent product ID', () => {
+  const specRows = [
+    { bom_spec_id: 901, bom_variant_id: 1901, spec_label: '227g' },
+    { bom_spec_id: 902, bom_variant_id: 1902, spec_label: '454g' },
+    { bom_spec_id: 903, bom_variant_id: 1903, spec_label: '1Kg' },
+  ].map((spec) => ({
+    product_id: 1063,
+    sku_id: spec.bom_spec_id,
+    parent_product_id: 1063,
+    ...spec,
+    name: '初晓-商品',
+    commercial_bean_list: {
+      code: `1.${spec.bom_spec_id}`,
+      category: '意式咖啡',
+      display_name: '初晓-商品',
+    },
+    commercial_wholesale_tiers: [],
+  }))
+
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'business-group-7-101',
+    label: '意式拼配豆',
+    items: specRows,
+  }], 'commercial', {
+    selectedProductIDs: specRows.map((row) => row.bom_spec_id),
+  })
+
+  assert.equal(groups.length, 1)
+  assert.deepEqual(groups[0].items.map((item) => item.sku_id), [901, 902, 903])
+  assert.deepEqual(groups[0].items.map((item) => ({
+    product_id: item.product_id,
+    parent_product_id: item.parent_product_id,
+    bom_spec_id: item.bom_spec_id,
+    bom_variant_id: item.bom_variant_id,
+  })), [
+    { product_id: 1063, parent_product_id: 1063, bom_spec_id: 901, bom_variant_id: 1901 },
+    { product_id: 1063, parent_product_id: 1063, bom_spec_id: 902, bom_variant_id: 1902 },
+    { product_id: 1063, parent_product_id: 1063, bom_spec_id: 903, bom_variant_id: 1903 },
+  ])
+})
+
 test('PDF bean-list helper preserves product spec and unit fields from picker rows', () => {
   const groups = buildBeanListPdfGroupsFromCategoryRows([{
     code: 'business-group-7-101',

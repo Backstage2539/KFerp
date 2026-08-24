@@ -46,7 +46,8 @@ test('warehouse inline groups load the complete filtered warehouse result before
   assert.match(groupedLoad, /GROUPED_INVENTORY_FETCH_LIMIT/)
   assert.match(groupedLoad, /Promise\.all/)
   assert.match(groupedLoad, /total_pages/)
-  assert.match(groupedLoad, /rows\.value = \[firstRows,/)
+  assert.match(groupedLoad, /const allRows = \[firstRows,/)
+  assert.match(groupedLoad, /rows\.value = visibleRowsForProductSpecMigration\(allRows\)/)
   const loadInventory = script.match(/async function loadInventory\(\)[\s\S]*?\n\}/)?.[0] || ''
   assert.match(loadInventory, /inventoryCategoryWorkspaceEnabled\.value[\s\S]*loadGroupedInventoryRows\(\)/)
   assert.match(loadInventory, /else \{[\s\S]*paginationFromApi/)
@@ -58,7 +59,12 @@ test('warehouse inline groups load the complete filtered warehouse result before
 
 test('warehouse inline refactor preserves exact item-spec assignment identity and operational drawers', () => {
   assert.match(script, /return `\$\{selectedWarehouse\.value \|\| ''\}:\$\{inventoryItemKey\(row\)\}`/)
-  assert.match(script, /return `\$\{row\.item_type \|\| ''\}:\$\{Number\(row\.item_id \|\| 0\)\}:\$\{Number\(row\.spec_g \|\| 0\)\}`/)
+  assert.match(script, /return warehouseInventoryItemKey\(row\)/)
+  assert.match(script, /warehouseInventoryRowKey/)
+  assert.doesNotMatch(script, /mergeWarehouseInventoryBOMSpecOptions/)
+  assert.doesNotMatch(script, /\/api\/products\/.*bom-spec-options/)
+  assert.match(template, /inventorySpecLabel\(row\)/)
+  assert.match(template, /库存单位：\{\{ inventoryUnitLabel\(row\) \}\}/)
   assert.match(script, /objectKey:\s*'warehouse_inventory_item'/)
   assert.match(script, /const prefix = `\$\{selectedWarehouse\.value\}:`/)
 

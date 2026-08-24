@@ -1,11 +1,13 @@
 import { normalizeCapacityCostMethod } from './workstation-capacity-costing.js'
 
-export function producePlanKey(productId, specG) {
+export function producePlanKey(productId, specG, bomSpecID = 0) {
+  const normalizedBomSpecID = Number(bomSpecID || 0)
+  if (normalizedBomSpecID > 0) return `product:${Number(productId || 0)}:bom_spec:${normalizedBomSpecID}`
   return `${productId}-${specG}`
 }
 
 function defaultSelectionKey(row) {
-  return producePlanKey(row.product_id, row.spec_g)
+  return producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id)
 }
 
 export function insufficientSelectionState(rows, selected, keyForRow = defaultSelectionKey) {
@@ -79,7 +81,31 @@ export function productionDemandPanelEmptyText(status) {
 export function productionDemandSelectable(row) {
   if (String(row?.blocking_reason || '').trim()) return false
   if (row?.demand_selectable === false) return false
-  return Number(row?.gap_g || 0) > 0 && normalizedProductionDemandStatus(row?.demand_status) === 'unplanned'
+  return productionDemandGapQuantity(row) > 0 && normalizedProductionDemandStatus(row?.demand_status) === 'unplanned'
+}
+
+export function isBomSpecProductionDemand(row = {}) {
+  return Number(row?.bom_spec_id || row?.bomSpecID || 0) > 0
+}
+
+export function productionDemandGapQuantity(row = {}) {
+  if (isBomSpecProductionDemand(row)) return Math.max(0, Number(row?.gap_inventory_qty || 0))
+  return Math.max(0, Number(row?.gap_g || 0))
+}
+
+function productionDemandQuantity(value, unit) {
+  const amount = Math.max(0, Number(value || 0))
+  const formatted = Number.isInteger(amount) ? String(amount) : String(Number(amount.toFixed(6)))
+  return unit ? `${formatted} ${unit}` : formatted
+}
+
+export function productionDemandQuantityLabel(row = {}, kind = 'need') {
+  if (isBomSpecProductionDemand(row)) {
+    const fields = { need: 'need_inventory_qty', available: 'available_inventory_qty', gap: 'gap_inventory_qty' }
+    return productionDemandQuantity(row?.[fields[kind] || fields.need], String(row?.inventory_unit || row?.output_unit || '').trim())
+  }
+  const fields = { need: 'need_g', available: 'inv_g', gap: 'gap_g' }
+  return `${Math.max(0, Number(row?.[fields[kind] || fields.need] || 0))}g`
 }
 
 function productionDemandSelectionKeys(rows) {

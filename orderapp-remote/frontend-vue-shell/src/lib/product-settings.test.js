@@ -329,11 +329,11 @@ test('product SKU rows project the parent default_sku_id onto one concrete child
   assert.equal(rows.find((row) => row.sku_id === 102)?.is_default_sku, true)
 })
 
-test('product archive configuration exposes an audited default sales spec action', () => {
+test('product archive configuration drops the per-spec default SKU action', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  assert.match(source, /设为默认规格/)
+  assert.doesNotMatch(source, /设为默认规格/)
+  assert.doesNotMatch(source, /setDefaultProductSalesSpec/)
   assert.match(source, /默认规格/)
-  assert.match(source, /\/api\/product-settings\/products\/\$\{parentProductID\}\/default-sku/)
 })
 
 test('product archive rows keep sales-spec SKUs inside one parent product row', () => {
@@ -450,7 +450,7 @@ test('product archive page renders child SKUs inside the parent name cell instea
   assert.match(source, /productArchiveRowsWithSkus\(publicSkuRowsRaw\.value\)/)
   assert.match(template, /class="product-spec-skus"/)
   assert.match(template, /v-for="sku in row\.sku_rows"/)
-  assert.match(template, /\{\{ row\.sku_rows\.length \}\} 个规格 SKU/)
+  assert.match(template, /\{\{ row\.sku_rows\.length \}\} 个历史规格/)
 })
 
 test('customer product alias payload binds a customer-facing name to one product record', () => {
@@ -1591,6 +1591,60 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'bom_operation_snapshot')
 })
 
+test('price table BOM-spec trial payload uses the parent product identity', () => {
+  const payload = priceTablePricingRuleTrialPayload({
+    row_key: '1063:bom-spec:91:191:pricing-rule',
+    product_id: 91,
+    parent_product_id: 1063,
+    sku_id: 91,
+    bom_id: 18587,
+    bom_version_id: 4,
+    bom_spec_id: 91,
+    bom_variant_id: 191,
+    product_name: '初晓-商品',
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 40,
+    price_unit: '袋',
+    inventory_unit: 'kg',
+  }, { customerID: 0 })
+
+  assert.equal(payload.product_id, 1063)
+  assert.equal(payload.bom_id, 18587)
+  assert.equal(payload.bom_version_id, 4)
+  assert.equal(payload.bom_spec_id, 91)
+  assert.equal(payload.bom_variant_id, 191)
+})
+
+test('price table BOM-spec trial applies the parent-product result to the row', () => {
+  const got = applyPricingRuleTrialToPriceTableRow({
+    row_key: '1063:bom-spec:91:191:pricing-rule',
+    product_id: 91,
+    parent_product_id: 1063,
+    bom_spec_id: 91,
+    bom_variant_id: 191,
+    product_name: '初晓-商品',
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 40,
+    price_unit: '袋',
+    inventory_unit: 'kg',
+    inventory_conversion_json: {},
+    final_unit_price: 0,
+    original_final_unit_price: 0,
+    cost_source_snapshot: {},
+  }, {
+    pricing_rule_id: 40,
+    product_id: 1063,
+    bom_spec_id: 91,
+    bom_variant_id: 191,
+    quote_unit: '袋',
+    inventory_unit: 'kg',
+    final_unit_price: 54,
+  })
+
+  assert.equal(got.final_unit_price, 54)
+  assert.equal(got.original_final_unit_price, 54)
+})
+
 test('price table pricing-rule preview keeps a manually adjusted final price while refreshing its automatic baseline', () => {
   const got = applyPricingRuleTrialToPriceTableRow({
     product_id: 550,
@@ -1899,6 +1953,10 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(script, /async function updatePricingRuleFromTrial\(\)[\s\S]*window\.confirm[\s\S]*apiSend\(`\/api\/product-pricing-rules\/\$\{payload\.id\}`[\s\S]*method:\s*'PUT'/)
   assert.match(trialDrawer, /class="drawer-footer pricing-rule-trial-footer"[\s\S]*@click="updatePricingRuleFromTrial"[\s\S]*更新参数到价格计算模板/)
   assert.match(script, /watch\(\(\) => pricingRuleTrialAutoRunSignature\.value/)
+  assert.match(script, /const inventoryUnit = String\(option\.inventory_unit \|\| ''\)\.trim\(\)/)
+  assert.match(script, /pricingRuleTrialForm\.value\.quote_unit = inventoryUnit/)
+  assert.match(script, /resultVariantID[\s\S]{0,180}pricingRuleTrialResult\.value = null/)
+  assert.match(script, /watch\(\(\) => pricingRuleTrialForm\.value\.bom_version_id[\s\S]*availableVariants[\s\S]*pricingRuleTrialForm\.value\.bom_variant_id = 0/)
   assert.match(style, /\.pricing-rule-trial-drawer/)
   assert.match(style, /\.pricing-rule-trial-waterfall-card\.interactive/)
   assert.match(style, /\.pricing-rule-trial-explanation-panel/)
@@ -1915,6 +1973,39 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(source, /pricing-rule-trial-operator[\s\S]*\+/)
   assert.match(source, /pricing-rule-trial-operator[\s\S]*=/)
   assert.doesNotMatch(trialDrawer, /点击查看试算说明：BOM\+工序成本/)
+})
+
+test('material cost trial exposes manufacturing details, formulas, BOM selection and configuration navigation', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const trialDrawer = source.match(/<div v-if="pricingRuleTrialDrawerOpen"[\s\S]*?<div v-if="customerAliasCreateDrawerOpen"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const want of [
+    '物料成本试算',
+    '/api/costing/material-cost-trial-options',
+    '/api/costing/material-cost-trial',
+    '试算 BOM 版本',
+    '物料成本明细',
+    '标准工序成本明细',
+    '标准制造成本',
+    '成本来源',
+    '计算公式',
+    '公式步骤',
+    'base_cost_details',
+    'formula_expression_lines',
+    'navigateMaterialCostTrialBom',
+    '配置 BOM',
+  ]) {
+    assert.ok(source.includes(want), `missing material cost trial marker: ${want}`)
+  }
+  assert.match(trialDrawer, /v-model.number="pricingRuleTrialMaterialBomVersionID"[\s\S]*@click="navigateMaterialCostTrialBom"/)
+  assert.equal(trialDrawer.includes("pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'material')"), true)
+  assert.equal(trialDrawer.includes('pricingRuleTrialMaterialResult.formula_expression'), true)
+  assert.equal(trialDrawer.includes('pricingRuleTrialMaterialResult.formula_expression_lines'), true)
+  assert.equal(script.includes('function navigateMaterialCostTrialBom()'), true)
+  assert.equal(script.includes('production_bom_id: bomID'), true)
+  assert.equal(script.includes("key: 'productPriceManagement'"), true)
+  assert.equal(script.includes("label: '返回物料成本试算'"), true)
 })
 
 test('pricing rule trial product picker mirrors the order-entry type filter interaction', () => {
@@ -2710,7 +2801,7 @@ test('structured unit rule form builds customer rule override JSON while allowin
   assert.equal(unitRuleJSONFromForm({ integer_unit_mode: 'decimal' }), '{"integer_unit":false}')
 })
 
-test('legacy explicit product unit override payload carries inventory unit master data', () => {
+test('new product ignores legacy unit authority while existing product basics remain compatible', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: ' 盒装速溶 ',
     product_kind: 'instant_coffee',
@@ -2725,11 +2816,6 @@ test('legacy explicit product unit override payload carries inventory unit maste
     name: '盒装速溶',
     product_kind: 'instant_coffee',
     remark: '新品',
-    inventory_unit: '盒',
-    integer_inventory_unit: true,
-    default_sales_unit: '箱',
-    unit_conversion_json: { 箱: { 盒: 12 } },
-    sales_unit_rules: { 箱: { integer_unit: true } },
   })
 
   assert.deepEqual(buildProductBasicsPayload({
@@ -2756,7 +2842,7 @@ test('legacy explicit product unit override payload carries inventory unit maste
   })
 })
 
-test('product create and basics payload inherit inventory unit from sales spec template', () => {
+test('new product omits sales spec template while existing product basics keep legacy template compatibility', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: ' 模板咖啡豆 ',
     product_kind: 'roasted',
@@ -2770,7 +2856,6 @@ test('product create and basics payload inherit inventory unit from sales spec t
     name: '模板咖啡豆',
     product_kind: 'roasted',
     remark: '引用咖啡豆单位模板',
-    unit_template_id: 7,
   })
 
   assert.deepEqual(buildProductCreatePayload({
@@ -2788,12 +2873,6 @@ test('product create and basics payload inherit inventory unit from sales spec t
     name: '例外盒装',
     product_kind: 'roasted',
     remark: '覆盖模板',
-    unit_template_id: 7,
-    inventory_unit: '盒',
-    integer_inventory_unit: true,
-    default_sales_unit: '箱',
-    unit_conversion_json: { 箱: { 盒: 12 } },
-    sales_unit_rules: { 箱: { integer_unit: true } },
   })
 
   const inheritedPayload = buildProductBasicsPayload({
@@ -2901,28 +2980,24 @@ test('SKU config override payload carries template and unit rule overrides', () 
   })
 })
 
-test('product drawers require sales spec templates and read inventory unit from template', () => {
+test('new product drawer delegates specs to BOM while legacy config edits retain template compatibility', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
   const baseSection = configDrawer.match(/<strong>基础信息<\/strong>[\s\S]*?<\/section>/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  for (const marker of [
-    '销售规格模板',
-    'skuForm.unit_template_id',
-    '库存单位：来自销售规格模板',
-    '销售规格模板明细',
-  ]) {
-    assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  }
-  for (const marker of [
+  assert.match(createForm, /建档后[\s\S]*BOM[\s\S]*至少一个规格/)
+  assert.doesNotMatch(createForm, /skuForm\.unit_template_id/)
+  assert.doesNotMatch(createForm, /<span>销售规格模板<\/span>/)
+  assert.doesNotMatch(createForm, /销售规格模板明细/)
+  for (const removed of [
     '销售规格模板',
     'productProductionConfigForm.unit_template_id',
     '库存单位：来自销售规格模板',
     '销售规格模板明细',
   ]) {
-    assert.match(baseSection, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.doesNotMatch(baseSection, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `config base section must not contain ${removed}`)
   }
   for (const removed of [
     '不引用单位模板',
@@ -2945,72 +3020,58 @@ test('product drawers require sales spec templates and read inventory unit from 
     assert.doesNotMatch(createForm, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `create form should not contain ${removed}`)
     assert.doesNotMatch(baseSection, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `config base section should not contain ${removed}`)
   }
-  assert.match(script, /请选择销售规格模板/)
+  const createBlock = script.match(/async function createSku\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+  assert.doesNotMatch(createBlock, /请选择销售规格模板/)
 })
 
-test('product archive config drawer keeps sales spec details compact and hides history by default', () => {
+test('product archive config drawer shows BOM specs directly without per-spec SKU maintenance', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
-  assert.match(configDrawer, /销售规格模板明细/)
-  assert.match(configDrawer, /显示历史规格/)
-  assert.match(configDrawer, /历史 SKU 保留用于历史单据，不参与新建业务/)
-  assert.match(configDrawer, /productProductionVisibleSalesSpecRows/)
-  assert.match(configDrawer, /salesSpecConversionLabel\(row, productUnitTemplateInventoryUnit\(productProductionConfigForm\.unit_template_id\)\)/)
-  assert.match(configDrawer, /SKU 编号/)
-  assert.match(configDrawer, /derivedSkuCodeLabel\(row\)/)
-  assert.doesNotMatch(configDrawer, /销售规格 \/ SKU/)
-  assert.doesNotMatch(configDrawer, /商品档案维护商品族/)
-  assert.doesNotMatch(configDrawer, /class="drawer-section child-sku-section"/)
-  assert.doesNotMatch(configDrawer, /<small>销售规格：\{\{/)
-  assert.doesNotMatch(configDrawer, /继承父 SKU/)
-  assert.doesNotMatch(configDrawer, />父 SKU</)
-  assert.match(configDrawer, /derived_spec_status/)
-  assert.doesNotMatch(configDrawer, /childSkuForm\.sku_name/)
-  assert.doesNotMatch(configDrawer, /createChildSkuForProduct/)
-  assert.doesNotMatch(configDrawer, /class="child-sku-form"/)
+  assert.match(configDrawer, /BOM 规格（只读）/)
+  assert.match(configDrawer, /bom-spec-readonly-panel/)
+  assert.match(configDrawer, /到 BOM 维护规格/)
+  assert.match(configDrawer, /productProductionBomSpecs/)
+  assert.doesNotMatch(configDrawer, /销售规格模板明细/)
+  assert.doesNotMatch(configDrawer, /显示历史规格/)
+  assert.doesNotMatch(configDrawer, /SKU 编号/)
+  assert.doesNotMatch(configDrawer, /derivedSkuCodeLabel\(row\)/)
+  assert.doesNotMatch(configDrawer, /设为默认规格/)
+  assert.doesNotMatch(configDrawer, /setDefaultProductSalesSpec/)
+  assert.doesNotMatch(configDrawer, /v-if="productProductionConfigUsesBomSpecs" class="sales-spec-template-detail bom-spec-readonly-panel"/)
+  assert.match(source, /尚未绑定默认制造 BOM|暂无可用规格/)
 })
 
-test('product archive derived SKU rows reuse template net content for conversion labels', () => {
+test('product archive drops per-spec SKU row maintenance from the config drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const derivedRowsBlock = source.match(/const productProductionDerivedSkuRows = computed\([\s\S]*?const skuFormSalesSpecRows/)?.[0] || ''
 
-  assert.match(derivedRowsBlock, /productUnitTemplateSalesSpecRows\(productProductionConfigForm\.value\.unit_template_id\)/)
-  assert.match(derivedRowsBlock, /net_content_qty:\s*row\.net_content_qty \|\| spec\.net_content_qty/)
-  assert.match(derivedRowsBlock, /net_content_unit:\s*row\.net_content_unit \|\| spec\.net_content_unit/)
-  assert.match(derivedRowsBlock, /sales_unit:\s*row\.derived_sales_unit \|\| spec\.sales_unit/)
-  assert.match(derivedRowsBlock, /productProductionRemovedSkuRows/)
-  assert.match(derivedRowsBlock, /template_removed/)
-  assert.match(source, /showProductProductionHistoricalSpecs/)
+  for (const retired of ['productProductionDerivedSkuRows', 'productProductionSalesSpecRows', 'productProductionVisibleSalesSpecRows', 'showProductProductionHistoricalSpecs', 'setDefaultProductSalesSpec', 'createChildSkuForProduct', 'childSkuForm']) {
+    assert.ok(!source.includes(retired), `config drawer must not keep retired SKU helper ${retired}`)
+  }
 })
 
-test('sales spec template controls are required in product drawers', () => {
+test('sales spec template controls remain only for legacy product configuration', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
-  const productListToolbar = source.match(/<div class="sku-list-actions"[\s\S]*?<\/div>/)?.[0] || source
+  const productListToolbar = source.match(/<div class="filter-actions sku-list-actions"[\s\S]*?<\/div>/)?.[0] || ''
 
-  for (const marker of [
-    '销售规格模板',
-    'skuForm.unit_template_id',
-    '库存单位：来自销售规格模板',
-  ]) {
-    assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  }
+  assert.doesNotMatch(createForm, /skuForm\.unit_template_id/)
+  assert.doesNotMatch(createForm, /<span>销售规格模板<\/span>/)
+  assert.match(createForm, /商品档案不再维护销售规格模板或派生子 SKU/)
 
-  for (const marker of [
+  for (const removed of [
     '销售规格模板',
     'productProductionConfigForm.unit_template_id',
     '库存单位：来自销售规格模板',
   ]) {
-    assert.match(configDrawer, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.doesNotMatch(configDrawer, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `config drawer must not contain ${removed}`)
   }
 
-  assert.match(productListToolbar, /设置销售规格模板/)
-  assert.match(productListToolbar, /维护销售规格模板/)
-  assert.match(productListToolbar, /openProductUnitTemplateManagement/)
-  assert.match(source, /key: 'productUnitTemplates'/)
-  assert.match(source, /label: '返回商品档案'/)
+  assert.doesNotMatch(productListToolbar, /设置销售规格模板/)
+  assert.doesNotMatch(productListToolbar, /维护销售规格模板/)
+  assert.doesNotMatch(productListToolbar, /openProductUnitTemplateManagement/)
+  assert.doesNotMatch(productListToolbar, /batchProductUnitTemplateID/)
 })
 
 test('customer product rule payloads carry template items, overrides, and bindings', () => {
@@ -3914,7 +3975,7 @@ test('product config template page no longer contains product category managemen
   const configPageBlock = template.match(/productConfigTemplates[\s\S]*?<\/section>/)?.[0] || template
 
   assert.match(source, /商品配置模板/)
-  assert.match(configPageBlock, /销售规格模板/)
+  assert.doesNotMatch(configPageBlock, /productConfigTemplateForm\.unit_template_id/)
   assert.match(configPageBlock, /价格表生成规则/)
   assert.match(configPageBlock, /productConfigTemplateNeedsGradientTemplate\(productConfigTemplateForm\)[\s\S]*阶梯价模板/)
   assert.doesNotMatch(configPageBlock, /<label>\s*<span>阶梯价模板<\/span>\s*<select v-model\.number="productConfigTemplateForm\.gradient_template_id"/)
@@ -4027,7 +4088,8 @@ test('SKU creation uses one unified product archive form without legacy classifi
   const productDrawer = source.match(/<aside class="settings-drawer product-editor-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
   assert.match(source, /@submit\.prevent="createSku"/)
-  assert.match(script, /apiSend\('\/api\/product-settings\/skus'/)
+  assert.match(script, /apiSend\('\/api\/product-settings\/products'/)
+  assert.doesNotMatch(script, /\/api\/product-settings\/skus/)
   assert.doesNotMatch(productDrawer, /产品类别/)
   assert.doesNotMatch(productDrawer, /产品子类型/)
   assert.doesNotMatch(productDrawer, /productTypeCategoryOptions/)
@@ -4088,8 +4150,6 @@ test('SKU settings exposes product subtype default unit configuration controls',
     'saveProductConfigTemplate',
     'deriveProductConfigTemplateForCustomer',
     '/api/product-settings/product-config-templates',
-    '销售规格模板',
-    'productConfigTemplateForm.unit_template_id',
     'productUnitTemplateSummary',
     'buildProductConfigTemplatePayload',
   ]) {
@@ -4131,9 +4191,7 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
 
   for (const expected of [
     '商品配置',
-    '销售规格模板会影响商品价格表规格行',
-    '录单默认销售规格和后续派生子 SKU',
-    '已发布价格表和历史订单不会被回改',
+    '配置模板不再单独引用规格模板',
     'unit-impact-help',
     'repeat(auto-fit, minmax',
     'min-width: 0',
@@ -4207,9 +4265,35 @@ test('new product archive creation opens the created product config drawer with 
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const createSkuBlock = script.match(/async function createSku\(\) \{[\s\S]*?\n\}/)?.[0] || ''
 
-  assert.match(createSkuBlock, /const result = await apiSend\('\/api\/product-settings\/skus'/)
+  assert.match(createSkuBlock, /const result = await apiSend\('\/api\/product-settings\/products'/)
+  assert.match(createSkuBlock, /buildProductCreatePayload\(skuForm\.value\)/)
+  assert.doesNotMatch(createSkuBlock, /请选择销售规格模板/)
   assert.match(createSkuBlock, /await loadAll\(\)[\s\S]*resolveCreatedProductForConfig\(result/)
   assert.match(createSkuBlock, /await openProductProductionConfig\(createdProductForConfig\)/)
+})
+
+test('new product archive delegates all specification authority to BOM', () => {
+  assert.deepEqual(buildProductCreatePayload({
+    name: ' BOM 规格新品 ',
+    product_kind: 'roasted',
+    remark: ' 建档后配 BOM ',
+    unit_template_id: 77,
+    unit_rule_override_enabled: true,
+    inventory_unit: '袋',
+    integer_inventory_unit: true,
+    default_sales_unit: '箱',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '箱', to_qty: 12, to_unit: '袋' }],
+  }), {
+    name: 'BOM 规格新品',
+    product_kind: 'roasted',
+    remark: '建档后配 BOM',
+  })
+
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
+  assert.doesNotMatch(createForm, /<span>销售规格模板<\/span>/)
+  assert.doesNotMatch(createForm, /skuForm\.unit_template_id/)
+  assert.match(createForm, /建档后[\s\S]*BOM[\s\S]*至少一个规格/)
 })
 
 test('product production config form tolerates newly created products without production config rows', () => {
@@ -4706,7 +4790,6 @@ test('SKU settings separates global unit templates into a peer configuration tab
     'productUnitDefinitions',
     'productUnitTemplates',
     'saveProductUnitTemplate',
-    'productConfigTemplateForm.unit_template_id',
     '这里维护库存单位和销售规格换算',
     '/api/product-settings/unit-templates',
   ]) {

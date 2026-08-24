@@ -73,6 +73,38 @@ func TestListCustomerCentralInventoryFiltersPaginatesAndPreservesLegacyAll(t *te
 	}
 }
 
+func TestListCustomerCentralInventoryBatchesPreservesCanonicalTraceVariantAndLegacyIdentity(t *testing.T) {
+	repo := &miniDirectShipApplicationRepositoryStub{fakeCustomerFulfillmentRepository: &fakeCustomerFulfillmentRepository{}}
+	svc := NewService(repo)
+
+	canonical := CustomerInventoryBatchQuery{CustomerID: 9, ProductID: 550, BomSpecID: 91, BomVariantID: 191}
+	rows, err := svc.ListCustomerCentralInventoryBatches(context.Background(), canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.batchQuery != canonical || len(rows) != 1 || rows[0].BomSpecID != 91 || rows[0].BomVariantID != 191 || rows[0].SpecG != 0 {
+		t.Fatalf("canonical query=%#v rows=%#v", repo.batchQuery, rows)
+	}
+
+	legacy := CustomerInventoryBatchQuery{CustomerID: 9, ProductID: 551, SpecG: 227}
+	if _, err := svc.ListCustomerCentralInventoryBatches(context.Background(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	if repo.batchQuery != legacy {
+		t.Fatalf("legacy query=%#v", repo.batchQuery)
+	}
+
+	for _, invalid := range []CustomerInventoryBatchQuery{
+		{CustomerID: 9, ProductID: 550},
+		{CustomerID: 9, ProductID: 550, BomVariantID: 191},
+		{CustomerID: 9, ProductID: 550, BomSpecID: 91, SpecG: 227},
+	} {
+		if _, err := svc.ListCustomerCentralInventoryBatches(context.Background(), invalid); err == nil {
+			t.Fatalf("invalid batch identity accepted: %#v", invalid)
+		}
+	}
+}
+
 func TestNormalizeMiniDirectShipListQueryRejectsInvalidShipmentDates(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -108,6 +140,35 @@ func TestNormalizeMiniDirectShipItemsMergesSameSKUAndSpec(t *testing.T) {
 	}
 }
 
+func TestNormalizeMiniDirectShipItemsUsesParentAndBOMSpecIdentityOneToOne(t *testing.T) {
+	got, err := normalizeMiniDirectShipItems([]MiniDirectShipItemCommand{
+		{ProductID: 91, BomSpecID: 801, BomVariantID: 901, InventoryUnit: "袋", Qty: 2},
+		{ProductID: 91, BomSpecID: 801, BomVariantID: 901, InventoryUnit: "袋", Qty: 3},
+		{ProductID: 91, BomSpecID: 802, BomVariantID: 902, InventoryUnit: "盒", Qty: 1},
+	})
+	if err != nil {
+		t.Fatalf("normalize canonical items: %v", err)
+	}
+	if len(got) != 2 || got[0].Qty != 5 || got[0].SpecG != 0 || got[0].BomSpecID != 801 || got[0].BomVariantID != 901 || got[0].InventoryUnit != "袋" {
+		t.Fatalf("canonical normalized items=%#v", got)
+	}
+}
+
+func TestNormalizeMiniDirectShipItemsAllowsServerResolvedVariantAndRejectsInvalidIdentity(t *testing.T) {
+	got, err := normalizeMiniDirectShipItems([]MiniDirectShipItemCommand{{ProductID: 91, BomSpecID: 801, Qty: 1}})
+	if err != nil || len(got) != 1 || got[0].BomSpecID != 801 || got[0].BomVariantID != 0 {
+		t.Fatalf("server-resolved identity=%#v err=%v", got, err)
+	}
+	for _, item := range []MiniDirectShipItemCommand{
+		{ProductID: 91, BomVariantID: 901, Qty: 1},
+		{ProductID: 91, BomSpecID: 801, BomVariantID: 901, SpecG: 227, InventoryUnit: "袋", Qty: 1},
+	} {
+		if _, err := normalizeMiniDirectShipItems([]MiniDirectShipItemCommand{item}); err == nil {
+			t.Fatalf("partial/mixed identity unexpectedly accepted: %#v", item)
+		}
+	}
+}
+
 func TestNormalizeMiniDirectShipItemsRejectsInvalidConcreteSKU(t *testing.T) {
 	for _, items := range [][]MiniDirectShipItemCommand{
 		nil,
@@ -125,6 +186,7 @@ type miniDirectShipApplicationRepositoryStub struct {
 	*fakeCustomerFulfillmentRepository
 	inventoryRows       []CustomerInventorySummary
 	inventoryCustomerID int64
+	batchQuery          CustomerInventoryBatchQuery
 }
 
 func (r *miniDirectShipApplicationRepositoryStub) MiniDirectShipCatalog(context.Context, MiniDirectShipCatalogQuery) (MiniDirectShipCatalog, error) {
@@ -156,6 +218,7 @@ func (r *miniDirectShipApplicationRepositoryStub) ListCustomerCentralInventory(_
 	return append([]CustomerInventorySummary(nil), r.inventoryRows...), nil
 }
 
-func (r *miniDirectShipApplicationRepositoryStub) ListCustomerCentralInventoryBatches(context.Context, int64, int64, int64) ([]CustomerInventoryBatch, error) {
-	return nil, nil
+func (r *miniDirectShipApplicationRepositoryStub) ListCustomerCentralInventoryBatches(_ context.Context, query CustomerInventoryBatchQuery) ([]CustomerInventoryBatch, error) {
+	r.batchQuery = query
+	return []CustomerInventoryBatch{{ProductID: query.ProductID, BomSpecID: query.BomSpecID, BomVariantID: query.BomVariantID, SpecG: query.SpecG}}, nil
 }

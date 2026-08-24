@@ -27,6 +27,12 @@ type miniDirectShipQuerier interface {
 
 type miniFinishedInventoryRow struct {
 	ProductID       int64
+	BomSpecID       int64
+	BomVariantID    int64
+	BomSpecKey      string
+	BomSpecName     string
+	InventoryUnit   string
+	IsDefaultSpec   bool
 	ProductName     string
 	ParentProductID int64
 	SKUCode         string
@@ -43,6 +49,11 @@ type miniFinishedBatchRow struct {
 	BatchID       int64
 	BatchCode     string
 	ProductID     int64
+	BomSpecID     int64
+	BomVariantID  int64
+	BomSpecKey    string
+	BomSpecName   string
+	InventoryUnit string
 	ProductName   string
 	SKUCode       string
 	SpecG         int64
@@ -60,6 +71,8 @@ type miniFinishedBatchRow struct {
 
 type miniStockCandidate struct {
 	ProductID    int64
+	BomSpecID    int64
+	BomVariantID int64
 	SpecG        int64
 	Warehouse    string
 	BatchID      int64
@@ -76,12 +89,14 @@ type miniStockSnapshot struct {
 }
 
 type miniPlannedAllocation struct {
-	ProductID int64
-	SpecG     int64
-	Warehouse string
-	BatchID   int64
-	BatchCode string
-	Qty       int64
+	ProductID    int64
+	BomSpecID    int64
+	BomVariantID int64
+	SpecG        int64
+	Warehouse    string
+	BatchID      int64
+	BatchCode    string
+	Qty          int64
 }
 
 func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDirectShipCatalogQuery) (app.MiniDirectShipCatalog, error) {
@@ -197,6 +212,7 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 		}
 		searchText := strings.ToLower(strings.Join([]string{
 			displayName, row.ParentName, row.ProductName, row.SKUName, row.SKUCode, row.CustomerCode,
+			inventory.BomSpecName, inventory.BomSpecKey, inventory.SKUCode,
 			catalogdomain.SearchPinyin(displayName + " " + row.SKUName),
 			catalogdomain.SearchInitials(displayName + " " + row.SKUName),
 		}, " "))
@@ -224,28 +240,48 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 		}
 		netQty := row.NetContentQty
 		netUnit := strings.TrimSpace(row.NetContentUnit)
-		if netQty <= 0 {
+		if inventory.BomSpecID > 0 {
+			netQty = 1
+			netUnit = inventory.InventoryUnit
+		} else if netQty <= 0 {
 			netQty = float64(inventory.SpecG)
 			netUnit = "g"
 		}
 		specLabel := strings.TrimSpace(row.SpecLabel)
-		if specLabel == "" {
+		if inventory.BomSpecID > 0 {
+			specLabel = inventory.BomSpecName
+		} else if specLabel == "" {
 			specLabel = fmt.Sprintf("%dg", inventory.SpecG)
 		}
+		skuCode := row.SKUCode
+		skuName := row.SKUName
+		if inventory.BomSpecID > 0 {
+			skuCode = inventory.SKUCode
+			skuName = strings.TrimSpace(row.ParentName + " " + inventory.BomSpecName)
+		}
 		state.specs = append(state.specs, map[string]any{
-			"product_id":       row.ProductID,
-			"sku_id":           row.ProductID,
-			"sku_code":         row.SKUCode,
-			"sku_name":         row.SKUName,
-			"py":               catalogdomain.SearchPinyin(row.SKUName + " " + specLabel),
-			"pyi":              catalogdomain.SearchInitials(row.SKUName + " " + specLabel),
+			"product_id":       inventory.ProductID,
+			"sku_id":           inventory.ProductID,
+			"bom_spec_id":      inventory.BomSpecID,
+			"bom_variant_id":   inventory.BomVariantID,
+			"bom_spec_key":     inventory.BomSpecKey,
+			"inventory_unit":   inventory.InventoryUnit,
+			"sku_code":         skuCode,
+			"sku_name":         skuName,
+			"py":               catalogdomain.SearchPinyin(skuName + " " + specLabel),
+			"pyi":              catalogdomain.SearchInitials(skuName + " " + specLabel),
 			"spec_label":       specLabel,
 			"net_content_qty":  netQty,
 			"net_content_unit": netUnit,
-			"is_default_sku":   row.DefaultSKU,
+			"is_default_sku":   row.DefaultSKU || inventory.IsDefaultSpec,
 			"product_kind":     row.ProductKind,
-			"sales_unit":       "bag",
-			"available_qty":    inventory.AvailableQty,
+			"sales_unit": func() string {
+				if inventory.BomSpecID > 0 {
+					return inventory.InventoryUnit
+				}
+				return "bag"
+			}(),
+			"available_qty": inventory.AvailableQty,
 		})
 	}
 	outFamilies := make([]map[string]any, 0, len(families))
@@ -261,6 +297,11 @@ func (r *Repository) MiniDirectShipCatalog(ctx context.Context, query app.MiniDi
 }
 
 func (r *Repository) PreviewMiniDirectShip(ctx context.Context, cmd app.MiniDirectShipCommand) (app.MiniDirectShipPreview, error) {
+	items, err := r.resolveMiniDirectShipItems(ctx, r.pool, cmd.Items)
+	if err != nil {
+		return app.MiniDirectShipPreview{}, err
+	}
+	cmd.Items = items
 	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, cmd.CustomerID, false)
 	if err != nil {
 		return app.MiniDirectShipPreview{}, err
@@ -274,8 +315,9 @@ func (r *Repository) PreviewMiniDirectShip(ctx context.Context, cmd app.MiniDire
 	for warehouseIndex := range preview.Warehouses {
 		for itemIndex := range preview.Warehouses[warehouseIndex].Items {
 			item := &preview.Warehouses[warehouseIndex].Items[itemIndex]
-			product := products[item.ProductID]
+			product := products[miniStockKey(item.ProductID, item.BomSpecID, item.SpecG)]
 			item.ProductName, item.SKUCode, item.SpecLabel = product.ProductName, product.SKUCode, product.SpecLabel
+			item.BomSpecKey, item.InventoryUnit = product.BomSpecKey, product.InventoryUnit
 		}
 	}
 	return preview, nil
@@ -295,12 +337,12 @@ func miniDirectShipPreview(allocations []miniPlannedAllocation, shortages []app.
 			byWarehouse[allocation.Warehouse] = state
 			states = append(states, state)
 		}
-		key := miniStockKey(allocation.ProductID, allocation.SpecG)
+		key := miniStockKey(allocation.ProductID, allocation.BomSpecID, allocation.SpecG)
 		if idx, ok := state.byKey[key]; ok {
 			state.row.Items[idx].Qty += allocation.Qty
 		} else {
 			state.byKey[key] = len(state.row.Items)
-			state.row.Items = append(state.row.Items, app.MiniDirectShipItemCommand{ProductID: allocation.ProductID, SpecG: allocation.SpecG, Qty: allocation.Qty})
+			state.row.Items = append(state.row.Items, app.MiniDirectShipItemCommand{ProductID: allocation.ProductID, BomSpecID: allocation.BomSpecID, BomVariantID: allocation.BomVariantID, SpecG: allocation.SpecG, Qty: allocation.Qty})
 		}
 	}
 	warehouses := make([]app.MiniDirectShipPreviewWarehouse, 0, len(states))
@@ -319,7 +361,7 @@ func planMiniDirectShipAllocations(items []app.MiniDirectShipItemCommand, candid
 		availableBefore := int64(0)
 		for idx := range available {
 			candidate := &available[idx]
-			if candidate.ProductID != item.ProductID || candidate.SpecG != item.SpecG || candidate.AvailableQty <= 0 {
+			if candidate.ProductID != item.ProductID || candidate.BomSpecID != item.BomSpecID || candidate.SpecG != item.SpecG || candidate.AvailableQty <= 0 {
 				continue
 			}
 			availableBefore += candidate.AvailableQty
@@ -331,14 +373,14 @@ func planMiniDirectShipAllocations(items []app.MiniDirectShipItemCommand, candid
 				take = remaining
 			}
 			allocations = append(allocations, miniPlannedAllocation{
-				ProductID: item.ProductID, SpecG: item.SpecG, Warehouse: candidate.Warehouse,
+				ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, SpecG: item.SpecG, Warehouse: candidate.Warehouse,
 				BatchID: candidate.BatchID, BatchCode: candidate.BatchCode, Qty: take,
 			})
 			candidate.AvailableQty -= take
 			remaining -= take
 		}
 		if remaining > 0 {
-			shortages = append(shortages, app.MiniDirectShipShortage{ProductID: item.ProductID, SpecG: item.SpecG, Qty: item.Qty, AvailableQty: availableBefore})
+			shortages = append(shortages, app.MiniDirectShipShortage{ProductID: item.ProductID, BomSpecID: item.BomSpecID, BomVariantID: item.BomVariantID, SpecG: item.SpecG, Qty: item.Qty, AvailableQty: availableBefore})
 		}
 	}
 	return allocations, shortages
@@ -353,17 +395,25 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		lockClause = " FOR UPDATE OF fi"
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT fi.product_id, COALESCE(NULLIF(p.sku_name,''), NULLIF(p.name,''), ''),
+		SELECT fi.product_id,COALESCE(fi.bom_spec_id,0),COALESCE(fi.bom_variant_id,0),
+		       CASE WHEN COALESCE(fi.bom_spec_id,0)>0
+		         THEN btrim(COALESCE(NULLIF(p.name,''),'') || ' ' || COALESCE(NULLIF(variant.spec_name_snapshot,''),NULLIF(spec.name,''),''))
+		         ELSE COALESCE(NULLIF(p.sku_name,''), NULLIF(p.name,''), '') END,
 		       COALESCE(NULLIF(p.parent_product_id,0), NULLIF(p.base_product_id,0), p.id, 0),
-		       COALESCE(p.sku_code,''), fi.spec_g, fi.warehouse, COALESCE(w.name,fi.warehouse),
+		       CASE WHEN COALESCE(fi.bom_spec_id,0)>0 THEN COALESCE(spec.code,'') ELSE COALESCE(p.sku_code,'') END,
+		       COALESCE(spec.spec_key,''),COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),COALESCE(variant.is_default,false),
+		       fi.spec_g, fi.warehouse, COALESCE(w.name,fi.warehouse),
 		       GREATEST(COALESCE(fi.onhand_units,0),0), GREATEST(COALESCE(fi.onhand_loose_g,0),0), fi.updated_at
 		FROM %s.finished_inventory fi
 		JOIN %s.warehouses w ON w.code=fi.warehouse AND w.active=true
 		  AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
 		LEFT JOIN %s.products p ON p.id=fi.product_id
+		LEFT JOIN %s.production_bom_specs spec ON spec.id=fi.bom_spec_id
+		LEFT JOIN %s.production_bom_version_variants variant ON variant.id=fi.bom_variant_id AND variant.bom_spec_id=fi.bom_spec_id
 		WHERE COALESCE(fi.onhand_units,0)>0 OR COALESCE(fi.onhand_loose_g,0)>0
 		ORDER BY fi.product_id, fi.spec_g, w.sort_order, fi.warehouse%s
-	`, r.schema, r.schema, r.schema, lockClause), customerID)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause), customerID)
 	if err != nil {
 		return miniStockSnapshot{}, err
 	}
@@ -371,12 +421,12 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 	for rows.Next() {
 		var row miniFinishedInventoryRow
 		var units, looseG int64
-		if err := rows.Scan(&row.ProductID, &row.ProductName, &row.ParentProductID, &row.SKUCode, &row.SpecG, &row.Warehouse, &row.WarehouseName, &units, &looseG, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.ProductName, &row.ParentProductID, &row.SKUCode, &row.BomSpecKey, &row.BomSpecName, &row.InventoryUnit, &row.IsDefaultSpec, &row.SpecG, &row.Warehouse, &row.WarehouseName, &units, &looseG, &row.UpdatedAt); err != nil {
 			rows.Close()
 			return miniStockSnapshot{}, err
 		}
 		row.TotalQty = units
-		if row.SpecG > 0 {
+		if row.BomSpecID <= 0 && row.SpecG > 0 {
 			row.TotalQty += looseG / row.SpecG
 		}
 		inventory = append(inventory, row)
@@ -386,6 +436,39 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		return miniStockSnapshot{}, err
 	}
 	rows.Close()
+	for idx := range inventory {
+		if inventory[idx].BomSpecID <= 0 {
+			continue
+		}
+		var migrationState string
+		stateErr := q.QueryRow(ctx, fmt.Sprintf(`SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1`, r.schema), inventory[idx].ProductID).Scan(&migrationState)
+		if errors.Is(stateErr, pgx.ErrNoRows) {
+			continue
+		}
+		if stateErr != nil {
+			return miniStockSnapshot{}, stateErr
+		}
+		if strings.TrimSpace(migrationState) != "cutover" {
+			continue
+		}
+		identity, identityErr := resolveCustomerFulfillmentBOMSpecIdentityTx(
+			ctx, q, r.schema, inventory[idx].ProductID, inventory[idx].BomSpecID, 0,
+		)
+		if identityErr != nil {
+			return miniStockSnapshot{}, identityErr
+		}
+		if identity.BomSpecID <= 0 {
+			continue
+		}
+		inventory[idx].ProductID = identity.ProductID
+		inventory[idx].ParentProductID = identity.ProductID
+		inventory[idx].BomVariantID = identity.BomVariantID
+		inventory[idx].ProductName = strings.TrimSpace(identity.ProductName + " " + identity.BomSpecName)
+		inventory[idx].SKUCode = identity.SpecCode
+		inventory[idx].BomSpecKey = identity.BomSpecKey
+		inventory[idx].BomSpecName = identity.BomSpecName
+		inventory[idx].InventoryUnit = identity.InventoryUnit
+	}
 	if len(inventory) == 0 {
 		return miniStockSnapshot{Inventory: []miniFinishedInventoryRow{}, Batches: []miniFinishedBatchRow{}, Candidates: []miniStockCandidate{}}, nil
 	}
@@ -395,7 +478,7 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 		return miniStockSnapshot{}, err
 	}
 	for idx := range inventory {
-		inventory[idx].ReservedQty = allReservations[miniWarehouseStockKey(inventory[idx].ProductID, inventory[idx].SpecG, inventory[idx].Warehouse)]
+		inventory[idx].ReservedQty = allReservations[miniWarehouseStockKey(inventory[idx].ProductID, inventory[idx].BomSpecID, inventory[idx].SpecG, inventory[idx].Warehouse)]
 	}
 
 	batches, err := r.loadMiniFinishedBatches(ctx, q, customerID, batchReservations, lock)
@@ -404,7 +487,7 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 	}
 	remainingByWarehouse := map[string]int64{}
 	for _, batch := range batches {
-		key := miniWarehouseStockKey(batch.ProductID, batch.SpecG, batch.Warehouse)
+		key := miniWarehouseStockKey(batch.ProductID, batch.BomSpecID, batch.SpecG, batch.Warehouse)
 		remainingByWarehouse[key] += batch.PhysicalQty
 	}
 	historicalUnsyncedG, err := r.loadMiniHistoricalUnsyncedTraceableDeductions(ctx, q, customerID)
@@ -417,9 +500,9 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 	// current traceable batches is genuine legacy inventory.
 	effectiveInventory := inventory[:0]
 	for idx := range inventory {
-		key := miniWarehouseStockKey(inventory[idx].ProductID, inventory[idx].SpecG, inventory[idx].Warehouse)
+		key := miniWarehouseStockKey(inventory[idx].ProductID, inventory[idx].BomSpecID, inventory[idx].SpecG, inventory[idx].Warehouse)
 		historicalUnsyncedQty := int64(0)
-		if inventory[idx].SpecG > 0 {
+		if inventory[idx].BomSpecID <= 0 && inventory[idx].SpecG > 0 {
 			historicalUnsyncedQty = historicalUnsyncedG[key] / inventory[idx].SpecG
 		}
 		legacyPhysical := inventory[idx].TotalQty - remainingByWarehouse[key] - historicalUnsyncedQty
@@ -446,19 +529,19 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 			continue
 		}
 		candidates = append(candidates, miniStockCandidate{
-			ProductID: batch.ProductID, SpecG: batch.SpecG, Warehouse: batch.Warehouse,
+			ProductID: batch.ProductID, BomSpecID: batch.BomSpecID, BomVariantID: batch.BomVariantID, SpecG: batch.SpecG, Warehouse: batch.Warehouse,
 			BatchID: batch.BatchID, BatchCode: batch.BatchCode, AvailableQty: available, CreatedAt: batch.CreatedAt,
 		})
 	}
 	for _, row := range inventory {
-		key := miniWarehouseStockKey(row.ProductID, row.SpecG, row.Warehouse)
+		key := miniWarehouseStockKey(row.ProductID, row.BomSpecID, row.SpecG, row.Warehouse)
 		legacyAvailable := row.LegacyQty - legacyReservations[key]
 		if legacyAvailable <= 0 {
 			continue
 		}
 		candidates = append(candidates, miniStockCandidate{
-			ProductID: row.ProductID, SpecG: row.SpecG, Warehouse: row.Warehouse,
-			BatchCode: miniLegacyBatchCode(row.Warehouse, row.ProductID, row.SpecG), AvailableQty: legacyAvailable,
+			ProductID: row.ProductID, BomSpecID: row.BomSpecID, BomVariantID: row.BomVariantID, SpecG: row.SpecG, Warehouse: row.Warehouse,
+			BatchCode: miniLegacyBatchCode(row.Warehouse, row.ProductID, row.BomSpecID, row.SpecG), AvailableQty: legacyAvailable,
 			CreatedAt: row.UpdatedAt, Legacy: true,
 		})
 	}
@@ -476,7 +559,7 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 	})
 	capacity := make(map[string]int64, len(inventory))
 	for _, row := range inventory {
-		key := miniWarehouseStockKey(row.ProductID, row.SpecG, row.Warehouse)
+		key := miniWarehouseStockKey(row.ProductID, row.BomSpecID, row.SpecG, row.Warehouse)
 		capacity[key] = row.TotalQty - row.ReservedQty
 		if capacity[key] < 0 {
 			capacity[key] = 0
@@ -484,7 +567,7 @@ func (r *Repository) loadMiniCustomerFinishedStock(ctx context.Context, q miniDi
 	}
 	capped := candidates[:0]
 	for _, candidate := range candidates {
-		key := miniWarehouseStockKey(candidate.ProductID, candidate.SpecG, candidate.Warehouse)
+		key := miniWarehouseStockKey(candidate.ProductID, candidate.BomSpecID, candidate.SpecG, candidate.Warehouse)
 		if capacity[key] <= 0 {
 			continue
 		}
@@ -508,7 +591,7 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 	hasDeductions := relationExists(ctx, q, fmt.Sprintf("%s.order_stock_deductions", r.schema))
 	if hasDeductions {
 		rows, err := q.Query(ctx, fmt.Sprintf(`
-			SELECT d.product_id,d.spec_g,
+			SELECT d.product_id,COALESCE(d.bom_spec_id,0),d.spec_g,
 			       COALESCE(NULLIF(o.source_warehouse,''),'finished_goods') AS warehouse,
 			       SUM(d.deducted_g)::bigint
 			FROM %s.order_stock_deductions d
@@ -518,19 +601,19 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 			  AND w.customer_id=$1
 			WHERE d.batch_id>0 AND d.deducted_g>0
 			  AND COALESCE(d.source_doc_type,'')<>$2
-			GROUP BY d.product_id,d.spec_g,COALESCE(NULLIF(o.source_warehouse,''),'finished_goods')
+			GROUP BY d.product_id,COALESCE(d.bom_spec_id,0),d.spec_g,COALESCE(NULLIF(o.source_warehouse,''),'finished_goods')
 		`, r.schema, r.schema, r.schema), customerID, inventorydomain.TraceableShipmentAggregateSyncSource)
 		if err != nil {
 			return nil, err
 		}
 		for rows.Next() {
-			var productID, specG, deductedG int64
+			var productID, bomSpecID, specG, deductedG int64
 			var warehouse string
-			if err := rows.Scan(&productID, &specG, &warehouse, &deductedG); err != nil {
+			if err := rows.Scan(&productID, &bomSpecID, &specG, &warehouse, &deductedG); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			out[miniWarehouseStockKey(productID, specG, warehouse)] += deductedG
+			out[miniWarehouseStockKey(productID, bomSpecID, specG, warehouse)] += deductedG
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
@@ -548,36 +631,36 @@ func (r *Repository) loadMiniHistoricalUnsyncedTraceableDeductions(ctx context.C
 			AND NOT EXISTS (
 				SELECT 1 FROM %s.order_stock_deductions d
 				WHERE d.order_id=l.source_doc_id
-				  AND d.product_id=l.item_id AND d.spec_g=l.spec_g
+				  AND d.product_id=l.item_id AND d.bom_spec_id=l.bom_spec_id AND d.spec_g=l.spec_g
 				  AND d.batch_id=b.id AND d.batch_code=l.source_batch_code
 			)`, r.schema)
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT l.item_id,l.spec_g,l.warehouse,SUM(-l.qty_change_g)::bigint
+		SELECT l.item_id,COALESCE(l.bom_spec_id,0),l.spec_g,l.warehouse,SUM(-l.qty_change_g)::bigint
 		FROM %s.stock_ledger_entries l
 		JOIN %s.stock_batches b ON b.id>0 AND b.item_type='finished_product'
 		  AND b.id=(SELECT b2.id FROM %s.stock_batches b2
 		            WHERE b2.batch_code=l.source_batch_code AND b2.item_type=l.item_type
-		              AND b2.item_id=l.item_id AND b2.spec_g=l.spec_g
+		              AND b2.item_id=l.item_id AND b2.bom_spec_id=l.bom_spec_id AND b2.spec_g=l.spec_g
 		            ORDER BY b2.id LIMIT 1)
 		JOIN %s.orders o ON o.id=l.source_doc_id AND o.customer_id=$1
 		JOIN %s.warehouses w ON w.code=l.warehouse AND w.active=true
 		  AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
 		WHERE l.source_doc_type=$2 AND l.item_type='finished_product' AND l.qty_change_g<0
 		%s
-		GROUP BY l.item_id,l.spec_g,l.warehouse
+		GROUP BY l.item_id,COALESCE(l.bom_spec_id,0),l.spec_g,l.warehouse
 	`, r.schema, r.schema, r.schema, r.schema, r.schema, deductionExclusion), customerID, inventorydomain.ShipmentStockDeductionSource)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var productID, specG, deductedG int64
+		var productID, bomSpecID, specG, deductedG int64
 		var warehouse string
-		if err := rows.Scan(&productID, &specG, &warehouse, &deductedG); err != nil {
+		if err := rows.Scan(&productID, &bomSpecID, &specG, &warehouse, &deductedG); err != nil {
 			return nil, err
 		}
-		out[miniWarehouseStockKey(productID, specG, warehouse)] += deductedG
+		out[miniWarehouseStockKey(productID, bomSpecID, specG, warehouse)] += deductedG
 	}
 	return out, rows.Err()
 }
@@ -595,16 +678,17 @@ func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirect
 		deductionPredicate += fmt.Sprintf(" AND NOT EXISTS (SELECT 1 FROM %s.order_stock_deductions d WHERE d.order_id=a.order_id)", r.schema)
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT a.product_id, a.spec_g,
+		SELECT a.product_id,COALESCE(a.bom_spec_id,0),a.spec_g,
 		       COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods') AS warehouse,
 		       a.batch_id,
-		       SUM(CASE WHEN a.spec_g>0 THEN a.allocated_g/a.spec_g ELSE 0 END)::bigint AS qty
+		       SUM(CASE WHEN COALESCE(a.bom_spec_id,0)>0 THEN COALESCE(a.allocated_units,0)
+		                WHEN a.spec_g>0 THEN a.allocated_g/a.spec_g ELSE 0 END)::bigint AS qty
 		FROM %s.order_stock_batch_allocations a
 		JOIN %s.orders o ON o.id=a.order_id
 		JOIN %s.warehouses w ON w.code=COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods')
 		  AND w.active=true AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
 		%s
-		GROUP BY a.product_id, a.spec_g,
+		GROUP BY a.product_id,COALESCE(a.bom_spec_id,0),a.spec_g,
 		         COALESCE(NULLIF(a.warehouse,''), NULLIF(o.source_warehouse,''), 'finished_goods'),
 		         a.batch_id
 	`, r.schema, r.schema, r.schema, deductionPredicate), customerID)
@@ -613,12 +697,12 @@ func (r *Repository) loadMiniStockReservations(ctx context.Context, q miniDirect
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var productID, specG, batchID, qty int64
+		var productID, bomSpecID, specG, batchID, qty int64
 		var warehouse string
-		if err := rows.Scan(&productID, &specG, &warehouse, &batchID, &qty); err != nil {
+		if err := rows.Scan(&productID, &bomSpecID, &specG, &warehouse, &batchID, &qty); err != nil {
 			return nil, nil, nil, err
 		}
-		key := miniWarehouseStockKey(productID, specG, warehouse)
+		key := miniWarehouseStockKey(productID, bomSpecID, specG, warehouse)
 		all[key] += qty
 		if batchID > 0 {
 			byBatch[batchID] += qty
@@ -638,9 +722,13 @@ func (r *Repository) loadMiniFinishedBatches(ctx context.Context, q miniDirectSh
 		lockClause = " FOR UPDATE OF b"
 	}
 	rows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT b.id, b.batch_code, b.item_id,
-		       COALESCE(NULLIF(p.sku_name,''), NULLIF(b.item_name,''), NULLIF(p.name,''), ''),
-		       COALESCE(p.sku_code,''), b.spec_g,
+		SELECT b.id,b.batch_code,b.item_id,COALESCE(b.bom_spec_id,0),COALESCE(b.bom_variant_id,0),
+		       CASE WHEN COALESCE(b.bom_spec_id,0)>0
+		         THEN btrim(COALESCE(NULLIF(p.name,''),'') || ' ' || COALESCE(NULLIF(variant.spec_name_snapshot,''),NULLIF(spec.name,''),''))
+		         ELSE COALESCE(NULLIF(p.sku_name,''),NULLIF(b.item_name,''),NULLIF(p.name,''),'') END,
+		       CASE WHEN COALESCE(b.bom_spec_id,0)>0 THEN COALESCE(spec.code,'') ELSE COALESCE(p.sku_code,'') END,
+		       COALESCE(spec.spec_key,''),COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),b.spec_g,
 		       latest.warehouse, COALESCE(w.name,latest.warehouse),
 		       GREATEST(COALESCE(b.qty_units,0), CASE WHEN b.spec_g>0 THEN COALESCE(b.qty_g,0)/b.spec_g ELSE 0 END,
 		                COALESCE(b.remaining_units,0), CASE WHEN b.spec_g>0 THEN COALESCE(b.remaining_g,0)/b.spec_g ELSE 0 END),
@@ -651,12 +739,15 @@ func (r *Repository) loadMiniFinishedBatches(ctx context.Context, q miniDirectSh
 		JOIN LATERAL (
 			SELECT l.warehouse
 			FROM %s.stock_ledger_entries l
-			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id AND l.spec_g=b.spec_g
+			WHERE l.source_batch_code=b.batch_code AND l.item_type=b.item_type AND l.item_id=b.item_id
+			  AND l.bom_spec_id=b.bom_spec_id AND l.spec_g=b.spec_g
 			ORDER BY l.id DESC LIMIT 1
 		) latest ON true
 		JOIN %s.warehouses w ON w.code=latest.warehouse AND w.active=true
 		  AND w.kind IN ('finished','customer_processing','customer_finished','customer') AND w.customer_id=$1
 		LEFT JOIN %s.products p ON p.id=b.item_id
+		LEFT JOIN %s.production_bom_specs spec ON spec.id=b.bom_spec_id
+		LEFT JOIN %s.production_bom_version_variants variant ON variant.id=b.bom_variant_id AND variant.bom_spec_id=b.bom_spec_id
 		LEFT JOIN LATERAL (
 			SELECT MIN(l.created_at) AS inbound_at
 			FROM %s.stock_ledger_entries l
@@ -666,7 +757,7 @@ func (r *Repository) loadMiniFinishedBatches(ctx context.Context, q miniDirectSh
 		WHERE b.item_type='finished_product'
 		  AND (COALESCE(b.qty_units,0)>0 OR COALESCE(b.qty_g,0)>0 OR COALESCE(b.remaining_units,0)>0 OR COALESCE(b.remaining_g,0)>0)
 		ORDER BY b.created_at, b.id%s
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause), customerID)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, lockClause), customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -674,7 +765,12 @@ func (r *Repository) loadMiniFinishedBatches(ctx context.Context, q miniDirectSh
 	out := make([]miniFinishedBatchRow, 0)
 	for rows.Next() {
 		var row miniFinishedBatchRow
-		if err := rows.Scan(&row.BatchID, &row.BatchCode, &row.ProductID, &row.ProductName, &row.SKUCode, &row.SpecG, &row.Warehouse, &row.WarehouseName, &row.OriginalQty, &row.PhysicalQty, &row.QualityStatus, &row.SourceDocType, &row.SourceDocID, &row.CreatedAt, &row.InboundAt); err != nil {
+		if err := rows.Scan(
+			&row.BatchID, &row.BatchCode, &row.ProductID, &row.BomSpecID, &row.BomVariantID,
+			&row.ProductName, &row.SKUCode, &row.BomSpecKey, &row.BomSpecName, &row.InventoryUnit,
+			&row.SpecG, &row.Warehouse, &row.WarehouseName, &row.OriginalQty, &row.PhysicalQty,
+			&row.QualityStatus, &row.SourceDocType, &row.SourceDocID, &row.CreatedAt, &row.InboundAt,
+		); err != nil {
 			return nil, err
 		}
 		row.ReservedQty = reservations[row.BatchID]
@@ -692,27 +788,28 @@ func miniDirectShipQualityAvailable(status string) bool {
 	}
 }
 
-func miniStockKey(productID, specG int64) string {
-	return fmt.Sprintf("%d:%d", productID, specG)
+func miniStockKey(productID, bomSpecID, specG int64) string {
+	return fmt.Sprintf("%d:%d:%d", productID, bomSpecID, specG)
 }
 
-func miniWarehouseStockKey(productID, specG int64, warehouse string) string {
-	return fmt.Sprintf("%d:%d:%s", productID, specG, strings.TrimSpace(warehouse))
+func miniWarehouseStockKey(productID, bomSpecID, specG int64, warehouse string) string {
+	return fmt.Sprintf("%d:%d:%d:%s", productID, bomSpecID, specG, strings.TrimSpace(warehouse))
 }
 
-func miniLegacyBatchCode(warehouse string, productID, specG int64) string {
-	return fmt.Sprintf("LEGACY:%s:%d:%d", strings.TrimSpace(warehouse), productID, specG)
+func miniLegacyBatchCode(warehouse string, productID, bomSpecID, specG int64) string {
+	return fmt.Sprintf("LEGACY:%s:%d:%d:%d", strings.TrimSpace(warehouse), productID, bomSpecID, specG)
 }
 
 func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 	type itemHash struct {
 		ProductID int64 `json:"product_id"`
+		BomSpecID int64 `json:"bom_spec_id,omitempty"`
 		SpecG     int64 `json:"spec_g"`
 		Qty       int64 `json:"qty"`
 	}
 	items := make([]itemHash, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
-		items = append(items, itemHash{ProductID: item.ProductID, SpecG: item.SpecG, Qty: item.Qty})
+		items = append(items, itemHash{ProductID: item.ProductID, BomSpecID: item.BomSpecID, SpecG: item.SpecG, Qty: item.Qty})
 	}
 	payload := struct {
 		RecipientName    string     `json:"recipient_name"`
@@ -734,24 +831,57 @@ func miniDirectShipRequestHash(cmd app.MiniDirectShipCommand) (string, error) {
 }
 
 type miniDirectShipProductSnapshot struct {
-	ProductID   int64
-	ProductName string
-	SKUCode     string
-	SpecLabel   string
-	ProductKind string
+	ProductID     int64
+	BomSpecID     int64
+	BomVariantID  int64
+	BomSpecKey    string
+	ProductName   string
+	SKUCode       string
+	SpecLabel     string
+	InventoryUnit string
+	ProductKind   string
+}
+
+func (r *Repository) resolveMiniDirectShipItems(ctx context.Context, q miniDirectShipQuerier, items []app.MiniDirectShipItemCommand) ([]app.MiniDirectShipItemCommand, error) {
+	out := append([]app.MiniDirectShipItemCommand(nil), items...)
+	for idx := range out {
+		item := &out[idx]
+		identity, err := resolveCustomerFulfillmentBOMSpecIdentityTx(ctx, q, r.schema, item.ProductID, item.BomSpecID, item.BomVariantID)
+		if err != nil {
+			return nil, err
+		}
+		if identity.ProductID <= 0 {
+			continue
+		}
+		item.ProductID = identity.ProductID
+		item.BomSpecID = identity.BomSpecID
+		item.BomVariantID = identity.BomVariantID
+		item.BomSpecKey = identity.BomSpecKey
+		item.ProductName = strings.TrimSpace(identity.ProductName + " " + identity.BomSpecName)
+		item.SKUCode = identity.SpecCode
+		item.SpecLabel = identity.BomSpecName
+		item.InventoryUnit = identity.InventoryUnit
+		item.SpecG = 0
+	}
+	return out, nil
 }
 
 func (r *Repository) SubmitMiniDirectShip(ctx context.Context, cmd app.MiniDirectShipCommand) (app.MiniDirectShipRequest, error) {
-	requestHash, err := miniDirectShipRequestHash(cmd)
-	if err != nil {
-		return app.MiniDirectShipRequest{}, err
-	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, fmt.Sprintf("mini-direct-ship:%d", cmd.CustomerID)); err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	items, err := r.resolveMiniDirectShipItems(ctx, tx, cmd.Items)
+	if err != nil {
+		return app.MiniDirectShipRequest{}, err
+	}
+	cmd.Items = items
+	requestHash, err := miniDirectShipRequestHash(cmd)
+	if err != nil {
 		return app.MiniDirectShipRequest{}, err
 	}
 
@@ -807,21 +937,26 @@ func (r *Repository) SubmitMiniDirectShip(ctx context.Context, cmd app.MiniDirec
 
 	requestItemIDs := make(map[string]int64, len(cmd.Items))
 	for idx, item := range cmd.Items {
-		product := products[item.ProductID]
+		key := miniStockKey(item.ProductID, item.BomSpecID, item.SpecG)
+		product := products[key]
 		snapshotJSON := mustPayloadJSON(map[string]any{
-			"product_id": item.ProductID, "product_name": product.ProductName,
-			"sku_code": product.SKUCode, "spec_label": product.SpecLabel, "spec_g": item.SpecG, "qty": item.Qty,
+			"product_id": item.ProductID, "bom_spec_id": item.BomSpecID, "bom_variant_id": item.BomVariantID,
+			"bom_spec_key": product.BomSpecKey, "product_name": product.ProductName,
+			"sku_code": product.SKUCode, "spec_label": product.SpecLabel, "inventory_unit": product.InventoryUnit,
+			"spec_g": item.SpecG, "qty": item.Qty,
 		})
 		var requestItemID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_direct_ship_request_items(
-				request_id,line_no,product_id,product_name,sku_code,spec_label,spec_g,qty,snapshot
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+				request_id,line_no,product_id,bom_spec_id,bom_variant_id,bom_spec_key,
+				product_name,sku_code,spec_label,inventory_unit,spec_g,qty,snapshot
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
 			RETURNING id
-		`, r.schema), requestID, idx+1, item.ProductID, product.ProductName, product.SKUCode, product.SpecLabel, item.SpecG, item.Qty, snapshotJSON).Scan(&requestItemID); err != nil {
+		`, r.schema), requestID, idx+1, item.ProductID, item.BomSpecID, item.BomVariantID, product.BomSpecKey,
+			product.ProductName, product.SKUCode, product.SpecLabel, product.InventoryUnit, item.SpecG, item.Qty, snapshotJSON).Scan(&requestItemID); err != nil {
 			return app.MiniDirectShipRequest{}, err
 		}
-		requestItemIDs[miniStockKey(item.ProductID, item.SpecG)] = requestItemID
+		requestItemIDs[miniStockKey(item.ProductID, item.BomSpecID, item.SpecG)] = requestItemID
 	}
 
 	warehouseItems := miniDirectShipWarehouseItems(allocations)
@@ -863,42 +998,63 @@ func (r *Repository) SubmitMiniDirectShip(ctx context.Context, cmd app.MiniDirec
 		orderIDs[warehouse] = orderID
 		items := warehouseItems[warehouse]
 		for lineNo, item := range items {
-			product := products[item.ProductID]
+			key := miniStockKey(item.ProductID, item.BomSpecID, item.SpecG)
+			product := products[key]
+			unit := "件"
+			spec := fmt.Sprintf("%dg", item.SpecG)
+			if item.BomSpecID > 0 {
+				unit = product.InventoryUnit
+				spec = product.SpecLabel
+			}
 			var orderItemID int64
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`
 				INSERT INTO %s.order_items(
-					order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,
+					order_id,line_no,product_id,bom_spec_id,bom_variant_id,item_name,qty,unit,spec,unit_price,
 					line_total_before_discount,discount_type,discount_value,discount_amount,line_total,product_kind
-				) VALUES($1,$2,$3,$4,$5,'件',$6,0,0,'',0,0,0,$7)
+				) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0,0,'',0,0,0,$10)
 				RETURNING id
-			`, r.schema), orderID, lineNo+1, item.ProductID, product.ProductName, item.Qty, fmt.Sprintf("%dg", item.SpecG), product.ProductKind).Scan(&orderItemID); err != nil {
+			`, r.schema), orderID, lineNo+1, item.ProductID, item.BomSpecID, item.BomVariantID,
+				product.ProductName, item.Qty, unit, spec, product.ProductKind).Scan(&orderItemID); err != nil {
 				return app.MiniDirectShipRequest{}, err
 			}
-			orderItemIDs[miniWarehouseStockKey(item.ProductID, item.SpecG, warehouse)] = orderItemID
+			orderItemIDs[miniWarehouseStockKey(item.ProductID, item.BomSpecID, item.SpecG, warehouse)] = orderItemID
 		}
 	}
 
 	for _, allocation := range allocations {
-		requestItemID := requestItemIDs[miniStockKey(allocation.ProductID, allocation.SpecG)]
+		requestItemID := requestItemIDs[miniStockKey(allocation.ProductID, allocation.BomSpecID, allocation.SpecG)]
 		requestOrderID := requestOrderIDs[allocation.Warehouse]
 		orderID := orderIDs[allocation.Warehouse]
-		orderItemID := orderItemIDs[miniWarehouseStockKey(allocation.ProductID, allocation.SpecG, allocation.Warehouse)]
+		orderItemID := orderItemIDs[miniWarehouseStockKey(allocation.ProductID, allocation.BomSpecID, allocation.SpecG, allocation.Warehouse)]
 		allocatedG := allocation.Qty * allocation.SpecG
+		allocatedUnits := int64(0)
+		if allocation.BomSpecID > 0 {
+			allocatedG = 0
+			allocatedUnits = allocation.Qty
+		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_direct_ship_request_allocations(
 				request_id,request_item_id,request_order_id,order_id,order_item_id,
-				product_id,spec_g,warehouse_code,batch_id,batch_code,allocated_qty,allocated_g,status
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'reserved')
+				product_id,bom_spec_id,bom_variant_id,spec_g,warehouse_code,batch_id,batch_code,
+				allocated_qty,allocated_units,allocated_g,status
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'reserved')
 		`, r.schema), requestID, requestItemID, requestOrderID, orderID, orderItemID,
-			allocation.ProductID, allocation.SpecG, allocation.Warehouse, allocation.BatchID, allocation.BatchCode, allocation.Qty, allocatedG); err != nil {
+			allocation.ProductID, allocation.BomSpecID, allocation.BomVariantID, allocation.SpecG, allocation.Warehouse,
+			allocation.BatchID, allocation.BatchCode, allocation.Qty, allocatedUnits, allocatedG); err != nil {
 			return app.MiniDirectShipRequest{}, err
+		}
+		needUnits := int64(0)
+		if allocation.BomSpecID > 0 {
+			needUnits = allocation.Qty
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_stock_batch_allocations(
-				order_id,order_item_id,product_id,spec_g,need_g,batch_id,batch_code,allocated_g,warehouse,request_id,operator
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$5,$8,$9,$10)
-		`, r.schema), orderID, orderItemID, allocation.ProductID, allocation.SpecG, allocatedG,
-			allocation.BatchID, allocation.BatchCode, allocation.Warehouse, requestID, cmd.Actor); err != nil {
+				order_id,order_item_id,product_id,bom_spec_id,bom_variant_id,spec_g,need_g,need_units,
+				batch_id,batch_code,allocated_g,allocated_units,warehouse,request_id,operator
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$7,$11,$12,$13,$14)
+		`, r.schema), orderID, orderItemID, allocation.ProductID, allocation.BomSpecID, allocation.BomVariantID,
+			allocation.SpecG, allocatedG, needUnits, allocation.BatchID, allocation.BatchCode,
+			allocatedUnits, allocation.Warehouse, requestID, cmd.Actor); err != nil {
 			return app.MiniDirectShipRequest{}, err
 		}
 	}
@@ -934,20 +1090,21 @@ func miniDirectShipWarehouseItems(allocations []miniPlannedAllocation) map[strin
 		if indexes[allocation.Warehouse] == nil {
 			indexes[allocation.Warehouse] = map[string]int{}
 		}
-		key := miniStockKey(allocation.ProductID, allocation.SpecG)
+		key := miniStockKey(allocation.ProductID, allocation.BomSpecID, allocation.SpecG)
 		if idx, ok := indexes[allocation.Warehouse][key]; ok {
 			out[allocation.Warehouse][idx].Qty += allocation.Qty
 			continue
 		}
 		indexes[allocation.Warehouse][key] = len(out[allocation.Warehouse])
 		out[allocation.Warehouse] = append(out[allocation.Warehouse], app.MiniDirectShipItemCommand{
-			ProductID: allocation.ProductID, SpecG: allocation.SpecG, Qty: allocation.Qty,
+			ProductID: allocation.ProductID, BomSpecID: allocation.BomSpecID, BomVariantID: allocation.BomVariantID,
+			SpecG: allocation.SpecG, Qty: allocation.Qty,
 		})
 	}
 	return out
 }
 
-func (r *Repository) loadMiniDirectShipProductSnapshots(ctx context.Context, q miniDirectShipQuerier, items []app.MiniDirectShipItemCommand) (map[int64]miniDirectShipProductSnapshot, error) {
+func (r *Repository) loadMiniDirectShipProductSnapshots(ctx context.Context, q miniDirectShipQuerier, items []app.MiniDirectShipItemCommand) (map[string]miniDirectShipProductSnapshot, error) {
 	ids := make([]int64, 0, len(items))
 	seen := map[int64]bool{}
 	for _, item := range items {
@@ -966,21 +1123,35 @@ func (r *Repository) loadMiniDirectShipProductSnapshots(ctx context.Context, q m
 		return nil, err
 	}
 	defer rows.Close()
-	out := make(map[int64]miniDirectShipProductSnapshot, len(ids))
+	base := make(map[int64]miniDirectShipProductSnapshot, len(ids))
 	for rows.Next() {
 		var row miniDirectShipProductSnapshot
 		if err := rows.Scan(&row.ProductID, &row.ProductName, &row.SKUCode, &row.SpecLabel, &row.ProductKind); err != nil {
 			return nil, err
 		}
-		out[row.ProductID] = row
+		base[row.ProductID] = row
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	for _, id := range ids {
-		if out[id].ProductID <= 0 {
+		if base[id].ProductID <= 0 {
 			return nil, fmt.Errorf("product %d unavailable", id)
 		}
+	}
+	out := make(map[string]miniDirectShipProductSnapshot, len(items))
+	for _, item := range items {
+		row := base[item.ProductID]
+		row.BomSpecID = item.BomSpecID
+		row.BomVariantID = item.BomVariantID
+		if item.BomSpecID > 0 {
+			row.BomSpecKey = item.BomSpecKey
+			row.ProductName = item.ProductName
+			row.SKUCode = item.SKUCode
+			row.SpecLabel = item.SpecLabel
+			row.InventoryUnit = item.InventoryUnit
+		}
+		out[miniStockKey(item.ProductID, item.BomSpecID, item.SpecG)] = row
 	}
 	return out, nil
 }
@@ -1146,7 +1317,9 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 		return app.MiniDirectShipRequest{}, err
 	}
 	itemRows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT product_id,product_name,sku_code,spec_label,spec_g,qty FROM %s.customer_direct_ship_request_items
+		SELECT product_id,bom_spec_id,bom_variant_id,bom_spec_key,product_name,sku_code,
+		       spec_label,inventory_unit,spec_g,qty
+		FROM %s.customer_direct_ship_request_items
 		WHERE request_id=$1 ORDER BY line_no,id
 	`, r.schema), requestID)
 	if err != nil {
@@ -1155,7 +1328,8 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 	out.Items = make([]app.MiniDirectShipItemCommand, 0)
 	for itemRows.Next() {
 		var item app.MiniDirectShipItemCommand
-		if err := itemRows.Scan(&item.ProductID, &item.ProductName, &item.SKUCode, &item.SpecLabel, &item.SpecG, &item.Qty); err != nil {
+		if err := itemRows.Scan(&item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.BomSpecKey,
+			&item.ProductName, &item.SKUCode, &item.SpecLabel, &item.InventoryUnit, &item.SpecG, &item.Qty); err != nil {
 			itemRows.Close()
 			return app.MiniDirectShipRequest{}, err
 		}
@@ -1249,11 +1423,13 @@ func (r *Repository) loadMiniDirectShipRequest(ctx context.Context, q miniDirect
 
 func (r *Repository) loadMiniDirectShipPackageItems(ctx context.Context, q miniDirectShipQuerier, requestID, orderID int64) ([]app.MiniDirectShipItemCommand, error) {
 	rows, err := q.Query(ctx, fmt.Sprintf(`
-		SELECT a.product_id,MAX(i.product_name),MAX(i.sku_code),MAX(i.spec_label),a.spec_g,SUM(a.allocated_qty)::bigint
+		SELECT a.product_id,a.bom_spec_id,MAX(a.bom_variant_id),MAX(i.bom_spec_key),
+		       MAX(i.product_name),MAX(i.sku_code),MAX(i.spec_label),MAX(i.inventory_unit),
+		       a.spec_g,SUM(a.allocated_qty)::bigint
 		FROM %s.customer_direct_ship_request_allocations a
 		JOIN %s.customer_direct_ship_request_items i ON i.id=a.request_item_id
 		WHERE a.request_id=$1 AND a.order_id=$2
-		GROUP BY a.product_id,a.spec_g ORDER BY a.product_id,a.spec_g
+		GROUP BY a.product_id,a.bom_spec_id,a.spec_g ORDER BY a.product_id,a.bom_spec_id,a.spec_g
 	`, r.schema, r.schema), requestID, orderID)
 	if err != nil {
 		return nil, err
@@ -1262,7 +1438,8 @@ func (r *Repository) loadMiniDirectShipPackageItems(ctx context.Context, q miniD
 	out := make([]app.MiniDirectShipItemCommand, 0)
 	for rows.Next() {
 		var item app.MiniDirectShipItemCommand
-		if err := rows.Scan(&item.ProductID, &item.ProductName, &item.SKUCode, &item.SpecLabel, &item.SpecG, &item.Qty); err != nil {
+		if err := rows.Scan(&item.ProductID, &item.BomSpecID, &item.BomVariantID, &item.BomSpecKey,
+			&item.ProductName, &item.SKUCode, &item.SpecLabel, &item.InventoryUnit, &item.SpecG, &item.Qty); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -1381,7 +1558,7 @@ func (r *Repository) ListCustomerCentralInventory(ctx context.Context, customerI
 	}
 	availableByWarehouse := map[string]int64{}
 	for _, candidate := range snapshot.Candidates {
-		availableByWarehouse[miniWarehouseStockKey(candidate.ProductID, candidate.SpecG, candidate.Warehouse)] += candidate.AvailableQty
+		availableByWarehouse[miniWarehouseStockKey(candidate.ProductID, candidate.BomSpecID, candidate.SpecG, candidate.Warehouse)] += candidate.AvailableQty
 	}
 	type state struct {
 		row        app.CustomerInventorySummary
@@ -1390,12 +1567,15 @@ func (r *Repository) ListCustomerCentralInventory(ctx context.Context, customerI
 	states := make([]*state, 0)
 	byKey := map[string]*state{}
 	for _, inventory := range snapshot.Inventory {
-		key := miniStockKey(inventory.ProductID, inventory.SpecG)
+		key := miniStockKey(inventory.ProductID, inventory.BomSpecID, inventory.SpecG)
 		current := byKey[key]
 		if current == nil {
 			current = &state{row: app.CustomerInventorySummary{
-				ProductID: inventory.ProductID, ProductName: inventory.ProductName,
-				ParentProductID: inventory.ParentProductID, SKUCode: inventory.SKUCode, SpecG: inventory.SpecG,
+				ProductID: inventory.ProductID, BomSpecID: inventory.BomSpecID, BomVariantID: inventory.BomVariantID,
+				BomSpecKey: inventory.BomSpecKey, BomSpecName: inventory.BomSpecName,
+				InventoryUnit: inventory.InventoryUnit, IsDefaultSpec: inventory.IsDefaultSpec,
+				ProductName: inventory.ProductName, ParentProductID: inventory.ParentProductID,
+				SKUCode: inventory.SKUCode, SpecG: inventory.SpecG,
 				Warehouses: []string{},
 			}, warehouses: map[string]bool{}}
 			byKey[key] = current
@@ -1403,7 +1583,7 @@ func (r *Repository) ListCustomerCentralInventory(ctx context.Context, customerI
 		}
 		current.row.TotalQty += inventory.TotalQty
 		current.row.ReservedQty += inventory.ReservedQty
-		current.row.AvailableQty += availableByWarehouse[miniWarehouseStockKey(inventory.ProductID, inventory.SpecG, inventory.Warehouse)]
+		current.row.AvailableQty += availableByWarehouse[miniWarehouseStockKey(inventory.ProductID, inventory.BomSpecID, inventory.SpecG, inventory.Warehouse)]
 		if !current.warehouses[inventory.WarehouseName] {
 			current.warehouses[inventory.WarehouseName] = true
 			current.row.Warehouses = append(current.row.Warehouses, inventory.WarehouseName)
@@ -1418,33 +1598,36 @@ func (r *Repository) ListCustomerCentralInventory(ctx context.Context, customerI
 		if out[i].ProductName != out[j].ProductName {
 			return out[i].ProductName < out[j].ProductName
 		}
+		if out[i].BomSpecID != out[j].BomSpecID {
+			return out[i].BomSpecID < out[j].BomSpecID
+		}
 		return out[i].SpecG < out[j].SpecG
 	})
 	return out, nil
 }
 
-func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, customerID, productID, specG int64) ([]app.CustomerInventoryBatch, error) {
-	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, customerID, false)
+func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, query app.CustomerInventoryBatchQuery) ([]app.CustomerInventoryBatch, error) {
+	snapshot, err := r.loadMiniCustomerFinishedStock(ctx, r.pool, query.CustomerID, false)
 	if err != nil {
 		return nil, err
 	}
 	availableByBatch := map[int64]int64{}
 	availableLegacy := map[string]int64{}
 	for _, candidate := range snapshot.Candidates {
-		if candidate.ProductID != productID || (specG > 0 && candidate.SpecG != specG) {
+		if !miniCustomerInventoryIdentityMatches(query, candidate.ProductID, candidate.BomSpecID, candidate.SpecG) {
 			continue
 		}
 		if candidate.BatchID > 0 {
 			availableByBatch[candidate.BatchID] += candidate.AvailableQty
 		} else {
-			availableLegacy[miniWarehouseStockKey(candidate.ProductID, candidate.SpecG, candidate.Warehouse)] += candidate.AvailableQty
+			availableLegacy[miniWarehouseStockKey(candidate.ProductID, candidate.BomSpecID, candidate.SpecG, candidate.Warehouse)] += candidate.AvailableQty
 		}
 	}
 	productionDates := map[int64]string{}
 	if relationExists(ctx, r.pool, fmt.Sprintf("%s.produce_running_items", r.schema)) {
 		ids := make([]int64, 0)
 		for _, batch := range snapshot.Batches {
-			if batch.ProductID == productID && (specG <= 0 || batch.SpecG == specG) && batch.SourceDocType == "production_run" && batch.SourceDocID > 0 {
+			if miniCustomerInventoryIdentityMatches(query, batch.ProductID, batch.BomSpecID, batch.SpecG) && batch.SourceDocType == "production_run" && batch.SourceDocID > 0 {
 				ids = append(ids, batch.SourceDocID)
 			}
 		}
@@ -1473,7 +1656,7 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, cu
 	}
 	out := make([]app.CustomerInventoryBatch, 0)
 	for _, batch := range snapshot.Batches {
-		if batch.ProductID != productID || (specG > 0 && batch.SpecG != specG) || batch.PhysicalQty <= 0 {
+		if !miniCustomerInventoryIdentityMatches(query, batch.ProductID, batch.BomSpecID, batch.SpecG) || batch.PhysicalQty <= 0 {
 			continue
 		}
 		inboundAt := ""
@@ -1486,6 +1669,8 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, cu
 		}
 		out = append(out, app.CustomerInventoryBatch{
 			BatchID: batch.BatchID, BatchNo: batch.BatchCode, ProductID: batch.ProductID,
+			BomSpecID: batch.BomSpecID, BomVariantID: batch.BomVariantID, BomSpecKey: batch.BomSpecKey,
+			BomSpecName: batch.BomSpecName, InventoryUnit: batch.InventoryUnit,
 			ProductName: batch.ProductName, SKUCode: batch.SKUCode, SpecG: batch.SpecG,
 			Warehouse: batch.WarehouseName, ProductionDate: productionDate, InboundAt: inboundAt,
 			AvailableQty: availableByBatch[batch.BatchID], ReservedQty: batch.ReservedQty,
@@ -1493,10 +1678,10 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, cu
 		})
 	}
 	for _, inventory := range snapshot.Inventory {
-		if inventory.ProductID != productID || (specG > 0 && inventory.SpecG != specG) {
+		if !miniCustomerInventoryIdentityMatches(query, inventory.ProductID, inventory.BomSpecID, inventory.SpecG) {
 			continue
 		}
-		key := miniWarehouseStockKey(inventory.ProductID, inventory.SpecG, inventory.Warehouse)
+		key := miniWarehouseStockKey(inventory.ProductID, inventory.BomSpecID, inventory.SpecG, inventory.Warehouse)
 		legacyTotal := inventory.LegacyQty
 		if legacyTotal <= 0 {
 			continue
@@ -1506,8 +1691,10 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, cu
 			legacyReserved = 0
 		}
 		out = append(out, app.CustomerInventoryBatch{
-			BatchID: 0, BatchNo: miniLegacyBatchCode(inventory.Warehouse, inventory.ProductID, inventory.SpecG),
-			ProductID: inventory.ProductID, ProductName: inventory.ProductName, SKUCode: inventory.SKUCode,
+			BatchID: 0, BatchNo: miniLegacyBatchCode(inventory.Warehouse, inventory.ProductID, inventory.BomSpecID, inventory.SpecG),
+			ProductID: inventory.ProductID, BomSpecID: inventory.BomSpecID, BomVariantID: inventory.BomVariantID,
+			BomSpecKey: inventory.BomSpecKey, BomSpecName: inventory.BomSpecName, InventoryUnit: inventory.InventoryUnit,
+			ProductName: inventory.ProductName, SKUCode: inventory.SKUCode,
 			SpecG: inventory.SpecG, Warehouse: inventory.WarehouseName,
 			InboundAt:    inventory.UpdatedAt.Format("2006-01-02 15:04:05"),
 			AvailableQty: availableLegacy[key], ReservedQty: legacyReserved, QualityStatus: "historical",
@@ -1515,4 +1702,14 @@ func (r *Repository) ListCustomerCentralInventoryBatches(ctx context.Context, cu
 		})
 	}
 	return out, nil
+}
+
+func miniCustomerInventoryIdentityMatches(query app.CustomerInventoryBatchQuery, productID, bomSpecID, specG int64) bool {
+	if productID != query.ProductID {
+		return false
+	}
+	if query.BomSpecID > 0 {
+		return bomSpecID == query.BomSpecID
+	}
+	return bomSpecID <= 0 && query.SpecG > 0 && specG == query.SpecG
 }

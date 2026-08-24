@@ -1,10 +1,37 @@
 package sales
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
 )
+
+func TestEnsureSchemaSucceedsWithoutStockModuleTablesPostgres(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	for run := 1; run <= 2; run++ {
+		if err := EnsureSchema(ctx, pool, schema); err != nil {
+			t.Fatalf("sales EnsureSchema run %d must not require stock-owned tables: %v", run, err)
+		}
+	}
+
+	for _, table := range []string{"stock_batches", "stock_ledger_entries", "finished_inventory"} {
+		var exists bool
+		if err := pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", schema+"."+table).Scan(&exists); err != nil {
+			t.Fatalf("inspect %s: %v", table, err)
+		}
+		if exists {
+			t.Fatalf("sales schema unexpectedly created stock-owned table %s", table)
+		}
+	}
+}
 
 func TestEnsureOrderShippingTrackingTablesAddsLegacyTrackingColumnBeforeBackfill(t *testing.T) {
 	body, err := os.ReadFile("schema.go")

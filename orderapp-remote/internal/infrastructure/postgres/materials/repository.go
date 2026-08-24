@@ -25,6 +25,7 @@ type materialRow struct {
 	Name                       string
 	Kind                       string
 	IsSemiFinished             bool
+	SupplyMode                 string
 	CanManufacture             bool
 	Unit                       string
 	CostUnit                   string
@@ -55,6 +56,7 @@ type materialInput struct {
 	Kind                    string
 	IsSemiFinished          bool
 	IsSemiFinishedSet       bool
+	SupplyMode              string
 	Unit                    string
 	CostUnit                string
 	BatchNo                 string
@@ -231,6 +233,7 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active st
 			return nil, err
 		}
 		r.Kind = normalizeMaterialKind(r.Kind)
+		r.SupplyMode = materialSupplyMode(r.IsSemiFinished)
 		r.StockQty = materialQtyForUnit(r.Unit, r.OnhandG, r.OnhandUnits)
 		r.MinLevelQty = materialQtyForUnit(r.Unit, r.MinLevelG, r.MinLevelUnits)
 		if r.Kind == "bean" || !profile.empty() {
@@ -282,6 +285,8 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	}
 	requestedInventoryUnit := strings.TrimSpace(in.Unit)
 	requestedCostUnit := strings.TrimSpace(in.CostUnit)
+	// cost_unit is a compatibility field. Updates validate an explicitly supplied
+	// value against the effective inventory unit after the current row is loaded.
 	in.CostUnit = ""
 	next, err := normalizeMaterialInput(in)
 	if err != nil {
@@ -298,6 +303,9 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, materialManufactureOnlyLockKey(schema, id)); err != nil {
+		return materialRow{}, err
+	}
 
 	var old materialRow
 	qOld := fmt.Sprintf(`SELECT m.id, m.code, m.name, m.kind, COALESCE(m.is_semi_finished,false), m.unit, m.cost_unit,
@@ -326,6 +334,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 	old.Kind = normalizeMaterialKind(old.Kind)
+	old.SupplyMode = materialSupplyMode(old.IsSemiFinished)
 	if old.Kind == "bean" || !oldProfile.empty() {
 		old.Profile = &oldProfile
 	}
@@ -339,6 +348,32 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if !next.IsSemiFinishedSet {
 		next.IsSemiFinished = old.IsSemiFinished
 	}
+	if mode := strings.ToLower(strings.TrimSpace(next.SupplyMode)); mode != "" {
+		switch mode {
+		case "purchase":
+			next.IsSemiFinished = false
+			next.IsSemiFinishedSet = true
+		case "manufacture":
+			next.IsSemiFinished = true
+			next.IsSemiFinishedSet = true
+		default:
+			return materialRow{}, fmt.Errorf("取得方式必须为 purchase 或 manufacture")
+		}
+	}
+	if old.IsSemiFinished && !next.IsSemiFinished {
+		var linked int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.production_boms pb WHERE pb.output_type='material' AND pb.output_material_id=$1 AND COALESCE(NULLIF(pb.status,''),'active')='active'`, schema), id).Scan(&linked); err == nil && linked > 0 {
+			return materialRow{}, fmt.Errorf("该物料仍有关联制造 BOM，请先处理 BOM 后再切换为外购")
+		}
+	}
+	if err := assertSemiFinishedPurchasePrice(next.IsSemiFinished, next.PurchasePrice); err != nil {
+		return materialRow{}, err
+	}
+	if !old.IsSemiFinished && next.IsSemiFinished {
+		if err := assertNoUnfinishedSemiFinishedInboundTx(ctx, tx, schema, []int64{id}); err != nil {
+			return materialRow{}, err
+		}
+	}
 	unitChanged := materialInventoryUnitChanged(old, next, requestedInventoryUnit)
 	if unitChanged {
 		inUse, err := materialInventoryUnitInUseTx(ctx, tx, schema, old)
@@ -348,13 +383,16 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		if err := assertMaterialInventoryUnitReadOnly(old, next, requestedInventoryUnit, inUse); err != nil {
 			return materialRow{}, err
 		}
+		if err := validateMaterialInventoryUnitDefinitionTx(ctx, tx, schema, next.Unit); err != nil {
+			return materialRow{}, err
+		}
 	} else {
 		next.Unit = old.Unit
 	}
-	if err := assertMaterialCostUnitReadOnly(old, next, requestedCostUnit, unitChanged); err != nil {
+	if err := assertMaterialCostUnitMatchesInventoryUnit(requestedCostUnit, next.Unit); err != nil {
 		return materialRow{}, err
 	}
-	next.CostUnit = old.CostUnit
+	next.CostUnit = next.Unit
 	if err := assertMaterialStockFieldsReadOnly(old, next); err != nil {
 		return materialRow{}, err
 	}
@@ -420,6 +458,9 @@ func createMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := validateMaterialInventoryUnitDefinitionTx(ctx, tx, schema, next.Unit); err != nil {
+		return materialRow{}, err
+	}
 
 	q := fmt.Sprintf(`INSERT INTO %s.materials(
 			code, name, kind, is_semi_finished, unit, cost_unit, batch_no, purchase_price, sale_price,
@@ -504,10 +545,23 @@ func getMaterialByID(ctx context.Context, pool *pgxpool.Pool, schema string, id 
 }
 
 func normalizeMaterialInput(in materialInput) (materialInput, error) {
+	if mode := strings.ToLower(strings.TrimSpace(in.SupplyMode)); mode != "" {
+		switch mode {
+		case "purchase":
+			in.IsSemiFinished = false
+			in.IsSemiFinishedSet = true
+		case "manufacture":
+			in.IsSemiFinished = true
+			in.IsSemiFinishedSet = true
+		default:
+			return materialInput{}, fmt.Errorf("取得方式必须为 purchase 或 manufacture")
+		}
+		in.SupplyMode = mode
+	}
 	in.Code = strings.TrimSpace(in.Code)
 	in.Name = strings.TrimSpace(in.Name)
 	in.Kind = strings.TrimSpace(in.Kind)
-	in.Unit = strings.TrimSpace(in.Unit)
+	in.Unit = normalizeMaterialInventoryUnit(in.Unit)
 	in.CostUnit = normalizeMaterialCostUnit(in.CostUnit)
 	in.BatchNo = strings.TrimSpace(in.BatchNo)
 	if in.Profile != nil {
@@ -527,23 +581,15 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	}
 	in.Kind = normalizeMaterialKind(in.Kind)
 	if in.Unit == "" {
-		in.Unit = "g"
+		in.Unit = "kg"
 	}
-	if isMaterialWeightUnit(in.Unit) {
-		if in.CostUnit == "" {
-			in.CostUnit = "kg"
-		}
-		if in.CostUnit != "kg" {
-			return materialInput{}, fmt.Errorf("重量物料成本计价单位必须为 kg")
-		}
-	} else {
-		if in.CostUnit == "" {
-			in.CostUnit = in.Unit
-		}
-		if in.CostUnit != in.Unit {
-			return materialInput{}, fmt.Errorf("非重量物料成本计价单位必须与库存单位一致")
-		}
+	if isMaterialWeightUnit(in.Unit) && in.Unit != "kg" {
+		return materialInput{}, fmt.Errorf("重量物料库存单位统一使用 kg；BOM 用量可使用 g 并自动换算")
 	}
+	if err := assertMaterialCostUnitMatchesInventoryUnit(in.CostUnit, in.Unit); err != nil {
+		return materialInput{}, err
+	}
+	in.CostUnit = in.Unit
 	if in.MinLevelQty > 0 && in.MinLevelG == 0 && in.MinLevelUnits == 0 {
 		in.MinLevelG, in.MinLevelUnits = quantityToLegacy(in.Unit, in.MinLevelQty)
 	}
@@ -573,10 +619,27 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	if in.PurchasePrice < 0 || in.SalePrice < 0 || math.IsNaN(in.PurchasePrice) || math.IsNaN(in.SalePrice) || math.IsInf(in.PurchasePrice, 0) || math.IsInf(in.SalePrice, 0) {
 		return materialInput{}, fmt.Errorf("negative price")
 	}
+	if err := assertSemiFinishedPurchasePrice(in.IsSemiFinished, in.PurchasePrice); err != nil {
+		return materialInput{}, err
+	}
 	if in.OnhandG < 0 || in.OnhandUnits < 0 || in.MinLevelG < 0 || in.MinLevelUnits < 0 {
 		return materialInput{}, fmt.Errorf("negative qty")
 	}
 	return in, nil
+}
+
+func assertSemiFinishedPurchasePrice(isSemiFinished bool, purchasePrice float64) error {
+	if isSemiFinished && purchasePrice != 0 {
+		return fmt.Errorf("半成品只能通过生产入库，采购价必须为 0")
+	}
+	return nil
+}
+
+func materialSupplyMode(isSemiFinished bool) string {
+	if isSemiFinished {
+		return "manufacture"
+	}
+	return "purchase"
 }
 
 func normalizeMaterialIndustryFields(fields []materialIndustryFieldInput) []materialIndustryFieldInput {
@@ -612,22 +675,69 @@ func normalizeMaterialKind(kind string) string {
 }
 
 func normalizeMaterialCostUnit(unit string) string {
+	return normalizeMaterialInventoryUnit(unit)
+}
+
+func normalizeMaterialInventoryUnit(unit string) string {
 	unit = strings.TrimSpace(unit)
 	switch strings.ToLower(unit) {
-	case "kg", "千克":
+	case "kg", "kgs", "kilogram", "kilograms", "千克", "公斤":
 		return "kg"
+	case "g", "gram", "grams", "克":
+		return "g"
+	case "lb", "lbs", "pound", "pounds", "磅":
+		return "lb"
+	case "oz", "ounce", "ounces", "盎司":
+		return "oz"
 	default:
 		return unit
 	}
 }
 
 func isMaterialWeightUnit(unit string) bool {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "g", "kg", "lb", "oz", "克", "千克":
+	switch normalizeMaterialInventoryUnit(unit) {
+	case "g", "kg", "lb", "oz":
 		return true
 	default:
 		return false
 	}
+}
+
+func isMaterialWeightUnitType(unitType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(unitType))
+	return normalized == "weight" || normalized == "重量"
+}
+
+func validateMaterialInventoryUnitDefinitionTx(ctx context.Context, tx pgx.Tx, schema, unit string) error {
+	var tableExists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".product_unit_definitions").Scan(&tableExists); err != nil {
+		return err
+	}
+	if !tableExists {
+		return nil
+	}
+
+	unit = normalizeMaterialInventoryUnit(unit)
+	var unitType string
+	var active bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT unit_type, active
+		FROM %s.product_unit_definitions
+		WHERE code=$1
+		FOR SHARE
+	`, schema), unit).Scan(&unitType, &active); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("库存单位必须来自已启用的全局单位字典")
+		}
+		return err
+	}
+	if !active {
+		return fmt.Errorf("库存单位必须来自已启用的全局单位字典")
+	}
+	if isMaterialWeightUnitType(unitType) && unit != "kg" {
+		return fmt.Errorf("重量物料库存单位统一使用 kg；BOM 用量可使用 g 并自动换算")
+	}
+	return nil
 }
 
 func materialQtyForUnit(unit string, qtyG, qtyUnits int64) float64 {
@@ -781,17 +891,11 @@ func materialSchemaColumnExistsTx(ctx context.Context, tx pgx.Tx, schema, table,
 	return exists, err
 }
 
-func assertMaterialCostUnitReadOnly(old materialRow, next materialInput, requestedCostUnit string, inventoryUnitChanged bool) error {
+func assertMaterialCostUnitMatchesInventoryUnit(requestedCostUnit, inventoryUnit string) error {
 	requestedCostUnit = normalizeMaterialCostUnit(requestedCostUnit)
-	oldCostUnit := normalizeMaterialCostUnit(old.CostUnit)
-	if oldCostUnit == "" {
-		oldCostUnit = normalizeMaterialCostUnit(next.CostUnit)
-	}
-	if requestedCostUnit != "" && oldCostUnit != requestedCostUnit {
-		return fmt.Errorf("成本计价单位保存后不能修改；如需调整，请新建物料档案")
-	}
-	if inventoryUnitChanged && oldCostUnit != normalizeMaterialCostUnit(next.CostUnit) {
-		return fmt.Errorf("成本计价单位保存后不能修改；如需调整，请新建物料档案")
+	inventoryUnit = normalizeMaterialInventoryUnit(inventoryUnit)
+	if requestedCostUnit != "" && requestedCostUnit != inventoryUnit {
+		return fmt.Errorf("采购价与成本单价单位必须与库存单位一致")
 	}
 	return nil
 }
@@ -820,6 +924,7 @@ func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, ol
 		{"name", old.Name, next.Name},
 		{"kind", old.Kind, next.Kind},
 		{"is_semi_finished", fmt.Sprintf("%t", old.IsSemiFinished), fmt.Sprintf("%t", next.IsSemiFinished)},
+		{"supply_mode", materialSupplyMode(old.IsSemiFinished), materialSupplyMode(next.IsSemiFinished)},
 		{"unit", old.Unit, next.Unit},
 		{"cost_unit", old.CostUnit, next.CostUnit},
 		{"batch_no", old.BatchNo, next.BatchNo},
@@ -1412,6 +1517,7 @@ func materialToApp(row materialRow) materialsapp.Material {
 		Name:                       row.Name,
 		Kind:                       row.Kind,
 		IsSemiFinished:             row.IsSemiFinished,
+		SupplyMode:                 materialSupplyMode(row.IsSemiFinished),
 		CanManufacture:             row.CanManufacture,
 		Unit:                       row.Unit,
 		CostUnit:                   row.CostUnit,
@@ -1444,6 +1550,7 @@ func materialInputFromApp(in materialsapp.MaterialInput) materialInput {
 		Kind:                    in.Kind,
 		IsSemiFinished:          in.IsSemiFinished,
 		IsSemiFinishedSet:       in.IsSemiFinishedSet,
+		SupplyMode:              in.SupplyMode,
 		Unit:                    in.Unit,
 		CostUnit:                in.CostUnit,
 		BatchNo:                 in.BatchNo,

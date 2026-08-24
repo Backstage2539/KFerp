@@ -127,6 +127,9 @@ func finalizeMaterialOutputStockDocumentTx(
 }
 
 func sameMaterialOutputInventoryUnit(left, right string) bool {
+	if productionWeightUnitGrams(left) > 0 && productionWeightUnitGrams(right) > 0 {
+		return true
+	}
 	normalize := func(unit string) string {
 		unit = strings.ToLower(strings.TrimSpace(unit))
 		switch unit {
@@ -136,6 +139,8 @@ func sameMaterialOutputInventoryUnit(left, right string) bool {
 			return "kg"
 		case "磅":
 			return "lb"
+		case "ounce", "ounces", "盎司":
+			return "oz"
 		default:
 			return unit
 		}

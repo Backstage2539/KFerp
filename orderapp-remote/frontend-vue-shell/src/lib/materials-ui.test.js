@@ -10,6 +10,7 @@ const materialReceiptsSource = readFileSync(resolve(here, '../views/MaterialRece
 const warehouseSource = readFileSync(resolve(here, '../views/WarehouseInventoryView.vue'), 'utf8')
 const stockAdjustmentsSource = readFileSync(resolve(here, '../views/StockAdjustmentsView.vue'), 'utf8')
 const purchaseSource = readFileSync(resolve(here, '../views/PurchaseView.vue'), 'utf8')
+const stockEntriesSource = readFileSync(resolve(here, '../views/StockEntriesView.vue'), 'utf8')
 
 test('warehouse settings opens from selected warehouse while grouping is handled by shared controls', () => {
   const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
@@ -289,35 +290,51 @@ test('existing material inventory unit is locked after create', () => {
   assert.match(materialsSource, /unit:\s*draftMode\.value\s*\?\s*draft\.value\.unit\s*:\s*\(selected\.value\?\.unit\s*\|\|\s*draft\.value\.unit\)/)
 })
 
-test('materials archive separates inventory unit from locked cost unit', () => {
-  assert.match(materialsSource, /采购价与成本单价单位/)
-  assert.match(materialsSource, /materialCostUnitLocked/)
-  assert.match(materialsSource, /data-field="cost_unit"/)
-  assert.match(materialsSource, /用于采购价、批次单位成本和 BOM 成本试算/)
-  assert.match(materialsSource, /不用于库存数量/)
-  assert.match(materialsSource, /重量物料固定按元\/kg/)
-  assert.match(materialsSource, /采购价（元\/\{\{\s*draft\.cost_unit\s*\}\}）/)
-  assert.match(materialsSource, /cost_unit:/)
-  assert.match(materialsSource, /cost_unit:\s*draftMode\.value\s*\?\s*draft\.value\.cost_unit\s*:\s*\(selected\.value\?\.cost_unit\s*\|\|\s*draft\.value\.cost_unit\)/)
+test('materials archive uses inventory unit as the only purchase and cost price unit', () => {
+  assert.doesNotMatch(materialsSource, /采购价与成本单价单位/)
+  assert.doesNotMatch(materialsSource, /materialCostUnitLocked/)
+  assert.doesNotMatch(materialsSource, /data-field="cost_unit"/)
+  assert.doesNotMatch(materialsSource, /defaultMaterialCostUnit/)
+  assert.match(materialsSource, /重量物料库存统一使用 kg；BOM 配方仍可按 g 录入并自动换算/)
+  assert.match(materialsSource, /采购价、批次单位成本和 BOM 成本试算均按库存单位计价/)
+  assert.match(materialsSource, /采购价（元\/\{\{\s*draft\.unit\s*\}\}）/)
+  assert.match(materialsSource, /cost_unit:\s*draftMode\.value\s*\?\s*draft\.value\.unit\s*:\s*\(selected\.value\?\.unit\s*\|\|\s*draft\.value\.unit\)/)
+  assert.match(materialsSource, /unit_type:\s*row\.unit_type\s*\?\?\s*row\.UnitType\s*\?\?\s*'other'/)
+  assert.match(materialsSource, /function isMaterialWeightUnitType\(unitType\)/)
+  assert.match(materialsSource, /normalized === 'weight' \|\| normalized === '重量'/)
+  assert.match(materialsSource, /function isCanonicalMaterialInventoryUnit\(unitCode,\s*unitType\)/)
+  assert.match(materialsSource, /filter\(\(row\) => isCanonicalMaterialInventoryUnit\(row\.code,\s*row\.unit_type\)\)/)
+  assert.match(materialsSource, /find\(\(row\) => normalizeMaterialUnitCode\(row\.code\) === 'kg'\)/)
+  assert.match(materialsSource, /const unit = unitOptions\.value\.find\(\(row\) => normalizeMaterialUnitCode\(row\.code\) === 'kg'\)\?\.code \|\| 'kg'/)
 })
 
-test('material receipt, stock adjustment and purchase prices use material cost unit', () => {
-  assert.match(materialReceiptsSource, /selectedMaterialCostUnitLabel/)
-  assert.match(materialReceiptsSource, /成本（元\/\{\{\s*selectedMaterialCostUnitLabel\s*\}\}）/)
-  assert.doesNotMatch(materialReceiptsSource, /成本\/\{\{\s*selectedMaterialUnitLabel\s*\}\}/)
+test('material receipt, stock adjustment and purchase prices use the inventory unit directly', () => {
+  assert.match(materialReceiptsSource, /成本（元\/\{\{\s*selectedMaterialUnitLabel\s*\}\}）/)
+  assert.match(materialReceiptsSource, /const selectedMaterialUnitLabel = computed\(\(\) => unitDisplay\(selectedMaterial\.value\?\.unit \|\| selectedMaterial\.value\?\.Unit \|\| '-'\)\)/)
+  assert.match(materialReceiptsSource, /入库数量（\{\{ selectedMaterialUnitLabel \}\}）/)
+  assert.doesNotMatch(materialReceiptsSource, /CostUnit|cost_unit|materialCostUnit|selectedMaterialCostUnitLabel/)
 
-  assert.match(stockAdjustmentsSource, /selectedMaterialCostUnitLabel/)
-  assert.match(stockAdjustmentsSource, /目标成本（元\/\{\{\s*selectedMaterialCostUnitLabel\s*\}\}）/)
-  assert.match(stockAdjustmentsSource, /补录成本（元\/\{\{\s*selectedMaterialCostUnitLabel\s*\}\}）/)
+  assert.match(stockAdjustmentsSource, /目标成本（元\/\{\{\s*selectedMaterialUnitLabel\s*\}\}）/)
+  assert.match(stockAdjustmentsSource, /补录成本（元\/\{\{\s*selectedMaterialUnitLabel\s*\}\}）/)
+  assert.doesNotMatch(stockAdjustmentsSource, /CostUnit|cost_unit|materialCostUnit|selectedMaterialCostUnitLabel/)
   assert.doesNotMatch(stockAdjustmentsSource, /目标成本\/千克|补录成本\/千克/)
 
-  assert.match(purchaseSource, /selectedPurchaseMaterialCostUnit/)
-  assert.match(purchaseSource, /单价（元\/\{\{\s*selectedPurchaseMaterialCostUnit\s*\}\}）/)
-  assert.match(purchaseSource, /materialCostUnit\(row\.material_id\)/)
+  assert.match(purchaseSource, /selectedPurchaseMaterialUnit/)
+  assert.match(purchaseSource, /单价（元\/\{\{\s*selectedPurchaseMaterialUnit\s*\}\}）/)
+  assert.match(purchaseSource, /materialUnit\(row\.material_id\)/)
+  assert.doesNotMatch(purchaseSource, /CostUnit|cost_unit|materialCostUnit|selectedPurchaseMaterialCostUnit/)
   assert.match(purchaseSource, /purchasableMaterials/)
   assert.match(purchaseSource, /当前采购单按克记录数量，仅支持重量物料/)
   assert.match(stockAdjustmentsSource, /isSelectedMaterialWeight/)
   assert.match(stockAdjustmentsSource, /批次成本调整当前只支持重量物料/)
+})
+
+test('material receipt freezes unit to the selected material master', () => {
+  assert.match(materialReceiptsSource, /<input\s+:value="selectedMaterialUnitLabel"\s+readonly/)
+  assert.doesNotMatch(materialReceiptsSource, /<select\s+v-model="form\.unit_code"/)
+  assert.doesNotMatch(materialReceiptsSource, /apiGet\('\/api\/product-settings'\)/)
+  assert.doesNotMatch(materialReceiptsSource, /productUnitDefinitions|unitOptions|form\.unit_code/)
+  assert.match(materialReceiptsSource, /unit_code:\s*selectedMaterial\.value\?\.unit\s*\|\|\s*selectedMaterial\.value\?\.Unit\s*\|\|\s*''/)
 })
 
 test('materials keep derived manufacturing status beside output BOM links without duplicate technical hints', () => {
@@ -342,6 +359,22 @@ test('materials keep derived manufacturing status beside output BOM links withou
   assert.match(materialsSource, /materialReturnNavigation/)
   assert.match(materialsSource, /returnToMaterialSource/)
   assert.match(materialsSource, /is_semi_finished:\s*Boolean\(draft\.value\.is_semi_finished\)/)
+})
+
+test('semi-finished material is manufacture-only in material, purchase, receipt, and stock-entry forms', () => {
+  const materialsTemplate = materialsSource.split('<script setup>')[0] || materialsSource
+
+  assert.match(materialsTemplate, /<label\s+v-if="!draft\.is_semi_finished"><span>采购价/)
+  assert.match(materialsSource, /watch\(\(\)\s*=>\s*draft\.value\?\.is_semi_finished,[\s\S]*draft\.value\.purchase_price\s*=\s*0/)
+  assert.match(materialsSource, /purchase_price:\s*draft\.value\.is_semi_finished\s*\?\s*0\s*:\s*Number\(draft\.value\.purchase_price\s*\|\|\s*0\)/)
+
+  assert.match(purchaseSource, /isSemiFinishedMaterial/)
+  assert.match(purchaseSource, /const purchasableMaterials = computed\(\(\) => materials\.value\.filter\(\(material\) => isMaterialWeight\(material\) && !isSemiFinishedMaterial\(material\)\)\)/)
+  assert.match(purchaseSource, /isPurchasableMaterialByID/)
+
+  assert.match(stockEntriesSource, /selectableStockEntryMaterials/)
+  assert.match(stockEntriesSource, /const stockEntryMaterialOptions = computed\(\(\) => selectableStockEntryMaterials\(materials\.value, form\.purpose_key\)\)/)
+  assert.match(stockEntriesSource, /:options="item\.item_type === 'material' \? stockEntryMaterialOptions : products"/)
 })
 
 test('materials locally filter the loaded page by semi-finished marker without changing manufacturing capability', () => {

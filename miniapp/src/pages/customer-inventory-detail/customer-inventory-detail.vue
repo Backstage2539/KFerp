@@ -12,6 +12,7 @@ import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import { useProcessingPrefillStore } from '../../stores/processingPrefill'
 import { useSessionStore } from '../../stores/session'
+import { matchesCustomerInventoryIdentity } from '../../utils/customerInventory'
 
 const session = useSessionStore()
 const {
@@ -24,6 +25,9 @@ const {
 const processingPrefill = useProcessingPrefillStore()
 const productID = ref(0)
 const specG = ref(0)
+const bomSpecID = ref(0)
+const bomVariantID = ref(0)
+const inventoryUnit = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const navigating = ref(false)
@@ -36,6 +40,15 @@ const firstBatch = computed(() => batches.value[0])
 const productName = computed(() => summary.value?.product_name || firstBatch.value?.product_name || `商品 ${productID.value}`)
 const skuCode = computed(() => summary.value?.sku_code || firstBatch.value?.sku_code || `SKU ${productID.value}`)
 const warehouses = computed(() => summary.value?.warehouses || Array.from(new Set(batches.value.map((item) => item.warehouse))))
+const canonicalIdentity = computed(() => bomSpecID.value > 0)
+const specLabel = computed(() => {
+  if (canonicalIdentity.value) {
+    const name = summary.value?.bom_spec_name || firstBatch.value?.bom_spec_name || ''
+    const unit = summary.value?.inventory_unit || firstBatch.value?.inventory_unit || inventoryUnit.value
+    return [name, unit].filter(Boolean).join(' · ') || '当前 BOM 规格'
+  }
+  return `${specG.value}g`
+})
 
 async function load() {
   const version = ++loadVersion
@@ -43,6 +56,9 @@ async function load() {
   const customerID = session.currentCustomerID
   const requestedProductID = productID.value
   const requestedSpecG = specG.value
+  const requestedBomSpecID = bomSpecID.value
+  const requestedBomVariantID = bomVariantID.value
+  const requestedCanonical = requestedBomSpecID > 0 || requestedBomVariantID > 0
   if (!token) {
     loading.value = false
     summary.value = null
@@ -50,7 +66,11 @@ async function load() {
     errorMessage.value = '登录已失效，请返回后重新登录'
     return
   }
-  if (requestedProductID <= 0 || requestedSpecG <= 0) {
+  if (
+    requestedProductID <= 0
+    || (requestedCanonical && requestedBomSpecID <= 0)
+    || (!requestedCanonical && requestedSpecG <= 0)
+  ) {
     loading.value = false
     summary.value = null
     batches.value = []
@@ -62,7 +82,10 @@ async function load() {
   try {
     const [inventoryResponse, batchResponse] = await Promise.all([
       fetchCustomerInventory(token),
-      fetchCustomerInventoryBatches(token, requestedProductID, requestedSpecG),
+      fetchCustomerInventoryBatches(token, requestedProductID, requestedCanonical ? {
+        bom_spec_id: requestedBomSpecID,
+        bom_variant_id: requestedBomVariantID,
+      } : requestedSpecG),
     ])
     if (
       version !== loadVersion
@@ -70,10 +93,16 @@ async function load() {
       || customerID !== session.currentCustomerID
       || requestedProductID !== productID.value
       || requestedSpecG !== specG.value
+      || requestedBomSpecID !== bomSpecID.value
+      || requestedBomVariantID !== bomVariantID.value
     ) return
-    const currentSummary = (inventoryResponse.rows || []).find((item) => (
-      Number(item.product_id) === requestedProductID && Number(item.spec_g) === requestedSpecG
-    )) || null
+    const requestedIdentity = {
+      product_id: requestedProductID,
+      bom_spec_id: requestedBomSpecID,
+      bom_variant_id: requestedBomVariantID,
+      spec_g: requestedSpecG,
+    }
+    const currentSummary = (inventoryResponse.rows || []).find((item) => matchesCustomerInventoryIdentity(item, requestedIdentity)) || null
     if (!currentSummary) {
       summary.value = null
       batches.value = []
@@ -81,7 +110,7 @@ async function load() {
       return
     }
     summary.value = currentSummary
-    batches.value = batchResponse.rows || []
+    batches.value = (batchResponse.rows || []).filter((item) => matchesCustomerInventoryIdentity(item, requestedIdentity))
     uni.setNavigationBarTitle({ title: `${productName.value}库存` })
   } catch (error) {
     if (version !== loadVersion) return
@@ -105,7 +134,11 @@ function addProductionOrder() {
   navigating.value = true
   processingPrefill.stage(session.currentCustomerID, [{
     product_id: productID.value,
+    bom_spec_id: bomSpecID.value,
+    bom_variant_id: bomVariantID.value,
     spec_g: specG.value,
+    spec_name: summary.value?.bom_spec_name || firstBatch.value?.bom_spec_name,
+    inventory_unit: inventoryUnit.value || summary.value?.inventory_unit || firstBatch.value?.inventory_unit,
     product_name: productName.value,
     sku_code: skuCode.value,
   }])
@@ -124,6 +157,9 @@ function addProductionOrder() {
 onLoad((query) => {
   productID.value = Number(query?.product_id || 0)
   specG.value = Number(query?.spec_g || 0)
+  bomSpecID.value = Number(query?.bom_spec_id || 0)
+  bomVariantID.value = Number(query?.bom_variant_id || 0)
+  inventoryUnit.value = String(query?.inventory_unit || '')
 })
 onShow(() => { void load() })
 onBeforeUnmount(() => {
@@ -152,7 +188,7 @@ onBeforeUnmount(() => {
         <view class="summary-head">
           <view class="summary-copy">
             <text class="title">{{ productName }}</text>
-            <text class="hint">{{ skuCode }} · 规格 {{ specG }}g</text>
+            <text class="hint">{{ skuCode }} · 规格 {{ specLabel }}</text>
           </view>
           <text class="available">可用 {{ summary?.available_qty || 0 }}</text>
         </view>

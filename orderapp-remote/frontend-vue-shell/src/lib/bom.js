@@ -33,6 +33,46 @@ export function bomProductOptionLabel(row = {}) {
   return `${code} ${name}`
 }
 
+export function materialOptionLabel(row = {}) {
+  const name = String(row.name || row.material_name || row.materialName || '').trim()
+  const code = String(row.product_code || row.productCode || row.code || '').trim()
+  if (!name) return code || `物料 #${Number(row.material_id || row.id || 0)}`
+  if (!code || name.toLowerCase().includes(code.toLowerCase())) return name
+  return `${code} ${name}`
+}
+
+export function nextSpecKey(existingKeys = []) {
+  let max = 0
+  for (const raw of existingKeys) {
+    const match = /^spec-(\d+)$/.exec(String(raw || '').trim().toLowerCase())
+    if (match) {
+      const n = Number(match[1])
+      if (Number.isFinite(n) && n > max) max = n
+    }
+  }
+  return `spec-${max + 1}`
+}
+
+export function assignVariantSpecKeys(variants = []) {
+  const rows = Array.isArray(variants) ? variants : []
+  const existing = new Set()
+  for (const variant of rows) {
+    const key = String(variant?.spec_key || '').trim()
+    if (!key) continue
+    const normalized = key.toLowerCase()
+    if (existing.has(normalized)) throw new Error(`规格键重复：${key}`)
+    existing.add(normalized)
+  }
+  for (const variant of rows) {
+    if (!String(variant?.spec_key || '').trim()) {
+      const generated = nextSpecKey([...existing])
+      variant.spec_key = generated
+      existing.add(generated.toLowerCase())
+    }
+  }
+  return rows
+}
+
 export function bomRowCustomerID(row = {}) {
   return Number(row.customer_id ?? row.customerID ?? 0)
 }
@@ -258,6 +298,20 @@ export function productionBomVersionWarning(row = {}) {
   const isLatest = rawLatest === true || rawLatest === 'true' || rawLatest === 1
   if (!current || !latest || isLatest || current === latest) return ''
   return `当前引用 ${current}，最新 ${latest}`
+}
+
+export function productionBomDraftItemKey(item = {}, index = 0) {
+  const localKey = String(item.local_key || '').trim()
+  if (localKey) return localKey
+  const id = Number(item.id || 0)
+  if (id > 0) return `bom-item:${id}`
+  return `bom-item:index:${index}`
+}
+
+export function removeProductionBomDraftItem(items = [], targetKey = '') {
+  const key = String(targetKey || '').trim()
+  if (!key) return Array.isArray(items) ? [...items] : []
+  return (Array.isArray(items) ? items : []).filter((item, index) => productionBomDraftItemKey(item, index) !== key)
 }
 
 export function bomSourceLabel(row = {}) {

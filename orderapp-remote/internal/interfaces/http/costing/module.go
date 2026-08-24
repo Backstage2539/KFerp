@@ -32,6 +32,13 @@ type Service interface {
 	PublishRun(context.Context, string, int64) error
 }
 
+// MaterialCostTrialService is optional for compatibility with lightweight
+// costing fakes used by existing route tests and integrations.
+type MaterialCostTrialService interface {
+	MaterialCostTrialOptions(context.Context, int64) (appcosting.MaterialCostTrialOptions, error)
+	MaterialCostTrial(context.Context, appcosting.MaterialCostTrialCommand) (appcosting.MaterialCostTrialResult, error)
+}
+
 type Dependencies struct {
 	Costing Service
 	Authz   support.AuthzService

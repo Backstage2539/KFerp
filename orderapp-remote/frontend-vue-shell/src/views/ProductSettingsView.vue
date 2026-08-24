@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案维护商品族信息、销售规格模板、派生子 SKU、行业字段、客户引用和 BOM 使用摘要；库存单位来自销售规格模板，商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
+          <p>商品档案维护商品族信息、行业字段、客户引用和 BOM 使用摘要；已切换商品的规格、库存单位和配方统一由默认已发布 BOM 提供，旧销售规格模板与派生子 SKU 仅供尚未切换的商品过渡使用。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading || productCategoryMoveActive">刷新</button>
       </div>
@@ -182,18 +182,6 @@
                 </label>
                 <div class="filter-actions sku-list-actions">
                   <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
-                  <select v-model.number="batchProductUnitTemplateID" class="compact-select" :disabled="!selectedProductIds.length || loading">
-                    <option :value="0">选择销售规格模板</option>
-                    <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
-                      {{ productUnitTemplateSummary(unitTemplate) }}
-                    </option>
-                  </select>
-                  <button class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
-                    设置销售规格模板
-                  </button>
-                  <button class="secondary compact-action" type="button" @click="openProductUnitTemplateManagement">
-                    维护销售规格模板
-                  </button>
                   <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
                     失效商品
                   </button>
@@ -234,8 +222,21 @@
                         </td>
                         <td class="sku-name-cell">
                           <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
-                          <details v-if="row.sku_rows?.length" class="product-spec-skus">
-                            <summary>{{ row.sku_rows.length }} 个规格 SKU</summary>
+                          <div v-if="row.bom_specs?.length" class="product-bom-specs">
+                            <span class="product-bom-spec-label">BOM 规格</span>
+                            <button
+                              v-for="spec in row.bom_specs"
+                              :key="`product-bom-spec-${row.id}-${spec.bom_spec_id}-${spec.bom_variant_id}`"
+                              class="product-bom-spec-item"
+                              type="button"
+                              :disabled="row.active === false"
+                              @click.stop="openProductProductionConfig(row)">
+                              {{ spec.spec_name || spec.spec_key || `规格 #${spec.bom_spec_id}` }} / {{ spec.inventory_unit || '-' }}<small v-if="spec.is_default">默认</small>
+                            </button>
+                          </div>
+                          <small v-else-if="row.bom_spec_authoritative" class="muted">无可报价 BOM 规格</small>
+                          <details v-else-if="row.sku_rows?.length" class="product-spec-skus">
+                            <summary>{{ row.sku_rows.length }} 个历史规格</summary>
                             <div class="product-spec-sku-list">
                               <button
                                 v-for="sku in row.sku_rows"
@@ -538,10 +539,10 @@
 
       <div v-show="showUnitTemplatePane" class="panel unit-template-panel unit-template-pane">
         <div class="panel-title">
-          <span>销售规格模板</span>
+          <span>旧商品销售规格模板（迁移期）</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
         </div>
-        <p class="muted unit-template-note">这里维护库存单位和销售规格换算；商品档案引用模板后自动派生子 SKU。</p>
+        <p class="muted unit-template-note">这里维护库存单位和销售规格换算，仅供尚未切换到 BOM 规格的旧商品及历史派生子 SKU；已切换商品请到 BOM 维护规格。</p>
         <div class="unit-template-layout">
           <section class="unit-template-card unit-template-list-panel">
             <div class="field-group-head">
@@ -705,16 +706,8 @@
               </label>
             </div>
             <div class="rule-config-block">
-              <div class="field-group-title">销售规格模板</div>
-              <label>
-                <span>引用模板</span>
-                <select v-model.number="productConfigTemplateForm.unit_template_id" :disabled="!canEditCurrentProductConfigTemplate">
-                  <option value="0">请选择销售规格模板</option>
-                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="unitTemplate.id">{{ productUnitTemplateSummary(unitTemplate) }}</option>
-                </select>
-              </label>
-              <small>{{ productUnitTemplateSummary(selectedProductConfigUnitTemplate) }}</small>
-              <small class="unit-impact-help">销售规格模板会影响商品价格表规格行、录单默认销售规格和后续派生子 SKU；已发布价格表和历史订单不会被回改。</small>
+              <div class="field-group-title">销售规格</div>
+              <small class="unit-impact-help">商品规格统一由默认制造 BOM 的规格组提供；配置模板不再单独引用规格模板。</small>
             </div>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
@@ -906,13 +899,17 @@
       <aside class="settings-drawer pricing-rule-trial-drawer" aria-label="价格计算模板试算">
         <div class="drawer-head">
           <div>
-            <h3>价格计算模板试算</h3>
+            <h3>{{ pricingRuleTrialMode === 'material' ? '物料成本试算' : '商品价格试算' }}</h3>
             <p>{{ pricingRuleTrialRule?.name || pricingRuleTrialRule?.code || '价格计算模板' }} · {{ pricingRuleTrialRule?.formula_version || 'v1' }}</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closePricingRuleTrial">关闭</button>
         </div>
         <div class="drawer-body">
-          <section class="drawer-section pricing-rule-trial-summary">
+          <div class="pricing-rule-trial-mode-switch" role="tablist" aria-label="试算类型">
+            <button type="button" :class="{ active: pricingRuleTrialMode === 'product' }" @click="setPricingRuleTrialMode('product')">商品价格试算</button>
+            <button type="button" :class="{ active: pricingRuleTrialMode === 'material' }" @click="setPricingRuleTrialMode('material')">物料成本试算</button>
+          </div>
+          <section v-if="pricingRuleTrialMode === 'product'" class="drawer-section pricing-rule-trial-summary">
             <div>
               <strong>{{ pricingRuleTrialRule?.name || pricingRuleTrialRule?.code || '未命名模板' }}</strong>
               <small>{{ pricingRuleTrialRule ? '启用模板，可将调试参数更新回当前模板' : '请先选择启用的价格计算模板' }}</small>
@@ -925,6 +922,7 @@
             </div>
           </section>
 
+          <template v-if="pricingRuleTrialMode === 'product'">
           <section class="drawer-section pricing-rule-trial-form-section">
             <div class="template-editor-grid pricing-rule-trial-grid">
               <label class="wide-field">
@@ -976,6 +974,7 @@
                   </template>
                 </SearchableSelect>
               </label>
+              <div class="pricing-rule-trial-bom-selection-grid">
               <div class="pricing-rule-trial-bom-field">
                 <label>
                   <span>试算BOM版本</span>
@@ -987,6 +986,17 @@
                   </select>
                 </label>
                 <button class="secondary compact-action" type="button" :disabled="!selectedPricingRuleTrialBomVersion?.bom_id" @click="navigatePricingRuleTrialBom">配置BOM</button>
+              </div>
+              <label v-if="pricingRuleTrialBomSpecOptions.length">
+                <span>BOM规格</span>
+                <select v-model.number="pricingRuleTrialForm.bom_variant_id">
+                  <option :value="0">按默认规格</option>
+                  <option v-for="option in pricingRuleTrialBomSpecOptions" :key="option.bom_variant_id" :value="Number(option.bom_variant_id || 0)">
+                    {{ pricingRuleTrialBomSpecOptionLabel(option) }}
+                  </option>
+                </select>
+                <small class="muted">规格会同时锁定 BOM 规格身份和对应配方变体。</small>
+              </label>
               </div>
               <label>
                 <span>工艺路线</span>
@@ -1050,6 +1060,18 @@
           </section>
 
           <section v-if="pricingRuleTrialResult" class="drawer-section pricing-rule-trial-result">
+            <div v-if="pricingRuleTrialResult.cost_status === 'incomplete'" class="pricing-rule-trial-warnings">
+              <strong>成本不完整，不能生成或发布正式价格</strong>
+              <p>已解析部分成本：{{ trialMoneyDisplay(pricingRuleTrialResult.partial_cost, pricingRuleTrialResult.quote_unit) }}</p>
+              <ul>
+                <li v-for="(issue, index) in pricingRuleTrialResult.unresolved_components || []" :key="`${issue.component_id || issue.component_name || 'component'}-${index}`">
+                  {{ issue.component_name || issue.component_material_name || issue.component_product_name || 'BOM组件' }}
+                  <span v-if="issue.bom_id">（BOM {{ issue.bom_id }}<template v-if="issue.version_no"> / {{ issue.version_no }}</template>）</span>
+                  ：{{ issue.reason || '成本无法解析' }}
+                  <small v-if="issue.path?.length">路径：{{ issue.path.map((node) => node.bom_id ? `BOM ${node.bom_id}/${node.version_no || node.version_id}` : (node.output_name || node.output_id)).join(' → ') }}</small>
+                </li>
+              </ul>
+            </div>
             <div class="pricing-rule-trial-waterfall">
               <button
                 :class="['pricing-rule-trial-waterfall-card', 'interactive', { active: pricingRuleTrialActiveExplanation === 'base_cost', warning: pricingRuleTrialBaseCostMissing(pricingRuleTrialResult) }]"
@@ -1124,6 +1146,7 @@
                         <td>
                           <span>{{ row.name || '-' }}</span>
                           <small v-if="row.description">{{ row.description }}</small>
+                          <small v-if="row.warning" class="error">{{ row.warning }}</small>
                         </td>
                         <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
                         <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
@@ -1197,6 +1220,7 @@
             </div>
             <div class="pricing-rule-trial-result-meta">
               <span>BOM版本：{{ pricingRuleTrialResult.bom_version_no || pricingRuleTrialResult.bom_version_id || '-' }}</span>
+              <span>BOM规格：{{ pricingRuleTrialBomSpecDisplay(pricingRuleTrialResult) }}</span>
               <span>工艺路线：{{ pricingRuleTrialResult.process_route_name || pricingRuleTrialResult.process_route_id || '-' }}</span>
               <span>毛利率：{{ percentDisplay(pricingRuleTrialResult.gross_margin_rate) }}</span>
             </div>
@@ -1239,6 +1263,7 @@
                         <td>
                           <span>{{ row.name || '-' }}</span>
                           <small v-if="row.description">{{ row.description }}</small>
+                          <small v-if="row.warning" class="error">{{ row.warning }}</small>
                         </td>
                         <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
                         <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
@@ -1313,8 +1338,141 @@
               </table>
             </div>
           </section>
+          </template>
+          <section v-else class="drawer-section material-cost-trial-section">
+            <div class="material-cost-trial-grid">
+              <label>
+                <span>试算物料</span>
+                <SearchableSelect
+                  v-model="pricingRuleTrialMaterialID"
+                  :options="pricingRuleTrialMaterialOptions"
+                  :option-label="materialTrialOptionLabel"
+                  :option-value="optionNumericValue"
+                  placeholder="选择物料档案"
+                  empty-text="暂无可试算物料" />
+              </label>
+              <div class="pricing-rule-trial-bom-field">
+                <label>
+                  <span>试算 BOM 版本</span>
+                  <select v-model.number="pricingRuleTrialMaterialBomVersionID" :disabled="!pricingRuleTrialMaterialBomOptions.length">
+                    <option :value="0">按默认已发布版本</option>
+                    <option v-for="option in pricingRuleTrialMaterialBomOptions" :key="option.version_id" :value="Number(option.version_id || 0)">{{ option.bom_name }} / {{ option.version_no }} · {{ option.status }}<template v-if="option.is_default"> · 默认</template></option>
+                  </select>
+                  <small class="muted">自制物料按所选制造 BOM 递归成本；草稿版本仅用于诊断。</small>
+                </label>
+                <button class="secondary compact-action" type="button" :disabled="!selectedPricingRuleTrialMaterialBomOption?.bom_id" @click="navigateMaterialCostTrialBom">配置 BOM</button>
+              </div>
+            </div>
+            <div v-if="pricingRuleTrialMaterialError" class="error">{{ pricingRuleTrialMaterialError }}</div>
+              <div v-if="pricingRuleTrialMaterialResult" class="material-cost-trial-result">
+              <div class="pricing-rule-trial-warnings" :class="{ 'complete-cost': pricingRuleTrialMaterialResult.cost_status === 'complete' && pricingRuleTrialMaterialResult.bom_status !== 'draft' }">
+                <strong>{{ pricingRuleTrialMaterialResult.cost_status === 'complete' && pricingRuleTrialMaterialResult.bom_status !== 'draft' ? '成本完整' : pricingRuleTrialMaterialResult.bom_status === 'draft' ? '草稿 BOM 仅可诊断，不能生成或发布价格' : '成本不完整，不能生成或发布价格' }}</strong>
+                <p>已解析部分成本：{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.partial_cost, pricingRuleTrialMaterialResult.cost_unit) }}</p>
+                <p v-if="pricingRuleTrialMaterialResult.cost_source">成本来源：{{ pricingRuleTrialSourceDisplay(pricingRuleTrialMaterialResult.cost_source) }}</p>
+                <p v-if="pricingRuleTrialMaterialResult.bom_snapshot?.bom_id">BOM：{{ pricingRuleTrialMaterialResult.bom_snapshot.bom_id }} / {{ pricingRuleTrialMaterialResult.bom_snapshot.version_no || pricingRuleTrialMaterialResult.bom_snapshot.version_id }} · {{ pricingRuleTrialMaterialResult.bom_snapshot.status || '未知状态' }}</p>
+                <ul>
+                  <li v-for="(issue, index) in pricingRuleTrialMaterialResult.unresolved_components || []" :key="`${issue.component_id || issue.component_name || 'component'}-${index}`">
+                    {{ issue.component_name || issue.component_material_name || 'BOM组件' }}：{{ issue.reason || '成本无法解析' }}
+                  </li>
+                </ul>
+              </div>
+              <div class="pricing-rule-trial-waterfall material-cost-trial-waterfall">
+                <div class="pricing-rule-trial-waterfall-card">
+                  <small>物料成本</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.material_unit_cost ?? pricingRuleTrialMaterialResult.input_cost, pricingRuleTrialMaterialResult.cost_unit) }}</strong>
+                  <em>{{ pricingRuleTrialSourceDisplay(pricingRuleTrialMaterialResult.cost_source) }}</em>
+                </div>
+                <span class="pricing-rule-trial-operator">+</span>
+                <div class="pricing-rule-trial-waterfall-card">
+                  <small>标准工序成本</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.operation_unit_cost ?? pricingRuleTrialMaterialResult.operation_cost, pricingRuleTrialMaterialResult.cost_unit) }}</strong>
+                  <em>来自 BOM 工序成本快照</em>
+                </div>
+                <span class="pricing-rule-trial-operator equals">=</span>
+                <div class="pricing-rule-trial-waterfall-card final">
+                  <small>标准制造成本</small>
+                  <strong>{{ trialMoneyDisplay(pricingRuleTrialMaterialResult.standard_manufacturing_unit_cost ?? pricingRuleTrialMaterialResult.partial_cost, pricingRuleTrialMaterialResult.cost_unit) }}</strong>
+                  <em>仅成本诊断，不生成售价</em>
+                </div>
+              </div>
+              <div class="pricing-rule-trial-result-meta">
+                <span>物料：{{ pricingRuleTrialMaterialResult.material_name || pricingRuleTrialMaterialResult.material_code || '-' }}</span>
+                <span>BOM版本：{{ pricingRuleTrialMaterialResult.bom_version_no || pricingRuleTrialMaterialResult.bom_version_id || '-' }}</span>
+                <span>成本完整性：{{ pricingRuleTrialMaterialResult.bom_status === 'draft' ? '草稿诊断' : pricingRuleTrialMaterialResult.cost_status === 'complete' ? '完整' : '不完整' }}</span>
+              </div>
+              <div class="pricing-rule-trial-formula material-cost-trial-formula">
+                <strong>计算公式</strong>
+                <p v-if="pricingRuleTrialMaterialResult.formula_expression" class="pricing-rule-trial-formula-main">{{ pricingRuleTrialMaterialResult.formula_expression }}</p>
+                <ol v-if="pricingRuleTrialMaterialResult.formula_expression_lines?.length">
+                  <li v-for="line in pricingRuleTrialMaterialResult.formula_expression_lines" :key="line">{{ line }}</li>
+                </ol>
+              </div>
+              <div class="pricing-rule-trial-base-detail">
+                <div class="field-group-head">
+                  <strong>标准制造成本明细</strong>
+                  <small>物料成本 {{ trialMoneyDisplay(pricingRuleTrialMaterialResult.material_unit_cost ?? pricingRuleTrialMaterialResult.input_cost, pricingRuleTrialMaterialResult.cost_unit) }}；标准工序成本 {{ trialMoneyDisplay(pricingRuleTrialMaterialResult.operation_unit_cost ?? pricingRuleTrialMaterialResult.operation_cost, pricingRuleTrialMaterialResult.cost_unit) }}</small>
+                </div>
+                <div class="pricing-rule-trial-detail-group">
+                  <strong>物料成本明细</strong>
+                  <div class="table-wrap compact-table-wrap">
+                    <table>
+                      <thead><tr><th>类型</th><th>名称</th><th>BOM组成</th><th>原料损耗</th><th>损耗后用量</th><th>成本来源</th><th>成本单价</th><th>折算成本</th></tr></thead>
+                      <tbody>
+                        <tr v-for="row in pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'material')" :key="row.key || row.name">
+                          <td>{{ row.type_label || pricingRuleTrialBaseCostTypeLabel(row.type) }}</td>
+                          <td><span>{{ row.name || '-' }}</span><small v-if="row.description">{{ row.description }}</small><small v-if="row.warning" class="error">{{ row.warning }}</small></td>
+                          <td>{{ pricingRuleTrialBaseCostRecipeUsage(row) }}</td>
+                          <td>{{ pricingRuleTrialBaseCostLossRate(row) }}</td>
+                          <td>{{ pricingRuleTrialBaseCostEffectiveUsage(row) }}</td>
+                          <td>{{ pricingRuleTrialSourceDisplay(row.cost_source) }}</td>
+                          <td>{{ trialMoneyDisplay(pricingRuleTrialBaseCostUnitCostValue(row), row.cost_unit || row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                          <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                        </tr>
+                        <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'material').length"><td colspan="8" class="muted">暂无物料成本明细。</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="pricing-rule-trial-detail-group">
+                  <strong>标准工序成本明细</strong>
+                  <div class="table-wrap compact-table-wrap">
+                    <table>
+                      <thead><tr><th>工序</th><th>工作中心</th><th>产能档</th><th>成本来源</th><th>计费口径</th><th>成本单价</th><th>折算成本</th></tr></thead>
+                      <tbody>
+                        <tr v-for="row in pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'operation')" :key="row.key || row.name">
+                          <td>{{ row.name || '-' }}</td><td>{{ row.workstation_name || '-' }}</td><td>{{ row.capacity_name || '-' }}</td>
+                          <td>{{ pricingRuleTrialSourceDisplay(row.cost_source || row.capacity_selection_source) }}</td>
+                          <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
+                          <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                          <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialMaterialResult.cost_unit) }}</td>
+                        </tr>
+                        <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialMaterialResult, 'operation').length"><td colspan="7" class="muted">暂无标准工序成本明细。</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group-head">
+                <strong>公式步骤</strong>
+                <small>物料试算只展示标准成本，不会写入价格表或发布售价。</small>
+              </div>
+              <div class="table-wrap compact-table-wrap">
+                <table>
+                  <thead><tr><th>步骤</th><th>说明</th><th>数值</th></tr></thead>
+                  <tbody>
+                    <tr v-for="step in pricingRuleTrialMaterialResult.steps || []" :key="step.key"><td>{{ step.label || step.key }}</td><td>{{ pricingRuleTrialStepSourceDisplay(step) }}</td><td>{{ pricingRuleTrialStepDisplay(step) }}</td></tr>
+                    <tr v-if="!pricingRuleTrialMaterialResult.steps?.length"><td colspan="3" class="muted">暂无公式步骤。</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="form-actions">
+              <span v-if="pricingRuleTrialMaterialLoading" class="muted">试算中...</span>
+              <button class="secondary" type="button" @click="closePricingRuleTrial">关闭</button>
+            </div>
+          </section>
         </div>
-        <div class="drawer-footer pricing-rule-trial-footer">
+        <div v-if="pricingRuleTrialMode === 'product'" class="drawer-footer pricing-rule-trial-footer">
           <div>
             <strong v-if="pricingRuleTrialUpdateMessage" class="pricing-rule-trial-update-message">{{ pricingRuleTrialUpdateMessage }}</strong>
             <small>只更新加价率、已填写税率和其他成本；商品、BOM、路线与销售规格不写入模板。</small>
@@ -1325,7 +1483,7 @@
     </div>
 
     <div v-if="productDrawerOpen" class="settings-drawer-mask" @click.self="closeProductDrawer">
-      <aside class="settings-drawer product-editor-drawer" aria-label="新增SKU">
+      <aside class="settings-drawer product-editor-drawer" aria-label="创建新商品档案">
         <div class="drawer-head">
           <div>
             <h3>创建新商品档案</h3>
@@ -1343,27 +1501,7 @@
               <span>备注</span>
               <textarea v-model.trim="skuForm.remark" rows="2" placeholder="如 原料规格、包装说明或客户要求"></textarea>
             </label>
-            <label class="wide-field">
-              <span>销售规格模板</span>
-              <select v-model.number="skuForm.unit_template_id" @change="applySkuUnitTemplateDefaults(skuForm)">
-                <option :value="0" disabled>请选择销售规格模板</option>
-                <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
-                  {{ productUnitTemplateSummary(unitTemplate) }}
-                </option>
-              </select>
-              <small>库存单位：来自销售规格模板 {{ productUnitTemplateInventoryLabel(skuForm.unit_template_id, 'kg') }}；默认销售规格：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, '') }}</small>
-            </label>
-            <div class="sales-spec-template-detail wide-field" v-if="skuFormSalesSpecRows.length">
-              <strong>销售规格模板明细</strong>
-              <article v-for="row in skuFormSalesSpecRows" :key="`create-sales-spec-${row.spec_key}`" class="child-sku-row compact-derived-sku-row">
-                <div>
-                  <strong>{{ row.spec_name }}</strong>
-                  <small>{{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(skuForm.unit_template_id)) }}</small>
-                  <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
-                </div>
-                <span :class="['template-meta-chip', { inactive: row.active === false }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
-              </article>
-            </div>
+            <p class="muted wide-field new-product-bom-spec-hint">建档后请到 BOM 创建至少一个规格，并维护该规格的库存单位与完整配方；商品档案不再维护销售规格模板或派生子 SKU。</p>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
@@ -1506,6 +1644,39 @@
           <button class="secondary compact-action" type="button" @click="closeProductProductionConfigDrawer">关闭</button>
         </div>
         <div class="drawer-body product-production-config-body">
+          <section v-if="!Number(productProductionConfigProduct?.parent_product_id || 0)" class="drawer-section bom-spec-migration-panel">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>BOM 规格迁移</strong>
+                <small>只迁入旧规格元数据供核对，不自动生成配方，也不会自动切换商品。</small>
+              </div>
+              <span class="template-meta-chip">{{ productBomSpecMigrationStateLabel }}</span>
+            </div>
+            <div class="inline-actions migration-actions">
+              <button v-if="productBomSpecMigrationState === 'legacy'" class="secondary compact-action" type="button" :disabled="productSpecMigrationSaving" @click="prepareProductBomSpecMigration">迁入规格元数据</button>
+              <button v-if="productBomSpecMigrationState === 'preparing' || productBomSpecMigrationState === 'ready'" class="secondary compact-action" type="button" :disabled="productSpecMigrationSaving" @click="assessProductBomSpecMigration">重新检查切换条件</button>
+              <button v-if="productBomSpecMigrationState === 'ready'" class="primary compact-action" type="button" :disabled="productSpecMigrationSaving" @click="cutoverProductBomSpecs">确认切换到 BOM 规格</button>
+              <button class="text-button" type="button" @click="navigateProductBom(productProductionDefaultBomUsageRow || {})">到 BOM 重建并发布完整配方</button>
+            </div>
+            <div v-if="productBomSpecMigrationBlockers.length" class="warning-banner migration-blockers">
+              <strong>当前不能切换</strong>
+              <ul>
+                <li v-for="blocker in productBomSpecMigrationBlockers" :key="blocker.code">{{ blocker.message || blocker.code }}（{{ blocker.count }}）</li>
+              </ul>
+            </div>
+            <div v-if="productBomSpecMigrationMappings.length" class="table-wrap compact">
+              <table>
+                <thead><tr><th>旧规格</th><th>BOM 规格映射</th><th>历史配置对照</th></tr></thead>
+                <tbody>
+                  <tr v-for="mapping in productBomSpecMigrationMappings" :key="mapping.id || mapping.legacy_child_product_id">
+                    <td>{{ mapping.legacy_spec_name || mapping.legacy_spec_key || `旧规格 #${mapping.legacy_child_product_id}` }}</td>
+                    <td>{{ Number(mapping.bom_spec_id || 0) > 0 ? `已匹配 BOM 规格 #${mapping.bom_spec_id}` : '待在 BOM 中重建并按规格键匹配' }}</td>
+                    <td><details><summary>查看旧损耗、备注、BOM 与路线</summary><pre>{{ productBomSpecMigrationSnapshot(mapping) }}</pre></details></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
           <section class="drawer-section">
             <div class="field-group-head">
               <div class="field-group-copy">
@@ -1523,45 +1694,29 @@
                 <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
               </label>
               <label class="wide-field">
-                <span>销售规格模板</span>
-                <select v-model.number="productProductionConfigForm.unit_template_id" @change="applyProductConfigUnitTemplateDefaults(productProductionConfigForm)">
-                  <option :value="0" disabled>请选择销售规格模板</option>
-                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
-                    {{ productUnitTemplateSummary(unitTemplate) }}
-                  </option>
-                </select>
-                <small>库存单位：来自销售规格模板 {{ productUnitTemplateInventoryLabel(productProductionConfigForm.unit_template_id, 'kg') }}；默认销售规格：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
+                <span>商品规格</span>
+                <input :value="productProductionBomSpecsSummary" disabled />
+                <small>规格统一来自默认制造 BOM 的规格组，到 BOM 维护；商品档案不再单独选择规格模板。</small>
               </label>
             </div>
-            <div class="sales-spec-template-detail" v-if="productProductionSalesSpecRows.length || productProductionRemovedSkuRows.length">
+            <div class="sales-spec-template-detail bom-spec-readonly-panel">
               <div class="sales-spec-template-detail-head">
-                <strong>销售规格模板明细</strong>
-                <label v-if="productProductionRemovedSkuRows.length" class="checkline compact-checkline sales-spec-history-toggle">
-                  <input type="checkbox" v-model="showProductProductionHistoricalSpecs" />
-                  <span>显示历史规格</span>
-                </label>
-              </div>
-              <article v-for="row in productProductionVisibleSalesSpecRows" :key="`config-sales-spec-${row.spec_key || row.derived_spec_key || row.id}`" :class="['child-sku-row', 'compact-derived-sku-row', { inactive: row.derived_spec_status === 'template_removed' }]">
                 <div>
-                  <strong>{{ row.spec_name }}</strong>
-                  <small>{{ salesSpecConversionLabel(row, productUnitTemplateInventoryUnit(productProductionConfigForm.unit_template_id)) }}</small>
-                  <small>SKU 编号：{{ derivedSkuCodeLabel(row) }}</small>
-                  <small v-if="row.derived_spec_status === 'template_removed'" class="muted">历史 SKU 保留用于历史单据，不参与新建业务</small>
+                  <strong>BOM 规格（只读）</strong>
+                  <small>规格、单位和配方统一在默认制造 BOM 的规格组维护；商品档案直接引用并展示。</small>
                 </div>
-                <div class="sales-spec-default-actions">
-                  <span v-if="productSalesSpecIsDefault(row)" class="template-meta-chip default-spec-chip">默认规格</span>
-                  <button
-                    v-else-if="productSalesSpecCanSetDefault(row)"
-                    class="secondary compact-action"
-                    type="button"
-                    :disabled="defaultSkuSavingID === productSalesSpecSkuID(row)"
-                    @click="setDefaultProductSalesSpec(row)">
-                    {{ defaultSkuSavingID === productSalesSpecSkuID(row) ? '设置中' : '设为默认规格' }}
-                  </button>
-                  <span v-if="row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' || row.active === false" :class="['template-meta-chip', { inactive: row.active === false || row.derived_spec_status === 'template_removed' || row.derived_spec_status === 'template_disabled' }]">{{ derivedSpecStatusLabel(row.derived_spec_status) }}</span>
+                <button class="secondary compact-action" type="button" @click="navigateProductBom(productProductionDefaultBomUsageRow || {})">到 BOM 维护规格</button>
+              </div>
+              <article v-for="row in productProductionBomSpecs" :key="`bom-spec-${row.bom_spec_id}`" class="child-sku-row compact-derived-sku-row">
+                <div>
+                  <strong>{{ row.name || `规格 #${row.bom_spec_id}` }}</strong>
+                  <small>规格编码：{{ row.code || '-' }}</small>
+                  <small v-if="row.barcode">条码：{{ row.barcode }}</small>
+                  <small>生产单位：{{ row.unit || '-' }}</small>
                 </div>
+                <span v-if="row.is_default" class="template-meta-chip default-spec-chip">默认规格</span>
               </article>
-              <p v-if="!productProductionVisibleSalesSpecRows.length" class="muted">当前模板没有可用规格；打开“显示历史规格”可查看历史保留 SKU。</p>
+              <p v-if="!productProductionBomSpecs.length" class="muted">{{ productProductionDefaultBomUsageRow ? '默认 BOM 暂无可用规格，请到 BOM 检查规格组和发布版本。' : '该商品尚未绑定默认制造 BOM；请到 生产配置 -> 生产 BOM 创建规格组并设为默认 BOM。' }}</p>
             </div>
           </section>
 
@@ -1876,7 +2031,6 @@ import {
   buildProductCreatePayload,
   buildAssignCategoryPayload,
   buildChildSkuCreatePayload,
-  buildSkuCreatePayload,
   buildSkuContextCategoryTree,
   categoryBelongsToSkuContext as categoryBelongsToContext,
   categoryDisplayState,
@@ -1914,7 +2068,6 @@ import {
   productArchiveRowsWithSkus,
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
-  salesSpecConversionLabel,
   salesSpecRowsFromTemplate,
   secondaryCategoryOptions,
   selectedSkuRowIDsAfterVisibleToggle,
@@ -1931,6 +2084,12 @@ import {
 } from '../lib/product-settings'
 import { orderProductFamilyOptions, orderProductKindFilterOptions } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
+import {
+  isProductBomSpecCutover,
+  normalizeProductBomSpecs,
+  productSpecMigrationState,
+  visibleRowsForProductSpecMigration,
+} from '../lib/product-spec-cutover'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -1949,6 +2108,7 @@ let restoringProductSettingsDraft = false
 
 const categories = ref([])
 const products = ref([])
+const materials = ref([])
 const gradientTemplates = ref([])
 const productConfigTemplates = ref([])
 const productClassificationTemplates = ref([])
@@ -1970,6 +2130,7 @@ const priceTierTemplates = ref([])
 const pricingRuleEditorDrawerOpen = ref(false)
 const pricingRuleEditorDrawer = ref(null)
 const pricingRuleTrialDrawerOpen = ref(false)
+const pricingRuleTrialMode = ref('product')
 const pricingRuleTrialLoading = ref(false)
 const pricingRuleTrialRule = ref(null)
 const pricingRuleTrialForm = ref(defaultPricingRuleTrialForm())
@@ -1978,6 +2139,12 @@ const pricingRuleTrialResult = ref(null)
 const pricingRuleTrialActiveExplanation = ref('')
 const pricingRuleTrialError = ref('')
 const pricingRuleTrialUpdateMessage = ref('')
+const pricingRuleTrialMaterialID = ref(0)
+const pricingRuleTrialMaterialBomVersionID = ref(0)
+const pricingRuleTrialMaterialBomOptions = ref([])
+const pricingRuleTrialMaterialResult = ref(null)
+const pricingRuleTrialMaterialLoading = ref(false)
+const pricingRuleTrialMaterialError = ref('')
 let pricingRuleTrialAutoRunTimer = null
 let pricingRuleTrialRunID = 0
 let restoringPricingRuleTrialReturnState = false
@@ -1990,6 +2157,7 @@ const customerProductRuleBindings = ref([])
 const productionBoms = ref([])
 const productionBomDetails = ref({})
 const productBomUsageByProductID = ref({})
+const productSpecMigrationByProductID = ref({})
 const processRoutes = ref([])
 const customers = ref([])
 const loading = ref(false)
@@ -2066,7 +2234,6 @@ const secondaryDeleteModeFor = ref(0)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedAliasCustomerID = ref(0)
 const selectedProductIds = ref([])
-const batchProductUnitTemplateID = ref(0)
 const selectedAliasIds = ref([])
 const selectedAliasBatchProductIds = ref([])
 const activeProductClassificationTab = ref('all')
@@ -2110,10 +2277,7 @@ const classificationCategoryForm = ref(defaultClassificationCategoryForm())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
-const showProductProductionHistoricalSpecs = ref(false)
-const childSkuForm = ref(defaultChildSkuForm())
-const childSkuSaving = ref(false)
-const defaultSkuSavingID = ref(0)
+const productSpecMigrationSaving = ref(false)
 const aliasIndustryFieldDrawerOpen = ref(false)
 const aliasIndustryFieldSaving = ref(false)
 const aliasIndustryFieldAlias = ref(null)
@@ -2153,54 +2317,6 @@ const productProductionConfigParentProduct = computed(() => {
   return products.value.find((product) => Number(product.id || 0) === parentID) || productProductionConfigProduct.value || {}
 })
 const productProductionConfigSkuRows = computed(() => productSkuRowsForParent(products.value, productProductionConfigParentProductID.value))
-const productProductionDerivedSkuRows = computed(() => {
-  const specs = productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
-  const specsByKey = new Map(specs.map((spec) => [String(spec.spec_key || '').trim(), spec]))
-  return productProductionConfigSkuRows.value
-    .filter((row) => {
-      if (!row) return false
-      if (row.auto_derived_sku === true || row.autoDerivedSKU === true) return true
-      if (String(row.derived_spec_key || row.derivedSpecKey || '').trim()) return true
-      if (Number(row.derived_unit_template_id || row.derivedUnitTemplateID || 0) > 0) return true
-      return false
-    })
-    .map((row) => {
-      const specKey = String(row.derived_spec_key || row.derivedSpecKey || '').trim()
-      const spec = specsByKey.get(specKey) || {}
-      if (!spec.spec_key) return row
-      return {
-        ...spec,
-        ...row,
-        spec_key: specKey || spec.spec_key,
-        sales_unit: row.derived_sales_unit || spec.sales_unit,
-        net_content_qty: row.net_content_qty || spec.net_content_qty,
-        net_content_unit: row.net_content_unit || spec.net_content_unit,
-      }
-    })
-})
-const productProductionRemovedSkuRows = computed(() => productProductionDerivedSkuRows.value
-  .filter((row) => String(row?.derived_spec_status || row?.derivedSpecStatus || '').trim() === 'template_removed')
-  .map((row) => ({
-    ...row,
-    spec_key: String(row.derived_spec_key || row.derivedSpecKey || row.spec_key || row.id || '').trim(),
-    spec_name: String(row.derived_spec_name || row.derivedSpecName || row.spec_name || row.sku_name || row.name || '历史规格').trim(),
-    sales_unit: String(row.derived_sales_unit || row.derivedSalesUnit || row.sales_unit || row.default_sales_unit || row.spec_name || '历史规格').trim(),
-    derived_sku_id: Number(row.sku_id || row.id || row.derived_sku_id || 0),
-    derived_sku_code: derivedSkuCodeLabel(row),
-    derived_spec_status: 'template_removed',
-  })))
-const skuFormSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(skuForm.value.unit_template_id))
-const productProductionSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
-  .map((row) => {
-    const derived = productProductionDerivedSkuRows.value.find((sku) => String(sku.derived_spec_key || '') === String(row.spec_key || ''))
-    return derived ? { ...row, derived_sku_id: Number(derived.sku_id || derived.id || 0), derived_sku_code: derivedSkuCodeLabel(derived), derived_spec_status: derived.derived_spec_status || row.derived_spec_status } : row
-  }))
-const productProductionVisibleSalesSpecRows = computed(() => {
-  if (!showProductProductionHistoricalSpecs.value) return productProductionSalesSpecRows.value
-  const currentKeys = new Set(productProductionSalesSpecRows.value.map((row) => String(row.spec_key || '').trim()).filter(Boolean))
-  const historyRows = productProductionRemovedSkuRows.value.filter((row) => !currentKeys.has(String(row.spec_key || '').trim()))
-  return [...productProductionSalesSpecRows.value, ...historyRows]
-})
 const productProductionConfigVersionOptions = computed(() => (selectedProductProductionConfigBomDetail.value?.versions || [])
   .filter((version) => version.status === 'published')
   .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
@@ -2270,6 +2386,17 @@ const pricingRuleTrialProductOptions = computed(() => orderProductFamilyOptions(
   '',
   activePricingRuleTrialProductKindFilter.value,
 ))
+const pricingRuleTrialMaterialOptions = computed(() => materials.value.filter((material) => !material.deprecated_at).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))))
+function materialTrialOptionLabel(material = {}) {
+  return `${material.code || ''} ${material.name || ''}`.trim() || `物料 #${material.id || ''}`
+}
+const selectedPricingRuleTrialMaterialBomOption = computed(() => {
+  const selectedID = Number(pricingRuleTrialMaterialBomVersionID.value || pricingRuleTrialMaterialResult.value?.bom_version_id || 0)
+  const options = Array.isArray(pricingRuleTrialMaterialBomOptions.value) ? pricingRuleTrialMaterialBomOptions.value : []
+  return options.find((option) => Number(option?.version_id || 0) === selectedID)
+    || options.find((option) => option?.is_default)
+    || null
+})
 const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialMainProducts.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.parent_product_id || 0)) || null)
 const pricingRuleTrialSalesSpecOptions = computed(() => pricingRuleTrialProductSpecOptions(
   pricingRuleTrialCatalogProducts.value,
@@ -2283,6 +2410,11 @@ const selectedPricingRuleTrialBomVersion = computed(() => {
   const versionID = Number(pricingRuleTrialForm.value.bom_version_id || pricingRuleTrialResult.value?.bom_version_id || 0)
   return pricingRuleTrialBomVersionOptions.value.find((option) => Number(option?.version_id || 0) === versionID) || null
 })
+const pricingRuleTrialBomSpecOptions = computed(() => {
+  const options = Array.isArray(pricingRuleTrialResult.value?.bom_spec_options) ? pricingRuleTrialResult.value.bom_spec_options : []
+  const versionID = Number(pricingRuleTrialForm.value.bom_version_id || pricingRuleTrialResult.value?.bom_version_id || 0)
+  return options.filter((option) => versionID <= 0 || Number(option?.version_id || 0) === versionID)
+})
 const pricingRuleTrialProcessRouteOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.process_route_options) ? pricingRuleTrialResult.value.process_route_options : [])
 const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
 const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
@@ -2292,12 +2424,17 @@ const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   product_id: pricingRuleTrialForm.value.product_id,
   customer_id: pricingRuleTrialForm.value.customer_id,
   bom_version_id: pricingRuleTrialForm.value.bom_version_id,
+  bom_spec_id: pricingRuleTrialForm.value.bom_spec_id,
+  bom_variant_id: pricingRuleTrialForm.value.bom_variant_id,
   process_route_id: pricingRuleTrialForm.value.process_route_id,
   operation_template_id: pricingRuleTrialForm.value.operation_template_id,
   quote_unit: pricingRuleTrialForm.value.quote_unit,
   margin_rate: pricingRuleTrialForm.value.margin_rate,
   tax_rate: pricingRuleTrialForm.value.tax_rate,
   other_cost_rows: pricingRuleTrialForm.value.other_cost_rows,
+  material_mode: pricingRuleTrialMode.value,
+  material_id: pricingRuleTrialMaterialID.value,
+  material_bom_version_id: pricingRuleTrialMaterialBomVersionID.value,
 }))
 
 const contextCategorizedProductIDs = computed(() => {
@@ -2351,7 +2488,7 @@ function skuTableCategoryMeta(categoriesForTable = []) {
 
 function skuTableRowsFromFlatProducts(sourceProducts = [], sourceCategories = [], filterFn = () => true) {
   const { byProductID, byCategoryID } = skuTableCategoryMeta(sourceCategories)
-  return (sourceProducts || [])
+  return visibleRowsForProductSpecMigration(sourceProducts || [], productSpecMigrationByProductID.value)
     .filter((product) => {
       try {
         return filterFn(product)
@@ -2407,6 +2544,34 @@ const productProductionConfigProduceBomRows = computed(() => productProductionCo
   .filter((row) => String(row.relation_type || '') === 'output'))
 const productProductionConfigUsedByBomRows = computed(() => productProductionConfigBomUsageRows.value
   .filter((row) => String(row.relation_type || '') === 'component'))
+const productProductionConfigMigration = computed(() => {
+  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  return productSpecMigrationByProductID.value[String(productID)] || productProductionConfigProduct.value || {}
+})
+const productBomSpecMigrationState = computed(() => productSpecMigrationState(productProductionConfigMigration.value))
+const productBomSpecMigrationStateLabel = computed(() => ({
+  legacy: '旧规格模式',
+  preparing: '准备中',
+  ready: '可切换',
+  cutover: '已切换 BOM 规格',
+}[productBomSpecMigrationState.value] || '旧规格模式'))
+const productBomSpecMigrationBlockers = computed(() => productProductionConfigMigration.value?.readiness?.blockers || [])
+const productBomSpecMigrationMappings = computed(() => productProductionConfigMigration.value?.mappings || [])
+const productProductionConfigUsesBomSpecs = computed(() => isProductBomSpecCutover(productProductionConfigMigration.value))
+const productProductionDefaultBomUsageRow = computed(() => productProductionConfigProduceBomRows.value.find((row) => row.is_default === true || row.isDefault === true)
+  || productProductionConfigProduceBomRows.value.find((row) => bomUsageBomID(row) === Number(productProductionConfigForm.value.production_bom_id || 0))
+  || null)
+const productProductionBomSpecs = computed(() => {
+  const bomID = bomUsageBomID(productProductionDefaultBomUsageRow.value || {})
+    || Number(productProductionConfigForm.value.production_bom_id || 0)
+  return normalizeProductBomSpecs(productionBomDetails.value[String(bomID)] || {})
+})
+const productProductionBomSpecsSummary = computed(() => {
+  const specs = productProductionBomSpecs.value
+  if (!specs.length) return productProductionDefaultBomUsageRow.value ? '默认 BOM 暂无可用规格' : '尚未绑定默认制造 BOM'
+  const names = specs.map((row) => `${row.name || row.code || `规格 #${row.bom_spec_id}`}${row.is_default ? '（默认）' : ''}`)
+  return names.length > 3 ? `${names.slice(0, 3).join('、')} 等 ${names.length} 个规格` : names.join('、')
+})
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
   id: Number(category.id || 0),
   label: `${Number(category.customer_id || 0) > 0 ? `${customerName(category.customer_id) || '客户'} / ` : ''}${category.name || ''}`,
@@ -2580,7 +2745,6 @@ const visibleCustomerAliasGroups = computed(() => {
     onlyAssigned: true,
   })
 })
-const selectedProductConfigUnitTemplate = computed(() => findProductUnitTemplate(productConfigTemplateForm.value.unit_template_id))
 const activeProductConfigTemplates = computed(() => productConfigTemplatesForContext.value.filter((template) => template.active !== false))
 const customerProductRuleTemplatesForContext = computed(() => customerProductRuleTemplates.value
   .filter((template) => Number(template.customer_id || 0) === 0 || Number(template.customer_id || 0) === skuContextCustomerID.value)
@@ -2711,19 +2875,6 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
   return buildProductProductionConfigForm(config, product, industryFieldTemplatesForConfig(config))
-}
-
-function defaultChildSkuForm(product = {}) {
-  return {
-    sku_name: '',
-    sku_code: '',
-    barcode: '',
-    spec_label: '',
-    net_content_qty: 0,
-    net_content_unit: 'g',
-    unit_template_id: Number(product?.unit_template_id || defaultProductUnitTemplateID() || 0),
-    active: true,
-  }
 }
 
 function isAliasClassificationGroupCollapsed(key) {
@@ -3016,6 +3167,8 @@ function defaultPricingRuleTrialForm(rule = {}) {
     product_id: 0,
     customer_id: 0,
     bom_version_id: 0,
+    bom_spec_id: 0,
+    bom_variant_id: 0,
     process_route_id: 0,
     operation_template_id: 0,
     quote_unit: '',
@@ -3421,7 +3574,7 @@ async function loadAll({ strict = false } = {}) {
   loading.value = true
   error.value = ''
   try {
-    const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData, productGroupSelectionData] = await Promise.all([
+    const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData, productGroupSelectionData, materialData] = await Promise.all([
       apiGet('/api/product-settings'),
       apiGet('/api/customer-fulfillment/customers?limit=200'),
       apiGet('/api/customer-product-aliases?active=all'),
@@ -3429,9 +3582,18 @@ async function loadAll({ strict = false } = {}) {
       apiGet('/api/product-classification-template-usages/products'),
       apiGet('/api/product-classification-template-usages/customer-aliases'),
       apiGet('/api/business-group-feature-selections/product_catalog'),
+      apiGet('/api/materials?active=active&limit=500'),
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
+    materials.value = (materialData?.rows || []).map((row) => ({
+      id: Number(row.id || row.ID || 0),
+      code: row.code || row.Code || '',
+      name: row.name || row.Name || '',
+      unit: row.unit || row.Unit || 'kg',
+      supply_mode: row.supply_mode || (row.is_semi_finished ? 'manufacture' : 'purchase'),
+      deprecated_at: row.deprecated_at || row.DeprecatedAt || '',
+    }))
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
     productClassificationTemplates.value = (data.product_classification_templates || []).map(decorateProductClassificationTemplate)
@@ -3647,7 +3809,6 @@ function startProductConfigTemplateEdit(template) {
 
 function validateProductConfigTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写商品配置名称'
-  if (Number(payload.unit_template_id || 0) <= 0) return '请选择销售规格模板'
   const rule = parseJSONSafe(payload.price_list_rule_json)
   if (rule.pricing_mode === 'fixed_unit_price' && !(Number(rule.fixed_unit_price) > 0)) return '固定单价模式必须填写固定单价'
   if (rule.pricing_mode === 'cost_plus' && !Object.prototype.hasOwnProperty.call(rule, 'cost_plus_rate')) return '成本加成模式必须填写加成比例'
@@ -3826,7 +3987,28 @@ function openPricingRuleTrial(rule = null) {
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
   pricingRuleTrialUpdateMessage.value = ''
+  pricingRuleTrialMode.value = 'product'
+  pricingRuleTrialMaterialID.value = 0
+  pricingRuleTrialMaterialBomVersionID.value = 0
+  pricingRuleTrialMaterialBomOptions.value = []
+  pricingRuleTrialMaterialResult.value = null
+  pricingRuleTrialMaterialError.value = ''
   pricingRuleTrialDrawerOpen.value = true
+}
+
+function setPricingRuleTrialMode(mode) {
+  const next = mode === 'material' ? 'material' : 'product'
+  if (pricingRuleTrialMode.value === next) return
+  pricingRuleTrialMode.value = next
+  pricingRuleTrialResult.value = null
+  pricingRuleTrialMaterialResult.value = null
+  pricingRuleTrialError.value = ''
+  pricingRuleTrialMaterialError.value = ''
+  if (next === 'material') {
+    pricingRuleTrialForm.value.parent_product_id = 0
+    pricingRuleTrialForm.value.product_id = 0
+    pricingRuleTrialForm.value.quote_unit = ''
+  }
 }
 
 function setPricingRuleTrialProductKindFilter(value) {
@@ -3838,6 +4020,8 @@ function setPricingRuleTrialProductKindFilter(value) {
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_spec_id = 0
+  pricingRuleTrialForm.value.bom_variant_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
@@ -3854,6 +4038,8 @@ function handlePricingRuleTrialRuleChange() {
   next.customer_id = Number(previous.customer_id || 0)
   next.quote_unit = String(previous.quote_unit || '')
   next.bom_version_id = 0
+  next.bom_spec_id = Number(previous.bom_spec_id || 0) || 0
+  next.bom_variant_id = Number(previous.bom_variant_id || 0) || 0
   next.process_route_id = 0
   next.operation_template_id = 0
   pricingRuleTrialForm.value = next
@@ -3876,6 +4062,37 @@ function closePricingRuleTrial() {
   pricingRuleTrialActiveExplanation.value = ''
   pricingRuleTrialError.value = ''
   pricingRuleTrialUpdateMessage.value = ''
+  pricingRuleTrialMaterialResult.value = null
+  pricingRuleTrialMaterialError.value = ''
+}
+
+async function runMaterialCostTrial() {
+  const materialID = Number(pricingRuleTrialMaterialID.value || 0)
+  if (!materialID) {
+    pricingRuleTrialMaterialResult.value = null
+    pricingRuleTrialMaterialBomOptions.value = []
+    return
+  }
+  const runID = ++pricingRuleTrialRunID
+  pricingRuleTrialMaterialLoading.value = true
+  pricingRuleTrialMaterialError.value = ''
+  try {
+    const options = await apiGet(`/api/costing/material-cost-trial-options?material_id=${materialID}`)
+    if (runID !== pricingRuleTrialRunID) return
+    pricingRuleTrialMaterialBomOptions.value = options?.bom_versions || []
+    const result = await apiSend('/api/costing/material-cost-trial', {
+      method: 'POST',
+      body: { material_id: materialID, bom_version_id: Number(pricingRuleTrialMaterialBomVersionID.value || 0) || 0 },
+    })
+    if (runID === pricingRuleTrialRunID) pricingRuleTrialMaterialResult.value = result
+  } catch (err) {
+    if (runID === pricingRuleTrialRunID) {
+      pricingRuleTrialMaterialResult.value = null
+      pricingRuleTrialMaterialError.value = err.message || '物料成本试算失败'
+    }
+  } finally {
+    if (runID === pricingRuleTrialRunID) pricingRuleTrialMaterialLoading.value = false
+  }
 }
 
 function openPricingRuleTrialExplanation(kind) {
@@ -3899,6 +4116,8 @@ function removePricingRuleTrialOtherCostRow(index) {
 
 function syncPricingRuleTrialProductionSelections(result = {}) {
   if (!result || Number(result.product_id || 0) !== Number(pricingRuleTrialForm.value.product_id || 0)) return
+  if (Number(result.bom_spec_id || 0) > 0) pricingRuleTrialForm.value.bom_spec_id = Number(result.bom_spec_id)
+  if (Number(result.bom_variant_id || 0) > 0) pricingRuleTrialForm.value.bom_variant_id = Number(result.bom_variant_id)
   const bomOptions = Array.isArray(result.bom_version_options) ? result.bom_version_options : []
   const selectedBomID = Number(result.bom_version_id || 0)
   if (selectedBomID > 0 && !Number(pricingRuleTrialForm.value.bom_version_id || 0)) {
@@ -3931,6 +4150,21 @@ function pricingRuleTrialBomVersionOptionLabel(option = {}) {
   return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}${statusText}`.trim() || `BOM版本 #${option.version_id || ''}`
 }
 
+function pricingRuleTrialBomSpecOptionLabel(option = {}) {
+  const name = String(option?.spec_name || option?.spec_key || `规格 #${option?.bom_spec_id || ''}`).trim()
+  const unit = String(option?.inventory_unit || '').trim()
+  const suffix = option?.is_default ? '（默认）' : ''
+  return `${name}${unit ? ` · ${unit}` : ''}${suffix}`
+}
+
+function pricingRuleTrialBomSpecDisplay(result = {}) {
+  const options = Array.isArray(result?.bom_spec_options) ? result.bom_spec_options : []
+  const option = options.find((row) => Number(row?.bom_variant_id || 0) === Number(result?.bom_variant_id || 0))
+    || options.find((row) => Number(row?.bom_spec_id || 0) === Number(result?.bom_spec_id || 0))
+  if (option) return `${pricingRuleTrialBomSpecOptionLabel(option)}（${option.bom_spec_id}/${option.bom_variant_id}）`
+  return result?.bom_spec_id || result?.bom_variant_id || '-'
+}
+
 function navigatePricingRuleTrialBom() {
   const option = selectedPricingRuleTrialBomVersion.value
   const bomID = Number(option?.bom_id || 0)
@@ -3949,6 +4183,34 @@ function navigatePricingRuleTrialBom() {
       returnNavigation: {
         key: 'productPriceManagement',
         label: '返回价格试算',
+        params: { pricing_rule_trial_return_key: returnKey },
+      },
+    },
+  }))
+}
+
+function navigateMaterialCostTrialBom() {
+  const option = selectedPricingRuleTrialMaterialBomOption.value
+  const result = pricingRuleTrialMaterialResult.value || {}
+  const bomID = Number(option?.bom_id || result?.bom_snapshot?.bom_id || 0)
+  if (!bomID) {
+    pricingRuleTrialMaterialError.value = '当前试算版本缺少可配置的 BOM'
+    return
+  }
+  const returnKey = storePricingRuleTrialReturnState({
+    form: pricingRuleTrialForm.value,
+    product_kind_filter: activePricingRuleTrialProductKindFilter.value,
+    material_mode: 'material',
+    material_id: Number(pricingRuleTrialMaterialID.value || 0),
+    material_bom_version_id: Number(pricingRuleTrialMaterialBomVersionID.value || result?.bom_version_id || 0),
+  })
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'bom',
+      params: { production_bom_id: bomID },
+      returnNavigation: {
+        key: 'productPriceManagement',
+        label: '返回物料成本试算',
         params: { pricing_rule_trial_return_key: returnKey },
       },
     },
@@ -3974,6 +4236,13 @@ function schedulePricingRuleTrial() {
     pricingRuleTrialAutoRunTimer = null
   }
   if (!pricingRuleTrialDrawerOpen.value) return
+  if (pricingRuleTrialMode.value === 'material') {
+    pricingRuleTrialAutoRunTimer = setTimeout(() => {
+      pricingRuleTrialAutoRunTimer = null
+      runMaterialCostTrial()
+    }, 150)
+    return
+  }
   const payload = buildPricingRuleTrialPayload(pricingRuleTrialForm.value)
   if (!payload.pricing_rule_id || !payload.product_id || !String(payload.quote_unit || '').trim()) {
     pricingRuleTrialResult.value = null
@@ -3987,6 +4256,10 @@ function schedulePricingRuleTrial() {
 }
 
 async function runPricingRuleTrial() {
+  if (pricingRuleTrialMode.value === 'material') {
+    await runMaterialCostTrial()
+    return
+  }
   const payload = buildPricingRuleTrialPayload(pricingRuleTrialForm.value)
   if (!payload.pricing_rule_id) {
     pricingRuleTrialError.value = '请选择价格计算模板'
@@ -4138,6 +4411,13 @@ function pricingRuleTrialStepSourceDisplay(step = {}) {
     operation_master: '工序列表（历史）',
     override: '本次临时录入',
     product_bom: '当前商品 BOM',
+    manufacturing_bom: '制造 BOM 递归成本',
+    manufacturing_bom_draft_diagnostic: '制造 BOM 草稿诊断',
+    weighted_batch_cost: '有效批次加权成本',
+    purchase_price: '物料采购价',
+    unit_cost_snapshot: 'BOM 成本快照',
+    missing_purchase_or_batch_cost: '缺少批次成本和采购价',
+    missing_cost: '缺少组件成本',
     default: '系统默认',
   }
   if (sourceMap[source]) return sourceMap[source]
@@ -4797,57 +5077,6 @@ function salesSpecNetContentLabel(row = {}) {
   return `${qty}${unit}`
 }
 
-function derivedSkuCodeLabel(row = {}) {
-  const code = String(row.derived_sku_code || row.derivedSKUCode || row.sku_code || row.skuCode || '').trim()
-  if (code) return code
-  const id = Number(row.sku_id || row.id || row.derived_sku_id || 0)
-  return id > 0 ? `SKU-${String(id).padStart(6, '0')}` : '保存后生成'
-}
-
-function productSalesSpecSkuID(row = {}) {
-  return Number(row.derived_sku_id || row.sku_id || row.id || 0)
-}
-
-function productSalesSpecIsDefault(row = {}) {
-  const defaultSKUID = Number(
-    productProductionConfigParentProduct.value?.default_sku_id
-      || productProductionConfigParentProduct.value?.effective_default_sku_id
-      || 0,
-  )
-  const skuID = productSalesSpecSkuID(row)
-  if (defaultSKUID > 0) return skuID === defaultSKUID
-  return row.is_default_sku === true || row.isDefaultSKU === true
-}
-
-function productSalesSpecCanSetDefault(row = {}) {
-  const status = String(row.derived_spec_status || row.derivedSpecStatus || '').trim()
-  return productSalesSpecSkuID(row) > 0
-    && row.active !== false
-    && status !== 'template_removed'
-    && status !== 'template_disabled'
-}
-
-async function setDefaultProductSalesSpec(row = {}) {
-  const parentProductID = productProductionConfigParentProductID.value
-  const skuID = productSalesSpecSkuID(row)
-  if (!parentProductID || !skuID || !productSalesSpecCanSetDefault(row)) return
-  defaultSkuSavingID.value = skuID
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(`/api/product-settings/products/${parentProductID}/default-sku`, {
-      method: 'PUT',
-      body: { sku_id: skuID },
-    })
-    await loadAll()
-    ok.value = `默认规格已设置为 ${String(row.spec_name || row.sku_name || row.name || skuID).trim()}`
-  } catch (err) {
-    error.value = err.message || '设置默认规格失败'
-  } finally {
-    defaultSkuSavingID.value = 0
-  }
-}
-
 function derivedSpecStatusLabel(status = '') {
   return {
     active: '已派生',
@@ -5230,15 +5459,6 @@ function canEditSkuRow(row) {
 
 function openProductDrawer() {
   ensureProductTypeCategorySelected(skuForm.value)
-  if (!Number(skuForm.value.unit_template_id || 0)) {
-    skuForm.value.unit_template_id = defaultProductUnitTemplateID()
-  }
-  if (Number(skuForm.value.unit_template_id || 0) > 0 && !skuForm.value.unit_rule_override_enabled) {
-    applyProductUnitTemplateToForm(skuForm.value)
-  } else if (Number(skuForm.value.unit_template_id || 0) > 0 && skuForm.value.unit_rule_override_enabled && !hasProductUnitRuleOverride(skuForm.value)) {
-    skuForm.value.unit_rule_override_enabled = false
-    applyProductUnitTemplateToForm(skuForm.value)
-  }
   productDrawerOpen.value = true
   productsCollapsed.value = false
 }
@@ -5512,23 +5732,6 @@ function productUnitTemplateSummary(idOrTemplate) {
   return `${template.name || '销售规格模板'} · 默认 ${defaultLabel} · 规格 ${activeCount}`
 }
 
-function productUnitTemplateInventoryLabel(idOrTemplate, fallback = 'kg') {
-  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
-  return productUnitName(template?.inventory_unit || fallback || 'kg')
-}
-
-function productUnitTemplateInventoryUnit(idOrTemplate, fallback = 'kg') {
-  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
-  return String(template?.inventory_unit || fallback || 'kg').trim() || 'kg'
-}
-
-function productUnitTemplateSalesLabel(idOrTemplate, fallback = 'kg') {
-  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
-  const specs = salesSpecRowsFromTemplate(template || {})
-  const defaultSpec = specs.find((row) => row.default) || specs[0]
-  return defaultSpec ? (defaultSpec.spec_name || '默认规格') : productUnitName(fallback || 'kg')
-}
-
 function productUnitTemplateConversionRows(template) {
   if (!template) return []
   const inventoryUnit = template.inventory_unit || 'kg'
@@ -5554,16 +5757,6 @@ function applyProductUnitTemplateToForm(form) {
 }
 
 function applySkuUnitTemplateDefaults(form) {
-  if (!form) return
-  if (!Number(form.unit_template_id || 0)) {
-    form.unit_rule_override_enabled = false
-    return
-  }
-  form.unit_rule_override_enabled = false
-  applyProductUnitTemplateToForm(form)
-}
-
-function applyProductConfigUnitTemplateDefaults(form) {
   if (!form) return
   if (!Number(form.unit_template_id || 0)) {
     form.unit_rule_override_enabled = false
@@ -6075,6 +6268,117 @@ async function ensureProductBomUsage(productID) {
   productBomUsageByProductID.value = { ...productBomUsageByProductID.value, [String(id)]: rows || [] }
 }
 
+async function loadProductSpecMigration(productID) {
+  const id = Number(productID || 0)
+  if (!id || Object.prototype.hasOwnProperty.call(productSpecMigrationByProductID.value, String(id))) return
+  let migration
+  try {
+    migration = await apiGet(`/api/products/${productID}/bom-spec-migration`)
+  } catch (err) {
+    if (Number(err?.status || 0) !== 404) throw err
+    migration = { product_id: id, state: 'legacy', migration_state: 'legacy' }
+  }
+  productSpecMigrationByProductID.value = {
+    ...productSpecMigrationByProductID.value,
+    [String(id)]: { ...migration, migration_state: migration?.migration_state || migration?.state || 'legacy' },
+  }
+}
+
+function normalizeProductSpecMigrationResponse(row = {}, productID = 0) {
+  return {
+    ...row,
+    product_id: Number(row?.product_id || productID || 0),
+    migration_state: row?.migration_state || row?.state || 'legacy',
+  }
+}
+
+function productBomSpecMigrationSnapshot(mapping = {}) {
+  const raw = mapping?.metadata_snapshot ?? mapping?.metadataSnapshot ?? {}
+  let snapshot = raw
+  if (typeof raw === 'string') {
+    try {
+      snapshot = JSON.parse(raw || '{}')
+    } catch (_) {
+      snapshot = { historical_configuration: raw }
+    }
+  }
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) snapshot = {}
+  const labels = {
+    production_bom_id: '旧 BOM',
+    production_bom_version_id: '旧 BOM 版本',
+    process_route_id: '旧工艺路线',
+    expected_loss_rate: '旧损耗率',
+    note: '旧生产备注',
+    industry_field_template_id: '旧行业字段模板',
+  }
+  const formatConfig = (title, config = {}) => Object.entries(labels)
+    .filter(([key]) => config?.[key] !== undefined && config?.[key] !== null && config?.[key] !== '')
+    .map(([key, label]) => `${title}${label}：${config[key]}`)
+  const rows = [
+    ...formatConfig('', snapshot),
+    ...formatConfig('该旧规格 · ', snapshot.legacy_production_config),
+    ...formatConfig('父商品 · ', snapshot.parent_production_config),
+  ]
+  return rows.length ? rows.join('\n') : '无单独旧生产配置；请按旧规格名称和单位核对新配方。'
+}
+
+async function mutateProductBomSpecMigration(action, successMessage) {
+  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  if (!productID) {
+    error.value = '请选择商品档案'
+    return null
+  }
+  productSpecMigrationSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const row = await apiSend(`/api/products/${productID}/bom-spec-migration/${action}`, { method: 'POST' })
+    const migration = normalizeProductSpecMigrationResponse(row, productID)
+    productSpecMigrationByProductID.value = {
+      ...productSpecMigrationByProductID.value,
+      [String(productID)]: migration,
+    }
+    ok.value = successMessage
+    return migration
+  } catch (err) {
+    error.value = err.message || '更新 BOM 规格迁移状态失败'
+    return null
+  } finally {
+    productSpecMigrationSaving.value = false
+  }
+}
+
+async function prepareProductBomSpecMigration() {
+  await mutateProductBomSpecMigration('prepare', '旧规格元数据已迁入；请到 BOM 重建并发布完整规格配方')
+}
+
+async function assessProductBomSpecMigration() {
+  const migration = await mutateProductBomSpecMigration('readiness', '切换条件已重新检查')
+  if (migration?.readiness?.ready) ok.value = '切换条件已满足；确认后才会停用旧子 SKU'
+}
+
+async function cutoverProductBomSpecs() {
+  if (!window.confirm('确认切换到默认已发布 BOM 的规格组？切换后旧子 SKU 将成为只读历史记录，新订单、价格、库存和生产只接受父商品 + BOM 规格。')) return
+  const migration = await mutateProductBomSpecMigration('cutover', '商品已切换到 BOM 规格；旧子 SKU 仅保留历史追溯')
+  if (!migration) return
+  const productID = Number(migration.product_id || productProductionConfigProduct.value?.id || 0)
+  products.value = products.value.map((row) => Number(row.id || 0) === productID
+    ? { ...row, migration_state: 'cutover', bom_spec_migration_state: 'cutover' }
+    : row)
+  const nextUsage = { ...productBomUsageByProductID.value }
+  delete nextUsage[String(productID)]
+  productBomUsageByProductID.value = nextUsage
+  await ensureProductBomUsage(productID)
+  const defaultBomID = bomUsageBomID(productProductionDefaultBomUsageRow.value || {})
+    || Number(productProductionConfigForm.value.production_bom_id || 0)
+  if (defaultBomID > 0) {
+    const nextDetails = { ...productionBomDetails.value }
+    delete nextDetails[String(defaultBomID)]
+    productionBomDetails.value = nextDetails
+    await ensureProductionBomDetail(defaultBomID)
+  }
+}
+
 async function setDefaultProductionBom(row = {}) {
   const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
   const bomID = bomUsageBomID(row)
@@ -6218,10 +6522,8 @@ async function openProductProductionConfig(row) {
   const industryFieldTemplatesAvailableAtOpen = industryFieldTemplatesForConfig(config).length === industryFieldTemplateIDs.length
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(config, row)
-  showProductProductionHistoricalSpecs.value = false
   const parentID = Number(row?.parent_product_id || row?.parentProductID || row?.id || 0)
   const parentProduct = products.value.find((product) => Number(product.id || 0) === parentID) || row || {}
-  childSkuForm.value = defaultChildSkuForm(parentProduct)
   if (Number(productProductionConfigForm.value.unit_template_id || 0) > 0 && !productProductionConfigForm.value.unit_rule_override_enabled) {
     applyProductUnitTemplateToForm(productProductionConfigForm.value)
   }
@@ -6241,18 +6543,22 @@ async function openProductProductionConfig(row) {
     await Promise.all([
       loadProductionBomCatalog(),
       loadProcessRoutes(),
+      loadProductSpecMigration(productID),
       industryFieldTemplatesPromise,
     ])
     if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
     await ensureProductBomUsage(productID)
     if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
-    if (productProductionConfigForm.value.production_bom_id) {
-      await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
-      if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
-      if (!productProductionConfigForm.value.production_bom_version_id) {
-        const latest = productProductionConfigVersionOptions.value[0]
-        if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
-      }
+    {
+      const defaultBomID = bomUsageBomID(productProductionDefaultBomUsageRow.value || {})
+        || Number(productProductionConfigForm.value.production_bom_id || 0)
+      if (defaultBomID > 0) await ensureProductionBomDetail(defaultBomID)
+    }
+    if (productProductionConfigForm.value.production_bom_id) await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+    if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
+    if (productProductionConfigForm.value.production_bom_id && !productProductionConfigForm.value.production_bom_version_id) {
+      const latest = productProductionConfigVersionOptions.value[0]
+      if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
     }
   } catch (err) {
     if (!isCurrentProductProductionConfigOpen(openGeneration, productID)) return
@@ -6288,7 +6594,6 @@ function closeProductProductionConfigDrawer() {
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()
-  showProductProductionHistoricalSpecs.value = false
 }
 
 async function refreshClassificationTemplates() {
@@ -6495,45 +6800,6 @@ async function handleProductCategoryMoveTarget(target) {
   if (moved) productCategoryMoveActive.value = false
 }
 
-async function saveSelectedProductUnitTemplate() {
-  const unitTemplateID = Number(batchProductUnitTemplateID.value || 0)
-  if (!selectedProductIds.value.length) {
-    error.value = '请先勾选商品档案'
-    return
-  }
-  if (!unitTemplateID || !findProductUnitTemplate(unitTemplateID)) {
-    error.value = '请选择销售规格模板'
-    return
-  }
-  const selectedIDs = Array.from(new Set(selectedProductIds.value.map((id) => Number(id || 0)).filter(Boolean)))
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    for (const productID of selectedIDs) {
-      const product = products.value.find((row) => Number(row.id || 0) === productID)
-      if (!product || !canEditSkuRow(product)) continue
-      await apiSend(`/api/products/${productID}`, {
-        method: 'PUT',
-        body: buildProductBasicsPayload({
-          ...product,
-          unit_template_id: unitTemplateID,
-          unit_rule_override_enabled: false,
-          unit_rule_override_json: product.unit_rule_override_json || '{}',
-        }),
-      })
-    }
-    ok.value = `已为 ${selectedIDs.length} 个商品设置销售规格模板`
-    selectedProductIds.value = []
-    batchProductUnitTemplateID.value = 0
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '设置销售规格模板失败'
-  } finally {
-    loading.value = false
-  }
-}
-
 async function clearProductBusinessGroupAssignment(productID) {
   const id = Number(productID || 0)
   if (!id) return
@@ -6550,18 +6816,6 @@ function openProductBusinessGroupManagement() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
       key: 'groupTemplates',
-      returnNavigation: {
-        key: 'productMaster',
-        label: '返回商品档案',
-      },
-    },
-  }))
-}
-
-function openProductUnitTemplateManagement() {
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
-    detail: {
-      key: 'productUnitTemplates',
       returnNavigation: {
         key: 'productMaster',
         label: '返回商品档案',
@@ -6648,10 +6902,6 @@ async function saveProductProductionConfig() {
     error.value = '请选择商品档案'
     return
   }
-  if (!Number(productProductionConfigForm.value.unit_template_id || 0)) {
-    error.value = '请选择销售规格模板'
-    return
-  }
   const industryFieldTemplateIDs = industryFieldTemplateIDsFromConfig(productProductionConfigForm.value)
   const fields = productProductionConfigFieldsFromTemplates(
     productProductionConfigForm.value.fields || [],
@@ -6702,16 +6952,12 @@ async function createSku() {
     error.value = '请填写商品名称'
     return
   }
-  if (!Number(skuForm.value.unit_template_id || 0)) {
-    error.value = '请选择销售规格模板'
-    return
-  }
   skuSaving.value = true
   error.value = ''
   ok.value = ''
   try {
-    const result = await apiSend('/api/product-settings/skus', {
-      body: buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value),
+    const result = await apiSend('/api/product-settings/products', {
+      body: buildProductCreatePayload(skuForm.value),
     })
     ok.value = '商品档案已创建'
     skuForm.value = defaultSkuForm()
@@ -6725,44 +6971,6 @@ async function createSku() {
     error.value = err.message || '创建商品档案失败'
   } finally {
     skuSaving.value = false
-  }
-}
-
-async function createChildSkuForProduct() {
-  const parentProductID = productProductionConfigParentProductID.value
-  if (!parentProductID) {
-    error.value = '请选择父商品'
-    return
-  }
-  const skuName = String(childSkuForm.value.sku_name || '').trim()
-  if (!skuName) {
-    error.value = '请填写 SKU 名称'
-    return
-  }
-  if (!Number(childSkuForm.value.unit_template_id || 0)) {
-    error.value = '请选择销售规格模板'
-    return
-  }
-  const parentProduct = productProductionConfigParentProduct.value || {}
-  const parentName = String(parentProduct.name || productProductionConfigForm.value.name || '').trim()
-  childSkuSaving.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend('/api/product-settings/skus', {
-      body: buildChildSkuCreatePayload(parentProductID, {
-        ...childSkuForm.value,
-        customer_id: Number(parentProduct.customer_id || 0),
-        name: `${parentName} ${skuName}`.trim(),
-      }),
-    })
-    ok.value = '子 SKU 已创建'
-    childSkuForm.value = defaultChildSkuForm(parentProduct)
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '创建子 SKU 失败'
-  } finally {
-    childSkuSaving.value = false
   }
 }
 
@@ -7796,6 +8004,8 @@ watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_spec_id = 0
+  pricingRuleTrialForm.value.bom_variant_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
@@ -7808,11 +8018,46 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
   if (restoringPricingRuleTrialReturnState) return
   const product = selectedPricingRuleTrialProductSpec.value
   pricingRuleTrialForm.value.quote_unit = product ? pricingRuleTrialProductSpecUnit(product) : ''
-  pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_id = Number(product?.bom_id ?? product?.bomID ?? 0) || 0
+  pricingRuleTrialForm.value.bom_spec_id = Number(product?.bom_spec_id ?? product?.bomSpecID ?? product?.default_bom_spec_id ?? product?.defaultBOMSpecID ?? 0) || 0
+  pricingRuleTrialForm.value.bom_variant_id = Number(product?.bom_variant_id ?? product?.bomVariantID ?? 0) || 0
+  pricingRuleTrialForm.value.bom_version_id = Number(product?.bom_version_id ?? product?.bomVersionID ?? 0) || 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
+})
+
+watch(() => pricingRuleTrialForm.value.bom_variant_id, (variantID) => {
+  const option = pricingRuleTrialBomSpecOptions.value.find((row) => Number(row?.bom_variant_id || 0) === Number(variantID || 0))
+  if (option && Number(option.bom_spec_id || 0) > 0) {
+    pricingRuleTrialForm.value.bom_spec_id = Number(option.bom_spec_id)
+    const inventoryUnit = String(option.inventory_unit || '').trim()
+    if (inventoryUnit) pricingRuleTrialForm.value.quote_unit = inventoryUnit
+    const resultVariantID = Number(pricingRuleTrialResult.value?.bom_variant_id || 0)
+    if (resultVariantID > 0 && resultVariantID !== Number(variantID || 0)) {
+      pricingRuleTrialResult.value = null
+      pricingRuleTrialActiveExplanation.value = ''
+    }
+  }
+})
+
+watch(() => pricingRuleTrialForm.value.bom_version_id, (versionID) => {
+  if (restoringPricingRuleTrialReturnState) return
+  const selectedVersionID = Number(versionID || 0)
+  const resultVersionID = Number(pricingRuleTrialResult.value?.bom_version_id || 0)
+  const selectedVariantID = Number(pricingRuleTrialForm.value.bom_variant_id || 0)
+  const availableVariants = pricingRuleTrialBomSpecOptions.value.filter((option) => (
+    selectedVersionID <= 0 || Number(option?.version_id || 0) === selectedVersionID
+  ))
+  if (selectedVariantID > 0 && !availableVariants.some((option) => Number(option?.bom_variant_id || 0) === selectedVariantID)) {
+    pricingRuleTrialForm.value.bom_variant_id = 0
+    pricingRuleTrialForm.value.bom_spec_id = 0
+  }
+  if (resultVersionID > 0 && resultVersionID !== selectedVersionID) {
+    pricingRuleTrialResult.value = null
+    pricingRuleTrialActiveExplanation.value = ''
+  }
 })
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
@@ -7821,11 +8066,22 @@ watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialForm.value.parent_product_id = 0
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.bom_spec_id = 0
+  pricingRuleTrialForm.value.bom_variant_id = 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialResult.value = null
   pricingRuleTrialActiveExplanation.value = ''
+})
+
+watch(pricingRuleTrialMaterialID, () => {
+  pricingRuleTrialMaterialBomVersionID.value = 0
+  pricingRuleTrialMaterialResult.value = null
+  schedulePricingRuleTrial()
+})
+watch(pricingRuleTrialMaterialBomVersionID, () => {
+  if (pricingRuleTrialMode.value === 'material') schedulePricingRuleTrial()
 })
 
 watch(pricingRuleTrialProductKindFilterOptions, (options) => {
@@ -7903,6 +8159,16 @@ async function restorePricingRuleTrialReturnState(params = {}) {
         : [defaultPricingRuleTrialOtherCostRow()],
     }
     activePricingRuleTrialProductKindFilter.value = String(state.product_kind_filter || '')
+    if (state.material_mode === 'material') {
+      pricingRuleTrialMode.value = 'material'
+      pricingRuleTrialMaterialID.value = Number(state.material_id || 0)
+      pricingRuleTrialMaterialBomVersionID.value = Number(state.material_bom_version_id || 0)
+      pricingRuleTrialMaterialBomOptions.value = []
+      pricingRuleTrialMaterialResult.value = null
+      pricingRuleTrialMaterialError.value = ''
+    } else {
+      pricingRuleTrialMode.value = 'product'
+    }
     pricingRuleTrialResult.value = null
     pricingRuleTrialActiveExplanation.value = ''
     pricingRuleTrialError.value = ''
@@ -8179,6 +8445,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .product-spec-sku-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 4px 8px; border: 1px solid #eadfce; border-radius: 7px; background: #fffaf2; color: #4d3927; text-align: left; }
 .product-spec-sku-item small { color: var(--muted); }
 .product-spec-sku-item:disabled { opacity: 0.5; cursor: not-allowed; }
+.product-bom-specs { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 6px; }
+.product-bom-spec-label { color: var(--muted); font-size: 12px; }
+.product-bom-spec-item { padding: 3px 8px; border: 1px solid #cfe0f4; border-radius: 999px; background: #f5f9ff; color: #24527a; font: inherit; font-size: 12px; cursor: pointer; }
+.product-bom-spec-item small { margin-left: 4px; color: #8a5a24; }
+.product-bom-spec-item:disabled { opacity: 0.5; cursor: not-allowed; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
@@ -8256,6 +8527,14 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-rule-grid span, .pricing-rule-trial-source span { min-width: 0; border: 1px solid #eee8df; border-radius: 6px; background: #fff; padding: 7px 8px; color: #4f453b; font-size: 12px; overflow-wrap: anywhere; }
 .pricing-rule-trial-form-section { display: grid; gap: 12px; }
 .pricing-rule-trial-grid .wide-field { grid-column: 1 / -1; }
+.pricing-rule-trial-bom-selection-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.pricing-rule-trial-bom-selection-grid > label, .pricing-rule-trial-bom-selection-grid > .pricing-rule-trial-bom-field { min-width: 0; }
+.pricing-rule-trial-mode-switch { display: flex; gap: 8px; margin: 0 0 12px; border-bottom: 1px solid #e8e2da; }
+.pricing-rule-trial-mode-switch button { border: 0; background: transparent; padding: 8px 12px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; }
+.pricing-rule-trial-mode-switch button.active { color: #171717; font-weight: 700; border-bottom-color: #171717; }
+.material-cost-trial-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.material-cost-trial-result { margin-top: 14px; }
+.complete-cost { border-color: #b9dec8; background: #f3fbf6; }
 .pricing-rule-trial-bom-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
 .pricing-rule-trial-bom-field label { min-width: 0; }
 .pricing-rule-trial-footer > div { display: grid; gap: 3px; }
@@ -8303,6 +8582,13 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-formula-main { margin: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .pricing-rule-trial-formula ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; line-height: 1.5; }
 .product-production-config-body { gap: 14px; }
+.bom-spec-migration-panel { display: grid; gap: 10px; }
+.migration-actions { align-items: center; flex-wrap: wrap; }
+.migration-blockers { display: grid; gap: 6px; }
+.migration-blockers ul { margin: 0; padding-left: 20px; }
+.bom-spec-migration-panel details { min-width: 180px; }
+.bom-spec-migration-panel summary { cursor: pointer; color: #25568d; }
+.bom-spec-migration-panel pre { max-width: 420px; margin: 8px 0 0; padding: 8px; border: 1px solid #e2dacd; border-radius: 6px; background: #fbfaf8; color: #3f3a33; font: inherit; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .production-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
 .production-config-grid label, .production-config-field-row label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
 .production-config-grid label span, .production-config-field-row label span { color: #5f5a52; font-weight: 600; }
@@ -8375,6 +8661,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td { opacity: 0.4; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
+  .material-cost-trial-grid { grid-template-columns: 1fr; }
+  .pricing-rule-trial-bom-selection-grid { grid-template-columns: 1fr; }
 	  .pricing-rule-trial-bom-field { grid-template-columns: 1fr; }
   .page { padding: 12px; }
 	  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .pricing-rule-other-cost-row, .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .sales-spec-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }

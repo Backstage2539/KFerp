@@ -1812,14 +1812,8 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	if err := json.Unmarshal([]byte(repo.createdPublic.UnitRuleOverrideJSON), &createdRule); err != nil {
 		t.Fatalf("created unit rule json invalid: %v raw=%s", err, repo.createdPublic.UnitRuleOverrideJSON)
 	}
-	if createdRule["inventory_unit"] != "盒" || createdRule["integer_inventory_unit"] != true || createdRule["default_sales_unit"] != "袋" {
-		t.Fatalf("created product unit rule = %#v, want inventory and sales unit fields", createdRule)
-	}
-	if conversion, ok := createdRule["unit_conversion_json"].(map[string]any); !ok || conversion["袋"].(map[string]any)["盒"] != float64(6) {
-		t.Fatalf("created unit conversion = %#v", createdRule["unit_conversion_json"])
-	}
-	if salesRules, ok := createdRule["sales_unit_rules"].(map[string]any); !ok || salesRules["袋"].(map[string]any)["integer"] != true {
-		t.Fatalf("created sales unit rules = %#v", createdRule["sales_unit_rules"])
+	if len(createdRule) != 0 {
+		t.Fatalf("created product unit rule = %#v, want BOM-owned specifications with no legacy product unit authority", createdRule)
 	}
 }
 
@@ -1905,8 +1899,8 @@ func TestProductUnitTemplateReferenceAPIContract(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST product unit template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.createdPublic.UnitTemplateID != 7 {
-		t.Fatalf("POST product should pass unit_template_id to service command, got %d", repo.createdPublic.UnitTemplateID)
+	if repo.createdPublic.UnitTemplateID != 0 {
+		t.Fatalf("POST product should ignore legacy unit_template_id because BOM owns new specifications, got %d", repo.createdPublic.UnitTemplateID)
 	}
 	if repo.createdPublic.UnitRuleOverrideJSON != "{}" {
 		t.Fatalf("POST product with template but no advanced override should not write effective units as product override, got %s", repo.createdPublic.UnitRuleOverrideJSON)

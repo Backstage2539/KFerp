@@ -46,7 +46,7 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 		planID,
 	), 1)
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", fmt.Sprintf(
-		"production_plan_id=%d AND output_type='material' AND output_product_id=0 AND output_material_id=10 AND output_qty=12700 AND output_unit='g' AND planned_output_g=12700 AND planned_g=15875 AND target_warehouse='wip'",
+		"production_plan_id=%d AND output_type='material' AND output_product_id=0 AND output_material_id=10 AND output_qty=12.7 AND output_unit='kg' AND planned_output_g=12700 AND planned_g=15875 AND target_warehouse='wip'",
 		planID,
 	), 1)
 	assertProductionFlowCount(t, pool, schema, "production_plan_item_dependencies", fmt.Sprintf(
@@ -98,10 +98,8 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 		)
 		SELECT production_plan_id,id,1,
 		       CASE WHEN output_type='material' THEN '烘焙' ELSE '包装' END,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-		       'g',15,1,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,inventory_unit,15,1,
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,
 		       15
 		FROM %s.production_plan_items
 		WHERE production_plan_id=%d;
@@ -165,13 +163,13 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 		t.Fatalf("load material running item: %v", err)
 	}
 	assertProductionFlowCount(t, pool, schema, "produce_running_items", fmt.Sprintf(
-		"id=%d AND output_type='material' AND output_material_id=10 AND output_qty=12700 AND output_unit='g' AND target_warehouse='wip'",
+		"id=%d AND output_type='material' AND output_material_id=10 AND output_qty=12.7 AND output_unit='kg' AND target_warehouse='wip'",
 		upstreamRunningItemID,
 	), 1)
 
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.job_cards
-		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=15875,actual_output_qty=12700
+		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=15.875,actual_output_qty=12.7
 		WHERE work_order_id=%d;
 	`, schema, upstreamWorkOrderID))
 	upstreamComplete := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", upstreamWorkOrderID), map[string]any{
@@ -216,7 +214,7 @@ func TestProductionPlanAPICreatesMaterialShortageWorkOrderAndCompletesIntoDownst
 	}
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.job_cards
-		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=22700,actual_output_qty=22700
+		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=22.7,actual_output_qty=22.7
 		WHERE work_order_id=%d;
 	`, schema, rootWorkOrderID))
 	downstreamComplete := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", rootWorkOrderID), map[string]any{
@@ -285,7 +283,8 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 		)
 		SELECT production_plan_id,id,1,
 		       CASE WHEN output_product_id=2 THEN '烘焙' ELSE '包装' END,
-		       planned_output_g,'g',15,1,planned_output_g,planned_output_g,15
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,inventory_unit,15,1,
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 		FROM %s.production_plan_items
 		WHERE production_plan_id=%d;
 	`, schema, schema, planID))
@@ -362,7 +361,7 @@ func TestProductionPlanAPITypedProductComponentRecursesWithPartialFinishedStock(
 	}
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.job_cards
-		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=22700,actual_output_qty=22700
+		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=22.7,actual_output_qty=22.7
 		WHERE work_order_id=%d;
 	`, schema, rootWorkOrderID))
 	downstreamComplete := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", rootWorkOrderID), map[string]any{
@@ -424,7 +423,7 @@ func TestProductionPlanAPISharedUpstreamShortageAllocatesEachDependencyOnce(t *t
 	}
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", fmt.Sprintf("production_plan_id=%d", planID), 4)
 	assertProductionFlowCount(t, pool, schema, "production_plan_items", fmt.Sprintf(
-		"production_plan_id=%d AND output_type='material' AND output_material_id=30 AND output_qty=700 AND planned_output_g=700",
+		"production_plan_id=%d AND output_type='material' AND output_material_id=30 AND output_qty=0.7 AND output_unit='kg' AND planned_output_g=700",
 		planID,
 	), 1)
 	assertProductionFlowCount(t, pool, schema, "production_plan_item_dependencies", fmt.Sprintf(
@@ -449,7 +448,8 @@ func TestProductionPlanAPISharedUpstreamShortageAllocatesEachDependencyOnce(t *t
 		)
 		SELECT production_plan_id,id,1,
 		       CASE WHEN output_type='product' THEN '包装' ELSE '烘焙' END,
-		       planned_g,'g',15,1,planned_g,planned_g,15
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,inventory_unit,15,1,
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
@@ -656,7 +656,7 @@ func TestProductionPlanAPIFullStockCreatesNoUpstreamAndReservesOnceOnSubmit(t *t
 			batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
 			planned_qty,planned_qty_g,planned_minutes
 		)
-		SELECT production_plan_id,id,1,'包装',22700,'g',15,1,22700,22700,15
+		SELECT production_plan_id,id,1,'包装',planned_g/1000.0,inventory_unit,15,1,planned_g/1000.0,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
@@ -725,10 +725,8 @@ func TestProductionPlanAPIConcurrentSubmitRechecksSharedMaterialAvailability(t *
 		)
 		SELECT production_plan_id,id,1,
 		       CASE WHEN output_type='material' THEN '烘焙' ELSE '包装' END,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-		       'g',15,1,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,15
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,inventory_unit,15,1,
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id IN (%d,%d);
 	`, schema, schema, planA, planB))
 
@@ -837,8 +835,9 @@ func TestDraftPlanItemTargetWarehouseUpdateFreezesOnSubmit(t *testing.T) {
 			production_plan_id,production_plan_item_id,operation_seq,operation,
 			batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
 			planned_qty,planned_qty_g,planned_minutes
-		) VALUES(%d,%d,1,'包装',22700,'g',15,1,22700,22700,15);
-	`, schema, planID, itemID))
+		) SELECT %d,%d,1,'包装',planned_g/1000.0,inventory_unit,15,1,planned_g/1000.0,planned_g,15
+		  FROM %s.production_plan_items WHERE id=%d;
+		`, schema, planID, itemID, schema, itemID))
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
 	if submit.Code != http.StatusOK {
 		t.Fatalf("submit target-warehouse plan status=%d body=%s", submit.Code, submit.Body.String())
@@ -888,10 +887,8 @@ func TestMaterialOutputCompletionHonorsFrozenPlanTargetWarehouse(t *testing.T) {
 		)
 		SELECT production_plan_id,id,1,
 		       CASE WHEN output_type='material' THEN '烘焙' ELSE '包装' END,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-		       'g',15,1,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-		       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,15
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,inventory_unit,15,1,
+		       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
@@ -911,7 +908,7 @@ func TestMaterialOutputCompletionHonorsFrozenPlanTargetWarehouse(t *testing.T) {
 	}
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 		UPDATE %s.job_cards
-		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=15875,actual_output_qty=12700
+		SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=15.875,actual_output_qty=12.7
 		WHERE work_order_id=%d;
 	`, schema, workOrderID))
 	wrong := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", workOrderID), map[string]any{
@@ -970,10 +967,8 @@ func TestMaterialOutputShortAndOverProductionKeepDownstreamCoverageExact(t *test
 				)
 				SELECT production_plan_id,id,1,
 				       CASE WHEN output_type='material' THEN '烘焙' ELSE '包装' END,
-				       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-				       'g',15,1,
-				       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,
-				       CASE WHEN output_type='material' THEN 15875 ELSE 22700 END,15
+				       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,inventory_unit,15,1,
+				       CASE LOWER(inventory_unit) WHEN 'kg' THEN planned_g/1000.0 ELSE planned_g END,planned_g,15
 				FROM %s.production_plan_items WHERE production_plan_id=%d;
 			`, schema, schema, planID))
 			submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
@@ -994,9 +989,9 @@ func TestMaterialOutputShortAndOverProductionKeepDownstreamCoverageExact(t *test
 			consumedInputG := int64(math.Ceil(float64(tt.finishedG) * 1.25))
 			mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
 				UPDATE %s.job_cards
-				SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=%d,actual_output_qty=%d
-				WHERE work_order_id=%d;
-			`, schema, consumedInputG, tt.finishedG, upstreamWorkOrderID))
+					SET status='completed',started_at=COALESCE(started_at,now()),completed_at=now(),actual_input_qty=%g,actual_output_qty=%g
+					WHERE work_order_id=%d;
+				`, schema, float64(consumedInputG)/1000, float64(tt.finishedG)/1000, upstreamWorkOrderID))
 			complete := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/produce/work-orders/%d/complete", upstreamWorkOrderID), map[string]any{
 				"finished_qty_g": tt.finishedG, "consumed_input_g": consumedInputG, "warehouse": "wip",
 			})
@@ -1029,9 +1024,9 @@ func TestCountOnlyMaterialOutputWritesActualPerUnitBatchCost(t *testing.T) {
 	const runningItemID int64 = 9901
 	const workOrderID int64 = 9902
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
-			(40,'COUNT-OUTPUT','计件产出','other','unit',0,0,0,0),
-			(41,'COUNT-INPUT','计件投入','other','unit',0,12,2,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
+			(40,'COUNT-OUTPUT','计件产出','other','unit','unit',0,0,0,0),
+			(41,'COUNT-INPUT','计件投入','other','unit','unit',0,12,2,0);
 		INSERT INTO %s.produce_running_items(
 			id,batch_id,product_id,product_name,spec_g,need_g,status,started_by,started_at,
 			input_g,planned_units,planned_loose_g,material_snapshot,
@@ -1096,7 +1091,7 @@ func createSubmittedFullStockTypedPlan(t *testing.T, ctx context.Context, pool *
 			batch_size_qty,batch_size_unit,standard_minutes,planned_batch_count,
 			planned_qty,planned_qty_g,planned_minutes
 		)
-		SELECT production_plan_id,id,1,'包装',22700,'g',15,1,22700,22700,15
+		SELECT production_plan_id,id,1,'包装',planned_g/1000.0,inventory_unit,15,1,planned_g/1000.0,planned_g,15
 		FROM %s.production_plan_items WHERE production_plan_id=%d;
 	`, schema, schema, planID))
 	submit := serveMultilevelProductionJSON(t, app, http.MethodPost, fmt.Sprintf("/api/production-plans/%d/submit", planID), nil)
@@ -1144,10 +1139,10 @@ func seedMultilevelMaterialOutputFlow(t *testing.T, ctx context.Context, pool *p
 		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
 		VALUES (1,1,'227g包装熟豆',100,'袋','227g',1,50,5000);
 
-		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
-			(10,'ROASTED-WIP','在制熟豆','bean','g',10000,0,80,0),
-			(20,'BAG-227','227g包装袋','pack','unit',0,100,1,0),
-			(30,'GREEN-INPUT','生产生豆','bean','g',20000,0,50,0);
+		INSERT INTO %s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price) VALUES
+			(10,'ROASTED-WIP','在制熟豆','bean','kg','kg',10000,0,80,0),
+			(20,'BAG-227','227g包装袋','pack','unit','unit',0,100,1,0),
+			(30,'GREEN-INPUT','生产生豆','bean','kg','kg',20000,0,50,0);
 
 		INSERT INTO %s.process_routes(id,name,status,default_equipment,default_minutes) VALUES
 			(31,'包装路线','active','包装机',15),
@@ -1161,7 +1156,7 @@ func seedMultilevelMaterialOutputFlow(t *testing.T, ctx context.Context, pool *p
 			(200,'PBOM-ROASTED','熟豆生产 BOM','material',0,10,'active');
 		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,material_loss_rate,output_qty,output_unit,process_route_id,published_at) VALUES
 			(100,100,'V001','published',1,0,1,'kg',31,now()),
-			(200,200,'V001','published',1,0,1000,'g',32,now());
+			(200,200,'V001','published',1,0,1,'kg',32,now());
 		INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,consume_unit,qty_per_unit,ratio_pct) VALUES
 			(100,10,'material','g_per_bag',227,0),
 			(100,20,'material','unit_per_bag',1,0),
@@ -1218,14 +1213,14 @@ func seedSharedUpstreamMaterialFlow(t *testing.T, ctx context.Context, pool *pgx
 	t.Helper()
 	seedMultilevelMaterialOutputFlow(t, ctx, pool, schema)
 	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
-		UPDATE %[1]s.materials SET code='INTERMEDIATE-A',name='半成品A',kind='other',unit='g',onhand_g=0,onhand_units=0 WHERE id=10;
-		UPDATE %[1]s.materials SET code='INTERMEDIATE-B',name='半成品B',kind='other',unit='g',onhand_g=0,onhand_units=0 WHERE id=20;
-		UPDATE %[1]s.materials SET code='SHARED-COMPONENT',name='共用组件',kind='other',unit='g',onhand_g=300,onhand_units=0 WHERE id=30;
-		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
-		VALUES (40,'SHARED-RAW','共用原料','other','g',700,0,10,0);
+		UPDATE %[1]s.materials SET code='INTERMEDIATE-A',name='半成品A',kind='other',unit='kg',cost_unit='kg',onhand_g=0,onhand_units=0 WHERE id=10;
+		UPDATE %[1]s.materials SET code='INTERMEDIATE-B',name='半成品B',kind='other',unit='kg',cost_unit='kg',onhand_g=0,onhand_units=0 WHERE id=20;
+		UPDATE %[1]s.materials SET code='SHARED-COMPONENT',name='共用组件',kind='other',unit='kg',cost_unit='kg',onhand_g=300,onhand_units=0 WHERE id=30;
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,cost_unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (40,'SHARED-RAW','共用原料','other','kg','kg',700,0,10,0);
 
 		DELETE FROM %[1]s.production_bom_version_items WHERE version_id IN (100,200);
-		UPDATE %[1]s.production_bom_versions SET output_qty=1,output_unit='g',material_loss_rate=0 WHERE id=200;
+		UPDATE %[1]s.production_bom_versions SET output_qty=0.001,output_unit='kg',material_loss_rate=0 WHERE id=200;
 		UPDATE %[1]s.production_boms SET name='半成品A BOM',output_type='material',output_product_id=0,output_material_id=10 WHERE id=200;
 		INSERT INTO %[1]s.production_bom_version_items(version_id,material_id,component_type,consume_unit,qty_per_unit,ratio_pct) VALUES
 			(100,10,'material','g_per_bag',1,0),
@@ -1235,7 +1230,7 @@ func seedSharedUpstreamMaterialFlow(t *testing.T, ctx context.Context, pool *pgx
 		INSERT INTO %[1]s.production_boms(id,code,name,output_type,output_product_id,output_material_id,status)
 		VALUES (201,'PBOM-INTERMEDIATE-B','半成品B BOM','material',0,20,'active');
 		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,yield_rate,material_loss_rate,output_qty,output_unit,process_route_id,published_at)
-		VALUES (201,201,'V001','published',1,0,1,'g',32,now());
+		VALUES (201,201,'V001','published',1,0,0.001,'kg',32,now());
 		INSERT INTO %[1]s.production_bom_version_items(version_id,material_id,component_type,consume_unit,qty_per_unit,ratio_pct)
 		VALUES (201,30,'material','g',4,0);
 		INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default,updated_by)
@@ -1248,7 +1243,7 @@ func seedSharedUpstreamMaterialFlow(t *testing.T, ctx context.Context, pool *pgx
 		INSERT INTO %[1]s.production_boms(id,code,name,output_type,output_product_id,output_material_id,status)
 		VALUES (300,'PBOM-SHARED','共用组件 BOM','material',0,30,'active');
 		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,yield_rate,material_loss_rate,output_qty,output_unit,process_route_id,published_at)
-		VALUES (300,300,'V001','published',1,0,1,'g',32,now());
+		VALUES (300,300,'V001','published',1,0,0.001,'kg',32,now());
 		INSERT INTO %[1]s.production_bom_version_items(version_id,material_id,component_type,consume_unit,qty_per_unit,ratio_pct)
 		VALUES (300,40,'material','g',1,0);
 		INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default,updated_by)

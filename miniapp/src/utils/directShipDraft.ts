@@ -10,9 +10,12 @@ export type DirectShipDraftLine = {
   key: string
   product_family_key: string
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
   product_name: string
   spec_g: number
   spec_label: string
+  inventory_unit?: string
   qty: number
 }
 
@@ -35,11 +38,17 @@ export function selectDirectShipDraftSpec(
   line: DirectShipDraftLine,
   spec: EmployeeOrderProductSpec,
 ): DirectShipDraftLine {
+  const bomSpecID = Number(spec.bom_spec_id || 0)
+  const bomVariantID = Number(spec.bom_variant_id || 0)
+  const canonical = bomSpecID > 0 || bomVariantID > 0 || spec.migration_state === 'cutover'
   return {
     ...line,
     product_id: Number(spec.sku_id || spec.product_id || 0),
-    spec_g: productSpecWeightG(spec),
+    bom_spec_id: canonical ? bomSpecID : undefined,
+    bom_variant_id: canonical ? bomVariantID : undefined,
+    spec_g: canonical ? 0 : productSpecWeightG(spec),
     spec_label: productSpecLabel(spec),
+    inventory_unit: canonical ? String(spec.inventory_unit || '').trim() : undefined,
   }
 }
 
@@ -86,13 +95,28 @@ export function buildDirectShipDraftItems(lines: DirectShipDraftLine[] = []): Pr
   for (const line of lines) {
     if (isBlankDirectShipDraftLine(line)) continue
     const productID = Number(line.product_id || 0)
+    const bomSpecID = Number(line.bom_spec_id || 0)
+    const bomVariantID = Number(line.bom_variant_id || 0)
     const specG = Number(line.spec_g || 0)
     const qty = Number(line.qty || 0)
     if (productID <= 0 || !Number.isFinite(qty) || qty <= 0) continue
-    const key = `${productID}:${specG}`
+    const canonical = bomSpecID > 0 || bomVariantID > 0
+    if (canonical && (bomSpecID <= 0 || bomVariantID <= 0)) continue
+    const key = canonical
+      ? `${productID}:bom_spec:${bomSpecID}:${bomVariantID}`
+      : `${productID}:legacy:${specG}`
     const current = merged.get(key)
     if (current) current.qty += qty
-    else merged.set(key, { product_id: productID, spec_g: specG, qty })
+    else if (canonical) {
+      merged.set(key, {
+        product_id: productID,
+        bom_spec_id: bomSpecID,
+        bom_variant_id: bomVariantID,
+        inventory_unit: String(line.inventory_unit || '').trim() || undefined,
+        spec_g: 0,
+        qty,
+      })
+    } else merged.set(key, { product_id: productID, spec_g: specG, qty })
   }
   return Array.from(merged.values())
 }

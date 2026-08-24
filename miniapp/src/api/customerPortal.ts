@@ -271,7 +271,14 @@ export type ResaleBeanListCommand = {
 
 export type ProductSummary = {
   id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
   name: string
+  spec_name?: string
+  inventory_unit?: string
+  migration_state?: string
+  is_default?: boolean
+  sort_order?: number
   roast_level: string
   default_price: string
   retail_price_100g: string
@@ -435,11 +442,16 @@ export type CreateDirectShipBatchPayload = {
 
 export type ProcessingTargetItem = {
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
   spec_g: number
   qty: number
   product_name?: string
   sku_code?: string
   spec_label?: string
+  spec_name?: string
+  bom_spec_name?: string
+  inventory_unit?: string
 }
 
 export type CreateProcessingRequestPayload = {
@@ -572,6 +584,12 @@ export type DirectShipPreview = {
 
 export type CustomerInventorySummary = {
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  bom_spec_key?: string
+  bom_spec_name?: string
+  inventory_unit?: string
+  is_default_spec?: boolean
   product_name: string
   parent_product_id?: number
   sku_code?: string
@@ -601,6 +619,11 @@ export type CustomerInventoryBatch = {
   batch_id: number
   batch_no: string
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  bom_spec_key?: string
+  bom_spec_name?: string
+  inventory_unit?: string
   product_name: string
   sku_code?: string
   spec_g: number
@@ -645,6 +668,9 @@ export type CreateFulfillmentOrderPayload = {
   recipient_address: string
   recipient_company?: string
   product_id: number
+  bom_spec_id?: number
+  bom_variant_id?: number
+  inventory_unit?: string
   product_name?: string
   spec_g: number
   qty: number
@@ -720,6 +746,7 @@ export type EmployeeOrderForm = {
   pay_statuses: Array<{ id: number; name: string }>
   ship_statuses: Array<{ id: number; name: string }>
   product_families: EmployeeOrderProductFamily[]
+  product_bom_spec_options?: EmployeeOrderBOMSpecOption[]
   products?: EmployeeOrderLegacyProduct[]
 }
 
@@ -813,6 +840,9 @@ export type EmployeeOrderDraftItem = {
   product_family_id: number
   customer_product_alias_id: number
   product_id: number
+  migration_state?: string
+  bom_spec_id?: number
+  bom_variant_id?: number
   product_name: string
   product_kind: string
   spec_label: string
@@ -885,6 +915,17 @@ export type EmployeeOrderProductTier = {
 
 export type EmployeeOrderProductSpec = {
   product_id: number
+  migration_state?: string
+  bom_spec_id?: number
+  bom_variant_id?: number
+  spec_code?: string
+  barcode?: string
+  spec_key?: string
+  spec_name?: string
+  inventory_unit?: string
+  is_default?: boolean
+  sort_order?: number
+  published?: boolean
   sku_id?: number
   sku_code?: string
   sku_name?: string
@@ -903,8 +944,34 @@ export type EmployeeOrderProductSpec = {
   tiers?: EmployeeOrderProductTier[]
 }
 
+export type EmployeeOrderBOMSpecOption = {
+  parent_product_id: number
+  legacy_child_product_id?: number
+  bom_id: number
+  bom_version_id?: number
+  bom_version_no?: string
+  bom_spec_id: number
+  bom_variant_id?: number
+  spec_code?: string
+  barcode?: string
+  spec_key: string
+  spec_name: string
+  inventory_unit: string
+  published: boolean
+  is_default: boolean
+  sort_order: number
+  migration_state: string
+  write_product_id: number
+  write_bom_spec_id?: number
+  write_bom_variant_id?: number
+  tiers?: EmployeeOrderProductTier[]
+}
+
 export type EmployeeOrderProductFamily = {
   parent_product_id: number
+  migration_state?: string
+  bom_spec_migration_state?: string
+  default_bom_spec_id?: number
   parent_product_name?: string
   name: string
   alias_name?: string
@@ -941,6 +1008,10 @@ export type EmployeeOrderDetailItem = {
   item_id?: number
   line_no?: number
   product_id: number
+  parent_product_id?: number
+  migration_state?: string
+  bom_spec_id?: number
+  bom_variant_id?: number
   customer_product_alias_id?: number
   product_name: string
   customer_product_display_name_snapshot?: string
@@ -1326,9 +1397,29 @@ export function buildCustomerInventoryPath(filters: CustomerInventoryListFilters
   return `/api/mini/customer-inventory${suffix}`
 }
 
-export function buildCustomerInventoryBatchesPath(productID: number, specG = 0): string {
+export type CustomerInventoryIdentityQuery = {
+  bom_spec_id?: number
+  bom_variant_id?: number
+  spec_g?: number
+}
+
+export function buildCustomerInventoryBatchesPath(
+  productID: number,
+  identity: number | CustomerInventoryIdentityQuery = 0,
+): string {
   const path = `${buildCustomerInventoryPath()}/${Number(productID || 0)}/batches`
-  return Number(specG || 0) > 0 ? `${path}?spec_g=${Number(specG)}` : path
+  if (typeof identity === 'number') {
+    return Number(identity || 0) > 0 ? `${path}?spec_g=${Number(identity)}` : path
+  }
+  const bomSpecID = Number(identity.bom_spec_id || 0)
+  const bomVariantID = Number(identity.bom_variant_id || 0)
+  if (bomSpecID > 0) {
+    return bomVariantID > 0
+      ? `${path}?bom_spec_id=${bomSpecID}&bom_variant_id=${bomVariantID}`
+      : `${path}?bom_spec_id=${bomSpecID}`
+  }
+  const specG = Number(identity.spec_g || 0)
+  return specG > 0 ? `${path}?spec_g=${specG}` : path
 }
 
 export function buildCustomerBillsPath(): string {
@@ -1516,9 +1607,9 @@ export function fetchCustomerInventory(
 export function fetchCustomerInventoryBatches(
   token: string,
   productID: number,
-  specG = 0,
+  identity: number | CustomerInventoryIdentityQuery = 0,
 ): Promise<{ rows: CustomerInventoryBatch[] }> {
-  return miniRequest<{ rows: CustomerInventoryBatch[] }>(buildCustomerInventoryBatchesPath(productID, specG), { token })
+  return miniRequest<{ rows: CustomerInventoryBatch[] }>(buildCustomerInventoryBatchesPath(productID, identity), { token })
 }
 
 export function fetchCustomerBills(token: string): Promise<{ rows: CustomerBillSummary[] }> {

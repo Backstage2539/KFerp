@@ -144,7 +144,7 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.CustomerProductAliasID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.ParentProductID, req.ItemParentProductID, req.BomSpecID, req.BomVariantID, req.CustomerProductAliasID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
@@ -176,6 +176,16 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 		if parentIDStr != "" {
 			if parentID, err := strconv.ParseInt(parentIDStr, 10, 64); err == nil && parentID > 0 {
 				it.ParentProductID = parentID
+			}
+		}
+		if value := strings.TrimSpace(getStr(req.BomSpecID, i)); value != "" {
+			if id, err := strconv.ParseInt(value, 10, 64); err == nil && id > 0 {
+				it.BomSpecID = id
+			}
+		}
+		if value := strings.TrimSpace(getStr(req.BomVariantID, i)); value != "" {
+			if id, err := strconv.ParseInt(value, 10, 64); err == nil && id > 0 {
+				it.BomVariantID = id
 			}
 		}
 		if aliasStr := strings.TrimSpace(getStr(req.CustomerProductAliasID, i)); aliasStr != "" {

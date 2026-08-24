@@ -32,6 +32,8 @@ func TestOrderEditItemsQueryExecutesAgainstCanonicalPostgresSchema(t *testing.T)
 		t.Fatalf("core EnsureSchema: %v", err)
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_spec_id BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS bom_variant_id BIGINT NOT NULL DEFAULT 0;
 		ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS customer_product_alias_id BIGINT NOT NULL DEFAULT 0;
 		ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS customer_product_display_name_snapshot TEXT NOT NULL DEFAULT '';
 		ALTER TABLE %[1]s.order_items ADD COLUMN IF NOT EXISTS customer_item_code_snapshot TEXT NOT NULL DEFAULT '';
@@ -58,7 +60,7 @@ func TestOrderEditItemsQueryExecutesAgainstCanonicalPostgresSchema(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(values) != 29 || values[17] != true {
-		t.Fatalf("order item values=%#v, want price override at column 18", values)
+	if len(values) != 33 || values[21] != true {
+		t.Fatalf("order item values=%#v, want price override at column 22", values)
 	}
 }

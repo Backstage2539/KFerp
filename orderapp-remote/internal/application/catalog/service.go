@@ -116,6 +116,27 @@ type Product struct {
 	OrderUsageCount             int
 	Tiers                       []PriceTier
 	PriceSummary                PriceSummary
+	SpecIdentityMode            string
+	BomSpecAuthoritative        bool
+	MigrationState              string
+	LegacyCatalogProduct        bool
+	BOMSpecs                    []BOMSpecOption
+}
+
+type BOMSpecOption struct {
+	ProductID     int64
+	BomID         int64
+	BomVersionID  int64
+	BomVersionNo  string
+	BomSpecID     int64
+	BomVariantID  int64
+	SpecCode      string
+	Barcode       string
+	SpecKey       string
+	SpecName      string
+	InventoryUnit string
+	IsDefault     bool
+	SortOrder     int
 }
 
 type PriceSummary struct {
@@ -1577,18 +1598,12 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
-	if cmd.UnitTemplateID < 0 {
-		return Product{}, ValidationError{Message: "invalid unit_template_id"}
-	}
-	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
-	if err != nil {
-		return Product{}, ValidationError{Message: "invalid unit_rule_override_json"}
-	}
 	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
+	cmd.UnitTemplateID = 0
 	cmd.Tiers = nil
 	cmd.SpecialAttrsJSON = specialAttrsJSON
-	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
+	cmd.UnitRuleOverrideJSON = "{}"
 	return s.repo.CreateProduct(ctx, cmd)
 }
 

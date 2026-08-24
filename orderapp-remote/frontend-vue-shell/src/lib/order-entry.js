@@ -1,5 +1,10 @@
 import { isDripProduct } from './drip-product.js'
 import { publicationTypeIdentityForPriceListType } from './product-price-list-types.js'
+import {
+  buildProductSpecWriteIdentity,
+  isProductBomSpecCutover,
+  visibleRowsForProductSpecMigration,
+} from './product-spec-cutover.js'
 
 export const CUSTOM_SPEC_VALUE = 'custom'
 export const COMMON_SPEC_GRAMS = [36, 80, 100, 227, 454, 500, 1000, 2500]
@@ -194,11 +199,19 @@ function normalizeOrderFamilySpec(raw = {}, sourceProduct = null) {
   const tiers = Array.isArray(raw.tiers)
     ? raw.tiers
     : (Array.isArray(source?.tiers) ? source.tiers : [])
-  const skuID = orderFamilyID(raw.sku_id, raw.skuID, raw.product_id, raw.id, source?.id)
+  const bomSpecID = orderFamilyID(raw.bom_spec_id, raw.bomSpecID)
+  const bomVariantID = orderFamilyID(raw.bom_variant_id, raw.bomVariantID)
+  const legacySkuID = orderFamilyID(raw.sku_id, raw.skuID, raw.product_id, raw.id, source?.id)
+  const cutover = isProductBomSpecCutover(raw) && bomSpecID > 0
+  const skuID = cutover ? bomSpecID : (legacySkuID || bomSpecID)
   return {
     ...source,
     ...raw,
     sku_id: skuID,
+    legacy_sku_id: legacySkuID,
+    bom_spec_id: bomSpecID,
+    bom_variant_id: bomVariantID,
+    migration_state: String(raw.migration_state || source?.migration_state || '').trim(),
     sku_name: orderFamilyText(raw.sku_name ?? raw.skuName ?? raw.name ?? source?.name),
     product_code: orderFamilyText(raw.product_code ?? raw.productCode ?? raw.code ?? source?.product_code ?? source?.code),
     spec_label: orderSpecLabel({ ...source, ...raw, tiers }),
@@ -230,9 +243,14 @@ function normalizeExplicitOrderFamily(raw = {}) {
       ?? raw.name
       ?? parentProductName,
   ) || parentProductName
-  const specs = (Array.isArray(raw.specs) ? raw.specs : [])
-    .map((spec) => normalizeOrderFamilySpec(spec))
-    .filter((spec) => spec.sku_id > 0)
+  const cutover = isProductBomSpecCutover(raw)
+  const rawSpecs = cutover
+    ? (raw.bom_specs ?? raw.bomSpecs ?? raw.production_bom_specs ?? raw.productionBomSpecs ?? raw.specs ?? [])
+    : (raw.specs ?? [])
+  const specs = (Array.isArray(rawSpecs) ? rawSpecs : [])
+    .filter((spec) => !cutover || orderFamilyID(spec?.bom_spec_id, spec?.bomSpecID) > 0)
+    .map((spec) => normalizeOrderFamilySpec({ ...spec, migration_state: raw.migration_state }))
+    .filter((spec) => spec.sku_id > 0 || spec.bom_spec_id > 0)
   const searchCode = [
     raw.code,
     raw.product_code,
@@ -254,7 +272,9 @@ function normalizeExplicitOrderFamily(raw = {}) {
     name: displayName,
     alias_name: orderFamilyText(raw.alias_name ?? raw.customer_product_display_name ?? raw.customerProductDisplayName),
     customer_product_display_name: orderFamilyText(raw.customer_product_display_name ?? raw.customerProductDisplayName ?? displayName),
-    default_sku_id: orderFamilyID(raw.default_sku_id, raw.defaultSkuID),
+    default_sku_id: cutover
+      ? orderFamilyID(raw.default_bom_spec_id, raw.defaultBomSpecID, specs.find((spec) => spec.is_default_sku)?.bom_spec_id)
+      : orderFamilyID(raw.default_sku_id, raw.defaultSkuID),
     family_key: familyKey,
     specs,
     tiers: specs.flatMap((spec) => spec.tiers || []),
@@ -333,18 +353,67 @@ function fallbackOrderFamilies(products = []) {
   return [...concreteFamilies, ...legacyProducts]
 }
 
-export function normalizeOrderProductFamilies(productFamilies = [], products = []) {
-  if (Array.isArray(productFamilies) && productFamilies.length) {
+function orderFamiliesWithBomSpecOptions(productFamilies = [], bomSpecOptions = []) {
+  const options = (Array.isArray(bomSpecOptions) ? bomSpecOptions : [])
+    .filter((row) => isProductBomSpecCutover(row) && orderFamilyID(row?.bom_spec_id, row?.bomSpecID) > 0)
+  if (!options.length) return Array.isArray(productFamilies) ? productFamilies : []
+  return (Array.isArray(productFamilies) ? productFamilies : []).map((raw) => {
+    const parentProductID = orderFamilyID(raw?.parent_product_id, raw?.parentProductID, raw?.product_id, raw?.id)
+    const legacySpecs = Array.isArray(raw?.specs) ? raw.specs : []
+    const legacySkuIDs = new Set(legacySpecs.map((spec) => orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id)).filter(Boolean))
+    let matching = options.filter((row) => orderFamilyID(row?.parent_product_id, row?.parentProductID) === parentProductID)
+    const scoped = matching.filter((row) => legacySkuIDs.has(orderFamilyID(row?.legacy_child_product_id, row?.legacyChildProductID)))
+    if (scoped.length) matching = scoped
+    if (!matching.length) return raw
+    const defaultLegacySkuID = orderFamilyID(raw?.default_sku_id, raw?.defaultSkuID)
+    const mappedSpecs = matching.map((row) => {
+      const legacySkuID = orderFamilyID(row?.legacy_child_product_id, row?.legacyChildProductID)
+      const legacy = legacySpecs.find((spec) => orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id) === legacySkuID) || {}
+      const bomSpecID = orderFamilyID(row?.bom_spec_id, row?.bomSpecID)
+      return {
+        ...legacy,
+        ...row,
+        product_id: parentProductID,
+        parent_product_id: parentProductID,
+        sku_id: bomSpecID,
+        bom_spec_id: bomSpecID,
+        bom_variant_id: orderFamilyID(row?.bom_variant_id, row?.bomVariantID),
+        sku_name: orderFamilyText(row?.spec_name ?? row?.specName ?? legacy?.sku_name),
+        spec_label: orderFamilyText(row?.spec_name ?? row?.specName ?? legacy?.spec_label),
+        inventory_unit: orderFamilyText(row?.inventory_unit ?? row?.inventoryUnit ?? legacy?.inventory_unit),
+        sales_unit: orderFamilyText(row?.inventory_unit ?? row?.inventoryUnit ?? legacy?.sales_unit),
+        is_default_sku: row?.is_default === true || row?.isDefault === true || legacySkuID === defaultLegacySkuID,
+        migration_state: 'cutover',
+        tiers: Array.isArray(row?.tiers) ? row.tiers : (legacy?.tiers || []),
+      }
+    })
+    const defaultSpec = mappedSpecs.find((spec) => spec.is_default_sku) || mappedSpecs[0]
+    return {
+      ...raw,
+      product_id: parentProductID,
+      parent_product_id: parentProductID,
+      migration_state: 'cutover',
+      default_bom_spec_id: orderFamilyID(defaultSpec?.bom_spec_id),
+      bom_specs: mappedSpecs,
+      specs: mappedSpecs,
+    }
+  })
+}
+
+export function normalizeOrderProductFamilies(productFamilies = [], products = [], bomSpecOptions = []) {
+  const visibleProducts = visibleRowsForProductSpecMigration(products)
+  const effectiveProductFamilies = orderFamiliesWithBomSpecOptions(productFamilies, bomSpecOptions)
+  if (effectiveProductFamilies.length) {
     const productsByFamilySKU = new Map()
     const productsBySKU = new Map()
-    for (const product of products || []) {
+    for (const product of visibleProducts) {
       const skuID = orderFamilyID(product?.sku_id, product?.skuID, product?.id, product?.product_id)
       if (skuID <= 0) continue
       productsByFamilySKU.set(`${orderProductFamilyIdentity(product)}:${skuID}`, product)
       if (!productsBySKU.has(skuID)) productsBySKU.set(skuID, [])
       productsBySKU.get(skuID).push(product)
     }
-    const concreteFamilies = productFamilies.map((raw) => {
+    const concreteFamilies = effectiveProductFamilies.map((raw) => {
       const familyIdentity = orderProductFamilyIdentity(raw)
       const enrichedSpecs = (raw?.specs || []).map((spec) => {
         const skuID = orderFamilyID(spec?.sku_id, spec?.skuID, spec?.product_id, spec?.id)
@@ -359,14 +428,14 @@ export function normalizeOrderProductFamilies(productFamilies = [], products = [
       return family
     }).filter((family) => family.parent_product_id > 0 && family.specs.length)
     const concreteParentIDs = new Set(concreteFamilies.map((family) => family.parent_product_id))
-    const unrelatedLegacyProducts = (products || []).filter((product) => {
+    const unrelatedLegacyProducts = visibleProducts.filter((product) => {
       const parentProductID = orderFamilyID(product?.parent_product_id, product?.parentProductID, product?.id)
       if (concreteParentIDs.has(parentProductID)) return false
       return (product?.tiers || []).some((tier) => tierPublicationID(tier) > 0 && !isConcreteOrderPublicationTier(tier))
     })
     return [...concreteFamilies, ...fallbackOrderFamilies(unrelatedLegacyProducts)]
   }
-  return fallbackOrderFamilies(products)
+  return fallbackOrderFamilies(visibleProducts)
 }
 
 export function isOrderProductFamily(family = {}) {
@@ -511,6 +580,19 @@ export function orderFamilySpecsForPublication(family = {}, publicationID = 0) {
   })
 }
 
+// Stored cutover lines keep the parent product in product_id. Resolve their
+// selected price-list specification by the immutable BOM-spec identity first;
+// legacy lines continue to resolve by their concrete SKU/product id.
+export function orderFamilySpecForStoredItem(family = {}, item = {}, publicationID = 0) {
+  const specs = orderFamilySpecsForPublication(family, publicationID)
+  const bomSpecID = orderFamilyID(item?.bom_spec_id, item?.bomSpecID)
+  if (bomSpecID > 0) {
+    return specs.find((entry) => orderFamilyID(entry?.bom_spec_id, entry?.bomSpecID) === bomSpecID) || null
+  }
+  const productID = orderFamilyID(item?.product_id, item?.productID, item?.sku_id, item?.skuID)
+  return specs.find((entry) => orderFamilyID(entry?.sku_id, entry?.skuID, entry?.product_id, entry?.productID) === productID) || null
+}
+
 export function orderFamilyMaintainedSpecs(family = {}) {
   return (family?.specs || []).map((spec) => ({
     ...spec,
@@ -618,13 +700,19 @@ export function orderFamilySpecRowPatch(family = {}, spec = {}, publicationID = 
   const unitBagCount = Math.max(0, toInt(spec.unit_bag_count ?? spec.unitBagCount ?? tier.unit_bag_count ?? tier.unitBagCount))
   const parentName = orderFamilyText(family.parent_product_name || family.product_name_snapshot || family.name)
   const displayName = orderFamilyText(family.name || family.customer_product_display_name || parentName)
+  const parentProductID = toInt(family.parent_product_id || family.id)
+  const cutover = isProductBomSpecCutover(spec) || isProductBomSpecCutover(family)
+  const selectedProductID = cutover ? parentProductID : toInt(spec.sku_id)
   return {
-    parent_product_id: toInt(family.parent_product_id || family.id),
+    parent_product_id: parentProductID,
     parent_product_name: parentName,
-    product_id: toInt(spec.sku_id),
+    product_id: selectedProductID,
+    migration_state: cutover ? 'cutover' : 'legacy',
+    bom_spec_id: cutover ? toInt(spec.bom_spec_id) : 0,
+    bom_variant_id: cutover ? toInt(spec.bom_variant_id) : 0,
     product_name: displayName,
     product_query: displayName,
-    product_code: orderFamilyText(spec.product_code || spec.sku_name || `SKU-${toInt(spec.sku_id)}`),
+    product_code: orderFamilyText(spec.product_code || spec.sku_name || (cutover ? `BOM-SPEC-${toInt(spec.bom_spec_id)}` : `SKU-${toInt(spec.sku_id)}`)),
     product_record_name: parentName,
     customer_product_alias_id: toInt(family.customer_product_alias_id),
     customer_product_display_name: orderFamilyText(family.customer_product_display_name || displayName),
@@ -1730,6 +1818,8 @@ export function buildOrderPayload({ form, rows }) {
     outsource_other_fee: String(form.outsource_other_fee || ''),
     product_id: [],
     parent_product_id: [],
+    bom_spec_id: [],
+    bom_variant_id: [],
     customer_product_alias_id: [],
     customer_product_display_name_snapshot: [],
     customer_item_code_snapshot: [],
@@ -1755,15 +1845,18 @@ export function buildOrderPayload({ form, rows }) {
   }
 
   for (const row of rows || []) {
-    const productID = toInt(row.product_id)
+    const identity = buildProductSpecWriteIdentity(row)
+    const productID = toInt(identity.product_id)
     const normalizedKind = normalizedProductKind(row)
     const productKind = normalizedKind === 'drip_bag' ? 'drip_bag' : normalizedKind === 'green_bean' ? 'green_bean' : normalizedKind === 'instant_coffee' ? 'instant_coffee' : 'roasted_bean'
     const dripSpec = dripSalesUnitSpec(null, row)
     const specG = productKind === 'drip_bag' ? dripSpec.specG : normalizeSpecG(row)
     const qty = toInt(row.qty)
-    if (productID <= 0 || specG <= 0 || qty <= 0) continue
+    if (productID <= 0 || (!isProductBomSpecCutover(row) && specG <= 0) || qty <= 0) continue
     payload.product_id.push(String(productID))
-    payload.parent_product_id.push(String(toInt(row.parent_product_id)))
+    payload.parent_product_id.push(String(isProductBomSpecCutover(row) ? productID : toInt(row.parent_product_id)))
+    payload.bom_spec_id.push(String(toInt(identity.bom_spec_id)))
+    payload.bom_variant_id.push(String(toInt(identity.bom_variant_id)))
     payload.customer_product_alias_id.push(String(toInt(row.customer_product_alias_id)))
     payload.customer_product_display_name_snapshot.push(String(row.customer_product_display_name || row.product_name || row.item_name || '').trim())
     payload.customer_item_code_snapshot.push(String(row.customer_item_code || '').trim())

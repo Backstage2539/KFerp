@@ -101,11 +101,9 @@
                 <th>商品</th>
                 <th>订单号</th>
                 <th>规格</th>
-                <th>需求(件)</th>
-                <th>需求(g)</th>
-                <th>库存(件)</th>
-                <th>库存合计(g)</th>
-                <th>缺口(g)</th>
+                <th>需求数量</th>
+                <th>可用库存</th>
+                <th>缺口</th>
                 <th>状态</th>
                 <th>关联计划</th>
               </tr>
@@ -128,11 +126,9 @@
                 </td>
                 <td class="muted">{{ row.order_nos }}</td>
                 <td>{{ row.spec_label || row.sales_unit || productionPlanLegacyGramLabel(row.spec_g) }}</td>
-                <td>{{ row.need_units }}</td>
-                <td>{{ row.blocking_reason ? '-' : row.need_g }}</td>
-                <td>{{ row.inv_units }}</td>
-                <td>{{ row.blocking_reason ? '-' : row.inv_g }}</td>
-                <td><strong>{{ row.blocking_reason ? '-' : row.gap_g }}</strong></td>
+                <td>{{ row.blocking_reason ? '-' : productionDemandQuantityLabel(row, 'need') }}</td>
+                <td>{{ row.blocking_reason ? '-' : productionDemandQuantityLabel(row, 'available') }}</td>
+                <td><strong>{{ row.blocking_reason ? '-' : productionDemandQuantityLabel(row, 'gap') }}</strong></td>
                 <td>
                   <span v-if="row.blocking_reason" class="status status-demand-blocked">资料待完善</span>
                   <span v-else :class="['status', `status-demand-${productionDemandStatusTone(row.demand_status)}`]">{{ productionDemandStatusLabel(row.demand_status) }}</span>
@@ -140,7 +136,7 @@
                 <td class="muted">{{ row.production_plan_no || '-' }}</td>
               </tr>
               <tr v-if="!stockInsufficientRows.length">
-                <td colspan="11" class="muted">{{ demandPanelEmptyText }}</td>
+                <td colspan="9" class="muted">{{ demandPanelEmptyText }}</td>
               </tr>
             </tbody>
           </table>
@@ -180,10 +176,10 @@
                       <tr>
                         <th>商品</th>
                         <th>订单号</th>
-                        <th>规格(g)</th>
-                        <th>需求(g)</th>
-                        <th>库存(g)</th>
-                        <th>缺口(g)</th>
+                        <th>规格</th>
+                        <th>需求数量</th>
+                        <th>可用库存</th>
+                        <th>缺口</th>
                         <th>BOM摘要</th>
                         <th>工艺路线摘要</th>
                       </tr>
@@ -192,10 +188,10 @@
                       <tr v-for="row in computedPlanRows" :key="rowKey(row)">
                         <td>{{ row.product }}</td>
                         <td class="muted">{{ row.order_nos }}</td>
-                        <td>{{ row.spec_g }}</td>
-                        <td>{{ row.need_g }}</td>
-                        <td>{{ row.inv_g }}</td>
-                        <td><strong>{{ row.gap_g }}</strong></td>
+                        <td>{{ row.spec_label || row.sales_unit || productionPlanLegacyGramLabel(row.spec_g) }}</td>
+                        <td>{{ productionDemandQuantityLabel(row, 'need') }}</td>
+                        <td>{{ productionDemandQuantityLabel(row, 'available') }}</td>
+                        <td><strong>{{ productionDemandQuantityLabel(row, 'gap') }}</strong></td>
                         <td :title="row.bom_summary_error || ''">{{ productionPlanBomSummary(row) }}</td>
                         <td>{{ productionRouteSummary(row) }}</td>
                       </tr>
@@ -797,6 +793,8 @@ import {
   plannedCapacitySplitMetrics,
   productionMaterialQuantity,
   qtyFromGForCapacityUnit,
+  productionDemandGapQuantity,
+  productionDemandQuantityLabel,
   productionDemandSelectable,
   productionDemandSelectionState,
   productionDemandPanelEmptyText,
@@ -832,6 +830,7 @@ import {
 } from '../lib/produce-plan'
 import { formatWorkOrderTypedOutput } from '../lib/work-orders'
 import { replaceHistoryURL } from '../lib/url-state'
+import { visibleRowsForProductSpecMigration } from '../lib/product-spec-cutover'
 import {
   normalizeCapacityCostMethod,
   workstationCapacityOptionLabel,
@@ -920,7 +919,7 @@ const productionPlanFilters = reactive({
 
 function rowKey(row) {
   return [
-    producePlanKey(row.product_id, row.spec_g),
+    producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id),
     row.demand_status || 'unplanned',
     row.production_plan_id || 0,
     row.work_order_id || 0,
@@ -929,7 +928,7 @@ function rowKey(row) {
 }
 
 function productionDemandSelectionKey(row) {
-  return producePlanKey(row.product_id, row.spec_g)
+  return producePlanKey(row.parent_product_id || row.product_id, row.spec_g, row.bom_spec_id)
 }
 
 function isProductionDemandSelected(row) {
@@ -942,8 +941,8 @@ const computedMaterials = computed(() => initialMaterials.value || [])
 const computedManufacturingPlanRows = computed(() => manufacturingPlanRows(manufacturingPlan.value))
 const productionPlanDetailManufacturingRows = computed(() => manufacturingPlanRows(productionPlanDetail.value || {}))
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
-const stockInsufficientRows = computed(() => rows.value.filter((row) => String(row.blocking_reason || '').trim() || Number(row.gap_g || 0) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
-const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && Number(row.gap_g || 0) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
+const stockInsufficientRows = computed(() => rows.value.filter((row) => String(row.blocking_reason || '').trim() || productionDemandGapQuantity(row) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
+const stockSufficientRows = computed(() => rows.value.filter((row) => !String(row.blocking_reason || '').trim() && productionDemandGapQuantity(row) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
 const insufficientSelection = computed(() => productionDemandSelectionState(stockInsufficientRows.value, selected))
 const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
 const productionPlanSelection = computed(() => productionPlanSelectionState(productionPlans.value, selectedProductionPlans))
@@ -1034,7 +1033,7 @@ function buildUnproducedURL(plan, keys = selectedKeys()) {
 }
 
 function applyUnproducedData(data, plan) {
-  rows.value = data.rows || []
+  rows.value = visibleRowsForProductSpecMigration(data.rows || [])
   stockTip.value = data.stock_tip || ''
   planRows.value = data.plan_rows || []
   initialMaterials.value = data.materials || []
@@ -1165,7 +1164,7 @@ async function refreshProductionDemandAfterDraftCancel(preserveCurrentPlan = fal
     const data = await apiGet(buildUnproducedURL(false, []))
     if (requestID !== demandRequestSeq) return
     if (preserveCurrentPlan) {
-      rows.value = data.rows || []
+      rows.value = visibleRowsForProductSpecMigration(data.rows || [])
       stockTip.value = data.stock_tip || ''
       updateUrl(true)
     } else {

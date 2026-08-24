@@ -356,7 +356,7 @@
             >
               <div class="product-picker-row-head">
                 <label class="check-line">
-                  <input type="checkbox" :checked="isPdfProductSelected(priceListParentProductID(row))" @change="togglePdfProduct(row, $event.target.checked)" />
+                  <input type="checkbox" :disabled="row.no_quoteable_bom_specs" :checked="isPdfProductSelected(priceListParentProductID(row))" @change="togglePdfProduct(row, $event.target.checked)" />
                   <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
                 </label>
                 <div v-if="isPdfProductSelected(priceListParentProductID(row))" class="product-compact-status">
@@ -417,6 +417,9 @@
                   </div>
                 </div>
               </div>
+              <p v-if="row.no_quoteable_bom_specs" class="product-spec-selection-warning">
+                无可报价 BOM 规格
+              </p>
               <div v-if="productSpecSelectionIssueForFamily(row)" class="product-spec-selection-warning">
                 <strong>{{ productSpecSelectionIssueForFamily(row).message }}</strong>
                 <div class="product-spec-selection-warning-actions">
@@ -1129,6 +1132,7 @@ import {
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+import { productSpecSelectionsForWrite, visibleRowsForProductSpecMigration } from '../lib/product-spec-cutover'
 import {
   PRICE_LIST_PAGE_PREFERENCES_KEY,
   readPriceListPagePreferences,
@@ -1350,8 +1354,8 @@ const priceListLegacyPricingBlockedReason = computed(() => {
 })
 const priceListPricingRuleTrialRequests = computed(() => currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
 const priceListPricingRuleTrialFailedCount = computed(() => priceListFlatRows.value.filter((row) => (
-  priceListFlatRowPricingTrialStatus(row) === 'error'
-  && priceListFlatRowVisibleErrors(row).some((message) => message.includes('价格计算失败'))
+  ['error', 'incomplete'].includes(priceListFlatRowPricingTrialStatus(row))
+  && priceListFlatRowVisibleErrors(row).some((message) => message.includes('价格计算失败') || message.includes('BOM成本不完整'))
 )).length)
 
 function currentPriceListPricingRuleTrialRequests(sourceRows = []) {
@@ -2965,6 +2969,10 @@ function priceListFlatRowFromSource({
   const row = {
     row_key: rowKey,
     product_id: productID,
+    bom_id: Number(item?.bom_id ?? item?.bomID ?? item?.production_bom_id ?? item?.productionBomID ?? 0) || 0,
+    bom_version_id: Number(item?.bom_version_id ?? item?.bomVersionID ?? item?.bom_version_id_snapshot ?? item?.bomVersionIDSnapshot ?? 0) || 0,
+    bom_spec_id: Number(item?.bom_spec_id ?? item?.bomSpecID ?? item?.default_bom_spec_id ?? item?.defaultBOMSpecID ?? 0) || 0,
+    bom_variant_id: Number(item?.bom_variant_id ?? item?.bomVariantID ?? 0) || 0,
     sku_id: skuID,
     parent_product_id: parentProductID,
     sku_snapshot: skuSnapshot,
@@ -3018,7 +3026,7 @@ function priceListFlatRowFromSource({
 
 function priceListPricingRuleTrialResultForRow(row = {}) {
   const cached = priceListPricingRuleTrialCacheEntryForRow(row)
-  return cached?.status === 'success' ? cached.result : null
+  return ['success', 'incomplete'].includes(cached?.status) ? cached.result : null
 }
 
 function priceListPricingRuleTrialCacheEntryForRow(row = {}) {
@@ -3033,7 +3041,20 @@ function priceListFlatRowPricingTrialStatus(row = {}) {
 }
 
 function priceListFlatRowPricingTrialError(row = {}) {
-  return String(priceListPricingRuleTrialCacheEntryForRow(row)?.error || '').trim()
+  const cached = priceListPricingRuleTrialCacheEntryForRow(row)
+  const explicit = String(cached?.error || '').trim()
+  if (explicit) return explicit
+  const result = cached?.result || {}
+  const issues = Array.isArray(result.unresolved_components ?? result.unresolvedComponents)
+    ? (result.unresolved_components ?? result.unresolvedComponents)
+    : []
+  return issues.map((issue) => {
+    const name = String(issue?.component_name ?? issue?.componentName ?? issue?.component_material_name ?? issue?.componentMaterialName ?? issue?.component_product_name ?? issue?.componentProductName ?? 'BOM组件').trim()
+    const bomID = Number(issue?.bom_id ?? issue?.bomID ?? 0) || 0
+    const versionNo = String(issue?.version_no ?? issue?.versionNo ?? '').trim()
+    const bom = bomID > 0 ? ` BOM ${bomID}${versionNo ? `/${versionNo}` : ''}` : ''
+    return `${name}${bom}：${String(issue?.reason || '').trim()}`
+  }).filter(Boolean).join('；')
 }
 
 function priceListFlatRowVisibleErrors(row = {}) {
@@ -3201,8 +3222,11 @@ function costSourceSnapshotForPriceRow(item = {}, tier = {}, pricingRule = null,
     pricing_rule_name: pricingRule?.name || '',
     pricing_rule_formula_version: pricingRule?.formula_version || pricingRule?.formulaVersion || '',
     pricing_rule_calculation: pricingRuleCalculationSnapshot(pricingRule),
+    bom_id: Number(item.bom_id || item.bomID || item.production_bom_id || item.productionBomID || 0),
     bom_version_id: Number(item.bom_version_id_snapshot || item.bom_version_id || item.bomVersionID || 0),
     bom_version_no: item.bom_version_no_snapshot || item.bom_version_no || item.bomVersionNo || '',
+    bom_spec_id: Number(item.bom_spec_id || item.bomSpecID || item.default_bom_spec_id || item.defaultBOMSpecID || 0),
+    bom_variant_id: Number(item.bom_variant_id || item.bomVariantID || 0),
     bom_usage_mode: item.bom_usage_mode_snapshot || item.bom_usage_mode || item.bomUsageMode || '',
     process_route_name: item.process_route_name || item.processRouteName || item.operation_template_name || item.operationTemplateName || '',
     tier_label: tier.label || '',
@@ -4220,7 +4244,7 @@ async function loadBeanList() {
       loadPriceListProductBusinessGroups(),
     ])
     parameters.value = data.parameters
-    items.value = Array.isArray(data.items) ? data.items : []
+    items.value = visibleRowsForProductSpecMigration(Array.isArray(data.items) ? data.items : [])
     syncSelectedProductTypeCategoryFromOptions()
     initializePdfDefaults()
     restorePriceListGenerationDraftForActiveType()
@@ -4650,7 +4674,7 @@ function beanListPublicationPayload() {
       ...pdfTheme.value,
       product_catalog_group_template_id: Number(selectedProductCatalogGroupTemplate.value?.id || 0),
       selectedProductIDs: pdfSelectedProductIDs.value,
-      product_spec_selections: pdfProductSpecSelections.value,
+      product_spec_selections: productSpecSelectionsForWrite(pdfProductSpecSelections.value),
       showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
       visibleCategoryCodes: pdfVisibleCategoryCodes.value,
       customizers: pdfCustomizers.value,

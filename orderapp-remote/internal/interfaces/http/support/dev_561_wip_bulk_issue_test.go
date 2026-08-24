@@ -38,7 +38,8 @@ func TestDev561WIPBulkIssueContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-561-WIP-BULK-MATERIAL-ISSUE",
-			"60Kg",
+			"1.974kg",
+			"60kg",
 			"可用 WIP",
 		},
 		filepath.Join("docs", "OP_MANUAL_STOCK.md"): {

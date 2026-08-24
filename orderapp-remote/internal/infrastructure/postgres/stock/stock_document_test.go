@@ -3,6 +3,7 @@ package stock
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -44,6 +45,56 @@ func TestStockFrozenMaterialRequirementsHonorConsumeUnitConversion(t *testing.T)
 	}
 	if requirements[3].RequiredG != 48 {
 		t.Fatalf("12g per bag x 4 = %+v, want 48g", requirements[3])
+	}
+}
+
+func TestSameFrozenInventoryDimensionKeepsHistoricalWeightSnapshotsExecutable(t *testing.T) {
+	for _, tt := range []struct {
+		current string
+		frozen  string
+		want    bool
+	}{
+		{current: "kg", frozen: "g", want: true},
+		{current: "kg", frozen: "lb", want: true},
+		{current: "kg", frozen: "oz", want: true},
+		{current: "kg", frozen: "ounce", want: true},
+		{current: "kg", frozen: "ounces", want: true},
+		{current: "kg", frozen: "盎司", want: true},
+		{current: "kg", frozen: "公斤", want: true},
+		{current: "kg", frozen: "个", want: false},
+		{current: "个", frozen: "件", want: false},
+	} {
+		if got := sameFrozenInventoryDimension(tt.current, tt.frozen); got != tt.want {
+			t.Fatalf("sameFrozenInventoryDimension(%q,%q)=%v, want %v", tt.current, tt.frozen, got, tt.want)
+		}
+	}
+}
+
+func TestStockFrozenMaterialRequirementsPreserveHistoricalOunceAliases(t *testing.T) {
+	for _, unit := range []string{"oz", "ounce", "ounces", "盎司"} {
+		requirements, err := stockFrozenMaterialRequirements(fmt.Sprintf(`[
+			{"material_id":1,"unit":%q,"consume_unit":"fixed_qty","qty_per_unit":2,"output_qty":1,"output_unit":"kg"}
+		]`, unit), 1000, 1000, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := requirements[1]; got.InventoryUnit != unit || got.RequiredG != 57 || got.RequiredUnits != 0 {
+			t.Fatalf("historical %q requirement=%+v, want unchanged unit and canonical 57g", unit, got)
+		}
+	}
+}
+
+func TestHistoricalOunceAliasesStayWeightAcrossStockConversions(t *testing.T) {
+	for _, unit := range []string{"oz", "ounce", "ounces", "盎司"} {
+		if !isWeightUnit(unit, "") {
+			t.Fatalf("historical %q must remain a stock weight unit", unit)
+		}
+		if got := weightQtyToGrams(unit, 2); math.Abs(got-56.69904625) > 0.000000001 {
+			t.Fatalf("stock conversion for 2 %q=%v, want 56.69904625g", unit, got)
+		}
+		if got := stockWeightUnitGrams(unit); math.Abs(got-28.349523125) > 0.000000001 {
+			t.Fatalf("stock factor for %q=%v", unit, got)
+		}
 	}
 }
 
@@ -207,6 +258,231 @@ INSERT INTO %s.job_cards(id,work_order_id,status) VALUES(91,88,'completed');
 		pool.Close()
 	})
 	return pool, schema
+}
+
+func TestMaterialReceiptSubmissionUsesLockedMaterialInventoryUnit(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,unit) VALUES
+			(20,'BEAN-KG','千克计价生豆','kg'),
+			(21,'BAG-COUNT','包装袋','袋');
+	`, schema))
+
+	tests := []struct {
+		name       string
+		item       stockapp.StockDocumentItemCommand
+		wantErr    string
+		materialID int64
+	}{
+		{
+			name: "weight unit cannot be changed from kg to g",
+			item: stockapp.StockDocumentItemCommand{
+				MaterialID: 20, ItemType: "material", InventoryUnit: "g",
+				ToWarehouse: "raw_materials", QtyG: 1000, UnitCost: 288,
+			},
+			wantErr: "库存单位必须与物料档案一致", materialID: 20,
+		},
+		{
+			name: "count unit cannot be changed from bag to box",
+			item: stockapp.StockDocumentItemCommand{
+				MaterialID: 21, ItemType: "material", InventoryUnit: "盒",
+				ToWarehouse: "raw_materials", QtyUnits: 1, UnitCost: 2,
+			},
+			wantErr: "库存单位必须与物料档案一致", materialID: 21,
+		},
+		{
+			name: "weight master rejects count quantity",
+			item: stockapp.StockDocumentItemCommand{
+				MaterialID: 20, ItemType: "material", InventoryUnit: "kg",
+				ToWarehouse: "raw_materials", QtyUnits: 1, UnitCost: 288,
+			},
+			wantErr: "重量数量", materialID: 20,
+		},
+		{
+			name: "count master rejects weight quantity",
+			item: stockapp.StockDocumentItemCommand{
+				MaterialID: 21, ItemType: "material", InventoryUnit: "袋",
+				ToWarehouse: "raw_materials", QtyG: 1000, UnitCost: 2,
+			},
+			wantErr: "计数数量", materialID: 21,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			draft, err := svc.CreateStockDocumentDraft(ctx, stockapp.StockDocumentCommand{
+				Purpose: stockapp.PurposeMaterialReceipt, Operator: "jj", Items: []stockapp.StockDocumentItemCommand{tc.item},
+			})
+			if err != nil {
+				t.Fatalf("create receipt draft: %v", err)
+			}
+			if _, err := svc.SubmitStockDocument(ctx, draft.ID, "jj"); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("submit receipt error = %v, want %q", err, tc.wantErr)
+			}
+			var onhandG, onhandUnits, batchCount int64
+			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1`, schema), tc.materialID).Scan(&onhandG, &onhandUnits); err != nil {
+				t.Fatal(err)
+			}
+			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.material_batches WHERE material_id=$1`, schema), tc.materialID).Scan(&batchCount); err != nil {
+				t.Fatal(err)
+			}
+			if onhandG != 0 || onhandUnits != 0 || batchCount != 0 {
+				t.Fatalf("failed receipt posted stock: %dg/%d units batches=%d", onhandG, onhandUnits, batchCount)
+			}
+		})
+	}
+}
+
+func TestHistoricalGramReservationOnKilogramMasterRemainsIssuableAfterPartialCompletion(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS unit TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS required_g BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS required_units BIGINT NOT NULL DEFAULT 0;
+		UPDATE %[1]s.materials SET unit='kg' WHERE id=1;
+		UPDATE %[1]s.work_orders
+		SET status='partially_completed',planned_g=600,planned_output_g=454,
+		    material_snapshot='[{"material_id":1,"unit":"g","source":"bom","consume_unit":"ratio_pct","ratio_pct":100}]'::jsonb
+		WHERE id=88;
+		UPDATE %[1]s.work_order_material_reservations
+		SET unit='g',required_g=600,required_units=0,reserved_g=600,reserved_units=0,status='reserved'
+		WHERE work_order_id=88 AND material_id=1;
+	`, schema))
+
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "kg",
+			ToWarehouse: "raw_materials", QtyG: 1000, UnitCost: 54,
+		}},
+	}); err != nil {
+		t.Fatalf("kilogram material receipt: %v", err)
+	}
+	issue, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 88, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "kg",
+			FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 600,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("issue against frozen gram requirement: %v", err)
+	}
+	if issue.Status != "submitted" || len(issue.Items) != 1 || issue.Items[0].QtyG != 600 {
+		t.Fatalf("historical issue=%+v, want one submitted 600g movement", issue)
+	}
+
+	var rawG, wipG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(qty_g) FILTER (WHERE warehouse='raw_materials'),0)::bigint,
+		       COALESCE(SUM(qty_g) FILTER (WHERE warehouse='wip'),0)::bigint
+		FROM %s.material_batch_locations WHERE material_id=1
+	`, schema)).Scan(&rawG, &wipG); err != nil {
+		t.Fatal(err)
+	}
+	if rawG != 400 || wipG != 600 {
+		t.Fatalf("canonical gram balances raw/wip=%d/%d, want 400/600", rawG, wipG)
+	}
+	var frozenUnit, reservationStatus string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT unit,status FROM %s.work_order_material_reservations
+		WHERE work_order_id=88 AND material_id=1
+	`, schema)).Scan(&frozenUnit, &reservationStatus); err != nil {
+		t.Fatal(err)
+	}
+	if frozenUnit != "g" || reservationStatus != "reserved" {
+		t.Fatalf("frozen reservation=%s/%s, want unchanged g/reserved", frozenUnit, reservationStatus)
+	}
+}
+
+func TestHistoricalOunceReservationOnKilogramMasterRemainsIssuable(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS unit TEXT NOT NULL DEFAULT '';
+		ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS required_g BIGINT NOT NULL DEFAULT 0;
+		ALTER TABLE %[1]s.work_order_material_reservations ADD COLUMN IF NOT EXISTS required_units BIGINT NOT NULL DEFAULT 0;
+		UPDATE %[1]s.materials SET unit='kg' WHERE id=1;
+		UPDATE %[1]s.work_orders
+		SET status='partially_completed',planned_g=1000,planned_output_g=1000,
+		    material_snapshot='[{"material_id":1,"unit":"ounce","source":"bom","consume_unit":"fixed_qty","qty_per_unit":2,"output_qty":1,"output_unit":"kg"}]'::jsonb
+		WHERE id=88;
+		UPDATE %[1]s.work_order_material_reservations
+		SET unit='ounce',required_g=57,required_units=0,reserved_g=57,reserved_units=0,status='reserved'
+		WHERE work_order_id=88 AND material_id=1;
+	`, schema))
+	if _, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialReceipt, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "kg",
+			ToWarehouse: "raw_materials", QtyG: 1000, UnitCost: 54,
+		}},
+	}); err != nil {
+		t.Fatalf("kilogram material receipt: %v", err)
+	}
+	issue, err := svc.CreateAndSubmitStockDocument(ctx, stockapp.StockDocumentCommand{
+		Purpose: stockapp.PurposeMaterialTransferForManufacture, WorkOrderID: 88, Operator: "仓库员",
+		Items: []stockapp.StockDocumentItemCommand{{
+			MaterialID: 1, ItemType: "material", InventoryUnit: "kg",
+			FromWarehouse: "raw_materials", ToWarehouse: "wip", QtyG: 57,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("issue against frozen ounce requirement: %v", err)
+	}
+	if issue.Status != "submitted" || len(issue.Items) != 1 || issue.Items[0].QtyG != 57 {
+		t.Fatalf("historical ounce issue=%+v, want one submitted 57g movement", issue)
+	}
+	var rawG, wipG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(qty_g) FILTER (WHERE warehouse='raw_materials'),0)::bigint,
+		       COALESCE(SUM(qty_g) FILTER (WHERE warehouse='wip'),0)::bigint
+		FROM %s.material_batch_locations WHERE material_id=1
+	`, schema)).Scan(&rawG, &wipG); err != nil {
+		t.Fatal(err)
+	}
+	if rawG != 943 || wipG != 57 {
+		t.Fatalf("canonical gram balances raw/wip=%d/%d, want 943/57", rawG, wipG)
+	}
+	var frozenUnit string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT unit FROM %s.work_order_material_reservations
+		WHERE work_order_id=88 AND material_id=1
+	`, schema)).Scan(&frozenUnit); err != nil {
+		t.Fatal(err)
+	}
+	if frozenUnit != "ounce" {
+		t.Fatalf("frozen reservation unit=%q, want unchanged ounce", frozenUnit)
+	}
+}
+
+func TestLegacyMaterialReceiptWithQtyGAndEmptyUnitUsesMasterUnit(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	svc := stockapp.NewService(NewRepository(pool, schema))
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,unit) VALUES(22,'LEGACY-KG','兼容原料','kg');
+	`, schema))
+
+	result, err := svc.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
+		MaterialID: 22, QtyG: 1000, UnitCost: 288, Operator: "legacy-purchase",
+	})
+	if err != nil {
+		t.Fatalf("legacy receipt: %v", err)
+	}
+	var inventoryUnit string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT inventory_unit FROM %s.stock_entry_items WHERE stock_entry_id=$1
+	`, schema), result.EntryID).Scan(&inventoryUnit); err != nil {
+		t.Fatal(err)
+	}
+	if inventoryUnit != "kg" {
+		t.Fatalf("posted inventory unit = %q, want locked material unit kg", inventoryUnit)
+	}
 }
 
 func TestProductionIssueReportsChineseRawMaterialFIFOShortageWithoutPartialPosting(t *testing.T) {

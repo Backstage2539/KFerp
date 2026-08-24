@@ -211,11 +211,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.searchable-select, .searchable-select * { box-sizing: border-box; }
 .searchable-select { position: relative; width: 100%; }
-.select-control { position: relative; display: flex; align-items: stretch; width: 100%; }
+.select-control { position: relative; display: flex; align-items: stretch; width: 100%; height: 38px; min-height: 38px; }
 .select-control input {
   width: 100%;
-  height: 38px;
+  height: 100%;
+  min-height: 38px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
   padding: 7px 70px 7px 9px;

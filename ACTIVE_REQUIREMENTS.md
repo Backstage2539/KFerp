@@ -6,6 +6,88 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-604-MATERIAL-COST-BOM-EDITOR
+- Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop); follow-ups `codex/pr604-price-preview-20260823`, current `codex/pr604-price-trial-product-not-found-20260823`
+- Owner/session: Codex / 2026-08-21
+- Status: development deployed `4e610d981467697f19ff82ee5ee91c8e5e02f496`; Van acceptance pending
+- Scope: 物料成本试算、物料取得方式互斥、BOM 本地草稿一次保存、商品配方组件与编辑体验整改。
+- DEV:
+  - DEV-604-MATERIAL-SUPPLY-MODE
+  - DEV-604-MATERIAL-COST-TRIAL
+  - DEV-604-MATERIAL-COST-DETAILS
+  - DEV-604-BOM-DRAFT-WORKSPACE
+  - DEV-604-BOM-EDITOR-UX
+- Verifier:
+  - Unit/API: targeted and full Go repository suite GREEN
+- Frontend/build: prior 1023/1023 frontend tests; follow-up targeted BOM-spec preview RED→GREEN, local full frontend 1024/1024, server full frontend 1024/1024, and Vite 6594-module build GREEN (existing chunk-size warning only)
+- `scripts/verify_kferp.sh changed`: GREEN; `git diff --check`: GREEN
+- Server release gates: Vue 1024/1024, miniapp 217/217 + typecheck + mp-weixin build, Go full suite, Docker image build GREEN
+  - Manual: Van development acceptance
+  - Review/acceptance: pending
+- Deployment: development deployed `4e610d981467697f19ff82ee5ee91c8e5e02f496` via `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823124932-4e610d981467`; rollback image `kferp-orderapp-rollback:development-20260823124932-4e610d981467`; `erp_orderapp` running, PostgreSQL healthy, unauthenticated requirement API HTTP 401, authenticated `https://dev.qacoohee.com/app/login` HTTP 200, `/app/` HTTP 303 as configured, and authenticated requirement API HTTP 200 contains PR-604. Miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
+- Last update: 2026-08-23 Asia/Shanghai
+- Notes: compatibility mapping reuses is_semi_finished; no database column migration planned. Follow-up fixes price preview filtering by matching parent product, SKU, and BOM specification IDs; development acceptance is pending with Van.
+
+### PR-604-PRICE-TRIAL-PRODUCT-IDENTITY
+- Branch: codex/pr604-price-trial-product-not-found-20260823
+- Owner/session: Codex / 2026-08-23
+- Status: development deployed `0ef19e12093dfe1586c5388170ae364203176bac`; Van acceptance pending
+- Scope: price-list pricing-rule trial must submit the parent product ID together with the selected BOM/version/spec/variant identity; preserve that identity through the PDF preview projection.
+- Verifier: targeted frontend RED→GREEN for BOM-spec trial payload and PDF projection; local related frontend 286/286 GREEN; remote Vue 1025/1025, Vite 6594 modules, miniapp 217/217 + typecheck + mp-weixin build, and Go full suite GREEN; `git diff --check` GREEN.
+- Manual: Van development acceptance
+- Deployment: development deployed with `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823131942-0ef19e12093d`; rollback image `kferp-orderapp-rollback:development-20260823131942-0ef19e12093d`; external login smoke HTTP 200; `erp_orderapp`/`erp_docconvert` running and PostgreSQL healthy; miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
+
+### PR-604-PRICE-TRIAL-RESULT-APPLICATION
+- Branch: codex/pr604-price-trial-apply-bom-result-20260823
+- Owner/session: Codex / 2026-08-23
+- Status: development deployed `37caf135ea0092e2a249554a19b176d2a8f4b17d`; Van acceptance pending
+- Scope: apply pricing-rule trial results to BOM-spec price-list rows by matching the parent product identity while preserving ordinary product-row matching.
+- Verifier: targeted RED→GREEN for BOM-spec trial result application; remote Vue 1026/1026 across 4 suites, Vite 6594 modules, miniapp 217/217 + typecheck + mp-weixin build, and Go full suite GREEN; `git diff --check` GREEN.
+- Manual: Van development acceptance
+- Deployment: development deployed with `./deploy_orderapp.sh development`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260823133716-37caf135ea00`; rollback image `kferp-orderapp-rollback:development-20260823133716-37caf135ea00`; external login smoke HTTP 200; `erp_orderapp`/`erp_docconvert` running and PostgreSQL healthy; miniapp artifact synced to `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`; main/production out of scope.
+
+### PR-600-BOM-SPEC-GROUP-MANUFACTURE-ONLY-SEMI-FINISHED
+- Branch: codex/pr600-bom-spec-groups
+- Owner/session: Codex / 2026-08-17
+- Status: final stable-tree automated verification and independent release gate GREEN；功能发布已合入 `develop@c80a46ea` 并交付 development；Van 人工验收 pending
+- Scope: 统一 BOM 配方消耗模式；半成品改为制造专供；商品规格从派生子 SKU 迁到 BOM 专属规格组，并按商品逐个切换新业务身份。
+- DEV:
+  - DEV-600-BOM-RECIPE-MODE（done，Vue/application/PostgreSQL GREEN）：单一组件列表、比例/固定模式互斥、发布校验与历史版本兼容。
+  - DEV-600-SEMI-FINISHED-MANUFACTURE-ONLY（done，PostgreSQL/API GREEN）：采购价归零、采购/入库阻断、递归成本、并发串行化与操作日志。
+  - DEV-600-BOM-SPEC-TEMPLATE-GROUP（done，PostgreSQL/API/Vue GREEN）：版本化规格模板、主投入占位符、BOM 专属规格和整组原子发布。
+  - DEV-600-BOM-SPEC-BUSINESS-IDENTITY（done，cross-module PostgreSQL/Vue/miniapp GREEN）：价格、订单、库存、生产、履约与小程序改用父商品 + BOM 规格。
+  - DEV-600-PER-PRODUCT-MIGRATION（done，PostgreSQL/API GREEN）：旧子 SKU 映射、手工配方重建工作台、迁移门禁与逐商品切换。
+  - DEV-600-VUE-DOCS-DEVELOPMENT-DELIVERY（done，development delivered）：BOM 布局、商品/物料工作流、手册和验收已同步；最终对齐修复 `3839b332` 经远端全门禁后合入功能发布 `develop@c80a46ea`，仅交付 development。
+- Verifier:
+  - Final stable-tree GREEN：`scripts/verify_kferp.sh all` exit 0；Go 全量 GREEN；Vue 1013/1013；Vite 6594 modules / 2.04s；miniapp 217/217、typecheck 与 development mp-weixin build GREEN；`git diff --check` GREEN。
+  - Final real PostgreSQL GREEN：app bootstrap、BOM、catalog、materials、purchase、stock、inventory、production、productspecmigration、costing、sales、customerportal 与 customerfulfillment 关键仓储/API 套件串行通过；production HTTP 73.778s，customerportal 39.645s，customerfulfillment 34.437s。覆盖十规格原子发布、跨版本冻结执行、逐商品迁移、半成品入库门禁、规格库存隔离及 100 袋精确耗用。
+  - Manual：需求、验收及 BOM/物料/成本/订单/库存/生产/客户履约/客户门户/员工小程序手册已同步。
+  - Review/acceptance：独立最终只读发布门禁为 0 P0 / 0 P1，P2 无新增；Van development 人工验收保持 pending。
+- Deployment: 包含 PR-600 与 BOM 表单对齐修复的功能发布 `develop@c80a46ea` 已交付 development；固定开发小程序包同步；`main@53cee821` 与 production 未操作。部署前数据库快照 `/opt/stacks/erp/backups/pr600-pre-bom-spec-groups-20260816T222807Z-2309674f.dump` 已完成临时库恢复校验；部署不自动 cutover 任何商品。
+- Last update: 2026-08-17 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串失败；`scripts/reserve_req_id.sh` 已确认下一可用编号为 PR-600，按既有流程手工登记。
+
+### PR-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION
+- Branch: codex/pr599-development-evidence-20260814（feature: codex/material-unit-unification-20260814）
+- Owner/session: Codex / 2026-08-14
+- Status: development deployed `3c632d86`；本地、真实 PostgreSQL、远端构建、迁移与发布健康验证 GREEN；Van 页面验收 pending
+- Scope: 物料档案只保留一个库存单位，并由同一单位解释采购价、批次单位成本和 BOM 成本试算中的物料单价；重量物料主档只允许 kg，g/lb/oz 仅保留为 BOM 等业务用量换算。兼容字段 `cost_unit` 继续读写但必须与 `unit` 相同。历史 `unit=g/lb/... + cost_unit=kg` 重量物料升级为 `kg/kg`，规范克库存余额仍保留同一重量，既有批次成本、已发布 BOM、工单、价格表和订单快照不改写。BOM 仍可用 `227g` 等用量，经单位换算后扣减 `0.227kg` 并按元/kg计价。
+- DEV:
+  - DEV-599-MATERIAL-UNIT-INVARIANT（done，PostgreSQL/API GREEN）：物料 API 新建、更新与兼容响应保证 `cost_unit=unit`；重量主档仅 kg，自定义重量单位也被拒绝；单位锁定和操作日志合同保持。
+  - DEV-599-LEGACY-WEIGHT-MIGRATION（done，PostgreSQL GREEN）：历史重量物料在锁表单一事务内幂等迁移到 `kg/kg`，未知不一致整体回滚；不改规范克库存、批次成本与冻结业务快照，历史 g/lb/oz 冻结执行继续兼容。
+  - DEV-599-BOM-COST-CONVERSION（done，PostgreSQL/production GREEN）：BOM 用量单位继续独立换算，`227g × 288元/kg = 65.376元`；`600g/700g` 精确扣减，不向上取整为 1kg。
+  - DEV-599-VUE-DOCS-DEVELOPMENT-DELIVERY（done，development delivered）：物料档案删除独立成本单位字段，采购价标签跟随库存单位；原料入库与库存调整锁主档单位；需求、验收、手册与支持合同已同步并部署 development。
+- Verifier:
+  - RED frontend：`node --test src/lib/materials-ui.test.js` 为 17/18，通过项外仅新“库存单位也是采购/成本单位”合同失败。
+  - RED support：`TestDev599MaterialInventoryPriceUnitUnificationContracts` 因 PR-599 种子尚未登记失败；PR-538 / PR-561 / PR-593 陈旧合同随后准确暴露被新口径替代的守卫。
+  - GREEN frontend/support：`materials-ui.test.js` 19/19；frontend `src/lib` 963/963；完整发现集 984/984；Vite 6589 modules / 2.15s；PR-538 / 561 / 593 / 599 定向与 support 全包 GREEN。
+  - GREEN backend/PostgreSQL：materials、costing、stock、production 的 domain/application/repository/HTTP 真实 PostgreSQL 套件通过；production HTTP 70.269s。覆盖原子迁移、自定义重量、审计、227g 成本、600/700g 精确扣减、入库/调整单位锁和历史冻结执行兼容。
+  - GREEN full gate：`scripts/verify_kferp.sh all` 通过；`git diff --check` 通过。
+- Deployment: feature `0be4c32d` 已正常合入 `develop@3c632d86` 并部署 development；备份 `/opt/stacks/erp/backups/pr599-pre-unit-unification-20260813T191702Z-698413d9.dump` 已完成恢复验证。`erp_orderapp` running/restart=0，开发登录与物料页 HTTP 200；59 条重量物料为 kg/kg、单位不一致 0、约束 validated，部署前后业务字段/批次/BOM/工单指纹一致。`main@53cee821` 与 production 未操作。
+- Review: REV-599-MATERIAL-INVENTORY-PRICE-UNIT-UNIFICATION（todo，Van development acceptance）。
+- Last update: 2026-08-14 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim` 在当前 macOS awk 上因多行字符串报错；按下一可用编号手工登记 PR-599。远端 preflight 与 deployment 均通过 Vue 984/984、miniapp 205/205、typecheck、Go 全量、Vite/miniapp/Docker 构建；固定开发小程序产物同步到 `/Users/yiiiple-work/KFerp-miniapp-mp-weixin-dev`。自动化/发布健康不代替 Van 页面业务验收。
+
 ### PR-598-MATERIAL-OUTPUT-MULTILEVEL-MANUFACTURING
 - Branch: codex/pr598-delivery-evidence-20260812（feature source: codex/pr598-material-output-multilevel-manufacturing）
 - Owner/session: Codex / 2026-08-11
@@ -4476,3 +4558,44 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - FOLLOW-UP 2 RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `setBeanListPublicationStatusInCache` was missing.
   - FOLLOW-UP 2 GREEN frontend/build: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 28/28; targeted frontend with product/work-order tests passed 160/160; support/API contracts passed; `npm run build`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-price-list-archive-warning-fallback.md`.
+
+### PR-601-BOM-SPEC-UI-POLISH BOM 规格模板 UI 打磨（2026-08-18）
+- Branch: codex/bom-spec-ui-polish-20260817
+- Owner/session: Codex
+- Status: review（待 Van 在 development 人工验收）
+- Scope: 稳定规格键隐藏改内部 spec-N 生成；默认规格复选框缩小；损耗比例删除只支持用量；主投入用量改名规格用量、主投入物料改名规格主体物料；物料名去 SKU- 前缀（前端 label + 后端补 materials.code）；规格组选择器与自动回填表单对齐。
+- Verifier:
+  - Frontend: `node --test src/lib/*.test.js` 997/996 全绿（bom.test.js 含 PR-601 新合同 4 项）
+  - Backend: `go test ./...` 74 包全绿；TestDev601BomSpecUiPolishContracts / TestDev601MaterialOptionLabelNeverFabricatesSkuPrefix
+  - Build: `vite build` ✓
+  - Manual: docs/OP_MANUAL_PRODUCTION.md（PR-600 章节同步 PR-601 口径）
+- Deployment: development 5ff4c16f7b1dc5704fe175cfd33303659be028e7；smoke 200；backup /opt/stacks/erp/orderapp.backup.deploy-20260818225614-5ff4c16f7b1d；rollback kferp-orderapp-rollback:development-20260818225614-5ff4c16f7b1d
+- Last update: 2026-08-18
+- Notes: 历史比例配方与损耗只读兼容；ratio_pct/material_loss_rate 列与成本逻辑零改动；PR-593/594/600 旧合同标记同步更新。
+
+### PR-602-PRICING-TRIAL-DEFAULT-SPEC-FALLBACK 价格试算默认规格回退（2026-08-18）
+- Branch: codex/pricing-trial-unit-cost-bug-20260818
+- Owner/session: Codex
+- Status: review（待 Van 验收；需先维护"孟连水洗5T批次"成本）
+- Scope: 带规格组 BOM 版本的默认规格成本以商品键暴露（versionDefaultSpecKeys 别名），无 spec 上下文的价格试算按默认规格解析；试算报错细分零单价与单位不匹配具体原因。
+- Verifier:
+  - RED->GREEN: TestResolvedBomCostsExposeDefaultSpecificationAsProductFallbackPostgres / TestResolveProductionBomTrialItemCostReportsSpecificReasons
+  - Backend: costing 包真实 PG 95/95 全绿（含 PR-600 半成品 fail-closed 守卫）；`go test ./...` 无新增失败
+  - Manual: docs/OP_MANUAL_COSTING.md PR-602 章节
+- Deployment: development 5ff4c16f7b1dc5704fe175cfd33303659be028e7（与 PR-601 同批）
+- Last update: 2026-08-18
+- Notes: 根因=初晓(619)默认版本 V007 带规格组删 product 节点 + 半成品物料(71)兜底零价。数据缺口：材料 1"孟连水洗5T批次"采购价与批次成本均为 0，Van 维护后初晓试算即可按默认规格算出（0.227kg 半成品 + 1 袋 0.72 元）。
+
+### PR-603-PRODUCT-BOM-SPEC-SIMPLIFICATION 商品规格归一BOM（2026-08-20）
+- Branch: codex/product-bom-spec-simplification-20260819
+- Owner/session: Codex
+- Status: review（待 Van 在 development 人工验收）
+- Scope: 1) 商品档案移除规格模板选择与逐规格SKU维护，常驻展示默认制造BOM规格组；2) 物料产出BOM恢复原料损耗配置（商品规格组保持纯固定用量）；3) BOM产出商品->物料时清空草稿规格组并可平铺发布。
+- Verifier:
+  - Frontend: `node --test src/lib/*.test.js` 1000/1000 全绿（bom.test.js 45 项含 PR-603 新合同 3 项；product-settings 194 项；product-spec-cutover 合同更新）
+  - Backend: `go test ./...` 全部通过；真实 PostgreSQL TestUpdateProductionBomToMaterialOutputClearsDraftSpecGroupPostgres RED->GREEN；bom/costing 包全绿
+  - Build: `vite build` ✓
+  - Manual: OP_MANUAL_PRODUCTION.md / OP_MANUAL_INVENTORY_MATERIALS.md 同步 PR-603 口径
+- Deployment: development 4bb09752eb2d814b51609359eba7d1d81b64502b；smoke 200；rollback kferp-orderapp-rollback:development-20260820152737-4bb09752eb2d
+- Last update: 2026-08-20
+- Notes: 顺带修复 PR-601 悬空 materialLossRateDisplay 渲染函数源码 bug；旧商品销售规格模板面板保留迁移期（菜单"单位模板"）；已发布 BOM 产出身份守卫不变。

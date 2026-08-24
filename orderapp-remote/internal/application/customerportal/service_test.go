@@ -719,17 +719,19 @@ func (r *fakeRepository) SaveMallProduct(ctx context.Context, cmd SaveMallProduc
 		return MallProduct{}, r.err
 	}
 	return MallProduct{
-		ID:          9,
-		ProductID:   cmd.ProductID,
-		Title:       cmd.Title,
-		Subtitle:    cmd.Subtitle,
-		Description: cmd.Description,
-		ImageURL:    cmd.ImageURL,
-		SpecG:       cmd.SpecG,
-		UnitPrice:   cmd.UnitPrice,
-		TemplateKey: cmd.TemplateKey,
-		Status:      cmd.Status,
-		SortOrder:   cmd.SortOrder,
+		ID:           9,
+		ProductID:    cmd.ProductID,
+		BomSpecID:    cmd.BomSpecID,
+		BomVariantID: cmd.BomVariantID,
+		Title:        cmd.Title,
+		Subtitle:     cmd.Subtitle,
+		Description:  cmd.Description,
+		ImageURL:     cmd.ImageURL,
+		SpecG:        cmd.SpecG,
+		UnitPrice:    cmd.UnitPrice,
+		TemplateKey:  cmd.TemplateKey,
+		Status:       cmd.Status,
+		SortOrder:    cmd.SortOrder,
 	}, nil
 }
 
@@ -1161,6 +1163,20 @@ func TestGetOrdersServicePageAllowsAnyOrderRelatedCapability(t *testing.T) {
 		if repo.serviceQuery.Key != ServiceKeyOrders || got.Title != "我的订单" || got.Capability != CapabilityProductOrder || len(got.Orders) != 1 {
 			t.Fatalf("capability=%s query=%+v page=%+v", capability, repo.serviceQuery, got)
 		}
+	}
+}
+
+func TestGetProductOrderServicePageLoadsCompleteBOMSpecCatalog(t *testing.T) {
+	repo := &fakeRepository{context: CurrentContext{
+		CurrentCustomerID: 7,
+		Capabilities:      []Capability{{Code: CapabilityProductOrder, Enabled: true}},
+	}}
+	svc := NewService(repo, fakeIdentityProvider{})
+	if _, err := svc.GetServicePage(context.Background(), "mini-token", ServiceKeyProductOrder, ServicePageFilter{}); err != nil {
+		t.Fatalf("GetServicePage(productOrder) err=%v", err)
+	}
+	if repo.serviceQuery.Key != ServiceKeyProductOrder || repo.serviceQuery.Limit != 500 {
+		t.Fatalf("product-order catalog query=%+v, want complete 500-row picker catalog", repo.serviceQuery)
 	}
 }
 
@@ -2120,6 +2136,51 @@ func TestMallAdminSavesProductsAndNormalizesListing(t *testing.T) {
 	}
 }
 
+func TestMallAdminAndOrderPreserveBOMSpecIdentityWhileLegacyRemainsCompatible(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			MiniUserID:        3,
+			CurrentCustomerID: 7,
+			Capabilities:      []Capability{{Code: CapabilityMall, Enabled: true}},
+		},
+		mallOrder: FulfillmentOrder{OrderID: 88, OrderNo: "SO-88", PortalServiceCode: PortalServiceMall},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	row, err := svc.SaveMallProduct(context.Background(), SaveMallProductCommand{
+		ProductID: 10, BomSpecID: 101, BomVariantID: 1001,
+		Title: "  227g袋  ", SpecG: 227, UnitPrice: 68, Status: MallProductStatusPublished,
+	})
+	if err != nil {
+		t.Fatalf("SaveMallProduct canonical: %v", err)
+	}
+	if row.ProductID != 10 || row.BomSpecID != 101 || row.BomVariantID != 1001 || row.SpecG != 0 || repo.mallProductCommand.SpecG != 0 {
+		t.Fatalf("canonical row=%+v command=%+v", row, repo.mallProductCommand)
+	}
+
+	_, err = svc.CreateMallOrder(context.Background(), "mini-token", CreateMallOrderCommand{
+		RecipientName: " 张三 ", RecipientPhone: " 13800138000 ", RecipientAddress: " 上海市 ",
+		Items: []MallOrderItemCommand{{MallProductID: 9, ProductID: 10, BomSpecID: 101, BomVariantID: 1001, Qty: 2}},
+	})
+	if err != nil {
+		t.Fatalf("CreateMallOrder canonical: %v", err)
+	}
+	gotItem := repo.mallOrderCommand.Items[0]
+	if gotItem.ProductID != 10 || gotItem.BomSpecID != 101 || gotItem.BomVariantID != 1001 || gotItem.Qty != 2 {
+		t.Fatalf("mall order item=%+v", gotItem)
+	}
+
+	serverResolved, err := svc.SaveMallProduct(context.Background(), SaveMallProductCommand{ProductID: 11, BomSpecID: 101, Title: "server resolved", UnitPrice: 1})
+	if err != nil || serverResolved.BomSpecID != 101 || serverResolved.BomVariantID != 0 {
+		t.Fatalf("server-resolved identity row=%+v error=%v", serverResolved, err)
+	}
+
+	legacy, err := svc.SaveMallProduct(context.Background(), SaveMallProductCommand{ProductID: 12, Title: "legacy", SpecG: 454, UnitPrice: 88})
+	if err != nil || legacy.ProductID != 12 || legacy.BomSpecID != 0 || legacy.SpecG != 454 {
+		t.Fatalf("legacy row=%+v error=%v", legacy, err)
+	}
+}
+
 func TestMallPageAndOrderRequireMallCapability(t *testing.T) {
 	repo := &fakeRepository{
 		context: CurrentContext{
@@ -2204,5 +2265,43 @@ func TestCreateFulfillmentOrderIgnoresCustomerSuppliedShippingAmount(t *testing.
 	}
 	if repo.fulfillmentCommand.ShippingAmount != 0 {
 		t.Fatalf("fulfillment shipping amount=%v, want 0", repo.fulfillmentCommand.ShippingAmount)
+	}
+}
+
+func TestCreateFulfillmentOrderAcceptsCanonicalBOMSpecAndKeepsLegacyValidation(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			MiniUserID:        3,
+			CurrentCustomerID: 7,
+			Capabilities:      []Capability{{Code: CapabilityProductOrder, Enabled: true}},
+		},
+		fulfillmentOrder: FulfillmentOrder{OrderID: 402, OrderNo: "SO-BOM-SPEC", PortalServiceCode: PortalServiceProductOrder},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.CreateFulfillmentOrder(context.Background(), "mini-token", CreateFulfillmentOrderCommand{
+		PortalServiceCode: PortalServiceProductOrder,
+		RecipientName:     "张三",
+		RecipientPhone:    "13800138000",
+		RecipientAddress:  "上海市",
+		ProductID:         10,
+		BomSpecID:         101,
+		InventoryUnit:     "袋",
+		Qty:               2,
+	})
+	if err != nil {
+		t.Fatalf("CreateFulfillmentOrder canonical: %v", err)
+	}
+	if repo.fulfillmentCommand.ProductID != 10 || repo.fulfillmentCommand.BomSpecID != 101 || repo.fulfillmentCommand.BomVariantID != 0 || repo.fulfillmentCommand.InventoryUnit != "袋" || repo.fulfillmentCommand.SpecG != 0 {
+		t.Fatalf("canonical fulfillment command=%+v", repo.fulfillmentCommand)
+	}
+
+	_, err = svc.CreateFulfillmentOrder(context.Background(), "mini-token", CreateFulfillmentOrderCommand{
+		PortalServiceCode: PortalServiceProductOrder,
+		RecipientName:     "张三", RecipientPhone: "13800138000", RecipientAddress: "上海市",
+		ProductID: 11, Qty: 1,
+	})
+	if err == nil || err.Error() != "spec required" {
+		t.Fatalf("legacy missing spec err=%v, want spec required", err)
 	}
 }

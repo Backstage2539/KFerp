@@ -34,6 +34,22 @@ type capturingPricingRuleTrialBatchService struct {
 	last  []appcosting.PricingRuleTrialCommand
 }
 
+type materialCostTrialAPIService struct {
+	fakeService
+	options appcosting.MaterialCostTrialOptions
+	result  appcosting.MaterialCostTrialResult
+	last    appcosting.MaterialCostTrialCommand
+}
+
+func (s *materialCostTrialAPIService) MaterialCostTrialOptions(context.Context, int64) (appcosting.MaterialCostTrialOptions, error) {
+	return s.options, nil
+}
+
+func (s *materialCostTrialAPIService) MaterialCostTrial(_ context.Context, cmd appcosting.MaterialCostTrialCommand) (appcosting.MaterialCostTrialResult, error) {
+	s.last = cmd
+	return s.result, nil
+}
+
 func containsWarning(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -960,6 +976,43 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestMaterialCostTrialAPIIncludesCostDetailsFormulaAndSelectedBom(t *testing.T) {
+	svc := &materialCostTrialAPIService{
+		options: appcosting.MaterialCostTrialOptions{
+			MaterialID:  42,
+			SupplyMode:  "manufacture",
+			BomVersions: []appcosting.MaterialCostTrialOption{{BomID: 1001, VersionID: 1002, VersionNo: "V002", Status: "draft"}},
+		},
+		result: appcosting.MaterialCostTrialResult{
+			MaterialID: 42, SupplyMode: "manufacture", CostStatus: "complete", UnitCost: 63.5, CostUnit: "kg",
+			BomSnapshot:            appcosting.PricingRuleTrialBomSnapshot{BomID: 1001, VersionID: 1002, VersionNo: "V002", Status: "draft"},
+			BaseCostDetails:        []appcosting.PricingRuleTrialBaseCostDetail{{Name: "咖啡豆", CostSource: "weighted_batch_cost", Amount: 58.5, Unit: "kg"}},
+			FormulaExpression:      "标准制造成本 = 物料成本 58.5/kg + 标准工序成本 5/kg = 63.5/kg",
+			FormulaExpressionLines: []string{"物料成本 = 58.5/kg", "标准工序成本 = 5/kg"},
+		},
+	}
+	e := echo.New()
+	registerCostingAPI(e, svc, &fakeCostingAuthz{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/material-cost-trial-options?material_id=42", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"version_id":1002`) {
+		t.Fatalf("options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/material-cost-trial", strings.NewReader(`{"material_id":42,"bom_version_id":1002}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("trial status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.last.BomVersionID != 1002 || !strings.Contains(rec.Body.String(), "base_cost_details") || !strings.Contains(rec.Body.String(), "formula_expression") || strings.Contains(rec.Body.String(), "final_unit_price") {
+		t.Fatalf("trial request/response = %+v / %s", svc.last, rec.Body.String())
 	}
 }
 

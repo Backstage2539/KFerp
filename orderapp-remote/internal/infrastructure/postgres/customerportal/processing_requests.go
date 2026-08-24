@@ -29,6 +29,7 @@ type processingAvailabilitySource struct {
 type preparedProcessingRequest struct {
 	Preview      customerportalapp.ProcessingRequestPreview
 	Resolved     []postgresproduction.CustomerProcessingResolvedItem
+	Identities   map[int]portalProcessingOutputIdentity
 	Warehouse    string
 	SourcesByKey map[string][]processingAvailabilitySource
 }
@@ -89,7 +90,7 @@ func processingNeedKey(componentType string, materialID, componentSpecG int64) s
 }
 
 func (r Repository) PreviewProcessingRequest(ctx context.Context, cmd customerportalapp.CreateProcessingRequestCommand) (customerportalapp.ProcessingRequestPreview, error) {
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return customerportalapp.ProcessingRequestPreview{}, err
 	}
@@ -179,27 +180,32 @@ func (r Repository) createProcessingRequestV2(ctx context.Context, cmd customerp
 	}
 	reservationCount := 0
 	for _, item := range prepared.Resolved {
+		identity := prepared.Identities[item.LineNo]
 		var requestItemID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.processing_job_request_items(
-				request_id,line_no,product_id,parent_product_id,product_name,spec_g,target_qty,need_g,
+				request_id,line_no,product_id,parent_product_id,bom_spec_id,bom_variant_id,
+				product_name,spec_name,inventory_unit,spec_g,target_qty,need_g,
 				target_warehouse,bom_version_id,bom_version_no,bom_source_product_id,bom_inherited,
 				material_snapshot_json,status,created_at,updated_at
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,'awaiting_schedule',now(),now())
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,'awaiting_schedule',now(),now())
 			RETURNING id
-		`, r.schema), requestID, item.LineNo, item.ProductID, item.ParentProductID, item.ProductName,
-			item.SpecG, item.Qty, item.NeedG, prepared.Warehouse, item.BomVersionID, item.BomVersionNo,
+		`, r.schema), requestID, item.LineNo, item.ProductID, item.ParentProductID, identity.BomSpecID, identity.BomVariantID,
+			item.ProductName, identity.SpecName, identity.InventoryUnit, item.SpecG, item.Qty, item.NeedG,
+			prepared.Warehouse, item.BomVersionID, item.BomVersionNo,
 			item.BomSourceProductID, item.BomInherited, item.MaterialSnapshot).Scan(&requestItemID); err != nil {
 			return customerportalapp.ProcessingRequest{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_processing_production_demands(
-				request_id,request_item_id,request_no,customer_id,product_id,product_name,spec_g,target_qty,
+				request_id,request_item_id,request_no,customer_id,product_id,bom_spec_id,bom_variant_id,
+				product_name,spec_name,inventory_unit,spec_g,target_qty,
 				need_g,target_warehouse,status,created_at,updated_at
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'planned',now(),now())
-		`, r.schema), requestID, requestItemID, requestNo, cmd.CustomerID, item.ProductID, item.ProductName,
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'planned',now(),now())
+		`, r.schema), requestID, requestItemID, requestNo, cmd.CustomerID, item.ProductID,
+			identity.BomSpecID, identity.BomVariantID, item.ProductName, identity.SpecName, identity.InventoryUnit,
 			item.SpecG, item.Qty, item.NeedG, prepared.Warehouse); err != nil {
 			return customerportalapp.ProcessingRequest{}, err
 		}
@@ -253,34 +259,50 @@ func (r Repository) prepareProcessingRequestTx(ctx context.Context, tx pgx.Tx, c
 	if len(cmd.Items) == 0 {
 		return preparedProcessingRequest{}, fmt.Errorf("items required")
 	}
-	targets := make([]postgresproduction.CustomerProcessingTarget, 0, len(cmd.Items))
-	for _, item := range cmd.Items {
-		if err := r.ensureProcessingTargetProductTx(ctx, tx, cmd.CustomerID, item.ProductID); err != nil {
+	resolved := make([]postgresproduction.CustomerProcessingResolvedItem, 0, len(cmd.Items))
+	identities := make(map[int]portalProcessingOutputIdentity, len(cmd.Items))
+	for index, item := range cmd.Items {
+		identity, err := r.resolveProcessingOutputIdentityTx(ctx, tx, cmd.CustomerID, item)
+		if err != nil {
 			return preparedProcessingRequest{}, err
 		}
-		var netContentQty float64
-		var netContentUnit, specLabel, skuName, derivedSpecName string
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT COALESCE(net_content_qty,0)::float8,COALESCE(net_content_unit,''),
-			       COALESCE(spec_label,''),COALESCE(sku_name,''),COALESCE(derived_spec_name,'')
-			FROM %s.products WHERE id=$1 AND active=true
-		`, r.schema), item.ProductID).Scan(&netContentQty, &netContentUnit, &specLabel, &skuName, &derivedSpecName); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+		var row postgresproduction.CustomerProcessingResolvedItem
+		if identity.Canonical {
+			row, err = r.resolveProcessingBOMSpecTargetTx(ctx, tx, identity, item.Qty)
+			if err != nil {
+				return preparedProcessingRequest{}, err
+			}
+		} else {
+			var netContentQty float64
+			var netContentUnit, specLabel, skuName, derivedSpecName string
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(net_content_qty,0)::float8,COALESCE(net_content_unit,''),
+				       COALESCE(spec_label,''),COALESCE(sku_name,''),COALESCE(derived_spec_name,'')
+				FROM %s.products WHERE id=$1 AND active=true
+			`, r.schema), item.ProductID).Scan(&netContentQty, &netContentUnit, &specLabel, &skuName, &derivedSpecName); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return preparedProcessingRequest{}, fmt.Errorf("target product unavailable")
+				}
+				return preparedProcessingRequest{}, err
+			}
+			authoritativeSpecG := authoritativeProcessingTargetSpecG(netContentQty, netContentUnit, firstNonEmpty(specLabel, skuName, derivedSpecName))
+			if err := validateProcessingTargetSpecG(item.ProductID, item.SpecG, authoritativeSpecG); err != nil {
+				return preparedProcessingRequest{}, err
+			}
+			legacy, err := postgresproduction.ResolveCustomerProcessingTargetsTx(ctx, tx, r.schema, []postgresproduction.CustomerProcessingTarget{{ProductID: item.ProductID, SpecG: item.SpecG, Qty: item.Qty}})
+			if err != nil {
+				return preparedProcessingRequest{}, err
+			}
+			if len(legacy) != 1 {
 				return preparedProcessingRequest{}, fmt.Errorf("target product unavailable")
 			}
-			return preparedProcessingRequest{}, err
+			row = legacy[0]
 		}
-		authoritativeSpecG := authoritativeProcessingTargetSpecG(netContentQty, netContentUnit, firstNonEmpty(specLabel, skuName, derivedSpecName))
-		if err := validateProcessingTargetSpecG(item.ProductID, item.SpecG, authoritativeSpecG); err != nil {
-			return preparedProcessingRequest{}, err
-		}
-		targets = append(targets, postgresproduction.CustomerProcessingTarget{ProductID: item.ProductID, SpecG: item.SpecG, Qty: item.Qty})
+		row.LineNo = index + 1
+		resolved = append(resolved, row)
+		identities[row.LineNo] = identity
 	}
 	warehouse, err := r.processingWarehouseForCustomerTx(ctx, tx, cmd.CustomerID)
-	if err != nil {
-		return preparedProcessingRequest{}, err
-	}
-	resolved, err := postgresproduction.ResolveCustomerProcessingTargetsTx(ctx, tx, r.schema, targets)
 	if err != nil {
 		return preparedProcessingRequest{}, err
 	}
@@ -343,9 +365,12 @@ func (r Repository) prepareProcessingRequestTx(ctx context.Context, tx pgx.Tx, c
 
 	items := make([]customerportalapp.ProcessingRequestItem, 0, len(resolved))
 	for _, item := range resolved {
+		identity := identities[item.LineNo]
 		row := customerportalapp.ProcessingRequestItem{
 			LineNo: item.LineNo, ProductID: item.ProductID, ParentProductID: item.ParentProductID,
-			ProductName: item.ProductName, SpecG: item.SpecG, Qty: item.Qty, NeedG: item.NeedG,
+			BomSpecID: identity.BomSpecID, BomVariantID: identity.BomVariantID,
+			ProductName: item.ProductName, SpecName: identity.SpecName, InventoryUnit: identity.InventoryUnit,
+			SpecG: item.SpecG, Qty: item.Qty, NeedG: item.NeedG,
 			TargetWarehouse: warehouse, BomVersionID: item.BomVersionID, BomVersionNo: item.BomVersionNo,
 			BomSourceProductID: item.BomSourceProductID, BomInherited: item.BomInherited,
 			MaterialSnapshot: item.MaterialSnapshot, Status: "awaiting_schedule", MaxProducibleQty: math.MaxInt64,
@@ -372,7 +397,7 @@ func (r Repository) prepareProcessingRequestTx(ctx context.Context, tx pgx.Tx, c
 	}
 	return preparedProcessingRequest{
 		Preview:  customerportalapp.ProcessingRequestPreview{CanSubmit: canSubmit, Items: items, Materials: materials},
-		Resolved: resolved, Warehouse: warehouse, SourcesByKey: sourcesByKey,
+		Resolved: resolved, Identities: identities, Warehouse: warehouse, SourcesByKey: sourcesByKey,
 	}, nil
 }
 
@@ -709,7 +734,8 @@ func (r Repository) GetProcessingRequest(ctx context.Context, customerID, reques
 
 func (r Repository) listProcessingRequestItems(ctx context.Context, customerID, requestID int64) ([]customerportalapp.ProcessingRequestItem, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT i.id,i.line_no,i.product_id,i.parent_product_id,i.product_name,i.spec_g,i.target_qty,i.need_g,
+		SELECT i.id,i.line_no,i.product_id,i.parent_product_id,i.bom_spec_id,i.bom_variant_id,
+		       i.product_name,i.spec_name,i.inventory_unit,i.spec_g,i.target_qty,i.need_g,
 		       i.target_warehouse,i.bom_version_id,i.bom_version_no,i.bom_source_product_id,i.bom_inherited,
 		       COALESCE(i.material_snapshot_json,'[]'::jsonb)::text,
 		       i.production_plan_id,i.production_plan_item_id,i.linked_work_order_id,COALESCE(wo.work_order_no,''),
@@ -738,8 +764,9 @@ func (r Repository) listProcessingRequestItems(ctx context.Context, customerID, 
 	out := make([]customerportalapp.ProcessingRequestItem, 0)
 	for rows.Next() {
 		var row customerportalapp.ProcessingRequestItem
-		if err := rows.Scan(&row.ID, &row.LineNo, &row.ProductID, &row.ParentProductID, &row.ProductName,
-			&row.SpecG, &row.Qty, &row.NeedG, &row.TargetWarehouse, &row.BomVersionID, &row.BomVersionNo,
+		if err := rows.Scan(&row.ID, &row.LineNo, &row.ProductID, &row.ParentProductID, &row.BomSpecID, &row.BomVariantID,
+			&row.ProductName, &row.SpecName, &row.InventoryUnit, &row.SpecG, &row.Qty, &row.NeedG,
+			&row.TargetWarehouse, &row.BomVersionID, &row.BomVersionNo,
 			&row.BomSourceProductID, &row.BomInherited, &row.MaterialSnapshot,
 			&row.ProductionPlanID, &row.ProductionPlanItemID, &row.LinkedWorkOrderID, &row.WorkOrderNo, &row.Status); err != nil {
 			return nil, err

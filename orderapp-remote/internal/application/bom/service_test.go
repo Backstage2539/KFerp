@@ -3,6 +3,7 @@ package bom
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -28,10 +29,40 @@ type fakeRepo struct {
 	boundOutput                   BindProductionBomOutputCommand
 }
 
+func TestNormalizeProductionBomDraftWorkspaceRecipePayloadByOutputType(t *testing.T) {
+	items := []ProductionBomDraftItem{{MaterialID: 1}}
+	variants := []ProductionBomDraftVariant{{SpecKey: "bag-454"}}
+
+	materialItems, materialVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("material", items, variants)
+	if !reflect.DeepEqual(materialItems, items) || materialVariants != nil {
+		t.Fatalf("material payload = items %+v variants %+v, want items preserved and variants nil", materialItems, materialVariants)
+	}
+
+	productItems, productVariants := NormalizeProductionBomDraftWorkspaceRecipePayload("product", items, variants)
+	if productItems != nil || !reflect.DeepEqual(productVariants, variants) {
+		t.Fatalf("product payload = items %+v variants %+v, want items nil and variants preserved", productItems, productVariants)
+	}
+}
+
 type atomicPublishRepo struct {
 	fakeRepo
 	atomicCalls int
 	atomicErr   error
+}
+
+type componentSpecUnitFakeRepo struct {
+	*fakeRepo
+	specUnits map[int64]string
+}
+
+func (r *componentSpecUnitFakeRepo) ProductionBomSpecInventoryUnits(_ context.Context, specIDs []int64) (map[int64]string, error) {
+	units := make(map[int64]string, len(specIDs))
+	for _, specID := range specIDs {
+		if unit, ok := r.specUnits[specID]; ok {
+			units[specID] = unit
+		}
+	}
+	return units, nil
 }
 
 func (r *atomicPublishRepo) ValidateAndPublishProductionBomVersion(_ context.Context, _ PublishProductionBomVersionCommand) error {
@@ -414,6 +445,24 @@ func TestProductionBomWritesNormalizeBusinessName(t *testing.T) {
 	}
 }
 
+func TestCopyProductionBomCanReapplyTemplateWhenKeepingSourceProductOutput(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CopyProductionBom(context.Background(), CopyProductionBomCommand{
+		ID:                    11,
+		Name:                  "规格组新版",
+		SpecTemplateVersionID: 92,
+		MainInputMaterialID:   7,
+	})
+	if err != nil {
+		t.Fatalf("CopyProductionBom: %v", err)
+	}
+	if repo.copiedProductionBomCommand.SpecTemplateVersionID != 92 || repo.copiedProductionBomCommand.MainInputMaterialID != 7 {
+		t.Fatalf("template replacement command not propagated: %+v", repo.copiedProductionBomCommand)
+	}
+}
+
 func TestCreateProductionBomRequiresOutputProduct(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -544,6 +593,7 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 		Items: []ProductionBomDraftItem{{
 			ComponentType:      "product",
 			ComponentProductID: 77,
+			ComponentBomSpecID: 701,
 			ConsumeUnit:        "unit_per_box",
 			QtyPerUnit:         10,
 		}},
@@ -555,7 +605,7 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 		t.Fatalf("version output basis = %+v, want 1 盒", version)
 	}
 	item := repo.updatedProductionDraftCommand.Items[0]
-	if item.ComponentType != "product" || item.ComponentProductID != 77 || item.QtyPerUnit != 10 {
+	if item.ComponentType != "product" || item.ComponentProductID != 77 || item.ComponentBomSpecID != 701 || item.QtyPerUnit != 10 {
 		t.Fatalf("product component not normalized/preserved: %+v", item)
 	}
 
@@ -567,6 +617,59 @@ func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testi
 	})
 	if err == nil || !strings.Contains(err.Error(), "product consume_unit must not be ratio_pct") {
 		t.Fatalf("expected product ratio validation error, got %v", err)
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID: 103, OutputQty: 1, OutputUnit: "盒",
+		Items: []ProductionBomDraftItem{{ComponentType: "material", MaterialID: 7, ComponentBomSpecID: 701, ConsumeUnit: "kg", QtyPerUnit: 1}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "component_bom_spec_id requires product component") {
+		t.Fatalf("material component specification identity error = %v", err)
+	}
+}
+
+func TestProductionBomDraftUsesSelectedComponentSpecInventoryUnitInsteadOfParentProductUnit(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		specID     int64
+		consume    string
+		wantError  bool
+		legacySpec bool
+	}{
+		{name: "selected box spec accepts box", specID: 701, consume: "盒"},
+		{name: "selected box spec rejects parent kg", specID: 701, consume: "kg", wantError: true},
+		{name: "selected bag spec accepts bag", specID: 702, consume: "袋"},
+		{name: "different spec units stay isolated", specID: 702, consume: "盒", wantError: true},
+		{name: "legacy component without spec keeps parent unit", consume: "kg", legacySpec: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			baseRepo := &fakeRepo{productRows: []Option{{ID: 77, Name: "父商品", InventoryUnit: "kg"}}}
+			repo := &componentSpecUnitFakeRepo{fakeRepo: baseRepo, specUnits: map[int64]string{701: "盒", 702: "袋"}}
+			svc := NewService(repo)
+			specID := testCase.specID
+			if testCase.legacySpec {
+				specID = 0
+			}
+			_, err := svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{
+				VersionID: 103,
+				Items: []ProductionBomDraftItem{{
+					ComponentType:      "product",
+					ComponentProductID: 77,
+					ComponentBomSpecID: specID,
+					ConsumeUnit:        testCase.consume,
+					QtyPerUnit:         1,
+				}},
+			})
+			if testCase.wantError {
+				if err == nil || !strings.Contains(err.Error(), "component BOM specification inventory_unit") {
+					t.Fatalf("consume_unit %q with spec %d error=%v", testCase.consume, specID, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("consume_unit %q with spec %d: %v", testCase.consume, specID, err)
+			}
+		})
 	}
 }
 
@@ -627,22 +730,16 @@ func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossOnlyToRatioMaterials
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("ratio ingredients and fixed packaging must coexist with BOM loss: %v", err)
-	}
-	items = repo.updatedProductionDraftCommand.Items
-	if len(items) != 2 || items[0].MaterialLossRate != 0.2 || items[1].MaterialLossRate != 0 {
-		t.Fatalf("mixed material loss assignment = %+v, want loss only on ratio material", items)
-	}
-	if items[1].ConsumeUnit != "个" || items[1].QtyPerUnit != 2 {
-		t.Fatalf("fixed packaging unit was not preserved: %+v", items[1])
+	if err == nil || !strings.Contains(err.Error(), "material_loss_rate requires all components to use material ratio_pct") {
+		t.Fatalf("loss recipe must reject a fixed component, got %v", err)
 	}
 
+	zeroLossRate := 0.0
 	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
 		VersionID:        103,
 		OutputQty:        1,
 		OutputUnit:       "kg",
-		MaterialLossRate: &lossRate,
+		MaterialLossRate: &zeroLossRate,
 		Items: []ProductionBomDraftItem{{
 			ComponentType: "material",
 			MaterialID:    8,
@@ -669,6 +766,81 @@ func TestUpdateProductionBomDraftAppliesBomLevelMaterialLossOnlyToRatioMaterials
 	})
 	if err == nil || !strings.Contains(err.Error(), "material_loss_rate must be >= 0 and < 1") {
 		t.Fatalf("expected version material loss validation error, got %v", err)
+	}
+}
+
+func TestUpdateProductionBomDraftRejectsMixedRatioAndFixedModeWithoutLoss(t *testing.T) {
+	repo := &fakeRepo{materialRows: []Option{
+		{ID: 7, Name: "拼配原料", InventoryUnit: "kg"},
+		{ID: 8, Name: "包装袋", InventoryUnit: "个"},
+	}}
+	svc := NewService(repo)
+	zero := 0.0
+
+	_, err := svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{
+		VersionID:        103,
+		OutputQty:        1,
+		OutputUnit:       "盒",
+		MaterialLossRate: &zero,
+		Items: []ProductionBomDraftItem{
+			{ComponentType: "material", MaterialID: 7, ConsumeUnit: "ratio_pct", RatioPct: 100},
+			{ComponentType: "material", MaterialID: 8, ConsumeUnit: "个", QtyPerUnit: 1},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "ratio and fixed consume units cannot be mixed") {
+		t.Fatalf("non-loss recipe must reject ratio/fixed mixing, got %v", err)
+	}
+}
+
+func TestUpdateProductionBomDraftValidatesEverySpecificationVariant(t *testing.T) {
+	repo := &fakeRepo{materialRows: []Option{{ID: 7, Name: "熟豆", InventoryUnit: "kg"}, {ID: 8, Name: "袋", InventoryUnit: "个"}}}
+	svc := NewService(repo)
+
+	_, err := svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{
+		VersionID: 103,
+		Variants: []ProductionBomDraftVariant{
+			{SpecKey: "227g", Name: "227g 袋装", InventoryUnit: "袋", IsDefault: true, MaterialLossRate: 0.1, Items: []ProductionBomDraftItem{{ComponentType: "material", MaterialID: 7, ConsumeUnit: "ratio_pct", RatioPct: 100}}},
+			{SpecKey: "454g", Name: "454g 袋装", InventoryUnit: "袋", MaterialLossRate: 0.1, Items: []ProductionBomDraftItem{{ComponentType: "material", MaterialID: 7, ConsumeUnit: "ratio_pct", RatioPct: 90}, {ComponentType: "material", MaterialID: 8, ConsumeUnit: "个", QtyPerUnit: 1}}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "variant 454g: material_loss_rate requires all components to use material ratio_pct") {
+		t.Fatalf("invalid second variant must reject the whole draft, got %v", err)
+	}
+	if repo.updatedProductionDraftCommand.VersionID != 0 {
+		t.Fatal("invalid specification group must not reach repository")
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{
+		VersionID: 103,
+		Variants: []ProductionBomDraftVariant{{
+			SpecKey:       "box",
+			Name:          "组合装",
+			InventoryUnit: "盒",
+			IsDefault:     true,
+			Items: []ProductionBomDraftItem{{
+				ComponentType:      "product",
+				ComponentProductID: 77,
+				ConsumeUnit:        "unit_per_box",
+				QtyPerUnit:         1,
+			}},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "product component requires component_bom_spec_id") {
+		t.Fatalf("product component without an explicit BOM specification must be rejected, got %v", err)
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(context.Background(), UpdateProductionBomVersionDraftCommand{
+		VersionID: 103,
+		Variants: []ProductionBomDraftVariant{
+			{SpecKey: "227g", Name: "227g 袋装", InventoryUnit: "袋", IsDefault: true, Items: []ProductionBomDraftItem{{ComponentType: "material", MaterialID: 7, ConsumeUnit: "kg", QtyPerUnit: .227}, {ComponentType: "material", MaterialID: 8, ConsumeUnit: "个", QtyPerUnit: 1}}},
+			{SpecKey: "454g", Name: "454g 袋装", InventoryUnit: "袋", Items: []ProductionBomDraftItem{{ComponentType: "material", MaterialID: 7, ConsumeUnit: "kg", QtyPerUnit: .454}, {ComponentType: "material", MaterialID: 8, ConsumeUnit: "个", QtyPerUnit: 1}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("all-fixed specification group should pass: %v", err)
+	}
+	if len(repo.updatedProductionDraftCommand.Variants) != 2 {
+		t.Fatalf("variants were not forwarded atomically: %+v", repo.updatedProductionDraftCommand.Variants)
 	}
 }
 

@@ -75,6 +75,43 @@ describe('direct shipment draft lines', () => {
     ])
   })
 
+  it('selects and submits a cutover BOM specification as a one-to-one inventory unit', () => {
+    const cutover: EmployeeOrderProductFamily = {
+      parent_product_id: 550,
+      name: '乌拉嘎',
+      migration_state: 'cutover',
+      default_bom_spec_id: 91,
+      specs: [{
+        product_id: 550,
+        migration_state: 'cutover',
+        bom_spec_id: 91,
+        bom_variant_id: 191,
+        spec_name: '227g袋',
+        spec_label: '227g袋',
+        inventory_unit: '袋',
+        is_default: true,
+      }],
+    }
+
+    const selected = selectDirectShipDraftProduct(createDirectShipDraftLine('cutover'), cutover)!
+    expect(selected).toMatchObject({
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      spec_g: 0,
+      inventory_unit: '袋',
+      spec_label: '227g袋',
+    })
+    expect(buildDirectShipDraftItems([{ ...selected, qty: 2 }])).toEqual([{
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      inventory_unit: '袋',
+      spec_g: 0,
+      qty: 2,
+    }])
+  })
+
   it('rejects partial and non-positive rows but ignores a completely blank row', () => {
     expect(directShipDraftValidation([createDirectShipDraftLine('blank')])).toBe('请至少选择一个商品规格并填写数量')
     expect(directShipDraftValidation([

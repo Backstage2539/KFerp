@@ -15,7 +15,7 @@ export function priceListPricingRuleTrialRequestsForRows(sourceRows = [], option
     const key = cacheKeyForPayload(payload)
     if (!key || seen.has(key)) return
     const cached = cache[key]
-    if (cached?.status === 'loading' || cached?.status === 'success' || cached?.status === 'error') return
+    if (cached?.status === 'loading' || cached?.status === 'success' || cached?.status === 'error' || cached?.status === 'incomplete') return
     seen.add(key)
     requests.push({ row, key, payload })
   })
@@ -56,6 +56,19 @@ export async function executePriceListPricingRuleTrialBatches(sourceRequests = [
         const row = responseByIndex.get(index)
         const result = row?.result
         const finalUnitPrice = Number(result?.final_unit_price ?? result?.finalUnitPrice)
+        const costStatus = String(result?.cost_status ?? result?.costStatus ?? '').trim().toLowerCase()
+        if (result && costStatus === 'incomplete') {
+          const issues = Array.isArray(result?.unresolved_components ?? result?.unresolvedComponents)
+            ? (result?.unresolved_components ?? result?.unresolvedComponents)
+            : []
+          const issueText = issues.map((issue) => `${String(issue?.component_name ?? issue?.componentName ?? 'BOM组件').trim()}：${String(issue?.reason || '').trim()}`).filter(Boolean).join('；')
+          completed[key] = {
+            status: 'incomplete',
+            result,
+            error: issueText || 'BOM成本不完整，禁止生成正式价格',
+          }
+          return
+        }
         if (result && Number.isFinite(finalUnitPrice) && finalUnitPrice > 0) {
           completed[key] = { status: 'success', result }
           return
@@ -87,7 +100,7 @@ export function priceListPricingRuleTrialCacheForRetry(sourceCache = {}, sourceK
   const next = { ...cache }
   ;(Array.isArray(sourceKeys) ? sourceKeys : []).forEach((rawKey) => {
     const key = String(rawKey || '').trim()
-    if (key && next[key]?.status === 'error') delete next[key]
+    if (key && ['error', 'incomplete'].includes(next[key]?.status)) delete next[key]
   })
   return next
 }
@@ -167,9 +180,9 @@ export function priceListFlatRowErrors(row = {}, options = {}) {
   if (Number(row?.final_unit_price || row?.finalUnitPrice || 0) <= 0 && String(options?.trialStatus || '').trim() !== 'loading') {
     errors.push(`${title}：最终价必须大于 0`)
   }
-  if (priceListFlatRowUsesLiveTrial(row) && !priceListFlatRowIsManualAdjusted(row) && String(options?.trialStatus || '').trim() === 'error') {
+  if (priceListFlatRowUsesLiveTrial(row) && !priceListFlatRowIsManualAdjusted(row) && ['error', 'incomplete'].includes(String(options?.trialStatus || '').trim())) {
     const detail = String(options?.trialError || '').trim()
-    errors.push(`${title}：价格计算失败${detail ? `：${detail}` : ''}`)
+    errors.push(`${title}：${String(options?.trialStatus || '').trim() === 'incomplete' ? 'BOM成本不完整' : '价格计算失败'}${detail ? `：${detail}` : ''}`)
   }
 
   const priceUnit = String(row?.price_unit || row?.priceUnit || '').trim()

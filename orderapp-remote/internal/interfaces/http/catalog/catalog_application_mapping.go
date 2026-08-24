@@ -116,6 +116,14 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 			UnitPrice: t.UnitPrice,
 		})
 	}
+	out.SpecIdentityMode = p.SpecIdentityMode
+	out.BomSpecAuthoritative = p.BomSpecAuthoritative
+	out.MigrationState = p.MigrationState
+	out.LegacyCatalogProduct = p.LegacyCatalogProduct
+	out.BOMSpecs = make([]BOMSpecOption, 0, len(p.BOMSpecs))
+	for _, spec := range p.BOMSpecs {
+		out.BOMSpecs = append(out.BOMSpecs, BOMSpecOption{ProductID: spec.ProductID, BomID: spec.BomID, BomVersionID: spec.BomVersionID, BomVersionNo: spec.BomVersionNo, BomSpecID: spec.BomSpecID, BomVariantID: spec.BomVariantID, SpecCode: spec.SpecCode, Barcode: spec.Barcode, SpecKey: spec.SpecKey, SpecName: spec.SpecName, InventoryUnit: spec.InventoryUnit, IsDefault: spec.IsDefault, SortOrder: spec.SortOrder})
+	}
 	return out
 }
 

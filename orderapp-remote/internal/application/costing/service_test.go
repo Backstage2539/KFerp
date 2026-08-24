@@ -39,6 +39,7 @@ type fakeRepo struct {
 	defaultTaxRate        PricingRuleTrialDefaultTaxRate
 	productUnitRules      map[int64]ProductSalesUnitRule
 	productSpecIdentities map[int64]ProductSpecIdentity
+	productBOMSpecs       map[string]ProductBOMSpecIdentity
 	productDefaultUnits   map[int64]string
 	customerUnitRules     map[int64]ProductSalesUnitRule
 	lastCustomerAliasID   int64
@@ -48,6 +49,69 @@ type fakeRepo struct {
 	loadDefaultTaxCount   int
 	loadBatchDetailsCount int
 	batchDetailErrors     map[int64]error
+}
+
+type materialCostTrialRepo struct {
+	fakeRepo
+	options MaterialCostTrialOptions
+	result  MaterialCostTrialResult
+	last    MaterialCostTrialCommand
+}
+
+func (r *materialCostTrialRepo) LoadMaterialCostTrialOptions(context.Context, int64) (MaterialCostTrialOptions, error) {
+	return r.options, nil
+}
+
+func (r *materialCostTrialRepo) LoadMaterialCostTrial(_ context.Context, cmd MaterialCostTrialCommand) (MaterialCostTrialResult, error) {
+	r.last = cmd
+	return r.result, nil
+}
+
+func TestMaterialCostTrialPreservesManufacturingDetailsAndNeverReturnsPrice(t *testing.T) {
+	repo := &materialCostTrialRepo{
+		options: MaterialCostTrialOptions{
+			MaterialID: 42,
+			SupplyMode: "manufacture",
+			BomVersions: []MaterialCostTrialOption{{
+				BomID: 1001, VersionID: 1002, VersionNo: "V002", Status: "draft",
+			}},
+		},
+		result: MaterialCostTrialResult{
+			MaterialID:  42,
+			SupplyMode:  "manufacture",
+			CostStatus:  "complete",
+			UnitCost:    63.5,
+			PartialCost: 63.5,
+			CostUnit:    "kg",
+			BomSnapshot: PricingRuleTrialBomSnapshot{BomID: 1001, VersionID: 1002, VersionNo: "V002", Status: "draft"},
+			BaseCostDetails: []PricingRuleTrialBaseCostDetail{{
+				Type: "material", TypeLabel: "物料", Name: "咖啡豆", CostSource: "weighted_batch_cost", Amount: 58.5, Unit: "kg",
+			}},
+			FormulaExpression:      "标准制造成本 = 物料成本 58.5/kg + 标准工序成本 5/kg = 63.5/kg",
+			FormulaExpressionLines: []string{"物料成本 = 58.5/kg", "标准工序成本 = 5/kg", "标准制造成本 = 63.5/kg"},
+			FinalUnitPrice:         func() *float64 { value := 99.0; return &value }(),
+		},
+	}
+	svc := NewService(repo)
+
+	options, err := svc.MaterialCostTrialOptions(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("options error = %v", err)
+	}
+	if len(options.BomVersions) != 1 || options.BomVersions[0].VersionID != 1002 {
+		t.Fatalf("BOM options = %+v", options.BomVersions)
+	}
+
+	result, err := svc.MaterialCostTrial(context.Background(), MaterialCostTrialCommand{MaterialID: 42, BomVersionID: 1002})
+	if err != nil {
+		t.Fatalf("trial error = %v", err)
+	}
+	if repo.last.BomVersionID != 1002 || len(result.BaseCostDetails) != 1 || result.FormulaExpression == "" || len(result.FormulaExpressionLines) != 3 {
+		t.Fatalf("material trial details not preserved: command=%+v result=%+v", repo.last, result)
+	}
+	if result.FinalUnitPrice != nil {
+		t.Fatalf("material trial must never return final_unit_price: %+v", result.FinalUnitPrice)
+	}
 }
 
 type priceTierTemplateUnitRuleRepo struct {
@@ -116,7 +180,7 @@ func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, input 
 }
 
 func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error) {
-	if len(r.productionOptions.BomVersions) > 0 || len(r.productionOptions.ProcessRoutes) > 0 || len(r.productionOptions.OperationTemplates) > 0 {
+	if len(r.productionOptions.BomVersions) > 0 || len(r.productionOptions.BomSpecs) > 0 || len(r.productionOptions.ProcessRoutes) > 0 || len(r.productionOptions.OperationTemplates) > 0 {
 		return r.productionOptions, nil
 	}
 	if input.BomVersionID > 0 && strings.TrimSpace(input.BomStatus) != "missing" && strings.TrimSpace(input.BomUsageMode) != "legacy_product_summary" {
@@ -262,6 +326,14 @@ func (r *fakeRepo) ResolveProductSpecIdentity(_ context.Context, productID int64
 	identity, ok := r.productSpecIdentities[productID]
 	if !ok {
 		return ProductSpecIdentity{}, ErrProductSpecIdentityNotFound
+	}
+	return identity, nil
+}
+
+func (r *fakeRepo) ResolveProductBOMSpecIdentity(_ context.Context, parentProductID, bomSpecID, bomVariantID int64) (ProductBOMSpecIdentity, error) {
+	identity, ok := r.productBOMSpecs[beanListBOMSpecIdentityKey(parentProductID, bomSpecID, bomVariantID)]
+	if !ok {
+		return ProductBOMSpecIdentity{}, ErrProductBOMSpecIdentityNotFound
 	}
 	return identity, nil
 }
@@ -1443,6 +1515,130 @@ func TestPricingRuleTrialUsesSelectedOutputBomVersionAndOperationTemplate(t *tes
 	}
 	if len(got.BomVersionOptions) != 2 || !got.BomVersionOptions[1].IsDefault || len(got.OperationTemplateOptions) != 2 {
 		t.Fatalf("options missing = %+v / %+v", got.BomVersionOptions, got.OperationTemplateOptions)
+	}
+}
+
+func TestPricingRuleTrialApplyBOMSpecSelectionDefaultsAndHonorsVariant(t *testing.T) {
+	options := PricingRuleTrialProductionOptions{BomSpecs: []PricingRuleTrialBomSpecOption{
+		{VersionID: 1848, BomSpecID: 3, BomVariantID: 28, SpecName: "227g", InventoryUnit: "袋", IsDefault: true},
+		{VersionID: 1848, BomSpecID: 4, BomVariantID: 29, SpecName: "454g", InventoryUnit: "袋"},
+	}}
+	got, err := pricingRuleTrialApplyBOMSpecSelection(domain.ProductInput{BomVersionID: 1848}, options)
+	if err != nil {
+		t.Fatalf("default BOM spec error = %v", err)
+	}
+	if got.BomSpecID != 3 || got.BomVariantID != 28 {
+		t.Fatalf("default BOM spec = %+v, want 227g/variant 28", got)
+	}
+	got, err = pricingRuleTrialApplyBOMSpecSelection(domain.ProductInput{BomVersionID: 1848, BomVariantID: 29}, options)
+	if err != nil {
+		t.Fatalf("explicit BOM variant error = %v", err)
+	}
+	if got.BomSpecID != 4 || got.BomVariantID != 29 {
+		t.Fatalf("explicit BOM variant = %+v, want 454g/variant 29", got)
+	}
+}
+
+func TestPricingRuleTrialBOMSpecSelectionRejectsMissingOrCrossVersionUnit(t *testing.T) {
+	_, _, err := pricingRuleTrialApplyProductionSelection(
+		domain.ProductInput{BomVersionID: 1848, InventoryUnit: "kg", QuoteUnit: "kg"},
+		PricingRuleTrialCommand{BomSpecID: 9, BomVariantID: 10},
+		PricingRuleTrialProductionOptions{BomSpecs: []PricingRuleTrialBomSpecOption{{VersionID: 1848, BomSpecID: 9, BomVariantID: 10}}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "缺少库存单位") {
+		t.Fatalf("missing BOM spec inventory unit error = %v", err)
+	}
+
+	_, _, err = pricingRuleTrialApplyProductionSelection(
+		domain.ProductInput{BomVersionID: 1848, InventoryUnit: "kg", QuoteUnit: "kg"},
+		PricingRuleTrialCommand{BomSpecID: 99, BomVariantID: 100},
+		PricingRuleTrialProductionOptions{BomSpecs: []PricingRuleTrialBomSpecOption{{VersionID: 1849, BomSpecID: 99, BomVariantID: 100, InventoryUnit: "袋"}}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "不属于所选生产 BOM 版本") {
+		t.Fatalf("cross-version BOM spec error = %v", err)
+	}
+
+	legacy, _, err := pricingRuleTrialApplyProductionSelection(
+		domain.ProductInput{BomVersionID: 1848, BomSpecID: 701, BomVariantID: 702, InventoryUnit: "kg", QuoteUnit: "kg"},
+		PricingRuleTrialCommand{}, PricingRuleTrialProductionOptions{},
+	)
+	if err != nil || legacy.QuoteUnit != "kg" || legacy.BomSpecID != 0 || legacy.BomVariantID != 0 {
+		t.Fatalf("legacy no-BOM-spec selection = %+v err=%v", legacy, err)
+	}
+}
+
+func TestPricingRuleTrialSelectedBomSpecUsesInventoryUnit(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          6041,
+			Name:               "初晓-商品",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "kg",
+			OrderUnit:          "kg",
+			UnitConversionJSON: `{"kg":{"kg":1}}`,
+			BomVersionID:       6042,
+			BomVersionNo:       "V001",
+			BomUsageMode:       "production_bom_output",
+			BomStatus:          "active",
+		}},
+		productionOptions: PricingRuleTrialProductionOptions{
+			BomVersions: []PricingRuleTrialBomVersionOption{{
+				BomID: 6043, VersionID: 6042, VersionNo: "V001", Status: "published", IsDefault: true, ComponentCount: 2,
+			}},
+			BomSpecs: []PricingRuleTrialBomSpecOption{{
+				BomID: 6043, VersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, SpecName: "454袋", InventoryUnit: "袋", IsDefault: true,
+			}},
+		},
+		costDetails: []PricingRuleTrialBaseCostDetail{{
+			Key: "material:6046", Type: "material", TypeLabel: "物料", Name: "熟豆主体", ConsumeUnit: "fixed_qty", AmountPerUnit: 40.03, Unit: "袋", UnitCost: 40.03,
+		}},
+		pricingRules: map[int64]ProductPricingRule{6047: {
+			ID: 6047, Name: "PR-604 单位", MarginRate: 0, TaxRate: 0, RoundingMode: "none", FormulaVersion: "v1", Active: true,
+			CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "markup", "tax_mode": "none"},
+		}},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 6047, ProductID: 6041, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, QuoteUnit: "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.QuoteUnit != "袋" || got.InventoryUnit != "袋" {
+		t.Fatalf("selected BOM spec units = quote %q inventory %q, want 袋/袋", got.QuoteUnit, got.InventoryUnit)
+	}
+	if got.BaseCost != 40.03 || got.BaseCostDetails[0].Unit != "袋" || !sliceContains(got.FormulaExpressionLines, "最终售价 = 40.03/袋") {
+		t.Fatalf("selected BOM spec cost display = base %.2f details %+v formula %+v, want per 袋", got.BaseCost, got.BaseCostDetails, got.FormulaExpressionLines)
+	}
+}
+
+func TestPricingRuleTrialBatchSelectedBomSpecUsesInventoryUnit(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{
+			{ProductID: 6048, Name: "批量初晓一", InventoryUnit: "kg", QuoteUnit: "kg", OrderUnit: "kg", BomVersionID: 6042, BomVersionNo: "V001", BomUsageMode: "production_bom_output", BomStatus: "active"},
+			{ProductID: 6049, Name: "批量初晓二", InventoryUnit: "kg", QuoteUnit: "kg", OrderUnit: "kg", BomVersionID: 6042, BomVersionNo: "V001", BomUsageMode: "production_bom_output", BomStatus: "active"},
+		},
+		productionOptions: PricingRuleTrialProductionOptions{
+			BomVersions: []PricingRuleTrialBomVersionOption{{BomID: 6043, VersionID: 6042, VersionNo: "V001", Status: "published", IsDefault: true}},
+			BomSpecs:    []PricingRuleTrialBomSpecOption{{BomID: 6043, VersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, SpecName: "454袋", InventoryUnit: "袋", IsDefault: true}},
+		},
+		costDetails:  []PricingRuleTrialBaseCostDetail{{Key: "material:6046", Type: "material", TypeLabel: "物料", Name: "熟豆主体", ConsumeUnit: "fixed_qty", AmountPerUnit: 40.03, Unit: "袋", UnitCost: 40.03}},
+		pricingRules: map[int64]ProductPricingRule{6047: {ID: 6047, Name: "PR-604 批量单位", RoundingMode: "none", FormulaVersion: "v1", Active: true, CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "markup", "tax_mode": "none"}}},
+	}
+	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{
+		{PricingRuleID: 6047, ProductID: 6048, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, QuoteUnit: "kg"},
+		{PricingRuleID: 6047, ProductID: 6049, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, QuoteUnit: "kg"},
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
+	}
+	for index, row := range rows {
+		if row.Error != "" || row.Result == nil {
+			t.Fatalf("batch row %d = %+v", index, row)
+		}
+		if row.Result.QuoteUnit != "袋" || row.Result.InventoryUnit != "袋" || row.Result.BaseCostDetails[0].Unit != "袋" {
+			t.Fatalf("batch row %d units = quote %q inventory %q details %+v", index, row.Result.QuoteUnit, row.Result.InventoryUnit, row.Result.BaseCostDetails)
+		}
 	}
 }
 
@@ -3624,6 +3820,85 @@ func TestBeanListProductSpecSelectionsAcceptValidMultipleTiersAndKeepLegacyPaylo
 		Content:  map[string]any{"price_rows": []any{map[string]any{"product_id": float64(550)}}},
 	}); err != nil {
 		t.Fatalf("legacy draft without product_spec_selections must remain compatible: %v", err)
+	}
+}
+
+func TestBeanListDraftKeepsCutoverBOMSpecIdentityAndUsesSpecificationUnitDirectly(t *testing.T) {
+	identity := ProductBOMSpecIdentity{
+		ParentProductID:   600,
+		ParentProductName: "初晓",
+		BomID:             90,
+		BomVersionID:      901,
+		BomSpecID:         701,
+		BomVariantID:      702,
+		SpecKey:           "bag-227",
+		SpecName:          "227g袋",
+		InventoryUnit:     "袋",
+		MigrationState:    "cutover",
+		Active:            true,
+		Published:         true,
+		IsDefault:         true,
+	}
+	repo := &fakeRepo{productBOMSpecs: map[string]ProductBOMSpecIdentity{
+		beanListBOMSpecIdentityKey(600, 701, 702): identity,
+	}}
+	command := PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V6.0.0",
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id": float64(600),
+			"bom_spec_id":       float64(701),
+			"bom_variant_id":    float64(702),
+			"migration_state":   "cutover",
+			"selection_source":  "product_default",
+		}}},
+		Content: map[string]any{
+			"groups": []any{map[string]any{"items": []any{map[string]any{
+				"product_id":        float64(600),
+				"sku_id":            float64(701),
+				"parent_product_id": float64(600),
+				"bom_spec_id":       float64(701),
+				"bom_variant_id":    float64(702),
+				"name":              "初晓 227g袋",
+			}}}},
+			"price_rows": []any{map[string]any{
+				"product_id":        float64(600),
+				"parent_product_id": float64(600),
+				"bom_spec_id":       float64(701),
+				"bom_variant_id":    float64(702),
+				"final_unit_price":  float64(68),
+				"fixed_unit_price":  float64(68),
+				"pricing_mode":      "fixed_price",
+				"price_unit":        "袋",
+				"migration_state":   "cutover",
+			}},
+		},
+	}
+
+	if _, err := NewService(repo).SaveBeanListDraft(context.Background(), command); err != nil {
+		t.Fatalf("SaveBeanListDraft() cutover BOM spec error = %v", err)
+	}
+	row := repo.draftBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if row["sku_id"] != nil {
+		t.Fatalf("cutover row must not manufacture a legacy sku_id: %#v", row["sku_id"])
+	}
+	item := repo.draftBeanList.Content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	if item["sku_id"] != nil || item["product_id"] != float64(600) || item["bom_spec_id"] != float64(701) {
+		t.Fatalf("cutover group item retained fake child SKU identity: %#v", item)
+	}
+	if row["bom_spec_id"] != float64(701) || row["bom_variant_id"] != float64(702) {
+		t.Fatalf("BOM spec identity = (%#v,%#v)", row["bom_spec_id"], row["bom_variant_id"])
+	}
+	if row["price_unit"] != "袋" || row["inventory_unit"] != "袋" || row["quantity_basis"] != "sales_spec_count" {
+		t.Fatalf("direct specification-unit snapshot = %#v", row)
+	}
+	conversion, ok := row["inventory_conversion_json"].(map[string]any)
+	if !ok || numberValue(conversion["袋"].(map[string]any)["袋"]) != 1 {
+		t.Fatalf("identity inventory conversion = %#v", row["inventory_conversion_json"])
+	}
+	spec, ok := row["effective_sales_spec"].(map[string]any)
+	if !ok || spec["bom_spec_id"] != float64(701) || spec["bom_variant_id"] != float64(702) || spec["spec_name"] != "227g袋" {
+		t.Fatalf("effective BOM sales specification = %#v", row["effective_sales_spec"])
 	}
 }
 

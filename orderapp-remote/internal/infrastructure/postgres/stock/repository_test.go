@@ -64,6 +64,9 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',3
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema second pass: %v", err)
+	}
 
 	repo := NewRepository(pool, schema)
 	res, err := repo.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
@@ -127,6 +130,150 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',3
 	}
 }
 
+func TestLegacyReceiveMaterialValidatesInventoryUnitAndQuantityDimension(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.materials (
+	id BIGINT PRIMARY KEY,code TEXT NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'bean',
+	unit TEXT NOT NULL DEFAULT 'kg',purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,onhand_g BIGINT NOT NULL DEFAULT 0,
+	onhand_units BIGINT NOT NULL DEFAULT 0,min_level_g BIGINT NOT NULL DEFAULT 0,
+	min_level_units BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.products (id BIGINT PRIMARY KEY,name TEXT NOT NULL);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(product_id,spec_g)
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,actor TEXT NOT NULL DEFAULT '',entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,action TEXT NOT NULL DEFAULT '',field TEXT,old_value TEXT,new_value TEXT,
+	meta JSONB,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO %s.materials(id,code,name,unit) VALUES
+	(30,'RAW-KG','千克原料','kg'),(31,'BAG-UNIT','计数包材','袋');
+`, schema, schema, schema, schema, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	repo := NewRepository(pool, schema)
+
+	if _, err := repo.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
+		MaterialID: 30, QtyG: 1000, UnitCost: 288, Operator: "legacy-purchase",
+	}); err != nil {
+		t.Fatalf("legacy empty unit_code compatibility: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		cmd  stockapp.MaterialReceiptCommand
+		want string
+	}{
+		{"kg plus g rejected", stockapp.MaterialReceiptCommand{MaterialID: 30, UnitCode: "g", QtyG: 1000, UnitCost: 288}, "库存单位必须与物料档案一致"},
+		{"bag plus box rejected", stockapp.MaterialReceiptCommand{MaterialID: 31, UnitCode: "盒", QtyUnits: 1, UnitCost: 2}, "库存单位必须与物料档案一致"},
+		{"kg with count rejected", stockapp.MaterialReceiptCommand{MaterialID: 30, UnitCode: "kg", QtyUnits: 1, UnitCost: 288}, "重量数量"},
+		{"bag with weight rejected", stockapp.MaterialReceiptCommand{MaterialID: 31, UnitCode: "袋", QtyG: 1000, UnitCost: 2}, "计数数量"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := repo.ReceiveMaterial(ctx, tc.cmd); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ReceiveMaterial error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestMaterialQuantityAdjustmentUsesLockedMaterialInventoryUnit(t *testing.T) {
+	pool, schema := setupUnifiedStockDocumentTest(t)
+	ctx := context.Background()
+	repo := NewRepository(pool, schema)
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.materials(id,code,name,unit) VALUES
+			(32,'ADJ-KG','盘点千克原料','kg'),
+			(33,'ADJ-BAG','盘点计数包材','袋'),
+			(34,'ADJ-KG-LEGACY','旧接口千克原料','kg'),
+			(35,'ADJ-BAG-LEGACY','旧接口计数包材','袋');
+	`, schema))
+
+	for _, tc := range []struct {
+		name       string
+		cmd        stockapp.StockAdjustmentCommand
+		materialID int64
+	}{
+		{
+			name: "kg plus g rejected",
+			cmd: stockapp.StockAdjustmentCommand{
+				ItemType: "material", ItemID: 32, Warehouse: "raw_materials",
+				HasTargetQty: true, TargetQty: 1, UnitCode: "g", Reason: "盘点", Operator: "jj",
+			},
+			materialID: 32,
+		},
+		{
+			name: "bag plus box rejected",
+			cmd: stockapp.StockAdjustmentCommand{
+				ItemType: "material", ItemID: 33, Warehouse: "raw_materials",
+				HasTargetQty: true, TargetQty: 2, UnitCode: "盒", Reason: "盘点", Operator: "jj",
+			},
+			materialID: 33,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := repo.CreateAdjustment(ctx, tc.cmd); err == nil || !strings.Contains(err.Error(), "库存单位必须与物料档案一致") {
+				t.Fatalf("CreateAdjustment error = %v, want master unit mismatch", err)
+			}
+			var onhandG, onhandUnits int64
+			if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1`, schema), tc.materialID).Scan(&onhandG, &onhandUnits); err != nil {
+				t.Fatal(err)
+			}
+			if onhandG != 0 || onhandUnits != 0 {
+				t.Fatalf("failed adjustment changed stock to %dg/%d units", onhandG, onhandUnits)
+			}
+		})
+	}
+
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 32, Warehouse: "raw_materials",
+		HasTargetQty: true, TargetQty: 2.5, Reason: "盘点", Operator: "jj",
+	}); err != nil {
+		t.Fatalf("empty unit_code falls back to kg master: %v", err)
+	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 33, Warehouse: "raw_materials",
+		HasTargetQty: true, TargetQty: 4, Reason: "盘点", Operator: "jj",
+	}); err != nil {
+		t.Fatalf("empty unit_code falls back to count master: %v", err)
+	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 34, Warehouse: "raw_materials",
+		TargetG: 1500, Reason: "旧接口盘点", Operator: "legacy",
+	}); err != nil {
+		t.Fatalf("legacy target_g compatibility: %v", err)
+	}
+	if _, err := repo.CreateAdjustment(ctx, stockapp.StockAdjustmentCommand{
+		ItemType: "material", ItemID: 35, Warehouse: "raw_materials",
+		TargetUnits: 6, Reason: "旧接口盘点", Operator: "legacy",
+	}); err != nil {
+		t.Fatalf("legacy target_units compatibility: %v", err)
+	}
+	for _, want := range []struct {
+		id       int64
+		qtyG     int64
+		qtyUnits int64
+	}{{32, 2500, 0}, {33, 0, 4}, {34, 1500, 0}, {35, 0, 6}} {
+		var qtyG, qtyUnits int64
+		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=$1`, schema), want.id).Scan(&qtyG, &qtyUnits); err != nil {
+			t.Fatal(err)
+		}
+		if qtyG != want.qtyG || qtyUnits != want.qtyUnits {
+			t.Fatalf("material %d stock = %dg/%d units, want %dg/%d units", want.id, qtyG, qtyUnits, want.qtyG, want.qtyUnits)
+		}
+	}
+}
+
 func TestReceiveMaterialStoresNonWeightInventoryUnits(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()
@@ -186,7 +333,13 @@ INSERT INTO %s.materials(id,code,name,onhand_units) VALUES (2,'BOX-1','挂耳盒
 			id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL DEFAULT 0,group_item_id BIGINT NOT NULL DEFAULT 0,
 			usage_key TEXT NOT NULL DEFAULT '',object_key TEXT NOT NULL DEFAULT '',object_id BIGINT NOT NULL DEFAULT 0,object_ref TEXT NOT NULL DEFAULT ''
 		);
-	`, schema, schema, schema))
+		CREATE TABLE %s.production_bom_specs (
+			id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL DEFAULT 0,name TEXT NOT NULL DEFAULT '',inventory_unit TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE %s.production_bom_version_variants (
+			id BIGINT PRIMARY KEY,bom_spec_id BIGINT NOT NULL DEFAULT 0,spec_name_snapshot TEXT NOT NULL DEFAULT '',inventory_unit TEXT NOT NULL DEFAULT ''
+		);
+	`, schema, schema, schema, schema, schema))
 
 	repo := NewRepository(pool, schema)
 	res, err := repo.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
@@ -619,7 +772,7 @@ INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g)
 	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
 		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 		VALUES (9,454,'finished_shop',0,0)
-		ON CONFLICT (product_id,spec_g,warehouse) DO NOTHING;
+		ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO NOTHING;
 	`, schema))
 
 	repo := NewRepository(pool, schema)
@@ -680,6 +833,180 @@ INSERT INTO %s.finished_inventory(product_id,spec_g,onhand_units,onhand_loose_g)
 	}
 }
 
+func TestBOMSpecFinishedInventoryAdjustmentAndTransferKeepCanonicalIdentity(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %[1]s.materials (
+	id BIGINT PRIMARY KEY,code TEXT NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL DEFAULT 'bean',unit TEXT NOT NULL DEFAULT 'g',
+	purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	onhand_g BIGINT NOT NULL DEFAULT 0,onhand_units BIGINT NOT NULL DEFAULT 0,
+	min_level_g BIGINT NOT NULL DEFAULT 0,min_level_units BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %[1]s.products (id BIGINT PRIMARY KEY,name TEXT NOT NULL,customer_id BIGINT NOT NULL DEFAULT 0);
+CREATE TABLE %[1]s.work_orders (id BIGINT PRIMARY KEY,work_order_no TEXT NOT NULL DEFAULT '');
+CREATE TABLE %[1]s.finished_inventory (
+	product_id BIGINT NOT NULL,spec_g BIGINT NOT NULL,onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),PRIMARY KEY(product_id,spec_g)
+);
+CREATE TABLE %[1]s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,actor TEXT NOT NULL DEFAULT '',entity_type TEXT NOT NULL DEFAULT '',entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',field TEXT,old_value TEXT,new_value TEXT,meta JSONB,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %[1]s.business_groups (id BIGINT PRIMARY KEY,name TEXT NOT NULL DEFAULT '');
+CREATE TABLE %[1]s.business_group_items (id BIGINT PRIMARY KEY,name TEXT NOT NULL DEFAULT '');
+CREATE TABLE %[1]s.business_group_assignments (
+	id BIGSERIAL PRIMARY KEY,group_id BIGINT NOT NULL DEFAULT 0,group_item_id BIGINT NOT NULL DEFAULT 0,
+	usage_key TEXT NOT NULL DEFAULT '',object_key TEXT NOT NULL DEFAULT '',object_id BIGINT NOT NULL DEFAULT 0,object_ref TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %[1]s.production_bom_versions (id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,status TEXT NOT NULL);
+CREATE TABLE %[1]s.production_bom_output_bindings (
+	output_type TEXT NOT NULL,output_id BIGINT NOT NULL,bom_id BIGINT NOT NULL,bom_version_id BIGINT NOT NULL,is_default BOOLEAN NOT NULL DEFAULT true
+);
+CREATE TABLE %[1]s.production_bom_specs (
+	id BIGINT PRIMARY KEY,bom_id BIGINT NOT NULL,spec_key TEXT NOT NULL,name TEXT NOT NULL,inventory_unit TEXT NOT NULL
+);
+CREATE TABLE %[1]s.production_bom_version_variants (
+	id BIGINT PRIMARY KEY,version_id BIGINT NOT NULL,bom_spec_id BIGINT NOT NULL,spec_name_snapshot TEXT NOT NULL,
+	inventory_unit TEXT NOT NULL,is_default BOOLEAN NOT NULL,sort_order INTEGER NOT NULL
+);
+INSERT INTO %[1]s.products(id,name) VALUES(7,'规格组商品');
+INSERT INTO %[1]s.production_bom_versions(id,bom_id,status) VALUES(41,31,'published');
+INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default)
+VALUES('product',7,31,41,true);
+INSERT INTO %[1]s.production_bom_specs(id,bom_id,spec_key,name,inventory_unit)
+VALUES(91,31,'bag-227','227g袋','袋'),(92,31,'bag-454','454g袋','袋');
+INSERT INTO %[1]s.production_bom_version_variants(id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order)
+VALUES(191,41,91,'227g袋','袋',true,10),(192,41,92,'454g袋','袋',false,20);
+`, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.warehouses(code,name,kind,sort_order,is_default,active,description)
+		VALUES('finished_shop','门店成品仓','finished',45,false,true,'门店成品仓')
+		ON CONFLICT (code) DO UPDATE SET active=true;
+	`, schema))
+
+	repo := NewRepository(pool, schema)
+	for _, cmd := range []stockapp.StockAdjustmentCommand{
+		{ItemType: itemTypeFinishedProduct, ItemID: 7, BomSpecID: 91, BomVariantID: 191, Warehouse: "finished_goods", TargetUnits: 12, Reason: "规格期初", Operator: "qa"},
+		{ItemType: itemTypeFinishedProduct, ItemID: 7, BomSpecID: 92, BomVariantID: 192, Warehouse: "finished_goods", TargetUnits: 5, Reason: "规格期初", Operator: "qa"},
+	} {
+		if _, err := repo.CreateAdjustment(ctx, cmd); err != nil {
+			t.Fatalf("CreateAdjustment(%d): %v", cmd.BomSpecID, err)
+		}
+	}
+	service := stockapp.NewService(repo)
+	serviceTransfer, err := service.TransferFinishedProduct(ctx, stockapp.FinishedProductTransferCommand{
+		ProductID: 7, BomSpecID: 91, BomVariantID: 191, FromWarehouse: "finished_goods", ToWarehouse: "finished_shop",
+		QtyUnits: 4, Operator: "qa", IdempotencyKey: "bom-spec-unified-transfer-91",
+	})
+	if err != nil {
+		t.Fatalf("unified TransferFinishedProduct: %v", err)
+	}
+	if serviceTransfer.EntryID <= 0 || serviceTransfer.BomSpecID != 91 || serviceTransfer.BomVariantID != 191 || serviceTransfer.SpecG != 0 {
+		t.Fatalf("unified transfer identity = %+v", serviceTransfer)
+	}
+	var unifiedSource91, unifiedSource92, unifiedTarget91, entrySpecID, entryVariantID, entryQtyG, entryQtyUnits, entryAuditCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=7 AND bom_spec_id=91 AND spec_g=0 AND warehouse='finished_goods'
+	`, schema)).Scan(&unifiedSource91); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=7 AND bom_spec_id=92 AND spec_g=0 AND warehouse='finished_goods'
+	`, schema)).Scan(&unifiedSource92); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units FROM %s.finished_inventory
+		WHERE product_id=7 AND bom_spec_id=91 AND spec_g=0 AND warehouse='finished_shop'
+	`, schema)).Scan(&unifiedTarget91); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT bom_spec_id,bom_variant_id,qty_g,qty_units FROM %s.stock_entry_items WHERE stock_entry_id=$1
+	`, schema), serviceTransfer.EntryID).Scan(&entrySpecID, &entryVariantID, &entryQtyG, &entryQtyUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s.audit_logs
+		WHERE entity_type='stock_entry' AND entity_id=$1 AND action='submit'
+	`, schema), serviceTransfer.EntryID).Scan(&entryAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	var sourceBatchUnits, targetBatchUnits, moveCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(remaining_units),0)::bigint FROM %s.stock_batches b
+		WHERE item_type='finished_product' AND item_id=7 AND bom_spec_id=91 AND source_doc_type='stock_adjustment'
+	`, schema)).Scan(&sourceBatchUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(remaining_units),0)::bigint FROM %s.stock_batches b
+		WHERE item_type='finished_product' AND item_id=7 AND bom_spec_id=91 AND source_doc_type='stock_entry_transfer'
+	`, schema)).Scan(&targetBatchUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s.stock_entry_finished_batch_moves WHERE stock_entry_id=$1 AND bom_spec_id=91 AND qty_units=4
+	`, schema), serviceTransfer.EntryID).Scan(&moveCount); err != nil {
+		t.Fatal(err)
+	}
+	if unifiedSource91 != 8 || unifiedSource92 != 5 || unifiedTarget91 != 4 || entrySpecID != 91 || entryVariantID != 191 || entryQtyG != 0 || entryQtyUnits != 4 || entryAuditCount != 1 || sourceBatchUnits != 8 || targetBatchUnits != 4 || moveCount != 1 {
+		t.Fatalf("unified inventory=%d/%d/%d entry=%d/%d g=%d units=%d audit=%d batches=%d/%d moves=%d", unifiedSource91, unifiedSource92, unifiedTarget91, entrySpecID, entryVariantID, entryQtyG, entryQtyUnits, entryAuditCount, sourceBatchUnits, targetBatchUnits, moveCount)
+	}
+	inventory, err := repo.ListWarehouseInventory(ctx, stockapp.WarehouseInventoryQuery{
+		ItemType: "finished_product",
+		Limit:    100,
+	})
+	if err != nil {
+		t.Fatalf("ListWarehouseInventory: %v", err)
+	}
+	seenSpecs := map[int64]bool{}
+	for _, row := range inventory.Rows {
+		if row.ItemID != 7 || row.BomSpecID <= 0 {
+			continue
+		}
+		if row.BomSpecName != map[int64]string{91: "227g袋", 92: "454g袋"}[row.BomSpecID] {
+			t.Fatalf("warehouse inventory BOM spec name row = %+v", row)
+		}
+		if row.InventoryUnit != "袋" {
+			t.Fatalf("warehouse inventory unit row = %+v", row)
+		}
+		seenSpecs[row.BomSpecID] = true
+	}
+	if !seenSpecs[91] || !seenSpecs[92] {
+		t.Fatalf("warehouse inventory BOM specs = %+v; want 91 and 92", seenSpecs)
+	}
+	if _, err := service.CancelStockDocument(ctx, serviceTransfer.EntryID, "qa"); err != nil {
+		t.Fatalf("CancelStockDocument: %v", err)
+	}
+	var restoredSource, restoredTarget, restoredSourceBatch, restoredTargetBatch int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='finished_goods'`, schema)).Scan(&restoredSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_units FROM %s.finished_inventory WHERE product_id=7 AND bom_spec_id=91 AND warehouse='finished_shop'`, schema)).Scan(&restoredTarget); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(remaining_units),0)::bigint FROM %s.stock_batches WHERE item_id=7 AND bom_spec_id=91 AND source_doc_type='stock_adjustment'`, schema)).Scan(&restoredSourceBatch); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(remaining_units),0)::bigint FROM %s.stock_batches WHERE item_id=7 AND bom_spec_id=91 AND source_doc_type='stock_entry_transfer'`, schema)).Scan(&restoredTargetBatch); err != nil {
+		t.Fatal(err)
+	}
+	if restoredSource != 12 || restoredTarget != 0 || restoredSourceBatch != 12 || restoredTargetBatch != 0 {
+		t.Fatalf("restored inventory=%d/%d batches=%d/%d", restoredSource, restoredTarget, restoredSourceBatch, restoredTargetBatch)
+	}
+}
+
 func TestTransferFinishedProductRejectsFrozenBatch(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()
@@ -734,7 +1061,7 @@ INSERT INTO %s.products(id,name) VALUES (9,'橘皮乌龙');
 	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
 INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
 VALUES (9,454,'finished_goods',2,0)
-ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE SET onhand_units=2,onhand_loose_g=0;
+ON CONFLICT (product_id,bom_spec_id,spec_g,warehouse) DO UPDATE SET onhand_units=2,onhand_loose_g=0;
 INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,quality_status,operator,created_at)
 VALUES ('FP-FROZEN','finished_product',9,'橘皮乌龙',454,'production_run',20,'WO-20',908,2,908,2,'reject','qa',now());
 INSERT INTO %s.stock_ledger_entries(item_type,item_id,item_name,spec_g,warehouse,source_doc_type,source_doc_id,source_batch_code,source_batch_id,qty_before_g,qty_change_g,qty_after_g,qty_before_units,qty_change_units,qty_after_units,operator,created_at)

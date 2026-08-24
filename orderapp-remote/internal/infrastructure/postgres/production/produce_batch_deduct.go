@@ -88,29 +88,16 @@ func confirmProduceBatchDeduct(ctx context.Context, pool *pgxpool.Pool, schema, 
 	}
 
 	for _, it := range items {
-		var units, loose int64
-		err := tx.QueryRow(ctx,
-			"SELECT onhand_units,onhand_loose_g FROM "+schema+".finished_inventory WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods' FOR UPDATE",
-			it.pid, it.specG,
-		).Scan(&units, &loose)
+		units, loose, err := finishedInventoryQtyIdentityTx(ctx, tx, schema, it.pid, 0, it.specG, "finished_goods")
 		if err != nil {
-			if err == pgx.ErrNoRows {
-				units, loose = 0, 0
-			} else {
-				return nil, err
-			}
+			return nil, err
 		}
 
 		remain, deductedG, gapG, derr := invDeduct(it.specG, InvQty{Units: units, LooseG: loose}, it.needG)
 		if derr != nil {
 			return nil, derr
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g,updated_at)
-			VALUES($1,$2,'finished_goods',$3,$4,now())
-			ON CONFLICT (product_id,spec_g,warehouse) DO UPDATE
-			SET onhand_units=excluded.onhand_units, onhand_loose_g=excluded.onhand_loose_g, updated_at=now()
-		`, schema), it.pid, it.specG, remain.Units, remain.LooseG); err != nil {
+		if err := upsertFinishedInventoryIdentityTx(ctx, tx, schema, it.pid, 0, 0, it.specG, "finished_goods", remain.Units, remain.LooseG); err != nil {
 			return nil, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`

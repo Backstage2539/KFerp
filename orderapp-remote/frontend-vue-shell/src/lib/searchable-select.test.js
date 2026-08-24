@@ -78,3 +78,11 @@ test('searchable select supports optional menu header and option slots without r
   assert.match(source, /<strong>\{\{ labelOf\(option\) \}\}<\/strong>/)
   assert.match(source, /<small v-if="metaOf\(option\)">\{\{ metaOf\(option\) \}\}<\/small>/)
 })
+
+test('searchable select uses border-box sizing and one fixed control height', () => {
+  const source = readFileSync(resolve(here, '../components/SearchableSelect.vue'), 'utf8')
+
+  assert.match(source, /\.searchable-select,\s*\.searchable-select \*\s*\{\s*box-sizing:\s*border-box;/)
+  assert.match(source, /\.select-control\s*\{[^}]*height:\s*38px;[^}]*min-height:\s*38px;/s)
+  assert.match(source, /\.select-control input\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*38px;/s)
+})

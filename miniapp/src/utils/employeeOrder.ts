@@ -5,6 +5,11 @@ import type {
   EmployeeOrderProductFamily,
   EmployeeOrderProductSpec,
 } from '../api/customerPortal'
+import {
+  buildMiniappProductSpecIdentity,
+  miniappProductMigrationState,
+  visibleMiniappProductFamilies,
+} from './productSpecIdentity'
 
 export type EmployeeOrderProductCategory = 'all' | 'roasted' | 'drip_bag' | 'green_bean' | 'instant_coffee'
 
@@ -36,6 +41,9 @@ export function createEmployeeOrderItem(key = ''): EmployeeOrderDraftItem {
     product_family_id: 0,
     customer_product_alias_id: 0,
     product_id: 0,
+    migration_state: 'legacy',
+    bom_spec_id: 0,
+    bom_variant_id: 0,
     product_name: '',
     product_kind: 'roasted_bean',
     spec_label: '',
@@ -108,7 +116,8 @@ export function customerProductFamilies(
   const selected = Number(customerID || 0)
   if (selected <= 0) return []
 
-  const customerFamilies = families.filter((family) => Number(family.customer_id || 0) === selected)
+  const visibleFamilies = visibleMiniappProductFamilies(families)
+  const customerFamilies = visibleFamilies.filter((family) => Number(family.customer_id || 0) === selected)
   const overriddenParentIDs = new Set(customerFamilies
     .map((family) => Number(family.parent_product_id || 0))
     .filter((parentID) => parentID > 0))
@@ -117,7 +126,7 @@ export function customerProductFamilies(
     .map((spec) => Number(spec.sku_id || spec.product_id || 0))
     .filter((skuID) => skuID > 0))
 
-  return families.filter((family) => {
+  return visibleFamilies.filter((family) => {
     const owner = Number(family.customer_id || 0)
     if (owner === selected) return true
     if (owner !== 0) return false
@@ -153,10 +162,15 @@ function employeeOrderProductSearchValues(family: EmployeeOrderProductFamily): u
   for (const spec of family.specs || []) {
     specValues.push(
       spec.sku_code,
+      spec.spec_code,
+      spec.barcode,
       spec.sku_name,
+      spec.spec_key,
+      spec.spec_name,
       spec.py,
       spec.pyi,
       spec.spec_label,
+      spec.inventory_unit,
       spec.net_content_qty && spec.net_content_unit
         ? `${spec.net_content_qty}${spec.net_content_unit}`
         : '',
@@ -201,13 +215,18 @@ export function defaultProductSpec(
   family?: EmployeeOrderProductFamily,
 ): EmployeeOrderProductSpec | undefined {
   const specs = family?.specs || []
+  if (miniappProductMigrationState(family as unknown as Record<string, unknown>) === 'cutover') {
+    return specs.find((spec) => Number(spec.bom_spec_id || 0) === Number(family?.default_bom_spec_id || 0))
+      || specs.find((spec) => spec.is_default_sku)
+      || specs[0]
+  }
   return specs.find((spec) => Number(spec.product_id || spec.sku_id || 0) === Number(family?.default_sku_id || 0))
     || specs.find((spec) => spec.is_default_sku)
     || specs[0]
 }
 
 export function productSpecLabel(spec?: EmployeeOrderProductSpec) {
-  const explicit = String(spec?.spec_label || spec?.sku_name || '').trim()
+  const explicit = String(spec?.spec_label || spec?.spec_name || spec?.sku_name || '').trim()
   if (explicit) return explicit
   const qty = Number(spec?.net_content_qty || 0)
   const unit = String(spec?.net_content_unit || '').trim()
@@ -235,7 +254,7 @@ function employeeOrderItemBaseTotal(item: EmployeeOrderDraftItem): number {
   const qty = Math.max(Number(item.qty || 0), 0)
   const unitPrice = Math.max(Number(item.unit_price || 0), 0)
   const productKind = String(item.product_kind || '').trim().toLowerCase()
-  if (item.retail_order || employeeOrderItemQuantityBasis(item) === 'sales_spec_count' || productKind === 'drip_bag') {
+  if (item.migration_state === 'cutover' || Number(item.bom_spec_id || 0) > 0 || item.retail_order || employeeOrderItemQuantityBasis(item) === 'sales_spec_count' || productKind === 'drip_bag') {
     return qty * unitPrice
   }
   const specG = Math.max(Number(item.spec_g || 0), 0)
@@ -361,17 +380,21 @@ export function employeeOrderItemFromSpec(
     || family.default_publication_version_no
     || '',
   )
+  const cutover = miniappProductMigrationState({ ...family, ...spec } as unknown as Record<string, unknown>) === 'cutover'
   return withEmployeeOrderItemDiscount({
     ...item,
     product_family_key: employeeOrderProductFamilyKey(family),
     product_family_id: Number(family.parent_product_id || 0),
     customer_product_alias_id: Number(family.customer_product_alias_id || 0),
-    product_id: Number(spec.product_id || spec.sku_id || 0),
+    product_id: cutover ? Number(family.parent_product_id || 0) : Number(spec.product_id || spec.sku_id || 0),
+    migration_state: cutover ? 'cutover' : 'legacy',
+    bom_spec_id: cutover ? Number(spec.bom_spec_id || 0) : 0,
+    bom_variant_id: cutover ? Number(spec.bom_variant_id || 0) : 0,
     product_name: family.name,
     product_kind: spec.product_kind || family.product_kind || 'roasted_bean',
     spec_label: productSpecLabel(spec),
-    spec_g: productSpecWeightG(spec),
-    sales_unit: spec.sales_unit || tier?.sales_unit || '袋',
+    spec_g: cutover ? 0 : productSpecWeightG(spec),
+    sales_unit: spec.inventory_unit || spec.sales_unit || tier?.sales_unit || '袋',
     unit_bag_count: Number(spec.unit_bag_count || tier?.unit_bag_count || 0),
     unit_bean_g: Number(spec.unit_bean_g || 0),
     unit_price: firstSpecUnitPrice(spec, Number(item.qty || 0)),
@@ -389,7 +412,9 @@ export function repriceEmployeeOrderItemForQuantity(
 ): EmployeeOrderDraftItem {
   if (!family) return withEmployeeOrderItemDiscount({ ...item })
   const spec = (family.specs || []).find(
-    (candidate) => Number(candidate.product_id || candidate.sku_id || 0) === Number(item.product_id || 0),
+    (candidate) => item.migration_state === 'cutover'
+      ? Number(candidate.bom_spec_id || 0) === Number(item.bom_spec_id || 0)
+      : Number(candidate.product_id || candidate.sku_id || 0) === Number(item.product_id || 0),
   )
   if (!spec) return withEmployeeOrderItemDiscount({ ...item })
   const repriced = employeeOrderItemFromSpec(item, family, spec)
@@ -428,8 +453,12 @@ export function hydrateEmployeeOrderEditItems(
   return detailItems.map((detail, index) => {
     const aliasID = Number(detail.customer_product_alias_id || 0)
     const productID = Number(detail.product_id || 0)
+    const bomSpecID = Number(detail.bom_spec_id || 0)
+    const cutover = bomSpecID > 0 || detail.migration_state === 'cutover'
     const matchingFamilies = available.filter((candidate) => (candidate.specs || []).some(
-      (spec) => Number(spec.product_id || spec.sku_id || 0) === productID,
+      (spec) => cutover
+        ? Number(candidate.parent_product_id || 0) === productID && Number(spec.bom_spec_id || 0) === bomSpecID
+        : Number(spec.product_id || spec.sku_id || 0) === productID,
     ))
     const aliasCandidates = aliasID > 0
       ? matchingFamilies.filter((family) => Number(family.customer_product_alias_id || 0) === aliasID)
@@ -441,13 +470,19 @@ export function hydrateEmployeeOrderEditItems(
       ? aliasCandidates[0]
       : (publicCandidates.length === 1 ? publicCandidates[0] : (aliasCandidates.length === 1 ? aliasCandidates[0] : undefined))
     const spec = family?.specs.find(
-      (candidate) => Number(candidate.product_id || candidate.sku_id || 0) === productID,
+      (candidate) => cutover
+        ? Number(candidate.bom_spec_id || 0) === bomSpecID
+        : Number(candidate.product_id || candidate.sku_id || 0) === productID,
     )
     const historical = withEmployeeOrderItemDiscount({
       ...createEmployeeOrderItem(`edit-${detail.item_id || detail.id || index + 1}`),
       item_id: Number(detail.item_id || detail.id || 0),
       customer_product_alias_id: aliasID,
       product_id: productID,
+      product_family_id: Number(detail.parent_product_id || (cutover ? productID : 0)),
+      migration_state: cutover ? 'cutover' : 'legacy',
+      bom_spec_id: bomSpecID,
+      bom_variant_id: Number(detail.bom_variant_id || 0),
       product_name: String(
         detail.customer_product_display_name_snapshot
         || detail.product_name_snapshot
@@ -512,7 +547,9 @@ export function revalidateEmployeeOrderItems(
     const candidates = item.product_family_key ? (exactFamily ? [exactFamily] : []) : available
     for (const family of candidates) {
       const spec = (family.specs || []).find(
-        (row) => Number(row.product_id || row.sku_id || 0) === Number(item.product_id),
+        (row) => item.migration_state === 'cutover'
+          ? Number(row.bom_spec_id || 0) === Number(item.bom_spec_id || 0)
+          : Number(row.product_id || row.sku_id || 0) === Number(item.product_id),
       )
       if (spec) {
         const validated = employeeOrderItemFromSpec(item, family, spec)
@@ -544,25 +581,32 @@ export function preserveEmployeeOrderDraftItemsForMissingCustomer(
 export function buildEmployeeOrderItemsPayload(items: EmployeeOrderDraftItem[]) {
   return items
     .filter((item) => Number(item.product_id || 0) > 0)
-    .map((item) => ({
-      product_id: Number(item.product_id),
-      item_id: Number(item.item_id || 0),
-      parent_product_id: Number(item.product_family_id || 0),
-      customer_product_alias_id: Number(item.customer_product_alias_id || 0),
-      name: item.product_name,
-      product_kind: item.product_kind,
-      qty: Number(item.qty),
-      spec_g: Number(item.spec_g),
-      unit: item.sales_unit,
-      sales_unit: item.sales_unit,
-      unit_bag_count: Number(item.unit_bag_count || 0),
-      unit_bean_g: Number(item.unit_bean_g || 0),
-      unit_price: Number(item.unit_price || 0),
-      bean_list_publication_id: Number(item.bean_list_publication_id || 0),
-      bean_list_version_no: String(item.bean_list_version_no || ''),
-      price_override: Boolean(item.price_override),
-      price_source_json: String(item.price_source_json || ''),
-    }))
+    .map((item) => {
+      const identity = buildMiniappProductSpecIdentity(item)
+      return {
+        product_id: identity.product_id,
+        item_id: Number(item.item_id || 0),
+        parent_product_id: item.migration_state === 'cutover' ? identity.product_id : Number(item.product_family_id || 0),
+        ...(item.migration_state === 'cutover' ? {
+          bom_spec_id: identity.bom_spec_id,
+          bom_variant_id: identity.bom_variant_id,
+        } : {}),
+        customer_product_alias_id: Number(item.customer_product_alias_id || 0),
+        name: item.product_name,
+        product_kind: item.product_kind,
+        qty: Number(item.qty),
+        spec_g: Number(item.spec_g),
+        unit: item.sales_unit,
+        sales_unit: item.sales_unit,
+        unit_bag_count: Number(item.unit_bag_count || 0),
+        unit_bean_g: Number(item.unit_bean_g || 0),
+        unit_price: Number(item.unit_price || 0),
+        bean_list_publication_id: Number(item.bean_list_publication_id || 0),
+        bean_list_version_no: String(item.bean_list_version_no || ''),
+        price_override: Boolean(item.price_override),
+        price_source_json: String(item.price_source_json || ''),
+      }
+    })
 }
 
 export function employeeOrderItemsTotal(items: EmployeeOrderDraftItem[]): number {

@@ -14,12 +14,14 @@ import (
 )
 
 type multilevelRootShortage struct {
-	planItemID     int64
-	componentType  string
-	componentID    int64
-	componentSpecG int64
-	requiredG      int64
-	requiredUnits  int64
+	planItemID            int64
+	componentType         string
+	componentID           int64
+	componentBomSpecID    int64
+	componentBomVariantID int64
+	componentSpecG        int64
+	requiredG             int64
+	requiredUnits         int64
 }
 
 type manufacturingOutputBOMPlanBasis struct {
@@ -28,6 +30,8 @@ type manufacturingOutputBOMPlanBasis struct {
 	VersionNo        string
 	OutputType       string
 	OutputID         int64
+	BomSpecID        int64
+	BomVariantID     int64
 	OutputName       string
 	InventoryUnit    string
 	OutputSpecG      int64
@@ -98,8 +102,9 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 	}
 	for _, rootNeed := range rootNeeds {
 		componentType, componentID, componentSpecG := manufacturingNeedIdentity(rootNeed.need)
+		componentBomSpecID, _ := manufacturingNeedBOMSpecIdentity(rootNeed.need)
 		if componentType == "product" {
-			componentSpecs[manufacturingItemKey(componentType, componentID)] = componentSpecG
+			componentSpecs[manufacturingItemIdentityKey(componentType, componentID, componentBomSpecID)] = componentSpecG
 		}
 	}
 	domainAvailable, err := loadManufacturingPlanAvailabilityTx(ctx, tx, schema, domainBOMs, componentSpecs)
@@ -108,7 +113,8 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 	}
 	for _, rootNeed := range rootNeeds {
 		componentType, componentID, componentSpecG := manufacturingNeedIdentity(rootNeed.need)
-		key := manufacturingItemKey(componentType, componentID)
+		componentBomSpecID, _ := manufacturingNeedBOMSpecIdentity(rootNeed.need)
+		key := manufacturingItemIdentityKey(componentType, componentID, componentBomSpecID)
 		if _, exists := domainAvailable[key]; exists {
 			continue
 		}
@@ -119,7 +125,7 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 			} else {
 				unit = "g"
 			}
-			availableG, availableUnits, availableErr := finishedProductAvailableForPlanningTx(ctx, tx, schema, componentID, componentSpecG, 0)
+			availableG, availableUnits, availableErr := finishedProductAvailableForPlanningIdentityTx(ctx, tx, schema, componentID, componentBomSpecID, componentSpecG, 0)
 			if availableErr != nil {
 				return availableErr
 			}
@@ -140,7 +146,8 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 	for _, rootNeed := range rootNeeds {
 		need := rootNeed.need
 		componentType, componentID, componentSpecG := manufacturingNeedIdentity(need)
-		key := manufacturingItemKey(componentType, componentID)
+		componentBomSpecID, componentBomVariantID := manufacturingNeedBOMSpecIdentity(need)
+		key := manufacturingItemIdentityKey(componentType, componentID, componentBomSpecID)
 		unit := strings.TrimSpace(need.Unit)
 		if componentType == "product" {
 			if basis, ok := bases[key]; ok {
@@ -159,7 +166,8 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 			continue
 		}
 		shortages = append(shortages, multilevelRootShortage{
-			planItemID: rootNeed.item.ID, componentType: componentType, componentID: componentID, componentSpecG: componentSpecG,
+			planItemID: rootNeed.item.ID, componentType: componentType, componentID: componentID,
+			componentBomSpecID: componentBomSpecID, componentBomVariantID: componentBomVariantID, componentSpecG: componentSpecG,
 			requiredG: shortageG, requiredUnits: shortageUnits,
 		})
 		basis, ok := bases[key]
@@ -176,7 +184,7 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 		demand := shortageByItem[key]
 		if demand.Item.ID == 0 {
 			demand = productiondomain.ManufacturingDemand{
-				Item:            productiondomain.ManufacturingItemRef{Type: basis.OutputType, ID: basis.OutputID, Name: basis.OutputName, Unit: basis.InventoryUnit},
+				Item:            productiondomain.ManufacturingItemRef{Type: basis.OutputType, ID: basis.OutputID, BomSpecID: basis.BomSpecID, BomVariantID: basis.BomVariantID, Name: basis.OutputName, Unit: basis.InventoryUnit},
 				TargetWarehouse: defaultManufacturingTargetWarehouse(basis.OutputType),
 			}
 		}
@@ -216,11 +224,13 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 	}
 
 	for _, shortage := range shortages {
-		upstream, ok := itemsByKey[manufacturingItemKey(shortage.componentType, shortage.componentID)]
+		upstream, ok := itemsByKey[manufacturingItemIdentityKey(shortage.componentType, shortage.componentID, shortage.componentBomSpecID)]
 		if !ok {
 			continue
 		}
-		if err := insertProductionPlanItemDependencyTx(ctx, tx, schema, planID, shortage.planItemID, upstream.ID, shortage.componentType, shortage.componentID, shortage.componentSpecG, shortage.requiredG, shortage.requiredUnits); err != nil {
+		if err := insertProductionPlanItemDependencyTx(ctx, tx, schema, planID, shortage.planItemID, upstream.ID,
+			shortage.componentType, shortage.componentID, shortage.componentBomSpecID, shortage.componentBomVariantID,
+			shortage.componentSpecG, shortage.requiredG, shortage.requiredUnits); err != nil {
 			return err
 		}
 	}
@@ -235,7 +245,9 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 			continue
 		}
 		requiredG, requiredUnits := canonicalFromManufacturingQty(edge.ShortageQty, basis.InventoryUnit)
-		if err := insertProductionPlanItemDependencyTx(ctx, tx, schema, planID, consumer.ID, supplier.ID, basis.OutputType, basis.OutputID, componentSpecs[edge.SupplierKey], requiredG, requiredUnits); err != nil {
+		if err := insertProductionPlanItemDependencyTx(ctx, tx, schema, planID, consumer.ID, supplier.ID,
+			basis.OutputType, basis.OutputID, basis.BomSpecID, basis.BomVariantID,
+			componentSpecs[edge.SupplierKey], requiredG, requiredUnits); err != nil {
 			return err
 		}
 	}
@@ -336,7 +348,7 @@ func loadManufacturingPlanAvailabilityTx(ctx context.Context, tx pgx.Tx, schema 
 	for _, key := range keys {
 		ref := refs[key]
 		if strings.EqualFold(ref.Type, "product") {
-			availableG, availableUnits, err := finishedProductAvailableForPlanningTx(ctx, tx, schema, ref.ID, componentSpecs[key], 0)
+			availableG, availableUnits, err := finishedProductAvailableForPlanningIdentityTx(ctx, tx, schema, ref.ID, ref.BomSpecID, componentSpecs[key], 0)
 			if err != nil {
 				return nil, err
 			}
@@ -368,6 +380,13 @@ func manufacturingItemKey(itemType string, itemID int64) string {
 	return fmt.Sprintf("%s:%d", strings.ToLower(strings.TrimSpace(itemType)), itemID)
 }
 
+func manufacturingItemIdentityKey(itemType string, itemID, bomSpecID int64) string {
+	if strings.EqualFold(strings.TrimSpace(itemType), "product") && bomSpecID > 0 {
+		return fmt.Sprintf("product:%d:bom_spec:%d", itemID, bomSpecID)
+	}
+	return manufacturingItemKey(itemType, itemID)
+}
+
 func defaultManufacturingTargetWarehouse(itemType string) string {
 	if strings.EqualFold(strings.TrimSpace(itemType), "product") {
 		return "finished_goods"
@@ -384,6 +403,13 @@ func manufacturingNeedIdentity(need materialConsumptionNeed) (string, int64, int
 		return "product", productID, need.ComponentSpecG
 	}
 	return "material", need.MaterialID, 0
+}
+
+func manufacturingNeedBOMSpecIdentity(need materialConsumptionNeed) (int64, int64) {
+	if need.Source == "finished_product" || need.ComponentType == "finished_product" {
+		return need.ComponentBomSpecID, need.ComponentBomVariantID
+	}
+	return 0, 0
 }
 
 func manufacturingNeedCanonicalQuantities(need materialConsumptionNeed) (int64, int64) {
@@ -410,7 +436,8 @@ func aggregateManufacturingConsumptionNeeds(needs []materialConsumptionNeed) []m
 		if componentID <= 0 {
 			continue
 		}
-		key := fmt.Sprintf("%s:%d:%d", componentType, componentID, componentSpecG)
+		componentBomSpecID, _ := manufacturingNeedBOMSpecIdentity(need)
+		key := fmt.Sprintf("%s:%d:%d:%d", componentType, componentID, componentBomSpecID, componentSpecG)
 		row, ok := byKey[key]
 		if !ok {
 			row = need
@@ -434,17 +461,33 @@ func aggregateManufacturingConsumptionNeeds(needs []materialConsumptionNeed) []m
 }
 
 func finishedProductAvailableForPlanningTx(ctx context.Context, tx pgx.Tx, schema string, productID, specG, excludedWorkOrderID int64) (int64, int64, error) {
+	return finishedProductAvailableForPlanningIdentityTx(ctx, tx, schema, productID, 0, specG, excludedWorkOrderID)
+}
+
+func finishedProductAvailableForPlanningIdentityTx(ctx context.Context, tx pgx.Tx, schema string, productID, bomSpecID, specG, excludedWorkOrderID int64) (int64, int64, error) {
 	hasBatches, err := schemaColumnExistsTx(ctx, tx, schema, "stock_batches", "id")
 	if err != nil {
 		return 0, 0, err
 	}
 	if !hasBatches {
 		var units, looseG int64
-		err = tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT COALESCE(SUM(onhand_units),0)::bigint,COALESCE(SUM(onhand_loose_g),0)::bigint
-			FROM %s.finished_inventory
-			WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
-		`, schema), productID, specG).Scan(&units, &looseG)
+		hasBomSpec, columnErr := schemaColumnExistsTx(ctx, tx, schema, "finished_inventory", "bom_spec_id")
+		if columnErr != nil {
+			return 0, 0, columnErr
+		}
+		if hasBomSpec {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(onhand_units),0)::bigint,COALESCE(SUM(onhand_loose_g),0)::bigint
+				FROM %s.finished_inventory
+				WHERE product_id=$1 AND bom_spec_id=$2 AND spec_g=$3 AND warehouse='finished_goods'
+			`, schema), productID, bomSpecID, specG).Scan(&units, &looseG)
+		} else {
+			err = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(SUM(onhand_units),0)::bigint,COALESCE(SUM(onhand_loose_g),0)::bigint
+				FROM %s.finished_inventory
+				WHERE product_id=$1 AND spec_g=$2 AND warehouse='finished_goods'
+			`, schema), productID, specG).Scan(&units, &looseG)
+		}
 		if err != nil {
 			return 0, 0, err
 		}
@@ -470,16 +513,24 @@ func finishedProductAvailableForPlanningTx(ctx context.Context, tx pgx.Tx, schem
 	}
 	workJoin := `LEFT JOIN LATERAL (SELECT 0::bigint AS reserved_g,0::bigint AS reserved_units) work_reserved ON true`
 	if hasTypedWorkReservations {
+		hasComponentBomSpec, componentErr := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservation_batches", "component_bom_spec_id")
+		if componentErr != nil {
+			return 0, 0, componentErr
+		}
+		bomSpecPredicate := ""
+		if hasComponentBomSpec {
+			bomSpecPredicate = " AND rb.component_bom_spec_id=$2"
+		}
 		workJoin = fmt.Sprintf(`
 			LEFT JOIN LATERAL (
 				SELECT COALESCE(SUM(GREATEST(0,rb.reserved_g-rb.consumed_g-rb.returned_g)),0)::bigint AS reserved_g,
 				       COALESCE(SUM(GREATEST(0,rb.reserved_units-rb.consumed_units-rb.returned_units)),0)::bigint AS reserved_units
 				FROM %s.work_order_material_reservation_batches rb
 				JOIN %s.work_order_material_reservations r ON r.id=rb.reservation_id AND r.status='reserved'
-				WHERE rb.component_type='product' AND rb.component_id=$1 AND rb.component_spec_g=$2
+				WHERE rb.component_type='product' AND rb.component_id=$1 %s AND rb.component_spec_g=$3
 				  AND rb.stock_batch_id=b.id AND rb.status='reserved'
-				  AND ($3::bigint=0 OR rb.work_order_id<>$3)
-			) work_reserved ON true`, schema, schema)
+				  AND ($4::bigint=0 OR rb.work_order_id<>$4)
+			) work_reserved ON true`, schema, schema, bomSpecPredicate)
 	}
 	var availableG, availableUnits int64
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
@@ -488,10 +539,10 @@ func finishedProductAvailableForPlanningTx(ctx context.Context, tx pgx.Tx, schem
 		FROM %s.stock_batches b
 		%s
 		%s
-		WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.spec_g=$2
+		WHERE b.item_type='finished_product' AND b.item_id=$1 AND b.bom_spec_id=$2 AND b.spec_g=$3
 		  AND (b.remaining_g>0 OR b.remaining_units>0)
 		  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
-	`, schema, customerJoin, workJoin), productID, specG, excludedWorkOrderID).Scan(&availableG, &availableUnits)
+	`, schema, customerJoin, workJoin), productID, bomSpecID, specG, excludedWorkOrderID).Scan(&availableG, &availableUnits)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -500,20 +551,28 @@ func finishedProductAvailableForPlanningTx(ctx context.Context, tx pgx.Tx, schem
 		return 0, 0, err
 	}
 	if hasTypedReservationRows {
+		hasComponentBomSpec, componentErr := schemaColumnExistsTx(ctx, tx, schema, "work_order_material_reservations", "component_bom_spec_id")
+		if componentErr != nil {
+			return 0, 0, componentErr
+		}
+		bomSpecPredicate := ""
+		if hasComponentBomSpec {
+			bomSpecPredicate = " AND r.component_bom_spec_id=$2"
+		}
 		var unboundG, unboundUnits int64
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			SELECT COALESCE(SUM(GREATEST(0,r.reserved_g-r.consumed_g-r.returned_g)),0)::bigint,
 			       COALESCE(SUM(GREATEST(0,r.reserved_units-r.consumed_units-r.returned_units)),0)::bigint
 			FROM %s.work_order_material_reservations r
 			LEFT JOIN %s.work_orders wo ON wo.id=r.work_order_id
-			WHERE r.component_type='product' AND r.component_id=$1 AND r.component_spec_g=$2
-			  AND r.status='reserved' AND ($3::bigint=0 OR r.work_order_id<>$3)
+			WHERE r.component_type='product' AND r.component_id=$1 %s AND r.component_spec_g=$3
+			  AND r.status='reserved' AND ($4::bigint=0 OR r.work_order_id<>$4)
 			  AND (wo.id IS NULL OR wo.status IN ('released','running','partially_completed','paused'))
 			  AND NOT EXISTS (
 				SELECT 1 FROM %s.work_order_material_reservation_batches rb
 				WHERE rb.reservation_id=r.id AND rb.status='reserved'
 			  )
-		`, schema, schema, schema), productID, specG, excludedWorkOrderID).Scan(&unboundG, &unboundUnits)
+		`, schema, schema, bomSpecPredicate, schema), productID, bomSpecID, specG, excludedWorkOrderID).Scan(&unboundG, &unboundUnits)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -525,55 +584,52 @@ func finishedProductAvailableForPlanningTx(ctx context.Context, tx pgx.Tx, schem
 }
 
 func manufacturingQtyFromCanonical(qtyG, qtyUnits int64, unit string) float64 {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return float64(qtyG) / 1000
-	case "lb", "磅":
-		return float64(qtyG) / 453.59237
-	case "g", "克":
-		return float64(qtyG)
-	default:
-		return float64(qtyUnits)
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return float64(qtyG) / factor
 	}
+	return float64(qtyUnits)
 }
 
 func canonicalFromManufacturingQty(qty float64, unit string) (int64, int64) {
 	if qty <= 0 {
 		return 0, 0
 	}
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return int64(math.Ceil(qty * 1000)), 0
-	case "lb", "磅":
-		return int64(math.Ceil(qty * 453.59237)), 0
-	case "g", "克":
-		return int64(math.Ceil(qty)), 0
-	default:
-		return 0, int64(math.Ceil(qty))
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return int64(math.Ceil(qty * factor)), 0
 	}
+	return 0, int64(math.Ceil(qty))
 }
 
 func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx.Tx, schema string) (map[string]manufacturingOutputBOMPlanBasis, []productiondomain.ManufacturingBOM, map[string]int64, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT b.id,v.id,COALESCE(v.version_no,''),binding.output_type,binding.output_id,
-		       CASE WHEN binding.output_type='material' THEN COALESCE(m.name,'') ELSE COALESCE(p.name,'') END,
+		       COALESCE(spec.id,0),COALESCE(variant.id,0),
+		       CASE WHEN binding.output_type='material' THEN COALESCE(m.name,'')
+		            WHEN COALESCE(spec.id,0)>0 THEN btrim(COALESCE(p.name,'') || ' ' || COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''))
+		            ELSE COALESCE(p.name,'') END,
 		       CASE WHEN binding.output_type='material' THEN COALESCE(NULLIF(m.unit,''),'g') ELSE
-		         COALESCE(NULLIF(LOWER(p.unit_rule_override_json->>'inventory_unit'),''),
+		         COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),NULLIF(LOWER(p.unit_rule_override_json->>'inventory_unit'),''),
 		           CASE LOWER(COALESCE(v.output_unit,''))
 		             WHEN 'kg' THEN 'kg' WHEN 'lb' THEN 'lb' WHEN 'g' THEN 'g' ELSE 'unit' END)
 		       END,
-		       CASE WHEN binding.output_type='product' THEN CASE LOWER(COALESCE(p.net_content_unit,''))
+		       CASE WHEN binding.output_type='product' AND COALESCE(spec.id,0)=0 THEN CASE LOWER(COALESCE(p.net_content_unit,''))
 		         WHEN 'kg' THEN CEIL(COALESCE(p.net_content_qty,0)*1000)::bigint
 		         WHEN 'lb' THEN CEIL(COALESCE(p.net_content_qty,0)*453.59237)::bigint
 		         WHEN 'g' THEN CEIL(COALESCE(p.net_content_qty,0))::bigint ELSE 0 END ELSE 0 END,
-		       COALESCE(NULLIF(v.output_qty,0),1)::float8,COALESCE(NULLIF(v.output_unit,''),'unit'),
-		       COALESCE(v.process_route_id,0),COALESCE(pr.name,'')
+		       CASE WHEN COALESCE(spec.id,0)>0 THEN 1::float8 ELSE COALESCE(NULLIF(v.output_qty,0),1)::float8 END,
+		       CASE WHEN COALESCE(spec.id,0)>0 THEN COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),'unit') ELSE COALESCE(NULLIF(v.output_unit,''),'unit') END,
+		       COALESCE(NULLIF(variant.process_route_id,0),v.process_route_id,0),COALESCE(NULLIF(variant_route.name,''),pr.name,'')
 		FROM %s.production_bom_output_bindings binding
 		JOIN %s.production_boms b ON b.id=binding.bom_id
 		JOIN %s.production_bom_versions v ON v.id=binding.bom_version_id AND v.bom_id=b.id
 		LEFT JOIN %s.materials m ON binding.output_type='material' AND m.id=binding.output_id
 		LEFT JOIN %s.products p ON binding.output_type='product' AND p.id=binding.output_id
+		LEFT JOIN %s.production_bom_version_variants variant
+		  ON binding.output_type='product' AND variant.version_id=v.id
+		LEFT JOIN %s.production_bom_specs spec
+		  ON spec.id=variant.bom_spec_id AND spec.bom_id=b.id
 		LEFT JOIN %s.process_routes pr ON pr.id=v.process_route_id AND pr.status='active'
+		LEFT JOIN %s.process_routes variant_route ON variant_route.id=variant.process_route_id AND variant_route.status='active'
 		WHERE binding.output_type IN ('material','product') AND binding.is_default=true
 		  AND b.output_type=binding.output_type
 		  AND ((binding.output_type='material' AND b.output_material_id=binding.output_id)
@@ -581,18 +637,20 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 		  AND COALESCE(NULLIF(b.status,''),'active')='active'
 		  AND v.status='published'
 		ORDER BY binding.output_type,binding.output_id
-	`, schema, schema, schema, schema, schema, schema))
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	bases := map[string]manufacturingOutputBOMPlanBasis{}
 	for rows.Next() {
 		var basis manufacturingOutputBOMPlanBasis
-		if err := rows.Scan(&basis.BOMID, &basis.VersionID, &basis.VersionNo, &basis.OutputType, &basis.OutputID, &basis.OutputName, &basis.InventoryUnit, &basis.OutputSpecG, &basis.OutputQty, &basis.OutputUnit, &basis.ProcessRouteID, &basis.ProcessRouteName); err != nil {
+		if err := rows.Scan(&basis.BOMID, &basis.VersionID, &basis.VersionNo, &basis.OutputType, &basis.OutputID,
+			&basis.BomSpecID, &basis.BomVariantID, &basis.OutputName, &basis.InventoryUnit, &basis.OutputSpecG,
+			&basis.OutputQty, &basis.OutputUnit, &basis.ProcessRouteID, &basis.ProcessRouteName); err != nil {
 			rows.Close()
 			return nil, nil, nil, err
 		}
-		bases[manufacturingItemKey(basis.OutputType, basis.OutputID)] = basis
+		bases[manufacturingItemIdentityKey(basis.OutputType, basis.OutputID, basis.BomSpecID)] = basis
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -600,7 +658,9 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 	}
 	rows.Close()
 	for key, basis := range bases {
-		snapshot, err := buildMaterialSnapshotForBomVersionTx(ctx, tx, schema, ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG}, basis.VersionID, false)
+		snapshot, err := buildMaterialSnapshotForBomVersionVariantTx(ctx, tx, schema,
+			ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG},
+			basis.VersionID, basis.BomVariantID, false)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -636,12 +696,13 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 		components := make([]productiondomain.ManufacturingBOMComponent, 0, len(needs))
 		for _, need := range aggregateManufacturingConsumptionNeeds(needs) {
 			componentType, componentID, componentSpecG := manufacturingNeedIdentity(need)
+			componentBomSpecID, componentBomVariantID := manufacturingNeedBOMSpecIdentity(need)
 			unit := need.Unit
 			if componentType == "product" {
-				if componentBasis, ok := bases[manufacturingItemKey(componentType, componentID)]; ok {
+				if componentBasis, ok := bases[manufacturingItemIdentityKey(componentType, componentID, componentBomSpecID)]; ok {
 					unit = componentBasis.InventoryUnit
 				} else {
-					unit = "g"
+					unit = firstNonEmpty(need.Unit, "g")
 				}
 			}
 			requiredG, requiredUnits := manufacturingNeedCanonicalQuantities(need)
@@ -649,19 +710,19 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 			if qty <= 0 {
 				continue
 			}
-			componentKey := manufacturingItemKey(componentType, componentID)
+			componentKey := manufacturingItemIdentityKey(componentType, componentID, componentBomSpecID)
 			if componentType == "product" {
 				componentSpecs[componentKey] = componentSpecG
 			}
 			components = append(components, productiondomain.ManufacturingBOMComponent{
-				Item: productiondomain.ManufacturingItemRef{Type: componentType, ID: componentID, Name: need.MaterialName, Unit: unit},
+				Item: productiondomain.ManufacturingItemRef{Type: componentType, ID: componentID, BomSpecID: componentBomSpecID, BomVariantID: componentBomVariantID, Name: need.MaterialName, Unit: unit},
 				Qty:  qty,
 			})
 		}
 		componentSpecs[key] = basis.OutputSpecG
 		boms = append(boms, productiondomain.ManufacturingBOM{
 			VersionID:  basis.VersionID,
-			Output:     productiondomain.ManufacturingItemRef{Type: basis.OutputType, ID: basis.OutputID, Name: basis.OutputName, Unit: basis.InventoryUnit},
+			Output:     productiondomain.ManufacturingItemRef{Type: basis.OutputType, ID: basis.OutputID, BomSpecID: basis.BomSpecID, BomVariantID: basis.BomVariantID, Name: basis.OutputName, Unit: basis.InventoryUnit},
 			OutputQty:  outputQty,
 			Components: components,
 		})
@@ -670,16 +731,10 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 }
 
 func canonicalOutputBasis(qty float64, unit string) (int64, int64) {
-	switch strings.ToLower(strings.TrimSpace(unit)) {
-	case "kg", "千克", "公斤":
-		return int64(math.Ceil(qty * 1000)), 0
-	case "lb", "磅":
-		return int64(math.Ceil(qty * 453.59237)), 0
-	case "g", "克":
-		return int64(math.Ceil(qty)), 0
-	default:
-		return 0, int64(math.Ceil(qty))
+	if factor := productionWeightUnitGrams(unit); factor > 0 {
+		return int64(math.Ceil(qty * factor)), 0
 	}
+	return 0, int64(math.Ceil(qty))
 }
 
 func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, basis manufacturingOutputBOMPlanBasis, outputQty float64, roots []productionapp.ProductionPlanItem) (productionapp.ProductionPlanItem, error) {
@@ -737,19 +792,25 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 		outputMaterialID = basis.OutputID
 	}
 	salesSpecCount := float64(0)
-	if basis.OutputType == "product" && basis.OutputSpecG > 0 && outputG > 0 {
-		salesSpecCount = float64(outputG) / float64(basis.OutputSpecG)
+	if basis.OutputType == "product" {
+		if basis.BomSpecID > 0 {
+			salesSpecCount = outputQty
+		} else if basis.OutputSpecG > 0 && outputG > 0 {
+			salesSpecCount = float64(outputG) / float64(basis.OutputSpecG)
+		}
 	}
 	var item productionapp.ProductionPlanItem
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_plan_items(
-			production_plan_id,product_id,product_name,spec_g,sales_spec_count,inventory_unit,planned_inventory_qty,
+			production_plan_id,product_id,parent_product_id,bom_spec_id,bom_variant_id,product_name,spec_g,sales_spec_count,inventory_unit,planned_inventory_qty,
 			planned_g,planned_output_g,gap_g,order_nos,bom_version_id,process_route_id,
 			component_snapshot_json,process_route_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,
 			target_warehouse,output_type,output_product_id,output_material_id,output_name,output_qty,output_unit,created_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13::jsonb,$14::jsonb,'{}'::jsonb,'[]'::jsonb,$15,$16,$17,$18,$3,$7,$6,now())
+		) VALUES($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15::jsonb,$16::jsonb,'{}'::jsonb,'[]'::jsonb,$17,$18,$19,$20,$5,$9,$8,now())
 		RETURNING id
-	`, schema), planID, productID, basis.OutputName, basis.OutputSpecG, salesSpecCount, basis.InventoryUnit, outputQty, plannedInputG, outputG, strings.Join(orderNos, ","), basis.VersionID, basis.ProcessRouteID, basis.Snapshot, processJSON, targetWarehouse, basis.OutputType, outputProductID, outputMaterialID).Scan(&item.ID)
+	`, schema), planID, productID, basis.BomSpecID, basis.BomVariantID, basis.OutputName, basis.OutputSpecG,
+		salesSpecCount, basis.InventoryUnit, outputQty, plannedInputG, outputG, strings.Join(orderNos, ","), basis.VersionID,
+		basis.ProcessRouteID, basis.Snapshot, processJSON, targetWarehouse, basis.OutputType, outputProductID, outputMaterialID).Scan(&item.ID)
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
 	}
@@ -761,6 +822,9 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	item.OutputQty = outputQty
 	item.OutputUnit = basis.InventoryUnit
 	item.ProductID = productID
+	item.ParentProductID = productID
+	item.BomSpecID = basis.BomSpecID
+	item.BomVariantID = basis.BomVariantID
 	item.ProductName = basis.OutputName
 	item.SpecG = basis.OutputSpecG
 	item.SalesSpecCount = salesSpecCount
@@ -780,16 +844,18 @@ func insertManufacturingOutputProductionPlanItemTx(ctx context.Context, tx pgx.T
 	return item, nil
 }
 
-func insertProductionPlanItemDependencyTx(ctx context.Context, tx pgx.Tx, schema string, planID, itemID, dependsOnItemID int64, componentType string, componentID, componentSpecG, requiredG, requiredUnits int64) error {
+func insertProductionPlanItemDependencyTx(ctx context.Context, tx pgx.Tx, schema string, planID, itemID, dependsOnItemID int64,
+	componentType string, componentID, componentBomSpecID, componentBomVariantID, componentSpecG, requiredG, requiredUnits int64) error {
 	if itemID <= 0 || dependsOnItemID <= 0 || itemID == dependsOnItemID {
 		return nil
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_plan_item_dependencies(
 			production_plan_id,production_plan_item_id,depends_on_plan_item_id,material_id,
-			component_type,component_id,component_spec_g,required_g,required_units,created_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
-		ON CONFLICT(production_plan_item_id,depends_on_plan_item_id,component_type,component_id,component_spec_g) DO UPDATE SET
+			component_type,component_id,component_bom_spec_id,component_bom_variant_id,component_spec_g,
+			required_g,required_units,created_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+		ON CONFLICT(production_plan_item_id,depends_on_plan_item_id,component_type,component_id,component_bom_spec_id,component_spec_g) DO UPDATE SET
 			required_g=production_plan_item_dependencies.required_g+excluded.required_g,
 			required_units=production_plan_item_dependencies.required_units+excluded.required_units
 	`, schema), planID, itemID, dependsOnItemID, func() int64 {
@@ -797,7 +863,7 @@ func insertProductionPlanItemDependencyTx(ctx context.Context, tx pgx.Tx, schema
 			return componentID
 		}
 		return 0
-	}(), componentType, componentID, componentSpecG, requiredG, requiredUnits)
+	}(), componentType, componentID, componentBomSpecID, componentBomVariantID, componentSpecG, requiredG, requiredUnits)
 	return err
 }
 

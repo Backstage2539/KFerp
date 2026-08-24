@@ -3,6 +3,7 @@ package production
 import (
 	"context"
 	"fmt"
+	"math"
 	productionapp "orderapp/internal/application/production"
 	"os"
 	"strings"
@@ -102,6 +103,118 @@ func TestMaterialSnapshotNeedsPreserveExactKilograms(t *testing.T) {
 			}
 			if diff := needs[0].QtyDecimal - tt.wantQtyDecimal; diff < -0.0000001 || diff > 0.0000001 {
 				t.Fatalf("qty decimal=%v, want %v", needs[0].QtyDecimal, tt.wantQtyDecimal)
+			}
+		})
+	}
+}
+
+func TestLegacyBomMaterialConsumptionKeepsFractionalKilogramsInCanonicalGrams(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		consumeUnit string
+		qtyPerUnit  float64
+		ratioPct    float64
+		rawG        int64
+		outputG     int64
+		wantG       int64
+		wantDecimal float64
+	}{
+		{name: "ratio 600g", consumeUnit: "ratio_pct", ratioPct: 100, rawG: 600, outputG: 454, wantG: 600, wantDecimal: 0.6},
+		{name: "ratio 700g", consumeUnit: "ratio_pct", ratioPct: 100, rawG: 700, outputG: 454, wantG: 700, wantDecimal: 0.7},
+		{name: "fixed 600g", consumeUnit: "g", qtyPerUnit: 600, rawG: 600, outputG: 1000, wantG: 600, wantDecimal: 0.6},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			qty, exact, deductG, deductUnits := componentMaterialConsumptionQuantitiesWithLoss(
+				tt.consumeUnit, tt.qtyPerUnit, tt.ratioPct, "kg",
+				tt.rawG, tt.outputG, 1, 0, 1, "kg", 0,
+			)
+			if qty != 1 || deductG != tt.wantG || deductUnits != 0 {
+				t.Fatalf("quantities=%d/%v/%d/%d, want compatibility qty 1 and exact %dg", qty, exact, deductG, deductUnits, tt.wantG)
+			}
+			if diff := exact - tt.wantDecimal; diff < -0.0000001 || diff > 0.0000001 {
+				t.Fatalf("exact master-unit quantity=%v, want %v", exact, tt.wantDecimal)
+			}
+		})
+	}
+}
+
+func TestLegacyBomMaterialConsumptionKeepsCountQuantities(t *testing.T) {
+	qty, exact, deductG, deductUnits := componentMaterialConsumptionQuantitiesWithLoss(
+		"unit_per_bag", 2, 0, "个", 0, 0, 3, 0, 1, "件", 0,
+	)
+	if qty != 6 || exact != 0 || deductG != 0 || deductUnits != 6 {
+		t.Fatalf("count quantities=%d/%v/%d/%d, want 6 count units", qty, exact, deductG, deductUnits)
+	}
+}
+
+func TestHistoricalOunceAliasesUseExactGramFactor(t *testing.T) {
+	const ounceGrams = 28.349523125
+	for _, unit := range []string{"oz", "ounce", "ounces", "盎司"} {
+		t.Run(unit, func(t *testing.T) {
+			if !isWeightMaterialUnit(unit) {
+				t.Fatalf("historical %q must remain a weight unit", unit)
+			}
+			if got := productionWeightUnitGrams(unit); math.Abs(got-ounceGrams) > 0.000000001 {
+				t.Fatalf("weight factor for %q=%v, want %v", unit, got, ounceGrams)
+			}
+			qty, exact, deductG, deductUnits := componentMaterialConsumptionQuantitiesWithLoss(
+				"fixed_qty", 2, 0, unit, 1000, 1000, 0, 0, 1, "kg", 0,
+			)
+			if qty != 3 || deductG != 57 || deductUnits != 0 {
+				t.Fatalf("historical %q quantities=%d/%v/%d/%d, want 2oz rounded only at canonical 57g", unit, qty, exact, deductG, deductUnits)
+			}
+			if math.Abs(exact-(57/ounceGrams)) > 0.000000001 {
+				t.Fatalf("historical %q exact quantity=%v, want 57/%v", unit, exact, ounceGrams)
+			}
+		})
+	}
+}
+
+func TestHistoricalOunceOutputBasisUsesExactGramFactor(t *testing.T) {
+	for _, unit := range []string{"oz", "ounce", "ounces", "盎司"} {
+		got := bomOutputBasisFactor(57, 0, 2, unit)
+		want := float64(57) / (2 * 28.349523125)
+		if math.Abs(got-want) > 0.000000001 {
+			t.Fatalf("output factor for %q=%v, want %v", unit, got, want)
+		}
+	}
+}
+
+func TestHistoricalOunceAliasesStayWeightAcrossProductionPlanningAndExecution(t *testing.T) {
+	for _, unit := range []string{"oz", "ounce", "ounces", "盎司"} {
+		t.Run(unit, func(t *testing.T) {
+			if normalized := normalizeProductionQuantityUnit(unit); normalized != "oz" {
+				t.Fatalf("normalized %q=%q, want oz", unit, normalized)
+			}
+			if got := convertProductionQuantity(2, unit, "g"); math.Abs(got-56.69904625) > 0.000000001 {
+				t.Fatalf("converted %q=%v, want 56.69904625g", unit, got)
+			}
+			if _, dimension := normalizeProductionPlanQuantityDimension(unit); dimension != "weight" {
+				t.Fatalf("dimension for %q=%q, want weight", unit, dimension)
+			}
+			if got := productionCapacityUnitKind(unit); got != "weight" {
+				t.Fatalf("capacity kind for %q=%q, want weight", unit, got)
+			}
+			if got := plannedCapacitySplitQtyProjection(2, unit, 0, 0, 0); got != 57 {
+				t.Fatalf("capacity projection for 2 %q=%dg, want 57g", unit, got)
+			}
+			if got := ceilPlannedBatchCountForQty(57, 0, 2, unit); got != 2 {
+				t.Fatalf("batch count for 57g in 2 %q batches=%d, want 2", unit, got)
+			}
+			if got := productionInventoryQuantity(57, unit); math.Abs(got-(57/28.349523125)) > 0.000000001 {
+				t.Fatalf("inventory quantity for %q=%v", unit, got)
+			}
+			if got := manufacturingQtyFromCanonical(57, 0, unit); math.Abs(got-(57/28.349523125)) > 0.000000001 {
+				t.Fatalf("manufacturing quantity for %q=%v", unit, got)
+			}
+			if grams, units := canonicalFromManufacturingQty(2, unit); grams != 57 || units != 0 {
+				t.Fatalf("canonical manufacturing for %q=%d/%d, want 57/0", unit, grams, units)
+			}
+			if grams, units := canonicalOutputBasis(2, unit); grams != 57 || units != 0 {
+				t.Fatalf("canonical output for %q=%d/%d, want 57/0", unit, grams, units)
+			}
+			if !sameMaterialOutputInventoryUnit("kg", unit) {
+				t.Fatalf("kg master and historical %q output must share the weight dimension", unit)
 			}
 		})
 	}

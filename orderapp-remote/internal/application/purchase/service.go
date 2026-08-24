@@ -87,6 +87,14 @@ type Repository interface {
 	UpdateMaterialPurchasePrice(ctx context.Context, materialID int64, unitCost float64) error
 }
 
+// MaterialPurchaseLocker is optional so non-Postgres adapters and focused
+// application tests do not need to implement database locking. The Postgres
+// repository uses it to keep a material-level session lock across the stock,
+// purchase-price, and purchase-receipt transactions.
+type MaterialPurchaseLocker interface {
+	WithMaterialPurchaseLock(ctx context.Context, materialID int64, fn func(context.Context) (PurchaseReceipt, error)) (PurchaseReceipt, error)
+}
+
 type StockReceiver interface {
 	ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialReceiptCommand) (stockapp.MaterialReceiptResult, error)
 }
@@ -169,19 +177,25 @@ func (s *Service) CreatePurchaseReceipt(ctx context.Context, cmd CreatePurchaseR
 	if cmd.Operator == "" {
 		cmd.Operator = "purchase"
 	}
-	stockResult, err := s.stock.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
-		MaterialID: cmd.MaterialID,
-		Supplier:   cmd.SupplierName,
-		QtyG:       cmd.QtyG,
-		UnitCost:   cmd.UnitCost,
-		Note:       cmd.Note,
-		Operator:   cmd.Operator,
-	})
-	if err != nil {
-		return PurchaseReceipt{}, err
+	create := func(receiptCtx context.Context) (PurchaseReceipt, error) {
+		stockResult, err := s.stock.ReceiveMaterial(receiptCtx, stockapp.MaterialReceiptCommand{
+			MaterialID: cmd.MaterialID,
+			Supplier:   cmd.SupplierName,
+			QtyG:       cmd.QtyG,
+			UnitCost:   cmd.UnitCost,
+			Note:       cmd.Note,
+			Operator:   cmd.Operator,
+		})
+		if err != nil {
+			return PurchaseReceipt{}, err
+		}
+		if err := s.repo.UpdateMaterialPurchasePrice(receiptCtx, cmd.MaterialID, cmd.UnitCost); err != nil {
+			return PurchaseReceipt{}, err
+		}
+		return s.repo.CreatePurchaseReceipt(receiptCtx, cmd, stockResult)
 	}
-	if err := s.repo.UpdateMaterialPurchasePrice(ctx, cmd.MaterialID, cmd.UnitCost); err != nil {
-		return PurchaseReceipt{}, err
+	if locker, ok := s.repo.(MaterialPurchaseLocker); ok {
+		return locker.WithMaterialPurchaseLock(ctx, cmd.MaterialID, create)
 	}
-	return s.repo.CreatePurchaseReceipt(ctx, cmd, stockResult)
+	return create(ctx)
 }

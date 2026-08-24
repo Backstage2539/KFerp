@@ -20,6 +20,7 @@ var (
 	ErrProductPricingRuleNotFound        = errors.New("product pricing rule not found")
 	ErrProductSalesUnitRuleNotFound      = errors.New("product sales unit rule not found")
 	ErrProductSpecIdentityNotFound       = errors.New("product spec identity not found")
+	ErrProductBOMSpecIdentityNotFound    = errors.New("product BOM spec identity not found")
 	ErrPriceTierTemplateUnitRuleNotFound = errors.New("price tier template unit rule not found")
 	priceTierMassUnitPattern             = regexp.MustCompile(`^(?:\d+(?:\.\d+)?)?(kg|kgs|公斤|千克|g|克|lb|lbs|磅)(?:袋装)?$`)
 )
@@ -81,6 +82,31 @@ type ProductSpecIdentity struct {
 	SpecValid                bool
 }
 
+// ProductBOMSpecIdentity is the current, default-published specification of a
+// product that has completed the PR-600 cutover. It deliberately has no child
+// SKU identity: price, order and inventory records stay anchored to the parent
+// product plus the immutable BOM specification identity.
+type ProductBOMSpecIdentity struct {
+	ParentProductID      int64
+	ParentProductName    string
+	BomID                int64
+	BomVersionID         int64
+	BomSpecID            int64
+	BomVariantID         int64
+	SpecCode             string
+	Barcode              string
+	SpecKey              string
+	SpecName             string
+	InventoryUnit        string
+	MigrationState       string
+	SpecIdentityMode     string
+	BomSpecAuthoritative bool
+	Active               bool
+	Published            bool
+	IsDefault            bool
+	SortOrder            int
+}
+
 type PriceTierTemplateUnitRule struct {
 	TemplateID   int64
 	TemplateName string
@@ -91,7 +117,10 @@ type PricingRuleTrialCommand struct {
 	PricingRuleID       int64                     `json:"pricing_rule_id"`
 	ProductID           int64                     `json:"product_id"`
 	CustomerID          int64                     `json:"customer_id,omitempty"`
+	BomID               int64                     `json:"bom_id,omitempty"`
 	BomVersionID        int64                     `json:"bom_version_id,omitempty"`
+	BomSpecID           int64                     `json:"bom_spec_id,omitempty"`
+	BomVariantID        int64                     `json:"bom_variant_id,omitempty"`
 	ProcessRouteID      int64                     `json:"process_route_id,omitempty"`
 	OperationTemplateID int64                     `json:"operation_template_id,omitempty"`
 	QuoteUnit           string                    `json:"quote_unit,omitempty"`
@@ -99,10 +128,67 @@ type PricingRuleTrialCommand struct {
 	allowDraftBom       bool
 }
 
+// MaterialCostTrialCommand deliberately has no pricing-rule or selling-price
+// fields. Material costing is diagnostic/standard-cost only and can never
+// produce a publishable sales price.
+type MaterialCostTrialCommand struct {
+	MaterialID   int64 `json:"material_id"`
+	BomVersionID int64 `json:"bom_version_id,omitempty"`
+}
+
+type MaterialCostTrialOption struct {
+	BomID     int64  `json:"bom_id"`
+	BomName   string `json:"bom_name,omitempty"`
+	VersionID int64  `json:"version_id"`
+	VersionNo string `json:"version_no,omitempty"`
+	Status    string `json:"status,omitempty"`
+	IsDefault bool   `json:"is_default"`
+}
+
+type MaterialCostTrialOptions struct {
+	MaterialID  int64                     `json:"material_id"`
+	SupplyMode  string                    `json:"supply_mode"`
+	BomVersions []MaterialCostTrialOption `json:"bom_versions,omitempty"`
+}
+
+type MaterialCostTrialResult struct {
+	MaterialID                    int64                                   `json:"material_id"`
+	MaterialCode                  string                                  `json:"material_code,omitempty"`
+	MaterialName                  string                                  `json:"material_name,omitempty"`
+	SupplyMode                    string                                  `json:"supply_mode"`
+	CostStatus                    string                                  `json:"cost_status"`
+	UnitCost                      float64                                 `json:"unit_cost,omitempty"`
+	PartialCost                   float64                                 `json:"partial_cost,omitempty"`
+	CostUnit                      string                                  `json:"cost_unit,omitempty"`
+	CostSource                    string                                  `json:"cost_source,omitempty"`
+	BomSnapshot                   PricingRuleTrialBomSnapshot             `json:"bom_snapshot,omitempty"`
+	BomVersionID                  int64                                   `json:"bom_version_id,omitempty"`
+	BomVersionNo                  string                                  `json:"bom_version_no,omitempty"`
+	BomStatus                     string                                  `json:"bom_status,omitempty"`
+	BomUsageMode                  string                                  `json:"bom_usage_mode,omitempty"`
+	InputCost                     float64                                 `json:"input_cost,omitempty"`
+	OperationCost                 float64                                 `json:"operation_cost,omitempty"`
+	BomCostTotal                  float64                                 `json:"bom_cost_total,omitempty"`
+	OperationCostTotal            float64                                 `json:"operation_cost_total,omitempty"`
+	MaterialUnitCost              float64                                 `json:"material_unit_cost,omitempty"`
+	OperationUnitCost             float64                                 `json:"operation_unit_cost,omitempty"`
+	StandardManufacturingUnitCost float64                                 `json:"standard_manufacturing_unit_cost,omitempty"`
+	WorkstationCostSnapshot       PricingRuleTrialWorkstationCostSnapshot `json:"workstation_cost_snapshot,omitempty"`
+	BaseCostDetails               []PricingRuleTrialBaseCostDetail        `json:"base_cost_details,omitempty"`
+	FormulaExpression             string                                  `json:"formula_expression,omitempty"`
+	FormulaExpressionLines        []string                                `json:"formula_expression_lines,omitempty"`
+	Steps                         []domain.PriceExplanationStep           `json:"steps,omitempty"`
+	UnresolvedComponents          []PricingRuleTrialCostIssue             `json:"unresolved_components,omitempty"`
+	FinalUnitPrice                *float64                                `json:"final_unit_price,omitempty"`
+}
+
 type PricingRuleTrialBatchRow struct {
-	Index  int                     `json:"index"`
-	Result *PricingRuleTrialResult `json:"result,omitempty"`
-	Error  string                  `json:"error,omitempty"`
+	Index                int                         `json:"index"`
+	Result               *PricingRuleTrialResult     `json:"result,omitempty"`
+	Error                string                      `json:"error,omitempty"`
+	CostStatus           string                      `json:"cost_status,omitempty"`
+	PartialCost          float64                     `json:"partial_cost,omitempty"`
+	UnresolvedComponents []PricingRuleTrialCostIssue `json:"unresolved_components,omitempty"`
 }
 
 type PricingRuleTrialOverrides struct {
@@ -116,9 +202,22 @@ type PricingRuleTrialOverrides struct {
 
 type PricingRuleTrialProductionOptions struct {
 	BomVersions        []PricingRuleTrialBomVersionOption        `json:"bom_versions,omitempty"`
+	BomSpecs           []PricingRuleTrialBomSpecOption           `json:"bom_specs,omitempty"`
 	ProcessRoutes      []PricingRuleTrialProcessRouteOption      `json:"process_routes,omitempty"`
 	OperationTemplates []PricingRuleTrialOperationTemplateOption `json:"operation_templates,omitempty"`
 	loaded             bool
+}
+
+type PricingRuleTrialBomSpecOption struct {
+	BomID         int64  `json:"bom_id"`
+	VersionID     int64  `json:"version_id"`
+	BomSpecID     int64  `json:"bom_spec_id"`
+	BomVariantID  int64  `json:"bom_variant_id"`
+	SpecKey       string `json:"spec_key,omitempty"`
+	SpecName      string `json:"spec_name,omitempty"`
+	InventoryUnit string `json:"inventory_unit,omitempty"`
+	IsDefault     bool   `json:"is_default"`
+	SortOrder     int    `json:"sort_order"`
 }
 
 type PricingRuleTrialBomVersionOption struct {
@@ -151,10 +250,96 @@ type PricingRuleTrialOperationTemplateOption struct {
 const pricingRuleTrialStandardManufacturingCostSource = "standard_manufacturing_cost" // cost_source = standard_manufacturing_cost
 
 type PricingRuleTrialBomSnapshot struct {
-	VersionID int64  `json:"version_id,omitempty"`
-	VersionNo string `json:"version_no,omitempty"`
-	UsageMode string `json:"usage_mode,omitempty"`
-	Status    string `json:"status,omitempty"`
+	BomID        int64  `json:"bom_id,omitempty"`
+	BomName      string `json:"bom_name,omitempty"`
+	VersionID    int64  `json:"version_id,omitempty"`
+	VersionNo    string `json:"version_no,omitempty"`
+	BomSpecID    int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID int64  `json:"bom_variant_id,omitempty"`
+	UsageMode    string `json:"usage_mode,omitempty"`
+	Status       string `json:"status,omitempty"`
+}
+
+// PricingRuleTrialCostPathNode identifies one BOM/output node in a recursive
+// cost-resolution path. It is intentionally returned to the client so a
+// missing component can be located without guessing which BOM was selected.
+type PricingRuleTrialCostPathNode struct {
+	OutputType string `json:"output_type,omitempty"`
+	OutputID   int64  `json:"output_id,omitempty"`
+	ProductID  int64  `json:"product_id,omitempty"`
+	BomID      int64  `json:"bom_id,omitempty"`
+	BomName    string `json:"bom_name,omitempty"`
+	VersionID  int64  `json:"version_id,omitempty"`
+	VersionNo  string `json:"version_no,omitempty"`
+	OutputName string `json:"output_name,omitempty"`
+}
+
+// PricingRuleTrialCostIssue describes one unresolved required component.
+// Numeric cost fields are diagnostic only; they must never be used to publish
+// a price while CostStatus is incomplete.
+type PricingRuleTrialCostIssue struct {
+	Code                  string                         `json:"code,omitempty"`
+	Reason                string                         `json:"reason"`
+	ComponentType         string                         `json:"component_type,omitempty"`
+	ComponentID           int64                          `json:"component_id,omitempty"`
+	ComponentMaterialID   int64                          `json:"component_material_id,omitempty"`
+	ComponentProductID    int64                          `json:"component_product_id,omitempty"`
+	ComponentBomSpecID    int64                          `json:"component_bom_spec_id,omitempty"`
+	ComponentName         string                         `json:"component_name,omitempty"`
+	ComponentMaterialName string                         `json:"component_material_name,omitempty"`
+	ComponentProductName  string                         `json:"component_product_name,omitempty"`
+	IsSemiFinished        bool                           `json:"is_semi_finished,omitempty"`
+	ConsumeUnit           string                         `json:"consume_unit,omitempty"`
+	CostUnit              string                         `json:"cost_unit,omitempty"`
+	Quantity              float64                        `json:"quantity,omitempty"`
+	UnitCost              float64                        `json:"unit_cost,omitempty"`
+	PurchasePrice         float64                        `json:"purchase_price,omitempty"`
+	WeightedBatchUnitCost float64                        `json:"weighted_batch_unit_cost,omitempty"`
+	UnitCostSnapshot      float64                        `json:"unit_cost_snapshot,omitempty"`
+	RootOutputType        string                         `json:"root_output_type,omitempty"`
+	RootOutputID          int64                          `json:"root_output_id,omitempty"`
+	RootProductID         int64                          `json:"root_product_id,omitempty"`
+	BomID                 int64                          `json:"bom_id,omitempty"`
+	BomName               string                         `json:"bom_name,omitempty"`
+	VersionID             int64                          `json:"version_id,omitempty"`
+	VersionNo             string                         `json:"version_no,omitempty"`
+	BomSpecID             int64                          `json:"bom_spec_id,omitempty"`
+	BomVariantID          int64                          `json:"bom_variant_id,omitempty"`
+	Path                  []PricingRuleTrialCostPathNode `json:"path,omitempty"`
+}
+
+// PricingRuleTrialCostIncompleteError is returned when one or more required
+// BOM components cannot be costed. PartialCost is for diagnosis only.
+type PricingRuleTrialCostIncompleteError struct {
+	ProductID       int64                            `json:"product_id,omitempty"`
+	BomID           int64                            `json:"bom_id,omitempty"`
+	BomName         string                           `json:"bom_name,omitempty"`
+	BomVersionID    int64                            `json:"bom_version_id,omitempty"`
+	BomVersionNo    string                           `json:"bom_version_no,omitempty"`
+	BomSpecID       int64                            `json:"bom_spec_id,omitempty"`
+	BomVariantID    int64                            `json:"bom_variant_id,omitempty"`
+	PartialCost     float64                          `json:"partial_cost,omitempty"`
+	Issues          []PricingRuleTrialCostIssue      `json:"unresolved_components,omitempty"`
+	BaseCostDetails []PricingRuleTrialBaseCostDetail `json:"-"`
+}
+
+func (e *PricingRuleTrialCostIncompleteError) Error() string {
+	if e == nil {
+		return "BOM成本不完整"
+	}
+	location := ""
+	if e.BomID > 0 || e.BomVersionNo != "" {
+		location = fmt.Sprintf(" BOM %d / %s", e.BomID, firstNonEmptyString(e.BomVersionNo, fmt.Sprintf("version-%d", e.BomVersionID)))
+	}
+	if len(e.Issues) == 0 {
+		return fmt.Sprintf("BOM成本不完整%s：已解析部分成本 %.4f", location, e.PartialCost)
+	}
+	parts := make([]string, 0, len(e.Issues))
+	for _, issue := range e.Issues {
+		name := firstNonEmptyString(issue.ComponentName, issue.ComponentMaterialName, issue.ComponentProductName, "BOM组件")
+		parts = append(parts, fmt.Sprintf("%s（%s）：%s", name, firstNonEmptyString(issue.ComponentType, "component"), issue.Reason))
+	}
+	return fmt.Sprintf("BOM成本不完整%s：已解析部分成本 %.4f；缺失组件：%s", location, e.PartialCost, strings.Join(parts, "；"))
 }
 
 type PricingRuleTrialProcessRouteSnapshot struct {
@@ -194,7 +379,10 @@ type PricingRuleTrialResult struct {
 	InventoryUnit                 string                                    `json:"inventory_unit"`
 	BomVersionID                  int64                                     `json:"bom_version_id,omitempty"`
 	BomVersionNo                  string                                    `json:"bom_version_no,omitempty"`
+	BomSpecID                     int64                                     `json:"bom_spec_id,omitempty"`
+	BomVariantID                  int64                                     `json:"bom_variant_id,omitempty"`
 	BomVersionOptions             []PricingRuleTrialBomVersionOption        `json:"bom_version_options,omitempty"`
+	BomSpecOptions                []PricingRuleTrialBomSpecOption           `json:"bom_spec_options,omitempty"`
 	ProcessRouteID                int64                                     `json:"process_route_id,omitempty"`
 	ProcessRouteName              string                                    `json:"process_route_name,omitempty"`
 	ProcessRouteOptions           []PricingRuleTrialProcessRouteOption      `json:"process_route_options,omitempty"`
@@ -203,6 +391,9 @@ type PricingRuleTrialResult struct {
 	OperationTemplateOptions      []PricingRuleTrialOperationTemplateOption `json:"operation_template_options,omitempty"`
 	BomUsageMode                  string                                    `json:"bom_usage_mode,omitempty"`
 	BomStatus                     string                                    `json:"bom_status,omitempty"`
+	CostStatus                    string                                    `json:"cost_status"`
+	PartialCost                   float64                                   `json:"partial_cost,omitempty"`
+	UnresolvedComponents          []PricingRuleTrialCostIssue               `json:"unresolved_components,omitempty"`
 	BaseCost                      float64                                   `json:"base_cost"`
 	BomCostTotal                  float64                                   `json:"bom_cost_total"`
 	OperationCostTotal            float64                                   `json:"operation_cost_total"`
@@ -230,7 +421,7 @@ type PricingRuleTrialResult struct {
 	FinalBeforeRounding           float64                                   `json:"final_before_rounding"`
 	RoundingAdjustment            float64                                   `json:"rounding_adjustment"`
 	RoundingRuleSource            string                                    `json:"rounding_rule_source,omitempty"`
-	FinalUnitPrice                float64                                   `json:"final_unit_price"`
+	FinalUnitPrice                float64                                   `json:"final_unit_price,omitempty"`
 	GrossMarginRate               float64                                   `json:"gross_margin_rate"`
 	MinimumMarginRate             float64                                   `json:"minimum_margin_rate"`
 	FormulaExpression             string                                    `json:"formula_expression,omitempty"`
@@ -244,6 +435,13 @@ type PricingRuleTrialBaseCostDetail struct {
 	Type                    string  `json:"type"`
 	TypeLabel               string  `json:"type_label"`
 	Name                    string  `json:"name"`
+	ComponentID             int64   `json:"component_id,omitempty"`
+	BomID                   int64   `json:"bom_id,omitempty"`
+	BomName                 string  `json:"bom_name,omitempty"`
+	BomVersionID            int64   `json:"bom_version_id,omitempty"`
+	BomVersionNo            string  `json:"bom_version_no,omitempty"`
+	BomSpecID               int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID            int64   `json:"bom_variant_id,omitempty"`
 	ConsumeUnit             string  `json:"consume_unit,omitempty"`
 	Quantity                float64 `json:"quantity,omitempty"`
 	RatioPct                float64 `json:"ratio_pct,omitempty"`
@@ -253,6 +451,7 @@ type PricingRuleTrialBaseCostDetail struct {
 	UnitCost                float64 `json:"unit_cost,omitempty"`
 	CostUnitCost            float64 `json:"cost_unit_cost,omitempty"`
 	CostUnit                string  `json:"cost_unit,omitempty"`
+	CostSource              string  `json:"cost_source,omitempty"`
 	Amount                  float64 `json:"amount"`
 	Unit                    string  `json:"unit"`
 	Description             string  `json:"description,omitempty"`
@@ -495,6 +694,10 @@ type productSpecIdentityRepository interface {
 	ResolveProductSpecIdentity(ctx context.Context, productID int64) (ProductSpecIdentity, error)
 }
 
+type productBOMSpecIdentityRepository interface {
+	ResolveProductBOMSpecIdentity(ctx context.Context, parentProductID, bomSpecID, bomVariantID int64) (ProductBOMSpecIdentity, error)
+}
+
 type productDefaultSalesUnitRepository interface {
 	ResolveProductDefaultSalesUnit(ctx context.Context, productID int64) (string, error)
 }
@@ -523,6 +726,11 @@ type pricingRuleTrialProductionOptionRepository interface {
 	LoadPricingRuleTrialProductionOptions(ctx context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error)
 }
 
+type materialCostTrialRepository interface {
+	LoadMaterialCostTrialOptions(ctx context.Context, materialID int64) (MaterialCostTrialOptions, error)
+	LoadMaterialCostTrial(ctx context.Context, cmd MaterialCostTrialCommand) (MaterialCostTrialResult, error)
+}
+
 type pricingRuleTrialDefaultTaxRateRepository interface {
 	LoadPricingRuleTrialDefaultTaxRate(ctx context.Context) (PricingRuleTrialDefaultTaxRate, error)
 }
@@ -533,6 +741,36 @@ type Service struct {
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) MaterialCostTrialOptions(ctx context.Context, materialID int64) (MaterialCostTrialOptions, error) {
+	if materialID <= 0 {
+		return MaterialCostTrialOptions{}, fmt.Errorf("material_id required")
+	}
+	repo, ok := s.repo.(materialCostTrialRepository)
+	if !ok {
+		return MaterialCostTrialOptions{}, fmt.Errorf("material cost trial repository unavailable")
+	}
+	return repo.LoadMaterialCostTrialOptions(ctx, materialID)
+}
+
+func (s *Service) MaterialCostTrial(ctx context.Context, cmd MaterialCostTrialCommand) (MaterialCostTrialResult, error) {
+	if cmd.MaterialID <= 0 {
+		return MaterialCostTrialResult{}, fmt.Errorf("material_id required")
+	}
+	repo, ok := s.repo.(materialCostTrialRepository)
+	if !ok {
+		return MaterialCostTrialResult{}, fmt.Errorf("material cost trial repository unavailable")
+	}
+	result, err := repo.LoadMaterialCostTrial(ctx, cmd)
+	if err != nil {
+		return MaterialCostTrialResult{}, err
+	}
+	// A material trial is never a pricing-rule trial. Keep this guard next to
+	// the service boundary so future repository implementations cannot expose a
+	// stale or inferred final selling price.
+	result.FinalUnitPrice = nil
+	return result, nil
 }
 
 func (s *Service) Parameters(ctx context.Context) (domain.Parameters, error) {
@@ -679,6 +917,9 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if err != nil {
 		return nil, err
 	}
+	if cmd.BomID > 0 && input.BomID > 0 && cmd.BomID != input.BomID {
+		return nil, fmt.Errorf("BOM 不属于所选商品的当前默认已发布版本")
+	}
 	quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit)
 	if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
 		return nil, fmt.Errorf("销售单位%s缺少可解析的单位换算，请先在商品档案维护销售规格或单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
@@ -688,6 +929,10 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if detailRepo, ok := s.repo.(pricingRuleTrialBaseCostDetailRepository); ok {
 		baseCostDetails, err = detailRepo.LoadPricingRuleTrialBaseCostDetails(ctx, input)
 		if err != nil {
+			var incomplete *PricingRuleTrialCostIncompleteError
+			if errors.As(err, &incomplete) {
+				return pricingRuleTrialIncompleteResult(rule, input, cmd, productionOptions, incomplete), nil
+			}
 			return nil, err
 		}
 	}
@@ -707,6 +952,62 @@ type preparedPricingRuleTrial struct {
 	rule              ProductPricingRule
 	input             domain.ProductInput
 	productionOptions PricingRuleTrialProductionOptions
+}
+
+func pricingRuleTrialIncompleteResult(rule ProductPricingRule, input domain.ProductInput, cmd PricingRuleTrialCommand, options PricingRuleTrialProductionOptions, incomplete *PricingRuleTrialCostIncompleteError) *PricingRuleTrialResult {
+	if incomplete == nil {
+		incomplete = &PricingRuleTrialCostIncompleteError{}
+	}
+	productName := firstNonEmptyString(strings.TrimSpace(input.Name), strings.TrimSpace(input.ProductName))
+	processRouteName := pricingRuleTrialProcessRouteName(options.ProcessRoutes, input.ProcessRouteID, input.ProcessRouteName)
+	return &PricingRuleTrialResult{
+		PricingRuleID:            rule.ID,
+		PricingRuleName:          firstNonEmptyString(rule.Name, rule.Code),
+		FormulaVersion:           firstNonEmptyString(rule.FormulaVersion, "v1"),
+		ProductID:                input.ProductID,
+		ProductName:              productName,
+		QuoteUnit:                pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit),
+		InventoryUnit:            strings.TrimSpace(input.InventoryUnit),
+		BomVersionID:             input.BomVersionID,
+		BomVersionNo:             input.BomVersionNo,
+		BomSpecID:                input.BomSpecID,
+		BomVariantID:             input.BomVariantID,
+		BomVersionOptions:        options.BomVersions,
+		BomSpecOptions:           options.BomSpecs,
+		ProcessRouteID:           input.ProcessRouteID,
+		ProcessRouteName:         processRouteName,
+		ProcessRouteOptions:      options.ProcessRoutes,
+		OperationTemplateID:      input.OperationTemplateID,
+		OperationTemplateName:    pricingRuleTrialOperationTemplateName(options.OperationTemplates, input.OperationTemplateID),
+		OperationTemplateOptions: options.OperationTemplates,
+		BomUsageMode:             input.BomUsageMode,
+		BomStatus:                input.BomStatus,
+		CostStatus:               "incomplete",
+		PartialCost:              incomplete.PartialCost,
+		UnresolvedComponents:     incomplete.Issues,
+		BomSnapshot: PricingRuleTrialBomSnapshot{
+			BomID:        incomplete.BomID,
+			BomName:      incomplete.BomName,
+			VersionID:    firstNonZeroInt64(incomplete.BomVersionID, input.BomVersionID),
+			VersionNo:    firstNonEmptyString(incomplete.BomVersionNo, input.BomVersionNo),
+			BomSpecID:    firstNonZeroInt64(incomplete.BomSpecID, input.BomSpecID),
+			BomVariantID: firstNonZeroInt64(incomplete.BomVariantID, input.BomVariantID),
+			UsageMode:    input.BomUsageMode,
+			Status:       input.BomStatus,
+		},
+		ProcessRouteSnapshot: PricingRuleTrialProcessRouteSnapshot{ID: input.ProcessRouteID, Name: processRouteName},
+		BaseCostDetails:      incomplete.BaseCostDetails,
+		Warnings:             []string{"成本不完整，仅显示已解析部分成本；禁止生成或发布正式价格"},
+	}
+}
+
+func firstNonZeroInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingRuleTrialCommand) ([]PricingRuleTrialBatchRow, error) {
@@ -842,6 +1143,14 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 
 	for i, item := range prepared {
 		if detailErrors[i] != nil {
+			var incomplete *PricingRuleTrialCostIncompleteError
+			if errors.As(detailErrors[i], &incomplete) {
+				rows[item.index].Result = pricingRuleTrialIncompleteResult(item.rule, item.input, item.command, item.productionOptions, incomplete)
+				rows[item.index].CostStatus = "incomplete"
+				rows[item.index].PartialCost = incomplete.PartialCost
+				rows[item.index].UnresolvedComponents = incomplete.Issues
+				continue
+			}
 			rows[item.index].Error = detailErrors[i].Error()
 			continue
 		}
@@ -892,6 +1201,19 @@ func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params doma
 }
 
 func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd PricingRuleTrialCommand, options PricingRuleTrialProductionOptions) (domain.ProductInput, PricingRuleTrialProductionOptions, error) {
+	explicitBomSpecSelection := cmd.BomSpecID > 0 || cmd.BomVariantID > 0
+	if cmd.BomSpecID > 0 {
+		input.BomSpecID = cmd.BomSpecID
+		if cmd.BomVariantID <= 0 {
+			input.BomVariantID = 0
+		}
+	}
+	if cmd.BomVariantID > 0 {
+		input.BomVariantID = cmd.BomVariantID
+		if cmd.BomSpecID <= 0 {
+			input.BomSpecID = 0
+		}
+	}
 	options = pricingRuleTrialNormalizeProductionOptions(input, options)
 	if len(options.BomVersions) > 0 {
 		var selected *PricingRuleTrialBomVersionOption
@@ -935,6 +1257,23 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 		input.BomVersionID = cmd.BomVersionID
 		input.BomVersionNo = ""
 		input.BomUsageMode = "production_bom_output"
+	}
+	if len(options.BomSpecs) == 0 && explicitBomSpecSelection {
+		return input, options, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
+	}
+	// Product inputs created before BOM-owned specifications may still carry a
+	// legacy spec identity. Without an explicit request, let the selected BOM
+	// version choose its default (or keep the historical sales-unit path when
+	// the version has no specs) instead of treating that legacy identity as a
+	// cross-version selection.
+	if !explicitBomSpecSelection {
+		input.BomSpecID = 0
+		input.BomVariantID = 0
+	}
+	var selectionErr error
+	input, selectionErr = pricingRuleTrialApplyBOMSpecSelection(input, options)
+	if selectionErr != nil {
+		return input, options, selectionErr
 	}
 
 	if len(options.ProcessRoutes) > 0 {
@@ -985,6 +1324,73 @@ func pricingRuleTrialApplyProductionSelection(input domain.ProductInput, cmd Pri
 		input.OperationTemplateID = cmd.OperationTemplateID
 	}
 	return input, options, nil
+}
+
+func pricingRuleTrialApplyBOMSpecSelection(input domain.ProductInput, options PricingRuleTrialProductionOptions) (domain.ProductInput, error) {
+	if len(options.BomSpecs) == 0 {
+		return input, nil
+	}
+	versionID := input.BomVersionID
+	selected := make([]PricingRuleTrialBomSpecOption, 0, len(options.BomSpecs))
+	for _, option := range options.BomSpecs {
+		if versionID <= 0 || option.VersionID == versionID {
+			selected = append(selected, option)
+		}
+	}
+	if len(selected) == 0 {
+		return input, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
+	}
+	var selectedOption *PricingRuleTrialBomSpecOption
+	if input.BomVariantID > 0 {
+		for index := range selected {
+			option := &selected[index]
+			if option.BomVariantID == input.BomVariantID {
+				input.BomSpecID = option.BomSpecID
+				selectedOption = option
+				break
+			}
+		}
+		if selectedOption == nil {
+			return input, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
+		}
+	}
+	if selectedOption == nil && input.BomSpecID > 0 {
+		for index := range selected {
+			option := &selected[index]
+			if option.BomSpecID == input.BomSpecID {
+				input.BomVariantID = option.BomVariantID
+				selectedOption = option
+				break
+			}
+		}
+		if selectedOption == nil {
+			return input, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
+		}
+	}
+	if selectedOption == nil {
+		for index := range selected {
+			if selected[index].IsDefault {
+				selectedOption = &selected[index]
+				break
+			}
+		}
+	}
+	if selectedOption == nil {
+		selectedOption = &selected[0]
+	}
+	input.BomSpecID = selectedOption.BomSpecID
+	input.BomVariantID = selectedOption.BomVariantID
+	unit := strings.TrimSpace(selectedOption.InventoryUnit)
+	if unit == "" {
+		return input, fmt.Errorf("BOM规格缺少库存单位，无法试算")
+	}
+	// A BOM-owned product specification is the finished-goods identity. Its
+	// inventory unit, rather than a legacy child-SKU sales unit, is authoritative
+	// for the cost and price-trial context.
+	input.InventoryUnit = unit
+	input.QuoteUnit = unit
+	input.OrderUnit = unit
+	return input, nil
 }
 
 func pricingRuleTrialNormalizeProductionOptions(input domain.ProductInput, options PricingRuleTrialProductionOptions) PricingRuleTrialProductionOptions {
@@ -1154,6 +1560,14 @@ func pricingRuleTrialOperationTemplateName(options []PricingRuleTrialOperationTe
 }
 
 func pricingRuleTrialResolvedQuoteUnit(input domain.ProductInput, requested string) string {
+	// Once a BOM-owned specification is selected, its inventory unit is the
+	// finished-goods pricing identity. Ignore a stale legacy quote_unit (for
+	// example kg) so a 454袋 variant is never presented as a per-kg result.
+	if input.BomSpecID > 0 && input.BomVariantID > 0 {
+		if bomUnit := strings.TrimSpace(input.InventoryUnit); bomUnit != "" {
+			return bomUnit
+		}
+	}
 	quoteUnit := strings.TrimSpace(requested)
 	if quoteUnit == "" {
 		quoteUnit = strings.TrimSpace(input.QuoteUnit)
@@ -1372,7 +1786,10 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		InventoryUnit:                 strings.TrimSpace(input.InventoryUnit),
 		BomVersionID:                  input.BomVersionID,
 		BomVersionNo:                  input.BomVersionNo,
+		BomSpecID:                     input.BomSpecID,
+		BomVariantID:                  input.BomVariantID,
 		BomVersionOptions:             productionOptions.BomVersions,
+		BomSpecOptions:                productionOptions.BomSpecs,
 		ProcessRouteID:                input.ProcessRouteID,
 		ProcessRouteName:              processRouteName,
 		ProcessRouteOptions:           productionOptions.ProcessRoutes,
@@ -1381,6 +1798,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		OperationTemplateOptions:      productionOptions.OperationTemplates,
 		BomUsageMode:                  input.BomUsageMode,
 		BomStatus:                     input.BomStatus,
+		CostStatus:                    "complete",
 		BaseCost:                      pricingRuleTrialResultAmount(formulaMode, baseCost),
 		BomCostTotal:                  pricingRuleTrialResultAmount(formulaMode, bomCostTotal),
 		OperationCostTotal:            pricingRuleTrialResultAmount(formulaMode, operationCostTotal),
@@ -1388,7 +1806,7 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		OperationUnitCost:             operationUnitCost,
 		StandardManufacturingUnitCost: standardManufacturingUnitCost,
 		CostSource:                    baseSource,
-		BomSnapshot:                   PricingRuleTrialBomSnapshot{VersionID: input.BomVersionID, VersionNo: input.BomVersionNo, UsageMode: input.BomUsageMode, Status: input.BomStatus},
+		BomSnapshot:                   PricingRuleTrialBomSnapshot{VersionID: input.BomVersionID, VersionNo: input.BomVersionNo, BomSpecID: input.BomSpecID, BomVariantID: input.BomVariantID, UsageMode: input.BomUsageMode, Status: input.BomStatus},
 		ProcessRouteSnapshot:          PricingRuleTrialProcessRouteSnapshot{ID: input.ProcessRouteID, Name: processRouteName},
 		WorkstationCostSnapshot:       pricingRuleTrialWorkstationCostSnapshot(baseCostDetails, materialUnitCost, operationUnitCost, standardManufacturingUnitCost, quoteUnit),
 		BaseCostDetails:               baseCostDetails,
@@ -2861,8 +3279,9 @@ func beanListFlatRowProductName(row map[string]any, position int) string {
 }
 
 func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *PublishBeanListCommand) error {
-	resolver, ok := s.repo.(productSalesUnitRuleRepository)
-	if !ok || cmd == nil || cmd.Content == nil {
+	resolver, hasLegacyResolver := s.repo.(productSalesUnitRuleRepository)
+	bomSpecResolver, hasBOMSpecResolver := s.repo.(productBOMSpecIdentityRepository)
+	if (!hasLegacyResolver && !hasBOMSpecResolver) || cmd == nil || cmd.Content == nil {
 		return nil
 	}
 	rows := priceTierTemplateCompatibilityRows(cmd.Content["price_rows"])
@@ -2876,6 +3295,39 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 			continue
 		}
 		productID := int64(numberValue(row["product_id"]))
+		parentProductID := int64(numberValue(row["parent_product_id"]))
+		if parentProductID <= 0 {
+			parentProductID = productID
+		}
+		bomSpecID := int64(numberValue(row["bom_spec_id"]))
+		bomVariantID := int64(numberValue(row["bom_variant_id"]))
+		if bomSpecID > 0 || bomVariantID > 0 {
+			if !hasBOMSpecResolver {
+				return fmt.Errorf("商品 BOM 规格校验不可用：服务缺少当前默认已发布规格解析能力")
+			}
+			identity, err := bomSpecResolver.ResolveProductBOMSpecIdentity(ctx, parentProductID, bomSpecID, bomVariantID)
+			if err != nil {
+				if errors.Is(err, ErrProductBOMSpecIdentityNotFound) {
+					return fmt.Errorf("商品 BOM 规格不存在或已不属于当前默认已发布 BOM：父商品 %d，规格 %d", parentProductID, bomSpecID)
+				}
+				return err
+			}
+			if err := validateResolvedProductBOMSpecIdentity(identity, parentProductID, bomSpecID, bomVariantID); err != nil {
+				return err
+			}
+			priceUnit := strings.TrimSpace(stringValue(row["price_unit"]))
+			if priceUnit == "" {
+				priceUnit = strings.TrimSpace(identity.InventoryUnit)
+			}
+			if priceUnit != strings.TrimSpace(identity.InventoryUnit) {
+				return beanListFlatRowUnitConversionError("BOM 规格价格单位必须与库存单位一致", idx+1, row, priceUnit)
+			}
+			applyProductBOMSpecUnitSnapshot(row, identity, priceUnit)
+			continue
+		}
+		if !hasLegacyResolver {
+			continue
+		}
 		skuID := int64(numberValue(row["sku_id"]))
 		concreteProductID := skuID
 		if concreteProductID <= 0 {
@@ -2941,6 +3393,75 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		applyFlatRowSKUSnapshot(row, concreteProductID, specRule, spec, strictSnapshots)
 	}
 	return nil
+}
+
+func validateResolvedProductBOMSpecIdentity(identity ProductBOMSpecIdentity, parentProductID, bomSpecID, bomVariantID int64) error {
+	if identity.ParentProductID != parentProductID || identity.BomSpecID != bomSpecID || identity.BomVariantID != bomVariantID {
+		return fmt.Errorf("商品 BOM 规格身份与价格行不一致")
+	}
+	if !identity.Active {
+		return fmt.Errorf("商品 BOM 规格所属父商品已停用")
+	}
+	bomSpecAuthoritative := identity.BomSpecAuthoritative || strings.EqualFold(strings.TrimSpace(identity.MigrationState), "cutover")
+	if !identity.Published || !bomSpecAuthoritative {
+		return fmt.Errorf("商品 BOM 规格尚未成为当前商品的规格权威")
+	}
+	if strings.TrimSpace(identity.SpecKey) == "" || strings.TrimSpace(identity.SpecName) == "" || strings.TrimSpace(identity.InventoryUnit) == "" {
+		return fmt.Errorf("商品 BOM 规格缺少规格键、名称或库存单位")
+	}
+	return nil
+}
+
+func applyProductBOMSpecUnitSnapshot(row map[string]any, identity ProductBOMSpecIdentity, priceUnit string) {
+	if row == nil {
+		return
+	}
+	unit := strings.TrimSpace(identity.InventoryUnit)
+	row["product_id"] = float64(identity.ParentProductID)
+	row["parent_product_id"] = float64(identity.ParentProductID)
+	row["bom_id"] = float64(identity.BomID)
+	row["bom_spec_id"] = float64(identity.BomSpecID)
+	row["bom_variant_id"] = float64(identity.BomVariantID)
+	row["migration_state"] = strings.TrimSpace(identity.MigrationState)
+	row["spec_identity_mode"] = strings.TrimSpace(identity.SpecIdentityMode)
+	row["bom_spec_authoritative"] = identity.BomSpecAuthoritative
+	delete(row, "sku_id")
+	row["price_unit"] = priceUnit
+	row["inventory_unit"] = unit
+	row["inventory_conversion_json"] = map[string]any{priceUnit: map[string]any{unit: float64(1)}}
+	row["quantity_basis"] = "sales_spec_count"
+	row["tier_quantity_unit"] = strings.TrimSpace(identity.SpecName)
+	row["effective_sales_spec"] = map[string]any{
+		"product_id":                float64(identity.ParentProductID),
+		"parent_product_id":         float64(identity.ParentProductID),
+		"bom_id":                    float64(identity.BomID),
+		"bom_spec_id":               float64(identity.BomSpecID),
+		"bom_variant_id":            float64(identity.BomVariantID),
+		"spec_code":                 strings.TrimSpace(identity.SpecCode),
+		"barcode":                   strings.TrimSpace(identity.Barcode),
+		"spec_key":                  strings.TrimSpace(identity.SpecKey),
+		"spec_name":                 strings.TrimSpace(identity.SpecName),
+		"spec_label":                strings.TrimSpace(identity.SpecName),
+		"sales_unit":                unit,
+		"inventory_unit":            unit,
+		"inventory_conversion_json": map[string]any{unit: map[string]any{unit: float64(1)}},
+	}
+	row["bom_spec_snapshot"] = map[string]any{
+		"bom_id":                 float64(identity.BomID),
+		"bom_version_id":         float64(identity.BomVersionID),
+		"bom_spec_id":            float64(identity.BomSpecID),
+		"bom_variant_id":         float64(identity.BomVariantID),
+		"spec_code":              strings.TrimSpace(identity.SpecCode),
+		"barcode":                strings.TrimSpace(identity.Barcode),
+		"spec_key":               strings.TrimSpace(identity.SpecKey),
+		"spec_name":              strings.TrimSpace(identity.SpecName),
+		"inventory_unit":         unit,
+		"is_default":             identity.IsDefault,
+		"sort_order":             identity.SortOrder,
+		"migration_state":        strings.TrimSpace(identity.MigrationState),
+		"spec_identity_mode":     strings.TrimSpace(identity.SpecIdentityMode),
+		"bom_spec_authoritative": identity.BomSpecAuthoritative,
+	}
 }
 
 func applyFlatRowSKUSnapshot(row map[string]any, productID int64, rule ProductSalesUnitRule, spec domain.EffectiveSalesSpec, strict bool) {
@@ -3152,6 +3673,11 @@ func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListComm
 type beanListProductSpecSelection struct {
 	ParentProductID         int64
 	SKUID                   int64
+	BomID                   int64
+	BomVersionID            int64
+	BomSpecID               int64
+	BomVariantID            int64
+	MigrationState          string
 	SelectionSource         string
 	DefaultSKUIDAtSelection int64
 }
@@ -3388,11 +3914,24 @@ func normalizeConcreteProductSpecPublicationSnapshots(cmd *PublishBeanListComman
 }
 
 func beanListConcreteSpecSKUID(row map[string]any) int64 {
+	if bomSpecID := int64(numberValue(row["bom_spec_id"])); bomSpecID > 0 {
+		return bomSpecID
+	}
 	skuID := int64(numberValue(row["sku_id"]))
 	if skuID <= 0 {
 		skuID = int64(numberValue(row["product_id"]))
 	}
 	return skuID
+}
+
+func beanListBOMSpecIdentityKey(parentProductID int64, identity ...int64) string {
+	if len(identity) >= 4 {
+		return fmt.Sprintf("%d:bom:%d:%d:%d:%d", parentProductID, identity[0], identity[1], identity[2], identity[3])
+	}
+	if len(identity) >= 2 {
+		return fmt.Sprintf("%d:bom:%d:%d", parentProductID, identity[0], identity[1])
+	}
+	return ""
 }
 
 func normalizeBeanListSalesSpecCountTierLabel(row map[string]any) (string, bool) {
@@ -3529,17 +4068,18 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 	if err := validateSharedParentProductPricing(cmd); err != nil {
 		return err
 	}
-	resolver, ok := s.repo.(productSpecIdentityRepository)
-	if !ok {
-		return fmt.Errorf("商品规格选择校验不可用：服务缺少当前商品规格身份校验能力")
-	}
+	legacyResolver, hasLegacyResolver := s.repo.(productSpecIdentityRepository)
+	bomSpecResolver, hasBOMSpecResolver := s.repo.(productBOMSpecIdentityRepository)
 
 	identityCache := map[int64]ProductSpecIdentity{}
 	resolveIdentity := func(productID int64) (ProductSpecIdentity, error) {
 		if identity, exists := identityCache[productID]; exists {
 			return identity, nil
 		}
-		identity, err := resolver.ResolveProductSpecIdentity(ctx, productID)
+		if !hasLegacyResolver {
+			return ProductSpecIdentity{}, fmt.Errorf("商品规格选择校验不可用：服务缺少当前商品规格身份校验能力")
+		}
+		identity, err := legacyResolver.ResolveProductSpecIdentity(ctx, productID)
 		if err != nil {
 			if errors.Is(err, ErrProductSpecIdentityNotFound) {
 				return ProductSpecIdentity{}, fmt.Errorf("商品规格不存在：%d", productID)
@@ -3551,7 +4091,8 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 	}
 
 	selections := make(map[string]beanListProductSpecSelection, len(selectionRows))
-	selectionBySKU := make(map[int64]beanListProductSpecSelection, len(selectionRows))
+	selectionByLegacySKU := make(map[int64]beanListProductSpecSelection, len(selectionRows))
+	selectionByBOMSpec := make(map[int64]beanListProductSpecSelection, len(selectionRows))
 	parentProductNamesBySKU := make(map[int64]string, len(selectionRows))
 	for idx, rawSelection := range selectionRows {
 		selectionMap, ok := objectSnapshotMap(rawSelection)
@@ -3561,14 +4102,54 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 		selection := beanListProductSpecSelection{
 			ParentProductID:         int64(numberValue(selectionMap["parent_product_id"])),
 			SKUID:                   int64(numberValue(selectionMap["sku_id"])),
+			BomID:                   int64(numberValue(selectionMap["bom_id"])),
+			BomVersionID:            int64(numberValue(selectionMap["bom_version_id"])),
+			BomSpecID:               int64(numberValue(selectionMap["bom_spec_id"])),
+			BomVariantID:            int64(numberValue(selectionMap["bom_variant_id"])),
+			MigrationState:          strings.TrimSpace(stringValue(selectionMap["migration_state"])),
 			SelectionSource:         strings.TrimSpace(stringValue(selectionMap["selection_source"])),
 			DefaultSKUIDAtSelection: int64(numberValue(selectionMap["default_sku_id_at_selection"])),
 		}
-		if selection.ParentProductID <= 0 || selection.SKUID <= 0 || selection.DefaultSKUIDAtSelection <= 0 {
-			return fmt.Errorf("商品规格选择无效：第%d项缺少父商品、具体 SKU 或选择时默认规格", idx+1)
-		}
 		if selection.SelectionSource != "product_default" && selection.SelectionSource != "explicit" {
 			return fmt.Errorf("商品规格选择无效：第%d项选择来源必须是 product_default 或 explicit", idx+1)
+		}
+		if selection.BomSpecID > 0 || selection.BomVariantID > 0 {
+			if selection.ParentProductID <= 0 || selection.BomSpecID <= 0 || selection.BomVariantID <= 0 {
+				return fmt.Errorf("商品规格选择无效：第%d项缺少父商品、BOM规格或BOM规格版本身份", idx+1)
+			}
+			if !hasBOMSpecResolver {
+				return fmt.Errorf("商品规格选择校验不可用：服务缺少当前默认已发布 BOM 规格身份校验能力")
+			}
+			identity, err := bomSpecResolver.ResolveProductBOMSpecIdentity(ctx, selection.ParentProductID, selection.BomSpecID, selection.BomVariantID)
+			if err != nil {
+				if errors.Is(err, ErrProductBOMSpecIdentityNotFound) {
+					return fmt.Errorf("商品规格选择无效：第%d项 BOM规格不属于父商品当前默认已发布 BOM", idx+1)
+				}
+				return err
+			}
+			if err := validateResolvedProductBOMSpecIdentity(identity, selection.ParentProductID, selection.BomSpecID, selection.BomVariantID); err != nil {
+				return fmt.Errorf("商品规格选择无效：第%d项：%w", idx+1, err)
+			}
+			if selection.BomID > 0 && selection.BomID != identity.BomID {
+				return fmt.Errorf("商品规格选择无效：第%d项 BOM 不属于当前默认已发布版本", idx+1)
+			}
+			if selection.BomVersionID > 0 && selection.BomVersionID != identity.BomVersionID {
+				return fmt.Errorf("商品规格选择无效：第%d项 BOM 版本不属于当前默认已发布版本", idx+1)
+			}
+			key := beanListBOMSpecIdentityKey(selection.ParentProductID, selection.BomSpecID, selection.BomVariantID)
+			if selection.BomID > 0 || selection.BomVersionID > 0 {
+				key = beanListBOMSpecIdentityKey(selection.ParentProductID, selection.BomID, selection.BomVersionID, selection.BomSpecID, selection.BomVariantID)
+			}
+			if _, duplicate := selections[key]; duplicate {
+				return fmt.Errorf("商品规格选择无效：第%d项重复选择 BOM规格 %d", idx+1, selection.BomSpecID)
+			}
+			selections[key] = selection
+			selectionByBOMSpec[selection.BomSpecID] = selection
+			parentProductNamesBySKU[selection.BomSpecID] = strings.TrimSpace(identity.ParentProductName)
+			continue
+		}
+		if selection.ParentProductID <= 0 || selection.SKUID <= 0 || selection.DefaultSKUIDAtSelection <= 0 {
+			return fmt.Errorf("商品规格选择无效：第%d项缺少父商品、具体 SKU 或选择时默认规格", idx+1)
 		}
 		parent, err := resolveIdentity(selection.ParentProductID)
 		if err != nil {
@@ -3605,7 +4186,7 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			return fmt.Errorf("商品规格选择无效：第%d项重复选择 SKU %d", idx+1, selection.SKUID)
 		}
 		selections[key] = selection
-		selectionBySKU[selection.SKUID] = selection
+		selectionByLegacySKU[selection.SKUID] = selection
 		parentProductNamesBySKU[selection.SKUID] = strings.TrimSpace(parent.ParentProductName)
 	}
 	for groupIdx, rawGroup := range beanListAnySlice(cmd.Content["groups"]) {
@@ -3618,20 +4199,28 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			if !ok {
 				return fmt.Errorf("商品规格分组无效：第%d组第%d个商品项必须是对象", groupIdx+1, itemIdx+1)
 			}
-			skuID := int64(numberValue(item["sku_id"]))
-			if skuID <= 0 {
-				skuID = int64(numberValue(item["product_id"]))
-			}
-			selection, selected := selectionBySKU[skuID]
-			if !selected {
-				return fmt.Errorf("分组商品项无效：第%d组第%d项 SKU %d 未在规格选择中", groupIdx+1, itemIdx+1, skuID)
-			}
 			parentProductID := int64(numberValue(item["parent_product_id"]))
 			if parentProductID <= 0 {
 				parentProductID = int64(numberValue(item["effective_parent_product_id"]))
 			}
-			if parentProductID > 0 && parentProductID != selection.ParentProductID {
+			if parentProductID <= 0 {
+				parentProductID = int64(numberValue(item["product_id"]))
+			}
+			key, label := beanListProductSpecSelectionKeyForRow(parentProductID, item)
+			selection, selected := selections[key]
+			if !selected {
+				return fmt.Errorf("分组商品项无效：第%d组第%d项 %s 未在规格选择中", groupIdx+1, itemIdx+1, label)
+			}
+			if parentProductID != selection.ParentProductID {
 				return fmt.Errorf("分组商品项无效：第%d组第%d项父商品与规格选择不一致", groupIdx+1, itemIdx+1)
+			}
+			if selection.BomSpecID > 0 {
+				item["product_id"] = float64(selection.ParentProductID)
+				item["parent_product_id"] = float64(selection.ParentProductID)
+				item["bom_spec_id"] = float64(selection.BomSpecID)
+				item["bom_variant_id"] = float64(selection.BomVariantID)
+				item["migration_state"] = "cutover"
+				delete(item, "sku_id")
 			}
 		}
 	}
@@ -3644,26 +4233,50 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			return fmt.Errorf("商品规格价格行无效：第%d行必须是对象", idx+1)
 		}
 		parentProductID := int64(numberValue(row["parent_product_id"]))
-		skuID := int64(numberValue(row["sku_id"]))
-		if parentProductID <= 0 || skuID <= 0 {
-			return fmt.Errorf("商品规格价格行无效：第%d行缺少 parent_product_id 或 sku_id", idx+1)
+		if parentProductID <= 0 {
+			parentProductID = int64(numberValue(row["product_id"]))
 		}
-		selection, skuSelected := selectionBySKU[skuID]
-		if skuSelected && selection.ParentProductID != parentProductID {
-			return fmt.Errorf("商品规格价格行无效：第%d行父商品与规格选择不一致", idx+1)
+		key, label := beanListProductSpecSelectionKeyForRow(parentProductID, row)
+		if parentProductID <= 0 || key == "" {
+			return fmt.Errorf("商品规格价格行无效：第%d行缺少父商品或具体规格身份", idx+1)
 		}
-		key := beanListProductSpecSelectionKey(parentProductID, skuID)
-		if _, selected := selections[key]; !selected {
-			return fmt.Errorf("商品规格价格行无效：第%d行 SKU %d 未在规格选择中", idx+1, skuID)
-		}
-		if snapshot, exists := objectSnapshotMap(row["sku_snapshot"]); exists {
-			if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != skuID {
-				return fmt.Errorf("商品规格价格行无效：第%d行 SKU 快照身份不一致", idx+1)
+		selection, selected := selections[key]
+		if !selected {
+			if bomSpecID := int64(numberValue(row["bom_spec_id"])); bomSpecID > 0 {
+				if selectedSpec, exists := selectionByBOMSpec[bomSpecID]; exists && selectedSpec.ParentProductID != parentProductID {
+					return fmt.Errorf("商品规格价格行无效：第%d行父商品与规格选择不一致", idx+1)
+				}
+			} else if skuID := int64(numberValue(row["sku_id"])); skuID > 0 {
+				if selectedSKU, exists := selectionByLegacySKU[skuID]; exists && selectedSKU.ParentProductID != parentProductID {
+					return fmt.Errorf("商品规格价格行无效：第%d行父商品与规格选择不一致", idx+1)
+				}
 			}
+			return fmt.Errorf("商品规格价格行无效：第%d行 %s 未在规格选择中", idx+1, label)
 		}
-		if snapshot, exists := objectSnapshotMap(row["effective_sales_spec"]); exists {
-			if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != skuID {
-				return fmt.Errorf("商品规格价格行无效：第%d行有效销售规格快照身份不一致", idx+1)
+		if selection.BomSpecID > 0 {
+			if snapshot, exists := objectSnapshotMap(row["bom_spec_snapshot"]); exists {
+				if snapshotSpecID := int64(numberValue(snapshot["bom_spec_id"])); snapshotSpecID > 0 && snapshotSpecID != selection.BomSpecID {
+					return fmt.Errorf("商品规格价格行无效：第%d行 BOM规格快照身份不一致", idx+1)
+				}
+				if snapshotVariantID := int64(numberValue(snapshot["bom_variant_id"])); snapshotVariantID > 0 && snapshotVariantID != selection.BomVariantID {
+					return fmt.Errorf("商品规格价格行无效：第%d行 BOM规格版本快照身份不一致", idx+1)
+				}
+			}
+			if snapshot, exists := objectSnapshotMap(row["effective_sales_spec"]); exists {
+				if snapshotSpecID := int64(numberValue(snapshot["bom_spec_id"])); snapshotSpecID > 0 && snapshotSpecID != selection.BomSpecID {
+					return fmt.Errorf("商品规格价格行无效：第%d行有效BOM销售规格快照身份不一致", idx+1)
+				}
+			}
+		} else {
+			if snapshot, exists := objectSnapshotMap(row["sku_snapshot"]); exists {
+				if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != selection.SKUID {
+					return fmt.Errorf("商品规格价格行无效：第%d行 SKU 快照身份不一致", idx+1)
+				}
+			}
+			if snapshot, exists := objectSnapshotMap(row["effective_sales_spec"]); exists {
+				if snapshotSKUID := int64(numberValue(snapshot["sku_id"])); snapshotSKUID > 0 && snapshotSKUID != selection.SKUID {
+					return fmt.Errorf("商品规格价格行无效：第%d行有效销售规格快照身份不一致", idx+1)
+				}
 			}
 		}
 		if beanListFlatPriceRowHasPrice(row) {
@@ -3672,6 +4285,9 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 	}
 	for key, selection := range selections {
 		if !covered[key] {
+			if selection.BomSpecID > 0 {
+				return fmt.Errorf("商品规格选择无效：父商品 %d 的 BOM规格 %d 缺少对应有效价格行", selection.ParentProductID, selection.BomSpecID)
+			}
 			return fmt.Errorf("商品规格选择无效：父商品 %d 的 SKU %d 缺少对应有效价格行", selection.ParentProductID, selection.SKUID)
 		}
 	}
@@ -3681,6 +4297,32 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 
 func beanListProductSpecSelectionKey(parentProductID, skuID int64) string {
 	return fmt.Sprintf("%d:%d", parentProductID, skuID)
+}
+
+func beanListProductSpecSelectionKeyForRow(parentProductID int64, row map[string]any) (string, string) {
+	if row == nil || parentProductID <= 0 {
+		return "", "规格"
+	}
+	if bomSpecID := int64(numberValue(row["bom_spec_id"])); bomSpecID > 0 {
+		bomVariantID := int64(numberValue(row["bom_variant_id"]))
+		bomID := int64(numberValue(row["bom_id"]))
+		bomVersionID := int64(numberValue(row["bom_version_id"]))
+		if bomVariantID <= 0 {
+			return "", fmt.Sprintf("BOM规格 %d", bomSpecID)
+		}
+		if bomID > 0 || bomVersionID > 0 {
+			return beanListBOMSpecIdentityKey(parentProductID, bomID, bomVersionID, bomSpecID, bomVariantID), fmt.Sprintf("BOM规格 %d", bomSpecID)
+		}
+		return beanListBOMSpecIdentityKey(parentProductID, bomSpecID, bomVariantID), fmt.Sprintf("BOM规格 %d", bomSpecID)
+	}
+	skuID := int64(numberValue(row["sku_id"]))
+	if skuID <= 0 {
+		skuID = int64(numberValue(row["product_id"]))
+	}
+	if skuID <= 0 {
+		return "", "SKU"
+	}
+	return beanListProductSpecSelectionKey(parentProductID, skuID), fmt.Sprintf("SKU %d", skuID)
 }
 
 func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListCommand, error) {

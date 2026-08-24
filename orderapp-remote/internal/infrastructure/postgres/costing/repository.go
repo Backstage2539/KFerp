@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -386,6 +387,82 @@ func (r Repository) ResolveProductSpecIdentity(ctx context.Context, productID in
 			return appcosting.ProductSpecIdentity{}, appcosting.ErrProductSpecIdentityNotFound
 		}
 		return appcosting.ProductSpecIdentity{}, err
+	}
+	return identity, nil
+}
+
+func (r Repository) ResolveProductBOMSpecIdentity(ctx context.Context, parentProductID, bomSpecID, bomVariantID int64) (appcosting.ProductBOMSpecIdentity, error) {
+	if r.pool == nil || parentProductID <= 0 || bomSpecID <= 0 || bomVariantID <= 0 {
+		return appcosting.ProductBOMSpecIdentity{}, appcosting.ErrProductBOMSpecIdentityNotFound
+	}
+	identity := appcosting.ProductBOMSpecIdentity{}
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT parent.id,
+		       COALESCE(parent.name,''),
+		       binding.bom_id,
+		       version.id,
+		       spec.id,
+		       variant.id,
+		       COALESCE(spec.code,''),
+		       COALESCE(spec.barcode,''),
+		       COALESCE(spec.spec_key,''),
+		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
+		       migration.state,
+		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true),
+		       COALESCE(parent.active,true),
+		       true,
+		       variant.is_default,
+		       variant.sort_order
+		FROM %[1]s.product_bom_spec_migrations migration
+		JOIN %[1]s.products parent
+		  ON parent.id=migration.product_id
+		JOIN %[1]s.production_bom_output_bindings binding
+		  ON binding.output_type='product'
+		 AND binding.output_id=parent.id
+		 AND binding.is_default=true
+		JOIN %[1]s.production_bom_versions version
+		  ON version.id=binding.bom_version_id
+		 AND version.bom_id=binding.bom_id
+		 AND version.status='published'
+		JOIN %[1]s.production_bom_specs spec
+		  ON spec.id=$2
+		 AND spec.bom_id=binding.bom_id
+		JOIN %[1]s.production_bom_version_variants variant
+		  ON variant.id=$3
+		 AND variant.version_id=version.id
+		 AND variant.bom_spec_id=spec.id
+		WHERE migration.product_id=$1
+		  AND (migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false)
+		LIMIT 1
+	`, r.schema), parentProductID, bomSpecID, bomVariantID).Scan(
+		&identity.ParentProductID,
+		&identity.ParentProductName,
+		&identity.BomID,
+		&identity.BomVersionID,
+		&identity.BomSpecID,
+		&identity.BomVariantID,
+		&identity.SpecCode,
+		&identity.Barcode,
+		&identity.SpecKey,
+		&identity.SpecName,
+		&identity.InventoryUnit,
+		&identity.MigrationState,
+		&identity.BomSpecAuthoritative,
+		&identity.Active,
+		&identity.Published,
+		&identity.IsDefault,
+		&identity.SortOrder,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return appcosting.ProductBOMSpecIdentity{}, appcosting.ErrProductBOMSpecIdentityNotFound
+		}
+		return appcosting.ProductBOMSpecIdentity{}, err
+	}
+	identity.SpecIdentityMode = "legacy_sku"
+	if identity.BomSpecAuthoritative {
+		identity.SpecIdentityMode = "bom_spec"
 	}
 	return identity, nil
 }
@@ -939,6 +1016,56 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 	if err := bomRows.Err(); err != nil {
 		return out, err
 	}
+	versionIDs := make([]int64, 0, len(out.BomVersions))
+	for _, version := range out.BomVersions {
+		if version.VersionID > 0 {
+			versionIDs = append(versionIDs, version.VersionID)
+		}
+	}
+	if len(versionIDs) > 0 {
+		hasSpecs, err := r.costingRelationExists(ctx, "production_bom_specs")
+		if err != nil {
+			return out, err
+		}
+		hasVariants, err := r.costingRelationExists(ctx, "production_bom_version_variants")
+		if err != nil {
+			return out, err
+		}
+		if hasSpecs && hasVariants {
+			specRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+				SELECT v.bom_id,
+				       v.id,
+				       spec.id,
+				       variant.id,
+				       COALESCE(spec.spec_key,''),
+				       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+			       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),''),
+				       COALESCE(variant.is_default,false),
+				       COALESCE(variant.sort_order,0)
+				FROM %[1]s.production_bom_version_variants variant
+				JOIN %[1]s.production_bom_versions v ON v.id=variant.version_id
+				JOIN %[1]s.production_bom_specs spec ON spec.id=variant.bom_spec_id AND spec.bom_id=v.bom_id
+				WHERE v.id=ANY($1)
+				ORDER BY v.id, variant.is_default DESC, variant.sort_order, variant.id
+			`, r.schema), versionIDs)
+			if err != nil {
+				return out, err
+			}
+			for specRows.Next() {
+				var row appcosting.PricingRuleTrialBomSpecOption
+				if err := specRows.Scan(&row.BomID, &row.VersionID, &row.BomSpecID, &row.BomVariantID, &row.SpecKey, &row.SpecName, &row.InventoryUnit, &row.IsDefault, &row.SortOrder); err != nil {
+					specRows.Close()
+					return out, err
+				}
+				out.BomSpecs = append(out.BomSpecs, row)
+			}
+			if err := specRows.Err(); err != nil {
+				specRows.Close()
+				return out, err
+			}
+			specRows.Close()
+		}
+	}
 
 	defaultProcessRouteID := input.ProcessRouteID
 	for _, row := range out.BomVersions {
@@ -1046,21 +1173,28 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetailsBatch(ctx context.Context
 
 func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput, resolvedBomCosts map[int64]productionBomResolvedCost) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
 	out := make([]appcosting.PricingRuleTrialBaseCostDetail, 0)
+	issues := make([]appcosting.PricingRuleTrialCostIssue, 0)
 	var err error
-	resolvedParentCost, hasResolvedParentCost := productionBomCostForProduct(resolvedBomCosts, input.ProductID, input.ParentProductID)
+	resolvedParentCost, hasResolvedParentCost := productionBomCostForProduct(resolvedBomCosts, input.ProductID, input.ParentProductID, input.BomSpecID)
 	if input.BomVersionID > 0 && resolvedParentCost.VersionID != input.BomVersionID {
 		hasResolvedParentCost = false
+	}
+	if hasResolvedParentCost && len(resolvedParentCost.UnresolvedIssues) > 0 {
+		issues = append(issues, resolvedParentCost.UnresolvedIssues...)
+	}
+	finish := func() ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
+		return finishPricingRuleTrialBaseCostDetails(out, input, resolvedParentCost, issues)
 	}
 	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
 			       SUM((CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END) * COALESCE(b.unit_cost,0))
 			       / NULLIF(SUM(CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END),0) AS weighted_unit_cost
@@ -1104,47 +1238,59 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			LIMIT 1
 		),
 		bom_items AS (
-			SELECT pbi.id, pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
-			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8, COALESCE(pbi.material_loss_rate,0)::float8 AS material_loss_rate, pbi.unit_cost_snapshot::float8,
+			SELECT pbi.id, pbi.material_id, pbi.component_type, pbi.component_product_id,
+			       COALESCE(pbi.component_bom_spec_id,0) AS component_bom_spec_id, pbi.component_spec_g,
+			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8,
+			       CASE WHEN $3 > 0 THEN COALESCE(variant.material_loss_rate,0) ELSE COALESCE(pbi.material_loss_rate,0) END::float8 AS material_loss_rate,
+			       pbi.unit_cost_snapshot::float8,
 			       COALESCE(v.yield_rate,0)::float8 AS bom_yield_rate,
-			       COALESCE(NULLIF(v.output_qty,0),1)::float8 AS bom_output_qty,
-			       COALESCE(NULLIF(v.output_unit,''),'unit') AS bom_output_unit
+			       CASE WHEN $3 > 0 THEN 1 ELSE COALESCE(NULLIF(v.output_qty,0),1) END::float8 AS bom_output_qty,
+			       CASE WHEN $3 > 0 THEN COALESCE(NULLIF(variant.inventory_unit,''),'') ELSE COALESCE(NULLIF(v.output_unit,''),'unit') END AS bom_output_unit
 			FROM %[1]s.production_bom_version_items pbi
 			JOIN %[1]s.production_bom_versions v ON v.id=pbi.version_id
 			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			LEFT JOIN %[1]s.production_bom_version_variants variant
+			  ON variant.id=pbi.variant_id AND variant.version_id=v.id
 			JOIN pricing_rule_trial_selected_products selected ON selected.product_id=pb.output_product_id
 			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
 			  AND (($1 > 0 AND pbi.version_id=$1 AND v.status IN ('published','draft'))
 			    OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version) AND v.status='published'))
+			  AND ($3 <= 0 OR pbi.variant_id=$3)
 		)
 		SELECT bi.id,
 		       COALESCE(NULLIF(bi.component_type,''),'material') AS component_type,
+		       COALESCE(bi.material_id,0) AS material_id,
+		       COALESCE(m.is_semi_finished,false) AS is_semi_finished,
 		       COALESCE(bi.component_product_id,0) AS component_product_id,
+		       COALESCE(bi.component_bom_spec_id,0) AS component_bom_spec_id,
 		       COALESCE(bi.component_spec_g,0) AS component_spec_g,
 		       COALESCE(NULLIF(m.name,''), NULLIF(cp.name,''), 'BOM项目') AS name,
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') AS consume_unit,
 		       COALESCE(bi.qty_per_unit,0)::float8,
 		       COALESCE(bi.ratio_pct,0)::float8,
 		       COALESCE(bi.material_loss_rate,0)::float8,
-		       COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)::float8 AS unit_cost,
-		       COALESCE(NULLIF(m.cost_unit,''),'kg') AS unit_cost_unit,
+		       CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) END::float8 AS unit_cost,
+		       COALESCE(NULLIF(m.unit,''),'kg') AS unit_cost_unit,
 		       COALESCE(bi.bom_yield_rate,0)::float8 AS bom_yield_rate,
 		       COALESCE(NULLIF(bi.bom_output_qty,0),1)::float8 AS bom_output_qty,
-		       COALESCE(NULLIF(bi.bom_output_unit,''),'unit') AS bom_output_unit,
+		       COALESCE(NULLIF(bi.bom_output_unit,''), CASE WHEN $3 > 0 THEN '' ELSE 'unit' END) AS bom_output_unit,
+		       COALESCE(m.purchase_price,0)::float8 AS purchase_price,
+		       COALESCE(mv.weighted_unit_cost,0)::float8 AS weighted_batch_unit_cost,
+		       COALESCE(bi.unit_cost_snapshot,0)::float8 AS unit_cost_snapshot,
 		       CASE
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='ratio_pct'
-		         THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))
+		         THEN (CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) END) * COALESCE(bi.ratio_pct,0) / 100.0 / (1 - LEAST(GREATEST(COALESCE(bi.material_loss_rate,0),0),0.9999))
 		         ELSE 0
 		       END::float8 AS amount_per_kg,
 		       CASE
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='g_per_bag'
-		         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
+		         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * (CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) END)
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='g'
-		         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
+		         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * (CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) END)
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='kg'
-		         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
+		         THEN COALESCE(bi.qty_per_unit,0) * (CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) END)
 		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box','fixed_qty','unit','length','area')
-		         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), NULLIF(mv.weighted_unit_cost,0), NULLIF(bi.unit_cost_snapshot,0), 0)
+		         THEN COALESCE(bi.qty_per_unit,0) * (CASE WHEN COALESCE(m.is_semi_finished,false) THEN 0 ELSE COALESCE(NULLIF(m.purchase_price,0), NULLIF(mv.weighted_unit_cost,0), NULLIF(bi.unit_cost_snapshot,0), 0) END)
 		         ELSE 0
 		       END::float8 AS amount_per_unit
 		FROM bom_items bi
@@ -1152,7 +1298,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		LEFT JOIN material_valuation mv ON mv.material_id=bi.material_id
 		LEFT JOIN %[1]s.products cp ON cp.id=bi.component_product_id
 		ORDER BY bi.id
-	`, r.schema), input.BomVersionID, input.ProductID)
+	`, r.schema), input.BomVersionID, input.ProductID, input.BomVariantID)
 	if err != nil {
 		return nil, err
 	}
@@ -1161,28 +1307,46 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		var row appcosting.PricingRuleTrialBaseCostDetail
 		var id int64
 		var componentType string
+		var componentMaterialID int64
+		var componentIsSemi bool
 		var componentProductID int64
+		var componentBomSpecID int64
 		var componentSpecG int64
 		var unitCostUnit string
 		var bomYieldRate float64
 		var bomOutputQty float64
 		var bomOutputUnit string
-		if err := bomRows.Scan(&id, &componentType, &componentProductID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
+		var purchasePrice, weightedBatchUnitCost, unitCostSnapshot float64
+		if err := bomRows.Scan(&id, &componentType, &componentMaterialID, &componentIsSemi, &componentProductID, &componentBomSpecID, &componentSpecG, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.MaterialLossRate, &row.UnitCost, &unitCostUnit, &bomYieldRate, &bomOutputQty, &bomOutputUnit, &purchasePrice, &weightedBatchUnitCost, &unitCostSnapshot, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
 			return nil, err
 		}
+		row.ComponentID = id
+		row.BomID = resolvedParentCost.BomID
+		row.BomName = resolvedParentCost.BomName
+		row.BomVersionID = resolvedParentCost.VersionID
+		row.BomVersionNo = resolvedParentCost.VersionNo
+		row.BomSpecID = input.BomSpecID
+		row.BomVariantID = input.BomVariantID
 		resolvedItemCost, resolvedFromGraph := resolvedParentCost.ItemCosts[id]
-		ok := hasResolvedParentCost && resolvedParentCost.Resolved && resolvedFromGraph && resolvedItemCost.CostUnit != ""
+		ok := hasResolvedParentCost && resolvedFromGraph && resolvedItemCost.CostUnit != ""
 		warning := ""
 		if !ok {
 			resolvedItemCost, ok, warning = resolveProductionBomTrialItemCost(productionBomCostItem{
-				ID:                 id,
-				ComponentType:      componentType,
-				ComponentProductID: componentProductID,
-				ComponentSpecG:     componentSpecG,
-				ConsumeUnit:        row.ConsumeUnit,
-				QtyPerUnit:         row.Quantity,
-				RatioPct:           row.RatioPct,
-				MaterialLossRate:   row.MaterialLossRate,
+				ID:                    id,
+				ComponentType:         componentType,
+				ComponentMaterialID:   componentMaterialID,
+				ComponentIsSemi:       componentIsSemi,
+				ComponentProductID:    componentProductID,
+				ComponentBomSpecID:    componentBomSpecID,
+				ComponentSpecG:        componentSpecG,
+				ConsumeUnit:           row.ConsumeUnit,
+				QtyPerUnit:            row.Quantity,
+				RatioPct:              row.RatioPct,
+				MaterialLossRate:      row.MaterialLossRate,
+				ComponentName:         row.Name,
+				PurchasePrice:         purchasePrice,
+				WeightedBatchUnitCost: weightedBatchUnitCost,
+				UnitCostSnapshot:      unitCostSnapshot,
 			}, row.UnitCost, unitCostUnit, bomYieldRate, bomOutputQty, bomOutputUnit, resolvedBomCosts)
 		}
 		if ok {
@@ -1199,7 +1363,42 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			row.CostUnitCost = resolvedItemCost.UnitCost
 			row.CostUnit = resolvedItemCost.CostUnit
 		} else {
-			return nil, fmt.Errorf("BOM项目 %s 成本无法解析：%s", strings.TrimSpace(row.Name), warning)
+			if !(hasResolvedParentCost && len(resolvedParentCost.UnresolvedIssues) > 0 && (componentIsSemi || componentType == "product" || componentType == "finished_product")) {
+				issues = append(issues, appcosting.PricingRuleTrialCostIssue{
+					Code:                  "zero_component_cost",
+					Reason:                warning,
+					ComponentType:         componentType,
+					ComponentID:           id,
+					ComponentMaterialID:   componentMaterialID,
+					ComponentProductID:    componentProductID,
+					ComponentBomSpecID:    componentBomSpecID,
+					ComponentName:         strings.TrimSpace(row.Name),
+					IsSemiFinished:        componentIsSemi,
+					ConsumeUnit:           row.ConsumeUnit,
+					CostUnit:              unitCostUnit,
+					Quantity:              row.Quantity,
+					UnitCost:              row.UnitCost,
+					PurchasePrice:         purchasePrice,
+					WeightedBatchUnitCost: weightedBatchUnitCost,
+					UnitCostSnapshot:      unitCostSnapshot,
+					RootProductID:         input.ProductID,
+					VersionID:             input.BomVersionID,
+				})
+			}
+			bomID := row.BomID
+			if bomID <= 0 {
+				bomID = resolvedParentCost.BomID
+			}
+			row.Warning = warning
+			row.Description = fmt.Sprintf("BOM %d / %s", bomID, firstNonEmptyString(row.BomVersionNo, resolvedParentCost.VersionNo, fmt.Sprintf("version-%d", input.BomVersionID)))
+			row.Type = "material"
+			if componentType == "product" || componentType == "finished_product" {
+				row.Type = "component_product"
+			}
+			row.Key = fmt.Sprintf("%s:%d", row.Type, id)
+			row.Unit = firstNonEmptyString(unitCostUnit, input.InventoryUnit, bomOutputUnit)
+			out = append(out, row)
+			continue
 		}
 		if strings.TrimSpace(row.ConsumeUnit) == "ratio_pct" && row.MaterialLossRate > 0 && row.MaterialLossRate < 1 {
 			row.RecipeRatioPct = row.RatioPct
@@ -1220,7 +1419,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		return nil, err
 	}
 
-	opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	operationQuery := fmt.Sprintf(`
 		WITH pricing_rule_trial_selected_products AS (
 			SELECT p.id AS product_id, 0 AS source_priority
 			FROM %[1]s.products p
@@ -1281,7 +1480,34 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		FROM %[1]s.production_bom_version_operation_costs oc
 		WHERE oc.version_id=(SELECT id FROM selected_bom_version)
 		ORDER BY oc.sort_order, oc.id
-	`, r.schema), input.BomVersionID, input.ProductID)
+	`, r.schema)
+	operationArgs := []any{input.BomVersionID, input.ProductID}
+	if input.BomVariantID > 0 {
+		operationQuery = fmt.Sprintf(`
+			SELECT operation.id,
+			       COALESCE(operation.workstation_capacity_id,0) AS workstation_capacity_id,
+			       COALESCE(NULLIF(operation.operation,''),'工序') AS operation_name,
+			       COALESCE(operation.workstation,'') AS workstation_name,
+			       COALESCE(operation.workstation_capacity_name,'') AS capacity_name,
+			       COALESCE(operation.hourly_rate,0)::float8,
+			       COALESCE(operation.standard_minutes,0)::float8,
+			       COALESCE(operation.batch_size_qty,0)::float8,
+			       COALESCE(operation.batch_size_unit,'') AS batch_size_unit,
+			       COALESCE(NULLIF(operation.cost_method,''),'time') AS cost_method,
+			       COALESCE(operation.piece_rate,0)::float8 AS piece_rate,
+			       COALESCE(operation.batch_size_unit,'') AS rate_unit,
+			       COALESCE(operation.planned_operation_cost,0)::float8,
+			       COALESCE(NULLIF(variant.inventory_unit,''),'') AS operation_cost_unit
+			FROM %[1]s.production_bom_version_variants variant
+			JOIN %[1]s.process_route_operations operation
+			  ON operation.route_id=variant.process_route_id
+			WHERE variant.id=$1
+			  AND ($2 <= 0 OR variant.version_id=$2)
+			ORDER BY operation.seq,operation.id
+		`, r.schema)
+		operationArgs = []any{input.BomVariantID, input.BomVersionID}
+	}
+	opRows, err := r.pool.Query(ctx, operationQuery, operationArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -1350,7 +1576,7 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 		})
 	}
 	if input.ProcessRouteID > 0 || operationSnapshotCount > 0 {
-		return out, nil
+		return finish()
 	}
 	if input.OperationTemplateID <= 0 {
 		return out, nil
@@ -1389,7 +1615,78 @@ func (r Repository) loadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 	if err := legacyOpRows.Err(); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return finish()
+}
+
+func finishPricingRuleTrialBaseCostDetails(out []appcosting.PricingRuleTrialBaseCostDetail, input domain.ProductInput, resolved productionBomResolvedCost, issues []appcosting.PricingRuleTrialCostIssue) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
+	if len(issues) == 0 {
+		return out, nil
+	}
+	partialCost := resolved.PartialTotalCostPerOutputUnit
+	if !finiteNonNegative(partialCost) || partialCost <= 0 {
+		for _, detail := range out {
+			if detail.Type == "operation" {
+				partialCost += detail.AmountPerKg
+				if detail.AmountPerKg == 0 {
+					partialCost += detail.AmountPerUnit
+				}
+				continue
+			}
+			partialCost += detail.AmountPerKg
+			if detail.AmountPerKg == 0 {
+				partialCost += detail.AmountPerUnit
+			}
+		}
+	}
+	if !finiteNonNegative(partialCost) {
+		partialCost = 0
+	}
+	unique := make([]appcosting.PricingRuleTrialCostIssue, 0, len(issues))
+	seen := map[string]struct{}{}
+	for _, issue := range issues {
+		if issue.ComponentID == 0 && issue.Reason == "" {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%d:%d:%s", issue.Code, issue.ComponentID, issue.ComponentMaterialID, issue.ComponentProductID, issue.Reason)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		if issue.RootProductID == 0 {
+			issue.RootProductID = input.ProductID
+		}
+		if issue.VersionID == 0 {
+			issue.VersionID = resolved.VersionID
+		}
+		if issue.BomID == 0 {
+			issue.BomID = resolved.BomID
+		}
+		if issue.BomName == "" {
+			issue.BomName = resolved.BomName
+		}
+		if issue.VersionNo == "" {
+			issue.VersionNo = resolved.VersionNo
+		}
+		if issue.BomSpecID == 0 {
+			issue.BomSpecID = input.BomSpecID
+		}
+		if issue.BomVariantID == 0 {
+			issue.BomVariantID = input.BomVariantID
+		}
+		unique = append(unique, issue)
+	}
+	return out, &appcosting.PricingRuleTrialCostIncompleteError{
+		ProductID:       input.ProductID,
+		BomID:           resolved.BomID,
+		BomName:         resolved.BomName,
+		BomVersionID:    resolved.VersionID,
+		BomVersionNo:    resolved.VersionNo,
+		BomSpecID:       input.BomSpecID,
+		BomVariantID:    input.BomVariantID,
+		PartialCost:     partialCost,
+		Issues:          unique,
+		BaseCostDetails: out,
+	}
 }
 
 func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
@@ -1397,12 +1694,12 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		WITH material_valuation AS (
 			SELECT l.material_id,
 			       SUM((CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END) * COALESCE(b.unit_cost,0))
 			       / NULLIF(SUM(CASE
-			         WHEN lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
+			         WHEN lower(btrim(COALESCE(NULLIF(m.unit,''), 'kg'))) IN ('g','kg','lb','lbs','oz','克','千克','公斤','磅','盎司')
 			         THEN l.qty_g::numeric
 			         ELSE l.qty_units::numeric
 			       END),0) AS weighted_unit_cost
@@ -1501,6 +1798,10 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			 AND alias_cc.template_id = alias_class.template_id
 			 AND alias_cc.active=true
 			WHERE p.active = true
+			  AND (COALESCE(p.parent_product_id,0)=0 OR EXISTS (
+				SELECT 1 FROM %[1]s.products active_parent
+				WHERE active_parent.id=p.parent_product_id AND active_parent.active=true
+			  ))
 			  AND (NOT COALESCE(p.auto_derived_sku,false) OR COALESCE(NULLIF(p.derived_spec_status,''),'active')<>'template_removed')
 			  AND (($1 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($1 > 0 AND cpa.id IS NOT NULL))
 		),
@@ -1584,7 +1885,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box')
 			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
 			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') NOT IN ('ratio_pct','g_per_bag')
-			          AND lower(btrim(COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'))) = lower(btrim(COALESCE(NULLIF(m.cost_unit,''), NULLIF(m.unit,''), '')))
+			          AND lower(btrim(COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'))) = lower(btrim(COALESCE(NULLIF(m.unit,''), '')))
 			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
 			         ELSE 0
 			       END),0) AS bom_cost_per_unit
@@ -2242,25 +2543,46 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		return nil, err
 	}
 	rows.Close()
-	resolvedBomCosts, err := r.loadResolvedProductionBomCosts(ctx)
+	productIDs := make([]int64, 0, len(out))
+	seenProductIDs := map[int64]bool{}
+	for _, input := range out {
+		parentID := input.EffectiveParentProductID
+		if parentID <= 0 {
+			parentID = input.ParentProductID
+		}
+		if parentID <= 0 {
+			parentID = input.ProductID
+		}
+		if parentID > 0 && !seenProductIDs[parentID] {
+			seenProductIDs[parentID] = true
+			productIDs = append(productIDs, parentID)
+		}
+	}
+	authorities, err := r.loadProductBOMSpecAuthorities(ctx, productIDs)
 	if err != nil {
 		return nil, err
 	}
 	for i := range out {
-		resolvedCost, ok := productionBomCostForProduct(resolvedBomCosts, out[i].ProductID, out[i].ParentProductID)
-		if !ok || (!resolvedCost.HasProductComponent && !resolvedCost.HasManufacturedMaterialComponent) || productionBomCostMassKgFactor(resolvedCost.OutputUnit) > 0 {
-			continue
+		parentID := out[i].EffectiveParentProductID
+		if parentID <= 0 {
+			parentID = out[i].ParentProductID
 		}
-		if !resolvedCost.Resolved {
-			out[i].BomCostPerUnit = 0
-			out[i].OperationCostPerUnit = 0
-			out[i].OperationCostPerKg = 0
-			out[i].Warnings = append(out[i].Warnings, "递归组件成本无法完整解析：请检查组件商品或物料的默认已发布生产 BOM、物料价格、BOM 原料损耗和循环引用")
-			continue
+		if parentID <= 0 {
+			parentID = out[i].ProductID
 		}
-		out[i].BomCostPerUnit = resolvedCost.InputCostPerOutputUnit
-		out[i].OperationCostPerUnit = resolvedCost.OperationCostPerOutputUnit
-		out[i].OperationCostPerKg = 0
+		if authority, ok := authorities[parentID]; ok {
+			out[i].MigrationState = authority.MigrationState
+			out[i].BomSpecAuthoritative = authority.BomSpecAuthoritative
+			if authority.BomSpecAuthoritative {
+				out[i].SpecIdentityMode = "bom_spec"
+			} else {
+				out[i].SpecIdentityMode = "legacy_sku"
+			}
+		}
+	}
+	resolvedBomCosts, err := r.loadResolvedProductionBomCosts(ctx)
+	if err != nil {
+		return nil, err
 	}
 	templates, err := r.loadGradientTemplatesByID(ctx, templateIDs)
 	if err != nil {
@@ -2273,7 +2595,304 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			}
 		}
 	}
-	return out, nil
+	cutoverSpecs, err := r.loadCutoverProductBOMSpecs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out = applyCutoverProductBOMSpecs(out, cutoverSpecs)
+	return applyResolvedProductionBomCosts(out, resolvedBomCosts), nil
+}
+
+type productBOMSpecAuthority struct {
+	MigrationState       string
+	BomSpecAuthoritative bool
+}
+
+func (r Repository) loadProductBOMSpecAuthorities(ctx context.Context, productIDs []int64) (map[int64]productBOMSpecAuthority, error) {
+	result := map[int64]productBOMSpecAuthority{}
+	if r.pool == nil || len(productIDs) == 0 {
+		return result, nil
+	}
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.product_bom_spec_migrations", r.schema)).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return result, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT product_id,
+		       COALESCE(state,''),
+		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true)=false
+		         OR COALESCE(state,'')='cutover'
+		FROM %s.product_bom_spec_migrations
+		WHERE product_id=ANY($1::bigint[])
+	`, r.schema), productIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var productID int64
+		var authority productBOMSpecAuthority
+		if err := rows.Scan(&productID, &authority.MigrationState, &authority.BomSpecAuthoritative); err != nil {
+			return nil, err
+		}
+		result[productID] = authority
+	}
+	return result, rows.Err()
+}
+
+type cutoverProductBOMSpec struct {
+	ParentProductID      int64
+	BomID                int64
+	BomVersionID         int64
+	BomVersionNo         string
+	BomSpecID            int64
+	BomVariantID         int64
+	SpecCode             string
+	Barcode              string
+	SpecKey              string
+	SpecName             string
+	InventoryUnit        string
+	MigrationState       string
+	BomSpecAuthoritative bool
+	ProcessRouteID       int64
+	IsDefault            bool
+	SortOrder            int
+}
+
+func (r Repository) loadCutoverProductBOMSpecs(ctx context.Context) ([]cutoverProductBOMSpec, error) {
+	for _, relation := range []string{
+		"product_bom_spec_migrations",
+		"production_bom_output_bindings",
+		"production_bom_versions",
+		"production_bom_specs",
+		"production_bom_version_variants",
+	} {
+		var exists bool
+		if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", r.schema, relation)).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if !exists {
+			return []cutoverProductBOMSpec{}, nil
+		}
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT migration.product_id,
+		       binding.bom_id,
+		       version.id,
+		       COALESCE(version.version_no,''),
+		       spec.id,
+		       variant.id,
+		       COALESCE(spec.code,''),
+		       COALESCE(spec.barcode,''),
+		       COALESCE(spec.spec_key,''),
+		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
+		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
+		       migration.state,
+		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false OR migration.state='cutover',
+		       COALESCE(variant.process_route_id,0),
+		       variant.is_default,
+		       variant.sort_order
+		FROM %[1]s.product_bom_spec_migrations migration
+		JOIN %[1]s.products parent_product
+		  ON parent_product.id=migration.product_id
+		 AND parent_product.active=true
+		JOIN %[1]s.production_bom_output_bindings binding
+		  ON binding.output_type='product'
+		 AND binding.output_id=migration.product_id
+		 AND binding.is_default=true
+		JOIN %[1]s.production_bom_versions version
+		  ON version.id=binding.bom_version_id
+		 AND version.bom_id=binding.bom_id
+		 AND version.status='published'
+		JOIN %[1]s.production_bom_specs spec
+		  ON spec.bom_id=binding.bom_id
+		JOIN %[1]s.production_bom_version_variants variant
+		  ON variant.version_id=version.id
+		 AND variant.bom_spec_id=spec.id
+		WHERE migration.state='cutover'
+		   OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false
+		ORDER BY migration.product_id,variant.sort_order,spec.spec_key,spec.id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]cutoverProductBOMSpec, 0)
+	for rows.Next() {
+		var row cutoverProductBOMSpec
+		if err := rows.Scan(
+			&row.ParentProductID,
+			&row.BomID,
+			&row.BomVersionID,
+			&row.BomVersionNo,
+			&row.BomSpecID,
+			&row.BomVariantID,
+			&row.SpecCode,
+			&row.Barcode,
+			&row.SpecKey,
+			&row.SpecName,
+			&row.InventoryUnit,
+			&row.MigrationState,
+			&row.BomSpecAuthoritative,
+			&row.ProcessRouteID,
+			&row.IsDefault,
+			&row.SortOrder,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func applyCutoverProductBOMSpecs(inputs []domain.ProductInput, specs []cutoverProductBOMSpec) []domain.ProductInput {
+	if len(specs) == 0 {
+		return inputs
+	}
+	specsByParent := map[int64][]cutoverProductBOMSpec{}
+	defaultByParent := map[int64]int64{}
+	for _, spec := range specs {
+		if spec.ParentProductID <= 0 || spec.BomSpecID <= 0 || spec.BomVariantID <= 0 || strings.TrimSpace(spec.InventoryUnit) == "" {
+			continue
+		}
+		specsByParent[spec.ParentProductID] = append(specsByParent[spec.ParentProductID], spec)
+		if spec.IsDefault {
+			defaultByParent[spec.ParentProductID] = spec.BomSpecID
+		}
+	}
+	if len(specsByParent) == 0 {
+		return inputs
+	}
+	basesByParent := map[int64][]domain.ProductInput{}
+	out := make([]domain.ProductInput, 0, len(inputs)+len(specs))
+	for _, input := range inputs {
+		parentID := input.EffectiveParentProductID
+		if parentID <= 0 {
+			parentID = input.ParentProductID
+		}
+		if parentID <= 0 {
+			parentID = input.ProductID
+		}
+		if _, cutover := specsByParent[parentID]; !cutover {
+			out = append(out, input)
+			continue
+		}
+		if input.ProductID == parentID && input.ParentProductID <= 0 {
+			basesByParent[parentID] = append([]domain.ProductInput{input}, basesByParent[parentID]...)
+		} else {
+			basesByParent[parentID] = append(basesByParent[parentID], input)
+		}
+	}
+	parentIDs := make([]int64, 0, len(specsByParent))
+	for parentID := range specsByParent {
+		parentIDs = append(parentIDs, parentID)
+	}
+	sort.Slice(parentIDs, func(i, j int) bool { return parentIDs[i] < parentIDs[j] })
+	for _, parentID := range parentIDs {
+		bases := basesByParent[parentID]
+		if len(bases) == 0 {
+			continue
+		}
+		// Preserve each customer/alias scope that survived the base query, but
+		// never preserve one row per retired child SKU.
+		baseByScope := map[string]domain.ProductInput{}
+		for _, base := range bases {
+			key := fmt.Sprintf("%d:%d", base.CustomerID, base.CustomerProductAliasID)
+			if _, exists := baseByScope[key]; !exists || (base.ProductID == parentID && base.ParentProductID <= 0) {
+				baseByScope[key] = base
+			}
+		}
+		scopeKeys := make([]string, 0, len(baseByScope))
+		for key := range baseByScope {
+			scopeKeys = append(scopeKeys, key)
+		}
+		sort.Strings(scopeKeys)
+		for _, scopeKey := range scopeKeys {
+			base := baseByScope[scopeKey]
+			for _, spec := range specsByParent[parentID] {
+				row := base
+				migrationState := strings.TrimSpace(spec.MigrationState)
+				if migrationState == "" {
+					migrationState = "cutover"
+				}
+				row.ProductID = parentID
+				row.SKUID = 0
+				row.ParentProductID = parentID
+				row.EffectiveParentProductID = parentID
+				row.BomSpecID = spec.BomSpecID
+				row.BomVariantID = spec.BomVariantID
+				row.BomID = spec.BomID
+				row.DefaultBOMSpecID = defaultByParent[parentID]
+				row.MigrationState = migrationState
+				row.SpecIdentityMode = "bom_spec"
+				row.BomSpecAuthoritative = spec.BomSpecAuthoritative || migrationState == "cutover"
+				row.SpecCode = strings.TrimSpace(spec.SpecCode)
+				row.SpecBarcode = strings.TrimSpace(spec.Barcode)
+				row.SKUCode = row.SpecCode
+				row.Barcode = row.SpecBarcode
+				row.SpecSortOrder = spec.SortOrder
+				row.SpecPublished = true
+				row.SKUName = strings.TrimSpace(spec.SpecName)
+				row.SpecKey = strings.TrimSpace(spec.SpecKey)
+				row.SpecLabel = strings.TrimSpace(spec.SpecName)
+				row.IsDefaultSKU = spec.IsDefault
+				row.DefaultSKUID = 0
+				row.InventoryUnit = strings.TrimSpace(spec.InventoryUnit)
+				row.QuoteUnit = row.InventoryUnit
+				row.OrderUnit = row.InventoryUnit
+				conversion, _ := json.Marshal(map[string]map[string]float64{row.InventoryUnit: {row.InventoryUnit: 1}})
+				row.UnitConversionJSON = string(conversion)
+				row.BomVersionID = spec.BomVersionID
+				row.BomVersionNo = spec.BomVersionNo
+				row.BomUsageMode = "production_bom_output"
+				row.ProcessRouteID = spec.ProcessRouteID
+				out = append(out, row)
+			}
+		}
+	}
+	return out
+}
+
+func applyResolvedProductionBomCosts(inputs []domain.ProductInput, costs map[int64]productionBomResolvedCost) []domain.ProductInput {
+	for i := range inputs {
+		input := &inputs[i]
+		resolvedCost, ok := productionBomCostForProduct(costs, input.ProductID, input.ParentProductID, input.BomSpecID)
+		if input.BomVersionID > 0 && ok && resolvedCost.VersionID != input.BomVersionID {
+			ok = false
+		}
+		if input.BomSpecID > 0 {
+			// A cutover row is priced only from its own immutable BOM specification.
+			// Never carry the parent query's aggregate/legacy unit cost into every
+			// specification row.
+			input.BomCostPerUnit = 0
+			input.OperationCostPerUnit = 0
+			input.OperationCostPerKg = 0
+			if !ok || !resolvedCost.Resolved {
+				input.Warnings = append(input.Warnings, "BOM规格成本无法完整解析：请检查该规格的物料价格、明确组件规格、工艺路线和循环引用")
+				continue
+			}
+			input.BomCostPerUnit = resolvedCost.InputCostPerOutputUnit
+			input.OperationCostPerUnit = resolvedCost.OperationCostPerOutputUnit
+			continue
+		}
+		if !ok || (!resolvedCost.HasProductComponent && !resolvedCost.HasManufacturedMaterialComponent) || productionBomCostMassKgFactor(resolvedCost.OutputUnit) > 0 {
+			continue
+		}
+		if !resolvedCost.Resolved {
+			input.BomCostPerUnit = 0
+			input.OperationCostPerUnit = 0
+			input.OperationCostPerKg = 0
+			input.Warnings = append(input.Warnings, "递归组件成本无法完整解析：请检查组件商品或物料的默认已发布生产 BOM、物料价格、BOM 原料损耗和循环引用")
+			continue
+		}
+		input.BomCostPerUnit = resolvedCost.InputCostPerOutputUnit
+		input.OperationCostPerUnit = resolvedCost.OperationCostPerOutputUnit
+		input.OperationCostPerKg = 0
+	}
+	return inputs
 }
 
 func productPriceSnapshotsFromJSON(raw string) []domain.ProductPriceSnapshot {
@@ -3268,12 +3887,24 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 		    retail_price_250g=$6
 		WHERE id=$1`, r.schema)
 	deleteTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1`, r.schema)
+	deleteLegacyTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1 AND COALESCE(bom_spec_id,0)=0`, r.schema)
+	deleteSpecTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1 AND bom_spec_id=$2`, r.schema)
 	insertTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
 		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true,$7,'weight','',0,$8::jsonb)`, r.schema)
+	insertSpecTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
+		(product_id,bom_spec_id,bom_variant_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$5,$6,$8,true,$9,'weight','',0,$10::jsonb)`, r.schema)
 	insertDripTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
 		VALUES($1,$2,$3,$4,$5,NULL,NULL,NULL,true,$6,'unit',$7,$8,$9::jsonb)`, r.schema)
+	insertSpecDripTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
+		(product_id,bom_spec_id,bom_variant_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json)
+		VALUES($1,$2,$3,$4,$5,$6,$7,NULL,NULL,NULL,true,$8,'unit',$9,$10,$11::jsonb)`, r.schema)
+	tierSpecIdentityEnabled, err := productPriceTierSpecIdentityEnabled(ctx, tx, r.schema)
+	if err != nil {
+		return err
+	}
 	publishedProducts := 0
 	for _, item := range items {
 		if item.ProductID <= 0 {
@@ -3288,10 +3919,24 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 		} else if len(item.WholesaleKgPrices) > 0 {
 			defaultPrice = item.WholesaleKgPrices[0]
 		}
-		if _, err := tx.Exec(ctx, updateProduct, item.ProductID, defaultPrice, item.Retail100gPrice, item.Retail200gPrice, item.Retail227gPrice, item.Retail250gPrice); err != nil {
-			return err
+		isSpecPrice := item.BomSpecID > 0
+		if isSpecPrice && !tierSpecIdentityEnabled {
+			return fmt.Errorf("product_price_tiers BOM specification identity schema is unavailable")
 		}
-		if _, err := tx.Exec(ctx, deleteTiers, item.ProductID); err != nil {
+		if !isSpecPrice || item.IsDefaultSKU {
+			if _, err := tx.Exec(ctx, updateProduct, item.ProductID, defaultPrice, item.Retail100gPrice, item.Retail200gPrice, item.Retail227gPrice, item.Retail250gPrice); err != nil {
+				return err
+			}
+		}
+		if isSpecPrice {
+			if _, err := tx.Exec(ctx, deleteSpecTiers, item.ProductID, item.BomSpecID); err != nil {
+				return err
+			}
+		} else if tierSpecIdentityEnabled {
+			if _, err := tx.Exec(ctx, deleteLegacyTiers, item.ProductID); err != nil {
+				return err
+			}
+		} else if _, err := tx.Exec(ctx, deleteTiers, item.ProductID); err != nil {
 			return err
 		}
 		if item.ProductKind == "drip_bag" {
@@ -3311,13 +3956,23 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 					boxBagCount = 10
 				}
 				source := dripPriceSourceJSON(tier, bagGrams, boxBagCount)
-				if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams)), tier.MinBags, tier.MaxBags, tier.PackedPricePerBag, item.ProductKind, "bag", 1, source); err != nil {
+				if isSpecPrice {
+					source = priceSourceWithBOMSpec(source, item.BomSpecID, item.BomVariantID)
+					if _, err := tx.Exec(ctx, insertSpecDripTier, item.ProductID, item.BomSpecID, item.BomVariantID, int64(math.Round(bagGrams)), tier.MinBags, tier.MaxBags, tier.PackedPricePerBag, item.ProductKind, "bag", 1, source); err != nil {
+						return err
+					}
+				} else if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams)), tier.MinBags, tier.MaxBags, tier.PackedPricePerBag, item.ProductKind, "bag", 1, source); err != nil {
 					return err
 				}
 				minBoxes := dripBoxMinQty(tier.MinBags, boxBagCount)
 				maxBoxes := dripBoxMaxQty(tier.MaxBags, boxBagCount)
 				boxSource := dripPriceSourceJSON(tier, bagGrams, boxBagCount)
-				if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams))*int64(boxBagCount), minBoxes, maxBoxes, tier.PackedPricePerBag*float64(boxBagCount), item.ProductKind, "box", boxBagCount, boxSource); err != nil {
+				if isSpecPrice {
+					boxSource = priceSourceWithBOMSpec(boxSource, item.BomSpecID, item.BomVariantID)
+					if _, err := tx.Exec(ctx, insertSpecDripTier, item.ProductID, item.BomSpecID, item.BomVariantID, int64(math.Round(bagGrams))*int64(boxBagCount), minBoxes, maxBoxes, tier.PackedPricePerBag*float64(boxBagCount), item.ProductKind, "box", boxBagCount, boxSource); err != nil {
+						return err
+					}
+				} else if _, err := tx.Exec(ctx, insertDripTier, item.ProductID, int64(math.Round(bagGrams))*int64(boxBagCount), minBoxes, maxBoxes, tier.PackedPricePerBag*float64(boxBagCount), item.ProductKind, "box", boxBagCount, boxSource); err != nil {
 					return err
 				}
 			}
@@ -3341,7 +3996,12 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 				}
 				pricePerLb := pricePerUnit * 454.0 / float64(specG)
 				source := commercialPriceSourceJSON(tier)
-				if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb, firstNonEmptyString(item.ProductKind, "roasted_bean"), source); err != nil {
+				if isSpecPrice {
+					source = priceSourceWithBOMSpec(source, item.BomSpecID, item.BomVariantID)
+					if _, err := tx.Exec(ctx, insertSpecTier, item.ProductID, item.BomSpecID, item.BomVariantID, specG, minQty, maxQty, pricePerUnit, pricePerLb, firstNonEmptyString(item.ProductKind, "roasted_bean"), source); err != nil {
+						return err
+					}
+				} else if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb, firstNonEmptyString(item.ProductKind, "roasted_bean"), source); err != nil {
 					return err
 				}
 			}
@@ -3386,6 +4046,36 @@ func commercialPriceSourceJSON(tier domain.CommercialWholesaleTier) string {
 		"margin_rate":      tier.MarginRate,
 	})
 	return string(b)
+}
+
+func priceSourceWithBOMSpec(source string, bomSpecID, bomVariantID int64) string {
+	if bomSpecID <= 0 {
+		return source
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(source), &payload); err != nil {
+		payload = map[string]any{}
+	}
+	payload["bom_spec_id"] = bomSpecID
+	if bomVariantID > 0 {
+		payload["bom_variant_id"] = bomVariantID
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return source
+	}
+	return string(b)
+}
+
+func productPriceTierSpecIdentityEnabled(ctx context.Context, tx pgx.Tx, schema string) (bool, error) {
+	var count int
+	err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)::int
+		FROM information_schema.columns
+		WHERE table_schema=$1 AND table_name='product_price_tiers'
+		  AND column_name IN ('bom_spec_id','bom_variant_id')
+	`, schema).Scan(&count)
+	return count == 2, err
 }
 
 func firstNonEmptyString(values ...string) string {

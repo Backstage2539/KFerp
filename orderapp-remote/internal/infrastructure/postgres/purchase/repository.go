@@ -21,6 +21,31 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
 
+func (r Repository) WithMaterialPurchaseLock(ctx context.Context, materialID int64, fn func(context.Context) (purchaseapp.PurchaseReceipt, error)) (purchaseapp.PurchaseReceipt, error) {
+	if materialID <= 0 {
+		return purchaseapp.PurchaseReceipt{}, fmt.Errorf("material required")
+	}
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return purchaseapp.PurchaseReceipt{}, err
+	}
+	lockKey := fmt.Sprintf("%s:material-manufacture-only:%d", r.schema, materialID)
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1,0))`, lockKey); err != nil {
+		conn.Release()
+		return purchaseapp.PurchaseReceipt{}, err
+	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var unlocked bool
+		if err := conn.QueryRow(unlockCtx, `SELECT pg_advisory_unlock(hashtextextended($1,0))`, lockKey).Scan(&unlocked); err != nil || !unlocked {
+			_ = conn.Conn().Close(unlockCtx)
+		}
+		conn.Release()
+	}()
+	return fn(ctx)
+}
+
 func (r Repository) ListSuppliers(ctx context.Context) ([]purchaseapp.Supplier, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,name,contact,phone,address,active
@@ -101,6 +126,9 @@ func (r Repository) CreatePurchaseOrder(ctx context.Context, cmd purchaseapp.Cre
 		return purchaseapp.PurchaseOrder{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := r.assertMaterialPurchasableTx(ctx, tx, cmd.MaterialID); err != nil {
+		return purchaseapp.PurchaseOrder{}, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.purchase_orders IN SHARE ROW EXCLUSIVE MODE", r.schema)); err != nil {
 		return purchaseapp.PurchaseOrder{}, err
 	}
@@ -155,6 +183,9 @@ func (r Repository) CreatePurchaseReceipt(ctx context.Context, cmd purchaseapp.C
 		return purchaseapp.PurchaseReceipt{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := r.assertMaterialPurchasableTx(ctx, tx, cmd.MaterialID); err != nil {
+		return purchaseapp.PurchaseReceipt{}, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s.purchase_receipts IN SHARE ROW EXCLUSIVE MODE", r.schema)); err != nil {
 		return purchaseapp.PurchaseReceipt{}, err
 	}
@@ -184,8 +215,47 @@ func (r Repository) CreatePurchaseReceipt(ctx context.Context, cmd purchaseapp.C
 }
 
 func (r Repository) UpdateMaterialPurchasePrice(ctx context.Context, materialID int64, unitCost float64) error {
-	_, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET purchase_price=$2,updated_at=now() WHERE id=$1`, r.schema), materialID, unitCost)
-	return err
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := r.assertMaterialPurchasableTx(ctx, tx, materialID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET purchase_price=$2,updated_at=now() WHERE id=$1`, r.schema), materialID, unitCost); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) assertMaterialPurchasableTx(ctx context.Context, tx pgx.Tx, materialID int64) error {
+	var hasSemiFinishedColumn bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name='materials' AND column_name='is_semi_finished'
+		)
+	`, r.schema).Scan(&hasSemiFinishedColumn); err != nil {
+		return err
+	}
+	if !hasSemiFinishedColumn {
+		return nil
+	}
+	var isSemiFinished bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(is_semi_finished,false)
+		FROM %s.materials WHERE id=$1 FOR UPDATE
+	`, r.schema), materialID).Scan(&isSemiFinished); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("material not found")
+		}
+		return err
+	}
+	if isSemiFinished {
+		return fmt.Errorf("半成品只能通过生产入库，不能采购或采购收货")
+	}
+	return nil
 }
 
 func nextNo(ctx context.Context, tx pgx.Tx, schema, table, column, prefix string) (string, error) {

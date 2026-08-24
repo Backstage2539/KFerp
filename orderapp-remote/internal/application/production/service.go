@@ -143,6 +143,8 @@ type StartCommand struct {
 type StartNeed struct {
 	ProductID                int64
 	ParentProductID          int64
+	BomSpecID                int64
+	BomVariantID             int64
 	ProductName              string
 	SpecLabel                string
 	SalesUnit                string
@@ -230,6 +232,9 @@ type RoastMachineCommand struct {
 type UnprodNeedRow struct {
 	ProductID                         int64   `json:"product_id"`
 	ParentProductID                   int64   `json:"parent_product_id"`
+	BomSpecID                         int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID                      int64   `json:"bom_variant_id,omitempty"`
+	SelectionKey                      string  `json:"selection_key"`
 	Product                           string  `json:"product"`
 	OrderNos                          string  `json:"order_nos"`
 	SpecLabel                         string  `json:"spec_label"`
@@ -428,6 +433,8 @@ type ProductionPlanItem struct {
 	OutputName                   string  `json:"output_name"`
 	OutputQty                    float64 `json:"output_qty"`
 	OutputUnit                   string  `json:"output_unit"`
+	BomSpecID                    int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID                 int64   `json:"bom_variant_id,omitempty"`
 	ProductID                    int64   `json:"product_id"`
 	ParentProductID              int64   `json:"parent_product_id"`
 	BomSourceProductID           int64   `json:"bom_source_product_id"`
@@ -800,6 +807,8 @@ type WorkOrderRow struct {
 	OutputName                string                   `json:"output_name"`
 	OutputQty                 float64                  `json:"output_qty"`
 	OutputUnit                string                   `json:"output_unit"`
+	BomSpecID                 int64                    `json:"bom_spec_id,omitempty"`
+	BomVariantID              int64                    `json:"bom_variant_id,omitempty"`
 	HasUnfinishedDependencies bool                     `json:"has_unfinished_dependencies"`
 	DependencyBlockingReason  string                   `json:"dependency_blocking_reason,omitempty"`
 	UpstreamWorkOrderIDs      []int64                  `json:"upstream_work_order_ids,omitempty"`
@@ -1393,6 +1402,8 @@ type StockDocumentPreview struct {
 type StockEntryItemCommand struct {
 	MaterialID    int64   `json:"material_id"`
 	ProductID     int64   `json:"product_id"`
+	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
 	ItemType      string  `json:"item_type"`
 	ItemName      string  `json:"item_name"`
 	SpecG         int64   `json:"spec_g"`
@@ -1443,6 +1454,8 @@ type StockEntryItemRow struct {
 	StockEntryID  int64   `json:"stock_entry_id"`
 	MaterialID    int64   `json:"material_id"`
 	ProductID     int64   `json:"product_id"`
+	BomSpecID     int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID  int64   `json:"bom_variant_id,omitempty"`
 	ItemType      string  `json:"item_type"`
 	ItemName      string  `json:"item_name"`
 	SpecG         int64   `json:"spec_g"`

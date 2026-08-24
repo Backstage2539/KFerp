@@ -16,6 +16,9 @@ import (
 type UnprodNeedRow struct {
 	ProductID                int64   `json:"product_id"`
 	ParentProductID          int64   `json:"parent_product_id"`
+	BomSpecID                int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID             int64   `json:"bom_variant_id,omitempty"`
+	SelectionKey             string  `json:"selection_key"`
 	Product                  string  `json:"product"`
 	OrderNos                 string  `json:"order_nos"`
 	SpecLabel                string  `json:"spec_label"`
@@ -127,6 +130,8 @@ type productionDemand struct {
 type productionQuantitySnapshot struct {
 	SKUID                    int64   `json:"sku_id"`
 	ParentProductID          int64   `json:"parent_product_id"`
+	BomSpecID                int64   `json:"bom_spec_id,omitempty"`
+	BomVariantID             int64   `json:"bom_variant_id,omitempty"`
 	SpecLabel                string  `json:"spec_label"`
 	SalesUnit                string  `json:"sales_unit"`
 	InventoryUnit            string  `json:"inventory_unit"`
@@ -143,6 +148,8 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 	q := fmt.Sprintf(`
 		SELECT
 			oi.product_id,
+			COALESCE(oi.bom_spec_id,0),
+			COALESCE(oi.bom_variant_id,0),
 			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END AS parent_product_id,
 			COALESCE(p.name,'') AS product,
 			COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean') AS production_kind,
@@ -163,10 +170,10 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			(COALESCE(osd.decision,'')='produce'),
 			COALESCE(oi.price_source_json,'{}'::jsonb)::text,
 			COALESCE(NULLIF(oi.sales_unit,''),NULLIF(oi.unit,''),''),
-			COALESCE(NULLIF(p.spec_label,''),NULLIF(p.sku_name,''),NULLIF(p.derived_spec_name,''),''),
+			COALESCE(NULLIF(bom_variant.spec_name_snapshot,''),NULLIF(bom_spec.name,''),NULLIF(p.spec_label,''),NULLIF(p.sku_name,''),NULLIF(p.derived_spec_name,''),''),
 			COALESCE(p.net_content_qty,0)::float8,
 			COALESCE(p.net_content_unit,''),
-			COALESCE(CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN
+			COALESCE(NULLIF(bom_variant.inventory_unit,''),NULLIF(bom_spec.inventory_unit,''),CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN
 				COALESCE(
 					NULLIF(parent_product.unit_rule_override_json->>'inventory_unit',''),
 					NULLIF(parent_product_unit_template.inventory_unit,''),
@@ -186,6 +193,9 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 		FROM %s.order_items oi
 		JOIN %s.orders o ON o.id=oi.order_id
 		JOIN %s.products p ON p.id=oi.product_id
+		LEFT JOIN %s.production_bom_specs bom_spec ON bom_spec.id=oi.bom_spec_id
+		LEFT JOIN %s.production_bom_version_variants bom_variant
+		  ON bom_variant.id=oi.bom_variant_id AND bom_variant.bom_spec_id=bom_spec.id
 		LEFT JOIN %s.products parent_product ON parent_product.id=p.parent_product_id
 		LEFT JOIN %s.product_unit_templates parent_product_unit_template ON parent_product_unit_template.id=parent_product.unit_template_id
 		LEFT JOIN %s.product_config_templates parent_product_config ON parent_product_config.id=parent_product.product_config_template_id
@@ -207,7 +217,7 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 		LEFT JOIN %s.order_stock_decisions osd ON osd.order_id=o.id
 		%s
 		ORDER BY oi.product_id,o.order_no,oi.id
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, where)
+	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, where)
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -218,7 +228,7 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 	order := make([]string, 0)
 	for rows.Next() {
 		var (
-			productID, parentProductID                                           int64
+			productID, parentProductID, bomSpecID, bomVariantID                  int64
 			product, productionKind, typeName, subtypeName, orderNo              string
 			typeID, subtypeID, operationTemplateID                               int64
 			qty                                                                  float64
@@ -227,7 +237,7 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			netContentQty                                                        float64
 		)
 		if err := rows.Scan(
-			&productID, &parentProductID, &product, &productionKind,
+			&productID, &bomSpecID, &bomVariantID, &parentProductID, &product, &productionKind,
 			&typeID, &subtypeID, &typeName, &subtypeName, &operationTemplateID,
 			&orderNo, &qty, &forceProduce, &priceSourceJSON, &salesUnit, &specLabel,
 			&netContentQty, &netContentUnit, &inventoryUnit,
@@ -235,7 +245,7 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			return nil, err
 		}
 		snapshot, snapshotJSON, err := resolveProductionQuantitySnapshot(
-			productID, parentProductID, priceSourceJSON, salesUnit, specLabel,
+			productID, parentProductID, bomSpecID, bomVariantID, priceSourceJSON, salesUnit, specLabel,
 			netContentQty, netContentUnit, inventoryUnit,
 		)
 		if err != nil {
@@ -250,6 +260,8 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 				"blocked",
 				strconv.FormatInt(productID, 10),
 				strconv.FormatInt(parentProductID, 10),
+				strconv.FormatInt(bomSpecID, 10),
+				strconv.FormatInt(bomVariantID, 10),
 				strings.TrimSpace(orderNo),
 				strings.TrimSpace(specLabel),
 				strings.TrimSpace(salesUnit),
@@ -259,7 +271,9 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 			if demand == nil {
 				demand = &productionDemand{
 					UnprodNeedRow: UnprodNeedRow{
-						ProductID: productID, ParentProductID: parentProductID, Product: product,
+						ProductID: productID, ParentProductID: parentProductID,
+						BomSpecID: bomSpecID, BomVariantID: bomVariantID,
+						SelectionKey: productionDemandSelectionKey(productID, bomSpecID, 0), Product: product,
 						ProductionKind: productionKind, ProductTypeCategoryID: typeID,
 						ProductSubtypeCategoryID: subtypeID, ProductTypeName: typeName,
 						ProductSubtypeName: subtypeName, OperationTemplateID: operationTemplateID,
@@ -286,7 +300,9 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 		if demand == nil {
 			demand = &productionDemand{
 				UnprodNeedRow: UnprodNeedRow{
-					ProductID: productID, ParentProductID: snapshot.ParentProductID, Product: product,
+					ProductID: productID, ParentProductID: snapshot.ParentProductID,
+					BomSpecID: snapshot.BomSpecID, BomVariantID: snapshot.BomVariantID,
+					SelectionKey: productionDemandSelectionKey(productID, snapshot.BomSpecID, 0), Product: product,
 					ProductionKind: productionKind, ProductTypeCategoryID: typeID,
 					ProductSubtypeCategoryID: subtypeID, ProductTypeName: typeName,
 					ProductSubtypeName: subtypeName, OperationTemplateID: operationTemplateID,
@@ -296,7 +312,10 @@ func fetchSalesOrderProductionDemands(ctx context.Context, pool productionDemand
 				},
 				orderNos: map[string]bool{},
 			}
-			demand.SpecG = productiondomain.InventoryQuantityToLegacyGrams(snapshot.InventoryQtyPerSalesUnit, snapshot.InventoryUnit)
+			if snapshot.BomSpecID == 0 {
+				demand.SpecG = productiondomain.InventoryQuantityToLegacyGrams(snapshot.InventoryQtyPerSalesUnit, snapshot.InventoryUnit)
+				demand.SelectionKey = productionDemandSelectionKey(productID, 0, demand.SpecG)
+			}
 			bySnapshot[groupKey] = demand
 			order = append(order, groupKey)
 		}
@@ -318,6 +337,8 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 	q := fmt.Sprintf(`
 		SELECT
 			d.product_id,
+			COALESCE(NULLIF(to_jsonb(d)->>'bom_spec_id','')::bigint,0),
+			COALESCE(NULLIF(to_jsonb(d)->>'bom_variant_id','')::bigint,0),
 			CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.parent_product_id ELSE p.id END,
 			COALESCE(NULLIF(d.product_name,''),p.name,''),
 			COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),
@@ -334,6 +355,8 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 				0
 			),
 			COALESCE(d.request_no,''),
+			COALESCE(to_jsonb(d)->>'spec_name',''),
+			COALESCE(to_jsonb(d)->>'inventory_unit',''),
 			COALESCE(d.spec_g,0),
 			COALESCE(d.target_qty,0)::float8,
 			COALESCE(d.customer_id,0),
@@ -364,29 +387,46 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 	order := make([]string, 0)
 	for rows.Next() {
 		var (
-			productID, parentProductID, typeID, subtypeID, operationTemplateID, specG int64
-			customerID, requestItemID                                                 int64
-			product, productionKind, typeName, subtypeName, requestNo                 string
-			targetWarehouse                                                           string
-			qty                                                                       float64
+			productID, bomSpecID, bomVariantID, parentProductID                      int64
+			typeID, subtypeID, operationTemplateID, specG, customerID, requestItemID int64
+			product, productionKind, typeName, subtypeName, requestNo                string
+			specName, inventoryUnit, targetWarehouse                                 string
+			qty                                                                      float64
 		)
 		if err := rows.Scan(
-			&productID, &parentProductID, &product, &productionKind, &typeID, &subtypeID,
-			&typeName, &subtypeName, &operationTemplateID, &requestNo, &specG, &qty,
+			&productID, &bomSpecID, &bomVariantID, &parentProductID, &product, &productionKind, &typeID, &subtypeID,
+			&typeName, &subtypeName, &operationTemplateID, &requestNo, &specName, &inventoryUnit, &specG, &qty,
 			&customerID, &targetWarehouse, &requestItemID,
 		); err != nil {
 			return nil, err
 		}
-		if specG <= 0 || qty <= 0 {
+		if qty <= 0 {
 			continue
 		}
-		snapshot := productionQuantitySnapshot{
-			SKUID: productID, ParentProductID: parentProductID,
-			SpecLabel: fmt.Sprintf("%dg", specG), SalesUnit: fmt.Sprintf("%dg", specG),
-			InventoryUnit: "kg", InventoryQtyPerSalesUnit: float64(specG) / 1000,
-			ConversionSource: "customer_processing_spec_g",
-			CustomerID:       customerID, TargetWarehouse: strings.TrimSpace(targetWarehouse),
-			ProcessingRequestItemID: requestItemID,
+		canonicalBOMSpec := bomSpecID > 0 || bomVariantID > 0
+		var snapshot productionQuantitySnapshot
+		if canonicalBOMSpec {
+			if bomSpecID <= 0 || bomVariantID <= 0 || specG != 0 || strings.TrimSpace(inventoryUnit) == "" {
+				return nil, fmt.Errorf("customer processing BOM specification identity is incomplete")
+			}
+			snapshot = productionQuantitySnapshot{
+				SKUID: productID, ParentProductID: parentProductID, BomSpecID: bomSpecID, BomVariantID: bomVariantID,
+				SpecLabel: firstNonEmpty(strings.TrimSpace(specName), "BOM spec"),
+				SalesUnit: strings.TrimSpace(inventoryUnit), InventoryUnit: strings.TrimSpace(inventoryUnit),
+				InventoryQtyPerSalesUnit: 1, ConversionSource: "customer_processing_bom_spec_identity",
+				CustomerID: customerID, TargetWarehouse: strings.TrimSpace(targetWarehouse), ProcessingRequestItemID: requestItemID,
+			}
+		} else {
+			if specG <= 0 {
+				continue
+			}
+			snapshot = productionQuantitySnapshot{
+				SKUID: productID, ParentProductID: parentProductID,
+				SpecLabel: fmt.Sprintf("%dg", specG), SalesUnit: fmt.Sprintf("%dg", specG),
+				InventoryUnit: "kg", InventoryQtyPerSalesUnit: float64(specG) / 1000,
+				ConversionSource: "customer_processing_spec_g",
+				CustomerID:       customerID, TargetWarehouse: strings.TrimSpace(targetWarehouse), ProcessingRequestItemID: requestItemID,
+			}
 		}
 		groupKey := productionQuantitySnapshotGroupKey(snapshot)
 		demand := bySnapshot[groupKey]
@@ -394,7 +434,8 @@ func fetchCustomerProcessingProductionDemands(ctx context.Context, pool producti
 			raw, _ := json.Marshal(snapshot)
 			demand = &productionDemand{
 				UnprodNeedRow: UnprodNeedRow{
-					ProductID: productID, ParentProductID: parentProductID, Product: product,
+					ProductID: productID, ParentProductID: parentProductID, BomSpecID: bomSpecID, BomVariantID: bomVariantID,
+					SelectionKey: productionDemandSelectionKey(productID, bomSpecID, specG), Product: product,
 					ProductionKind: productionKind, ProductTypeCategoryID: typeID,
 					ProductSubtypeCategoryID: subtypeID, ProductTypeName: typeName,
 					ProductSubtypeName: subtypeName, OperationTemplateID: operationTemplateID,
@@ -438,6 +479,8 @@ func productionQuantitySnapshotGroupKey(snapshot productionQuantitySnapshot) str
 	return strings.Join([]string{
 		strconv.FormatInt(snapshot.SKUID, 10),
 		strconv.FormatInt(snapshot.ParentProductID, 10),
+		strconv.FormatInt(snapshot.BomSpecID, 10),
+		strconv.FormatInt(snapshot.BomVariantID, 10),
 		strings.TrimSpace(snapshot.SpecLabel),
 		strings.TrimSpace(snapshot.SalesUnit),
 		normalizeProductionQuantityUnit(snapshot.InventoryUnit),
@@ -449,11 +492,36 @@ func productionQuantitySnapshotGroupKey(snapshot productionQuantitySnapshot) str
 	}, "\x1f")
 }
 
+func productionDemandSelectionKey(productID, bomSpecID, specG int64) string {
+	if bomSpecID > 0 {
+		return fmt.Sprintf("product:%d:bom_spec:%d", productID, bomSpecID)
+	}
+	return producePlanKey(productID, specG)
+}
+
 func resolveProductionQuantitySnapshot(
-	productID, parentProductID int64,
+	productID, parentProductID, bomSpecID, bomVariantID int64,
 	priceSourceJSON, orderSalesUnit, catalogSpecLabel string,
 	catalogNetContentQty float64, catalogNetContentUnit, catalogInventoryUnit string,
 ) (productionQuantitySnapshot, string, error) {
+	if bomSpecID > 0 {
+		if bomVariantID <= 0 {
+			return productionQuantitySnapshot{}, "", fmt.Errorf("BOM specification has no frozen version variant")
+		}
+		inventoryUnit := normalizeProductionQuantityUnit(catalogInventoryUnit)
+		if strings.TrimSpace(inventoryUnit) == "" || strings.TrimSpace(catalogSpecLabel) == "" {
+			return productionQuantitySnapshot{}, "", fmt.Errorf("BOM specification identity has no frozen name or inventory unit")
+		}
+		snapshot := productionQuantitySnapshot{
+			SKUID: productID, ParentProductID: parentProductID,
+			BomSpecID: bomSpecID, BomVariantID: bomVariantID,
+			SpecLabel: catalogSpecLabel, SalesUnit: inventoryUnit,
+			InventoryUnit: inventoryUnit, InventoryQtyPerSalesUnit: 1,
+			ConversionSource: "bom_spec_identity",
+		}
+		rawJSON, _ := json.Marshal(snapshot)
+		return snapshot, string(rawJSON), nil
+	}
 	var source map[string]any
 	if strings.TrimSpace(priceSourceJSON) != "" {
 		if err := json.Unmarshal([]byte(priceSourceJSON), &source); err != nil {
@@ -607,7 +675,7 @@ func convertProductionQuantity(qty float64, fromUnit, toUnit string) float64 {
 	if from == to {
 		return qty
 	}
-	toGrams := map[string]float64{"g": 1, "kg": 1000, "lb": 453.59237}
+	toGrams := map[string]float64{"g": 1, "kg": 1000, "lb": 453.59237, "oz": 28.349523125}
 	fromFactor, fromOK := toGrams[from]
 	toFactor, toOK := toGrams[to]
 	if !fromOK || !toOK {
@@ -624,6 +692,8 @@ func normalizeProductionQuantityUnit(unit string) string {
 		return "kg"
 	case "lb", "lbs", "pound", "pounds", "磅":
 		return "lb"
+	case "oz", "ounce", "ounces", "盎司":
+		return "oz"
 	default:
 		return strings.ToLower(strings.TrimSpace(unit))
 	}
@@ -663,9 +733,10 @@ func jsonInt64(value any) int64 {
 }
 
 type finishedInventoryAvailability struct {
-	units    int64
-	looseG   int64
-	reserved int64
+	units         int64
+	looseG        int64
+	reservedG     int64
+	reservedUnits int64
 }
 
 func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, schema string, demands []productionDemand) ([]UnprodNeedRow, error) {
@@ -681,21 +752,43 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 		}
 	}
 	availability := map[string]*finishedInventoryAvailability{}
-	rows, err := pool.Query(ctx, fmt.Sprintf(`
-		SELECT product_id,spec_g,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
-		FROM %s.finished_inventory
-		WHERE product_id=ANY($1) AND warehouse='finished_goods'
-	`, schema), productIDs)
+	hasBomSpecIdentity, err := productionDemandColumnExists(ctx, pool, schema, "finished_inventory", "bom_spec_id")
+	if err != nil {
+		return nil, err
+	}
+	var rows pgx.Rows
+	if hasBomSpecIdentity {
+		rows, err = pool.Query(ctx, fmt.Sprintf(`
+			SELECT product_id,COALESCE(bom_spec_id,0),spec_g,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			FROM %s.finished_inventory
+			WHERE product_id=ANY($1) AND warehouse='finished_goods'
+		`, schema), productIDs)
+	} else {
+		// Isolated legacy repository tests intentionally create the pre-PR-600
+		// table shape. Keep those tests and legacy databases readable while the
+		// normal application schema uses the canonical BOM-spec columns.
+		rows, err = pool.Query(ctx, fmt.Sprintf(`
+			SELECT product_id,spec_g,COALESCE(onhand_units,0),COALESCE(onhand_loose_g,0)
+			FROM %s.finished_inventory
+			WHERE product_id=ANY($1) AND warehouse='finished_goods'
+		`, schema), productIDs)
+	}
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var productID, specG, units, looseG int64
-		if err := rows.Scan(&productID, &specG, &units, &looseG); err != nil {
-			rows.Close()
-			return nil, err
+		var productID, bomSpecID, specG, units, looseG int64
+		var scanErr error
+		if hasBomSpecIdentity {
+			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &units, &looseG)
+		} else {
+			scanErr = rows.Scan(&productID, &specG, &units, &looseG)
 		}
-		availability[fmt.Sprintf("%d-%d", productID, specG)] = &finishedInventoryAvailability{units: units, looseG: looseG}
+		if scanErr != nil {
+			rows.Close()
+			return nil, scanErr
+		}
+		availability[productionDemandSelectionKey(productID, bomSpecID, specG)] = &finishedInventoryAvailability{units: units, looseG: looseG}
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -703,35 +796,74 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	}
 	rows.Close()
 
-	rows, err = pool.Query(ctx, fmt.Sprintf(`
-		SELECT a.product_id,a.spec_g,COALESCE(SUM(a.allocated_g),0)::bigint
-		FROM %s.order_stock_batch_allocations a
-		WHERE a.product_id=ANY($1)
-		  AND NOT EXISTS (
-			SELECT 1 FROM %s.order_stock_deductions d
-			WHERE d.order_id=a.order_id
-			  AND d.product_id=a.product_id
-			  AND d.spec_g=a.spec_g
-			  AND d.batch_code=a.batch_code
-		  )
-		GROUP BY a.product_id,a.spec_g
-	`, schema, schema), productIDs)
+	hasAllocationBomSpec, err := productionDemandColumnExists(ctx, pool, schema, "order_stock_batch_allocations", "bom_spec_id")
+	if err != nil {
+		return nil, err
+	}
+	hasAllocationUnits, err := productionDemandColumnExists(ctx, pool, schema, "order_stock_batch_allocations", "allocated_units")
+	if err != nil {
+		return nil, err
+	}
+	hasDeductionBomSpec, err := productionDemandColumnExists(ctx, pool, schema, "order_stock_deductions", "bom_spec_id")
+	if err != nil {
+		return nil, err
+	}
+	hasBomSpecReservations := hasAllocationBomSpec && hasAllocationUnits && hasDeductionBomSpec
+	if hasBomSpecReservations {
+		rows, err = pool.Query(ctx, fmt.Sprintf(`
+			SELECT a.product_id,COALESCE(a.bom_spec_id,0),a.spec_g,
+			       COALESCE(SUM(a.allocated_g),0)::bigint,
+			       COALESCE(SUM(a.allocated_units),0)::bigint
+			FROM %s.order_stock_batch_allocations a
+			WHERE a.product_id=ANY($1)
+			  AND NOT EXISTS (
+				SELECT 1 FROM %s.order_stock_deductions d
+				WHERE d.order_id=a.order_id
+				  AND d.product_id=a.product_id
+				  AND COALESCE(d.bom_spec_id,0)=COALESCE(a.bom_spec_id,0)
+				  AND d.spec_g=a.spec_g
+				  AND d.batch_code=a.batch_code
+			  )
+			GROUP BY a.product_id,a.bom_spec_id,a.spec_g
+		`, schema, schema), productIDs)
+	} else {
+		rows, err = pool.Query(ctx, fmt.Sprintf(`
+			SELECT a.product_id,a.spec_g,COALESCE(SUM(a.allocated_g),0)::bigint
+			FROM %s.order_stock_batch_allocations a
+			WHERE a.product_id=ANY($1)
+			  AND NOT EXISTS (
+				SELECT 1 FROM %s.order_stock_deductions d
+				WHERE d.order_id=a.order_id
+				  AND d.product_id=a.product_id
+				  AND d.spec_g=a.spec_g
+				  AND d.batch_code=a.batch_code
+			  )
+			GROUP BY a.product_id,a.spec_g
+		`, schema, schema), productIDs)
+	}
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var productID, specG, reserved int64
-		if err := rows.Scan(&productID, &specG, &reserved); err != nil {
-			rows.Close()
-			return nil, err
+		var productID, bomSpecID, specG, reservedG, reservedUnits int64
+		var scanErr error
+		if hasBomSpecReservations {
+			scanErr = rows.Scan(&productID, &bomSpecID, &specG, &reservedG, &reservedUnits)
+		} else {
+			scanErr = rows.Scan(&productID, &specG, &reservedG)
 		}
-		key := fmt.Sprintf("%d-%d", productID, specG)
+		if scanErr != nil {
+			rows.Close()
+			return nil, scanErr
+		}
+		key := productionDemandSelectionKey(productID, bomSpecID, specG)
 		current := availability[key]
 		if current == nil {
 			current = &finishedInventoryAvailability{}
 			availability[key] = current
 		}
-		current.reserved = reserved
+		current.reservedG = reservedG
+		current.reservedUnits = reservedUnits
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -744,6 +876,9 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 		left, right := orderedDemands[i], orderedDemands[j]
 		if left.ProductID != right.ProductID {
 			return left.ProductID < right.ProductID
+		}
+		if left.BomSpecID != right.BomSpecID {
+			return left.BomSpecID < right.BomSpecID
 		}
 		if left.SpecG != right.SpecG {
 			return left.SpecG < right.SpecG
@@ -760,13 +895,18 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	out := make([]UnprodNeedRow, 0, len(orderedDemands))
 	for _, demand := range orderedDemands {
 		row := demand.UnprodNeedRow
+		// Legacy demand does not know its gram identity until the frozen sales
+		// conversion has been resolved. Recompute here as a final guard so old
+		// product_id/spec_g selections keep their historical key while BOM-spec
+		// demand remains keyed by the canonical parent product and specification.
+		row.SelectionKey = productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
 		if strings.TrimSpace(row.BlockingReason) != "" {
 			row.NeedUnits = int64(math.Ceil(demand.SalesSpecCount))
 			row.DemandSelectable = false
 			out = append(out, row)
 			continue
 		}
-		availabilityKey := fmt.Sprintf("%d-%d", row.ProductID, row.SpecG)
+		availabilityKey := productionDemandSelectionKey(row.ProductID, row.BomSpecID, row.SpecG)
 		current := availability[availabilityKey]
 		if current == nil {
 			current = &finishedInventoryAvailability{}
@@ -778,8 +918,8 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 		row.InvLooseG = current.looseG
 		row.InvG = current.units*row.SpecG + current.looseG
 		if _, exists := remainingAvailableG[availabilityKey]; !exists {
-			remainingAvailableG[availabilityKey] = maxInt64(0, row.InvG-current.reserved)
-			remainingAvailableUnits[availabilityKey] = maxInt64(0, current.units)
+			remainingAvailableG[availabilityKey] = maxInt64(0, row.InvG-current.reservedG)
+			remainingAvailableUnits[availabilityKey] = maxInt64(0, current.units-current.reservedUnits)
 		}
 		row.AvailableG = remainingAvailableG[availabilityKey]
 		availableSalesSpecCount := float64(remainingAvailableUnits[availabilityKey])
@@ -823,9 +963,35 @@ func finalizeUnproducedNeeds(ctx context.Context, pool productionDemandQueryer, 
 	return out, nil
 }
 
+func productionDemandColumnExists(ctx context.Context, pool productionDemandQueryer, schema, table, column string) (bool, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema=$1 AND table_name=$2 AND column_name=$3
+		)
+	`, schema, table, column)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return false, err
+		}
+		return false, fmt.Errorf("could not inspect %s.%s.%s", schema, table, column)
+	}
+	var exists bool
+	if err := rows.Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, rows.Err()
+}
+
 func productionQuantitySnapshotFromDemand(demand productionDemand) productionQuantitySnapshot {
 	return productionQuantitySnapshot{
 		SKUID: demand.ProductID, ParentProductID: demand.ParentProductID,
+		BomSpecID: demand.BomSpecID, BomVariantID: demand.BomVariantID,
 		SpecLabel: demand.SpecLabel, SalesUnit: demand.SalesUnit,
 		InventoryUnit: demand.InventoryUnit, InventoryQtyPerSalesUnit: demand.InventoryQtyPerSalesUnit,
 	}

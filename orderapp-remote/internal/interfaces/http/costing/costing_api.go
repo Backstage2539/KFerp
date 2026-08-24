@@ -113,6 +113,38 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.GET("/api/costing/material-cost-trial-options", func(c echo.Context) error {
+		trialSvc, ok := svc.(MaterialCostTrialService)
+		if !ok {
+			return c.JSON(http.StatusNotImplemented, map[string]string{"error": "material cost trial unavailable"})
+		}
+		materialID, err := parseOptionalInt64(c.QueryParam("material_id"))
+		if err != nil || materialID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "material_id required"})
+		}
+		resp, err := trialSvc.MaterialCostTrialOptions(c.Request().Context(), materialID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, resp)
+	})
+
+	e.POST("/api/costing/material-cost-trial", func(c echo.Context) error {
+		trialSvc, ok := svc.(MaterialCostTrialService)
+		if !ok {
+			return c.JSON(http.StatusNotImplemented, map[string]string{"error": "material cost trial unavailable"})
+		}
+		var req appcosting.MaterialCostTrialCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		resp, err := trialSvc.MaterialCostTrial(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, resp)
+	})
+
 	e.POST("/api/costing/pricing-rule-trials", func(c echo.Context) error {
 		var req struct {
 			Requests []appcosting.PricingRuleTrialCommand `json:"requests"`

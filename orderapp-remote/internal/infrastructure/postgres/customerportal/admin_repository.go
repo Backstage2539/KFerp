@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -834,7 +835,8 @@ func nullableERPBinding(customerID int64, employeeID sql.NullInt64, employeeName
 
 func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.MallProduct, []customerportalapp.MallProductOption, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+		SELECT m.id, m.product_id, m.bom_spec_id, m.bom_variant_id, COALESCE(p.name,''), m.spec_name, m.inventory_unit,
+		       COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
 		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
 		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.mall_products m
@@ -849,7 +851,8 @@ func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.M
 	mallRows := make([]customerportalapp.MallProduct, 0)
 	for rows.Next() {
 		var row customerportalapp.MallProduct
-		if err := rows.Scan(&row.ID, &row.ProductID, &row.ProductName, &row.ProductKind, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.ProductName, &row.SpecName, &row.InventoryUnit,
+			&row.ProductKind, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt); err != nil {
 			return nil, nil, err
 		}
 		row.TemplateKey = customerportalapp.NormalizeMallTemplateKey(row.TemplateKey)
@@ -859,40 +862,66 @@ func (r Repository) ListMallProducts(ctx context.Context) ([]customerportalapp.M
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
+	rows.Close()
+	for idx := range mallRows {
+		if mallRows[idx].BomSpecID <= 0 {
+			continue
+		}
+		identity, identityErr := r.resolveMallOutputIdentity(ctx, r.pool, mallRows[idx].ProductID, mallRows[idx].BomSpecID, 0)
+		if identityErr != nil {
+			if errors.Is(identityErr, errMallBOMSpecIdentity) {
+				continue
+			}
+			return nil, nil, identityErr
+		}
+		mallRows[idx].ProductID = identity.ProductID
+		mallRows[idx].BomSpecID = identity.BomSpecID
+		mallRows[idx].BomVariantID = identity.BomVariantID
+		mallRows[idx].SpecName = identity.SpecName
+		mallRows[idx].InventoryUnit = identity.InventoryUnit
+		mallRows[idx].SpecG = 0
+	}
 
-	optionRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(name,''), COALESCE(NULLIF(product_kind,''),'roasted'), COALESCE(default_price,0)
-		FROM %s.products
-		WHERE active=true
-		  AND %s
-		ORDER BY name, id
-	`, r.schema, mallProductPublicCatalogSQL("")))
+	productOptions, err := r.listMallProductOptions(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer optionRows.Close()
-	// product_options for the admin API are returned alongside mall rows.
-	productOptions := make([]customerportalapp.MallProductOption, 0)
-	for optionRows.Next() {
-		var row customerportalapp.MallProductOption
-		if err := optionRows.Scan(&row.ID, &row.Name, &row.ProductKind, &row.DefaultPrice); err != nil {
-			return nil, nil, err
-		}
-		productOptions = append(productOptions, row)
-	}
-	return mallRows, productOptions, optionRows.Err()
+	return mallRows, productOptions, nil
 }
 
 func (r Repository) SaveMallProduct(ctx context.Context, cmd customerportalapp.SaveMallProductCommand) (customerportalapp.MallProduct, error) {
-	if err := r.ensureMallProductPublicCatalog(ctx, cmd.ProductID); err != nil {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
 		return customerportalapp.MallProduct{}, err
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	identity, err := r.resolveMallOutputIdentity(ctx, tx, cmd.ProductID, cmd.BomSpecID, cmd.BomVariantID)
+	if err != nil {
+		return customerportalapp.MallProduct{}, err
+	}
+	if identity.Canonical {
+		cmd.ProductID = identity.ProductID
+		cmd.BomSpecID = identity.BomSpecID
+		cmd.BomVariantID = identity.BomVariantID
+		cmd.SpecG = 0
+	} else if cmd.SpecG <= 0 {
+		return customerportalapp.MallProduct{}, fmt.Errorf("spec required")
+	}
+	id := cmd.ID
+	action := "update"
 	if cmd.ID > 0 {
-		if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.mall_products(id, product_id, title, subtitle, description, image_url, spec_g, unit_price, template_key, status, sort_order, updated_at, updated_by)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.mall_products(
+				id,product_id,bom_spec_id,bom_variant_id,spec_name,inventory_unit,
+				title,subtitle,description,image_url,spec_g,unit_price,template_key,status,sort_order,updated_at,updated_by
+			)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),$16)
 			ON CONFLICT(id) DO UPDATE SET
 				product_id=excluded.product_id,
+				bom_spec_id=excluded.bom_spec_id,
+				bom_variant_id=excluded.bom_variant_id,
+				spec_name=excluded.spec_name,
+				inventory_unit=excluded.inventory_unit,
 				title=excluded.title,
 				subtitle=excluded.subtitle,
 				description=excluded.description,
@@ -904,21 +933,39 @@ func (r Repository) SaveMallProduct(ctx context.Context, cmd customerportalapp.S
 				sort_order=excluded.sort_order,
 				updated_at=now(),
 				updated_by=excluded.updated_by
-		`, r.schema), cmd.ID, cmd.ProductID, cmd.Title, cmd.Subtitle, cmd.Description, cmd.ImageURL, cmd.SpecG, cmd.UnitPrice, customerportalapp.NormalizeMallTemplateKey(cmd.TemplateKey), customerportalapp.NormalizeMallProductStatus(cmd.Status), cmd.SortOrder, strings.TrimSpace(cmd.Actor)); err != nil {
+		`, r.schema), cmd.ID, cmd.ProductID, cmd.BomSpecID, cmd.BomVariantID, identity.SpecName, identity.InventoryUnit,
+			cmd.Title, cmd.Subtitle, cmd.Description, cmd.ImageURL, cmd.SpecG, cmd.UnitPrice,
+			customerportalapp.NormalizeMallTemplateKey(cmd.TemplateKey), customerportalapp.NormalizeMallProductStatus(cmd.Status), cmd.SortOrder, strings.TrimSpace(cmd.Actor)); err != nil {
 			return customerportalapp.MallProduct{}, err
 		}
-		return r.mallProductByID(ctx, cmd.ID)
-	}
-
-	var id int64
-	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.mall_products(product_id, title, subtitle, description, image_url, spec_g, unit_price, template_key, status, sort_order, updated_at, updated_by)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11)
+	} else {
+		action = "create"
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.mall_products(
+			product_id,bom_spec_id,bom_variant_id,spec_name,inventory_unit,
+			title,subtitle,description,image_url,spec_g,unit_price,template_key,status,sort_order,updated_at,updated_by
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now(),$15)
 		RETURNING id
-	`, r.schema), cmd.ProductID, cmd.Title, cmd.Subtitle, cmd.Description, cmd.ImageURL, cmd.SpecG, cmd.UnitPrice, customerportalapp.NormalizeMallTemplateKey(cmd.TemplateKey), customerportalapp.NormalizeMallProductStatus(cmd.Status), cmd.SortOrder, strings.TrimSpace(cmd.Actor)).Scan(&id); err != nil {
+	`, r.schema), cmd.ProductID, cmd.BomSpecID, cmd.BomVariantID, identity.SpecName, identity.InventoryUnit,
+			cmd.Title, cmd.Subtitle, cmd.Description, cmd.ImageURL, cmd.SpecG, cmd.UnitPrice,
+			customerportalapp.NormalizeMallTemplateKey(cmd.TemplateKey), customerportalapp.NormalizeMallProductStatus(cmd.Status), cmd.SortOrder, strings.TrimSpace(cmd.Actor)).Scan(&id); err != nil {
+			return customerportalapp.MallProduct{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), "mall_product", &id, action, nil, nil, postgresinfra.StrPtr(customerportalapp.NormalizeMallProductStatus(cmd.Status)), postgresinfra.AuditMeta{
+		"product_id": cmd.ProductID, "bom_spec_id": cmd.BomSpecID, "bom_variant_id": cmd.BomVariantID,
+	}); err != nil {
 		return customerportalapp.MallProduct{}, err
 	}
-	return r.mallProductByID(ctx, id)
+	row, err := r.mallProductByIDQuery(ctx, tx, id)
+	if err != nil {
+		return customerportalapp.MallProduct{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.MallProduct{}, err
+	}
+	return row, nil
 }
 
 func (r Repository) ensureMallProductPublicCatalog(ctx context.Context, productID int64) error {
@@ -951,15 +998,21 @@ func (r Repository) UpdateMallProductImage(ctx context.Context, cmd customerport
 }
 
 func (r Repository) mallProductByID(ctx context.Context, id int64) (customerportalapp.MallProduct, error) {
+	return r.mallProductByIDQuery(ctx, r.pool, id)
+}
+
+func (r Repository) mallProductByIDQuery(ctx context.Context, q portalQueryRower, id int64) (customerportalapp.MallProduct, error) {
 	var row customerportalapp.MallProduct
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT m.id, m.product_id, COALESCE(p.name,''), COALESCE(NULLIF(p.product_kind,''),'roasted'), COALESCE(NULLIF(m.title,''), p.name, ''), m.subtitle, m.description,
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT m.id,m.product_id,m.bom_spec_id,m.bom_variant_id,COALESCE(p.name,''),m.spec_name,m.inventory_unit,
+		       COALESCE(NULLIF(p.product_kind,''),'roasted'),COALESCE(NULLIF(m.title,''),p.name,''),m.subtitle,m.description,
 		       m.image_url, m.spec_g, m.unit_price, m.template_key, m.status, m.sort_order,
 		       to_char(m.updated_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.mall_products m
 		JOIN %s.products p ON p.id=m.product_id
 		WHERE m.id=$1
-	`, r.schema, r.schema), id).Scan(&row.ID, &row.ProductID, &row.ProductName, &row.ProductKind, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt)
+	`, r.schema, r.schema), id).Scan(&row.ID, &row.ProductID, &row.BomSpecID, &row.BomVariantID, &row.ProductName, &row.SpecName, &row.InventoryUnit,
+		&row.ProductKind, &row.Title, &row.Subtitle, &row.Description, &row.ImageURL, &row.SpecG, &row.UnitPrice, &row.TemplateKey, &row.Status, &row.SortOrder, &row.UpdatedAt)
 	if err != nil {
 		return customerportalapp.MallProduct{}, err
 	}

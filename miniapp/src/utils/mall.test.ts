@@ -67,6 +67,49 @@ describe('mini mall helpers', () => {
     })
   })
 
+  it('uses a cutover mall BOM specification as the one-to-one price, cart and order identity', () => {
+    const product = normalizeMallProduct({
+      id: 31,
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      spec_name: '227g袋',
+      inventory_unit: '袋',
+      title: '乌拉嘎',
+      product_kind: 'drip_bag',
+      sales_units: ['bag', 'box'],
+      spec_g: 227,
+      unit_price: 68,
+      mall_price: 68,
+    })
+
+    expect(product).toMatchObject({
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      spec_name: '227g袋',
+      inventory_unit: '袋',
+      spec_g: 0,
+      unit_price: 68,
+      sales_units: [],
+    })
+    expect(mallProductUnitLabel(product)).toBe('227g袋 · 袋')
+    expect(mallProductForSalesUnit(product, 'box')).toEqual(product)
+
+    const cart = addMallCartItem([], product, 2)
+    expect(mallCartTotal(cart)).toBe(136)
+    expect(buildMallOrderPayload(
+      { name: '张三', phone: '13800138000', address: '上海市' },
+      cart,
+    ).items).toEqual([{
+      mall_product_id: 31,
+      product_id: 550,
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+      qty: 2,
+    }])
+  })
+
   it('hides drip mall products without mall price and never exposes supply price', () => {
     const row = {
       id: 21,
@@ -158,6 +201,12 @@ describe('mini mall helpers', () => {
     expect(tabBar).toContain('/pages/service/service?key=orders')
     expect(tabBar).toContain('订单')
     expect(tabBar).toContain('uni.reLaunch')
+  })
+
+  it('renders canonical mall specification labels without rebuilding a gram specification', () => {
+    const mallPage = fs.readFileSync(path.join(currentDir, '..', 'pages', 'mall', 'mall.vue'), 'utf8')
+    expect(mallPage).toContain('product.subtitle || mallProductUnitLabel(product)')
+    expect(mallPage).not.toContain('product.subtitle || `${product.spec_g}g`')
   })
 
   it('preserves mall entry mode when mall customers open service pages', () => {

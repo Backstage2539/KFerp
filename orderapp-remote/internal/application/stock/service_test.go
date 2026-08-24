@@ -272,6 +272,22 @@ func TestTransferFinishedProductRejectsSameWarehouseAndZeroQuantity(t *testing.T
 	}
 }
 
+func TestTransferFinishedProductAllowsRepositoryToResolveCurrentBOMVariant(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.TransferFinishedProduct(context.Background(), FinishedProductTransferCommand{
+		ProductID: 7, BomSpecID: 91,
+		FromWarehouse: "finished_goods", ToWarehouse: "finished_shop", QtyUnits: 2,
+	})
+	if err != nil {
+		t.Fatalf("TransferFinishedProduct without client variant: %v", err)
+	}
+	if repo.finishedTransfer.BomSpecID != 91 || repo.finishedTransfer.BomVariantID != 0 {
+		t.Fatalf("repository command=%+v, want server-resolved variant placeholder", repo.finishedTransfer)
+	}
+}
+
 func TestGetStockTraceRequiresBatchAndTrimsInput(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -309,6 +325,22 @@ func TestCreateAdjustmentAcceptsProductAliasForFinishedProduct(t *testing.T) {
 	}
 	if repo.adjustment.Warehouse != "finished_goods" {
 		t.Fatalf("warehouse = %q, want finished_goods", repo.adjustment.Warehouse)
+	}
+}
+
+func TestCreateAdjustmentAllowsRepositoryToResolveCurrentBOMVariant(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CreateAdjustment(context.Background(), StockAdjustmentCommand{
+		ItemType: "finished_product", ItemID: 7, BomSpecID: 91,
+		Warehouse: "finished_goods", TargetUnits: 12, Reason: "规格盘点",
+	})
+	if err != nil {
+		t.Fatalf("CreateAdjustment without client variant: %v", err)
+	}
+	if repo.adjustment.BomSpecID != 91 || repo.adjustment.BomVariantID != 0 {
+		t.Fatalf("repository command=%+v, want server-resolved variant placeholder", repo.adjustment)
 	}
 }
 

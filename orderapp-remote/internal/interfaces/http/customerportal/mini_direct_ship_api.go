@@ -22,7 +22,7 @@ type MiniCustomerFulfillment interface {
 	GetMiniDirectShipRequest(context.Context, int64, int64) (customerfulfillmentapp.MiniDirectShipRequest, error)
 	CancelMiniDirectShipRequest(context.Context, int64, int64, string) (customerfulfillmentapp.MiniDirectShipRequest, error)
 	ListCustomerCentralInventory(context.Context, customerfulfillmentapp.CustomerInventoryListQuery) (customerfulfillmentapp.CustomerInventoryListResult, error)
-	ListCustomerCentralInventoryBatches(context.Context, int64, int64, int64) ([]customerfulfillmentapp.CustomerInventoryBatch, error)
+	ListCustomerCentralInventoryBatches(context.Context, customerfulfillmentapp.CustomerInventoryBatchQuery) ([]customerfulfillmentapp.CustomerInventoryBatch, error)
 }
 
 func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillment MiniCustomerFulfillment) {
@@ -182,17 +182,28 @@ func registerMiniCustomerFulfillmentAPI(e *echo.Echo, portal Service, fulfillmen
 		if err != nil || productID <= 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
-		specG := int64(0)
-		if raw := strings.TrimSpace(c.QueryParam("spec_g")); raw != "" {
-			specG, err = strconv.ParseInt(raw, 10, 64)
-			if err != nil || specG <= 0 {
-				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		parseOptionalPositiveID := func(name string) (int64, bool) {
+			raw := strings.TrimSpace(c.QueryParam(name))
+			if raw == "" {
+				return 0, true
 			}
+			value, parseErr := strconv.ParseInt(raw, 10, 64)
+			return value, parseErr == nil && value > 0
+		}
+		bomSpecID, validBomSpecID := parseOptionalPositiveID("bom_spec_id")
+		bomVariantID, validBomVariantID := parseOptionalPositiveID("bom_variant_id")
+		specG, validSpecG := parseOptionalPositiveID("spec_g")
+		canonical := bomSpecID > 0 || bomVariantID > 0
+		if !validBomSpecID || !validBomVariantID || !validSpecG || (canonical && (bomSpecID <= 0 || specG > 0)) || (!canonical && specG <= 0) {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
 		if fulfillment == nil {
 			return miniInternalError(c)
 		}
-		rows, err := fulfillment.ListCustomerCentralInventoryBatches(c.Request().Context(), current.CurrentCustomerID, productID, specG)
+		rows, err := fulfillment.ListCustomerCentralInventoryBatches(c.Request().Context(), customerfulfillmentapp.CustomerInventoryBatchQuery{
+			CustomerID: current.CurrentCustomerID, ProductID: productID,
+			BomSpecID: bomSpecID, BomVariantID: bomVariantID, SpecG: specG,
+		})
 		if err != nil {
 			return miniCustomerFulfillmentError(c, err)
 		}

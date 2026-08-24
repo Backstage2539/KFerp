@@ -97,6 +97,27 @@ type ProductOption struct {
 	OrderUsageCount             int                 `json:"order_usage_count"`
 	RetailSpecs                 []int64             `json:"retail_specs"`
 	Tiers                       []ProductTierOption `json:"tiers"`
+	SpecIdentityMode            string              `json:"spec_identity_mode"`
+	BomSpecAuthoritative        bool                `json:"bom_spec_authoritative"`
+	MigrationState              string              `json:"migration_state"`
+	LegacyCatalogProduct        bool                `json:"legacy_catalog_product"`
+	BOMSpecs                    []BOMSpecOption     `json:"bom_specs"`
+}
+
+type BOMSpecOption struct {
+	ProductID     int64  `json:"product_id"`
+	BomID         int64  `json:"bom_id"`
+	BomVersionID  int64  `json:"bom_version_id"`
+	BomVersionNo  string `json:"bom_version_no"`
+	BomSpecID     int64  `json:"bom_spec_id"`
+	BomVariantID  int64  `json:"bom_variant_id"`
+	SpecCode      string `json:"spec_code"`
+	Barcode       string `json:"barcode"`
+	SpecKey       string `json:"spec_key"`
+	SpecName      string `json:"spec_name"`
+	InventoryUnit string `json:"inventory_unit"`
+	IsDefault     bool   `json:"is_default"`
+	SortOrder     int    `json:"sort_order"`
 }
 
 type APIOption struct {

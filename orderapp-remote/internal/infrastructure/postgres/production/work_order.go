@@ -132,17 +132,18 @@ func ceilPlannedBatchCountForQty(plannedG int64, plannedPieceQty float64, batchS
 		}
 	}
 	plannedQty := float64(plannedG)
-	switch strings.ToLower(strings.TrimSpace(batchSizeUnit)) {
-	case "kg", "千克", "公斤":
-		plannedQty = plannedQty / 1000
-	case "g", "克":
-	case "件", "个", "袋", "盒", "包", "条", "unit", "units", "pc", "pcs", "piece", "pieces":
-		if plannedPieceQty <= 0 {
-			return 0
+	if factor := productionWeightUnitGrams(batchSizeUnit); factor > 0 {
+		plannedQty /= factor
+	} else {
+		switch strings.ToLower(strings.TrimSpace(batchSizeUnit)) {
+		case "件", "个", "袋", "盒", "包", "条", "unit", "units", "pc", "pcs", "piece", "pieces":
+			if plannedPieceQty <= 0 {
+				return 0
+			}
+			plannedQty = plannedPieceQty
+		default:
+			plannedQty = plannedQty / 1000
 		}
-		plannedQty = plannedPieceQty
-	default:
-		plannedQty = plannedQty / 1000
 	}
 	return int(math.Ceil(plannedQty / batchSizeQty))
 }
@@ -233,6 +234,8 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 type latestUsableBomRoute struct {
 	ProductID           int64
 	ParentProductID     int64
+	BomSpecID           int64
+	BomVariantID        int64
 	BomSourceProductID  int64
 	BomInherited        bool
 	ProductName         string
@@ -247,6 +250,112 @@ type latestUsableBomRoute struct {
 	BomMaterialLossRate float64
 	BomOutputQty        float64
 	BomOutputUnit       string
+}
+
+func resolveProductionBomForDemandProductSpecTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	schema string,
+	productID int64,
+	frozenParentProductID int64,
+	productName string,
+	bomSpecID int64,
+	bomVariantID int64,
+	requireProcessRoute bool,
+) (latestUsableBomRoute, error) {
+	if bomSpecID <= 0 {
+		return resolveProductionBomForDemandProductWithRouteRequirementTx(
+			ctx, tx, schema, productID, frozenParentProductID, productName, requireProcessRoute,
+		)
+	}
+	if bomVariantID <= 0 {
+		return latestUsableBomRoute{}, productionBomConfigurationErrorf("BOM specification has no frozen version variant: %s", productName)
+	}
+	var currentParentProductID int64
+	var catalogName string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT CASE WHEN COALESCE(parent_product_id,0)>0 THEN parent_product_id ELSE id END,
+		       COALESCE(name,'')
+		FROM %s.products
+		WHERE id=$1 AND COALESCE(active,true)=true
+	`, schema), productID).Scan(&currentParentProductID, &catalogName)
+	if err == pgx.ErrNoRows {
+		return latestUsableBomRoute{}, productionBomConfigurationErrorf("production demand product not found or inactive: %d", productID)
+	}
+	if err != nil {
+		return latestUsableBomRoute{}, err
+	}
+	parentProductID := frozenParentProductID
+	if parentProductID <= 0 {
+		parentProductID = currentParentProductID
+	}
+	if parentProductID != productID {
+		var parentActive bool
+		err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(active,true) FROM %s.products WHERE id=$1`, schema), parentProductID).Scan(&parentActive)
+		if err == pgx.ErrNoRows || (err == nil && !parentActive) {
+			return latestUsableBomRoute{}, productionBomConfigurationErrorf(
+				"frozen parent product not found or inactive: product %s / parent #%d",
+				firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID)), parentProductID,
+			)
+		}
+		if err != nil {
+			return latestUsableBomRoute{}, err
+		}
+	}
+	resolved := latestUsableBomRoute{
+		ProductID:       productID,
+		ParentProductID: parentProductID,
+		ProductName:     firstNonEmpty(productName, catalogName, fmt.Sprintf("product#%d", productID)),
+	}
+	var itemCount int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT bom.id,COALESCE(bom.code,''),COALESCE(bom.name,''),bom.output_product_id,
+		       version.id,COALESCE(version.version_no,''),
+		       COALESCE(variant.process_route_id,0),COALESCE(route.name,''),
+		       COALESCE(variant.material_loss_rate,0)::float8,
+		       1::float8,COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),'unit'),
+		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items item
+		                 WHERE item.version_id=variant.version_id AND item.variant_id=variant.id),0)
+		FROM %s.production_bom_specs spec
+		JOIN %s.production_bom_version_variants variant
+		  ON variant.bom_spec_id=spec.id AND variant.id=$2
+		JOIN %s.production_bom_versions version
+		  ON version.id=variant.version_id AND version.bom_id=spec.bom_id
+		JOIN %s.production_boms bom
+		  ON bom.id=spec.bom_id AND bom.output_type='product' AND bom.output_product_id=$3
+		LEFT JOIN %s.process_routes route
+		  ON route.id=variant.process_route_id AND route.status='active'
+		WHERE spec.id=$1
+		  AND COALESCE(NULLIF(bom.status,''),'active')='active'
+		  AND version.status IN ('published','archived')
+	`, schema, schema, schema, schema, schema, schema), bomSpecID, bomVariantID, parentProductID).Scan(
+		&resolved.BomID, &resolved.BomCode, &resolved.BomName, &resolved.BomSourceProductID,
+		&resolved.BomVersionID, &resolved.BomVersionNo,
+		&resolved.ProcessRouteID, &resolved.ProcessRouteName,
+		&resolved.BomMaterialLossRate, &resolved.BomOutputQty, &resolved.BomOutputUnit,
+		&itemCount,
+	)
+	if err == pgx.ErrNoRows {
+		return latestUsableBomRoute{}, productionBomConfigurationErrorf(
+			"BOM specification does not belong to an active BOM of the frozen parent product or its frozen version is unavailable: %s", resolved.ProductName,
+		)
+	}
+	if err != nil {
+		return latestUsableBomRoute{}, err
+	}
+	if itemCount <= 0 {
+		return latestUsableBomRoute{}, productionBomConfigurationErrorf(
+			"BOM specification version has no material lines: %s/%s", firstNonEmpty(resolved.BomName, resolved.BomCode), resolved.BomVersionNo,
+		)
+	}
+	resolved.BomInherited = resolved.BomSourceProductID != productID
+	resolved.YieldRate = 1
+	resolved.BomSpecID = bomSpecID
+	resolved.BomVariantID = bomVariantID
+	if requireProcessRoute && (resolved.ProcessRouteID <= 0 || strings.TrimSpace(resolved.ProcessRouteName) == "") {
+		return latestUsableBomRoute{}, productionBomMissingRouteConfigurationError(resolved, productName)
+	}
+	return resolved, nil
 }
 
 type productionBomConfigurationError struct {
@@ -1466,7 +1575,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.production_plan_id,wo.production_plan_item_id,
 		       COALESCE(NULLIF(wo.output_type,''),'product'),wo.output_product_id,wo.output_material_id,
 		       COALESCE(NULLIF(wo.output_name,''),wo.product_name),wo.output_qty::float8,wo.output_unit,
-		       wo.batch_id,wo.product_id,wo.parent_product_id,wo.bom_source_product_id,wo.product_name,wo.spec_g,
+		       wo.batch_id,wo.product_id,wo.parent_product_id,wo.bom_spec_id,wo.bom_variant_id,wo.bom_source_product_id,wo.product_name,wo.spec_g,
 		       wo.sales_spec_count::float8,wo.inventory_qty_per_sales_unit::float8,wo.inventory_unit,
 		       wo.planned_inventory_qty::float8,COALESCE(wo.sales_spec_snapshot_json,'{}'::jsonb)::text,wo.bom_inherited,
 		       wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
@@ -1583,7 +1692,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		if err := rows.Scan(
 			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID,
 			&row.OutputType, &row.OutputProductID, &row.OutputMaterialID, &row.OutputName, &row.OutputQty, &row.OutputUnit,
-			&row.BatchID, &row.ProductID, &row.ParentProductID, &row.BomSourceProductID, &row.ProductName, &row.SpecG,
+			&row.BatchID, &row.ProductID, &row.ParentProductID, &row.BomSpecID, &row.BomVariantID, &row.BomSourceProductID, &row.ProductName, &row.SpecG,
 			&row.SalesSpecCount, &row.InventoryQtyPerSalesUnit, &row.InventoryUnit, &row.PlannedInventoryQty,
 			&row.SalesSpecSnapshotJSON, &row.BomInherited,
 			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,

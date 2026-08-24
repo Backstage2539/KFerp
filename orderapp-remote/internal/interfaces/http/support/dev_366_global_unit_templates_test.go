@@ -58,8 +58,7 @@ func TestDev366GlobalUnitTemplatesUI(t *testing.T) {
 		"productUnitDefinitions",
 		"productUnitTemplates",
 		"saveProductUnitTemplate",
-		"productConfigTemplateForm.unit_template_id",
-		"销售规格模板",
+		"商品规格统一由默认制造 BOM 的规格组提供",
 		"销售规格明细",
 	} {
 		if !strings.Contains(src, want) {

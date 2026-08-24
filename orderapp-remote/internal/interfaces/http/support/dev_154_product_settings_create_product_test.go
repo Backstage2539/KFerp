@@ -9,12 +9,13 @@ import (
 func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 	view := string(readDev154File(t, "frontend-vue-shell/src/views/ProductSettingsView.vue"))
 	for _, want := range []string{
-		"新增SKU",
+		"创建新商品档案",
 		"product-editor-drawer",
 		`@submit.prevent="createSku"`,
 		"skuForm",
 		"defaultSkuForm",
-		`/api/product-settings/skus`,
+		`/api/product-settings/products`,
+		"buildProductCreatePayload",
 		"商品档案已创建",
 	} {
 		if !strings.Contains(view, want) {
@@ -24,7 +25,7 @@ func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 
 	routes := string(readDev154File(t, "internal/interfaces/http/catalog/product_routes.go"))
 	for _, want := range []string{
-		`e.POST("/api/product-settings/skus", h.createSKUAPI)`,
+		`e.POST("/api/product-settings/products", h.createProductAPI)`,
 		`e.POST("/api/product-settings/products/:id/copy", h.copyProductAPI)`,
 		"ProductTypeCategoryID",
 		"ProductSubtypeCategoryID",

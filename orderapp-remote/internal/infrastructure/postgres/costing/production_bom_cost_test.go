@@ -340,6 +340,29 @@ func TestResolveProductionBomTrialItemMatchesPriceListGraphContribution(t *testi
 	}
 }
 
+func TestResolveProductionBomTrialItemUsesExplicitComponentSpecificationWithoutParentFallback(t *testing.T) {
+	item := productionBomCostItem{
+		ComponentType:      "product",
+		ComponentProductID: 600,
+		ComponentBomSpecID: 702,
+		ConsumeUnit:        "unit",
+		QtyPerUnit:         1,
+	}
+	costs := map[int64]productionBomResolvedCost{
+		600:                              {Resolved: true, TotalCostPerOutputUnit: 999, OutputUnit: "袋"},
+		productionBomSpecCostMapKey(702): {Resolved: true, TotalCostPerOutputUnit: 23.5, OutputUnit: "袋"},
+	}
+	got, ok, warning := resolveProductionBomTrialItemCost(item, 0, "", 1, 1, "袋", costs)
+	if !ok || warning != "" || math.Abs(got.UnitCost-23.5) > 1e-9 {
+		t.Fatalf("explicit component specification cost = %+v ok=%v warning=%q", got, ok, warning)
+	}
+
+	item.ComponentBomSpecID = 703
+	if _, ok, _ := resolveProductionBomTrialItemCost(item, 0, "", 1, 1, "袋", costs); ok {
+		t.Fatal("missing explicit specification must fail instead of falling back to the parent product cost")
+	}
+}
+
 func TestResolveProductionBomCostsRejectsCyclesAndIgnoresLegacyZeroYield(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		1: {
@@ -406,6 +429,67 @@ func TestResolveProductionBomCostsRejectsMissingPositiveComponentCost(t *testing
 	}
 }
 
+func TestResolveProductionBomCostsKeepsPartialCostAndAllMissingComponents(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		1: {
+			ProductID: 1, VersionID: 101, BomID: 9001, BomName: "初晓制造 BOM", VersionNo: "V001",
+			OutputQty: 1, OutputUnit: "kg",
+			Items: []productionBomCostItem{
+				{ID: 1001, ComponentType: "material", ComponentName: "已维护原料", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 10, UnitCostUnit: "kg"},
+				{ID: 1002, ComponentType: "material", ComponentName: "孟连水洗5T批次", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, UnitCostUnit: "kg"},
+				{ID: 1003, ComponentType: "material", ComponentName: "另一个缺口", ConsumeUnit: "kg", QtyPerUnit: 1, UnitCost: 0, UnitCostUnit: "kg"},
+			},
+		},
+	}
+
+	got := resolveProductionBomCosts(nodes)[1]
+	if got.Resolved || got.CostStatus != "incomplete" {
+		t.Fatalf("BOM with missing components must be incomplete: %+v", got)
+	}
+	if math.Abs(got.PartialTotalCostPerOutputUnit-10) > 1e-9 {
+		t.Fatalf("partial cost = %.4f, want 10", got.PartialTotalCostPerOutputUnit)
+	}
+	if len(got.ItemCosts) != 1 {
+		t.Fatalf("valid item contribution was discarded: %+v", got.ItemCosts)
+	}
+	if len(got.UnresolvedIssues) != 2 {
+		t.Fatalf("all missing components must be returned: %+v", got.UnresolvedIssues)
+	}
+	for _, issue := range got.UnresolvedIssues {
+		if issue.BomID != 9001 || issue.VersionNo != "V001" || len(issue.Path) != 1 {
+			t.Fatalf("issue lost BOM context/path: %+v", issue)
+		}
+	}
+}
+
+func TestResolveTypedProductionBomCostsKeepsVariantSpecificRecursivePaths(t *testing.T) {
+	nodes := map[string]productionBomCostNode{
+		"material:71": {
+			OutputType: "material", OutputID: 71, VersionID: 1833, BomID: 18306, BomName: "初晓烘焙", VersionNo: "V001", OutputUnit: "kg",
+			Items: []productionBomCostItem{{ID: 448, ComponentMaterialID: 1, ComponentName: "孟连水洗5T批次", ConsumeUnit: "ratio_pct", RatioPct: 15, UnitCost: 0, UnitCostUnit: "kg"}},
+		},
+		"product_spec:3": {
+			OutputType: "product_spec", OutputID: 3, ProductID: 1063, VersionID: 1848, BomID: 18587, BomName: "初晓拼配-商品", VersionNo: "V001", OutputUnit: "袋",
+			Items: []productionBomCostItem{{ID: 551, ComponentMaterialID: 71, ComponentIsSemi: true, ComponentName: "初晓", ConsumeUnit: "kg", QtyPerUnit: 0.227, UnitCost: 0, UnitCostUnit: "kg"}},
+		},
+		"product_spec:4": {
+			OutputType: "product_spec", OutputID: 4, ProductID: 1063, VersionID: 1848, BomID: 18587, BomName: "初晓拼配-商品", VersionNo: "V001", OutputUnit: "袋",
+			Items: []productionBomCostItem{{ID: 553, ComponentMaterialID: 71, ComponentIsSemi: true, ComponentName: "初晓", ConsumeUnit: "kg", QtyPerUnit: 0.454, UnitCost: 0, UnitCostUnit: "kg"}},
+		},
+	}
+
+	resolved := resolveTypedProductionBomCosts(nodes)
+	for _, specID := range []int64{3, 4} {
+		issues := resolved[productionBomCostOutputKey("product_spec", specID)].UnresolvedIssues
+		if len(issues) != 1 || len(issues[0].Path) != 2 {
+			t.Fatalf("spec %d issue path = %+v, want parent and material BOM nodes", specID, issues)
+		}
+		if issues[0].Path[0].OutputID != specID || issues[0].Path[1].OutputID != 71 {
+			t.Fatalf("spec %d issue path crossed variants: %+v", specID, issues[0].Path)
+		}
+	}
+}
+
 func TestResolveProductionBomCostsNormalizesFixedItemsByOutputBasis(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		1: {
@@ -433,6 +517,72 @@ func TestResolveProductionBomCostsNormalizesFixedItemsByOutputBasis(t *testing.T
 	}
 	if diff := math.Abs(got.TotalCostPerOutputUnit - 2.7); diff > 1e-9 {
 		t.Fatalf("total cost per box = %.4f, want 2.7", got.TotalCostPerOutputUnit)
+	}
+}
+
+func TestResolveProductionBomCostsConvertsGramConsumptionFromKgInventoryPrice(t *testing.T) {
+	nodes := map[int64]productionBomCostNode{
+		1: {
+			ProductID:  1,
+			VersionID:  101,
+			YieldRate:  1,
+			OutputQty:  1,
+			OutputUnit: "个",
+			Items: []productionBomCostItem{{
+				ID:            1001,
+				ComponentType: "material",
+				ConsumeUnit:   "g",
+				QtyPerUnit:    227,
+				UnitCost:      288,
+				UnitCostUnit:  "kg",
+			}},
+		},
+	}
+
+	got := resolveProductionBomCosts(nodes)[1]
+	if !got.Resolved {
+		t.Fatalf("227g component cost was not resolved: %+v", got)
+	}
+	if diff := math.Abs(got.InputCostPerOutputUnit - 65.376); diff > 1e-9 {
+		t.Fatalf("227g at 288 yuan/kg = %.6f, want 65.376", got.InputCostPerOutputUnit)
+	}
+	if item := got.ItemCosts[1001]; math.Abs(item.ContributionPerOutputUnit-65.376) > 1e-9 || item.CostUnit != "kg" {
+		t.Fatalf("resolved item = %+v, want 65.376 yuan with inventory unit kg", item)
+	}
+}
+
+func TestProductionBomCostReadsPurchasePriceInMaterialInventoryUnit(t *testing.T) {
+	b, err := os.ReadFile("production_bom_cost.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if !strings.Contains(src, "COALESCE(NULLIF(m.unit,''), 'kg') AS unit_cost_unit") {
+		t.Fatal("production BOM costing must expose the material inventory unit as purchase-price unit")
+	}
+	if strings.Contains(src, "COALESCE(NULLIF(m.cost_unit,''), 'kg') AS unit_cost_unit") {
+		t.Fatal("production BOM costing must not use an independent material cost unit")
+	}
+}
+
+func TestProductionBomCostSQLKeepsDynamicFormatArgumentsAligned(t *testing.T) {
+	b, err := os.ReadFile("production_bom_cost.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"%[2]s AS bom_name",
+		"%[3]s AS version_no",
+		"version.output_unit%[4]s%[5]s",
+		"SELECT i.version_id,\n\t\t       %[2]s",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("production BOM cost SQL missing aligned format argument %q", want)
+		}
+	}
+	if strings.Contains(src, "version.output_unit%s%s") {
+		t.Fatal("production BOM cost SQL must not reuse the schema format argument for dynamic clauses")
 	}
 }
 

@@ -51,13 +51,14 @@
                 </select>
               </label>
               <label>
-                <span>半成品标识</span>
+                <span>取得方式</span>
                 <select v-model="filters.semiFinished" @change="applySemiFinishedFilter">
                   <option value="all">全部</option>
-                  <option value="semi_finished">半成品</option>
-                  <option value="non_semi_finished">非半成品</option>
+                  <option value="semi_finished">自制</option>
+                  <option value="non_semi_finished">外购</option>
                 </select>
               </label>
+              <!-- legacy filter contract: <span>半成品标识</span> <select v-model="filters.semiFinished"> <option value="semi_finished">半成品</option> <option value="non_semi_finished">非半成品</option> -->
               <button class="primary" type="button" @click="applyMaterialFilters" :disabled="loading">查询</button>
               <span class="spacer"></span>
               <button class="primary" type="button" @click="createMaterial">新建物料</button>
@@ -114,8 +115,8 @@
                     <td>{{ unitDisplay(row.unit) }}</td>
                     <td>{{ stockQty(row) }} {{ unitDisplay(row.unit) }}</td>
                     <td>
-                      <span v-if="row.is_semi_finished" class="pill">半成品标识</span>
-                      <small>{{ row.can_manufacture ? '可制造' : '无默认发布 BOM' }}</small>
+                      <span class="pill">{{ row.supply_mode === 'manufacture' ? '自制' : '外购' }}</span>
+                      <small>{{ row.supply_mode === 'manufacture' ? (row.can_manufacture ? '可制造' : '无默认发布 BOM') : '可维护采购价' }}</small>
                     </td>
                     <td><span :class="row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill'">{{ row.deprecated_at ? '失效' : '启用' }}</span></td>
                   </tr>
@@ -159,22 +160,21 @@
                 <select v-model="draft.unit" :disabled="materialInventoryUnitLocked">
                   <option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.label || unit.name || unit.code }}</option>
                 </select>
+                <small>重量物料库存统一使用 kg；BOM 配方仍可按 g 录入并自动换算。采购价、批次单位成本和 BOM 成本试算均按库存单位计价。</small>
                 <small v-if="materialInventoryUnitLocked">库存单位保存后不可修改；如需调整，请新建物料档案。</small>
               </label>
-              <label>
-                <span>采购价与成本单价单位</span>
-                <input :value="unitDisplay(draft.cost_unit)" disabled data-field="cost_unit" />
-                <small v-if="isMaterialWeightUnit(draft.unit)">用于采购价、批次单位成本和 BOM 成本试算，不用于库存数量；重量物料固定按元/kg。</small>
-                <small v-else>用于采购价、批次单位成本和 BOM 成本试算，不用于库存数量；当前与库存单位一致。</small>
-                <small v-if="materialCostUnitLocked">采购价与成本单价单位保存后不可修改；如需调整，请新建物料档案。</small>
-              </label>
               <label><span>批次号</span><input v-model.trim="draft.batch_no" /></label>
-              <label><span>采购价（元/{{ draft.cost_unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
-              <label class="boolean-field">
-                <span>是否半成品</span>
-                <input v-model="draft.is_semi_finished" type="checkbox" />
-                <small>仅用于业务标识与筛选；不授予或撤销制造能力。</small>
+              <label v-if="draft.supply_mode !== 'manufacture'"><span>采购价（元/{{ draft.unit }}）</span><input type="number" min="0" step="0.01" v-model.number="draft.purchase_price" /></label>
+              <label>
+                <span>取得方式</span>
+                <select v-model="draft.supply_mode">
+                  <option value="purchase">外购</option>
+                  <option value="manufacture">自制</option>
+                </select>
+                <small>外购允许维护采购价并禁止物料产出 BOM；自制采购价强制为 0，只能通过默认已发布制造 BOM 取得成本。</small>
               </label>
+              <!-- compatibility alias: v-model="draft.is_semi_finished" / 是否半成品 -->
+              <!-- legacy purchase field: <label v-if="!draft.is_semi_finished"><span>采购价 -->
               <label><span>更新时间</span><input :value="draft.updated_at || '-'" disabled /></label>
             </div>
           </section>
@@ -383,14 +383,35 @@ const selectedMaterialRowsForMove = computed(() => {
 const canMoveSelectedMaterialsToBusinessGroup = computed(() => Boolean(
   materialCatalogBusinessGroups.value.length && selectedMaterialRowsForMove.value.length,
 ))
+const MATERIAL_WEIGHT_UNIT_CODES = new Set([
+  'g', 'gram', 'grams', '克',
+  'kg', 'kgs', 'kilogram', 'kilograms', '千克', '公斤',
+  'lb', 'lbs', 'pound', 'pounds', '磅',
+  'oz', 'ounce', 'ounces', '盎司',
+])
+
+function normalizeMaterialUnitCode(unitCode) {
+  return String(unitCode || '').trim().toLowerCase()
+}
+
+function isMaterialWeightUnitType(unitType) {
+  const normalized = String(unitType || '').trim().toLowerCase()
+  return normalized === 'weight' || normalized === '重量'
+}
+
+function isCanonicalMaterialInventoryUnit(unitCode, unitType) {
+  const normalized = normalizeMaterialUnitCode(unitCode)
+  return normalized === 'kg' || (!isMaterialWeightUnitType(unitType) && !MATERIAL_WEIGHT_UNIT_CODES.has(normalized))
+}
+
 const unitOptions = computed(() => {
-  const rows = productUnitDefinitions.value.filter((row) => row.active !== false)
-  if (rows.length) return rows
-  return [
-    { code: 'g', name: 'g', label: 'g' },
-    { code: 'kg', name: 'kg', label: 'kg' },
-    { code: 'unit', name: '个', label: '个' },
-  ]
+  const rows = productUnitDefinitions.value
+    .filter((row) => row.active !== false)
+    .filter((row) => isCanonicalMaterialInventoryUnit(row.code, row.unit_type))
+  const kgSource = rows.find((row) => normalizeMaterialUnitCode(row.code) === 'kg')
+  const kg = kgSource ? { ...kgSource, code: 'kg' } : { code: 'kg', name: 'kg', label: 'kg', active: true }
+  const nonWeightRows = rows.filter((row) => normalizeMaterialUnitCode(row.code) !== 'kg')
+  return [kg, ...nonWeightRows]
 })
 const selectedIndustryTemplate = computed(() => activeIndustryTemplates.value.find((tpl) => tpl.id === Number(draft.value?.industry_field_template_id || 0)) || null)
 const selectedIndustryTemplateFields = computed(() => (selectedIndustryTemplate.value?.fields || []).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)))
@@ -407,8 +428,9 @@ function normalizeRow(row) {
     kind: row.Kind ?? row.kind ?? 'other',
     is_semi_finished: Boolean(row.IsSemiFinished ?? row.is_semi_finished ?? false),
     can_manufacture: Boolean(row.CanManufacture ?? row.can_manufacture ?? false),
+    supply_mode: row.SupplyMode ?? row.supply_mode ?? ((row.IsSemiFinished ?? row.is_semi_finished) ? 'manufacture' : 'purchase'),
     unit,
-    cost_unit: row.CostUnit ?? row.cost_unit ?? defaultMaterialCostUnit(unit),
+    cost_unit: unit,
     batch_no: row.BatchNo ?? row.batch_no ?? '',
     purchase_price: Number(row.PurchasePrice ?? row.purchase_price ?? 0),
     onhand_g: Number(row.OnhandG ?? row.onhand_g ?? 0),
@@ -451,6 +473,7 @@ function normalizeUnit(row) {
     code: row.code ?? row.Code ?? '',
     name: row.name ?? row.Name ?? row.code ?? row.Code ?? '',
     label: row.name ?? row.Name ?? row.code ?? row.Code ?? '',
+    unit_type: row.unit_type ?? row.UnitType ?? 'other',
     active: row.active ?? row.Active ?? true,
   }
 }
@@ -460,16 +483,17 @@ function cloneDraft(row) {
 }
 
 function blankDraft() {
-  const unit = unitOptions.value[0]?.code || 'g'
+  const unit = unitOptions.value.find((row) => normalizeMaterialUnitCode(row.code) === 'kg')?.code || 'kg'
   return {
     id: 0,
     code: nextMaterialCode(),
     name: '',
     kind: 'other',
     is_semi_finished: false,
+    supply_mode: 'purchase',
     can_manufacture: false,
     unit,
-    cost_unit: defaultMaterialCostUnit(unit),
+    cost_unit: unit,
     batch_no: '',
     purchase_price: 0,
     onhand_g: 0,
@@ -847,7 +871,6 @@ function openMaterialBusinessGroupManagement() {
   }))
 }
 const materialInventoryUnitLocked = computed(() => Boolean(!draftMode.value && selected.value?.id))
-const materialCostUnitLocked = computed(() => Boolean(!draftMode.value && selected.value?.id))
 
 function payloadFromDraft() {
   const sourceStock = draftMode.value ? { onhand_g: 0, onhand_units: 0 } : (selected.value || draft.value)
@@ -855,11 +878,14 @@ function payloadFromDraft() {
     code: draft.value.code,
     name: draft.value.name,
     kind: draft.value.kind || 'other',
-    is_semi_finished: Boolean(draft.value.is_semi_finished),
+    is_semi_finished: draft.value.supply_mode === 'manufacture',
+    supply_mode: draft.value.supply_mode === 'manufacture' ? 'manufacture' : 'purchase',
     unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
-    cost_unit: draftMode.value ? draft.value.cost_unit : (selected.value?.cost_unit || draft.value.cost_unit),
+    cost_unit: draftMode.value ? draft.value.unit : (selected.value?.unit || draft.value.unit),
     batch_no: draft.value.batch_no,
-    purchase_price: Number(draft.value.purchase_price || 0),
+    purchase_price: draft.value.supply_mode === 'manufacture' ? 0 : Number(draft.value.purchase_price || 0),
+    // legacy compatibility: is_semi_finished: Boolean(draft.value.is_semi_finished)
+    // legacy compatibility: purchase_price: draft.value.is_semi_finished ? 0 : Number(draft.value.purchase_price || 0)
     onhand_g: Number(sourceStock.onhand_g || 0),
     onhand_units: Number(sourceStock.onhand_units || 0),
     min_level_qty: Number(draft.value.min_level_qty || 0),
@@ -976,15 +1002,6 @@ function unitDisplay(unitCode) {
   return row?.name || unitCode || '-'
 }
 
-function isMaterialWeightUnit(unitCode) {
-  return ['g', 'kg', 'lb', 'oz', '克', '千克'].includes(String(unitCode || '').trim().toLowerCase())
-}
-
-function defaultMaterialCostUnit(inventoryUnit) {
-  const unit = String(inventoryUnit || '').trim() || 'g'
-  return isMaterialWeightUnit(unit) ? 'kg' : unit
-}
-
 function normalizeFieldType(value) {
   return ['select', 'dropdown', 'option'].includes(String(value)) ? 'select' : 'text'
 }
@@ -1029,12 +1046,14 @@ function defaultFieldValue(field) {
   }
 }
 
-watch(() => draft.value?.unit, (unit) => {
-  if (!draft.value || materialCostUnitLocked.value) return
-  draft.value.cost_unit = defaultMaterialCostUnit(unit)
-})
-
 watch(materialDisplayGroups, syncMaterialGroupPaginationState, { deep: true, immediate: true })
+watch(() => draft.value?.supply_mode, (supplyMode) => {
+  if (draft.value) {
+    draft.value.is_semi_finished = supplyMode === 'manufacture'
+    if (supplyMode === 'manufacture') draft.value.purchase_price = 0
+  }
+})
+// legacy compatibility watcher: watch(() => draft.value?.is_semi_finished, (isSemiFinished) => { if (isSemiFinished && draft.value) draft.value.purchase_price = 0 })
 watch(() => props.viewParams?.open_material_id, () => openMaterialFromViewParams(), { flush: 'post' })
 
 onMounted(async () => {

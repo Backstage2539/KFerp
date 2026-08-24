@@ -21,6 +21,7 @@ import {
   buildCustomerProductCategoryPath,
   buildCustomerProductCategoryMovePath,
   buildCustomerProductCategoryAssignPath,
+  buildCustomerInventoryBatchesPath,
   buildServicePagePath,
   buildSwitchCustomerPath,
   fetchEmployeeOrderForm,
@@ -64,6 +65,17 @@ describe('customer portal API helpers', () => {
   it('exposes stable mini mall API paths', () => {
     expect(buildMallPagePath()).toBe('/api/mini/mall')
     expect(buildMallOrderPath()).toBe('/api/mini/mall/orders')
+  })
+
+  it('builds inventory batch paths with canonical BOM specification identity while preserving legacy spec_g', () => {
+    expect(buildCustomerInventoryBatchesPath(550, {
+      bom_spec_id: 91,
+      bom_variant_id: 191,
+    })).toBe('/api/mini/customer-inventory/550/batches?bom_spec_id=91&bom_variant_id=191')
+    expect(buildCustomerInventoryBatchesPath(550, {
+      bom_spec_id: 91,
+    })).toBe('/api/mini/customer-inventory/550/batches?bom_spec_id=91')
+    expect(buildCustomerInventoryBatchesPath(551, 227)).toBe('/api/mini/customer-inventory/551/batches?spec_g=227')
   })
 
   it('builds phone verify login payloads', () => {

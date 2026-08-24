@@ -242,6 +242,8 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 			ItemType        string   `json:"item_type"`
 			ItemID          int64    `json:"item_id"`
 			SpecG           int64    `json:"spec_g"`
+			BomSpecID       int64    `json:"bom_spec_id"`
+			BomVariantID    int64    `json:"bom_variant_id"`
 			Warehouse       string   `json:"warehouse"`
 			TargetG         int64    `json:"target_g"`
 			TargetUnits     int64    `json:"target_units"`
@@ -259,6 +261,8 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 			ItemType:        req.ItemType,
 			ItemID:          req.ItemID,
 			SpecG:           req.SpecG,
+			BomSpecID:       req.BomSpecID,
+			BomVariantID:    req.BomVariantID,
 			Warehouse:       req.Warehouse,
 			TargetG:         req.TargetG,
 			TargetUnits:     req.TargetUnits,
@@ -280,6 +284,9 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		var req struct {
 			ProductID      int64  `json:"product_id"`
 			SpecG          int64  `json:"spec_g"`
+			BomSpecID      int64  `json:"bom_spec_id"`
+			BomVariantID   int64  `json:"bom_variant_id"`
+			UnitCode       string `json:"unit_code"`
 			FromWarehouse  string `json:"from_warehouse"`
 			ToWarehouse    string `json:"to_warehouse"`
 			QtyUnits       int64  `json:"qty_units"`
@@ -293,6 +300,9 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		result, err := stockSvc.TransferFinishedProduct(c.Request().Context(), stockapp.FinishedProductTransferCommand{
 			ProductID:      req.ProductID,
 			SpecG:          req.SpecG,
+			BomSpecID:      req.BomSpecID,
+			BomVariantID:   req.BomVariantID,
+			UnitCode:       req.UnitCode,
 			FromWarehouse:  req.FromWarehouse,
 			ToWarehouse:    req.ToWarehouse,
 			QtyUnits:       req.QtyUnits,
