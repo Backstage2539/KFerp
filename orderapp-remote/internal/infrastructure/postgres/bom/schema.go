@@ -1032,6 +1032,7 @@ binding_rows AS (
 	       CASE WHEN tr.locks_bom_version THEN locked.id ELSE latest.id END AS bom_version_id
 	FROM target_rows tr
 	JOIN %[1]s.production_boms pbom ON pbom.legacy_product_id=tr.bom_product_id
+	  AND COALESCE(NULLIF(pbom.status,''),'active')='active'
 	LEFT JOIN %[1]s.production_bom_versions locked
 	  ON locked.legacy_bom_version_id=tr.source_bom_version_id
 	 AND locked.bom_id=pbom.id
