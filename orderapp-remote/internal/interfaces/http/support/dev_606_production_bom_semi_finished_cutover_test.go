@@ -7,16 +7,16 @@ import (
 	"testing"
 )
 
-func TestDev605ProductionBomSemiFinishedCutoverContracts(t *testing.T) {
+func TestDev606ProductionBomSemiFinishedCutoverContracts(t *testing.T) {
 	reqStore := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, row := range []struct {
 		table, code, status, assignee string
 	}{
-		{"req_product", "PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "doing", "Codex"},
-		{"req_dev", "DEV-606-BOM-DRAFT-EDITOR-RELIABILITY", "doing", "Codex"},
-		{"req_dev", "DEV-606-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT", "doing", "Codex"},
-		{"req_dev", "DEV-606-SEMI-FINISHED-CUTOVER-MIGRATION", "doing", "Codex"},
-		{"req_dev", "DEV-606-DOCS-RELEASE-ACCEPTANCE", "doing", "Codex"},
+		{"req_product", "PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "review", "VA"},
+		{"req_dev", "DEV-606-BOM-DRAFT-EDITOR-RELIABILITY", "done", "Codex"},
+		{"req_dev", "DEV-606-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT", "done", "Codex"},
+		{"req_dev", "DEV-606-SEMI-FINISHED-CUTOVER-MIGRATION", "done", "Codex"},
+		{"req_dev", "DEV-606-DOCS-RELEASE-ACCEPTANCE", "done", "Codex"},
 		{"req_review", "REV-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER", "todo", "VA"},
 	} {
 		pattern := regexp.MustCompile(`(?m)^[\t ]*\{table: "` + regexp.QuoteMeta(row.table) + `"[^\n]*code: "` + regexp.QuoteMeta(row.code) + `"[^\n]*status: "` + regexp.QuoteMeta(row.status) + `"[^\n]*assignee: "` + regexp.QuoteMeta(row.assignee) + `"[^\n]*\},[\t ]*$`)

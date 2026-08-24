@@ -17,9 +17,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual: Van production and miniapp acceptance pending.
 
 ### PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER
-- Branch: codex/bom-material-output-replacement-20260824
+- Branch: `codex/bom-material-output-replacement-20260824`; isolated production release `codex/release-main-pr606-bom-cutover-20260824`
 - Owner/session: Codex / 2026-08-24
-- Status: implementation, latest-develop full verification and formal PR-606 restored-production-clone verification complete; production data unchanged
+- Status: implementation, development/production release, production backup, single-transaction cutover and automated production acceptance complete; Van page acceptance pending
 - Scope: 修复生产 BOM 草稿保存反馈、统一草稿标准化和损耗实时重算；新增保留历史的替代草稿；将“烘焙豆-半成品”31 个源 BOM 切换为物料产出 BOM。
 - DEV:
   - DEV-606-BOM-DRAFT-EDITOR-RELIABILITY
@@ -28,12 +28,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-606-DOCS-RELEASE-ACCEPTANCE
 - Verifier:
   - Unit/API: targeted RED/GREEN and full Go suite GREEN
-  - Frontend/build: targeted GREEN, latest-develop Vue 1033/1033 and Vite 6594-module build GREEN
+  - Frontend/build: targeted GREEN; latest-develop Vue 1033/1033 and isolated-main/production Vue 1029/1029; Vite 6594-module builds GREEN
   - Manual: production BOM manual and Vue manual surface updated
-  - Review/acceptance: formal PR-606 restored production clone apply/idempotency/rollback/dependency-abort GREEN; formal production apply pending; Van acceptance remains pending
-- Deployment: development and production not yet deployed; production migration must remain preview-only until code health, database backup and drift guards pass.
+  - Review/acceptance: restored-production-clone apply/idempotency/rollback/dependency-abort GREEN; live production 31/30/1/31/26/5 counts, special recipes, old-binding removal, audit trace and idempotency GREEN; Van acceptance remains pending
+- Deployment: development deployed `develop@7f92c897fe83128d6274715bf2610e1289ef9784` with source backup `/opt/stacks/erp/orderapp.backup.deploy-20260824140607-7f92c897fe83` and rollback image `kferp-orderapp-rollback:development-20260824140607-7f92c897fe83`; production deployed isolated PR-606 release `main@a6776cd1dd268ab3ce7e2b1dad2cd5df61dba8dd` with source backup `/opt/stacks/erp-production/orderapp.backup.deploy-20260824142714-a6776cd1dd26` and rollback image `kferp-orderapp-rollback:production-20260824142714-a6776cd1dd26`. Both login smokes returned HTTP 200 and protected APIs returned 401 without credentials.
+- Production data: locked preview was `ready` with zero unfinished dependencies; verified custom-format backup `/opt/stacks/erp-production/backups/pr606-pre-cutover-20260824143425.dump` (2,256,127 bytes, 1,955 restore-list items, SHA-256 `81c881dee5bef781fa484962ad8748f5a58eae41eaf3848eb42913dad5d27642`) preceded the single-transaction apply. Final state is 31 valid semi-finished materials/replacement BOMs, 26 published defaults/can-manufacture and 5 empty drafts; all 31 source BOMs are inactive and old product bindings/configs are zero. Reapply wrote no changes and the apply audit count remains one.
 - Last update: 2026-08-24 Asia/Shanghai
-- Notes: 保持统一 BOM 模型；已发布 BOM 的产出身份不可原位修改，改为创建替代草稿并保留源 BOM/版本追溯。生产克隆库发现已停用旧组件 42/67，锁定映射到启用同业务物料 7/27；不恢复失效档案。生产服务器根盘满导致 PostgreSQL 自恢复期间短暂不可用，已只清理可重建缓存/7 天前未使用镜像并恢复健康，未删除数据库或业务备份。
+- Notes: 保持统一 BOM 模型；已发布 BOM 的产出身份不可原位修改，改为创建替代草稿并保留源 BOM/版本追溯。已停用旧组件 42/67 锁定映射到启用同业务物料 7/27，不恢复失效档案。生产服务器根盘恢复后切换前可用空间 9.4GB，数据库、当前运行镜像、回滚镜像及业务备份均保留。
 
 ### PR-604-MATERIAL-COST-BOM-EDITOR
 - Branch: codex/pr604-bom-unit-delete-20260823 (integrated into develop); follow-ups `codex/pr604-price-preview-20260823`, current `codex/pr604-price-trial-product-not-found-20260823`
