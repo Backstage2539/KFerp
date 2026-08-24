@@ -1600,3 +1600,10 @@
 - `DEV-604-MATERIAL-COST-DETAILS`：物料成本试算复用商品价格试算的标准制造成本明细、工序成本快照、成本来源和公式/步骤字段；明细带出每个组件所属 BOM、版本/规格、用量、损耗后用量、成本单价和折算金额。试算抽屉支持选择 BOM 版本，并可跳转 BOM 配置后带回当前物料和版本上下文。
 - `DEV-604-BOM-DRAFT-WORKSPACE`：新增 `PUT /api/production-boms/:id/draft-workspace` 统一提交 BOM 主档与草稿版本；前端组件、规格和路线修改先保留在本地草稿，发布前必须无未保存改动。
 - `DEV-604-BOM-EDITOR-UX`：试算抽屉支持商品价格/物料成本双模式；物料模式隐藏售价参数；BOM 规格与配方使用同一明细容器，删除合计比例卡片，组件来源明确区分物料和已有商品规格，产出类型转换即时清理不兼容草稿配置。
+
+# PR-605-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER 生产 BOM 半成品化与编辑缺陷修复（2026-08-24）
+
+- `DEV-605-BOM-DRAFT-EDITOR-RELIABILITY`：BOM 抽屉内常驻显示保存、发布结果；保存失败保留抽屉和本地草稿，且在重新保存成功前禁止发布。统一草稿接口复用版本服务的单位、组件、配方模式和损耗校验；版本损耗率覆盖全部有效物料比例组件。损耗输入变化立即标记未保存并重算现有行的损耗后用量占比。
+- `DEV-605-PUBLISHED-OUTPUT-REPLACEMENT-DRAFT`：已发布 BOM 的产出身份不可原位修改，旧写接口返回 HTTP 409 与稳定错误码 `published_output_identity_immutable`。前端改走 `POST /api/production-boms/:id/replacement-draft`，用完整草稿和来源版本事务创建新 BOM/V001；复用 `source_bom_id`、`source_bom_version_id`，源 BOM 与全部历史版本不变。
+- `DEV-605-SEMI-FINISHED-CUTOVER-MIGRATION`：锁定生产“烘焙豆-半成品”31 个启用 BOM，创建 30 个 kg/kg 自制半成品物料并复用 `MAT-000106 初晓-半成品`；创建 31 个同名物料产出替代 BOM。26 个完整配方发布并设为物料默认 BOM，5 个空配方只保留草稿；已停用的旧生豆组件 42/67 分别映射到同业务物料的启用档案 7/27，不恢复失效档案。旧商品产出 BOM 仅在整批成功后失效并解除当前绑定，历史数据不删除。
+- `DEV-605-DOCS-RELEASE-ACCEPTANCE`：切换工具使用数据库锁、锁定清单、来源版本和配方指纹、未完生产依赖门禁及单事务应用；执行顺序为预览、完整备份、应用、只读验收。重复应用幂等；补偿回滚恢复旧绑定、失效新 BOM 并弃用本次新物料，不删除审计和历史。

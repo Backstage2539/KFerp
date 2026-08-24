@@ -128,6 +128,7 @@ type updateProductionBomVersionDraftRequest struct {
 }
 
 type draftWorkspaceRequest struct {
+	SourceVersionID        int64                              `json:"source_version_id"`
 	Name                   string                             `json:"name"`
 	OutputType             string                             `json:"output_type"`
 	OutputID               int64                              `json:"output_id"`
@@ -193,6 +194,14 @@ func (r bindProductProductionBomRequest) normalized() (int64, int64) {
 
 type ErrorResponse struct {
 	Error string `json:"error"`
+	Code  string `json:"code,omitempty"`
+}
+
+func productionBomWriteError(c echo.Context, err error) error {
+	if errors.Is(err, bomapp.ErrPublishedOutputIdentityImmutable) {
+		return c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error(), Code: "published_output_identity_immutable"})
+	}
+	return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 }
 
 const legacyProductionBomGroupsReadonlyError = "production BOM groups are legacy readonly; use business_group_assignments"
@@ -502,7 +511,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		}
 		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), cmd)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return productionBomWriteError(c, err)
 		}
 		return c.JSON(http.StatusOK, row)
 	})
@@ -529,7 +538,34 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		}
 		row, err := bomSvc.UpdateProductionBomDraftWorkspace(c.Request().Context(), cmd)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return productionBomWriteError(c, err)
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/production-boms/:id/replacement-draft", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid bom_id"})
+		}
+		var req draftWorkspaceRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		workspace := bomapp.ProductionBomDraftWorkspaceCommand{
+			Bom:            bomapp.UpdateProductionBomCommand{Name: req.Name, OutputType: req.OutputType, OutputID: req.OutputID, OutputProductID: req.OutputProductID, OutputMaterialID: req.OutputMaterialID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c), UpdateOutputBinding: true, SpecTemplateVersionID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID},
+			Version:        bomapp.UpdateProductionBomVersionDraftCommand{ExpectedLossRate: req.ExpectedLossRate, MaterialLossRate: req.MaterialLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, Variants: req.Variants, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)},
+			SpecTemplateID: req.SpecTemplateVersionID, MainInputMaterialID: req.MainInputMaterialID,
+		}
+		if req.GroupID != nil {
+			workspace.Bom.GroupID, workspace.Bom.UpdateGroupAssignment = *req.GroupID, true
+		}
+		if req.GroupCategoryID != nil {
+			workspace.Bom.GroupCategoryID, workspace.Bom.UpdateGroupAssignment = *req.GroupCategoryID, true
+		}
+		row, err := bomSvc.CreateProductionBomReplacementDraft(c.Request().Context(), bomapp.CreateProductionBomReplacementDraftCommand{SourceBomID: id, SourceVersionID: req.SourceVersionID, Workspace: workspace})
+		if err != nil {
+			return productionBomWriteError(c, err)
 		}
 		return c.JSON(http.StatusOK, row)
 	})
