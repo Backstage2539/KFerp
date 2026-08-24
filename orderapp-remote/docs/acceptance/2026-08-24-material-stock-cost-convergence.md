@@ -18,10 +18,10 @@
 
 - PR-605 与关联 Vue 定向测试：28/28；frontend 完整发现集：1030/1030。
 - `go test ./...`：全包通过；PR-605 support 合同通过。
-- PostgreSQL 定向覆盖：单仓盘点不覆盖其他仓、FIFO 调整分配、包材仓离散数量、离散批次价值变化、采购收货成功一致性与强制失败完整回滚。
+- 真实 PostgreSQL：purchase 2.422s、stock 18.149s、materials 1.840s，通过；覆盖单仓盘点不覆盖其他仓、FIFO 调整分配、包材仓离散数量、离散批次价值变化、采购收货成功一致性与强制失败完整回滚。
 - `npm run build`：6594 modules，通过（仅保留既有 chunk size warning）。
 - `scripts/verify_kferp.sh all`：exit 0。
-- development preflight 和部署健康结果在最终交付记录补充。
+- development feature preflight 首轮通过 Vue 1030/1030、小程序 217/217、typecheck、两个 Go 全包门禁及隔离镜像构建；最终证据提交 preflight 和部署健康结果在最终交付记录补充。
 
 ## 人工验收
 

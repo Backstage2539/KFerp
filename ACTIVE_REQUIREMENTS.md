@@ -16,7 +16,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-605-WAREHOUSE-BALANCE-ADJUSTMENT（done，local GREEN）：批量仓库余额、库存动作实时库存、单仓盘点、FIFO 批次分配与离散成本调整。
   - DEV-605-PURCHASE-RECEIPT-POSTING（done，local GREEN）：采购统一库存单位、收货确认、原子过账、普通原料入库退役与操作日志。
   - DEV-605-DOCS-DEVELOPMENT-DELIVERY（in progress）：需求、验收、物料/库存/采购手册、PR/DEV/REV 已完成；远端 preflight 与 development 交付待执行。
-- Verifier: RED evidence captured；targeted Vue 28/28 GREEN；Go `./...` GREEN；frontend 1030/1030 GREEN；`scripts/verify_kferp.sh all` exit 0；Vite 6594 modules GREEN（existing chunk warning only）；real PostgreSQL stock/purchase tests run when test database is available；development preflight/deploy smoke pending.
+- Verifier: RED evidence captured；targeted Vue 28/28 GREEN；Go `./...` GREEN；frontend 1030/1030 GREEN；`scripts/verify_kferp.sh all` exit 0；Vite 6594 modules GREEN（existing chunk warning only）；real PostgreSQL purchase 2.422s、stock 18.149s、materials 1.840s GREEN；feature preflight first pass GREEN，latest evidence commit preflight and development deploy pending.
 - Manual: Van development business acceptance after delivery.
 - Deployment: development only after verified feature branch is merged into latest `develop`; `main` and production explicitly out of scope.
 - Last update: 2026-08-24 Asia/Shanghai
