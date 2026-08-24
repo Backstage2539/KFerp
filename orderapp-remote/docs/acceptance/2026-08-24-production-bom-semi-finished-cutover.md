@@ -26,6 +26,7 @@
 - 生产应用后验收：31 个目标物料、31 个替代 BOM、26 个 published/default/`can_manufacture=true`、5 个空配方 draft，31 个源 BOM 全部 inactive，旧商品默认/产出/生产配置绑定均为 0；初晓为 `0.195 + 50→62.11/15→18.63/20→24.84/15→18.63`，曜石2.0 来源为 published V006，榛巧与白巧坚果均符合锁定值，42/67 引用为 0。
 - 相同生产迁移第二次运行返回 `already applied; no changes written`；最终预览为 `state=applied`。操作日志包含 30 个物料创建、1 个初晓物料更新、31 个替代草稿创建、26 个发布、26 个默认 BOM 绑定、31 个源 BOM 失效、31 个商品制造绑定清理及唯一 1 条整批 apply 审计。
 - 验收记录版本重启后，两条旧兼容路径曾把 24 个仍有旧配方的商品重新绑定到已失效源 BOM。真实 PostgreSQL 回归先复现 `intentionally-inactive` 商品错误得到 1 条绑定，system library backfill 的源码合同也先红；修复后 PR-403 repair 与 system backfill 均只选择 active 目标 BOM，测试转绿，故意失效的切换源不会在后续启动时复绑。
+- 两道保护已部署到 `production main@c2fb95cd1393b5f661f2e5a1d72e3b0ec4aa488f` 和 `development develop@663c563088d23fc9f0c45afd477fed1f60b4a5f5`。生产随后以带锁事务精确删除 24 条 `system-backfill` 兼容绑定，数量不符会整笔回滚，并写入唯一 `repair_restart_reintroduced_bindings` 审计；再次重启后 31/26/5、31 个有效物料、31 个失效源 BOM保持不变，旧商品 binding/output-binding/config 三类当前关联均为 0，登录 HTTP 200、未认证受保护接口 HTTP 401。
 
 ## 生产数据门禁
 
@@ -39,5 +40,5 @@
 
 - 自动化开发、正式生产克隆验证与 live production 验收：已完成。
 - development / production 代码发布：已完成。
-- 生产数据：单事务切换完成并通过幂等、配方、绑定、制造状态和审计核对；可恢复备份已保留。
+- 生产数据：单事务切换完成并通过幂等、配方、绑定、制造状态和审计核对；启动兼容回归已修复、审计清理并经再次重启验证；可恢复备份已保留。
 - Van 页面与业务验收：待执行。
