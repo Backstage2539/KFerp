@@ -26,6 +26,10 @@
           </div>
           <button class="secondary compact-action" type="button" @click="closeBomDrawer">关闭</button>
         </div>
+        <div data-bom-workspace-feedback aria-live="polite">
+          <div v-if="error" class="error">{{ error }}</div>
+          <div v-if="ok" class="ok">{{ ok }}</div>
+        </div>
         <!-- compatibility: bomForm.mode !== 'edit' && (!Number(bomForm.spec_template_version_id) || !Number(bomForm.main_input_material_id)) -->
         <form class="inline-form bom-record-form" @submit.prevent="saveProductionBomRecord">
           <label>
@@ -63,7 +67,7 @@
           </label>
           <label v-if="bomForm.output_type === 'product' && (bomForm.mode !== 'edit' || !bomVariants.length)" class="bom-spec-template-field">
             <span>BOM 规格模板</span>
-            <select v-model.number="bomForm.spec_template_version_id">
+            <select v-model.number="bomForm.spec_template_version_id" @change="markBomWorkspaceDirty">
               <option :value="0">选择已发布模板版本</option>
               <option v-for="row in specTemplateVersionOptions" :key="row.version_id" :value="row.version_id">{{ row.label }}</option>
             </select>
@@ -77,7 +81,8 @@
               :option-label="materialOptionLabel"
               :option-value="optionNumericValue"
               placeholder="选择规格主体物料"
-              empty-text="没有匹配物料" />
+              empty-text="没有匹配物料"
+              @update:model-value="markBomWorkspaceDirty" />
             <small>模板中的规格用量占位符会复制为该物料；每个规格仍可继续编辑完整配方。</small>
           </label>
           <label v-if="bomForm.mode === 'edit'">
@@ -564,7 +569,7 @@
                 </label>
                 <label v-if="versionMaterialLossRateEnabled" class="material-loss-rate-field">
                   <span>损耗比例 %</span>
-                  <input v-model.number="versionMaterialLossRatePct" type="number" min="0" max="99.9999" step="0.01" :disabled="!canEditCurrentBomItems" />
+                  <input v-model.number="versionMaterialLossRatePct" type="number" min="0" max="99.9999" step="0.01" :disabled="!canEditCurrentBomItems" @input="handleVersionMaterialLossRateInput" />
                   <small>开启损耗后，所有组件必须是物料并使用比例 %；损耗比例必须大于 0。</small>
                 </label>
               </div>
@@ -701,7 +706,7 @@ import { apiGet, apiSend } from '../api/client'
 import BusinessGroupInlineWorkspace from '../components/BusinessGroupInlineWorkspace.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomDraftItemKey, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning, removeProductionBomDraftItem } from '../lib/bom'
+import { applyVersionMaterialLossRate, assignVariantSpecKeys, bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, isProductionBomOutputProductCandidate, materialLossAdjustedRatioPct, materialOptionLabel, nextSpecKey, productionBomDetailAsRecipeDetail, productionBomDraftItemKey, productionBomLabel, productionBomListName, productionBomOutputIdentity, productionBomOutputLabel, productionBomOutputPayload, productionBomVersionWarning, removeProductionBomDraftItem } from '../lib/bom'
 import {
   businessGroupControlOptions,
   businessGroupFeatureSelectionIDs,
@@ -780,6 +785,7 @@ const itemForm = reactive({
 const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_type: 'product', output_id: 0, output_product_id: 0, output_material_id: 0, output_qty: 1, output_unit: 'unit', spec_template_version_id: 0, main_input_material_id: 0, status: 'active' })
 const versionNote = ref('')
 const bomWorkspaceDirty = ref(false)
+const bomWorkspaceSaveFailed = ref(false)
 
 const bomVariants = computed(() => Array.isArray(productionBomDetail.value?.variants) ? productionBomDetail.value.variants : [])
 const selectedBomVariant = computed(() => bomVariants.value.find((variant) => Number(variant.bom_variant_id || variant.id || 0) === Number(selectedBomVariantID.value || 0)) || bomVariants.value[0] || null)
@@ -1444,7 +1450,9 @@ function syncItemFormToRecipeMode() {
 function handleVersionMaterialLossToggle() {
   if (!versionMaterialLossRateEnabled.value) {
     versionMaterialLossRatePct.value = ''
+    replaceCurrentRecipeItemsWithLossRate(0)
     syncItemFormToRecipeMode()
+    markBomWorkspaceDirty()
     return
   }
   if (recipeConsumeMode.value === 'fixed' || recipeConsumeMode.value === 'mixed_legacy') {
@@ -1454,13 +1462,27 @@ function handleVersionMaterialLossToggle() {
     return
   }
   if (!(Number(versionMaterialLossRatePct.value || 0) > 0)) versionMaterialLossRatePct.value = 1
+  replaceCurrentRecipeItemsWithLossRate(selectedVersionMaterialLossRate.value)
   syncItemFormToRecipeMode()
+  markBomWorkspaceDirty()
+}
+
+function replaceCurrentRecipeItemsWithLossRate(lossRate) {
+  const updated = applyVersionMaterialLossRate(detailItems.value, lossRate)
+  if (selectedBomVariant.value) selectedBomVariant.value.items = updated
+  else if (productionBomDetail.value) productionBomDetail.value.items = updated
+  if (!selectedBomVariant.value && detail.value) detail.value.items = updated.map((item) => ({ ...item }))
+}
+
+function handleVersionMaterialLossRateInput() {
+  replaceCurrentRecipeItemsWithLossRate(selectedVersionMaterialLossRate.value)
+  markBomWorkspaceDirty()
 }
 
 function materialLossRateDisplay(item = {}) {
-  const lossRate = normalizedMaterialLossRateFromValue(item.material_loss_rate)
+  const lossRate = normalizedMaterialLossRateFromValue(item.material_loss_rate || selectedVersionMaterialLossRate.value)
   if (!lossRate || (item.component_type !== 'material') || ((item.consume_unit || 'ratio_pct') !== 'ratio_pct')) return ''
-  const effectiveRatio = Number(item.ratio_pct || 0) / (1 - lossRate)
+  const effectiveRatio = materialLossAdjustedRatioPct(item, lossRate)
   return `原料损耗 ${ratio(lossRate * 100)}，损耗后用量占比 ${ratio(effectiveRatio)}（配方比例 ÷ (1 - 原料损耗率)）`
 }
 
@@ -1538,6 +1560,7 @@ function makeSelectedBomVariantDefault() {
       : Number(variant.bom_spec_id || 0) === selectedSpecID
     variant.is_default = sameVariant
   }
+  markBomWorkspaceDirty()
 }
 
 function validatedProductionBomDraftVariantPayloads(variants = bomVariants.value) {
@@ -1751,7 +1774,10 @@ function toggleAllVisibleBoms(event, rows = []) {
 async function selectProductionBomVersion(version, options = {}) {
   const versionID = Number(version?.id || version || 0)
   if (versionID > 0 && versionID !== Number(selectedProductionBomVersionID.value || 0) && !confirmDiscardBomWorkspaceChanges()) return
-  if (versionID > 0 && versionID !== Number(selectedProductionBomVersionID.value || 0)) bomWorkspaceDirty.value = false
+  if (versionID > 0 && versionID !== Number(selectedProductionBomVersionID.value || 0)) {
+    bomWorkspaceDirty.value = false
+    bomWorkspaceSaveFailed.value = false
+  }
   selectedProductionBomVersionID.value = versionID
   syncVersionMaterialLossRateFromSelectedVersion()
   if (options.reload && currentProductionBomID.value > 0 && versionID > 0) {
@@ -1772,6 +1798,7 @@ function syncSelectedProductionBomVersion() {
 
 function resetBomForm() {
   bomWorkspaceDirty.value = false
+  bomWorkspaceSaveFailed.value = false
   bomForm.id = 0
   bomForm.source_id = 0
   bomForm.mode = 'create'
@@ -2766,35 +2793,52 @@ async function saveProductionBomRecord() {
     main_input_material_id: Number(bomForm.main_input_material_id || 0),
     status: bomForm.status === 'inactive' ? 'inactive' : 'active',
   }
-	await mutate(async () => {
-	  if (bomForm.mode === 'edit') {
-	    const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || selectedProductionBomVersionID.value || 0)
-	    if (!draftVersionID) throw new Error('请先选择可编辑的 BOM 草稿版本')
-	    const isProductOutput = binding.output_type === 'product'
-	    const workspaceRecipe = isProductOutput
-	      ? { variants: validatedProductionBomDraftVariantPayloads() }
-	      : { items: detailItems.value.map(productionBomDraftItemPayloadFromItem) }
-	    await apiSend(`/api/production-boms/${bomForm.id}/draft-workspace`, {
-	      method: 'PUT',
-	      body: {
-	        ...payload,
-	        ...workspaceRecipe,
-	        version_id: draftVersionID,
-	        process_route_id: Number(currentRecipeTarget.value?.process_route_id || 0),
-	        material_loss_rate: Number(selectedVersionMaterialLossRate.value || 0),
-	      },
-	    })
-	    bomWorkspaceDirty.value = false
-	    ok.value = '已保存 BOM 草稿；发布仍需单独操作'
-	  } else if (bomForm.mode === 'copy') {
-	      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, {
-	        body: {
-	          name: payload.name,
-	          ...binding,
-	          spec_template_version_id: payload.spec_template_version_id,
-	          main_input_material_id: payload.main_input_material_id,
-	        },
-	      })
+  const editing = bomForm.mode === 'edit'
+  const completed = await mutate(async () => {
+    if (editing) {
+      const sourceBomID = Number(bomForm.id || 0)
+      const draftVersionID = Number(selectedProductionBomDraftVersion.value?.id || selectedProductionBomVersionID.value || 0)
+      if (!draftVersionID) throw new Error('请先选择可编辑的 BOM 草稿版本')
+      const isProductOutput = binding.output_type === 'product'
+      const workspaceRecipe = isProductOutput
+        ? { variants: validatedProductionBomDraftVariantPayloads() }
+        : { items: detailItems.value.map(productionBomDraftItemPayloadFromItem) }
+      const workspaceBody = {
+        ...payload,
+        ...workspaceRecipe,
+        version_id: draftVersionID,
+        source_version_id: draftVersionID,
+        process_route_id: Number(currentRecipeTarget.value?.process_route_id || 0),
+        material_loss_rate: Number(selectedVersionMaterialLossRate.value || 0),
+      }
+      let saved
+      let replacement = false
+      try {
+        saved = await apiSend(`/api/production-boms/${bomForm.id}/draft-workspace`, { method: 'PUT', body: workspaceBody })
+      } catch (err) {
+        if (err?.code !== 'published_output_identity_immutable') throw err
+        saved = await apiSend(`/api/production-boms/${bomForm.id}/replacement-draft`, { body: workspaceBody })
+        replacement = true
+      }
+      const savedBomID = Number(saved?.id || sourceBomID)
+      bomWorkspaceDirty.value = false
+      bomWorkspaceSaveFailed.value = false
+      await loadAll()
+      const savedRecord = productionBoms.value.find((row) => Number(row.id || row.production_bom_id || 0) === savedBomID)
+        || { ...saved, id: savedBomID, production_bom_id: savedBomID }
+      await openEditProductionBomRecord(savedRecord)
+      ok.value = replacement
+        ? '已创建替代 BOM 草稿；原已发布 BOM 与历史版本保持不变'
+        : '已保存 BOM 草稿；发布仍需单独操作'
+    } else if (bomForm.mode === 'copy') {
+      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, {
+        body: {
+          name: payload.name,
+          ...binding,
+          spec_template_version_id: payload.spec_template_version_id,
+          main_input_material_id: payload.main_input_material_id,
+        },
+      })
       ok.value = '已复制生产 BOM'
       pendingProductionBomID.value = Number(copied?.id || 0)
     } else {
@@ -2802,9 +2846,12 @@ async function saveProductionBomRecord() {
       ok.value = '已新建生产 BOM'
       pendingProductionBomID.value = Number(created?.id || 0)
     }
-    closeBomDrawer()
-    await loadAll()
+    if (!editing) {
+      closeBomDrawer()
+      await loadAll()
+    }
   })
+  if (editing && !completed) bomWorkspaceSaveFailed.value = true
 }
 
 async function deactivateProductionBomRecord(bom) {
@@ -2838,6 +2885,10 @@ async function activateVersion(id) {
   if (!canEditCurrentBomProduct.value) return
   if (bomWorkspaceDirty.value) {
     error.value = '当前 BOM 草稿有未保存改动，请先保存 BOM 草稿后再发布'
+    return
+  }
+  if (bomWorkspaceSaveFailed.value) {
+    error.value = '当前 BOM 草稿保存失败，禁止发布旧数据；请先重新保存草稿'
     return
   }
   await mutate(async () => {
@@ -2886,8 +2937,10 @@ async function mutate(action) {
   ok.value = ''
   try {
     await action()
+    return true
   } catch (err) {
     error.value = err.message || '保存失败'
+    return false
   } finally {
     loading.value = false
   }

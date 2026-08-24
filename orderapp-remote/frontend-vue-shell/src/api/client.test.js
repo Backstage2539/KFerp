@@ -98,6 +98,26 @@ test('apiSend preserves custom headers while sending Bearer token', async () => 
   }
 })
 
+test('apiSend exposes stable API error codes to workflow handlers', async () => {
+  const previousWindow = globalThis.window
+  const previousFetch = globalThis.fetch
+  globalThis.window = { location: { origin: 'https://erp.qacoohee.com' }, localStorage: { getItem: () => null } }
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    error: 'published production BOM output identity is immutable',
+    code: 'published_output_identity_immutable',
+  }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+  try {
+    await assert.rejects(apiSend('/api/production-boms/11/draft-workspace', { method: 'PUT' }), (err) => {
+      assert.equal(err.status, 409)
+      assert.equal(err.code, 'published_output_identity_immutable')
+      return true
+    })
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.fetch = previousFetch
+  }
+})
+
 test('apiFetch sends Bearer token while returning the raw response for file and form flows', async () => {
   const previousWindow = globalThis.window
   const previousFetch = globalThis.fetch
