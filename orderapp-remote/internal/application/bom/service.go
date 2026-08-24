@@ -3,10 +3,13 @@ package bom
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 )
+
+var ErrPublishedOutputIdentityImmutable = errors.New("published production BOM output identity is immutable")
 
 var (
 	productionBomCodePrefixPattern    = regexp.MustCompile(`(?i)^BOM-?[0-9]+[[:space:]]*`)
@@ -492,6 +495,15 @@ type ProductionBomDraftWorkspaceCommand struct {
 	MainInputMaterialID int64 `json:"main_input_material_id,omitempty"`
 }
 
+// CreateProductionBomReplacementDraftCommand creates a new BOM master and V001
+// draft from the complete editor workspace while retaining explicit provenance.
+// The source BOM and source version are never updated by this command.
+type CreateProductionBomReplacementDraftCommand struct {
+	SourceBomID     int64                              `json:"source_bom_id"`
+	SourceVersionID int64                              `json:"source_version_id"`
+	Workspace       ProductionBomDraftWorkspaceCommand `json:"workspace"`
+}
+
 // NormalizeProductionBomDraftWorkspaceRecipePayload makes the workspace
 // recipe a discriminated union. Empty slices are meaningful: an empty items
 // slice clears a material-output draft recipe, while an empty variants slice is
@@ -657,6 +669,10 @@ type Repository interface {
 
 type ProductionBomDraftWorkspaceRepository interface {
 	UpdateProductionBomDraftWorkspace(ctx context.Context, cmd ProductionBomDraftWorkspaceCommand) (ProductionBomDetail, error)
+}
+
+type ProductionBomReplacementDraftRepository interface {
+	CreateProductionBomReplacementDraft(ctx context.Context, cmd CreateProductionBomReplacementDraftCommand) (ProductionBomDetail, error)
 }
 
 // ProductionBomSpecRepository is additive so legacy adapters and focused test
@@ -1542,18 +1558,92 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 	return row, nil
 }
 
+type productionBomDraftValidationRepository struct {
+	Repository
+	normalized UpdateProductionBomVersionDraftCommand
+}
+
+func (r *productionBomDraftValidationRepository) UpdateProductionBomVersionDraft(_ context.Context, cmd UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error) {
+	r.normalized = cmd
+	return ProductionBomVersion{ID: cmd.VersionID, Status: "draft", OutputQty: cmd.OutputQty, OutputUnit: cmd.OutputUnit}, nil
+}
+
+func (r *productionBomDraftValidationRepository) ProductionBomSpecInventoryUnits(ctx context.Context, specIDs []int64) (map[int64]string, error) {
+	if repo, ok := r.Repository.(ProductionBomSpecInventoryUnitRepository); ok {
+		return repo.ProductionBomSpecInventoryUnits(ctx, specIDs)
+	}
+	return nil, nil
+}
+
+func (s *Service) normalizeProductionBomDraftWorkspace(ctx context.Context, cmd ProductionBomDraftWorkspaceCommand, requirePersistedIDs bool) (ProductionBomDraftWorkspaceCommand, error) {
+	if requirePersistedIDs && (cmd.Bom.ID <= 0 || cmd.Version.VersionID <= 0) {
+		return cmd, fmt.Errorf("bom_id and version_id required")
+	}
+	if !requirePersistedIDs && cmd.Version.OutputQty <= 0 {
+		return cmd, fmt.Errorf("output_qty must be positive")
+	}
+	cmd.Bom.Name = NormalizeProductionBomName(cmd.Bom.Name)
+	cmd.Bom.Actor = strings.TrimSpace(cmd.Bom.Actor)
+	cmd.Bom.Status = strings.TrimSpace(cmd.Bom.Status)
+	if cmd.Bom.Status == "" {
+		cmd.Bom.Status = "active"
+	}
+	if err := normalizeProductionBomOutputBinding(&cmd.Bom.OutputType, &cmd.Bom.OutputID, &cmd.Bom.OutputProductID, &cmd.Bom.OutputMaterialID, true); err != nil {
+		return cmd, err
+	}
+	cmd.Bom.UpdateOutputBinding = true
+	cmd.Bom.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.Bom.OutputType, cmd.Bom.OutputID, cmd.Bom.OutputUnit)
+	cmd.Version.OutputUnit = cmd.Bom.OutputUnit
+	cmd.Version.Items, cmd.Version.Variants = NormalizeProductionBomDraftWorkspaceRecipePayload(cmd.Bom.OutputType, cmd.Version.Items, cmd.Version.Variants)
+	cmd.Version.Actor = cmd.Bom.Actor
+	validationCommand := cmd.Version
+	if validationCommand.VersionID <= 0 {
+		validationCommand.VersionID = 1
+	}
+	validationRepo := &productionBomDraftValidationRepository{Repository: s.repo}
+	if _, err := NewService(validationRepo).UpdateProductionBomVersionDraft(ctx, validationCommand); err != nil {
+		return cmd, err
+	}
+	cmd.Version = validationRepo.normalized
+	if !requirePersistedIDs {
+		cmd.Bom.ID = 0
+		cmd.Version.VersionID = 0
+	}
+	return cmd, nil
+}
+
 func (s *Service) UpdateProductionBomDraftWorkspace(ctx context.Context, cmd ProductionBomDraftWorkspaceCommand) (ProductionBomDetail, error) {
 	workspaceRepo, ok := s.repo.(ProductionBomDraftWorkspaceRepository)
 	if !ok {
 		return ProductionBomDetail{}, fmt.Errorf("BOM 草稿工作区保存不可用")
 	}
-	if cmd.Bom.ID <= 0 || cmd.Version.VersionID <= 0 {
-		return ProductionBomDetail{}, fmt.Errorf("bom_id and version_id required")
+	cmd, err := s.normalizeProductionBomDraftWorkspace(ctx, cmd, true)
+	if err != nil {
+		return ProductionBomDetail{}, err
 	}
-	cmd.Version.Items, cmd.Version.Variants = NormalizeProductionBomDraftWorkspaceRecipePayload(cmd.Bom.OutputType, cmd.Version.Items, cmd.Version.Variants)
-	cmd.Bom.Actor = strings.TrimSpace(cmd.Bom.Actor)
-	cmd.Version.Actor = cmd.Bom.Actor
 	return workspaceRepo.UpdateProductionBomDraftWorkspace(ctx, cmd)
+}
+
+func (s *Service) CreateProductionBomReplacementDraft(ctx context.Context, cmd CreateProductionBomReplacementDraftCommand) (ProductionBomDetail, error) {
+	if cmd.SourceBomID <= 0 {
+		return ProductionBomDetail{}, fmt.Errorf("source_bom_id required")
+	}
+	if cmd.SourceVersionID <= 0 {
+		return ProductionBomDetail{}, fmt.Errorf("source_version_id required")
+	}
+	if strings.TrimSpace(cmd.Workspace.Bom.Name) == "" {
+		return ProductionBomDetail{}, fmt.Errorf("name required")
+	}
+	repo, ok := s.repo.(ProductionBomReplacementDraftRepository)
+	if !ok {
+		return ProductionBomDetail{}, fmt.Errorf("BOM 替代草稿创建不可用")
+	}
+	workspace, err := s.normalizeProductionBomDraftWorkspace(ctx, cmd.Workspace, false)
+	if err != nil {
+		return ProductionBomDetail{}, err
+	}
+	cmd.Workspace = workspace
+	return repo.CreateProductionBomReplacementDraft(ctx, cmd)
 }
 
 // ValidateProductionBomRecipeMode keeps a recipe in exactly one quantity mode.

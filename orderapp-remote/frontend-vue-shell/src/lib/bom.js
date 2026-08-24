@@ -314,6 +314,27 @@ export function removeProductionBomDraftItem(items = [], targetKey = '') {
   return (Array.isArray(items) ? items : []).filter((item, index) => productionBomDraftItemKey(item, index) !== key)
 }
 
+function normalizedMaterialLossRate(value) {
+  const rate = Number(value || 0)
+  return Number.isFinite(rate) && rate > 0 && rate < 1 ? rate : 0
+}
+
+export function applyVersionMaterialLossRate(items = [], value = 0) {
+  const rate = normalizedMaterialLossRate(value)
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const isMaterialRatio = String(item?.component_type || 'material') === 'material'
+      && String(item?.consume_unit || 'ratio_pct') === 'ratio_pct'
+    return { ...item, material_loss_rate: isMaterialRatio ? rate : 0 }
+  })
+}
+
+export function materialLossAdjustedRatioPct(item = {}, fallbackLossRate = 0) {
+  if (String(item?.component_type || 'material') !== 'material' || String(item?.consume_unit || 'ratio_pct') !== 'ratio_pct') return 0
+  const rate = normalizedMaterialLossRate(item?.material_loss_rate || fallbackLossRate)
+  const ratioPct = Number(item?.ratio_pct || 0)
+  return rate > 0 ? ratioPct / (1 - rate) : ratioPct
+}
+
 export function bomSourceLabel(row = {}) {
   return productionBomLabel(row)
 }

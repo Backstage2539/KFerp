@@ -55,6 +55,90 @@ type componentSpecUnitFakeRepo struct {
 	specUnits map[int64]string
 }
 
+type workspaceNormalizationRepo struct {
+	*fakeRepo
+	workspaceCommand   ProductionBomDraftWorkspaceCommand
+	replacementCommand CreateProductionBomReplacementDraftCommand
+}
+
+func (r *workspaceNormalizationRepo) UpdateProductionBomDraftWorkspace(_ context.Context, cmd ProductionBomDraftWorkspaceCommand) (ProductionBomDetail, error) {
+	r.workspaceCommand = cmd
+	return ProductionBomDetail{ProductionBomSummary: ProductionBomSummary{ID: cmd.Bom.ID}}, nil
+}
+
+func (r *workspaceNormalizationRepo) CreateProductionBomReplacementDraft(_ context.Context, cmd CreateProductionBomReplacementDraftCommand) (ProductionBomDetail, error) {
+	r.replacementCommand = cmd
+	return ProductionBomDetail{ProductionBomSummary: ProductionBomSummary{ID: 88}}, nil
+}
+
+func TestDraftWorkspaceReusesVersionNormalizationAndLossOverride(t *testing.T) {
+	repo := &workspaceNormalizationRepo{fakeRepo: &fakeRepo{materialRows: []Option{{ID: 95, Name: "初晓-半成品", InventoryUnit: "kg"}}}}
+	svc := NewService(repo)
+	loss := 0.195
+	_, err := svc.UpdateProductionBomDraftWorkspace(context.Background(), ProductionBomDraftWorkspaceCommand{
+		Bom: UpdateProductionBomCommand{ID: 11, Name: " 初晓 ", OutputType: "MATERIAL", OutputID: 95, UpdateOutputBinding: true, Actor: " VA "},
+		Version: UpdateProductionBomVersionDraftCommand{VersionID: 103, OutputQty: 1, OutputUnit: "lb", MaterialLossRate: &loss, Items: []ProductionBomDraftItem{
+			{MaterialID: 56, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 50, MaterialLossRate: 0.01},
+			{MaterialID: 85, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 15},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProductionBomDraftWorkspace: %v", err)
+	}
+	got := repo.workspaceCommand
+	if got.Bom.Name != "初晓" || got.Bom.OutputType != "material" || got.Bom.OutputMaterialID != 95 || got.Bom.OutputProductID != 0 {
+		t.Fatalf("normalized BOM = %+v", got.Bom)
+	}
+	if got.Bom.OutputUnit != "kg" || got.Version.OutputUnit != "kg" {
+		t.Fatalf("workspace output units = bom %q version %q, want kg", got.Bom.OutputUnit, got.Version.OutputUnit)
+	}
+	for index, item := range got.Version.Items {
+		if item.MaterialLossRate != loss {
+			t.Fatalf("item %d loss = %v, want %v", index, item.MaterialLossRate, loss)
+		}
+	}
+}
+
+func TestReplacementDraftNormalizesFullWorkspaceAndRequiresSourceVersion(t *testing.T) {
+	repo := &workspaceNormalizationRepo{fakeRepo: &fakeRepo{materialRows: []Option{{ID: 95, Name: "初晓-半成品", InventoryUnit: "kg"}}}}
+	svc := NewService(repo)
+	if _, err := svc.CreateProductionBomReplacementDraft(context.Background(), CreateProductionBomReplacementDraftCommand{SourceBomID: 11}); err == nil || !strings.Contains(err.Error(), "source_version_id") {
+		t.Fatalf("missing source version error = %v", err)
+	}
+	loss := 0.195
+	row, err := svc.CreateProductionBomReplacementDraft(context.Background(), CreateProductionBomReplacementDraftCommand{
+		SourceBomID: 11, SourceVersionID: 102,
+		Workspace: ProductionBomDraftWorkspaceCommand{
+			Bom:     UpdateProductionBomCommand{Name: "初晓", OutputType: "material", OutputID: 95, UpdateOutputBinding: true, Actor: "VA", GroupID: 165, GroupCategoryID: 885, UpdateGroupAssignment: true},
+			Version: UpdateProductionBomVersionDraftCommand{OutputQty: 1, OutputUnit: "lb", MaterialLossRate: &loss, Items: []ProductionBomDraftItem{{MaterialID: 56, ConsumeUnit: "ratio_pct", RatioPct: 50}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionBomReplacementDraft: %v", err)
+	}
+	if row.ID != 88 || repo.replacementCommand.Workspace.Bom.OutputMaterialID != 95 || repo.replacementCommand.Workspace.Version.OutputUnit != "kg" {
+		t.Fatalf("replacement = row %+v command %+v", row, repo.replacementCommand)
+	}
+	if got := repo.replacementCommand.Workspace.Version.Items[0].MaterialLossRate; got != loss {
+		t.Fatalf("replacement item loss = %v, want %v", got, loss)
+	}
+}
+
+func TestReplacementDraftRequiresPositiveOutputQuantity(t *testing.T) {
+	repo := &workspaceNormalizationRepo{fakeRepo: &fakeRepo{materialRows: []Option{{ID: 95, Name: "初晓-半成品", InventoryUnit: "kg"}}}}
+	svc := NewService(repo)
+	_, err := svc.CreateProductionBomReplacementDraft(context.Background(), CreateProductionBomReplacementDraftCommand{
+		SourceBomID: 11, SourceVersionID: 103,
+		Workspace: ProductionBomDraftWorkspaceCommand{
+			Bom:     UpdateProductionBomCommand{Name: "初晓", OutputType: "material", OutputID: 95, Actor: "VA"},
+			Version: UpdateProductionBomVersionDraftCommand{OutputQty: 0, Items: []ProductionBomDraftItem{{MaterialID: 56, ConsumeUnit: "ratio_pct", RatioPct: 100}}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "output_qty must be positive") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func (r *componentSpecUnitFakeRepo) ProductionBomSpecInventoryUnits(_ context.Context, specIDs []int64) (map[int64]string, error) {
 	units := make(map[int64]string, len(specIDs))
 	for _, specID := range specIDs {
