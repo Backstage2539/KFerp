@@ -24,7 +24,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-606-PRODUCTION-BOM-SEMI-FINISHED-CUTOVER
 - Branch: codex/bom-material-output-replacement-20260824
 - Owner/session: Codex / 2026-08-24
-- Status: implementation and restored-production-clone verification complete; production data unchanged
+- Status: implementation, latest-develop full verification and formal PR-606 restored-production-clone verification complete; production data unchanged
 - Scope: 修复生产 BOM 草稿保存反馈、统一草稿标准化和损耗实时重算；新增保留历史的替代草稿；将“烘焙豆-半成品”31 个源 BOM 切换为物料产出 BOM。
 - DEV:
   - DEV-606-BOM-DRAFT-EDITOR-RELIABILITY
@@ -33,9 +33,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-606-DOCS-RELEASE-ACCEPTANCE
 - Verifier:
   - Unit/API: targeted RED/GREEN and full Go suite GREEN
-  - Frontend/build: targeted GREEN, Vue 1029/1029 and Vite 6594-module build GREEN
+  - Frontend/build: targeted GREEN, latest-develop Vue 1033/1033 and Vite 6594-module build GREEN
   - Manual: production BOM manual and Vue manual surface updated
-  - Review/acceptance: restored production clone apply/idempotency/rollback/dependency-abort GREEN; formal production apply pending; Van acceptance remains pending
+  - Review/acceptance: formal PR-606 restored production clone apply/idempotency/rollback/dependency-abort GREEN; formal production apply pending; Van acceptance remains pending
 - Deployment: development and production not yet deployed; production migration must remain preview-only until code health, database backup and drift guards pass.
 - Last update: 2026-08-24 Asia/Shanghai
 - Notes: 保持统一 BOM 模型；已发布 BOM 的产出身份不可原位修改，改为创建替代草稿并保留源 BOM/版本追溯。生产克隆库发现已停用旧组件 42/67，锁定映射到启用同业务物料 7/27；不恢复失效档案。生产服务器根盘满导致 PostgreSQL 自恢复期间短暂不可用，已只清理可重建缓存/7 天前未使用镜像并恢复健康，未删除数据库或业务备份。
