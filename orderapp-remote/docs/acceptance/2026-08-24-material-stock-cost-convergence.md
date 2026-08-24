@@ -21,7 +21,8 @@
 - 真实 PostgreSQL：purchase 2.422s、stock 18.149s、materials 1.840s，通过；覆盖单仓盘点不覆盖其他仓、FIFO 调整分配、包材仓离散数量、离散批次价值变化、采购收货成功一致性与强制失败完整回滚。
 - `npm run build`：6594 modules，通过（仅保留既有 chunk size warning）。
 - `scripts/verify_kferp.sh all`：exit 0。
-- development feature preflight 首轮通过 Vue 1030/1030、小程序 217/217、typecheck、两个 Go 全包门禁及隔离镜像构建；最终证据提交 preflight 和部署健康结果在最终交付记录补充。
+- 最终功能提交 `a392d3bf` 的 development preflight 通过 Vue 1030/1030、小程序 217/217、typecheck、两个 Go 全包门禁及隔离镜像构建。
+- 合并提交 `776d8d1f` 已部署 development；发布门禁全绿，登录页 HTTP 200，固定开发小程序包已同步。源码备份与回滚镜像均已生成；`main` 和 production 未操作。
 
 ## 人工验收
 
