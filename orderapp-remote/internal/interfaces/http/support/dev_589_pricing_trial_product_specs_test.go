@@ -35,10 +35,10 @@ func TestDev589PricingTrialProductSpecsContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			`v-model="pricingRuleTrialForm.parent_product_id"`,
-			`<span>销售规格</span>`,
-			`v-model.number="pricingRuleTrialForm.product_id"`,
-			"pricingRuleTrialSalesSpecOptions",
-			"pricingRuleTrialProductSpecUnit(product)",
+			`<span>BOM规格</span>`,
+			`v-model.number="pricingRuleTrialForm.bom_variant_id"`,
+			"pricingRuleTrialBomSpecOptions",
+			"pricingRuleTrialBomSpecOptionLabel(option)",
 			"pricingRuleTrialRunID++",
 			"pricingRuleTrialLoading.value = false",
 		},
@@ -82,6 +82,9 @@ func TestDev589PricingTrialProductSpecsContracts(t *testing.T) {
 	}
 
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	if strings.Contains(view, `<span>销售规格</span>`) || strings.Contains(view, "pricingRuleTrialSalesSpecOptions") {
+		t.Fatal("PR-608 pricing trial must not expose sales-spec selection")
+	}
 	if strings.Contains(view, `v-model="pricingRuleTrialForm.quote_unit"`) {
 		t.Fatal("pricing trial must derive quote_unit from the selected concrete SKU instead of exposing a free unit selector")
 	}

@@ -409,7 +409,7 @@
                         <option :value="0">请选择价格计算模板</option>
                         <option v-for="rule in pricingRules" :key="`parent-product-pop-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
                       </select>
-                      <small>所选规格分别按自身销售规格试算。</small>
+                      <small>所选规格分别按默认 BOM 规格试算。</small>
                     </label>
                     <p v-else-if="priceListActivePricingSelection().pricing_mode === 'fixed_price'" class="muted inline-pricing-config-note">
                       固定价金额请在下方每个已勾选规格旁分别录入。
@@ -698,7 +698,7 @@
         <div class="drawer-head">
           <div>
             <h3>阶梯模板</h3>
-            <p>阶梯模板只定义销售规格件数。每个档位选择一个价格计算模板，档位显示为 1件、10件；227g、454g 等规格单独展示。</p>
+    <p>阶梯模板只定义 BOM 规格件数。每个档位选择一个价格计算模板，档位显示为 1件、10件；不同 BOM 规格单独展示。</p>
           </div>
           <button class="secondary" type="button" @click="closeTierTemplateDrawer">关闭</button>
         </div>
@@ -2198,7 +2198,7 @@ function priceListParentProductPricingRow(family = {}) {
     product_key: `parent:${parentProductID}`,
     product_name: name,
     parent_product_name: name,
-    sku_name: '各销售规格',
+    sku_name: '各BOM规格',
     sku_options: Array.isArray(family?.sku_options) ? family.sku_options : [],
   }
 }
@@ -2813,7 +2813,7 @@ function priceListFlatRowsFromGroups(groups = []) {
       const productID = skuID || sourceProductID || Number(itemProductID(item) || 0)
       // The rendered PDF group is a presentation snapshot and can omit the
       // stable business-group item ID. Resolve the category from the concrete
-      // selected SKU so ancestor pricing changes drive both the inline spec
+      // selected BOM specification so ancestor pricing changes drive both the inline spec
       // controls and the flattened publication rows.
       const groupRow = priceListGroupForItem(item)
       const product = {

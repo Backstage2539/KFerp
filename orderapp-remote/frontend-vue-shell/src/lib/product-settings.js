@@ -767,7 +767,10 @@ export function buildPricingRuleTrialPayload(form = {}) {
   const parentProductID = Number(form.parent_product_id ?? form.parentProductID ?? 0) || 0
   const payload = {
     pricing_rule_id: Number(form.pricing_rule_id ?? form.pricingRuleID ?? form.rule_id ?? form.ruleID ?? 0) || 0,
-    product_id: bomSpecID > 0 && parentProductID > 0
+    // PR-608: product_id always means the main product.  BOM specification
+    // identity is carried by bom_id/version/spec/variant and never by a child
+    // SKU or default_sku_id.
+    product_id: parentProductID > 0
       ? parentProductID
       : (Number(form.product_id ?? form.productID ?? 0) || 0),
     customer_id: Number(form.customer_id ?? form.customerID ?? 0) || 0,
@@ -2746,6 +2749,19 @@ export function productArchiveRowsWithSkus(products = []) {
 
   return parents.map((parent) => {
     const parentID = Number(parent?.id || parent?.product_id || 0)
+    const bomAuthoritative = parent?.bom_spec_authoritative === true
+      || parent?.bomSpecAuthoritative === true
+      || parent?.legacy_catalog_product === false
+      || String(parent?.migration_state || parent?.migrationState || '').trim().toLowerCase() === 'cutover'
+    if (bomAuthoritative) {
+      const bomSpecs = Array.isArray(parent?.bom_specs) ? parent.bom_specs : []
+      const skuSearchText = bomSpecs.map((spec) => [
+        spec?.spec_name,
+        spec?.spec_key,
+        spec?.inventory_unit,
+      ].filter(Boolean).join(' ')).join(' ')
+      return { ...parent, sku_rows: [], sku_search_text: skuSearchText, bom_specs: bomSpecs }
+    }
     const skuRows = (childrenByParentID.get(parentID) || [])
       .map((row) => ({
         ...row,

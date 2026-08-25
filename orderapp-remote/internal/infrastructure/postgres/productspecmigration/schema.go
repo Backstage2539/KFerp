@@ -57,6 +57,24 @@ CREATE INDEX IF NOT EXISTS legacy_child_sku_bom_spec_mappings_parent_idx
 CREATE INDEX IF NOT EXISTS legacy_child_sku_bom_spec_mappings_spec_idx
 	ON %[1]s.legacy_child_sku_bom_spec_mappings(bom_spec_id, bom_variant_id)
 	WHERE bom_spec_id > 0;
+
+-- PR-608 stores the deterministic catalog manifest and the original child
+-- rows outside the product catalog.  The compatibility tables above remain
+-- available for historical reads and a guarded database-backup rollback.
+CREATE TABLE IF NOT EXISTS %[1]s.product_bom_spec_authority_upgrades (
+	manifest_id TEXT PRIMARY KEY,
+	state TEXT NOT NULL CHECK (state IN ('prepared','applied','rolled_back')),
+	manifest_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	prepared_at TIMESTAMPTZ,
+	applied_at TIMESTAMPTZ,
+	rolled_back_at TIMESTAMPTZ,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS product_bom_spec_authority_upgrades_state_idx
+	ON %[1]s.product_bom_spec_authority_upgrades(state, updated_at DESC);
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err

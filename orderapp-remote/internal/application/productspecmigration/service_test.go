@@ -16,6 +16,30 @@ type fakeRepository struct {
 	options    []ProductSpecOption
 }
 
+type fakeAuthorityUpgradeRepository struct {
+	report  AuthorityUpgradeReport
+	command AuthorityUpgradeCommand
+	mode    AuthorityUpgradeMode
+	err     error
+}
+
+func (r *fakeAuthorityUpgradeRepository) PreviewAuthorityUpgrade(context.Context) (AuthorityUpgradeReport, error) {
+	r.mode = AuthorityUpgradePreview
+	return r.report, r.err
+}
+func (r *fakeAuthorityUpgradeRepository) PrepareAuthorityUpgrade(_ context.Context, cmd AuthorityUpgradeCommand) (AuthorityUpgradeReport, error) {
+	r.mode, r.command = AuthorityUpgradePrepare, cmd
+	return r.report, r.err
+}
+func (r *fakeAuthorityUpgradeRepository) ApplyAuthorityUpgrade(_ context.Context, cmd AuthorityUpgradeCommand) (AuthorityUpgradeReport, error) {
+	r.mode, r.command = AuthorityUpgradeApply, cmd
+	return r.report, r.err
+}
+func (r *fakeAuthorityUpgradeRepository) RollbackAuthorityUpgrade(_ context.Context, cmd AuthorityUpgradeCommand) (AuthorityUpgradeReport, error) {
+	r.mode, r.command = AuthorityUpgradeRollback, cmd
+	return r.report, r.err
+}
+
 func (r *fakeRepository) Get(context.Context, int64) (ProductMigration, error) {
 	return r.migration, r.err
 }
@@ -68,6 +92,32 @@ func TestPrepareRequiresProductAndAuditableActor(t *testing.T) {
 	}
 	if _, err := svc.Prepare(context.Background(), PrepareCommand{ProductID: 42}); !errors.Is(err, ErrActorRequired) {
 		t.Fatalf("missing actor err = %v, want ErrActorRequired", err)
+	}
+}
+
+func TestAuthorityUpgradeCommandsRequireActorAndManifest(t *testing.T) {
+	repo := &fakeAuthorityUpgradeRepository{report: AuthorityUpgradeReport{ManifestID: "PR-608-abcd"}}
+	svc := NewAuthorityUpgradeService(repo)
+	if _, err := svc.Preview(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if repo.mode != AuthorityUpgradePreview {
+		t.Fatalf("preview mode = %q", repo.mode)
+	}
+	if _, err := svc.Prepare(context.Background(), AuthorityUpgradeCommand{Actor: " operator "}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.command.Actor != "operator" || repo.command.ManifestID != "" {
+		t.Fatalf("prepare command = %+v", repo.command)
+	}
+	if _, err := svc.Apply(context.Background(), AuthorityUpgradeCommand{Actor: "operator"}); err == nil {
+		t.Fatal("apply without manifest should fail")
+	}
+	if _, err := svc.Rollback(context.Background(), AuthorityUpgradeCommand{Actor: "operator", ManifestID: "PR-608-abcd"}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.mode != AuthorityUpgradeRollback || repo.command.ManifestID != "PR-608-abcd" {
+		t.Fatalf("rollback command = %+v mode=%q", repo.command, repo.mode)
 	}
 }
 

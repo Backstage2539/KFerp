@@ -1624,3 +1624,10 @@
 - 工具提供 `preview/apply/rollback` 和机器可读报告，使用数据库锁、模板与包装物料指纹、31/26/5 数量、商品身份、分类、当前默认绑定及未完生产依赖门禁。应用为单事务且重复执行幂等；回滚不删除历史，遇到新生产引用或商品后续变更时停止自动处理。
 - `DEV-607-STARTUP-BINDING-PROTECTION`：PR-403 旧商品 BOM 启动修复只处理没有当前绑定、也没有显式启用商品产出 BOM 的 legacy 商品。显式 PR-607 商品 BOM 即使 V001 尚为草稿，也阻止启动逻辑创建旧兼容 BOM 或默认绑定；26 个正式默认绑定在重启后保持不变。
 - `DEV-607-DOCS-RELEASE-ACCEPTANCE`：先单独完成最新 `develop → main` 生产代码发布且不改业务数据，再交付 PR-607 到开发和生产。生产代码健康后重新预览、完成可恢复全库备份、单事务应用、重启复查、重复 apply 幂等验证及只读验收。
+
+# PR-608-PRODUCT-BOM-SPEC-AUTHORITY 商品规格单一权威升级（2026-08-25）
+
+- `DEV-608-AUTHORITY-UPGRADE-COMMAND`：新增 `product-bom-spec-authority-upgrade` 命令，按 `preview → prepare → 补齐并发布商品默认 BOM 规格 → 再次 preview → 完整备份 → apply` 执行；manifest 确定性、确认码、顾问锁、串行事务和操作日志保证整批可审计。任一启用主商品没有唯一默认 BOM、已发布默认版本、有效规格、唯一默认规格、库存单位或完整配方时，apply 整批阻断。`rollback` 只允许尚未发生新规格业务写入的 prepared manifest；已 apply 必须恢复升级前数据库备份。
+- `DEV-608-TRIAL-PRICE-LIST-AUTHORITY`：商品价格试算、物料成本诊断、商家价格表、商品档案及后续库存/生产身份统一使用主商品 + `bom_id + bom_version_id + bom_spec_id + bom_variant_id`。报价单位和库存单位只能来自所选 BOM 规格；默认 BOM 或版本变化使未发布价格表草稿过期，已发布价格保留原 BOM/单位/名称/价格快照。一个商品有多个 BOM 规格时价格表只显示一个主商品及其全部有效规格，商品档案行内展示同一组规格并提供 BOM 配置入口。
+- `DEV-608-LEGACY-CATALOG-RETIREMENT`：销售规格模板、默认子 SKU 和 `default_sku_id` 写入口返回 `410 Gone` 并引导到 BOM 配置；活动商品设置 DTO 不再投影销售规格模板。历史子商品完整行快照、名称、编码、条码、单位、价格和旧业务快照写入迁移档案；只有完成唯一 BOM 规格映射的历史规格子商品才允许物理删除，客户专属主商品、公共引用商品和普通复制商品不得因 `base_product_id` 被误删。
+- `DEV-608-DOCS-DEVELOPMENT-DELIVERY`：成本、商品档案、生产、订单和库存手册同步上述新口径；完成后只合入并部署 development，生产环境不操作，页面与业务验收由 Van 执行。

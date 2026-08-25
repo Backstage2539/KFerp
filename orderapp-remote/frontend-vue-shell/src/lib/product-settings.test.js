@@ -430,7 +430,7 @@ test('pricing rule trial sales specs come only from the selected parent concrete
   assert.equal(productSettings.pricingRuleTrialProductSpecUnit(invalidChildFallback[0]), 'kg')
 })
 
-test('pricing rule trial payload submits the selected concrete SKU while the parent remains UI-only context', () => {
+test('pricing rule trial payload submits the main product while BOM carries spec identity', () => {
   const payload = buildPricingRuleTrialPayload({
     pricing_rule_id: 15,
     parent_product_id: 58,
@@ -439,7 +439,7 @@ test('pricing rule trial payload submits the selected concrete SKU while the par
     other_cost_rows: [],
   })
 
-  assert.equal(payload.product_id, 560)
+  assert.equal(payload.product_id, 58)
   assert.equal(payload.quote_unit, '454g')
 })
 
@@ -1836,7 +1836,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '请选择启用的价格计算模板',
     'BOM版本',
     '工艺路线',
-    '销售规格',
+    'BOM规格',
     '临时加价率',
     '临时税率',
     '其他成本',
@@ -1893,7 +1893,6 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '计算公式',
     'formula_expression_lines',
     '公式步骤',
-    'pricingRuleTrialSalesSpecOptions',
     'pricingRuleTrialBomVersionOptions',
     'pricingRuleTrialProcessRouteOptions',
     'schedulePricingRuleTrial',
@@ -1938,12 +1937,14 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(trialDrawer, /试算BOM版本[\s\S]*@click="navigatePricingRuleTrialBom"[\s\S]*配置BOM/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.process_route_id"[\s\S]*pricingRuleTrialProcessRouteOptions/)
   assert.match(trialDrawer, /<span>试算商品<\/span>[\s\S]*v-model="pricingRuleTrialForm\.parent_product_id"/)
-  assert.match(trialDrawer, /<span>销售规格<\/span>[\s\S]*<select v-model\.number="pricingRuleTrialForm\.product_id"[\s\S]*pricingRuleTrialSalesSpecOptions/)
+  assert.doesNotMatch(trialDrawer, /<span>销售规格<\/span>/)
+  assert.match(trialDrawer, /BOM规格/)
+  assert.doesNotMatch(trialDrawer, /pricingRuleTrialSalesSpecOptions/)
   assert.doesNotMatch(trialDrawer, /<span>销售单位<\/span>/)
   assert.doesNotMatch(trialDrawer, /v-model="pricingRuleTrialForm\.quote_unit"/)
-  assert.match(script, /pricingRuleTrialProductSpecOptions/)
-  assert.match(script, /pricingRuleTrialDefaultProductSpecID/)
-  assert.match(script, /pricingRuleTrialProductSpecUnit/)
+  assert.match(script, /pricingRuleTrialBomSpecOptions/)
+  assert.match(script, /pricingRuleTrialBomSpecOptionLabel/)
+  assert.match(script, /pricingRuleTrialBomSpecDisplay/)
   assert.match(script, /parent_product_id:\s*0/)
   assert.match(script, /function schedulePricingRuleTrial\(\) \{[\s\S]*pricingRuleTrialRunID\+\+[\s\S]*pricingRuleTrialLoading\.value = false[\s\S]*runPricingRuleTrial\(\)/)
   assert.match(script, /if \(runID === pricingRuleTrialRunID\) \{[\s\S]*pricingRuleTrialResult\.value = result/)
@@ -4864,36 +4865,25 @@ test('SKU product config template list and price rule controls are visually stru
   assert.match(style, /\.product-config-row\.active/)
 })
 
-test('SKU unit template save creates or updates without a separate new-template button', () => {
+test('SKU sales-spec template workspace is retired in favour of BOM specifications', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
-
-  assert.ok(unitTemplatePane, 'unit template pane should exist')
-  assert.doesNotMatch(unitTemplatePane, />新建模板</)
-  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增销售规格模板/)
+  assert.match(source, /<div v-if="false" class="panel unit-template-panel unit-template-pane">/)
   assert.match(source, /function resetProductUnitTemplateForm\(\)/)
   assert.match(source, /await apiSend\(url, \{ method, body: payload \}\)/)
   assert.match(source, /await loadAll\(\)\s+resetProductUnitTemplateForm\(\)/)
 })
 
-test('existing SKU sales spec template locks inventory unit after create', () => {
+test('existing SKU sales spec template is no longer rendered', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
-
-  assert.match(unitTemplatePane, /:disabled="productUnitTemplateInventoryUnitLocked"/)
-  assert.match(unitTemplatePane, /库存单位保存后不可修改/)
-  assert.match(source, /const productUnitTemplateInventoryUnitLocked = computed/)
-  assert.match(source, /original_inventory_unit/)
-  assert.match(source, /payload\.inventory_unit\s*=\s*productUnitTemplateForm\.value\.original_inventory_unit/)
+  assert.match(source, /<div v-if="false" class="panel unit-template-panel unit-template-pane">/)
 })
 
-test('SKU settings compacts context area and uses create edit labels for unit dictionaries', () => {
+test('SKU settings keeps the global unit dictionary while retiring sales-spec templates', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const settingsSource = fs.readFileSync(new URL('../views/GlobalUnitDefinitionsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
   for (const expected of [
@@ -4911,26 +4901,7 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   assert.doesNotMatch(template, /<div v-if="ok" class="ok"/)
   assert.doesNotMatch(template, /产品列表、商品分类和商品配置会按当前归属切换。/)
 
-  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增销售规格模板/)
-  assert.match(unitTemplatePane, /productUnitTemplateForm\.id\s*\?\s*'保存'\s*:\s*'新增'/)
-  assert.match(unitTemplatePane, />销售规格模板名称</)
-  assert.match(unitTemplatePane, />库存单位</)
-  assert.match(unitTemplatePane, /productUnitTemplateForm\.inventory_unit/)
-  assert.match(unitTemplatePane, />销售规格明细</)
-  assert.match(unitTemplatePane, /sales_spec_rows/)
-  assert.match(unitTemplatePane, /class="sales-spec-row"/)
-  assert.match(unitTemplatePane, />1<\/span>[\s\S]*row\.spec_name[\s\S]*>=[\s\S]*productUnitTemplateForm\.inventory_unit/)
-  assert.match(unitTemplatePane, />默认规格</)
-  assert.match(unitTemplatePane, /setSalesSpecDefault\(productUnitTemplateForm, rowIndex\)/)
-  assert.match(unitTemplatePane, /row\.default/)
-  assert.doesNotMatch(unitTemplatePane, />启用</)
-  assert.doesNotMatch(unitTemplatePane, /v-model="row\.sales_unit"/)
-  assert.doesNotMatch(unitTemplatePane, /v-model="row\.net_content_unit"/)
-  assert.doesNotMatch(unitTemplatePane, />销售单位换算</)
-  assert.doesNotMatch(unitTemplatePane, /productUnitTemplateSalesUnitOptions/)
-  assert.doesNotMatch(unitTemplatePane, />报价单位</)
-  assert.doesNotMatch(unitTemplatePane, />录单单位</)
-  assert.doesNotMatch(unitTemplatePane, /成品库存单位/)
+  assert.match(source, /<div v-if="false" class="panel unit-template-panel unit-template-pane">/)
 
   assert.match(script, /const globalUnitEditingCode = ref\(''\)/)
   assert.match(globalUnitDrawer, /@click="resetGlobalUnitDefinitionForm"[\s\S]*新增基础单位/)
@@ -4941,9 +4912,8 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   assert.match(settingsSource, /unitEditingCode\s*\?\s*'保存'\s*:\s*'新增'/)
 })
 
-test('SKU unit template workspace uses left list right editor and opens global unit dictionary drawer', () => {
+test('SKU unit template workspace is replaced by the global unit dictionary', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
@@ -4959,11 +4929,7 @@ test('SKU unit template workspace uses left list right editor and opens global u
     assert.ok(source.includes(expected), `missing unit template workspace marker: ${expected}`)
   }
 
-  assert.ok(
-    unitTemplatePane.indexOf('unit-template-list-panel') < unitTemplatePane.indexOf('unit-template-editor-panel'),
-    'unit template list should be left of the editor in source order',
-  )
-  assert.match(unitTemplatePane, /@click="openGlobalUnitDictionaryDrawer"/)
+  assert.match(source, /<div v-if="false" class="panel unit-template-panel unit-template-pane">/)
   assert.match(source, /<aside class="settings-drawer global-unit-dictionary-drawer"/)
   assert.match(source, /@submit\.prevent="saveGlobalUnitDefinitionFromDrawer"/)
   assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(280px,\s*340px\)\s+minmax\(520px,\s*1fr\);/s)
@@ -4973,17 +4939,12 @@ test('SKU unit template workspace uses left list right editor and opens global u
   assert.doesNotMatch(style, /\.sales-spec-row\s*\{[^}]*grid-template-columns:[^}]*minmax\(82px,\s*\.7fr\)/s)
 })
 
-test('SKU unit templates and global unit dictionary expose delete actions', () => {
+test('SKU unit template writes are absent while the global unit dictionary keeps delete actions', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const settingsSource = fs.readFileSync(new URL('../views/GlobalUnitDefinitionsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
-  assert.match(unitTemplatePane, /deleteProductUnitTemplate/)
-  assert.match(source, /\/api\/product-settings\/unit-templates\/\$\{templateID\}/)
-  assert.match(unitTemplatePane, />删除<\/button>/)
-  assert.match(source, /async function deleteProductUnitTemplate\(template\)/)
-  assert.match(source, /method:\s*'DELETE'/)
+  assert.match(source, /<div v-if="false" class="panel unit-template-panel unit-template-pane">/)
 
   assert.match(globalUnitDrawer, /deleteGlobalUnitDefinitionFromDrawer/)
   assert.match(globalUnitDrawer, /globalUnitEditingCode[\s\S]*删除/)
@@ -5250,7 +5211,7 @@ test('deleted template rows are hidden without treating inactive rows as deleted
 
 test('gradient templates choose display units from global unit dictionary instead of unit templates', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const gradientPane = source.match(/<div v-show="showGradientTemplatePane"[\s\S]*?<div v-show="showUnitTemplatePane"/)?.[0] || ''
+  const gradientPane = source.match(/<div v-show="showGradientTemplatePane"[\s\S]*?<div v-if="false" class="panel unit-template-panel unit-template-pane">/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   assert.match(gradientPane, /展示单位/)

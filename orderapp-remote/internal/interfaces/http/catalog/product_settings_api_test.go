@@ -2350,15 +2350,13 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	for _, want := range []string{
 		`"product_unit_definitions"`,
 		`"code":"盒"`,
-		`"product_unit_templates"`,
-		`"name":"盒装200g"`,
-		`"default_sales_unit":"盒"`,
-		`"sales_units":["kg","盒","磅"]`,
-		`"unit_conversion_json":"{\"kg\":{\"kg\":1},\"盒\":{\"kg\":0.2},\"磅\":{\"kg\":0.453592}}"`,
 	} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"product_unit_templates"`)) || bytes.Contains(rec.Body.Bytes(), []byte(`盒装200g`)) {
+		t.Fatalf("product settings response should not project retired sales unit templates: %s", rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/product-settings/units", nil)
@@ -2394,14 +2392,8 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST unit template status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.SalesUnit != "盒" || repo.savedUnitTemplate.DefaultSalesUnit != "盒" || !reflect.DeepEqual(repo.savedUnitTemplate.SalesUnits, []string{"kg", "盒", "磅"}) || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.OrderUnit != "盒" || !strings.Contains(repo.savedUnitTemplate.UnitConversionJSON, `"磅":{"kg":0.453592}`) || !repo.savedUnitTemplate.IntegerUnit {
-		t.Fatalf("saved unit template = %+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
-	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"sales_units":["kg","盒","磅"]`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"default_sales_unit":"盒"`)) {
-		t.Fatalf("unit template response missing semantic fields: %s", rec.Body.String())
+	if rec.Code != http.StatusGone || repo.unitTemplateSaved {
+		t.Fatalf("POST unit template should be retired, status=%d body=%s saved=%v", rec.Code, rec.Body.String(), repo.unitTemplateSaved)
 	}
 }
 
@@ -2426,14 +2418,11 @@ func TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates(t *testing.T) {
 	req = httptest.NewRequest(http.MethodDelete, "/api/product-settings/unit-templates/12", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusGone {
 		t.Fatalf("DELETE unit template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.unitTemplateDeleted || repo.deletedUnitTemplate.ID != 12 {
+	if repo.unitTemplateDeleted {
 		t.Fatalf("deleted unit template = %+v deleted=%v", repo.deletedUnitTemplate, repo.unitTemplateDeleted)
-	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ok":true`)) {
-		t.Fatalf("DELETE unit template response should include ok=true: %s", rec.Body.String())
 	}
 }
 
@@ -2664,14 +2653,8 @@ func TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/product-settings/skus status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.skuCreated || repo.createdSKU.CustomerID != 42 || repo.createdSKU.ProductTypeCategoryID != 7 || repo.createdSKU.ProductSubtypeCategoryID != 17 {
-		t.Fatalf("created SKU command=%+v created=%v", repo.createdSKU, repo.skuCreated)
-	}
-	if repo.createdSKU.SpecialAttrsJSON != `{"roast_level":"中深烘"}` {
-		t.Fatalf("created SKU special attrs=%q", repo.createdSKU.SpecialAttrsJSON)
+	if rec.Code != http.StatusGone || repo.skuCreated {
+		t.Fatalf("POST /api/product-settings/skus should be retired, status=%d body=%s created=%v", rec.Code, rec.Body.String(), repo.skuCreated)
 	}
 }
 
@@ -2698,16 +2681,8 @@ func TestProductSettingsAPICreatesChildSKUUnderParentProduct(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST child sku status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.skuCreated || repo.createdSKU.ParentProductID != 88 || repo.createdSKU.SKUName != "227g袋装" || repo.createdSKU.SKUCode != "ETH-227" || repo.createdSKU.NetContentQty != 227 || repo.createdSKU.NetContentUnit != "g" {
-		t.Fatalf("created child SKU command=%+v created=%v", repo.createdSKU, repo.skuCreated)
-	}
-	for _, want := range []string{`"sku_id":912`, `"parent_product_id":88`, `"sku_name":"227g袋装"`, `"spec_label":"227g"`} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Fatalf("child sku response missing %s: %s", want, rec.Body.String())
-		}
+	if rec.Code != http.StatusGone || repo.skuCreated {
+		t.Fatalf("POST child sku should be retired, status=%d body=%s created=%v", rec.Code, rec.Body.String(), repo.skuCreated)
 	}
 }
 
@@ -2728,22 +2703,8 @@ func TestProductSettingsAPISavesSalesSpecTemplateContract(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST sales spec template status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.unitTemplateSaved || len(repo.savedUnitTemplate.SalesSpecs) != 2 {
-		t.Fatalf("saved sales specs command=%+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
-	}
-	if repo.savedUnitTemplate.DefaultSalesUnit != "100g袋装" || !repo.savedUnitTemplate.SalesSpecs[1].Default || repo.savedUnitTemplate.SalesSpecs[1].SalesUnit != "100g袋装" {
-		t.Fatalf("selected default sales spec not normalized through API: %+v", repo.savedUnitTemplate)
-	}
-	if repo.savedUnitTemplate.InventoryUnit != "kg" || repo.savedUnitTemplate.UnitConversionJSON != "{}" {
-		t.Fatalf("sales spec template should only use kg as legacy storage fallback and no conversion, got inventory=%q conversion=%q", repo.savedUnitTemplate.InventoryUnit, repo.savedUnitTemplate.UnitConversionJSON)
-	}
-	for _, want := range []string{`"default_sales_unit":"100g袋装"`, `"sales_specs"`, `"spec_key":"bag-227g"`, `"spec_name":"100g袋装"`, `"sales_unit":"100g袋装"`} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Fatalf("sales spec template response missing %s: %s", want, rec.Body.String())
-		}
+	if rec.Code != http.StatusGone || repo.unitTemplateSaved {
+		t.Fatalf("POST sales spec template should be retired, status=%d body=%s saved=%v", rec.Code, rec.Body.String(), repo.unitTemplateSaved)
 	}
 }
 
@@ -2794,16 +2755,8 @@ func TestProductSettingsAPIUpdatesPerProductDefaultSKU(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if repo.defaultSKU.Actor != "刘祎泊" || repo.defaultSKU.ParentProductID != 88 || repo.defaultSKU.SKUID != 91 {
-		t.Fatalf("command=%+v", repo.defaultSKU)
-	}
-	for _, want := range []string{`"default_sku_id":91`, `"effective_default_sku_id":91`, `"default_spec_label":"1磅"`} {
-		if !strings.Contains(rec.Body.String(), want) {
-			t.Fatalf("response missing %s: %s", want, rec.Body.String())
-		}
+	if rec.Code != http.StatusGone || repo.defaultSKU.ParentProductID != 0 {
+		t.Fatalf("default SKU write should be retired, status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.defaultSKU)
 	}
 }
 
@@ -2823,8 +2776,8 @@ func TestProductSettingsAPIRejectsInvalidPerProductDefaultSKU(t *testing.T) {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("%s body=%s status=%d, want 400", tt.path, tt.body, rec.Code)
+		if rec.Code != http.StatusGone {
+			t.Fatalf("%s body=%s status=%d, want 410", tt.path, tt.body, rec.Code)
 		}
 	}
 
@@ -2835,8 +2788,8 @@ func TestProductSettingsAPIRejectsInvalidPerProductDefaultSKU(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "sku does not belong") {
-		t.Fatalf("validation status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGone {
+		t.Fatalf("default SKU validation route should be retired, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
