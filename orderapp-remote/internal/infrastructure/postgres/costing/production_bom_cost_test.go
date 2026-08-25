@@ -260,6 +260,41 @@ func TestResolveProductionBomCostsUsesChuxiaoLossAsGrossInputFraction(t *testing
 	}
 }
 
+func TestResolveProductionBomCostsAppliesVersionLossToRatioComponents(t *testing.T) {
+	nodes := map[string]productionBomCostNode{
+		"material:108": {
+			OutputType:           "material",
+			OutputID:             108,
+			VersionID:            325,
+			MaterialLossRate:     0.2,
+			OutputQty:            1,
+			OutputUnit:           "kg",
+			OperationCostPerUnit: 2.04,
+			Items: []productionBomCostItem{
+				{ID: 1, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 10, UnitCost: 62, UnitCostUnit: "kg"},
+				{ID: 2, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 40, UnitCost: 54, UnitCostUnit: "kg"},
+				{ID: 3, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 20, UnitCost: 72, UnitCostUnit: "kg"},
+				{ID: 4, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 15, UnitCost: 70.5, UnitCostUnit: "kg"},
+				{ID: 5, ComponentType: "material", ConsumeUnit: "ratio_pct", RatioPct: 15, UnitCost: 60, UnitCostUnit: "kg"},
+			},
+		},
+	}
+
+	got := resolveTypedProductionBomCosts(nodes)["material:108"]
+	want := (10*62 + 40*54 + 20*72 + 15*70.5 + 15*60) / 100 / (1 - 0.2)
+	if !got.Resolved || math.Abs(got.InputCostPerOutputUnit-want) > 1e-9 {
+		t.Fatalf("material cost = %.6f (resolved=%t), want %.6f with version loss applied", got.InputCostPerOutputUnit, got.Resolved, want)
+	}
+	if math.Abs(got.TotalCostPerOutputUnit-(want+2.04)) > 1e-9 {
+		t.Fatalf("standard manufacturing cost = %.6f, want %.6f including operation", got.TotalCostPerOutputUnit, want+2.04)
+	}
+	for _, row := range got.BaseCostDetails {
+		if row.ConsumeUnit == "ratio_pct" && row.ComponentID < 5 && row.MaterialLossRate != 0.2 {
+			t.Fatalf("component %d loss = %.4f, want version loss 0.2", row.ComponentID, row.MaterialLossRate)
+		}
+	}
+}
+
 func TestResolveProductionBomCostsKeepsLegacyFinishedProductCompatibility(t *testing.T) {
 	nodes := map[int64]productionBomCostNode{
 		2: {
@@ -583,6 +618,24 @@ func TestProductionBomCostSQLKeepsDynamicFormatArgumentsAligned(t *testing.T) {
 	}
 	if strings.Contains(src, "version.output_unit%s%s") {
 		t.Fatal("production BOM cost SQL must not reuse the schema format argument for dynamic clauses")
+	}
+}
+
+func TestProductionBomCostSQLReadsVersionMaterialLossRate(t *testing.T) {
+	b, err := os.ReadFile("production_bom_cost.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"hasVersionMaterialLoss",
+		"COALESCE(version.material_loss_rate,0)::float8",
+		"node.MaterialLossRate",
+		"strings.EqualFold(strings.TrimSpace(node.Items[index].ConsumeUnit), \"ratio_pct\")",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("production BOM cost must apply version loss to ratio components; missing %q", want)
+		}
 	}
 }
 
