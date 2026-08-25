@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案维护商品族信息、行业字段、客户引用和 BOM 使用摘要；已切换商品的规格、库存单位和配方统一由默认已发布 BOM 提供，旧销售规格模板与派生子 SKU 仅供尚未切换的商品过渡使用。</p>
+          <p>商品档案维护商品族信息、行业字段、客户引用和 BOM 使用摘要；商品规格、库存单位和配方统一由默认已发布 BOM 提供。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading || productCategoryMoveActive">刷新</button>
       </div>
@@ -537,7 +537,7 @@
         </div>
       </div>
 
-      <div v-show="showUnitTemplatePane" class="panel unit-template-panel unit-template-pane">
+      <div v-if="false" class="panel unit-template-panel unit-template-pane">
         <div class="panel-title">
           <span>旧商品销售规格模板（迁移期）</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
@@ -706,7 +706,7 @@
               </label>
             </div>
             <div class="rule-config-block">
-              <div class="field-group-title">销售规格</div>
+              <div class="field-group-title">规格来源</div>
               <small class="unit-impact-help">商品规格统一由默认制造 BOM 的规格组提供；配置模板不再单独引用规格模板。</small>
             </div>
             <div class="form-actions">
@@ -1015,16 +1015,6 @@
                 </select>
               </label>
               <label>
-                <span>销售规格</span>
-                <select v-model.number="pricingRuleTrialForm.product_id" :disabled="!pricingRuleTrialForm.parent_product_id || !pricingRuleTrialSalesSpecOptions.length">
-                  <option :value="0">{{ pricingRuleTrialForm.parent_product_id ? '请选择销售规格' : '请先选择试算商品' }}</option>
-                  <option v-for="spec in pricingRuleTrialSalesSpecOptions" :key="Number(spec.sku_id || spec.id || 0)" :value="Number(spec.sku_id || spec.id || 0)">
-                    {{ pricingRuleTrialProductSpecLabel(spec) }}
-                  </option>
-                </select>
-                <small v-if="pricingRuleTrialForm.parent_product_id && !pricingRuleTrialSalesSpecOptions.length" class="muted">当前商品暂无可试算的有效销售规格，请先在商品档案维护规格。</small>
-              </label>
-              <label>
                 <span>临时加价率</span>
                 <input v-model.number="pricingRuleTrialForm.margin_rate" type="number" min="0" step="0.0001" />
               </label>
@@ -1116,8 +1106,8 @@
               <span class="pricing-rule-trial-operator equals">=</span>
               <div class="pricing-rule-trial-waterfall-card final">
                 <small>试算单价</small>
-                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.final_unit_price, pricingRuleTrialResult.quote_unit) }}</strong>
-                <em>试算结果只读</em>
+                <strong>{{ pricingRuleTrialResult.cost_status === 'incomplete' ? '不可发布' : trialMoneyDisplay(pricingRuleTrialResult.final_unit_price, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>{{ pricingRuleTrialResult.cost_status === 'incomplete' ? '请补齐 BOM 成本后再次运行试算' : '试算结果只读' }}</em>
               </div>
             </div>
             <div v-if="pricingRuleTrialActiveExplanation" class="pricing-rule-trial-explanation-panel">
@@ -1475,7 +1465,7 @@
         <div v-if="pricingRuleTrialMode === 'product'" class="drawer-footer pricing-rule-trial-footer">
           <div>
             <strong v-if="pricingRuleTrialUpdateMessage" class="pricing-rule-trial-update-message">{{ pricingRuleTrialUpdateMessage }}</strong>
-            <small>只更新加价率、已填写税率和其他成本；商品、BOM、路线与销售规格不写入模板。</small>
+            <small>只更新加价率、已填写税率和其他成本；商品、BOM、路线与 BOM 规格不写入模板。</small>
           </div>
           <button class="primary" type="button" :disabled="productPriceSaving || !pricingRuleTrialForm.pricing_rule_id" @click="updatePricingRuleFromTrial">更新参数到价格计算模板</button>
         </div>
@@ -1854,7 +1844,7 @@
         <div class="drawer-head">
           <div>
             <h3>全局单位字典</h3>
-            <p>维护 kg、盒、箱等基础单位；销售规格模板会引用这些单位作为库存单位和规格换算单位。</p>
+            <p>维护 kg、盒、箱等基础单位；BOM 规格和组件会引用这些全局单位。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeGlobalUnitDictionaryDrawer">关闭</button>
         </div>
@@ -2059,11 +2049,7 @@ import {
   productKindSupportsBomParams,
   productCodeLabel,
   primaryCategoryOptions,
-  pricingRuleTrialDefaultProductSpecID,
   pricingRuleTrialMainProductOptions,
-  pricingRuleTrialProductSpecLabel,
-  pricingRuleTrialProductSpecOptions,
-  pricingRuleTrialProductSpecUnit,
   productSkuRowsForParent,
   productArchiveRowsWithSkus,
   productionBomOptionLabel,
@@ -2398,13 +2384,6 @@ const selectedPricingRuleTrialMaterialBomOption = computed(() => {
     || null
 })
 const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialMainProducts.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.parent_product_id || 0)) || null)
-const pricingRuleTrialSalesSpecOptions = computed(() => pricingRuleTrialProductSpecOptions(
-  pricingRuleTrialCatalogProducts.value,
-  pricingRuleTrialForm.value.parent_product_id,
-))
-const selectedPricingRuleTrialProductSpec = computed(() => pricingRuleTrialSalesSpecOptions.value.find((product) => (
-  Number(product?.sku_id || product?.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)
-)) || null)
 const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.bom_version_options) ? pricingRuleTrialResult.value.bom_version_options : [])
 const selectedPricingRuleTrialBomVersion = computed(() => {
   const versionID = Number(pricingRuleTrialForm.value.bom_version_id || pricingRuleTrialResult.value?.bom_version_id || 0)
@@ -4244,7 +4223,7 @@ function schedulePricingRuleTrial() {
     return
   }
   const payload = buildPricingRuleTrialPayload(pricingRuleTrialForm.value)
-  if (!payload.pricing_rule_id || !payload.product_id || !String(payload.quote_unit || '').trim()) {
+  if (!payload.pricing_rule_id || !payload.product_id) {
     pricingRuleTrialResult.value = null
     pricingRuleTrialActiveExplanation.value = ''
     return
@@ -4270,11 +4249,7 @@ async function runPricingRuleTrial() {
     return
   }
   if (!payload.product_id) {
-    pricingRuleTrialError.value = '请选择销售规格'
-    return
-  }
-  if (!String(payload.quote_unit || '').trim()) {
-    pricingRuleTrialError.value = '所选销售规格缺少有效销售单位，请先在商品档案维护规格'
+    pricingRuleTrialError.value = '请选择试算商品'
     return
   }
   const runID = ++pricingRuleTrialRunID
@@ -6354,7 +6329,7 @@ async function prepareProductBomSpecMigration() {
 
 async function assessProductBomSpecMigration() {
   const migration = await mutateProductBomSpecMigration('readiness', '切换条件已重新检查')
-  if (migration?.readiness?.ready) ok.value = '切换条件已满足；确认后才会停用旧子 SKU'
+  if (migration?.readiness?.ready) ok.value = '切换条件已满足；确认后才会归档旧规格'
 }
 
 async function cutoverProductBomSpecs() {
@@ -8001,27 +7976,11 @@ watch(() => skuFilters.value.primaryCategory, () => {
 
 watch(() => pricingRuleTrialForm.value.parent_product_id, () => {
   if (restoringPricingRuleTrialReturnState) return
-  pricingRuleTrialForm.value.product_id = 0
+  pricingRuleTrialForm.value.product_id = Number(pricingRuleTrialForm.value.parent_product_id || 0)
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialForm.value.bom_version_id = 0
   pricingRuleTrialForm.value.bom_spec_id = 0
   pricingRuleTrialForm.value.bom_variant_id = 0
-  pricingRuleTrialForm.value.process_route_id = 0
-  pricingRuleTrialForm.value.operation_template_id = 0
-  pricingRuleTrialResult.value = null
-  pricingRuleTrialActiveExplanation.value = ''
-  const defaultSpecID = pricingRuleTrialDefaultProductSpecID(pricingRuleTrialSalesSpecOptions.value)
-  if (defaultSpecID > 0) pricingRuleTrialForm.value.product_id = defaultSpecID
-})
-
-watch(() => pricingRuleTrialForm.value.product_id, () => {
-  if (restoringPricingRuleTrialReturnState) return
-  const product = selectedPricingRuleTrialProductSpec.value
-  pricingRuleTrialForm.value.quote_unit = product ? pricingRuleTrialProductSpecUnit(product) : ''
-  pricingRuleTrialForm.value.bom_id = Number(product?.bom_id ?? product?.bomID ?? 0) || 0
-  pricingRuleTrialForm.value.bom_spec_id = Number(product?.bom_spec_id ?? product?.bomSpecID ?? product?.default_bom_spec_id ?? product?.defaultBOMSpecID ?? 0) || 0
-  pricingRuleTrialForm.value.bom_variant_id = Number(product?.bom_variant_id ?? product?.bomVariantID ?? 0) || 0
-  pricingRuleTrialForm.value.bom_version_id = Number(product?.bom_version_id ?? product?.bomVersionID ?? 0) || 0
   pricingRuleTrialForm.value.process_route_id = 0
   pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null

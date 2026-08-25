@@ -52,11 +52,14 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/units", h.saveProductUnitDefinitionAPI)
 	e.PUT("/api/product-settings/units/:code", h.saveProductUnitDefinitionAPI)
 	e.DELETE("/api/product-settings/units/:code", h.deleteProductUnitDefinitionAPI)
-	e.POST("/api/product-settings/unit-templates", h.saveProductUnitTemplateAPI)
-	e.PUT("/api/product-settings/unit-templates/:id", h.saveProductUnitTemplateAPI)
-	e.DELETE("/api/product-settings/unit-templates/:id", h.deleteProductUnitTemplateAPI)
-	e.POST("/api/product-settings/skus", h.createSKUAPI)
-	e.PUT("/api/product-settings/products/:id/default-sku", h.setProductDefaultSKUAPI)
+	// PR-608 retires mutable sales-spec/template identities.  Keep the old
+	// handlers available for historical replay, but make all public writes point
+	// at an explicit 410 response directing operators to BOM configuration.
+	e.POST("/api/product-settings/unit-templates", h.retiredSalesSpecWriteAPI)
+	e.PUT("/api/product-settings/unit-templates/:id", h.retiredSalesSpecWriteAPI)
+	e.DELETE("/api/product-settings/unit-templates/:id", h.retiredSalesSpecWriteAPI)
+	e.POST("/api/product-settings/skus", h.retiredSalesSpecWriteAPI)
+	e.PUT("/api/product-settings/products/:id/default-sku", h.retiredSalesSpecWriteAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/:id/copy", h.copyProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
@@ -96,6 +99,14 @@ func (o *optionalNullableFloat64) UnmarshalJSON(data []byte) error {
 
 type productHandler struct {
 	catalog *catalogapp.Service
+}
+
+func (h productHandler) retiredSalesSpecWriteAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{
+		"error":   "销售规格、默认子 SKU 和销售规格模板已下线",
+		"code":    "bom_spec_authority_required",
+		"message": "请在商品的默认已发布 BOM 中维护规格；全局单位请使用 /api/product-settings/units",
+	})
 }
 
 type productDefaultSKUAPIRequest struct {

@@ -32,7 +32,7 @@ func TestDev541PriceListProductSpecSelectionContracts(t *testing.T) {
 			"quantity_basis", "sales_spec_count", "effective_sales_spec",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"product_spec_selections", "默认规格", "销售规格",
+			"product_spec_selections", "默认规格", "BOM规格",
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-541-PRICE-LIST-PRODUCT-SPEC-SELECTION", "default_sku_id", "销售规格件数", "具体 SKU",

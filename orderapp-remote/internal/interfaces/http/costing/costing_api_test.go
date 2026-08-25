@@ -1109,7 +1109,7 @@ func TestPricingRuleTrialAPIRejectsUnresolvableQuoteUnit(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "销售单位") || !strings.Contains(rec.Body.String(), "单位换算") {
+	if !strings.Contains(rec.Body.String(), "报价单位") || !strings.Contains(rec.Body.String(), "单位换算") {
 		t.Fatalf("response missing unit conversion error: %s", rec.Body.String())
 	}
 }

@@ -2600,7 +2600,31 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		return nil, err
 	}
 	out = applyCutoverProductBOMSpecs(out, cutoverSpecs)
+	// Once a product is BOM-authoritative, the parent plus its BOM variants are
+	// the only active catalog candidates.  Retired child rows remain readable
+	// through immutable snapshots/migration mappings, but must not re-enter a
+	// price-list or trial selection.
+	out = filterBOMAuthoritativeProductInputs(out)
 	return applyResolvedProductionBomCosts(out, resolvedBomCosts), nil
+}
+
+func filterBOMAuthoritativeProductInputs(inputs []domain.ProductInput) []domain.ProductInput {
+	if len(inputs) == 0 {
+		return inputs
+	}
+	out := make([]domain.ProductInput, 0, len(inputs))
+	for _, input := range inputs {
+		if input.BomSpecAuthoritative && input.SKUID > 0 && input.BomSpecID <= 0 {
+			// This is the legacy parent/SKU projection; the BOM-spec projection
+			// added by applyCutoverProductBOMSpecs is authoritative instead.
+			continue
+		}
+		if input.BomSpecAuthoritative && input.ParentProductID > 0 && input.BomSpecID <= 0 {
+			continue
+		}
+		out = append(out, input)
+	}
+	return out
 }
 
 type productBOMSpecAuthority struct {
