@@ -950,8 +950,12 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
   const rowProductID = priceTableTrialProductID(row)
   const trialProductID = Number(trial.product_id ?? trial.productID ?? trial.productId ?? rowProductID) || 0
   if (rowProductID > 0 && trialProductID > 0 && rowProductID !== trialProductID) return row
-  const priceUnit = String(trial.quote_unit ?? trial.quoteUnit ?? row.price_unit ?? row.priceUnit ?? '').trim() || 'kg'
-  const inventoryUnit = String(trial.inventory_unit ?? trial.inventoryUnit ?? row.inventory_unit ?? row.inventoryUnit ?? priceUnit).trim() || priceUnit
+  const rowPriceUnit = String(row.price_unit ?? row.priceUnit ?? '').trim()
+  const trialQuoteUnit = String(trial.quote_unit ?? trial.quoteUnit ?? '').trim()
+  const priceUnit = rowPriceUnit || trialQuoteUnit || 'kg'
+  const rowInventoryUnit = String(row.inventory_unit ?? row.inventoryUnit ?? '').trim()
+  const trialInventoryUnit = String(trial.inventory_unit ?? trial.inventoryUnit ?? '').trim()
+  const inventoryUnit = rowInventoryUnit || trialInventoryUnit || priceUnit
   const conversion = priceTableInventoryConversion(row.inventory_conversion_json ?? row.inventoryConversionJSON, priceUnit, inventoryUnit)
   const sourceSnapshot = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
   const trialWarnings = Array.isArray(trial.warnings) ? trial.warnings.map((item) => String(item || '').trim()).filter(Boolean) : []
@@ -990,7 +994,8 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
       operation_template_id: Number(trial.operation_template_id ?? trial.operationTemplateID ?? sourceSnapshot.operation_template_id ?? 0) || 0,
       operation_template_name: String(trial.operation_template_name ?? trial.operationTemplateName ?? sourceSnapshot.operation_template_name ?? '').trim(),
       pricing_rule_trial_final_unit_price: trialPrice,
-      pricing_rule_trial_quote_unit: priceUnit,
+      pricing_rule_trial_quote_unit: trialQuoteUnit || priceUnit,
+      pricing_rule_trial_inventory_unit: trialInventoryUnit || inventoryUnit,
       pricing_rule_trial_base_cost: Number(trial.base_cost ?? trial.baseCost ?? 0) || 0,
       pricing_rule_trial_warnings: trialWarnings,
       pricing_rule_trial_base_cost_details: trialBaseCostDetails,

@@ -16,6 +16,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Miniapp: development package commit `37caf135ea0092e2a249554a19b176d2a8f4b17d` targets `https://dev.qacoohee.com/app`; production package commit `5e4c8ebde14fb4c5bb480f9d0c9257da883c4b65` targets `https://erp.qacoohee.com/app`. Packages are generated only; WeChat upload/review/publication remains separate.
 - Manual: Van production and miniapp acceptance pending.
 
+### PR-609-PRICE-LIST-BOM-SPEC-UNIT
+- Branch: `codex/price-list-spec-unit-fix`
+- Owner/session: Codex / 2026-08-26
+- Status: implementation complete; merged to develop `8ffd9584` and production release pending
+- Scope: 历史子 SKU 平铺价格行按重量匹配已发布 BOM 规格，阻断无映射时静默回退默认规格；试算最终价保持商品档案单位，简化快照文案。
+- DEV: DEV-609-LEGACY-SKU-BOM-SPEC-MATCH; DEV-609-PRICE-LIST-UNIT-SNAPSHOT; DEV-609-DOCS-RELEASE-ACCEPTANCE
+- Verifier: targeted RED/GREEN; Go `./...`; frontend targeted 275/275; Vite 6594-module build GREEN; `scripts/verify_kferp.sh all` GREEN; `git diff --check` GREEN.
+- Deployment: development deployed from `origin/develop@8ffd9584add463068f83d2ccfc64c06c85739c34`; source backup `/opt/stacks/erp/orderapp.backup.deploy-20260826021018-8ffd9584add4`; rollback image `kferp-orderapp-rollback:development-20260826021018-8ffd9584add4`; external login HTTP 200. Production data unchanged. Current production `曲奇` BOM 891/V001 has 18g/36g/80g/100g/227g/454g/2.5kg and no 1kg BOM specification; code will report a missing mapping instead of pricing 1kg as 18g until a 1kg BOM spec is published.
+
 ### PR-608-PRODUCT-BOM-SPEC-AUTHORITY
 - Branch: `codex/pr608-bom-spec-authority-upgrade-20260825`
 - Owner/session: Codex / 2026-08-25
