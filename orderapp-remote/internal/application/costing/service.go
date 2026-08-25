@@ -905,6 +905,9 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if !found {
 		return nil, fmt.Errorf("product not found")
 	}
+	if err := validateBOMAuthorityTrialProduct(input, cmd.ProductID); err != nil {
+		return nil, err
+	}
 	productionOptions := PricingRuleTrialProductionOptions{}
 	if optionRepo, ok := s.repo.(pricingRuleTrialProductionOptionRepository); ok {
 		productionOptions, err = optionRepo.LoadPricingRuleTrialProductionOptions(ctx, input)
@@ -920,9 +923,12 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if cmd.BomID > 0 && input.BomID > 0 && cmd.BomID != input.BomID {
 		return nil, fmt.Errorf("BOM 不属于所选商品的当前默认已发布版本")
 	}
+	if requestedUnit := strings.TrimSpace(cmd.QuoteUnit); requestedUnit != "" && input.BomSpecID > 0 && input.BomVariantID > 0 && input.InventoryUnit != "" && !strings.EqualFold(requestedUnit, input.InventoryUnit) {
+		return nil, fmt.Errorf("报价单位%s与所选 BOM 规格库存单位%s不一致，请按 BOM 规格单位重新试算", pricingRuleTrialQuotedUnit(requestedUnit), pricingRuleTrialQuotedUnit(input.InventoryUnit))
+	}
 	quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit)
 	if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
-		return nil, fmt.Errorf("销售单位%s缺少可解析的单位换算，请先在商品档案维护销售规格或单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
+		return nil, fmt.Errorf("报价单位%s缺少可解析的单位换算，请先在 BOM 规格或全局单位字典维护单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
 	}
 	cmd.QuoteUnit = quoteUnit
 	var baseCostDetails []PricingRuleTrialBaseCostDetail
@@ -1073,6 +1079,10 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 			rows[index].Error = "product not found"
 			continue
 		}
+		if authorityErr := validateBOMAuthorityTrialProduct(input, cmd.ProductID); authorityErr != nil {
+			rows[index].Error = authorityErr.Error()
+			continue
+		}
 
 		prepared = append(prepared, preparedPricingRuleTrial{
 			index:   index,
@@ -1100,9 +1110,13 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 			rows[item.index].Error = applyErr.Error()
 			continue
 		}
+		if requestedUnit := strings.TrimSpace(item.command.QuoteUnit); requestedUnit != "" && input.BomSpecID > 0 && input.BomVariantID > 0 && input.InventoryUnit != "" && !strings.EqualFold(requestedUnit, input.InventoryUnit) {
+			rows[item.index].Error = fmt.Sprintf("报价单位%s与所选 BOM 规格库存单位%s不一致，请按 BOM 规格单位重新试算", pricingRuleTrialQuotedUnit(requestedUnit), pricingRuleTrialQuotedUnit(input.InventoryUnit))
+			continue
+		}
 		quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, item.command.QuoteUnit)
 		if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
-			rows[item.index].Error = fmt.Sprintf("销售单位%s缺少可解析的单位换算，请先在商品档案维护销售规格或单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
+			rows[item.index].Error = fmt.Sprintf("报价单位%s缺少可解析的单位换算，请先在 BOM 规格或全局单位字典维护单位换算", pricingRuleTrialQuotedUnit(quoteUnit))
 			continue
 		}
 		item.command.QuoteUnit = quoteUnit
@@ -1579,6 +1593,23 @@ func pricingRuleTrialResolvedQuoteUnit(input domain.ProductInput, requested stri
 		quoteUnit = "kg"
 	}
 	return quoteUnit
+}
+
+func validateBOMAuthorityTrialProduct(input domain.ProductInput, requestedProductID int64) error {
+	if requestedProductID <= 0 {
+		return fmt.Errorf("product_id required")
+	}
+	// A legacy child SKU is never a valid price-trial product identity.  After
+	// cutover the projection deliberately carries ProductID=parent and
+	// SKUID=0, so it is accepted even though ParentProductID is populated for
+	// display/grouping purposes.
+	if !input.BomSpecAuthoritative && input.ParentProductID > 0 && input.ProductID == requestedProductID {
+		return fmt.Errorf("不再支持子 SKU 试算，请选择主商品并在其默认 BOM 中选择规格")
+	}
+	if input.BomSpecAuthoritative && input.SKUID > 0 && input.ProductID == requestedProductID && input.BomSpecID <= 0 {
+		return fmt.Errorf("商品规格身份必须来自 BOM 规格，不能使用默认子 SKU")
+	}
+	return nil
 }
 
 func pricingRuleTrialQuotedUnit(unit string) string {

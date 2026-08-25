@@ -104,6 +104,116 @@ type CutoverCommand struct {
 	Actor     string
 }
 
+// AuthorityUpgradeMode is the whole-catalog, BOM-owned specification upgrade
+// workflow.  It intentionally lives beside the per-product migration API so
+// callers cannot accidentally mix a preview manifest with a different catalog
+// snapshot.
+type AuthorityUpgradeMode string
+
+const (
+	AuthorityUpgradePreview  AuthorityUpgradeMode = "preview"
+	AuthorityUpgradePrepare  AuthorityUpgradeMode = "prepare"
+	AuthorityUpgradeApply    AuthorityUpgradeMode = "apply"
+	AuthorityUpgradeRollback AuthorityUpgradeMode = "rollback"
+)
+
+type AuthorityUpgradeProduct struct {
+	ProductID             int64            `json:"product_id"`
+	ProductName           string           `json:"product_name"`
+	LegacyChildCount      int64            `json:"legacy_child_count"`
+	BomID                 int64            `json:"bom_id"`
+	BomVersionID          int64            `json:"bom_version_id"`
+	BomVersionNo          string           `json:"bom_version_no,omitempty"`
+	PublishedVariantCount int64            `json:"published_variant_count"`
+	DefaultVariantCount   int64            `json:"default_variant_count"`
+	InvalidUnitCount      int64            `json:"invalid_unit_count"`
+	RecipeItemCount       int64            `json:"recipe_item_count"`
+	ReferenceCounts       map[string]int64 `json:"reference_counts,omitempty"`
+	Ready                 bool             `json:"ready"`
+	Blockers              []string         `json:"blockers,omitempty"`
+}
+
+type AuthorityUpgradeReport struct {
+	ManifestID          string                    `json:"manifest_id"`
+	Mode                AuthorityUpgradeMode      `json:"mode"`
+	State               string                    `json:"state"`
+	GeneratedAt         time.Time                 `json:"generated_at"`
+	ActiveProductCount  int64                     `json:"active_product_count"`
+	ReadyProductCount   int64                     `json:"ready_product_count"`
+	BlockedProductCount int64                     `json:"blocked_product_count"`
+	LegacyChildCount    int64                     `json:"legacy_child_count"`
+	DeletedChildCount   int64                     `json:"deleted_child_count,omitempty"`
+	RewrittenRefCount   int64                     `json:"rewritten_reference_count,omitempty"`
+	Products            []AuthorityUpgradeProduct `json:"products"`
+	Message             string                    `json:"message,omitempty"`
+}
+
+type AuthorityUpgradeCommand struct {
+	Actor      string
+	ManifestID string
+}
+
+type AuthorityUpgradeRepository interface {
+	PreviewAuthorityUpgrade(context.Context) (AuthorityUpgradeReport, error)
+	PrepareAuthorityUpgrade(context.Context, AuthorityUpgradeCommand) (AuthorityUpgradeReport, error)
+	ApplyAuthorityUpgrade(context.Context, AuthorityUpgradeCommand) (AuthorityUpgradeReport, error)
+	RollbackAuthorityUpgrade(context.Context, AuthorityUpgradeCommand) (AuthorityUpgradeReport, error)
+}
+
+type AuthorityUpgradeService struct {
+	repo AuthorityUpgradeRepository
+}
+
+func NewAuthorityUpgradeService(repo AuthorityUpgradeRepository) *AuthorityUpgradeService {
+	return &AuthorityUpgradeService{repo: repo}
+}
+
+func (s *AuthorityUpgradeService) Preview(ctx context.Context) (AuthorityUpgradeReport, error) {
+	if s == nil || s.repo == nil {
+		return AuthorityUpgradeReport{}, errors.New("authority upgrade repository required")
+	}
+	return s.repo.PreviewAuthorityUpgrade(ctx)
+}
+
+func (s *AuthorityUpgradeService) Prepare(ctx context.Context, cmd AuthorityUpgradeCommand) (AuthorityUpgradeReport, error) {
+	if err := normalizeUpgradeCommand(&cmd); err != nil {
+		return AuthorityUpgradeReport{}, err
+	}
+	return s.repo.PrepareAuthorityUpgrade(ctx, cmd)
+}
+
+func (s *AuthorityUpgradeService) Apply(ctx context.Context, cmd AuthorityUpgradeCommand) (AuthorityUpgradeReport, error) {
+	if err := normalizeUpgradeCommand(&cmd); err != nil {
+		return AuthorityUpgradeReport{}, err
+	}
+	if cmd.ManifestID == "" {
+		return AuthorityUpgradeReport{}, errors.New("manifest_id required for apply")
+	}
+	return s.repo.ApplyAuthorityUpgrade(ctx, cmd)
+}
+
+func (s *AuthorityUpgradeService) Rollback(ctx context.Context, cmd AuthorityUpgradeCommand) (AuthorityUpgradeReport, error) {
+	if err := normalizeUpgradeCommand(&cmd); err != nil {
+		return AuthorityUpgradeReport{}, err
+	}
+	if cmd.ManifestID == "" {
+		return AuthorityUpgradeReport{}, errors.New("manifest_id required for rollback")
+	}
+	return s.repo.RollbackAuthorityUpgrade(ctx, cmd)
+}
+
+func normalizeUpgradeCommand(cmd *AuthorityUpgradeCommand) error {
+	if cmd == nil {
+		return ErrActorRequired
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.ManifestID = strings.TrimSpace(cmd.ManifestID)
+	if cmd.Actor == "" {
+		return ErrActorRequired
+	}
+	return nil
+}
+
 type ResolveIdentityCommand struct {
 	ProductID        int64
 	BomSpecID        *int64

@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-608-PRODUCT-BOM-SPEC-AUTHORITY
+- Branch: `codex/pr608-bom-spec-authority-upgrade-20260825`
+- Owner/session: Codex / 2026-08-25
+- Status: implementation complete; local Go/Vue/Vite gates GREEN; development merge/deploy and data-upgrade preview/prepare/apply remain to be executed after the release branch is integrated; Van business acceptance pending
+- Scope: 默认已发布商品 BOM 规格成为价格试算、价格表、商品档案及后续库存/生产的唯一规格权威；退役销售规格模板/默认子 SKU 写入口；提供全量 `product-bom-spec-authority-upgrade` preview/prepare/apply/rollback，保留历史快照并在映射确认后物理删除旧规格子商品。
+- DEV: DEV-608-AUTHORITY-UPGRADE-COMMAND; DEV-608-TRIAL-PRICE-LIST-AUTHORITY; DEV-608-LEGACY-CATALOG-RETIREMENT; DEV-608-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: `go test ./...`; `node --test frontend-vue-shell/src/lib/*.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `scripts/verify_kferp.sh backend`; `git diff --check` all GREEN.
+- Deployment: not yet merged/deployed in this turn; development only, production out of scope. Data sequence after code delivery: `preview → prepare → complete/publish drafts → preview → full backup → apply`; do not apply until all active products pass readiness.
+
 ### PR-607-PRODUCT-BOM-PACKAGING
 - Branch: `codex/pr607-product-bom-packaging`; production release `codex/release-main-pr607-product-packaging-20260825`; evidence `codex/pr607-production-evidence`
 - Owner/session: Codex / 2026-08-25
