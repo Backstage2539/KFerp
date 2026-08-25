@@ -110,7 +110,7 @@ func TestDev454PricingRuleTrialExcelParityContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"加价后价格",
-			"pricingRuleTrialSalesSpecOptions",
+			"pricingRuleTrialBomSpecOptions",
 			"schedulePricingRuleTrial",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
@@ -168,7 +168,7 @@ func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 			"other_costs",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"pricingRuleTrialSalesSpecOptions",
+			"pricingRuleTrialBomSpecOptions",
 			"schedulePricingRuleTrial",
 			"activeProductUnitDefinitions",
 			"试算中...",

@@ -6,6 +6,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-608-PRODUCT-BOM-SPEC-AUTHORITY
+- Branch: `codex/pr608-bom-spec-authority-upgrade-20260825`
+- Owner/session: Codex / 2026-08-25
+- Status: implementation complete; development release and data-upgrade preview/prepare GREEN; Van business acceptance and BOM readiness completion pending
+- Scope: 默认已发布商品 BOM 规格成为价格试算、价格表、商品档案及后续库存/生产的唯一规格权威；退役销售规格模板/默认子 SKU 写入口；提供全量 `product-bom-spec-authority-upgrade` preview/prepare/apply/rollback，保留历史快照并在映射确认后物理删除旧规格子商品。
+- DEV: DEV-608-AUTHORITY-UPGRADE-COMMAND; DEV-608-TRIAL-PRICE-LIST-AUTHORITY; DEV-608-LEGACY-CATALOG-RETIREMENT; DEV-608-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: `go test ./...`; `node --test frontend-vue-shell/src/lib/*.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `scripts/verify_kferp.sh backend`; `git diff --check` all GREEN.
+- Deployment: merged to `origin/develop` at `4ff2e4c22502e916203aef2c0284a88a524a3cea` and deployed to development only. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260825124043-4ff2e4c22502`; rollback image `kferp-orderapp-rollback:development-20260825124043-4ff2e4c22502`; external login HTTP 200, protected API unauthenticated HTTP 401, PostgreSQL healthy. Production was not touched.
+- Data upgrade evidence: `preview` and `prepare` completed with manifest `PR-608-065a0bb111f0699b`; 79 enabled main products, 1 ready and 78 blocked; 365 legacy child rows; 79 `*-PR608` draft BOM versions created, migration states `preparing=80`, and one authority-upgrade audit row. `apply` and physical child-product deletion were intentionally not run because every enabled product must first have a complete default published BOM specification.
+
 ### PR-607-PRODUCT-BOM-PACKAGING
 - Branch: `codex/pr607-product-bom-packaging`; production release `codex/release-main-pr607-product-packaging-20260825`; evidence `codex/pr607-production-evidence`
 - Owner/session: Codex / 2026-08-25

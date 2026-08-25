@@ -61,7 +61,10 @@ func (r Repository) refreshMappingsTx(ctx context.Context, tx pgx.Tx, productID 
 		         'derived_spec_status',COALESCE(child.derived_spec_status,'')
 		       )::text
 		FROM %s.products child
-		WHERE child.active=true AND %s
+		-- The whole-catalog PR-608 apply must preserve and map inactive
+		-- historical child rows too; active-only filtering would leave physical
+		-- legacy products behind after the dependency scan.
+		WHERE %s
 		ORDER BY child.id
 	`, r.schema, legacyChildCandidatePredicate("child")), productID)
 	if err != nil {
