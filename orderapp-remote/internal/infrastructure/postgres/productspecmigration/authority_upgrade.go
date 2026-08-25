@@ -392,14 +392,30 @@ func (r AuthorityUpgradeRepository) buildAuthorityUpgradeReportTx(ctx context.Co
 	if err != nil {
 		return productspecmigrationapp.AuthorityUpgradeReport{}, err
 	}
-	defer rows.Close()
 	report := productspecmigrationapp.AuthorityUpgradeReport{Mode: mode, GeneratedAt: time.Now().UTC(), Products: make([]productspecmigrationapp.AuthorityUpgradeProduct, 0)}
+	products := make([]struct {
+		product      productspecmigrationapp.AuthorityUpgradeProduct
+		versionState string
+	}, 0)
 	for rows.Next() {
 		var product productspecmigrationapp.AuthorityUpgradeProduct
 		var versionStatus string
 		if err := rows.Scan(&product.ProductID, &product.ProductName, &product.BomID, &product.BomVersionID, &product.BomVersionNo, &versionStatus); err != nil {
+			rows.Close()
 			return productspecmigrationapp.AuthorityUpgradeReport{}, err
 		}
+		products = append(products, struct {
+			product      productspecmigrationapp.AuthorityUpgradeProduct
+			versionState string
+		}{product: product, versionState: versionStatus})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return productspecmigrationapp.AuthorityUpgradeReport{}, err
+	}
+	rows.Close()
+	for _, entry := range products {
+		product := entry.product
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.products child WHERE (child.parent_product_id=$1 OR (COALESCE(child.parent_product_id,0)=0 AND child.base_product_id=$1 AND lower(COALESCE(child.custom_type,''))<>'public_sku_alias'))`, r.schema), product.ProductID).Scan(&product.LegacyChildCount); err != nil {
 			return productspecmigrationapp.AuthorityUpgradeReport{}, err
 		}
@@ -407,7 +423,7 @@ func (r AuthorityUpgradeRepository) buildAuthorityUpgradeReportTx(ctx context.Co
 		if err != nil {
 			return productspecmigrationapp.AuthorityUpgradeReport{}, err
 		}
-		if product.BomID <= 0 || product.BomVersionID <= 0 || versionStatus != "published" {
+		if product.BomID <= 0 || product.BomVersionID <= 0 || entry.versionState != "published" {
 			product.Blockers = append(product.Blockers, "缺少默认已发布 BOM 版本")
 		} else {
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*),COUNT(*) FILTER (WHERE is_default),COUNT(*) FILTER (WHERE btrim(COALESCE(inventory_unit,''))='') FROM %s.production_bom_version_variants WHERE version_id=$1`, r.schema), product.BomVersionID).Scan(&product.PublishedVariantCount, &product.DefaultVariantCount, &product.InvalidUnitCount); err != nil {
@@ -432,9 +448,6 @@ func (r AuthorityUpgradeRepository) buildAuthorityUpgradeReportTx(ctx context.Co
 		product.Ready = len(product.Blockers) == 0
 		report.Products = append(report.Products, product)
 		report.LegacyChildCount += product.LegacyChildCount
-	}
-	if err := rows.Err(); err != nil {
-		return productspecmigrationapp.AuthorityUpgradeReport{}, err
 	}
 	report.ActiveProductCount = int64(len(report.Products))
 	for _, product := range report.Products {
