@@ -617,13 +617,35 @@ func (r AuthorityUpgradeRepository) prepareAuthorityProductTx(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	children := make([]struct {
+		id       int64
+		specKey  string
+		specName string
+		unit     string
+		barcode  string
+	}, 0)
 	for rows.Next() {
 		var childID int64
 		var specKey, specName, unit, barcode string
 		if err := rows.Scan(&childID, &specKey, &specName, &unit, &barcode); err != nil {
+			rows.Close()
 			return err
 		}
+		children = append(children, struct {
+			id       int64
+			specKey  string
+			specName string
+			unit     string
+			barcode  string
+		}{id: childID, specKey: specKey, specName: specName, unit: unit, barcode: barcode})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, child := range children {
+		childID, specKey, specName, unit, barcode := child.id, child.specKey, child.specName, child.unit, child.barcode
 		var specID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.production_bom_specs WHERE bom_id=$1 AND lower(spec_key)=lower($2) ORDER BY id LIMIT 1`, r.schema), bomID, specKey).Scan(&specID); errors.Is(err, pgx.ErrNoRows) {
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.production_bom_specs(bom_id,code,barcode,spec_key,name,inventory_unit,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`, r.schema), bomID, fmt.Sprintf("PR608-%d-%d", product.ProductID, childID), barcode, specKey, specName, unit, actor).Scan(&specID); err != nil {
@@ -641,9 +663,6 @@ func (r AuthorityUpgradeRepository) prepareAuthorityProductTx(ctx context.Contex
 				return err
 			}
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
 	}
 	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.product_bom_spec_migrations(product_id,state,legacy_catalog_product,prepared_at,prepared_by,updated_at) VALUES($1,'preparing',true,now(),$2,now()) ON CONFLICT(product_id) DO UPDATE SET state=CASE WHEN product_bom_spec_migrations.state='cutover' THEN product_bom_spec_migrations.state ELSE 'preparing' END,prepared_at=COALESCE(product_bom_spec_migrations.prepared_at,now()),prepared_by=CASE WHEN product_bom_spec_migrations.prepared_by='' THEN EXCLUDED.prepared_by ELSE product_bom_spec_migrations.prepared_by END,updated_at=now()`, r.schema), product.ProductID, actor)
 	return err
