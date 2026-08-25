@@ -1539,6 +1539,71 @@ func TestPricingRuleTrialApplyBOMSpecSelectionDefaultsAndHonorsVariant(t *testin
 	}
 }
 
+func TestPricingRuleTrialApplyBOMSpecSelectionMatchesLegacyChildByWeight(t *testing.T) {
+	options := PricingRuleTrialProductionOptions{BomSpecs: []PricingRuleTrialBomSpecOption{
+		{VersionID: 1848, BomSpecID: 3, BomVariantID: 28, SpecName: "227g袋装", InventoryUnit: "袋", IsDefault: true},
+		{VersionID: 1848, BomSpecID: 4, BomVariantID: 29, SpecName: "454g袋装", InventoryUnit: "袋"},
+	}}
+	got, err := pricingRuleTrialApplyBOMSpecSelection(domain.ProductInput{
+		ProductID:       622,
+		SKUID:           622,
+		ParentProductID: 52,
+		SKUName:         "454g",
+		NetContentQty:   0.454,
+		NetContentUnit:  "kg",
+		BomVersionID:    1848,
+	}, options)
+	if err != nil {
+		t.Fatalf("legacy child BOM spec match error = %v", err)
+	}
+	if got.BomSpecID != 4 || got.BomVariantID != 29 {
+		t.Fatalf("legacy child BOM spec = %+v, want 454g/variant 29", got)
+	}
+	if got.InventoryUnit != "袋" || got.QuoteUnit != "袋" || got.OrderUnit != "袋" {
+		t.Fatalf("legacy child selected units = %+v, want 袋", got)
+	}
+}
+
+func TestPricingRuleTrialApplyBOMSpecSelectionMatchesLegacyPoundToRoundedGramSpec(t *testing.T) {
+	options := PricingRuleTrialProductionOptions{BomSpecs: []PricingRuleTrialBomSpecOption{
+		{VersionID: 1848, BomSpecID: 4, BomVariantID: 29, SpecName: "454g袋装", InventoryUnit: "袋", IsDefault: true},
+	}}
+	got, err := pricingRuleTrialApplyBOMSpecSelection(domain.ProductInput{
+		ProductID:       622,
+		SKUID:           622,
+		ParentProductID: 52,
+		SKUName:         "1磅",
+		NetContentQty:   1,
+		NetContentUnit:  "磅",
+		BomVersionID:    1848,
+	}, options)
+	if err != nil {
+		t.Fatalf("legacy pound BOM spec match error = %v", err)
+	}
+	if got.BomSpecID != 4 || got.BomVariantID != 29 {
+		t.Fatalf("legacy pound BOM spec = %+v, want rounded 454g/variant 29", got)
+	}
+}
+
+func TestPricingRuleTrialApplyBOMSpecSelectionRejectsUnmatchedLegacyChildWeight(t *testing.T) {
+	options := PricingRuleTrialProductionOptions{BomSpecs: []PricingRuleTrialBomSpecOption{
+		{VersionID: 1848, BomSpecID: 3, BomVariantID: 28, SpecName: "227g袋装", InventoryUnit: "袋", IsDefault: true},
+		{VersionID: 1848, BomSpecID: 4, BomVariantID: 29, SpecName: "454g袋装", InventoryUnit: "袋"},
+	}}
+	_, err := pricingRuleTrialApplyBOMSpecSelection(domain.ProductInput{
+		ProductID:       622,
+		SKUID:           622,
+		ParentProductID: 52,
+		SKUName:         "1Kg",
+		NetContentQty:   1,
+		NetContentUnit:  "kg",
+		BomVersionID:    1848,
+	}, options)
+	if err == nil || !strings.Contains(err.Error(), "没有对应的已发布 BOM 规格") {
+		t.Fatalf("unmatched legacy child BOM spec error = %v", err)
+	}
+}
+
 func TestPricingRuleTrialBOMSpecSelectionRejectsMissingOrCrossVersionUnit(t *testing.T) {
 	_, _, err := pricingRuleTrialApplyProductionSelection(
 		domain.ProductInput{BomVersionID: 1848, InventoryUnit: "kg", QuoteUnit: "kg"},

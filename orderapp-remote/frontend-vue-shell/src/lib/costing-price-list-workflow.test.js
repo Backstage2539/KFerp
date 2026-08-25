@@ -577,8 +577,10 @@ describe('costing price-list workflow helpers', () => {
     assert.match(source, /itemSkuID/)
     assert.match(source, /sku_snapshot/)
     assert.match(source, /parent_product_id/)
-    assert.match(source, /priceListFlatRowUnitSummary/)
-    assert.match(source, /商品档案单位/)
+    assert.match(source, /计算规则：/)
+    assert.match(source, /状态：/)
+    assert.doesNotMatch(source, /priceListFlatRowUnitSummary/)
+    assert.doesNotMatch(source, /商品档案单位/)
   })
 
   it('product price list flat rows render SKU spec and row-level errors in the editor', () => {

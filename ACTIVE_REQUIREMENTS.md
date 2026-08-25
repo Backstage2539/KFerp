@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-609-PRICE-LIST-BOM-SPEC-UNIT
+- Branch: `codex/price-list-spec-unit-fix`
+- Owner/session: Codex / 2026-08-26
+- Status: implementation complete locally; development/production release pending
+- Scope: 历史子 SKU 平铺价格行按重量匹配已发布 BOM 规格，阻断无映射时静默回退默认规格；试算最终价保持商品档案单位，简化快照文案。
+- DEV: DEV-609-LEGACY-SKU-BOM-SPEC-MATCH; DEV-609-PRICE-LIST-UNIT-SNAPSHOT; DEV-609-DOCS-RELEASE-ACCEPTANCE
+- Verifier: targeted RED/GREEN; Go `./...`; frontend targeted 275/275; Vite 6594-module build GREEN; `git diff --check` GREEN. Full `scripts/verify_kferp.sh all` pending.
+- Deployment: not yet merged or deployed. Production data unchanged. Current production `曲奇` BOM 891/V001 has 18g/36g/80g/100g/227g/454g/2.5kg and no 1kg BOM specification; code will report a missing mapping instead of pricing 1kg as 18g until a 1kg BOM spec is published.
+
 ### PR-608-PRODUCT-BOM-SPEC-AUTHORITY
 - Branch: `codex/pr608-bom-spec-authority-upgrade-20260825`
 - Owner/session: Codex / 2026-08-25
