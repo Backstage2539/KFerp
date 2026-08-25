@@ -1663,6 +1663,40 @@ test('price table BOM-spec trial applies the parent-product result to the row', 
   assert.equal(got.original_final_unit_price, 54)
 })
 
+test('price table trial keeps the product archive unit while recording the BOM quote unit in the snapshot', () => {
+  const got = applyPricingRuleTrialToPriceTableRow({
+    row_key: '622:pricing-rule',
+    product_id: 622,
+    parent_product_id: 52,
+    sku_id: 622,
+    product_name: '曲奇',
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 40,
+    price_unit: '1Kg',
+    inventory_unit: 'kg',
+    inventory_conversion_json: { '1Kg': { kg: 1 } },
+    final_unit_price: 0,
+    original_final_unit_price: 0,
+    cost_source_snapshot: {},
+  }, {
+    pricing_rule_id: 40,
+    product_id: 622,
+    quote_unit: '袋',
+    inventory_unit: '袋',
+    final_unit_price: 38.2,
+    bom_version_id: 303,
+    bom_spec_id: 76,
+    bom_variant_id: 76,
+  })
+
+  assert.equal(got.final_unit_price, 38.2)
+  assert.equal(got.price_unit, '1Kg')
+  assert.equal(got.inventory_unit, 'kg')
+  assert.deepEqual(got.inventory_conversion_json, { '1Kg': { kg: 1 } })
+  assert.equal(got.cost_source_snapshot.pricing_rule_trial_quote_unit, '袋')
+  assert.equal(got.cost_source_snapshot.pricing_rule_trial_inventory_unit, '袋')
+})
+
 test('price table pricing-rule preview keeps a manually adjusted final price while refreshing its automatic baseline', () => {
   const got = applyPricingRuleTrialToPriceTableRow({
     product_id: 550,

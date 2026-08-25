@@ -23,11 +23,13 @@ var (
 	ErrProductBOMSpecIdentityNotFound    = errors.New("product BOM spec identity not found")
 	ErrPriceTierTemplateUnitRuleNotFound = errors.New("price tier template unit rule not found")
 	priceTierMassUnitPattern             = regexp.MustCompile(`^(?:\d+(?:\.\d+)?)?(kg|kgs|公斤|千克|g|克|lb|lbs|磅)(?:袋装)?$`)
+	pricingRuleTrialMassPattern          = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*(kg|kgs|公斤|千克|g|克|lb|lbs|磅)`)
 )
 
 const (
 	BeanListPublicationPurposeFactorySupply  = "factory_supply"
 	BeanListPublicationPurposeCustomerResale = "customer_resale"
+	pricingRuleTrialMassMatchToleranceKG     = 0.001
 )
 
 const (
@@ -1381,6 +1383,26 @@ func pricingRuleTrialApplyBOMSpecSelection(input domain.ProductInput, options Pr
 			return input, fmt.Errorf("BOM规格不属于所选生产 BOM 版本")
 		}
 	}
+	if selectedOption == nil && pricingRuleTrialIsLegacyChildSKU(input) {
+		if massKG, ok := pricingRuleTrialLegacyChildMassKG(input); ok {
+			matches := make([]*PricingRuleTrialBomSpecOption, 0, 1)
+			for index := range selected {
+				option := &selected[index]
+				optionMassKG, optionOK := pricingRuleTrialBOMSpecMassKG(*option)
+				if optionOK && math.Abs(optionMassKG-massKG) <= pricingRuleTrialMassMatchToleranceKG {
+					matches = append(matches, option)
+				}
+			}
+			switch len(matches) {
+			case 1:
+				selectedOption = matches[0]
+			case 0:
+				return input, fmt.Errorf("商品规格“%s”没有对应的已发布 BOM 规格", pricingRuleTrialLegacyChildLabel(input))
+			default:
+				return input, fmt.Errorf("商品规格“%s”对应多个 BOM 规格，无法确定试算规格", pricingRuleTrialLegacyChildLabel(input))
+			}
+		}
+	}
 	if selectedOption == nil {
 		for index := range selected {
 			if selected[index].IsDefault {
@@ -1405,6 +1427,76 @@ func pricingRuleTrialApplyBOMSpecSelection(input domain.ProductInput, options Pr
 	input.QuoteUnit = unit
 	input.OrderUnit = unit
 	return input, nil
+}
+
+func pricingRuleTrialIsLegacyChildSKU(input domain.ProductInput) bool {
+	if input.ParentProductID <= 0 || input.BomSpecID > 0 || input.BomVariantID > 0 {
+		return false
+	}
+	return input.ProductID != input.ParentProductID || (input.SKUID > 0 && input.SKUID != input.ParentProductID)
+}
+
+func pricingRuleTrialLegacyChildMassKG(input domain.ProductInput) (float64, bool) {
+	if input.NetContentQty > 0 {
+		if massKG, ok := pricingRuleTrialMassKG(input.NetContentQty, input.NetContentUnit); ok {
+			return massKG, true
+		}
+	}
+	for _, candidate := range []string{input.SpecKey, input.SpecLabel, input.SKUName, input.QuoteUnit} {
+		if massKG, ok := pricingRuleTrialMassFromText(candidate); ok {
+			return massKG, true
+		}
+	}
+	return 0, false
+}
+
+func pricingRuleTrialBOMSpecMassKG(option PricingRuleTrialBomSpecOption) (float64, bool) {
+	for _, candidate := range []string{option.SpecKey, option.SpecName} {
+		if massKG, ok := pricingRuleTrialMassFromText(candidate); ok {
+			return massKG, true
+		}
+	}
+	return 0, false
+}
+
+func pricingRuleTrialMassKG(value float64, unit string) (float64, bool) {
+	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg", "kgs", "公斤", "千克":
+		return value, true
+	case "g", "克":
+		return value / 1000, true
+	case "lb", "lbs", "磅":
+		return value * 0.45359237, true
+	default:
+		return 0, false
+	}
+}
+
+func pricingRuleTrialMassFromText(value string) (float64, bool) {
+	match := pricingRuleTrialMassPattern.FindStringSubmatch(strings.TrimSpace(value))
+	if len(match) != 3 {
+		return 0, false
+	}
+	quantity, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return pricingRuleTrialMassKG(quantity, match[2])
+}
+
+func pricingRuleTrialLegacyChildLabel(input domain.ProductInput) string {
+	for _, candidate := range []string{input.SKUName, input.SpecLabel, input.SpecKey, input.QuoteUnit} {
+		if label := strings.TrimSpace(candidate); label != "" {
+			return label
+		}
+	}
+	if input.NetContentQty > 0 && strings.TrimSpace(input.NetContentUnit) != "" {
+		return fmt.Sprintf("%g%s", input.NetContentQty, strings.TrimSpace(input.NetContentUnit))
+	}
+	return "当前商品规格"
 }
 
 func pricingRuleTrialNormalizeProductionOptions(input domain.ProductInput, options PricingRuleTrialProductionOptions) PricingRuleTrialProductionOptions {

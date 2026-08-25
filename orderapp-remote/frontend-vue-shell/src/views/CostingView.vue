@@ -545,9 +545,8 @@
               <small>/{{ priceListFlatRowPriceUnitLabel(row) }}</small>
             </label>
             <div>
-              <span>{{ row.pricing_rule_version || (row.pricing_mode === 'fixed_price' ? '固定价' : '未选择 Pricing Rule') }}</span>
-             <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : (priceListFlatRowPricingTrialStatus(row) === 'loading' ? '价格计算中…' : (priceListFlatRowPricingTrialStatus(row) === 'error' ? '计算失败' : '自动计算')) }}</span>
-             <span>{{ priceListFlatRowUnitSummary(row) }}</span>
+             <span>{{ row.pricing_rule_version ? ('计算规则：' + row.pricing_rule_version) : (row.pricing_mode === 'fixed_price' ? '计算规则：固定价' : '计算规则：未选择 Pricing Rule') }}</span>
+             <span :class="{ adjusted: row.manual_adjusted }">状态：{{ row.manual_adjusted ? '人工调整' : (priceListFlatRowPricingTrialStatus(row) === 'loading' ? '价格计算中…' : (priceListFlatRowPricingTrialStatus(row) === 'error' ? '计算失败' : '自动计算')) }}</span>
               <button v-if="canRevertPriceListFlatRow(row)" class="secondary compact flat-row-revert" type="button" @click="revertPriceListFlatRowPrice(row)">撤销人工修改</button>
            </div>
             <ul v-if="priceListFlatRowVisibleErrors(row).length" class="flat-price-row-error-list">
@@ -3188,20 +3187,6 @@ function flatRowConversionForUnits(conversion = {}, priceUnit = '', inventoryUni
   const factor = Number(targets[target] || 0)
   if (!Number.isFinite(factor) || factor <= 0) return {}
   return { [source]: { [target]: Number(factor.toFixed(8)) } }
-}
-
-function priceListFlatRowUnitSummary(row = {}) {
-  const priceUnit = String(row.price_unit || '').trim() || '-'
-  const inventoryUnit = String(row.inventory_unit || '').trim() || '-'
-  const conversion = normalizeFlatRowConversion(row.inventory_conversion_json)
-  const factor = Number(conversion?.[priceUnit]?.[inventoryUnit] || 0)
-  if (Number.isFinite(factor) && factor > 0) {
-    return `商品档案单位：1 ${priceUnit} = ${Number(factor.toFixed(8))} ${inventoryUnit}`
-  }
-  if (priceUnit && inventoryUnit && priceUnit === inventoryUnit) {
-    return `商品档案单位：${priceUnit} = ${inventoryUnit}`
-  }
-  return `商品档案单位：${priceUnit} -> ${inventoryUnit}`
 }
 
 function pricingRuleByID(id) {
