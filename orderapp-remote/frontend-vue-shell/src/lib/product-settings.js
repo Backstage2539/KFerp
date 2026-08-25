@@ -803,6 +803,12 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
     row.default_bom_spec_id,
     row.defaultBOMSpecID,
   ].map(normalizePositiveNumber).find((value) => value > 0) || 0
+  const bomVariantID = [
+    row.bom_variant_id,
+    row.bomVariantID,
+    row.default_bom_variant_id,
+    row.defaultBOMVariantID,
+  ].map(normalizePositiveNumber).find((value) => value > 0) || 0
   const parentProductID = [
     row.parent_product_id,
     row.parentProductID,
@@ -819,16 +825,35 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
   ].map(normalizePositiveNumber).find((value) => value > 0) || 0
   if (!['pricing_rule', 'tier_template'].includes(pricingMode) || pricingRuleID <= 0 || productID <= 0) return null
   const costSource = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
-  const quoteUnit = [
-    row.price_unit,
-    row.priceUnit,
-    row.quote_unit,
-    row.quoteUnit,
-    costSource.quote_unit,
-    costSource.quoteUnit,
-    row.inventory_unit,
-    row.inventoryUnit,
-  ].map((value) => String(value || '').trim()).find(Boolean) || ''
+  const costSourceBomSpecID = Number(costSource.bom_spec_id ?? costSource.bomSpecID ?? 0) || 0
+  const costSourceBomVariantID = Number(costSource.bom_variant_id ?? costSource.bomVariantID ?? 0) || 0
+  const skuID = [
+    row.sku_id,
+    row.skuID,
+    row.skuId,
+    row.product_id,
+    row.productID,
+    row.productId,
+  ].map(normalizePositiveNumber).find((value) => value > 0) || 0
+  const hasBOMSpecIdentity = bomSpecID > 0 || bomVariantID > 0 || costSourceBomSpecID > 0 || costSourceBomVariantID > 0
+  const legacyChildSKU = !hasBOMSpecIdentity && parentProductID > 0 && skuID > 0 && skuID !== parentProductID
+  // Legacy flat rows identify a sales child SKU (for example “1Kg”), while
+  // the selected production BOM may price its default specification per “袋”.
+  // Leave the unit empty in this compatibility path so the backend applies the
+  // BOM specification's authoritative inventory unit. Explicit BOM-spec rows
+  // and ordinary parent-product rows retain their requested/display unit.
+  const quoteUnit = legacyChildSKU
+    ? ''
+    : [
+        row.price_unit,
+        row.priceUnit,
+        row.quote_unit,
+        row.quoteUnit,
+        costSource.quote_unit,
+        costSource.quoteUnit,
+        row.inventory_unit,
+        row.inventoryUnit,
+      ].map((value) => String(value || '').trim()).find(Boolean) || ''
   return buildPricingRuleTrialPayload({
     pricing_rule_id: pricingRuleID,
     product_id: productID,

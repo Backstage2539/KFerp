@@ -1591,6 +1591,24 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_base_cost_details[0].capacity_selection_source, 'bom_operation_snapshot')
 })
 
+test('legacy child SKU price-table rows let the BOM select the authoritative quote unit', () => {
+  const payload = priceTablePricingRuleTrialPayload({
+    row_key: '622:pricing_rule',
+    product_id: 622,
+    sku_id: 622,
+    parent_product_id: 52,
+    product_name: '曲奇 1Kg',
+    pricing_mode: 'pricing_rule',
+    pricing_rule_id: 1,
+    price_unit: '1Kg',
+    inventory_unit: 'kg',
+    bom_spec_id: 0,
+    bom_variant_id: 0,
+  }, { customerID: 0 })
+
+  assert.equal(payload.quote_unit, '', 'legacy child SKU display units must not override the selected BOM spec unit')
+})
+
 test('price table BOM-spec trial payload uses the parent product identity', () => {
   const payload = priceTablePricingRuleTrialPayload({
     row_key: '1063:bom-spec:91:191:pricing-rule',
