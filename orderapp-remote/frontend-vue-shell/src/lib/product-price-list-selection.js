@@ -108,6 +108,7 @@ export function buildPriceListProductFamilies(items = []) {
       || selectableEntries.find(({ item }) => parentDefaultUnit && normalizedSpecText(priceListProductSpecLabel(item)) === parentDefaultUnit)
       || selectableEntries[0]
     const defaultSkuID = Number(matchingDefaultEntry?.skuID || 0)
+    const defaultSpecRow = matchingDefaultEntry?.item || {}
     const parentProductName = priceListParentCatalogName(parentItem)
     const parentDisplayName = priceListParentDisplayName(parentItem, parentProductName)
     const skuOptions = selectableEntries
@@ -148,6 +149,10 @@ export function buildPriceListProductFamilies(items = []) {
       parent_product_name: parentDisplayName,
       product_key: `product:${parentProductID}`,
       default_sku_id: defaultSkuID,
+      ...(numberField(defaultSpecRow?.bom_id ?? defaultSpecRow?.bomID) > 0 ? { default_bom_id: numberField(defaultSpecRow?.bom_id ?? defaultSpecRow?.bomID) } : {}),
+      ...(numberField(defaultSpecRow?.bom_version_id ?? defaultSpecRow?.bomVersionID) > 0 ? { default_bom_version_id: numberField(defaultSpecRow?.bom_version_id ?? defaultSpecRow?.bomVersionID) } : {}),
+      ...(numberField(defaultSpecRow?.bom_spec_id ?? defaultSpecRow?.bomSpecID) > 0 ? { default_bom_spec_id: numberField(defaultSpecRow?.bom_spec_id ?? defaultSpecRow?.bomSpecID) } : {}),
+      ...(numberField(defaultSpecRow?.bom_variant_id ?? defaultSpecRow?.bomVariantID) > 0 ? { default_bom_variant_id: numberField(defaultSpecRow?.bom_variant_id ?? defaultSpecRow?.bomVariantID) } : {}),
       ...(numberField(matchingDefaultEntry?.item?.bom_spec_id ?? matchingDefaultEntry?.item?.bomSpecID) > 0 ? {
         default_bom_spec_id: numberField(matchingDefaultEntry?.item?.bom_spec_id ?? matchingDefaultEntry?.item?.bomSpecID),
         migration_state: productSpecMigrationState(matchingDefaultEntry?.item),
@@ -269,9 +274,26 @@ export function normalizePriceListProductSpecSelections(selections = [], familie
         row.bom_spec_authoritative = true
       }
     }
+    const selectedBomSpecID = numberField(selectedSpec?.bom_spec_id ?? selectedSpec?.bomSpecID)
+    const selectedBomVersionID = numberField(selectedSpec?.bom_version_id ?? selectedSpec?.bomVersionID)
+    const selectedBomID = numberField(selectedSpec?.bom_id ?? selectedSpec?.bomID)
+    const selectedBomVariantID = numberField(selectedSpec?.bom_variant_id ?? selectedSpec?.bomVariantID)
+    const identityChanged = selectedBomSpecID > 0 && (
+      (numberField(selection?.bom_id ?? selection?.bomID) > 0 && numberField(selection?.bom_id ?? selection?.bomID) !== selectedBomID)
+      || (numberField(selection?.bom_version_id ?? selection?.bomVersionID) > 0 && numberField(selection?.bom_version_id ?? selection?.bomVersionID) !== selectedBomVersionID)
+      || (numberField(selection?.bom_spec_id ?? selection?.bomSpecID) > 0 && numberField(selection?.bom_spec_id ?? selection?.bomSpecID) !== selectedBomSpecID)
+      || (numberField(selection?.bom_variant_id ?? selection?.bomVariantID) > 0 && numberField(selection?.bom_variant_id ?? selection?.bomVariantID) !== selectedBomVariantID)
+    )
     if (!validSkuIDs.has(skuID)) {
       row.selection_issue = 'invalid_spec'
       row.current_default_sku_id = defaultSkuID
+    } else if (identityChanged) {
+      row.selection_issue = 'default_bom_changed'
+      row.current_default_sku_id = defaultSkuID
+      row.current_default_bom_id = selectedBomID
+      row.current_default_bom_version_id = selectedBomVersionID
+      row.current_default_bom_spec_id = selectedBomSpecID
+      row.current_default_bom_variant_id = selectedBomVariantID
     } else if (selectionSource === 'product_default' && defaultSkuID > 0 && defaultSkuIDAtSelection !== defaultSkuID) {
       row.selection_issue = 'default_changed'
       row.current_default_sku_id = defaultSkuID
@@ -295,9 +317,9 @@ export function priceListProductSpecSelectionIssue(family = {}, selections = [])
     type,
     selection,
     current_default_sku_id: currentDefaultSkuID,
-    message: type === 'default_changed'
+    message: type === 'default_changed' || type === 'default_bom_changed'
       ? `商品默认规格已变更为“${priceListProductSpecLabel(currentDefaultSpec || {})}”，请选择保留原规格或切换默认规格。`
-      : '草稿中的销售规格已停用、被模板移除或不属于当前商品，请切换到当前默认规格。',
+      : '草稿中的商品 BOM 规格已停用、被移除或不属于当前商品，请切换到当前默认规格。',
   }
 }
 
@@ -307,17 +329,25 @@ export function resolvePriceListProductSpecSelectionIssue(selections = [], famil
   if (!issue) return Array.isArray(selections) ? selections.slice() : []
   const issueSkuID = numberField(issue.selection?.sku_id)
   const currentDefaultSkuID = numberField(issue.current_default_sku_id ?? family?.default_sku_id)
+  const currentDefaultSpec = (family.sku_options || []).find((spec) => priceListSkuID(spec) === currentDefaultSkuID) || {}
   const source = Array.isArray(selections) ? selections : []
   const issueIndex = source.findIndex((row) => (
     numberField(row?.parent_product_id ?? row?.parentProductID) === parentProductID
     && numberField(row?.sku_id ?? row?.skuID) === issueSkuID
   ))
-  if (action === 'keep' && issue.type === 'default_changed') {
+  const currentIdentity = currentDefaultSpec ? {
+    ...(numberField(currentDefaultSpec?.bom_id ?? currentDefaultSpec?.bomID) > 0 ? { bom_id: numberField(currentDefaultSpec?.bom_id ?? currentDefaultSpec?.bomID) } : {}),
+    ...(numberField(currentDefaultSpec?.bom_version_id ?? currentDefaultSpec?.bomVersionID) > 0 ? { bom_version_id: numberField(currentDefaultSpec?.bom_version_id ?? currentDefaultSpec?.bomVersionID) } : {}),
+    ...(numberField(currentDefaultSpec?.bom_spec_id ?? currentDefaultSpec?.bomSpecID) > 0 ? { bom_spec_id: numberField(currentDefaultSpec?.bom_spec_id ?? currentDefaultSpec?.bomSpecID) } : {}),
+    ...(numberField(currentDefaultSpec?.bom_variant_id ?? currentDefaultSpec?.bomVariantID) > 0 ? { bom_variant_id: numberField(currentDefaultSpec?.bom_variant_id ?? currentDefaultSpec?.bomVariantID) } : {}),
+  } : {}
+  if (action === 'keep' && (issue.type === 'default_changed' || issue.type === 'default_bom_changed')) {
     return source.map((row, index) => index === issueIndex ? {
       parent_product_id: parentProductID,
       sku_id: issueSkuID,
       selection_source: 'explicit',
       default_sku_id_at_selection: currentDefaultSkuID,
+      ...currentIdentity,
     } : row)
   }
   const defaultAlreadySelected = source.some((row, index) => index !== issueIndex && (
@@ -330,6 +360,7 @@ export function resolvePriceListProductSpecSelectionIssue(selections = [], famil
     sku_id: currentDefaultSkuID,
     selection_source: 'product_default',
     default_sku_id_at_selection: currentDefaultSkuID,
+    ...currentIdentity,
   } : row)
 }
 

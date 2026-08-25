@@ -263,6 +263,13 @@ func resolveTypedProductionBomCosts(nodes map[string]productionBomCostNode) map[
 		if !finiteNonNegative(node.OperationCostPerUnit) {
 			result.UnresolvedIssues = append(result.UnresolvedIssues, issueForItem(node, productionBomCostItem{}, "invalid_operation_cost", "BOM工序成本无效", nodePath))
 		}
+		if node.MaterialLossRate > 0 && node.MaterialLossRate < 1 {
+			for index := range node.Items {
+				if strings.EqualFold(strings.TrimSpace(node.Items[index].ConsumeUnit), "ratio_pct") {
+					node.Items[index].MaterialLossRate = node.MaterialLossRate
+				}
+			}
+		}
 		for _, item := range node.Items {
 			if normalizeProductionBomComponentType(item.ComponentType) == "product" {
 				result.HasProductComponent = true
@@ -519,6 +526,10 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 	if err != nil {
 		return nil, err
 	}
+	hasVersionMaterialLoss, err := r.costingColumnExists(ctx, "production_bom_versions", "material_loss_rate")
+	if err != nil {
+		return nil, err
+	}
 	bomNameExpr := "''::text"
 	bomNameGroup := ""
 	if hasBomName {
@@ -530,6 +541,12 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 	if hasVersionNo {
 		versionNoExpr = "COALESCE(NULLIF(version.version_no,''),version.id::text)"
 		versionNoGroup = ", version.version_no"
+	}
+	versionMaterialLossExpr := "0::float8"
+	versionMaterialLossGroup := ""
+	if hasVersionMaterialLoss {
+		versionMaterialLossExpr = "COALESCE(version.material_loss_rate,0)::float8"
+		versionMaterialLossGroup = ", version.material_loss_rate"
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		WITH root_bindings AS (
@@ -562,6 +579,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		       %[3]s AS version_no,
 		       version.status,
 		       COALESCE(version.yield_rate,0)::float8 AS yield_rate,
+		       %[6]s AS material_loss_rate,
 		       COALESCE(NULLIF(version.output_qty,0),1)::float8 AS output_qty,
 		       COALESCE(NULLIF(version.output_unit,''),'unit') AS output_unit,
 		       COALESCE(SUM(oc.operation_unit_cost),0)::float8 AS operation_cost_per_unit
@@ -580,9 +598,9 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 		 AND COALESCE(NULLIF(oc.cost_method,''),'time')='time'
 		 AND (NULLIF(oc.operation_cost_unit,'') IS NULL OR lower(oc.operation_cost_unit)=lower(version.output_unit))
 		WHERE COALESCE(NULLIF(bom.status,''),'active')='active'
-		GROUP BY binding.output_type, binding.output_id, binding.is_default, bom.id, version.id, version.status, version.yield_rate, version.output_qty, version.output_unit%[4]s%[5]s
+		GROUP BY binding.output_type, binding.output_id, binding.is_default, bom.id, version.id, version.status, version.yield_rate, version.output_qty, version.output_unit%[4]s%[5]s%[7]s
 		ORDER BY output_type, binding.output_id, binding.is_default DESC, version.id DESC
-	`, r.schema, bomNameExpr, versionNoExpr, bomNameGroup, versionNoGroup), selectedOutputType, selectedOutputID, selectedVersionID)
+	`, r.schema, bomNameExpr, versionNoExpr, bomNameGroup, versionNoGroup, versionMaterialLossExpr, versionMaterialLossGroup), selectedOutputType, selectedOutputID, selectedVersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +609,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 	versionIDs := make([]int64, 0)
 	for rows.Next() {
 		var node productionBomCostNode
-		if err := rows.Scan(&node.OutputType, &node.OutputID, &node.ProductID, &node.BomID, &node.BomName, &node.VersionID, &node.VersionNo, &node.Status, &node.YieldRate, &node.OutputQty, &node.OutputUnit, &node.OperationCostPerUnit); err != nil {
+		if err := rows.Scan(&node.OutputType, &node.OutputID, &node.ProductID, &node.BomID, &node.BomName, &node.VersionID, &node.VersionNo, &node.Status, &node.YieldRate, &node.MaterialLossRate, &node.OutputQty, &node.OutputUnit, &node.OperationCostPerUnit); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -807,7 +825,7 @@ func (r Repository) loadResolvedProductionBomCostsTypedWithSelection(ctx context
 			}
 		}
 		node := nodes[outputKey]
-		if node.VariantID > 0 {
+		if node.VariantID > 0 || (node.MaterialLossRate > 0 && node.MaterialLossRate < 1 && strings.EqualFold(strings.TrimSpace(item.ConsumeUnit), "ratio_pct")) {
 			item.MaterialLossRate = node.MaterialLossRate
 		}
 		node.Items = append(node.Items, item)

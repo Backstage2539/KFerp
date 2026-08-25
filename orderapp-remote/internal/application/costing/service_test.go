@@ -1599,7 +1599,7 @@ func TestPricingRuleTrialSelectedBomSpecUsesInventoryUnit(t *testing.T) {
 	}
 
 	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
-		PricingRuleID: 6047, ProductID: 6041, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, QuoteUnit: "kg",
+		PricingRuleID: 6047, ProductID: 6041, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045,
 	})
 	if err != nil {
 		t.Fatalf("PricingRuleTrial() error = %v", err)
@@ -1626,8 +1626,8 @@ func TestPricingRuleTrialBatchSelectedBomSpecUsesInventoryUnit(t *testing.T) {
 		pricingRules: map[int64]ProductPricingRule{6047: {ID: 6047, Name: "PR-604 批量单位", RoundingMode: "none", FormulaVersion: "v1", Active: true, CalculationJSON: map[string]any{"yield_loss_mode": "none", "profit_method": "markup", "tax_mode": "none"}}},
 	}
 	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), []PricingRuleTrialCommand{
-		{PricingRuleID: 6047, ProductID: 6048, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, QuoteUnit: "kg"},
-		{PricingRuleID: 6047, ProductID: 6049, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045, QuoteUnit: "kg"},
+		{PricingRuleID: 6047, ProductID: 6048, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045},
+		{PricingRuleID: 6047, ProductID: 6049, BomVersionID: 6042, BomSpecID: 6044, BomVariantID: 6045},
 	})
 	if err != nil {
 		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
@@ -2083,7 +2083,7 @@ func TestPricingRuleTrialRejectsUnresolvableQuoteUnit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing unit conversion error")
 	}
-	if !strings.Contains(err.Error(), "销售单位") || !strings.Contains(err.Error(), "单位换算") {
+	if !strings.Contains(err.Error(), "报价单位") || !strings.Contains(err.Error(), "单位换算") {
 		t.Fatalf("error = %v, want sales unit conversion message", err)
 	}
 }
