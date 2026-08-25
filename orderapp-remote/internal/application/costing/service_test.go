@@ -1567,6 +1567,46 @@ func TestPricingRuleTrialBOMSpecSelectionRejectsMissingOrCrossVersionUnit(t *tes
 	}
 }
 
+func TestValidateBOMAuthorityTrialProductAllowsLegacyChildBeforeCutover(t *testing.T) {
+	// Production catalogs still contain legacy child SKUs until the BOM-spec
+	// authority migration reaches cutover. Those rows must remain trialable;
+	// the migration guard only applies once BOM specs are authoritative.
+	err := validateBOMAuthorityTrialProduct(domain.ProductInput{
+		ProductID:            622,
+		SKUID:                622,
+		ParentProductID:      52,
+		BomSpecAuthoritative: false,
+	}, 622)
+	if err != nil {
+		t.Fatalf("legacy child SKU trial before cutover = %v, want nil", err)
+	}
+}
+
+func TestValidateBOMAuthorityTrialProductRejectsChildAfterCutover(t *testing.T) {
+	err := validateBOMAuthorityTrialProduct(domain.ProductInput{
+		ProductID:            622,
+		SKUID:                622,
+		ParentProductID:      52,
+		BomSpecAuthoritative: true,
+	}, 622)
+	if err == nil || !strings.Contains(err.Error(), "不再支持子 SKU 试算") {
+		t.Fatalf("authoritative child SKU trial error = %v, want cutover guard", err)
+	}
+}
+
+func TestValidateBOMAuthorityTrialProductAllowsBOMSpecParentAfterCutover(t *testing.T) {
+	err := validateBOMAuthorityTrialProduct(domain.ProductInput{
+		ProductID:            52,
+		ParentProductID:      52,
+		BomSpecID:            71,
+		BomVariantID:         801,
+		BomSpecAuthoritative: true,
+	}, 52)
+	if err != nil {
+		t.Fatalf("authoritative parent BOM spec trial = %v, want nil", err)
+	}
+}
+
 func TestPricingRuleTrialSelectedBomSpecUsesInventoryUnit(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
