@@ -1599,11 +1599,12 @@ func validateBOMAuthorityTrialProduct(input domain.ProductInput, requestedProduc
 	if requestedProductID <= 0 {
 		return fmt.Errorf("product_id required")
 	}
-	// A legacy child SKU is never a valid price-trial product identity.  After
-	// cutover the projection deliberately carries ProductID=parent and
-	// SKUID=0, so it is accepted even though ParentProductID is populated for
-	// display/grouping purposes.
-	if !input.BomSpecAuthoritative && input.ParentProductID > 0 && input.ProductID == requestedProductID {
+	// Before cutover, price-list rows still use the legacy child SKU identity
+	// and must remain trialable. Once BOM specs are authoritative, the
+	// projection deliberately carries ProductID=parent and SKUID=0, so a
+	// requested child SKU is rejected instead of silently pricing the wrong
+	// identity.
+	if input.BomSpecAuthoritative && input.SKUID > 0 && input.ParentProductID > 0 && input.ProductID == requestedProductID {
 		return fmt.Errorf("不再支持子 SKU 试算，请选择主商品并在其默认 BOM 中选择规格")
 	}
 	if input.BomSpecAuthoritative && input.SKUID > 0 && input.ProductID == requestedProductID && input.BomSpecID <= 0 {
