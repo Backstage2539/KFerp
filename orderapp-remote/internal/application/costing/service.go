@@ -4217,6 +4217,7 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 	selections := make(map[string]beanListProductSpecSelection, len(selectionRows))
 	selectionByLegacySKU := make(map[int64]beanListProductSpecSelection, len(selectionRows))
 	selectionByBOMSpec := make(map[int64]beanListProductSpecSelection, len(selectionRows))
+	selectionByParent := make(map[int64][]beanListProductSpecSelection, len(selectionRows))
 	parentProductNamesBySKU := make(map[int64]string, len(selectionRows))
 	for idx, rawSelection := range selectionRows {
 		selectionMap, ok := objectSnapshotMap(rawSelection)
@@ -4269,6 +4270,7 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			}
 			selections[key] = selection
 			selectionByBOMSpec[selection.BomSpecID] = selection
+			selectionByParent[selection.ParentProductID] = append(selectionByParent[selection.ParentProductID], selection)
 			parentProductNamesBySKU[selection.BomSpecID] = strings.TrimSpace(identity.ParentProductName)
 			continue
 		}
@@ -4311,6 +4313,7 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 		}
 		selections[key] = selection
 		selectionByLegacySKU[selection.SKUID] = selection
+		selectionByParent[selection.ParentProductID] = append(selectionByParent[selection.ParentProductID], selection)
 		parentProductNamesBySKU[selection.SKUID] = strings.TrimSpace(parent.ParentProductName)
 	}
 	for groupIdx, rawGroup := range beanListAnySlice(cmd.Content["groups"]) {
@@ -4332,6 +4335,13 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			}
 			key, label := beanListProductSpecSelectionKeyForRow(parentProductID, item)
 			selection, selected := selections[key]
+			if !selected {
+				if normalizedSelection, ok := normalizeStaleBeanListParentSKU(item, parentProductID, selectionByParent[parentProductID]); ok {
+					key = beanListProductSpecSelectionKey(parentProductID, normalizedSelection.SKUID)
+					label = fmt.Sprintf("SKU %d", normalizedSelection.SKUID)
+					selection, selected = selections[key]
+				}
+			}
 			if !selected {
 				return fmt.Errorf("分组商品项无效：第%d组第%d项 %s 未在规格选择中", groupIdx+1, itemIdx+1, label)
 			}
@@ -4361,6 +4371,12 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			parentProductID = int64(numberValue(row["product_id"]))
 		}
 		key, label := beanListProductSpecSelectionKeyForRow(parentProductID, row)
+		if _, selected := selections[key]; !selected {
+			if normalizedSelection, ok := normalizeStaleBeanListParentSKU(row, parentProductID, selectionByParent[parentProductID]); ok {
+				key = beanListProductSpecSelectionKey(parentProductID, normalizedSelection.SKUID)
+				label = fmt.Sprintf("SKU %d", normalizedSelection.SKUID)
+			}
+		}
 		if parentProductID <= 0 || key == "" {
 			return fmt.Errorf("商品规格价格行无效：第%d行缺少父商品或具体规格身份", idx+1)
 		}
@@ -4417,6 +4433,30 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 	}
 	normalizeConcreteProductSpecPublicationSnapshots(cmd, parentProductNamesBySKU)
 	return nil
+}
+
+// normalizeStaleBeanListParentSKU repairs a pre-concrete-selection snapshot
+// that used the parent product as its SKU identity.  It is intentionally
+// limited to one selected legacy child SKU; a parent row cannot be mapped
+// safely when several specifications are selected, and BOM-spec rows have a
+// different immutable identity contract.
+func normalizeStaleBeanListParentSKU(row map[string]any, parentProductID int64, selections []beanListProductSpecSelection) (beanListProductSpecSelection, bool) {
+	if row == nil || parentProductID <= 0 || len(selections) != 1 {
+		return beanListProductSpecSelection{}, false
+	}
+	selection := selections[0]
+	if selection.BomSpecID > 0 || selection.SKUID <= 0 || selection.SKUID == parentProductID {
+		return beanListProductSpecSelection{}, false
+	}
+	rowSKU := int64(numberValue(row["sku_id"]))
+	rowProductID := int64(numberValue(row["product_id"]))
+	if rowSKU != parentProductID || (rowProductID > 0 && rowProductID != parentProductID) {
+		return beanListProductSpecSelection{}, false
+	}
+	row["product_id"] = float64(selection.SKUID)
+	row["sku_id"] = float64(selection.SKUID)
+	row["parent_product_id"] = float64(parentProductID)
+	return selection, true
 }
 
 func beanListProductSpecSelectionKey(parentProductID, skuID int64) string {

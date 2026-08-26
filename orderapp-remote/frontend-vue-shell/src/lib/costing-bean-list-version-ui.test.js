@@ -933,8 +933,8 @@ test('price list flat rows collapse only identical tier-template rows before pre
     'price-list flat rows should import the duplicate tier-template row guard',
   )
   assert.ok(
-    viewSource.includes('dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value))'),
-    'price-list flat rows should collapse only identical generated template-tier rows before preview and publish',
+    viewSource.includes('dedupePriceListFlatRows(normalizePriceListPublicationRows('),
+    'price-list flat rows should normalize stale parent identities before collapsing identical generated template-tier rows',
   )
 })
 
@@ -1083,8 +1083,9 @@ test('price list preview builds from current selected products instead of empty 
   assert.ok(groupsSource.includes('downloadSourcePublication.value?.content?.groups'), 'download action should still render stored publication content')
   assert.ok(groupsSource.includes('buildBeanListPdfGroupsFromCategoryRows(selectedSkuCategoryProductGroups.value'), 'generate drawer should render materialized selected SKU rows from the picker')
   assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
-  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))'), true, 'flat rows should be generated from base preview groups and only identical tier rows should collapse')
-  assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into PDF groups')
+  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows('), true, 'flat rows should normalize concrete identities before collapsing identical generated tier rows')
+  assert.equal(viewSource.includes('normalizePriceListPublicationGroups('), true, 'preview should normalize stale parent identities before applying flat price rows')
+  assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into normalized PDF groups')
   assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trials'"), true, 'pricing-rule rows should load live trial prices in one batch')
   assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trial'"), false, 'price-list rows should not send one HTTP request per product')
   assert.equal(viewSource.includes('priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })'), true, 'pricing-rule trial payload should be scoped to the current customer')
