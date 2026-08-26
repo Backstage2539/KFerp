@@ -837,12 +837,11 @@ export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
   ].map(normalizePositiveNumber).find((value) => value > 0) || 0
   const hasBOMSpecIdentity = bomSpecID > 0 || bomVariantID > 0 || costSourceBomSpecID > 0 || costSourceBomVariantID > 0
   const legacyChildSKU = !hasBOMSpecIdentity && parentProductID > 0 && skuID > 0 && skuID !== parentProductID
-  // Legacy flat rows identify a sales child SKU (for example “1Kg”), while
-  // the selected production BOM may price its default specification per “袋”.
-  // Leave the unit empty in this compatibility path so the backend applies the
-  // BOM specification's authoritative inventory unit. Explicit BOM-spec rows
-  // and ordinary parent-product rows retain their requested/display unit.
-  const quoteUnit = legacyChildSKU
+  // Legacy flat rows and BOM-spec rows may identify the specification with a
+  // display label (for example “1Kg”) while the selected production BOM owns
+  // the authoritative inventory unit (for example “袋”). Leave the unit empty
+  // in both paths so the backend resolves it from the selected BOM spec.
+  const quoteUnit = hasBOMSpecIdentity || legacyChildSKU
     ? ''
     : [
         row.price_unit,
@@ -950,14 +949,27 @@ export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
   const rowProductID = priceTableTrialProductID(row)
   const trialProductID = Number(trial.product_id ?? trial.productID ?? trial.productId ?? rowProductID) || 0
   if (rowProductID > 0 && trialProductID > 0 && rowProductID !== trialProductID) return row
+  const sourceSnapshot = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
+  const rowBomSpecID = Number(row.bom_spec_id ?? row.bomSpecID ?? 0) || 0
+  const rowBomVariantID = Number(row.bom_variant_id ?? row.bomVariantID ?? 0) || 0
+  const sourceBomSpecID = Number(sourceSnapshot.bom_spec_id ?? sourceSnapshot.bomSpecID ?? 0) || 0
+  const sourceBomVariantID = Number(sourceSnapshot.bom_variant_id ?? sourceSnapshot.bomVariantID ?? 0) || 0
+  const trialBomSpecID = Number(trial.bom_spec_id ?? trial.bomSpecID ?? 0) || 0
+  const trialBomVariantID = Number(trial.bom_variant_id ?? trial.bomVariantID ?? 0) || 0
+  const hasBOMSpecIdentity = rowBomSpecID > 0 || rowBomVariantID > 0 || sourceBomSpecID > 0 || sourceBomVariantID > 0 || trialBomSpecID > 0 || trialBomVariantID > 0
   const rowPriceUnit = String(row.price_unit ?? row.priceUnit ?? '').trim()
   const trialQuoteUnit = String(trial.quote_unit ?? trial.quoteUnit ?? '').trim()
-  const priceUnit = rowPriceUnit || trialQuoteUnit || 'kg'
   const rowInventoryUnit = String(row.inventory_unit ?? row.inventoryUnit ?? '').trim()
   const trialInventoryUnit = String(trial.inventory_unit ?? trial.inventoryUnit ?? '').trim()
-  const inventoryUnit = rowInventoryUnit || trialInventoryUnit || priceUnit
-  const conversion = priceTableInventoryConversion(row.inventory_conversion_json ?? row.inventoryConversionJSON, priceUnit, inventoryUnit)
-  const sourceSnapshot = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
+  const priceUnit = hasBOMSpecIdentity
+    ? (trialQuoteUnit || trialInventoryUnit || rowInventoryUnit || rowPriceUnit || 'kg')
+    : (rowPriceUnit || trialQuoteUnit || 'kg')
+  const inventoryUnit = hasBOMSpecIdentity
+    ? (trialInventoryUnit || trialQuoteUnit || rowInventoryUnit || priceUnit)
+    : (rowInventoryUnit || trialInventoryUnit || priceUnit)
+  const conversion = hasBOMSpecIdentity
+    ? (priceUnit && inventoryUnit ? { [priceUnit]: { [inventoryUnit]: 1 } } : {})
+    : priceTableInventoryConversion(row.inventory_conversion_json ?? row.inventoryConversionJSON, priceUnit, inventoryUnit)
   const trialWarnings = Array.isArray(trial.warnings) ? trial.warnings.map((item) => String(item || '').trim()).filter(Boolean) : []
   const trialBaseCostDetails = Array.isArray(trial.base_cost_details ?? trial.baseCostDetails)
     ? (trial.base_cost_details ?? trial.baseCostDetails)
