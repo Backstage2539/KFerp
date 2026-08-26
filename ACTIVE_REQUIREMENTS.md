@@ -9,11 +9,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-612-PRICE-LIST-RUNTIME-SPEC-UNIT-PUBLISH
 - Branch: `codex/price-list-sku7-runtime-fix`
 - Owner/session: Codex / 2026-08-27
-- Status: implementation and full gates complete; development integration/deployment pending
+- Status: development live publish accepted; production release pending
 - Scope: 修复真实运行态价格行把 BOM 规格 ID 写入 legacy `sku_id` 后仍提示“SKU 7 未在规格选择中”；发布时若试算已给出相同价格/库存单位（如“袋→袋”），固化 1:1 快照而不再要求旧商品档案提供无关换算。不同单位缺少换算仍严格阻断。
 - DEV: DEV-612-BOM-SPEC-PSEUDO-SKU; DEV-612-IDENTITY-UOM-SNAPSHOT; DEV-612-DEVELOPMENT-LIVE-PUBLISH
 - Verifier: exact production/development error RED; Go all GREEN; Vue 1040/1040 GREEN; Vite 6594 modules GREEN; `scripts/verify_kferp.sh all` GREEN
-- Deployment: not merged or deployed. Development live publish and production code release pending; production price-list data unchanged.
+- Deployment: merged to `develop@d81e022b` and deployed development. Browser live publish created coffee price list `V3.0.20` / publication `#109` at 2026-08-27 00:48; operation log records the publish and PDF asset. Production code release pending; production price-list data unchanged.
 
 ### PR-611-PRICE-LIST-BOM-SPEC-IDENTITY-UNIT
 - Branch: `codex/price-list-bom-spec-unit-fix`
