@@ -2,7 +2,7 @@
 
 ## 现场问题
 
-- development：发布当前“初晓-商品 / 454g袋”价格表时，运行态行保存 `product_id=1063,parent_product_id=1063,sku_id=7`，已选规格实际为 `bom_spec_id=7,bom_variant_id=422`，服务端报“第1行 SKU 7 未在规格选择中”。
+- development：发布当前“初晓-商品 / 454g袋”价格表时，分组项保存父商品 1063，平铺行却暂存 `product_id=7,parent_product_id=1063,sku_id=7`；已选规格实际为 `bom_spec_id=7,bom_variant_id=422`，服务端报“第1行 SKU 7 未在规格选择中”。
 - production：发布“曜石2.0 / 1Kg”价格表时，试算已经输出 `price_unit=袋,inventory_unit=袋`，服务端仍要求旧商品档案提供“袋→袋”换算。
 
 ## TDD 证据

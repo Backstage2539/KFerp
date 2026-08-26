@@ -4469,7 +4469,7 @@ func TestBeanListConcreteSelectionsNormalizeBOMSpecIDStoredInLegacySKUField(t *t
 				"product_id": float64(1063), "sku_id": float64(7), "parent_product_id": float64(1063),
 			}}}},
 			"price_rows": []any{map[string]any{
-				"product_id": float64(1063), "sku_id": float64(7), "parent_product_id": float64(1063),
+				"product_id": float64(7), "sku_id": float64(7), "parent_product_id": float64(1063),
 				"final_unit_price": float64(53), "price_unit": "454g", "inventory_unit": "袋",
 				"pricing_mode": "fixed_price", "fixed_unit_price": float64(53),
 			}},

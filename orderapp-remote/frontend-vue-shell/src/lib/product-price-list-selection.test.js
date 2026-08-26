@@ -354,7 +354,7 @@ test('price-list publication rows normalize stale parent identity to one selecte
 
 test('price-list publication rows normalize a BOM spec id stored in the legacy sku field', () => {
   const rows = normalizePriceListPublicationRows([
-    { product_id: 1063, sku_id: 7, parent_product_id: 1063, price_unit: '454g' },
+    { product_id: 7, sku_id: 7, parent_product_id: 1063, price_unit: '454g' },
   ], [{
     parent_product_id: 1063,
     sku_id: 7,
