@@ -4223,6 +4223,67 @@ func TestBeanListConcreteSelectionsRequirePublishableRowsAndStrictGroupSKUs(t *t
 	})
 }
 
+func TestBeanListConcreteSelectionsNormalizeStaleParentRowsToSingleSelectedSKU(t *testing.T) {
+	repo := &fakeRepo{
+		productSpecIdentities: map[int64]ProductSpecIdentity{
+			550: {ProductID: 550, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+			551: {ProductID: 551, EffectiveParentProductID: 550, Active: true, SpecValid: true},
+		},
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			551: {
+				ProductID:        551,
+				DefaultSalesUnit: "袋",
+				InventoryUnit:    "kg",
+				Conversion:       map[string]map[string]float64{"袋": {"kg": 0.227}},
+			},
+		},
+	}
+	newCommand := func() PublishBeanListCommand {
+		return PublishBeanListCommand{
+			ListType: "commercial", Version: "V5.2.5",
+			Config: map[string]any{"product_spec_selections": []any{map[string]any{
+				"parent_product_id": float64(550), "sku_id": float64(551),
+				"selection_source": "product_default", "default_sku_id_at_selection": float64(551),
+			}}},
+			Content: map[string]any{
+				"groups": []any{map[string]any{"items": []any{map[string]any{
+					"product_id": float64(550), "sku_id": float64(550), "parent_product_id": float64(550),
+				}}}},
+				"price_rows": []any{map[string]any{
+					"product_id": float64(550), "sku_id": float64(550), "parent_product_id": float64(550),
+					"final_unit_price": float64(68), "price_unit": "袋", "inventory_unit": "kg",
+					"inventory_conversion_json": map[string]any{"袋": map[string]any{"kg": float64(0.227)}},
+					"pricing_mode":              "fixed_price", "fixed_unit_price": float64(68),
+					"pricing_mode_source": "product_catalog", "group_source": "product_catalog",
+					"group_snapshot":              map[string]any{"group_id": float64(1), "group_item_id": float64(1)},
+					"cost_source_snapshot":        map[string]any{"cost_source_mode": "fixed_price"},
+					"customer_reference_snapshot": map[string]any{"customer_id": float64(0)},
+					"manual_adjusted":             false,
+				}},
+			},
+		}
+	}
+
+	if _, err := NewService(repo).SaveBeanListDraft(context.Background(), newCommand()); err != nil {
+		t.Fatalf("SaveBeanListDraft() stale parent row error = %v", err)
+	}
+	groupItem := repo.draftBeanList.Content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	if groupItem["sku_id"] != float64(551) || groupItem["product_id"] != float64(551) {
+		t.Fatalf("group item identity = %#v, want selected SKU 551", groupItem)
+	}
+	priceRow := repo.draftBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if priceRow["sku_id"] != float64(551) || priceRow["product_id"] != float64(551) {
+		t.Fatalf("price row identity = %#v, want selected SKU 551", priceRow)
+	}
+	if _, err := NewService(repo).PublishBeanList(context.Background(), newCommand()); err != nil {
+		t.Fatalf("PublishBeanList() stale parent row error = %v", err)
+	}
+	publishedRow := repo.publishedBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if publishedRow["sku_id"] != float64(551) || publishedRow["product_id"] != float64(551) {
+		t.Fatalf("published price row identity = %#v, want selected SKU 551", publishedRow)
+	}
+}
+
 func TestBeanListProductSnapshotsUseAuthoritativeProductMasterFields(t *testing.T) {
 	repo := &fakeRepo{
 		productSpecIdentities: map[int64]ProductSpecIdentity{

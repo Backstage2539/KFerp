@@ -1085,6 +1085,8 @@ import {
   priceListProductSpecLabel,
   priceListProductSpecSelectionIssue,
   priceListProductSpecSelectionCounts,
+  normalizePriceListPublicationGroups,
+  normalizePriceListPublicationRows,
   priceListSelectedSkuCategoryRows,
   priceListSkuID,
   resolvePriceListProductSpecSelectionIssue,
@@ -1338,9 +1340,16 @@ const basePdfGroups = computed(() => {
   }
   return buildBeanListPdfGroupsFromCategoryRows(selectedSkuCategoryProductGroups.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
+const normalizedPriceListGroups = computed(() => normalizePriceListPublicationGroups(
+  basePdfGroups.value,
+  pdfProductSpecSelections.value,
+))
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
-const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))
-const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
+const priceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceListPublicationRows(
+  priceListFlatRowsFromGroups(normalizedPriceListGroups.value),
+  pdfProductSpecSelections.value,
+)))
+const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
 const priceListTierUnitBlockedReason = computed(() => String(
   priceListFlatRows.value.find((row) => priceListFlatRowHasLegacyUnitMismatch(row))?.tier_unit_compatibility_error || '',
 ).trim())

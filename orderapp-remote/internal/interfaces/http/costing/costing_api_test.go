@@ -2294,6 +2294,78 @@ func TestBeanListPublicationHTTPPersistsPieceTierAndSeparatedParentProductName(t
 	}
 }
 
+func TestBeanListPublicationHTTPNormalizesStaleParentSKU(t *testing.T) {
+	repo := &pr543BeanListPublicationRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(repo)})
+
+	body := bytes.NewBufferString(`{
+		"list_type":"commercial",
+		"version":"V5.3.2",
+		"scope":"mine",
+		"config":{"product_spec_selections":[{
+			"parent_product_id":600,
+			"sku_id":991,
+			"selection_source":"product_default",
+			"default_sku_id_at_selection":991
+		}]},
+		"content":{
+			"groups":[{"category":"1、咖啡豆","items":[{
+				"product_id":600,
+				"sku_id":600,
+				"parent_product_id":600,
+				"name":"白月光瑰夏",
+				"sku_name":"227g袋装",
+				"spec_label":"227g"
+			}]}],
+			"price_rows":[{
+				"product_id":600,
+				"sku_id":600,
+				"parent_product_id":600,
+				"product_name":"白月光瑰夏",
+				"sku_name":"227g袋装",
+				"spec_label":"227g",
+				"final_unit_price":82,
+				"price_unit":"227g",
+				"inventory_unit":"g",
+				"inventory_conversion_json":{"227g":{"g":227}},
+				"pricing_mode":"fixed_price",
+				"fixed_unit_price":82,
+				"pricing_mode_source":"product_catalog",
+				"group_source":"product_catalog",
+				"group_snapshot":{"group_id":3,"group_item_id":101},
+				"cost_source_snapshot":{"source":"fixed_price"},
+				"customer_reference_snapshot":{},
+				"manual_adjusted":false
+			}]
+		}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rows := publicMapsFromAny(repo.published.Content["price_rows"])
+	if len(rows) != 1 || int64(mapNumber(rows[0], "product_id", 0)) != 991 || int64(mapNumber(rows[0], "sku_id", 0)) != 991 {
+		t.Fatalf("published stale row identity=%v, want concrete SKU 991", rows)
+	}
+	groups := publicMapsFromAny(repo.published.Content["groups"])
+	items := publicMapsFromAny(groups[0]["items"])
+	if len(items) != 1 || int64(mapNumber(items[0], "product_id", 0)) != 991 || int64(mapNumber(items[0], "sku_id", 0)) != 991 {
+		t.Fatalf("published stale group item identity=%v, want concrete SKU 991", items)
+	}
+}
+
 func TestBeanListPublicationAndDraftAPIsUseConcreteSalesSpecCountInsteadOfTemplateUnitLabels(t *testing.T) {
 	for _, tc := range []struct {
 		name string

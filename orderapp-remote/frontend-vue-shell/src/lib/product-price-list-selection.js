@@ -451,6 +451,56 @@ export function priceListSelectedSkuCategoryRows(categoryRows = [], selections =
   })
 }
 
+// Older price-list snapshots sometimes identify a concrete row with the
+// parent product as both product_id and sku_id. Once a single legacy child
+// specification is selected, rewrite that stale identity before the row is
+// sent back for trial/publish. Multiple selected specs and BOM-spec rows are
+// left untouched because the parent identity is ambiguous in those cases.
+function selectedLegacyPriceListSKUsByParent(selections = []) {
+  const selectedByParent = new Map()
+  ;(Array.isArray(selections) ? selections : []).forEach((selection) => {
+    const parentProductID = numberField(selection?.parent_product_id ?? selection?.parentProductID)
+    const skuID = numberField(selection?.sku_id ?? selection?.skuID)
+    if (!(parentProductID > 0) || !(skuID > 0)) return
+    if (!selectedByParent.has(parentProductID)) selectedByParent.set(parentProductID, [])
+    selectedByParent.get(parentProductID).push(selection)
+  })
+  return selectedByParent
+}
+
+function normalizePriceListPublicationRowIdentity(row, selectedByParent) {
+  if (!row || typeof row !== 'object') return row
+  const parentProductID = numberField(row?.parent_product_id ?? row?.parentProductID ?? row?.product_id ?? row?.productID)
+  const skuID = numberField(row?.sku_id ?? row?.skuID ?? row?.product_id ?? row?.productID)
+  const productID = numberField(row?.product_id ?? row?.productID)
+  if (!(parentProductID > 0) || skuID !== parentProductID || (productID > 0 && productID !== parentProductID)) return row
+  const candidates = selectedByParent.get(parentProductID) || []
+  if (candidates.length !== 1) return row
+  const selection = candidates[0]
+  if (numberField(selection?.bom_spec_id ?? selection?.bomSpecID) > 0) return row
+  const selectedSKU = numberField(selection?.sku_id ?? selection?.skuID)
+  if (!(selectedSKU > 0) || selectedSKU === parentProductID) return row
+  return {
+    ...row,
+    product_id: selectedSKU,
+    sku_id: selectedSKU,
+    parent_product_id: parentProductID,
+  }
+}
+
+export function normalizePriceListPublicationRows(rows = [], selections = []) {
+  const selectedByParent = selectedLegacyPriceListSKUsByParent(selections)
+  return (Array.isArray(rows) ? rows : []).map((row) => normalizePriceListPublicationRowIdentity(row, selectedByParent))
+}
+
+export function normalizePriceListPublicationGroups(groups = [], selections = []) {
+  const selectedByParent = selectedLegacyPriceListSKUsByParent(selections)
+  return (Array.isArray(groups) ? groups : []).map((group) => ({
+    ...group,
+    items: (Array.isArray(group?.items) ? group.items : []).map((item) => normalizePriceListPublicationRowIdentity(item, selectedByParent)),
+  }))
+}
+
 function priceListSelectedSkuProjection(family = {}, spec = {}, context = {}) {
   const parentItem = family?.parent_item || family || {}
   const productName = priceListParentCatalogName(parentItem)
