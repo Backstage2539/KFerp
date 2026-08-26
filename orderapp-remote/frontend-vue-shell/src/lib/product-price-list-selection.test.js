@@ -352,6 +352,30 @@ test('price-list publication rows normalize stale parent identity to one selecte
   })
 })
 
+test('price-list publication rows normalize a BOM spec id stored in the legacy sku field', () => {
+  const rows = normalizePriceListPublicationRows([
+    { product_id: 7, sku_id: 7, parent_product_id: 1063, price_unit: '454g' },
+  ], [{
+    parent_product_id: 1063,
+    sku_id: 7,
+    bom_id: 6589,
+    bom_version_id: 65891,
+    bom_spec_id: 7,
+    bom_variant_id: 422,
+    selection_source: 'product_default',
+  }])
+
+  assert.deepEqual(rows[0], {
+    product_id: 1063,
+    parent_product_id: 1063,
+    bom_id: 6589,
+    bom_version_id: 65891,
+    bom_spec_id: 7,
+    bom_variant_id: 422,
+    price_unit: '454g',
+  })
+})
+
 test('price-list publication groups repair stale parent item identity before preview applies prices', () => {
   const groups = normalizePriceListPublicationGroups([
     { category: '咖啡豆', items: [{ product_id: 550, sku_id: 550, parent_product_id: 550, prices: [] }] },
