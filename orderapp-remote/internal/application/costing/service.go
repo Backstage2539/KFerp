@@ -4479,19 +4479,20 @@ func normalizeStaleBeanListParentSKU(row map[string]any, parentProductID int64, 
 	}
 	rowSKU := int64(numberValue(row["sku_id"]))
 	rowProductID := int64(numberValue(row["product_id"]))
-	if int64(numberValue(row["bom_spec_id"])) > 0 || int64(numberValue(row["bom_variant_id"])) > 0 || (rowProductID > 0 && rowProductID != parentProductID) {
+	if int64(numberValue(row["bom_spec_id"])) > 0 || int64(numberValue(row["bom_variant_id"])) > 0 {
 		return beanListProductSpecSelection{}, false
 	}
 	selection := beanListProductSpecSelection{}
 	matched := false
 	for _, candidate := range selections {
-		if candidate.BomSpecID > 0 && rowSKU > 0 && (rowSKU == candidate.BomSpecID || rowSKU == candidate.SKUID) {
+		productMatchesPseudoSKU := rowProductID <= 0 || rowProductID == parentProductID || rowProductID == rowSKU || rowProductID == candidate.BomSpecID || rowProductID == candidate.SKUID
+		if candidate.BomSpecID > 0 && rowSKU > 0 && productMatchesPseudoSKU && (rowSKU == candidate.BomSpecID || rowSKU == candidate.SKUID) {
 			selection = candidate
 			matched = true
 			break
 		}
 	}
-	if !matched && len(selections) == 1 && (rowSKU <= 0 || rowSKU == parentProductID) {
+	if !matched && len(selections) == 1 && (rowSKU <= 0 || rowSKU == parentProductID) && (rowProductID <= 0 || rowProductID == parentProductID) {
 		selection = selections[0]
 		matched = true
 	}

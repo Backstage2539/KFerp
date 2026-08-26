@@ -474,14 +474,21 @@ function normalizePriceListPublicationRowIdentity(row, selectedByParent) {
   const productID = numberField(row?.product_id ?? row?.productID)
   const existingBOMSpecID = numberField(row?.bom_spec_id ?? row?.bomSpecID)
   const existingBOMVariantID = numberField(row?.bom_variant_id ?? row?.bomVariantID)
-  if (!(parentProductID > 0) || existingBOMSpecID > 0 || existingBOMVariantID > 0 || (productID > 0 && productID !== parentProductID)) return row
+  if (!(parentProductID > 0) || existingBOMSpecID > 0 || existingBOMVariantID > 0) return row
   const candidates = selectedByParent.get(parentProductID) || []
   const exactBOMSelection = candidates.find((candidate) => {
     const bomSpecID = numberField(candidate?.bom_spec_id ?? candidate?.bomSpecID)
     const selectedSKU = numberField(candidate?.sku_id ?? candidate?.skuID)
-    return bomSpecID > 0 && skuID > 0 && (skuID === bomSpecID || skuID === selectedSKU)
+    const productMatchesPseudoSKU = !(productID > 0) || productID === parentProductID || productID === skuID || productID === bomSpecID || productID === selectedSKU
+    return bomSpecID > 0 && skuID > 0 && productMatchesPseudoSKU && (skuID === bomSpecID || skuID === selectedSKU)
   })
-  const selection = exactBOMSelection || (skuID === parentProductID && candidates.length === 1 ? candidates[0] : null)
+  const selection = exactBOMSelection || (
+    skuID === parentProductID &&
+    (!(productID > 0) || productID === parentProductID) &&
+    candidates.length === 1
+      ? candidates[0]
+      : null
+  )
   if (!selection) return row
   const selectedBOMSpecID = numberField(selection?.bom_spec_id ?? selection?.bomSpecID)
   const selectedBOMVariantID = numberField(selection?.bom_variant_id ?? selection?.bomVariantID)
