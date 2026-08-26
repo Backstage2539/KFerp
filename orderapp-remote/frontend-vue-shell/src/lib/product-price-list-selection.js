@@ -452,10 +452,10 @@ export function priceListSelectedSkuCategoryRows(categoryRows = [], selections =
 }
 
 // Older price-list snapshots sometimes identify a concrete row with the
-// parent product as both product_id and sku_id. Once a single legacy child
-// specification is selected, rewrite that stale identity before the row is
-// sent back for trial/publish. Multiple selected specs and BOM-spec rows are
-// left untouched because the parent identity is ambiguous in those cases.
+// parent product as both product_id and sku_id. Once a single specification is
+// selected, rewrite that stale identity before the row is sent back for
+// trial/publish. Multiple selected specs remain untouched because the parent
+// identity is ambiguous in that case.
 function selectedLegacyPriceListSKUsByParent(selections = []) {
   const selectedByParent = new Map()
   ;(Array.isArray(selections) ? selections : []).forEach((selection) => {
@@ -477,7 +477,30 @@ function normalizePriceListPublicationRowIdentity(row, selectedByParent) {
   const candidates = selectedByParent.get(parentProductID) || []
   if (candidates.length !== 1) return row
   const selection = candidates[0]
-  if (numberField(selection?.bom_spec_id ?? selection?.bomSpecID) > 0) return row
+  const selectedBOMSpecID = numberField(selection?.bom_spec_id ?? selection?.bomSpecID)
+  const selectedBOMVariantID = numberField(selection?.bom_variant_id ?? selection?.bomVariantID)
+  if (selectedBOMSpecID > 0 && selectedBOMVariantID > 0) {
+    const normalized = {
+      ...row,
+      product_id: parentProductID,
+      parent_product_id: parentProductID,
+      bom_spec_id: selectedBOMSpecID,
+      bom_variant_id: selectedBOMVariantID,
+    }
+    const bomID = numberField(selection?.bom_id ?? selection?.bomID)
+    const bomVersionID = numberField(selection?.bom_version_id ?? selection?.bomVersionID)
+    if (bomID > 0) normalized.bom_id = bomID
+    else delete normalized.bom_id
+    if (bomVersionID > 0) normalized.bom_version_id = bomVersionID
+    else delete normalized.bom_version_id
+    const migrationState = String(selection?.migration_state ?? selection?.migrationState ?? '').trim()
+    if (migrationState) normalized.migration_state = migrationState
+    const identityMode = String(selection?.spec_identity_mode ?? selection?.specIdentityMode ?? '').trim()
+    if (identityMode) normalized.spec_identity_mode = identityMode
+    if (selection?.bom_spec_authoritative === true || selection?.bomSpecAuthoritative === true) normalized.bom_spec_authoritative = true
+    delete normalized.sku_id
+    return normalized
+  }
   const selectedSKU = numberField(selection?.sku_id ?? selection?.skuID)
   if (!(selectedSKU > 0) || selectedSKU === parentProductID) return row
   return {

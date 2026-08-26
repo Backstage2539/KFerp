@@ -6,14 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-611-PRICE-LIST-BOM-SPEC-IDENTITY-UNIT
+- Branch: `codex/price-list-bom-spec-unit-fix`
+- Owner/session: Codex / 2026-08-26
+- Status: implementation in progress; targeted RED captured, GREEN pending full release
+- Scope: 修复旧价格表草稿把父商品写入 `product_id/sku_id` 导致开发环境发布提示 SKU 7 未选择；BOM 规格行按唯一选中规格归一身份，并让历史 `1Kg` 等展示单位自动服从 BOM 规格库存单位“袋”，打通价格试算、发布快照与录单单位。
+- DEV: DEV-611-STALE-PARENT-IDENTITY; DEV-611-BOM-SPEC-UNIT; DEV-611-PRICE-LIST-PUBLISH-ORDER-FLOW
+- Verifier: Go costing/API targeted; Vue selection/product-settings targeted; full `scripts/verify_kferp.sh all` pending
+- Deployment: not merged or deployed. Production business data unchanged.
+
 ### PR-610-PRICE-LIST-PARENT-ROW-IDENTITY
 - Branch: `codex/price-list-publish-spec-fix`
 - Owner/session: Codex / 2026-08-26
-- Status: implementation in progress; release pending
+- Status: merged and deployed; follow-up BOM-spec identity and unit compatibility fix tracked by PR-611
 - Scope: 修复商品价格表发布时旧平铺快照仍携带父商品 SKU（如 SKU 7）而规格选择已指向具体子规格的问题。对可唯一确定的单规格旧行在前后端统一归一到具体 SKU；多规格、BOM 规格和真正未选择规格继续严格拦截。保持价格试算、发布快照和小程序订单规格身份一致。
 - DEV: DEV-610-PRICE-LIST-PARENT-ROW-NORMALIZATION; DEV-610-PRICE-LIST-PUBLISH-ORDER-FLOW; DEV-610-DOCS-RELEASE-ACCEPTANCE
 - Verifier: targeted RED/GREEN; Go costing/API; Vue selection/costing workflow; full `scripts/verify_kferp.sh all` pending
-- Deployment: not merged or deployed. Production data unchanged.
+- Deployment: merged to `develop@f55fa38f` and `main@69fcb976`; development and production code deployed with read-only order-form/price-list health checks. Production business data unchanged.
 
 ### PR-609-PRICE-LIST-BOM-SPEC-UNIT
 - Branch: `codex/price-list-spec-unit-fix`
