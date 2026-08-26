@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-610-PRICE-LIST-PARENT-ROW-IDENTITY
+- Branch: `codex/price-list-publish-spec-fix`
+- Owner/session: Codex / 2026-08-26
+- Status: implementation in progress; release pending
+- Scope: 修复商品价格表发布时旧平铺快照仍携带父商品 SKU（如 SKU 7）而规格选择已指向具体子规格的问题。对可唯一确定的单规格旧行在前后端统一归一到具体 SKU；多规格、BOM 规格和真正未选择规格继续严格拦截。保持价格试算、发布快照和小程序订单规格身份一致。
+- DEV: DEV-610-PRICE-LIST-PARENT-ROW-NORMALIZATION; DEV-610-PRICE-LIST-PUBLISH-ORDER-FLOW; DEV-610-DOCS-RELEASE-ACCEPTANCE
+- Verifier: targeted RED/GREEN; Go costing/API; Vue selection/costing workflow; full `scripts/verify_kferp.sh all` pending
+- Deployment: not merged or deployed. Production data unchanged.
+
 ### PR-609-PRICE-LIST-BOM-SPEC-UNIT
 - Branch: `codex/price-list-spec-unit-fix`
 - Owner/session: Codex / 2026-08-26

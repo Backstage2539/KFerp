@@ -30,7 +30,8 @@ func TestDev465PriceListPricingRulePreviewContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"priceListPricingRuleTrialRequests",
 			"/api/costing/pricing-rule-trial",
-			"applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value",
+			"normalizePriceListPublicationGroups",
+			"applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-465-PRICE-LIST-PRICING-RULE-PREVIEW",

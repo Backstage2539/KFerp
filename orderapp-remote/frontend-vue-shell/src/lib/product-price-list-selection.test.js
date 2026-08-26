@@ -5,6 +5,8 @@ import {
   buildPriceListProductFamilies,
   defaultPriceListProductSpecSelections,
   normalizePriceListProductSpecSelections,
+  normalizePriceListPublicationGroups,
+  normalizePriceListPublicationRows,
   priceListCategoryCodesForSelectedProducts,
   priceListCategoryHiddenByCollapsedAncestor,
   priceListCategoryProductIDs,
@@ -296,6 +298,47 @@ test('price-list selected SKU rows and counters keep product and spec totals dis
   assert.deepEqual(priceListProductSpecSelectionCounts(selections), { productCount: 1, specCount: 2 })
   assert.deepEqual(rows[0].items.map((row) => row.sku_id), [3, 2])
   assert.ok(rows[0].items.every((row) => row.__price_list_category_code === 'coffee'))
+})
+
+test('price-list publication rows repair a stale parent SKU when one child spec is selected', () => {
+  const rows = normalizePriceListPublicationRows([
+    { product_id: 550, sku_id: 550, parent_product_id: 550, final_unit_price: 68 },
+    { product_id: 552, sku_id: 552, parent_product_id: 550, final_unit_price: 88 },
+  ], [
+    { parent_product_id: 550, sku_id: 551, selection_source: 'product_default' },
+  ])
+
+  assert.deepEqual(rows.map((row) => [row.product_id, row.sku_id, row.parent_product_id]), [
+    [551, 551, 550],
+    [552, 552, 550],
+  ])
+})
+
+test('price-list publication rows keep ambiguous parent rows and BOM-spec rows unchanged', () => {
+  const rows = normalizePriceListPublicationRows([
+    { product_id: 550, sku_id: 550, parent_product_id: 550 },
+    { product_id: 600, sku_id: 600, parent_product_id: 600 },
+  ], [
+    { parent_product_id: 550, sku_id: 551 },
+    { parent_product_id: 550, sku_id: 552 },
+    { parent_product_id: 600, bom_spec_id: 701, bom_variant_id: 702 },
+  ])
+
+  assert.equal(rows[0].sku_id, 550)
+  assert.equal(rows[1].sku_id, 600)
+})
+
+test('price-list publication groups repair stale parent item identity before preview applies prices', () => {
+  const groups = normalizePriceListPublicationGroups([
+    { category: '咖啡豆', items: [{ product_id: 550, sku_id: 550, parent_product_id: 550, prices: [] }] },
+  ], [{ parent_product_id: 550, sku_id: 551, selection_source: 'product_default' }])
+
+  assert.deepEqual(groups[0].items[0], {
+    product_id: 551,
+    sku_id: 551,
+    parent_product_id: 550,
+    prices: [],
+  })
 })
 
 test('selected SKU projection keeps customer alias and parent product name separate from the sales spec', () => {
