@@ -925,8 +925,12 @@ func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialComm
 	if cmd.BomID > 0 && input.BomID > 0 && cmd.BomID != input.BomID {
 		return nil, fmt.Errorf("BOM 不属于所选商品的当前默认已发布版本")
 	}
-	if requestedUnit := strings.TrimSpace(cmd.QuoteUnit); requestedUnit != "" && input.BomSpecID > 0 && input.BomVariantID > 0 && input.InventoryUnit != "" && !strings.EqualFold(requestedUnit, input.InventoryUnit) {
-		return nil, fmt.Errorf("报价单位%s与所选 BOM 规格库存单位%s不一致，请按 BOM 规格单位重新试算", pricingRuleTrialQuotedUnit(requestedUnit), pricingRuleTrialQuotedUnit(input.InventoryUnit))
+	// A BOM-owned specification is the authoritative finished-goods unit. Older
+	// price-list rows can still carry a display label such as “1Kg” even though
+	// the selected BOM specification is stocked as “袋”; let the BOM selection
+	// replace that stale request instead of blocking the whole price-list trial.
+	if input.BomSpecID > 0 && input.BomVariantID > 0 && strings.TrimSpace(input.InventoryUnit) != "" {
+		cmd.QuoteUnit = input.InventoryUnit
 	}
 	quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, cmd.QuoteUnit)
 	if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
@@ -1112,9 +1116,8 @@ func (s *Service) PricingRuleTrialBatch(ctx context.Context, commands []PricingR
 			rows[item.index].Error = applyErr.Error()
 			continue
 		}
-		if requestedUnit := strings.TrimSpace(item.command.QuoteUnit); requestedUnit != "" && input.BomSpecID > 0 && input.BomVariantID > 0 && input.InventoryUnit != "" && !strings.EqualFold(requestedUnit, input.InventoryUnit) {
-			rows[item.index].Error = fmt.Sprintf("报价单位%s与所选 BOM 规格库存单位%s不一致，请按 BOM 规格单位重新试算", pricingRuleTrialQuotedUnit(requestedUnit), pricingRuleTrialQuotedUnit(input.InventoryUnit))
-			continue
+		if input.BomSpecID > 0 && input.BomVariantID > 0 && strings.TrimSpace(input.InventoryUnit) != "" {
+			item.command.QuoteUnit = input.InventoryUnit
 		}
 		quoteUnit := pricingRuleTrialResolvedQuoteUnit(input, item.command.QuoteUnit)
 		if !pricingRuleTrialQuoteUnitResolvable(input, quoteUnit) {
@@ -3439,12 +3442,13 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 			if err := validateResolvedProductBOMSpecIdentity(identity, parentProductID, bomSpecID, bomVariantID); err != nil {
 				return err
 			}
-			priceUnit := strings.TrimSpace(stringValue(row["price_unit"]))
+			// The BOM specification owns the finished-goods unit. A legacy row
+			// may still show a display-only label such as “1Kg”; rewrite it to
+			// the authoritative inventory unit before freezing the publication
+			// snapshot instead of rejecting the whole price list.
+			priceUnit := strings.TrimSpace(identity.InventoryUnit)
 			if priceUnit == "" {
-				priceUnit = strings.TrimSpace(identity.InventoryUnit)
-			}
-			if priceUnit != strings.TrimSpace(identity.InventoryUnit) {
-				return beanListFlatRowUnitConversionError("BOM 规格价格单位必须与库存单位一致", idx+1, row, priceUnit)
+				priceUnit = strings.TrimSpace(stringValue(row["price_unit"]))
 			}
 			applyProductBOMSpecUnitSnapshot(row, identity, priceUnit)
 			continue
@@ -4337,8 +4341,8 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 			selection, selected := selections[key]
 			if !selected {
 				if normalizedSelection, ok := normalizeStaleBeanListParentSKU(item, parentProductID, selectionByParent[parentProductID]); ok {
-					key = beanListProductSpecSelectionKey(parentProductID, normalizedSelection.SKUID)
-					label = fmt.Sprintf("SKU %d", normalizedSelection.SKUID)
+					key = beanListProductSpecSelectionKeyForSelection(parentProductID, normalizedSelection)
+					label = beanListProductSpecSelectionLabel(normalizedSelection)
 					selection, selected = selections[key]
 				}
 			}
@@ -4373,8 +4377,8 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 		key, label := beanListProductSpecSelectionKeyForRow(parentProductID, row)
 		if _, selected := selections[key]; !selected {
 			if normalizedSelection, ok := normalizeStaleBeanListParentSKU(row, parentProductID, selectionByParent[parentProductID]); ok {
-				key = beanListProductSpecSelectionKey(parentProductID, normalizedSelection.SKUID)
-				label = fmt.Sprintf("SKU %d", normalizedSelection.SKUID)
+				key = beanListProductSpecSelectionKeyForSelection(parentProductID, normalizedSelection)
+				label = beanListProductSpecSelectionLabel(normalizedSelection)
 			}
 		}
 		if parentProductID <= 0 || key == "" {
@@ -4436,21 +4440,39 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 }
 
 // normalizeStaleBeanListParentSKU repairs a pre-concrete-selection snapshot
-// that used the parent product as its SKU identity.  It is intentionally
-// limited to one selected legacy child SKU; a parent row cannot be mapped
-// safely when several specifications are selected, and BOM-spec rows have a
-// different immutable identity contract.
+// that used the parent product as its concrete identity. It is intentionally
+// limited to one selected specification; a parent row cannot be mapped safely
+// when several specifications are selected. Legacy child-SKU selections keep
+// their child identity, while BOM-spec selections are rewritten to the parent
+// plus the immutable BOM specification identity.
 func normalizeStaleBeanListParentSKU(row map[string]any, parentProductID int64, selections []beanListProductSpecSelection) (beanListProductSpecSelection, bool) {
 	if row == nil || parentProductID <= 0 || len(selections) != 1 {
 		return beanListProductSpecSelection{}, false
 	}
 	selection := selections[0]
-	if selection.BomSpecID > 0 || selection.SKUID <= 0 || selection.SKUID == parentProductID {
-		return beanListProductSpecSelection{}, false
-	}
 	rowSKU := int64(numberValue(row["sku_id"]))
 	rowProductID := int64(numberValue(row["product_id"]))
-	if rowSKU != parentProductID || (rowProductID > 0 && rowProductID != parentProductID) {
+	if int64(numberValue(row["bom_spec_id"])) > 0 || int64(numberValue(row["bom_variant_id"])) > 0 || (rowSKU > 0 && rowSKU != parentProductID) || (rowProductID > 0 && rowProductID != parentProductID) {
+		return beanListProductSpecSelection{}, false
+	}
+	if selection.BomSpecID > 0 && selection.BomVariantID > 0 {
+		row["product_id"] = float64(parentProductID)
+		row["parent_product_id"] = float64(parentProductID)
+		if selection.BomID > 0 {
+			row["bom_id"] = float64(selection.BomID)
+		}
+		if selection.BomVersionID > 0 {
+			row["bom_version_id"] = float64(selection.BomVersionID)
+		}
+		row["bom_spec_id"] = float64(selection.BomSpecID)
+		row["bom_variant_id"] = float64(selection.BomVariantID)
+		row["migration_state"] = selection.MigrationState
+		row["spec_identity_mode"] = "bom_spec"
+		row["bom_spec_authoritative"] = true
+		delete(row, "sku_id")
+		return selection, true
+	}
+	if selection.SKUID <= 0 || selection.SKUID == parentProductID {
 		return beanListProductSpecSelection{}, false
 	}
 	row["product_id"] = float64(selection.SKUID)
@@ -4461,6 +4483,23 @@ func normalizeStaleBeanListParentSKU(row map[string]any, parentProductID int64, 
 
 func beanListProductSpecSelectionKey(parentProductID, skuID int64) string {
 	return fmt.Sprintf("%d:%d", parentProductID, skuID)
+}
+
+func beanListProductSpecSelectionKeyForSelection(parentProductID int64, selection beanListProductSpecSelection) string {
+	if selection.BomSpecID > 0 && selection.BomVariantID > 0 {
+		if selection.BomID > 0 || selection.BomVersionID > 0 {
+			return beanListBOMSpecIdentityKey(parentProductID, selection.BomID, selection.BomVersionID, selection.BomSpecID, selection.BomVariantID)
+		}
+		return beanListBOMSpecIdentityKey(parentProductID, selection.BomSpecID, selection.BomVariantID)
+	}
+	return beanListProductSpecSelectionKey(parentProductID, selection.SKUID)
+}
+
+func beanListProductSpecSelectionLabel(selection beanListProductSpecSelection) string {
+	if selection.BomSpecID > 0 {
+		return fmt.Sprintf("BOM规格 %d", selection.BomSpecID)
+	}
+	return fmt.Sprintf("SKU %d", selection.SKUID)
 }
 
 func beanListProductSpecSelectionKeyForRow(parentProductID int64, row map[string]any) (string, string) {
