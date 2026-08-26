@@ -314,7 +314,7 @@ test('price-list publication rows repair a stale parent SKU when one child spec 
   ])
 })
 
-test('price-list publication rows keep ambiguous parent rows and BOM-spec rows unchanged', () => {
+test('price-list publication rows keep ambiguous parent rows unchanged', () => {
   const rows = normalizePriceListPublicationRows([
     { product_id: 550, sku_id: 550, parent_product_id: 550 },
     { product_id: 600, sku_id: 600, parent_product_id: 600 },
@@ -326,6 +326,30 @@ test('price-list publication rows keep ambiguous parent rows and BOM-spec rows u
 
   assert.equal(rows[0].sku_id, 550)
   assert.equal(rows[1].sku_id, 600)
+})
+
+test('price-list publication rows normalize stale parent identity to one selected BOM spec', () => {
+  const rows = normalizePriceListPublicationRows([
+    { product_id: 600, sku_id: 600, parent_product_id: 600, price_unit: '1Kg' },
+  ], [{
+    parent_product_id: 600,
+    sku_id: 701,
+    bom_id: 90,
+    bom_version_id: 901,
+    bom_spec_id: 701,
+    bom_variant_id: 702,
+    selection_source: 'product_default',
+  }])
+
+  assert.deepEqual(rows[0], {
+    product_id: 600,
+    parent_product_id: 600,
+    bom_id: 90,
+    bom_version_id: 901,
+    bom_spec_id: 701,
+    bom_variant_id: 702,
+    price_unit: '1Kg',
+  })
 })
 
 test('price-list publication groups repair stale parent item identity before preview applies prices', () => {
