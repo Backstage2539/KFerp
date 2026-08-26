@@ -3496,6 +3496,20 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 			// sales-spec snapshot remains anchored to the concrete SKU identity.
 			rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
 		}
+		rowInventoryUnit := strings.TrimSpace(stringValue(row["inventory_unit"]))
+		if errors.Is(err, ErrProductSalesUnitRuleNotFound) &&
+			rowInventoryUnit != "" &&
+			normalizePriceTierCompatibilityUnit(priceUnit) == normalizePriceTierCompatibilityUnit(rowInventoryUnit) &&
+			specRule.ProductID > 0 {
+			// BOM-authoritative pricing can legitimately rewrite a historical
+			// child SKU's display unit (for example “1Kg”) to the finished-goods
+			// inventory unit (“袋”). Once the calculated row explicitly carries
+			// the same price and inventory unit, freeze that one-to-one relation
+			// instead of demanding an unrelated legacy archive conversion.
+			specRule = productSalesUnitIdentitySnapshotRule(specRule, priceUnit, rowInventoryUnit)
+			rule = specRule
+			err = nil
+		}
 		if err != nil {
 			if errors.Is(err, ErrProductSalesUnitRuleNotFound) {
 				return beanListFlatRowUnitConversionError("商品档案缺少价格单位到库存单位换算", idx+1, row, priceUnit)
@@ -3521,6 +3535,22 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		applyFlatRowSKUSnapshot(row, concreteProductID, specRule, spec, strictSnapshots)
 	}
 	return nil
+}
+
+func productSalesUnitIdentitySnapshotRule(rule ProductSalesUnitRule, priceUnit, inventoryUnit string) ProductSalesUnitRule {
+	priceUnit = strings.TrimSpace(priceUnit)
+	inventoryUnit = strings.TrimSpace(inventoryUnit)
+	rule.DefaultSalesUnit = priceUnit
+	rule.InventoryUnit = inventoryUnit
+	rule.Conversion = map[string]map[string]float64{priceUnit: {inventoryUnit: 1}}
+	if rule.EffectiveSalesSpec != nil {
+		spec := *rule.EffectiveSalesSpec
+		spec.SalesUnit = priceUnit
+		spec.InventoryUnit = inventoryUnit
+		spec.InventoryConversionJSON = rule.Conversion
+		rule.EffectiveSalesSpec = &spec
+	}
+	return rule
 }
 
 func validateResolvedProductBOMSpecIdentity(identity ProductBOMSpecIdentity, parentProductID, bomSpecID, bomVariantID int64) error {
@@ -4440,19 +4470,33 @@ func (s *Service) validateProductSpecSelections(ctx context.Context, cmd *Publis
 }
 
 // normalizeStaleBeanListParentSKU repairs a pre-concrete-selection snapshot
-// that used the parent product as its concrete identity. It is intentionally
-// limited to one selected specification; a parent row cannot be mapped safely
-// when several specifications are selected. Legacy child-SKU selections keep
-// their child identity, while BOM-spec selections are rewritten to the parent
-// plus the immutable BOM specification identity.
+// that used the parent product as its concrete identity or stored a BOM spec id
+// in the legacy sku_id field. An exact BOM match is safe with multiple selected
+// specs; a parent-only row is still normalized only when one spec is selected.
 func normalizeStaleBeanListParentSKU(row map[string]any, parentProductID int64, selections []beanListProductSpecSelection) (beanListProductSpecSelection, bool) {
-	if row == nil || parentProductID <= 0 || len(selections) != 1 {
+	if row == nil || parentProductID <= 0 || len(selections) == 0 {
 		return beanListProductSpecSelection{}, false
 	}
-	selection := selections[0]
 	rowSKU := int64(numberValue(row["sku_id"]))
 	rowProductID := int64(numberValue(row["product_id"]))
-	if int64(numberValue(row["bom_spec_id"])) > 0 || int64(numberValue(row["bom_variant_id"])) > 0 || (rowSKU > 0 && rowSKU != parentProductID) || (rowProductID > 0 && rowProductID != parentProductID) {
+	if int64(numberValue(row["bom_spec_id"])) > 0 || int64(numberValue(row["bom_variant_id"])) > 0 {
+		return beanListProductSpecSelection{}, false
+	}
+	selection := beanListProductSpecSelection{}
+	matched := false
+	for _, candidate := range selections {
+		productMatchesPseudoSKU := rowProductID <= 0 || rowProductID == parentProductID || rowProductID == rowSKU || rowProductID == candidate.BomSpecID || rowProductID == candidate.SKUID
+		if candidate.BomSpecID > 0 && rowSKU > 0 && productMatchesPseudoSKU && (rowSKU == candidate.BomSpecID || rowSKU == candidate.SKUID) {
+			selection = candidate
+			matched = true
+			break
+		}
+	}
+	if !matched && len(selections) == 1 && (rowSKU <= 0 || rowSKU == parentProductID) && (rowProductID <= 0 || rowProductID == parentProductID) {
+		selection = selections[0]
+		matched = true
+	}
+	if !matched {
 		return beanListProductSpecSelection{}, false
 	}
 	if selection.BomSpecID > 0 && selection.BomVariantID > 0 {

@@ -6,14 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-612-PRICE-LIST-RUNTIME-SPEC-UNIT-PUBLISH
+- Branch: `codex/price-list-sku7-runtime-fix`
+- Owner/session: Codex / 2026-08-27
+- Status: development live publish accepted; production release pending
+- Scope: 修复真实运行态价格行把 BOM 规格 ID 写入 legacy `sku_id` 后仍提示“SKU 7 未在规格选择中”；发布时若试算已给出相同价格/库存单位（如“袋→袋”），固化 1:1 快照而不再要求旧商品档案提供无关换算。不同单位缺少换算仍严格阻断。
+- DEV: DEV-612-BOM-SPEC-PSEUDO-SKU; DEV-612-IDENTITY-UOM-SNAPSHOT; DEV-612-DEVELOPMENT-LIVE-PUBLISH
+- Verifier: exact production/development error RED; Go all GREEN; Vue 1040/1040 GREEN; Vite 6594 modules GREEN; `scripts/verify_kferp.sh all` GREEN
+- Deployment: merged to `develop@d81e022b` and deployed development. Browser live publish created coffee price list `V3.0.20` / publication `#109` at 2026-08-27 00:48; operation log records the publish and PDF asset. Production code release pending; production price-list data unchanged.
+
 ### PR-611-PRICE-LIST-BOM-SPEC-IDENTITY-UNIT
 - Branch: `codex/price-list-bom-spec-unit-fix`; merged through PR #55
 - Owner/session: Codex / 2026-08-26
-- Status: verified and released through development; main/production release in progress
-- Scope: 修复旧价格表草稿把父商品写入 `product_id/sku_id` 导致发布提示 SKU 未选择；BOM 规格行按唯一选中规格归一身份，并让历史 `1Kg` 等展示单位自动服从 BOM 规格库存单位，打通价格试算、发布快照与录单单位。
+- Status: merged and deployed; runtime follow-up tracked by PR-612
+- Scope: 修复旧价格表草稿把父商品写入 `product_id/sku_id` 导致开发环境发布提示 SKU 7 未选择；BOM 规格行按唯一选中规格归一身份，并让历史 `1Kg` 等展示单位自动服从 BOM 规格库存单位“袋”，打通价格试算、发布快照与录单单位。
 - DEV: DEV-611-STALE-PARENT-IDENTITY; DEV-611-BOM-SPEC-UNIT; DEV-611-PRICE-LIST-PUBLISH-ORDER-FLOW
-- Verifier: `scripts/verify_kferp.sh all` GREEN；开发远端 preflight/release GREEN；生产预检待执行
-- Deployment: `origin/develop=4bc548b15df4243df97cfc65e4fd5266f72feed4` 已部署 development；源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260826231425-4bc548b15df4`，回滚镜像 `kferp-orderapp-rollback:development-20260826231425-4bc548b15df4`；生产业务数据未修改。
+- Verifier: targeted/full Go/Vue/Vite and release gates GREEN
+- Deployment: merged to `develop@4bc548b1` and `main@7974d319`; development and production code deployed. Production business data unchanged.
 
 ### RELEASE-20260824-PR604-PRODUCTION
 - Branch: `codex/release-main-pr604-20260824`; evidence branch `codex/release-main-pr604-evidence-20260824`

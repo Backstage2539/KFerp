@@ -452,10 +452,9 @@ export function priceListSelectedSkuCategoryRows(categoryRows = [], selections =
 }
 
 // Older price-list snapshots sometimes identify a concrete row with the
-// parent product as both product_id and sku_id. Once a single specification is
-// selected, rewrite that stale identity before the row is sent back for
-// trial/publish. Multiple selected specs remain untouched because the parent
-// identity is ambiguous in that case.
+// parent product, or store a BOM specification id in the legacy sku_id field.
+// Rewrite an exact BOM-spec match even when several specifications are
+// selected; only the parent-only fallback remains limited to one candidate.
 function selectedLegacyPriceListSKUsByParent(selections = []) {
   const selectedByParent = new Map()
   ;(Array.isArray(selections) ? selections : []).forEach((selection) => {
@@ -473,10 +472,24 @@ function normalizePriceListPublicationRowIdentity(row, selectedByParent) {
   const parentProductID = numberField(row?.parent_product_id ?? row?.parentProductID ?? row?.product_id ?? row?.productID)
   const skuID = numberField(row?.sku_id ?? row?.skuID ?? row?.product_id ?? row?.productID)
   const productID = numberField(row?.product_id ?? row?.productID)
-  if (!(parentProductID > 0) || skuID !== parentProductID || (productID > 0 && productID !== parentProductID)) return row
+  const existingBOMSpecID = numberField(row?.bom_spec_id ?? row?.bomSpecID)
+  const existingBOMVariantID = numberField(row?.bom_variant_id ?? row?.bomVariantID)
+  if (!(parentProductID > 0) || existingBOMSpecID > 0 || existingBOMVariantID > 0) return row
   const candidates = selectedByParent.get(parentProductID) || []
-  if (candidates.length !== 1) return row
-  const selection = candidates[0]
+  const exactBOMSelection = candidates.find((candidate) => {
+    const bomSpecID = numberField(candidate?.bom_spec_id ?? candidate?.bomSpecID)
+    const selectedSKU = numberField(candidate?.sku_id ?? candidate?.skuID)
+    const productMatchesPseudoSKU = !(productID > 0) || productID === parentProductID || productID === skuID || productID === bomSpecID || productID === selectedSKU
+    return bomSpecID > 0 && skuID > 0 && productMatchesPseudoSKU && (skuID === bomSpecID || skuID === selectedSKU)
+  })
+  const selection = exactBOMSelection || (
+    skuID === parentProductID &&
+    (!(productID > 0) || productID === parentProductID) &&
+    candidates.length === 1
+      ? candidates[0]
+      : null
+  )
+  if (!selection) return row
   const selectedBOMSpecID = numberField(selection?.bom_spec_id ?? selection?.bomSpecID)
   const selectedBOMVariantID = numberField(selection?.bom_variant_id ?? selection?.bomVariantID)
   if (selectedBOMSpecID > 0 && selectedBOMVariantID > 0) {
