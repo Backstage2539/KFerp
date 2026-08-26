@@ -1644,3 +1644,9 @@
 - `DEV-611-STALE-PARENT-IDENTITY`：旧价格表草稿或发布快照若把父商品同时写入 `product_id/sku_id`，而当前只选中一个具体规格，保存和发布必须在前后端归一到该规格；BOM 规格行归一为父商品 + `bom_id/bom_version_id/bom_spec_id/bom_variant_id`，legacy 行归一为具体子 SKU。多规格选择、已有明确但错误的 BOM 身份和真正未选规格继续严格阻断。
 - `DEV-611-BOM-SPEC-UNIT`：按价格计算模板批量试算时，BOM 规格库存单位是报价和最终价单位的唯一权威。历史行的 `1Kg`、`227g` 等展示标签自动让位于 BOM 的 `袋/盒/个` 单位，试算、平铺行、发布快照和录单使用同一单位与一对一换算。
 - `DEV-611-PRICE-LIST-PUBLISH-ORDER-FLOW`：开发和生产发布价格表时，旧页面缓存不得再触发“SKU 未在规格选择中”或“报价单位与 BOM 规格库存单位不一致”；发布前端预览、试算请求和后端最终校验共用同一规格身份。完成定向 RED/GREEN、Go/Vue/Vite 门禁后按开发→main→生产流程发布，生产只做只读健康和下单接口检查，不写测试订单。
+
+# PR-612-PRICE-LIST-RUNTIME-SPEC-UNIT-PUBLISH 价格表运行态规格身份与同单位发布（2026-08-27）
+
+- `DEV-612-BOM-SPEC-PSEUDO-SKU`：价格表运行态行若把已选 BOM 规格 ID 暂存在 legacy `sku_id`（例如父商品 1063、`sku_id=7`、已选 `bom_spec_id=7/bom_variant_id=422`），保存和发布必须按父商品下的精确 BOM 规格匹配归一，不能再把规格 ID 当商品 SKU 报“未在规格选择中”。同一父商品选择多个 BOM 规格时也允许精确 ID 匹配；只有父商品占位行且无法唯一判断规格时继续阻断。
+- `DEV-612-IDENTITY-UOM-SNAPSHOT`：legacy SKU 价格行经过 BOM 试算后，如果价格单位与库存单位已经是同一权威单位（例如“袋→袋”），发布必须固化 1:1 换算并保留该 legacy SKU/规格身份，不得再次要求旧商品档案提供“袋→袋”换算。价格单位与库存单位不同且商品档案没有有效换算时继续阻断，不能以 1:1 绕过。
+- `DEV-612-DEVELOPMENT-LIVE-PUBLISH`：回归测试必须复现开发现场“第1行 SKU 7 未在规格选择中”和生产现场“价格单位：袋，库存单位：袋但缺少换算”原文；完成 Go/Vue/Vite/全量门禁后先部署 development，并在已登录页面实际发布当前开发价格表确认错误消失，再按发布门禁合入 main 和部署 production。生产不自动发布业务价格表。

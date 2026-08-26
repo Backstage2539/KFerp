@@ -3473,6 +3473,87 @@ func TestPublishBeanListRewritesFlatRowUnitSnapshotFromProductMaster(t *testing.
 	}
 }
 
+func TestPublishBeanListAcceptsLegacySKUWithAuthoritativeIdentityUnitSnapshot(t *testing.T) {
+	repo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			52: {
+				ProductID:        52,
+				SKUName:          "1Kg",
+				DefaultSalesUnit: "1Kg",
+				InventoryUnit:    "kg",
+				Conversion: map[string]map[string]float64{
+					"1Kg": {"kg": 1},
+				},
+				EffectiveSalesSpec: &domain.EffectiveSalesSpec{
+					SKUID:          52,
+					SpecKey:        "bag-1kg",
+					SpecName:       "1Kg",
+					SpecLabel:      "1Kg",
+					SalesUnit:      "1Kg",
+					InventoryUnit:  "kg",
+					NetContentQty:  1,
+					NetContentUnit: "kg",
+				},
+			},
+		},
+		productSpecIdentities: map[int64]ProductSpecIdentity{
+			51: {ProductID: 51, EffectiveParentProductID: 51, ParentProductName: "曜石2.0", Active: true, SpecValid: true},
+			52: {ProductID: 52, EffectiveParentProductID: 51, ParentProductName: "曜石2.0", Active: true, SpecValid: true},
+		},
+	}
+	row := map[string]any{
+		"product_id":                float64(52),
+		"sku_id":                    float64(52),
+		"parent_product_id":         float64(51),
+		"product_name":              "曜石2.0",
+		"sku_name":                  "1Kg",
+		"tier_label":                "基础价",
+		"min_qty":                   float64(1),
+		"final_unit_price":          float64(149),
+		"original_final_unit_price": float64(149),
+		"price_unit":                "袋",
+		"inventory_unit":            "袋",
+		"inventory_conversion_json": map[string]any{"袋": map[string]any{"袋": float64(1)}},
+		"group_snapshot":            map[string]any{"group_id": float64(4), "group_name": "烘焙咖啡豆", "group_item_id": float64(1), "group_item_name": "曜石2.0"},
+		"group_source":              "product_catalog",
+		"pricing_mode":              "fixed_price",
+		"pricing_mode_source":       "product",
+		"fixed_unit_price":          float64(149),
+		"cost_source_snapshot":      map[string]any{"bom_version_no": "BOM-006589/V001"},
+		"customer_reference_snapshot": map[string]any{
+			"customer_id": float64(0),
+		},
+		"manual_adjusted": false,
+	}
+	cmd := PublishBeanListCommand{
+		ListType: "commercial",
+		Version:  "V4.0.5",
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id":           float64(51),
+			"sku_id":                      float64(52),
+			"selection_source":            "product_default",
+			"default_sku_id_at_selection": float64(52),
+		}}},
+		Content: map[string]any{"price_rows": []any{row}},
+	}
+
+	if _, err := NewService(repo).PublishBeanList(context.Background(), cmd); err != nil {
+		t.Fatalf("PublishBeanList() identity unit snapshot error = %v", err)
+	}
+	got := repo.publishedBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if got["sku_id"] != float64(52) || got["price_unit"] != "袋" || got["inventory_unit"] != "袋" {
+		t.Fatalf("published identity/unit snapshot = %#v, want SKU 52 and 袋/袋", got)
+	}
+	conversion := got["inventory_conversion_json"].(map[string]any)
+	if conversion["袋"].(map[string]any)["袋"] != float64(1) {
+		t.Fatalf("inventory_conversion_json = %#v, want 袋 -> 袋 = 1", conversion)
+	}
+	effective := got["effective_sales_spec"].(map[string]any)
+	if effective["sku_id"] != float64(52) || effective["sales_unit"] != "袋" || effective["inventory_unit"] != "袋" {
+		t.Fatalf("effective_sales_spec = %#v, want legacy SKU identity with 袋/袋 units", effective)
+	}
+}
+
 func TestBeanListPublishAndDraftUseConcreteSalesSpecInsteadOfTemplateUnitLabel(t *testing.T) {
 	newRow := func() map[string]any {
 		return map[string]any{
@@ -4342,6 +4423,64 @@ func TestBeanListConcreteSelectionsNormalizeStaleParentRowsToSingleSelectedBOMSp
 	}
 	priceRow := repo.draftBeanList.Content["price_rows"].([]any)[0].(map[string]any)
 	if priceRow["sku_id"] != nil || priceRow["product_id"] != float64(600) || priceRow["bom_spec_id"] != float64(701) || priceRow["bom_variant_id"] != float64(702) {
+		t.Fatalf("price row identity = %#v, want parent BOM spec identity", priceRow)
+	}
+	if priceRow["price_unit"] != "袋" || priceRow["inventory_unit"] != "袋" {
+		t.Fatalf("BOM spec units = %#v, want 袋/袋", priceRow)
+	}
+}
+
+func TestBeanListConcreteSelectionsNormalizeBOMSpecIDStoredInLegacySKUField(t *testing.T) {
+	identity := ProductBOMSpecIdentity{
+		ParentProductID:      1063,
+		ParentProductName:    "初晓-商品",
+		BomID:                6589,
+		BomVersionID:         65891,
+		BomSpecID:            7,
+		BomVariantID:         422,
+		SpecKey:              "bag-454g",
+		SpecName:             "454g袋",
+		InventoryUnit:        "袋",
+		MigrationState:       "cutover",
+		SpecIdentityMode:     "bom_spec",
+		BomSpecAuthoritative: true,
+		Active:               true,
+		Published:            true,
+		IsDefault:            true,
+	}
+	repo := &fakeRepo{productBOMSpecs: map[string]ProductBOMSpecIdentity{
+		beanListBOMSpecIdentityKey(1063, 7, 422): identity,
+	}}
+	cmd := PublishBeanListCommand{
+		ListType: "commercial", Version: "V6.0.2",
+		Config: map[string]any{"product_spec_selections": []any{map[string]any{
+			"parent_product_id":           float64(1063),
+			"sku_id":                      float64(7),
+			"bom_id":                      float64(6589),
+			"bom_version_id":              float64(65891),
+			"bom_spec_id":                 float64(7),
+			"bom_variant_id":              float64(422),
+			"migration_state":             "cutover",
+			"selection_source":            "product_default",
+			"default_sku_id_at_selection": float64(7),
+		}}},
+		Content: map[string]any{
+			"groups": []any{map[string]any{"items": []any{map[string]any{
+				"product_id": float64(1063), "sku_id": float64(7), "parent_product_id": float64(1063),
+			}}}},
+			"price_rows": []any{map[string]any{
+				"product_id": float64(1063), "sku_id": float64(7), "parent_product_id": float64(1063),
+				"final_unit_price": float64(53), "price_unit": "454g", "inventory_unit": "袋",
+				"pricing_mode": "fixed_price", "fixed_unit_price": float64(53),
+			}},
+		},
+	}
+
+	if _, err := NewService(repo).SaveBeanListDraft(context.Background(), cmd); err != nil {
+		t.Fatalf("SaveBeanListDraft() BOM spec pseudo-SKU error = %v", err)
+	}
+	priceRow := repo.draftBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if priceRow["sku_id"] != nil || priceRow["product_id"] != float64(1063) || priceRow["bom_spec_id"] != float64(7) || priceRow["bom_variant_id"] != float64(422) {
 		t.Fatalf("price row identity = %#v, want parent BOM spec identity", priceRow)
 	}
 	if priceRow["price_unit"] != "袋" || priceRow["inventory_unit"] != "袋" {
