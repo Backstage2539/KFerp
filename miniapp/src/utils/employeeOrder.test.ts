@@ -12,8 +12,10 @@ import {
   salesUnitLabel,
   shanghaiToday,
   buildEmployeeOrderItemsPayload,
+  applyEmployeeOrderQuantityChange,
   createEmployeeOrderItem,
   employeeOrderItemFromSpec,
+  employeeOrderItemForSpecSelection,
   employeeOrderShippingChanged,
   employeeOrderItemsTotal,
   employeeOrderGrandTotal,
@@ -428,6 +430,68 @@ describe('employee mini order entry', () => {
       unit_price: 0,
       price_override: false,
       validation_error: '当前数量没有匹配的价格档，请调整数量',
+    })
+  })
+
+  it('waits for an explicit quantity before showing a tier-template price', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 52,
+      name: '曲奇',
+      specs: [{
+        product_id: 622,
+        spec_label: '1Kg',
+        tiers: [
+          { unit_price: 126, min_qty: 2, max_qty: 14, price_source_json: '{"pricing_mode":"tier_template"}' },
+          { unit_price: 111, min_qty: 14, max_qty: 23, price_source_json: '{"pricing_mode":"tier_template"}' },
+        ],
+      }],
+    }
+
+    expect(employeeOrderItemForSpecSelection(createEmployeeOrderItem('tier'), family, family.specs[0])).toMatchObject({
+      qty: 0,
+      unit_price: 0,
+      validation_error: '',
+    })
+
+    const singleTierSnapshot = {
+      ...family,
+      specs: [{
+        product_id: 622,
+        spec_label: '1Kg',
+        tiers: [{ unit_price: 126, min_qty: 2, price_source_json: '{"template_id":1,"template_tier_id":24}' }],
+      }],
+    }
+    expect(employeeOrderItemForSpecSelection(createEmployeeOrderItem('single-tier'), singleTierSnapshot, singleTierSnapshot.specs[0])).toMatchObject({
+      qty: 0,
+      unit_price: 0,
+    })
+  })
+
+  it('commits a quantity only together with its matching tier price', () => {
+    const family = {
+      customer_id: 0,
+      parent_product_id: 52,
+      name: '曲奇',
+      specs: [{
+        product_id: 622,
+        spec_label: '1Kg',
+        tiers: [
+          { unit_price: 126, min_qty: 2, max_qty: 14, price_source_json: '{"pricing_mode":"tier_template"}' },
+          { unit_price: 111, min_qty: 14, max_qty: 23, price_source_json: '{"pricing_mode":"tier_template"}' },
+        ],
+      }],
+    }
+    const selected = employeeOrderItemForSpecSelection(createEmployeeOrderItem('tier'), family, family.specs[0])
+
+    expect(applyEmployeeOrderQuantityChange(selected, family, 14)).toMatchObject({
+      accepted: true,
+      item: { qty: 14, unit_price: 111, validation_error: '' },
+    })
+    expect(applyEmployeeOrderQuantityChange({ ...selected, qty: 2, unit_price: 126 }, family, 1)).toEqual({
+      accepted: false,
+      item: { ...selected, qty: 2, unit_price: 126 },
+      error: '数量 1 没有匹配的阶梯价格，原数量和单价已保留',
     })
   })
 

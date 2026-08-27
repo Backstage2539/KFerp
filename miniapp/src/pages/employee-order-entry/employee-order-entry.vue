@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import EmployeeCustomerEditor from '../../components/EmployeeCustomerEditor.vue'
 import ProductFamilyPickerSheet from '../../components/ProductFamilyPickerSheet.vue'
 import {
@@ -28,11 +28,12 @@ import PullUpBrandFooter from '../../components/PullUpBrandFooter.vue'
 import { usePullUpBrandGesture } from '../../composables/usePullUpBrandGesture'
 import {
   buildEmployeeOrderItemsPayload,
+  applyEmployeeOrderQuantityChange,
   createEmployeeOrderItem,
   customerProductFamilies,
   customerShippingDefaults,
   defaultProductSpec,
-  employeeOrderItemFromSpec,
+  employeeOrderItemForSpecSelection,
   employeeOrderItemsTotal,
   employeeOrderGrandTotal,
   employeeOrderItemDiscountAmount,
@@ -46,7 +47,6 @@ import {
   productSpecLabel,
   preserveEmployeeOrderDraftItemsForMissingCustomer,
   revalidateEmployeeOrderItems,
-  repriceEmployeeOrderItemForQuantity,
   salesUnitLabel,
   shanghaiToday,
   type EmployeeOrderShippingSnapshot,
@@ -77,6 +77,7 @@ const editingItemKey = ref('')
 const customerEditorOpen = ref(false)
 const editingCustomerID = ref(0)
 const editingCustomerMode = ref<'create' | 'edit'>('create')
+const quantityInputs = ref<Record<string, string>>({})
 const draftRecord = ref<EmployeeOrderDraft | null>(null)
 const editOrderID = ref(0)
 const preservedOutsourceTotal = ref(0)
@@ -87,6 +88,7 @@ const canCreateCustomer = computed(() => session.permissions.includes('customers
 let customerEditorIntentSequence = 0
 let customerContextLoadPromise: Promise<boolean> | undefined
 let productCatalogLoadSequence = 0
+let employeeOrderPageHasShown = false
 
 function emptyShippingSnapshot(): EmployeeOrderShippingSnapshot {
   return {
@@ -177,6 +179,35 @@ function displayedSalesUnit(item: EmployeeOrderDraftItem): string {
   return salesUnitLabel(item.sales_unit)
 }
 
+function hasPendingQuantity(item: EmployeeOrderDraftItem): boolean {
+  return Object.prototype.hasOwnProperty.call(quantityInputs.value, item.key)
+}
+
+function quantityInputValue(item: EmployeeOrderDraftItem): number | string {
+  if (hasPendingQuantity(item)) return quantityInputs.value[item.key]
+  return Number(item.qty) > 0 ? item.qty : ''
+}
+
+function unitPriceInputValue(item: EmployeeOrderDraftItem): number | string {
+  if (hasPendingQuantity(item)) return ''
+  return Number(item.unit_price) > 0 ? item.unit_price : ''
+}
+
+function clearPendingQuantity(item: EmployeeOrderDraftItem) {
+  const next = { ...quantityInputs.value }
+  delete next[item.key]
+  quantityInputs.value = next
+}
+
+function employeeOrderInputValue(event: unknown): number | string {
+  const detail = (event as { detail?: unknown } | undefined)?.detail
+  if (detail && typeof detail === 'object' && 'value' in detail) {
+    const value = (detail as { value?: unknown }).value
+    return typeof value === 'number' || typeof value === 'string' ? value : ''
+  }
+  return ''
+}
+
 function upsertOrderCustomer(customer: EmployeeCustomer) {
   if (!formData.value) return
   const index = formData.value.customers.findIndex((row) => Number(row.id) === Number(customer.id))
@@ -237,7 +268,10 @@ async function chooseCustomer(customer: EmployeeOrderCustomer) {
   const selectedBefore = form.value.items.filter((item) => item.product_id > 0).length
   const customerChanged = Number(form.value.customer_id || 0) !== Number(customer.id)
   form.value.customer_id = Number(customer.id)
-  if (customerChanged) form.value.items = [createEmployeeOrderItem()]
+  if (customerChanged) {
+    form.value.items = [createEmployeeOrderItem()]
+    quantityInputs.value = {}
+  }
   applyCustomerShipping(customer)
   if (Number(customer.default_source_id || 0) > 0) form.value.source_id = Number(customer.default_source_id)
   if (Number(customer.default_order_type_id || 0) > 0) form.value.order_type_id = Number(customer.default_order_type_id)
@@ -362,6 +396,7 @@ function addItem() {
 }
 
 function removeItem(index: number) {
+  if (form.value.items[index]) clearPendingQuantity(form.value.items[index])
   if (form.value.items.length === 1) {
     form.value.items.splice(0, 1, createEmployeeOrderItem(form.value.items[0]?.key))
     return
@@ -369,12 +404,14 @@ function removeItem(index: number) {
   form.value.items.splice(index, 1)
 }
 
-function openProductSelector(itemKey: string) {
+async function openProductSelector(itemKey: string) {
   if (!form.value.customer_id) {
     uni.showToast({ title: '请先选择客户', icon: 'none' })
     return
   }
   if (productCatalogLoading.value || loading.value || !formData.value) return
+  if (!await refreshCurrentProductCatalog()) return
+  if (!form.value.items.some((item) => item.key === itemKey)) return
   editingItemKey.value = itemKey
   productSelectorOpen.value = true
 }
@@ -387,17 +424,36 @@ function closeProductSelector() {
 function applySpec(family: EmployeeOrderProductFamily, spec: EmployeeOrderProductSpec, item?: EmployeeOrderDraftItem) {
   const target = item || editingItem.value
   if (!target) return
-  Object.assign(target, employeeOrderItemFromSpec(target, family, spec))
+  clearPendingQuantity(target)
+  Object.assign(target, employeeOrderItemForSpecSelection(target, family, spec))
 }
 
-function markPriceOverride(item: EmployeeOrderDraftItem) {
+function markPriceOverride(item: EmployeeOrderDraftItem, event: unknown) {
+  item.unit_price = Number(employeeOrderInputValue(event) || 0)
   item.price_override = true
   item.discount_amount = employeeOrderItemDiscountAmount(item)
 }
 
-function quantityChanged(item: EmployeeOrderDraftItem) {
+function quantityChanged(item: EmployeeOrderDraftItem, event: unknown) {
+  const rawQuantity = String(employeeOrderInputValue(event) ?? '')
+  quantityInputs.value = { ...quantityInputs.value, [item.key]: rawQuantity }
   const family = familyForItem(item)
-  Object.assign(item, repriceEmployeeOrderItemForQuantity(item, family))
+  const result = applyEmployeeOrderQuantityChange(item, family, rawQuantity)
+  if (!result.accepted) return
+  Object.assign(item, result.item)
+  clearPendingQuantity(item)
+}
+
+function quantityBlurred(item: EmployeeOrderDraftItem) {
+  if (!hasPendingQuantity(item)) return
+  const family = familyForItem(item)
+  const result = applyEmployeeOrderQuantityChange(item, family, quantityInputs.value[item.key])
+  clearPendingQuantity(item)
+  if (!result.accepted) {
+    uni.showToast({ title: result.error, icon: 'none' })
+    return
+  }
+  Object.assign(item, result.item)
 }
 
 function chooseProduct(family: EmployeeOrderProductFamily) {
@@ -635,6 +691,7 @@ function validateOrder(): boolean {
 
 function resetAfterSubmit() {
   form.value = createOrderForm()
+  quantityInputs.value = {}
   shippingBaseline.value = emptyShippingSnapshot()
   draftRecord.value = null
   applyDefaultOptions()
@@ -728,6 +785,15 @@ onLoad((options) => {
   if (isEditMode.value) uni.setNavigationBarTitle({ title: '编辑销售订单' })
   void loadForm()
 })
+
+onShow(() => {
+  if (!employeeOrderPageHasShown) {
+    employeeOrderPageHasShown = true
+    return
+  }
+  if (loading.value || productCatalogLoading.value || Number(form.value.customer_id || 0) <= 0) return
+  void refreshCurrentProductCatalog()
+})
 </script>
 
 <template>
@@ -816,13 +882,13 @@ onLoad((options) => {
 
         <text class="label">数量（{{ displayedSalesUnit(item) }}）</text>
         <view class="input-with-unit">
-          <input v-model="item.qty" type="number" class="field" :placeholder="`填写数量（${displayedSalesUnit(item)}） *`" @input="quantityChanged(item)" />
+          <input :value="quantityInputValue(item)" type="number" class="field" :placeholder="`填写数量（${displayedSalesUnit(item)}） *`" @input="quantityChanged(item, $event)" @blur="quantityBlurred(item)" />
           <text class="unit-suffix">{{ displayedSalesUnit(item) }}</text>
         </view>
 
         <text class="label">销售单价（元/{{ displayedSalesUnit(item) }}）*</text>
         <view class="input-with-unit">
-          <input v-model="item.unit_price" type="digit" class="field" :placeholder="`填写每${displayedSalesUnit(item)}单价`" @input="markPriceOverride(item)" />
+          <input :value="unitPriceInputValue(item)" type="digit" class="field" :disabled="hasPendingQuantity(item) || Number(item.qty) <= 0" :placeholder="Number(item.qty) > 0 && !hasPendingQuantity(item) ? `填写每${displayedSalesUnit(item)}单价` : '先填写数量后自动匹配'" @input="markPriceOverride(item, $event)" />
           <text class="unit-suffix">元/{{ displayedSalesUnit(item) }}</text>
         </view>
       </view>
