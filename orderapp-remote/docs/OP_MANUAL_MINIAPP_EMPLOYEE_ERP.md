@@ -1,6 +1,6 @@
-# 小程序员工简易 ERP 操作手册（PR-566 / PR-569 / PR-572 / PR-573 / PR-575 / PR-579 / PR-591 / PR-613）
+# 小程序员工简易 ERP 操作手册（PR-566 / PR-569 / PR-572 / PR-573 / PR-575 / PR-579 / PR-591 / PR-613 / PR-614）
 
-关联需求：`PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE`、`PR-573-MINIAPP-ORDER-CATALOG-EDIT`、`PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING`、`PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE`、`PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`、`PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC`。
+关联需求：`PR-572-MINIAPP-ORDER-DETAIL-DOCUMENT-SHARE`、`PR-573-MINIAPP-ORDER-CATALOG-EDIT`、`PR-575-MINIAPP-SHARE-IMAGE-ENTRANCE-SETTING`、`PR-579-MINIAPP-CUSTOMER-ADDRESS-PASTE`、`PR-591-MINI-PULL-BRAND-SELF-LOGIN-GUARD`、`PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC`、`PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION`。
 
 ## 适用角色
 
@@ -156,7 +156,7 @@ flowchart LR
 - “录单数据加载失败”：页面会保留当天日期并显示“重试”，排除网络问题后点击重试；不要把空白客户或商品列表当作资料为空。
 - “登录已失效，请重新登录”：点击“重新登录”，使用员工账号重新进入；未授权请求不会返回客户、商品或价格资料。
 - “当前员工无此权限”：当前登录仍有效，不需要退出；联系管理员补齐录单权限后点击“重试”。权限不足响应同样不会返回客户、商品或价格资料。
-- 客户或商品搜索不到：先清空搜索词和商品分类，再确认客户已启用，并确认商品/规格已经进入该客户当前最新已发布工厂供货价格表；公共商品也必须有适用于该客户的当前发布，不能只凭商品档案启用状态显示。刚发布新版后返回录单页或重新打开商品选择器会主动刷新；若仍看到旧目录，先确认微信小程序包是否已更新到包含 PR-613 的版本。
+- 客户或商品搜索不到：先清空搜索词和商品分类，再确认客户已启用，并确认商品/规格已经进入当前启用商品分组的最新已发布工厂供货价格表；公共商品也必须有适用于该客户的当前发布，不能只凭商品档案启用状态显示。刚发布新版后返回录单页或重新打开商品选择器会主动刷新。PR-614 后，已被当前商品分组替换的旧分类价格表不会再补回历史商品；若 ERP 和小程序目录仍不一致，先确认服务器和固定开发小程序包均已更新。
 - 同一商品出现多个规格：这是正常的具体 SKU 列表；商品选择层只选一次商品，再在独立规格下拉中选择本单规格。
 - 切换客户后商品被清空：原商品属于上一客户且不对新客户开放，请重新选择公共商品或新客户专属商品。
 - 提交后网络中断：先在“查看订单”按客户或时间确认是否已生成，避免重复提交。
