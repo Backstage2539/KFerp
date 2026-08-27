@@ -9,11 +9,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC
 - Branch: `codex/mini-latest-price-sync`
 - Owner/session: Codex / 2026-08-27
-- Status: implementing
+- Status: development-delivered
 - Scope: 小程序员工录单在进入页面、回到前台和打开商品选择器前重新读取当前客户最新已发布工厂供货豆单，禁止旧目录缓存；阶梯模板商品选择规格后先等待有效数量，数量与对应阶梯单价原子同步，匹配或取价失败时不接受新数量。
 - DEV: DEV-613-LATEST-PUBLISHED-CATALOG; DEV-613-ATOMIC-TIER-QUANTITY-PRICE; DEV-613-MINIAPP-DOCS-DELIVERY
 - Verifier: targeted Go/miniapp RED→GREEN; miniapp typecheck/build; `scripts/verify_kferp.sh changed`; development API/package smoke
-- Deployment: pending; production business data read-only inspection confirmed latest `V3.0.11` contains only 曲奇 while prior `V3.0.10` contains 19 products.
+- Deployment: full Go/Vue/miniapp gates passed; merged to `develop` and deployed to development with the fixed development miniapp package. Production business data was only inspected read-only: latest `V3.0.11` contains only 曲奇 while prior `V3.0.10` contains 19 products. WeChat DevTools upload/review and production remain separate.
 
 ### PR-612-PRICE-LIST-RUNTIME-SPEC-UNIT-PUBLISH
 - Branch: `codex/price-list-sku7-runtime-fix`
