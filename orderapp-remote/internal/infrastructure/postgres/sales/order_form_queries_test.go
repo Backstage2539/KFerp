@@ -64,3 +64,45 @@ func TestOrderEditItemsQueryExecutesAgainstCanonicalPostgresSchema(t *testing.T)
 		t.Fatalf("order item values=%#v, want price override at column 22", values)
 	}
 }
+
+func TestFetchCurrentProductCatalogPublicationTypeIDsUsesActiveFeatureSelection(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %[1]s.business_groups (
+			id BIGINT PRIMARY KEY,
+			name TEXT NOT NULL,
+			code TEXT NOT NULL,
+			active BOOLEAN NOT NULL DEFAULT true
+		);
+		CREATE TABLE %[1]s.business_group_usages (
+			id BIGSERIAL PRIMARY KEY,
+			group_id BIGINT NOT NULL,
+			usage_key TEXT NOT NULL,
+			active BOOLEAN NOT NULL DEFAULT true,
+			sort_order INTEGER NOT NULL DEFAULT 0
+		);
+		INSERT INTO %[1]s.business_groups(id,name,code,active) VALUES
+			(1532,'咖啡豆','BEAN',true),
+			(1533,'咖啡挂耳','drip_bag',true),
+			(6,'商品默认分组','default_product_catalog',true);
+		INSERT INTO %[1]s.business_group_usages(group_id,usage_key,active,sort_order) VALUES
+			(1532,'product_catalog',true,1),
+			(1533,'product_catalog',false,2),
+			(6,'product_catalog',true,3);
+	`, schema)); err != nil {
+		t.Fatalf("prepare product catalog feature selection: %v", err)
+	}
+	repo := NewRepository(pool, schema)
+	got, err := repo.fetchCurrentProductCatalogPublicationTypeIDs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != 8000000000001532 {
+		t.Fatalf("current publication type ids = %v, want [8000000000001532]", got)
+	}
+}

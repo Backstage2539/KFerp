@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION
+- Branch: `codex/mini-current-price-catalog-sync`
+- Owner/session: Codex / 2026-08-27
+- Status: implementation and development delivery in progress
+- Scope: 开发环境录单只使用当前启用商品分组对应的已发布价格表，排除已被替换但仍各自标记为默认的旧分类价格表；BOM 规格已切换商品直接以主商品读取发布价，并按 `bom_spec_id/bom_variant_id` 精确投影，避免无旧子 SKU 映射时 ERP 商品为空。
+- DEV: DEV-614-CURRENT-PRICE-CATALOG-AUTHORITY; DEV-614-CUTOVER-BOM-SPEC-PRICE-PROJECTION; DEV-614-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: targeted repository/API RED→GREEN; Go/Vue/miniapp and release gates pending
+- Deployment: development only; production and formal miniapp upload are out of scope
+
 ### PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC
 - Branch: `codex/mini-latest-price-sync`
 - Owner/session: Codex / 2026-08-27

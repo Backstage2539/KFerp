@@ -8,6 +8,83 @@ import (
 	"testing"
 )
 
+func TestFilterOrderBeanListVersionOptionsToCurrentProductCatalogTypes(t *testing.T) {
+	options := []salesapp.BeanListVersionOption{
+		{ID: 110, ListType: "commercial", ClassificationTemplateID: 8000000000001532, IsDefault: true},
+		{ID: 107, ListType: "commercial", ClassificationTemplateID: 221, IsDefault: true},
+		{ID: 90, ListType: "green", ClassificationTemplateID: 0, IsDefault: true},
+	}
+	got := filterOrderBeanListVersionOptionsToCurrentProductCatalogTypes(options, []int64{8000000000001532})
+	if len(got) != 1 || got[0].ID != 110 {
+		t.Fatalf("current product-catalog publications = %+v, want publication 110 only", got)
+	}
+	if fallback := filterOrderBeanListVersionOptionsToCurrentProductCatalogTypes(options, nil); len(fallback) != len(options) {
+		t.Fatalf("missing current product-catalog selection must preserve legacy options: %+v", fallback)
+	}
+}
+
+func TestCutoverBOMSpecPublicationTiersUseParentAndExactSpecIdentity(t *testing.T) {
+	option := salesapp.ProductBOMSpecOption{
+		ParentProductID: 1063,
+		BomSpecID:       7,
+		BomVariantID:    422,
+		MigrationState:  "cutover",
+	}
+	if got := orderBOMSpecPublicationLookupProductID(option); got != 1063 {
+		t.Fatalf("cutover publication lookup product id = %d, want parent 1063", got)
+	}
+	tiers := []salesapp.ProductTierOption{
+		{ID: 1, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(3), "bom_variant_id": float64(421)}},
+		{ID: 2, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(7), "bom_variant_id": float64(422)}},
+		{ID: 3, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(8), "bom_variant_id": float64(423)}},
+		{ID: 4, EffectiveSalesSpec: map[string]any{"bom_spec_id": float64(7)}},
+	}
+	got := orderBOMSpecPublicationTiers(option, tiers)
+	if len(got) != 1 || got[0].ID != 2 {
+		t.Fatalf("cutover BOM spec tiers = %+v, want exact spec 7 / variant 422 only", got)
+	}
+}
+
+func TestCutoverBOMSpecPublicationTiersProjectCurrentParentPriceRows(t *testing.T) {
+	tierMap := commercialOrderTierMapFromPublicationContent(110, "V3.0.21", []byte(`{
+		"price_rows": [
+			{"product_id":1063,"parent_product_id":1063,"bom_spec_id":7,"bom_variant_id":422,"min_qty":2,"max_qty":13,"final_unit_price":65,"quantity_basis":"sales_spec_count","sales_unit":"袋","effective_sales_spec":{"product_id":1063,"bom_spec_id":7,"bom_variant_id":422,"spec_name":"454g袋","sales_unit":"袋"}},
+			{"product_id":1063,"parent_product_id":1063,"bom_spec_id":7,"bom_variant_id":422,"min_qty":14,"max_qty":23,"final_unit_price":53,"quantity_basis":"sales_spec_count","sales_unit":"袋","effective_sales_spec":{"product_id":1063,"bom_spec_id":7,"bom_variant_id":422,"spec_name":"454g袋","sales_unit":"袋"}}
+		]
+	}`))
+	if len(tierMap[1063]) != 2 {
+		t.Fatalf("publication 110 parent tiers = %+v, want two tiers", tierMap)
+	}
+	selected := orderBOMSpecPublicationTiers(salesapp.ProductBOMSpecOption{
+		ParentProductID: 1063, BomSpecID: 7, BomVariantID: 422, MigrationState: "cutover",
+	}, tierMap[1063])
+	if len(selected) != 2 || selected[0].PublicationID != 110 || selected[0].BomSpecID != 0 {
+		t.Fatalf("selected 454g tiers before canonical projection = %+v", selected)
+	}
+	other := orderBOMSpecPublicationTiers(salesapp.ProductBOMSpecOption{
+		ParentProductID: 1063, BomSpecID: 3, BomVariantID: 421, MigrationState: "cutover",
+	}, tierMap[1063])
+	if len(other) != 0 {
+		t.Fatalf("unpublished 227g BOM spec inherited 454g tiers: %+v", other)
+	}
+}
+
+func TestLegacyBOMSpecPublicationTiersKeepChildSKUCompatibility(t *testing.T) {
+	option := salesapp.ProductBOMSpecOption{
+		ParentProductID:      10,
+		LegacyChildProductID: 11,
+		BomSpecID:            101,
+		MigrationState:       "ready",
+	}
+	if got := orderBOMSpecPublicationLookupProductID(option); got != 11 {
+		t.Fatalf("legacy publication lookup product id = %d, want child SKU 11", got)
+	}
+	tiers := []salesapp.ProductTierOption{{ID: 1}, {ID: 2}}
+	if got := orderBOMSpecPublicationTiers(option, tiers); len(got) != 2 {
+		t.Fatalf("legacy BOM spec tiers = %+v, want compatibility tiers unchanged", got)
+	}
+}
+
 func TestOrderFormProductQueryKeepsRoastLevelAndProductKindScanShape(t *testing.T) {
 	source, err := os.ReadFile("order_form_queries.go")
 	if err != nil {
