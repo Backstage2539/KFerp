@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-616-DRIP-MULTISTAGE-MANUFACTURING-FLOW
+- Branch: `codex/pr616-drip-multistage-flow`
+- Owner/session: Codex / 2026-08-29
+- Status: implementing and development data acceptance in progress
+- Scope: 修复商品价格表“编辑价格模板”掉到页面底部的问题；在 development 复用初晓烘焙半成品与挂耳商品，补齐咖啡粉、挂耳包两个中间物料及研磨、挂耳包装、盒装包装 BOM，发布价格表并完成真实录单验收。
+- DEV: DEV-616-PRICING-RULE-RIGHT-DRAWER; DEV-616-DRIP-MULTISTAGE-BOM-CONFIG; DEV-616-DRIP-PRICE-LIST-ORDER-E2E; DEV-616-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: targeted Vue RED→GREEN; multilevel production domain/API; real development BOM graph, costing, price-list publication, order-form and saved-order queries; Go/Vue/Vite and `scripts/verify_kferp.sh all`
+- Deployment: development only; `main` and production are out of scope
+
 ### PR-615-PRICING-TRIAL-PERFORMANCE-DISPLAY-EDITOR
 - Branch: `codex/price-list-decimal-display`
 - Owner/session: Codex / 2026-08-28
