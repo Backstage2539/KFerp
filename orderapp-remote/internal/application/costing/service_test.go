@@ -48,7 +48,23 @@ type fakeRepo struct {
 	loadRuleCount         int
 	loadDefaultTaxCount   int
 	loadBatchDetailsCount int
+	productionOptionLoads int
+	lastBatchDetailInputs []domain.ProductInput
 	batchDetailErrors     map[int64]error
+}
+
+type scopedPricingRuleTrialRepo struct {
+	*fakeRepo
+	scopedLoads      int
+	scopedCustomer   int64
+	scopedProductIDs []int64
+}
+
+func (r *scopedPricingRuleTrialRepo) LoadPricingRuleTrialProductInputs(_ context.Context, _ domain.Parameters, customerID int64, productIDs []int64) ([]domain.ProductInput, error) {
+	r.scopedLoads++
+	r.scopedCustomer = customerID
+	r.scopedProductIDs = append([]int64(nil), productIDs...)
+	return r.inputs, nil
 }
 
 type materialCostTrialRepo struct {
@@ -180,6 +196,7 @@ func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, input 
 }
 
 func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, input domain.ProductInput) (PricingRuleTrialProductionOptions, error) {
+	r.productionOptionLoads++
 	if len(r.productionOptions.BomVersions) > 0 || len(r.productionOptions.BomSpecs) > 0 || len(r.productionOptions.ProcessRoutes) > 0 || len(r.productionOptions.OperationTemplates) > 0 {
 		return r.productionOptions, nil
 	}
@@ -212,6 +229,7 @@ func (r *fakeRepo) LoadPricingRuleTrialDefaultTaxRate(context.Context) (PricingR
 
 func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetailsBatch(_ context.Context, inputs []domain.ProductInput) ([][]PricingRuleTrialBaseCostDetail, []error, error) {
 	r.loadBatchDetailsCount++
+	r.lastBatchDetailInputs = append([]domain.ProductInput(nil), inputs...)
 	rows := make([][]PricingRuleTrialBaseCostDetail, len(inputs))
 	errs := make([]error, len(inputs))
 	for i, input := range inputs {
@@ -2687,6 +2705,54 @@ func TestPricingRuleTrialBatchReusesSharedLoadsAndPreservesOrder(t *testing.T) {
 	if repo.loadParametersCount != 1 || repo.loadInputsCount != 1 || repo.loadRuleCount != 1 || repo.loadDefaultTaxCount != 1 || repo.loadBatchDetailsCount != 1 {
 		t.Fatalf("shared load counts = parameters:%d inputs:%d rules:%d tax:%d batch-details:%d, want all 1",
 			repo.loadParametersCount, repo.loadInputsCount, repo.loadRuleCount, repo.loadDefaultTaxCount, repo.loadBatchDetailsCount)
+	}
+}
+
+func TestPricingRuleTrialBatchScopesAndDeduplicatesOneProductFourTiers(t *testing.T) {
+	base := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID: 101, Name: "四档商品", InventoryUnit: "kg", QuoteUnit: "kg",
+			BomVersionID: 10101, BomVersionNo: "V001", BomUsageMode: "production_bom_output", BomStatus: "active",
+		}},
+		pricingRules: map[int64]ProductPricingRule{7: {
+			ID: 7, Name: "四档价格模板", CostSourceMode: "bom_current_cost", MarginRate: 0.2,
+			RoundingMode: "fen", FormulaVersion: "v3", Active: true,
+			CalculationJSON: map[string]any{"profit_method": "markup", "tax_mode": "none"},
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{{
+			Key: "material:1", Type: "material", Name: "四档原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg",
+		}},
+		productionOptions: publishedBomTrialOptions(10101),
+	}
+	repo := &scopedPricingRuleTrialRepo{fakeRepo: base}
+	commands := make([]PricingRuleTrialCommand, 4)
+	for i := range commands {
+		commands[i] = PricingRuleTrialCommand{PricingRuleID: 7, ProductID: 101, BomVersionID: 10101, QuoteUnit: "kg"}
+	}
+
+	rows, err := NewService(repo).PricingRuleTrialBatch(context.Background(), commands)
+	if err != nil {
+		t.Fatalf("PricingRuleTrialBatch() error = %v", err)
+	}
+	if len(rows) != 4 {
+		t.Fatalf("rows = %d, want 4", len(rows))
+	}
+	for index, row := range rows {
+		if row.Index != index || row.Error != "" || row.Result == nil || row.Result.ProductID != 101 {
+			t.Fatalf("row %d = %+v", index, row)
+		}
+	}
+	if repo.scopedLoads != 1 || repo.scopedCustomer != 0 || !reflect.DeepEqual(repo.scopedProductIDs, []int64{101}) {
+		t.Fatalf("scoped loads=%d customer=%d products=%v", repo.scopedLoads, repo.scopedCustomer, repo.scopedProductIDs)
+	}
+	if base.loadInputsCount != 0 {
+		t.Fatalf("full product input loads=%d, want 0", base.loadInputsCount)
+	}
+	if base.productionOptionLoads != 1 {
+		t.Fatalf("production option loads=%d, want 1", base.productionOptionLoads)
+	}
+	if base.loadBatchDetailsCount != 1 || len(base.lastBatchDetailInputs) != 1 {
+		t.Fatalf("base detail batch loads=%d inputs=%d, want 1/1", base.loadBatchDetailsCount, len(base.lastBatchDetailInputs))
 	}
 }
 

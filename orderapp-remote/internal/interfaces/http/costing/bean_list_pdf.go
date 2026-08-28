@@ -1,7 +1,6 @@
 package costing
 
 import (
-	"fmt"
 	"strings"
 
 	appcosting "orderapp/internal/application/costing"
@@ -141,7 +140,7 @@ func beanListPublicationPDFPriceDisplay(price float64, unit string) string {
 	if price <= 0 {
 		return ""
 	}
-	value := fmt.Sprintf("%.0f", price)
+	value := beanListPriceDisplayValue(price)
 	if unit = strings.TrimSpace(unit); unit != "" {
 		return value + "/" + unit
 	}

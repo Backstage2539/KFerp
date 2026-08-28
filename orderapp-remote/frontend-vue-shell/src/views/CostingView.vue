@@ -518,8 +518,9 @@
         <div class="picker-head">
           <strong>平铺价格行</strong>
           <span class="muted">{{ priceListFlatRows.length }} 行，发布快照固化分组、模板来源、Pricing Rule 版本、成本来源和客户引用</span>
-          <div v-if="priceListPricingRuleTrialFailedCount" class="picker-actions">
-            <button class="secondary compact" type="button" @click="retryPriceListPricingRuleTrials">重新试算失败项（{{ priceListPricingRuleTrialFailedCount }}）</button>
+          <div class="picker-actions">
+            <button v-if="priceListFlatRows.length" class="secondary compact" type="button" @click="openPriceListPricingRuleEditor">编辑价格模板</button>
+            <button v-if="priceListPricingRuleTrialFailedCount" class="secondary compact" type="button" @click="retryPriceListPricingRuleTrials">重新试算失败项（{{ priceListPricingRuleTrialFailedCount }}）</button>
           </div>
         </div>
         <div class="flat-price-table" v-if="priceListFlatRows.length">
@@ -554,6 +555,45 @@
             </ul>
           </div>
         </div>
+      </div>
+
+      <div v-if="priceListPricingRuleEditorDrawerOpen" class="settings-drawer-mask" @click.self="closePriceListPricingRuleEditor" @keydown.esc.stop.prevent="closePriceListPricingRuleEditor">
+        <aside
+          ref="priceListPricingRuleEditorDrawer"
+          class="settings-drawer price-list-pricing-rule-editor-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="商品价格表价格模板编辑"
+          tabindex="-1"
+          @keydown.tab="trapPriceListPricingRuleEditorFocus">
+          <div class="drawer-head">
+            <div>
+              <h3>编辑价格模板</h3>
+              <p>这是全局价格模板。保存后立即重算当前草稿中受影响的自动价格行；已发布价格表和历史快照不回算。</p>
+            </div>
+            <button class="secondary compact" type="button" @click="closePriceListPricingRuleEditor">关闭</button>
+          </div>
+          <div class="price-list-pricing-rule-editor-body">
+            <label class="price-list-pricing-rule-selector">
+              <span>价格模板</span>
+              <select v-model.number="priceListPricingRuleEditorID" @change="selectPriceListPricingRuleEditor">
+                <option v-for="rule in priceListPricingRuleEditorOptions" :key="`price-list-editor-rule-${rule.id}`" :value="rule.id">
+                  {{ pricingRuleLabel(rule) }}{{ rule.used_by_current_price_list ? ' · 当前价格表引用' : '' }}
+                </option>
+              </select>
+            </label>
+            <PricingRuleEditorForm
+              :form="priceListPricingRuleEditorForm"
+              :saving="priceListPricingRuleEditorSaving"
+              :error="priceListPricingRuleEditorError"
+              :message="priceListPricingRuleEditorMessage"
+              :legacy-blocked="pricingRuleEditorLegacyBlocked(priceListPricingRuleEditorForm)"
+              :legacy-method-label="pricingRuleEditorLegacyMethodLabel(priceListPricingRuleEditorForm)"
+              :legacy-value-label="pricingRuleEditorLegacyValueLabel(priceListPricingRuleEditorForm)"
+              @save="savePriceListPricingRule"
+            />
+          </div>
+        </aside>
       </div>
 
       <section class="price-list-preview">
@@ -1031,6 +1071,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
+import PricingRuleEditorForm from '../components/PricingRuleEditorForm.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   applyCustomerProductAliasesToBeanListItems,
@@ -1045,6 +1086,7 @@ import {
   defaultBeanListDraftVersion,
   filterBeanListItemsForPriceTableScope,
   filterBeanListItemsForScope,
+  formatBeanListPrice,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from '../lib/bean-list-pdf'
@@ -1108,6 +1150,7 @@ import {
 } from '../lib/product-price-list-draft'
 import {
   applyPricingRuleTrialToPriceTableRow,
+  buildPricingRulePayload,
   buildPriceTierTemplatePayload,
   productCurrentSalesSpecUnit,
   priceTierTemplateRowKey,
@@ -1117,6 +1160,10 @@ import {
   priceTablePricingModeOptions,
   priceTablePricingResolutionWarning,
   resolvePriceTableTemplateInheritance,
+  pricingRuleEditorForm,
+  pricingRuleEditorLegacyBlocked,
+  pricingRuleEditorLegacyMethodLabel,
+  pricingRuleEditorLegacyValueLabel,
 } from '../lib/product-settings'
 import {
   dedupePriceListFlatRows,
@@ -1130,6 +1177,9 @@ import {
   revertPriceListFlatRowOverride,
   priceListSalesSpecCountTierLabel,
   priceListPricingRuleTrialCacheForRetry,
+  priceListPricingRuleEditorOptions as buildPriceListPricingRuleEditorOptions,
+  defaultPriceListPricingRuleEditorID,
+  priceListPricingRuleTrialCacheWithoutRule,
   priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
 } from '../lib/costing-price-list-workflow.js'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
@@ -1227,6 +1277,13 @@ const priceListProductTemplateOverrides = ref({})
 const priceListLegacyPricingConflicts = ref([])
 const priceListFlatRowOverrides = ref({})
 const priceListPricingRuleTrialCache = ref({})
+const priceListPricingRuleEditorDrawerOpen = ref(false)
+const priceListPricingRuleEditorDrawer = ref(null)
+const priceListPricingRuleEditorID = ref(0)
+const priceListPricingRuleEditorForm = ref(pricingRuleEditorForm())
+const priceListPricingRuleEditorSaving = ref(false)
+const priceListPricingRuleEditorError = ref('')
+const priceListPricingRuleEditorMessage = ref('')
 const priceListProductBusinessGroups = ref([])
 const priceListProductBusinessGroupAssignments = ref([])
 const priceListProductCatalogFeatureSelection = ref({ feature_key: 'product_catalog', group_template_ids: [] })
@@ -1240,6 +1297,8 @@ const tierTemplateDrawerOpen = ref(false)
 const tierTemplateSaving = ref(false)
 const priceTierTemplateForm = ref(defaultPriceTierTemplateForm())
 let priceListPricingRuleTrialRefreshScheduled = false
+let priceListPricingRuleEditorReturnFocus = null
+const priceListPricingRuleTrialGeneration = new Map()
 const priceListPricingPopoverOptions = [
   { value: '', label: '继承分类' },
   { value: 'tier_template', label: '按阶梯模板价计算' },
@@ -1349,6 +1408,7 @@ const priceListFlatRows = computed(() => dedupePriceListFlatRows(normalizePriceL
   priceListFlatRowsFromGroups(normalizedPriceListGroups.value),
   pdfProductSpecSelections.value,
 )))
+const priceListPricingRuleEditorOptions = computed(() => buildPriceListPricingRuleEditorOptions(pricingRules.value, priceListFlatRows.value))
 const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(normalizedPriceListGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
 const priceListTierUnitBlockedReason = computed(() => String(
   priceListFlatRows.value.find((row) => priceListFlatRowHasLegacyUnitMismatch(row))?.tier_unit_compatibility_error || '',
@@ -1391,6 +1451,115 @@ function schedulePriceListPricingRuleTrialRefresh() {
 function retryPriceListPricingRuleTrials() {
   clearPriceListPricingRuleTrialErrorCache(priceListFlatRows.value)
   schedulePriceListPricingRuleTrialRefresh()
+}
+
+function openPriceListPricingRuleEditor() {
+  const options = priceListPricingRuleEditorOptions.value
+  const selectedID = defaultPriceListPricingRuleEditorID(options)
+  if (!(selectedID > 0)) {
+    error.value = '暂无启用的价格模板，请先到商品价格管理中创建'
+    return
+  }
+  if (typeof document !== 'undefined' && !priceListPricingRuleEditorDrawerOpen.value) {
+    priceListPricingRuleEditorReturnFocus = document.activeElement
+  }
+  priceListPricingRuleEditorID.value = selectedID
+  selectPriceListPricingRuleEditor()
+  priceListPricingRuleEditorDrawerOpen.value = true
+  nextTick(() => {
+    const firstField = priceListPricingRuleEditorDrawer.value?.querySelector('select:not([disabled]), input:not([disabled]), textarea:not([disabled]), button:not([disabled])')
+    ;(firstField || priceListPricingRuleEditorDrawer.value)?.focus?.()
+  })
+}
+
+function selectPriceListPricingRuleEditor() {
+  const rule = pricingRules.value.find((row) => Number(row?.id || 0) === Number(priceListPricingRuleEditorID.value || 0))
+  priceListPricingRuleEditorForm.value = pricingRuleEditorForm(JSON.parse(JSON.stringify(rule || {})))
+  priceListPricingRuleEditorError.value = ''
+  priceListPricingRuleEditorMessage.value = ''
+}
+
+function closePriceListPricingRuleEditor() {
+  priceListPricingRuleEditorDrawerOpen.value = false
+  priceListPricingRuleEditorError.value = ''
+  priceListPricingRuleEditorMessage.value = ''
+  const returnFocus = priceListPricingRuleEditorReturnFocus
+  priceListPricingRuleEditorReturnFocus = null
+  nextTick(() => returnFocus?.focus?.())
+}
+
+function trapPriceListPricingRuleEditorFocus(event) {
+  const drawer = priceListPricingRuleEditorDrawer.value
+  if (!drawer) return
+  const focusable = [...drawer.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+  if (!focusable.length) {
+    event.preventDefault()
+    drawer.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+function priceListPricingRuleTrialKeyForRow(row = {}) {
+  const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
+  return priceTablePricingRuleTrialCacheKey(payload)
+}
+
+async function savePriceListPricingRule() {
+  const payload = buildPricingRulePayload(priceListPricingRuleEditorForm.value)
+  if (!(payload.id > 0)) {
+    priceListPricingRuleEditorError.value = '请选择已有价格模板'
+    return
+  }
+  if (!payload.name) {
+    priceListPricingRuleEditorError.value = '请填写价格计算模板名称'
+    return
+  }
+  if (pricingRuleEditorLegacyBlocked(priceListPricingRuleEditorForm.value)) {
+    priceListPricingRuleEditorError.value = '旧价格方式无法安全换算；请到商品价格管理中新建加价率模板'
+    return
+  }
+  priceListPricingRuleEditorSaving.value = true
+  priceListPricingRuleEditorError.value = ''
+  priceListPricingRuleEditorMessage.value = ''
+  try {
+    const result = await apiSend(`/api/product-pricing-rules/${payload.id}`, { method: 'PUT', body: payload })
+    const saved = pricingRuleEditorForm(result.rule || payload)
+    pricingRules.value = [saved, ...pricingRules.value.filter((rule) => Number(rule?.id || 0) !== Number(saved.id || 0))]
+    priceListPricingRuleEditorForm.value = pricingRuleEditorForm(JSON.parse(JSON.stringify(saved)))
+    await nextTick()
+    const affectedKeys = priceListFlatRows.value
+      .filter((row) => {
+        const tierRuleID = Number(row?.tier_pricing_rule_id ?? row?.tierPricingRuleID ?? 0)
+        const effectiveRuleID = tierRuleID > 0 ? tierRuleID : Number(row?.pricing_rule_id ?? row?.pricingRuleID ?? 0)
+        return effectiveRuleID === Number(saved.id || 0)
+      })
+      .map(priceListPricingRuleTrialKeyForRow)
+      .filter(Boolean)
+    affectedKeys.forEach((key) => priceListPricingRuleTrialGeneration.set(key, (priceListPricingRuleTrialGeneration.get(key) || 0) + 1))
+    priceListPricingRuleTrialCache.value = priceListPricingRuleTrialCacheWithoutRule(
+      priceListPricingRuleTrialCache.value,
+      priceListFlatRows.value,
+      saved.id,
+      priceListPricingRuleTrialKeyForRow,
+    )
+    priceListPricingRuleEditorMessage.value = affectedKeys.length
+      ? `价格模板已保存，正在重算当前价格表 ${affectedKeys.length} 行`
+      : '价格模板已保存；当前价格表没有引用该模板的自动价格行'
+    schedulePriceListPricingRuleTrialRefresh()
+  } catch (err) {
+    priceListPricingRuleEditorError.value = err?.message || '保存价格计算模板失败'
+  } finally {
+    priceListPricingRuleEditorSaving.value = false
+  }
 }
 
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
@@ -3104,6 +3273,7 @@ async function loadPriceListPricingRuleTrials(requests = []) {
     return key && cached?.status !== 'loading' && cached?.status !== 'success' && cached?.status !== 'error'
   })
   if (!pending.length) return
+  const generations = new Map(pending.map(({ key }) => [key, priceListPricingRuleTrialGeneration.get(key) || 0]))
   mergePriceListPricingRuleTrialCache(Object.fromEntries(pending.map(({ key }) => [key, { status: 'loading' }])))
   const completed = await executePriceListPricingRuleTrialBatches(pending, {
     chunkSize: 100,
@@ -3116,7 +3286,9 @@ async function loadPriceListPricingRuleTrials(requests = []) {
       })
     ),
   })
-  mergePriceListPricingRuleTrialCache(completed)
+  mergePriceListPricingRuleTrialCache(Object.fromEntries(Object.entries(completed).filter(([key]) => (
+    (priceListPricingRuleTrialGeneration.get(key) || 0) === generations.get(key)
+  ))))
 }
 
 function priceListGroupSnapshot(group = {}) {
@@ -4221,7 +4393,7 @@ function fixed(value, digits = 2) {
 }
 
 function price(value) {
-  return fixed(value, 0)
+  return formatBeanListPrice(value)
 }
 
 function percent(value) {
@@ -4877,6 +5049,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .warning-banner { border: 1px solid #e8c28f; border-radius: 8px; background: #fff8eb; color: #8a4b00; padding: 10px; margin-bottom: 12px; }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.25); display: flex; justify-content: flex-end; }
 .settings-drawer { width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
+.price-list-pricing-rule-editor-drawer { width: min(860px, 96vw); }
+.price-list-pricing-rule-editor-body { display: grid; gap: 12px; align-content: start; }
+.price-list-pricing-rule-selector { display: grid; gap: 5px; border: 1px solid #e1d9ce; border-radius: 8px; padding: 10px; background: #fff; }
+.price-list-pricing-rule-selector > span { font-weight: 700; }
 .explanation-drawer { width: min(680px, 100vw); }
 .drawer-head { position: sticky; top: 0; z-index: 2; background: #f7f7f7; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; margin-bottom: 4px; }
 .drawer-head h3 { margin: 0; font-size: 18px; }

@@ -1187,3 +1187,12 @@ test('editing a fixed flat row updates the canonical SKU fixed amount instead of
   assert.match(setterSource, /setPriceListSkuFixedPrice\(row, value\)/)
   assert.match(setterSource, /delete next\[key\]/)
 })
+
+test('flat price rows expose the shared pricing-rule editor before retry failures', () => {
+  const header = viewSource.match(/<div v-if="priceListFlatRows\.length" class="pdf-picker flat-price-row-editor">[\s\S]*?<div class="flat-price-table"/)?.[0] || ''
+  assert.match(header, /@click="openPriceListPricingRuleEditor"[^>]*>编辑价格模板<\/button>/)
+  assert.match(header, /编辑价格模板<\/button>[\s\S]*重新试算失败项/)
+  assert.match(viewSource, /<PricingRuleEditorForm/)
+  assert.match(viewSource, /aria-label="商品价格表价格模板编辑"/)
+  assert.match(viewSource, /savePriceListPricingRule/)
+})

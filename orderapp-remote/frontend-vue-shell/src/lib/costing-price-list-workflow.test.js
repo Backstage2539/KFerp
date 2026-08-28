@@ -136,6 +136,35 @@ describe('costing price-list workflow helpers', () => {
     assert.deepEqual(retried.failed, { status: 'success', result: { final_unit_price: 91 } })
   })
 
+  it('prioritizes used templates and invalidates only rows affected by the edited rule', () => {
+    const rows = [
+      { row_key: 'direct', pricing_rule_id: 7, tier_pricing_rule_id: 0 },
+      { row_key: 'tier', pricing_rule_id: 9, tier_pricing_rule_id: 7 },
+      { row_key: 'other', pricing_rule_id: 8 },
+    ]
+    const options = priceListWorkflow.priceListPricingRuleEditorOptions([
+      { id: 8, name: '模板八', active: true },
+      { id: 7, name: '模板七', active: true },
+      { id: 9, name: '模板九', active: true },
+      { id: 10, name: '停用模板', active: false },
+    ], rows)
+    assert.deepEqual(options.map((row) => [row.id, row.used_by_current_price_list]), [[7, true], [8, true], [9, false]])
+    assert.equal(priceListWorkflow.defaultPriceListPricingRuleEditorID(options), 7)
+
+    const keyForRow = (row) => `rule:${row.tier_pricing_rule_id || row.pricing_rule_id}:${row.row_key}`
+    const cache = {
+      'rule:7:direct': { status: 'success' },
+      'rule:7:tier': { status: 'error' },
+      'rule:8:other': { status: 'success' },
+      unrelated: { status: 'success' },
+    }
+    const next = priceListWorkflow.priceListPricingRuleTrialCacheWithoutRule(cache, rows, 7, keyForRow)
+    assert.deepEqual(next, {
+      'rule:8:other': { status: 'success' },
+      unrelated: { status: 'success' },
+    })
+  })
+
   it('keeps distinct template tiers when the product, pricing rule and unit are the same', () => {
     const rows = [
       {

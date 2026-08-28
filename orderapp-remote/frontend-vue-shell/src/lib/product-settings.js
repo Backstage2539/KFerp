@@ -514,6 +514,65 @@ export function buildPricingRulePayload(form = {}) {
   }
 }
 
+export function pricingRuleEditorForm(rule = {}) {
+  const calculation = pricingRuleCalculationObject(rule)
+  const otherCosts = calculation.other_costs ?? calculation.otherCosts ?? {}
+  const otherCostRows = otherCosts && typeof otherCosts === 'object' && !Array.isArray(otherCosts)
+    ? Object.entries(otherCosts).map(([key, value]) => ({ key: String(key || '').trim(), value: Number(value || 0) })).filter((row) => row.key)
+    : []
+  return {
+    id: Number(rule.id || 0),
+    name: String(rule.name || ''),
+    code: String(rule.code || ''),
+    cost_source_mode: normalizePricingRuleCostSourceMode(rule.cost_source_mode ?? rule.costSourceMode),
+    margin_rate: Number(rule.margin_rate ?? rule.marginRate ?? 0) || 0,
+    tax_rate: Number(rule.tax_rate ?? rule.taxRate ?? 0) || 0,
+    rounding_mode: String(rule.rounding_mode ?? rule.roundingMode ?? 'none') || 'none',
+    formula_version: String(rule.formula_version ?? rule.formulaVersion ?? 'v1') || 'v1',
+    calculation_json: calculation,
+    other_cost_rows: otherCostRows.length ? otherCostRows : [{ key: '', value: 0 }],
+    profit_method: 'markup',
+    tax_mode: String(calculation.tax_mode || 'tax_included'),
+    minimum_margin_rate: Number(calculation.minimum_margin_rate || 0),
+    trial_note: String(calculation.trial_note || ''),
+    active: rule.active !== false,
+    remark: String(rule.remark || ''),
+  }
+}
+
+export function pricingRuleEditorLegacyBlocked(rule = {}) {
+  const calculation = pricingRuleCalculationObject(rule)
+  const rawMethod = String(calculation.profit_method ?? rule.profit_method ?? '').trim().toLowerCase()
+  return Boolean(String(calculation.legacy_profit_method || '').trim()
+    || String(calculation.migration_warning || '').trim()
+    || (rawMethod && !['markup', 'gross_margin'].includes(rawMethod)))
+}
+
+export function pricingRuleEditorLegacyMethodLabel(rule = {}) {
+  const calculation = pricingRuleCalculationObject(rule)
+  return String(calculation.legacy_profit_method || calculation.profit_method || '未知').trim() || '未知'
+}
+
+export function pricingRuleEditorLegacyValueLabel(rule = {}) {
+  const calculation = pricingRuleCalculationObject(rule)
+  const value = calculation.legacy_margin_rate ?? calculation.legacy_fixed_amount ?? rule.margin_rate
+  return value === null || typeof value === 'undefined' || String(value).trim() === '' ? '未记录' : String(value)
+}
+
+function pricingRuleCalculationObject(rule = {}) {
+  const raw = rule.calculation_json ?? rule.calculationJSON ?? {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return { ...raw }
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
 export function buildPricingRuleCopyPayload(rule = {}, existingRules = []) {
   const source = buildPricingRulePayload(rule)
   return {

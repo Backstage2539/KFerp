@@ -1662,3 +1662,10 @@
 - `DEV-614-CURRENT-PRICE-CATALOG-AUTHORITY`：订单接口以当前启用的 `product_catalog` 商品分组为价格表类型权威，将商品分组 ID 映射为价格表发布分类身份。已被当前商品分组替换、但因旧规则仍在自己分类内标记为默认的历史熟豆/生豆/挂耳价格表，不再进入 ERP 或员工小程序的当前录单目录；没有配置当前商品分组时保留旧目录兼容。
 - `DEV-614-CUTOVER-BOM-SPEC-PRICE-PROJECTION`：商品完成 BOM 规格权威切换后，即使不存在 `legacy_child_sku_bom_spec_mappings`，订单接口也必须用主商品 ID 读取价格表发布行，并按发布快照中的 `bom_spec_id/bom_variant_id` 精确分配到对应 BOM 规格。只选择并发布 454g 规格时，仅 454g 获得当前阶梯价，227g/1Kg 不得继承 454g 价格；尚未 cutover 的商品继续使用旧子 SKU 兼容键。
 - `DEV-614-DOCS-DEVELOPMENT-DELIVERY`：定向测试使用开发现场“当前初晓价格表 + 旧熟豆默认表”和“初晓主商品 1063、BOM 规格 7、无旧子 SKU 映射”复现 RED，并覆盖仓库投影、订单 API、ERP 规格目录与小程序目录。完成 Go/Vue/小程序及统一验证器后合入 `develop` 并部署 development；production 与微信正式上传不在本次范围。
+
+# PR-615-PRICING-TRIAL-PERFORMANCE-DISPLAY-EDITOR 价格试算提速、展示统一与模板快捷编辑（2026-08-28）
+
+- `DEV-615-SCOPED-TRIAL-LOAD`：批量价格试算仅加载本次商品范围；同一客户与商品的生产选项只加载一次，同一 BOM 版本、规格、变体、工艺路线和报价单位的成本上下文只解析一次，再按原请求顺序分发到各价格档位。接口、部分失败和行级错误语义保持兼容，不使用跨请求价格缓存。
+- `DEV-615-PRICE-DISPLAY`：商品价格展示统一先四舍五入到两位；整数不显示小数，有小数固定显示两位。新规则覆盖 ERP 价格表预览、打印/生成 PDF 和公开价格表页面，不改数据库数值，也不改变平铺价格输入框的编辑方式。
+- `DEV-615-PRICING-RULE-EDITOR-REFRESH`：平铺价格行标题栏在失败重试按钮左侧常驻显示“编辑价格模板”，右侧抽屉复用商品价格管理的同一表单和原 `PUT /api/product-pricing-rules/:id`。保存全局模板后只清除当前草稿中直接或通过阶梯模板引用该模板的试算结果并一次批量重算；重算期间禁止发布。人工最终价保留，但自动基准随新模板更新，撤销人工修改后使用新价格。保存或重算失败保留编辑内容和原价格；已发布价格表、历史订单、PDF 快照和财务单据不回算。
+- `DEV-615-DOCS-DEVELOPMENT-DELIVERY`：定向 RED/GREEN、全部 Go/Vue、Vite、统一验证器和开发预检通过后，合入 `develop` 并仅部署 development；用开发真实数据记录一个商品四档首次试算耗时，目标不超过 2 秒。`main`、production 和业务数据迁移均不在本次范围。

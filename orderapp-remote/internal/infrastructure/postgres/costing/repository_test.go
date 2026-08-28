@@ -934,6 +934,31 @@ func TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback(t *testing
 	}
 }
 
+func TestPricingRuleTrialProductInputLoaderScopesRequestedProductsAndSkipsFullResolvedCostGraph(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) LoadPricingRuleTrialProductInputs")
+	if start < 0 {
+		t.Fatal("LoadPricingRuleTrialProductInputs not found")
+	}
+	end := strings.Index(src[start:], "func (r Repository) loadProductInputs")
+	if end < 0 {
+		t.Fatal("loadProductInputs not found after scoped loader")
+	}
+	loader := src[start : start+end]
+	for _, want := range []string{"productIDs", "loadProductInputs", "skipResolvedProductionBomCosts"} {
+		if !strings.Contains(loader, want) {
+			t.Fatalf("scoped pricing trial input loader missing %q", want)
+		}
+	}
+	if !strings.Contains(src, "p.id=ANY($2::bigint[])") {
+		t.Fatal("product input SQL must restrict pricing-trial loads to requested product ids")
+	}
+}
+
 func TestPricingRuleTrialDetailsValidateExplicitVersionAgainstCurrentProduct(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
