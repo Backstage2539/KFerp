@@ -6,6 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-615-PRICING-TRIAL-PERFORMANCE-DISPLAY-EDITOR
+- Branch: `codex/price-list-decimal-display`
+- Owner/session: Codex / 2026-08-28
+- Status: implementation and full local verification GREEN; development integration and delivery pending
+- Scope: 商品价格表批量试算按本次商品范围加载并去重同一成本上下文；价格展示统一为整数不补零、小数固定两位；平铺价格行新增价格模板编辑抽屉，保存后仅重算当前草稿中引用该模板的价格行。
+- DEV: DEV-615-SCOPED-TRIAL-LOAD; DEV-615-PRICE-DISPLAY; DEV-615-PRICING-RULE-EDITOR-REFRESH; DEV-615-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: targeted Go/Vue RED→GREEN; public price API/page; full Go/Vue/Vite and `scripts/verify_kferp.sh all`
+- Deployment: development only after verified merge to `develop`; production is out of scope
+
 ### PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION
 - Branch: `codex/mini-current-price-catalog-sync`
 - Owner/session: Codex / 2026-08-27

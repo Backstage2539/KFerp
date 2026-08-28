@@ -379,12 +379,21 @@ func publicPageStyle(cfg map[string]any) template.CSS {
 }
 
 func publicPriceDisplay(price float64, unit string) string {
-	value := fmt.Sprintf("%.0f", math.Round(price))
+	value := beanListPriceDisplayValue(price)
 	unit = strings.TrimSpace(unit)
 	if unit == "" {
 		return value
 	}
 	return value + "/" + unit
+}
+
+func beanListPriceDisplayValue(price float64) string {
+	rounded := math.Round(price*100) / 100
+	value := fmt.Sprintf("%.2f", rounded)
+	if math.Abs(rounded-math.Round(rounded)) < 0.0000001 {
+		value = fmt.Sprintf("%.0f", rounded)
+	}
+	return value
 }
 
 func publicHighlightHTML(text string, terms []string) template.HTML {

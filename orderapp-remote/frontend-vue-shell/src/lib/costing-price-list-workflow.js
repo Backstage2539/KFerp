@@ -105,6 +105,50 @@ export function priceListPricingRuleTrialCacheForRetry(sourceCache = {}, sourceK
   return next
 }
 
+export function priceListPricingRuleEditorOptions(sourceRules = [], sourceRows = []) {
+  const usedRuleOrder = new Map()
+  ;(Array.isArray(sourceRows) ? sourceRows : []).forEach((row, index) => {
+    const ruleID = priceListFlatRowEffectivePricingRuleID(row)
+    if (ruleID > 0 && !usedRuleOrder.has(ruleID)) usedRuleOrder.set(ruleID, index)
+  })
+  return (Array.isArray(sourceRules) ? sourceRules : [])
+    .filter((rule) => rule?.active !== false)
+    .map((rule, index) => ({
+      ...rule,
+      used_by_current_price_list: usedRuleOrder.has(Number(rule?.id || 0)),
+      _pricing_rule_source_index: index,
+    }))
+    .sort((left, right) => Number(right.used_by_current_price_list) - Number(left.used_by_current_price_list)
+      || (usedRuleOrder.get(Number(left.id || 0)) ?? Number.MAX_SAFE_INTEGER) - (usedRuleOrder.get(Number(right.id || 0)) ?? Number.MAX_SAFE_INTEGER)
+      || left._pricing_rule_source_index - right._pricing_rule_source_index)
+    .map(({ _pricing_rule_source_index, ...rule }) => rule)
+}
+
+export function defaultPriceListPricingRuleEditorID(options = []) {
+  const rules = Array.isArray(options) ? options : []
+  const preferred = rules.find((rule) => rule?.used_by_current_price_list) || rules[0]
+  return Number(preferred?.id || 0)
+}
+
+export function priceListPricingRuleTrialCacheWithoutRule(sourceCache = {}, sourceRows = [], pricingRuleID = 0, cacheKeyForRow) {
+  const next = { ...(sourceCache && typeof sourceCache === 'object' && !Array.isArray(sourceCache) ? sourceCache : {}) }
+  const targetID = Number(pricingRuleID || 0)
+  if (!(targetID > 0) || typeof cacheKeyForRow !== 'function') return next
+  ;(Array.isArray(sourceRows) ? sourceRows : []).forEach((row) => {
+    const effectiveID = priceListFlatRowEffectivePricingRuleID(row)
+    if (effectiveID !== targetID) return
+    const key = String(cacheKeyForRow(row) || '').trim()
+    if (key) delete next[key]
+  })
+  return next
+}
+
+function priceListFlatRowEffectivePricingRuleID(row = {}) {
+  const tierID = Number(row?.tier_pricing_rule_id ?? row?.tierPricingRuleID ?? 0)
+  if (tierID > 0) return tierID
+  return Number(row?.pricing_rule_id ?? row?.pricingRuleID ?? 0)
+}
+
 export function dedupePriceListFlatRows(sourceRows = []) {
   const rows = Array.isArray(sourceRows) ? sourceRows : []
   const seen = new Map()

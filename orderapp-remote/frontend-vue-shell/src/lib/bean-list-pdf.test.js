@@ -12,6 +12,7 @@ import {
   copyBeanListPublicationConfig,
   defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
+  formatBeanListPrice,
   applyPriceListFlatRowsToBeanListPdfGroups,
   buildPriceListGenerationSnapshot,
   nextBeanListVersion,
@@ -21,6 +22,13 @@ import {
 } from './bean-list-pdf.js'
 import { dedupePriceListFlatRows } from './costing-price-list-workflow.js'
 import { priceTierTemplateUnitCompatibility, productCurrentSalesSpecUnit } from './product-settings.js'
+
+test('bean-list prices keep integers compact and show decimal prices to two places', () => {
+  assert.equal(formatBeanListPrice(38), '38')
+  assert.equal(formatBeanListPrice(38.2), '38.20')
+  assert.equal(formatBeanListPrice(38.256), '38.26')
+  assert.equal(formatBeanListPrice('4.00'), '4')
+})
 
 const rows = [
   {

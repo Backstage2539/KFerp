@@ -1591,6 +1591,26 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 	}
 }
 
+func TestPublicPriceDisplayKeepsIntegersCompactAndDecimalsAtTwoPlaces(t *testing.T) {
+	for _, tc := range []struct {
+		price float64
+		unit  string
+		want  string
+	}{
+		{price: 38, unit: "kg", want: "38/kg"},
+		{price: 38.2, unit: "kg", want: "38.20/kg"},
+		{price: 38.256, unit: "袋", want: "38.26/袋"},
+		{price: 4, want: "4"},
+	} {
+		if got := publicPriceDisplay(tc.price, tc.unit); got != tc.want {
+			t.Fatalf("publicPriceDisplay(%v, %q) = %q, want %q", tc.price, tc.unit, got, tc.want)
+		}
+		if got := beanListPublicationPDFPriceDisplay(tc.price, tc.unit); got != tc.want {
+			t.Fatalf("beanListPublicationPDFPriceDisplay(%v, %q) = %q, want %q", tc.price, tc.unit, got, tc.want)
+		}
+	}
+}
+
 func TestPublicBeanListPageKeepsProductNameSeparateFromSelectedSalesSpec(t *testing.T) {
 	page, err := renderPublicBeanListPage(appcosting.BeanListPublication{
 		ListType: "commercial",

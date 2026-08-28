@@ -17,7 +17,7 @@ func TestDev443PricingRuleCalculationTemplateContracts(t *testing.T) {
 			"FormulaVersion",
 			"pricing rule must not contain quantity tiers",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+		filepath.Join("frontend-vue-shell", "src", "components", "PricingRuleEditorForm.vue"): {
 			"基础成本",
 			"生产 BOM 成本（物料+工序）",
 			"其他成本",
