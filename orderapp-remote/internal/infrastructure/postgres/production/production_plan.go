@@ -1457,7 +1457,8 @@ func productionPlanPreviewOperationCoverage(item productionapp.ProductionPlanIte
 			continue
 		}
 		requiredG := productionPlanItemOutputTargetG(item)
-		if item.SalesSpecCount <= 0 || requiredG <= 0 {
+		requiredCount := productionPlanItemCountTarget(item)
+		if requiredCount <= 0 || requiredG <= 0 {
 			return requiredG, 0, 0
 		}
 		arrangedCount := 0.0
@@ -1466,7 +1467,7 @@ func productionPlanPreviewOperationCoverage(item productionapp.ProductionPlanIte
 				arrangedCount += math.Max(0, row.PlannedQty)
 			}
 		}
-		factor := arrangedCount / item.SalesSpecCount
+		factor := arrangedCount / requiredCount
 		return requiredG, int64(math.Round(float64(requiredG) * factor)), factor
 	}
 	requiredG := productionPlanItemTargetG(item)
@@ -1481,6 +1482,19 @@ func productionPlanPreviewOperationCoverage(item productionapp.ProductionPlanIte
 		factor = float64(arrangedG) / float64(requiredG)
 	}
 	return requiredG, arrangedG, factor
+}
+
+func productionPlanItemCountTarget(item productionapp.ProductionPlanItem) float64 {
+	if item.SalesSpecCount > 0 {
+		return item.SalesSpecCount
+	}
+	if item.PlannedInventoryQty > 0 && productionCapacityUnitKind(item.InventoryUnit) == "count" {
+		return item.PlannedInventoryQty
+	}
+	if item.OutputQty > 0 && productionCapacityUnitKind(item.OutputUnit) == "count" {
+		return item.OutputQty
+	}
+	return 0
 }
 
 func productionPlanPreviewAllSplitArrangedG(splits []productionapp.ProductionPlanOperationSplit) int64 {
@@ -2085,11 +2099,12 @@ func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionP
 			}
 		}
 		if kind == "count" {
-			if item.SalesSpecCount <= 0 {
+			requiredCount := productionPlanItemCountTarget(item)
+			if requiredCount <= 0 {
 				return fmt.Errorf("工序“%s”缺少冻结销售规格件数，无法校验计件产能", label)
 			}
-			if arrangedCount+0.000001 < item.SalesSpecCount {
-				return fmt.Errorf("工序“%s”的件数产能不足：需要%.4f件，已安排%.4f件", label, item.SalesSpecCount, arrangedCount)
+			if arrangedCount+0.000001 < requiredCount {
+				return fmt.Errorf("工序“%s”的件数产能不足：需要%.4f件，已安排%.4f件", label, requiredCount, arrangedCount)
 			}
 			continue
 		}
