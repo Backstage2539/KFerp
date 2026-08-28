@@ -275,6 +275,51 @@ func TestLegacyUnitMustMatchPublishedBOMSpecUnitPostgres(t *testing.T) {
 	}
 }
 
+func TestLegacyUnitUsesCurrentInventoryOverrideInsteadOfDisplaySalesLabelPostgres(t *testing.T) {
+	ctx, pool, schema := newLegacyChildGuardTestDB(t)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		ALTER TABLE %[1]s.products ADD COLUMN unit_rule_override_json TEXT NOT NULL DEFAULT '{}';
+		INSERT INTO %[1]s.products(id,name) VALUES(60,'parent');
+		INSERT INTO %[1]s.products(
+			id,name,parent_product_id,derived_spec_key,derived_spec_name,derived_sales_unit,
+			spec_label,sku_code,sku_name,net_content_qty,net_content_unit,unit_rule_override_json
+		) VALUES(
+			61,'legacy box',60,'box-10','盒（10袋）','盒（10袋）',
+			'盒（10袋）','LEGACY-BOX-10','盒（10袋）',10,'袋',
+			'{"inventory_unit":"盒","default_sales_unit":"盒","unit_conversion_json":{"盒":{"盒":1}}}'
+		);
+		INSERT INTO %[1]s.production_boms(id,output_type,output_product_id,status)
+		VALUES(70,'product',60,'active');
+		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,published_at)
+		VALUES(71,70,'V001','published',now());
+		INSERT INTO %[1]s.production_bom_output_bindings(output_type,output_id,bom_id,bom_version_id,is_default)
+		VALUES('product',60,70,71,true);
+		INSERT INTO %[1]s.production_bom_specs(id,bom_id,spec_key,name,inventory_unit)
+		VALUES(160,70,'box-10','盒（10袋）','盒');
+		INSERT INTO %[1]s.production_bom_version_variants(
+			id,version_id,bom_spec_id,spec_name_snapshot,inventory_unit,is_default,sort_order
+		) VALUES(260,71,160,'盒（10袋）','盒',true,1);
+	`, schema)); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewRepository(pool, schema)
+	prepared, err := repo.Prepare(ctx, productspecmigrationapp.PrepareCommand{ProductID: 60, Actor: "guard-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Mappings) != 1 || prepared.Mappings[0].LegacySalesUnit != "盒" {
+		t.Fatalf("legacy mapping=%+v, want current inventory unit 盒 instead of display label", prepared.Mappings)
+	}
+	assessed, err := repo.Assess(ctx, productspecmigrationapp.AssessCommand{ProductID: 60, Actor: "guard-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !assessed.Readiness.Ready || assessed.Readiness.LegacyUnitMismatchCount != 0 {
+		t.Fatalf("inventory-unit override readiness=%+v, want ready", assessed.Readiness)
+	}
+}
+
 func TestReadinessCountsLegacyCustomerInventoryWithoutBOMColumnsPostgres(t *testing.T) {
 	ctx, pool, schema := newLegacyChildGuardTestDB(t)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
