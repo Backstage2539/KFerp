@@ -96,7 +96,11 @@ func createMultilevelProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schem
 		return nil
 	}
 
-	bases, domainBOMs, componentSpecs, err := loadDefaultManufacturingOutputBOMsForPlanningTx(ctx, tx, schema)
+	rootComponents := make([]materialConsumptionNeed, 0, len(rootNeeds))
+	for _, rootNeed := range rootNeeds {
+		rootComponents = append(rootComponents, rootNeed.need)
+	}
+	bases, domainBOMs, componentSpecs, err := loadDefaultManufacturingOutputBOMsForPlanningTx(ctx, tx, schema, rootComponents)
 	if err != nil {
 		return err
 	}
@@ -600,7 +604,7 @@ func canonicalFromManufacturingQty(qty float64, unit string) (int64, int64) {
 	return 0, int64(math.Ceil(qty))
 }
 
-func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx.Tx, schema string) (map[string]manufacturingOutputBOMPlanBasis, []productiondomain.ManufacturingBOM, map[string]int64, error) {
+func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx.Tx, schema string, rootComponents []materialConsumptionNeed) (map[string]manufacturingOutputBOMPlanBasis, []productiondomain.ManufacturingBOM, map[string]int64, error) {
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT b.id,v.id,COALESCE(v.version_no,''),binding.output_type,binding.output_id,
 		       COALESCE(spec.id,0),COALESCE(variant.id,0),
@@ -657,7 +661,35 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 		return nil, nil, nil, err
 	}
 	rows.Close()
-	for key, basis := range bases {
+	requestedSet := map[string]bool{}
+	for _, component := range rootComponents {
+		componentType, componentID, _ := manufacturingNeedIdentity(component)
+		componentBomSpecID, _ := manufacturingNeedBOMSpecIdentity(component)
+		if componentID <= 0 {
+			continue
+		}
+		requestedSet[manufacturingItemIdentityKey(componentType, componentID, componentBomSpecID)] = true
+	}
+	requestedKeys := make([]string, 0, len(rootComponents))
+	for key := range requestedSet {
+		requestedKeys = append(requestedKeys, key)
+	}
+	sort.Strings(requestedKeys)
+
+	boms := make([]productiondomain.ManufacturingBOM, 0, len(requestedKeys))
+	componentSpecs := map[string]int64{}
+	visited := map[string]bool{}
+	for len(requestedKeys) > 0 {
+		key := requestedKeys[0]
+		requestedKeys = requestedKeys[1:]
+		if visited[key] {
+			continue
+		}
+		visited[key] = true
+		basis, exists := bases[key]
+		if !exists {
+			continue
+		}
 		snapshot, err := buildMaterialSnapshotForBomVersionVariantTx(ctx, tx, schema,
 			ProduceRunRow{Product: basis.OutputName, ProductID: basis.OutputID, SpecG: basis.OutputSpecG},
 			basis.VersionID, basis.BomVariantID, false)
@@ -666,16 +698,6 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 		}
 		basis.Snapshot = string(snapshot)
 		bases[key] = basis
-	}
-	boms := make([]productiondomain.ManufacturingBOM, 0, len(bases))
-	componentSpecs := map[string]int64{}
-	keys := make([]string, 0, len(bases))
-	for key := range bases {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		basis := bases[key]
 		outputG, outputUnits := canonicalOutputBasis(basis.OutputQty, basis.OutputUnit)
 		if basis.OutputType == "product" && outputG <= 0 && outputUnits > 0 && basis.OutputSpecG > 0 {
 			outputG = outputUnits * basis.OutputSpecG
@@ -714,6 +736,9 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 			if componentType == "product" {
 				componentSpecs[componentKey] = componentSpecG
 			}
+			if _, hasDefaultBOM := bases[componentKey]; hasDefaultBOM && !visited[componentKey] {
+				requestedKeys = append(requestedKeys, componentKey)
+			}
 			components = append(components, productiondomain.ManufacturingBOMComponent{
 				Item: productiondomain.ManufacturingItemRef{Type: componentType, ID: componentID, BomSpecID: componentBomSpecID, BomVariantID: componentBomVariantID, Name: need.MaterialName, Unit: unit},
 				Qty:  qty,
@@ -726,6 +751,7 @@ func loadDefaultManufacturingOutputBOMsForPlanningTx(ctx context.Context, tx pgx
 			OutputQty:  outputQty,
 			Components: components,
 		})
+		sort.Strings(requestedKeys)
 	}
 	return bases, boms, componentSpecs, nil
 }
