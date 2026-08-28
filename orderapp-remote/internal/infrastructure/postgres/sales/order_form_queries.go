@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const orderProductCatalogPublicationTypeIDBase int64 = 8_000_000_000_000_000
+
 func (r Repository) OrderForm(ctx context.Context, editID int64) (salesapp.OrderFormData, error) {
 	data := salesapp.OrderFormData{Today: time.Now().Format("2006-01-02")}
 	var err error
@@ -170,9 +172,10 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 		}
 		option.Published = true
 		options = append(options, option)
+		publicationProductID := orderBOMSpecPublicationLookupProductID(option)
 		legacyProducts = append(legacyProducts, salesapp.ProductOption{
-			ID:              option.LegacyChildProductID,
-			SKUID:           option.LegacyChildProductID,
+			ID:              publicationProductID,
+			SKUID:           publicationProductID,
 			ParentProductID: option.ParentProductID,
 			CustomerID:      customerID,
 			ProductKind:     productKind,
@@ -205,7 +208,7 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 		if idx >= len(legacyProducts) {
 			break
 		}
-		options[idx].Tiers = append([]salesapp.ProductTierOption(nil), legacyProducts[idx].Tiers...)
+		options[idx].Tiers = orderBOMSpecPublicationTiers(options[idx], legacyProducts[idx].Tiers)
 		for tierIdx := range options[idx].Tiers {
 			tier := &options[idx].Tiers[tierIdx]
 			tier.ParentProductID = options[idx].ParentProductID
@@ -231,6 +234,32 @@ func (r Repository) fetchOrderBOMSpecOptions(ctx context.Context) ([]salesapp.Pr
 		}
 	}
 	return options, nil
+}
+
+func orderBOMSpecPublicationLookupProductID(option salesapp.ProductBOMSpecOption) int64 {
+	if strings.TrimSpace(option.MigrationState) == "cutover" && option.ParentProductID > 0 {
+		return option.ParentProductID
+	}
+	return option.LegacyChildProductID
+}
+
+func orderBOMSpecPublicationTiers(option salesapp.ProductBOMSpecOption, tiers []salesapp.ProductTierOption) []salesapp.ProductTierOption {
+	if strings.TrimSpace(option.MigrationState) != "cutover" {
+		return append([]salesapp.ProductTierOption(nil), tiers...)
+	}
+	out := make([]salesapp.ProductTierOption, 0, len(tiers))
+	for _, tier := range tiers {
+		tierSpecID := orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "bom_spec_id")
+		if tierSpecID <= 0 || tierSpecID != option.BomSpecID {
+			continue
+		}
+		tierVariantID := orderFamilyTierMapInt64(tier.EffectiveSalesSpec, "bom_variant_id")
+		if option.BomVariantID > 0 && tierVariantID != option.BomVariantID {
+			continue
+		}
+		out = append(out, tier)
+	}
+	return out
 }
 
 func orderEditItemsQuery(schema string) string {
@@ -442,7 +471,72 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		row.Label = strings.TrimSpace(fmt.Sprintf("%s %s %s", ownerLabel, row.VersionNo, row.PublishedAt))
 		out = append(out, row)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	currentTypeIDs, err := r.fetchCurrentProductCatalogPublicationTypeIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return filterOrderBeanListVersionOptionsToCurrentProductCatalogTypes(out, currentTypeIDs), nil
+}
+
+func (r Repository) fetchCurrentProductCatalogPublicationTypeIDs(ctx context.Context) ([]int64, error) {
+	for _, relation := range []string{"business_group_usages", "business_groups"} {
+		var exists bool
+		if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.%s", r.schema, relation)).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, nil
+		}
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT $1::bigint + u.group_id
+		FROM %[1]s.business_group_usages u
+		JOIN %[1]s.business_groups bg ON bg.id=u.group_id AND bg.active=true
+		WHERE u.active=true
+		  AND lower(u.usage_key)='product_catalog'
+		  AND left(lower(btrim(bg.code)),8)<>'default_'
+		  AND btrim(bg.name) NOT IN ('商品默认分组','生产 BOM 默认分组','仓库库存默认分组')
+		ORDER BY u.sort_order,u.id
+	`, r.schema), orderProductCatalogPublicationTypeIDBase)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
 	return out, rows.Err()
+}
+
+func filterOrderBeanListVersionOptionsToCurrentProductCatalogTypes(options []salesapp.BeanListVersionOption, currentTypeIDs []int64) []salesapp.BeanListVersionOption {
+	if len(currentTypeIDs) == 0 {
+		return options
+	}
+	allowed := make(map[int64]bool, len(currentTypeIDs))
+	for _, id := range currentTypeIDs {
+		if id > 0 {
+			allowed[id] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return options
+	}
+	out := make([]salesapp.BeanListVersionOption, 0, len(options))
+	for _, option := range options {
+		if allowed[option.ClassificationTemplateID] {
+			out = append(out, option)
+		}
+	}
+	return out
 }
 
 func (r Repository) fetchOrderCustomerPublicUsages(ctx context.Context) ([]salesapp.CustomerPublicUsageOption, error) {

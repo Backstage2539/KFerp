@@ -342,7 +342,8 @@ function withEmployeeOrderItemDiscount(item: EmployeeOrderDraftItem): EmployeeOr
 export function employeeOrderTierForQuantity(spec?: EmployeeOrderProductSpec, quantity = 0) {
   const tiers = [...(spec?.tiers || [])]
   if (!tiers.length) return undefined
-  const qty = Number.isFinite(Number(quantity)) ? Math.max(Number(quantity), 0) : 0
+  const qty = Number(quantity)
+  if (!Number.isFinite(qty) || qty <= 0) return undefined
   const ranked = tiers.map((tier, index) => ({
     tier,
     index,
@@ -358,6 +359,29 @@ export function employeeOrderTierForQuantity(spec?: EmployeeOrderProductSpec, qu
 export function firstSpecUnitPrice(spec?: EmployeeOrderProductSpec, quantity = 0) {
   const tier = employeeOrderTierForQuantity(spec, quantity)
   return Number(tier?.unit_price || tier?.price || 0)
+}
+
+function employeeOrderSpecUsesTierTemplate(spec?: EmployeeOrderProductSpec): boolean {
+  const tiers = spec?.tiers || []
+  if (tiers.length > 1) return true
+  return tiers.some((tier) => {
+    const raw = String(tier.price_source_json || '').trim()
+    if (!raw) return false
+    try {
+      const source = JSON.parse(raw) as {
+        pricing_mode?: unknown
+        tier_template_id?: unknown
+        template_id?: unknown
+        template_tier_id?: unknown
+      }
+      return String(source.pricing_mode || '').trim() === 'tier_template'
+        || Number(source.tier_template_id || 0) > 0
+        || Number(source.template_id || 0) > 0
+        || Number(source.template_tier_id || 0) > 0
+    } catch {
+      return false
+    }
+  })
 }
 
 export function employeeOrderItemFromSpec(
@@ -402,7 +426,26 @@ export function employeeOrderItemFromSpec(
     bean_list_version_no: publicationVersion,
     price_override: false,
     price_source_json: String(tier?.price_source_json || ''),
-    validation_error: tier ? '' : '当前数量没有匹配的价格档，请调整数量',
+    validation_error: tier || Number(item.qty || 0) <= 0 ? '' : '当前数量没有匹配的价格档，请调整数量',
+  })
+}
+
+export function employeeOrderItemForSpecSelection(
+  item: EmployeeOrderDraftItem,
+  family: EmployeeOrderProductFamily,
+  spec: EmployeeOrderProductSpec,
+): EmployeeOrderDraftItem {
+  if (!employeeOrderSpecUsesTierTemplate(spec)) {
+    return employeeOrderItemFromSpec(item, family, spec)
+  }
+  const selected = employeeOrderItemFromSpec({ ...item, qty: 0 }, family, spec)
+  return withEmployeeOrderItemDiscount({
+    ...selected,
+    qty: 0,
+    unit_price: 0,
+    price_override: false,
+    price_source_json: '',
+    validation_error: '',
   })
 }
 
@@ -425,6 +468,38 @@ export function repriceEmployeeOrderItemForQuantity(
         price_override: true,
       })
     : repriced
+}
+
+export function applyEmployeeOrderQuantityChange(
+  item: EmployeeOrderDraftItem,
+  family: EmployeeOrderProductFamily | undefined,
+  quantity: unknown,
+): { accepted: boolean; item: EmployeeOrderDraftItem; error: string } {
+  const nextQuantity = Number(quantity)
+  const quantityLabel = String(quantity ?? '').trim() || '空值'
+  if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) {
+    return {
+      accepted: false,
+      item: { ...item },
+      error: `数量 ${quantityLabel} 不正确，原数量和单价已保留`,
+    }
+  }
+  if (!family) {
+    return {
+      accepted: false,
+      item: { ...item },
+      error: '当前商品规格无法刷新价格，原数量和单价已保留',
+    }
+  }
+  const repriced = repriceEmployeeOrderItemForQuantity({ ...item, qty: nextQuantity }, family)
+  if (repriced.validation_error || !Number.isFinite(Number(repriced.unit_price)) || Number(repriced.unit_price) <= 0) {
+    return {
+      accepted: false,
+      item: { ...item },
+      error: `数量 ${quantityLabel} 没有匹配的阶梯价格，原数量和单价已保留`,
+    }
+  }
+  return { accepted: true, item: repriced, error: '' }
 }
 
 function historicalOrderSpecLabel(item: EmployeeOrderDetailItem): string {

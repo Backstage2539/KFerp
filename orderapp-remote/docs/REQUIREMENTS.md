@@ -1650,3 +1650,15 @@
 - `DEV-612-BOM-SPEC-PSEUDO-SKU`：价格表运行态行若把已选 BOM 规格 ID 暂存在 legacy `sku_id`（例如父商品 1063、`sku_id=7`、已选 `bom_spec_id=7/bom_variant_id=422`），保存和发布必须按父商品下的精确 BOM 规格匹配归一，不能再把规格 ID 当商品 SKU 报“未在规格选择中”。同一父商品选择多个 BOM 规格时也允许精确 ID 匹配；只有父商品占位行且无法唯一判断规格时继续阻断。
 - `DEV-612-IDENTITY-UOM-SNAPSHOT`：legacy SKU 价格行经过 BOM 试算后，如果价格单位与库存单位已经是同一权威单位（例如“袋→袋”），发布必须固化 1:1 换算并保留该 legacy SKU/规格身份，不得再次要求旧商品档案提供“袋→袋”换算。价格单位与库存单位不同且商品档案没有有效换算时继续阻断，不能以 1:1 绕过。
 - `DEV-612-DEVELOPMENT-LIVE-PUBLISH`：回归测试必须复现开发现场“第1行 SKU 7 未在规格选择中”和生产现场“价格单位：袋，库存单位：袋但缺少换算”原文；完成 Go/Vue/Vite/全量门禁后先部署 development，并在已登录页面实际发布当前开发价格表确认错误消失，再按发布门禁合入 main 和部署 production。生产不自动发布业务价格表。
+
+# PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC 小程序最新豆单与阶梯价格同步（2026-08-27）
+
+- `DEV-613-LATEST-PUBLISHED-CATALOG`：员工小程序录单选择客户后只使用该客户当前适用的最新已发布工厂供货豆单；进入录单、从后台回到录单和每次打开商品选择器前都重新读取目录，订单表单接口返回 `Cache-Control: no-store`。新版豆单只含“曲奇”时，上一版的其他商品不得因页面停留、前后台切换或缓存继续出现在候选中。
+- `DEV-613-ATOMIC-TIER-QUANTITY-PRICE`：阶梯模板规格选中后先保持数量和单价为空。员工输入数量时必须在本地同步匹配同一已发布快照的阶梯价格，数量与单价一次性提交到订单行；尚在输入两位数时允许保留临时文本但隐藏旧单价。失焦仍无有效价格时恢复原数量和原单价并提示，不能出现新数量配旧价格、零价格或无价格但数量已成功的状态。
+- `DEV-613-MINIAPP-DOCS-DELIVERY`：定向测试覆盖最新目录刷新、禁止缓存、曲奇 14 件匹配 14-23 件阶梯和无档位原子回退；同步员工小程序与订单手册。完成 Go、小程序测试、类型检查和构建后合入 `develop` 并部署 development；服务器部署与微信小程序上传/审核仍是独立检查点，production 不在本需求自动部署范围。
+
+# PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION 当前价格表目录与 BOM 规格发布价投影（2026-08-27）
+
+- `DEV-614-CURRENT-PRICE-CATALOG-AUTHORITY`：订单接口以当前启用的 `product_catalog` 商品分组为价格表类型权威，将商品分组 ID 映射为价格表发布分类身份。已被当前商品分组替换、但因旧规则仍在自己分类内标记为默认的历史熟豆/生豆/挂耳价格表，不再进入 ERP 或员工小程序的当前录单目录；没有配置当前商品分组时保留旧目录兼容。
+- `DEV-614-CUTOVER-BOM-SPEC-PRICE-PROJECTION`：商品完成 BOM 规格权威切换后，即使不存在 `legacy_child_sku_bom_spec_mappings`，订单接口也必须用主商品 ID 读取价格表发布行，并按发布快照中的 `bom_spec_id/bom_variant_id` 精确分配到对应 BOM 规格。只选择并发布 454g 规格时，仅 454g 获得当前阶梯价，227g/1Kg 不得继承 454g 价格；尚未 cutover 的商品继续使用旧子 SKU 兼容键。
+- `DEV-614-DOCS-DEVELOPMENT-DELIVERY`：定向测试使用开发现场“当前初晓价格表 + 旧熟豆默认表”和“初晓主商品 1063、BOM 规格 7、无旧子 SKU 映射”复现 RED，并覆盖仓库投影、订单 API、ERP 规格目录与小程序目录。完成 Go/Vue/小程序及统一验证器后合入 `develop` 并部署 development；production 与微信正式上传不在本次范围。

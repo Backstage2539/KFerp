@@ -281,6 +281,7 @@ func registerMiniEmployeeAPI(e *echo.Echo, portal Service, sales EmployeeSales, 
 	}
 	orders := miniEmployeeOrderHandler{portal: portal, sales: sales}
 	e.GET("/api/mini/employee/order-form", func(c echo.Context) error {
+		c.Response().Header().Set("Cache-Control", "no-store")
 		employee, err := requireMiniEmployee(c.Request().Context(), c.Request().Header.Get(echo.HeaderAuthorization), portal, "orders.write")
 		if err != nil {
 			return miniEmployeeAuthError(c, err)

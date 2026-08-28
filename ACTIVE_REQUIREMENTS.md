@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-614-CURRENT-PRICE-CATALOG-BOM-SPEC-PROJECTION
+- Branch: `codex/mini-current-price-catalog-sync`
+- Owner/session: Codex / 2026-08-27
+- Status: implementation and development delivery in progress
+- Scope: 开发环境录单只使用当前启用商品分组对应的已发布价格表，排除已被替换但仍各自标记为默认的旧分类价格表；BOM 规格已切换商品直接以主商品读取发布价，并按 `bom_spec_id/bom_variant_id` 精确投影，避免无旧子 SKU 映射时 ERP 商品为空。
+- DEV: DEV-614-CURRENT-PRICE-CATALOG-AUTHORITY; DEV-614-CUTOVER-BOM-SPEC-PRICE-PROJECTION; DEV-614-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: targeted repository/API RED→GREEN; Go/Vue/miniapp and release gates pending
+- Deployment: development only; production and formal miniapp upload are out of scope
+
+### PR-613-MINI-LATEST-CATALOG-TIER-PRICE-SYNC
+- Branch: `codex/mini-latest-price-sync`
+- Owner/session: Codex / 2026-08-27
+- Status: development-delivered
+- Scope: 小程序员工录单在进入页面、回到前台和打开商品选择器前重新读取当前客户最新已发布工厂供货豆单，禁止旧目录缓存；阶梯模板商品选择规格后先等待有效数量，数量与对应阶梯单价原子同步，匹配或取价失败时不接受新数量。
+- DEV: DEV-613-LATEST-PUBLISHED-CATALOG; DEV-613-ATOMIC-TIER-QUANTITY-PRICE; DEV-613-MINIAPP-DOCS-DELIVERY
+- Verifier: targeted Go/miniapp RED→GREEN; miniapp typecheck/build; `scripts/verify_kferp.sh changed`; development API/package smoke
+- Deployment: full Go/Vue/miniapp gates passed; merged to `develop` and deployed to development with the fixed development miniapp package. Production business data was only inspected read-only: latest `V3.0.11` contains only 曲奇 while prior `V3.0.10` contains 19 products. WeChat DevTools upload/review and production remain separate.
+
 ### PR-612-PRICE-LIST-RUNTIME-SPEC-UNIT-PUBLISH
 - Branch: `codex/price-list-sku7-runtime-fix`
 - Owner/session: Codex / 2026-08-27

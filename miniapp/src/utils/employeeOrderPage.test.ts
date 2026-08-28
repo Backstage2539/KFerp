@@ -17,7 +17,7 @@ describe('employee mini order entry page contract', () => {
 
   it('keeps spec weight derived from the selected spec instead of exposing an editable field', () => {
     expect(pageSource).toContain(':disabled="productCatalogLoading || !familyForItem(item)"')
-    expect(pageSource).toContain('employeeOrderItemFromSpec(target, family, spec)')
+    expect(pageSource).toContain('employeeOrderItemForSpecSelection(target, family, spec)')
     expect(pageSource).not.toContain('v-model="item.spec_g"')
   })
 
@@ -164,6 +164,14 @@ describe('employee mini order entry page contract', () => {
     expect(restoreDraftSource).toContain('await loadCustomerProductCatalog')
     expect(restoreDraftSource).toContain('preserveManualPrice: true')
     expect(restoreDraftSource).not.toContain('preserveUnitPrice: true')
+    expect(pageSource).toContain("import { onLoad, onShow } from '@dcloudio/uni-app'")
+    expect(pageSource).toContain('onShow(() =>')
+    expect(pageSource).toContain('void refreshCurrentProductCatalog()')
+    const openProductSource = pageSource.slice(
+      pageSource.indexOf('async function openProductSelector'),
+      pageSource.indexOf('function closeProductSelector'),
+    )
+    expect(openProductSource).toContain('await refreshCurrentProductCatalog()')
   })
 
   it('reuses the entry page for pre-production editing without touching the create-order draft', () => {
@@ -191,8 +199,13 @@ describe('employee mini order entry page contract', () => {
     expect(pageSource).toContain('原订单应收按原设置向下取整')
     expect(pageSource).toContain("const editRetailOrder = /零售|retail/i.test")
     expect(pageSource).toContain('targetCustomerID, editRetailOrder)')
-    expect(pageSource).toContain('@input="quantityChanged(item)"')
-    expect(pageSource).toContain('repriceEmployeeOrderItemForQuantity')
+    expect(pageSource).toContain('@input="quantityChanged(item, $event)"')
+    expect(pageSource).not.toContain('v-model="item.qty"')
+    expect(pageSource).toContain('quantityInputValue(item)')
+    expect(pageSource).toContain('@blur="quantityBlurred(item)"')
+    expect(pageSource).toContain('unitPriceInputValue(item)')
+    expect(pageSource).toContain(':disabled="hasPendingQuantity(item) || Number(item.qty) <= 0"')
+    expect(pageSource).toContain('applyEmployeeOrderQuantityChange')
     expect(pageSource).toContain('isEmployeeOrderNonNegativeMoney')
     expect(pageSource).toContain('cause instanceof MiniRequestError && cause.statusCode === 409')
     expect(pageSource).toContain("title: '订单已不能编辑'")
