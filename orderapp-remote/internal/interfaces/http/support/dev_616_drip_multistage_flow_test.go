@@ -11,10 +11,10 @@ func TestDev616DripMultistageFlowContracts(t *testing.T) {
 	reqStore := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, row := range []struct{ table, code, status, assignee string }{
 		{"req_product", "PR-616-DRIP-MULTISTAGE-MANUFACTURING-FLOW", "review", "VA"},
-		{"req_dev", "DEV-616-PRICING-RULE-RIGHT-DRAWER", "doing", "Codex"},
-		{"req_dev", "DEV-616-DRIP-MULTISTAGE-BOM-CONFIG", "doing", "Codex"},
-		{"req_dev", "DEV-616-DRIP-PRICE-LIST-ORDER-E2E", "doing", "Codex"},
-		{"req_dev", "DEV-616-DOCS-DEVELOPMENT-DELIVERY", "doing", "Codex"},
+		{"req_dev", "DEV-616-PRICING-RULE-RIGHT-DRAWER", "done", "Codex"},
+		{"req_dev", "DEV-616-DRIP-MULTISTAGE-BOM-CONFIG", "done", "Codex"},
+		{"req_dev", "DEV-616-DRIP-PRICE-LIST-ORDER-E2E", "done", "Codex"},
+		{"req_dev", "DEV-616-DOCS-DEVELOPMENT-DELIVERY", "done", "Codex"},
 		{"req_review", "REV-616-DRIP-MULTISTAGE-MANUFACTURING-FLOW", "todo", "VA"},
 	} {
 		pattern := regexp.MustCompile(`(?m)^[\t ]*\{table: "` + regexp.QuoteMeta(row.table) + `"[^\n]*code: "` + regexp.QuoteMeta(row.code) + `"[^\n]*status: "` + regexp.QuoteMeta(row.status) + `"[^\n]*assignee: "` + regexp.QuoteMeta(row.assignee) + `"[^\n]*\},[\t ]*$`)
