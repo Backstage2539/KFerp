@@ -1200,5 +1200,5 @@ test('flat price rows expose the shared pricing-rule editor before retry failure
 test('flat price row pricing-rule editor is anchored as a full-height right drawer', () => {
   assert.match(viewSource, /<div v-if="priceListPricingRuleEditorDrawerOpen" class="settings-drawer-mask"/)
   assert.match(viewSource, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*display:\s*flex;[^}]*justify-content:\s*flex-end;/s)
-  assert.match(viewSource, /\.settings-drawer\s*\{[^}]*height:\s*100vh;/s)
+  assert.match(viewSource, /\.settings-drawer\s*\{[^}]*box-sizing:\s*border-box;[^}]*height:\s*100vh;/s)
 })

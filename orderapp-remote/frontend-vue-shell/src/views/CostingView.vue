@@ -5049,7 +5049,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .warning-banner { border: 1px solid #e8c28f; border-radius: 8px; background: #fff8eb; color: #8a4b00; padding: 10px; margin-bottom: 12px; }
 .drawer-backdrop,
 .settings-drawer-mask { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.25); display: flex; justify-content: flex-end; }
-.settings-drawer { width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
+.settings-drawer { box-sizing: border-box; width: min(620px, 100vw); height: 100vh; overflow: auto; background: #f7f7f7; border-left: 1px solid #d9d9d9; padding: 14px; box-shadow: -18px 0 36px rgba(0,0,0,.18); }
 .price-list-pricing-rule-editor-drawer { width: min(860px, 96vw); }
 .price-list-pricing-rule-editor-body { display: grid; gap: 12px; align-content: start; }
 .price-list-pricing-rule-selector { display: grid; gap: 5px; border: 1px solid #e1d9ce; border-radius: 8px; padding: 10px; background: #fff; }
