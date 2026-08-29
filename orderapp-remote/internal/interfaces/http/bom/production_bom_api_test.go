@@ -2,6 +2,7 @@ package bom
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -398,5 +399,23 @@ func TestProductionBomAPIUsesUnifiedMaterialOutputAndFilters(t *testing.T) {
 	}
 	if repo.boundProductionBomOutput.OutputType != "material" || repo.boundProductionBomOutput.OutputID != 95 || repo.boundProductionBomOutput.BomID != 22 {
 		t.Fatalf("bound output command = %+v", repo.boundProductionBomOutput)
+	}
+}
+
+func TestCreateProductionBomAPIKeepsStableDeprecatedOutputError(t *testing.T) {
+	repo := &apiFakeRepo{createdProductionBomErr: errors.New("产出物料不存在或已失效")}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-boms", strings.NewReader(`{"name":"初晓磨粉","output_type":"material","output_material_id":74,"output_qty":1,"output_unit":"kg"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"产出物料不存在或已失效"`) {
+		t.Fatalf("stale output response status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "no rows in result set") {
+		t.Fatalf("database empty-row error leaked to API: %s", rec.Body.String())
 	}
 }

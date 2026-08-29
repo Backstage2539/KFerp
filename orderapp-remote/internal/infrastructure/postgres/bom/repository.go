@@ -175,7 +175,7 @@ func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
 }
 
 func listProductionBomMaterialOptions(ctx context.Context, q bomQueryer, schema string, materialIDs []int64) ([]bomapp.Option, error) {
-	rows, err := q.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg'), COALESCE(NULLIF(code,''),'') FROM "+schema+".materials WHERE ($1::bigint[] IS NULL OR id=ANY($1)) ORDER BY name", materialIDs)
+	rows, err := q.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg'), COALESCE(NULLIF(code,''),'') FROM "+schema+".materials WHERE deprecated_at IS NULL AND ($1::bigint[] IS NULL OR id=ANY($1)) ORDER BY name", materialIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -1707,6 +1707,9 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	if strings.EqualFold(strings.TrimSpace(cmd.OutputType), "material") {
 		var isSemi bool
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputMaterialID).Scan(&isSemi); err != nil {
+			if err == pgx.ErrNoRows {
+				return bomapp.ProductionBomSummary{}, fmt.Errorf("产出物料不存在或已失效")
+			}
 			return bomapp.ProductionBomSummary{}, err
 		}
 		if !isSemi {
@@ -1812,6 +1815,9 @@ func (r Repository) updateProductionBomTx(ctx context.Context, tx pgx.Tx, cmd bo
 		if strings.EqualFold(strings.TrimSpace(cmd.OutputType), "material") {
 			var isSemi bool
 			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(is_semi_finished,false) FROM %s.materials WHERE id=$1 AND deprecated_at IS NULL`, r.schema), cmd.OutputMaterialID).Scan(&isSemi); err != nil {
+				if err == pgx.ErrNoRows {
+					return bomapp.ProductionBomSummary{}, fmt.Errorf("产出物料不存在或已失效")
+				}
 				return bomapp.ProductionBomSummary{}, err
 			}
 			if !isSemi {

@@ -19,6 +19,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Deployment: pending merge to `develop` and development deploy.
 - Last update: 2026-08-30 Asia/Shanghai
 
+### PR-617-PRODUCTION-BOM-DEPRECATED-MATERIAL-GUARD
+- Branch: `codex/pr617-bom-deprecated-output`
+- Owner/session: Codex / 2026-08-30
+- Status: implementation and development delivery in progress
+- Scope: 生产 BOM 的物料选项只返回未失效档案；旧页面或过期请求提交失效产出物料时返回明确中文错误，不再泄漏 `no rows in result set`。
+- DEV: DEV-617-ACTIVE-MATERIAL-OPTIONS; DEV-617-STABLE-OUTPUT-MATERIAL-ERROR; DEV-617-DOCS-DEVELOPMENT-DELIVERY
+- Verifier: PostgreSQL repository RED→GREEN; handler/API error contract; Go/support/release gates; development authenticated API smoke
+- Deployment: development only; `main` and production are out of scope
+
 ### PR-616-DRIP-MULTISTAGE-MANUFACTURING-FLOW
 - Branch: `codex/pr616-drip-multistage-flow`; follow-ups `codex/pr616-multilevel-plan-scope`, `codex/pr616-material-count-capacity`, `codex/pr616-final-acceptance`
 - Owner/session: Codex / 2026-08-29
