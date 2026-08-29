@@ -1373,7 +1373,7 @@ func TestCreateProductKeepsBomParamsOnInstantCoffee(t *testing.T) {
 	}
 }
 
-func TestCreateProductDropsLegacySalesSpecTemplateAuthority(t *testing.T) {
+func TestCreateProductKeepsDirectProductUnitAuthorityWithoutLegacyTemplate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 
@@ -1390,8 +1390,8 @@ func TestCreateProductDropsLegacySalesSpecTemplateAuthority(t *testing.T) {
 	if repo.create.UnitTemplateID != 0 {
 		t.Fatalf("new product unit_template_id=%d, want 0 because BOM owns sales specifications", repo.create.UnitTemplateID)
 	}
-	if repo.create.UnitRuleOverrideJSON != "{}" {
-		t.Fatalf("new product unit override=%q, want no legacy product-level unit authority", repo.create.UnitRuleOverrideJSON)
+	if repo.create.UnitRuleOverrideJSON != `{"inventory_unit":"kg","order_unit":"袋"}` {
+		t.Fatalf("new product unit override=%q, want direct product inventory/sales units preserved", repo.create.UnitRuleOverrideJSON)
 	}
 }
 

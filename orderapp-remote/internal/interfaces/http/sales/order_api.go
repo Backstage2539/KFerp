@@ -707,6 +707,8 @@ func apiProducts(ps []ProductOption) []map[string]any {
 			"order_unit":                           p.OrderUnit,
 			"unit_conversion_json":                 p.UnitConversionJSON,
 			"integer_unit":                         p.IntegerUnit,
+			"spec_identity_mode":                   p.SpecIdentityMode,
+			"bom_spec_authoritative":               p.BomSpecAuthoritative,
 		}
 		tiers := make([]map[string]any, 0, len(p.Tiers))
 		for _, t := range p.Tiers {

@@ -749,6 +749,23 @@ func productInventoryUnitRuleJSON(raw string, inventoryUnit *string, integerInve
 		}
 		rule["sales_unit_rules"] = salesRules
 	}
+	effectiveInventoryUnit := stringValueFromRule(rule, "inventory_unit")
+	effectiveDefaultSalesUnit := stringValueFromRule(rule, "default_sales_unit")
+	if effectiveInventoryUnit != "" && effectiveDefaultSalesUnit == effectiveInventoryUnit {
+		conversion, _ := rule["unit_conversion_json"].(map[string]any)
+		if conversion == nil {
+			conversion = map[string]any{}
+		}
+		inventoryBySalesUnit, _ := conversion[effectiveDefaultSalesUnit].(map[string]any)
+		if inventoryBySalesUnit == nil {
+			inventoryBySalesUnit = map[string]any{}
+		}
+		if _, exists := inventoryBySalesUnit[effectiveInventoryUnit]; !exists {
+			inventoryBySalesUnit[effectiveInventoryUnit] = 1
+		}
+		conversion[effectiveDefaultSalesUnit] = inventoryBySalesUnit
+		rule["unit_conversion_json"] = conversion
+	}
 	encoded, err := json.Marshal(rule)
 	if err != nil {
 		return "", err

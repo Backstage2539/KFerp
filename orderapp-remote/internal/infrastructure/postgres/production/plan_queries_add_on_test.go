@@ -118,6 +118,64 @@ func TestSelectedProductionPlanStartNeedsKeepsAddOnOrdersWhenOlderOrdersArePlann
 	}
 }
 
+func TestSplitProductionDemandRowByPartsKeepsDirectProductUnitGapSelectable(t *testing.T) {
+	row := UnprodNeedRow{
+		ProductID:                1066,
+		Product:                  "盒装挂耳",
+		OrderNos:                 "SO-BOX",
+		SpecLabel:                "盒",
+		SalesUnit:                "盒",
+		SpecG:                    0,
+		NeedUnits:                2,
+		SalesSpecCount:           2,
+		InventoryQtyPerSalesUnit: 1,
+		InventoryUnit:            "盒",
+		NeedInventoryQty:         2,
+		AvailableInventoryQty:    0,
+		GapInventoryQty:          2,
+	}
+	parts := []productionDemandPart{{
+		ProductID: 1066,
+		SpecG:     0,
+		OrderNo:   "SO-BOX",
+		NeedUnits: 2,
+		State:     productionDemandPlanState{Status: "unplanned"},
+	}}
+
+	got := splitProductionDemandRowByParts(row, parts)
+	if len(got) != 1 {
+		t.Fatalf("split direct-product rows = %d, want 1: %+v", len(got), got)
+	}
+	if !got[0].DemandSelectable || got[0].GapInventoryQty != 2 || got[0].GapSalesSpecCount != 2 || got[0].GapG != 0 {
+		t.Fatalf("direct-product unit gap = %+v, want selectable 2盒 with zero legacy grams", got[0])
+	}
+}
+
+func TestMergeDripPlanRowsSuppressesLegacyGramProjectionForDirectProductDemand(t *testing.T) {
+	direct := productionapp.UnprodNeedRow{
+		ProductID:                1066,
+		SelectionKey:             "1066-0",
+		Product:                  "盒装挂耳",
+		SpecLabel:                "盒",
+		SalesUnit:                "盒",
+		InventoryQtyPerSalesUnit: 1,
+		InventoryUnit:            "盒",
+		GapInventoryQty:          2,
+	}
+	legacyDrip := productionapp.UnprodNeedRow{
+		ProductID:      1066,
+		Product:        "盒装挂耳",
+		SpecG:          10,
+		GapG:           20,
+		ProductionKind: "drip_bag",
+	}
+
+	got := mergeDripPlanRows([]productionapp.UnprodNeedRow{direct}, []productionapp.UnprodNeedRow{legacyDrip})
+	if len(got) != 1 || got[0].SelectionKey != "1066-0" || got[0].SpecG != 0 {
+		t.Fatalf("merged direct-product demand = %+v, want only authoritative product-unit row", got)
+	}
+}
+
 func TestDripProductionPlanNeedsUseOrderPriceSnapshotUnitConversion(t *testing.T) {
 	b, err := os.ReadFile("plan_queries.go")
 	if err != nil {

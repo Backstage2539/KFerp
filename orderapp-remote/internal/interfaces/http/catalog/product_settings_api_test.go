@@ -1812,8 +1812,14 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	if err := json.Unmarshal([]byte(repo.createdPublic.UnitRuleOverrideJSON), &createdRule); err != nil {
 		t.Fatalf("created unit rule json invalid: %v raw=%s", err, repo.createdPublic.UnitRuleOverrideJSON)
 	}
-	if len(createdRule) != 0 {
-		t.Fatalf("created product unit rule = %#v, want BOM-owned specifications with no legacy product unit authority", createdRule)
+	if createdRule["inventory_unit"] != "盒" || createdRule["integer_inventory_unit"] != true || createdRule["default_sales_unit"] != "袋" {
+		t.Fatalf("created product unit rule = %#v, want direct product inventory/sales unit authority", createdRule)
+	}
+	if conversion, ok := createdRule["unit_conversion_json"].(map[string]any); !ok || conversion["袋"].(map[string]any)["盒"] != float64(6) {
+		t.Fatalf("created product unit conversion = %#v", createdRule["unit_conversion_json"])
+	}
+	if salesRules, ok := createdRule["sales_unit_rules"].(map[string]any); !ok || salesRules["袋"].(map[string]any)["integer"] != true {
+		t.Fatalf("created product sales unit rules = %#v", createdRule["sales_unit_rules"])
 	}
 }
 
@@ -3026,7 +3032,7 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"name":"耶加雪菲挂耳","product_kind":"drip_bag","drip_bag_grams":10,"drip_box_bag_count":10,"allow_fulfillment_order":true,"allow_mall_order":true}`
+	body := `{"name":"耶加雪菲挂耳","product_kind":"drip_bag","drip_bag_grams":10,"drip_box_bag_count":10,"allow_fulfillment_order":true,"allow_mall_order":true,"inventory_unit":"盒","integer_inventory_unit":true,"default_sales_unit":"盒"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -3037,6 +3043,11 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	}
 	if !repo.publicCreated || repo.createdPublic.ProductKind != "drip_bag" || repo.createdPublic.DripBagGrams != 10 || repo.createdPublic.DripBoxBagCount != 10 || !repo.createdPublic.AllowFulfillmentOrder || !repo.createdPublic.AllowMallOrder {
 		t.Fatalf("drip product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
+	}
+	for _, want := range []string{`"inventory_unit":"盒"`, `"integer_inventory_unit":true`, `"default_sales_unit":"盒"`, `"unit_conversion_json":{"盒":{"盒":1}}`} {
+		if !strings.Contains(repo.createdPublic.UnitRuleOverrideJSON, want) {
+			t.Fatalf("drip product unit rule %q missing %s", repo.createdPublic.UnitRuleOverrideJSON, want)
+		}
 	}
 	var payload struct {
 		Product struct {

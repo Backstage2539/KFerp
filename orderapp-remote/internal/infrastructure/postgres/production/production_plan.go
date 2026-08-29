@@ -227,11 +227,11 @@ func validateProductionDemandInventoryUnitAgainstBomOutput(group startRunGroup, 
 		// production quantity snapshot or the current concrete SKU conversion.
 		return nil
 	}
-	_, bomOutputDimension := normalizeProductionPlanQuantityDimension(bomRoute.BomOutputUnit)
+	bomOutputUnit, bomOutputDimension := normalizeProductionPlanQuantityDimension(bomRoute.BomOutputUnit)
+	if strings.EqualFold(strings.TrimSpace(inventoryUnit), strings.TrimSpace(bomOutputUnit)) {
+		return nil
+	}
 	if group.BomSpecID > 0 {
-		if strings.EqualFold(strings.TrimSpace(inventoryUnit), strings.TrimSpace(bomRoute.BomOutputUnit)) {
-			return nil
-		}
 		return fmt.Errorf(
 			"production demand unit incompatible with BOM specification output: product %s / spec %s: inventory unit %s, BOM output unit %s",
 			firstNonEmpty(group.ProductName, fmt.Sprintf("product#%d", group.ProductID)),
@@ -244,7 +244,7 @@ func validateProductionDemandInventoryUnitAgainstBomOutput(group startRunGroup, 
 		return nil
 	}
 	reason := "production demand unit incompatible with BOM output"
-	if inventoryDimension != "weight" {
+	if inventoryDimension == "count" {
 		reason = "formal production planning requires a weight inventory unit"
 	}
 	return fmt.Errorf(
@@ -405,7 +405,7 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 		group.InputG = productionInputGFromBomMaterialLoss(group.NeedG, bomMaterialLossRate)
 	}
 	plan := plannedFinishedInventoryAddition(group.SpecG, group.NeedG)
-	if group.BomSpecID > 0 {
+	if group.BomSpecID > 0 || (group.PlannedInventoryQty > 0 && productionWeightUnitGrams(group.InventoryUnit) <= 0) {
 		plan.Units = int64(math.Ceil(group.PlannedInventoryQty))
 		plan.LooseG = 0
 	}
@@ -2486,7 +2486,7 @@ func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOr
 		plannedOutputG = wo.PlannedG
 	}
 	plan := runningInventoryPlan(wo.SpecG, plannedOutputG, wo.PlannedG, yieldRate)
-	if wo.BomSpecID > 0 {
+	if wo.BomSpecID > 0 || (wo.PlannedInventoryQty > 0 && productionWeightUnitGrams(wo.InventoryUnit) <= 0) {
 		plan.Units = int64(math.Ceil(wo.PlannedInventoryQty))
 		plan.LooseG = 0
 	}
