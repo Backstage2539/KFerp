@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-619-PRODUCT-BOM-SINGLE-OUTPUT
 - Branch: `codex/product-bom-single-output-mode-20260830`
 - Owner/session: Codex / 2026-08-30
-- Status: implementation verified; development delivery in progress
+- Status: development-delivered; Van page acceptance pending
 - Scope: 商品 BOM 支持“单一产出”和“多规格产出”；单一产出直接使用商品身份、产出数量/单位与普通配方组件，不创建隐藏规格，并贯通成本、生产、库存、价格与订单。
 - DEV: DEV-619-BOM-SPECIFICATION-MODE; DEV-619-DIRECT-PRODUCT-IDENTITY; DEV-619-VUE-SINGLE-OUTPUT; DEV-619-MULTILEVEL-E2E; DEV-619-DOCS-DEVELOPMENT-DELIVERY
 - Verifier:
@@ -17,8 +17,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - API: RED captured; create/update/publish/default identity coverage GREEN
   - Frontend/build: RED captured; 1044 Vue tests and Vite build GREEN
   - Manual: production/costing/order manuals updated
-  - Review/acceptance: unified verifier GREEN; development business acceptance pending
-- Deployment: development only; pending verification, push, merge and deploy
+  - Review/acceptance: unified verifier GREEN; development sample confirmed BOM 22002, cost recursion, plan 92, direct-product inventory, price publication and order 1590; Van page acceptance pending
+- Deployment: development `origin/develop@4da005b95254a6cceee6c691c3b358fede4f0e94`; login smoke HTTP 200; backup `/opt/stacks/erp/orderapp.backup.deploy-20260830024922-4da005b95254`; rollback image `kferp-orderapp-rollback:development-20260830024922-4da005b95254`; production untouched
 - Last update: 2026-08-30 Asia/Shanghai
 - Notes: requested PR-618 was already occupied on latest `origin/develop`; reserved the next free id PR-619.
 

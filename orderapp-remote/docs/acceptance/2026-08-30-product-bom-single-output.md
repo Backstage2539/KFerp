@@ -13,19 +13,24 @@
 
 ## GREEN
 
-- 应用、HTTP、PostgreSQL BOM、商品身份、库存、成本与销售定向包测试通过。
+- 应用、HTTP、PostgreSQL BOM、商品身份、库存、成本、生产与销售定向包测试通过。
 - Vue BOM 44 项测试通过，覆盖字段显隐、切换确认、请求载荷和组件规格条件校验。
-- 完整 Go、Vite、统一验证器和 development preflight/部署证据在交付完成后补记。
+- `scripts/verify_kferp.sh all` 通过：完整 Go、Vue 1044 项测试与 Vite 构建均为绿色。
+- development preflight 通过；`origin/develop@4da005b95254a6cceee6c691c3b358fede4f0e94` 已部署，外网登录烟测 HTTP 200。
 
 ## 业务验收
 
-1. 新建盒装挂耳商品 BOM，选择“单一产出”，产出 `1盒`。
-2. 配方加入 `10袋袋装挂耳` 与包装材料；袋装挂耳组件不选择 BOM 规格。
-3. 发布并设默认，确认商品返回 `spec_identity_mode=product` 且 `bom_spec_authoritative=false`。
-4. 验证成本递归、生产计划依赖、库存收发、价格表和 ERP 订单均以商品 ID 和盒/袋库存单位工作，两个 BOM 规格字段为 0。
-5. 验证原多规格咖啡豆仍要求精确 BOM 规格，历史订单和库存不变。
+1. development 创建商品 `1065 PR619验收-袋装挂耳` 与 `1066 PR619验收-盒装挂耳`，发布并设默认单一产出 BOM `22001/V001`、`22002/V001`；页面显示盒装产出 `1盒`，配方为 `10袋袋装挂耳 + 1个挂耳盒子`，商品组件不选择 BOM 规格。
+2. 商品 `1065/1066` 返回 `spec_identity_mode=product`、`bom_spec_authoritative=false`；BOM、库存、价格、计划与订单当前业务行的 `bom_spec_id/bom_variant_id` 均为 0。
+3. 成本试算完成且无未解析组件：盒装挂耳 BOM 成本 `10.18/盒`，其中袋装挂耳 `10袋` 为 `9.98`，挂耳盒子为 `0.20`。
+4. 订单 `1590 / SO-20260830-0001` 使用商品 `1066`、`2盒`、发布价格表 `112 / V3.0.32`；订单行保持直接商品身份。
+5. 生产计划 `92 / PP-0000000092` 形成 `2盒商品1066 -> 20袋商品1065 -> 0.2kg物料71`，依赖分别保存 `required_units=20` 与 `required_g=200`。
+6. 正式库存接口把商品 `1066` 调整为 `1盒`，读取结果为规格 ID 0、库存单位盒、`spec_identity_mode=product`，并产生 `0盒 -> 1盒` 操作日志。
+7. 原多规格商品 `594 初晓 挂耳`、`1063 初晓-商品` 仍为 `bom_spec`，默认 BOM `8316/18587` 仍为 `spec_group`。
+8. BOM 创建、草稿修改、发布、设默认，订单创建和成品库存调整均可在操作日志检索到。
 
-## 未完成边界
+## 交付边界
 
-- development 自动业务样例、合并部署与 Van 页面验收尚未执行。
+- 自动化与 development 业务样例已完成；Van 页面验收仍由 `REV-619-PRODUCT-BOM-SINGLE-OUTPUT` 跟踪，不在 Codex 自动验收中代签。
+- 回滚点：源码 `/opt/stacks/erp/orderapp.backup.deploy-20260830024922-4da005b95254`，镜像 `kferp-orderapp-rollback:development-20260830024922-4da005b95254`。
 - `main` 与 production 不在本次范围。
