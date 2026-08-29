@@ -246,6 +246,27 @@ func SpecIdentityMode(state MigrationState, legacyCatalogProduct bool) string {
 	return "legacy_sku"
 }
 
+const (
+	SpecIdentityModeLegacySKU = "legacy_sku"
+	SpecIdentityModeProduct   = "product"
+	SpecIdentityModeBOMSpec   = "bom_spec"
+)
+
+// ResolveSpecIdentityMode prefers the persisted business identity selected by
+// the default BOM. Empty/older rows retain the pre-PR-619 migration behavior.
+func ResolveSpecIdentityMode(stored string, state MigrationState, legacyCatalogProduct bool) string {
+	switch strings.ToLower(strings.TrimSpace(stored)) {
+	case SpecIdentityModeLegacySKU, SpecIdentityModeProduct, SpecIdentityModeBOMSpec:
+		return strings.ToLower(strings.TrimSpace(stored))
+	default:
+		return SpecIdentityMode(state, legacyCatalogProduct)
+	}
+}
+
+func IsBOMSpecAuthoritativeWithMode(stored string, state MigrationState, legacyCatalogProduct bool) bool {
+	return ResolveSpecIdentityMode(stored, state, legacyCatalogProduct) == SpecIdentityModeBOMSpec
+}
+
 // ProductSpecOption is the compatibility contract consumed by catalog,
 // pricing, order entry and mini-program clients during gradual cutover.
 // Legacy identity is never overloaded with bom_spec_id.

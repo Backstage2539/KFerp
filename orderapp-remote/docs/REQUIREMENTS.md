@@ -1688,3 +1688,11 @@
 - `DEV-618-ROUTE-CAPACITY-ISSUE-DIAGNOSTIC`：生产 BOM 发布和工艺路线发布使用同一套标准成本产能档校验。失败信息必须显示工艺路线、工序顺序和名称、标准成本产能档及工位，并分别说明未选择产能档、产能档停用/不存在、工位停用/不存在、工位不适用当前工序，最后引导回该工艺路线重新选择有效产能档。
 - 原有标准成本门禁保持不变：只有启用产能档、启用工位且工位适用当前工序时才能发布；本需求只提高错误的可定位性，不自动替换产能档、不改变标准成本，也不回算历史 BOM、工单或价格快照。
 - 后端单元测试覆盖当前 development 的 `PR-616 挂耳生产路线 → 咖啡研磨 → 咖啡研磨 1kg/批 → PR-616 挂耳生产工位` 失效组合及工位停用、未选择产能档分支；BOM 发布 API 测试确认详细错误原样返回。
+
+# PR-619-PRODUCT-BOM-SINGLE-OUTPUT 商品 BOM 单一产出与直接商品身份（2026-08-30）
+
+- `DEV-619-BOM-SPECIFICATION-MODE`：商品 BOM 明确保存 `specification_mode=single|spec_group`。`single` 直接产出商品，使用版本的产出数量、商品库存单位与普通组件明细，禁止规格模板、规格主体物料和规格组合；`spec_group` 继续要求已发布规格模板、有效主体物料、完整规格组且恰好一个默认规格。物料产出只允许 `single`。旧 BOM 有规格组合或规格来源时回填 `spec_group`，其余回填 `single`；显式混合两种明细必须整笔拒绝。
+- `DEV-619-DIRECT-PRODUCT-IDENTITY`：商品业务身份扩展为 `legacy_sku|product|bom_spec`。默认 BOM 为 `single` 时使用 `product_id` 且 `bom_spec_id/bom_variant_id=0`，`bom_spec_authoritative=false`；默认 BOM 为 `spec_group` 时继续使用精确 BOM 规格身份。多规格切单一产出前必须检查旧规格库存、预留、未完成订单、计划、工单和履约，存在任一依赖时阻止切换且不得留下部分写入。
+- `DEV-619-VUE-SINGLE-OUTPUT`：Vue BOM 抽屉提供“单一产出 / 多规格产出”。新建商品 BOM 默认单一产出；单一产出显示产出数量、单位和普通配方并隐藏模板与主体物料，多规格产出显示原规格组工作区。草稿切换结构需确认并清除不兼容明细；已发布结构变化通过替代 BOM 草稿完成。直接商品组件不选择规格，BOM 规格商品组件仍强制选择当前默认已发布规格。
+- `DEV-619-MULTILEVEL-E2E`：成本和生产计划按默认已发布 BOM 递归。盒装挂耳可表达 `1盒 = 10袋袋装挂耳 + 包装材料`，并继续向袋装挂耳的默认 BOM 展开；缺少默认 BOM、单位不兼容、自引用或循环引用时失败关闭。库存、价格表和 ERP 订单对直接商品身份只使用商品 ID 与商品库存单位，历史多规格商品、订单和库存保持原身份。
+- `DEV-619-DOCS-DEVELOPMENT-DELIVERY`：创建、修改、发布、设默认和结构切换写入操作日志；同步生产、成本与订单手册、PR/DEV/REV 和独立验收记录。完成定向 RED/GREEN、全量 Go/Vue/Vite、统一验证器与 development preflight 后合入 `develop` 并仅部署 development；`main` 与 production 不操作。

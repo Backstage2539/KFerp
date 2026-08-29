@@ -17,6 +17,8 @@ func TestSchemaOwnsMigrationStateMappingsAndCompatibilityColumns(t *testing.T) {
 		"legacy_child_sku_bom_spec_mappings",
 		"product_bom_spec_migrations",
 		"legacy_catalog_product BOOLEAN NOT NULL DEFAULT true",
+		"spec_identity_mode TEXT NOT NULL DEFAULT ''",
+		"direct_product_identity_requires_zero_spec",
 		"CHECK(state IN ('legacy','preparing','ready','cutover'))",
 		"bom_spec_id BIGINT NOT NULL DEFAULT 0",
 		"bom_variant_id BIGINT NOT NULL DEFAULT 0",
@@ -44,7 +46,7 @@ func TestGenericBOMSpecResolverLocksMigrationDuringCurrentVariantResolution(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	pattern := regexp.MustCompile(`(?s)SELECT state FROM %s\.product_bom_spec_migrations WHERE product_id=\$1\s+FOR SHARE`)
+	pattern := regexp.MustCompile(`(?s)SELECT state,.*FROM %s\.product_bom_spec_migrations\s+WHERE product_id=\$1\s+FOR SHARE`)
 	if !pattern.Match(source) {
 		t.Fatal("generic BOM spec resolver must hold the migration row FOR SHARE while resolving the current default BOM variant")
 	}

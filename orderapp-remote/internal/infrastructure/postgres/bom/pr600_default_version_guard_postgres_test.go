@@ -175,14 +175,14 @@ func TestPublishProductBOMVersionGuardsOnlyRemovedSpecsPostgres(t *testing.T) {
 	}
 }
 
-func TestBindProductProductionBomRequiresValidSpecGroupOnlyAfterCutoverPostgres(t *testing.T) {
+func TestBindProductProductionBomUsesExplicitStructureAndSetsDirectIdentityPostgres(t *testing.T) {
 	ctx, pool, schema := newPR598BomBindingTestDB(t)
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %[1]s.products(id,name,active) VALUES(501,'规格商品',true),(502,'兼容商品',true);
-		INSERT INTO %[1]s.production_boms(id,code,name,output_type,output_product_id,status) VALUES
-			(601,'BOM-601','当前规格组','product',501,'active'),
-			(602,'BOM-602','候选空规格组','product',501,'active'),
-			(603,'BOM-603','兼容空规格组','product',502,'active');
+		INSERT INTO %[1]s.production_boms(id,code,name,output_type,specification_mode,output_product_id,status) VALUES
+			(601,'BOM-601','当前规格组','product','spec_group',501,'active'),
+			(602,'BOM-602','候选空规格组','product','spec_group',501,'active'),
+			(603,'BOM-603','兼容单一产出','product','single',502,'active');
 		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,output_unit,published_at,created_at) VALUES
 			(701,601,'V001','published','袋',now()-interval '1 minute',now()-interval '1 minute'),
 			(702,602,'V001','published','袋',now(),now()),
@@ -215,6 +215,13 @@ func TestBindProductProductionBomRequiresValidSpecGroupOnlyAfterCutoverPostgres(
 	if _, err := repo.BindProductProductionBom(ctx, bomapp.BindProductProductionBomCommand{
 		ProductID: 502, BomID: 603, Actor: "legacy-switch",
 	}); err != nil {
-		t.Fatalf("legacy product must keep empty specification-group compatibility: %v", err)
+		t.Fatalf("single-output product must bind without a specification group: %v", err)
+	}
+	var identityMode string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT spec_identity_mode FROM %s.product_bom_spec_migrations WHERE product_id=502`, schema)).Scan(&identityMode); err != nil {
+		t.Fatal(err)
+	}
+	if identityMode != "product" {
+		t.Fatalf("single-output default identity mode=%q want product", identityMode)
 	}
 }

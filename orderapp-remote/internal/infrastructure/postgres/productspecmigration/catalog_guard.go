@@ -69,8 +69,8 @@ func PrepareNewProductTx(ctx context.Context, tx pgx.Tx, schema string, productI
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_bom_spec_migrations(
-			product_id,state,legacy_catalog_product,prepared_at,prepared_by,updated_at
-		) VALUES($1,'preparing',false,now(),$2,now())
+			product_id,state,legacy_catalog_product,spec_identity_mode,prepared_at,prepared_by,updated_at
+		) VALUES($1,'preparing',false,'bom_spec',now(),$2,now())
 	`, schema), productID, actor); err != nil {
 		return err
 	}

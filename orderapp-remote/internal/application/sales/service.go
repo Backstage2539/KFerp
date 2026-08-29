@@ -400,6 +400,8 @@ type ProductOption struct {
 	OrderUnit                        string              `json:"order_unit,omitempty"`
 	UnitConversionJSON               string              `json:"unit_conversion_json,omitempty"`
 	IntegerUnit                      bool                `json:"integer_unit,omitempty"`
+	SpecIdentityMode                 string              `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative             bool                `json:"bom_spec_authoritative"`
 }
 
 type BeanListVersionOption struct {

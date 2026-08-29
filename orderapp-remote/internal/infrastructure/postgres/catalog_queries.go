@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 
+	productspecmigrationapp "orderapp/internal/application/productspecmigration"
 	catalogdomain "orderapp/internal/domain/catalog"
 	salesdomain "orderapp/internal/domain/sales"
 
@@ -431,7 +431,8 @@ func FetchProductSpecIdentities(ctx context.Context, pool *pgxpool.Pool, schema 
 	rows, err := pool.Query(ctx, fmt.Sprintf(`
 		SELECT p.id,
 		       COALESCE(migration.state,'legacy'),
-		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)
+		       COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true),
+		       COALESCE(to_jsonb(migration)->>'spec_identity_mode','')
 		FROM %s.products p
 		LEFT JOIN %s.product_bom_spec_migrations migration ON migration.product_id=p.id
 	`, schema, schema))
@@ -444,14 +445,12 @@ func FetchProductSpecIdentities(ctx context.Context, pool *pgxpool.Pool, schema 
 		var id int64
 		var state string
 		var legacyCatalogProduct bool
-		if err := rows.Scan(&id, &state, &legacyCatalogProduct); err != nil {
+		var storedIdentityMode string
+		if err := rows.Scan(&id, &state, &legacyCatalogProduct, &storedIdentityMode); err != nil {
 			return nil, err
 		}
-		authoritative := strings.EqualFold(strings.TrimSpace(state), "cutover") || !legacyCatalogProduct
-		mode := "legacy_sku"
-		if authoritative {
-			mode = "bom_spec"
-		}
+		mode := productspecmigrationapp.ResolveSpecIdentityMode(storedIdentityMode, productspecmigrationapp.MigrationState(state), legacyCatalogProduct)
+		authoritative := mode == productspecmigrationapp.SpecIdentityModeBOMSpec
 		out[id] = ProductSpecIdentityOption{
 			State: state, LegacyCatalogProduct: legacyCatalogProduct,
 			BomSpecAuthoritative: authoritative, SpecIdentityMode: mode,

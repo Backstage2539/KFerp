@@ -9,10 +9,12 @@ import (
 )
 
 type ProductOption struct {
-	ID             int64               `json:"id"`
-	Name           string              `json:"name"`
-	MigrationState string              `json:"migration_state,omitempty"`
-	BOMSpecs       []ProductSpecOption `json:"bom_specs,omitempty"`
+	ID                   int64               `json:"id"`
+	Name                 string              `json:"name"`
+	MigrationState       string              `json:"migration_state,omitempty"`
+	SpecIdentityMode     string              `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative bool                `json:"bom_spec_authoritative"`
+	BOMSpecs             []ProductSpecOption `json:"bom_specs,omitempty"`
 }
 
 type ProductSpecOption struct {
@@ -26,20 +28,22 @@ type ProductSpecOption struct {
 }
 
 type FinishedInventoryRow struct {
-	ProductID      int64  `json:"product_id"`
-	Product        string `json:"product"`
-	SpecG          int64  `json:"spec_g"`
-	BomSpecID      int64  `json:"bom_spec_id,omitempty"`
-	BomVariantID   int64  `json:"bom_variant_id,omitempty"`
-	SpecKey        string `json:"spec_key,omitempty"`
-	SpecName       string `json:"spec_name,omitempty"`
-	InventoryUnit  string `json:"inventory_unit,omitempty"`
-	MigrationState string `json:"migration_state,omitempty"`
-	Warehouse      string `json:"warehouse"`
-	Units          int64  `json:"units"`
-	LooseG         int64  `json:"loose_g"`
-	UpdatedAt      string `json:"updated_at"`
-	TotalG         int64  `json:"total_g"`
+	ProductID            int64  `json:"product_id"`
+	Product              string `json:"product"`
+	SpecG                int64  `json:"spec_g"`
+	BomSpecID            int64  `json:"bom_spec_id,omitempty"`
+	BomVariantID         int64  `json:"bom_variant_id,omitempty"`
+	SpecKey              string `json:"spec_key,omitempty"`
+	SpecName             string `json:"spec_name,omitempty"`
+	InventoryUnit        string `json:"inventory_unit,omitempty"`
+	MigrationState       string `json:"migration_state,omitempty"`
+	SpecIdentityMode     string `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative bool   `json:"bom_spec_authoritative"`
+	Warehouse            string `json:"warehouse"`
+	Units                int64  `json:"units"`
+	LooseG               int64  `json:"loose_g"`
+	UpdatedAt            string `json:"updated_at"`
+	TotalG               int64  `json:"total_g"`
 }
 
 type FinishedInventoryQuery struct {

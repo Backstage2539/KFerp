@@ -11,10 +11,10 @@ import (
 )
 
 // GuardDefaultProductBOMSwitchTx must run in the same transaction that changes
-// production_bom_output_bindings. It applies only after per-product cutover.
-// Stable BOM spec identities may survive a version or default-BOM change. Only
-// specs absent from the candidate version abandon mutable business state and
-// therefore require their activity to be cleared first.
+// production_bom_output_bindings. It applies while the current product uses
+// BOM-spec identity. Stable specs may survive a version/default-BOM change;
+// specs absent from the candidate version (all specs for a single-output BOM)
+// must have no dependent mutable business state before the switch.
 func GuardDefaultProductBOMSwitchTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -34,15 +34,23 @@ func GuardDefaultProductBOMSwitchTx(
 		return err
 	}
 	var state string
+	var storedIdentityMode string
+	var legacyCatalogProduct bool
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT state FROM %s.product_bom_spec_migrations WHERE product_id=$1
+		SELECT state,
+		       COALESCE(to_jsonb(product_bom_spec_migrations)->>'spec_identity_mode',''),
+		       COALESCE((to_jsonb(product_bom_spec_migrations)->>'legacy_catalog_product')::boolean,true)
+		FROM %s.product_bom_spec_migrations WHERE product_id=$1
 		FOR UPDATE
-	`, schema), productID).Scan(&state)
-	if errors.Is(err, pgx.ErrNoRows) || state != string(productspecmigrationapp.StateCutover) {
+	`, schema), productID).Scan(&state, &storedIdentityMode, &legacyCatalogProduct)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if !productspecmigrationapp.IsBOMSpecAuthoritativeWithMode(storedIdentityMode, productspecmigrationapp.MigrationState(state), legacyCatalogProduct) {
+		return nil
 	}
 
 	var currentBOMID, currentBOMVersionID int64
@@ -107,6 +115,32 @@ func GuardDefaultProductBOMSwitchTx(
 		CandidateBOMVersionID: candidateBOMVersionID,
 		Blockers:              blockers,
 	}
+}
+
+// SetProductIdentityModeForDefaultBOMTx persists the business identity selected
+// by the candidate default BOM after GuardDefaultProductBOMSwitchTx succeeds.
+func SetProductIdentityModeForDefaultBOMTx(ctx context.Context, tx pgx.Tx, schema string, productID, candidateBOMID int64) (string, error) {
+	var specificationMode string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(specification_mode,''),'single')
+		FROM %s.production_boms
+		WHERE id=$1 AND output_type='product' AND output_product_id=$2
+		FOR SHARE
+	`, schema), candidateBOMID, productID).Scan(&specificationMode); err != nil {
+		return "", err
+	}
+	identityMode := productspecmigrationapp.SpecIdentityModeProduct
+	if specificationMode == "spec_group" {
+		identityMode = productspecmigrationapp.SpecIdentityModeBOMSpec
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom_spec_migrations(product_id,state,legacy_catalog_product,spec_identity_mode,updated_at)
+		VALUES($1,'legacy',true,$2,now())
+		ON CONFLICT(product_id) DO UPDATE SET spec_identity_mode=excluded.spec_identity_mode,updated_at=now()
+	`, schema), productID, identityMode); err != nil {
+		return "", err
+	}
+	return identityMode, nil
 }
 
 func productionBOMVersionSpecIDsTx(ctx context.Context, tx pgx.Tx, schema string, versionID int64) ([]int64, error) {
