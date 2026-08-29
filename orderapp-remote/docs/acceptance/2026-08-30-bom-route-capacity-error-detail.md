@@ -15,7 +15,9 @@
 - 详细诊断单元测试覆盖路线、工序、产能档、工位、产能档停用、工位停用、工位不适用和未选择产能档。
 - BOM 发布 API 测试确认 HTTP 400 原样返回详细诊断。
 - `go test ./... -count=1`、`scripts/verify_kferp.sh changed`、`scripts/verify_kferp.sh backend` 全部通过。
-- `develop` 合入和 development 部署证据由本次交付报告记录。
+- 功能合入并部署为 `develop@b33637fcb1600123e5addd68f7b46ee6a0e4c647`；development 预检、远端完整门禁、容器连续健康探测和外网登录页 HTTP 200 全部通过。
+- 部署后只读核验确认 `erp_orderapp` 运行正常、需求 API 返回 `PR-618-BOM-ROUTE-CAPACITY-ERROR-DETAIL`，服务器诊断源文件 SHA-256 与 `origin/develop` 一致。
+- 回滚证据：源码备份 `/opt/stacks/erp/orderapp.backup.deploy-20260830005734-b33637fcb160`；镜像 `kferp-orderapp-rollback:development-20260830005734-b33637fcb160`。
 
 ## 业务边界
 
