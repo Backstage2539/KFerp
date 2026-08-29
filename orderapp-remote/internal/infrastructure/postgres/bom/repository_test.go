@@ -804,6 +804,29 @@ func TestCreateProductionBomDefaultsToNoHiddenOverallLoss(t *testing.T) {
 	}
 }
 
+func TestProductionBomMaterialOptionsAndOutputValidationGuardDeprecatedRows(t *testing.T) {
+	repository := readRepositorySource(t)
+	listStart := strings.Index(repository, "func listProductionBomMaterialOptions")
+	listEnd := strings.Index(repository[listStart:], "\nfunc ")
+	if listStart < 0 || listEnd < 0 {
+		t.Fatal("cannot locate listProductionBomMaterialOptions")
+	}
+	listBody := repository[listStart : listStart+listEnd]
+	if !strings.Contains(listBody, "deprecated_at IS NULL") {
+		t.Fatal("production BOM material options must exclude deprecated materials")
+	}
+
+	createStart := strings.Index(repository, "func (r Repository) CreateProductionBom(ctx")
+	createEnd := strings.Index(repository[createStart:], "func (r Repository) UpdateProductionBom(ctx")
+	if createStart < 0 || createEnd < 0 {
+		t.Fatal("cannot locate CreateProductionBom")
+	}
+	createBody := repository[createStart : createStart+createEnd]
+	if !strings.Contains(createBody, "产出物料不存在或已失效") {
+		t.Fatal("stale production BOM output material must return a stable user-facing error")
+	}
+}
+
 func TestProductionBomVersionSchemaDefaultsNewRowsToFullYield(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

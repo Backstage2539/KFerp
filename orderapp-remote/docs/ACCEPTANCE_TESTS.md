@@ -2184,3 +2184,10 @@
 - [x] 价格试算返回正的完整成本和最终价；发布价格表后当前录单目录只按该发布快照提供目标商品/盒装规格，并能保存一张数量、单位、单价、BOM 规格和价格表版本一致的验收订单。
 - [x] 物料、工艺路线、BOM 草稿/发布/默认绑定、价格表发布和订单保存均可在操作日志追溯；历史已发布 BOM、历史订单和其他商品价格表不回算。
 - [x] 定向与全量 Go/Vue、Vite、`scripts/verify_kferp.sh all`、开发预检、`develop` 合入、development 部署、浏览器和 API 验收通过；`main` 与 production 未操作。
+
+## PR-617-PRODUCTION-BOM-DEPRECATED-MATERIAL-GUARD 验收清单（2026-08-30）
+
+- [ ] `GET /api/bom/materials` 只返回当前有效物料；开发环境已作废的 `MAT-000074 初晓-咖啡粉` 不再出现在生产 BOM 的产出物料或组件物料选项中，有效的 `PR616-CHUXIAO-POWDER 初晓-咖啡粉` 仍可选择。
+- [ ] 直接用已作废物料提交新建物料产出 BOM 时返回 HTTP 400 和“产出物料不存在或已失效”，响应不包含 `no rows in result set`。
+- [ ] 被拒绝请求不创建 `production_boms`、`production_bom_versions` 或 `audit_logs`；正常有效物料的创建与编辑合同不变。
+- [ ] PostgreSQL 事务测试、BOM handler API 测试、完整 Go/Vue/Vite/统一验证器和 development preflight 均通过；功能分支合入 `develop` 并只部署 development，`main` 与 production 未操作。

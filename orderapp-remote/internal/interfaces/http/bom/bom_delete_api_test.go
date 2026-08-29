@@ -38,6 +38,7 @@ type apiFakeRepo struct {
 	copiedProductionBomCommand               bomapp.CopyProductionBomCommand
 	createdProductionBom                     bomapp.ProductionBomSummary
 	createdProductionBomCommand              bomapp.CreateProductionBomCommand
+	createdProductionBomErr                  error
 	updatedProductionBom                     bomapp.ProductionBomSummary
 	updatedProductionBomCommand              bomapp.UpdateProductionBomCommand
 	createdProductionVersion                 bomapp.ProductionBomVersion
@@ -182,6 +183,9 @@ func (r *apiFakeRepo) ListProductionBomUsageByProduct(_ context.Context, product
 
 func (r *apiFakeRepo) CreateProductionBom(_ context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
 	r.createdProductionBomCommand = cmd
+	if r.createdProductionBomErr != nil {
+		return bomapp.ProductionBomSummary{}, r.createdProductionBomErr
+	}
 	if r.createdProductionBom.ID > 0 {
 		return r.createdProductionBom, nil
 	}

@@ -1676,3 +1676,9 @@
 - `DEV-616-DRIP-MULTISTAGE-BOM-CONFIG`：在 development 以普通物料/商品产出 BOM 配置 `生豆 → 烘焙熟豆半成品 → 咖啡粉 → 挂耳包 → 盒装挂耳`。烘焙、研磨、挂耳包装和盒装包装分别使用自己的默认已发布 BOM 与工艺路线；每个下游 BOM 只消费紧邻上游产出及本阶段包材，不新增挂耳专用 BOM 类型。
 - `DEV-616-DRIP-PRICE-LIST-ORDER-E2E`：盒装挂耳商品必须由对应商品 BOM 产出并选择具体盒装规格；成本试算递归到各层默认已发布 BOM 和叶子物料成本。发布只含该验收商品/规格的 development 价格表后，ERP 录单必须读取相同发布快照、规格、单位和最终价，并成功保存一张可追溯验收订单。
 - `DEV-616-DOCS-DEVELOPMENT-DELIVERY`：所有业务写入使用现有 API/服务并进入操作日志；验收查询同时核对 BOM 默认绑定、组件链、工艺路线、成本、价格表发布和订单快照。完成定向/全量验证、合入 `develop` 和 development 部署；`main` 与 production 不在本次范围。
+
+# PR-617-PRODUCTION-BOM-DEPRECATED-MATERIAL-GUARD 生产 BOM 失效物料门禁（2026-08-30）
+
+- `DEV-617-ACTIVE-MATERIAL-OPTIONS`：生产 BOM 新建、编辑和草稿工作区使用的物料选项只能返回 `deprecated_at IS NULL` 的有效物料；即使按既有 BOM 组件范围加载，也不得把已经失效的物料重新放回可选列表。
+- `DEV-617-STABLE-OUTPUT-MATERIAL-ERROR`：创建或编辑物料产出 BOM 时，旧页面或并发失效造成的过期物料身份必须在事务写入前被拒绝，并返回“产出物料不存在或已失效”；不得把 PostgreSQL 的 `no rows in result set` 暴露给用户，也不得留下 BOM 主档、版本或操作日志写入。
+- `DEV-617-DOCS-DEVELOPMENT-DELIVERY`：同步生产操作手册与验收记录，完成定向 RED/GREEN、API 错误合同、完整发布门禁，合入 `develop` 并仅部署 development；`main` 与 production 不操作。
