@@ -42,7 +42,7 @@ func (r Repository) ListFinished(ctx context.Context, query inventoryapp.Finishe
 		identitySelect = `fi.bom_spec_id,fi.bom_variant_id,
 		       COALESCE(spec.spec_key,''),
 		       COALESCE(NULLIF(variant.spec_name_snapshot,''),spec.name,''),
-		       COALESCE(NULLIF(variant.inventory_unit,''),spec.inventory_unit,''),
+		       COALESCE(NULLIF(variant.inventory_unit,''),NULLIF(spec.inventory_unit,''),NULLIF(to_jsonb(p)->'unit_rule_override_json'->>'inventory_unit',''),''),
 		       COALESCE(NULLIF(migration.state,''),'legacy'),
 		       COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END),
 		       COALESCE(NULLIF(to_jsonb(migration)->>'spec_identity_mode',''),CASE WHEN migration.state='cutover' OR COALESCE((to_jsonb(migration)->>'legacy_catalog_product')::boolean,true)=false THEN 'bom_spec' ELSE 'legacy_sku' END)='bom_spec'`
@@ -146,9 +146,12 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 	if err != nil {
 		return err
 	}
-	if cmd.BomSpecID > 0 {
+	if cmd.BomSpecID > 0 || (cmd.BomSpecID == 0 && cmd.SpecG == 0 && strings.TrimSpace(identity.InventoryUnit) != "") {
 		cmd.BomVariantID = identity.BomVariantID
 		cmd.UnitCode = identity.InventoryUnit
+	}
+	if cmd.BomSpecID == 0 && cmd.SpecG == 0 && strings.TrimSpace(identity.InventoryUnit) == "" {
+		return fmt.Errorf("direct product inventory identity is not enabled for product %d", cmd.ProductID)
 	}
 
 	before := inventorydomain.Quantity{}
@@ -164,7 +167,7 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 
 	after := inventorydomain.Quantity{Units: cmd.Units, LooseG: cmd.LooseG}
 	beforeG, afterG := int64(0), int64(0)
-	if cmd.BomSpecID == 0 {
+	if cmd.BomSpecID == 0 && cmd.SpecG > 0 {
 		beforeG, err = inventorydomain.TotalGrams(cmd.SpecG, before)
 		if err != nil {
 			return err
@@ -198,7 +201,7 @@ func (r Repository) AdjustFinished(ctx context.Context, cmd inventoryapp.AdjustF
 
 	oldValue := fmt.Sprintf("%d+%dg", before.Units, before.LooseG)
 	newValue := fmt.Sprintf("%d+%dg", after.Units, after.LooseG)
-	if cmd.BomSpecID > 0 {
+	if cmd.BomSpecID > 0 || cmd.SpecG == 0 {
 		oldValue = fmt.Sprintf("%d %s", before.Units, cmd.UnitCode)
 		newValue = fmt.Sprintf("%d %s", after.Units, cmd.UnitCode)
 	}
@@ -475,6 +478,23 @@ func (r Repository) resolveFinishedBomSpecIdentityTx(ctx context.Context, tx pgx
 		if identityMode != productspecmigrationapp.SpecIdentityModeBOMSpec {
 			if bomSpecID > 0 || explicitVariantID > 0 {
 				return finishedBomSpecIdentity{}, fmt.Errorf("BOM spec identity is not ready for product %d", productID)
+			}
+			if identityMode == productspecmigrationapp.SpecIdentityModeProduct {
+				var inventoryUnit string
+				if err := tx.QueryRow(ctx, fmt.Sprintf(`
+					SELECT COALESCE(NULLIF(to_jsonb(products)->'unit_rule_override_json'->>'inventory_unit',''),'')
+					FROM %s.products WHERE id=$1
+				`, r.schema), productID).Scan(&inventoryUnit); err != nil {
+					return finishedBomSpecIdentity{}, err
+				}
+				inventoryUnit = strings.TrimSpace(inventoryUnit)
+				if inventoryUnit == "" {
+					return finishedBomSpecIdentity{}, fmt.Errorf("direct product inventory unit is empty for product %d", productID)
+				}
+				if strings.TrimSpace(explicitUnit) != "" && !strings.EqualFold(strings.TrimSpace(explicitUnit), inventoryUnit) {
+					return finishedBomSpecIdentity{}, fmt.Errorf("direct product inventory unit mismatch for product %d", productID)
+				}
+				return finishedBomSpecIdentity{InventoryUnit: inventoryUnit}, nil
 			}
 			return finishedBomSpecIdentity{}, nil
 		}

@@ -145,6 +145,7 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 	if cmd.ProductID <= 0 {
 		return fmt.Errorf("product required")
 	}
+	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
 	if cmd.BomSpecID > 0 {
 		if cmd.SpecG != 0 {
 			return fmt.Errorf("spec_g must be zero for BOM specification")
@@ -153,12 +154,17 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 			return fmt.Errorf("loose_g is not supported for BOM specification")
 		}
 	} else if cmd.SpecG <= 0 {
-		return fmt.Errorf("spec_g or bom_spec_id required")
+		if cmd.UnitCode == "" {
+			return fmt.Errorf("spec_g, bom_spec_id or direct product unit required")
+		}
+		if cmd.LooseG != 0 {
+			return fmt.Errorf("loose_g is not supported for direct product inventory")
+		}
 	}
 	if cmd.Units < 0 || cmd.LooseG < 0 {
 		return fmt.Errorf("negative qty")
 	}
-	if cmd.BomSpecID == 0 {
+	if cmd.BomSpecID == 0 && cmd.SpecG > 0 {
 		qty, err := inventorydomain.Normalize(cmd.SpecG, inventorydomain.Quantity{Units: cmd.Units, LooseG: cmd.LooseG})
 		if err != nil {
 			return err
@@ -167,7 +173,6 @@ func (s *Service) AdjustFinished(ctx context.Context, cmd AdjustFinishedInventor
 		cmd.LooseG = qty.LooseG
 	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
-	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
 	if cmd.Operator == "" {
 		cmd.Operator = "inventory"
 	}

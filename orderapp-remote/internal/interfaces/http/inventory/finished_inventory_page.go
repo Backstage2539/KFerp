@@ -11,10 +11,12 @@ import (
 )
 
 type productAPIOption struct {
-	ID             int64                            `json:"id"`
-	Name           string                           `json:"name"`
-	MigrationState string                           `json:"migration_state,omitempty"`
-	BOMSpecs       []inventoryapp.ProductSpecOption `json:"bom_specs,omitempty"`
+	ID                   int64                            `json:"id"`
+	Name                 string                           `json:"name"`
+	MigrationState       string                           `json:"migration_state,omitempty"`
+	SpecIdentityMode     string                           `json:"spec_identity_mode,omitempty"`
+	BomSpecAuthoritative bool                             `json:"bom_spec_authoritative"`
+	BOMSpecs             []inventoryapp.ProductSpecOption `json:"bom_specs,omitempty"`
 }
 
 func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Service) {
@@ -43,7 +45,11 @@ func registerFinishedInventoryPages(e *echo.Echo, inventorySvc *inventoryapp.Ser
 		totalPages := finishedInventoryPageCount(result.Total, limit)
 		options := make([]productAPIOption, 0, len(result.Products))
 		for _, p := range result.Products {
-			options = append(options, productAPIOption{ID: p.ID, Name: p.Name, MigrationState: p.MigrationState, BOMSpecs: p.BOMSpecs})
+			options = append(options, productAPIOption{
+				ID: p.ID, Name: p.Name, MigrationState: p.MigrationState,
+				SpecIdentityMode: p.SpecIdentityMode, BomSpecAuthoritative: p.BomSpecAuthoritative,
+				BOMSpecs: p.BOMSpecs,
+			})
 		}
 		return c.JSON(http.StatusOK, map[string]any{
 			"rows":        result.Rows,
