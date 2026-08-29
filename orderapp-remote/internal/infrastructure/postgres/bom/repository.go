@@ -2775,31 +2775,12 @@ func validateProductionBomRouteStandardCostCapacity(ctx context.Context, q bomQu
 	if processRouteID <= 0 {
 		return nil
 	}
-	var missingCount int64
-	if err := q.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM %s.process_route_operations
-		WHERE route_id=$1 AND COALESCE(standard_cost_capacity_id,0)<=0
-	`, schema), processRouteID).Scan(&missingCount); err != nil {
+	issue, err := postgresinfra.FindStandardCostCapacityIssue(ctx, q, schema, processRouteID)
+	if err != nil {
 		return err
 	}
-	if missingCount > 0 {
-		return fmt.Errorf("工艺路线工序缺少标准成本产能档")
-	}
-	var invalidCount int64
-	if err := q.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM %[1]s.process_route_operations pro
-		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id AND c.status='active'
-		LEFT JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id AND w.status='active'
-		LEFT JOIN %[1]s.manufacturing_workstation_operations wo ON wo.workstation_id=w.id AND wo.operation_id=pro.operation_id
-		WHERE pro.route_id=$1
-		  AND (c.id IS NULL OR w.id IS NULL OR wo.operation_id IS NULL)
-	`, schema), processRouteID).Scan(&invalidCount); err != nil {
-		return err
-	}
-	if invalidCount > 0 {
-		return fmt.Errorf("标准成本产能档必须来自启用工位且适用当前工序")
+	if issue != nil {
+		return issue
 	}
 	return nil
 }
@@ -3047,11 +3028,15 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 	}
 	var processRouteID int64
 	var outputUnit string
+	var processRouteName string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(process_route_id,0), COALESCE(NULLIF(output_unit,''),'unit')
-		FROM %s.production_bom_versions
-		WHERE id=$1
-	`, schema), versionID).Scan(&processRouteID, &outputUnit); err != nil {
+		SELECT COALESCE(v.process_route_id,0),
+		       COALESCE(NULLIF(v.output_unit,''),'unit'),
+		       COALESCE(pr.name,'')
+		FROM %[1]s.production_bom_versions v
+		LEFT JOIN %[1]s.process_routes pr ON pr.id=v.process_route_id
+		WHERE v.id=$1
+	`, schema), versionID).Scan(&processRouteID, &outputUnit, &processRouteName); err != nil {
 		return 0, err
 	}
 	if processRouteID <= 0 {
@@ -3061,10 +3046,12 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		SELECT pro.seq,
 		       pro.operation_id,
 		       COALESCE(NULLIF(pro.operation,''), NULLIF(o.name,''), '工序') AS operation_name,
-		       COALESCE(w.id,0) AS workstation_id,
+		       COALESCE(c.workstation_id,0) AS workstation_id,
 		       COALESCE(w.name,'') AS workstation_name,
 		       COALESCE(c.id,0) AS workstation_capacity_id,
 		       COALESCE(c.name,'') AS capacity_name,
+		       COALESCE(c.status,'') AS capacity_status,
+		       COALESCE(w.status,'') AS workstation_status,
 		       COALESCE(NULLIF(w.hourly_rate,0), c.hourly_rate, 0)::float8 AS hourly_rate,
 		       COALESCE(c.standard_minutes,0)::float8 AS standard_minutes,
 		       COALESCE(c.batch_size_qty,0)::float8 AS batch_size_qty,
@@ -3075,8 +3062,8 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		       COALESCE(pro.standard_cost_capacity_id,0) AS standard_cost_capacity_id
 		FROM %[1]s.process_route_operations pro
 		LEFT JOIN %[1]s.manufacturing_operations o ON o.id=pro.operation_id
-		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id AND c.status='active'
-		LEFT JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id AND w.status='active'
+		LEFT JOIN %[1]s.manufacturing_workstation_capacities c ON c.id=pro.standard_cost_capacity_id
+		LEFT JOIN %[1]s.manufacturing_workstations w ON w.id=c.workstation_id
 		LEFT JOIN %[1]s.manufacturing_workstation_operations wo ON wo.workstation_id=w.id AND wo.operation_id=pro.operation_id
 		WHERE pro.route_id=$1
 		ORDER BY pro.seq, pro.id
@@ -3112,6 +3099,8 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		var workstationName string
 		var capacityID int64
 		var capacityName string
+		var capacityStatus string
+		var workstationStatus string
 		var hourlyRate float64
 		var standardMinutes float64
 		var batchSizeQty float64
@@ -3120,14 +3109,24 @@ func refreshProductionBomVersionOperationCostSnapshotsTx(ctx context.Context, tx
 		var pieceRate float64
 		var applicableOperationID int64
 		var standardCostCapacityID int64
-		if err := rows.Scan(&seq, &operationID, &operationName, &workstationID, &workstationName, &capacityID, &capacityName, &hourlyRate, &standardMinutes, &batchSizeQty, &batchSizeUnit, &costMethod, &pieceRate, &applicableOperationID, &standardCostCapacityID); err != nil {
+		if err := rows.Scan(&seq, &operationID, &operationName, &workstationID, &workstationName, &capacityID, &capacityName, &capacityStatus, &workstationStatus, &hourlyRate, &standardMinutes, &batchSizeQty, &batchSizeUnit, &costMethod, &pieceRate, &applicableOperationID, &standardCostCapacityID); err != nil {
 			return 0, err
 		}
-		if standardCostCapacityID <= 0 {
-			return 0, fmt.Errorf("工艺路线工序缺少标准成本产能档")
-		}
-		if capacityID <= 0 || workstationID <= 0 || applicableOperationID <= 0 {
-			return 0, fmt.Errorf("标准成本产能档必须来自启用工位且适用当前工序")
+		if standardCostCapacityID <= 0 || capacityID <= 0 || capacityStatus != "active" || workstationID <= 0 || workstationStatus != "active" || applicableOperationID <= 0 {
+			return 0, postgresinfra.StandardCostCapacityIssue{
+				RouteID:               processRouteID,
+				RouteName:             processRouteName,
+				Sequence:              seq,
+				OperationID:           operationID,
+				OperationName:         operationName,
+				CapacityID:            standardCostCapacityID,
+				CapacityName:          capacityName,
+				CapacityStatus:        capacityStatus,
+				WorkstationID:         workstationID,
+				WorkstationName:       workstationName,
+				WorkstationStatus:     workstationStatus,
+				WorkstationApplicable: applicableOperationID > 0,
+			}
 		}
 		unitCost, operationCostUnit, ok := calculateBomOperationSnapshotCost(costMethod, pieceRate, hourlyRate, standardMinutes, batchSizeQty, batchSizeUnit, outputUnit)
 		if !ok {

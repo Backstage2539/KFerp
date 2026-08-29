@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-618-BOM-ROUTE-CAPACITY-ERROR-DETAIL
+- Branch: `codex/bom-route-capacity-error-detail-20260830`
+- Owner/session: Codex / 2026-08-30
+- Status: locally verified; pending merge to `develop` and development deployment.
+- Scope: 生产 BOM 或工艺路线发布遇到失效标准成本产能档时，错误必须指出工艺路线、工序顺序与名称、产能档、工位，并区分未选择、产能档停用/不存在、工位停用/不存在、工位不适用当前工序；不再返回无法定位对象的笼统提示。
+- Verifier:
+  - RED: `go test ./internal/infrastructure/postgres -run TestStandardCostCapacityIssueError -count=1 -v` failed because `StandardCostCapacityIssue` did not exist.
+  - Unit/API: targeted helper/API/contract tests, `go test ./... -count=1`, `scripts/verify_kferp.sh changed`, and `scripts/verify_kferp.sh backend` GREEN.
+  - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
+  - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-30-bom-route-capacity-error-detail.md`.
+- Deployment: pending merge to `develop` and development deploy.
+- Last update: 2026-08-30 Asia/Shanghai
+
 ### PR-616-DRIP-MULTISTAGE-MANUFACTURING-FLOW
 - Branch: `codex/pr616-drip-multistage-flow`; follow-ups `codex/pr616-multilevel-plan-scope`, `codex/pr616-material-count-capacity`, `codex/pr616-final-acceptance`
 - Owner/session: Codex / 2026-08-29
