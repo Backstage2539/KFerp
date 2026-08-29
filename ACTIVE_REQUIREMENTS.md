@@ -23,16 +23,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Notes: requested PR-618 was already occupied on latest `origin/develop`; reserved the next free id PR-619.
 
 ### PR-618-BOM-ROUTE-CAPACITY-ERROR-DETAIL
-- Branch: `codex/bom-route-capacity-error-detail-20260830`
+- Branch: `codex/bom-route-capacity-error-detail-20260830`; follow-up `codex/pr618-final-acceptance`
 - Owner/session: Codex / 2026-08-30
-- Status: locally verified; pending merge to `develop` and development deployment.
+- Status: development-delivered; Van page acceptance pending.
 - Scope: 生产 BOM 或工艺路线发布遇到失效标准成本产能档时，错误必须指出工艺路线、工序顺序与名称、产能档、工位，并区分未选择、产能档停用/不存在、工位停用/不存在、工位不适用当前工序；不再返回无法定位对象的笼统提示。
 - Verifier:
   - RED: `go test ./internal/infrastructure/postgres -run TestStandardCostCapacityIssueError -count=1 -v` failed because `StandardCostCapacityIssue` did not exist.
   - Unit/API: targeted helper/API/contract tests, `go test ./... -count=1`, `scripts/verify_kferp.sh changed`, and `scripts/verify_kferp.sh backend` GREEN.
   - Manual: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
   - Review/acceptance: `orderapp-remote/docs/acceptance/2026-08-30-bom-route-capacity-error-detail.md`.
-- Deployment: pending merge to `develop` and development deploy.
+- Deployment: behavior merged and deployed at `develop@b33637fcb1600123e5addd68f7b46ee6a0e4c647`; external login smoke HTTP 200, container healthy, authenticated requirement API exposed PR-618, and deployed diagnostic source SHA-256 matched `origin/develop`. Source backup `/opt/stacks/erp/orderapp.backup.deploy-20260830005734-b33637fcb160`; rollback image `kferp-orderapp-rollback:development-20260830005734-b33637fcb160`. `main` and production were not operated.
 - Last update: 2026-08-30 Asia/Shanghai
 
 ### PR-617-PRODUCTION-BOM-DEPRECATED-MATERIAL-GUARD
